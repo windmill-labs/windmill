@@ -13,6 +13,7 @@ use crate::{
     },
     users::fetch_api_authed,
 };
+use axum::response::Response;
 use axum::{
     extract::{Path, Query, Request},
     response::IntoResponse,
@@ -908,9 +909,9 @@ async fn route_job(
     method: http::Method,
     headers: HeaderMap,
     request: Request,
-) -> impl IntoResponse {
+) -> Result<impl IntoResponse, Response> {
     let route_path = route_path.to_path().trim_end_matches("/");
-    let result = get_http_route_trigger(
+    let (trigger, called_path, params, authed) = get_http_route_trigger(
         route_path,
         &auth_cache,
         token.as_ref(),
@@ -918,12 +919,8 @@ async fn route_job(
         user_db.clone(),
         &method,
     )
-    .await;
-
-    let (trigger, called_path, params, authed) = match result {
-        Ok(result) => result,
-        Err(e) => return e.into_response(),
-    };
+    .await
+    .map_err(|e| e.into_response())?;
 
     let args = try_from_request_body(
         request,
@@ -934,20 +931,13 @@ async fn route_job(
         }),
         Some(trigger.wrap_body),
     )
-    .await;
+    .await
+    .map_err(|e| e.into_response())?;
 
-    let mut args = match args {
-        Ok(args) => {
-            match args
-                .to_push_args_owned(&authed, &db, &trigger.workspace_id)
-                .await
-            {
-                Ok(args) => args,
-                Err(e) => return e.into_response(),
-            }
-        }
-        Err(e) => return e.into_response(),
-    };
+    let mut args = args
+        .to_push_args_owned(&authed, &db, &trigger.workspace_id)
+        .await
+        .map_err(|e| e.into_response())?;
 
     match trigger.authentication_method {
         AuthenticationMethod::None
@@ -957,8 +947,10 @@ async fn route_job(
             let resource_path = match trigger.authentication_resource_path {
                 Some(resource_path) => resource_path,
                 None => {
-                    return Error::BadRequest("Missing authentication resource path".to_string())
-                        .into_response()
+                    return Err(Error::BadRequest(
+                        "Missing authentication resource path".to_string(),
+                    )
+                    .into_response())
                 }
             };
 
@@ -970,48 +962,40 @@ async fn route_job(
                     &resource_path,
                     &trigger.workspace_id,
                 )
-                .await;
+                .await
+                .map_err(|e| e.into_response())?;
 
-            let authentication_method = match authentication_method {
-                Ok(authentication_method) => authentication_method,
-                Err(e) => return e.into_response(),
-            };
+            let raw_payload = args
+                .extra
+                .as_ref()
+                .and_then(|extra| {
+                    extra
+                        .get("raw_string")
+                        .and_then(|value| Some(value.to_string()))
+                        .and_then(|raw_paylod| Some(serde_json::from_str::<String>(&raw_paylod)))
+                })
+                .transpose()
+                .map_err(|e| {
+                    windmill_common::error::Error::SerdeJson { location: e.to_string(), error: e }
+                        .into_response()
+                })?;
 
-            let raw_payload = serde_json::from_str::<String>(
-                &args
-                    .extra
-                    .as_ref()
-                    .unwrap()
-                    .get("raw_string")
-                    .unwrap()
-                    .to_string(),
-            );
+            let response = authentication_method
+                .authenticate_http_request(&headers, raw_payload.as_ref())
+                .map_err(|e| e.into_response())?;
 
-            let raw_payload = match raw_payload {
-                Ok(raw_payload) => raw_payload,
-                Err(e) => {
-                    return windmill_common::error::Error::SerdeJson {
-                        location: e.to_string(),
-                        error: e,
-                    }
-                    .into_response();
-                }
-            };
-
-            match authentication_method.authenticate_http_request(&headers, &raw_payload) {
-                Ok(Some(response)) => return response,
-                Err(e) => return e.into_response(),
-                _ => {}
+            if let Some(response) = response {
+                return Ok(response);
             }
         }
     }
 
     #[cfg(not(feature = "parquet"))]
     if trigger.static_asset_config.is_some() {
-        return error::Error::internal_err(
+        return Err(error::Error::internal_err(
             "Static asset configuration is not supported in this build".to_string(),
         )
-        .into_response();
+        .into_response());
     }
 
     #[cfg(feature = "parquet")]
@@ -1113,7 +1097,7 @@ async fn route_job(
             Ok((status, headers, body_stream)) => {
                 return (status, headers, body_stream).into_response()
             }
-            Err(e) => return e.into_response(),
+            Err(e) => return Err(e.into_response()),
         }
     }
 
@@ -1192,5 +1176,5 @@ async fn route_job(
         }
     };
 
-    response
+    Ok(response)
 }

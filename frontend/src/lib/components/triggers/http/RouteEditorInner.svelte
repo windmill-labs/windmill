@@ -173,12 +173,17 @@
 		route_path = s.route_path
 		http_method = s.http_method ?? 'post'
 		is_async = s.is_async
-		authentication_method = s.authentication_method
 		workspaced_route = s.workspaced_route
 		wrap_body = s.wrap_body
 		raw_string = s.raw_string
 		authentication_resource_path = s.authentication_resource_path ?? ''
-
+		if (s.authentication_method === 'custom_script') {
+			authentication_method = 'signature'
+			signature_options_type = 'custom_script'
+		}
+		else {
+			authentication_method = s.authentication_method
+		}
 		if (!isCloudHosted()) {
 			static_asset_config = s.static_asset_config
 			s3FileUploadRawMode = !!static_asset_config

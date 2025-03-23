@@ -1,17 +1,16 @@
-use std::{borrow::Cow, collections::HashMap};
-
 use axum::response::{IntoResponse, Response};
 use base64::{
     prelude::{BASE64_STANDARD, BASE64_URL_SAFE},
     Engine,
 };
 use hmac::{Hmac, Mac};
-use http::{HeaderMap, HeaderValue, StatusCode};
+use http::{header, HeaderMap, HeaderValue, StatusCode};
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use sha1::Sha1;
 use sha2::{Sha256, Sha512};
+use std::{borrow::Cow, collections::HashMap};
 
 pub type HmacSha256 = Hmac<Sha256>;
 pub type HmacSha512 = Hmac<Sha512>;
@@ -27,7 +26,7 @@ mod github {
             _: &'header HeaderMap,
             _: &SignatureConfigData,
             _: &str,
-        ) -> Result<Option<Response>, WebhookError> {
+        ) -> Result<Option<Response>, AuthenticationError> {
             Ok(None)
         }
 
@@ -35,48 +34,18 @@ mod github {
             &self,
             headers: &'header HeaderMap,
             raw_payload: &'payload str,
-        ) -> Result<SignatureAuthenticationData<'payload, 'header, 'prefix>, WebhookError> {
+        ) -> Result<SignatureAuthenticationData<'payload, 'header, 'prefix>, AuthenticationError>
+        {
             let github_secret_header = headers.try_get_webhook_header("X-Hub-Signature-256")?;
 
             let authentication_data = SignatureAuthenticationData::new(
                 Cow::Borrowed(raw_payload),
                 github_secret_header,
-                Some("sha256"),
+                Some("sha256="),
                 SignatureAuthenticationDetails::new(HmacAlgorithm::Sha256, Encoding::Hex),
             );
 
             Ok(authentication_data)
-        }
-    }
-}
-
-mod shopify {
-    use super::*;
-
-    pub struct Shopify;
-
-    impl WebhookHandler for Shopify {
-        fn handle_challenge_request<'header>(
-            &self,
-            _: &'header HeaderMap,
-            _: &SignatureConfigData,
-            _: &str,
-        ) -> Result<Option<Response>, WebhookError> {
-            Ok(None)
-        }
-
-        fn get_hmac_authentication_data<'payload, 'header, 'prefix>(
-            &self,
-            headers: &'header HeaderMap,
-            raw_payload: &'payload str,
-        ) -> Result<SignatureAuthenticationData<'payload, 'header, 'prefix>, WebhookError> {
-            let shopify_secret_header = headers.try_get_webhook_header("X-Shopify-Hmac-Sha256")?;
-            Ok(SignatureAuthenticationData::new(
-                Cow::Borrowed(raw_payload),
-                shopify_secret_header,
-                None,
-                SignatureAuthenticationDetails::new(HmacAlgorithm::Sha256, Encoding::Base64),
-            ))
         }
     }
 }
@@ -91,7 +60,7 @@ mod slack {
             _: &'header HeaderMap,
             _: &SignatureConfigData,
             _: &str,
-        ) -> Result<Option<Response>, WebhookError> {
+        ) -> Result<Option<Response>, AuthenticationError> {
             Ok(None)
         }
 
@@ -99,7 +68,8 @@ mod slack {
             &self,
             headers: &'header HeaderMap,
             raw_payload: &'payload str,
-        ) -> Result<SignatureAuthenticationData<'payload, 'header, 'prefix>, WebhookError> {
+        ) -> Result<SignatureAuthenticationData<'payload, 'header, 'prefix>, AuthenticationError>
+        {
             let slack_secret_signature = headers.try_get_webhook_header("X-Slack-Signature")?;
             let slack_timestamp_header =
                 headers.try_get_webhook_header("X-Slack-Request-Timestamp")?;
@@ -126,7 +96,7 @@ mod stripe {
             _: &'header HeaderMap,
             _: &SignatureConfigData,
             _: &str,
-        ) -> Result<Option<Response>, WebhookError> {
+        ) -> Result<Option<Response>, AuthenticationError> {
             Ok(None)
         }
 
@@ -134,17 +104,18 @@ mod stripe {
             &self,
             headers: &'header HeaderMap,
             raw_payload: &'payload str,
-        ) -> Result<SignatureAuthenticationData<'payload, 'header, 'prefix>, WebhookError> {
+        ) -> Result<SignatureAuthenticationData<'payload, 'header, 'prefix>, AuthenticationError>
+        {
             let stripe_signature_header = headers.try_get_webhook_header("STRIPE-SIGNATURE")?;
 
             let stripe_signature = parse_signature(stripe_signature_header, (",", "="));
 
             let timestamp = *stripe_signature
                 .get("t")
-                .ok_or(WebhookError::InvalidTimestamp)?;
+                .ok_or(AuthenticationError::InvalidTimestamp)?;
             let v1 = *stripe_signature
                 .get("v1")
-                .ok_or(WebhookError::InvalidSignature)?;
+                .ok_or(AuthenticationError::InvalidSignature)?;
 
             let signed_payload = format!("{}.{}", timestamp, raw_payload);
 
@@ -169,7 +140,7 @@ mod tiktok {
             _: &'header HeaderMap,
             _: &SignatureConfigData,
             _: &str,
-        ) -> Result<Option<Response>, WebhookError> {
+        ) -> Result<Option<Response>, AuthenticationError> {
             Ok(None)
         }
 
@@ -177,17 +148,18 @@ mod tiktok {
             &self,
             headers: &'header HeaderMap,
             raw_payload: &'payload str,
-        ) -> Result<SignatureAuthenticationData<'payload, 'header, 'prefix>, WebhookError> {
+        ) -> Result<SignatureAuthenticationData<'payload, 'header, 'prefix>, AuthenticationError>
+        {
             let tiktok_secret_signature = headers.try_get_webhook_header("TikTok-Signature")?;
 
             let stripe_signature = parse_signature(tiktok_secret_signature, (",", "="));
 
             let timestamp = *stripe_signature
                 .get("t")
-                .ok_or(WebhookError::InvalidTimestamp)?;
+                .ok_or(AuthenticationError::InvalidTimestamp)?;
             let s = *stripe_signature
                 .get("s")
-                .ok_or(WebhookError::InvalidSignature)?;
+                .ok_or(AuthenticationError::InvalidSignature)?;
 
             let signed_payload = format!("{}.{}", timestamp, raw_payload);
 
@@ -219,11 +191,12 @@ mod twitch {
             &self,
             headers: &'header HeaderMap,
             raw_payload: &'payload str,
-        ) -> Result<SignatureAuthenticationData<'payload, 'header, 'prefix>, WebhookError> {
+        ) -> Result<SignatureAuthenticationData<'payload, 'header, 'prefix>, AuthenticationError>
+        {
             let twitch_secret_signature =
                 headers.try_get_webhook_header("Twitch-Eventsub-Message-Signature")?;
             let twitch_message_id_header =
-                headers.try_get_webhook_header("Twitch-Eventsub-Message-Id header")?;
+                headers.try_get_webhook_header("Twitch-Eventsub-Message-Id")?;
             let twitch_timestamp_header =
                 headers.try_get_webhook_header("Twitch-Eventsub-Message-Timestamp")?;
 
@@ -245,7 +218,7 @@ mod twitch {
             headers: &'header HeaderMap,
             signature_config_data: &SignatureConfigData,
             raw_payload: &str,
-        ) -> Result<Option<Response>, WebhookError> {
+        ) -> Result<Option<Response>, AuthenticationError> {
             let authentication_data = self.get_hmac_authentication_data(headers, raw_payload)?;
             verify_hmac_signature(authentication_data, &signature_config_data.secret_key)?;
 
@@ -257,7 +230,10 @@ mod twitch {
             }
             let twitch_crc_body =
                 serde_json::from_str::<TwitchCrcBody>(raw_payload).map_err(|e| {
-                    WebhookError::InvalidChallengeResponse(format!("Twitch :{}", e.to_string()))
+                    AuthenticationError::InvalidChallengeResponse(format!(
+                        "Twitch :{}",
+                        e.to_string()
+                    ))
                 })?;
 
             let response = (
@@ -298,7 +274,7 @@ mod zoom {
             _: &'header HeaderMap,
             signature_config_data: &SignatureConfigData,
             raw_payload: &str,
-        ) -> Result<Option<Response>, WebhookError> {
+        ) -> Result<Option<Response>, AuthenticationError> {
             let Ok(zoom_request_body) = serde_json::from_str::<ZoomChallengeResponse>(raw_payload)
             else {
                 return Ok(None);
@@ -331,7 +307,8 @@ mod zoom {
             &self,
             headers: &'header HeaderMap,
             raw_payload: &'payload str,
-        ) -> Result<SignatureAuthenticationData<'payload, 'header, 'prefix>, WebhookError> {
+        ) -> Result<SignatureAuthenticationData<'payload, 'header, 'prefix>, AuthenticationError>
+        {
             let zoom_signature_header = headers.try_get_webhook_header("x-zm-signature")?;
             let zoom_timestamp_header = headers.try_get_webhook_header("x-zm-request-timestamp")?;
 
@@ -349,13 +326,13 @@ mod zoom {
 
 use constant_time_eq::constant_time_eq;
 use github::Github;
-use shopify::Shopify;
 use slack::Slack;
 use stripe::Stripe;
 use tiktok::TikTok;
 use twitch::Twitch;
 use zoom::Zoom;
 
+#[derive(Debug)]
 pub struct SignatureAuthenticationDetails {
     pub algorithm_to_use: HmacAlgorithm,
     pub header_key_encoding: Encoding,
@@ -388,6 +365,7 @@ fn parse_signature<'header>(
     headers
 }
 
+#[derive(Debug)]
 pub struct SignatureAuthenticationData<'payload, 'header, 'prefix> {
     pub signed_payload: Cow<'payload, str>,
     pub header_key_value: &'header str,
@@ -412,16 +390,17 @@ pub trait WebhookHandler {
         headers: &'header HeaderMap,
         signature_config_data: &SignatureConfigData,
         raw_payload: &str,
-    ) -> Result<Option<Response>, WebhookError>;
+    ) -> Result<Option<Response>, AuthenticationError>;
 
     fn get_hmac_authentication_data<'payload, 'header, 'prefix>(
         &self,
         headers: &'header HeaderMap,
         raw_payload: &'payload str,
-    ) -> Result<SignatureAuthenticationData<'payload, 'header, 'prefix>, WebhookError>;
+    ) -> Result<SignatureAuthenticationData<'payload, 'header, 'prefix>, AuthenticationError>;
 }
 
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
 pub enum HmacAlgorithm {
     Sha1,
     Sha256,
@@ -429,6 +408,7 @@ pub enum HmacAlgorithm {
 }
 
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
 pub enum Encoding {
     Base64,
     Base64Uri,
@@ -442,37 +422,33 @@ pub struct SignatureAuthenticationMethod {
     signature_prefix: Option<String>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
-pub struct SignatureConfigData {
-    secret_key: String,
+pub struct SignatureConfigData<'config> {
+    secret_key: &'config str,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct SignatureAuthentication {
     signature_providers: WebhookType,
-    #[serde(flatten)]
-    signature_config_data: SignatureConfigData,
-    config: Option<SignatureAuthenticationMethod>,
+    secret_key: String,
+    authentication_config: Option<SignatureAuthenticationMethod>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct BasicAuthAuthentication {
     pub username: String,
     pub password: String,
-    pub custom_header_name: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ApiKeyAuthentication {
     api_key_header: String,
-    api_key: String,
+    api_key_secret: String,
 }
 
 #[derive(Debug, Eq, PartialEq, Hash, Clone, Copy, Serialize, Deserialize)]
 #[non_exhaustive]
 pub enum WebhookType {
     Github,
-    Shopify,
     Slack,
     Stripe,
     TikTok,
@@ -485,7 +461,6 @@ impl WebhookType {
     pub fn get_webhook_handler(&self) -> Option<&'static dyn WebhookHandler> {
         let handler: &'static dyn WebhookHandler = match *self {
             WebhookType::Github => &Github,
-            WebhookType::Shopify => &Shopify,
             WebhookType::Slack => &Slack,
             WebhookType::Stripe => &Stripe,
             WebhookType::TikTok => &TikTok,
@@ -501,19 +476,19 @@ trait TryGetWebhookHeader {
     fn try_get_webhook_header<'header>(
         &'header self,
         header_name: &str,
-    ) -> Result<&'header str, WebhookError>;
+    ) -> Result<&'header str, AuthenticationError>;
 }
 
 impl TryGetWebhookHeader for HeaderMap<HeaderValue> {
     fn try_get_webhook_header<'header>(
         &'header self,
         header_name: &str,
-    ) -> Result<&'header str, WebhookError> {
+    ) -> Result<&'header str, AuthenticationError> {
         let Some(signature_header) = self.get(header_name) else {
-            return Err(WebhookError::MissingHeader(header_name.to_string()));
+            return Err(AuthenticationError::MissingHeader(header_name.to_string()));
         };
         let Some(signature_header) = signature_header.to_str().ok() else {
-            return Err(WebhookError::InvalidHeader(header_name.to_string()));
+            return Err(AuthenticationError::InvalidHeader(header_name.to_string()));
         };
 
         Ok(signature_header)
@@ -554,7 +529,7 @@ pub fn encode_hmac_signature(encoding: Encoding, hmac_signature: &[u8]) -> Strin
 pub fn verify_hmac_signature(
     authentication_data: SignatureAuthenticationData,
     webhook_signing_secret: &str,
-) -> Result<(), WebhookError> {
+) -> Result<(), AuthenticationError> {
     let hmac_signature = calculate_hmac_signature(
         authentication_data.config.algorithm_to_use,
         &webhook_signing_secret,
@@ -577,13 +552,14 @@ pub fn verify_hmac_signature(
         final_expected_signature.as_bytes(),
         authentication_data.header_key_value.as_bytes(),
     ) {
-        return Err(WebhookError::InvalidSignature);
+        return Err(AuthenticationError::InvalidSignature);
     }
 
     Ok(())
 }
 
 #[derive(Debug, Serialize, Deserialize)]
+#[serde(untagged)]
 pub enum AuthenticationMethod {
     Signature(SignatureAuthentication),
     BasicAuth(BasicAuthAuthentication),
@@ -594,23 +570,20 @@ impl AuthenticationMethod {
     pub fn authenticate_http_request(
         &self,
         headers: &HeaderMap,
-        raw_payload: &str,
-    ) -> Result<Option<Response>, WebhookError> {
+        raw_payload: Option<&String>,
+    ) -> Result<Option<Response>, AuthenticationError> {
         match self {
             AuthenticationMethod::Signature(SignatureAuthentication {
-                signature_config_data,
-                config,
+                secret_key,
+                authentication_config,
                 signature_providers,
             }) => {
+                let raw_payload = raw_payload.unwrap();
+                let config_data = SignatureConfigData { secret_key: &secret_key };
                 let handler = signature_providers.get_webhook_handler();
-
                 let challenge_response = handler
                     .map(|handler| {
-                        handler.handle_challenge_request(
-                            headers,
-                            signature_config_data,
-                            raw_payload,
-                        )
+                        handler.handle_challenge_request(headers, &config_data, raw_payload)
                     })
                     .transpose()?
                     .flatten();
@@ -622,72 +595,65 @@ impl AuthenticationMethod {
                 let authentication_data = match handler {
                     Some(handler) => handler.get_hmac_authentication_data(headers, raw_payload)?,
                     None => {
-                        let config = config.as_ref().ok_or(WebhookError::InvalidCustomConfig)?;
-                        let signature_header_value =
-                            headers.try_get_webhook_header(&config.signature_header_name)?;
+                        let authentication_config = authentication_config
+                            .as_ref()
+                            .ok_or(AuthenticationError::InvalidCustomConfig)?;
+                        let signature_header_value = headers
+                            .try_get_webhook_header(&authentication_config.signature_header_name)?;
                         SignatureAuthenticationData::new(
                             Cow::Borrowed(raw_payload),
                             signature_header_value,
-                            config.signature_prefix.as_deref(),
-                            SignatureAuthenticationDetails::new(config.algorithm, config.encoding),
+                            authentication_config.signature_prefix.as_deref(),
+                            SignatureAuthenticationDetails::new(
+                                authentication_config.algorithm,
+                                authentication_config.encoding,
+                            ),
                         )
                     }
                 };
 
-                verify_hmac_signature(authentication_data, &signature_config_data.secret_key)?;
+                verify_hmac_signature(authentication_data, &secret_key)?;
             }
-            AuthenticationMethod::ApiKey(ApiKeyAuthentication { api_key_header, api_key }) => {
+            AuthenticationMethod::ApiKey(ApiKeyAuthentication {
+                api_key_header,
+                api_key_secret,
+            }) => {
                 let api_key_to_cmp = headers.try_get_webhook_header(&api_key_header)?;
-                if api_key_to_cmp != api_key {
-                    return Err(WebhookError::InvalidApiKey);
+                if api_key_to_cmp != api_key_secret {
+                    return Err(AuthenticationError::InvalidApiKey);
                 }
             }
-            AuthenticationMethod::BasicAuth(BasicAuthAuthentication {
-                username,
-                password,
-                custom_header_name,
-            }) => {
-                let mut credentials_store = headers
-                    .try_get_webhook_header(
-                        custom_header_name.as_deref().unwrap_or("Authorization"),
-                    )?
-                    .split(' ');
+            AuthenticationMethod::BasicAuth(BasicAuthAuthentication { username, password }) => {
+                let mut credentials_store =
+                    headers.try_get_webhook_header("Authorization")?.split(' ');
 
                 let _ = credentials_store
                     .next()
                     .filter(|r#type| *r#type == "Basic")
-                    .ok_or(WebhookError::InvalidAuthHeader(
-                        "missing `Basic` type".to_string(),
-                    ))?;
+                    .ok_or(AuthenticationError::UnauthorizedBasicHttpAuth)?;
 
-                let credentials_as_base64 = credentials_store.next().ok_or(
-                    WebhookError::InvalidHeader("missing credentials".to_string()),
-                )?;
+                let credentials_as_base64 = credentials_store
+                    .next()
+                    .ok_or(AuthenticationError::UnauthorizedBasicHttpAuth)?;
 
                 let credentials_from_base64_as_bytes = BASE64_STANDARD
                     .decode(credentials_as_base64.as_bytes())
-                    .map_err(|_| {
-                        WebhookError::InvalidAuthHeader(
-                            "invalid encoding for username:password expected base64 encoding"
-                                .to_string(),
-                        )
-                    })?;
+                    .map_err(|_| AuthenticationError::UnauthorizedBasicHttpAuth)?;
 
                 let credentials_separated_with_colon =
-                    String::from_utf8_lossy(&credentials_from_base64_as_bytes);
+                    String::from_utf8(credentials_from_base64_as_bytes)
+                        .map_err(|_| AuthenticationError::UnauthorizedBasicHttpAuth)?;
 
                 let credentials = credentials_separated_with_colon.split(':').collect_vec();
 
                 if credentials.len() != 2 {
-                    return Err(WebhookError::InvalidAuthHeader("basic auth format expected: `Basic username:password` (with username:password encoded in base64)".to_string()));
+                    return Err(AuthenticationError::UnauthorizedBasicHttpAuth);
                 }
 
                 if credentials.get(0).unwrap() != username
                     && credentials.get(1).unwrap() != password
                 {
-                    return Err(WebhookError::InvalidAuthHeader(
-                        "wrong credentials".to_string(),
-                    ));
+                    return Err(AuthenticationError::UnauthorizedBasicHttpAuth);
                 }
             }
         }
@@ -698,14 +664,14 @@ impl AuthenticationMethod {
 
 #[derive(thiserror::Error, Debug)]
 #[allow(unused)]
-pub enum WebhookError {
+pub enum AuthenticationError {
     #[error("failed to parse timestamp")]
     InvalidTimestamp,
 
     #[error("invalid secret")]
     InvalidSecret(#[from] base64::DecodeError),
 
-    #[error("invalid header {0}")]
+    #[error("invalid header `{0}`")]
     InvalidHeader(String),
 
     #[error("signature timestamp too old")]
@@ -734,27 +700,39 @@ pub enum WebhookError {
 
     #[error("invalid challenge response: {0}")]
     InvalidChallengeResponse(String),
+
+    #[error("")]
+    UnauthorizedBasicHttpAuth,
 }
 
-impl IntoResponse for WebhookError {
+impl IntoResponse for AuthenticationError {
     fn into_response(self) -> Response {
         let (status, error_message) = match &self {
-            WebhookError::InvalidTimestamp
-            | WebhookError::InvalidPayload
-            | WebhookError::InvalidHeader(_)
-            | WebhookError::MissingHeader(_)
-            | WebhookError::TimestampTooOldError
-            | WebhookError::FutureTimestampError
-            | WebhookError::InvalidCustomConfig
-            | WebhookError::InvalidChallengeResponse(_) => {
+            AuthenticationError::InvalidTimestamp
+            | AuthenticationError::InvalidPayload
+            | AuthenticationError::InvalidHeader(_)
+            | AuthenticationError::MissingHeader(_)
+            | AuthenticationError::TimestampTooOldError
+            | AuthenticationError::FutureTimestampError
+            | AuthenticationError::InvalidCustomConfig
+            | AuthenticationError::InvalidChallengeResponse(_) => {
                 (StatusCode::BAD_REQUEST, self.to_string())
             }
 
-            WebhookError::InvalidSecret(_)
-            | WebhookError::InvalidSignature
-            | WebhookError::InvalidAuthHeader(_) => (StatusCode::UNAUTHORIZED, self.to_string()),
-
-            WebhookError::InvalidApiKey => (StatusCode::FORBIDDEN, self.to_string()),
+            AuthenticationError::InvalidSecret(_)
+            | AuthenticationError::InvalidSignature
+            | AuthenticationError::InvalidAuthHeader(_) => {
+                (StatusCode::UNAUTHORIZED, self.to_string())
+            }
+            AuthenticationError::UnauthorizedBasicHttpAuth => {
+                return (
+                    StatusCode::UNAUTHORIZED,
+                    [(header::WWW_AUTHENTICATE, r#"Basic realm="Restricted Area""#)],
+                    "Unauthorized",
+                )
+                    .into_response()
+            }
+            AuthenticationError::InvalidApiKey => (StatusCode::FORBIDDEN, self.to_string()),
         };
 
         let body = json!({ "error": error_message });
