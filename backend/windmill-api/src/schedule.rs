@@ -57,6 +57,7 @@ pub struct NewSchedule {
     pub schedule: String,
     pub timezone: String,
     pub summary: Option<String>,
+    pub description: Option<String>,
     pub no_flow_overlap: Option<bool>,
     pub script_path: String,
     pub is_flow: bool,
@@ -160,40 +161,54 @@ async fn create_schedule(
     check_flow_conflict(&mut tx, &w_id, &ns.path, ns.is_flow, &ns.script_path).await?;
 
     let schedule = sqlx::query_as::<_, Schedule>(
-        "INSERT INTO schedule (workspace_id, path, schedule, timezone, edited_by, script_path, \
-            is_flow, args, enabled, email, on_failure, on_failure_times, on_failure_exact, \
-            on_failure_extra_args, on_recovery, on_recovery_times, on_recovery_extra_args, \
-            on_success, on_success_extra_args, \
-            ws_error_handler_muted, retry, summary, no_flow_overlap, tag, paused_until, cron_version \
-        ) VALUES ( \
-            $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26 \
-        ) RETURNING *")
-        .bind(&w_id)
-        .bind(&ns.path)
-        .bind(&ns.schedule)
-        .bind(&ns.timezone)
-        .bind(&authed.username)
-        .bind(&ns.script_path)
-        .bind(&ns.is_flow)
-        .bind(&ns.args)
-        .bind(&ns.enabled.unwrap_or(false))
-        .bind(&authed.email)
-        .bind(&ns.on_failure)
-        .bind(&ns.on_failure_times)
-        .bind(&ns.on_failure_exact)
-        .bind(&ns.on_failure_extra_args)
-        .bind(&ns.on_recovery)
-        .bind(&ns.on_recovery_times)
-        .bind(&ns.on_recovery_extra_args)
-        .bind(&ns.on_success)
-        .bind(&ns.on_success_extra_args)
-        .bind(&ns.ws_error_handler_muted.unwrap_or(false))
-        .bind(&ns.retry)
-        .bind(&ns.summary)
-        .bind(&ns.no_flow_overlap.unwrap_or(false))
-        .bind(&ns.tag)
-        .bind(&ns.paused_until)
-        .bind(&ns.cron_version.unwrap_or("v2".to_string()))
+        r#"
+        INSERT INTO schedule (
+            workspace_id, path, schedule, timezone, edited_by, script_path,
+            is_flow, args, enabled, email,
+            on_failure, on_failure_times, on_failure_exact, on_failure_extra_args,
+            on_recovery, on_recovery_times, on_recovery_extra_args,
+            on_success, on_success_extra_args,
+            ws_error_handler_muted, retry, summary, no_flow_overlap,
+            tag, paused_until, cron_version, description
+        ) VALUES (
+            $1, $2, $3, $4, $5, $6,
+            $7, $8, $9, $10,
+            $11, $12, $13, $14,
+            $15, $16, $17,
+            $18, $19,
+            $20, $21, $22, $23,
+            $24, $25, $26, $27
+        )
+        RETURNING *
+        "#,
+    )
+    .bind(&w_id)
+    .bind(&ns.path)
+    .bind(&ns.schedule)
+    .bind(&ns.timezone)
+    .bind(&authed.username)
+    .bind(&ns.script_path)
+    .bind(&ns.is_flow)
+    .bind(&ns.args)
+    .bind(&ns.enabled.unwrap_or(false))
+    .bind(&authed.email)
+    .bind(&ns.on_failure)
+    .bind(&ns.on_failure_times)
+    .bind(&ns.on_failure_exact)
+    .bind(&ns.on_failure_extra_args)
+    .bind(&ns.on_recovery)
+    .bind(&ns.on_recovery_times)
+    .bind(&ns.on_recovery_extra_args)
+    .bind(&ns.on_success)
+    .bind(&ns.on_success_extra_args)
+    .bind(&ns.ws_error_handler_muted.unwrap_or(false))
+    .bind(&ns.retry)
+    .bind(&ns.summary)
+    .bind(&ns.no_flow_overlap.unwrap_or(false))
+    .bind(&ns.tag)
+    .bind(&ns.paused_until)
+    .bind(&ns.cron_version.unwrap_or("v2".to_string()))
+    .bind(&ns.description)
     .fetch_one(&mut *tx)
     .await
     .map_err(|e| Error::internal_err(format!("inserting schedule in {w_id}: {e:#}")))?;
@@ -253,33 +268,56 @@ async fn edit_schedule(
 
     clear_schedule(&mut tx, path, &w_id).await?;
     let schedule = sqlx::query_as::<_, Schedule>(
-        "UPDATE schedule SET schedule = $1, timezone = $2, args = $3, on_failure = $4, on_failure_times = $5, \
-            on_failure_exact = $6, on_failure_extra_args = $7, on_recovery = $8, on_recovery_times = $9, \
-            on_recovery_extra_args = $10, on_success = $11, on_success_extra_args = $12, \
-            ws_error_handler_muted = $13, retry = $14, summary = $15, \
-            no_flow_overlap = $16, tag = $17, paused_until = $18, cron_version = COALESCE($21, cron_version) \
-        WHERE path = $19 AND workspace_id = $20 RETURNING *")
-        .bind(&es.schedule)
-        .bind(&es.timezone)
-        .bind(&es.args)
-        .bind(&es.on_failure)
-        .bind(&es.on_failure_times)
-        .bind(&es.on_failure_exact)
-        .bind(&es.on_failure_extra_args)
-        .bind(&es.on_recovery)
-        .bind(&es.on_recovery_times)
-        .bind(&es.on_recovery_extra_args)
-        .bind(&es.on_success)
-        .bind(&es.on_success_extra_args)
-        .bind(&es.ws_error_handler_muted.unwrap_or(false))
-        .bind(&es.retry)
-        .bind(&es.summary)
-        .bind(&es.no_flow_overlap.unwrap_or(false))
-        .bind(&es.tag)
-        .bind(&es.paused_until)
-        .bind(&path)
-        .bind(&w_id)
-        .bind(&es.cron_version)
+        r#"
+        UPDATE schedule SET
+            schedule                = $1,
+            timezone                = $2,
+            args                    = $3,
+            on_failure              = $4,
+            on_failure_times        = $5,
+            on_failure_exact        = $6,
+            on_failure_extra_args   = $7,
+            on_recovery             = $8,
+            on_recovery_times       = $9,
+            on_recovery_extra_args  = $10,
+            on_success              = $11,
+            on_success_extra_args   = $12,
+            ws_error_handler_muted  = $13,
+            retry                   = $14,
+            summary                 = $15,
+            no_flow_overlap         = $16,
+            tag                     = $17,
+            paused_until            = $18,
+            path                    = $19,
+            workspace_id            = $20,
+            cron_version            = COALESCE($21, cron_version),
+            description             = $22
+        WHERE path = $19 AND workspace_id = $20
+        RETURNING *
+        "#,
+    )
+    .bind(&es.schedule)
+    .bind(&es.timezone)
+    .bind(&es.args)
+    .bind(&es.on_failure)
+    .bind(&es.on_failure_times)
+    .bind(&es.on_failure_exact)
+    .bind(&es.on_failure_extra_args)
+    .bind(&es.on_recovery)
+    .bind(&es.on_recovery_times)
+    .bind(&es.on_recovery_extra_args)
+    .bind(&es.on_success)
+    .bind(&es.on_success_extra_args)
+    .bind(&es.ws_error_handler_muted.unwrap_or(false))
+    .bind(&es.retry)
+    .bind(&es.summary)
+    .bind(&es.no_flow_overlap.unwrap_or(false))
+    .bind(&es.tag)
+    .bind(&es.paused_until)
+    .bind(&path)
+    .bind(&w_id)
+    .bind(&es.cron_version)
+    .bind(&es.description)
     .fetch_one(&mut *tx)
     .await
     .map_err(|e| Error::internal_err(format!("updating schedule in {w_id}: {e:#}")))?;
@@ -352,7 +390,19 @@ async fn list_schedule(
     let mut tx = user_db.begin(&authed).await?;
     let (per_page, offset) = paginate(Pagination { per_page: lsq.per_page, page: lsq.page });
     let mut sqlb = SqlBuilder::select_from("schedule")
-        .field("workspace_id, path, edited_by, edited_at, schedule, timezone, enabled, script_path, is_flow, summary, extra_perms")
+        .fields(&[
+            "workspace_id",
+            "path",
+            "edited_by",
+            "edited_at",
+            "schedule",
+            "timezone",
+            "enabled",
+            "script_path",
+            "is_flow",
+            "summary",
+            "extra_perms",
+        ])
         .order_by("edited_at", true)
         .and_where("workspace_id = ?".bind(&w_id))
         .offset(offset)
@@ -819,6 +869,7 @@ pub struct EditSchedule {
     pub timezone: String,
     pub args: Option<serde_json::Value>,
     pub summary: Option<String>,
+    pub description: Option<String>,
     pub on_failure: Option<String>,
     pub on_failure_times: Option<i32>,
     pub on_failure_exact: Option<bool>,
