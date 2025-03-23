@@ -2618,6 +2618,8 @@ paths:
                     type: boolean
                   mqtt_used:
                     type: boolean
+                  gcp_used:
+                    type: boolean
                   sqs_used:
                     type: boolean
                 required:
@@ -2627,6 +2629,7 @@ paths:
                   - nats_used
                   - postgres_used
                   - mqtt_used
+                  - gcp_used
                   - sqs_used
   /w/{workspace}/users/list:
     get:
@@ -9095,6 +9098,195 @@ paths:
               schema:
                 type: string
 
+  /w/{workspace}/gcp_triggers/create:
+    post:
+      summary: create gcp trigger
+      operationId: createGcpTrigger
+      tags:
+        - gcp_trigger
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        description: new gcp trigger
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/NewGcpTrigger"
+      responses:
+        "201":
+          description: gcp trigger created
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/gcp_triggers/update/{path}:
+    post:
+      summary: update gcp trigger
+      operationId: updateGcpTrigger
+      tags:
+        - gcp_trigger
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+      requestBody:
+        description: updated trigger
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EditGcpTrigger"
+      responses:
+        "200":
+          description: gcp trigger updated
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/gcp_triggers/delete/{path}:
+    delete:
+      summary: delete gcp trigger
+      operationId: deleteGcpTrigger
+      tags:
+        - gcp_trigger
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+      responses:
+        "200":
+          description: gcp trigger deleted
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/gcp_triggers/get/{path}:
+    get:
+      summary: get gcp trigger
+      operationId: getGcpTrigger
+      tags:
+        - gcp_trigger
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+      responses:
+        "200":
+          description: gcp trigger deleted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GcpTrigger"
+
+  /w/{workspace}/gcp_triggers/list:
+    get:
+      summary: list gcp triggers
+      operationId: listGcpTriggers
+      tags:
+        - gcp_trigger
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+          required: true
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/PerPage"
+        - name: path
+          description: filter by path
+          in: query
+          schema:
+            type: string
+        - name: is_flow
+          in: query
+          schema:
+            type: boolean
+        - name: path_start
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: gcp trigger list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/GcpTrigger"
+
+  /w/{workspace}/gcp_triggers/exists/{path}:
+    get:
+      summary: does gcp trigger exists
+      operationId: existsGcpTrigger
+      tags:
+        - gcp_trigger
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+      responses:
+        "200":
+          description: gcp trigger exists
+          content:
+            application/json:
+              schema:
+                type: boolean
+
+  /w/{workspace}/gcp_triggers/setenabled/{path}:
+    post:
+      summary: set enabled gcp trigger
+      operationId: setGcpTriggerEnabled
+      tags:
+        - gcp_trigger
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+      requestBody:
+        description: updated gcp trigger enable
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                enabled:
+                  type: boolean
+              required:
+                - enabled
+      responses:
+        "200":
+          description: gcp trigger enabled set
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/gcp_triggers/test:
+    post:
+      summary: test gcp connection
+      operationId: testGcpConnection
+      tags:
+        - gcp_trigger
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        description: test gcp connection
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                connection:
+                  type: object
+              required:
+                - connection
+      responses:
+        "200":
+          description: try to connect to a gcp broker
+          content:
+            text/plain:
+              schema:
+                type: string
+
 
   /w/{workspace}/postgres_triggers/is_valid_postgres_configuration/{path}:
     get:
@@ -10401,6 +10593,7 @@ paths:
                 nats_trigger,
                 postgres_trigger,
                 mqtt_trigger,
+                gcp_trigger,
                 sqs_trigger
               ]
       responses:
@@ -10444,6 +10637,7 @@ paths:
                 nats_trigger,
                 postgres_trigger,
                 mqtt_trigger,
+                gcp_trigger,
                 sqs_trigger
               ]
       requestBody:
@@ -10498,6 +10692,7 @@ paths:
                 nats_trigger,
                 postgres_trigger,
                 mqtt_trigger,
+                gcp_trigger,
                 sqs_trigger
               ]
       requestBody:
@@ -13971,6 +14166,8 @@ components:
           type: number
         mqtt_count:
           type: number
+        gcp_count:
+          type: number
         sqs_count:
           type: number
 
@@ -14253,6 +14450,66 @@ components:
         - is_flow
         - enabled
         - subscribe_topics  
+        - mqtt_resource_path
+
+    GcpTrigger:
+      allOf:
+        - $ref: "#/components/schemas/TriggerExtraProperty"
+      type: object
+      properties:
+        gcp_resource_path:
+          type: string
+        server_id:
+          type: string
+        last_server_ping:
+          type: string
+          format: date-time
+        error:
+          type: string
+        enabled:
+          type: boolean
+
+      required:
+        - enabled
+        - gcp_resource_path
+
+    NewGcpTrigger:
+      type: object
+      properties:
+        gcp_resource_path:
+          type: string      
+        path:
+          type: string
+        script_path:
+          type: string
+        is_flow:
+          type: boolean
+        enabled:
+          type: boolean
+      required:
+        - path
+        - script_path
+        - is_flow
+        - gcp_resource_path
+
+    EditGcpTrigger:
+      type: object
+      properties:
+        gcp_resource_path:
+          type: string
+        path:
+          type: string
+        script_path:
+          type: string
+        is_flow:
+          type: boolean
+        enabled:
+          type: boolean
+      required:
+        - path
+        - script_path
+        - is_flow
+        - enabled
         - mqtt_resource_path
     
     SqsTrigger:
@@ -15640,7 +15897,7 @@ components:
 
     CaptureTriggerKind:
       type: string
-      enum: [webhook, http, websocket, kafka, email, nats, postgres, sqs, mqtt]
+      enum: [webhook, http, websocket, kafka, email, nats, postgres, sqs, mqtt, gcp]
 
     Capture:
       type: object
