@@ -504,7 +504,7 @@
 									>
 										{#each authentication_options as option}
 											{#if option.value === 'signature'}
-												<Popover placement="bottom-end" usePointerDownOutside>
+												<Popover placement="top-end" usePointerDownOutside>
 													<svelte:fragment slot="trigger">
 														<ToggleButton
 															label={option.label}
