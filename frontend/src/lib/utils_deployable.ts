@@ -1,5 +1,6 @@
 import { minimatch } from 'minimatch'
 import {
+	GcpTriggerService,
 	HttpTriggerService,
 	KafkaTriggerService,
 	MqttTriggerService,
@@ -75,7 +76,11 @@ export async function existsTrigger(
 		return await PostgresTriggerService.existsPostgresTrigger(data)
 	} else if (triggerKind === 'sqs') {
 		return await SqsTriggerService.existsSqsTrigger(data)
-	} else if (triggerKind === 'websockets') {
+	} 
+	else if (triggerKind === 'gcp') {
+		return await GcpTriggerService.existsGcpTrigger(data)
+	}
+	else if (triggerKind === 'websockets') {
 		return await WebsocketTriggerService.existsWebsocketTrigger(data)
 	} else if (triggerKind === 'nats') {
 		return await NatsTriggerService.existsNatsTrigger(data)
@@ -84,7 +89,7 @@ export async function existsTrigger(
 	}
 
 	throw new Error(
-		`Unexpected trigger kind ${triggerKind}. Allowed kinds are: routes, kafka, mqtt, postgres, sqs, websockets, nats, schedules.`
+		`Unexpected trigger kind ${triggerKind}. Allowed kinds are: routes, kafka, mqtt, postgres, sqs, gcp, websockets, nats, schedules.`
 	)
 }
 
@@ -133,7 +138,20 @@ export async function getTriggersDeployData(kind: TriggerKind, path: string, wor
 			createFn: NatsTriggerService.createNatsTrigger,
 			updateFn: NatsTriggerService.updateNatsTrigger
 		}
-	} else if (kind === 'postgres') {
+	} 
+	else if (kind === 'gcp') {
+		const gcpTrigger = await GcpTriggerService.getGcpTrigger({
+			workspace: workspace!,
+			path: path
+		})
+
+		return {
+			data: gcpTrigger,
+			createFn: GcpTriggerService.createGcpTrigger,
+			updateFn: GcpTriggerService.updateGcpTrigger
+		} 
+	}
+	else if (kind === 'postgres') {
 		const postgresTrigger = await PostgresTriggerService.getPostgresTrigger({
 			workspace: workspace!,
 			path: path
@@ -285,7 +303,26 @@ export async function getTriggerValue(kind: TriggerKind, path: string, workspace
 			replication_slot_name,
 			publication_name
 		}
-	} else if (kind === 'websockets') {
+	} 
+	else if (kind === 'gcp') {
+		const {
+			enabled,
+			script_path,
+			is_flow,
+			gcp_resource_path,
+		} = await GcpTriggerService.getGcpTrigger({
+			workspace: workspace!,
+			path: path
+		})
+
+		return {
+			enabled,
+			script_path,
+			is_flow,
+			gcp_resource_path,
+		}
+	}
+	else if (kind === 'websockets') {
 		const {
 			enabled,
 			script_path,
@@ -454,7 +491,17 @@ export async function getTriggerDependency(kind: TriggerKind, path: string, work
 			})
 
 		result = retrieveKindsValues({ resource_path: postgres_resource_path, script_path, is_flow })
-	} else if (kind === 'websockets') {
+	} 
+	else if (kind === 'gcp') {
+		const { gcp_resource_path, script_path, is_flow } =
+			await GcpTriggerService.getGcpTrigger({
+				workspace: workspace!,
+				path: path
+			})
+
+		result = retrieveKindsValues({ resource_path: gcp_resource_path, script_path, is_flow })
+	}
+	else if (kind === 'websockets') {
 		const { script_path, is_flow, url, initial_messages } =
 			await WebsocketTriggerService.getWebsocketTrigger({
 				workspace: workspace!,

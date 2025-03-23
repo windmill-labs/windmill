@@ -1,8 +1,8 @@
 <script lang="ts">
 	import {
-		SqsTriggerService,
+		GcpTriggerService,
 		WorkspaceService,
-		type SqsTrigger,
+		type GcpTrigger,
 		type WorkspaceDeployUISettings
 	} from '$lib/gen'
 	import {
@@ -33,12 +33,12 @@
 	import { onDestroy, onMount } from 'svelte'
 	import Popover from '$lib/components/Popover.svelte'
 	import { isCloudHosted } from '$lib/cloud'
-	import SqsTriggerEditor from '$lib/components/triggers/sqs/SqsTriggerEditor.svelte'
 	import { ALL_DEPLOYABLE, isDeployable } from '$lib/utils_deployable'
 	import DeployWorkspaceDrawer from '$lib/components/DeployWorkspaceDrawer.svelte'
-	import { AwsIcon } from '$lib/components/icons'
+	import GcpTriggerEditor from '$lib/components/triggers/gcp/GcpTriggerEditor.svelte'
+	import { GoogleCloudIcon } from '$lib/components/icons'
 
-	type TriggerD = SqsTrigger & { canWrite: boolean }
+	type TriggerD = GcpTrigger & { canWrite: boolean }
 
 	let triggers: TriggerD[] = []
 	let shareModal: ShareModal
@@ -56,7 +56,7 @@
 	}
 	getDeployUiSettings()
 	async function loadTriggers(): Promise<void> {
-		triggers = (await SqsTriggerService.listSqsTriggers({ workspace: $workspaceStore! })).map(
+		triggers = (await GcpTriggerService.listGcpTriggers({ workspace: $workspaceStore! })).map(
 			(x) => {
 				return { canWrite: canWrite(x.path, x.extra_perms!, $userStore), ...x }
 			}
@@ -66,7 +66,7 @@
 
 	let interval = setInterval(async () => {
 		try {
-			const newTriggers = await SqsTriggerService.listSqsTriggers({
+			const newTriggers = await GcpTriggerService.listGcpTriggers({
 				workspace: $workspaceStore!
 			})
 			for (let i = 0; i < triggers.length; i++) {
@@ -92,14 +92,14 @@
 
 	async function setTriggerEnabled(path: string, enabled: boolean): Promise<void> {
 		try {
-			await SqsTriggerService.setSqsTriggerEnabled({
+			await GcpTriggerService.setGcpTriggerEnabled({
 				path,
 				workspace: $workspaceStore!,
 				requestBody: { enabled }
 			})
 		} catch (err) {
 			sendUserToast(
-				`Cannot ` + (enabled ? 'enable' : 'disable') + ` sqs trigger: ${err.body}`,
+				`Cannot ` + (enabled ? 'enable' : 'disable') + ` gcp trigger: ${err.body}`,
 				true
 			)
 		} finally {
@@ -112,7 +112,7 @@
 			loadTriggers()
 		}
 	}
-	let sqsTriggerEditor: SqsTriggerEditor
+	let gcpTriggerEditor: GcpTriggerEditor
 
 	let filteredItems: (TriggerD & { marked?: any })[] | undefined = []
 	let items: typeof filteredItems | undefined = []
@@ -218,7 +218,7 @@
 </script>
 
 <DeployWorkspaceDrawer bind:this={deploymentDrawer} />
-<SqsTriggerEditor on:update={loadTriggers} bind:this={sqsTriggerEditor} />
+<GcpTriggerEditor on:update={loadTriggers} bind:this={gcpTriggerEditor} />
 
 <SearchItems
 	{filter}
@@ -228,15 +228,15 @@
 />
 
 <CenteredPage>
-	<PageHeader title="SQS triggers" tooltip="SQS trigger">
-		<Button size="md" startIcon={{ icon: Plus }} on:click={() => sqsTriggerEditor.openNew(false)}>
-			New&nbsp;SQS trigger
+	<PageHeader title="GCP triggers" tooltip="GCP trigger">
+		<Button size="md" startIcon={{ icon: Plus }} on:click={() => gcpTriggerEditor.openNew(false)}>
+			New&nbsp;GCP trigger
 		</Button>
 	</PageHeader>
 
 	{#if isCloudHosted()}
 		<Alert title="Not compatible with multi-tenant cloud" type="warning">
-			SQS triggers are disabled in the multi-tenant cloud.
+			GCP triggers are disabled in the multi-tenant cloud.
 		</Alert>
 		<div class="py-4" />
 	{/if}
@@ -244,14 +244,14 @@
 		<div class="w-full pb-4 pt-6">
 			<input
 				type="text"
-				placeholder="Search SQS triggers"
+				placeholder="Search GCP triggers"
 				bind:value={filter}
 				class="search-item"
 			/>
 			<div class="flex flex-row items-center gap-2 mt-6">
 				<div class="text-sm shrink-0"> Filter by path of </div>
 				<ToggleButtonGroup bind:selected={selectedFilterKind} let:item>
-					<ToggleButton small value="trigger" label="SQS trigger" icon={AwsIcon} {item} />
+					<ToggleButton small value="trigger" label="GCP trigger" icon={GoogleCloudIcon} {item} />
 					<ToggleButton small value="script_flow" label="Script/Flow" icon={Code} {item} />
 				</ToggleButtonGroup>
 			</div>
@@ -274,7 +274,7 @@
 				<Skeleton layout={[[6], 0.4]} />
 			{/each}
 		{:else if !triggers?.length}
-			<div class="text-center text-sm text-tertiary mt-2"> No sqs triggers </div>
+			<div class="text-center text-sm text-tertiary mt-2"> No gcp triggers </div>
 		{:else if items?.length}
 			<div class="border rounded-md divide-y">
 				{#each items.slice(0, nbDisplayed) as { path, edited_by, error, edited_at, script_path, is_flow, extra_perms, canWrite, enabled, server_id } (path)}
@@ -291,7 +291,7 @@
 
 							<a
 								href="#{path}"
-								on:click={() => sqsTriggerEditor?.openEdit(path, is_flow)}
+								on:click={() => gcpTriggerEditor?.openEdit(path, is_flow)}
 								class="min-w-0 grow hover:underline decoration-gray-400"
 							>
 								<div class="text-primary flex-wrap text-left text-md font-semibold mb-1 truncate">
@@ -320,9 +320,9 @@
 										<div slot="text">
 											{#if enabled}
 												{#if !server_id}
-													SQS trigger is starting...
+													GCP trigger is starting...
 												{:else}
-													Could not connect to SQS{error ? ': ' + error : ''}
+													Could not connect to GCP{error ? ': ' + error : ''}
 												{/if}
 											{:else}
 												Disabled because of an error: {error}
@@ -335,7 +335,7 @@
 											<Circle class="text-green-600 relative inline-flex fill-current" size={12} />
 										</span>
 										<div slot="text">
-											Connected to sqs{!server_id ? ' (shutting down...)' : ''}</div
+											Connected to gcp{!server_id ? ' (shutting down...)' : ''}</div
 										>
 									</Popover>
 								{/if}
@@ -351,7 +351,7 @@
 
 							<div class="flex gap-2 items-center justify-end">
 								<Button
-									on:click={() => sqsTriggerEditor?.openEdit(path, is_flow)}
+									on:click={() => gcpTriggerEditor?.openEdit(path, is_flow)}
 									size="xs"
 									startIcon={canWrite
 										? { icon: Pen }
@@ -378,7 +378,7 @@
 											disabled: !canWrite,
 											action: async () => {
 												try {
-													await SqsTriggerService.deleteSqsTrigger({
+													await GcpTriggerService.deleteGcpTrigger({
 														workspace: $workspaceStore ?? '',
 														path
 													})
@@ -392,7 +392,7 @@
 											displayName: canWrite ? 'Edit' : 'View',
 											icon: canWrite ? Pen : Eye,
 											action: () => {
-												sqsTriggerEditor?.openEdit(path, is_flow)
+												gcpTriggerEditor?.openEdit(path, is_flow)
 											}
 										},
 										...(isDeployable('trigger', path, deployUiSettings)
@@ -403,7 +403,7 @@
 														action: () => {
 															deploymentDrawer.openDrawer(path, 'trigger', {
 																triggers: {
-																	kind: 'sqs'
+																	kind: 'gcp'
 																}
 															})
 														}
@@ -419,7 +419,7 @@
 											displayName: canWrite ? 'Share' : 'See Permissions',
 											icon: Share,
 											action: () => {
-												shareModal.openDrawer(path, 'sqs_trigger')
+												shareModal.openDrawer(path, 'gcp_trigger')
 											}
 										}
 									]}

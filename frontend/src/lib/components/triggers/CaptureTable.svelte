@@ -18,6 +18,7 @@
 	import SchemaPickerRow from '$lib/components/schema/SchemaPickerRow.svelte'
 	import type { Capture } from '$lib/gen'
 	import { AwsIcon, MqttIcon } from '../icons'
+	import GoogleCloudIcon from '../icons/GoogleCloudIcon.svelte'
 
 	export let path: string
 	export let hasPreprocessor = false
@@ -168,7 +169,8 @@
 		kafka: KafkaIcon,
 		mqtt: MqttIcon,
 		sqs: AwsIcon,
-		postgres: DatabaseIcon
+		postgres: DatabaseIcon,
+		gcp: GoogleCloudIcon
 	}
 
 	function handleKeydown(event: KeyboardEvent) {

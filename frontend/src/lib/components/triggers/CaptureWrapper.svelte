@@ -19,6 +19,7 @@
 	import PostgresEditorConfigSection from './postgres/PostgresEditorConfigSection.svelte'
 	import { invalidRelations } from './postgres/utils'
 	import { DEFAULT_V3_CONFIG, DEFAULT_V5_CONFIG } from './mqtt/constant'
+	import GcpTriggerEditorConfigSection from './gcp/GcpTriggerEditorConfigSection.svelte'
 
 	export let isFlow: boolean
 	export let path: string
@@ -80,7 +81,7 @@
 			acc[c.trigger_kind] = c
 			return acc
 		}, {})
-		const streamingCapture = ['postgres', 'websocket', 'kafka', 'sqs', 'mqtt']
+		const streamingCapture = ['postgres', 'websocket', 'kafka', 'sqs', 'mqtt', 'gcp']
 		if (streamingCapture.includes(captureType) && captureActive) {
 			const config = captureConfigs[captureType]
 			if (config && config.error) {
@@ -162,7 +163,7 @@
 
 	let config: CaptureConfig | undefined
 	$: config = captureConfigs[captureType]
-	const streamingCaptures = ['mqtt', 'sqs', 'websocket', 'postgres', 'kafka', 'nats']
+	const streamingCaptures = ['mqtt', 'sqs', 'websocket', 'postgres', 'kafka', 'nats', 'gcp']
 	let cloudDisabled = streamingCaptures.includes(captureType) && isCloudHosted()
 
 	function updateConnectionInfo(config: CaptureConfig | undefined, captureActive: boolean) {
@@ -336,6 +337,20 @@
 				bind:queue_url={args.queue_url}
 				bind:aws_resource_path={args.aws_resource_path}
 				bind:message_attributes={args.message_attributes}
+				{showCapture}
+				{captureInfo}
+				bind:captureTable
+				on:applyArgs
+				on:updateSchema
+				on:addPreprocessor
+				on:captureToggle={handleCapture}
+				on:testWithArgs
+			/>
+		{:else if captureType === 'gcp'}
+			<GcpTriggerEditorConfigSection
+				can_write={true}
+				headless={true}
+				bind:gcp_resource_path={args.gcp_resource_path}
 				{showCapture}
 				{captureInfo}
 				bind:captureTable

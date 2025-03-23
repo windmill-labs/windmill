@@ -1218,7 +1218,6 @@ async fn update_resource_type(
         feature = "gcp_trigger"
     )
 ))]
-use serde::{Deserialize, Serialize};
 pub async fn try_get_resource_from_db_as<T>(
     authed: ApiAuthed,
     user_db: Option<UserDB>,

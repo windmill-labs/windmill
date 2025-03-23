@@ -199,7 +199,8 @@
 			postgres_used,
 			nats_used,
 			sqs_used,
-			mqtt_used
+			mqtt_used,
+			gcp_used
 		} = await WorkspaceService.getUsedTriggers({
 			workspace: $workspaceStore ?? ''
 		})
@@ -223,6 +224,9 @@
 		}
 		if (sqs_used) {
 			usedKinds.push('sqs')
+		}
+		if (gcp_used) {
+			usedKinds.push('gcp')
 		}
 		$usedTriggerKinds = usedKinds
 	}

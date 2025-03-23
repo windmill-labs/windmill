@@ -34,7 +34,8 @@
 		nats: '+ New NATS trigger',
 		mqtt: '+ New MQTT trigger',
 		sqs: '+ New SQS trigger',
-		postgres: '+ New Postgres trigger'
+		postgres: '+ New Postgres trigger',
+		gcp: '+ New GCP trigger'
 	}
 
 	const { captureOn } = getContext<TriggerContext>('TriggerContext')

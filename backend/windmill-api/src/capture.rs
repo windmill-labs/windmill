@@ -118,6 +118,12 @@ pub struct SqsTriggerConfig {
     pub message_attributes: Option<Vec<String>>,
 }
 
+#[cfg(all(feature = "enterprise", feature = "gcp_trigger"))]
+#[derive(Debug, Serialize, Deserialize)]
+pub struct GcpTriggerConfig {
+    pub gcp_resource_path: String,
+}
+
 #[cfg(all(feature = "enterprise", feature = "nats"))]
 #[derive(Serialize, Deserialize)]
 pub struct NatsTriggerConfig {
