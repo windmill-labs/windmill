@@ -31,6 +31,7 @@ static_frontend = ["dep:rust-embed"]
 postgres_trigger = ["dep:rust-postgres", "dep:pg_escape", "dep:byteorder", "dep:thiserror", "dep:rust_decimal", "dep:rust-postgres-native-tls"]
 mqtt_trigger = ["dep:thiserror", "dep:rumqttc"]
 sqs_trigger = ["dep:aws-sdk-sqs", "dep:thiserror", "dep:aws-config"]
+gcp_trigger = ["dep:thiserror"]
 
 [dependencies]
 windmill-queue.workspace = true

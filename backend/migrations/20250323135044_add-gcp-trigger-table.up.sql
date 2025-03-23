@@ -1,5 +1,7 @@
 -- Add up migration script here
 
+ALTER TYPE TRIGGER_KIND ADD VALUE IF NOT EXISTS 'gcp';
+
 CREATE TABLE gcp_trigger (
     gcp_resource_path VARCHAR(255) NOT NULL,
     path VARCHAR(255) NOT NULL,

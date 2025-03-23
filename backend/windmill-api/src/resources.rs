@@ -1208,7 +1208,17 @@ async fn update_resource_type(
     Ok(format!("resource_type {} updated", name))
 }
 
-#[cfg(any(feature = "postgres_trigger", feature = "mqtt_trigger", all(feature = "sqs_trigger", feature = "enterprise")))]
+#[cfg(all(
+    feature = "enterprise",
+    any(
+        feature = "http_trigger",
+        feature = "sqs_trigger",
+        feature = "mqtt_trigger",
+        feature = "postgres_trigger",
+        feature = "gcp_trigger"
+    )
+))]
+use serde::{Deserialize, Serialize};
 pub async fn try_get_resource_from_db_as<T>(
     authed: ApiAuthed,
     user_db: Option<UserDB>,
