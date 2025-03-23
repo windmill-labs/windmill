@@ -972,7 +972,7 @@ async fn route_job(
                     extra
                         .get("raw_string")
                         .and_then(|value| Some(value.to_string()))
-                        .and_then(|raw_paylod| Some(serde_json::from_str::<String>(&raw_paylod)))
+                        .and_then(|raw_payload| Some(serde_json::from_str::<String>(&raw_payload)))
                 })
                 .transpose()
                 .map_err(|e| {
@@ -1095,7 +1095,7 @@ async fn route_job(
         };
         match build_static_response_f.await {
             Ok((status, headers, body_stream)) => {
-                return (status, headers, body_stream).into_response()
+                return Ok((status, headers, body_stream).into_response())
             }
             Err(e) => return Err(e.into_response()),
         }

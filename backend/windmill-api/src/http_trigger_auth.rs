@@ -578,7 +578,7 @@ impl AuthenticationMethod {
                 authentication_config,
                 signature_providers,
             }) => {
-                let raw_payload = raw_payload.unwrap();
+                let raw_payload = raw_payload.ok_or(AuthenticationError::InvalidPayload)?;
                 let config_data = SignatureConfigData { secret_key: &secret_key };
                 let handler = signature_providers.get_webhook_handler();
                 let challenge_response = handler
