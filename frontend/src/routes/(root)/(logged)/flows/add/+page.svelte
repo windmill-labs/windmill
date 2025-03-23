@@ -15,6 +15,8 @@
 	import { writable } from 'svelte/store'
 	import type { ScheduleTrigger } from '$lib/components/triggers'
 	import type { GetInitialAndModifiedValues } from '$lib/components/common/confirmationModal/unsavedTypes'
+	import { HubFlow } from '$lib/hub'
+	import { replacePlaceholderForSignatureScriptTemplate } from '$lib/components/triggers/http/utils'
 
 	let nodraft = $page.url.searchParams.get('nodraft')
 
@@ -41,6 +43,15 @@
 	if ($initialArgsStore) {
 		initialArgs = $initialArgsStore
 		$initialArgsStore = undefined
+	}
+
+	function replaceHubFlowPlaceholderByTheirValue(hubId: number, content: string) {
+		switch (hubId) {
+			case HubFlow.SIGNATURE_TEMPLATE:
+				return replacePlaceholderForSignatureScriptTemplate(content)
+			default:
+				return content
+		}
 	}
 
 	export const flowStore = writable<Flow>({
@@ -126,10 +137,17 @@
 				goto('?', { replaceState: true })
 				selectedId = 'settings-metadata'
 			} else if (hubId) {
-				const hub = await FlowService.getHubFlowById({ id: Number(hubId) })
+				const id = Number(hubId)
+				const hub = await FlowService.getHubFlowById({ id })
 				delete hub['comments']
 				initialPath = `u/${$userStore?.username}/flow_${hubId}`
 				Object.assign(flow, hub.flow)
+				if (flow.value.preprocessor_module?.value.type === 'rawscript') {
+					flow.value.preprocessor_module.value.content = replaceHubFlowPlaceholderByTheirValue(
+						id,
+						flow.value.preprocessor_module.value.content
+					)
+				}
 				flow = flow
 				goto('?', { replaceState: true })
 				selectedId = 'constants'

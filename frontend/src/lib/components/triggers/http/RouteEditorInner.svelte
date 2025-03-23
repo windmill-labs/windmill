@@ -29,6 +29,8 @@
 	import ResourcePicker from '$lib/components/ResourcePicker.svelte'
 	import ItemPicker from '../../ItemPicker.svelte'
 	import { Popover } from '$lib/components/meltComponents'
+	import { HUB_SCRIPT_ID, SECRET_KEY_PATH } from './utils'
+	import { HubFlow } from '$lib/hub'
 	let is_flow: boolean = false
 	let initialPath = ''
 	let edit = true
@@ -566,7 +568,7 @@
 								{:else if signature_options_type === 'custom_script'}
 									<p class="text-xs mt-3 mb-1 text-tertiary">
 										Pick a secret variable or create one which will be used as a secret key for your
-										custom script<Required required={true} /><br />
+										custom script/flow<Required required={true} /><br />
 									</p>
 									<div class="flex flex-row gap-2">
 										<div class="flex flex-row gap-2 w-full">
@@ -591,8 +593,12 @@
 												color="dark"
 												size="xs"
 												href={itemKind === 'flow'
-													? '/flows/add?hub=62'
-													: `/scripts/add?secret_key_path=${variable_path}&hub=hub%2F11663`}
+													? `/flows/add?${SECRET_KEY_PATH}=${encodeURIComponent(
+															variable_path
+													  )}&hub=${HubFlow.SIGNATURE_TEMPLATE}`
+													: `/scripts/add?${SECRET_KEY_PATH}=${encodeURIComponent(
+															variable_path
+													  )}&hub=hub%2F${HUB_SCRIPT_ID}`}
 												target="_blank">Create from template</Button
 											>
 										{/if}
