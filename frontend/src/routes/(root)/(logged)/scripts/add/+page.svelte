@@ -83,7 +83,7 @@
 		}
 	}
 
-	function replaceHubScriptPlaceholderByTheirValue(hubPath: string, content: string) {
+	function replaceHubScriptPlaceholderWithItsValues(hubPath: string, content: string) {
 		switch (hubPath) {
 			case HubScript.SIGNATURE_TEMPLATE:
 				return replacePlaceholderForSignatureScriptTemplate(content)
@@ -98,7 +98,7 @@
 				path: hubPath
 			})
 			script.description = `Fork of ${hubPath}`
-			script.content = replaceHubScriptPlaceholderByTheirValue(hubPath, content)
+			script.content = replaceHubScriptPlaceholderWithItsValues(hubPath, content)
 			script.summary = summary ?? ''
 			script.language = language as Script['language']
 			scriptBuilder?.setCode(script.content)

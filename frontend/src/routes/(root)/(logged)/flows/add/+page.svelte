@@ -45,7 +45,7 @@
 		$initialArgsStore = undefined
 	}
 
-	function replaceHubFlowPlaceholderByTheirValue(hubId: number, content: string) {
+	function replaceHubFlowPlaceholderWithItsValues(hubId: number, content: string) {
 		switch (hubId) {
 			case HubFlow.SIGNATURE_TEMPLATE:
 				return replacePlaceholderForSignatureScriptTemplate(content)
@@ -143,7 +143,7 @@
 				initialPath = `u/${$userStore?.username}/flow_${hubId}`
 				Object.assign(flow, hub.flow)
 				if (flow.value.preprocessor_module?.value.type === 'rawscript') {
-					flow.value.preprocessor_module.value.content = replaceHubFlowPlaceholderByTheirValue(
+					flow.value.preprocessor_module.value.content = replaceHubFlowPlaceholderWithItsValues(
 						id,
 						flow.value.preprocessor_module.value.content
 					)
