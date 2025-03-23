@@ -15,7 +15,7 @@ export function getHttpRoute(route_path: string | undefined, workspaced_route: b
 
 export function replacePlaceholderForSignatureScriptTemplate(content:string) {
     const params = new URLSearchParams(window.location.search)
-    const secret_key_path = params.get(SECRET_KEY_PATH)
+    const secret_key_path = params.get(SECRET_KEY_PATH) ?? ''
     return content.replace(
         /(const\s+SECRET_KEY_VARIABLE_PATH\s*=\s*")[^"]*(";)/,
         `$1${secret_key_path}$2`
