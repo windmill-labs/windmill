@@ -2651,7 +2651,7 @@ async fn push_next_flow_job(
             {
                 sqlx::query_as!(
                     JobPerms,
-                    "SELECT * FROM job_perms WHERE job_id = $1 AND workspace_id = $2",
+                    "SELECT email, username, is_admin, is_operator, groups, folders FROM job_perms WHERE job_id = $1 AND workspace_id = $2",
                     root_job,
                     flow_job.workspace_id,
                 )
