@@ -6,11 +6,12 @@
 	import type { Schema, SchemaProperty } from '$lib/common'
 	import InputTransformForm from '../InputTransformForm.svelte'
 	import type { FlowPropPickerConfig, PropPickerContext } from '../prop_picker'
-	import { setContext } from 'svelte'
+	import { setContext, untrack } from 'svelte'
 	import { writable } from 'svelte/store'
 	import type { PickableProperties } from '../flows/previousResults'
 	import Alert from '../common/alert/Alert.svelte'
 	import { buildExtraLibForBatchReruns } from '$lib/components/jobs/batchReruns'
+	import { pluralize } from '$lib/utils'
 
 	const { selectedJobs }: { selectedJobs: Job[] } = $props()
 
@@ -66,6 +67,12 @@
 	$effect(() => {
 		if (groupedJobs.every((g) => !eq(g, selected))) selected = undefined
 		if (selected === undefined && groupedJobs.length) selected = groupedJobs[0]
+	})
+	$effect(() => {
+		groupedJobs
+		const _selected = untrack(() => selected)
+		// Fixes selected group not updating when changing selected jobs
+		if (_selected) selected = groupedJobs.find((g) => eq(g, _selected))
 	})
 
 	const selectedHashesPromise: Promise<{ schema: Schema; script_hash: string }[]> = $derived.by(
@@ -190,9 +197,9 @@
 										flow_input: {}
 									}}
 									hideHelpButton
-									headerTooltip={property.hashes.size === selectedHashes.length
-										? `Used in all selected ${selected?.kind} versions`
-										: `Used in ${property.hashes.size} ${selected?.kind} versions: ${[...property.hashes.values()].join(', ').substring(0, 6)}`}
+									{...property.hashes.size !== selectedHashes.length && {
+										headerTooltip: `Used in ${pluralize(property.hashes.size, `${selected?.kind} version`)}: ${[...property.hashes.values()].join(', ').substring(0, 6)}`
+									}}
 								/>
 							{/each}
 						</div>
