@@ -245,22 +245,40 @@ pub async fn cancel_job<'c>(
 
     let job = Arc::new(job);
 
-    // get all children
-    let mut jobs = vec![job.id];
-    let mut jobs_to_cancel = vec![];
-    while !jobs.is_empty() {
-        let p_job = jobs.pop();
-        let new_jobs = sqlx::query_scalar!(
-            "SELECT id AS \"id!\" FROM v2_job_queue INNER JOIN v2_job USING (id) WHERE parent_job = $1 AND v2_job.workspace_id = $2",
-            p_job,
-            w_id
-        )
-        .fetch_all(&mut *tx)
-        .await?;
-        jobs.extend(new_jobs.clone());
-        jobs_to_cancel.extend(new_jobs);
-    }
-    jobs.reverse();
+    // get all children using recursive CTE
+    let mut jobs_to_cancel = sqlx::query!(
+        r#"
+WITH RECURSIVE job_tree AS (
+    -- Base case: direct children of the given parent job
+    SELECT id, parent_job, 1 AS depth
+    FROM v2_job_queue 
+    INNER JOIN v2_job USING (id)
+    WHERE parent_job = $1 AND v2_job.workspace_id = $2
+
+    UNION ALL
+
+    -- Recursive case: fetch children of previously found jobs
+    SELECT q.id, j.parent_job, t.depth + 1
+    FROM v2_job_queue q
+    INNER JOIN v2_job j USING (id)
+    INNER JOIN job_tree t ON t.id = j.parent_job
+    WHERE j.workspace_id = $2 AND t.depth < 500  -- Limit recursion depth to 500
+)
+SELECT id AS id, depth
+FROM job_tree
+ORDER BY depth, id
+        "#,
+        job.id,
+        w_id
+    )
+    .fetch_all(&mut *tx)
+    .await?
+    .into_iter()
+    .filter_map(|r| r.id.clone())
+    .collect_vec();
+
+    jobs_to_cancel.reverse();
+    tracing::info!("Found {} child jobs to cancel", jobs_to_cancel.len());
 
     let (ntx, _) = cancel_single_job(
         username,
@@ -274,7 +292,23 @@ pub async fn cancel_job<'c>(
     .await?;
     tx = ntx;
 
-    // cancel children
+    if !force_cancel {
+        // cancel children in batch first
+        if !jobs_to_cancel.is_empty() {
+            let updated = sqlx::query_scalar!(
+            "UPDATE v2_job_queue SET canceled_by = $1, canceled_reason = $2, scheduled_for = now(), suspend = 0 WHERE id = ANY($3) AND workspace_id = $4 AND (canceled_by IS NULL OR canceled_reason != $2) RETURNING id",
+            username,
+            reason,
+            jobs_to_cancel.as_slice(),
+            w_id
+        )
+        .fetch_all(&mut *tx)
+        .await?;
+
+            // Remove any jobs that were successfully updated
+            jobs_to_cancel.retain(|id| !updated.contains(&id));
+        }
+    }
     for job_id in jobs_to_cancel {
         let job = get_queued_job_tx(job_id, &w_id, &mut tx).await?;
 
