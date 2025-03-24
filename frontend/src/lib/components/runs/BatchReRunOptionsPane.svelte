@@ -10,6 +10,7 @@
 	import { writable } from 'svelte/store'
 	import type { PickableProperties } from '../flows/previousResults'
 	import Alert from '../common/alert/Alert.svelte'
+	import { buildExtraLibForBatchReruns } from '$lib/components/jobs/batchReruns'
 
 	const { selectedJobs }: { selectedJobs: Job[] } = $props()
 
@@ -154,7 +155,7 @@
 					id="batch-rerun-options-args"
 				>
 					<div class="text-sm w-full">
-						<Alert type="info" title="Available expressions">
+						<Alert type="info" title="Available expressions :">
 							<ul class="list-disc">
 								<li>job_input</li>
 								<li>job_scheduled_at</li>
@@ -169,6 +170,7 @@
 							required: [],
 							properties: Object.fromEntries([...properties.entries()].map(([p, {property}]) => [p, property])) 
 						}}
+						{@const propertyKeys = [...properties.keys()]}
 						<div class="w-full h-full">
 							{#each properties.entries() as [propertyName, property]}
 								<InputTransformForm
@@ -179,6 +181,7 @@
 									} as InputTransform}
 									argName={propertyName}
 									{schema}
+									extraLib={buildExtraLibForBatchReruns(propertyKeys)}
 									previousModuleId={undefined}
 									pickableProperties={{
 										hasResume: false,
