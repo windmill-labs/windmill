@@ -76,10 +76,10 @@
 		if (e.key === 'Enter' && !e.shiftKey) {
 			e.preventDefault()
 			if (contextTooltipWord) {
-				const contextElement = availableContext.find((c) => c.title.includes(contextTooltipWord.slice(1)))
+				const contextElement = availableContext.find((c) => c.title.startsWith(contextTooltipWord.slice(1)))
 				if (contextElement) {
 					handleContextSelection(contextElement)
-				} else {
+				} else if (contextTooltipWord === '@' && availableContext.length > 0) {
 					handleContextSelection(availableContext[0])
 				}
 			} else {
