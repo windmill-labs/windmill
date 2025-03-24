@@ -26,8 +26,8 @@
 				workspace: $workspaceStore!,
 				scriptPathExact: $pathStore + '/' + moduleId,
 				jobKinds: ['preview', 'script', 'flowpreview', 'flow'].join(','),
-				page: 1,
-				perPage: 10
+				page,
+				perPage
 			})
 			const jobsResults = await Promise.all(
 				previousJobs.map(async (job) => {
