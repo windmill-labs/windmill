@@ -76,9 +76,8 @@ use crate::{
         start_child_process, OccupancyMetrics,
     },
     handle_child::handle_child,
-    AuthedClientBackgroundTask, DISABLE_NSJAIL, DISABLE_NUSER, HOME_ENV, INSTANCE_PYTHON_VERSION,
-    NSJAIL_PATH, PATH_ENV, PIP_EXTRA_INDEX_URL, PIP_INDEX_URL, PROXY_ENVS, PY_INSTALL_DIR, TZ_ENV,
-    UV_CACHE_DIR,
+    AuthedClient, DISABLE_NSJAIL, DISABLE_NUSER, HOME_ENV, INSTANCE_PYTHON_VERSION, NSJAIL_PATH,
+    PATH_ENV, PIP_EXTRA_INDEX_URL, PIP_INDEX_URL, PROXY_ENVS, PY_INSTALL_DIR, TZ_ENV, UV_CACHE_DIR,
 };
 
 // To change latest stable version:
@@ -839,7 +838,8 @@ pub async fn handle_python_job(
     mem_peak: &mut i32,
     canceled_by: &mut Option<CanceledBy>,
     db: &sqlx::Pool<sqlx::Postgres>,
-    client: &AuthedClientBackgroundTask,
+    client: &AuthedClient,
+    parent_runnable_path: Option<String>,
     inner_content: &String,
     shared_mount: &str,
     base_internal_url: &str,
@@ -1024,8 +1024,8 @@ except BaseException as e:
 
     tracing::debug!("Finished writing wrapper");
 
-    let client = client.get_authed().await;
-    let mut reserved_variables = get_reserved_variables(job, &client.token, db).await?;
+    let mut reserved_variables =
+        get_reserved_variables(job, &client.token, db, parent_runnable_path).await?;
 
     // Add /tmp/windmill/cache/python_xyz/global-site-packages to PYTHONPATH.
     // Usefull if certain wheels needs to be preinstalled before execution.

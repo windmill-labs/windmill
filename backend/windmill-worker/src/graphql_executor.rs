@@ -13,7 +13,7 @@ use serde::Deserialize;
 
 use crate::common::{build_http_client, resolve_job_timeout, OccupancyMetrics};
 use crate::handle_child::run_future_with_polling_update_job_poller;
-use crate::{common::build_args_map, AuthedClientBackgroundTask};
+use crate::{common::build_args_map, AuthedClient};
 
 #[derive(Deserialize)]
 struct GraphqlApi {
@@ -35,7 +35,7 @@ struct GraphqlError {
 
 pub async fn do_graphql(
     job: &MiniPulledJob,
-    client: &AuthedClientBackgroundTask,
+    client: &AuthedClient,
     query: &str,
     db: &sqlx::Pool<sqlx::Postgres>,
     mem_peak: &mut i32,
