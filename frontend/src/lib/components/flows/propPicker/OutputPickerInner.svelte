@@ -86,14 +86,20 @@
 			preview = 'job'
 		}
 	}
+
+	$: infoMessage =
+		preview === 'mock' && !mock?.enabled
+			? 'restore'
+			: preview === 'job' && mock?.enabled && selectedJob?.type === 'CompletedJob'
+			? 'override'
+			: undefined
 </script>
 
 <div class="w-full h-full flex flex-col" bind:clientHeight>
 	<div
 		class={twMerge(
-			preview ? classes['info'].descriptionClass : '',
-			preview ? classes['info'].bgClass : '',
-			'text-xs px-2 ',
+			infoMessage ? `${classes['info'].descriptionClass} ${classes['info'].bgClass}` : '',
+			'text-xs px-2',
 			'border-none'
 		)}
 	>
@@ -127,6 +133,11 @@
 							{getLogs}
 							on:select={({ detail }) => {
 								if (detail === 'mock') {
+									if (mock?.enabled) {
+										selectJob(undefined)
+										preview = undefined
+										return
+									}
 									selectMockValue()
 									preview = 'mock'
 									return
@@ -140,36 +151,51 @@
 					</div>
 				</svelte:fragment>
 			</Popover>
-			{#if preview}
-				{#if mock?.enabled && preview === 'job'}
-					<span>
-						<Pin size={14} class="inline" />{mock?.enabled
-							? 'This step is pinned.'
-							: 'Mock disabled'}<button
-							class="inline-block text-xs px-2 py-1 underline"
-							on:click={() => {
-								preview = undefined
-							}}
-						>
-							See pin</button
-						>
-						or
-						<button
-							class="inline-block text-xs px-2 py-1 underline"
-							on:click={() => {
-								if (!tmpMock) {
-									return
-								}
-								dispatch('updateMock', tmpMock)
-								selectJob(undefined) // reset the job
-								preview = undefined
-								stepHistoryPopover?.close()
-							}}
-						>
-							{mock?.enabled ? (preview == 'job' ? 'Override pin' : 'Restore pin') : 'Restore pin'}
-						</button>
-					</span>
-				{/if}
+			{#if infoMessage === 'override'}
+				<span>
+					<Pin size={14} class="inline" />{mock?.enabled
+						? 'This step is pinned.'
+						: 'Mock disabled'}<button
+						class="inline-block text-xs px-2 py-1 underline"
+						on:click={() => {
+							preview = undefined
+						}}
+					>
+						See pin</button
+					>
+					or
+					<button
+						class="inline-block text-xs px-2 py-1 underline"
+						on:click={() => {
+							if (!tmpMock) {
+								return
+							}
+							dispatch('updateMock', tmpMock)
+							selectJob(undefined) // reset the job
+							preview = undefined
+							stepHistoryPopover?.close()
+						}}
+					>
+						Override pin
+					</button>
+				</span>
+			{:else if infoMessage === 'restore'}
+				<span>
+					<button
+						class="inline-block text-xs px-2 py-1 underline"
+						on:click={() => {
+							if (!tmpMock) {
+								return
+							}
+							dispatch('updateMock', tmpMock)
+							selectJob(undefined) // reset the job
+							preview = undefined
+							stepHistoryPopover?.close()
+						}}
+					>
+						Restore pin <Pin size={14} class="inline" />
+					</button>
+				</span>
 			{:else}
 				<Button
 					color="light"

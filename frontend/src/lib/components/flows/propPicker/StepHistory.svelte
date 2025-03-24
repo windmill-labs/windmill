@@ -90,14 +90,16 @@
 	}}
 >
 	<svelte:fragment slot="extra-row">
-		{#if mockValue && !mockEnabled}
+		{#if mockValue}
 			<Cell>
 				<div class="center-center">
 					<Pin size={14} class="text-blue-700 dark:text-blue-100" />
 				</div>
 			</Cell>
 			<Cell colspan="2" wrap>
-				<span class="text-blue-700 dark:text-blue-100"> Previous pinned data </span>
+				<span class="text-blue-700 dark:text-blue-100">
+					{mockEnabled ? 'Pinned data' : 'Previous pinned data'}
+				</span>
 			</Cell>
 		{/if}
 	</svelte:fragment>
