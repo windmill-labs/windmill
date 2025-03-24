@@ -91,178 +91,179 @@
 <div class="w-full h-full flex flex-col" bind:clientHeight>
 	<div
 		class={twMerge(
-			'flex flex-row items-center gap-0.5 min-h-[30px] mr-[30px]',
 			preview ? classes['info'].descriptionClass : '',
 			preview ? classes['info'].bgClass : '',
 			'text-xs px-2 ',
 			'border-none'
 		)}
 	>
-		<Popover
-			bind:this={stepHistoryPopover}
-			floatingConfig={{
-				placement: 'left-start',
-				offset: { mainAxis: 10, crossAxis: -4 },
-				gutter: 0 // hack to make offset effective, see https://github.com/melt-ui/melt-ui/issues/528
-			}}
-			contentClasses="w-[275px] overflow-hidden"
-			{closeOnOutsideClick}
-			disablePopup={isConnecting}
-			bind:isOpen={historyOpen}
-		>
-			<svelte:fragment slot="trigger">
+		<div class="flex flex-row items-center gap-0.5 min-h-[30px] mr-[30px]">
+			<Popover
+				bind:this={stepHistoryPopover}
+				floatingConfig={{
+					placement: 'left-start',
+					offset: { mainAxis: 10, crossAxis: -4 },
+					gutter: 0 // hack to make offset effective, see https://github.com/melt-ui/melt-ui/issues/528
+				}}
+				contentClasses="w-[275px] overflow-hidden"
+				{closeOnOutsideClick}
+				disablePopup={isConnecting}
+				bind:isOpen={historyOpen}
+			>
+				<svelte:fragment slot="trigger">
+					<Button
+						color="light"
+						size="xs2"
+						variant="contained"
+						btnClasses="bg-surface"
+						startIcon={{ icon: History }}
+						nonCaptureEvent
+					/>
+				</svelte:fragment>
+				<svelte:fragment slot="content">
+					<div class="rounded-[inherit]" style={`height: ${clientHeight}px`}>
+						<StepHistory
+							{moduleId}
+							{getLogs}
+							on:select={({ detail }) => {
+								if (detail === 'mock') {
+									selectMockValue()
+									preview = 'mock'
+									return
+								}
+								selectJob(detail)
+								preview = mock?.enabled && detail ? 'job' : undefined
+							}}
+							mockValue={mock?.return_value}
+							mockEnabled={mock?.enabled}
+						/>
+					</div>
+				</svelte:fragment>
+			</Popover>
+			{#if preview}
+				{#if mock?.enabled && preview === 'job'}
+					<span>
+						<Pin size={14} class="inline" />{mock?.enabled
+							? 'This step is pinned.'
+							: 'Mock disabled'}<button
+							class="inline-block text-xs px-2 py-1 underline"
+							on:click={() => {
+								preview = undefined
+							}}
+						>
+							See pin</button
+						>
+						or
+						<button
+							class="inline-block text-xs px-2 py-1 underline"
+							on:click={() => {
+								if (!tmpMock) {
+									return
+								}
+								dispatch('updateMock', tmpMock)
+								selectJob(undefined) // reset the job
+								preview = undefined
+								stepHistoryPopover?.close()
+							}}
+						>
+							{mock?.enabled ? (preview == 'job' ? 'Override pin' : 'Restore pin') : 'Restore pin'}
+						</button>
+					</span>
+				{/if}
+			{:else}
 				<Button
 					color="light"
 					size="xs2"
 					variant="contained"
-					btnClasses="bg-surface"
-					startIcon={{ icon: History }}
-					nonCaptureEvent
-				/>
-			</svelte:fragment>
-			<svelte:fragment slot="content">
-				<div class="rounded-[inherit]" style={`height: ${clientHeight}px`}>
-					<StepHistory
-						{moduleId}
-						{getLogs}
-						on:select={({ detail }) => {
-							if (detail === 'mock') {
-								selectMockValue()
-								preview = 'mock'
-								return
+					btnClasses={`bg-transparent ${
+						mock?.enabled
+							? 'text-white bg-blue-500 hover:text-primary hover:bg-blue-700 hover:text-gray-100'
+							: ''
+					}`}
+					startIcon={{ icon: Pin }}
+					iconOnly
+					on:click={() => {
+						if (mock?.enabled) {
+							const newMock = {
+								enabled: false,
+								return_value: mock?.return_value
 							}
-							selectJob(detail)
-							preview = mock?.enabled && detail ? 'job' : undefined
-						}}
-						mockValue={mock?.return_value}
-						mockEnabled={mock?.enabled}
-					/>
-				</div>
-			</svelte:fragment>
-		</Popover>
-		{#if preview}
-			{#if mock?.enabled && preview === 'job'}
-				<span>
-					<Pin size={14} class="inline" />{mock?.enabled
-						? 'This step is pinned.'
-						: 'Mock disabled'}<button
-						class="inline-block text-xs px-2 py-1 underline"
-						on:click={() => {
-							preview = undefined
-						}}
-					>
-						See pin</button
-					>
-					or
-					<button
-						class="inline-block text-xs px-2 py-1 underline"
+							selectJob(undefined) // reset the job
+							dispatch('updateMock', newMock)
+						} else {
+							let mockValue = jsonData
+
+							if (selectedJob && 'result' in selectedJob) {
+								mockValue = structuredClone(selectedJob.result)
+								selectJob(undefined) // reset the job
+								preview = undefined
+							} else if (jsonData === 'never tested this far') {
+								mockValue = { example: 'value' }
+							}
+							const newMock = {
+								enabled: true,
+								return_value: mockValue
+							}
+							dispatch('updateMock', newMock)
+						}
+					}}
+				/>
+
+				{#if jsonView}
+					<Button
+						size="xs2"
+						color="green"
+						variant="contained"
+						startIcon={{ icon: Check }}
 						on:click={() => {
 							if (!tmpMock) {
 								return
 							}
-							dispatch('updateMock', tmpMock)
-							selectJob(undefined) // reset the job
-							preview = undefined
-							stepHistoryPopover?.close()
+							jsonView = false
+							mock = tmpMock
+							dispatch('updateMock', {
+								enabled: tmpMock?.enabled ?? false,
+								return_value: tmpMock?.return_value
+							})
+							jsonData = tmpMock?.return_value ?? undefined
+							tmpMock = undefined
 						}}
-					>
-						{mock?.enabled ? (preview == 'job' ? 'Override pin' : 'Restore pin') : 'Restore pin'}
-					</button>
-				</span>
-			{/if}
-		{:else}
-			<Button
-				color="light"
-				size="xs2"
-				variant="contained"
-				btnClasses={`bg-transparent ${
-					mock?.enabled
-						? 'text-white bg-blue-500 hover:text-primary hover:bg-blue-700 hover:text-gray-100'
-						: ''
-				}`}
-				startIcon={{ icon: Pin }}
-				iconOnly
-				on:click={() => {
-					if (mock?.enabled) {
-						const newMock = {
-							enabled: false,
-							return_value: mock?.return_value
-						}
-						selectJob(undefined) // reset the job
-						dispatch('updateMock', newMock)
-					} else {
-						let mockValue = jsonData
-
-						if (selectedJob && 'result' in selectedJob) {
-							mockValue = structuredClone(selectedJob.result)
-							selectJob(undefined) // reset the job
-							preview = undefined
-						} else if (jsonData === 'never tested this far') {
-							mockValue = { example: 'value' }
-						}
-						const newMock = {
-							enabled: true,
-							return_value: mockValue
-						}
-						dispatch('updateMock', newMock)
-					}
-				}}
-			/>
-
-			{#if jsonView}
-				<Button
-					size="xs2"
-					color="green"
-					variant="contained"
-					startIcon={{ icon: Check }}
-					on:click={() => {
-						if (!tmpMock) {
-							return
-						}
-						jsonView = false
-						mock = tmpMock
-						dispatch('updateMock', {
-							enabled: tmpMock?.enabled ?? false,
-							return_value: tmpMock?.return_value
-						})
-						jsonData = tmpMock?.return_value ?? undefined
-						tmpMock = undefined
-					}}
-					disabled={!!error || !tmpMock}
-				/>
-				<Button
-					size="xs2"
-					color="red"
-					variant="contained"
-					startIcon={{ icon: X }}
-					on:click={() => {
-						jsonView = false
-					}}
-				/>
-			{:else}
-				<Tooltip disablePopup={mock?.enabled}>
+						disabled={!!error || !tmpMock}
+					/>
 					<Button
 						size="xs2"
-						color="light"
+						color="red"
 						variant="contained"
-						startIcon={{ icon: Pen }}
+						startIcon={{ icon: X }}
 						on:click={() => {
-							stepHistoryPopover?.close()
-							jsonView = true
+							jsonView = false
 						}}
-						disabled={!mock?.enabled || isConnecting}
 					/>
-					<svelte:fragment slot="text">
-						{'Enable mock to edit the output'}
-					</svelte:fragment>
-				</Tooltip>
+				{:else}
+					<Tooltip disablePopup={mock?.enabled}>
+						<Button
+							size="xs2"
+							color="light"
+							variant="contained"
+							startIcon={{ icon: Pen }}
+							on:click={() => {
+								stepHistoryPopover?.close()
+								jsonView = true
+							}}
+							disabled={!mock?.enabled || isConnecting}
+						/>
+						<svelte:fragment slot="text">
+							{'Enable mock to edit the output'}
+						</svelte:fragment>
+					</Tooltip>
+				{/if}
 			{/if}
-		{/if}
-		{#if !isLoading && selectedJob && !preview && !mock?.enabled}
-			<div class="w-grow min-w-0">
-				<OutputBadge job={selectedJob} />
-			</div>
-		{/if}
+			{#if !isLoading && selectedJob && !preview && !mock?.enabled}
+				<div class="w-grow min-w-0">
+					<OutputBadge job={selectedJob} />
+				</div>
+			{/if}
+		</div>
 	</div>
 
 	{#if fullResult && !jsonView}
