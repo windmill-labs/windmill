@@ -248,7 +248,7 @@
 					workspace: $workspaceStore!,
 					requestBody: {
 						path: $pathStore,
-						summary: flow.summary,
+						summary: flow.summary ?? '',
 						description: flow.description ?? '',
 						value: flow.value,
 						schema: flow.schema,
@@ -379,7 +379,7 @@
 					workspace: $workspaceStore!,
 					requestBody: {
 						path: $pathStore,
-						summary: flow.summary,
+						summary: flow.summary ?? '',
 						description: flow.description ?? '',
 						value: flow.value,
 						schema: flow.schema,
