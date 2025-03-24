@@ -14,10 +14,11 @@
 		class={twMerge(
 			'flex flex-row items-center gap-1 rounded-md bg-green-100 p-1',
 			'success' in job && job.success ? 'bg-green-100' : 'bg-red-100',
-			noStatusBackground && 'bg-surface'
+			noStatusBackground && 'bg-transparent',
+			$$props.class
 		)}
 	>
-		<span class="text-xs truncate relative" dir="rtl">
+		<span class="text-xs truncate relative" dir="rtl" title={`job id: ${job.id}`}>
 			{job.id}
 		</span>
 		<a
