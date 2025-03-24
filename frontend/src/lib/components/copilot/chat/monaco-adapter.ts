@@ -4,8 +4,9 @@ import {
 	applyChange,
 	displayVisualChanges,
 	getLines,
+	setGlobalCSS,
 	type VisualChange
-} from '../autocomplete/monaco-adapter'
+} from '../shared'
 import { writable, type Writable } from 'svelte/store'
 
 type ExcludeVariant<T, K extends keyof T, V> = T extends Record<K, V> ? never : T
@@ -21,7 +22,7 @@ export class AIChatEditorHandler {
 
 	reviewingChanges: Writable<boolean> = writable(false)
 
-	groupChanges: VisualChangeWithDiffIndex[][] = []
+	groupChanges: { changes: VisualChangeWithDiffIndex[]; groupIndex: number }[] = []
 
 	constructor(editor: meditor.IStandaloneCodeEditor) {
 		this.editor = editor
@@ -38,6 +39,7 @@ export class AIChatEditorHandler {
 			}
 			this.viewZoneIds = []
 		})
+		setGlobalCSS('editor-windmill-chat-style', '')
 	}
 	preventWriting() {
 		if (this.readOnlyDisposable) {
@@ -51,6 +53,9 @@ export class AIChatEditorHandler {
 			e.preventDefault()
 			e.stopPropagation()
 		})
+		this.editor.updateOptions({
+			scrollBeyondLastLine: true
+		})
 	}
 
 	allowWriting() {
@@ -63,21 +68,40 @@ export class AIChatEditorHandler {
 		this.clear()
 		this.allowWriting()
 		this.reviewingChanges.set(false)
+		this.editor.updateOptions({
+			scrollBeyondLastLine: false
+		})
 	}
 
 	async acceptAll() {
 		this.groupChanges.reverse()
 		for (const group of this.groupChanges) {
-			group.reverse()
-			for (const change of group) {
-				applyChange(this.editor, change)
-			}
+			this.applyGroup(group)
 		}
 		this.finish()
 	}
 
 	async rejectAll() {
 		this.finish()
+	}
+
+	applyGroup(group: { changes: VisualChangeWithDiffIndex[]; groupIndex: number }) {
+		// maximum of 2 changes per group with the deletion first
+		if (group.changes.length > 2) {
+			throw new Error('Invalid group')
+		} else if (group.changes.length === 2) {
+			const deletedChange = group.changes[0]
+			const addedChange = group.changes[1]
+			if (deletedChange.type === 'deleted' && addedChange.type === 'added_block') {
+				applyChange(this.editor, deletedChange)
+				addedChange.position.afterLineNumber = deletedChange.range.startLine - 1
+				applyChange(this.editor, addedChange)
+			} else {
+				throw new Error('Invalid group')
+			}
+		} else if (group.changes.length === 1) {
+			applyChange(this.editor, group.changes[0])
+		}
 	}
 
 	async reviewAndApply(newCode: string) {
@@ -93,7 +117,7 @@ export class AIChatEditorHandler {
 		for (const [idx, change] of changedLines.entries()) {
 			const nbOfNewLines = change.count || 1
 			if (idx > 0 && changedLines[idx - 1].removed && !change.added) {
-				this.groupChanges.push(visualChanges)
+				this.groupChanges.push({ changes: visualChanges, groupIndex: this.groupChanges.length })
 				visualChanges = []
 			}
 			if (change.added) {
@@ -109,7 +133,7 @@ export class AIChatEditorHandler {
 					},
 					diffIndex: idx
 				})
-				this.groupChanges.push(visualChanges)
+				this.groupChanges.push({ changes: visualChanges, groupIndex: this.groupChanges.length })
 				visualChanges = []
 			} else if (change.removed) {
 				visualChanges = []
@@ -133,7 +157,7 @@ export class AIChatEditorHandler {
 			}
 		}
 		if (visualChanges.length > 0) {
-			this.groupChanges.push(visualChanges)
+			this.groupChanges.push({ changes: visualChanges, groupIndex: this.groupChanges.length })
 		}
 
 		if (this.groupChanges.length === 0) {
@@ -147,10 +171,7 @@ export class AIChatEditorHandler {
 			let collection: meditor.IEditorDecorationsCollection | undefined = undefined
 			let ids: string[] = []
 			const acceptFn = () => {
-				group.reverse()
-				for (const change of group) {
-					applyChange(this.editor, change)
-				}
+				this.applyGroup(group)
 				this.clear()
 				let newCodeWithRejects = ''
 				for (const [idx, change] of changedLines.entries()) {
@@ -165,20 +186,20 @@ export class AIChatEditorHandler {
 				this.reviewAndApply(newCodeWithRejects)
 			}
 			const rejectFn = () => {
-				indicesOfRejectedLineChanges.push(...group.map((c) => c.diffIndex))
+				indicesOfRejectedLineChanges.push(...group.changes.map((c) => c.diffIndex))
 				collection?.clear()
 				this.editor.changeViewZones((acc) => {
 					for (const id of ids) {
 						acc.removeZone(id)
 					}
 				})
-				this.groupChanges.splice(groupIndex, 1)
+				this.groupChanges = this.groupChanges.filter((g) => g.groupIndex !== groupIndex)
 				if (this.groupChanges.length === 0) {
 					this.finish()
 				}
 			}
-			const changes = group.map((c, i) => {
-				if (i === group.length - 1) {
+			const changes = group.changes.map((c, i) => {
+				if (i === group.changes.length - 1) {
 					return {
 						...c,
 						options: { ...(c.options ?? {}), review: { acceptFn, rejectFn } }
@@ -188,7 +209,11 @@ export class AIChatEditorHandler {
 				}
 			})
 
-			;({ collection, ids } = await displayVisualChanges(this.editor, changes))
+			;({ collection, ids } = await displayVisualChanges(
+				'editor-windmill-chat-style',
+				this.editor,
+				changes
+			))
 			this.decorationsCollections.push(collection)
 			this.viewZoneIds.push(...ids)
 		}

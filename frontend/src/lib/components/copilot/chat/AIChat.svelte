@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { dbSchemas, type DBSchema, type DBSchemas } from '$lib/stores'
+	import { copilotSessionModel, dbSchemas, type DBSchema, type DBSchemas } from '$lib/stores'
 	import { writable, type Writable } from 'svelte/store'
 	import AIChatDisplay from './AIChatDisplay.svelte'
 	import {
@@ -12,7 +12,7 @@
 		type SelectedContext
 	} from './core'
 	import { createEventDispatcher, onDestroy, setContext } from 'svelte'
-	import type { ScriptLang } from '$lib/gen'
+	import type { AIProviderModel, ScriptLang } from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
 	import { openDB, type DBSchema as IDBSchema, type IDBPDatabase } from 'idb'
 	import { isInitialCode } from '$lib/script_helpers'
@@ -87,7 +87,8 @@
 		code: string,
 		lang: ScriptLang | 'bunnative',
 		error: string | undefined,
-		db: { schema: DBSchema; resource: string } | undefined
+		db: { schema: DBSchema; resource: string } | undefined,
+		providerModel: AIProviderModel | undefined
 	) {
 		availableContext = [
 			{
@@ -109,7 +110,7 @@
 			]
 		}
 
-		if (db) {
+		if (db && !providerModel?.model.endsWith('/thinking')) {
 			availableContext = [
 				...availableContext,
 				{
@@ -121,7 +122,7 @@
 		}
 	}
 
-	$: updateAvailableContext(contextCodePath, code, lang, error, db)
+	$: updateAvailableContext(contextCodePath, code, lang, error, db, $copilotSessionModel)
 
 	let instructions = ''
 	let loading = writable(false)
@@ -163,6 +164,7 @@
 
 	function updateSelectedContextElements() {
 		const contextElements: ContextElement[] = []
+
 		for (const selected of selectedContext) {
 			const el = availableContext.find(
 				(c) => c.type === selected.type && c.title === selected.title
@@ -173,11 +175,7 @@
 		}
 		return contextElements
 	}
-
 	let selectedContextElements: ContextElement[] = []
-	$: selectedContext &&
-		availableContext &&
-		(selectedContextElements = updateSelectedContextElements())
 
 	async function sendRequest() {
 		if (!instructions.trim()) {
@@ -187,6 +185,8 @@
 			loading.set(true)
 			aiChatDisplay?.enableAutomaticScroll()
 			abortController = new AbortController()
+
+			selectedContextElements = updateSelectedContextElements()
 
 			displayMessages = [
 				...displayMessages,
@@ -204,9 +204,19 @@
 			await saveChat()
 
 			$currentReply = ''
-			await chatRequest(messages, abortController, lang, db, (token) => {
-				currentReply.update((prev) => prev + token)
-			})
+			await chatRequest(
+				messages,
+				abortController,
+				lang,
+				(
+					selectedContextElements.find((c) => c.type === 'db') as
+						| Extract<ContextElement, { type: 'db' }>
+						| undefined
+				)?.schema,
+				(token) => {
+					currentReply.update((prev) => prev + token)
+				}
+			)
 
 			messages.push({ role: 'assistant', content: $currentReply })
 			displayMessages = [

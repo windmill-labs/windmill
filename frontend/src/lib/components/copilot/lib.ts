@@ -351,7 +351,8 @@ function getProviderAndCompletionConfig<K extends boolean>({
 		: ChatCompletionCreateParamsNonStreaming
 } {
 	let info = get(copilotInfo)
-	const modelProvider = forceModelProvider ?? get(copilotSessionModel) ?? info.defaultModel
+	const modelProvider =
+		forceModelProvider ?? get(copilotSessionModel) ?? info.defaultModel ?? info.aiModels[0]
 
 	if (!modelProvider) {
 		throw new Error('No model selected')
@@ -375,9 +376,9 @@ function getProviderAndCompletionConfig<K extends boolean>({
 				  }
 				: {
 						model: modelProvider.model,
-						temperature: 0
+						temperature: 0,
+						tools
 				  }),
-			tools,
 			messages: processedMessages,
 			stream
 		} as any

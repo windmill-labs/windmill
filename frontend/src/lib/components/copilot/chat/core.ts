@@ -331,7 +331,7 @@ async function callTool(
 	functionName: string,
 	args: any,
 	lang: ScriptLang | 'bunnative',
-	db: { schema: DBSchema; resource: string } | undefined,
+	dbSchema: DBSchema | undefined,
 	workspace: string
 ) {
 	switch (functionName) {
@@ -339,10 +339,10 @@ async function callTool(
 			const formattedResourceTypes = await getFormattedResourceTypes(lang, args.query, workspace)
 			return formattedResourceTypes
 		case 'get_db_schema':
-			if (!db) {
+			if (!dbSchema) {
 				throw new Error('No database schema provided')
 			}
-			const stringSchema = await formatDBSChema(db.schema)
+			const stringSchema = await formatDBSChema(dbSchema)
 			return stringSchema
 		default:
 			throw new Error(`Unknown tool call: ${functionName}`)
@@ -353,11 +353,21 @@ export async function chatRequest(
 	messages: ChatCompletionMessageParam[],
 	abortController: AbortController,
 	lang: ScriptLang | 'bunnative',
-	db: { schema: DBSchema; resource: string } | undefined,
+	dbSchema: DBSchema | undefined,
 	onNewToken: (token: string) => void
 ) {
-	const toolDefs = [RESOURCE_TYPE_FUNCTION_DEF]
-	if (db) {
+	const toolDefs: ChatCompletionTool[] = []
+	if (
+		lang === 'python3' ||
+		lang === 'php' ||
+		lang === 'bun' ||
+		lang === 'deno' ||
+		lang === 'nativets' ||
+		lang === 'bunnative'
+	) {
+		toolDefs.push(RESOURCE_TYPE_FUNCTION_DEF)
+	}
+	if (dbSchema) {
 		toolDefs.push(DB_SCHEMA_FUNCTION_DEF)
 	}
 	try {
@@ -369,6 +379,9 @@ export async function chatRequest(
 				const finalToolCalls: Record<number, ChatCompletionChunk.Choice.Delta.ToolCall> = {}
 
 				for await (const chunk of completion) {
+					if (!('choices' in chunk)) {
+						continue
+					}
 					const c = chunk as ChatCompletionChunk
 					const delta = c.choices[0].delta.content
 					if (delta) {
@@ -409,7 +422,7 @@ export async function chatRequest(
 								toolCall.function.name,
 								args,
 								lang,
-								db,
+								dbSchema,
 								get(workspaceStore) ?? ''
 							)
 							messages.push({
@@ -419,7 +432,7 @@ export async function chatRequest(
 							})
 						} catch (err) {
 							console.error(err)
-							throw new Error('Error parsing tool call arguments')
+							throw new Error('Error while calling tool')
 						}
 					}
 				} else {

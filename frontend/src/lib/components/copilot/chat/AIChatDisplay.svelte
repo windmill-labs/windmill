@@ -141,7 +141,7 @@
 	</div>
 	{#if messages.length > 0}
 		<div
-			class="h-full overflow-y-scroll pt-2 px-2"
+			class="h-full overflow-y-scroll pt-2"
 			bind:this={scrollEl}
 			on:wheel={(e) => {
 				automaticScroll = false
@@ -150,7 +150,7 @@
 			<div class="flex flex-col" bind:clientHeight={height}>
 				{#each messages as message}
 					{#if message.role === 'user' && message.contextElements}
-						<div class="flex flex-row gap-1 mb-1">
+						<div class="flex flex-row gap-1 mb-1 overflow-scroll no-scrollbar px-2">
 							{#each message.contextElements as element}
 								<ContextElementBadge contextElement={element} />
 							{/each}
@@ -158,7 +158,7 @@
 					{/if}
 					<div
 						class={twMerge(
-							'text-sm py-1',
+							'text-sm py-1 mx-2',
 							message.role === 'user' &&
 								'px-2 border border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-gray-900 rounded-lg mb-2',
 							message.role === 'assistant' && 'px-[1px] mb-6'
@@ -172,7 +172,7 @@
 					</div>
 				{/each}
 				{#if $loading && !$currentReply}
-					<div class="mb-6 py-1">
+					<div class="mb-6 py-1 px-2">
 						<Loader2 class="animate-spin" />
 					</div>
 				{/if}
@@ -180,8 +180,8 @@
 		</div>
 	{/if}
 
-	<div class="p-2" class:border-t={messages.length > 0}>
-		<div class="flex flex-row gap-1 mb-1">
+	<div class:border-t={messages.length > 0}>
+		<div class="flex flex-row gap-1 mb-1 overflow-scroll pt-2 px-2 no-scrollbar">
 			<Popover>
 				<svelte:fragment slot="trigger">
 					<div
@@ -231,49 +231,54 @@
 				{/if}
 			{/each}
 		</div>
-		<textarea
-			on:keypress={(e) => {
-				if (e.key === 'Enter' && !e.shiftKey) {
-					e.preventDefault()
-					dispatch('sendRequest')
-				}
-			}}
-			bind:value={instructions}
-			use:autosize
-			rows={3}
-			placeholder={messages.length > 0 ? 'Ask followup' : 'Ask anything'}
-			class="resize-none"
-		/>
+		<div class="px-2 scroll-pb-2">
+			<textarea
+				on:keypress={(e) => {
+					if (e.key === 'Enter' && !e.shiftKey) {
+						e.preventDefault()
+						dispatch('sendRequest')
+					}
+				}}
+				bind:value={instructions}
+				use:autosize
+				rows={3}
+				placeholder={messages.length > 0 ? 'Ask followup' : 'Ask anything'}
+				class="resize-none"
+			/>
 
-		<div class="flex flex-row justify-end items-center gap-2 px-0.5">
-			<div class="min-w-0">
-				<Popover disablePopup={$copilotInfo.aiModels.length <= 1}>
-					<svelte:fragment slot="trigger">
-						<div class="text-tertiary text-xs flex flex-row items-center gap-0.5 font-normal">
-							{providerModel.model}
-							{#if $copilotInfo.aiModels.length > 1}
-								<ChevronDown size={16} />
-							{/if}
-						</div>
-					</svelte:fragment>
-					<svelte:fragment slot="content" let:close>
-						<div class="flex flex-col gap-1 p-1 min-w-24">
-							{#each $copilotInfo.aiModels.filter((m) => m.model !== providerModel.model) as providerModel}
-								<button
-									class="text-left text-xs hover:bg-surface-hover rounded-md p-1 font-normal"
-									on:click={() => {
-										$copilotSessionModel = providerModel
-										storeLocalSetting(COPILOT_SESSION_MODEL_SETTING_NAME, providerModel.model)
-										storeLocalSetting(COPILOT_SESSION_PROVIDER_SETTING_NAME, providerModel.provider)
-										close()
-									}}
-								>
-									{providerModel.model}
-								</button>
-							{/each}
-						</div>
-					</svelte:fragment>
-				</Popover>
+			<div class="flex flex-row justify-end items-center gap-2 px-0.5">
+				<div class="min-w-0">
+					<Popover disablePopup={$copilotInfo.aiModels.length <= 1}>
+						<svelte:fragment slot="trigger">
+							<div class="text-tertiary text-xs flex flex-row items-center gap-0.5 font-normal">
+								{providerModel.model}
+								{#if $copilotInfo.aiModels.length > 1}
+									<ChevronDown size={16} />
+								{/if}
+							</div>
+						</svelte:fragment>
+						<svelte:fragment slot="content" let:close>
+							<div class="flex flex-col gap-1 p-1 min-w-24">
+								{#each $copilotInfo.aiModels.filter((m) => m.model !== providerModel.model) as providerModel}
+									<button
+										class="text-left text-xs hover:bg-surface-hover rounded-md p-1 font-normal"
+										on:click={() => {
+											$copilotSessionModel = providerModel
+											storeLocalSetting(COPILOT_SESSION_MODEL_SETTING_NAME, providerModel.model)
+											storeLocalSetting(
+												COPILOT_SESSION_PROVIDER_SETTING_NAME,
+												providerModel.provider
+											)
+											close()
+										}}
+									>
+										{providerModel.model}
+									</button>
+								{/each}
+							</div>
+						</svelte:fragment>
+					</Popover>
+				</div>
 			</div>
 		</div>
 	</div>
