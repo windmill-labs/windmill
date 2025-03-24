@@ -63,7 +63,6 @@
 	let showContextTooltip = false;
 	let contextTooltipWord = '';
 	let tooltipPosition = { x: 0, y: 0 };
-	let textareaEl: HTMLTextAreaElement;
 
 	function getHighlightedText(text: string) {
 		return text.replace(/@[\w.-]+/g, (match) => {
@@ -100,42 +99,58 @@
 		showContextTooltip = false
 	}
 
+	function getCaretCoordinates(textarea: HTMLTextAreaElement, pos: number) {
+		const div = document.createElement('div');
+		const style = window.getComputedStyle(textarea);
+
+		// Copy essential styling properties
+		div.style.position = 'absolute';
+		div.style.visibility = 'hidden';
+		div.style.whiteSpace = 'pre-wrap';
+		div.style.wordWrap = 'break-word';
+		div.style.width = style.width;
+		div.style.font = style.font;
+		div.style.fontSize = style.fontSize;
+		div.style.lineHeight = '1.72';
+		div.style.padding = style.padding;
+		div.style.border = style.border;
+
+		// Set content to text up to the caret position
+		div.textContent = textarea.value.substring(0, pos);
+
+		// Create a marker span to get the caret location
+		const span = document.createElement('span');
+		// If at the end, add a placeholder so the span has dimensions
+		span.textContent = textarea.value.substring(pos) || '.';
+		div.appendChild(span);
+
+		document.body.appendChild(div);
+		const spanRect = span.getBoundingClientRect();
+		const coordinates = {
+			x: spanRect.left - 50,
+			y: spanRect.top - 760,
+			height: spanRect.height
+		};
+		document.body.removeChild(div);
+		return coordinates;
+	}
+
 	function handleInput(e: Event) {
 		const textarea = e.target as HTMLTextAreaElement;
 		const words = instructions.split(/\s+/);
 		const lastWord = words[words.length - 1];
 		
 		if (lastWord.startsWith('@')) {
+			const coords = getCaretCoordinates(textarea, textarea.selectionStart);
 			const rect = textarea.getBoundingClientRect();
-			const cursorPosition = textarea.selectionStart;
-			const textBeforeCursor = textarea.value.substring(0, cursorPosition);
-			const lines = textBeforeCursor.split('\n');
-			const currentLine = lines[lines.length - 1];
-			const currentLineNumber = lines.length - 1;
-			
-			// Create a temporary span to measure text width
-			const tempSpan = document.createElement('span');
-			tempSpan.style.visibility = 'hidden';
-			tempSpan.style.position = 'absolute';
-			tempSpan.style.whiteSpace = 'pre-wrap';
-			tempSpan.style.font = window.getComputedStyle(textarea).font;
-			tempSpan.style.padding = window.getComputedStyle(textarea).padding;
-			tempSpan.textContent = currentLine;
-			document.body.appendChild(tempSpan);
-			
-			// Calculate cursor position
-			const lineHeight = parseInt(window.getComputedStyle(textarea).lineHeight);
-			const paddingTop = parseInt(window.getComputedStyle(textarea).paddingTop);
-			const scrollTop = textarea.scrollTop;
-			
+
 			tooltipPosition = {
-				x: rect.left + tempSpan.offsetWidth + parseInt(window.getComputedStyle(textarea).paddingLeft) - 100,
-				y: rect.top + (currentLineNumber * lineHeight) + paddingTop - scrollTop + lineHeight + 5
+				x: rect.left + coords.x,
+				y: rect.top + coords.y
 			};
-			
-			document.body.removeChild(tempSpan);
+
 			showContextTooltip = true;
-			contextTooltipWord = lastWord.slice(1);
+			contextTooltipWord = lastWord;
 		} else {
 			showContextTooltip = false;
 			contextTooltipWord = '';
@@ -315,13 +330,16 @@
 			</span>
 			</div>
 			<textarea
-				bind:this={textareaEl}
-			on:keypress={(e) => {
-				if (e.key === 'Enter' && !e.shiftKey) {
-					e.preventDefault()
-					const contextElement = availableContext.find((c) => c.title.includes(contextTooltipWord))
-					if (contextTooltipWord && contextElement) {
-						handleContextSelection(contextElement)
+				on:keypress={(e) => {
+					if (e.key === 'Enter' && !e.shiftKey) {
+						e.preventDefault()
+					if (contextTooltipWord) {
+						const contextElement = availableContext.find((c) => c.title.includes(contextTooltipWord.slice(1)))
+						if (contextElement) {
+							handleContextSelection(contextElement)
+						} else {
+							handleContextSelection(availableContext[0])
+						}
 					} else {
 						dispatch('sendRequest')
 					}
@@ -338,7 +356,7 @@
 				}, 100);
 			}}
 			placeholder={messages.length > 0 ? 'Ask followup' : 'Ask anything'}
-			class="resize-none bg-transparent absolute top-0 left-0 w-full h-full"
+			class="resize-none bg-transparent absolute top-0 left-0 w-full h-full caret-white"
 			style="{instructions.length > 0 ? 'color: transparent; -webkit-text-fill-color: transparent;' : ''}"
 		/>
 		</div>
@@ -349,10 +367,10 @@
 				style="left: {tooltipPosition.x}px; top: {tooltipPosition.y}px;"
 			>
 				<div class="flex flex-col gap-1 text-tertiary text-xs min-w-24">
-					{#if availableContext.length === 0}
+					{#if availableContext.filter((c) => !contextTooltipWord || c.title.startsWith(contextTooltipWord.slice(1))).length === 0}
 						<div class="text-center text-tertiary text-xs">No available context</div>
 					{:else}
-						{#each availableContext as element}
+						{#each availableContext.filter((c) => !contextTooltipWord || c.title.startsWith(contextTooltipWord.slice(1))) as element}
 								<button
 									class="hover:bg-surface-hover rounded-md p-1 text-left flex flex-row gap-1 items-center font-normal"
 									on:click={() => handleContextSelection(element)}
