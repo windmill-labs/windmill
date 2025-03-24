@@ -155,12 +155,17 @@
 			</Popover>
 			{#if infoMessage === 'override'}
 				<span>
-					<Pin size={14} class="inline" />{mock?.enabled
-						? 'This step is pinned.'
-						: 'Mock disabled'}<button
+					<Pin size={14} class="inline" />
+					This step is pinned.
+					<button
 						class="inline-block text-xs underline"
 						on:click={() => {
-							preview = undefined
+							if (historyOpen) {
+								stepHistory?.deselect()
+							} else {
+								selectJob(lastJob)
+								preview = undefined
+							}
 						}}
 					>
 						See pin</button
@@ -173,9 +178,13 @@
 								return
 							}
 							dispatch('updateMock', tmpMock)
-							selectJob(undefined) // reset the job
-							preview = undefined
-							stepHistoryPopover?.close()
+							if (historyOpen) {
+								stepHistory?.deselect()
+								stepHistoryPopover?.close()
+							} else {
+								selectJob(lastJob)
+								preview = undefined
+							}
 						}}
 					>
 						Override pin
