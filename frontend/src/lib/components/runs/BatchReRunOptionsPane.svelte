@@ -189,7 +189,6 @@
 							required: [],
 							properties: Object.fromEntries([...propertyMap.entries()].map(([p, {property}]) => [p, property])) 
 						}}
-						{@const propertyKeys = [...propertyMap.keys()]}
 						<div class="w-full h-full">
 							{#each propertyMap.entries() as [propertyName, property]}
 								<InputTransformForm
@@ -205,7 +204,7 @@
 									}}
 									argName={propertyName}
 									{schema}
-									extraLib={buildExtraLibForBatchReruns(propertyKeys)}
+									extraLib={buildExtraLibForBatchReruns(schema)}
 									previousModuleId={undefined}
 									pickablepropertyMap={{
 										hasResume: false,

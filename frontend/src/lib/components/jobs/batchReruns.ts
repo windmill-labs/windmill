@@ -1,4 +1,7 @@
-export function buildExtraLibForBatchReruns(jobParameters: string[]) {
+import type { Schema } from '$lib/common'
+import { schemaToTsType } from '$lib/schema'
+
+export function buildExtraLibForBatchReruns(schema: Schema) {
 	return `
 /**
 * get variable (including secret) at path
@@ -16,7 +19,7 @@ declare const job = {
   /**
   * job input as an object
   */
-  input: ${JSON.stringify(Object.fromEntries(jobParameters.map((p) => [p, null as any])))},
+  input: null as ${schemaToTsType(schema)},
   /**
    * original scheduled date of the job
    */
