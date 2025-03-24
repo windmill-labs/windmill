@@ -3,6 +3,7 @@
 	import { workspaceStore } from '$lib/stores'
 	import { ExternalLink } from 'lucide-svelte'
 	import { base } from '$lib/base'
+	import OutputBadge from '$lib/components/flows/propPicker/OutputBadge.svelte'
 
 	export let job: any
 	export let payloadData: any | undefined = undefined
@@ -11,6 +12,7 @@
 	export let placement: 'bottom-start' | 'top-start' | 'bottom-end' | 'top-end' = 'bottom-start'
 	export let viewerOpen = false
 	export let limitPayloadSize = false
+	export let light = false
 </script>
 
 <SchemaPickerRow
@@ -21,6 +23,7 @@
 	{viewerOpen}
 	on:openChange
 	{limitPayloadSize}
+	{light}
 >
 	<svelte:fragment slot="start">
 		<div class="center-center">
@@ -48,5 +51,8 @@
 				</a>
 			</div>
 		</div>
+	</svelte:fragment>
+	<svelte:fragment slot="light-display">
+		<OutputBadge {job} noStatusBackground />
 	</svelte:fragment>
 </SchemaPickerRow>

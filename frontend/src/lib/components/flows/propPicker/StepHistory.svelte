@@ -109,7 +109,7 @@
 		</colgroup>
 	</svelte:fragment>
 	<svelte:fragment let:item let:hover>
-		<JobSchemaPicker job={item} hovering={hover} payloadData={item.result} />
+		<JobSchemaPicker job={item} hovering={hover} payloadData={item.result} light />
 	</svelte:fragment>
 	<svelte:fragment slot="empty">
 		<div class="text-center text-tertiary text-xs py-2"> 'No run yet' </div>

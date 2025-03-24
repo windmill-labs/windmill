@@ -6,13 +6,15 @@
 	import { ExternalLink } from 'lucide-svelte'
 
 	export let job: Job | undefined = undefined
+	export let noStatusBackground = false
 </script>
 
 {#if job}
 	<div
 		class={twMerge(
 			'flex flex-row items-center gap-1 rounded-md bg-green-100 p-1',
-			'success' in job && job.success ? 'bg-green-100' : 'bg-red-100'
+			'success' in job && job.success ? 'bg-green-100' : 'bg-red-100',
+			noStatusBackground && 'bg-surface'
 		)}
 	>
 		<span class="text-xs truncate relative" dir="rtl">
