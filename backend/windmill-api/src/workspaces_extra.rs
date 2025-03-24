@@ -190,7 +190,7 @@ pub(crate) async fn change_workspace_id(
     .await?;
 
     sqlx::query!(
-        "UPDATE flow_workspace_runnables SET workspace_id = $1 WHERE workspace_id = $2",
+        "UPDATE workspace_runnable_dependencies SET workspace_id = $1 WHERE workspace_id = $2",
         &rw.new_id,
         &old_id
     )
