@@ -24,15 +24,12 @@ pub struct JWTAuthClaims {
 
 #[derive(Deserialize)]
 pub struct JobPerms {
-    pub workspace_id: String,
-    pub job_id: String,
     pub email: String,
     pub username: String,
     pub is_admin: bool,
     pub is_operator: bool,
     pub groups: Vec<String>,
     pub folders: Vec<serde_json::Value>,
-    pub created_at: chrono::NaiveDateTime,
 }
 
 impl From<JobPerms> for Authed {

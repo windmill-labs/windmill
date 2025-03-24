@@ -2002,6 +2002,13 @@ pub struct PulledJob {
     pub raw_code: Option<String>,
     pub raw_lock: Option<String>,
     pub raw_flow: Option<Json<Box<RawValue>>>,
+    pub parent_runnable_path: Option<String>,
+    pub permissioned_as_email: Option<String>,
+    pub permissioned_as_username: Option<String>,
+    pub permissioned_as_is_admin: Option<bool>,
+    pub permissioned_as_is_operator: Option<bool>,
+    pub permissioned_as_groups: Option<Vec<String>>,
+    pub permissioned_as_folders: Option<Vec<serde_json::Value>>,
 }
 
 impl std::ops::Deref for PulledJob {

@@ -46,7 +46,7 @@ use crate::{
         OccupancyMetrics,
     },
     handle_child::handle_child,
-    AuthedClientBackgroundTask, DISABLE_NSJAIL, DISABLE_NUSER, HOME_ENV, NSJAIL_PATH, PATH_ENV,
+    AuthedClient, DISABLE_NSJAIL, DISABLE_NUSER, HOME_ENV, NSJAIL_PATH, PATH_ENV,
     POWERSHELL_CACHE_DIR, POWERSHELL_PATH, PROXY_ENVS, TZ_ENV,
 };
 
@@ -64,7 +64,8 @@ pub async fn handle_bash_job(
     canceled_by: &mut Option<CanceledBy>,
     job: &MiniPulledJob,
     db: &sqlx::Pool<sqlx::Postgres>,
-    client: &AuthedClientBackgroundTask,
+    client: &AuthedClient,
+    parent_runnable_path: Option<String>,
     content: &str,
     job_dir: &str,
     shared_mount: &str,
@@ -135,8 +136,8 @@ exit $exit_status
     );
     write_file(job_dir, "wrapper.sh", &script)?;
 
-    let token = client.get_token().await;
-    let mut reserved_variables = get_reserved_variables(job, &token, db).await?;
+    let mut reserved_variables =
+        get_reserved_variables(job, &client.token, db, parent_runnable_path).await?;
     reserved_variables.insert("RUST_LOG".to_string(), "info".to_string());
 
     let args = build_args_map(job, client, db).await?.map(Json);
@@ -471,7 +472,8 @@ pub async fn handle_powershell_job(
     canceled_by: &mut Option<CanceledBy>,
     job: &MiniPulledJob,
     db: &sqlx::Pool<sqlx::Postgres>,
-    client: &AuthedClientBackgroundTask,
+    client: &AuthedClient,
+    parent_runnable_path: Option<String>,
     content: &str,
     job_dir: &str,
     shared_mount: &str,
@@ -653,8 +655,8 @@ $env:PSModulePath = \"{};$PSModulePathBackup\"",
         ),
     )?;
 
-    let token = client.get_token().await;
-    let mut reserved_variables = get_reserved_variables(job, &token, db).await?;
+    let mut reserved_variables =
+        get_reserved_variables(job, &client.token, db, parent_runnable_path).await?;
     reserved_variables.insert("RUST_LOG".to_string(), "info".to_string());
 
     let _ = write_file(job_dir, "result.json", "")?;

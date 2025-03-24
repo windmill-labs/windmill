@@ -23,7 +23,7 @@ use crate::{
     common::{build_args_values, check_executor_binary_exists, OccupancyMetrics},
     handle_child::run_future_with_polling_update_job_poller,
     sanitized_sql_params::sanitize_and_interpolate_unsafe_sql_args,
-    AuthedClientBackgroundTask,
+    AuthedClient,
 };
 
 #[derive(Deserialize)]
@@ -233,7 +233,8 @@ fn get_statement_values(
         }
         let arg_t = arg.otyp.clone().unwrap_or_else(|| "text".to_string());
         let arg_n = arg.name.clone();
-        let oracle_v: Box<dyn ToSql + Send + Sync> = match job_args.get(arg.name.as_str())
+        let oracle_v: Box<dyn ToSql + Send + Sync> = match job_args
+            .get(arg.name.as_str())
             .unwrap_or_else(|| &json!(null))
         {
             // Value::Null => todo!(),
@@ -293,7 +294,7 @@ fn get_statement_values(
 
 pub async fn do_oracledb(
     job: &MiniPulledJob,
-    client: &AuthedClientBackgroundTask,
+    client: &AuthedClient,
     query: &str,
     db: &sqlx::Pool<sqlx::Postgres>,
     mem_peak: &mut i32,
@@ -315,8 +316,6 @@ pub async fn do_oracledb(
     let db_arg = if let Some(inline_db_res_path) = inline_db_res_path {
         Some(
             client
-                .get_authed()
-                .await
                 .get_resource_value_interpolated::<serde_json::Value>(
                     &inline_db_res_path,
                     Some(job.id.to_string()),

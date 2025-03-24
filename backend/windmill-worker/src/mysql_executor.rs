@@ -21,7 +21,10 @@ use windmill_queue::CanceledBy;
 use windmill_queue::MiniPulledJob;
 
 use crate::{
-    common::{build_args_values, OccupancyMetrics}, handle_child::run_future_with_polling_update_job_poller, sanitized_sql_params::sanitize_and_interpolate_unsafe_sql_args, AuthedClientBackgroundTask
+    common::{build_args_values, OccupancyMetrics},
+    handle_child::run_future_with_polling_update_job_poller,
+    sanitized_sql_params::sanitize_and_interpolate_unsafe_sql_args,
+    AuthedClient,
 };
 
 #[derive(Deserialize)]
@@ -101,7 +104,7 @@ pub fn do_mysql_inner<'a>(
 
 pub async fn do_mysql(
     job: &MiniPulledJob,
-    client: &AuthedClientBackgroundTask,
+    client: &AuthedClient,
     query: &str,
     db: &sqlx::Pool<sqlx::Postgres>,
     mem_peak: &mut i32,
@@ -115,14 +118,14 @@ pub async fn do_mysql(
     let inline_db_res_path = parse_db_resource(&query);
 
     let db_arg = if let Some(inline_db_res_path) = inline_db_res_path {
-        Some(client
-            .get_authed()
-            .await
-            .get_resource_value_interpolated::<serde_json::Value>(
-                &inline_db_res_path,
-                Some(job.id.to_string()),
-            )
-            .await?)
+        Some(
+            client
+                .get_resource_value_interpolated::<serde_json::Value>(
+                    &inline_db_res_path,
+                    Some(job.id.to_string()),
+                )
+                .await?,
+        )
     } else {
         job_args.get("database").cloned()
     };
@@ -171,7 +174,8 @@ pub async fn do_mysql(
         }
         let arg_t = arg.otyp.clone().unwrap_or_else(|| "text".to_string());
         let arg_n = arg.name.clone();
-        let mysql_v = match job_args.get(arg.name.as_str())
+        let mysql_v = match job_args
+            .get(arg.name.as_str())
             .unwrap_or_else(|| &json!(null))
         {
             Value::Null => mysql_async::Value::NULL,
