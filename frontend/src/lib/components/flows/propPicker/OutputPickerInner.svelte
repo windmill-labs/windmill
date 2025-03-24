@@ -8,9 +8,10 @@
 	import { createEventDispatcher } from 'svelte'
 	import { Tooltip } from '$lib/components/meltComponents'
 	import type { Job } from '$lib/gen'
-	import StatusBadge from '$lib/components/flows/propPicker/StatusBadge.svelte'
 	import DisplayResult from '$lib/components/DisplayResult.svelte'
 	import OutputBadge from './OutputBadge.svelte'
+	import { classes } from '$lib/components/common/alert/model'
+	import { twMerge } from 'tailwind-merge'
 
 	export let jsonData: any = undefined
 	export let prefix: string = ''
@@ -87,13 +88,21 @@
 	}
 </script>
 
-<div class="w-full h-full flex flex-col p-1" bind:clientHeight>
-	<div class="flex flex-row items-center gap-0.5 min-h-[28px] mr-[30px]">
+<div class="w-full h-full flex flex-col" bind:clientHeight>
+	<div
+		class={twMerge(
+			'flex flex-row items-center gap-0.5 min-h-[30px] mr-[30px]',
+			preview ? classes['info'].descriptionClass : '',
+			preview ? classes['info'].bgClass : '',
+			'text-xs px-2 ',
+			'border-none'
+		)}
+	>
 		<Popover
 			bind:this={stepHistoryPopover}
 			floatingConfig={{
 				placement: 'left-start',
-				offset: { mainAxis: 10, crossAxis: -6 },
+				offset: { mainAxis: 10, crossAxis: -4 },
 				gutter: 0 // hack to make offset effective, see https://github.com/melt-ui/melt-ui/issues/528
 			}}
 			contentClasses="w-[275px] overflow-hidden"
@@ -106,7 +115,7 @@
 					color="light"
 					size="xs2"
 					variant="contained"
-					btnClasses="bg-transparent"
+					btnClasses="bg-surface"
 					startIcon={{ icon: History }}
 					nonCaptureEvent
 				/>
@@ -132,14 +141,21 @@
 			</svelte:fragment>
 		</Popover>
 		{#if preview}
-			<StatusBadge>
-				<Pin size={16} class="inline" />
-				{mock?.enabled ? (preview == 'job' ? 'Override pin ?' : 'Restore pin ?') : 'Restore pin ?'}
-				<svelte:fragment slot="action">
-					<Button
-						color="blue"
-						size="xs2"
-						startIcon={{ icon: Check }}
+			{#if mock?.enabled && preview === 'job'}
+				<span>
+					<Pin size={14} class="inline" />{mock?.enabled
+						? 'This step is pinned.'
+						: 'Mock disabled'}<button
+						class="inline-block text-xs px-2 py-1 underline"
+						on:click={() => {
+							preview = undefined
+						}}
+					>
+						See pin</button
+					>
+					or
+					<button
+						class="inline-block text-xs px-2 py-1 underline"
 						on:click={() => {
 							if (!tmpMock) {
 								return
@@ -149,9 +165,11 @@
 							preview = undefined
 							stepHistoryPopover?.close()
 						}}
-					/>
-				</svelte:fragment>
-			</StatusBadge>
+					>
+						{mock?.enabled ? (preview == 'job' ? 'Override pin' : 'Restore pin') : 'Restore pin'}
+					</button>
+				</span>
+			{/if}
 		{:else}
 			<Button
 				color="light"
