@@ -5,6 +5,7 @@
 <script lang="ts">
 	import { pathToMeta, type Meta } from '$lib/common'
 
+	import { localeConcatAnd, pluralize } from '$lib/utils'
 	import {
 		AppService,
 		FlowService,
@@ -30,7 +31,8 @@
 	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import FolderEditor from './FolderEditor.svelte'
 	import { random_adj } from './random_positive_adjetive'
-	import { Eye, Folder, Plus, SearchCode, User } from 'lucide-svelte'
+	import { Eye, Folder, Loader2, Plus, SearchCode, User } from 'lucide-svelte'
+	import Tooltip from './Tooltip.svelte'
 
 	type PathKind =
 		| 'resource'
@@ -330,6 +332,37 @@
 	const openSearchWithPrefilledText: (t?: string) => void = getContext(
 		'openSearchWithPrefilledText'
 	)
+
+	$: displayPathChangedWarning =
+		(['flow', 'script', 'resource', 'variable'] as PathKind[]).includes(kind) &&
+		initialPath &&
+		initialPath !== path
+
+	$: pathUsageInFlowsPromise =
+		(kind == 'script' || kind == 'flow') &&
+		!!$workspaceStore &&
+		FlowService.listFlowPathsFromWorkspaceRunnable({
+			workspace: $workspaceStore,
+			path: initialPath,
+			runnableKind: kind
+		})
+
+	$: pathUsageInAppsPromise =
+		(kind == 'script' || kind == 'flow') &&
+		!!$workspaceStore &&
+		AppService.listAppPathsFromWorkspaceRunnable({
+			workspace: $workspaceStore,
+			path: initialPath,
+			runnableKind: kind
+		})
+
+	$: pathUsageInScriptsPromise =
+		kind == 'script' &&
+		!!$workspaceStore &&
+		ScriptService.listScriptPathsFromWorkspaceRunnable({
+			workspace: $workspaceStore,
+			path: initialPath
+		})
 </script>
 
 <Drawer bind:this={newFolder}>
@@ -503,7 +536,65 @@
 		<div class="text-red-600 dark:text-red-400 text-2xs mt-1.5">{error}</div>
 	</div>
 
-	{#if kind != 'app' && kind != 'schedule' && kind != 'http_trigger' && kind != 'websocket_trigger' && initialPath != '' && initialPath != undefined && initialPath != path}
+	{#if pathUsageInFlowsPromise || pathUsageInAppsPromise || pathUsageInScriptsPromise}
+		{#await Promise.all( [pathUsageInAppsPromise, pathUsageInFlowsPromise, pathUsageInScriptsPromise] )}
+			<Loader2 class="animate-spin" size={16} />
+		{:then [apps, flows, scripts]}
+			{#if (apps && apps.length) || (flows && flows.length) || (scripts && scripts.length)}
+				<p class="text-xs">
+					Used by {localeConcatAnd([
+						...(scripts && scripts.length ? [pluralize(scripts.length, 'script')] : []),
+						...(flows && flows.length ? [pluralize(flows.length, 'flow')] : []),
+						...(apps && apps.length ? [pluralize(apps.length, 'app')] : [])
+					])}
+					<Tooltip>
+						<ul>
+							{#each scripts || [] as path}
+								<li><a target="_blank" href="/scripts/edit/{path}">{path}</a></li>
+							{/each}
+							{#each flows || [] as path}
+								<li><a target="_blank" href="/flows/edit/{path}">{path}</a></li>
+							{/each}
+							{#each apps || [] as path}
+								<li><a target="_blank" href="/apps/edit/{path}">{path}</a></li>
+							{/each}
+						</ul>
+					</Tooltip>
+				</p>
+				{#if displayPathChangedWarning}
+					<Alert
+						type="warning"
+						class="mt-4"
+						title="Moving this item will break the following referencing it:"
+					>
+						<ul class="list-disc">
+							{#each scripts || [] as scriptPath}
+								<li>
+									<a href={`/scripts/edit/${scriptPath}`} class="text-blue-400" target="_blank">
+										{scriptPath}
+									</a>
+								</li>
+							{/each}
+							{#each flows || [] as flowPath}
+								<li>
+									<a href={`/flows/edit/${flowPath}`} class="text-blue-400" target="_blank">
+										{flowPath}
+									</a>
+								</li>
+							{/each}
+							{#each apps || [] as appPath}
+								<li>
+									<a href={`/apps/edit/${appPath}`} class="text-blue-400" target="_blank">
+										{appPath}
+									</a>
+								</li>
+							{/each}
+						</ul>
+					</Alert>
+				{/if}
+			{/if}
+		{/await}
+	{:else if displayPathChangedWarning}
 		<Alert type="warning" class="mt-4" title="Moving may break other items relying on it">
 			You are renaming an item that may be depended upon by other items. This may break apps, flows
 			or resources. Find if it used elsewhere using the content search. Note that linked variables
