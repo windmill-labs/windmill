@@ -219,7 +219,9 @@
 									class="items-start mb-4"
 									arg={changedArgs[selected.kind]?.[selected.script_path]?.[propertyName] ?? {
 										type: 'javascript',
-										expr: `job.input["${propertyName}"]`
+										expr: /^[a-zA-Z_$][0-9a-zA-Z_$]*$/.test(propertyName)
+											? `job.input.${propertyName}`
+											: `job.input[${JSON.stringify(propertyName)}]`
 									}}
 									on:change={(e) => {
 										if (!selected) return
