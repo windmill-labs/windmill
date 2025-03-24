@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import PanelSection from '../apps/editor/settingsPanel/common/PanelSection.svelte'
-	import { ScriptService, type InputTransform, type Job } from '$lib/gen'
+	import { ScriptService, type Job } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import type { Schema, SchemaProperty } from '$lib/common'
 	import InputTransformForm from '../InputTransformForm.svelte'
@@ -108,11 +108,15 @@
 			return []
 		}
 	)
+	let selectedHashes: Awaited<typeof selectedHashesPromise> | undefined = $state()
+	$effect(() => {
+		selectedHashes = undefined
+		selectedHashesPromise.then((h) => (selectedHashes = h))
+	})
 
-	function computePropertyMap(
-		selectedHashes: { schema: Schema; script_hash: string }[]
-	): Map<string, { property: SchemaProperty; hashes: Set<string> }> {
-		const map: ReturnType<typeof computePropertyMap> = new Map()
+	const propertyMap = $derived.by(() => {
+		const map = new Map<string, { property: SchemaProperty; hashes: Set<string> }>()
+		if (!selectedHashes) return undefined
 
 		for (const { schema, script_hash } of selectedHashes) {
 			for (const property in schema.properties) {
@@ -125,7 +129,7 @@
 			}
 		}
 		return map
-	}
+	})
 </script>
 
 <div class="flex-1 flex flex-col">
@@ -169,28 +173,27 @@
 							</ul>
 						</Alert>
 					</div>
-					{#await selectedHashesPromise then selectedHashes}
-						{@const properties = computePropertyMap(selectedHashes)}
+					{#if selected && selectedHashes && propertyMap}
 						{@const schema: Schema = {
 							$schema: 'http://json-schema.org/draft-07/schema#',
 							type: "object",
 							required: [],
-							properties: Object.fromEntries([...properties.entries()].map(([p, {property}]) => [p, property])) 
+							properties: Object.fromEntries([...propertyMap.entries()].map(([p, {property}]) => [p, property])) 
 						}}
-						{@const propertyKeys = [...properties.keys()]}
+						{@const propertyKeys = [...propertyMap.keys()]}
 						<div class="w-full h-full">
-							{#each properties.entries() as [propertyName, property]}
+							{#each propertyMap.entries() as [propertyName, property]}
 								<InputTransformForm
 									class="items-start mb-4"
 									arg={{
 										type: 'javascript',
 										expr: `job.input["${propertyName}"]`
-									} as InputTransform}
+									}}
 									argName={propertyName}
 									{schema}
 									extraLib={buildExtraLibForBatchReruns(propertyKeys)}
 									previousModuleId={undefined}
-									pickableProperties={{
+									pickablepropertyMap={{
 										hasResume: false,
 										previousId: undefined,
 										priorIds: {},
@@ -203,7 +206,7 @@
 								/>
 							{/each}
 						</div>
-					{/await}
+					{/if}
 				</PanelSection>
 			</Pane>
 		</Splitpanes>
