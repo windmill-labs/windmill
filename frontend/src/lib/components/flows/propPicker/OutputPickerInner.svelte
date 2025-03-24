@@ -285,8 +285,21 @@
 				{/if}
 			{/if}
 			{#if !isLoading && selectedJob && !preview && !mock?.enabled}
-				<div class="w-grow min-w-0">
-					<OutputBadge job={selectedJob} />
+				<div class="w-grow min-w-0 flex gap-1 items-center">
+					<OutputBadge job={selectedJob} class="grow min-w-16" />
+					{#if selectedJob.id !== lastJob?.id}
+						<button
+							class="px-1 shrink-0 underline"
+							on:click={() => {
+								if (historyOpen) {
+									stepHistory?.deselect()
+								} else {
+									selectJob(lastJob)
+									preview = undefined
+								}
+							}}>See last result</button
+						>
+					{/if}
 				</div>
 			{/if}
 		</div>
