@@ -59,6 +59,89 @@
 			model: 'No model',
 			provider: 'No provider'
 		}
+
+	let showContextTooltip = false;
+	let contextTooltipWord = '';
+	let tooltipPosition = { x: 0, y: 0 };
+	let textareaEl: HTMLTextAreaElement;
+	let highlightEl: HTMLDivElement;
+
+	function getHighlightedText(text: string) {
+		return text.replace(/@[\w.-]+/g, (match) => {
+			const contextElement = availableContext.find((c) => c.title.includes(match.slice(1)))
+			if (contextElement) {
+				return `<span class="bg-yellow text-black">${match}</span>`
+			}
+			return match
+		})
+	}
+
+	function addContextToSelection(contextElement: ContextElement) {
+		if (!selectedContext.find((c) => c.type === contextElement.type)) {
+			selectedContext = [
+				...selectedContext,
+				{
+					type: contextElement.type,
+					title: contextElement.title
+				}
+			]
+		}
+	}
+
+	function updateInstructionsWithContext(contextElement: ContextElement) {
+		const index = instructions.lastIndexOf("@")
+		if (index !== -1) {
+			instructions = instructions.substring(0, index) + `@${contextElement.title}`
+		}
+	}
+
+	function handleContextSelection(contextElement: ContextElement) {
+		addContextToSelection(contextElement)
+		updateInstructionsWithContext(contextElement)
+		showContextTooltip = false
+	}
+
+	function handleInput(e: Event) {
+		const textarea = e.target as HTMLTextAreaElement;
+		const words = instructions.split(/\s+/);
+		const lastWord = words[words.length - 1];
+		
+		if (lastWord.startsWith('@')) {
+			const rect = textarea.getBoundingClientRect();
+			const cursorPosition = textarea.selectionStart;
+			const textBeforeCursor = textarea.value.substring(0, cursorPosition);
+			const lines = textBeforeCursor.split('\n');
+			const currentLine = lines[lines.length - 1];
+			const currentLineNumber = lines.length - 1;
+			
+			// Create a temporary span to measure text width
+			const tempSpan = document.createElement('span');
+			tempSpan.style.visibility = 'hidden';
+			tempSpan.style.position = 'absolute';
+			tempSpan.style.whiteSpace = 'pre-wrap';
+			tempSpan.style.font = window.getComputedStyle(textarea).font;
+			tempSpan.style.padding = window.getComputedStyle(textarea).padding;
+			tempSpan.textContent = currentLine;
+			document.body.appendChild(tempSpan);
+			
+			// Calculate cursor position
+			const lineHeight = parseInt(window.getComputedStyle(textarea).lineHeight);
+			const paddingTop = parseInt(window.getComputedStyle(textarea).paddingTop);
+			const scrollTop = textarea.scrollTop;
+			
+			tooltipPosition = {
+				x: rect.left + tempSpan.offsetWidth + parseInt(window.getComputedStyle(textarea).paddingLeft) - 100,
+				y: rect.top + (currentLineNumber * lineHeight) + paddingTop - scrollTop + lineHeight + 5
+			};
+			
+			document.body.removeChild(tempSpan);
+			showContextTooltip = true;
+			contextTooltipWord = lastWord.slice(1);
+		} else {
+			showContextTooltip = false;
+			contextTooltipWord = '';
+		}
+	}
 </script>
 
 <div class="flex flex-col h-full">
@@ -197,13 +280,7 @@
 									<button
 										class="hover:bg-surface-hover rounded-md p-1 text-left flex flex-row gap-1 items-center font-normal"
 										on:click={() => {
-											selectedContext = [
-												...selectedContext,
-												{
-													type: element.type,
-													title: element.title
-												}
-											]
+											handleContextSelection(element)
 											close()
 										}}
 									>
@@ -229,54 +306,97 @@
 				{/if}
 			{/each}
 		</div>
-		<div class="px-2 scroll-pb-2">
-			<textarea
-				on:keypress={(e) => {
-					if (e.key === 'Enter' && !e.shiftKey) {
-						e.preventDefault()
+		<div class="relative w-full font-mono leading-normal">
+		<textarea
+			bind:this={textareaEl}
+			on:keypress={(e) => {
+				if (e.key === 'Enter' && !e.shiftKey) {
+					e.preventDefault()
+					const contextElement = availableContext.find((c) => c.title.includes(contextTooltipWord))
+					if (contextTooltipWord && contextElement) {
+						handleContextSelection(contextElement)
+					} else {
 						dispatch('sendRequest')
 					}
-				}}
-				bind:value={instructions}
-				use:autosize
-				rows={3}
-				placeholder={messages.length > 0 ? 'Ask followup' : 'Ask anything'}
-				class="resize-none"
-			/>
+				}
+			}}
+			bind:value={instructions}
+			use:autosize
+			rows={3}
+			on:input={handleInput}
+			on:blur={() => {
+				// Small delay to allow click events on the tooltip to fire first
+				setTimeout(() => {
+					showContextTooltip = false;
+				}, 100);
+			}}
+			placeholder={messages.length > 0 ? 'Ask followup' : 'Ask anything'}
+			class="absolute top-0 left-0 w-full h-full px-3 py-2 resize-none z-10 bg-transparent text-black focus:outline-none rounded"
+		/>
 
-			<div class="flex flex-row justify-end items-center gap-2 px-0.5">
-				<div class="min-w-0">
-					<Popover disablePopup={$copilotInfo.aiModels.length <= 1}>
-						<svelte:fragment slot="trigger">
-							<div class="text-tertiary text-xs flex flex-row items-center gap-0.5 font-normal">
-								{providerModel.model}
-								{#if $copilotInfo.aiModels.length > 1}
-									<ChevronDown size={16} />
-								{/if}
-							</div>
-						</svelte:fragment>
-						<svelte:fragment slot="content" let:close>
-							<div class="flex flex-col gap-1 p-1 min-w-24">
-								{#each $copilotInfo.aiModels.filter((m) => m.model !== providerModel.model) as providerModel}
-									<button
-										class="text-left text-xs hover:bg-surface-hover rounded-md p-1 font-normal"
-										on:click={() => {
-											$copilotSessionModel = providerModel
-											storeLocalSetting(COPILOT_SESSION_MODEL_SETTING_NAME, providerModel.model)
-											storeLocalSetting(
-												COPILOT_SESSION_PROVIDER_SETTING_NAME,
-												providerModel.provider
-											)
-											close()
-										}}
-									>
-										{providerModel.model}
-									</button>
-								{/each}
-							</div>
-						</svelte:fragment>
-					</Popover>
+		{#if instructions}
+			<div
+				bind:this={highlightEl}
+				class="absolute top-0 left-0 w-full h-full px-3 py-2 whitespace-pre-wrap break-words pointer-events-none z-0 text-black overflow-hidden"
+				style="color: transparent; font-family: inherit; font-size: inherit; line-height: inherit;"
+			>
+				{@html getHighlightedText(instructions)}
+			</div>
+			{/if}
+		</div>
+
+		{#if showContextTooltip}
+			<div
+				class="absolute bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-md shadow-lg p-2 z-50"
+				style="left: {tooltipPosition.x}px; top: {tooltipPosition.y}px;"
+			>
+				<div class="flex flex-col gap-1 text-tertiary text-xs min-w-24">
+					{#if availableContext.length === 0}
+						<div class="text-center text-tertiary text-xs">No available context</div>
+					{:else}
+						{#each availableContext as element}
+								<button
+									class="hover:bg-surface-hover rounded-md p-1 text-left flex flex-row gap-1 items-center font-normal"
+									on:click={() => handleContextSelection(element)}
+								>
+									<svelte:component this={ContextIconMap[element.type]} size={16} />
+									{element.title}
+								</button>
+						{/each}
+					{/if}
 				</div>
+			</div>
+		{/if}
+
+		<div class="flex flex-row justify-end items-center gap-2 px-0.5">
+			<div class="min-w-0">
+				<Popover disablePopup={$copilotInfo.aiModels.length <= 1}>
+					<svelte:fragment slot="trigger">
+						<div class="text-tertiary text-xs flex flex-row items-center gap-0.5 font-normal">
+							{providerModel.model}
+							{#if $copilotInfo.aiModels.length > 1}
+								<ChevronDown size={16} />
+							{/if}
+						</div>
+					</svelte:fragment>
+					<svelte:fragment slot="content" let:close>
+						<div class="flex flex-col gap-1 p-1 min-w-24">
+							{#each $copilotInfo.aiModels.filter((m) => m.model !== providerModel.model) as providerModel}
+								<button
+									class="text-left text-xs hover:bg-surface-hover rounded-md p-1 font-normal"
+									on:click={() => {
+										$copilotSessionModel = providerModel
+										storeLocalSetting(COPILOT_SESSION_MODEL_SETTING_NAME, providerModel.model)
+										storeLocalSetting(COPILOT_SESSION_PROVIDER_SETTING_NAME, providerModel.provider)
+										close()
+									}}
+								>
+									{providerModel.model}
+								</button>
+							{/each}
+						</div>
+					</svelte:fragment>
+				</Popover>
 			</div>
 		</div>
 	</div>

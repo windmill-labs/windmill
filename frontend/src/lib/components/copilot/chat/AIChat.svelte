@@ -30,6 +30,7 @@
 
 	let initializedWithInitCode: boolean | null = null
 	$: lang && (initializedWithInitCode = null)
+
 	function onCodeChange() {
 		if (initializedWithInitCode === null && code) {
 			if (isInitialCode(code)) {
@@ -159,6 +160,7 @@
 	let messages: { role: 'user' | 'assistant' | 'system'; content: string }[] = [
 		prepareSystemMessage()
 	]
+
 	let displayMessages: DisplayMessage[] = []
 	let abortController: AbortController | undefined = undefined
 
