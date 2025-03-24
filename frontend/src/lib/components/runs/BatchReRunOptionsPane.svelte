@@ -145,7 +145,7 @@
 	<p class="ml-4 mt-4 text-xs font-semibold truncate">Batch re-run options</p>
 	<div class="border m-4 flex-1">
 		<Splitpanes>
-			<Pane size={25} class="bg-surface-secondary relative">
+			<Pane size={32} class="bg-surface-secondary relative">
 				<PanelSection
 					title="Runnables"
 					class="bg-surface-secondary overflow-y-scroll absolute inset-0"
@@ -154,7 +154,7 @@
 					<div class="w-full flex flex-col gap-1">
 						{#each groupedJobs as group}
 							<button
-								class="border rounded-sm w-full text-left font-normal py-1.5 px-2 text-2xs truncate {eq(
+								class="border rounded-sm w-full text-left font-normal py-1.5 px-2 text-2xs flex justify-between {eq(
 									selected,
 									group
 								)
@@ -162,13 +162,14 @@
 									: 'hover:bg-blue-50 dark:hover:bg-frost-900/50'}"
 								onclick={() => (selected = group)}
 							>
-								{group.script_path}
+								<span class="truncate"> {group.script_path}</span>
+								<span class="text-gray-400">({group.script_hashes.size})</span>
 							</button>
 						{/each}
 					</div>
 				</PanelSection>
 			</Pane>
-			<Pane size={75} class="relative">
+			<Pane size={68} class="relative">
 				<PanelSection
 					title="Inputs"
 					class="overflow-y-scroll absolute inset-0"
