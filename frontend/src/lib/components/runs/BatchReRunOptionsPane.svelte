@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import PanelSection from '../apps/editor/settingsPanel/common/PanelSection.svelte'
-	import { ScriptService, type Job } from '$lib/gen'
+	import { ScriptService, type InputTransform, type Job } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import type { Schema, SchemaProperty } from '$lib/common'
 	import InputTransformForm from '../InputTransformForm.svelte'
@@ -12,6 +12,10 @@
 	import Alert from '../common/alert/Alert.svelte'
 	import { buildExtraLibForBatchReruns } from '$lib/components/jobs/batchReruns'
 	import { pluralize } from '$lib/utils'
+
+	type ChangedArgsRecord = {
+		[kind in 'flow' | 'script']: { [path: string]: { [property: string]: InputTransform } }
+	}
 
 	const { selectedJobs }: { selectedJobs: Job[] } = $props()
 
@@ -130,6 +134,11 @@
 		}
 		return map
 	})
+
+	const changedArgs: ChangedArgsRecord = $state({
+		flow: {},
+		script: {}
+	})
 </script>
 
 <div class="flex-1 flex flex-col">
@@ -185,9 +194,14 @@
 							{#each propertyMap.entries() as [propertyName, property]}
 								<InputTransformForm
 									class="items-start mb-4"
-									arg={{
+									arg={changedArgs[selected.kind]?.[selected.script_path]?.[propertyName] ?? {
 										type: 'javascript',
 										expr: `job.input["${propertyName}"]`
+									}}
+									on:change={(e) => {
+										if (!selected) return
+										const arg = e.detail.arg as InputTransform
+										;(changedArgs[selected.kind][selected.script_path] ??= {})[propertyName] = arg
 									}}
 									argName={propertyName}
 									{schema}

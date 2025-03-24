@@ -459,7 +459,7 @@
 							on:click={() => {
 								focusProp?.(argName, 'connect', (path) => {
 									connectProperty(path)
-									dispatch('change', { argName })
+									dispatch('change', { argName, arg })
 									return true
 								})
 							}}
@@ -501,7 +501,7 @@
 									bind:code={arg.value}
 									fontSize={14}
 									on:change={() => {
-										dispatch('change', { argName })
+										dispatch('change', { argName, arg })
 									}}
 								/>
 							{/if}
@@ -518,7 +518,7 @@
 							}}
 							shouldDispatchChanges
 							on:change={() => {
-								dispatch('change', { argName })
+								dispatch('change', { argName, arg })
 							}}
 							label={argName}
 							bind:editor={monaco}
@@ -552,7 +552,7 @@
 								bind:this={monaco}
 								bind:code={arg.expr}
 								on:change={() => {
-									dispatch('change', { argName })
+									dispatch('change', { argName, arg })
 								}}
 								{extraLib}
 								lang="javascript"
@@ -565,7 +565,7 @@
 									})
 								}}
 								on:change={() => {
-									dispatch('change', { argName })
+									dispatch('change', { argName, arg })
 								}}
 								on:blur={() => {
 									focused = false
