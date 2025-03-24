@@ -27,6 +27,7 @@
 	export let editor: Editor | undefined
 	export let diffEditor: DiffEditor | undefined
 	export let noEditor = false
+	export let lastJob: Job | undefined = undefined
 
 	const { flowStore, flowStateStore, testStepStore, pathStore } =
 		getContext<FlowEditorContext>('FlowEditorContext')
@@ -98,37 +99,16 @@
 		if (testJob && !testJob.canceled && testJob.type == 'CompletedJob' && `result` in testJob) {
 			if ($flowStateStore[mod.id]) {
 				$flowStateStore[mod.id].previewResult = testJob.result
+				$flowStateStore[mod.id].previewSuccess = testJob.success
+				$flowStateStore[mod.id].previewJobId = testJob.id
+				$flowStateStore[mod.id].previewWorkspaceId = testJob.workspace_id
 				$flowStateStore = $flowStateStore
 			}
 		}
 	}
 
-	async function getLastJob(noLogs: boolean) {
-		if (fetchingLastJob) {
-			return
-		}
-		fetchingLastJob = true
-		const previousJobs = await JobService.listJobs({
-			workspace: $workspaceStore!,
-			scriptPathExact: $pathStore + '/' + mod.id,
-			jobKinds: ['preview', 'script', 'flowpreview', 'flow'].join(','),
-			page: 1,
-			perPage: 1
-		})
-		if (previousJobs.length > 0) {
-			const job = await JobService.getJob({
-				workspace: $workspaceStore ?? '',
-				id: previousJobs[0].id ?? ''
-			})
-			if (job) {
-				outputPicker?.setLastJob(job)
-			}
-		}
-		fetchingLastJob = false
-	}
-
-	$: testJob && outputPicker?.setLastJob(testJob, true)
-	getLastJob(true) // TODO: put this function higher in the component tree so it doesn't need to be called on every tab change
+	$: testJob && outputPicker?.setLastJob(testJob, false)
+	$: lastJob && outputPicker?.setLastJob(lastJob, false)
 
 	let forceJson = false
 </script>

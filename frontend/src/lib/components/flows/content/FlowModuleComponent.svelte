@@ -48,6 +48,8 @@
 	import { debounce } from '$lib/utils'
 	import { dfs } from '../dfs'
 	import FlowModuleSkip from './FlowModuleSkip.svelte'
+	import { type Job, JobService } from '$lib/gen'
+	import { workspaceStore } from '$lib/stores'
 
 	const {
 		selectedId,
@@ -89,6 +91,7 @@
 	let s3Kind = 's3_client'
 	let validCode = true
 	let width = 1200
+	let lastJob: Job | undefined = undefined
 
 	const { modulesStore: copilotModulesStore } =
 		getContext<FlowCopilotContext | undefined>('FlowCopilotContext') || {}
@@ -205,6 +208,26 @@
 		}
 		debouncedWarning(argName)
 	}
+
+	async function getLastJob() {
+		const previousJobs = await JobService.listJobs({
+			workspace: $workspaceStore!,
+			scriptPathExact: $pathStore + '/' + flowModule.id,
+			jobKinds: ['preview', 'script', 'flowpreview', 'flow'].join(','),
+			page: 1,
+			perPage: 1
+		})
+		if (previousJobs.length > 0) {
+			const job = await JobService.getJob({
+				workspace: $workspaceStore ?? '',
+				id: previousJobs[0].id ?? ''
+			})
+			if (job) {
+				lastJob = job
+			}
+		}
+	}
+	getLastJob()
 </script>
 
 <svelte:window on:keydown={onKeyDown} />
@@ -407,6 +430,7 @@
 										{noEditor}
 										lang={flowModule.value['language'] ?? 'deno'}
 										schema={$flowStateStore[$selectedId]?.schema ?? {}}
+										{lastJob}
 									/>
 								{:else if selected === 'advanced'}
 									<Tabs bind:selected={advancedSelected}>
