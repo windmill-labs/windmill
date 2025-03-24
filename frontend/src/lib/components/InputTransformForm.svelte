@@ -39,6 +39,7 @@
 	export let schema: Schema | { properties?: Record<string, any>; required?: string[] }
 	export let arg: InputTransform | any
 	export let argName: string
+	export let headerTooltip: string | undefined = undefined
 	export let extraLib: string = 'missing extraLib'
 	export let inputCheck: boolean = true
 	export let previousModuleId: string | undefined
@@ -304,6 +305,7 @@
 			<div class="flex flex-wrap grow">
 				<FieldHeader
 					label={argName}
+					simpleTooltip={headerTooltip}
 					format={schema?.properties?.[argName].format}
 					contentEncoding={schema?.properties?.[argName].contentEncoding}
 					required={schema.required?.includes(argName)}

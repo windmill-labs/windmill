@@ -55,7 +55,6 @@
 		const list: GroupedJob[] = []
 		scriptGroup.forEach((v, k) => list.push({ script_path: k, kind: 'script', ...v }))
 		flowGroup.forEach((v, k) => list.push({ script_path: k, kind: 'flow', ...v }))
-		console.log(list)
 		return list
 	})
 
@@ -112,9 +111,9 @@
 				if (!map.has(property))
 					map.set(property, {
 						property: schema.properties[property],
-						hashes: new Set(script_hash)
+						hashes: new Set()
 					})
-				else map.get(property)?.hashes.add(script_hash)
+				map.get(property)?.hashes.add(script_hash)
 			}
 		}
 		return map
@@ -125,7 +124,7 @@
 	<p class="ml-4 mt-4 text-xs font-semibold truncate">Batch re-run options</p>
 	<div class="border m-4 flex-1">
 		<Splitpanes>
-			<Pane size={32} class="bg-surface-secondary relative">
+			<Pane size={25} class="bg-surface-secondary relative">
 				<PanelSection
 					title="Runnables"
 					class="bg-surface-secondary overflow-y-scroll absolute inset-0"
@@ -148,15 +147,28 @@
 					</div>
 				</PanelSection>
 			</Pane>
-			<Pane size={68}>
+			<Pane size={75}>
 				<PanelSection title="Inputs" class="" id="batch-rerun-options-args">
 					{#await selectedHashesPromise then selectedHashes}
 						{@const properties = computePropertyMap(selectedHashes)}
+						{@const flow_input = Object.fromEntries([...properties.keys()].map((p) => [p, '']))}
+						{@const pickableProperties = {
+							hasResume: false,
+							previousId: undefined,
+							priorIds: {},
+							flow_input
+						}}
+						{@const schema: Schema = {
+							$schema: 'http://json-schema.org/draft-07/schema#',
+							type: "object",
+							required: [],
+							properties: Object.fromEntries([...properties.entries()].map(([p, {property}]) => [p, property])) 
+						}}
 						<div class="w-full h-full">
 							<PropPickerWrapper
 								noFlowPlugConnect
 								displayContext={false}
-								pickableProperties={undefined}
+								{pickableProperties}
 								on:select={({ detail }) => {}}
 							>
 								{#each properties.entries() as [propertyName, property]}
@@ -164,11 +176,15 @@
 										class="items-start mb-4"
 										arg={{
 											type: 'javascript',
-											expr: ''
+											expr: `flow_input["${propertyName}"]`
 										} as InputTransform}
 										argName={propertyName}
-										schema={{}}
+										{schema}
 										previousModuleId={undefined}
+										{pickableProperties}
+										headerTooltip={property.hashes.size === selectedHashes.length
+											? `Used in all selected ${selected?.kind} versions`
+											: `Used in ${property.hashes.size} ${selected?.kind} versions: ${[...property.hashes.values()].join(', ').substring(0, 6)}`}
 									/>
 								{/each}
 							</PropPickerWrapper>
