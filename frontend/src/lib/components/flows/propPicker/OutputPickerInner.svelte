@@ -42,6 +42,7 @@
 	let tmpMock: { enabled: boolean; return_value?: unknown } | undefined = undefined
 	let error = ''
 	let stepHistoryPopover: Popover | undefined = undefined
+	let stepHistory: StepHistory | undefined = undefined
 	let lastJob: Job | undefined = undefined
 	let historyOpen = false
 
@@ -99,7 +100,7 @@
 	<div
 		class={twMerge(
 			infoMessage ? `${classes['info'].descriptionClass} ${classes['info'].bgClass}` : '',
-			'text-xs px-2',
+			'text-xs px-1',
 			'border-none'
 		)}
 	>
@@ -147,6 +148,7 @@
 							}}
 							mockValue={mock?.return_value}
 							mockEnabled={mock?.enabled}
+							bind:this={stepHistory}
 						/>
 					</div>
 				</svelte:fragment>
@@ -156,7 +158,7 @@
 					<Pin size={14} class="inline" />{mock?.enabled
 						? 'This step is pinned.'
 						: 'Mock disabled'}<button
-						class="inline-block text-xs px-2 py-1 underline"
+						class="inline-block text-xs underline"
 						on:click={() => {
 							preview = undefined
 						}}
@@ -165,7 +167,7 @@
 					>
 					or
 					<button
-						class="inline-block text-xs px-2 py-1 underline"
+						class="inline-block text-xs underline"
 						on:click={() => {
 							if (!tmpMock) {
 								return
@@ -279,7 +281,7 @@
 							disabled={!mock?.enabled || isConnecting}
 						/>
 						<svelte:fragment slot="text">
-							{'Enable mock to edit the output'}
+							{'Pin the output to allow editing'}
 						</svelte:fragment>
 					</Tooltip>
 				{/if}
@@ -339,7 +341,7 @@
 				{/if}
 			</div>
 		{:else}
-			Test to see the result here
+			<span class="px-1">Test to see the result here</span>
 		{/if}
 	{:else}
 		<div class="grow min-h-0 p-2 rounded-sm w-full overflow-auto">

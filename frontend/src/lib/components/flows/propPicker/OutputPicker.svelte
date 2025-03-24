@@ -35,6 +35,9 @@
 	}
 
 	let popover: Popover | undefined = undefined
+
+	$: width = Math.max(MIN_WIDTH * zoom, 375)
+	$: height = Math.max(MIN_HEIGHT * zoom, 375)
 </script>
 
 <Popover
@@ -48,11 +51,10 @@
 	bind:this={popover}
 	allowFullScreen
 	contentClasses="overflow-hidden resize rounded-md"
-	contentStyle={`width: calc(${MIN_WIDTH * zoom}px); min-width: calc(${
-		MIN_WIDTH * zoom
-	}px); height: calc(${MIN_HEIGHT * zoom}px); min-height: calc(${MIN_HEIGHT * zoom}px);`}
-	fullScreenWidthOffset={2 * MIN_WIDTH}
+	contentStyle={`width: calc(${width}px); min-width: calc(${width}px); height: calc(${height}px); min-height: calc(${height}px);`}
+	fullScreenWidthOffset={2 * width}
 	extraProps={{ 'data-prop-picker': true }}
+	closeOnOtherPopoverOpen
 >
 	<svelte:fragment slot="trigger" let:isOpen>
 		<div
