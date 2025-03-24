@@ -3,6 +3,7 @@
 	import { createEventDispatcher } from 'svelte'
 	import type { ContextElement, SelectedContext } from './core'
 	import { ContextIconMap } from './core'
+	import getCaretCoordinates from 'textarea-caret'
 
 	export let instructions: string
 	export let availableContext: ContextElement[]
@@ -47,38 +48,6 @@
 		showContextTooltip = false
 	}
 
-	function getCaretCoordinates(textarea: HTMLTextAreaElement, pos: number) {
-		const div = document.createElement('div')
-		const style = window.getComputedStyle(textarea)
-
-		div.style.position = 'absolute'
-		div.style.visibility = 'hidden'
-		div.style.whiteSpace = 'pre-wrap'
-		div.style.wordWrap = 'break-word'
-		div.style.width = style.width
-		div.style.font = style.font
-		div.style.fontSize = style.fontSize
-		div.style.lineHeight = '1.72'
-		div.style.padding = style.padding
-		div.style.border = style.border
-
-		div.textContent = textarea.value.substring(0, pos)
-
-		const span = document.createElement('span')
-		span.textContent = textarea.value.substring(pos) || '.'
-		div.appendChild(span)
-
-		document.body.appendChild(div)
-		const spanRect = span.getBoundingClientRect()
-		const coordinates = {
-			x: spanRect.left - 50,
-			y: spanRect.top - 760,
-			height: spanRect.height
-		}
-		document.body.removeChild(div)
-		return coordinates
-	}
-
 	function handleInput(e: Event) {
 		const textarea = e.target as HTMLTextAreaElement
 		const words = instructions.split(/\s+/)
@@ -86,12 +55,12 @@
 		
         // If the last word is a context and it's not in the available context or selected context, show the tooltip
 		if (lastWord.startsWith('@') && (!availableContext.find((c) => c.title === lastWord.slice(1)) || !selectedContext.find((c) => c.title === lastWord.slice(1)))) {
-			const coords = getCaretCoordinates(textarea, textarea.selectionStart)
+			const coords = getCaretCoordinates(textarea, textarea.selectionEnd)
 			const rect = textarea.getBoundingClientRect()
 
 			tooltipPosition = {
-				x: rect.left + coords.x,
-				y: rect.top + coords.y
+				x: rect.left + coords.left - 70,
+				y: rect.top + coords.top + 20
 			}
 
 			showContextTooltip = true
@@ -100,6 +69,7 @@
 			showContextTooltip = false
 			contextTooltipWord = ''
 		}
+        dispatch('updateInstructions', { value: instructions })
 	}
 
 	function handleKeyPress(e: KeyboardEvent) {
