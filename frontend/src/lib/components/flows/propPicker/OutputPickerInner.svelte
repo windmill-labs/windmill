@@ -75,18 +75,16 @@
 		tmpMock = newMock
 	}
 
-	export function setLastJob(job: Job | undefined) {
+	export function setLastJob(job: Job | undefined, setPreview: boolean = false) {
 		if (!job) {
 			return
 		}
-		lastJob = job
-		if (!mock?.enabled) {
-			selectJob(lastJob)
+		lastJob = structuredClone(job)
+		selectJob(lastJob)
+		if (setPreview) {
+			preview = 'job'
 		}
 	}
-
-	$: console.log('dbg selectedJob', selectedJob?.id)
-	$: console.log('dbg previewJob', preview)
 </script>
 
 <div class="w-full h-full flex flex-col p-1" bind:clientHeight>
@@ -121,6 +119,7 @@
 						on:select={({ detail }) => {
 							if (detail === 'mock') {
 								selectMockValue()
+								preview = 'mock'
 								return
 							}
 							selectJob(detail)
@@ -132,27 +131,25 @@
 				</div>
 			</svelte:fragment>
 		</Popover>
-		{#if preview && historyOpen}
+		{#if preview}
 			<StatusBadge>
 				<Pin size={16} class="inline" />
 				{mock?.enabled ? (preview == 'job' ? 'Override pin ?' : 'Restore pin ?') : 'Restore pin ?'}
 				<svelte:fragment slot="action">
-					{#if historyOpen}
-						<Button
-							color="blue"
-							size="xs2"
-							startIcon={{ icon: Check }}
-							on:click={() => {
-								if (!tmpMock) {
-									return
-								}
-								dispatch('updateMock', tmpMock)
-								selectJob(undefined) // reset the job
-								preview = undefined
-								stepHistoryPopover?.close()
-							}}
-						/>
-					{/if}
+					<Button
+						color="blue"
+						size="xs2"
+						startIcon={{ icon: Check }}
+						on:click={() => {
+							if (!tmpMock) {
+								return
+							}
+							dispatch('updateMock', tmpMock)
+							selectJob(undefined) // reset the job
+							preview = undefined
+							stepHistoryPopover?.close()
+						}}
+					/>
 				</svelte:fragment>
 			</StatusBadge>
 		{:else}
@@ -251,7 +248,7 @@
 	</div>
 
 	{#if fullResult && !jsonView}
-		{#if isLoading && !mock?.enabled}
+		{#if isLoading && (!mock?.enabled || preview === 'job')}
 			<div class="p-2">
 				<Loader2 class="animate-spin " />
 			</div>

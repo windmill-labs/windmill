@@ -127,7 +127,7 @@
 		fetchingLastJob = false
 	}
 
-	$: testJob && outputPicker?.selectJob(testJob)
+	$: testJob && outputPicker?.setLastJob(testJob, true)
 	getLastJob(true) // TODO: put this function higher in the component tree so it doesn't need to be called on every tab change
 
 	let forceJson = false
