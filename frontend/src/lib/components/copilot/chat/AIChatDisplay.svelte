@@ -1,5 +1,4 @@
 <script lang="ts">
-	import autosize from '$lib/autosize'
 	import { twMerge } from 'tailwind-merge'
 	import AssistantMessage from './AssistantMessage.svelte'
 	import { createEventDispatcher, getContext } from 'svelte'
@@ -61,19 +60,7 @@
 			provider: 'No provider'
 		}
 
-	let showContextTooltip = false;
-	let contextTooltipWord = '';
-	let tooltipPosition = { x: 0, y: 0 };
-
-	function getHighlightedText(text: string) {
-		return text.replace(/@[\w.-]+/g, (match) => {
-			const contextElement = availableContext.find((c) => c.title === match.slice(1))
-			if (contextElement) {
-				return `<span class="bg-white text-black z-10">${match}</span>`
-			}
-			return match
-		})
-	}
+	$: console.log($copilotSessionModel, $copilotInfo.defaultModel, $copilotInfo.aiModels[0])
 
 	function addContextToSelection(contextElement: ContextElement) {
 		if (!selectedContext.find((c) => c.type === contextElement.type)) {
@@ -87,76 +74,6 @@
 		}
 	}
 
-	function updateInstructionsWithContext(contextElement: ContextElement) {
-		const index = instructions.lastIndexOf("@")
-		if (index !== -1) {
-			instructions = instructions.substring(0, index) + `@${contextElement.title}`
-		}
-	}
-
-	function handleContextSelection(contextElement: ContextElement) {
-		addContextToSelection(contextElement)
-		updateInstructionsWithContext(contextElement)
-		showContextTooltip = false
-	}
-
-	function getCaretCoordinates(textarea: HTMLTextAreaElement, pos: number) {
-		const div = document.createElement('div');
-		const style = window.getComputedStyle(textarea);
-
-		// Copy essential styling properties
-		div.style.position = 'absolute';
-		div.style.visibility = 'hidden';
-		div.style.whiteSpace = 'pre-wrap';
-		div.style.wordWrap = 'break-word';
-		div.style.width = style.width;
-		div.style.font = style.font;
-		div.style.fontSize = style.fontSize;
-		div.style.lineHeight = '1.72';
-		div.style.padding = style.padding;
-		div.style.border = style.border;
-
-		// Set content to text up to the caret position
-		div.textContent = textarea.value.substring(0, pos);
-
-		// Create a marker span to get the caret location
-		const span = document.createElement('span');
-		// If at the end, add a placeholder so the span has dimensions
-		span.textContent = textarea.value.substring(pos) || '.';
-		div.appendChild(span);
-
-		document.body.appendChild(div);
-		const spanRect = span.getBoundingClientRect();
-		const coordinates = {
-			x: spanRect.left - 50,
-			y: spanRect.top - 760,
-			height: spanRect.height
-		};
-		document.body.removeChild(div);
-		return coordinates;
-	}
-
-	function handleInput(e: Event) {
-		const textarea = e.target as HTMLTextAreaElement;
-		const words = instructions.split(/\s+/);
-		const lastWord = words[words.length - 1];
-		
-		if (lastWord.startsWith('@')) {
-			const coords = getCaretCoordinates(textarea, textarea.selectionStart);
-			const rect = textarea.getBoundingClientRect();
-
-			tooltipPosition = {
-				x: rect.left + coords.x,
-				y: rect.top + coords.y
-			};
-
-			showContextTooltip = true;
-			contextTooltipWord = lastWord;
-		} else {
-			showContextTooltip = false;
-			contextTooltipWord = '';
-		}
-	}
 </script>
 
 <div class="flex flex-col h-full">
@@ -295,7 +212,7 @@
 									<button
 										class="hover:bg-surface-hover rounded-md p-1 text-left flex flex-row gap-1 items-center font-normal"
 										on:click={() => {
-											handleContextSelection(element)
+											addContextToSelection(element)
 											close()
 										}}
 									>
@@ -326,9 +243,9 @@
 			{availableContext}
 			{selectedContext}
 			placeholder={messages.length > 0 ? 'Ask followup' : 'Ask anything'}
-			on:updateInstructions={(e) => instructions = e.detail.value}
-			on:updateSelectedContext={(e) => selectedContext = e.detail.context}
+			on:addContext={(e) => addContextToSelection(e.detail.contextElement)}
 			on:sendRequest={() => dispatch('sendRequest')}
+			on:updateInstructions={(e) => instructions = e.detail.value}
 		/>
 
 		<div class="flex flex-row justify-end items-center gap-2 px-0.5">

@@ -11,8 +11,8 @@
 
 	const dispatch = createEventDispatcher<{
 		updateInstructions: { value: string }
-		updateSelectedContext: { context: SelectedContext[] }
 		sendRequest: null
+		addContext: { contextElement: ContextElement }
 	}>()
 
 	let showContextTooltip = false
@@ -30,16 +30,7 @@
 	}
 
 	function addContextToSelection(contextElement: ContextElement) {
-		if (!selectedContext.find((c) => c.type === contextElement.type)) {
-			const newSelectedContext = [
-				...selectedContext,
-				{
-					type: contextElement.type,
-					title: contextElement.title
-				}
-			]
-			dispatch('updateSelectedContext', { context: newSelectedContext })
-		}
+		dispatch('addContext', { contextElement })
 	}
 
 	function updateInstructionsWithContext(contextElement: ContextElement) {
@@ -93,7 +84,8 @@
 		const words = instructions.split(/\s+/)
 		const lastWord = words[words.length - 1]
 		
-		if (lastWord.startsWith('@')) {
+        // If the last word is a context and it's not in the available context or selected context, show the tooltip
+		if (lastWord.startsWith('@') && (!availableContext.find((c) => c.title === lastWord.slice(1)) || !selectedContext.find((c) => c.title === lastWord.slice(1)))) {
 			const coords = getCaretCoordinates(textarea, textarea.selectionStart)
 			const rect = textarea.getBoundingClientRect()
 
