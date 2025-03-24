@@ -150,7 +150,8 @@ fn format_pull_query(peek: String) -> String {
             j.tag, j.concurrent_limit, j.concurrency_time_window_s, j.flow_innermost_root_job,
             j.timeout, j.flow_step_id, j.cache_ttl, j.priority, j.raw_code, j.raw_lock, j.raw_flow,
             j.script_entrypoint_override, j.preprocessed, pj.runnable_path as parent_runnable_path,
-            p.email as permissioned_as_email, p.username as permissioned_as_username, p.is_admin as permissioned_as_is_admin, p.is_operator as permissioned_as_is_operator, p.groups as permissioned_as_groups, p.folders as permissioned_as_folders
+            p.email as permissioned_as_email, p.username as permissioned_as_username, p.is_admin as permissioned_as_is_admin, 
+            p.is_operator as permissioned_as_is_operator, p.groups as permissioned_as_groups, p.folders as permissioned_as_folders
         FROM q, j
             LEFT JOIN v2_job_status f USING (id)
             LEFT JOIN job_perms p ON p.job_id = j.id
