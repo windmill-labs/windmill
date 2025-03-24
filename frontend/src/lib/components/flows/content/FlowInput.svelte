@@ -47,8 +47,14 @@
 	export let noEditor: boolean
 	export let disabled: boolean
 
-	const { flowStore, previewArgs, pathStore, initialPathStore, flowInputEditorState } =
-		getContext<FlowEditorContext>('FlowEditorContext')
+	const {
+		flowStore,
+		previewArgs,
+		pathStore,
+		initialPathStore,
+		fakeInitialPath,
+		flowInputEditorState
+	} = getContext<FlowEditorContext>('FlowEditorContext')
 
 	let addProperty: AddPropertyV2 | undefined = undefined
 	let previewSchema: Record<string, any> | undefined = undefined
@@ -505,7 +511,7 @@
 							</svelete:fragment>
 							<div class="h-full">
 								<CaptureTable
-									path={$pathStore}
+									path={$initialPathStore || fakeInitialPath}
 									on:select={(e) => {
 										updatePreviewSchemaAndArgs(e.detail ?? undefined)
 									}}

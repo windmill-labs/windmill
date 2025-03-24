@@ -20,7 +20,7 @@ flow_testing = []
 cloud = []
 sqlx = []
 deno_core = ["dep:deno_fetch", "dep:deno_webidl", "dep:deno_web", "dep:deno_net", "dep:deno_console", "dep:deno_url", "dep:deno_core",
-    "dep:deno_ast", "dep:deno_tls", "dep:deno_permissions", "dep:deno_io", "dep:deno_runtime", "dep:deno_telemetry", "dep:deno_error"]
+    "dep:deno_ast", "dep:deno_tls", "dep:deno_permissions", "dep:deno_io", "dep:deno_runtime", "dep:deno_telemetry", "dep:deno_error", "dep:winapi"]
 otel = ["windmill-common/otel", "dep:opentelemetry"]
 dind = ["dep:bollard"]
 php = ["dep:windmill-parser-php"]
@@ -107,6 +107,7 @@ object_store = { workspace = true, optional = true}
 convert_case.workspace = true
 yaml-rust.workspace = true
 backon.workspace = true
+winapi = { workspace = true, optional = true }
 
 opentelemetry = { workspace = true, optional = true }
 bollard = { workspace = true, optional = true }
@@ -126,3 +127,4 @@ deno_permissions = { workspace = true, optional = true }
 deno_io = { workspace = true, optional = true }
 deno_runtime = { workspace = true, optional = true }
 deno_telemetry = { workspace = true, optional = true }
+winapi = { workspace = true, optional = true }

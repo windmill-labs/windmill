@@ -702,6 +702,11 @@ Windmill Community Edition {GIT_VERSION}
                                             tracing::info!("Webhook change detected, invalidating webhook cache: {}", workspace_id);
                                             windmill_api::webhook_util::WEBHOOK_CACHE.remove(workspace_id);
                                         },
+                                        "notify_workspace_envs_change" => {
+                                            let workspace_id = n.payload();
+                                            tracing::info!("Workspace envs change detected, invalidating workspace envs cache: {}", workspace_id);
+                                            windmill_common::variables::CUSTOM_ENVS_CACHE.remove(workspace_id);
+                                        },
                                         "notify_global_setting_change" => {
                                             tracing::info!("Global setting change detected: {}", n.payload());
                                             match n.payload() {
@@ -980,6 +985,7 @@ async fn listen_pg(url: &str) -> Option<PgListener> {
             "notify_config_change",
             "notify_global_setting_change",
             "notify_webhook_change",
+            "notify_workspace_envs_change",
         ])
         .await
     {
