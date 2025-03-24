@@ -28,11 +28,12 @@
 		script_path: string
 		kind: 'script' | 'flow'
 		script_hashes: Set<string>
+		job_count: number
 	}
 
 	const groupedJobs: GroupedJob[] = $derived.by(() => {
-		const scriptGroup: Map<string, { script_hashes: Set<string> }> = new Map()
-		const flowGroup: Map<string, { script_hashes: Set<string> }> = new Map()
+		const scriptGroup: Map<string, { job_count: number; script_hashes: Set<string> }> = new Map()
+		const flowGroup: Map<string, { job_count: number; script_hashes: Set<string> }> = new Map()
 
 		for (const job of selectedJobs) {
 			if (!job.script_path || !job.script_hash) {
@@ -42,12 +43,12 @@
 			let group: ReturnType<(typeof scriptGroup)['get']>
 			if (job.job_kind == 'script') {
 				if (!scriptGroup.has(job.script_path))
-					scriptGroup.set(job.script_path, { script_hashes: new Set() })
+					scriptGroup.set(job.script_path, { script_hashes: new Set(), job_count: 0 })
 				group = scriptGroup.get(job.script_path)
 			}
 			if (job.job_kind == 'flow') {
 				if (!flowGroup.has(job.script_path))
-					flowGroup.set(job.script_path, { script_hashes: new Set() })
+					flowGroup.set(job.script_path, { script_hashes: new Set(), job_count: 0 })
 				group = flowGroup.get(job.script_path)
 			}
 			if (!group) {
@@ -55,7 +56,8 @@
 				continue
 			}
 
-			if (!group.script_hashes.has(job.script_hash)) group.script_hashes.add(job.script_hash)
+			group.script_hashes.add(job.script_hash)
+			group.job_count += 1
 		}
 
 		const list: GroupedJob[] = []
@@ -186,7 +188,7 @@
 								onclick={() => (selected = group)}
 							>
 								<span class="truncate"> {group.script_path}</span>
-								<span class="text-gray-400">({group.script_hashes.size})</span>
+								<span class="text-gray-400">({group.job_count})</span>
 							</button>
 						{/each}
 					</div>
