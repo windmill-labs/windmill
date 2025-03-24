@@ -64,17 +64,16 @@
 	let contextTooltipWord = '';
 	let tooltipPosition = { x: 0, y: 0 };
 	let textareaEl: HTMLTextAreaElement;
-	let highlightEl: HTMLDivElement;
 
-	function getHighlightedText(text: string) {
-		return text.replace(/@[\w.-]+/g, (match) => {
-			const contextElement = availableContext.find((c) => c.title.includes(match.slice(1)))
-			if (contextElement) {
-				return `<span class="bg-yellow text-black">${match}</span>`
-			}
-			return match
-		})
-	}
+	// function getHighlightedText(text: string) {
+	// 	return text.replace(/@[\w.-]+/g, (match) => {
+	// 		const contextElement = availableContext.find((c) => c.title.includes(match.slice(1)))
+	// 		if (contextElement) {
+	// 			return `<span class="bg-yellow text-black">${match}</span>`
+	// 		}
+	// 		return match
+	// 	})
+	// }
 
 	function addContextToSelection(contextElement: ContextElement) {
 		if (!selectedContext.find((c) => c.type === contextElement.type)) {
@@ -306,7 +305,6 @@
 				{/if}
 			{/each}
 		</div>
-		<div class="relative w-full font-mono leading-normal">
 		<textarea
 			bind:this={textareaEl}
 			on:keypress={(e) => {
@@ -331,19 +329,8 @@
 				}, 100);
 			}}
 			placeholder={messages.length > 0 ? 'Ask followup' : 'Ask anything'}
-			class="absolute top-0 left-0 w-full h-full px-3 py-2 resize-none z-10 bg-transparent text-black focus:outline-none rounded"
+			class="resize-none"
 		/>
-
-		{#if instructions}
-			<div
-				bind:this={highlightEl}
-				class="absolute top-0 left-0 w-full h-full px-3 py-2 whitespace-pre-wrap break-words pointer-events-none z-0 text-black overflow-hidden"
-				style="color: transparent; font-family: inherit; font-size: inherit; line-height: inherit;"
-			>
-				{@html getHighlightedText(instructions)}
-			</div>
-			{/if}
-		</div>
 
 		{#if showContextTooltip}
 			<div
