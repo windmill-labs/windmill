@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import PanelSection from '../apps/editor/settingsPanel/common/PanelSection.svelte'
-	import { ScriptService, type InputTransform, type Job } from '$lib/gen'
+	import { FlowService, ScriptService, type InputTransform, type Job } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import type { Schema, SchemaProperty } from '$lib/common'
 	import InputTransformForm from '../InputTransformForm.svelte'
@@ -103,9 +103,32 @@
 				}))
 			}
 
-			// TODO : flows and create route for getFlowByVersion (hash to version?)
 			if (selected.kind === 'flow') {
-				return []
+				const path = selected.script_path
+				let flows = await Promise.all(
+					[...selected.script_hashes].map(async (hash) => ({
+						...(await FlowService.getFlowVersion({
+							path,
+							version: parseInt(hash, 16),
+							workspace: $workspaceStore
+						})),
+						hash
+					}))
+				)
+				if (!flows.length)
+					flows = [
+						{
+							...(await FlowService.getFlowByPath({
+								workspace: $workspaceStore,
+								path: selected.script_path
+							})),
+							hash: ''
+						}
+					]
+				return flows.map((flow) => ({
+					schema: (flow.schema ?? {}) as Schema,
+					script_hash: flow.hash
+				}))
 			}
 
 			console.error('selected is neither flow or script')
