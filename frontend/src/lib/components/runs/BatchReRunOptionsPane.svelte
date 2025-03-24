@@ -4,7 +4,6 @@
 	import { ScriptService, type InputTransform, type Job } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import type { Schema, SchemaProperty } from '$lib/common'
-	import PropPickerWrapper from '../flows/propPicker/PropPickerWrapper.svelte'
 	import InputTransformForm from '../InputTransformForm.svelte'
 	import type { FlowPropPickerConfig, PropPickerContext } from '../prop_picker'
 	import { setContext } from 'svelte'
@@ -165,29 +164,22 @@
 							properties: Object.fromEntries([...properties.entries()].map(([p, {property}]) => [p, property])) 
 						}}
 						<div class="w-full h-full">
-							<PropPickerWrapper
-								noFlowPlugConnect
-								displayContext={false}
-								{pickableProperties}
-								on:select={({ detail }) => {}}
-							>
-								{#each properties.entries() as [propertyName, property]}
-									<InputTransformForm
-										class="items-start mb-4"
-										arg={{
-											type: 'javascript',
-											expr: `flow_input["${propertyName}"]`
-										} as InputTransform}
-										argName={propertyName}
-										{schema}
-										previousModuleId={undefined}
-										{pickableProperties}
-										headerTooltip={property.hashes.size === selectedHashes.length
-											? `Used in all selected ${selected?.kind} versions`
-											: `Used in ${property.hashes.size} ${selected?.kind} versions: ${[...property.hashes.values()].join(', ').substring(0, 6)}`}
-									/>
-								{/each}
-							</PropPickerWrapper>
+							{#each properties.entries() as [propertyName, property]}
+								<InputTransformForm
+									class="items-start mb-4"
+									arg={{
+										type: 'javascript',
+										expr: `flow_input["${propertyName}"]`
+									} as InputTransform}
+									argName={propertyName}
+									{schema}
+									previousModuleId={undefined}
+									{pickableProperties}
+									headerTooltip={property.hashes.size === selectedHashes.length
+										? `Used in all selected ${selected?.kind} versions`
+										: `Used in ${property.hashes.size} ${selected?.kind} versions: ${[...property.hashes.values()].join(', ').substring(0, 6)}`}
+								/>
+							{/each}
 						</div>
 					{/await}
 				</PanelSection>

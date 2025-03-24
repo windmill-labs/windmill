@@ -71,8 +71,9 @@
 	const { shouldUpdatePropertyType, exprsToSet } =
 		getContext<FlowCopilotContext | undefined>('FlowCopilotContext') || {}
 
-	const { inputMatches, focusProp, propPickerConfig } =
+	const propPickerWrapperContext: PropPickerWrapperContext | undefined =
 		getContext<PropPickerWrapperContext>('PropPickerWrapper')
+	const { inputMatches, focusProp, propPickerConfig } = propPickerWrapperContext ?? {}
 
 	function setExpr() {
 		const newArg = $exprsToSet?.[argName]
@@ -222,7 +223,7 @@
 	function onFocus() {
 		focused = true
 		if (isStaticTemplate(inputCat)) {
-			focusProp(argName, 'append', (path) => {
+			focusProp?.(argName, 'append', (path) => {
 				const toAppend = `\$\{${path}}`
 				arg.value = `${arg.value ?? ''}${toAppend}`
 				monacoTemplate?.setCode(arg.value)
@@ -231,7 +232,7 @@
 				return false
 			})
 		} else {
-			focusProp(argName, 'insert', (path) => {
+			focusProp?.(argName, 'insert', (path) => {
 				arg.expr = path
 				arg.type = 'javascript'
 				propertyType = 'javascript'
@@ -254,7 +255,7 @@
 		if (propertyType == 'static') {
 			setPropertyType(arg?.value)
 			codeInjectionDetected = checkCodeInjection(arg?.value) != undefined
-		} else if (propertyType == 'javascript' && focused) {
+		} else if (propertyType == 'javascript' && focused && inputMatches) {
 			// setPropertyType(arg?.expr)
 			$inputMatches = checkCodeInjection(arg?.expr)
 		}
@@ -267,7 +268,7 @@
 	}
 
 	function updateFocused(newFocused: boolean) {
-		if (focusedPrev && !newFocused) {
+		if (focusedPrev && !newFocused && inputMatches) {
 			$inputMatches = undefined
 		}
 		focusedPrev = focused
@@ -451,16 +452,18 @@
 						</ToggleButtonGroup>
 					</div>
 
-					<FlowPlugConnect
-						{connecting}
-						on:click={() => {
-							focusProp(argName, 'connect', (path) => {
-								connectProperty(path)
-								dispatch('change', { argName })
-								return true
-							})
-						}}
-					/>
+					{#if propPickerWrapperContext}
+						<FlowPlugConnect
+							{connecting}
+							on:click={() => {
+								focusProp?.(argName, 'connect', (path) => {
+									connectProperty(path)
+									dispatch('change', { argName })
+									return true
+								})
+							}}
+						/>
+					{/if}
 				</div>
 			{/if}
 		</div>
@@ -555,7 +558,7 @@
 								shouldBindKey={false}
 								on:focus={() => {
 									focused = true
-									focusProp(argName, 'insert', (path) => {
+									focusProp?.(argName, 'insert', (path) => {
 										monaco?.insertAtCursor(path)
 										return false
 									})
