@@ -5,10 +5,14 @@
 	import { workspaceStore } from '$lib/stores'
 	import { getContext, createEventDispatcher, onDestroy } from 'svelte'
 	import type { FlowEditorContext } from '../types'
+	import { Pin } from 'lucide-svelte'
+	import { Cell } from '$lib/components/table'
 
 	export let selected: string | undefined = undefined
 	export let moduleId: string = ''
 	export let getLogs: boolean = false
+	export let mockValue: any = undefined
+	export let mockEnabled: boolean = false
 
 	const { pathStore } = getContext<FlowEditorContext>('FlowEditorContext')
 	const dispatch = createEventDispatcher()
@@ -48,9 +52,18 @@
 	$: infiniteList && initLoadInputs()
 
 	function handleselect(e: CustomEvent) {
+		if (e.detail === 'extraRow') {
+			if (selected === 'extraRow') {
+				deselect()
+				return
+			}
+			selected = 'extraRow'
+			dispatch('select', 'mock')
+			return
+		}
+
 		if (selected === e.detail.id) {
-			selected = undefined
-			dispatch('select', undefined)
+			deselect()
 			return
 		}
 		selected = e.detail.id
@@ -67,7 +80,31 @@
 	})
 </script>
 
-<InfiniteList bind:this={infiniteList} selectedItemId={selected} on:error on:select={handleselect}>
+<InfiniteList
+	bind:this={infiniteList}
+	selectedItemId={selected}
+	on:error
+	on:select={handleselect}
+	rounded={false}
+	noBorder
+	extraRowClasses={{
+		bgSelected: 'bg-blue-200',
+		bgHover: 'hover:bg-blue-100',
+		class: 'bg-blue-50'
+	}}
+>
+	<svelte:fragment slot="extra-row">
+		{#if mockValue && !mockEnabled}
+			<Cell>
+				<div class="center-center">
+					<Pin size={14} class="text-blue-700 dark:text-blue-100" />
+				</div>
+			</Cell>
+			<Cell colspan="2" wrap>
+				<span class="text-blue-700 dark:text-blue-100"> Previous pinned data </span>
+			</Cell>
+		{/if}
+	</svelte:fragment>
 	<svelte:fragment slot="columns">
 		<colgroup>
 			<col class="w-8" />

@@ -28,6 +28,7 @@
 	export let selectedJob: Job | undefined = undefined
 	export let forceJson: boolean = false
 	export let isLoading: boolean = false
+	export let previewMock: boolean = false
 
 	const dispatch = createEventDispatcher<{
 		updateMock: { enabled: boolean; return_value?: unknown }
@@ -41,10 +42,17 @@
 	let stepHistory: StepHistory | undefined = undefined
 	let stepHistoryPopover: Popover | undefined = undefined
 	let previewJob = false
+	let lastJob: Job | undefined = undefined
+	let historyOpen = false
 
 	export function selectJob(job: Job | undefined) {
+		previewMock = false
 		selectedJob = job
 		if (!job || !('result' in job)) {
+			previewJob = false
+			if (!mock?.enabled && lastJob && 'result' in lastJob) {
+				selectJob(lastJob)
+			}
 			jsonData = savedJsonData
 			return
 		}
@@ -54,16 +62,39 @@
 		if (mock?.enabled) {
 			const newMock = {
 				enabled: true,
-				return_value: job.result ?? {}
+				return_value: job.result
 			}
 			tmpMock = newMock
 			previewJob = true
 		}
 	}
+
+	function selectMockValue() {
+		previewJob = false
+		selectedJob = undefined
+		savedJsonData = jsonData
+		jsonData = mock?.return_value
+		const newMock = {
+			enabled: true,
+			return_value: mock?.return_value
+		}
+		tmpMock = newMock
+		previewMock = true
+	}
+
+	export function setLastJob(job: Job | undefined) {
+		if (!job) {
+			return
+		}
+		lastJob = job
+		if (!mock?.enabled) {
+			selectJob(lastJob)
+		}
+	}
 </script>
 
 <div class="w-full h-full flex flex-col p-1" bind:clientHeight>
-	<div class="flex flex-row items-center justify-between w-full">
+	<div class="flex flex-row items-center justify-between w-full min-h-[28px]">
 		<div class="flex flex-row items-center gap-0.5">
 			<Popover
 				bind:this={stepHistoryPopover}
@@ -72,9 +103,10 @@
 					offset: { mainAxis: 10, crossAxis: -6 },
 					gutter: 0 // hack to make offset effective, see https://github.com/melt-ui/melt-ui/issues/528
 				}}
-				contentClasses="w-[275px]"
+				contentClasses="w-[275px] overflow-hidden"
 				{closeOnOutsideClick}
 				disablePopup={isConnecting}
+				bind:isOpen={historyOpen}
 			>
 				<svelte:fragment slot="trigger">
 					<Button
@@ -93,36 +125,40 @@
 							{moduleId}
 							{getLogs}
 							on:select={({ detail }) => {
+								if (detail === 'mock') {
+									selectMockValue()
+									return
+								}
 								selectJob(detail)
 							}}
+							mockValue={mock?.return_value}
+							mockEnabled={mock?.enabled}
 						/>
 					</div>
 				</svelte:fragment>
 			</Popover>
-			{#if selectedJob && mock?.enabled && previewJob}
-				<StatusBadge
-					class="absolute"
-					on:close={() => {
-						stepHistory?.deselect()
-						selectedJob = undefined
-					}}
-				>
-					Override pinned ?
+			{#if (previewJob || previewMock) && historyOpen}
+				<StatusBadge>
+					<Pin size={16} class="inline" />
+					{mock?.enabled ? 'Override pin ?' : 'Restore pin ?'}
 					<svelte:fragment slot="action">
-						<Button
-							color="blue"
-							size="xs2"
-							startIcon={{ icon: Check }}
-							on:click={() => {
-								if (!tmpMock) {
-									return
-								}
-								dispatch('updateMock', tmpMock)
-								selectedJob = undefined
-								previewJob = false
-								stepHistoryPopover?.close()
-							}}
-						/>
+						{#if historyOpen}
+							<Button
+								color="blue"
+								size="xs2"
+								startIcon={{ icon: Check }}
+								on:click={() => {
+									if (!tmpMock) {
+										return
+									}
+									dispatch('updateMock', tmpMock)
+									selectedJob = undefined
+									previewJob = false
+									previewMock = false
+									stepHistoryPopover?.close()
+								}}
+							/>
+						{/if}
 					</svelte:fragment>
 				</StatusBadge>
 			{:else}
@@ -145,17 +181,17 @@
 							}
 							dispatch('updateMock', newMock)
 						} else {
-							let result = jsonData
+							let mockValue = jsonData
 
 							if (selectedJob && 'result' in selectedJob) {
-								result = structuredClone(selectedJob.result)
+								mockValue = structuredClone(selectedJob.result)
 								selectedJob = undefined
 							} else if (jsonData === 'never tested this far') {
-								result = { example: 'value' }
+								mockValue = { example: 'value' }
 							}
 							const newMock = {
 								enabled: true,
-								return_value: result
+								return_value: mockValue
 							}
 							dispatch('updateMock', newMock)
 						}
@@ -215,7 +251,7 @@
 	</div>
 
 	{#if fullResult && !jsonView}
-		{#if isLoading}
+		{#if isLoading && !mock?.enabled}
 			<div class="p-2">
 				<Loader2 class="animate-spin " />
 			</div>
@@ -238,13 +274,13 @@
 					null
 				{/if}
 			</div>
-		{:else if mock?.enabled}
+		{:else if mock?.enabled || previewMock}
 			<div class="break-words relative h-full p-2">
 				<DisplayResult
 					bind:forceJson
 					workspaceId={undefined}
 					jobId={undefined}
-					result={mock.return_value}
+					result={mock?.return_value}
 				/>
 			</div>
 		{:else}
@@ -310,8 +346,8 @@
 									return_value: { example: 'value' }
 								}
 								dispatch('updateMock', newMock)
-							}}>mock<Pin size={16} class="inline" /></button
-						> output
+							}}>pin data<Pin size={16} class="inline" /></button
+						>
 					</p>
 				</div>
 			{:else}

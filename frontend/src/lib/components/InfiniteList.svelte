@@ -11,6 +11,13 @@
 	export let selectedItemId: any | undefined = undefined
 	export let isEmpty: boolean = true
 	export let length: number = 0
+	export let rounded: boolean = true
+	export let noBorder: boolean = false
+	export let extraRowClasses: { bgSelected: string; bgHover: string; class: string } = {
+		bgSelected: '',
+		bgHover: '',
+		class: ''
+	}
 
 	const perPage = 20
 
@@ -137,10 +144,23 @@
 			}}
 			{loading}
 			{loadingMore}
+			{rounded}
+			{noBorder}
 		>
 			<slot name="columns" />
 
 			<tbody class="h-full w-full">
+				<Row
+					on:click={() => dispatch('select', 'extraRow')}
+					class={twMerge(
+						extraRowClasses.class,
+						selectedItemId === 'extraRow' ? extraRowClasses.bgSelected : extraRowClasses.bgHover,
+						'cursor-pointer rounded-md'
+					)}
+					on:hover={(e) => (hovered = e.detail ? 'extraRow' : undefined)}
+				>
+					<slot name="extra-row" hover={hovered === 'extraRow'} />
+				</Row>
 				{#each items ?? [] as item, index}
 					{@const hover = item.id === hovered}
 					<Row

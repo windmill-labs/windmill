@@ -40,6 +40,7 @@
 	let outputPicker: OutputPickerInner | undefined = undefined
 	let jobProgressReset: () => void
 	let fetchingLastJob = false
+	let previewMock = false
 
 	let stepArgs: Record<string, any> | undefined = Object.fromEntries(
 		Object.keys(schema.properties ?? {}).map((k) => [
@@ -107,7 +108,6 @@
 			return
 		}
 		fetchingLastJob = true
-		// TODO: put this function higher in the component tree
 		const previousJobs = await JobService.listJobs({
 			workspace: $workspaceStore!,
 			scriptPathExact: $pathStore + '/' + mod.id,
@@ -118,18 +118,17 @@
 		if (previousJobs.length > 0) {
 			const job = await JobService.getJob({
 				workspace: $workspaceStore ?? '',
-				id: previousJobs[0].id ?? '',
-				noLogs
+				id: previousJobs[0].id ?? ''
 			})
 			if (job) {
-				selectedJob = job
+				outputPicker?.setLastJob(job)
 			}
 		}
 		fetchingLastJob = false
 	}
 
 	$: testJob && outputPicker?.selectJob(testJob)
-	$: !selectedJob && !mod.mock?.enabled && getLastJob(true)
+	getLastJob(true) // TODO: put this function higher in the component tree so it doesn't need to be called on every tab change
 
 	let forceJson = false
 </script>
@@ -199,6 +198,7 @@
 					bind:forceJson
 					bind:selectedJob
 					isLoading={(testIsLoading && !scriptProgress) || fetchingLastJob}
+					bind:previewMock
 				>
 					<svelte:fragment slot="copilot-fix">
 						{#if lang && editor && diffEditor && stepArgs && selectedJob && 'result' in selectedJob && selectedJob.result && typeof selectedJob.result == 'object' && `error` in selectedJob.result && selectedJob.result.error}
@@ -214,13 +214,13 @@
 				</OutputPickerInner>
 			</Pane>
 			<Pane size={50} minSize={10}>
-				{#if mod.mock?.enabled && !selectedJob}
+				{#if (mod.mock?.enabled && !selectedJob) || previewMock}
 					<LogViewer
 						small
 						content={undefined}
 						isLoading={false}
 						tag={undefined}
-						customEmptyMessage="Using mock value"
+						customEmptyMessage="Using pinned data"
 					/>
 				{:else}
 					<LogViewer
