@@ -21,6 +21,7 @@
 	} from '$lib/stores'
 	import ContextElementBadge from './ContextElementBadge.svelte'
 	import { storeLocalSetting } from '$lib/utils'
+	import ContextTextarea from './ContextTextarea.svelte'
 
 	export let pastChats: { id: string; title: string }[]
 	export let messages: DisplayMessage[]
@@ -320,69 +321,15 @@
 				{/if}
 			{/each}
 		</div>
-		<div class="relative w-full">
-			<div
-				class="absolute top-0 left-0 w-full h-full min-h-12 p-2 text-sm pt-1"
-				style="line-height: 1.72"
-			>
-			<span class="break-words">
-				{@html getHighlightedText(instructions)}
-			</span>
-			</div>
-			<textarea
-				on:keypress={(e) => {
-					if (e.key === 'Enter' && !e.shiftKey) {
-						e.preventDefault()
-					if (contextTooltipWord) {
-						const contextElement = availableContext.find((c) => c.title.includes(contextTooltipWord.slice(1)))
-						if (contextElement) {
-							handleContextSelection(contextElement)
-						} else {
-							handleContextSelection(availableContext[0])
-						}
-					} else {
-						dispatch('sendRequest')
-					}
-				}
-			}}
-			bind:value={instructions}
-			use:autosize
-			rows={3}
-			on:input={handleInput}
-			on:blur={() => {
-				// Small delay to allow click events on the tooltip to fire first
-				setTimeout(() => {
-					showContextTooltip = false;
-				}, 100);
-			}}
+		<ContextTextarea
+			{instructions}
+			{availableContext}
+			{selectedContext}
 			placeholder={messages.length > 0 ? 'Ask followup' : 'Ask anything'}
-			class="resize-none bg-transparent absolute top-0 left-0 w-full h-full caret-white"
-			style="{instructions.length > 0 ? 'color: transparent; -webkit-text-fill-color: transparent;' : ''}"
+			on:updateInstructions={(e) => instructions = e.detail.value}
+			on:updateSelectedContext={(e) => selectedContext = e.detail.context}
+			on:sendRequest={() => dispatch('sendRequest')}
 		/>
-		</div>
-
-		{#if showContextTooltip}
-			<div
-				class="absolute bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-md shadow-lg p-2 z-50"
-				style="left: {tooltipPosition.x}px; top: {tooltipPosition.y}px;"
-			>
-				<div class="flex flex-col gap-1 text-tertiary text-xs min-w-24">
-					{#if availableContext.filter((c) => !contextTooltipWord || c.title.startsWith(contextTooltipWord.slice(1))).length === 0}
-						<div class="text-center text-tertiary text-xs">No available context</div>
-					{:else}
-						{#each availableContext.filter((c) => !contextTooltipWord || c.title.startsWith(contextTooltipWord.slice(1))) as element}
-								<button
-									class="hover:bg-surface-hover rounded-md p-1 text-left flex flex-row gap-1 items-center font-normal"
-									on:click={() => handleContextSelection(element)}
-								>
-									<svelte:component this={ContextIconMap[element.type]} size={16} />
-									{element.title}
-								</button>
-						{/each}
-					{/if}
-				</div>
-			</div>
-		{/if}
 
 		<div class="flex flex-row justify-end items-center gap-2 px-0.5">
 			<div class="min-w-0">

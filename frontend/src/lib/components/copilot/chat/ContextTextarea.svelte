@@ -1,0 +1,177 @@
+<script lang="ts">
+	import autosize from '$lib/autosize'
+	import { createEventDispatcher } from 'svelte'
+	import type { ContextElement, SelectedContext } from './core'
+	import { ContextIconMap } from './core'
+
+	export let instructions: string
+	export let availableContext: ContextElement[]
+	export let selectedContext: SelectedContext[]
+	export let placeholder: string
+
+	const dispatch = createEventDispatcher<{
+		updateInstructions: { value: string }
+		updateSelectedContext: { context: SelectedContext[] }
+		sendRequest: null
+	}>()
+
+	let showContextTooltip = false
+	let contextTooltipWord = ''
+	let tooltipPosition = { x: 0, y: 0 }
+
+	function getHighlightedText(text: string) {
+		return text.replace(/@[\w.-]+/g, (match) => {
+			const contextElement = availableContext.find((c) => c.title === match.slice(1))
+			if (contextElement) {
+				return `<span class="bg-white text-black z-10">${match}</span>`
+			}
+			return match
+		})
+	}
+
+	function addContextToSelection(contextElement: ContextElement) {
+		if (!selectedContext.find((c) => c.type === contextElement.type)) {
+			const newSelectedContext = [
+				...selectedContext,
+				{
+					type: contextElement.type,
+					title: contextElement.title
+				}
+			]
+			dispatch('updateSelectedContext', { context: newSelectedContext })
+		}
+	}
+
+	function updateInstructionsWithContext(contextElement: ContextElement) {
+		const index = instructions.lastIndexOf("@")
+		if (index !== -1) {
+			const newInstructions = instructions.substring(0, index) + `@${contextElement.title}`
+			dispatch('updateInstructions', { value: newInstructions })
+		}
+	}
+
+	function handleContextSelection(contextElement: ContextElement) {
+		addContextToSelection(contextElement)
+		updateInstructionsWithContext(contextElement)
+		showContextTooltip = false
+	}
+
+	function getCaretCoordinates(textarea: HTMLTextAreaElement, pos: number) {
+		const div = document.createElement('div')
+		const style = window.getComputedStyle(textarea)
+
+		div.style.position = 'absolute'
+		div.style.visibility = 'hidden'
+		div.style.whiteSpace = 'pre-wrap'
+		div.style.wordWrap = 'break-word'
+		div.style.width = style.width
+		div.style.font = style.font
+		div.style.fontSize = style.fontSize
+		div.style.lineHeight = '1.72'
+		div.style.padding = style.padding
+		div.style.border = style.border
+
+		div.textContent = textarea.value.substring(0, pos)
+
+		const span = document.createElement('span')
+		span.textContent = textarea.value.substring(pos) || '.'
+		div.appendChild(span)
+
+		document.body.appendChild(div)
+		const spanRect = span.getBoundingClientRect()
+		const coordinates = {
+			x: spanRect.left - 50,
+			y: spanRect.top - 760,
+			height: spanRect.height
+		}
+		document.body.removeChild(div)
+		return coordinates
+	}
+
+	function handleInput(e: Event) {
+		const textarea = e.target as HTMLTextAreaElement
+		const words = instructions.split(/\s+/)
+		const lastWord = words[words.length - 1]
+		
+		if (lastWord.startsWith('@')) {
+			const coords = getCaretCoordinates(textarea, textarea.selectionStart)
+			const rect = textarea.getBoundingClientRect()
+
+			tooltipPosition = {
+				x: rect.left + coords.x,
+				y: rect.top + coords.y
+			}
+
+			showContextTooltip = true
+			contextTooltipWord = lastWord
+		} else {
+			showContextTooltip = false
+			contextTooltipWord = ''
+		}
+	}
+
+	function handleKeyPress(e: KeyboardEvent) {
+		if (e.key === 'Enter' && !e.shiftKey) {
+			e.preventDefault()
+			if (contextTooltipWord) {
+				const contextElement = availableContext.find((c) => c.title.includes(contextTooltipWord.slice(1)))
+				if (contextElement) {
+					handleContextSelection(contextElement)
+				} else {
+					handleContextSelection(availableContext[0])
+				}
+			} else {
+				dispatch('sendRequest')
+			}
+		}
+	}
+</script>
+
+<div class="relative w-full">
+	<div
+		class="absolute top-0 left-0 w-full h-full min-h-12 p-2 text-sm pt-1"
+		style="line-height: 1.72"
+	>
+		<span class="break-words">
+			{@html getHighlightedText(instructions)}
+		</span>
+	</div>
+	<textarea
+		on:keypress={handleKeyPress}
+		bind:value={instructions}
+		use:autosize
+		rows={3}
+		on:input={handleInput}
+		on:blur={() => {
+			setTimeout(() => {
+				showContextTooltip = false
+			}, 100)
+		}}
+		{placeholder}
+		class="resize-none bg-transparent absolute top-0 left-0 w-full h-full caret-white"
+		style="{instructions.length > 0 ? 'color: transparent; -webkit-text-fill-color: transparent;' : ''}"
+	/>
+</div>
+
+{#if showContextTooltip}
+	<div
+		class="absolute bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-md shadow-lg p-2 z-50"
+		style="left: {tooltipPosition.x}px; top: {tooltipPosition.y}px;"
+	>
+		<div class="flex flex-col gap-1 text-tertiary text-xs min-w-24">
+			{#if availableContext.filter((c) => !contextTooltipWord || c.title.startsWith(contextTooltipWord.slice(1))).length === 0}
+				<div class="text-center text-tertiary text-xs">No available context</div>
+			{:else}
+				{#each availableContext.filter((c) => !contextTooltipWord || c.title.startsWith(contextTooltipWord.slice(1))) as element}
+					<button
+						class="hover:bg-surface-hover rounded-md p-1 text-left flex flex-row gap-1 items-center font-normal"
+						on:click={() => handleContextSelection(element)}
+					>
+						<svelte:component this={ContextIconMap[element.type]} size={16} />
+						{element.title}
+					</button>
+				{/each}
+			{/if}
+		</div>
+	</div>
+{/if} 
