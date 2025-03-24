@@ -175,6 +175,7 @@
 									{schema}
 									previousModuleId={undefined}
 									{pickableProperties}
+									hideHelpButton
 									headerTooltip={property.hashes.size === selectedHashes.length
 										? `Used in all selected ${selected?.kind} versions`
 										: `Used in ${property.hashes.size} ${selected?.kind} versions: ${[...property.hashes.values()].join(', ').substring(0, 6)}`}

@@ -47,7 +47,7 @@
 				disabled={selectionCount == 0}
 				startIcon={{ icon: Check }}
 				size="xs"
-				color="red"
+				color="green"
 				variant="contained"
 				on:click={onReRunSelectedJobs}
 			>

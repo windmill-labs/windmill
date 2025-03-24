@@ -50,6 +50,7 @@
 	export let argExtra: Record<string, any> = {}
 	export let pickableProperties: PickableProperties | undefined = undefined
 	export let enableAi = false
+	export let hideHelpButton = false
 
 	let monaco: SimpleEditor | undefined = undefined
 	let monacoTemplate: TemplateEditor | undefined = undefined
@@ -572,7 +573,9 @@
 								autoHeight
 							/>
 						</div>
-						<DynamicInputHelpBox />
+						{#if !hideHelpButton}
+							<DynamicInputHelpBox />
+						{/if}
 						<div class="mb-2"></div>
 					{:else}
 						Not recognized input type {argName} ({arg.expr}, {propertyType})
