@@ -89,7 +89,8 @@
 		lang: ScriptLang | 'bunnative',
 		error: string | undefined,
 		db: { schema: DBSchema; resource: string } | undefined,
-		providerModel: AIProviderModel | undefined
+		providerModel: AIProviderModel | undefined,
+		dbSchemas: DBSchemas
 	) {
 		availableContext = [
 			{
@@ -99,6 +100,18 @@
 				lang
 			}
 		]
+		if (!db) {
+			for (const [schemaPath, schema] of Object.entries(dbSchemas)) {
+				// filter to handle only postgres schemas ?
+				if (schema) {
+					availableContext.push({
+						type: 'db',
+						title: schemaPath,
+						schema: schema
+					})
+				}
+			}
+		}
 
 		if (error) {
 			availableContext = [
@@ -123,7 +136,7 @@
 		}
 	}
 
-	$: updateAvailableContext(contextCodePath, code, lang, error, db, $copilotSessionModel)
+	$: updateAvailableContext(contextCodePath, code, lang, error, db, $copilotSessionModel, $dbSchemas)
 
 	let instructions = ''
 	let loading = writable(false)

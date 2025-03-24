@@ -204,7 +204,7 @@ export async function getFormattedResourceTypes(
 }
 
 export const CHAT_SYSTEM_PROMPT = `
-	You are a coding assistant for the Windmill platform. You are provided with a list of \`INSTRUCTIONS\` and the current contents of a code file under \`CODE\`.
+	You are a coding assistant for the Windmill platform. You are provided with a list of \`INSTRUCTIONS\` and the current contents of a code file under \`CODE\`. You are also provided with the \`DATABASE SCHEMA\` of the database related to the code file.
 
 	Your task is to respond to the user's request. Assume all user queries are valid and actionable.
 
@@ -231,6 +231,11 @@ ERROR:
 {error}
 `
 
+const CHAT_USER_DB_CONTEXT = `
+DATABASE SCHEMA:
+{db_context}
+`
+
 export const CHAT_USER_PROMPT = `
 INSTRUCTIONS:
 {instructions}
@@ -240,6 +245,7 @@ WINDMILL LANGUAGE CONTEXT:
 
 {code_context}
 {error_context}
+{db_context}
 \`\`\`
 `
 
@@ -295,6 +301,7 @@ export async function prepareUserMessage(
 ) {
 	let codeContext = ''
 	let errorContext = ''
+	let dbContext = ''
 	for (const context of selectedContext) {
 		if (context.type === 'code') {
 			codeContext += CHAT_USER_CODE_CONTEXT.replace('{title}', context.title)
@@ -305,6 +312,9 @@ export async function prepareUserMessage(
 				throw new Error('Multiple error contexts provided')
 			}
 			errorContext = CHAT_USER_ERROR_CONTEXT.replace('{error}', context.content)
+		} else if (context.type === 'db') {
+			const formattedDBSchema = await formatDBSChema(context.schema)
+			dbContext += CHAT_USER_DB_CONTEXT.replace('{db_context}', formattedDBSchema)
 		}
 	}
 
@@ -312,7 +322,7 @@ export async function prepareUserMessage(
 		.replace('{lang_context}', getLangContext(language))
 		.replace('{code_context}', codeContext)
 		.replace('{error_context}', errorContext)
-
+		.replace('{db_context}', dbContext)
 	return userMessage
 }
 

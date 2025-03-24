@@ -4,6 +4,7 @@
 	import type { ContextElement, SelectedContext } from './core'
 	import { ContextIconMap } from './core'
 	import getCaretCoordinates from 'textarea-caret'
+	import { dbSchemas, workspaceStore, type DBSchema } from '$lib/stores'
 
 	export let instructions: string
 	export let availableContext: ContextElement[]
