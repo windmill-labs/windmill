@@ -2,10 +2,12 @@
 	import type { Job } from '$lib/gen'
 	import { twMerge } from 'tailwind-merge'
 	import { base } from '$lib/base'
-	import { workspaceStore } from '$lib/stores'
 	import { ExternalLink } from 'lucide-svelte'
 
-	export let job: Job | undefined = undefined
+	export let job:
+		| Job
+		| { id: string; result: unknown; type: 'CompletedJob'; success: boolean; workspace_id: string }
+		| undefined = undefined
 	export let noStatusBackground = false
 </script>
 
@@ -23,7 +25,7 @@
 		</span>
 		<a
 			target="_blank"
-			href="{base}/run/{job.id}?workspace={$workspaceStore}"
+			href="{base}/run/{job.id}?workspace={job.workspace_id}"
 			class="text-right float-right text-secondary px-2"
 			title="See run detail in a new tab"
 		>

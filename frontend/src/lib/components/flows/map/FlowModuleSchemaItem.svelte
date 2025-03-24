@@ -81,25 +81,43 @@
 	let newId: string = id ?? ''
 
 	let hover = false
-
+	let outputPicker: OutputPickerInner | undefined = undefined
+	let connectingData: any | undefined = undefined
+	let lastJob: any | undefined = undefined
 	const { viewport } = useSvelteFlow()
 
 	$: flowStateStore = flowEditorContext?.flowStateStore
 
-	let jsonData = {}
-	function updateJsonData(
+	function updateConnectingData(
 		id: string | undefined,
 		pickableIds: Record<string, any> | undefined,
 		flowPropPickerConfig: any | undefined,
 		flowStateStore: any | undefined
 	) {
 		if (!id) return
-		jsonData =
+		connectingData =
 			flowPropPickerConfig && pickableIds && Object.keys(pickableIds).includes(id)
 				? pickableIds[id]
 				: flowStateStore?.[id]?.previewResult ?? {}
 	}
-	$: updateJsonData(id, pickableIds, $flowPropPickerConfig, $flowStateStore)
+	$: updateConnectingData(id, pickableIds, $flowPropPickerConfig, $flowStateStore)
+
+	function updateLastJob(flowStateStore: any | undefined) {
+		if (!flowStateStore || !id) return
+		if (flowStateStore[id]?.previewResult === 'never tested this far') {
+			lastJob = undefined
+		} else {
+			lastJob = {
+				id: flowStateStore[id]?.previewJobId ?? '',
+				result: flowStateStore[id]?.previewResult,
+				type: 'CompletedJob' as const,
+				workspace_id: flowStateStore[id]?.previewWorkspaceId ?? '',
+				success: flowStateStore[id]?.previewSuccess ?? false
+			}
+		}
+	}
+	$: updateLastJob($flowStateStore)
+	$: outputPicker && outputPicker.setLastJob(lastJob)
 </script>
 
 {#if deletable && id && editId}
@@ -291,10 +309,10 @@
 			let:selectConnection
 		>
 			<OutputPickerInner
-				{jsonData}
+				bind:this={outputPicker}
 				{allowCopy}
 				prefix={'results'}
-				{isConnecting}
+				connectingData={isConnecting ? connectingData : undefined}
 				{mock}
 				on:select={selectConnection}
 				moduleId={id}

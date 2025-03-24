@@ -13,10 +13,9 @@
 	import { classes } from '$lib/components/common/alert/model'
 	import { twMerge } from 'tailwind-merge'
 
-	export let jsonData: any = undefined
 	export let prefix: string = ''
 	export let allowCopy: boolean = false
-	export let isConnecting: boolean = false
+	export let connectingData: any | undefined = undefined
 	export let mock:
 		| {
 				enabled?: boolean
@@ -27,7 +26,18 @@
 	export let fullResult: boolean = false
 	export let closeOnOutsideClick: boolean = false
 	export let getLogs: boolean = false
-	export let selectedJob: Job | undefined = undefined
+	type SelectedJob =
+		| Job
+		| {
+				id: string
+				result: unknown
+				type: 'CompletedJob'
+				workspace_id: string
+				success: boolean
+		  }
+		| undefined
+
+	export let selectedJob: SelectedJob = undefined
 	export let forceJson: boolean = false
 	export let isLoading: boolean = false
 	export let preview: 'mock' | 'job' | undefined = undefined
@@ -43,16 +53,16 @@
 	let error = ''
 	let stepHistoryPopover: Popover | undefined = undefined
 	let stepHistory: StepHistory | undefined = undefined
-	let lastJob: Job | undefined = undefined
+	let lastJob: SelectedJob = undefined
 	let historyOpen = false
+	let jsonData: any = undefined
 
-	function selectJob(job: Job | undefined) {
+	function selectJob(job: SelectedJob | undefined) {
 		selectedJob = job
 		if (!job || !('result' in job)) {
 			if (lastJob && 'result' in lastJob) {
 				selectJob(lastJob)
 			}
-			jsonData = savedJsonData
 			return
 		}
 
@@ -77,7 +87,7 @@
 		tmpMock = newMock
 	}
 
-	export function setLastJob(job: Job | undefined, setPreview: boolean = false) {
+	export function setLastJob(job: SelectedJob, setPreview: boolean = false) {
 		if (!job) {
 			return
 		}
@@ -114,7 +124,7 @@
 				}}
 				contentClasses="w-[275px] overflow-hidden"
 				{closeOnOutsideClick}
-				disablePopup={isConnecting}
+				disablePopup={!!connectingData}
 				bind:isOpen={historyOpen}
 			>
 				<svelte:fragment slot="trigger">
@@ -287,7 +297,7 @@
 								stepHistoryPopover?.close()
 								jsonView = true
 							}}
-							disabled={!mock?.enabled || isConnecting}
+							disabled={!mock?.enabled || !!connectingData}
 						/>
 						<svelte:fragment slot="text">
 							{'Pin the output to allow editing'}
@@ -354,10 +364,10 @@
 		{/if}
 	{:else}
 		<div class="grow min-h-0 p-2 rounded-sm w-full overflow-auto">
-			{#if isConnecting}
+			{#if connectingData}
 				<ObjectViewer
 					json={{
-						[moduleId]: jsonData
+						[moduleId]: connectingData
 					}}
 					topBrackets={false}
 					pureViewer={false}
@@ -401,7 +411,7 @@
 					topBrackets={false}
 					pureViewer={false}
 				/>
-			{:else if jsonData === 'never tested this far'}
+			{:else if !lastJob}
 				<div class="flex flex-col items-center justify-center h-full">
 					<p class="text-xs text-secondary">
 						Test this step to see results or <button

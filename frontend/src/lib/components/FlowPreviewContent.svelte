@@ -198,7 +198,10 @@
 				if (getJobResult.result) {
 					$flowStateStore[module.id] = {
 						...($flowStateStore[module.id] ?? {}),
-						previewResult: getJobResult.result
+						previewResult: getJobResult.result,
+						previewJobId: previousJobId[0].id,
+						previewWorkspaceId: previousJobId[0].workspace_id,
+						previewSuccess: getJobResult.success
 					}
 				}
 			}
