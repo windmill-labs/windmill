@@ -12,14 +12,15 @@ declare function variable(path: string): string;
 */
 declare function resource(path: string): any;
 
-/**
-* job input as an object
-*/
-declare const job_input = ${JSON.stringify(Object.fromEntries(jobParameters.map((p) => [p, null as any])))};
-
-/**
-* original scheduled date of the job
-*/
-declare const job_scheduled_at: Date = null as Date;
+declare const job = {
+  /**
+  * job input as an object
+  */
+  input: ${JSON.stringify(Object.fromEntries(jobParameters.map((p) => [p, null as any])))},
+  /**
+   * original scheduled date of the job
+   */
+  scheduled_for = null as Date
+}
 `
 }

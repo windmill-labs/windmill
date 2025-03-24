@@ -164,8 +164,8 @@
 					<div class="text-sm w-full">
 						<Alert type="info" title="Available expressions :">
 							<ul class="list-disc">
-								<li>job_input</li>
-								<li>job_scheduled_at</li>
+								<li>job.input</li>
+								<li>job.scheduled_for</li>
 							</ul>
 						</Alert>
 					</div>
@@ -184,7 +184,7 @@
 									class="items-start mb-4"
 									arg={{
 										type: 'javascript',
-										expr: `job_input["${propertyName}"]`
+										expr: `job.input["${propertyName}"]`
 									} as InputTransform}
 									argName={propertyName}
 									{schema}
