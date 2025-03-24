@@ -9,6 +9,7 @@
 	import { setContext } from 'svelte'
 	import { writable } from 'svelte/store'
 	import type { PickableProperties } from '../flows/previousResults'
+	import Alert from '../common/alert/Alert.svelte'
 
 	const { selectedJobs }: { selectedJobs: Job[] } = $props()
 
@@ -146,17 +147,22 @@
 					</div>
 				</PanelSection>
 			</Pane>
-			<Pane size={75}>
-				<PanelSection title="Inputs" class="" id="batch-rerun-options-args">
+			<Pane size={75} class="relative">
+				<PanelSection
+					title="Inputs"
+					class="overflow-y-scroll absolute inset-0"
+					id="batch-rerun-options-args"
+				>
+					<div class="text-sm w-full">
+						<Alert type="info" title="Available expressions">
+							<ul class="list-disc">
+								<li>job_input</li>
+								<li>job_scheduled_at</li>
+							</ul>
+						</Alert>
+					</div>
 					{#await selectedHashesPromise then selectedHashes}
 						{@const properties = computePropertyMap(selectedHashes)}
-						{@const flow_input = Object.fromEntries([...properties.keys()].map((p) => [p, '']))}
-						{@const pickableProperties = {
-							hasResume: false,
-							previousId: undefined,
-							priorIds: {},
-							flow_input
-						}}
 						{@const schema: Schema = {
 							$schema: 'http://json-schema.org/draft-07/schema#',
 							type: "object",
@@ -169,12 +175,17 @@
 									class="items-start mb-4"
 									arg={{
 										type: 'javascript',
-										expr: `flow_input["${propertyName}"]`
+										expr: `job_input["${propertyName}"]`
 									} as InputTransform}
 									argName={propertyName}
 									{schema}
 									previousModuleId={undefined}
-									{pickableProperties}
+									pickableProperties={{
+										hasResume: false,
+										previousId: undefined,
+										priorIds: {},
+										flow_input: {}
+									}}
 									hideHelpButton
 									headerTooltip={property.hashes.size === selectedHashes.length
 										? `Used in all selected ${selected?.kind} versions`
