@@ -19,7 +19,7 @@ use serde::{Deserialize, Serialize};
 use crate::common::{build_http_client, resolve_job_timeout, OccupancyMetrics};
 use crate::handle_child::run_future_with_polling_update_job_poller;
 use crate::sanitized_sql_params::sanitize_and_interpolate_unsafe_sql_args;
-use crate::{common::build_args_values, AuthedClientBackgroundTask};
+use crate::{common::build_args_values, AuthedClient};
 
 #[derive(Serialize)]
 struct Claims {
@@ -247,7 +247,7 @@ fn do_snowflake_inner<'a>(
 
 pub async fn do_snowflake(
     job: &MiniPulledJob,
-    client: &AuthedClientBackgroundTask,
+    client: &AuthedClient,
     query: &str,
     db: &sqlx::Pool<sqlx::Postgres>,
     mem_peak: &mut i32,
@@ -263,8 +263,6 @@ pub async fn do_snowflake(
     let db_arg = if let Some(inline_db_res_path) = inline_db_res_path {
         Some(
             client
-                .get_authed()
-                .await
                 .get_resource_value_interpolated::<serde_json::Value>(
                     &inline_db_res_path,
                     Some(job.id.to_string()),

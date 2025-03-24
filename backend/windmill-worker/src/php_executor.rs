@@ -20,8 +20,8 @@ use crate::{
         read_result, start_child_process, OccupancyMetrics,
     },
     handle_child::handle_child,
-    AuthedClientBackgroundTask, COMPOSER_CACHE_DIR, COMPOSER_PATH, DISABLE_NSJAIL, DISABLE_NUSER,
-    NSJAIL_PATH, PHP_PATH,
+    AuthedClient, COMPOSER_CACHE_DIR, COMPOSER_PATH, DISABLE_NSJAIL, DISABLE_NUSER, NSJAIL_PATH,
+    PHP_PATH,
 };
 
 const NSJAIL_CONFIG_RUN_PHP_CONTENT: &str = include_str!("../nsjail/run.php.config.proto");
@@ -139,7 +139,8 @@ pub async fn handle_php_job(
     canceled_by: &mut Option<CanceledBy>,
     job: &MiniPulledJob,
     db: &sqlx::Pool<sqlx::Postgres>,
-    client: &AuthedClientBackgroundTask,
+    client: &AuthedClient,
+    parent_runnable_path: Option<String>,
     job_dir: &str,
     inner_content: &String,
     base_internal_url: &str,
@@ -265,8 +266,8 @@ try {{
             Ok(()) as Result<()>
         };
         let reserved_variables_f = async {
-            let client = client.get_authed().await;
-            let vars = get_reserved_variables(job, &client.token, db).await?;
+            let vars = get_reserved_variables(job, &client.token, db, parent_runnable_path.clone())
+                .await?;
             Ok(vars) as Result<HashMap<String, String>>
         };
         let (_, reserved_variables) = tokio::try_join!(args_and_out_f, reserved_variables_f)?;
