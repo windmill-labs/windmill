@@ -40,7 +40,7 @@
 	let outputPicker: OutputPickerInner | undefined = undefined
 	let jobProgressReset: () => void
 	let fetchingLastJob = false
-	let previewMock = false
+	let preview: 'mock' | 'job' | undefined = undefined
 
 	let stepArgs: Record<string, any> | undefined = Object.fromEntries(
 		Object.keys(schema.properties ?? {}).map((k) => [
@@ -198,7 +198,7 @@
 					bind:forceJson
 					bind:selectedJob
 					isLoading={(testIsLoading && !scriptProgress) || fetchingLastJob}
-					bind:previewMock
+					bind:preview
 				>
 					<svelte:fragment slot="copilot-fix">
 						{#if lang && editor && diffEditor && stepArgs && selectedJob && 'result' in selectedJob && selectedJob.result && typeof selectedJob.result == 'object' && `error` in selectedJob.result && selectedJob.result.error}
@@ -214,7 +214,7 @@
 				</OutputPickerInner>
 			</Pane>
 			<Pane size={50} minSize={10}>
-				{#if (mod.mock?.enabled && !selectedJob) || previewMock}
+				{#if (mod.mock?.enabled && preview != 'job') || preview == 'mock'}
 					<LogViewer
 						small
 						content={undefined}

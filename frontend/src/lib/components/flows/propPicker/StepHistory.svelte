@@ -3,7 +3,7 @@
 	import JobSchemaPicker from '$lib/components/schema/JobSchemaPicker.svelte'
 	import { JobService } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
-	import { getContext, createEventDispatcher, onDestroy } from 'svelte'
+	import { getContext, createEventDispatcher } from 'svelte'
 	import type { FlowEditorContext } from '../types'
 	import { Pin } from 'lucide-svelte'
 	import { Cell } from '$lib/components/table'
@@ -74,10 +74,6 @@
 		selected = undefined
 		dispatch('select', undefined)
 	}
-
-	onDestroy(() => {
-		dispatch('select', undefined)
-	})
 </script>
 
 <InfiniteList

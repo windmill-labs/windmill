@@ -29,7 +29,7 @@
 	export let selectedJob: Job | undefined = undefined
 	export let forceJson: boolean = false
 	export let isLoading: boolean = false
-	export let previewMock: boolean = false
+	export let preview: 'mock' | 'job' | undefined = undefined
 
 	const dispatch = createEventDispatcher<{
 		updateMock: { enabled: boolean; return_value?: unknown }
@@ -40,18 +40,14 @@
 	let savedJsonData: any = {}
 	let tmpMock: { enabled: boolean; return_value?: unknown } | undefined = undefined
 	let error = ''
-	let stepHistory: StepHistory | undefined = undefined
 	let stepHistoryPopover: Popover | undefined = undefined
-	let previewJob = false
 	let lastJob: Job | undefined = undefined
 	let historyOpen = false
 
-	export function selectJob(job: Job | undefined) {
-		previewMock = false
+	function selectJob(job: Job | undefined) {
 		selectedJob = job
 		if (!job || !('result' in job)) {
-			previewJob = false
-			if (!mock?.enabled && lastJob && 'result' in lastJob) {
+			if (lastJob && 'result' in lastJob) {
 				selectJob(lastJob)
 			}
 			jsonData = savedJsonData
@@ -66,13 +62,10 @@
 				return_value: job.result
 			}
 			tmpMock = newMock
-			previewJob = true
 		}
 	}
 
 	function selectMockValue() {
-		previewJob = false
-		selectedJob = undefined
 		savedJsonData = jsonData
 		jsonData = mock?.return_value
 		const newMock = {
@@ -80,7 +73,6 @@
 			return_value: mock?.return_value
 		}
 		tmpMock = newMock
-		previewMock = true
 	}
 
 	export function setLastJob(job: Job | undefined) {
@@ -92,6 +84,9 @@
 			selectJob(lastJob)
 		}
 	}
+
+	$: console.log('dbg selectedJob', selectedJob?.id)
+	$: console.log('dbg previewJob', preview)
 </script>
 
 <div class="w-full h-full flex flex-col p-1" bind:clientHeight>
@@ -121,7 +116,6 @@
 			<svelte:fragment slot="content">
 				<div class="rounded-[inherit]" style={`height: ${clientHeight}px`}>
 					<StepHistory
-						bind:this={stepHistory}
 						{moduleId}
 						{getLogs}
 						on:select={({ detail }) => {
@@ -130,6 +124,7 @@
 								return
 							}
 							selectJob(detail)
+							preview = mock?.enabled && detail ? 'job' : undefined
 						}}
 						mockValue={mock?.return_value}
 						mockEnabled={mock?.enabled}
@@ -137,10 +132,10 @@
 				</div>
 			</svelte:fragment>
 		</Popover>
-		{#if (previewJob || previewMock) && historyOpen}
+		{#if preview && historyOpen}
 			<StatusBadge>
 				<Pin size={16} class="inline" />
-				{mock?.enabled ? 'Override pin ?' : 'Restore pin ?'}
+				{mock?.enabled ? (preview == 'job' ? 'Override pin ?' : 'Restore pin ?') : 'Restore pin ?'}
 				<svelte:fragment slot="action">
 					{#if historyOpen}
 						<Button
@@ -152,9 +147,8 @@
 									return
 								}
 								dispatch('updateMock', tmpMock)
-								selectedJob = undefined
-								previewJob = false
-								previewMock = false
+								selectJob(undefined) // reset the job
+								preview = undefined
 								stepHistoryPopover?.close()
 							}}
 						/>
@@ -179,13 +173,15 @@
 							enabled: false,
 							return_value: mock?.return_value
 						}
+						selectJob(undefined) // reset the job
 						dispatch('updateMock', newMock)
 					} else {
 						let mockValue = jsonData
 
 						if (selectedJob && 'result' in selectedJob) {
 							mockValue = structuredClone(selectedJob.result)
-							selectedJob = undefined
+							selectJob(undefined) // reset the job
+							preview = undefined
 						} else if (jsonData === 'never tested this far') {
 							mockValue = { example: 'value' }
 						}
@@ -247,7 +243,7 @@
 				</Tooltip>
 			{/if}
 		{/if}
-		{#if !isLoading && selectedJob}
+		{#if !isLoading && selectedJob && !preview && !mock?.enabled}
 			<div class="w-grow min-w-0">
 				<OutputBadge job={selectedJob} />
 			</div>
@@ -258,6 +254,15 @@
 		{#if isLoading && !mock?.enabled}
 			<div class="p-2">
 				<Loader2 class="animate-spin " />
+			</div>
+		{:else if (mock?.enabled || preview == 'mock') && preview != 'job'}
+			<div class="break-words relative h-full p-2">
+				<DisplayResult
+					bind:forceJson
+					workspaceId={undefined}
+					jobId={undefined}
+					result={mock?.return_value}
+				/>
 			</div>
 		{:else if selectedJob != undefined && 'result' in selectedJob}
 			<div class="break-words relative h-full p-2">
@@ -277,15 +282,6 @@
 				{:else}
 					null
 				{/if}
-			</div>
-		{:else if mock?.enabled || previewMock}
-			<div class="break-words relative h-full p-2">
-				<DisplayResult
-					bind:forceJson
-					workspaceId={undefined}
-					jobId={undefined}
-					result={mock?.return_value}
-				/>
 			</div>
 		{:else}
 			Test to see the result here
@@ -323,7 +319,7 @@
 					)}
 					class="h-full"
 				/>
-			{:else if mock?.enabled && !previewJob}
+			{:else if mock?.enabled && preview != 'job'}
 				<ObjectViewer
 					json={{
 						[moduleId]: mock.return_value
