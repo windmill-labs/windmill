@@ -65,15 +65,15 @@
 	let tooltipPosition = { x: 0, y: 0 };
 	let textareaEl: HTMLTextAreaElement;
 
-	// function getHighlightedText(text: string) {
-	// 	return text.replace(/@[\w.-]+/g, (match) => {
-	// 		const contextElement = availableContext.find((c) => c.title.includes(match.slice(1)))
-	// 		if (contextElement) {
-	// 			return `<span class="bg-yellow text-black">${match}</span>`
-	// 		}
-	// 		return match
-	// 	})
-	// }
+	function getHighlightedText(text: string) {
+		return text.replace(/@[\w.-]+/g, (match) => {
+			const contextElement = availableContext.find((c) => c.title === match.slice(1))
+			if (contextElement) {
+				return `<span class="bg-white text-black z-10">${match}</span>`
+			}
+			return match
+		})
+	}
 
 	function addContextToSelection(contextElement: ContextElement) {
 		if (!selectedContext.find((c) => c.type === contextElement.type)) {
@@ -305,8 +305,17 @@
 				{/if}
 			{/each}
 		</div>
-		<textarea
-			bind:this={textareaEl}
+		<div class="relative w-full">
+			<div
+				class="absolute top-0 left-0 w-full h-full min-h-12 p-2 text-sm pt-1"
+				style="line-height: 1.72"
+			>
+			<span class="break-words">
+				{@html getHighlightedText(instructions)}
+			</span>
+			</div>
+			<textarea
+				bind:this={textareaEl}
 			on:keypress={(e) => {
 				if (e.key === 'Enter' && !e.shiftKey) {
 					e.preventDefault()
@@ -329,8 +338,10 @@
 				}, 100);
 			}}
 			placeholder={messages.length > 0 ? 'Ask followup' : 'Ask anything'}
-			class="resize-none"
+			class="resize-none bg-transparent absolute top-0 left-0 w-full h-full"
+			style="{instructions.length > 0 ? 'color: transparent; -webkit-text-fill-color: transparent;' : ''}"
 		/>
+		</div>
 
 		{#if showContextTooltip}
 			<div
