@@ -76,6 +76,7 @@ dyn-iter.workspace = true
 once_cell.workspace = true
 tokio-postgres.workspace = true
 bit-vec.workspace = true
+url.workspace = true
 deno_telemetry = { workspace = true, optional = true }
 deno_fetch = { workspace = true, optional = true }
 deno_webidl = { workspace = true, optional = true }

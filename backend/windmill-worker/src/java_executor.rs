@@ -1,11 +1,11 @@
 use std::{collections::HashMap, path::PathBuf, process::Stdio, str::FromStr, sync::Arc};
 
-use anyhow::anyhow;
+use anyhow::{anyhow, bail};
 use async_recursion::async_recursion;
 use itertools::Itertools;
 use serde_json::value::RawValue;
 use tokio::{
-    fs::{create_dir_all, remove_dir_all, File},
+    fs::{create_dir_all, metadata, remove_dir_all, File},
     io::AsyncWriteExt,
     process::Command,
 };
@@ -25,20 +25,77 @@ use crate::{
         create_args_and_out_file, get_reserved_variables, par_install_language_dependencies,
         read_result, start_child_process, OccupancyMetrics, RequiredDependency,
     },
-    handle_child, AuthedClientBackgroundTask, COURSIER_CACHE_DIR, COURSIER_FETCH_DIR,
-    DISABLE_NSJAIL, DISABLE_NUSER, JAVA_CACHE_DIR, JAVA_REPOSITORY_DIR, MAVEN_REPOS,
-    NO_DEFAULT_MAVEN, NSJAIL_PATH, PATH_ENV, PROXY_ENVS,
+    handle_child, AuthedClientBackgroundTask, COURSIER_CACHE_DIR, DISABLE_NSJAIL, DISABLE_NUSER,
+    JAVA_CACHE_DIR, JAVA_REPOSITORY_DIR, MAVEN_REPOS, NO_DEFAULT_MAVEN, NSJAIL_PATH, PATH_ENV,
+    PROXY_ENVS,
 };
 lazy_static::lazy_static! {
     static ref JAVA_CONCURRENT_DOWNLOADS: usize = std::env::var("JAVA_CONCURRENT_DOWNLOADS").ok().map(|flag| flag.parse().unwrap_or(20)).unwrap_or(20);
     static ref JAVA_PATH: String = std::env::var("JAVA_PATH").unwrap_or_else(|_| "/usr/bin/java".to_string());
     static ref JAVAC_PATH: String = std::env::var("JAVAC_PATH").unwrap_or_else(|_| "/usr/bin/javac".to_string());
     static ref CS_PATH: String = std::env::var("COURSIER_PATH").unwrap_or_else(|_| "/usr/bin/coursier".to_string());
-    static ref HTTPS_PROXY_HOST: String = std::env::var("JAVA_HTTPS_PROXY_HOST").unwrap_or_default();
-    static ref HTTPS_PROXY_PORT: String = std::env::var("JAVA_HTTPS_PROXY_PORT").unwrap_or_default();
+    static ref STOREPASS: String = std::env::var("JAVA_STOREPASS").unwrap_or("123456".into());
+    static ref TRUST_STORE_PATH: String = std::env::var("JAVA_TRUST_STORE_PATH").unwrap_or("/usr/local/share/ca-certificates/truststore.jks".into());
 }
 
 const NSJAIL_CONFIG_RUN_JAVA_CONTENT: &str = include_str!("../nsjail/run.java.config.proto");
+
+#[derive(Default, Debug)]
+struct JavaProxySettings {
+    http_host: Option<String>,
+    http_port: Option<String>,
+    https_host: Option<String>,
+    https_port: Option<String>,
+    no_proxy: Option<String>,
+}
+fn parse_proxy() -> anyhow::Result<JavaProxySettings> {
+    let mut jps = JavaProxySettings::default();
+    for (ident, mut val) in PROXY_ENVS.clone() {
+        match ident {
+            "HTTPS_PROXY" => {
+                if val.contains("http://") {
+                    bail!("HTTPS_PROXY url cannot contain http schema.");
+                }
+                if !val.contains("https://") {
+                    val = format!("https://{val}");
+                }
+                let mut url = url::Url::parse(&val)?;
+                let port = url.port();
+                // Make sure port and schema is not included in final url
+                {
+                    url.set_port(None).unwrap_or_default();
+                    jps.https_host = Some(url.as_str().replace("https://", ""));
+                    if let Some(port) = port {
+                        jps.https_port = Some(format!("{}", port));
+                    }
+                }
+            }
+            "HTTP_PROXY" => {
+                if val.contains("https://") {
+                    bail!("HTTP_PROXY url cannot contain https schema.");
+                }
+                if !val.contains("http://") {
+                    val = format!("http://{val}");
+                }
+                let mut url = url::Url::parse(&val)?;
+                let port = url.port();
+                // Make sure port and schema is not included in final url
+                {
+                    url.set_port(None).unwrap_or_default();
+                    jps.http_host = Some(url.as_str().replace("http://", ""));
+                    if let Some(port) = port {
+                        jps.https_port = Some(format!("{}", port));
+                    }
+                }
+            }
+            // Java uses | instead of ,
+            "NO_PROXY" => jps.no_proxy = Some(val.replace(",", "|")),
+            _ => {}
+        }
+    }
+
+    Ok(jps)
+}
 async fn get_repos() -> Vec<String> {
     MAVEN_REPOS
         .read()
@@ -199,22 +256,46 @@ pub async fn resolve<'a>(
         cmd.env_clear()
             .current_dir(job_dir.to_owned())
             .env("PATH", PATH_ENV.as_str())
-            .envs(PROXY_ENVS.clone())
-            .args(&[
-                &format!("-Dhttps.proxyHost={}", *HTTPS_PROXY_HOST),
-                &format!("-Dhttps.proxyHost={}", *HTTPS_PROXY_PORT),
-                "-jar",
-                &CS_PATH,
-                "resolve",
-                &get_no_default(),
-                "--parallel",
-                &format!("{}", *JAVA_CONCURRENT_DOWNLOADS),
-                "--cache",
-                COURSIER_CACHE_DIR,
-            ])
-            .args(&get_repos().await)
-            .args(&deps.split("\n").collect_vec())
-            .stderr(Stdio::piped());
+            .envs(PROXY_ENVS.clone());
+
+        // Configure proxies
+        {
+            let jps = parse_proxy()?;
+            if let Some(val) = jps.https_host {
+                cmd.arg(&format!("-Dhttps.proxyHost={}", val));
+            }
+            if let Some(val) = jps.https_port {
+                cmd.arg(&format!("-Dhttps.proxyPort={}", val));
+            }
+            if let Some(val) = jps.http_host {
+                cmd.arg(&format!("-Dhttp.proxyHost={}", val));
+            }
+            if let Some(val) = jps.http_port {
+                cmd.arg(&format!("-Dhttp.proxyPort={}", val));
+            }
+            if let Some(val) = jps.no_proxy {
+                cmd.arg(&format!("-Dhttp.nonProxyHosts=\"{}\"", val));
+            }
+        }
+        if metadata(TRUST_STORE_PATH.clone()).await.is_ok() {
+            cmd.args(&[
+                &format!("-Djavax.net.ssl.trustStore={}", *TRUST_STORE_PATH),
+                &format!("-Djavax.net.ssl.trustStorePassword={}", *STOREPASS),
+            ]);
+        }
+        cmd.args(&[
+            "-jar",
+            &CS_PATH,
+            "resolve",
+            &get_no_default(),
+            "--parallel",
+            &format!("{}", *JAVA_CONCURRENT_DOWNLOADS),
+            "--cache",
+            COURSIER_CACHE_DIR,
+        ])
+        .args(&get_repos().await)
+        .args(&deps.split("\n").collect_vec())
+        .stderr(Stdio::piped());
 
         #[cfg(windows)]
         {
@@ -288,8 +369,14 @@ async fn install<'a>(
         workspace_id = %job.workspace_id,
         "JAVA classpath: {}", &classpath
     );
-    let (repos, no_default) = (get_repos().await, get_no_default());
+    let (repos, no_default, trust_store_metadata) = (
+        get_repos().await,
+        get_no_default(),
+        metadata(TRUST_STORE_PATH.clone()).await,
+    );
     let job_dir = job_dir.to_owned();
+    let fetch_dir = format!("{JAVA_CACHE_DIR}/tmp-fetch-{}", Uuid::new_v4());
+    let fetch_dir2 = fetch_dir.clone();
     // let mut to_install = vec![];
     par_install_language_dependencies(
         deps,
@@ -315,25 +402,49 @@ async fn install<'a>(
             cmd.env_clear()
                 .current_dir(&job_dir)
                 .env("PATH", PATH_ENV.as_str())
-                .envs(PROXY_ENVS.clone())
-                .args(&[
-                    &format!("-Dhttps.proxyHost={}", *HTTPS_PROXY_HOST),
-                    &format!("-Dhttps.proxyHost={}", *HTTPS_PROXY_PORT),
-                    "-jar",
-                    &CS_PATH,
-                    "fetch",
-                    &no_default,
-                    "--quiet",
-                    "--parallel",
-                    &format!("{}", *JAVA_CONCURRENT_DOWNLOADS),
-                    "--cache",
-                    COURSIER_FETCH_DIR,
-                ])
-                .args(&repos)
-                .arg("--intransitive")
-                .args(artifacts)
-                .stdout(Stdio::piped())
-                .stderr(Stdio::piped());
+                .envs(PROXY_ENVS.clone());
+            // Configure proxies
+            {
+                let jps = parse_proxy()?;
+                if let Some(val) = jps.https_host {
+                    cmd.arg(&format!("-Dhttps.proxyHost={}", val));
+                }
+                if let Some(val) = jps.https_port {
+                    cmd.arg(&format!("-Dhttps.proxyPort={}", val));
+                }
+                if let Some(val) = jps.http_host {
+                    cmd.arg(&format!("-Dhttp.proxyHost={}", val));
+                }
+                if let Some(val) = jps.http_port {
+                    cmd.arg(&format!("-Dhttp.proxyPort={}", val));
+                }
+                if let Some(val) = jps.no_proxy {
+                    cmd.arg(&format!("-Dhttp.nonProxyHosts=\"{}\"", val));
+                }
+            }
+
+            if trust_store_metadata.is_ok() {
+                cmd.args(&[
+                    &format!("-Djavax.net.ssl.trustStore={}", *TRUST_STORE_PATH),
+                    &format!("-Djavax.net.ssl.trustStorePassword={}", *STOREPASS),
+                ]);
+            }
+            cmd.args(&[
+                "-jar",
+                &CS_PATH,
+                "fetch",
+                &no_default,
+                "--quiet",
+                "--parallel",
+                &format!("{}", *JAVA_CONCURRENT_DOWNLOADS),
+                "--cache",
+                &fetch_dir,
+            ])
+            .args(&repos)
+            .arg("--intransitive")
+            .args(artifacts)
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
             #[cfg(windows)]
             {
                 cmd.env("SystemRoot", crate::SYSTEM_ROOT.as_str())
@@ -347,8 +458,8 @@ async fn install<'a>(
             Ok(cmd)
         })),
         async move |_| {
-            move_to_repository(COURSIER_FETCH_DIR, 0).await?;
-            remove_dir_all(COURSIER_FETCH_DIR).await?;
+            move_to_repository(&fetch_dir2, 0).await?;
+            remove_dir_all(&fetch_dir2).await?;
             #[async_recursion]
             async fn move_to_repository(path: &str, depth: u8) -> anyhow::Result<()> {
                 if depth == 3 {
@@ -558,9 +669,8 @@ async fn run<'a>(
                 // .replace("{CACHED_TARGET}", &shared_mount)
                 .replace("{CLONE_NEWUSER}", &(!*DISABLE_NUSER).to_string()),
         )?;
-        let mut nsjail_cmd = Command::new(NSJAIL_PATH.as_str());
-        nsjail_cmd
-            .env_clear()
+        let mut cmd = Command::new(NSJAIL_PATH.as_str());
+        cmd.env_clear()
             .current_dir(job_dir)
             .env("PATH", PATH_ENV.as_str())
             .env("BASE_INTERNAL_URL", base_internal_url)
@@ -572,16 +682,36 @@ async fn run<'a>(
                 "run.config.proto",
                 "--",
                 JAVA_PATH.as_str(),
-                &format!("-Dhttps.proxyHost={}", *HTTPS_PROXY_HOST),
-                &format!("-Dhttps.proxyHost={}", *HTTPS_PROXY_PORT),
-                "-classpath",
-                &classpath,
-                "net.script.App",
-            ])
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped());
+            ]);
+        if metadata(TRUST_STORE_PATH.clone()).await.is_ok() {
+            cmd.args(&[
+                &format!("-Djavax.net.ssl.trustStore={}", *TRUST_STORE_PATH),
+                &format!("-Djavax.net.ssl.trustStorePassword={}", *STOREPASS),
+            ]);
+        }
+        // Configure proxies
+        {
+            let jps = parse_proxy()?;
+            if let Some(val) = jps.https_host {
+                cmd.arg(&format!("-Dhttps.proxyHost={}", val));
+            }
+            if let Some(val) = jps.https_port {
+                cmd.arg(&format!("-Dhttps.proxyPort={}", val));
+            }
+            if let Some(val) = jps.http_host {
+                cmd.arg(&format!("-Dhttp.proxyHost={}", val));
+            }
+            if let Some(val) = jps.http_port {
+                cmd.arg(&format!("-Dhttp.proxyPort={}", val));
+            }
+            if let Some(val) = jps.no_proxy {
+                cmd.arg(&format!("-Dhttp.nonProxyHosts=\"{}\"", val));
+            }
+        }
+        cmd.args(vec!["-classpath", &classpath, "net.script.App"]);
+        cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
 
-        start_child_process(nsjail_cmd, NSJAIL_PATH.as_str()).await?
+        start_child_process(cmd, NSJAIL_PATH.as_str()).await?
     } else {
         append_logs(
             &job.id,
@@ -601,16 +731,33 @@ async fn run<'a>(
             .env("PATH", PATH_ENV.as_str())
             .env("BASE_INTERNAL_URL", base_internal_url)
             .envs(envs)
-            .envs(reserved_variables)
-            // TODO: I don't think it works
-            .envs(PROXY_ENVS.clone())
-            .args(&[
-                &format!("-Dhttps.proxyHost={}", *HTTPS_PROXY_HOST),
-                &format!("-Dhttps.proxyHost={}", *HTTPS_PROXY_PORT),
-                "-classpath",
-                &classpath,
-                "net.script.App",
-            ])
+            .envs(reserved_variables);
+        if metadata(TRUST_STORE_PATH.clone()).await.is_ok() {
+            cmd.args(&[
+                &format!("-Djavax.net.ssl.trustStore={}", *TRUST_STORE_PATH),
+                &format!("-Djavax.net.ssl.trustStorePassword={}", *STOREPASS),
+            ]);
+        }
+        // Configure proxies
+        {
+            let jps = parse_proxy()?;
+            if let Some(val) = jps.https_host {
+                cmd.arg(&format!("-Dhttps.proxyHost={}", val));
+            }
+            if let Some(val) = jps.https_port {
+                cmd.arg(&format!("-Dhttps.proxyPort={}", val));
+            }
+            if let Some(val) = jps.http_host {
+                cmd.arg(&format!("-Dhttp.proxyHost={}", val));
+            }
+            if let Some(val) = jps.http_port {
+                cmd.arg(&format!("-Dhttp.proxyPort={}", val));
+            }
+            if let Some(val) = jps.no_proxy {
+                cmd.arg(&format!("-Dhttp.nonProxyHosts=\"{}\"", val));
+            }
+        }
+        cmd.args(&["-classpath", &classpath, "net.script.App"])
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
 

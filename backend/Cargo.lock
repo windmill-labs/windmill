@@ -14721,6 +14721,7 @@ dependencies = [
  "tokio-util",
  "toml 0.7.8",
  "tracing",
+ "url",
  "urlencoding",
  "uuid 1.15.1",
  "windmill-audit",
