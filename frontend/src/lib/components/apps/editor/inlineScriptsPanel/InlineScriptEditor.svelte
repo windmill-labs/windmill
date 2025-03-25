@@ -294,7 +294,13 @@
 				>
 					Format
 				</Button>
-				<RunButton bind:runLoading {id} inlineScript={!transformer ? inlineScript : undefined} />
+				<RunButton
+					bind:runLoading
+					{id}
+					inlineScript={!transformer ? inlineScript : undefined}
+					size="xs2"
+					btnClasses="w-24 h-[28px]"
+				/>
 			</div>
 		</div>
 
