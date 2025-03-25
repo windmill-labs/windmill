@@ -52,7 +52,6 @@ windmill-parser-sql.workspace = true
 windmill-parser-graphql.workspace = true
 windmill-parser-php = { workspace = true, optional = true }
 windmill-git-sync.workspace = true
-toml.workspace = true
 sqlx.workspace = true
 uuid.workspace = true
 tracing.workspace = true
@@ -132,4 +131,3 @@ deno_permissions = { workspace = true, optional = true }
 deno_io = { workspace = true, optional = true }
 deno_runtime = { workspace = true, optional = true }
 deno_telemetry = { workspace = true, optional = true }
-winapi = { workspace = true, optional = true }
