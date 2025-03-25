@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT workspace_id, slack_team_id, teams_team_id, teams_team_name, slack_name, slack_command_script, teams_command_script, slack_email, auto_invite_domain, auto_invite_operator, auto_add, customer_id, plan, webhook, deploy_to, ai_resource, ai_models, code_completion_model, error_handler, error_handler_extra_args, error_handler_muted_on_cancel, large_file_storage, git_sync, deploy_ui, default_app, automatic_billing, default_scripts, mute_critical_alerts, color, operator_settings FROM workspace_settings WHERE workspace_id = $1",
+  "query": "SELECT workspace_id, slack_team_id, teams_team_id, teams_team_name, slack_name, slack_command_script, teams_command_script, slack_email, auto_invite_domain, auto_invite_operator, auto_add, customer_id, plan, webhook, deploy_to, ai_config, error_handler, error_handler_extra_args, error_handler_muted_on_cancel, large_file_storage, git_sync, deploy_ui, default_app, automatic_billing, default_scripts, mute_critical_alerts, color, operator_settings FROM workspace_settings WHERE workspace_id = $1",
   "describe": {
     "columns": [
       {
@@ -80,76 +80,66 @@
       },
       {
         "ordinal": 15,
-        "name": "ai_resource",
+        "name": "ai_config",
         "type_info": "Jsonb"
       },
       {
         "ordinal": 16,
-        "name": "ai_models",
-        "type_info": "VarcharArray"
-      },
-      {
-        "ordinal": 17,
-        "name": "code_completion_model",
-        "type_info": "Varchar"
-      },
-      {
-        "ordinal": 18,
         "name": "error_handler",
         "type_info": "Varchar"
       },
       {
-        "ordinal": 19,
+        "ordinal": 17,
         "name": "error_handler_extra_args",
         "type_info": "Json"
       },
       {
-        "ordinal": 20,
+        "ordinal": 18,
         "name": "error_handler_muted_on_cancel",
         "type_info": "Bool"
       },
       {
-        "ordinal": 21,
+        "ordinal": 19,
         "name": "large_file_storage",
         "type_info": "Jsonb"
       },
       {
-        "ordinal": 22,
+        "ordinal": 20,
         "name": "git_sync",
         "type_info": "Jsonb"
       },
       {
-        "ordinal": 23,
+        "ordinal": 21,
         "name": "deploy_ui",
         "type_info": "Jsonb"
       },
       {
-        "ordinal": 24,
+        "ordinal": 22,
         "name": "default_app",
         "type_info": "Varchar"
       },
       {
-        "ordinal": 25,
+        "ordinal": 23,
         "name": "automatic_billing",
         "type_info": "Bool"
       },
       {
-        "ordinal": 26,
+        "ordinal": 24,
         "name": "default_scripts",
         "type_info": "Jsonb"
       },
       {
-        "ordinal": 27,
+        "ordinal": 25,
         "name": "mute_critical_alerts",
         "type_info": "Bool"
       },
       {
-        "ordinal": 28,
+        "ordinal": 26,
         "name": "color",
         "type_info": "Varchar"
       },
       {
-        "ordinal": 29,
+        "ordinal": 27,
         "name": "operator_settings",
         "type_info": "Jsonb"
       }
@@ -176,8 +166,6 @@
       true,
       true,
       true,
-      false,
-      true,
       true,
       true,
       false,
@@ -192,5 +180,5 @@
       true
     ]
   },
-  "hash": "4e9c2e0690eaca280ccb5e5160438f207d930d29e3000b9845eef89e87a35ad1"
+  "hash": "aff243a11d41085b0b2f52b1b49f122fd3eae99a382ca3e66606d3183de51843"
 }

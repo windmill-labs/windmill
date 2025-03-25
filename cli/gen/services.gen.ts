@@ -1374,7 +1374,7 @@ export const editCopilotConfig = (data: EditCopilotConfigData): CancelablePromis
  * get copilot info
  * @param data The data for the request.
  * @param data.workspace
- * @returns unknown status
+ * @returns AIConfig status
  * @throws ApiError
  */
 export const getCopilotInfo = (data: GetCopilotInfoData): CancelablePromise<GetCopilotInfoResponse> => { return __request(OpenAPI, {
