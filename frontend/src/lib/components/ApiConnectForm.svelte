@@ -35,6 +35,7 @@
 	let workspaceGithubInstallations: GetGlobalConnectedRepositoriesResponse = []
 	let selectedGHAppAccountId: string | undefined = undefined
 	let selectedGHAppRepository: string | undefined = undefined
+	let githubInstallationUrl: string | undefined = undefined
 
 	async function loadGithubInstallations() {
 		if (!$enterpriseLicense) return
@@ -50,6 +51,15 @@
 			workspaceGithubInstallations = githubInstallations.filter(
 				(_) => _.workspace_id === $workspaceStore
 			)
+
+			const state = encodeURIComponent(
+				JSON.stringify({
+					workspace_id: $workspaceStore,
+					base_url: window.location.origin + base
+				})
+			)
+
+			githubInstallationUrl = `https://github.com/apps/windmill-sync-helper/installations/new?state=${state}`
 		} catch (err) {
 			console.error(err)
 			sendUserToast('Failed to load GitHub installations', true)
@@ -306,68 +316,7 @@
 			{:else}
 				<Loader2 class="animate-spin w-10 h-4" />
 			{/if}
-			<Popover
-				floatingConfig={{
-					placement: 'bottom'
-				}}
-				disabled={workspaceGithubInstallations.length == 0}
-			>
-				<svelte:fragment slot="trigger">
-					<Button
-						spacingSize="sm"
-						size="xs"
-						btnClasses="h-8"
-						color="light"
-						variant="border"
-						nonCaptureEvent
-					>
-						From connected repository
-					</Button>
-				</svelte:fragment>
-				<svelte:fragment slot="content" let:close>
-					<div class="block text-primary p-4">
-						<div class="flex flex-row gap-2 w-full">
-							<div class="flex flex-col gap-1 flex-1">
-								<p class="text-sm font-semibold text-secondary">Github Account ID</p>
-								<select bind:value={selectedGHAppAccountId}>
-									<option value="" disabled>Select GitHub Account ID</option>
-									{#each workspaceGithubInstallations as installation}
-										<option value={installation.account_id}>{installation.account_id}</option>
-									{/each}
-								</select>
-							</div>
-							{#if selectedGHAppAccountId}
-								<div class="flex flex-col gap-1 flex-1">
-									<p class="text-sm font-semibold text-secondary">Repository</p>
-									<div class="flex flex-row gap-2">
-										<select bind:value={selectedGHAppRepository}>
-											<option value="" disabled selected>Select Repository</option>
-											{#each getRepositories(selectedGHAppAccountId) as repository}
-												<option value={repository.url}>{repository.name}</option>
-											{/each}
-										</select>
-									</div>
-								</div>
-							{/if}
-							<div class="pt-[26px]">
-								<Button
-									size="xs"
-									color="blue"
-									buttonType="button"
-									disabled={!selectedGHAppRepository}
-									on:click={() => {
-										applyRepositoryURL(close)
-									}}
-								>
-									Apply
-								</Button>
-							</div>
-						</div>
-					</div>
-				</svelte:fragment>
-			</Popover>
-
-			{#if githubInstallationsNotInWorkspace.length > 0 || workspaceGithubInstallations.length > 0}
+			{#if githubInstallations.length > 0}
 				<Popover
 					floatingConfig={{
 						placement: 'bottom'
@@ -380,154 +329,204 @@
 							variant="border"
 							size="xs"
 							disabled={!$enterpriseLicense || loadingGithubInstallations}
-							startIcon={{ icon: loadingGithubInstallations ? Loader2 : Github }}
+							startIcon={{
+								icon: loadingGithubInstallations ? Loader2 : Github,
+								classes: loadingGithubInstallations ? 'animate-spin' : ''
+							}}
 							nonCaptureEvent
 						>
-							{$enterpriseLicense ? 'Manage GitHub app installations' : 'GitHub app (ee only)'}
+							{$enterpriseLicense ? 'GitHub App' : 'GitHub App (ee only)'}
 						</Button>
 					</svelte:fragment>
-					<svelte:fragment slot="content">
+					<svelte:fragment slot="content" let:close>
 						<div class="block text-primary p-4">
-							<div class="flex flex-col gap-4 w-[300px]">
-								<Button
-									color="none"
-									variant="border"
-									size="xs"
-									on:click={async () => {
-										if ($workspaceStore) {
-											const state = encodeURIComponent(
-												JSON.stringify({
-													workspace_id: $workspaceStore,
-													base_url: window.location.origin + base
-												})
-											)
-											window.open(
-												`https://github.com/apps/windmill-sync-helper/installations/new?state=${state}`,
-												'_blank'
-											)
-										} else {
-											sendUserToast('Failed to get GitHub app installation URL', true)
-										}
-									}}
-								>
-									Add new installation
-								</Button>
+							<div class="flex flex-col gap-4 w-[500px]">
 								{#if workspaceGithubInstallations.length > 0}
 									<div class="flex flex-col gap-2">
-										<p class="text-sm font-semibold text-secondary">Current installations:</p>
-										<div class="flex flex-col gap-1">
-											<table class="w-full text-sm">
-												<thead>
-													<tr class="text-left text-xs text-tertiary">
-														<th class="pb-2 w-1/3">Org</th>
-														<th class="pb-2 w-1/3">Workspace</th>
-														<th class="pb-2 w-1/4">Repos</th>
-														<th class="pb-2 w-1/12" />
-													</tr>
-												</thead>
-												<tbody>
+										<p class="text-sm font-semibold text-secondary">Select Repository</p>
+										<div class="flex flex-row gap-2 w-full">
+											<div class="flex flex-col gap-1 flex-1">
+												<p class="text-sm font-semibold text-secondary">Github Account ID</p>
+												<select bind:value={selectedGHAppAccountId}>
+													<option value="" disabled>Select GitHub Account ID</option>
 													{#each workspaceGithubInstallations as installation}
-														<tr class="border-t border-gray-200 dark:border-gray-700">
-															<td class="py-2">{installation.account_id}</td>
-															<td class="py-2">
-																{#if $userWorkspaces.find((w) => w.id === installation.workspace_id)?.color}
-																	<span
-																		class="inline-flex items-center px-2 py-0.5 rounded text-xs"
-																		style="background-color: {$userWorkspaces.find(
-																			(w) => w.id === installation.workspace_id
-																		)?.color}20; color: {$userWorkspaces.find(
-																			(w) => w.id === installation.workspace_id
-																		)?.color}"
-																	>
-																		{installation.workspace_id}
-																	</span>
-																{:else}
-																	<span class="text-xs text-tertiary"
-																		>{installation.workspace_id}</span
-																	>
-																{/if}
-															</td>
-															<td class="py-2 text-tertiary">
-																{installation.repositories.length} repos
-															</td>
-															<td class="pl-2 py-2 text-right">
-																<Button
-																	size="xs2"
-																	color="red"
-																	iconOnly
-																	btnClasses="px-1"
-																	startIcon={{ icon: Minus }}
-																	on:click={() => deleteInstallation(installation.installation_id)}
-																/>
-															</td>
-														</tr>
+														<option value={installation.account_id}
+															>{installation.account_id}</option
+														>
 													{/each}
-												</tbody>
-											</table>
+												</select>
+											</div>
+											{#if selectedGHAppAccountId}
+												<div class="flex flex-col gap-1 flex-1">
+													<p class="text-sm font-semibold text-secondary">Repository</p>
+													<div class="flex flex-row gap-2">
+														<select bind:value={selectedGHAppRepository}>
+															<option value="" disabled selected>Select Repository</option>
+															{#each getRepositories(selectedGHAppAccountId) as repository}
+																<option value={repository.url}>{repository.name}</option>
+															{/each}
+														</select>
+													</div>
+												</div>
+											{/if}
+											<div class="pt-[26px]">
+												<Button
+													size="xs"
+													color="blue"
+													buttonType="button"
+													disabled={!selectedGHAppRepository}
+													on:click={() => {
+														applyRepositoryURL(close)
+													}}
+												>
+													Apply
+												</Button>
+											</div>
 										</div>
 									</div>
 								{/if}
-								{#if githubInstallationsNotInWorkspace.length > 0}
-									<div class="flex flex-col gap-2">
-										<p class="text-sm font-semibold text-secondary"
-											>Installations in other workspaces:</p
-										>
-										<div class="flex flex-col gap-1">
-											<table class="w-full text-sm">
-												<thead>
-													<tr class="text-left text-xs text-tertiary">
-														<th class="pb-2 w-1/3">Org</th>
-														<th class="pb-2 w-1/3">Workspace</th>
-														<th class="pb-2 w-1/4">Repos</th>
-														<th class="pb-2 w-1/12" />
-													</tr>
-												</thead>
-												<tbody>
-													{#each githubInstallationsNotInWorkspace as installation}
-														<tr class="border-t border-gray-200 dark:border-gray-700">
-															<td class="py-2">{installation.account_id}</td>
-															<td class="py-2">
-																{#if $userWorkspaces.find((w) => w.id === installation.workspace_id)?.color}
-																	<span
-																		class="inline-flex items-center px-2 py-0.5 rounded text-xs"
-																		style="background-color: {$userWorkspaces.find(
-																			(w) => w.id === installation.workspace_id
-																		)?.color}20; color: {$userWorkspaces.find(
-																			(w) => w.id === installation.workspace_id
-																		)?.color}"
-																	>
-																		{installation.workspace_id}
-																	</span>
-																{:else}
-																	<span class="text-xs text-tertiary"
-																		>{installation.workspace_id}</span
-																	>
-																{/if}
-															</td>
-															<td class="py-2 text-tertiary">
-																{installation.repositories.length} repos
-															</td>
-															<td class="pl-2 py-2 text-right">
-																<Button
-																	size="xs2"
-																	color="blue"
-																	iconOnly
-																	btnClasses="px-1"
-																	startIcon={{ icon: Plus }}
-																	on:click={() =>
-																		addInstallationToWorkspace(
-																			installation.installation_id,
-																			installation.workspace_id
-																		)}
-																/>
-															</td>
-														</tr>
-													{/each}
-												</tbody>
-											</table>
+
+								<div
+									class={`${
+										workspaceGithubInstallations.length > 0
+											? 'border-t border-gray-200 dark:border-gray-700'
+											: ''
+									} pt-4`}
+								>
+									<div class="flex flex-col gap-4">
+										<div class="flex">
+											<Button
+												color="none"
+												variant="border"
+												size="xs"
+												href={githubInstallationUrl}
+												startIcon={{ icon: Plus }}
+												target="_blank"
+											>
+												Add new installation
+											</Button>
 										</div>
+										{#if workspaceGithubInstallations.length > 0}
+											<div class="flex flex-col gap-2">
+												<p class="text-sm font-semibold text-secondary">Current installations:</p>
+												<div class="flex flex-col gap-1">
+													<table class="w-full text-sm">
+														<thead>
+															<tr class="text-left text-xs text-tertiary">
+																<th class="pb-2 w-1/3">Org</th>
+																<th class="pb-2 w-1/3">Workspace</th>
+																<th class="pb-2 w-1/4">Repos</th>
+																<th class="pb-2 w-1/12" />
+															</tr>
+														</thead>
+														<tbody>
+															{#each workspaceGithubInstallations as installation}
+																<tr class="border-t border-gray-200 dark:border-gray-700">
+																	<td class="py-2">{installation.account_id}</td>
+																	<td class="py-2">
+																		{#if $userWorkspaces.find((w) => w.id === installation.workspace_id)?.color}
+																			<span
+																				class="inline-flex items-center px-2 py-0.5 rounded text-xs"
+																				style="background-color: {$userWorkspaces.find(
+																					(w) => w.id === installation.workspace_id
+																				)?.color}20; color: {$userWorkspaces.find(
+																					(w) => w.id === installation.workspace_id
+																				)?.color}"
+																			>
+																				{installation.workspace_id}
+																			</span>
+																		{:else}
+																			<span class="text-xs text-tertiary"
+																				>{installation.workspace_id}</span
+																			>
+																		{/if}
+																	</td>
+																	<td class="py-2 text-tertiary">
+																		{installation.repositories.length} repos
+																	</td>
+																	<td class="pl-2 py-2 text-right">
+																		<Button
+																			size="xs2"
+																			color="red"
+																			iconOnly
+																			btnClasses="px-1"
+																			startIcon={{ icon: Minus }}
+																			on:click={() =>
+																				deleteInstallation(installation.installation_id)}
+																		/>
+																	</td>
+																</tr>
+															{/each}
+														</tbody>
+													</table>
+												</div>
+											</div>
+										{/if}
+										{#if githubInstallationsNotInWorkspace.length > 0}
+											<div class="flex flex-col gap-2">
+												<p class="text-sm font-semibold text-secondary"
+													>Installations in other workspaces:</p
+												>
+												<div class="flex flex-col gap-1">
+													<table class="w-full text-sm">
+														<thead>
+															<tr class="text-left text-xs text-tertiary">
+																<th class="pb-2 w-1/3">Org</th>
+																<th class="pb-2 w-1/3">Workspace</th>
+																<th class="pb-2 w-1/4">Repos</th>
+																<th class="pb-2 w-1/12" />
+															</tr>
+														</thead>
+														<tbody>
+															{#each githubInstallationsNotInWorkspace as installation}
+																<tr class="border-t border-gray-200 dark:border-gray-700">
+																	<td class="py-2">{installation.account_id}</td>
+																	<td class="py-2">
+																		{#if $userWorkspaces.find((w) => w.id === installation.workspace_id)?.color}
+																			<span
+																				class="inline-flex items-center px-2 py-0.5 rounded text-xs"
+																				style="background-color: {$userWorkspaces.find(
+																					(w) => w.id === installation.workspace_id
+																				)?.color}20; color: {$userWorkspaces.find(
+																					(w) => w.id === installation.workspace_id
+																				)?.color}"
+																			>
+																				{installation.workspace_id}
+																			</span>
+																		{:else}
+																			<span class="text-xs text-tertiary"
+																				>{installation.workspace_id}</span
+																			>
+																		{/if}
+																	</td>
+																	<td class="py-2 text-tertiary">
+																		{installation.repositories.length} repos
+																	</td>
+																	<td class="pl-2 py-2 text-right">
+																		<Button
+																			size="xs2"
+																			color="blue"
+																			btnClasses="px-1"
+																			startIcon={{ icon: Plus }}
+																			title="Add installation to workspace"
+																			on:click={() =>
+																				addInstallationToWorkspace(
+																					installation.installation_id,
+																					installation.workspace_id
+																				)}
+																		>
+																			Add to workspace
+																		</Button>
+																	</td>
+																</tr>
+															{/each}
+														</tbody>
+													</table>
+												</div>
+											</div>
+										{/if}
 									</div>
-								{/if}
+								</div>
 							</div>
 						</div>
 					</svelte:fragment>
@@ -538,25 +537,14 @@
 					variant="border"
 					size="xs"
 					disabled={!$enterpriseLicense || loadingGithubInstallations}
-					startIcon={{ icon: loadingGithubInstallations ? Loader2 : Github }}
-					on:click={async () => {
-						if ($workspaceStore) {
-							const state = encodeURIComponent(
-								JSON.stringify({
-									workspace_id: $workspaceStore,
-									base_url: window.location.origin + base
-								})
-							)
-							window.open(
-								`https://github.com/apps/windmill-sync-helper/installations/new?state=${state}`,
-								'_blank'
-							)
-						} else {
-							sendUserToast('Failed to get GitHub app installation URL', true)
-						}
+					startIcon={{
+						icon: loadingGithubInstallations ? Loader2 : Github,
+						classes: loadingGithubInstallations ? 'animate-spin' : ''
 					}}
+					href={githubInstallationUrl}
+					target="_blank"
 				>
-					{$enterpriseLicense ? 'Install GitHub app' : 'Install GitHub app (ee only)'}
+					{$enterpriseLicense ? 'Install GitHub App' : 'GitHub App (ee only)'}
 				</Button>
 			{/if}
 		{/if}
