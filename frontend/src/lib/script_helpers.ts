@@ -948,7 +948,6 @@ dependencies:
 const JAVA_INIT_CODE = `//requirements:
 //com.google.code.gson:gson:2.8.9
 //com.github.ricksbrown:cowsay:1.1.0
-//com.github.ricksbrown:cowsay:1.1.0
 
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
