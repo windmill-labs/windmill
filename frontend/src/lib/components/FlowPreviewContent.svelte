@@ -52,6 +52,7 @@
 		flowStore,
 		pathStore,
 		initialPathStore,
+		fakeInitialPath,
 		customUi,
 		executionCount
 	} = getContext<FlowEditorContext>('FlowEditorContext')
@@ -376,7 +377,8 @@
 		<div class="border-b">
 			<SchemaFormWithArgPicker
 				bind:this={schemaFormWithArgPicker}
-				runnableId={$initialPathStore == '' ? $pathStore : $initialPathStore}
+				runnableId={$initialPathStore}
+				stablePathForCaptures={$initialPathStore || fakeInitialPath}
 				runnableType={'FlowPath'}
 				previewArgs={$previewArgs}
 				on:openTriggers

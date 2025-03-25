@@ -248,7 +248,7 @@
 					workspace: $workspaceStore!,
 					requestBody: {
 						path: $pathStore,
-						summary: flow.summary,
+						summary: flow.summary ?? '',
 						description: flow.description ?? '',
 						value: flow.value,
 						schema: flow.schema,
@@ -379,7 +379,7 @@
 					workspace: $workspaceStore!,
 					requestBody: {
 						path: $pathStore,
-						summary: flow.summary,
+						summary: flow.summary ?? '',
 						description: flow.description ?? '',
 						value: flow.value,
 						schema: flow.schema,
@@ -390,6 +390,14 @@
 						on_behalf_of_email: flow.on_behalf_of_email,
 						deployment_message: deploymentMsg || undefined
 					}
+				})
+				await CaptureService.moveCapturesAndConfigs({
+					workspace: $workspaceStore!,
+					path: fakeInitialPath,
+					requestBody: {
+						new_path: $pathStore
+					},
+					runnableKind: 'flow'
 				})
 				if ($primaryScheduleStore && $primaryScheduleStore.enabled) {
 					await createSchedule($pathStore)
@@ -849,7 +857,6 @@
 		try {
 			push(history, $flowStore)
 			let module = stepOnly ? $copilotModulesStore[0] : $copilotModulesStore[idx]
-			const aiProvider = $copilotInfo.ai_provider
 
 			copilotLoading = true
 			copilotStatus = "Generating code for step '" + module.id + "'..."
@@ -979,8 +986,7 @@
 						  })
 						: undefined,
 					isFirstInLoop,
-					abortController,
-					aiProvider
+					abortController
 				)
 				unsubscribe()
 			}
@@ -996,7 +1002,7 @@
 						pastModule.value.type === 'script')
 				) {
 					const stepSchema: Schema = JSON.parse(JSON.stringify($flowStateStore[module.id].schema)) // deep copy
-					if (isHubStep && pastModule !== undefined && $copilotInfo.exists_ai_resource) {
+					if (isHubStep && pastModule !== undefined && $copilotInfo.enabled) {
 						// ask AI to set step inputs
 						abortController = new AbortController()
 						const { inputs, allExprs } = await glueCopilot(
@@ -1006,8 +1012,7 @@
 								value: RawScript | PathScript
 							},
 							isFirstInLoop,
-							abortController,
-							aiProvider
+							abortController
 						)
 
 						// create flow inputs used by AI for autocompletion
@@ -1055,7 +1060,7 @@
 							$shouldUpdatePropertyType[key] = 'javascript'
 						})
 					} else {
-						if (isHubStep && pastModule !== undefined && !$copilotInfo.exists_ai_resource) {
+						if (isHubStep && pastModule !== undefined && !$copilotInfo.enabled) {
 							sendUserToast(
 								'For better input generation, enable Windmill AI in the workspace settings',
 								true

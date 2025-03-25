@@ -44,20 +44,12 @@ use windmill_audit::ActionKind;
 use windmill_common::error::to_anyhow;
 
 use windmill_common::{
-    db::UserDB,
-    error::{Error, JsonResult, Result},
-    jobs::JobPayload,
-    schedule::Schedule,
-    scripts::{
+    db::UserDB, error::{Error, JsonResult, Result}, jobs::JobPayload, schedule::Schedule, schema::should_validate_schema, scripts::{
         to_i64, HubScript, ListScriptQuery, ListableScript, NewScript, Schema, Script, ScriptHash,
         ScriptHistory, ScriptHistoryUpdate, ScriptKind, ScriptLang, ScriptWithStarred,
-    },
-    users::username_to_permissioned_as,
-    utils::{
+    }, users::username_to_permissioned_as, utils::{
         not_found_if_none, paginate, query_elems_from_hub, require_admin, Pagination, StripPath,
-    },
-    worker::to_raw_value,
-    HUB_BASE_URL,
+    }, worker::to_raw_value, HUB_BASE_URL
 };
 use windmill_git_sync::{handle_deployment_metadata, DeployedObject};
 use windmill_parser_ts::remove_pinned_imports;
@@ -155,6 +147,10 @@ pub fn workspaced_service() -> Router {
         )
         .route("/history/p/*path", get(get_script_history))
         .route("/get_latest_version/*path", get(get_latest_version))
+        .route(
+            "/list_paths_from_workspace_runnable/*path",
+            get(list_paths_from_workspace_runnable),
+        )
         .route(
             "/history_update/h/:hash/p/*path",
             post(update_script_history),
@@ -455,6 +451,24 @@ async fn create_snapshot_script(
     return Ok((StatusCode::CREATED, format!("{}", script_hash.unwrap())));
 }
 
+async fn list_paths_from_workspace_runnable(
+    authed: ApiAuthed,
+    Extension(user_db): Extension<UserDB>,
+    Path((w_id, path)): Path<(String, StripPath)>,
+) -> JsonResult<Vec<String>> {
+    let mut tx = user_db.begin(&authed).await?;
+    let runnables = sqlx::query_scalar!(
+        r#"SELECT importer_path FROM dependency_map 
+            WHERE workspace_id = $1 AND imported_path = $2"#,
+        w_id,
+        path.to_path(),
+    )
+    .fetch_all(&mut *tx)
+    .await?;
+    tx.commit().await?;
+    Ok(Json(runnables))
+}
+
 async fn create_script(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
@@ -618,6 +632,7 @@ async fn create_script_internal<'c>(
         || ns.language == ScriptLang::Rust
         || ns.language == ScriptLang::Ansible
         || ns.language == ScriptLang::CSharp
+        || ns.language == ScriptLang::Nu
         || ns.language == ScriptLang::Php)
     {
         Some(String::new())
@@ -645,6 +660,8 @@ async fn create_script_internal<'c>(
         ns.language.clone()
     };
 
+    let validate_schema = should_validate_schema(&ns.content, &ns.language);
+
     let (no_main_func, has_preprocessor) = match lang {
         ScriptLang::Bun | ScriptLang::Bunnative | ScriptLang::Deno | ScriptLang::Nativets => {
             let args = windmill_parser_ts::parse_deno_signature(&ns.content, true, true, None)?;
@@ -662,8 +679,8 @@ async fn create_script_internal<'c>(
          content, created_by, schema, is_template, extra_perms, lock, language, kind, tag, \
          draft_only, envs, concurrent_limit, concurrency_time_window_s, cache_ttl, \
          dedicated_worker, ws_error_handler_muted, priority, restart_unless_cancelled, \
-         delete_after_use, timeout, concurrency_key, visible_to_runner_only, no_main_func, codebase, has_preprocessor, on_behalf_of_email) \
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::text::json, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32)",
+         delete_after_use, timeout, concurrency_key, visible_to_runner_only, no_main_func, codebase, has_preprocessor, on_behalf_of_email, schema_validation) \
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::text::json, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33)",
         &w_id,
         &hash.0,
         ns.path,
@@ -699,7 +716,8 @@ async fn create_script_internal<'c>(
             Some(&authed.email)
         } else {
             None
-        }
+        },
+        validate_schema,
     )
     .execute(&mut *tx)
     .await?;

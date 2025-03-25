@@ -66,8 +66,8 @@ use windmill_common::global_settings::OBJECT_STORE_CACHE_CONFIG_SETTING;
 use windmill_worker::{
     get_hub_script_content_and_requirements, BUN_BUNDLE_CACHE_DIR, BUN_CACHE_DIR, CSHARP_CACHE_DIR,
     DENO_CACHE_DIR, DENO_CACHE_DIR_DEPS, DENO_CACHE_DIR_NPM, GO_BIN_CACHE_DIR, GO_CACHE_DIR,
-    POWERSHELL_CACHE_DIR, PY310_CACHE_DIR, PY311_CACHE_DIR, PY312_CACHE_DIR, PY313_CACHE_DIR,
-    RUST_CACHE_DIR, TAR_PY310_CACHE_DIR, TAR_PY311_CACHE_DIR, TAR_PY312_CACHE_DIR,
+    NU_CACHE_DIR, POWERSHELL_CACHE_DIR, PY310_CACHE_DIR, PY311_CACHE_DIR, PY312_CACHE_DIR,
+    PY313_CACHE_DIR, RUST_CACHE_DIR, TAR_PY310_CACHE_DIR, TAR_PY311_CACHE_DIR, TAR_PY312_CACHE_DIR,
     TAR_PY313_CACHE_DIR, UV_CACHE_DIR,
 };
 
@@ -702,6 +702,16 @@ Windmill Community Edition {GIT_VERSION}
                                             tracing::info!("Webhook change detected, invalidating webhook cache: {}", workspace_id);
                                             windmill_api::webhook_util::WEBHOOK_CACHE.remove(workspace_id);
                                         },
+                                        "notify_workspace_envs_change" => {
+                                            let workspace_id = n.payload();
+                                            tracing::info!("Workspace envs change detected, invalidating workspace envs cache: {}", workspace_id);
+                                            windmill_common::variables::CUSTOM_ENVS_CACHE.remove(workspace_id);
+                                        },
+                                        "notify_workspace_premium_change" => {
+                                            let workspace_id = n.payload();
+                                            tracing::info!("Workspace premium change detected, invalidating workspace premium cache: {}", workspace_id);
+                                            windmill_common::workspaces::IS_PREMIUM_CACHE.remove(workspace_id);
+                                        },
                                         "notify_global_setting_change" => {
                                             tracing::info!("Global setting change detected: {}", n.payload());
                                             match n.payload() {
@@ -975,14 +985,17 @@ async fn listen_pg(url: &str) -> Option<PgListener> {
         }
     };
 
-    if let Err(e) = listener
-        .listen_all(vec![
-            "notify_config_change",
-            "notify_global_setting_change",
-            "notify_webhook_change",
-        ])
-        .await
-    {
+    #[allow(unused_mut)]
+    let mut channels = vec![
+        "notify_config_change",
+        "notify_global_setting_change",
+        "notify_webhook_change",
+        "notify_workspace_envs_change",
+    ];
+    #[cfg(feature = "cloud")]
+    channels.push("notify_workspace_premium_change");
+
+    if let Err(e) = listener.listen_all(channels).await {
         tracing::error!(error = %e, "Could not listen to database");
         return None;
     }
@@ -1080,6 +1093,7 @@ pub async fn run_workers(
         GO_BIN_CACHE_DIR,
         RUST_CACHE_DIR,
         CSHARP_CACHE_DIR,
+        NU_CACHE_DIR,
         HUB_CACHE_DIR,
         POWERSHELL_CACHE_DIR,
     ] {
