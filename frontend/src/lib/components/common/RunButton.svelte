@@ -4,12 +4,16 @@
 	import { createEventDispatcher } from 'svelte'
 	import { CornerDownLeft, Play } from 'lucide-svelte'
 	import type { Item } from '$lib/utils'
+	import { twMerge } from 'tailwind-merge'
 
 	const dispatch = createEventDispatcher()
 
 	export let testIsLoading = false
 	export let cancelLoading = false
 	export let dropdownItems: Item[] = []
+	export let btnClasses = ''
+	export let hideShortcut = false
+	export let size: 'xs' | 'xs2' = 'xs'
 
 	$: if (cancelLoading && !testIsLoading) {
 		cancelLoading = false
@@ -26,10 +30,10 @@
 
 <Button
 	color={testIsLoading ? 'red' : 'dark'}
-	btnClasses="w-28"
-	size="xs"
+	btnClasses={twMerge('w-28', btnClasses)}
+	{size}
 	on:click={handleClick}
-	shortCut={testIsLoading
+	shortCut={testIsLoading || hideShortcut
 		? undefined
 		: {
 				Icon: CornerDownLeft
