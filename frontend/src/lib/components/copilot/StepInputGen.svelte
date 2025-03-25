@@ -107,7 +107,6 @@ If none of the available results are appropriate, are already used or are more a
 Reply with the most probable answer, do not explain or discuss.
 Use javascript object dot notation to access the properties.
 Only return the expression without any wrapper.`
-			const aiProvider = $copilotInfo.ai_provider
 			generatedContent = await getNonStreamingCompletion(
 				[
 					{
@@ -115,8 +114,7 @@ Only return the expression without any wrapper.`
 						content: user
 					}
 				],
-				abortController,
-				aiProvider
+				abortController
 			)
 
 			if (
@@ -139,7 +137,7 @@ Only return the expression without any wrapper.`
 	}
 
 	export function onKeyUp(event: KeyboardEvent) {
-		if (!$copilotInfo.exists_ai_resource || !$stepInputCompletionEnabled) {
+		if (!$copilotInfo.enabled || !$stepInputCompletionEnabled) {
 			return
 		}
 		if (event.key === 'Tab') {
@@ -182,7 +180,7 @@ Only return the expression without any wrapper.`
 		cancelOnOutOfFocus()
 	}
 
-	$: if ($copilotInfo.exists_ai_resource && $stepInputCompletionEnabled && focused) {
+	$: if ($copilotInfo.enabled && $stepInputCompletionEnabled && focused) {
 		automaticGeneration()
 	}
 
@@ -194,7 +192,7 @@ Only return the expression without any wrapper.`
 	let openInputsModal = false
 </script>
 
-{#if $copilotInfo.exists_ai_resource && $stepInputCompletionEnabled}
+{#if $copilotInfo.enabled && $stepInputCompletionEnabled}
 	<FlowCopilotInputsModal
 		on:confirmed={async () => {
 			createFlowInput()

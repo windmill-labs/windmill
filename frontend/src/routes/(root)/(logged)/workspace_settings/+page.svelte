@@ -21,16 +21,17 @@
 		JobService,
 		ResourceService,
 		SettingService,
-		type AIProvider
+		type AIProvider,
+		type AIConfig
 	} from '$lib/gen'
 	import {
 		enterpriseLicense,
-		copilotInfo,
 		superadmin,
 		userStore,
 		usersWorkspaceStore,
 		workspaceStore,
-		isCriticalAlertsUIOpen
+		isCriticalAlertsUIOpen,
+		setCopilotInfo
 	} from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
 	import { emptyString, tryEvery } from '$lib/utils'
@@ -61,8 +62,6 @@
 	} from '$lib/workspace_settings'
 	import { base } from '$lib/base'
 	import { hubPaths } from '$lib/hub'
-	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
-	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 	import { AI_DEFAULT_MODELS } from '$lib/components/copilot/lib'
 	import Description from '$lib/components/Description.svelte'
 	import ConnectionSection from '$lib/components/ConnectionSection.svelte'
@@ -119,10 +118,29 @@
 	let criticalAlertUIMuted: boolean | undefined = undefined
 	let initialCriticalAlertUIMuted: boolean | undefined = undefined
 
-	let aiResourcePath: string | undefined = undefined
-	let aiProvider: AIProvider = 'openai'
-	let aiModels: string[] = []
+	const aiProviderLabels: [AIProvider, string][] = [
+		['openai', 'OpenAI'],
+		['anthropic', 'Anthropic'],
+		['mistral', 'Mistral'],
+		['deepseek', 'DeepSeek'],
+		['googleai', 'Google AI'],
+		['groq', 'Groq'],
+		['openrouter', 'OpenRouter'],
+		['customai', 'Custom AI']
+	]
+
+	let aiProviders: Exclude<AIConfig['providers'], undefined> = {}
 	let codeCompletionModel: string | undefined = undefined
+	let defaultModel: string | undefined = undefined
+
+	$: availableAIModels = Object.values(aiProviders).flatMap((p) => p.models)
+	$: modelProviderMap = Object.fromEntries(
+		Object.entries(aiProviders).flatMap(([provider, config]) =>
+			config.models.map((m) => [m, provider as AIProvider])
+		)
+	)
+	$: Object.keys(aiProviders).length < 1 &&
+		((codeCompletionModel = undefined), (defaultModel = undefined))
 
 	let s3ResourceSettings: S3ResourceSettings = {
 		resourceType: 's3',
@@ -221,39 +239,32 @@
 	}
 
 	async function editCopilotConfig(): Promise<void> {
-		if (aiResourcePath) {
+		if (Object.keys(aiProviders ?? {}).length > 0) {
+			const code_completion_model = codeCompletionModel
+				? { model: codeCompletionModel, provider: modelProviderMap[codeCompletionModel] }
+				: undefined
+			const default_model = defaultModel
+				? { model: defaultModel, provider: modelProviderMap[defaultModel] }
+				: undefined
 			await WorkspaceService.editCopilotConfig({
 				workspace: $workspaceStore!,
 				requestBody: {
-					ai_resource: {
-						path: aiResourcePath,
-						provider: aiProvider
-					},
-					code_completion_model: codeCompletionModel,
-					ai_models: aiModels
+					providers: aiProviders,
+					code_completion_model,
+					default_model
 				}
 			})
-			copilotInfo.set({
-				ai_provider: aiProvider,
-				exists_ai_resource: true,
-				code_completion_model: codeCompletionModel,
-				ai_models: aiModels
+			setCopilotInfo({
+				providers: aiProviders,
+				code_completion_model,
+				default_model
 			})
 		} else {
 			await WorkspaceService.editCopilotConfig({
 				workspace: $workspaceStore!,
-				requestBody: {
-					ai_resource: undefined,
-					code_completion_model: codeCompletionModel,
-					ai_models: []
-				}
+				requestBody: {}
 			})
-			copilotInfo.set({
-				ai_provider: 'openai',
-				exists_ai_resource: false,
-				code_completion_model: codeCompletionModel,
-				ai_models: []
-			})
+			setCopilotInfo({})
 		}
 		sendUserToast(`Copilot settings updated`)
 	}
@@ -433,10 +444,9 @@
 		workspaceToDeployTo = settings.deploy_to
 		webhook = settings.webhook
 
-		aiResourcePath = settings.ai_resource?.path
-		aiProvider = settings.ai_resource?.provider ?? 'openai'
-		codeCompletionModel = settings.code_completion_model
-		aiModels = settings.ai_models
+		aiProviders = settings.ai_config?.providers ?? {}
+		defaultModel = settings.ai_config?.default_model?.model
+		codeCompletionModel = settings.ai_config?.code_completion_model?.model
 
 		errorHandlerItemKind = settings.error_handler?.split('/')[0] as 'flow' | 'script'
 		errorHandlerScriptPath = (settings.error_handler ?? '').split('/').slice(1).join('/')
@@ -1056,109 +1066,147 @@
 			<div class="flex flex-col gap-4 my-8">
 				<div class="flex flex-col gap-1">
 					<div class="text-primary text-lg font-semibold"> Windmill AI</div>
-					<Description>Select an OpenAI resource to unlock Windmill AI features.</Description>
 					<Description link="https://www.windmill.dev/docs/core_concepts/ai_generation">
-						Windmill AI supports integration with your preferred AI provider for all AI features.
+						Windmill AI integrates with your favorite AI providers and models.
 					</Description>
 				</div>
 			</div>
 
-			<div class="flex flex-col gap-4">
-				<ToggleButtonGroup
-					bind:selected={aiProvider}
-					on:selected={() => {
-						aiResourcePath = ''
-						aiModels = []
-						codeCompletionModel = undefined
-					}}
-					let:item
-				>
-					<ToggleButton value="openai" label="OpenAI" {item} />
-					<ToggleButton value="anthropic" label="Anthropic" {item} />
-					<ToggleButton value="mistral" label="Mistral" {item} />
-					<ToggleButton value="deepseek" label="DeepSeek" {item} />
-					<ToggleButton value="googleai" label="Google AI" {item} />
-					<ToggleButton value="groq" label="Groq" {item} />
-					<ToggleButton value="openrouter" label="OpenRouter" {item} />
-					<ToggleButton
-						value="customai"
-						label={'Custom AI' + ($enterpriseLicense ? '' : ' (EE)')}
-						disabled={!$enterpriseLicense}
-						tooltip="Configure a custom AI provider that is OpenAI API compatible"
-						showTooltipIcon
-						{item}
-					/>
-				</ToggleButtonGroup>
-				<div class="flex gap-1">
-					{#key aiProvider}
-						<ResourcePicker
-							resourceType={usingOpenaiClientCredentialsOauth
-								? 'openai_client_credentials_oauth'
-								: aiProvider}
-							initialValue={aiResourcePath}
-							bind:value={aiResourcePath}
-							on:change={() => {
-								if (aiResourcePath && aiModels.length === 0) {
-									if (aiProvider !== 'customai') {
-										aiModels = AI_DEFAULT_MODELS[aiProvider].slice(0, 1)
-									}
-								}
-							}}
-						/>
-						<TestAIKey
-							disabled={!aiResourcePath || (aiProvider === 'customai' && aiModels.length === 0)}
-							resourcePath={aiResourcePath}
-							{aiProvider}
-							model={aiProvider === 'customai' ? aiModels[0] : AI_DEFAULT_MODELS[aiProvider][0]}
-						/>
-					{/key}
+			<div class="flex flex-col gap-8">
+				<div class="flex flex-col gap-2">
+					<p class="font-semibold">AI Providers</p>
+					<div class="flex flex-col gap-4">
+						{#each aiProviderLabels as [provider, label]}
+							<div class="flex flex-col gap-2">
+								<Toggle
+									options={{
+										right:
+											label + (provider === 'customai' && !$enterpriseLicense ? ' (EE only)' : '')
+									}}
+									disabled={provider === 'customai' && !$enterpriseLicense}
+									checked={!!aiProviders[provider]}
+									on:change={(e) => {
+										if (e.detail) {
+											aiProviders[provider] = {
+												resource_path: '',
+												models:
+													AI_DEFAULT_MODELS[provider].length > 0
+														? [AI_DEFAULT_MODELS[provider][0]]
+														: []
+											}
+
+											if (AI_DEFAULT_MODELS[provider].length > 0 && !defaultModel) {
+												defaultModel = AI_DEFAULT_MODELS[provider][0]
+											}
+										} else {
+											aiProviders = Object.fromEntries(
+												Object.entries(aiProviders).filter(([key]) => key !== provider)
+											)
+										}
+									}}
+								/>
+								{#if aiProviders[provider]}
+									<div class="mb-4 flex flex-col gap-2">
+										<div class="flex flex-row gap-1">
+											{#key aiProviders[provider].resource_path}
+												<ResourcePicker
+													resourceType={usingOpenaiClientCredentialsOauth
+														? 'openai_client_credentials_oauth'
+														: provider}
+													initialValue={aiProviders[provider].resource_path}
+													bind:value={aiProviders[provider].resource_path}
+													on:change={() => {
+														if (
+															aiProviders[provider].resource_path &&
+															aiProviders[provider].models.length === 0 &&
+															AI_DEFAULT_MODELS[provider].length > 0
+														) {
+															aiProviders[provider].models = AI_DEFAULT_MODELS[provider].slice(0, 1)
+														}
+													}}
+												/>
+											{/key}
+											<TestAIKey
+												aiProvider={provider}
+												resourcePath={aiProviders[provider].resource_path}
+												model={aiProviders[provider].models[0]}
+											/>
+										</div>
+
+										<Label label="Enabled models">
+											<MultiSelect
+												options={AI_DEFAULT_MODELS[provider]}
+												ulOptionsClass={'!bg-surface-secondary'}
+												allowUserOptions="append"
+												bind:selected={aiProviders[provider].models}
+											/>
+										</Label>
+									</div>
+								{/if}
+							</div>
+						{/each}
+					</div>
 				</div>
 
-				{#if aiResourcePath}
-					<Label label="Enabled models">
-						<MultiSelect
-							options={AI_DEFAULT_MODELS[aiProvider]}
-							ulOptionsClass={'!bg-surface-secondary'}
-							allowUserOptions="append"
-							bind:selected={aiModels}
-						/>
-					</Label>
-
+				{#if Object.keys(aiProviders).length > 0}
 					<div class="flex flex-col gap-2">
-						<Toggle
-							on:change={() => {
-								if (codeCompletionModel != undefined) {
-									codeCompletionModel = undefined
-								} else {
-									codeCompletionModel = AI_DEFAULT_MODELS[aiProvider][0] ?? ''
-								}
-							}}
-							checked={codeCompletionModel != undefined}
-							options={{
-								right: 'Code completion'
-							}}
-						/>
-
-						{#if codeCompletionModel != undefined}
-							<Label label="Code completion model">
+						<p class="font-semibold">Settings</p>
+						<div class="flex flex-col gap-4">
+							<Label label="Default chat model">
 								<ArgEnum
-									enum_={AI_DEFAULT_MODELS[aiProvider]}
-									bind:value={codeCompletionModel}
+									enum_={availableAIModels}
+									bind:value={defaultModel}
 									disabled={false}
 									autofocus={false}
 									defaultValue={undefined}
 									valid={true}
-									create={true}
+									create={false}
 									required={false}
 								/>
 							</Label>
-						{/if}
+
+							<div class="flex flex-col gap-2">
+								<Toggle
+									on:change={(e) => {
+										if (e.detail) {
+											codeCompletionModel = ''
+										} else {
+											codeCompletionModel = undefined
+										}
+									}}
+									checked={codeCompletionModel != undefined}
+									options={{
+										right: 'Code completion'
+									}}
+								/>
+
+								{#if codeCompletionModel != undefined}
+									<Label label="Code completion model">
+										<ArgEnum
+											enum_={availableAIModels}
+											bind:value={codeCompletionModel}
+											disabled={false}
+											autofocus={false}
+											defaultValue={undefined}
+											valid={true}
+											create={false}
+											required={false}
+										/>
+										<p class="text-xs">
+											We highly recommend using Mistral's Codestral model for code completion.
+										</p>
+									</Label>
+								{/if}
+							</div>
+						</div>
 					</div>
 				{/if}
+
 				<Button
-					disabled={(aiResourcePath && aiModels.length === 0) ||
-						(codeCompletionModel != undefined && codeCompletionModel.length === 0)}
-					size="sm"
+					wrapperClasses="self-start"
+					disabled={!Object.values(aiProviders).every((p) => p.resource_path) ||
+						(codeCompletionModel != undefined && codeCompletionModel.length === 0) ||
+						(Object.keys(aiProviders).length > 0 && !defaultModel)}
 					on:click={editCopilotConfig}
 				>
 					Save

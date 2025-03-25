@@ -1,7 +1,7 @@
 import process from "node:process";
 import { colors, Confirm, log, yamlParseFile, yamlStringify } from "./deps.ts";
 import * as wmill from "./gen/services.gen.ts";
-import { AIResource, Config, GlobalSetting } from "./gen/types.gen.ts";
+import { AIConfig, Config, GlobalSetting } from "./gen/types.gen.ts";
 import { compareInstanceObjects, InstanceSyncOptions } from "./instance.ts";
 import { isSuperset } from "./types.ts";
 import { deepEqual } from "./utils.ts";
@@ -20,9 +20,7 @@ export interface SimplifiedSettings {
   error_handler?: string;
   error_handler_extra_args?: any;
   error_handler_muted_on_cancel?: boolean;
-  ai_resource?: AIResource;
-  code_completion_model?: string;
-  ai_models: string[];
+  ai_config?: AIConfig;
   large_file_storage?: any;
   git_sync?: any;
   default_app?: string;
@@ -156,19 +154,11 @@ export async function pushWorkspaceSettings(
       });
     }
   }
-  if (
-    localSettings.ai_resource != settings.ai_resource ||
-    localSettings.code_completion_model != settings.code_completion_model ||
-    !deepEqual(localSettings.ai_models, settings.ai_models)
-  ) {
+  if (!deepEqual(localSettings.ai_config, settings.ai_config)) {
     log.debug(`Updating copilot settings...`);
     await wmill.editCopilotConfig({
       workspace,
-      requestBody: {
-        ai_resource: localSettings.ai_resource,
-        code_completion_model: localSettings.code_completion_model,
-        ai_models: localSettings.ai_models,
-      },
+      requestBody: localSettings.ai_config ?? {},
     });
   }
   if (

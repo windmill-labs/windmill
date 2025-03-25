@@ -83,7 +83,6 @@ Your answer has to be in the following format (one line per input):
 input_name1: expression1
 input_name2: expression2
 ...`
-			const aiProvider = $copilotInfo.ai_provider
 			generatedContent = await getNonStreamingCompletion(
 				[
 					{
@@ -91,8 +90,7 @@ input_name2: expression2
 						content: user
 					}
 				],
-				abortController,
-				aiProvider
+				abortController
 			)
 
 			parsedInputs = generatedContent.split('\n').map((x) => x.split(': '))
@@ -169,7 +167,7 @@ input_name2: expression2
 </script>
 
 <div class="flex flex-row justify-end">
-	{#if $copilotInfo.exists_ai_resource && $stepInputCompletionEnabled}
+	{#if $copilotInfo.enabled && $stepInputCompletionEnabled}
 		<FlowCopilotInputsModal
 			on:confirmed={async () => {
 				createFlowInputs()
@@ -238,7 +236,7 @@ input_name2: expression2
 			<svelte:fragment slot="content" let:close>
 				<div class="p-4">
 					<p class="text-sm">
-						{#if !$copilotInfo.exists_ai_resource}
+						{#if !$copilotInfo.enabled}
 							Enable Windmill AI in the{' '}
 							<a
 								href="{base}/workspace_settings?tab=ai"

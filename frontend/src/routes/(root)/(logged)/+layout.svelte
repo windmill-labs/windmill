@@ -17,7 +17,6 @@
 	import CriticalAlertModal from '$lib/components/sidebar/CriticalAlertModal.svelte'
 	import {
 		enterpriseLicense,
-		copilotInfo,
 		isPremiumStore,
 		starStore,
 		superadmin,
@@ -29,7 +28,8 @@
 		defaultScripts,
 		hubBaseUrlStore,
 		usedTriggerKinds,
-		devopsRole
+		devopsRole,
+		setCopilotInfo
 	} from '$lib/stores'
 	import CenteredModal from '$lib/components/CenteredModal.svelte'
 	import { afterNavigate, beforeNavigate } from '$app/navigation'
@@ -257,18 +257,10 @@
 		workspaceAIClients.init(workspace)
 		try {
 			const info = await WorkspaceService.getCopilotInfo({ workspace })
-			copilotInfo.set({
-				...info,
-				ai_provider: info.ai_provider ?? 'openai'
-			})
+			setCopilotInfo(info)
 		} catch (err) {
-			copilotInfo.set({
-				ai_provider: 'openai',
-				exists_ai_resource: false,
-				code_completion_model: undefined,
-				ai_models: []
-			})
-			console.error('Could not get copilot info')
+			setCopilotInfo({})
+			console.error('Could not get copilot info', err)
 		}
 	}
 

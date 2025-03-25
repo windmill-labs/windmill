@@ -65,7 +65,7 @@
       },
       {
         "ordinal": 12,
-        "name": "ai_resource",
+        "name": "ai_config",
         "type_info": "Jsonb"
       },
       {
@@ -130,26 +130,16 @@
       },
       {
         "ordinal": 25,
-        "name": "ai_models",
-        "type_info": "VarcharArray"
-      },
-      {
-        "ordinal": 26,
-        "name": "code_completion_model",
-        "type_info": "Varchar"
-      },
-      {
-        "ordinal": 27,
         "name": "teams_command_script",
         "type_info": "Text"
       },
       {
-        "ordinal": 28,
+        "ordinal": 26,
         "name": "teams_team_id",
         "type_info": "Text"
       },
       {
-        "ordinal": 29,
+        "ordinal": 27,
         "name": "teams_team_name",
         "type_info": "Text"
       }
@@ -184,8 +174,6 @@
       true,
       true,
       true,
-      true,
-      false,
       true,
       true,
       true,

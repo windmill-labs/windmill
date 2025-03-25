@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n        SELECT \n            \n            EXISTS(SELECT 1 FROM websocket_trigger WHERE workspace_id = $1) AS \"websocket_used!\", \n            EXISTS(SELECT 1 FROM http_trigger WHERE workspace_id = $1) AS \"http_routes_used!\",\n            EXISTS(SELECT 1 FROM kafka_trigger WHERE workspace_id = $1) as \"kafka_used!\",\n            EXISTS(SELECT 1 FROM nats_trigger WHERE workspace_id = $1) as \"nats_used!\",\n            EXISTS(SELECT 1 FROM postgres_trigger WHERE workspace_id = $1) AS \"postgres_used!\",\n            EXISTS(SELECT 1 FROM mqtt_trigger WHERE workspace_id = $1) AS \"mqtt_used!\",\n            EXISTS(SELECT 1 FROM sqs_trigger WHERE workspace_id = $1) AS \"sqs_used!\"\n        ",
+  "query": "\n        SELECT\n            EXISTS(SELECT 1 FROM websocket_trigger WHERE workspace_id = $1) AS \"websocket_used!\",\n            EXISTS(SELECT 1 FROM http_trigger WHERE workspace_id = $1) AS \"http_routes_used!\",\n            EXISTS(SELECT 1 FROM kafka_trigger WHERE workspace_id = $1) as \"kafka_used!\",\n            EXISTS(SELECT 1 FROM nats_trigger WHERE workspace_id = $1) as \"nats_used!\",\n            EXISTS(SELECT 1 FROM postgres_trigger WHERE workspace_id = $1) AS \"postgres_used!\",\n            EXISTS(SELECT 1 FROM mqtt_trigger WHERE workspace_id = $1) AS \"mqtt_used!\",\n            EXISTS(SELECT 1 FROM sqs_trigger WHERE workspace_id = $1) AS \"sqs_used!\"\n        ",
   "describe": {
     "columns": [
       {
@@ -54,5 +54,5 @@
       null
     ]
   },
-  "hash": "31b6fccad46b22bcbba6bbce22209ccb1825116004ed72682854ce3352f454a5"
+  "hash": "9ae20f2f29406cfa5337736ad710c496f1757d950cdec63c93c77fe79d5212cc"
 }
