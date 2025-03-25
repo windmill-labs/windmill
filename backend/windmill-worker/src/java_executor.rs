@@ -123,26 +123,33 @@ pub async fn resolve<'a>(
     db: &sqlx::Pool<sqlx::Postgres>,
     w_id: &str,
 ) -> Result<String, Error> {
-    let find_requirements = code
-        .lines()
-        .find_position(|x| x.starts_with("//requirements:") || x.starts_with("// requirements:"));
-    let deps = if let Some((pos, _)) = find_requirements {
-        code.lines()
-            .skip(pos + 1)
-            .map_while(|x| {
-                if x.starts_with("//") {
-                    Some(x.replace("//", "").trim().to_owned())
-                } else {
-                    None
-                }
-            })
-            .collect::<Vec<String>>()
-            .join("\n")
-    } else {
-        "".to_owned()
-        // Default packages.
-        // TODO: May be use Gson?
-    } + "\ncom.fasterxml.jackson.core:jackson-databind:2.9.8";
+    let deps = {
+        let find_requirements = code.lines().find_position(|x| {
+            x.starts_with("//requirements:") || x.starts_with("// requirements:")
+        });
+
+        let specified_deps = if let Some((pos, _)) = find_requirements {
+            code.lines()
+                .skip(pos + 1)
+                .map_while(|x| {
+                    if x.starts_with("//") {
+                        Some(x.replace("//", "").trim().to_owned())
+                    } else {
+                        None
+                    }
+                })
+                .collect::<Vec<String>>()
+        } else {
+            Default::default()
+        };
+
+        let mut deps = vec![
+            // Default requirements
+            "com.fasterxml.jackson.core:jackson-databind:2.9.8".to_owned(),
+        ];
+        deps.extend(specified_deps);
+        deps.join("\n")
+    };
 
     let req_hash = format!("java-{}", calculate_hash(&deps));
     if let Some(cached) = sqlx::query_scalar!(

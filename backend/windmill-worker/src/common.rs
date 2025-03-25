@@ -1282,6 +1282,7 @@ pub async fn par_install_language_dependencies<'a>(
                         &custom_name.clone().unwrap_or(path)
                     );
                 } else {
+                    // TODO: Refactor
                     // Create a file to indicate that installation was successfull
                     let valid_path = path_2.clone() + ".valid.windmill";
                     // This is atomic operation, meaning, that it either completes and dependency is valid,
@@ -1377,6 +1378,7 @@ pub async fn par_install_language_dependencies<'a>(
                     db_2,
                 )
                 .await;
+                // TODO: Refactor
                 // Create a file to indicate that installation was successfull
                 let valid_path = path_2.clone() + ".valid.windmill";
                 // This is atomic operation, meaning, that it either completes and dependency is valid,
@@ -1468,6 +1470,7 @@ pub async fn par_install_language_dependencies<'a>(
             for RequiredDependency { path, custom_name: _custom_name, .. } in
                 not_pulled_copy.into_iter()
             {
+                // TODO: Refactor
                 // Create a file to indicate that installation was successfull
                 let valid_path = path.clone() + ".valid.windmill";
                 // This is atomic operation, meaning, that it either completes and dependency is valid,

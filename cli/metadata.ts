@@ -549,8 +549,8 @@ export async function inferSchema(
     const { parse_ansible } = await import("./wasm/yaml/windmill_parser_wasm.js");
     inferedSchema = JSON.parse(parse_ansible(content));
   } else if (language === "java") {
-    // const { parse_java } = await import("./wasm/java/windmill_parser_wasm.js");
-    // inferedSchema = JSON.parse(parse_java(content));
+    const { parse_java } = await import("./wasm/java/windmill_parser_wasm.js");
+    inferedSchema = JSON.parse(parse_java(content));
   	// KJQXZ 
   } else {
     throw new Error("Invalid language: " + language);
