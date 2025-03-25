@@ -140,7 +140,7 @@ fn find_typ<'a>(typ_node: Node<'a>, code: &str) -> anyhow::Result<(Typ, Option<V
             (Typ::List(Box::new(find_typ(new_typ_node, code)?.0)), null)
         }
         wc => bail!(
-            "Unexpected Java type node kind: {} for '{}'. This type is not handeled by Windmill, please open an issue if this seems to be an error",
+            "Unexpected Java type node kind: {} for '{}'. This type is not handled by Windmill, please open an issue if this seems to be an error",
             wc,
             typ_node.utf8_text(code.as_bytes())?
         ),

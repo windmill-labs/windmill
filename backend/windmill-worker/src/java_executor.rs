@@ -727,7 +727,7 @@ fn parse_proxy() -> anyhow::Result<JavaProxySettings> {
         match ident {
             "HTTPS_PROXY" => {
                 if val.contains("http://") {
-                    bail!("HTTPS_PROXY url cannot contain http schema.");
+                    bail!("HTTPS_PROXY url cannot contain http scheme.");
                 }
                 if !val.contains("https://") {
                     val = format!("https://{val}");
@@ -745,7 +745,7 @@ fn parse_proxy() -> anyhow::Result<JavaProxySettings> {
             }
             "HTTP_PROXY" => {
                 if val.contains("https://") {
-                    bail!("HTTP_PROXY url cannot contain https schema.");
+                    bail!("HTTP_PROXY url cannot contain https scheme.");
                 }
                 if !val.contains("http://") {
                     val = format!("http://{val}");

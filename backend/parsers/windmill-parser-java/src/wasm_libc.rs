@@ -192,7 +192,7 @@ pub unsafe extern "C" fn vsnprintf(
 
 #[no_mangle]
 pub extern "C" fn clock_gettime(ptr: usize, new_size: usize) {
-    panic!("asdasd");
+    panic!("clock_gettime is not supported");
 }
 
 // int snprintf( char* restrict buffer, size_t bufsz, const char* restrict format, ... );

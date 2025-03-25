@@ -87,7 +87,7 @@ mount {
 mount {
     src: "/etc"
     dst: "/etc"
-	is_bind: true
+    is_bind: true
 }
 
 mount {

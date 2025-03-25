@@ -974,9 +974,6 @@ pub enum InstallStrategy {
     AllAtOnce(Arc<dyn Fn(Vec<RequiredDependency>) -> Result<Command, error::Error> + Send + Sync>),
 }
 /// # General
-/// There is two main types of workflows around which laguages are built.
-/// 1. Compilable languages
-/// 2. Dynamic
 ///
 /// Languages that compile usually include dependencies in final executable.
 /// When dynamic languages do not and runtime dependencies provided separately.

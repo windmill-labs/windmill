@@ -14464,7 +14464,6 @@ dependencies = [
  "tokio",
  "tokio-postgres 0.7.13",
  "tokio-util",
- "toml",
  "tracing",
  "url",
  "urlencoding",
