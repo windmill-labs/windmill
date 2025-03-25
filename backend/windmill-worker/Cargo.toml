@@ -131,3 +131,4 @@ deno_permissions = { workspace = true, optional = true }
 deno_io = { workspace = true, optional = true }
 deno_runtime = { workspace = true, optional = true }
 deno_telemetry = { workspace = true, optional = true }
+winapi = { workspace = true, optional = true }
