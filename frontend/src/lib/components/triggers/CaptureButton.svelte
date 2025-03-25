@@ -13,6 +13,8 @@
 	import MqttIcon from '../icons/MqttIcon.svelte'
 
 	export let small = false
+	export let hidden = false
+	export let items: Item[] = []
 
 	const dispatch = createEventDispatcher()
 
@@ -75,32 +77,34 @@
 	]
 </script>
 
-<DropdownV2 {items} placement="bottom-start" fixedHeight={false}>
-	<svelte:fragment slot="buttonReplacement">
-		{#if small}
-			<Button
-				color="light"
-				size="xs"
-				variant="border"
-				wrapperClasses="h-full"
-				nonCaptureEvent
-				title="Test trigger"
-			>
-				<div class="flex flex-row items-center gap-1">
+{#if !hidden}
+	<DropdownV2 {items} placement="bottom-start" fixedHeight={false}>
+		<svelte:fragment slot="buttonReplacement">
+			{#if small}
+				<Button
+					color="light"
+					size="xs"
+					variant="border"
+					wrapperClasses="h-full"
+					nonCaptureEvent
+					title="Test trigger"
+				>
+					<div class="flex flex-row items-center gap-1">
+						<CaptureIcon variant="redDot" />
+						<Plus size={10} class="text-red" />
+					</div>
+				</Button>
+			{:else}
+				<Button
+					color="dark"
+					btnClasses="!rounded-l-none"
+					wrapperClasses="h-full"
+					nonCaptureEvent
+					title="Test trigger"
+				>
 					<CaptureIcon variant="redDot" />
-					<Plus size={10} class="text-red" />
-				</div>
-			</Button>
-		{:else}
-			<Button
-				color="dark"
-				btnClasses="!rounded-l-none"
-				wrapperClasses="h-full"
-				nonCaptureEvent
-				title="Test trigger"
-			>
-				<CaptureIcon variant="redDot" />
-			</Button>
-		{/if}
-	</svelte:fragment>
-</DropdownV2>
+				</Button>
+			{/if}
+		</svelte:fragment>
+	</DropdownV2>
+{/if}
