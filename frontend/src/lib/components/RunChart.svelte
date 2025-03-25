@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { Scatter } from 'svelte-chartjs'
 	import 'chartjs-adapter-date-fns'
 	import zoomPlugin from 'chartjs-plugin-zoom'
 	import Tooltip2 from '$lib/components/Tooltip.svelte'
@@ -19,6 +18,7 @@
 	import { createEventDispatcher } from 'svelte'
 	import { getDbClockNow } from '$lib/forLater'
 	import Button from './common/button/Button.svelte'
+	import { Scatter } from '$lib/components/chartjs-wrappers/chartJs'
 
 	export let jobs: CompletedJob[] | undefined = []
 	export let maxIsNow: boolean = false

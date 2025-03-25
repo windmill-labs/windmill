@@ -735,7 +735,7 @@
 				<Splitpanes horizontal class="h-full max-h-screen grow">
 					<Pane size={67}>
 						{#if $flowStore?.value?.modules}
-							<div id="flow-editor" />
+							<div id="flow-editor"></div>
 							<FlowModuleSchemaMap
 								bind:modules={$flowStore.value.modules}
 								disableAi

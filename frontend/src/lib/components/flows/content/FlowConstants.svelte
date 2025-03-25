@@ -110,7 +110,7 @@
 				</Alert>
 			{/if}
 			{#if steps.length == 0}
-				<div class="mt-2" />
+				<div class="mt-2"></div>
 				{#if $flowStore.value.modules.length == 0}
 					<Alert type="warning" title="No steps" class="m-4">
 						This flow has no steps. Add a step to see its static inputs.

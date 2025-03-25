@@ -33,8 +33,14 @@
 	export let transformer: boolean = false
 	export let componentType: string | undefined = undefined
 
-	const { runnableComponents, stateId, worldStore, state, appPath, app } =
-		getContext<AppViewerContext>('AppViewerContext')
+	const {
+		runnableComponents,
+		stateId,
+		worldStore,
+		state: stateStore,
+		appPath,
+		app
+	} = getContext<AppViewerContext>('AppViewerContext')
 
 	export let editor: Editor | undefined = undefined
 	let diffEditor: DiffEditor
@@ -172,7 +178,7 @@
 
 	$: extraLib =
 		inlineScript?.language == 'frontend' && worldStore
-			? buildExtraLib($worldStore?.outputsById ?? {}, id, $state, true)
+			? buildExtraLib($worldStore?.outputsById ?? {}, id, $stateStore, true)
 			: undefined
 
 	// 	`
@@ -233,7 +239,7 @@
 						<div
 							title={validCode ? 'Main function parsable' : 'Main function not parsable'}
 							class="rounded-full !w-2 !h-2 {validCode ? 'bg-green-300' : 'bg-red-300'}"
-						/>
+						></div>
 					</div>
 				{:else}
 					<span class="text-xs font-semibold truncate w-full">{name} of {id}</span>

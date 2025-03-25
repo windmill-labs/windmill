@@ -43,7 +43,7 @@
 			on:keydown|stopPropagation
 			on:focus
 			on:blur
-		/>
+		></textarea>
 	{:else}
 		<input
 			{type}

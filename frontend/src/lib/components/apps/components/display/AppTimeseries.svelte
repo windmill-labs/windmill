@@ -17,7 +17,7 @@
 	} from 'chart.js'
 	import RunnableWrapper from '../helpers/RunnableWrapper.svelte'
 	import type { AppInput } from '../../inputType'
-	import { Scatter } from 'svelte-chartjs'
+	import { Scatter } from '$lib/components/chartjs-wrappers/chartJs'
 	import InputValue from '../helpers/InputValue.svelte'
 	import type { ChartOptions, ChartData } from 'chart.js'
 	import type { AppViewerContext, ComponentCustomCSS, RichConfigurations } from '../../types'
