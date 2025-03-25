@@ -292,7 +292,6 @@ async fn install<'a>(
     let job_dir = job_dir.to_owned();
     let fetch_dir = format!("{JAVA_CACHE_DIR}/tmp-fetch-{}", Uuid::new_v4());
     let fetch_dir2 = fetch_dir.clone();
-    // let mut to_install = vec![];
     par_install_language_dependencies(
         deps,
         "java",

@@ -1422,21 +1422,16 @@ pub async fn par_install_language_dependencies<'a>(
             tracing::error!("Error joining handles: {e:?}");
         }
     }
-    {
+    if !not_pulled.read().await.is_empty() {
         if let InstallStrategy::AllAtOnce(ref callback, ..) = install_fn {
             let not_pulled_copy = not_pulled.read().await.clone();
-
-            if not_pulled_copy.len() > 0 {
-                windmill_queue::append_logs(
-                    job_id,
-                    w_id,
-                    format!("\n\nFetching {} packages...\n", not_pulled_copy.len()),
-                    db.clone(),
-                )
-                .await;
-            }
-
-            // if not_pulled_copy
+            windmill_queue::append_logs(
+                job_id,
+                w_id,
+                format!("\n\nFetching {} packages...\n", not_pulled_copy.len()),
+                db.clone(),
+            )
+            .await;
             let cmd = callback(not_pulled_copy.clone())?;
             tracing::debug!("{:?}", &cmd);
             let child = start_child_process(cmd, &installer_executable_name).await?;
@@ -1463,47 +1458,48 @@ pub async fn par_install_language_dependencies<'a>(
             .await
             {
                 bail!(format!(
-                    "error while installing dependencies: {e:?}\n{}\n\nNote: you may need to check your proxy and repository configurations",
+                    "error while installing dependencies: {e:?}\n{}",
                     buf
                 ));
-            } else {
+            }
+            {
                 postinstall_cb(not_pulled_copy.clone()).await?;
-                for RequiredDependency { path, custom_name, .. } in not_pulled_copy.into_iter() {
-                    // Create a file to indicate that installation was successfull
-                    let valid_path = path.clone() + ".valid.windmill";
-                    // This is atomic operation, meaning, that it either completes and dependency is valid,
-                    // or it does not and dependency is invalid and will be reinstalled next run
-                    if let Err(e) = File::create(&valid_path).await {
-                        tracing::error!(
-                            workspace_id = %w_id,
-                            job_id = %job_id,
-                            "Failed to create {}!\n{e}\n
-                                This file needed for jobs to function",
-                            valid_path
-                        );
-                    };
-                    #[cfg(all(feature = "enterprise", feature = "parquet"))]
+            }
+            for RequiredDependency { path, custom_name, .. } in not_pulled_copy.into_iter() {
+                // Create a file to indicate that installation was successfull
+                let valid_path = path.clone() + ".valid.windmill";
+                // This is atomic operation, meaning, that it either completes and dependency is valid,
+                // or it does not and dependency is invalid and will be reinstalled next run
+                if let Err(e) = File::create(&valid_path).await {
+                    tracing::error!(
+                        workspace_id = %w_id,
+                        job_id = %job_id,
+                        "Failed to create {}!\n{e}\n
+                            This file needed for jobs to function",
+                        valid_path
+                    );
+                };
+                #[cfg(all(feature = "enterprise", feature = "parquet"))]
+                {
+                    if let Some(os) = windmill_common::s3_helpers::OBJECT_STORE_CACHE_SETTINGS
+                        .read()
+                        .await
+                        .clone()
                     {
-                        if let Some(os) = windmill_common::s3_helpers::OBJECT_STORE_CACHE_SETTINGS
-                            .read()
+                        let language_name = language_name.to_owned();
+                        tokio::spawn(async move {
+                            if let Err(e) = crate::global_cache::build_tar_and_push(
+                                os,
+                                path,
+                                language_name,
+                                custom_name,
+                                platform_agnostic,
+                            )
                             .await
-                            .clone()
-                        {
-                            let language_name = language_name.to_owned();
-                            tokio::spawn(async move {
-                                if let Err(e) = crate::global_cache::build_tar_and_push(
-                                    os,
-                                    path,
-                                    language_name,
-                                    custom_name,
-                                    platform_agnostic,
-                                )
-                                .await
-                                {
-                                    tracing::warn!("failed to build tar and push: {e:?}");
-                                }
-                            });
-                        }
+                            {
+                                tracing::warn!("failed to build tar and push: {e:?}");
+                            }
+                        });
                     }
                 }
             }
