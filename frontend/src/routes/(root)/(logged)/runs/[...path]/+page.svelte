@@ -178,6 +178,7 @@
 				loading?: boolean
 				preContent?: string
 				onConfirm?: () => void
+				type?: ConfirmationModal['$$prop_def']['type']
 		  } = undefined
 
 	function getAutoRefresh() {
@@ -593,6 +594,7 @@
 		askingForConfirmation = {
 			title: `Confirm re-running the selected jobs`,
 			confirmBtnText: `Re-run ${jobIdsToReRun.length} jobs`,
+			type: 'reload',
 			onConfirm: async () => {
 				if (!$workspaceStore) return
 
@@ -724,6 +726,7 @@
 		askingForConfirmation = undefined
 		func?.()
 	}}
+	type={askingForConfirmation?.type}
 	loading={askingForConfirmation?.loading}
 	on:canceled={() => {
 		askingForConfirmation = undefined

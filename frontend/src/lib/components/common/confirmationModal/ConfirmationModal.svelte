@@ -3,12 +3,17 @@
 	import { createEventDispatcher } from 'svelte'
 	import { fade } from 'svelte/transition'
 	import Button from '../button/Button.svelte'
-	import { AlertTriangle, CornerDownLeft, Loader2 } from 'lucide-svelte'
+	import { AlertTriangle, CornerDownLeft, Loader2, RefreshCcw } from 'lucide-svelte'
 
 	export let title: string
 	export let confirmationText: string
 	export let keyListen: boolean = true
 	export let loading: boolean = false
+
+	// Relying on the default value doesn't ensure it always has one
+	let _type: 'danger' | 'reload' | undefined = undefined
+	export { _type as type }
+	$: type = _type || 'danger'
 
 	export let open: boolean = false
 
@@ -31,6 +36,27 @@
 	function fadeFast(node: HTMLElement) {
 		return fade(node, { duration: 100 })
 	}
+
+	const theme = {
+		danger: {
+			Icon: AlertTriangle,
+			color: 'red',
+			classes: {
+				icon: 'text-red-500 dark:text-red-400',
+				iconWrapper: 'bg-red-100 dark:bg-red-800/50'
+			}
+		},
+
+		reload: {
+			Icon: RefreshCcw,
+			color: 'dark',
+			classes: {
+				icon: 'text-blue-500 dark:text-blue-400',
+				iconWrapper: 'bg-blue-100 dark:bg-blue-800/50'
+			}
+		}
+	} satisfies { [type in typeof type]: any }
+	$: Icon = theme[type].Icon ?? AlertTriangle
 </script>
 
 <svelte:window on:keydown|capture={onKeyDown} />
@@ -60,9 +86,9 @@
 				>
 					<div class="flex">
 						<div
-							class="flex h-12 w-12 items-center justify-center rounded-full bg-red-100 dark:bg-red-800/50"
+							class={`flex h-12 w-12 items-center justify-center rounded-full ${theme[type].classes.iconWrapper}`}
 						>
-							<AlertTriangle class="text-red-500 dark:text-red-400" />
+							<Icon class={theme[type].classes.icon} />
 						</div>
 						<div class="ml-4 text-left flex-1">
 							<h3 class="text-lg font-medium text-primary">
@@ -77,7 +103,7 @@
 						<Button
 							disabled={loading}
 							on:click={() => dispatch('confirmed')}
-							color="red"
+							color={theme[type].color}
 							size="sm"
 							shortCut={{ Icon: CornerDownLeft, hide: !keyListen, withoutModifier: true }}
 						>
