@@ -158,8 +158,10 @@ type SQLBaseSchema = {
 	}
 }
 
+export const SQLSchemaLanguages = ['mysql', 'bigquery', 'postgresql', 'snowflake', 'mssql', 'oracledb'] as const
+
 export interface SQLSchema {
-	lang: 'mysql' | 'bigquery' | 'postgresql' | 'snowflake' | 'mssql' | 'oracledb'
+	lang: typeof SQLSchemaLanguages[number]
 	schema: SQLBaseSchema
 	publicOnly: boolean | undefined
 	stringified: string

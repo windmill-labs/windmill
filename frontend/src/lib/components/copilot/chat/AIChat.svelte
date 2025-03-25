@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { copilotSessionModel, dbSchemas, type DBSchema, type DBSchemas } from '$lib/stores'
+	import { copilotSessionModel, dbSchemas, type DBSchema, type DBSchemas, SQLSchemaLanguages, workspaceStore } from '$lib/stores'
 	import { writable, type Writable } from 'svelte/store'
 	import AIChatDisplay from './AIChatDisplay.svelte'
 	import {
@@ -12,7 +12,7 @@
 		type SelectedContext
 	} from './core'
 	import { createEventDispatcher, onDestroy, setContext } from 'svelte'
-	import type { AIProviderModel, ScriptLang } from '$lib/gen'
+	import type { type AIProviderModel, ScriptLang, ResourceService } from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
 	import { openDB, type DBSchema as IDBSchema, type IDBPDatabase } from 'idb'
 	import { isInitialCode } from '$lib/script_helpers'
@@ -83,14 +83,14 @@
 
 	let availableContext: ContextElement[] = []
 
-	function updateAvailableContext(
+	async function updateAvailableContext(
 		contextCodePath: string,
 		code: string,
 		lang: ScriptLang | 'bunnative',
 		error: string | undefined,
 		db: { schema: DBSchema; resource: string } | undefined,
 		providerModel: AIProviderModel | undefined,
-		dbSchemas: DBSchemas
+		workspace?: string
 	) {
 		availableContext = [
 			{
@@ -100,16 +100,17 @@
 				lang
 			}
 		]
-		if (!db) {
-			for (const [schemaPath, schema] of Object.entries(dbSchemas)) {
-				// filter to handle only postgres schemas ?
-				if (schema) {
-					availableContext.push({
-						type: 'db',
-						title: schemaPath,
-						schema: schema
-					})
-				}
+
+		if (!db && workspace) {
+			const dbs = await ResourceService.listResource({
+				workspace: workspace,
+				resourceType: SQLSchemaLanguages.join(',')
+			})
+			for (const db of dbs) {
+				availableContext.push({
+					type: 'db',
+					title: db.path,
+				})
 			}
 		}
 
@@ -136,7 +137,7 @@
 		}
 	}
 
-	$: updateAvailableContext(contextCodePath, code, lang, error, db, $copilotSessionModel, $dbSchemas)
+	$: updateAvailableContext(contextCodePath, code, lang, error, db, $copilotSessionModel, $workspaceStore)
 
 	let instructions = ''
 	let loading = writable(false)
@@ -192,6 +193,8 @@
 	}
 	let selectedContextElements: ContextElement[] = []
 
+	$: console.log('selectedContextElements', selectedContextElements)
+
 	async function sendRequest() {
 		if (!instructions.trim()) {
 			return
@@ -223,14 +226,8 @@
 				messages,
 				abortController,
 				lang,
-				(
-					selectedContextElements.find((c) => c.type === 'db') as
-						| Extract<ContextElement, { type: 'db' }>
-						| undefined
-				)?.schema,
-				(token) => {
-					currentReply.update((prev) => prev + token)
-				}
+				selectedContextElements.filter((c) => c.type === 'db').map((c) => c.title),
+				(token) => currentReply.update((prev) => prev + token)
 			)
 
 			messages.push({ role: 'assistant', content: $currentReply })

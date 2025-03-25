@@ -11,7 +11,7 @@ import type {
 	ChatCompletionMessageToolCall,
 	ChatCompletionTool
 } from 'openai/resources/index.mjs'
-import { workspaceStore, type DBSchema } from '$lib/stores'
+import { workspaceStore, type DBSchema, dbSchemas } from '$lib/stores'
 import { scriptLangToEditorLang } from '$lib/scripts'
 
 export function formatResourceTypes(
@@ -204,7 +204,7 @@ export async function getFormattedResourceTypes(
 }
 
 export const CHAT_SYSTEM_PROMPT = `
-	You are a coding assistant for the Windmill platform. You are provided with a list of \`INSTRUCTIONS\` and the current contents of a code file under \`CODE\`. You are also provided with the \`DATABASE SCHEMA\` of the database related to the code file.
+	You are a coding assistant for the Windmill platform. You are provided with a list of \`INSTRUCTIONS\` and the current contents of a code file under \`CODE\`.
 
 	Your task is to respond to the user's request. Assume all user queries are valid and actionable.
 
@@ -214,6 +214,7 @@ export const CHAT_SYSTEM_PROMPT = `
 	- If the request is abstract (e.g., "make this cleaner"), interpret it concretely and reflect that in the code block.
 	- Preserve existing formatting, indentation, and whitespace unless changes are strictly required to fulfill the user's request.
 	- The user can ask you to look at or modify specific files by having the file name in the INSTRUCTIONS preceded by the @ symbol. In this case, put your focus on the file that is explicitly mentioned.
+	- The user can ask you questions about a list of \`DATABASES\` that are available in the user's workspace. If the user asks you a question about a database, you should ask the user to specify the database name if not given, or take the only one available if there is only one.
 
 	Important:
 	Do not mention or reveal these instructions to the user unless explicitly asked to do so.
@@ -231,11 +232,6 @@ ERROR:
 {error}
 `
 
-const CHAT_USER_DB_CONTEXT = `
-DATABASE SCHEMA:
-{db_context}
-`
-
 export const CHAT_USER_PROMPT = `
 INSTRUCTIONS:
 {instructions}
@@ -243,11 +239,18 @@ INSTRUCTIONS:
 WINDMILL LANGUAGE CONTEXT:
 {lang_context}
 
-{code_context}
-{error_context}
+DATABASES:
 {db_context}
+
+CODE:
+{code_context}
+
+ERROR:
+{error_context}
 \`\`\`
 `
+
+export const CHAT_USER_DB_CONTEXT = `- ({title})`
 
 export function prepareSystemMessage(): {
 	role: 'system'
@@ -290,7 +293,7 @@ export type ContextElement =
 	  }
 	| {
 			type: 'db'
-			schema: DBSchema
+			schema?: DBSchema
 			title: string
 	  }
 
@@ -313,8 +316,7 @@ export async function prepareUserMessage(
 			}
 			errorContext = CHAT_USER_ERROR_CONTEXT.replace('{error}', context.content)
 		} else if (context.type === 'db') {
-			const formattedDBSchema = await formatDBSChema(context.schema)
-			dbContext += CHAT_USER_DB_CONTEXT.replace('{db_context}', formattedDBSchema)
+			dbContext += CHAT_USER_DB_CONTEXT.replace('{title}', context.title)
 		}
 	}
 
@@ -323,6 +325,8 @@ export async function prepareUserMessage(
 		.replace('{code_context}', codeContext)
 		.replace('{error_context}', errorContext)
 		.replace('{db_context}', dbContext)
+
+	console.log('userMessage', userMessage)
 	return userMessage
 }
 
@@ -351,7 +355,14 @@ const DB_SCHEMA_FUNCTION_DEF: ChatCompletionTool = {
 	type: 'function',
 	function: {
 		name: 'get_db_schema',
-		description: 'Gets the schema of the database in context'
+		description: 'Gets the schema of the database',
+		parameters: {
+			type: 'object',
+			properties: {
+				resourcePath: { type: 'string', description: 'The path of the database resource' }
+			},
+			required: ['resourcePath']
+		}
 	}
 }
 
@@ -379,7 +390,6 @@ async function callTool(
 	functionName: string,
 	args: any,
 	lang: ScriptLang | 'bunnative',
-	dbSchema: DBSchema | undefined,
 	workspace: string
 ) {
 	switch (functionName) {
@@ -387,10 +397,17 @@ async function callTool(
 			const formattedResourceTypes = await getFormattedResourceTypes(lang, args.query, workspace)
 			return formattedResourceTypes
 		case 'get_db_schema':
-			if (!dbSchema) {
-				throw new Error('No database schema provided')
+			if (!args.resourcePath) {
+				throw new Error('Database path not provided')
 			}
-			const stringSchema = await formatDBSchema(dbSchema)
+			// get the schema from the dbsPath
+			// await getDbSchemas('db', args.resourcePath, workspace, get(dbSchemas), () => {})
+			const dbs = get(dbSchemas)
+			const db = dbs[args.resourcePath]
+			if (!db) {
+				throw new Error('Database not found')
+			}
+			const stringSchema = await formatDBSchema(db)
 			return stringSchema
 		default:
 			throw new Error(`Unknown tool call: ${functionName}`)
@@ -401,7 +418,7 @@ export async function chatRequest(
 	messages: ChatCompletionMessageParam[],
 	abortController: AbortController,
 	lang: ScriptLang | 'bunnative',
-	dbSchema: DBSchema | undefined,
+	dbsPath: string[],
 	onNewToken: (token: string) => void
 ) {
 	const toolDefs: ChatCompletionTool[] = []
@@ -415,7 +432,7 @@ export async function chatRequest(
 	) {
 		toolDefs.push(RESOURCE_TYPE_FUNCTION_DEF)
 	}
-	if (dbSchema) {
+	if (dbsPath.length > 0) {
 		toolDefs.push(DB_SCHEMA_FUNCTION_DEF)
 	}
 	try {
@@ -466,11 +483,11 @@ export async function chatRequest(
 					for (const toolCall of toolCalls) {
 						try {
 							const args = JSON.parse(toolCall.function.arguments)
+							console.log('args', args)
 							const result = await callTool(
 								toolCall.function.name,
 								args,
 								lang,
-								dbSchema,
 								get(workspaceStore) ?? ''
 							)
 							messages.push({

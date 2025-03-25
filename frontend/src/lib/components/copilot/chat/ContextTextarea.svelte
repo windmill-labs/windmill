@@ -4,7 +4,6 @@
 	import type { ContextElement, SelectedContext } from './core'
 	import { ContextIconMap } from './core'
 	import getCaretCoordinates from 'textarea-caret'
-	import { dbSchemas, workspaceStore, type DBSchema } from '$lib/stores'
 
 	export let instructions: string
 	export let availableContext: ContextElement[]
@@ -22,7 +21,7 @@
 	let tooltipPosition = { x: 0, y: 0 }
 
 	function getHighlightedText(text: string) {
-		return text.replace(/@[\w.-]+/g, (match) => {
+		return text.replace(/@[\w/.-]+/g, (match) => {
 			const contextElement = availableContext.find((c) => c.title === match.slice(1))
 			if (contextElement) {
 				return `<span class="bg-white text-black z-10">${match}</span>`
@@ -122,10 +121,10 @@
 		style="left: {tooltipPosition.x}px; top: {tooltipPosition.y}px;"
 	>
 		<div class="flex flex-col gap-1 text-tertiary text-xs min-w-24">
-			{#if availableContext.filter((c) => !contextTooltipWord || c.title.startsWith(contextTooltipWord.slice(1))).length === 0}
+			{#if availableContext.filter((c) => !contextTooltipWord || c.title.startsWith(contextTooltipWord.slice(1)) && !selectedContext.find((sc) => sc.title === c.title && sc.type === c.type)).length === 0}
 				<div class="text-center text-tertiary text-xs">No available context</div>
 			{:else}
-				{#each availableContext.filter((c) => !contextTooltipWord || c.title.startsWith(contextTooltipWord.slice(1))) as element}
+				{#each availableContext.filter((c) => !contextTooltipWord || c.title.startsWith(contextTooltipWord.slice(1)) && !selectedContext.find((sc) => sc.title === c.title && sc.type === c.type)) as element}
 					<button
 						class="hover:bg-surface-hover rounded-md p-1 text-left flex flex-row gap-1 items-center font-normal"
 						on:click={() => handleContextSelection(element)}
