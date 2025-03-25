@@ -150,8 +150,9 @@
 	export async function cancelJob() {
 		const id = currentId
 		if (id) {
-			dispatch('cancel', id)
-			currentId = undefined
+			// currentId = undefined why do we need this? This leads to not watching the job anymore hence not getting the update of the cancelled job
+			// dispatch('cancel', id) this event is not used anywhere
+			dispatch('cancel-loading', true)
 			try {
 				await JobService.cancelQueuedJob({
 					workspace: $workspaceStore ?? '',
@@ -159,6 +160,7 @@
 					requestBody: {}
 				})
 			} catch (err) {
+				dispatch('cancel-loading', false)
 				console.error(err)
 			}
 		}
@@ -283,7 +285,7 @@
 
 	async function syncer(id: string): Promise<void> {
 		if (currentId != id) {
-			dispatch('cancel', id)
+			// dispatch('cancel', id) This event is not used anywhere
 			return
 		}
 		syncIteration++

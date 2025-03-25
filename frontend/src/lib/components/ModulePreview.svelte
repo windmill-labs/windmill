@@ -36,6 +36,7 @@
 	let testJobLoader: TestJobLoader
 	let testIsLoading = false
 	let testJob: Job | undefined = undefined
+	let cancelLoading = false
 
 	let jobProgressReset: () => void
 
@@ -101,11 +102,17 @@
 	}
 
 	let forceJson = false
+
+	// cancelLoading is true when the job is being cancelled
+	$: if (cancelLoading && !testIsLoading) {
+		cancelLoading = false
+	}
 </script>
 
 <TestJobLoader
 	toastError={noEditor}
 	on:done={() => jobDone()}
+	on:cancel-loading={({ detail }) => (cancelLoading = detail)}
 	bind:scriptProgress
 	bind:this={testJobLoader}
 	bind:isLoading={testIsLoading}
@@ -121,14 +128,15 @@
 
 		<div class="w-full justify-center flex">
 			{#if testIsLoading}
-				<Button size="sm" on:click={testJobLoader?.cancelJob} btnClasses="w-full" color="red">
+				<Button size="sm" on:click={testJobLoader?.cancelJob} btnClasses="w-28" color="red">
 					<Loader2 size={16} class="animate-spin mr-1" />
-					Cancel
+					{cancelLoading ? 'Canceling...' : 'Cancel'}
 				</Button>
 			{:else}
 				<Button
 					color="dark"
-					btnClasses="truncate"
+					btnClasses="truncate w-28"
+					wrapClasses="w-28"
 					size="sm"
 					on:click={() => runTest(stepArgs)}
 					shortCut={{
