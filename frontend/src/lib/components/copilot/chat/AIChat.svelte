@@ -101,7 +101,7 @@
 			}
 		]
 
-		if (!db && workspace) {
+		if (workspace) {
 			const dbs = await ResourceService.listResource({
 				workspace: workspace,
 				resourceType: SQLSchemaLanguages.join(',')
@@ -125,15 +125,16 @@
 			]
 		}
 
-		if (db && !providerModel?.model.endsWith('/thinking')) {
-			availableContext = [
-				...availableContext,
-				{
+ 		if (db) {
+			if (!selectedContext.find((c) => c.type === 'db' && c.title === db.resource)) {
+				selectedContext = [
+					...selectedContext,
+					{
 					type: 'db',
-					title: db.resource,
-					schema: db.schema
-				}
-			]
+						title: db.resource,
+					}
+				]
+			}
 		}
 	}
 
