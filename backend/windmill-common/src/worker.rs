@@ -16,6 +16,7 @@ use std::{
     sync::{atomic::AtomicBool, Arc},
 };
 use tokio::sync::RwLock;
+use uuid::Uuid;
 use windmill_macros::annotations;
 
 use crate::{
@@ -440,8 +441,7 @@ pub fn copy_dir_recursively(src: &Path, dst: &Path) -> error::Result<()> {
     Ok(())
 }
 
-// TODO: is_directory?
-pub async fn load_cache(bin_path: &str, _remote_path: &str, is_tar: bool) -> (bool, String) {
+pub async fn load_cache(bin_path: &str, _remote_path: &str, is_dir: bool) -> (bool, String) {
     if tokio::fs::metadata(&bin_path).await.is_ok() {
         (true, format!("loaded from local cache: {}\n", bin_path))
     } else {
@@ -455,7 +455,7 @@ pub async fn load_cache(bin_path: &str, _remote_path: &str, is_tar: bool) -> (bo
             use crate::s3_helpers::attempt_fetch_bytes;
 
             if let Ok(mut x) = attempt_fetch_bytes(os, _remote_path).await {
-                if is_tar {
+                if is_dir {
                     if let Err(e) = extract_tar(x, bin_path).await {
                         tracing::error!("could not write tar archive locally: {e:?}");
                         return (
@@ -483,7 +483,7 @@ pub async fn load_cache(bin_path: &str, _remote_path: &str, is_tar: bool) -> (bo
                 );
             }
         }
-        let _ = is_tar;
+        let _ = is_dir;
         (false, "".to_string())
     }
 }
@@ -511,25 +511,9 @@ pub async fn save_cache(
     local_cache_path: &str,
     _remote_cache_path: &str,
     origin: &str,
-    // If provided, will treat `origin` as folder. Then tar and cache tar
-    tar_name: Option<String>,
+    // If provided, will treat `origin` as a path and name will be inside option. Then tar and cache tar
+    is_dir: bool,
 ) -> crate::error::Result<String> {
-    let file_to_cache = if let Some(name) = &tar_name {
-        let tar_path = format!("{ROOT_CACHE_DIR}/tar/{name}_tar.tar",);
-        let tar_file = std::fs::File::create(&tar_path)?;
-        let mut tar = tar::Builder::new(tar_file);
-        tar.append_dir_all(".", &origin)?;
-        let tar_metadata = tokio::fs::metadata(&tar_path).await;
-        if tar_metadata.is_err() || tar_metadata.as_ref().unwrap().len() == 0 {
-            tracing::info!("Failed to tar cache: {origin}");
-            return Err(error::Error::ExecutionErr(format!(
-                "Failed to tar cache: {origin}"
-            )));
-        }
-        tar_path
-    } else {
-        origin.to_owned()
-    };
     let mut _cached_to_s3 = false;
     #[cfg(all(feature = "enterprise", feature = "parquet"))]
     if let Some(os) = crate::s3_helpers::OBJECT_STORE_CACHE_SETTINGS
@@ -539,6 +523,28 @@ pub async fn save_cache(
     {
         use object_store::path::Path;
 
+        let file_to_cache = if is_dir {
+            let tar_path = format!(
+                "{ROOT_CACHE_DIR}/tar/{}_tar.tar",
+                local_cache_path
+                    .split("/")
+                    .last()
+                    .unwrap_or(&Uuid::new_v4().to_string())
+            );
+            let tar_file = std::fs::File::create(&tar_path)?;
+            let mut tar = tar::Builder::new(tar_file);
+            tar.append_dir_all(".", &origin)?;
+            let tar_metadata = tokio::fs::metadata(&tar_path).await;
+            if tar_metadata.is_err() || tar_metadata.as_ref().unwrap().len() == 0 {
+                tracing::info!("Failed to tar cache: {origin}");
+                return Err(error::Error::ExecutionErr(format!(
+                    "Failed to tar cache: {origin}"
+                )));
+            }
+            tar_path
+        } else {
+            origin.to_owned()
+        };
         if let Err(e) = os
             .put(
                 &Path::from(_remote_cache_path),
@@ -553,14 +559,15 @@ pub async fn save_cache(
         } else {
             _cached_to_s3 = true;
         }
-    }
 
-    // if !*CLOUD_HOSTED {
-    if true {
-        if tar_name.is_some() {
+        if is_dir {
+            tokio::fs::remove_dir_all(file_to_cache).await?;
+        }
+        // if !*CLOUD_HOSTED {
+        if true {
             copy_dir_recursively(&PathBuf::from(origin), &PathBuf::from(local_cache_path))?;
         } else {
-            std::fs::copy(&file_to_cache, local_cache_path)?;
+            std::fs::copy(&origin, local_cache_path)?;
         }
         Ok(format!(
             "\nwrote cached binary: {} (backed by EE distributed object store: {_cached_to_s3})\n",

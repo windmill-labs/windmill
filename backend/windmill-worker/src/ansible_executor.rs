@@ -433,6 +433,7 @@ fi
         job.timeout,
         false,
         &mut Some(occupancy_metrics),
+        None,
     )
     .await?;
     read_and_check_result(job_dir).await

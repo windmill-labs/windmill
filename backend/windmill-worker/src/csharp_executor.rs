@@ -402,7 +402,7 @@ async fn build_cs_proj(
         &bin_path,
         &format!("{CSHARP_OBJECT_STORE_PREFIX}{hash}"),
         &target,
-        None,
+        false,
     )
     .await
     {

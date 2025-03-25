@@ -221,7 +221,7 @@ func Run(req Req) (interface{{}}, error){{
             &bin_path,
             &format!("{GO_OBJECT_STORE_PREFIX}{hash}"),
             &format!("{job_dir}/main"),
-            None,
+            false,
         )
         .await
         {

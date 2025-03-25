@@ -736,7 +736,7 @@ pub async fn prebundle_bun_script(
     )
     .await?;
 
-    save_cache(&local_path, &remote_path, &origin, None).await?;
+    save_cache(&local_path, &remote_path, &origin, false).await?;
 
     Ok(())
 }
@@ -1189,7 +1189,7 @@ try {{
                     &local_path,
                     &remote_path,
                     &format!("{job_dir}/main.js"),
-                    None,
+                    false,
                 )
                 .await
                 {

@@ -527,7 +527,7 @@ async fn compile<'a>(
             &bin_path,
             &format!("java_jar/{hash}"),
             &format!("{job_dir}/target"),
-            Some(hash),
+            true,
         )
         .await
         {
