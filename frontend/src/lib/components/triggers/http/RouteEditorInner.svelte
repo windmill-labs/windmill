@@ -24,12 +24,12 @@
 	import RouteEditorConfigSection from './RouteEditorConfigSection.svelte'
 	import SimpleEditor from '$lib/components/SimpleEditor.svelte'
 	import { isCloudHosted } from '$lib/cloud'
-	import Tooltip from '$lib/components/Tooltip.svelte'
 	import ResourcePicker from '$lib/components/ResourcePicker.svelte'
 	import ItemPicker from '../../ItemPicker.svelte'
 	import { Popover } from '$lib/components/meltComponents'
 	import { HUB_SCRIPT_ID, SECRET_KEY_PATH } from './utils'
 	import { HubFlow } from '$lib/hub'
+	import RouteRequestTransformer from './RouteRequestTransformer.svelte'
 	let is_flow: boolean = false
 	let initialPath = ''
 	let edit = true
@@ -464,6 +464,7 @@
 					bind:http_method
 					bind:workspaced_route
 					{can_write}
+					capture_mode={false}
 					bind:static_asset_config
 				/>
 
@@ -621,39 +622,7 @@
 								{/if}
 							{/if}
 
-							<Label label="Raw body" class="w-full">
-								<svelte:fragment slot="header">
-									<Tooltip>
-										Provides the raw JSON payload as a string under the 'raw_string' key. Required
-										for custom script authentication method and useful for signature verification or
-										other advanced use cases.
-									</Tooltip>
-								</svelte:fragment>
-								<svelte:fragment slot="action">
-									<Toggle
-										checked={raw_string}
-										on:change={() => {
-											raw_string = !raw_string
-										}}
-									/>
-								</svelte:fragment>
-							</Label>
-							<Label label="Wrap body" class="w-full">
-								<svelte:fragment slot="header">
-									<Tooltip
-										>Wraps the payload in an object under the 'body' key, useful for handling
-										unknown payloads.</Tooltip
-									>
-								</svelte:fragment>
-								<svelte:fragment slot="action">
-									<Toggle
-										checked={wrap_body}
-										on:change={() => {
-											wrap_body = !wrap_body
-										}}
-									/>
-								</svelte:fragment>
-							</Label>
+							<RouteRequestTransformer bind:raw_string bind:wrap_body />
 						</div>
 					</Section>
 				{/if}
