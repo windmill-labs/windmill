@@ -169,10 +169,16 @@
 	let selectedManualDate = 0
 	let autoRefresh: boolean = getAutoRefresh()
 	let runDrawer: Drawer
-	let isCancelingVisibleJobs = false
-	let isCancelingFilteredJobs = false
-	let isReRunningVisibleJobs = false
 	let lookback: number = 1
+	let askingForConfirmation:
+		| undefined
+		| {
+				title: string
+				confirmBtnText: string
+				loading?: boolean
+				preContent?: string
+				onConfirm?: () => void
+		  } = undefined
 
 	function getAutoRefresh() {
 		try {
@@ -356,8 +362,6 @@
 		lastFetchWentToEnd = false
 		selectedManualDate = 0
 		selectedIds = []
-		jobIdsToCancel = []
-		jobIdsToReRun = []
 		selectionMode = false
 		selectedWorkspace = undefined
 		jobLoader?.loadJobs(minTs, maxTs, true)
@@ -485,11 +489,7 @@
 		}
 	}
 
-	let jobIdsToCancel: string[] = []
-	let jobIdsToReRun: string[] = []
 	let selectionMode: RunsSelectionMode | false = false
-	let fetchingFilteredJobs = false
-	let selectedFiltersString: string | undefined = undefined
 
 	async function onSetSelectionMode(mode: RunsSelectionMode | false) {
 		selectionMode = mode
@@ -506,10 +506,9 @@
 			)
 		}
 	}
-	async function onCancelFilteredJobs() {
-		isCancelingFilteredJobs = true
-		fetchingFilteredJobs = true
-		const selectedFilters = {
+
+	function getSelectedFilters() {
+		return {
 			workspace: $workspaceStore ?? '',
 			startedBefore: maxTs,
 			startedAfter: minTs,
@@ -545,15 +544,44 @@
 					: undefined,
 			allWorkspaces: allWorkspaces ? true : undefined
 		}
+	}
 
-		selectedFiltersString = JSON.stringify(selectedFilters, null, 4)
-		jobIdsToCancel = await JobService.listFilteredUuids(selectedFilters)
-		fetchingFilteredJobs = false
+	async function cancelJobs(uuidsToCancel: string[]) {
+		const uuids = await JobService.cancelSelection({
+			workspace: $workspaceStore ?? '',
+			requestBody: uuidsToCancel
+		})
+		selectedIds = []
+		jobLoader?.loadJobs(minTs, maxTs, true, true)
+		sendUserToast(`Canceled ${uuids.length} jobs`)
+		selectionMode = false
+	}
+
+	async function onCancelFilteredJobs() {
+		askingForConfirmation = {
+			title: 'Confirm cancelling all jobs correspoding to the selected filters',
+			confirmBtnText: 'Loading...',
+			loading: true
+		}
+
+		const selectedFilters = getSelectedFilters()
+		const selectedFiltersString = JSON.stringify(selectedFilters, null, 4)
+		const jobIdsToCancel = await JobService.listFilteredUuids(selectedFilters)
+
+		askingForConfirmation = {
+			title: `Confirm cancelling all jobs correspoding to the selected filters (${jobIdsToCancel.length} jobs)`,
+			confirmBtnText: `Cancel ${jobIdsToCancel.length} jobs that matched the filters`,
+			preContent: selectedFiltersString,
+			onConfirm: () => cancelJobs(jobIdsToCancel)
+		}
 	}
 
 	async function onCancelSelectedJobs() {
-		jobIdsToCancel = selectedIds
-		isCancelingVisibleJobs = true
+		askingForConfirmation = {
+			confirmBtnText: `Cancel ${selectedIds.length} jobs`,
+			title: 'Confirm cancelling the selected jobs',
+			onConfirm: () => cancelJobs(selectedIds)
+		}
 	}
 
 	async function onReRunFilteredJobs() {
@@ -561,8 +589,55 @@
 	}
 
 	async function onReRunSelectedJobs() {
-		jobIdsToReRun = selectedIds
-		isReRunningVisibleJobs = true
+		const jobIdsToReRun = selectedIds
+		askingForConfirmation = {
+			title: `Confirm re-running the selected jobs`,
+			confirmBtnText: `Re-run ${jobIdsToReRun.length} jobs`,
+			onConfirm: async () => {
+				if (!$workspaceStore) return
+
+				const uuids: string[] = []
+				for (const job of selectedJobs) {
+					const kind = job.job_kind
+					if (kind !== 'script' && kind !== 'flow') continue
+					const path = job.script_path
+					if (!path) continue
+
+					const originalArgs = (await JobService.getJobArgs({
+						id: job.id,
+						workspace: $workspaceStore
+					})) as ScriptArgs | undefined | null
+
+					const commonArgs = {
+						workspace: $workspaceStore,
+						skipPreprocessor: true,
+						invisibleToOwner: true,
+						// TODO : transform args
+						requestBody: originalArgs ?? {}
+					}
+
+					if (kind === 'script') {
+						const hash = job.script_hash
+						if (hash) {
+							await JobService.runScriptByHash({ ...commonArgs, hash })
+							uuids.push(job.id)
+						} else if (path) {
+							await JobService.runScriptByPath({ ...commonArgs, path })
+							uuids.push(job.id)
+						}
+					} else if (kind === 'flow') {
+						if (path) {
+							await JobService.runFlowByPath({ ...commonArgs, path })
+							uuids.push(job.id)
+						}
+					}
+				}
+
+				selectedIds = []
+				jobLoader?.loadJobs(minTs, maxTs, true, true)
+				sendUserToast(`Re-ran ${uuids.length} jobs`)
+			}
+		}
 	}
 
 	function setLookback(lookbackInDays: number) {
@@ -641,106 +716,23 @@
 />
 
 <ConfirmationModal
-	title={`Confirm cancelling all jobs correspoding to the selected filters (${jobIdsToCancel.length} jobs)`}
-	confirmationText={`Cancel ${jobIdsToCancel.length} jobs that matched the filters`}
-	open={isCancelingFilteredJobs}
+	title={askingForConfirmation?.title ?? ''}
+	confirmationText={askingForConfirmation?.confirmBtnText ?? ''}
+	open={!!askingForConfirmation}
 	on:confirmed={async () => {
-		isCancelingFilteredJobs = false
-		let uuids = await JobService.cancelSelection({
-			workspace: $workspaceStore ?? '',
-			requestBody: jobIdsToCancel
-		})
-		jobIdsToCancel = []
-		selectedIds = []
-		jobLoader?.loadJobs(minTs, maxTs, true, true)
-		sendUserToast(`Canceled ${uuids.length} jobs`)
-		selectionMode = false
+		const func = askingForConfirmation?.onConfirm
+		askingForConfirmation = undefined
+		func?.()
 	}}
-	loading={fetchingFilteredJobs}
+	loading={askingForConfirmation?.loading}
 	on:canceled={() => {
-		isCancelingFilteredJobs = false
+		askingForConfirmation = undefined
 	}}
 >
-	<pre>{selectedFiltersString}</pre>
+	{#if askingForConfirmation?.preContent}
+		<pre>{askingForConfirmation.preContent}</pre>
+	{/if}
 </ConfirmationModal>
-
-<ConfirmationModal
-	title={`Confirm cancelling the selected jobs`}
-	confirmationText={`Cancel ${jobIdsToCancel.length} jobs`}
-	open={isCancelingVisibleJobs}
-	on:confirmed={async () => {
-		isCancelingVisibleJobs = false
-		let uuids = await JobService.cancelSelection({
-			workspace: $workspaceStore ?? '',
-			requestBody: jobIdsToCancel
-		})
-		jobIdsToCancel = []
-		selectedIds = []
-		jobLoader?.loadJobs(minTs, maxTs, true, true)
-		sendUserToast(`Canceled ${uuids.length} jobs`)
-		selectionMode = false
-	}}
-	on:canceled={() => {
-		isCancelingVisibleJobs = false
-	}}
-/>
-
-<ConfirmationModal
-	title={`Confirm re-running the selected jobs`}
-	confirmationText={`Re-run ${jobIdsToReRun.length} jobs`}
-	open={isReRunningVisibleJobs}
-	on:confirmed={async () => {
-		isReRunningVisibleJobs = false
-
-		if (!$workspaceStore) return
-
-		const uuids: string[] = []
-		for (const job of selectedJobs) {
-			const kind = job.job_kind
-			if (kind !== 'script' && kind !== 'flow') continue
-			const path = job.script_path
-			if (!path) continue
-
-			const originalArgs = (await JobService.getJobArgs({
-				id: job.id,
-				workspace: $workspaceStore
-			})) as ScriptArgs | undefined | null
-
-			const commonArgs = {
-				workspace: $workspaceStore,
-				skipPreprocessor: true,
-				invisibleToOwner: true,
-				// TODO : transform args
-				requestBody: originalArgs ?? {}
-			}
-
-			if (kind === 'script') {
-				const hash = job.script_hash
-				if (hash) {
-					await JobService.runScriptByHash({ ...commonArgs, hash })
-					uuids.push(job.id)
-				} else if (path) {
-					await JobService.runScriptByPath({ ...commonArgs, path })
-					uuids.push(job.id)
-				}
-			} else if (kind === 'flow') {
-				if (path) {
-					await JobService.runFlowByPath({ ...commonArgs, path })
-					uuids.push(job.id)
-				}
-			}
-		}
-
-		jobIdsToReRun = []
-		selectedIds = []
-		jobLoader?.loadJobs(minTs, maxTs, true, true)
-		sendUserToast(`Re-ran ${uuids.length} jobs`)
-		selectionMode = false
-	}}
-	on:canceled={() => {
-		isReRunningVisibleJobs = false
-	}}
-/>
 
 <Drawer bind:this={runDrawer}>
 	<DrawerContent title="Run details" on:close={runDrawer.closeDrawer}>
