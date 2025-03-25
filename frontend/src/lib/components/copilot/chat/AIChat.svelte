@@ -25,6 +25,9 @@
 	export let args: Record<string, any>
 	export let path: string | undefined
 
+	$: contextCodePath =
+		(path?.split('/').pop() ?? 'script') + '.' + langToExt(scriptLangToEditorLang(lang))
+
 	let initializedWithInitCode: boolean | null = null
 	$: lang && (initializedWithInitCode = null)
 	function onCodeChange() {
@@ -52,9 +55,6 @@
 		}
 	}
 	$: code && onCodeChange()
-
-	$: contextCodePath =
-		(path?.split('/').pop() ?? 'script') + '.' + langToExt(scriptLangToEditorLang(lang))
 
 	let db: { schema: DBSchema; resource: string } | undefined = undefined
 
@@ -338,6 +338,7 @@
 	initIndexDB()
 
 	onDestroy(() => {
+		cancel()
 		indexDB?.close()
 	})
 

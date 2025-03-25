@@ -292,7 +292,7 @@ export class Autocompletor {
 			} else {
 				// display tab icon
 				const el = document.createElement('div')
-				el.innerHTML = 'TAB'
+				el.textContent = 'TAB'
 
 				Object.assign(el.style, {
 					position: 'relative',

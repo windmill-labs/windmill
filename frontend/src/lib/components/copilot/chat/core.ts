@@ -55,12 +55,12 @@ async function getResourceTypes(prompt: string, workspace: string) {
 	return resourceTypes
 }
 
-const TS_RESOURCE_TYPE_SYSTEM = `On Windmill, credentials and configuration are stored in resources and passed a parameters to main.
+const TS_RESOURCE_TYPE_SYSTEM = `On Windmill, credentials and configuration are stored in resources and passed as parameters to main.
 If you need credentials, you should add a parameter to \`main\` with the corresponding resource type inside the \`RT\` namespace: for instance \`RT.Stripe\`.
 You should only them if you need them to satisfy the user's instructions. Always use the RT namespace. 
 To query the RT namespace, you can use the \`search_resource_types\` function.`
 
-const PYTHON_RESOURCE_TYPE_SYSTEM = `On Windmill, credentials and configuration are stored in resources and passed a parameters to main.
+const PYTHON_RESOURCE_TYPE_SYSTEM = `On Windmill, credentials and configuration are stored in resources and passed as parameters to main.
 If you need credentials, you should add a parameter to \`main\` with the corresponding resource type.
 To query the available resource types, you can use the \`search_resource_types\` function.
 You need to **redefine** the type of the resources that are needed before the main function as TypedDict, but only include them if they are actually needed to achieve the function purpose.
@@ -68,7 +68,7 @@ The resource type name has to be exactly as specified (has to be IN LOWERCASE).
 If an import conflicts with a resource type name, **you have to rename the imported object, not the type name**.
 Make sure to import TypedDict from typing **if you're using it**`
 
-const PHP_RESOURCE_TYPE_SYSTEM = `On Windmill, credentials and configuration are stored in resources and passed a parameters to main.
+const PHP_RESOURCE_TYPE_SYSTEM = `On Windmill, credentials and configuration are stored in resources and passed as parameters to main.
 If you need credentials, you should add a parameter to \`main\` with the corresponding resource type
 The available resource types are provided by the user under the \`RESOURCE_TYPE_CONTEXT\` key.
 You need to **redefine** the type of the resources that are needed before the main function, but only include them if they are actually needed to achieve the function purpose.
@@ -346,7 +346,7 @@ const DB_SCHEMA_FUNCTION_DEF: ChatCompletionTool = {
 
 export const MAX_SCHEMA_LENGTH = 100000 * 3.5
 
-async function formatDBSChema(dbSchema: DBSchema) {
+async function formatDBSchema(dbSchema: DBSchema) {
 	let { stringified } = dbSchema
 	if (dbSchema.lang === 'graphql') {
 		if (stringified.length > MAX_SCHEMA_LENGTH) {
@@ -379,7 +379,7 @@ async function callTool(
 			if (!dbSchema) {
 				throw new Error('No database schema provided')
 			}
-			const stringSchema = await formatDBSChema(dbSchema)
+			const stringSchema = await formatDBSchema(dbSchema)
 			return stringSchema
 		default:
 			throw new Error(`Unknown tool call: ${functionName}`)

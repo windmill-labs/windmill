@@ -67,7 +67,7 @@ export function setGlobalCSS(id: string, cssCode: string) {
 		styleTag.id = id
 		document.head.appendChild(styleTag)
 	}
-	styleTag.innerHTML = cssCode
+	styleTag.textContent = cssCode
 }
 
 function addInlineGhostText(change: Extract<VisualChange, { type: 'added_inline' }>) {
@@ -123,7 +123,7 @@ function getReviewButtons(
 	})
 
 	const acceptButton = document.createElement('button')
-	acceptButton.innerHTML = 'Accept'
+	acceptButton.textContent = 'Accept'
 	Object.assign(acceptButton.style, {
 		color: 'black',
 		padding: '0.1rem 0.2rem',
@@ -136,7 +136,7 @@ function getReviewButtons(
 	const layout = editor.getLayoutInfo()
 	layout.width
 	const rejectButton = document.createElement('button')
-	rejectButton.innerHTML = 'Reject'
+	rejectButton.textContent = 'Reject'
 	Object.assign(rejectButton.style, {
 		color: 'black',
 		padding: '0.1rem 0.2rem',
@@ -166,7 +166,7 @@ async function addMultilineGhostText(
 	}
 ) {
 	const el = document.createElement('div')
-	el.innerHTML = text
+	el.textContent = text
 
 	if (options?.review) {
 		const reviewButtons = getReviewButtons(editor, options.review.acceptFn, options.review.rejectFn)

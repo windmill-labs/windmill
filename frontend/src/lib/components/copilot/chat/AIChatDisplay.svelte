@@ -59,8 +59,6 @@
 			model: 'No model',
 			provider: 'No provider'
 		}
-
-	$: console.log($copilotSessionModel, $copilotInfo.defaultModel, $copilotInfo.aiModels[0])
 </script>
 
 <div class="flex flex-col h-full">
