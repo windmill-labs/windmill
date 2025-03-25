@@ -11,6 +11,7 @@ ALTER TABLE http_trigger
     RENAME COLUMN requires_auth TO authentication_method;
 
 ALTER TABLE http_trigger
+    ADD COLUMN authentication_resource_path VARCHAR(255) DEFAULT NULL,
     ALTER COLUMN authentication_method DROP DEFAULT,
     ALTER COLUMN authentication_method TYPE AUTHENTICATION_METHOD
     USING CASE

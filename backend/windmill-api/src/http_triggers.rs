@@ -106,7 +106,7 @@ impl TryFrom<&http::Method> for HttpMethod {
     }
 }
 
-#[derive(sqlx::Type, Serialize, Deserialize, Debug, PartialEq, Clone)]
+#[derive(sqlx::Type, Serialize, Deserialize, Debug, PartialEq, Clone, Copy)]
 #[sqlx(type_name = "AUTHENTICATION_METHOD", rename_all = "snake_case")]
 #[serde(rename_all(serialize = "snake_case", deserialize = "snake_case"))]
 pub enum AuthenticationMethod {
@@ -289,6 +289,23 @@ async fn get_trigger(
     Ok(Json(trigger))
 }
 
+fn validate_authentication_method(
+    authentication_method: AuthenticationMethod,
+    raw_string: Option<bool>,
+) -> error::Result<()> {
+    match (authentication_method, raw_string) {
+        (AuthenticationMethod::CustomScript, raw) if !raw.unwrap_or(false) == true => {
+            return Err(Error::BadRequest(
+                "To use custom script authentication, please enable the raw body option."
+                    .to_string(),
+            ));
+        }
+        _ => {}
+    }
+
+    Ok(())
+}
+
 async fn create_trigger(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
@@ -301,6 +318,8 @@ async fn create_trigger(
     if !VALID_ROUTE_PATH_RE.is_match(&ct.route_path) {
         return Err(error::Error::BadRequest("Invalid route path".to_string()));
     }
+
+    validate_authentication_method(ct.authentication_method, ct.raw_string)?;
 
     // route path key is extracted from the route path to check for uniqueness
     // it replaces /?:{key} with :key
@@ -405,6 +424,8 @@ async fn update_trigger(
         ));
     }
 
+    validate_authentication_method(ct.authentication_method, ct.raw_string)?;
+
     let mut tx;
     if authed.is_admin {
         let Some(route_path) = ct.route_path else {
@@ -489,21 +510,29 @@ async fn update_trigger(
             UPDATE 
                 http_trigger 
             SET 
-                script_path = $1, 
-                path = $2, 
-                is_flow = $3, 
-                http_method = $4,
-                static_asset_config = $5, 
-                edited_by = $6, 
-                email = $7, 
-                is_async = $8, 
-                authentication_method = $9, 
+                workspaced_route = $1,
+                wrap_body = $2,
+                raw_string = $3,
+                authentication_resource_path = $4,
+                script_path = $5, 
+                path = $6, 
+                is_flow = $7, 
+                http_method = $8, 
+                static_asset_config = $9, 
+                edited_by = $10, 
+                email = $11, 
+                is_async = $12, 
+                authentication_method = $13, 
                 edited_at = now(), 
-                is_static_website = $10
+                is_static_website = $14
             WHERE 
-                workspace_id = $11 AND 
-                path = $12
+                workspace_id = $15 AND 
+                path = $16
             "#,
+            ct.workspaced_route,
+            ct.wrap_body,
+            ct.raw_string,
+            ct.authentication_resource_path,
             ct.script_path,
             ct.path,
             ct.is_flow,

@@ -99,6 +99,7 @@ pub fn workspaced_unauthed_service() -> Router {
 struct HttpTriggerConfig {
     route_path: String,
     http_method: HttpMethod,
+    workspaced_route: bool
 }
 
 #[cfg(all(feature = "enterprise", feature = "kafka"))]

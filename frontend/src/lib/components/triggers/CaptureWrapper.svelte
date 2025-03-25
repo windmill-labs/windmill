@@ -255,6 +255,7 @@
 				runnableArgs={data?.args}
 				bind:route_path={args.route_path}
 				bind:http_method={args.http_method}
+				bind:workspaced_route={args.workspaced_route}
 				headless
 				{captureInfo}
 				bind:captureTable

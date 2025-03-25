@@ -57,6 +57,7 @@
 			can_write={true}
 			bind:route_path={args.route_path}
 			bind:http_method={args.http_method}
+			bind:workspaced_route={args.workspaced_route}
 			headless
 		/>
 	{:else if triggerType === 'email'}

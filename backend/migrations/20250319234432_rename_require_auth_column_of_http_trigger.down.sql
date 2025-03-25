@@ -1,4 +1,5 @@
 ALTER TABLE http_trigger
+    DROP COLUMN authentication_resource_path,
     ALTER COLUMN authentication_method DROP DEFAULT,
     ALTER COLUMN authentication_method TYPE boolean
     USING CASE

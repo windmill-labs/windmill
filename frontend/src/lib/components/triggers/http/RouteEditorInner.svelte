@@ -154,6 +154,9 @@
 			workspaced_route = false
 			authentication_resource_path = ''
 			variable_path = ''
+			signature_options_type = 'custom_signature'
+			raw_string = false
+			wrap_body = false
 		} finally {
 			drawerLoading = false
 		}
@@ -184,6 +187,7 @@
 			signature_options_type = 'custom_script'
 		} else {
 			authentication_method = s.authentication_method
+			signature_options_type = 'custom_signature'
 		}
 		if (!isCloudHosted()) {
 			static_asset_config = s.static_asset_config
@@ -195,9 +199,14 @@
 	}
 
 	async function triggerScript(): Promise<void> {
-		if (authentication_method === 'signature' && signature_options_type === 'custom_script') {
-			authentication_method = 'custom_script'
-		}
+		// If the user selects "signature" with the "custom_script" option,
+		// we explicitly set the authentication method to "custom_script"
+		// (which is a valid enum on its own in the backend)
+		const auth_method: AuthenticationMethod =
+			authentication_method === 'signature' && signature_options_type === 'custom_script'
+				? 'custom_script'
+				: authentication_method
+
 		if (edit) {
 			await HttpTriggerService.updateHttpTrigger({
 				workspace: $workspaceStore!,
@@ -207,7 +216,7 @@
 					script_path,
 					is_flow,
 					is_async,
-					authentication_method: authentication_method,
+					authentication_method: auth_method,
 					route_path: $userStore?.is_admin || $userStore?.is_super_admin ? route_path : undefined,
 					http_method,
 					static_asset_config,
@@ -227,7 +236,7 @@
 					script_path,
 					is_flow,
 					is_async,
-					authentication_method,
+					authentication_method: auth_method,
 					route_path,
 					http_method,
 					static_asset_config,
@@ -246,7 +255,6 @@
 		dispatch('update')
 		drawer.closeDrawer()
 	}
-
 	let drawer: Drawer
 	let darkMode = false
 
@@ -501,6 +509,11 @@
 									<ToggleButtonGroup
 										class="w-auto h-full"
 										bind:selected={authentication_method}
+										on:selected={(e) => {
+											if (e.detail === 'signature' && signature_options_type === 'custom_script') {
+												raw_string = true
+											}
+										}}
 										disabled={!can_write}
 										let:item
 									>
@@ -519,6 +532,13 @@
 														<ToggleButtonGroup
 															class="w-auto h-full"
 															bind:selected={signature_options_type}
+															on:selected={(e) => {
+																if (e.detail === 'custom_script') {
+																	if (!raw_string) {
+																		raw_string = true
+																	}
+																}
+															}}
 															disabled={!can_write}
 															let:item
 														>
@@ -585,33 +605,33 @@
 												size="xs"
 												color="dark"
 											>
-												+Variable
+												Pick variable
 											</Button>
 										</div>
-										{#if !emptyString(variable_path)}
-											<Button
-												color="dark"
-												size="xs"
-												href={itemKind === 'flow'
-													? `/flows/add?${SECRET_KEY_PATH}=${encodeURIComponent(
-															variable_path
-													  )}&hub=${HubFlow.SIGNATURE_TEMPLATE}`
-													: `/scripts/add?${SECRET_KEY_PATH}=${encodeURIComponent(
-															variable_path
-													  )}&hub=hub%2F${HUB_SCRIPT_ID}`}
-												target="_blank">Create from template</Button
-											>
-										{/if}
+										<Button
+											disabled={emptyString(variable_path)}
+											color="dark"
+											size="xs"
+											href={itemKind === 'flow'
+												? `/flows/add?${SECRET_KEY_PATH}=${encodeURIComponent(variable_path)}&hub=${
+														HubFlow.SIGNATURE_TEMPLATE
+												  }`
+												: `/scripts/add?${SECRET_KEY_PATH}=${encodeURIComponent(
+														variable_path
+												  )}&hub=hub%2F${HUB_SCRIPT_ID}`}
+											target="_blank">Create from template</Button
+										>
 									</div>
 								{/if}
 							{/if}
 
 							<Label label="Raw body" class="w-full">
 								<svelte:fragment slot="header">
-									<Tooltip
-										>Provides the raw JSON payload as a string under the 'raw_string' key, useful
-										for signature verification and other use cases.</Tooltip
-									>
+									<Tooltip>
+										Provides the raw JSON payload as a string under the 'raw_string' key. Required
+										for custom script authentication method and useful for signature verification or
+										other advanced use cases.
+									</Tooltip>
 								</svelte:fragment>
 								<svelte:fragment slot="action">
 									<Toggle
@@ -648,7 +668,7 @@
 
 <ItemPicker
 	bind:this={variablePicker}
-	pickCallback={(path, name) => {
+	pickCallback={(path, _) => {
 		variable_path = path
 	}}
 	tooltip="Variables are dynamic values that have a key associated to them and can be retrieved during the execution of a Script or Flow."
