@@ -31,7 +31,7 @@
 	let initializedWithInitCode: boolean | null = null
 	$: lang && (initializedWithInitCode = null)
 
-	function onCodeChange() {
+	function onCodeChange(contextCodePath: string) {
 		if (initializedWithInitCode === null && code) {
 			if (isInitialCode(code)) {
 				initializedWithInitCode = true
@@ -55,7 +55,7 @@
 			initializedWithInitCode = false
 		}
 	}
-	$: code && onCodeChange()
+	$: code && onCodeChange(contextCodePath)
 
 	let db: { schema: DBSchema; resource: string } | undefined = undefined
 

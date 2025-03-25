@@ -76,7 +76,7 @@
 		if (e.key === 'Enter' && !e.shiftKey) {
 			e.preventDefault()
 			if (contextTooltipWord) {
-				const contextElement = availableContext.find((c) => c.title.startsWith(contextTooltipWord.slice(1)))
+				const contextElement = availableContext.find((c) => c.title.includes(contextTooltipWord.slice(1)))
 				if (contextElement) {
 					handleContextSelection(contextElement)
 				} else if (contextTooltipWord === '@' && availableContext.length > 0) {
@@ -121,10 +121,10 @@
 		style="left: {tooltipPosition.x}px; top: {tooltipPosition.y}px;"
 	>
 		<div class="flex flex-col gap-1 text-tertiary text-xs min-w-24">
-			{#if availableContext.filter((c) => !contextTooltipWord || c.title.startsWith(contextTooltipWord.slice(1)) && !selectedContext.find((sc) => sc.title === c.title && sc.type === c.type)).length === 0}
+			{#if availableContext.filter((c) => !contextTooltipWord || c.title.includes(contextTooltipWord.slice(1)) && !selectedContext.find((sc) => sc.title === c.title && sc.type === c.type)).length === 0}
 				<div class="text-center text-tertiary text-xs">No available context</div>
 			{:else}
-				{#each availableContext.filter((c) => !contextTooltipWord || c.title.startsWith(contextTooltipWord.slice(1)) && !selectedContext.find((sc) => sc.title === c.title && sc.type === c.type)) as element}
+				{#each availableContext.filter((c) => !contextTooltipWord || c.title.includes(contextTooltipWord.slice(1)) && !selectedContext.find((sc) => sc.title === c.title && sc.type === c.type)) as element}
 					<button
 						class="hover:bg-surface-hover rounded-md p-1 text-left flex flex-row gap-1 items-center font-normal"
 						on:click={() => handleContextSelection(element)}

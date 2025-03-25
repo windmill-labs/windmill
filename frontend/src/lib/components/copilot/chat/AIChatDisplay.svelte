@@ -63,7 +63,7 @@
 	$: console.log($copilotSessionModel, $copilotInfo.defaultModel, $copilotInfo.aiModels[0])
 
 	function addContextToSelection(contextElement: ContextElement) {
-		if (!selectedContext.find((c) => c.type === contextElement.type)) {
+		if (!selectedContext.find((c) => c.type === contextElement.type && c.title === contextElement.title)) {
 			selectedContext = [
 				...selectedContext,
 				{
@@ -234,7 +234,7 @@
 						{contextElement}
 						deletable
 						on:delete={() => {
-							selectedContext = selectedContext.filter((c) => c.type !== element.type)
+							selectedContext = selectedContext.filter((c) => c.type !== element.type && c.title !== element.title)
 						}}
 					/>
 				{/if}

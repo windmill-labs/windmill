@@ -250,7 +250,7 @@ ERROR:
 \`\`\`
 `
 
-export const CHAT_USER_DB_CONTEXT = `- ({title})`
+export const CHAT_USER_DB_CONTEXT = `- ({title})\n`
 
 export function prepareSystemMessage(): {
 	role: 'system'
@@ -400,8 +400,11 @@ async function callTool(
 			if (!args.resourcePath) {
 				throw new Error('Database path not provided')
 			}
-			// get the schema from the dbsPath
-			// await getDbSchemas('db', args.resourcePath, workspace, get(dbSchemas), () => {})
+			const resource = await ResourceService.getResource({
+				workspace: workspace,
+				path: args.resourcePath
+			})
+			await getDbSchemas(resource.resource_type, args.resourcePath, workspace, get(dbSchemas), () => {})
 			const dbs = get(dbSchemas)
 			const db = dbs[args.resourcePath]
 			if (!db) {
