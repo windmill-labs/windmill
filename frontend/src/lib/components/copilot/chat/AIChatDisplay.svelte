@@ -8,8 +8,7 @@
 	import {
 		type AIChatContext,
 		type DisplayMessage,
-		type ContextElement,
-		type SelectedContext
+		type ContextElement
 	} from './core'
 	import {
 		COPILOT_SESSION_MODEL_SETTING_NAME,
@@ -25,7 +24,7 @@
 	export let pastChats: { id: string; title: string }[]
 	export let messages: DisplayMessage[]
 	export let instructions: string
-	export let selectedContext: SelectedContext[]
+	export let selectedContext: ContextElement[]
 	export let availableContext: ContextElement[]
 
 	const dispatch = createEventDispatcher<{
@@ -66,10 +65,7 @@
 		if (!selectedContext.find((c) => c.type === contextElement.type && c.title === contextElement.title)) {
 			selectedContext = [
 				...selectedContext,
-				{
-					type: contextElement.type,
-					title: contextElement.title
-				}
+				contextElement
 			]
 		}
 	}

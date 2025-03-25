@@ -1,13 +1,13 @@
 <script lang="ts">
 	import autosize from '$lib/autosize'
 	import { createEventDispatcher } from 'svelte'
-	import type { ContextElement, SelectedContext } from './core'
+	import type { ContextElement } from './core'
 	import AvailableContextList from './AvailableContextList.svelte'
 	import getCaretCoordinates from 'textarea-caret'
 
 	export let instructions: string
 	export let availableContext: ContextElement[]
-	export let selectedContext: SelectedContext[]
+	export let selectedContext: ContextElement[]
 	export let placeholder: string
 
 	const dispatch = createEventDispatcher<{

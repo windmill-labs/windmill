@@ -9,7 +9,6 @@
 		type AIChatContext,
 		type ContextElement,
 		type DisplayMessage,
-		type SelectedContext
 	} from './core'
 	import { createEventDispatcher, onDestroy, setContext } from 'svelte'
 	import type { type AIProviderModel, ScriptLang, ResourceService } from '$lib/gen'
@@ -79,7 +78,7 @@
 	}
 	$: updateSchema(lang, args, $dbSchemas)
 
-	let selectedContext: SelectedContext[] = []
+	let selectedContext: ContextElement[] = []
 
 	let availableContext: ContextElement[] = []
 
@@ -102,14 +101,17 @@
 		]
 
 		if (workspace) {
+			// Make all dbs in the workspace available
 			const dbs = await ResourceService.listResource({
 				workspace: workspace,
 				resourceType: SQLSchemaLanguages.join(',')
 			})
-			for (const db of dbs) {
+			for (const d of dbs) {
 				availableContext.push({
 					type: 'db',
-					title: db.path,
+					title: d.path,
+					// If the db is already fetched, add the schema to the context
+					...(db && d.path === db.resource ? { schema: db.schema } : {})
 				})
 			}
 		}
@@ -126,12 +128,14 @@
 		}
 
  		if (db) {
+			// If the db is already fetched, add it to the selected context
 			if (!selectedContext.find((c) => c.type === 'db' && c.title === db.resource)) {
 				selectedContext = [
 					...selectedContext,
 					{
-					type: 'db',
+						type: 'db',
 						title: db.resource,
+						schema: db.schema
 					}
 				]
 			}
@@ -179,20 +183,8 @@
 	let displayMessages: DisplayMessage[] = []
 	let abortController: AbortController | undefined = undefined
 
-	function updateSelectedContextElements() {
-		const contextElements: ContextElement[] = []
-
-		for (const selected of selectedContext) {
-			const el = availableContext.find(
-				(c) => c.type === selected.type && c.title === selected.title
-			)
-			if (el) {
-				contextElements.push(el)
-			}
-		}
-		return contextElements
-	}
-	let selectedContextElements: ContextElement[] = []
+	$: console.log('availableContext', availableContext)
+	$: console.log(selectedContext)
 
 	async function sendRequest() {
 		if (!instructions.trim()) {
@@ -203,19 +195,17 @@
 			aiChatDisplay?.enableAutomaticScroll()
 			abortController = new AbortController()
 
-			selectedContextElements = updateSelectedContextElements()
-
 			displayMessages = [
 				...displayMessages,
 				{
 					role: 'user',
 					content: instructions,
-					contextElements: selectedContextElements
+					contextElements: selectedContext
 				}
 			]
 			const oldInstructions = instructions
 			instructions = ''
-			const userMessage = await prepareUserMessage(oldInstructions, lang, selectedContextElements)
+			const userMessage = await prepareUserMessage(oldInstructions, lang, selectedContext)
 
 			messages.push({ role: 'user', content: userMessage })
 			await saveChat()
@@ -225,7 +215,7 @@
 				messages,
 				abortController,
 				lang,
-				selectedContextElements.filter((c) => c.type === 'db').map((c) => c.title),
+				selectedContext.filter((c) => c.type === 'db').map((c) => c.title),
 				(token) => currentReply.update((prev) => prev + token)
 			)
 
@@ -235,7 +225,7 @@
 				{
 					role: 'assistant',
 					content: $currentReply,
-					contextElements: selectedContextElements
+					contextElements: selectedContext
 				}
 			]
 			currentReply.set('')
@@ -302,16 +292,12 @@
 	export function fix() {
 		instructions = 'Fix the error'
 
-		selectedContext = [
-			{
-				type: 'code',
-				title: contextCodePath
-			},
-			{
-				type: 'error',
-				title: 'error'
-			}
-		]
+		const codeContext = availableContext.find((c) => c.type === 'code' && c.title === contextCodePath)
+		const errorContext = availableContext.find((c) => c.type === 'error')
+
+		if (codeContext && errorContext) {
+			selectedContext = [codeContext, errorContext]
+		}
 
 		sendRequest()
 	}
@@ -367,7 +353,7 @@
 				{
 					role: 'assistant',
 					content: $currentReply,
-					contextElements: selectedContextElements
+					contextElements: selectedContext
 				}
 		  ]
 		: displayMessages}

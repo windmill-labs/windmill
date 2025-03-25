@@ -1,9 +1,9 @@
 <script lang="ts">
 	import { ContextIconMap } from './core'
-	import type { ContextElement, SelectedContext } from './core'
+	import type { ContextElement } from './core'
 
 	export let availableContext: ContextElement[]
-	export let selectedContext: SelectedContext[]
+	export let selectedContext: ContextElement[]
 	export let onSelect: (element: ContextElement) => void
 </script>
 

@@ -53,7 +53,7 @@
 			</div>
 		{:else if contextElement.type === 'db'}
 			<div class="p-2 max-w-96 max-h-[300px] text-xs overflow-auto">
-				{#if contextElement.schema.lang === 'graphql'}
+				{#if contextElement.schema && contextElement.schema.lang === 'graphql'}
 					{#await import('$lib/components/GraphqlSchemaViewer.svelte')}
 						<Loader2 class="animate-spin" />
 					{:then Module}
@@ -62,7 +62,7 @@
 							class="h-full"
 						/>
 					{/await}
-				{:else}
+				{:else if contextElement.schema}
 					<ObjectViewer json={formatSchema(contextElement.schema)} pureViewer collapseLevel={1} />
 				{/if}
 			</div>
