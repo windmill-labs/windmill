@@ -105,11 +105,3 @@ mount {
 iface_no_lo: true
 
 {SHARED_MOUNT}
-
-# CVE: REMOVE!
-mount {
-    src: "/nix/store"
-    dst: "/nix/store"
-    is_bind: true
-    mandatory: false
-}
