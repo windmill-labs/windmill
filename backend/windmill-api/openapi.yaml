@@ -1755,14 +1755,8 @@ paths:
                     type: string
                   deploy_to:
                     type: string
-                  ai_resource:
-                    $ref: "#/components/schemas/AIResource"
-                  code_completion_model:
-                    type: string
-                  ai_models:
-                    type: array
-                    items:
-                      type: string
+                  ai_config:
+                    $ref: "#/components/schemas/AIConfig"
                   error_handler:
                     type: string
                   error_handler_extra_args:
@@ -1786,7 +1780,6 @@ paths:
                   operator_settings:
                     $ref: "#/components/schemas/OperatorSettings"
                 required:
-                  - ai_models
                   - automatic_billing
                   - error_handler_muted_on_cancel
 
@@ -2235,18 +2228,7 @@ paths:
         content:
           application/json:
             schema:
-              type: object
-              required:
-                - ai_models
-              properties:
-                ai_resource:
-                  $ref: "#/components/schemas/AIResource"
-                code_completion_model:
-                  type: string
-                ai_models:
-                  type: array
-                  items:
-                    type: string
+              $ref: "#/components/schemas/AIConfig"
       responses:
         "200":
           description: status
@@ -2268,23 +2250,10 @@ paths:
         "200":
           description: status
           content:
-            text/plain:
+            application/json:
               schema:
-                type: object
-                properties:
-                  ai_provider:
-                    $ref: "#/components/schemas/AIProvider"
-                  exists_ai_resource:
-                    type: boolean
-                  code_completion_model:
-                    type: string
-                  ai_models:
-                    type: array
-                    items:
-                      type: string
-                required:
-                  - exists_ai_resource
-                  - ai_models
+                $ref: "#/components/schemas/AIConfig"
+                
 
   /w/{workspace}/workspaces/edit_error_handler:
     post:
@@ -12415,16 +12384,41 @@ components:
       type: string
       enum: [openai, anthropic, mistral, deepseek, googleai, groq, openrouter, customai]
 
-    AIResource:
+    AIProviderModel:
       type: object
       properties:
-        path:
+        model:
           type: string
         provider:
           $ref: "#/components/schemas/AIProvider"
       required:
-        - path
+        - model
         - provider
+
+    AIProviderConfig:
+      type: object
+      properties:
+        resource_path:
+          type: string
+        models:
+          type: array
+          items:
+            type: string
+      required:
+        - resource_path
+        - models
+
+    AIConfig:
+      type: object
+      properties:
+        providers:
+          type: object
+          additionalProperties:
+            $ref: "#/components/schemas/AIProviderConfig"
+        default_model:
+          $ref: "#/components/schemas/AIProviderModel"
+        code_completion_model:
+          $ref: "#/components/schemas/AIProviderModel"
 
     Script:
       type: object
