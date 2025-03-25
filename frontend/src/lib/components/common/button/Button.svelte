@@ -34,6 +34,7 @@
 	export let shortCut:
 		| { key?: string; hide?: boolean; Icon?: any; withoutModifier?: boolean }
 		| undefined = undefined
+	export let dropdownDisabled: boolean = false
 
 	type MenuItem = {
 		label: string
@@ -42,10 +43,25 @@
 		icon?: any
 		disabled?: boolean
 	}
-	export let dropdownItems: MenuItem[] | (() => MenuItem[]) | undefined = undefined
+	export let dropdownItems: MenuItem[] | (() => MenuItem[]) | Item[] | undefined = undefined
 
-	function computeDropdowns(menuItems: MenuItem[] | (() => MenuItem[])): Item[] {
+	function computeDropdowns(menuItems: MenuItem[] | (() => MenuItem[]) | Item[]): Item[] {
 		const items = typeof menuItems === 'function' ? menuItems() : menuItems
+
+		function isItemArray(items: any[]): items is Item[] {
+			return items.every(
+				(item) =>
+					'displayName' in item &&
+					typeof item.displayName === 'string' &&
+					(!('action' in item) || typeof item.action === 'function' || item.action === undefined) &&
+					(!('disabled' in item) || typeof item.disabled === 'boolean')
+			)
+		}
+
+		if (items.length > 0 && isItemArray(items)) {
+			return items
+		}
+
 		return items.map((item) => ({
 			displayName: item.label,
 			action: item.onClick ? (e) => item.onClick?.(e) : undefined,
@@ -232,7 +248,11 @@
 	{/if}
 
 	{#if dropdownItems && dropdownItems.length > 0}
-		<Dropdown items={computeDropdowns(dropdownItems)} class="h-auto w-fit">
+		<Dropdown
+			items={computeDropdowns(dropdownItems)}
+			class="h-auto w-fit"
+			disabled={dropdownDisabled}
+		>
 			<svelte:fragment slot="buttonReplacement">
 				<div
 					class={twMerge(
@@ -242,7 +262,11 @@
 						'rounded-r-md !rounded-l-none'
 					)}
 				>
-					<ChevronDown class="w-5 h-5" />
+					{#if $$slots.dropdownIcon}
+						<slot name="dropdownIcon" />
+					{:else}
+						<ChevronDown class="w-5 h-5" />
+					{/if}
 				</div>
 			</svelte:fragment>
 		</Dropdown>
