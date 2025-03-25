@@ -546,7 +546,7 @@ pub async fn save_cache(
         if let Err(e) = os
             .put(
                 &Path::from(_remote_cache_path),
-                std::fs::read(file_to_cache)?.into(),
+                std::fs::read(&file_to_cache)?.into(),
             )
             .await
         {
@@ -557,7 +557,7 @@ pub async fn save_cache(
         } else {
             _cached_to_s3 = true;
             if is_dir {
-                tokio::fs::remove_dir_all(file_to_cache).await?;
+                tokio::fs::remove_dir_all(&file_to_cache).await?;
             }
         }
     }
