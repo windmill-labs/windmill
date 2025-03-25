@@ -235,7 +235,7 @@ async fn send_job_completed(
     canceled_by: Option<CanceledBy>,
     success: bool,
     cached_res_path: Option<String>,
-    token: String,
+    token: &str,
     duration: Option<i64>,
 ) {
     let jc = JobCompleted {
@@ -246,7 +246,7 @@ async fn send_job_completed(
         canceled_by,
         success,
         cached_res_path,
-        token,
+        token: token.to_string(),
         duration,
     };
     job_completed_tx
@@ -264,7 +264,7 @@ pub async fn process_result(
     mem_peak: i32,
     canceled_by: Option<CanceledBy>,
     cached_res_path: Option<String>,
-    token: String,
+    token: &str,
     column_order: Option<Vec<String>>,
     new_args: Option<HashMap<String, Box<RawValue>>>,
     db: &DB,

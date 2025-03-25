@@ -2651,7 +2651,7 @@ async fn push_next_flow_job(
             {
                 sqlx::query_as!(
                     JobPerms,
-                    "SELECT * FROM job_perms WHERE job_id = $1 AND workspace_id = $2",
+                    "SELECT email, username, is_admin, is_operator, groups, folders FROM job_perms WHERE job_id = $1 AND workspace_id = $2",
                     root_job,
                     flow_job.workspace_id,
                 )
@@ -2940,15 +2940,17 @@ async fn push_next_flow_job(
     .execute(&mut *tx)
     .await?;
 
-    tx.commit().warn_after_seconds(3).await?;
-    tracing::info!(id = %flow_job.id, root_id = %job_root, "all next flow jobs pushed: {uuids:?}");
-
     if continue_on_same_worker {
         if !is_one_uuid {
             return Err(Error::BadRequest(
                 "Cannot continue on same worker with multiple jobs, parallel cannot be used in conjunction with same_worker".to_string(),
             ));
         }
+    }
+    tx.commit().warn_after_seconds(3).await?;
+    tracing::info!(id = %flow_job.id, root_id = %job_root, "all next flow jobs pushed: {uuids:?}");
+
+    if continue_on_same_worker {
         same_worker_tx
             .send(SameWorkerPayload { job_id: first_uuid, recoverable: true })
             .await

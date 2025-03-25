@@ -20,9 +20,9 @@ use crate::{
         read_file_content, read_result, start_child_process, write_file_binary, OccupancyMetrics,
     },
     handle_child::handle_child,
-    AuthedClientBackgroundTask, BUNFIG_INSTALL_SCOPES, BUN_BUNDLE_CACHE_DIR, BUN_CACHE_DIR,
-    BUN_PATH, DISABLE_NSJAIL, DISABLE_NUSER, HOME_ENV, NODE_BIN_PATH, NODE_PATH,
-    NPM_CONFIG_REGISTRY, NPM_PATH, NSJAIL_PATH, PATH_ENV, PROXY_ENVS, TZ_ENV,
+    AuthedClient, BUNFIG_INSTALL_SCOPES, BUN_BUNDLE_CACHE_DIR, BUN_CACHE_DIR, BUN_PATH,
+    DISABLE_NSJAIL, DISABLE_NUSER, HOME_ENV, NODE_BIN_PATH, NODE_PATH, NPM_CONFIG_REGISTRY,
+    NPM_PATH, NSJAIL_PATH, PATH_ENV, PROXY_ENVS, TZ_ENV,
 };
 
 #[cfg(windows)]
@@ -825,7 +825,8 @@ pub async fn handle_bun_job(
     canceled_by: &mut Option<CanceledBy>,
     job: &MiniPulledJob,
     db: &sqlx::Pool<sqlx::Postgres>,
-    client: &AuthedClientBackgroundTask,
+    client: &AuthedClient,
+    parent_runnable_path: Option<String>,
     job_dir: &str,
     inner_content: &String,
     base_internal_url: &str,
@@ -934,7 +935,7 @@ pub async fn handle_bun_job(
             &job.id,
             &job.workspace_id,
             Some(db),
-            &client.get_token().await,
+            &client.token,
             job.runnable_path(),
             job_dir,
             base_internal_url,
@@ -1108,8 +1109,7 @@ try {{
             Ok(()) as Result<()>
         };
         let reserved_variables_f = async {
-            let client = client.get_authed().await;
-            let vars = get_reserved_variables(job, &client.token, db).await?;
+            let vars = get_reserved_variables(job, &client.token, db, parent_runnable_path).await?;
             Ok(vars) as Result<HashMap<String, String>>
         };
         let (_, reserved_variables) = tokio::try_join!(args_and_out_f, reserved_variables_f)?;
@@ -1127,7 +1127,7 @@ try {{
             build_loader(
                 job_dir,
                 base_internal_url,
-                &client.get_token().await,
+                &client.token,
                 &job.workspace_id,
                 job.runnable_path(),
                 if annotation.nodejs {
@@ -1145,7 +1145,7 @@ try {{
             build_loader(
                 job_dir,
                 base_internal_url,
-                &client.get_token().await,
+                &client.token,
                 &job.workspace_id,
                 job.runnable_path(),
                 if annotation.nodejs {
