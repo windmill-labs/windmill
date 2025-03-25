@@ -700,44 +700,35 @@
 			if (kind !== 'script' && kind !== 'flow') continue
 			const path = job.script_path
 			if (!path) continue
-			JobService.getJobArgs({
+
+			const originalArgs = (await JobService.getJobArgs({
 				id: job.id,
 				workspace: $workspaceStore
-			}).then((_untypedOriginalArgs) => {
-				const originalArgs = _untypedOriginalArgs as ScriptArgs
-				const inputTransform = batchReRunChangedArgs[kind][path]
-				let args: ScriptArgs = Object.fromEntries(
-					Object.entries(inputTransform).map(([argKey, argTransform]) => [
-						argKey,
-						// TODO: do transformation of original arg
-						argTransform.type === 'static' ? argTransform.value : originalArgs[argKey]
-					])
-				)
+			})) as ScriptArgs | undefined | null
 
-				const commonArgs = {
-					workspace: $workspaceStore,
-					skipPreprocessor: true,
-					invisibleToOwner: true,
-					// TODO : transform args
-					requestBody: (args as ScriptArgs) ?? {}
-				}
+			const commonArgs = {
+				workspace: $workspaceStore,
+				skipPreprocessor: true,
+				invisibleToOwner: true,
+				// TODO : transform args
+				requestBody: originalArgs ?? {}
+			}
 
-				if (kind === 'script') {
-					const hash = job.script_hash
-					if (hash) {
-						JobService.runScriptByHash({ ...commonArgs, hash })
-						uuids.push(job.id)
-					} else if (path) {
-						JobService.runScriptByPath({ ...commonArgs, path })
-						uuids.push(job.id)
-					}
-				} else if (kind === 'flow') {
-					if (path) {
-						JobService.runFlowByPath({ ...commonArgs, path })
-						uuids.push(job.id)
-					}
+			if (kind === 'script') {
+				const hash = job.script_hash
+				if (hash) {
+					await JobService.runScriptByHash({ ...commonArgs, hash })
+					uuids.push(job.id)
+				} else if (path) {
+					await JobService.runScriptByPath({ ...commonArgs, path })
+					uuids.push(job.id)
 				}
-			})
+			} else if (kind === 'flow') {
+				if (path) {
+					await JobService.runFlowByPath({ ...commonArgs, path })
+					uuids.push(job.id)
+				}
+			}
 		}
 
 		jobIdsToReRun = []
