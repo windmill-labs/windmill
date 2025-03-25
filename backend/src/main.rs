@@ -704,6 +704,16 @@ Windmill Community Edition {GIT_VERSION}
                                             tracing::info!("Webhook change detected, invalidating webhook cache: {}", workspace_id);
                                             windmill_api::webhook_util::WEBHOOK_CACHE.remove(workspace_id);
                                         },
+                                        "notify_workspace_envs_change" => {
+                                            let workspace_id = n.payload();
+                                            tracing::info!("Workspace envs change detected, invalidating workspace envs cache: {}", workspace_id);
+                                            windmill_common::variables::CUSTOM_ENVS_CACHE.remove(workspace_id);
+                                        },
+                                        "notify_workspace_premium_change" => {
+                                            let workspace_id = n.payload();
+                                            tracing::info!("Workspace premium change detected, invalidating workspace premium cache: {}", workspace_id);
+                                            windmill_common::workspaces::IS_PREMIUM_CACHE.remove(workspace_id);
+                                        },
                                         "notify_global_setting_change" => {
                                             tracing::info!("Global setting change detected: {}", n.payload());
                                             match n.payload() {
@@ -890,6 +900,7 @@ Windmill Community Edition {GIT_VERSION}
                                     disable_s3_store,
                                 )
                                 .await;
+                                #[cfg(feature = "enterprise")]
                                 if let Err(err) = reload_license_key(&db).await {
                                     tracing::error!("Failed to reload license key: {err:#}");
                                 }
@@ -982,14 +993,17 @@ async fn listen_pg(url: &str) -> Option<PgListener> {
         }
     };
 
-    if let Err(e) = listener
-        .listen_all(vec![
-            "notify_config_change",
-            "notify_global_setting_change",
-            "notify_webhook_change",
-        ])
-        .await
-    {
+    #[allow(unused_mut)]
+    let mut channels = vec![
+        "notify_config_change",
+        "notify_global_setting_change",
+        "notify_webhook_change",
+        "notify_workspace_envs_change",
+    ];
+    #[cfg(feature = "cloud")]
+    channels.push("notify_workspace_premium_change");
+
+    if let Err(e) = listener.listen_all(channels).await {
         tracing::error!(error = %e, "Could not listen to database");
         return None;
     }

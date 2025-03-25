@@ -800,6 +800,21 @@
 								</Tooltip>
 							</div>
 						{/if}
+						{#if job?.worker}
+							<div>
+								<Tooltip notClickable>
+									<svelte:fragment slot="text">
+										Executed on worker
+										<a href={`${base}/runs/?job_kinds=all&worker=${job?.worker}`}>
+											{job.worker}
+										</a>
+									</svelte:fragment>
+									<a href={`${base}/runs/?job_kinds=all&worker=${job?.worker}`}>
+										<Badge>Worker: {truncateRev(job?.worker, 20)}</Badge></a
+									>
+								</Tooltip>
+							</div>
+						{/if}
 					</div>
 				{/if}
 			</div>

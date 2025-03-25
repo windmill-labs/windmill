@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use std::collections::HashMap;
 use std::path::{Component, Path, PathBuf};
 
@@ -22,7 +23,6 @@ use windmill_common::{
     cache::{self, RawData},
     error::{self, to_anyhow},
     flows::{add_virtual_items_if_necessary, FlowValue},
-    jobs::QueuedJob,
     scripts::ScriptLang,
     DB,
 };
@@ -30,7 +30,7 @@ use windmill_git_sync::{handle_deployment_metadata, DeployedObject};
 #[cfg(feature = "python")]
 use windmill_parser_py_imports::parse_relative_imports;
 use windmill_parser_ts::parse_expr_for_imports;
-use windmill_queue::{append_logs, CanceledBy, PushIsolationLevel};
+use windmill_queue::{append_logs, CanceledBy, MiniPulledJob, PushIsolationLevel};
 
 use crate::common::OccupancyMetrics;
 use crate::csharp_executor::generate_nuget_lockfile;
@@ -180,7 +180,7 @@ fn try_normalize(path: &Path) -> Option<PathBuf> {
     Some(ret)
 }
 
-fn parse_bun_relative_imports(raw_code: &str, script_path: &str) -> error::Result<Vec<String>> {
+fn parse_ts_relative_imports(raw_code: &str, script_path: &str) -> error::Result<Vec<String>> {
     let mut relative_imports = vec![];
     let r = parse_expr_for_imports(raw_code)?;
     for import in r {
@@ -212,15 +212,15 @@ pub fn extract_relative_imports(
     match language {
         #[cfg(feature = "python")]
         Some(ScriptLang::Python3) => parse_relative_imports(&raw_code, script_path).ok(),
-        Some(ScriptLang::Bun) | Some(ScriptLang::Bunnative) => {
-            parse_bun_relative_imports(&raw_code, script_path).ok()
+        Some(ScriptLang::Bun) | Some(ScriptLang::Bunnative) | Some(ScriptLang::Deno) => {
+            parse_ts_relative_imports(&raw_code, script_path).ok()
         }
         _ => None,
     }
 }
 #[tracing::instrument(level = "trace", skip_all)]
 pub async fn handle_dependency_job(
-    job: &QueuedJob,
+    job: &MiniPulledJob,
     preview_data: Option<&RawData>,
     mem_peak: &mut i32,
     canceled_by: &mut Option<CanceledBy>,
@@ -232,7 +232,7 @@ pub async fn handle_dependency_job(
     token: &str,
     occupancy_metrics: &mut OccupancyMetrics,
 ) -> error::Result<Box<RawValue>> {
-    let script_path = job.script_path();
+    let script_path = job.runnable_path();
     let raw_deps = job
         .args
         .as_ref()
@@ -242,7 +242,7 @@ pub async fn handle_dependency_job(
         })
         .unwrap_or(false);
     let npm_mode = if job
-        .language
+        .script_lang
         .as_ref()
         .map(|v| v == &ScriptLang::Bun)
         .unwrap_or(false)
@@ -263,16 +263,41 @@ pub async fn handle_dependency_job(
     // `JobKind::Dependencies` job store either:
     // - A saved script `hash` in the `script_hash` column.
     // - Preview raw lock and code in the `queue` or `job` table.
-    let script_data = match job.script_hash {
-        Some(hash) => &cache::script::fetch(db, hash).await?.0,
+    let script_data = &match job.runnable_id {
+        Some(hash) => match cache::script::fetch(db, hash).await {
+            Ok(d) => Cow::Owned(d.0),
+            Err(e) => {
+                let logs2 = sqlx::query_scalar!(
+                    "SELECT logs FROM job_logs WHERE job_id = $1 AND workspace_id = $2",
+                    &job.id,
+                    &job.workspace_id
+                )
+                .fetch_optional(db)
+                .await?
+                .flatten()
+                .unwrap_or_else(|| "no logs".to_string());
+                sqlx::query!(
+                    "UPDATE script SET lock_error_logs = $1 WHERE hash = $2 AND workspace_id = $3",
+                    &format!("{logs2}\n{e}"),
+                    &job.runnable_id.unwrap_or(ScriptHash(0)).0,
+                    &job.workspace_id
+                )
+                .execute(db)
+                .await?;
+                return Err(Error::ExecutionErr(format!(
+                    "Error creating schema validator: {e}"
+                )));
+            }
+        },
         _ => match preview_data {
-            Some(RawData::Script(data)) => data,
+            Some(RawData::Script(data)) => Cow::Borrowed(data),
             _ => return Err(Error::internal_err("expected script hash")),
         },
     };
+
     let content = capture_dependency_job(
         &job.id,
-        job.language.as_ref().map(|v| Ok(v)).unwrap_or_else(|| {
+        job.script_lang.as_ref().map(|v| Ok(v)).unwrap_or_else(|| {
             Err(Error::internal_err(
                 "Job Language required for dependency jobs".to_owned(),
             ))
@@ -296,14 +321,14 @@ pub async fn handle_dependency_job(
 
     match content {
         Ok(content) => {
-            if job.script_hash.is_none() {
+            if job.runnable_id.is_none() {
                 // it a one-off raw script dependency job, no need to update the db
                 return Ok(to_raw_value_owned(
                     json!({ "status": "Successful lock file generation", "lock": content }),
                 ));
             }
 
-            let hash = job.script_hash.unwrap_or(ScriptHash(0));
+            let hash = job.runnable_id.unwrap_or(ScriptHash(0));
             let w_id = &job.workspace_id;
             sqlx::query!(
                 "UPDATE script SET lock = $1 WHERE hash = $2 AND workspace_id = $3",
@@ -321,7 +346,7 @@ pub async fn handle_dependency_job(
                 get_deployment_msg_and_parent_path_from_args(job.args.clone());
 
             if let Err(e) = handle_deployment_metadata(
-                &job.email,
+                &job.permissioned_as_email,
                 &job.created_by,
                 &db,
                 &w_id,
@@ -339,7 +364,7 @@ pub async fn handle_dependency_job(
             }
 
             let relative_imports =
-                extract_relative_imports(&script_data.code, script_path, &job.language);
+                extract_relative_imports(&script_data.code, script_path, &job.script_lang);
             if let Some(relative_imports) = relative_imports {
                 update_script_dependency_map(
                     &job.id,
@@ -365,7 +390,7 @@ pub async fn handle_dependency_job(
                     script_path,
                     deployment_message,
                     parent_path,
-                    &job.email,
+                    &job.permissioned_as_email,
                     &job.created_by,
                     &job.permissioned_as,
                     db,
@@ -394,7 +419,7 @@ pub async fn handle_dependency_job(
             sqlx::query!(
                 "UPDATE script SET lock_error_logs = $1 WHERE hash = $2 AND workspace_id = $3",
                 &format!("{logs2}\n{error}"),
-                &job.script_hash.unwrap_or(ScriptHash(0)).0,
+                &job.runnable_id.unwrap_or(ScriptHash(0)).0,
                 &job.workspace_id
             )
             .execute(db)
@@ -549,7 +574,7 @@ async fn trigger_dependents_to_recompute_dependencies(
 }
 
 pub async fn handle_flow_dependency_job(
-    job: &QueuedJob,
+    job: &MiniPulledJob,
     preview_data: Option<&RawData>,
     mem_peak: &mut i32,
     canceled_by: &mut Option<CanceledBy>,
@@ -561,7 +586,7 @@ pub async fn handle_flow_dependency_job(
     token: &str,
     occupancy_metrics: &mut OccupancyMetrics,
 ) -> error::Result<Box<serde_json::value::RawValue>> {
-    let job_path = job.script_path.clone().ok_or_else(|| {
+    let job_path = job.runnable_path.clone().ok_or_else(|| {
         error::Error::internal_err(
             "Cannot resolve flow dependencies for flow without path".to_string(),
         )
@@ -582,7 +607,7 @@ pub async fn handle_flow_dependency_job(
         None
     } else {
         Some(
-            job.script_hash
+            job.runnable_id
                 .clone()
                 .ok_or_else(|| {
                     Error::internal_err(
@@ -609,7 +634,7 @@ pub async fn handle_flow_dependency_job(
     // `JobKind::FlowDependencies` job store either:
     // - A saved flow version `id` in the `script_hash` column.
     // - Preview raw flow in the `queue` or `job` table.
-    let mut flow = match job.script_hash {
+    let mut flow = match job.runnable_id {
         Some(ScriptHash(id)) => cache::flow::fetch_version(db, id).await?,
         _ => match preview_data {
             Some(RawData::Flow(data)) => data.clone(),
@@ -624,7 +649,7 @@ pub async fn handle_flow_dependency_job(
     tx = clear_dependency_parent_path(&parent_path, &job_path, &job.workspace_id, "flow", tx)
         .await?;
     sqlx::query!(
-        "DELETE FROM flow_workspace_runnables WHERE flow_path = $1 AND workspace_id = $2",
+        "DELETE FROM workspace_runnable_dependencies WHERE flow_path = $1 AND workspace_id = $2",
         job_path,
         job.workspace_id
     )
@@ -667,7 +692,7 @@ pub async fn handle_flow_dependency_job(
         sqlx::query!(
             "UPDATE flow SET lock_error_logs = $1 WHERE path = $2 AND workspace_id = $3",
             &format!("{logs2}\n{error_message}"),
-            &job.script_path(),
+            &job.runnable_path(),
             &job.workspace_id
         )
         .execute(db)
@@ -680,7 +705,7 @@ pub async fn handle_flow_dependency_job(
     } else {
         sqlx::query!(
             "UPDATE flow SET lock_error_logs = NULL WHERE path = $1 AND workspace_id = $2",
-            &job.script_path(),
+            &job.runnable_path(),
             &job.workspace_id
         )
         .execute(db)
@@ -749,7 +774,7 @@ pub async fn handle_flow_dependency_job(
         tx.commit().await?;
 
         if let Err(e) = handle_deployment_metadata(
-            &job.email,
+            &job.permissioned_as_email,
             &job.created_by,
             &db,
             &job.workspace_id,
@@ -802,7 +827,7 @@ struct LockModuleError {
 
 async fn lock_modules<'c>(
     modules: Vec<FlowModule>,
-    job: &QueuedJob,
+    job: &MiniPulledJob,
     mem_peak: &mut i32,
     canceled_by: &mut Option<CanceledBy>,
     job_dir: &str,
@@ -993,7 +1018,7 @@ async fn lock_modules<'c>(
                 }
                 FlowModuleValue::Script { path, hash, .. } if !path.starts_with("hub/") => {
                     sqlx::query!(
-                        "INSERT INTO flow_workspace_runnables (flow_path, runnable_path, script_hash, runnable_is_flow, workspace_id) VALUES ($1, $2, $3, FALSE, $4) ON CONFLICT DO NOTHING",
+                        "INSERT INTO workspace_runnable_dependencies (flow_path, runnable_path, script_hash, runnable_is_flow, workspace_id) VALUES ($1, $2, $3, FALSE, $4) ON CONFLICT DO NOTHING",
                         job_path,
                         path,
                         hash.map(|h| h.0),
@@ -1004,10 +1029,10 @@ async fn lock_modules<'c>(
                 }
                 FlowModuleValue::Flow { path, .. } => {
                     sqlx::query!(
-                        "INSERT INTO flow_workspace_runnables (flow_path, runnable_path, runnable_is_flow, workspace_id) VALUES ($1, $2, TRUE, $3) ON CONFLICT DO NOTHING",
+                        "INSERT INTO workspace_runnable_dependencies (flow_path, runnable_path, runnable_is_flow, workspace_id) VALUES ($1, $2, TRUE, $3) ON CONFLICT DO NOTHING",
                         job_path,
                         path,
-                        job.workspace_id
+                        job.workspace_id,
                     )
                     .execute(&mut *tx)
                     .await?;
@@ -1405,7 +1430,7 @@ fn skip_creating_new_lock(language: &ScriptLang, content: &str) -> bool {
 #[async_recursion]
 async fn lock_modules_app(
     value: Value,
-    job: &QueuedJob,
+    job: &MiniPulledJob,
     mem_peak: &mut i32,
     canceled_by: &mut Option<CanceledBy>,
     job_dir: &str,
@@ -1419,6 +1444,22 @@ async fn lock_modules_app(
 ) -> Result<Value> {
     match value {
         Value::Object(mut m) => {
+            if let (Some(Value::String(ref run_type)), Some(path), Some("runnableByPath")) = (
+                m.get("runType"),
+                m.get("path").and_then(|s| s.as_str()),
+                m.get("type").and_then(|s| s.as_str()),
+            ) {
+                // No script_hash because apps don't supports script version locks yet
+                sqlx::query!(
+                    "INSERT INTO workspace_runnable_dependencies (app_path, runnable_path, runnable_is_flow, workspace_id) VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING",
+                    job_path,
+                    path,
+                    run_type == "flow",
+                    job.workspace_id
+                )
+                .execute(db)
+                .await?;
+            }
             if m.contains_key("inlineScript") {
                 let v = m.get_mut("inlineScript").unwrap();
                 if let Some(v) = v.as_object_mut() {
@@ -1457,7 +1498,7 @@ async fn lock_modules_app(
                                 worker_dir,
                                 base_internal_url,
                                 token,
-                                &format!("{}/app", job.script_path()),
+                                &format!("{}/app", job.runnable_path()),
                                 false,
                                 None,
                                 occupancy_metrics,
@@ -1553,7 +1594,7 @@ async fn lock_modules_app(
 }
 
 pub async fn handle_app_dependency_job(
-    job: &QueuedJob,
+    job: &MiniPulledJob,
     mem_peak: &mut i32,
     canceled_by: &mut Option<CanceledBy>,
     job_dir: &str,
@@ -1564,17 +1605,26 @@ pub async fn handle_app_dependency_job(
     token: &str,
     occupancy_metrics: &mut OccupancyMetrics,
 ) -> error::Result<()> {
-    let job_path = job.script_path.clone().ok_or_else(|| {
+    let job_path = job.runnable_path.clone().ok_or_else(|| {
         error::Error::internal_err(
             "Cannot resolve app dependencies for app without path".to_string(),
         )
     })?;
 
     let id = job
-        .script_hash
+        .runnable_id
         .clone()
         .ok_or_else(|| Error::internal_err("App Dependency requires script hash".to_owned()))?
         .0;
+
+    sqlx::query!(
+        "DELETE FROM workspace_runnable_dependencies WHERE app_path = $1 AND workspace_id = $2",
+        job_path,
+        job.workspace_id
+    )
+    .execute(db)
+    .await?;
+
     let record = sqlx::query!("SELECT app_id, value FROM app_version WHERE id = $1", id)
         .fetch_optional(db)
         .await?
@@ -1635,7 +1685,7 @@ pub async fn handle_app_dependency_job(
             get_deployment_msg_and_parent_path_from_args(job.args.clone());
 
         if let Err(e) = handle_deployment_metadata(
-            &job.email,
+            &job.permissioned_as_email,
             &job.created_by,
             &db,
             &job.workspace_id,

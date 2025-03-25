@@ -19,7 +19,6 @@ use windmill_common::{
 };
 
 use windmill_common::error::{self, Error};
-use windmill_common::jobs::QueuedJob;
 #[cfg(feature = "csharp")]
 use windmill_queue::append_logs;
 
@@ -37,7 +36,7 @@ use crate::{
 };
 
 use crate::common::OccupancyMetrics;
-use crate::AuthedClientBackgroundTask;
+use crate::AuthedClient;
 
 #[cfg(windows)]
 use crate::SYSTEM_ROOT;
@@ -427,13 +426,16 @@ fn remove_lines_from_text(contents: &str, indices_to_remove: Vec<usize>) -> Stri
     result.join("\n")
 }
 
+use windmill_queue::MiniPulledJob;
+
 #[cfg(not(feature = "csharp"))]
 pub async fn handle_csharp_job(
     _mem_peak: &mut i32,
     _canceled_by: &mut Option<CanceledBy>,
-    _job: &QueuedJob,
+    _job: &MiniPulledJob,
     _db: &sqlx::Pool<sqlx::Postgres>,
-    _client: &AuthedClientBackgroundTask,
+    _client: &AuthedClient,
+    _parent_runnable_path: Option<String>,
     _inner_content: &str,
     _job_dir: &str,
     _requirements_o: Option<&String>,
@@ -450,9 +452,10 @@ pub async fn handle_csharp_job(
 pub async fn handle_csharp_job(
     mem_peak: &mut i32,
     canceled_by: &mut Option<CanceledBy>,
-    job: &QueuedJob,
+    job: &MiniPulledJob,
     db: &sqlx::Pool<sqlx::Postgres>,
-    client: &AuthedClientBackgroundTask,
+    client: &AuthedClient,
+    parent_runnable_path: Option<String>,
     inner_content: &str,
     job_dir: &str,
     requirements_o: Option<&String>,
@@ -535,8 +538,8 @@ pub async fn handle_csharp_job(
     let logs2 = format!("{cache_logs}\n\n--- C# CODE EXECUTION ---\n");
     append_logs(&job.id, &job.workspace_id, format!("{}\n", logs2), db).await;
 
-    let client = &client.get_authed().await;
-    let reserved_variables = get_reserved_variables(job, &client.token, db).await?;
+    let reserved_variables =
+        get_reserved_variables(job, &client.token, db, parent_runnable_path).await?;
 
     let child = if !*DISABLE_NSJAIL {
         write_file(

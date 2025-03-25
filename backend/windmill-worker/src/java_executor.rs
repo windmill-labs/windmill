@@ -1,4 +1,4 @@
-use std::{collections::HashMap, path::PathBuf, process::Stdio, str::FromStr, sync::Arc};
+use std::{collections::HashMap, path::PathBuf, process::Stdio, sync::Arc};
 
 use anyhow::{anyhow, bail};
 use async_recursion::async_recursion;
@@ -12,22 +12,20 @@ use tokio::{
 use uuid::Uuid;
 use windmill_common::{
     error::{self, Error},
-    jobs::QueuedJob,
     utils::calculate_hash,
     worker::{copy_dir_recursively, save_cache, write_file},
 };
 use windmill_parser::Arg;
 use windmill_parser_java::parse_java_sig_meta;
-use windmill_queue::{append_logs, CanceledBy};
+use windmill_queue::{append_logs, CanceledBy, MiniPulledJob};
 
 use crate::{
     common::{
         create_args_and_out_file, get_reserved_variables, par_install_language_dependencies,
         read_result, start_child_process, OccupancyMetrics, RequiredDependency,
     },
-    handle_child, AuthedClientBackgroundTask, COURSIER_CACHE_DIR, DISABLE_NSJAIL, DISABLE_NUSER,
-    JAVA_CACHE_DIR, JAVA_REPOSITORY_DIR, MAVEN_REPOS, NO_DEFAULT_MAVEN, NSJAIL_PATH, PATH_ENV,
-    PROXY_ENVS,
+    handle_child, AuthedClient, COURSIER_CACHE_DIR, DISABLE_NSJAIL, DISABLE_NUSER, JAVA_CACHE_DIR,
+    JAVA_REPOSITORY_DIR, MAVEN_REPOS, NO_DEFAULT_MAVEN, NSJAIL_PATH, PATH_ENV, PROXY_ENVS,
 };
 lazy_static::lazy_static! {
     static ref JAVA_CONCURRENT_DOWNLOADS: usize = std::env::var("JAVA_CONCURRENT_DOWNLOADS").ok().map(|flag| flag.parse().unwrap_or(20)).unwrap_or(20);
@@ -40,98 +38,16 @@ lazy_static::lazy_static! {
 
 const NSJAIL_CONFIG_RUN_JAVA_CONTENT: &str = include_str!("../nsjail/run.java.config.proto");
 
-#[derive(Default, Debug)]
-struct JavaProxySettings {
-    http_host: Option<String>,
-    http_port: Option<String>,
-    https_host: Option<String>,
-    https_port: Option<String>,
-    no_proxy: Option<String>,
-}
-fn parse_proxy() -> anyhow::Result<JavaProxySettings> {
-    let mut jps = JavaProxySettings::default();
-    for (ident, mut val) in PROXY_ENVS.clone() {
-        match ident {
-            "HTTPS_PROXY" => {
-                if val.contains("http://") {
-                    bail!("HTTPS_PROXY url cannot contain http schema.");
-                }
-                if !val.contains("https://") {
-                    val = format!("https://{val}");
-                }
-                let mut url = url::Url::parse(&val)?;
-                let port = url.port();
-                // Make sure port and schema is not included in final url
-                {
-                    url.set_port(None).unwrap_or_default();
-                    jps.https_host = Some(url.as_str().replace("https://", ""));
-                    if let Some(port) = port {
-                        jps.https_port = Some(format!("{}", port));
-                    }
-                }
-            }
-            "HTTP_PROXY" => {
-                if val.contains("https://") {
-                    bail!("HTTP_PROXY url cannot contain https schema.");
-                }
-                if !val.contains("http://") {
-                    val = format!("http://{val}");
-                }
-                let mut url = url::Url::parse(&val)?;
-                let port = url.port();
-                // Make sure port and schema is not included in final url
-                {
-                    url.set_port(None).unwrap_or_default();
-                    jps.http_host = Some(url.as_str().replace("http://", ""));
-                    if let Some(port) = port {
-                        jps.https_port = Some(format!("{}", port));
-                    }
-                }
-            }
-            // Java uses | instead of ,
-            "NO_PROXY" => jps.no_proxy = Some(val.replace(",", "|")),
-            _ => {}
-        }
-    }
-
-    Ok(jps)
-}
-async fn get_repos() -> Vec<String> {
-    MAVEN_REPOS
-        .read()
-        .await
-        .as_ref()
-        .map(|repos| {
-            repos
-                .trim()
-                .split_whitespace()
-                .into_iter()
-                .map(|el| vec!["--repository".to_owned(), el.to_owned()])
-                .collect_vec()
-        })
-        .unwrap_or_default()
-        .concat()
-}
-
-fn get_no_default() -> String {
-    if NO_DEFAULT_MAVEN.load(std::sync::atomic::Ordering::Relaxed) {
-        "--no-default"
-    } else {
-        // Command does not take empty arguments
-        "-q"
-    }
-    .into()
-}
-
 #[allow(dead_code)]
 pub(crate) struct JobHandlerInput<'a> {
     pub base_internal_url: &'a str,
     pub canceled_by: &'a mut Option<CanceledBy>,
-    pub client: &'a AuthedClientBackgroundTask,
+    pub client: &'a AuthedClient,
+    pub parent_runnable_path: Option<String>,
     pub db: &'a sqlx::Pool<sqlx::Postgres>,
     pub envs: HashMap<String, String>,
     pub inner_content: &'a str,
-    pub job: &'a QueuedJob,
+    pub job: &'a MiniPulledJob,
     pub job_dir: &'a str,
     pub mem_peak: &'a mut i32,
     pub occupancy_metrics: &'a mut OccupancyMetrics,
@@ -328,7 +244,7 @@ pub async fn resolve<'a>(
 }
 
 async fn install<'a>(
-    JobHandlerInput { worker_name, job, db, job_dir, inner_content, .. }: &mut JobHandlerInput<'a>,
+    JobHandlerInput { worker_name, job, db, job_dir, .. }: &mut JobHandlerInput<'a>,
     deps: String,
 ) -> Result<String, Error> {
     let deps = deps
@@ -510,6 +426,7 @@ async fn compile<'a>(
         base_internal_url,
         inner_content,
         requirements_o,
+        parent_runnable_path,
         ..
     }: &mut JobHandlerInput<'a>,
     classpath: &'a str,
@@ -525,8 +442,8 @@ async fn compile<'a>(
                 .unwrap_or_default()
         ))
     }
-    let client = &client.get_authed().await;
-    let reserved_variables = get_reserved_variables(job, &client.token, db).await?;
+    let reserved_variables =
+        get_reserved_variables(job, &client.token, db, parent_runnable_path.clone()).await?;
     let hash = compute_hash(inner_content, *requirements_o);
     let bin_path = format!("{}/{hash}", JAVA_CACHE_DIR);
     let remote_path = format!("java_jar/{hash}");
@@ -643,12 +560,13 @@ async fn run<'a>(
         client,
         envs,
         base_internal_url,
+        parent_runnable_path,
         ..
     }: &mut JobHandlerInput<'a>,
     classpath: &'a str,
 ) -> Result<(), Error> {
-    let client = &client.get_authed().await;
-    let reserved_variables = get_reserved_variables(job, &client.token, db).await?;
+    let reserved_variables =
+        get_reserved_variables(job, &client.token, db, parent_runnable_path.clone()).await?;
 
     let child = if !cfg!(windows) && !*DISABLE_NSJAIL {
         append_logs(
@@ -788,6 +706,89 @@ async fn run<'a>(
         None,
     )
     .await
+}
+
+#[derive(Default, Debug)]
+struct JavaProxySettings {
+    http_host: Option<String>,
+    http_port: Option<String>,
+    https_host: Option<String>,
+    https_port: Option<String>,
+    no_proxy: Option<String>,
+}
+fn parse_proxy() -> anyhow::Result<JavaProxySettings> {
+    let mut jps = JavaProxySettings::default();
+    for (ident, mut val) in PROXY_ENVS.clone() {
+        match ident {
+            "HTTPS_PROXY" => {
+                if val.contains("http://") {
+                    bail!("HTTPS_PROXY url cannot contain http schema.");
+                }
+                if !val.contains("https://") {
+                    val = format!("https://{val}");
+                }
+                let mut url = url::Url::parse(&val)?;
+                let port = url.port();
+                // Make sure port and schema is not included in final url
+                {
+                    url.set_port(None).unwrap_or_default();
+                    jps.https_host = Some(url.as_str().replace("https://", ""));
+                    if let Some(port) = port {
+                        jps.https_port = Some(format!("{}", port));
+                    }
+                }
+            }
+            "HTTP_PROXY" => {
+                if val.contains("https://") {
+                    bail!("HTTP_PROXY url cannot contain https schema.");
+                }
+                if !val.contains("http://") {
+                    val = format!("http://{val}");
+                }
+                let mut url = url::Url::parse(&val)?;
+                let port = url.port();
+                // Make sure port and schema is not included in final url
+                {
+                    url.set_port(None).unwrap_or_default();
+                    jps.http_host = Some(url.as_str().replace("http://", ""));
+                    if let Some(port) = port {
+                        jps.https_port = Some(format!("{}", port));
+                    }
+                }
+            }
+            // Java uses | instead of ,
+            "NO_PROXY" => jps.no_proxy = Some(val.replace(",", "|")),
+            _ => {}
+        }
+    }
+
+    Ok(jps)
+}
+async fn get_repos() -> Vec<String> {
+    MAVEN_REPOS
+        .read()
+        .await
+        .as_ref()
+        .map(|repos| {
+            repos
+                .trim()
+                .split_whitespace()
+                .into_iter()
+                .map(|el| vec!["--repository".to_owned(), el.to_owned()])
+                .collect_vec()
+        })
+        .unwrap_or_default()
+        .concat()
+}
+
+fn get_no_default() -> String {
+    if NO_DEFAULT_MAVEN.load(std::sync::atomic::Ordering::Relaxed) {
+        "--no-default"
+    } else {
+        // Command does not take empty arguments
+        "-q"
+    }
+    .into()
 }
 
 /// Wraps content script

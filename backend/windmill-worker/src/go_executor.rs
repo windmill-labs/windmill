@@ -7,12 +7,11 @@ use tokio::{fs::File, io::AsyncReadExt, process::Command};
 use uuid::Uuid;
 use windmill_common::{
     error::{self, Error},
-    jobs::QueuedJob,
     utils::calculate_hash,
     worker::{save_cache, write_file},
 };
 use windmill_parser_go::{parse_go_imports, REQUIRE_PARSE};
-use windmill_queue::{append_logs, CanceledBy};
+use windmill_queue::{append_logs, CanceledBy, MiniPulledJob};
 
 use crate::{
     common::{
@@ -20,8 +19,8 @@ use crate::{
         start_child_process, OccupancyMetrics,
     },
     handle_child::handle_child,
-    AuthedClientBackgroundTask, DISABLE_NSJAIL, DISABLE_NUSER, GOPRIVATE, GOPROXY,
-    GO_BIN_CACHE_DIR, GO_CACHE_DIR, HOME_ENV, NSJAIL_PATH, PATH_ENV, TZ_ENV,
+    AuthedClient, DISABLE_NSJAIL, DISABLE_NUSER, GOPRIVATE, GOPROXY, GO_BIN_CACHE_DIR,
+    GO_CACHE_DIR, HOME_ENV, NSJAIL_PATH, PATH_ENV, TZ_ENV,
 };
 
 const GO_REQ_SPLITTER: &str = "//go.sum\n";
@@ -36,9 +35,10 @@ pub const GO_OBJECT_STORE_PREFIX: &str = "gobin/";
 pub async fn handle_go_job(
     mem_peak: &mut i32,
     canceled_by: &mut Option<CanceledBy>,
-    job: &QueuedJob,
+    job: &MiniPulledJob,
     db: &sqlx::Pool<sqlx::Postgres>,
-    client: &AuthedClientBackgroundTask,
+    client: &AuthedClient,
+    parent_runnable_path: Option<String>,
     inner_content: &str,
     job_dir: &str,
     requirements_o: Option<&String>,
@@ -252,9 +252,8 @@ func Run(req Req) (interface{{}}, error){{
     let logs2 = format!("{cache_logs}\n\n--- GO CODE EXECUTION ---\n");
     append_logs(&job.id, &job.workspace_id, logs2, db).await;
 
-    let client = &client.get_authed().await;
-
-    let reserved_variables = get_reserved_variables(job, &client.token, db).await?;
+    let reserved_variables =
+        get_reserved_variables(job, &client.token, db, parent_runnable_path).await?;
 
     let child = if !*DISABLE_NSJAIL {
         let _ = write_file(

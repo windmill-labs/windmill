@@ -4,17 +4,16 @@ use anyhow::anyhow;
 use futures::{stream, TryStreamExt};
 use serde_json::{json, value::RawValue};
 use sqlx::types::Json;
-use windmill_common::jobs::QueuedJob;
 use windmill_common::worker::to_raw_value;
 use windmill_common::{error::Error, worker::CLOUD_HOSTED};
 use windmill_parser_graphql::parse_graphql_sig;
-use windmill_queue::CanceledBy;
+use windmill_queue::{CanceledBy, MiniPulledJob};
 
 use serde::Deserialize;
 
 use crate::common::{build_http_client, resolve_job_timeout, OccupancyMetrics};
 use crate::handle_child::run_future_with_polling_update_job_poller;
-use crate::{common::build_args_map, AuthedClientBackgroundTask};
+use crate::{common::build_args_map, AuthedClient};
 
 #[derive(Deserialize)]
 struct GraphqlApi {
@@ -35,8 +34,8 @@ struct GraphqlError {
 }
 
 pub async fn do_graphql(
-    job: &QueuedJob,
-    client: &AuthedClientBackgroundTask,
+    job: &MiniPulledJob,
+    client: &AuthedClient,
     query: &str,
     db: &sqlx::Pool<sqlx::Postgres>,
     mem_peak: &mut i32,

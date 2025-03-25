@@ -3,18 +3,17 @@ use std::{collections::HashMap, process::Stdio};
 use itertools::Itertools;
 use serde_json::value::RawValue;
 use tokio::{fs::File, io::AsyncWriteExt, process::Command};
-use windmill_common::{error::Error, jobs::QueuedJob, worker::write_file};
+use windmill_common::{error::Error, worker::write_file};
 use windmill_parser::Arg;
 use windmill_parser_nu::parse_nu_signature;
-use windmill_queue::{append_logs, CanceledBy};
+use windmill_queue::{append_logs, CanceledBy, MiniPulledJob};
 
 use crate::{
     common::{
         create_args_and_out_file, get_reserved_variables, read_result, start_child_process,
         OccupancyMetrics,
     },
-    handle_child, AuthedClientBackgroundTask, DISABLE_NSJAIL, DISABLE_NUSER, NSJAIL_PATH, PATH_ENV,
-    PROXY_ENVS,
+    handle_child, AuthedClient, DISABLE_NSJAIL, DISABLE_NUSER, NSJAIL_PATH, PATH_ENV, PROXY_ENVS,
 };
 
 const NSJAIL_CONFIG_RUN_NU_CONTENT: &str = include_str!("../nsjail/run.nu.config.proto");
@@ -29,11 +28,12 @@ lazy_static::lazy_static! {
 pub(crate) struct JobHandlerInput<'a> {
     pub base_internal_url: &'a str,
     pub canceled_by: &'a mut Option<CanceledBy>,
-    pub client: &'a AuthedClientBackgroundTask,
+    pub client: &'a AuthedClient,
+    pub parent_runnable_path: Option<String>,
     pub db: &'a sqlx::Pool<sqlx::Postgres>,
     pub envs: HashMap<String, String>,
     pub inner_content: &'a str,
-    pub job: &'a QueuedJob,
+    pub job: &'a MiniPulledJob,
     pub job_dir: &'a str,
     pub mem_peak: &'a mut i32,
     pub occupancy_metrics: &'a mut OccupancyMetrics,
@@ -221,14 +221,15 @@ async fn run<'a>(
         job_dir,
         shared_mount,
         client,
+        parent_runnable_path,
         envs,
         base_internal_url,
         ..
     }: &mut JobHandlerInput<'a>,
     // plugins: Vec<&'a str>,
 ) -> Result<(), Error> {
-    let client = &client.get_authed().await;
-    let reserved_variables = get_reserved_variables(job, &client.token, db).await?;
+    let reserved_variables =
+        get_reserved_variables(job, &client.token, db, parent_runnable_path.clone()).await?;
     let child = if !cfg!(windows) && !*DISABLE_NSJAIL {
         append_logs(
             &job.id,

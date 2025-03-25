@@ -35,6 +35,7 @@ mod js_eval;
 mod mysql_executor;
 #[cfg(feature = "oracledb")]
 mod oracledb_executor;
+mod otel_ee;
 mod pg_executor;
 #[cfg(feature = "php")]
 mod php_executor;
@@ -43,6 +44,8 @@ mod python_executor;
 mod result_processor;
 #[cfg(feature = "rust")]
 mod rust_executor;
+mod sanitized_sql_params;
+mod schema;
 mod worker;
 mod worker_flow;
 mod worker_lockfiles;

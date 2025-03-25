@@ -1,5 +1,10 @@
 name: Backend check
 on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - "backend/**"
+      - ".github/workflows/backend-check.yml"
   push:
     paths:
       - "backend/**"

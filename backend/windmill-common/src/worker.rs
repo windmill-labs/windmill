@@ -127,35 +127,37 @@ fn format_pull_query(peek: String) -> String {
                 worker = $1
             WHERE id = (SELECT id FROM peek)
             RETURNING
-                started_at, scheduled_for, running,
-                canceled_by, canceled_reason, canceled_by IS NOT NULL AS canceled,
-                suspend, suspend_until
+                started_at, scheduled_for,
+                canceled_by, canceled_reason, worker
         ), r AS NOT MATERIALIZED (
             UPDATE v2_job_runtime SET
                 ping = now()
             WHERE id = (SELECT id FROM peek)
         ), j AS NOT MATERIALIZED (
             SELECT
-                id, workspace_id, parent_job, created_by, created_at, runnable_id AS script_hash,
-                runnable_path AS script_path, args, kind AS job_kind,
-                CASE WHEN trigger_kind = 'schedule' THEN trigger END AS schedule_path,
-                permissioned_as, permissioned_as_email AS email, script_lang AS language,
-                flow_innermost_root_job AS root_job, flow_step_id, flow_step_id IS NOT NULL AS is_flow_step,
+                id, workspace_id, parent_job, created_by, created_at, runnable_id,
+                runnable_path, args, kind, trigger, trigger_kind,
+                permissioned_as, permissioned_as_email, script_lang,
+                flow_innermost_root_job, flow_step_id, 
                 same_worker, pre_run_error, visible_to_owner, tag, concurrent_limit,
                 concurrency_time_window_s, timeout, cache_ttl, priority, raw_code, raw_lock,
                 raw_flow, script_entrypoint_override, preprocessed
             FROM v2_job
             WHERE id = (SELECT id FROM peek)
-        ) SELECT id, workspace_id, parent_job, created_by, created_at, started_at, scheduled_for,
-            running, script_hash, script_path, args, null as logs, canceled, canceled_by,
-            canceled_reason, null as last_ping, job_kind, schedule_path, permissioned_as,
-            flow_status, is_flow_step, language, suspend,  suspend_until,
-            same_worker, pre_run_error, email,  visible_to_owner, null as mem_peak,
-            root_job, flow_leaf_jobs as leaf_jobs, tag, concurrent_limit, concurrency_time_window_s,
-            timeout, flow_step_id, cache_ttl, priority, raw_code, raw_lock, raw_flow,
-            script_entrypoint_override, preprocessed
+        ) SELECT j.id, j.workspace_id, j.parent_job, j.created_by, started_at, scheduled_for,
+            j.runnable_id, j.runnable_path, j.args, canceled_by,
+            canceled_reason, j.kind, j.trigger, j.trigger_kind, j.permissioned_as, j.permissioned_as_email,
+            flow_status, j.script_lang,
+            j.same_worker, j.pre_run_error, j.visible_to_owner, 
+            j.tag, j.concurrent_limit, j.concurrency_time_window_s, j.flow_innermost_root_job,
+            j.timeout, j.flow_step_id, j.cache_ttl, j.priority, j.raw_code, j.raw_lock, j.raw_flow,
+            j.script_entrypoint_override, j.preprocessed, pj.runnable_path as parent_runnable_path,
+            p.email as permissioned_as_email, p.username as permissioned_as_username, p.is_admin as permissioned_as_is_admin, 
+            p.is_operator as permissioned_as_is_operator, p.groups as permissioned_as_groups, p.folders as permissioned_as_folders
         FROM q, j
-            LEFT JOIN v2_job_status f USING (id)",
+            LEFT JOIN v2_job_status f USING (id)
+            LEFT JOIN job_perms p ON p.job_id = j.id
+            LEFT JOIN v2_job pj ON j.parent_job = pj.id",
         peek
     );
     tracing::debug!("pull query: {}", r);

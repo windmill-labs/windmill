@@ -248,7 +248,7 @@
 					workspace: $workspaceStore!,
 					requestBody: {
 						path: $pathStore,
-						summary: flow.summary,
+						summary: flow.summary ?? '',
 						description: flow.description ?? '',
 						value: flow.value,
 						schema: flow.schema,
@@ -379,7 +379,7 @@
 					workspace: $workspaceStore!,
 					requestBody: {
 						path: $pathStore,
-						summary: flow.summary,
+						summary: flow.summary ?? '',
 						description: flow.description ?? '',
 						value: flow.value,
 						schema: flow.schema,
@@ -390,6 +390,14 @@
 						on_behalf_of_email: flow.on_behalf_of_email,
 						deployment_message: deploymentMsg || undefined
 					}
+				})
+				await CaptureService.moveCapturesAndConfigs({
+					workspace: $workspaceStore!,
+					path: fakeInitialPath,
+					requestBody: {
+						new_path: $pathStore
+					},
+					runnableKind: 'flow'
 				})
 				if ($primaryScheduleStore && $primaryScheduleStore.enabled) {
 					await createSchedule($pathStore)

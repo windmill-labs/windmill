@@ -57,6 +57,8 @@ fn filter_non_main(code: &str, main_name: &str) -> String {
     return filtered_code;
 }
 
+/// skip_params is a micro optimization for when we just want to find the main
+/// function without parsing all the params.
 pub fn parse_python_signature(
     code: &str,
     override_main: Option<String>,
@@ -205,7 +207,7 @@ fn parse_expr(e: &Box<Expr>) -> (Typ, bool) {
                     };
                     (Typ::Str(values), false)
                 }
-                "List" => (Typ::List(Box::new(parse_expr(&x.slice).0)), false),
+                "List" | "list" => (Typ::List(Box::new(parse_expr(&x.slice).0)), false),
                 "Optional" => (parse_expr(&x.slice).0, true),
                 _ => (Typ::Unknown, false),
             },

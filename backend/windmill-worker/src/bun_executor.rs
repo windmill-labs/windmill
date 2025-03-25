@@ -9,7 +9,7 @@ use serde_json::value::RawValue;
 
 use uuid::Uuid;
 use windmill_parser_ts::remove_pinned_imports;
-use windmill_queue::{append_logs, CanceledBy};
+use windmill_queue::{append_logs, CanceledBy, MiniPulledJob};
 
 #[cfg(feature = "enterprise")]
 use crate::common::build_envs_map;
@@ -20,9 +20,9 @@ use crate::{
         read_file_content, read_result, start_child_process, write_file_binary, OccupancyMetrics,
     },
     handle_child::handle_child,
-    AuthedClientBackgroundTask, BUNFIG_INSTALL_SCOPES, BUN_BUNDLE_CACHE_DIR, BUN_CACHE_DIR,
-    BUN_PATH, DISABLE_NSJAIL, DISABLE_NUSER, HOME_ENV, NODE_BIN_PATH, NODE_PATH,
-    NPM_CONFIG_REGISTRY, NPM_PATH, NSJAIL_PATH, PATH_ENV, PROXY_ENVS, TZ_ENV,
+    AuthedClient, BUNFIG_INSTALL_SCOPES, BUN_BUNDLE_CACHE_DIR, BUN_CACHE_DIR, BUN_PATH,
+    DISABLE_NSJAIL, DISABLE_NUSER, HOME_ENV, NODE_BIN_PATH, NODE_PATH, NPM_CONFIG_REGISTRY,
+    NPM_PATH, NSJAIL_PATH, PATH_ENV, PROXY_ENVS, TZ_ENV,
 };
 
 #[cfg(windows)]
@@ -41,7 +41,6 @@ use windmill_common::variables;
 use windmill_common::{
     error::{self, Result},
     get_latest_hash_for_path,
-    jobs::QueuedJob,
     scripts::ScriptLang,
     worker::{exists_in_cache, save_cache, write_file, DISABLE_BUNDLING},
     DB,
@@ -827,9 +826,10 @@ pub async fn handle_bun_job(
     codebase: Option<&String>,
     mem_peak: &mut i32,
     canceled_by: &mut Option<CanceledBy>,
-    job: &QueuedJob,
+    job: &MiniPulledJob,
     db: &sqlx::Pool<sqlx::Postgres>,
-    client: &AuthedClientBackgroundTask,
+    client: &AuthedClient,
+    parent_runnable_path: Option<String>,
     job_dir: &str,
     inner_content: &String,
     base_internal_url: &str,
@@ -849,7 +849,7 @@ pub async fn handle_bun_job(
         let (local_path, remote_path) = compute_bundle_local_and_remote_path(
             inner_content,
             requirements_o,
-            job.script_path(),
+            job.runnable_path(),
             Some(db.clone()),
             &job.workspace_id,
         )
@@ -875,7 +875,7 @@ pub async fn handle_bun_job(
         annotation.nodejs = true
     }
     let main_override = job.script_entrypoint_override.as_deref();
-    let apply_preprocessor = !job.is_flow_step && job.preprocessed == Some(false);
+    let apply_preprocessor = !job.is_flow_step() && job.preprocessed == Some(false);
 
     if has_bundle_cache {
         let target;
@@ -939,8 +939,8 @@ pub async fn handle_bun_job(
             &job.id,
             &job.workspace_id,
             Some(db),
-            &client.get_token().await,
-            &job.script_path(),
+            &client.token,
+            job.runnable_path(),
             job_dir,
             base_internal_url,
             worker_name,
@@ -1113,8 +1113,7 @@ try {{
             Ok(()) as Result<()>
         };
         let reserved_variables_f = async {
-            let client = client.get_authed().await;
-            let vars = get_reserved_variables(job, &client.token, db).await?;
+            let vars = get_reserved_variables(job, &client.token, db, parent_runnable_path).await?;
             Ok(vars) as Result<HashMap<String, String>>
         };
         let (_, reserved_variables) = tokio::try_join!(args_and_out_f, reserved_variables_f)?;
@@ -1132,9 +1131,9 @@ try {{
             build_loader(
                 job_dir,
                 base_internal_url,
-                &client.get_token().await,
+                &client.token,
                 &job.workspace_id,
-                &job.script_path(),
+                job.runnable_path(),
                 if annotation.nodejs {
                     LoaderMode::NodeBundle
                 } else if annotation.native {
@@ -1150,9 +1149,9 @@ try {{
             build_loader(
                 job_dir,
                 base_internal_url,
-                &client.get_token().await,
+                &client.token,
                 &job.workspace_id,
-                &job.script_path(),
+                job.runnable_path(),
                 if annotation.nodejs {
                     LoaderMode::Node
                 } else {
@@ -1512,7 +1511,7 @@ pub async fn start_worker(
     script_path: &str,
     token: &str,
     job_completed_tx: JobCompletedSender,
-    jobs_rx: Receiver<std::sync::Arc<QueuedJob>>,
+    jobs_rx: Receiver<std::sync::Arc<MiniPulledJob>>,
     killpill_rx: tokio::sync::broadcast::Receiver<()>,
 ) -> Result<()> {
     let mut logs = "".to_string();

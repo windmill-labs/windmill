@@ -40,7 +40,7 @@
 		// 	initialized?.length ==
 		// 		allItems(app.grid, app.subgrids).length + (app.hiddenInlineScripts?.length ?? 0)
 		// )
-		if (app.lazyInitRequire == undefined) {
+		if (app.eagerRendering || app.lazyInitRequire == undefined) {
 			return (
 				initialized?.length ==
 				allItems(app.grid, app.subgrids).length + (app.hiddenInlineScripts?.length ?? 0)

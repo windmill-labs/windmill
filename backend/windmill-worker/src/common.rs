@@ -25,14 +25,13 @@ use windmill_common::worker::{
 use windmill_common::{
     cache::{Cache, RawData},
     error::{self, Error},
-    jobs::QueuedJob,
     scripts::ScriptHash,
     variables::ContextualVariable,
 };
 
 use anyhow::{anyhow, bail, Result};
+use windmill_queue::MiniPulledJob;
 
-use std::marker::PhantomData;
 use std::path::Path;
 use std::{collections::HashMap, sync::Arc, time::Duration};
 
@@ -42,13 +41,13 @@ use windmill_common::{variables, DB};
 use tokio::{io::AsyncWriteExt, process::Child, time::Instant};
 
 use crate::{
-    AuthedClient, AuthedClientBackgroundTask, DISABLE_NSJAIL, JOB_DEFAULT_TIMEOUT, MAX_RESULT_SIZE,
-    MAX_TIMEOUT_DURATION, PATH_ENV,
+    AuthedClient, DISABLE_NSJAIL, JOB_DEFAULT_TIMEOUT, MAX_RESULT_SIZE, MAX_TIMEOUT_DURATION,
+    PATH_ENV,
 };
 
 pub async fn build_args_map<'a>(
-    job: &'a QueuedJob,
-    client: &AuthedClientBackgroundTask,
+    job: &'a MiniPulledJob,
+    client: &AuthedClient,
     db: &Pool<Postgres>,
 ) -> error::Result<Option<HashMap<String, Box<RawValue>>>> {
     if let Some(args) = &job.args {
@@ -75,12 +74,12 @@ pub fn check_executor_binary_exists(
 }
 
 pub async fn build_args_values(
-    job: &QueuedJob,
-    client: &AuthedClientBackgroundTask,
+    job: &MiniPulledJob,
+    client: &AuthedClient,
     db: &Pool<Postgres>,
 ) -> error::Result<HashMap<String, serde_json::Value>> {
     if let Some(args) = &job.args {
-        transform_json_as_values(client, &job.workspace_id, &args.0, &job, db).await
+        transform_json_as_values(client, &job.workspace_id, &args.0, job, db).await
     } else {
         Ok(HashMap::new())
     }
@@ -88,8 +87,8 @@ pub async fn build_args_values(
 
 #[tracing::instrument(level = "trace", skip_all)]
 pub async fn create_args_and_out_file(
-    client: &AuthedClientBackgroundTask,
-    job: &QueuedJob,
+    client: &AuthedClient,
+    job: &MiniPulledJob,
     job_dir: &str,
     db: &Pool<Postgres>,
 ) -> Result<(), Error> {
@@ -128,10 +127,10 @@ lazy_static::lazy_static! {
 }
 
 pub async fn transform_json<'a>(
-    client: &AuthedClientBackgroundTask,
+    client: &AuthedClient,
     workspace: &str,
     vs: &'a HashMap<String, Box<RawValue>>,
-    job: &QueuedJob,
+    job: &MiniPulledJob,
     db: &Pool<Postgres>,
 ) -> error::Result<Option<HashMap<String, Box<RawValue>>>> {
     let mut has_match = false;
@@ -152,9 +151,7 @@ pub async fn transform_json<'a>(
             let value = serde_json::from_str(inner_vs).map_err(|e| {
                 error::Error::internal_err(format!("Error while parsing inner arg: {e:#}"))
             })?;
-            let transformed =
-                transform_json_value(&k, &client.get_authed().await, workspace, value, job, db)
-                    .await?;
+            let transformed = transform_json_value(&k, &client, workspace, value, job, db).await?;
             let as_raw = serde_json::from_value(transformed).map_err(|e| {
                 error::Error::internal_err(format!("Error while parsing inner arg: {e:#}"))
             })?;
@@ -167,10 +164,10 @@ pub async fn transform_json<'a>(
 }
 
 pub async fn transform_json_as_values<'a>(
-    client: &AuthedClientBackgroundTask,
+    client: &AuthedClient,
     workspace: &str,
     vs: &'a HashMap<String, Box<RawValue>>,
-    job: &QueuedJob,
+    job: &MiniPulledJob,
     db: &Pool<Postgres>,
 ) -> error::Result<HashMap<String, serde_json::Value>> {
     let mut r: HashMap<String, serde_json::Value> = HashMap::new();
@@ -180,9 +177,7 @@ pub async fn transform_json_as_values<'a>(
             let value = serde_json::from_str(inner_vs).map_err(|e| {
                 error::Error::internal_err(format!("Error while parsing inner arg: {e:#}"))
             })?;
-            let transformed =
-                transform_json_value(&k, &client.get_authed().await, workspace, value, job, db)
-                    .await?;
+            let transformed = transform_json_value(&k, &client, workspace, value, job, db).await?;
             let as_raw = serde_json::from_value(transformed).map_err(|e| {
                 error::Error::internal_err(format!("Error while parsing inner arg: {e:#}"))
             })?;
@@ -240,7 +235,7 @@ pub async fn transform_json_value(
     client: &AuthedClient,
     workspace: &str,
     v: Value,
-    job: &QueuedJob,
+    job: &MiniPulledJob,
     db: &Pool<Postgres>,
 ) -> error::Result<Value> {
     match v {
@@ -274,7 +269,8 @@ pub async fn transform_json_value(
         Value::String(y) if y.starts_with("$encrypted:") => {
             let encrypted = y.strip_prefix("$encrypted:").unwrap();
 
-            let root_job_id = get_root_job_id(&job.root_job.unwrap_or_else(|| job.id), db).await?;
+            let root_job_id =
+                get_root_job_id(&job.flow_innermost_root_job.unwrap_or_else(|| job.id), db).await?;
             let mc = build_crypt_with_key_suffix(&db, &job.workspace_id, &root_job_id.to_string())
                 .await?;
             decrypt(&mc, encrypted.to_string()).and_then(|x| {
@@ -284,40 +280,14 @@ pub async fn transform_json_value(
             // let path = y.strip_prefix("$res:").unwrap();
         }
         Value::String(y) if y.starts_with("$") => {
-            let flow_path = if let Some(uuid) = job.parent_job {
-                sqlx::query_scalar!("SELECT runnable_path FROM v2_job WHERE id = $1", uuid)
-                    .fetch_optional(db)
-                    .await?
-                    .flatten()
-            } else {
-                None
-            };
-
-            let variables = variables::get_reserved_variables(
-                db,
-                &job.workspace_id,
-                &client.token,
-                &job.email,
-                &job.created_by,
-                &job.id.to_string(),
-                &job.permissioned_as,
-                job.script_path.clone(),
-                job.parent_job.map(|x| x.to_string()),
-                flow_path,
-                job.schedule_path.clone(),
-                job.flow_step_id.clone(),
-                job.root_job.clone().map(|x| x.to_string()),
-                None,
-                Some(job.scheduled_for.clone()),
-            )
-            .await;
+            let variables = get_reserved_variables(job, &client.token, &db, None).await?;
 
             let name = y.strip_prefix("$").unwrap();
 
             let value = variables
                 .iter()
-                .find(|x| x.name == name)
-                .map(|x| x.value.clone())
+                .find(|x| x.0 == name)
+                .map(|x| x.1.clone())
                 .unwrap_or_else(|| y);
             Ok(json!(value))
         }
@@ -415,11 +385,14 @@ pub fn capitalize(s: &str) -> String {
 
 #[tracing::instrument(level = "trace", skip_all)]
 pub async fn get_reserved_variables(
-    job: &QueuedJob,
+    job: &MiniPulledJob,
     token: &str,
     db: &sqlx::Pool<sqlx::Postgres>,
+    parent_runnable_path: Option<String>,
 ) -> Result<HashMap<String, String>, Error> {
-    let flow_path = if let Some(uuid) = job.parent_job {
+    let flow_path = if parent_runnable_path.is_some() {
+        parent_runnable_path
+    } else if let Some(uuid) = job.parent_job {
         sqlx::query_scalar!("SELECT runnable_path FROM v2_job WHERE id = $1", uuid)
             .fetch_optional(db)
             .await?
@@ -432,16 +405,16 @@ pub async fn get_reserved_variables(
         db,
         &job.workspace_id,
         token,
-        &job.email,
+        &job.permissioned_as_email,
         &job.created_by,
         &job.id.to_string(),
         &job.permissioned_as,
-        job.script_path.clone(),
+        job.runnable_path.clone(),
         job.parent_job.map(|x| x.to_string()),
         flow_path,
-        job.schedule_path.clone(),
+        job.schedule_path(),
         job.flow_step_id.clone(),
-        job.root_job.clone().map(|x| x.to_string()),
+        job.flow_innermost_root_job.clone().map(|x| x.to_string()),
         None,
         Some(job.scheduled_for.clone()),
     )
@@ -595,14 +568,8 @@ pub async fn resolve_job_timeout(
 ) -> (Duration, Option<String>, bool) {
     let mut warn_msg: Option<String> = None;
     #[cfg(feature = "cloud")]
-    let cloud_premium_workspace = *CLOUD_HOSTED
-        && sqlx::query_scalar!("SELECT premium FROM workspace WHERE id = $1", _w_id)
-            .fetch_one(_db)
-            .await
-            .map_err(|e| {
-                tracing::error!(%e, "error getting premium workspace for job {_job_id}: {e:#}");
-            })
-            .unwrap_or(false);
+    let cloud_premium_workspace =
+        *CLOUD_HOSTED && windmill_common::workspaces::is_premium_workspace(_db, _w_id).await;
     #[cfg(not(feature = "cloud"))]
     let cloud_premium_workspace = false;
 
@@ -671,15 +638,15 @@ async fn hash_args(
 pub async fn cached_result_path(
     db: &DB,
     client: &AuthedClient,
-    job: &QueuedJob,
+    job: &MiniPulledJob,
     raw_data: Option<&RawData>,
 ) -> String {
     let mut hasher = sha2::Sha256::new();
-    hasher.update(&[job.job_kind as u8]);
-    if let Some(ScriptHash(hash)) = job.script_hash {
+    hasher.update(&[job.kind as u8]);
+    if let Some(ScriptHash(hash)) = job.runnable_id {
         hasher.update(&hash.to_le_bytes())
     } else {
-        job.script_path
+        job.runnable_path
             .as_ref()
             .inspect(|x| hasher.update(x.as_bytes()));
         match raw_data {
@@ -892,7 +859,7 @@ pub async fn get_cached_resource_value_if_valid(
 pub async fn save_in_cache(
     db: &Pool<Postgres>,
     _client: &AuthedClient,
-    job: &QueuedJob,
+    job: &MiniPulledJob,
     cached_path: String,
     r: Arc<Box<RawValue>>,
 ) {
@@ -1501,9 +1468,7 @@ pub async fn par_install_language_dependencies<'a>(
                 ));
             } else {
                 postinstall_cb(not_pulled_copy.clone()).await?;
-                for RequiredDependency { path, custom_name, short_name } in
-                    not_pulled_copy.into_iter()
-                {
+                for RequiredDependency { path, .. } in not_pulled_copy.into_iter() {
                     // Create a file to indicate that installation was successfull
                     let valid_path = path.clone() + ".valid.windmill";
                     // This is atomic operation, meaning, that it either completes and dependency is valid,

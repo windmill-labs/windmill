@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.477.1
+  version: 1.478.1
   title: Windmill API
 
   contact:
@@ -4774,6 +4774,25 @@ paths:
                 items:
                   $ref: "#/components/schemas/ScriptHistory"
 
+  /w/{workspace}/scripts/list_paths_from_workspace_runnable/{path}:
+    get:
+      summary: list script paths using provided script as a relative import
+      operationId: listScriptPathsFromWorkspaceRunnable
+      tags:
+        - script
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/ScriptPath"
+      responses:
+        "200":
+          description: list of script paths
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: string
+
   /w/{workspace}/scripts/get_latest_version/{path}:
     get:
       summary: get scripts's latest version (hash)
@@ -5934,6 +5953,26 @@ paths:
               schema:
                 $ref: "#/components/schemas/AppHistory"
 
+  /w/{workspace}/apps/list_paths_from_workspace_runnable/{runnable_kind}/{path}:
+    get:
+      summary: list app paths from workspace runnable
+      operationId: listAppPathsFromWorkspaceRunnable
+      tags:
+        - app
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/RunnableKind"
+        - $ref: "#/components/parameters/ScriptPath"
+      responses:
+        "200":
+          description: list of app paths
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: string
+
   /w/{workspace}/apps/history_update/a/{id}/v/{version}:
     post:
       summary: update app history
@@ -6649,6 +6688,7 @@ paths:
         - $ref: "#/components/parameters/OrderDesc"
         - $ref: "#/components/parameters/CreatedBy"
         - $ref: "#/components/parameters/ParentJob"
+        - $ref: "#/components/parameters/Worker"
         - $ref: "#/components/parameters/ScriptExactPath"
         - $ref: "#/components/parameters/ScriptStartPath"
         - $ref: "#/components/parameters/SchedulePath"
@@ -6856,6 +6896,7 @@ paths:
         - $ref: "#/components/parameters/OrderDesc"
         - $ref: "#/components/parameters/CreatedBy"
         - $ref: "#/components/parameters/Label"
+        - $ref: "#/components/parameters/Worker"
         - $ref: "#/components/parameters/ParentJob"
         - $ref: "#/components/parameters/ScriptExactPath"
         - $ref: "#/components/parameters/ScriptStartPath"
@@ -6910,6 +6951,7 @@ paths:
         - $ref: "#/components/parameters/WorkspaceId"
         - $ref: "#/components/parameters/CreatedBy"
         - $ref: "#/components/parameters/Label"
+        - $ref: "#/components/parameters/Worker"
         - $ref: "#/components/parameters/ParentJob"
         - $ref: "#/components/parameters/ScriptExactPath"
         - $ref: "#/components/parameters/ScriptStartPath"
@@ -12097,6 +12139,12 @@ components:
       in: query
       schema:
         type: string
+    Worker:
+      name: worker
+      description: worker this job was ran on
+      in: query
+      schema:
+        type: string
     ParentJob:
       name: parent_job
       description:
@@ -12732,6 +12780,8 @@ components:
           type: number
         preprocessed:
           type: boolean
+        worker:
+          type: string
       required:
         - id
         - running
@@ -12841,6 +12891,8 @@ components:
           type: number
         preprocessed:
           type: boolean
+        worker:
+          type: string
       required:
         - id
         - created_by
