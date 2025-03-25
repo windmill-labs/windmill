@@ -19,7 +19,7 @@
 		type TriggersCount
 	} from '$lib/gen'
 	import { inferArgs } from '$lib/infer'
-	import { copilotInfo, userStore, workspaceStore } from '$lib/stores'
+	import { setCopilotInfo, userStore, workspaceStore } from '$lib/stores'
 	import { emptySchema, sendUserToast } from '$lib/utils'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import { onDestroy, onMount, setContext } from 'svelte'
@@ -108,30 +108,21 @@
 
 	setContext('FlowCopilotContext', flowCopilotContext)
 
-	async function setCopilotInfo() {
+	async function setupCopilotInfo() {
 		if (workspace) {
 			workspaceAIClients.init(workspace)
 			try {
 				const info = await WorkspaceService.getCopilotInfo({ workspace })
-				copilotInfo.set({
-					...info,
-					ai_provider: info.ai_provider ?? 'openai'
-				})
+				setCopilotInfo(info)
 			} catch (err) {
-				copilotInfo.set({
-					ai_provider: 'openai',
-					exists_ai_resource: false,
-					code_completion_model: undefined,
-					ai_models: []
-				})
-
-				console.error('Could not get copilot info')
+				console.error('Could not get copilot info', err)
+				setCopilotInfo({})
 			}
 		}
 	}
 	$: if (workspace) {
 		$workspaceStore = workspace
-		setCopilotInfo()
+		setupCopilotInfo()
 	}
 
 	$: if (workspace && token) {

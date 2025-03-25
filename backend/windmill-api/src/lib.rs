@@ -487,6 +487,7 @@ pub async fn run_server(
                 .nest("/apps", apps::global_service().layer(cors.clone()))
                 .nest("/schedules", schedule::global_service())
                 .nest("/embeddings", embeddings::global_service())
+                .nest("/ai", ai::global_service())
                 .route_layer(from_extractor::<ApiAuthed>())
                 .route_layer(from_extractor::<users::Tokened>())
                 .nest("/jobs", jobs::global_root_service())
