@@ -29,7 +29,7 @@
 	import { Popover } from '$lib/components/meltComponents'
 	import { HUB_SCRIPT_ID, SECRET_KEY_PATH } from './utils'
 	import { HubFlow } from '$lib/hub'
-	import RouteRequestTransformer from './RouteRequestTransformer.svelte'
+	import RouteBodyTransformerOption from './RouteBodyTransformerOption.svelte'
 	let is_flow: boolean = false
 	let initialPath = ''
 	let edit = true
@@ -622,7 +622,7 @@
 								{/if}
 							{/if}
 
-							<RouteRequestTransformer bind:raw_string bind:wrap_body />
+							<RouteBodyTransformerOption bind:raw_string bind:wrap_body />
 						</div>
 					</Section>
 				{/if}

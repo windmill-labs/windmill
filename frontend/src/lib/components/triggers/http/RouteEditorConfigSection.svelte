@@ -17,7 +17,7 @@
 	import ClipboardPanel from '../../details/ClipboardPanel.svelte'
 	import { isObject } from '$lib/utils'
 	import { getHttpRoute } from './utils'
-	import RouteRequestTransformer from './RouteRequestTransformer.svelte'
+	import RouteBodyTransformerOption from './RouteBodyTransformerOption.svelte'
 
 	export let initialTriggerPath: string | undefined = undefined
 	export let dirtyRoutePath: boolean = false
@@ -191,7 +191,7 @@
 				>
 			</div>
 			{#if capture_mode}
-				<RouteRequestTransformer bind:raw_string bind:wrap_body />
+				<RouteBodyTransformerOption bind:raw_string bind:wrap_body />
 			{/if}
 		</div>
 	</Section>
