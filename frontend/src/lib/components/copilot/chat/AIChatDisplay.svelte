@@ -6,7 +6,6 @@
 	import Button from '$lib/components/common/button/Button.svelte'
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
 	import {
-		ContextIconMap,
 		type AIChatContext,
 		type DisplayMessage,
 		type ContextElement,
@@ -21,6 +20,7 @@
 	import ContextElementBadge from './ContextElementBadge.svelte'
 	import { storeLocalSetting } from '$lib/utils'
 	import ContextTextarea from './ContextTextarea.svelte'
+	import AvailableContextList from './AvailableContextList.svelte'
 
 	export let pastChats: { id: string; title: string }[]
 	export let messages: DisplayMessage[]
@@ -205,26 +205,14 @@
 					>
 				</svelte:fragment>
 				<svelte:fragment slot="content" let:close>
-					<div class="flex flex-col gap-1 text-tertiary text-xs p-1 min-w-24">
-						{#if availableContext.filter((c) => !selectedContext.find((sc) => sc.type === c.type && sc.title === c.title)).length === 0}
-							<div class="text-center text-tertiary text-xs">No available context</div>
-						{:else}
-							{#each availableContext as element}
-								{#if !selectedContext.find((c) => c.type === element.type && c.title === element.title)}
-									<button
-										class="hover:bg-surface-hover rounded-md p-1 text-left flex flex-row gap-1 items-center font-normal"
-										on:click={() => {
-											addContextToSelection(element)
-											close()
-										}}
-									>
-										<svelte:component this={ContextIconMap[element.type]} size={16} />
-										{element.title}
-									</button>
-								{/if}
-							{/each}
-						{/if}
-					</div>
+					<AvailableContextList
+						{availableContext}
+						{selectedContext}
+						onSelect={(element) => {
+							addContextToSelection(element)
+							close()
+						}}
+					/>
 				</svelte:fragment>
 			</Popover>
 			{#each selectedContext as element}
@@ -234,7 +222,7 @@
 						{contextElement}
 						deletable
 						on:delete={() => {
-							selectedContext = selectedContext.filter((c) => c.type !== element.type && c.title !== element.title)
+							selectedContext = selectedContext.filter((c) => c.type !== element.type || c.title !== element.title)
 						}}
 					/>
 				{/if}

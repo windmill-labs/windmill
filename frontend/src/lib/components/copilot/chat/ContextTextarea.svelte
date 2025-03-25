@@ -2,7 +2,7 @@
 	import autosize from '$lib/autosize'
 	import { createEventDispatcher } from 'svelte'
 	import type { ContextElement, SelectedContext } from './core'
-	import { ContextIconMap } from './core'
+	import AvailableContextList from './AvailableContextList.svelte'
 	import getCaretCoordinates from 'textarea-caret'
 
 	export let instructions: string
@@ -120,20 +120,12 @@
 		class="absolute bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-md shadow-lg p-2 z-50"
 		style="left: {tooltipPosition.x}px; top: {tooltipPosition.y}px;"
 	>
-		<div class="flex flex-col gap-1 text-tertiary text-xs min-w-24">
-			{#if availableContext.filter((c) => !contextTooltipWord || c.title.includes(contextTooltipWord.slice(1)) && !selectedContext.find((sc) => sc.title === c.title && sc.type === c.type)).length === 0}
-				<div class="text-center text-tertiary text-xs">No available context</div>
-			{:else}
-				{#each availableContext.filter((c) => !contextTooltipWord || c.title.includes(contextTooltipWord.slice(1)) && !selectedContext.find((sc) => sc.title === c.title && sc.type === c.type)) as element}
-					<button
-						class="hover:bg-surface-hover rounded-md p-1 text-left flex flex-row gap-1 items-center font-normal"
-						on:click={() => handleContextSelection(element)}
-					>
-						<svelte:component this={ContextIconMap[element.type]} size={16} />
-						{element.title}
-					</button>
-				{/each}
-			{/if}
-		</div>
+		<AvailableContextList
+			{availableContext}
+			{selectedContext}
+			onSelect={(element) => {
+				handleContextSelection(element)
+			}}
+		/>
 	</div>
 {/if} 
