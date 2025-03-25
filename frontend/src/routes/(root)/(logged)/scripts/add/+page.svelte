@@ -11,8 +11,7 @@
 	import UnsavedConfirmationModal from '$lib/components/common/confirmationModal/UnsavedConfirmationModal.svelte'
 	import type { ScheduleTrigger } from '$lib/components/triggers'
 	import type { GetInitialAndModifiedValues } from '$lib/components/common/confirmationModal/unsavedTypes'
-	import { HubScript } from '$lib/hub'
-	import { replacePlaceholderForSignatureScriptTemplate } from '$lib/components/triggers/http/utils'
+	import { replaceScriptPlaceholderWithItsValues } from '$lib/hub'
 
 	// Default
 	let schema: Schema = emptySchema()
@@ -83,22 +82,13 @@
 		}
 	}
 
-	function replaceHubScriptPlaceholderWithItsValues(hubPath: string, content: string) {
-		switch (hubPath) {
-			case HubScript.SIGNATURE_TEMPLATE:
-				return replacePlaceholderForSignatureScriptTemplate(content)
-			default:
-				return content
-		}
-	}
-
 	async function loadHub(): Promise<void> {
 		if (hubPath) {
 			const { content, language, summary } = await ScriptService.getHubScriptByPath({
 				path: hubPath
 			})
 			script.description = `Fork of ${hubPath}`
-			script.content = replaceHubScriptPlaceholderWithItsValues(hubPath, content)
+			script.content = replaceScriptPlaceholderWithItsValues(hubPath, content)
 			script.summary = summary ?? ''
 			script.language = language as Script['language']
 			scriptBuilder?.setCode(script.content)
