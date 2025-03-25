@@ -386,19 +386,15 @@ async fn list_pending_invites(
 
 async fn is_premium(
     authed: ApiAuthed,
-    Extension(db): Extension<DB>,
-    Path(w_id): Path<String>,
+    Extension(_db): Extension<DB>,
+    Path(_w_id): Path<String>,
 ) -> JsonResult<bool> {
     require_admin(authed.is_admin, &authed.username)?;
-    let mut tx = db.begin().await?;
-    let row = sqlx::query_scalar!(
-        "SELECT premium FROM workspace WHERE workspace.id = $1",
-        &w_id
-    )
-    .fetch_one(&mut *tx)
-    .await?;
-    tx.commit().await?;
-    Ok(Json(row))
+    #[cfg(feature = "cloud")]
+    let premium = windmill_common::workspaces::is_premium_workspace(&_db, &_w_id).await;
+    #[cfg(not(feature = "cloud"))]
+    let premium = false;
+    Ok(Json(premium))
 }
 
 async fn exists_workspace(
