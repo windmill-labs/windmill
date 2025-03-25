@@ -250,7 +250,7 @@ ERROR:
 \`\`\`
 `
 
-export const CHAT_USER_DB_CONTEXT = `- ({title})\n`
+export const CHAT_USER_DB_CONTEXT = `- {title}: SCHEMA: \n{schema}\n`
 
 export function prepareSystemMessage(): {
 	role: 'system'
@@ -316,7 +316,7 @@ export async function prepareUserMessage(
 			}
 			errorContext = CHAT_USER_ERROR_CONTEXT.replace('{error}', context.content)
 		} else if (context.type === 'db') {
-			dbContext += CHAT_USER_DB_CONTEXT.replace('{title}', context.title)
+			dbContext += CHAT_USER_DB_CONTEXT.replace('{title}', context.title).replace('{schema}', context.schema?.stringified ?? 'to fetch with get_db_schema')
 		}
 	}
 
@@ -399,6 +399,7 @@ async function callTool(
 			if (!args.resourcePath) {
 				throw new Error('Database path not provided')
 			}
+			console.log('calling tool to fetch db schema', args.resourcePath)
 			const resource = await ResourceService.getResource({
 				workspace: workspace,
 				path: args.resourcePath
