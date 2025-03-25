@@ -123,7 +123,7 @@ use crate::{
 use crate::rust_executor::handle_rust_job;
 
 #[cfg(feature = "nu")]
-use crate::nu_executor::{handle_nu_job, JobHandlerInput};
+use crate::nu_executor::{handle_nu_job, JobHandlerInput as JobHandlerInputNu};
 
 #[cfg(feature = "java")]
 use crate::java_executor::{handle_java_job, JobHandlerInput as JobHandlerInputJava};

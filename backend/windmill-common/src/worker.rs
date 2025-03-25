@@ -520,7 +520,6 @@ pub async fn save_cache(
         .clone()
     {
         use object_store::path::Path;
-
         let file_to_cache = if is_dir {
             let tar_path = format!(
                 "{ROOT_CACHE_DIR}/tar/{}_tar.tar",
@@ -543,29 +542,32 @@ pub async fn save_cache(
         } else {
             origin.to_owned()
         };
+
         if let Err(e) = os
             .put(
                 &Path::from(_remote_cache_path),
-                std::fs::read(&file_to_cache)?.into(),
+                std::fs::read(file_to_cache)?.into(),
             )
             .await
         {
             tracing::error!(
-                "Failed to put bin to object store: {_remote_cache_path}. Error: {:?}",
+                "Failed to put go bin to object store: {_remote_cache_path}. Error: {:?}",
                 e
             );
         } else {
             _cached_to_s3 = true;
+            if is_dir {
+                tokio::fs::remove_dir_all(file_to_cache).await?;
+            }
         }
+    }
 
+    // if !*CLOUD_HOSTED {
+    if true {
         if is_dir {
-            tokio::fs::remove_dir_all(file_to_cache).await?;
-        }
-        // if !*CLOUD_HOSTED {
-        if true {
             copy_dir_recursively(&PathBuf::from(origin), &PathBuf::from(local_cache_path))?;
         } else {
-            std::fs::copy(&origin, local_cache_path)?;
+            std::fs::copy(origin, local_cache_path)?;
         }
         Ok(format!(
             "\nwrote cached binary: {} (backed by EE distributed object store: {_cached_to_s3})\n",

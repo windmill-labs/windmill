@@ -1465,7 +1465,9 @@ pub async fn par_install_language_dependencies<'a>(
             {
                 postinstall_cb(not_pulled_copy.clone()).await?;
             }
-            for RequiredDependency { path, custom_name, .. } in not_pulled_copy.into_iter() {
+            for RequiredDependency { path, custom_name: _custom_name, .. } in
+                not_pulled_copy.into_iter()
+            {
                 // Create a file to indicate that installation was successfull
                 let valid_path = path.clone() + ".valid.windmill";
                 // This is atomic operation, meaning, that it either completes and dependency is valid,
@@ -1492,7 +1494,7 @@ pub async fn par_install_language_dependencies<'a>(
                                 os,
                                 path,
                                 language_name,
-                                custom_name,
+                                _custom_name,
                                 platform_agnostic,
                             )
                             .await
