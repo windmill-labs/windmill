@@ -7,7 +7,8 @@
 		FolderService,
 		ScriptService,
 		FlowService,
-		type ExtendedJobs
+		type ExtendedJobs,
+		type ScriptArgs
 	} from '$lib/gen'
 
 	import { page } from '$app/stores'
@@ -166,6 +167,7 @@
 	let runDrawer: Drawer
 	let isCancelingVisibleJobs = false
 	let isCancelingFilteredJobs = false
+	let isReRunningVisibleJobs = false
 	let lookback: number = 1
 
 	function getAutoRefresh() {
@@ -351,6 +353,7 @@
 		selectedManualDate = 0
 		selectedIds = []
 		jobIdsToCancel = []
+		jobIdsToReRun = []
 		selectionMode = false
 		selectedWorkspace = undefined
 		jobLoader?.loadJobs(minTs, maxTs, true)
@@ -479,6 +482,7 @@
 	}
 
 	let jobIdsToCancel: string[] = []
+	let jobIdsToReRun: string[] = []
 	let selectionMode: RunsSelectionMode | false = false
 	let fetchingFilteredJobs = false
 	let selectedFiltersString: string | undefined = undefined
@@ -553,7 +557,8 @@
 	}
 
 	async function onReRunSelectedJobs() {
-		// TODO
+		jobIdsToReRun = selectedIds
+		isReRunningVisibleJobs = true
 	}
 
 	function setLookback(lookbackInDays: number) {
@@ -673,6 +678,60 @@
 	}}
 	on:canceled={() => {
 		isCancelingVisibleJobs = false
+	}}
+/>
+
+<ConfirmationModal
+	title={`Confirm re-running the selected jobs`}
+	confirmationText={`Re-run ${jobIdsToReRun.length} jobs`}
+	open={isReRunningVisibleJobs}
+	on:confirmed={async () => {
+		isReRunningVisibleJobs = false
+
+		if (!$workspaceStore) return
+
+		const uuids: string[] = []
+		for (const job of selectedJobs) {
+			JobService.getJobArgs({
+				id: job.id,
+				workspace: $workspaceStore
+			}).then((args) => {
+				const commonArgs = {
+					workspace: $workspaceStore,
+					skipPreprocessor: true,
+					invisibleToOwner: true,
+					// TODO : transform args
+					requestBody: (args as ScriptArgs) ?? {}
+				}
+
+				const path = job.script_path
+				if (job.job_kind === 'script') {
+					const hash = job.script_hash
+					if (hash) {
+						JobService.runScriptByHash({ ...commonArgs, hash })
+						uuids.push(job.id)
+					} else if (path) {
+						JobService.runScriptByPath({ ...commonArgs, path })
+						uuids.push(job.id)
+					}
+				} else if (job.job_kind === 'flow') {
+					// Running specific flow versions is not supported
+					if (path) {
+						JobService.runFlowByPath({ ...commonArgs, path })
+						uuids.push(job.id)
+					}
+				}
+			})
+		}
+
+		jobIdsToReRun = []
+		selectedIds = []
+		jobLoader?.loadJobs(minTs, maxTs, true, true)
+		sendUserToast(`Re-ran ${uuids.length} jobs`)
+		selectionMode = false
+	}}
+	on:canceled={() => {
+		isReRunningVisibleJobs = false
 	}}
 />
 
