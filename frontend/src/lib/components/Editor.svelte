@@ -619,7 +619,6 @@
 	let completorDisposable: Disposable | undefined = undefined
 	let autocompletor: Autocompletor | undefined = undefined
 	function addSuperCompletor(editor: meditor.IStandaloneCodeEditor) {
-		console.log('adding super completor')
 		if (completorDisposable) {
 			completorDisposable.dispose()
 		}

@@ -75,6 +75,25 @@ You need to **redefine** the type of the resources that are needed before the ma
 Before defining each type, check if the class already exists using class_exists.
 The resource type name has to be exactly as specified.`
 
+export const SUPPORTED_CHAT_SCRIPT_LANGUAGES = [
+	'bunnative',
+	'nativets',
+	'bun',
+	'deno',
+	'python3',
+	'php',
+	'rust',
+	'go',
+	'bash',
+	'postgresql',
+	'mysql',
+	'bigquery',
+	'snowflake',
+	'mssql',
+	'graphql',
+	'powershell'
+]
+
 function getLangContext(lang: ScriptLang | 'bunnative') {
 	switch (lang) {
 		case 'bunnative':
@@ -101,7 +120,7 @@ function getLangContext(lang: ScriptLang | 'bunnative') {
 			)
 		case 'php':
 			return (
-				'The user is coding in PHP. On Windmill, it is expected the script contains at least one function called `main`.' +
+				'The user is coding in PHP. On Windmill, it is expected the script contains at least one function called `main`. The script must start with <?php.' +
 				PHP_RESOURCE_TYPE_SYSTEM +
 				`\nIf you need to import libraries, you need to specify them as comments in the following manner before the main function:
 \`\`\`
@@ -109,15 +128,33 @@ function getLangContext(lang: ScriptLang | 'bunnative') {
 // mylibrary/mylibrary
 // myotherlibrary/myotherlibrary@optionalversion
 \`\`\`
+Make sure to have one per line.
 No need to require autoload, it is already done.`
 			)
 		case 'rust':
 			return `The user is coding in Rust. On Windmill, it is expected the script contains at least one function called \`main\` (without calling it) defined like this:
 \`\`\`rust
-pub fn main(...) -> Result<ReturnType, Box<dyn std::error::Error>>
+use anyhow::anyhow;
+use serde::Serialize;
+
+#[derive(Serialize, Debug)]
+struct ReturnType {
+    // ...
+}
+
+fn main(...) -> anyhow::Result<ReturnType>
 \`\`\`
-Favor idiomatic Rust patterns, ensuring safe ownership and borrowing, robust error handling with \`Result\`, and concurrency if needed (\`async\`/\`tokio\` or std threading).
-Include only necessary imports and modules, and add comments explaining important operations. Provide at least one unit test using Rust's built-in test framework (\`#[cfg(test)] mod tests { ... }\`) to demonstrate correctness. Make the code well-formatted (similar to \`cargo fmt\` style). The generated code should be easily executable and testable in an integrated terminal.`
+Arguments should be owned. Make sure the return type is serializable.
+
+Packages must be made available with a partial cargo.toml by adding the following comment at the beginning of the script:
+//! \`\`\`cargo
+//! [dependencies]
+//! anyhow = "1.0.86"
+//! \`\`\'
+Serde is already included, no need to add it again.
+
+If you want to handle async functions (e.g., using tokio), you need to keep the main function sync and create the runtime inside.
+`
 		case 'go':
 			return `The user is coding in Go. On Windmill, it is expected the script exports a single function called \`main\`. Its return type has to be (\`{return_type}\`, error). The file package has to be "inner".`
 		case 'bash':

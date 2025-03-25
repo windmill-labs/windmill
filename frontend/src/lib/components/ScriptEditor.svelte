@@ -42,6 +42,7 @@
 	import { setContext } from 'svelte'
 	import HideButton from './apps/editor/settingsPanel/HideButton.svelte'
 	import { base } from '$lib/base'
+	import { SUPPORTED_CHAT_SCRIPT_LANGUAGES } from './copilot/chat/core'
 
 	// Exported
 	export let schema: Schema | any = emptySchema()
@@ -287,7 +288,11 @@
 	setContext('disableTooltips', customUi?.disableTooltips === true)
 
 	let aiPanelSize =
-		!$copilotInfo.enabled || localStorage.getItem('aiPanelOpen') === 'false' ? 0 : 30
+		!$copilotInfo.enabled ||
+		!SUPPORTED_CHAT_SCRIPT_LANGUAGES.includes(lang ?? '') ||
+		localStorage.getItem('aiPanelOpen') === 'false'
+			? 0
+			: 30
 	let codePanelSize = 40 + (30 - aiPanelSize)
 	let storedAiPanelSize = aiPanelSize > 0 ? aiPanelSize : 30
 	let testPanelSize = 30
@@ -305,6 +310,8 @@
 			localStorage.setItem('aiPanelOpen', 'true')
 		}
 	}
+
+	$: !SUPPORTED_CHAT_SCRIPT_LANGUAGES.includes(lang ?? '') && aiPanelSize > 0 && toggleAiPanel()
 
 	function toggleTestPanel() {
 		if (testPanelSize > 0) {
@@ -411,9 +418,9 @@
 	<Splitpanes class="!overflow-visible">
 		<Pane bind:size={codePanelSize} minSize={10} class="!overflow-visible">
 			<div class="h-full !overflow-visible bg-gray-50 dark:bg-[#272D38] relative">
-				<div class="absolute top-2 right-2 z-10 flex flex-row gap-2">
+				<div class="absolute top-2 right-4 z-10 flex flex-row gap-2">
 					{#if aiPanelSize === 0}
-						{#if customUi?.editorBar?.aiGen != false}
+						{#if customUi?.editorBar?.aiGen != false && SUPPORTED_CHAT_SCRIPT_LANGUAGES.includes(lang ?? '')}
 							<HideButton
 								hidden={true}
 								direction="right"
@@ -451,7 +458,8 @@
 								on:click={() => {
 									toggleTestPanel()
 								}}
-								btnClasses="border border border-gray-200 dark:border-gray-600 bg-surface"
+								btnClasses="bg-marine-400 hover:bg-marine-200 !text-primary-inverse hover:!text-primary-inverse hover:dark:!text-primary-inverse dark:bg-marine-50 dark:hover:bg-marine-50/70"
+								color="marine"
 							/>
 						{/if}
 					{/if}
