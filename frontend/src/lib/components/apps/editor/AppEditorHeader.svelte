@@ -94,6 +94,7 @@
 	import { base } from '$lib/base'
 	import ClipboardPanel from '$lib/components/details/ClipboardPanel.svelte'
 	import LazyModePanel from './contextPanel/LazyModePanel.svelte'
+	import { RunButton } from '$lib/components/common'
 
 	async function hash(message) {
 		try {
@@ -956,11 +957,21 @@
 		}, 500)
 	}
 	$: customPath !== undefined && validateCustomPath(customPath)
+
+	let cancelLoading = false
+	$: if (cancelLoading && !testIsLoading) {
+		cancelLoading = false
+	}
 </script>
 
 <svelte:window on:keydown={onKeyDown} />
 
-<TestJobLoader bind:this={testJobLoader} bind:isLoading={testIsLoading} bind:job />
+<TestJobLoader
+	bind:this={testJobLoader}
+	bind:isLoading={testIsLoading}
+	bind:job
+	on:cancel-loading={({ detail }) => (cancelLoading = detail)}
+/>
 
 {#if $$slots.unsavedConfirmationModal}
 	<slot
@@ -1412,16 +1423,12 @@
 								{:else}
 									<div class="flex flex-col h-full w-full mb-4">
 										{#if job?.['running']}
-											<div class="flex flex-row-reverse w-full">
-												<Button
-													color="red"
-													variant="border"
-													on:click={() => testJobLoader?.cancelJob()}
-												>
-													<Loader2 size={14} class="animate-spin mr-2" />
-
-													Cancel
-												</Button>
+											<div class="flex flex-row-reverse w-full p-2 justify-center">
+												<RunButton
+													on:cancel={() => testJobLoader?.cancelJob()}
+													{testIsLoading}
+													{cancelLoading}
+												/>
 											</div>
 										{/if}
 										{#if job?.args}
