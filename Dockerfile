@@ -219,8 +219,7 @@ RUN addgroup --gid 1000 windmill && \
 RUN cp -r /root/.cache /home/windmill/.cache
 
 RUN mkdir -p /tmp/windmill/logs && \
-    mkdir -p /tmp/windmill/search && \
-    mkdir -p /tmp/windmill/cache_nomount
+    mkdir -p /tmp/windmill/search
 
 RUN chown -R windmill:windmill ${APP} && \
      chown -R windmill:windmill /tmp/windmill && \
