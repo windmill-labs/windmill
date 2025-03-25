@@ -326,7 +326,6 @@ export async function prepareUserMessage(
 		.replace('{error_context}', errorContext)
 		.replace('{db_context}', dbContext)
 
-	console.log('userMessage', userMessage)
 	return userMessage
 }
 
@@ -486,7 +485,6 @@ export async function chatRequest(
 					for (const toolCall of toolCalls) {
 						try {
 							const args = JSON.parse(toolCall.function.arguments)
-							console.log('args', args)
 							const result = await callTool(
 								toolCall.function.name,
 								args,

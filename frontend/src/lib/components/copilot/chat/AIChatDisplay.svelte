@@ -74,8 +74,6 @@
 		}
 	}
 
-	$: console.log('selectedContext', selectedContext)
-
 </script>
 
 <div class="flex flex-col h-full">

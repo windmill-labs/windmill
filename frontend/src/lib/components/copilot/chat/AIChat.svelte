@@ -193,8 +193,6 @@
 	}
 	let selectedContextElements: ContextElement[] = []
 
-	$: console.log('selectedContextElements', selectedContextElements)
-
 	async function sendRequest() {
 		if (!instructions.trim()) {
 			return
