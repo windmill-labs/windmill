@@ -4,10 +4,10 @@
 	import { workspaceStore } from '$lib/stores'
 	import { getScriptByPath } from '$lib/scripts'
 
-	import { CornerDownLeft, Loader2 } from 'lucide-svelte'
+	import { Loader2 } from 'lucide-svelte'
 	import { getContext } from 'svelte'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
-	import Button from './common/button/Button.svelte'
+	import { RunButton } from '$lib/components/common'
 	import DisplayResult from './DisplayResult.svelte'
 	import type { FlowEditorContext } from './flows/types'
 	import LogViewer from './LogViewer.svelte'
@@ -102,11 +102,6 @@
 	}
 
 	let forceJson = false
-
-	// cancelLoading is true when the job is being cancelled
-	$: if (cancelLoading && !testIsLoading) {
-		cancelLoading = false
-	}
 </script>
 
 <TestJobLoader
@@ -127,25 +122,12 @@
 		{/if}
 
 		<div class="w-full justify-center flex">
-			{#if testIsLoading}
-				<Button size="sm" on:click={testJobLoader?.cancelJob} btnClasses="w-28" color="red">
-					<Loader2 size={16} class="animate-spin mr-1" />
-					{cancelLoading ? 'Canceling...' : 'Cancel'}
-				</Button>
-			{:else}
-				<Button
-					color="dark"
-					btnClasses="truncate w-28"
-					wrapClasses="w-28"
-					size="sm"
-					on:click={() => runTest(stepArgs)}
-					shortCut={{
-						Icon: CornerDownLeft
-					}}
-				>
-					Run
-				</Button>
-			{/if}
+			<RunButton
+				on:run={() => runTest(stepArgs)}
+				on:cancel={() => testJobLoader?.cancelJob()}
+				{testIsLoading}
+				bind:cancelLoading
+			/>
 		</div>
 
 		<ModulePreviewForm {pickableProperties} {mod} {schema} bind:args={stepArgs} />
