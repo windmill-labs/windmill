@@ -27,7 +27,9 @@ pub fn parse_java_sig_meta(code: &str) -> anyhow::Result<JavaMainSigMeta> {
         .map_err(|e| anyhow!("Error setting Java as language: {e}"))?;
 
     // Parse code
-    let tree = parser.parse(code, None).expect("Failed to parse code");
+    let tree = parser
+        .parse(code, None)
+        .ok_or(anyhow!("Failed to parse code"))?;
     let root_node = tree.root_node();
 
     // Traverse the AST to find the Main method signature
@@ -160,7 +162,12 @@ fn parse_java_typ<'a>(
         .and_then(|n| n.utf8_text(code.as_bytes()).ok())
         .map(|s| s.to_string());
 
-    let (typ, default) = find_typ(otyp_node.unwrap(), code)?;
+    let (typ, default) = find_typ(
+        otyp_node.ok_or(anyhow!(
+            "Internal error: Failed to get child by field name 'type'"
+        ))?,
+        code,
+    )?;
 
     Ok((otyp, typ, name.to_string(), default))
 }
@@ -193,42 +200,6 @@ fn find_main_signature<'a>(root_node: Node<'a>, code: &str) -> Option<(Node<'a>,
         }
     }
     return None;
-}
-
-pub fn parse_java_reqs(code: &str) -> (Vec<(String, Option<String>)>, Vec<usize>) {
-    let mut nuget_reqs = Vec::new();
-    let mut pkg_lines = Vec::new();
-
-    for (i, line) in code.split("\n").enumerate() {
-        if line.starts_with('#') {
-            if let Some(req) = parse_nuget_req(&line) {
-                pkg_lines.push(i);
-                nuget_reqs.push(req);
-            }
-        } else {
-            break; // Stop processing after the first non-comment line
-        }
-    }
-
-    (nuget_reqs, pkg_lines)
-}
-
-fn parse_nuget_req(line: &str) -> Option<(String, Option<String>)> {
-    // Check if the line starts with `#r "nuget:`
-    if let Some(start) = line.find("#r \"nuget:") {
-        // Extract the content after `#r "nuget:`
-        let start_idx = start + 10;
-        let end_idx = line[start_idx..].find('"')?;
-        let line = &line[start_idx..start_idx + end_idx];
-        let mut splitted = line.split(",");
-        if let Some(pkg) = splitted.next() {
-            return Some((
-                pkg.trim().to_string(),
-                splitted.next().map(|s| s.trim().to_string()),
-            ));
-        }
-    }
-    None
 }
 
 #[cfg(test)]
