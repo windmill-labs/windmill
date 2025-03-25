@@ -20,7 +20,7 @@
 			$$props.class
 		)}
 	>
-		<span class="text-xs truncate relative" dir="rtl" title={`job id: ${job.id}`}>
+		<span class="text-xs truncate" dir="rtl" title={`job id: ${job.id}`}>
 			{job.id}
 		</span>
 		<a
