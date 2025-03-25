@@ -651,7 +651,7 @@ impl AuthenticationMethod {
                 }
 
                 if credentials.get(0).unwrap() != username
-                    && credentials.get(1).unwrap() != password
+                    || credentials.get(1).unwrap() != password
                 {
                     return Err(AuthenticationError::UnauthorizedBasicHttpAuth);
                 }
