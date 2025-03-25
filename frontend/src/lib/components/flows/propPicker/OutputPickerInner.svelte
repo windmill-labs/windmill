@@ -44,6 +44,7 @@
 
 	const dispatch = createEventDispatcher<{
 		updateMock: { enabled: boolean; return_value?: unknown }
+		getLastJob: undefined
 	}>()
 
 	let jsonView = false
@@ -53,15 +54,16 @@
 	let error = ''
 	let stepHistoryPopover: Popover | undefined = undefined
 	let stepHistory: StepHistory | undefined = undefined
-	let lastJob: SelectedJob = undefined
+	let previewJob: SelectedJob = undefined
 	let historyOpen = false
 	let jsonData: any = undefined
+	let lastJobId: string | undefined = undefined
 
 	function selectJob(job: SelectedJob | undefined) {
 		selectedJob = job
 		if (!job || !('result' in job)) {
-			if (lastJob && 'result' in lastJob) {
-				selectJob(lastJob)
+			if (previewJob && 'result' in previewJob) {
+				selectJob(previewJob)
 			}
 			return
 		}
@@ -77,6 +79,13 @@
 		}
 	}
 
+	export function setLastJobId(jobId: string | undefined) {
+		if (!jobId) {
+			return
+		}
+		lastJobId = jobId
+	}
+
 	function selectMockValue() {
 		savedJsonData = jsonData
 		jsonData = mock?.return_value
@@ -87,12 +96,12 @@
 		tmpMock = newMock
 	}
 
-	export function setLastJob(job: SelectedJob, setPreview: boolean = false) {
+	export function setPreviewJob(job: SelectedJob, setPreview: boolean = false) {
 		if (!job) {
 			return
 		}
-		lastJob = structuredClone(job)
-		selectJob(lastJob)
+		previewJob = structuredClone(job)
+		selectJob(previewJob)
 		if (setPreview) {
 			preview = 'job'
 		}
@@ -104,6 +113,8 @@
 			: preview === 'job' && mock?.enabled && selectedJob?.type === 'CompletedJob'
 			? 'override'
 			: undefined
+
+	$: console.log('dbg selectedJob', selectedJob)
 </script>
 
 <div class="w-full h-full flex flex-col" bind:clientHeight>
@@ -173,7 +184,7 @@
 							if (historyOpen) {
 								stepHistory?.deselect()
 							} else {
-								selectJob(lastJob)
+								selectJob(previewJob)
 								preview = undefined
 							}
 						}}
@@ -192,7 +203,7 @@
 								stepHistory?.deselect()
 								stepHistoryPopover?.close()
 							} else {
-								selectJob(lastJob)
+								selectJob(previewJob)
 								preview = undefined
 							}
 						}}
@@ -308,14 +319,17 @@
 			{#if !isLoading && selectedJob && !preview && !mock?.enabled}
 				<div class="w-grow min-w-0 flex gap-1 items-center">
 					<OutputBadge job={selectedJob} class="grow min-w-16" />
-					{#if selectedJob.id !== lastJob?.id}
+					{#if selectedJob.id !== lastJobId}
 						<button
 							class="px-1 shrink-0 underline"
 							on:click={() => {
-								if (historyOpen) {
+								if (lastJobId && previewJob?.id && previewJob.id !== lastJobId) {
+									dispatch('getLastJob')
+								} else if (historyOpen) {
 									stepHistory?.deselect()
 								} else {
-									selectJob(lastJob)
+									// If the last job is not the same as the preview job, we need to select the last job
+									selectJob(previewJob)
 									preview = undefined
 								}
 							}}>See last result</button
@@ -411,7 +425,7 @@
 					topBrackets={false}
 					pureViewer={false}
 				/>
-			{:else if !lastJob}
+			{:else if !lastJobId}
 				<div class="flex flex-col items-center justify-center h-full">
 					<p class="text-xs text-secondary">
 						Test this step to see results or <button

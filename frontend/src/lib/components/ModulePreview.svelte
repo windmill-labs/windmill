@@ -96,26 +96,39 @@
 	}
 
 	function jobDone() {
-		if (testJob && !testJob.canceled && testJob.type == 'CompletedJob' && `result` in testJob) {
-			if ($flowStateStore[mod.id]) {
+		console.log('dbg job done testJob', testJob)
+		if (
+			testJob &&
+			testJob.type == 'CompletedJob' &&
+			`result` in testJob &&
+			$flowStateStore[mod.id]
+		) {
+			if (testJob.canceled) {
+				// If the job was canceled, we don't preview the result in the flow preview but we keep the job id
+				// so we can display the job in the job list
+				$flowStateStore[mod.id].lastJobId = testJob.id
+			} else {
 				$flowStateStore[mod.id].previewResult = testJob.result
 				$flowStateStore[mod.id].previewSuccess = testJob.success
 				$flowStateStore[mod.id].previewJobId = testJob.id
 				$flowStateStore[mod.id].previewWorkspaceId = testJob.workspace_id
-				$flowStateStore = $flowStateStore
 			}
+			$flowStateStore = $flowStateStore
 		}
 	}
 
-	$: testJob && outputPicker?.setLastJob(testJob, false)
-	$: lastJob && outputPicker?.setLastJob(lastJob, false)
+	$: testJob && outputPicker?.setPreviewJob(testJob)
+	$: lastJob && outputPicker?.setPreviewJob(lastJob)
 
 	let forceJson = false
+
+	$: console.log('dbg testJob', testJob)
 </script>
 
 <TestJobLoader
 	toastError={noEditor}
 	on:done={() => jobDone()}
+	on:cancel={() => jobDone()}
 	bind:scriptProgress
 	bind:this={testJobLoader}
 	bind:isLoading={testIsLoading}
@@ -179,6 +192,7 @@
 					bind:selectedJob
 					isLoading={(testIsLoading && !scriptProgress) || fetchingLastJob}
 					bind:preview
+					on:getLastJob
 				>
 					<svelte:fragment slot="copilot-fix">
 						{#if lang && editor && diffEditor && stepArgs && selectedJob && 'result' in selectedJob && selectedJob.result && typeof selectedJob.result == 'object' && `error` in selectedJob.result && selectedJob.result.error}

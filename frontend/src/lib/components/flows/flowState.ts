@@ -11,6 +11,7 @@ export type FlowModuleState = {
 	previewJobId?: string
 	previewWorkspaceId?: string
 	previewSuccess?: boolean
+	lastJobId?: string
 }
 
 export type FlowState = Record<string, FlowModuleState>

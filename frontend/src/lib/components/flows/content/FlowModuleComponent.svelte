@@ -227,6 +227,8 @@
 			}
 		}
 	}
+	//This function is called either to get job logs for the last job or to get the last job when flow preview is not the latest job
+	//TODO: this is a bit of a hack, we should separate the logic of getting the last job and the logic of getting job logs
 	getLastJob()
 </script>
 
@@ -431,6 +433,9 @@
 										lang={flowModule.value['language'] ?? 'deno'}
 										schema={$flowStateStore[$selectedId]?.schema ?? {}}
 										{lastJob}
+										on:getLastJob={() => {
+											getLastJob()
+										}}
 									/>
 								{:else if selected === 'advanced'}
 									<Tabs bind:selected={advancedSelected}>
