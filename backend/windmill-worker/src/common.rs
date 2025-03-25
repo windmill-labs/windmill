@@ -564,14 +564,8 @@ pub async fn resolve_job_timeout(
 ) -> (Duration, Option<String>, bool) {
     let mut warn_msg: Option<String> = None;
     #[cfg(feature = "cloud")]
-    let cloud_premium_workspace = *CLOUD_HOSTED
-        && sqlx::query_scalar!("SELECT premium FROM workspace WHERE id = $1", _w_id)
-            .fetch_one(_db)
-            .await
-            .map_err(|e| {
-                tracing::error!(%e, "error getting premium workspace for job {_job_id}: {e:#}");
-            })
-            .unwrap_or(false);
+    let cloud_premium_workspace =
+        *CLOUD_HOSTED && windmill_common::workspaces::is_premium_workspace(_db, _w_id).await;
     #[cfg(not(feature = "cloud"))]
     let cloud_premium_workspace = false;
 

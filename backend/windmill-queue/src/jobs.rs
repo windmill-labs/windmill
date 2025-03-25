@@ -928,13 +928,7 @@ pub async fn add_completed_job<T: Serialize + Send + Sync + ValidableJson>(
     if *CLOUD_HOSTED && !queued_job.is_flow() && _duration > 1000 {
         let additional_usage = _duration / 1000;
         let w_id = &queued_job.workspace_id;
-        let premium_workspace =
-            sqlx::query_scalar!("SELECT premium FROM workspace WHERE id = $1", w_id)
-                .fetch_one(db)
-                .await
-                .map_err(|e| {
-                    Error::internal_err(format!("fetching if {w_id} is premium: {e:#}"))
-                })?;
+        let premium_workspace = windmill_common::workspaces::is_premium_workspace(db, w_id).await;
         let _ = sqlx::query!(
             "INSERT INTO usage (id, is_workspace, month_, usage) 
             VALUES ($1, TRUE, EXTRACT(YEAR FROM current_date) * 12 + EXTRACT(MONTH FROM current_date), $2) 
@@ -2996,15 +2990,7 @@ pub async fn push<'c, 'd>(
     #[cfg(feature = "cloud")]
     if *CLOUD_HOSTED {
         let premium_workspace =
-            sqlx::query_scalar!("SELECT premium FROM workspace WHERE id = $1", workspace_id)
-                .fetch_one(_db)
-                .await
-                .map_err(|e| {
-                    Error::internal_err(format!(
-                        "fetching if {workspace_id} is premium and overquota: {e:#}"
-                    ))
-                })?;
-
+            windmill_common::workspaces::is_premium_workspace(_db, workspace_id).await;
         // we track only non flow steps
         let (workspace_usage, user_usage) = if !matches!(
             job_payload,
