@@ -5,17 +5,24 @@
 	import Button from '../button/Button.svelte'
 	import { AlertTriangle, CornerDownLeft, Loader2, RefreshCcw } from 'lucide-svelte'
 
-	export let title: string
-	export let confirmationText: string
-	export let keyListen: boolean = true
-	export let loading: boolean = false
+	type Props = {
+		title: string
+		confirmationText: string
+		keyListen?: boolean
+		loading?: boolean
+		open?: boolean
+		type?: 'danger' | 'reload'
+	}
 
-	// Relying on the default value doesn't ensure it always has one
-	let _type: 'danger' | 'reload' | undefined = undefined
-	export { _type as type }
-	$: type = _type || 'danger'
-
-	export let open: boolean = false
+	const {
+		title,
+		confirmationText,
+		keyListen = true,
+		loading = false,
+		open = false,
+		type: _type
+	}: Props = $props()
+	const type = $derived(_type ?? 'danger')
 
 	const dispatch = createEventDispatcher()
 
@@ -56,7 +63,7 @@
 			}
 		}
 	} satisfies { [type in typeof type]: any }
-	$: Icon = theme[type].Icon ?? AlertTriangle
+	const Icon = $derived(theme[type].Icon ?? AlertTriangle)
 </script>
 
 <svelte:window on:keydown|capture={onKeyDown} />
@@ -95,6 +102,7 @@
 								{title}
 							</h3>
 							<div class="mt-2 text-sm text-secondary">
+								<!-- svelte-ignore slot_element_deprecated -->
 								<slot />
 							</div>
 						</div>

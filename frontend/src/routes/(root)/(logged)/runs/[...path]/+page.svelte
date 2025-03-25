@@ -638,6 +638,7 @@
 				selectedIds = []
 				jobLoader?.loadJobs(minTs, maxTs, true, true)
 				sendUserToast(`Re-ran ${uuids.length} jobs`)
+				selectionMode = false
 			}
 		}
 	}
