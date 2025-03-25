@@ -25,7 +25,6 @@
 	import SimpleEditor from '$lib/components/SimpleEditor.svelte'
 	import { isCloudHosted } from '$lib/cloud'
 	import Tooltip from '$lib/components/Tooltip.svelte'
-	import DarkModeObserver from '$lib/components/DarkModeObserver.svelte'
 	import ResourcePicker from '$lib/components/ResourcePicker.svelte'
 	import ItemPicker from '../../ItemPicker.svelte'
 	import { Popover } from '$lib/components/meltComponents'
@@ -256,7 +255,6 @@
 		drawer.closeDrawer()
 	}
 	let drawer: Drawer
-	let darkMode = false
 
 	let dirtyPath = false
 
@@ -274,8 +272,6 @@
 		readOnlyMode={false}
 	/>
 {/if}
-
-<DarkModeObserver bind:darkMode />
 
 <Drawer size="700px" bind:this={drawer}>
 	<DrawerContent
