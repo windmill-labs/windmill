@@ -696,10 +696,24 @@
 
 		const uuids: string[] = []
 		for (const job of selectedJobs) {
+			const kind = job.job_kind
+			if (kind !== 'script' && kind !== 'flow') continue
+			const path = job.script_path
+			if (!path) continue
 			JobService.getJobArgs({
 				id: job.id,
 				workspace: $workspaceStore
-			}).then((args) => {
+			}).then((_untypedOriginalArgs) => {
+				const originalArgs = _untypedOriginalArgs as ScriptArgs
+				const inputTransform = batchReRunChangedArgs[kind][path]
+				let args: ScriptArgs = Object.fromEntries(
+					Object.entries(inputTransform).map(([argKey, argTransform]) => [
+						argKey,
+						// TODO: do transformation of original arg
+						argTransform.type === 'static' ? argTransform.value : originalArgs[argKey]
+					])
+				)
+
 				const commonArgs = {
 					workspace: $workspaceStore,
 					skipPreprocessor: true,
@@ -708,8 +722,7 @@
 					requestBody: (args as ScriptArgs) ?? {}
 				}
 
-				const path = job.script_path
-				if (job.job_kind === 'script') {
+				if (kind === 'script') {
 					const hash = job.script_hash
 					if (hash) {
 						JobService.runScriptByHash({ ...commonArgs, hash })
@@ -718,7 +731,7 @@
 						JobService.runScriptByPath({ ...commonArgs, path })
 						uuids.push(job.id)
 					}
-				} else if (job.job_kind === 'flow') {
+				} else if (kind === 'flow') {
 					if (path) {
 						JobService.runFlowByPath({ ...commonArgs, path })
 						uuids.push(job.id)
