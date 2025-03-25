@@ -29,7 +29,7 @@
 	import WorkerTagPicker from './WorkerTagPicker.svelte'
 	import Label from './Label.svelte'
 	import DateTimeInput from './DateTimeInput.svelte'
-	import MetadataGen from './copilot/MetadataGen.svelte'
+	import autosize from '$lib/autosize'
 
 	let optionTabSelected: 'error_handler' | 'recovery_handler' | 'success_handler' | 'retries' =
 		'error_handler'
@@ -682,15 +682,11 @@
 					</Label>
 
 					<Label label="Description">
-						<MetadataGen
-							bind:content={description}
-							promptConfigName='description'
-							class="w-full"
-							elementType="textarea"
-							elementProps={{
-								id: 'inp',
-								placeholder: 'What this schedule does and how to use it'
-							}}
+						<textarea
+							rows="4"
+							use:autosize
+							bind:value={description}
+							placeholder="What this schedule does and how to use it"
 						/>
 					</Label>
 				</div>
