@@ -1,10 +1,14 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n            UPDATE \n                http_trigger \n            SET \n                script_path = $1, \n                path = $2, \n                is_flow = $3, \n                http_method = $4,\n                static_asset_config = $5, \n                edited_by = $6, \n                email = $7, \n                is_async = $8, \n                authentication_method = $9, \n                edited_at = now(), \n                is_static_website = $10\n            WHERE \n                workspace_id = $11 AND \n                path = $12\n            ",
+  "query": "\n            UPDATE \n                http_trigger \n            SET \n                workspaced_route = $1,\n                wrap_body = $2,\n                raw_string = $3,\n                authentication_resource_path = $4,\n                script_path = $5, \n                path = $6, \n                is_flow = $7, \n                http_method = $8, \n                static_asset_config = $9, \n                edited_by = $10, \n                email = $11, \n                is_async = $12, \n                authentication_method = $13, \n                edited_at = now(), \n                is_static_website = $14\n            WHERE \n                workspace_id = $15 AND \n                path = $16\n            ",
   "describe": {
     "columns": [],
     "parameters": {
       "Left": [
+        "Bool",
+        "Bool",
+        "Bool",
+        "Varchar",
         "Varchar",
         "Varchar",
         "Bool",
@@ -48,5 +52,5 @@
     },
     "nullable": []
   },
-  "hash": "2bd0925d95c4fd75227f03954156bfd89e4b81c24d62aa6eed2470b3222fee85"
+  "hash": "dd06bdc09968add6a7c09f124f1f9b717990371d98e0784e96eb31cfdd17885a"
 }
