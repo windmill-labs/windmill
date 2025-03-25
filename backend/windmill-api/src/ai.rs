@@ -472,9 +472,9 @@ async fn proxy(
             let (resource, ai_provider, save_to_cache) = if let Some(resource_path) =
                 forced_resource_path
             {
-                // guess the provider from the resource type
-                let record = sqlx::query!(
-                    "SELECT value, resource_type FROM resource WHERE path = $1 AND workspace_id = $2",
+                // forced resource path, get the resource directly
+                let resource = sqlx::query_scalar!(
+                    "SELECT value FROM resource WHERE path = $1 AND workspace_id = $2",
                     &resource_path,
                     &w_id
                 )
@@ -486,11 +486,7 @@ async fn proxy(
                     ))
                 })?;
 
-                (
-                    record.value,
-                    AIProvider::try_from(record.resource_type.as_str())?,
-                    false,
-                )
+                (resource, provider, false)
             } else {
                 let ai_config = sqlx::query_scalar!(
                     "SELECT ai_config FROM workspace_settings WHERE workspace_id = $1",

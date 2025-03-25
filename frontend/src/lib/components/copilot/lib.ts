@@ -389,7 +389,7 @@ export async function getNonStreamingCompletion(
 	messages: ChatCompletionMessageParam[],
 	abortController: AbortController,
 	testOptions?: {
-		apiKey?: string // testing API KEY directly from the frontend
+		apiKey?: string // testing API KEY using the global ai proxy
 		resourcePath?: string // testing resource path passed as a header to the backend proxy
 		forceModelProvider: AIProviderModel
 	}
