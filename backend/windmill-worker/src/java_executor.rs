@@ -131,14 +131,13 @@ pub async fn resolve<'a>(
             .skip(pos + 1)
             .map_while(|x| {
                 if x.starts_with("//") {
-                    Some(x.trim().to_owned())
+                    Some(x.replace("//", "").trim().to_owned())
                 } else {
                     None
                 }
             })
             .collect::<Vec<String>>()
             .join("\n")
-            .replace("//", "")
     } else {
         "".to_owned()
         // Default packages.
