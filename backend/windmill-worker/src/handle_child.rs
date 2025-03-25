@@ -103,6 +103,7 @@ pub async fn handle_child(
     custom_timeout: Option<i32>,
     sigterm: bool,
     occupancy_metrics: &mut Option<&mut OccupancyMetrics>,
+    // Do not print logs to output, but instead save to string.
     pipe_stdout: Option<&mut String>,
 ) -> error::Result<()> {
     let start = Instant::now();

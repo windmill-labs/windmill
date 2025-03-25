@@ -351,6 +351,7 @@ impl PyVersion {
             None,
             false,
             occupancy_metrics,
+            None,
         )
         .await
     }
@@ -645,6 +646,7 @@ pub async fn uv_pip_compile(
             None,
             false,
             occupancy_metrics,
+            None,
         )
         .await
         .map_err(|e| {
@@ -1138,6 +1140,7 @@ mount {{
         job.timeout,
         false,
         &mut Some(occupancy_metrics),
+        None,
     )
     .await?;
 

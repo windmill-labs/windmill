@@ -164,6 +164,7 @@ pub async fn generate_cargo_lockfile(
         None,
         false,
         &mut Some(occupancy_metrics),
+        None,
     )
     .await?;
 
@@ -226,6 +227,7 @@ pub async fn build_rust_crate(
         None,
         false,
         &mut Some(occupancy_metrics),
+        None,
     )
     .await?;
     append_logs(job_id, w_id, "\n\n", db).await;
@@ -407,6 +409,7 @@ pub async fn handle_rust_job(
         job.timeout,
         false,
         &mut Some(occupancy_metrics),
+        None,
     )
     .await?;
     read_result(job_dir).await

@@ -170,6 +170,7 @@ async fn install_galaxy_collections(
         None,
         false,
         &mut Some(occupancy_metrics),
+        None,
     )
     .await?;
 
