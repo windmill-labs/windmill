@@ -45,9 +45,12 @@
 
 	let jobs: Job[] | undefined
 	let selectedIds: string[] = []
-	// TODO: more efficient data structure
-	$: selectedJobs = jobs?.filter((j) => selectedIds.includes(j.id))
 	let selectedWorkspace: string | undefined = undefined
+
+	// TODO: more efficient way to get selected jobs
+	let selectedJobs: Job[] = []
+	const findSelectedJobs = () => jobs?.filter((j) => selectedIds.includes(j.id))
+	$: selectedIds && (selectedJobs = findSelectedJobs() ?? [])
 
 	// All Filters
 	// Filter by
