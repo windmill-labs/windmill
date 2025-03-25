@@ -195,7 +195,7 @@
 					workspace: $workspaceStore!,
 					id: previousJobId[0].id
 				})
-				if (getJobResult.result) {
+				if ('result' in getJobResult) {
 					$flowStateStore[module.id] = {
 						...($flowStateStore[module.id] ?? {}),
 						previewResult: getJobResult.result,
