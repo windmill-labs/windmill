@@ -16,7 +16,6 @@ use std::{
     sync::{atomic::AtomicBool, Arc},
 };
 use tokio::sync::RwLock;
-use uuid::Uuid;
 use windmill_macros::annotations;
 
 use crate::{
@@ -511,7 +510,6 @@ pub async fn save_cache(
     local_cache_path: &str,
     _remote_cache_path: &str,
     origin: &str,
-    // If provided, will treat `origin` as a path and name will be inside option. Then tar and cache tar
     is_dir: bool,
 ) -> crate::error::Result<String> {
     let mut _cached_to_s3 = false;
@@ -529,7 +527,7 @@ pub async fn save_cache(
                 local_cache_path
                     .split("/")
                     .last()
-                    .unwrap_or(&Uuid::new_v4().to_string())
+                    .unwrap_or(&uuid::Uuid::new_v4().to_string())
             );
             let tar_file = std::fs::File::create(&tar_path)?;
             let mut tar = tar::Builder::new(tar_file);
