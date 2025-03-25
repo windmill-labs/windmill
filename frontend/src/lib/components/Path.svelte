@@ -340,7 +340,8 @@
 
 	$: pathUsageInFlowsPromise =
 		(kind == 'script' || kind == 'flow') &&
-		!!$workspaceStore &&
+		$workspaceStore &&
+		initialPath &&
 		FlowService.listFlowPathsFromWorkspaceRunnable({
 			workspace: $workspaceStore,
 			path: initialPath,
@@ -349,7 +350,8 @@
 
 	$: pathUsageInAppsPromise =
 		(kind == 'script' || kind == 'flow') &&
-		!!$workspaceStore &&
+		$workspaceStore &&
+		initialPath &&
 		AppService.listAppPathsFromWorkspaceRunnable({
 			workspace: $workspaceStore,
 			path: initialPath,
@@ -358,7 +360,8 @@
 
 	$: pathUsageInScriptsPromise =
 		kind == 'script' &&
-		!!$workspaceStore &&
+		$workspaceStore &&
+		initialPath &&
 		ScriptService.listScriptPathsFromWorkspaceRunnable({
 			workspace: $workspaceStore,
 			path: initialPath
