@@ -14,15 +14,15 @@
 	import TestJobLoader from './TestJobLoader.svelte'
 	import JobProgressBar from '$lib/components/jobs/JobProgressBar.svelte'
 	import { createEventDispatcher, onDestroy, onMount } from 'svelte'
-	import { Button } from './common'
+	import { Button, RunButton } from './common'
 	import SplitPanesWrapper from './splitPanes/SplitPanesWrapper.svelte'
-	import WindmillIcon from './icons/WindmillIcon.svelte'
+	//import WindmillIcon from './icons/WindmillIcon.svelte'
 	import * as Y from 'yjs'
 	import { scriptLangToEditorLang } from '$lib/scripts'
 	import { WebsocketProvider } from 'y-websocket'
 	import Modal from './common/modal/Modal.svelte'
 	import DiffEditor from './DiffEditor.svelte'
-	import { Clipboard, CornerDownLeft, Github, Play } from 'lucide-svelte'
+	import { Clipboard, Github } from 'lucide-svelte'
 	import { setLicense } from '$lib/enterpriseUtils'
 	import type { ScriptEditorWhitelabelCustomUi } from './custom_ui'
 	import Tabs from './common/tabs/Tabs.svelte'
@@ -31,6 +31,7 @@
 	import CaptureTable from '$lib/components/triggers/CaptureTable.svelte'
 	import CaptureButton from './triggers/CaptureButton.svelte'
 	import { setContext } from 'svelte'
+	import CaptureIcon from './triggers/CaptureIcon.svelte'
 
 	// Exported
 	export let schema: Schema | any = emptySchema()
@@ -92,6 +93,8 @@
 	let yContent: Y.Text | undefined = undefined
 	let peers: { name: string }[] = []
 	let showCollabPopup = false
+	let captureItems: Item[] = []
+	let cancelLoading = false
 
 	const url = new URL(window.location.toString())
 	let initialCollab = /true|1/i.test(url.searchParams.get('collab') ?? '0')
@@ -272,11 +275,16 @@
 
 <TestJobLoader
 	on:done={loadPastTests}
+	on:cancel-loading={() => (cancelLoading = true)}
 	bind:scriptProgress
 	bind:this={testJobLoader}
 	bind:isLoading={testIsLoading}
 	bind:job={testJob}
 />
+
+{#if customUi?.previewPanel?.disableTriggerButton !== true}
+	<CaptureButton on:openTriggers hidden bind:items={captureItems} />
+{/if}
 
 <svelte:window on:keydown={onKeyDown} />
 
@@ -406,63 +414,17 @@
 				{/if}
 
 				<div class="flex justify-center pt-1">
-					{#if testIsLoading}
-						<Button on:click={testJobLoader?.cancelJob} btnClasses="w-full" color="red" size="xs">
-							<WindmillIcon
-								white={true}
-								class="mr-2 text-white"
-								height="16px"
-								width="20px"
-								spin="fast"
-							/>
-							Cancel
-						</Button>
-					{:else if customUi?.previewPanel?.disableTriggerButton !== true}
-						<div class="flex flex-row divide-x divide-gray-800 dark:divide-gray-300 items-stretch">
-							<Button
-								color="dark"
-								on:click={() => {
-									runTest()
-								}}
-								btnClasses="w-full rounded-r-none"
-								size="xs"
-								startIcon={{
-									icon: Play,
-									classes: 'animate-none'
-								}}
-								shortCut={{ Icon: CornerDownLeft, hide: testIsLoading }}
-							>
-								{#if testIsLoading}
-									Running
-								{:else}
-									Test
-								{/if}
-							</Button>
-							<CaptureButton on:openTriggers />
-						</div>
-					{:else}
-						<div class="flex flex-row divide-x divide-gray-800 dark:divide-gray-300 items-stretch">
-							<Button
-								color="dark"
-								on:click={() => {
-									runTest()
-								}}
-								btnClasses="w-full"
-								size="xs"
-								startIcon={{
-									icon: Play,
-									classes: 'animate-none'
-								}}
-								shortCut={{ Icon: CornerDownLeft, hide: testIsLoading }}
-							>
-								{#if testIsLoading}
-									Running
-								{:else}
-									Test
-								{/if}
-							</Button>
-						</div>
-					{/if}
+					<RunButton
+						on:cancel={testJobLoader?.cancelJob}
+						on:run={() => runTest()}
+						{testIsLoading}
+						bind:dropdownItems={captureItems}
+						bind:cancelLoading
+					>
+						<svelte:fragment slot="dropdownIcon">
+							<CaptureIcon variant="redDot" />
+						</svelte:fragment>
+					</RunButton>
 				</div>
 				<Splitpanes horizontal class="!max-h-[calc(100%-43px)]">
 					<Pane size={33}>

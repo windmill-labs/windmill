@@ -527,7 +527,7 @@
 				{#if !forceCancel}
 					<Button
 						color="red"
-						size="md"
+						size="sm"
 						startIcon={{ icon: TimerOff }}
 						on:click|once={() => {
 							if (job?.id) {
@@ -543,7 +543,7 @@
 				{:else}
 					<Button
 						color="red"
-						size="md"
+						size="sm"
 						startIcon={{ icon: TimerOff }}
 						on:click|once={() => {
 							if (job?.id) {
@@ -580,6 +580,7 @@
 							restartFlow(job?.id, selectedJobStep, 0)
 						}}
 						startIcon={{ icon: RefreshCw }}
+						size="sm"
 					>
 						Re-start from
 						<Badge baseClass="ml-1" color="indigo">
