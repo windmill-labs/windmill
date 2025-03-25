@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT elem\n        FROM workspace_settings,\n        LATERAL jsonb_array_elements(git_app_installations) AS elem\n        WHERE workspace_id = $1\n          AND (elem->>'installation_id')::bigint = $2\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "elem",
+        "type_info": "Jsonb"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "4e3469185637ad8f06673261bfae1b38c30f7d2689baf647ea4dc6b398c3a651"
+}
