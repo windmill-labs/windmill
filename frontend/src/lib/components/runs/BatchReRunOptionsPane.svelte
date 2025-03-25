@@ -1,3 +1,9 @@
+<script lang="ts" module>
+	export type ChangedArgsRecord = {
+		[kind in 'flow' | 'script']: { [path: string]: { [property: string]: InputTransform } }
+	}
+</script>
+
 <script lang="ts">
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import PanelSection from '../apps/editor/settingsPanel/common/PanelSection.svelte'
@@ -13,11 +19,18 @@
 	import { buildExtraLibForBatchReruns } from '$lib/components/jobs/batchReruns'
 	import { pluralize } from '$lib/utils'
 
-	type ChangedArgsRecord = {
-		[kind in 'flow' | 'script']: { [path: string]: { [property: string]: InputTransform } }
-	}
-
-	const { selectedJobs }: { selectedJobs: Job[] } = $props()
+	const {
+		selectedJobs,
+		changedArgs,
+		onChangeArg
+	}: {
+		selectedJobs: Job[]
+		changedArgs: ChangedArgsRecord
+		onChangeArg: (
+			tab: { path: string; kind: 'flow' | 'script'; propertyName },
+			newArg: InputTransform
+		) => void
+	} = $props()
 
 	setContext<PropPickerContext>('PropPickerContext', {
 		flowPropPickerConfig: writable<FlowPropPickerConfig | undefined>(undefined),
@@ -159,11 +172,6 @@
 		}
 		return map
 	})
-
-	const changedArgs: ChangedArgsRecord = $state({
-		flow: {},
-		script: {}
-	})
 </script>
 
 <div class="flex-1 flex flex-col">
@@ -228,7 +236,14 @@
 									on:change={(e) => {
 										if (!selected) return
 										const arg = e.detail.arg as InputTransform
-										;(changedArgs[selected.kind][selected.script_path] ??= {})[propertyName] = arg
+										onChangeArg(
+											{
+												kind: selected.kind,
+												path: selected.script_path,
+												propertyName
+											},
+											arg
+										)
 									}}
 									argName={propertyName}
 									{schema}

@@ -42,7 +42,9 @@
 	import type { RunsSelectionMode } from '$lib/components/runs/RunsBatchActionsDropdown.svelte'
 	import RunsBatchActionsDropdown from '$lib/components/runs/RunsBatchActionsDropdown.svelte'
 	import { isJobSelectable } from '$lib/utils'
-	import BatchReRunOptionsPane from '$lib/components/runs/BatchReRunOptionsPane.svelte'
+	import BatchReRunOptionsPane, {
+		type ChangedArgsRecord
+	} from '$lib/components/runs/BatchReRunOptionsPane.svelte'
 
 	let jobs: Job[] | undefined
 	let selectedIds: string[] = []
@@ -52,6 +54,8 @@
 	let selectedJobs: Job[] = []
 	const findSelectedJobs = () => jobs?.filter((j) => selectedIds.includes(j.id))
 	$: selectedIds && (selectedJobs = findSelectedJobs() ?? [])
+
+	let batchReRunChangedArgs: ChangedArgsRecord = { flow: {}, script: {} }
 
 	// All Filters
 	// Filter by
@@ -715,7 +719,6 @@
 						uuids.push(job.id)
 					}
 				} else if (job.job_kind === 'flow') {
-					// Running specific flow versions is not supported
 					if (path) {
 						JobService.runFlowByPath({ ...commonArgs, path })
 						uuids.push(job.id)
@@ -1080,7 +1083,13 @@
 				</Pane>
 				<Pane size={40} minSize={15} class="border-t flex flex-col">
 					{#if selectionMode === 're-run'}
-						<BatchReRunOptionsPane selectedJobs={selectedJobs ?? []} />
+						<BatchReRunOptionsPane
+							selectedJobs={selectedJobs ?? []}
+							changedArgs={batchReRunChangedArgs}
+							onChangeArg={({ kind, path, propertyName }, newArg) => {
+								;(batchReRunChangedArgs[kind][path] ??= {})[propertyName] = newArg
+							}}
+						/>
 					{:else if selectedIds.length === 1}
 						{#if selectedIds[0] === '-'}
 							<div class="p-4">There is no information available for this job</div>
