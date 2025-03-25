@@ -216,7 +216,7 @@
 				</svelte:fragment>
 			</Popover>
 			{#each selectedContext as element}
-				{@const contextElement = availableContext.find((c) => c.type === element.type)}
+				{@const contextElement = availableContext.find((c) => c.type === element.type && c.title === element.title)}
 				{#if contextElement}
 					<ContextElementBadge
 						{contextElement}
