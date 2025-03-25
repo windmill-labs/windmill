@@ -1,6 +1,5 @@
 import {
 	ScriptService,
-	type AIProvider,
 	type FlowModule,
 	type InputTransform,
 	type PathScript,
@@ -254,8 +253,7 @@ export async function stepCopilot(
 		  })
 		| undefined,
 	isFirstInLoop: boolean,
-	abortController: AbortController,
-	aiProvider: AIProvider
+	abortController: AbortController
 ) {
 	if (module.source !== 'custom') {
 		throw new Error('Not a custom module')
@@ -310,8 +308,7 @@ export async function stepCopilot(
 			}
 		],
 		deltaCodeStore,
-		abortController,
-		aiProvider
+		abortController
 	)
 	return code
 }
@@ -323,8 +320,7 @@ export async function glueCopilot(
 		value: RawScript | PathScript
 	},
 	isFirstInLoop: boolean,
-	abortController: AbortController,
-	aiProvider: AIProvider
+	abortController: AbortController
 ) {
 	const { prevCode, prevLang } = await getPreviousStepContent(pastModule, workspace)
 
@@ -359,8 +355,7 @@ export async function glueCopilot(
 					)
 			}
 		],
-		abortController,
-		aiProvider
+		abortController
 	)
 
 	const matches = response.matchAll(/([a-zA-Z_0-9.]+): (.+)/g)

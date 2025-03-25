@@ -65,7 +65,7 @@
       },
       {
         "ordinal": 12,
-        "name": "ai_resource",
+        "name": "ai_config",
         "type_info": "Jsonb"
       },
       {
@@ -145,16 +145,6 @@
       },
       {
         "ordinal": 28,
-        "name": "ai_models",
-        "type_info": "VarcharArray"
-      },
-      {
-        "ordinal": 29,
-        "name": "code_completion_model",
-        "type_info": "Varchar"
-      },
-      {
-        "ordinal": 30,
         "name": "git_app_installations",
         "type_info": "Jsonb"
       }
@@ -192,8 +182,6 @@
       true,
       true,
       true,
-      true,
-      false,
       true,
       false
     ]

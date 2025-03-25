@@ -31,7 +31,7 @@
 	$: copilotStatus && copilotPopover?.refresh()
 </script>
 
-{#if $copilotInfo.exists_ai_resource}
+{#if $copilotInfo.enabled}
 	<ManualPopover bind:this={copilotPopover}>
 		<Button
 			size="xs"

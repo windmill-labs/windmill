@@ -1163,3 +1163,9 @@ export function isObjectTooBig(obj: any): boolean {
 	const { totalItems, maxDepth } = analyze(obj)
 	return maxDepth > MAX_DEPTH || totalItems > MAX_ITEMS
 }
+
+export function localeConcatAnd(items: string[]) {
+	if (!items.length) return ''
+	if (items.length === 1) return items[0]
+	return items.slice(0, -1).join(', ') + ' and ' + items[items.length - 1]
+}

@@ -10,7 +10,10 @@ use windmill_parser_sql::{SANITIZED_ENUM_STR, SANITIZED_RAW_STRING_STR};
 /// a number, that can contain underscores
 fn sanitize_identifier(arg: &Arg, input: &str) -> Result<(), error::Error> {
     if input.is_empty() {
-        return Err(error::Error::BadRequest(format!("Interpolated argument `{}` cannot be empty", arg.name)));
+        return Err(error::Error::BadRequest(format!(
+            "Interpolated argument `{}` cannot be empty",
+            arg.name
+        )));
     }
     if input
         .chars()
