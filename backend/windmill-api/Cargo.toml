@@ -11,7 +11,7 @@ path = "src/lib.rs"
 [features]
 default = []
 enterprise = ["windmill-queue/enterprise", "windmill-audit/enterprise", "windmill-git-sync/enterprise", "windmill-common/enterprise"]
-stripe = ["dep:async-stripe"]
+stripe = []
 enterprise_saml = ["dep:samael"]
 benchmark = []
 embedding = ["dep:tinyvector", "dep:hf-hub", "dep:tokenizers", "dep:candle-core", "dep:candle-transformers", "dep:candle-nn", "dep:half"]
@@ -88,7 +88,6 @@ sha2.workspace = true
 sha1 = { workspace = true, optional = true }
 constant_time_eq = { workspace = true, optional = true }
 urlencoding.workspace = true
-async-stripe = { workspace = true, optional = true }
 lazy_static.workspace = true
 prometheus = { workspace = true, optional = true }
 async_zip = { workspace = true, optional = true }
