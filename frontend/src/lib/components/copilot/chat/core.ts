@@ -421,7 +421,7 @@ export async function chatRequest(
 	messages: ChatCompletionMessageParam[],
 	abortController: AbortController,
 	lang: ScriptLang | 'bunnative',
-	dbsPath: string[],
+	useDbTools: boolean,
 	onNewToken: (token: string) => void
 ) {
 	const toolDefs: ChatCompletionTool[] = []
@@ -435,7 +435,7 @@ export async function chatRequest(
 	) {
 		toolDefs.push(RESOURCE_TYPE_FUNCTION_DEF)
 	}
-	if (dbsPath.length > 0) {
+	if (useDbTools) {
 		toolDefs.push(DB_SCHEMA_FUNCTION_DEF)
 	}
 	try {

@@ -137,6 +137,8 @@
 			onSelect={(element) => {
 				handleContextSelection(element)
 			}}
+			showAllAvailable={true}
+			stringSearch={contextTooltipWord.slice(1)}
 		/>
 	</div>
 {/if} 
