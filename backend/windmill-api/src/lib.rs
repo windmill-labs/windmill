@@ -112,6 +112,7 @@ mod sqs_triggers_ee;
 #[cfg(feature = "enterprise")]
 mod git_sync_ee;
 mod static_assets;
+#[cfg(feature = "stripe")]
 mod stripe_ee;
 mod teams_ee;
 mod tracing_init;
