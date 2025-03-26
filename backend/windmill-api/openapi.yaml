@@ -4953,6 +4953,53 @@ paths:
                     type: string
                   lock_error_logs:
                     type: string
+  
+
+  /w/{workspace}/jobs/list_selected_jobs_schemas:
+    # We use post because sending a huge array as a query param can produce
+    # URLs that may be too long
+    post:
+      summary: list selected jobs script/flow schemas grouped by (kind, path, hash)
+      operationId: listSelectedJobsSchema
+      tags:
+        - job
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        description: script args
+        required: true
+        content:
+          application/json:
+            schema:
+              type: array
+              items:
+                type: string
+                format: uuid
+      responses:
+        "200":
+          description: result
+          content:
+            text/plain:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    kind:
+                      type: string
+                      enum: ["script", "flow"]
+                    script_hash:
+                      type: string
+                    script_path:
+                      type: string
+                    schema:
+                      type: object
+                    count:
+                      type: number
+                  required:
+                    - kind
+                    - schema
+                    - count
 
   /w/{workspace}/jobs/run/p/{path}:
     post:

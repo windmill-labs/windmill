@@ -203,6 +203,12 @@ pub fn workspaced_service() -> Router {
             "/list",
             get(list_jobs).layer(Extension(api_list_jobs_query_duration)),
         )
+        .route(
+            "/list_selected_jobs_schemas",
+            // We use post because sending a huge array as a query param can produce
+            // URLs that may be too long
+            post(list_selected_jobs_schemas),
+        )
         .route("/queue/list", get(list_queue_jobs))
         .route("/queue/count", get(count_queue_jobs))
         .route("/queue/list_filtered_uuids", get(list_filtered_uuids))
@@ -642,6 +648,59 @@ async fn get_flow_job_debug_info(
             id
         )))
     }
+}
+
+#[derive(Debug, sqlx::FromRow, Serialize)]
+struct ListedSelectedJobsSchemasRow {
+    pub kind: JobKind,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub script_hash: Option<ScriptHash>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub script_path: Option<String>,
+    pub count: i64,
+    pub schema: serde_json::Value,
+}
+
+async fn list_selected_jobs_schemas(
+    authed: ApiAuthed,
+    Extension(user_db): Extension<UserDB>,
+    Path(w_id): Path<String>,
+    Json(uuids): Json<Vec<Uuid>>,
+) -> error::Result<Response> {
+    let mut tx = user_db.begin(&authed).await?;
+
+    let results = sqlx::query_as!(
+        ListedSelectedJobsSchemasRow,
+        r#"SELECT
+            'script' AS "kind!: JobKind",
+            j.runnable_id AS "script_hash: _",
+            j.runnable_path AS script_path,
+            COUNT(*) AS "count!",
+            ANY_VALUE(s.schema) AS schema
+        FROM v2_job j
+        JOIN script s ON s.hash = j.runnable_id
+        WHERE j.kind = 'script' AND j.workspace_id = $1 AND j.id = ANY($2)
+        GROUP BY runnable_id, runnable_path
+        UNION ALL
+        SELECT
+            'flow' AS "kind!: JobKind",
+            j.runnable_id AS "script_hash: _",
+            j.runnable_path AS script_path,
+            COUNT(*) AS "count!",
+            ANY_VALUE(f.schema) AS schema
+        FROM v2_job j
+        JOIN flow_version f ON f.id = j.runnable_id
+        WHERE j.kind = 'flow' AND j.workspace_id = $1 AND j.id = ANY($2)
+        GROUP BY runnable_id, runnable_path;"#,
+        &w_id,
+        &uuids
+    )
+    .fetch_all(&mut *tx)
+    .await?;
+
+    tx.commit().await?;
+
+    Ok(Json(results).into_response())
 }
 
 #[derive(Deserialize)]
