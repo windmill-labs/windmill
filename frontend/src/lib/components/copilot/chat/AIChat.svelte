@@ -107,12 +107,14 @@
 				resourceType: SQLSchemaLanguages.join(',')
 			})
 			for (const d of dbs) {
-				availableContext.push({
-					type: 'db',
-					title: d.path,
-					// If the db is already fetched, add the schema to the context
-					...(db && d.path === db.resource ? { schema: db.schema } : {})
-				})
+				if (!providerModel?.model.endsWith('/thinking')) {
+					availableContext.push({
+						type: 'db',
+						title: d.path,
+						// If the db is already fetched, add the schema to the context
+						...(db && d.path === db.resource ? { schema: db.schema } : {})
+					})
+				}
 			}
 		}
 
@@ -129,7 +131,7 @@
 
  		if (db) {
 			// If the db is already fetched, add it to the selected context
-			if (!selectedContext.find((c) => c.type === 'db' && c.title === db.resource)) {
+			if (!selectedContext.find((c) => c.type === 'db' && c.title === db.resource) && !providerModel?.model.endsWith('/thinking')) {
 				selectedContext = [
 					...selectedContext,
 					{
