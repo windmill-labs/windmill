@@ -249,7 +249,7 @@
 					on:toggleSuspend={() => selectAdvanced('suspend')}
 					on:toggleSleep={() => selectAdvanced('sleep')}
 					on:toggleMock={() => selectAdvanced('mock')}
-					on:toggleRetry={() => selectAdvanced('retries')}
+					on:togglePin={() => (selected = 'test')}
 					on:toggleConcurrency={() => selectAdvanced('runtime')}
 					on:toggleCache={() => selectAdvanced('cache')}
 					on:toggleStopAfterIf={() => selectAdvanced('early-stop')}
