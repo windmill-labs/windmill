@@ -643,7 +643,7 @@
 							Try to <a href="https://www.windmill.dev/docs/advanced/dependencies_in_python#pinning-dependencies-and-requirements" target="_blank" rel="noopener noreferrer">manually pin requirements</a>
 						</Alert>
 					{/if}
-					{#if (result?.error?.message?.startsWith("execution error:\npip compile failed"))}
+					{#if result?.error?.message?.startsWith("execution error:\npip compile failed")}
 						<Alert size="xs" type="info" title="Seeing an odd resolution error?">
 							Python requirements inference may be inaccurate. This is due to the fact that requirement names can vary from package names they provide.
 							Try to <a href="https://www.windmill.dev/docs/advanced/dependencies_in_python#pinning-dependencies-and-requirements" target="_blank" rel="noopener noreferrer">manually pin requirements</a>
