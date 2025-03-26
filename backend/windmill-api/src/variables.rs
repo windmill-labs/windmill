@@ -703,6 +703,9 @@ pub async fn get_variable_or_self(path: String, db: &DB, w_id: &str) -> Result<S
 
         Ok(value)
     } else {
-        Err(Error::NotFound(format!("Variable {} not found", path)))
+        Err(Error::NotFound(format!(
+            "Variable not found when resolving `$var:{}`",
+            path
+        )))
     }
 }
