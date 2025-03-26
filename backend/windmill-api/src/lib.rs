@@ -83,6 +83,8 @@ mod postgres_triggers;
 
 #[cfg(feature = "enterprise")]
 mod apps_ee;
+#[cfg(feature = "enterprise")]
+mod git_sync_ee;
 #[cfg(feature = "parquet")]
 mod job_helpers_ee;
 pub mod job_metrics;
@@ -110,6 +112,7 @@ mod smtp_server_ee;
 #[cfg(all(feature = "enterprise", feature = "sqs_trigger"))]
 mod sqs_triggers_ee;
 mod static_assets;
+#[cfg(all(feature = "stripe", feature = "enterprise"))]
 mod stripe_ee;
 mod teams_ee;
 mod tracing_init;
@@ -487,6 +490,7 @@ pub async fn run_server(
                 .nest("/apps", apps::global_service().layer(cors.clone()))
                 .nest("/schedules", schedule::global_service())
                 .nest("/embeddings", embeddings::global_service())
+                .nest("/ai", ai::global_service())
                 .route_layer(from_extractor::<ApiAuthed>())
                 .route_layer(from_extractor::<users::Tokened>())
                 .nest("/jobs", jobs::global_root_service())
@@ -544,6 +548,24 @@ pub async fn run_server(
                     "/w/:workspace_id/jobs/slack_approval/:job_id",
                     get(slack_approvals::request_slack_approval),
                 )
+                .nest("/w/:workspace_id/github_app", {
+                    #[cfg(feature = "enterprise")]
+                    {
+                        git_sync_ee::workspaced_service()
+                    }
+
+                    #[cfg(not(feature = "enterprise"))]
+                    Router::new()
+                })
+                .nest("/github_app", {
+                    #[cfg(feature = "enterprise")]
+                    {
+                        git_sync_ee::global_service()
+                    }
+
+                    #[cfg(not(feature = "enterprise"))]
+                    Router::new()
+                })
                 .nest(
                     "/w/:workspace_id/resources_u",
                     resources::public_service().layer(cors.clone()),

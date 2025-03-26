@@ -25,7 +25,6 @@
 		savePrompt()
 		genLoading = true
 		abortController = new AbortController()
-		const aiProvider = $copilotInfo.ai_provider
 		try {
 			const res = await getNonStreamingCompletion(
 				[
@@ -39,8 +38,7 @@
 						content: funcDesc
 					}
 				],
-				abortController,
-				aiProvider
+				abortController
 			)
 			dispatch('gen', { res: res, prompt: funcDesc })
 			funcDesc = ''
@@ -116,7 +114,7 @@
 	</svelte:fragment>
 	<svelte:fragment slot="content" let:close>
 		<div class="block text-primary p-4">
-			{#if $copilotInfo.exists_ai_resource}
+			{#if $copilotInfo.enabled}
 				<div class="flex flex-col gap-4">
 					<div class="flex w-96">
 						<input

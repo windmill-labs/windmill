@@ -50,7 +50,7 @@ lto = "thin"
 default = []
 enterprise = ["windmill-worker/enterprise", "windmill-queue/enterprise", "windmill-api/enterprise", "dep:windmill-autoscaling", "windmill-autoscaling/enterprise", "windmill-git-sync/enterprise", "windmill-common/prometheus", "windmill-common/enterprise"]
 enterprise_saml = ["windmill-api/enterprise_saml", "oauth2"]
-stripe = ["windmill-api/stripe", "enterprise"]
+stripe = ["windmill-api/stripe"]
 benchmark = ["windmill-api/benchmark", "windmill-worker/benchmark", "windmill-queue/benchmark", "windmill-common/benchmark"]
 loki = ["windmill-common/loki"]
 embedding = ["windmill-api/embedding"]
@@ -58,7 +58,7 @@ parquet = ["windmill-api/parquet", "windmill-common/parquet", "windmill-worker/p
 prometheus = ["windmill-common/prometheus", "windmill-api/prometheus", "windmill-worker/prometheus", "windmill-queue/prometheus", "dep:prometheus"]
 flow_testing = ["windmill-worker/flow_testing"]
 openidconnect = ["windmill-api/openidconnect"]
-cloud = ["windmill-queue/cloud", "windmill-worker/cloud"]
+cloud = ["windmill-queue/cloud", "windmill-worker/cloud", "windmill-common/cloud", "windmill-api/cloud"]
 jemalloc = ["windmill-common/jemalloc", "dep:tikv-jemallocator", "dep:tikv-jemalloc-sys", "dep:tikv-jemalloc-ctl"]
 tantivy = ["dep:windmill-indexer", "windmill-api/tantivy", "windmill-indexer/enterprise", "windmill-indexer/parquet", "windmill-common/tantivy", "enterprise", "parquet"]
 sqlx = ["windmill-worker/sqlx"]
@@ -268,11 +268,6 @@ serde_derive = "1.0.147"
 const_format = { version = "0.2", features = ["rust_1_64", "rust_1_51"] }
 dyn-iter = "0.2.0"
 rsa = "^0"
-async-stripe = { version = "0.39.1", features = [
-    "runtime-tokio-hyper",
-    "checkout",
-    "billing",
-] }
 async_zip = { version = "0.0.17", features = ["tokio", "tokio-fs", "deflate", "chrono"] }
 once_cell = "1.17.1"
 gosyn = "0.2.6"
