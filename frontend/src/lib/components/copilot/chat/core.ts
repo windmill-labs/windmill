@@ -400,7 +400,6 @@ async function callTool(
 			if (!args.resourcePath) {
 				throw new Error('Database path not provided')
 			}
-			console.log('calling tool to fetch db schema', args.resourcePath)
 			const resource = await ResourceService.getResource({
 				workspace: workspace,
 				path: args.resourcePath

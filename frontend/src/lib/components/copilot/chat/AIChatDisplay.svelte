@@ -59,8 +59,6 @@
 			provider: 'No provider'
 		}
 
-	$: console.log($copilotSessionModel, $copilotInfo.defaultModel, $copilotInfo.aiModels[0])
-
 	function addContextToSelection(contextElement: ContextElement) {
 		if (!selectedContext.find((c) => c.type === contextElement.type && c.title === contextElement.title)) {
 			selectedContext = [

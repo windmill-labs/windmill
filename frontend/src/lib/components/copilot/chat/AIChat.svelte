@@ -183,9 +183,6 @@
 	let displayMessages: DisplayMessage[] = []
 	let abortController: AbortController | undefined = undefined
 
-	$: console.log('availableContext', availableContext)
-	$: console.log(selectedContext)
-
 	async function sendRequest() {
 		if (!instructions.trim()) {
 			return
