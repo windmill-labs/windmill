@@ -60,7 +60,10 @@
 		}
 
 	function addContextToSelection(contextElement: ContextElement) {
-		if (!selectedContext.find((c) => c.type === contextElement.type && c.title === contextElement.title)) {
+		if (
+			!selectedContext.find((c) => c.type === contextElement.type && c.title === contextElement.title)
+			&& availableContext.find((c) => c.type === contextElement.type && c.title === contextElement.title)
+		) {
 			selectedContext = [
 				...selectedContext,
 				contextElement
