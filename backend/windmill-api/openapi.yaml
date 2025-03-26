@@ -1842,8 +1842,6 @@ paths:
                     type: boolean
                   plan:
                     type: string
-                  automatic_billing:
-                    type: boolean
                   customer_id:
                     type: string
                   webhook:
@@ -1875,7 +1873,6 @@ paths:
                   operator_settings:
                     $ref: "#/components/schemas/OperatorSettings"
                 required:
-                  - automatic_billing
                   - error_handler_muted_on_cancel
 
   /w/{workspace}/workspaces/get_deploy_to:
@@ -1936,48 +1933,14 @@ paths:
                     type: boolean
                   usage:
                     type: number
-                  seats:
-                    type: number
-                  automatic_billing:
-                    type: boolean
                   owner:
+                    type: string
+                  status:
                     type: string
                 required:
                   - premium
-                  - automatic_billing
                   - owner
-  /w/{workspace}/workspaces/set_automatic_billing:
-    post:
-      summary: set automatic billing
-      operationId: setAutomaticBilling
-      tags:
-        - workspace
-      parameters:
-        - $ref: "#/components/parameters/WorkspaceId"
-      requestBody:
-        description: automatic billing
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                automatic_billing:
-                  type: boolean
-                seats:
-                  type: number
-              required:
-                - automatic_billing
-
-      responses:
-        "200":
-          description: status
-          content:
-            text/plain:
-              schema:
-                type: string
-
-
+  
   /w/{workspace}/workspaces/threshold_alert:
     get:
       summary: get threshold alert info
