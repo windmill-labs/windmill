@@ -18,6 +18,8 @@
 	import { isObject } from '$lib/utils'
 	import { getHttpRoute } from './utils'
 	import RouteBodyTransformerOption from './RouteBodyTransformerOption.svelte'
+	import { isCloudHosted } from '$lib/cloud'
+	import Toggle from '$lib/components/Toggle.svelte'
 
 	export let initialTriggerPath: string | undefined = undefined
 	export let dirtyRoutePath: boolean = false
@@ -189,6 +191,23 @@
 				<div class="text-red-600 dark:text-red-400 text-2xs mt-1.5"
 					>{dirtyRoutePath ? routeError : ''}</div
 				>
+				{#if !capture_mode && !isCloudHosted()}
+					<div class="mt-1">
+						<Toggle
+							size="sm"
+							checked={workspaced_route}
+							on:change={() => {
+								workspaced_route = !workspaced_route
+								dirtyRoutePath = true
+							}}
+							options={{
+								right: 'Prefix with workspace',
+								rightTooltip:
+									'Prefixes the route with the workspace ID (e.g., {base_url}/api/r/{workspace_id}/{route}). Note: deploying the HTTP trigger to another workspace updates the route workspace prefix accordingly.'
+							}}
+						/>
+					</div>
+				{/if}
 			</div>
 			{#if capture_mode}
 				<RouteBodyTransformerOption bind:raw_string bind:wrap_body />

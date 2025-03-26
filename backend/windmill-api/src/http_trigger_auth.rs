@@ -624,8 +624,10 @@ impl AuthenticationMethod {
                 }
             }
             AuthenticationMethod::BasicAuth(BasicAuthAuthentication { username, password }) => {
-                let mut credentials_store =
-                    headers.try_get_webhook_header("Authorization")?.split(' ');
+                let mut credentials_store = headers
+                    .try_get_webhook_header("Authorization")
+                    .map_err(|_| AuthenticationError::UnauthorizedBasicHttpAuth)?
+                    .split(' ');
 
                 let _ = credentials_store
                     .next()
