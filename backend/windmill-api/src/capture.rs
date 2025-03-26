@@ -716,7 +716,7 @@ async fn http_payload(
     );
 
     let extra = Some(to_raw_value(&extra));
-
+    args.extra = None;
     insert_capture_payload(
         &db,
         &w_id,

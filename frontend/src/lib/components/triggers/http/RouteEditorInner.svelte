@@ -154,8 +154,8 @@
 			authentication_resource_path = ''
 			variable_path = ''
 			signature_options_type = 'custom_signature'
-			raw_string = false
-			wrap_body = false
+			raw_string = defaultValues?.raw_string ?? false
+			wrap_body = defaultValues?.wrap_body ?? false
 		} finally {
 			drawerLoading = false
 		}
