@@ -8,6 +8,9 @@
 	import type { Writable } from 'svelte/store'
 	import InsertModuleButton from '$lib/components/flows/map/InsertModuleButton.svelte'
 	import type { PropPickerContext } from '$lib/components/prop_picker'
+	import { schemaToObject } from '$lib/schema'
+	import type { Schema } from '$lib/common'
+	import type { FlowEditorContext } from '$lib/components/flows/types'
 
 	export let data: {
 		hasPreprocessor: boolean
@@ -26,8 +29,12 @@
 		selectedId: Writable<string | undefined>
 	}>('FlowGraphContext')
 
+	const { previewArgs, flowStore } =
+		getContext<FlowEditorContext | undefined>('FlowEditorContext') || {}
+
 	const propPickerContext = getContext<PropPickerContext>('PropPickerContext')
 	const pickablePropertiesFiltered = propPickerContext?.pickablePropertiesFiltered
+	const topFlowInput = schemaToObject($flowStore?.schema as Schema, $previewArgs ?? {})
 
 	function filterIterFromInput(inputJson: Record<string, any> | undefined): Record<string, any> {
 		if (!inputJson || typeof inputJson !== 'object') return {}
@@ -82,7 +89,7 @@
 		on:select={(e) => {
 			data.eventHandlers?.select(e.detail)
 		}}
-		inputJson={filteredInput}
+		inputJson={filteredInput ?? topFlowInput}
 		prefix="flow_input"
 		alwaysPluggable
 		cache={data.cache}
