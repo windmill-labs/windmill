@@ -637,7 +637,7 @@
 							team.
 						</Alert>
 					{/if}
-					{#if (language === 'python3' || result?.error.message.startsWith("exit code for \"python run\":")) && result?.error.message.includes("ImportError: cannot import name")}
+					{#if (language === 'python3' || result?.error?.message?.startsWith("exit code for \"python run\":")) && result?.error?.message?.includes("ImportError: cannot import name")}
 						<Alert size="xs" type="info" title="Seeing an odd import error?">
 							Python requirements inference may be inaccurate. This is due to the fact that requirement names can vary from package names they provide.
 							Try to <a href="https://www.windmill.dev/docs/advanced/dependencies_in_python#pinning-dependencies-and-requirements" target="_blank" rel="noopener noreferrer">manually pin requirements</a>
