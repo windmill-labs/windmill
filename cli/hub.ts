@@ -7,6 +7,8 @@ import { pushResourceType } from "./resource-type.ts";
 import { GlobalOptions } from "./types.ts";
 import { deepEqual } from "./utils.ts";
 
+const DEFAULT_HUB_BASE_URL = "https://hub.windmill.dev";
+
 export async function pull(opts: GlobalOptions) {
   const workspace = await resolveWorkspace(opts);
 
@@ -25,8 +27,8 @@ export async function pull(opts: GlobalOptions) {
 
   const hubBaseUrl =
     (await wmill.getGlobal({
-      key: "hubBaseUrl",
-    })) ?? "https://hub.windmill.dev";
+      key: "hub_base_url",
+    })) ?? DEFAULT_HUB_BASE_URL;
 
   const headers: Record<string, string> = {
     Accept: "application/json",
@@ -37,7 +39,17 @@ export async function pull(opts: GlobalOptions) {
     headers["X-uid"] = uid;
   }
 
-  const list: {
+  let preList = await fetch(hubBaseUrl + "/resource_types/list", {
+    headers,
+  }).then((r) => r.json() as Promise<{ id: number; name: string }[]>);
+
+  if (preList && preList.length === 0 && hubBaseUrl !== DEFAULT_HUB_BASE_URL) {
+    preList = await fetch(DEFAULT_HUB_BASE_URL + "/resource_types/list", {
+      headers,
+    }).then((r) => r.json() as Promise<{ id: number; name: string }[]>);
+  }
+
+  let list: {
     id: number;
     name: string;
     schema: string;
@@ -47,20 +59,15 @@ export async function pull(opts: GlobalOptions) {
     created_by: string;
     created_at: Date;
     comments: never[];
-  }[] = await fetch(hubBaseUrl + "/resource_types/list", {
-    headers,
-  })
-    .then((r) => r.json() as Promise<{ id: number; name: string }[]>)
-    .then((list: { id: number; name: string }[]) =>
-      list.map((x) =>
-        fetch(hubBaseUrl + "/resource_types/" + x.id + "/" + x.name, {
-          headers: {
-            Accept: "application/json",
-          },
-        })
-      )
+  }[] = await Promise.all(
+    preList.map((x) =>
+      fetch(hubBaseUrl + "/resource_types/" + x.id + "/" + x.name, {
+        headers: {
+          Accept: "application/json",
+        },
+      })
     )
-    .then((x) => Promise.all(x))
+  )
     .then((x) =>
       x.map((x) =>
         x.json().catch((e) => {

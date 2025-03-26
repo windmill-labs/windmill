@@ -3284,7 +3284,9 @@ pub async fn push<'c, 'd>(
             None,
         ),
         JobPayload::ScriptHub { path } => {
-            if path == "hub/7771/slack" || path == "hub/7836/slack" {
+            if path == "hub/7771/slack" || path == "hub/7836/slack" || path == "hub/9084/slack" {
+                // these scripts send app reports to slack
+                // they use the slack bot token and should therefore be run with permissions to access it
                 permissioned_as = SUPERADMIN_NOTIFICATION_EMAIL.to_string();
                 email = SUPERADMIN_NOTIFICATION_EMAIL;
             }
