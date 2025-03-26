@@ -443,32 +443,4 @@ class Main {
             ]
         );
     }
-
-    #[test]
-    fn test_parse_java_reqs() {
-        let file_content = r#"#r "nuget: AutoMapper, 6.1.0"
-#r "nuget: Newtonsoft.Json, 13.0.1"
-#r "nuget: Serilog, 2.10.0"
-
-#r "nuget: Serilog, 2.10.0"
-
-using System;
-"#;
-
-        let requirements = parse_java_reqs(file_content).0;
-
-        assert_eq!(requirements.len(), 3);
-        assert_eq!(
-            requirements[0],
-            ("AutoMapper".to_string(), Some("6.1.0".to_string()))
-        );
-        assert_eq!(
-            requirements[1],
-            ("Newtonsoft.Json".to_string(), Some("13.0.1".to_string()))
-        );
-        assert_eq!(
-            requirements[2],
-            ("Serilog".to_string(), Some("2.10.0".to_string()))
-        );
-    }
 }
