@@ -83,9 +83,7 @@
 	let hover = false
 	let outputPicker: OutputPickerInner | undefined = undefined
 	let connectingData: any | undefined = undefined
-	let lastJobId: string | undefined = undefined
-	let previewJob: any | undefined = undefined
-
+	let lastJob: any | undefined = undefined
 	const { viewport } = useSvelteFlow()
 
 	$: flowStateStore = flowEditorContext?.flowStateStore
@@ -107,20 +105,19 @@
 	function updateLastJob(flowStateStore: any | undefined) {
 		if (!flowStateStore || !id) return
 		if (flowStateStore[id]?.previewResult === 'never tested this far') {
-			previewJob = undefined
+			lastJob = undefined
 		} else {
-			previewJob = {
+			lastJob = {
 				id: flowStateStore[id]?.previewJobId ?? '',
 				result: flowStateStore[id]?.previewResult,
 				type: 'CompletedJob' as const,
 				workspace_id: flowStateStore[id]?.previewWorkspaceId ?? '',
 				success: flowStateStore[id]?.previewSuccess ?? false
 			}
-			lastJobId = flowStateStore[id]?.lastJobId ?? ''
 		}
 	}
 	$: updateLastJob($flowStateStore)
-	$: outputPicker && (outputPicker.setLastJobId(lastJobId), outputPicker.setPreviewJob(previewJob))
+	$: outputPicker && outputPicker.setLastJob(lastJob)
 </script>
 
 {#if deletable && id && editId}
