@@ -146,7 +146,7 @@ pub fn workspaced_service() -> Router {
         .route("/critical_alerts/mute", post(mute_critical_alerts))
         .route("/operator_settings", post(update_operator_settings));
 
-    #[cfg(feature = "stripe")]
+    #[cfg(all(feature = "stripe", feature = "enterprise"))]
     {
         crate::stripe_ee::add_stripe_routes(router)
     }
@@ -229,7 +229,6 @@ pub struct WorkspaceSettings {
     pub deploy_ui: Option<serde_json::Value>, // effectively: WorkspaceDeploymentUISettings
     #[serde(skip_serializing_if = "Option::is_none")]
     pub default_app: Option<String>,
-    pub automatic_billing: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub default_scripts: Option<serde_json::Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -444,7 +443,7 @@ async fn get_settings(
     let mut tx = user_db.begin(&authed).await?;
     let settings = sqlx::query_as!(
         WorkspaceSettings,
-        "SELECT workspace_id, slack_team_id, teams_team_id, teams_team_name, slack_name, slack_command_script, teams_command_script, slack_email, auto_invite_domain, auto_invite_operator, auto_add, customer_id, plan, webhook, deploy_to, ai_config, error_handler, error_handler_extra_args, error_handler_muted_on_cancel, large_file_storage, git_sync, deploy_ui, default_app, automatic_billing, default_scripts, mute_critical_alerts, color, operator_settings, git_app_installations FROM workspace_settings WHERE workspace_id = $1",
+        "SELECT workspace_id, slack_team_id, teams_team_id, teams_team_name, slack_name, slack_command_script, teams_command_script, slack_email, auto_invite_domain, auto_invite_operator, auto_add, customer_id, plan, webhook, deploy_to, ai_config, error_handler, error_handler_extra_args, error_handler_muted_on_cancel, large_file_storage, git_sync, deploy_ui, default_app, default_scripts, mute_critical_alerts, color, operator_settings, git_app_installations FROM workspace_settings WHERE workspace_id = $1",
         &w_id
     )
     .fetch_one(&mut *tx)
