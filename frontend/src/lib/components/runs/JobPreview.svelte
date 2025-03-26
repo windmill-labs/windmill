@@ -226,7 +226,7 @@
 									jobId={job?.id}
 									{result}
 									disableExpand
-									language={job.language}
+									language={job?.language}
 								/>
 							{:else if job}
 								No output is available yet

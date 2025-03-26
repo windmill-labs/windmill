@@ -936,7 +936,7 @@
 									workspaceId={job?.workspace_id}
 									jobId={job?.id}
 									result={job.result}
-									language={job.language}
+									language={job?.language}
 									isTest={false}
 								/>
 							{:else if job}

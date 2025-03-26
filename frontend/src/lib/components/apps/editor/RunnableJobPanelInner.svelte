@@ -45,7 +45,7 @@
 					workspaceId={testJob?.workspace_id}
 					jobId={testJob?.id}
 					result={testJob.result}
-					language={testJob.language}
+					language={testJob?.language}
 				/></div
 			>
 		{:else}
