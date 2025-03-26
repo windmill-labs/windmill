@@ -1643,6 +1643,8 @@
 			kind={script.kind}
 			{template}
 			tag={script.tag}
+			lastSavedCode={savedScript?.draft?.content}
+			lastDeployedCode={savedScript?.content}
 			bind:args
 			bind:hasPreprocessor
 			bind:captureTable

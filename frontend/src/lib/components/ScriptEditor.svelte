@@ -43,6 +43,7 @@
 	import HideButton from './apps/editor/settingsPanel/HideButton.svelte'
 	import { base } from '$lib/base'
 	import { SUPPORTED_CHAT_SCRIPT_LANGUAGES } from './copilot/chat/core'
+	import { diffChars } from 'diff'
 
 	// Exported
 	export let schema: Schema | any = emptySchema()
@@ -70,6 +71,8 @@
 	export let captureTable: CaptureTable | undefined = undefined
 	export let showCaptures: boolean = true
 	export let stablePathForCaptures: string = ''
+	export let lastSavedCode: string | undefined = undefined
+	export let lastDeployedCode: string | undefined = undefined
 
 	let jobProgressReset: () => void
 
@@ -310,6 +313,8 @@
 			localStorage.setItem('aiPanelOpen', 'true')
 		}
 	}
+	$: diffWithLastSaved = diffChars(lastSavedCode ?? '', code)
+	$: diffWithLastDeployed = diffChars(lastDeployedCode ?? '', code)
 
 	$: !SUPPORTED_CHAT_SCRIPT_LANGUAGES.includes(lang ?? '') && aiPanelSize > 0 && toggleAiPanel()
 
@@ -522,6 +527,8 @@
 					on:applyCode={(e) => {
 						editor?.reviewAndApplyCode(e.detail.code)
 					}}
+					{diffWithLastSaved}
+					{diffWithLastDeployed}
 				>
 					<svelte:fragment slot="header-left">
 						<HideButton

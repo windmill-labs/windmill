@@ -17,13 +17,16 @@
 	import { isInitialCode } from '$lib/script_helpers'
 	import { langToExt } from '$lib/editorUtils'
 	import { scriptLangToEditorLang } from '$lib/scripts'
+	import { type Change } from 'diff'
 
 	export let lang: ScriptLang | 'bunnative'
 	export let code: string
 	export let error: string | undefined
 	export let args: Record<string, any>
 	export let path: string | undefined
-
+	export let diffWithLastSaved: Change[] | undefined = undefined
+	export let diffWithLastDeployed: Change[] | undefined = undefined
+	
 	$: contextCodePath = path ? (path.split('/').pop() ?? 'script') + '.' + langToExt(scriptLangToEditorLang(lang)) : undefined;
 
 	let initializedWithInitCode: boolean | null = null
@@ -64,6 +67,8 @@
 		providerModel: AIProviderModel | undefined,
 		dbSchemas: DBSchemas,
 		workspace?: string,
+		diffWithLastSaved?: Change[] | undefined,
+		diffWithLastDeployed?: Change[] | undefined
 	) {
 		if (!contextCodePath) {
 			return
@@ -76,6 +81,23 @@
 				lang
 			}
 		]
+
+		if (diffWithLastSaved && diffWithLastSaved.filter((d) => d.added || d.removed).length > 0) {
+			newAvailableContext.push({
+				type: 'diff',
+				title: 'Diff with last saved draft',
+				content: JSON.stringify(diffWithLastSaved)
+			})
+		}
+
+		if (diffWithLastDeployed && diffWithLastDeployed.filter((d) => d.added || d.removed).length > 0) {
+			newAvailableContext.push({
+				type: 'diff',
+				title: 'Diff with last deployed version',
+				content: JSON.stringify(diffWithLastDeployed)
+			})
+		}
+
 		if (workspace && !providerModel?.model.endsWith('/thinking')) {
 			// Make all dbs in the workspace available
 			const dbs = await ResourceService.listResource({
@@ -151,7 +173,7 @@
 		}))
 	}
 
-	$: updateAvailableContext(contextCodePath, code, lang, error, db, $copilotSessionModel, $dbSchemas, $workspaceStore)
+	$: updateAvailableContext(contextCodePath, code, lang, error, db, $copilotSessionModel, $dbSchemas, $workspaceStore, diffWithLastSaved, diffWithLastDeployed)
 
 	let instructions = ''
 	let loading = writable(false)
