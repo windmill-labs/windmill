@@ -25,6 +25,7 @@
 	export let alwaysPluggable: boolean = false
 	export let cache: boolean = false
 	export let earlyStop: boolean = false
+	export let editMode: boolean = false
 
 	const { currentStepStore: copilotCurrentStepStore } =
 		getContext<FlowCopilotContext | undefined>('FlowCopilotContext') || {}
@@ -69,7 +70,7 @@
 				</div>
 			{/if}
 		</div>
-		{#if alwaysPluggable || (inputJson && Object.keys(inputJson).length > 0)}
+		{#if (alwaysPluggable || (inputJson && Object.keys(inputJson).length > 0)) && editMode}
 			<OutputPicker
 				zoom={$viewport?.zoom ?? 1}
 				{selected}

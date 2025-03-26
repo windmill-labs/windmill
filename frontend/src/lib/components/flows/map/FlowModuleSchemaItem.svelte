@@ -56,6 +56,7 @@
 	export let retries: number | undefined = undefined
 	export let warningMessage: string | undefined = undefined
 	export let isTrigger: boolean = false
+	export let editMode: boolean = false
 
 	let pickableIds: Record<string, any> | undefined = undefined
 
@@ -296,29 +297,31 @@
 			</svelte:fragment>
 		</FlowModuleSchemaItemViewer>
 
-		<OutputPicker
-			zoom={$viewport?.zoom ?? 1}
-			{selected}
-			{hover}
-			let:allowCopy
-			isConnectingCandidate={!!id &&
-				!!$flowPropPickerConfig &&
-				!!pickableIds &&
-				Object.keys(pickableIds).includes(id)}
-			let:isConnecting
-			let:selectConnection
-		>
-			<OutputPickerInner
-				bind:this={outputPicker}
-				{allowCopy}
-				prefix={'results'}
-				connectingData={isConnecting ? connectingData : undefined}
-				{mock}
-				on:select={selectConnection}
-				moduleId={id}
-				on:updateMock
-			/>
-		</OutputPicker>
+		{#if editMode}
+			<OutputPicker
+				zoom={$viewport?.zoom ?? 1}
+				{selected}
+				{hover}
+				let:allowCopy
+				isConnectingCandidate={!!id &&
+					!!$flowPropPickerConfig &&
+					!!pickableIds &&
+					Object.keys(pickableIds).includes(id)}
+				let:isConnecting
+				let:selectConnection
+			>
+				<OutputPickerInner
+					bind:this={outputPicker}
+					{allowCopy}
+					prefix={'results'}
+					connectingData={isConnecting ? connectingData : undefined}
+					{mock}
+					on:select={selectConnection}
+					moduleId={id}
+					on:updateMock
+				/>
+			</OutputPicker>
+		{/if}
 	</div>
 
 	{#if deletable}

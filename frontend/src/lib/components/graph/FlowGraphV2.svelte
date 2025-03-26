@@ -71,6 +71,7 @@
 	)
 	export let triggerNode = false
 	export let workspace: string = $workspaceStore ?? 'NO_WORKSPACE'
+	export let editMode = false
 
 	let useDataflow: Writable<boolean | undefined> = writable<boolean | undefined>(false)
 
@@ -245,7 +246,8 @@
 			path,
 			newFlow,
 			cache,
-			earlyStop
+			earlyStop,
+			editMode
 		},
 		failureModule,
 		preprocessorModule,

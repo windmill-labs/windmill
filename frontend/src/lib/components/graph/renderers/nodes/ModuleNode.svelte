@@ -26,6 +26,7 @@
 		eventHandlers: GraphEventHandlers
 		flowModuleStates: Record<string, GraphModuleState> | undefined
 		selected: boolean
+		editMode: boolean
 	}
 
 	$: type = data.flowModuleStates?.[data.module.id]?.type
@@ -64,6 +65,7 @@
 	<MapItem
 		mod={data.module}
 		insertable={data.insertable}
+		editMode={data.editMode}
 		annotation={flowJobs &&
 		(data.module.value.type === 'forloopflow' || data.module.value.type === 'whileloopflow')
 			? 'Iteration: ' +

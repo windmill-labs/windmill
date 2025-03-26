@@ -327,6 +327,7 @@
 			{selectedId}
 			{flowInputsStore}
 			{workspace}
+			editMode
 			on:delete={({ detail }) => {
 				let e = detail.detail
 				dependents = getDependentComponents(e.id, $flowStore)

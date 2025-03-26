@@ -17,6 +17,7 @@
 		eventHandlers: GraphEventHandlers
 		simplifiedTriggerView: boolean
 		selectedId: string
+		editMode: boolean
 	}
 
 	const propPickerContext = getContext<PropPickerContext>('PropPickerContext')
@@ -82,5 +83,6 @@
 		}}
 		inputJson={filteredInput}
 		prefix="flow_input"
+		editMode={data.editMode}
 	/>
 </NodeWrapper>

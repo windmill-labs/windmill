@@ -23,6 +23,7 @@
 		disableMoveIds: string[]
 		cache: boolean
 		earlyStop: boolean
+		editMode: boolean
 	}
 
 	const { selectedId } = getContext<{
@@ -94,5 +95,6 @@
 		alwaysPluggable
 		cache={data.cache}
 		earlyStop={data.earlyStop}
+		editMode={data.editMode}
 	/>
 </NodeWrapper>

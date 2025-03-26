@@ -29,6 +29,7 @@
 				selectedManually: boolean | undefined
 		  }
 		| undefined
+	export let editMode: boolean = false
 
 	const { selectedId } = getContext<{ selectedId: Writable<string> }>('FlowGraphContext')
 	const dispatch = createEventDispatcher<{
@@ -102,6 +103,7 @@
 			{#if mod.value.type === 'forloopflow' || mod.value.type === 'whileloopflow'}
 				<FlowModuleSchemaItem
 					deletable={insertable}
+					{editMode}
 					label={`${
 						mod.summary || (mod.value.type == 'forloopflow' ? 'For loop' : 'While loop')
 					}  ${mod.value.parallel ? '(parallel)' : ''} ${
@@ -127,6 +129,7 @@
 			{:else if mod.value.type === 'branchone'}
 				<FlowModuleSchemaItem
 					deletable={insertable}
+					{editMode}
 					on:changeId
 					on:delete={onDelete}
 					on:move={() => dispatch('move')}
@@ -143,6 +146,7 @@
 			{:else if mod.value.type === 'branchall'}
 				<FlowModuleSchemaItem
 					deletable={insertable}
+					{editMode}
 					on:changeId
 					on:delete={onDelete}
 					on:move={() => dispatch('move')}
@@ -159,6 +163,7 @@
 			{:else}
 				<FlowModuleSchemaItem
 					{retries}
+					{editMode}
 					on:changeId
 					on:click={() => dispatch('select', mod.id)}
 					on:delete={onDelete}
