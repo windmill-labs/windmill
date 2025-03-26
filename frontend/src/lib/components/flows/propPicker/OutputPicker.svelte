@@ -10,6 +10,8 @@
 	export let selected: boolean = false
 	export let hover: boolean = false
 	export let isConnectingCandidate: boolean = false
+	export let bgDefault: string = 'bg-surface-disabled'
+	export let bgHover: string = 'bg-surface-hover'
 
 	const context = getContext<PropPickerContext>('PropPickerContext')
 	const flowPropPickerConfig = context?.flowPropPickerConfig
@@ -59,7 +61,7 @@
 	<svelte:fragment slot="trigger" let:isOpen>
 		<div
 			class={twMerge(
-				'w-[275px] h-[4px] flex flex-row bg-surface-disabled hover:bg-surface-hover items-center justify-center cursor-pointer',
+				`w-[275px] h-[4px] flex flex-row ${bgDefault} hover:${bgHover} items-center justify-center cursor-pointer`,
 				'shadow-[inset_0_1px_5px_0_rgba(0,0,0,0.05)] rounded-b-sm',
 				'group'
 			)}
@@ -76,7 +78,7 @@
 					<div
 						class={twMerge(
 							'w-full h-full rounded-t-md shadow-[inset_0_1px_5px_0_rgba(0,0,0,0.05)]',
-							'hidden group-hover:center-center bg-surface-disabled hover:bg-surface-hover group-hover:bg-surface-hover',
+							`hidden group-hover:center-center ${bgDefault} hover:${bgHover} group-hover:${bgHover}`,
 							isOpen || selected || hover || showConnecting ? 'center-center' : 'hidden',
 							showConnecting ? 'text-blue-500 bg-surface rounded-b-md' : 'text-secondary'
 						)}

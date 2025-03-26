@@ -4,11 +4,12 @@
 	import { getContext } from 'svelte'
 	import type { FlowCopilotContext } from '$lib/components/copilot/flow'
 	import VirtualItemWrapper from './VirtualItemWrapper.svelte'
-	import type { PropPickerContext } from '$lib/components/prop_picker'
-	import FlowPropPicker from '$lib/components/flows/propPicker/FlowPropPicker.svelte'
+	import OutputPicker from '$lib/components/flows/propPicker/OutputPicker.svelte'
+	import OutputPickerInner from '$lib/components/flows/propPicker/OutputPickerInner.svelte'
 	import Popover from '$lib/components/Popover.svelte'
 	import { fade } from 'svelte/transition'
 	import { Database, Square } from 'lucide-svelte'
+	import { useSvelteFlow } from '@xyflow/svelte'
 
 	export let label: string | undefined = undefined
 	export let bgColor: string = ''
@@ -28,8 +29,7 @@
 	const { currentStepStore: copilotCurrentStepStore } =
 		getContext<FlowCopilotContext | undefined>('FlowCopilotContext') || {}
 
-	const propPickerContext = getContext<PropPickerContext>('PropPickerContext')
-	const flowPropPickerConfig = propPickerContext?.flowPropPickerConfig
+	const { viewport } = useSvelteFlow()
 </script>
 
 <VirtualItemWrapper
@@ -40,31 +40,58 @@
 	{id}
 	onTop={label === 'Input' && $copilotCurrentStepStore === 'Input'}
 	on:select
+	let:hover
 >
-	<div
-		style={borderColor ? `border-color: ${borderColor};` : 'border: 0'}
-		class="flex flex-row gap-1 justify-between {center
-			? 'items-center'
-			: 'items-baseline'} w-full overflow-hidden rounded-sm border p-2 text-2xs module text-primary border-gray-400 dark:border-gray-600"
-	>
-		{#if $$slots.icon}
-			<slot name="icon" />
-			<span class="mr-2" />
-		{/if}
-		<div class="flex flex-col flex-grow shrink-0 max-w-full min-w-0">
-			{#if label}
-				<div class="truncate text-center">{label}</div>
+	<div class="flex flex-col w-full">
+		<div
+			style={borderColor ? `border-color: ${borderColor};` : 'border: 0'}
+			class="flex flex-row gap-1 justify-between {center
+				? 'items-center'
+				: 'items-baseline'} w-full overflow-hidden rounded-sm border p-2 text-2xs module text-primary border-gray-400 dark:border-gray-600"
+		>
+			{#if $$slots.icon}
+				<slot name="icon" />
+				<span class="mr-2" />
 			{/if}
-			{#if preLabel}
-				<div class="truncate text-2xs text-center"><pre>{preLabel}</pre></div>
+			<div class="flex flex-col flex-grow shrink-0 max-w-full min-w-0">
+				{#if label}
+					<div class="truncate text-center">{label}</div>
+				{/if}
+				{#if preLabel}
+					<div class="truncate text-2xs text-center"><pre>{preLabel}</pre></div>
+				{/if}
+			</div>
+			{#if id && !hideId && !id?.startsWith('subflow:')}
+				<div class="flex items-center shrink min-w-0">
+					<Badge color="indigo" wrapperClass="w-full" baseClass="max-w-full" title={id}>
+						<span class="max-w-full text-2xs truncate">{id}</span>
+					</Badge>
+				</div>
 			{/if}
 		</div>
-		{#if id && !hideId && !id?.startsWith('subflow:')}
-			<div class="flex items-center shrink min-w-0">
-				<Badge color="indigo" wrapperClass="w-full" baseClass="max-w-full" title={id}>
-					<span class="max-w-full text-2xs truncate">{id}</span>
-				</Badge>
-			</div>
+		{#if alwaysPluggable || (inputJson && Object.keys(inputJson).length > 0)}
+			<OutputPicker
+				zoom={$viewport?.zoom ?? 1}
+				{selected}
+				{hover}
+				let:allowCopy
+				isConnectingCandidate={true}
+				let:isConnecting
+				let:selectConnection
+				bgDefault="bg-slate-300"
+				bgHover="bg-slate-400"
+			>
+				<OutputPickerInner
+					{allowCopy}
+					{prefix}
+					connectingData={isConnecting ? inputJson : undefined}
+					on:select={selectConnection}
+					moduleId={''}
+					on:updateMock
+					hideHeaderBar
+					simpleViewer={inputJson}
+				/>
+			</OutputPicker>
 		{/if}
 	</div>
 	<div class="absolute text-sm right-12 -bottom-3 flex flex-row gap-1 z-10">
@@ -91,9 +118,4 @@
 			</Popover>
 		{/if}
 	</div>
-	{#if inputJson && $flowPropPickerConfig && (Object.keys(inputJson).length > 0 || alwaysPluggable)}
-		<div class="absolute -bottom-[14px] right-[21px] translate-x-[50%] center-center">
-			<FlowPropPicker json={inputJson} {prefix} />
-		</div>
-	{/if}
 </VirtualItemWrapper>

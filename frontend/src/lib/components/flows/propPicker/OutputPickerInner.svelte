@@ -26,6 +26,13 @@
 	export let fullResult: boolean = false
 	export let closeOnOutsideClick: boolean = false
 	export let getLogs: boolean = false
+	export let selectedJob: SelectedJob = undefined
+	export let forceJson: boolean = false
+	export let isLoading: boolean = false
+	export let preview: 'mock' | 'job' | undefined = undefined
+	export let hideHeaderBar: boolean = false
+	export let simpleViewer: any | undefined = undefined
+
 	type SelectedJob =
 		| Job
 		| {
@@ -37,11 +44,6 @@
 		  }
 		| undefined
 
-	export let selectedJob: SelectedJob = undefined
-	export let forceJson: boolean = false
-	export let isLoading: boolean = false
-	export let preview: 'mock' | 'job' | undefined = undefined
-
 	const dispatch = createEventDispatcher<{
 		updateMock: { enabled: boolean; return_value?: unknown }
 		getLastJob: undefined
@@ -49,7 +51,6 @@
 
 	let jsonView = false
 	let clientHeight: number = 0
-	let savedJsonData: any = {}
 	let tmpMock: { enabled: boolean; return_value?: unknown } | undefined = undefined
 	let error = ''
 	let stepHistoryPopover: Popover | undefined = undefined
@@ -68,7 +69,6 @@
 			return
 		}
 
-		savedJsonData = jsonData
 		jsonData = job.result
 		if (mock?.enabled) {
 			const newMock = {
@@ -87,7 +87,6 @@
 	}
 
 	function selectMockValue() {
-		savedJsonData = jsonData
 		jsonData = mock?.return_value
 		const newMock = {
 			enabled: true,
@@ -113,8 +112,6 @@
 			: preview === 'job' && mock?.enabled && selectedJob?.type === 'CompletedJob'
 			? 'override'
 			: undefined
-
-	$: console.log('dbg selectedJob', selectedJob)
 </script>
 
 <div class="w-full h-full flex flex-col" bind:clientHeight>
@@ -122,7 +119,8 @@
 		class={twMerge(
 			infoMessage ? `${classes['info'].descriptionClass} ${classes['info'].bgClass}` : '',
 			'text-xs px-1',
-			'border-none'
+			'border-none',
+			hideHeaderBar || connectingData ? 'hidden' : 'block'
 		)}
 	>
 		<div class="flex flex-row items-center gap-0.5 min-h-[30px] mr-[30px]">
@@ -378,11 +376,13 @@
 		{/if}
 	{:else}
 		<div class="grow min-h-0 p-2 rounded-sm w-full overflow-auto">
-			{#if connectingData}
+			{#if connectingData || simpleViewer}
 				<ObjectViewer
-					json={{
-						[moduleId]: connectingData
-					}}
+					json={moduleId
+						? {
+								[moduleId]: connectingData ?? simpleViewer
+						  }
+						: connectingData ?? simpleViewer}
 					topBrackets={false}
 					pureViewer={false}
 					{prefix}
@@ -411,17 +411,21 @@
 				/>
 			{:else if mock?.enabled && preview != 'job'}
 				<ObjectViewer
-					json={{
-						[moduleId]: mock.return_value
-					}}
+					json={moduleId
+						? {
+								[moduleId]: mock.return_value
+						  }
+						: mock.return_value}
 					topBrackets={false}
 					pureViewer={false}
 				/>
 			{:else if selectedJob != undefined && 'result' in selectedJob && selectedJob.result != undefined}
 				<ObjectViewer
-					json={{
-						[moduleId]: selectedJob.result
-					}}
+					json={moduleId
+						? {
+								[moduleId]: selectedJob.result
+						  }
+						: selectedJob.result}
 					topBrackets={false}
 					pureViewer={false}
 				/>
@@ -442,9 +446,11 @@
 				</div>
 			{:else}
 				<ObjectViewer
-					json={{
-						[moduleId]: jsonData
-					}}
+					json={moduleId
+						? {
+								[moduleId]: jsonData
+						  }
+						: jsonData}
 					topBrackets={false}
 					pureViewer={false}
 					{allowCopy}
