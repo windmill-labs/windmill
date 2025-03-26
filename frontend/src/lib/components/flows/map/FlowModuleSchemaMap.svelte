@@ -36,6 +36,7 @@
 	import { replaceId } from '../flowStore'
 	import { setScheduledPollSchedule, type TriggerContext } from '$lib/components/triggers'
 	import type { PropPickerContext } from '$lib/components/prop_picker'
+	import { JobService } from '$lib/gen'
 
 	export let modules: FlowModule[] | undefined
 	export let sidebarSize: number | undefined = undefined
@@ -260,6 +261,35 @@
 			module.value.parallel = true
 		}
 	}
+
+	async function loadLastJob(path: string, moduleId: string) {
+		if (!path) {
+			return
+		}
+		const previousJobId = await JobService.listJobs({
+			workspace: $workspaceStore!,
+			scriptPathExact: path,
+			jobKinds: ['preview', 'script', 'flowpreview', 'flow'].join(','),
+			page: 1,
+			perPage: 1
+		})
+		if (previousJobId.length > 0) {
+			const getJobResult = await JobService.getCompletedJobResultMaybe({
+				workspace: $workspaceStore!,
+				id: previousJobId[0].id
+			})
+			if ('result' in getJobResult) {
+				$flowStateStore[moduleId] = {
+					...($flowStateStore[moduleId] ?? {}),
+					previewResult: getJobResult.result,
+					previewJobId: previousJobId[0].id,
+					previewWorkspaceId: previousJobId[0].workspace_id,
+					previewSuccess: getJobResult.success
+				}
+			}
+			$flowStateStore = $flowStateStore
+		}
+	}
 </script>
 
 <Portal name="flow-module">
@@ -404,6 +434,12 @@
 									)
 									setExpr(detail.modules[index + 1], `results.${id}`)
 									setScheduledPollSchedule(primarySchedule, triggersCount)
+								}
+
+								if (`flow` in detail) {
+									loadLastJob(detail.flow?.path, id)
+								} else if (`script` in detail) {
+									loadLastJob(detail.script?.path, id)
 								}
 							}
 						}

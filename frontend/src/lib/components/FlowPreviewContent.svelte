@@ -184,7 +184,9 @@
 			const previousJobId = await JobService.listJobs({
 				workspace: $workspaceStore!,
 				scriptPathExact:
-					($initialPathStore == '' ? $pathStore : $initialPathStore) + '/' + module.id,
+					`path` in module.value
+						? module.value.path
+						: ($initialPathStore == '' ? $pathStore : $initialPathStore) + '/' + module.id,
 				jobKinds: ['preview', 'script', 'flowpreview', 'flow'].join(','),
 				page: 1,
 				perPage: 1

@@ -212,7 +212,8 @@
 	async function getLastJob() {
 		const previousJobs = await JobService.listJobs({
 			workspace: $workspaceStore!,
-			scriptPathExact: $pathStore + '/' + flowModule.id,
+			scriptPathExact:
+				`path` in flowModule.value ? flowModule.value.path : $pathStore + '/' + flowModule.id,
 			jobKinds: ['preview', 'script', 'flowpreview', 'flow'].join(','),
 			page: 1,
 			perPage: 1
