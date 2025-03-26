@@ -937,6 +937,7 @@
 									jobId={job?.id}
 									result={job.result}
 									language={job.language}
+									isTest={false}
 								/>
 							{:else if job}
 								No output is available yet

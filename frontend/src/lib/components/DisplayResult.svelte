@@ -51,6 +51,7 @@
 	export let language: string | undefined = undefined
 	export let appPath: string | undefined = undefined
 	export let customUi: DisplayResultUi | undefined = undefined
+	export let isTest: boolean = true
 
 	const IMG_MAX_SIZE = 10000000
 	const TABLE_MAX_SIZE = 5000000
@@ -628,7 +629,7 @@
 						{/if}
 						<slot />
 					</div>
-					{#if language === 'bun'}
+					{#if !isTest && language === 'bun'}
 						<div class="pt-20" />
 						<Alert size="xs" type="info" title="Seeing an odd error?">
 							Bun script are bundled for performance reasons. If you see an odd error that doesn't
@@ -637,13 +638,13 @@
 							team.
 						</Alert>
 					{/if}
-					{#if (language === 'python3' || result?.error?.message?.startsWith("exit code for \"python run\":")) && result?.error?.message?.includes("ImportError: cannot import name")}
+					{#if language === 'python3' && result?.error?.message?.includes("ImportError: cannot import name")}
 						<Alert size="xs" type="info" title="Seeing an odd import error?">
 							Python requirements inference may be inaccurate. This is due to the fact that requirement names can vary from package names they provide.
 							Try to <a href="https://www.windmill.dev/docs/advanced/dependencies_in_python#pinning-dependencies-and-requirements" target="_blank" rel="noopener noreferrer">manually pin requirements</a>
 						</Alert>
 					{/if}
-					{#if result?.error?.message?.startsWith("execution error:\npip compile failed")}
+					{#if language === 'python3' && result?.error?.message?.startsWith("execution error:\npip compile failed")}
 						<Alert size="xs" type="info" title="Seeing an odd resolution error?">
 							Python requirements inference may be inaccurate. This is due to the fact that requirement names can vary from package names they provide.
 							Try to <a href="https://www.windmill.dev/docs/advanced/dependencies_in_python#pinning-dependencies-and-requirements" target="_blank" rel="noopener noreferrer">manually pin requirements</a>
