@@ -68,12 +68,22 @@ static PYTHON_IMPORTS_REPLACEMENT: phf::Map<&'static str, &'static str> = phf_ma
     "docx" => "python-docx",
 };
 
+static PYTHON_FULL_IMPORTS_REPLACEMENT: phf::Map<&'static str, &'static str> = phf_map! {
+    "google.cloud.webrisk" => "google-cloud-webrisk",
+};
+
 fn replace_import(x: String) -> String {
     PYTHON_IMPORTS_REPLACEMENT
         .get(&x)
         .map(|x| x.to_owned())
         .unwrap_or(&x)
         .to_string()
+}
+
+fn replace_full_import(x: &str) -> Option<String> {
+    PYTHON_FULL_IMPORTS_REPLACEMENT
+        .get(x)
+        .map(|x| (*x).to_owned())
 }
 
 lazy_static! {
@@ -99,7 +109,7 @@ fn process_import(module: Option<String>, path: &str, level: usize) -> Vec<Strin
         if imprt == "u" || imprt == "f" {
             vec![format!("relative:{}", module.replace(".", "/"))]
         } else {
-            vec![imprt]
+            vec![replace_full_import(&module).unwrap_or(replace_import(imprt))]
         }
     } else {
         vec![]
@@ -305,7 +315,7 @@ async fn parse_python_imports_inner(
                     .await?
                 }
             } else {
-                vec![replace_import(n.to_string())]
+                vec![n.to_string()]
             };
             for imp in nested {
                 if !imports.contains(&imp) {
