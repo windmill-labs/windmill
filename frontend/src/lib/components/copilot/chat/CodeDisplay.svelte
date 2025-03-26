@@ -134,12 +134,10 @@
 			}
 		})
 
-		if (codeContext.content) {
-			diffEditor.setModel({
-				original: meditor.createModel(codeContext.content, scriptLangToEditorLang(codeContext.lang)),
-				modified: meditor.createModel(code ?? '', language ? getSmartLang(language) : undefined)
-			})
-		}
+		diffEditor.setModel({
+			original: meditor.createModel(codeContext.content, scriptLangToEditorLang(codeContext.lang)),
+			modified: meditor.createModel(code ?? '', language ? getSmartLang(language) : undefined)
+		})
 
 		const originalEditor = diffEditor.getOriginalEditor()
 		const modifiedEditor = diffEditor.getModifiedEditor()
@@ -170,7 +168,6 @@
 	$: diffEl &&
 		language &&
 		codeContext &&
-		codeContext.lang &&
 		getSmartLang(codeContext.lang) === getSmartLang(language) &&
 		setDiffEditor(diffEl)
 </script>
@@ -195,7 +192,7 @@
 			<div class="flex flex-row gap-1 p-2 items-center justify-center">
 				<Loader2 class="w-4 h-4 animate-spin" /> Generating code...
 			</div>
-		{:else if !loading && codeContext && codeContext.lang && getSmartLang(codeContext.lang) === getSmartLang(language)}
+		{:else if !loading && codeContext && getSmartLang(codeContext.lang) === getSmartLang(language)}
 			<div bind:this={diffEl} class="w-full h-full" />
 		{:else}
 			<HighlightCode

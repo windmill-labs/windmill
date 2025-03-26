@@ -17,7 +17,6 @@
 	import { isInitialCode } from '$lib/script_helpers'
 	import { langToExt } from '$lib/editorUtils'
 	import { scriptLangToEditorLang } from '$lib/scripts'
-	import { getDbSchemas } from '$lib/components/apps/components/display/dbtable/utils'
 
 	export let lang: ScriptLang | 'bunnative'
 	export let code: string
@@ -40,7 +39,9 @@
 				selectedContext = [
 					{
 						type: 'code',
-						title: contextCodePath
+						title: contextCodePath,
+						content: code,
+						lang
 					}
 				]
 			}
@@ -49,7 +50,9 @@
 			selectedContext = [
 				{
 					type: 'code',
-					title: contextCodePath
+					title: contextCodePath,
+					content: code,
+					lang
 				}
 			]
 			initializedWithInitCode = false

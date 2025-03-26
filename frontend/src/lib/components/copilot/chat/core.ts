@@ -275,17 +275,12 @@ export const ContextIconMap = {
 	db: Database
 }
 
-export type SelectedContext = {
-	type: 'code' | 'error' | 'db'
-	title: string
-}
-
 export type ContextElement =
 	| {
 			type: 'code'
-			content?: string
+			content: string
 			title: string
-			lang?: ScriptLang | 'bunnative'
+			lang: ScriptLang | 'bunnative'
 	  }
 	| {
 			type: 'error'
@@ -307,7 +302,7 @@ export async function prepareUserMessage(
 	let errorContext = ''
 	let dbContext = ''
 	for (const context of selectedContext) {
-		if (context.type === 'code' && context.content) {
+		if (context.type === 'code') {
 			codeContext += CHAT_USER_CODE_CONTEXT.replace('{title}', context.title)
 				.replace('{language}', scriptLangToEditorLang(language))
 				.replace('{code}', context.content)
