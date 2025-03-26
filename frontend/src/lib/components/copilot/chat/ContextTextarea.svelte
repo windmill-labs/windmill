@@ -8,7 +8,7 @@
 	export let instructions: string
 	export let availableContext: ContextElement[]
 	export let selectedContext: ContextElement[]
-	export let placeholder: string
+	export let isFirstMessage: boolean
 
 	const dispatch = createEventDispatcher<{
 		updateInstructions: { value: string }
@@ -19,6 +19,7 @@
 	let showContextTooltip = false
 	let contextTooltipWord = ''
 	let tooltipPosition = { x: 0, y: 0 }
+	let textarea: HTMLTextAreaElement
 
 	function getHighlightedText(text: string) {
 		return text.replace(/@[\w/.-]+/g, (match) => {
@@ -48,28 +49,34 @@
 		showContextTooltip = false
 	}
 
+	function updateTooltipPosition(availableContext: ContextElement[], selectedContext: ContextElement[], showContextTooltip: boolean) {
+		if (!textarea || !showContextTooltip) return
+		
+		const coords = getCaretCoordinates(textarea, textarea.selectionEnd)
+		const rect = textarea.getBoundingClientRect()
+
+		const availableContextCount = availableContext.length - selectedContext.length
+		const offset = (isFirstMessage ? 20 : -(55 + 30 * (availableContextCount - 1)))
+
+		tooltipPosition = {
+			x: rect.left + coords.left - 70,
+			y: rect.top + coords.top + offset
+		}
+	}
+
 	function handleInput(e: Event) {
-		const textarea = e.target as HTMLTextAreaElement
+		textarea = e.target as HTMLTextAreaElement
 		const words = instructions.split(/\s+/)
 		const lastWord = words[words.length - 1]
 		
-        // If the last word is a context and it's not in the available context or selected context, show the tooltip
 		if (lastWord.startsWith('@') && (!availableContext.find((c) => c.title === lastWord.slice(1)) || !selectedContext.find((c) => c.title === lastWord.slice(1)))) {
-			const coords = getCaretCoordinates(textarea, textarea.selectionEnd)
-			const rect = textarea.getBoundingClientRect()
-
-			tooltipPosition = {
-				x: rect.left + coords.left - 70,
-				y: rect.top + coords.top + 20
-			}
-
 			showContextTooltip = true
 			contextTooltipWord = lastWord
 		} else {
 			showContextTooltip = false
 			contextTooltipWord = ''
 		}
-        dispatch('updateInstructions', { value: instructions })
+		dispatch('updateInstructions', { value: instructions })
 	}
 
 	function handleKeyPress(e: KeyboardEvent) {
@@ -87,11 +94,14 @@
 			}
 		}
 	}
+
+	$: updateTooltipPosition(availableContext, selectedContext, showContextTooltip)
+
 </script>
 
-<div class="relative w-full">
+<div class="relative w-full px-2 scroll-pb-2">
 	<div
-		class="absolute top-0 left-0 w-full h-full min-h-12 p-2 text-sm pt-1"
+		class="absolute top-0 left-0 w-full h-full min-h-12 px-4 text-sm pt-1 pointer-events-none"
 		style="line-height: 1.72"
 	>
 		<span class="break-words">
@@ -99,6 +109,7 @@
 		</span>
 	</div>
 	<textarea
+		bind:this={textarea}
 		on:keypress={handleKeyPress}
 		bind:value={instructions}
 		use:autosize
@@ -109,8 +120,8 @@
 				showContextTooltip = false
 			}, 100)
 		}}
-		{placeholder}
-		class="resize-none bg-transparent absolute top-0 left-0 w-full h-full caret-white"
+		placeholder={isFirstMessage ? 'Ask anything' : 'Ask followup'}
+		class="resize-none bg-transparent caret-white"
 		style="{instructions.length > 0 ? 'color: transparent; -webkit-text-fill-color: transparent;' : ''}"
 	/>
 </div>

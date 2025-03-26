@@ -7,7 +7,7 @@
 	export let onSelect: (element: ContextElement) => void
 </script>
 
-<div class="flex flex-col gap-1 text-tertiary text-xs p-1 min-w-24">
+<div class="flex flex-col gap-1 text-tertiary text-xs p-1 min-w-24 max-h-48 overflow-y-scroll">
 	{#if availableContext.filter((c) => !selectedContext.find((sc) => sc.type === c.type && sc.title === c.title)).length === 0}
 		<div class="text-center text-tertiary text-xs">No available context</div>
 	{:else}

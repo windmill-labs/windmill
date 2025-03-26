@@ -226,7 +226,7 @@
 			{instructions}
 			{availableContext}
 			{selectedContext}
-			placeholder={messages.length > 0 ? 'Ask followup' : 'Ask anything'}
+			isFirstMessage={messages.length === 0}
 			on:addContext={(e) => addContextToSelection(e.detail.contextElement)}
 			on:sendRequest={() => dispatch('sendRequest')}
 			on:updateInstructions={(e) => instructions = e.detail.value}
