@@ -399,7 +399,7 @@ async function callTool(
 				workspace: workspace,
 				path: args.resourcePath
 			})
-			await getDbSchemas(resource.resource_type, args.resourcePath, workspace, get(dbSchemas), () => {})
+			await getDbSchemas(resource.resource_type, args.resourcePath, workspace, get(dbSchemas), (error) => {console.error(error)})
 			const dbs = get(dbSchemas)
 			const db = dbs[args.resourcePath]
 			if (!db) {
