@@ -333,7 +333,7 @@
 	}
 
 	export function askAiAboutChanges() {
-		instructions = 'Explain the changes I made to the code'
+		instructions = 'Based on the changes I made to the code, look for potential issues and recommend better solutions'
 		selectedContext = [
 			{
 				type: 'diff',

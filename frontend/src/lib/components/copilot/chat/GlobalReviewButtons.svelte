@@ -18,7 +18,9 @@
 		>
 	{/if}	
 	<button
-		class="px-2 py-1 bg-[#e6a0a0] rounded-r text-sm font-semibold text-black"
+		class={`px-2 py-1 bg-[#e6a0a0] rounded-r text-sm font-semibold text-black ${
+			isDiffMode ? 'rounded-l' : ''
+		}`}
 		on:click={() => dispatch('rejectAll')}>{isDiffMode ? 'Quit diff mode' : 'Reject all'}</button
 	>
 </div>
