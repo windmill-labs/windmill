@@ -17,6 +17,7 @@
 	import { isInitialCode } from '$lib/script_helpers'
 	import { langToExt } from '$lib/editorUtils'
 	import { scriptLangToEditorLang } from '$lib/scripts'
+	import { getDbSchemas } from '$lib/components/apps/components/display/dbtable/utils'
 
 	export let lang: ScriptLang | 'bunnative'
 	export let code: string
@@ -89,7 +90,8 @@
 		error: string | undefined,
 		db: { schema: DBSchema; resource: string } | undefined,
 		providerModel: AIProviderModel | undefined,
-		workspace?: string
+		dbSchemas: DBSchemas,
+		workspace?: string,
 	) {
 		availableContext = [
 			{
@@ -100,21 +102,20 @@
 			}
 		]
 
-		if (workspace) {
+		if (workspace && !providerModel?.model.endsWith('/thinking')) {
 			// Make all dbs in the workspace available
 			const dbs = await ResourceService.listResource({
 				workspace: workspace,
 				resourceType: SQLSchemaLanguages.join(',')
 			})
 			for (const d of dbs) {
-				if (!providerModel?.model.endsWith('/thinking')) {
-					availableContext.push({
-						type: 'db',
-						title: d.path,
-						// If the db is already fetched, add the schema to the context
-						...(db && d.path === db.resource ? { schema: db.schema } : {})
-					})
-				}
+				const loadedSchema = dbSchemas[d.path]
+				availableContext.push({
+					type: 'db',
+					title: d.path,
+					// If the db is already fetched, add the schema to the context
+					...(loadedSchema ? { schema: loadedSchema } : {})
+				})
 			}
 		}
 
@@ -144,7 +145,7 @@
 		}
 	}
 
-	$: updateAvailableContext(contextCodePath, code, lang, error, db, $copilotSessionModel, $workspaceStore)
+	$: updateAvailableContext(contextCodePath, code, lang, error, db, $copilotSessionModel, $dbSchemas, $workspaceStore)
 
 	let instructions = ''
 	let loading = writable(false)
