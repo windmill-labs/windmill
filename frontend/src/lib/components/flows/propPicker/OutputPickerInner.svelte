@@ -197,7 +197,7 @@
 							}
 						}}
 					>
-						Override pin
+						override pin
 					</button>
 				</span>
 			{:else if infoMessage === 'restore'}
