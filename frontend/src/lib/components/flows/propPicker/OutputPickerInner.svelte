@@ -125,7 +125,7 @@
 				contentClasses="w-[275px] overflow-hidden"
 				{closeOnOutsideClick}
 				usePointerDownOutside={closeOnOutsideClick}
-				disablePopup={!!connectingData}
+				disablePopup={!!connectingData || jsonView}
 				bind:isOpen={historyOpen}
 			>
 				<svelte:fragment slot="trigger">
@@ -223,11 +223,13 @@
 					color="light"
 					size="xs2"
 					variant="contained"
-					btnClasses={`bg-transparent ${
+					btnClasses={twMerge(
+						'bg-transparent',
 						mock?.enabled
 							? 'text-white bg-blue-500 hover:text-primary hover:bg-blue-700 hover:text-gray-100'
-							: ''
-					}`}
+							: '',
+						jsonView ? 'pointer-events-none' : ''
+					)}
 					startIcon={{ icon: Pin }}
 					iconOnly
 					on:click={() => {
@@ -357,7 +359,7 @@
 						</DisplayResult>
 					{/key}
 				{:else}
-					null
+					Result: null
 				{/if}
 			</div>
 		{:else}
