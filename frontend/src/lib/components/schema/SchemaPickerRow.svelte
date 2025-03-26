@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { copyToClipboard } from '$lib/utils'
+	import { copyToClipboard, formatDate, formatDateShort } from '$lib/utils'
 	import ObjectViewerWrapper from '$lib/components/propertyPicker/ObjectViewerWrapper.svelte'
 	import { twMerge } from 'tailwind-merge'
 	import Cell from '$lib/components/table/Cell.svelte'
@@ -28,47 +28,6 @@
 	const dispatch = createEventDispatcher()
 	const payloadTooBigForPreview = payloadData != 'WINDMILL_TOO_BIG' && isObjectTooBig(payloadData)
 	const isTooBig = payloadData === 'WINDMILL_TOO_BIG' || payloadTooBigForPreview
-
-	function formatDate(dateString: string | undefined): string {
-		if (!dateString) return ''
-		const date = new Date(dateString)
-		return new Intl.DateTimeFormat('en-US', {
-			year: 'numeric',
-			month: 'short',
-			day: 'numeric',
-			hour: '2-digit',
-			minute: '2-digit'
-		}).format(date)
-	}
-
-	function formatDateShort(dateString: string | undefined): string {
-		if (!dateString) return ''
-		const date = new Date(dateString)
-		const now = new Date()
-
-		// If date is today, only show time
-		if (date.toDateString() === now.toDateString()) {
-			return new Intl.DateTimeFormat('en-US', {
-				hour: '2-digit',
-				minute: '2-digit'
-			}).format(date)
-		}
-
-		// If date is this year, show only month and day
-		if (date.getFullYear() === now.getFullYear()) {
-			return new Intl.DateTimeFormat('en-US', {
-				month: 'short',
-				day: 'numeric'
-			}).format(date)
-		}
-
-		// If date is from another year, only show the date with year
-		return new Intl.DateTimeFormat('en-US', {
-			year: 'numeric',
-			month: 'short',
-			day: 'numeric'
-		}).format(date)
-	}
 
 	const floatingConfig: FloatingConfig = {
 		placement,

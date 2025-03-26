@@ -53,6 +53,6 @@
 		</div>
 	</svelte:fragment>
 	<svelte:fragment slot="light-display">
-		<OutputBadge {job} noStatusBackground />
+		<OutputBadge {job} noStatus />
 	</svelte:fragment>
 </SchemaPickerRow>

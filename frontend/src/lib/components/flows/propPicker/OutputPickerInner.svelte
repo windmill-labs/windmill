@@ -123,7 +123,7 @@
 					offset: { mainAxis: 10, crossAxis: -4 },
 					gutter: 0 // hack to make offset effective, see https://github.com/melt-ui/melt-ui/issues/528
 				}}
-				contentClasses="w-[275px] overflow-hidden"
+				contentClasses="w-[225px] overflow-hidden"
 				{closeOnOutsideClick}
 				usePointerDownOutside={closeOnOutsideClick}
 				disablePopup={!!connectingData || jsonView}
@@ -144,7 +144,12 @@
 						<StepHistory
 							{moduleId}
 							{getLogs}
-							on:select={({ detail }) => {
+							on:select={async ({ detail }) => {
+								if (!detail) {
+									selectJob(undefined)
+									preview = undefined
+									return
+								}
 								if (detail === 'mock') {
 									if (mock?.enabled) {
 										selectJob(undefined)
@@ -155,8 +160,13 @@
 									preview = 'mock'
 									return
 								}
-								selectJob(detail)
-								preview = mock?.enabled && detail ? 'job' : undefined
+								isLoading = true
+								const fullJob = await detail.getFullJob()
+								if (fullJob) {
+									selectJob(fullJob)
+									preview = mock?.enabled ? 'job' : undefined
+								}
+								isLoading = false
 							}}
 							mockValue={mock?.return_value}
 							mockEnabled={mock?.enabled}
@@ -369,7 +379,11 @@
 		{/if}
 	{:else}
 		<div class="grow min-h-0 p-2 rounded-sm w-full overflow-auto">
-			{#if connectingData || simpleViewer}
+			{#if isLoading}
+				<div class="flex flex-col items-center justify-center h-full">
+					<Loader2 class="animate-spin" />
+				</div>
+			{:else if connectingData || simpleViewer}
 				<ObjectViewer
 					json={moduleId
 						? {

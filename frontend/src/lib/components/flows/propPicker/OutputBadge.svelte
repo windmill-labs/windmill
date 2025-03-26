@@ -8,25 +8,27 @@
 		| Job
 		| { id: string; result: unknown; type: 'CompletedJob'; success: boolean; workspace_id: string }
 		| undefined = undefined
-	export let noStatusBackground = false
 </script>
 
 {#if job}
 	<div
 		class={twMerge(
-			'flex flex-row items-center gap-1 rounded-md bg-green-100 p-1',
-			'success' in job && job.success ? 'bg-green-100' : 'bg-red-100',
-			noStatusBackground && 'bg-transparent',
+			'flex flex-row w-fit items-center justify-between gap-2 rounded-md bg-surface-secondary p-1 px-2',
 			$$props.class
 		)}
 	>
+		<div
+			class="rounded-full w-2 h-2 {'success' in job && job.success ? 'bg-green-400' : 'bg-red-400'}"
+			title={'success' in job && job.success ? 'Success' : 'Failed'}
+		/>
+
 		<span class="text-xs truncate" dir="rtl" title={`job id: ${job.id}`}>
-			{job.id}
+			{job.id.slice(-5)}
 		</span>
 		<a
 			target="_blank"
 			href="{base}/run/{job.id}?workspace={job.workspace_id}"
-			class="text-right float-right text-secondary px-2"
+			class="text-right float-right text-secondary"
 			title="See run detail in a new tab"
 		>
 			<ExternalLink size={12} class="text-secondary" />
