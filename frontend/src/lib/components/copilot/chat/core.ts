@@ -214,7 +214,7 @@ export const CHAT_SYSTEM_PROMPT = `
 	- Follow the instructions carefully and explain the reasoning behind your changes.
 	- If the request is abstract (e.g., "make this cleaner"), interpret it concretely and reflect that in the code block.
 	- Preserve existing formatting, indentation, and whitespace unless changes are strictly required to fulfill the user's request.
-	- The user can ask you to look at or modify specific files by having the file name in the INSTRUCTIONS preceded by the @ symbol. In this case, put your focus on the file that is explicitly mentioned.
+	- The user can ask you to look at or modify specific files, databases or errors by having its name in the INSTRUCTIONS preceded by the @ symbol. In this case, put your focus on the element that is explicitly mentioned.
 	- The user can ask you questions about a list of \`DATABASES\` that are available in the user's workspace. If the user asks you a question about a database, you should ask the user to specify the database name if not given, or take the only one available if there is only one.
 
 	Important:
