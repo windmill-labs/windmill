@@ -49,14 +49,14 @@
 		showContextTooltip = false
 	}
 
-	function updateTooltipPosition(availableContext: ContextElement[], selectedContext: ContextElement[], showContextTooltip: boolean) {
+	function updateTooltipPosition(availableContext: ContextElement[], showContextTooltip: boolean, contextTooltipWord: string) {
 		if (!textarea || !showContextTooltip) return
 		
 		const coords = getCaretCoordinates(textarea, textarea.selectionEnd)
 		const rect = textarea.getBoundingClientRect()
 
-		const availableContextCount = availableContext.length - selectedContext.length
-		const offset = (isFirstMessage ? 20 : -(55 + 30 * (availableContextCount - 1)))
+		const filteredAvailableContext = availableContext.filter((c) => !contextTooltipWord || c.title.toLowerCase().includes(contextTooltipWord.slice(1)))
+		const offset = (isFirstMessage ? 20 : -(55 + 30 * (filteredAvailableContext.length - 1)))
 
 		tooltipPosition = {
 			x: rect.left + coords.left - 70,
@@ -85,6 +85,12 @@
 			if (contextTooltipWord) {
 				const contextElement = availableContext.find((c) => c.title.includes(contextTooltipWord.slice(1)))
 				if (contextElement) {
+					const isInSelectedContext = selectedContext.find((c) => c.title === contextElement.title && c.type === contextElement.type)
+					// If the context element is already in the selected context and the last word in the instructions is the same as the context element title, send request
+					if (isInSelectedContext && instructions.split(' ').pop() === '@' + contextElement.title) {
+						dispatch('sendRequest')
+						return
+					}
 					handleContextSelection(contextElement)
 				} else if (contextTooltipWord === '@' && availableContext.length > 0) {
 					handleContextSelection(availableContext[0])
@@ -95,7 +101,7 @@
 		}
 	}
 
-	$: updateTooltipPosition(availableContext, selectedContext, showContextTooltip)
+	$: updateTooltipPosition(availableContext, showContextTooltip, contextTooltipWord)
 
 </script>
 
