@@ -502,7 +502,10 @@ Windmill Community Edition {GIT_VERSION}
         #[cfg(feature = "tantivy")]
         let should_index_jobs = mode == Mode::Indexer || mode_and_addons.indexer;
 
-        reload_indexer_config(&db).await;
+        #[cfg(feature = "tantivy")]
+        if should_index_jobs {
+            reload_indexer_config(&db).await;
+        }
 
         #[cfg(feature = "tantivy")]
         let (index_reader, index_writer) = if should_index_jobs {
