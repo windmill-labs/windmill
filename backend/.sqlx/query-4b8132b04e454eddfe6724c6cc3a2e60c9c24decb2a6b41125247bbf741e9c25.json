@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT owner, premium, usage.usage as \"usage?\", workspace_settings.customer_id, workspace_settings.plan, workspace_settings.automatic_billing FROM workspace LEFT JOIN workspace_settings ON workspace_settings.workspace_id = $1 LEFT JOIN usage ON usage.id = $1 AND month_ = EXTRACT(YEAR FROM current_date) * 12 + EXTRACT(MONTH FROM current_date) AND usage.is_workspace IS true WHERE workspace.id = $1",
+  "query": "SELECT owner, premium, usage.usage as \"usage?\", workspace_settings.customer_id, workspace_settings.plan FROM workspace LEFT JOIN workspace_settings ON workspace_settings.workspace_id = $1 LEFT JOIN usage ON usage.id = $1 AND month_ = EXTRACT(YEAR FROM current_date) * 12 + EXTRACT(MONTH FROM current_date) AND usage.is_workspace IS true WHERE workspace.id = $1",
   "describe": {
     "columns": [
       {
@@ -27,11 +27,6 @@
         "ordinal": 4,
         "name": "plan",
         "type_info": "Varchar"
-      },
-      {
-        "ordinal": 5,
-        "name": "automatic_billing",
-        "type_info": "Bool"
       }
     ],
     "parameters": {
@@ -44,9 +39,8 @@
       false,
       false,
       true,
-      true,
-      false
+      true
     ]
   },
-  "hash": "f8f893fb4f6f8c16bffb233a585df0b8c007c24993979fdc013aa57583905f50"
+  "hash": "4b8132b04e454eddfe6724c6cc3a2e60c9c24decb2a6b41125247bbf741e9c25"
 }

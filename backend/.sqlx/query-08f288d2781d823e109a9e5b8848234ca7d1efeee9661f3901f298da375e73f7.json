@@ -100,51 +100,46 @@
       },
       {
         "ordinal": 19,
-        "name": "automatic_billing",
-        "type_info": "Bool"
-      },
-      {
-        "ordinal": 20,
         "name": "default_scripts",
         "type_info": "Jsonb"
       },
       {
-        "ordinal": 21,
+        "ordinal": 20,
         "name": "deploy_ui",
         "type_info": "Jsonb"
       },
       {
-        "ordinal": 22,
+        "ordinal": 21,
         "name": "mute_critical_alerts",
         "type_info": "Bool"
       },
       {
-        "ordinal": 23,
+        "ordinal": 22,
         "name": "color",
         "type_info": "Varchar"
       },
       {
-        "ordinal": 24,
+        "ordinal": 23,
         "name": "operator_settings",
         "type_info": "Jsonb"
       },
       {
-        "ordinal": 25,
+        "ordinal": 24,
         "name": "teams_command_script",
         "type_info": "Text"
       },
       {
-        "ordinal": 26,
+        "ordinal": 25,
         "name": "teams_team_id",
         "type_info": "Text"
       },
       {
-        "ordinal": 27,
+        "ordinal": 26,
         "name": "teams_team_name",
         "type_info": "Text"
       },
       {
-        "ordinal": 28,
+        "ordinal": 27,
         "name": "git_app_installations",
         "type_info": "Jsonb"
       }
@@ -174,7 +169,6 @@
       true,
       true,
       true,
-      false,
       true,
       true,
       true,
