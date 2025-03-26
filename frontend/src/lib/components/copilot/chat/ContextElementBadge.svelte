@@ -64,6 +64,8 @@
 					{/await}
 				{:else if contextElement.schema}
 					<ObjectViewer json={formatSchema(contextElement.schema)} pureViewer collapseLevel={1} />
+				{:else}
+					<div class="text-tertiary">Not loaded yet</div>
 				{/if}
 			</div>
 		{:else if contextElement.type === 'code'}
