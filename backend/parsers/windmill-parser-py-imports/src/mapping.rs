@@ -323,6 +323,8 @@ pub static FULL_IMPORTS_MAP: PyMap = phf_map! {
     "azure.mgmt.regionmove" => "azure-mgmt-regionmove",
     "azure.mgmt.edgegateway" => "azure-mgmt-edgegateway",
     "azure.mgmt.nspkg" => "azure-mgmt-nspkg",
+    "azure.keyvault.secrets" => "azure-keyvault-secrets",
+    "azure.storage.blob" => "azure-storage-blob",
     // Add new entry here ^
 };
 
