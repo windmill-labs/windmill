@@ -7,12 +7,12 @@
 <script lang="ts">
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import PanelSection from '../apps/editor/settingsPanel/common/PanelSection.svelte'
-	import { FlowService, ScriptService, type InputTransform, type Job } from '$lib/gen'
+	import { JobService, type InputTransform } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
-	import type { Schema, SchemaProperty } from '$lib/common'
+	import type { Schema } from '$lib/common'
 	import InputTransformForm from '../InputTransformForm.svelte'
 	import type { FlowPropPickerConfig, PropPickerContext } from '../prop_picker'
-	import { setContext, untrack } from 'svelte'
+	import { setContext } from 'svelte'
 	import { writable } from 'svelte/store'
 	import type { PickableProperties } from '../flows/previousResults'
 	import Alert from '../common/alert/Alert.svelte'
@@ -20,11 +20,11 @@
 	import { pluralize } from '$lib/utils'
 
 	const {
-		selectedJobs,
+		selectedIds,
 		changedArgs,
 		onChangeArg
 	}: {
-		selectedJobs: Job[]
+		selectedIds: string[]
 		changedArgs: ChangedArgsRecord
 		onChangeArg: (
 			tab: { path: string; kind: 'flow' | 'script'; propertyName },
@@ -32,146 +32,66 @@
 		) => void
 	} = $props()
 
+	let selected: JobGroup | undefined = $state()
+
 	setContext<PropPickerContext>('PropPickerContext', {
 		flowPropPickerConfig: writable<FlowPropPickerConfig | undefined>(undefined),
 		pickablePropertiesFiltered: writable<PickableProperties | undefined>(undefined)
 	})
 
-	type GroupedJob = {
+	type JobGroup = {
 		script_path: string
 		kind: 'script' | 'flow'
-		script_hashes: Set<string>
-		job_count: number
+		schemas: { schema: Schema; script_hash: string; count: number }[]
 	}
 
-	const groupedJobs: GroupedJob[] = $derived.by(() => {
-		const scriptGroup: Map<string, { job_count: number; script_hashes: Set<string> }> = new Map()
-		const flowGroup: Map<string, { job_count: number; script_hashes: Set<string> }> = new Map()
-
-		for (const job of selectedJobs) {
-			if (!job.script_path || !job.script_hash) {
-				console.error('No script path or hash', job)
-				continue
-			}
-			let group: ReturnType<(typeof scriptGroup)['get']>
-			if (job.job_kind == 'script') {
-				if (!scriptGroup.has(job.script_path))
-					scriptGroup.set(job.script_path, { script_hashes: new Set(), job_count: 0 })
-				group = scriptGroup.get(job.script_path)
-			}
-			if (job.job_kind == 'flow') {
-				if (!flowGroup.has(job.script_path))
-					flowGroup.set(job.script_path, { script_hashes: new Set(), job_count: 0 })
-				group = flowGroup.get(job.script_path)
-			}
-			if (!group) {
-				console.error('Job is neither script or flow', job)
-				continue
-			}
-
-			group.script_hashes.add(job.script_hash)
-			group.job_count += 1
+	async function fetch(): Promise<JobGroup[]> {
+		if (!$workspaceStore) return []
+		// TODO : cache and filter jobs we already have
+		const selectedJobsSchemas = await JobService.listSelectedJobsSchema({
+			workspace: $workspaceStore,
+			requestBody: selectedIds
+		})
+		const jobGroup: JobGroup[] = []
+		for (const curr of selectedJobsSchemas) {
+			if (!curr.script_path || !curr.script_hash) continue
+			const group =
+				jobGroup.find((j) => j.kind === curr.kind && j.script_path === curr.script_path) ??
+				jobGroup[
+					jobGroup.push({
+						kind: curr.kind,
+						script_path: curr.script_path,
+						schemas: []
+					}) - 1
+				]
+			group.schemas.push({
+				schema: curr.schema as Schema,
+				count: curr.count,
+				script_hash: curr.script_hash
+			})
 		}
 
-		const list: GroupedJob[] = []
-		scriptGroup.forEach((v, k) => list.push({ script_path: k, kind: 'script', ...v }))
-		flowGroup.forEach((v, k) => list.push({ script_path: k, kind: 'flow', ...v }))
-		return list
-	})
+		if (!selected) selected = jobGroup[0]
+		return jobGroup
+	}
 
-	const eq = (a: GroupedJob | undefined, b: GroupedJob | undefined) =>
-		a?.kind === b?.kind && a?.script_path === b?.script_path
-
-	let selected: GroupedJob | undefined = $state()
-	$effect(() => {
-		if (groupedJobs.every((g) => !eq(g, selected))) selected = undefined
-		if (selected === undefined && groupedJobs.length) selected = groupedJobs[0]
-	})
-	$effect(() => {
-		groupedJobs
-		const _selected = untrack(() => selected)
-		// Fixes selected group not updating when changing selected jobs
-		if (_selected) selected = groupedJobs.find((g) => eq(g, _selected))
-	})
-
-	const selectedHashesPromise: Promise<{ schema: Schema; script_hash: string }[]> = $derived.by(
-		async () => {
-			if (!selected || !$workspaceStore) return []
-
-			// TODO : create routes to avoid many requests
-			if (selected.kind === 'script') {
-				let scripts = await Promise.all(
-					[...selected.script_hashes].map((hash) =>
-						ScriptService.getScriptByHash({ hash, workspace: $workspaceStore })
-					)
-				)
-				if (!scripts.length)
-					scripts = [
-						await ScriptService.getScriptByPath({
-							path: selected.script_path,
-							workspace: $workspaceStore
-						})
-					]
-				return scripts.map((script) => ({
-					schema: (script.schema as Schema) ?? {},
-					script_hash: script.hash
-				}))
-			}
-
-			if (selected.kind === 'flow') {
-				const path = selected.script_path
-				let flows = await Promise.all(
-					[...selected.script_hashes].map(async (hash) => ({
-						...(await FlowService.getFlowVersion({
-							path,
-							version: parseInt(hash, 16),
-							workspace: $workspaceStore
-						})),
-						hash
-					}))
-				)
-				if (!flows.length)
-					flows = [
-						{
-							...(await FlowService.getFlowByPath({
-								workspace: $workspaceStore,
-								path: selected.script_path
-							})),
-							hash: ''
-						}
-					]
-				return flows.map((flow) => ({
-					schema: (flow.schema ?? {}) as Schema,
-					script_hash: flow.hash
-				}))
-			}
-
-			console.error('selected is neither flow or script')
-			return []
-		}
-	)
-	let selectedHashes: Awaited<typeof selectedHashesPromise> | undefined = $state()
-	$effect(() => {
-		selectedHashes = undefined
-		selectedHashesPromise.then((h) => (selectedHashes = h))
-	})
-
-	const propertyMap = $derived.by(() => {
-		const map = new Map<string, { property: SchemaProperty; hashes: Set<string> }>()
-		if (!selectedHashes) return undefined
-
-		for (const { schema, script_hash } of selectedHashes) {
-			for (const property in schema.properties) {
-				if (!map.has(property))
-					map.set(property, {
-						property: schema.properties[property],
-						hashes: new Set()
-					})
-				map.get(property)?.hashes.add(script_hash)
+	function mergeSchemas(schemas: Schema[]): Schema {
+		return schemas[0] // TODO
+	}
+	function jobGroupTotalCount(group: JobGroup) {
+		return group.schemas.reduce((p, c) => p + c.count, 0)
+	}
+	function getHashesWithProperty(propertyName: string, group: JobGroup): Set<string> {
+		const set = new Set<string>()
+		for (const s of group.schemas) {
+			if (propertyName in s.schema.properties) {
+				set.add(s.script_hash)
 			}
 		}
-		return map
-	})
+		return set
+	}
+
+	const JobGroupPromise = $derived(selectedIds && fetch())
 </script>
 
 <div class="flex-1 flex flex-col">
@@ -185,20 +105,20 @@
 					id="batch-rerun-options-runnable-list"
 				>
 					<div class="w-full flex flex-col gap-1">
-						{#each groupedJobs as group}
-							<button
-								class="border rounded-sm w-full text-left font-normal py-1.5 px-2 text-2xs flex justify-between {eq(
-									selected,
-									group
-								)
-									? 'border-blue-500 bg-blue-100 dark:bg-frost-900/50'
-									: 'hover:bg-blue-50 dark:hover:bg-frost-900/50'}"
-								onclick={() => (selected = group)}
-							>
-								<span class="truncate"> {group.script_path}</span>
-								<span class="text-gray-400">({group.job_count})</span>
-							</button>
-						{/each}
+						{#await JobGroupPromise then jobGroup}
+							{#each jobGroup as group}
+								<button
+									class="border rounded-sm w-full text-left font-normal py-1.5 px-2 text-2xs flex justify-between {selected?.kind ===
+										group.kind && selected.script_path === group.script_path
+										? 'border-blue-500 bg-blue-100 dark:bg-frost-900/50'
+										: 'hover:bg-blue-50 dark:hover:bg-frost-900/50'}"
+									onclick={() => (selected = group)}
+								>
+									<span class="truncate"> {group.script_path}</span>
+									<span class="text-gray-400">({jobGroupTotalCount(group)})</span>
+								</button>
+							{/each}
+						{/await}
 					</div>
 				</PanelSection>
 			</Pane>
@@ -216,51 +136,49 @@
 							</ul>
 						</Alert>
 					</div>
-					{#if selected && selectedHashes && propertyMap}
-						{@const schema: Schema = {
-							$schema: 'http://json-schema.org/draft-07/schema#',
-							type: "object",
-							required: [],
-							properties: Object.fromEntries([...propertyMap.entries()].map(([p, {property}]) => [p, property])) 
-						}}
+					{#if selected}
+						{@const schema = mergeSchemas(selected.schemas.map((s) => s.schema))}
 						<div class="w-full h-full">
-							{#each propertyMap.entries() as [propertyName, property]}
-								<InputTransformForm
-									class="items-start mb-4"
-									arg={changedArgs[selected.kind]?.[selected.script_path]?.[propertyName] ?? {
-										type: 'javascript',
-										expr: /^[a-zA-Z_$][0-9a-zA-Z_$]*$/.test(propertyName)
-											? `job.input.${propertyName}`
-											: `job.input[${JSON.stringify(propertyName)}]`
-									}}
-									on:change={(e) => {
-										if (!selected) return
-										const arg = e.detail.arg as InputTransform
-										onChangeArg(
-											{
-												kind: selected.kind,
-												path: selected.script_path,
-												propertyName
-											},
-											arg
-										)
-									}}
-									argName={propertyName}
-									{schema}
-									extraLib={buildExtraLibForBatchReruns(schema)}
-									previousModuleId={undefined}
-									pickablepropertyMap={{
-										hasResume: false,
-										previousId: undefined,
-										priorIds: {},
-										flow_input: {}
-									}}
-									hideHelpButton
-									{...property.hashes.size !== selectedHashes.length && {
-										headerTooltip: `Used in ${pluralize(property.hashes.size, `${selected?.kind} version`)}: ${[...property.hashes.values()].join(', ').substring(0, 6)}`
-									}}
-								/>
-							{/each}
+							{#key selected}
+								{#each Object.keys(schema.properties) as propertyName}
+									{@const hashesWithProperty = getHashesWithProperty(propertyName, selected)}
+									<InputTransformForm
+										class="items-start mb-4"
+										arg={changedArgs[selected.kind]?.[selected.script_path]?.[propertyName] ?? {
+											type: 'javascript',
+											expr: /^[a-zA-Z_$][0-9a-zA-Z_$]*$/.test(propertyName)
+												? `job.input.${propertyName}`
+												: `job.input[${JSON.stringify(propertyName)}]`
+										}}
+										on:change={(e) => {
+											if (!selected) return
+											const arg = e.detail.arg as InputTransform
+											onChangeArg(
+												{
+													kind: selected.kind,
+													path: selected.script_path,
+													propertyName
+												},
+												arg
+											)
+										}}
+										argName={propertyName}
+										{schema}
+										extraLib={buildExtraLibForBatchReruns(schema)}
+										previousModuleId={undefined}
+										pickablepropertyMap={{
+											hasResume: false,
+											previousId: undefined,
+											priorIds: {},
+											flow_input: {}
+										}}
+										hideHelpButton
+										{...hashesWithProperty.size !== selected.schemas.length && {
+											headerTooltip: `Used in ${pluralize(hashesWithProperty.size, `${selected?.kind} version`)}: ${[...hashesWithProperty.values()].join(', ').substring(0, 6)}`
+										}}
+									/>
+								{/each}
+							{/key}
 						</div>
 					{/if}
 				</PanelSection>
