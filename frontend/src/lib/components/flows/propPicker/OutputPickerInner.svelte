@@ -124,6 +124,7 @@
 				}}
 				contentClasses="w-[275px] overflow-hidden"
 				{closeOnOutsideClick}
+				usePointerDownOutside={closeOnOutsideClick}
 				disablePopup={!!connectingData}
 				bind:isOpen={historyOpen}
 			>
