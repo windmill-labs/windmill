@@ -25,7 +25,7 @@ export async function pull(opts: GlobalOptions) {
 
   const hubBaseUrl =
     (await wmill.getGlobal({
-      key: "hubBaseUrl",
+      key: "hub_base_url",
     })) ?? "https://hub.windmill.dev";
 
   const headers: Record<string, string> = {
