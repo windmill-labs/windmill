@@ -42,6 +42,7 @@
 
 		const newJson = { ...inputJson }
 		delete newJson.iter
+		delete newJson.iter_parent
 
 		return newJson
 	}
