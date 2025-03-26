@@ -1208,14 +1208,13 @@ async fn update_resource_type(
     Ok(format!("resource_type {} updated", name))
 }
 
-#[cfg(all(
-    feature = "enterprise",
-    any(
-        feature = "http_trigger",
-        feature = "sqs_trigger",
-        feature = "mqtt_trigger",
-        feature = "postgres_trigger",
-        feature = "gcp_trigger"
+#[cfg(any(
+    feature = "http_trigger",
+    feature = "postgres_trigger",
+    feature = "mqtt_trigger",
+    all(
+        feature = "enterprise",
+        any(feature = "sqs_trigger", feature = "gcp_trigger")
     )
 ))]
 pub async fn try_get_resource_from_db_as<T>(

@@ -1803,6 +1803,7 @@ async fn handle_zombie_jobs(db: &Pool<Postgres>, base_internal_url: &str, worker
             *SCRIPT_TOKEN_EXPIRY,
             &job.email,
             &job.id,
+            None,
         )
         .await
         .expect("could not create job token");

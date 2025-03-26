@@ -500,7 +500,10 @@ Windmill Community Edition {GIT_VERSION}
         #[cfg(feature = "tantivy")]
         let should_index_jobs = mode == Mode::Indexer || mode_and_addons.indexer;
 
-        reload_indexer_config(&db).await;
+        #[cfg(feature = "tantivy")]
+        if should_index_jobs {
+            reload_indexer_config(&db).await;
+        }
 
         #[cfg(feature = "tantivy")]
         let (index_reader, index_writer) = if should_index_jobs {
@@ -706,6 +709,11 @@ Windmill Community Edition {GIT_VERSION}
                                             let workspace_id = n.payload();
                                             tracing::info!("Workspace envs change detected, invalidating workspace envs cache: {}", workspace_id);
                                             windmill_common::variables::CUSTOM_ENVS_CACHE.remove(workspace_id);
+                                        },
+                                        "notify_workspace_premium_change" => {
+                                            let workspace_id = n.payload();
+                                            tracing::info!("Workspace premium change detected, invalidating workspace premium cache: {}", workspace_id);
+                                            windmill_common::workspaces::IS_PREMIUM_CACHE.remove(workspace_id);
                                         },
                                         "notify_global_setting_change" => {
                                             tracing::info!("Global setting change detected: {}", n.payload());
@@ -980,15 +988,17 @@ async fn listen_pg(url: &str) -> Option<PgListener> {
         }
     };
 
-    if let Err(e) = listener
-        .listen_all(vec![
-            "notify_config_change",
-            "notify_global_setting_change",
-            "notify_webhook_change",
-            "notify_workspace_envs_change",
-        ])
-        .await
-    {
+    #[allow(unused_mut)]
+    let mut channels = vec![
+        "notify_config_change",
+        "notify_global_setting_change",
+        "notify_webhook_change",
+        "notify_workspace_envs_change",
+    ];
+    #[cfg(feature = "cloud")]
+    channels.push("notify_workspace_premium_change");
+
+    if let Err(e) = listener.listen_all(channels).await {
         tracing::error!(error = %e, "Could not listen to database");
         return None;
     }
