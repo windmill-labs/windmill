@@ -689,6 +689,7 @@
 						{
 							label: 'Ask AI about changes',
 							onClick: () => {
+								editor?.reviewChanges(savedScript?.content ?? '')
 								aiChat?.askAiAboutChanges()
 							}
 						},

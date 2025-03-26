@@ -604,14 +604,20 @@
 	}
 
 	let reviewingChanges = writable(false)
+	let diffMode = writable(false)
 	let aiChatEditorHandler: AIChatEditorHandler | undefined = undefined
 	export function reviewAndApplyCode(code: string) {
 		aiChatEditorHandler?.reviewAndApply(code)
 	}
 
+	export function reviewChanges(code: string) {
+		aiChatEditorHandler?.reviewChanges(code)
+	}
+
 	function addChatHandler(editor: meditor.IStandaloneCodeEditor) {
 		aiChatEditorHandler = new AIChatEditorHandler(editor)
 		reviewingChanges = aiChatEditorHandler.reviewingChanges
+		diffMode = aiChatEditorHandler.diffMode
 	}
 
 	$: $reviewingChanges && autocompletor?.reject()
@@ -1388,6 +1394,7 @@
 		on:rejectAll={() => {
 			aiChatEditorHandler?.rejectAll()
 		}}
+		isDiffMode={$diffMode}
 	/>
 {/if}
 
