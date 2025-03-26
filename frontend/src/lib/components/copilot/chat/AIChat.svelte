@@ -11,7 +11,7 @@
 		type DisplayMessage,
 	} from './core'
 	import { createEventDispatcher, onDestroy, setContext } from 'svelte'
-	import type { type AIProviderModel, ScriptLang, ResourceService } from '$lib/gen'
+	import { type AIProviderModel, type ScriptLang, ResourceService } from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
 	import { openDB, type DBSchema as IDBSchema, type IDBPDatabase } from 'idb'
 	import { isInitialCode } from '$lib/script_helpers'

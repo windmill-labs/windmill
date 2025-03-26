@@ -13,6 +13,7 @@ import type {
 } from 'openai/resources/index.mjs'
 import { workspaceStore, type DBSchema, dbSchemas } from '$lib/stores'
 import { scriptLangToEditorLang } from '$lib/scripts'
+import { getDbSchemas } from '$lib/components/apps/components/display/dbtable/utils'
 
 export function formatResourceTypes(
 	resourceTypes: ResourceType[],
