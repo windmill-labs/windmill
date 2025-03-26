@@ -29,6 +29,7 @@ use windmill_common::{
     error::{Error, JsonResult, Result},
     schedule::Schedule,
     utils::{not_found_if_none, paginate, Pagination, ScheduleType, StripPath},
+    worker::to_raw_value,
 };
 use windmill_git_sync::{handle_deployment_metadata, DeployedObject};
 use windmill_queue::schedule::push_scheduled_job;
@@ -121,6 +122,12 @@ async fn check_path_conflict<'c>(
     return Ok(());
 }
 
+fn to_json_raw_opt(
+    value: Option<&serde_json::Value>,
+) -> Option<sqlx::types::Json<Box<serde_json::value::RawValue>>> {
+    value.map(|v| sqlx::types::Json(to_raw_value(&v)))
+}
+
 async fn create_schedule(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
@@ -160,7 +167,8 @@ async fn create_schedule(
     check_path_conflict(&mut tx, &w_id, &ns.path).await?;
     check_flow_conflict(&mut tx, &w_id, &ns.path, ns.is_flow, &ns.script_path).await?;
 
-    let schedule = sqlx::query_as::<_, Schedule>(
+    let schedule = sqlx::query_as!(
+        Schedule,
         r#"
         INSERT INTO schedule (
             workspace_id, path, schedule, timezone, edited_by, script_path,
@@ -179,36 +187,70 @@ async fn create_schedule(
             $20, $21, $22, $23,
             $24, $25, $26, $27
         )
-        RETURNING *
+        RETURNING
+            workspace_id,
+            path,
+            edited_by,
+            edited_at,
+            schedule,
+            timezone,
+            enabled,
+            script_path,
+            is_flow,
+            args AS "args: _",
+            extra_perms,
+            email,
+            error,
+            on_failure,
+            on_failure_times,
+            on_failure_exact,
+            on_failure_extra_args AS "on_failure_extra_args: _",
+            on_recovery,
+            on_recovery_times,
+            on_recovery_extra_args AS "on_recovery_extra_args: _",
+            on_success,
+            on_success_extra_args  AS "on_success_extra_args: _",
+            ws_error_handler_muted,
+            retry,
+            no_flow_overlap,
+            summary,
+            description,
+            tag,
+            paused_until,
+            cron_version
         "#,
+        w_id,
+        ns.path,
+        ns.schedule,
+        ns.timezone,
+        authed.username,
+        ns.script_path,
+        ns.is_flow,
+        to_json_raw_opt(ns.args.as_ref())
+            as Option<sqlx::types::Json<Box<serde_json::value::RawValue>>>,
+        ns.enabled.unwrap_or(false),
+        authed.email,
+        ns.on_failure,
+        ns.on_failure_times,
+        ns.on_failure_exact,
+        to_json_raw_opt(ns.on_failure_extra_args.as_ref())
+            as Option<sqlx::types::Json<Box<serde_json::value::RawValue>>>,
+        ns.on_recovery,
+        ns.on_recovery_times,
+        to_json_raw_opt(ns.on_recovery_extra_args.as_ref())
+            as Option<sqlx::types::Json<Box<serde_json::value::RawValue>>>,
+        ns.on_success,
+        to_json_raw_opt(ns.on_success_extra_args.as_ref())
+            as Option<sqlx::types::Json<Box<serde_json::value::RawValue>>>,
+        ns.ws_error_handler_muted.unwrap_or(false),
+        ns.retry,
+        ns.summary,
+        ns.no_flow_overlap.unwrap_or(false),
+        ns.tag,
+        ns.paused_until,
+        ns.cron_version.clone().unwrap_or_else(|| "v2".to_string()),
+        ns.description
     )
-    .bind(&w_id)
-    .bind(&ns.path)
-    .bind(&ns.schedule)
-    .bind(&ns.timezone)
-    .bind(&authed.username)
-    .bind(&ns.script_path)
-    .bind(&ns.is_flow)
-    .bind(&ns.args)
-    .bind(&ns.enabled.unwrap_or(false))
-    .bind(&authed.email)
-    .bind(&ns.on_failure)
-    .bind(&ns.on_failure_times)
-    .bind(&ns.on_failure_exact)
-    .bind(&ns.on_failure_extra_args)
-    .bind(&ns.on_recovery)
-    .bind(&ns.on_recovery_times)
-    .bind(&ns.on_recovery_extra_args)
-    .bind(&ns.on_success)
-    .bind(&ns.on_success_extra_args)
-    .bind(&ns.ws_error_handler_muted.unwrap_or(false))
-    .bind(&ns.retry)
-    .bind(&ns.summary)
-    .bind(&ns.no_flow_overlap.unwrap_or(false))
-    .bind(&ns.tag)
-    .bind(&ns.paused_until)
-    .bind(&ns.cron_version.unwrap_or("v2".to_string()))
-    .bind(&ns.description)
     .fetch_one(&mut *tx)
     .await
     .map_err(|e| Error::internal_err(format!("inserting schedule in {w_id}: {e:#}")))?;
@@ -267,7 +309,8 @@ async fn edit_schedule(
     ScheduleType::from_str(&es.schedule, es.cron_version.as_deref(), true)?;
 
     clear_schedule(&mut tx, path, &w_id).await?;
-    let schedule = sqlx::query_as::<_, Schedule>(
+    let schedule = sqlx::query_as!(
+        Schedule,
         r#"
         UPDATE schedule SET
             schedule                = $1,
@@ -293,31 +336,65 @@ async fn edit_schedule(
             cron_version            = COALESCE($21, cron_version),
             description             = $22
         WHERE path = $19 AND workspace_id = $20
-        RETURNING *
+        RETURNING
+            workspace_id,
+            path,
+            edited_by,
+            edited_at,
+            schedule,
+            timezone,
+            enabled,
+            script_path,
+            is_flow,
+            args AS "args: _",
+            extra_perms,
+            email,
+            error,
+            on_failure,
+            on_failure_times,
+            on_failure_exact,
+            on_failure_extra_args AS "on_failure_extra_args: _",
+            on_recovery,
+            on_recovery_times,
+            on_recovery_extra_args AS "on_recovery_extra_args: _",
+            on_success,
+            on_success_extra_args AS "on_success_extra_args: _",
+            ws_error_handler_muted,
+            retry,
+            no_flow_overlap,
+            summary,
+            description,
+            tag,
+            paused_until,
+            cron_version
         "#,
+        es.schedule,
+        es.timezone,
+        to_json_raw_opt(es.args.as_ref())
+            as Option<sqlx::types::Json<Box<serde_json::value::RawValue>>>,
+        es.on_failure,
+        es.on_failure_times,
+        es.on_failure_exact,
+        to_json_raw_opt(es.on_failure_extra_args.as_ref())
+            as Option<sqlx::types::Json<Box<serde_json::value::RawValue>>>,
+        es.on_recovery,
+        es.on_recovery_times,
+        to_json_raw_opt(es.on_recovery_extra_args.as_ref())
+            as Option<sqlx::types::Json<Box<serde_json::value::RawValue>>>,
+        es.on_success,
+        to_json_raw_opt(es.on_success_extra_args.as_ref())
+            as Option<sqlx::types::Json<Box<serde_json::value::RawValue>>>,
+        es.ws_error_handler_muted.unwrap_or(false),
+        es.retry,
+        es.summary,
+        es.no_flow_overlap.unwrap_or(false),
+        es.tag,
+        es.paused_until,
+        path,
+        w_id,
+        es.cron_version,
+        es.description
     )
-    .bind(&es.schedule)
-    .bind(&es.timezone)
-    .bind(&es.args)
-    .bind(&es.on_failure)
-    .bind(&es.on_failure_times)
-    .bind(&es.on_failure_exact)
-    .bind(&es.on_failure_extra_args)
-    .bind(&es.on_recovery)
-    .bind(&es.on_recovery_times)
-    .bind(&es.on_recovery_extra_args)
-    .bind(&es.on_success)
-    .bind(&es.on_success_extra_args)
-    .bind(&es.ws_error_handler_muted.unwrap_or(false))
-    .bind(&es.retry)
-    .bind(&es.summary)
-    .bind(&es.no_flow_overlap.unwrap_or(false))
-    .bind(&es.tag)
-    .bind(&es.paused_until)
-    .bind(&path)
-    .bind(&w_id)
-    .bind(&es.cron_version)
-    .bind(&es.description)
     .fetch_one(&mut *tx)
     .await
     .map_err(|e| Error::internal_err(format!("updating schedule in {w_id}: {e:#}")))?;
@@ -538,12 +615,50 @@ pub async fn set_enabled(
 ) -> Result<String> {
     let mut tx = user_db.begin(&authed).await?;
     let path = path.to_path();
-    let schedule_o = sqlx::query_as::<_, Schedule>(
-        "UPDATE schedule SET enabled = $1, email = $2 WHERE path = $3 AND workspace_id = $4 RETURNING *")
-        .bind(&payload.enabled)
-        .bind(&authed.email)
-        .bind(&path)
-        .bind(&w_id)
+    let schedule_o = sqlx::query_as!(
+        Schedule,
+        r#"
+        UPDATE schedule SET
+            enabled = $1,
+            email = $2
+        WHERE path = $3 AND workspace_id = $4
+        RETURNING
+            workspace_id,
+            path,
+            edited_by,
+            edited_at,
+            schedule,
+            timezone,
+            enabled,
+            script_path,
+            is_flow,
+            args AS "args: _",
+            extra_perms,
+            email,
+            error,
+            on_failure,
+            on_failure_times,
+            on_failure_exact,
+            on_failure_extra_args AS "on_failure_extra_args: _",
+            on_recovery,
+            on_recovery_times,
+            on_recovery_extra_args AS "on_recovery_extra_args: _",
+            on_success,
+            on_success_extra_args AS "on_success_extra_args: _",
+            ws_error_handler_muted,
+            retry,
+            no_flow_overlap,
+            summary,
+            description,
+            tag,
+            paused_until,
+            cron_version
+        "#,
+        payload.enabled,
+        authed.email,
+        path,
+        w_id
+    )
     .fetch_optional(&mut *tx)
     .await?;
 
