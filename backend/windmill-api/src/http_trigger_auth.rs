@@ -428,7 +428,7 @@ pub struct SignatureConfigData<'config> {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct SignatureAuthentication {
-    signature_providers: WebhookType,
+    signature_provider: WebhookType,
     secret_key: String,
     authentication_config: Option<SignatureAuthenticationMethod>,
 }
@@ -576,11 +576,11 @@ impl AuthenticationMethod {
             AuthenticationMethod::Signature(SignatureAuthentication {
                 secret_key,
                 authentication_config,
-                signature_providers,
+                signature_provider,
             }) => {
                 let raw_payload = raw_payload.ok_or(AuthenticationError::InvalidPayload)?;
                 let config_data = SignatureConfigData { secret_key: &secret_key };
-                let handler = signature_providers.get_webhook_handler();
+                let handler = signature_provider.get_webhook_handler();
                 let challenge_response = handler
                     .map(|handler| {
                         handler.handle_challenge_request(headers, &config_data, raw_payload)
