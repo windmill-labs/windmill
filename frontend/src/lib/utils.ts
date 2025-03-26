@@ -21,11 +21,14 @@ import type { RunsSelectionMode } from './components/runs/RunsBatchActionsDropdo
 export function isJobCancelable(j: Job): boolean {
 	return j.type === 'QueuedJob' && !j.schedule_path && !j.canceled
 }
+export function isJobReRunnable(j: Job): boolean {
+	return j.job_kind === 'script' || j.job_kind === 'flow'
+}
 
 export function isJobSelectable(selectionType: RunsSelectionMode) {
 	const f: (j: Job) => boolean = {
 		cancel: isJobCancelable,
-		're-run': () => true
+		're-run': isJobReRunnable
 	}[selectionType]
 	return f
 }

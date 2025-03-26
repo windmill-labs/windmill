@@ -592,8 +592,14 @@
 			onConfirm: async () => {
 				if (!$workspaceStore) return
 
-				// TODO
-				const uuids = []
+				const uuids = await JobService.batchReRunJobs({
+					workspace: $workspaceStore,
+					requestBody: {
+						job_ids: jobIdsToReRun,
+						flow_input_transforms_by_path: {},
+						script_input_transforms_by_path: {}
+					}
+				})
 
 				selectedIds = []
 				jobLoader?.loadJobs(minTs, maxTs, true, true)

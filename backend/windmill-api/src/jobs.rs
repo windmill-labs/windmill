@@ -141,6 +141,13 @@ pub fn workspaced_service() -> Router {
                 .layer(ce_headers.clone()),
         )
         .route(
+            "/run/batch_rerun_jobs",
+            post(batch_rerun_jobs)
+                .head(|| async { "" })
+                .layer(cors.clone())
+                .layer(ce_headers.clone()),
+        )
+        .route(
             "/run/workflow_as_code/:job_id/:entrypoint",
             post(run_workflow_as_code)
                 .head(|| async { "" })
@@ -3188,6 +3195,85 @@ pub async fn check_license_key_valid() -> error::Result<()> {
         ));
     }
     Ok(())
+}
+
+#[derive(Deserialize)]
+struct BatchReRunJobsBodyArgs {
+    job_ids: Vec<Uuid>,
+    script_input_transforms_by_path: Option<serde_json::Value>,
+    flow_input_transforms_by_path: Option<serde_json::Value>,
+}
+
+#[derive(sqlx::FromRow)]
+struct BatchReRunQueryReturnType {
+    kind: JobKind,
+    script_path: String,
+    script_hash: ScriptHash,
+    args: serde_json::Value,
+}
+
+async fn batch_rerun_jobs(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Extension(user_db): Extension<UserDB>,
+    Path(w_id): Path<String>,
+    Json(body): Json<BatchReRunJobsBodyArgs>,
+) -> error::Result<Response> {
+    let jobs = sqlx::query_as!(
+        BatchReRunQueryReturnType,
+        r#"SELECT j.kind AS "kind: _", COALESCE(s.path, f.path) AS "script_path!", COALESCE(s.hash, f.id) AS "script_hash!: _", args
+            FROM v2_job j
+            LEFT JOIN script s ON j.runnable_id = s.hash AND j.kind = 'script'
+            LEFT JOIN flow_version f ON j.runnable_id = f.id AND j.runnable_path = f.path AND j.kind = 'flow'
+            WHERE j.id = ANY($1)
+                AND j.workspace_id = $2
+                AND COALESCE(s.hash, f.id) IS NOT NULL
+                AND COALESCE(s.path, f.path) IS NOT NULL"#,
+        &body.job_ids,
+        w_id
+    ).fetch_all(&db).await?;
+
+    let mut pushed_ids = Vec::with_capacity(jobs.len());
+
+    for job in jobs {
+        let args: HashMap<String, Box<RawValue>> = serde_json::from_value(job.args)?;
+        match job.kind {
+            JobKind::Flow => {
+                let result = run_flow_by_path_inner(
+                    authed.clone(),
+                    db.clone(),
+                    user_db.clone(),
+                    w_id.clone(),
+                    StripPath(job.script_path),
+                    RunJobQuery { ..Default::default() },
+                    PushArgsOwned { extra: None, args },
+                    None,
+                )
+                .await;
+                if let Ok((_, uuid)) = result {
+                    pushed_ids.push(uuid);
+                }
+            }
+            JobKind::Script => {
+                let result = run_job_by_hash_inner(
+                    authed.clone(),
+                    db.clone(),
+                    user_db.clone(),
+                    w_id.clone(),
+                    job.script_hash,
+                    RunJobQuery { ..Default::default() },
+                    PushArgsOwned { extra: None, args },
+                    None,
+                )
+                .await;
+                if let Ok((_, uuid)) = result {
+                    pushed_ids.push(uuid);
+                }
+            }
+            _ => {}
+        }
+    }
+    Ok(Json(pushed_ids).into_response())
 }
 
 pub async fn run_flow_by_path(

@@ -6452,22 +6452,48 @@ paths:
           schema:
             type: boolean
 
+  /w/{workspace}/jobs/run/batch_rerun_jobs:
+    post:
+      summary: re-run multiple jobs
+      operationId: batchReRunJobs
+      tags:
+        - job
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
       requestBody:
-        description: flow args
+        description: list of job ids to re run and arg tranforms
         required: true
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/ScriptArgs"
-
+              type: object
+              required: [job_ids]
+              properties:
+                job_ids:
+                  type: array
+                  items:
+                    type: string
+                script_input_transforms_by_path:
+                  type: object
+                  additionalProperties:
+                    type: object
+                    additionalProperties:
+                      $ref: "#/components/schemas/InputTransform"
+                flow_input_transforms_by_path:
+                  type: object
+                  additionalProperties:
+                    type: object
+                    additionalProperties:
+                      $ref: "#/components/schemas/InputTransform"
       responses:
         "201":
-          description: job created
+          description: jobs created
           content:
-            text/plain:
+            application/json:
               schema:
-                type: string
-                format: uuid
+                type: array
+                items:
+                  type: string
 
   /w/{workspace}/jobs/restart/f/{id}/from/{step_id}/{branch_or_iteration_n}:
     post:
