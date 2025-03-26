@@ -57,6 +57,7 @@
 	export let warningMessage: string | undefined = undefined
 	export let isTrigger: boolean = false
 	export let editMode: boolean = false
+	export let alwaysShowOutputPicker: boolean = false
 
 	let pickableIds: Record<string, any> | undefined = undefined
 
@@ -119,6 +120,9 @@
 	}
 	$: updateLastJob($flowStateStore)
 	$: outputPicker && outputPicker.setLastJob(lastJob)
+
+	$: isConnectingCandidate =
+		!!id && !!$flowPropPickerConfig && !!pickableIds && Object.keys(pickableIds).includes(id)
 </script>
 
 {#if deletable && id && editId}
@@ -297,16 +301,13 @@
 			</svelte:fragment>
 		</FlowModuleSchemaItemViewer>
 
-		{#if editMode}
+		{#if editMode && (isConnectingCandidate || alwaysShowOutputPicker)}
 			<OutputPicker
 				zoom={$viewport?.zoom ?? 1}
 				{selected}
 				{hover}
 				let:allowCopy
-				isConnectingCandidate={!!id &&
-					!!$flowPropPickerConfig &&
-					!!pickableIds &&
-					Object.keys(pickableIds).includes(id)}
+				{isConnectingCandidate}
 				let:isConnecting
 				let:selectConnection
 			>

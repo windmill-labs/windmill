@@ -189,6 +189,7 @@
 							: 'To be defined')}
 					path={`path` in mod.value ? mod.value.path : ''}
 					isTrigger={isTriggerStep(mod)}
+					alwaysShowOutputPicker={!mod.id.startsWith('subflow:')}
 				>
 					<div slot="icon">
 						{#if mod.value.type === 'rawscript'}

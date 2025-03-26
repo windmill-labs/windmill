@@ -43,15 +43,12 @@
 				flowJobsSuccess: state?.flow_jobs_success
 		  }
 		: (undefined as any)
-
 </script>
-
-
 
 <NodeWrapper offset={data.offset} let:darkMode>
 	{#if data.module.value.type == 'flow'}
 		<button
-			title="Unexpand subflow"
+			title="Expand subflow"
 			class="z-50 absolute -top-[10px] right-[25px] rounded-full h-[20px] w-[20px] center-center text-primary bg-surface duration-150 hover:bg-surface-hover"
 			on:click|preventDefault|stopPropagation={() => {
 				if (data.module.value.type == 'flow') {
