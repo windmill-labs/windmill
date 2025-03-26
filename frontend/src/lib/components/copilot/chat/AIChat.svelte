@@ -149,12 +149,12 @@
 	}
 
 	function updateSelectedContext(selectedContext: ContextElement[], availableContext: ContextElement[]) {
-		selectedContext = selectedContext.filter((c) => availableContext.find((ac) => ac.type === c.type && ac.title === c.title))
+		return selectedContext.filter((c) => availableContext.find((ac) => ac.type === c.type && ac.title === c.title))
 	}
 
 	$: updateAvailableContext(contextCodePath, code, lang, error, db, $copilotSessionModel, $dbSchemas, $workspaceStore)
 
-	$: updateSelectedContext(selectedContext, availableContext)
+	$: selectedContext = updateSelectedContext(selectedContext, availableContext)
 
 	let instructions = ''
 	let loading = writable(false)
