@@ -96,7 +96,6 @@
 	}
 
 	function jobDone() {
-		console.log('dbg job done testJob', testJob)
 		if (
 			testJob &&
 			testJob.type == 'CompletedJob' &&
@@ -121,8 +120,6 @@
 	$: lastJob && outputPicker?.setPreviewJob(lastJob)
 
 	let forceJson = false
-
-	$: console.log('dbg testJob', testJob)
 </script>
 
 <TestJobLoader

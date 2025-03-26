@@ -151,7 +151,6 @@
 		const id = currentId
 		if (id) {
 			dispatch('cancel', id)
-			console.log('dbg cancelJob', id)
 			currentId = undefined
 			try {
 				await JobService.cancelQueuedJob({
