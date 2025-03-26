@@ -19,7 +19,7 @@ type PyMap = phf::Map<&'static str, &'static str>;
 pub static FULL_IMPORTS_MAP: PyMap = phf_map! {
     //              import => requirement
     "google.cloud.webrisk" => "google-cloud-webrisk",
-    // > Add new entry here
+    // Add new entry here ^
 };
 
 /// import x.y.z
@@ -70,5 +70,5 @@ pub static SHORT_IMPORTS_MAP: PyMap = phf_map! {
     "socks" => "PySocks",
     "taiga" => "python-taiga",
     "docx" => "python-docx",
-    // > Add new entry here
+    // Add new entry here ^
 };
