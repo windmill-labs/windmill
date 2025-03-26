@@ -7,8 +7,7 @@
 		FolderService,
 		ScriptService,
 		FlowService,
-		type ExtendedJobs,
-		type ScriptArgs
+		type ExtendedJobs
 	} from '$lib/gen'
 
 	import { page } from '$app/stores'
@@ -49,11 +48,6 @@
 	let jobs: Job[] | undefined
 	let selectedIds: string[] = []
 	let selectedWorkspace: string | undefined = undefined
-
-	// TODO: more efficient way to get selected jobs
-	let selectedJobs: Job[] = []
-	const findSelectedJobs = () => jobs?.filter((j) => selectedIds.includes(j.id))
-	$: selectedIds && (selectedJobs = findSelectedJobs() ?? [])
 
 	let batchReRunChangedArgs: ChangedArgsRecord = { flow: {}, script: {} }
 
@@ -598,42 +592,8 @@
 			onConfirm: async () => {
 				if (!$workspaceStore) return
 
-				const uuids: string[] = []
-				for (const job of selectedJobs) {
-					const kind = job.job_kind
-					if (kind !== 'script' && kind !== 'flow') continue
-					const path = job.script_path
-					if (!path) continue
-
-					const originalArgs = (await JobService.getJobArgs({
-						id: job.id,
-						workspace: $workspaceStore
-					})) as ScriptArgs | undefined | null
-
-					const commonArgs = {
-						workspace: $workspaceStore,
-						skipPreprocessor: true,
-						invisibleToOwner: true,
-						// TODO : transform args
-						requestBody: originalArgs ?? {}
-					}
-
-					if (kind === 'script') {
-						const hash = job.script_hash
-						if (hash) {
-							await JobService.runScriptByHash({ ...commonArgs, hash })
-							uuids.push(job.id)
-						} else if (path) {
-							await JobService.runScriptByPath({ ...commonArgs, path })
-							uuids.push(job.id)
-						}
-					} else if (kind === 'flow') {
-						if (path) {
-							await JobService.runFlowByPath({ ...commonArgs, path })
-							uuids.push(job.id)
-						}
-					}
-				}
+				// TODO
+				const uuids = []
 
 				selectedIds = []
 				jobLoader?.loadJobs(minTs, maxTs, true, true)
@@ -1084,7 +1044,7 @@
 				<Pane size={40} minSize={15} class="border-t flex flex-col">
 					{#if selectionMode === 're-run'}
 						<BatchReRunOptionsPane
-							selectedJobs={selectedJobs ?? []}
+							{selectedIds}
 							changedArgs={batchReRunChangedArgs}
 							onChangeArg={({ kind, path, propertyName }, newArg) => {
 								;(batchReRunChangedArgs[kind][path] ??= {})[propertyName] = newArg

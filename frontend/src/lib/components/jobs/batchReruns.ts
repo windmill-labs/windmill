@@ -15,15 +15,15 @@ declare function variable(path: string): string;
 */
 declare function resource(path: string): any;
 
-declare const job = {
+declare const job: {
   /**
   * job input as an object
   */
-  input: null as ${schemaToTsType(schema)},
+  input: ${schemaToTsType(schema)},
   /**
    * original scheduled date of the job
    */
-  scheduled_for = null as Date
+  scheduled_for: Date
 }
 `
 }

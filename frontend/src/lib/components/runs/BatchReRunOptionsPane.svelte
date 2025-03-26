@@ -18,6 +18,7 @@
 	import Alert from '../common/alert/Alert.svelte'
 	import { buildExtraLibForBatchReruns } from '$lib/components/jobs/batchReruns'
 	import { pluralize } from '$lib/utils'
+	import { mergeObjectSchemasWithUnion } from '$lib/schema'
 
 	const {
 		selectedIds,
@@ -71,13 +72,15 @@
 			})
 		}
 
-		if (!selected) selected = jobGroup[0]
+		selected =
+			(selected &&
+				jobGroup.find(
+					(g) => g.script_path === selected?.script_path && g.kind === selected.kind
+				)) ??
+			jobGroup[0]
 		return jobGroup
 	}
 
-	function mergeSchemas(schemas: Schema[]): Schema {
-		return schemas[0] // TODO
-	}
 	function jobGroupTotalCount(group: JobGroup) {
 		return group.schemas.reduce((p, c) => p + c.count, 0)
 	}
@@ -137,7 +140,8 @@
 						</Alert>
 					</div>
 					{#if selected}
-						{@const schema = mergeSchemas(selected.schemas.map((s) => s.schema))}
+						{@const schema = mergeObjectSchemasWithUnion(selected.schemas.map((s) => s.schema))}
+						{@const extraLib = buildExtraLibForBatchReruns(schema)}
 						<div class="w-full h-full">
 							{#key selected}
 								{#each Object.keys(schema.properties) as propertyName}
@@ -164,7 +168,7 @@
 										}}
 										argName={propertyName}
 										{schema}
-										extraLib={buildExtraLibForBatchReruns(schema)}
+										{extraLib}
 										previousModuleId={undefined}
 										pickablepropertyMap={{
 											hasResume: false,
