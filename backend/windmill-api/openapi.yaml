@@ -6467,7 +6467,7 @@ paths:
           application/json:
             schema:
               type: object
-              required: [job_ids]
+              required: [job_ids, script_input_transforms_by_path, flow_input_transforms_by_path]
               properties:
                 job_ids:
                   type: array

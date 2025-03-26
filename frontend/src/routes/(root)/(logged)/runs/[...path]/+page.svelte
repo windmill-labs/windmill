@@ -585,6 +585,7 @@
 
 	async function onReRunSelectedJobs() {
 		const jobIdsToReRun = selectedIds
+		const inputTransforms = batchReRunChangedArgs
 		askingForConfirmation = {
 			title: `Confirm re-running the selected jobs`,
 			confirmBtnText: `Re-run ${jobIdsToReRun.length} jobs`,
@@ -596,8 +597,8 @@
 					workspace: $workspaceStore,
 					requestBody: {
 						job_ids: jobIdsToReRun,
-						flow_input_transforms_by_path: {},
-						script_input_transforms_by_path: {}
+						script_input_transforms_by_path: inputTransforms.script,
+						flow_input_transforms_by_path: inputTransforms.flow
 					}
 				})
 

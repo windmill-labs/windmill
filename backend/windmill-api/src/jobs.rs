@@ -3197,11 +3197,13 @@ pub async fn check_license_key_valid() -> error::Result<()> {
     Ok(())
 }
 
+use windmill_common::flows::InputTransform;
+
 #[derive(Deserialize)]
 struct BatchReRunJobsBodyArgs {
     job_ids: Vec<Uuid>,
-    script_input_transforms_by_path: Option<serde_json::Value>,
-    flow_input_transforms_by_path: Option<serde_json::Value>,
+    script_input_transforms_by_path: HashMap<String, HashMap<String, InputTransform>>,
+    flow_input_transforms_by_path: HashMap<String, HashMap<String, InputTransform>>,
 }
 
 #[derive(sqlx::FromRow)]
@@ -3236,7 +3238,28 @@ async fn batch_rerun_jobs(
     let mut pushed_ids = Vec::with_capacity(jobs.len());
 
     for job in jobs {
-        let args: HashMap<String, Box<RawValue>> = serde_json::from_value(job.args)?;
+        let args = {
+            let mut args: HashMap<String, Box<RawValue>> = serde_json::from_value(job.args)?;
+            let input_transforms_map = if matches!(job.kind, JobKind::Script) {
+                &body.script_input_transforms_by_path
+            } else {
+                &body.flow_input_transforms_by_path
+            };
+            if let Some(input_transforms) = input_transforms_map.get(&job.script_path) {
+                for (property_name, transform) in input_transforms {
+                    match transform {
+                        InputTransform::Static { value } => {
+                            args.insert(property_name.clone(), value.clone());
+                        }
+                        InputTransform::Javascript { expr } => {
+                            // TODO : Compute js
+                        }
+                    }
+                }
+            };
+            args
+        };
+
         match job.kind {
             JobKind::Flow => {
                 let result = run_flow_by_path_inner(
