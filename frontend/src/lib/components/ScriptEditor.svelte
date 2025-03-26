@@ -73,6 +73,7 @@
 	export let stablePathForCaptures: string = ''
 	export let lastSavedCode: string | undefined = undefined
 	export let lastDeployedCode: string | undefined = undefined
+	export let aiChat: AIChat | undefined = undefined
 
 	let jobProgressReset: () => void
 
@@ -328,8 +329,6 @@
 			testPanelSize = storedTestPanelSize
 		}
 	}
-
-	let aiChat: AIChat | undefined = undefined
 
 	function getStringError(job: Job | undefined) {
 		if (

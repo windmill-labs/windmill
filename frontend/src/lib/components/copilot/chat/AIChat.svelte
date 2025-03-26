@@ -85,7 +85,7 @@
 		if (diffWithLastSaved && diffWithLastSaved.filter((d) => d.added || d.removed).length > 0) {
 			newAvailableContext.push({
 				type: 'diff',
-				title: 'Diff with last saved draft',
+				title: 'diff_with_last_saved_draft',
 				content: JSON.stringify(diffWithLastSaved)
 			})
 		}
@@ -93,7 +93,7 @@
 		if (diffWithLastDeployed && diffWithLastDeployed.filter((d) => d.added || d.removed).length > 0) {
 			newAvailableContext.push({
 				type: 'diff',
-				title: 'Diff with last deployed version',
+				title: 'diff_with_last_deployed_version',
 				content: JSON.stringify(diffWithLastDeployed)
 			})
 		}
@@ -332,6 +332,18 @@
 		sendRequest()
 	}
 
+	export function askAiAboutChanges() {
+		instructions = 'Explain the changes I made to the code'
+		selectedContext = [
+			{
+				type: 'diff',
+				title: 'diff_with_last_deployed_version',
+				content: JSON.stringify(diffWithLastDeployed)
+			}
+		]
+		sendRequest()
+	}
+	
 	interface ChatSchema extends IDBSchema {
 		chats: {
 			key: string
