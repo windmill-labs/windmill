@@ -303,6 +303,12 @@ export type ContextElement =
 			content: string
 			title: string
 	  }
+	| {
+			type: 'code_piece'
+			content: string
+			title: string
+			lang: ScriptLang | 'bunnative'
+	  }
 
 export async function prepareUserMessage(
 	instructions: string,

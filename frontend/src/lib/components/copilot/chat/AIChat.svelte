@@ -261,6 +261,8 @@
 			]
 			currentReply.set('')
 			await saveChat()
+			// Remove code pieces from the context after the request is sent
+			selectedContext = selectedContext.filter((c) => c.type !== 'code_piece')
 		} catch (err) {
 			console.error(err)
 			if (err instanceof Error) {
@@ -318,6 +320,16 @@
 			currentChatId = id
 			aiChatDisplay?.enableAutomaticScroll()
 		}
+	}
+
+	export function addSelectedLinesToContext(lines: string, startLine: number, endLine: number) {
+		if (selectedContext.find((c) => c.type === 'code_piece' && c.title === `L${startLine}-L${endLine}`)) {
+			return
+		}
+		selectedContext = [
+			...selectedContext,
+			{ type: 'code_piece', title: `L${startLine}-L${endLine}`, content: lines, lang }
+		]
 	}
 
 	export function fix() {
