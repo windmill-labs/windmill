@@ -227,7 +227,10 @@
 			}
 		}
 	}
-	getLastJob()
+
+	$: if ($workspaceStore && $pathStore && flowModule?.id && selected === 'test') {
+		getLastJob()
+	}
 </script>
 
 <svelte:window on:keydown={onKeyDown} />

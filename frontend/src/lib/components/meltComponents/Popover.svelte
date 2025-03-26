@@ -46,7 +46,6 @@
 		positioning: floatingConfig ?? {
 			placement,
 			strategy: fullScreen ? 'fixed' : 'absolute',
-			middleware: fullScreen ? [] : undefined,
 			x: fullScreen ? 0 : undefined,
 			y: fullScreen ? 0 : undefined
 		},
