@@ -319,6 +319,7 @@
 					on:select={selectConnection}
 					moduleId={id}
 					on:updateMock
+					{path}
 				/>
 			</OutputPicker>
 		{/if}

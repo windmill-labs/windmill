@@ -187,7 +187,7 @@
 						(mod.value.type === 'rawscript'
 							? `Inline ${prettyLanguage(mod.value.language)}`
 							: 'To be defined')}
-					path={`path` in mod.value && mod.summary ? mod.value.path : ''}
+					path={`path` in mod.value ? mod.value.path : ''}
 					isTrigger={isTriggerStep(mod)}
 				>
 					<div slot="icon">

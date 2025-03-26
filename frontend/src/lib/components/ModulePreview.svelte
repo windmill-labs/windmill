@@ -179,6 +179,7 @@
 					bind:selectedJob
 					isLoading={(testIsLoading && !scriptProgress) || fetchingLastJob}
 					bind:preview
+					path={`path` in mod.value ? mod.value.path : ''}
 				>
 					<svelte:fragment slot="copilot-fix">
 						{#if lang && editor && diffEditor && stepArgs && selectedJob && 'result' in selectedJob && selectedJob.result && typeof selectedJob.result == 'object' && `error` in selectedJob.result && selectedJob.result.error}

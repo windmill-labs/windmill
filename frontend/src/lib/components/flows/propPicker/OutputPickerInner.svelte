@@ -32,6 +32,7 @@
 	export let preview: 'mock' | 'job' | undefined = undefined
 	export let hideHeaderBar: boolean = false
 	export let simpleViewer: any | undefined = undefined
+	export let path: string = ''
 
 	type SelectedJob =
 		| Job
@@ -160,6 +161,7 @@
 							mockValue={mock?.return_value}
 							mockEnabled={mock?.enabled}
 							bind:this={stepHistory}
+							{path}
 						/>
 					</div>
 				</svelte:fragment>

@@ -13,6 +13,7 @@
 	export let getLogs: boolean = false
 	export let mockValue: any = undefined
 	export let mockEnabled: boolean = false
+	export let path: string = ''
 
 	const { pathStore } = getContext<FlowEditorContext>('FlowEditorContext')
 	const dispatch = createEventDispatcher()
@@ -22,9 +23,9 @@
 
 	function initLoadInputs() {
 		loadInputsPageFn = async (page: number, perPage: number) => {
-			const previousJobs = await JobService.listJobs({
+			const previousJobs = await JobService.listCompletedJobs({
 				workspace: $workspaceStore!,
-				scriptPathExact: $pathStore + '/' + moduleId,
+				scriptPathExact: path === '' ? $pathStore + '/' + moduleId : path,
 				jobKinds: ['preview', 'script', 'flowpreview', 'flow'].join(','),
 				page,
 				perPage
