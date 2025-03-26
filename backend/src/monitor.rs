@@ -6,7 +6,7 @@ use std::{
     str::FromStr,
     sync::{
         atomic::{AtomicU16, Ordering},
-        Arc,
+        Arc, Mutex,
     },
     time::Duration,
 };
@@ -524,6 +524,10 @@ fn get_now_and_str() -> (NaiveDateTime, String) {
     )
 }
 
+lazy_static::lazy_static! {
+    static ref LAST_LOG_FILE_SENT: Arc<Mutex<Option<NaiveDateTime>>> = Arc::new(Mutex::new(None));
+}
+
 async fn send_log_file_to_object_store(
     hostname: &str,
     mode: &Mode,
@@ -551,23 +555,12 @@ async fn send_log_file_to_object_store(
                 .unwrap_or_else(get_now_and_str)
         };
 
-        let exists = sqlx::query_scalar!(
-            "SELECT EXISTS(SELECT 1 FROM log_file WHERE hostname = $1 AND log_ts = $2)",
-            hostname,
-            ts
-        )
-        .fetch_one(db)
-        .await;
+        let exists = LAST_LOG_FILE_SENT.lock().map(|last_log_file_sent| {
+            last_log_file_sent.map(|last_log_file_sent| last_log_file_sent >= ts).unwrap_or(false)
+        });
 
-        match exists {
-            Ok(Some(true)) => {
-                return;
-            }
-            Err(e) => {
-                tracing::error!("Error checking if log file exists: {:?}", e);
-                return;
-            }
-            _ => (),
+        if exists.unwrap_or(false) {
+            return;
         }
 
         #[cfg(feature = "parquet")]
@@ -604,6 +597,13 @@ async fn send_log_file_to_object_store(
             .execute(db)
             .await {
             tracing::error!("Error inserting log file: {:?}", e);
+        } else {
+            if let Err(e) = LAST_LOG_FILE_SENT.lock().map(|mut last_log_file_sent| {
+                last_log_file_sent.replace(ts);
+            }) {
+                tracing::error!("Error updating last log file sent: {:?}", e);
+            }
+            tracing::info!("Log file sent: {}", highest_file);
         }
     }
 }
