@@ -83,6 +83,8 @@ mod postgres_triggers;
 
 #[cfg(feature = "enterprise")]
 mod apps_ee;
+#[cfg(feature = "enterprise")]
+mod git_sync_ee;
 #[cfg(feature = "parquet")]
 mod job_helpers_ee;
 pub mod job_metrics;
@@ -109,9 +111,8 @@ mod slack_approvals;
 mod smtp_server_ee;
 #[cfg(all(feature = "enterprise", feature = "sqs_trigger"))]
 mod sqs_triggers_ee;
-#[cfg(feature = "enterprise")]
-mod git_sync_ee;
 mod static_assets;
+#[cfg(all(feature = "stripe", feature = "enterprise"))]
 mod stripe_ee;
 mod teams_ee;
 mod tracing_init;
@@ -471,7 +472,7 @@ pub async fn run_server(
                         .nest("/nats_triggers", nats_triggers_service)
                         .nest("/mqtt_triggers", mqtt_triggers_service)
                         .nest("/sqs_triggers", sqs_triggers_service)
-                        .nest("/postgres_triggers", postgres_triggers_service)
+                        .nest("/postgres_triggers", postgres_triggers_service),
                 )
                 .nest("/workspaces", workspaces::global_service())
                 .nest(
@@ -548,14 +549,14 @@ pub async fn run_server(
                     get(slack_approvals::request_slack_approval),
                 )
                 .nest("/w/:workspace_id/github_app", {
-                            #[cfg(feature = "enterprise")]
-                            {
-                                git_sync_ee::workspaced_service()
-                            }
+                    #[cfg(feature = "enterprise")]
+                    {
+                        git_sync_ee::workspaced_service()
+                    }
 
-                            #[cfg(not(feature = "enterprise"))]
-                            Router::new()
-                        })
+                    #[cfg(not(feature = "enterprise"))]
+                    Router::new()
+                })
                 .nest("/github_app", {
                     #[cfg(feature = "enterprise")]
                     {
