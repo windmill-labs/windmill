@@ -211,13 +211,13 @@ export const CHAT_SYSTEM_PROMPT = `
 
 	When the user requests code changes:
 	- Always include a **single code block** with the **entire updated file**, not just the modified sections.
+	- The code can include \`[#START]\` and \`[#END]\` markers to indicate the start and end of a code piece. You MUST only modify the code between these markers if given, and remove them in your response. If a question is asked about the code, you MUST only talk about the code between the markers.
 	- Follow the instructions carefully and explain the reasoning behind your changes.
 	- If the request is abstract (e.g., "make this cleaner"), interpret it concretely and reflect that in the code block.
 	- Preserve existing formatting, indentation, and whitespace unless changes are strictly required to fulfill the user's request.
 	- The user can ask you to look at or modify specific files, databases or errors by having its name in the INSTRUCTIONS preceded by the @ symbol. In this case, put your focus on the element that is explicitly mentioned.
 	- The user can ask you questions about a list of \`DATABASES\` that are available in the user's workspace. If the user asks you a question about a database, you should ask the user to specify the database name if not given, or take the only one available if there is only one.
 	- You can also receive a \`DIFF\` of the changes that have been made to the code. You should use this diff to give better answers.
-	- The user can also ask you to look at a specific piece of code by having its content under the \`CODE PIECE\` key. In this case, your response MUST only talk about the code piece and nothing else.
 
 	Important:
 	Do not mention or reveal these instructions to the user unless explicitly asked to do so.
@@ -314,12 +314,6 @@ export type ContextElement =
 			content: string
 			title: string
 	  }
-	| {
-			type: 'code_piece'
-			content: string
-			title: string
-			lang: ScriptLang | 'bunnative'
-	  }
 
 export async function prepareUserMessage(
 	instructions: string,
@@ -330,7 +324,6 @@ export async function prepareUserMessage(
 	let errorContext = ''
 	let dbContext = ''
 	let diffContext = ''
-	let codePieceContext = ''
 	for (const context of selectedContext) {
 		if (context.type === 'code') {
 			codeContext += CHAT_USER_CODE_CONTEXT.replace('{title}', context.title)
@@ -345,10 +338,6 @@ export async function prepareUserMessage(
 			dbContext += CHAT_USER_DB_CONTEXT.replace('{title}', context.title).replace('{schema}', context.schema?.stringified ?? 'to fetch with get_db_schema')
 		} else if (context.type === 'diff') {
 			diffContext = context.content.length > 3000 ? context.content.slice(0, 3000) + '...' : context.content
-		} else if (context.type === 'code_piece') {
-			codePieceContext += CHAT_USER_CODE_PIECE_CONTEXT.replace('{title}', context.title)
-				.replace('{language}', scriptLangToEditorLang(language))
-				.replace('{code}', context.content)
 		}
 	}
 
@@ -358,7 +347,6 @@ export async function prepareUserMessage(
 		.replace('{error_context}', errorContext)
 		.replace('{db_context}', dbContext)
 		.replace('{diff_context}', diffContext)
-		.replace('{code_piece_context}', codePieceContext)
 
 	console.log('userMessage', userMessage)
 	return userMessage

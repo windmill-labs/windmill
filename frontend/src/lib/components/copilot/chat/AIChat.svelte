@@ -262,7 +262,15 @@
 			currentReply.set('')
 			await saveChat()
 			// Remove code pieces from the context after the request is sent
-			selectedContext = selectedContext.filter((c) => c.type !== 'code_piece')
+			// selectedContext = selectedContext.filter((c) => c.type !== 'code_piece')
+
+			// Remove lines with [#START] and [#END] markers
+			selectedContext = selectedContext.map((c) => {
+				if (c.type === 'code' && c.title === contextCodePath) {
+					return { ...c, content: c.content.replace(/\[#START\].*?\[#END\]/g, '') }
+				}
+				return c
+			})
 		} catch (err) {
 			console.error(err)
 			if (err instanceof Error) {
@@ -323,12 +331,23 @@
 	}
 
 	export function addSelectedLinesToContext(lines: string, startLine: number, endLine: number) {
-		if (selectedContext.find((c) => c.type === 'code_piece' && c.title === `L${startLine}-L${endLine}`)) {
-			return
-		}
+		selectedContext = selectedContext.map((c) => {
+			if (c.type === 'code' && c.title === contextCodePath) {
+				const contentLines = c.content.split('\n')
+				contentLines.splice(startLine - 1, 0, '[#START]')
+				contentLines.splice(endLine + 1, 0, '[#END]')
+				return { ...c, content: contentLines.join('\n') }
+			}
+			return c
+		})
 		selectedContext = [
 			...selectedContext,
-			{ type: 'code_piece', title: `L${startLine}-L${endLine}`, content: lines, lang }
+			{
+				type: 'code_piece',
+				title: `L${startLine}-L${endLine}`,
+				content: lines,
+				lang
+			}
 		]
 	}
 
