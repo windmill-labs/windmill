@@ -157,7 +157,7 @@
 			initializedWithInitCode = isInitialCode(code)
 		}
 
-		selectedContext = selectedContext.map((c) => availableContext.find((ac) => ac.type === c.type && ac.title === c.title)).filter((c) => c !== undefined) as ContextElement[]
+		selectedContext = selectedContext.map((c) => c.type === 'code_piece' && code.includes(c.content) ? c : availableContext.find((ac) => ac.type === c.type && ac.title === c.title)).filter((c) => c !== undefined) as ContextElement[]
 	}
 
 	function updateDisplayMessages(dbSchemas: DBSchemas) {
@@ -237,6 +237,7 @@
 			const oldInstructions = instructions
 			instructions = ''
 			const userMessage = await prepareUserMessage(oldInstructions, lang, selectedContext)
+			console.log('userMessage', userMessage)
 
 			messages.push({ role: 'user', content: userMessage })
 			await saveChat()

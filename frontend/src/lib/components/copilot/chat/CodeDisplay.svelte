@@ -94,6 +94,7 @@
 	}
 
 	$: code = $astNode.children?.[0]?.children?.[0]?.value
+	$: console.log('code', code)
 
 	$: language = ($astNode.children?.[0]?.properties?.class as string | undefined)?.split('-')[1]
 

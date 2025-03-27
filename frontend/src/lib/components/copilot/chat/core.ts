@@ -242,19 +242,6 @@ INSTRUCTIONS:
 WINDMILL LANGUAGE CONTEXT:
 {lang_context}
 
-DATABASES:
-{db_context}
-
-CODE:
-{code_context}
-
-ERROR:
-{error_context}
-
-DIFF:
-{diff_context}
-
-\`\`\`
 `
 
 export const CHAT_USER_DB_CONTEXT = `- {title}: SCHEMA: \n{schema}\n`
@@ -317,34 +304,48 @@ export async function prepareUserMessage(
 	language: ScriptLang | 'bunnative',
 	selectedContext: ContextElement[]
 ) {
-	let codeContext = ''
-	let errorContext = ''
-	let dbContext = ''
-	let diffContext = ''
+	let codeContext = 'CODE:\n';
+	let errorContext = 'ERROR:\n'
+	let dbContext = 'DATABASES:\n'
+	let diffContext = 'DIFF:\n'
+	let hasCode = false
+	let hasError = false
+	let hasDb = false
+	let hasDiff = false
 	for (const context of selectedContext) {
 		if (context.type === 'code') {
+			hasCode = true
 			codeContext += CHAT_USER_CODE_CONTEXT.replace('{title}', context.title)
 				.replace('{language}', scriptLangToEditorLang(language))
 				.replace('{code}', context.content)
 		} else if (context.type === 'error') {
-			if (errorContext) {
+			if (hasError) {
 				throw new Error('Multiple error contexts provided')
 			}
+			hasError = true
 			errorContext = CHAT_USER_ERROR_CONTEXT.replace('{error}', context.content)
 		} else if (context.type === 'db') {
+			hasDb = true
 			dbContext += CHAT_USER_DB_CONTEXT.replace('{title}', context.title).replace('{schema}', context.schema?.stringified ?? 'to fetch with get_db_schema')
 		} else if (context.type === 'diff') {
+			hasDiff = true
 			diffContext = context.content.length > 3000 ? context.content.slice(0, 3000) + '...' : context.content
 		}
 	}
 
-	const userMessage = CHAT_USER_PROMPT.replace('{instructions}', instructions)
-		.replace('{lang_context}', getLangContext(language))
-		.replace('{code_context}', codeContext)
-		.replace('{error_context}', errorContext)
-		.replace('{db_context}', dbContext)
-		.replace('{diff_context}', diffContext)
-
+	let userMessage = CHAT_USER_PROMPT.replace('{instructions}', instructions).replace('{lang_context}', getLangContext(language))
+	if (hasCode) {
+		userMessage += codeContext
+	}
+	if (hasError) {
+		userMessage += errorContext
+	}
+	if (hasDb) {
+		userMessage += dbContext
+	}
+	if (hasDiff) {
+		userMessage += diffContext
+	}
 	console.log('userMessage', userMessage)
 	return userMessage
 }
