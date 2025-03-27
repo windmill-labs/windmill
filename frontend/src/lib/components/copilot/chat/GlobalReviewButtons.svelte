@@ -4,6 +4,8 @@
 	const dispatch = createEventDispatcher<{
 		acceptAll: void
 		rejectAll: void
+		quitDiffMode: void
+		seeHistory: void
 	}>()
 
 	export let isDiffMode = false
@@ -16,11 +18,22 @@
 			class="px-2 py-1 bg-[#a0e6a0] rounded-l text-sm font-semibold text-black"
 			on:click={() => dispatch('acceptAll')}>Accept all</button
 		>
-	{/if}	
-	<button
-		class={`px-2 py-1 bg-[#e6a0a0] rounded-r text-sm font-semibold text-black ${
-			isDiffMode ? 'rounded-l' : ''
-		}`}
-		on:click={() => dispatch('rejectAll')}>{isDiffMode ? 'Quit diff mode' : 'Reject all'}</button
-	>
+		<button
+			class={`px-2 py-1 bg-[#e6a0a0] rounded-r text-sm font-semibold text-black ${
+				isDiffMode ? 'rounded-l' : ''
+			}`}
+			on:click={() => dispatch('rejectAll')}>Reject all</button
+		>
+	{:else}
+		<button
+			class="px-2 py-1 bg-[#a0e6a0] rounded-l text-sm font-semibold text-black"
+			on:click={() => dispatch('quitDiffMode')}>Quit diff mode</button
+		>
+		<button
+			class={`px-2 py-1 bg-[#e6a0a0] rounded-r text-sm font-semibold text-black ${
+				isDiffMode ? 'rounded-l' : ''
+			}`}
+			on:click={() => dispatch('seeHistory')}>See changes history</button
+		>
+	{/if}
 </div>

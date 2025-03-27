@@ -181,6 +181,7 @@
 
 	const dispatch = createEventDispatcher<{
 		applyCode: { code: string }
+		reviewChanges: null
 	}>()
 
 	setContext<AIChatContext>('AIChatContext', {
@@ -188,7 +189,7 @@
 		currentReply,
 		applyCode: (code: string) => {
 			dispatch('applyCode', { code })
-		}
+		},
 	})
 
 	let currentChatId: string = crypto.randomUUID()
@@ -342,6 +343,7 @@
 			}
 		]
 		sendRequest()
+		dispatch('reviewChanges')
 	}
 	
 	interface ChatSchema extends IDBSchema {
@@ -405,6 +407,8 @@
 	on:saveAndClear={saveAndClear}
 	on:deletePastChat={(e) => deletePastChat(e.detail.id)}
 	on:loadPastChat={(e) => loadPastChat(e.detail.id)}
+	on:askAiAboutChanges={askAiAboutChanges}
+	hasDiff={!!diffWithLastDeployed && diffWithLastDeployed.filter((d) => d.added || d.removed).length > 0}
 >
 	<slot name="header-left" slot="header-left" />
 	<slot name="header-right" slot="header-right" />

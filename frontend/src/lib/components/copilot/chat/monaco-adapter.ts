@@ -21,7 +21,6 @@ export class AIChatEditorHandler {
 	readOnlyDisposable: IDisposable | undefined = undefined
 
 	reviewingChanges: Writable<boolean> = writable(false)
-	diffMode: Writable<boolean> = writable(false)
 	groupChanges: { changes: VisualChangeWithDiffIndex[]; groupIndex: number }[] = []
 	private changedLines: { value: string; added?: boolean; removed?: boolean; count?: number }[] = []
 
@@ -70,7 +69,6 @@ export class AIChatEditorHandler {
 		this.clear()
 		this.allowWriting()
 		this.reviewingChanges.set(false)
-		this.diffMode.set(false)
 		this.editor.updateOptions({
 			scrollBeyondLastLine: false
 		})
@@ -234,8 +232,6 @@ export class AIChatEditorHandler {
 	async reviewChanges(newCode: string) {
 		const hasChanges = await this.calculateVisualChanges(newCode)
 		if (!hasChanges) return
-
-		this.diffMode.set(true)
 		for (const group of this.groupChanges) {
 			const { collection, ids } = await displayVisualChanges(
 				'editor-windmill-chat-style',

@@ -73,6 +73,7 @@
 	export let customUi: EditorBarUi = {}
 	export let lastDeployedCode: string | undefined = undefined
 	export let diffMode: Writable<boolean> = writable(false)
+	export let showHistoryDrawer: boolean = false
 
 	let contextualVariablePicker: ItemPicker
 	let variablePicker: ItemPicker
@@ -312,12 +313,11 @@
 			.join('')
 	}
 
-	let historyBrowserDrawerOpen = false
 </script>
 
 {#if scriptPath}
-	<Drawer bind:open={historyBrowserDrawerOpen} size="1200px">
-		<DrawerContent title="Versions History" on:close={() => (historyBrowserDrawerOpen = false)}>
+	<Drawer bind:open={showHistoryDrawer} size="1200px">
+		<DrawerContent title="Versions History" on:close={() => (showHistoryDrawer = false)}>
 			<ScriptVersionHistory {scriptPath} />
 		</DrawerContent>
 	</Drawer>
@@ -749,7 +749,7 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 				size="xs"
 				spacingSize="md"
 				color="light"
-				on:click={() => (historyBrowserDrawerOpen = true)}
+				on:click={() => (showHistoryDrawer = true)}
 				{iconOnly}
 				startIcon={{ icon: History }}
 				title="See history"

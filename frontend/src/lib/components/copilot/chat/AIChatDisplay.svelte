@@ -2,7 +2,7 @@
 	import { twMerge } from 'tailwind-merge'
 	import AssistantMessage from './AssistantMessage.svelte'
 	import { createEventDispatcher, getContext } from 'svelte'
-	import { ChevronDown, HistoryIcon, Loader2, Plus, X } from 'lucide-svelte'
+	import { ChevronDown, HistoryIcon, Loader2, Plus, X, SparklesIcon } from 'lucide-svelte'
 	import Button from '$lib/components/common/button/Button.svelte'
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
 	import {
@@ -26,12 +26,14 @@
 	export let instructions: string
 	export let selectedContext: ContextElement[]
 	export let availableContext: ContextElement[]
+	export let hasDiff: boolean
 
 	const dispatch = createEventDispatcher<{
 		sendRequest: null
 		saveAndClear: null
 		deletePastChat: { id: string }
 		loadPastChat: { id: string }
+		askAiAboutChanges: null
 	}>()
 
 	const { loading, currentReply } = getContext<AIChatContext>('AIChatContext')
@@ -82,6 +84,21 @@
 			<p class="text-sm font-semibold">Chat</p>
 		</div>
 		<div class="flex flex-row items-center gap-2">
+					<Button
+						on:click={() => {
+							dispatch('askAiAboutChanges')
+						}}
+						title="Explain changes"
+						size="sm"
+						btnClasses=""
+						startIcon={{ icon: SparklesIcon }}
+						variant="border"
+						color="light"
+						propagateEvent
+						disabled={!hasDiff}
+					>
+						Explain changes
+					</Button>
 			<Popover>
 				<svelte:fragment slot="trigger">
 					<Button

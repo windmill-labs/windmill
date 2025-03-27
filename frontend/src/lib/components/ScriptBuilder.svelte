@@ -686,13 +686,6 @@
 								window.open(`/scripts/add?template=${initialPath}`)
 							}
 						},
-						{
-							label: 'Ask AI about changes',
-							onClick: () => {
-								editor?.reviewChanges(savedScript?.content ?? '')
-								aiChat?.askAiAboutChanges()
-							}
-						},
 						...(!script.draft_only
 							? [
 									{

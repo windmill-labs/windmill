@@ -76,6 +76,8 @@
 	export let lastDeployedCode: string | undefined = undefined
 	export let aiChat: AIChat | undefined = undefined
 
+	let showHistoryDrawer = false
+
 	let jobProgressReset: () => void
 	let diffMode = writable(false)
 
@@ -403,6 +405,7 @@
 			{saveToWorkspace}
 			lastDeployedCode={lastDeployedCode && lastDeployedCode !== code ? lastDeployedCode : undefined}
 			diffMode={diffMode}
+			bind:showHistoryDrawer
 		>
 			<slot name="editor-bar-right" slot="right" />
 		</EditorBar>
@@ -490,6 +493,9 @@
 						on:saveDraft
 						on:toggleAiPanel={toggleAiPanel}
 						on:toggleTestPanel={toggleTestPanel}
+						on:seeHistory={() => {
+							showHistoryDrawer = true
+						}}
 						cmdEnterAction={async () => {
 							await inferSchema(code)
 							runTest()
@@ -532,6 +538,10 @@
 					{path}
 					on:applyCode={(e) => {
 						editor?.reviewAndApplyCode(e.detail.code)
+					}}
+					on:reviewChanges={() => {
+						console.log('reviewChanges')
+						editor?.reviewChanges(lastDeployedCode ?? '')
 					}}
 					{diffWithLastSaved}
 					{diffWithLastDeployed}
