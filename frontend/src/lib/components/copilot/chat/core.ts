@@ -211,6 +211,7 @@ export const CHAT_SYSTEM_PROMPT = `
 
 	When the user requests code changes:
 	- Always include a **single code block** with the **entire updated file**, not just the modified sections.
+	- The code can include \`[#START]\` and \`[#END]\` markers to indicate the start and end of a code piece. You MUST only modify the code between these markers if given, and remove them in your response. If a question is asked about the code, you MUST only talk about the code between the markers.
 	- Follow the instructions carefully and explain the reasoning behind your changes.
 	- If the request is abstract (e.g., "make this cleaner"), interpret it concretely and reflect that in the code block.
 	- Preserve existing formatting, indentation, and whitespace unless changes are strictly required to fulfill the user's request.
@@ -223,7 +224,7 @@ export const CHAT_SYSTEM_PROMPT = `
 `
 
 const CHAT_USER_CODE_CONTEXT = `
-CODE ({title}):
+- {title}:
 \`\`\`{language}
 {code}
 \`\`\`
@@ -241,19 +242,6 @@ INSTRUCTIONS:
 WINDMILL LANGUAGE CONTEXT:
 {lang_context}
 
-DATABASES:
-{db_context}
-
-CODE:
-{code_context}
-
-ERROR:
-{error_context}
-
-DIFF:
-{diff_context}
-
-\`\`\`
 `
 
 export const CHAT_USER_DB_CONTEXT = `- {title}: SCHEMA: \n{schema}\n`
@@ -278,7 +266,8 @@ export const ContextIconMap = {
 	code: Code,
 	error: TriangleAlert,
 	db: Database,
-	diff: Diff
+	diff: Diff,
+	code_piece: Code
 }
 
 export type ContextElement =
@@ -303,40 +292,73 @@ export type ContextElement =
 			content: string
 			title: string
 	  }
+	| {
+			type: 'code_piece'
+			content: string
+			startLine: number
+			endLine: number
+			title: string
+			lang: ScriptLang | 'bunnative'
+	  }
+
+const applyCodePieceToCodeContext = (codePieces: ContextElement[], codeContext: string) => {
+	let code = codeContext.split('\n')
+	for (const codePiece of codePieces) {
+		if (codePiece.type === 'code_piece') {
+			code.splice(codePiece.startLine - 1, 0, '[#START]')
+			code.splice(codePiece.endLine + 1, 0, '[#END]')
+		}
+	}
+	return code.join('\n')
+}
 
 export async function prepareUserMessage(
 	instructions: string,
 	language: ScriptLang | 'bunnative',
 	selectedContext: ContextElement[]
 ) {
-	let codeContext = ''
-	let errorContext = ''
-	let dbContext = ''
-	let diffContext = ''
+	let codeContext = 'CODE:\n';
+	let errorContext = 'ERROR:\n'
+	let dbContext = 'DATABASES:\n'
+	let diffContext = 'DIFF:\n'
+	let hasCode = false
+	let hasError = false
+	let hasDb = false
+	let hasDiff = false
 	for (const context of selectedContext) {
 		if (context.type === 'code') {
+			hasCode = true
 			codeContext += CHAT_USER_CODE_CONTEXT.replace('{title}', context.title)
 				.replace('{language}', scriptLangToEditorLang(language))
-				.replace('{code}', context.content)
+				.replace('{code}', applyCodePieceToCodeContext(selectedContext.filter((c) => c.type === 'code_piece'), context.content))
 		} else if (context.type === 'error') {
-			if (errorContext) {
+			if (hasError) {
 				throw new Error('Multiple error contexts provided')
 			}
+			hasError = true
 			errorContext = CHAT_USER_ERROR_CONTEXT.replace('{error}', context.content)
 		} else if (context.type === 'db') {
+			hasDb = true
 			dbContext += CHAT_USER_DB_CONTEXT.replace('{title}', context.title).replace('{schema}', context.schema?.stringified ?? 'to fetch with get_db_schema')
 		} else if (context.type === 'diff') {
+			hasDiff = true
 			diffContext = context.content.length > 3000 ? context.content.slice(0, 3000) + '...' : context.content
 		}
 	}
 
-	const userMessage = CHAT_USER_PROMPT.replace('{instructions}', instructions)
-		.replace('{lang_context}', getLangContext(language))
-		.replace('{code_context}', codeContext)
-		.replace('{error_context}', errorContext)
-		.replace('{db_context}', dbContext)
-		.replace('{diff_context}', diffContext)
-
+	let userMessage = CHAT_USER_PROMPT.replace('{instructions}', instructions).replace('{lang_context}', getLangContext(language))
+	if (hasCode) {
+		userMessage += codeContext
+	}
+	if (hasError) {
+		userMessage += errorContext
+	}
+	if (hasDb) {
+		userMessage += dbContext
+	}
+	if (hasDiff) {
+		userMessage += diffContext
+	}
 	return userMessage
 }
 

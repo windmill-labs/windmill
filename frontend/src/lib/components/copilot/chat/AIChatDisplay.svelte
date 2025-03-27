@@ -202,16 +202,13 @@
 				</svelte:fragment>
 			</Popover>
 			{#each selectedContext as element}
-				{@const contextElement = availableContext.find((c) => c.type === element.type && c.title === element.title)}
-				{#if contextElement}
-					<ContextElementBadge
-						{contextElement}
-						deletable
-						on:delete={() => {
-							selectedContext = selectedContext.filter((c) => c.type !== element.type || c.title !== element.title)
-						}}
-					/>
-				{/if}
+				<ContextElementBadge
+					contextElement={element}
+					deletable
+					on:delete={() => {
+						selectedContext = selectedContext.filter((c) => c.type !== element.type || c.title !== element.title)
+					}}
+				/>
 			{/each}
 		</div>
 		<ContextTextarea

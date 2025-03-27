@@ -219,7 +219,8 @@
 	export let disabled: boolean = false
 	export let lineNumbersMinChars = 3
 	export let diffMode: Writable<boolean> = writable(false)
-		
+	export let isAiPanelOpen: boolean = false
+
 	const rHash = randomHash()
 	$: filePath = computePath(path)
 
@@ -1204,7 +1205,16 @@
 			})
 
 			editor?.addCommand(KeyMod.CtrlCmd | KeyCode.KeyL, function () {
-				dispatch('toggleAiPanel')
+				const selectedLines = getSelectedLines();
+				const selection = editor?.getSelection();
+				if (selection && selectedLines) {
+					dispatch('addSelectedLinesToAiChat', { lines: selectedLines, startLine: selection.startLineNumber, endLine: selection.endLineNumber })
+					if (!isAiPanelOpen) {
+						dispatch('toggleAiPanel')
+					}
+				} else {
+					dispatch('toggleAiPanel')
+				}
 			})
 
 			editor?.addCommand(KeyMod.CtrlCmd | KeyCode.KeyU, function () {

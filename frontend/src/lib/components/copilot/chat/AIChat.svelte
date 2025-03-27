@@ -157,7 +157,7 @@
 			initializedWithInitCode = isInitialCode(code)
 		}
 
-		selectedContext = selectedContext.map((c) => availableContext.find((ac) => ac.type === c.type && ac.title === c.title)).filter((c) => c !== undefined) as ContextElement[]
+		selectedContext = selectedContext.map((c) => c.type === 'code_piece' && code.includes(c.content) ? c : availableContext.find((ac) => ac.type === c.type && ac.title === c.title)).filter((c) => c !== undefined) as ContextElement[]
 	}
 
 	function updateDisplayMessages(dbSchemas: DBSchemas) {
@@ -222,6 +222,10 @@
 			return
 		}
 		try {
+			// Remove code pieces from the context to not include them on the next request
+			const oldSelectedContext = selectedContext
+			selectedContext = selectedContext.filter((c) => c.type !== 'code_piece')
+			
 			loading.set(true)
 			aiChatDisplay?.enableAutomaticScroll()
 			abortController = new AbortController()
@@ -231,12 +235,12 @@
 				{
 					role: 'user',
 					content: instructions,
-					contextElements: selectedContext
+					contextElements: oldSelectedContext
 				}
 			]
 			const oldInstructions = instructions
 			instructions = ''
-			const userMessage = await prepareUserMessage(oldInstructions, lang, selectedContext)
+			const userMessage = await prepareUserMessage(oldInstructions, lang, oldSelectedContext)
 
 			messages.push({ role: 'user', content: userMessage })
 			await saveChat()
@@ -246,7 +250,7 @@
 				messages,
 				abortController,
 				lang,
-				selectedContext.filter((c) => c.type === 'db').length > 0,
+				oldSelectedContext.filter((c) => c.type === 'db').length > 0,
 				(token) => currentReply.update((prev) => prev + token)
 			)
 
@@ -256,7 +260,7 @@
 				{
 					role: 'assistant',
 					content: $currentReply,
-					contextElements: selectedContext.filter((c) => c.type === 'code')
+					contextElements: oldSelectedContext.filter((c) => c.type === 'code')
 				}
 			]
 			currentReply.set('')
@@ -318,6 +322,20 @@
 			currentChatId = id
 			aiChatDisplay?.enableAutomaticScroll()
 		}
+	}
+
+	export function addSelectedLinesToContext(lines: string, startLine: number, endLine: number) {
+		selectedContext = [
+			...selectedContext,
+			{
+				type: 'code_piece',
+				title: `L${startLine}-L${endLine}`,
+				startLine,
+				endLine,
+				content: lines,
+				lang
+			}
+		]
 	}
 
 	export function fix() {
