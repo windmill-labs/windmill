@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.479.1](https://github.com/windmill-labs/windmill/compare/v1.479.0...v1.479.1) (2025-03-27)
+
+
+### Bug Fixes
+
+* pin backend deps half to 2.4.1 ([6cd2dc7](https://github.com/windmill-labs/windmill/commit/6cd2dc7178c62530f893d69f6e76b6cbc465e419))
+
 ## [1.479.0](https://github.com/windmill-labs/windmill/compare/v1.478.1...v1.479.0) (2025-03-27)
 
 
