@@ -344,6 +344,9 @@ bollard = "0.18.1"
 tonic = { version = "=0.12.3", features = ["tls-native-roots"] }
 byteorder = "1.5.0"
 
+# todo remove
+half = "=2.4.1"
+
 tikv-jemallocator = { version = "0.5" }
 tikv-jemalloc-sys  = { version = "^0.5" }
 tikv-jemalloc-ctl = { version = "^0.5" }
