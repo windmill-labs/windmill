@@ -545,6 +545,7 @@
 					}}
 					{diffWithLastSaved}
 					{diffWithLastDeployed}
+					diffMode={$diffMode}
 				>
 					<svelte:fragment slot="header-left">
 						<HideButton

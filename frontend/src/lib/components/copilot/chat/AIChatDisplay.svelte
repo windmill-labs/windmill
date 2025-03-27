@@ -22,7 +22,7 @@
 	export let selectedContext: ContextElement[]
 	export let availableContext: ContextElement[]
 	export let hasDiff: boolean
-
+	export let diffMode: boolean = false
 	const dispatch = createEventDispatcher<{
 		sendRequest: null
 		saveAndClear: null
@@ -224,7 +224,7 @@
 			on:updateInstructions={(e) => instructions = e.detail.value}
 		/>
 		<div class="flex flex-row justify-between items-center gap-2 px-0.5">
-			<ChatQuickActions {hasDiff} on:askAiAboutChanges on:suggestImprovements />
+			<ChatQuickActions {hasDiff} on:askAiAboutChanges on:suggestImprovements diffMode={diffMode} />
 			<ProviderModelSelector />
 		</div>
 	</div>

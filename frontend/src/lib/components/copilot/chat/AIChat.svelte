@@ -26,7 +26,8 @@
 	export let path: string | undefined
 	export let diffWithLastSaved: Change[] | undefined = undefined
 	export let diffWithLastDeployed: Change[] | undefined = undefined
-	
+	export let diffMode: boolean = false
+
 	$: contextCodePath = path ? (path.split('/').pop() ?? 'script') + '.' + langToExt(scriptLangToEditorLang(lang)) : undefined;
 
 	let initializedWithInitCode: boolean | null = null
@@ -415,6 +416,7 @@
 	on:askAiAboutChanges={() => askAiAboutChanges("Explain the changes I made to the code from the last diff")}
 	on:suggestImprovements={() => askAiAboutChanges("Based on the changes I made to the code, look for potential issues and recommend better solutions")}
 	hasDiff={!!diffWithLastDeployed && diffWithLastDeployed.filter((d) => d.added || d.removed).length > 0}
+	diffMode={diffMode}
 >
 	<slot name="header-left" slot="header-left" />
 	<slot name="header-right" slot="header-right" />

@@ -4,6 +4,7 @@
 	import Button from '$lib/components/common/button/Button.svelte'
 
 	export let hasDiff: boolean
+	export let diffMode: boolean = false
 
 	const dispatch = createEventDispatcher<{
 		askAiAboutChanges: null
@@ -19,7 +20,7 @@
 			}}
 			title="Explain changes"
 			size="xs"
-			btnClasses="!px-2 !py-0.5"
+			btnClasses="!px-2 !py-0.5 {diffMode ? '!bg-surface-secondary dark:!bg-surface-secondary' : ''}"
 			startIcon={{ icon: SparklesIcon }}
 			variant="border"
 			color="light"
@@ -34,11 +35,12 @@
 			}}
 			title="Suggest improvements"
 			size="xs"
-			btnClasses="!px-2 !py-0.5"
+			btnClasses="!px-2 !py-0.5 {diffMode ? '!bg-surface-secondary dark:!bg-surface-secondary' : ''}"
 			startIcon={{ icon: LightbulbIcon }}
 			variant="border"
 			color="light"
 			propagateEvent
+			disabled={!hasDiff}
 		>
 			Improve
 		</Button>
