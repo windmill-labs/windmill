@@ -254,20 +254,10 @@ ERROR:
 DIFF:
 {diff_context}
 
-CODE PIECE:
-{code_piece_context}
-
 \`\`\`
 `
 
 export const CHAT_USER_DB_CONTEXT = `- {title}: SCHEMA: \n{schema}\n`
-
-export const CHAT_USER_CODE_PIECE_CONTEXT = `
-- {title}:
-\`\`\`{language}
-{code}
-\`\`\`
-`
 
 export function prepareSystemMessage(): {
 	role: 'system'
@@ -289,7 +279,8 @@ export const ContextIconMap = {
 	code: Code,
 	error: TriangleAlert,
 	db: Database,
-	diff: Diff
+	diff: Diff,
+	code_piece: Code
 }
 
 export type ContextElement =
@@ -313,6 +304,12 @@ export type ContextElement =
 			type: 'diff'
 			content: string
 			title: string
+	  }
+	| {
+			type: 'code_piece'
+			content: string
+			title: string
+			lang: ScriptLang | 'bunnative'
 	  }
 
 export async function prepareUserMessage(
