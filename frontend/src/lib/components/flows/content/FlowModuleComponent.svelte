@@ -30,7 +30,7 @@
 	import FlowModuleSleep from './FlowModuleSleep.svelte'
 	import FlowPathViewer from './FlowPathViewer.svelte'
 	import InputTransformSchemaForm from '$lib/components/InputTransformSchemaForm.svelte'
-	import FlowModuleMock from './FlowModuleMock.svelte'
+	import FlowModuleMockTransitionMessage from './FlowModuleMockTransitionMessage.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import { SecondsInput } from '$lib/components/common'
 	import DiffEditor from '$lib/components/DiffEditor.svelte'
@@ -632,7 +632,7 @@
 											</div>
 										{:else if advancedSelected === 'mock'}
 											<div>
-												<FlowModuleMock bind:flowModule />
+												<FlowModuleMockTransitionMessage />
 											</div>
 										{:else if advancedSelected === 'same_worker'}
 											<div>
