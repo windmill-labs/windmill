@@ -679,26 +679,18 @@ async fn list_selected_jobs_schemas(
     let results = sqlx::query_as!(
         ListedSelectedJobsSchemasRow,
         r#"SELECT
-            'script' AS "kind!: JobKind",
+            j.kind AS "kind!: JobKind",
             j.runnable_id AS "script_hash: _",
             j.runnable_path AS script_path,
             COUNT(*) AS "count!",
-            ANY_VALUE(s.schema) AS schema
+            ANY_VALUE(COALESCE(f.schema, s.schema)) AS schema
         FROM v2_job j
-        JOIN script s ON s.hash = j.runnable_id
-        WHERE j.kind = 'script' AND j.workspace_id = $1 AND j.id = ANY($2)
-        GROUP BY runnable_id, runnable_path
-        UNION ALL
-        SELECT
-            'flow' AS "kind!: JobKind",
-            j.runnable_id AS "script_hash: _",
-            j.runnable_path AS script_path,
-            COUNT(*) AS "count!",
-            ANY_VALUE(f.schema) AS schema
-        FROM v2_job j
-        JOIN flow_version f ON f.id = j.runnable_id
-        WHERE j.kind = 'flow' AND j.workspace_id = $1 AND j.id = ANY($2)
-        GROUP BY runnable_id, runnable_path;"#,
+        LEFT JOIN script s ON s.hash = j.runnable_id AND j.kind = 'script'
+        LEFT JOIN flow_version f ON f.id = j.runnable_id AND f.path = j.runnable_path AND j.kind = 'flow'
+        WHERE COALESCE(s.hash, f.id) IS NOT NULL
+            AND COALESCE(s.path, f.path) IS NOT NULL
+            AND j.workspace_id = $1 AND j.id = ANY($2)
+        GROUP BY j.runnable_id, j.runnable_path, j.kind"#,
         &w_id,
         &uuids
     )

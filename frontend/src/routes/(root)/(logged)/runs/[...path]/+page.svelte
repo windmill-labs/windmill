@@ -357,6 +357,7 @@
 		lastFetchWentToEnd = false
 		selectedManualDate = 0
 		selectedIds = []
+		batchReRunChangedArgs = { flow: {}, script: {} }
 		selectionMode = false
 		selectedWorkspace = undefined
 		jobLoader?.loadJobs(minTs, maxTs, true)
@@ -490,6 +491,7 @@
 		selectionMode = mode
 		if (!mode) {
 			selectedIds = []
+			batchReRunChangedArgs = { flow: {}, script: {} }
 			return
 		}
 		selectedIds = jobs?.filter(isJobSelectable(mode)).map((j) => j.id) ?? []
@@ -603,6 +605,7 @@
 				})
 
 				selectedIds = []
+				batchReRunChangedArgs = { flow: {}, script: {} }
 				jobLoader?.loadJobs(minTs, maxTs, true, true)
 				sendUserToast(`Re-ran ${uuids.length} jobs`)
 				selectionMode = false

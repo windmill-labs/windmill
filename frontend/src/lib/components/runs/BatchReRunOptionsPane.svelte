@@ -133,10 +133,7 @@
 				>
 					<div class="text-sm w-full">
 						<Alert type="info" title="Available expressions :">
-							<ul class="list-disc">
-								<li>job.input</li>
-								<li>job.scheduled_for</li>
-							</ul>
+							Use the <code>job</code> object to access data about the original job
 						</Alert>
 					</div>
 					{#if selected}
