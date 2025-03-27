@@ -173,9 +173,6 @@ pub fn to_anyhow<T: 'static + std::error::Error + Send + Sync>(e: T) -> anyhow::
 
 impl IntoResponse for Error {
     fn into_response(self) -> axum::response::Response {
-        let e = &self;
-        let body = Body::from(e.to_string());
-
         let status = match self {
             Self::NotFound(_) => axum::http::StatusCode::NOT_FOUND,
             Self::NotAuthorized(_) => axum::http::StatusCode::UNAUTHORIZED,
@@ -187,11 +184,15 @@ impl IntoResponse for Error {
             _ => axum::http::StatusCode::INTERNAL_SERVER_ERROR,
         };
 
+        let e = &self;
+
         if matches!(status, axum::http::StatusCode::NOT_FOUND) {
             tracing::warn!(message = e.to_string());
         } else {
             tracing::error!(message = e.to_string(), error = ?e);
         };
+
+        let body = Body::from(e.to_string());
 
         axum::response::Response::builder()
             .header("Content-Type", "text/plain")

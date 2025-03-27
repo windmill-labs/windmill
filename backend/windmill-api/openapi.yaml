@@ -1381,6 +1381,63 @@ paths:
         '200':
           description: Installation successfully deleted
 
+  /w/{workspace}/github_app/export/{installationId}:
+    get:
+      summary: Export GitHub installation JWT token
+      description: Exports the JWT token for a specific GitHub installation in the workspace
+      operationId: exportInstallation
+      tags:
+        - Git Sync
+      parameters:
+        - name: workspace
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: installationId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Successfully exported the JWT token
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  jwt_token:
+                    type: string
+
+  /w/{workspace}/github_app/import:
+    post:
+      summary: Import GitHub installation from JWT token
+      description: Imports a GitHub installation from a JWT token exported from another instance
+      operationId: importInstallation
+      tags:
+        - Git Sync
+      parameters:
+        - name: workspace
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - jwt_token
+              properties:
+                jwt_token:
+                  type: string
+      responses:
+        '200':
+          description: Successfully imported the installation
+
   /users/accept_invite:
     post:
       summary: accept invite to workspace
@@ -1842,8 +1899,6 @@ paths:
                     type: boolean
                   plan:
                     type: string
-                  automatic_billing:
-                    type: boolean
                   customer_id:
                     type: string
                   webhook:
@@ -1875,7 +1930,6 @@ paths:
                   operator_settings:
                     $ref: "#/components/schemas/OperatorSettings"
                 required:
-                  - automatic_billing
                   - error_handler_muted_on_cancel
 
   /w/{workspace}/workspaces/get_deploy_to:
@@ -1936,48 +1990,14 @@ paths:
                     type: boolean
                   usage:
                     type: number
-                  seats:
-                    type: number
-                  automatic_billing:
-                    type: boolean
                   owner:
+                    type: string
+                  status:
                     type: string
                 required:
                   - premium
-                  - automatic_billing
                   - owner
-  /w/{workspace}/workspaces/set_automatic_billing:
-    post:
-      summary: set automatic billing
-      operationId: setAutomaticBilling
-      tags:
-        - workspace
-      parameters:
-        - $ref: "#/components/parameters/WorkspaceId"
-      requestBody:
-        description: automatic billing
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                automatic_billing:
-                  type: boolean
-                seats:
-                  type: number
-              required:
-                - automatic_billing
-
-      responses:
-        "200":
-          description: status
-          content:
-            text/plain:
-              schema:
-                type: string
-
-
+  
   /w/{workspace}/workspaces/threshold_alert:
     get:
       summary: get threshold alert info
@@ -13736,6 +13756,8 @@ components:
           $ref: "../../openflow.openapi.yaml#/components/schemas/Retry"
         summary:
           type: string
+        description:
+          type: string
         no_flow_overlap:
           type: boolean
         tag:
@@ -13822,6 +13844,8 @@ components:
           type: boolean
         summary:
           type: string
+        description:
+          type: string
         tag:
           type: string
         paused_until:
@@ -13873,6 +13897,8 @@ components:
           type: boolean
         summary:
           type: string
+        description:
+          type: string
         tag:
           type: string
         paused_until:
@@ -13919,6 +13945,17 @@ components:
         - edited_at
         - is_flow
 
+
+    AuthenticationMethod:
+      type: string
+      enum:
+          - none
+          - windmill
+          - api_key
+          - basic_http
+          - custom_script
+          - signature
+
     HttpTrigger:
       allOf:
         - $ref: "#/components/schemas/TriggerExtraProperty"
@@ -13945,10 +13982,12 @@ components:
             - put
             - delete
             - patch
+        authentication_resource_path:
+          type: string
         is_async:
           type: boolean
-        requires_auth:
-          type: boolean
+        authentication_method:
+          $ref: "#/components/schemas/AuthenticationMethod"
         is_static_website:
           type: boolean
         workspaced_route:
@@ -13961,7 +14000,7 @@ components:
       required:
         - route_path
         - is_async
-        - requires_auth
+        - authentication_method
         - http_method
         - is_static_website
         - workspaced_route
@@ -14000,10 +14039,12 @@ components:
             - put
             - delete
             - patch
+        authentication_resource_path:
+          type: string
         is_async:
           type: boolean
-        requires_auth:
-          type: boolean
+        authentication_method:
+          $ref: "#/components/schemas/AuthenticationMethod"
         is_static_website:
           type: boolean
         wrap_body:
@@ -14017,7 +14058,7 @@ components:
         - route_path
         - is_flow
         - is_async
-        - requires_auth
+        - authentication_method
         - http_method
         - is_static_website
 
@@ -14043,6 +14084,8 @@ components:
               type: string
           required:
             - s3
+        authentication_resource_path:
+          type: string
         is_flow:
           type: boolean
         http_method:
@@ -14055,8 +14098,8 @@ components:
             - patch
         is_async:
           type: boolean
-        requires_auth:
-          type: boolean
+        authentication_method:
+          $ref: "#/components/schemas/AuthenticationMethod"
         is_static_website:
           type: boolean
         wrap_body:
@@ -14069,7 +14112,7 @@ components:
         - is_flow
         - kind
         - is_async
-        - requires_auth
+        - authentication_method
         - http_method
         - is_static_website
 
