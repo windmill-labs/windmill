@@ -195,6 +195,8 @@
 		| 'yaml'
 		| 'csharp'
 		| 'nu'
+		| 'java'
+		// KJQXZ 
 	export let code: string = ''
 	export let cmdEnterAction: (() => void) | undefined = undefined
 	export let formatAction: (() => void) | undefined = undefined
