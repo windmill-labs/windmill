@@ -4,11 +4,6 @@ on:
     workflows: ["Change versions"]
     types:
       - completed
-  pull_request:
-    types: [opened, synchronize, reopened]
-    paths:
-      - "frontend/**"
-      - ".github/workflows/frontend-check.yml"
 
   merge_group:
   push:
