@@ -12,8 +12,6 @@ import {
   ScriptMetadata,
   defaultScriptMetadata,
 } from "./bootstrap/script_bootstrap.ts";
-
-
 import { Workspace } from "./workspace.ts";
 import { SchemaProperty } from "./bootstrap/common.ts";
 import { ScriptLanguage } from "./script_common.ts";
@@ -550,6 +548,10 @@ export async function inferSchema(
   } else if (language === "ansible") {
     const { parse_ansible } = await import("./wasm/yaml/windmill_parser_wasm.js");
     inferedSchema = JSON.parse(parse_ansible(content));
+  } else if (language === "java") {
+    const { parse_java } = await import("./wasm/java/windmill_parser_wasm.js");
+    inferedSchema = JSON.parse(parse_java(content));
+  	// KJQXZ 
   } else {
     throw new Error("Invalid language: " + language);
   }
