@@ -20,6 +20,7 @@ use regex_lite::Regex;
 
 use rustpython_parser::{
     ast::{Stmt, StmtImport, StmtImportFrom, Suite},
+    text_size::TextRange,
     Parse,
 };
 use sqlx::{Pool, Postgres};
@@ -41,6 +42,7 @@ fn replace_full_import(x: &str) -> Option<String> {
 
 lazy_static! {
     static ref RE: Regex = Regex::new(r"^\#\s?(\S+)\s*$").unwrap();
+    static ref PIN_RE: Regex = Regex::new(r"(?:\s*#\s*pin:\s*)(\S*)").unwrap();
 }
 
 fn process_import(module: Option<String>, path: &str, level: usize) -> Vec<String> {
@@ -104,19 +106,35 @@ fn parse_code_for_imports(code: &str, path: &str) -> error::Result<Vec<String>> 
     let ast = Suite::parse(&code, "main.py").map_err(|e| {
         error::Error::ExecutionErr(format!("Error parsing code for imports: {}", e.to_string()))
     })?;
+
+    let find_pin = |range: TextRange| {
+        PIN_RE
+            .captures(
+                &code
+                    .chars()
+                    .skip(range.end().to_usize())
+                    .take_while(|e| *e != '\n')
+                    .collect::<String>(),
+            )
+            .map(|x| x.get(1).unwrap().as_str().to_string())
+            .map(|e| vec![e])
+    };
+
     let nimports: Vec<String> = ast
         .into_iter()
         .filter_map(|x| match x {
-            Stmt::Import(StmtImport { names, .. }) => Some(
-                names
-                    .into_iter()
-                    .map(|x| {
-                        let name = x.name.to_string();
-                        process_import(Some(name), path, 0)
-                    })
-                    .flatten()
-                    .collect::<Vec<String>>(),
-            ),
+            Stmt::Import(StmtImport { names, range }) => find_pin(range)
+                .and_then(|e| if names.len() > 1 { None } else { Some(e) })
+                .or(Some(
+                    names
+                        .into_iter()
+                        .map(|x| {
+                            let name = x.name.to_string();
+                            process_import(Some(name), path, 0)
+                        })
+                        .flatten()
+                        .collect::<Vec<String>>(),
+                )),
             Stmt::ImportFrom(StmtImportFrom { level: Some(i), module, .. }) if i.to_u32() > 0 => {
                 Some(process_import(
                     module.map(|x| x.to_string()),
@@ -124,8 +142,8 @@ fn parse_code_for_imports(code: &str, path: &str) -> error::Result<Vec<String>> 
                     i.to_usize(),
                 ))
             }
-            Stmt::ImportFrom(StmtImportFrom { level: _, module, .. }) => {
-                Some(process_import(module.map(|x| x.to_string()), path, 0))
+            Stmt::ImportFrom(StmtImportFrom { level: _, module, range, .. }) => {
+                find_pin(range).or(Some(process_import(module.map(|x| x.to_string()), path, 0)))
             }
             _ => None,
         })
