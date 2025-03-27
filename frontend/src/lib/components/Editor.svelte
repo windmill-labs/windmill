@@ -196,7 +196,7 @@
 		| 'csharp'
 		| 'nu'
 		| 'java'
-		// KJQXZ 
+	// KJQXZ
 	export let code: string = ''
 	export let cmdEnterAction: (() => void) | undefined = undefined
 	export let formatAction: (() => void) | undefined = undefined
@@ -612,8 +612,12 @@
 	}
 
 	function addChatHandler(editor: meditor.IStandaloneCodeEditor) {
-		aiChatEditorHandler = new AIChatEditorHandler(editor)
-		reviewingChanges = aiChatEditorHandler.reviewingChanges
+		try {
+			aiChatEditorHandler = new AIChatEditorHandler(editor)
+			reviewingChanges = aiChatEditorHandler.reviewingChanges
+		} catch (err) {
+			console.error('Could not add chat handler', err)
+		}
 	}
 
 	$: $reviewingChanges && autocompletor?.reject()
@@ -621,58 +625,62 @@
 	let completorDisposable: Disposable | undefined = undefined
 	let autocompletor: Autocompletor | undefined = undefined
 	function addSuperCompletor(editor: meditor.IStandaloneCodeEditor) {
-		if (completorDisposable) {
-			completorDisposable.dispose()
-		}
-		autocompletor = new Autocompletor(editor, lang)
-
-		// last user events (currently disabled):
-		// let lastTs = Date.now()
-		// editor.onDidChangeModelContent((e) => {
-		// 	const thisTs = Date.now()
-		// 	lastTs = thisTs
-		// 	setTimeout(() => {
-		// 		if (thisTs === lastTs) {
-		// 			autocompletor?.savePatch()
-		// 		}
-		// 	}, 150)
-		// })
-
-		completorDisposable = editor.onDidChangeCursorPosition((e) => {
-			autocompletor?.reject()
-			if ($reviewingChanges) {
-				return
+		try {
+			if (completorDisposable) {
+				completorDisposable.dispose()
 			}
-			const position = editor.getPosition()
-			if (!position) {
-				return
-			}
-			const upToText = editor.getModel()?.getValueInRange({
-				startLineNumber: position.lineNumber,
-				startColumn: 0,
-				endLineNumber: position.lineNumber,
-				endColumn: position.column
-			})
-			const lastChar = upToText ? upToText[upToText.length - 1] : ''
-			if (lastChar && lastChar.match(/[\(\{\s:="',]/)) {
-				autocompletor?.predict()
-			}
-		})
+			autocompletor = new Autocompletor(editor, lang)
 
-		editor.addCommand(KeyCode.Tab, () => {
-			if (autocompletor?.hasChanges()) {
-				autocompletor?.accept()
-				autocompletor?.predict()
-			} else {
-				editor.trigger('keyboard', 'tab', {})
-			}
-		})
+			// last user events (currently disabled):
+			// let lastTs = Date.now()
+			// editor.onDidChangeModelContent((e) => {
+			// 	const thisTs = Date.now()
+			// 	lastTs = thisTs
+			// 	setTimeout(() => {
+			// 		if (thisTs === lastTs) {
+			// 			autocompletor?.savePatch()
+			// 		}
+			// 	}, 150)
+			// })
 
-		editor.onKeyDown((e) => {
-			if (e.keyCode === KeyCode.Escape) {
+			completorDisposable = editor.onDidChangeCursorPosition((e) => {
 				autocompletor?.reject()
-			}
-		})
+				if ($reviewingChanges) {
+					return
+				}
+				const position = editor.getPosition()
+				if (!position) {
+					return
+				}
+				const upToText = editor.getModel()?.getValueInRange({
+					startLineNumber: position.lineNumber,
+					startColumn: 0,
+					endLineNumber: position.lineNumber,
+					endColumn: position.column
+				})
+				const lastChar = upToText ? upToText[upToText.length - 1] : ''
+				if (lastChar && lastChar.match(/[\(\{\s:="',]/)) {
+					autocompletor?.predict()
+				}
+			})
+
+			editor.addCommand(KeyCode.Tab, () => {
+				if (autocompletor?.hasChanges()) {
+					autocompletor?.accept()
+					autocompletor?.predict()
+				} else {
+					editor.trigger('keyboard', 'tab', {})
+				}
+			})
+
+			editor.onKeyDown((e) => {
+				if (e.keyCode === KeyCode.Escape) {
+					autocompletor?.reject()
+				}
+			})
+		} catch (err) {
+			console.error('Could not add supercompletor', err)
+		}
 	}
 
 	$: $copilotInfo.enabled &&
