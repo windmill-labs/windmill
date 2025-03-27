@@ -296,6 +296,7 @@
 				10000
 			)
 		} catch (error) {
+			console.error(error)
 			sendUserToast('Failed to export installation', true)
 		}
 	}
