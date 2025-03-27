@@ -118,6 +118,8 @@ serde_json.workspace = true
 serde.workspace = true
 deno_core = { workspace = true, optional = true }
 object_store = { workspace = true, optional = true }
+sha1 = { workspace = true, optional = true }
+constant_time_eq = { workspace = true, optional = true }
 quote.workspace = true
 memchr.workspace = true
 v8 = { workspace = true, optional = true }
@@ -248,6 +250,7 @@ base64 = "^0"
 base32 = "^0"
 hmac = "0.12.1"
 sha2 = "0.10.6"
+sha1 = "0.10.6"
 sqlx = { version = "0.8.0", features = [
     "macros",
     "migrate",
@@ -266,6 +269,7 @@ futures-core = "^0"
 lazy_static = "1.4.0"
 serde_derive = "1.0.147"
 const_format = { version = "0.2", features = ["rust_1_64", "rust_1_51"] }
+constant_time_eq = "0.3.1"
 dyn-iter = "0.2.0"
 rsa = "^0"
 async_zip = { version = "0.0.17", features = ["tokio", "tokio-fs", "deflate", "chrono"] }

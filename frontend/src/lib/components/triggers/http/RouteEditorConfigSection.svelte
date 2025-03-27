@@ -15,10 +15,11 @@
 	import CaptureSection from '../CaptureSection.svelte'
 	import CaptureTable from '../CaptureTable.svelte'
 	import ClipboardPanel from '../../details/ClipboardPanel.svelte'
-	import { isCloudHosted } from '$lib/cloud'
-	import Toggle from '$lib/components/Toggle.svelte'
 	import { isObject } from '$lib/utils'
 	import { getHttpRoute } from './utils'
+	import RouteBodyTransformerOption from './RouteBodyTransformerOption.svelte'
+	import { isCloudHosted } from '$lib/cloud'
+	import Toggle from '$lib/components/Toggle.svelte'
 
 	export let initialTriggerPath: string | undefined = undefined
 	export let dirtyRoutePath: boolean = false
@@ -34,6 +35,9 @@
 	export let workspaced_route: boolean = false
 	export let isValid = false
 	export let runnableArgs: any = {}
+	export let raw_string: boolean = false
+	export let wrap_body: boolean = false
+	export let capture_mode: boolean
 	let validateTimeout: NodeJS.Timeout | undefined = undefined
 
 	let routeError: string = ''
@@ -187,7 +191,7 @@
 				<div class="text-red-600 dark:text-red-400 text-2xs mt-1.5"
 					>{dirtyRoutePath ? routeError : ''}</div
 				>
-				{#if !isCloudHosted()}
+				{#if !capture_mode && !isCloudHosted()}
 					<div class="mt-1">
 						<Toggle
 							size="sm"
@@ -205,6 +209,9 @@
 					</div>
 				{/if}
 			</div>
+			{#if capture_mode}
+				<RouteBodyTransformerOption bind:raw_string bind:wrap_body />
+			{/if}
 		</div>
 	</Section>
 </div>

@@ -130,7 +130,7 @@
 	)}
 	style={wrapperStyle}
 >
-	{#if href}
+	{#if href && !disabled}
 		<a
 			bind:this={element}
 			on:pointerdown
