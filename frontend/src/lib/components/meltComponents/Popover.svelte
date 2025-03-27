@@ -118,7 +118,7 @@
 		{/if}
 		{#if documentationLink}
 			<div class="absolute right-1.5 top-1.5">
-				<DocLink docLink="{documentationLink}," size="sm" />
+				<DocLink docLink={documentationLink} size="sm" />
 			</div>
 		{/if}
 		<slot name="content" {open} {close} />
