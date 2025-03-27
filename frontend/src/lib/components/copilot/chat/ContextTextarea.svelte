@@ -137,7 +137,7 @@
 		class="absolute top-0 left-0 w-full h-full min-h-12 px-4 text-sm pt-1 pointer-events-none"
 		style="line-height: 1.72"
 	>
-		<span class="break-words">
+		<span class="break-words" style="white-space: pre-wrap;">
 			{@html getHighlightedText(instructions)}
 		</span>
 	</div>
