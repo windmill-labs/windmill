@@ -12,6 +12,7 @@
 	import rust from 'svelte-highlight/languages/rust'
 	import csharp from 'svelte-highlight/languages/csharp'
 	import yaml from 'svelte-highlight/languages/yaml'
+	import java from 'svelte-highlight/languages/java'
 	import type { Script } from '$lib/gen'
 	import { Button } from './common'
 	import { copyToClipboard } from '$lib/utils'
@@ -65,7 +66,10 @@
 			case 'nu':
 				return python
 			case 'ansible':
-				return yaml
+				return yaml;
+			case 'java':
+				return java;
+			// KJQXZ 
 			default:
 				return typescript
 		}
