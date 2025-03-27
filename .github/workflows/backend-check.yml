@@ -1,5 +1,9 @@
 name: Backend check
 on:
+  workflow_run:
+    workflows: ["Change versions"]
+    types:
+      - completed
   pull_request:
     types: [opened, synchronize, reopened]
     paths:
