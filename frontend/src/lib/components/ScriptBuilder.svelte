@@ -686,6 +686,27 @@
 								window.open(`/scripts/add?template=${initialPath}`)
 							}
 						},
+						...(customUi?.topBar?.diff != false && savedScript && diffDrawer
+							? [
+									{
+										label: 'Diff',
+									onClick: async () => {
+										if (!savedScript) {
+											return
+										}
+										await syncWithDeployed()
+
+										diffDrawer?.openDrawer()
+										diffDrawer?.setDiff({
+											mode: 'normal',
+											deployed: deployedValue ?? savedScript,
+											draft: savedScript['draft'],
+											current: script
+										})
+									}
+								}
+							]
+							: []),
 						...(!script.draft_only
 							? [
 									{
@@ -1527,33 +1548,6 @@
 				{/if}
 
 				<div class="flex flex-row gap-x-1 lg:gap-x-2">
-					{#if customUi?.topBar?.diff != false}
-						<Button
-							color="light"
-							variant="border"
-							size="xs"
-							on:click={async () => {
-								if (!savedScript) {
-									return
-								}
-								await syncWithDeployed()
-
-								diffDrawer?.openDrawer()
-								diffDrawer?.setDiff({
-									mode: 'normal',
-									deployed: deployedValue ?? savedScript,
-									draft: savedScript['draft'],
-									current: script
-								})
-							}}
-							disabled={!savedScript || !diffDrawer}
-						>
-							<div class="flex flex-row gap-2 items-center">
-								<DiffIcon size={14} />
-								<span class="hidden lg:flex"> Diff </span>
-							</div>
-						</Button>
-					{/if}
 					{#if customUi?.topBar?.settings != false}
 						<Button
 							color="light"
