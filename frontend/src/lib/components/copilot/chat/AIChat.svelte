@@ -241,7 +241,6 @@
 			const oldInstructions = instructions
 			instructions = ''
 			const userMessage = await prepareUserMessage(oldInstructions, lang, oldSelectedContext)
-			console.log('userMessage', userMessage)
 
 			messages.push({ role: 'user', content: userMessage })
 			await saveChat()
