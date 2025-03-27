@@ -24,6 +24,7 @@ name = "windmill_common"
 path = "src/lib.rs"
 
 [dependencies]
+tar.workspace = true
 hmac.workspace = true
 sha2.workspace = true
 thiserror.workspace = true
