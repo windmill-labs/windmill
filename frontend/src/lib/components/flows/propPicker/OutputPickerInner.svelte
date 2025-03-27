@@ -432,13 +432,13 @@
 					)}
 					class="h-full"
 				/>
-			{:else if mock?.enabled && preview != 'job'}
+			{:else if (mock?.enabled || preview == 'mock') && preview != 'job'}
 				<ObjectViewer
 					json={moduleId
 						? {
-								[moduleId]: mock.return_value
+								[moduleId]: mock?.return_value
 						  }
-						: mock.return_value}
+						: mock?.return_value}
 					topBrackets={false}
 					pureViewer={false}
 				/>
