@@ -7,6 +7,7 @@
 	export let onSelect: (element: ContextElement) => void
 	export let showAllAvailable = false
 	export let stringSearch = ''
+	export let selectedIndex = 0
 
 	$: actualAvailableContext = showAllAvailable 
 		? availableContext.filter((c) => !stringSearch || c.title.toLowerCase().includes(stringSearch.toLowerCase()))
@@ -17,9 +18,9 @@
 	{#if actualAvailableContext.length === 0}
 		<div class="text-center text-tertiary text-xs">No available context</div>
 	{:else}
-		{#each actualAvailableContext as element}
+		{#each actualAvailableContext as element, i}
 			<button
-				class="hover:bg-surface-hover rounded-md p-1 text-left flex flex-row gap-1 items-center font-normal"
+				class="hover:bg-surface-hover rounded-md p-1 text-left flex flex-row gap-1 items-center font-normal {i === selectedIndex ? 'bg-surface-hover' : ''}"
 				on:click={() => onSelect(element)}
 			>
 				<svelte:component this={ContextIconMap[element.type]} size={16} />

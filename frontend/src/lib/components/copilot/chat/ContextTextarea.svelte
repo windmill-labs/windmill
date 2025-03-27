@@ -20,6 +20,7 @@
 	let contextTooltipWord = ''
 	let tooltipPosition = { x: 0, y: 0 }
 	let textarea: HTMLTextAreaElement
+	let selectedSuggestionIndex = 0
 
 	function getHighlightedText(text: string) {
 		return text.replace(/@[\w/.-]+/g, (match) => {
@@ -75,15 +76,18 @@
 		} else {
 			showContextTooltip = false
 			contextTooltipWord = ''
+			selectedSuggestionIndex = 0
 		}
 		dispatch('updateInstructions', { value: instructions })
 	}
 
 	function handleKeyPress(e: KeyboardEvent) {
+		console.log('key press', e)
 		if (e.key === 'Enter' && !e.shiftKey) {
 			e.preventDefault()
 			if (contextTooltipWord) {
-				const contextElement = availableContext.find((c) => c.title.includes(contextTooltipWord.slice(1)))
+				const filteredContext = availableContext.filter((c) => !contextTooltipWord || c.title.toLowerCase().includes(contextTooltipWord.slice(1)))
+				const contextElement = filteredContext[selectedSuggestionIndex]
 				if (contextElement) {
 					const isInSelectedContext = selectedContext.find((c) => c.title === contextElement.title && c.type === contextElement.type)
 					// If the context element is already in the selected context and the last word in the instructions is the same as the context element title, send request
@@ -98,6 +102,30 @@
 			} else {
 				dispatch('sendRequest')
 			}
+		}
+
+
+	}
+
+	function handleKeyDown(e: KeyboardEvent) {
+		if (!showContextTooltip) return
+
+		const filteredContext = availableContext.filter((c) => !contextTooltipWord || c.title.toLowerCase().includes(contextTooltipWord.slice(1)))
+
+		if (e.key === 'Tab') {
+			e.preventDefault()
+			const contextElement = filteredContext[selectedSuggestionIndex]
+			if (contextElement) {
+				handleContextSelection(contextElement)
+			}
+		}
+		
+		if (e.key === 'ArrowDown') {
+			e.preventDefault()
+			selectedSuggestionIndex = (selectedSuggestionIndex + 1) % filteredContext.length
+		} else if (e.key === 'ArrowUp') {
+			e.preventDefault()
+			selectedSuggestionIndex = (selectedSuggestionIndex - 1 + filteredContext.length) % filteredContext.length
 		}
 	}
 
@@ -117,6 +145,7 @@
 	<textarea
 		bind:this={textarea}
 		on:keypress={handleKeyPress}
+		on:keydown={handleKeyDown}
 		bind:value={instructions}
 		use:autosize
 		rows={3}
@@ -145,6 +174,7 @@
 			}}
 			showAllAvailable={true}
 			stringSearch={contextTooltipWord.slice(1)}
+			selectedIndex={selectedSuggestionIndex}
 		/>
 	</div>
 {/if} 
