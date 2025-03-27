@@ -58,7 +58,6 @@
 			initializedWithInitCode = false
 		}
 	}
-	$: code && onCodeChange(contextCodePath)
 
 	let db: { schema: DBSchema; resource: string } | undefined = undefined
 
@@ -96,7 +95,7 @@
 		dbSchemas: DBSchemas,
 		workspace?: string,
 	) {
-		availableContext = [
+		let newAvailableContext: ContextElement[] = [
 			{
 				type: 'code',
 				title: contextCodePath,
@@ -104,7 +103,6 @@
 				lang
 			}
 		]
-
 		if (workspace && !providerModel?.model.endsWith('/thinking')) {
 			// Make all dbs in the workspace available
 			const dbs = await ResourceService.listResource({
@@ -113,7 +111,7 @@
 			})
 			for (const d of dbs) {
 				const loadedSchema = dbSchemas[d.path]
-				availableContext.push({
+				newAvailableContext.push({
 					type: 'db',
 					title: d.path,
 					// If the db is already fetched, add the schema to the context
@@ -123,8 +121,8 @@
 		}
 
 		if (error) {
-			availableContext = [
-				...availableContext,
+			newAvailableContext = [
+				...newAvailableContext,
 				{
 					type: 'error',
 					title: 'error',
@@ -147,24 +145,31 @@
 			}
 		}
 
-		// Resync with available context to refresh db schemas if are now available / have changed
+		availableContext = newAvailableContext
+	}
+
+	function updateSelectedContext(availableContext: ContextElement[], code: string, contextCodePath: string) {
 		selectedContext = selectedContext.map((c) => availableContext.find((ac) => ac.type === c.type && ac.title === c.title)).filter((c) => c !== undefined) as ContextElement[]
-		displayMessages = displayMessages.map((m) => (
-			{
-				...m,
-				contextElements: m.contextElements?.map(
-					(c) => c.type === 'db' ? {
-						type: 'db',
-						title: c.title,
-						schema: dbSchemas[c.title]
-					} : c
-				)
-			}
-		))
-		onCodeChange(contextCodePath)
+		if (code) {
+			onCodeChange(contextCodePath)
+		}
+	}
+
+	function updateDisplayMessages(dbSchemas: DBSchemas) {
+		return displayMessages.map((m) => ({
+			...m,
+			contextElements: (m.contextElements?.map(
+				(c) => c.type === 'db' ? {
+					type: 'db',
+					title: c.title,
+					schema: dbSchemas[c.title]
+				} : c) as ContextElement[]
+			)
+		}))
 	}
 
 	$: updateAvailableContext(contextCodePath, code, lang, error, db, $copilotSessionModel, $dbSchemas, $workspaceStore)
+	$: updateSelectedContext(availableContext, code, contextCodePath)
 
 	let instructions = ''
 	let loading = writable(false)
@@ -204,6 +209,8 @@
 
 	let displayMessages: DisplayMessage[] = []
 	let abortController: AbortController | undefined = undefined
+
+	$: displayMessages = updateDisplayMessages($dbSchemas)
 
 	async function sendRequest() {
 		if (!instructions.trim()) {
