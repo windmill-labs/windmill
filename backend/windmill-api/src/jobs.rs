@@ -3231,8 +3231,14 @@ use windmill_common::flows::InputTransform;
 #[derive(Deserialize)]
 struct BatchReRunJobsBodyArgs {
     job_ids: Vec<Uuid>,
-    script_input_transforms_by_path: HashMap<String, HashMap<String, InputTransform>>,
-    flow_input_transforms_by_path: HashMap<String, HashMap<String, InputTransform>>,
+    script_options_by_path: HashMap<String, BatchReRunOptions>,
+    flow_options_by_path: HashMap<String, BatchReRunOptions>,
+}
+
+#[derive(Deserialize)]
+struct BatchReRunOptions {
+    input_transforms: Option<HashMap<String, InputTransform>>,
+    use_latest_version: Option<bool>,
 }
 
 #[derive(sqlx::FromRow)]
@@ -3267,14 +3273,16 @@ async fn batch_rerun_jobs(
     let mut pushed_ids = Vec::with_capacity(jobs.len());
 
     for job in jobs {
+        let options = if matches!(job.kind, JobKind::Script) {
+            &body.script_options_by_path
+        } else {
+            &body.flow_options_by_path
+        }
+        .get(&job.script_path);
+
         let args = {
             let mut args: HashMap<String, Box<RawValue>> = serde_json::from_value(job.args)?;
-            let input_transforms_map = if matches!(job.kind, JobKind::Script) {
-                &body.script_input_transforms_by_path
-            } else {
-                &body.flow_input_transforms_by_path
-            };
-            if let Some(input_transforms) = input_transforms_map.get(&job.script_path) {
+            if let Some(input_transforms) = options.and_then(|o| o.input_transforms.as_ref()) {
                 for (property_name, transform) in input_transforms {
                     match transform {
                         InputTransform::Static { value } => {
@@ -3307,17 +3315,33 @@ async fn batch_rerun_jobs(
                 }
             }
             JobKind::Script => {
-                let result = run_job_by_hash_inner(
-                    authed.clone(),
-                    db.clone(),
-                    user_db.clone(),
-                    w_id.clone(),
-                    job.script_hash,
-                    RunJobQuery { ..Default::default() },
-                    PushArgsOwned { extra: None, args },
-                    None,
-                )
-                .await;
+                let use_latest_version =
+                    options.and_then(|o| o.use_latest_version).unwrap_or(false);
+                let result = if use_latest_version {
+                    run_script_by_path_inner(
+                        authed.clone(),
+                        db.clone(),
+                        user_db.clone(),
+                        w_id.clone(),
+                        StripPath(job.script_path),
+                        RunJobQuery { ..Default::default() },
+                        PushArgsOwned { extra: None, args },
+                        None,
+                    )
+                    .await
+                } else {
+                    run_job_by_hash_inner(
+                        authed.clone(),
+                        db.clone(),
+                        user_db.clone(),
+                        w_id.clone(),
+                        job.script_hash,
+                        RunJobQuery { ..Default::default() },
+                        PushArgsOwned { extra: None, args },
+                        None,
+                    )
+                    .await
+                };
                 if let Ok((_, uuid)) = result {
                     pushed_ids.push(uuid);
                 }

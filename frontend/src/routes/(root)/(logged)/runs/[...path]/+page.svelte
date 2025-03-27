@@ -598,18 +598,8 @@
 					workspace: $workspaceStore,
 					requestBody: {
 						job_ids: jobIdsToReRun,
-						script_input_transforms_by_path: Object.fromEntries(
-							Object.entries(batchReRunOptions?.script ?? {}).map(([path, options]) => [
-								path,
-								options.changedArgs ?? {}
-							])
-						),
-						flow_input_transforms_by_path: Object.fromEntries(
-							Object.entries(batchReRunOptions?.flow ?? {}).map(([path, options]) => [
-								path,
-								options.changedArgs ?? {}
-							])
-						)
+						script_options_by_path: batchReRunOptions.script,
+						flow_options_by_path: batchReRunOptions.flow
 					}
 				})
 

@@ -2,8 +2,8 @@
 	export type BatchReRunOptions = {
 		[kind in 'flow' | 'script']: {
 			[path: string]: {
-				changedArgs?: { [property: string]: InputTransform }
-				useLatestSchema?: boolean
+				input_transforms?: { [property: string]: InputTransform }
+				use_latest_version?: boolean
 			}
 		}
 	}
@@ -108,7 +108,7 @@
 	const selectedUsesLatestSchema = $derived(
 		!!selected &&
 			(selected?.kind === 'flow' ||
-				(options[selected.kind][selected.script_path]?.useLatestSchema ?? false))
+				(options[selected.kind][selected.script_path]?.use_latest_version ?? false))
 	)
 
 	const jobGroupsPromise = $derived(selectedIds && fetchJobGroups())
@@ -158,7 +158,7 @@
 						disabled={selected?.kind === 'flow'}
 						on:change={(e) => {
 							if (!selected) return
-							;(options[selected.kind][selected.script_path] ??= {}).useLatestSchema =
+							;(options[selected.kind][selected.script_path] ??= {}).use_latest_version =
 								e.detail as boolean
 						}}
 						options={{
@@ -181,7 +181,7 @@
 									{@const hashesWithProperty = getHashesWithProperty(propertyName, selected)}
 									<InputTransformForm
 										class="items-start mb-4"
-										arg={options[selected.kind][selected.script_path]?.changedArgs?.[
+										arg={options[selected.kind][selected.script_path]?.input_transforms?.[
 											propertyName
 										] ?? {
 											type: 'javascript',
@@ -192,9 +192,8 @@
 										on:change={(e) => {
 											if (!selected) return
 											const newArg = e.detail.arg as InputTransform
-											;((options[selected.kind][selected.script_path] ??= {}).changedArgs ??= {})[
-												propertyName
-											] = newArg
+											;((options[selected.kind][selected.script_path] ??= {}).input_transforms ??=
+												{})[propertyName] = newArg
 										}}
 										argName={propertyName}
 										schema={displayedSchema}

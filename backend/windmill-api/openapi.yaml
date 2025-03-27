@@ -6507,24 +6507,32 @@ paths:
           application/json:
             schema:
               type: object
-              required: [job_ids, script_input_transforms_by_path, flow_input_transforms_by_path]
+              required: [job_ids, script_options_by_path, flow_options_by_path]
               properties:
                 job_ids:
                   type: array
                   items:
                     type: string
-                script_input_transforms_by_path:
+                script_options_by_path:
                   type: object
                   additionalProperties:
                     type: object
-                    additionalProperties:
-                      $ref: "#/components/schemas/InputTransform"
-                flow_input_transforms_by_path:
+                    properties:
+                      input_transforms:
+                        type: object
+                        additionalProperties:
+                          $ref: "#/components/schemas/InputTransform"
+                      use_latest_version: boolean
+                flow_options_by_path:
                   type: object
                   additionalProperties:
                     type: object
-                    additionalProperties:
-                      $ref: "#/components/schemas/InputTransform"
+                    properties:
+                      input_transforms:
+                        type: object
+                        additionalProperties:
+                          $ref: "#/components/schemas/InputTransform"
+                      use_latest_version: boolean
       responses:
         "201":
           description: jobs created
