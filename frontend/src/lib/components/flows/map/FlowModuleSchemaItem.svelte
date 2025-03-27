@@ -107,21 +107,29 @@
 	$: updateConnectingData(id, pickableIds, $flowPropPickerConfig, $flowStateStore)
 
 	function updateLastJob(flowStateStore: any | undefined) {
-		if (!flowStateStore || !id) return
-		if (flowStateStore[id]?.previewResult === 'never tested this far') {
-			lastJob = undefined
-		} else {
-			lastJob = {
-				id: flowStateStore[id]?.previewJobId ?? '',
-				result: flowStateStore[id]?.previewResult,
-				type: 'CompletedJob' as const,
-				workspace_id: flowStateStore[id]?.previewWorkspaceId ?? '',
-				success: flowStateStore[id]?.previewSuccess ?? false
-			}
+		if (
+			!flowStateStore ||
+			!id ||
+			flowStateStore[id]?.previewResult === 'never tested this far' ||
+			!flowStateStore[id]?.previewJobId ||
+			!flowStateStore[id]?.previewWorkspaceId ||
+			!flowStateStore[id]?.previewSuccess
+		) {
+			return
+		}
+		lastJob = {
+			id: flowStateStore[id]?.previewJobId ?? '',
+			result: flowStateStore[id]?.previewResult,
+			type: 'CompletedJob' as const,
+			workspace_id: flowStateStore[id]?.previewWorkspaceId ?? '',
+			success: flowStateStore[id]?.previewSuccess ?? undefined
 		}
 	}
+
 	$: updateLastJob($flowStateStore)
-	$: outputPicker && outputPicker.setLastJob(lastJob)
+	$: outputPicker &&
+		typeof outputPicker.setLastJob === 'function' &&
+		outputPicker.setLastJob(lastJob)
 
 	$: isConnectingCandidate =
 		!!id && !!$flowPropPickerConfig && !!pickableIds && Object.keys(pickableIds).includes(id)
