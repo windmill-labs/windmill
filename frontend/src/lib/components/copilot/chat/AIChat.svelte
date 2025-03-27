@@ -16,7 +16,7 @@
 	import { sendUserToast } from '$lib/toast'
 	import { openDB, type DBSchema as IDBSchema, type IDBPDatabase } from 'idb'
 	import { isInitialCode } from '$lib/script_helpers'
-	import { langToExt } from '$lib/editorUtils'
+	import { createLongHash, langToExt } from '$lib/editorUtils'
 	import { scriptLangToEditorLang } from '$lib/scripts'
 
 	export let lang: ScriptLang | 'bunnative'
@@ -159,7 +159,7 @@
 		}
 	})
 
-	let currentChatId: string = crypto.randomUUID()
+	let currentChatId: string = createLongHash()
 	let savedChats: Record<
 		string,
 		{
@@ -292,7 +292,7 @@
 
 	async function saveAndClear() {
 		await saveChat()
-		currentChatId = crypto.randomUUID()
+		currentChatId = createLongHash()
 		displayMessages = []
 		messages = [prepareSystemMessage()]
 	}
