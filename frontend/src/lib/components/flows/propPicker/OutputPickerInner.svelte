@@ -60,7 +60,6 @@
 	let stepHistory: StepHistory | undefined = undefined
 	let lastJob: SelectedJob = undefined
 	let historyOpen = false
-	let jsonData: any = undefined
 
 	function selectJob(job: SelectedJob | undefined) {
 		selectedJob = job
@@ -70,24 +69,6 @@
 			}
 			return
 		}
-
-		jsonData = job.result
-		if (mock?.enabled) {
-			const newMock = {
-				enabled: true,
-				return_value: job.result
-			}
-			tmpMock = newMock
-		}
-	}
-
-	function selectMockValue() {
-		jsonData = mock?.return_value
-		const newMock = {
-			enabled: true,
-			return_value: mock?.return_value
-		}
-		tmpMock = newMock
 	}
 
 	export function setLastJob(job: SelectedJob, setPreview: boolean = false) {
@@ -159,7 +140,6 @@
 										preview = undefined
 										return
 									}
-									selectMockValue()
 									preview = 'mock'
 									return
 								}
@@ -205,10 +185,11 @@
 					<button
 						class="inline-block text-xs underline"
 						on:click={() => {
-							if (!tmpMock) {
-								return
+							const newMock = {
+								enabled: true,
+								return_value: selectedJob && 'result' in selectedJob ? selectedJob.result : ''
 							}
-							dispatch('updateMock', tmpMock)
+							dispatch('updateMock', newMock)
 							if (historyOpen) {
 								stepHistory?.deselect()
 								stepHistoryPopover?.close()
@@ -226,10 +207,10 @@
 					<button
 						class="inline-block text-xs px-2 py-1 underline"
 						on:click={() => {
-							if (!tmpMock) {
-								return
-							}
-							dispatch('updateMock', tmpMock)
+							dispatch('updateMock', {
+								...mock,
+								enabled: true
+							})
 							selectJob(undefined) // reset the job
 							preview = undefined
 							stepHistoryPopover?.close()
@@ -254,27 +235,23 @@
 					iconOnly
 					on:click={() => {
 						if (mock?.enabled) {
-							const newMock = {
-								enabled: false,
-								return_value: mock?.return_value
-							}
-							selectJob(undefined) // reset the job
-							dispatch('updateMock', newMock)
+							dispatch('updateMock', {
+								...mock,
+								enabled: false
+							})
 						} else {
-							let mockValue = jsonData
-
 							if (selectedJob && 'result' in selectedJob) {
-								mockValue = structuredClone(selectedJob.result)
+								let mockValue = structuredClone(selectedJob.result)
+								if (selectedJob.result === 'never tested this far') {
+									mockValue = { example: 'value' }
+								}
+								const newMock = {
+									enabled: true,
+									return_value: mockValue
+								}
+								dispatch('updateMock', newMock)
 								selectJob(undefined) // reset the job
-								preview = undefined
-							} else if (jsonData === 'never tested this far') {
-								mockValue = { example: 'value' }
 							}
-							const newMock = {
-								enabled: true,
-								return_value: mockValue
-							}
-							dispatch('updateMock', newMock)
 						}
 					}}
 				/>
@@ -295,7 +272,6 @@
 								enabled: tmpMock?.enabled ?? false,
 								return_value: tmpMock?.return_value
 							})
-							jsonData = tmpMock?.return_value ?? undefined
 							tmpMock = undefined
 						}}
 						disabled={!!error || !tmpMock}
@@ -307,6 +283,7 @@
 						startIcon={{ icon: X }}
 						on:click={() => {
 							jsonView = false
+							tmpMock = undefined
 						}}
 					/>
 				{:else}
@@ -319,6 +296,7 @@
 							on:click={() => {
 								stepHistoryPopover?.close()
 								jsonView = true
+								tmpMock = undefined
 							}}
 							disabled={!mock?.enabled || !!connectingData}
 						/>
@@ -426,7 +404,7 @@
 						}
 					}}
 					code={JSON.stringify(
-						mock?.enabled && mock.return_value ? mock.return_value : jsonData,
+						mock?.enabled && mock.return_value ? mock.return_value : '',
 						null,
 						2
 					)}
@@ -442,7 +420,7 @@
 					topBrackets={false}
 					pureViewer={false}
 				/>
-			{:else if selectedJob != undefined && 'result' in selectedJob && selectedJob.result != undefined}
+			{:else if selectedJob != undefined && 'result' in selectedJob}
 				<ObjectViewer
 					json={moduleId
 						? {
@@ -467,17 +445,6 @@
 						>
 					</p>
 				</div>
-			{:else}
-				<ObjectViewer
-					json={moduleId
-						? {
-								[moduleId]: jsonData
-						  }
-						: jsonData}
-					topBrackets={false}
-					pureViewer={false}
-					{allowCopy}
-				/>
 			{/if}
 		</div>
 	{/if}
