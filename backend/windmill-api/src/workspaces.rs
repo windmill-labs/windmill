@@ -707,15 +707,6 @@ async fn edit_copilot_config(
 
     if let Some(ref providers) = ai_config.providers {
         for provider in providers.keys() {
-            #[cfg(not(feature = "enterprise"))]
-            {
-                if matches!(provider, &AIProvider::CustomAI) {
-                    return Err(Error::BadRequest(
-                        "Custom AI is only available on EE".to_string(),
-                    ));
-                }
-            }
-
             AI_KEY_CACHE.remove(&(w_id.clone(), provider.clone()));
         }
     }
