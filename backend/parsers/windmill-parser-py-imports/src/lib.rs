@@ -91,14 +91,19 @@ pub fn parse_relative_imports(code: &str, path: &str) -> error::Result<Vec<Strin
 enum NImport {
     // Order matters! First we want to resolve all repins
     Repin { pin: String, base: String, path: String },
-    // Vec<(Pin, Path)>
-    Pin { pins: Vec<(String, String)>, base: String },
+    Pin { pins: Vec<ImportPin>, base: String },
     Auto{
         root: String,
         full: Option<String>,
     },
     // Relatives we want to be expanded in the very end
     Relative(String),
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+struct ImportPin{
+    pin: String,
+    path: String,
 }
 
 impl NImport {
@@ -158,7 +163,7 @@ fn parse_code_for_imports(code: &str, path: &str) -> error::Result<Vec<NImport>>
                     vec![]
                 } else if ty_m.as_str() == "pin" {
                     vec![
-                        NImport::Pin { pins: vec![(pin, path.to_owned())], base }, 
+                        NImport::Pin { pins: vec![ImportPin{ pin, path: path.to_owned() }], base }, 
                     ]
                 } else {
                     vec![
@@ -216,7 +221,8 @@ pub async fn parse_python_imports(
     db: &Pool<Postgres>,
     already_visited: &mut Vec<String>,
     annotated_pyv_numeric: &mut Option<u32>,
-) -> error::Result<Vec<String>> {
+) -> error::Result<(Vec<String>, Option<String>)> {
+    let mut compile_error_hint: Option<String> = None; 
     let mut imports = parse_python_imports_inner(
         code,
         w_id,
@@ -229,18 +235,25 @@ pub async fn parse_python_imports(
     .await?
     .into_values()
     .map(|nimport| match nimport {
-        NImport::Pin { pins, .. } => pins.into_iter().map(|(p, _)|p).collect_vec(),
-        NImport::Repin { pin, .. } => vec![pin],
-        NImport::Auto{root, ..} => vec![root],
-        // NImport::Relative(_) => Err(anyhow!("Internal Error: parse_python_imports_inner returned relative import").into()),
-        _ => todo!()
+        NImport::Pin { pins, .. } => pins.into_iter().map(|p| {
+            if let Some(hint) = &mut compile_error_hint{
+                    hint.push_str(&format!("\n - pin to {} in {}", p.pin, p.path));
+            } else {
+                compile_error_hint = Some("\n\nMultiple pins can cause problems during lockfile resolution.\nMake sure you checked every pin for conflicts:\n".into())
+            };
+            Ok(p.pin)
+        }).collect_vec(),
+        NImport::Repin { pin, .. } => vec![Ok(pin)],
+        NImport::Auto{root, ..} => vec![Ok(root)],
+        NImport::Relative(_) => vec![Err(anyhow::anyhow!("Internal Error: parse_python_imports_inner returned relative import").into())],
     })
     .flatten()
-    .unique()
-    .collect_vec();
+    // .unique()
+    .collect::<error::Result<Vec<String>>>()?;
     imports.sort();
+    compile_error_hint.as_mut().map(|e| e.push_str("\n\nNOTE: You can also `repin` to override all pins"));
 
-    Ok(imports)
+    Ok((imports, compile_error_hint)) 
 }
 
 #[async_recursion]
@@ -368,7 +381,6 @@ async fn parse_python_imports_inner(
             };
 
             // At this point there should be no NImport::Relative in `nested`
-
             for imp in nested {
                 let base = imp.get_base().to_owned();
                 // Handled cases:
@@ -414,63 +426,52 @@ async fn parse_python_imports_inner(
                 //  └── repin:1
                 //
                 match imp.clone() {
-                    NImport::Repin { .. } => 
-                        if let Some(existing_import) = imports.get(&base) {
-                            match existing_import {
-                                // replace
-                                p if matches!(p, NImport::Pin { .. } | NImport::Auto{.. }) => {
-                                    imports.insert(base, imp);
-                                }
-                                // do nothing (older repins have greater precedence)
-                                NImport::Repin { .. } => {}
-                                // Should not be possible
-                                _ => {
-                                    return Err(anyhow::anyhow!(
-                                        "Internal error: cannot resolve requirement pins",
-                                    )
-                                    .into());
-                                }
+                    NImport::Repin { .. } => if let Some(existing_import) = imports.get(&base) {
+                        match existing_import {
+                            // replace
+                            p if matches!(p, NImport::Pin { .. } | NImport::Auto{.. }) => {
+                                imports.insert(base, imp);
                             }
-                        } else {
-                            imports.insert(base, imp.clone());
-                        },
-                    
-                    NImport::Pin { pins: new_pins, .. } => 
-                        if let Some(existing_import) = imports.get_mut(&base) {
-                            match existing_import {
-                                // Check if pin is the same version, if same, do nothing, if not error
-                                NImport::Pin { pins: existing_pins,  .. } => {
-                                    existing_pins.extend(new_pins);
-
-                                    // return Err(anyhow::anyhow!(
-                                    //     "\nmultiple pins cannot coexist in single script:\n1. pin to {} in {}\n2. pin to {} in {}\n\nNOTE: You can repin to override all pins",
-                                    //     existing_pin, existing_path, new_pin, new_path
-                                    // ).into());
-                                }
-                                // Fine, do nothing
-                                NImport::Repin { .. } => {}
-                                // Replace with new pin
-                                NImport::Auto{..} => {
-                                    imports.insert(base, imp);
-                                }
-                                // Should not be possible
-                                _ => {
-                                    return Err(anyhow::anyhow!(
-                                        "Internal error: cannot resolve requirement pins",
-                                    )
-                                    .into());
-                                }
+                            // do nothing (older repins have greater precedence)
+                            NImport::Repin { .. } => {}
+                            // Should not be possible
+                            _ => {
+                                return Err(anyhow::anyhow!(
+                                    "Internal error: cannot resolve requirement pins",
+                                )
+                                .into());
                             }
-                        } else {
-                            imports.insert(base, imp.clone());
-                        },
+                        }
+                    } else {
+                        imports.insert(base, imp.clone());
+                    },
                     
-                    NImport::Auto{..} => 
-                        if !imports.contains_key(&base) {
-                            imports.insert(base, imp);
-                        },
+                    NImport::Pin { pins: new_pins, .. } => if let Some(existing_import) = imports.get_mut(&base) {
+                        match existing_import {
+                            // Check if pin is the same version, if same, do nothing, if not error
+                            NImport::Pin { pins: existing_pins,  .. } => existing_pins.extend(new_pins),
+                            // Fine, do nothing
+                            NImport::Repin { .. } => {}
+                            // Replace with new pin
+                            NImport::Auto{..} => {
+                                imports.insert(base, imp);
+                            }
+                            // Should not be possible
+                            _ => {
+                                return Err(anyhow::anyhow!(
+                                    "Internal error: cannot resolve requirement pins",
+                                )
+                                .into());
+                            }
+                        }
+                    } else {
+                        imports.insert(base, imp.clone());
+                    },
                     
-                    // Not possible
+                    NImport::Auto{..} => if !imports.contains_key(&base) {
+                        imports.insert(base, imp);
+                    },
+                    
                     NImport::Relative(_) => {
                         return Err(anyhow::anyhow!(
                             "Internal error: cannot resolve requirement pins\nRelative imports should not appear in current stage",
