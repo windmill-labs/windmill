@@ -25,7 +25,7 @@
 		return text.replace(/@[\w/.-]+/g, (match) => {
 			const contextElement = availableContext.find((c) => c.title === match.slice(1))
 			if (contextElement) {
-				return `<span class="bg-white text-black z-10">${match}</span>`
+				return `<span class="bg-black dark:bg-white text-white dark:text-black z-10">${match}</span>`
 			}
 			return match
 		})
@@ -127,7 +127,7 @@
 			}, 100)
 		}}
 		placeholder={isFirstMessage ? 'Ask anything' : 'Ask followup'}
-		class="resize-none bg-transparent caret-white"
+		class="resize-none bg-transparent caret-black dark:caret-white"
 		style="{instructions.length > 0 ? 'color: transparent; -webkit-text-fill-color: transparent;' : ''}"
 	/>
 </div>
