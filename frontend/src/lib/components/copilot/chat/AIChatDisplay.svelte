@@ -2,7 +2,7 @@
 	import { twMerge } from 'tailwind-merge'
 	import AssistantMessage from './AssistantMessage.svelte'
 	import { createEventDispatcher, getContext } from 'svelte'
-	import { ChevronDown, HistoryIcon, Loader2, Plus, X, SparklesIcon } from 'lucide-svelte'
+	import { HistoryIcon, Loader2, Plus, X } from 'lucide-svelte'
 	import Button from '$lib/components/common/button/Button.svelte'
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
 	import {
@@ -10,16 +10,11 @@
 		type DisplayMessage,
 		type ContextElement
 	} from './core'
-	import {
-		COPILOT_SESSION_MODEL_SETTING_NAME,
-		COPILOT_SESSION_PROVIDER_SETTING_NAME,
-		copilotInfo,
-		copilotSessionModel
-	} from '$lib/stores'
 	import ContextElementBadge from './ContextElementBadge.svelte'
-	import { storeLocalSetting } from '$lib/utils'
 	import ContextTextarea from './ContextTextarea.svelte'
 	import AvailableContextList from './AvailableContextList.svelte'
+	import ChatQuickActions from './ChatQuickActions.svelte'
+	import ProviderModelSelector from './ProviderModelSelector.svelte'
 
 	export let pastChats: { id: string; title: string }[]
 	export let messages: DisplayMessage[]
@@ -34,6 +29,7 @@
 		deletePastChat: { id: string }
 		loadPastChat: { id: string }
 		askAiAboutChanges: null
+		suggestImprovements: null
 	}>()
 
 	const { loading, currentReply } = getContext<AIChatContext>('AIChatContext')
@@ -53,13 +49,6 @@
 
 	let height = 0
 	$: automaticScroll && height && scrollDown()
-
-	$: providerModel = $copilotSessionModel ??
-		$copilotInfo.defaultModel ??
-		$copilotInfo.aiModels[0] ?? {
-			model: 'No model',
-			provider: 'No provider'
-		}
 
 	function addContextToSelection(contextElement: ContextElement) {
 		if (
@@ -84,21 +73,6 @@
 			<p class="text-sm font-semibold">Chat</p>
 		</div>
 		<div class="flex flex-row items-center gap-2">
-					<Button
-						on:click={() => {
-							dispatch('askAiAboutChanges')
-						}}
-						title="Explain changes"
-						size="sm"
-						btnClasses=""
-						startIcon={{ icon: SparklesIcon }}
-						variant="border"
-						color="light"
-						propagateEvent
-						disabled={!hasDiff}
-					>
-						Explain changes
-					</Button>
 			<Popover>
 				<svelte:fragment slot="trigger">
 					<Button
@@ -249,37 +223,9 @@
 			on:sendRequest={() => dispatch('sendRequest')}
 			on:updateInstructions={(e) => instructions = e.detail.value}
 		/>
-
-		<div class="flex flex-row justify-end items-center gap-2 px-0.5">
-			<div class="min-w-0">
-				<Popover disablePopup={$copilotInfo.aiModels.length <= 1}>
-					<svelte:fragment slot="trigger">
-						<div class="text-tertiary text-xs flex flex-row items-center gap-0.5 font-normal">
-							{providerModel.model}
-							{#if $copilotInfo.aiModels.length > 1}
-								<ChevronDown size={16} />
-							{/if}
-						</div>
-					</svelte:fragment>
-					<svelte:fragment slot="content" let:close>
-						<div class="flex flex-col gap-1 p-1 min-w-24">
-							{#each $copilotInfo.aiModels.filter((m) => m.model !== providerModel.model) as providerModel}
-								<button
-									class="text-left text-xs hover:bg-surface-hover rounded-md p-1 font-normal"
-									on:click={() => {
-										$copilotSessionModel = providerModel
-										storeLocalSetting(COPILOT_SESSION_MODEL_SETTING_NAME, providerModel.model)
-										storeLocalSetting(COPILOT_SESSION_PROVIDER_SETTING_NAME, providerModel.provider)
-										close()
-									}}
-								>
-									{providerModel.model}
-								</button>
-							{/each}
-						</div>
-					</svelte:fragment>
-				</Popover>
-			</div>
+		<div class="flex flex-row justify-between items-center gap-2 px-0.5">
+			<ChatQuickActions {hasDiff} on:askAiAboutChanges on:suggestImprovements />
+			<ProviderModelSelector />
 		</div>
 	</div>
 </div>

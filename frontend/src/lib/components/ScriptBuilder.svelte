@@ -40,7 +40,6 @@
 		CheckCircle,
 		Code,
 		CornerDownLeft,
-		DiffIcon,
 		Pen,
 		Plus,
 		Rocket,
@@ -670,7 +669,7 @@
 		loadingDraft = false
 	}
 
-	function computeDropdownItems(initialPath: string, savedScript: NewScriptWithDraft, diffDrawer: DiffDrawer) {
+	function computeDropdownItems(initialPath: string, savedScript: NewScriptWithDraft | undefined, diffDrawer: DiffDrawer | undefined) {
 		let dropdownItems: { label: string; onClick: () => void }[] =
 			initialPath != '' && customUi?.topBar?.extraDeployOptions != false
 				? [

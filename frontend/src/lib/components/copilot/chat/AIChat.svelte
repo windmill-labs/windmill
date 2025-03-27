@@ -333,11 +333,14 @@
 		sendRequest()
 	}
 
-	export function askAiAboutChanges() {
-		instructions = 'Based on the changes I made to the code, look for potential issues and recommend better solutions'
+	export function askAiAboutChanges(prompt: string) {
+		instructions = prompt
 		const codeContext = availableContext.find((c) => c.type === 'code' && c.title === contextCodePath)
+		if (!codeContext) {
+			return
+		}
 		selectedContext = [
-			...(codeContext ? [codeContext] : []),
+			codeContext,
 			{
 				type: 'diff',
 				title: 'diff_with_last_deployed_version',
@@ -347,7 +350,7 @@
 		sendRequest()
 		dispatch('reviewChanges')
 	}
-	
+
 	interface ChatSchema extends IDBSchema {
 		chats: {
 			key: string
@@ -409,7 +412,8 @@
 	on:saveAndClear={saveAndClear}
 	on:deletePastChat={(e) => deletePastChat(e.detail.id)}
 	on:loadPastChat={(e) => loadPastChat(e.detail.id)}
-	on:askAiAboutChanges={askAiAboutChanges}
+	on:askAiAboutChanges={() => askAiAboutChanges("Explain the changes I made to the code from the last diff")}
+	on:suggestImprovements={() => askAiAboutChanges("Based on the changes I made to the code, look for potential issues and recommend better solutions")}
 	hasDiff={!!diffWithLastDeployed && diffWithLastDeployed.filter((d) => d.added || d.removed).length > 0}
 >
 	<slot name="header-left" slot="header-left" />
