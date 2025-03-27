@@ -494,10 +494,15 @@ Windmill Community Edition {GIT_VERSION}
 
         let (base_internal_tx, base_internal_rx) = tokio::sync::oneshot::channel::<String>();
 
-        DirBuilder::new()
-            .recursive(true)
-            .create("/tmp/windmill")
-            .expect("could not create initial server dir");
+        for dir in ["/tmp/windmill", "/tmp/windmill/logs"] {
+            create_dir_all(dir)
+                .expect(&format!("could not create directory {}", dir));
+        }
+
+        if indexer_mode {
+            create_dir_all("/tmp/windmill/search")
+                .expect("could not create search directory");
+        }
 
         #[cfg(feature = "tantivy")]
         let should_index_jobs = mode == Mode::Indexer || mode_and_addons.indexer;
