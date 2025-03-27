@@ -8,7 +8,8 @@
 
 use axum::body::Body;
 use axum::http::HeaderValue;
-use futures::{StreamExt, TryFutureExt, TryStreamExt};
+use deno_core::{serde_v8, v8, JsRuntime};
+use futures::{StreamExt, TryFutureExt};
 use http::{HeaderMap, HeaderName};
 use itertools::Itertools;
 use quick_cache::sync::Cache;
@@ -3256,7 +3257,7 @@ async fn batch_rerun_jobs(
     Path(w_id): Path<String>,
     Json(body): Json<BatchReRunJobsBodyArgs>,
 ) -> error::Result<Response> {
-    let job_stream = sqlx::query_as!(
+    let   mut job_stream = sqlx::query_as!(
         BatchReRunQueryReturnType,
         r#"SELECT j.kind AS "kind: _", COALESCE(s.path, f.path) AS "script_path!", COALESCE(s.hash, f.id) AS "script_hash!: _", args
             FROM v2_job j
@@ -3281,22 +3282,39 @@ async fn batch_rerun_jobs(
         }
         .get(&job.script_path);
 
-        let args = {
-            let mut args: HashMap<String, Box<RawValue>> = serde_json::from_value(job.args)?;
-            if let Some(input_transforms) = options.and_then(|o| o.input_transforms.as_ref()) {
-                for (property_name, transform) in input_transforms {
-                    match transform {
-                        InputTransform::Static { value } => {
-                            args.insert(property_name.clone(), value.clone());
-                        }
-                        InputTransform::Javascript { expr } => {
-                            // TODO : Compute js
-                        }
+        let mut args: HashMap<String, Box<RawValue>> = serde_json::from_value(job.args)?;
+        let input_transforms = options
+            .and_then(|o| o.input_transforms.as_ref())
+            .map(|t| t.iter())
+            .into_iter()
+            .flatten();
+        for (property_name, transform) in input_transforms {
+            match transform {
+                InputTransform::Static { value } => {
+                    args.insert(property_name.clone(), value.clone());
+                }
+                InputTransform::Javascript { expr } => {
+                    #[cfg(not(feature = "deno_core"))]
+                    tracing::error!(
+                        "deno_core feature is not activated, cannot transform job arguments"
+                    );
+                    #[cfg(feature = "deno_core")]
+                    {
+                        let mut isolate =
+                            JsRuntime::new(deno_core::RuntimeOptions { ..Default::default() });
+                        let result = isolate
+                            .execute_script("<batch_rerun_arg_transform>", expr.clone())
+                            .map_err(|e| Error::ExecutionErr(e.to_string()))?;
+                        let mut scope = isolate.handle_scope();
+                        let result = v8::Local::new(&mut scope, result);
+                        let result: serde_json::Value = serde_v8::from_v8(&mut scope, result)
+                            .map_err(|e| Error::ExecutionErr(e.to_string()))?;
+                        let result = JsonRawValue::from_string(result.to_string())?;
+                        args.insert(property_name.clone(), result);
                     }
                 }
-            };
-            args
-        };
+            }
+        }
 
         match job.kind {
             JobKind::Flow => {
