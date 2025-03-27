@@ -1,5 +1,9 @@
 name: check frontend build
 on:
+  workflow_run:
+    workflows: ["Change versions"]
+    types:
+      - completed
   pull_request:
     types: [opened, synchronize, reopened]
     paths:
@@ -22,5 +26,6 @@ jobs:
           node-version: 18
       - name: "npm check"
         timeout-minutes: 5
-        run: cd frontend && npm ci && npm run generate-backend-client && npm run
+        run:
+          cd frontend && npm ci && npm run generate-backend-client && npm run
           check
