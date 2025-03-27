@@ -18,6 +18,7 @@
 	import { isInitialCode } from '$lib/script_helpers'
 	import { langToExt } from '$lib/editorUtils'
 	import { scriptLangToEditorLang } from '$lib/scripts'
+	import { v4 as uuidv4 } from 'uuid'
 
 	export let lang: ScriptLang | 'bunnative'
 	export let code: string
@@ -35,31 +36,27 @@
 		if (!contextCodePath) {
 			return
 		}
-		try {
-			if (initializedWithInitCode === null && code) {
-				if (isInitialCode(code)) {
-					initializedWithInitCode = true
-				} else {
-					initializedWithInitCode = false
-					selectedContext = [
-						{
-							type: 'code',
-							title: contextCodePath
-						}
-					]
-				}
-			} else if (initializedWithInitCode) {
-				// if the code was initial and was changed, add code context, then prevent it from being added again
+		if (initializedWithInitCode === null && code) {
+			if (isInitialCode(code)) {
+				initializedWithInitCode = true
+			} else {
+				initializedWithInitCode = false
 				selectedContext = [
 					{
 						type: 'code',
 						title: contextCodePath
 					}
 				]
-				initializedWithInitCode = false
 			}
-		} catch (err) {
-			console.error('Could not update context', err)
+		} else if (initializedWithInitCode) {
+			// if the code was initial and was changed, add code context, then prevent it from being added again
+			selectedContext = [
+				{
+					type: 'code',
+					title: contextCodePath
+				}
+			]
+			initializedWithInitCode = false
 		}
 	}
 	$: contextCodePath && code && onCodeChange()
@@ -71,21 +68,17 @@
 		args: Record<string, any>,
 		dbSchemas: DBSchemas
 	) {
-		try {
-			const schemaRes = lang === 'graphql' ? args.api : args.database
-			if (typeof schemaRes === 'string') {
-				const schemaPath = schemaRes.replace('$res:', '')
-				const schema = dbSchemas[schemaPath]
-				if (schema && schema.lang === lang) {
-					db = { schema, resource: schemaPath }
-				} else {
-					db = undefined
-				}
+		const schemaRes = lang === 'graphql' ? args.api : args.database
+		if (typeof schemaRes === 'string') {
+			const schemaPath = schemaRes.replace('$res:', '')
+			const schema = dbSchemas[schemaPath]
+			if (schema && schema.lang === lang) {
+				db = { schema, resource: schemaPath }
 			} else {
 				db = undefined
 			}
-		} catch (err) {
-			console.error('Could not update schema', err)
+		} else {
+			db = undefined
 		}
 	}
 	$: updateSchema(lang, args, $dbSchemas)
@@ -159,7 +152,7 @@
 		}
 	})
 
-	let currentChatId: string = crypto.randomUUID()
+	let currentChatId: string = uuidv4()
 	let savedChats: Record<
 		string,
 		{
@@ -292,7 +285,7 @@
 
 	async function saveAndClear() {
 		await saveChat()
-		currentChatId = crypto.randomUUID()
+		currentChatId = uuidv4()
 		displayMessages = []
 		messages = [prepareSystemMessage()]
 	}
@@ -348,7 +341,6 @@
 	let indexDB: IDBPDatabase<ChatSchema> | undefined = undefined
 	async function initIndexDB() {
 		try {
-			console.log('Initializing chat history database')
 			indexDB = await openDB<ChatSchema>('copilot-chat-history', 1, {
 				upgrade(indexDB) {
 					if (!indexDB.objectStoreNames.contains('chats')) {
@@ -356,10 +348,8 @@
 					}
 				}
 			})
-			console.log('Chat history database initialized')
 
 			const chats = await indexDB.getAll('chats')
-			console.log('Retrieved chats')
 			savedChats = chats.reduce((acc, chat) => {
 				acc[chat.id] = chat
 				return acc

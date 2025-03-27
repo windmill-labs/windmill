@@ -1,4 +1,5 @@
 import { type editor as meditor } from 'monaco-editor'
+import { v4 as uuidv4 } from 'uuid'
 
 export type VisualChange =
 	| {
@@ -71,7 +72,7 @@ export function setGlobalCSS(id: string, cssCode: string) {
 }
 
 function addInlineGhostText(change: Extract<VisualChange, { type: 'added_inline' }>) {
-	const cssId = crypto.randomUUID()
+	const cssId = uuidv4()
 	const decoration = {
 		range: {
 			startLineNumber: change.position.line,
