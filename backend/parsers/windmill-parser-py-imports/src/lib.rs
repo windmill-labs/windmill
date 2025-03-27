@@ -116,8 +116,7 @@ fn parse_code_for_imports(code: &str, path: &str) -> error::Result<Vec<String>> 
                     .take_while(|e| *e != '\n')
                     .collect::<String>(),
             )
-            .map(|x| x.get(1).unwrap().as_str().to_string())
-            .map(|e| vec![e])
+            .and_then(|x| x.get(1).map(|m| vec![m.as_str().to_owned()]))
     };
 
     let nimports: Vec<String> = ast
