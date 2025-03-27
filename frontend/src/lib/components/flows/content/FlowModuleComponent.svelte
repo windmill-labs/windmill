@@ -210,26 +210,25 @@
 	}
 
 	async function getLastJob() {
-		const previousJobs = await JobService.listJobs({
-			workspace: $workspaceStore!,
-			scriptPathExact:
-				`path` in flowModule.value ? flowModule.value.path : $pathStore + '/' + flowModule.id,
-			jobKinds: ['preview', 'script', 'flowpreview', 'flow'].join(','),
-			page: 1,
-			perPage: 1
+		if (
+			!$flowStateStore ||
+			!flowModule.id ||
+			$flowStateStore[flowModule.id]?.previewResult === 'never tested this far' ||
+			!$flowStateStore[flowModule.id]?.previewJobId ||
+			!$flowStateStore[flowModule.id]?.previewWorkspaceId
+		) {
+			return
+		}
+		const job = await JobService.getJob({
+			workspace: $flowStateStore[flowModule.id]?.previewWorkspaceId ?? '',
+			id: $flowStateStore[flowModule.id]?.previewJobId ?? ''
 		})
-		if (previousJobs.length > 0) {
-			const job = await JobService.getJob({
-				workspace: $workspaceStore ?? '',
-				id: previousJobs[0].id ?? ''
-			})
-			if (job) {
-				lastJob = job
-			}
+		if (job) {
+			lastJob = job
 		}
 	}
 
-	$: if ($workspaceStore && $pathStore && flowModule?.id && selected === 'test') {
+	$: if ($workspaceStore && $pathStore && flowModule?.id && $flowStateStore) {
 		getLastJob()
 	}
 </script>
