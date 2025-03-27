@@ -335,7 +335,9 @@
 
 	export function askAiAboutChanges() {
 		instructions = 'Based on the changes I made to the code, look for potential issues and recommend better solutions'
+		const codeContext = availableContext.find((c) => c.type === 'code' && c.title === contextCodePath)
 		selectedContext = [
+			...(codeContext ? [codeContext] : []),
 			{
 				type: 'diff',
 				title: 'diff_with_last_deployed_version',

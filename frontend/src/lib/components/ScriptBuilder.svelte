@@ -670,7 +670,7 @@
 		loadingDraft = false
 	}
 
-	function computeDropdownItems(initialPath: string) {
+	function computeDropdownItems(initialPath: string, savedScript: NewScriptWithDraft, diffDrawer: DiffDrawer) {
 		let dropdownItems: { label: string; onClick: () => void }[] =
 			initialPath != '' && customUi?.topBar?.extraDeployOptions != false
 				? [
@@ -686,10 +686,10 @@
 								window.open(`/scripts/add?template=${initialPath}`)
 							}
 						},
-						...(customUi?.topBar?.diff != false && savedScript && diffDrawer
+						...(customUi?.topBar?.diff !== false && savedScript && diffDrawer
 							? [
 									{
-										label: 'Diff',
+										label: 'Show diff',
 									onClick: async () => {
 										if (!savedScript) {
 											return
@@ -1581,7 +1581,7 @@
 							disabled={!fullyLoaded}
 							startIcon={{ icon: Save }}
 							on:click={() => handleEditScript(false)}
-							dropdownItems={computeDropdownItems(initialPath)}
+							dropdownItems={computeDropdownItems(initialPath, savedScript, diffDrawer)}
 						>
 							Deploy
 						</Button>
