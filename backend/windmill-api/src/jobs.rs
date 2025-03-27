@@ -8,7 +8,7 @@
 
 use axum::body::Body;
 use axum::http::HeaderValue;
-use futures::TryFutureExt;
+use futures::{StreamExt, TryFutureExt, TryStreamExt};
 use http::{HeaderMap, HeaderName};
 use itertools::Itertools;
 use quick_cache::sync::Cache;
@@ -3256,7 +3256,7 @@ async fn batch_rerun_jobs(
     Path(w_id): Path<String>,
     Json(body): Json<BatchReRunJobsBodyArgs>,
 ) -> error::Result<Response> {
-    let jobs = sqlx::query_as!(
+    let job_stream = sqlx::query_as!(
         BatchReRunQueryReturnType,
         r#"SELECT j.kind AS "kind: _", COALESCE(s.path, f.path) AS "script_path!", COALESCE(s.hash, f.id) AS "script_hash!: _", args
             FROM v2_job j
@@ -3268,11 +3268,12 @@ async fn batch_rerun_jobs(
                 AND COALESCE(s.path, f.path) IS NOT NULL"#,
         &body.job_ids,
         w_id
-    ).fetch_all(&db).await?;
+    ).fetch(&db);
 
-    let mut pushed_ids = Vec::with_capacity(jobs.len());
+    let mut pushed_ids = Vec::with_capacity(body.job_ids.len());
 
-    for job in jobs {
+    while let Some(job) = job_stream.next().await {
+        let job = job?;
         let options = if matches!(job.kind, JobKind::Script) {
             &body.script_options_by_path
         } else {
