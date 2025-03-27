@@ -45,7 +45,7 @@ export function createHash() {
 }
 
 export function createLongHash() {
-	return Math.random().toString(36).substring(2) + Math.random().toString(36).substring(2)
+	return 'h' + Math.random().toString(36).substring(2) + Math.random().toString(36).substring(2)
 }
 
 export function langToExt(lang: string): string {
