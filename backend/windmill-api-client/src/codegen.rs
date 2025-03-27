@@ -5420,6 +5420,8 @@ the execution of this script will be permissioned_as and by extension its DT_TOK
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pub summary: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub description: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
         pub tag: Option<String>,
         pub timezone: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]

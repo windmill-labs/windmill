@@ -13756,6 +13756,8 @@ components:
           $ref: "../../openflow.openapi.yaml#/components/schemas/Retry"
         summary:
           type: string
+        description:
+          type: string
         no_flow_overlap:
           type: boolean
         tag:
@@ -13842,6 +13844,8 @@ components:
           type: boolean
         summary:
           type: string
+        description:
+          type: string
         tag:
           type: string
         paused_until:
@@ -13892,6 +13896,8 @@ components:
         no_flow_overlap:
           type: boolean
         summary:
+          type: string
+        description:
           type: string
         tag:
           type: string
