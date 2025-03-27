@@ -232,7 +232,7 @@
 			null,
 			2
 		)
-		description = `Repository ${selectedGHAppRepository} with permissions fetched using Windmill Github App. ${description}`
+		description = `Repository ${selectedGHAppRepository} with permissions fetched using Windmill Github App. ${description ?? ''}`
 		rawCodeEditor?.setCode(rawCode)
 		close(null)
 	}
