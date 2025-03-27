@@ -9,3 +9,4 @@ CaddyfileRemoteMalo
 .direnv
 .vscode
 .dev-docker-wrapper*
+backend/.minio-data

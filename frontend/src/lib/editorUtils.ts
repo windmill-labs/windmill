@@ -84,6 +84,9 @@ export function langToExt(lang: string): string {
 			return 'cs'
 		case 'nu':
 			return 'nu'
+		case 'java':
+			return 'java'
+		// KJQXZ 
 		default:
 			return 'unknown'
 	}

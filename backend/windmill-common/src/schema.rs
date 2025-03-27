@@ -345,27 +345,15 @@ fn find_annotation(comm_lit: &str, annotation: &str, code: &str) -> bool {
 
 pub fn should_validate_schema(code: &str, lang: &ScriptLang) -> bool {
     let annotation = "schema_validation";
-    match lang {
-        ScriptLang::Nativets | ScriptLang::Bun | ScriptLang::Bunnative | ScriptLang::Deno => {
-            find_annotation("//", annotation, code)
-        }
-        ScriptLang::Python3 => find_annotation("#", annotation, code),
-        ScriptLang::Go => find_annotation("#", annotation, code),
-        ScriptLang::Bash => find_annotation("#", annotation, code),
-        ScriptLang::Powershell => find_annotation("#", annotation, code),
-        ScriptLang::Postgresql => find_annotation("--", annotation, code),
-        ScriptLang::Mysql => find_annotation("--", annotation, code),
-        ScriptLang::Bigquery => find_annotation("--", annotation, code),
-        ScriptLang::Snowflake => find_annotation("--", annotation, code),
-        ScriptLang::Graphql => find_annotation("#", annotation, code),
-        ScriptLang::Mssql => find_annotation("--", annotation, code),
-        ScriptLang::OracleDB => find_annotation("--", annotation, code),
-        ScriptLang::Php => find_annotation("//", annotation, code),
-        ScriptLang::Rust => find_annotation("//!", annotation, code),
-        ScriptLang::Ansible => find_annotation("#", annotation, code),
-        ScriptLang::CSharp => find_annotation("//", annotation, code),
-        ScriptLang::Nu => find_annotation("#", annotation, code),
-    }
+    use ScriptLang::*;
+    let comment = match lang {
+        Nativets | Bun | Bunnative | Deno | Php | CSharp | Java => "//",
+        Python3 | Go | Bash | Powershell | Graphql | Ansible | Nu => "#",
+        Postgresql | Mysql | Bigquery | Snowflake | Mssql | OracleDB => "--",
+        Rust => "//!",
+        // KJQXZ
+    };
+    find_annotation(comment, annotation, code)
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
