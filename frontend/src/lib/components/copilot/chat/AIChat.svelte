@@ -24,40 +24,10 @@
 	export let args: Record<string, any>
 	export let path: string | undefined
 
-	$: contextCodePath =
-		(path?.split('/').pop() ?? 'script') + '.' + langToExt(scriptLangToEditorLang(lang))
+	$: contextCodePath = path ? (path.split('/').pop() ?? 'script') + '.' + langToExt(scriptLangToEditorLang(lang)) : undefined;
 
 	let initializedWithInitCode: boolean | null = null
 	$: lang && (initializedWithInitCode = null)
-
-	function onCodeChange(contextCodePath: string) {
-		if (initializedWithInitCode === null && code) {
-			if (isInitialCode(code)) {
-				initializedWithInitCode = true
-			} else {
-				initializedWithInitCode = false
-				selectedContext = [
-					{
-						type: 'code',
-						title: contextCodePath,
-						content: code,
-						lang
-					}
-				]
-			}
-		} else if (initializedWithInitCode) {
-			// if the code was initial and was changed, add code context, then prevent it from being added again
-			selectedContext = [
-				{
-					type: 'code',
-					title: contextCodePath,
-					content: code,
-					lang
-				}
-			]
-			initializedWithInitCode = false
-		}
-	}
 
 	let db: { schema: DBSchema; resource: string } | undefined = undefined
 
@@ -86,7 +56,7 @@
 	let availableContext: ContextElement[] = []
 
 	async function updateAvailableContext(
-		contextCodePath: string,
+		contextCodePath: string | undefined,
 		code: string,
 		lang: ScriptLang | 'bunnative',
 		error: string | undefined,
@@ -95,6 +65,9 @@
 		dbSchemas: DBSchemas,
 		workspace?: string,
 	) {
+		if (!contextCodePath) {
+			return
+		}
 		let newAvailableContext: ContextElement[] = [
 			{
 				type: 'code',
@@ -146,13 +119,23 @@
 		}
 
 		availableContext = newAvailableContext
-	}
 
-	function updateSelectedContext(availableContext: ContextElement[], code: string, contextCodePath: string) {
-		selectedContext = selectedContext.map((c) => availableContext.find((ac) => ac.type === c.type && ac.title === c.title)).filter((c) => c !== undefined) as ContextElement[]
-		if (code) {
-			onCodeChange(contextCodePath)
+		if (code && (initializedWithInitCode === null && !isInitialCode(code) || initializedWithInitCode)) {
+			selectedContext = [
+				{
+					type: 'code',
+					title: contextCodePath,
+					content: code,
+					lang
+				}
+			]
 		}
+
+		if (code && initializedWithInitCode === null) {
+			initializedWithInitCode = isInitialCode(code)
+		}
+
+		selectedContext = selectedContext.map((c) => availableContext.find((ac) => ac.type === c.type && ac.title === c.title)).filter((c) => c !== undefined) as ContextElement[]
 	}
 
 	function updateDisplayMessages(dbSchemas: DBSchemas) {
@@ -169,7 +152,6 @@
 	}
 
 	$: updateAvailableContext(contextCodePath, code, lang, error, db, $copilotSessionModel, $dbSchemas, $workspaceStore)
-	$: updateSelectedContext(availableContext, code, contextCodePath)
 
 	let instructions = ''
 	let loading = writable(false)
@@ -251,7 +233,7 @@
 				{
 					role: 'assistant',
 					content: $currentReply,
-					contextElements: selectedContext
+					contextElements: selectedContext.filter((c) => c.type === 'code')
 				}
 			]
 			currentReply.set('')
@@ -379,7 +361,7 @@
 				{
 					role: 'assistant',
 					content: $currentReply,
-					contextElements: selectedContext
+					contextElements: selectedContext.filter((c) => c.type === 'code')
 				}
 		  ]
 		: displayMessages}
