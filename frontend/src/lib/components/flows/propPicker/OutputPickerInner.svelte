@@ -62,23 +62,33 @@
 	let historyOpen = false
 
 	function selectJob(job: SelectedJob | undefined) {
-		selectedJob = job
 		if (!job || !('result' in job)) {
 			if (lastJob && 'result' in lastJob) {
 				selectJob(lastJob)
 			}
 			return
 		}
+		selectedJob = job
 	}
 
 	export function setLastJob(job: SelectedJob, setPreview: boolean = false) {
-		if (!job) {
+		if (!job || !('result' in job)) {
 			return
 		}
 		lastJob = structuredClone(job)
 		selectJob(lastJob)
 		if (setPreview) {
+			togglePreview('job')
+		}
+	}
+
+	function togglePreview(nPrev: 'mock' | 'job' | undefined) {
+		if (nPrev === 'mock' && selectedJob && 'result' in selectedJob) {
+			preview = 'mock'
+		} else if (nPrev === 'job' && mock?.enabled && selectedJob) {
 			preview = 'job'
+		} else {
+			preview = undefined
 		}
 	}
 
@@ -131,23 +141,23 @@
 							on:select={async ({ detail }) => {
 								if (!detail) {
 									selectJob(undefined)
-									preview = undefined
+									togglePreview(undefined)
 									return
 								}
 								if (detail === 'mock') {
 									if (mock?.enabled) {
 										selectJob(undefined)
-										preview = undefined
+										togglePreview(undefined)
 										return
 									}
-									preview = 'mock'
+									togglePreview('mock')
 									return
 								}
 								isLoading = true
 								const fullJob = await detail.getFullJob()
 								if (fullJob) {
 									selectJob(fullJob)
-									preview = mock?.enabled ? 'job' : undefined
+									togglePreview('job')
 								}
 								isLoading = false
 							}}
@@ -175,7 +185,7 @@
 								stepHistory?.deselect()
 							} else {
 								selectJob(lastJob)
-								preview = undefined
+								togglePreview(undefined)
 							}
 						}}
 					>
@@ -195,7 +205,7 @@
 								stepHistoryPopover?.close()
 							} else {
 								selectJob(lastJob)
-								preview = undefined
+								togglePreview(undefined)
 							}
 						}}
 					>
@@ -212,7 +222,7 @@
 								enabled: true
 							})
 							selectJob(undefined) // reset the job
-							preview = undefined
+							togglePreview(undefined)
 							stepHistoryPopover?.close()
 						}}
 					>
@@ -325,7 +335,7 @@
 									stepHistory?.deselect()
 								} else {
 									selectJob(lastJob)
-									preview = undefined
+									togglePreview(undefined)
 								}
 							}}>See last result</button
 						>
@@ -335,82 +345,51 @@
 		</div>
 	</div>
 
-	{#if fullResult && !jsonView}
-		{#if isLoading && (!mock?.enabled || preview === 'job')}
-			<div class="p-2">
-				<Loader2 class="animate-spin " />
+	<div class="grow min-h-0 p-2 rounded-sm w-full overflow-auto">
+		{#if isLoading}
+			<div class="flex flex-col items-center justify-center">
+				<Loader2 class="animate-spin" />
 			</div>
-		{:else if (mock?.enabled || preview == 'mock') && preview != 'job'}
-			<div class="break-words relative h-full p-2">
-				<DisplayResult
-					bind:forceJson
-					workspaceId={undefined}
-					jobId={undefined}
-					result={mock?.return_value}
-				/>
-			</div>
-		{:else if selectedJob != undefined && 'result' in selectedJob}
-			<div class="break-words relative h-full p-2">
-				{#if selectedJob.result != undefined}
-					{#key selectedJob}
-						<DisplayResult
-							bind:forceJson
-							workspaceId={selectedJob?.workspace_id}
-							jobId={selectedJob?.id}
-							result={selectedJob?.result}
-						>
-							<svelte:fragment slot="copilot-fix">
-								<slot name="copilot-fix" />
-							</svelte:fragment>
-						</DisplayResult>
-					{/key}
-				{:else}
-					Result: null
-				{/if}
-			</div>
-		{:else}
-			<span class="px-1">Test to see the result here</span>
-		{/if}
-	{:else}
-		<div class="grow min-h-0 p-2 rounded-sm w-full overflow-auto">
-			{#if isLoading}
-				<div class="flex flex-col items-center justify-center">
-					<Loader2 class="animate-spin" />
-				</div>
-			{:else if connectingData || simpleViewer}
-				<ObjectViewer
-					json={moduleId
-						? {
-								[moduleId]: connectingData ?? simpleViewer
-						  }
-						: connectingData ?? simpleViewer}
-					topBrackets={false}
-					pureViewer={false}
-					{prefix}
-					on:select
-					{allowCopy}
-				/>
-			{:else if jsonView}
-				<JsonEditor
-					bind:error
-					small
-					on:changeValue={({ detail }) => {
-						if (mock?.enabled) {
-							const newMock = {
-								enabled: true,
-								return_value: structuredClone(detail)
-							}
-							tmpMock = newMock
+		{:else if connectingData || simpleViewer}
+			<ObjectViewer
+				json={moduleId
+					? {
+							[moduleId]: connectingData ?? simpleViewer
+					  }
+					: connectingData ?? simpleViewer}
+				topBrackets={false}
+				pureViewer={false}
+				{prefix}
+				on:select
+				{allowCopy}
+			/>
+		{:else if jsonView}
+			<JsonEditor
+				bind:error
+				small
+				on:changeValue={({ detail }) => {
+					if (mock?.enabled) {
+						const newMock = {
+							enabled: true,
+							return_value: structuredClone(detail)
 						}
-					}}
-					code={JSON.stringify(
-						mock?.enabled && mock.return_value ? mock.return_value : '',
-						null,
-						2
-					)}
-					class="h-full"
-				/>
-			{:else if (mock?.enabled || preview == 'mock') && preview != 'job'}
+						tmpMock = newMock
+					}
+				}}
+				code={JSON.stringify(mock?.enabled && mock.return_value ? mock.return_value : '', null, 2)}
+				class="h-full"
+			/>
+		{:else if (mock?.enabled || preview == 'mock') && preview != 'job'}
+			{#if fullResult}
+				<div class="break-words relative h-full p-2">
+					<DisplayResult
+						bind:forceJson
+						workspaceId={undefined}
+						jobId={undefined}
+						result={mock?.return_value}
+					/>
+				</div>
+			{:else}
 				<ObjectViewer
 					json={moduleId
 						? {
@@ -420,7 +399,28 @@
 					topBrackets={false}
 					pureViewer={false}
 				/>
-			{:else if selectedJob != undefined && 'result' in selectedJob}
+			{/if}
+		{:else if selectedJob != undefined && 'result' in selectedJob}
+			{#if fullResult}
+				<div class="break-words relative h-full p-2">
+					{#if selectedJob.result != undefined}
+						{#key selectedJob}
+							<DisplayResult
+								bind:forceJson
+								workspaceId={selectedJob?.workspace_id}
+								jobId={selectedJob?.id}
+								result={selectedJob?.result}
+							>
+								<svelte:fragment slot="copilot-fix">
+									<slot name="copilot-fix" />
+								</svelte:fragment>
+							</DisplayResult>
+						{/key}
+					{:else}
+						Result: null
+					{/if}
+				</div>
+			{:else}
 				<ObjectViewer
 					json={moduleId
 						? {
@@ -430,22 +430,22 @@
 					topBrackets={false}
 					pureViewer={false}
 				/>
-			{:else if !lastJob}
-				<div class="flex flex-col items-center justify-center h-full">
-					<p class="text-xs text-secondary">
-						Test this step to see results or <button
-							class="text-blue-500 hover:text-blue-700 underline"
-							on:click={() => {
-								const newMock = {
-									enabled: true,
-									return_value: { example: 'value' }
-								}
-								dispatch('updateMock', newMock)
-							}}>pin data<Pin size={16} class="inline" /></button
-						>
-					</p>
-				</div>
 			{/if}
-		</div>
-	{/if}
+		{:else if !lastJob}
+			<div class="flex flex-col items-center justify-center h-full">
+				<p class="text-xs text-secondary">
+					Test this step to see results or <button
+						class="text-blue-500 hover:text-blue-700 underline"
+						on:click={() => {
+							const newMock = {
+								enabled: true,
+								return_value: { example: 'value' }
+							}
+							dispatch('updateMock', newMock)
+						}}>pin data<Pin size={16} class="inline" /></button
+					>
+				</p>
+			</div>
+		{/if}
+	</div>
 </div>

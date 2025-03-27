@@ -110,7 +110,7 @@
 		}
 	}
 
-	$: testJob && outputPicker?.setLastJob(testJob, false)
+	$: testJob && outputPicker?.setLastJob(testJob, true)
 	$: lastJob && outputPicker?.setLastJob(lastJob, false)
 
 	let forceJson = false
