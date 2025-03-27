@@ -146,15 +146,12 @@
 				]
 			}
 		}
-	}
 
-	function updateSelectedContext(selectedContext: ContextElement[], availableContext: ContextElement[]) {
-		return selectedContext.filter((c) => availableContext.find((ac) => ac.type === c.type && ac.title === c.title))
+		selectedContext = selectedContext.map((c) => availableContext.find((ac) => ac.type === c.type && ac.title === c.title)).filter((c) => c !== undefined) as ContextElement[]
+		onCodeChange(contextCodePath)
 	}
 
 	$: updateAvailableContext(contextCodePath, code, lang, error, db, $copilotSessionModel, $dbSchemas, $workspaceStore)
-
-	$: selectedContext = updateSelectedContext(selectedContext, availableContext)
 
 	let instructions = ''
 	let loading = writable(false)

@@ -82,7 +82,6 @@
 	}
 
 	function handleKeyPress(e: KeyboardEvent) {
-		console.log('key press', e)
 		if (e.key === 'Enter' && !e.shiftKey) {
 			e.preventDefault()
 			if (contextTooltipWord) {
