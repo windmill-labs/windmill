@@ -126,6 +126,7 @@
 		['googleai', 'Google AI'],
 		['groq', 'Groq'],
 		['openrouter', 'OpenRouter'],
+		['togetherai', 'Together AI'],
 		['customai', 'Custom AI']
 	]
 
@@ -1080,10 +1081,8 @@
 							<div class="flex flex-col gap-2">
 								<Toggle
 									options={{
-										right:
-											label + (provider === 'customai' && !$enterpriseLicense ? ' (EE only)' : '')
+										right: label
 									}}
-									disabled={provider === 'customai' && !$enterpriseLicense}
 									checked={!!aiProviders[provider]}
 									on:change={(e) => {
 										if (e.detail) {

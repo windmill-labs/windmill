@@ -35,7 +35,17 @@ export const AI_DEFAULT_MODELS: Record<AIProvider, string[]> = {
 	googleai: ['gemini-1.5-pro', 'gemini-2.0-flash', 'gemini-1.5-flash'],
 	groq: ['llama-3.3-70b-versatile', 'llama-3.1-8b-instant'],
 	openrouter: ['meta-llama/llama-3.2-3b-instruct:free'],
+	togetherai: ['meta-llama/Llama-3.3-70B-Instruct-Turbo'],
 	customai: []
+}
+
+function getModelMaxTokens(model: string) {
+	if (model.startsWith('gpt-4o') || model.startsWith('codestral')) {
+		return 16384
+	} else if (model.startsWith('gpt-4-turbo') || model.startsWith('gpt-3.5')) {
+		return 4096
+	}
+	return 8192
 }
 
 function prepareMessages(aiProvider: AIProvider, messages: ChatCompletionMessageParam[]) {
@@ -65,18 +75,15 @@ function prepareMessages(aiProvider: AIProvider, messages: ChatCompletionMessage
 
 const DEFAULT_COMPLETION_CONFIG: ChatCompletionCreateParams = {
 	model: '',
-	max_tokens: 8192, //TODO: make this dynamic
 	seed: 42,
 	messages: []
 }
 
 export const PROVIDER_COMPLETION_CONFIG_MAP: Record<AIProvider, ChatCompletionCreateParams> = {
-	openai: {
-		...DEFAULT_COMPLETION_CONFIG,
-		max_tokens: 16384
-	},
+	openai: DEFAULT_COMPLETION_CONFIG,
 	groq: DEFAULT_COMPLETION_CONFIG,
 	openrouter: DEFAULT_COMPLETION_CONFIG,
+	togetherai: DEFAULT_COMPLETION_CONFIG,
 	deepseek: DEFAULT_COMPLETION_CONFIG,
 	customai: DEFAULT_COMPLETION_CONFIG,
 	googleai: {
@@ -85,8 +92,7 @@ export const PROVIDER_COMPLETION_CONFIG_MAP: Record<AIProvider, ChatCompletionCr
 	} as ChatCompletionCreateParams,
 	mistral: {
 		...DEFAULT_COMPLETION_CONFIG,
-		seed: undefined,
-		max_tokens: 32000
+		seed: undefined
 	},
 	anthropic: DEFAULT_COMPLETION_CONFIG
 } as const
@@ -379,6 +385,7 @@ function getProviderAndCompletionConfig<K extends boolean>({
 						temperature: 0,
 						tools
 				  }),
+			max_tokens: getModelMaxTokens(modelProvider.model),
 			messages: processedMessages,
 			stream
 		} as any
