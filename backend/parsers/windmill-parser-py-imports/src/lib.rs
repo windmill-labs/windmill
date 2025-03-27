@@ -122,18 +122,16 @@ fn parse_code_for_imports(code: &str, path: &str) -> error::Result<Vec<String>> 
     let nimports: Vec<String> = ast
         .into_iter()
         .filter_map(|x| match x {
-            Stmt::Import(StmtImport { names, range }) => find_pin(range)
-                .and_then(|e| if names.len() > 1 { None } else { Some(e) })
-                .or(Some(
-                    names
-                        .into_iter()
-                        .map(|x| {
-                            let name = x.name.to_string();
-                            process_import(Some(name), path, 0)
-                        })
-                        .flatten()
-                        .collect::<Vec<String>>(),
-                )),
+            Stmt::Import(StmtImport { names, range }) => find_pin(range).or(Some(
+                names
+                    .into_iter()
+                    .map(|x| {
+                        let name = x.name.to_string();
+                        process_import(Some(name), path, 0)
+                    })
+                    .flatten()
+                    .collect::<Vec<String>>(),
+            )),
             Stmt::ImportFrom(StmtImportFrom { level: Some(i), module, .. }) if i.to_u32() > 0 => {
                 Some(process_import(
                     module.map(|x| x.to_string()),
