@@ -685,19 +685,21 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 				{/if}
 			{/if}
 
-			<div class="flex items-center px-3">
-				<Toggle
-					options={{ right: '' }}
-					size="xs"
-					checked={$diffMode}
-					disabled={!lastDeployedCode}
+			{#if customUi?.diffMode != false}
+				<div class="flex items-center px-3">
+					<Toggle
+						options={{ right: '' }}
+						size="xs"
+						checked={$diffMode}
+						disabled={!lastDeployedCode}
 					on:change={() => $diffMode ? editor?.quitDiffMode() : editor?.reviewChanges(lastDeployedCode ?? '')}
 				/>
 				<Popover>
 					<svelte:fragment slot="text">Toggle diff mode</svelte:fragment>
-					<DiffIcon class="ml-1 text-tertiary" size={14} />
-				</Popover>
-			</div>
+						<DiffIcon class="ml-1 text-tertiary" size={14} />
+					</Popover>
+				</div>
+			{/if}
 
 			{#if collabMode && customUi?.multiplayer != false}
 				<div class="flex items-center px-3">

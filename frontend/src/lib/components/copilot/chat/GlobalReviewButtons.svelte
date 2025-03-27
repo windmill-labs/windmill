@@ -19,9 +19,7 @@
 			on:click={() => dispatch('acceptAll')}>Accept all</button
 		>
 		<button
-			class={`px-2 py-1 bg-[#e6a0a0] rounded-r text-sm font-semibold text-black ${
-				isDiffMode ? 'rounded-l' : ''
-			}`}
+			class="px-2 py-1 bg-[#e6a0a0] rounded-r text-sm font-semibold text-black"
 			on:click={() => dispatch('rejectAll')}>Reject all</button
 		>
 	{:else}
@@ -30,9 +28,7 @@
 			on:click={() => dispatch('quitDiffMode')}>Quit diff mode</button
 		>
 		<button
-			class={`px-2 py-1 bg-[#e6a0a0] rounded-r text-sm font-semibold text-black ${
-				isDiffMode ? 'rounded-l' : ''
-			}`}
+			class="px-2 py-1 bg-[#e6a0a0] rounded-r text-sm font-semibold text-black"
 			on:click={() => dispatch('seeHistory')}>See changes history</button
 		>
 	{/if}
