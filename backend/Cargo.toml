@@ -249,8 +249,6 @@ swc_ecma_visit = "=0.104.8"
 
 
 async-recursion = "^1"
-# remove when async-strip is removed, needed to pin rand
-half = "=2.4.1"
 base64 = "^0"
 base32 = "^0"
 hmac = "0.12.1"
@@ -343,7 +341,7 @@ opentelemetry-semantic-conventions = { version = "0.27.0", features = ["semconv_
 
 bollard = "0.18.1"
 
-tonic = { version = "^0", features = ["tls-native-roots"] }
+tonic = { version = "=0.12.3", features = ["tls-native-roots"] }
 byteorder = "1.5.0"
 
 tikv-jemallocator = { version = "0.5" }
