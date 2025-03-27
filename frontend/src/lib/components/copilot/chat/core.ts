@@ -326,7 +326,7 @@ export async function prepareUserMessage(
 		} else if (context.type === 'db') {
 			dbContext += CHAT_USER_DB_CONTEXT.replace('{title}', context.title).replace('{schema}', context.schema?.stringified ?? 'to fetch with get_db_schema')
 		} else if (context.type === 'diff') {
-			diffContext = context.content
+			diffContext = context.content.length > 3000 ? context.content.slice(0, 3000) + '...' : context.content
 		}
 	}
 
