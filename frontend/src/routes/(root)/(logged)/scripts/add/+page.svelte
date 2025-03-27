@@ -11,6 +11,7 @@
 	import UnsavedConfirmationModal from '$lib/components/common/confirmationModal/UnsavedConfirmationModal.svelte'
 	import type { ScheduleTrigger } from '$lib/components/triggers'
 	import type { GetInitialAndModifiedValues } from '$lib/components/common/confirmationModal/unsavedTypes'
+	import { replaceScriptPlaceholderWithItsValues } from '$lib/hub'
 
 	// Default
 	let schema: Schema = emptySchema()
@@ -87,7 +88,7 @@
 				path: hubPath
 			})
 			script.description = `Fork of ${hubPath}`
-			script.content = content
+			script.content = replaceScriptPlaceholderWithItsValues(hubPath, content)
 			script.summary = summary ?? ''
 			script.language = language as Script['language']
 			scriptBuilder?.setCode(script.content)

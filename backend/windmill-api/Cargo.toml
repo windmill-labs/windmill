@@ -26,7 +26,7 @@ smtp = ["dep:mail-parser", "dep:openssl", "windmill-common/smtp"]
 license = ["dep:rsa"]
 zip = ["dep:async_zip"]
 oauth2 = ["dep:async-oauth2"]
-http_trigger = ["dep:matchit"]
+http_trigger = ["dep:matchit", "dep:thiserror", "dep:sha1", "dep:constant_time_eq"]
 static_frontend = ["dep:rust-embed"]
 postgres_trigger = ["dep:rust-postgres", "dep:pg_escape", "dep:byteorder", "dep:thiserror", "dep:rust_decimal", "dep:rust-postgres-native-tls"]
 mqtt_trigger = ["dep:thiserror", "dep:rumqttc"]
@@ -85,6 +85,8 @@ tokio-tar.workspace = true
 hmac.workspace = true
 cookie.workspace = true
 sha2.workspace = true
+sha1 = { workspace = true, optional = true }
+constant_time_eq = { workspace = true, optional = true }
 urlencoding.workspace = true
 lazy_static.workspace = true
 prometheus = { workspace = true, optional = true }
