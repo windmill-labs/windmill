@@ -147,7 +147,20 @@
 			}
 		}
 
+		// Resync with available context to refresh db schemas if are now available / have changed
 		selectedContext = selectedContext.map((c) => availableContext.find((ac) => ac.type === c.type && ac.title === c.title)).filter((c) => c !== undefined) as ContextElement[]
+		displayMessages = displayMessages.map((m) => (
+			{
+				...m,
+				contextElements: m.contextElements?.map(
+					(c) => c.type === 'db' ? {
+						type: 'db',
+						title: c.title,
+						schema: dbSchemas[c.title]
+					} : c
+				)
+			}
+		))
 		onCodeChange(contextCodePath)
 	}
 
