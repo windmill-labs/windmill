@@ -114,6 +114,10 @@
 					on:move={() => dispatch('move')}
 					on:delete={onDelete}
 					on:click={() => dispatch('select', mod.id)}
+					on:updateMock={({ detail }) => {
+						mod.mock = detail
+						dispatch('updateMock')
+					}}
 					{...itemProps}
 					{bgColor}
 					warningMessage={mod?.value?.type === 'forloopflow' &&
