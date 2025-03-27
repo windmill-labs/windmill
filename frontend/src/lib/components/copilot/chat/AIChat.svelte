@@ -25,36 +25,44 @@
 	export let args: Record<string, any>
 	export let path: string | undefined
 
-	$: contextCodePath =
-		(path?.split('/').pop() ?? 'script') + '.' + langToExt(scriptLangToEditorLang(lang))
+	$: contextCodePath = path
+		? path.split('/').pop() + '.' + langToExt(scriptLangToEditorLang(lang))
+		: undefined
 
 	let initializedWithInitCode: boolean | null = null
 	$: lang && (initializedWithInitCode = null)
 	function onCodeChange() {
-		if (initializedWithInitCode === null && code) {
-			if (isInitialCode(code)) {
-				initializedWithInitCode = true
-			} else {
-				initializedWithInitCode = false
+		if (!contextCodePath) {
+			return
+		}
+		try {
+			if (initializedWithInitCode === null && code) {
+				if (isInitialCode(code)) {
+					initializedWithInitCode = true
+				} else {
+					initializedWithInitCode = false
+					selectedContext = [
+						{
+							type: 'code',
+							title: contextCodePath
+						}
+					]
+				}
+			} else if (initializedWithInitCode) {
+				// if the code was initial and was changed, add code context, then prevent it from being added again
 				selectedContext = [
 					{
 						type: 'code',
 						title: contextCodePath
 					}
 				]
+				initializedWithInitCode = false
 			}
-		} else if (initializedWithInitCode) {
-			// if the code was initial and was changed, add code context, then prevent it from being added again
-			selectedContext = [
-				{
-					type: 'code',
-					title: contextCodePath
-				}
-			]
-			initializedWithInitCode = false
+		} catch (err) {
+			console.error('Could not update context', err)
 		}
 	}
-	$: code && onCodeChange()
+	$: contextCodePath && code && onCodeChange()
 
 	let db: { schema: DBSchema; resource: string } | undefined = undefined
 
@@ -63,17 +71,21 @@
 		args: Record<string, any>,
 		dbSchemas: DBSchemas
 	) {
-		const schemaRes = lang === 'graphql' ? args.api : args.database
-		if (typeof schemaRes === 'string') {
-			const schemaPath = schemaRes.replace('$res:', '')
-			const schema = dbSchemas[schemaPath]
-			if (schema && schema.lang === lang) {
-				db = { schema, resource: schemaPath }
+		try {
+			const schemaRes = lang === 'graphql' ? args.api : args.database
+			if (typeof schemaRes === 'string') {
+				const schemaPath = schemaRes.replace('$res:', '')
+				const schema = dbSchemas[schemaPath]
+				if (schema && schema.lang === lang) {
+					db = { schema, resource: schemaPath }
+				} else {
+					db = undefined
+				}
 			} else {
 				db = undefined
 			}
-		} else {
-			db = undefined
+		} catch (err) {
+			console.error('Could not update schema', err)
 		}
 	}
 	$: updateSchema(lang, args, $dbSchemas)
@@ -83,42 +95,49 @@
 	let availableContext: ContextElement[] = []
 
 	function updateAvailableContext(
-		contextCodePath: string,
+		contextCodePath: string | undefined,
 		code: string,
 		lang: ScriptLang | 'bunnative',
 		error: string | undefined,
 		db: { schema: DBSchema; resource: string } | undefined,
 		providerModel: AIProviderModel | undefined
 	) {
-		availableContext = [
-			{
-				type: 'code',
-				title: contextCodePath,
-				content: code,
-				lang
-			}
-		]
-
-		if (error) {
-			availableContext = [
-				...availableContext,
-				{
-					type: 'error',
-					title: 'error',
-					content: error
-				}
-			]
+		if (!contextCodePath) {
+			return
 		}
-
-		if (db && !providerModel?.model.endsWith('/thinking')) {
+		try {
 			availableContext = [
-				...availableContext,
 				{
-					type: 'db',
-					title: db.resource,
-					schema: db.schema
+					type: 'code',
+					title: contextCodePath,
+					content: code,
+					lang
 				}
 			]
+
+			if (error) {
+				availableContext = [
+					...availableContext,
+					{
+						type: 'error',
+						title: 'error',
+						content: error
+					}
+				]
+			}
+
+			if (db && !providerModel?.model.endsWith('/thinking')) {
+				availableContext = [
+					...availableContext,
+					{
+						type: 'db',
+						title: db.resource,
+						schema: db.schema
+					}
+				]
+			}
+		} catch (err) {
+			console.error('Could not update available context', err)
 		}
 	}
 
@@ -163,17 +182,22 @@
 	let abortController: AbortController | undefined = undefined
 
 	function updateSelectedContextElements() {
-		const contextElements: ContextElement[] = []
+		try {
+			const contextElements: ContextElement[] = []
 
-		for (const selected of selectedContext) {
-			const el = availableContext.find(
-				(c) => c.type === selected.type && c.title === selected.title
-			)
-			if (el) {
-				contextElements.push(el)
+			for (const selected of selectedContext) {
+				const el = availableContext.find(
+					(c) => c.type === selected.type && c.title === selected.title
+				)
+				if (el) {
+					contextElements.push(el)
+				}
 			}
+			return contextElements
+		} catch (err) {
+			console.error('Could not update selected context elements', err)
+			return []
 		}
-		return contextElements
 	}
 	let selectedContextElements: ContextElement[] = []
 
@@ -289,6 +313,9 @@
 	}
 
 	export function fix() {
+		if (!contextCodePath) {
+			return
+		}
 		instructions = 'Fix the error'
 
 		selectedContext = [
@@ -320,19 +347,26 @@
 
 	let indexDB: IDBPDatabase<ChatSchema> | undefined = undefined
 	async function initIndexDB() {
-		indexDB = await openDB<ChatSchema>('copilot-chat-history', 1, {
-			upgrade(indexDB) {
-				if (!indexDB.objectStoreNames.contains('chats')) {
-					indexDB.createObjectStore('chats', { keyPath: 'id' })
+		try {
+			console.log('Initializing chat history database')
+			indexDB = await openDB<ChatSchema>('copilot-chat-history', 1, {
+				upgrade(indexDB) {
+					if (!indexDB.objectStoreNames.contains('chats')) {
+						indexDB.createObjectStore('chats', { keyPath: 'id' })
+					}
 				}
-			}
-		})
+			})
+			console.log('Chat history database initialized')
 
-		const chats = await indexDB.getAll('chats')
-		savedChats = chats.reduce((acc, chat) => {
-			acc[chat.id] = chat
-			return acc
-		}, {} as typeof savedChats)
+			const chats = await indexDB.getAll('chats')
+			console.log('Retrieved chats')
+			savedChats = chats.reduce((acc, chat) => {
+				acc[chat.id] = chat
+				return acc
+			}, {} as typeof savedChats)
+		} catch (err) {
+			console.error('Could not open chat history database', err)
+		}
 	}
 
 	initIndexDB()
