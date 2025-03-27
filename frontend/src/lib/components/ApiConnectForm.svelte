@@ -25,6 +25,7 @@
 	export let linkedSecret: string | undefined = undefined
 	export let isValid = true
 	export let linkedSecretCandidates: string[] | undefined = undefined
+	export let description: string | undefined = undefined
 
 	let schema = emptySchema()
 	let notFound = false
@@ -226,14 +227,12 @@
 			{
 				...args,
 				url: selectedGHAppRepository,
-				github_app_installation_id: githubInstallations.find(
-					(_) => _.account_id === selectedGHAppAccountId
-				)?.installation_id,
 				is_github_app: true
 			},
 			null,
 			2
 		)
+		description = `Repository ${selectedGHAppRepository} with permissions fetched using Windmill Github App. ${description}`
 		rawCodeEditor?.setCode(rawCode)
 		close(null)
 	}
@@ -409,6 +408,7 @@
 			{/if}
 			{#if githubInstallations.length > 0}
 				<Popover
+					documentationLink="https://www.windmill.dev/docs/integrations/git_repository#github-app"
 					bind:this={githubAppPopover}
 					floatingConfig={{
 						placement: 'bottom'
