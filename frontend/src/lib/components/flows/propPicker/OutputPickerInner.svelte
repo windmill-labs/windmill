@@ -33,8 +33,9 @@
 	export let hideHeaderBar: boolean = false
 	export let simpleViewer: any | undefined = undefined
 	export let path: string = ''
-	export let loop: 'forloopflow' | 'whileloopflow' | undefined = undefined
-	export let parentLoop: 'forloopflow' | 'whileloopflow' | undefined = undefined
+	export let loopStatus:
+		| { type: 'inside' | 'self'; flow: 'forloopflow' | 'whileloopflow' }
+		| undefined = undefined
 
 	type SelectedJob =
 		| Job
@@ -174,7 +175,11 @@
 							mockEnabled={mock?.enabled}
 							bind:this={stepHistory}
 							{path}
-							noHistory={!!loop || !!parentLoop}
+							noHistory={loopStatus
+								? loopStatus.type === 'self'
+									? 'isLoop'
+									: 'isInsideLoop'
+								: undefined}
 						/>
 					</div>
 				</svelte:fragment>
@@ -325,10 +330,10 @@
 			{/if}
 			{#if !isLoading && selectedJob && !preview && !mock?.enabled && 'result' in selectedJob}
 				<div class="w-grow min-w-0 flex gap-1 items-center">
-					{#if loop}
+					{#if loopStatus?.type === 'self'}
 						<div class="min-w-16 rounded-md bg-surface-secondary py-1 px-2 justify-center">
 							<span class="text-xs text-secondary">
-								{loop === 'forloopflow' ? 'For loop result' : 'While loop result'}
+								{loopStatus.flow === 'forloopflow' ? 'For loop result' : 'While loop result'}
 							</span>
 						</div>
 					{:else}

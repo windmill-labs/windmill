@@ -12,6 +12,8 @@
 	import BarsStaggered from '$lib/components/icons/BarsStaggered.svelte'
 	import FlowJobsMenu from './FlowJobsMenu.svelte'
 	import { isTriggerStep } from '$lib/components/graph/graphBuilder'
+	import { checkIfParentLoop } from '$lib/components/flows/utils'
+	import type { FlowEditorContext } from '$lib/components/flows/types'
 
 	export let mod: FlowModule
 	export let insertable: boolean
@@ -31,7 +33,12 @@
 		| undefined
 	export let editMode: boolean = false
 
-	const { selectedId } = getContext<{ selectedId: Writable<string> }>('FlowGraphContext')
+	const { selectedId } = getContext<{
+		selectedId: Writable<string>
+	}>('FlowGraphContext')
+
+	const { flowStore } = getContext<FlowEditorContext | undefined>('FlowEditorContext') || {}
+
 	const dispatch = createEventDispatcher<{
 		delete: CustomEvent<MouseEvent>
 		insert: {
@@ -58,6 +65,8 @@
 		mock: mod.mock,
 		concurrency: Boolean(mod?.value?.['concurrent_limit'])
 	}
+
+	$: parentLoop = $flowStore && mod ? checkIfParentLoop($flowStore, mod.id) : undefined
 
 	function onDelete(event: CustomEvent<MouseEvent>) {
 		dispatch('delete', event)
@@ -126,8 +135,7 @@
 						? 'Iterator expression is empty'
 						: ''}
 					alwaysShowOutputPicker={!mod.id.startsWith('subflow:')}
-					loop={mod.value.type}
-					parentLoop={mod.value.type}
+					loopStatus={{ type: 'self', flow: mod.value.type }}
 				>
 					<div slot="icon">
 						<Repeat size={16} />
@@ -197,6 +205,7 @@
 					path={`path` in mod.value ? mod.value.path : ''}
 					isTrigger={isTriggerStep(mod)}
 					alwaysShowOutputPicker={!mod.id.startsWith('subflow:')}
+					loopStatus={parentLoop ? { type: 'inside', flow: parentLoop.type } : undefined}
 				>
 					<div slot="icon">
 						{#if mod.value.type === 'rawscript'}

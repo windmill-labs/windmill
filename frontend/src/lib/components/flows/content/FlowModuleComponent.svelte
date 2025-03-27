@@ -50,6 +50,7 @@
 	import FlowModuleSkip from './FlowModuleSkip.svelte'
 	import { type Job, JobService } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
+	import { checkIfParentLoop } from '../utils'
 
 	const {
 		selectedId,
@@ -231,6 +232,9 @@
 	$: if ($workspaceStore && $pathStore && flowModule?.id && $flowStateStore) {
 		getLastJob()
 	}
+
+	$: parentLoop =
+		$flowStore && flowModule ? checkIfParentLoop($flowStore, flowModule.id) : undefined
 </script>
 
 <svelte:window on:keydown={onKeyDown} />
@@ -434,10 +438,7 @@
 										lang={flowModule.value['language'] ?? 'deno'}
 										schema={$flowStateStore[$selectedId]?.schema ?? {}}
 										{lastJob}
-										parentLoop={parentModule?.value.type === 'forloopflow' ||
-										parentModule?.value.type === 'whileloopflow'
-											? parentModule?.value.type
-											: undefined}
+										loopStatus={parentLoop ? { type: 'inside', flow: parentLoop.type } : undefined}
 									/>
 								{:else if selected === 'advanced'}
 									<Tabs bind:selected={advancedSelected}>
