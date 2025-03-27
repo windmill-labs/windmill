@@ -216,6 +216,10 @@ pub fn workspaced_service() -> Router {
             // URLs that may be too long
             post(list_selected_jobs_schemas),
         )
+        .route(
+            "/list_selected_jobs_latest_schemas",
+            post(list_selected_jobs_latest_schemas),
+        )
         .route("/queue/list", get(list_queue_jobs))
         .route("/queue/count", get(count_queue_jobs))
         .route("/queue/list_filtered_uuids", get(list_filtered_uuids))
@@ -691,6 +695,39 @@ async fn list_selected_jobs_schemas(
             AND COALESCE(s.path, f.path) IS NOT NULL
             AND j.workspace_id = $1 AND j.id = ANY($2)
         GROUP BY j.runnable_id, j.runnable_path, j.kind"#,
+        &w_id,
+        &uuids
+    )
+    .fetch_all(&mut *tx)
+    .await?;
+
+    tx.commit().await?;
+
+    Ok(Json(results).into_response())
+}
+
+async fn list_selected_jobs_latest_schemas(
+    authed: ApiAuthed,
+    Extension(user_db): Extension<UserDB>,
+    Path(w_id): Path<String>,
+    Json(uuids): Json<Vec<Uuid>>,
+) -> error::Result<Response> {
+    let mut tx = user_db.begin(&authed).await?;
+
+    let results = sqlx::query_as!(
+        ListedSelectedJobsSchemasRow,
+        r#"SELECT DISTINCT ON (j.runnable_path, j.kind) 
+            j.kind AS "kind!: JobKind",
+            j.runnable_path AS script_path,
+            NULL as "script_hash: _",
+            -1::bigint as "count!: _",
+            COALESCE(f.schema, s.schema) AS schema
+        FROM v2_job j
+        LEFT JOIN script s ON s.path = j.runnable_path AND j.kind = 'script'
+        LEFT JOIN flow_version f ON f.path = j.runnable_path AND j.kind = 'flow'
+        WHERE COALESCE(s.hash, f.id) IS NOT NULL
+            AND j.workspace_id = $1 AND j.id = ANY($2)
+        ORDER BY j.runnable_path, j.kind, COALESCE(f.created_at, s.created_at) DESC"#,
         &w_id,
         &uuids
     )

@@ -5001,6 +5001,46 @@ paths:
                     - schema
                     - count
 
+  /w/{workspace}/jobs/list_selected_jobs_latest_schemas:
+    post:
+      summary: list selected jobs latest schemas grouped by (kind, path)
+      operationId: listSelectedJobsLatestSchema
+      tags:
+        - job
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        description: script args
+        required: true
+        content:
+          application/json:
+            schema:
+              type: array
+              items:
+                type: string
+                format: uuid
+      responses:
+        "200":
+          description: result
+          content:
+            text/plain:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    kind:
+                      type: string
+                      enum: ["script", "flow"]
+                    script_path:
+                      type: string
+                    schema:
+                      type: object
+                  required:
+                    - kind
+                    - schema
+                    - script_path
+
   /w/{workspace}/jobs/run/p/{path}:
     post:
       summary: run script by path

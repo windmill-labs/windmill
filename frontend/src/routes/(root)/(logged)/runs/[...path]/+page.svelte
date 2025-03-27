@@ -42,14 +42,14 @@
 	import RunsBatchActionsDropdown from '$lib/components/runs/RunsBatchActionsDropdown.svelte'
 	import { isJobSelectable } from '$lib/utils'
 	import BatchReRunOptionsPane, {
-		type ChangedArgsRecord
+		type BatchReRunOptions
 	} from '$lib/components/runs/BatchReRunOptionsPane.svelte'
 
 	let jobs: Job[] | undefined
 	let selectedIds: string[] = []
 	let selectedWorkspace: string | undefined = undefined
 
-	let batchReRunChangedArgs: ChangedArgsRecord = { flow: {}, script: {} }
+	let batchReRunOptions: BatchReRunOptions = { flow: {}, script: {} }
 
 	// All Filters
 	// Filter by
@@ -357,7 +357,7 @@
 		lastFetchWentToEnd = false
 		selectedManualDate = 0
 		selectedIds = []
-		batchReRunChangedArgs = { flow: {}, script: {} }
+		batchReRunOptions = { flow: {}, script: {} }
 		selectionMode = false
 		selectedWorkspace = undefined
 		jobLoader?.loadJobs(minTs, maxTs, true)
@@ -491,7 +491,7 @@
 		selectionMode = mode
 		if (!mode) {
 			selectedIds = []
-			batchReRunChangedArgs = { flow: {}, script: {} }
+			batchReRunOptions = { flow: {}, script: {} }
 			return
 		}
 		selectedIds = jobs?.filter(isJobSelectable(mode)).map((j) => j.id) ?? []
@@ -587,7 +587,6 @@
 
 	async function onReRunSelectedJobs() {
 		const jobIdsToReRun = selectedIds
-		const inputTransforms = batchReRunChangedArgs
 		askingForConfirmation = {
 			title: `Confirm re-running the selected jobs`,
 			confirmBtnText: `Re-run ${jobIdsToReRun.length} jobs`,
@@ -599,13 +598,23 @@
 					workspace: $workspaceStore,
 					requestBody: {
 						job_ids: jobIdsToReRun,
-						script_input_transforms_by_path: inputTransforms.script,
-						flow_input_transforms_by_path: inputTransforms.flow
+						script_input_transforms_by_path: Object.fromEntries(
+							Object.entries(batchReRunOptions?.script ?? {}).map(([path, options]) => [
+								path,
+								options.changedArgs ?? {}
+							])
+						),
+						flow_input_transforms_by_path: Object.fromEntries(
+							Object.entries(batchReRunOptions?.flow ?? {}).map(([path, options]) => [
+								path,
+								options.changedArgs ?? {}
+							])
+						)
 					}
 				})
 
 				selectedIds = []
-				batchReRunChangedArgs = { flow: {}, script: {} }
+				batchReRunOptions = { flow: {}, script: {} }
 				jobLoader?.loadJobs(minTs, maxTs, true, true)
 				sendUserToast(`Re-ran ${uuids.length} jobs`)
 				selectionMode = false
@@ -1053,13 +1062,7 @@
 				</Pane>
 				<Pane size={40} minSize={15} class="border-t flex flex-col">
 					{#if selectionMode === 're-run'}
-						<BatchReRunOptionsPane
-							{selectedIds}
-							changedArgs={batchReRunChangedArgs}
-							onChangeArg={({ kind, path, propertyName }, newArg) => {
-								;(batchReRunChangedArgs[kind][path] ??= {})[propertyName] = newArg
-							}}
-						/>
+						<BatchReRunOptionsPane {selectedIds} bind:options={batchReRunOptions} />
 					{:else if selectedIds.length === 1}
 						{#if selectedIds[0] === '-'}
 							<div class="p-4">There is no information available for this job</div>

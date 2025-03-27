@@ -1,6 +1,11 @@
 <script lang="ts" module>
-	export type ChangedArgsRecord = {
-		[kind in 'flow' | 'script']: { [path: string]: { [property: string]: InputTransform } }
+	export type BatchReRunOptions = {
+		[kind in 'flow' | 'script']: {
+			[path: string]: {
+				changedArgs?: { [property: string]: InputTransform }
+				useLatestSchema?: boolean
+			}
+		}
 	}
 </script>
 
@@ -19,18 +24,14 @@
 	import { buildExtraLibForBatchReruns } from '$lib/components/jobs/batchReruns'
 	import { pluralize } from '$lib/utils'
 	import { mergeObjectSchemasWithUnion } from '$lib/schema'
+	import Toggle from '../Toggle.svelte'
 
-	const {
+	let {
 		selectedIds,
-		changedArgs,
-		onChangeArg
+		options = $bindable()
 	}: {
 		selectedIds: string[]
-		changedArgs: ChangedArgsRecord
-		onChangeArg: (
-			tab: { path: string; kind: 'flow' | 'script'; propertyName },
-			newArg: InputTransform
-		) => void
+		options: BatchReRunOptions
 	} = $props()
 
 	let selected: JobGroup | undefined = $state()
@@ -44,25 +45,35 @@
 		script_path: string
 		kind: 'script' | 'flow'
 		schemas: { schema: Schema; script_hash: string; count: number }[]
+		latestSchema: Schema
 	}
 
-	async function fetch(): Promise<JobGroup[]> {
+	async function fetchJobGroups(): Promise<JobGroup[]> {
 		if (!$workspaceStore) return []
 		// TODO : cache and filter jobs we already have
 		const selectedJobsSchemas = await JobService.listSelectedJobsSchema({
 			workspace: $workspaceStore,
 			requestBody: selectedIds
 		})
+		const latestSchemas = await JobService.listSelectedJobsLatestSchema({
+			workspace: $workspaceStore,
+			requestBody: selectedIds
+		})
 		const jobGroup: JobGroup[] = []
 		for (const curr of selectedJobsSchemas) {
 			if (!curr.script_path || !curr.script_hash) continue
+			const latestSchema: Schema = (latestSchemas.find(
+				(ls) => ls.kind === curr.kind && ls.script_path === curr.script_path
+			)?.schema ?? {}) as Schema
+
 			const group =
 				jobGroup.find((j) => j.kind === curr.kind && j.script_path === curr.script_path) ??
 				jobGroup[
 					jobGroup.push({
 						kind: curr.kind,
 						script_path: curr.script_path,
-						schemas: []
+						schemas: [],
+						latestSchema
 					}) - 1
 				]
 			group.schemas.push({
@@ -94,7 +105,13 @@
 		return set
 	}
 
-	const JobGroupPromise = $derived(selectedIds && fetch())
+	const selectedUsesLatestSchema = $derived(
+		!!selected &&
+			(selected?.kind === 'flow' ||
+				(options[selected.kind][selected.script_path]?.useLatestSchema ?? false))
+	)
+
+	const jobGroupsPromise = $derived(selectedIds && fetchJobGroups())
 </script>
 
 <div class="flex-1 flex flex-col">
@@ -108,7 +125,7 @@
 					id="batch-rerun-options-runnable-list"
 				>
 					<div class="w-full flex flex-col gap-1">
-						{#await JobGroupPromise then jobGroup}
+						{#await jobGroupsPromise then jobGroup}
 							{#each jobGroup as group}
 								<button
 									class="border rounded-sm w-full text-left font-normal py-1.5 px-2 text-2xs flex justify-between {selected?.kind ===
@@ -131,21 +148,42 @@
 					class="overflow-y-scroll absolute inset-0"
 					id="batch-rerun-options-args"
 				>
-					<div class="text-sm w-full">
+					<div class="text-sm w-full pb-2">
 						<Alert type="info" title="Available expressions :">
 							Use the <code>job</code> object to access data about the original job
 						</Alert>
 					</div>
+					<Toggle
+						checked={selectedUsesLatestSchema}
+						disabled={selected?.kind === 'flow'}
+						on:change={(e) => {
+							if (!selected) return
+							;(options[selected.kind][selected.script_path] ??= {}).useLatestSchema =
+								e.detail as boolean
+						}}
+						options={{
+							right: 'Always use latest version'
+						}}
+					/>
 					{#if selected}
-						{@const schema = mergeObjectSchemasWithUnion(selected.schemas.map((s) => s.schema))}
-						{@const extraLib = buildExtraLibForBatchReruns(schema)}
+						<!-- Even if we use the latest schema, we want the editor -->
+						<!-- to only lint the original jobs' values -->
+						{@const mergedSchema = mergeObjectSchemasWithUnion(
+							selected.schemas.map((s) => s.schema)
+						)}
+						{@const displayedSchema = selectedUsesLatestSchema
+							? selected.latestSchema
+							: mergedSchema}
+						{@const extraLib = buildExtraLibForBatchReruns(mergedSchema)}
 						<div class="w-full h-full">
-							{#key selected}
-								{#each Object.keys(schema.properties) as propertyName}
+							{#key [selected, displayedSchema]}
+								{#each Object.keys(displayedSchema.properties) as propertyName}
 									{@const hashesWithProperty = getHashesWithProperty(propertyName, selected)}
 									<InputTransformForm
 										class="items-start mb-4"
-										arg={changedArgs[selected.kind]?.[selected.script_path]?.[propertyName] ?? {
+										arg={options[selected.kind][selected.script_path]?.changedArgs?.[
+											propertyName
+										] ?? {
 											type: 'javascript',
 											expr: /^[a-zA-Z_$][0-9a-zA-Z_$]*$/.test(propertyName)
 												? `job.input.${propertyName}`
@@ -153,18 +191,13 @@
 										}}
 										on:change={(e) => {
 											if (!selected) return
-											const arg = e.detail.arg as InputTransform
-											onChangeArg(
-												{
-													kind: selected.kind,
-													path: selected.script_path,
-													propertyName
-												},
-												arg
-											)
+											const newArg = e.detail.arg as InputTransform
+											;((options[selected.kind][selected.script_path] ??= {}).changedArgs ??= {})[
+												propertyName
+											] = newArg
 										}}
 										argName={propertyName}
-										{schema}
+										schema={displayedSchema}
 										{extraLib}
 										previousModuleId={undefined}
 										pickablepropertyMap={{
@@ -175,7 +208,7 @@
 										}}
 										hideHelpButton
 										{...hashesWithProperty.size !== selected.schemas.length && {
-											headerTooltip: `Used in ${pluralize(hashesWithProperty.size, `${selected?.kind} version`)}: ${[...hashesWithProperty.values()].join(', ').substring(0, 6)}`
+											headerTooltip: `Used in ${pluralize(hashesWithProperty.size, `${selected?.kind} version`)}: ${[...hashesWithProperty.values()].join(', ')}`
 										}}
 									/>
 								{/each}
