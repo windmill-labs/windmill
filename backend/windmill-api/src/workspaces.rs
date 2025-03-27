@@ -52,9 +52,6 @@ use windmill_git_sync::handle_deployment_metadata;
 #[cfg(feature = "enterprise")]
 use windmill_common::utils::require_admin_or_devops;
 
-#[cfg(not(feature = "enterprise"))]
-use crate::ai::AIProvider;
-
 use hyper::StatusCode;
 use serde::{Deserialize, Serialize};
 use sqlx::{FromRow, Postgres, Transaction};
@@ -707,15 +704,6 @@ async fn edit_copilot_config(
 
     if let Some(ref providers) = ai_config.providers {
         for provider in providers.keys() {
-            #[cfg(not(feature = "enterprise"))]
-            {
-                if matches!(provider, &AIProvider::CustomAI) {
-                    return Err(Error::BadRequest(
-                        "Custom AI is only available on EE".to_string(),
-                    ));
-                }
-            }
-
             AI_KEY_CACHE.remove(&(w_id.clone(), provider.clone()));
         }
     }

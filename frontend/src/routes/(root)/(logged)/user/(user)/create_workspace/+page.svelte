@@ -267,6 +267,7 @@
 					<ToggleButton value="deepseek" label="DeepSeek" {item} />
 					<ToggleButton value="groq" label="Groq" {item} />
 					<ToggleButton value="openrouter" label="OpenRouter" {item} />
+					<ToggleButton value="togetherai" label="Together AI" {item} />
 				</ToggleButtonGroup>
 			</div>
 		</label>

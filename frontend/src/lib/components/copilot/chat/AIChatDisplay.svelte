@@ -246,12 +246,14 @@
 
 			<div class="flex flex-row justify-end items-center gap-2 px-0.5">
 				<div class="min-w-0">
-					<Popover disablePopup={$copilotInfo.aiModels.length <= 1}>
+					<Popover disablePopup={$copilotInfo.aiModels.length <= 1} class="max-w-full">
 						<svelte:fragment slot="trigger">
 							<div class="text-tertiary text-xs flex flex-row items-center gap-0.5 font-normal">
-								{providerModel.model}
+								<span class="truncate">{providerModel.model}</span>
 								{#if $copilotInfo.aiModels.length > 1}
-									<ChevronDown size={16} />
+									<div class="shrink-0">
+										<ChevronDown size={16} />
+									</div>
 								{/if}
 							</div>
 						</svelte:fragment>
