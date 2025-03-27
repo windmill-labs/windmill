@@ -1381,6 +1381,63 @@ paths:
         '200':
           description: Installation successfully deleted
 
+  /w/{workspace}/github_app/export/{installationId}:
+    get:
+      summary: Export GitHub installation JWT token
+      description: Exports the JWT token for a specific GitHub installation in the workspace
+      operationId: exportInstallation
+      tags:
+        - Git Sync
+      parameters:
+        - name: workspace
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: installationId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Successfully exported the JWT token
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  jwt_token:
+                    type: string
+
+  /w/{workspace}/github_app/import:
+    post:
+      summary: Import GitHub installation from JWT token
+      description: Imports a GitHub installation from a JWT token exported from another instance
+      operationId: importInstallation
+      tags:
+        - Git Sync
+      parameters:
+        - name: workspace
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - jwt_token
+              properties:
+                jwt_token:
+                  type: string
+      responses:
+        '200':
+          description: Successfully imported the installation
+
   /users/accept_invite:
     post:
       summary: accept invite to workspace

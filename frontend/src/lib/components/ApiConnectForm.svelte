@@ -5,7 +5,7 @@
 		type ResourceType,
 		type GetGlobalConnectedRepositoriesResponse
 	} from '$lib/gen'
-	import { workspaceStore, enterpriseLicense, userWorkspaces } from '$lib/stores'
+	import { workspaceStore, enterpriseLicense, userWorkspaces, userStore } from '$lib/stores'
 	import { base } from '$lib/base'
 	import { emptySchema, emptyString } from '$lib/utils'
 	import SchemaForm from './SchemaForm.svelte'
@@ -16,7 +16,8 @@
 	import { sendUserToast } from '$lib/toast'
 	import Popover from './meltComponents/Popover.svelte'
 	import Button from './common/button/Button.svelte'
-	import { Loader2, Github, RotateCw, Plus, Minus } from 'lucide-svelte'
+	import { Loader2, Github, RotateCw, Plus, Minus, Download } from 'lucide-svelte'
+	import { onDestroy } from 'svelte'
 
 	export let resourceType: string
 	export let resourceTypeInfo: ResourceType | undefined
@@ -36,6 +37,10 @@
 	let selectedGHAppAccountId: string | undefined = undefined
 	let selectedGHAppRepository: string | undefined = undefined
 	let githubInstallationUrl: string | undefined = undefined
+	let installationCheckInterval: number | undefined = undefined
+	let isCheckingInstallation = false
+	let importJwt = ''
+	let githubAppPopover: { open: () => void; close: () => void } | null = null
 
 	async function loadGithubInstallations() {
 		if (!$enterpriseLicense) return
@@ -69,6 +74,37 @@
 			loadingGithubInstallations = false
 		}
 	}
+
+	function startInstallationCheck() {
+		isCheckingInstallation = true
+		installationCheckInterval = window.setInterval(async () => {
+			const installations = await GitSyncService.getGlobalConnectedRepositories()
+			if (installations.length > 0) {
+				stopInstallationCheck()
+				githubInstallations = installations
+				workspaceGithubInstallations = githubInstallations.filter(
+					(_) => _.workspace_id === $workspaceStore
+				)
+				// Open the popover with a small delay as otherwise it doesn't open
+				setTimeout(() => {
+					githubAppPopover?.open()
+				}, 100)
+			}
+		}, 2000)
+	}
+
+	function stopInstallationCheck() {
+		if (installationCheckInterval) {
+			clearInterval(installationCheckInterval)
+			installationCheckInterval = undefined
+		}
+		isCheckingInstallation = false
+	}
+
+	// Clean up interval when component is destroyed
+	onDestroy(() => {
+		stopInstallationCheck()
+	})
 
 	function getRepositories(accountId: string) {
 		return githubInstallations.find((_) => _.account_id === accountId)?.repositories || []
@@ -153,7 +189,7 @@
 	}
 
 	$: resourceType == 'postgresql' && isSupabaseAvailable()
-	$: resourceType == 'git_repository' && loadGithubInstallations()
+	$: resourceType == 'git_repository' && $userStore?.is_admin && loadGithubInstallations()
 
 	let connectionString = ''
 	let validConnectionString = true
@@ -235,6 +271,60 @@
 			sendUserToast('Failed to delete installation', true)
 		}
 	}
+
+	async function exportInstallation(installationId: number) {
+		if (!$workspaceStore) {
+			sendUserToast('Failed to export installation', true)
+			return
+		}
+		try {
+			const response = await GitSyncService.exportInstallation({
+				workspace: $workspaceStore,
+				installationId: installationId
+			})
+			if (!response.jwt_token) {
+				sendUserToast('Failed to export installation', true)
+				return
+			}
+			// Copy to clipboard
+			await navigator.clipboard.writeText(response.jwt_token)
+			sendUserToast(
+				'JWT token copied to clipboard. This token is sensitive and should be kept secret!',
+				false,
+				undefined,
+				undefined,
+				10000
+			)
+		} catch (error) {
+			sendUserToast('Failed to export installation', true)
+		}
+	}
+
+	async function importInstallation(jwt: string) {
+		if (!$workspaceStore) {
+			sendUserToast('Failed to import installation', true)
+			return
+		}
+		try {
+			await GitSyncService.importInstallation({
+				workspace: $workspaceStore,
+				requestBody: { jwt_token: jwt }
+			})
+			importJwt = ''
+			sendUserToast('Installation imported successfully', false)
+			await loadGithubInstallations()
+		} catch (error) {
+			sendUserToast('Failed to import installation', true)
+		}
+	}
+
+	function handleInstallClick() {
+		if (githubInstallations.length === 0) {
+			if (!isCheckingInstallation) {
+				startInstallationCheck()
+			}
+		}
+	}
 </script>
 
 {#if !notFound}
@@ -303,7 +393,7 @@
 				<div class="text-[#11181C] dark:text-[#EDEDED] font-semibold">Connect Supabase</div>
 			</a>
 		{/if}
-		{#if resourceType == 'git_repository' && $workspaceStore}
+		{#if resourceType == 'git_repository' && $workspaceStore && $userStore?.is_admin}
 			{#if !loadingGithubInstallations}
 				<Button
 					color="light"
@@ -318,6 +408,7 @@
 			{/if}
 			{#if githubInstallations.length > 0}
 				<Popover
+					bind:this={githubAppPopover}
 					floatingConfig={{
 						placement: 'bottom'
 					}}
@@ -340,7 +431,7 @@
 					</svelte:fragment>
 					<svelte:fragment slot="content" let:close>
 						<div class="block text-primary p-4">
-							<div class="flex flex-col gap-4 w-[500px]">
+							<div class="flex flex-col gap-4 w-[600px]">
 								{#if workspaceGithubInstallations.length > 0}
 									<div class="flex flex-col gap-2">
 										<p class="text-sm font-semibold text-secondary">Select Repository</p>
@@ -414,9 +505,9 @@
 														<thead>
 															<tr class="text-left text-xs text-tertiary">
 																<th class="pb-2 w-1/3">Org</th>
-																<th class="pb-2 w-1/3">Workspace</th>
-																<th class="pb-2 w-1/4">Repos</th>
-																<th class="pb-2 w-1/12" />
+																<th class="pb-2 w-1/6">Workspace</th>
+																<th class="pb-2 w-1/6">Repos</th>
+																<th class="pb-2 w-1/3" />
 															</tr>
 														</thead>
 														<tbody>
@@ -444,16 +535,29 @@
 																	<td class="py-2 text-tertiary">
 																		{installation.repositories.length} repos
 																	</td>
-																	<td class="pl-2 py-2 text-right">
-																		<Button
-																			size="xs2"
-																			color="red"
-																			iconOnly
-																			btnClasses="px-1"
-																			startIcon={{ icon: Minus }}
-																			on:click={() =>
-																				deleteInstallation(installation.installation_id)}
-																		/>
+																	<td class="py-2 text-right">
+																		<div class="flex justify-end gap-1">
+																			<Button
+																				size="xs2"
+																				color="blue"
+																				title="Export installation to other instance"
+																				startIcon={{ icon: Download }}
+																				on:click={() =>
+																					exportInstallation(installation.installation_id)}
+																			>
+																				Export
+																			</Button>
+																			<Button
+																				size="xs2"
+																				color="red"
+																				title="Remove installation from workspace"
+																				startIcon={{ icon: Minus }}
+																				on:click={() =>
+																					deleteInstallation(installation.installation_id)}
+																			>
+																				Remove
+																			</Button>
+																		</div>
 																	</td>
 																</tr>
 															{/each}
@@ -472,9 +576,9 @@
 														<thead>
 															<tr class="text-left text-xs text-tertiary">
 																<th class="pb-2 w-1/3">Org</th>
-																<th class="pb-2 w-1/3">Workspace</th>
-																<th class="pb-2 w-1/4">Repos</th>
-																<th class="pb-2 w-1/12" />
+																<th class="pb-2 w-1/6">Workspace</th>
+																<th class="pb-2 w-1/6">Repos</th>
+																<th class="pb-2 w-1/3" />
 															</tr>
 														</thead>
 														<tbody>
@@ -502,13 +606,12 @@
 																	<td class="py-2 text-tertiary">
 																		{installation.repositories.length} repos
 																	</td>
-																	<td class="pl-2 py-2 text-right">
+																	<td class="pl-8 py-2 text-right">
 																		<Button
 																			size="xs2"
 																			color="blue"
-																			btnClasses="px-1"
-																			startIcon={{ icon: Plus }}
 																			title="Add installation to workspace"
+																			startIcon={{ icon: Plus }}
 																			on:click={() =>
 																				addInstallationToWorkspace(
 																					installation.installation_id,
@@ -527,6 +630,27 @@
 										{/if}
 									</div>
 								</div>
+
+								<div class="mt-4 flex flex-col gap-2">
+									<p class="text-sm font-semibold text-secondary"
+										>Import installation from other instance:</p
+									>
+									<div class="flex gap-2">
+										<input
+											type="text"
+											placeholder="Paste JWT token here"
+											bind:value={importJwt}
+											class="flex-1"
+										/>
+										<Button
+											color="blue"
+											on:click={() => importInstallation(importJwt)}
+											disabled={!importJwt}
+										>
+											Import
+										</Button>
+									</div>
+								</div>
 							</div>
 						</div>
 					</svelte:fragment>
@@ -538,13 +662,18 @@
 					size="xs"
 					disabled={!$enterpriseLicense || loadingGithubInstallations}
 					startIcon={{
-						icon: loadingGithubInstallations ? Loader2 : Github,
-						classes: loadingGithubInstallations ? 'animate-spin' : ''
+						icon: loadingGithubInstallations || isCheckingInstallation ? Loader2 : Github,
+						classes: loadingGithubInstallations || isCheckingInstallation ? 'animate-spin' : ''
 					}}
 					href={githubInstallationUrl}
 					target="_blank"
+					on:click={handleInstallClick}
 				>
-					{$enterpriseLicense ? 'Install GitHub App' : 'GitHub App (ee only)'}
+					{$enterpriseLicense
+						? isCheckingInstallation
+							? 'Waiting for installation...'
+							: 'Install GitHub App'
+						: 'GitHub App (ee only)'}
 				</Button>
 			{/if}
 		{/if}
