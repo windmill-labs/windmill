@@ -295,9 +295,22 @@ export type ContextElement =
 	| {
 			type: 'code_piece'
 			content: string
+			startLine: number
+			endLine: number
 			title: string
 			lang: ScriptLang | 'bunnative'
 	  }
+
+const applyCodePieceToCodeContext = (codePieces: ContextElement[], codeContext: string) => {
+	let code = codeContext.split('\n')
+	for (const codePiece of codePieces) {
+		if (codePiece.type === 'code_piece') {
+			code.splice(codePiece.startLine - 1, 0, '[#START]')
+			code.splice(codePiece.endLine + 1, 0, '[#END]')
+		}
+	}
+	return code.join('\n')
+}
 
 export async function prepareUserMessage(
 	instructions: string,
@@ -317,7 +330,7 @@ export async function prepareUserMessage(
 			hasCode = true
 			codeContext += CHAT_USER_CODE_CONTEXT.replace('{title}', context.title)
 				.replace('{language}', scriptLangToEditorLang(language))
-				.replace('{code}', context.content)
+				.replace('{code}', applyCodePieceToCodeContext(selectedContext.filter((c) => c.type === 'code_piece'), context.content))
 		} else if (context.type === 'error') {
 			if (hasError) {
 				throw new Error('Multiple error contexts provided')
@@ -346,7 +359,6 @@ export async function prepareUserMessage(
 	if (hasDiff) {
 		userMessage += diffContext
 	}
-	console.log('userMessage', userMessage)
 	return userMessage
 }
 

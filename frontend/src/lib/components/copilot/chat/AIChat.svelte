@@ -222,6 +222,10 @@
 			return
 		}
 		try {
+			// Remove code pieces from the context to not include them on the next request
+			const oldSelectedContext = selectedContext
+			selectedContext = selectedContext.filter((c) => c.type !== 'code_piece')
+			
 			loading.set(true)
 			aiChatDisplay?.enableAutomaticScroll()
 			abortController = new AbortController()
@@ -231,12 +235,12 @@
 				{
 					role: 'user',
 					content: instructions,
-					contextElements: selectedContext
+					contextElements: oldSelectedContext
 				}
 			]
 			const oldInstructions = instructions
 			instructions = ''
-			const userMessage = await prepareUserMessage(oldInstructions, lang, selectedContext)
+			const userMessage = await prepareUserMessage(oldInstructions, lang, oldSelectedContext)
 			console.log('userMessage', userMessage)
 
 			messages.push({ role: 'user', content: userMessage })
@@ -247,7 +251,7 @@
 				messages,
 				abortController,
 				lang,
-				selectedContext.filter((c) => c.type === 'db').length > 0,
+				oldSelectedContext.filter((c) => c.type === 'db').length > 0,
 				(token) => currentReply.update((prev) => prev + token)
 			)
 
@@ -257,21 +261,11 @@
 				{
 					role: 'assistant',
 					content: $currentReply,
-					contextElements: selectedContext.filter((c) => c.type === 'code')
+					contextElements: oldSelectedContext.filter((c) => c.type === 'code')
 				}
 			]
 			currentReply.set('')
 			await saveChat()
-			// Remove code pieces from the context after the request is sent
-			// selectedContext = selectedContext.filter((c) => c.type !== 'code_piece')
-
-			// Remove lines with [#START] and [#END] markers
-			selectedContext = selectedContext.map((c) => {
-				if (c.type === 'code' && c.title === contextCodePath) {
-					return { ...c, content: c.content.replace(/\[#START\].*?\[#END\]/g, '') }
-				}
-				return c
-			})
 		} catch (err) {
 			console.error(err)
 			if (err instanceof Error) {
@@ -332,20 +326,13 @@
 	}
 
 	export function addSelectedLinesToContext(lines: string, startLine: number, endLine: number) {
-		selectedContext = selectedContext.map((c) => {
-			if (c.type === 'code' && c.title === contextCodePath) {
-				const contentLines = c.content.split('\n')
-				contentLines.splice(startLine - 1, 0, '[#START]')
-				contentLines.splice(endLine + 1, 0, '[#END]')
-				return { ...c, content: contentLines.join('\n') }
-			}
-			return c
-		})
 		selectedContext = [
 			...selectedContext,
 			{
 				type: 'code_piece',
 				title: `L${startLine}-L${endLine}`,
+				startLine,
+				endLine,
 				content: lines,
 				lang
 			}
