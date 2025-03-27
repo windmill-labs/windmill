@@ -13924,6 +13924,8 @@ dependencies = [
  "cookie 0.17.0",
  "cron",
  "datafusion",
+ "deno_core",
+ "deno_error",
  "futures",
  "git-version",
  "half",

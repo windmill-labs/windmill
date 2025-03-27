@@ -31,6 +31,7 @@ static_frontend = ["dep:rust-embed"]
 postgres_trigger = ["dep:rust-postgres", "dep:pg_escape", "dep:byteorder", "dep:thiserror", "dep:rust_decimal", "dep:rust-postgres-native-tls"]
 mqtt_trigger = ["dep:thiserror", "dep:rumqttc"]
 sqs_trigger = ["dep:aws-sdk-sqs", "dep:thiserror", "dep:aws-config"]
+deno_core = ["dep:deno_core", "dep:deno_error"]
 
 [dependencies]
 windmill-queue.workspace = true
@@ -125,3 +126,8 @@ rust-postgres-native-tls = { workspace = true, optional = true}
 rumqttc = { workspace = true, optional = true }
 aws-sdk-sqs = { workspace = true, optional = true } 
 aws-config = { workspace = true, optional = true}
+deno_error = { workspace = true, optional = true }
+deno_core = { workspace = true, optional = true }
+
+[build-dependencies]
+deno_core = { workspace = true, optional = true }
