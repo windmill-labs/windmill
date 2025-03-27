@@ -389,7 +389,7 @@ export type MainArgSignature = {
 
 export type type2 = 'Valid' | 'Invalid';
 
-export type ScriptLang = 'python3' | 'deno' | 'go' | 'bash' | 'powershell' | 'postgresql' | 'mysql' | 'bigquery' | 'snowflake' | 'mssql' | 'oracledb' | 'graphql' | 'nativets' | 'bun' | 'php' | 'rust' | 'ansible' | 'csharp' | 'nu';
+export type ScriptLang = 'python3' | 'deno' | 'go' | 'bash' | 'powershell' | 'postgresql' | 'mysql' | 'bigquery' | 'snowflake' | 'mssql' | 'oracledb' | 'graphql' | 'nativets' | 'bun' | 'php' | 'rust' | 'ansible' | 'csharp' | 'nu' | 'java';
 
 export type Preview = {
     content?: string;

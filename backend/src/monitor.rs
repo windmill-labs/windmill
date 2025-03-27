@@ -52,9 +52,7 @@ use windmill_common::{
 };
 use windmill_queue::{cancel_job, MiniPulledJob};
 use windmill_worker::{
-    create_token_for_owner, handle_job_error, AuthedClient, SameWorkerPayload, SameWorkerSender,
-    SendResult, BUNFIG_INSTALL_SCOPES, INSTANCE_PYTHON_VERSION, JOB_DEFAULT_TIMEOUT, KEEP_JOB_DIR,
-    NPM_CONFIG_REGISTRY, NUGET_CONFIG, PIP_EXTRA_INDEX_URL, PIP_INDEX_URL, SCRIPT_TOKEN_EXPIRY,
+    create_token_for_owner, handle_job_error, AuthedClient, SameWorkerPayload, SameWorkerSender, SendResult, BUNFIG_INSTALL_SCOPES, INSTANCE_PYTHON_VERSION, JOB_DEFAULT_TIMEOUT, KEEP_JOB_DIR, MAVEN_REPOS, NO_DEFAULT_MAVEN, NPM_CONFIG_REGISTRY, NUGET_CONFIG, PIP_EXTRA_INDEX_URL, PIP_INDEX_URL, SCRIPT_TOKEN_EXPIRY
 };
 
 #[cfg(feature = "parquet")]
@@ -186,6 +184,8 @@ pub async fn initial_load(
         reload_bunfig_install_scopes_setting(&db).await;
         reload_instance_python_version_setting(&db).await;
         reload_nuget_config_setting(&db).await;
+        reload_maven_repos_setting(&db).await;
+        reload_no_default_maven_setting(&db).await;
     }
 }
 
@@ -968,6 +968,20 @@ pub async fn reload_nuget_config_setting(db: &DB) {
         NUGET_CONFIG.clone(),
     )
     .await;
+}
+pub async fn reload_maven_repos_setting(db: &DB) {
+    reload_option_setting_with_tracing(db, windmill_common::global_settings::MAVEN_REPOS_SETTING, "MAVEN_REPOS", MAVEN_REPOS.clone())
+        .await;
+}
+pub async fn reload_no_default_maven_setting(db: &DB) {
+    let value = load_value_from_global_settings(db, windmill_common::global_settings::NO_DEFAULT_MAVEN_SETTING).await;
+    match value {
+        Ok(Some(serde_json::Value::Bool(t))) => NO_DEFAULT_MAVEN.store(t, Ordering::Relaxed),
+        Err(e) => {
+            tracing::error!("Error loading no default maven repository: {e:#}");
+        }
+        _ => (),
+    };
 }
 
 pub async fn reload_retention_period_setting(db: &DB) {

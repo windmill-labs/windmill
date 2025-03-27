@@ -12793,6 +12793,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "tree-sitter-java"
+version = "0.23.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0aa6cbcdc8c679b214e616fd3300da67da0e492e066df01bcf5a5921a71e90d6"
+dependencies = [
+ "cc",
+ "tree-sitter-language",
+]
+
+[[package]]
 name = "tree-sitter-language"
 version = "0.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -13878,6 +13888,7 @@ dependencies = [
  "serde_json",
  "sha2 0.10.8",
  "sqlx",
+ "tar",
  "tempfile",
  "thiserror 2.0.12",
  "tikv-jemalloc-ctl",
@@ -13999,6 +14010,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "windmill-parser-java"
+version = "1.478.1"
+dependencies = [
+ "anyhow",
+ "serde_json",
+ "tree-sitter",
+ "tree-sitter-java",
+ "wasm-bindgen",
+ "windmill-parser",
+]
+
+[[package]]
 name = "windmill-parser-nu"
 version = "1.478.1"
 dependencies = [
@@ -14112,6 +14135,7 @@ dependencies = [
  "windmill-parser-csharp",
  "windmill-parser-go",
  "windmill-parser-graphql",
+ "windmill-parser-java",
  "windmill-parser-nu",
  "windmill-parser-php",
  "windmill-parser-py",
@@ -14236,17 +14260,20 @@ dependencies = [
  "tokio-postgres 0.7.13",
  "tokio-util",
  "tracing",
+ "url",
  "urlencoding",
  "uuid",
  "winapi",
  "windmill-audit",
  "windmill-common",
  "windmill-git-sync",
+ "windmill-macros",
  "windmill-parser",
  "windmill-parser-bash",
  "windmill-parser-csharp",
  "windmill-parser-go",
  "windmill-parser-graphql",
+ "windmill-parser-java",
  "windmill-parser-nu",
  "windmill-parser-php",
  "windmill-parser-py",

@@ -302,7 +302,24 @@ export const settings: Record<string, Setting[]> = {
 			codeAreaLang: 'xml',
 			storage: 'setting',
 			ee_only: ''
-		}
+		},
+		{
+			label: 'Maven/Ivy repositories',
+			description: 'Add private Maven/Ivy repositories',
+			key: 'maven_repos',
+			fieldType: 'text',
+			placeholder: 'https://user:password@artifacts.foo.com/maven',
+			storage: 'setting',
+			ee_only: ''
+		},
+		{
+			label: 'Disable default Maven repository',
+			description: 'Do not use default Maven repository',
+			key: 'no_default_maven',
+			fieldType: 'boolean',
+			storage: 'setting',
+			ee_only: ''
+		},
 	],
 	Alerts: [
 		{

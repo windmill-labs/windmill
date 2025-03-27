@@ -27,7 +27,7 @@ use windmill_common::{
         Error::{self},
     },
     utils::calculate_hash,
-    worker::{write_file, PythonAnnotations, WORKER_CONFIG},
+    worker::{copy_dir_recursively, pad_string, write_file, PythonAnnotations, WORKER_CONFIG},
     DB,
 };
 
@@ -48,6 +48,7 @@ lazy_static::lazy_static! {
 
     static ref PY_CONCURRENT_DOWNLOADS: usize =
     var("PY_CONCURRENT_DOWNLOADS").ok().map(|flag| flag.parse().unwrap_or(20)).unwrap_or(20);
+
 
     static ref NON_ALPHANUM_CHAR: Regex = regex::Regex::new(r"[^0-9A-Za-z=.-]").unwrap();
 
@@ -350,6 +351,7 @@ impl PyVersion {
             None,
             false,
             occupancy_metrics,
+            None,
         )
         .await
     }
@@ -644,6 +646,7 @@ pub async fn uv_pip_compile(
             None,
             false,
             occupancy_metrics,
+            None,
         )
         .await
         .map_err(|e| {
@@ -777,30 +780,6 @@ async fn postinstall(
         // Instead add shared path
         additional_python_paths.insert(0, format!("{job_dir}/site-packages"));
     }
-    Ok(())
-}
-
-fn copy_dir_recursively(src: &Path, dst: &Path) -> windmill_common::error::Result<()> {
-    if !dst.exists() {
-        fs::create_dir_all(dst)?;
-    }
-
-    tracing::debug!("Copying recursively from {:?} to {:?}", src, dst);
-
-    for entry in fs::read_dir(src)? {
-        let entry = entry?;
-        let src_path = entry.path();
-        let dst_path = dst.join(entry.file_name());
-
-        if src_path.is_dir() && !src_path.is_symlink() {
-            copy_dir_recursively(&src_path, &dst_path)?;
-        } else {
-            fs::copy(&src_path, &dst_path)?;
-        }
-    }
-
-    tracing::debug!("Finished copying recursively from {:?} to {:?}", src, dst);
-
     Ok(())
 }
 
@@ -1161,6 +1140,7 @@ mount {{
         job.timeout,
         false,
         &mut Some(occupancy_metrics),
+        None,
     )
     .await?;
 
@@ -1709,19 +1689,6 @@ async fn spawn_uv_install(
     }
 }
 
-/// length = 5
-/// value  = "foo"
-/// output = "foo  "
-///           12345
-fn pad_string(value: &str, total_length: usize) -> String {
-    if value.len() >= total_length {
-        value.to_string() // Return the original string if it's already long enough
-    } else {
-        let padding_needed = total_length - value.len();
-        format!("{value}{}", " ".repeat(padding_needed)) // Pad with spaces
-    }
-}
-
 /// uv pip install, include cached or pull from S3
 pub async fn handle_python_reqs(
     requirements: Vec<&str>,
@@ -2053,7 +2020,7 @@ pub async fn handle_python_reqs(
                     tokio::select! {
                         // Cancel was called on the job
                         _ = kill_rx.recv() => return Err(anyhow::anyhow!("S3 pull was canceled")),
-                        pull = pull_from_tar(os, venv_p.clone(), py_version.to_cache_dir_top_level()) => {
+                        pull = pull_from_tar(os, venv_p.clone(), py_version.to_cache_dir_top_level(), None, false) => {
                             if let Err(e) = pull {
                                 tracing::info!(
                                     workspace_id = %w_id,
@@ -2204,7 +2171,7 @@ pub async fn handle_python_reqs(
             #[cfg(all(feature = "enterprise", feature = "parquet", unix))]
             if s3_push {
                 if let Some(os) = OBJECT_STORE_CACHE_SETTINGS.read().await.clone() {
-                    tokio::spawn(build_tar_and_push(os, venv_p.clone(), py_version.to_cache_dir_top_level()));
+                    tokio::spawn(build_tar_and_push(os, venv_p.clone(), py_version.to_cache_dir_top_level(), None, false));
                 }
             }
 
