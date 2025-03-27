@@ -58,6 +58,8 @@
 	export let isTrigger: boolean = false
 	export let editMode: boolean = false
 	export let alwaysShowOutputPicker: boolean = false
+	export let loop: 'forloopflow' | 'whileloopflow' | undefined = undefined
+	export let parentLoop: 'forloopflow' | 'whileloopflow' | undefined = undefined
 
 	let pickableIds: Record<string, any> | undefined = undefined
 
@@ -321,6 +323,8 @@
 					moduleId={id}
 					on:updateMock
 					{path}
+					{loop}
+					{parentLoop}
 				/>
 			</OutputPicker>
 		{/if}

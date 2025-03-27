@@ -435,6 +435,10 @@
 										lang={flowModule.value['language'] ?? 'deno'}
 										schema={$flowStateStore[$selectedId]?.schema ?? {}}
 										{lastJob}
+										parentLoop={parentModule?.value.type === 'forloopflow' ||
+										parentModule?.value.type === 'whileloopflow'
+											? parentModule?.value.type
+											: undefined}
 									/>
 								{:else if selected === 'advanced'}
 									<Tabs bind:selected={advancedSelected}>

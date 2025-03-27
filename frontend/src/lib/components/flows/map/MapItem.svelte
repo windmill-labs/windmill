@@ -125,6 +125,9 @@
 					mod?.value?.iterator?.expr === ''
 						? 'Iterator expression is empty'
 						: ''}
+					alwaysShowOutputPicker={!mod.id.startsWith('subflow:')}
+					loop={mod.value.type}
+					parentLoop={mod.value.type}
 				>
 					<div slot="icon">
 						<Repeat size={16} />

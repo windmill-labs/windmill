@@ -28,6 +28,8 @@
 	export let diffEditor: DiffEditor | undefined
 	export let noEditor = false
 	export let lastJob: Job | undefined = undefined
+	export let loop: 'forloopflow' | 'whileloopflow' | undefined = undefined
+	export let parentLoop: 'forloopflow' | 'whileloopflow' | undefined = undefined
 
 	const { flowStore, flowStateStore, testStepStore, pathStore } =
 		getContext<FlowEditorContext>('FlowEditorContext')
@@ -180,6 +182,8 @@
 					isLoading={(testIsLoading && !scriptProgress) || fetchingLastJob}
 					bind:preview
 					path={`path` in mod.value ? mod.value.path : ''}
+					{loop}
+					{parentLoop}
 				>
 					<svelte:fragment slot="copilot-fix">
 						{#if lang && editor && diffEditor && stepArgs && selectedJob && 'result' in selectedJob && selectedJob.result && typeof selectedJob.result == 'object' && `error` in selectedJob.result && selectedJob.result.error}

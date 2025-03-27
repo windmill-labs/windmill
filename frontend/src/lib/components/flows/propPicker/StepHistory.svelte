@@ -14,6 +14,7 @@
 	export let mockValue: any = undefined
 	export let mockEnabled: boolean = false
 	export let path: string = ''
+	export let noHistory: boolean = false
 
 	const { pathStore } = getContext<FlowEditorContext>('FlowEditorContext')
 	const dispatch = createEventDispatcher()
@@ -55,7 +56,7 @@
 		}
 	}
 
-	$: infiniteList && initLoadInputs()
+	$: infiniteList && !noHistory && initLoadInputs()
 
 	function handleselect(e: CustomEvent) {
 		if (e.detail === 'extraRow') {
@@ -120,6 +121,10 @@
 		<JobPickerLight job={item} />
 	</svelte:fragment>
 	<svelte:fragment slot="empty">
-		<div class="text-center text-tertiary text-xs py-2"> 'No run yet' </div>
+		<div class="text-center text-tertiary text-xs py-2 px-2">
+			{noHistory
+				? 'History is not available with loops. Coming soon!'
+				: 'No run in history for this step'}
+		</div>
 	</svelte:fragment>
 </InfiniteList>

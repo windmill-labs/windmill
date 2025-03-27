@@ -33,6 +33,8 @@
 	export let hideHeaderBar: boolean = false
 	export let simpleViewer: any | undefined = undefined
 	export let path: string = ''
+	export let loop: 'forloopflow' | 'whileloopflow' | undefined = undefined
+	export let parentLoop: 'forloopflow' | 'whileloopflow' | undefined = undefined
 
 	type SelectedJob =
 		| Job
@@ -172,6 +174,7 @@
 							mockEnabled={mock?.enabled}
 							bind:this={stepHistory}
 							{path}
+							noHistory={!!loop || !!parentLoop}
 						/>
 					</div>
 				</svelte:fragment>
@@ -320,9 +323,17 @@
 					</Tooltip>
 				{/if}
 			{/if}
-			{#if !isLoading && selectedJob && !preview && !mock?.enabled}
+			{#if !isLoading && selectedJob && !preview && !mock?.enabled && 'result' in selectedJob}
 				<div class="w-grow min-w-0 flex gap-1 items-center">
-					<OutputBadge job={selectedJob} class="grow min-w-16" />
+					{#if loop}
+						<div class="min-w-16 rounded-md bg-surface-secondary py-1 px-2 justify-center">
+							<span class="text-xs text-secondary">
+								{loop === 'forloopflow' ? 'For loop result' : 'While loop result'}
+							</span>
+						</div>
+					{:else}
+						<OutputBadge job={selectedJob} class="grow min-w-16" />
+					{/if}
 					{#if selectedJob.id !== lastJob?.id}
 						<button
 							class="px-1 shrink-0 underline"
