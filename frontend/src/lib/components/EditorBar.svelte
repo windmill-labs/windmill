@@ -25,6 +25,7 @@
 	import Toggle from './Toggle.svelte'
 
 	import {
+	DiffIcon,
 		DollarSign,
 		History,
 		Library,
@@ -45,7 +46,8 @@
 	import ResourceEditorDrawer from './ResourceEditorDrawer.svelte'
 	import type { EditorBarUi } from './custom_ui'
 	import EditorSettings from './EditorSettings.svelte'
-
+	import { writable, type Writable } from 'svelte/store'
+	
 	export let lang: SupportedLanguage | 'bunnative' | undefined
 	export let editor: Editor | undefined
 	export let websocketAlive: {
@@ -69,6 +71,8 @@
 	export let noHistory = false
 	export let saveToWorkspace = false
 	export let customUi: EditorBarUi = {}
+	export let lastDeployedCode: string | undefined = undefined
+	export let diffMode: Writable<boolean> = writable(false)
 
 	let contextualVariablePicker: ItemPicker
 	let variablePicker: ItemPicker
@@ -680,6 +684,20 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 					</Button>
 				{/if}
 			{/if}
+
+			<div class="flex items-center px-3">
+				<Toggle
+					options={{ right: '' }}
+					size="xs"
+					checked={$diffMode}
+					disabled={!lastDeployedCode}
+					on:change={() => $diffMode ? editor?.quitDiffMode() : editor?.reviewChanges(lastDeployedCode ?? '')}
+				/>
+				<Popover>
+					<svelte:fragment slot="text">Toggle diff mode</svelte:fragment>
+					<DiffIcon class="ml-1 text-tertiary" size={14} />
+				</Popover>
+			</div>
 
 			{#if collabMode && customUi?.multiplayer != false}
 				<div class="flex items-center px-3">

@@ -44,6 +44,7 @@
 	import { base } from '$lib/base'
 	import { SUPPORTED_CHAT_SCRIPT_LANGUAGES } from './copilot/chat/core'
 	import { diffChars } from 'diff'
+	import { writable } from 'svelte/store'
 
 	// Exported
 	export let schema: Schema | any = emptySchema()
@@ -76,6 +77,7 @@
 	export let aiChat: AIChat | undefined = undefined
 
 	let jobProgressReset: () => void
+	let diffMode = writable(false)
 
 	let websocketAlive = {
 		pyright: false,
@@ -90,6 +92,10 @@
 	$: watchChanges &&
 		(code != undefined || schema != undefined) &&
 		dispatch('change', { code, schema })
+
+	$: diffWithLastSaved = diffChars(lastSavedCode ?? '', code)
+	$: diffWithLastDeployed = diffChars(lastDeployedCode ?? '', code)
+
 
 	let width = 1200
 
@@ -314,8 +320,6 @@
 			localStorage.setItem('aiPanelOpen', 'true')
 		}
 	}
-	$: diffWithLastSaved = diffChars(lastSavedCode ?? '', code)
-	$: diffWithLastDeployed = diffChars(lastDeployedCode ?? '', code)
 
 	$: !SUPPORTED_CHAT_SCRIPT_LANGUAGES.includes(lang ?? '') && aiPanelSize > 0 && toggleAiPanel()
 
@@ -397,6 +401,8 @@
 			{args}
 			{noHistory}
 			{saveToWorkspace}
+			lastDeployedCode={lastDeployedCode && lastDeployedCode !== code ? lastDeployedCode : undefined}
+			diffMode={diffMode}
 		>
 			<slot name="editor-bar-right" slot="right" />
 		</EditorBar>
@@ -503,6 +509,7 @@
 						automaticLayout={true}
 						{fixedOverflowWidgets}
 						{args}
+						diffMode={diffMode}
 					/>
 					<DiffEditor
 						class="h-full"
