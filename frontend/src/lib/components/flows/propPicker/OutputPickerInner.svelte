@@ -391,7 +391,7 @@
 	{:else}
 		<div class="grow min-h-0 p-2 rounded-sm w-full overflow-auto">
 			{#if isLoading}
-				<div class="flex flex-col items-center justify-center h-full">
+				<div class="flex flex-col items-center justify-center">
 					<Loader2 class="animate-spin" />
 				</div>
 			{:else if connectingData || simpleViewer}
