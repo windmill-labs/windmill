@@ -6491,6 +6491,21 @@ paths:
           in: query
           schema:
             type: boolean
+      requestBody:
+        description: flow args
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ScriptArgs"
+      responses:
+        "201":
+          description: job created
+          content:
+            text/plain:
+              schema:
+                type: string
+                format: uuid
 
   /w/{workspace}/jobs/run/batch_rerun_jobs:
     post:
