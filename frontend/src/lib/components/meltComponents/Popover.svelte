@@ -161,7 +161,6 @@
 				<DocLink docLink={documentationLink} size="sm" />
 			</div>
 		{/if}
-		<slot name="content" {open} {close} />
 		{#if closeButton}
 			<button class="close" use:melt={$closeElement}>
 				<X class="size-3" />
