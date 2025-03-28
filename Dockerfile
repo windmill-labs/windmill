@@ -221,9 +221,10 @@ RUN cp -r /root/.cache /home/windmill/.cache
 RUN mkdir -p /tmp/windmill/logs && \
     mkdir -p /tmp/windmill/search
 
-RUN chown -R windmill:windmill ${APP} && \
-     chown -R windmill:windmill /tmp/windmill && \
-     chown -R windmill:windmill /home/windmill/.cache
+# Make directories world-readable and writable
+RUN chmod -R 777 ${APP} && \
+     chmod -R 777 /tmp/windmill && \
+     chmod -R 777 /home/windmill/.cache
 
 USER root
 

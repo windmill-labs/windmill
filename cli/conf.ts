@@ -4,6 +4,7 @@ export interface SyncOptions {
   stateful?: boolean;
   raw?: boolean;
   yes?: boolean;
+  dryRun?: boolean;
   skipPull?: boolean;
   failConflicts?: boolean;
   plainSecrets?: boolean;
