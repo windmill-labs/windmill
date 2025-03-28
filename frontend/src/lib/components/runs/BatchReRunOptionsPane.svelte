@@ -148,24 +148,25 @@
 					class="overflow-y-scroll absolute inset-0"
 					id="batch-rerun-options-args"
 				>
-					<div class="text-sm w-full pb-2">
-						<Alert type="info" title="Available expressions :">
-							Use the <code>job</code> object to access data about the original job
-						</Alert>
-					</div>
-					<Toggle
-						checked={selectedUsesLatestSchema}
-						disabled={selected?.kind === 'flow'}
-						on:change={(e) => {
-							if (!selected) return
-							;(options[selected.kind][selected.script_path] ??= {}).use_latest_version =
-								e.detail as boolean
-						}}
-						options={{
-							right: 'Always use latest version'
-						}}
-					/>
 					{#if selected}
+						<div class="text-sm w-full pb-2">
+							<Alert type="info" title="Available expressions :">
+								Use the <code>job</code> object to access data about the original job
+							</Alert>
+						</div>
+						<Toggle
+							checked={selectedUsesLatestSchema}
+							disabled={selected?.kind === 'flow'}
+							on:change={(e) => {
+								if (!selected) return
+								;(options[selected.kind][selected.script_path] ??= {}).use_latest_version =
+									e.detail as boolean
+							}}
+							options={{
+								right: 'Always use latest version'
+							}}
+						/>
+
 						<!-- Even if we use the latest schema, we want the editor -->
 						<!-- to only lint the original jobs' values -->
 						{@const mergedSchema = mergeObjectSchemasWithUnion(
