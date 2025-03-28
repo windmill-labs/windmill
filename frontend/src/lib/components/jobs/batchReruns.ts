@@ -1,7 +1,15 @@
 import type { Schema } from '$lib/common'
 import { schemaToTsType } from '$lib/schema'
 
-export function buildExtraLibForBatchReruns(schema: Schema) {
+export function buildExtraLibForBatchReruns({
+	schema,
+	script_path,
+	script_hashes
+}: {
+	schema: Schema
+	script_path: string
+	script_hashes: string[]
+}) {
 	return `
 /**
 * get variable (including secret) at path
@@ -17,13 +25,18 @@ declare function resource(path: string): any;
 
 declare const job: {
   /**
-  * job input as an object
+  * original job arguments
   */
-  input: ${schemaToTsType(schema)},
+  input: ${schemaToTsType(schema)};
   /**
-   * original scheduled date of the job
+   * scheduled date of the original job
    */
-  scheduled_for: Date
-}
-`
+  scheduled_for: Date;
+  /**
+   * id of the original job
+   */
+  id: string;
+  script_path: ${JSON.stringify(script_path)};
+  script_hash: ${script_hashes.map((h) => JSON.stringify(h)).join(' | ')};
+}`
 }

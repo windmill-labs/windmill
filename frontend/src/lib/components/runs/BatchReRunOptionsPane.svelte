@@ -174,7 +174,11 @@
 						{@const displayedSchema = selectedUsesLatestSchema
 							? selected.latestSchema
 							: mergedSchema}
-						{@const extraLib = buildExtraLibForBatchReruns(mergedSchema)}
+						{@const extraLib = buildExtraLibForBatchReruns({
+							schema: mergedSchema,
+							script_path: selected.script_path,
+							script_hashes: selected.schemas.map((s) => s.script_hash)
+						})}
 						<div class="w-full h-full">
 							{#key [selected, displayedSchema]}
 								{#each Object.keys(displayedSchema.properties) as propertyName}
