@@ -227,7 +227,7 @@ pub async fn parse_python_imports(
     annotated_pyv_numeric: &mut Option<u32>,
 ) -> error::Result<(Vec<String>, Option<String>)> {
     let mut compile_error_hint: Option<String> = None; 
-    let imports = parse_python_imports_inner(
+    let mut imports = parse_python_imports_inner(
         code,
         w_id,
         path,
@@ -256,6 +256,8 @@ pub async fn parse_python_imports(
     .into_iter()
     .unique()
     .collect_vec();
+
+    imports.sort();
 
     compile_error_hint.as_mut().map(|e| e.push_str("\n\nNOTE: You can also `repin` to override all pins"));
     Ok((imports, compile_error_hint)) 
