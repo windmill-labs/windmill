@@ -3352,7 +3352,7 @@ fn batch_rerun_jobs_inner(
             let job_result =
                 batch_rerun_handle_job(&job, &authed, &db, &user_db, &w_id, &body).await;
             match job_result {
-                Ok(uuid) => match tx.send(uuid).await {
+                Ok(uuid) => match tx.send(format!("{uuid}\n")).await {
                     Ok(_) => {}
                     Err(_) => tracing::error!("Couldn't stream re-run uuid {}", job.id),
                 },

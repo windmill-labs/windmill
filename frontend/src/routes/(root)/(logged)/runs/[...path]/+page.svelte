@@ -570,7 +570,9 @@
 			title: `Confirm cancelling all jobs correspoding to the selected filters (${jobIdsToCancel.length} jobs)`,
 			confirmBtnText: `Cancel ${jobIdsToCancel.length} jobs that matched the filters`,
 			preContent: selectedFiltersString,
-			onConfirm: () => cancelJobs(jobIdsToCancel)
+			onConfirm: () => {
+				cancelJobs(jobIdsToCancel)
+			}
 		}
 	}
 
@@ -578,7 +580,9 @@
 		askingForConfirmation = {
 			confirmBtnText: `Cancel ${selectedIds.length} jobs`,
 			title: 'Confirm cancelling the selected jobs',
-			onConfirm: () => cancelJobs(selectedIds)
+			onConfirm: () => {
+				cancelJobs(selectedIds)
+			}
 		}
 	}
 
@@ -594,6 +598,10 @@
 			type: 'reload',
 			onConfirm: async () => {
 				if (!$workspaceStore) return
+
+				if (askingForConfirmation) {
+					askingForConfirmation.loading = true
+				}
 
 				const body: Parameters<typeof JobService.batchReRunJobs>[0]['requestBody'] = {
 					job_ids: jobIdsToReRun,
@@ -611,26 +619,31 @@
 						body: JSON.stringify(body)
 					}
 				)
-				const reader = response?.body?.pipeThrough(new TextDecoderStream()).getReader()
-				let reRanCounter = 0
-				if (reader) {
-					while (true) {
-						const { value, done } = await reader.read()
-						if (value) {
-							console.log('Received', value)
-							reRanCounter += 1
-						}
-						if (done || !value) {
-							sendUserToast(`Re-ran ${reRanCounter} jobs`)
-							break
+				await new Promise(async (resolve) => {
+					const reader = response?.body?.pipeThrough(new TextDecoderStream()).getReader()
+					let reRanCounter = 0
+					if (reader) {
+						while (true) {
+							const { value, done } = await reader.read()
+							if (value) {
+								// It is possible get multiple values at once in case of buffering
+								reRanCounter += value.split('\n').reduce((p, c) => p + (c ? 1 : 0), 0)
+								if (askingForConfirmation) {
+									askingForConfirmation.title = `Pushed ${reRanCounter}/${jobIdsToReRun.length} jobs to queue`
+								}
+							}
+							if (done || !value) {
+								sendUserToast(`Re-ran ${reRanCounter}/${jobIdsToReRun.length} jobs`)
+								break
+							}
 						}
 					}
-				}
+					resolve(undefined)
+				})
 
 				selectedIds = []
 				batchReRunOptions = { flow: {}, script: {} }
 				jobLoader?.loadJobs(minTs, maxTs, true, true)
-				// sendUserToast(`Re-ran ${uuids.length} jobs`)
 				selectionMode = false
 			}
 		}
@@ -717,8 +730,8 @@
 	open={!!askingForConfirmation}
 	on:confirmed={async () => {
 		const func = askingForConfirmation?.onConfirm
+		await func?.()
 		askingForConfirmation = undefined
-		func?.()
 	}}
 	type={askingForConfirmation?.type}
 	loading={askingForConfirmation?.loading}
