@@ -5,11 +5,7 @@
 	import { HistoryIcon, Loader2, Plus, X } from 'lucide-svelte'
 	import Button from '$lib/components/common/button/Button.svelte'
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
-	import {
-		type AIChatContext,
-		type DisplayMessage,
-		type ContextElement
-	} from './core'
+	import { type AIChatContext, type DisplayMessage, type ContextElement } from './core'
 	import ContextElementBadge from './ContextElementBadge.svelte'
 	import ContextTextarea from './ContextTextarea.svelte'
 	import AvailableContextList from './AvailableContextList.svelte'
@@ -28,8 +24,8 @@
 		saveAndClear: null
 		deletePastChat: { id: string }
 		loadPastChat: { id: string }
-		askAiAboutChanges: null
-		suggestImprovements: null
+		analyzeChanges: null
+		explainChanges: null
 	}>()
 
 	const { loading, currentReply } = getContext<AIChatContext>('AIChatContext')
@@ -52,16 +48,16 @@
 
 	function addContextToSelection(contextElement: ContextElement) {
 		if (
-			!selectedContext.find((c) => c.type === contextElement.type && c.title === contextElement.title)
-			&& availableContext.find((c) => c.type === contextElement.type && c.title === contextElement.title)
+			!selectedContext.find(
+				(c) => c.type === contextElement.type && c.title === contextElement.title
+			) &&
+			availableContext.find(
+				(c) => c.type === contextElement.type && c.title === contextElement.title
+			)
 		) {
-			selectedContext = [
-				...selectedContext,
-				contextElement
-			]
+			selectedContext = [...selectedContext, contextElement]
 		}
 	}
-
 </script>
 
 <div class="flex flex-col h-full">
@@ -202,13 +198,17 @@
 				</svelte:fragment>
 			</Popover>
 			{#each selectedContext as element}
-				{@const contextElement = availableContext.find((c) => c.type === element.type && c.title === element.title)}
+				{@const contextElement = availableContext.find(
+					(c) => c.type === element.type && c.title === element.title
+				)}
 				{#if contextElement}
 					<ContextElementBadge
 						{contextElement}
 						deletable
 						on:delete={() => {
-							selectedContext = selectedContext.filter((c) => c.type !== element.type || c.title !== element.title)
+							selectedContext = selectedContext.filter(
+								(c) => c.type !== element.type || c.title !== element.title
+							)
 						}}
 					/>
 				{/if}
@@ -221,10 +221,10 @@
 			isFirstMessage={messages.length === 0}
 			on:addContext={(e) => addContextToSelection(e.detail.contextElement)}
 			on:sendRequest={() => dispatch('sendRequest')}
-			on:updateInstructions={(e) => instructions = e.detail.value}
+			on:updateInstructions={(e) => (instructions = e.detail.value)}
 		/>
 		<div class="flex flex-row justify-between items-center gap-2 px-0.5">
-			<ChatQuickActions {hasDiff} on:askAiAboutChanges on:suggestImprovements diffMode={diffMode} />
+			<ChatQuickActions {hasDiff} on:analyzeChanges on:explainChanges {diffMode} />
 			<ProviderModelSelector />
 		</div>
 	</div>

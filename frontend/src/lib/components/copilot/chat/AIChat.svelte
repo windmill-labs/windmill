@@ -1,5 +1,12 @@
 <script lang="ts">
-	import { copilotSessionModel, dbSchemas, type DBSchema, type DBSchemas, SQLSchemaLanguages, workspaceStore } from '$lib/stores'
+	import {
+		copilotSessionModel,
+		dbSchemas,
+		type DBSchema,
+		type DBSchemas,
+		SQLSchemaLanguages,
+		workspaceStore
+	} from '$lib/stores'
 	import { writable, type Writable } from 'svelte/store'
 	import AIChatDisplay from './AIChatDisplay.svelte'
 	import {
@@ -8,7 +15,7 @@
 		prepareUserMessage,
 		type AIChatContext,
 		type ContextElement,
-		type DisplayMessage,
+		type DisplayMessage
 	} from './core'
 	import { createEventDispatcher, onDestroy, setContext } from 'svelte'
 	import { type AIProviderModel, type ScriptLang, ResourceService } from '$lib/gen'
@@ -28,7 +35,9 @@
 	export let diffWithLastDeployed: Change[] | undefined = undefined
 	export let diffMode: boolean = false
 
-	$: contextCodePath = path ? (path.split('/').pop() ?? 'script') + '.' + langToExt(scriptLangToEditorLang(lang)) : undefined;
+	$: contextCodePath = path
+		? (path.split('/').pop() ?? 'script') + '.' + langToExt(scriptLangToEditorLang(lang))
+		: undefined
 
 	let initializedWithInitCode: boolean | null = null
 	$: lang && (initializedWithInitCode = null)
@@ -91,7 +100,10 @@
 			})
 		}
 
-		if (diffWithLastDeployed && diffWithLastDeployed.filter((d) => d.added || d.removed).length > 0) {
+		if (
+			diffWithLastDeployed &&
+			diffWithLastDeployed.filter((d) => d.added || d.removed).length > 0
+		) {
 			newAvailableContext.push({
 				type: 'diff',
 				title: 'diff_with_last_deployed_version',
@@ -127,9 +139,12 @@
 			]
 		}
 
- 		if (db) {
+		if (db) {
 			// If the db is already fetched, add it to the selected context
-			if (!selectedContext.find((c) => c.type === 'db' && c.title === db.resource) && !providerModel?.model.endsWith('/thinking')) {
+			if (
+				!selectedContext.find((c) => c.type === 'db' && c.title === db.resource) &&
+				!providerModel?.model.endsWith('/thinking')
+			) {
 				selectedContext = [
 					...selectedContext,
 					{
@@ -143,7 +158,10 @@
 
 		availableContext = newAvailableContext
 
-		if (code && (initializedWithInitCode === null && !isInitialCode(code) || initializedWithInitCode)) {
+		if (
+			code &&
+			((initializedWithInitCode === null && !isInitialCode(code)) || initializedWithInitCode)
+		) {
 			selectedContext = [
 				{
 					type: 'code',
@@ -158,23 +176,38 @@
 			initializedWithInitCode = isInitialCode(code)
 		}
 
-		selectedContext = selectedContext.map((c) => availableContext.find((ac) => ac.type === c.type && ac.title === c.title)).filter((c) => c !== undefined) as ContextElement[]
+		selectedContext = selectedContext
+			.map((c) => availableContext.find((ac) => ac.type === c.type && ac.title === c.title))
+			.filter((c) => c !== undefined) as ContextElement[]
 	}
 
 	function updateDisplayMessages(dbSchemas: DBSchemas) {
 		return displayMessages.map((m) => ({
 			...m,
-			contextElements: (m.contextElements?.map(
-				(c) => c.type === 'db' ? {
-					type: 'db',
-					title: c.title,
-					schema: dbSchemas[c.title]
-				} : c) as ContextElement[]
-			)
+			contextElements: m.contextElements?.map((c) =>
+				c.type === 'db'
+					? {
+							type: 'db',
+							title: c.title,
+							schema: dbSchemas[c.title]
+					  }
+					: c
+			) as ContextElement[]
 		}))
 	}
 
-	$: updateAvailableContext(contextCodePath, code, lang, error, db, $copilotSessionModel, $dbSchemas, $workspaceStore, diffWithLastSaved, diffWithLastDeployed)
+	$: updateAvailableContext(
+		contextCodePath,
+		code,
+		lang,
+		error,
+		db,
+		$copilotSessionModel,
+		$dbSchemas,
+		$workspaceStore,
+		diffWithLastSaved,
+		diffWithLastDeployed
+	)
 
 	let instructions = ''
 	let loading = writable(false)
@@ -190,7 +223,7 @@
 		currentReply,
 		applyCode: (code: string) => {
 			dispatch('applyCode', { code })
-		},
+		}
 	})
 
 	let currentChatId: string = crypto.randomUUID()
@@ -324,7 +357,9 @@
 	export function fix() {
 		instructions = 'Fix the error'
 
-		const codeContext = availableContext.find((c) => c.type === 'code' && c.title === contextCodePath)
+		const codeContext = availableContext.find(
+			(c) => c.type === 'code' && c.title === contextCodePath
+		)
 		const errorContext = availableContext.find((c) => c.type === 'error')
 
 		if (codeContext && errorContext) {
@@ -336,7 +371,9 @@
 
 	export function askAiAboutChanges(prompt: string) {
 		instructions = prompt
-		const codeContext = availableContext.find((c) => c.type === 'code' && c.title === contextCodePath)
+		const codeContext = availableContext.find(
+			(c) => c.type === 'code' && c.title === contextCodePath
+		)
 		if (!codeContext) {
 			return
 		}
@@ -413,10 +450,16 @@
 	on:saveAndClear={saveAndClear}
 	on:deletePastChat={(e) => deletePastChat(e.detail.id)}
 	on:loadPastChat={(e) => loadPastChat(e.detail.id)}
-	on:askAiAboutChanges={() => askAiAboutChanges("Explain the changes I made to the code from the last diff")}
-	on:suggestImprovements={() => askAiAboutChanges("Based on the changes I made to the code, look for potential issues and recommend better solutions")}
-	hasDiff={!!diffWithLastDeployed && diffWithLastDeployed.filter((d) => d.added || d.removed).length > 0}
-	diffMode={diffMode}
+	on:analyzeChanges={() => {
+		askAiAboutChanges(
+			'Based on the changes I made to the code, look for potential issues and recommend better solutions'
+		)
+	}}
+	on:explainChanges={() =>
+		askAiAboutChanges('Explain the changes I made to the code from the last diff')}
+	hasDiff={!!diffWithLastDeployed &&
+		diffWithLastDeployed.filter((d) => d.added || d.removed).length > 0}
+	{diffMode}
 >
 	<slot name="header-left" slot="header-left" />
 	<slot name="header-right" slot="header-right" />
