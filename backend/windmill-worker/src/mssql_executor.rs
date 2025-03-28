@@ -99,12 +99,16 @@ pub async fn do_mssql(
         if let Some(token) = token_value.get("token").and_then(|t| t.as_str()) {
             config.authentication(AuthMethod::aad_token(token));
         } else {
-            return Err(Error::BadRequest("Invalid AAD token format - expected { token: string }".to_string()));
+            return Err(Error::BadRequest(
+                "Invalid AAD token format - expected { token: string }".to_string(),
+            ));
         }
     } else if let (Some(user), Some(password)) = (&database.user, &database.password) {
         config.authentication(AuthMethod::sql_server(user.clone(), password.clone()));
     } else {
-        return Err(Error::BadRequest("Neither AAD token nor username/password credentials are set".to_string()));
+        return Err(Error::BadRequest(
+            "Neither AAD token nor username/password credentials are set".to_string(),
+        ));
     }
     config.trust_cert(); // on production, it is not a good idea to do this
 
