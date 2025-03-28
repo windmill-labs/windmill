@@ -91,9 +91,9 @@
 	rounded={false}
 	noBorder
 	extraRowClasses={{
-		bgSelected: 'bg-blue-200',
-		bgHover: 'hover:bg-blue-100',
-		class: 'bg-blue-50'
+		bgSelected: 'bg-blue-200 dark:bg-blue-900/40',
+		bgHover: 'hover:bg-blue-100 dark:hover:bg-blue-600/40',
+		class: 'bg-blue-50 dark:bg-blue-700/40'
 	}}
 >
 	<svelte:fragment slot="extra-row">

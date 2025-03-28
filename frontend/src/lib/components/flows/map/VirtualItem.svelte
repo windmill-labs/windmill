@@ -79,8 +79,7 @@
 				isConnectingCandidate={true}
 				let:isConnecting
 				let:selectConnection
-				bgDefault="bg-slate-300"
-				bgHover="bg-slate-400"
+				variant="virtual"
 			>
 				<OutputPickerInner
 					{allowCopy}

@@ -10,8 +10,7 @@
 	export let selected: boolean = false
 	export let hover: boolean = false
 	export let isConnectingCandidate: boolean = false
-	export let bgDefault: string = 'bg-surface-disabled'
-	export let bgHover: string = 'bg-surface-hover'
+	export let variant: 'default' | 'virtual' = 'default'
 
 	const context = getContext<PropPickerContext>('PropPickerContext')
 	const flowPropPickerConfig = context?.flowPropPickerConfig
@@ -40,6 +39,18 @@
 
 	$: width = Math.max(MIN_WIDTH * zoom, 375)
 	$: height = Math.max(MIN_HEIGHT * zoom, 375)
+
+	const virtualItemClasses = {
+		bar: 'dark:hover:bg-[#525d6f] dark:bg-[#414958] bg-[#d7dfea]  hover:bg-slate-300',
+		handle:
+			'dark:group-hover:bg-[#525d6f] dark:hover:bg-[#525d6f] dark:bg-[#414958] bg-[#d7dfea] hover:bg-slate-300 group-hover:bg-slate-300'
+	}
+
+	const defaultClasses = {
+		bar: 'bg-surface-disabled hover:bg-surface-hover dark:bg-[#454e5f] dark:hover:bg-[#576278]',
+		handle:
+			'group-hover:bg-surface-hover hover:bg-surface-hover bg-surface-disabled dark:bg-[#454e5f] dark:hover:bg-[#576278] dark:group-hover:bg-[#576278]'
+	}
 </script>
 
 <Popover
@@ -61,7 +72,9 @@
 	<svelte:fragment slot="trigger" let:isOpen>
 		<div
 			class={twMerge(
-				`w-[275px] h-[4px] flex flex-row ${bgDefault} hover:${bgHover} items-center justify-center cursor-pointer`,
+				'bg-slate-200',
+				`w-[275px] h-[4px] flex flex-row items-center justify-center cursor-pointer`,
+				variant === 'virtual' ? virtualItemClasses.bar : defaultClasses.bar,
 				'shadow-[inset_0_1px_5px_0_rgba(0,0,0,0.05)] rounded-b-sm',
 				'group'
 			)}
@@ -78,7 +91,8 @@
 					<div
 						class={twMerge(
 							'w-full h-full rounded-t-md shadow-[inset_0_1px_5px_0_rgba(0,0,0,0.05)]',
-							`hidden group-hover:center-center ${bgDefault} hover:${bgHover} group-hover:${bgHover}`,
+							`hidden group-hover:center-center`,
+							variant === 'virtual' ? virtualItemClasses.handle : defaultClasses.handle,
 							isOpen || selected || hover || showConnecting ? 'center-center' : 'hidden',
 							showConnecting ? 'text-blue-500 bg-surface rounded-b-md' : 'text-secondary'
 						)}
