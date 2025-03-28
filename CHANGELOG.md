@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.479.2](https://github.com/windmill-labs/windmill/compare/v1.479.1...v1.479.2) (2025-03-28)
+
+
+### Bug Fixes
+
+* fetch correct resource for interactive slack when multiple workspaces connected ([#5532](https://github.com/windmill-labs/windmill/issues/5532)) ([08e8283](https://github.com/windmill-labs/windmill/commit/08e8283c58c94f773936bac09d56bc6430382bbb))
+
 ## [1.479.1](https://github.com/windmill-labs/windmill/compare/v1.479.0...v1.479.1) (2025-03-27)
 
 
