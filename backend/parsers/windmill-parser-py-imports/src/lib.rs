@@ -37,10 +37,8 @@ fn replace_import(x: String) -> String {
         .to_string()
 }
 
-fn replace_full_import(x: &str) -> String {
+fn replace_full_import(x: &str) -> Option<String> {
     FULL_IMPORTS_MAP.get(x).map(|x| (*x).to_owned())
-        .unwrap_or(x.to_owned())
-        .to_string()
 }
 
 lazy_static! {
@@ -67,9 +65,8 @@ fn process_import(module: Option<String>, path: &str, level: usize) -> Vec<NImpo
         if imprt == "u" || imprt == "f" {
             vec![NImport::Relative(module.replace(".", "/"))]
         } else {
-            let root = replace_import(imprt);
-            let full= replace_full_import(&module);
-            vec![NImport::Auto{ full: if full == root { None } else { Some(full) }, root }]
+            let root = replace_full_import(&module).unwrap_or(replace_import(imprt));
+            vec![NImport::Auto{ full: if module == root { None } else { Some(module) }, root }]
         }
     } else {
         vec![]
