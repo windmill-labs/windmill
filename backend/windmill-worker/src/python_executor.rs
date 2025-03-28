@@ -1420,6 +1420,7 @@ async fn handle_python_deps(
         .clone();
 
     let mut requirements;
+    let compilation_error_hint;
     let mut annotated_pyv = None;
     let mut annotated_pyv_numeric = None;
     let is_deployed = requirements_o.is_some();
@@ -1430,16 +1431,19 @@ async fn handle_python_deps(
         None => {
             let mut already_visited = vec![];
 
-            requirements = windmill_parser_py_imports::parse_python_imports(
-                inner_content,
-                w_id,
-                script_path,
-                db,
-                &mut already_visited,
-                &mut annotated_pyv_numeric,
-            )
-            .await?
-            .join("\n");
+            let (returned_requirements, returned_hint) =
+                windmill_parser_py_imports::parse_python_imports(
+                    inner_content,
+                    w_id,
+                    script_path,
+                    db,
+                    &mut already_visited,
+                    &mut annotated_pyv_numeric,
+                )
+                .await?;
+
+            (requirements, compilation_error_hint) =
+                (returned_requirements.join("\n"), returned_hint);
 
             annotated_pyv = annotated_pyv_numeric.and_then(|v| PyVersion::from_numeric(v));
 
@@ -1459,7 +1463,11 @@ async fn handle_python_deps(
                 )
                 .await
                 .map_err(|e| {
-                    Error::ExecutionErr(format!("pip compile failed: {}", e.to_string()))
+                    Error::ExecutionErr(format!(
+                        "pip compile failed: {}{}",
+                        e.to_string(),
+                        compilation_error_hint.unwrap_or_default()
+                    ))
                 })?;
             }
             &requirements
