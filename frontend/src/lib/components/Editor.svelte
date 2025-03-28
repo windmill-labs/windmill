@@ -264,6 +264,10 @@
 		return editor?.getValue() ?? ''
 	}
 
+	export function getModel(): meditor.IEditorModel | undefined {
+		return editor?.getModel() ?? undefined
+	}
+
 	export function insertAtCursor(code: string): void {
 		if (editor) {
 			editor.trigger('keyboard', 'type', { text: code })

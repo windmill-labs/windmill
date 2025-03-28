@@ -351,7 +351,6 @@
 
 	function showDiffMode() {
 		diffMode.set(true)
-		diffEditor?.setupModel(scriptLangToEditorLang(lang))
 		diffEditor?.setOriginal(lastDeployedCode ?? '')
 		diffEditor?.setModified(editor?.getCode() ?? '')
 		diffEditor?.show()
@@ -542,6 +541,7 @@
 						automaticLayout
 						defaultLang={scriptLangToEditorLang(lang)}
 						{fixedOverflowWidgets}
+						{editor}
 					/>
 				{/key}
 			</div>
