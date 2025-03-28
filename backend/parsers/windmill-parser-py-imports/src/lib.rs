@@ -356,7 +356,7 @@ async fn parse_python_imports_inner(
         nimports.sort();
 
         for n in nimports.iter() {
-            let nested = if let NImport::Relative(rpath) = n {
+            let mut nested = if let NImport::Relative(rpath) = n {
                 let code = sqlx::query_scalar!(
                     r#"
                 SELECT content FROM script WHERE path = $1 AND workspace_id = $2
@@ -392,6 +392,9 @@ async fn parse_python_imports_inner(
             } else {
                 vec![n.to_owned()]
             };
+
+            // Nested should also be sorted for the same reason
+            nested.sort();
 
             // At this point there should be no NImport::Relative in `nested`
             for imp in nested {
