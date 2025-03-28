@@ -139,9 +139,9 @@ const sessionProvider = getLocalSetting(COPILOT_SESSION_PROVIDER_SETTING_NAME)
 export const copilotSessionModel = writable<AIProviderModel | undefined>(
 	sessionModel && sessionProvider
 		? {
-				model: sessionModel,
-				provider: sessionProvider as AIProvider
-		  }
+			model: sessionModel,
+			provider: sessionProvider as AIProvider
+		}
 		: undefined
 )
 export const usedTriggerKinds = writable<string[]>([])
