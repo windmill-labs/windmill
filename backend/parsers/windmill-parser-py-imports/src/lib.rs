@@ -66,7 +66,7 @@ fn process_import(module: Option<String>, path: &str, level: usize) -> Vec<NImpo
             vec![NImport::Relative(module.replace(".", "/"))]
         } else {
             let root = replace_full_import(&module).unwrap_or(replace_import(imprt));
-            vec![NImport::Auto{ full: if module == root { None } else { Some(module) }, root }]
+            vec![NImport::Auto { full: if module == root { None } else { Some(module) }, root }]
         }
     } else {
         vec![]
@@ -87,11 +87,15 @@ pub fn parse_relative_imports(code: &str, path: &str) -> error::Result<Vec<Strin
 #[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 enum NImport {
     // Order matters! First we want to resolve all repins
-     
+
     // manually repinned requirement
     // e.g.:
     // import pandas # repin: pandas==x.y.z
-    Repin { pin: String, base: String, path: String },
+    Repin {
+        pin: String,
+        base: String,
+        path: String,
+    },
     // manually pinned requirements
     // e.g.:
     // import pandas # pin: pandas>=x.y.z
@@ -99,7 +103,10 @@ enum NImport {
     //
     // NOTE: It is possible for multiple pins exist on same import
     // That's why we store vector of pins
-    Pin { pins: Vec<ImportPin>, base: String },
+    Pin {
+        pins: Vec<ImportPin>,
+        base: String,
+    },
     // Automatically inferred requirement
     // e.g.:
     // import pandas
@@ -121,7 +128,7 @@ enum NImport {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
-struct ImportPin{
+struct ImportPin {
     pin: String,
     path: String,
 }
@@ -159,16 +166,15 @@ fn parse_code_for_imports(code: &str, path: &str) -> error::Result<Vec<NImport>>
             )
             .and_then(|x| {
                 x.get(1).zip(x.get(2)).map(|(ty_m, pin_m)| {
-                let pin = pin_m.as_str().to_owned();
-                if ty_m.as_str() == "pin" {
-                    vec![
-                        NImport::Pin { pins: vec![ImportPin{ pin, path: path.to_owned() }], base }, 
-                    ]
-                } else {
-                    vec![
-                        NImport::Repin { pin, base, path: path.to_owned() },
-                    ]
-                }
+                    let pin = pin_m.as_str().to_owned();
+                    if ty_m.as_str() == "pin" {
+                        vec![NImport::Pin {
+                            pins: vec![ImportPin { pin, path: path.to_owned() }],
+                            base,
+                        }]
+                    } else {
+                        vec![NImport::Repin { pin, base, path: path.to_owned() }]
+                    }
                 })
             })
     };
@@ -176,19 +182,19 @@ fn parse_code_for_imports(code: &str, path: &str) -> error::Result<Vec<NImport>>
     let mut nimports: Vec<NImport> = ast
         .into_iter()
         .filter_map(|x| match x {
-            Stmt::Import(StmtImport { names, range }) => {
-                    names.get(0).and_then(|al| find_pin(range, al.name.to_string()))
-                    .or(Some(
-                        names
-                            .into_iter()
-                            .map(|x| {
-                                let name = x.name.to_string();
-                                process_import(Some(name), path, 0)
-                            })
-                            .flatten()
-                            .collect::<Vec<NImport>>(),
-                    ))
-            }
+            Stmt::Import(StmtImport { names, range }) => names
+                .get(0)
+                .and_then(|al| find_pin(range, al.name.to_string()))
+                .or(Some(
+                    names
+                        .into_iter()
+                        .map(|x| {
+                            let name = x.name.to_string();
+                            process_import(Some(name), path, 0)
+                        })
+                        .flatten()
+                        .collect::<Vec<NImport>>(),
+                )),
             Stmt::ImportFrom(StmtImportFrom { level: Some(i), module, .. }) if i.to_u32() > 0 => {
                 Some(process_import(
                     module.map(|x| x.to_string()),
@@ -196,20 +202,20 @@ fn parse_code_for_imports(code: &str, path: &str) -> error::Result<Vec<NImport>>
                     i.to_usize(),
                 ))
             }
-            Stmt::ImportFrom(StmtImportFrom { level: _, module, range, .. }) => {
-                    find_pin(
-                        range,
-                        module.clone().map(|x| x.to_string()).unwrap_or_default(),
-                    )
-                    .or(Some(process_import(module.map(|x| x.to_string()), path, 0)))
-            }
+            Stmt::ImportFrom(StmtImportFrom { level: _, module, range, .. }) => find_pin(
+                range,
+                module.clone().map(|x| x.to_string()).unwrap_or_default(),
+            )
+            .or(Some(process_import(module.map(|x| x.to_string()), path, 0))),
             _ => None,
         })
         .flatten()
-        .filter(|x| if let NImport::Auto { ref root, .. } = x {
-            !STDIMPORTS.contains(&(*root).as_str())
-        } else {
-           true     
+        .filter(|x| {
+            if let NImport::Auto { ref root, .. } = x {
+                !STDIMPORTS.contains(&(*root).as_str())
+            } else {
+                true
+            }
         })
         .unique()
         .collect();
@@ -226,7 +232,7 @@ pub async fn parse_python_imports(
     already_visited: &mut Vec<String>,
     annotated_pyv_numeric: &mut Option<u32>,
 ) -> error::Result<(Vec<String>, Option<String>)> {
-    let mut compile_error_hint: Option<String> = None; 
+    let mut compile_error_hint: Option<String> = None;
     let mut imports = parse_python_imports_inner(
         code,
         w_id,
@@ -259,8 +265,10 @@ pub async fn parse_python_imports(
 
     imports.sort();
 
-    compile_error_hint.as_mut().map(|e| e.push_str("\n\nNOTE: You can also `repin` to override all pins"));
-    Ok((imports, compile_error_hint)) 
+    compile_error_hint
+        .as_mut()
+        .map(|e| e.push_str("\n\nNOTE: You can also `repin` to override all pins"));
+    Ok((imports, compile_error_hint))
 }
 
 #[async_recursion]
@@ -322,10 +330,16 @@ async fn parse_python_imports_inner(
                 RE.captures(x).and_then(|x| {
                     x.get(1).map(|m| {
                         let requirement = m.as_str().to_string();
-                        requirements.insert(requirement.clone(), NImport::Repin { pin: requirement, base: Default::default(), path: Default::default() });
+                        requirements.insert(
+                            requirement.clone(),
+                            NImport::Repin {
+                                pin: requirement,
+                                base: Default::default(),
+                                path: Default::default(),
+                            },
+                        );
                     })
                 })
-
             })
             .collect_vec();
 
@@ -342,7 +356,10 @@ async fn parse_python_imports_inner(
                     RE.captures(x).and_then(|x| {
                         x.get(1).map(|m| {
                             let requirement = m.as_str().to_string();
-                            imports.insert(requirement.clone(), NImport::Auto{ full: None, root: requirement });
+                            imports.insert(
+                                requirement.clone(),
+                                NImport::Auto { full: None, root: requirement },
+                            );
                         })
                     })
                 })
@@ -408,7 +425,7 @@ async fn parse_python_imports_inner(
                     NImport::Pin { base, .. } => base,
                     NImport::Repin { base, .. } => base,
                     NImport::Relative(base) => base,
-                    NImport::Auto{full, root} => full.unwrap_or(root),
+                    NImport::Auto { full, root } => full.unwrap_or(root),
                 };
                 // Handled cases:
                 //
@@ -472,7 +489,6 @@ async fn parse_python_imports_inner(
                     } else {
                         imports.insert(base, imp.clone());
                     },
-                    
                     NImport::Pin { pins: new_pins, .. } => if let Some(existing_import) = imports.get_mut(&base) {
                         match existing_import {
                             // Check if pin is the same version, if same, do nothing, if not error
@@ -488,17 +504,14 @@ async fn parse_python_imports_inner(
                                 return Err(anyhow::anyhow!(
                                     "Internal error: cannot resolve requirement pins",
                                 )
-                                .into());
-                            }
-                        }
+                                .into());}
+}
                     } else {
                         imports.insert(base, imp.clone());
                     },
-                    
                     NImport::Auto{..} => if !imports.contains_key(&base) {
                         imports.insert(base, imp);
                     },
-                    
                     NImport::Relative(_) => {
                         return Err(anyhow::anyhow!(
                             "Internal error: cannot resolve requirement pins\nRelative imports should not appear in current stage",
