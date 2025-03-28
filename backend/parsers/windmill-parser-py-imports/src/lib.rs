@@ -160,9 +160,7 @@ fn parse_code_for_imports(code: &str, path: &str) -> error::Result<Vec<NImport>>
             .and_then(|x| {
                 x.get(1).zip(x.get(2)).map(|(ty_m, pin_m)| {
                 let pin = pin_m.as_str().to_owned();
-                if &pin == "ignore" {
-                    vec![]
-                } else if ty_m.as_str() == "pin" {
+                if ty_m.as_str() == "pin" {
                     vec![
                         NImport::Pin { pins: vec![ImportPin{ pin, path: path.to_owned() }], base }, 
                     ]
