@@ -52,9 +52,6 @@ use windmill_git_sync::handle_deployment_metadata;
 #[cfg(feature = "enterprise")]
 use windmill_common::utils::require_admin_or_devops;
 
-#[cfg(not(feature = "enterprise"))]
-use crate::ai::AIProvider;
-
 use hyper::StatusCode;
 use serde::{Deserialize, Serialize};
 use sqlx::{FromRow, Postgres, Transaction};
@@ -146,7 +143,7 @@ pub fn workspaced_service() -> Router {
         .route("/critical_alerts/mute", post(mute_critical_alerts))
         .route("/operator_settings", post(update_operator_settings));
 
-    #[cfg(feature = "stripe")]
+    #[cfg(all(feature = "stripe", feature = "enterprise"))]
     {
         crate::stripe_ee::add_stripe_routes(router)
     }
@@ -229,7 +226,6 @@ pub struct WorkspaceSettings {
     pub deploy_ui: Option<serde_json::Value>, // effectively: WorkspaceDeploymentUISettings
     #[serde(skip_serializing_if = "Option::is_none")]
     pub default_app: Option<String>,
-    pub automatic_billing: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub default_scripts: Option<serde_json::Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -238,6 +234,8 @@ pub struct WorkspaceSettings {
     pub color: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub operator_settings: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub git_app_installations: Option<serde_json::Value>,
 }
 
 #[derive(FromRow, Serialize, Debug)]
@@ -442,7 +440,7 @@ async fn get_settings(
     let mut tx = user_db.begin(&authed).await?;
     let settings = sqlx::query_as!(
         WorkspaceSettings,
-        "SELECT workspace_id, slack_team_id, teams_team_id, teams_team_name, slack_name, slack_command_script, teams_command_script, slack_email, auto_invite_domain, auto_invite_operator, auto_add, customer_id, plan, webhook, deploy_to, ai_config, error_handler, error_handler_extra_args, error_handler_muted_on_cancel, large_file_storage, git_sync, deploy_ui, default_app, automatic_billing, default_scripts, mute_critical_alerts, color, operator_settings FROM workspace_settings WHERE workspace_id = $1",
+        "SELECT workspace_id, slack_team_id, teams_team_id, teams_team_name, slack_name, slack_command_script, teams_command_script, slack_email, auto_invite_domain, auto_invite_operator, auto_add, customer_id, plan, webhook, deploy_to, ai_config, error_handler, error_handler_extra_args, error_handler_muted_on_cancel, large_file_storage, git_sync, deploy_ui, default_app, default_scripts, mute_critical_alerts, color, operator_settings, git_app_installations FROM workspace_settings WHERE workspace_id = $1",
         &w_id
     )
     .fetch_one(&mut *tx)
@@ -706,15 +704,6 @@ async fn edit_copilot_config(
 
     if let Some(ref providers) = ai_config.providers {
         for provider in providers.keys() {
-            #[cfg(not(feature = "enterprise"))]
-            {
-                if matches!(provider, &AIProvider::CustomAI) {
-                    return Err(Error::BadRequest(
-                        "Custom AI is only available on EE".to_string(),
-                    ));
-                }
-            }
-
             AI_KEY_CACHE.remove(&(w_id.clone(), provider.clone()));
         }
     }

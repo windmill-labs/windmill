@@ -2,6 +2,11 @@ import type { Schema } from './common'
 import { AppService, FlowService, type Flow, type Script } from './gen'
 import { encodeState } from './utils'
 import rawHubPaths from './hubPaths.json?raw'
+import {
+	replacePlaceholderForSignatureScriptTemplate,
+	SIGNATURE_TEMPLATE_FLOW_HUB_ID,
+	SIGNATURE_TEMPLATE_SCRIPT_HUB_PATH
+} from './components/triggers/http/utils'
 
 export function scriptToHubUrl(
 	content: string,
@@ -17,6 +22,24 @@ export function scriptToHubUrl(
 	url.hash = encodeState({ content, summary, description, kind, language, schema, lock })
 
 	return url
+}
+
+export const HubScript = {
+	SIGNATURE_TEMPLATE: SIGNATURE_TEMPLATE_SCRIPT_HUB_PATH
+} as const
+
+export const HubFlow = {
+	SIGNATURE_TEMPLATE: SIGNATURE_TEMPLATE_FLOW_HUB_ID
+} as const
+
+export function replaceScriptPlaceholderWithItsValues(id: string, content: string) {
+	switch (id) {
+		case HubScript.SIGNATURE_TEMPLATE:
+		case HubFlow.SIGNATURE_TEMPLATE:
+			return replacePlaceholderForSignatureScriptTemplate(content)
+		default:
+			return content
+	}
 }
 
 export async function loadHubFlows() {

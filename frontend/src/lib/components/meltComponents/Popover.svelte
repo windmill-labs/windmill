@@ -15,6 +15,7 @@
 	import { twMerge } from 'tailwind-merge'
 	import { createEventDispatcher } from 'svelte'
 	import { Button } from '$lib/components/common'
+	import DocLink from '$lib/components/apps/editor/settingsPanel/DocLink.svelte'
 
 	export let closeButton: boolean = false
 	export let displayArrow: boolean = false
@@ -31,6 +32,8 @@
 	export let allowFullScreen: boolean = false
 	export let fullScreenWidthOffset: number = 0
 	export let extraProps: Record<string, any> = {}
+	export let disabled: boolean = false
+	export let documentationLink: string | undefined = undefined
 
 	let fullScreen = false
 
@@ -97,6 +100,7 @@
 	class={$$props.class}
 	use:melt={$trigger}
 	aria-label="Popup button"
+	disabled={disablePopup || disabled}
 	on:mouseenter={() => (openOnHover ? open() : null)}
 	on:mouseleave={() => (openOnHover ? close() : null)}
 	use:pointerDownOutside={{
@@ -111,7 +115,6 @@
 	}}
 	data-popover
 	on:click
-	disabled={disablePopup}
 >
 	<slot name="trigger" {isOpen} />
 </button>
@@ -153,6 +156,12 @@
 				/>
 			</div>
 		{/if}
+		{#if documentationLink}
+			<div class="absolute right-1.5 top-1.5">
+				<DocLink docLink={documentationLink} size="sm" />
+			</div>
+		{/if}
+		<slot name="content" {open} {close} />
 		{#if closeButton}
 			<button class="close" use:melt={$closeElement}>
 				<X class="size-3" />

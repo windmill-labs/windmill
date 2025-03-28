@@ -903,7 +903,12 @@
 			{/if}
 			{#if render}
 				<div class="w-full h-full border rounded-sm bg-surface p-1 overflow-auto">
-					<DisplayResult workspaceId={job?.workspace_id} {jobId} result={jobResults} />
+					<DisplayResult
+						workspaceId={job?.workspace_id}
+						{jobId}
+						result={jobResults}
+						language={job?.language}
+					/>
 				</div>
 			{/if}
 		{:else if render}
@@ -1375,6 +1380,7 @@
 													result={node.flow_jobs_results}
 													nodeId={selectedNode}
 													jobId={job?.id}
+													language={job?.language}
 												/>
 											</div>
 											<span class="pl-1 text-tertiary text-lg pt-4">Selected subflow</span>

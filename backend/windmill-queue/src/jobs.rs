@@ -897,6 +897,7 @@ pub async fn add_completed_job<T: Serialize + Send + Sync + ValidableJson>(
             created_by = queued_job.created_by,
             is_flow_step = queued_job.is_flow_step(),
             language = ?queued_job.script_lang,
+            scheduled_for = ?queued_job.scheduled_for,
             success,
             "inserted completed job: {} (success: {success})",
             queued_job.id
@@ -3076,7 +3077,7 @@ pub async fn push<'c, 'd>(
                     .await?
                     .unwrap_or(0);
 
-                    if in_queue > MAX_FREE_EXECS.into() {
+                    if in_queue > MAX_FREE_EXECS as i64 {
                         return Err(error::Error::QuotaExceeded(format!(
                             "User {email} has exceeded the jobs in queue limit of {MAX_FREE_EXECS} that applies outside of premium workspaces."
                         )));
@@ -3090,7 +3091,7 @@ pub async fn push<'c, 'd>(
                     .await?
                     .unwrap_or(0);
 
-                    if concurrent_runs > MAX_FREE_CONCURRENT_RUNS.into() {
+                    if concurrent_runs > MAX_FREE_CONCURRENT_RUNS as i64 {
                         return Err(error::Error::QuotaExceeded(format!(
                             "User {email} has exceeded the concurrent runs limit of {MAX_FREE_CONCURRENT_RUNS} that applies outside of premium workspaces."
                         )));
@@ -3132,7 +3133,7 @@ pub async fn push<'c, 'd>(
                     .await?
                     .unwrap_or(0);
 
-                    if in_queue_workspace > MAX_FREE_EXECS.into() {
+                    if in_queue_workspace > MAX_FREE_EXECS as i64 {
                         return Err(error::Error::QuotaExceeded(format!(
                             "Workspace {workspace_id} has exceeded the jobs in queue limit of {MAX_FREE_EXECS} that applies outside of premium workspaces."
                         )));
@@ -3146,7 +3147,7 @@ pub async fn push<'c, 'd>(
                     .await?
                     .unwrap_or(0);
 
-                    if concurrent_runs_workspace > MAX_FREE_CONCURRENT_RUNS.into() {
+                    if concurrent_runs_workspace > MAX_FREE_CONCURRENT_RUNS as i64 {
                         return Err(error::Error::QuotaExceeded(format!(
                             "Workspace {workspace_id} has exceeded the concurrent runs limit of {MAX_FREE_CONCURRENT_RUNS} that applies outside of premium workspaces."
                         )));
@@ -3284,7 +3285,9 @@ pub async fn push<'c, 'd>(
             None,
         ),
         JobPayload::ScriptHub { path } => {
-            if path == "hub/7771/slack" || path == "hub/7836/slack" {
+            if path == "hub/7771/slack" || path == "hub/7836/slack" || path == "hub/9084/slack" {
+                // these scripts send app reports to slack
+                // they use the slack bot token and should therefore be run with permissions to access it
                 permissioned_as = SUPERADMIN_NOTIFICATION_EMAIL.to_string();
                 email = SUPERADMIN_NOTIFICATION_EMAIL;
             }
