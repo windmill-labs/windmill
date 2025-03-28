@@ -29,9 +29,10 @@ declare const job: {
   */
   input: ${schemaToTsType(schema)};
   /**
-   * scheduled date of the original job
+   * scheduled date of the original job in ISO 8601 string format.
+   * Use \`new Date(job.scheduled_for)\` to get a Date object
    */
-  scheduled_for: Date;
+  scheduled_for: string;
   /**
    * id of the original job
    */

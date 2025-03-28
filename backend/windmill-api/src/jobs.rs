@@ -3283,7 +3283,7 @@ async fn batch_rerun_compute_js_expression(
     isolate
         .execute_script(
             "<batch_rerun_arg_transform>",
-            "let job = JSON.parse(Deno.core.ops.get_deno_core_job_value()); job.scheduled_for = new Date(job.scheduled_for);",
+            "let job = JSON.parse(Deno.core.ops.get_deno_core_job_value());",
         )
         .map_err(|e| Error::ExecutionErr(e.to_string()))?;
 
