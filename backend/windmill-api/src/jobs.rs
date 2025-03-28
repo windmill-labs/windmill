@@ -3262,6 +3262,43 @@ fn get_deno_core_job_value(state: &mut OpState) -> Option<String> {
     Some(str)
 }
 
+#[cfg(feature = "deno_core")]
+async fn batch_rerun_compute_js_expression(
+    expr: String,
+    job: BatchReRunQueryReturnType,
+) -> error::Result<Box<RawValue>> {
+    let ext = deno_core::Extension {
+        name: "batch_rerun_arg_transform_ext",
+        ops: vec![get_deno_core_job_value()].into(),
+        ..Default::default()
+    };
+    let mut isolate =
+        JsRuntime::new(deno_core::RuntimeOptions { extensions: vec![ext], ..Default::default() });
+
+    {
+        let op_state = isolate.op_state();
+        let mut op_state = op_state.borrow_mut();
+        op_state.put(job);
+    }
+    isolate
+        .execute_script(
+            "<batch_rerun_arg_transform>",
+            "let job = JSON.parse(Deno.core.ops.get_deno_core_job_value()); job.scheduled_for = new Date(job.scheduled_for);",
+        )
+        .map_err(|e| Error::ExecutionErr(e.to_string()))?;
+
+    // Run user expr
+    let result = isolate
+        .execute_script("<batch_rerun_arg_transform>", expr)
+        .map_err(|e| Error::ExecutionErr(e.to_string()))?;
+    let mut scope = isolate.handle_scope();
+    let result = v8::Local::new(&mut scope, result);
+    let result: serde_json::Value =
+        serde_v8::from_v8(&mut scope, result).map_err(|e| Error::ExecutionErr(e.to_string()))?;
+    let result = JsonRawValue::from_string(result.to_string())?;
+    Ok(result)
+}
+
 async fn batch_rerun_jobs(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
@@ -3293,7 +3330,6 @@ async fn batch_rerun_jobs(
 
     let mut pushed_ids = Vec::with_capacity(body.job_ids.len());
 
-    #[cfg(feature = "deno_core")]
     while let Some(job) = job_stream.next().await {
         let job = job?;
 
@@ -3319,45 +3355,15 @@ async fn batch_rerun_jobs(
                     #[cfg(not(feature = "deno_core"))]
                     tracing::error!("deno_core feature is not activated, cannot evaluate: {expr}");
                     #[cfg(feature = "deno_core")]
-                    {
-                        let ext = deno_core::Extension {
-                            name: "batch_rerun_arg_transform_ext",
-                            ops: vec![get_deno_core_job_value()].into(),
-                            ..Default::default()
-                        };
-
-                        let mut isolate = JsRuntime::new(deno_core::RuntimeOptions {
-                            extensions: vec![ext],
-                            ..Default::default()
-                        });
-
-                        {
-                            let op_state = isolate.op_state();
-                            let mut op_state = op_state.borrow_mut();
-                            op_state.put(job.clone());
-                        }
-                        isolate
-                            .execute_script(
-                                "<batch_rerun_arg_transform>",
-                                "let job = JSON.parse(Deno.core.ops.get_deno_core_job_value()); job.scheduled_for = new Date(job.scheduled_for);",
-                            )
-                            .map_err(|e| Error::ExecutionErr(e.to_string()))?;
-
-                        // Run user expr
-                        let result = isolate
-                            .execute_script("<batch_rerun_arg_transform>", expr.clone())
-                            .map_err(|e| Error::ExecutionErr(e.to_string()))?;
-                        let mut scope = isolate.handle_scope();
-                        let result = v8::Local::new(&mut scope, result);
-                        let result: serde_json::Value = serde_v8::from_v8(&mut scope, result)
-                            .map_err(|e| Error::ExecutionErr(e.to_string()))?;
-                        let result = JsonRawValue::from_string(result.to_string())?;
-                        args.insert(property_name.clone(), result);
-                    }
+                    args.insert(
+                        property_name.clone(),
+                        batch_rerun_compute_js_expression(expr.clone(), job.clone()).await?,
+                    );
                 }
             }
         }
 
+        // Call appropriate function to push job to queue
         match job.kind {
             JobKind::Flow => {
                 let result = run_flow_by_path_inner(
