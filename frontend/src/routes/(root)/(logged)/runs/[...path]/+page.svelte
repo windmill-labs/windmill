@@ -495,8 +495,10 @@
 			batchReRunOptions = { flow: {}, script: {} }
 			return
 		}
-		selectedIds = jobs?.filter(isJobSelectable(mode)).map((j) => j.id) ?? []
-		if (selectedIds.length === 0) {
+		const selectableIds = jobs?.filter(isJobSelectable(mode)).map((j) => j.id) ?? []
+		selectedIds = []
+
+		if (!selectableIds?.length) {
 			sendUserToast(
 				'There are no visible jobs that can be ' +
 					{ cancel: 'cancelled', 're-run': 're-ran' }[mode],
