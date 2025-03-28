@@ -250,10 +250,12 @@ pub async fn parse_python_imports(
         NImport::Relative(_) => vec![Err(anyhow::anyhow!("Internal Error: parse_python_imports_inner returned relative import").into())],
     })
     .flatten()
-    .collect::<error::Result<Vec<String>>>()?;
-    imports.sort();
-    compile_error_hint.as_mut().map(|e| e.push_str("\n\nNOTE: You can also `repin` to override all pins"));
+    .collect::<error::Result<Vec<String>>>()?
+    .into_iter()
+    .unique()
+    .collect_vec();
 
+    compile_error_hint.as_mut().map(|e| e.push_str("\n\nNOTE: You can also `repin` to override all pins"));
     Ok((imports, compile_error_hint)) 
 }
 
