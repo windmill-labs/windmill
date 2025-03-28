@@ -7,7 +7,8 @@
 		FolderService,
 		ScriptService,
 		FlowService,
-		type ExtendedJobs
+		type ExtendedJobs,
+		OpenAPI
 	} from '$lib/gen'
 
 	import { page } from '$app/stores'
@@ -594,19 +595,42 @@
 			onConfirm: async () => {
 				if (!$workspaceStore) return
 
-				const uuids = await JobService.batchReRunJobs({
-					workspace: $workspaceStore,
-					requestBody: {
-						job_ids: jobIdsToReRun,
-						script_options_by_path: batchReRunOptions.script,
-						flow_options_by_path: batchReRunOptions.flow
+				const body: Parameters<typeof JobService.batchReRunJobs>[0]['requestBody'] = {
+					job_ids: jobIdsToReRun,
+					script_options_by_path: batchReRunOptions.script,
+					flow_options_by_path: batchReRunOptions.flow
+				}
+
+				// workaround because EventSource does not support POST requests
+				// https://medium.com/@david.richards.tech/sse-server-sent-events-using-a-post-request-without-eventsource-1c0bd6f14425
+				const response = await fetch(
+					`${OpenAPI.BASE}/w/${$workspaceStore}/jobs/run/batch_rerun_jobs`,
+					{
+						method: 'POST',
+						headers: { 'Content-Type': 'application/json' },
+						body: JSON.stringify(body)
 					}
-				})
+				)
+				const reader = response?.body?.pipeThrough(new TextDecoderStream()).getReader()
+				let reRanCounter = 0
+				if (reader) {
+					while (true) {
+						const { value, done } = await reader.read()
+						if (value) {
+							console.log('Received', value)
+							reRanCounter += 1
+						}
+						if (done || !value) {
+							sendUserToast(`Re-ran ${reRanCounter} jobs`)
+							break
+						}
+					}
+				}
 
 				selectedIds = []
 				batchReRunOptions = { flow: {}, script: {} }
 				jobLoader?.loadJobs(minTs, maxTs, true, true)
-				sendUserToast(`Re-ran ${uuids.length} jobs`)
+				// sendUserToast(`Re-ran ${uuids.length} jobs`)
 				selectionMode = false
 			}
 		}

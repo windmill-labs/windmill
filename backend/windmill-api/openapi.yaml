@@ -6550,13 +6550,11 @@ paths:
                       use_latest_version: boolean
       responses:
         "201":
-          description: jobs created
+          description: stream of uuids of created jobs
           content:
-            application/json:
+            text/event-stream:
               schema:
-                type: array
-                items:
-                  type: string
+                type: string
 
   /w/{workspace}/jobs/restart/f/{id}/from/{step_id}/{branch_or_iteration_n}:
     post:

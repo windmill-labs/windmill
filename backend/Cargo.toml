@@ -92,6 +92,7 @@ scoped_cache = ["windmill-common/scoped_cache"]
 [dependencies]
 anyhow.workspace = true
 tokio.workspace = true
+tokio-stream.workspace = true
 dotenv.workspace = true
 windmill-queue.workspace = true
 windmill-common = { workspace = true, default-features = false }
@@ -169,6 +170,7 @@ axum = { version = "^0.7", features = ["multipart"] }
 headers = "^0"
 hyper = { version = "^1", features = ["full"] }
 tokio = { version = "^1.42.0", features = ["full", "tracing", "time"] }
+tokio-stream = { version = "0.1.17" }
 tower = "^0"
 tower-http = { version = "^0.6", features = ["trace", "cors"] }
 tower-cookies = "^0.10"
