@@ -10,6 +10,10 @@
 		analyzeChanges: null
 		explainChanges: null
 	}>()
+
+	$: btnClasses = `!px-1 !py-0.5 !gap-1 ${
+		diffMode ? '!bg-surface-secondary dark:!bg-surface-secondary' : '!font-normal'
+	}`
 </script>
 
 <div class="flex flex-row items-center gap-2 px-2 py-1">
@@ -20,11 +24,9 @@
 					dispatch('explainChanges')
 				}}
 				title="Explain changes"
-				size="xs"
-				btnClasses="!px-2 !py-0.5 {diffMode
-					? '!bg-surface-secondary dark:!bg-surface-secondary'
-					: ''}"
-				startIcon={{ icon: LightbulbIcon }}
+				size="xs3"
+				{btnClasses}
+				startIcon={{ icon: LightbulbIcon, classes: '!w-3 !h-3 !px-0 !m-0' }}
 				variant="border"
 				color="light"
 				propagateEvent
@@ -39,9 +41,7 @@
 			}}
 			title="Suggest improvements"
 			size="xs"
-			btnClasses="!px-2 !py-0.5 {diffMode
-				? '!bg-surface-secondary dark:!bg-surface-secondary'
-				: ''}"
+			{btnClasses}
 			startIcon={{ icon: diffMode ? SparklesIcon : LightbulbIcon }}
 			variant="border"
 			color="light"
