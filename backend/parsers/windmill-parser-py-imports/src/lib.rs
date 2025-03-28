@@ -90,13 +90,36 @@ pub fn parse_relative_imports(code: &str, path: &str) -> error::Result<Vec<Strin
 #[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 enum NImport {
     // Order matters! First we want to resolve all repins
+     
+    // manually repinned requirement
+    // e.g.:
+    // import pandas # repin: pandas==x.y.z
     Repin { pin: String, base: String, path: String },
+    // manually pinned requirements
+    // e.g.:
+    // import pandas # pin: pandas>=x.y.z
+    // import pandas # pin: pandas<=x.y.z
+    //
+    // NOTE: It is possible for multiple pins exist on same import
+    // That's why we store vector of pins
     Pin { pins: Vec<ImportPin>, base: String },
-    Auto{
+    // Automatically inferenced requirement
+    // e.g.:
+    // import pandas
+    Auto {
+        // Take `x.y.z` for example
+        // x is going to be the `root`
+        // and x.y.z is `full`
+        //
+        // `full` will be None if it is equal to root
+        //
+        // We will use `root` as a requirement name and pass to `uv pip compile` if it was not replaced with any pin
         root: String,
+
+        // However we still need full, since all pins pin against full import names
         full: Option<String>,
     },
-    // Relatives we want to be expanded in the very end
+    // Relative imports
     Relative(String),
 }
 
@@ -104,25 +127,6 @@ enum NImport {
 struct ImportPin{
     pin: String,
     path: String,
-}
-
-impl NImport {
-    fn get_base(&self) -> &str {
-        match self {
-            NImport::Pin { base, .. } => base,
-            NImport::Repin { base, .. } => base,
-            NImport::Relative(base) => base,
-            NImport::Auto{full, root} => full.as_ref().unwrap_or(root),
-        }
-    }
-    fn get_root (&self) -> &str {
-        match self {
-            NImport::Pin { base, .. } => base,
-            NImport::Repin { base, .. } => base,
-            NImport::Relative(base) => base,
-            NImport::Auto{root, ..} => root,
-        }
-    }
 }
 
 fn parse_code_for_imports(code: &str, path: &str) -> error::Result<Vec<NImport>> {
@@ -178,8 +182,7 @@ fn parse_code_for_imports(code: &str, path: &str) -> error::Result<Vec<NImport>>
         .into_iter()
         .filter_map(|x| match x {
             Stmt::Import(StmtImport { names, range }) => {
-                // TODO: Fix names
-                    find_pin(range, names.get(0).unwrap().name.to_string())
+                    names.get(0).and_then(|al| find_pin(range, al.name.to_string()))
                     .or(Some(
                         names
                             .into_iter()
@@ -208,7 +211,11 @@ fn parse_code_for_imports(code: &str, path: &str) -> error::Result<Vec<NImport>>
             _ => None,
         })
         .flatten()
-        .filter(|x| !STDIMPORTS.contains(&x.get_root()))
+        .filter(|x| if let NImport::Auto { ref root, .. } = x {
+            !STDIMPORTS.contains(&(*root).as_str())
+        } else {
+           true     
+        })
         .unique()
         .collect();
     return Ok(nimports);
@@ -244,11 +251,10 @@ pub async fn parse_python_imports(
             Ok(p.pin)
         }).collect_vec(),
         NImport::Repin { pin, .. } => vec![Ok(pin)],
-        NImport::Auto{root, ..} => vec![Ok(root)],
+        NImport::Auto { root, ..} => vec![Ok(root)],
         NImport::Relative(_) => vec![Err(anyhow::anyhow!("Internal Error: parse_python_imports_inner returned relative import").into())],
     })
     .flatten()
-    // .unique()
     .collect::<error::Result<Vec<String>>>()?;
     imports.sort();
     compile_error_hint.as_mut().map(|e| e.push_str("\n\nNOTE: You can also `repin` to override all pins"));
@@ -342,8 +348,18 @@ async fn parse_python_imports_inner(
                 .collect_vec();
         }
 
+        // Will get unsorted vector of imports found in current script
         let mut nimports = parse_code_for_imports(code, path)?;
+
+        // It is important to note, that sorting is important and will always result in this pattern:
+        // 1. All Repins go first
+        // 2. All Pins go second
+        // 3. All Auto go third
+        // 4. All relative imports go the last
+        //
+        // This way we make sure all repins are resolved before (re)pins inside imported relative scripts.
         nimports.sort();
+
         for n in nimports.iter() {
             let nested = if let NImport::Relative(rpath) = n {
                 let code = sqlx::query_scalar!(
@@ -363,6 +379,8 @@ async fn parse_python_imports_inner(
                     vec![]
                 } else {
                     already_visited.push(rpath.clone());
+                    // Because the algo goes depth first, this function will never return relative import
+                    // This why we can safely assume later, that there is no relative imports
                     parse_python_imports_inner(
                         &code,
                         w_id,
@@ -382,7 +400,12 @@ async fn parse_python_imports_inner(
 
             // At this point there should be no NImport::Relative in `nested`
             for imp in nested {
-                let base = imp.get_base().to_owned();
+                let base = match imp.clone() {
+                    NImport::Pin { base, .. } => base,
+                    NImport::Repin { base, .. } => base,
+                    NImport::Relative(base) => base,
+                    NImport::Auto{full, root} => full.unwrap_or(root),
+                };
                 // Handled cases:
                 //
                 //  1.
@@ -450,7 +473,7 @@ async fn parse_python_imports_inner(
                         match existing_import {
                             // Check if pin is the same version, if same, do nothing, if not error
                             NImport::Pin { pins: existing_pins,  .. } => existing_pins.extend(new_pins),
-                            // Fine, do nothing
+                            // do nothing
                             NImport::Repin { .. } => {}
                             // Replace with new pin
                             NImport::Auto{..} => {
