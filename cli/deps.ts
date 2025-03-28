@@ -15,7 +15,7 @@ export { CompletionsCommand } from "jsr:@windmill-labs/cliffy-command@1.0.0-rc.5
 export { ensureDir } from "jsr:@std/fs";
 export { SEPARATOR as SEP } from "jsr:@std/path";
 export * as path from "jsr:@std/path";
-export { encodeHex } from "jsr:@std/encoding";
+export { encodeHex } from "jsr:@std/encoding@1.0.4";
 export { writeAllSync } from "jsr:@std/io/write-all";
 export { copy } from "jsr:@std/io/copy";
 export { readAll } from "jsr:@std/io/read-all";
