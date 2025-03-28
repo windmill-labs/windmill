@@ -251,11 +251,15 @@
 
 	$: displayMessages = updateDisplayMessages($dbSchemas)
 
-	async function sendRequest() {
+	async function sendRequest(options: { removeDiff?: boolean } = {}) {
 		if (!instructions.trim()) {
 			return
 		}
 		try {
+			const oldSelectedContext = selectedContext
+			if (options.removeDiff) {
+				selectedContext = selectedContext.filter((c) => c.type !== 'diff')
+			}
 			loading.set(true)
 			aiChatDisplay?.enableAutomaticScroll()
 			abortController = new AbortController()
@@ -265,12 +269,12 @@
 				{
 					role: 'user',
 					content: instructions,
-					contextElements: selectedContext
+					contextElements: oldSelectedContext
 				}
 			]
 			const oldInstructions = instructions
 			instructions = ''
-			const userMessage = await prepareUserMessage(oldInstructions, lang, selectedContext)
+			const userMessage = await prepareUserMessage(oldInstructions, lang, oldSelectedContext)
 
 			messages.push({ role: 'user', content: userMessage })
 			await saveChat()
@@ -280,7 +284,7 @@
 				messages,
 				abortController,
 				lang,
-				selectedContext.filter((c) => c.type === 'db').length > 0,
+				oldSelectedContext.filter((c) => c.type === 'db').length > 0,
 				(token) => currentReply.update((prev) => prev + token)
 			)
 
@@ -385,7 +389,9 @@
 				content: JSON.stringify(diffWithLastDeployed)
 			}
 		]
-		sendRequest()
+		sendRequest({
+			removeDiff: true
+		})
 		dispatch('reviewChanges')
 	}
 
