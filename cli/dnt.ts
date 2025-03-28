@@ -69,6 +69,7 @@ await build({
       "rust",
       "yaml",
       "csharp",
+      "java",
     ];
 
     for (const l of dirs) {

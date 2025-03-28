@@ -98,7 +98,9 @@
 		'php',
 		'rust',
 		'csharp',
-		'nu'
+		'nu',
+		'java',
+		// KJQXZ 
 	].includes(lang ?? '')
 	$: showVarPicker = [
 		'python3',
@@ -112,7 +114,9 @@
 		'php',
 		'rust',
 		'csharp',
-		'nu'
+		'nu',
+		'java',
+		// KJQXZ 
 	].includes(lang ?? '')
 	$: showResourcePicker = [
 		'python3',
@@ -126,7 +130,9 @@
 		'php',
 		'rust',
 		'csharp',
-		'nu'
+		'nu',
+		'java',
+		// KJQXZ 
 	].includes(lang ?? '')
 	$: showResourceTypePicker =
 		['typescript', 'javascript'].includes(scriptLangToEditorLang(lang)) ||
@@ -377,6 +383,9 @@
 			editor.insertAtCursor(`Environment.GetEnvironmentVariable("${name}");`)
 		} else if (lang == 'nu') {
 			editor.insertAtCursor(`$env.${name}`)
+		} else if (lang == 'java') {
+			editor.insertAtCursor(`System.getenv("${name}");`)
+			// KJQXZ 
 		}
 		sendUserToast(`${name} inserted at cursor`)
 	}}
@@ -444,6 +453,9 @@ string ${windmillPathToCamelCaseName(path)} = await client.GetStringAsync(uri);
 `)
 		} else if (lang == 'nu') {
 			editor.insertAtCursor(`get_variable ${path}`)
+		} else if (lang == 'java') {
+			editor.insertAtCursor(`(Wmill.getVariable("${path}"))`)
+			// KJQXZ 
 		}
 		sendUserToast(`${name} inserted at cursor`)
 	}}
@@ -528,7 +540,11 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 `)
 		} else if (lang == 'nu') {
 			editor.insertAtCursor(`get_resource ${path}`)
+		} else if (lang == 'java') {
+			editor.insertAtCursor(`(Wmill.getResource("${path}"))`)
+			// KJQXZ 
 		}
+
 		sendUserToast(`${path} inserted at cursor`)
 	}}
 	tooltip="Resources represent connections to third party systems. Resources are a good way to define a connection to a frequently used third party system such as a database."

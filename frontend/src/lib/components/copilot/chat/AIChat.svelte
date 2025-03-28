@@ -22,7 +22,7 @@
 	import { sendUserToast } from '$lib/toast'
 	import { openDB, type DBSchema as IDBSchema, type IDBPDatabase } from 'idb'
 	import { isInitialCode } from '$lib/script_helpers'
-	import { langToExt } from '$lib/editorUtils'
+	import { createLongHash, langToExt } from '$lib/editorUtils'
 	import { scriptLangToEditorLang } from '$lib/scripts'
 	import { type Change } from 'diff'
 
@@ -49,17 +49,21 @@
 		args: Record<string, any>,
 		dbSchemas: DBSchemas
 	) {
-		const schemaRes = lang === 'graphql' ? args.api : args.database
-		if (typeof schemaRes === 'string') {
-			const schemaPath = schemaRes.replace('$res:', '')
-			const schema = dbSchemas[schemaPath]
-			if (schema && schema.lang === lang) {
-				db = { schema, resource: schemaPath }
+		try {
+			const schemaRes = lang === 'graphql' ? args.api : args.database
+			if (typeof schemaRes === 'string') {
+				const schemaPath = schemaRes.replace('$res:', '')
+				const schema = dbSchemas[schemaPath]
+				if (schema && schema.lang === lang) {
+					db = { schema, resource: schemaPath }
+				} else {
+					db = undefined
+				}
 			} else {
 				db = undefined
 			}
-		} else {
-			db = undefined
+		} catch (err) {
+			console.error('Could not update schema', err)
 		}
 	}
 	$: updateSchema(lang, args, $dbSchemas)
@@ -83,86 +87,8 @@
 		if (!contextCodePath) {
 			return
 		}
-		let newAvailableContext: ContextElement[] = [
-			{
-				type: 'code',
-				title: contextCodePath,
-				content: code,
-				lang
-			}
-		]
-
-		if (diffWithLastSaved && diffWithLastSaved.filter((d) => d.added || d.removed).length > 0) {
-			newAvailableContext.push({
-				type: 'diff',
-				title: 'diff_with_last_saved_draft',
-				content: JSON.stringify(diffWithLastSaved)
-			})
-		}
-
-		if (
-			diffWithLastDeployed &&
-			diffWithLastDeployed.filter((d) => d.added || d.removed).length > 0
-		) {
-			newAvailableContext.push({
-				type: 'diff',
-				title: 'diff_with_last_deployed_version',
-				content: JSON.stringify(diffWithLastDeployed)
-			})
-		}
-
-		if (workspace && !providerModel?.model.endsWith('/thinking')) {
-			// Make all dbs in the workspace available
-			const dbs = await ResourceService.listResource({
-				workspace: workspace,
-				resourceType: SQLSchemaLanguages.join(',')
-			})
-			for (const d of dbs) {
-				const loadedSchema = dbSchemas[d.path]
-				newAvailableContext.push({
-					type: 'db',
-					title: d.path,
-					// If the db is already fetched, add the schema to the context
-					...(loadedSchema ? { schema: loadedSchema } : {})
-				})
-			}
-		}
-
-		if (error) {
-			newAvailableContext = [
-				...newAvailableContext,
-				{
-					type: 'error',
-					title: 'error',
-					content: error
-				}
-			]
-		}
-
-		if (db) {
-			// If the db is already fetched, add it to the selected context
-			if (
-				!selectedContext.find((c) => c.type === 'db' && c.title === db.resource) &&
-				!providerModel?.model.endsWith('/thinking')
-			) {
-				selectedContext = [
-					...selectedContext,
-					{
-						type: 'db',
-						title: db.resource,
-						schema: db.schema
-					}
-				]
-			}
-		}
-
-		availableContext = newAvailableContext
-
-		if (
-			code &&
-			((initializedWithInitCode === null && !isInitialCode(code)) || initializedWithInitCode)
-		) {
-			selectedContext = [
+		try {
+			let newAvailableContext: ContextElement[] = [
 				{
 					type: 'code',
 					title: contextCodePath,
@@ -170,15 +96,94 @@
 					lang
 				}
 			]
-		}
+			if (diffWithLastSaved && diffWithLastSaved.filter((d) => d.added || d.removed).length > 0) {
+				newAvailableContext.push({
+					type: 'diff',
+					title: 'diff_with_last_saved_draft',
+					content: JSON.stringify(diffWithLastSaved)
+				})
+			}
+			if (
+				diffWithLastDeployed &&
+				diffWithLastDeployed.filter((d) => d.added || d.removed).length > 0
+			) {
+				newAvailableContext.push({
+					type: 'diff',
+					title: 'diff_with_last_deployed_version',
+					content: JSON.stringify(diffWithLastDeployed)
+				})
+			}
+			if (workspace && !providerModel?.model.endsWith('/thinking')) {
+				// Make all dbs in the workspace available
+				const dbs = await ResourceService.listResource({
+					workspace: workspace,
+					resourceType: SQLSchemaLanguages.join(',')
+				})
+				for (const d of dbs) {
+					const loadedSchema = dbSchemas[d.path]
+					newAvailableContext.push({
+						type: 'db',
+						title: d.path,
+						// If the db is already fetched, add the schema to the context
+						...(loadedSchema ? { schema: loadedSchema } : {})
+					})
+				}
+			}
 
-		if (code && initializedWithInitCode === null) {
-			initializedWithInitCode = isInitialCode(code)
-		}
+			if (error) {
+				newAvailableContext = [
+					...newAvailableContext,
+					{
+						type: 'error',
+						title: 'error',
+						content: error
+					}
+				]
+			}
 
-		selectedContext = selectedContext
-			.map((c) => availableContext.find((ac) => ac.type === c.type && ac.title === c.title))
-			.filter((c) => c !== undefined) as ContextElement[]
+			if (db) {
+				// If the db is already fetched, add it to the selected context
+				if (
+					!selectedContext.find((c) => c.type === 'db' && c.title === db.resource) &&
+					!providerModel?.model.endsWith('/thinking')
+				) {
+					selectedContext = [
+						...selectedContext,
+						{
+							type: 'db',
+							title: db.resource,
+							schema: db.schema
+						}
+					]
+				}
+			}
+
+			availableContext = newAvailableContext
+
+			if (
+				code &&
+				((initializedWithInitCode === null && !isInitialCode(code)) || initializedWithInitCode)
+			) {
+				selectedContext = [
+					{
+						type: 'code',
+						title: contextCodePath,
+						content: code,
+						lang
+					}
+				]
+			}
+
+			if (code && initializedWithInitCode === null) {
+				initializedWithInitCode = isInitialCode(code)
+			}
+
+			selectedContext = selectedContext
+				.map((c) => availableContext.find((ac) => ac.type === c.type && ac.title === c.title))
+				.filter((c) => c !== undefined) as ContextElement[]
+		} catch (err) {
+			console.error('Could not update available context', err)
+		}
 	}
 
 	function updateDisplayMessages(dbSchemas: DBSchemas) {
@@ -226,7 +231,7 @@
 		}
 	})
 
-	let currentChatId: string = crypto.randomUUID()
+	let currentChatId: string = createLongHash()
 	let savedChats: Record<
 		string,
 		{
@@ -338,7 +343,7 @@
 
 	async function saveAndClear() {
 		await saveChat()
-		currentChatId = crypto.randomUUID()
+		currentChatId = createLongHash()
 		displayMessages = []
 		messages = [prepareSystemMessage()]
 	}
@@ -359,6 +364,9 @@
 	}
 
 	export function fix() {
+		if (!contextCodePath) {
+			return
+		}
 		instructions = 'Fix the error'
 
 		const codeContext = availableContext.find(
@@ -410,19 +418,26 @@
 
 	let indexDB: IDBPDatabase<ChatSchema> | undefined = undefined
 	async function initIndexDB() {
-		indexDB = await openDB<ChatSchema>('copilot-chat-history', 1, {
-			upgrade(indexDB) {
-				if (!indexDB.objectStoreNames.contains('chats')) {
-					indexDB.createObjectStore('chats', { keyPath: 'id' })
+		try {
+			console.log('Initializing chat history database')
+			indexDB = await openDB<ChatSchema>('copilot-chat-history', 1, {
+				upgrade(indexDB) {
+					if (!indexDB.objectStoreNames.contains('chats')) {
+						indexDB.createObjectStore('chats', { keyPath: 'id' })
+					}
 				}
-			}
-		})
+			})
+			console.log('Chat history database initialized')
 
-		const chats = await indexDB.getAll('chats')
-		savedChats = chats.reduce((acc, chat) => {
-			acc[chat.id] = chat
-			return acc
-		}, {} as typeof savedChats)
+			const chats = await indexDB.getAll('chats')
+			console.log('Retrieved chats')
+			savedChats = chats.reduce((acc, chat) => {
+				acc[chat.id] = chat
+				return acc
+			}, {} as typeof savedChats)
+		} catch (err) {
+			console.error('Could not open chat history database', err)
+		}
 	}
 
 	initIndexDB()

@@ -24,6 +24,7 @@ import initRustParser, { parse_rust } from 'windmill-parser-wasm-rust'
 import initYamlParser, { parse_ansible } from 'windmill-parser-wasm-yaml'
 import initCSharpParser, { parse_csharp } from 'windmill-parser-wasm-csharp'
 import initNuParser, { parse_nu } from 'windmill-parser-wasm-nu'
+import initJavaParser, { parse_java } from 'windmill-parser-wasm-java'
 
 import wasmUrlTs from 'windmill-parser-wasm-ts/windmill_parser_wasm_bg.wasm?url'
 import wasmUrlRegex from 'windmill-parser-wasm-regex/windmill_parser_wasm_bg.wasm?url'
@@ -34,6 +35,7 @@ import wasmUrlRust from 'windmill-parser-wasm-rust/windmill_parser_wasm_bg.wasm?
 import wasmUrlYaml from 'windmill-parser-wasm-yaml/windmill_parser_wasm_bg.wasm?url'
 import wasmUrlCSharp from 'windmill-parser-wasm-csharp/windmill_parser_wasm_bg.wasm?url'
 import wasmUrlNu from 'windmill-parser-wasm-nu/windmill_parser_wasm_bg.wasm?url'
+import wasmUrlJava from 'windmill-parser-wasm-java/windmill_parser_wasm_bg.wasm?url'
 import { workspaceStore } from './stores.js'
 import { argSigToJsonSchemaType } from './inferArgSig.js'
 
@@ -70,6 +72,9 @@ async function initWasmCSharp() {
 }
 async function initWasmNu() {
 	await initNuParser(wasmUrlNu)
+}
+async function initWasmJava() {
+	await initJavaParser(wasmUrlJava)
 }
 
 export async function inferArgs(
@@ -186,6 +191,10 @@ export async function inferArgs(
 		} else if (language == 'nu') {
 			await initWasmNu()
 			inferedSchema = JSON.parse(parse_nu(code))
+		} else if (language == 'java') {
+			await initWasmJava()
+			inferedSchema = JSON.parse(parse_java(code))
+			// KJQXZ 
 		} else {
 			return null
 		}

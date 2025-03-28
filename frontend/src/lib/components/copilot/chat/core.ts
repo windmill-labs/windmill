@@ -283,26 +283,26 @@ export const ContextIconMap = {
 
 export type ContextElement =
 	| {
-			type: 'code'
-			content: string
-			title: string
-			lang: ScriptLang | 'bunnative'
-	  }
+		type: 'code'
+		content: string
+		title: string
+		lang: ScriptLang | 'bunnative'
+	}
 	| {
-			type: 'error'
-			content: string
-			title: 'error'
-	  }
+		type: 'error'
+		content: string
+		title: 'error'
+	}
 	| {
-			type: 'db'
-			schema?: DBSchema
-			title: string
-	  }
+		type: 'db'
+		schema?: DBSchema
+		title: string
+	}
 	| {
-			type: 'diff'
-			content: string
-			title: string
-	  }
+		type: 'diff'
+		content: string
+		title: string
+	}
 
 export async function prepareUserMessage(
 	instructions: string,
@@ -415,8 +415,8 @@ async function callTool(
 				path: args.resourcePath
 			})
 			const newDbSchemas = {}
-			await getDbSchemas(resource.resource_type, args.resourcePath, workspace, newDbSchemas, (error) => {console.error(error)})
-			dbSchemas.update(schemas => ({...schemas, ...newDbSchemas}))
+			await getDbSchemas(resource.resource_type, args.resourcePath, workspace, newDbSchemas, (error) => { console.error(error) })
+			dbSchemas.update(schemas => ({ ...schemas, ...newDbSchemas }))
 			const dbs = get(dbSchemas)
 			const db = dbs[args.resourcePath]
 			if (!db) {
