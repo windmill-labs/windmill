@@ -2,6 +2,7 @@
 	import { Pin } from 'lucide-svelte'
 	import { base } from '$lib/base'
 	import DarkModeObserver from '$lib/components/DarkModeObserver.svelte'
+	import { Info } from 'lucide-svelte'
 
 	let darkMode = true
 
@@ -97,10 +98,10 @@
 			<div class="flex items-start gap-2 group">
 				<div
 					class="bg-surface-secondary text-secondary rounded-full w-5 h-5 flex items-center justify-center text-xs font-medium flex-shrink-0 -mt-0.5"
-					>3</div
+					><Info size="14" /></div
 				>
 				<div class="w-full">
-					<div class="font-medium mb-1.5">Recover last pin from history</div>
+					<div class="font-medium mb-1.5">The last pin can be recovered from history</div>
 					<div
 						class="border rounded-md p-1 bg-white dark:bg-slate-800 h-56 overflow-hidden shadow-sm group-hover:shadow transition-shadow"
 					>
@@ -121,10 +122,10 @@
 				<div
 					class="bg-surface-secondary text-secondary rounded-full w-5 h-5 flex items-center justify-center text-xs font-medium flex-shrink-0 -mt-0.5"
 				>
-					4
+					<Info size="14" />
 				</div>
 				<div class="w-full">
-					<div class="font-medium mb-1.5">Pin directly from flow view</div>
+					<div class="font-medium mb-1.5">All of this can be done from the flow view</div>
 					<div
 						class="border rounded-md p-1 bg-white dark:bg-slate-800 h-56 overflow-hidden shadow-sm group-hover:shadow transition-shadow"
 					>

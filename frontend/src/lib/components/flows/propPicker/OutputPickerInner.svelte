@@ -83,7 +83,7 @@
 	}
 
 	function togglePreview(nPrev: 'mock' | 'job' | undefined) {
-		if (nPrev === 'mock' && selectedJob && 'result' in selectedJob) {
+		if (nPrev === 'mock') {
 			preview = 'mock'
 		} else if (nPrev === 'job' && mock?.enabled && selectedJob) {
 			preview = 'job'
@@ -98,6 +98,8 @@
 			: preview === 'job' && mock?.enabled && selectedJob?.type === 'CompletedJob'
 			? 'override'
 			: undefined
+
+	$: console.log('dbg preview', preview)
 </script>
 
 <div class="w-full h-full flex flex-col" bind:clientHeight>
@@ -139,6 +141,7 @@
 							{moduleId}
 							{getLogs}
 							on:select={async ({ detail }) => {
+								console.log('dbg detail', detail)
 								if (!detail) {
 									selectJob(undefined)
 									togglePreview(undefined)
@@ -227,6 +230,16 @@
 						}}
 					>
 						Restore pin <Pin size={14} class="inline" />
+					</button>
+					or
+					<button
+						class="inline-block text-xs px-2 py-1 underline"
+						on:click={() => {
+							selectJob(lastJob)
+							togglePreview(undefined)
+						}}
+					>
+						See last result
 					</button>
 				</span>
 			{:else}
@@ -439,7 +452,7 @@
 						on:click={() => {
 							const newMock = {
 								enabled: true,
-								return_value: { example: 'value' }
+								return_value: mock?.return_value ?? { example: 'value' }
 							}
 							dispatch('updateMock', newMock)
 						}}>pin data<Pin size={16} class="inline" /></button
