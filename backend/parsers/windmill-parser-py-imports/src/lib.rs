@@ -173,7 +173,7 @@ fn parse_code_for_imports(code: &str, path: &str) -> error::Result<Vec<NImport>>
             })
     };
 
-    let nimports: Vec<NImport> = ast
+    let mut nimports: Vec<NImport> = ast
         .into_iter()
         .filter_map(|x| match x {
             Stmt::Import(StmtImport { names, range }) => {
@@ -213,6 +213,8 @@ fn parse_code_for_imports(code: &str, path: &str) -> error::Result<Vec<NImport>>
         })
         .unique()
         .collect();
+
+    nimports.sort();
     return Ok(nimports);
 }
 
