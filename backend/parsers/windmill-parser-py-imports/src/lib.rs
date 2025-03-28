@@ -100,7 +100,7 @@ enum NImport {
     // NOTE: It is possible for multiple pins exist on same import
     // That's why we store vector of pins
     Pin { pins: Vec<ImportPin>, base: String },
-    // Automatically inferenced requirement
+    // Automatically inferred requirement
     // e.g.:
     // import pandas
     Auto {
