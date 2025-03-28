@@ -55,7 +55,8 @@
                 "ansible",
                 "csharp",
                 "oracledb",
-                "nu"
+                "nu",
+                "java"
               ]
             }
           }
