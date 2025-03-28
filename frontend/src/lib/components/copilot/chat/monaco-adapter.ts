@@ -219,11 +219,11 @@ export class AIChatEditorHandler {
 				}
 			})
 
-			;({ collection, ids } = await displayVisualChanges(
-				'editor-windmill-chat-style',
-				this.editor,
-				changes
-			))
+				; ({ collection, ids } = await displayVisualChanges(
+					'editor-windmill-chat-style',
+					this.editor,
+					changes
+				))
 			this.decorationsCollections.push(collection)
 			this.viewZoneIds.push(...ids)
 		}

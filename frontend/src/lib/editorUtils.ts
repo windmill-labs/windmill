@@ -4,7 +4,8 @@ export function editorConfig(
 	code: string,
 	lang: string,
 	automaticLayout: boolean,
-	fixedOverflowWidgets: boolean
+	fixedOverflowWidgets: boolean,
+	lineNumbers: 'on' | 'off' | 'relative' = 'on'
 ) {
 	return {
 		value: code,
@@ -12,7 +13,7 @@ export function editorConfig(
 		automaticLayout,
 		readOnly: false,
 		fixedOverflowWidgets,
-		lineNumbers: 'on' as const,
+		lineNumbers,
 		lineDecorationsWidth: 10,
 		lineNumbersMinChars: 3,
 		scrollbar: { alwaysConsumeMouseWheel: false },

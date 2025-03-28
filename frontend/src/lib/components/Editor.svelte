@@ -221,7 +221,7 @@
 	export let disabled: boolean = false
 	export let lineNumbersMinChars = 3
 	export let diffMode: Writable<boolean> = writable(false)
-		
+
 	const rHash = randomHash()
 	$: filePath = computePath(path)
 

@@ -86,7 +86,7 @@
 		deno: false,
 		go: false,
 		ruff: false,
-		shellcheck: false,
+		shellcheck: false
 	}
 
 	const dispatch = createEventDispatcher()
@@ -97,7 +97,6 @@
 
 	$: diffWithLastSaved = diffChars(lastSavedCode ?? '', code)
 	$: diffWithLastDeployed = diffChars(lastDeployedCode ?? '', code)
-
 
 	let width = 1200
 
@@ -349,6 +348,22 @@
 		}
 		return undefined
 	}
+
+	function showDiffMode() {
+		diffMode.set(true)
+		diffEditor?.setupModel(scriptLangToEditorLang(lang))
+		diffEditor?.setOriginal(lastDeployedCode ?? '')
+		diffEditor?.setModified(editor?.getCode() ?? '')
+		diffEditor?.show()
+		editor?.hide()
+	}
+
+	function hideDiffMode() {
+		diffMode.set(false)
+		diffEditor?.hide()
+		editor?.show()
+	}
+
 	$: error = getStringError(testJob)
 </script>
 
@@ -386,6 +401,8 @@
 					setCollaborationMode()
 				}
 			}}
+			on:showDiffMode={showDiffMode}
+			on:hideDiffMode={hideDiffMode}
 			customUi={{ ...customUi?.editorBar, aiGen: false }}
 			collabLive={wsProvider?.shouldConnect}
 			{collabMode}
@@ -403,8 +420,10 @@
 			{args}
 			{noHistory}
 			{saveToWorkspace}
-			lastDeployedCode={lastDeployedCode && lastDeployedCode !== code ? lastDeployedCode : undefined}
-			diffMode={diffMode}
+			lastDeployedCode={lastDeployedCode && lastDeployedCode !== code
+				? lastDeployedCode
+				: undefined}
+			{diffMode}
 			bind:showHistoryDrawer
 		>
 			<slot name="editor-bar-right" slot="right" />
@@ -515,7 +534,7 @@
 						automaticLayout={true}
 						{fixedOverflowWidgets}
 						{args}
-						diffMode={diffMode}
+						{diffMode}
 					/>
 					<DiffEditor
 						class="h-full"
@@ -541,7 +560,8 @@
 					}}
 					on:reviewChanges={() => {
 						console.log('reviewChanges')
-						editor?.reviewChanges(lastDeployedCode ?? '')
+						showDiffMode()
+						// editor?.reviewChanges(lastDeployedCode ?? '')
 					}}
 					{diffWithLastSaved}
 					{diffWithLastDeployed}
