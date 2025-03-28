@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.479.4](https://github.com/windmill-labs/windmill/compare/v1.479.3...v1.479.4) (2025-03-28)
+
+
+### Bug Fixes
+
+* correctly run empty flow with preprocessor from UI ([#5537](https://github.com/windmill-labs/windmill/issues/5537)) ([3d32501](https://github.com/windmill-labs/windmill/commit/3d3250194d43aee1a640a57505bc7a6afee62c84))
+
 ## [1.479.3](https://github.com/windmill-labs/windmill/compare/v1.479.2...v1.479.3) (2025-03-28)
 
 
