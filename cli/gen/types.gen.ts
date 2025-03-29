@@ -659,6 +659,7 @@ export type TriggersCount = {
     kafka_count?: number;
     nats_count?: number;
     mqtt_count?: number;
+    gcp_count?: number;
     sqs_count?: number;
 };
 
@@ -768,6 +769,30 @@ export type EditMqttTrigger = {
     v3_config?: MqttV3Config;
     v5_config?: MqttV5Config;
     client_version?: MqttClientVersion;
+    path: string;
+    script_path: string;
+    is_flow: boolean;
+    enabled: boolean;
+};
+
+export type GcpTrigger = TriggerExtraProperty & {
+    gcp_resource_path: string;
+    server_id?: string;
+    last_server_ping?: string;
+    error?: string;
+    enabled: boolean;
+};
+
+export type NewGcpTrigger = {
+    gcp_resource_path: string;
+    path: string;
+    script_path: string;
+    is_flow: boolean;
+    enabled?: boolean;
+};
+
+export type EditGcpTrigger = {
+    gcp_resource_path?: string;
     path: string;
     script_path: string;
     is_flow: boolean;
@@ -1384,7 +1409,7 @@ export type CriticalAlert = {
     workspace_id?: (string) | null;
 };
 
-export type CaptureTriggerKind = 'webhook' | 'http' | 'websocket' | 'kafka' | 'email' | 'nats' | 'postgres' | 'sqs' | 'mqtt';
+export type CaptureTriggerKind = 'webhook' | 'http' | 'websocket' | 'kafka' | 'email' | 'nats' | 'postgres' | 'sqs' | 'mqtt' | 'gcp';
 
 export type Capture = {
     trigger_kind: CaptureTriggerKind;
@@ -2976,6 +3001,7 @@ export type GetUsedTriggersResponse = ({
     nats_used: boolean;
     postgres_used: boolean;
     mqtt_used: boolean;
+    gcp_used: boolean;
     sqs_used: boolean;
 });
 
@@ -6366,6 +6392,95 @@ export type TestMqttConnectionData = {
 
 export type TestMqttConnectionResponse = (string);
 
+export type CreateGcpTriggerData = {
+    /**
+     * new gcp trigger
+     */
+    requestBody: NewGcpTrigger;
+    workspace: string;
+};
+
+export type CreateGcpTriggerResponse = (string);
+
+export type UpdateGcpTriggerData = {
+    path: string;
+    /**
+     * updated trigger
+     */
+    requestBody: EditGcpTrigger;
+    workspace: string;
+};
+
+export type UpdateGcpTriggerResponse = (string);
+
+export type DeleteGcpTriggerData = {
+    path: string;
+    workspace: string;
+};
+
+export type DeleteGcpTriggerResponse = (string);
+
+export type GetGcpTriggerData = {
+    path: string;
+    workspace: string;
+};
+
+export type GetGcpTriggerResponse = (GcpTrigger);
+
+export type ListGcpTriggersData = {
+    isFlow?: boolean;
+    /**
+     * which page to return (start at 1, default 1)
+     */
+    page?: number;
+    /**
+     * filter by path
+     */
+    path?: string;
+    pathStart?: string;
+    /**
+     * number of items to return for a given page (default 30, max 100)
+     */
+    perPage?: number;
+    workspace: string;
+};
+
+export type ListGcpTriggersResponse = (Array<GcpTrigger>);
+
+export type ExistsGcpTriggerData = {
+    path: string;
+    workspace: string;
+};
+
+export type ExistsGcpTriggerResponse = (boolean);
+
+export type SetGcpTriggerEnabledData = {
+    path: string;
+    /**
+     * updated gcp trigger enable
+     */
+    requestBody: {
+        enabled: boolean;
+    };
+    workspace: string;
+};
+
+export type SetGcpTriggerEnabledResponse = (string);
+
+export type TestGcpConnectionData = {
+    /**
+     * test gcp connection
+     */
+    requestBody: {
+        connection: {
+            [key: string]: unknown;
+        };
+    };
+    workspace: string;
+};
+
+export type TestGcpConnectionResponse = (string);
+
 export type IsValidPostgresConfigurationData = {
     path: string;
     workspace: string;
@@ -6907,7 +7022,7 @@ export type ListAutoscalingEventsData = {
 export type ListAutoscalingEventsResponse = (Array<AutoscalingEvent>);
 
 export type GetGranularAclsData = {
-    kind: 'script' | 'group_' | 'resource' | 'schedule' | 'variable' | 'flow' | 'folder' | 'app' | 'raw_app' | 'http_trigger' | 'websocket_trigger' | 'kafka_trigger' | 'nats_trigger' | 'postgres_trigger' | 'mqtt_trigger' | 'sqs_trigger';
+    kind: 'script' | 'group_' | 'resource' | 'schedule' | 'variable' | 'flow' | 'folder' | 'app' | 'raw_app' | 'http_trigger' | 'websocket_trigger' | 'kafka_trigger' | 'nats_trigger' | 'postgres_trigger' | 'mqtt_trigger' | 'gcp_trigger' | 'sqs_trigger';
     path: string;
     workspace: string;
 };
@@ -6917,7 +7032,7 @@ export type GetGranularAclsResponse = ({
 });
 
 export type AddGranularAclsData = {
-    kind: 'script' | 'group_' | 'resource' | 'schedule' | 'variable' | 'flow' | 'folder' | 'app' | 'raw_app' | 'http_trigger' | 'websocket_trigger' | 'kafka_trigger' | 'nats_trigger' | 'postgres_trigger' | 'mqtt_trigger' | 'sqs_trigger';
+    kind: 'script' | 'group_' | 'resource' | 'schedule' | 'variable' | 'flow' | 'folder' | 'app' | 'raw_app' | 'http_trigger' | 'websocket_trigger' | 'kafka_trigger' | 'nats_trigger' | 'postgres_trigger' | 'mqtt_trigger' | 'gcp_trigger' | 'sqs_trigger';
     path: string;
     /**
      * acl to add
@@ -6932,7 +7047,7 @@ export type AddGranularAclsData = {
 export type AddGranularAclsResponse = (string);
 
 export type RemoveGranularAclsData = {
-    kind: 'script' | 'group_' | 'resource' | 'schedule' | 'variable' | 'flow' | 'folder' | 'app' | 'raw_app' | 'http_trigger' | 'websocket_trigger' | 'kafka_trigger' | 'nats_trigger' | 'postgres_trigger' | 'mqtt_trigger' | 'sqs_trigger';
+    kind: 'script' | 'group_' | 'resource' | 'schedule' | 'variable' | 'flow' | 'folder' | 'app' | 'raw_app' | 'http_trigger' | 'websocket_trigger' | 'kafka_trigger' | 'nats_trigger' | 'postgres_trigger' | 'mqtt_trigger' | 'gcp_trigger' | 'sqs_trigger';
     path: string;
     /**
      * acl to add

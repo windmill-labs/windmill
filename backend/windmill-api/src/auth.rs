@@ -509,7 +509,6 @@ where
                 .map(|x| x.0)
                 .unwrap_or_default();
             let path_vec: Vec<&str> = original_uri.path().split("/").collect();
-
             let workspace_id = if path_vec.len() >= 4 && path_vec[0] == "" && path_vec[2] == "w" {
                 Some(path_vec[3].to_owned())
             } else {

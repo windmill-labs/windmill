@@ -1,5 +1,6 @@
 import * as wmill from "./gen/services.gen.ts";
 import {
+  GcpTrigger,
   HttpTrigger,
   KafkaTrigger,
   MqttTrigger,
@@ -27,6 +28,7 @@ type Trigger = {
   postgres: PostgresTrigger;
   mqtt: MqttTrigger;
   sqs: SqsTrigger;
+  gcp: GcpTrigger
 };
 
 type TriggerFile<K extends TriggerType> = Omit<
@@ -60,6 +62,7 @@ async function getTrigger<K extends TriggerType>(
     postgres: wmill.getPostgresTrigger,
     mqtt: wmill.getMqttTrigger,
     sqs: wmill.getSqsTrigger,
+    gcp: wmill.getGcpTrigger
   };
   const triggerFunction = triggerFunctions[triggerType];
 
@@ -87,6 +90,7 @@ async function updateTrigger<K extends TriggerType>(
     postgres: wmill.updatePostgresTrigger,
     mqtt: wmill.updateMqttTrigger,
     sqs: wmill.updateSqsTrigger,
+    gcp: wmill.updateGcpTrigger
   };
   const triggerFunction = triggerFunctions[triggerType];
   await triggerFunction({ workspace, path, requestBody: trigger });
@@ -112,6 +116,7 @@ async function createTrigger<K extends TriggerType>(
     postgres: wmill.createPostgresTrigger,
     mqtt: wmill.createMqttTrigger,
     sqs: wmill.createSqsTrigger,
+    gcp: wmill.createGcpTrigger
   };
   const triggerFunction = triggerFunctions[triggerType];
   await triggerFunction({ workspace, path, requestBody: trigger });
@@ -191,7 +196,9 @@ async function list(opts: GlobalOptions) {
   const sqsTriggers = await wmill.listSqsTriggers({
     workspace: workspace.workspaceId,
   });
-
+  const gcpTriggers = await wmill.listGcpTriggers({
+    workspace: workspace.workspaceId
+  })
   const triggers = [
     ...httpTriggers.map((x) => ({ path: x.path, kind: "http" })),
     ...websocketTriggers.map((x) => ({ path: x.path, kind: "websocket" })),
@@ -200,6 +207,7 @@ async function list(opts: GlobalOptions) {
     ...postgresTriggers.map((x) => ({ path: x.path, kind: "postgres" })),
     ...mqttTriggers.map((x) => ({ path: x.path, kind: "mqtt" })),
     ...sqsTriggers.map((x) => ({ path: x.path, kind: "sqs" })),
+    ...gcpTriggers.map((x) => ({ path: x.path, kind: "gcp" }))
   ];
 
   new Table()
@@ -213,7 +221,7 @@ async function list(opts: GlobalOptions) {
 function checkIfValidTrigger(kind: string | undefined): kind is TriggerType {
   if (
     kind &&
-    ["http", "websocket", "kafka", "nats", "postgres", "mqtt", "sqs"].includes(kind)
+    ["http", "websocket", "kafka", "nats", "postgres", "mqtt", "sqs", "gcp"].includes(kind)
   ) {
     return true;
   } else {

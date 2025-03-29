@@ -85,6 +85,8 @@ mod postgres_triggers;
 
 #[cfg(feature = "enterprise")]
 mod apps_ee;
+#[cfg(all(feature = "enterprise", feature = "gcp_trigger"))]
+mod gcp_triggers_ee;
 #[cfg(feature = "enterprise")]
 mod git_sync_ee;
 #[cfg(feature = "parquet")]
@@ -113,6 +115,7 @@ mod slack_approvals;
 mod smtp_server_ee;
 #[cfg(all(feature = "enterprise", feature = "sqs_trigger"))]
 mod sqs_triggers_ee;
+
 mod static_assets;
 #[cfg(all(feature = "stripe", feature = "enterprise"))]
 mod stripe_ee;
@@ -340,6 +343,18 @@ pub async fn run_server(
         }
     };
 
+    let gcp_triggers_service = {
+        #[cfg(all(feature = "enterprise", feature = "gcp_trigger"))]
+        {
+            gcp_triggers_ee::workspaced_service()
+        }
+
+        #[cfg(not(all(feature = "enterprise", feature = "gcp_trigger")))]
+        {
+            Router::new()
+        }
+    };
+
     let sqs_triggers_service = {
         #[cfg(all(feature = "enterprise", feature = "sqs_trigger"))]
         {
@@ -418,6 +433,12 @@ pub async fn run_server(
             let sqs_killpill_rx = rx.resubscribe();
             sqs_triggers_ee::start_sqs(db.clone(), sqs_killpill_rx);
         }
+
+        #[cfg(all(feature = "enterprise", feature = "gcp_trigger"))]
+        {
+            let gcp_killpill_rx = rx.resubscribe();
+            gcp_triggers_ee::start_consuming_gcp_pubsub_event(db.clone(), gcp_killpill_rx);
+        }
     }
 
     // build our application with a route
@@ -474,6 +495,7 @@ pub async fn run_server(
                         .nest("/nats_triggers", nats_triggers_service)
                         .nest("/mqtt_triggers", mqtt_triggers_service)
                         .nest("/sqs_triggers", sqs_triggers_service)
+                        .nest("/gcp_triggers", gcp_triggers_service)
                         .nest("/postgres_triggers", postgres_triggers_service),
                 )
                 .nest("/workspaces", workspaces::global_service())
@@ -598,6 +620,20 @@ pub async fn run_server(
                         }
 
                         #[cfg(not(feature = "http_trigger"))]
+                        {
+                            Router::new()
+                        }
+                    }
+                    .layer(from_extractor::<OptAuthed>()),
+                )
+                .nest(
+                    "/gcp/push",
+                    {
+                        #[cfg(feature = "gcp_trigger")]
+                        {
+                            gcp_triggers_ee::gcp_push_route_handler()
+                        }
+                        #[cfg(not(feature = "gcp_trigger"))]
                         {
                             Router::new()
                         }

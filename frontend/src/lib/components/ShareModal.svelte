@@ -31,6 +31,7 @@
 		| 'mqtt_trigger'
 		| 'sqs_trigger'
 		| 'postgres_trigger'
+		| 'gcp_trigger'
 	let kind: Kind
 
 	let path: string = ''

@@ -39,6 +39,7 @@ use windmill_common::error::Error;
 use crate::{
     args::WebhookArgs,
     db::{ApiAuthed, DB},
+    gcp_triggers_ee::{DeliveryType, PushConfig},
     users::fetch_api_authed,
     utils::RunnableKind,
 };
@@ -122,6 +123,15 @@ pub struct SqsTriggerConfig {
     pub queue_url: String,
     pub aws_resource_path: String,
     pub message_attributes: Option<Vec<String>>,
+}
+
+#[cfg(all(feature = "enterprise", feature = "gcp_trigger"))]
+#[derive(Debug, Serialize, Deserialize)]
+pub struct GcpTriggerConfig {
+    pub gcp_resource_path: String,
+    pub subscription_id: String,
+    pub delivery_type: DeliveryType,
+    pub delivery_config: Option<PushConfig>,
 }
 
 #[cfg(all(feature = "enterprise", feature = "nats"))]
