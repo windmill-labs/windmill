@@ -117,7 +117,7 @@ async function addCodebaseDigestIfRelevant(
       const parsed: any = yamlParseContent(path, content);
       if (parsed && typeof parsed == "object") {
         if (ignoreCodebaseChanges) {
-          parsed["codebase"] = undefined
+          parsed["codebase"] = undefined;
         } else {
           parsed["codebase"] = await c.getDigest();
         }
@@ -342,6 +342,8 @@ export function newPathAssigner(defaultTs: "bun" | "deno"): PathAssigner {
     else if (language == "csharp") ext = "cs";
     else if (language == "nu") ext = "nu";
     else if (language == "ansible") ext = "playbook.yml";
+    else if (language == "java") ext = "java";
+  	// KJQXZ 
     else ext = "no_ext";
 
     return [`${name}.inline_script.`, ext];
@@ -365,12 +367,12 @@ function ZipFSElement(
     )
       ? "flow"
       : p.endsWith("app.json")
-        ? "app"
-        : p.endsWith("script.json")
-          ? "script"
-          : p.endsWith("resource.json")
-            ? "resource"
-            : "other";
+      ? "app"
+      : p.endsWith("script.json")
+      ? "script"
+      : p.endsWith("resource.json")
+      ? "resource"
+      : "other";
 
     const isJson = p.endsWith(".json");
 
@@ -400,7 +402,7 @@ function ZipFSElement(
               yield {
                 isDirectory: false,
                 path: path.join(finalPath, s.path),
-                async *getChildren() { },
+                async *getChildren() {},
                 // deno-lint-ignore require-await
                 async getContentText() {
                   return s.content;
@@ -411,7 +413,7 @@ function ZipFSElement(
             yield {
               isDirectory: false,
               path: path.join(finalPath, "flow.yaml"),
-              async *getChildren() { },
+              async *getChildren() {},
               // deno-lint-ignore require-await
               async getContentText() {
                 return yamlStringify(flow, yamlOptions);
@@ -427,7 +429,7 @@ function ZipFSElement(
               yield {
                 isDirectory: false,
                 path: path.join(finalPath, s.path),
-                async *getChildren() { },
+                async *getChildren() {},
                 // deno-lint-ignore require-await
                 async getContentText() {
                   return s.content;
@@ -438,7 +440,7 @@ function ZipFSElement(
             yield {
               isDirectory: false,
               path: path.join(finalPath, "app.yaml"),
-              async *getChildren() { },
+              async *getChildren() {},
               // deno-lint-ignore require-await
               async getContentText() {
                 return yamlStringify(app, yamlOptions);
@@ -506,7 +508,7 @@ function ZipFSElement(
         r.push({
           isDirectory: false,
           path: removeSuffix(finalPath, ".json") + ".lock",
-          async *getChildren() { },
+          async *getChildren() {},
           // deno-lint-ignore require-await
           async getContentText() {
             return lock;
@@ -529,7 +531,7 @@ function ZipFSElement(
               removeSuffix(finalPath, ".resource.json") +
               ".resource.file." +
               formatExtension,
-            async *getChildren() { },
+            async *getChildren() {},
             // deno-lint-ignore require-await
             async getContentText() {
               return fileContent;
@@ -590,19 +592,19 @@ export async function* readDirRecursiveWithIgnore(
     // getContentBytes(): Promise<Uint8Array>;
     getContentText(): Promise<string>;
   }[] = [
-      {
-        path: root.path,
-        ignored: ignore(root.path, root.isDirectory),
-        isDirectory: root.isDirectory,
-        c: root.getChildren,
-        // getContentBytes(): Promise<Uint8Array> {
-        //   throw undefined;
-        // },
-        getContentText(): Promise<string> {
-          throw undefined;
-        },
+    {
+      path: root.path,
+      ignored: ignore(root.path, root.isDirectory),
+      isDirectory: root.isDirectory,
+      c: root.getChildren,
+      // getContentBytes(): Promise<Uint8Array> {
+      //   throw undefined;
+      // },
+      getContentText(): Promise<string> {
+        throw undefined;
       },
-    ];
+    },
+  ];
 
   while (stack.length > 0) {
     const e = stack.pop()!;
@@ -667,7 +669,8 @@ export async function elementsToMap(
     if (!skips.includeSettings && path === "settings" + ext) continue;
     if (!skips.includeKey && path === "encryption_key") continue;
     if (skips.skipResources && path.endsWith(".resource" + ext)) continue;
-    if (skips.skipResourceTypes && path.endsWith(".resource-type" + ext)) continue;
+    if (skips.skipResourceTypes && path.endsWith(".resource-type" + ext))
+      continue;
 
     if (skips.skipVariables && path.endsWith(".variable" + ext)) continue;
 
@@ -691,6 +694,8 @@ export async function elementsToMap(
         "cs",
         "yml",
         "nu",
+        "java",
+        // KJQXZ 
       ].includes(path.split(".").pop() ?? "") &&
       !isFileResource(path)
     )
@@ -743,9 +748,9 @@ async function compareDynFSElement(
 ): Promise<Change[]> {
   const [m1, m2] = els2
     ? await Promise.all([
-      elementsToMap(els1, ignore, json, skips),
-      elementsToMap(els2, ignore, json, skips),
-    ])
+        elementsToMap(els1, ignore, json, skips),
+        elementsToMap(els2, ignore, json, skips),
+      ])
     : [await elementsToMap(els1, ignore, json, skips), {}];
 
   const changes: Change[] = [];
@@ -806,7 +811,6 @@ async function compareDynFSElement(
           continue;
         }
         if (!ignoreCodebaseChanges) {
-
           if (before.codebase != undefined) {
             delete before.codebase;
             m2[k] = yamlStringify(before, yamlOptions);
@@ -832,7 +836,6 @@ async function compareDynFSElement(
       });
     }
   }
-
 
   const remoteCodebase: Record<string, string> = {};
   for (const [k] of Object.entries(m2)) {
@@ -862,7 +865,7 @@ async function compareDynFSElement(
         continue;
       }
       const c = findCodebase(tsFile, codebases);
-      if (await c?.getDigest() != v) {
+      if ((await c?.getDigest()) != v) {
         changes.push({
           name: "edited",
           path: tsFile,
@@ -1125,7 +1128,7 @@ export async function pull(opts: GlobalOptions & SyncOptions) {
       opts.includeGroups,
       opts.includeSettings,
       opts.includeKey,
-      opts.defaultTs,
+      opts.defaultTs
     ))!,
     !opts.json,
     opts.defaultTs ?? "bun",
@@ -1151,6 +1154,10 @@ export async function pull(opts: GlobalOptions & SyncOptions) {
   );
   if (changes.length > 0) {
     prettyChanges(changes);
+    if (opts.dryRun) {
+      log.info(colors.gray(`Dry run complete.`));
+      return;
+    }
     if (
       !opts.yes &&
       !(await Confirm.prompt({
@@ -1316,8 +1323,8 @@ function prettyChanges(changes: Change[]) {
       log.info(
         colors.yellow(
           `~ ${getTypeStrFromPath(change.path)} ` +
-          change.path +
-          (change.codebase ? ` (codebase changed)` : "")
+            change.path +
+            (change.codebase ? ` (codebase changed)` : "")
         )
       );
       if (change.before != change.after) {
@@ -1400,7 +1407,7 @@ export async function push(opts: GlobalOptions & SyncOptions) {
       opts.includeGroups,
       opts.includeSettings,
       opts.includeKey,
-      opts.defaultTs,
+      opts.defaultTs
     ))!,
     !opts.json,
     opts.defaultTs ?? "bun",
@@ -1408,7 +1415,7 @@ export async function push(opts: GlobalOptions & SyncOptions) {
     false
   );
 
-  const local = await FSFSElement(path.join(Deno.cwd(), "",), codebases, false);
+  const local = await FSFSElement(path.join(Deno.cwd(), ""), codebases, false);
   const changes = await compareDynFSElement(
     local,
     remote,
@@ -1421,7 +1428,6 @@ export async function push(opts: GlobalOptions & SyncOptions) {
   );
 
   const globalDeps = await findGlobalDeps();
-
 
   const tracker: ChangeTracker = await buildTracker(changes);
 
@@ -1488,6 +1494,10 @@ export async function push(opts: GlobalOptions & SyncOptions) {
 
   if (changes.length > 0) {
     prettyChanges(changes);
+    if (opts.dryRun) {
+      log.info(colors.gray(`Dry run complete.`));
+      return;
+    }
     if (
       !opts.yes &&
       !(await Confirm.prompt({
@@ -1526,7 +1536,8 @@ export async function push(opts: GlobalOptions & SyncOptions) {
     }
     const groupedChangesArray = Array.from(groupedChanges.entries());
     log.info(
-      `found changes for ${groupedChangesArray.length
+      `found changes for ${
+        groupedChangesArray.length
       } items with a total of ${groupedChangesArray.reduce(
         (acc, [_, changes]) => acc + changes.length,
         0
@@ -1845,7 +1856,8 @@ export async function push(opts: GlobalOptions & SyncOptions) {
     }
     log.info(
       colors.bold.green.underline(
-        `\nDone! All ${changes.length} changes pushed to the remote workspace ${workspace.workspaceId
+        `\nDone! All ${changes.length} changes pushed to the remote workspace ${
+          workspace.workspaceId
         } named ${workspace.name} (${(performance.now() - start).toFixed(0)}ms)`
       )
     );
@@ -1863,6 +1875,10 @@ const command = new Command()
   .command("pull")
   .description("Pull any remote changes and apply them locally.")
   .option("--yes", "Pull without needing confirmation")
+  .option(
+    "--dry-run",
+    "Show changes that would be pulled without actually pushing"
+  )
   .option("--plain-secrets", "Pull secrets as plain text")
   .option("--json", "Use JSON instead of YAML")
   .option("--skip-variables", "Skip syncing variables (including secrets)")
@@ -1893,6 +1909,10 @@ const command = new Command()
   .command("push")
   .description("Push any local changes and apply them remotely.")
   .option("--yes", "Push without needing confirmation")
+  .option(
+    "--dry-run",
+    "Show changes that would be pushed without actually pushing"
+  )
   .option("--plain-secrets", "Push secrets as plain text")
   .option("--json", "Use JSON instead of YAML")
   .option("--skip-variables", "Skip syncing variables (including secrets)")

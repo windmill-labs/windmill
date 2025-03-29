@@ -375,6 +375,8 @@ pub(crate) async fn tarball_workspace(
                 ScriptLang::CSharp => "cs",
                 ScriptLang::Nu => "nu",
                 ScriptLang::OracleDB => "odb.sql",
+                ScriptLang::Java => "java",
+                // KJQXZ
             };
             archive
                 .write_to_archive(&script.content, &format!("{}.{}", script.path, ext))
@@ -542,6 +544,7 @@ pub(crate) async fn tarball_workspace(
                     path, 
                     route_path, 
                     route_path_key, 
+                    authentication_resource_path,
                     script_path, 
                     is_flow, 
                     edited_by, 
@@ -549,7 +552,7 @@ pub(crate) async fn tarball_workspace(
                     email, 
                     extra_perms, 
                     is_async, 
-                    requires_auth, 
+                    authentication_method  AS "authentication_method: _", 
                     http_method AS "http_method: _", 
                     static_asset_config AS "static_asset_config: _", 
                     is_static_website,

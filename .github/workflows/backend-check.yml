@@ -1,10 +1,9 @@
 name: Backend check
 on:
-  pull_request:
-    types: [opened, synchronize, reopened]
-    paths:
-      - "backend/**"
-      - ".github/workflows/backend-check.yml"
+  workflow_run:
+    workflows: ["Change versions"]
+    types:
+      - completed
   push:
     paths:
       - "backend/**"

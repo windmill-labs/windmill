@@ -65,7 +65,8 @@ pub async fn handle_go_job(
     ));
     let bin_path = format!("{}/{hash}", GO_BIN_CACHE_DIR);
     let remote_path = format!("{GO_OBJECT_STORE_PREFIX}{hash}");
-    let (cache, cache_logs) = windmill_common::worker::load_cache(&bin_path, &remote_path).await;
+    let (cache, cache_logs) =
+        windmill_common::worker::load_cache(&bin_path, &remote_path, false).await;
 
     let (skip_go_mod, skip_tidy) = if cache {
         (true, true)
@@ -212,6 +213,7 @@ func Run(req Req) (interface{{}}, error){{
             None,
             false,
             &mut Some(occupation_metrics),
+            None,
         )
         .await?;
 
@@ -219,6 +221,7 @@ func Run(req Req) (interface{{}}, error){{
             &bin_path,
             &format!("{GO_OBJECT_STORE_PREFIX}{hash}"),
             &format!("{job_dir}/main"),
+            false,
         )
         .await
         {
@@ -314,6 +317,7 @@ func Run(req Req) (interface{{}}, error){{
         job.timeout,
         false,
         &mut Some(occupation_metrics),
+        None,
     )
     .await?;
 
@@ -378,6 +382,7 @@ pub async fn install_go_dependencies(
             None,
             false,
             &mut Some(occupation_metrics),
+            None,
         )
         .await?;
 
@@ -444,6 +449,7 @@ pub async fn install_go_dependencies(
         None,
         false,
         &mut Some(occupation_metrics),
+        None,
     )
     .await?;
 

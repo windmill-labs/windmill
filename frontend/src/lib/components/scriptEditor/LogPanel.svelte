@@ -80,6 +80,7 @@
 				jobId={previewJob?.id}
 				result={drawerContent.content}
 				customUi={customUi?.displayResult}
+				language={lang}
 			/>
 		{:else if drawerContent?.mode === 'plain'}
 			<pre
@@ -137,6 +138,7 @@
 												jobId={previewJob?.id}
 												result={previewJob.result}
 												customUi={customUi?.displayResult}
+												language={lang}
 											>
 												<svelte:fragment slot="copilot-fix">
 													{#if lang && editor && diffEditor && args && previewJob?.result && typeof previewJob?.result == 'object' && `error` in previewJob?.result && previewJob?.result.error}

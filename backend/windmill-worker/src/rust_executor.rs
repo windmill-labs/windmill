@@ -164,6 +164,7 @@ pub async fn generate_cargo_lockfile(
         None,
         false,
         &mut Some(occupancy_metrics),
+        None,
     )
     .await?;
 
@@ -226,6 +227,7 @@ pub async fn build_rust_crate(
         None,
         false,
         &mut Some(occupancy_metrics),
+        None,
     )
     .await?;
     append_logs(job_id, w_id, "\n\n", db).await;
@@ -245,6 +247,7 @@ pub async fn build_rust_crate(
         &bin_path,
         &format!("{RUST_OBJECT_STORE_PREFIX}{hash}"),
         &format!("{job_dir}/main"),
+        false,
     )
     .await
     {
@@ -294,7 +297,8 @@ pub async fn handle_rust_job(
     let bin_path = format!("{}/{hash}", RUST_CACHE_DIR);
     let remote_path = format!("{RUST_OBJECT_STORE_PREFIX}{hash}");
 
-    let (cache, cache_logs) = windmill_common::worker::load_cache(&bin_path, &remote_path).await;
+    let (cache, cache_logs) =
+        windmill_common::worker::load_cache(&bin_path, &remote_path, false).await;
 
     let cache_logs = if cache {
         let target = format!("{job_dir}/main");
@@ -407,6 +411,7 @@ pub async fn handle_rust_job(
         job.timeout,
         false,
         &mut Some(occupancy_metrics),
+        None,
     )
     .await?;
     read_result(job_dir).await

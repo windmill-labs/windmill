@@ -31,6 +31,13 @@
           pkg-config
           cmake
         ];
+        coursier = pkgs.fetchFromGitHub {
+          owner = "coursier";
+          repo = "launchers";
+          rev = "79d927f7586c09ca6d8cd01862adb0d9f9d88dff";
+          hash = "sha256-8E0WtDFc7RcqmftDigMyy1xXUkjgL4X4kpf7h1GdE48=";
+        };
+
         PKG_CONFIG_PATH = pkgs.lib.makeSearchPath "lib/pkgconfig"
           (with pkgs; [ openssl.dev libxml2.dev xmlsec.dev libxslt.dev ]);
         RUSTY_V8_ARCHIVE = let
@@ -75,6 +82,7 @@
             sqlx-cli
             flock
             sccache
+            nsjail
             deno
             python3
             python3Packages.pip
@@ -84,7 +92,9 @@
             nushell
             dotnet-sdk_9
             oracle-instantclient
+            # LSP/Local dev
             svelte-language-server
+            taplo
           ]);
           packages = [
             (pkgs.writeScriptBin "wm-caddy" ''
@@ -126,6 +136,25 @@
               cd ./frontend
               npm run dev $*
             '')
+            (pkgs.writeScriptBin "wm-minio" ''
+              set -e
+              cd ./backend
+              mkdir -p .minio-data/wmill
+              ${pkgs.minio}/bin/minio server ./.minio-data
+            '')
+            # Generate keys
+            # TODO: Do not set new keys if ran multiple times
+            (pkgs.writeScriptBin "wm-minio-keys" ''
+              set -e
+              cd ./backend
+              ${pkgs.minio-client}/bin/mc alias set 'wmill-minio-dev' 'http://localhost:9000' 'minioadmin' 'minioadmin'
+              ${pkgs.minio-client}/bin/mc admin accesskey create myminio | tee .minio-data/secrets.txt
+              echo ""
+              echo 'Saving to: ./backend/.minio-data/secrets.txt'
+              echo "bucket: wmill"
+              echo "endpoint: http://localhost:9000"
+            '')
+
           ];
 
           inherit PKG_CONFIG_PATH RUSTY_V8_ARCHIVE;
@@ -140,11 +169,16 @@
           BUN_PATH = "${pkgs.bun}/bin/bun";
           UV_PATH = "${pkgs.uv}/bin/uv";
           NU_PATH = "${pkgs.nushell}/bin/nu";
+          JAVA_PATH = "${pkgs.jdk21}/bin/java";
+          JAVAC_PATH = "${pkgs.jdk21}/bin/javac";
+          COURSIER_PATH = "${coursier}/coursier";
+          # KJQXZ 
           FLOCK_PATH = "${pkgs.flock}/bin/flock";
           CARGO_PATH = "${rust}/bin/cargo";
           DOTNET_PATH = "${pkgs.dotnet-sdk_9}/bin/dotnet";
           DOTNET_ROOT = "${pkgs.dotnet-sdk_9}/share/dotnet";
           ORACLE_LIB_DIR = "${pkgs.oracle-instantclient.lib}/lib";
+          RUST_LOG = "debug";
         };
         packages.default = self.packages.${system}.windmill;
         packages.windmill-client = pkgs.buildNpmPackage {
@@ -218,7 +252,6 @@
             "cloud"
             "jemalloc"
             "tantivy"
-            "deno_core"
             "license"
             "http_trigger"
             "zip"
@@ -226,16 +259,10 @@
             "kafka"
             "otel"
             "dind"
-            "php"
-            "mysql"
-            "mssql"
-            "bigquery"
             "websocket"
-            "python"
             "smtp"
-            "csharp"
             "static_frontend"
-            "rust"
+            "all_languages"
           ];
           doCheck = false;
 

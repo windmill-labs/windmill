@@ -14,3 +14,10 @@ ENV DOTNET_ROOT="/opt/dotnet-sdk/bin"
 
 # Nushell
 COPY --from=ghcr.io/nushell/nushell:0.101.0-bookworm /usr/bin/nu /usr/bin/nu
+
+# Java
+RUN apt-get -y update && apt-get install -y default-jdk 
+RUN curl -fLo coursier https://github.com/coursier/coursier/releases/download/v2.1.24/coursier \
+	&& mv ./coursier /usr/bin/coursier \
+	&& chmod +x /usr/bin/coursier
+RUN /usr/bin/java -jar /usr/bin/coursier about

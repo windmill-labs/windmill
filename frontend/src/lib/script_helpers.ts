@@ -945,6 +945,61 @@ dependencies:
       content: "{{ my_result | to_json }}"
       dest: result.json
 `
+const JAVA_INIT_CODE = `//requirements:
+//com.google.code.gson:gson:2.8.9
+//com.github.ricksbrown:cowsay:1.1.0
+
+import com.google.gson.Gson;
+import com.google.gson.GsonBuilder;
+import com.github.ricksbrown.cowsay.Cowsay;
+import com.github.ricksbrown.cowsay.plugin.CowExecutor;
+
+public class Main {
+  public static class Person {
+    private String name;
+    private int age;
+
+    // Constructor
+    public Person(String name, int age) {
+        this.name = name;
+        this.age = age;
+    }
+  }
+
+  public static Object main(
+    // Primitive
+    int a,
+    float b,
+    // Objects
+    Integer age,
+    Float d,
+    Object e,
+    String name,
+    // Lists
+    String[] f
+    // No trailing commas!
+    ){
+    Gson gson = new Gson();
+
+    // Get resources
+    var theme = Wmill.getResource("f/app_themes/theme_0");
+    System.out.println("Theme: " + theme);
+    
+    // Create a Person object
+    Person person = new Person( (name == "") ? "Alice" : name, (age == null) ? 30 : age);
+
+    // Serialize the Person object to JSON
+    String json = gson.toJson(person);
+    System.out.println("Serialized JSON: " + json);
+
+    // Use cowsay
+    String[] args = new String[]{"-f", "dragon", json };
+    String result = Cowsay.say(args);
+    return result;
+  }
+}
+`
+// KJQXZ 
 export const INITIAL_CODE = {
 	bun: {
 		scriptInitCodeBlock: BUN_INIT_BLOCK,
@@ -1028,7 +1083,11 @@ export const INITIAL_CODE = {
 	},
 	bunnative: {
 		script: BUNNATIVE_INIT_CODE
-	}
+	},
+	java: {
+		script: JAVA_INIT_CODE
+	},
+	// KJQXZ 
 }
 
 export function isInitialCode(content: string): boolean {
@@ -1132,6 +1191,9 @@ export function initialCode(
 		return INITIAL_CODE.csharp.script
 	} else if (language == 'nu') {
 		return INITIAL_CODE.nu.script
+	} else if (language == 'java') {
+		return INITIAL_CODE.java.script
+		// KJQXZ 
 	} else if (language == 'bun' || language == 'bunnative') {
 		if (kind == 'trigger') {
 			return INITIAL_CODE.bun.trigger

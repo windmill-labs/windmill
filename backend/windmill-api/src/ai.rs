@@ -314,6 +314,7 @@ pub enum AIProvider {
     GoogleAI,
     Groq,
     OpenRouter,
+    TogetherAI,
     CustomAI,
 }
 
@@ -326,6 +327,7 @@ impl AIProvider {
             )),
             AIProvider::Groq => Ok(Some("https://api.groq.com/openai/v1".to_string())),
             AIProvider::OpenRouter => Ok(Some("https://openrouter.ai/api/v1".to_string())),
+            AIProvider::TogetherAI => Ok(Some("https://api.together.xyz/v1".to_string())),
             AIProvider::Anthropic => Ok(Some("https://api.anthropic.com/v1".to_string())),
             AIProvider::Mistral => Ok(Some("https://api.mistral.ai/v1".to_string())),
             AIProvider::CustomAI => Ok(None),
@@ -343,6 +345,7 @@ impl TryFrom<&str> for AIProvider {
             "mistral" => Ok(AIProvider::Mistral),
             "groq" => Ok(AIProvider::Groq),
             "openrouter" => Ok(AIProvider::OpenRouter),
+            "togetherai" => Ok(AIProvider::TogetherAI),
             "deepseek" => Ok(AIProvider::DeepSeek),
             "googleai" => Ok(AIProvider::GoogleAI),
             "customai" => Ok(AIProvider::CustomAI),

@@ -15,6 +15,7 @@
 	import { writable } from 'svelte/store'
 	import type { ScheduleTrigger } from '$lib/components/triggers'
 	import type { GetInitialAndModifiedValues } from '$lib/components/common/confirmationModal/unsavedTypes'
+	import { replaceScriptPlaceholderWithItsValues } from '$lib/hub'
 
 	let nodraft = $page.url.searchParams.get('nodraft')
 
@@ -130,6 +131,12 @@
 				delete hub['comments']
 				initialPath = `u/${$userStore?.username}/flow_${hubId}`
 				Object.assign(flow, hub.flow)
+				if (flow.value.preprocessor_module?.value.type === 'rawscript') {
+					flow.value.preprocessor_module.value.content = replaceScriptPlaceholderWithItsValues(
+						hubId,
+						flow.value.preprocessor_module.value.content
+					)
+				}
 				flow = flow
 				goto('?', { replaceState: true })
 				selectedId = 'constants'

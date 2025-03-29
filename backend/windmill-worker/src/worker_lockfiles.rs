@@ -1,5 +1,6 @@
 use std::borrow::Cow;
 use std::collections::HashMap;
+use std::fs::{create_dir_all, remove_dir_all};
 use std::path::{Component, Path, PathBuf};
 
 use async_recursion::async_recursion;
@@ -34,6 +35,9 @@ use windmill_queue::{append_logs, CanceledBy, MiniPulledJob, PushIsolationLevel}
 
 use crate::common::OccupancyMetrics;
 use crate::csharp_executor::generate_nuget_lockfile;
+
+#[cfg(feature = "java")]
+use crate::java_executor::resolve;
 
 #[cfg(feature = "php")]
 use crate::php_executor::{composer_install, parse_php_imports};
@@ -281,7 +285,9 @@ pub async fn handle_dependency_job(
                 )
                 .execute(db)
                 .await?;
-                return Err(Error::ExecutionErr(format!("Error creating schema validator: {e}")))
+                return Err(Error::ExecutionErr(format!(
+                    "Error creating schema validator: {e}"
+                )));
             }
         },
         _ => match preview_data {
@@ -1056,6 +1062,12 @@ async fn lock_modules<'c>(
 
         modified_ids.push(e.id.clone());
 
+        remove_dir_all(job_dir).map_err(|e| {
+            Error::ExecutionErr(format!("Error removing job dir for flow step lock: {e}"))
+        })?;
+        create_dir_all(job_dir).map_err(|e| {
+            Error::ExecutionErr(format!("Error creating job dir for flow step lock: {e}"))
+        })?;
         let new_lock = capture_dependency_job(
             &job.id,
             &language,
@@ -2067,16 +2079,17 @@ async fn capture_dependency_job(
             )
             .await
         }
-        ScriptLang::Postgresql => Ok("".to_owned()),
-        ScriptLang::Mysql => Ok("".to_owned()),
-        ScriptLang::Bigquery => Ok("".to_owned()),
-        ScriptLang::Snowflake => Ok("".to_owned()),
-        ScriptLang::Mssql => Ok("".to_owned()),
-        ScriptLang::Graphql => Ok("".to_owned()),
-        ScriptLang::OracleDB => Ok("".to_owned()),
-        ScriptLang::Bash => Ok("".to_owned()),
-        ScriptLang::Nu => Ok("".to_owned()),
-        ScriptLang::Powershell => Ok("".to_owned()),
-        ScriptLang::Nativets => Ok("".to_owned()),
+        #[cfg(feature = "java")]
+        ScriptLang::Java => {
+            if raw_deps {
+                return Err(Error::ExecutionErr(
+                    "Raw dependencies not supported for Java".to_string(),
+                ));
+            }
+
+            resolve(job_id, job_raw_code, job_dir, db, w_id).await
+        }
+        // KJQXZ
+        _ => Ok("".to_owned()),
     }
 }

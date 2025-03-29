@@ -1,6 +1,6 @@
 [package]
 name = "windmill"
-version = "1.478.1"
+version = "1.479.3"
 authors.workspace = true
 edition.workspace = true
 
@@ -23,6 +23,7 @@ members = [
     "./parsers/windmill-parser-rust",
     "./parsers/windmill-parser-csharp",
     "./parsers/windmill-parser-nu",
+    "./parsers/windmill-parser-java",
     "./parsers/windmill-parser-bash",
     "./parsers/windmill-parser-py",
     "./parsers/windmill-parser-py-imports",
@@ -31,7 +32,7 @@ members = [
 ]
 
 [workspace.package]
-version = "1.478.1"
+version = "1.479.3"
 authors = ["Ruben Fiszel <ruben@windmill.dev>"]
 edition = "2021"
 
@@ -62,32 +63,35 @@ cloud = ["windmill-queue/cloud", "windmill-worker/cloud", "windmill-common/cloud
 jemalloc = ["windmill-common/jemalloc", "dep:tikv-jemallocator", "dep:tikv-jemalloc-sys", "dep:tikv-jemalloc-ctl"]
 tantivy = ["dep:windmill-indexer", "windmill-api/tantivy", "windmill-indexer/enterprise", "windmill-indexer/parquet", "windmill-common/tantivy", "enterprise", "parquet"]
 sqlx = ["windmill-worker/sqlx"]
-deno_core = ["windmill-worker/deno_core", "dep:deno_core", "dep:v8"]
 kafka = ["windmill-api/kafka"]
 nats = ["windmill-api/nats"]
 otel = ["windmill-common/otel", "windmill-worker/otel"]
 dind = ["windmill-worker/dind"]
-php = ["windmill-worker/php"]
-rust = ["windmill-worker/rust"]
-mysql = ["windmill-worker/mysql"]
-oracledb = ["windmill-worker/oracledb"]
-mssql = ["windmill-worker/mssql"]
-bigquery = ["windmill-worker/bigquery"]
 websocket = ["windmill-api/websocket"]
 http_trigger = ["windmill-api/http_trigger"]
 postgres_trigger = ["windmill-api/postgres_trigger"]
 mqtt_trigger = ["windmill-api/mqtt_trigger"]
 sqs_trigger = ["windmill-api/sqs_trigger"]
 gcp_trigger = ["windmill-api/gcp_trigger"]
-python = ["windmill-worker/python"]
 smtp = ["windmill-api/smtp", "windmill-common/smtp"]
-csharp = ["windmill-worker/csharp"]
-nu = ["windmill-worker/nu"]
 license = ["windmill-api/license"]
 oauth2 = ["windmill-api/oauth2"]
 zip = ["windmill-api/zip"]
 static_frontend = ["windmill-api/static_frontend"]
 scoped_cache = ["windmill-common/scoped_cache"]
+# Languages
+python = ["windmill-worker/python"]
+deno_core = ["windmill-worker/deno_core", "dep:deno_core", "dep:v8"]
+rust = ["windmill-worker/rust"]
+mysql = ["windmill-worker/mysql"]
+oracledb = ["windmill-worker/oracledb"]
+mssql = ["windmill-worker/mssql"]
+bigquery = ["windmill-worker/bigquery"]
+php = ["windmill-worker/php"]
+csharp = ["windmill-worker/csharp"]
+nu = ["windmill-worker/nu"]
+java = ["windmill-worker/java"]
+all_languages = [ "python", "deno_core", "rust", "mysql", "oracledb", "mssql", "bigquery", "csharp", "nu", "php", "java"]
 
 
 [dependencies]
@@ -119,6 +123,8 @@ serde_json.workspace = true
 serde.workspace = true
 deno_core = { workspace = true, optional = true }
 object_store = { workspace = true, optional = true }
+sha1 = { workspace = true, optional = true }
+constant_time_eq = { workspace = true, optional = true }
 quote.workspace = true
 memchr.workspace = true
 v8 = { workspace = true, optional = true }
@@ -157,6 +163,7 @@ windmill-parser-go = { path = "./parsers/windmill-parser-go" }
 windmill-parser-rust = { path = "./parsers/windmill-parser-rust" }
 windmill-parser-yaml = { path = "./parsers/windmill-parser-yaml" }
 windmill-parser-csharp = { path = "./parsers/windmill-parser-csharp" }
+windmill-parser-java = { path = "./parsers/windmill-parser-java" }
 windmill-parser-nu = { path = "./parsers/windmill-parser-nu" }
 windmill-parser-bash = { path = "./parsers/windmill-parser-bash" }
 windmill-parser-sql = { path = "./parsers/windmill-parser-sql" }
@@ -245,12 +252,11 @@ swc_ecma_visit = "=0.104.8"
 
 
 async-recursion = "^1"
-# remove when async-strip is removed, needed to pin rand
-half = "=2.4.1"
 base64 = "^0"
 base32 = "^0"
 hmac = "0.12.1"
 sha2 = "0.10.6"
+sha1 = "0.10.6"
 sqlx = { version = "0.8.0", features = [
     "macros",
     "migrate",
@@ -269,6 +275,7 @@ futures-core = "^0"
 lazy_static = "1.4.0"
 serde_derive = "1.0.147"
 const_format = { version = "0.2", features = ["rust_1_64", "rust_1_51"] }
+constant_time_eq = "0.3.1"
 dyn-iter = "0.2.0"
 rsa = "^0"
 async_zip = { version = "0.0.17", features = ["tokio", "tokio-fs", "deflate", "chrono"] }
@@ -337,8 +344,11 @@ opentelemetry-semantic-conventions = { version = "0.27.0", features = ["semconv_
 
 bollard = "0.18.1"
 
-tonic = { version = "^0", features = ["tls-native-roots"] }
+tonic = { version = "=0.12.3", features = ["tls-native-roots"] }
 byteorder = "1.5.0"
+
+# todo remove
+half = "=2.4.1"
 
 tikv-jemallocator = { version = "0.5" }
 tikv-jemalloc-sys  = { version = "^0.5" }
@@ -362,5 +372,6 @@ yaml-rust = "0.4.5"
 tokio-tungstenite = { version = "0.24.0", features = ["native-tls"] }
 tree-sitter = { version = "0.23.0", features = [] }
 tree-sitter-c-sharp = "0.23.0"
+tree-sitter-java = "0.23.0"
 oracle = { version = "0.6.3", features = ["chrono"] }
 rumqttc = { version = "0.24.0", features = ["use-native-tls"]}
