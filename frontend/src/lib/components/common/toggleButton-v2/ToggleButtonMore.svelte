@@ -18,7 +18,6 @@
 	export let togglableItems: TogglableItem[]
 
 	function select(v: string) {
-		console.log('dbg select', v)
 		selected = v
 	}
 

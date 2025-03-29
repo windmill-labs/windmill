@@ -51,8 +51,10 @@
 	let timeout: NodeJS.Timeout
 	function onSearch(search: string) {
 		filterActive = false
-		clearTimeout(timeout)
-		setTimeout(() => {
+		if (timeout) {
+			clearTimeout(timeout)
+		}
+		timeout = setTimeout(() => {
 			flowInputsFiltered =
 				search === EMPTY_STRING
 					? pickableProperties.flow_input

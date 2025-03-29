@@ -30,7 +30,7 @@
 	import FlowModuleSleep from './FlowModuleSleep.svelte'
 	import FlowPathViewer from './FlowPathViewer.svelte'
 	import InputTransformSchemaForm from '$lib/components/InputTransformSchemaForm.svelte'
-	import FlowModuleMock from './FlowModuleMock.svelte'
+	import FlowModuleMockTransitionMessage from './FlowModuleMockTransitionMessage.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import { SecondsInput } from '$lib/components/common'
 	import DiffEditor from '$lib/components/DiffEditor.svelte'
@@ -48,6 +48,9 @@
 	import { debounce } from '$lib/utils'
 	import { dfs } from '../dfs'
 	import FlowModuleSkip from './FlowModuleSkip.svelte'
+	import { type Job, JobService } from '$lib/gen'
+	import { workspaceStore } from '$lib/stores'
+	import { checkIfParentLoop } from '../utils'
 
 	const {
 		selectedId,
@@ -89,6 +92,7 @@
 	let s3Kind = 's3_client'
 	let validCode = true
 	let width = 1200
+	let lastJob: Job | undefined = undefined
 
 	const { modulesStore: copilotModulesStore } =
 		getContext<FlowCopilotContext | undefined>('FlowCopilotContext') || {}
@@ -205,6 +209,32 @@
 		}
 		debouncedWarning(argName)
 	}
+
+	async function getLastJob() {
+		if (
+			!$flowStateStore ||
+			!flowModule.id ||
+			$flowStateStore[flowModule.id]?.previewResult === 'never tested this far' ||
+			!$flowStateStore[flowModule.id]?.previewJobId ||
+			!$flowStateStore[flowModule.id]?.previewWorkspaceId
+		) {
+			return
+		}
+		const job = await JobService.getJob({
+			workspace: $flowStateStore[flowModule.id]?.previewWorkspaceId ?? '',
+			id: $flowStateStore[flowModule.id]?.previewJobId ?? ''
+		})
+		if (job) {
+			lastJob = job
+		}
+	}
+
+	$: if ($workspaceStore && $pathStore && flowModule?.id && $flowStateStore) {
+		getLastJob()
+	}
+
+	$: parentLoop =
+		$flowStore && flowModule ? checkIfParentLoop($flowStore, flowModule.id) : undefined
 </script>
 
 <svelte:window on:keydown={onKeyDown} />
@@ -226,7 +256,7 @@
 					on:toggleSuspend={() => selectAdvanced('suspend')}
 					on:toggleSleep={() => selectAdvanced('sleep')}
 					on:toggleMock={() => selectAdvanced('mock')}
-					on:toggleRetry={() => selectAdvanced('retries')}
+					on:togglePin={() => (selected = 'test')}
 					on:toggleConcurrency={() => selectAdvanced('runtime')}
 					on:toggleCache={() => selectAdvanced('cache')}
 					on:toggleStopAfterIf={() => selectAdvanced('early-stop')}
@@ -407,6 +437,8 @@
 										{noEditor}
 										lang={flowModule.value['language'] ?? 'deno'}
 										schema={$flowStateStore[$selectedId]?.schema ?? {}}
+										{lastJob}
+										loopStatus={parentLoop ? { type: 'inside', flow: parentLoop.type } : undefined}
 									/>
 								{:else if selected === 'advanced'}
 									<Tabs bind:selected={advancedSelected}>
@@ -600,7 +632,7 @@
 											</div>
 										{:else if advancedSelected === 'mock'}
 											<div>
-												<FlowModuleMock bind:flowModule />
+												<FlowModuleMockTransitionMessage />
 											</div>
 										{:else if advancedSelected === 'same_worker'}
 											<div>
