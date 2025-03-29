@@ -43,6 +43,8 @@
 	import HideButton from './apps/editor/settingsPanel/HideButton.svelte'
 	import { base } from '$lib/base'
 	import { SUPPORTED_CHAT_SCRIPT_LANGUAGES } from './copilot/chat/core'
+	import { diffChars } from 'diff'
+	import { writable } from 'svelte/store'
 
 	// Exported
 	export let schema: Schema | any = emptySchema()
@@ -70,8 +72,14 @@
 	export let captureTable: CaptureTable | undefined = undefined
 	export let showCaptures: boolean = true
 	export let stablePathForCaptures: string = ''
+	export let lastSavedCode: string | undefined = undefined
+	export let lastDeployedCode: string | undefined = undefined
+	export let aiChat: AIChat | undefined = undefined
+
+	let showHistoryDrawer = false
 
 	let jobProgressReset: () => void
+	let diffMode = writable(false)
 
 	let websocketAlive = {
 		pyright: false,
@@ -86,6 +94,10 @@
 	$: watchChanges &&
 		(code != undefined || schema != undefined) &&
 		dispatch('change', { code, schema })
+
+	$: diffWithLastSaved = diffChars(lastSavedCode ?? '', code)
+	$: diffWithLastDeployed = diffChars(lastDeployedCode ?? '', code)
+
 
 	let width = 1200
 
@@ -324,8 +336,6 @@
 		}
 	}
 
-	let aiChat: AIChat | undefined = undefined
-
 	function getStringError(job: Job | undefined) {
 		if (
 			job != undefined &&
@@ -393,6 +403,9 @@
 			{args}
 			{noHistory}
 			{saveToWorkspace}
+			lastDeployedCode={lastDeployedCode && lastDeployedCode !== code ? lastDeployedCode : undefined}
+			diffMode={diffMode}
+			bind:showHistoryDrawer
 		>
 			<slot name="editor-bar-right" slot="right" />
 		</EditorBar>
@@ -480,6 +493,9 @@
 						on:saveDraft
 						on:toggleAiPanel={toggleAiPanel}
 						on:toggleTestPanel={toggleTestPanel}
+						on:seeHistory={() => {
+							showHistoryDrawer = true
+						}}
 						cmdEnterAction={async () => {
 							await inferSchema(code)
 							runTest()
@@ -499,6 +515,7 @@
 						automaticLayout={true}
 						{fixedOverflowWidgets}
 						{args}
+						diffMode={diffMode}
 					/>
 					<DiffEditor
 						class="h-full"
@@ -522,6 +539,13 @@
 					on:applyCode={(e) => {
 						editor?.reviewAndApplyCode(e.detail.code)
 					}}
+					on:reviewChanges={() => {
+						console.log('reviewChanges')
+						editor?.reviewChanges(lastDeployedCode ?? '')
+					}}
+					{diffWithLastSaved}
+					{diffWithLastDeployed}
+					diffMode={$diffMode}
 				>
 					<svelte:fragment slot="header-left">
 						<HideButton

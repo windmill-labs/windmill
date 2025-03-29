@@ -173,7 +173,7 @@
 	import { Autocompletor } from './copilot/autocomplete/monaco-adapter'
 	import { AIChatEditorHandler } from './copilot/chat/monaco-adapter'
 	import GlobalReviewButtons from './copilot/chat/GlobalReviewButtons.svelte'
-	import { writable } from 'svelte/store'
+	import { writable, type Writable } from 'svelte/store'
 	import { formatResourceTypes } from './copilot/chat/core'
 	// import EditorTheme from './EditorTheme.svelte'
 
@@ -220,7 +220,8 @@
 	export let scriptLang: Preview['language'] | 'bunnative'
 	export let disabled: boolean = false
 	export let lineNumbersMinChars = 3
-
+	export let diffMode: Writable<boolean> = writable(false)
+		
 	const rHash = randomHash()
 	$: filePath = computePath(path)
 
@@ -607,8 +608,19 @@
 
 	let reviewingChanges = writable(false)
 	let aiChatEditorHandler: AIChatEditorHandler | undefined = undefined
+
 	export function reviewAndApplyCode(code: string) {
 		aiChatEditorHandler?.reviewAndApply(code)
+	}
+
+	export function reviewChanges(code: string) {
+		diffMode.set(true)
+		aiChatEditorHandler?.reviewChanges(code)
+	}
+
+	export function quitDiffMode() {
+		aiChatEditorHandler?.quitDiffMode()
+		diffMode.set(false)
 	}
 
 	function addChatHandler(editor: meditor.IStandaloneCodeEditor) {
@@ -1394,6 +1406,16 @@
 		on:rejectAll={() => {
 			aiChatEditorHandler?.rejectAll()
 		}}
+		on:quitDiffMode={() => {
+			aiChatEditorHandler?.quitDiffMode()
+			diffMode.set(false)
+		}}
+		on:seeHistory={() => {
+			aiChatEditorHandler?.quitDiffMode()
+			diffMode.set(false)
+			dispatch('seeHistory')
+		}}
+		isDiffMode={$diffMode}
 	/>
 {/if}
 

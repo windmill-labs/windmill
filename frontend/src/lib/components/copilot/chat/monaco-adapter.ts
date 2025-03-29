@@ -21,8 +21,8 @@ export class AIChatEditorHandler {
 	readOnlyDisposable: IDisposable | undefined = undefined
 
 	reviewingChanges: Writable<boolean> = writable(false)
-
 	groupChanges: { changes: VisualChangeWithDiffIndex[]; groupIndex: number }[] = []
+	private changedLines: { value: string; added?: boolean; removed?: boolean; count?: number }[] = []
 
 	constructor(editor: meditor.IStandaloneCodeEditor) {
 		this.editor = editor
@@ -30,6 +30,7 @@ export class AIChatEditorHandler {
 
 	clear() {
 		this.groupChanges = []
+		this.changedLines = []
 		for (const collection of this.decorationsCollections) {
 			collection.clear()
 		}
@@ -85,6 +86,10 @@ export class AIChatEditorHandler {
 		this.finish()
 	}
 
+	async quitDiffMode() {
+		this.finish()
+	}
+
 	applyGroup(group: { changes: VisualChangeWithDiffIndex[]; groupIndex: number }) {
 		// maximum of 2 changes per group with the deletion first
 		if (group.changes.length > 2) {
@@ -104,19 +109,18 @@ export class AIChatEditorHandler {
 		}
 	}
 
-	async reviewAndApply(newCode: string) {
+	private async calculateVisualChanges(newCode: string) {
 		this.preventWriting()
 		this.reviewingChanges.set(true)
 		const currentCode = this.editor.getValue()
-		const changedLines = diffLines(currentCode, newCode)
-
+		this.changedLines = diffLines(currentCode, newCode)
 		this.groupChanges = []
 		let visualChanges: VisualChangeWithDiffIndex[] = []
 
 		let lineNumber = 1
-		for (const [idx, change] of changedLines.entries()) {
+		for (const [idx, change] of this.changedLines.entries()) {
 			const nbOfNewLines = change.count || 1
-			if (idx > 0 && changedLines[idx - 1].removed && !change.added) {
+			if (idx > 0 && this.changedLines[idx - 1].removed && !change.added) {
 				this.groupChanges.push({ changes: visualChanges, groupIndex: this.groupChanges.length })
 				visualChanges = []
 			}
@@ -162,8 +166,14 @@ export class AIChatEditorHandler {
 
 		if (this.groupChanges.length === 0) {
 			this.finish()
-			return
+			return false
 		}
+		return true
+	}
+
+	async reviewAndApply(newCode: string) {
+		const hasChanges = await this.calculateVisualChanges(newCode)
+		if (!hasChanges) return
 
 		let indicesOfRejectedLineChanges: number[] = []
 
@@ -174,7 +184,7 @@ export class AIChatEditorHandler {
 				this.applyGroup(group)
 				this.clear()
 				let newCodeWithRejects = ''
-				for (const [idx, change] of changedLines.entries()) {
+				for (const [idx, change] of this.changedLines.entries()) {
 					if (!change.added && !change.removed) {
 						newCodeWithRejects += change.value
 					} else if (change.added && !indicesOfRejectedLineChanges.includes(idx)) {
@@ -214,6 +224,20 @@ export class AIChatEditorHandler {
 				this.editor,
 				changes
 			))
+			this.decorationsCollections.push(collection)
+			this.viewZoneIds.push(...ids)
+		}
+	}
+
+	async reviewChanges(newCode: string) {
+		const hasChanges = await this.calculateVisualChanges(newCode)
+		if (!hasChanges) return
+		for (const group of this.groupChanges) {
+			const { collection, ids } = await displayVisualChanges(
+				'editor-windmill-chat-style',
+				this.editor,
+				group.changes
+			)
 			this.decorationsCollections.push(collection)
 			this.viewZoneIds.push(...ids)
 		}

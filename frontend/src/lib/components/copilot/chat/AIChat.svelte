@@ -24,12 +24,16 @@
 	import { isInitialCode } from '$lib/script_helpers'
 	import { createLongHash, langToExt } from '$lib/editorUtils'
 	import { scriptLangToEditorLang } from '$lib/scripts'
+	import { type Change } from 'diff'
 
 	export let lang: ScriptLang | 'bunnative'
 	export let code: string
 	export let error: string | undefined
 	export let args: Record<string, any>
 	export let path: string | undefined
+	export let diffWithLastSaved: Change[] | undefined = undefined
+	export let diffWithLastDeployed: Change[] | undefined = undefined
+	export let diffMode: boolean = false
 
 	$: contextCodePath = path
 		? (path.split('/').pop() ?? 'script') + '.' + langToExt(scriptLangToEditorLang(lang))
@@ -76,7 +80,9 @@
 		db: { schema: DBSchema; resource: string } | undefined,
 		providerModel: AIProviderModel | undefined,
 		dbSchemas: DBSchemas,
-		workspace?: string
+		workspace?: string,
+		diffWithLastSaved?: Change[] | undefined,
+		diffWithLastDeployed?: Change[] | undefined
 	) {
 		if (!contextCodePath) {
 			return
@@ -90,6 +96,23 @@
 					lang
 				}
 			]
+			if (diffWithLastSaved && diffWithLastSaved.filter((d) => d.added || d.removed).length > 0) {
+				newAvailableContext.push({
+					type: 'diff',
+					title: 'diff_with_last_saved_draft',
+					content: JSON.stringify(diffWithLastSaved)
+				})
+			}
+			if (
+				diffWithLastDeployed &&
+				diffWithLastDeployed.filter((d) => d.added || d.removed).length > 0
+			) {
+				newAvailableContext.push({
+					type: 'diff',
+					title: 'diff_with_last_deployed_version',
+					content: JSON.stringify(diffWithLastDeployed)
+				})
+			}
 			if (workspace && !providerModel?.model.endsWith('/thinking')) {
 				// Make all dbs in the workspace available
 				const dbs = await ResourceService.listResource({
@@ -186,7 +209,9 @@
 		db,
 		$copilotSessionModel,
 		$dbSchemas,
-		$workspaceStore
+		$workspaceStore,
+		diffWithLastSaved,
+		diffWithLastDeployed
 	)
 
 	let instructions = ''
@@ -195,6 +220,7 @@
 
 	const dispatch = createEventDispatcher<{
 		applyCode: { code: string }
+		reviewChanges: null
 	}>()
 
 	setContext<AIChatContext>('AIChatContext', {
@@ -230,11 +256,15 @@
 
 	$: displayMessages = updateDisplayMessages($dbSchemas)
 
-	async function sendRequest() {
+	async function sendRequest(options: { removeDiff?: boolean } = {}) {
 		if (!instructions.trim()) {
 			return
 		}
 		try {
+			const oldSelectedContext = selectedContext
+			if (options.removeDiff) {
+				selectedContext = selectedContext.filter((c) => c.type !== 'diff')
+			}
 			loading.set(true)
 			aiChatDisplay?.enableAutomaticScroll()
 			abortController = new AbortController()
@@ -244,12 +274,12 @@
 				{
 					role: 'user',
 					content: instructions,
-					contextElements: selectedContext
+					contextElements: oldSelectedContext
 				}
 			]
 			const oldInstructions = instructions
 			instructions = ''
-			const userMessage = await prepareUserMessage(oldInstructions, lang, selectedContext)
+			const userMessage = await prepareUserMessage(oldInstructions, lang, oldSelectedContext)
 
 			messages.push({ role: 'user', content: userMessage })
 			await saveChat()
@@ -259,7 +289,7 @@
 				messages,
 				abortController,
 				lang,
-				selectedContext.filter((c) => c.type === 'db').length > 0,
+				oldSelectedContext.filter((c) => c.type === 'db').length > 0,
 				(token) => currentReply.update((prev) => prev + token)
 			)
 
@@ -351,6 +381,28 @@
 		sendRequest()
 	}
 
+	export function askAiAboutChanges(prompt: string) {
+		instructions = prompt
+		const codeContext = availableContext.find(
+			(c) => c.type === 'code' && c.title === contextCodePath
+		)
+		if (!codeContext) {
+			return
+		}
+		selectedContext = [
+			codeContext,
+			{
+				type: 'diff',
+				title: 'diff_with_last_deployed_version',
+				content: JSON.stringify(diffWithLastDeployed)
+			}
+		]
+		sendRequest({
+			removeDiff: true
+		})
+		dispatch('reviewChanges')
+	}
+
 	interface ChatSchema extends IDBSchema {
 		chats: {
 			key: string
@@ -414,11 +466,21 @@
 		  ]
 		: displayMessages}
 	bind:instructions
-	on:sendRequest={sendRequest}
+	on:sendRequest={() => sendRequest()}
 	on:cancel={cancel}
 	on:saveAndClear={saveAndClear}
 	on:deletePastChat={(e) => deletePastChat(e.detail.id)}
 	on:loadPastChat={(e) => loadPastChat(e.detail.id)}
+	on:analyzeChanges={() => {
+		askAiAboutChanges(
+			'Based on the changes I made to the code, look for potential issues and recommend better solutions'
+		)
+	}}
+	on:explainChanges={() =>
+		askAiAboutChanges('Explain the changes I made to the code from the last diff')}
+	hasDiff={!!diffWithLastDeployed &&
+		diffWithLastDeployed.filter((d) => d.added || d.removed).length > 0}
+	{diffMode}
 >
 	<slot name="header-left" slot="header-left" />
 	<slot name="header-right" slot="header-right" />
