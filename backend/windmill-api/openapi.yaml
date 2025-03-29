@@ -14543,6 +14543,23 @@ components:
         - subscribe_topics
         - mqtt_resource_path
 
+    DeliveryType:
+      type: string
+      enum:
+        - push
+        - pull
+
+    PushConfig:
+      type: object
+      properties:
+        route_path:
+          type: string
+        audience:
+          type: string
+      required:
+        - route_path
+        - audience
+
     GcpTrigger:
       allOf:
         - $ref: "#/components/schemas/TriggerExtraProperty"
@@ -14550,8 +14567,14 @@ components:
       properties:
         gcp_resource_path:
           type: string
+        subscription_id:
+          type: string
         server_id:
           type: string
+        delivery_type:
+          $ref: "#/components/schemas/DeliveryType"
+        delivery_config:
+          $ref: "#/components/schemas/PushConfig"
         last_server_ping:
           type: string
           format: date-time
@@ -14563,12 +14586,20 @@ components:
       required:
         - enabled
         - gcp_resource_path
+        - subscription_id
+        - delivery_type
 
     NewGcpTrigger:
       type: object
       properties:
         gcp_resource_path:
-          type: string      
+          type: string
+        subscription_id:
+          type: string
+        delivery_type:
+          $ref: "#/components/schemas/DeliveryType"
+        delivery_config:
+          $ref: "#/components/schemas/PushConfig"
         path:
           type: string
         script_path:
@@ -14582,12 +14613,20 @@ components:
         - script_path
         - is_flow
         - gcp_resource_path
+        - subscription_id
+        - delivery_type
 
     EditGcpTrigger:
       type: object
       properties:
         gcp_resource_path:
           type: string
+        subscription_id:
+          type: string
+        delivery_type:
+          $ref: "#/components/schemas/DeliveryType"
+        delivery_config:
+          $ref: "#/components/schemas/PushConfig"
         path:
           type: string
         script_path:
@@ -14602,6 +14641,8 @@ components:
         - is_flow
         - enabled
         - mqtt_resource_path
+        - subscription_id
+        - delivery_type
     
     SqsTrigger:
       allOf:

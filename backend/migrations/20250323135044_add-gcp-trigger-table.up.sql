@@ -1,23 +1,39 @@
 -- Add up migration script here
 
 ALTER TYPE TRIGGER_KIND ADD VALUE IF NOT EXISTS 'gcp';
+CREATE TYPE DELIVERY_MODE AS ENUM ('push', 'pull');
 
 CREATE TABLE gcp_trigger (
-    gcp_resource_path VARCHAR(255) NOT NULL,
-    path VARCHAR(255) NOT NULL,
-    script_path VARCHAR(255) NOT NULL,
-    is_flow BOOLEAN NOT NULL,
-    workspace_id VARCHAR(50) NOT NULL,
-    edited_by VARCHAR(50) NOT NULL,
-    email VARCHAR(255) NOT NULL,
-    edited_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    extra_perms JSONB NOT NULL DEFAULT '{}',
-    server_id VARCHAR(50) NULL,
-    last_server_ping TIMESTAMPTZ NULL,
-    error TEXT NULL,
-    enabled BOOLEAN NOT NULL,
+    gcp_resource_path     VARCHAR(255) NOT NULL,
+    subscription_id       VARCHAR(255) NOT NULL CHECK (
+                              CHAR_LENGTH(subscription_id) BETWEEN 3 AND 255
+                           ),
+    delivery_type         DELIVERY_MODE NOT NULL,
+    delivery_config       JSONB NULL CHECK (
+                              delivery_type != 'push'::DELIVERY_MODE OR (
+                                  delivery_config IS NOT NULL AND
+                                  delivery_config ? 'route_path' AND
+                                  jsonb_typeof(delivery_config->'route_path') = 'string'
+                              )
+                           ),
+    path                  VARCHAR(255) NOT NULL,
+    script_path           VARCHAR(255) NOT NULL,
+    is_flow               BOOLEAN NOT NULL,
+    workspace_id          VARCHAR(50) NOT NULL,
+    edited_by             VARCHAR(50) NOT NULL,
+    email                 VARCHAR(255) NOT NULL,
+    edited_at             TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    extra_perms           JSONB NOT NULL DEFAULT '{}',
+    server_id             VARCHAR(50),
+    last_server_ping      TIMESTAMPTZ,
+    error                 TEXT,
+    enabled               BOOLEAN NOT NULL,
     PRIMARY KEY (path, workspace_id)
 );
+
+CREATE UNIQUE INDEX unique_route_path_on_push
+ON gcp_trigger ((delivery_config->>'route_path'))
+WHERE delivery_type = 'push';
 
 GRANT ALL ON gcp_trigger TO windmill_user;
 GRANT ALL ON gcp_trigger TO windmill_admin;

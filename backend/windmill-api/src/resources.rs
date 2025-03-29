@@ -599,11 +599,10 @@ pub async fn transform_json_value<'c>(
         }
         Value::Object(mut m) => {
             for (a, b) in m.clone().into_iter() {
-                m.insert(
-                    a.clone(),
+                let v =
                     transform_json_value(authed, user_db.clone(), db, workspace, b, job_id, token)
-                        .await?,
-                );
+                        .await?;
+                m.insert(a.clone(), v);
             }
             Ok(Value::Object(m))
         }

@@ -351,6 +351,7 @@
 				can_write={true}
 				headless={true}
 				bind:gcp_resource_path={args.gcp_resource_path}
+				bind:subscription_id={args.subscription_id}
 				{showCapture}
 				{captureInfo}
 				bind:captureTable

@@ -277,7 +277,7 @@
 			<div class="text-center text-sm text-tertiary mt-2"> No gcp triggers </div>
 		{:else if items?.length}
 			<div class="border rounded-md divide-y">
-				{#each items.slice(0, nbDisplayed) as { path, edited_by, error, edited_at, script_path, is_flow, extra_perms, canWrite, enabled, server_id } (path)}
+				{#each items.slice(0, nbDisplayed) as { delivery_type, path, edited_by, error, edited_at, script_path, is_flow, extra_perms, canWrite, enabled, server_id, subscription_id } (path)}
 					{@const href = `${is_flow ? '/flows/get' : '/scripts/get'}/${script_path}`}
 					{@const ping = new Date()}
 					{@const pinging = ping && ping.getTime() > new Date().getTime() - 15 * 1000}
@@ -297,7 +297,9 @@
 								<div class="text-primary flex-wrap text-left text-md font-semibold mb-1 truncate">
 									{path}
 								</div>
-								<div class="text-secondary text-xs truncate text-left font-light" />
+								<div class="text-secondary text-xs truncate text-left font-light">
+									{subscription_id} <span class="font-bold">{delivery_type}</span>
+								</div>
 								<div class="text-secondary text-xs truncate text-left font-light">
 									runnable: {script_path}
 								</div>
@@ -307,39 +309,44 @@
 								<SharedBadge {canWrite} extraPerms={extra_perms} />
 							</div>
 
-							<div class="w-10">
-								{#if (enabled && (!pinging || error)) || (!enabled && error) || (enabled && !server_id)}
-									<Popover notClickable>
-										<span class="flex h-4 w-4">
-											<Circle
-												class="text-red-600 animate-ping absolute inline-flex fill-current"
-												size={12}
-											/>
-											<Circle class="text-red-600 relative inline-flex fill-current" size={12} />
-										</span>
-										<div slot="text">
-											{#if enabled}
-												{#if !server_id}
-													GCP trigger is starting...
+							{#if delivery_type !== 'push'}
+								<div class="w-10">
+									{#if (enabled && (!pinging || error)) || (!enabled && error) || (enabled && !server_id)}
+										<Popover notClickable>
+											<span class="flex h-4 w-4">
+												<Circle
+													class="text-red-600 animate-ping absolute inline-flex fill-current"
+													size={12}
+												/>
+												<Circle class="text-red-600 relative inline-flex fill-current" size={12} />
+											</span>
+											<div slot="text">
+												{#if enabled}
+													{#if !server_id}
+														GCP trigger is starting...
+													{:else}
+														Could not connect to GCP{error ? ': ' + error : ''}
+													{/if}
 												{:else}
-													Could not connect to GCP{error ? ': ' + error : ''}
+													Disabled because of an error: {error}
 												{/if}
-											{:else}
-												Disabled because of an error: {error}
-											{/if}
-										</div>
-									</Popover>
-								{:else if enabled}
-									<Popover notClickable>
-										<span class="flex h-4 w-4">
-											<Circle class="text-green-600 relative inline-flex fill-current" size={12} />
-										</span>
-										<div slot="text">
-											Connected to gcp{!server_id ? ' (shutting down...)' : ''}</div
-										>
-									</Popover>
-								{/if}
-							</div>
+											</div>
+										</Popover>
+									{:else if enabled}
+										<Popover notClickable>
+											<span class="flex h-4 w-4">
+												<Circle
+													class="text-green-600 relative inline-flex fill-current"
+													size={12}
+												/>
+											</span>
+											<div slot="text">
+												Connected to gcp{!server_id ? ' (shutting down...)' : ''}</div
+											>
+										</Popover>
+									{/if}
+								</div>
+							{/if}
 
 							<Toggle
 								checked={enabled}

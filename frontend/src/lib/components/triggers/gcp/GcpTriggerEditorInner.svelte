@@ -9,7 +9,7 @@
 	import { Loader2, Save } from 'lucide-svelte'
 	import Label from '$lib/components/Label.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
-	import { GcpTriggerService } from '$lib/gen'
+	import { GcpTriggerService, type DeliveryType, type PushConfig } from '$lib/gen'
 	import Section from '$lib/components/Section.svelte'
 	import ScriptPicker from '$lib/components/ScriptPicker.svelte'
 	import Required from '$lib/components/Required.svelte'
@@ -19,6 +19,7 @@
 	let is_flow: boolean = false
 	let initialPath = ''
 	let edit = true
+	let delivery_type: DeliveryType = 'push'
 	let itemKind: 'flow' | 'script' = 'script'
 	let script_path = ''
 	let initialScriptPath = ''
@@ -30,7 +31,9 @@
 	let can_write = true
 	let drawerLoading = true
 	let gcp_resource_path: string = ''
+	let subscription_id: string = ''
 	let isValid = false
+	let delivery_config: PushConfig | undefined = undefined
 	const dispatch = createEventDispatcher()
 
 	$: is_flow = itemKind === 'flow'
@@ -65,6 +68,9 @@
 			fixedScriptPath = fixedScriptPath_ ?? ''
 			script_path = fixedScriptPath
 			gcp_resource_path = defaultValues?.gcp_resource_path ?? ''
+			delivery_type = defaultValues?.gcp_resource_path ?? 'push'
+			delivery_config = defaultValues?.delivery_config ?? undefined
+			subscription_id = defaultValues?.subscription_id ?? ''
 			path = ''
 			initialPath = ''
 			edit = false
@@ -81,8 +87,11 @@
 				path: initialPath
 			})
 			script_path = s.script_path
+			delivery_config = s.delivery_config
 			initialScriptPath = s.script_path
 			gcp_resource_path = s.gcp_resource_path
+			delivery_type = s.delivery_type
+			subscription_id = s.subscription_id
 			is_flow = s.is_flow
 			path = s.path
 			enabled = s.enabled
@@ -93,16 +102,21 @@
 	}
 
 	async function updateTrigger(): Promise<void> {
+		delivery_config = delivery_type === 'push' ? delivery_config : undefined
+
 		if (edit) {
 			await GcpTriggerService.updateGcpTrigger({
 				workspace: $workspaceStore!,
 				path: initialPath,
 				requestBody: {
+					delivery_config,
+					delivery_type,
+					gcp_resource_path,
+					subscription_id,
 					path,
 					script_path,
 					enabled,
-					is_flow,
-					gcp_resource_path,
+					is_flow
 				}
 			})
 			sendUserToast(`GCP trigger ${path} updated`)
@@ -110,11 +124,14 @@
 			await GcpTriggerService.createGcpTrigger({
 				workspace: $workspaceStore!,
 				requestBody: {
-					enabled: true,
+					delivery_config,
+					delivery_type,
 					gcp_resource_path,
+					subscription_id,
 					path,
 					script_path,
-					is_flow,
+					enabled: true,
+					is_flow
 				}
 			})
 			sendUserToast(`GCP trigger ${path} created`)
@@ -171,7 +188,7 @@
 					{#if edit}
 						Changes can take up to 30 seconds to take effect.
 					{:else}
-						New postgres triggers can take up to 30 seconds to start listening.
+						New gcp triggers can take up to 30 seconds to start listening.
 					{/if}
 				</Alert>
 			</div>
@@ -220,6 +237,9 @@
 				<GcpTriggerEditorConfigSection
 					bind:isValid
 					bind:gcp_resource_path
+					bind:subscription_id
+					bind:delivery_type
+					bind:delivery_config
 					{can_write}
 					headless={true}
 				/>
