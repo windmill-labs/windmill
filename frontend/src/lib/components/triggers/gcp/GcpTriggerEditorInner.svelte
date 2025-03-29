@@ -4,7 +4,7 @@
 	import DrawerContent from '$lib/components/common/drawer/DrawerContent.svelte'
 	import Path from '$lib/components/Path.svelte'
 	import { usedTriggerKinds, userStore, workspaceStore } from '$lib/stores'
-	import { canWrite, emptyString, sendUserToast } from '$lib/utils'
+	import { canWrite, emptyString, emptyStringTrimmed, sendUserToast } from '$lib/utils'
 	import { createEventDispatcher } from 'svelte'
 	import { Loader2, Save } from 'lucide-svelte'
 	import Label from '$lib/components/Label.svelte'
@@ -14,6 +14,7 @@
 	import ScriptPicker from '$lib/components/ScriptPicker.svelte'
 	import Required from '$lib/components/Required.svelte'
 	import GcpTriggerEditorConfigSection from './GcpTriggerEditorConfigSection.svelte'
+	import { base } from '$app/paths'
 
 	let drawer: Drawer
 	let is_flow: boolean = false
@@ -102,8 +103,18 @@
 	}
 
 	async function updateTrigger(): Promise<void> {
-		delivery_config = delivery_type === 'push' ? delivery_config : undefined
-
+		if (delivery_type === 'push') {
+			if (!delivery_config) {
+				sendUserToast("Must set route path when delivery type is push", true)
+				return
+			}
+			if (emptyStringTrimmed(delivery_config.audience)) {
+				delivery_config.audience = `${location.origin}${base}/api/gc`
+			}
+		}
+		else {
+			delivery_config = undefined
+		}
 		if (edit) {
 			await GcpTriggerService.updateGcpTrigger({
 				workspace: $workspaceStore!,

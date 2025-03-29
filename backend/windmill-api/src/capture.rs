@@ -58,7 +58,7 @@ use windmill_queue::TriggerKind;
 use windmill_queue::{PushArgs, PushArgsOwned};
 
 const KEEP_LAST: i64 = 20;
-
+pub const WINDMILL_CAPTURE_QUERY_ARGS: &'static str = "windmill_capture";
 pub fn workspaced_service() -> Router {
     Router::new()
         .route("/set_config", post(set_config))

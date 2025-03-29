@@ -7,6 +7,7 @@
 	} from '$lib/gen'
 	import {
 		canWrite,
+		copyToClipboard,
 		displayDate,
 		getLocalSetting,
 		sendUserToast,
@@ -21,7 +22,7 @@
 	import ShareModal from '$lib/components/ShareModal.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import { enterpriseLicense, userStore, workspaceStore } from '$lib/stores'
-	import { Code, Eye, Pen, Plus, Share, Trash, Circle, FileUp } from 'lucide-svelte'
+	import { Code, Eye, Pen, Plus, Share, Trash, Circle, FileUp, ClipboardCopy } from 'lucide-svelte'
 	import { goto } from '$lib/navigation'
 	import SearchItems from '$lib/components/SearchItems.svelte'
 	import NoItemFound from '$lib/components/home/NoItemFound.svelte'
@@ -37,6 +38,7 @@
 	import DeployWorkspaceDrawer from '$lib/components/DeployWorkspaceDrawer.svelte'
 	import GcpTriggerEditor from '$lib/components/triggers/gcp/GcpTriggerEditor.svelte'
 	import { GoogleCloudIcon } from '$lib/components/icons'
+	import { getHttpRoute } from '$lib/components/triggers/http/utils'
 
 	type TriggerD = GcpTrigger & { canWrite: boolean }
 
@@ -277,7 +279,7 @@
 			<div class="text-center text-sm text-tertiary mt-2"> No gcp triggers </div>
 		{:else if items?.length}
 			<div class="border rounded-md divide-y">
-				{#each items.slice(0, nbDisplayed) as { delivery_type, path, edited_by, error, edited_at, script_path, is_flow, extra_perms, canWrite, enabled, server_id, subscription_id } (path)}
+				{#each items.slice(0, nbDisplayed) as { workspace_id, delivery_config, delivery_type, path, edited_by, error, edited_at, script_path, is_flow, extra_perms, canWrite, enabled, server_id, subscription_id } (path)}
 					{@const href = `${is_flow ? '/flows/get' : '/scripts/get'}/${script_path}`}
 					{@const ping = new Date()}
 					{@const pinging = ping && ping.getTime() > new Date().getTime() - 15 * 1000}
@@ -357,6 +359,19 @@
 							/>
 
 							<div class="flex gap-2 items-center justify-end">
+								{#if delivery_type === 'push'}
+									<Button
+										on:click={() =>
+											copyToClipboard(
+												getHttpRoute(delivery_config?.route_path, false, workspace_id, 'gcp/push')
+											)}
+										color="dark"
+										size="xs"
+										startIcon={{ icon: ClipboardCopy }}
+									>
+										Copy URL
+									</Button>
+								{/if}
 								<Button
 									on:click={() => gcpTriggerEditor?.openEdit(path, is_flow)}
 									size="xs"

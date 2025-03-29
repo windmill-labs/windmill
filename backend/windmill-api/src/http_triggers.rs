@@ -896,7 +896,7 @@ async fn route_job(
 
     let result = try_from_request_body(
         request,
-        &db,
+        &(),
         Some(trigger.raw_string),
         Some(trigger.wrap_body),
     )

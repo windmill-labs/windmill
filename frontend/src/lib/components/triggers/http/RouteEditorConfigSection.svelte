@@ -76,7 +76,7 @@
 
 	$: isValid = routeError === ''
 
-	$: fullRoute = getHttpRoute(route_path, workspaced_route, $workspaceStore ?? '')
+	$: fullRoute = getHttpRoute(route_path, workspaced_route, $workspaceStore ?? '', '/r')
 
 	$: !http_method && (http_method = 'post')
 	$: route_path === undefined && (route_path = '')

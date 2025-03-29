@@ -283,7 +283,7 @@
 								<div class="flex gap-2 items-center justify-end">
 									<Button
 										on:click={() =>
-											copyToClipboard(getHttpRoute(route_path, workspaced_route ?? false, workspace_id))}
+											copyToClipboard(getHttpRoute(route_path, workspaced_route ?? false, workspace_id, 'r'))}
 										color="dark"
 										size="xs"
 										startIcon={{ icon: ClipboardCopy }}
