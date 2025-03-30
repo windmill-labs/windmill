@@ -189,7 +189,6 @@ pub async fn initial_load(
     }
 
     if worker_mode {
-<<<<<<< HEAD
         reload_job_default_timeout_setting(&conn).await;
         reload_extra_pip_index_url_setting(&conn).await;
         reload_pip_index_url_setting(&conn).await;
@@ -197,17 +196,8 @@ pub async fn initial_load(
         reload_bunfig_install_scopes_setting(&conn).await;
         reload_instance_python_version_setting(&conn).await;
         reload_nuget_config_setting(&conn).await;
-=======
-        reload_job_default_timeout_setting(&db).await;
-        reload_extra_pip_index_url_setting(&db).await;
-        reload_pip_index_url_setting(&db).await;
-        reload_npm_config_registry_setting(&db).await;
-        reload_bunfig_install_scopes_setting(&db).await;
-        reload_instance_python_version_setting(&db).await;
-        reload_nuget_config_setting(&db).await;
-        reload_maven_repos_setting(&db).await;
-        reload_no_default_maven_setting(&db).await;
->>>>>>> main
+        reload_maven_repos_setting(&conn).await;
+        reload_no_default_maven_setting(&conn).await;
     }
 }
 
@@ -995,12 +985,12 @@ pub async fn reload_nuget_config_setting(conn: &Connection) {
     )
     .await;
 }
-pub async fn reload_maven_repos_setting(db: &DB) {
-    reload_option_setting_with_tracing(db, windmill_common::global_settings::MAVEN_REPOS_SETTING, "MAVEN_REPOS", MAVEN_REPOS.clone())
+pub async fn reload_maven_repos_setting(conn: &Connection) {
+    reload_option_setting_with_tracing(conn, windmill_common::global_settings::MAVEN_REPOS_SETTING, "MAVEN_REPOS", MAVEN_REPOS.clone())
         .await;
 }
-pub async fn reload_no_default_maven_setting(db: &DB) {
-    let value = load_value_from_global_settings(db, windmill_common::global_settings::NO_DEFAULT_MAVEN_SETTING).await;
+pub async fn reload_no_default_maven_setting(conn: &Connection) {
+    let value = load_value_from_global_settings(conn, windmill_common::global_settings::NO_DEFAULT_MAVEN_SETTING).await;
     match value {
         Ok(Some(serde_json::Value::Bool(t))) => NO_DEFAULT_MAVEN.store(t, Ordering::Relaxed),
         Err(e) => {
@@ -1301,19 +1291,13 @@ pub async fn monitor_db(
 ) {
     tracing::info!("Starting periodic monitor task");
     let zombie_jobs_f = async {
-        if server_mode && !initial_load {
-            if let Some(db) = conn.as_sql() {
-                if !DISABLE_ZOMBIE_JOB_MONITORING.load(std::sync::atomic::Ordering::Relaxed) {
-                    handle_zombie_jobs(db, base_internal_url, "server").await;
-                    
-                    match handle_zombie_flows(db).await {
-                        Err(err) => {
-                            tracing::error!("Error handling zombie flows: {:?}", err);
-                        }
-                        _ => {}
-                    }
+        if server_mode && !initial_load && !*DISABLE_ZOMBIE_JOBS_MONITORING {
+            handle_zombie_jobs(db, base_internal_url, "server").await;
+            match handle_zombie_flows(db).await {
+                Err(err) => {
+                    tracing::error!("Error handling zombie flows: {:?}", err);
                 }
-            }
+                _ => {}
         }
     };
     let expired_items_f = async {

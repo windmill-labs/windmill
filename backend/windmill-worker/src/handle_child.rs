@@ -394,18 +394,14 @@ pub async fn handle_child(
 
             let worker_name = worker.to_string();
             let w_id2 = w_id.to_string();
-<<<<<<< HEAD
-            (do_write, write_result) = tokio::spawn(append_job_logs(job_id, w_id2, joined, conn.clone(), compact_logs, pg_log_total_size.clone(), worker_name)).remote_handle();
 
 
-=======
             if let Some(buf) = &mut pipe_stdout {
                 buf.push_str(&joined);
                 (do_write, write_result) = tokio::spawn(async { }).remote_handle();
             } else {
-                (do_write, write_result) = tokio::spawn(append_job_logs(job_id, w_id2, joined, db.clone(), compact_logs, pg_log_total_size.clone(), worker_name)).remote_handle();
+                (do_write, write_result) = tokio::spawn(append_job_logs(job_id, w_id2, joined, conn.clone(), compact_logs, pg_log_total_size.clone(), worker_name)).remote_handle();
             }
->>>>>>> main
 
             if let Err(err) = result {
                 tracing::error!(%job_id, %err, "error reading output for job {job_id} '{child_name}': {err}");

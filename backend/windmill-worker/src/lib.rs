@@ -10,15 +10,12 @@ mod agent_workers;
 mod ansible_executor;
 mod bash_executor;
 
-<<<<<<< HEAD
-=======
 #[cfg(feature = "nu")]
 mod nu_executor;
 
 #[cfg(feature = "java")]
 mod java_executor;
 
->>>>>>> main
 #[cfg(feature = "benchmark")]
 pub mod bench;
 mod bun_executor;
@@ -55,10 +52,7 @@ mod schema;
 mod worker;
 mod worker_flow;
 mod worker_lockfiles;
-<<<<<<< HEAD
 mod worker_utils;
-=======
->>>>>>> main
 
 pub use worker::*;
 

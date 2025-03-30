@@ -26,12 +26,8 @@ use windmill_common::{
         Error::{self},
     },
     utils::calculate_hash,
-<<<<<<< HEAD
-    worker::{write_file, Connection, PythonAnnotations, WORKER_CONFIG},
-=======
-    worker::{copy_dir_recursively, pad_string, write_file, PythonAnnotations, WORKER_CONFIG},
+    worker::{copy_dir_recursively, Connection, pad_string, write_file, PythonAnnotations, WORKER_CONFIG},
     DB,
->>>>>>> main
 };
 
 #[cfg(feature = "enterprise")]
