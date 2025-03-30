@@ -21,6 +21,7 @@
 	import AnsibleIcon from '$lib/components/icons/AnsibleIcon.svelte'
 	import CSharpIcon from '$lib/components/icons/CSharpIcon.svelte'
 	import NuIcon from '$lib/components/icons/NuIcon.svelte'
+	import JavaIcon from '$lib/components/icons/JavaIcon.svelte'
 
 	export let lang:
 		| SupportedLanguage
@@ -56,7 +57,9 @@
 		rust: 'Rust',
 		ansible: 'Ansible Playbook',
 		csharp: 'C#',
-		nu: 'Nu'
+		nu: 'Nu',
+		java: 'Java'
+		// KJQXZ 
 	}
 
 	const langToComponent: Record<
@@ -87,7 +90,9 @@
 		rust: RustIcon,
 		ansible: AnsibleIcon,
 		csharp: CSharpIcon,
-		nu: NuIcon
+		nu: NuIcon,
+		java: JavaIcon
+		// KJQXZ 
 	}
 
 	let subIconScale = width === 30 ? 0.6 : 0.8

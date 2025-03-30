@@ -78,9 +78,7 @@ export async function pushWorkspaceSettings(
       error_handler_extra_args: remoteSettings.error_handler_extra_args,
       error_handler_muted_on_cancel:
         remoteSettings.error_handler_muted_on_cancel,
-      ai_resource: remoteSettings.ai_resource,
-      code_completion_model: remoteSettings.code_completion_model,
-      ai_models: remoteSettings.ai_models,
+      ai_config: remoteSettings.ai_config,
       large_file_storage: remoteSettings.large_file_storage,
       git_sync: remoteSettings.git_sync,
       default_app: remoteSettings.default_app,

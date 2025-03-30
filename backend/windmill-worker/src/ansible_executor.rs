@@ -172,6 +172,7 @@ async fn install_galaxy_collections(
         None,
         false,
         &mut Some(occupancy_metrics),
+        None,
     )
     .await?;
 
@@ -436,6 +437,7 @@ fi
         job.timeout,
         false,
         &mut Some(occupancy_metrics),
+        None,
     )
     .await?;
     read_and_check_result(job_dir).await

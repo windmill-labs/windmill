@@ -949,6 +949,7 @@ pub async fn add_completed_job<T: Serialize + Send + Sync + ValidableJson>(
             created_by = queued_job.created_by,
             is_flow_step = queued_job.is_flow_step(),
             language = ?queued_job.script_lang,
+            scheduled_for = ?queued_job.scheduled_for,
             success,
             "inserted completed job: {} (success: {success})",
             queued_job.id
@@ -3134,7 +3135,7 @@ pub async fn push<'c, 'd>(
                     .await?
                     .unwrap_or(0);
 
-                    if in_queue > MAX_FREE_EXECS.into() {
+                    if in_queue > MAX_FREE_EXECS as i64 {
                         return Err(error::Error::QuotaExceeded(format!(
                             "User {email} has exceeded the jobs in queue limit of {MAX_FREE_EXECS} that applies outside of premium workspaces."
                         )));
@@ -3148,7 +3149,7 @@ pub async fn push<'c, 'd>(
                     .await?
                     .unwrap_or(0);
 
-                    if concurrent_runs > MAX_FREE_CONCURRENT_RUNS.into() {
+                    if concurrent_runs > MAX_FREE_CONCURRENT_RUNS as i64 {
                         return Err(error::Error::QuotaExceeded(format!(
                             "User {email} has exceeded the concurrent runs limit of {MAX_FREE_CONCURRENT_RUNS} that applies outside of premium workspaces."
                         )));
@@ -3190,7 +3191,7 @@ pub async fn push<'c, 'd>(
                     .await?
                     .unwrap_or(0);
 
-                    if in_queue_workspace > MAX_FREE_EXECS.into() {
+                    if in_queue_workspace > MAX_FREE_EXECS as i64 {
                         return Err(error::Error::QuotaExceeded(format!(
                             "Workspace {workspace_id} has exceeded the jobs in queue limit of {MAX_FREE_EXECS} that applies outside of premium workspaces."
                         )));
@@ -3204,7 +3205,7 @@ pub async fn push<'c, 'd>(
                     .await?
                     .unwrap_or(0);
 
-                    if concurrent_runs_workspace > MAX_FREE_CONCURRENT_RUNS.into() {
+                    if concurrent_runs_workspace > MAX_FREE_CONCURRENT_RUNS as i64 {
                         return Err(error::Error::QuotaExceeded(format!(
                             "Workspace {workspace_id} has exceeded the concurrent runs limit of {MAX_FREE_CONCURRENT_RUNS} that applies outside of premium workspaces."
                         )));
@@ -3647,18 +3648,16 @@ pub async fn push<'c, 'd>(
             }?;
             tx = PushIsolationLevel::Transaction(ntx);
 
-            let value = data.value().clone();
+            let mut value = data.value().clone();
             let priority = value.priority;
             let cache_ttl = value.cache_ttl.map(|x| x as i32);
             let custom_concurrency_key = value.concurrency_key.clone();
             let concurrency_time_window_s = value.concurrency_time_window_s;
             let concurrent_limit = value.concurrent_limit;
 
-            // this is a new flow being pushed, status is set to `value`.
-            let mut status = FlowStatus::new(&value);
             let extra = args.extra.get_or_insert_with(HashMap::new);
             if !apply_preprocessor {
-                status.preprocessor_module = None;
+                value.preprocessor_module = None;
                 extra.remove("wm_trigger");
             } else {
                 preprocessed = Some(false);
@@ -3668,6 +3667,10 @@ pub async fn push<'c, 'd>(
                     }))
                 });
             }
+
+            // this is a new flow being pushed, status is set to `value`.
+            let status = FlowStatus::new(&value);
+
             // Keep inserting `value` if not all workers are updated.
             // Starting at `v1.440`, the value is fetched on pull from the version id.
             let value_o = if !*MIN_VERSION_IS_AT_LEAST_1_440.read().await {
@@ -3675,9 +3678,6 @@ pub async fn push<'c, 'd>(
                 add_virtual_items_if_necessary(&mut value.modules);
                 if same_worker {
                     value.same_worker = true;
-                }
-                if !apply_preprocessor {
-                    value.preprocessor_module = None;
                 }
                 Some(value)
             } else {

@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.478.1
+  version: 1.479.3
   title: Windmill API
 
   contact:
@@ -1380,6 +1380,63 @@ paths:
       responses:
         '200':
           description: Installation successfully deleted
+
+  /w/{workspace}/github_app/export/{installationId}:
+    get:
+      summary: Export GitHub installation JWT token
+      description: Exports the JWT token for a specific GitHub installation in the workspace
+      operationId: exportInstallation
+      tags:
+        - Git Sync
+      parameters:
+        - name: workspace
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: installationId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Successfully exported the JWT token
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  jwt_token:
+                    type: string
+
+  /w/{workspace}/github_app/import:
+    post:
+      summary: Import GitHub installation from JWT token
+      description: Imports a GitHub installation from a JWT token exported from another instance
+      operationId: importInstallation
+      tags:
+        - Git Sync
+      parameters:
+        - name: workspace
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - jwt_token
+              properties:
+                jwt_token:
+                  type: string
+      responses:
+        '200':
+          description: Successfully imported the installation
 
   /users/accept_invite:
     post:
@@ -12440,7 +12497,7 @@ components:
 
     AIProvider:
       type: string
-      enum: [openai, anthropic, mistral, deepseek, googleai, groq, openrouter, customai]
+      enum: [openai, anthropic, mistral, deepseek, googleai, groq, openrouter, togetherai, customai]
 
     AIProviderModel:
       type: object
@@ -13472,7 +13529,9 @@ components:
           rust,
           ansible,
           csharp,
-          nu
+          nu,
+          java
+          # KJQXZ 
         ]
 
     Preview:
@@ -13699,6 +13758,8 @@ components:
           $ref: "../../openflow.openapi.yaml#/components/schemas/Retry"
         summary:
           type: string
+        description:
+          type: string
         no_flow_overlap:
           type: boolean
         tag:
@@ -13785,6 +13846,8 @@ components:
           type: boolean
         summary:
           type: string
+        description:
+          type: string
         tag:
           type: string
         paused_until:
@@ -13836,6 +13899,8 @@ components:
           type: boolean
         summary:
           type: string
+        description:
+          type: string
         tag:
           type: string
         paused_until:
@@ -13882,6 +13947,17 @@ components:
         - edited_at
         - is_flow
 
+
+    AuthenticationMethod:
+      type: string
+      enum:
+          - none
+          - windmill
+          - api_key
+          - basic_http
+          - custom_script
+          - signature
+
     HttpTrigger:
       allOf:
         - $ref: "#/components/schemas/TriggerExtraProperty"
@@ -13908,10 +13984,12 @@ components:
             - put
             - delete
             - patch
+        authentication_resource_path:
+          type: string
         is_async:
           type: boolean
-        requires_auth:
-          type: boolean
+        authentication_method:
+          $ref: "#/components/schemas/AuthenticationMethod"
         is_static_website:
           type: boolean
         workspaced_route:
@@ -13924,7 +14002,7 @@ components:
       required:
         - route_path
         - is_async
-        - requires_auth
+        - authentication_method
         - http_method
         - is_static_website
         - workspaced_route
@@ -13963,10 +14041,12 @@ components:
             - put
             - delete
             - patch
+        authentication_resource_path:
+          type: string
         is_async:
           type: boolean
-        requires_auth:
-          type: boolean
+        authentication_method:
+          $ref: "#/components/schemas/AuthenticationMethod"
         is_static_website:
           type: boolean
         wrap_body:
@@ -13980,7 +14060,7 @@ components:
         - route_path
         - is_flow
         - is_async
-        - requires_auth
+        - authentication_method
         - http_method
         - is_static_website
 
@@ -14006,6 +14086,8 @@ components:
               type: string
           required:
             - s3
+        authentication_resource_path:
+          type: string
         is_flow:
           type: boolean
         http_method:
@@ -14018,8 +14100,8 @@ components:
             - patch
         is_async:
           type: boolean
-        requires_auth:
-          type: boolean
+        authentication_method:
+          $ref: "#/components/schemas/AuthenticationMethod"
         is_static_website:
           type: boolean
         wrap_body:
@@ -14032,7 +14114,7 @@ components:
         - is_flow
         - kind
         - is_async
-        - requires_auth
+        - authentication_method
         - http_method
         - is_static_website
 

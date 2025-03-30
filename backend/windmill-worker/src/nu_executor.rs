@@ -334,6 +334,7 @@ async fn run<'a>(
         job.timeout,
         false,
         &mut Some(occupancy_metrics),
+        None,
     )
     .await
 }

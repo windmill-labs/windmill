@@ -11,6 +11,8 @@ pub const LICENSE_KEY_SETTING: &str = "license_key";
 pub const NPM_CONFIG_REGISTRY_SETTING: &str = "npm_config_registry";
 pub const BUNFIG_INSTALL_SCOPES_SETTING: &str = "bunfig_install_scopes";
 pub const NUGET_CONFIG_SETTING: &str = "nuget_config";
+pub const MAVEN_REPOS_SETTING: &str = "maven_repos";
+pub const NO_DEFAULT_MAVEN_SETTING: &str = "no_default_maven";
 
 pub const EXTRA_PIP_INDEX_URL_SETTING: &str = "pip_extra_index_url";
 pub const PIP_INDEX_URL_SETTING: &str = "pip_index_url";
@@ -61,6 +63,8 @@ pub const ENV_SETTINGS: &[&str] = &[
     "NU_PATH",
     "DENO_PATH",
     "GO_PATH",
+    "JAVA_PATH",
+    // KJQXZ
     "GOPRIVATE",
     "GOPROXY",
     "NETRC",
