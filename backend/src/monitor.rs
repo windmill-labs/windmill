@@ -105,6 +105,11 @@ lazy_static::lazy_static! {
     .and_then(|x| x.parse::<bool>().ok())
     .unwrap_or(true);
 
+    pub static ref DISABLE_ZOMBIE_JOB_MONITORING: bool = std::env::var("DISABLE_ZOMBIE_JOB_MONITORING")
+    .ok()
+    .and_then(|x| x.parse::<bool>().ok())
+    .unwrap_or(false);
+
 
 
     static ref QUEUE_COUNT_TAGS: Arc<RwLock<Vec<String>>> = Arc::new(RwLock::new(Vec::new()));
@@ -1298,12 +1303,15 @@ pub async fn monitor_db(
     let zombie_jobs_f = async {
         if server_mode && !initial_load {
             if let Some(db) = conn.as_sql() {
-                handle_zombie_jobs(db, base_internal_url, "server").await;
-                match handle_zombie_flows(db).await {
-                    Err(err) => {
-                        tracing::error!("Error handling zombie flows: {:?}", err);
+                if !DISABLE_ZOMBIE_JOB_MONITORING.load(std::sync::atomic::Ordering::Relaxed) {
+                    handle_zombie_jobs(db, base_internal_url, "server").await;
+                    
+                    match handle_zombie_flows(db).await {
+                        Err(err) => {
+                            tracing::error!("Error handling zombie flows: {:?}", err);
+                        }
+                        _ => {}
                     }
-                    _ => {}
                 }
             }
         }
