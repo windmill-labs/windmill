@@ -15,13 +15,12 @@
 	import Required from '$lib/components/Required.svelte'
 	import GcpTriggerEditorConfigSection from './GcpTriggerEditorConfigSection.svelte'
 	import { base } from '$app/paths'
-	import { DEFAULT_PUSH_CONFIG } from './utils'
 
 	let drawer: Drawer
 	let is_flow: boolean = false
 	let initialPath = ''
 	let edit = true
-	let delivery_type: DeliveryType = 'push'
+	let delivery_type: DeliveryType = 'pull'
 	let itemKind: 'flow' | 'script' = 'script'
 	let script_path = ''
 	let initialScriptPath = ''
@@ -35,7 +34,7 @@
 	let gcp_resource_path: string = ''
 	let subscription_id: string = ''
 	let isValid = false
-	let delivery_config: PushConfig | undefined = delivery_type === 'push' ? DEFAULT_PUSH_CONFIG : undefined
+	let delivery_config: PushConfig | undefined = undefined
 	const dispatch = createEventDispatcher()
 
 	$: is_flow = itemKind === 'flow'
@@ -70,8 +69,9 @@
 			fixedScriptPath = fixedScriptPath_ ?? ''
 			script_path = fixedScriptPath
 			gcp_resource_path = defaultValues?.gcp_resource_path ?? ''
-			delivery_type = defaultValues?.gcp_resource_path ?? 'push'
-			delivery_config = defaultValues?.delivery_config ?? DEFAULT_PUSH_CONFIG
+			gcp_resource_path = gcp_resource_path.replace('?windmill_capture=true', '')
+			delivery_type = defaultValues?.gcp_resource_path ?? 'pull'
+			delivery_config = defaultValues?.delivery_config ?? undefined
 			subscription_id = defaultValues?.subscription_id ?? ''
 			path = ''
 			initialPath = ''
@@ -89,7 +89,6 @@
 				path: initialPath
 			})
 			script_path = s.script_path
-			delivery_config = s.delivery_config ?? DEFAULT_PUSH_CONFIG
 			initialScriptPath = s.script_path
 			gcp_resource_path = s.gcp_resource_path
 			delivery_type = s.delivery_type

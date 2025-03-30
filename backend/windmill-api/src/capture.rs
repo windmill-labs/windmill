@@ -125,6 +125,7 @@ pub struct GcpTriggerConfig {
     pub gcp_resource_path: String,
     pub subscription_id: String,
     pub delivery_type: DeliveryType,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub delivery_config: Option<PushConfig>,
 }
 
@@ -185,6 +186,8 @@ enum TriggerConfig {
     Nats(NatsTriggerConfig),
     #[cfg(feature = "mqtt_trigger")]
     Mqtt(MqttTriggerConfig),
+    #[cfg(all(feature = "enterprise", feature = "gcp_trigger"))]
+    Gcp(GcpTriggerConfig)
 }
 
 #[derive(Serialize, Deserialize)]

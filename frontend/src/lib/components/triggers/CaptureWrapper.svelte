@@ -352,6 +352,8 @@
 				headless={true}
 				bind:gcp_resource_path={args.gcp_resource_path}
 				bind:subscription_id={args.subscription_id}
+				bind:delivery_config={args.delivery_config}
+				bind:delivery_type={args.delivery_type}
 				{showCapture}
 				{captureInfo}
 				bind:captureTable

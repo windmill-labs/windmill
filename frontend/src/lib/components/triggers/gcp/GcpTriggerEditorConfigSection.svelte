@@ -13,7 +13,9 @@
 	import { getHttpRoute } from '../http/utils'
 	import { workspaceStore } from '$lib/stores'
 	import { Badge } from '$lib/components/common'
-	import { DEFAULT_PUSH_CONFIG } from './utils'
+	import Label from '$lib/components/Label.svelte'
+	import ClipboardPanel from '$lib/components/details/ClipboardPanel.svelte'
+	import { base } from '$lib/base'
 
 	export let can_write: boolean = false
 	export let headless: boolean = false
@@ -23,29 +25,37 @@
 	export let isValid: boolean = false
 	export let gcp_resource_path = ''
 	export let subscription_id = ''
-	export let delivery_type: DeliveryType = 'push'
-	export let delivery_config: PushConfig | undefined = DEFAULT_PUSH_CONFIG
+	export let delivery_type: DeliveryType | undefined
+	export let delivery_config: PushConfig | undefined
 
-	if (!delivery_config) {
-		delivery_config = DEFAULT_PUSH_CONFIG
-	}
-
-	function isDeliveryTypeValid(delivery_type: DeliveryType) {
+	function isDeliveryTypeValid(
+		delivery_type: DeliveryType | undefined,
+		delivery_config: PushConfig | undefined
+	) {
+		if (!delivery_type) {
+			return false
+		}
 		if (delivery_type === 'push' && emptyStringTrimmed(delivery_config?.route_path)) {
 			return false
 		}
 		return true
 	}
 
+	let cached: PushConfig | undefined
+
 	$: isValid =
 		!emptyStringTrimmed(gcp_resource_path) &&
 		!emptyStringTrimmed(subscription_id) &&
-		isDeliveryTypeValid(delivery_type)
+		isDeliveryTypeValid(delivery_type, delivery_config)
 	$: fullRoute = getHttpRoute(delivery_config?.route_path, false, $workspaceStore ?? '', 'gcp/push')
+	$: !delivery_type && (delivery_type = 'pull')
 </script>
 
 <div>
 	{#if showCapture && captureInfo}
+		{@const captureURL = `${location.origin}${base}/api/gcp/push/${
+			delivery_config?.route_path ?? ''
+		}?windmill_capture=true`}
 		<CaptureSection
 			captureType="gcp"
 			disabled={!isValid}
@@ -56,7 +66,13 @@
 			on:addPreprocessor
 			on:testWithArgs
 			bind:captureTable
-		/>
+		>
+			{#if delivery_type === 'push'}
+				<Label label="URL">
+					<ClipboardPanel content={captureURL} disabled={!captureInfo.active} />
+				</Label>
+			{/if}
+		</CaptureSection>
 	{/if}
 	<Section label="GCP" {headless}>
 		<div class="flex flex-col w-full gap-4">
@@ -99,7 +115,12 @@
 							</p>
 							<ToggleButtonGroup
 								on:selected={(e) => {
-									console.log({ delivery_type, detail: e.detail })
+									if (e.detail === 'pull' && delivery_config) {
+										cached = delivery_config
+										delivery_config = undefined
+									} else {
+										delivery_config = cached ?? { route_path: '', audience: '' }
+									}
 								}}
 								bind:selected={delivery_type}
 								let:item
@@ -121,7 +142,7 @@
 							</ToggleButtonGroup>
 						</div>
 					</Subsection>
-					{#if delivery_type === 'push'}
+					{#if delivery_type === 'push' && delivery_config}
 						<Subsection label="Route path">
 							<div class="flex flex-col w-full gap-3">
 								<div class="flex flex-col">
