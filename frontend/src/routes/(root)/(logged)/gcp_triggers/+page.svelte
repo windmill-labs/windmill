@@ -300,7 +300,10 @@
 									{path}
 								</div>
 								<div class="text-secondary text-xs truncate text-left font-light">
-									{subscription_id} <span class="font-bold">{delivery_type}</span>
+									delivery_type: {delivery_type}
+								</div>
+								<div class="text-secondary text-xs truncate text-left font-light">
+									subscription_id: {subscription_id}
 								</div>
 								<div class="text-secondary text-xs truncate text-left font-light">
 									runnable: {script_path}
@@ -350,13 +353,15 @@
 								</div>
 							{/if}
 
-							<Toggle
-								checked={enabled}
-								disabled={!canWrite}
-								on:change={(e) => {
-									setTriggerEnabled(path, e.detail)
-								}}
-							/>
+							{#if delivery_type !== 'push'}
+								<Toggle
+									checked={enabled}
+									disabled={!canWrite}
+									on:change={(e) => {
+										setTriggerEnabled(path, e.detail)
+									}}
+								/>
+							{/if}
 
 							<div class="flex gap-2 items-center justify-end">
 								{#if delivery_type === 'push'}

@@ -15,6 +15,7 @@
 	import Required from '$lib/components/Required.svelte'
 	import GcpTriggerEditorConfigSection from './GcpTriggerEditorConfigSection.svelte'
 	import { base } from '$app/paths'
+	import { DEFAULT_PUSH_CONFIG } from './utils'
 
 	let drawer: Drawer
 	let is_flow: boolean = false
@@ -34,7 +35,7 @@
 	let gcp_resource_path: string = ''
 	let subscription_id: string = ''
 	let isValid = false
-	let delivery_config: PushConfig | undefined = undefined
+	let delivery_config: PushConfig | undefined = delivery_type === 'push' ? DEFAULT_PUSH_CONFIG : undefined
 	const dispatch = createEventDispatcher()
 
 	$: is_flow = itemKind === 'flow'
@@ -70,7 +71,7 @@
 			script_path = fixedScriptPath
 			gcp_resource_path = defaultValues?.gcp_resource_path ?? ''
 			delivery_type = defaultValues?.gcp_resource_path ?? 'push'
-			delivery_config = defaultValues?.delivery_config ?? undefined
+			delivery_config = defaultValues?.delivery_config ?? DEFAULT_PUSH_CONFIG
 			subscription_id = defaultValues?.subscription_id ?? ''
 			path = ''
 			initialPath = ''
@@ -88,7 +89,7 @@
 				path: initialPath
 			})
 			script_path = s.script_path
-			delivery_config = s.delivery_config
+			delivery_config = s.delivery_config ?? DEFAULT_PUSH_CONFIG
 			initialScriptPath = s.script_path
 			gcp_resource_path = s.gcp_resource_path
 			delivery_type = s.delivery_type
@@ -105,14 +106,13 @@
 	async function updateTrigger(): Promise<void> {
 		if (delivery_type === 'push') {
 			if (!delivery_config) {
-				sendUserToast("Must set route path when delivery type is push", true)
+				sendUserToast('Must set route path when delivery type is push', true)
 				return
 			}
 			if (emptyStringTrimmed(delivery_config.audience)) {
 				delivery_config.audience = `${location.origin}${base}/api/gc`
 			}
-		}
-		else {
+		} else {
 			delivery_config = undefined
 		}
 		if (edit) {

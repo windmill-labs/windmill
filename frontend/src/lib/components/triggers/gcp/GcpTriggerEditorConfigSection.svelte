@@ -13,6 +13,7 @@
 	import { getHttpRoute } from '../http/utils'
 	import { workspaceStore } from '$lib/stores'
 	import { Badge } from '$lib/components/common'
+	import { DEFAULT_PUSH_CONFIG } from './utils'
 
 	export let can_write: boolean = false
 	export let headless: boolean = false
@@ -23,17 +24,24 @@
 	export let gcp_resource_path = ''
 	export let subscription_id = ''
 	export let delivery_type: DeliveryType = 'push'
-	export let delivery_config: PushConfig = { route_path: '', audience: '' }
+	export let delivery_config: PushConfig | undefined = DEFAULT_PUSH_CONFIG
 
-	function isDeliveryTypeValid() {
-		if (delivery_type === 'push' && emptyStringTrimmed(delivery_config.route_path)) {
+	if (!delivery_config) {
+		delivery_config = DEFAULT_PUSH_CONFIG
+	}
+
+	function isDeliveryTypeValid(delivery_type: DeliveryType) {
+		if (delivery_type === 'push' && emptyStringTrimmed(delivery_config?.route_path)) {
 			return false
 		}
 		return true
 	}
 
-	$: isValid = !emptyStringTrimmed(gcp_resource_path) && !emptyStringTrimmed(subscription_id) && isDeliveryTypeValid()
-	$: fullRoute = getHttpRoute(delivery_config.route_path, false, $workspaceStore ?? '', 'gcp/push')
+	$: isValid =
+		!emptyStringTrimmed(gcp_resource_path) &&
+		!emptyStringTrimmed(subscription_id) &&
+		isDeliveryTypeValid(delivery_type)
+	$: fullRoute = getHttpRoute(delivery_config?.route_path, false, $workspaceStore ?? '', 'gcp/push')
 </script>
 
 <div>
@@ -89,7 +97,13 @@
 								Select the delivery type that matches the configuration of the existing Pub/Sub
 								subscription id you entered above. <Required required={true} />
 							</p>
-							<ToggleButtonGroup bind:selected={delivery_type} let:item>
+							<ToggleButtonGroup
+								on:selected={(e) => {
+									console.log({ delivery_type, detail: e.detail })
+								}}
+								bind:selected={delivery_type}
+								let:item
+							>
 								<ToggleButton
 									label="Pull"
 									tooltip="Connect to an existing Pub/Sub subscription using the pull delivery type, where your service polls for messages."
@@ -147,8 +161,10 @@
 						</Subsection>
 						<Subsection label="Audience">
 							<p class="text-xs mb-2 text-tertiary">
-								Provide the expected audience value for verifying OIDC tokens in push requests.
-								If left empty, the full URL of the endpoint will be used as the default audience: <code>{fullRoute}</code>.
+								Provide the expected audience value for verifying OIDC tokens in push requests. If
+								left empty, the full URL of the endpoint will be used as the default audience: <code
+									>{fullRoute}</code
+								>.
 							</p>
 							<input
 								type="text"
