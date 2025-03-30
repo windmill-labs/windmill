@@ -1263,7 +1263,7 @@ pub async fn monitor_db(
     _killpill_tx: KillpillSender,
 ) {
     let zombie_jobs_f = async {
-        if server_mode && !initial_load && !DISABLE_ZOMBIE_JOBS_MONITORING.load(std::sync::atomic::Ordering::Relaxed) {
+        if server_mode && !initial_load && !*DISABLE_ZOMBIE_JOBS_MONITORING {
             handle_zombie_jobs(db, base_internal_url, "server").await;
             match handle_zombie_flows(db).await {
                 Err(err) => {
