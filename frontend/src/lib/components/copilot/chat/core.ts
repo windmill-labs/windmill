@@ -277,21 +277,21 @@ export const ContextIconMap = {
 
 export type ContextElement =
 	| {
-		type: 'code'
-		content: string
-		title: string
-		lang: ScriptLang | 'bunnative'
-	}
+			type: 'code'
+			content: string
+			title: string
+			lang: ScriptLang | 'bunnative'
+	  }
 	| {
-		type: 'error'
-		content: string
-		title: 'error'
-	}
+			type: 'error'
+			content: string
+			title: 'error'
+	  }
 	| {
-		type: 'db'
-		schema?: DBSchema
-		title: string
-	}
+			type: 'db'
+			schema?: DBSchema
+			title: string
+	  }
 
 export async function prepareUserMessage(
 	instructions: string,
@@ -312,7 +312,10 @@ export async function prepareUserMessage(
 			}
 			errorContext = CHAT_USER_ERROR_CONTEXT.replace('{error}', context.content)
 		} else if (context.type === 'db') {
-			dbContext += CHAT_USER_DB_CONTEXT.replace('{title}', context.title).replace('{schema}', context.schema?.stringified ?? 'to fetch with get_db_schema')
+			dbContext += CHAT_USER_DB_CONTEXT.replace('{title}', context.title).replace(
+				'{schema}',
+				context.schema?.stringified ?? 'to fetch with get_db_schema'
+			)
 		}
 	}
 
@@ -400,8 +403,16 @@ async function callTool(
 				path: args.resourcePath
 			})
 			const newDbSchemas = {}
-			await getDbSchemas(resource.resource_type, args.resourcePath, workspace, newDbSchemas, (error) => { console.error(error) })
-			dbSchemas.update(schemas => ({ ...schemas, ...newDbSchemas }))
+			await getDbSchemas(
+				resource.resource_type,
+				args.resourcePath,
+				workspace,
+				newDbSchemas,
+				(error) => {
+					console.error(error)
+				}
+			)
+			dbSchemas.update((schemas) => ({ ...schemas, ...newDbSchemas }))
 			const dbs = get(dbSchemas)
 			const db = dbs[args.resourcePath]
 			if (!db) {
@@ -444,7 +455,7 @@ export async function chatRequest(
 				const finalToolCalls: Record<number, ChatCompletionChunk.Choice.Delta.ToolCall> = {}
 
 				for await (const chunk of completion) {
-					if (!('choices' in chunk)) {
+					if (!('choices' in chunk && chunk.choices.length > 0 && 'delta' in chunk.choices[0])) {
 						continue
 					}
 					const c = chunk as ChatCompletionChunk
