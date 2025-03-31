@@ -16,12 +16,14 @@
 	import { capitalize } from '$lib/utils'
 	import Toggle from './Toggle.svelte'
 	import { ExternalLink, Plus } from 'lucide-svelte'
+	import AzureOauthSettings from './AzureOauthSettings.svelte'
 
 	export let snowflakeAccountIdentifier = ''
 	export let oauths: Record<string, any> = {}
 	export let requirePreexistingUserForOauth: boolean = false
 
 	const windmillBuiltins = [
+		'azure_oauth',
 		'github',
 		'gitlab',
 		'bitbucket',
@@ -198,7 +200,9 @@
 								<span class="text-primary font-semibold text-sm">Client Secret</span>
 								<input type="text" placeholder="Client Secret" bind:value={oauths[k]['secret']} />
 							</label>
-							{#if !windmillBuiltins.includes(k) && k != 'slack'}
+							{#if k === 'azure_oauth'}
+								<AzureOauthSettings bind:connect_config={oauths[k]['connect_config']} />
+							{:else if !windmillBuiltins.includes(k) && k != 'slack'}
 								<CustomOauth bind:connect_config={oauths[k]['connect_config']} />
 							{/if}
 							{#if k == 'snowflake_oauth'}
