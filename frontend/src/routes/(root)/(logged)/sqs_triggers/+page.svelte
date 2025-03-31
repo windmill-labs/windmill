@@ -227,7 +227,7 @@
 	f={(x) => (x.summary ?? '') + ' ' + x.path + ' (' + x.script_path + ')'}
 />
 
-<CenteredPage>
+<CenteredPage useScroll>
 	<PageHeader title="SQS triggers" tooltip="SQS trigger">
 		<Button size="md" startIcon={{ icon: Plus }} on:click={() => sqsTriggerEditor.openNew(false)}>
 			New&nbsp;SQS trigger

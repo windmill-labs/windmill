@@ -233,7 +233,7 @@
 		<p>Page not available for operators</p>
 	</div>
 {:else}
-	<CenteredPage>
+	<CenteredPage useScroll>
 		<PageHeader
 			title="NATS triggers"
 			tooltip="Windmill can consume NATS events and trigger scripts or flows based on them."

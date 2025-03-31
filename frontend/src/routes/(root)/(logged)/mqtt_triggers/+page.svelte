@@ -228,7 +228,7 @@
 	f={(x) => (x.summary ?? '') + ' ' + x.path + ' (' + x.script_path + ')'}
 />
 
-<CenteredPage>
+<CenteredPage useScroll>
 	<PageHeader
 		title="MQTT triggers"
 		tooltip="Windmill can connect to an MQTT broker, subscribe to specific topics, and trigger scripts or flows based on those topics."

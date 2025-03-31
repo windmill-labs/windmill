@@ -193,17 +193,19 @@
 		<p>Page not available for operators</p>
 	</div>
 {:else}
-	<CenteredPage>
+	<CenteredPage useScroll>
 		<PageHeader
 			title="Custom HTTP routes"
 			tooltip="Every script and flow already has a canonical HTTP API endpoint/webhook attached to it, this is to create additional parametrizable ones."
 			documentationLink="https://www.windmill.dev/docs/core_concepts/http_routing"
 		>
-			{#if $userStore?.is_admin || $userStore?.is_super_admin}
-				<Button size="md" startIcon={{ icon: Plus }} on:click={() => routeEditor.openNew(false)}>
-					New&nbsp;route
-				</Button>
-			{/if}
+			<div class="min-h-[41px]">
+				{#if $userStore?.is_admin || $userStore?.is_super_admin}
+					<Button size="md" startIcon={{ icon: Plus }} on:click={() => routeEditor.openNew(false)}>
+						New&nbsp;route
+					</Button>
+				{/if}
+			</div>
 		</PageHeader>
 		<div class="w-full h-full flex flex-col">
 			<div class="w-full pb-4 pt-6">

@@ -226,7 +226,7 @@
 	f={(x) => (x.summary ?? '') + ' ' + x.path + ' (' + x.script_path + ')'}
 />
 
-<CenteredPage>
+<CenteredPage useScroll>
 	<PageHeader
 		title="WebSocket triggers"
 		tooltip="Windmill can listen to WebSocket events and trigger scripts or flows based on them."
