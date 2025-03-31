@@ -58,7 +58,7 @@
 
 	$: infiniteList && !noHistory && initLoadInputs()
 
-	function handleselect(e: CustomEvent) {
+	function handleSelect(e: CustomEvent) {
 		if (e.detail === 'extraRow') {
 			if (selected === 'extraRow') {
 				deselect()
@@ -87,7 +87,7 @@
 	bind:this={infiniteList}
 	selectedItemId={selected}
 	on:error
-	on:select={handleselect}
+	on:select={handleSelect}
 	rounded={false}
 	noBorder
 	extraRowClasses={{
