@@ -639,7 +639,9 @@
 						</button>
 					</div>
 
-					<slot />
+					<div class="grow min-h-0">
+						<slot />
+					</div>
 				</div>
 			</main>
 		</div>
