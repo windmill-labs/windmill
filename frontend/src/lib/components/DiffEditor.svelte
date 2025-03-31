@@ -136,15 +136,15 @@
 	/>
 	{#if showButtons}
 		<div
-			class="absolute flex flex-row bottom-10 left-1/2 z-10 -translate-x-1/2 bg-surface rounded-md"
+			class="absolute flex flex-row gap-2 bottom-10 left-1/2 z-10 -translate-x-1/2 rounded-md p-1 w-full justify-center"
 		>
 			<button
-				class="px-2 py-1 bg-[#a0e6a0] rounded-l text-sm font-semibold text-black"
-				on:click={() => dispatch('hideDiffMode')}>Quit diff mode</button
+				class="px-4 py-2 bg-emerald-500 hover:bg-emerald-600 rounded-md text-sm font-semibold text-white transition-colors duration-200"
+				on:click={() => dispatch('seeHistory')}>See changes history</button
 			>
 			<button
-				class="px-2 py-1 bg-[#e6a0a0] rounded-r text-sm font-semibold text-black"
-				on:click={() => dispatch('seeHistory')}>See changes history</button
+				class="px-4 py-2 bg-rose-500 hover:bg-rose-600 rounded-md text-sm font-semibold text-white transition-colors duration-200"
+				on:click={() => dispatch('hideDiffMode')}>Quit diff mode</button
 			>
 		</div>
 	{/if}
