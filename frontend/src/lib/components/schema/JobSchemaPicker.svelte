@@ -3,7 +3,6 @@
 	import { workspaceStore } from '$lib/stores'
 	import { ExternalLink } from 'lucide-svelte'
 	import { base } from '$lib/base'
-	import OutputBadge from '$lib/components/flows/propPicker/OutputBadge.svelte'
 
 	export let job: any
 	export let payloadData: any | undefined = undefined
@@ -49,8 +48,5 @@
 				</a>
 			</div>
 		</div>
-	</svelte:fragment>
-	<svelte:fragment slot="light-display">
-		<OutputBadge {job} noStatus />
 	</svelte:fragment>
 </SchemaPickerRow>
