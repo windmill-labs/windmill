@@ -1414,16 +1414,6 @@
 		on:rejectAll={() => {
 			aiChatEditorHandler?.rejectAll()
 		}}
-		on:quitDiffMode={() => {
-			aiChatEditorHandler?.quitDiffMode()
-			diffMode.set(false)
-		}}
-		on:seeHistory={() => {
-			aiChatEditorHandler?.quitDiffMode()
-			diffMode.set(false)
-			dispatch('seeHistory')
-		}}
-		isDiffMode={$diffMode}
 	/>
 {/if}
 

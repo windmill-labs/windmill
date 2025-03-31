@@ -542,6 +542,11 @@
 						defaultLang={scriptLangToEditorLang(lang)}
 						{fixedOverflowWidgets}
 						{editor}
+						showButtons={$diffMode}
+						on:hideDiffMode={hideDiffMode}
+						on:seeHistory={() => {
+							showHistoryDrawer = true
+						}}
 					/>
 				{/key}
 			</div>
@@ -556,12 +561,11 @@
 					{args}
 					{path}
 					on:applyCode={(e) => {
+						hideDiffMode()
 						editor?.reviewAndApplyCode(e.detail.code)
 					}}
 					on:reviewChanges={() => {
-						console.log('reviewChanges')
 						showDiffMode()
-						// editor?.reviewChanges(lastDeployedCode ?? '')
 					}}
 					{diffWithLastSaved}
 					{diffWithLastDeployed}
