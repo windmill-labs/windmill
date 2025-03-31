@@ -178,7 +178,7 @@
 
 {#if showContextTooltip}
 	<div
-		class="absolute bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-md shadow-lg p-2 z-50"
+		class="absolute bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-md shadow-lg z-50"
 		style="left: {tooltipPosition.x}px; top: {tooltipPosition.y}px;"
 	>
 		<AvailableContextList
