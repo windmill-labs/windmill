@@ -6517,7 +6517,12 @@ paths:
                       use_latest_version: boolean
       responses:
         "201":
-          description: stream of uuids of created jobs
+          description: stream of created job uuids seperated by \n. Lines may start with 'Error:'
+          example: |
+            a1a74c0d-708e-4539-9768-e8b3d37996bd
+            f0949132-5b30-48fe-bac8-873f047df810
+            Error: Could not re-run 0b885808-ae89-4458-af95-c1ca3a13b0a5
+            52b9c01d-1125-4bbb-8bee-d41f26b70066
           content:
             text/event-stream:
               schema:

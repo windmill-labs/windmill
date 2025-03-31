@@ -3269,7 +3269,7 @@ async fn batch_rerun_jobs(
     Json(body): Json<BatchReRunJobsBodyArgs>,
 ) -> Response {
     let stream = batch_rerun_jobs_inner(authed, db, user_db, w_id, body);
-    // TODO: handle errors
+
     let body = axum::body::Body::from_stream(stream.map(Result::<_, std::convert::Infallible>::Ok));
 
     Response::builder()
@@ -3314,13 +3314,16 @@ fn batch_rerun_jobs_inner(
         while let Some(Ok(job)) = job_stream.next().await {
             let job_result =
                 batch_rerun_handle_job(&job, &authed, &db, &user_db, &w_id, &body).await;
-            match job_result {
-                Ok(uuid) => match tx.send(format!("{uuid}\n")).await {
-                    Ok(_) => {}
-                    Err(_) => tracing::error!("Couldn't stream re-run uuid {}", job.id),
-                },
-                Err(err) => tracing::error!("Couldn't re-run job {}: {}", job.id, err.to_string()),
-            };
+            let send_to_stream_result = tx
+                .send(match job_result {
+                    Ok(uuid) => format!("{}\n", uuid),
+                    Err(err) => format!("Error: {}\n", err.to_string()),
+                })
+                .await;
+            match send_to_stream_result {
+                Ok(_) => {}
+                Err(e) => tracing::error!("Couldn't re-run job {}: {}", job.id, e.to_string()),
+            }
         }
     });
     tokio_stream::wrappers::ReceiverStream::new(rx)

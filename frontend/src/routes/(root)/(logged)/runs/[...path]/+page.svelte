@@ -623,19 +623,44 @@
 				)
 				await new Promise(async (resolve) => {
 					const reader = response?.body?.pipeThrough(new TextDecoderStream()).getReader()
-					let reRanCounter = 0
+					let reRanUuids: string[] = []
 					if (reader) {
 						while (true) {
 							const { value, done } = await reader.read()
 							if (value) {
 								// It is possible get multiple values at once in case of buffering
-								reRanCounter += value.split('\n').reduce((p, c) => p + (c ? 1 : 0), 0)
-								if (askingForConfirmation) {
-									askingForConfirmation.title = `Pushed ${reRanCounter}/${jobIdsToReRun.length} jobs to queue`
+								const receivedUuids: string[] = []
+								for (const line of value.split('\n')) {
+									if (!line) continue
+									else if (line.startsWith('Error:')) {
+										console.error(line)
+									} else {
+										receivedUuids.push(line)
+									}
+								}
+								if (receivedUuids.length) {
+									reRanUuids.push(...receivedUuids)
+									if (askingForConfirmation) {
+										askingForConfirmation.title = `Pushed ${receivedUuids.length}/${jobIdsToReRun.length} jobs to queue`
+									}
 								}
 							}
+
 							if (done || !value) {
-								sendUserToast(`Re-ran ${reRanCounter}/${jobIdsToReRun.length} jobs`)
+								if (reRanUuids.length) {
+									sendUserToast(`Re-ran ${reRanUuids.length}/${jobIdsToReRun.length} jobs`)
+								}
+								if (reRanUuids.length !== jobIdsToReRun.length) {
+									sendUserToast(
+										`Failed to re-run ${jobIdsToReRun.length - reRanUuids.length} jobs. Check console for details`,
+										true
+									)
+									// We do not get explicit error from backend if the job script don't exist
+									for (const jobId of jobIdsToReRun) {
+										if (reRanUuids.includes(jobId)) continue
+										console.error('Could not re-run job ' + jobId)
+									}
+								}
 								break
 							}
 						}
