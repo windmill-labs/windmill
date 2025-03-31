@@ -1,6 +1,6 @@
 import { ResourceService } from '$lib/gen/services.gen'
 import type { ResourceType, ScriptLang } from '$lib/gen/types.gen'
-import { capitalize, toCamel } from '$lib/utils'
+import { capitalize, isObject, toCamel } from '$lib/utils'
 import { get, type Writable } from 'svelte/store'
 import { getCompletion } from '../lib'
 import { compile, phpCompile, pythonCompile } from '../utils'
@@ -15,9 +15,12 @@ import { workspaceStore, type DBSchema } from '$lib/stores'
 import { scriptLangToEditorLang } from '$lib/scripts'
 
 export function formatResourceTypes(
-	resourceTypes: ResourceType[],
+	allResourceTypes: ResourceType[],
 	lang: 'python3' | 'php' | 'bun' | 'deno' | 'nativets' | 'bunnative'
 ) {
+	const resourceTypes = allResourceTypes.filter(
+		(rt) => isObject(rt.schema) && 'properties' in rt.schema && isObject(rt.schema.properties)
+	)
 	if (lang === 'python3') {
 		const result = resourceTypes.map((resourceType) => {
 			return `class ${resourceType.name}(TypedDict):\n${pythonCompile(resourceType.schema as any)}`
@@ -32,15 +35,11 @@ export function formatResourceTypes(
 		return '\n' + result.join('\n\n')
 	} else {
 		let resultStr = 'namespace RT {\n'
-		const result = resourceTypes
-			.filter(
-				(resourceType) => Boolean(resourceType.schema) && typeof resourceType.schema === 'object'
-			)
-			.map((resourceType) => {
-				return `  type ${toCamel(capitalize(resourceType.name))} = ${compile(
-					resourceType.schema as any
-				).replaceAll('\n', '\n  ')}`
-			})
+		const result = resourceTypes.map((resourceType) => {
+			return `  type ${toCamel(capitalize(resourceType.name))} = ${compile(
+				resourceType.schema as any
+			).replaceAll('\n', '\n  ')}`
+		})
 		return resultStr + result.join('\n\n') + '\n}'
 	}
 }
