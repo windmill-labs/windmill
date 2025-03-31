@@ -271,6 +271,18 @@
 								}
 								dispatch('updateMock', newMock)
 								selectJob(undefined) // reset the job
+							} else {
+								if (mock?.return_value) {
+									dispatch('updateMock', {
+										enabled: true,
+										return_value: mock.return_value
+									})
+								} else {
+									dispatch('updateMock', {
+										enabled: true,
+										return_value: { example: 'value' }
+									})
+								}
 							}
 						}
 					}}
