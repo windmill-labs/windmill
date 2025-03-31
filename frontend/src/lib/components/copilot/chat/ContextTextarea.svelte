@@ -208,6 +208,7 @@
 			}
 		} catch (error) {
 			// Hide tooltip on any error related to position calculation
+			console.error('Error updating tooltip position', error)
 			showContextTooltip = false
 		}
 	}
