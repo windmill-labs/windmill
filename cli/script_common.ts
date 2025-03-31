@@ -19,7 +19,7 @@ export type ScriptLanguage =
   | "nu"
   | "ansible"
   | "java";
-	// KJQXZ 
+	// for relative places search: ADD_NEW_LANG 
 
 export function inferContentTypeFromFilePath(
   contentPath: string,
@@ -67,7 +67,7 @@ export function inferContentTypeFromFilePath(
     return "nu";
   } else if (contentPath.endsWith(".java")) {
     return "java";
-	// KJQXZ 
+	// for relative places search: ADD_NEW_LANG 
   } else {
     throw new Error(
       "Invalid language: " + contentPath.substring(contentPath.lastIndexOf("."))

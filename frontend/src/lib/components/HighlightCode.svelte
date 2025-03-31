@@ -69,7 +69,7 @@
 				return yaml;
 			case 'java':
 				return java;
-			// KJQXZ 
+			// for relative places search: ADD_NEW_LANG 
 			default:
 				return typescript
 		}

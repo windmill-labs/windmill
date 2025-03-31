@@ -52,7 +52,7 @@ lazy_static::lazy_static! {
         "csharp".to_string(),
         "nu".to_string(),
         "java".to_string(),
-        // KJQXZ
+        // for relative places search: ADD_NEW_LANG
         "dependency".to_string(),
         "flow".to_string(),
         "other".to_string()
