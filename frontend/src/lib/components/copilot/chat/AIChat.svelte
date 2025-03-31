@@ -1,5 +1,12 @@
 <script lang="ts">
-	import { copilotSessionModel, dbSchemas, type DBSchema, type DBSchemas } from '$lib/stores'
+	import {
+		copilotSessionModel,
+		dbSchemas,
+		type DBSchema,
+		type DBSchemas,
+		SQLSchemaLanguages,
+		workspaceStore
+	} from '$lib/stores'
 	import { writable, type Writable } from 'svelte/store'
 	import AIChatDisplay from './AIChatDisplay.svelte'
 	import {
@@ -8,11 +15,15 @@
 		prepareUserMessage,
 		type AIChatContext,
 		type ContextElement,
-		type DisplayMessage,
-		type SelectedContext
+		type DisplayMessage
 	} from './core'
 	import { createEventDispatcher, onDestroy, setContext } from 'svelte'
-	import type { AIProviderModel, ScriptLang } from '$lib/gen'
+	import {
+		type AIProviderModel,
+		type ListResourceResponse,
+		type ScriptLang,
+		ResourceService
+	} from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
 	import { openDB, type DBSchema as IDBSchema, type IDBPDatabase } from 'idb'
 	import { isInitialCode } from '$lib/script_helpers'
@@ -26,43 +37,11 @@
 	export let path: string | undefined
 
 	$: contextCodePath = path
-		? path.split('/').pop() + '.' + langToExt(scriptLangToEditorLang(lang))
+		? (path.split('/').pop() ?? 'script') + '.' + langToExt(scriptLangToEditorLang(lang))
 		: undefined
 
 	let initializedWithInitCode: boolean | null = null
 	$: lang && (initializedWithInitCode = null)
-	function onCodeChange() {
-		if (!contextCodePath) {
-			return
-		}
-		try {
-			if (initializedWithInitCode === null && code) {
-				if (isInitialCode(code)) {
-					initializedWithInitCode = true
-				} else {
-					initializedWithInitCode = false
-					selectedContext = [
-						{
-							type: 'code',
-							title: contextCodePath
-						}
-					]
-				}
-			} else if (initializedWithInitCode) {
-				// if the code was initial and was changed, add code context, then prevent it from being added again
-				selectedContext = [
-					{
-						type: 'code',
-						title: contextCodePath
-					}
-				]
-				initializedWithInitCode = false
-			}
-		} catch (err) {
-			console.error('Could not update context', err)
-		}
-	}
-	$: contextCodePath && code && onCodeChange()
 
 	let db: { schema: DBSchema; resource: string } | undefined = undefined
 
@@ -90,23 +69,36 @@
 	}
 	$: updateSchema(lang, args, $dbSchemas)
 
-	let selectedContext: SelectedContext[] = []
+	let selectedContext: ContextElement[] = []
 
 	let availableContext: ContextElement[] = []
 
-	function updateAvailableContext(
+	let dbResources: ListResourceResponse = []
+
+	async function updateDBResources(workspace: string | undefined) {
+		if (workspace) {
+			dbResources = await ResourceService.listResource({
+				workspace: workspace,
+				resourceType: SQLSchemaLanguages.join(',')
+			})
+		}
+	}
+
+	async function updateAvailableContext(
 		contextCodePath: string | undefined,
 		code: string,
 		lang: ScriptLang | 'bunnative',
 		error: string | undefined,
 		db: { schema: DBSchema; resource: string } | undefined,
-		providerModel: AIProviderModel | undefined
+		providerModel: AIProviderModel | undefined,
+		dbSchemas: DBSchemas,
+		dbResources: ListResourceResponse
 	) {
 		if (!contextCodePath) {
 			return
 		}
 		try {
-			availableContext = [
+			let newAvailableContext: ContextElement[] = [
 				{
 					type: 'code',
 					title: contextCodePath,
@@ -114,10 +106,21 @@
 					lang
 				}
 			]
+			if (!providerModel?.model.endsWith('/thinking')) {
+				for (const d of dbResources) {
+					const loadedSchema = dbSchemas[d.path]
+					newAvailableContext.push({
+						type: 'db',
+						title: d.path,
+						// If the db is already fetched, add the schema to the context
+						...(loadedSchema ? { schema: loadedSchema } : {})
+					})
+				}
+			}
 
 			if (error) {
-				availableContext = [
-					...availableContext,
+				newAvailableContext = [
+					...newAvailableContext,
 					{
 						type: 'error',
 						title: 'error',
@@ -126,22 +129,78 @@
 				]
 			}
 
-			if (db && !providerModel?.model.endsWith('/thinking')) {
-				availableContext = [
-					...availableContext,
+			if (db) {
+				// If the db is already fetched, add it to the selected context
+				if (
+					!selectedContext.find((c) => c.type === 'db' && c.title === db.resource) &&
+					!providerModel?.model.endsWith('/thinking')
+				) {
+					selectedContext = [
+						...selectedContext,
+						{
+							type: 'db',
+							title: db.resource,
+							schema: db.schema
+						}
+					]
+				}
+			}
+
+			availableContext = newAvailableContext
+
+			if (
+				code &&
+				((initializedWithInitCode === null && !isInitialCode(code)) || initializedWithInitCode)
+			) {
+				selectedContext = [
 					{
-						type: 'db',
-						title: db.resource,
-						schema: db.schema
+						type: 'code',
+						title: contextCodePath,
+						content: code,
+						lang
 					}
 				]
 			}
+
+			if (code && initializedWithInitCode === null) {
+				initializedWithInitCode = isInitialCode(code)
+			}
+
+			selectedContext = selectedContext
+				.map((c) => availableContext.find((ac) => ac.type === c.type && ac.title === c.title))
+				.filter((c) => c !== undefined) as ContextElement[]
 		} catch (err) {
 			console.error('Could not update available context', err)
 		}
 	}
 
-	$: updateAvailableContext(contextCodePath, code, lang, error, db, $copilotSessionModel)
+	function updateDisplayMessages(dbSchemas: DBSchemas) {
+		return displayMessages.map((m) => ({
+			...m,
+			contextElements: m.contextElements?.map((c) =>
+				c.type === 'db'
+					? {
+							type: 'db',
+							title: c.title,
+							schema: dbSchemas[c.title]
+					  }
+					: c
+			) as ContextElement[]
+		}))
+	}
+
+	$: updateDBResources($workspaceStore)
+
+	$: updateAvailableContext(
+		contextCodePath,
+		code,
+		lang,
+		error,
+		db,
+		$copilotSessionModel,
+		$dbSchemas,
+		dbResources
+	)
 
 	let instructions = ''
 	let loading = writable(false)
@@ -178,28 +237,11 @@
 	let messages: { role: 'user' | 'assistant' | 'system'; content: string }[] = [
 		prepareSystemMessage()
 	]
+
 	let displayMessages: DisplayMessage[] = []
 	let abortController: AbortController | undefined = undefined
 
-	function updateSelectedContextElements() {
-		try {
-			const contextElements: ContextElement[] = []
-
-			for (const selected of selectedContext) {
-				const el = availableContext.find(
-					(c) => c.type === selected.type && c.title === selected.title
-				)
-				if (el) {
-					contextElements.push(el)
-				}
-			}
-			return contextElements
-		} catch (err) {
-			console.error('Could not update selected context elements', err)
-			return []
-		}
-	}
-	let selectedContextElements: ContextElement[] = []
+	$: displayMessages = updateDisplayMessages($dbSchemas)
 
 	async function sendRequest() {
 		if (!instructions.trim()) {
@@ -210,19 +252,17 @@
 			aiChatDisplay?.enableAutomaticScroll()
 			abortController = new AbortController()
 
-			selectedContextElements = updateSelectedContextElements()
-
 			displayMessages = [
 				...displayMessages,
 				{
 					role: 'user',
 					content: instructions,
-					contextElements: selectedContextElements
+					contextElements: selectedContext
 				}
 			]
 			const oldInstructions = instructions
 			instructions = ''
-			const userMessage = await prepareUserMessage(oldInstructions, lang, selectedContextElements)
+			const userMessage = await prepareUserMessage(oldInstructions, lang, selectedContext)
 
 			messages.push({ role: 'user', content: userMessage })
 			await saveChat()
@@ -232,14 +272,8 @@
 				messages,
 				abortController,
 				lang,
-				(
-					selectedContextElements.find((c) => c.type === 'db') as
-						| Extract<ContextElement, { type: 'db' }>
-						| undefined
-				)?.schema,
-				(token) => {
-					currentReply.update((prev) => prev + token)
-				}
+				selectedContext.filter((c) => c.type === 'db').length > 0,
+				(token) => currentReply.update((prev) => prev + token)
 			)
 
 			messages.push({ role: 'assistant', content: $currentReply })
@@ -248,7 +282,7 @@
 				{
 					role: 'assistant',
 					content: $currentReply,
-					contextElements: selectedContextElements
+					contextElements: selectedContext.filter((c) => c.type === 'code')
 				}
 			]
 			currentReply.set('')
@@ -318,16 +352,14 @@
 		}
 		instructions = 'Fix the error'
 
-		selectedContext = [
-			{
-				type: 'code',
-				title: contextCodePath
-			},
-			{
-				type: 'error',
-				title: 'error'
-			}
-		]
+		const codeContext = availableContext.find(
+			(c) => c.type === 'code' && c.title === contextCodePath
+		)
+		const errorContext = availableContext.find((c) => c.type === 'error')
+
+		if (codeContext && errorContext) {
+			selectedContext = [codeContext, errorContext]
+		}
 
 		sendRequest()
 	}
@@ -390,7 +422,7 @@
 				{
 					role: 'assistant',
 					content: $currentReply,
-					contextElements: selectedContextElements
+					contextElements: selectedContext.filter((c) => c.type === 'code')
 				}
 		  ]
 		: displayMessages}
