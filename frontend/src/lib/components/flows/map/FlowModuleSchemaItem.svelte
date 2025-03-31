@@ -108,14 +108,7 @@
 	$: updateConnectingData(id, pickableIds, $flowPropPickerConfig, $flowStateStore)
 
 	function updateLastJob(flowStateStore: any | undefined) {
-		if (
-			!flowStateStore ||
-			!id ||
-			flowStateStore[id]?.previewResult === 'never tested this far' ||
-			!flowStateStore[id]?.previewJobId ||
-			!flowStateStore[id]?.previewWorkspaceId ||
-			!flowStateStore[id]?.previewSuccess
-		) {
+		if (!flowStateStore || !id || flowStateStore[id]?.previewResult === 'never tested this far') {
 			return
 		}
 		lastJob = {
