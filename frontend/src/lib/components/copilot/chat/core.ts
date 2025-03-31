@@ -211,7 +211,7 @@ export const CHAT_SYSTEM_PROMPT = `
 
 	When the user requests code changes:
 	- Always include a **single code block** with the **entire updated file**, not just the modified sections.
-	- The code can include \`[#START]\` and \`[#END]\` markers to indicate the start and end of a code piece. You MUST only modify the code between these markers if given, and remove them in your response. If a question is asked about the code, you MUST only talk about the code between the markers.
+	- The code can include \`[#START]\` and \`[#END]\` markers to indicate the start and end of a code piece. You MUST only modify the code between these markers if given, and remove them in your response. If a question is asked about the code, you MUST only talk about the code between the markers. Refer to it as the code piece, not the code between the markers.
 	- Follow the instructions carefully and explain the reasoning behind your changes.
 	- If the request is abstract (e.g., "make this cleaner"), interpret it concretely and reflect that in the code block.
 	- Preserve existing formatting, indentation, and whitespace unless changes are strictly required to fulfill the user's request.
