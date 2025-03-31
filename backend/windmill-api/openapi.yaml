@@ -1639,7 +1639,7 @@ paths:
             schema:
               $ref: "#/components/schemas/OperatorSettings"
       responses:
-        '200':
+        "200":
           description: Operator settings updated successfully
           content:
             text/plain:
@@ -1889,7 +1889,6 @@ paths:
               schema:
                 type: string
 
-  
   /w/{workspace}/workspaces/threshold_alert:
     get:
       summary: get threshold alert info
@@ -2013,7 +2012,7 @@ paths:
                       type: string
                     team_id:
                       type: string
-  
+
   /w/{workspace}/workspaces/available_teams_channels:
     get:
       summary: list available teams channels
@@ -2102,7 +2101,7 @@ paths:
                 properties:
                   job_uuid:
                     type: string
-  
+
   /w/{workspace}/workspaces/run_teams_message_test_job:
     post:
       summary: run a job that sends a message to Teams
@@ -3443,7 +3442,7 @@ paths:
                     type: array
                     items:
                       type: string
-                      
+
   /teams/sync:
     post:
       operationId: syncTeams
@@ -3451,14 +3450,14 @@ paths:
       tags:
         - teams
       responses:
-        '200':
+        "200":
           description: Teams information successfully synchronized
           content:
             application/json:
               schema:
                 type: array
                 items:
-                  $ref: '#/components/schemas/TeamInfo'
+                  $ref: "#/components/schemas/TeamInfo"
 
   /teams/activities:
     post:
@@ -3492,7 +3491,7 @@ paths:
                   description: The card block to be sent in the Teams card
 
       responses:
-        '200':
+        "200":
           description: Activity processed successfully
 
   /w/{workspace}/resources/create:
@@ -4859,8 +4858,7 @@ paths:
 
   /scripts_u/tokened_raw/{workspace}/{token}/{path}:
     get:
-      summary:
-        raw script by path with a token (mostly used by lsp to be used with
+      summary: raw script by path with a token (mostly used by lsp to be used with
         import maps to resolve scripts)
       operationId: rawScriptByPathTokened
       tags:
@@ -4953,58 +4951,13 @@ paths:
                     type: string
                   lock_error_logs:
                     type: string
-  
 
-  /w/{workspace}/jobs/list_selected_jobs_schemas:
+  /w/{workspace}/jobs/list_selected_job_groups:
     # We use post because sending a huge array as a query param can produce
     # URLs that may be too long
     post:
-      summary: list selected jobs script/flow schemas grouped by (kind, path, hash)
-      operationId: listSelectedJobsSchema
-      tags:
-        - job
-      parameters:
-        - $ref: "#/components/parameters/WorkspaceId"
-      requestBody:
-        description: script args
-        required: true
-        content:
-          application/json:
-            schema:
-              type: array
-              items:
-                type: string
-                format: uuid
-      responses:
-        "200":
-          description: result
-          content:
-            text/plain:
-              schema:
-                type: array
-                items:
-                  type: object
-                  properties:
-                    kind:
-                      type: string
-                      enum: ["script", "flow"]
-                    script_hash:
-                      type: string
-                    script_path:
-                      type: string
-                    schema:
-                      type: object
-                    count:
-                      type: number
-                  required:
-                    - kind
-                    - schema
-                    - count
-
-  /w/{workspace}/jobs/list_selected_jobs_latest_schemas:
-    post:
-      summary: list selected jobs latest schemas grouped by (kind, path)
-      operationId: listSelectedJobsLatestSchema
+      summary: list selected jobs script/flow schemas grouped by (kind, path)
+      operationId: listSelectedJobGroups
       tags:
         - job
       parameters:
@@ -5034,12 +4987,27 @@ paths:
                       enum: ["script", "flow"]
                     script_path:
                       type: string
-                    schema:
+                    latest_schema:
                       type: object
+                    schemas:
+                      type: array
+                      items:
+                        type: object
+                        properties:
+                          schema:
+                            type: object
+                          script_hash:
+                            type: string
+                          job_ids:
+                            type: array
+                            items:
+                              type: string
+                        required: [schema, script_hash, job_ids]
                   required:
                     - kind
-                    - schema
                     - script_path
+                    - latest_schema
+                    - schemas
 
   /w/{workspace}/jobs/run/p/{path}:
     post:
@@ -5524,7 +5492,6 @@ paths:
                 properties:
                   lock_error_logs:
                     type: string
-
 
   /w/{workspace}/flows/get_triggers_count/{path}:
     get:
@@ -6572,8 +6539,7 @@ paths:
           schema:
             type: string
         - name: branch_or_iteration_n
-          description:
-            for branchall or loop, the iteration at which the flow should
+          description: for branchall or loop, the iteration at which the flow should
             restart
           required: true
           in: path
@@ -8750,7 +8716,7 @@ paths:
       summary: delete nats trigger
       operationId: deleteNatsTrigger
       tags:
-        -  nats_trigger
+        - nats_trigger
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
         - $ref: "#/components/parameters/Path"
@@ -8779,7 +8745,6 @@ paths:
               schema:
                 $ref: "#/components/schemas/NatsTrigger"
 
-  
   /w/{workspace}/nats_triggers/list:
     get:
       summary: list nats triggers
@@ -8814,7 +8779,6 @@ paths:
                 items:
                   $ref: "#/components/schemas/NatsTrigger"
 
-  
   /w/{workspace}/nats_triggers/exists/{path}:
     get:
       summary: does nats trigger exists
@@ -8861,7 +8825,6 @@ paths:
               schema:
                 type: string
 
-  
   /w/{workspace}/nats_triggers/test:
     post:
       summary: test NATS connection
@@ -9268,7 +9231,6 @@ paths:
               schema:
                 type: string
 
-
   /w/{workspace}/postgres_triggers/is_valid_postgres_configuration/{path}:
     get:
       summary: check if postgres configuration is set to logical
@@ -9276,8 +9238,8 @@ paths:
       tags:
         - postgres_trigger
       parameters:
-          - $ref: "#/components/parameters/WorkspaceId"
-          - $ref: "#/components/parameters/Path"
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
       responses:
         "200":
           description: boolean that indicates if postgres is set to logical level or not
@@ -9347,7 +9309,7 @@ paths:
 
   /w/{workspace}/postgres_triggers/slot/create/{path}:
     post:
-      summary: create replication slot for postgres 
+      summary: create replication slot for postgres
       operationId: createPostgresReplicationSlot
       tags:
         - postgres_trigger
@@ -9479,7 +9441,6 @@ paths:
             text/plain:
               schema:
                 type: string
-
 
   /w/{workspace}/postgres_triggers/publication/delete/{publication}/{path}:
     delete:
@@ -10221,7 +10182,7 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Folder"
-  
+
   /w/{workspace}/folders/exists/{name}:
     get:
       summary: exists folder
@@ -10558,7 +10519,8 @@ paths:
           required: true
           schema:
             type: string
-            enum: [
+            enum:
+              [
                 script,
                 group_,
                 resource,
@@ -10788,7 +10750,6 @@ paths:
                 type: array
                 items:
                   $ref: "#/components/schemas/Capture"
-  
 
   /w/{workspace}/capture/move/{runnable_kind}/{path}:
     post:
@@ -11047,8 +11008,7 @@ paths:
 
   /w/{workspace}/job_helpers/duckdb_connection_settings:
     post:
-      summary:
-        Converts an S3 resource to the set of instructions necessary to connect
+      summary: Converts an S3 resource to the set of instructions necessary to connect
         DuckDB to an S3 bucket
       operationId: duckdbConnectionSettings
       tags:
@@ -11077,8 +11037,7 @@ paths:
                     type: string
   /w/{workspace}/job_helpers/v2/duckdb_connection_settings:
     post:
-      summary:
-        Converts an S3 resource to the set of instructions necessary to connect
+      summary: Converts an S3 resource to the set of instructions necessary to connect
         DuckDB to an S3 bucket
       operationId: duckdbConnectionSettingsV2
       tags:
@@ -11114,8 +11073,7 @@ paths:
 
   /w/{workspace}/job_helpers/polars_connection_settings:
     post:
-      summary:
-        Converts an S3 resource to the set of arguments necessary to connect
+      summary: Converts an S3 resource to the set of arguments necessary to connect
         Polars to an S3 bucket
       operationId: polarsConnectionSettings
       tags:
@@ -11159,8 +11117,7 @@ paths:
                   - client_kwargs
   /w/{workspace}/job_helpers/v2/polars_connection_settings:
     post:
-      summary:
-        Converts an S3 resource to the set of arguments necessary to connect
+      summary: Converts an S3 resource to the set of arguments necessary to connect
         Polars to an S3 bucket
       operationId: polarsConnectionSettingsV2
       tags:
@@ -11237,8 +11194,7 @@ paths:
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
       requestBody:
-        description:
-          S3 resource path to use. If empty, the S3 resource defined in the
+        description: S3 resource path to use. If empty, the S3 resource defined in the
           workspace settings will be used
         required: true
         content:
@@ -12281,8 +12237,7 @@ components:
         type: string
     ParentJob:
       name: parent_job
-      description:
-        The parent job that is at the origin and responsible for the execution
+      description: The parent job that is at the origin and responsible for the execution
         of this script if any
       in: query
       schema:
@@ -12302,8 +12257,7 @@ components:
         type: string
     NewJobId:
       name: job_id
-      description:
-        The job id to assign to the created job. if missing, job is chosen
+      description: The job id to assign to the created job. if missing, job is chosen
         randomly using the ULID scheme. If a job id already exists in the queue
         or as a completed job, the request to create one will fail (Bad Request)
       in: query
@@ -12394,8 +12348,7 @@ components:
         format: date-time
     CreatedOrStartedAfter:
       name: created_or_started_after
-      description:
-        filter on created_at for non non started job and started_at otherwise
+      description: filter on created_at for non non started job and started_at otherwise
         after (exclusive) timestamp
       in: query
       schema:
@@ -12403,8 +12356,7 @@ components:
         format: date-time
     CreatedOrStartedAfterCompletedJob:
       name: created_or_started_after_completed_jobs
-      description:
-        filter on created_at for non non started job and started_at otherwise
+      description: filter on created_at for non non started job and started_at otherwise
         after (exclusive) timestamp but only for the completed jobs
       in: query
       schema:
@@ -12412,8 +12364,7 @@ components:
         format: date-time
     CreatedOrStartedBefore:
       name: created_or_started_before
-      description:
-        filter on created_at for non non started job and started_at otherwise
+      description: filter on created_at for non non started job and started_at otherwise
         before (inclusive) timestamp
       in: query
       schema:
@@ -12495,8 +12446,7 @@ components:
         enum: [Create, Update, Delete, Execute]
     JobKinds:
       name: job_kinds
-      description:
-        filter on job kind (values 'preview', 'script', 'dependencies', 'flow')
+      description: filter on job kind (values 'preview', 'script', 'dependencies', 'flow')
         separated by,
       in: query
       schema:
@@ -12879,7 +12829,7 @@ components:
               "singlescriptflow",
               "flowscript",
               "flownode",
-              "appscript",
+              "appscript"
             ]
         schedule_path:
           type: string
@@ -12986,7 +12936,7 @@ components:
               "singlescriptflow",
               "flowscript",
               "flownode",
-              "appscript",
+              "appscript"
             ]
         schedule_path:
           type: string
@@ -13436,7 +13386,7 @@ components:
                         "bytes",
                         "dict",
                         "datetime",
-                        "sql",
+                        "sql"
                       ]
                   - type: object
                     properties:
@@ -13476,7 +13426,7 @@ components:
                                       "bytes",
                                       "dict",
                                       "datetime",
-                                      "sql",
+                                      "sql"
                                     ]
                                 - type: object
                                   properties:
@@ -13502,7 +13452,7 @@ components:
                                 "bytes",
                                 "dict",
                                 "datetime",
-                                "sql",
+                                "sql"
                               ]
                           - type: object
                             properties:
@@ -14054,7 +14004,7 @@ components:
         wrap_body:
           type: boolean
         raw_string:
-          type: boolean 
+          type: boolean
 
       required:
         - path
@@ -14296,8 +14246,8 @@ components:
 
     MqttQoS:
       type: string
-      enum: ['qos0', 'qos1', 'qos2']
-  
+      enum: ["qos0", "qos1", "qos2"]
+
     MqttV3Config:
       type: object
       properties:
@@ -14367,7 +14317,7 @@ components:
       type: object
       properties:
         mqtt_resource_path:
-          type: string      
+          type: string
         subscribe_topics:
           type: array
           items:
@@ -14425,9 +14375,9 @@ components:
         - script_path
         - is_flow
         - enabled
-        - subscribe_topics  
+        - subscribe_topics
         - mqtt_resource_path
-    
+
     SqsTrigger:
       allOf:
         - $ref: "#/components/schemas/TriggerExtraProperty"
@@ -14477,7 +14427,7 @@ components:
           type: boolean
       required:
         - queue_url
-        - aws_resource_path        
+        - aws_resource_path
         - path
         - script_path
         - is_flow
@@ -14503,12 +14453,11 @@ components:
           type: boolean
       required:
         - queue_url
-        - aws_resource_path      
+        - aws_resource_path
         - path
         - script_path
         - is_flow
         - enabled
-
 
     Slot:
       type: object
@@ -14537,7 +14486,7 @@ components:
             type: string
       required:
         - transaction_to_track
-    
+
     TableToTrack:
       type: array
       items:
@@ -14585,7 +14534,7 @@ components:
         - postgres_resource_path
         - relations
         - language
-  
+
     PostgresTrigger:
       allOf:
         - $ref: "#/components/schemas/TriggerExtraProperty"
@@ -14604,8 +14553,8 @@ components:
         error:
           type: string
         last_server_ping:
-            type: string
-            format: date-time
+          type: string
+          format: date-time
       required:
         - enabled
         - postgres_resource_path
@@ -14637,7 +14586,7 @@ components:
         - is_flow
         - enabled
         - postgres_resource_path
-  
+
     EditPostgresTrigger:
       type: object
       properties:
@@ -14775,7 +14724,7 @@ components:
           type: string
         enabled:
           type: boolean
-        
+
       required:
         - nats_resource_path
         - use_jetstream
@@ -14805,7 +14754,7 @@ components:
             type: string
         enabled:
           type: boolean
-        
+
       required:
         - path
         - script_path
@@ -14835,7 +14784,7 @@ components:
           type: string
         is_flow:
           type: boolean
-              
+
       required:
         - path
         - script_path
@@ -15401,13 +15350,7 @@ components:
       properties:
         type:
           type: string
-          enum:
-            [
-              "S3Storage",
-              "AzureBlobStorage",
-              "AzureWorkloadIdentity",
-              "S3AwsOidc",
-            ]
+          enum: ["S3Storage", "AzureBlobStorage", "AzureWorkloadIdentity", "S3AwsOidc"]
         s3_resource_path:
           type: string
         azure_blob_resource_path:
@@ -15422,12 +15365,7 @@ components:
               type:
                 type: string
                 enum:
-                  [
-                    "S3Storage",
-                    "AzureBlobStorage",
-                    "AzureWorkloadIdentity",
-                    "S3AwsOidc",
-                  ]
+                  ["S3Storage", "AzureBlobStorage", "AzureWorkloadIdentity", "S3AwsOidc"]
               s3_resource_path:
                 type: string
               azure_blob_resource_path:
@@ -15907,7 +15845,7 @@ components:
           type: array
           description: List of channels within the team
           items:
-            $ref: '#/components/schemas/ChannelInfo'
+            $ref: "#/components/schemas/ChannelInfo"
 
     ChannelInfo:
       type: object

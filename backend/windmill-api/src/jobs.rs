@@ -213,14 +213,10 @@ pub fn workspaced_service() -> Router {
             get(list_jobs).layer(Extension(api_list_jobs_query_duration)),
         )
         .route(
-            "/list_selected_jobs_schemas",
+            "/list_selected_job_groups",
             // We use post because sending a huge array as a query param can produce
             // URLs that may be too long
-            post(list_selected_jobs_schemas),
-        )
-        .route(
-            "/list_selected_jobs_latest_schemas",
-            post(list_selected_jobs_latest_schemas),
+            post(list_selected_job_groups),
         )
         .route("/queue/list", get(list_queue_jobs))
         .route("/queue/count", get(count_queue_jobs))
@@ -663,18 +659,7 @@ async fn get_flow_job_debug_info(
     }
 }
 
-#[derive(Debug, sqlx::FromRow, Serialize)]
-struct ListedSelectedJobsSchemasRow {
-    pub kind: JobKind,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub script_hash: Option<ScriptHash>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub script_path: Option<String>,
-    pub count: i64,
-    pub schema: serde_json::Value,
-}
-
-async fn list_selected_jobs_schemas(
+async fn list_selected_job_groups(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
     Path(w_id): Path<String>,
@@ -682,54 +667,29 @@ async fn list_selected_jobs_schemas(
 ) -> error::Result<Response> {
     let mut tx = user_db.begin(&authed).await?;
 
-    let results = sqlx::query_as!(
-        ListedSelectedJobsSchemasRow,
-        r#"SELECT
-            j.kind AS "kind!: JobKind",
-            j.runnable_id AS "script_hash: _",
-            j.runnable_path AS script_path,
-            COUNT(*) AS "count!",
-            ANY_VALUE(COALESCE(f.schema, s.schema)) AS schema
-        FROM v2_job j
-        LEFT JOIN script s ON s.hash = j.runnable_id AND j.kind = 'script'
-        LEFT JOIN flow_version f ON f.id = j.runnable_id AND f.path = j.runnable_path AND j.kind = 'flow'
-        WHERE COALESCE(s.hash, f.id) IS NOT NULL
-            AND COALESCE(s.path, f.path) IS NOT NULL
-            AND j.workspace_id = $1 AND j.id = ANY($2)
-        GROUP BY j.runnable_id, j.runnable_path, j.kind"#,
-        &w_id,
-        &uuids
-    )
-    .fetch_all(&mut *tx)
-    .await?;
-
-    tx.commit().await?;
-
-    Ok(Json(results).into_response())
-}
-
-async fn list_selected_jobs_latest_schemas(
-    authed: ApiAuthed,
-    Extension(user_db): Extension<UserDB>,
-    Path(w_id): Path<String>,
-    Json(uuids): Json<Vec<Uuid>>,
-) -> error::Result<Response> {
-    let mut tx = user_db.begin(&authed).await?;
-
-    let results = sqlx::query_as!(
-        ListedSelectedJobsSchemasRow,
-        r#"SELECT DISTINCT ON (j.runnable_path, j.kind) 
-            j.kind AS "kind!: JobKind",
-            j.runnable_path AS script_path,
-            NULL as "script_hash: _",
-            -1::bigint as "count!: _",
-            COALESCE(f.schema, s.schema) AS schema
-        FROM v2_job j
-        LEFT JOIN script s ON s.path = j.runnable_path AND j.kind = 'script'
-        LEFT JOIN flow_version f ON f.path = j.runnable_path AND j.kind = 'flow'
-        WHERE COALESCE(s.hash, f.id) IS NOT NULL
-            AND j.workspace_id = $1 AND j.id = ANY($2)
-        ORDER BY j.runnable_path, j.kind, COALESCE(f.created_at, s.created_at) DESC"#,
+    let results = sqlx::query_scalar!(
+        r#"SELECT jsonb_build_object(
+            'kind', jb.kind,
+            'script_path', jb.runnable_path,
+            'latest_schema', COALESCE(
+                (SELECT DISTINCT ON (s.path) s.schema FROM script s WHERE s.path = jb.runnable_path AND jb.kind = 'script' ORDER BY s.path, s.created_at DESC),
+                (SELECT flow_version.schema FROM flow LEFT JOIN flow_version ON flow_version.id = flow.versions[array_upper(flow.versions, 1)] WHERE flow.path = jb.runnable_path AND jb.kind = 'flow')
+            ),
+            'schemas', ARRAY(
+                SELECT jsonb_build_object(
+                    'script_hash', LPAD(TO_HEX(COALESCE(s.hash, f.id)), 16, '0'),
+                    'job_ids', ARRAY_AGG(DISTINCT j.id),
+                    'schema', ANY_VALUE(COALESCE(s.schema, f.schema))
+                ) FROM v2_job j
+                LEFT JOIN script s ON s.hash = j.runnable_id AND j.kind = 'script'
+                LEFT JOIN flow_version f ON f.id = j.runnable_id AND j.kind = 'flow'
+                WHERE j.id = ANY(ARRAY_AGG(jb.id))
+                GROUP BY COALESCE(s.hash, f.id)
+            )
+        ) FROM v2_job jb
+        WHERE (jb.kind = 'flow' OR jb.kind = 'script')
+            AND jb.workspace_id = $1 AND jb.id = ANY($2)
+        GROUP BY jb.kind, jb.runnable_path"#,
         &w_id,
         &uuids
     )

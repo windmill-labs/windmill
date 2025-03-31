@@ -12,7 +12,7 @@
 <script lang="ts">
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import PanelSection from '../apps/editor/settingsPanel/common/PanelSection.svelte'
-	import { JobService, type InputTransform } from '$lib/gen'
+	import { JobService, type InputTransform, type ListSelectedJobGroupsResponse } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import type { Schema } from '$lib/common'
 	import InputTransformForm from '../InputTransformForm.svelte'
@@ -35,70 +35,97 @@
 	} = $props()
 
 	let selected: JobGroup | undefined = $state()
+	$effect(() => {
+		jobGroupsPromise.then((jobGroups) => {
+			selected = selected
+				? jobGroups.find((g) => g.script_path === selected?.script_path && g.kind === selected.kind)
+				: jobGroups[0]
+		})
+	})
 
 	setContext<PropPickerContext>('PropPickerContext', {
 		flowPropPickerConfig: writable<FlowPropPickerConfig | undefined>(undefined),
 		pickablePropertiesFiltered: writable<PickableProperties | undefined>(undefined)
 	})
 
-	type JobGroup = {
-		script_path: string
-		kind: 'script' | 'flow'
-		schemas: { schema: Schema; script_hash: string; count: number }[]
-		latestSchema: Schema
-	}
+	type JobGroup = ListSelectedJobGroupsResponse[number]
 
+	const listSelectedJobsSchemaCache = new Map<string, JobGroup>()
 	async function fetchJobGroups(): Promise<JobGroup[]> {
 		if (!$workspaceStore) return []
-		// TODO : cache and filter jobs we already have
-		const selectedJobsSchemas = await JobService.listSelectedJobsSchema({
-			workspace: $workspaceStore,
-			requestBody: selectedIds
-		})
-		const latestSchemas = await JobService.listSelectedJobsLatestSchema({
-			workspace: $workspaceStore,
-			requestBody: selectedIds
-		})
-		const jobGroup: JobGroup[] = []
-		for (const curr of selectedJobsSchemas) {
-			if (!curr.script_path || !curr.script_hash) continue
-			const latestSchema: Schema = (latestSchemas.find(
-				(ls) => ls.kind === curr.kind && ls.script_path === curr.script_path
-			)?.schema ?? {}) as Schema
 
+		const cachedSelectedIds = selectedIds.filter((id) => listSelectedJobsSchemaCache.has(id))
+		const nonCachedSelectedIds = selectedIds.filter((id) => !listSelectedJobsSchemaCache.has(id))
+
+		console.log(
+			`Fetching job groups for ${nonCachedSelectedIds.length} jobs, ${cachedSelectedIds.length} cached`
+		)
+		const newJobGroups = nonCachedSelectedIds.length
+			? await JobService.listSelectedJobGroups({
+					workspace: $workspaceStore,
+					requestBody: nonCachedSelectedIds
+				})
+			: []
+
+		// Update cache
+		newJobGroups.forEach((group) => {
+			group.schemas.forEach((s) => {
+				s.job_ids.forEach((job_id) => {
+					listSelectedJobsSchemaCache.set(job_id, group)
+				})
+			})
+		})
+
+		const jobGroups: JobGroup[] = newJobGroups
+
+		// Handle cached
+		for (const jobId of cachedSelectedIds) {
+			const cachedGroup = listSelectedJobsSchemaCache.get(jobId)
+			const jobSchema = cachedGroup?.schemas.find((s) => s.job_ids.includes(jobId))
+			if (!cachedGroup || !jobSchema) {
+				continue
+			}
 			const group =
-				jobGroup.find((j) => j.kind === curr.kind && j.script_path === curr.script_path) ??
-				jobGroup[
-					jobGroup.push({
-						kind: curr.kind,
-						script_path: curr.script_path,
+				jobGroups.find(
+					(j) => j.kind === cachedGroup.kind && j.script_path === cachedGroup.script_path
+				) ??
+				jobGroups[
+					jobGroups.push({
+						kind: cachedGroup.kind,
+						script_path: cachedGroup.script_path,
 						schemas: [],
-						latestSchema
+						latest_schema: cachedGroup.latest_schema
 					}) - 1
 				]
-			group.schemas.push({
-				schema: curr.schema as Schema,
-				count: curr.count,
-				script_hash: curr.script_hash
-			})
+
+			const schemaItem =
+				group.schemas.find((s) => s.script_hash === jobSchema.script_hash) ??
+				group.schemas[
+					group.schemas.push({
+						schema: jobSchema.schema as Schema,
+						job_ids: [],
+						script_hash: jobSchema.script_hash
+					}) - 1
+				]
+
+			schemaItem.job_ids.push(jobId)
 		}
 
-		selected =
-			(selected &&
-				jobGroup.find(
-					(g) => g.script_path === selected?.script_path && g.kind === selected.kind
-				)) ??
-			jobGroup[0]
-		return jobGroup
+		jobGroups.sort((a, b) => {
+			if (a.script_path < b.script_path) return -1
+			if (a.script_path > b.script_path) return 1
+			return 0
+		})
+		return jobGroups
 	}
 
 	function jobGroupTotalCount(group: JobGroup) {
-		return group.schemas.reduce((p, c) => p + c.count, 0)
+		return group.schemas.reduce((p, c) => p + c.job_ids.length, 0)
 	}
 	function getHashesWithProperty(propertyName: string, group: JobGroup): Set<string> {
 		const set = new Set<string>()
 		for (const s of group.schemas) {
-			if (propertyName in s.schema.properties) {
+			if (propertyName in (s.schema as Schema).properties) {
 				set.add(s.script_hash)
 			}
 		}
@@ -170,10 +197,10 @@
 						<!-- Even if we use the latest schema, we want the editor -->
 						<!-- to only lint the original jobs' values -->
 						{@const mergedSchema = mergeObjectSchemasWithUnion(
-							selected.schemas.map((s) => s.schema)
+							selected.schemas.map((s) => s.schema as Schema)
 						)}
 						{@const displayedSchema = selectedUsesLatestSchema
-							? selected.latestSchema
+							? (selected.latest_schema as Schema)
 							: mergedSchema}
 						{@const extraLib = buildExtraLibForBatchReruns({
 							schema: mergedSchema,
