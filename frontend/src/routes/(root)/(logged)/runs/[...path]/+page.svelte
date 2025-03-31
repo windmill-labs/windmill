@@ -641,7 +641,7 @@
 								if (receivedUuids.length) {
 									reRanUuids.push(...receivedUuids)
 									if (askingForConfirmation) {
-										askingForConfirmation.title = `Pushed ${receivedUuids.length}/${jobIdsToReRun.length} jobs to queue`
+										askingForConfirmation.title = `Pushed ${reRanUuids.length}/${jobIdsToReRun.length} jobs to queue`
 									}
 								}
 							}
