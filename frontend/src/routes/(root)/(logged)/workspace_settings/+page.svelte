@@ -688,7 +688,7 @@
 	<S3FilePicker bind:this={s3FileViewer} readOnlyMode={false} fromWorkspaceSettings={true} />
 </Portal>
 
-<CenteredPage>
+<CenteredPage useScroll>
 	{#if $userStore?.is_admin || $superadmin}
 		<PageHeader title="Workspace settings: {$workspaceStore}"
 			>{#if $superadmin}

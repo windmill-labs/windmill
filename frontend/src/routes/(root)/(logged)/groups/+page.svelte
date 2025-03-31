@@ -81,7 +81,7 @@
 		<p>Page not available for operators</p>
 	</div>
 {:else}
-	<CenteredPage>
+	<CenteredPage useScroll>
 		<PageHeader
 			title="Groups"
 			tooltip="Group users together to grant roles and homegenous permissions. Same users can be in many groups at the same time."

@@ -285,7 +285,7 @@
 		<p>Page not available for operators</p>
 	</div>
 {:else}
-	<CenteredPage>
+	<CenteredPage useScroll>
 		<PageHeader
 			title="Workers"
 			tooltip="The workers are the dutiful servants that execute the jobs."
