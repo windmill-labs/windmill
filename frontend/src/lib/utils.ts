@@ -617,6 +617,10 @@ export function pluralize(quantity: number, word: string, customPlural?: string)
 	}
 }
 
+export function addDeterminant(word: string): string {
+	return (/^[aeiou]/i.test(word) ? 'an ' : 'a ') + word
+}
+
 export function capitalize(word: string): string {
 	return word ? word.charAt(0).toUpperCase() + word.slice(1) : ''
 }

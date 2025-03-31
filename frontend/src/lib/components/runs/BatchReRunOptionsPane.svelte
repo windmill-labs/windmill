@@ -21,9 +21,12 @@
 	import { writable } from 'svelte/store'
 	import type { PickableProperties } from '../flows/previousResults'
 	import Alert from '../common/alert/Alert.svelte'
-	import { buildExtraLibForBatchReruns } from '$lib/components/jobs/batchReruns'
+	import {
+		batchReRunDefaultPropertyExpr,
+		buildExtraLibForBatchReruns,
+		mergeSchemasForBatchReruns
+	} from '$lib/components/jobs/batchReruns'
 	import { pluralize } from '$lib/utils'
-	import { mergeObjectSchemasWithUnion } from '$lib/schema'
 	import Toggle from '../Toggle.svelte'
 
 	let {
@@ -196,16 +199,12 @@
 
 						<!-- Even if we use the latest schema, we want the editor -->
 						<!-- to only lint the original jobs' values -->
-						{@const mergedSchema = mergeObjectSchemasWithUnion(
-							selected.schemas.map((s) => s.schema as Schema)
-						)}
 						{@const displayedSchema = selectedUsesLatestSchema
 							? (selected.latest_schema as Schema)
-							: mergedSchema}
+							: mergeSchemasForBatchReruns(selected.schemas.map((s) => s.schema as Schema))}
 						{@const extraLib = buildExtraLibForBatchReruns({
-							schema: mergedSchema,
-							script_path: selected.script_path,
-							script_hashes: selected.schemas.map((s) => s.script_hash)
+							schemas: selected.schemas,
+							script_path: selected.script_path
 						})}
 						<div class="w-full h-full">
 							{#key [selected, displayedSchema]}
@@ -217,9 +216,7 @@
 											propertyName
 										] ?? {
 											type: 'javascript',
-											expr: /^[a-zA-Z_$][0-9a-zA-Z_$]*$/.test(propertyName)
-												? `job.input.${propertyName}`
-												: `job.input[${JSON.stringify(propertyName)}]`
+											expr: batchReRunDefaultPropertyExpr(propertyName, selected.schemas)
 										}}
 										on:change={(e) => {
 											if (!selected) return

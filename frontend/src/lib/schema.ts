@@ -49,30 +49,3 @@ export function schemaToObject(schema: Schema, args: Record<string, any>): Objec
 	})
 	return object
 }
-
-export function mergeObjectSchemasWithUnion(schemas: Schema[]): Schema {
-	const merged: Schema = {
-		$schema: 'https://json-schema.org/draft/2020-12/schema',
-		required: [],
-		properties: {},
-		type: 'object'
-	}
-
-	for (const s of schemas) {
-		for (const [propertyName, property] of Object.entries(s.properties)) {
-			if (!(propertyName in merged.properties)) {
-				merged.properties[propertyName] = property
-			} else {
-				// TODO : Union type and recursion
-			}
-		}
-	}
-
-	for (const propertyName of Object.keys(merged.properties)) {
-		if (schemas.every((s) => s.required.includes(propertyName))) {
-			merged.required.push(propertyName)
-		}
-	}
-
-	return merged
-}
