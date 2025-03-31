@@ -23,7 +23,8 @@
 	import { setQuery } from '$lib/navigation'
 	import { page } from '$app/stores'
 	import { goto, replaceState } from '$app/navigation'
-	import { ScrollArea } from '$lib/components/meltComponents'
+	import Scroll from '$lib/components/Scroll.svelte'
+
 	type Tab = 'hub' | 'workspace'
 
 	let tab: Tab =
@@ -213,7 +214,7 @@
 	</DrawerContent>
 </Drawer>
 
-<ScrollArea class="h-full w-full">
+<Scroll class="h-full w-full">
 	<div class="max-w-7xl mx-auto px-4 sm:px-6 md:px-8 h-fit-content">
 		{#if $workspaceStore == 'admins'}
 			<div class="my-4" />
@@ -318,4 +319,4 @@
 	{#if tab == 'workspace'}
 		<ItemsList bind:filter bind:subtab />
 	{/if}
-</ScrollArea>
+</Scroll>
