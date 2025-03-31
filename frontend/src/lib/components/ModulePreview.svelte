@@ -171,6 +171,7 @@
 							workspaceId={testJob?.workspace_id}
 							jobId={testJob?.id}
 							result={testJob.result}
+							language={lang}
 						>
 							<svelte:fragment slot="copilot-fix">
 								{#if lang && editor && diffEditor && stepArgs && typeof testJob?.result == 'object' && `error` in testJob?.result && testJob?.result.error}

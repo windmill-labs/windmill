@@ -36,7 +36,6 @@ import {
   type SimplifiedSettings,
 } from "./settings.ts";
 import { deepEqual } from "./utils.ts";
-import { GlobalOptions } from "./types.ts";
 import { getActiveWorkspace } from "./workspace.ts";
 
 export interface Instance {
@@ -182,6 +181,7 @@ export type InstanceSyncOptions = {
   baseUrl?: string;
   token?: string;
   folderPerInstance?: boolean;
+  dryRun?: boolean;
   yes?: boolean;
   prefix?: string;
   prefixSettings?: boolean;
@@ -290,6 +290,10 @@ async function instancePull(opts: InstanceSyncOptions) {
 
   if (totalChanges > 0) {
     let confirm = true;
+    if (opts.dryRun) {
+      log.info(colors.gray(`Dry run complete.`));
+      return;
+    }
     if (opts.yes !== true) {
       confirm = await Confirm.prompt({
         message: `Do you want to pull these ${totalChanges} instance-level changes?`,
@@ -368,6 +372,7 @@ async function instancePull(opts: InstanceSyncOptions) {
         includeUsers: true,
         includeKey: true,
         yes: opts.yes,
+        dryRun: opts.dryRun,
       });
     }
 
@@ -535,6 +540,7 @@ async function instancePush(opts: InstanceSyncOptions) {
         includeUsers: true,
         includeKey: true,
         yes: opts.yes,
+        dryRun: opts.dryRun,
       });
     }
 
@@ -711,6 +717,7 @@ const command = new Command()
     "Pull instance settings, users, configs, instance groups and overwrite local"
   )
   .option("--yes", "Pull without needing confirmation")
+  .option("--dry-run", "Perform a dry run without making changes")
   .option("--skip-users", "Skip pulling users")
   .option("--skip-settings", "Skip pulling settings")
   .option("--skip-configs", "Skip pulling configs (worker groups and SMTP)")
@@ -735,6 +742,7 @@ const command = new Command()
     "Push instance settings, users, configs, group and overwrite remote"
   )
   .option("--yes", "Push without needing confirmation")
+  .option("--dry-run", "Perform a dry run without making changes")
   .option("--skip-users", "Skip pushing users")
   .option("--skip-settings", "Skip pushing settings")
   .option("--skip-configs", "Skip pushing configs (worker groups and SMTP)")

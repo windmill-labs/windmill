@@ -9,7 +9,8 @@
 use anyhow::Context;
 use monitor::{
     load_base_url, load_otel, reload_delete_logs_periodically_setting, reload_indexer_config,
-    reload_instance_python_version_setting, reload_nuget_config_setting,
+    reload_instance_python_version_setting, reload_maven_repos_setting,
+    reload_no_default_maven_setting, reload_nuget_config_setting,
     reload_timeout_wait_result_setting, send_current_log_file_to_object_store,
     send_logs_to_object_store,
 };
@@ -37,11 +38,12 @@ use windmill_common::{
         EXPOSE_DEBUG_METRICS_SETTING, EXPOSE_METRICS_SETTING, EXTRA_PIP_INDEX_URL_SETTING,
         HUB_BASE_URL_SETTING, INDEXER_SETTING, INSTANCE_PYTHON_VERSION_SETTING,
         JOB_DEFAULT_TIMEOUT_SECS_SETTING, JWT_SECRET_SETTING, KEEP_JOB_DIR_SETTING,
-        LICENSE_KEY_SETTING, MONITOR_LOGS_ON_OBJECT_STORE_SETTING, NPM_CONFIG_REGISTRY_SETTING,
-        NUGET_CONFIG_SETTING, OAUTH_SETTING, OTEL_SETTING, PIP_INDEX_URL_SETTING,
-        REQUEST_SIZE_LIMIT_SETTING, REQUIRE_PREEXISTING_USER_FOR_OAUTH_SETTING,
-        RETENTION_PERIOD_SECS_SETTING, SAML_METADATA_SETTING, SCIM_TOKEN_SETTING, SMTP_SETTING,
-        TEAMS_SETTING, TIMEOUT_WAIT_RESULT_SETTING,
+        LICENSE_KEY_SETTING, MAVEN_REPOS_SETTING, MONITOR_LOGS_ON_OBJECT_STORE_SETTING,
+        NO_DEFAULT_MAVEN_SETTING, NPM_CONFIG_REGISTRY_SETTING, NUGET_CONFIG_SETTING, OAUTH_SETTING,
+        OTEL_SETTING, PIP_INDEX_URL_SETTING, REQUEST_SIZE_LIMIT_SETTING,
+        REQUIRE_PREEXISTING_USER_FOR_OAUTH_SETTING, RETENTION_PERIOD_SECS_SETTING,
+        SAML_METADATA_SETTING, SCIM_TOKEN_SETTING, SMTP_SETTING, TEAMS_SETTING,
+        TIMEOUT_WAIT_RESULT_SETTING,
     },
     scripts::ScriptLang,
     stats_ee::schedule_stats,
@@ -66,9 +68,9 @@ use windmill_common::global_settings::OBJECT_STORE_CACHE_CONFIG_SETTING;
 use windmill_worker::{
     get_hub_script_content_and_requirements, BUN_BUNDLE_CACHE_DIR, BUN_CACHE_DIR, CSHARP_CACHE_DIR,
     DENO_CACHE_DIR, DENO_CACHE_DIR_DEPS, DENO_CACHE_DIR_NPM, GO_BIN_CACHE_DIR, GO_CACHE_DIR,
-    NU_CACHE_DIR, POWERSHELL_CACHE_DIR, PY310_CACHE_DIR, PY311_CACHE_DIR, PY312_CACHE_DIR,
-    PY313_CACHE_DIR, RUST_CACHE_DIR, TAR_PY310_CACHE_DIR, TAR_PY311_CACHE_DIR, TAR_PY312_CACHE_DIR,
-    TAR_PY313_CACHE_DIR, UV_CACHE_DIR,
+    JAVA_CACHE_DIR, NU_CACHE_DIR, POWERSHELL_CACHE_DIR, PY310_CACHE_DIR, PY311_CACHE_DIR,
+    PY312_CACHE_DIR, PY313_CACHE_DIR, RUST_CACHE_DIR, TAR_JAVA_CACHE_DIR, TAR_PY310_CACHE_DIR,
+    TAR_PY311_CACHE_DIR, TAR_PY312_CACHE_DIR, TAR_PY313_CACHE_DIR, UV_CACHE_DIR,
 };
 
 use crate::monitor::{
@@ -796,6 +798,12 @@ Windmill Community Edition {GIT_VERSION}
                                                 NUGET_CONFIG_SETTING => {
                                                     reload_nuget_config_setting(&db).await
                                                 },
+                                                MAVEN_REPOS_SETTING => {
+                                                    reload_maven_repos_setting(&db).await
+                                                },
+                                                NO_DEFAULT_MAVEN_SETTING => {
+                                                    reload_no_default_maven_setting(&db).await
+                                                },
                                                 KEEP_JOB_DIR_SETTING => {
                                                     load_keep_job_dir(&db).await;
                                                 },
@@ -1103,6 +1111,8 @@ pub async fn run_workers(
         NU_CACHE_DIR,
         HUB_CACHE_DIR,
         POWERSHELL_CACHE_DIR,
+        JAVA_CACHE_DIR,
+        TAR_JAVA_CACHE_DIR, // KJQXZ
     ] {
         DirBuilder::new()
             .recursive(true)

@@ -37,7 +37,7 @@
 	}
 
 	function updateInstructionsWithContext(contextElement: ContextElement) {
-		const index = instructions.lastIndexOf("@")
+		const index = instructions.lastIndexOf('@')
 		if (index !== -1) {
 			const newInstructions = instructions.substring(0, index) + `@${contextElement.title}`
 			dispatch('updateInstructions', { value: newInstructions })
@@ -50,14 +50,20 @@
 		showContextTooltip = false
 	}
 
-	function updateTooltipPosition(availableContext: ContextElement[], showContextTooltip: boolean, contextTooltipWord: string) {
+	function updateTooltipPosition(
+		availableContext: ContextElement[],
+		showContextTooltip: boolean,
+		contextTooltipWord: string
+	) {
 		if (!textarea || !showContextTooltip) return
-		
+
 		const coords = getCaretCoordinates(textarea, textarea.selectionEnd)
 		const rect = textarea.getBoundingClientRect()
 
-		const filteredAvailableContext = availableContext.filter((c) => !contextTooltipWord || c.title.toLowerCase().includes(contextTooltipWord.slice(1)))
-		const offset = (isFirstMessage ? 20 : -(55 + 30 * (filteredAvailableContext.length - 1)))
+		const filteredAvailableContext = availableContext.filter(
+			(c) => !contextTooltipWord || c.title.toLowerCase().includes(contextTooltipWord.slice(1))
+		)
+		const offset = isFirstMessage ? 20 : -(55 + 30 * (filteredAvailableContext.length - 1))
 
 		tooltipPosition = {
 			x: rect.left + coords.left - 70,
@@ -69,8 +75,12 @@
 		textarea = e.target as HTMLTextAreaElement
 		const words = instructions.split(/\s+/)
 		const lastWord = words[words.length - 1]
-		
-		if (lastWord.startsWith('@') && (!availableContext.find((c) => c.title === lastWord.slice(1)) || !selectedContext.find((c) => c.title === lastWord.slice(1)))) {
+
+		if (
+			lastWord.startsWith('@') &&
+			(!availableContext.find((c) => c.title === lastWord.slice(1)) ||
+				!selectedContext.find((c) => c.title === lastWord.slice(1)))
+		) {
 			showContextTooltip = true
 			contextTooltipWord = lastWord
 		} else {
@@ -85,10 +95,14 @@
 		if (e.key === 'Enter' && !e.shiftKey) {
 			e.preventDefault()
 			if (contextTooltipWord) {
-				const filteredContext = availableContext.filter((c) => !contextTooltipWord || c.title.toLowerCase().includes(contextTooltipWord.slice(1)))
+				const filteredContext = availableContext.filter(
+					(c) => !contextTooltipWord || c.title.toLowerCase().includes(contextTooltipWord.slice(1))
+				)
 				const contextElement = filteredContext[selectedSuggestionIndex]
 				if (contextElement) {
-					const isInSelectedContext = selectedContext.find((c) => c.title === contextElement.title && c.type === contextElement.type)
+					const isInSelectedContext = selectedContext.find(
+						(c) => c.title === contextElement.title && c.type === contextElement.type
+					)
 					// If the context element is already in the selected context and the last word in the instructions is the same as the context element title, send request
 					if (isInSelectedContext && instructions.split(' ').pop() === '@' + contextElement.title) {
 						dispatch('sendRequest')
@@ -102,14 +116,14 @@
 				dispatch('sendRequest')
 			}
 		}
-
-
 	}
 
 	function handleKeyDown(e: KeyboardEvent) {
 		if (!showContextTooltip) return
 
-		const filteredContext = availableContext.filter((c) => !contextTooltipWord || c.title.toLowerCase().includes(contextTooltipWord.slice(1)))
+		const filteredContext = availableContext.filter(
+			(c) => !contextTooltipWord || c.title.toLowerCase().includes(contextTooltipWord.slice(1))
+		)
 
 		if (e.key === 'Tab') {
 			e.preventDefault()
@@ -118,18 +132,18 @@
 				handleContextSelection(contextElement)
 			}
 		}
-		
+
 		if (e.key === 'ArrowDown') {
 			e.preventDefault()
 			selectedSuggestionIndex = (selectedSuggestionIndex + 1) % filteredContext.length
 		} else if (e.key === 'ArrowUp') {
 			e.preventDefault()
-			selectedSuggestionIndex = (selectedSuggestionIndex - 1 + filteredContext.length) % filteredContext.length
+			selectedSuggestionIndex =
+				(selectedSuggestionIndex - 1 + filteredContext.length) % filteredContext.length
 		}
 	}
 
 	$: updateTooltipPosition(availableContext, showContextTooltip, contextTooltipWord)
-
 </script>
 
 <div class="relative w-full px-2 scroll-pb-2">
@@ -156,7 +170,9 @@
 		}}
 		placeholder={isFirstMessage ? 'Ask anything' : 'Ask followup'}
 		class="resize-none bg-transparent caret-black dark:caret-white"
-		style="{instructions.length > 0 ? 'color: transparent; -webkit-text-fill-color: transparent;' : ''}"
+		style={instructions.length > 0
+			? 'color: transparent; -webkit-text-fill-color: transparent;'
+			: ''}
 	/>
 </div>
 
@@ -176,4 +192,4 @@
 			selectedIndex={selectedSuggestionIndex}
 		/>
 	</div>
-{/if} 
+{/if}

@@ -564,6 +564,7 @@
 			{#key resourceTypeInfo}
 				<ApiConnectForm
 					bind:linkedSecret
+					bind:description
 					{linkedSecretCandidates}
 					{resourceType}
 					{resourceTypeInfo}

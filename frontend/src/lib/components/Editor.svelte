@@ -173,7 +173,7 @@
 	import { Autocompletor } from './copilot/autocomplete/monaco-adapter'
 	import { AIChatEditorHandler } from './copilot/chat/monaco-adapter'
 	import GlobalReviewButtons from './copilot/chat/GlobalReviewButtons.svelte'
-	import { writable, type Writable } from 'svelte/store'
+	import { writable } from 'svelte/store'
 	import { formatResourceTypes } from './copilot/chat/core'
 	// import EditorTheme from './EditorTheme.svelte'
 
@@ -195,6 +195,8 @@
 		| 'yaml'
 		| 'csharp'
 		| 'nu'
+		| 'java'
+	// KJQXZ
 	export let code: string = ''
 	export let cmdEnterAction: (() => void) | undefined = undefined
 	export let formatAction: (() => void) | undefined = undefined
@@ -218,7 +220,6 @@
 	export let scriptLang: Preview['language'] | 'bunnative'
 	export let disabled: boolean = false
 	export let lineNumbersMinChars = 3
-	export let diffMode: Writable<boolean> = writable(false)
 	export let isAiPanelOpen: boolean = false
 
 	const rHash = randomHash()
@@ -261,6 +262,10 @@
 
 	export function getCode(): string {
 		return editor?.getValue() ?? ''
+	}
+
+	export function getModel(): meditor.IEditorModel | undefined {
+		return editor?.getModel() ?? undefined
 	}
 
 	export function insertAtCursor(code: string): void {
@@ -612,19 +617,13 @@
 		aiChatEditorHandler?.reviewAndApply(code)
 	}
 
-	export function reviewChanges(code: string) {
-		diffMode.set(true)
-		aiChatEditorHandler?.reviewChanges(code)
-	}
-
-	export function quitDiffMode() {
-		aiChatEditorHandler?.quitDiffMode()
-		diffMode.set(false)
-	}
-
 	function addChatHandler(editor: meditor.IStandaloneCodeEditor) {
-		aiChatEditorHandler = new AIChatEditorHandler(editor)
-		reviewingChanges = aiChatEditorHandler.reviewingChanges
+		try {
+			aiChatEditorHandler = new AIChatEditorHandler(editor)
+			reviewingChanges = aiChatEditorHandler.reviewingChanges
+		} catch (err) {
+			console.error('Could not add chat handler', err)
+		}
 	}
 
 	$: $reviewingChanges && autocompletor?.reject()
@@ -632,58 +631,58 @@
 	let completorDisposable: Disposable | undefined = undefined
 	let autocompletor: Autocompletor | undefined = undefined
 	function addSuperCompletor(editor: meditor.IStandaloneCodeEditor) {
-		if (completorDisposable) {
-			completorDisposable.dispose()
-		}
-		autocompletor = new Autocompletor(editor, lang)
-
-		// last user events (currently disabled):
-		// let lastTs = Date.now()
-		// editor.onDidChangeModelContent((e) => {
-		// 	const thisTs = Date.now()
-		// 	lastTs = thisTs
-		// 	setTimeout(() => {
-		// 		if (thisTs === lastTs) {
-		// 			autocompletor?.savePatch()
-		// 		}
-		// 	}, 150)
-		// })
-
-		completorDisposable = editor.onDidChangeCursorPosition((e) => {
-			autocompletor?.reject()
-			if ($reviewingChanges) {
-				return
+		try {
+			if (completorDisposable) {
+				completorDisposable.dispose()
 			}
-			const position = editor.getPosition()
-			if (!position) {
-				return
-			}
-			const upToText = editor.getModel()?.getValueInRange({
-				startLineNumber: position.lineNumber,
-				startColumn: 0,
-				endLineNumber: position.lineNumber,
-				endColumn: position.column
-			})
-			const lastChar = upToText ? upToText[upToText.length - 1] : ''
-			if (lastChar && lastChar.match(/[\(\{\s:="',]/)) {
-				autocompletor?.predict()
-			}
-		})
+			autocompletor = new Autocompletor(editor, lang)
 
-		editor.addCommand(KeyCode.Tab, () => {
-			if (autocompletor?.hasChanges()) {
-				autocompletor?.accept()
-				autocompletor?.predict()
-			} else {
-				editor.trigger('keyboard', 'tab', {})
-			}
-		})
+			// last user events (currently disabled):
+			// let lastTs = Date.now()
+			// editor.onDidChangeModelContent((e) => {
+			// 	const thisTs = Date.now()
+			// 	lastTs = thisTs
+			// 	setTimeout(() => {
+			// 		if (thisTs === lastTs) {
+			// 			autocompletor?.savePatch()
+			// 		}
+			// 	}, 150)
+			// })
 
-		editor.onKeyDown((e) => {
-			if (e.keyCode === KeyCode.Escape) {
+			completorDisposable = editor.onDidChangeCursorPosition((e) => {
 				autocompletor?.reject()
-			}
-		})
+				if ($reviewingChanges) {
+					return
+				}
+				const position = editor.getPosition()
+				if (!position) {
+					return
+				}
+				const upToText = editor.getModel()?.getValueInRange({
+					startLineNumber: position.lineNumber,
+					startColumn: 0,
+					endLineNumber: position.lineNumber,
+					endColumn: position.column
+				})
+				const lastChar = upToText ? upToText[upToText.length - 1] : ''
+				if (lastChar && lastChar.match(/[\(\{\s:="',]/)) {
+					autocompletor?.predict()
+				}
+			})
+
+			editor.onKeyDown((e) => {
+				if (e.keyCode === KeyCode.Escape) {
+					autocompletor?.reject()
+				} else if (e.keyCode === KeyCode.Tab && autocompletor?.hasChanges()) {
+					e.preventDefault()
+					e.stopPropagation()
+					autocompletor?.accept()
+					autocompletor?.predict()
+				}
+			})
+		} catch (err) {
+			console.error('Could not add supercompletor', err)
+		}
 	}
 
 	$: $copilotInfo.enabled &&
@@ -695,7 +694,7 @@
 
 	$: $copilotInfo.enabled && initialized && editor && addChatHandler(editor)
 
-	$: !$codeCompletionSessionEnabled && completorDisposable && completorDisposable.dispose()
+	$: !$codeCompletionSessionEnabled && (completorDisposable?.dispose(), autocompletor?.reject())
 
 	const outputChannel = {
 		name: 'Language Server Client',
@@ -1205,10 +1204,14 @@
 			})
 
 			editor?.addCommand(KeyMod.CtrlCmd | KeyCode.KeyL, function () {
-				const selectedLines = getSelectedLines();
-				const selection = editor?.getSelection();
+				const selectedLines = getSelectedLines()
+				const selection = editor?.getSelection()
 				if (selection && selectedLines) {
-					dispatch('addSelectedLinesToAiChat', { lines: selectedLines, startLine: selection.startLineNumber, endLine: selection.endLineNumber })
+					dispatch('addSelectedLinesToAiChat', {
+						lines: selectedLines,
+						startLine: selection.startLineNumber,
+						endLine: selection.endLineNumber
+					})
 					if (!isAiPanelOpen) {
 						dispatch('toggleAiPanel')
 					}
@@ -1410,16 +1413,6 @@
 		on:rejectAll={() => {
 			aiChatEditorHandler?.rejectAll()
 		}}
-		on:quitDiffMode={() => {
-			aiChatEditorHandler?.quitDiffMode()
-			diffMode.set(false)
-		}}
-		on:seeHistory={() => {
-			aiChatEditorHandler?.quitDiffMode()
-			diffMode.set(false)
-			dispatch('seeHistory')
-		}}
-		isDiffMode={$diffMode}
 	/>
 {/if}
 

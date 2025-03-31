@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.478.1
+  version: 1.479.3
   title: Windmill API
 
   contact:
@@ -12497,7 +12497,7 @@ components:
 
     AIProvider:
       type: string
-      enum: [openai, anthropic, mistral, deepseek, googleai, groq, openrouter, customai]
+      enum: [openai, anthropic, mistral, deepseek, googleai, groq, openrouter, togetherai, customai]
 
     AIProviderModel:
       type: object
@@ -13529,7 +13529,9 @@ components:
           rust,
           ansible,
           csharp,
-          nu
+          nu,
+          java
+          # KJQXZ 
         ]
 
     Preview:

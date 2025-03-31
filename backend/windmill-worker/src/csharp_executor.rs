@@ -126,6 +126,7 @@ pub async fn generate_nuget_lockfile(
         None,
         false,
         &mut Some(occupancy_metrics),
+        None,
     )
     .await?;
 
@@ -381,6 +382,7 @@ async fn build_cs_proj(
         None,
         false,
         &mut Some(occupancy_metrics),
+        None,
     )
     .await?;
     append_logs(job_id, w_id, "\n\n", db).await;
@@ -400,6 +402,7 @@ async fn build_cs_proj(
         &bin_path,
         &format!("{CSHARP_OBJECT_STORE_PREFIX}{hash}"),
         &target,
+        false,
     )
     .await
     {
@@ -474,7 +477,8 @@ pub async fn handle_csharp_job(
     let bin_path = format!("{}/{hash}", CSHARP_CACHE_DIR);
     let remote_path = format!("{CSHARP_OBJECT_STORE_PREFIX}{hash}");
 
-    let (cache, cache_logs) = windmill_common::worker::load_cache(&bin_path, &remote_path).await;
+    let (cache, cache_logs) =
+        windmill_common::worker::load_cache(&bin_path, &remote_path, false).await;
 
     let cache_logs = if cache {
         #[cfg(unix)]
@@ -634,6 +638,7 @@ pub async fn handle_csharp_job(
         job.timeout,
         false,
         &mut Some(occupancy_metrics),
+        None,
     )
     .await?;
     read_result(job_dir).await

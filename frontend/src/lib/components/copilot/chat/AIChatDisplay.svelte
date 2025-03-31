@@ -5,11 +5,7 @@
 	import { HistoryIcon, Loader2, Plus, X } from 'lucide-svelte'
 	import Button from '$lib/components/common/button/Button.svelte'
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
-	import {
-		type AIChatContext,
-		type DisplayMessage,
-		type ContextElement
-	} from './core'
+	import { type AIChatContext, type DisplayMessage, type ContextElement } from './core'
 	import ContextElementBadge from './ContextElementBadge.svelte'
 	import ContextTextarea from './ContextTextarea.svelte'
 	import AvailableContextList from './AvailableContextList.svelte'
@@ -22,14 +18,14 @@
 	export let selectedContext: ContextElement[]
 	export let availableContext: ContextElement[]
 	export let hasDiff: boolean
-
+	export let diffMode: boolean = false
 	const dispatch = createEventDispatcher<{
 		sendRequest: null
 		saveAndClear: null
 		deletePastChat: { id: string }
 		loadPastChat: { id: string }
-		askAiAboutChanges: null
-		suggestImprovements: null
+		analyzeChanges: null
+		explainChanges: null
 	}>()
 
 	const { loading, currentReply } = getContext<AIChatContext>('AIChatContext')
@@ -52,16 +48,16 @@
 
 	function addContextToSelection(contextElement: ContextElement) {
 		if (
-			!selectedContext.find((c) => c.type === contextElement.type && c.title === contextElement.title)
-			&& availableContext.find((c) => c.type === contextElement.type && c.title === contextElement.title)
+			!selectedContext.find(
+				(c) => c.type === contextElement.type && c.title === contextElement.title
+			) &&
+			availableContext.find(
+				(c) => c.type === contextElement.type && c.title === contextElement.title
+			)
 		) {
-			selectedContext = [
-				...selectedContext,
-				contextElement
-			]
+			selectedContext = [...selectedContext, contextElement]
 		}
 	}
-
 </script>
 
 <div class="flex flex-col h-full">
@@ -206,7 +202,9 @@
 					contextElement={element}
 					deletable
 					on:delete={() => {
-						selectedContext = selectedContext.filter((c) => c.type !== element.type || c.title !== element.title)
+						selectedContext = selectedContext.filter(
+							(c) => c.type !== element.type || c.title !== element.title
+						)
 					}}
 				/>
 			{/each}
@@ -218,10 +216,10 @@
 			isFirstMessage={messages.length === 0}
 			on:addContext={(e) => addContextToSelection(e.detail.contextElement)}
 			on:sendRequest={() => dispatch('sendRequest')}
-			on:updateInstructions={(e) => instructions = e.detail.value}
+			on:updateInstructions={(e) => (instructions = e.detail.value)}
 		/>
 		<div class="flex flex-row justify-between items-center gap-2 px-0.5">
-			<ChatQuickActions {hasDiff} on:askAiAboutChanges on:suggestImprovements />
+			<ChatQuickActions {hasDiff} on:analyzeChanges on:explainChanges {diffMode} />
 			<ProviderModelSelector />
 		</div>
 	</div>

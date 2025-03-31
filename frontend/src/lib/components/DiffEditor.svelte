@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { BROWSER } from 'esm-env'
-	import { onMount } from 'svelte'
+	import { createEventDispatcher, onMount } from 'svelte'
 
 	import '@codingame/monaco-vscode-standalone-languages'
 	import '@codingame/monaco-vscode-standalone-json-language-features'
@@ -10,6 +10,7 @@
 	import { initializeVscode } from './vscode'
 	import EditorTheme from './EditorTheme.svelte'
 	import { buildWorkerDefinition } from '$lib/monaco_workers/build_workers'
+	import Editor from './Editor.svelte'
 
 	buildWorkerDefinition()
 
@@ -22,6 +23,8 @@
 	export let defaultOriginal: string | undefined = undefined
 	export let defaultModified: string | undefined = undefined
 	export let readOnly = false
+	export let editor: Editor | undefined = undefined
+	export let showButtons = false
 
 	let diffEditor: meditor.IStandaloneDiffEditor | undefined
 	let diffDivEl: HTMLDivElement | null = null
@@ -66,7 +69,8 @@
 	) {
 		diffEditor?.setModel({
 			original: meditor.createModel('', lang),
-			modified: meditor.createModel('', modifiedLang ?? lang)
+			modified:
+				(editor?.getModel() as meditor.ITextModel) ?? meditor.createModel('', modifiedLang ?? lang)
 		})
 		if (original) {
 			setOriginal(original)
@@ -116,6 +120,11 @@
 			}
 		}
 	})
+
+	const dispatch = createEventDispatcher<{
+		hideDiffMode: void
+		seeHistory: void
+	}>()
 </script>
 
 {#if open}
@@ -125,4 +134,18 @@
 		class="{$$props.class} editor nonmain-editor"
 		bind:clientWidth={editorWidth}
 	/>
+	{#if showButtons}
+		<div
+			class="absolute flex flex-row gap-2 bottom-10 left-1/2 z-10 -translate-x-1/2 rounded-md p-1 w-full justify-center"
+		>
+			<button
+				class="px-4 py-2 bg-emerald-500 hover:bg-emerald-600 rounded-md text-sm font-semibold text-white transition-colors duration-200"
+				on:click={() => dispatch('seeHistory')}>See changes history</button
+			>
+			<button
+				class="px-4 py-2 bg-rose-500 hover:bg-rose-600 rounded-md text-sm font-semibold text-white transition-colors duration-200"
+				on:click={() => dispatch('hideDiffMode')}>Quit diff mode</button
+			>
+		</div>
+	{/if}
 {/if}

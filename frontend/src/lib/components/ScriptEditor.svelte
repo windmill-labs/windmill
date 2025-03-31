@@ -74,7 +74,6 @@
 	export let stablePathForCaptures: string = ''
 	export let lastSavedCode: string | undefined = undefined
 	export let lastDeployedCode: string | undefined = undefined
-	export let aiChat: AIChat | undefined = undefined
 
 	let showHistoryDrawer = false
 
@@ -97,7 +96,6 @@
 
 	$: diffWithLastSaved = diffChars(lastSavedCode ?? '', code)
 	$: diffWithLastDeployed = diffChars(lastDeployedCode ?? '', code)
-
 
 	let width = 1200
 
@@ -324,7 +322,9 @@
 		}
 	}
 
-	function addSelectedLinesToAiChat(e: CustomEvent<{ lines: string, startLine: number, endLine: number }>) {
+	function addSelectedLinesToAiChat(
+		e: CustomEvent<{ lines: string; startLine: number; endLine: number }>
+	) {
 		console.log('addSelectedLinesToAiChat', e.detail)
 		if (aiChat) {
 			aiChat.addSelectedLinesToContext(e.detail.lines, e.detail.startLine, e.detail.endLine)
@@ -344,6 +344,8 @@
 		}
 	}
 
+	let aiChat: AIChat | undefined = undefined
+
 	function getStringError(job: Job | undefined) {
 		if (
 			job != undefined &&
@@ -357,6 +359,21 @@
 		}
 		return undefined
 	}
+
+	function showDiffMode() {
+		diffMode.set(true)
+		diffEditor?.setOriginal(lastDeployedCode ?? '')
+		diffEditor?.setModified(editor?.getCode() ?? '')
+		diffEditor?.show()
+		editor?.hide()
+	}
+
+	function hideDiffMode() {
+		diffMode.set(false)
+		diffEditor?.hide()
+		editor?.show()
+	}
+
 	$: error = getStringError(testJob)
 </script>
 
@@ -394,6 +411,8 @@
 					setCollaborationMode()
 				}
 			}}
+			on:showDiffMode={showDiffMode}
+			on:hideDiffMode={hideDiffMode}
 			customUi={{ ...customUi?.editorBar, aiGen: false }}
 			collabLive={wsProvider?.shouldConnect}
 			{collabMode}
@@ -411,8 +430,10 @@
 			{args}
 			{noHistory}
 			{saveToWorkspace}
-			lastDeployedCode={lastDeployedCode && lastDeployedCode !== code ? lastDeployedCode : undefined}
-			diffMode={diffMode}
+			lastDeployedCode={lastDeployedCode && lastDeployedCode !== code
+				? lastDeployedCode
+				: undefined}
+			{diffMode}
 			bind:showHistoryDrawer
 		>
 			<slot name="editor-bar-right" slot="right" />
@@ -502,9 +523,6 @@
 						on:toggleAiPanel={toggleAiPanel}
 						on:addSelectedLinesToAiChat={addSelectedLinesToAiChat}
 						on:toggleTestPanel={toggleTestPanel}
-						on:seeHistory={() => {
-							showHistoryDrawer = true
-						}}
 						isAiPanelOpen={aiPanelSize > 0}
 						cmdEnterAction={async () => {
 							await inferSchema(code)
@@ -525,7 +543,6 @@
 						automaticLayout={true}
 						{fixedOverflowWidgets}
 						{args}
-						diffMode={diffMode}
 					/>
 					<DiffEditor
 						class="h-full"
@@ -533,6 +550,12 @@
 						automaticLayout
 						defaultLang={scriptLangToEditorLang(lang)}
 						{fixedOverflowWidgets}
+						{editor}
+						showButtons={$diffMode}
+						on:hideDiffMode={hideDiffMode}
+						on:seeHistory={() => {
+							showHistoryDrawer = true
+						}}
 					/>
 				{/key}
 			</div>
@@ -547,14 +570,15 @@
 					{args}
 					{path}
 					on:applyCode={(e) => {
+						hideDiffMode()
 						editor?.reviewAndApplyCode(e.detail.code)
 					}}
 					on:reviewChanges={() => {
-						console.log('reviewChanges')
-						editor?.reviewChanges(lastDeployedCode ?? '')
+						showDiffMode()
 					}}
 					{diffWithLastSaved}
 					{diffWithLastDeployed}
+					diffMode={$diffMode}
 				>
 					<svelte:fragment slot="header-left">
 						<HideButton

@@ -25,7 +25,7 @@
 	import Toggle from './Toggle.svelte'
 
 	import {
-	DiffIcon,
+		DiffIcon,
 		DollarSign,
 		History,
 		Library,
@@ -47,7 +47,7 @@
 	import type { EditorBarUi } from './custom_ui'
 	import EditorSettings from './EditorSettings.svelte'
 	import { writable, type Writable } from 'svelte/store'
-	
+
 	export let lang: SupportedLanguage | 'bunnative' | undefined
 	export let editor: Editor | undefined
 	export let websocketAlive: {
@@ -98,7 +98,9 @@
 		'php',
 		'rust',
 		'csharp',
-		'nu'
+		'nu',
+		'java'
+		// KJQXZ
 	].includes(lang ?? '')
 	$: showVarPicker = [
 		'python3',
@@ -112,7 +114,9 @@
 		'php',
 		'rust',
 		'csharp',
-		'nu'
+		'nu',
+		'java'
+		// KJQXZ
 	].includes(lang ?? '')
 	$: showResourcePicker = [
 		'python3',
@@ -126,7 +130,9 @@
 		'php',
 		'rust',
 		'csharp',
-		'nu'
+		'nu',
+		'java'
+		// KJQXZ
 	].includes(lang ?? '')
 	$: showResourceTypePicker =
 		['typescript', 'javascript'].includes(scriptLangToEditorLang(lang)) ||
@@ -312,7 +318,6 @@
 			})
 			.join('')
 	}
-
 </script>
 
 {#if scriptPath}
@@ -377,6 +382,9 @@
 			editor.insertAtCursor(`Environment.GetEnvironmentVariable("${name}");`)
 		} else if (lang == 'nu') {
 			editor.insertAtCursor(`$env.${name}`)
+		} else if (lang == 'java') {
+			editor.insertAtCursor(`System.getenv("${name}");`)
+			// KJQXZ
 		}
 		sendUserToast(`${name} inserted at cursor`)
 	}}
@@ -444,6 +452,9 @@ string ${windmillPathToCamelCaseName(path)} = await client.GetStringAsync(uri);
 `)
 		} else if (lang == 'nu') {
 			editor.insertAtCursor(`get_variable ${path}`)
+		} else if (lang == 'java') {
+			editor.insertAtCursor(`(Wmill.getVariable("${path}"))`)
+			// KJQXZ
 		}
 		sendUserToast(`${name} inserted at cursor`)
 	}}
@@ -528,7 +539,11 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 `)
 		} else if (lang == 'nu') {
 			editor.insertAtCursor(`get_resource ${path}`)
+		} else if (lang == 'java') {
+			editor.insertAtCursor(`(Wmill.getResource("${path}"))`)
+			// KJQXZ
 		}
+
 		sendUserToast(`${path} inserted at cursor`)
 	}}
 	tooltip="Resources represent connections to third party systems. Resources are a good way to define a connection to a frequently used third party system such as a database."
@@ -692,10 +707,16 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 						size="xs"
 						checked={$diffMode}
 						disabled={!lastDeployedCode}
-					on:change={() => $diffMode ? editor?.quitDiffMode() : editor?.reviewChanges(lastDeployedCode ?? '')}
-				/>
-				<Popover>
-					<svelte:fragment slot="text">Toggle diff mode</svelte:fragment>
+						on:change={() => {
+							if (!$diffMode) {
+								dispatch('showDiffMode')
+							} else {
+								dispatch('hideDiffMode')
+							}
+						}}
+					/>
+					<Popover>
+						<svelte:fragment slot="text">Toggle diff mode</svelte:fragment>
 						<DiffIcon class="ml-1 text-tertiary" size={14} />
 					</Popover>
 				</div>

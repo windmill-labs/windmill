@@ -80,7 +80,6 @@
 	import CaptureTable from './triggers/CaptureTable.svelte'
 	import type { SavedAndModifiedValue } from './common/confirmationModal/unsavedTypes'
 	import type { ScriptBuilderFunctionExports } from './scriptBuilder'
-	import AIChat from './copilot/chat/AIChat.svelte'
 	export let script: NewScript
 	export let fullyLoaded: boolean = true
 	export let initialPath: string = ''
@@ -134,7 +133,6 @@
 	let editor: Editor | undefined = undefined
 	let scriptEditor: ScriptEditor | undefined = undefined
 	let captureTable: CaptureTable | undefined = undefined
-	let aiChat: AIChat | undefined = undefined
 
 	const primaryScheduleStore = writable<ScheduleTrigger | undefined | false>(savedPrimarySchedule)
 	const triggersCount = writable<TriggersCount | undefined>(
@@ -669,7 +667,11 @@
 		loadingDraft = false
 	}
 
-	function computeDropdownItems(initialPath: string, savedScript: NewScriptWithDraft | undefined, diffDrawer: DiffDrawer | undefined) {
+	function computeDropdownItems(
+		initialPath: string,
+		savedScript: NewScriptWithDraft | undefined,
+		diffDrawer: DiffDrawer | undefined
+	) {
 		let dropdownItems: { label: string; onClick: () => void }[] =
 			initialPath != '' && customUi?.topBar?.extraDeployOptions != false
 				? [
@@ -689,22 +691,22 @@
 							? [
 									{
 										label: 'Show diff',
-									onClick: async () => {
-										if (!savedScript) {
-											return
-										}
-										await syncWithDeployed()
+										onClick: async () => {
+											if (!savedScript) {
+												return
+											}
+											await syncWithDeployed()
 
-										diffDrawer?.openDrawer()
-										diffDrawer?.setDiff({
-											mode: 'normal',
-											deployed: deployedValue ?? savedScript,
-											draft: savedScript['draft'],
-											current: script
-										})
+											diffDrawer?.openDrawer()
+											diffDrawer?.setDiff({
+												mode: 'normal',
+												deployed: deployedValue ?? savedScript,
+												draft: savedScript['draft'],
+												current: script
+											})
+										}
 									}
-								}
-							]
+							  ]
 							: []),
 						...(!script.draft_only
 							? [
@@ -1614,7 +1616,6 @@
 
 		<ScriptEditor
 			bind:selectedTab={selectedInputTab}
-			bind:aiChat
 			{customUi}
 			collabMode
 			edit={initialPath != ''}
