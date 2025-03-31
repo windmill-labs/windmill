@@ -756,7 +756,9 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 				</div>
 			{/if}
 
-			<ScriptGen {editor} {diffEditor} {lang} {iconOnly} {args} />
+			{#if customUi?.aiGen != false}
+				<ScriptGen {editor} {diffEditor} {lang} {iconOnly} {args} />
+			{/if}
 
 			<EditorSettings {customUi} />
 		</div>
