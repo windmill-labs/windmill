@@ -325,7 +325,6 @@
 	function addSelectedLinesToAiChat(
 		e: CustomEvent<{ lines: string; startLine: number; endLine: number }>
 	) {
-		console.log('addSelectedLinesToAiChat', e.detail)
 		if (aiChat) {
 			aiChat.addSelectedLinesToContext(e.detail.lines, e.detail.startLine, e.detail.endLine)
 		}
