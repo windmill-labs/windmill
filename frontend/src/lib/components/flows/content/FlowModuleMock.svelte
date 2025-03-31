@@ -2,11 +2,8 @@
 	import Toggle from '$lib/components/Toggle.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import type { FlowModule } from '$lib/gen'
-	import StepHistory from '$lib/components/flows/propPicker/StepHistory.svelte'
-	import Popover from '$lib/components/meltComponents/Popover.svelte'
-	import { Button, Section } from '$lib/components/common'
+	import { Section } from '$lib/components/common'
 	import JsonEditor from '$lib/components/JsonEditor.svelte'
-	import { History } from 'lucide-svelte'
 
 	export let flowModule: FlowModule
 
@@ -77,34 +74,8 @@
 	</svelte:fragment>
 
 	<div>
-		<div class="text-xs flex flex-row items-center gap-1 py-1">
-			<span>Mocked Return value</span>
-			<Popover placement="bottom-end" contentClasses={'w-[275px]'}>
-				<svelte:fragment slot="trigger">
-					<Button
-						color="light"
-						size="xs2"
-						variant="border"
-						btnClasses="bg-transparent"
-						startIcon={{ icon: History }}
-						iconOnly
-						nonCaptureEvent
-					/>
-				</svelte:fragment>
-				<svelte:fragment slot="content">
-					<StepHistory
-						moduleId={flowModule.id}
-						on:select={({ detail }) => {
-							if (detail.result) {
-								updateMockValue({
-									detail
-								})
-							}
-						}}
-					/>
-				</svelte:fragment>
-			</Popover>
-		</div>
+		<span class="text-xs py-1">Mocked Return value</span>
+
 		{#if isMockEnabled}
 			{#key renderCount}
 				<JsonEditor {code} on:changeValue={updateMockValue} />
