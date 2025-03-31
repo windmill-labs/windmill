@@ -18,7 +18,12 @@
 		type DisplayMessage
 	} from './core'
 	import { createEventDispatcher, onDestroy, setContext } from 'svelte'
-	import { type AIProviderModel, type ScriptLang, ResourceService } from '$lib/gen'
+	import {
+		type AIProviderModel,
+		type ListResourceResponse,
+		type ScriptLang,
+		ResourceService
+	} from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
 	import { openDB, type DBSchema as IDBSchema, type IDBPDatabase } from 'idb'
 	import { isInitialCode } from '$lib/script_helpers'
@@ -68,6 +73,17 @@
 
 	let availableContext: ContextElement[] = []
 
+	let dbResources: ListResourceResponse = []
+
+	async function updateDBResources(workspace: string | undefined) {
+		if (workspace) {
+			dbResources = await ResourceService.listResource({
+				workspace: workspace,
+				resourceType: SQLSchemaLanguages.join(',')
+			})
+		}
+	}
+
 	async function updateAvailableContext(
 		contextCodePath: string | undefined,
 		code: string,
@@ -76,7 +92,7 @@
 		db: { schema: DBSchema; resource: string } | undefined,
 		providerModel: AIProviderModel | undefined,
 		dbSchemas: DBSchemas,
-		workspace?: string
+		dbResources: ListResourceResponse
 	) {
 		if (!contextCodePath) {
 			return
@@ -90,13 +106,8 @@
 					lang
 				}
 			]
-			if (workspace && !providerModel?.model.endsWith('/thinking')) {
-				// Make all dbs in the workspace available
-				const dbs = await ResourceService.listResource({
-					workspace: workspace,
-					resourceType: SQLSchemaLanguages.join(',')
-				})
-				for (const d of dbs) {
+			if (!providerModel?.model.endsWith('/thinking')) {
+				for (const d of dbResources) {
 					const loadedSchema = dbSchemas[d.path]
 					newAvailableContext.push({
 						type: 'db',
@@ -178,6 +189,8 @@
 		}))
 	}
 
+	$: updateDBResources($workspaceStore)
+
 	$: updateAvailableContext(
 		contextCodePath,
 		code,
@@ -186,7 +199,7 @@
 		db,
 		$copilotSessionModel,
 		$dbSchemas,
-		$workspaceStore
+		dbResources
 	)
 
 	let instructions = ''
