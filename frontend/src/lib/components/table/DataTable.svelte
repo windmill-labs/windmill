@@ -86,7 +86,7 @@
 				<div class="text-tertiary bg-surface flex flex-row justify-center py-2 items-center h-6">
 					{#if loading || loadingMore}
 						<div
-							class={twMerge('flex flex-row items-center gap-2', loadingMore ? 'bordert-t' : '')}
+							class={twMerge('flex flex-row items-center gap-2', loadingMore ? 'border-t' : '')}
 						>
 							<Loader2 class="animate-spin" size={14} />
 							{#if loadingMore}
