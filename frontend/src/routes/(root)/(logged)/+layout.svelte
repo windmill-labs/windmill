@@ -610,11 +610,11 @@
 				'transition-all ease-in-out duration-200'
 			)}
 		>
-			<main class="min-h-screen">
-				<div class="relative w-full h-full">
+			<main class="h-screen">
+				<div class="relative w-full h-full flex flex-col">
 					<div
 						class={classNames(
-							'py-2 px-2 sm:px-4 md:px-8 flex justify-between items-center shadow-sm max-w-7xl mx-auto md:hidden',
+							'py-2 px-2 sm:px-4 md:px-8 w-full justify-left shadow-sm max-w-7xl mx-auto md:hidden',
 							devOnly || $userStore?.operator ? 'hidden' : ''
 						)}
 					>
@@ -638,6 +638,7 @@
 							</svg>
 						</button>
 					</div>
+
 					<slot />
 				</div>
 			</main>

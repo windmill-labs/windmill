@@ -1,6 +1,8 @@
 <script lang="ts">
 	import { createScrollArea, melt, type ScrollAreaType } from '@melt-ui/svelte'
-	export let type: ScrollAreaType = 'hover'
+
+	export let type: ScrollAreaType = 'auto'
+
 	const {
 		elements: { root, content, viewport, corner, scrollbarY, scrollbarX, thumbY, thumbX }
 	} = createScrollArea({
@@ -17,11 +19,11 @@
 	</div>
 	<div
 		use:melt={$scrollbarY}
-		class="flex h-full w-2.5 touch-none select-none border-l border-l-transparent bg-gray-800/10 dark:bg-gray-900/10 p-px transition-colors"
+		class="flex h-full w-3.5 touch-none select-none border-l border-l-transparent bg-gray-800/10 dark:bg-gray-100/10 p-[3px] transition-colors"
 	>
 		<div
 			use:melt={$thumbY}
-			class="relative flex-1 rounded-full bg-gray-400 hover:bg-gray-600 dark:bg-gray-600 dark:hover:bg-gray-500"
+			class="relative flex-1 rounded-full bg-gray-400 hover:bg-gray-600 dark:bg-gray-500 dark:hover:bg-gray-400"
 		/>
 	</div>
 	<div
