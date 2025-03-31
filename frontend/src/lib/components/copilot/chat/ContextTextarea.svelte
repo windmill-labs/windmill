@@ -170,40 +170,45 @@
 	) {
 		if (!textarea || !showContextTooltip) return
 
-		const coords = getCaretCoordinates(textarea, textarea.selectionEnd)
-		const rect = textarea.getBoundingClientRect()
+		try {
+			const coords = getCaretCoordinates(textarea, textarea.selectionEnd)
+			const rect = textarea.getBoundingClientRect()
 
-		const filteredAvailableContext = availableContext.filter(
-			(c) => !contextTooltipWord || c.title.toLowerCase().includes(contextTooltipWord.slice(1))
-		)
+			const filteredAvailableContext = availableContext.filter(
+				(c) => !contextTooltipWord || c.title.toLowerCase().includes(contextTooltipWord.slice(1))
+			)
 
-		const itemHeight = 28 // Estimated height of one item + gap (Button: p-1(8px) + text-xs(16px) = 24px; Parent: gap-1(4px) = 28px)
-		const containerPadding = 8 // p-1 top + p-1 bottom = 4px + 4px = 8px
-		const maxHeight = 192 + containerPadding // max-h-48 (192px) + containerPadding (8px)
+			const itemHeight = 28 // Estimated height of one item + gap (Button: p-1(8px) + text-xs(16px) = 24px; Parent: gap-1(4px) = 28px)
+			const containerPadding = 8 // p-1 top + p-1 bottom = 4px + 4px = 8px
+			const maxHeight = 192 + containerPadding // max-h-48 (192px) + containerPadding (8px)
 
-		// Calculate uncapped height, subtract gap from last item as it's not needed
-		const numItems = filteredAvailableContext.length
-		let uncappedHeight =
-			numItems > 0 ? numItems * itemHeight - 4 + containerPadding : containerPadding
-		// Ensure height is at least containerPadding even if no items
-		uncappedHeight = Math.max(uncappedHeight, containerPadding)
+			// Calculate uncapped height, subtract gap from last item as it's not needed
+			const numItems = filteredAvailableContext.length
+			let uncappedHeight =
+				numItems > 0 ? numItems * itemHeight - 4 + containerPadding : containerPadding
+			// Ensure height is at least containerPadding even if no items
+			uncappedHeight = Math.max(uncappedHeight, containerPadding)
 
-		const estimatedTooltipHeight = Math.min(uncappedHeight, maxHeight)
-		const margin = 6 // Small margin between caret and tooltip
+			const estimatedTooltipHeight = Math.min(uncappedHeight, maxHeight)
+			const margin = 6 // Small margin between caret and tooltip
 
-		let finalY: number
+			let finalY: number
 
-		if (isFirstMessage) {
-			// Position below the caret line
-			finalY = rect.top + coords.top + coords.height - 3
-		} else {
-			// Position above the caret line
-			finalY = rect.top + coords.top - estimatedTooltipHeight - margin
-		}
+			if (isFirstMessage) {
+				// Position below the caret line
+				finalY = rect.top + coords.top + coords.height - 3
+			} else {
+				// Position above the caret line
+				finalY = rect.top + coords.top - estimatedTooltipHeight - margin
+			}
 
-		tooltipPosition = {
-			x: rect.left + coords.left - 70,
-			y: finalY
+			tooltipPosition = {
+				x: rect.left + coords.left - 70,
+				y: finalY
+			}
+		} catch (error) {
+			// Hide tooltip on any error related to position calculation
+			showContextTooltip = false
 		}
 	}
 
