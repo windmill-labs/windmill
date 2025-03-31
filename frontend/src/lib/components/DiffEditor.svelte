@@ -10,6 +10,7 @@
 	import { initializeVscode } from './vscode'
 	import EditorTheme from './EditorTheme.svelte'
 	import { buildWorkerDefinition } from '$lib/monaco_workers/build_workers'
+	import Editor from './Editor.svelte'
 
 	buildWorkerDefinition()
 
@@ -22,7 +23,7 @@
 	export let defaultOriginal: string | undefined = undefined
 	export let defaultModified: string | undefined = undefined
 	export let readOnly = false
-	export let editor: meditor.IStandaloneCodeEditor | undefined = undefined
+	export let editor: Editor | undefined = undefined
 	export let showButtons = false
 
 	let diffEditor: meditor.IStandaloneDiffEditor | undefined
@@ -68,7 +69,8 @@
 	) {
 		diffEditor?.setModel({
 			original: meditor.createModel('', lang),
-			modified: editor?.getModel() ?? meditor.createModel('', modifiedLang ?? lang)
+			modified:
+				(editor?.getModel() as meditor.ITextModel) ?? meditor.createModel('', modifiedLang ?? lang)
 		})
 		if (original) {
 			setOriginal(original)

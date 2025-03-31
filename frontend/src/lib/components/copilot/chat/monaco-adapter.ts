@@ -86,10 +86,6 @@ export class AIChatEditorHandler {
 		this.finish()
 	}
 
-	async quitDiffMode() {
-		this.finish()
-	}
-
 	applyGroup(group: { changes: VisualChangeWithDiffIndex[]; groupIndex: number }) {
 		// maximum of 2 changes per group with the deletion first
 		if (group.changes.length > 2) {

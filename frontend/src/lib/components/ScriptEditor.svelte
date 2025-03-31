@@ -74,7 +74,6 @@
 	export let stablePathForCaptures: string = ''
 	export let lastSavedCode: string | undefined = undefined
 	export let lastDeployedCode: string | undefined = undefined
-	export let aiChat: AIChat | undefined = undefined
 
 	let showHistoryDrawer = false
 
@@ -335,6 +334,8 @@
 		}
 	}
 
+	let aiChat: AIChat | undefined = undefined
+
 	function getStringError(job: Job | undefined) {
 		if (
 			job != undefined &&
@@ -511,9 +512,6 @@
 						on:saveDraft
 						on:toggleAiPanel={toggleAiPanel}
 						on:toggleTestPanel={toggleTestPanel}
-						on:seeHistory={() => {
-							showHistoryDrawer = true
-						}}
 						cmdEnterAction={async () => {
 							await inferSchema(code)
 							runTest()
@@ -533,7 +531,6 @@
 						automaticLayout={true}
 						{fixedOverflowWidgets}
 						{args}
-						{diffMode}
 					/>
 					<DiffEditor
 						class="h-full"
