@@ -1,9 +1,22 @@
 <script>
 	import { twMerge } from 'tailwind-merge'
+	import Scroll from '$lib/components/Scroll.svelte'
+
+	export let useScroll = false
 </script>
 
-<div class="pb-8">
-	<div class={twMerge('max-w-7xl mx-auto px-4 sm:px-6 md:px-8', $$restProps.class)}>
-		<slot />
+{#if useScroll}
+	<Scroll>
+		<div class="pb-8">
+			<div class={twMerge('max-w-7xl mx-auto px-4 sm:px-6 md:px-8', $$restProps.class)}>
+				<slot />
+			</div>
+		</div>
+	</Scroll>
+{:else}
+	<div class="pb-8">
+		<div class={twMerge('max-w-7xl mx-auto px-4 sm:px-6 md:px-8', $$restProps.class)}>
+			<slot />
+		</div>
 	</div>
-</div>
+{/if}
