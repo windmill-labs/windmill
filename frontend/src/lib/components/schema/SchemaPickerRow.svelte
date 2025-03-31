@@ -17,7 +17,6 @@
 	export let viewerOpen = false
 	export let limitPayloadSize = false
 	export let forceLoad = false
-	export let light = false
 
 	let popover: Popover | undefined = undefined
 	let popoverOpen = false
@@ -83,109 +82,102 @@
 	{formatDateShort(date)}
 </Cell>
 
-{#if light}
-	<Cell>
-		<slot name="light-display" />
-	</Cell>
-{:else}
-	<Cell class="items-center flex flex-row gap-2">
-		<div class="flex items-center justify-center border grow min-w-0 rounded-md">
-			<div
-				class={twMerge(
-					'grow min-w-0 text-xs p-1 font-normal text-tertiary text-left  whitespace-nowrap overflow-hidden text-ellipsis',
-					hovering && 'border-surface'
-				)}
-			>
-				{JSON.stringify(payloadData)}
-			</div>
-
-			<Popover
-				bind:this={popover}
-				class="w-fit"
-				contentClasses="overflow-auto"
-				usePointerDownOutside
-				closeOnOtherPopoverOpen
-				on:click={(e) => {
-					e.stopPropagation()
-				}}
-				{floatingConfig}
-				on:openChange={handlePopoverChange}
-			>
-				<svelte:fragment slot="trigger">
-					<Button
-						variant="contained"
-						size="xs2"
-						color="light"
-						btnClasses="bg-transparent hover:bg-surface"
-						nonCaptureEvent
-					>
-						<Eye size={16} />
-					</Button>
-				</svelte:fragment>
-
-				<svelte:fragment slot="content">
-					<div class="relative p-2 max-w-[400px]">
-						{#if payloadData === 'WINDMILL_TOO_BIG'}
-							<div class="text-center text-tertiary text-xs">
-								{#if limitPayloadSize}
-									Payload too big to be used
-								{:else}
-									Payload too big to preview but can still be loaded
-								{/if}
-							</div>
-						{:else}
-							<div
-								class="w-full h-full"
-								role="button"
-								tabindex="0"
-								aria-label="Copy JSON payload to clipboard"
-								on:click={() => {
-									copyToClipboard(JSON.stringify(payloadData))
-								}}
-								on:keydown
-							>
-								{#if !objectViewerLoaded && isTooBig}
-									<div class="flex justify-center items-center p-4">
-										<Loader2 size={20} class="animate-spin text-primary" />
-										<span class="ml-2 text-xs text-tertiary">Loading data...</span>
-									</div>
-								{/if}
-
-								{#if popoverFullyOpened || !isTooBig}
-									<div
-										class={(!objectViewerLoaded && isTooBig
-											? 'invisible h-0 overflow-hidden'
-											: '') + ' pr-6'}
-									>
-										<ObjectViewerWrapper
-											json={payloadData}
-											allowCopy
-											pureViewer
-											on:mounted={() => (objectViewerLoaded = true)}
-										/>
-									</div>
-								{/if}
-
-								<div class="absolute top-2 right-2">
-									<Button
-										variant="contained"
-										size="xs2"
-										class="absolute top-0 right-0"
-										iconOnly
-										startIcon={{ icon: CopyIcon }}
-										nonCaptureEvent
-									/>
-								</div>
-							</div>
-						{/if}
-					</div>
-				</svelte:fragment>
-			</Popover>
+<Cell class="items-center flex flex-row gap-2">
+	<div class="flex items-center justify-center border grow min-w-0 rounded-md">
+		<div
+			class={twMerge(
+				'grow min-w-0 text-xs p-1 font-normal text-tertiary text-left  whitespace-nowrap overflow-hidden text-ellipsis',
+				hovering && 'border-surface'
+			)}
+		>
+			{JSON.stringify(payloadData)}
 		</div>
 
-		<slot name="extra" {isTooBig} />
-	</Cell>
-{/if}
+		<Popover
+			bind:this={popover}
+			class="w-fit"
+			contentClasses="overflow-auto"
+			usePointerDownOutside
+			closeOnOtherPopoverOpen
+			on:click={(e) => {
+				e.stopPropagation()
+			}}
+			{floatingConfig}
+			on:openChange={handlePopoverChange}
+		>
+			<svelte:fragment slot="trigger">
+				<Button
+					variant="contained"
+					size="xs2"
+					color="light"
+					btnClasses="bg-transparent hover:bg-surface"
+					nonCaptureEvent
+				>
+					<Eye size={16} />
+				</Button>
+			</svelte:fragment>
+
+			<svelte:fragment slot="content">
+				<div class="relative p-2 max-w-[400px]">
+					{#if payloadData === 'WINDMILL_TOO_BIG'}
+						<div class="text-center text-tertiary text-xs">
+							{#if limitPayloadSize}
+								Payload too big to be used
+							{:else}
+								Payload too big to preview but can still be loaded
+							{/if}
+						</div>
+					{:else}
+						<div
+							class="w-full h-full"
+							role="button"
+							tabindex="0"
+							aria-label="Copy JSON payload to clipboard"
+							on:click={() => {
+								copyToClipboard(JSON.stringify(payloadData))
+							}}
+							on:keydown
+						>
+							{#if !objectViewerLoaded && isTooBig}
+								<div class="flex justify-center items-center p-4">
+									<Loader2 size={20} class="animate-spin text-primary" />
+									<span class="ml-2 text-xs text-tertiary">Loading data...</span>
+								</div>
+							{/if}
+
+							{#if popoverFullyOpened || !isTooBig}
+								<div
+									class={(!objectViewerLoaded && isTooBig ? 'invisible h-0 overflow-hidden' : '') +
+										' pr-6'}
+								>
+									<ObjectViewerWrapper
+										json={payloadData}
+										allowCopy
+										pureViewer
+										on:mounted={() => (objectViewerLoaded = true)}
+									/>
+								</div>
+							{/if}
+
+							<div class="absolute top-2 right-2">
+								<Button
+									variant="contained"
+									size="xs2"
+									class="absolute top-0 right-0"
+									iconOnly
+									startIcon={{ icon: CopyIcon }}
+									nonCaptureEvent
+								/>
+							</div>
+						</div>
+					{/if}
+				</div>
+			</svelte:fragment>
+		</Popover>
+	</div>
+
+	<slot name="extra" {isTooBig} />
+</Cell>
 
 <style>
 	.scrollbar-none {
