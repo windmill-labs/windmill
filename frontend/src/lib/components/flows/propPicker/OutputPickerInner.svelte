@@ -98,8 +98,6 @@
 			: preview === 'job' && mock?.enabled && selectedJob?.type === 'CompletedJob'
 			? 'override'
 			: undefined
-
-	$: console.log('dbg preview', preview)
 </script>
 
 <div class="w-full h-full flex flex-col" bind:clientHeight>
@@ -141,7 +139,6 @@
 							{moduleId}
 							{getLogs}
 							on:select={async ({ detail }) => {
-								console.log('dbg detail', detail)
 								if (!detail) {
 									selectJob(undefined)
 									togglePreview(undefined)
