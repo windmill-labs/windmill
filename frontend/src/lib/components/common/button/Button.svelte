@@ -233,7 +233,7 @@
 	{/if}
 
 	{#if dropdownItems && dropdownItems.length > 0}
-		<Dropdown items={computeDropdowns(dropdownItems)} class="h-auto w-fit">
+		<Dropdown items={computeDropdowns(dropdownItems)} class="h-auto w-fit" on:openChange>
 			<svelte:fragment slot="buttonReplacement">
 				<div
 					class={twMerge(

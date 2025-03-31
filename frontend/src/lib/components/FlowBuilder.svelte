@@ -1260,6 +1260,7 @@
 	let msgInput: HTMLInputElement | undefined = undefined
 
 	let flowPreviewButtons: FlowPreviewButtons
+	let isDropdownOpen = false
 </script>
 
 <svelte:window on:keydown={onKeyDown} />
@@ -1468,7 +1469,7 @@
 						Draft
 					</Button>
 
-					<CustomPopover appearTimeout={0} focusEl={msgInput}>
+					<CustomPopover appearTimeout={0} focusEl={msgInput} disablePopup={isDropdownOpen}>
 						<Button
 							disabled={loading}
 							loading={loadingSave}
@@ -1478,6 +1479,7 @@
 								await handleSaveFlow()
 							}}
 							dropdownItems={!newFlow ? dropdownItems : undefined}
+							on:openChange={({ detail }) => (isDropdownOpen = detail)}
 						>
 							Deploy
 						</Button>
