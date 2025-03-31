@@ -81,6 +81,21 @@
 			<table class={tableFixed ? 'table-fixed w-full' : 'min-w-full'}>
 				<slot />
 			</table>
+
+			{#if infiniteScroll}
+				<div class="text-tertiary bg-surface flex flex-row justify-center py-2 items-center h-6">
+					{#if loading || loadingMore}
+						<div
+							class={twMerge('flex flex-row items-center gap-2', loadingMore ? 'bordert-t' : '')}
+						>
+							<Loader2 class="animate-spin" size={14} />
+							{#if loadingMore}
+								<span class="text-xs">Loading more...</span>
+							{/if}
+						</div>
+					{/if}
+				</div>
+			{/if}
 		</div>
 		{#if paginated && !shouldHidePagination}
 			<div
@@ -140,7 +155,7 @@
 				</Button>
 			</div>
 		{/if}
-		{#if loading || loadingMore}
+		{#if (loading || loadingMore) && !infiniteScroll}
 			<div
 				class="text-tertiary bg-surface border-t flex flex-row justify-center py-2 items-center gap-2"
 			>
