@@ -37,6 +37,7 @@ declare const job: {
    * id of the original job
    */
   id: string;
+  kind: 'flow' | 'script';
   script_path: ${JSON.stringify(script_path)};
   script_hash: ${script_hashes.map((h) => JSON.stringify(h)).join(' | ')};
 }`

@@ -3251,6 +3251,8 @@ struct BatchReRunQueryReturnType {
     script_hash: ScriptHash,
     input: serde_json::Value,
     scheduled_for: chrono::DateTime<Utc>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    schema: Option<serde_json::Value>,
 }
 
 #[cfg(feature = "deno_core")]
@@ -3278,7 +3280,7 @@ async fn batch_rerun_compute_js_expression(
     {
         let op_state = isolate.op_state();
         let mut op_state = op_state.borrow_mut();
-        op_state.put(job);
+        op_state.put(BatchReRunQueryReturnType { schema: None, ..job });
     }
     isolate
         .execute_script(
@@ -3335,7 +3337,8 @@ fn batch_rerun_jobs_inner(
                     COALESCE(s.path, f.path) AS "script_path!",
                     COALESCE(s.hash, f.id) AS "script_hash!: _",
                     COALESCE(jc.started_at, jq.scheduled_for, make_date(1970, 1, 1)) AS "scheduled_for!: _",
-                    args AS input
+                    args AS input,
+                    COALESCE(s.schema, f.schema) AS "schema: _"
                 FROM v2_job j
                 LEFT JOIN script s ON j.runnable_id = s.hash AND j.kind = 'script'
                 LEFT JOIN flow_version f ON j.runnable_id = f.id AND j.runnable_path = f.path AND j.kind = 'flow'
@@ -3384,7 +3387,19 @@ async fn batch_rerun_handle_job(
         .map(|t| t.iter())
         .into_iter()
         .flatten();
+    let schema = job
+        .schema
+        .as_ref()
+        .and_then(serde_json::Value::as_object)
+        .and_then(|s| s.get("properties"))
+        .and_then(serde_json::Value::as_object);
     for (property_name, transform) in input_transforms {
+        let schema_has_key = schema
+            .map(|s| s.contains_key(property_name))
+            .unwrap_or(false);
+        if !schema_has_key {
+            continue;
+        }
         match transform {
             InputTransform::Static { value } => {
                 args.insert(property_name.clone(), value.clone());
