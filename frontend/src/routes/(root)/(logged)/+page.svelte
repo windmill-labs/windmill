@@ -13,6 +13,7 @@
 	import { Building, ExternalLink, GitFork, Globe2, Loader2 } from 'lucide-svelte'
 	import { hubBaseUrlStore } from '$lib/stores'
 	import { base } from '$lib/base'
+	import { layoutStore } from '$lib/layout-context'
 
 	import ItemsList from '$lib/components/home/ItemsList.svelte'
 	import CreateActionsApp from '$lib/components/flows/CreateActionsApp.svelte'
@@ -48,6 +49,8 @@
 	let codeViewerObj: HubItem | undefined = undefined
 
 	const breakpoint = writable<EditorBreakpoint>('lg')
+
+	$: scrollHeight = `calc(100vh - ${$layoutStore.topBarHeight}px)`
 
 	async function viewCode(obj: HubItem) {
 		codeViewerContent = ''
@@ -214,7 +217,7 @@
 	</DrawerContent>
 </Drawer>
 
-<Scroll>
+<Scroll style="height: {scrollHeight}">
 	<div class="max-w-7xl mx-auto px-4 sm:px-6 md:px-8 h-fit-content">
 		{#if $workspaceStore == 'admins'}
 			<div class="my-4" />

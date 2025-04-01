@@ -52,6 +52,7 @@
 	import { setContext } from 'svelte'
 	import { base } from '$app/paths'
 	import { Menubar } from '$lib/components/meltComponents'
+	import { setTopBarHeight } from '$lib/layout-context'
 
 	OpenAPI.WITH_CREDENTIALS = true
 	let menuOpen = false
@@ -340,6 +341,12 @@
 
 		muteSettings = { global: g_muted, workspace: ws_muted }
 	}
+
+	let topBarHeight = 0
+
+	$: if (topBarHeight > 0) {
+		setTopBarHeight(topBarHeight)
+	}
 </script>
 
 <svelte:window bind:innerWidth />
@@ -610,13 +617,14 @@
 				'transition-all ease-in-out duration-200'
 			)}
 		>
-			<main class="h-screen">
+			<main class="min-h-screen">
 				<div class="relative w-full h-full flex flex-col">
 					<div
 						class={classNames(
-							'py-2 px-2 sm:px-4 md:px-8 w-full justify-left shadow-sm max-w-7xl mx-auto md:hidden',
+							'py-2 px-2 sm:px-4 md:px-8 w-full justify-start shadow-sm max-w-7xl mx-auto md:hidden',
 							devOnly || $userStore?.operator ? 'hidden' : ''
 						)}
+						bind:clientHeight={topBarHeight}
 					>
 						<button
 							type="button"
