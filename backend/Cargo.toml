@@ -234,7 +234,6 @@ deno_error = "=0.5.5"
 
 google-cloud-pubsub = "0.30.0"
 google-cloud-googleapis = {version = "0.16.1", features = ["pubsub"]}
-
 # TODO: remove once deno fixes the issue on their end
 # https://github.com/denoland/deno/issues/28557
 winapi = { version = "0.3.9", features = ["sysinfoapi"] }

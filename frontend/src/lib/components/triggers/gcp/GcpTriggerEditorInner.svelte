@@ -95,6 +95,7 @@
 			gcp_resource_path = s.gcp_resource_path
 			delivery_type = s.delivery_type
 			subscription_id = s.subscription_id
+			delivery_config = s.delivery_config
 			is_flow = s.is_flow
 			path = s.path
 			enabled = s.enabled

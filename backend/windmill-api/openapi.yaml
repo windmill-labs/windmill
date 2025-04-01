@@ -9220,6 +9220,13 @@ paths:
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
         - $ref: "#/components/parameters/Path"
+      requestBody:
+        description: args to delete subscription from google cloud
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DeleteGcpTrigger"
       responses:
         "200":
           description: gcp trigger deleted
@@ -10830,6 +10837,10 @@ paths:
       responses:
         "200":
           description: capture config set
+          content:
+            application/json:
+              schema:
+                type: object
 
   /w/{workspace}/capture/ping_config/{trigger_kind}/{runnable_kind}/{path}:
     post:
@@ -14672,6 +14683,17 @@ components:
         - delivery_type
         - topic_id
     
+    DeleteGcpTrigger:
+      type: object
+      properties:
+        gcp_resource_path:
+          type: string
+        subscription_id:
+          type: string
+      required:
+        - gcp_resource_path
+        - subscription_id
+  
     SqsTrigger:
       allOf:
         - $ref: "#/components/schemas/TriggerExtraProperty"

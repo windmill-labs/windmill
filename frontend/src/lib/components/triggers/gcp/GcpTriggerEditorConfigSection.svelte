@@ -4,7 +4,7 @@
 	import CaptureTable from '../CaptureTable.svelte'
 	import Required from '$lib/components/Required.svelte'
 	import ResourcePicker from '$lib/components/ResourcePicker.svelte'
-	import { emptyString, emptyStringTrimmed } from '$lib/utils'
+	import { emptyStringTrimmed } from '$lib/utils'
 	import TestTriggerConnection from '../TestTriggerConnection.svelte'
 	import Subsection from '$lib/components/Subsection.svelte'
 	import { GcpTriggerService, type DeliveryType, type PushConfig } from '$lib/gen'
@@ -19,6 +19,8 @@
 	import Select from '$lib/components/apps/svelte-select/lib/Select.svelte'
 	import { workspaceStore } from '$lib/stores'
 	import { DEFAULT_PUSH_CONFIG } from './utils'
+	import { Button } from '$lib/components/common'
+	import { RefreshCw } from 'lucide-svelte'
 
 	export let can_write: boolean = false
 	export let headless: boolean = false
@@ -40,7 +42,6 @@
 			path: gcp_resource_path
 		})
 	}
-
 	$: gcp_resource_path && loadAllPubSubTopicsFromProject()
 	$: isValid = !emptyStringTrimmed(gcp_resource_path) && !emptyStringTrimmed(topic_id)
 	$: !delivery_type && (delivery_type = 'pull')
@@ -93,31 +94,42 @@
 						required={true}
 					/>
 				</p>
-				<Select
-					class="grow shrink max-w-full"
-					bind:justValue={topic_id}
-					value={topic_id}
-					{items}
-					placeholder="Choose a topic"
-					inputStyles={SELECT_INPUT_DEFAULT_STYLE.inputStyles}
-					containerStyles={darkMode
-						? SELECT_INPUT_DEFAULT_STYLE.containerStylesDark
-						: SELECT_INPUT_DEFAULT_STYLE.containerStyles}
-					portal={false}
-				/>
-			</div>
-			{#if !emptyString(subscription_id)}
-				<div class="flex flex-col gap-1">
-					<p class="text-xs mb-1 text-tertiary"> The ID of the current subscription. </p>
-					<input
-						type="text"
-						autocomplete="off"
-						placeholder="subscription_id"
-						bind:value={subscription_id}
-						disabled={true}
+				<div class="flex gap-1">
+					<Select
+						class="grow shrink max-w-full"
+						bind:justValue={topic_id}
+						value={topic_id}
+						{items}
+						placeholder="Choose a topic"
+						inputStyles={SELECT_INPUT_DEFAULT_STYLE.inputStyles}
+						containerStyles={darkMode
+							? SELECT_INPUT_DEFAULT_STYLE.containerStylesDark
+							: SELECT_INPUT_DEFAULT_STYLE.containerStyles}
+						portal={false}
+					/>
+					<Button
+						disabled={!can_write}
+						variant="border"
+						color="light"
+						wrapperClasses="self-stretch"
+						on:click={loadAllPubSubTopicsFromProject}
+						startIcon={{ icon: RefreshCw }}
+						iconOnly
 					/>
 				</div>
-			{/if}
+			</div>
+			<div class="flex flex-col gap-1">
+				<p class="text-xs mb-1 text-tertiary">
+					The ID of the subscription. if left empty it will default to the path of the trigger
+					suffixed with the current timestamp.</p
+				>
+				<input
+					type="text"
+					autocomplete="off"
+					placeholder="subscription_id"
+					bind:value={subscription_id}
+				/>
+			</div>
 			<div class="flex flex-col gap-2">
 				<Subsection label="Delivery type">
 					<div class="flex flex-col gap-2">

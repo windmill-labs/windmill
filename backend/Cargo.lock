@@ -13900,6 +13900,7 @@ dependencies = [
  "tokio-tar",
  "tokio-tungstenite",
  "tokio-util",
+ "tonic",
  "tower 0.5.2",
  "tower-cookies",
  "tower-http",

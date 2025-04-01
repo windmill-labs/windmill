@@ -38,7 +38,6 @@
 				sendUserToast('Table to track must be set', true)
 				return false
 			}
-
 			if (
 				invalidRelations(args.publication.table_to_track, {
 					showError: true,
@@ -49,7 +48,7 @@
 			}
 		}
 		try {
-			await CaptureService.setCaptureConfig({
+			args = await CaptureService.setCaptureConfig({
 				requestBody: {
 					trigger_kind: captureType,
 					path,
@@ -58,6 +57,7 @@
 				},
 				workspace: $workspaceStore!
 			})
+
 			return true
 		} catch (error) {
 			sendUserToast(error.body, true)
@@ -76,7 +76,6 @@
 			runnableKind: isFlow ? 'flow' : 'script',
 			path
 		})
-
 		captureConfigs = captureConfigsList.reduce((acc, c) => {
 			acc[c.trigger_kind] = c
 			return acc
@@ -154,7 +153,6 @@
 			captureActive = false
 		} else {
 			const configSet = await setConfig()
-
 			if (configSet) {
 				capture()
 			}

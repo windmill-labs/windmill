@@ -47,7 +47,7 @@
 	let loading = true
 	let deploymentDrawer: DeployWorkspaceDrawer
 	let deployUiSettings: WorkspaceDeployUISettings | undefined = undefined
-
+	let isDeleting = false
 	async function getDeployUiSettings() {
 		if (!$enterpriseLicense) {
 			deployUiSettings = ALL_DEPLOYABLE
@@ -279,7 +279,7 @@
 			<div class="text-center text-sm text-tertiary mt-2"> No gcp triggers </div>
 		{:else if items?.length}
 			<div class="border rounded-md divide-y">
-				{#each items.slice(0, nbDisplayed) as { workspace_id, delivery_config, delivery_type, path, edited_by, error, edited_at, script_path, is_flow, extra_perms, canWrite, enabled, server_id, subscription_id } (path)}
+				{#each items.slice(0, nbDisplayed) as { gcp_resource_path, workspace_id, delivery_config, delivery_type, path, edited_by, error, edited_at, script_path, is_flow, extra_perms, canWrite, enabled, server_id, subscription_id } (path)}
 					{@const href = `${is_flow ? '/flows/get' : '/scripts/get'}/${script_path}`}
 					{@const ping = new Date()}
 					{@const pinging = ping && ping.getTime() > new Date().getTime() - 15 * 1000}
@@ -386,8 +386,13 @@
 												icon: Eye
 										  }}
 									color="dark"
+									loading={isDeleting}
 								>
-									{canWrite ? 'Edit' : 'View'}
+									{#if isDeleting}
+										Deleting...
+									{:else}
+										{canWrite ? 'Edit' : 'View'}
+									{/if}
 								</Button>
 								<Dropdown
 									items={[
@@ -405,12 +410,19 @@
 											disabled: !canWrite,
 											action: async () => {
 												try {
+													isDeleting = true
 													await GcpTriggerService.deleteGcpTrigger({
 														workspace: $workspaceStore ?? '',
-														path
+														path,
+														requestBody: {
+															gcp_resource_path,
+															subscription_id
+														}
 													})
+													isDeleting = false
 													loadTriggers()
 												} catch (error) {
+													isDeleting = false
 													sendUserToast(error.body, true)
 												}
 											}
