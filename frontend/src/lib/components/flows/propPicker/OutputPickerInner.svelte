@@ -509,7 +509,7 @@
 			/>
 		{:else if (mock?.enabled || preview == 'mock') && preview != 'job'}
 			{#if fullResult}
-				<div class="break-words relative h-full py-2">
+				<div class="break-words relative h-full">
 					<DisplayResult
 						bind:forceJson
 						workspaceId={undefined}
@@ -530,7 +530,7 @@
 			{/if}
 		{:else if selectedJob != undefined && 'result' in selectedJob}
 			{#if fullResult}
-				<div class="break-words relative h-full py-2">
+				<div class="break-words relative h-full">
 					{#key selectedJob}
 						<DisplayResult
 							bind:forceJson
