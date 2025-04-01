@@ -21,7 +21,7 @@ export function schemaToTsType(schema: Schema | SchemaProperty): string {
 			} else if (prop.type === 'boolean') {
 				type = 'boolean'
 			} else if (prop.type === 'array') {
-				let type = prop.items?.type ?? 'any'
+				type = prop.items?.type ?? 'any'
 				if (type === 'integer') {
 					type = 'number'
 				}

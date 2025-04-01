@@ -1,5 +1,6 @@
 import type { Schema } from '$lib/common'
 import { schemaToTsType } from '$lib/schema'
+import { deepEqual } from 'fast-equals'
 
 export function buildExtraLibForBatchReruns({
 	schemas,
@@ -46,7 +47,7 @@ declare const job: {
 )`
 }
 
-// Used by InputTransformForm to show the type next to the name of the input
+// Used for InputTransformForm
 export function mergeSchemasForBatchReruns(schemas: Schema[]): Schema {
 	const merged: Schema = { $schema: '', required: [], properties: {}, type: 'object' }
 
@@ -55,10 +56,12 @@ export function mergeSchemasForBatchReruns(schemas: Schema[]): Schema {
 			if (!(propertyName in merged.properties)) {
 				merged.properties[propertyName] = { ...property }
 			} else {
-				const existingTypes = merged.properties[propertyName].type?.split(' | ') ?? []
-				merged.properties[propertyName] = {
-					...merged.properties[propertyName],
-					type: [...new Set([...existingTypes, property.type])].join(' | ')
+				if (!deepEqual(merged.properties[propertyName], property)) {
+					if (merged.properties[propertyName].type === 'string' && property.type === 'string') {
+						merged.properties[propertyName] = { type: 'string' }
+					} else {
+						merged.properties[propertyName] = { type: 'object' }
+					}
 				}
 			}
 		}
