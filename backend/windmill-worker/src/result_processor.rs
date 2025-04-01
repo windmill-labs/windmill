@@ -67,7 +67,7 @@ pub fn start_background_processor(
         let mut infos = BenchmarkInfo::new();
 
         #[cfg(feature = "enterprise")]
-        let mut reported_low_disk = false;
+        let (mut reported_low_disk, mut reported_cannot_read_disk) = (false, false);
 
         //if we have been killed, we want to drain the queue of jobs
         while let Some(sr) = {
@@ -224,6 +224,7 @@ pub fn start_background_processor(
                     std::env::var("MIN_FREE_DISK_SPACE_MB").map(|v| v.parse::<u64>().unwrap_or(*DEF_MIN_SPACE)).unwrap_or(*DEF_MIN_SPACE);
                 }
                 // TODO: Test on windows
+                // TODO: Rerun benchmark
                 match SYSTEM.mount_at("/") {
                     Ok(Filesystem { avail, .. })
                         if avail < ByteSize::mb(*MIN_FREE_DISK_SPACE_MB) =>
@@ -245,18 +246,18 @@ pub fn start_background_processor(
                     }
                     Err(e) => {
                         // Only alert once
-                        if !reported_low_disk {
+                        if !reported_cannot_read_disk {
                             windmill_common::utils::report_critical_error(
                                 format!("Cannot read disk usage: {e}"),
                                 db.clone(),
-                                None,
+                                Some("admins"),
                                 None,
                             )
                             .await;
-                            reported_low_disk = true;
+                            reported_cannot_read_disk = true;
                         }
                     }
-                    _ => reported_low_disk = false,
+                    _ => (reported_low_disk, reported_cannot_read_disk) = (false, false),
                 }
             }
         }
