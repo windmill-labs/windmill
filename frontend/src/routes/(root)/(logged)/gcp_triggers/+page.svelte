@@ -368,7 +368,7 @@
 									<Button
 										on:click={() =>
 											copyToClipboard(
-												getHttpRoute(delivery_config?.route_path, false, workspace_id, 'gcp/push')
+												getHttpRoute('gcp/w', delivery_config?.route_path, true, workspace_id)
 											)}
 										color="dark"
 										size="xs"

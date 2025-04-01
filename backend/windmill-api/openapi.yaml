@@ -14669,7 +14669,7 @@ components:
         audience:
           type: string
         authenticate:
-          type: bool
+          type: boolean
         base_endpoint:
           type: string
       required:
