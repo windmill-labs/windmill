@@ -168,7 +168,7 @@
 				bind:this={stepHistoryPopover}
 				floatingConfig={{
 					placement: 'left-start',
-					offset: { mainAxis: 10, crossAxis: -4 },
+					offset: { mainAxis: 10, crossAxis: -6 },
 					gutter: 0 // hack to make offset effective, see https://github.com/melt-ui/melt-ui/issues/528
 				}}
 				contentClasses="w-[225px] overflow-hidden"
