@@ -4,6 +4,7 @@
 
 	export let floatingConfig: any | undefined = undefined
 	export let placement: Placement = 'bottom'
+	export let disablePopup = false
 
 	const {
 		elements: { trigger, content, arrow },
@@ -13,7 +14,14 @@
 		openDelay: 0,
 		closeDelay: 0,
 		closeOnPointerDown: false,
-		forceVisible: true
+		forceVisible: true,
+		onOpenChange: ({ curr, next }) => {
+			console.log('dbg openChange', curr, next)
+			if (next && disablePopup) {
+				return curr
+			}
+			return next
+		}
 	})
 
 	$: $positioningOption = floatingConfig ?? {
