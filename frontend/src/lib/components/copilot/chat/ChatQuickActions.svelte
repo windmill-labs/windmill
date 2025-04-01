@@ -6,6 +6,8 @@
 	export let hasDiff: boolean
 	export let diffMode: boolean = false
 
+	let iconClasses = '!w-3 !h-3 !px-0 !m-0'
+
 	const dispatch = createEventDispatcher<{
 		analyzeChanges: null
 		explainChanges: null
@@ -26,7 +28,7 @@
 				title="Explain changes"
 				size="xs3"
 				{btnClasses}
-				startIcon={{ icon: LightbulbIcon, classes: '!w-3 !h-3 !px-0 !m-0' }}
+				startIcon={{ icon: LightbulbIcon, classes: iconClasses }}
 				variant="border"
 				color="light"
 				propagateEvent
@@ -42,7 +44,7 @@
 			title="Suggest improvements"
 			size="xs"
 			{btnClasses}
-			startIcon={{ icon: diffMode ? SparklesIcon : LightbulbIcon }}
+			startIcon={{ icon: diffMode ? SparklesIcon : LightbulbIcon, classes: iconClasses }}
 			variant="border"
 			color="light"
 			propagateEvent

@@ -29,15 +29,15 @@
 	import { isInitialCode } from '$lib/script_helpers'
 	import { createLongHash, langToExt } from '$lib/editorUtils'
 	import { scriptLangToEditorLang } from '$lib/scripts'
-	import { type Change } from 'diff'
+	import { diffLines } from 'diff'
 
 	export let lang: ScriptLang | 'bunnative'
 	export let code: string
 	export let error: string | undefined
 	export let args: Record<string, any>
 	export let path: string | undefined
-	export let diffWithLastSaved: Change[] | undefined = undefined
-	export let diffWithLastDeployed: Change[] | undefined = undefined
+	export let lastSavedCode: string | undefined = undefined
+	export let lastDeployedCode: string | undefined = undefined
 	export let diffMode: boolean = false
 
 	$: contextCodePath = path
@@ -80,11 +80,12 @@
 	let dbResources: ListResourceResponse = []
 
 	async function updateDBResources(workspace: string | undefined) {
-		if (workspace) {
+		if (workspace && !dbResources.length) {
 			dbResources = await ResourceService.listResource({
 				workspace: workspace,
 				resourceType: SQLSchemaLanguages.join(',')
 			})
+			console.log('Updated db resources', dbResources)
 		}
 	}
 
@@ -97,8 +98,8 @@
 		providerModel: AIProviderModel | undefined,
 		dbSchemas: DBSchemas,
 		dbResources: ListResourceResponse,
-		diffWithLastSaved?: Change[] | undefined,
-		diffWithLastDeployed?: Change[] | undefined
+		lastSavedCode: string | undefined,
+		lastDeployedCode: string | undefined
 	) {
 		if (!contextCodePath) {
 			return
@@ -114,6 +115,7 @@
 			]
 			if (!providerModel?.model.endsWith('/thinking')) {
 				for (const d of dbResources) {
+					console.log('Adding db resource', d.path)
 					const loadedSchema = dbSchemas[d.path]
 					newAvailableContext.push({
 						type: 'db',
@@ -124,22 +126,23 @@
 				}
 			}
 
-			if (diffWithLastSaved && diffWithLastSaved.filter((d) => d.added || d.removed).length > 0) {
+			if (lastSavedCode && lastSavedCode !== code) {
 				newAvailableContext.push({
 					type: 'diff',
 					title: 'diff_with_last_saved_draft',
-					content: JSON.stringify(diffWithLastSaved)
+					content: lastSavedCode ?? '',
+					diff: diffLines(lastSavedCode ?? '', code),
+					lang
 				})
 			}
 
-			if (
-				diffWithLastDeployed &&
-				diffWithLastDeployed.filter((d) => d.added || d.removed).length > 0
-			) {
+			if (lastDeployedCode && lastDeployedCode !== code) {
 				newAvailableContext.push({
 					type: 'diff',
 					title: 'diff_with_last_deployed_version',
-					content: JSON.stringify(diffWithLastDeployed)
+					content: lastDeployedCode ?? '',
+					diff: diffLines(lastDeployedCode ?? '', code),
+					lang
 				})
 			}
 
@@ -237,8 +240,8 @@
 		$copilotSessionModel,
 		$dbSchemas,
 		dbResources,
-		diffWithLastSaved,
-		diffWithLastDeployed
+		lastSavedCode,
+		lastDeployedCode
 	)
 
 	let instructions = ''
@@ -307,6 +310,7 @@
 			const oldInstructions = instructions
 			instructions = ''
 			const userMessage = await prepareUserMessage(oldInstructions, lang, oldSelectedContext)
+			console.log('User message', userMessage)
 
 			messages.push({ role: 'user', content: userMessage })
 			await saveChat()
@@ -421,7 +425,9 @@
 			{
 				type: 'diff',
 				title: 'diff_with_last_deployed_version',
-				content: JSON.stringify(diffWithLastDeployed)
+				content: lastDeployedCode ?? '',
+				diff: diffLines(lastDeployedCode ?? '', code),
+				lang
 			}
 		]
 		sendRequest({
@@ -505,8 +511,7 @@
 	}}
 	on:explainChanges={() =>
 		askAiAboutChanges('Explain the changes I made to the code from the last diff')}
-	hasDiff={!!diffWithLastDeployed &&
-		diffWithLastDeployed.filter((d) => d.added || d.removed).length > 0}
+	hasDiff={!!lastDeployedCode && lastDeployedCode !== code}
 	{diffMode}
 >
 	<slot name="header-left" slot="header-left" />

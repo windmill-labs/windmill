@@ -14,6 +14,7 @@ import type {
 import { workspaceStore, type DBSchema, dbSchemas } from '$lib/stores'
 import { scriptLangToEditorLang } from '$lib/scripts'
 import { getDbSchemas } from '$lib/components/apps/components/display/dbtable/utils'
+import { type Change } from 'diff'
 
 export function formatResourceTypes(
 	allResourceTypes: ResourceType[],
@@ -301,6 +302,8 @@ export type ContextElement =
 			type: 'diff'
 			content: string
 			title: string
+			diff: Change[]
+			lang: ScriptLang | 'bunnative'
 	  }
 
 export async function prepareUserMessage(
@@ -328,8 +331,8 @@ export async function prepareUserMessage(
 				context.schema?.stringified ?? 'to fetch with get_db_schema'
 			)
 		} else if (context.type === 'diff') {
-			diffContext =
-				context.content.length > 3000 ? context.content.slice(0, 3000) + '...' : context.content
+			const diff = JSON.stringify(context.diff)
+			diffContext = diff.length > 3000 ? diff.slice(0, 3000) + '...' : diff
 		}
 	}
 
