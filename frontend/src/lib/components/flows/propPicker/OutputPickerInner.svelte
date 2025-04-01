@@ -82,7 +82,6 @@
 	function checkOverflow() {
 		if (contentEl) {
 			hasOverflow = contentEl.scrollHeight > contentEl.clientHeight
-			console.log('dbg hasOverflow', hasOverflow)
 		}
 	}
 
