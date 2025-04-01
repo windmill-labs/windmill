@@ -5,6 +5,9 @@ CREATE TYPE DELIVERY_MODE AS ENUM ('push', 'pull');
 
 CREATE TABLE gcp_trigger (
     gcp_resource_path     VARCHAR(255) NOT NULL,
+    topic_id              VARCHAR(255) NOT NULL CHECK (
+                              CHAR_LENGTH(topic_id) BETWEEN 3 AND 255
+                           ),
     subscription_id       VARCHAR(255) NOT NULL CHECK (
                               CHAR_LENGTH(subscription_id) BETWEEN 3 AND 255
                            ),

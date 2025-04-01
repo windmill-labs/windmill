@@ -4,7 +4,7 @@
 	import DrawerContent from '$lib/components/common/drawer/DrawerContent.svelte'
 	import Path from '$lib/components/Path.svelte'
 	import { usedTriggerKinds, userStore, workspaceStore } from '$lib/stores'
-	import { canWrite, emptyString, emptyStringTrimmed, sendUserToast } from '$lib/utils'
+	import { canWrite, emptyString, sendUserToast } from '$lib/utils'
 	import { createEventDispatcher } from 'svelte'
 	import { Loader2, Save } from 'lucide-svelte'
 	import Label from '$lib/components/Label.svelte'
@@ -16,6 +16,7 @@
 	import GcpTriggerEditorConfigSection from './GcpTriggerEditorConfigSection.svelte'
 	import { base } from '$app/paths'
 
+	let is_loading = false
 	let drawer: Drawer
 	let is_flow: boolean = false
 	let initialPath = ''
@@ -31,6 +32,7 @@
 	let dirtyPath = false
 	let can_write = true
 	let drawerLoading = true
+	let topic_id: string = ''
 	let gcp_resource_path: string = ''
 	let subscription_id: string = ''
 	let isValid = false
@@ -69,10 +71,10 @@
 			fixedScriptPath = fixedScriptPath_ ?? ''
 			script_path = fixedScriptPath
 			gcp_resource_path = defaultValues?.gcp_resource_path ?? ''
-			gcp_resource_path = gcp_resource_path.replace('?windmill_capture=true', '')
 			delivery_type = defaultValues?.gcp_resource_path ?? 'pull'
 			delivery_config = defaultValues?.delivery_config ?? undefined
 			subscription_id = defaultValues?.subscription_id ?? ''
+			topic_id = defaultValues?.topic_id
 			path = ''
 			initialPath = ''
 			edit = false
@@ -96,6 +98,7 @@
 			is_flow = s.is_flow
 			path = s.path
 			enabled = s.enabled
+			topic_id = s.topic_id
 			can_write = canWrite(s.path, s.extra_perms, $userStore)
 		} catch (error) {
 			sendUserToast(`Could not load GCP trigger: ${error.body}`, true)
@@ -103,55 +106,61 @@
 	}
 
 	async function updateTrigger(): Promise<void> {
-		if (delivery_type === 'push') {
-			if (!delivery_config) {
-				sendUserToast('Must set route path when delivery type is push', true)
-				return
-			}
-			if (emptyStringTrimmed(delivery_config.audience)) {
-				delivery_config.audience = `${location.origin}${base}/api/gc`
-			}
-		} else {
-			delivery_config = undefined
-		}
-		if (edit) {
-			await GcpTriggerService.updateGcpTrigger({
-				workspace: $workspaceStore!,
-				path: initialPath,
-				requestBody: {
-					delivery_config,
-					delivery_type,
-					gcp_resource_path,
-					subscription_id,
-					path,
-					script_path,
-					enabled,
-					is_flow
+		try {
+			is_loading = true
+			if (delivery_type === 'push') {
+				if (!delivery_config) {
+					sendUserToast('Must set route path when delivery type is push', true)
+					return
 				}
-			})
-			sendUserToast(`GCP trigger ${path} updated`)
-		} else {
-			await GcpTriggerService.createGcpTrigger({
-				workspace: $workspaceStore!,
-				requestBody: {
-					delivery_config,
-					delivery_type,
-					gcp_resource_path,
-					subscription_id,
-					path,
-					script_path,
-					enabled: true,
-					is_flow
-				}
-			})
-			sendUserToast(`GCP trigger ${path} created`)
-		}
+				delivery_config.base_endpoint = `${window.location.origin}${base}`
+			} else {
+				delivery_config = undefined
+			}
+			if (edit) {
+				await GcpTriggerService.updateGcpTrigger({
+					workspace: $workspaceStore!,
+					path: initialPath,
+					requestBody: {
+						delivery_config,
+						delivery_type,
+						gcp_resource_path,
+						subscription_id,
+						topic_id,
+						path,
+						script_path,
+						enabled,
+						is_flow
+					}
+				})
+				sendUserToast(`GCP trigger ${path} updated`)
+			} else {
+				await GcpTriggerService.createGcpTrigger({
+					workspace: $workspaceStore!,
+					requestBody: {
+						delivery_config,
+						delivery_type,
+						gcp_resource_path,
+						topic_id,
+						path,
+						script_path,
+						enabled: true,
+						is_flow
+					}
+				})
+				sendUserToast(`GCP trigger ${path} created`)
+			}
 
-		if (!$usedTriggerKinds.includes('gcp')) {
-			$usedTriggerKinds = [...$usedTriggerKinds, 'gcp']
+			if (!$usedTriggerKinds.includes('gcp')) {
+				$usedTriggerKinds = [...$usedTriggerKinds, 'gcp']
+			}
+			dispatch('update')
+			drawer.closeDrawer()
+			is_loading = false
+		} catch (error) {
+			is_loading = false
+			sendUserToast(error.body, true)
 		}
-		dispatch('update')
-		drawer.closeDrawer()
 	}
 </script>
 
@@ -182,6 +191,7 @@
 					startIcon={{ icon: Save }}
 					disabled={pathError != '' || emptyString(script_path) || !isValid || !can_write}
 					on:click={updateTrigger}
+					loading={is_loading}
 				>
 					Save
 				</Button>
@@ -250,6 +260,7 @@
 					bind:subscription_id
 					bind:delivery_type
 					bind:delivery_config
+					bind:topic_id
 					{can_write}
 					headless={true}
 				/>

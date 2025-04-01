@@ -13849,6 +13849,7 @@ dependencies = [
  "datafusion",
  "futures",
  "git-version",
+ "google-cloud-googleapis",
  "google-cloud-pubsub",
  "half",
  "hex",

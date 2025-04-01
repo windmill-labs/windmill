@@ -9245,6 +9245,25 @@ paths:
               schema:
                 $ref: "#/components/schemas/GcpTrigger"
 
+  /w/{workspace}/gcp_triggers/list/topics/{path}:
+    get:
+      summary: list all topics of google cloud service
+      operationId: listGoogleTopics
+      tags:
+        - gcp_trigger
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+      responses:
+        "200":
+          description: get all google topics
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: string
+
   /w/{workspace}/gcp_triggers/list:
     get:
       summary: list gcp triggers
@@ -14556,9 +14575,13 @@ components:
           type: string
         audience:
           type: string
+        authenticate:
+          type: bool
+        base_endpoint:
+          type: string
       required:
-        - route_path
-        - audience
+        - authenticate
+        - base_endpoint
 
     GcpTrigger:
       allOf:
@@ -14566,6 +14589,8 @@ components:
       type: object
       properties:
         gcp_resource_path:
+          type: string
+        topic_id:
           type: string
         subscription_id:
           type: string
@@ -14582,19 +14607,19 @@ components:
           type: string
         enabled:
           type: boolean
-
       required:
-        - enabled
         - gcp_resource_path
+        - topic_id
         - subscription_id
+        - enabled
         - delivery_type
-
+  
     NewGcpTrigger:
       type: object
       properties:
         gcp_resource_path:
           type: string
-        subscription_id:
+        topic_id:
           type: string
         delivery_type:
           $ref: "#/components/schemas/DeliveryType"
@@ -14613,13 +14638,15 @@ components:
         - script_path
         - is_flow
         - gcp_resource_path
-        - subscription_id
         - delivery_type
+        - topic_id
 
     EditGcpTrigger:
       type: object
       properties:
         gcp_resource_path:
+          type: string
+        topic_id:
           type: string
         subscription_id:
           type: string
@@ -14643,6 +14670,7 @@ components:
         - mqtt_resource_path
         - subscription_id
         - delivery_type
+        - topic_id
     
     SqsTrigger:
       allOf:

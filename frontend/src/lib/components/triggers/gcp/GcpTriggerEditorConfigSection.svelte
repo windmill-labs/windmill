@@ -4,18 +4,21 @@
 	import CaptureTable from '../CaptureTable.svelte'
 	import Required from '$lib/components/Required.svelte'
 	import ResourcePicker from '$lib/components/ResourcePicker.svelte'
-	import { emptyStringTrimmed } from '$lib/utils'
+	import { emptyString, emptyStringTrimmed } from '$lib/utils'
 	import TestTriggerConnection from '../TestTriggerConnection.svelte'
 	import Subsection from '$lib/components/Subsection.svelte'
-	import type { DeliveryType, PushConfig } from '$lib/gen'
+	import { GcpTriggerService, type DeliveryType, type PushConfig } from '$lib/gen'
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
-	import { getHttpRoute } from '../http/utils'
-	import { workspaceStore } from '$lib/stores'
-	import { Badge } from '$lib/components/common'
 	import Label from '$lib/components/Label.svelte'
 	import ClipboardPanel from '$lib/components/details/ClipboardPanel.svelte'
 	import { base } from '$lib/base'
+	import Toggle from '$lib/components/Toggle.svelte'
+	import { SELECT_INPUT_DEFAULT_STYLE } from '$lib/defaults'
+	import DarkModeObserver from '$lib/components/DarkModeObserver.svelte'
+	import Select from '$lib/components/apps/svelte-select/lib/Select.svelte'
+	import { workspaceStore } from '$lib/stores'
+	import { DEFAULT_PUSH_CONFIG } from './utils'
 
 	export let can_write: boolean = false
 	export let headless: boolean = false
@@ -25,37 +28,32 @@
 	export let isValid: boolean = false
 	export let gcp_resource_path = ''
 	export let subscription_id = ''
+	export let topic_id = ''
 	export let delivery_type: DeliveryType | undefined
 	export let delivery_config: PushConfig | undefined
+	let items: (string | undefined)[] = []
+	let darkMode = false
 
-	function isDeliveryTypeValid(
-		delivery_type: DeliveryType | undefined,
-		delivery_config: PushConfig | undefined
-	) {
-		if (!delivery_type) {
-			return false
-		}
-		if (delivery_type === 'push' && emptyStringTrimmed(delivery_config?.route_path)) {
-			return false
-		}
-		return true
+	async function loadAllPubSubTopicsFromProject() {
+		items = await GcpTriggerService.listGoogleTopics({
+			workspace: $workspaceStore!,
+			path: gcp_resource_path
+		})
 	}
 
-	let cached: PushConfig | undefined
-
-	$: isValid =
-		!emptyStringTrimmed(gcp_resource_path) &&
-		!emptyStringTrimmed(subscription_id) &&
-		isDeliveryTypeValid(delivery_type, delivery_config)
-	$: fullRoute = getHttpRoute(delivery_config?.route_path, false, $workspaceStore ?? '', 'gcp/push')
+	$: gcp_resource_path && loadAllPubSubTopicsFromProject()
+	$: isValid = !emptyStringTrimmed(gcp_resource_path) && !emptyStringTrimmed(topic_id)
 	$: !delivery_type && (delivery_type = 'pull')
+	$: !delivery_config && (delivery_config = DEFAULT_PUSH_CONFIG)
 </script>
+
+<DarkModeObserver bind:darkMode />
 
 <div>
 	{#if showCapture && captureInfo}
-		{@const captureURL = `${location.origin}${base}/api/gcp/push/${
-			delivery_config?.route_path ?? ''
-		}?windmill_capture=true`}
+		{@const captureURL = `${location.origin}${base}/api/w/${$workspaceStore}/capture_u/gcp/${
+			captureInfo.isFlow ? 'flow' : 'script'
+		}/${captureInfo.path.replaceAll('/', '.')}/${delivery_config?.route_path ?? ''}`}
 		<CaptureSection
 			captureType="gcp"
 			disabled={!isValid}
@@ -80,12 +78,9 @@
 				<div class="flex flex-col gap-3">
 					<div class="flex flex-col gap-1">
 						<p class="text-xs mb-1 text-tertiary">
-							Select a gcp resource. <Required required={true} />
+							Select a gcp resource.<Required required={true} />
 						</p>
-						<ResourcePicker
-							resourceType="google_cloud_auth_service_account"
-							bind:value={gcp_resource_path}
-						/>
+						<ResourcePicker resourceType="gcloud" bind:value={gcp_resource_path} />
 						{#if isValid}
 							<TestTriggerConnection kind="gcp" args={{ gcp_resource_path, subscription_id }} />
 						{/if}
@@ -94,97 +89,84 @@
 			</Subsection>
 			<div class="flex flex-col gap-1">
 				<p class="text-xs mb-1 text-tertiary">
-					Enter the ID of an existing Pub/Sub subscription to connect with. This form does not
-					create a new subscription. <Required required={true} />
+					Enter the ID of an existing Pub/Sub topic you'd like to connect to.<Required
+						required={true}
+					/>
 				</p>
-				<input
-					type="text"
-					autocomplete="off"
-					placeholder="susbcription_id"
-					bind:value={subscription_id}
-					disabled={!can_write}
+				<Select
+					class="grow shrink max-w-full"
+					bind:justValue={topic_id}
+					value={topic_id}
+					{items}
+					placeholder="Choose a topic"
+					inputStyles={SELECT_INPUT_DEFAULT_STYLE.inputStyles}
+					containerStyles={darkMode
+						? SELECT_INPUT_DEFAULT_STYLE.containerStylesDark
+						: SELECT_INPUT_DEFAULT_STYLE.containerStyles}
+					portal={false}
 				/>
 			</div>
-			{#if !emptyStringTrimmed(subscription_id)}
-				<div class="flex flex-col gap-2">
-					<Subsection label="Delivery type">
-						<div class="flex flex-col">
-							<p class="text-xs mb-1 text-tertiary">
-								Select the delivery type that matches the configuration of the existing Pub/Sub
-								subscription id you entered above. <Required required={true} />
-							</p>
-							<ToggleButtonGroup
-								on:selected={(e) => {
-									if (e.detail === 'pull' && delivery_config) {
-										cached = delivery_config
-										delivery_config = undefined
-									} else {
-										delivery_config = cached ?? { route_path: '', audience: '' }
-									}
-								}}
-								bind:selected={delivery_type}
-								let:item
-							>
-								<ToggleButton
-									label="Pull"
-									tooltip="Connect to an existing Pub/Sub subscription using the pull delivery type, where your service polls for messages."
-									value="pull"
-									showTooltipIcon
-									{item}
+			{#if !emptyString(subscription_id)}
+				<div class="flex flex-col gap-1">
+					<p class="text-xs mb-1 text-tertiary"> The ID of the current subscription. </p>
+					<input
+						type="text"
+						autocomplete="off"
+						placeholder="subscription_id"
+						bind:value={subscription_id}
+						disabled={true}
+					/>
+				</div>
+			{/if}
+			<div class="flex flex-col gap-2">
+				<Subsection label="Delivery type">
+					<div class="flex flex-col gap-2">
+						<p class="text-xs mb-1 text-tertiary">
+							Select the delivery type for the Pub/Sub subscription you are creating. This
+							determines how messages will be delivered to your service. For <strong>Push</strong>,
+							Windmill will automatically generate and manage the endpoint.<Required
+								required={true}
+							/>
+						</p>
+						<ToggleButtonGroup bind:selected={delivery_type} let:item>
+							<ToggleButton
+								label="Pull"
+								tooltip="Create a subscription where your service will pull messages from the queue. Suitable for services that periodically check for new messages."
+								value="pull"
+								showTooltipIcon
+								{item}
+							/>
+							<ToggleButton
+								label="Push"
+								tooltip="Windmill will auto-generate a push endpoint for this subscription. You must not modify this endpoint in Google Cloud, as it is managed internally by Windmill."
+								showTooltipIcon
+								value="push"
+								{item}
+							/>
+						</ToggleButtonGroup>
+					</div>
+				</Subsection>
+				{#if delivery_type === 'push' && delivery_config}
+					{#if delivery_config.route_path}
+						<Subsection label="URL">
+							<div class="flex flex-col">
+								<p class="text-xs mb-1 text-tertiary">
+									The URL of the service that receives push messages.<Required required={true} />
+								</p>
+								<input
+									type="text"
+									autocomplete="off"
+									placeholder="URL"
+									disabled
+									value={`${window.location.origin}${base}/${delivery_config.route_path ?? ''}`}
 								/>
-								<ToggleButton
-									label="Push"
-									tooltip="Connect to an existing Pub/Sub subscription using the push delivery type, where Pub/Sub sends messages to a choosen endpoint."
-									showTooltipIcon
-									value="push"
-									{item}
-								/>
-							</ToggleButtonGroup>
-						</div>
-					</Subsection>
-					{#if delivery_type === 'push' && delivery_config}
-						<Subsection label="Route path">
-							<div class="flex flex-col w-full gap-3">
-								<div class="flex flex-col">
-									<p class="text-xs mb-1 text-tertiary">
-										Enter the relative route path that matches the push endpoint configured for the
-										existing Pub/Sub subscription. This is where Pub/Sub will send messages. <Required
-											required={true}
-										/>
-									</p>
-									<input
-										type="text"
-										autocomplete="off"
-										placeholder="route_path"
-										bind:value={delivery_config.route_path}
-										disabled={!can_write}
-									/>
-								</div>
-								<div class="flex justify-start w-full">
-									<Badge
-										color="gray"
-										class="center-center !bg-surface-secondary !text-tertiary !w-[90px] !h-[24px] rounded-r-none border"
-									>
-										Full endpoint
-									</Badge>
-									<input
-										type="text"
-										readonly
-										value={fullRoute}
-										size={fullRoute.length || 50}
-										class="font-mono !text-xs max-w-[calc(100%-70px)] !w-auto !h-[24px] !py-0 !border-l-0 !rounded-l-none"
-										on:focus={({ currentTarget }) => {
-											currentTarget.select()
-										}}
-									/>
-								</div>
 							</div>
 						</Subsection>
 						<Subsection label="Audience">
 							<p class="text-xs mb-2 text-tertiary">
 								Provide the expected audience value for verifying OIDC tokens in push requests. If
-								left empty, the full URL of the endpoint will be used as the default audience: <code
-									>{fullRoute}</code
+								left empty, the URL of the endpoint will be used as the default audience: <code
+									>{`${window.location.origin}${base}/${delivery_config.route_path ?? ''}`}</code
 								>.
 							</p>
 							<input
@@ -196,8 +178,16 @@
 							/>
 						</Subsection>
 					{/if}
-				</div>
-			{/if}
+					<Subsection label="Authenticate">
+						<p class="text-xs mb-2 text-tertiary">
+							Enable Google Cloud authentication for push delivery using a verified token.<Required
+								required={true}
+							/>
+						</p>
+						<Toggle bind:checked={delivery_config.authenticate} />
+					</Subsection>
+				{/if}
+			</div>
 		</div>
 	</Section>
 </div>

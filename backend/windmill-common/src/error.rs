@@ -22,6 +22,8 @@ pub type JsonResult<T> = std::result::Result<Json<T>, Error>;
 
 #[derive(Debug, Error)]
 pub enum Error {
+    #[error("Bad gateway: {0}")]
+    BadGateway(String),
     #[error("Bad config: {0}")]
     BadConfig(String),
     #[error("Connecting to database: {0}")]
@@ -184,6 +186,7 @@ impl IntoResponse for Error {
             | Self::BadRequest(_)
             | Self::AiError(_)
             | Self::QuotaExceeded(_) => axum::http::StatusCode::BAD_REQUEST,
+            Self::BadGateway(_) => axum::http::StatusCode::BAD_GATEWAY,
             _ => axum::http::StatusCode::INTERNAL_SERVER_ERROR,
         };
 

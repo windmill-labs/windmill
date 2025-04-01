@@ -100,6 +100,7 @@
 			bind:subscription_id={args.subscription_id}
 			bind:delivery_config={args.delivery_config}
 			bind:delivery_type={args.delivery_type}
+			bind:topic_id={args.topic_id}
 			headless={true}
 			can_write={true}
 			showCapture={false}

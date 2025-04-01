@@ -625,7 +625,7 @@ pub async fn run_server(
                     .layer(from_extractor::<OptAuthed>()),
                 )
                 .nest(
-                    "/gcp/push",
+                    "/gcp/w/:workspace_id",
                     {
                         #[cfg(feature = "gcp_trigger")]
                         {

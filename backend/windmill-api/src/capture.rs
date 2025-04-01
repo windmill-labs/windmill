@@ -8,57 +8,67 @@
 
 #[cfg(feature = "http_trigger")]
 use crate::http_triggers::{build_http_trigger_extra, HttpMethod};
+
+#[cfg(all(feature = "enterprise", feature = "gcp_trigger"))]
+use crate::gcp_triggers_ee::Config;
+
+#[cfg(any(
+    feature = "http_trigger",
+    all(feature = "enterprise", feature = "gcp_trigger")
+))]
+use {
+    axum::extract::Request, axum::response::Response, http::HeaderMap, serde::de::DeserializeOwned,
+    std::collections::HashMap, windmill_common::error::Error,
+};
+
 #[cfg(all(feature = "enterprise", feature = "kafka"))]
 use crate::kafka_triggers_ee::KafkaTriggerConfigConnection;
+
 #[cfg(feature = "mqtt_trigger")]
 use crate::mqtt_triggers::{MqttClientVersion, MqttV3Config, MqttV5Config, SubscribeTopic};
+
 #[cfg(all(feature = "enterprise", feature = "nats"))]
 use crate::nats_triggers_ee::NatsTriggerConfigConnection;
+
 #[cfg(feature = "postgres_trigger")]
-use crate::postgres_triggers::{
-    create_logical_replication_slot_query, create_publication_query, drop_publication_query,
-    generate_random_string, get_database_connection, PublicationData,
+use {
+    crate::postgres_triggers::{
+        create_logical_replication_slot_query, create_publication_query, drop_publication_query,
+        generate_random_string, get_database_connection, PublicationData,
+    },
+    itertools::Itertools,
+    pg_escape::quote_literal,
 };
-#[cfg(feature = "http_trigger")]
-use http::HeaderMap;
-#[cfg(feature = "postgres_trigger")]
-use itertools::Itertools;
-#[cfg(feature = "postgres_trigger")]
-use pg_escape::quote_literal;
-#[cfg(feature = "http_trigger")]
-use serde::de::DeserializeOwned;
-#[cfg(feature = "http_trigger")]
-use std::collections::HashMap;
-#[cfg(feature = "http_trigger")]
-use windmill_common::error::Error;
 
 use crate::{
     args::WebhookArgs,
     db::{ApiAuthed, DB},
-    gcp_triggers_ee::{DeliveryType, PushConfig},
     users::fetch_api_authed,
     utils::RunnableKind,
 };
+
 use axum::{
     extract::{Extension, Path, Query},
     routing::{delete, get, head, post},
     Json, Router,
 };
+
 use hyper::StatusCode;
 use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
 use sqlx::types::Json as SqlxJson;
+
 use windmill_common::{
     db::UserDB,
     error::{JsonResult, Result},
     utils::{not_found_if_none, paginate, Pagination, StripPath},
     worker::{to_raw_value, CLOUD_HOSTED},
 };
-use windmill_queue::TriggerKind;
-use windmill_queue::{PushArgs, PushArgsOwned};
+
+use windmill_queue::{PushArgs, PushArgsOwned, TriggerKind};
 
 const KEEP_LAST: i64 = 20;
-pub const WINDMILL_CAPTURE_QUERY_ARGS: &'static str = "windmill_capture";
+
 pub fn workspaced_service() -> Router {
     Router::new()
         .route("/set_config", post(set_config))
@@ -82,14 +92,20 @@ pub fn workspaced_unauthed_service() -> Router {
         head(|| async {}).post(webhook_payload),
     );
 
-    #[cfg(feature = "http_trigger")]
+    #[cfg(any(
+        feature = "http_trigger",
+        all(feature = "enterprise", feature = "gcp_trigger")
+    ))]
     {
-        router.route("/http/:runnable_kind/:path/*route_path", {
-            head(|| async {}).fallback(http_payload)
+        router.route("/:trigger_kind/:runnable_kind/:path/*route_path", {
+            head(|| async {}).fallback(trigger_capture_payload)
         })
     }
 
-    #[cfg(not(feature = "http_trigger"))]
+    #[cfg(not(any(
+        feature = "http_trigger",
+        all(feature = "enterprise", feature = "gcp_trigger")
+    )))]
     {
         router
     }
@@ -123,10 +139,8 @@ pub struct SqsTriggerConfig {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct GcpTriggerConfig {
     pub gcp_resource_path: String,
-    pub subscription_id: String,
-    pub delivery_type: DeliveryType,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub delivery_config: Option<PushConfig>,
+    #[serde(flatten)]
+    pub config: Config,
 }
 
 #[cfg(all(feature = "enterprise", feature = "nats"))]
@@ -187,7 +201,7 @@ enum TriggerConfig {
     #[cfg(feature = "mqtt_trigger")]
     Mqtt(MqttTriggerConfig),
     #[cfg(all(feature = "enterprise", feature = "gcp_trigger"))]
-    Gcp(GcpTriggerConfig)
+    Gcp(GcpTriggerConfig),
 }
 
 #[derive(Serialize, Deserialize)]
@@ -291,18 +305,74 @@ async fn set_postgres_trigger_config(
     Ok(capture_config)
 }
 
+#[cfg(not(feature = "postgres_trigger"))]
+async fn set_postgres_trigger_config(
+    _w_id: &str,
+    _authed: ApiAuthed,
+    _db: &DB,
+    _user_db: UserDB,
+    capture_config: NewCaptureConfig,
+) -> Result<NewCaptureConfig> {
+    Ok(capture_config)
+}
+
+#[cfg(all(feature = "enterprise", feature = "gcp_trigger"))]
+async fn set_gcp_trigger_config(
+    w_id: &str,
+    authed: ApiAuthed,
+    db: &DB,
+    mut capture_config: NewCaptureConfig,
+) -> Result<NewCaptureConfig> {
+    use crate::gcp_triggers_ee::manage_google_subscription;
+
+    let Some(TriggerConfig::Gcp(mut gcp_config)) = capture_config.trigger_config else {
+        return Err(windmill_common::error::Error::BadRequest(
+            "Invalid gcp config".to_string(),
+        ));
+    };
+
+    manage_google_subscription(
+        authed,
+        db,
+        w_id,
+        &gcp_config.gcp_resource_path,
+        &mut gcp_config.config,
+    )
+    .await?;
+
+    capture_config.trigger_config = Some(TriggerConfig::Gcp(gcp_config));
+
+    Ok(capture_config)
+}
+
+#[inline]
+#[cfg(not(all(feature = "enterprise", feature = "gcp_trigger")))]
+async fn set_gcp_trigger_config(
+    _w_id: &str,
+    _authed: ApiAuthed,
+    _db: &DB,
+    capture_config: NewCaptureConfig,
+) -> Result<NewCaptureConig> {
+    Ok(capture_config)
+}
+
 async fn set_config(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
-    #[cfg(feature = "postgres_trigger")] Extension(db): Extension<DB>,
+    #[cfg(any(
+        feature = "postgres_trigger",
+        all(feature = "enterprise", feature = "gcp_trigger")
+    ))]
+    Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
     Json(nc): Json<NewCaptureConfig>,
 ) -> Result<()> {
-    #[cfg(feature = "postgres_trigger")]
-    let nc = if let TriggerKind::Postgres = nc.trigger_kind {
-        set_postgres_trigger_config(&w_id, authed.clone(), &db, user_db.clone(), nc).await?
-    } else {
-        nc
+    let nc = match nc.trigger_kind {
+        TriggerKind::Postgres => {
+            set_postgres_trigger_config(&w_id, authed.clone(), &db, user_db.clone(), nc).await?
+        }
+        TriggerKind::Gcp => set_gcp_trigger_config(&w_id, authed.clone(), &db, nc).await?,
+        _ => nc,
     };
 
     let mut tx = user_db.begin(&authed).await?;
@@ -505,7 +575,10 @@ pub async fn get_active_capture_owner_and_email(
     Ok((capture_config.owner, capture_config.email))
 }
 
-#[cfg(feature = "http_trigger")]
+#[cfg(any(
+    feature = "http_trigger",
+    all(feature = "enterprise", feature = "gcp_trigger")
+))]
 async fn get_capture_trigger_config_and_owner<T: DeserializeOwned>(
     db: &DB,
     w_id: &str,
@@ -649,16 +722,22 @@ async fn webhook_payload(
     Ok(StatusCode::NO_CONTENT)
 }
 
+async fn gcp_payload() -> Result<()> {
+    todo!()
+}
+
 #[cfg(feature = "http_trigger")]
 async fn http_payload(
-    Extension(db): Extension<DB>,
-    Path((w_id, kind, path, route_path)): Path<(String, RunnableKind, String, StripPath)>,
-    Query(query): Query<HashMap<String, String>>,
-    method: http::Method,
-    headers: HeaderMap,
+    db: &DB,
     args: WebhookArgs,
-) -> Result<StatusCode> {
-    let route_path = route_path.to_path();
+    route_path: &str,
+    w_id: String,
+    kind: RunnableKind,
+    method: http::Method,
+    query: HashMap<String, String>,
+    headers: HeaderMap,
+    path: String,
+) -> Result<()> {
     let path = path.replace(".", "/");
 
     let (http_trigger_config, owner, email): (HttpTriggerConfig, _, _) =
@@ -711,6 +790,51 @@ async fn http_payload(
         &owner,
     )
     .await?;
+
+    Ok(())
+}
+
+#[cfg(any(
+    feature = "http_trigger",
+    all(feature = "enterprise", feature = "gcp_trigger")
+))]
+async fn trigger_capture_payload(
+    Extension(db): Extension<DB>,
+    Path((trigger_kind, w_id, kind, path, route_path)): Path<(
+        TriggerKind,
+        String,
+        RunnableKind,
+        String,
+        StripPath,
+    )>,
+    Query(query): Query<HashMap<String, String>>,
+    method: http::Method,
+    headers: HeaderMap,
+    request: Request,
+) -> std::result::Result<StatusCode, Response> {
+    use axum::response::IntoResponse;
+
+    use crate::args::try_from_request_body;
+
+    let route_path = route_path.to_path();
+    match trigger_kind {
+        TriggerKind::Http => {
+            #[cfg(feature = "http_trigger")]
+            {
+                let args = try_from_request_body(request, &(), None, None).await?;
+                http_payload(
+                    &db, args, route_path, w_id, kind, method, query, headers, path,
+                )
+                .await
+                .map_err(|e| e.into_response())?;
+            }
+        }
+        TriggerKind::Gcp => {
+            #[cfg(all(feature = "enterprise", feature = "gcp_trigger"))]
+            gcp_payload().await.map_err(|e| e.into_response())?;
+        }
+        _ => {}
+    }
 
     Ok(StatusCode::NO_CONTENT)
 }
