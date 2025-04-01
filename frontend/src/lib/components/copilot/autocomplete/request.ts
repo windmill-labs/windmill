@@ -82,8 +82,6 @@ export async function autocompleteRequest(
 		.replace('{language}', context.language)
 		.replace('{events}', context.events.join('\n\n'))
 
-	console.log('userPrompt', userPrompt)
-
 	const info = get(copilotInfo)
 
 	const providerModel = info.codeCompletionModel
