@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { createTooltip, melt } from '@melt-ui/svelte'
+	import { createTooltip } from '@melt-ui/svelte'
 	import type { Placement } from '@floating-ui/core'
 
 	export let floatingConfig: any | undefined = undefined
@@ -24,6 +24,5 @@
 </script>
 
 <!-- svelte-ignore a11y-no-static-element-interactions -->
-<div use:melt={$trigger} {...$$restProps} on:mouseenter on:mouseleave>
-	<slot open={$open} content={$content} arrow={$arrow} />
-</div>
+
+<slot open={$open} content={$content} arrow={$arrow} trigger={$trigger} />
