@@ -16,7 +16,6 @@
 		closeOnPointerDown: false,
 		forceVisible: true,
 		onOpenChange: ({ curr, next }) => {
-			console.log('dbg openChange', curr, next)
 			if (next && disablePopup) {
 				return curr
 			}
