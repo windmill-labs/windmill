@@ -2,6 +2,8 @@ import { codeCompletionLoading, copilotInfo } from '$lib/stores'
 import { get } from 'svelte/store'
 
 import { getNonStreamingCompletion } from '../lib'
+import { getLangContext } from '../chat/core'
+import { type ScriptLang } from '$lib/gen/types.gen'
 
 const AUTOCOMPLETE_SYSTEM_PROMPT = `You're a code assistant. Your task is to help the user write code by suggesting the next edit for the user.
 
@@ -31,6 +33,9 @@ Follow the following criteria.
 - Never remove line breaks inside the <EDITABLE_CODE> section.`
 
 const AUTOCOMPLETE_USER_PROMPT = `
+WINDMILL LANGUAGE CONTEXT:
+{lang_context}
+
 <CODE>
 {prefix}<EDITABLE_CODE>
 {modifiablePrefix}<CURSOR>{modifiableSuffix}
@@ -59,18 +64,24 @@ export async function autocompleteRequest(
 		modifiableSuffix: string
 		suffix: string
 		language: string
+		scriptLang: ScriptLang | 'bunnative'
 		events: string[]
 	},
 	abortController: AbortController
 ) {
+	console.log(context.scriptLang)
 	codeCompletionLoading.set(true)
 	const systemPrompt = AUTOCOMPLETE_SYSTEM_PROMPT
-	const userPrompt = AUTOCOMPLETE_USER_PROMPT.replace('{prefix}', context.prefix)
+	const userPrompt = AUTOCOMPLETE_USER_PROMPT
+		.replace('{lang_context}', getLangContext(context.scriptLang))
+		.replace('{prefix}', context.prefix)
 		.replace('{modifiablePrefix}', context.modifiablePrefix)
 		.replace('{modifiableSuffix}', context.modifiableSuffix)
 		.replace('{suffix}', context.suffix)
 		.replace('{language}', context.language)
 		.replace('{events}', context.events.join('\n\n'))
+
+	console.log('userPrompt', userPrompt)
 
 	const info = get(copilotInfo)
 

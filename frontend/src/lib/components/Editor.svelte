@@ -629,7 +629,10 @@
 			if (completorDisposable) {
 				completorDisposable.dispose()
 			}
-			autocompletor = new Autocompletor(editor, lang)
+			if (!scriptLang) {
+				throw new Error('No script lang')
+			}
+			autocompletor = new Autocompletor(editor, lang, scriptLang)
 
 			// last user events (currently disabled):
 			// let lastTs = Date.now()
@@ -684,6 +687,7 @@
 		$codeCompletionSessionEnabled &&
 		initialized &&
 		editor &&
+		scriptLang &&
 		addSuperCompletor(editor)
 
 	$: $copilotInfo.enabled && initialized && editor && addChatHandler(editor)

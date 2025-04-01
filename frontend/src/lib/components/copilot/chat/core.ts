@@ -94,7 +94,7 @@ export const SUPPORTED_CHAT_SCRIPT_LANGUAGES = [
 	'powershell'
 ]
 
-function getLangContext(lang: ScriptLang | 'bunnative') {
+export function getLangContext(lang: ScriptLang | 'bunnative') {
 	switch (lang) {
 		case 'bunnative':
 		case 'nativets':
@@ -276,21 +276,21 @@ export const ContextIconMap = {
 
 export type ContextElement =
 	| {
-			type: 'code'
-			content: string
-			title: string
-			lang: ScriptLang | 'bunnative'
-	  }
+		type: 'code'
+		content: string
+		title: string
+		lang: ScriptLang | 'bunnative'
+	}
 	| {
-			type: 'error'
-			content: string
-			title: 'error'
-	  }
+		type: 'error'
+		content: string
+		title: 'error'
+	}
 	| {
-			type: 'db'
-			schema?: DBSchema
-			title: string
-	  }
+		type: 'db'
+		schema?: DBSchema
+		title: string
+	}
 
 export async function prepareUserMessage(
 	instructions: string,
