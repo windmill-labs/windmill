@@ -624,17 +624,20 @@ async fn create_script_internal<'c>(
         .unwrap_or(json!({}));
     let lock = if ns.codebase.is_some() {
         Some(String::new())
-    } else if !(ns.language == ScriptLang::Python3
-        || ns.language == ScriptLang::Go
-        || ns.language == ScriptLang::Bun
-        || ns.language == ScriptLang::Bunnative
-        || ns.language == ScriptLang::Deno
-        || ns.language == ScriptLang::Rust
-        || ns.language == ScriptLang::Ansible
-        || ns.language == ScriptLang::CSharp
-        || ns.language == ScriptLang::Nu
-        || ns.language == ScriptLang::Php)
-    {
+    } else if !(
+        ns.language == ScriptLang::Python3
+            || ns.language == ScriptLang::Go
+            || ns.language == ScriptLang::Bun
+            || ns.language == ScriptLang::Bunnative
+            || ns.language == ScriptLang::Deno
+            || ns.language == ScriptLang::Rust
+            || ns.language == ScriptLang::Ansible
+            || ns.language == ScriptLang::CSharp
+            || ns.language == ScriptLang::Nu
+            || ns.language == ScriptLang::Php
+            || ns.language == ScriptLang::Java
+        // KJQXZ
+    ) {
         Some(String::new())
     } else {
         ns.lock

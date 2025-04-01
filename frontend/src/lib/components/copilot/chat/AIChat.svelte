@@ -1,5 +1,12 @@
 <script lang="ts">
-	import { copilotSessionModel, dbSchemas, type DBSchema, type DBSchemas } from '$lib/stores'
+	import {
+		copilotSessionModel,
+		dbSchemas,
+		type DBSchema,
+		type DBSchemas,
+		SQLSchemaLanguages,
+		workspaceStore
+	} from '$lib/stores'
 	import { writable, type Writable } from 'svelte/store'
 	import AIChatDisplay from './AIChatDisplay.svelte'
 	import {
@@ -8,15 +15,19 @@
 		prepareUserMessage,
 		type AIChatContext,
 		type ContextElement,
-		type DisplayMessage,
-		type SelectedContext
+		type DisplayMessage
 	} from './core'
 	import { createEventDispatcher, onDestroy, setContext } from 'svelte'
-	import type { AIProviderModel, ScriptLang } from '$lib/gen'
+	import {
+		type AIProviderModel,
+		type ListResourceResponse,
+		type ScriptLang,
+		ResourceService
+	} from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
 	import { openDB, type DBSchema as IDBSchema, type IDBPDatabase } from 'idb'
 	import { isInitialCode } from '$lib/script_helpers'
-	import { langToExt } from '$lib/editorUtils'
+	import { createLongHash, langToExt } from '$lib/editorUtils'
 	import { scriptLangToEditorLang } from '$lib/scripts'
 
 	export let lang: ScriptLang | 'bunnative'
@@ -25,36 +36,12 @@
 	export let args: Record<string, any>
 	export let path: string | undefined
 
-	$: contextCodePath =
-		(path?.split('/').pop() ?? 'script') + '.' + langToExt(scriptLangToEditorLang(lang))
+	$: contextCodePath = path
+		? (path.split('/').pop() ?? 'script') + '.' + langToExt(scriptLangToEditorLang(lang))
+		: undefined
 
 	let initializedWithInitCode: boolean | null = null
 	$: lang && (initializedWithInitCode = null)
-	function onCodeChange() {
-		if (initializedWithInitCode === null && code) {
-			if (isInitialCode(code)) {
-				initializedWithInitCode = true
-			} else {
-				initializedWithInitCode = false
-				selectedContext = [
-					{
-						type: 'code',
-						title: contextCodePath
-					}
-				]
-			}
-		} else if (initializedWithInitCode) {
-			// if the code was initial and was changed, add code context, then prevent it from being added again
-			selectedContext = [
-				{
-					type: 'code',
-					title: contextCodePath
-				}
-			]
-			initializedWithInitCode = false
-		}
-	}
-	$: code && onCodeChange()
 
 	let db: { schema: DBSchema; resource: string } | undefined = undefined
 
@@ -63,66 +50,157 @@
 		args: Record<string, any>,
 		dbSchemas: DBSchemas
 	) {
-		const schemaRes = lang === 'graphql' ? args.api : args.database
-		if (typeof schemaRes === 'string') {
-			const schemaPath = schemaRes.replace('$res:', '')
-			const schema = dbSchemas[schemaPath]
-			if (schema && schema.lang === lang) {
-				db = { schema, resource: schemaPath }
+		try {
+			const schemaRes = lang === 'graphql' ? args.api : args.database
+			if (typeof schemaRes === 'string') {
+				const schemaPath = schemaRes.replace('$res:', '')
+				const schema = dbSchemas[schemaPath]
+				if (schema && schema.lang === lang) {
+					db = { schema, resource: schemaPath }
+				} else {
+					db = undefined
+				}
 			} else {
 				db = undefined
 			}
-		} else {
-			db = undefined
+		} catch (err) {
+			console.error('Could not update schema', err)
 		}
 	}
 	$: updateSchema(lang, args, $dbSchemas)
 
-	let selectedContext: SelectedContext[] = []
+	let selectedContext: ContextElement[] = []
 
 	let availableContext: ContextElement[] = []
 
-	function updateAvailableContext(
-		contextCodePath: string,
+	let dbResources: ListResourceResponse = []
+
+	async function updateDBResources(workspace: string | undefined) {
+		if (workspace) {
+			dbResources = await ResourceService.listResource({
+				workspace: workspace,
+				resourceType: SQLSchemaLanguages.join(',')
+			})
+		}
+	}
+
+	async function updateAvailableContext(
+		contextCodePath: string | undefined,
 		code: string,
 		lang: ScriptLang | 'bunnative',
 		error: string | undefined,
 		db: { schema: DBSchema; resource: string } | undefined,
-		providerModel: AIProviderModel | undefined
+		providerModel: AIProviderModel | undefined,
+		dbSchemas: DBSchemas,
+		dbResources: ListResourceResponse
 	) {
-		availableContext = [
-			{
-				type: 'code',
-				title: contextCodePath,
-				content: code,
-				lang
-			}
-		]
-
-		if (error) {
-			availableContext = [
-				...availableContext,
-				{
-					type: 'error',
-					title: 'error',
-					content: error
-				}
-			]
+		if (!contextCodePath) {
+			return
 		}
-
-		if (db && !providerModel?.model.endsWith('/thinking')) {
-			availableContext = [
-				...availableContext,
+		try {
+			let newAvailableContext: ContextElement[] = [
 				{
-					type: 'db',
-					title: db.resource,
-					schema: db.schema
+					type: 'code',
+					title: contextCodePath,
+					content: code,
+					lang
 				}
 			]
+			if (!providerModel?.model.endsWith('/thinking')) {
+				for (const d of dbResources) {
+					const loadedSchema = dbSchemas[d.path]
+					newAvailableContext.push({
+						type: 'db',
+						title: d.path,
+						// If the db is already fetched, add the schema to the context
+						...(loadedSchema ? { schema: loadedSchema } : {})
+					})
+				}
+			}
+
+			if (error) {
+				newAvailableContext = [
+					...newAvailableContext,
+					{
+						type: 'error',
+						title: 'error',
+						content: error
+					}
+				]
+			}
+
+			if (db) {
+				// If the db is already fetched, add it to the selected context
+				if (
+					!selectedContext.find((c) => c.type === 'db' && c.title === db.resource) &&
+					!providerModel?.model.endsWith('/thinking')
+				) {
+					selectedContext = [
+						...selectedContext,
+						{
+							type: 'db',
+							title: db.resource,
+							schema: db.schema
+						}
+					]
+				}
+			}
+
+			availableContext = newAvailableContext
+
+			if (
+				code &&
+				((initializedWithInitCode === null && !isInitialCode(code)) || initializedWithInitCode)
+			) {
+				selectedContext = [
+					{
+						type: 'code',
+						title: contextCodePath,
+						content: code,
+						lang
+					}
+				]
+			}
+
+			if (code && initializedWithInitCode === null) {
+				initializedWithInitCode = isInitialCode(code)
+			}
+
+			selectedContext = selectedContext
+				.map((c) => availableContext.find((ac) => ac.type === c.type && ac.title === c.title))
+				.filter((c) => c !== undefined) as ContextElement[]
+		} catch (err) {
+			console.error('Could not update available context', err)
 		}
 	}
 
-	$: updateAvailableContext(contextCodePath, code, lang, error, db, $copilotSessionModel)
+	function updateDisplayMessages(dbSchemas: DBSchemas) {
+		return displayMessages.map((m) => ({
+			...m,
+			contextElements: m.contextElements?.map((c) =>
+				c.type === 'db'
+					? {
+							type: 'db',
+							title: c.title,
+							schema: dbSchemas[c.title]
+					  }
+					: c
+			) as ContextElement[]
+		}))
+	}
+
+	$: updateDBResources($workspaceStore)
+
+	$: updateAvailableContext(
+		contextCodePath,
+		code,
+		lang,
+		error,
+		db,
+		$copilotSessionModel,
+		$dbSchemas,
+		dbResources
+	)
 
 	let instructions = ''
 	let loading = writable(false)
@@ -140,7 +218,7 @@
 		}
 	})
 
-	let currentChatId: string = crypto.randomUUID()
+	let currentChatId: string = createLongHash()
 	let savedChats: Record<
 		string,
 		{
@@ -159,23 +237,11 @@
 	let messages: { role: 'user' | 'assistant' | 'system'; content: string }[] = [
 		prepareSystemMessage()
 	]
+
 	let displayMessages: DisplayMessage[] = []
 	let abortController: AbortController | undefined = undefined
 
-	function updateSelectedContextElements() {
-		const contextElements: ContextElement[] = []
-
-		for (const selected of selectedContext) {
-			const el = availableContext.find(
-				(c) => c.type === selected.type && c.title === selected.title
-			)
-			if (el) {
-				contextElements.push(el)
-			}
-		}
-		return contextElements
-	}
-	let selectedContextElements: ContextElement[] = []
+	$: displayMessages = updateDisplayMessages($dbSchemas)
 
 	async function sendRequest() {
 		if (!instructions.trim()) {
@@ -186,19 +252,17 @@
 			aiChatDisplay?.enableAutomaticScroll()
 			abortController = new AbortController()
 
-			selectedContextElements = updateSelectedContextElements()
-
 			displayMessages = [
 				...displayMessages,
 				{
 					role: 'user',
 					content: instructions,
-					contextElements: selectedContextElements
+					contextElements: selectedContext
 				}
 			]
 			const oldInstructions = instructions
 			instructions = ''
-			const userMessage = await prepareUserMessage(oldInstructions, lang, selectedContextElements)
+			const userMessage = await prepareUserMessage(oldInstructions, lang, selectedContext)
 
 			messages.push({ role: 'user', content: userMessage })
 			await saveChat()
@@ -208,14 +272,8 @@
 				messages,
 				abortController,
 				lang,
-				(
-					selectedContextElements.find((c) => c.type === 'db') as
-						| Extract<ContextElement, { type: 'db' }>
-						| undefined
-				)?.schema,
-				(token) => {
-					currentReply.update((prev) => prev + token)
-				}
+				selectedContext.filter((c) => c.type === 'db').length > 0,
+				(token) => currentReply.update((prev) => prev + token)
 			)
 
 			messages.push({ role: 'assistant', content: $currentReply })
@@ -224,7 +282,7 @@
 				{
 					role: 'assistant',
 					content: $currentReply,
-					contextElements: selectedContextElements
+					contextElements: selectedContext.filter((c) => c.type === 'code')
 				}
 			]
 			currentReply.set('')
@@ -268,7 +326,7 @@
 
 	async function saveAndClear() {
 		await saveChat()
-		currentChatId = crypto.randomUUID()
+		currentChatId = createLongHash()
 		displayMessages = []
 		messages = [prepareSystemMessage()]
 	}
@@ -289,18 +347,19 @@
 	}
 
 	export function fix() {
+		if (!contextCodePath) {
+			return
+		}
 		instructions = 'Fix the error'
 
-		selectedContext = [
-			{
-				type: 'code',
-				title: contextCodePath
-			},
-			{
-				type: 'error',
-				title: 'error'
-			}
-		]
+		const codeContext = availableContext.find(
+			(c) => c.type === 'code' && c.title === contextCodePath
+		)
+		const errorContext = availableContext.find((c) => c.type === 'error')
+
+		if (codeContext && errorContext) {
+			selectedContext = [codeContext, errorContext]
+		}
 
 		sendRequest()
 	}
@@ -320,19 +379,26 @@
 
 	let indexDB: IDBPDatabase<ChatSchema> | undefined = undefined
 	async function initIndexDB() {
-		indexDB = await openDB<ChatSchema>('copilot-chat-history', 1, {
-			upgrade(indexDB) {
-				if (!indexDB.objectStoreNames.contains('chats')) {
-					indexDB.createObjectStore('chats', { keyPath: 'id' })
+		try {
+			console.log('Initializing chat history database')
+			indexDB = await openDB<ChatSchema>('copilot-chat-history', 1, {
+				upgrade(indexDB) {
+					if (!indexDB.objectStoreNames.contains('chats')) {
+						indexDB.createObjectStore('chats', { keyPath: 'id' })
+					}
 				}
-			}
-		})
+			})
+			console.log('Chat history database initialized')
 
-		const chats = await indexDB.getAll('chats')
-		savedChats = chats.reduce((acc, chat) => {
-			acc[chat.id] = chat
-			return acc
-		}, {} as typeof savedChats)
+			const chats = await indexDB.getAll('chats')
+			console.log('Retrieved chats')
+			savedChats = chats.reduce((acc, chat) => {
+				acc[chat.id] = chat
+				return acc
+			}, {} as typeof savedChats)
+		} catch (err) {
+			console.error('Could not open chat history database', err)
+		}
 	}
 
 	initIndexDB()
@@ -356,7 +422,7 @@
 				{
 					role: 'assistant',
 					content: $currentReply,
-					contextElements: selectedContextElements
+					contextElements: selectedContext.filter((c) => c.type === 'code')
 				}
 		  ]
 		: displayMessages}

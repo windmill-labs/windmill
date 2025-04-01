@@ -6,11 +6,13 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
+mod mapping;
+
 use async_recursion::async_recursion;
 use itertools::Itertools;
 use lazy_static::lazy_static;
-use phf::phf_map;
 
+use mapping::{FULL_IMPORTS_MAP, SHORT_IMPORTS_MAP};
 #[cfg(not(target_arch = "wasm32"))]
 use regex::Regex;
 #[cfg(target_arch = "wasm32")]
@@ -25,55 +27,16 @@ use windmill_common::{error, worker::PythonAnnotations};
 
 const DEF_MAIN: &str = "def main(";
 
-static PYTHON_IMPORTS_REPLACEMENT: phf::Map<&'static str, &'static str> = phf_map! {
-    "psycopg2" => "psycopg2-binary",
-    "psycopg" => "psycopg[binary, pool]",
-    "yaml" => "pyyaml",
-    "git" => "GitPython",
-    "shopify" => "ShopifyAPI",
-    "seleniumwire" => "selenium-wire",
-    "openbb-terminal" => "openbb[all]",
-    "riskfolio" => "riskfolio-lib",
-    "smb" => "pysmb",
-    "PIL" => "Pillow",
-    "googleapiclient" => "google-api-python-client",
-    "googlecloudbigquery" => "google-cloud-bigquery",
-    "dateutil" => "python-dateutil",
-    "mailparser" => "mail-parser",
-    "mailparser-reply" => "mail-parser-reply",
-    "gitlab" => "python-gitlab",
-    "smbclient" => "smbprotocol",
-    "playhouse" => "peewee",
-    "dns" => "dnspython",
-    "msoffcrypto" => "msoffcrypto-tool",
-    "tabula" => "tabula-py",
-    "shapefile" => "pyshp",
-    "sklearn" => "scikit-learn",
-    "umap" => "umap-learn",
-    "cv2" => "opencv-python",
-    "atlassian" => "atlassian-python-api",
-    "mysql" => "mysql-connector-python",
-    "tenable" => "pytenable",
-    "ns1" => "ns1-python",
-    "pymsql" => "PyMySQL",
-    "haystack" => "haystack-ai",
-    "github" => "PyGithub",
-    "ldap" => "python-ldap",
-    "opensearchpy" => "opensearch-py",
-    "lokalise" => "python-lokalise-api",
-    "msgraph" => "msgraph-sdk",
-    "pythonjsonlogger" => "python-json-logger",
-    "socks" => "PySocks",
-    "taiga" => "python-taiga",
-    "docx" => "python-docx",
-};
-
 fn replace_import(x: String) -> String {
-    PYTHON_IMPORTS_REPLACEMENT
+    SHORT_IMPORTS_MAP
         .get(&x)
         .map(|x| x.to_owned())
         .unwrap_or(&x)
         .to_string()
+}
+
+fn replace_full_import(x: &str) -> Option<String> {
+    FULL_IMPORTS_MAP.get(x).map(|x| (*x).to_owned())
 }
 
 lazy_static! {
@@ -99,7 +62,7 @@ fn process_import(module: Option<String>, path: &str, level: usize) -> Vec<Strin
         if imprt == "u" || imprt == "f" {
             vec![format!("relative:{}", module.replace(".", "/"))]
         } else {
-            vec![imprt]
+            vec![replace_full_import(&module).unwrap_or(replace_import(imprt))]
         }
     } else {
         vec![]
@@ -305,7 +268,7 @@ async fn parse_python_imports_inner(
                     .await?
                 }
             } else {
-                vec![replace_import(n.to_string())]
+                vec![n.to_string()]
             };
             for imp in nested {
                 if !imports.contains(&imp) {

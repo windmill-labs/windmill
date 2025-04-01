@@ -352,6 +352,16 @@ export const deleteUser = (data: DeleteUserData): CancelablePromise<DeleteUserRe
 }); };
 
 /**
+ * get connected repositories
+ * @returns GithubInstallations connected repositories
+ * @throws ApiError
+ */
+export const getGlobalConnectedRepositories = (): CancelablePromise<GetGlobalConnectedRepositoriesResponse> => { return __request(OpenAPI, {
+    method: 'GET',
+    url: '/github_app/connected_repositories'
+}); };
+
+/**
  * list all workspaces visible to me
  * @returns Workspace all workspaces
  * @throws ApiError
@@ -772,6 +782,97 @@ export const whoami = (data: WhoamiData): CancelablePromise<WhoamiResponse> => {
 }); };
 
 /**
+ * get github app token
+ * @param data The data for the request.
+ * @param data.workspace
+ * @param data.requestBody jwt job token
+ * @returns unknown github app token
+ * @throws ApiError
+ */
+export const getGithubAppToken = (data: GetGithubAppTokenData): CancelablePromise<GetGithubAppTokenResponse> => { return __request(OpenAPI, {
+    method: 'POST',
+    url: '/w/{workspace}/github_app/token',
+    path: {
+        workspace: data.workspace
+    },
+    body: data.requestBody,
+    mediaType: 'application/json'
+}); };
+
+/**
+ * Install a GitHub installation from another workspace
+ * @param data The data for the request.
+ * @param data.workspace
+ * @param data.requestBody
+ * @returns unknown Installation successfully copied
+ * @throws ApiError
+ */
+export const installFromWorkspace = (data: InstallFromWorkspaceData): CancelablePromise<InstallFromWorkspaceResponse> => { return __request(OpenAPI, {
+    method: 'POST',
+    url: '/w/{workspace}/github_app/install_from_workspace',
+    path: {
+        workspace: data.workspace
+    },
+    body: data.requestBody,
+    mediaType: 'application/json'
+}); };
+
+/**
+ * Delete a GitHub installation from a workspace
+ * Removes a GitHub installation from the specified workspace. Requires admin privileges.
+ * @param data The data for the request.
+ * @param data.workspace
+ * @param data.installationId The ID of the GitHub installation to delete
+ * @returns unknown Installation successfully deleted
+ * @throws ApiError
+ */
+export const deleteFromWorkspace = (data: DeleteFromWorkspaceData): CancelablePromise<DeleteFromWorkspaceResponse> => { return __request(OpenAPI, {
+    method: 'DELETE',
+    url: '/w/{workspace}/github_app/installation/{installation_id}',
+    path: {
+        workspace: data.workspace,
+        installation_id: data.installationId
+    }
+}); };
+
+/**
+ * Export GitHub installation JWT token
+ * Exports the JWT token for a specific GitHub installation in the workspace
+ * @param data The data for the request.
+ * @param data.workspace
+ * @param data.installationId
+ * @returns unknown Successfully exported the JWT token
+ * @throws ApiError
+ */
+export const exportInstallation = (data: ExportInstallationData): CancelablePromise<ExportInstallationResponse> => { return __request(OpenAPI, {
+    method: 'GET',
+    url: '/w/{workspace}/github_app/export/{installationId}',
+    path: {
+        workspace: data.workspace,
+        installationId: data.installationId
+    }
+}); };
+
+/**
+ * Import GitHub installation from JWT token
+ * Imports a GitHub installation from a JWT token exported from another instance
+ * @param data The data for the request.
+ * @param data.workspace
+ * @param data.requestBody
+ * @returns unknown Successfully imported the installation
+ * @throws ApiError
+ */
+export const importInstallation = (data: ImportInstallationData): CancelablePromise<ImportInstallationResponse> => { return __request(OpenAPI, {
+    method: 'POST',
+    url: '/w/{workspace}/github_app/import',
+    path: {
+        workspace: data.workspace
+    },
+    body: data.requestBody,
+    mediaType: 'application/json'
+}); };
+
+/**
  * accept invite to workspace
  * @param data The data for the request.
  * @param data.requestBody accept invite
@@ -1125,24 +1226,6 @@ export const getPremiumInfo = (data: GetPremiumInfoData): CancelablePromise<GetP
     path: {
         workspace: data.workspace
     }
-}); };
-
-/**
- * set automatic billing
- * @param data The data for the request.
- * @param data.workspace
- * @param data.requestBody automatic billing
- * @returns string status
- * @throws ApiError
- */
-export const setAutomaticBilling = (data: SetAutomaticBillingData): CancelablePromise<SetAutomaticBillingResponse> => { return __request(OpenAPI, {
-    method: 'POST',
-    url: '/w/{workspace}/workspaces/set_automatic_billing',
-    path: {
-        workspace: data.workspace
-    },
-    body: data.requestBody,
-    mediaType: 'application/json'
 }); };
 
 /**
@@ -3121,6 +3204,23 @@ export const getScriptHistoryByPath = (data: GetScriptHistoryByPathData): Cancel
 }); };
 
 /**
+ * list script paths using provided script as a relative import
+ * @param data The data for the request.
+ * @param data.workspace
+ * @param data.path
+ * @returns string list of script paths
+ * @throws ApiError
+ */
+export const listScriptPathsFromWorkspaceRunnable = (data: ListScriptPathsFromWorkspaceRunnableData): CancelablePromise<ListScriptPathsFromWorkspaceRunnableResponse> => { return __request(OpenAPI, {
+    method: 'GET',
+    url: '/w/{workspace}/scripts/list_paths_from_workspace_runnable/{path}',
+    path: {
+        workspace: data.workspace,
+        path: data.path
+    }
+}); };
+
+/**
  * get scripts's latest version (hash)
  * @param data The data for the request.
  * @param data.workspace
@@ -4115,6 +4215,25 @@ export const getAppLatestVersion = (data: GetAppLatestVersionData): CancelablePr
     url: '/w/{workspace}/apps/get_latest_version/{path}',
     path: {
         workspace: data.workspace,
+        path: data.path
+    }
+}); };
+
+/**
+ * list app paths from workspace runnable
+ * @param data The data for the request.
+ * @param data.workspace
+ * @param data.runnableKind
+ * @param data.path
+ * @returns string list of app paths
+ * @throws ApiError
+ */
+export const listAppPathsFromWorkspaceRunnable = (data: ListAppPathsFromWorkspaceRunnableData): CancelablePromise<ListAppPathsFromWorkspaceRunnableResponse> => { return __request(OpenAPI, {
+    method: 'GET',
+    url: '/w/{workspace}/apps/list_paths_from_workspace_runnable/{runnable_kind}/{path}',
+    path: {
+        workspace: data.workspace,
+        runnable_kind: data.runnableKind,
         path: data.path
     }
 }); };

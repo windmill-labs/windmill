@@ -54,7 +54,7 @@ export const OpenAPI: OpenAPIConfig = {
 	PASSWORD: undefined,
 	TOKEN: getEnv("WM_TOKEN"),
 	USERNAME: undefined,
-	VERSION: '1.478.1',
+	VERSION: '1.479.2',
 	WITH_CREDENTIALS: true,
 	interceptors: {
 		request: new Interceptors(),

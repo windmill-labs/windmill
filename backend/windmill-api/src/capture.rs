@@ -125,6 +125,8 @@ pub fn workspaced_unauthed_service() -> Router {
 struct HttpTriggerConfig {
     route_path: String,
     http_method: HttpMethod,
+    raw_string: Option<bool>,
+    wrap_body: Option<bool>,
 }
 
 #[cfg(all(feature = "enterprise", feature = "kafka"))]
@@ -972,16 +974,32 @@ async fn http_payload(
             is_flow,
             &TriggerKind::Http,
         )
-        .await?;
+        .await
+        .map_err(|e| e.into_response())?;
 
-    let authed = fetch_api_authed(owner.clone(), email, &w_id, &db, None).await?;
-    let args = args.to_push_args_owned(&authed, &db, &w_id).await?;
+    let args = try_from_request_body(
+        request,
+        &db,
+        http_trigger_config.raw_string,
+        http_trigger_config.wrap_body,
+    )
+    .await
+    .map_err(|e| e.into_response())?;
+
+    let authed = fetch_api_authed(owner.clone(), email, &w_id, &db, None)
+        .await
+        .map_err(|e| e.into_response())?;
+    let mut args = args
+        .to_push_args_owned(&authed, &db, &w_id)
+        .await
+        .map_err(|e| e.into_response())?;
 
     let mut router = matchit::Router::new();
     router.insert(&http_trigger_config.route_path, ()).ok();
     let match_ = router.at(route_path).ok();
 
-    let match_ = not_found_if_none(match_, "capture http trigger", &route_path)?;
+    let match_ = not_found_if_none(match_, "capture http trigger", &route_path)
+        .map_err(|e| e.into_response())?;
 
     let matchit::Match { params, .. } = match_;
 
@@ -990,7 +1008,9 @@ async fn http_payload(
         .map(|(k, v)| (k.to_string(), v.to_string()))
         .collect();
 
-    let extra: HashMap<String, Box<RawValue>> = HashMap::from_iter(vec![(
+    let extra = args.extra.get_or_insert_with(HashMap::new);
+
+    extra.insert(
         "wm_trigger".to_string(),
         build_http_trigger_extra(
             &http_trigger_config.route_path,
@@ -1001,8 +1021,10 @@ async fn http_payload(
             &headers,
         )
         .await,
-    )]);
+    );
 
+    let extra = Some(to_raw_value(&extra));
+    args.extra = None;
     insert_capture_payload(
         &db,
         &w_id,
@@ -1010,10 +1032,11 @@ async fn http_payload(
         is_flow,
         &TriggerKind::Http,
         args,
-        Some(to_raw_value(&extra)),
+        extra,
         &owner,
     )
-    .await?;
+    .await
+    .map_err(|e| e.into_response())?;
 
     Ok(())
 }

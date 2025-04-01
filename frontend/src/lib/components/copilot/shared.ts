@@ -1,3 +1,4 @@
+import { createLongHash } from '$lib/editorUtils'
 import { type editor as meditor } from 'monaco-editor'
 
 export type VisualChange =
@@ -71,7 +72,7 @@ export function setGlobalCSS(id: string, cssCode: string) {
 }
 
 function addInlineGhostText(change: Extract<VisualChange, { type: 'added_inline' }>) {
-	const cssId = crypto.randomUUID()
+	const cssId = createLongHash()
 	const decoration = {
 		range: {
 			startLineNumber: change.position.line,
