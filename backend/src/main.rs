@@ -9,7 +9,8 @@
 use anyhow::Context;
 use monitor::{
     load_base_url, load_otel, reload_delete_logs_periodically_setting, reload_indexer_config,
-    reload_instance_python_version_setting, reload_nuget_config_setting,
+    reload_instance_python_version_setting, reload_maven_repos_setting,
+    reload_no_default_maven_setting, reload_nuget_config_setting,
     reload_timeout_wait_result_setting, send_current_log_file_to_object_store,
     send_logs_to_object_store,
 };
@@ -37,11 +38,12 @@ use windmill_common::{
         EXPOSE_DEBUG_METRICS_SETTING, EXPOSE_METRICS_SETTING, EXTRA_PIP_INDEX_URL_SETTING,
         HUB_BASE_URL_SETTING, INDEXER_SETTING, INSTANCE_PYTHON_VERSION_SETTING,
         JOB_DEFAULT_TIMEOUT_SECS_SETTING, JWT_SECRET_SETTING, KEEP_JOB_DIR_SETTING,
-        LICENSE_KEY_SETTING, MONITOR_LOGS_ON_OBJECT_STORE_SETTING, NPM_CONFIG_REGISTRY_SETTING,
-        NUGET_CONFIG_SETTING, OAUTH_SETTING, OTEL_SETTING, PIP_INDEX_URL_SETTING,
-        REQUEST_SIZE_LIMIT_SETTING, REQUIRE_PREEXISTING_USER_FOR_OAUTH_SETTING,
-        RETENTION_PERIOD_SECS_SETTING, SAML_METADATA_SETTING, SCIM_TOKEN_SETTING, SMTP_SETTING,
-        TEAMS_SETTING, TIMEOUT_WAIT_RESULT_SETTING,
+        LICENSE_KEY_SETTING, MAVEN_REPOS_SETTING, MONITOR_LOGS_ON_OBJECT_STORE_SETTING,
+        NO_DEFAULT_MAVEN_SETTING, NPM_CONFIG_REGISTRY_SETTING, NUGET_CONFIG_SETTING, OAUTH_SETTING,
+        OTEL_SETTING, PIP_INDEX_URL_SETTING, REQUEST_SIZE_LIMIT_SETTING,
+        REQUIRE_PREEXISTING_USER_FOR_OAUTH_SETTING, RETENTION_PERIOD_SECS_SETTING,
+        SAML_METADATA_SETTING, SCIM_TOKEN_SETTING, SMTP_SETTING, TEAMS_SETTING,
+        TIMEOUT_WAIT_RESULT_SETTING,
     },
     scripts::ScriptLang,
     stats_ee::schedule_stats,
@@ -66,9 +68,9 @@ use windmill_common::global_settings::OBJECT_STORE_CACHE_CONFIG_SETTING;
 use windmill_worker::{
     get_hub_script_content_and_requirements, BUN_BUNDLE_CACHE_DIR, BUN_CACHE_DIR, CSHARP_CACHE_DIR,
     DENO_CACHE_DIR, DENO_CACHE_DIR_DEPS, DENO_CACHE_DIR_NPM, GO_BIN_CACHE_DIR, GO_CACHE_DIR,
-    NU_CACHE_DIR, POWERSHELL_CACHE_DIR, PY310_CACHE_DIR, PY311_CACHE_DIR, PY312_CACHE_DIR,
-    PY313_CACHE_DIR, RUST_CACHE_DIR, TAR_PY310_CACHE_DIR, TAR_PY311_CACHE_DIR, TAR_PY312_CACHE_DIR,
-    TAR_PY313_CACHE_DIR, UV_CACHE_DIR,
+    JAVA_CACHE_DIR, NU_CACHE_DIR, POWERSHELL_CACHE_DIR, PY310_CACHE_DIR, PY311_CACHE_DIR,
+    PY312_CACHE_DIR, PY313_CACHE_DIR, RUST_CACHE_DIR, TAR_JAVA_CACHE_DIR, TAR_PY310_CACHE_DIR,
+    TAR_PY311_CACHE_DIR, TAR_PY312_CACHE_DIR, TAR_PY313_CACHE_DIR, UV_CACHE_DIR,
 };
 
 use crate::monitor::{
@@ -500,7 +502,10 @@ Windmill Community Edition {GIT_VERSION}
         #[cfg(feature = "tantivy")]
         let should_index_jobs = mode == Mode::Indexer || mode_and_addons.indexer;
 
-        reload_indexer_config(&db).await;
+        #[cfg(feature = "tantivy")]
+        if should_index_jobs {
+            reload_indexer_config(&db).await;
+        }
 
         #[cfg(feature = "tantivy")]
         let (index_reader, index_writer) = if should_index_jobs {
@@ -707,6 +712,11 @@ Windmill Community Edition {GIT_VERSION}
                                             tracing::info!("Workspace envs change detected, invalidating workspace envs cache: {}", workspace_id);
                                             windmill_common::variables::CUSTOM_ENVS_CACHE.remove(workspace_id);
                                         },
+                                        "notify_workspace_premium_change" => {
+                                            let workspace_id = n.payload();
+                                            tracing::info!("Workspace premium change detected, invalidating workspace premium cache: {}", workspace_id);
+                                            windmill_common::workspaces::IS_PREMIUM_CACHE.remove(workspace_id);
+                                        },
                                         "notify_global_setting_change" => {
                                             tracing::info!("Global setting change detected: {}", n.payload());
                                             match n.payload() {
@@ -787,6 +797,12 @@ Windmill Community Edition {GIT_VERSION}
                                                 },
                                                 NUGET_CONFIG_SETTING => {
                                                     reload_nuget_config_setting(&db).await
+                                                },
+                                                MAVEN_REPOS_SETTING => {
+                                                    reload_maven_repos_setting(&db).await
+                                                },
+                                                NO_DEFAULT_MAVEN_SETTING => {
+                                                    reload_no_default_maven_setting(&db).await
                                                 },
                                                 KEEP_JOB_DIR_SETTING => {
                                                     load_keep_job_dir(&db).await;
@@ -894,7 +910,9 @@ Windmill Community Edition {GIT_VERSION}
                                 last_listener_refresh = Instant::now();
                             }
 
-                            tracing::info!("monitor task started");
+                            if server_mode {
+                                tracing::info!("monitor task started");
+                            }
                             monitor_db(
                                 &db,
                                 &base_internal_url,
@@ -904,7 +922,9 @@ Windmill Community Edition {GIT_VERSION}
                                 tx.clone(),
                             )
                             .await;
-                            tracing::info!("monitor task finished");
+                            if server_mode {
+                                tracing::info!("monitor task finished");
+                            }
                         },
                     }
                 }
@@ -980,15 +1000,17 @@ async fn listen_pg(url: &str) -> Option<PgListener> {
         }
     };
 
-    if let Err(e) = listener
-        .listen_all(vec![
-            "notify_config_change",
-            "notify_global_setting_change",
-            "notify_webhook_change",
-            "notify_workspace_envs_change",
-        ])
-        .await
-    {
+    #[allow(unused_mut)]
+    let mut channels = vec![
+        "notify_config_change",
+        "notify_global_setting_change",
+        "notify_webhook_change",
+        "notify_workspace_envs_change",
+    ];
+    #[cfg(feature = "cloud")]
+    channels.push("notify_workspace_premium_change");
+
+    if let Err(e) = listener.listen_all(channels).await {
         tracing::error!(error = %e, "Could not listen to database");
         return None;
     }
@@ -1089,6 +1111,8 @@ pub async fn run_workers(
         NU_CACHE_DIR,
         HUB_CACHE_DIR,
         POWERSHELL_CACHE_DIR,
+        JAVA_CACHE_DIR,
+        TAR_JAVA_CACHE_DIR, // KJQXZ
     ] {
         DirBuilder::new()
             .recursive(true)

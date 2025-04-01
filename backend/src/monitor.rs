@@ -6,7 +6,7 @@ use std::{
     str::FromStr,
     sync::{
         atomic::{AtomicU16, Ordering},
-        Arc,
+        Arc, Mutex,
     },
     time::Duration,
 };
@@ -52,9 +52,7 @@ use windmill_common::{
 };
 use windmill_queue::{cancel_job, MiniPulledJob};
 use windmill_worker::{
-    create_token_for_owner, handle_job_error, AuthedClient, SameWorkerPayload, SameWorkerSender,
-    SendResult, BUNFIG_INSTALL_SCOPES, INSTANCE_PYTHON_VERSION, JOB_DEFAULT_TIMEOUT, KEEP_JOB_DIR,
-    NPM_CONFIG_REGISTRY, NUGET_CONFIG, PIP_EXTRA_INDEX_URL, PIP_INDEX_URL, SCRIPT_TOKEN_EXPIRY,
+    create_token_for_owner, handle_job_error, AuthedClient, SameWorkerPayload, SameWorkerSender, SendResult, BUNFIG_INSTALL_SCOPES, INSTANCE_PYTHON_VERSION, JOB_DEFAULT_TIMEOUT, KEEP_JOB_DIR, MAVEN_REPOS, NO_DEFAULT_MAVEN, NPM_CONFIG_REGISTRY, NUGET_CONFIG, PIP_EXTRA_INDEX_URL, PIP_INDEX_URL, SCRIPT_TOKEN_EXPIRY
 };
 
 #[cfg(feature = "parquet")]
@@ -186,6 +184,8 @@ pub async fn initial_load(
         reload_bunfig_install_scopes_setting(&db).await;
         reload_instance_python_version_setting(&db).await;
         reload_nuget_config_setting(&db).await;
+        reload_maven_repos_setting(&db).await;
+        reload_no_default_maven_setting(&db).await;
     }
 }
 
@@ -319,14 +319,6 @@ pub async fn reload_critical_alert_mute_ui_setting(db: &DB) -> error::Result<()>
     {
         CRITICAL_ALERT_MUTE_UI_ENABLED.store(t, Ordering::Relaxed);
 
-        if t {
-            if let Err(e) = sqlx::query!("UPDATE alerts SET acknowledged = true")
-                .execute(db)
-                .await
-            {
-                tracing::error!("Error updating alerts: {}", e.to_string());
-            }
-        }
     }
     Ok(())
 }
@@ -524,6 +516,10 @@ fn get_now_and_str() -> (NaiveDateTime, String) {
     )
 }
 
+lazy_static::lazy_static! {
+    static ref LAST_LOG_FILE_SENT: Arc<Mutex<Option<NaiveDateTime>>> = Arc::new(Mutex::new(None));
+}
+
 async fn send_log_file_to_object_store(
     hostname: &str,
     mode: &Mode,
@@ -551,23 +547,12 @@ async fn send_log_file_to_object_store(
                 .unwrap_or_else(get_now_and_str)
         };
 
-        let exists = sqlx::query_scalar!(
-            "SELECT EXISTS(SELECT 1 FROM log_file WHERE hostname = $1 AND log_ts = $2)",
-            hostname,
-            ts
-        )
-        .fetch_one(db)
-        .await;
+        let exists = LAST_LOG_FILE_SENT.lock().map(|last_log_file_sent| {
+            last_log_file_sent.map(|last_log_file_sent| last_log_file_sent >= ts).unwrap_or(false)
+        });
 
-        match exists {
-            Ok(Some(true)) => {
-                return;
-            }
-            Err(e) => {
-                tracing::error!("Error checking if log file exists: {:?}", e);
-                return;
-            }
-            _ => (),
+        if exists.unwrap_or(false) {
+            return;
         }
 
         #[cfg(feature = "parquet")]
@@ -604,6 +589,13 @@ async fn send_log_file_to_object_store(
             .execute(db)
             .await {
             tracing::error!("Error inserting log file: {:?}", e);
+        } else {
+            if let Err(e) = LAST_LOG_FILE_SENT.lock().map(|mut last_log_file_sent| {
+                last_log_file_sent.replace(ts);
+            }) {
+                tracing::error!("Error updating last log file sent: {:?}", e);
+            }
+            tracing::info!("Log file sent: {}", highest_file);
         }
     }
 }
@@ -976,6 +968,20 @@ pub async fn reload_nuget_config_setting(db: &DB) {
         NUGET_CONFIG.clone(),
     )
     .await;
+}
+pub async fn reload_maven_repos_setting(db: &DB) {
+    reload_option_setting_with_tracing(db, windmill_common::global_settings::MAVEN_REPOS_SETTING, "MAVEN_REPOS", MAVEN_REPOS.clone())
+        .await;
+}
+pub async fn reload_no_default_maven_setting(db: &DB) {
+    let value = load_value_from_global_settings(db, windmill_common::global_settings::NO_DEFAULT_MAVEN_SETTING).await;
+    match value {
+        Ok(Some(serde_json::Value::Bool(t))) => NO_DEFAULT_MAVEN.store(t, Ordering::Relaxed),
+        Err(e) => {
+            tracing::error!("Error loading no default maven repository: {e:#}");
+        }
+        _ => (),
+    };
 }
 
 pub async fn reload_retention_period_setting(db: &DB) {

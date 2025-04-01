@@ -1,0 +1,158 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT \n            workspace_id, \n            path, \n            route_path, \n            route_path_key,\n            workspaced_route,\n            script_path, \n            is_flow, \n            http_method as \"http_method: _\", \n            edited_by, \n            email, \n            edited_at, \n            extra_perms, \n            is_async, \n            authentication_method as \"authentication_method: _\", \n            static_asset_config as \"static_asset_config: _\", \n            is_static_website,\n            authentication_resource_path,\n            wrap_body,\n            raw_string\n        FROM \n            http_trigger\n        WHERE \n            workspace_id = $1 AND \n            path = $2\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "workspace_id",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "path",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 2,
+        "name": "route_path",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 3,
+        "name": "route_path_key",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 4,
+        "name": "workspaced_route",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 5,
+        "name": "script_path",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 6,
+        "name": "is_flow",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 7,
+        "name": "http_method: _",
+        "type_info": {
+          "Custom": {
+            "name": "http_method",
+            "kind": {
+              "Enum": [
+                "get",
+                "post",
+                "put",
+                "delete",
+                "patch"
+              ]
+            }
+          }
+        }
+      },
+      {
+        "ordinal": 8,
+        "name": "edited_by",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 9,
+        "name": "email",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 10,
+        "name": "edited_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 11,
+        "name": "extra_perms",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 12,
+        "name": "is_async",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 13,
+        "name": "authentication_method: _",
+        "type_info": {
+          "Custom": {
+            "name": "authentication_method",
+            "kind": {
+              "Enum": [
+                "none",
+                "windmill",
+                "api_key",
+                "basic_http",
+                "custom_script",
+                "signature"
+              ]
+            }
+          }
+        }
+      },
+      {
+        "ordinal": 14,
+        "name": "static_asset_config: _",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 15,
+        "name": "is_static_website",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 16,
+        "name": "authentication_resource_path",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 17,
+        "name": "wrap_body",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 18,
+        "name": "raw_string",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      false,
+      true,
+      false,
+      false
+    ]
+  },
+  "hash": "144e4eccfd1c1e729e3c864bd5dc3316248719dfa8a6c9e1d15a7931638e86db"
+}

@@ -8,7 +8,6 @@
 
 	import { base } from '$lib/base'
 	import type { ChatCompletionMessageParam } from 'openai/resources/index.mjs'
-	import type { AIProvider } from '$lib/gen'
 
 	export let schedule: string
 	export let cronVersion: string
@@ -41,7 +40,6 @@
 	async function generateCron() {
 		genLoading = true
 		abortController = new AbortController()
-		const aiProvider = $copilotInfo.ai_provider
 		try {
 			const messages: ChatCompletionMessageParam[] = [
 				{
@@ -54,11 +52,7 @@
 				}
 			]
 
-			const response = await getNonStreamingCompletion(
-				messages,
-				abortController,
-				aiProvider as AIProvider
-			)
+			const response = await getNonStreamingCompletion(messages, abortController)
 
 			if (response.startsWith('ERROR:')) {
 				throw response.replace('ERROR:', '').trim()
@@ -91,7 +85,7 @@
 	</svelte:fragment>
 	<svelte:fragment slot="content" let:close>
 		<div class="border rounded-lg shadow-lg p-4 bg-surface">
-			{#if $copilotInfo.exists_ai_resource}
+			{#if $copilotInfo.enabled}
 				<div class="flex w-96">
 					<input
 						bind:this={instructionsField}

@@ -14,6 +14,7 @@
 	import { pointerDownOutside } from '$lib/utils'
 	import { twMerge } from 'tailwind-merge'
 	import { createEventDispatcher } from 'svelte'
+	import DocLink from '$lib/components/apps/editor/settingsPanel/DocLink.svelte'
 
 	export let closeButton: boolean = false
 	export let displayArrow: boolean = false
@@ -26,6 +27,8 @@
 	export let contentClasses: string = ''
 	export let portal: string | HTMLElement | null = 'body'
 	export let closeOnOtherPopoverOpen: boolean = false
+	export let disabled: boolean = false
+	export let documentationLink: string | undefined = undefined
 
 	const dispatch = createEventDispatcher()
 
@@ -84,6 +87,7 @@
 	class={$$props.class}
 	use:melt={$trigger}
 	aria-label="Popup button"
+	{disabled}
 	on:mouseenter={() => (openOnHover ? open() : null)}
 	on:mouseleave={() => (openOnHover ? close() : null)}
 	use:pointerDownOutside={{
@@ -111,6 +115,11 @@
 	>
 		{#if displayArrow}
 			<div use:melt={$arrow}></div>
+		{/if}
+		{#if documentationLink}
+			<div class="absolute right-1.5 top-1.5">
+				<DocLink docLink={documentationLink} size="sm" />
+			</div>
 		{/if}
 		<slot name="content" {open} {close} />
 		{#if closeButton}

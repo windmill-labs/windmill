@@ -123,7 +123,10 @@ use crate::{
 use crate::rust_executor::handle_rust_job;
 
 #[cfg(feature = "nu")]
-use crate::nu_executor::{handle_nu_job, JobHandlerInput};
+use crate::nu_executor::{handle_nu_job, JobHandlerInput as JobHandlerInputNu};
+
+#[cfg(feature = "java")]
+use crate::java_executor::{handle_java_job, JobHandlerInput as JobHandlerInputJava};
 
 #[cfg(feature = "php")]
 use crate::php_executor::handle_php_job;
@@ -264,6 +267,8 @@ pub const TAR_PY311_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "tar/python_311"
 pub const TAR_PY312_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "tar/python_312");
 pub const TAR_PY313_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "tar/python_313");
 
+pub const TAR_JAVA_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "tar/java");
+
 pub const UV_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "uv");
 pub const PY_INSTALL_DIR: &str = concatcp!(ROOT_CACHE_DIR, "py_runtime");
 pub const TAR_PYBASE_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "tar");
@@ -275,6 +280,12 @@ pub const GO_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "go");
 pub const RUST_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "rust");
 pub const NU_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "nu");
 pub const CSHARP_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "csharp");
+
+// JAVA
+pub const JAVA_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "java");
+pub const COURSIER_CACHE_DIR: &str = concatcp!(JAVA_CACHE_DIR, "/coursier-cache");
+pub const JAVA_REPOSITORY_DIR: &str = concatcp!(JAVA_CACHE_DIR, "/repository");
+// KJQXZ
 pub const BUN_CACHE_DIR: &str = concatcp!(ROOT_CACHE_NOMOUNT_DIR, "bun");
 pub const BUN_BUNDLE_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "bun");
 pub const BUN_CODEBASE_BUNDLE_CACHE_DIR: &str = concatcp!(ROOT_CACHE_NOMOUNT_DIR, "script_bundle");
@@ -398,6 +409,11 @@ lazy_static::lazy_static! {
     pub static ref NPM_CONFIG_REGISTRY: Arc<RwLock<Option<String>>> = Arc::new(RwLock::new(None));
     pub static ref BUNFIG_INSTALL_SCOPES: Arc<RwLock<Option<String>>> = Arc::new(RwLock::new(None));
     pub static ref NUGET_CONFIG: Arc<RwLock<Option<String>>> = Arc::new(RwLock::new(None));
+    pub static ref MAVEN_REPOS: Arc<RwLock<Option<String>>> = Arc::new(RwLock::new(None));
+    pub static ref NO_DEFAULT_MAVEN: AtomicBool = AtomicBool::new(std::env::var("NO_DEFAULT_MAVEN")
+        .ok()
+        .and_then(|x| x.parse::<bool>().ok())
+        .unwrap_or(false));
 
     pub static ref PIP_EXTRA_INDEX_URL: Arc<RwLock<Option<String>>> = Arc::new(RwLock::new(None));
     pub static ref PIP_INDEX_URL: Arc<RwLock<Option<String>>> = Arc::new(RwLock::new(None));
@@ -1283,70 +1299,9 @@ pub async fn run_worker(
                     "received {} from same worker channel",
                     same_worker_job.job_id
                 );
-                let r = sqlx::query_as::<_, PulledJob>(
-                    "WITH ping AS (
-                        UPDATE v2_job_runtime SET ping = NOW() WHERE id = $1 
-                    ),
-                    started_at AS (
-                        UPDATE v2_job_queue SET started_at = NOW() WHERE id = $1
-                    )
-                    SELECT 
-                    v2_job_queue.workspace_id,
-                    v2_job_queue.id,
-                    v2_job.args,
-                    v2_job.parent_job,
-                    v2_job.created_by,
-                    v2_job_queue.started_at,
-                    scheduled_for,
-                    v2_job.runnable_path,
-                    v2_job.kind,
-                    v2_job.runnable_id,
-                    v2_job_queue.canceled_reason,
-                    v2_job_queue.canceled_by,
-                    v2_job.permissioned_as,
-                    v2_job.permissioned_as_email,
-                    v2_job_status.flow_status,
-                    v2_job.tag,
-                    v2_job.script_lang,
-                    v2_job.same_worker,
-                    v2_job.pre_run_error,
-                    v2_job.concurrent_limit,
-                    v2_job.concurrency_time_window_s,
-                    v2_job.flow_innermost_root_job,
-                    v2_job.timeout,
-                    v2_job.flow_step_id,
-                    v2_job.cache_ttl,
-                    v2_job_queue.priority,
-                    v2_job.preprocessed,
-                    v2_job.script_entrypoint_override,
-                    v2_job.trigger,
-                    v2_job.trigger_kind,
-                    v2_job.visible_to_owner,
-                    v2_job.raw_code,
-                    v2_job.raw_lock,
-                    v2_job.raw_flow,
-                    pj.runnable_path as parent_runnable_path,
-                    p.email as permissioned_as_email, p.username as permissioned_as_username, p.is_admin as permissioned_as_is_admin, 
-                    p.is_operator as permissioned_as_is_operator, p.groups as permissioned_as_groups, p.folders as permissioned_as_folders
-                    FROM v2_job_queue 
-                    INNER JOIN v2_job ON v2_job.id = v2_job_queue.id 
-                    LEFT JOIN v2_job_status ON v2_job_status.id = v2_job_queue.id
-                    LEFT JOIN job_perms p ON p.job_id = v2_job.id
-                    LEFT JOIN v2_job pj ON v2_job.parent_job = pj.id
-                    WHERE v2_job_queue.id = $1
-",
-                )
-                .bind(same_worker_job.job_id)
-                .fetch_optional(db)
-                .await
-                .map_err(|e| {
-                    Error::internal_err(format!(
-                        "Impossible to fetch same_worker job {}: {}",
-                        same_worker_job.job_id, e
-                    ))
-                });
+                let job = get_same_worker_job(db, &same_worker_job).await;
                 // tracing::error!("r: {:?}", r);
-                if r.is_err() && !same_worker_job.recoverable {
+                if job.is_err() && !same_worker_job.recoverable {
                     tracing::error!(
                         worker = %worker_name, hostname = %hostname,
                         "failed to fetch same_worker job on a non recoverable job, exiting"
@@ -1358,7 +1313,7 @@ pub async fn run_worker(
                         .expect("send kill to job completed tx");
                     break;
                 } else {
-                    r
+                    job
                 }
             } else if let Ok(_) = killpill_rx.try_recv() {
                 if !killed_but_draining_same_worker_jobs {
@@ -1564,7 +1519,7 @@ pub async fn run_worker(
                     if job.id == Uuid::nil() {
                         tracing::info!("running warmup job");
                     } else {
-                        tracing::info!(workspace_id = %job.workspace_id, job_id = %job.id, root_id = %job_root, "fetched job {}, root job: {}", job.id, job_root);
+                        tracing::info!(workspace_id = %job.workspace_id, job_id = %job.id, root_id = %job_root, "fetched job {} (root job: {}, scheduled for: {})", job.id, job_root, job.scheduled_for);
                     } // Here we can't remove the job id, but maybe with the
                       // fields macro we can make a job id that only appears when
                       // the job is defined?
@@ -1860,6 +1815,74 @@ pub async fn run_worker(
     }
     tracing::info!(worker = %worker_name, hostname = %hostname, "worker {} exited", worker_name);
     tracing::info!(worker = %worker_name, hostname = %hostname, "number of jobs executed: {}", jobs_executed);
+}
+
+async fn get_same_worker_job(
+    db: &Pool<Postgres>,
+    same_worker_job: &SameWorkerPayload,
+) -> windmill_common::error::Result<Option<PulledJob>> {
+    sqlx::query_as::<_, PulledJob>(
+        "WITH ping AS (
+                        UPDATE v2_job_runtime SET ping = NOW() WHERE id = $1 
+                    ),
+                    started_at AS (
+                        UPDATE v2_job_queue SET started_at = NOW() WHERE id = $1
+                    )
+                    SELECT 
+                    v2_job_queue.workspace_id,
+                    v2_job_queue.id,
+                    v2_job.args,
+                    v2_job.parent_job,
+                    v2_job.created_by,
+                    v2_job_queue.started_at,
+                    scheduled_for,
+                    v2_job.runnable_path,
+                    v2_job.kind,
+                    v2_job.runnable_id,
+                    v2_job_queue.canceled_reason,
+                    v2_job_queue.canceled_by,
+                    v2_job.permissioned_as,
+                    v2_job.permissioned_as_email,
+                    v2_job_status.flow_status,
+                    v2_job.tag,
+                    v2_job.script_lang,
+                    v2_job.same_worker,
+                    v2_job.pre_run_error,
+                    v2_job.concurrent_limit,
+                    v2_job.concurrency_time_window_s,
+                    v2_job.flow_innermost_root_job,
+                    v2_job.timeout,
+                    v2_job.flow_step_id,
+                    v2_job.cache_ttl,
+                    v2_job_queue.priority,
+                    v2_job.preprocessed,
+                    v2_job.script_entrypoint_override,
+                    v2_job.trigger,
+                    v2_job.trigger_kind,
+                    v2_job.visible_to_owner,
+                    v2_job.raw_code,
+                    v2_job.raw_lock,
+                    v2_job.raw_flow,
+                    pj.runnable_path as parent_runnable_path,
+                    p.email as permissioned_as_email, p.username as permissioned_as_username, p.is_admin as permissioned_as_is_admin, 
+                    p.is_operator as permissioned_as_is_operator, p.groups as permissioned_as_groups, p.folders as permissioned_as_folders
+                    FROM v2_job_queue 
+                    INNER JOIN v2_job ON v2_job.id = v2_job_queue.id 
+                    LEFT JOIN v2_job_status ON v2_job_status.id = v2_job_queue.id
+                    LEFT JOIN job_perms p ON p.job_id = v2_job.id
+                    LEFT JOIN v2_job pj ON v2_job.parent_job = pj.id
+                    WHERE v2_job_queue.id = $1
+",
+    )
+    .bind(same_worker_job.job_id)
+    .fetch_optional(db)
+    .await
+    .map_err(|e| {
+        Error::internal_err(format!(
+            "Impossible to fetch same_worker job {}: {}",
+            same_worker_job.job_id, e
+        ))
+    })
 }
 
 async fn queue_init_bash_maybe<'c>(
@@ -3071,7 +3094,33 @@ mount {{
             );
 
             #[cfg(feature = "nu")]
-            handle_nu_job(JobHandlerInput {
+            handle_nu_job(JobHandlerInputNu {
+                mem_peak,
+                canceled_by,
+                job,
+                db,
+                client,
+                parent_runnable_path,
+                inner_content: &code,
+                job_dir,
+                requirements_o: lock.as_ref(),
+                shared_mount: &shared_mount,
+                base_internal_url,
+                worker_name,
+                envs,
+                occupancy_metrics,
+            })
+            .await
+        }
+        Some(ScriptLang::Java) => {
+            #[cfg(not(feature = "java"))]
+            return Err(anyhow::anyhow!(
+                "Java is not available because the feature is not enabled"
+            )
+            .into());
+
+            #[cfg(feature = "java")]
+            handle_java_job(JobHandlerInputJava {
                 mem_peak,
                 canceled_by,
                 job,
@@ -3156,6 +3205,11 @@ fn parse_sig_of_lang(
             ScriptLang::Nu => Some(windmill_parser_nu::parse_nu_signature(code)?),
             #[cfg(not(feature = "nu"))]
             ScriptLang::Nu => None,
+            #[cfg(feature = "java")]
+            ScriptLang::Java => Some(windmill_parser_java::parse_java_signature(code)?),
+            #[cfg(not(feature = "java"))]
+            ScriptLang::Java => None,
+            // KJQXZ
         }
     } else {
         None

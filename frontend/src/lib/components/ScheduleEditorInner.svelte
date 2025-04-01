@@ -29,6 +29,7 @@
 	import WorkerTagPicker from './WorkerTagPicker.svelte'
 	import Label from './Label.svelte'
 	import DateTimeInput from './DateTimeInput.svelte'
+	import autosize from '$lib/autosize'
 
 	let optionTabSelected: 'error_handler' | 'recovery_handler' | 'success_handler' | 'retries' =
 		'error_handler'
@@ -122,6 +123,7 @@
 			itemKind = nis_flow ? 'flow' : 'script'
 			initialScriptPath = initial_script_path ?? ''
 			summary = ''
+			description = ''
 			no_flow_overlap = false
 			path = initialScriptPath
 			initialPath = initialScriptPath
@@ -199,6 +201,7 @@
 	let enabled: boolean = false
 	let pathError = ''
 	let summary = ''
+	let description = ''
 	let no_flow_overlap = false
 	let tag: string | undefined = undefined
 
@@ -329,6 +332,7 @@
 			paused_until = s.paused_until
 			showPauseUntil = paused_until !== undefined
 			summary = s.summary ?? ''
+			description = s.description ?? ''
 			script_path = s.script_path ?? ''
 			await loadScript(script_path)
 
@@ -433,6 +437,7 @@
 					ws_error_handler_muted: wsErrorHandlerMuted,
 					retry: retry,
 					summary: summary != '' ? summary : undefined,
+					description: description,
 					no_flow_overlap: no_flow_overlap,
 					tag: tag,
 					paused_until: paused_until,
@@ -467,6 +472,7 @@
 					ws_error_handler_muted: wsErrorHandlerMuted,
 					retry: retry,
 					summary: summary != '' ? summary : undefined,
+					description: description,
 					no_flow_overlap: no_flow_overlap,
 					tag: tag,
 					paused_until: paused_until,
@@ -479,7 +485,10 @@
 		drawer.closeDrawer()
 	}
 
-	function getHandlerType(isHandler: 'error' | 'recovery' | 'success', scriptPath: string): 'custom' | 'slack' | 'teams' {
+	function getHandlerType(
+		isHandler: 'error' | 'recovery' | 'success',
+		scriptPath: string
+	): 'custom' | 'slack' | 'teams' {
 		const handlerMap = {
 			error: {
 				teams: '/workspace-or-schedule-error-handler-teams',
@@ -493,14 +502,14 @@
 				teams: '/schedule-success-handler-teams',
 				slack: '/schedule-success-handler-slack'
 			}
-		};
+		}
 
 		for (const [type, suffix] of Object.entries(handlerMap[isHandler])) {
 			if (scriptPath.startsWith('hub/') && scriptPath.endsWith(suffix)) {
-				return type as 'custom' | 'slack' | 'teams';
+				return type as 'custom' | 'slack' | 'teams'
 			}
 		}
-		return 'custom';
+		return 'custom'
 	}
 
 	function isSlackHandler(isSlackHandler: 'error' | 'recovery' | 'success', scriptPath: string) {
@@ -671,6 +680,15 @@
 							</div>
 						{/if}
 					</Label>
+
+					<Label label="Description">
+						<textarea
+							rows="4"
+							use:autosize
+							bind:value={description}
+							placeholder="What this schedule does and how to use it"
+						></textarea>
+					</Label>
 				</div>
 
 				<Section label="Schedule">
@@ -735,6 +753,7 @@
 							initialPath={initialScriptPath}
 							kinds={['script']}
 							allowFlow={true}
+							allowRefresh={can_write}
 							bind:itemKind
 							bind:scriptPath={script_path}
 							on:select={(e) => {

@@ -3,6 +3,7 @@ import type { Writable } from 'svelte/store'
 
 export type ScheduleTrigger = {
 	summary: string | undefined
+	description?: string
 	args: Record<string, any>
 	cron: string
 	timezone: string
