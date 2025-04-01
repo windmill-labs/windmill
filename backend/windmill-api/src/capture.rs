@@ -955,16 +955,15 @@ async fn gcp_payload(
 #[cfg(feature = "http_trigger")]
 async fn http_payload(
     db: &DB,
-    args: WebhookArgs,
     route_path: &str,
     w_id: String,
-    kind: RunnableKind,
     method: http::Method,
     query: HashMap<String, String>,
     headers: HeaderMap,
     path: String,
     is_flow: bool,
-) -> Result<()> {
+    request: Request,
+) -> std::result::Result<(), Response> {
     let (http_trigger_config, owner, email): (HttpTriggerConfig, _, _) =
         get_capture_trigger_config_and_owner(
             &db,
@@ -979,7 +978,7 @@ async fn http_payload(
 
     let args = try_from_request_body(
         request,
-        &db,
+        &(),
         http_trigger_config.raw_string,
         http_trigger_config.wrap_body,
     )
@@ -1067,9 +1066,8 @@ async fn trigger_capture_payload(
         TriggerKind::Http => {
             #[cfg(feature = "http_trigger")]
             {
-                let args = try_from_request_body(request, &(), None, None).await?;
                 http_payload(
-                    &db, args, route_path, w_id, kind, method, query, headers, path, is_flow,
+                    &db, route_path, w_id, method, query, headers, path, is_flow, request,
                 )
                 .await
                 .map_err(|e| e.into_response())?;

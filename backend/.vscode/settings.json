@@ -12,5 +12,5 @@
   "conventionalCommits.scopes": [
     "restructring triggers, decoding trigger message on work"
   ],
-  "rust-analyzer.cargo.features": ["gcp_trigger", "enterprise"]
+  "rust-analyzer.cargo.features": ["gcp_trigger", "enterprise", "http_trigger"]
 }
