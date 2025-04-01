@@ -438,6 +438,7 @@
 				? 'outline outline-2 outline-blue-500/30 outline-offset-[-3px]'
 				: ''
 		)}
+		style="scrollbar-gutter: stable;"
 		bind:this={contentEl}
 		on:scroll={checkOverflow}
 		use:useResizeObserver={checkOverflow}
