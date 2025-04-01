@@ -425,22 +425,18 @@
 		{:else if selectedJob != undefined && 'result' in selectedJob}
 			{#if fullResult}
 				<div class="break-words relative h-full py-2">
-					{#if selectedJob.result != undefined}
-						{#key selectedJob}
-							<DisplayResult
-								bind:forceJson
-								workspaceId={selectedJob?.workspace_id}
-								jobId={selectedJob?.id}
-								result={selectedJob?.result}
-							>
-								<svelte:fragment slot="copilot-fix">
-									<slot name="copilot-fix" />
-								</svelte:fragment>
-							</DisplayResult>
-						{/key}
-					{:else}
-						Result: null
-					{/if}
+					{#key selectedJob}
+						<DisplayResult
+							bind:forceJson
+							workspaceId={selectedJob?.workspace_id}
+							jobId={selectedJob?.id}
+							result={selectedJob?.result}
+						>
+							<svelte:fragment slot="copilot-fix">
+								<slot name="copilot-fix" />
+							</svelte:fragment>
+						</DisplayResult>
+					{/key}
 				</div>
 			{:else}
 				<ObjectViewer
