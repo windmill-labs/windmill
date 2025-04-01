@@ -23,11 +23,12 @@ use crate::AuthedClient;
 #[derive(Deserialize)]
 struct MssqlDatabase {
     host: String,
-    user: String,
-    password: String,
+    user: Option<String>,
+    password: Option<String>,
     port: Option<u16>,
     dbname: String,
     instance_name: Option<String>,
+    aad_token: Option<serde_json::Value>,
 }
 
 lazy_static::lazy_static! {
@@ -93,8 +94,22 @@ pub async fn do_mssql(
         append_logs(&job.id, &job.workspace_id, logs, db).await;
     }
 
-    // Using SQL Server authentication.
-    config.authentication(AuthMethod::sql_server(database.user, database.password));
+    // Handle authentication based on available credentials
+    if let Some(token_value) = &database.aad_token {
+        if let Some(token) = token_value.get("token").and_then(|t| t.as_str()) {
+            config.authentication(AuthMethod::aad_token(token));
+        } else {
+            return Err(Error::BadRequest(
+                "Invalid AAD token format - expected { token: string }".to_string(),
+            ));
+        }
+    } else if let (Some(user), Some(password)) = (&database.user, &database.password) {
+        config.authentication(AuthMethod::sql_server(user.clone(), password.clone()));
+    } else {
+        return Err(Error::BadRequest(
+            "Neither AAD token nor username/password credentials are set".to_string(),
+        ));
+    }
     config.trust_cert(); // on production, it is not a good idea to do this
 
     let tcp = if use_instance_name {

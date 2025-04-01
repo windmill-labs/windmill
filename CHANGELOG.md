@@ -1,5 +1,21 @@
 # Changelog
 
+## [1.480.0](https://github.com/windmill-labs/windmill/compare/v1.479.3...v1.480.0) (2025-03-31)
+
+
+### Features
+
+* ms sql aad authentication support ([#5539](https://github.com/windmill-labs/windmill/issues/5539)) ([c230e2a](https://github.com/windmill-labs/windmill/commit/c230e2aed9b7fafb86548a4f4151939d5aca5127))
+* put db resources in ai context ([#5507](https://github.com/windmill-labs/windmill/issues/5507)) ([f7c8654](https://github.com/windmill-labs/windmill/commit/f7c86549879582c7f9dc72d52524f3a394f493f3))
+
+
+### Bug Fixes
+
+* correctly run empty flow with preprocessor from UI ([#5537](https://github.com/windmill-labs/windmill/issues/5537)) ([3d32501](https://github.com/windmill-labs/windmill/commit/3d3250194d43aee1a640a57505bc7a6afee62c84))
+* **frontend:** use custom caret position function ([#5544](https://github.com/windmill-labs/windmill/issues/5544)) ([ca0cda3](https://github.com/windmill-labs/windmill/commit/ca0cda3ecf5bd449f9c371cf5102c11d880c9822))
+* ignore invalid chunks in completion stream: empty choices when using azure ([#5545](https://github.com/windmill-labs/windmill/issues/5545)) ([b31090c](https://github.com/windmill-labs/windmill/commit/b31090cb544632680947492dc28f7b7c1a9c7287))
+* only format valid resource types ([#5541](https://github.com/windmill-labs/windmill/issues/5541)) ([113f038](https://github.com/windmill-labs/windmill/commit/113f038fc0e53e37c3bc319f85b3f7fa780c6fe5))
+
 ## [1.479.3](https://github.com/windmill-labs/windmill/compare/v1.479.2...v1.479.3) (2025-03-28)
 
 

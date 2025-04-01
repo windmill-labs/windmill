@@ -1,18 +1,11 @@
 <script lang="ts">
-	import autosize from '$lib/autosize'
 	import { twMerge } from 'tailwind-merge'
 	import AssistantMessage from './AssistantMessage.svelte'
 	import { createEventDispatcher, getContext } from 'svelte'
 	import { ChevronDown, HistoryIcon, Loader2, Plus, X } from 'lucide-svelte'
 	import Button from '$lib/components/common/button/Button.svelte'
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
-	import {
-		ContextIconMap,
-		type AIChatContext,
-		type DisplayMessage,
-		type ContextElement,
-		type SelectedContext
-	} from './core'
+	import { type AIChatContext, type DisplayMessage, type ContextElement } from './core'
 	import {
 		COPILOT_SESSION_MODEL_SETTING_NAME,
 		COPILOT_SESSION_PROVIDER_SETTING_NAME,
@@ -21,11 +14,13 @@
 	} from '$lib/stores'
 	import ContextElementBadge from './ContextElementBadge.svelte'
 	import { storeLocalSetting } from '$lib/utils'
+	import ContextTextarea from './ContextTextarea.svelte'
+	import AvailableContextList from './AvailableContextList.svelte'
 
 	export let pastChats: { id: string; title: string }[]
 	export let messages: DisplayMessage[]
 	export let instructions: string
-	export let selectedContext: SelectedContext[]
+	export let selectedContext: ContextElement[]
 	export let availableContext: ContextElement[]
 
 	const dispatch = createEventDispatcher<{
@@ -59,6 +54,19 @@
 			model: 'No model',
 			provider: 'No provider'
 		}
+
+	function addContextToSelection(contextElement: ContextElement) {
+		if (
+			!selectedContext.find(
+				(c) => c.type === contextElement.type && c.title === contextElement.title
+			) &&
+			availableContext.find(
+				(c) => c.type === contextElement.type && c.title === contextElement.title
+			)
+		) {
+			selectedContext = [...selectedContext, contextElement]
+		}
+	}
 </script>
 
 <div class="flex flex-col h-full">
@@ -188,97 +196,74 @@
 					>
 				</svelte:fragment>
 				<svelte:fragment slot="content" let:close>
-					<div class="flex flex-col gap-1 text-tertiary text-xs p-1 min-w-24">
-						{#if availableContext.filter((c) => !selectedContext.find((sc) => sc.type === c.type)).length === 0}
-							<div class="text-center text-tertiary text-xs">No available context</div>
-						{:else}
-							{#each availableContext as element}
-								{#if !selectedContext.find((c) => c.type === element.type)}
-									<button
-										class="hover:bg-surface-hover rounded-md p-1 text-left flex flex-row gap-1 items-center font-normal"
-										on:click={() => {
-											selectedContext = [
-												...selectedContext,
-												{
-													type: element.type,
-													title: element.title
-												}
-											]
-											close()
-										}}
-									>
-										<svelte:component this={ContextIconMap[element.type]} size={16} />
-										{element.title}
-									</button>
-								{/if}
-							{/each}
-						{/if}
-					</div>
+					<AvailableContextList
+						{availableContext}
+						{selectedContext}
+						onSelect={(element) => {
+							addContextToSelection(element)
+							close()
+						}}
+					/>
 				</svelte:fragment>
 			</Popover>
 			{#each selectedContext as element}
-				{@const contextElement = availableContext.find((c) => c.type === element.type)}
+				{@const contextElement = availableContext.find(
+					(c) => c.type === element.type && c.title === element.title
+				)}
 				{#if contextElement}
 					<ContextElementBadge
 						{contextElement}
 						deletable
 						on:delete={() => {
-							selectedContext = selectedContext.filter((c) => c.type !== element.type)
+							selectedContext = selectedContext.filter(
+								(c) => c.type !== element.type || c.title !== element.title
+							)
 						}}
 					/>
 				{/if}
 			{/each}
 		</div>
-		<div class="px-2 scroll-pb-2">
-			<textarea
-				on:keypress={(e) => {
-					if (e.key === 'Enter' && !e.shiftKey) {
-						e.preventDefault()
-						dispatch('sendRequest')
-					}
-				}}
-				bind:value={instructions}
-				use:autosize
-				rows={3}
-				placeholder={messages.length > 0 ? 'Ask followup' : 'Ask anything'}
-				class="resize-none"
-			/>
+		<ContextTextarea
+			{instructions}
+			{availableContext}
+			{selectedContext}
+			isFirstMessage={messages.length === 0}
+			on:addContext={(e) => addContextToSelection(e.detail.contextElement)}
+			on:sendRequest={() => dispatch('sendRequest')}
+			on:updateInstructions={(e) => (instructions = e.detail.value)}
+		/>
 
-			<div class="flex flex-row justify-end items-center gap-2 px-0.5">
-				<div class="min-w-0">
-					<Popover disablePopup={$copilotInfo.aiModels.length <= 1} class="max-w-full">
-						<svelte:fragment slot="trigger">
-							<div class="text-tertiary text-xs flex flex-row items-center gap-0.5 font-normal">
-								<span class="truncate">{providerModel.model}</span>
-								{#if $copilotInfo.aiModels.length > 1}
-									<div class="shrink-0">
-										<ChevronDown size={16} />
-									</div>
-								{/if}
-							</div>
-						</svelte:fragment>
-						<svelte:fragment slot="content" let:close>
-							<div class="flex flex-col gap-1 p-1 min-w-24">
-								{#each $copilotInfo.aiModels.filter((m) => m.model !== providerModel.model) as providerModel}
-									<button
-										class="text-left text-xs hover:bg-surface-hover rounded-md p-1 font-normal"
-										on:click={() => {
-											$copilotSessionModel = providerModel
-											storeLocalSetting(COPILOT_SESSION_MODEL_SETTING_NAME, providerModel.model)
-											storeLocalSetting(
-												COPILOT_SESSION_PROVIDER_SETTING_NAME,
-												providerModel.provider
-											)
-											close()
-										}}
-									>
-										{providerModel.model}
-									</button>
-								{/each}
-							</div>
-						</svelte:fragment>
-					</Popover>
-				</div>
+		<div class="flex flex-row justify-end items-center gap-2 px-0.5">
+			<div class="min-w-0">
+				<Popover disablePopup={$copilotInfo.aiModels.length <= 1} class="max-w-full">
+					<svelte:fragment slot="trigger">
+						<div class="text-tertiary text-xs flex flex-row items-center gap-0.5 font-normal">
+							<span class="truncate">{providerModel.model}</span>
+							{#if $copilotInfo.aiModels.length > 1}
+								<div class="shrink-0">
+									<ChevronDown size={16} />
+								</div>
+							{/if}
+						</div>
+					</svelte:fragment>
+					<svelte:fragment slot="content" let:close>
+						<div class="flex flex-col gap-1 p-1 min-w-24">
+							{#each $copilotInfo.aiModels.filter((m) => m.model !== providerModel.model) as providerModel}
+								<button
+									class="text-left text-xs hover:bg-surface-hover rounded-md p-1 font-normal"
+									on:click={() => {
+										$copilotSessionModel = providerModel
+										storeLocalSetting(COPILOT_SESSION_MODEL_SETTING_NAME, providerModel.model)
+										storeLocalSetting(COPILOT_SESSION_PROVIDER_SETTING_NAME, providerModel.provider)
+										close()
+									}}
+								>
+									{providerModel.model}
+								</button>
+							{/each}
+						</div>
+					</svelte:fragment>
+				</Popover>
 			</div>
 		</div>
 	</div>
