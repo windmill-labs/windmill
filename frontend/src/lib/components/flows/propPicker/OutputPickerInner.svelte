@@ -126,7 +126,7 @@
 </script>
 
 <div
-	class="w-full h-full flex flex-col mt-[-30px]"
+	class="w-full h-full flex flex-col"
 	bind:clientHeight
 	style={canEditWithDblClick ? 'cursor: text;' : ''}
 >
