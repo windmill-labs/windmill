@@ -508,7 +508,7 @@
 																<th class="pb-2 w-1/3">Org</th>
 																<th class="pb-2 w-1/6">Workspace</th>
 																<th class="pb-2 w-1/6">Repos</th>
-																<th class="pb-2 w-1/3" />
+																<th class="pb-2 w-1/3"></th>
 															</tr>
 														</thead>
 														<tbody>
@@ -579,7 +579,7 @@
 																<th class="pb-2 w-1/3">Org</th>
 																<th class="pb-2 w-1/6">Workspace</th>
 																<th class="pb-2 w-1/6">Repos</th>
-																<th class="pb-2 w-1/3" />
+																<th class="pb-2 w-1/3"></th>
 															</tr>
 														</thead>
 														<tbody>

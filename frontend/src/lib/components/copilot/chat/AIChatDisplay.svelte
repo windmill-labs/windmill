@@ -242,7 +242,7 @@
 				rows={3}
 				placeholder={messages.length > 0 ? 'Ask followup' : 'Ask anything'}
 				class="resize-none"
-			/>
+			></textarea>
 
 			<div class="flex flex-row justify-end items-center gap-2 px-0.5">
 				<div class="min-w-0">

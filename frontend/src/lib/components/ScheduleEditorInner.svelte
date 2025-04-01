@@ -687,7 +687,7 @@
 							use:autosize
 							bind:value={description}
 							placeholder="What this schedule does and how to use it"
-						/>
+						></textarea>
 					</Label>
 				</div>
 
