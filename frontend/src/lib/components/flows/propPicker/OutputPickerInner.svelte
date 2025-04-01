@@ -98,6 +98,10 @@
 			: preview === 'job' && mock?.enabled && selectedJob?.type === 'CompletedJob'
 			? 'override'
 			: undefined
+
+	let dblClickDisabled = false
+	let hoveringResult = false
+	$: canEditWithDblClick = mock?.enabled && !connectingData && !dblClickDisabled && hoveringResult
 </script>
 
 <div class="w-full h-full flex flex-col" bind:clientHeight>
@@ -331,6 +335,14 @@
 								tmpMock = undefined
 							}}
 							disabled={!mock?.enabled || !!connectingData}
+							wrapperClasses={twMerge(
+								'transition-all duration-200 rounded-md outline outline-1 outline-transparent',
+								canEditWithDblClick ? 'outline-blue-500 outline-offset-[-1px]' : ''
+							)}
+							btnClasses={twMerge(
+								'transition-all duration-200 ',
+								canEditWithDblClick ? 'text-blue-500' : ''
+							)}
 						/>
 						<svelte:fragment slot="text">
 							{'Pin the output to allow editing'}
@@ -367,7 +379,42 @@
 		</div>
 	</div>
 
-	<div class="grow min-h-0 px-2 rounded-sm w-full overflow-auto">
+	<!-- svelte-ignore a11y-no-static-element-interactions -->
+	<!-- svelte-ignore a11y-mouse-events-have-key-events -->
+	<div
+		class="grow min-h-0 px-2 rounded-sm w-full overflow-auto"
+		on:mouseover={(event) => {
+			if (
+				event.target &&
+				event.target instanceof HTMLElement &&
+				(event.target.closest('[data-no-dblclick]') ||
+					event.target.closest('button') ||
+					event.target.closest('input') ||
+					event.target.closest('textarea') ||
+					event.target.closest('select') ||
+					event.target.closest('option') ||
+					event.target.closest('label') ||
+					event.target.closest('a'))
+			) {
+				dblClickDisabled = true
+			} else {
+				dblClickDisabled = false
+			}
+		}}
+		on:dblclick={() => {
+			if (canEditWithDblClick) {
+				stepHistoryPopover?.close()
+				jsonView = true
+				tmpMock = undefined
+			}
+		}}
+		on:mouseenter={() => {
+			hoveringResult = true
+		}}
+		on:mouseleave={() => {
+			hoveringResult = false
+		}}
+	>
 		{#if isLoading}
 			<div class="flex flex-col items-center justify-center">
 				<Loader2 class="animate-spin" />

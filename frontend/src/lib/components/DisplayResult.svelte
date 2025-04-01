@@ -543,7 +543,7 @@
 							{/if}
 						</div>
 					{:else if !forceJson && resultKind === 'map'}
-						<div class="h-full">
+						<div class="h-full" data-no-dblclick>
 							<MapResult
 								lat={result.map.lat}
 								lon={result.map.lon}
@@ -838,7 +838,7 @@
 											</button>
 										{/if}
 									{:else if s3object?.s3?.endsWith('.pdf')}
-										<div class="h-96 mt-2 border">
+										<div class="h-96 mt-2 border" data-no-dblclick>
 											<PdfViewer
 												allowFullscreen
 												source={`/api/w/${workspaceId}/job_helpers/load_image_preview?file_key=${encodeURIComponent(
