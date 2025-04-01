@@ -20,7 +20,11 @@ use tokio::sync::RwLock;
 use windmill_macros::annotations;
 
 use crate::{
-    error, global_settings::CUSTOM_TAGS_SETTING, indexer::TantivyIndexerSettings, server::Smtp,
+    agent_workers::{AGENT_HTTP_CLIENT, BASE_INTERNAL_URL},
+    error,
+    global_settings::CUSTOM_TAGS_SETTING,
+    indexer::TantivyIndexerSettings,
+    server::Smtp,
     KillpillSender, DB,
 };
 
@@ -206,7 +210,8 @@ fn format_pull_query(peek: String) -> String {
     r
 }
 
-pub async fn make_suspended_pull_query(wc: &WorkerConfig) {
+// pub async fn make_suspended
+pub async fn store_suspended_pull_query(wc: &WorkerConfig) {
     if wc.worker_tags.len() == 0 {
         tracing::error!("Empty tags in worker tags, skipping");
         return;
@@ -224,22 +229,26 @@ pub async fn make_suspended_pull_query(wc: &WorkerConfig) {
     *l = query;
 }
 
-pub async fn make_pull_query(wc: &WorkerConfig) {
+pub fn make_pull_query(tags: &[String]) -> String {
+    format_pull_query(format!(
+        "SELECT id
+        FROM v2_job_queue
+        WHERE running = false AND tag IN ({}) AND scheduled_for <= now()
+        ORDER BY priority DESC NULLS LAST, scheduled_for
+        FOR UPDATE SKIP LOCKED
+        LIMIT 1",
+        tags.iter().map(|x| format!("'{x}'")).join(", ")
+    ))
+}
+
+pub async fn store_pull_query(wc: &WorkerConfig) {
     let mut queries = vec![];
     for tags in wc.priority_tags_sorted.iter() {
         if tags.tags.len() == 0 {
             tracing::error!("Empty tags in priority tags, skipping");
             continue;
         }
-        let query = format_pull_query(format!(
-            "SELECT id
-            FROM v2_job_queue
-            WHERE running = false AND tag IN ({}) AND scheduled_for <= now()
-            ORDER BY priority DESC NULLS LAST, scheduled_for
-            FOR UPDATE SKIP LOCKED
-            LIMIT 1",
-            tags.tags.iter().map(|x| format!("'{x}'")).join(", ")
-        ));
+        let query = make_pull_query(&tags.tags);
         queries.push(query);
     }
     let mut l = WORKER_PULL_QUERIES.write().await;
@@ -841,7 +850,140 @@ pub async fn update_min_version(conn: &Connection) -> bool {
     min_version >= cur_version
 }
 
-pub async fn update_ping(worker_instance: &str, worker_name: &str, ip: &str, db: &Connection) {
+#[derive(Serialize, Deserialize)]
+pub struct Ping {
+    pub worker_instance: Option<String>,
+    pub worker_name: String,
+    pub ip: Option<String>,
+    pub tags: Vec<String>,
+    pub dw: Option<String>,
+    pub version: Option<String>,
+    pub vcpus: Option<i64>,
+    pub memory: Option<i64>,
+    pub memory_usage: Option<i64>,
+    pub wm_memory_usage: Option<i64>,
+    pub jobs_executed: Option<i32>,
+    pub occupancy_rate: Option<f32>,
+    pub occupancy_rate_15s: Option<f32>,
+    pub occupancy_rate_5m: Option<f32>,
+    pub occupancy_rate_30m: Option<f32>,
+    pub update: bool,
+}
+pub async fn update_ping_http(insert_ping: Ping, db: &DB) -> anyhow::Result<()> {
+    if insert_ping.update {
+        update_ping_query(
+            &insert_ping.worker_name,
+            insert_ping.tags.as_slice(),
+            insert_ping.vcpus,
+            insert_ping.memory,
+            insert_ping.jobs_executed,
+            insert_ping.occupancy_rate,
+            insert_ping.memory_usage,
+            insert_ping.wm_memory_usage,
+            insert_ping.occupancy_rate_15s,
+            insert_ping.occupancy_rate_5m,
+            insert_ping.occupancy_rate_30m,
+            db,
+        )
+        .await?;
+    } else {
+        if insert_ping.worker_instance.is_none()
+            || insert_ping.version.is_none()
+            || insert_ping.ip.is_none()
+        {
+            return Err(anyhow::anyhow!(
+                "Worker instance, version and ip are required"
+            ));
+        }
+
+        insert_ping_query(
+            &insert_ping.worker_instance.unwrap(),
+            &insert_ping.worker_name,
+            &insert_ping.ip.unwrap(),
+            insert_ping.tags.as_slice(),
+            insert_ping.dw,
+            &insert_ping.version.unwrap(),
+            insert_ping.vcpus,
+            insert_ping.memory,
+            db,
+        )
+        .await?;
+    }
+    Ok(())
+}
+pub async fn insert_ping_query(
+    worker_instance: &str,
+    worker_name: &str,
+    ip: &str,
+    tags: &[String],
+    dw: Option<String>,
+    version: &str,
+    vcpus: Option<i64>,
+    memory: Option<i64>,
+    db: &DB,
+) -> anyhow::Result<()> {
+    sqlx::query!(
+        "INSERT INTO worker_ping (worker_instance, worker, ip, custom_tags, worker_group, dedicated_worker, wm_version, vcpus, memory) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) ON CONFLICT (worker) DO UPDATE set ip = $3, custom_tags = $4, worker_group = $5",
+        worker_instance,
+        worker_name,
+        ip,
+        tags,
+        *WORKER_GROUP,
+        dw,
+        version,
+        vcpus,
+        memory
+        )
+        .execute(db)
+        .await?;
+    Ok(())
+}
+
+pub async fn update_ping_query(
+    worker_name: &str,
+    tags: &[String],
+    vcpus: Option<i64>,
+    memory: Option<i64>,
+    jobs_executed: Option<i32>,
+    occupancy_rate: Option<f32>,
+    memory_usage: Option<i64>,
+    wm_memory_usage: Option<i64>,
+    occupancy_rate_15s: Option<f32>,
+    occupancy_rate_5m: Option<f32>,
+    occupancy_rate_30m: Option<f32>,
+    db: &DB,
+) -> anyhow::Result<()> {
+    sqlx::query!(
+        "UPDATE worker_ping SET ping_at = now(), jobs_executed = $1, custom_tags = $2,
+         occupancy_rate = $3, memory_usage = $4, wm_memory_usage = $5, vcpus = COALESCE($7, vcpus),
+         memory = COALESCE($8, memory), occupancy_rate_15s = $9, occupancy_rate_5m = $10, occupancy_rate_30m = $11 WHERE worker = $6",
+        jobs_executed,
+        tags,
+        occupancy_rate,
+        memory_usage,
+        wm_memory_usage,
+        worker_name,
+        vcpus,
+        memory,
+        occupancy_rate_15s,
+        occupancy_rate_5m,
+        occupancy_rate_30m,
+    )
+    .execute(db)
+    .await?;
+    Ok(())
+}
+
+// "UPDATE worker_ping SET ping_at = now(), jobs_executed = $1, custom_tags = $2,
+// occupancy_rate = $3, memory_usage = $4, wm_memory_usage = $5, vcpus = COALESCE($7, vcpus),
+// memory = COALESCE($8, memory), occupancy_rate_15s = $9, occupancy_rate_5m = $10, occupancy_rate_30m = $11 WHERE worker = $6",
+
+pub async fn insert_ping(
+    worker_instance: &str,
+    worker_name: &str,
+    ip: &str,
+    db: &Connection,
+) -> anyhow::Result<()> {
     let (tags, dw) = {
         let wc = WORKER_CONFIG.read().await.clone();
         (
@@ -856,27 +998,56 @@ pub async fn update_ping(worker_instance: &str, worker_name: &str, ip: &str, db:
     let memory = get_memory();
 
     match db {
-        Connection::Sql(pool) => {
-            sqlx::query!(
-                "INSERT INTO worker_ping (worker_instance, worker, ip, custom_tags, worker_group, dedicated_worker, wm_version, vcpus, memory) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) ON CONFLICT (worker) DO UPDATE set ip = $3, custom_tags = $4, worker_group = $5",
+        Connection::Sql(db) => {
+            insert_ping_query(
                 worker_instance,
                 worker_name,
                 ip,
                 tags.as_slice(),
-                *WORKER_GROUP,
                 dw,
                 crate::utils::GIT_VERSION,
                 vcpus,
-                memory
-                )
-                .execute(pool)
-                .await
-                .expect("insert worker_ping initial value");
+                memory,
+                db,
+            )
+            .await?;
         }
         Connection::Http => {
-            tracing::error!("Cannot update ping in http mode");
+            let response = AGENT_HTTP_CLIENT
+                .post(format!(
+                    "{}/api/agent_workers/update_ping",
+                    *BASE_INTERNAL_URL
+                ))
+                .body(serde_json::to_string(&Ping {
+                    worker_instance: Some(worker_instance.to_string()),
+                    worker_name: worker_name.to_string(),
+                    ip: Some(ip.to_string()),
+                    tags: tags.to_vec(),
+                    dw: dw,
+                    jobs_executed: None,
+                    occupancy_rate: None,
+                    occupancy_rate_15s: None,
+                    occupancy_rate_5m: None,
+                    occupancy_rate_30m: None,
+                    version: Some(crate::utils::GIT_VERSION.to_string()),
+                    vcpus: vcpus,
+                    memory: memory,
+                    memory_usage: get_worker_memory_usage(),
+                    wm_memory_usage: get_windmill_memory_usage(),
+                    update: false,
+                })?)
+                .header("Content-Type", "application/json")
+                .send()
+                .await?;
+            if !response.status().is_success() {
+                return Err(anyhow::anyhow!(format!(
+                    "Failed to send update ping request {:?}",
+                    response.status()
+                )));
+            }
         }
     }
+    Ok(())
 }
 
 pub async fn load_worker_config(
@@ -896,8 +1067,32 @@ pub async fn load_worker_config(
         .flatten()
         .unwrap_or_default(),
         Connection::Http => {
-            tracing::error!("todo: Cannot load config in http mode");
-            WorkerConfigOpt::default()
+            let resp = AGENT_HTTP_CLIENT
+                .get(format!(
+                    "{}/api/configs/get/worker__{}",
+                    *BASE_INTERNAL_URL, *WORKER_GROUP
+                ))
+                .send()
+                .await
+                .map_err(|e| {
+                    error::Error::ExecutionErr(format!("Failed to connect to server: {}", e))
+                })?;
+            if resp.status().is_success() {
+                let body = resp.json::<WorkerConfigOpt>().await.map_err(|e| {
+                    error::Error::ExecutionErr(format!(
+                        "Failed to parse worker config from server: {}",
+                        e
+                    ))
+                })?;
+                body
+            } else {
+                tracing::error!(
+                    "Failed to load worker config from server for group {}: {}",
+                    *WORKER_GROUP,
+                    resp.status()
+                );
+                WorkerConfigOpt::default()
+            }
         }
     };
 
@@ -1082,7 +1277,7 @@ pub struct WorkspacedPath {
     pub path: String,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Debug)]
 pub struct WorkerConfigOpt {
     pub worker_tags: Option<Vec<String>>,
     pub priority_tags: Option<HashMap<String, u8>>,

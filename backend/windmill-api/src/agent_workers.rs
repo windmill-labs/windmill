@@ -19,18 +19,65 @@ use axum::{
 };
 use http::request::Parts;
 use hyper::StatusCode;
+use quick_cache::sync::Cache;
 use serde::{Deserialize, Serialize};
 use windmill_common::{
     agent_workers::QueueInitJob,
-    error::Result,
+    error::{JsonResult, Result},
     jwt::{decode_with_internal_secret, encode_with_internal_secret},
+    worker::{update_ping_http, Ping},
 };
-use windmill_queue::push_init_job;
+use windmill_queue::{pull, push_init_job, PulledJobResult};
 
 pub fn global_service() -> Router {
     Router::new()
         .route("/queue_init_job", post(queue_init_job))
         .route("/create_agent_token", post(create_agent_token))
+        .route("/update_ping", post(update_worker_ping))
+        .route("/pull_job", post(pull_job))
+}
+
+#[derive(Clone, Debug)]
+pub struct AgentAuth {
+    pub worker_name: String,
+    pub tags: Vec<String>,
+}
+
+pub struct AgentCache {
+    cache: Cache<String, AgentAuth>,
+}
+
+impl AgentCache {
+    pub fn new() -> Self {
+        AgentCache { cache: Cache::new(1000) }
+    }
+
+    pub async fn get_agent_authed(&self, token: &str) -> Option<AgentAuth> {
+        let agent = self.cache.get(token);
+        if agent.is_some() {
+            agent
+        } else {
+            // #[cfg(feature = "enterprise")]
+            if let Some(trimmed) = token.strip_prefix("jwt_agent_") {
+                let splitted = trimmed.split_once("_");
+                if let Some((suffix, jwt)) = splitted {
+                    let decoded =
+                        windmill_common::jwt::decode_with_internal_secret::<AgentAuth>(jwt).await;
+                    if let Ok(mut decoded) = decoded {
+                        decoded.worker_name.push_str("-");
+                        decoded.worker_name.push_str(suffix);
+                        self.cache.insert(token.to_string(), decoded.clone());
+                        return Some(decoded);
+                    } else {
+                        tracing::error!("JWT_AGENT auth error: {:?}", decoded.unwrap_err());
+                    }
+                } else {
+                    tracing::error!("jwt agent token missing suffix");
+                }
+            }
+            None
+        }
+    }
 }
 
 async fn queue_init_job(
@@ -92,4 +139,23 @@ async fn create_agent_token(
     require_super_admin(&db, &authed.email).await?;
     let token = encode_with_internal_secret(claims).await?;
     Ok(token)
+}
+
+async fn update_worker_ping(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Json(update_ping): Json<Ping>,
+) -> JsonResult<()> {
+    //require_super_admin(&db, &authed.email).await?;
+    update_ping_http(update_ping, &db).await?;
+    Ok(Json(()))
+}
+
+async fn pull_job(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    // Json(request): Json<PullJobRequest>,
+) -> JsonResult<PulledJobResult> {
+    let job = pull(&db, false, todo!()).await?;
+    Ok(Json(job))
 }

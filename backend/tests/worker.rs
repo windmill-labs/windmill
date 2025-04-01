@@ -1033,8 +1033,8 @@ fn spawn_test_worker(
                 priority: 0,
                 tags: (*wc).worker_tags.clone(),
             }];
-            windmill_common::worker::make_suspended_pull_query(&wc).await;
-            windmill_common::worker::make_pull_query(&wc).await;
+            windmill_common::worker::store_suspended_pull_query(&wc).await;
+            windmill_common::worker::store_pull_query(&wc).await;
         }
         windmill_worker::run_worker(
             &db.into(),

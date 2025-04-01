@@ -830,6 +830,12 @@ Windmill Community Edition {GIT_VERSION}
                                                         NUGET_CONFIG_SETTING => {
                                                             reload_nuget_config_setting(&conn).await
                                                         },
+                                                        MAVEN_REPOS_SETTING => {
+                                                            reload_maven_repos_setting(&conn).await
+                                                        },
+                                                        NO_DEFAULT_MAVEN_SETTING => {
+                                                            reload_no_default_maven_setting(&conn).await
+                                                        },
                                                         KEEP_JOB_DIR_SETTING => {
                                                             load_keep_job_dir(&conn).await;
                                                         },
@@ -886,6 +892,7 @@ Windmill Community Edition {GIT_VERSION}
                                                                 tracing::error!(error = %e, "Could not reload critical alert UI setting");
                                                             }
                                                         },
+                                                        
                                                         a @_ => {
                                                             tracing::info!("Unrecognized Global Setting Change Payload: {:?}", a);
                                                         }
@@ -905,149 +912,9 @@ Windmill Community Edition {GIT_VERSION}
                                                     tracing::info!("received killpill for monitor job");
                                                     break;
                                                 },
-<<<<<<< HEAD
                                                 new_listener = retry_listen_pg(&db_url) => {
                                                     listener = new_listener;
                                                     continue;
-=======
-                                                OAUTH_SETTING => {
-                                                    if let Err(e) = reload_base_url_setting(&db).await {
-                                                        tracing::error!(error = %e, "Could not reload oauth setting");
-                                                    }
-                                                },
-                                                CUSTOM_TAGS_SETTING => {
-                                                    if let Err(e) = reload_custom_tags_setting(&db).await {
-                                                        tracing::error!(error = %e, "Could not reload custom tags setting");
-                                                    }
-                                                },
-                                                LICENSE_KEY_SETTING => {
-                                                    if let Err(e) = reload_license_key(&db).await {
-                                                        tracing::error!("Failed to reload license key: {e:#}");
-                                                    }
-                                                },
-                                                DEFAULT_TAGS_PER_WORKSPACE_SETTING => {
-                                                    if let Err(e) = load_tag_per_workspace_enabled(&db).await {
-                                                        tracing::error!("Error loading default tag per workspace: {e:#}");
-                                                    }
-                                                },
-                                                DEFAULT_TAGS_WORKSPACES_SETTING => {
-                                                    if let Err(e) = load_tag_per_workspace_workspaces(&db).await {
-                                                        tracing::error!("Error loading default tag per workspace workspaces: {e:#}");
-                                                    }
-                                                }
-                                                SMTP_SETTING => {
-                                                    reload_smtp_config(&db).await;
-                                                },
-                                                TEAMS_SETTING => {
-                                                    tracing::info!("Teams setting changed.");
-                                                },
-                                                INDEXER_SETTING => {
-                                                    reload_indexer_config(&db).await;
-                                                },
-                                                TIMEOUT_WAIT_RESULT_SETTING => {
-                                                    reload_timeout_wait_result_setting(&db).await
-                                                },
-                                                RETENTION_PERIOD_SECS_SETTING => {
-                                                    reload_retention_period_setting(&db).await
-                                                },
-                                                MONITOR_LOGS_ON_OBJECT_STORE_SETTING => {
-                                                    reload_delete_logs_periodically_setting(&db).await
-                                                },
-                                                JOB_DEFAULT_TIMEOUT_SECS_SETTING => {
-                                                    reload_job_default_timeout_setting(&db).await
-                                                },
-                                                #[cfg(feature = "parquet")]
-                                                OBJECT_STORE_CACHE_CONFIG_SETTING => {
-                                                    if !disable_s3_store {
-                                                        reload_s3_cache_setting(&db).await
-                                                    }
-                                                },
-                                                SCIM_TOKEN_SETTING => {
-                                                    reload_scim_token_setting(&db).await
-                                                },
-                                                EXTRA_PIP_INDEX_URL_SETTING => {
-                                                    reload_extra_pip_index_url_setting(&db).await
-                                                },
-                                                PIP_INDEX_URL_SETTING => {
-                                                    reload_pip_index_url_setting(&db).await
-                                                },
-                                                INSTANCE_PYTHON_VERSION_SETTING => {
-                                                    reload_instance_python_version_setting(&db).await
-                                                },
-                                                NPM_CONFIG_REGISTRY_SETTING => {
-                                                    reload_npm_config_registry_setting(&db).await
-                                                },
-                                                BUNFIG_INSTALL_SCOPES_SETTING => {
-                                                    reload_bunfig_install_scopes_setting(&db).await
-                                                },
-                                                NUGET_CONFIG_SETTING => {
-                                                    reload_nuget_config_setting(&db).await
-                                                },
-                                                MAVEN_REPOS_SETTING => {
-                                                    reload_maven_repos_setting(&db).await
-                                                },
-                                                NO_DEFAULT_MAVEN_SETTING => {
-                                                    reload_no_default_maven_setting(&db).await
-                                                },
-                                                KEEP_JOB_DIR_SETTING => {
-                                                    load_keep_job_dir(&db).await;
-                                                },
-                                                REQUIRE_PREEXISTING_USER_FOR_OAUTH_SETTING => {
-                                                    load_require_preexisting_user(&db).await;
-                                                },
-                                                EXPOSE_METRICS_SETTING  => {
-                                                    tracing::info!("Metrics setting changed, restarting");
-                                                    send_delayed_killpill(&tx, 40, "metrics setting change").await;
-                                                },
-                                                EMAIL_DOMAIN_SETTING => {
-                                                    tracing::info!("Email domain setting changed");
-                                                    if server_mode {
-                                                        send_delayed_killpill(&tx, 4, "email domain setting change").await;
-                                                    }
-                                                },
-                                                EXPOSE_DEBUG_METRICS_SETTING => {
-                                                    if let Err(e) = load_metrics_debug_enabled(&db).await {
-                                                        tracing::error!(error = %e, "Could not reload debug metrics setting");
-                                                    }
-                                                },
-                                                OTEL_SETTING => {
-                                                    tracing::info!("OTEL setting changed, restarting");
-                                                    send_delayed_killpill(&tx, 4, "OTEL setting change").await;
-                                                },
-                                                REQUEST_SIZE_LIMIT_SETTING => {
-                                                    if server_mode {
-                                                        tracing::info!("Request limit size change detected, killing server expecting to be restarted");
-                                                        send_delayed_killpill(&tx, 4, "request size limit change").await;
-                                                    }
-                                                },
-                                                SAML_METADATA_SETTING => {
-                                                    tracing::info!("SAML metadata change detected, killing server expecting to be restarted");
-                                                    send_delayed_killpill(&tx, 0, "SAML metadata change").await;
-                                                },
-                                                HUB_BASE_URL_SETTING => {
-                                                    if let Err(e) = reload_hub_base_url_setting(&db, server_mode).await {
-                                                        tracing::error!(error = %e, "Could not reload hub base url setting");
-                                                    }
-                                                },
-                                                CRITICAL_ERROR_CHANNELS_SETTING => {
-                                                    if let Err(e) = reload_critical_error_channels_setting(&db).await {
-                                                        tracing::error!(error = %e, "Could not reload critical error emails setting");
-                                                    }
-                                                },
-                                                JWT_SECRET_SETTING => {
-                                                    if let Err(e) = reload_jwt_secret_setting(&db).await {
-                                                        tracing::error!(error = %e, "Could not reload jwt secret setting");
-                                                    }
-                                                },
-                                                CRITICAL_ALERT_MUTE_UI_SETTING => {
-                                                    tracing::info!("Critical alert UI setting changed");
-                                                    if let Err(e) = reload_critical_alert_mute_ui_setting(&db).await {
-                                                        tracing::error!(error = %e, "Could not reload critical alert UI setting");
-                                                    }
-                                                },
-                                                a @_ => {
-                                                    tracing::info!("Unrecognized Global Setting Change Payload: {:?}", a);
->>>>>>> main
                                                 }
                                             }
                                         }

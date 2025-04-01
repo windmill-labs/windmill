@@ -20,6 +20,19 @@ pub async fn jwt_ext_auth(
     Err(anyhow!("External JWT auth is not open source"))
 }
 
+use crate::auth::AgentCache;
+
+// #[cfg(feature = "enterprise")]
+pub async fn jwt_agent_auth(
+    _token: &str,
+    _external_jwks: Option<Arc<RwLock<ExternalJwks>>>,
+) -> anyhow::Result<crate::auth::AgentCache> {
+    // Implementation is not open source
+
+    // Err(anyhow!("External JWT auth is not open source"))
+    Ok(AgentCache { worker_name: "worker-name".to_string(), tags: vec!["bash".to_string()] })
+}
+
 #[cfg(feature = "enterprise")]
 pub struct ExternalJwks;
 

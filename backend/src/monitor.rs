@@ -34,7 +34,7 @@ use windmill_common::ee::{jobs_waiting_alerts, worker_groups_alerts};
 #[cfg(feature = "oauth2")]
 use windmill_common::global_settings::OAUTH_SETTING;
 use windmill_common::{
-    ee::CriticalErrorChannel, error, flow_status::{FlowStatus, FlowStatusModule}, global_settings::{
+    agent_workers::{AGENT_HTTP_CLIENT, BASE_INTERNAL_URL}, ee::CriticalErrorChannel, error, flow_status::{FlowStatus, FlowStatusModule}, global_settings::{
         BASE_URL_SETTING, BUNFIG_INSTALL_SCOPES_SETTING, CRITICAL_ALERT_MUTE_UI_SETTING,
         CRITICAL_ERROR_CHANNELS_SETTING, DEFAULT_TAGS_PER_WORKSPACE_SETTING,
         DEFAULT_TAGS_WORKSPACES_SETTING, EXPOSE_DEBUG_METRICS_SETTING, EXPOSE_METRICS_SETTING,
@@ -45,7 +45,7 @@ use windmill_common::{
         REQUIRE_PREEXISTING_USER_FOR_OAUTH_SETTING, RETENTION_PERIOD_SECS_SETTING,
         SAML_METADATA_SETTING, SCIM_TOKEN_SETTING, TIMEOUT_WAIT_RESULT_SETTING,
     }, indexer::load_indexer_config, jobs::QueuedJob, jwt::JWT_SECRET, oauth2::REQUIRE_PREEXISTING_USER_FOR_OAUTH, server::load_smtp_config, tracing_init::JSON_FMT, users::truncate_token, utils::{now_from_db, rd_string, report_critical_error, Mode}, worker::{
-        load_worker_config, make_pull_query, make_suspended_pull_query, reload_custom_tags_setting, update_min_version, Connection, DEFAULT_TAGS_PER_WORKSPACE, DEFAULT_TAGS_WORKSPACES, INDEXER_CONFIG, SMTP_CONFIG, TMP_DIR, WORKER_CONFIG, WORKER_GROUP
+        load_worker_config, store_pull_query, store_suspended_pull_query, reload_custom_tags_setting, update_min_version, Connection, DEFAULT_TAGS_PER_WORKSPACE, DEFAULT_TAGS_WORKSPACES, INDEXER_CONFIG, SMTP_CONFIG, TMP_DIR, WORKER_CONFIG, WORKER_GROUP
     }, KillpillSender, BASE_URL, CRITICAL_ALERT_MUTE_UI_ENABLED, CRITICAL_ERROR_CHANNELS, DB, DEFAULT_HUB_BASE_URL, HUB_BASE_URL, JOB_RETENTION_SECS, METRICS_DEBUG_ENABLED, METRICS_ENABLED, MONITOR_LOGS_ON_OBJECT_STORE, OTEL_LOGS_ENABLED, OTEL_METRICS_ENABLED, OTEL_TRACING_ENABLED, SERVICE_LOG_RETENTION_SECS
 };
 use windmill_queue::{cancel_job, MiniPulledJob};
@@ -105,7 +105,7 @@ lazy_static::lazy_static! {
     .and_then(|x| x.parse::<bool>().ok())
     .unwrap_or(true);
 
-    pub static ref DISABLE_ZOMBIE_JOB_MONITORING: bool = std::env::var("DISABLE_ZOMBIE_JOB_MONITORING")
+    pub static ref DISABLE_ZOMBIE_JOBS_MONITORING: bool = std::env::var("DISABLE_ZOMBIE_JOBS_MONITORING")
     .ok()
     .and_then(|x| x.parse::<bool>().ok())
     .unwrap_or(false);
@@ -990,7 +990,7 @@ pub async fn reload_maven_repos_setting(conn: &Connection) {
         .await;
 }
 pub async fn reload_no_default_maven_setting(conn: &Connection) {
-    let value = load_value_from_global_settings(conn, windmill_common::global_settings::NO_DEFAULT_MAVEN_SETTING).await;
+    let value = load_value_from_global_settings_with_conn(conn, windmill_common::global_settings::NO_DEFAULT_MAVEN_SETTING, true).await;
     match value {
         Ok(Some(serde_json::Value::Bool(t))) => NO_DEFAULT_MAVEN.store(t, Ordering::Relaxed),
         Err(e) => {
@@ -1168,7 +1168,20 @@ pub async fn load_value_from_global_settings_with_conn(
     if let Some(db) = conn.as_sql() {
        load_value_from_global_settings(db, setting_name).await
     } else if load_from_http {
-        todo!()
+        let response = AGENT_HTTP_CLIENT.get(format!("{}/api/settings/global/{}", *BASE_INTERNAL_URL, setting_name)).send()
+        .await.map_err(|e| anyhow::anyhow!("Error loading setting {}: {}", setting_name, e))?;
+
+        if response.status().is_success() {
+            let body = response.json::<serde_json::Value>().await.map_err(|e| anyhow::anyhow!("Error reading setting {}: {}", setting_name, e))?;
+            if body.is_null() {
+                Ok(None)
+            } else {
+                Ok(Some(body))
+            }
+        } else {
+            tracing::error!("Failed to load setting {}: {}", setting_name, response.status());
+            Ok(None)
+        } 
     } else {
         Ok(None)
     }
@@ -1292,12 +1305,15 @@ pub async fn monitor_db(
     tracing::info!("Starting periodic monitor task");
     let zombie_jobs_f = async {
         if server_mode && !initial_load && !*DISABLE_ZOMBIE_JOBS_MONITORING {
+            if let Some(db) = conn.as_sql() {
             handle_zombie_jobs(db, base_internal_url, "server").await;
             match handle_zombie_flows(db).await {
                 Err(err) => {
                     tracing::error!("Error handling zombie flows: {:?}", err);
-                }
+                },
                 _ => {}
+                }
+            }
         }
     };
     let expired_items_f = async {
@@ -1511,8 +1527,8 @@ pub async fn reload_worker_config(
 
             let mut wc = WORKER_CONFIG.write().await;
             tracing::info!("Reloading worker config...");
-            make_suspended_pull_query(&config).await;
-            make_pull_query(&config).await;
+            store_suspended_pull_query(&config).await;
+            store_pull_query(&config).await;
             *wc = config
         }
     }

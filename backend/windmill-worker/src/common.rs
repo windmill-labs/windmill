@@ -1041,7 +1041,7 @@ pub async fn par_install_language_dependencies<'a>(
     job_id: &'a Uuid,
     w_id: &'a str,
     worker_name: &'a str,
-    db: &sqlx::Pool<sqlx::Postgres>,
+    conn: &Connection,
 ) -> anyhow::Result<()> {
     #[cfg(not(all(feature = "enterprise", feature = "parquet")))]
     let _ = (platform_agnostic, language_name);
@@ -1066,7 +1066,7 @@ pub async fn par_install_language_dependencies<'a>(
         counter_arc: Arc<tokio::sync::Mutex<usize>>,
         total_to_install: usize,
         instant: std::time::Instant,
-        db: Pool<Postgres>,
+        conn: &Connection,
     ) {
         #[cfg(not(all(feature = "enterprise", feature = "parquet")))]
         {
@@ -1102,7 +1102,7 @@ pub async fn par_install_language_dependencies<'a>(
                 if s3_push { " > (S3) " } else { "" },
                 instant.elapsed().as_millis(),
             ),
-            db,
+            conn,
         )
         .await;
         // Drop lock, so next print success can fire
@@ -1156,7 +1156,7 @@ pub async fn par_install_language_dependencies<'a>(
                         job_id,
                         w_id,
                         format!("\n--- INSTALLATION ---\n\nTo be installed:\n\n"),
-                        db.clone(),
+                        conn.clone(),
                     )
                     .await;
                     to_be_installed_is_used = true;
@@ -1165,7 +1165,7 @@ pub async fn par_install_language_dependencies<'a>(
                     job_id,
                     w_id,
                     format!("- {display_name}\n"),
-                    db.clone(),
+                    conn.clone(),
                 )
                 .await;
                 not_installed.push(NotInstalledDependency {
@@ -1273,7 +1273,7 @@ pub async fn par_install_language_dependencies<'a>(
             custom_name,
             job_id_2,
             w_id_2,
-            db_2,
+            conn_2,
             counter_arc,
             language_name,
             installer_executable_name,
@@ -1285,7 +1285,7 @@ pub async fn par_install_language_dependencies<'a>(
             custom_name.clone(),
             job_id.clone(),
             w_id.to_owned(),
-            db.clone(),
+            conn.clone(),
             counter_arc.clone(),
             language_name.to_owned(),
             installer_executable_name.to_owned(),
@@ -1349,7 +1349,7 @@ pub async fn par_install_language_dependencies<'a>(
             };
             if let Err(e) = crate::handle_child::handle_child(
                 &job_id_2,
-                &db_2,
+                &conn_2,
                 // TODO: Return mem_peak
                 &mut 0,
                 // TODO: Return canceld_by_ref
@@ -1370,7 +1370,7 @@ pub async fn par_install_language_dependencies<'a>(
                     &job_id_2,
                     &w_id_2,
                     format!("error while installing {}: {e:?}", &display_name_2),
-                    db_2.clone(),
+                    conn_2.clone(),
                 )
                 .await;
             } else {
@@ -1400,7 +1400,7 @@ pub async fn par_install_language_dependencies<'a>(
                     counter_arc,
                     total_to_install,
                     start,
-                    db_2,
+                    &conn_2,
                 )
                 .await;
                 // TODO: Refactor
@@ -1456,7 +1456,7 @@ pub async fn par_install_language_dependencies<'a>(
                 job_id,
                 w_id,
                 format!("\n\nFetching {} packages...\n", not_pulled_copy.len()),
-                db.clone(),
+                conn.clone(),
             )
             .await;
             let cmd = callback(not_pulled_copy.clone())?;
@@ -1467,7 +1467,7 @@ pub async fn par_install_language_dependencies<'a>(
             if let Err(e) = crate::handle_child::handle_child(
                 // &job_id,
                 &Uuid::nil(),
-                &db,
+                &conn,
                 // TODO: Return mem_peak
                 &mut 0,
                 // TODO: Return canceld_by_ref
@@ -1544,7 +1544,7 @@ pub async fn par_install_language_dependencies<'a>(
                 "\nDone. Time spent on installation phase: {}ms\n",
                 total_time
             ),
-            db,
+            conn,
         )
         .await;
     }

@@ -1961,7 +1961,7 @@ impl fmt::Display for TriggerKind {
     }
 }
 
-#[derive(sqlx::FromRow, Debug, Clone)]
+#[derive(sqlx::FromRow, Debug, Clone, Serialize, Deserialize)]
 pub struct MiniPulledJob {
     pub workspace_id: String,
     pub id: Uuid,
@@ -2076,7 +2076,7 @@ impl MiniPulledJob {
     }
 }
 
-#[derive(sqlx::FromRow, Debug, Clone)]
+#[derive(sqlx::FromRow, Debug, Clone, Serialize, Deserialize)]
 pub struct PulledJob {
     #[sqlx(flatten)]
     pub job: MiniPulledJob,
@@ -2149,11 +2149,17 @@ pub async fn get_mini_pulled_job<'c>(
     Ok(job)
 }
 
+#[derive(Serialize, Deserialize)]
+pub struct PulledJobResult {
+    pub job: Option<PulledJob>,
+    pub suspended: bool,
+}
+
 pub async fn pull(
     db: &Pool<Postgres>,
     suspend_first: bool,
     worker_name: &str,
-) -> windmill_common::error::Result<(Option<PulledJob>, bool)> {
+) -> windmill_common::error::Result<PulledJobResult> {
     loop {
         let (job, suspended) = pull_single_job_and_mark_as_running_no_concurrency_limit(
             db,
@@ -2163,7 +2169,7 @@ pub async fn pull(
         .await?;
 
         let Some(job) = job else {
-            return Ok((None, suspended));
+            return Ok(PulledJobResult { job: None, suspended });
         };
 
         let has_concurent_limit = job.concurrent_limit.is_some();
@@ -2186,7 +2192,7 @@ pub async fn pull(
             if METRICS_ENABLED.load(std::sync::atomic::Ordering::Relaxed) {
                 QUEUE_PULL_COUNT.inc();
             }
-            return Ok((Option::Some(pulled_job), suspended));
+            return Ok(PulledJobResult { job: Some(pulled_job), suspended });
         }
 
         let job_concurrency_key = match concurrency_key(db, &pulled_job.id).await {
@@ -2236,7 +2242,7 @@ pub async fn pull(
             if METRICS_ENABLED.load(std::sync::atomic::Ordering::Relaxed) {
                 QUEUE_PULL_COUNT.inc();
             }
-            return Ok((Option::Some(pulled_job), suspended));
+            return Ok(PulledJobResult { job: Some(pulled_job), suspended });
         }
 
         let job_script_path = pulled_job.runnable_path.clone().unwrap_or_default();

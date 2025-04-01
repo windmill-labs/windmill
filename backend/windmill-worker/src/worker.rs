@@ -60,7 +60,7 @@ use windmill_common::{
     jobs::JobKind,
     scripts::{get_full_hub_script_by_path, ScriptHash, ScriptLang, PREVIEW_IS_CODEBASE_HASH},
     utils::StripPath,
-    worker::{update_ping, CLOUD_HOSTED, NO_LOGS, WORKER_CONFIG, WORKER_GROUP},
+    worker::{insert_ping, CLOUD_HOSTED, NO_LOGS, WORKER_CONFIG, WORKER_GROUP},
     DB, IS_READY,
 };
 
@@ -832,7 +832,9 @@ pub async fn run_worker(
 
     let mut last_ping = Instant::now() - Duration::from_secs(NUM_SECS_PING + 1);
 
-    update_ping(hostname, &worker_name, ip, conn).await;
+    insert_ping(hostname, &worker_name, ip, conn)
+        .await
+        .expect("initial ping could be sent");
 
     #[cfg(feature = "prometheus")]
     let uptime_metric = if METRICS_ENABLED.load(Ordering::Relaxed) {
@@ -1129,6 +1131,8 @@ pub async fn run_worker(
             killpill_tx.send();
             tracing::error!(worker = %worker_name, hostname = %hostname, "Error queuing init bash script for worker {worker_name}: {e:#}");
             return;
+        } else {
+            tracing::error!("Sent init job");
         }
     }
 
@@ -1309,9 +1313,12 @@ pub async fn run_worker(
                     last_suspend_first = Instant::now();
                 }
 
+                tracing::error!("pulled 0");
                 let job = match conn {
                     Connection::Sql(db) => pull(&db, suspend_first, &worker_name).await,
-                    Connection::Http => todo!(),
+                    Connection::Http => crate::agent_workers::pull_job(&worker_name)
+                        .await
+                        .map_err(|e| error::Error::InternalErr(e.to_string())),
                 };
 
                 add_time!(bench, "job pulled from DB");
@@ -1320,7 +1327,7 @@ pub async fn run_worker(
                 // let empty = job.as_ref().is_ok_and(|x| x.is_none());
 
                 if !agent_mode && duration_pull_s > 0.5 {
-                    let empty = job.as_ref().is_ok_and(|x| x.0.is_none());
+                    let empty = job.as_ref().is_ok_and(|x| x.job.is_none());
                     tracing::warn!(worker = %worker_name, hostname = %hostname, "pull took more than 0.5s ({duration_pull_s}), this is a sign that the database is VERY undersized for this load. empty: {empty}, err: {err_pull}");
                     #[cfg(feature = "prometheus")]
                     if empty {
@@ -1331,7 +1338,7 @@ pub async fn run_worker(
                         wp.inc();
                     }
                 } else if !agent_mode && duration_pull_s > 0.1 {
-                    let empty = job.as_ref().is_ok_and(|x| x.0.is_none());
+                    let empty = job.as_ref().is_ok_and(|x| x.job.is_none());
                     tracing::warn!(worker = %worker_name, hostname = %hostname, "pull took more than 0.1s ({duration_pull_s}) this is a sign that the database is undersized for this load. empty: {empty}, err: {err_pull}");
                     #[cfg(feature = "prometheus")]
                     if empty {
@@ -1344,7 +1351,7 @@ pub async fn run_worker(
                 }
 
                 if let Ok(j) = job.as_ref() {
-                    let suspend_success = j.1;
+                    let suspend_success = j.suspended;
                     if suspend_first {
                         last_30jobs_suspended.push(suspend_success);
                         if last_30jobs_suspended.len() > 30 {
@@ -1369,7 +1376,7 @@ pub async fn run_worker(
                         }
                     }
                 }
-                job.map(|x| x.0)
+                job.map(|x| x.job)
             }
         };
 

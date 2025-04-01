@@ -171,6 +171,9 @@ windmill-parser-graphql = { path = "./parsers/windmill-parser-graphql" }
 windmill-parser-php = { path = "./parsers/windmill-parser-php" }
 windmill-api-client = { path = "./windmill-api-client" }
 
+reqwest-retry = "^0"
+reqwest-middleware = "^0"
+
 rustls = "0.23.0"
 memchr = "2.7.4"
 axum = { version = "^0.7", features = ["multipart"] }

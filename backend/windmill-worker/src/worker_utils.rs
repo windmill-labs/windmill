@@ -1,9 +1,10 @@
 use backon::{BackoffBuilder, ConstantBuilder, Retryable};
 use tracing::Instrument;
 use windmill_common::{
+    agent_workers::{AGENT_HTTP_CLIENT, BASE_INTERNAL_URL},
     worker::{
         get_memory, get_vcpus, get_windmill_memory_usage, get_worker_memory_usage, Connection,
-        WORKER_CONFIG,
+        Ping, WORKER_CONFIG,
     },
     KillpillSender,
 };
@@ -112,7 +113,39 @@ async fn update_worker_ping_full_inner(
             .await?;
         }
         Connection::Http => {
-            todo!()
+            let response = AGENT_HTTP_CLIENT
+                .post(format!(
+                    "{}/api/agent_workers/update_ping",
+                    *BASE_INTERNAL_URL
+                ))
+                .body(serde_json::to_string(&Ping {
+                    worker_instance: None,
+                    worker_name: worker_name.to_string(),
+                    ip: None,
+                    tags: tags.to_vec(),
+                    dw: None,
+                    jobs_executed: Some(jobs_executed),
+                    occupancy_rate: Some(occupancy_rate),
+                    occupancy_rate_15s: Some(occupancy_rate_15s.unwrap_or(0.0)),
+                    occupancy_rate_5m: Some(occupancy_rate_5m.unwrap_or(0.0)),
+                    occupancy_rate_30m: Some(occupancy_rate_30m.unwrap_or(0.0)),
+                    version: None,
+                    vcpus: vcpus,
+                    memory: memory,
+                    memory_usage: get_worker_memory_usage(),
+                    wm_memory_usage: get_windmill_memory_usage(),
+                    update: true,
+                })?)
+                .header("Content-Type", "application/json")
+                .send()
+                .await?;
+
+            if !response.status().is_success() {
+                return Err(anyhow::anyhow!(format!(
+                    "Failed to send update ping request {:?}",
+                    response.status()
+                )));
+            }
         }
     }
     Ok(())
