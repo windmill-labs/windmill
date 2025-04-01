@@ -451,7 +451,13 @@
 	<div class="text-red-400">Non displayable object</div>
 {:else}
 	<!-- svelte-ignore a11y-no-static-element-interactions -->
-	<CustomTooltip floatingConfig={controlsFloatingConfig} let:open let:content let:trigger>
+	<CustomTooltip
+		floatingConfig={controlsFloatingConfig}
+		let:open
+		let:content
+		let:trigger
+		disablePopup={!result || disableExpand || noControls}
+	>
 		<div
 			class={twMerge(
 				'w-full relative grow rounded-md transition-all duration-200 shadow shadow-transparent p-1',
@@ -922,7 +928,7 @@
 				<div class="text-tertiary text-sm">No result: {toJsonStr(result)}</div>
 			{/if}
 		</div>
-		{#if !disableExpand && !noControls && open}
+		{#if open}
 			<div
 				class="flex flex-row gap-1 p-1 z-10 text-tertiary bg-surface/80 rounded-md"
 				transition:fade={{ duration: 100 }}
