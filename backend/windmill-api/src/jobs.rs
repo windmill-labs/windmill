@@ -218,6 +218,7 @@ pub fn workspaced_service() -> Router {
             // URLs that may be too long
             post(list_selected_job_groups),
         )
+        .route("/list_filtered_uuids", get(list_filtered_job_uuids))
         .route("/queue/list", get(list_queue_jobs))
         .route("/queue/count", get(count_queue_jobs))
         .route("/queue/list_filtered_uuids", get(list_filtered_uuids))
@@ -1782,6 +1783,39 @@ async fn cancel_selection(
     tx.commit().await?;
 
     cancel_jobs(jobs_to_cancel, &db, authed.username.as_str(), w_id.as_str()).await
+}
+
+async fn list_filtered_job_uuids(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path(w_id): Path<String>,
+    Query(lq): Query<ListCompletedQuery>,
+) -> error::JsonResult<Vec<Uuid>> {
+    require_admin(authed.is_admin, &authed.username)?;
+
+    let mut sqlb = SqlBuilder::select_from("v2_job_completed")
+        .fields(&["v2_job_completed.id"])
+        .clone();
+
+    sqlb = join_concurrency_key(lq.concurrency_key.as_ref(), sqlb);
+    sqlb.and_where_ne("v2_job.trigger_kind", "'schedule'")
+        .or_where_is_null("v2_job.trigger_kind");
+
+    if let Some(tags) = get_scope_tags(&authed) {
+        sqlb.and_where_in("tag", &tags.iter().map(|x| quote(x)).collect::<Vec<_>>());
+    }
+
+    sqlb = filter_list_completed_query(sqlb, &lq, w_id.as_str(), false);
+
+    let sql = sqlb.query()?;
+    let mut jobs = sqlx::query_scalar(sql.as_str()).fetch_all(&db).await?;
+    jobs.extend(
+        list_filtered_uuids(authed, Extension(db), Path(w_id), Query(lq.into()))
+            .await?
+            .0,
+    );
+
+    Ok(Json(jobs))
 }
 
 async fn list_filtered_uuids(

@@ -566,7 +566,7 @@
 
 		const selectedFilters = getSelectedFilters()
 		const selectedFiltersString = JSON.stringify(selectedFilters, null, 4)
-		const jobIdsToCancel = await JobService.listFilteredUuids(selectedFilters)
+		const jobIdsToCancel = await JobService.listFilteredQueueUuids(selectedFilters)
 
 		askingForConfirmation = {
 			title: `Confirm cancelling all jobs correspoding to the selected filters (${jobIdsToCancel.length} jobs)`,
@@ -588,8 +588,90 @@
 		}
 	}
 
+	async function reRunJobs(jobIdsToReRun: string[]) {
+		if (!$workspaceStore) return
+
+		if (askingForConfirmation) {
+			askingForConfirmation.loading = true
+		}
+
+		const body: Parameters<typeof JobService.batchReRunJobs>[0]['requestBody'] = {
+			job_ids: jobIdsToReRun,
+			script_options_by_path: batchReRunOptions.script,
+			flow_options_by_path: batchReRunOptions.flow
+		}
+
+		// workaround because EventSource does not support POST requests
+		// https://medium.com/@david.richards.tech/sse-server-sent-events-using-a-post-request-without-eventsource-1c0bd6f14425
+		const response = await fetch(`${OpenAPI.BASE}/w/${$workspaceStore}/jobs/run/batch_rerun_jobs`, {
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify(body)
+		})
+		await new Promise(async (resolve) => {
+			const reader = response?.body?.pipeThrough(new TextDecoderStream()).getReader()
+			let reRanUuids: string[] = []
+			if (reader) {
+				while (true) {
+					const { value, done } = await reader.read()
+					if (value) {
+						// It is possible get multiple values at once in case of buffering
+						const receivedUuids: string[] = []
+						for (const line of value.split('\n')) {
+							if (!line) continue
+							else if (line.startsWith('Error:')) {
+								console.error(line)
+							} else {
+								receivedUuids.push(line)
+							}
+						}
+						if (receivedUuids.length) {
+							reRanUuids.push(...receivedUuids)
+							if (askingForConfirmation) {
+								askingForConfirmation.title = `Pushed ${reRanUuids.length}/${jobIdsToReRun.length} jobs to queue`
+							}
+						}
+					}
+
+					if (done || !value) {
+						if (reRanUuids.length) {
+							sendUserToast(`Re-ran ${reRanUuids.length}/${jobIdsToReRun.length} jobs`)
+						}
+						if (reRanUuids.length !== jobIdsToReRun.length) {
+							sendUserToast(
+								`Failed to re-run ${jobIdsToReRun.length - reRanUuids.length} jobs. Check console for details`,
+								true
+							)
+							// We do not get explicit error from backend if the job script don't exist
+							for (const jobId of jobIdsToReRun) {
+								if (reRanUuids.includes(jobId)) continue
+								console.error('Could not re-run job ' + jobId)
+							}
+						}
+						break
+					}
+				}
+			}
+			resolve(undefined)
+		})
+
+		selectedIds = []
+		batchReRunOptions = { flow: {}, script: {} }
+		jobLoader?.loadJobs(minTs, maxTs, true, true)
+		selectionMode = false
+	}
+
 	async function onReRunFilteredJobs() {
-		// TODO
+		const selectedFilters = getSelectedFilters()
+		askingForConfirmation = {
+			title: 'Loading filtered jobs',
+			confirmBtnText: 'Loading ...',
+			preContent: JSON.stringify(selectedFilters, null, 4),
+			loading: true
+		}
+		selectedIds = await JobService.listFilteredJobsUuids(selectedFilters)
+		selectionMode = 're-run'
+		askingForConfirmation = undefined
 	}
 
 	async function onReRunSelectedJobs() {
@@ -599,79 +681,7 @@
 			confirmBtnText: `Re-run ${jobIdsToReRun.length} jobs`,
 			type: 'reload',
 			onConfirm: async () => {
-				if (!$workspaceStore) return
-
-				if (askingForConfirmation) {
-					askingForConfirmation.loading = true
-				}
-
-				const body: Parameters<typeof JobService.batchReRunJobs>[0]['requestBody'] = {
-					job_ids: jobIdsToReRun,
-					script_options_by_path: batchReRunOptions.script,
-					flow_options_by_path: batchReRunOptions.flow
-				}
-
-				// workaround because EventSource does not support POST requests
-				// https://medium.com/@david.richards.tech/sse-server-sent-events-using-a-post-request-without-eventsource-1c0bd6f14425
-				const response = await fetch(
-					`${OpenAPI.BASE}/w/${$workspaceStore}/jobs/run/batch_rerun_jobs`,
-					{
-						method: 'POST',
-						headers: { 'Content-Type': 'application/json' },
-						body: JSON.stringify(body)
-					}
-				)
-				await new Promise(async (resolve) => {
-					const reader = response?.body?.pipeThrough(new TextDecoderStream()).getReader()
-					let reRanUuids: string[] = []
-					if (reader) {
-						while (true) {
-							const { value, done } = await reader.read()
-							if (value) {
-								// It is possible get multiple values at once in case of buffering
-								const receivedUuids: string[] = []
-								for (const line of value.split('\n')) {
-									if (!line) continue
-									else if (line.startsWith('Error:')) {
-										console.error(line)
-									} else {
-										receivedUuids.push(line)
-									}
-								}
-								if (receivedUuids.length) {
-									reRanUuids.push(...receivedUuids)
-									if (askingForConfirmation) {
-										askingForConfirmation.title = `Pushed ${reRanUuids.length}/${jobIdsToReRun.length} jobs to queue`
-									}
-								}
-							}
-
-							if (done || !value) {
-								if (reRanUuids.length) {
-									sendUserToast(`Re-ran ${reRanUuids.length}/${jobIdsToReRun.length} jobs`)
-								}
-								if (reRanUuids.length !== jobIdsToReRun.length) {
-									sendUserToast(
-										`Failed to re-run ${jobIdsToReRun.length - reRanUuids.length} jobs. Check console for details`,
-										true
-									)
-									// We do not get explicit error from backend if the job script don't exist
-									for (const jobId of jobIdsToReRun) {
-										if (reRanUuids.includes(jobId)) continue
-										console.error('Could not re-run job ' + jobId)
-									}
-								}
-								break
-							}
-						}
-					}
-					resolve(undefined)
-				})
-
-				selectedIds = []
-				batchReRunOptions = { flow: {}, script: {} }
-				jobLoader?.loadJobs(minTs, maxTs, true, true)
-				selectionMode = false
+				await reRunJobs(jobIdsToReRun)
 			}
 		}
 	}
