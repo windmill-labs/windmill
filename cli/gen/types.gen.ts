@@ -775,9 +775,22 @@ export type EditMqttTrigger = {
     enabled: boolean;
 };
 
+export type DeliveryType = 'push' | 'pull';
+
+export type PushConfig = {
+    route_path?: string;
+    audience?: string;
+    authenticate: bool;
+    base_endpoint: string;
+};
+
 export type GcpTrigger = TriggerExtraProperty & {
     gcp_resource_path: string;
+    topic_id: string;
+    subscription_id: string;
     server_id?: string;
+    delivery_type: DeliveryType;
+    delivery_config?: PushConfig;
     last_server_ping?: string;
     error?: string;
     enabled: boolean;
@@ -785,6 +798,9 @@ export type GcpTrigger = TriggerExtraProperty & {
 
 export type NewGcpTrigger = {
     gcp_resource_path: string;
+    topic_id: string;
+    delivery_type: DeliveryType;
+    delivery_config?: PushConfig;
     path: string;
     script_path: string;
     is_flow: boolean;
@@ -793,10 +809,19 @@ export type NewGcpTrigger = {
 
 export type EditGcpTrigger = {
     gcp_resource_path?: string;
+    topic_id: string;
+    subscription_id: string;
+    delivery_type: DeliveryType;
+    delivery_config?: PushConfig;
     path: string;
     script_path: string;
     is_flow: boolean;
     enabled: boolean;
+};
+
+export type DeleteGcpTrigger = {
+    gcp_resource_path: string;
+    subscription_id: string;
 };
 
 export type SqsTrigger = TriggerExtraProperty & {
@@ -6415,6 +6440,10 @@ export type UpdateGcpTriggerResponse = (string);
 
 export type DeleteGcpTriggerData = {
     path: string;
+    /**
+     * args to delete subscription from google cloud
+     */
+    requestBody: DeleteGcpTrigger;
     workspace: string;
 };
 
@@ -6426,6 +6455,13 @@ export type GetGcpTriggerData = {
 };
 
 export type GetGcpTriggerResponse = (GcpTrigger);
+
+export type ListGoogleTopicsData = {
+    path: string;
+    workspace: string;
+};
+
+export type ListGoogleTopicsResponse = (Array<(string)>);
 
 export type ListGcpTriggersData = {
     isFlow?: boolean;
@@ -7075,7 +7111,9 @@ export type SetCaptureConfigData = {
     workspace: string;
 };
 
-export type SetCaptureConfigResponse = (unknown);
+export type SetCaptureConfigResponse = ({
+    [key: string]: unknown;
+});
 
 export type PingCaptureConfigData = {
     path: string;
