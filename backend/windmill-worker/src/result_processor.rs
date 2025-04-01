@@ -66,6 +66,9 @@ pub fn start_background_processor(
         #[cfg(feature = "benchmark")]
         let mut infos = BenchmarkInfo::new();
 
+        #[cfg(feature = "enterprise")]
+        let mut reported_low_disk = false;
+
         //if we have been killed, we want to drain the queue of jobs
         while let Some(sr) = {
             if has_been_killed && same_worker_queue_size.load(Ordering::SeqCst) == 0 {
@@ -209,6 +212,51 @@ pub fn start_background_processor(
                 }
                 SendResult::Kill => {
                     has_been_killed = true;
+                }
+            }
+            #[cfg(feature = "enterprise")]
+            {
+                use systemstat::*;
+                lazy_static::lazy_static! {
+                    static ref SYSTEM: System = System::new();
+                    static ref DEF_MIN_SPACE: u64 = 5_000;
+                    static ref MIN_FREE_DISK_SPACE_MB: u64 =
+                    std::env::var("MIN_FREE_DISK_SPACE_MB").map(|v| v.parse::<u64>().unwrap_or(*DEF_MIN_SPACE)).unwrap_or(*DEF_MIN_SPACE);
+                }
+                // TODO: Test on windows
+                match SYSTEM.mount_at("/") {
+                    Ok(Filesystem { avail, .. })
+                        if avail < ByteSize::mb(*MIN_FREE_DISK_SPACE_MB) =>
+                    {
+                        // Only alert once
+                        if !reported_low_disk {
+                            windmill_common::utils::report_critical_error(
+                                format!(
+                                    "Disk is low on worker ({}): {} available",
+                                    worker_name, avail,
+                                ),
+                                db.clone(),
+                                Some("admins"),
+                                None,
+                            )
+                            .await;
+                            reported_low_disk = true;
+                        }
+                    }
+                    Err(e) => {
+                        // Only alert once
+                        if !reported_low_disk {
+                            windmill_common::utils::report_critical_error(
+                                format!("Cannot read disk usage: {e}"),
+                                db.clone(),
+                                None,
+                                None,
+                            )
+                            .await;
+                            reported_low_disk = true;
+                        }
+                    }
+                    _ => reported_low_disk = false,
                 }
             }
         }
