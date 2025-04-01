@@ -1,10 +1,11 @@
 <script lang="ts">
 	import { createEventDispatcher } from 'svelte'
-	import { SparklesIcon, LightbulbIcon } from 'lucide-svelte'
+	import { SparklesIcon, LightbulbIcon, DiffIcon } from 'lucide-svelte'
 	import Button from '$lib/components/common/button/Button.svelte'
 
-	export let hasDiff: boolean
 	export let diffMode: boolean = false
+
+	$: console.log('diffMode', diffMode)
 
 	let iconClasses = '!w-3 !h-3 !px-0 !m-0'
 
@@ -14,7 +15,9 @@
 	}>()
 
 	$: btnClasses = `!px-1 !py-0.5 !gap-1 ${
-		diffMode ? '!bg-surface-secondary dark:!bg-surface-secondary' : '!font-normal'
+		diffMode
+			? '!bg-surface dark:!bg-surface border-frost-500 dark:border-frost-500'
+			: '!font-normal'
 	}`
 </script>
 
@@ -28,11 +31,10 @@
 				title="Explain changes"
 				size="xs3"
 				{btnClasses}
-				startIcon={{ icon: LightbulbIcon, classes: iconClasses }}
+				startIcon={{ icon: DiffIcon, classes: iconClasses }}
 				variant="border"
 				color="light"
 				propagateEvent
-				disabled={!hasDiff}
 			>
 				Explain
 			</Button>
@@ -48,7 +50,6 @@
 			variant="border"
 			color="light"
 			propagateEvent
-			disabled={!hasDiff}
 		>
 			{diffMode ? 'Analyze' : 'Improve'}
 		</Button>

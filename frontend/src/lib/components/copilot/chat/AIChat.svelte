@@ -80,12 +80,11 @@
 	let dbResources: ListResourceResponse = []
 
 	async function updateDBResources(workspace: string | undefined) {
-		if (workspace && !dbResources.length) {
+		if (workspace) {
 			dbResources = await ResourceService.listResource({
 				workspace: workspace,
 				resourceType: SQLSchemaLanguages.join(',')
 			})
-			console.log('Updated db resources', dbResources)
 		}
 	}
 
@@ -115,7 +114,6 @@
 			]
 			if (!providerModel?.model.endsWith('/thinking')) {
 				for (const d of dbResources) {
-					console.log('Adding db resource', d.path)
 					const loadedSchema = dbSchemas[d.path]
 					newAvailableContext.push({
 						type: 'db',
@@ -146,18 +144,6 @@
 				})
 			}
 
-			if (!providerModel?.model.endsWith('/thinking')) {
-				for (const d of dbResources) {
-					const loadedSchema = dbSchemas[d.path]
-					newAvailableContext.push({
-						type: 'db',
-						title: d.path,
-						// If the db is already fetched, add the schema to the context
-						...(loadedSchema ? { schema: loadedSchema } : {})
-					})
-				}
-			}
-
 			if (error) {
 				newAvailableContext = [
 					...newAvailableContext,
@@ -186,6 +172,7 @@
 				}
 			}
 
+			console.log('New available context', newAvailableContext)
 			availableContext = newAvailableContext
 
 			if (

@@ -11,6 +11,7 @@
 	import EditorTheme from './EditorTheme.svelte'
 	import { buildWorkerDefinition } from '$lib/monaco_workers/build_workers'
 	import Editor from './Editor.svelte'
+	import Button from '$lib/components/common/button/Button.svelte'
 
 	buildWorkerDefinition()
 
@@ -138,13 +139,14 @@
 		<div
 			class="absolute flex flex-row gap-2 bottom-10 left-1/2 z-10 -translate-x-1/2 rounded-md p-1 w-full justify-center"
 		>
-			<button
-				class="px-4 py-2 bg-emerald-500 hover:bg-emerald-600 rounded-md text-sm font-semibold text-white transition-colors duration-200"
-				on:click={() => dispatch('seeHistory')}>See changes history</button
+			<Button on:click={() => dispatch('seeHistory')} variant="contained" size="sm"
+				>See changes history</Button
 			>
-			<button
-				class="px-4 py-2 bg-rose-500 hover:bg-rose-600 rounded-md text-sm font-semibold text-white transition-colors duration-200"
-				on:click={() => dispatch('hideDiffMode')}>Quit diff mode</button
+			<Button
+				on:click={() => dispatch('hideDiffMode')}
+				variant="contained"
+				size="sm"
+				btnClasses="!bg-red-500 dark:!bg-red-500">Quit diff mode</Button
 			>
 		</div>
 	{/if}
