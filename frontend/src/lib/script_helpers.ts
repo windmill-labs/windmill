@@ -1088,7 +1088,6 @@ export const INITIAL_CODE = {
 		script: JAVA_INIT_CODE
 	},
 	// for related places search: ADD_NEW_LANG 
-	}
 }
 
 export function isInitialCode(content: string): boolean {
