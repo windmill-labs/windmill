@@ -101,10 +101,35 @@
 
 	let dblClickDisabled = false
 	let hoveringResult = false
-	$: canEditWithDblClick = mock?.enabled && !connectingData && !dblClickDisabled && hoveringResult
+	let debouncedCanEditWithDblClick = false
+	let debounceTimeout: ReturnType<typeof setTimeout> | null = null
+	let canEditWithDblClick = false
+
+	$: {
+		const newValue =
+			!!mock?.enabled && !connectingData && !dblClickDisabled && hoveringResult && !jsonView
+		if (newValue != canEditWithDblClick) {
+			canEditWithDblClick = newValue
+			updateCanEditWithDblClick(newValue)
+		}
+	}
+
+	function updateCanEditWithDblClick(newValue: boolean) {
+		canEditWithDblClick = newValue
+		if (debounceTimeout) {
+			clearTimeout(debounceTimeout)
+		}
+		debounceTimeout = setTimeout(() => {
+			debouncedCanEditWithDblClick = newValue
+		}, 200)
+	}
 </script>
 
-<div class="w-full h-full flex flex-col" bind:clientHeight>
+<div
+	class="w-full h-full flex flex-col mt-[-30px]"
+	bind:clientHeight
+	style={canEditWithDblClick ? 'cursor: text;' : ''}
+>
 	<div
 		class={twMerge(
 			infoMessage ? `${classes['info'].descriptionClass} ${classes['info'].bgClass}` : '',
@@ -335,13 +360,11 @@
 								tmpMock = undefined
 							}}
 							disabled={!mock?.enabled || !!connectingData}
-							wrapperClasses={twMerge(
-								'transition-all duration-200 rounded-md outline outline-1 outline-transparent',
-								canEditWithDblClick ? 'outline-blue-500 outline-offset-[-1px]' : ''
-							)}
 							btnClasses={twMerge(
-								'transition-all duration-200 ',
-								canEditWithDblClick ? 'text-blue-500' : ''
+								'transition-all duration-100 ',
+								debouncedCanEditWithDblClick
+									? 'bg-blue-500/10 text-blue-800 dark:text-blue-200'
+									: ''
 							)}
 						/>
 						<svelte:fragment slot="text">
@@ -382,19 +405,25 @@
 	<!-- svelte-ignore a11y-no-static-element-interactions -->
 	<!-- svelte-ignore a11y-mouse-events-have-key-events -->
 	<div
-		class="grow min-h-0 px-2 rounded-sm w-full overflow-auto"
+		class={twMerge(
+			'grow min-h-0 px-2 rounded-md w-full overflow-auto transition-all duration-200 outline outline-2 outline-blue-500/0 outline-offset-[-3px]',
+			debouncedCanEditWithDblClick
+				? 'outline outline-2 outline-blue-500/30 outline-offset-[-3px]'
+				: ''
+		)}
 		on:mouseover={(event) => {
 			if (
-				event.target &&
-				event.target instanceof HTMLElement &&
-				(event.target.closest('[data-no-dblclick]') ||
-					event.target.closest('button') ||
-					event.target.closest('input') ||
-					event.target.closest('textarea') ||
-					event.target.closest('select') ||
-					event.target.closest('option') ||
-					event.target.closest('label') ||
-					event.target.closest('a'))
+				!event.target ||
+				!(event.target instanceof HTMLElement) ||
+				event.target.closest('[data-interactive]') ||
+				event.target.closest('button') ||
+				event.target.closest('input') ||
+				event.target.closest('textarea') ||
+				event.target.closest('select') ||
+				event.target.closest('option') ||
+				event.target.closest('label') ||
+				event.target.closest('a') ||
+				event.target.closest('svg')
 			) {
 				dblClickDisabled = true
 			} else {
@@ -514,3 +543,14 @@
 		{/if}
 	</div>
 </div>
+
+<style>
+	.dbl-click-editable {
+		cursor: text;
+		transition: all 0.2s ease;
+	}
+
+	.dbl-click-editable:hover {
+		box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.5) inset;
+	}
+</style>
