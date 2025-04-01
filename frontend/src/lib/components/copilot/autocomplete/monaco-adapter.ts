@@ -161,15 +161,15 @@ export class Autocompletor {
 	modifiedCode: string = ''
 	applyZone:
 		| {
-			startLineNumber: number
-			endLineNumber: number
-		}
+				startLineNumber: number
+				endLineNumber: number
+		  }
 		| undefined = undefined
 	lastChangePosition:
 		| {
-			lineNumber: number
-			column: number
-		}
+				lineNumber: number
+				column: number
+		  }
 		| undefined = undefined
 
 	abortController: AbortController | undefined = undefined
@@ -180,16 +180,20 @@ export class Autocompletor {
 
 	predictedChange:
 		| {
-			position: {
-				lineNumber: number
-				column: number
-			}
-			distance: number
-		}
+				position: {
+					lineNumber: number
+					column: number
+				}
+				distance: number
+		  }
 		| undefined = undefined
 	tabWidget: meditor.IContentWidget | undefined = undefined
 
-	constructor(editor: meditor.IStandaloneCodeEditor, language: string, scriptLang: ScriptLang | 'bunnative') {
+	constructor(
+		editor: meditor.IStandaloneCodeEditor,
+		language: string,
+		scriptLang: ScriptLang | 'bunnative'
+	) {
 		this.editor = editor
 		this.language = language
 		this.scriptLang = scriptLang
@@ -236,18 +240,18 @@ export class Autocompletor {
 
 			let closestPosition:
 				| {
-					lineNumber: number
-					column: number
-				}
+						lineNumber: number
+						column: number
+				  }
 				| undefined = undefined
 			let closestDistance = Infinity
 			for (const change of this.visualChanges) {
 				if (change.type === 'deleted') {
 					const distance = Math.min(
 						Math.abs(change.range.startLine - position.lineNumber) +
-						Math.abs(change.range.startColumn - position.column) / 10000,
+							Math.abs(change.range.startColumn - position.column) / 10000,
 						Math.abs(change.range.endLine - position.lineNumber) +
-						Math.abs(change.range.endColumn - position.column) / 10000
+							Math.abs(change.range.endColumn - position.column) / 10000
 					)
 					if (distance < closestDistance) {
 						closestDistance = distance

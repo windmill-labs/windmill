@@ -276,21 +276,21 @@ export const ContextIconMap = {
 
 export type ContextElement =
 	| {
-		type: 'code'
-		content: string
-		title: string
-		lang: ScriptLang | 'bunnative'
-	}
+			type: 'code'
+			content: string
+			title: string
+			lang: ScriptLang | 'bunnative'
+	  }
 	| {
-		type: 'error'
-		content: string
-		title: 'error'
-	}
+			type: 'error'
+			content: string
+			title: 'error'
+	  }
 	| {
-		type: 'db'
-		schema?: DBSchema
-		title: string
-	}
+			type: 'db'
+			schema?: DBSchema
+			title: string
+	  }
 
 export async function prepareUserMessage(
 	instructions: string,

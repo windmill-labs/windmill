@@ -69,11 +69,12 @@ export async function autocompleteRequest(
 	},
 	abortController: AbortController
 ) {
-	console.log(context.scriptLang)
 	codeCompletionLoading.set(true)
 	const systemPrompt = AUTOCOMPLETE_SYSTEM_PROMPT
-	const userPrompt = AUTOCOMPLETE_USER_PROMPT
-		.replace('{lang_context}', getLangContext(context.scriptLang))
+	const userPrompt = AUTOCOMPLETE_USER_PROMPT.replace(
+		'{lang_context}',
+		getLangContext(context.scriptLang)
+	)
 		.replace('{prefix}', context.prefix)
 		.replace('{modifiablePrefix}', context.modifiablePrefix)
 		.replace('{modifiableSuffix}', context.modifiableSuffix)
