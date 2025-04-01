@@ -22,7 +22,11 @@
 	export let disabledFlowInputs = false
 	export let smallErrorHandler = false
 	export let newFlow: boolean = false
-
+	export let savedFlow:
+		| (Flow & {
+				draft?: Flow | undefined
+		  })
+		| undefined = undefined
 	let size = 50
 
 	const { currentStepStore: copilotCurrentStepStore } =
@@ -75,6 +79,7 @@
 				<FlowEditorPanel
 					{disabledFlowInputs}
 					{newFlow}
+					{savedFlow}
 					enableAi={!disableAi}
 					on:applyArgs
 					on:testWithArgs

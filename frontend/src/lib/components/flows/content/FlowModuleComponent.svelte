@@ -8,7 +8,7 @@
 	import Toggle from '$lib/components/Toggle.svelte'
 	import { createScriptFromInlineScript, fork } from '$lib/components/flows/flowStateUtils'
 
-	import type { FlowModule } from '$lib/gen'
+	import type { FlowModule, RawScript } from '$lib/gen'
 	import FlowCard from '../common/FlowCard.svelte'
 	import FlowModuleHeader from './FlowModuleHeader.svelte'
 	import { getLatestHashForScript, scriptLangToEditorLang } from '$lib/scripts'
@@ -24,6 +24,7 @@
 	import { getFailureStepPropPicker, getStepPropPicker } from '../previousResults'
 	import { deepEqual } from 'fast-equals'
 	import Section from '$lib/components/Section.svelte'
+	import { writable } from 'svelte/store'
 
 	import Button from '$lib/components/common/button/Button.svelte'
 	import Alert from '$lib/components/common/alert/Alert.svelte'
@@ -74,8 +75,10 @@
 	export let scriptTemplate: 'pgsql' | 'mysql' | 'script' | 'docker' | 'powershell' = 'script'
 	export let noEditor: boolean
 	export let enableAi: boolean
+	export let savedModule: FlowModule | undefined = undefined
 
 	let tag: string | undefined = undefined
+	let diffMode = writable(false)
 
 	let editor: Editor
 	let diffEditor: DiffEditor
@@ -97,6 +100,12 @@
 	let testJob: Job | undefined = undefined
 	let testIsLoading = false
 	let scriptProgress = undefined
+
+	$: lastDeployedCode =
+		(savedModule?.value as RawScript).content &&
+		(savedModule?.value as RawScript).content !== (flowModule.value as RawScript).content
+			? (savedModule?.value as RawScript).content
+			: undefined
 
 	const { modulesStore: copilotModulesStore } =
 		getContext<FlowCopilotContext | undefined>('FlowCopilotContext') || {}
@@ -246,6 +255,20 @@
 	} else {
 		leftPanelSize = 100
 	}
+
+	function showDiffMode() {
+		diffMode.set(true)
+		diffEditor?.setOriginal((savedModule?.value as RawScript).content ?? '')
+		diffEditor?.setModified(editor?.getCode() ?? '')
+		diffEditor?.show()
+		editor?.hide()
+	}
+
+	function hideDiffMode() {
+		diffMode.set(false)
+		diffEditor?.hide()
+		editor?.show()
+	}
 </script>
 
 <svelte:window on:keydown={onKeyDown} />
@@ -323,6 +346,10 @@
 								acc[key] = obj.type === 'static' ? obj.value : undefined
 								return acc
 							}, {})}
+							on:showDiffMode={showDiffMode}
+							on:hideDiffMode={hideDiffMode}
+							{lastDeployedCode}
+							{diffMode}
 						/>
 					</div>
 				{/if}
@@ -379,6 +406,7 @@
 											fixedOverflowWidgets
 											defaultLang={scriptLangToEditorLang(flowModule.value.language)}
 											class="h-full"
+											{editor}
 										/>
 									{/key}
 								{/if}

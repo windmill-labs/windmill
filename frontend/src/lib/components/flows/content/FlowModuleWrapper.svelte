@@ -25,6 +25,7 @@
 	export let flowModule: FlowModule
 	export let noEditor: boolean = false
 	export let enableAi = false
+	export let savedModule: FlowModule | undefined = undefined
 
 	const { selectedId, flowStateStore, flowInputsStore, flowStore } =
 		getContext<FlowEditorContext>('FlowEditorContext')
@@ -190,6 +191,7 @@
 			{scriptKind}
 			{scriptTemplate}
 			{enableAi}
+			{savedModule}
 		/>
 	{/if}
 {:else if flowModule.value.type === 'forloopflow' || flowModule.value.type == 'whileloopflow'}
