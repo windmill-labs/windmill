@@ -4,6 +4,7 @@
 	import { copyToClipboard, roughSizeOfObject } from '$lib/utils'
 	import { base } from '$lib/base'
 	import { Button, Drawer, DrawerContent } from './common'
+	import { fade } from 'svelte/transition'
 	import {
 		ClipboardCopy,
 		Download,
@@ -16,6 +17,7 @@
 		ArrowDownFromLine
 	} from 'lucide-svelte'
 	import Portal from '$lib/components/Portal.svelte'
+	import { twMerge } from 'tailwind-merge'
 
 	import ObjectViewer from './propertyPicker/ObjectViewer.svelte'
 	import S3FilePicker from './S3FilePicker.svelte'
@@ -37,6 +39,7 @@
 	import PdfViewer from './display/PdfViewer.svelte'
 	import type { DisplayResultUi } from './custom_ui'
 	import { getContext, hasContext } from 'svelte'
+	import { tick } from 'svelte'
 
 	export let result: any
 	export let requireHtmlApproval = false
@@ -397,6 +400,22 @@
 	const disableTooltips = hasContext('disableTooltips')
 		? getContext('disableTooltips') === true
 		: false
+
+	let hover = false
+	let resultHeaderHeight = 0
+	let hoverTimer: ReturnType<typeof setTimeout> | undefined = undefined
+	let isHoveringControls = false
+	let isHoveringMainDiv = false
+
+	function deactivateHover() {
+		if (hoverTimer) clearTimeout(hoverTimer)
+
+		if (!isHoveringControls && !isHoveringMainDiv) {
+			hoverTimer = setTimeout(() => {
+				hover = false
+			}, 200)
+		}
+	}
 </script>
 
 <HighlightTheme />
@@ -436,14 +455,30 @@
 {:else if resultKind === 'nondisplayable'}
 	<div class="text-red-400">Non displayable object</div>
 {:else}
+	<!-- svelte-ignore a11y-no-static-element-interactions -->
 	<div
-		class="inline-highlight relative grow {['plain', 'markdown'].includes(resultKind ?? '')
-			? ''
-			: 'min-h-[160px]'}"
+		class={twMerge(
+			'inline-highlight relative grow rounded-md transition-all duration-200 shadow shadow-transparent',
+			['plain', 'markdown'].includes(resultKind ?? '') ? '' : 'min-h-[160px]',
+			hover && 'shadow-gray-200'
+		)}
+		on:mouseenter={async () => {
+			await tick()
+			if (hoverTimer) clearTimeout(hoverTimer)
+			isHoveringMainDiv = true
+			hover = true
+		}}
+		on:mouseleave={() => {
+			isHoveringMainDiv = false
+			deactivateHover()
+		}}
 	>
 		{#if result != undefined && length != undefined && largeObject != undefined}
 			<div class="flex justify-between items-center w-full">
-				<div class="text-tertiary text-sm flex flex-row gap-2 items-center">
+				<div
+					class="text-tertiary text-sm flex flex-row gap-2 items-center"
+					bind:clientHeight={resultHeaderHeight}
+				>
 					{#if !hideAsJson && !['json', 's3object'].includes(resultKind ?? '') && typeof result === 'object'}<ToggleButtonGroup
 							class="h-6"
 							selected={forceJson ? 'json' : resultKind?.startsWith('table-') ? 'table' : 'pretty'}
@@ -471,39 +506,56 @@
 					{#if customUi?.disableAiFix !== true}
 						<slot name="copilot-fix" />
 					{/if}
-					{#if !disableExpand && !noControls}
-						{#if customUi?.disableDownload !== true}
-							<a
-								download="{filename ?? 'result'}.json"
-								class="-mt-1 text-current"
-								href={workspaceId && jobId
-									? nodeId
-										? `${base}/api/w/${workspaceId}/jobs/result_by_id/${jobId}/${nodeId}`
-										: `${base}/api/w/${workspaceId}/jobs_u/completed/get_result/${jobId}`
-									: `data:text/json;charset=utf-8,${encodeURIComponent(toJsonStr(result))}`}
-							>
-								<Download size={14} />
-							</a>
-						{/if}
-						{#if disableTooltips !== true}
-							<Popover
-								documentationLink="https://www.windmill.dev/docs/core_concepts/rich_display_rendering"
-							>
-								<svelte:fragment slot="text">
-									The result renderer in Windmill supports rich display rendering, allowing you to
-									customize the display format of your results.
-								</svelte:fragment>
-								<div class="-mt-1">
-									<InfoIcon size={14} />
-								</div>
-							</Popover>
-						{/if}
-						<button on:click={() => copyToClipboard(toJsonStr(result))} class="-mt-1">
-							<ClipboardCopy size={14} />
-						</button>
-						<button on:click={jsonViewer.openDrawer} class="-mt-1">
-							<Expand size={14} />
-						</button>
+					{#if !disableExpand && !noControls && hover}
+						<div
+							class={twMerge(
+								'absolute right-0 flex flex-row gap-1 p-1 z-30',
+								resultHeaderHeight > 16 ? 'top-0' : '-top-5'
+							)}
+							transition:fade={{ duration: 100 }}
+							on:mouseenter={() => {
+								if (hoverTimer) clearTimeout(hoverTimer)
+								hover = true
+								isHoveringControls = true
+							}}
+							on:mouseleave={() => {
+								isHoveringControls = false
+								deactivateHover()
+							}}
+						>
+							{#if customUi?.disableDownload !== true}
+								<a
+									download="{filename ?? 'result'}.json"
+									class="text-current"
+									href={workspaceId && jobId
+										? nodeId
+											? `${base}/api/w/${workspaceId}/jobs/result_by_id/${jobId}/${nodeId}`
+											: `${base}/api/w/${workspaceId}/jobs_u/completed/get_result/${jobId}`
+										: `data:text/json;charset=utf-8,${encodeURIComponent(toJsonStr(result))}`}
+								>
+									<Download size={14} />
+								</a>
+							{/if}
+							{#if disableTooltips !== true}
+								<Popover
+									documentationLink="https://www.windmill.dev/docs/core_concepts/rich_display_rendering"
+								>
+									<svelte:fragment slot="text">
+										The result renderer in Windmill supports rich display rendering, allowing you to
+										customize the display format of your results.
+									</svelte:fragment>
+									<div>
+										<InfoIcon size={14} />
+									</div>
+								</Popover>
+							{/if}
+							<button on:click={() => copyToClipboard(toJsonStr(result))}>
+								<ClipboardCopy size={14} />
+							</button>
+							<button on:click={jsonViewer.openDrawer}>
+								<Expand size={14} />
+							</button>
+						</div>
 					{/if}
 				</div>
 			</div>
@@ -592,7 +644,9 @@
 						/>
 					</div>
 				{:else if !forceJson && resultKind === 'plain'}<div class="h-full text-2xs"
-						><pre>{typeof result === 'string' ? result : result?.['result']}</pre>{#if !noControls}
+						><pre class="whitespace-pre-wrap"
+							>{typeof result === 'string' ? result : result?.['result']}</pre
+						>{#if !noControls}
 							<div class="flex">
 								<Button
 									on:click={() =>
@@ -638,16 +692,24 @@
 							team.
 						</Alert>
 					{/if}
-					{#if language === 'python3' && result?.error?.message?.includes("ImportError: cannot import name")}
+					{#if language === 'python3' && result?.error?.message?.includes('ImportError: cannot import name')}
 						<Alert size="xs" type="info" title="Seeing an odd import error?">
-							Python requirements inference may be inaccurate. This is due to the fact that requirement names can vary from package names they provide.
-							Try to <a href="https://www.windmill.dev/docs/advanced/dependencies_in_python#pinning-dependencies-and-requirements" target="_blank" rel="noopener noreferrer">manually pin requirements</a>
+							Python requirements inference may be inaccurate. This is due to the fact that
+							requirement names can vary from package names they provide. Try to <a
+								href="https://www.windmill.dev/docs/advanced/dependencies_in_python#pinning-dependencies-and-requirements"
+								target="_blank"
+								rel="noopener noreferrer">manually pin requirements</a
+							>
 						</Alert>
 					{/if}
-					{#if language === 'python3' && result?.error?.message?.startsWith("execution error:\npip compile failed")}
+					{#if language === 'python3' && result?.error?.message?.startsWith('execution error:\npip compile failed')}
 						<Alert size="xs" type="info" title="Seeing an odd resolution error?">
-							Python requirements inference may be inaccurate. This is due to the fact that requirement names can vary from package names they provide.
-							Try to <a href="https://www.windmill.dev/docs/advanced/dependencies_in_python#pinning-dependencies-and-requirements" target="_blank" rel="noopener noreferrer">manually pin requirements</a>
+							Python requirements inference may be inaccurate. This is due to the fact that
+							requirement names can vary from package names they provide. Try to <a
+								href="https://www.windmill.dev/docs/advanced/dependencies_in_python#pinning-dependencies-and-requirements"
+								target="_blank"
+								rel="noopener noreferrer">manually pin requirements</a
+							>
 						</Alert>
 					{/if}
 				{:else if !forceJson && resultKind === 'approval'}<div

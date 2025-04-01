@@ -367,7 +367,7 @@
 		</div>
 	</div>
 
-	<div class="grow min-h-0 p-2 rounded-sm w-full overflow-auto">
+	<div class="grow min-h-0 px-2 rounded-sm w-full overflow-auto">
 		{#if isLoading}
 			<div class="flex flex-col items-center justify-center">
 				<Loader2 class="animate-spin" />
@@ -403,7 +403,7 @@
 			/>
 		{:else if (mock?.enabled || preview == 'mock') && preview != 'job'}
 			{#if fullResult}
-				<div class="break-words relative h-full p-2">
+				<div class="break-words relative h-full py-2">
 					<DisplayResult
 						bind:forceJson
 						workspaceId={undefined}
@@ -424,7 +424,7 @@
 			{/if}
 		{:else if selectedJob != undefined && 'result' in selectedJob}
 			{#if fullResult}
-				<div class="break-words relative h-full p-2">
+				<div class="break-words relative h-full py-2">
 					{#if selectedJob.result != undefined}
 						{#key selectedJob}
 							<DisplayResult
