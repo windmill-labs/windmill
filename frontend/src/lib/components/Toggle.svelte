@@ -23,7 +23,7 @@
 
 	export let size: 'sm' | 'xs' | '2xs' = 'sm'
 
-	const dispatch = createEventDispatcher()
+	const dispatch = createEventDispatcher<{ change: boolean }>()
 	const bothOptions = Boolean(options.left) && Boolean(options.right)
 
 	export let textDisabled = false

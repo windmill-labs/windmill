@@ -50,6 +50,9 @@ pub enum ScriptLang {
     Rust,
     Ansible,
     CSharp,
+    Nu,
+    Java,
+    // KJQXZ
 }
 
 impl ScriptLang {
@@ -74,6 +77,9 @@ impl ScriptLang {
             ScriptLang::Rust => "rust",
             ScriptLang::Ansible => "ansible",
             ScriptLang::CSharp => "csharp",
+            ScriptLang::Nu => "nu",
+            ScriptLang::Java => "java",
+            // KJQXZ
         }
     }
 }

@@ -11,8 +11,8 @@ use crate::{
         start_child_process, OccupancyMetrics,
     },
     handle_child::handle_child,
-    AuthedClientBackgroundTask, DENO_CACHE_DIR, DENO_PATH, DISABLE_NSJAIL, HOME_ENV,
-    NPM_CONFIG_REGISTRY, PATH_ENV, TZ_ENV,
+    AuthedClient, DENO_CACHE_DIR, DENO_PATH, DISABLE_NSJAIL, HOME_ENV, NPM_CONFIG_REGISTRY,
+    PATH_ENV, TZ_ENV,
 };
 use tokio::{fs::File, io::AsyncReadExt, process::Command};
 use windmill_common::error::{self};
@@ -156,6 +156,7 @@ pub async fn generate_deno_lock(
             None,
             false,
             occupancy_metrics,
+            None,
         )
         .await?;
     } else {
@@ -179,7 +180,8 @@ pub async fn handle_deno_job(
     canceled_by: &mut Option<CanceledBy>,
     job: &MiniPulledJob,
     db: &sqlx::Pool<sqlx::Postgres>,
-    client: &AuthedClientBackgroundTask,
+    client: &AuthedClient,
+    parent_runnable_path: Option<String>,
     job_dir: &str,
     inner_content: &String,
     base_internal_url: &str,
@@ -318,21 +320,21 @@ try {{
             Ok(()) as Result<()>
         };
         let reserved_variables_f = async {
-            let client = client.get_authed().await;
-            let vars = get_reserved_variables(job, &client.token, db).await?;
-            Ok((vars, client.token)) as Result<(HashMap<String, String>, String)>
+            let vars = get_reserved_variables(job, &client.token, db, parent_runnable_path).await?;
+            Ok(vars) as Result<HashMap<String, String>>
         };
         let (_, reserved_variables) = tokio::try_join!(args_and_out_f, reserved_variables_f)?;
-        Ok(reserved_variables) as error::Result<(HashMap<String, String>, String)>
+        Ok(reserved_variables) as error::Result<HashMap<String, String>>
     };
 
-    let ((reserved_variables, token), _, _) = tokio::try_join!(
+    let (reserved_variables, _, _) = tokio::try_join!(
         reserved_variables_args_out_f,
         write_wrapper_f,
         write_import_map_f
     )?;
 
-    let mut common_deno_proc_envs = get_common_deno_proc_envs(&token, base_internal_url).await;
+    let mut common_deno_proc_envs =
+        get_common_deno_proc_envs(&client.token, base_internal_url).await;
     if !*DISABLE_NSJAIL {
         common_deno_proc_envs.insert("HOME".to_string(), job_dir.to_string());
     }
@@ -413,6 +415,7 @@ try {{
         job.timeout,
         false,
         &mut Some(occupancy_metrics),
+        None,
     )
     .await?;
     // logs.push_str(format!("execute: {:?}\n", start.elapsed().as_millis()).as_str());

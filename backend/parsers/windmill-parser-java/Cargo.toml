@@ -1,0 +1,21 @@
+[package]
+name = "windmill-parser-java"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+
+[lib]
+name = "windmill_parser_java"
+path = "./src/lib.rs"
+
+[dependencies]
+windmill-parser.workspace = true
+tree-sitter.workspace = true
+tree-sitter-java.workspace = true
+anyhow.workspace = true
+wasm-bindgen.workspace = true
+serde_json.workspace = true
+# convert_case.workspace = true
+# lazy_static.workspace = true
+# regex.workspace = true
+

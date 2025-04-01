@@ -20,9 +20,9 @@ use crate::{
         read_file_content, read_result, start_child_process, write_file_binary, OccupancyMetrics,
     },
     handle_child::handle_child,
-    AuthedClientBackgroundTask, BUNFIG_INSTALL_SCOPES, BUN_BUNDLE_CACHE_DIR, BUN_CACHE_DIR,
-    BUN_PATH, DISABLE_NSJAIL, DISABLE_NUSER, HOME_ENV, NODE_BIN_PATH, NODE_PATH,
-    NPM_CONFIG_REGISTRY, NPM_PATH, NSJAIL_PATH, PATH_ENV, PROXY_ENVS, TZ_ENV,
+    AuthedClient, BUNFIG_INSTALL_SCOPES, BUN_BUNDLE_CACHE_DIR, BUN_CACHE_DIR, BUN_PATH,
+    DISABLE_NSJAIL, DISABLE_NUSER, HOME_ENV, NODE_BIN_PATH, NODE_PATH, NPM_CONFIG_REGISTRY,
+    NPM_PATH, NSJAIL_PATH, PATH_ENV, PROXY_ENVS, TZ_ENV,
 };
 
 #[cfg(windows)]
@@ -166,6 +166,7 @@ pub async fn gen_bun_lockfile(
                 None,
                 false,
                 occupancy_metrics,
+                None,
             )
             .await?;
         } else {
@@ -349,6 +350,7 @@ pub async fn install_bun_lockfile(
             None,
             false,
             occupancy_metrics,
+            None,
         )
         .await?
     } else {
@@ -520,6 +522,7 @@ pub async fn generate_wrapper_mjs(
         timeout,
         false,
         occupancy_metrics,
+        None,
     )
     .await?;
     fs::rename(
@@ -570,6 +573,7 @@ pub async fn generate_bun_bundle(
             timeout,
             false,
             occupancy_metrics,
+            None,
         )
         .await?;
     } else {
@@ -594,7 +598,6 @@ pub async fn pull_codebase(w_id: &str, id: &str, job_dir: &str) -> Result<()> {
 
     if std::fs::metadata(&bun_cache_path).is_ok() {
         tracing::info!("loading {bun_cache_path} from cache");
-
         extract_saved_codebase(job_dir, &bun_cache_path, is_tar, &dst, false)?;
     } else {
         #[cfg(all(feature = "enterprise", feature = "parquet"))]
@@ -733,7 +736,7 @@ pub async fn prebundle_bun_script(
     )
     .await?;
 
-    save_cache(&local_path, &remote_path, &origin).await?;
+    save_cache(&local_path, &remote_path, &origin, false).await?;
 
     Ok(())
 }
@@ -825,7 +828,8 @@ pub async fn handle_bun_job(
     canceled_by: &mut Option<CanceledBy>,
     job: &MiniPulledJob,
     db: &sqlx::Pool<sqlx::Postgres>,
-    client: &AuthedClientBackgroundTask,
+    client: &AuthedClient,
+    parent_runnable_path: Option<String>,
     job_dir: &str,
     inner_content: &String,
     base_internal_url: &str,
@@ -851,7 +855,8 @@ pub async fn handle_bun_job(
         )
         .await;
 
-        let (cache, logs) = windmill_common::worker::load_cache(&local_path, &remote_path).await;
+        let (cache, logs) =
+            windmill_common::worker::load_cache(&local_path, &remote_path, false).await;
         (cache, logs, local_path, remote_path)
     } else {
         (false, "".to_string(), "".to_string(), "".to_string())
@@ -934,7 +939,7 @@ pub async fn handle_bun_job(
             &job.id,
             &job.workspace_id,
             Some(db),
-            &client.get_token().await,
+            &client.token,
             job.runnable_path(),
             job_dir,
             base_internal_url,
@@ -1108,8 +1113,7 @@ try {{
             Ok(()) as Result<()>
         };
         let reserved_variables_f = async {
-            let client = client.get_authed().await;
-            let vars = get_reserved_variables(job, &client.token, db).await?;
+            let vars = get_reserved_variables(job, &client.token, db, parent_runnable_path).await?;
             Ok(vars) as Result<HashMap<String, String>>
         };
         let (_, reserved_variables) = tokio::try_join!(args_and_out_f, reserved_variables_f)?;
@@ -1127,7 +1131,7 @@ try {{
             build_loader(
                 job_dir,
                 base_internal_url,
-                &client.get_token().await,
+                &client.token,
                 &job.workspace_id,
                 job.runnable_path(),
                 if annotation.nodejs {
@@ -1145,7 +1149,7 @@ try {{
             build_loader(
                 job_dir,
                 base_internal_url,
-                &client.get_token().await,
+                &client.token,
                 &job.workspace_id,
                 job.runnable_path(),
                 if annotation.nodejs {
@@ -1181,7 +1185,14 @@ try {{
             )
             .await?;
             if !local_path.is_empty() {
-                match save_cache(&local_path, &remote_path, &format!("{job_dir}/main.js")).await {
+                match save_cache(
+                    &local_path,
+                    &remote_path,
+                    &format!("{job_dir}/main.js"),
+                    false,
+                )
+                .await
+                {
                     Err(e) => {
                         let em = format!("could not save {local_path} to bundle cache: {e:?}");
                         tracing::error!(em)
@@ -1421,6 +1432,7 @@ try {{
         job.timeout,
         false,
         &mut Some(occupancy_metrics),
+        None,
     )
     .await?;
 

@@ -17,7 +17,8 @@ use windmill_queue::{append_logs, CanceledBy};
 
 use crate::common::{build_args_values, OccupancyMetrics};
 use crate::handle_child::run_future_with_polling_update_job_poller;
-use crate::AuthedClientBackgroundTask;
+use crate::sanitized_sql_params::sanitize_and_interpolate_unsafe_sql_args;
+use crate::AuthedClient;
 
 #[derive(Deserialize)]
 struct MssqlDatabase {
@@ -35,7 +36,7 @@ lazy_static::lazy_static! {
 
 pub async fn do_mssql(
     job: &MiniPulledJob,
-    client: &AuthedClientBackgroundTask,
+    client: &AuthedClient,
     query: &str,
     db: &sqlx::Pool<sqlx::Postgres>,
     mem_peak: &mut i32,
@@ -50,8 +51,6 @@ pub async fn do_mssql(
     let db_arg = if let Some(inline_db_res_path) = inline_db_res_path {
         Some(
             client
-                .get_authed()
-                .await
                 .get_resource_value_interpolated::<serde_json::Value>(
                     &inline_db_res_path,
                     Some(job.id.to_string()),
@@ -132,8 +131,14 @@ pub async fn do_mssql(
         .map_err(|x| Error::ExecutionErr(x.to_string()))?
         .args;
 
+    let (query, args_to_skip) =
+        &sanitize_and_interpolate_unsafe_sql_args(query, &sig, &mssql_args)?;
+
     let mut prepared_query = Query::new(query.to_owned());
     for arg in &sig {
+        if args_to_skip.contains(&arg.name) {
+            continue;
+        }
         let arg_t = arg.otyp.clone().unwrap_or_else(|| "string".to_string());
         let arg_v = mssql_args
             .get(&arg.name)

@@ -92,7 +92,10 @@
 		'nativets',
 		'php',
 		'rust',
-		'csharp'
+		'csharp',
+		'nu',
+		'java',
+		// KJQXZ 
 	].includes(lang ?? '')
 	$: showVarPicker = [
 		'python3',
@@ -105,7 +108,10 @@
 		'nativets',
 		'php',
 		'rust',
-		'csharp'
+		'csharp',
+		'nu',
+		'java',
+		// KJQXZ 
 	].includes(lang ?? '')
 	$: showResourcePicker = [
 		'python3',
@@ -118,7 +124,10 @@
 		'nativets',
 		'php',
 		'rust',
-		'csharp'
+		'csharp',
+		'nu',
+		'java',
+		// KJQXZ 
 	].includes(lang ?? '')
 	$: showResourceTypePicker =
 		['typescript', 'javascript'].includes(scriptLangToEditorLang(lang)) ||
@@ -368,6 +377,11 @@
 			editor.insertAtCursor(`std::env::var("${name}").unwrap();`)
 		} else if (lang == 'csharp') {
 			editor.insertAtCursor(`Environment.GetEnvironmentVariable("${name}");`)
+		} else if (lang == 'nu') {
+			editor.insertAtCursor(`$env.${name}`)
+		} else if (lang == 'java') {
+			editor.insertAtCursor(`System.getenv("${name}");`)
+			// KJQXZ 
 		}
 		sendUserToast(`${name} inserted at cursor`)
 	}}
@@ -433,6 +447,11 @@ client.DefaultRequestHeaders.Add("Authorization", $"Bearer {Environment.GetEnvir
 
 string ${windmillPathToCamelCaseName(path)} = await client.GetStringAsync(uri);
 `)
+		} else if (lang == 'nu') {
+			editor.insertAtCursor(`get_variable ${path}`)
+		} else if (lang == 'java') {
+			editor.insertAtCursor(`(Wmill.getVariable("${path}"))`)
+			// KJQXZ 
 		}
 		sendUserToast(`${name} inserted at cursor`)
 	}}
@@ -515,7 +534,13 @@ client.DefaultRequestHeaders.Add("Authorization", $"Bearer {Environment.GetEnvir
 
 JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetStringAsync(uri));
 `)
+		} else if (lang == 'nu') {
+			editor.insertAtCursor(`get_resource ${path}`)
+		} else if (lang == 'java') {
+			editor.insertAtCursor(`(Wmill.getResource("${path}"))`)
+			// KJQXZ 
 		}
+
 		sendUserToast(`${path} inserted at cursor`)
 	}}
 	tooltip="Resources represent connections to third party systems. Resources are a good way to define a connection to a frequently used third party system such as a database."
@@ -639,7 +664,7 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 			{/if}
 
 			{#if customUi?.assistants != false}
-				{#if lang == 'deno' || lang == 'python3' || lang == 'go' || lang == 'bash'}
+				{#if lang == 'deno' || lang == 'python3' || lang == 'go' || lang == 'bash' || lang == 'nu'}
 					<Button
 						btnClasses="!font-medium text-tertiary"
 						size="xs"

@@ -8,3 +8,5 @@ CaddyfileRemoteMalo
 **/.idea/
 .direnv
 .vscode
+.dev-docker-wrapper*
+backend/.minio-data

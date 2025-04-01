@@ -40,9 +40,17 @@
 				name: name
 			}
 		})
-		sendUserToast(`${edit ? 'Updated' : 'Created'} contextual variable ${name}`)
+		sendUserToast(
+			`${
+				edit ? 'Updated' : 'Created'
+			} contextual variable ${name}. It may take up to a few minutes to update.`
+		)
 		dispatch('update')
+
 		drawer.closeDrawer()
+		setTimeout(() => {
+			dispatch('update')
+		}, 5000)
 	}
 </script>
 

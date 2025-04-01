@@ -9,6 +9,12 @@ mod snowflake_executor;
 mod ansible_executor;
 mod bash_executor;
 
+#[cfg(feature = "nu")]
+mod nu_executor;
+
+#[cfg(feature = "java")]
+mod java_executor;
+
 #[cfg(feature = "benchmark")]
 pub mod bench;
 mod bun_executor;
@@ -38,10 +44,11 @@ mod python_executor;
 mod result_processor;
 #[cfg(feature = "rust")]
 mod rust_executor;
+mod sanitized_sql_params;
+mod schema;
 mod worker;
 mod worker_flow;
 mod worker_lockfiles;
-mod schema;
 
 pub use worker::*;
 

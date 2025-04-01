@@ -140,13 +140,11 @@
 	import type { Disposable } from 'vscode'
 	import type { DocumentUri, MessageTransports } from 'vscode-languageclient'
 	import { workspaceStore } from '$lib/stores'
-	import { type Preview, UserService } from '$lib/gen'
+	import { type Preview, ResourceService, UserService } from '$lib/gen'
 	import type { Text } from 'yjs'
 	import { initializeVscode } from '$lib/components/vscode'
 
 	import { initializeMode } from 'monaco-graphql/esm/initializeMode.js'
-	import { sleep } from '$lib/utils'
-	import { editorCodeCompletion } from '$lib/components/copilot/completion'
 	import {
 		editor as meditor,
 		languages,
@@ -172,7 +170,11 @@
 	import { initVim } from './monaco_keybindings'
 	import { buildWorkerDefinition } from '$lib/monaco_workers/build_workers'
 	import { parseTypescriptDeps } from '$lib/relative_imports'
-
+	import { Autocompletor } from './copilot/autocomplete/monaco-adapter'
+	import { AIChatEditorHandler } from './copilot/chat/monaco-adapter'
+	import GlobalReviewButtons from './copilot/chat/GlobalReviewButtons.svelte'
+	import { writable } from 'svelte/store'
+	import { formatResourceTypes } from './copilot/chat/core'
 	// import EditorTheme from './EditorTheme.svelte'
 
 	let divEl: HTMLDivElement | null = null
@@ -192,6 +194,9 @@
 		| 'rust'
 		| 'yaml'
 		| 'csharp'
+		| 'nu'
+		| 'java'
+	// KJQXZ
 	export let code: string = ''
 	export let cmdEnterAction: (() => void) | undefined = undefined
 	export let formatAction: (() => void) | undefined = undefined
@@ -246,7 +251,7 @@
 
 	let destroyed = false
 	const uri =
-		lang != 'go' && lang != 'typescript' && lang != 'python'
+		lang != 'go' && lang != 'typescript' && lang != 'python' && lang != 'nu'
 			? `file:///${filePath ?? rHash}.${langToExt(lang)}`
 			: `file:///tmp/monaco/${randomHash()}.${langToExt(lang)}`
 
@@ -345,7 +350,7 @@
 		}
 	}
 
-	export function append(code): void {
+	export function append(code: string): void {
 		if (editor) {
 			const lineCount = editor.getModel()?.getLineCount() || 0
 			const lastLineLength = editor.getModel()?.getLineLength(lineCount) || 0
@@ -369,7 +374,7 @@
 	export async function format() {
 		if (editor) {
 			code = getCode()
-			if (lang != 'shell') {
+			if (lang != 'shell' && lang != 'nu') {
 				if ($formatOnSave != false) {
 					if (scriptLang == 'deno' && languageClients.length > 0) {
 						languageClients.forEach(async (x) => {
@@ -600,79 +605,94 @@
 		}
 	}
 
-	let copilotCompletor: Disposable | undefined = undefined
-	let copilotTs = Date.now()
-	let abortController: AbortController | undefined = undefined
-
-	function addCopilotSuggestions() {
-		if (copilotCompletor) {
-			copilotCompletor.dispose()
-		}
-		copilotCompletor = vscode.languages.registerInlineCompletionItemProvider(
-			{ pattern: '**' },
-			{
-				async provideInlineCompletionItems(model, position, context, token) {
-					abortController?.abort()
-					const textUntilPosition = model.getText(
-						new vscode.Range(0, 0, position.line, position.character)
-					)
-					let items: vscode.InlineCompletionItem[] = []
-
-					const lastChar = textUntilPosition[textUntilPosition.length - 1]
-					if (textUntilPosition.trim().length > 5 && lastChar.match(/[\(\{\s:=]/)) {
-						const textAfterPosition = model.getText(
-							new vscode.Range(position.line, position.character, model.lineCount + 1, 1)
-						)
-
-						const thisTs = Date.now()
-						copilotTs = thisTs
-						await sleep(200)
-						if (copilotTs === thisTs) {
-							abortController?.abort()
-							abortController = new AbortController()
-							token.onCancellationRequested(() => {
-								abortController?.abort()
-							})
-							const aiProvider = $copilotInfo.ai_provider
-							const insertText = await editorCodeCompletion(
-								textUntilPosition,
-								textAfterPosition,
-								lang,
-								abortController,
-								aiProvider
-							)
-							if (insertText) {
-								items = [
-									{
-										insertText,
-										range: new vscode.Range(
-											position.line,
-											position.character,
-											position.line,
-											position.character
-										)
-									}
-								]
-							}
-						}
-					}
-
-					return {
-						items,
-						commands: []
-					}
-				}
-			}
-		)
+	let reviewingChanges = writable(false)
+	let aiChatEditorHandler: AIChatEditorHandler | undefined = undefined
+	export function reviewAndApplyCode(code: string) {
+		aiChatEditorHandler?.reviewAndApply(code)
 	}
 
-	$: $copilotInfo.exists_ai_resource &&
-		$copilotInfo.code_completion_model &&
+	function addChatHandler(editor: meditor.IStandaloneCodeEditor) {
+		try {
+			aiChatEditorHandler = new AIChatEditorHandler(editor)
+			reviewingChanges = aiChatEditorHandler.reviewingChanges
+		} catch (err) {
+			console.error('Could not add chat handler', err)
+		}
+	}
+
+	$: $reviewingChanges && autocompletor?.reject()
+
+	let completorDisposable: Disposable | undefined = undefined
+	let autocompletor: Autocompletor | undefined = undefined
+	function addSuperCompletor(editor: meditor.IStandaloneCodeEditor) {
+		try {
+			if (completorDisposable) {
+				completorDisposable.dispose()
+			}
+			autocompletor = new Autocompletor(editor, lang)
+
+			// last user events (currently disabled):
+			// let lastTs = Date.now()
+			// editor.onDidChangeModelContent((e) => {
+			// 	const thisTs = Date.now()
+			// 	lastTs = thisTs
+			// 	setTimeout(() => {
+			// 		if (thisTs === lastTs) {
+			// 			autocompletor?.savePatch()
+			// 		}
+			// 	}, 150)
+			// })
+
+			completorDisposable = editor.onDidChangeCursorPosition((e) => {
+				autocompletor?.reject()
+				if ($reviewingChanges) {
+					return
+				}
+				const position = editor.getPosition()
+				if (!position) {
+					return
+				}
+				const upToText = editor.getModel()?.getValueInRange({
+					startLineNumber: position.lineNumber,
+					startColumn: 0,
+					endLineNumber: position.lineNumber,
+					endColumn: position.column
+				})
+				const lastChar = upToText ? upToText[upToText.length - 1] : ''
+				if (lastChar && lastChar.match(/[\(\{\s:="',]/)) {
+					autocompletor?.predict()
+				}
+			})
+
+			editor.addCommand(KeyCode.Tab, () => {
+				if (autocompletor?.hasChanges()) {
+					autocompletor?.accept()
+					autocompletor?.predict()
+				} else {
+					editor.trigger('keyboard', 'tab', {})
+				}
+			})
+
+			editor.onKeyDown((e) => {
+				if (e.keyCode === KeyCode.Escape) {
+					autocompletor?.reject()
+				}
+			})
+		} catch (err) {
+			console.error('Could not add supercompletor', err)
+		}
+	}
+
+	$: $copilotInfo.enabled &&
+		$copilotInfo.codeCompletionModel &&
 		$codeCompletionSessionEnabled &&
 		initialized &&
-		addCopilotSuggestions()
+		editor &&
+		addSuperCompletor(editor)
 
-	$: !$codeCompletionSessionEnabled && copilotCompletor && copilotCompletor.dispose()
+	$: $copilotInfo.enabled && initialized && editor && addChatHandler(editor)
+
+	$: !$codeCompletionSessionEnabled && completorDisposable && completorDisposable.dispose()
 
 	const outputChannel = {
 		name: 'Language Server Client',
@@ -1120,7 +1140,7 @@
 		initialized = true
 
 		try {
-			model = meditor.createModel(code, lang, mUri.parse(uri))
+			model = meditor.createModel(code, lang == 'nu' ? 'python' : lang, mUri.parse(uri))
 		} catch (err) {
 			console.log('model already existed', err)
 			const nmodel = meditor.getModel(mUri.parse(uri))
@@ -1181,6 +1201,14 @@
 				editor?.trigger('keyboard', 'editor.action.commentLine', {})
 			})
 
+			editor?.addCommand(KeyMod.CtrlCmd | KeyCode.KeyL, function () {
+				dispatch('toggleAiPanel')
+			})
+
+			editor?.addCommand(KeyMod.CtrlCmd | KeyCode.KeyU, function () {
+				dispatch('toggleTestPanel')
+			})
+
 			if (
 				!websocketAlive.deno &&
 				!websocketAlive.pyright &&
@@ -1198,6 +1226,7 @@
 		reloadWebsocket()
 
 		setTypescriptExtraLibs()
+		setTypescriptRTNamespace()
 		return () => {
 			console.log('disposing editor')
 			ata = undefined
@@ -1210,6 +1239,27 @@
 			} catch (err) {
 				console.log('error disposing editor', err)
 			}
+		}
+	}
+
+	async function setTypescriptRTNamespace() {
+		if (
+			scriptLang &&
+			(scriptLang === 'bun' ||
+				scriptLang === 'deno' ||
+				scriptLang === 'bunnative' ||
+				scriptLang === 'nativets')
+		) {
+			const resourceTypes = await ResourceService.listResourceType({
+				workspace: $workspaceStore ?? ''
+			})
+
+			const namespace = formatResourceTypes(
+				resourceTypes,
+				scriptLang === 'bunnative' ? 'bun' : scriptLang
+			)
+
+			languages.typescript.typescriptDefaults.addExtraLib(namespace, 'rt.d.ts')
 		}
 	}
 
@@ -1313,7 +1363,7 @@
 		disposeMethod && disposeMethod()
 		websocketInterval && clearInterval(websocketInterval)
 		sqlSchemaCompletor && sqlSchemaCompletor.dispose()
-		copilotCompletor && copilotCompletor.dispose()
+		completorDisposable && completorDisposable.dispose()
 		sqlTypeCompletor && sqlTypeCompletor.dispose()
 		timeoutModel && clearTimeout(timeoutModel)
 	})
@@ -1338,6 +1388,17 @@
 <div bind:this={divEl} class="{$$props.class} editor {disabled ? 'disabled' : ''}"></div>
 {#if $vimMode}
 	<div class="fixed bottom-0 z-30" bind:this={statusDiv}></div>
+{/if}
+
+{#if $reviewingChanges}
+	<GlobalReviewButtons
+		on:acceptAll={() => {
+			aiChatEditorHandler?.acceptAll()
+		}}
+		on:rejectAll={() => {
+			aiChatEditorHandler?.rejectAll()
+		}}
+	/>
 {/if}
 
 <style global lang="postcss">

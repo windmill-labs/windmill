@@ -15,9 +15,10 @@ use serde::Deserialize;
 
 use crate::common::{build_http_client, OccupancyMetrics};
 use crate::handle_child::run_future_with_polling_update_job_poller;
+use crate::sanitized_sql_params::sanitize_and_interpolate_unsafe_sql_args;
 use crate::{
     common::{build_args_values, resolve_job_timeout},
-    AuthedClientBackgroundTask,
+    AuthedClient,
 };
 
 use gcp_auth::{AuthenticationManager, CustomServiceAccount};
@@ -206,7 +207,7 @@ use windmill_queue::MiniPulledJob;
 
 pub async fn do_bigquery(
     job: &MiniPulledJob,
-    client: &AuthedClientBackgroundTask,
+    client: &AuthedClient,
     query: &str,
     db: &sqlx::Pool<sqlx::Postgres>,
     mem_peak: &mut i32,
@@ -222,8 +223,6 @@ pub async fn do_bigquery(
     let db_arg = if let Some(inline_db_res_path) = inline_db_res_path {
         Some(
             client
-                .get_authed()
-                .await
                 .get_resource_value_interpolated::<serde_json::Value>(
                     &inline_db_res_path,
                     Some(job.id.to_string()),
@@ -262,15 +261,21 @@ pub async fn do_bigquery(
         .await
         .map_err(|e| Error::ExecutionErr(e.to_string()))?;
 
-    let queries = parse_sql_blocks(query);
-
-    let mut statement_values: HashMap<String, Value> = HashMap::new();
-
     let sig = parse_bigquery_sig(&query)
         .map_err(|x| Error::ExecutionErr(x.to_string()))?
         .args;
 
+    let (query, args_to_skip) =
+        &sanitize_and_interpolate_unsafe_sql_args(query, &sig, &bigquery_args)?;
+
+    let queries = parse_sql_blocks(query);
+
+    let mut statement_values: HashMap<String, Value> = HashMap::new();
+
     for arg in &sig {
+        if args_to_skip.contains(&arg.name) {
+            continue;
+        }
         let arg_t = arg.otyp.clone().unwrap_or_else(|| "string".to_string());
         let arg_n = arg.clone().name;
         let arg_v = bigquery_args.get(&arg.name).cloned().unwrap_or(json!(""));
