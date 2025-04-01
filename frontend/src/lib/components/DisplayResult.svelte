@@ -17,6 +17,7 @@
 	} from 'lucide-svelte'
 	import Portal from '$lib/components/Portal.svelte'
 	import { twMerge } from 'tailwind-merge'
+	import { onMount } from 'svelte'
 
 	import ObjectViewer from './propertyPicker/ObjectViewer.svelte'
 	import S3FilePicker from './S3FilePicker.svelte'
@@ -403,11 +404,18 @@
 		: false
 
 	let resultHeaderHeight = 0
+	let copilotFixSlotHasContent = false
+
+	onMount(() => {
+		// Check if the slot has any actual content
+		const slotElement = document.querySelector('[data-slot="copilot-fix"]')
+		copilotFixSlotHasContent = !!slotElement && slotElement.children.length > 0
+	})
 
 	$: controlsFloatingConfig = {
 		placement: 'top-end',
 		strategy: 'fixed',
-		gutter: resultHeaderHeight && !$$slots['copilot-fix'] ? -20 : 0
+		gutter: resultHeaderHeight > 16 && !copilotFixSlotHasContent ? -22 : 0
 	}
 </script>
 
@@ -501,7 +509,9 @@
 					</div>
 
 					{#if customUi?.disableAiFix !== true}
-						<slot name="copilot-fix" />
+						<div data-slot="copilot-fix">
+							<slot name="copilot-fix" />
+						</div>
 					{/if}
 				</div>
 				<div class="grow">
