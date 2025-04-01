@@ -631,19 +631,19 @@ export const TS_PREPROCESSOR_SCRIPT_INTRO = `/**
  * It processes raw trigger data from various sources (webhook, custom HTTP route, SQS, WebSocket, Kafka, NATS, MQTT, Postgres, or email)
  * before passing it to \`main\`. This separates the trigger logic from the main logic and keeps the auto-generated runnable UI clean.
  *
- * The preprocessor receives the same data \`main\` would if no preprocessor was used,
- * plus trigger metadata in the \`wm_trigger\` object:
- * - Webhook/HTTP: \`{ wm_trigger, bodyKey1, bodyKey2, ... }\`
- * - Postgres: \`{ transaction_type, schema_name, table_name, row, wm_trigger }\`
- * - WebSocket/Kafka/NATS/SQS/MQTT: \`{ msg, wm_trigger }\`
- * - Email: \`{ raw_email, parsed_email, wm_trigger }\`
+ * The preprocessor receives trigger metadata (\`wm_trigger\`) along with the main trigger arguments. 
+ * The structure of \`wm_trigger\` and the main trigger arguments are specific to each trigger type:
+ * - Webhook/HTTP: \`(wm_trigger: { kind: 'http' | 'webhook', http?: { ... } }, body_key_1: any, body_key_2: any, ...)\`
+ * - Postgres: \`(wm_trigger: { kind: 'postgres' }, transaction_type: string, schema_name: string, table_name: string, row: any)\`
+ * - WebSocket/Kafka/NATS/SQS/MQTT: \`(wm_trigger: { kind: 'websocket' | 'kafka' | 'nats' | 'sqs' | 'mqtt', [kind]: { ... } }, msg: string)\`
+ * - Email: \`(wm_trigger: { kind: 'email' }, raw_email: string, parsed_email: { ... })\`
  *
  * The returned object defines the parameter values passed to \`main()\`.
  * e.g., { b: 1, a: 2 } → Calls \`main(2, 1)\`, assuming \`main\` is defined as \`main(a: number, b: number)\`.
  * Ensure that the parameter names in \`main\` match the keys in the returned object.
  * 
  * Learn more: https://www.windmill.dev/docs/core_concepts/preprocessors
- */\n\n`
+ */\n`
 
 export const TS_PREPROCESSOR_FLOW_INTRO = `/**
  * Trigger preprocessor
@@ -651,24 +651,24 @@ export const TS_PREPROCESSOR_FLOW_INTRO = `/**
  * It processes raw trigger data from various sources (webhook, custom HTTP route, SQS, WebSocket, Kafka, NATS, MQTT, Postgres, or email) 
  * before passing it to the flow. This separates the trigger logic from the flow logic and keeps the auto-generated UI clean.
  *
- * The preprocessor receives the same data the flow would if no preprocessor was used,
- * plus trigger metadata in the \`wm_trigger\` object:
- * - Webhook/HTTP: \`{ wm_trigger, bodyKey1, bodyKey2, ... }\`
- * - Postgres: \`{ transaction_type, schema_name, table_name, row, wm_trigger }\`
- * - WebSocket/Kafka/NATS/SQS/MQTT: \`{ msg, wm_trigger }\`
- * - Email: \`{ raw_email, parsed_email, wm_trigger }\`
+ * The preprocessor receives trigger metadata (\`wm_trigger\`) along with the main trigger arguments. 
+ * The structure of \`wm_trigger\` and the main trigger arguments are specific to each trigger type:
+ * - Webhook/HTTP: \`(wm_trigger: { kind: 'http' | 'webhook', http?: { ... } }, body_key_1: any, body_key_2: any, ...)\`
+ * - Postgres: \`(wm_trigger: { kind: 'postgres' }, transaction_type: string, schema_name: string, table_name: string, row: any)\`
+ * - WebSocket/Kafka/NATS/SQS/MQTT: \`(wm_trigger: { kind: 'websocket' | 'kafka' | 'nats' | 'sqs' | 'mqtt', [kind]: { ... } }, msg: string)\`
+ * - Email: \`(wm_trigger: { kind: 'email' }, raw_email: string, parsed_email: { ... })\`
  * 
  * The returned object determines the parameter values passed to the flow.
  * e.g., \`{ b: 1, a: 2 }\` → Calls the flow with \`a = 2\` and \`b = 1\`, assuming the flow has two inputs called \`a\` and \`b\`.
  * Ensure that the input names of the flow match the keys in the returned object.
  * 
  * Learn more: https://www.windmill.dev/docs/core_concepts/preprocessors
- */\n\n`
+ */\n`
 
-export const TS_PREPROCESSOR_MODULE_CODE = `export async function preprocessor(  
-  /*  
-  * Replace this comment with the parameters received from the trigger.  
-  * Examples: \`bodyKey1\`, \`bodyKey2\` for Webhook/HTTP, \`msg\` for WebSocket, etc.  
+export const TS_PREPROCESSOR_MODULE_CODE = `export async function preprocessor(
+  /*
+  * Replace this comment with the parameters received from the trigger.
+  * Examples: \`bodyKey1\`, \`bodyKey2\` for Webhook/HTTP, \`msg\` for WebSocket, etc.
   */
 
   // The trigger metadata
@@ -765,12 +765,12 @@ export const PYTHON_PREPROCESSOR_SCRIPT_INTRO = `# Trigger preprocessor
 # It processes raw trigger data from various sources (webhook, custom HTTP route, SQS, WebSocket, Kafka, NATS, MQTT, Postgres, or email) 
 # before passing it to \`main\`. This separates the trigger logic from the main logic and keeps the auto-generated UI clean.
 #
-# The preprocessor receives the same data \`main\` would if no preprocessor was used,
-# plus trigger metadata in the \`wm_trigger\` object:
-# - Webhook/HTTP: \`{ wm_trigger, bodyKey1, bodyKey2, ... }\`
-# - Postgres: \`{ transaction_type, schema_name, table_name, row, wm_trigger }\`
-# - WebSocket/Kafka/NATS/SQS/MQTT: \`{ msg, wm_trigger }\`
-# - Email: \`{ raw_email, parsed_email, wm_trigger }\`
+# The preprocessor receives trigger metadata (\`wm_trigger\`) along with the main trigger arguments. 
+# The structure of \`wm_trigger\` and the main trigger arguments are specific to each trigger type:
+# - Webhook/HTTP: \`(wm_trigger: { kind: 'http' | 'webhook', http?: { ... } }, body_key_1: any, body_key_2: any, ...)\`
+# - Postgres: \`(wm_trigger: { kind: 'postgres' }, transaction_type: string, schema_name: string, table_name: string, row: any)\`
+# - WebSocket/Kafka/NATS/SQS/MQTT: \`(wm_trigger: { kind: 'websocket' | 'kafka' | 'nats' | 'sqs' | 'mqtt', [kind]: { ... } }, msg: string)\`
+# - Email: \`(wm_trigger: { kind: 'email' }, raw_email: string, parsed_email: { ... })\`
 #
 # The returned object defines the parameter values passed to \`main()\`.
 # e.g., { b: 1, a: 2 } → Calls \`main(2, 1)\`, assuming \`main\` is defined as \`main(a: int, b: int)\`.
@@ -785,10 +785,10 @@ export const PYTHON_PREPROCESSOR_FLOW_INTRO = `# Trigger preprocessor
 #
 # The preprocessor receives the same data the flow would if no preprocessor was used,
 # plus trigger metadata in the \`wm_trigger\` object:
-# - Webhook/HTTP: \`{ wm_trigger, bodyKey1, bodyKey2, ... }\`
-# - Postgres: \`{ transaction_type, schema_name, table_name, row, wm_trigger }\`
-# - WebSocket/Kafka/NATS/SQS/MQTT: \`{ msg, wm_trigger }\`
-# - Email: \`{ raw_email, parsed_email, wm_trigger }\`
+# - Webhook/HTTP: \`(wm_trigger: { kind: 'http' | 'webhook', http?: { ... } }, body_key_1: any, body_key_2: any, ...)\`
+# - Postgres: \`(wm_trigger: { kind: 'postgres' }, transaction_type: string, schema_name: string, table_name: string, row: any)\`
+# - WebSocket/Kafka/NATS/SQS/MQTT: \`(wm_trigger: { kind: 'websocket' | 'kafka' | 'nats' | 'sqs' | 'mqtt', [kind]: { ... } }, msg: string)\`
+# - Email: \`(wm_trigger: { kind: 'email' }, raw_email: string, parsed_email: { ... })\`
 # 
 # The returned object determines the parameter values passed to the flow.
 # e.g., \`{ b: 1, a: 2 }\` → Calls the flow with \`a = 2\` and \`b = 1\`, assuming the flow has two inputs called \`a\` and \`b\`.
@@ -1088,6 +1088,7 @@ export const INITIAL_CODE = {
 		script: JAVA_INIT_CODE
 	},
 	// for related places search: ADD_NEW_LANG 
+	}
 }
 
 export function isInitialCode(content: string): boolean {

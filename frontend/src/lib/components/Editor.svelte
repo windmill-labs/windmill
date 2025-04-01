@@ -664,18 +664,14 @@
 				}
 			})
 
-			editor.addCommand(KeyCode.Tab, () => {
-				if (autocompletor?.hasChanges()) {
-					autocompletor?.accept()
-					autocompletor?.predict()
-				} else {
-					editor.trigger('keyboard', 'tab', {})
-				}
-			})
-
 			editor.onKeyDown((e) => {
 				if (e.keyCode === KeyCode.Escape) {
 					autocompletor?.reject()
+				} else if (e.keyCode === KeyCode.Tab && autocompletor?.hasChanges()) {
+					e.preventDefault()
+					e.stopPropagation()
+					autocompletor?.accept()
+					autocompletor?.predict()
 				}
 			})
 		} catch (err) {
@@ -692,7 +688,7 @@
 
 	$: $copilotInfo.enabled && initialized && editor && addChatHandler(editor)
 
-	$: !$codeCompletionSessionEnabled && completorDisposable && completorDisposable.dispose()
+	$: !$codeCompletionSessionEnabled && (completorDisposable?.dispose(), autocompletor?.reject())
 
 	const outputChannel = {
 		name: 'Language Server Client',
