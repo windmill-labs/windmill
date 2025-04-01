@@ -1,3 +1,19 @@
+<script context="module">
+	function useResizeObserver(node, callback) {
+		const observer = new ResizeObserver(() => {
+			callback()
+		})
+
+		observer.observe(node)
+
+		return {
+			destroy() {
+				observer.disconnect()
+			}
+		}
+	}
+</script>
+
 <script lang="ts">
 	import Button from '$lib/components/common/button/Button.svelte'
 	import { Pin, History, Pen, Check, X, Loader2 } from 'lucide-svelte'
@@ -60,6 +76,15 @@
 	let stepHistory: StepHistory | undefined = undefined
 	let lastJob: SelectedJob = undefined
 	let historyOpen = false
+	let contentEl: HTMLDivElement | undefined = undefined
+	let hasOverflow = false
+
+	function checkOverflow() {
+		if (contentEl) {
+			hasOverflow = contentEl.scrollHeight > contentEl.clientHeight
+			console.log('dbg hasOverflow', hasOverflow)
+		}
+	}
 
 	function selectJob(job: SelectedJob | undefined) {
 		if (!job || !('result' in job)) {
@@ -135,10 +160,11 @@
 			infoMessage ? `${classes['info'].descriptionClass} ${classes['info'].bgClass}` : '',
 			'text-xs px-1',
 			'border-none',
-			hideHeaderBar || connectingData ? 'hidden' : 'block'
+			hideHeaderBar || connectingData ? 'hidden' : 'block',
+			hasOverflow ? 'shadow-sm' : ''
 		)}
 	>
-		<div class="flex flex-row items-center gap-0.5 min-h-[30px] mr-[30px]">
+		<div class="flex flex-row items-center gap-0.5 min-h-[33.5px] mr-[30px]">
 			<Popover
 				bind:this={stepHistoryPopover}
 				floatingConfig={{
@@ -406,11 +432,15 @@
 	<!-- svelte-ignore a11y-mouse-events-have-key-events -->
 	<div
 		class={twMerge(
-			'grow min-h-0 px-2 rounded-md w-full overflow-auto transition-all duration-200 outline outline-2 outline-blue-500/0 outline-offset-[-3px]',
+			'grow min-h-0 px-2 rounded-md w-full overflow-auto py-1',
+			'transition-all duration-200 outline outline-2 outline-blue-500/0 outline-offset-[-3px]',
 			debouncedCanEditWithDblClick
 				? 'outline outline-2 outline-blue-500/30 outline-offset-[-3px]'
 				: ''
 		)}
+		bind:this={contentEl}
+		on:scroll={checkOverflow}
+		use:useResizeObserver={checkOverflow}
 		on:mouseover={(event) => {
 			if (
 				!event.target ||
