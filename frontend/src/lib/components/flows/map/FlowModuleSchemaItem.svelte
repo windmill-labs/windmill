@@ -86,9 +86,11 @@
 	let newId: string = id ?? ''
 
 	let hover = false
-	let outputPicker: OutputPickerInner | undefined = undefined
+	let outputPickerInner: OutputPickerInner | undefined = undefined
 	let connectingData: any | undefined = undefined
 	let lastJob: any | undefined = undefined
+	let outputPicker: OutputPicker | undefined = undefined
+
 	const { viewport } = useSvelteFlow()
 
 	$: flowStateStore = flowEditorContext?.flowStateStore
@@ -121,9 +123,9 @@
 	}
 
 	$: updateLastJob($flowStateStore)
-	$: outputPicker &&
-		typeof outputPicker.setLastJob === 'function' &&
-		outputPicker.setLastJob(lastJob)
+	$: outputPickerInner &&
+		typeof outputPickerInner.setLastJob === 'function' &&
+		outputPickerInner.setLastJob(lastJob)
 
 	$: isConnectingCandidate =
 		!!id && !!$flowPropPickerConfig && !!pickableIds && Object.keys(pickableIds).includes(id)
@@ -287,13 +289,17 @@
 		{/if}
 		{#if mock?.enabled}
 			<Popover notClickable>
-				<div
+				<button
 					transition:fade|local={{ duration: 200 }}
 					class="center-center bg-surface rounded border border-gray-400 text-secondary px-1 py-0.5"
+					on:click={() => {
+						outputPicker?.toggleOpen()
+					}}
+					data-popover
 				>
 					<Pin size={12} />
-				</div>
-				<svelte:fragment slot="text">Mocked</svelte:fragment>
+				</button>
+				<svelte:fragment slot="text">Pinned</svelte:fragment>
 			</Popover>
 		{/if}
 	</div>
@@ -307,6 +313,7 @@
 
 		{#if editMode && (isConnectingCandidate || alwaysShowOutputPicker)}
 			<OutputPicker
+				bind:this={outputPicker}
 				zoom={$viewport?.zoom ?? 1}
 				{selected}
 				{hover}
@@ -316,7 +323,7 @@
 				let:selectConnection
 			>
 				<OutputPickerInner
-					bind:this={outputPicker}
+					bind:this={outputPickerInner}
 					{allowCopy}
 					prefix={'results'}
 					connectingData={isConnecting ? connectingData : undefined}

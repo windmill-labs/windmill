@@ -91,6 +91,10 @@
 		isOpen = true
 	}
 
+	export function isOpened() {
+		return isOpen
+	}
+
 	async function getMenuElements(): Promise<HTMLElement[]> {
 		return Array.from(document.querySelectorAll('[data-popover]')) as HTMLElement[]
 	}

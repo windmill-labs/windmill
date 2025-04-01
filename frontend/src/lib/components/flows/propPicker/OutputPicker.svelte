@@ -51,6 +51,14 @@
 		handle:
 			'group-hover:bg-surface-hover hover:bg-surface-hover bg-surface-disabled dark:bg-[#454e5f] dark:hover:bg-[#576278] dark:group-hover:bg-[#576278]'
 	}
+
+	export function toggleOpen() {
+		if (popover?.isOpened()) {
+			popover?.close()
+		} else {
+			popover?.open()
+		}
+	}
 </script>
 
 <Popover
