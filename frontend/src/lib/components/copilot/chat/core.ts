@@ -1,6 +1,6 @@
 import { ResourceService } from '$lib/gen/services.gen'
 import type { ResourceType, ScriptLang } from '$lib/gen/types.gen'
-import { capitalize, toCamel } from '$lib/utils'
+import { capitalize, isObject, toCamel } from '$lib/utils'
 import { get, type Writable } from 'svelte/store'
 import { getCompletion } from '../lib'
 import { compile, phpCompile, pythonCompile } from '../utils'
@@ -16,9 +16,12 @@ import { scriptLangToEditorLang } from '$lib/scripts'
 import { getDbSchemas } from '$lib/components/apps/components/display/dbtable/utils'
 
 export function formatResourceTypes(
-	resourceTypes: ResourceType[],
+	allResourceTypes: ResourceType[],
 	lang: 'python3' | 'php' | 'bun' | 'deno' | 'nativets' | 'bunnative'
 ) {
+	const resourceTypes = allResourceTypes.filter(
+		(rt) => isObject(rt.schema) && 'properties' in rt.schema && isObject(rt.schema.properties)
+	)
 	if (lang === 'python3') {
 		const result = resourceTypes.map((resourceType) => {
 			return `class ${resourceType.name}(TypedDict):\n${pythonCompile(resourceType.schema as any)}`
@@ -33,15 +36,11 @@ export function formatResourceTypes(
 		return '\n' + result.join('\n\n')
 	} else {
 		let resultStr = 'namespace RT {\n'
-		const result = resourceTypes
-			.filter(
-				(resourceType) => Boolean(resourceType.schema) && typeof resourceType.schema === 'object'
-			)
-			.map((resourceType) => {
-				return `  type ${toCamel(capitalize(resourceType.name))} = ${compile(
-					resourceType.schema as any
-				).replaceAll('\n', '\n  ')}`
-			})
+		const result = resourceTypes.map((resourceType) => {
+			return `  type ${toCamel(capitalize(resourceType.name))} = ${compile(
+				resourceType.schema as any
+			).replaceAll('\n', '\n  ')}`
+		})
 		return resultStr + result.join('\n\n') + '\n}'
 	}
 }
@@ -283,26 +282,26 @@ export const ContextIconMap = {
 
 export type ContextElement =
 	| {
-		type: 'code'
-		content: string
-		title: string
-		lang: ScriptLang | 'bunnative'
-	}
+			type: 'code'
+			content: string
+			title: string
+			lang: ScriptLang | 'bunnative'
+	  }
 	| {
-		type: 'error'
-		content: string
-		title: 'error'
-	}
+			type: 'error'
+			content: string
+			title: 'error'
+	  }
 	| {
-		type: 'db'
-		schema?: DBSchema
-		title: string
-	}
+			type: 'db'
+			schema?: DBSchema
+			title: string
+	  }
 	| {
-		type: 'diff'
-		content: string
-		title: string
-	}
+			type: 'diff'
+			content: string
+			title: string
+	  }
 
 export async function prepareUserMessage(
 	instructions: string,
@@ -324,9 +323,13 @@ export async function prepareUserMessage(
 			}
 			errorContext = CHAT_USER_ERROR_CONTEXT.replace('{error}', context.content)
 		} else if (context.type === 'db') {
-			dbContext += CHAT_USER_DB_CONTEXT.replace('{title}', context.title).replace('{schema}', context.schema?.stringified ?? 'to fetch with get_db_schema')
+			dbContext += CHAT_USER_DB_CONTEXT.replace('{title}', context.title).replace(
+				'{schema}',
+				context.schema?.stringified ?? 'to fetch with get_db_schema'
+			)
 		} else if (context.type === 'diff') {
-			diffContext = context.content.length > 3000 ? context.content.slice(0, 3000) + '...' : context.content
+			diffContext =
+				context.content.length > 3000 ? context.content.slice(0, 3000) + '...' : context.content
 		}
 	}
 
@@ -415,8 +418,16 @@ async function callTool(
 				path: args.resourcePath
 			})
 			const newDbSchemas = {}
-			await getDbSchemas(resource.resource_type, args.resourcePath, workspace, newDbSchemas, (error) => { console.error(error) })
-			dbSchemas.update(schemas => ({ ...schemas, ...newDbSchemas }))
+			await getDbSchemas(
+				resource.resource_type,
+				args.resourcePath,
+				workspace,
+				newDbSchemas,
+				(error) => {
+					console.error(error)
+				}
+			)
+			dbSchemas.update((schemas) => ({ ...schemas, ...newDbSchemas }))
 			const dbs = get(dbSchemas)
 			const db = dbs[args.resourcePath]
 			if (!db) {
@@ -459,7 +470,7 @@ export async function chatRequest(
 				const finalToolCalls: Record<number, ChatCompletionChunk.Choice.Delta.ToolCall> = {}
 
 				for await (const chunk of completion) {
-					if (!('choices' in chunk)) {
+					if (!('choices' in chunk && chunk.choices.length > 0 && 'delta' in chunk.choices[0])) {
 						continue
 					}
 					const c = chunk as ChatCompletionChunk
