@@ -50,8 +50,6 @@
 
 	const breakpoint = writable<EditorBreakpoint>('lg')
 
-	$: scrollHeight = `calc(100vh - ${$layoutStore.topBarHeight}px)`
-
 	async function viewCode(obj: HubItem) {
 		codeViewerContent = ''
 		codeViewerObj = undefined
@@ -217,7 +215,7 @@
 	</DrawerContent>
 </Drawer>
 
-<Scroll style="height: {scrollHeight}">
+<Scroll style={`height: calc(100vh - ${$layoutStore.topBarHeight}px)`}>
 	<div class="max-w-7xl mx-auto px-4 sm:px-6 md:px-8 h-fit-content">
 		{#if $workspaceStore == 'admins'}
 			<div class="my-4" />
