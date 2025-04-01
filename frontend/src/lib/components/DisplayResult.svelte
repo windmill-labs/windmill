@@ -4,7 +4,6 @@
 	import { copyToClipboard, roughSizeOfObject } from '$lib/utils'
 	import { base } from '$lib/base'
 	import { Button, Drawer, DrawerContent } from './common'
-	import { fade } from 'svelte/transition'
 	import {
 		ClipboardCopy,
 		Download,
@@ -40,6 +39,9 @@
 	import type { DisplayResultUi } from './custom_ui'
 	import { getContext, hasContext } from 'svelte'
 	import { tick } from 'svelte'
+	import { CustomTooltip } from '$lib/components/meltComponents'
+	import { melt } from '@melt-ui/svelte'
+	import { fade } from 'svelte/transition'
 
 	export let result: any
 	export let requireHtmlApproval = false
@@ -416,11 +418,17 @@
 			}, 200)
 		}
 	}
+
+	$: controlsFloatingConfig = {
+		placement: 'top-end',
+		strategy: 'fixed',
+		gutter: resultHeaderHeight > 16 ? -20 : 0
+	}
 </script>
 
 <HighlightTheme />
 {#if is_render_all}
-	<div class="flex flex-col w-full gap-6">
+	<div class="flex flex-col w-full gap-2">
 		{#if !noControls}
 			<div class="text-tertiary text-sm">
 				<ToggleButtonGroup
@@ -437,30 +445,33 @@
 				</ToggleButtonGroup>
 			</div>
 		{/if}
-		{#each result['render_all'] as res}
-			<svelte:self
-				{noControls}
-				result={res}
-				{requireHtmlApproval}
-				{filename}
-				{disableExpand}
-				{jobId}
-				{nodeId}
-				{workspaceId}
-				forceJson={globalForceJson}
-				hideAsJson={true}
-			/>
-		{/each}</div
-	>
+		<div class="flex flex-col w-full gap-10">
+			{#each result['render_all'] as res}
+				<svelte:self
+					{noControls}
+					result={res}
+					{requireHtmlApproval}
+					{filename}
+					{disableExpand}
+					{jobId}
+					{nodeId}
+					{workspaceId}
+					forceJson={globalForceJson}
+					hideAsJson={true}
+				/>
+			{/each}
+		</div>
+	</div>
 {:else if resultKind === 'nondisplayable'}
 	<div class="text-red-400">Non displayable object</div>
 {:else}
 	<!-- svelte-ignore a11y-no-static-element-interactions -->
-	<div
+	<CustomTooltip
+		floatingConfig={controlsFloatingConfig}
 		class={twMerge(
-			'inline-highlight relative grow rounded-md transition-all duration-200 shadow shadow-transparent',
+			'w-full relative grow rounded-md transition-all duration-200 shadow shadow-transparent p-1',
 			['plain', 'markdown'].includes(resultKind ?? '') ? '' : 'min-h-[160px]',
-			hover && 'shadow-gray-200'
+			hover && !noControls && !disableExpand && 'shadow-gray-200 dark:shadow-white/10'
 		)}
 		on:mouseenter={async () => {
 			await tick()
@@ -472,6 +483,8 @@
 			isHoveringMainDiv = false
 			deactivateHover()
 		}}
+		let:open
+		let:content
 	>
 		{#if result != undefined && length != undefined && largeObject != undefined}
 			<div class="flex justify-between items-center w-full">
@@ -506,12 +519,9 @@
 					{#if customUi?.disableAiFix !== true}
 						<slot name="copilot-fix" />
 					{/if}
-					{#if !disableExpand && !noControls && hover}
+					{#if !disableExpand && !noControls && open}
 						<div
-							class={twMerge(
-								'absolute right-0 flex flex-row gap-1 p-1 z-30',
-								resultHeaderHeight > 16 ? 'top-0' : '-top-5'
-							)}
+							class="flex flex-row gap-1 p-1 z-10 text-tertiary"
 							transition:fade={{ duration: 100 }}
 							on:mouseenter={() => {
 								if (hoverTimer) clearTimeout(hoverTimer)
@@ -522,6 +532,7 @@
 								isHoveringControls = false
 								deactivateHover()
 							}}
+							use:melt={content}
 						>
 							{#if customUi?.disableDownload !== true}
 								<a
@@ -979,7 +990,7 @@
 		{:else}
 			<div class="text-tertiary text-sm">No result: {toJsonStr(result)}</div>
 		{/if}
-	</div>
+	</CustomTooltip>
 
 	{#if !disableExpand && !noControls}
 		<Drawer bind:this={jsonViewer} bind:open={drawerOpen} size="900px">
