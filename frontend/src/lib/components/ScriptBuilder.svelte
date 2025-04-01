@@ -1640,7 +1640,7 @@
 			{template}
 			tag={script.tag}
 			lastSavedCode={savedScript?.draft?.content}
-			lastDeployedCode={savedScript?.content}
+			lastDeployedCode={savedScript?.draft_only ? undefined : savedScript?.content}
 			bind:args
 			bind:hasPreprocessor
 			bind:captureTable

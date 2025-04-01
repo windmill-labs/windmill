@@ -5,8 +5,6 @@
 
 	export let diffMode: boolean = false
 
-	$: console.log('diffMode', diffMode)
-
 	let iconClasses = '!w-3 !h-3 !px-0 !m-0'
 
 	const dispatch = createEventDispatcher<{

@@ -172,7 +172,6 @@
 				}
 			}
 
-			console.log('New available context', newAvailableContext)
 			availableContext = newAvailableContext
 
 			if (
@@ -297,7 +296,6 @@
 			const oldInstructions = instructions
 			instructions = ''
 			const userMessage = await prepareUserMessage(oldInstructions, lang, oldSelectedContext)
-			console.log('User message', userMessage)
 
 			messages.push({ role: 'user', content: userMessage })
 			await saveChat()
