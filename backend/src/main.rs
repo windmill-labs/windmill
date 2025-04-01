@@ -1112,7 +1112,7 @@ pub async fn run_workers(
         HUB_CACHE_DIR,
         POWERSHELL_CACHE_DIR,
         JAVA_CACHE_DIR,
-        TAR_JAVA_CACHE_DIR, // for relative places search: ADD_NEW_LANG
+        TAR_JAVA_CACHE_DIR, // for related places search: ADD_NEW_LANG
     ] {
         DirBuilder::new()
             .recursive(true)

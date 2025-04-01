@@ -126,5 +126,5 @@ public class Main {
   }
 }
 `,
-// for relative places search: ADD_NEW_LANG 
+// for related places search: ADD_NEW_LANG 
 };

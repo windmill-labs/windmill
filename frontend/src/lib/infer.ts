@@ -194,7 +194,7 @@ export async function inferArgs(
 		} else if (language == 'java') {
 			await initWasmJava()
 			inferedSchema = JSON.parse(parse_java(code))
-			// for relative places search: ADD_NEW_LANG 
+			// for related places search: ADD_NEW_LANG 
 		} else {
 			return null
 		}

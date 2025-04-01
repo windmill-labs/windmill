@@ -285,7 +285,7 @@ pub const CSHARP_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "csharp");
 pub const JAVA_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "java");
 pub const COURSIER_CACHE_DIR: &str = concatcp!(JAVA_CACHE_DIR, "/coursier-cache");
 pub const JAVA_REPOSITORY_DIR: &str = concatcp!(JAVA_CACHE_DIR, "/repository");
-// for relative places search: ADD_NEW_LANG
+// for related places search: ADD_NEW_LANG
 pub const BUN_CACHE_DIR: &str = concatcp!(ROOT_CACHE_NOMOUNT_DIR, "bun");
 pub const BUN_BUNDLE_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "bun");
 pub const BUN_CODEBASE_BUNDLE_CACHE_DIR: &str = concatcp!(ROOT_CACHE_NOMOUNT_DIR, "script_bundle");
@@ -3209,7 +3209,7 @@ fn parse_sig_of_lang(
             ScriptLang::Java => Some(windmill_parser_java::parse_java_signature(code)?),
             #[cfg(not(feature = "java"))]
             ScriptLang::Java => None,
-            // for relative places search: ADD_NEW_LANG
+            // for related places search: ADD_NEW_LANG
         }
     } else {
         None

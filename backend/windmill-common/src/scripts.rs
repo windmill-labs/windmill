@@ -52,7 +52,7 @@ pub enum ScriptLang {
     CSharp,
     Nu,
     Java,
-    // for relative places search: ADD_NEW_LANG
+    // for related places search: ADD_NEW_LANG
 }
 
 impl ScriptLang {
@@ -79,7 +79,7 @@ impl ScriptLang {
             ScriptLang::CSharp => "csharp",
             ScriptLang::Nu => "nu",
             ScriptLang::Java => "java",
-            // for relative places search: ADD_NEW_LANG
+            // for related places search: ADD_NEW_LANG
         }
     }
 }

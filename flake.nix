@@ -172,7 +172,7 @@
           JAVA_PATH = "${pkgs.jdk21}/bin/java";
           JAVAC_PATH = "${pkgs.jdk21}/bin/javac";
           COURSIER_PATH = "${coursier}/coursier";
-          # for relative places search: ADD_NEW_LANG 
+          # for related places search: ADD_NEW_LANG 
           FLOCK_PATH = "${pkgs.flock}/bin/flock";
           CARGO_PATH = "${rust}/bin/cargo";
           DOTNET_PATH = "${pkgs.dotnet-sdk_9}/bin/dotnet";

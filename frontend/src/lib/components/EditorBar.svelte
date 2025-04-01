@@ -95,7 +95,7 @@
 		'csharp',
 		'nu',
 		'java',
-		// for relative places search: ADD_NEW_LANG 
+		// for related places search: ADD_NEW_LANG 
 	].includes(lang ?? '')
 	$: showVarPicker = [
 		'python3',
@@ -111,7 +111,7 @@
 		'csharp',
 		'nu',
 		'java',
-		// for relative places search: ADD_NEW_LANG 
+		// for related places search: ADD_NEW_LANG 
 	].includes(lang ?? '')
 	$: showResourcePicker = [
 		'python3',
@@ -127,7 +127,7 @@
 		'csharp',
 		'nu',
 		'java',
-		// for relative places search: ADD_NEW_LANG 
+		// for related places search: ADD_NEW_LANG 
 	].includes(lang ?? '')
 	$: showResourceTypePicker =
 		['typescript', 'javascript'].includes(scriptLangToEditorLang(lang)) ||
@@ -381,7 +381,7 @@
 			editor.insertAtCursor(`$env.${name}`)
 		} else if (lang == 'java') {
 			editor.insertAtCursor(`System.getenv("${name}");`)
-			// for relative places search: ADD_NEW_LANG 
+			// for related places search: ADD_NEW_LANG 
 		}
 		sendUserToast(`${name} inserted at cursor`)
 	}}
@@ -451,7 +451,7 @@ string ${windmillPathToCamelCaseName(path)} = await client.GetStringAsync(uri);
 			editor.insertAtCursor(`get_variable ${path}`)
 		} else if (lang == 'java') {
 			editor.insertAtCursor(`(Wmill.getVariable("${path}"))`)
-			// for relative places search: ADD_NEW_LANG 
+			// for related places search: ADD_NEW_LANG 
 		}
 		sendUserToast(`${name} inserted at cursor`)
 	}}
@@ -538,7 +538,7 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 			editor.insertAtCursor(`get_resource ${path}`)
 		} else if (lang == 'java') {
 			editor.insertAtCursor(`(Wmill.getResource("${path}"))`)
-			// for relative places search: ADD_NEW_LANG 
+			// for related places search: ADD_NEW_LANG 
 		}
 
 		sendUserToast(`${path} inserted at cursor`)

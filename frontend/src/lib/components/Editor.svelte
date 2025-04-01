@@ -196,7 +196,7 @@
 		| 'csharp'
 		| 'nu'
 		| 'java'
-	// for relative places search: ADD_NEW_LANG
+	// for related places search: ADD_NEW_LANG
 	export let code: string = ''
 	export let cmdEnterAction: (() => void) | undefined = undefined
 	export let formatAction: (() => void) | undefined = undefined

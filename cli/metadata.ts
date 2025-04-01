@@ -551,7 +551,7 @@ export async function inferSchema(
   } else if (language === "java") {
     const { parse_java } = await import("./wasm/java/windmill_parser_wasm.js");
     inferedSchema = JSON.parse(parse_java(content));
-  	// for relative places search: ADD_NEW_LANG 
+  	// for related places search: ADD_NEW_LANG 
   } else {
     throw new Error("Invalid language: " + language);
   }

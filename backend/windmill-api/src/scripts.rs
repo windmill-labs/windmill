@@ -636,7 +636,7 @@ async fn create_script_internal<'c>(
             || ns.language == ScriptLang::Nu
             || ns.language == ScriptLang::Php
             || ns.language == ScriptLang::Java
-        // for relative places search: ADD_NEW_LANG
+        // for related places search: ADD_NEW_LANG
     ) {
         Some(String::new())
     } else {

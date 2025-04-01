@@ -90,7 +90,7 @@ export function langToExt(lang: string): string {
 			return 'nu'
 		case 'java':
 			return 'java'
-		// for relative places search: ADD_NEW_LANG 
+		// for related places search: ADD_NEW_LANG 
 		default:
 			return 'unknown'
 	}
