@@ -343,10 +343,17 @@
 	}
 
 	let topBarHeight = 0
-
-	$: if (topBarHeight > 0) {
-		setTopBarHeight(topBarHeight)
+	let trackedHeight = 0
+	function updateTopBarHeight(newHeight: number) {
+		if (newHeight == trackedHeight) {
+			return
+		}
+		setTopBarHeight(newHeight)
+		trackedHeight = newHeight
 	}
+
+	// Track when the element is hidden based on conditions and media queries
+	$: updateTopBarHeight(devOnly || $userStore?.operator || innerWidth >= 768 ? 0 : topBarHeight)
 </script>
 
 <svelte:window bind:innerWidth />
