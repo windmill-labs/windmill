@@ -121,7 +121,7 @@
 			<div class="flex flex-col gap-1">
 				<p class="text-xs mb-1 text-tertiary">
 					The ID of the subscription. if left empty it will default to the path of the trigger
-					suffixed with the current timestamp.</p
+					suffixed with the current server's timestamp.</p
 				>
 				<input
 					type="text"

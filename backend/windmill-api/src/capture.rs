@@ -429,10 +429,6 @@ async fn set_config(
     .execute(&mut *tx)
     .await?;
 
-    if let Some(TriggerConfig::Gcp(gcp)) = &nc.trigger_config {
-        println!("{:#?}", gcp);
-    };
-
     tx.commit().await?;
 
     Ok(Json(nc.trigger_config))
