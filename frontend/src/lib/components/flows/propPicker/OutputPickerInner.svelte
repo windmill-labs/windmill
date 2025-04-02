@@ -52,6 +52,7 @@
 	export let loopStatus:
 		| { type: 'inside' | 'self'; flow: 'forloopflow' | 'whileloopflow' }
 		| undefined = undefined
+	export let customHeight: number | undefined = undefined
 
 	type SelectedJob =
 		| Job
@@ -147,12 +148,15 @@
 			debouncedCanEditWithDblClick = newValue
 		}, 200)
 	}
+
+	$: popoverHeight = customHeight ?? (clientHeight > 0 ? clientHeight : 0)
 </script>
 
 <div
 	class="w-full h-full flex flex-col"
 	bind:clientHeight
 	style={canEditWithDblClick ? 'cursor: text;' : ''}
+	id="result-container"
 >
 	<div
 		class={twMerge(
@@ -188,7 +192,7 @@
 					/>
 				</svelte:fragment>
 				<svelte:fragment slot="content">
-					<div class="rounded-[inherit]" style={`height: ${clientHeight}px`}>
+					<div class="rounded-[inherit]" style={`height: ${popoverHeight}px`}>
 						<StepHistory
 							{moduleId}
 							{getLogs}
@@ -430,147 +434,157 @@
 	<!-- svelte-ignore a11y-no-static-element-interactions -->
 	<!-- svelte-ignore a11y-mouse-events-have-key-events -->
 	<div
-		class={twMerge(
-			'grow min-h-0 px-2 rounded-md w-full overflow-auto py-1',
-			'transition-all duration-200 outline outline-2 outline-blue-500/0 outline-offset-[-3px]',
-			debouncedCanEditWithDblClick
-				? 'outline outline-2 outline-blue-500/30 outline-offset-[-3px]'
-				: ''
-		)}
+		class="grow min-h-0 px-2 rounded-md w-full py-1 overflow-auto"
 		style="scrollbar-gutter: stable;"
-		bind:this={contentEl}
-		on:scroll={checkOverflow}
-		use:useResizeObserver={checkOverflow}
-		on:mouseover={(event) => {
-			if (
-				!event.target ||
-				!(event.target instanceof HTMLElement) ||
-				event.target.closest('[data-interactive]') ||
-				event.target.closest('button') ||
-				event.target.closest('input') ||
-				event.target.closest('textarea') ||
-				event.target.closest('select') ||
-				event.target.closest('option') ||
-				event.target.closest('label') ||
-				event.target.closest('a') ||
-				event.target.closest('svg')
-			) {
-				dblClickDisabled = true
-			} else {
-				dblClickDisabled = false
-			}
-		}}
-		on:dblclick={() => {
-			if (canEditWithDblClick) {
-				stepHistoryPopover?.close()
-				jsonView = true
-				tmpMock = undefined
-			}
-		}}
-		on:mouseenter={() => {
-			hoveringResult = true
-		}}
-		on:mouseleave={() => {
-			hoveringResult = false
-		}}
 	>
-		{#if isLoading}
-			<div class="flex flex-col items-center justify-center">
-				<Loader2 class="animate-spin" />
-			</div>
-		{:else if connectingData || simpleViewer}
-			<ObjectViewer
-				json={moduleId
-					? {
-							[moduleId]: connectingData ?? simpleViewer
-					  }
-					: connectingData ?? simpleViewer}
-				topBrackets={false}
-				pureViewer={false}
-				{prefix}
-				on:select
-				{allowCopy}
-			/>
-		{:else if jsonView}
-			<JsonEditor
-				bind:error
-				small
-				on:changeValue={({ detail }) => {
-					if (mock?.enabled) {
-						const newMock = {
-							enabled: true,
-							return_value: structuredClone(detail)
-						}
-						tmpMock = newMock
-					}
-				}}
-				code={JSON.stringify(mock?.enabled && mock.return_value ? mock.return_value : '', null, 2)}
-				class="h-full"
-			/>
-		{:else if (mock?.enabled || preview == 'mock') && preview != 'job'}
-			{#if fullResult}
-				<div class="break-words relative h-full">
-					<DisplayResult
-						bind:forceJson
-						workspaceId={undefined}
-						jobId={undefined}
-						result={mock?.return_value}
-					/>
+		<div
+			class={twMerge(
+				'h-full w-full rounded-md',
+				'transition-all duration-200 outline outline-2 outline-blue-500/0',
+				debouncedCanEditWithDblClick ? 'outline outline-2 outline-blue-500/30' : ''
+			)}
+			bind:this={contentEl}
+			on:scroll={checkOverflow}
+			use:useResizeObserver={checkOverflow}
+			on:mouseover={(event) => {
+				if (
+					!event.target ||
+					!(event.target instanceof HTMLElement) ||
+					event.target.closest('[data-interactive]') ||
+					event.target.closest('button') ||
+					event.target.closest('input') ||
+					event.target.closest('textarea') ||
+					event.target.closest('select') ||
+					event.target.closest('option') ||
+					event.target.closest('label') ||
+					event.target.closest('a') ||
+					event.target.closest('svg')
+				) {
+					dblClickDisabled = true
+				} else {
+					dblClickDisabled = false
+				}
+			}}
+			on:dblclick={() => {
+				if (canEditWithDblClick) {
+					stepHistoryPopover?.close()
+					jsonView = true
+					tmpMock = undefined
+				}
+			}}
+			on:mouseenter={() => {
+				hoveringResult = true
+			}}
+			on:mouseleave={() => {
+				hoveringResult = false
+			}}
+		>
+			{#if isLoading}
+				<div class="flex flex-col items-center justify-center">
+					<Loader2 class="animate-spin" />
 				</div>
-			{:else}
+			{:else if connectingData || simpleViewer}
 				<ObjectViewer
 					json={moduleId
 						? {
-								[moduleId]: mock?.return_value
+								[moduleId]: connectingData ?? simpleViewer
 						  }
-						: mock?.return_value}
+						: connectingData ?? simpleViewer}
 					topBrackets={false}
 					pureViewer={false}
+					{prefix}
+					on:select
+					{allowCopy}
 				/>
-			{/if}
-		{:else if selectedJob != undefined && 'result' in selectedJob}
-			{#if fullResult}
-				<div class="break-words relative h-full">
-					{#key selectedJob}
-						<DisplayResult
-							bind:forceJson
-							workspaceId={selectedJob?.workspace_id}
-							jobId={selectedJob?.id}
-							result={selectedJob?.result}
-						>
-							<svelte:fragment slot="copilot-fix">
-								<slot name="copilot-fix" />
-							</svelte:fragment>
-						</DisplayResult>
-					{/key}
-				</div>
-			{:else}
-				<ObjectViewer
-					json={moduleId
-						? {
-								[moduleId]: selectedJob.result
-						  }
-						: selectedJob.result}
-					topBrackets={false}
-					pureViewer={false}
-				/>
-			{/if}
-		{:else if !lastJob}
-			<div class="flex flex-col items-center justify-center h-full">
-				<p class="text-xs text-secondary">
-					Test this step to see results or <button
-						class="text-blue-500 hover:text-blue-700 underline"
-						on:click={() => {
+			{:else if jsonView}
+				<JsonEditor
+					bind:error
+					small
+					on:changeValue={({ detail }) => {
+						if (mock?.enabled) {
 							const newMock = {
 								enabled: true,
-								return_value: mock?.return_value ?? { example: 'value' }
+								return_value: structuredClone(detail)
 							}
-							dispatch('updateMock', newMock)
-						}}>pin data<Pin size={16} class="inline" /></button
-					>
-				</p>
-			</div>
-		{/if}
+							tmpMock = newMock
+						}
+					}}
+					code={JSON.stringify(
+						mock?.enabled && mock.return_value ? mock.return_value : '',
+						null,
+						2
+					)}
+					class="h-full"
+				/>
+			{:else if (mock?.enabled || preview == 'mock') && preview != 'job'}
+				{#if fullResult}
+					<div class="break-words relative h-full">
+						<DisplayResult
+							bind:forceJson
+							workspaceId={undefined}
+							jobId={undefined}
+							result={mock?.return_value}
+							portal="#result-container"
+							useFloatingControls
+						/>
+					</div>
+				{:else}
+					<ObjectViewer
+						json={moduleId
+							? {
+									[moduleId]: mock?.return_value
+							  }
+							: mock?.return_value}
+						topBrackets={false}
+						pureViewer={false}
+					/>
+				{/if}
+			{:else if selectedJob != undefined && 'result' in selectedJob}
+				{#if fullResult}
+					<div class="break-words relative h-full">
+						{#key selectedJob}
+							<DisplayResult
+								bind:forceJson
+								workspaceId={selectedJob?.workspace_id}
+								jobId={selectedJob?.id}
+								result={selectedJob?.result}
+								portal="#result-container"
+								useFloatingControls
+							>
+								<svelte:fragment slot="copilot-fix">
+									<slot name="copilot-fix" />
+								</svelte:fragment>
+							</DisplayResult>
+						{/key}
+					</div>
+				{:else}
+					<ObjectViewer
+						json={moduleId
+							? {
+									[moduleId]: selectedJob.result
+							  }
+							: selectedJob.result}
+						topBrackets={false}
+						pureViewer={false}
+					/>
+				{/if}
+			{:else if !lastJob}
+				<div class="flex flex-col items-center justify-center h-full">
+					<p class="text-xs text-secondary">
+						Test this step to see results or <button
+							class="text-blue-500 hover:text-blue-700 underline"
+							on:click={() => {
+								const newMock = {
+									enabled: true,
+									return_value: mock?.return_value ?? { example: 'value' }
+								}
+								dispatch('updateMock', newMock)
+							}}>pin data<Pin size={16} class="inline" /></button
+						>
+					</p>
+				</div>
+			{/if}
+		</div>
 	</div>
 </div>
 
