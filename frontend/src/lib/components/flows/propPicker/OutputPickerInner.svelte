@@ -132,7 +132,12 @@
 
 	$: {
 		const newValue =
-			!!mock?.enabled && !connectingData && !dblClickDisabled && hoveringResult && !jsonView
+			!!mock?.enabled &&
+			!connectingData &&
+			!dblClickDisabled &&
+			hoveringResult &&
+			!jsonView &&
+			!preview
 		if (newValue != canEditWithDblClick) {
 			canEditWithDblClick = newValue
 			updateCanEditWithDblClick(newValue)
