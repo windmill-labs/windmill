@@ -26,8 +26,8 @@
 		buildExtraLibForBatchReruns,
 		mergeSchemasForBatchReruns
 	} from '$lib/components/jobs/batchReruns'
-	import { pluralize } from '$lib/utils'
 	import Toggle from '../Toggle.svelte'
+	import { TriangleAlert } from 'lucide-svelte'
 
 	let {
 		selectedIds,
@@ -125,14 +125,22 @@
 	function jobGroupTotalCount(group: JobGroup) {
 		return group.schemas.reduce((p, c) => p + c.job_ids.length, 0)
 	}
-	function getHashesWithProperty(propertyName: string, group: JobGroup): Set<string> {
-		const set = new Set<string>()
+	function propertyAlwaysExists(propertyName: string, group: JobGroup): boolean {
 		for (const s of group.schemas) {
-			if (propertyName in (s.schema as Schema).properties) {
-				set.add(s.script_hash)
-			}
+			if (!(propertyName in (s.schema as Schema).properties)) return false
 		}
-		return set
+		return true
+	}
+
+	function propertyAlwaysHasSameTime(propertyName: string, group: JobGroup): boolean {
+		let prevType = 'INIT'
+		for (const s of group.schemas) {
+			const currType = (s.schema as Schema).properties[propertyName]?.type
+			if (currType === undefined) continue
+			if (prevType !== 'INIT' && currType !== prevType) return false
+			prevType = currType
+		}
+		return true
 	}
 
 	const selectedUsesLatestSchema = $derived(
@@ -192,8 +200,11 @@
 								;(options[selected.kind][selected.script_path] ??= {}).use_latest_version =
 									e.detail as boolean
 							}}
+							size="sm"
 							options={{
-								right: 'Always use latest version'
+								right: 'Always use latest version',
+								rightTooltip:
+									'Run all jobs with the latest version of the script even if they originally ran an older version'
 							}}
 						/>
 
@@ -209,7 +220,6 @@
 						<div class="w-full h-full">
 							{#key [selected, displayedSchema]}
 								{#each Object.keys(displayedSchema.properties) as propertyName}
-									{@const hashesWithProperty = getHashesWithProperty(propertyName, selected)}
 									<InputTransformForm
 										class="items-start mb-4"
 										arg={options[selected.kind][selected.script_path]?.input_transforms?.[
@@ -235,8 +245,17 @@
 											flow_input: {}
 										}}
 										hideHelpButton
-										{...hashesWithProperty.size !== selected.schemas.length && {
-											headerTooltip: `Used in ${pluralize(hashesWithProperty.size, `${selected?.kind} version`)}: ${[...hashesWithProperty.values()].join(', ')}`
+										{...!propertyAlwaysExists(propertyName, selected) && {
+											headerTooltip:
+												'This property does not exist on all versions of the script. You can handle different cases in the code below',
+											HeaderTooltipIcon: TriangleAlert,
+											headerTooltipIconClass: 'text-orange-500'
+										}}
+										{...!propertyAlwaysHasSameTime(propertyName, selected) && {
+											headerTooltip:
+												'This property does not always have the same type depending on the version of the script. You can handle different cases in the code below',
+											HeaderTooltipIcon: TriangleAlert,
+											headerTooltipIconClass: 'text-orange-500'
 										}}
 									/>
 								{/each}

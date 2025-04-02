@@ -29,7 +29,7 @@
 	import type { InputTransform } from '$lib/gen'
 	import TemplateEditor from './TemplateEditor.svelte'
 	import { setInputCat as computeInputCat, isCodeInjection } from '$lib/utils'
-	import { FunctionSquare } from 'lucide-svelte'
+	import { FunctionSquare, InfoIcon } from 'lucide-svelte'
 	import { getResourceTypes } from './resourceTypesStore'
 	import type { FlowCopilotContext } from './copilot/flow'
 	import StepInputGen from './copilot/StepInputGen.svelte'
@@ -40,6 +40,8 @@
 	export let arg: InputTransform | any
 	export let argName: string
 	export let headerTooltip: string | undefined = undefined
+	export let headerTooltipIconClass = ''
+	export let HeaderTooltipIcon = InfoIcon
 	export let extraLib: string = 'missing extraLib'
 	export let inputCheck: boolean = true
 	export let previousModuleId: string | undefined
@@ -308,6 +310,8 @@
 				<FieldHeader
 					label={argName}
 					simpleTooltip={headerTooltip}
+					simpleTooltipIconClass={headerTooltipIconClass}
+					SimpleTooltipIcon={HeaderTooltipIcon}
 					format={schema?.properties?.[argName].format}
 					contentEncoding={schema?.properties?.[argName].contentEncoding}
 					required={schema.required?.includes(argName)}
