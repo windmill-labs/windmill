@@ -256,7 +256,6 @@
 			<Section label="Tags to listen to">
 				{#if nconfig?.worker_tags != undefined}
 					<TagsToListenTo
-						{selectedPriorityTags}
 						on:dirty={() => {
 							dirty = true
 						}}
@@ -371,12 +370,16 @@
 									on:change={(e) => {
 										if (e.detail.type === 'add') {
 											if (nconfig.priority_tags) {
-												nconfig.priority_tags[e.detail.option] = 100
+												if (e.detail.option && typeof e.detail.option !== 'object') {
+													nconfig.priority_tags[e.detail.option] = 100
+												}
 											}
 											dirty = true
 										} else if (e.detail.type === 'remove') {
 											if (nconfig.priority_tags) {
-												delete nconfig.priority_tags[e.detail.option]
+												if (e.detail.option && typeof e.detail.option !== 'object') {
+													delete nconfig.priority_tags[e.detail.option]
+												}
 											}
 											dirty = true
 										} else if (e.detail.type === 'removeAll') {
@@ -724,7 +727,7 @@
 			</div>
 			<AutoscalingConfigEditor
 				on:dirty={() => (dirty = true)}
-				worker_tags={nconfig.worker_tags}
+				worker_tags={config?.worker_tags}
 				bind:config={nconfig.autoscaling}
 			/>
 		</Section>

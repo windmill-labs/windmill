@@ -23,7 +23,7 @@
 				<div
 					class={`progress ${!ended ? 'blinking' : ''}`}
 					style={`--color: ${color}; width: ${Math.round($tweenedProgress)}%`}
-				/>
+				></div>
 			</div>
 			<span class="text-xs p-1">{Math.round($tweenedProgress)}%</span>
 		{/if}

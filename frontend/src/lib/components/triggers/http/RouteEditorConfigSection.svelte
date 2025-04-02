@@ -127,7 +127,7 @@
 			<Alert type="info" title="Admin only" collapsible>
 				Route endpoints can only be edited by workspace admins
 			</Alert>
-			<div class="my-2" />
+			<div class="my-2"></div>
 		{/if}
 		<div class="flex flex-col w-full gap-4">
 			<label class="block grow w-full">

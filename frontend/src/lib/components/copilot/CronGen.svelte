@@ -80,7 +80,7 @@
 			btnClasses="text-violet-800 dark:text-violet-400 bg-violet-100 dark:bg-gray-700"
 			loading={genLoading}
 			clickableWhileLoading
-			on:click={genLoading ? () => abortController?.abort() : undefined}
+			on:click={genLoading ? () => abortController?.abort() : () => {}}
 		/>
 	</svelte:fragment>
 	<svelte:fragment slot="content" let:close>

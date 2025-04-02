@@ -78,7 +78,7 @@
 		deno: false,
 		go: false,
 		ruff: false,
-		shellcheck: false,
+		shellcheck: false
 	}
 
 	const dispatch = createEventDispatcher()
@@ -537,7 +537,7 @@
 					</svelte:fragment>
 					<svelte:fragment slot="header-right">
 						{#if testPanelSize === 0}
-							<div class="bg-gray-200 h-6 w-[1px] rounded-full dark:bg-gray-600" />
+							<div class="bg-gray-200 h-6 w-[1px] rounded-full dark:bg-gray-600"></div>
 							<HideButton
 								hidden={true}
 								direction="right"

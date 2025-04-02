@@ -12,7 +12,7 @@
 		Title,
 		Tooltip
 	} from 'chart.js'
-	import { Line } from 'svelte-chartjs'
+	import { Line } from '$lib/components/chartjs-wrappers/chartJs'
 	import { Alert } from './common'
 
 	ChartJS.register(Title, Tooltip, Legend, LineElement, LinearScale, PointElement, CategoryScale)

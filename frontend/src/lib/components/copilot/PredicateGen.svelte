@@ -97,7 +97,7 @@ Only return the expression without any wrapper. Do not explain or discuss.`
 				btnClasses="min-h-[30px] text-violet-800 dark:text-violet-400 bg-violet-100 dark:bg-gray-700"
 				{loading}
 				clickableWhileLoading
-				on:click={loading ? () => abortController?.abort() : undefined}
+				on:click={loading ? () => abortController?.abort() : () => {}}
 			/>
 		</svelte:fragment>
 		<svelte:fragment slot="content" let:close>

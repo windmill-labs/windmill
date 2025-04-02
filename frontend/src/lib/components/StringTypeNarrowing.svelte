@@ -258,7 +258,7 @@
 			/>
 		{/if}
 	{:else if kind == 'resource'}
-		<div class="mt-1" />
+		<div class="mt-1"></div>
 		<ResourceTypePicker bind:value={resource} />
 	{:else if kind == 'format'}
 		<Label label="Format">
@@ -268,14 +268,14 @@
 				</Tooltip>
 			</svelte:fragment>
 			<select bind:value={format}>
-				<option value={undefined} />
+				<option value={undefined}></option>
 				{#each FORMATS as f}
 					<option value={f}>{f}</option>
 				{/each}
 			</select>
 		</Label>
 		{#if format == 'date'}
-			<div class="mt-1" />
+			<div class="mt-1"></div>
 
 			<div class="grid grid-cols-3 gap-2">
 				<Label label="Date format passed to script" class="col-span-2">

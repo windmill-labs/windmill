@@ -94,8 +94,8 @@ function makeSelectQuery(
 			{ field: 'limit', datatype: dbType === 'bigquery' ? 'integer' : 'int' },
 			{ field: 'offset', datatype: dbType === 'bigquery' ? 'integer' : 'int' },
 			{ field: 'quicksearch', datatype: dbType === 'bigquery' ? 'string' : 'text' },
-			{ field: 'order_by', datatype: 'bigquery' ? 'string' : 'text' },
-			{ field: 'is_desc', datatype: 'bigquery' ? 'bool' : 'boolean' }
+			{ field: 'order_by', datatype: dbType === 'bigquery' ? 'string' : 'text' },
+			{ field: 'is_desc', datatype: dbType === 'bigquery' ? 'bool' : 'boolean' }
 		],
 		dbType
 	)

@@ -53,6 +53,6 @@
 			class="pointer-events-none absolute bottom-0 {shiftedShadow
 				? 'left-2'
 				: 'right-0'} h-14 w-full bg-gradient-to-t from-surface to-transparent"
-		/>
+		></div>
 	{/if}
 </div>

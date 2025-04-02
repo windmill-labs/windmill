@@ -59,7 +59,7 @@
 		csharp: 'C#',
 		nu: 'Nu',
 		java: 'Java'
-		// KJQXZ 
+		// for related places search: ADD_NEW_LANG 
 	}
 
 	const langToComponent: Record<
@@ -92,7 +92,7 @@
 		csharp: CSharpIcon,
 		nu: NuIcon,
 		java: JavaIcon
-		// KJQXZ 
+		// for related places search: ADD_NEW_LANG 
 	}
 
 	let subIconScale = width === 30 ? 0.6 : 0.8

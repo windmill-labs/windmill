@@ -78,7 +78,7 @@
 				</div>
 			{:else}
 				<span class="mt-2 text-xs font-bold">Skip condition expression</span>
-				<textarea disabled rows="3" class="min-h-[80px]" />
+				<textarea disabled rows="3" class="min-h-[80px]"></textarea>
 			{/if}
 		</div>
 	</Section>

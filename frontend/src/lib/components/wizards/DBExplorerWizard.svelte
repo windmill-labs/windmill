@@ -355,7 +355,7 @@
 									{#if !presets.find((preset) => preset.value === value?.valueFormatter)}
 										<div
 											class="z-50 absolute bg-opacity-50 bg-surface top-0 left-0 bottom-0 right-0"
-										/>
+										></div>
 									{/if}
 									<div class="text-xs font-semibold">Presets</div>
 									<select

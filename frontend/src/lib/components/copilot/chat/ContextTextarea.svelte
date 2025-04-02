@@ -315,7 +315,7 @@
 		style={instructions.length > 0
 			? 'color: transparent; -webkit-text-fill-color: transparent;'
 			: ''}
-	/>
+	></textarea>
 </div>
 
 {#if showContextTooltip}

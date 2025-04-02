@@ -274,7 +274,7 @@ Generate a description for the flow below:
 				class={active ? '!indent-[3.5rem]' : ''}
 				on:focus={() => (focused = true)}
 				on:blur={() => (focused = false)}
-			/>
+			></textarea>
 		</div>
 	{:else}
 		<input

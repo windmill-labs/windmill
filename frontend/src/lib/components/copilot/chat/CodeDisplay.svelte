@@ -93,9 +93,11 @@
 		yaml: yaml
 	}
 
-	$: code = $astNode.children?.[0]?.children?.[0]?.value
+	$: code = astNode.current.children?.[0]?.children?.[0]?.value
 
-	$: language = ($astNode.children?.[0]?.properties?.class as string | undefined)?.split('-')[1]
+	$: language = (astNode.current.children?.[0]?.properties?.class as string | undefined)?.split(
+		'-'
+	)[1]
 
 	let loading = true
 	function shouldStopLoading(astNode: HastNode, replying: boolean) {
@@ -103,7 +105,7 @@
 			loading = false
 		}
 	}
-	$: shouldStopLoading($astNode, $loadingContext)
+	$: shouldStopLoading(astNode.current, $loadingContext)
 
 	let diffEl: HTMLDivElement | undefined
 	let diffEditor: meditor.IStandaloneDiffEditor | undefined
@@ -193,7 +195,7 @@
 				<Loader2 class="w-4 h-4 animate-spin" /> Generating code...
 			</div>
 		{:else if !loading && codeContext && getSmartLang(codeContext.lang) === getSmartLang(language)}
-			<div bind:this={diffEl} class="w-full h-full" />
+			<div bind:this={diffEl} class="w-full h-full"></div>
 		{:else}
 			<HighlightCode
 				class="p-1"
