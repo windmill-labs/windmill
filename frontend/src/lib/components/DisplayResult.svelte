@@ -59,6 +59,7 @@
 	export let isTest: boolean = true
 	export let portal: string | undefined = undefined
 	export let useFloatingControls: boolean = false
+	export let showShadow: boolean = false
 
 	const IMG_MAX_SIZE = 10000000
 	const TABLE_MAX_SIZE = 5000000
@@ -493,6 +494,7 @@
 					hideAsJson={true}
 					{portal}
 					{useFloatingControls}
+					showShadow
 				/>
 			{/each}
 		</div>
@@ -504,7 +506,7 @@
 		class={twMerge(
 			'inline-highlight w-full relative grow rounded-md transition-all duration-200 shadow shadow-transparent p-1',
 			['plain', 'markdown'].includes(resultKind ?? '') ? '' : 'min-h-[160px]',
-			isOpen && 'shadow-gray-200 dark:shadow-white/10'
+			isOpen && showShadow && 'shadow-gray-200 dark:shadow-white/10'
 		)}
 		use:conditionalMelt={trigger}
 		{...$trigger}
