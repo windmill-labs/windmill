@@ -7,16 +7,15 @@
 	import {
 		ClipboardCopy,
 		Download,
-		Expand,
 		PanelRightOpen,
 		Table2,
 		Braces,
 		Highlighter,
-		InfoIcon,
 		ArrowDownFromLine
 	} from 'lucide-svelte'
 	import Portal from '$lib/components/Portal.svelte'
 	import { onMount } from 'svelte'
+	import DisplayResultControlBar from './DisplayResultControlBar.svelte'
 
 	import ObjectViewer from './propertyPicker/ObjectViewer.svelte'
 	import S3FilePicker from './S3FilePicker.svelte'
@@ -30,7 +29,6 @@
 	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
 	import MapResult from './MapResult.svelte'
-	import Popover from './Popover.svelte'
 	import DownloadCsv from './table/DownloadCsv.svelte'
 	import { convertJsonToCsv } from './table/tableUtils'
 	import Tooltip from './Tooltip.svelte'
@@ -38,9 +36,6 @@
 	import PdfViewer from './display/PdfViewer.svelte'
 	import type { DisplayResultUi } from './custom_ui'
 	import { getContext, hasContext } from 'svelte'
-	import { fade } from 'svelte/transition'
-	import { conditionalMelt } from '$lib/utils'
-	import { createTooltip } from '@melt-ui/svelte'
 
 	export let result: any
 	export let requireHtmlApproval = false
@@ -412,49 +407,6 @@
 		const slotElement = document.querySelector('[data-slot="copilot-fix"]')
 		copilotFixSlotHasContent = !!slotElement && slotElement.children.length > 0
 	})
-
-	const {
-		elements: { trigger, content },
-		options: { positioning: positioningOption }
-	} = useFloatingControls
-		? createTooltip({
-				openDelay: 0,
-				closeDelay: 0,
-				portal: portal ?? 'body',
-				onOpenChange: ({ curr, next }) => {
-					if (tooltipDisabled) {
-						return curr
-					}
-					return next
-				},
-				forceVisible: true
-		  })
-		: {
-				elements: { trigger: undefined, content: undefined },
-				options: { positioning: undefined }
-		  }
-
-	$: tooltipDisabled =
-		noControls ||
-		disableExpand ||
-		is_render_all ||
-		resultKind === 'nondisplayable' ||
-		!result ||
-		length === undefined ||
-		largeObject === undefined
-
-	$: isOpen = !tooltipDisabled && useFloatingControls
-
-	$: positioningOption &&
-		($positioningOption = {
-			placement: 'top-end',
-			strategy: 'absolute',
-			gutter: resultHeaderHeight > 16 && !copilotFixSlotHasContent ? -22 : 0,
-			fitViewport: true,
-			overflowPadding: 10,
-			flip: true,
-			overlap: true
-		})
 </script>
 
 <HighlightTheme />
@@ -502,8 +454,6 @@
 		class="inline-highlight relative grow {['plain', 'markdown'].includes(resultKind ?? '')
 			? ''
 			: 'min-h-[160px]'}"
-		use:conditionalMelt={trigger}
-		{...$trigger}
 	>
 		{#if result != undefined && length != undefined && largeObject != undefined}
 			<div class="flex justify-between items-center w-full">
@@ -541,46 +491,18 @@
 							<slot name="copilot-fix" />
 						</div>
 					{/if}
-					{#if !disableExpand && !noControls && !(useFloatingControls && !isOpen)}
-						<div
-							class="flex flex-row gap-1 p-1 z-10 text-tertiary bg-surface/80 rounded-md"
-							transition:fade={{ duration: 100 }}
-							use:conditionalMelt={content}
-							{...$content}
-						>
-							{#if customUi?.disableDownload !== true}
-								<a
-									download="{filename ?? 'result'}.json"
-									class="text-current"
-									href={workspaceId && jobId
-										? nodeId
-											? `${base}/api/w/${workspaceId}/jobs/result_by_id/${jobId}/${nodeId}`
-											: `${base}/api/w/${workspaceId}/jobs_u/completed/get_result/${jobId}`
-										: `data:text/json;charset=utf-8,${encodeURIComponent(toJsonStr(result))}`}
-								>
-									<Download size={14} />
-								</a>
-							{/if}
-							{#if disableTooltips !== true}
-								<Popover
-									documentationLink="https://www.windmill.dev/docs/core_concepts/rich_display_rendering"
-								>
-									<svelte:fragment slot="text">
-										The result renderer in Windmill supports rich display rendering, allowing you to
-										customize the display format of your results.
-									</svelte:fragment>
-									<div>
-										<InfoIcon size={14} />
-									</div>
-								</Popover>
-							{/if}
-							<button on:click={() => copyToClipboard(toJsonStr(result))}>
-								<ClipboardCopy size={14} />
-							</button>
-							<button on:click={jsonViewer.openDrawer}>
-								<Expand size={14} />
-							</button>
-						</div>
+					{#if !disableExpand && !noControls}
+						<DisplayResultControlBar
+							{customUi}
+							{filename}
+							{workspaceId}
+							{jobId}
+							{nodeId}
+							{base}
+							{result}
+							{disableTooltips}
+							{jsonViewer}
+						/>
 					{/if}
 				</div>
 			</div>
