@@ -132,13 +132,14 @@ pub async fn do_mssql(
         // Only use ca_cert if trust_cert is false
         // Create directory if it doesn't exist
         let cert_dir = format!("{}/cert_mssql", TMP_DIR);
-        std::fs::create_dir_all(&cert_dir).map_err(|e| {
+        tokio::fs::create_dir_all(&cert_dir).await.map_err(|e| {
             Error::ExecutionErr(format!("Failed to create certificate directory: {}", e))
         })?;
 
         // Write CA certificate to disk
         let cert_path = format!("{}/ca_cert.pem", cert_dir);
-        std::fs::write(&cert_path, ca_cert)
+        tokio::fs::write(&cert_path, ca_cert)
+            .await
             .map_err(|e| Error::ExecutionErr(format!("Failed to write CA certificate: {}", e)))?;
 
         // Use the CA certificate for trust
