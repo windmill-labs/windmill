@@ -418,7 +418,7 @@
 		elements: { trigger, content },
 		states: { open },
 		options: { positioning: positioningOption }
-	} = useFloatingControls
+	} = useFloatingControls && !noControls && !disableExpand
 		? createTooltip({
 				openDelay: 0,
 				closeDelay: 0,
