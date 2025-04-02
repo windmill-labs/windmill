@@ -27,7 +27,7 @@ lazy_static::lazy_static! {
 const AZURE_API_VERSION: &str = "2024-10-21";
 
 #[derive(Deserialize, Debug)]
-struct AIOauthResource {
+struct AIOAuthResource {
     client_id: String,
     client_secret: String,
     token_url: String,
@@ -43,7 +43,7 @@ struct AIStandardResource {
 }
 
 #[derive(Deserialize, Debug)]
-struct OauthTokens {
+struct OAuthTokens {
     access_token: String,
 }
 
@@ -51,7 +51,7 @@ struct OauthTokens {
 #[serde(untagged)]
 enum AIResource {
     Standard(AIStandardResource),
-    Oauth(AIOauthResource),
+    OAuth(AIOAuthResource),
 }
 
 #[derive(Deserialize, Clone, Debug)]
@@ -85,7 +85,7 @@ impl AIRequestConfig {
 
                 (api_key, organization_id, base_url, None)
             }
-            AIResource::Oauth(resource) => {
+            AIResource::OAuth(resource) => {
                 let user = if let Some(user) = resource.user.clone() {
                     Some(get_variable_or_self(user, db, w_id).await?)
                 } else {
@@ -102,7 +102,7 @@ impl AIRequestConfig {
     }
 
     async fn get_api_key_using_oauth(
-        mut resource: AIOauthResource,
+        mut resource: AIOAuthResource,
         db: &DB,
         w_id: &str,
     ) -> Result<String> {
@@ -123,7 +123,7 @@ impl AIRequestConfig {
                     err
                 ))
             })?;
-        let response = response.json::<OauthTokens>().await.map_err(|err| {
+        let response = response.json::<OAuthTokens>().await.map_err(|err| {
             Error::internal_err(format!(
                 "Failed to parse access token from credentials flow: {}",
                 err
