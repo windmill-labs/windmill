@@ -22,7 +22,6 @@ export class AIChatEditorHandler {
 
 	reviewingChanges: Writable<boolean> = writable(false)
 	groupChanges: { changes: VisualChangeWithDiffIndex[]; groupIndex: number }[] = []
-	private changedLines: { value: string; added?: boolean; removed?: boolean; count?: number }[] = []
 
 	constructor(editor: meditor.IStandaloneCodeEditor) {
 		this.editor = editor
@@ -30,7 +29,6 @@ export class AIChatEditorHandler {
 
 	clear() {
 		this.groupChanges = []
-		this.changedLines = []
 		for (const collection of this.decorationsCollections) {
 			collection.clear()
 		}
@@ -108,15 +106,15 @@ export class AIChatEditorHandler {
 	private async calculateVisualChanges(newCode: string) {
 		this.preventWriting()
 		this.reviewingChanges.set(true)
-		const currentCode = this.editor.getValue()
-		this.changedLines = diffLines(currentCode, newCode)
 		this.groupChanges = []
+		const currentCode = this.editor.getValue()
+		const changedLines = diffLines(currentCode, newCode)
 		let visualChanges: VisualChangeWithDiffIndex[] = []
 
 		let lineNumber = 1
-		for (const [idx, change] of this.changedLines.entries()) {
+		for (const [idx, change] of changedLines.entries()) {
 			const nbOfNewLines = change.count || 1
-			if (idx > 0 && this.changedLines[idx - 1].removed && !change.added) {
+			if (idx > 0 && changedLines[idx - 1].removed && !change.added) {
 				this.groupChanges.push({ changes: visualChanges, groupIndex: this.groupChanges.length })
 				visualChanges = []
 			}
@@ -162,14 +160,14 @@ export class AIChatEditorHandler {
 
 		if (this.groupChanges.length === 0) {
 			this.finish()
-			return false
+			return []
 		}
-		return true
+		return changedLines
 	}
 
 	async reviewAndApply(newCode: string) {
-		const hasChanges = await this.calculateVisualChanges(newCode)
-		if (!hasChanges) return
+		const changedLines = await this.calculateVisualChanges(newCode)
+		if (changedLines.length === 0) return
 
 		let indicesOfRejectedLineChanges: number[] = []
 
@@ -180,7 +178,7 @@ export class AIChatEditorHandler {
 				this.applyGroup(group)
 				this.clear()
 				let newCodeWithRejects = ''
-				for (const [idx, change] of this.changedLines.entries()) {
+				for (const [idx, change] of changedLines.entries()) {
 					if (!change.added && !change.removed) {
 						newCodeWithRejects += change.value
 					} else if (change.added && !indicesOfRejectedLineChanges.includes(idx)) {
