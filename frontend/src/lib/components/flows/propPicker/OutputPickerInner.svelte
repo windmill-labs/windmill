@@ -16,7 +16,7 @@
 
 <script lang="ts">
 	import Button from '$lib/components/common/button/Button.svelte'
-	import { Pin, History, Pen, Check, X, Loader2 } from 'lucide-svelte'
+	import { Pin, History, Pen, Check, X, Loader2, CircleX } from 'lucide-svelte'
 	import ObjectViewer from '$lib/components/propertyPicker/ObjectViewer.svelte'
 	import JsonEditor from '$lib/components/JsonEditor.svelte'
 	import StepHistory from './StepHistory.svelte'
@@ -26,7 +26,6 @@
 	import type { Job } from '$lib/gen'
 	import DisplayResult from '$lib/components/DisplayResult.svelte'
 	import OutputBadge from './OutputBadge.svelte'
-	import { classes } from '$lib/components/common/alert/model'
 	import { twMerge } from 'tailwind-merge'
 	import DisplayResultControlBar from '$lib/components/DisplayResultControlBar.svelte'
 	import { base } from '$lib/base'
@@ -170,6 +169,8 @@
 	}
 
 	$: popoverHeight = customHeight ?? (clientHeight > 0 ? clientHeight : 0)
+
+	$: console.log('dbg infoMessage', infoMessage)
 </script>
 
 <div
@@ -179,7 +180,6 @@
 >
 	<div
 		class={twMerge(
-			infoMessage ? `${classes['info'].descriptionClass} ${classes['info'].bgClass}` : '',
 			'text-xs px-1',
 			'border-none',
 			hideHeaderBar || connectingData ? 'hidden' : 'block',
@@ -197,7 +197,7 @@
 					bind:this={stepHistoryPopover}
 					floatingConfig={{
 						placement: 'left-start',
-						offset: { mainAxis: 10, crossAxis: -6 },
+						offset: { mainAxis: 8, crossAxis: -5 },
 						gutter: 0 // hack to make offset effective, see https://github.com/melt-ui/melt-ui/issues/528
 					}}
 					contentClasses="w-[225px] overflow-hidden"
@@ -211,7 +211,7 @@
 							color="light"
 							size="xs2"
 							variant="contained"
-							btnClasses="bg-surface"
+							btnClasses="bg-surface h-[27px]"
 							startIcon={{ icon: History }}
 							nonCaptureEvent
 						/>
@@ -257,79 +257,109 @@
 						</div>
 					</svelte:fragment>
 				</Popover>
-				{#if infoMessage === 'override'}
-					<span>
-						<Pin size={14} class="inline" />
-						This step is pinned.
-						<button
-							class="inline-block text-xs underline"
-							on:click={() => {
-								if (historyOpen) {
-									stepHistory?.deselect()
-								} else {
+				{#if !isLoading}
+					<div
+						class={twMerge(
+							'w-grow min-w-0 flex gap-1 items-center h-[27px] rounded-md  group',
+							preview || selectedJob?.id !== lastJob?.id ? 'p-[2px] bg-surface-secondary' : ''
+						)}
+					>
+						{#if loopStatus?.type === 'self'}
+							<div
+								class={twMerge(
+									'min-w-16 rounded-md py-1 px-2 justify-center',
+									infoMessage ? 'bg-surface h-[23px]' : 'bg-surface-secondary h-[27px]'
+								)}
+							>
+								<span class="text-xs text-secondary">
+									{loopStatus.flow === 'forloopflow' ? 'For loop result' : 'While loop result'}
+								</span>
+							</div>
+						{:else if !(mock?.enabled && preview != 'job') && preview !== 'mock' && selectedJob && 'result' in selectedJob}
+							<OutputBadge
+								job={selectedJob}
+								class={twMerge(
+									'min-w-16 text-secondary',
+									preview || selectedJob?.id !== lastJob?.id ? 'bg-surface shadow-sm h-[23px]' : ''
+								)}
+							/>
+						{/if}
+						{#if infoMessage === 'override'}
+							<span class="px-2">
+								<button
+									class="inline-block text-xs underline"
+									on:click={() => {
+										const newMock = {
+											enabled: true,
+											return_value: selectedJob && 'result' in selectedJob ? selectedJob.result : ''
+										}
+										dispatch('updateMock', newMock)
+										if (historyOpen) {
+											stepHistory?.deselect()
+											stepHistoryPopover?.close()
+										} else {
+											selectJob(lastJob)
+											togglePreview(undefined)
+										}
+									}}
+								>
+									Override pin ?
+								</button>
+							</span>
+						{:else if infoMessage === 'restore'}
+							<span>
+								<button
+									class="inline-block text-xs px-2 py-1 underline"
+									on:click={() => {
+										dispatch('updateMock', {
+											...mock,
+											enabled: true
+										})
+										selectJob(undefined) // reset the job
+										togglePreview(undefined)
+										stepHistoryPopover?.close()
+									}}
+								>
+									Restore pin <Pin size={14} class="inline" />
+								</button>
+							</span>
+						{:else if !mock?.enabled && selectedJob?.id !== lastJob?.id && !preview && !historyOpen}
+							<button
+								class="px-1 shrink-0 underline"
+								on:click={() => {
 									selectJob(lastJob)
 									togglePreview(undefined)
-								}
-							}}
-						>
-							See pin</button
-						>
-						or
-						<button
-							class="inline-block text-xs underline"
-							on:click={() => {
-								const newMock = {
-									enabled: true,
-									return_value: selectedJob && 'result' in selectedJob ? selectedJob.result : ''
-								}
-								dispatch('updateMock', newMock)
-								if (historyOpen) {
-									stepHistory?.deselect()
-									stepHistoryPopover?.close()
-								} else {
-									selectJob(lastJob)
-									togglePreview(undefined)
-								}
-							}}
-						>
-							override pin
-						</button>
-					</span>
-				{:else if infoMessage === 'restore'}
-					<span>
-						<button
-							class="inline-block text-xs px-2 py-1 underline"
-							on:click={() => {
-								dispatch('updateMock', {
-									...mock,
-									enabled: true
-								})
-								selectJob(undefined) // reset the job
-								togglePreview(undefined)
-								stepHistoryPopover?.close()
-							}}
-						>
-							Restore pin <Pin size={14} class="inline" />
-						</button>
-						or
-						<button
-							class="inline-block text-xs px-2 py-1 underline"
-							on:click={() => {
-								selectJob(lastJob)
-								togglePreview(undefined)
-							}}
-						>
-							See last result
-						</button>
-					</span>
-				{:else}
+								}}>See last result</button
+							>
+						{/if}
+						{#if infoMessage}
+							<button
+								class="p-1"
+								on:click={() => {
+									if (historyOpen) {
+										stepHistory?.deselect()
+									} else {
+										selectJob(lastJob)
+										togglePreview(undefined)
+									}
+								}}
+							>
+								<CircleX
+									size={16}
+									class="text-gray-900/20 dark:text-gray-100/20 transition-all duration-200 group-hover:text-gray-900/60 dark:group-hover:text-gray-100/60"
+								/>
+							</button>
+						{/if}
+					</div>
+				{/if}
+				{#if !infoMessage}
 					<Tooltip disablePopup={mock?.enabled}>
 						<Button
 							color="light"
 							size="xs2"
 							variant="contained"
 							btnClasses={twMerge(
-								'bg-transparent',
+								'bg-transparent h-[27px]',
 								mock?.enabled
 									? 'text-white bg-blue-500 hover:text-primary hover:bg-blue-700 hover:text-gray-100'
 									: '',
@@ -380,6 +410,7 @@
 							color="green"
 							variant="contained"
 							startIcon={{ icon: Check }}
+							btnClasses="h-[27px]"
 							on:click={() => {
 								if (!tmpMock) {
 									return
@@ -399,12 +430,13 @@
 							color="red"
 							variant="contained"
 							startIcon={{ icon: X }}
+							btnClasses="h-[27px]"
 							on:click={() => {
 								jsonView = false
 								tmpMock = undefined
 							}}
 						/>
-					{:else}
+					{:else if mock?.enabled}
 						<Tooltip disablePopup={mock?.enabled}>
 							<Button
 								size="xs2"
@@ -418,7 +450,7 @@
 								}}
 								disabled={!mock?.enabled || !!connectingData}
 								btnClasses={twMerge(
-									'transition-all duration-100 ',
+									'transition-all duration-100 h-[27px]',
 									debouncedCanEditWithDblClick
 										? 'bg-blue-500/10 text-blue-800 dark:text-blue-200'
 										: ''
@@ -429,33 +461,6 @@
 							</svelte:fragment>
 						</Tooltip>
 					{/if}
-				{/if}
-
-				{#if !isLoading && selectedJob && !preview && !mock?.enabled && 'result' in selectedJob}
-					<div class="w-grow min-w-0 flex gap-1 items-center">
-						{#if loopStatus?.type === 'self'}
-							<div class="min-w-16 rounded-md bg-surface-secondary py-1 px-2 justify-center">
-								<span class="text-xs text-secondary">
-									{loopStatus.flow === 'forloopflow' ? 'For loop result' : 'While loop result'}
-								</span>
-							</div>
-						{:else}
-							<OutputBadge job={selectedJob} class="min-w-16" />
-						{/if}
-						{#if selectedJob.id !== lastJob?.id}
-							<button
-								class="px-1 shrink-0 underline"
-								on:click={() => {
-									if (historyOpen) {
-										stepHistory?.deselect()
-									} else {
-										selectJob(lastJob)
-										togglePreview(undefined)
-									}
-								}}>See last result</button
-							>
-						{/if}
-					</div>
 				{/if}
 			</div>
 
