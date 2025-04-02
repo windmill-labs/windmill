@@ -756,7 +756,7 @@
 							</div>
 						{/if}
 						{#if job.tag && !['deno', 'python3', 'flow', 'other', 'go', 'postgresql', 'mysql', 'bigquery', 'snowflake', 'mssql', 'graphql', 'oracledb', 'nativets', 'bash', 'powershell', 'php', 'rust', 'other', 'ansible', 'csharp', 'nu', 'java', 'dependency'].includes(job.tag)}
-							<!-- KJQXZ -->
+							<!-- for related places search: ADD_NEW_LANG -->
 							<div>
 								<Badge color="indigo">Tag: {job.tag}</Badge>
 							</div>
