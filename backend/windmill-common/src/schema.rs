@@ -351,7 +351,7 @@ pub fn should_validate_schema(code: &str, lang: &ScriptLang) -> bool {
         Python3 | Go | Bash | Powershell | Graphql | Ansible | Nu => "#",
         Postgresql | Mysql | Bigquery | Snowflake | Mssql | OracleDB => "--",
         Rust => "//!",
-        // KJQXZ
+        // for related places search: ADD_NEW_LANG
     };
     find_annotation(comment, annotation, code)
 }
