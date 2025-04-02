@@ -10,7 +10,6 @@
 	import { initializeVscode } from './vscode'
 	import EditorTheme from './EditorTheme.svelte'
 	import { buildWorkerDefinition } from '$lib/monaco_workers/build_workers'
-	import Editor from './Editor.svelte'
 	import Button from '$lib/components/common/button/Button.svelte'
 
 	buildWorkerDefinition()
@@ -24,7 +23,6 @@
 	export let defaultOriginal: string | undefined = undefined
 	export let defaultModified: string | undefined = undefined
 	export let readOnly = false
-	export let editor: Editor | undefined = undefined
 	export let showButtons = false
 
 	let diffEditor: meditor.IStandaloneDiffEditor | undefined
@@ -70,8 +68,7 @@
 	) {
 		diffEditor?.setModel({
 			original: meditor.createModel('', lang),
-			modified:
-				(editor?.getModel() as meditor.ITextModel) ?? meditor.createModel('', modifiedLang ?? lang)
+			modified: meditor.createModel('', modifiedLang ?? lang)
 		})
 		if (original) {
 			setOriginal(original)
@@ -142,11 +139,8 @@
 			<Button on:click={() => dispatch('seeHistory')} variant="contained" size="sm"
 				>See changes history</Button
 			>
-			<Button
-				on:click={() => dispatch('hideDiffMode')}
-				variant="contained"
-				size="sm"
-				btnClasses="!bg-red-500 dark:!bg-red-500">Quit diff mode</Button
+			<Button on:click={() => dispatch('hideDiffMode')} variant="contained" size="sm" color="red"
+				>Quit diff mode</Button
 			>
 		</div>
 	{/if}

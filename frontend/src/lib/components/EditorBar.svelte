@@ -46,7 +46,6 @@
 	import ResourceEditorDrawer from './ResourceEditorDrawer.svelte'
 	import type { EditorBarUi } from './custom_ui'
 	import EditorSettings from './EditorSettings.svelte'
-	import { writable, type Writable } from 'svelte/store'
 
 	export let lang: SupportedLanguage | 'bunnative' | undefined
 	export let editor: Editor | undefined
@@ -72,7 +71,7 @@
 	export let saveToWorkspace = false
 	export let customUi: EditorBarUi = {}
 	export let lastDeployedCode: string | undefined = undefined
-	export let diffMode: Writable<boolean> = writable(false)
+	export let diffMode: boolean = false
 	export let showHistoryDrawer: boolean = false
 
 	let contextualVariablePicker: ItemPicker
@@ -705,14 +704,11 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 					<Toggle
 						options={{ right: '' }}
 						size="xs"
-						checked={$diffMode}
+						checked={diffMode}
 						disabled={!lastDeployedCode}
-						on:change={() => {
-							if (!$diffMode) {
-								dispatch('showDiffMode')
-							} else {
-								dispatch('hideDiffMode')
-							}
+						on:change={(e) => {
+							const turnOn = e.detail
+							dispatch(turnOn ? 'showDiffMode' : 'hideDiffMode')
 						}}
 					/>
 					<Popover>

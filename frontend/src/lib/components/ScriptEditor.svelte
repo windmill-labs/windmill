@@ -77,7 +77,7 @@
 	let showHistoryDrawer = false
 
 	let jobProgressReset: () => void
-	let diffMode = writable(false)
+	let diffMode = false
 
 	let websocketAlive = {
 		pyright: false,
@@ -347,7 +347,7 @@
 	}
 
 	function showDiffMode() {
-		diffMode.set(true)
+		diffMode = true
 		diffEditor?.setOriginal(lastDeployedCode ?? '')
 		diffEditor?.setModified(editor?.getCode() ?? '')
 		diffEditor?.show()
@@ -355,7 +355,7 @@
 	}
 
 	function hideDiffMode() {
-		diffMode.set(false)
+		diffMode = false
 		diffEditor?.hide()
 		editor?.show()
 	}
@@ -534,8 +534,7 @@
 						automaticLayout
 						defaultLang={scriptLangToEditorLang(lang)}
 						{fixedOverflowWidgets}
-						{editor}
-						showButtons={$diffMode}
+						showButtons={diffMode}
 						on:hideDiffMode={hideDiffMode}
 						on:seeHistory={() => {
 							showHistoryDrawer = true
@@ -562,7 +561,7 @@
 					}}
 					{lastSavedCode}
 					{lastDeployedCode}
-					diffMode={$diffMode}
+					{diffMode}
 				>
 					<svelte:fragment slot="header-left">
 						<HideButton
