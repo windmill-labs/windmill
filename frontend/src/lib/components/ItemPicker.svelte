@@ -50,9 +50,9 @@
 		(extraField2 ? x[extraField2] + ' ' : '') +
 		(x[extraField] ?? '') +
 		' ' +
-		(x['path'] && x['path'] != x[extraField] ? '(' + x['path'] + ')' ?? '' : '') +
+		(x['path'] && x['path'] != x[extraField] ? '(' + x['path'] + ')' : '') +
 		' ' +
-		(x['description'] != x[extraField] ? x['description'] ?? '' : '')}
+		(x['description'] != x[extraField] ? (x['description'] ?? '') : '')}
 />
 
 <Drawer bind:this={drawer} size="600px">

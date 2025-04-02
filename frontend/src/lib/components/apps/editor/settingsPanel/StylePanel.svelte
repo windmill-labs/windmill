@@ -3,7 +3,7 @@
 	import { sendUserToast } from '$lib/toast'
 	import { getContext } from 'svelte'
 	import type { AppViewerContext, ComponentCssProperty } from '../../types'
-	import { ccomponents, components } from '../component'
+	import { ccomponents, components, type AppComponent } from '../component'
 	import CssProperty from '../componentsPanel/CssProperty.svelte'
 	import { quickStyleProperties } from '../componentsPanel/quickStyleProperties'
 	import Tabs from '$lib/components/common/tabs/Tabs.svelte'
@@ -20,7 +20,13 @@
 
 	const { app, cssEditorOpen, selectedComponent } = getContext<AppViewerContext>('AppViewerContext')
 
-	$: component = findComponentSettings($app, $selectedComponent?.[0])?.item?.data
+	let component: AppComponent | undefined
+	$: {
+		const newComponent = findComponentSettings($app, $selectedComponent?.[0])?.item?.data
+		if (component != newComponent) {
+			component = newComponent
+		}
+	}
 
 	let tab: 'local' | 'global' = 'local'
 	let overrideGlobalCSS: (() => void) | undefined = undefined
@@ -34,7 +40,7 @@
 					id,
 					forceStyle: v?.style != undefined,
 					forceClass: v?.['class'] != undefined
-			  }))
+				}))
 			: undefined
 
 	function copyLocalToGlobal(name: string, value: ComponentCssProperty | undefined) {
@@ -133,7 +139,7 @@
 					</div>
 				</Button>
 			{:else}
-				<div />
+				<div></div>
 			{/if}
 
 			{#if $enterpriseLicense !== undefined}
@@ -160,8 +166,8 @@
 
 					<Tooltip light>
 						You can customise the CSS and the classes of this component instance. These
-						customisations will only be applied to this component. You can also apply
-						custom classes set on the Global styling panel.
+						customisations will only be applied to this component. You can also apply custom classes
+						set on the Global styling panel.
 					</Tooltip>
 				</div>
 			</Tab>

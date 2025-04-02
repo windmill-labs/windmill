@@ -31,7 +31,7 @@
 	let argError = ''
 	let editing = false
 	let oldArgName: string | undefined // when editing argument and changing name
-	let jsonEditor: SimpleEditor
+	let jsonEditor: SimpleEditor | undefined
 
 	reorder()
 

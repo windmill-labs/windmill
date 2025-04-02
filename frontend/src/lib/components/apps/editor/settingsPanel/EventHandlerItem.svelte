@@ -9,7 +9,7 @@
 	export let title: string
 	export let tooltip: string
 
-	$: width = 0
+	let width = 0
 	const inputWidth = 280
 </script>
 

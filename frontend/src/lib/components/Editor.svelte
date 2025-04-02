@@ -1386,9 +1386,9 @@
 </script>
 
 <EditorTheme />
-<div bind:this={divEl} class="{$$props.class} editor {disabled ? 'disabled' : ''}" />
+<div bind:this={divEl} class="{$$props.class} editor {disabled ? 'disabled' : ''}"></div>
 {#if $vimMode}
-	<div class="fixed bottom-0 z-30" bind:this={statusDiv} />
+	<div class="fixed bottom-0 z-30" bind:this={statusDiv}></div>
 {/if}
 
 {#if $reviewingChanges}
