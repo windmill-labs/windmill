@@ -78,10 +78,10 @@
 		? 'grid-cols-2'
 		: 'grid-rows-2 max-h-screen'} shadow border border-tertiary-inverse grow overflow-hidden"
 >
-	<div class="bg-surface {col ? '' : 'max-h-80'} p-1 overflow-auto relative" id="result-container">
+	<div class="bg-surface {col ? '' : 'max-h-80'} p-1 overflow-auto relative">
 		<span class="text-tertiary">Result</span>
 		{#if result !== undefined}
-			<DisplayResult {workspaceId} {jobId} {filename} {result} portal="#result-container" />
+			<DisplayResult {workspaceId} {jobId} {filename} {result} />
 		{:else if loading}
 			<Loader2 class="animate-spin" />
 		{:else}
