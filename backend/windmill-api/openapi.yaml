@@ -12497,7 +12497,7 @@ components:
 
     AIProvider:
       type: string
-      enum: [openai, anthropic, mistral, deepseek, googleai, groq, openrouter, togetherai, customai]
+      enum: [openai, azure_openai, anthropic, mistral, deepseek, googleai, groq, openrouter, togetherai, customai]
 
     AIProviderModel:
       type: object

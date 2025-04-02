@@ -120,6 +120,7 @@
 
 	const aiProviderLabels: [AIProvider, string][] = [
 		['openai', 'OpenAI'],
+		['azure_openai', 'Azure OpenAI'],
 		['anthropic', 'Anthropic'],
 		['mistral', 'Mistral'],
 		['deepseek', 'DeepSeek'],
