@@ -415,7 +415,6 @@
 
 	const {
 		elements: { trigger, content },
-		states: { open },
 		options: { positioning: positioningOption }
 	} = useFloatingControls
 		? createTooltip({
@@ -427,11 +426,11 @@
 						return curr
 					}
 					return next
-				}
+				},
+				forceVisible: true
 		  })
 		: {
 				elements: { trigger: undefined, content: undefined },
-				states: { open: undefined },
 				options: { positioning: undefined }
 		  }
 
@@ -444,7 +443,7 @@
 		length === undefined ||
 		largeObject === undefined
 
-	$: isOpen = open ? $open : false
+	$: isOpen = !tooltipDisabled && useFloatingControls
 
 	$: positioningOption &&
 		($positioningOption = {
