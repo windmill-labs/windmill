@@ -323,53 +323,56 @@
 						</button>
 					</span>
 				{:else}
-					<Button
-						color="light"
-						size="xs2"
-						variant="contained"
-						btnClasses={twMerge(
-							'bg-transparent',
-							mock?.enabled
-								? 'text-white bg-blue-500 hover:text-primary hover:bg-blue-700 hover:text-gray-100'
-								: '',
-							jsonView ? 'pointer-events-none' : ''
-						)}
-						startIcon={{ icon: Pin }}
-						iconOnly
-						on:click={() => {
-							if (mock?.enabled) {
-								dispatch('updateMock', {
-									...mock,
-									enabled: false
-								})
-							} else {
-								if (selectedJob && 'result' in selectedJob) {
-									let mockValue = structuredClone(selectedJob.result)
-									if (selectedJob.result === 'never tested this far') {
-										mockValue = { example: 'value' }
-									}
-									const newMock = {
-										enabled: true,
-										return_value: mockValue
-									}
-									dispatch('updateMock', newMock)
-									selectJob(undefined) // reset the job
+					<Tooltip disablePopup={mock?.enabled}>
+						<Button
+							color="light"
+							size="xs2"
+							variant="contained"
+							btnClasses={twMerge(
+								'bg-transparent',
+								mock?.enabled
+									? 'text-white bg-blue-500 hover:text-primary hover:bg-blue-700 hover:text-gray-100'
+									: '',
+								jsonView ? 'pointer-events-none' : ''
+							)}
+							startIcon={{ icon: Pin }}
+							iconOnly
+							on:click={() => {
+								if (mock?.enabled) {
+									dispatch('updateMock', {
+										...mock,
+										enabled: false
+									})
 								} else {
-									if (mock?.return_value) {
-										dispatch('updateMock', {
+									if (selectedJob && 'result' in selectedJob) {
+										let mockValue = structuredClone(selectedJob.result)
+										if (selectedJob.result === 'never tested this far') {
+											mockValue = { example: 'value' }
+										}
+										const newMock = {
 											enabled: true,
-											return_value: mock.return_value
-										})
+											return_value: mockValue
+										}
+										dispatch('updateMock', newMock)
+										selectJob(undefined) // reset the job
 									} else {
-										dispatch('updateMock', {
-											enabled: true,
-											return_value: { example: 'value' }
-										})
+										if (mock?.return_value) {
+											dispatch('updateMock', {
+												enabled: true,
+												return_value: mock.return_value
+											})
+										} else {
+											dispatch('updateMock', {
+												enabled: true,
+												return_value: { example: 'value' }
+											})
+										}
 									}
 								}
-							}
-						}}
-					/>
+							}}
+						/>
+						<svelte:fragment slot="text">Pin output</svelte:fragment>
+					</Tooltip>
 
 					{#if jsonView}
 						<Button
