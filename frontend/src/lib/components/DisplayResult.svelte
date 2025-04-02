@@ -16,7 +16,6 @@
 		ArrowDownFromLine
 	} from 'lucide-svelte'
 	import Portal from '$lib/components/Portal.svelte'
-	import { twMerge } from 'tailwind-merge'
 	import { onMount } from 'svelte'
 
 	import ObjectViewer from './propertyPicker/ObjectViewer.svelte'
@@ -59,7 +58,6 @@
 	export let isTest: boolean = true
 	export let portal: string | undefined = undefined
 	export let useFloatingControls: boolean = false
-	export let showShadow: boolean = false
 
 	const IMG_MAX_SIZE = 10000000
 	const TABLE_MAX_SIZE = 5000000
@@ -494,7 +492,6 @@
 					hideAsJson={true}
 					{portal}
 					{useFloatingControls}
-					showShadow
 				/>
 			{/each}
 		</div>
@@ -503,11 +500,9 @@
 	<div class="text-red-400">Non displayable object</div>
 {:else}
 	<div
-		class={twMerge(
-			'inline-highlight w-full relative grow rounded-md transition-all duration-200 shadow shadow-transparent p-1',
-			['plain', 'markdown'].includes(resultKind ?? '') ? '' : 'min-h-[160px]',
-			isOpen && showShadow && 'shadow-gray-200 dark:shadow-white/10'
-		)}
+		class="inline-highlight relative grow {['plain', 'markdown'].includes(resultKind ?? '')
+			? ''
+			: 'min-h-[160px]'}"
 		use:conditionalMelt={trigger}
 		{...$trigger}
 	>
