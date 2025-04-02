@@ -261,7 +261,8 @@
 					<div
 						class={twMerge(
 							'w-grow min-w-0 flex gap-1 items-center h-[27px] rounded-md  group',
-							preview || selectedJob?.id !== lastJob?.id ? 'p-[2px] bg-surface-secondary' : ''
+							preview || selectedJob?.id !== lastJob?.id ? 'p-[2px] bg-surface-secondary' : '',
+							infoMessage ? 'bg-blue-500/10 text-blue-600 dark:text-blue-200' : ''
 						)}
 					>
 						{#if loopStatus?.type === 'self'}
