@@ -54,7 +54,6 @@
 	export let portal: string | undefined = undefined
 	export let useFloatingControls: boolean = false
 	export let externalToolbarAvailable: boolean = false
-	export let toolbarLocation: 'self' | 'external' | undefined = undefined
 
 	const IMG_MAX_SIZE = 10000000
 	const TABLE_MAX_SIZE = 5000000
@@ -416,28 +415,32 @@
 		copilotFixSlotHasContent = !!slotElement && slotElement.children.length > 0
 	})
 
-	function chooseToolbarLocation(resultHeaderHeight: number) {
-		if (externalToolbarAvailable && resultHeaderHeight < 16) {
+	let toolbarLocation: 'self' | 'external' | undefined = undefined
+	function chooseToolbarLocation(shouldShowToolbar: boolean, resultHeaderHeight: number) {
+		if (!shouldShowToolbar) {
+			toolbarLocation = undefined
+		} else if (externalToolbarAvailable && resultHeaderHeight < 16) {
 			toolbarLocation = 'external'
 		} else {
 			toolbarLocation = 'self'
 		}
+		dispatch('toolbar-location-changed', toolbarLocation)
 	}
 
 	export function getToolbarLocation() {
 		return toolbarLocation
 	}
 
-	$: !is_render_all &&
-		resultKind != 'nondisplayable' &&
-		result != undefined &&
-		length != undefined &&
-		largeObject != undefined &&
-		!disableExpand &&
-		!noControls &&
-		chooseToolbarLocation(resultHeaderHeight)
-
-	$: dispatch('toolbar-location-changed', toolbarLocation)
+	$: chooseToolbarLocation(
+		!is_render_all &&
+			resultKind != 'nondisplayable' &&
+			result != undefined &&
+			length != undefined &&
+			largeObject != undefined &&
+			!disableExpand &&
+			!noControls,
+		resultHeaderHeight
+	)
 
 	onDestroy(() => {
 		dispatch('toolbar-location-changed', undefined)

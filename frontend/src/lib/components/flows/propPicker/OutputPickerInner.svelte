@@ -573,7 +573,6 @@
 							jobId={undefined}
 							result={mock?.return_value}
 							portal="#result-container"
-							bind:toolbarLocation={toolbarLocationMock}
 							externalToolbarAvailable
 							on:toolbar-location-changed={({ detail }) => {
 								toolbarLocationMock = detail
@@ -602,7 +601,6 @@
 								jobId={selectedJob?.id}
 								result={selectedJob?.result}
 								portal="#result-container"
-								bind:toolbarLocation={toolbarLocationJob}
 								externalToolbarAvailable
 								on:toolbar-location-changed={({ detail }) => {
 									toolbarLocationJob = detail
