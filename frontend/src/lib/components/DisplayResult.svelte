@@ -418,17 +418,32 @@
 		elements: { trigger, content },
 		states: { open },
 		options: { positioning: positioningOption }
-	} = useFloatingControls && !noControls && !disableExpand
+	} = useFloatingControls
 		? createTooltip({
 				openDelay: 0,
 				closeDelay: 0,
-				portal: portal ?? 'body'
+				portal: portal ?? 'body',
+				onOpenChange: ({ curr, next }) => {
+					if (tooltipDisabled) {
+						return curr
+					}
+					return next
+				}
 		  })
 		: {
 				elements: { trigger: undefined, content: undefined },
 				states: { open: undefined },
 				options: { positioning: undefined }
 		  }
+
+	$: tooltipDisabled =
+		noControls ||
+		disableExpand ||
+		is_render_all ||
+		resultKind === 'nondisplayable' ||
+		!result ||
+		length === undefined ||
+		largeObject === undefined
 
 	$: isOpen = open ? $open : false
 
@@ -487,7 +502,7 @@
 {:else}
 	<div
 		class={twMerge(
-			'w-full relative grow rounded-md transition-all duration-200 shadow shadow-transparent p-1',
+			'inline-highlight w-full relative grow rounded-md transition-all duration-200 shadow shadow-transparent p-1',
 			['plain', 'markdown'].includes(resultKind ?? '') ? '' : 'min-h-[160px]',
 			isOpen && 'shadow-gray-200 dark:shadow-white/10'
 		)}
@@ -524,7 +539,7 @@
 					{/if}
 				</div>
 
-				<div class="flex flex-row gap-2">
+				<div class="text-secondary text-xs flex gap-2.5 z-10 items-center">
 					{#if customUi?.disableAiFix !== true}
 						<div data-slot="copilot-fix">
 							<slot name="copilot-fix" />
