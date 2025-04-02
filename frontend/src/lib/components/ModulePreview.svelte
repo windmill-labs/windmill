@@ -94,6 +94,7 @@
 				$flowStateStore = $flowStateStore
 			}
 		}
+		testJob = undefined
 	}
 </script>
 
