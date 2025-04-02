@@ -14,7 +14,6 @@
 		ArrowDownFromLine
 	} from 'lucide-svelte'
 	import Portal from '$lib/components/Portal.svelte'
-	import { onMount } from 'svelte'
 	import DisplayResultControlBar from './DisplayResultControlBar.svelte'
 
 	import ObjectViewer from './propertyPicker/ObjectViewer.svelte'
@@ -405,13 +404,6 @@
 		: false
 
 	let resultHeaderHeight = 0
-	let copilotFixSlotHasContent = false
-
-	onMount(() => {
-		// Check if the slot has any actual content
-		const slotElement = document.querySelector('[data-slot="copilot-fix"]')
-		copilotFixSlotHasContent = !!slotElement && slotElement.children.length > 0
-	})
 
 	let toolbarLocation: 'self' | 'external' | undefined = undefined
 	function chooseToolbarLocation(shouldShowToolbar: boolean, resultHeaderHeight: number) {
