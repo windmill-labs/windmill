@@ -20,6 +20,8 @@ use crate::handle_child::run_future_with_polling_update_job_poller;
 use crate::sanitized_sql_params::sanitize_and_interpolate_unsafe_sql_args;
 use crate::AuthedClient;
 
+use serde::Deserializer;
+
 #[derive(Deserialize)]
 struct MssqlDatabase {
     host: String,
@@ -28,8 +30,14 @@ struct MssqlDatabase {
     port: Option<u16>,
     dbname: String,
     instance_name: Option<String>,
-    #[serde(deserialize_with = "deserialize_aad_token")]
-    aad_token: Option<serde_json::Value>,
+    #[serde(default, deserialize_with = "deserialize_aad_token")]
+    aad_token: Option<AadToken>,
+}
+
+#[derive(Debug, Deserialize)]
+struct AadToken {
+    #[serde(default, deserialize_with = "empty_string_as_none")]
+    token: Option<String>,
 }
 
 lazy_static::lazy_static! {
@@ -97,7 +105,7 @@ pub async fn do_mssql(
 
     // Handle authentication based on available credentials
     if let Some(token_value) = &database.aad_token {
-        if let Some(token) = token_value.get("token").and_then(|t| t.as_str()) {
+        if let Some(token) = &token_value.token {
             config.authentication(AuthMethod::aad_token(token));
         } else {
             return Err(Error::BadRequest(
@@ -350,60 +358,22 @@ fn sql_to_json_value(val: ColumnData) -> Result<Value, Error> {
     }
 }
 
-fn deserialize_aad_token<'de, D>(deserializer: D) -> Result<Option<serde_json::Value>, D::Error>
+fn empty_string_as_none<'de, D>(deserializer: D) -> Result<Option<String>, D::Error>
 where
-    D: serde::Deserializer<'de>,
+    D: Deserializer<'de>,
 {
-    // Use a custom visitor to handle both string and object cases
-    struct AadTokenVisitor;
-    impl<'de> serde::de::Visitor<'de> for AadTokenVisitor {
-        type Value = Option<serde_json::Value>;
+    let option = <Option<String> as serde::Deserialize>::deserialize(deserializer)?;
+    Ok(option.filter(|s| !s.is_empty()))
+}
 
-        fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
-            formatter.write_str("a string, null, or a JSON object with a token field")
-        }
+fn deserialize_aad_token<'de, D>(deserializer: D) -> Result<Option<AadToken>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let result = AadToken::deserialize(deserializer);
 
-        fn visit_str<E>(self, _v: &str) -> Result<Self::Value, E>
-        where
-            E: serde::de::Error,
-        {
-            // Any string (including empty) is treated as None
-            Ok(None)
-        }
-
-        fn visit_none<E>(self) -> Result<Self::Value, E>
-        where
-            E: serde::de::Error,
-        {
-            // Explicit null is treated as None
-            Ok(None)
-        }
-
-        fn visit_unit<E>(self) -> Result<Self::Value, E>
-        where
-            E: serde::de::Error,
-        {
-            // Unit (null in JSON) is treated as None
-            Ok(None)
-        }
-
-        fn visit_map<A>(self, map: A) -> Result<Self::Value, A::Error>
-        where
-            A: serde::de::MapAccess<'de>,
-        {
-            // Deserialize as a JSON value
-            let value = serde_json::Value::deserialize(serde::de::value::MapAccessDeserializer::new(map))?;
-
-            // Check if it has an empty token
-            if let Some(token) = value.get("token").and_then(|t| t.as_str()) {
-                if token.is_empty() {
-                    return Ok(None);
-                }
-            }
-
-            Ok(Some(value))
-        }
+    match result {
+        Ok(token) if token.token.is_some() => Ok(Some(token)),
+        _ => Ok(None),
     }
-
-    deserializer.deserialize_any(AadTokenVisitor)
 }
