@@ -133,8 +133,7 @@ pub async fn do_mssql(
         // Only use ca_cert if trust_cert is false
         let cert_path = format!("{}/ca_cert.pem", job_dir);
 
-        tokio::fs::write(&cert_path, ca_cert)
-            .await
+        std::fs::write(&cert_path, ca_cert)
             .map_err(|e| Error::ExecutionErr(format!("Failed to write CA certificate: {}", e)))?;
 
         // Use the CA certificate for trust
