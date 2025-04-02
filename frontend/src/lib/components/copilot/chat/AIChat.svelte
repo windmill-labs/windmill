@@ -397,7 +397,7 @@
 		sendRequest()
 	}
 
-	export function askAiAboutChanges(prompt: string) {
+	export function askAi(prompt: string, options: { withDiff?: boolean } = {}) {
 		instructions = prompt
 		const codeContext = availableContext.find(
 			(c) => c.type === 'code' && c.title === contextCodePath
@@ -407,18 +407,24 @@
 		}
 		selectedContext = [
 			codeContext,
-			{
-				type: 'diff',
-				title: 'diff_with_last_deployed_version',
-				content: lastDeployedCode ?? '',
-				diff: diffLines(lastDeployedCode ?? '', code),
-				lang
-			}
+			...(options.withDiff
+				? [
+						{
+							type: 'diff' as const,
+							title: 'diff_with_last_deployed_version',
+							content: lastDeployedCode ?? '',
+							diff: diffLines(lastDeployedCode ?? '', code),
+							lang
+						}
+				  ]
+				: [])
 		]
 		sendRequest({
-			removeDiff: true
+			removeDiff: options.withDiff
 		})
-		dispatch('reviewChanges')
+		if (options.withDiff) {
+			dispatch('reviewChanges')
+		}
 	}
 
 	interface ChatSchema extends IDBSchema {
@@ -490,12 +496,15 @@
 	on:deletePastChat={(e) => deletePastChat(e.detail.id)}
 	on:loadPastChat={(e) => loadPastChat(e.detail.id)}
 	on:analyzeChanges={() => {
-		askAiAboutChanges(
-			'Based on the changes I made to the code, look for potential issues and recommend better solutions'
+		askAi(
+			'Based on the changes I made to the code, look for potential issues and recommend better solutions',
+			{ withDiff: true }
 		)
 	}}
 	on:explainChanges={() =>
-		askAiAboutChanges('Explain the changes I made to the code from the last diff')}
+		askAi('Explain the changes I made to the code from the last diff', { withDiff: true })}
+	on:suggestImprovements={() =>
+		askAi('Look for potential issues and recommend better solutions in the actual code')}
 	hasDiff={!!lastDeployedCode && lastDeployedCode !== code}
 	{diffMode}
 >

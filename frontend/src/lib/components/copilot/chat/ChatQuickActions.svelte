@@ -10,6 +10,7 @@
 	const dispatch = createEventDispatcher<{
 		analyzeChanges: null
 		explainChanges: null
+		suggestImprovements: null
 	}>()
 
 	$: btnClasses = `!px-1 !py-0.5 !gap-1 ${
@@ -21,7 +22,22 @@
 
 <div class="flex flex-row items-center gap-2 px-2 py-1">
 	<div class="flex flex-row items-center gap-1.5">
-		{#if !diffMode}
+		{#if diffMode}
+			<Button
+				on:click={() => {
+					dispatch('analyzeChanges')
+				}}
+				title="Analyze changes"
+				size="xs"
+				{btnClasses}
+				startIcon={{ icon: SparklesIcon, classes: iconClasses }}
+				variant="border"
+				color="light"
+				propagateEvent
+			>
+				Analyze
+			</Button>
+		{:else}
 			<Button
 				on:click={() => {
 					dispatch('explainChanges')
@@ -36,20 +52,20 @@
 			>
 				Explain
 			</Button>
+			<Button
+				on:click={() => {
+					dispatch('suggestImprovements')
+				}}
+				title="Suggest improvements"
+				size="xs"
+				{btnClasses}
+				startIcon={{ icon: LightbulbIcon, classes: iconClasses }}
+				variant="border"
+				color="light"
+				propagateEvent
+			>
+				Improve
+			</Button>
 		{/if}
-		<Button
-			on:click={() => {
-				dispatch('analyzeChanges')
-			}}
-			title="Suggest improvements"
-			size="xs"
-			{btnClasses}
-			startIcon={{ icon: diffMode ? SparklesIcon : LightbulbIcon, classes: iconClasses }}
-			variant="border"
-			color="light"
-			propagateEvent
-		>
-			{diffMode ? 'Analyze' : 'Improve'}
-		</Button>
 	</div>
 </div>

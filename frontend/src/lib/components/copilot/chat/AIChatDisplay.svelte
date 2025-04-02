@@ -26,6 +26,7 @@
 		loadPastChat: { id: string }
 		analyzeChanges: null
 		explainChanges: null
+		suggestImprovements: null
 	}>()
 
 	const { loading, currentReply } = getContext<AIChatContext>('AIChatContext')
@@ -229,7 +230,7 @@
 			} items-center gap-2 px-0.5`}
 		>
 			{#if hasDiff}
-				<ChatQuickActions on:analyzeChanges on:explainChanges {diffMode} />
+				<ChatQuickActions on:analyzeChanges on:explainChanges on:suggestImprovements {diffMode} />
 			{/if}
 			<ProviderModelSelector />
 		</div>
