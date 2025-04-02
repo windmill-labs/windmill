@@ -658,7 +658,7 @@
 						<slot />
 					</div>
 					{#if !isTest && language === 'bun'}
-						<div class="pt-20" />
+						<div class="pt-20"></div>
 						<Alert size="xs" type="info" title="Seeing an odd error?">
 							Bun script are bundled for performance reasons. If you see an odd error that doesn't
 							appear when testing (which doesn't use bundling), try putting <code>//nobundling</code

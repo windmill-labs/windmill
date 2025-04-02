@@ -573,7 +573,7 @@ export function filePathExtensionFromContentType(
     return ".nu";
   } else if (language === "java") {
     return ".java";
-    // KJQXZ 
+    // for related places search: ADD_NEW_LANG 
   } else {
     throw new Error("Invalid language: " + language);
   }
@@ -602,7 +602,7 @@ export const exts = [
   ".nu",
   ".playbook.yml",
   ".java"
-  // KJQXZ 
+  // for related places search: ADD_NEW_LANG 
 
 ];
 

@@ -146,7 +146,7 @@
 			: contentStyle}
 	>
 		{#if displayArrow}
-			<div use:melt={$arrow} />
+			<div use:melt={$arrow}></div>
 		{/if}
 		{#if allowFullScreen}
 			<div class="absolute top-0 right-0 z-10">

@@ -124,5 +124,5 @@
 		bind:this={diffDivEl}
 		class="{$$props.class} editor nonmain-editor"
 		bind:clientWidth={editorWidth}
-	/>
+	></div>
 {/if}

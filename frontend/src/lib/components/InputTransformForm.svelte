@@ -470,7 +470,7 @@
 			{/if}
 		</div>
 
-		<div class="max-w-xs" />
+		<div class="max-w-xs"></div>
 		<!-- svelte-ignore a11y-no-static-element-interactions -->
 		<div class="relative" on:keyup={handleKeyUp}>
 			<!-- {#if $propPickerConfig?.propName == argName && $propPickerConfig?.insertionMode == 'connect'}
@@ -575,7 +575,7 @@
 							/>
 						</div>
 						<DynamicInputHelpBox />
-						<div class="mb-2" />
+						<div class="mb-2"></div>
 					{:else}
 						Not recognized input type {argName} ({arg.expr}, {propertyType})
 						<div class="flex mt-2">
@@ -610,7 +610,7 @@
 						</svg>
 					</div>
 				{:else}
-					<div class="w-0" />
+					<div class="w-0"></div>
 				{/if}
 			</div>
 		</div>

@@ -53,7 +53,7 @@
 							title="embedded script from hub"
 							frameborder="0"
 							src="{$hubBaseUrlStore}/embed/script/{stepDetail.value?.path?.substring(4)}"
-						/>
+						></iframe>
 					</div>
 				{/if}
 			{:else if stepDetail.value.type == 'rawscript'}
@@ -212,7 +212,7 @@
 						title="embedded script from hub"
 						frameborder="0"
 						src="{$hubBaseUrlStore}/embed/script/{stepDetail.value?.path?.substring(4)}"
-					/>
+					></iframe>
 				</div>
 			{:else}
 				<FlowModuleScript path={stepDetail.value.path} />

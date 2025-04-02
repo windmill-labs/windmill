@@ -126,7 +126,7 @@
 	{:else if showSkeleton}
 		<div
 			class="h-full w-full flex-col animate-skeleton dark:bg-frost-900/50 [animation-delay:1000ms]"
-		/>
+		></div>
 	{/if}
 </div>
 
