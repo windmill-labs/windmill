@@ -628,7 +628,7 @@
 						if (receivedUuids.length) {
 							reRanUuids.push(...receivedUuids)
 							if (askingForConfirmation) {
-								askingForConfirmation.title = `Pushed ${reRanUuids.length}/${jobIdsToReRun.length} jobs to queue`
+								askingForConfirmation.confirmBtnText = `${reRanUuids.length}/${jobIdsToReRun.length}`
 							}
 						}
 					}
@@ -678,7 +678,7 @@
 		const jobIdsToReRun = selectedIds
 		askingForConfirmation = {
 			title: `Confirm re-running the selected jobs`,
-			confirmBtnText: `Re-run ${jobIdsToReRun.length} jobs`,
+			confirmBtnText: `Move`,
 			type: 'reload',
 			onConfirm: async () => {
 				await reRunJobs(jobIdsToReRun)

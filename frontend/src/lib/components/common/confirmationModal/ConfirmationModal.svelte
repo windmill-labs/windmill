@@ -118,7 +118,7 @@
 							{#if loading}
 								<Loader2 class="animate-spin" />
 							{/if}
-							<span>{confirmationText} </span>
+							<span class="min-w-20">{confirmationText} </span>
 						</Button>
 						<Button
 							disabled={loading}
