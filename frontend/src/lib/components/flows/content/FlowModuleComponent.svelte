@@ -240,11 +240,11 @@
 	$: parentLoop =
 		$flowStore && flowModule ? checkIfParentLoop($flowStore, flowModule.id) : undefined
 
-	let extraPanelSize = 0
+	let leftPanelSize = 0
 	$: if (selected === 'test') {
-		extraPanelSize = 50
+		leftPanelSize = 50
 	} else {
-		extraPanelSize = 0
+		leftPanelSize = 100
 	}
 </script>
 
@@ -403,7 +403,7 @@
 						</Pane>
 						<Pane bind:size={editorSettingsPanelSize} minSize={20}>
 							<Splitpanes>
-								<Pane minSize={36}>
+								<Pane minSize={36} bind:size={leftPanelSize}>
 									<Tabs bind:selected>
 										{#if !preprocessorModule}
 											<Tab value="inputs">Step Input</Tab>
@@ -718,19 +718,23 @@
 										{/if}
 									</div>
 								</Pane>
-								<Pane bind:size={extraPanelSize}>
-									<ModulePreviewResultViewer
-										lang={flowModule.value['language'] ?? 'deno'}
-										{editor}
-										{diffEditor}
-										loopStatus={parentLoop ? { type: 'inside', flow: parentLoop.type } : undefined}
-										{lastJob}
-										{scriptProgress}
-										{testJob}
-										mod={flowModule}
-										{testIsLoading}
-									/>
-								</Pane>
+								{#if selected == 'test'}
+									<Pane>
+										<ModulePreviewResultViewer
+											lang={flowModule.value['language'] ?? 'deno'}
+											{editor}
+											{diffEditor}
+											loopStatus={parentLoop
+												? { type: 'inside', flow: parentLoop.type }
+												: undefined}
+											{lastJob}
+											{scriptProgress}
+											{testJob}
+											mod={flowModule}
+											{testIsLoading}
+										/>
+									</Pane>
+								{/if}
 							</Splitpanes>
 						</Pane>
 					</Splitpanes>
