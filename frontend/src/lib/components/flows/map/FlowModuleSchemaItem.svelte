@@ -31,6 +31,7 @@
 	import OutputPicker from '$lib/components/flows/propPicker/OutputPicker.svelte'
 	import OutputPickerInner from '$lib/components/flows/propPicker/OutputPickerInner.svelte'
 	import { useSvelteFlow } from '@xyflow/svelte'
+	import type { FlowState } from '$lib/components/flows/flowState'
 
 	export let selected: boolean = false
 	export let deletable: boolean = false
@@ -99,7 +100,7 @@
 		id: string | undefined,
 		pickableIds: Record<string, any> | undefined,
 		flowPropPickerConfig: any | undefined,
-		flowStateStore: any | undefined
+		flowStateStore: FlowState | undefined
 	) {
 		if (!id) return
 		connectingData =
@@ -122,7 +123,7 @@
 		}
 	}
 
-	$: updateLastJob($flowStateStore)
+	$: flowStateStore && updateLastJob($flowStateStore)
 	$: outputPickerInner &&
 		typeof outputPickerInner.setLastJob === 'function' &&
 		outputPickerInner.setLastJob(lastJob)
