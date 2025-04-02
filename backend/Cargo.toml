@@ -16,6 +16,7 @@ members = [
     "./windmill-autoscaling",
     "./windmill-indexer",
     "./windmill-macros",
+    "./windmill-mcp",
     "./parsers/windmill-parser",
     "./parsers/windmill-parser-ts",
     "./parsers/windmill-parser-wasm",
