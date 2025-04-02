@@ -719,7 +719,7 @@
 									</div>
 								</Pane>
 								{#if selected == 'test'}
-									<Pane>
+									<Pane minSize={20}>
 										<ModulePreviewResultViewer
 											lang={flowModule.value['language'] ?? 'deno'}
 											{editor}
