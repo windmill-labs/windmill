@@ -28,6 +28,8 @@
 	import OutputBadge from './OutputBadge.svelte'
 	import { classes } from '$lib/components/common/alert/model'
 	import { twMerge } from 'tailwind-merge'
+	import DisplayResultControlBar from '$lib/components/DisplayResultControlBar.svelte'
+	import { base } from '$lib/base'
 
 	export let prefix: string = ''
 	export let allowCopy: boolean = false
@@ -129,6 +131,18 @@
 	let debouncedCanEditWithDblClick = false
 	let debounceTimeout: ReturnType<typeof setTimeout> | null = null
 	let canEditWithDblClick = false
+	let displayResultJob: DisplayResult | undefined = undefined
+	let displayResultMock: DisplayResult | undefined = undefined
+	let toolbarLocationJob: 'self' | 'external' | undefined = undefined
+	let toolbarLocationMock: 'self' | 'external' | undefined = undefined
+
+	$: if (displayResultJob && typeof displayResultJob.getToolbarLocation === 'function') {
+		toolbarLocationJob = displayResultJob.getToolbarLocation()
+	}
+
+	$: if (displayResultMock && typeof displayResultMock.getToolbarLocation === 'function') {
+		toolbarLocationMock = displayResultMock.getToolbarLocation()
+	}
 
 	$: {
 		const newValue =
@@ -407,6 +421,7 @@
 					</Tooltip>
 				{/if}
 			{/if}
+
 			{#if !isLoading && selectedJob && !preview && !mock?.enabled && 'result' in selectedJob}
 				<div class="w-grow min-w-0 flex gap-1 items-center">
 					{#if loopStatus?.type === 'self'}
@@ -432,6 +447,33 @@
 						>
 					{/if}
 				</div>
+			{/if}
+
+			{#if selectedJob && 'result' in selectedJob && displayResultJob && toolbarLocationJob === 'external'}
+				<DisplayResultControlBar
+					workspaceId={selectedJob.workspace_id}
+					jobId={selectedJob.id}
+					{base}
+					result={selectedJob.result}
+					disableTooltips={false}
+					on:open-drawer={() => {
+						if (displayResultJob && typeof displayResultJob.openDrawer === 'function') {
+							displayResultJob.openDrawer()
+						}
+					}}
+				/>
+			{:else if mock?.enabled && displayResultMock && toolbarLocationMock === 'external'}
+				<DisplayResultControlBar
+					customUi={{ disableDownload: true }}
+					{base}
+					result={mock.return_value}
+					disableTooltips={false}
+					on:open-drawer={() => {
+						if (displayResultMock && typeof displayResultMock.openDrawer === 'function') {
+							displayResultMock.openDrawer()
+						}
+					}}
+				/>
 			{/if}
 		</div>
 	</div>
@@ -525,12 +567,17 @@
 				{#if fullResult}
 					<div class="break-words relative h-full">
 						<DisplayResult
+							bind:this={displayResultMock}
 							bind:forceJson
 							workspaceId={undefined}
 							jobId={undefined}
 							result={mock?.return_value}
 							portal="#result-container"
-							useFloatingControls
+							bind:toolbarLocation={toolbarLocationMock}
+							externalToolbarAvailable
+							on:toolbar-location-changed={({ detail }) => {
+								toolbarLocationMock = detail
+							}}
 						/>
 					</div>
 				{:else}
@@ -549,12 +596,17 @@
 					<div class="break-words relative h-full">
 						{#key selectedJob}
 							<DisplayResult
+								bind:this={displayResultJob}
 								bind:forceJson
 								workspaceId={selectedJob?.workspace_id}
 								jobId={selectedJob?.id}
 								result={selectedJob?.result}
 								portal="#result-container"
-								useFloatingControls
+								bind:toolbarLocation={toolbarLocationJob}
+								externalToolbarAvailable
+								on:toolbar-location-changed={({ detail }) => {
+									toolbarLocationJob = detail
+								}}
 							>
 								<svelte:fragment slot="copilot-fix">
 									<slot name="copilot-fix" />

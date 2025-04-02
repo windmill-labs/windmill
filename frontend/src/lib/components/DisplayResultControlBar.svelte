@@ -4,7 +4,7 @@
 	import Popover from './Popover.svelte'
 	import { copyToClipboard } from '$lib/utils'
 	import type { DisplayResultUi } from './custom_ui'
-	import type Drawer from './common/drawer/Drawer.svelte'
+	import { createEventDispatcher } from 'svelte'
 
 	export let customUi: DisplayResultUi | undefined = undefined
 	export let filename: string | undefined = undefined
@@ -14,7 +14,8 @@
 	export let base: string
 	export let result: any
 	export let disableTooltips: boolean = false
-	export let jsonViewer: Drawer
+
+	const dispatch = createEventDispatcher()
 
 	function toJsonStr(result: any) {
 		try {
@@ -25,7 +26,7 @@
 	}
 </script>
 
-<div class={twMerge('flex flex-row gap-1 p-1 z-10 text-tertiary bg-surface/80 rounded-md')}>
+<div class={twMerge('flex flex-row gap-2.5 p-1 z-10 text-tertiary bg-surface/80 rounded-md')}>
 	{#if customUi?.disableDownload !== true}
 		<a
 			download="{filename ?? 'result'}.json"
@@ -53,7 +54,7 @@
 	<button on:click={() => copyToClipboard(toJsonStr(result))}>
 		<ClipboardCopy size={14} />
 	</button>
-	<button on:click={jsonViewer.openDrawer}>
+	<button on:click={() => dispatch('open-drawer')}>
 		<Expand size={14} />
 	</button>
 </div>

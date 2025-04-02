@@ -35,7 +35,7 @@
 	import HighlightTheme from './HighlightTheme.svelte'
 	import PdfViewer from './display/PdfViewer.svelte'
 	import type { DisplayResultUi } from './custom_ui'
-	import { getContext, hasContext } from 'svelte'
+	import { getContext, hasContext, createEventDispatcher, onDestroy } from 'svelte'
 
 	export let result: any
 	export let requireHtmlApproval = false
@@ -53,10 +53,14 @@
 	export let isTest: boolean = true
 	export let portal: string | undefined = undefined
 	export let useFloatingControls: boolean = false
+	export let externalToolbarAvailable: boolean = false
+	export let toolbarLocation: 'self' | 'external' | undefined = undefined
 
 	const IMG_MAX_SIZE = 10000000
 	const TABLE_MAX_SIZE = 5000000
 	const DISPLAY_MAX_SIZE = 100000
+
+	const dispatch = createEventDispatcher()
 
 	let resultKind:
 		| 'json'
@@ -391,6 +395,10 @@
 		return []
 	}
 
+	export function openDrawer() {
+		jsonViewer.openDrawer()
+	}
+
 	let globalForceJson: boolean = false
 
 	let seeS3PreviewFileFromList = ''
@@ -406,6 +414,33 @@
 		// Check if the slot has any actual content
 		const slotElement = document.querySelector('[data-slot="copilot-fix"]')
 		copilotFixSlotHasContent = !!slotElement && slotElement.children.length > 0
+	})
+
+	function chooseToolbarLocation(resultHeaderHeight: number) {
+		if (externalToolbarAvailable && resultHeaderHeight < 16) {
+			toolbarLocation = 'external'
+		} else {
+			toolbarLocation = 'self'
+		}
+	}
+
+	export function getToolbarLocation() {
+		return toolbarLocation
+	}
+
+	$: !is_render_all &&
+		resultKind != 'nondisplayable' &&
+		result != undefined &&
+		length != undefined &&
+		largeObject != undefined &&
+		!disableExpand &&
+		!noControls &&
+		chooseToolbarLocation(resultHeaderHeight)
+
+	$: dispatch('toolbar-location-changed', toolbarLocation)
+
+	onDestroy(() => {
+		dispatch('toolbar-location-changed', undefined)
 	})
 </script>
 
@@ -491,7 +526,8 @@
 							<slot name="copilot-fix" />
 						</div>
 					{/if}
-					{#if !disableExpand && !noControls}
+					{#if toolbarLocation === 'self'}
+						<!-- TODO : When svelte 5 is released, use a snippet to pass the toolbar to a parent -->
 						<DisplayResultControlBar
 							{customUi}
 							{filename}
@@ -501,7 +537,7 @@
 							{base}
 							{result}
 							{disableTooltips}
-							{jsonViewer}
+							on:open-drawer={() => openDrawer()}
 						/>
 					{/if}
 				</div>
