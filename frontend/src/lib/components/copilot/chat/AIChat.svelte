@@ -236,7 +236,7 @@
 
 	const dispatch = createEventDispatcher<{
 		applyCode: { code: string }
-		reviewChanges: null
+		showDiffMode: null
 	}>()
 
 	setContext<AIChatContext>('AIChatContext', {
@@ -272,7 +272,7 @@
 
 	$: displayMessages = updateDisplayMessages($dbSchemas)
 
-	async function sendRequest(options: { removeDiff?: boolean } = {}) {
+	async function sendRequest(options: { removeDiff?: boolean; addBackCode?: boolean } = {}) {
 		if (!instructions.trim()) {
 			return
 		}
@@ -280,6 +280,14 @@
 			const oldSelectedContext = selectedContext
 			if (options.removeDiff) {
 				selectedContext = selectedContext.filter((c) => c.type !== 'diff')
+			}
+			if (options.addBackCode) {
+				const codeContext = availableContext.find(
+					(c) => c.type === 'code' && c.title === contextCodePath
+				)
+				if (codeContext) {
+					selectedContext = [...selectedContext, codeContext]
+				}
 			}
 			loading.set(true)
 			aiChatDisplay?.enableAutomaticScroll()
@@ -397,7 +405,13 @@
 		sendRequest()
 	}
 
-	export function askAi(prompt: string, options: { withDiff?: boolean } = {}) {
+	export function askAi(
+		prompt: string,
+		options: { withCode?: boolean; withDiff?: boolean } = {
+			withCode: true,
+			withDiff: false
+		}
+	) {
 		instructions = prompt
 		const codeContext = availableContext.find(
 			(c) => c.type === 'code' && c.title === contextCodePath
@@ -406,7 +420,7 @@
 			return
 		}
 		selectedContext = [
-			codeContext,
+			...(options.withCode === false ? [] : [codeContext]),
 			...(options.withDiff
 				? [
 						{
@@ -420,10 +434,11 @@
 				: [])
 		]
 		sendRequest({
-			removeDiff: options.withDiff
+			removeDiff: options.withDiff,
+			addBackCode: options.withCode === false
 		})
 		if (options.withDiff) {
-			dispatch('reviewChanges')
+			dispatch('showDiffMode')
 		}
 	}
 
@@ -502,7 +517,10 @@
 		)
 	}}
 	on:explainChanges={() =>
-		askAi('Explain the changes I made to the code from the last diff', { withDiff: true })}
+		askAi('Explain the changes I made to the code from the last diff', {
+			withCode: false,
+			withDiff: true
+		})}
 	on:suggestImprovements={() =>
 		askAi('Look for potential issues and recommend better solutions in the actual code')}
 	hasDiff={!!lastDeployedCode && lastDeployedCode !== code}

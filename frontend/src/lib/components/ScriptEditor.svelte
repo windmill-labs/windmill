@@ -43,7 +43,6 @@
 	import HideButton from './apps/editor/settingsPanel/HideButton.svelte'
 	import { base } from '$lib/base'
 	import { SUPPORTED_CHAT_SCRIPT_LANGUAGES } from './copilot/chat/core'
-	import { writable } from 'svelte/store'
 
 	// Exported
 	export let schema: Schema | any = emptySchema()
@@ -556,9 +555,7 @@
 						hideDiffMode()
 						editor?.reviewAndApplyCode(e.detail.code)
 					}}
-					on:reviewChanges={() => {
-						showDiffMode()
-					}}
+					on:showDiffMode={showDiffMode}
 					{lastSavedCode}
 					{lastDeployedCode}
 					{diffMode}
