@@ -28,6 +28,7 @@ struct MssqlDatabase {
     port: Option<u16>,
     dbname: String,
     instance_name: Option<String>,
+    #[serde(deserialize_with = "deserialize_aad_token")]
     aad_token: Option<serde_json::Value>,
 }
 
@@ -110,7 +111,6 @@ pub async fn do_mssql(
             "Neither AAD token nor username/password credentials are set".to_string(),
         ));
     }
-    config.trust_cert(); // on production, it is not a good idea to do this
 
     let tcp = if use_instance_name {
         TcpStream::connect_named(&config).await.map_err(to_anyhow)? // named instance
@@ -348,4 +348,62 @@ fn sql_to_json_value(val: ColumnData) -> Result<Value, Error> {
             |x| Ok(Value::String(x.to_string())),
         ),
     }
+}
+
+fn deserialize_aad_token<'de, D>(deserializer: D) -> Result<Option<serde_json::Value>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    // Use a custom visitor to handle both string and object cases
+    struct AadTokenVisitor;
+    impl<'de> serde::de::Visitor<'de> for AadTokenVisitor {
+        type Value = Option<serde_json::Value>;
+
+        fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+            formatter.write_str("a string, null, or a JSON object with a token field")
+        }
+
+        fn visit_str<E>(self, _v: &str) -> Result<Self::Value, E>
+        where
+            E: serde::de::Error,
+        {
+            // Any string (including empty) is treated as None
+            Ok(None)
+        }
+
+        fn visit_none<E>(self) -> Result<Self::Value, E>
+        where
+            E: serde::de::Error,
+        {
+            // Explicit null is treated as None
+            Ok(None)
+        }
+
+        fn visit_unit<E>(self) -> Result<Self::Value, E>
+        where
+            E: serde::de::Error,
+        {
+            // Unit (null in JSON) is treated as None
+            Ok(None)
+        }
+
+        fn visit_map<A>(self, map: A) -> Result<Self::Value, A::Error>
+        where
+            A: serde::de::MapAccess<'de>,
+        {
+            // Deserialize as a JSON value
+            let value = serde_json::Value::deserialize(serde::de::value::MapAccessDeserializer::new(map))?;
+
+            // Check if it has an empty token
+            if let Some(token) = value.get("token").and_then(|t| t.as_str()) {
+                if token.is_empty() {
+                    return Ok(None);
+                }
+            }
+
+            Ok(Some(value))
+        }
+    }
+
+    deserializer.deserialize_any(AadTokenVisitor)
 }
