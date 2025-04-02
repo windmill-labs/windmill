@@ -125,7 +125,7 @@
 		'csharp',
 		'nu',
 		'java'
-		// KJQXZ 
+		// for related places search: ADD_NEW_LANG 
 	]
 	const nativeTags = [
 		'nativets',

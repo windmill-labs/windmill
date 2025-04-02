@@ -162,4 +162,4 @@ pub fn parse_java(code: &str) -> String {
     wrap_sig(windmill_parser_java::parse_java_signature(code))
 }
 
-// KJQXZ
+// for related places search: ADD_NEW_LANG

@@ -343,7 +343,7 @@ export function newPathAssigner(defaultTs: "bun" | "deno"): PathAssigner {
     else if (language == "nu") ext = "nu";
     else if (language == "ansible") ext = "playbook.yml";
     else if (language == "java") ext = "java";
-  	// KJQXZ 
+  	// for related places search: ADD_NEW_LANG 
     else ext = "no_ext";
 
     return [`${name}.inline_script.`, ext];
@@ -693,7 +693,7 @@ export async function elementsToMap(
         "yml",
         "nu",
         "java",
-        // KJQXZ 
+        // for related places search: ADD_NEW_LANG 
       ].includes(path.split(".").pop() ?? "") &&
       !isFileResource(path)
     )

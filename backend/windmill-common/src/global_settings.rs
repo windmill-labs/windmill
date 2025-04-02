@@ -64,7 +64,7 @@ pub const ENV_SETTINGS: &[&str] = &[
     "DENO_PATH",
     "GO_PATH",
     "JAVA_PATH",
-    // KJQXZ
+    // for related places search: ADD_NEW_LANG
     "GOPRIVATE",
     "GOPROXY",
     "NETRC",
