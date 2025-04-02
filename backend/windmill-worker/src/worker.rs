@@ -1823,12 +1823,12 @@ async fn get_same_worker_job(
 ) -> windmill_common::error::Result<Option<PulledJob>> {
     sqlx::query_as::<_, PulledJob>(
         "WITH ping AS (
-                        UPDATE v2_job_runtime SET ping = NOW() WHERE id = $1 
+                        UPDATE v2_job_runtime SET ping = NOW() WHERE id = $1
                     ),
                     started_at AS (
                         UPDATE v2_job_queue SET started_at = NOW() WHERE id = $1
                     )
-                    SELECT 
+                    SELECT
                     v2_job_queue.workspace_id,
                     v2_job_queue.id,
                     v2_job.args,
@@ -1864,10 +1864,10 @@ async fn get_same_worker_job(
                     v2_job.raw_lock,
                     v2_job.raw_flow,
                     pj.runnable_path as parent_runnable_path,
-                    p.email as permissioned_as_email, p.username as permissioned_as_username, p.is_admin as permissioned_as_is_admin, 
+                    p.email as permissioned_as_email, p.username as permissioned_as_username, p.is_admin as permissioned_as_is_admin,
                     p.is_operator as permissioned_as_is_operator, p.groups as permissioned_as_groups, p.folders as permissioned_as_folders
-                    FROM v2_job_queue 
-                    INNER JOIN v2_job ON v2_job.id = v2_job_queue.id 
+                    FROM v2_job_queue
+                    INNER JOIN v2_job ON v2_job.id = v2_job_queue.id
                     LEFT JOIN v2_job_status ON v2_job_status.id = v2_job_queue.id
                     LEFT JOIN job_perms p ON p.job_id = v2_job.id
                     LEFT JOIN v2_job pj ON v2_job.parent_job = pj.id
@@ -2745,6 +2745,7 @@ async fn handle_code_execution_job(
                 canceled_by,
                 worker_name,
                 occupancy_metrics,
+                job_dir,
             )
             .await;
         }
