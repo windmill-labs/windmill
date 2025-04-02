@@ -10,7 +10,7 @@ use tokio_util::compat::TokioAsyncWriteCompatExt;
 use uuid::Uuid;
 use windmill_common::error::to_anyhow;
 use windmill_common::error::{self, Error};
-use windmill_common::worker::to_raw_value;
+use windmill_common::worker::{to_raw_value, TMP_DIR};
 use windmill_parser_sql::{parse_db_resource, parse_mssql_sig};
 use windmill_queue::MiniPulledJob;
 use windmill_queue::{append_logs, CanceledBy};
@@ -32,6 +32,9 @@ struct MssqlDatabase {
     instance_name: Option<String>,
     #[serde(default, deserialize_with = "deserialize_aad_token")]
     aad_token: Option<AadToken>,
+    trust_cert: Option<bool>,
+    #[serde(deserialize_with = "empty_string_as_none")]
+    ca_cert: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -118,6 +121,29 @@ pub async fn do_mssql(
         return Err(Error::BadRequest(
             "Neither AAD token nor username/password credentials are set".to_string(),
         ));
+    }
+
+    // Handle certificate trust configuration
+    if database.trust_cert.unwrap_or(true) {
+        // If trust_cert is true, ignore ca_cert and trust any certificate
+        config.trust_cert();
+        tracing::info!("MSSQL: disabling certificate validation");
+    } else if let Some(ca_cert) = &database.ca_cert {
+        // Only use ca_cert if trust_cert is false
+        // Create directory if it doesn't exist
+        let cert_dir = format!("{}/cert_mssql", TMP_DIR);
+        std::fs::create_dir_all(&cert_dir).map_err(|e| {
+            Error::ExecutionErr(format!("Failed to create certificate directory: {}", e))
+        })?;
+
+        // Write CA certificate to disk
+        let cert_path = format!("{}/ca_cert.pem", cert_dir);
+        std::fs::write(&cert_path, ca_cert)
+            .map_err(|e| Error::ExecutionErr(format!("Failed to write CA certificate: {}", e)))?;
+
+        // Use the CA certificate for trust
+        config.trust_cert_ca(cert_path);
+        tracing::info!("MSSQL: using provided CA certificate for trust");
     }
 
     let tcp = if use_instance_name {
