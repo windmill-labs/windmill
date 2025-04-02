@@ -176,7 +176,6 @@
 	class="w-full h-full flex flex-col"
 	bind:clientHeight
 	style={canEditWithDblClick ? 'cursor: text;' : ''}
-	id="result-container"
 >
 	<div
 		class={twMerge(
@@ -582,7 +581,6 @@
 							workspaceId={undefined}
 							jobId={undefined}
 							result={mock?.return_value}
-							portal="#result-container"
 							externalToolbarAvailable
 							on:toolbar-location-changed={({ detail }) => {
 								toolbarLocationMock = detail
@@ -610,7 +608,6 @@
 								workspaceId={selectedJob?.workspace_id}
 								jobId={selectedJob?.id}
 								result={selectedJob?.result}
-								portal="#result-container"
 								externalToolbarAvailable
 								on:toolbar-location-changed={({ detail }) => {
 									toolbarLocationJob = detail

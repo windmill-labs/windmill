@@ -51,8 +51,6 @@
 	export let appPath: string | undefined = undefined
 	export let customUi: DisplayResultUi | undefined = undefined
 	export let isTest: boolean = true
-	export let portal: string | undefined = undefined
-	export let useFloatingControls: boolean = false
 	export let externalToolbarAvailable: boolean = false
 
 	const IMG_MAX_SIZE = 10000000
@@ -479,8 +477,6 @@
 					{workspaceId}
 					forceJson={globalForceJson}
 					hideAsJson={true}
-					{portal}
-					{useFloatingControls}
 				/>
 			{/each}
 		</div>
@@ -1008,8 +1004,6 @@
 					{hideAsJson}
 					{forceJson}
 					disableExpand={true}
-					{portal}
-					{useFloatingControls}
 				/>
 			</DrawerContent>
 		</Drawer>
