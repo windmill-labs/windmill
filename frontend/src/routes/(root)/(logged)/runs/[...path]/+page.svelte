@@ -559,7 +559,7 @@
 
 	async function onCancelFilteredJobs() {
 		askingForConfirmation = {
-			title: 'Confirm cancelling all jobs correspoding to the selected filters',
+			title: 'Confirm cancelling all jobs corresponding to the selected filters',
 			confirmBtnText: 'Loading...',
 			loading: true
 		}
@@ -569,7 +569,7 @@
 		const jobIdsToCancel = await JobService.listFilteredQueueUuids(selectedFilters)
 
 		askingForConfirmation = {
-			title: `Confirm cancelling all jobs correspoding to the selected filters (${jobIdsToCancel.length} jobs)`,
+			title: `Confirm cancelling all jobs corresponding to the selected filters (${jobIdsToCancel.length} jobs)`,
 			confirmBtnText: `Cancel ${jobIdsToCancel.length} jobs that matched the filters`,
 			preContent: selectedFiltersString,
 			onConfirm: () => {

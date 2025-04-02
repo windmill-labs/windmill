@@ -132,7 +132,7 @@
 		return true
 	}
 
-	function propertyAlwaysHasSameTime(propertyName: string, group: JobGroup): boolean {
+	function propertyAlwaysHasSameType(propertyName: string, group: JobGroup): boolean {
 		let prevType = 'INIT'
 		for (const s of group.schemas) {
 			const currType = (s.schema as Schema).properties[propertyName]?.type
@@ -251,7 +251,7 @@
 											HeaderTooltipIcon: TriangleAlert,
 											headerTooltipIconClass: 'text-orange-500'
 										}}
-										{...!propertyAlwaysHasSameTime(propertyName, selected) && {
+										{...!propertyAlwaysHasSameType(propertyName, selected) && {
 											headerTooltip:
 												'This property does not always have the same type depending on the version of the script. You can handle different cases in the code below',
 											HeaderTooltipIcon: TriangleAlert,

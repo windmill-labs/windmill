@@ -1378,7 +1378,7 @@ paths:
             format: int64
           description: The ID of the GitHub installation to delete
       responses:
-        '200':
+        "200":
           description: Installation successfully deleted
 
   /w/{workspace}/github_app/export/{installationId}:
@@ -1400,7 +1400,7 @@ paths:
           schema:
             type: integer
       responses:
-        '200':
+        "200":
           description: Successfully exported the JWT token
           content:
             application/json:
@@ -1435,7 +1435,7 @@ paths:
                 jwt_token:
                   type: string
       responses:
-        '200':
+        "200":
           description: Successfully imported the installation
 
   /users/accept_invite:
@@ -1997,7 +1997,7 @@ paths:
                 required:
                   - premium
                   - owner
-  
+
   /w/{workspace}/workspaces/threshold_alert:
     get:
       summary: get threshold alert info
@@ -2368,7 +2368,6 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/AIConfig"
-                
 
   /w/{workspace}/workspaces/edit_error_handler:
     post:
@@ -6602,7 +6601,7 @@ paths:
                       use_latest_version: boolean
       responses:
         "201":
-          description: stream of created job uuids seperated by \n. Lines may start with 'Error:'
+          description: stream of created job uuids separated by \n. Lines may start with 'Error:'
           example: |
             a1a74c0d-708e-4539-9768-e8b3d37996bd
             f0949132-5b30-48fe-bac8-873f047df810
@@ -6995,7 +6994,7 @@ paths:
             application/json:
               schema:
                 type: integer
-  
+
   /w/{workspace}/jobs/list_filtered_uuids:
     get:
       summary: get the ids of all jobs matching the given filters
@@ -12659,7 +12658,18 @@ components:
 
     AIProvider:
       type: string
-      enum: [openai, anthropic, mistral, deepseek, googleai, groq, openrouter, togetherai, customai]
+      enum:
+        [
+          openai,
+          anthropic,
+          mistral,
+          deepseek,
+          googleai,
+          groq,
+          openrouter,
+          togetherai,
+          customai
+        ]
 
     AIProviderModel:
       type: object
@@ -13671,8 +13681,7 @@ components:
 
     ScriptLang:
       type: string
-      enum:
-        [
+      enum: [
           python3,
           deno,
           go,
@@ -13693,7 +13702,7 @@ components:
           csharp,
           nu,
           java
-          # KJQXZ 
+          # KJQXZ
         ]
 
     Preview:
@@ -14109,16 +14118,15 @@ components:
         - edited_at
         - is_flow
 
-
     AuthenticationMethod:
       type: string
       enum:
-          - none
-          - windmill
-          - api_key
-          - basic_http
-          - custom_script
-          - signature
+        - none
+        - windmill
+        - api_key
+        - basic_http
+        - custom_script
+        - signature
 
     HttpTrigger:
       allOf:
@@ -14458,7 +14466,7 @@ components:
 
     MqttQoS:
       type: string
-      enum: ['qos0', 'qos1', 'qos2']
+      enum: ["qos0", "qos1", "qos2"]
 
     MqttV3Config:
       type: object
