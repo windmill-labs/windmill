@@ -211,7 +211,10 @@
 										console.log(e.detail.type, config?.custom_tags)
 										if (e.detail && config?.custom_tags) {
 											if (e.detail.type === 'add') {
-												config.custom_tags = [...config.custom_tags, e.detail.option]
+												config.custom_tags = [
+													...config.custom_tags,
+													...(e.detail.option ? [e.detail.option.toString()] : [])
+												]
 											} else if (e.detail.type === 'remove') {
 												config.custom_tags = config.custom_tags.filter((t) => t !== e.detail.option)
 												if (config?.custom_tags && config.custom_tags.length == 0) {
@@ -226,12 +229,6 @@
 											}
 											dispatch('dirty')
 										}
-									}}
-									on:clear={() => {
-										if (config) {
-											config.custom_tags = undefined
-										}
-										dispatch('dirty')
 									}}
 									options={worker_tags ?? []}
 									selectedOptionsDraggable={false}

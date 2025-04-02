@@ -142,7 +142,7 @@
 	<div class="text-primary font-md font-semibold"> Script or flow to run on /windmill command </div>
 	<div class="relative">
 		{#if !teamName || (!$enterpriseLicense && platform === 'teams')}
-			<div class="absolute top-0 right-0 bottom-0 left-0 bg-surface-disabled/50 z-40" />
+			<div class="absolute top-0 right-0 bottom-0 left-0 bg-surface-disabled/50 z-40"></div>
 		{/if}
 		<ScriptPicker
 			kinds={['script']}
