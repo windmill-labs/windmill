@@ -1,8 +1,42 @@
+
+
 [package]
-name = "mcp_hello_server_rust"
-version = "0.1.0"
-edition = "2021"
+name = "mcp-server-examples"
+version = "0.1.5"
+edition = "2024"
+publish = false
 
 [dependencies]
+rmcp = { version = "0.1", features = ["server", "transport-sse-server", "transport-io"] }
+tokio = { version = "1", features = ["macros", "rt", "rt-multi-thread", "io-std", "signal"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
+anyhow = "1.0"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = [
+    "env-filter",
+    "std",
+    "fmt",
+] }
+futures = "0.3"
+rand = { version = "0.9" }
+axum = { version = "0.8", features = ["macros"] }
+schemars = { version = "0.8", optional = true }
+# [dev-dependencies.'cfg(target_arch="linux")'.dependencies]
+
+[dev-dependencies]
+tokio-stream = { version = "0.1" }
+# tokio-util = { version = "0.7", features = ["io", "codec"] }
+tokio-util = { version = "0.7", features = ["codec"] }
+
+[[example]]
+name = "std_io"
+path = "src/std_io.rs"
+
+[[example]]
+name = "axum"
+path = "src/axum.rs"
+
+[[example]]
+name = "axum_router"
+path = "src/axum_router.rs"
