@@ -10,7 +10,7 @@ use tokio_util::compat::TokioAsyncWriteCompatExt;
 use uuid::Uuid;
 use windmill_common::error::to_anyhow;
 use windmill_common::error::{self, Error};
-use windmill_common::worker::{to_raw_value, TMP_DIR};
+use windmill_common::worker::to_raw_value;
 use windmill_parser_sql::{parse_db_resource, parse_mssql_sig};
 use windmill_queue::MiniPulledJob;
 use windmill_queue::{append_logs, CanceledBy};
@@ -56,6 +56,7 @@ pub async fn do_mssql(
     canceled_by: &mut Option<CanceledBy>,
     worker_name: &str,
     occupancy_metrics: &mut OccupancyMetrics,
+    job_dir: &str,
 ) -> error::Result<Box<RawValue>> {
     let mssql_args = build_args_values(job, client, db).await?;
 
@@ -130,14 +131,8 @@ pub async fn do_mssql(
         tracing::info!("MSSQL: disabling certificate validation");
     } else if let Some(ca_cert) = &database.ca_cert {
         // Only use ca_cert if trust_cert is false
-        // Create directory if it doesn't exist
-        let cert_dir = format!("{}/cert_mssql", TMP_DIR);
-        tokio::fs::create_dir_all(&cert_dir).await.map_err(|e| {
-            Error::ExecutionErr(format!("Failed to create certificate directory: {}", e))
-        })?;
+        let cert_path = format!("{}/ca_cert.pem", job_dir);
 
-        // Write CA certificate to disk
-        let cert_path = format!("{}/ca_cert.pem", cert_dir);
         tokio::fs::write(&cert_path, ca_cert)
             .await
             .map_err(|e| Error::ExecutionErr(format!("Failed to write CA certificate: {}", e)))?;
