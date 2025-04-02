@@ -204,7 +204,7 @@
 							: 'To be defined')}
 					path={`path` in mod.value ? mod.value.path : ''}
 					isTrigger={isTriggerStep(mod)}
-					alwaysShowOutputPicker={!mod.id.startsWith('subflow:')}
+					alwaysShowOutputPicker={!mod.id.startsWith('subflow:') && mod.id !== 'preprocessor'}
 					loopStatus={parentLoop ? { type: 'inside', flow: parentLoop.type } : undefined}
 				>
 					<div slot="icon">

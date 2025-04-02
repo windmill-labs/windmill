@@ -63,6 +63,7 @@
 			bind:preview
 			path={`path` in mod.value ? mod.value.path : ''}
 			{loopStatus}
+			hideHeaderBar={mod.id === 'preprocessor'}
 		>
 			<svelte:fragment slot="copilot-fix">
 				{#if lang && editor && diffEditor && $testStepStore[mod.id] && selectedJob && 'result' in selectedJob && selectedJob.result && typeof selectedJob.result == 'object' && `error` in selectedJob.result && selectedJob.result.error}
