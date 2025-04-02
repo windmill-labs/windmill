@@ -1316,7 +1316,7 @@ pub async fn run_worker(
                 tracing::error!("pulled 0");
                 let job = match conn {
                     Connection::Sql(db) => pull(&db, suspend_first, &worker_name).await,
-                    Connection::Http => crate::agent_workers::pull_job(&worker_name)
+                    Connection::Http => crate::agent_workers::pull_job()
                         .await
                         .map_err(|e| error::Error::InternalErr(e.to_string())),
                 };
@@ -1878,7 +1878,7 @@ async fn queue_init_bash_maybe<'c>(
     if let Some(content) = WORKER_CONFIG.read().await.init_bash.clone() {
         let uuid = match db {
             Connection::Sql(db) => push_init_job(db, content.clone(), worker_name).await?,
-            Connection::Http => crate::agent_workers::queue_init_job(worker_name, &content).await?,
+            Connection::Http => crate::agent_workers::queue_init_job(&content).await?,
         };
         same_worker_tx
             .send(SameWorkerPayload { job_id: uuid, recoverable: false })

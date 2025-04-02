@@ -20,7 +20,7 @@ use tokio::sync::RwLock;
 use windmill_macros::annotations;
 
 use crate::{
-    agent_workers::{AGENT_HTTP_CLIENT, BASE_INTERNAL_URL},
+    agent_workers::{AGENT_HTTP_CLIENT, AGENT_TOKEN, BASE_INTERNAL_URL},
     error,
     global_settings::CUSTOM_TAGS_SETTING,
     indexer::TantivyIndexerSettings,
@@ -28,8 +28,28 @@ use crate::{
     KillpillSender, DB,
 };
 
+#[derive(Deserialize)]
+struct WorkerGroup {
+    pub worker_group: String,
+}
+
 lazy_static::lazy_static! {
-    pub static ref WORKER_GROUP: String = std::env::var("WORKER_GROUP").unwrap_or_else(|_| "default".to_string());
+    pub static ref WORKER_GROUP: String = std::env::var("WORKER_GROUP").unwrap_or_else(|_| {
+        #[cfg(not(feature = "enterprise"))]
+        {
+            "default".to_string()
+        }
+
+        #[cfg(feature = "enterprise")]
+        {
+            let token = AGENT_TOKEN.as_str().trim_start_matches("jwt_agent_");
+            if token.is_empty() {
+                "default".to_string()
+            } else {
+                crate::jwt::decode_without_verify::<WorkerGroup>(token).unwrap().worker_group
+            }
+        }
+    });
     pub static ref NO_LOGS: bool = std::env::var("NO_LOGS").ok().is_some_and(|x| x == "1" || x == "true");
 
     pub static ref CGROUP_V2_PATH_RE: Regex = Regex::new(r#"(?m)^0::(/.*)$"#).unwrap();
@@ -853,7 +873,6 @@ pub async fn update_min_version(conn: &Connection) -> bool {
 #[derive(Serialize, Deserialize)]
 pub struct Ping {
     pub worker_instance: Option<String>,
-    pub worker_name: String,
     pub ip: Option<String>,
     pub tags: Vec<String>,
     pub dw: Option<String>,
@@ -869,10 +888,15 @@ pub struct Ping {
     pub occupancy_rate_30m: Option<f32>,
     pub update: bool,
 }
-pub async fn update_ping_http(insert_ping: Ping, db: &DB) -> anyhow::Result<()> {
+pub async fn update_ping_http(
+    insert_ping: Ping,
+    worker_name: &str,
+    worker_group: &str,
+    db: &DB,
+) -> anyhow::Result<()> {
     if insert_ping.update {
         update_ping_query(
-            &insert_ping.worker_name,
+            worker_name,
             insert_ping.tags.as_slice(),
             insert_ping.vcpus,
             insert_ping.memory,
@@ -898,7 +922,8 @@ pub async fn update_ping_http(insert_ping: Ping, db: &DB) -> anyhow::Result<()> 
 
         insert_ping_query(
             &insert_ping.worker_instance.unwrap(),
-            &insert_ping.worker_name,
+            &worker_name,
+            worker_group,
             &insert_ping.ip.unwrap(),
             insert_ping.tags.as_slice(),
             insert_ping.dw,
@@ -914,6 +939,7 @@ pub async fn update_ping_http(insert_ping: Ping, db: &DB) -> anyhow::Result<()> 
 pub async fn insert_ping_query(
     worker_instance: &str,
     worker_name: &str,
+    worker_group: &str,
     ip: &str,
     tags: &[String],
     dw: Option<String>,
@@ -928,7 +954,7 @@ pub async fn insert_ping_query(
         worker_name,
         ip,
         tags,
-        *WORKER_GROUP,
+        worker_group,
         dw,
         version,
         vcpus,
@@ -1002,6 +1028,7 @@ pub async fn insert_ping(
             insert_ping_query(
                 worker_instance,
                 worker_name,
+                WORKER_GROUP.as_str(),
                 ip,
                 tags.as_slice(),
                 dw,
@@ -1020,7 +1047,6 @@ pub async fn insert_ping(
                 ))
                 .body(serde_json::to_string(&Ping {
                     worker_instance: Some(worker_instance.to_string()),
-                    worker_name: worker_name.to_string(),
                     ip: Some(ip.to_string()),
                     tags: tags.to_vec(),
                     dw: dw,
@@ -1051,50 +1077,20 @@ pub async fn insert_ping(
 }
 
 pub async fn load_worker_config(
-    conn: &Connection,
+    db: &DB,
     killpill_tx: KillpillSender,
 ) -> error::Result<WorkerConfig> {
     tracing::info!("Loading config from WORKER_GROUP: {}", *WORKER_GROUP);
-    let mut config: WorkerConfigOpt = match conn {
-        Connection::Sql(pool) => sqlx::query_scalar!(
-            "SELECT config FROM config WHERE name = $1",
-            format!("worker__{}", *WORKER_GROUP)
-        )
-        .fetch_optional(pool)
-        .await?
-        .flatten()
-        .map(|x| serde_json::from_value(x).ok())
-        .flatten()
-        .unwrap_or_default(),
-        Connection::Http => {
-            let resp = AGENT_HTTP_CLIENT
-                .get(format!(
-                    "{}/api/configs/get/worker__{}",
-                    *BASE_INTERNAL_URL, *WORKER_GROUP
-                ))
-                .send()
-                .await
-                .map_err(|e| {
-                    error::Error::ExecutionErr(format!("Failed to connect to server: {}", e))
-                })?;
-            if resp.status().is_success() {
-                let body = resp.json::<WorkerConfigOpt>().await.map_err(|e| {
-                    error::Error::ExecutionErr(format!(
-                        "Failed to parse worker config from server: {}",
-                        e
-                    ))
-                })?;
-                body
-            } else {
-                tracing::error!(
-                    "Failed to load worker config from server for group {}: {}",
-                    *WORKER_GROUP,
-                    resp.status()
-                );
-                WorkerConfigOpt::default()
-            }
-        }
-    };
+    let mut config: WorkerConfigOpt = sqlx::query_scalar!(
+        "SELECT config FROM config WHERE name = $1",
+        format!("worker__{}", *WORKER_GROUP)
+    )
+    .fetch_optional(db)
+    .await?
+    .flatten()
+    .map(|x| serde_json::from_value(x).ok())
+    .flatten()
+    .unwrap_or_default();
 
     if config.dedicated_worker.is_none() {
         let dw = std::env::var("DEDICATED_WORKER").ok();

@@ -154,7 +154,9 @@ pub async fn initial_load(
 
     if worker_mode {
         load_keep_job_dir(conn).await;
-        reload_worker_config(&conn, tx, false).await;
+        if let Some(db) = conn.as_sql() {
+            reload_worker_config(&db, tx, false).await;
+        }
     }
 
     if let Err(e) = reload_hub_base_url_setting(conn, server_mode).await {
@@ -1168,7 +1170,7 @@ pub async fn load_value_from_global_settings_with_conn(
     if let Some(db) = conn.as_sql() {
        load_value_from_global_settings(db, setting_name).await
     } else if load_from_http {
-        let response = AGENT_HTTP_CLIENT.get(format!("{}/api/settings/global/{}", *BASE_INTERNAL_URL, setting_name)).send()
+        let response = AGENT_HTTP_CLIENT.get(format!("{}/api/agent_workers/get_global_setting/{}", *BASE_INTERNAL_URL, setting_name)).send()
         .await.map_err(|e| anyhow::anyhow!("Error loading setting {}: {}", setting_name, e))?;
 
         if response.status().is_success() {
@@ -1489,11 +1491,11 @@ pub async fn reload_indexer_config(db: &Pool<Postgres>) {
 }
 
 pub async fn reload_worker_config(
-    conn: &Connection,
+    db: &DB,
     tx: KillpillSender,
     kill_if_change: bool,
 ) {
-    let config = load_worker_config(conn, tx.clone()).await;
+    let config = load_worker_config(db, tx.clone()).await;
     if let Err(e) = config {
         tracing::error!("Error reloading worker config: {:?}", e)
     } else {

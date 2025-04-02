@@ -3,7 +3,6 @@ use serde::{Deserialize, Serialize};
 #[derive(Deserialize, Serialize)]
 pub struct QueueInitJob {
     pub content: String,
-    pub worker_name: String,
 }
 
 use lazy_static::lazy_static;
@@ -38,9 +37,10 @@ lazy_static! {
     pub static ref BASE_INTERNAL_URL: String = std::env::var("BASE_INTERNAL_URL").unwrap_or("http://localhost:8080".to_string());
 
     pub static ref AGENT_TOKEN: String = std::env::var("AGENT_TOKEN").unwrap_or_default();
+
 }
 
-#[derive(Serialize, Deserialize)]
-pub struct PullJobRequest {
-    pub worker_name: String,
-}
+// #[derive(Serialize, Deserialize)]
+// pub struct PullJobRequest {
+//     pub worker_name: String,
+// }

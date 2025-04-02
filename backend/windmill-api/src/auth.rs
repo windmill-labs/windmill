@@ -32,15 +32,8 @@ pub struct ExpiringAuthCache {
     pub expiry: chrono::DateTime<chrono::Utc>,
 }
 
-#[derive(Clone, Debug)]
-pub struct AgentCache {
-    pub worker_name: String,
-    pub tags: Vec<String>,
-}
-
 pub struct AuthCache {
     cache: Cache<(String, String), ExpiringAuthCache>,
-    agent_cache: Cache<String, AgentCache>,
     db: DB,
     superadmin_secret: Option<String>,
     #[cfg(feature = "enterprise")]
@@ -55,7 +48,6 @@ impl AuthCache {
     ) -> Self {
         AuthCache {
             cache: Cache::new(300),
-            agent_cache: Cache::new(1000),
             db,
             superadmin_secret,
             #[cfg(feature = "enterprise")]
@@ -65,32 +57,6 @@ impl AuthCache {
 
     pub async fn invalidate(&self, w_id: &str, token: String) {
         self.cache.remove(&(w_id.to_string(), token));
-    }
-
-    pub async fn get_agent_authed(&self, token: &str) -> Option<AgentCache> {
-        let agent = self.agent_cache.get(token);
-        if agent.is_some() {
-            agent
-        } else {
-            // #[cfg(feature = "enterprise")]
-            if let Some(trimmed) = token.strip_prefix("jwt_agent_") {
-                let splitted = trimmed.split_once("_");
-                if let Some((suffix, jwt)) = splitted {
-                    let decoded = crate::ee::jwt_agent_auth(jwt, self.ext_jwks.clone()).await;
-                    if let Ok(mut decoded) = decoded {
-                        decoded.worker_name.push_str("-");
-                        decoded.worker_name.push_str(suffix);
-                        self.agent_cache.insert(token.to_string(), decoded.clone());
-                        return Some(decoded);
-                    } else {
-                        tracing::error!("JWT_AGENT auth error: {:?}", decoded.unwrap_err());
-                    }
-                } else {
-                    tracing::error!("jwt agent token missing suffix");
-                }
-            }
-            None
-        }
     }
 
     pub async fn get_authed(&self, w_id: Option<String>, token: &str) -> Option<ApiAuthed> {

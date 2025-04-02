@@ -1,17 +1,17 @@
 use uuid::Uuid;
 use windmill_common::{
-    agent_workers::{PullJobRequest, QueueInitJob, AGENT_HTTP_CLIENT, BASE_INTERNAL_URL},
+    agent_workers::{QueueInitJob, AGENT_HTTP_CLIENT, BASE_INTERNAL_URL},
     utils::HTTP_CLIENT,
     BASE_URL,
 };
 use windmill_queue::PulledJobResult;
 
-pub async fn queue_init_job(worker_name: &str, content: &str) -> anyhow::Result<Uuid> {
+pub async fn queue_init_job(content: &str) -> anyhow::Result<Uuid> {
     let client = HTTP_CLIENT.clone();
     let url = format!("{}/api/agent_workers/queue_init_job", BASE_URL.read().await);
     let response = client
         .post(url)
-        .json(&QueueInitJob { worker_name: worker_name.to_string(), content: content.to_string() })
+        .json(&QueueInitJob { content: content.to_string() })
         .send()
         .await?;
     let status = response.status();
@@ -22,15 +22,12 @@ pub async fn queue_init_job(worker_name: &str, content: &str) -> anyhow::Result<
     }
 }
 
-pub async fn pull_job(worker_name: &str) -> anyhow::Result<PulledJobResult> {
+pub async fn pull_job() -> anyhow::Result<PulledJobResult> {
     let client = AGENT_HTTP_CLIENT.clone();
     let url = format!("{}/api/agent_workers/pull_job", *BASE_INTERNAL_URL);
     tracing::error!("pulled 1");
     let response = client
         .post(url)
-        // .body(serde_json::to_string(&PullJobRequest {
-        //     worker_name: worker_name.to_string(),
-        // })?)
         // .header("Content-Type", "application/json")
         .send()
         .await?;

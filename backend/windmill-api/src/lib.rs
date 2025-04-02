@@ -75,9 +75,9 @@ mod folders;
 mod granular_acls;
 mod groups;
 #[cfg(feature = "http_trigger")]
-mod http_triggers;
-#[cfg(feature = "http_trigger")]
 mod http_trigger_auth;
+#[cfg(feature = "http_trigger")]
+mod http_triggers;
 mod indexer_ee;
 mod inputs;
 mod integration;

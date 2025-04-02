@@ -727,7 +727,7 @@ Windmill Community Edition {GIT_VERSION}
                                                         },
                                                         a@ _ if worker_mode && a == format!("worker__{}", *WORKER_GROUP) => {
                                                             tracing::info!("Worker config change detected: {}", n.payload());
-                                                            reload_worker_config(&conn, tx.clone(), true).await;
+                                                            reload_worker_config(&db, tx.clone(), true).await;
                                                         },
                                                         _ => {
                                                             tracing::debug!("config changed but did not target this server/worker");
@@ -892,7 +892,7 @@ Windmill Community Edition {GIT_VERSION}
                                                                 tracing::error!(error = %e, "Could not reload critical alert UI setting");
                                                             }
                                                         },
-                                                        
+
                                                         a @_ => {
                                                             tracing::info!("Unrecognized Global Setting Change Payload: {:?}", a);
                                                         }

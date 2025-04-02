@@ -6,14 +6,17 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
+use std::sync::Arc;
+
 use crate::{
     db::{ApiAuthed, DB},
+    jobs::check_license_key_valid,
     utils::require_super_admin,
 };
 
 use axum::{
     async_trait,
-    extract::{Extension, FromRequestParts},
+    extract::{Extension, FromRequestParts, Path},
     routing::post,
     Json, Router,
 };
@@ -24,23 +27,44 @@ use serde::{Deserialize, Serialize};
 use windmill_common::{
     agent_workers::QueueInitJob,
     error::{JsonResult, Result},
-    jwt::{decode_with_internal_secret, encode_with_internal_secret},
+    jwt::encode_with_internal_secret,
     worker::{update_ping_http, Ping},
 };
 use windmill_queue::{pull, push_init_job, PulledJobResult};
 
+#[cfg(feature = "enterprise")]
 pub fn global_service() -> Router {
+    use axum::routing::get;
+
     Router::new()
         .route("/queue_init_job", post(queue_init_job))
         .route("/create_agent_token", post(create_agent_token))
         .route("/update_ping", post(update_worker_ping))
         .route("/pull_job", post(pull_job))
+        .route("/get_global_setting/:key", get(get_global_setting))
+        .layer(Extension(Arc::new(AgentCache::new())))
 }
 
-#[derive(Clone, Debug)]
+#[cfg(not(feature = "enterprise"))]
+pub fn global_service() -> Router {
+    Router::new()
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct AgentAuth {
-    pub worker_name: String,
+    pub worker_group: String,
+    pub suffix: Option<String>,
     pub tags: Vec<String>,
+}
+
+impl AgentAuth {
+    pub fn worker_name(&self) -> String {
+        format!(
+            "wk-{}-{}",
+            self.worker_group,
+            self.suffix.as_ref().unwrap_or(&"XXXX".to_string())
+        )
+    }
 }
 
 pub struct AgentCache {
@@ -64,8 +88,7 @@ impl AgentCache {
                     let decoded =
                         windmill_common::jwt::decode_with_internal_secret::<AgentAuth>(jwt).await;
                     if let Ok(mut decoded) = decoded {
-                        decoded.worker_name.push_str("-");
-                        decoded.worker_name.push_str(suffix);
+                        decoded.suffix = Some(suffix.to_string());
                         self.cache.insert(token.to_string(), decoded.clone());
                         return Some(decoded);
                     } else {
@@ -81,25 +104,16 @@ impl AgentCache {
 }
 
 async fn queue_init_job(
-    AgentClaims { worker_name_prefix, .. }: AgentClaims,
+    authed: AgentAuth,
     Extension(db): Extension<DB>,
-    Json(QueueInitJob { content, worker_name }): Json<QueueInitJob>,
+    Json(QueueInitJob { content }): Json<QueueInitJob>,
 ) -> Result<StatusCode> {
-    if !worker_name.starts_with(&worker_name_prefix) {
-        return Err(anyhow::anyhow!("Worker name must start with {}", worker_name_prefix).into());
-    }
-    push_init_job(&db, content, &worker_name).await?;
+    push_init_job(&db, content, &authed.worker_name()).await?;
     Ok(StatusCode::OK)
 }
 
-#[derive(Serialize, Deserialize)]
-struct AgentClaims {
-    worker_name_prefix: String,
-    tags: Vec<String>,
-}
-
 #[async_trait]
-impl<S> FromRequestParts<S> for AgentClaims
+impl<S> FromRequestParts<S> for AgentAuth
 where
     S: Send + Sync,
 {
@@ -107,55 +121,75 @@ where
 
     async fn from_request_parts(
         parts: &mut Parts,
-        _state: &S,
+        state: &S,
     ) -> std::result::Result<Self, Self::Rejection> {
         if parts.method == http::Method::OPTIONS {
-            return Ok(AgentClaims { worker_name_prefix: "".to_string(), tags: Vec::new() });
+            return Ok(AgentAuth { worker_group: "".to_string(), suffix: None, tags: Vec::new() });
         };
 
         let auth_header = parts
             .headers
             .get(http::header::AUTHORIZATION)
             .and_then(|value| value.to_str().ok())
-            .and_then(|s| s.strip_prefix("Bearer "));
+            .and_then(|s| s.strip_prefix("Bearer ").map(|x| x.to_string()));
 
         if let Some(token) = auth_header {
-            let claims = decode_with_internal_secret::<AgentClaims>(&token).await;
-            match claims {
-                Ok(claims) => Ok(claims),
-                Err(_) => Err((StatusCode::UNAUTHORIZED, "Unauthorized".to_owned())),
+            if let Ok(Extension(cache)) =
+                Extension::<Arc<AgentCache>>::from_request_parts(parts, state).await
+            {
+                if let Some(authed) = cache.get_agent_authed(&token).await {
+                    return Ok(authed);
+                }
             }
-        } else {
-            Err((StatusCode::UNAUTHORIZED, "Unauthorized".to_owned()))
         }
+        Err((StatusCode::UNAUTHORIZED, "Unauthorized".to_owned()))
     }
 }
 
 async fn create_agent_token(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
-    Json(claims): Json<AgentClaims>,
-) -> Result<String> {
+    Json(claims): Json<AgentAuth>,
+) -> JsonResult<String> {
     require_super_admin(&db, &authed.email).await?;
-    let token = encode_with_internal_secret(claims).await?;
-    Ok(token)
+    let token = format!("jwt_agent_{}", encode_with_internal_secret(claims).await?);
+    Ok(Json(token))
 }
 
 async fn update_worker_ping(
-    authed: ApiAuthed,
+    authed: AgentAuth,
     Extension(db): Extension<DB>,
     Json(update_ping): Json<Ping>,
 ) -> JsonResult<()> {
-    //require_super_admin(&db, &authed.email).await?;
-    update_ping_http(update_ping, &db).await?;
+    // check_license_key_valid().await?;
+    update_ping_http(
+        update_ping,
+        &authed.worker_name(),
+        &authed.worker_group,
+        &db,
+    )
+    .await?;
     Ok(Json(()))
 }
 
+pub async fn get_global_setting(
+    Extension(db): Extension<DB>,
+    _authed: AgentAuth,
+    Path(key): Path<String>,
+) -> JsonResult<serde_json::Value> {
+    let value = sqlx::query!("SELECT value FROM global_settings WHERE name = $1", key)
+        .fetch_optional(&db)
+        .await?
+        .map(|x| x.value);
+
+    Ok(Json(value.unwrap_or_else(|| serde_json::Value::Null)))
+}
+
 async fn pull_job(
-    authed: ApiAuthed,
+    authed: AgentAuth,
     Extension(db): Extension<DB>,
     // Json(request): Json<PullJobRequest>,
 ) -> JsonResult<PulledJobResult> {
-    let job = pull(&db, false, todo!()).await?;
+    let job = pull(&db, false, &authed.worker_name()).await?;
     Ok(Json(job))
 }

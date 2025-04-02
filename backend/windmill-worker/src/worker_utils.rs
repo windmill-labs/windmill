@@ -120,7 +120,6 @@ async fn update_worker_ping_full_inner(
                 ))
                 .body(serde_json::to_string(&Ping {
                     worker_instance: None,
-                    worker_name: worker_name.to_string(),
                     ip: None,
                     tags: tags.to_vec(),
                     dw: None,
