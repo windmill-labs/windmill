@@ -169,8 +169,6 @@
 	}
 
 	$: popoverHeight = customHeight ?? (clientHeight > 0 ? clientHeight : 0)
-
-	$: console.log('dbg infoMessage', infoMessage)
 </script>
 
 <div
