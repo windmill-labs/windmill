@@ -31,6 +31,7 @@
 	let jobProgressReset: () => void = () => {}
 
 	$: lastJob && outputPicker?.setLastJob(lastJob, false)
+	$: testJob && outputPicker?.setLastJob(testJob, true)
 
 	let forceJson = false
 </script>
