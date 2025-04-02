@@ -26,7 +26,7 @@
 	}
 </script>
 
-<div class={twMerge('flex flex-row gap-2.5 p-1 z-10 text-tertiary bg-surface/80 rounded-md')}>
+<div class={twMerge('flex flex-row gap-2.5 p-1 z-10 text-tertiary rounded-md')}>
 	{#if customUi?.disableDownload !== true}
 		<a
 			download="{filename ?? 'result'}.json"

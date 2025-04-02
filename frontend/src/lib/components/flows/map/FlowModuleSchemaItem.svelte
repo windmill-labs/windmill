@@ -334,6 +334,7 @@
 					on:updateMock
 					{path}
 					{loopStatus}
+					rightMargin
 				/>
 			</OutputPicker>
 		{/if}

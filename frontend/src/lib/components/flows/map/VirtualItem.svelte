@@ -90,6 +90,7 @@
 					on:updateMock
 					hideHeaderBar
 					simpleViewer={inputJson}
+					rightMargin
 				/>
 			</OutputPicker>
 		{/if}
