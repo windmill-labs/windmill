@@ -5,6 +5,7 @@
 	import Dropdown from '$lib/components/DropdownV2.svelte'
 	import { getModifierKey, type Item } from '$lib/utils'
 	import { Loader2, ChevronDown } from 'lucide-svelte'
+	import { createTooltip, melt } from '@melt-ui/svelte'
 
 	export let size: ButtonType.Size = 'md'
 	export let spacingSize: ButtonType.Size = size
@@ -34,6 +35,8 @@
 	export let shortCut:
 		| { key?: string; hide?: boolean; Icon?: any; withoutModifier?: boolean }
 		| undefined = undefined
+	export let dropdownOpen: boolean = false
+	export let dropdownOpenOnHover: boolean = false
 
 	type MenuItem = {
 		label: string
@@ -117,6 +120,24 @@
 	}
 
 	$: lucideIconSize = (iconMap[size] ?? 12) * 1
+
+	const {
+		elements: { trigger, content }
+	} = createTooltip({
+		positioning: {
+			placement: 'bottom-end'
+		},
+		openDelay: 0,
+		closeDelay: 0,
+		group: true,
+		portal: 'body',
+		onOpenChange: ({ curr, next }) => {
+			if (curr != next) {
+				dispatch('tooltip-open', next)
+			}
+			return next
+		}
+	})
 </script>
 
 <div
@@ -200,6 +221,7 @@
 			{...$$restProps}
 			disabled={disabled || (loading && !clickableWhileLoading)}
 			{style}
+			use:melt={$trigger}
 		>
 			{#if loading}
 				<Loader2 class={twMerge('animate-spin', iconOnlyPadding[size])} size={lucideIconSize} />
@@ -232,8 +254,20 @@
 		</button>
 	{/if}
 
+	<div use:melt={$content} class="z-[20000]">
+		<slot name="tooltip" />
+	</div>
+
 	{#if dropdownItems && dropdownItems.length > 0}
-		<Dropdown items={computeDropdowns(dropdownItems)} class="h-auto w-fit" on:openChange>
+		<Dropdown
+			items={computeDropdowns(dropdownItems)}
+			class="h-auto w-fit"
+			on:openChange
+			on:open
+			on:close
+			bind:open={dropdownOpen}
+			openOnHover={dropdownOpenOnHover}
+		>
 			<svelte:fragment slot="buttonReplacement">
 				<div
 					class={twMerge(

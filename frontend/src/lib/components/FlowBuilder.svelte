@@ -1261,6 +1261,9 @@
 
 	let flowPreviewButtons: FlowPreviewButtons
 	let isDropdownOpen = false
+	let tooltipOpen = false
+	$: tooltipOpen && msgInput && msgInput.focus()
+	$: console.log('dbg isDropdownOpen', isDropdownOpen)
 </script>
 
 <svelte:window on:keydown={onKeyDown} />
@@ -1469,22 +1472,29 @@
 						Draft
 					</Button>
 
-					<CustomPopover appearTimeout={0} focusEl={msgInput} disablePopup={isDropdownOpen}>
-						<Button
-							disabled={loading}
-							loading={loadingSave}
-							size="xs"
-							startIcon={{ icon: Save }}
-							on:click={async () => {
-								await handleSaveFlow()
-							}}
-							dropdownItems={!newFlow ? dropdownItems : undefined}
-							on:openChange={({ detail }) => (isDropdownOpen = detail)}
-						>
-							Deploy
-						</Button>
-						<svelte:fragment slot="overlay">
-							<div class="flex flex-row gap-2 w-80">
+					<Button
+						disabled={loading}
+						loading={loadingSave}
+						size="xs"
+						startIcon={{ icon: Save }}
+						on:click={async () => {
+							await handleSaveFlow()
+						}}
+						dropdownItems={!newFlow ? dropdownItems : undefined}
+						on:open={() => {
+							isDropdownOpen = true
+						}}
+						on:close={() => {
+							isDropdownOpen = false
+						}}
+						on:tooltip-open={async ({ detail }) => {
+							tooltipOpen = true
+						}}
+						dropdownOpenOnHover
+					>
+						Deploy
+						<svelte:fragment slot="tooltip">
+							<div class="flex flex-row gap-2 w-80 bg-surface rounded-md p-4 shadow-md">
 								<input
 									type="text"
 									placeholder="Deployment message"
@@ -1506,7 +1516,7 @@
 								</Button>
 							</div>
 						</svelte:fragment>
-					</CustomPopover>
+					</Button>
 				</div>
 			</div>
 
