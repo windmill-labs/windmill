@@ -53,7 +53,7 @@
 		schema.order = keys
 
 		schema = { ...schema }
-		dispatch('change', schema)
+		tick().then(() => dispatch('change', schema))
 	}
 
 	export let jsonView: boolean = false
