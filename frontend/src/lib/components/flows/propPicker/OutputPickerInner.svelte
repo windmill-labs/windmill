@@ -434,15 +434,15 @@
 	<!-- svelte-ignore a11y-no-static-element-interactions -->
 	<!-- svelte-ignore a11y-mouse-events-have-key-events -->
 	<div
-		class="grow min-h-0 px-2 rounded-md w-full py-1 overflow-auto"
-		style="scrollbar-gutter: stable;"
+		class={twMerge(
+			'grow min-h-0 rounded-md w-full py-1 pb-2 overflow-auto',
+			'transition-all duration-200 outline outline-2 outline-blue-500/0 outline-offset-[-2px]',
+			debouncedCanEditWithDblClick ? 'outline outline-2 outline-blue-500/30' : ''
+		)}
+		style="scrollbar-gutter: stable both-edges;"
 	>
 		<div
-			class={twMerge(
-				'h-full w-full rounded-md',
-				'transition-all duration-200 outline outline-2 outline-blue-500/0',
-				debouncedCanEditWithDblClick ? 'outline outline-2 outline-blue-500/30' : ''
-			)}
+			class={twMerge('h-full w-full rounded-md')}
 			bind:this={contentEl}
 			on:scroll={checkOverflow}
 			use:useResizeObserver={checkOverflow}
