@@ -15,6 +15,9 @@
 	export let selectOptions: StaticOptions['selectOptions'] | undefined = undefined
 	export let id: string | undefined
 
+	let items: ReturnType<typeof getItems> = []
+	items = getItems(componentInput)
+
 	const dispatch = createEventDispatcher()
 	const flipDurationMs = 200
 
@@ -167,6 +170,7 @@
 			}
 		}
 		componentInput = componentInput
+		items = getItems(componentInput)
 	}
 
 	function deleteElementByType(index: number) {
@@ -193,13 +197,12 @@
 		componentInput.value = reorderedValues
 	}
 
-	let items = getItems(componentInput)
-
 	function getItems(componentInput: StaticInput<any[]> & { loading?: boolean }) {
 		return (Array.isArray(componentInput.value) ? componentInput.value : [])
 			.filter((x) => x != undefined)
 			.map((item) => {
-				return { value: item, id: generateRandomString() }
+				const id: string = items?.find((x) => x === item)?.id ?? generateRandomString()
+				return { value: item, id }
 			})
 	}
 

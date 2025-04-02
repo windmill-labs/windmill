@@ -77,7 +77,7 @@
 
 <div class="p-2 flex flex-col items-start w-auto gap-2 relative">
 	{#if $enterpriseLicense === undefined}
-		<div class="absolute top-0 left-0 w-full h-full bg-gray-50 opacity-50 z-10 bottom-0" />
+		<div class="absolute top-0 left-0 w-full h-full bg-gray-50 opacity-50 z-10 bottom-0"></div>
 		<Alert
 			type="warning"
 			title="Themes are available in the enterprise edition."
@@ -149,7 +149,7 @@
 							{/key}
 						{/each}
 					{:else}
-						<tr>Loading...</tr>
+						<tr><td>Loading...</td></tr>
 					{/if}
 				</tbody>
 			</DataTable>

@@ -145,11 +145,11 @@
 	<div
 		class={twMerge('py-2 border-b-2')}
 		style={`border-color: ${
-			$selected === resolvedPath ? borderColor ?? 'transparent' : 'transparent'
+			$selected === resolvedPath ? (borderColor ?? 'transparent') : 'transparent'
 		}`}
 	>
 		<Button
-			on:click={buttonProps.onClick}
+			on:click={buttonProps.onClick ?? (() => {})}
 			href={buttonProps.href}
 			target={buttonProps.target ?? '_self'}
 			color="light"
@@ -159,7 +159,7 @@
 		>
 			{#if navbarItem.icon}
 				{#key navbarItem.icon}
-					<div class="min-w-4" bind:this={icon} />
+					<div class="min-w-4" bind:this={icon}></div>
 				{/key}
 			{/if}
 			{resolvedLabel ?? 'No Label'}

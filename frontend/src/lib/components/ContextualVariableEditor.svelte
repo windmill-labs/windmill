@@ -66,7 +66,7 @@
 				</Section>
 			{/if}
 			<Section label="Value">
-				<textarea rows="4" use:autosize bind:value placeholder="Variable value" />
+				<textarea rows="4" use:autosize bind:value placeholder="Variable value"></textarea>
 			</Section>
 		</div>
 		<svelte:fragment slot="actions">

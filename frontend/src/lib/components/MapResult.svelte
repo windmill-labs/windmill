@@ -132,7 +132,7 @@
 	}
 </script>
 
-<div bind:this={mapElement} class="w-full h-[300px]" />
+<div bind:this={mapElement} class="w-full h-[300px]"></div>
 
 <style global lang="postcss">
 	.ol-overlaycontainer-stopevent {

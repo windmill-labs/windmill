@@ -9,11 +9,15 @@
 	export let componentInput: EvalAppInput | undefined
 	export let id: string
 
-	const { onchange, worldStore, state } = getContext<AppViewerContext>('AppViewerContext')
+	const {
+		onchange,
+		worldStore,
+		state: stateStore
+	} = getContext<AppViewerContext>('AppViewerContext')
 
 	$: extraLib =
 		componentInput?.expr && $worldStore
-			? buildExtraLib($worldStore?.outputsById ?? {}, id, $state, false)
+			? buildExtraLib($worldStore?.outputsById ?? {}, id, $stateStore, false)
 			: undefined
 
 	// 	`

@@ -28,7 +28,7 @@
 			<svelte:component this={FileText} {height} {width} />
 		</span>
 	{:else}
-		<span style="width: {width}; height: {height}" class="bg-gray-100 rounded-full" />
+		<span style="width: {width}; height: {height}" class="bg-gray-100 rounded-full"></span>
 	{/if}
 	{#if !silent && after}
 		{name}

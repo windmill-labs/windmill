@@ -139,8 +139,8 @@
 		<TableCustom>
 			<tr slot="header-row">
 				<th>user</th>
-				<th />
-				<th />
+				<th></th>
+				<th></th>
 			</tr>
 			<tbody slot="body">
 				{#each members as { member_name, role }}<tr>

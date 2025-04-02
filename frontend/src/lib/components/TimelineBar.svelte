@@ -17,7 +17,7 @@
 
 {#if min && started_at != undefined}
 	{#if !concat}
-		<div style="width: {((started_at - min) / total) * 100}%" class="h-4" />
+		<div style="width: {((started_at - min) / total) * 100}%" class="h-4"></div>
 	{/if}
 	<Popover
 		style="width: {(len / total) * 100}%"

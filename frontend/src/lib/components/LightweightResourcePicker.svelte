@@ -147,7 +147,7 @@
 				<div class="text-2xs text-primary pr-2">Connect {resourceType}</div>
 			{:else if collection.length == 1 && value == collection[0]?.value}
 				<div class="text-2xs text-primary pr-2 flex items-center gap-1">
-					{resourceType} <div class="rounded-full w-2 h-2 bg-green-600 animate-pulse" />
+					{resourceType} <div class="rounded-full w-2 h-2 bg-green-600 animate-pulse"></div>
 				</div>
 			{:else}
 				<Button

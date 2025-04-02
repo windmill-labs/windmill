@@ -23,7 +23,7 @@
 
 	export async function openDrawer(hash: string, cb: () => void): Promise<void> {
 		script = undefined
-		scriptEditorDrawer.openDrawer?.()
+		scriptEditorDrawer?.openDrawer?.()
 		script = await ScriptService.getScriptByHash({
 			workspace: $workspaceStore!,
 			hash
@@ -156,7 +156,7 @@
 				unsavedModalOpen = false
 				closeAnyway = true
 				scriptEditorDrawer.closeDrawer()
-				diffDrawer.openDrawer()
+				diffDrawer?.openDrawer()
 				diffDrawer.setDiff({
 					title: 'Saved <> Current',
 					mode: 'simple',
@@ -181,7 +181,7 @@
 	bind:this={scriptEditorDrawer}
 	size="1200px"
 	on:close={() => {
-		scriptEditorDrawer.openDrawer()
+		scriptEditorDrawer?.openDrawer()
 		checkForUnsavedChanges()
 	}}
 >
@@ -234,7 +234,7 @@
 					}
 					closeAnyway = true
 					scriptEditorDrawer.closeDrawer()
-					diffDrawer.openDrawer()
+					diffDrawer?.openDrawer()
 					diffDrawer.setDiff({
 						mode: 'simple',
 						original: savedScript,
@@ -274,7 +274,7 @@
 	bind:this={diffDrawer}
 	on:close={() => {
 		if (!closeAnyway) {
-			scriptEditorDrawer.openDrawer()
+			scriptEditorDrawer?.openDrawer()
 		} else {
 			closeAnyway = false
 		}

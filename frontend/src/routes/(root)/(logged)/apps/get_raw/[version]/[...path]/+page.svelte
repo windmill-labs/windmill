@@ -35,7 +35,7 @@
 	})
 </script>
 
-<div id="root" />
+<div id="root"></div>
 
 {#if !loaded}
 	<Skeleton layout={[10]} />

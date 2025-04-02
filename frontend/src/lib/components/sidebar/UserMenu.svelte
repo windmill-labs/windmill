@@ -99,7 +99,7 @@
 				>
 				<div class="px-4 w-full h-1 mb-1">
 					<div class="bg-gray-200 h-full rounded-sm overflow-hidden">
-						<div class="bg-blue-400 h-full" style="width: {Math.min($usageStore, 1000) / 10}%" />
+						<div class="bg-blue-400 h-full" style="width: {Math.min($usageStore, 1000) / 10}%"></div>
 					</div>
 				</div>
 				{#if $workspaceStore != 'demo'}
@@ -111,7 +111,7 @@
 							<div
 								class="bg-blue-400 h-full"
 								style="width: {Math.min($workspaceUsageStore, 1000) / 10}%"
-							/>
+							></div>
 						</div>
 					</div>
 				{/if}

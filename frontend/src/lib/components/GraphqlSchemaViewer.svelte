@@ -36,4 +36,4 @@
 	})
 </script>
 
-<div bind:this={divEl} class="{$$props.class ?? ''} editor" />
+<div bind:this={divEl} class="{$$props.class ?? ''} editor"></div>

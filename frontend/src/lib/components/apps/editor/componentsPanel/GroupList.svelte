@@ -84,7 +84,7 @@
 	getGroups()
 </script>
 
-<div id="group_portal" />
+<div id="group_portal"></div>
 
 <div class="p-2 flex flex-col items-start w-auto gap-2 relative">
 	<div class="w-full flex flex-row gap-2 items-center">
@@ -120,7 +120,7 @@
 							{/key}
 						{/each}
 					{:else}
-						<tr>Loading...</tr>
+						<tr><td>Loading...</td></tr>
 					{/if}
 				</tbody>
 			</DataTable>

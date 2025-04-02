@@ -161,14 +161,14 @@
 			bind:value
 			placeholder={resolvedConfig.placeholder}
 			disabled={resolvedConfig.disabled}
-		/>
+		></textarea>
 	{:else}
 		<AlignWrapper {render} {verticalAlignment}>
 			<div class="relative w-full">
 				<div class="absolute top-1/2 -translate-y-1/2 left-2">
 					{#if resolvedConfig.beforeIcon}
 						{#key resolvedConfig.beforeIcon}
-							<div class="min-w-4" bind:this={beforeIconComponent} />
+							<div class="min-w-4" bind:this={beforeIconComponent}></div>
 						{/key}
 					{/if}
 				</div>
@@ -227,7 +227,7 @@
 				<div class="absolute top-1/2 -translate-y-1/2 right-2">
 					{#if resolvedConfig.afterIcon}
 						{#key resolvedConfig.afterIcon}
-							<div class="min-w-4" bind:this={afterIconComponent} />
+							<div class="min-w-4" bind:this={afterIconComponent}></div>
 						{/key}
 					{/if}
 				</div>

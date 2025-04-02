@@ -43,7 +43,7 @@
 
 				<div class="flex flex-row items-center my-1">
 					<div>
-						<label for="run-time" />
+						<label for="run-time"></label>
 						<DateTimeInput
 							value={scheduledForStr}
 							on:change={(e) => {

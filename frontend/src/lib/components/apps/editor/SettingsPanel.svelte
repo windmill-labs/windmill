@@ -166,6 +166,6 @@
 				bind:value={hiddenInlineScript.script.recomputeIds}
 			/>
 		</PanelSection>
-		<div class="grow shrink" />
+		<div class="grow shrink"></div>
 	{/key}
 {/if}

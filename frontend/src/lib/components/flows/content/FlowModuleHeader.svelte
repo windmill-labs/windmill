@@ -107,7 +107,7 @@
 		{/if}
 	{/if}
 	{#if module.value.type === 'script'}
-		<div class="w-2" />
+		<div class="w-2"></div>
 
 		{#if !module.value.path.startsWith('hub/') && customUi?.scriptEdit != false}
 			<Button
@@ -173,7 +173,7 @@
 			iconOnly={true}
 		/>
 	{/if}
-	<div class="px-0.5" />
+	<div class="px-0.5"></div>
 	{#if module.value.type === 'rawscript'}
 		<FlowModuleWorkerTagSelect bind:tag={module.value.tag} />
 		<Button

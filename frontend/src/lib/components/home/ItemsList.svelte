@@ -168,9 +168,9 @@
 						type: 'raw_app' as 'raw_app',
 						time: new Date(x.edited_at).getTime()
 					}))
-			  ].sort((a, b) =>
+				].sort((a, b) =>
 					a.starred != b.starred ? (a.starred ? -1 : 1) : a.time - b.time > 0 ? -1 : 1
-			  )
+				)
 
 	function filterItemsPathsBaseOnUserFilters(
 		item: TableScript | TableFlow | TableApp | TableRawApp,
@@ -190,12 +190,12 @@
 						x.path.startsWith(ownerFilter + '/') &&
 						(x.type == itemKind || itemKind == 'all') &&
 						filterItemsPathsBaseOnUserFilters(x, filterUserFolders)
-			  )
+				)
 			: combinedItems?.filter(
 					(x) =>
 						(x.type == itemKind || itemKind == 'all') &&
 						filterItemsPathsBaseOnUserFilters(x, filterUserFolders)
-			  )
+				)
 
 	let ownerFilter: string | undefined = undefined
 
@@ -385,7 +385,7 @@
 				bind:value={filter}
 				class="bg-surface !h-10 !px-4 !pr-10 !rounded-lg text-sm focus:outline-none"
 			/>
-			<button type="submit" class="absolute right-0 top-0 mt-3 mr-4">
+			<button aria-label="Search" type="submit" class="absolute right-0 top-0 mt-3 mr-4">
 				<svg
 					class="h-4 w-4 fill-current"
 					xmlns="http://www.w3.org/2000/svg"
@@ -428,7 +428,7 @@
 			bottomMargin={false}
 		/>
 		{#if filteredItems?.length == 0}
-			<div class="mt-10" />
+			<div class="mt-10"></div>
 		{/if}
 		{#if !loading}
 			<div class="flex w-full flex-row-reverse gap-2 mt-4 mb-1 items-center h-6">
@@ -495,7 +495,7 @@
 	</div>
 	<div>
 		{#if filteredItems == undefined}
-			<div class="mt-4" />
+			<div class="mt-4"></div>
 			<Skeleton layout={[[2], 1]} />
 			{#each new Array(6) as _}
 				<Skeleton layout={[[4], 0.5]} />

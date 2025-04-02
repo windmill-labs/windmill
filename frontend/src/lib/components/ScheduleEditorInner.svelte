@@ -687,7 +687,7 @@
 							use:autosize
 							bind:value={description}
 							placeholder="What this schedule does and how to use it"
-						/>
+						></textarea>
 					</Label>
 				</div>
 
@@ -765,7 +765,7 @@
 							Once a schedule is created, the runnable path cannot be changed. However, when
 							renaming a script or a flow, the runnable path will automatically update itself.
 						</Alert>
-						<div class="my-2" />
+						<div class="my-2"></div>
 						<ScriptPicker
 							disabled
 							initialPath={script_path}
@@ -838,7 +838,7 @@
 								<Tab value="tag">Custom tag</Tab>
 							{/if}
 						</Tabs>
-						<div class="pt-0.5" />
+						<div class="pt-0.5"></div>
 						{#if optionTabSelected === 'error_handler'}
 							<Section label="Error handler">
 								<svelte:fragment slot="header">

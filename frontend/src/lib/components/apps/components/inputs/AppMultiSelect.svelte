@@ -195,7 +195,7 @@
 						class="multiselect"
 						style={`min-width: ${w}px;`}
 						on:click|stopPropagation
-					/>
+					></div>
 				</div>
 			</Portal>
 		{:else}

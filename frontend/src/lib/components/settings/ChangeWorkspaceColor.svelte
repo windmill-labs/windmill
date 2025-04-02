@@ -59,7 +59,7 @@
 			<div
 				class="w-5 h-5 rounded-full border border-gray-300 dark:border-gray-600"
 				style="background-color: {savedWorkspaceColor}"
-			/>
+			></div>
 		{:else}
 			<span class="text-xs text-secondary">No color set</span>
 		{/if}

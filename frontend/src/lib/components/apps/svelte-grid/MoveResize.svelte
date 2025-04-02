@@ -513,12 +513,12 @@
 		<div
 			class="svlt-grid-resizer-bottom"
 			on:pointerdown={(e) => resizePointerDown(e, 'vertical')}
-		/>
+		></div>
 		<div
 			class="svlt-grid-resizer-side"
 			on:pointerdown={(e) => resizePointerDown(e, 'horizontal')}
-		/>
-		<div class="svlt-grid-resizer" on:pointerdown={(e) => resizePointerDown(e, 'both')} />
+		></div>
+		<div class="svlt-grid-resizer" on:pointerdown={(e) => resizePointerDown(e, 'both')}></div>
 	{/if}
 </div>
 
@@ -532,7 +532,7 @@
 			gapY * 2}px; transform: translate({shadow.x * xPerPx + gapX}px, {shadow.y * yPerPx +
 			gapY}px); "
 		bind:this={shadowElement}
-	/>
+	></div>
 {/if}
 
 <style>

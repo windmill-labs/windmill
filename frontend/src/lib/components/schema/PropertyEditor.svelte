@@ -132,7 +132,7 @@
 				bind:value={description}
 				on:keydown={onKeyDown}
 				placeholder="Field description"
-			/>
+			></textarea>
 		</Label>
 
 		<Label label="Custom title" class="w-full">
@@ -156,7 +156,7 @@
 				bind:value={placeholder}
 				on:change={() => dispatch('change')}
 				disabled={!shouldDisplayPlaceholder(type, format, enum_, contentEncoding, pattern, extra)}
-			/>
+			></textarea>
 		</Label>
 
 		{#if type == 'array'}

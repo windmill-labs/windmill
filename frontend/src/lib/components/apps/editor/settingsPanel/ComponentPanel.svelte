@@ -14,7 +14,7 @@
 	import AlignmentEditor from './AlignmentEditor.svelte'
 	import RunnableInputEditor from './inputEditor/RunnableInputEditor.svelte'
 	import TemplateEditor from '$lib/components/TemplateEditor.svelte'
-	import { ccomponents, components } from '../component'
+	import { ccomponents, components, type AppComponent } from '../component'
 	import CssProperty from '../componentsPanel/CssProperty.svelte'
 	import GridTab from './GridTab.svelte'
 	import { deleteGridItem, isTableAction } from '../appUtils'
@@ -45,6 +45,7 @@
 	import Badge from '$lib/components/common/badge/Badge.svelte'
 	import { twMerge } from 'tailwind-merge'
 	import Popover from '$lib/components/Popover.svelte'
+	import { createOnObjChange } from '../../components/helpers/onObjChange'
 
 	export let componentSettings: { item: GridItem; parent: string | undefined } | undefined =
 		undefined
@@ -59,7 +60,7 @@
 		worldStore,
 		focusedGrid,
 		stateId,
-		state,
+		state: stateStore,
 		errorByComponent,
 		componentControl
 	} = getContext<AppViewerContext>('AppViewerContext')
@@ -115,9 +116,9 @@
 			? buildExtraLib(
 					$worldStore?.outputsById ?? {},
 					componentSettings?.item?.data?.id,
-					$state,
+					$stateStore,
 					false
-			  )
+				)
 			: undefined
 
 	// 	`
@@ -140,7 +141,8 @@
 		? ccomponents[componentSettings?.item?.data?.type]?.initialData?.componentInput
 		: undefined
 
-	$: componentSettings?.item?.data && ($app = $app)
+	const onDataChange = createOnObjChange<AppComponent>()
+	$: onDataChange(componentSettings?.item?.data, () => ($app = $app))
 
 	const hasInteraction = componentSettings?.item.data.type
 		? isTriggerable(componentSettings?.item.data.type)
@@ -235,10 +237,10 @@
 					title={componentSettings?.item.data.type == 'steppercomponent'
 						? 'Validations'
 						: componentSettings?.item.data.type == 's3fileinputcomponent'
-						? 'Path template'
-						: hasInteraction
-						? 'Event handler'
-						: 'Data source'}
+							? 'Path template'
+							: hasInteraction
+								? 'Event handler'
+								: 'Data source'}
 					id={'component-input'}
 				>
 					<svelte:fragment slot="action">
@@ -469,7 +471,7 @@
 
 		<EventHandlers bind:item={componentSettings.item} ownId={component.id} />
 
-		<div class="grow shrink" />
+		<div class="grow shrink"></div>
 
 		{#if Object.keys(ccomponents[component.type]?.customCss ?? {}).length > 0}
 			<PanelSection title="Styling">

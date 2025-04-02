@@ -42,7 +42,7 @@
 		{#if fieldType === 'number' || fieldType === 'integer'}
 			<input on:keydown|stopPropagation type="number" bind:value={componentInput.value} />
 		{:else if fieldType === 'textarea'}
-			<textarea use:autosize on:keydown|stopPropagation bind:value={componentInput.value} />
+			<textarea use:autosize on:keydown|stopPropagation bind:value={componentInput.value}></textarea>
 		{:else if fieldType === 'date'}
 			<input on:keydown|stopPropagation type="date" bind:value={componentInput.value} />
 		{:else if fieldType === 'time'}
@@ -332,7 +332,7 @@
 					placeholder={placeholder ?? 'Static value'}
 					bind:value={componentInput.value}
 					class="!pr-12"
-				/>
+				></textarea>
 			</div>
 		{/if}
 	{/if}

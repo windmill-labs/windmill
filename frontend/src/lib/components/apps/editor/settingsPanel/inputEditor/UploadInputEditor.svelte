@@ -53,7 +53,7 @@
 	>
 		<svelte:fragment slot="selected-title">
 			<!-- Removing the title when there is a selected file -->
-			<span />
+			<span></span>
 		</svelte:fragment>
 	</FileInput>
 {/if}

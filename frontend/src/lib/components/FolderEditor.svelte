@@ -266,8 +266,8 @@
 			<TableCustom>
 				<tr slot="header-row">
 					<th>user/group</th>
-					<th />
-					<th />
+					<th></th>
+					<th></th>
 				</tr>
 				<tbody slot="body">
 					{#each perms as { owner_name, role }}<tr>

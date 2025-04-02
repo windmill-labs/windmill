@@ -264,7 +264,7 @@
 			bind:this={mapElement}
 			class={twMerge(`w-full h-full`, css?.map?.class, 'wm-map')}
 			style={css?.map?.style ?? ''}
-		/>
+		></div>
 
 		{#if $mode !== 'preview'}
 			<div

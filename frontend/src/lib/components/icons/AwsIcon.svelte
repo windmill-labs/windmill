@@ -1,5 +1,5 @@
 <script lang="ts">
-	export let size: number
+	export let size: number = 16
 	export let color: string | undefined = undefined
 	let clazz = ''
 	export { clazz as class }

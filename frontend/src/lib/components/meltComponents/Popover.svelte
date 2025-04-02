@@ -114,7 +114,7 @@
 		data-popover
 	>
 		{#if displayArrow}
-			<div use:melt={$arrow} />
+			<div use:melt={$arrow}></div>
 		{/if}
 		{#if documentationLink}
 			<div class="absolute right-1.5 top-1.5">

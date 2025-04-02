@@ -15,6 +15,9 @@ export function sendUserToast(
 ): void {
 	toast.push({
 		component: {
+			// https://github.com/zerodevx/svelte-toast/issues/115
+			// Svelte 5 changed its component type and svelte-toast is not up to date yet
+			// @ts-expect-error
 			src: Toast,
 			props: {
 				message,

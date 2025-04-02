@@ -37,10 +37,10 @@
 	$: runnableType = scriptHash
 		? 'ScriptHash'
 		: scriptPath
-		? 'ScriptPath'
-		: flowPath
-		? 'FlowPath'
-		: undefined
+			? 'ScriptPath'
+			: flowPath
+				? 'FlowPath'
+				: undefined
 
 	function selectArgs(selected_args: any, type: 'saved' | 'history' | undefined) {
 		if (selected_args) {
@@ -133,7 +133,7 @@
 							</svelte:fragment>
 
 							<svelte:fragment slot="content">
-								<div id="multi-select-search" />
+								<div id="multi-select-search"></div>
 								<div class="p-2 overflow-auto max-h-[400px] min-h-[300px] w-[400px]">
 									<div class="flex items-center flex-wrap gap-x-2 justify-between">
 										<div class="text-sm text-secondary">Search by args</div>

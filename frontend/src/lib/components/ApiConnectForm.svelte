@@ -508,7 +508,7 @@
 																<th class="pb-2 w-1/3">Org</th>
 																<th class="pb-2 w-1/6">Workspace</th>
 																<th class="pb-2 w-1/6">Repos</th>
-																<th class="pb-2 w-1/3" />
+																<th class="pb-2 w-1/3"></th>
 															</tr>
 														</thead>
 														<tbody>
@@ -579,7 +579,7 @@
 																<th class="pb-2 w-1/3">Org</th>
 																<th class="pb-2 w-1/6">Workspace</th>
 																<th class="pb-2 w-1/6">Repos</th>
-																<th class="pb-2 w-1/3" />
+																<th class="pb-2 w-1/3"></th>
 															</tr>
 														</thead>
 														<tbody>
@@ -688,7 +688,7 @@
 {#if notFound || viewJsonSchema}
 	{#if !emptyString(error)}<span class="text-red-400 text-xs mb-1 flex flex-row-reverse"
 			>{error}</span
-		>{:else}<div class="py-2" />{/if}
+		>{:else}<div class="py-2"></div>{/if}
 	<div class="h-full w-full border p-1 rounded">
 		{#await import('$lib/components/SimpleEditor.svelte')}
 			<Loader2 class="animate-spin" />
@@ -706,7 +706,7 @@
 	<h5 class="mt-4 inline-flex items-center gap-4">
 		File content ({resourceTypeInfo.format_extension})
 	</h5>
-	<div class="py-2" />
+	<div class="py-2"></div>
 	<div class="h-full w-full border p-1 rounded">
 		{#await import('$lib/components/SimpleEditor.svelte')}
 			<Loader2 class="animate-spin" />

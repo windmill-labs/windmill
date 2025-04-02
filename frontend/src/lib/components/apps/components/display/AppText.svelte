@@ -202,7 +202,7 @@
 					{rows}
 					on:input={onInput}
 					value={editableValue}
-				/>
+				></textarea>
 			</AlignWrapper>
 		{:else}
 			<AlignWrapper {verticalAlignment}>

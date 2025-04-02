@@ -77,7 +77,7 @@
 	}}
 >
 	{#if $copilotCurrentStepStore !== undefined}
-		<div transition:fade class="absolute inset-0 bg-gray-500 bg-opacity-75 z-[900]" />
+		<div transition:fade class="absolute inset-0 bg-gray-500 bg-opacity-75 z-[900]"></div>
 	{/if}
 	<div class="flex items-center grow-0 min-w-0 gap-2">
 		<Bug size={16} color={$flowStore?.value?.failure_module ? '#3b82f6' : '#9CA3AF'} />

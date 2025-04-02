@@ -56,7 +56,7 @@
 							job.suspend ? 'bg-violet-400' : 'bg-orange-400'
 						)}
 						title="Running"
-					/>
+					></div>
 				</div>
 			</svelte:fragment>
 			<svelte:fragment slot="extra">

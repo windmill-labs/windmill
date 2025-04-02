@@ -92,17 +92,17 @@
 					<div
 						class="absolute left-0 bottom-0 h-full bg-blue-400/50 animate-pulse"
 						style="width: 100%"
-					/>
+					></div>
 				{/if}
 				{#if partIndex < index - 1}
-					<div class="absolute left-0 bottom-0 h-full w-full bg-blue-400" />
+					<div class="absolute left-0 bottom-0 h-full w-full bg-blue-400"></div>
 				{:else if partIndex == index - 1 || (partIndex == index && subIndex !== undefined) || error == partIndex}
 					<div
 						class="absolute left-0 bottom-0 h-full {error == partIndex
 							? 'bg-red-400'
 							: 'bg-blue-400'}"
 						style="width: {getPercent(partIndex, $percent)}%"
-					/>
+					></div>
 				{/if}
 			</div>
 		{/each}

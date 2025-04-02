@@ -345,5 +345,5 @@
 
 {#if !hideSave}
 	<Button on:click={saveSettings}>Save settings</Button>
-	<div class="pb-8" />
+	<div class="pb-8"></div>
 {/if}

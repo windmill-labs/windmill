@@ -150,7 +150,7 @@
 		</Button>
 	{/if}
 	{#if runnable?.schema}
-		<div class="my-2" />
+		<div class="my-2"></div>
 		{#if !runnable.schema.properties || Object.keys(runnable.schema.properties).length === 0}
 			<div class="text-sm py-4 italic">No arguments</div>
 		{:else if jsonView}
@@ -190,7 +190,7 @@
 		<div class="text-xs text-tertiary">No arguments</div>
 	{/if}
 	{#if schedulable}
-		<div class="mt-10" />
+		<div class="mt-10"></div>
 		<div class="flex gap-2 items-start flex-wrap justify-between mt-2 md:mt-6 mb-6">
 			<div class="flex-row-reverse flex-wrap flex w-full gap-4">
 				<Button

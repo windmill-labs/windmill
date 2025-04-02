@@ -217,7 +217,7 @@
 			<div class="text-red-500">{error}</div>
 			<div>Try changing separator to fix it</div>
 		{/if}
-		<div bind:this={eGui} style="height:100%; " />
+		<div bind:this={eGui} style="height:100%; "></div>
 	</div>
 </div>
 

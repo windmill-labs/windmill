@@ -138,7 +138,7 @@
 						<Tab value={category}>{category}</Tab>
 					{/each}
 					<svelte:fragment slot="content">
-						<div class="pt-4" />
+						<div class="pt-4"></div>
 						<TabContent value="users">
 							<div class="h-full">
 								{#if !automateUsernameCreation && !isCloudHosted()}
@@ -196,7 +196,7 @@
 										}}
 									/>
 								</div>
-								<div class="pb-1" />
+								<div class="pb-1"></div>
 								<div>
 									<input placeholder="Search users" bind:value={filter} class="input mt-1" />
 								</div>
@@ -212,8 +212,8 @@
 											{#if activeOnly}
 												<th>kind</th>
 											{/if}
-											<th />
-											<th />
+											<th></th>
+											<th></th>
 										</tr>
 										<tbody slot="body" class="overflow-y-auto w-full h-full max-h-full">
 											{#if filteredUsers && users}

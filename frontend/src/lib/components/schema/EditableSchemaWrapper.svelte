@@ -172,6 +172,7 @@
 				lock={true}
 			/>
 		{:else}
+			<!-- svelte-ignore a11y-autofocus -->
 			<input
 				autofocus={true}
 				bind:value={formatExtension}
@@ -201,7 +202,7 @@
 			the format when displaying the content and this is also how the resource will appear when pulling
 			via the CLI.
 		</Alert>
-		<div />
+		<div></div>
 	{/if}
 {/if}
 <Toggle

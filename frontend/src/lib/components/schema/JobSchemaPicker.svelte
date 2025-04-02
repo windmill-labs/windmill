@@ -27,7 +27,7 @@
 			<div
 				class="rounded-full w-2 h-2 {job.success ? 'bg-green-400' : 'bg-red-400'}"
 				title={job.success ? 'Success' : 'Failed'}
-			/>
+			></div>
 		</div>
 	</svelte:fragment>
 	<svelte:fragment slot="extra">

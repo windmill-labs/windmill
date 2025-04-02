@@ -195,7 +195,7 @@
 								use:autosize
 								bind:value={variable.value}
 								placeholder="Update variable value"
-							/>
+							></textarea>
 						{:else if editorKind == 'json'}
 							<div class="border rounded mb-4 w-full">
 								{#await import('$lib/components/SimpleEditor.svelte')}
@@ -234,7 +234,7 @@
 					use:autosize
 					bind:value={variable.description}
 					placeholder="Used for X"
-				/>
+				></textarea>
 			</Section>
 		</div>
 		<svelte:fragment slot="actions">

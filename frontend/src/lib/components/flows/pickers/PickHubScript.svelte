@@ -121,7 +121,7 @@
 </div>
 
 {#if hubNotAvailable}
-	<div class="mt-2" />
+	<div class="mt-2"></div>
 	<Alert type="error" title="Hub not available" />
 {:else if items.length > 0 && apps.length > 0}
 	<ListFilters {syncQuery} filters={apps} bind:selectedFilter={appFilter} resourceType />
@@ -174,7 +174,7 @@
 		</div>
 	{/if}
 {:else}
-	<div class="my-2" />
+	<div class="my-2"></div>
 	{#each Array(10).fill(0) as _}
 		<Skeleton layout={[0.5, [4]]} />
 	{/each}

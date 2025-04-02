@@ -190,7 +190,7 @@
 						}}
 					/>
 
-					<div class="mb-4" />
+					<div class="mb-4"></div>
 
 					{#if Boolean(flowModule.suspend.user_auth_required) && allUserGroups.length !== 0 && flowModule.suspend && schema.properties['groups']}
 						<span class="text-xs font-bold"

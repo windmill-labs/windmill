@@ -81,7 +81,7 @@
 					? 'w-5 h-3 after:top-0.5 after:left-[2px] after:h-2 after:w-2'
 					: 'w-7 h-4 after:top-0.5 after:left-[2px] after:h-3 after:w-3'
 			)}
-		/>
+		></div>
 	</div>
 	{#if Boolean(options?.right)}
 		<span

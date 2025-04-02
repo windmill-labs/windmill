@@ -711,7 +711,7 @@
 
 	{#if required && (!value || value.length === 0)}
 		<slot name="required" {value}>
-			<select class="required" required tabindex="-1" aria-hidden="true" />
+			<select class="required" required tabindex="-1" aria-hidden="true"></select>
 		</slot>
 	{/if}
 </div>

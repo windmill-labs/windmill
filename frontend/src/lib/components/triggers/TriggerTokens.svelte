@@ -49,7 +49,7 @@
 						<div class="col-span-2 truncate font-semibold">Prefix</div>
 						<div class="col-span-2 truncate font-semibold">Label</div>
 						<div class="col-span-1 truncate font-semibold">Owner</div>
-						<div class="col-span-1" />
+						<div class="col-span-1"></div>
 					</div>
 					{#each tokens as token (token.token_prefix)}
 						<div class="grid grid-cols-6 text-2xs items-center py-2">
@@ -66,7 +66,7 @@
 									class="text-xs text-secondary">delete</button
 								>
 							{:else}
-								<div class="col-span-1" />
+								<div class="col-span-1"></div>
 							{/if}
 						</div>
 					{/each}

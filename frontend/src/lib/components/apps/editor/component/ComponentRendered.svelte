@@ -126,7 +126,7 @@
 					'outline-dashed outline-offset-2 outline-2 outline-blue-300 dark:outline-blue-700',
 					overlapped === component?.id ? 'bg-draggedover dark:bg-draggedover-dark' : ''
 				)}
-			/>
+			></div>
 		{/if}
 		{#if $mode !== 'preview'}
 			<ComponentHeader
@@ -216,5 +216,5 @@
 			}
 		}}
 		class="absolute inset-0 center-center flex-col border animate-skeleton dark:bg-frost-900/50 [animation-delay:1000ms]"
-	/>
+	></div>
 {/if}
