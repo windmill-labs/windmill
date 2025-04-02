@@ -23,7 +23,7 @@
 				'success' in job && job.success ? 'bg-green-400' : 'bg-red-400'
 			)}
 			title={'success' in job && job.success ? 'Success' : 'Failed'}
-		/>
+		></div>
 
 		<span class="text-xs truncate" dir="rtl" title={`job id: ${job.id}`}>
 			{job.id.slice(-5)}

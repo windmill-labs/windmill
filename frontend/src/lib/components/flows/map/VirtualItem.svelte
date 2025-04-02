@@ -52,7 +52,7 @@
 		>
 			{#if $$slots.icon}
 				<slot name="icon" />
-				<span class="mr-2" />
+				<span class="mr-2"></span>
 			{/if}
 			<div class="flex flex-col flex-grow shrink-0 max-w-full min-w-0">
 				{#if label}

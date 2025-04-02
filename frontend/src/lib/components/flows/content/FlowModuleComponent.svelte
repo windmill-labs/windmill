@@ -124,7 +124,7 @@
 					$flowStore,
 					$previewArgs,
 					false
-			  )
+				)
 
 	function onKeyDown(event: KeyboardEvent) {
 		if ((event.ctrlKey || event.metaKey) && event.key == 'Enter') {
@@ -513,7 +513,7 @@
 																enables to process the error in a branch one for instance.
 															</Tooltip>
 														</div>
-														<div class="my-8" />
+														<div class="my-8"></div>
 														<FlowRetries bind:flowModuleRetry={flowModule.retry} />
 													</Section>
 												{:else if advancedSelected === 'runtime' && advancedRuntimeSelected === 'concurrency'}

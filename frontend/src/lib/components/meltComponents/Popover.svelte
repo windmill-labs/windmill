@@ -125,7 +125,7 @@
 
 {#if isOpen && !disablePopup}
 	{#if fullScreen}
-		<div use:melt={$overlay} class="fixed inset-0 z-10 bg-black/50" />
+		<div use:melt={$overlay} class="fixed inset-0 z-10 bg-black/50"></div>
 	{/if}
 
 	<div

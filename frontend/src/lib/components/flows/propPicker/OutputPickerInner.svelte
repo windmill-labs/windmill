@@ -123,8 +123,8 @@
 		preview === 'mock' && !mock?.enabled
 			? 'restore'
 			: preview === 'job' && mock?.enabled && selectedJob?.type === 'CompletedJob'
-			? 'override'
-			: undefined
+				? 'override'
+				: undefined
 
 	let dblClickDisabled = false
 	let hoveringResult = false
@@ -551,8 +551,8 @@
 					json={moduleId
 						? {
 								[moduleId]: connectingData ?? simpleViewer
-						  }
-						: connectingData ?? simpleViewer}
+							}
+						: (connectingData ?? simpleViewer)}
 					topBrackets={false}
 					pureViewer={false}
 					{prefix}
@@ -599,7 +599,7 @@
 						json={moduleId
 							? {
 									[moduleId]: mock?.return_value
-							  }
+								}
 							: mock?.return_value}
 						topBrackets={false}
 						pureViewer={false}
@@ -631,7 +631,7 @@
 						json={moduleId
 							? {
 									[moduleId]: selectedJob.result
-							  }
+								}
 							: selectedJob.result}
 						topBrackets={false}
 						pureViewer={false}
