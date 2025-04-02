@@ -32,6 +32,9 @@ struct MssqlDatabase {
     instance_name: Option<String>,
     #[serde(default, deserialize_with = "deserialize_aad_token")]
     aad_token: Option<AadToken>,
+    trust_cert: Option<bool>,
+    #[serde(deserialize_with = "empty_string_as_none")]
+    ca_cert: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -53,6 +56,7 @@ pub async fn do_mssql(
     canceled_by: &mut Option<CanceledBy>,
     worker_name: &str,
     occupancy_metrics: &mut OccupancyMetrics,
+    job_dir: &str,
 ) -> error::Result<Box<RawValue>> {
     let mssql_args = build_args_values(job, client, db).await?;
 
@@ -118,6 +122,23 @@ pub async fn do_mssql(
         return Err(Error::BadRequest(
             "Neither AAD token nor username/password credentials are set".to_string(),
         ));
+    }
+
+    // Handle certificate trust configuration
+    if database.trust_cert.unwrap_or(true) {
+        // If trust_cert is true, ignore ca_cert and trust any certificate
+        config.trust_cert();
+        tracing::info!("MSSQL: disabling certificate validation");
+    } else if let Some(ca_cert) = &database.ca_cert {
+        // Only use ca_cert if trust_cert is false
+        let cert_path = format!("{}/ca_cert.pem", job_dir);
+
+        std::fs::write(&cert_path, ca_cert)
+            .map_err(|e| Error::ExecutionErr(format!("Failed to write CA certificate: {}", e)))?;
+
+        // Use the CA certificate for trust
+        config.trust_cert_ca(cert_path);
+        tracing::info!("MSSQL: using provided CA certificate for trust");
     }
 
     let tcp = if use_instance_name {
