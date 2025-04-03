@@ -12,7 +12,7 @@
 	export let target: string | HTMLElement | undefined = undefined
 
 	const dispatch = createEventDispatcher()
-	let input: HTMLInputElement
+	let input: HTMLInputElement | undefined
 
 	export let placement: Placement = 'top-end'
 </script>

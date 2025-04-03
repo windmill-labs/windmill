@@ -43,7 +43,7 @@
 				use:autosize
 				bind:value={instance_group.summary}
 				placeholder="Summary of the group"
-			/>
+			></textarea>
 			<div class="flex justify-end">
 				<Button
 					size="xs"
@@ -88,7 +88,7 @@
 			<TableCustom>
 				<tr slot="header-row">
 					<th>user</th>
-					<th />
+					<th></th>
 				</tr>
 				<tbody slot="body">
 					{#each members as { member_email }}<tr>

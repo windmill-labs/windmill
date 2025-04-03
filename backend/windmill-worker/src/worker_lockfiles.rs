@@ -2089,7 +2089,7 @@ async fn capture_dependency_job(
 
             resolve(job_id, job_raw_code, job_dir, db, w_id).await
         }
-        // KJQXZ
+        // for related places search: ADD_NEW_LANG
         _ => Ok("".to_owned()),
     }
 }

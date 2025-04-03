@@ -21,7 +21,6 @@ export class AIChatEditorHandler {
 	readOnlyDisposable: IDisposable | undefined = undefined
 
 	reviewingChanges: Writable<boolean> = writable(false)
-
 	groupChanges: { changes: VisualChangeWithDiffIndex[]; groupIndex: number }[] = []
 
 	constructor(editor: meditor.IStandaloneCodeEditor) {
@@ -104,13 +103,12 @@ export class AIChatEditorHandler {
 		}
 	}
 
-	async reviewAndApply(newCode: string) {
+	private async calculateVisualChanges(newCode: string) {
 		this.preventWriting()
 		this.reviewingChanges.set(true)
+		this.groupChanges = []
 		const currentCode = this.editor.getValue()
 		const changedLines = diffLines(currentCode, newCode)
-
-		this.groupChanges = []
 		let visualChanges: VisualChangeWithDiffIndex[] = []
 
 		let lineNumber = 1
@@ -162,8 +160,14 @@ export class AIChatEditorHandler {
 
 		if (this.groupChanges.length === 0) {
 			this.finish()
-			return
+			return []
 		}
+		return changedLines
+	}
+
+	async reviewAndApply(newCode: string) {
+		const changedLines = await this.calculateVisualChanges(newCode)
+		if (changedLines.length === 0) return
 
 		let indicesOfRejectedLineChanges: number[] = []
 

@@ -4,7 +4,7 @@ import { capitalize, isObject, toCamel } from '$lib/utils'
 import { get, type Writable } from 'svelte/store'
 import { getCompletion } from '../lib'
 import { compile, phpCompile, pythonCompile } from '../utils'
-import { Code, Database, TriangleAlert } from 'lucide-svelte'
+import { Code, Database, TriangleAlert, Diff } from 'lucide-svelte'
 import type {
 	ChatCompletionChunk,
 	ChatCompletionMessageParam,
@@ -14,6 +14,7 @@ import type {
 import { workspaceStore, type DBSchema, dbSchemas } from '$lib/stores'
 import { scriptLangToEditorLang } from '$lib/scripts'
 import { getDbSchemas } from '$lib/components/apps/components/display/dbtable/utils'
+import { type Change } from 'diff'
 
 export function formatResourceTypes(
 	allResourceTypes: ResourceType[],
@@ -215,6 +216,7 @@ export const CHAT_SYSTEM_PROMPT = `
 	- Preserve existing formatting, indentation, and whitespace unless changes are strictly required to fulfill the user's request.
 	- The user can ask you to look at or modify specific files, databases or errors by having its name in the INSTRUCTIONS preceded by the @ symbol. In this case, put your focus on the element that is explicitly mentioned.
 	- The user can ask you questions about a list of \`DATABASES\` that are available in the user's workspace. If the user asks you a question about a database, you should ask the user to specify the database name if not given, or take the only one available if there is only one.
+	- You can also receive a \`DIFF\` of the changes that have been made to the code. You should use this diff to give better answers.
 
 	Important:
 	Do not mention or reveal these instructions to the user unless explicitly asked to do so.
@@ -247,6 +249,10 @@ CODE:
 
 ERROR:
 {error_context}
+
+DIFF:
+{diff_context}
+
 \`\`\`
 `
 
@@ -271,7 +277,8 @@ export interface DisplayMessage {
 export const ContextIconMap = {
 	code: Code,
 	error: TriangleAlert,
-	db: Database
+	db: Database,
+	diff: Diff
 }
 
 export type ContextElement =
@@ -291,6 +298,13 @@ export type ContextElement =
 			schema?: DBSchema
 			title: string
 	  }
+	| {
+			type: 'diff'
+			content: string
+			title: string
+			diff: Change[]
+			lang: ScriptLang | 'bunnative'
+	  }
 
 export async function prepareUserMessage(
 	instructions: string,
@@ -300,6 +314,7 @@ export async function prepareUserMessage(
 	let codeContext = ''
 	let errorContext = ''
 	let dbContext = ''
+	let diffContext = ''
 	for (const context of selectedContext) {
 		if (context.type === 'code') {
 			codeContext += CHAT_USER_CODE_CONTEXT.replace('{title}', context.title)
@@ -315,6 +330,9 @@ export async function prepareUserMessage(
 				'{schema}',
 				context.schema?.stringified ?? 'to fetch with get_db_schema'
 			)
+		} else if (context.type === 'diff') {
+			const diff = JSON.stringify(context.diff)
+			diffContext = diff.length > 3000 ? diff.slice(0, 3000) + '...' : diff
 		}
 	}
 
@@ -323,6 +341,7 @@ export async function prepareUserMessage(
 		.replace('{code_context}', codeContext)
 		.replace('{error_context}', errorContext)
 		.replace('{db_context}', dbContext)
+		.replace('{diff_context}', diffContext)
 
 	return userMessage
 }

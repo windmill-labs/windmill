@@ -72,7 +72,7 @@
 		errorByComponent,
 		mode,
 		stateId,
-		state,
+		state: stateStore,
 		componentControl,
 		initialized,
 		selectedComponent,
@@ -142,7 +142,7 @@
 	$: runnableInputValues && dispatch('argsChanged')
 
 	$: refreshOn =
-		runnable && runnable.type === 'runnableByName' ? runnable.inlineScript?.refreshOn ?? [] : []
+		runnable && runnable.type === 'runnableByName' ? (runnable.inlineScript?.refreshOn ?? []) : []
 
 	function refreshIfAutoRefresh(src: 'arg changed' | 'static changed') {
 		// console.log(
@@ -292,7 +292,7 @@
 						row: rowContext ? $rowContext : undefined,
 						group: groupContext ? get(groupContext.context) : undefined
 					}),
-					$state,
+					$stateStore,
 					isEditor,
 					$componentControl,
 					$worldStore,
@@ -303,7 +303,7 @@
 				)
 
 				await setResult(r, job)
-				$state = $state
+				$stateStore = $stateStore
 			} catch (e) {
 				let additionalInfo = ''
 				if (
@@ -535,7 +535,7 @@
 						group: groupContext ? get(groupContext.context) : undefined,
 						result: res
 					}),
-					$state,
+					$stateStore,
 					isEditor,
 					$componentControl,
 					$worldStore,

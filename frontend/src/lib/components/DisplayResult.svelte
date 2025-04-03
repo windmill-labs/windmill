@@ -630,7 +630,7 @@
 						<slot />
 					</div>
 					{#if !isTest && language === 'bun'}
-						<div class="pt-20" />
+						<div class="pt-20"></div>
 						<Alert size="xs" type="info" title="Seeing an odd error?">
 							Bun script are bundled for performance reasons. If you see an odd error that doesn't
 							appear when testing (which doesn't use bundling), try putting <code>//nobundling</code
@@ -638,16 +638,24 @@
 							team.
 						</Alert>
 					{/if}
-					{#if language === 'python3' && result?.error?.message?.includes("ImportError: cannot import name")}
+					{#if language === 'python3' && result?.error?.message?.includes('ImportError: cannot import name')}
 						<Alert size="xs" type="info" title="Seeing an odd import error?">
-							Python requirements inference may be inaccurate. This is due to the fact that requirement names can vary from package names they provide.
-							Try to <a href="https://www.windmill.dev/docs/advanced/dependencies_in_python#pinning-dependencies-and-requirements" target="_blank" rel="noopener noreferrer">manually pin requirements</a>
+							Python requirements inference may be inaccurate. This is due to the fact that
+							requirement names can vary from package names they provide. Try to <a
+								href="https://www.windmill.dev/docs/advanced/dependencies_in_python#pinning-dependencies-and-requirements"
+								target="_blank"
+								rel="noopener noreferrer">manually pin requirements</a
+							>
 						</Alert>
 					{/if}
-					{#if language === 'python3' && result?.error?.message?.startsWith("execution error:\npip compile failed")}
+					{#if language === 'python3' && result?.error?.message?.startsWith('execution error:\npip compile failed')}
 						<Alert size="xs" type="info" title="Seeing an odd resolution error?">
-							Python requirements inference may be inaccurate. This is due to the fact that requirement names can vary from package names they provide.
-							Try to <a href="https://www.windmill.dev/docs/advanced/dependencies_in_python#pinning-dependencies-and-requirements" target="_blank" rel="noopener noreferrer">manually pin requirements</a>
+							Python requirements inference may be inaccurate. This is due to the fact that
+							requirement names can vary from package names they provide. Try to <a
+								href="https://www.windmill.dev/docs/advanced/dependencies_in_python#pinning-dependencies-and-requirements"
+								target="_blank"
+								rel="noopener noreferrer">manually pin requirements</a
+							>
 						</Alert>
 					{/if}
 				{:else if !forceJson && resultKind === 'approval'}<div

@@ -849,7 +849,7 @@
 									x.id.startsWith('subflow:') ? x.id : buildSubflowKey(x.id, nprefix)
 								),
 								nprefix
-						  )
+							)
 						: []
 				})
 			)
@@ -984,7 +984,7 @@
 					<Tab value="sequence"><span class="font-semibold">Details</span></Tab>
 				</Tabs>
 			{:else}
-				<div class="h-[30px]" />
+				<div class="h-[30px]"></div>
 			{/if}
 		{/if}
 		<div class="{selected != 'sequence' ? 'hidden' : ''} max-w-7xl mx-auto">
@@ -1006,8 +1006,8 @@
 								color={flowJobIds?.flowJobsSuccess?.[j] === false
 									? 'red'
 									: forloop_selected === loopJobId
-									? 'dark'
-									: 'light'}
+										? 'dark'
+										: 'light'}
 								btnClasses="w-full flex justify-start"
 								on:click={async () => {
 									let storedJob = storedListJobs[j]
@@ -1078,10 +1078,10 @@
 
 					{#each innerModules as mod, i}
 						{#if render}
-							<div class="line w-8 h-10" />
+							<div class="line w-8 h-10"></div>
 							<h3 class="text-tertiary mb-2 w-full">
 								{#if mod.id === 'preprocessor'}
-									<h3>Preprocessor module</h3>
+									Preprocessor module
 								{:else if job?.raw_flow?.modules && i < job?.raw_flow?.modules.length + hasPreprocessor}
 									Step
 									<span class="font-medium text-primary">
@@ -1095,10 +1095,10 @@
 										</span>
 									{/if}
 								{:else}
-									<h3>Failure module</h3>
+									Failure module
 								{/if}
 							</h3>
-							<div class="line w-8 h-10" />
+							<div class="line w-8 h-10"></div>
 						{/if}
 						<li class="w-full border p-6 space-y-2 bg-blue-50/50 dark:bg-frost-900/50">
 							{#if render && Array.isArray(mod.failed_retries)}
@@ -1196,7 +1196,7 @@
 													flowJobsSuccess: mod.flow_jobs_success,
 													length: mod.iterator?.itered?.length ?? mod.flow_jobs.length,
 													branchall: job?.raw_flow?.modules?.[i]?.value?.type == 'branchall'
-											  }
+												}
 											: undefined}
 										on:jobsLoaded={(e) => {
 											let { job, force } = e.detail
