@@ -144,25 +144,6 @@
 				})
 			}
 
-			if (diffWithLastSaved && diffWithLastSaved.filter((d) => d.added || d.removed).length > 0) {
-				newAvailableContext.push({
-					type: 'diff',
-					title: 'diff_with_last_saved_draft',
-					content: JSON.stringify(diffWithLastSaved)
-				})
-			}
-
-			if (
-				diffWithLastDeployed &&
-				diffWithLastDeployed.filter((d) => d.added || d.removed).length > 0
-			) {
-				newAvailableContext.push({
-					type: 'diff',
-					title: 'diff_with_last_deployed_version',
-					content: JSON.stringify(diffWithLastDeployed)
-				})
-			}
-
 			if (!providerModel?.model.endsWith('/thinking')) {
 				for (const d of dbResources) {
 					const loadedSchema = dbSchemas[d.path]

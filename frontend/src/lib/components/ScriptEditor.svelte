@@ -43,8 +43,6 @@
 	import HideButton from './apps/editor/settingsPanel/HideButton.svelte'
 	import { base } from '$lib/base'
 	import { SUPPORTED_CHAT_SCRIPT_LANGUAGES } from './copilot/chat/core'
-	import { diffChars } from 'diff'
-	import { writable } from 'svelte/store'
 
 	// Exported
 	export let schema: Schema | any = emptySchema()
@@ -93,9 +91,6 @@
 	$: watchChanges &&
 		(code != undefined || schema != undefined) &&
 		dispatch('change', { code, schema })
-
-	$: diffWithLastSaved = diffChars(lastSavedCode ?? '', code)
-	$: diffWithLastDeployed = diffChars(lastDeployedCode ?? '', code)
 
 	let width = 1200
 

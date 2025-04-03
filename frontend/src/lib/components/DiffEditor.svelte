@@ -68,8 +68,7 @@
 	) {
 		diffEditor?.setModel({
 			original: meditor.createModel('', lang),
-			modified:
-				(editor?.getModel() as meditor.ITextModel) ?? meditor.createModel('', modifiedLang ?? lang)
+			modified: meditor.createModel('', modifiedLang ?? lang)
 		})
 		if (original) {
 			setOriginal(original)

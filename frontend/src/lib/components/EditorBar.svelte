@@ -46,7 +46,6 @@
 	import ResourceEditorDrawer from './ResourceEditorDrawer.svelte'
 	import type { EditorBarUi } from './custom_ui'
 	import EditorSettings from './EditorSettings.svelte'
-	import { writable, type Writable } from 'svelte/store'
 
 	export let lang: SupportedLanguage | 'bunnative' | undefined
 	export let editor: Editor | undefined
@@ -133,7 +132,10 @@
 		'nu',
 		'java'
 		// for related places search: ADD_NEW_LANG
+	].includes(lang ?? '')
+	$: showResourceTypePicker =
 		['typescript', 'javascript'].includes(scriptLangToEditorLang(lang)) ||
+		lang === 'python3' ||
 		lang === 'php'
 
 	let codeViewer: Drawer
@@ -452,6 +454,7 @@ string ${windmillPathToCamelCaseName(path)} = await client.GetStringAsync(uri);
 		} else if (lang == 'java') {
 			editor.insertAtCursor(`(Wmill.getVariable("${path}"))`)
 			// for related places search: ADD_NEW_LANG
+		}
 	}}
 	documentationLink="https://www.windmill.dev/docs/core_concepts/variables_and_secrets"
 	itemName="Variable"
