@@ -726,9 +726,10 @@ export const TS_PREPROCESSOR_MODULE_CODE = `export async function preprocessor(
     gcp?: {
       attributes?: Record<string, string>,
       message_id: string,
+      subscription: string,
+      ordering_key?: string,
       pull?: {
         publish_time?: number,
-        ordering_key?: string,
       },
       push?: {
         headers: Record<string, string>,
@@ -862,15 +863,16 @@ class Mqtt(TypedDict):
 
 class PullExtraInfo(TypedDict):
     publish_time: int | None
-    ordering_key: str | None
 
 class PushExtraInfo(TypedDict):
     headers: dict[str, str] | None
     publish_time: str
 
-class gcp(TypedDict):
+class Gcp(TypedDict):
     attributes: dict[str, str] | None
     message_id: str
+    subscription: str
+    ordering_key: str | None
     pull: PullExtraInfo | None
     push: PushExtraInfo | None
 
