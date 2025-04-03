@@ -123,11 +123,11 @@
 	<slot name="trigger" {isOpen} />
 </button>
 
-{#if isOpen && !disablePopup}
-	{#if fullScreen}
-		<div use:melt={$overlay} class="fixed inset-0 z-10 bg-black/50"></div>
-	{/if}
+{#if fullScreen && isOpen && !disablePopup}
+	<div use:melt={$overlay} class="fixed inset-0 z-10 bg-black/50"></div>
+{/if}
 
+{#if isOpen && !disablePopup}
 	<div
 		use:melt={$content}
 		transition:fade={{ duration: 0 }}
