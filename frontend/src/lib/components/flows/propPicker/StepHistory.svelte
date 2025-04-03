@@ -123,10 +123,10 @@
 	<svelte:fragment slot="empty">
 		<div class="text-center text-tertiary text-xs py-2 px-2">
 			{noHistory === 'isLoop'
-				? 'History is not available with loops. Coming soon!'
+				? 'History is not available with loops.'
 				: noHistory === 'isInsideLoop'
-				? 'History is not available inside loops. Coming soon!'
-				: 'No run in history for this step'}
+					? 'History is not available inside loops.'
+					: 'No run in history for this step'}
 		</div>
 	</svelte:fragment>
 </InfiniteList>
