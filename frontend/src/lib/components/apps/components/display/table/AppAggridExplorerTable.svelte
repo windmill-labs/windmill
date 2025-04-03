@@ -196,7 +196,7 @@
 				field: 'delete',
 				headerName: 'Delete',
 				cellRenderer: cellRendererFactory((c, p) => {
-					let ta = new Button({
+					const btnComponent = mount(Button, {
 						target: c.eGui,
 						props: {
 							btnClasses: 'w-12',
@@ -211,7 +211,7 @@
 					})
 					return {
 						destroy: () => {
-							ta.$destroy()
+							unmount(btnComponent)
 						},
 						refresh(params) {
 							//

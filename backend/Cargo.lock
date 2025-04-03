@@ -772,9 +772,9 @@ dependencies = [
 
 [[package]]
 name = "aws-lc-rs"
-version = "1.12.6"
+version = "1.13.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "dabb68eb3a7aa08b46fddfd59a3d55c978243557a90ab804769f7e20e67d2b01"
+checksum = "19b756939cb2f8dc900aa6dcd505e6e2428e9cae7ff7b028c49e3946efa70878"
 dependencies = [
  "aws-lc-sys",
  "zeroize",
@@ -782,9 +782,9 @@ dependencies = [
 
 [[package]]
 name = "aws-lc-sys"
-version = "0.27.1"
+version = "0.28.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "77926887776171ced7d662120a75998e444d3750c951abfe07f90da130514b1f"
+checksum = "b9f7720b74ed28ca77f90769a71fd8c637a0137f6fae4ae947e1050229cff57f"
 dependencies = [
  "bindgen 0.69.5",
  "cc",
@@ -1268,9 +1268,9 @@ dependencies = [
 
 [[package]]
 name = "bigdecimal"
-version = "0.4.7"
+version = "0.4.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7f31f3af01c5c65a07985c804d3366560e6fa7883d640a122819b14ec327482c"
+checksum = "1a22f228ab7a1b23027ccc6c350b72868017af7ea8356fbdf19f8d991c690013"
 dependencies = [
  "autocfg",
  "libm",
@@ -1964,9 +1964,9 @@ dependencies = [
 
 [[package]]
 name = "clap"
-version = "4.5.34"
+version = "4.5.35"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e958897981290da2a852763fe9cdb89cd36977a5d729023127095fa94d95e2ff"
+checksum = "d8aa86934b44c19c50f87cc2790e19f54f7a67aedb64101c2e1a2e5ecfb73944"
 dependencies = [
  "clap_builder",
  "clap_derive",
@@ -1974,9 +1974,9 @@ dependencies = [
 
 [[package]]
 name = "clap_builder"
-version = "4.5.34"
+version = "4.5.35"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "83b0f35019843db2160b5bb19ae09b4e6411ac33fc6a712003c33e03090e2489"
+checksum = "2414dbb2dd0695280da6ea9261e327479e9d37b0630f6b53ba2a11c60c679fd9"
 dependencies = [
  "anstream",
  "anstyle",
@@ -4690,7 +4690,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0ce92ff622d6dadf7349484f42c93271a0d49b7cc4d466a936405bacbe10aa78"
 dependencies = [
  "cfg-if",
- "rustix 1.0.3",
+ "rustix 1.0.5",
  "windows-sys 0.59.0",
 ]
 
@@ -4761,9 +4761,9 @@ dependencies = [
 
 [[package]]
 name = "flate2"
-version = "1.1.0"
+version = "1.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "11faaf5a5236997af9848be0bef4db95824b1d534ebc64d0f0c6cf3e67bd38dc"
+checksum = "7ced92e76e966ca2fd84c8f7aa01a4aea65b0eb6648d72f7c8f3e2764a67fece"
 dependencies = [
  "crc32fast",
  "libz-sys",
@@ -5930,9 +5930,9 @@ dependencies = [
 
 [[package]]
 name = "hyper-util"
-version = "0.1.10"
+version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "df2dcfbe0677734ab2f3ffa7fa7bfd4706bfdc1ef393f2ee30184aed67e631b4"
+checksum = "497bbc33a26fdd4af9ed9c70d63f61cf56a938375fbb32df34db9b1cd6d643f2"
 dependencies = [
  "bytes",
  "futures-channel",
@@ -5940,6 +5940,7 @@ dependencies = [
  "http 1.3.1",
  "http-body 1.0.1",
  "hyper 1.6.0",
+ "libc",
  "pin-project-lite",
  "socket2",
  "tokio",
@@ -6385,10 +6386,11 @@ checksum = "8eaf4bc02d17cbdd7ff4c7438cafcdf7fb9a4613313ad11b4f8fefe7d3fa0130"
 
 [[package]]
 name = "jobserver"
-version = "0.1.32"
+version = "0.1.33"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "48d1dbcbbeb6a7fec7e059840aa538bd62aaccf972c7346c4d9d2059312853d0"
+checksum = "38f262f097c174adebe41eb73d66ae9c06b2844fb0da69969647bbddd9b0538a"
 dependencies = [
+ "getrandom 0.3.2",
  "libc",
 ]
 
@@ -9846,9 +9848,9 @@ dependencies = [
 
 [[package]]
 name = "rustix"
-version = "1.0.3"
+version = "1.0.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e56a18552996ac8d29ecc3b190b4fdbb2d91ca4ec396de7bbffaf43f3d637e96"
+checksum = "d97817398dd4bb2e6da002002db259209759911da105da92bec29ccb12cf58bf"
 dependencies = [
  "bitflags 2.9.0",
  "errno",
@@ -11965,7 +11967,7 @@ dependencies = [
  "fastrand",
  "getrandom 0.3.2",
  "once_cell",
- "rustix 1.0.3",
+ "rustix 1.0.5",
  "windows-sys 0.59.0",
 ]
 
@@ -11984,7 +11986,7 @@ version = "0.4.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "45c6481c4829e4cc63825e62c49186a34538b7b2750b73b266581ffb612fb5ed"
 dependencies = [
- "rustix 1.0.3",
+ "rustix 1.0.5",
  "windows-sys 0.59.0",
 ]
 
@@ -13672,7 +13674,7 @@ checksum = "712e227841d057c1ee1cd2fb22fa7e5a5461ae8e48fa2ca79ec42cfc1931183f"
 
 [[package]]
 name = "windmill"
-version = "1.480.0"
+version = "1.481.0"
 dependencies = [
  "anyhow",
  "axum",
@@ -13719,7 +13721,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-api"
-version = "1.480.0"
+version = "1.481.0"
 dependencies = [
  "anyhow",
  "argon2",
@@ -13821,7 +13823,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-api-client"
-version = "1.480.0"
+version = "1.481.0"
 dependencies = [
  "base64 0.22.1",
  "chrono",
@@ -13836,7 +13838,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-audit"
-version = "1.480.0"
+version = "1.481.0"
 dependencies = [
  "chrono",
  "serde",
@@ -13849,7 +13851,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-autoscaling"
-version = "1.480.0"
+version = "1.481.0"
 dependencies = [
  "anyhow",
  "serde",
@@ -13863,7 +13865,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-common"
-version = "1.480.0"
+version = "1.481.0"
 dependencies = [
  "anyhow",
  "async-stream",
@@ -13925,7 +13927,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-git-sync"
-version = "1.480.0"
+version = "1.481.0"
 dependencies = [
  "regex",
  "serde",
@@ -13939,7 +13941,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-indexer"
-version = "1.480.0"
+version = "1.481.0"
 dependencies = [
  "anyhow",
  "bytes",
@@ -13962,7 +13964,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-macros"
-version = "1.480.0"
+version = "1.481.0"
 dependencies = [
  "itertools 0.14.0",
  "lazy_static",
@@ -13974,7 +13976,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser"
-version = "1.480.0"
+version = "1.481.0"
 dependencies = [
  "convert_case 0.6.0",
  "serde",
@@ -13983,7 +13985,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-bash"
-version = "1.480.0"
+version = "1.481.0"
 dependencies = [
  "anyhow",
  "lazy_static",
@@ -13995,7 +13997,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-csharp"
-version = "1.480.0"
+version = "1.481.0"
 dependencies = [
  "anyhow",
  "serde_json",
@@ -14007,7 +14009,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-go"
-version = "1.480.0"
+version = "1.481.0"
 dependencies = [
  "anyhow",
  "gosyn",
@@ -14019,7 +14021,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-graphql"
-version = "1.480.0"
+version = "1.481.0"
 dependencies = [
  "anyhow",
  "lazy_static",
@@ -14031,7 +14033,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-java"
-version = "1.480.0"
+version = "1.481.0"
 dependencies = [
  "anyhow",
  "serde_json",
@@ -14043,7 +14045,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-nu"
-version = "1.480.0"
+version = "1.481.0"
 dependencies = [
  "anyhow",
  "nu-parser",
@@ -14054,7 +14056,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-php"
-version = "1.480.0"
+version = "1.481.0"
 dependencies = [
  "anyhow",
  "itertools 0.14.0",
@@ -14065,7 +14067,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-py"
-version = "1.480.0"
+version = "1.481.0"
 dependencies = [
  "anyhow",
  "itertools 0.14.0",
@@ -14076,7 +14078,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-py-imports"
-version = "1.480.0"
+version = "1.481.0"
 dependencies = [
  "anyhow",
  "async-recursion",
@@ -14096,7 +14098,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-rust"
-version = "1.480.0"
+version = "1.481.0"
 dependencies = [
  "anyhow",
  "convert_case 0.6.0",
@@ -14113,7 +14115,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-sql"
-version = "1.480.0"
+version = "1.481.0"
 dependencies = [
  "anyhow",
  "lazy_static",
@@ -14125,7 +14127,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-ts"
-version = "1.480.0"
+version = "1.481.0"
 dependencies = [
  "anyhow",
  "lazy_static",
@@ -14143,7 +14145,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-wasm"
-version = "1.480.0"
+version = "1.481.0"
 dependencies = [
  "anyhow",
  "getrandom 0.2.15",
@@ -14167,7 +14169,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-yaml"
-version = "1.480.0"
+version = "1.481.0"
 dependencies = [
  "anyhow",
  "serde_json",
@@ -14177,7 +14179,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-queue"
-version = "1.480.0"
+version = "1.481.0"
 dependencies = [
  "anyhow",
  "async-recursion",
@@ -14210,7 +14212,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-sql-datatype-parser-wasm"
-version = "1.480.0"
+version = "1.481.0"
 dependencies = [
  "wasm-bindgen",
  "wasm-bindgen-test",
@@ -14220,7 +14222,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-worker"
-version = "1.480.0"
+version = "1.481.0"
 dependencies = [
  "anyhow",
  "async-recursion",
@@ -14892,7 +14894,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0d65cbf2f12c15564212d48f4e3dfb87923d25d611f2aed18f4cb23f0413d89e"
 dependencies = [
  "libc",
- "rustix 1.0.3",
+ "rustix 1.0.5",
 ]
 
 [[package]]
