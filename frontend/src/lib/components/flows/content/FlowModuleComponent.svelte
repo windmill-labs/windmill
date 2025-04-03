@@ -718,7 +718,7 @@
 										{/if}
 									</div>
 								</Pane>
-								{#if selected == 'test'}
+								{#if selected === 'test'}
 									<Pane minSize={20}>
 										<ModulePreviewResultViewer
 											lang={flowModule.value['language'] ?? 'deno'}
