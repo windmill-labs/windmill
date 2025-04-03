@@ -10,7 +10,7 @@ CREATE TABLE gcp_trigger (
                            ),
     subscription_id       VARCHAR(255) NOT NULL CHECK (
                               CHAR_LENGTH(subscription_id) BETWEEN 3 AND 255
-                           ) UNIQUE,
+                           ),
     delivery_type         DELIVERY_MODE NOT NULL,
     delivery_config       JSONB NULL CHECK (
                               delivery_type != 'push'::DELIVERY_MODE OR (
@@ -37,6 +37,9 @@ CREATE TABLE gcp_trigger (
 CREATE UNIQUE INDEX unique_route_path_on_push
 ON gcp_trigger ((delivery_config->>'route_path'), workspace_id)
 WHERE delivery_type = 'push';
+
+CREATE UNIQUE INDEX unique_subscription_per_gcp_resource
+ON gcp_trigger (subscription_id, gcp_resource_path, workspace_id);
 
 GRANT ALL ON gcp_trigger TO windmill_user;
 GRANT ALL ON gcp_trigger TO windmill_admin;

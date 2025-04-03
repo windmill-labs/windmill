@@ -136,7 +136,7 @@
 	let nbDisplayed = 15
 	let deleteSubscription = false
 	let deleteSubscriptionCallback: (() => Promise<void>) | undefined = undefined
-	let deleteGpcTriggerCallback: (() => Promise<void>) | undefined = undefined
+	let deleteGcpTriggerCallback: (() => Promise<void>) | undefined = undefined
 
 	const TRIGGER_PATH_KIND_FILTER_SETTING = 'filter_path_of'
 	const FILTER_USER_FOLDER_SETTING_NAME = 'user_and_folders_only'
@@ -234,16 +234,17 @@
 </script>
 
 <ConfirmationModal
-	open={Boolean(deleteGpcTriggerCallback)}
+	open={Boolean(deleteGcpTriggerCallback)}
 	title="Delete associated GCP subscription"
 	confirmationText="Remove"
 	loading={isDeleting}
 	on:canceled={() => {
-		deleteGpcTriggerCallback = undefined
 		isDeleting = false
+		deleteSubscriptionCallback = undefined
+		deleteGcpTriggerCallback = undefined
 	}}
 	on:confirmed={async () => {
-		if (deleteGpcTriggerCallback) {
+		if (deleteGcpTriggerCallback) {
 			isDeleting = true
 			if (deleteSubscription && deleteSubscriptionCallback) {
 				try {
@@ -252,11 +253,12 @@
 					sendUserToast(error.body || error.message, true)
 				}
 			}
-			await deleteGpcTriggerCallback()
+			await deleteGcpTriggerCallback()
 		}
 		isDeleting = false
 		deleteSubscription = false
-		deleteGpcTriggerCallback = undefined
+		deleteSubscriptionCallback = undefined
+		deleteGcpTriggerCallback = undefined
 	}}
 >
 	<div class="flex flex-col w-full space-y-4">
@@ -471,7 +473,7 @@
 														})
 														sendUserToast(message)
 													}
-													deleteGpcTriggerCallback = async () => {
+													deleteGcpTriggerCallback = async () => {
 														const message = await GcpTriggerService.deleteGcpTrigger({
 															workspace: $workspaceStore ?? '',
 															path

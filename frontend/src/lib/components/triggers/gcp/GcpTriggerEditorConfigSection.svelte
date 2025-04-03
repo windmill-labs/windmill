@@ -82,8 +82,8 @@
 							Select a gcp resource.<Required required={true} />
 						</p>
 						<ResourcePicker resourceType="gcloud" bind:value={gcp_resource_path} />
-						{#if isValid}
-							<TestTriggerConnection kind="gcp" args={{ gcp_resource_path, subscription_id }} />
+						{#if !emptyStringTrimmed(gcp_resource_path)}
+							<TestTriggerConnection kind="gcp" args={{ gcp_resource_path }} />
 						{/if}
 					</div>
 				</div>
@@ -130,15 +130,11 @@
 				/>
 			</div>
 			<div class="flex flex-col gap-2">
-				<Subsection label="Delivery type">
-					<div class="flex flex-col gap-2">
-						<p class="text-xs mb-1 text-tertiary">
-							Select the delivery type for the Pub/Sub subscription you are creating. This
-							determines how messages will be delivered to your service. For <strong>Push</strong>,
-							Windmill will automatically generate and manage the endpoint.<Required
-								required={true}
-							/>
-						</p>
+				<Subsection
+					label="Delivery type"
+					tooltip="Select the delivery type for the Pub/Sub subscription. If the subscription already exists and you want to keep it as-is, choose the same delivery type as in Google Cloud. You can switch the type here if the API allows it — otherwise, make the change directly in Google Cloud."
+				>
+					<div class="flex flex-col gap-2 mt-2">
 						<ToggleButtonGroup bind:selected={delivery_type} let:item>
 							<ToggleButton
 								label="Pull"
@@ -158,12 +154,9 @@
 					</div>
 				</Subsection>
 				{#if delivery_type === 'push' && delivery_config}
-					{#if delivery_config.route_path}
-						<Subsection label="URL">
-							<div class="flex flex-col">
-								<p class="text-xs mb-1 text-tertiary">
-									The URL of the service that receives push messages.<Required required={true} />
-								</p>
+					<div class="flex flex-col gap-3 mt-1">
+						{#if delivery_config.route_path}
+							<Subsection label="URL" tooltip="The URL of the service that receives push messages.">
 								<input
 									type="text"
 									autocomplete="off"
@@ -171,32 +164,30 @@
 									disabled
 									value={`${window.location.origin}${base}/${delivery_config.route_path ?? ''}`}
 								/>
-							</div>
-						</Subsection>
-						<Subsection label="Audience">
+							</Subsection>
+							<Subsection
+								label="Audience"
+								tooltip="Provide the expected audience value for verifying OIDC tokens in push requests. If
+								left empty, the URL of the endpoint will be used as the default audience"
+							>
+								<input
+									type="text"
+									autocomplete="off"
+									placeholder="audience"
+									bind:value={delivery_config.audience}
+									disabled={!can_write}
+								/>
+							</Subsection>
+						{/if}
+						<Subsection label="Authenticate">
 							<p class="text-xs mb-2 text-tertiary">
-								Provide the expected audience value for verifying OIDC tokens in push requests. If
-								left empty, the URL of the endpoint will be used as the default audience: <code
-									>{`${window.location.origin}${base}/${delivery_config.route_path ?? ''}`}</code
-								>.
+								Enable Google Cloud authentication for push delivery using a verified token.<Required
+									required={true}
+								/>
 							</p>
-							<input
-								type="text"
-								autocomplete="off"
-								placeholder="audience"
-								bind:value={delivery_config.audience}
-								disabled={!can_write}
-							/>
+							<Toggle bind:checked={delivery_config.authenticate} />
 						</Subsection>
-					{/if}
-					<Subsection label="Authenticate">
-						<p class="text-xs mb-2 text-tertiary">
-							Enable Google Cloud authentication for push delivery using a verified token.<Required
-								required={true}
-							/>
-						</p>
-						<Toggle bind:checked={delivery_config.authenticate} />
-					</Subsection>
+					</div>
 				{/if}
 			</div>
 		</div>
