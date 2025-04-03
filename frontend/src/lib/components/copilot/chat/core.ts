@@ -313,11 +313,9 @@ const applyCodePieceToCodeContext = (codePieces: CodePieceElement[], codeContext
 	let shiftOffset = 0
 	codePieces.sort((a, b) => a.startLine - b.startLine)
 	for (const codePiece of codePieces) {
-		if (codePiece.type === 'code_piece') {
-			code.splice(codePiece.endLine + shiftOffset, 0, '[#END]')
-			code.splice(codePiece.startLine + shiftOffset - 1, 0, '[#START]')
-			shiftOffset += 2
-		}
+		code.splice(codePiece.endLine + shiftOffset, 0, '[#END]')
+		code.splice(codePiece.startLine + shiftOffset - 1, 0, '[#START]')
+		shiftOffset += 2
 	}
 	return code.join('\n')
 }
