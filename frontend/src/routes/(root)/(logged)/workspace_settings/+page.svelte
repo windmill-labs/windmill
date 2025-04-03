@@ -1110,7 +1110,7 @@
 										<div class="flex flex-row gap-1">
 											{#key aiProviders[provider].resource_path}
 												<ResourcePicker
-													resourceType={usingOpenaiClientCredentialsOauth
+													resourceType={provider === 'openai' && usingOpenaiClientCredentialsOauth
 														? 'openai_client_credentials_oauth'
 														: provider}
 													initialValue={aiProviders[provider].resource_path}

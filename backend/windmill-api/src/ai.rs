@@ -25,6 +25,7 @@ lazy_static::lazy_static! {
 }
 
 const AZURE_API_VERSION: &str = "2024-10-21";
+const OPENAI_BASE_URL: &str = "https://api.openai.com/v1";
 
 #[derive(Deserialize, Debug)]
 struct AIOAuthResource {
@@ -50,14 +51,15 @@ struct OAuthTokens {
 #[derive(Deserialize, Debug)]
 #[serde(untagged)]
 enum AIResource {
-    Standard(AIStandardResource),
     OAuth(AIOAuthResource),
+    Standard(AIStandardResource),
 }
 
 #[derive(Deserialize, Clone, Debug)]
 struct AIRequestConfig {
     pub base_url: String,
     pub api_key: Option<String>,
+    pub access_token: Option<String>,
     pub organization_id: Option<String>,
     pub user: Option<String>,
 }
@@ -69,7 +71,7 @@ impl AIRequestConfig {
         w_id: &str,
         resource: AIResource,
     ) -> Result<Self> {
-        let (api_key, organization_id, base_url, user) = match resource {
+        let (api_key, access_token, organization_id, base_url, user) = match resource {
             AIResource::Standard(resource) => {
                 let base_url = provider.get_base_url(resource.base_url, db).await?;
                 let api_key = if let Some(api_key) = resource.api_key {
@@ -83,7 +85,7 @@ impl AIRequestConfig {
                     None
                 };
 
-                (api_key, organization_id, base_url, None)
+                (api_key, None, organization_id, base_url, None)
             }
             AIResource::OAuth(resource) => {
                 let user = if let Some(user) = resource.user.clone() {
@@ -91,17 +93,17 @@ impl AIRequestConfig {
                 } else {
                     None
                 };
-                let token = Self::get_api_key_using_oauth(resource, db, w_id).await?;
+                let token = Self::get_token_using_oauth(resource, db, w_id).await?;
                 let base_url = provider.get_base_url(None, db).await?;
 
-                (Some(token), None, base_url, user)
+                (None, Some(token), None, base_url, user)
             }
         };
 
-        Ok(Self { base_url, organization_id, api_key, user })
+        Ok(Self { base_url, organization_id, api_key, access_token, user })
     }
 
-    async fn get_api_key_using_oauth(
+    async fn get_token_using_oauth(
         mut resource: AIOAuthResource,
         db: &DB,
         w_id: &str,
@@ -111,12 +113,14 @@ impl AIRequestConfig {
         resource.token_url = get_variable_or_self(resource.token_url, db, w_id).await?;
         let mut params = HashMap::new();
         params.insert("grant_type", "client_credentials");
+        params.insert("scope", "https://cognitiveservices.azure.com/.default");
         let response = HTTP_CLIENT
             .post(resource.token_url)
             .form(&params)
             .basic_auth(resource.client_id, Some(resource.client_secret))
             .send()
             .await
+            .and_then(|r| r.error_for_status())
             .map_err(|err| {
                 Error::internal_err(format!(
                     "Failed to get access token using credentials flow: {}",
@@ -146,19 +150,28 @@ impl AIRequestConfig {
             body
         };
 
+        let is_azure = matches!(provider, AIProvider::OpenAI) && self.base_url != OPENAI_BASE_URL
+            || matches!(provider, AIProvider::AzureOpenAI);
+
         let mut request = HTTP_CLIENT
             .post(url)
             .header("content-type", "application/json")
             .body(body);
 
+        if is_azure {
+            request = request.query(&[("api-version", AZURE_API_VERSION)])
+        }
+
         if let Some(api_key) = self.api_key {
-            if matches!(provider, AIProvider::AzureOpenAI) {
-                request = request
-                    .header("api-key", api_key)
-                    .query(&[("api-version", AZURE_API_VERSION)])
+            if is_azure {
+                request = request.header("api-key", api_key)
             } else {
                 request = request.header("authorization", format!("Bearer {}", api_key))
             }
+        }
+
+        if let Some(access_token) = self.access_token {
+            request = request.header("authorization", format!("Bearer {}", access_token))
         }
 
         if let Some(org_id) = self.organization_id {
@@ -221,7 +234,27 @@ pub enum AIProvider {
 impl AIProvider {
     pub async fn get_base_url(&self, resource_base_url: Option<String>, db: &DB) -> Result<String> {
         match self {
-            AIProvider::OpenAI => Ok("https://api.openai.com/v1".to_string()),
+            AIProvider::OpenAI => {
+                let azure_base_path = sqlx::query_scalar!(
+                    "SELECT value
+                    FROM global_settings
+                    WHERE name = 'openai_azure_base_path'",
+                )
+                .fetch_optional(db)
+                .await?;
+
+                let azure_base_path = if let Some(azure_base_path) = azure_base_path {
+                    Some(
+                        serde_json::from_value::<String>(azure_base_path).map_err(|e| {
+                            Error::internal_err(format!("validating openai azure base path {e:#}"))
+                        })?,
+                    )
+                } else {
+                    OPENAI_AZURE_BASE_PATH.clone()
+                };
+
+                Ok(azure_base_path.unwrap_or(OPENAI_BASE_URL.to_string()))
+            }
             AIProvider::DeepSeek => Ok("https://api.deepseek.com/v1".to_string()),
             AIProvider::GoogleAI => {
                 Ok("https://generativelanguage.googleapis.com/v1beta/openai".to_string())
@@ -231,44 +264,14 @@ impl AIProvider {
             AIProvider::TogetherAI => Ok("https://api.together.xyz/v1".to_string()),
             AIProvider::Anthropic => Ok("https://api.anthropic.com/v1".to_string()),
             AIProvider::Mistral => Ok("https://api.mistral.ai/v1".to_string()),
-            AIProvider::CustomAI => {
+            p @ (AIProvider::CustomAI | AIProvider::AzureOpenAI) => {
                 if let Some(base_url) = resource_base_url {
                     Ok(base_url)
                 } else {
-                    Err(Error::BadRequest(
-                        "Custom AI provider does not have a base URL".to_string(),
-                    ))
-                }
-            }
-            AIProvider::AzureOpenAI => {
-                if let Some(base_url) = resource_base_url {
-                    Ok(base_url)
-                } else {
-                    let azure_base_path = sqlx::query_scalar!(
-                        "SELECT value
-                        FROM global_settings
-                        WHERE name = 'openai_azure_base_path'",
-                    )
-                    .fetch_optional(db)
-                    .await?;
-
-                    let azure_base_path = if let Some(azure_base_path) = azure_base_path {
-                        Some(
-                            serde_json::from_value::<String>(azure_base_path).map_err(|e| {
-                                Error::internal_err(format!(
-                                    "validating openai azure base path {e:#}"
-                                ))
-                            })?,
-                        )
-                    } else {
-                        OPENAI_AZURE_BASE_PATH.clone()
-                    };
-
-                    azure_base_path.ok_or_else(|| {
-                        Error::BadRequest(
-                            "Azure base url is required for Azure OpenAI provider".to_string(),
-                        )
-                    })
+                    Err(Error::BadRequest(format!(
+                        "{:?} provider requires a base URL in the resource",
+                        p
+                    )))
                 }
             }
         }
@@ -365,7 +368,7 @@ async fn global_proxy(
 
     if response.error_for_status_ref().is_err() {
         let err_msg = response.text().await.unwrap_or("".to_string());
-        return Err(Error::AiError(err_msg));
+        return Err(Error::AIError(err_msg));
     }
 
     let status_code = response.status();
@@ -480,7 +483,7 @@ async fn proxy(
 
     if response.error_for_status_ref().is_err() {
         let err_msg = response.text().await.unwrap_or("".to_string());
-        return Err(Error::AiError(err_msg));
+        return Err(Error::AIError(err_msg));
     }
 
     let status_code = response.status();
