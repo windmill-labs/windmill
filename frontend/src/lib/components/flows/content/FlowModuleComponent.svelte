@@ -99,12 +99,18 @@
 	let testJob: Job | undefined = undefined
 	let testIsLoading = false
 	let scriptProgress = undefined
+	let lastDeployedCode: string | undefined = undefined
 
-	$: lastDeployedCode =
-		(savedModule?.value as RawScript).content &&
-		(savedModule?.value as RawScript).content !== (flowModule.value as RawScript).content
-			? (savedModule?.value as RawScript).content
-			: undefined
+	$: {
+		const savedRawScript = savedModule?.value as RawScript
+		const currentRawScript = flowModule.value as RawScript
+		lastDeployedCode =
+			savedRawScript?.type === 'rawscript' &&
+			currentRawScript.type === 'rawscript' &&
+			savedRawScript.content !== currentRawScript.content
+				? savedRawScript.content
+				: undefined
+	}
 
 	const { modulesStore: copilotModulesStore } =
 		getContext<FlowCopilotContext | undefined>('FlowCopilotContext') || {}
