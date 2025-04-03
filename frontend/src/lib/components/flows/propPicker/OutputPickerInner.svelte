@@ -511,11 +511,11 @@
 	<!-- svelte-ignore a11y-mouse-events-have-key-events -->
 	<div
 		class={twMerge(
-			'grow min-h-0 rounded-md w-full py-1 pb-2 overflow-auto',
+			'grow min-h-0 rounded-md w-full pl-2 py-1 pb-2 overflow-auto',
 			'transition-all duration-100 outline outline-2 outline-blue-500/0 outline-offset-[-2px]',
 			debouncedCanEditWithDblClick ? 'outline outline-2 outline-blue-500/30' : ''
 		)}
-		style="scrollbar-gutter: stable both-edges;"
+		style="scrollbar-gutter: stable;"
 	>
 		<div
 			class={twMerge('h-full w-full rounded-md')}
