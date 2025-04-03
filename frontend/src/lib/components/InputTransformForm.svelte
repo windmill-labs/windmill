@@ -370,8 +370,8 @@
 											staticTemplate
 												? `\`${arg?.value?.toString().replaceAll('`', '\\`') ?? ''}\``
 												: arg.value
-												? '(' + JSON.stringify(arg?.value, null, 4) + ')'
-												: ''
+													? '(' + JSON.stringify(arg?.value, null, 4) + ')'
+													: ''
 										)
 									}
 									if (arg) {
@@ -450,6 +450,7 @@
 					</div>
 
 					<FlowPlugConnect
+						id="flow-editor-plug"
 						{connecting}
 						on:click={() => {
 							if (
@@ -458,7 +459,7 @@
 							) {
 								clearFocus()
 							} else {
-								focusProp(argName, 'connect', (path) => {
+								focusProp?.(argName, 'connect', (path) => {
 									connectProperty(path)
 									dispatch('change', { argName })
 									return true
