@@ -29,6 +29,7 @@
 	export let noMaxH = false
 	export let noAutoScroll = false
 	export let download = true
+	export let customEmptyMessage = 'No logs are available yet'
 
 	// @ts-ignore
 	const ansi_up = new AnsiUp()
@@ -253,7 +254,7 @@
 					><br />{:else if len > LOG_LIMIT}(truncated to the last {LOG_LIMIT} characters)<br
 					/><button on:click={() => showMoreTruncate(len)}>Show more..</button><br />{/if}<span
 					>{@html html}</span
-				>{:else if !isLoading}<span>No logs are available yet</span>{/if}</pre
+				>{:else if !isLoading}<span>{customEmptyMessage}</span>{/if}</pre
 		>
 	</div>
 </div>

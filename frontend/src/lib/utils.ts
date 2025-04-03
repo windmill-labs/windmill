@@ -1169,3 +1169,44 @@ export function localeConcatAnd(items: string[]) {
 	if (items.length === 1) return items[0]
 	return items.slice(0, -1).join(', ') + ' and ' + items[items.length - 1]
 }
+
+export function formatDate(dateString: string | undefined): string {
+	if (!dateString) return ''
+	const date = new Date(dateString)
+	return new Intl.DateTimeFormat('en-US', {
+		year: 'numeric',
+		month: 'short',
+		day: 'numeric',
+		hour: '2-digit',
+		minute: '2-digit'
+	}).format(date)
+}
+
+export function formatDateShort(dateString: string | undefined): string {
+	if (!dateString) return ''
+	const date = new Date(dateString)
+	const now = new Date()
+
+	// If date is today, only show time
+	if (date.toDateString() === now.toDateString()) {
+		return new Intl.DateTimeFormat('en-US', {
+			hour: '2-digit',
+			minute: '2-digit'
+		}).format(date)
+	}
+
+	// If date is this year, show only month and day
+	if (date.getFullYear() === now.getFullYear()) {
+		return new Intl.DateTimeFormat('en-US', {
+			month: 'short',
+			day: 'numeric'
+		}).format(date)
+	}
+
+	// If date is from another year, only show the date with year
+	return new Intl.DateTimeFormat('en-US', {
+		year: 'numeric',
+		month: 'short',
+		day: 'numeric'
+	}).format(date)
+}

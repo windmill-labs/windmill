@@ -19,6 +19,8 @@
 		}
 		select: string
 	}>()
+
+	let hover: boolean = false
 </script>
 
 <!-- svelte-ignore a11y-click-events-have-key-events -->
@@ -30,7 +32,7 @@
 		selected ? 'outline outline-offset-1 outline-2  outline-gray-600 dark:outline-gray-400' : '',
 		onTop ? 'z-[901]' : ''
 	)}
-	style="width: 275px; max-height: 34px; background-color: {bgColor} !important;"
+	style="width: 275px; max-height: 38px; background-color: {bgColor} !important;"
 	on:click={() => {
 		if (selectable) {
 			if (id) {
@@ -40,6 +42,12 @@
 			}
 		}
 	}}
+	on:mouseenter={() => {
+		hover = true
+	}}
+	on:mouseleave={() => {
+		hover = false
+	}}
 	title={label ? label + ' ' : ''}
-	id={`flow-editor-virtual-${encodeURIComponent(label || label || '')}`}><slot /></div
+	id={`flow-editor-virtual-${encodeURIComponent(label || label || '')}`}><slot {hover} /></div
 >

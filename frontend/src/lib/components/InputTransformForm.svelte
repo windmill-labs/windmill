@@ -70,7 +70,7 @@
 	const { shouldUpdatePropertyType, exprsToSet } =
 		getContext<FlowCopilotContext | undefined>('FlowCopilotContext') || {}
 
-	const { inputMatches, focusProp, propPickerConfig } =
+	const { inputMatches, focusProp, propPickerConfig, clearFocus } =
 		getContext<PropPickerWrapperContext>('PropPickerWrapper')
 
 	function setExpr() {
@@ -370,8 +370,8 @@
 											staticTemplate
 												? `\`${arg?.value?.toString().replaceAll('`', '\\`') ?? ''}\``
 												: arg.value
-												? '(' + JSON.stringify(arg?.value, null, 4) + ')'
-												: ''
+													? '(' + JSON.stringify(arg?.value, null, 4) + ')'
+													: ''
 										)
 									}
 									if (arg) {
@@ -450,13 +450,21 @@
 					</div>
 
 					<FlowPlugConnect
+						id="flow-editor-plug"
 						{connecting}
 						on:click={() => {
-							focusProp(argName, 'connect', (path) => {
-								connectProperty(path)
-								dispatch('change', { argName })
-								return true
-							})
+							if (
+								$propPickerConfig?.propName == argName &&
+								$propPickerConfig?.insertionMode == 'connect'
+							) {
+								clearFocus()
+							} else {
+								focusProp?.(argName, 'connect', (path) => {
+									connectProperty(path)
+									dispatch('change', { argName })
+									return true
+								})
+							}
 						}}
 					/>
 				</div>

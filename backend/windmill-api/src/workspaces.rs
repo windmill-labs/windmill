@@ -8,7 +8,7 @@
 
 use std::collections::HashMap;
 
-use crate::ai::{AIConfig, AI_KEY_CACHE};
+use crate::ai::{AIConfig, AI_REQUEST_CACHE};
 use crate::db::ApiAuthed;
 use crate::users_ee::send_email_if_possible;
 use crate::utils::get_instance_username_or_create_pending;
@@ -704,7 +704,7 @@ async fn edit_copilot_config(
 
     if let Some(ref providers) = ai_config.providers {
         for provider in providers.keys() {
-            AI_KEY_CACHE.remove(&(w_id.clone(), provider.clone()));
+            AI_REQUEST_CACHE.remove(&(w_id.clone(), provider.clone()));
         }
     }
 

@@ -12,9 +12,12 @@
 		offset: number
 		id: string
 		modules: FlowModule[]
+		module: FlowModule
 		flowModuleStates: Record<string, GraphModuleState> | undefined
 		eventHandlers: GraphEventHandlers
 		simplifiedTriggerView: boolean
+		selectedId: string
+		editMode: boolean
 	}
 
 	const propPickerContext = getContext<PropPickerContext>('PropPickerContext')
@@ -23,8 +26,16 @@
 	$: filteredInput = filterIterFromInput($pickablePropertiesFiltered?.flow_input)
 
 	function filterIterFromInput(inputJson: Record<string, any> | undefined): Record<string, any> {
-		if (!inputJson || typeof inputJson !== 'object' || !inputJson.iter) return {}
-		return { iter: inputJson.iter }
+		if (!inputJson || typeof inputJson !== 'object' || (!inputJson.iter && !inputJson.iter_parent))
+			return {}
+		const selectedIdIsDescendant = isSelectedDescendant(data.module, data.selectedId)
+		if (selectedIdIsDescendant === 'child') {
+			return { iter: inputJson.iter }
+		}
+		if (selectedIdIsDescendant === 'grandchild') {
+			return { iter_parent: inputJson.iter_parent }
+		}
+		return {}
 	}
 
 	function computeStatus(state: GraphModuleState | undefined): FlowStatusModule["type"] | undefined {
@@ -34,9 +45,29 @@
 			return r ? 'Success' : 'InProgress'
 		}
 	}
+
+	function isSelectedDescendant(
+		module: FlowModule,
+		selectedId: string
+	): 'child' | 'grandchild' | 'none' {
+		if (!selectedId) return 'none'
+		// Check direct children
+		if (module.value.type === 'forloopflow' || module.value.type === 'whileloopflow') {
+			if (module.value.modules.some((m) => m.id === selectedId)) {
+				return 'child'
+			}
+			// Check grandchildren
+			return module.value.modules.some(
+				(m) =>
+					(m.value.type === 'forloopflow' || m.value.type === 'whileloopflow') &&
+					m.value.modules.some((gm) => gm.id === selectedId)
+			)
+				? 'grandchild'
+				: 'none'
+		}
+		return 'none'
+	}
 </script>
-
-
 
 <NodeWrapper let:darkMode offset={data.offset}>
 	<VirtualItem
@@ -52,5 +83,6 @@
 		}}
 		inputJson={filteredInput}
 		prefix="flow_input"
+		editMode={data.editMode}
 	/>
 </NodeWrapper>

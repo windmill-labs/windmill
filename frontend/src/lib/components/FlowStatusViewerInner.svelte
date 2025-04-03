@@ -576,7 +576,10 @@
 					$flowStateStore[mod.id] = {
 						...$flowStateStore[mod.id],
 						previewResult: job['result'],
-						previewArgs: job.args
+						previewArgs: job.args,
+						previewJobId: job.id,
+						previewWorkspaceId: job.workspace_id,
+						previewSuccess: job['success']
 					}
 				}
 			}

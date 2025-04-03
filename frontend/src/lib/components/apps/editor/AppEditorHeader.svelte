@@ -1596,9 +1596,7 @@
 				<ToggleButtonGroup
 					class="h-[30px]"
 					on:selected={({ detail }) => {
-						console.log('dbg detail', detail)
 						const theme = detail === 'dark' ? true : detail === 'sun' ? false : undefined
-						console.log('dbg settheme', theme)
 						setTheme(theme)
 					}}
 					selected={$app.darkMode === undefined ? 'auto' : $app.darkMode ? 'dark' : 'sun'}

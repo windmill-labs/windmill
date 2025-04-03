@@ -18,6 +18,7 @@ export interface ScheduleFile {
   args: any;
   timezone: string;
   is_flow: boolean;
+  enabled: boolean;
 }
 
 async function list(opts: GlobalOptions) {
@@ -59,8 +60,11 @@ export async function pushSchedule(
       log.debug(`Schedule ${path} is up to date`);
       return;
     }
-    log.debug(`Schedule ${path} is not up-to-date, updating...`);
+    log.debug(`Updating schedule ${path}`);
     try {
+      log.info(colors.bold.yellow(
+        `Updating schedule ${path}`
+      ));
       await wmill.updateSchedule({
         workspace: workspace,
         path,
@@ -68,12 +72,24 @@ export async function pushSchedule(
           ...localSchedule,
         },
       });
+      if (localSchedule.enabled != schedule.enabled) {
+        log.info(colors.bold.yellow(
+          `Schedule ${path} is ${localSchedule.enabled ? "enabled" : "disabled"} locally but not on remote, updating remote`
+        ));
+        await wmill.setScheduleEnabled({
+          workspace: workspace,
+          path,
+          requestBody: {
+            enabled: localSchedule.enabled,
+          },
+        });
+      }
     } catch (e) {
       console.error(e.body);
       throw e;
     }
   } else {
-    console.log(colors.bold.yellow("Creating new schedule: " + path));
+    console.log(colors.bold.yellow("Creating new schedule " + path));
     try {
       await wmill.createSchedule({
         workspace: workspace,

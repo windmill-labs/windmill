@@ -12,6 +12,8 @@
 	import BarsStaggered from '$lib/components/icons/BarsStaggered.svelte'
 	import FlowJobsMenu from './FlowJobsMenu.svelte'
 	import { isTriggerStep } from '$lib/components/graph/graphBuilder'
+	import { checkIfParentLoop } from '$lib/components/flows/utils'
+	import type { FlowEditorContext } from '$lib/components/flows/types'
 
 	export let mod: FlowModule
 	export let insertable: boolean
@@ -29,8 +31,14 @@
 				selectedManually: boolean | undefined
 		  }
 		| undefined
+	export let editMode: boolean = false
 
-	const { selectedId } = getContext<{ selectedId: Writable<string> }>('FlowGraphContext')
+	const { selectedId } = getContext<{
+		selectedId: Writable<string | undefined>
+	}>('FlowGraphContext')
+
+	const { flowStore } = getContext<FlowEditorContext | undefined>('FlowEditorContext') || {}
+
 	const dispatch = createEventDispatcher<{
 		delete: CustomEvent<MouseEvent>
 		insert: {
@@ -43,6 +51,7 @@
 		newBranch: { module: FlowModule }
 		move: { module: FlowModule } | undefined
 		selectedIteration: { index: number; id: string }
+		updateMock: void
 	}>()
 
 	$: itemProps = {
@@ -53,9 +62,11 @@
 		suspend: Boolean(mod.suspend),
 		sleep: Boolean(mod.sleep),
 		cache: Boolean(mod.cache_ttl),
-		mock: Boolean(mod.mock?.enabled),
+		mock: mod.mock,
 		concurrency: Boolean(mod?.value?.['concurrent_limit'])
 	}
+
+	$: parentLoop = flowStore && $flowStore && mod ? checkIfParentLoop($flowStore, mod.id) : undefined
 
 	function onDelete(event: CustomEvent<MouseEvent>) {
 		dispatch('delete', event)
@@ -101,6 +112,7 @@
 			{#if mod.value.type === 'forloopflow' || mod.value.type === 'whileloopflow'}
 				<FlowModuleSchemaItem
 					deletable={insertable}
+					{editMode}
 					label={`${
 						mod.summary || (mod.value.type == 'forloopflow' ? 'For loop' : 'While loop')
 					}  ${mod.value.parallel ? '(parallel)' : ''} ${
@@ -111,6 +123,10 @@
 					on:move={() => dispatch('move')}
 					on:delete={onDelete}
 					on:click={() => dispatch('select', mod.id)}
+					on:updateMock={({ detail }) => {
+						mod.mock = detail
+						dispatch('updateMock')
+					}}
 					{...itemProps}
 					{bgColor}
 					warningMessage={mod?.value?.type === 'forloopflow' &&
@@ -118,6 +134,8 @@
 					mod?.value?.iterator?.expr === ''
 						? 'Iterator expression is empty'
 						: ''}
+					alwaysShowOutputPicker={!mod.id.startsWith('subflow:')}
+					loopStatus={{ type: 'self', flow: mod.value.type }}
 				>
 					<div slot="icon">
 						<Repeat size={16} />
@@ -126,6 +144,7 @@
 			{:else if mod.value.type === 'branchone'}
 				<FlowModuleSchemaItem
 					deletable={insertable}
+					{editMode}
 					on:changeId
 					on:delete={onDelete}
 					on:move={() => dispatch('move')}
@@ -142,6 +161,7 @@
 			{:else if mod.value.type === 'branchall'}
 				<FlowModuleSchemaItem
 					deletable={insertable}
+					{editMode}
 					on:changeId
 					on:delete={onDelete}
 					on:move={() => dispatch('move')}
@@ -158,10 +178,15 @@
 			{:else}
 				<FlowModuleSchemaItem
 					{retries}
+					{editMode}
 					on:changeId
 					on:click={() => dispatch('select', mod.id)}
 					on:delete={onDelete}
 					on:move={() => dispatch('move')}
+					on:updateMock={({ detail }) => {
+						mod.mock = detail
+						dispatch('updateMock')
+					}}
 					deletable={insertable}
 					id={mod.id}
 					{...itemProps}
@@ -177,8 +202,10 @@
 						(mod.value.type === 'rawscript'
 							? `Inline ${prettyLanguage(mod.value.language)}`
 							: 'To be defined')}
-					path={`path` in mod.value && mod.summary ? mod.value.path : ''}
+					path={`path` in mod.value ? mod.value.path : ''}
 					isTrigger={isTriggerStep(mod)}
+					alwaysShowOutputPicker={!mod.id.startsWith('subflow:') && mod.id !== 'preprocessor'}
+					loopStatus={parentLoop ? { type: 'inside', flow: parentLoop.type } : undefined}
 				>
 					<div slot="icon">
 						{#if mod.value.type === 'rawscript'}

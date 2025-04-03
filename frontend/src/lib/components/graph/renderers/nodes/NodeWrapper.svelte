@@ -13,7 +13,10 @@
 
 <DarkModeObserver bind:darkMode />
 
-<div class={twMerge('relative shadow-md', wrapperClass)} style={`margin-left: ${offset}px;`}>
+<div
+	class={twMerge('relative shadow-md rounded-sm', wrapperClass)}
+	style={`margin-left: ${offset}px;`}
+>
 	<slot {darkMode} />
 </div>
 

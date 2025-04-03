@@ -81,6 +81,7 @@
 			<table class={tableFixed ? 'table-fixed w-full' : 'min-w-full'}>
 				<slot />
 			</table>
+			<slot name="emptyMessage" />
 		</div>
 		{#if paginated && !shouldHidePagination}
 			<div
