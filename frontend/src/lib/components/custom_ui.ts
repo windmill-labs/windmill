@@ -64,6 +64,7 @@ export type EditorBarUi = {
 	aiCompletion?: boolean
 	library?: boolean
 	useVsCode?: boolean
+	diffMode?: boolean
 }
 
 export type EditableSchemaFormUi = {
