@@ -3,16 +3,12 @@ use crate::{
     variables::get_variable_or_self,
 };
 
-use anyhow::Context;
 use axum::{body::Bytes, extract::Path, response::IntoResponse, routing::post, Extension, Router};
 use http::HeaderMap;
-use lazy_static::lazy_static;
-use openai::OpenaiCache;
-use openai_api_compatible::OpenaiApiCompatibleCache;
 use quick_cache::sync::Cache;
 use reqwest::{Client, RequestBuilder};
 use serde::{Deserialize, Serialize};
-use serde_json::value::{RawValue, Value};
+use serde_json::value::RawValue;
 use std::collections::HashMap;
 use windmill_audit::{audit_ee::audit_log, ActionKind};
 use windmill_common::error::{to_anyhow, Error, Result};
@@ -22,175 +18,94 @@ lazy_static::lazy_static! {
         .timeout(std::time::Duration::from_secs(60 * 5))
         .user_agent("windmill/beta")
         .build().unwrap();
+
+    static ref OPENAI_AZURE_BASE_PATH: Option<String> = std::env::var("OPENAI_AZURE_BASE_PATH").ok();
+
+    pub static ref AI_REQUEST_CACHE: Cache<(String, AIProvider), ExpiringAIRequestConfig> = Cache::new(500);
 }
 
-mod openai_api_compatible {
-    use super::*;
+const AZURE_API_VERSION: &str = "2024-10-21";
+const OPENAI_BASE_URL: &str = "https://api.openai.com/v1";
 
-    #[derive(Deserialize, Clone, Debug)]
-    pub struct OpenaiApiCompatibleCache {
-        pub base_url: String,
-        pub api_key: Option<String>,
-    }
+#[derive(Deserialize, Debug)]
+struct AIOAuthResource {
+    client_id: String,
+    client_secret: String,
+    token_url: String,
+    user: Option<String>,
+}
 
-    impl OpenaiApiCompatibleCache {
-        pub fn prepare_request(self, path: &str, body: Bytes) -> Result<RequestBuilder> {
-            let url = format!("{}/{}", self.base_url, path);
+#[derive(Deserialize, Debug)]
+struct AIStandardResource {
+    #[serde(alias = "baseUrl")]
+    base_url: Option<String>,
+    #[serde(alias = "apiKey")]
+    api_key: Option<String>,
+    organization_id: Option<String>,
+}
 
-            let mut request = HTTP_CLIENT
-                .post(url)
-                .header("content-type", "application/json")
-                .body(body);
+#[derive(Deserialize, Debug)]
+struct OAuthTokens {
+    access_token: String,
+}
 
-            if let Some(api_key) = self.api_key {
-                request = request.header("Authorization", format!("Bearer {}", api_key));
-            }
+#[derive(Deserialize, Debug)]
+#[serde(untagged)]
+enum AIResource {
+    OAuth(AIOAuthResource),
+    Standard(AIStandardResource),
+}
 
-            Ok(request)
-        }
-    }
+#[derive(Deserialize, Clone, Debug)]
+struct AIRequestConfig {
+    pub base_url: String,
+    pub api_key: Option<String>,
+    pub access_token: Option<String>,
+    pub organization_id: Option<String>,
+    pub user: Option<String>,
+}
 
-    pub async fn get_cached_value(
+impl AIRequestConfig {
+    pub async fn new(
+        provider: &AIProvider,
         db: &DB,
         w_id: &str,
-        resource: Value,
-        base_url: Option<String>,
-    ) -> Result<KeyCache> {
-        let mut resource: OpenaiApiCompatibleCache = if let Some(base_url) = base_url {
-            let api_key = match resource {
-                Value::Object(mut obj) => obj
-                    .remove("api_key")
-                    .map(|v| serde_json::from_value::<String>(v.clone()).ok())
-                    .flatten()
-                    .or_else(|| {
-                        obj.remove("apiKey")
-                            .map(|v| serde_json::from_value::<String>(v.clone()).ok())
-                            .flatten()
-                    }),
-                _ => None,
-            };
-            OpenaiApiCompatibleCache { base_url, api_key }
-        } else {
-            serde_json::from_value(resource).with_context(|| "validating custom AI resource")?
+        resource: AIResource,
+    ) -> Result<Self> {
+        let (api_key, access_token, organization_id, base_url, user) = match resource {
+            AIResource::Standard(resource) => {
+                let base_url = provider.get_base_url(resource.base_url, db).await?;
+                let api_key = if let Some(api_key) = resource.api_key {
+                    Some(get_variable_or_self(api_key, db, w_id).await?)
+                } else {
+                    None
+                };
+                let organization_id = if let Some(organization_id) = resource.organization_id {
+                    Some(get_variable_or_self(organization_id, db, w_id).await?)
+                } else {
+                    None
+                };
+
+                (api_key, None, organization_id, base_url, None)
+            }
+            AIResource::OAuth(resource) => {
+                let user = if let Some(user) = resource.user.clone() {
+                    Some(get_variable_or_self(user, db, w_id).await?)
+                } else {
+                    None
+                };
+                let token = Self::get_token_using_oauth(resource, db, w_id).await?;
+                let base_url = provider.get_base_url(None, db).await?;
+
+                (None, Some(token), None, base_url, user)
+            }
         };
 
-        if let Some(api_key) = resource.api_key {
-            resource.api_key = Some(get_variable_or_self(api_key, db, w_id).await?);
-        }
-
-        Ok(KeyCache::OpenaiApiCompatible(resource))
-    }
-}
-
-mod openai {
-    use super::*;
-
-    const API_VERSION: &str = "2024-10-21";
-
-    #[derive(Deserialize, Debug)]
-    struct OpenaiResource {
-        api_key: String,
-        organization_id: Option<String>,
+        Ok(Self { base_url, organization_id, api_key, access_token, user })
     }
 
-    #[derive(Deserialize, Debug)]
-    struct OpenaiClientCredentialsOauthResource {
-        client_id: String,
-        client_secret: String,
-        token_url: String,
-        user: Option<String>,
-    }
-
-    #[derive(Deserialize, Debug)]
-    #[serde(untagged, rename_all = "snake_case")]
-    enum OpenaiConfig {
-        Resource(OpenaiResource),
-        ClientCredentialsOauthResource(OpenaiClientCredentialsOauthResource),
-    }
-
-    lazy_static::lazy_static! {
-        pub static ref OPENAI_AZURE_BASE_PATH: Option<String> = std::env::var("OPENAI_AZURE_BASE_PATH").ok();
-    }
-
-    #[derive(Deserialize, Debug)]
-    struct OpenaiCredentials {
-        access_token: String,
-    }
-
-    #[derive(Clone, Debug, Deserialize)]
-    pub struct OpenaiCache {
-        api_key: String,
-        organization_id: Option<String>,
-        azure_base_path: Option<String>,
-        user: Option<String>,
-    }
-
-    impl OpenaiCache {
-        pub fn new(
-            api_key: String,
-            organization_id: Option<String>,
-            azure_base_path: Option<String>,
-            user: Option<String>,
-        ) -> Self {
-            Self { api_key, organization_id, azure_base_path, user }
-        }
-    }
-
-    pub const BASE_URL: &str = "https://api.openai.com/v1";
-    impl OpenaiCache {
-        pub fn prepare_request(self, openai_path: &str, mut body: Bytes) -> Result<RequestBuilder> {
-            let OpenaiCache { api_key, azure_base_path, organization_id, user } = self;
-            if user.is_some() {
-                tracing::debug!("Adding user to request body");
-                let mut json_body: HashMap<String, Box<RawValue>> = serde_json::from_slice(&body)
-                    .map_err(|e| {
-                    Error::internal_err(format!("Failed to parse request body: {}", e))
-                })?;
-
-                let user_json_string = serde_json::Value::String(user.unwrap()).to_string(); // makes sure to escape characters
-
-                json_body.insert(
-                    "user".to_string(),
-                    RawValue::from_string(user_json_string)
-                        .map_err(|e| Error::internal_err(format!("Failed to parse user: {}", e)))?,
-                );
-
-                body = serde_json::to_vec(&json_body)
-                    .map_err(|e| {
-                        Error::internal_err(format!("Failed to reserialize request body: {}", e))
-                    })?
-                    .into();
-            }
-
-            let base_url = if let Some(base_url) = azure_base_path {
-                base_url
-            } else {
-                BASE_URL.to_string()
-            };
-            let url = format!("{}/{}", base_url, openai_path);
-            let mut request = HTTP_CLIENT
-                .post(url)
-                .header("content-type", "application/json")
-                .body(body);
-
-            if base_url != BASE_URL {
-                request = request
-                    .header("api-key", api_key)
-                    .query(&[("api-version", API_VERSION)])
-            } else {
-                request = request.header("authorization", format!("Bearer {}", api_key))
-            }
-
-            if let Some(org_id) = organization_id {
-                request = request.header("OpenAI-Organization", org_id);
-            }
-
-            Ok(request)
-        }
-    }
-
-    async fn get_openai_key_using_credentials_flow(
-        mut resource: OpenaiClientCredentialsOauthResource,
+    async fn get_token_using_oauth(
+        mut resource: AIOAuthResource,
         db: &DB,
         w_id: &str,
     ) -> Result<String> {
@@ -199,115 +114,114 @@ mod openai {
         resource.token_url = get_variable_or_self(resource.token_url, db, w_id).await?;
         let mut params = HashMap::new();
         params.insert("grant_type", "client_credentials");
+        params.insert("scope", "https://cognitiveservices.azure.com/.default");
         let response = HTTP_CLIENT
             .post(resource.token_url)
             .form(&params)
             .basic_auth(resource.client_id, Some(resource.client_secret))
             .send()
             .await
+            .and_then(|r| r.error_for_status())
             .map_err(|err| {
                 Error::internal_err(format!(
-                    "Failed to get OpenAI credentials using credentials flow: {}",
+                    "Failed to get access token using credentials flow: {}",
                     err
                 ))
             })?;
-        let response = response.json::<OpenaiCredentials>().await.map_err(|err| {
+        let response = response.json::<OAuthTokens>().await.map_err(|err| {
             Error::internal_err(format!(
-                "Failed to parse OpenAI credentials from credentials flow: {}",
+                "Failed to parse access token from credentials flow: {}",
                 err
             ))
         })?;
         Ok(response.access_token)
     }
 
-    pub async fn get_cached_value(db: &DB, w_id: &str, resource: Value) -> Result<KeyCache> {
-        let config = serde_json::from_value(resource)
-            .map_err(|e| Error::internal_err(format!("validating openai resource {e:#}")))?;
+    pub fn prepare_request(
+        self,
+        provider: &AIProvider,
+        path: &str,
+        body: Bytes,
+    ) -> Result<RequestBuilder> {
+        let url = format!("{}/{}", self.base_url, path);
 
-        let mut user = None::<String>;
-        let mut resource = match config {
-            OpenaiConfig::Resource(resource) => {
-                tracing::debug!("Getting OpenAI key from static resource");
-                resource
-            }
-            OpenaiConfig::ClientCredentialsOauthResource(resource) => {
-                tracing::debug!("Getting OpenAI key with client credentials flow");
-                user = resource.user.clone();
-                let token = get_openai_key_using_credentials_flow(resource, db, w_id).await?;
-                OpenaiResource { api_key: token, organization_id: None }
-            }
-        };
-
-        resource.api_key = get_variable_or_self(resource.api_key, db, w_id).await?;
-
-        if let Some(organization_id) = resource.organization_id {
-            resource.organization_id = Some(get_variable_or_self(organization_id, db, w_id).await?);
-        }
-
-        if user.is_some() {
-            user = Some(get_variable_or_self(user.unwrap(), db, w_id).await?);
-        }
-
-        let azure_base_path = sqlx::query_scalar!(
-            "SELECT value
-            FROM global_settings
-            WHERE name = 'openai_azure_base_path'",
-        )
-        .fetch_optional(db)
-        .await?;
-
-        let azure_base_path = if let Some(azure_base_path) = azure_base_path {
-            Some(
-                serde_json::from_value::<String>(azure_base_path).map_err(|e| {
-                    Error::internal_err(format!("validating openai azure base path {e:#}"))
-                })?,
-            )
+        let body = if let Some(user) = self.user {
+            Self::add_user_to_body(body, user)?
         } else {
-            OPENAI_AZURE_BASE_PATH.clone()
+            body
         };
 
-        let workspace_cache = OpenaiCache::new(
-            resource.api_key.clone(),
-            resource.organization_id.clone(),
-            azure_base_path.clone(),
-            user.clone(),
+        let is_azure = matches!(provider, AIProvider::OpenAI) && self.base_url != OPENAI_BASE_URL
+            || matches!(provider, AIProvider::AzureOpenAI);
+
+        let mut request = HTTP_CLIENT
+            .post(url)
+            .header("content-type", "application/json")
+            .body(body);
+
+        if is_azure {
+            request = request.query(&[("api-version", AZURE_API_VERSION)])
+        }
+
+        if let Some(api_key) = self.api_key {
+            if is_azure {
+                request = request.header("api-key", api_key)
+            } else {
+                request = request.header("authorization", format!("Bearer {}", api_key))
+            }
+        }
+
+        if let Some(access_token) = self.access_token {
+            request = request.header("authorization", format!("Bearer {}", access_token))
+        }
+
+        if let Some(org_id) = self.organization_id {
+            request = request.header("OpenAI-Organization", org_id);
+        }
+
+        Ok(request)
+    }
+
+    fn add_user_to_body(body: Bytes, user: String) -> Result<Bytes> {
+        tracing::debug!("Adding user to request body");
+        let mut json_body: HashMap<String, Box<RawValue>> = serde_json::from_slice(&body)
+            .map_err(|e| Error::internal_err(format!("Failed to parse request body: {}", e)))?;
+
+        let user_json_string = serde_json::Value::String(user).to_string(); // makes sure to escape characters
+
+        json_body.insert(
+            "user".to_string(),
+            RawValue::from_string(user_json_string)
+                .map_err(|e| Error::internal_err(format!("Failed to parse user: {}", e)))?,
         );
-        Ok(KeyCache::Openai(workspace_cache))
+
+        Ok(serde_json::to_vec(&json_body)
+            .map_err(|e| Error::internal_err(format!("Failed to reserialize request body: {}", e)))?
+            .into())
     }
 }
 
 #[derive(Clone, Debug)]
-pub enum KeyCache {
-    Openai(OpenaiCache),
-    OpenaiApiCompatible(OpenaiApiCompatibleCache),
+pub struct ExpiringAIRequestConfig {
+    config: AIRequestConfig,
+    expires_at: std::time::Instant,
 }
 
-#[derive(Clone, Debug)]
-pub struct AICache {
-    pub cached_key: KeyCache,
-    pub expires_at: std::time::Instant,
-}
-
-impl AICache {
-    pub fn new(cached_key: KeyCache) -> Self {
-        Self {
-            cached_key,
-            expires_at: std::time::Instant::now() + std::time::Duration::from_secs(60),
-        }
+impl ExpiringAIRequestConfig {
+    fn new(config: AIRequestConfig) -> Self {
+        Self { config, expires_at: std::time::Instant::now() + std::time::Duration::from_secs(60) }
     }
     fn is_expired(&self) -> bool {
         self.expires_at < std::time::Instant::now()
     }
 }
 
-lazy_static! {
-    pub static ref AI_KEY_CACHE: Cache<(String, AIProvider), AICache> = Cache::new(500);
-}
-
 #[derive(Serialize, Deserialize, Debug, Eq, PartialEq, Hash, Clone)]
 #[serde(rename_all = "lowercase")]
 pub enum AIProvider {
     OpenAI,
+    #[serde(rename = "azure_openai")]
+    AzureOpenAI,
     Anthropic,
     Mistral,
     DeepSeek,
@@ -319,19 +233,48 @@ pub enum AIProvider {
 }
 
 impl AIProvider {
-    pub fn get_base_url(&self) -> Result<Option<String>> {
+    pub async fn get_base_url(&self, resource_base_url: Option<String>, db: &DB) -> Result<String> {
         match self {
-            AIProvider::DeepSeek => Ok(Some("https://api.deepseek.com/v1".to_string())),
-            AIProvider::GoogleAI => Ok(Some(
-                "https://generativelanguage.googleapis.com/v1beta/openai".to_string(),
-            )),
-            AIProvider::Groq => Ok(Some("https://api.groq.com/openai/v1".to_string())),
-            AIProvider::OpenRouter => Ok(Some("https://openrouter.ai/api/v1".to_string())),
-            AIProvider::TogetherAI => Ok(Some("https://api.together.xyz/v1".to_string())),
-            AIProvider::Anthropic => Ok(Some("https://api.anthropic.com/v1".to_string())),
-            AIProvider::Mistral => Ok(Some("https://api.mistral.ai/v1".to_string())),
-            AIProvider::CustomAI => Ok(None),
-            AIProvider::OpenAI => Ok(Some(openai::BASE_URL.to_string())),
+            AIProvider::OpenAI => {
+                let azure_base_path = sqlx::query_scalar!(
+                    "SELECT value
+                    FROM global_settings
+                    WHERE name = 'openai_azure_base_path'",
+                )
+                .fetch_optional(db)
+                .await?;
+
+                let azure_base_path = if let Some(azure_base_path) = azure_base_path {
+                    Some(
+                        serde_json::from_value::<String>(azure_base_path).map_err(|e| {
+                            Error::internal_err(format!("validating openai azure base path {e:#}"))
+                        })?,
+                    )
+                } else {
+                    OPENAI_AZURE_BASE_PATH.clone()
+                };
+
+                Ok(azure_base_path.unwrap_or(OPENAI_BASE_URL.to_string()))
+            }
+            AIProvider::DeepSeek => Ok("https://api.deepseek.com/v1".to_string()),
+            AIProvider::GoogleAI => {
+                Ok("https://generativelanguage.googleapis.com/v1beta/openai".to_string())
+            }
+            AIProvider::Groq => Ok("https://api.groq.com/openai/v1".to_string()),
+            AIProvider::OpenRouter => Ok("https://openrouter.ai/api/v1".to_string()),
+            AIProvider::TogetherAI => Ok("https://api.together.xyz/v1".to_string()),
+            AIProvider::Anthropic => Ok("https://api.anthropic.com/v1".to_string()),
+            AIProvider::Mistral => Ok("https://api.mistral.ai/v1".to_string()),
+            p @ (AIProvider::CustomAI | AIProvider::AzureOpenAI) => {
+                if let Some(base_url) = resource_base_url {
+                    Ok(base_url)
+                } else {
+                    Err(Error::BadRequest(format!(
+                        "{:?} provider requires a base URL in the resource",
+                        p
+                    )))
+                }
+            }
         }
     }
 }
@@ -339,18 +282,9 @@ impl AIProvider {
 impl TryFrom<&str> for AIProvider {
     type Error = Error;
     fn try_from(s: &str) -> Result<Self> {
-        match s {
-            "openai" => Ok(AIProvider::OpenAI),
-            "anthropic" => Ok(AIProvider::Anthropic),
-            "mistral" => Ok(AIProvider::Mistral),
-            "groq" => Ok(AIProvider::Groq),
-            "openrouter" => Ok(AIProvider::OpenRouter),
-            "togetherai" => Ok(AIProvider::TogetherAI),
-            "deepseek" => Ok(AIProvider::DeepSeek),
-            "googleai" => Ok(AIProvider::GoogleAI),
-            "customai" => Ok(AIProvider::CustomAI),
-            _ => Err(Error::BadRequest(format!("Invalid AI provider: {}", s))),
-        }
+        let s = serde_json::from_value::<AIProvider>(serde_json::Value::String(s.to_string()))
+            .map_err(|e| Error::BadRequest(format!("Invalid AI provider: {}", e)))?;
+        Ok(s)
     }
 }
 
@@ -407,11 +341,7 @@ async fn global_proxy(
         return Err(Error::BadRequest("API key is required".to_string()));
     };
 
-    let base_url = provider.get_base_url()?;
-
-    let Some(base_url) = base_url else {
-        return Err(Error::BadRequest("Provider is not supported".to_string()));
-    };
+    let base_url = provider.get_base_url(None, &db).await?;
 
     let url = format!("{}/{}", base_url, ai_path);
 
@@ -439,7 +369,7 @@ async fn global_proxy(
 
     if response.error_for_status_ref().is_err() {
         let err_msg = response.text().await.unwrap_or("".to_string());
-        return Err(Error::AiError(err_msg));
+        return Err(Error::AIError(err_msg));
     }
 
     let status_code = response.status();
@@ -464,32 +394,19 @@ async fn proxy(
         None => return Err(Error::BadRequest("Provider is required".to_string())),
     };
 
-    let workspace_cache = AI_KEY_CACHE.get(&(w_id.clone(), provider.clone()));
+    let workspace_cache = AI_REQUEST_CACHE.get(&(w_id.clone(), provider.clone()));
 
     let forced_resource_path = headers
         .get("X-Resource-Path")
         .map(|v| v.to_str().unwrap_or("").to_string());
-    let ai_cache = match workspace_cache {
-        Some(cache) if !cache.is_expired() && forced_resource_path.is_none() => cache.cached_key,
+    let request_config = match workspace_cache {
+        Some(request_cache) if !request_cache.is_expired() && forced_resource_path.is_none() => {
+            request_cache.config
+        }
         _ => {
-            let (resource, ai_provider, save_to_cache) = if let Some(resource_path) =
-                forced_resource_path
-            {
-                // forced resource path, get the resource directly
-                let resource = sqlx::query_scalar!(
-                    "SELECT value FROM resource WHERE path = $1 AND workspace_id = $2",
-                    &resource_path,
-                    &w_id
-                )
-                .fetch_optional(&db)
-                .await?
-                .ok_or_else(|| {
-                    Error::NotFound(format!(
-                        "Could not find the resource {}, update the resource path in the workspace settings", resource_path
-                    ))
-                })?;
-
-                (resource, provider, false)
+            let (resource_path, save_to_cache) = if let Some(resource_path) = forced_resource_path {
+                // forced resource path
+                (resource_path, false)
             } else {
                 let ai_config = sqlx::query_scalar!(
                     "SELECT ai_config FROM workspace_settings WHERE workspace_id = $1",
@@ -504,13 +421,13 @@ async fn proxy(
                     ));
                 }
 
-                let ai_config = serde_json::from_value::<AIConfig>(ai_config.unwrap())
+                let mut ai_config = serde_json::from_value::<AIConfig>(ai_config.unwrap())
                     .map_err(|e| Error::BadRequest(e.to_string()))?;
 
                 let provider_config = ai_config
                     .providers
-                    .as_ref()
-                    .map(|providers| providers.get(&provider))
+                    .as_mut()
+                    .map(|providers| providers.remove(&provider))
                     .flatten()
                     .ok_or_else(|| {
                         Error::BadRequest(format!("Provider {:?} not configured", provider))
@@ -519,56 +436,37 @@ async fn proxy(
                 if provider_config.resource_path.is_empty() {
                     return Err(Error::BadRequest("Resource path is empty".to_string()));
                 }
-                let resource = sqlx::query_scalar!(
-                    "SELECT value
-                    FROM resource
-                    WHERE path = $1 AND workspace_id = $2",
-                    &provider_config.resource_path,
-                    &w_id
-                )
-                .fetch_optional(&db)
-                .await?
-                .ok_or_else(|| {
-                    Error::NotFound(format!(
-                        "Could not find the {:?} resource at path {}, update the resource path in the workspace settings", provider, provider_config.resource_path
-                    ))
-                })?;
 
-                (resource, provider, true)
+                (provider_config.resource_path, true)
             };
 
-            let Some(resource) = resource else {
-                return Err(Error::internal_err(format!(
-                    "{:?} resource missing value",
-                    ai_provider
-                )));
-            };
+            let resource= sqlx::query_scalar!(
+                "SELECT value as \"value: sqlx::types::Json<Box<RawValue>>\" FROM resource WHERE path = $1 AND workspace_id = $2",
+                &resource_path,
+                &w_id
+            )
+            .fetch_optional(&db)
+            .await?
+            .ok_or_else(|| Error::NotFound(format!("Could not find the resource {}, update the resource path in the workspace settings", resource_path)))?
+            .ok_or_else(|| Error::BadRequest(format!("Empty resource value for {}", resource_path)))?;
 
-            let ai_cache = match ai_provider {
-                AIProvider::OpenAI => openai::get_cached_value(&db, &w_id, resource).await?,
-                _ => {
-                    openai_api_compatible::get_cached_value(
-                        &db,
-                        &w_id,
-                        resource,
-                        ai_provider.get_base_url()?,
-                    )
-                    .await?
-                }
-            };
+            let resource = serde_json::from_str::<AIResource>(resource.0.get())
+                .map_err(|e| Error::BadRequest(e.to_string()))?;
+
+            let request_config = AIRequestConfig::new(&provider, &db, &w_id, resource).await?;
             if save_to_cache {
-                AI_KEY_CACHE.insert((w_id.clone(), ai_provider), AICache::new(ai_cache.clone()));
+                AI_REQUEST_CACHE.insert(
+                    (w_id.clone(), provider.clone()),
+                    ExpiringAIRequestConfig::new(request_config.clone()),
+                );
             }
-            ai_cache
+            request_config
         }
     };
 
-    let request = match ai_cache {
-        KeyCache::Openai(cached) => cached.prepare_request(&ai_path, body),
-        KeyCache::OpenaiApiCompatible(cached) => cached.prepare_request(&ai_path, body),
-    };
+    let request = request_config.prepare_request(&provider, &ai_path, body)?;
 
-    let response = request?.send().await.map_err(to_anyhow)?;
+    let response = request.send().await.map_err(to_anyhow)?;
 
     let mut tx = db.begin().await?;
 
@@ -586,7 +484,7 @@ async fn proxy(
 
     if response.error_for_status_ref().is_err() {
         let err_msg = response.text().await.unwrap_or("".to_string());
-        return Err(Error::AiError(err_msg));
+        return Err(Error::AIError(err_msg));
     }
 
     let status_code = response.status();
