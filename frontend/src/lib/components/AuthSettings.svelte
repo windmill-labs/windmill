@@ -16,12 +16,14 @@
 	import { capitalize } from '$lib/utils'
 	import Toggle from './Toggle.svelte'
 	import { ExternalLink, Plus } from 'lucide-svelte'
+	import AzureOauthSettings from './AzureOauthSettings.svelte'
 
 	export let snowflakeAccountIdentifier = ''
 	export let oauths: Record<string, any> = {}
 	export let requirePreexistingUserForOauth: boolean = false
 
 	const windmillBuiltins = [
+		'azure_oauth',
 		'github',
 		'gitlab',
 		'bitbucket',
@@ -67,7 +69,7 @@
 			</Alert>
 		{/if}
 
-		<div class="py-1" />
+		<div class="py-1"></div>
 		<div class="mb-2">
 			<span class="text-primary text-sm"
 				>When at least one of the below options is set, users will be able to login to Windmill via
@@ -169,11 +171,11 @@
 				></span
 			>
 		</div>
-		<div class="py-1" />
+		<div class="py-1"></div>
 		<OAuthSetting login={false} name="slack" bind:value={oauths['slack']} />
-		<div class="py-1" />
+		<div class="py-1"></div>
 		<OAuthSetting login={false} name="teams" eeOnly={true} bind:value={oauths['teams']} />
-		<div class="py-1" />
+		<div class="py-1"></div>
 
 		{#each Object.keys(oauths) as k}
 			{#if oauths[k] && !('login_config' in oauths[k])}
@@ -198,7 +200,9 @@
 								<span class="text-primary font-semibold text-sm">Client Secret</span>
 								<input type="text" placeholder="Client Secret" bind:value={oauths[k]['secret']} />
 							</label>
-							{#if !windmillBuiltins.includes(k) && k != 'slack'}
+							{#if k === 'azure_oauth'}
+								<AzureOauthSettings bind:connect_config={oauths[k]['connect_config']} />
+							{:else if !windmillBuiltins.includes(k) && k != 'slack'}
 								<CustomOauth bind:connect_config={oauths[k]['connect_config']} />
 							{/if}
 							{#if k == 'snowflake_oauth'}

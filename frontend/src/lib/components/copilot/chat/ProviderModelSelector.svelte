@@ -15,15 +15,17 @@
 			model: 'No model',
 			provider: 'No provider'
 		}
+
+	$: multipleModels = $copilotInfo.aiModels.length > 1
 </script>
 
 <div class="min-w-0">
-	<Popover disablePopup={$copilotInfo.aiModels.length <= 1} class="max-w-full">
+	<Popover disablePopup={!multipleModels} class="max-w-full">
 		<svelte:fragment slot="trigger">
-			<div class="text-tertiary text-xs flex flex-row items-center gap-0.5 font-normal">
-				<span class="truncate">{providerModel.model}</span>
-				{#if $copilotInfo.aiModels.length > 1}
-					<div class="shrink-0">
+			<div class="text-tertiary text-xs flex flex-row items-center font-normal gap-0.5">
+				<span class={`truncate ${multipleModels ? '' : 'pr-2'}`}>{providerModel.model}</span>
+				{#if multipleModels}
+					<div class="shrink-0 pr-1">
 						<ChevronDown size={16} />
 					</div>
 				{/if}

@@ -706,7 +706,7 @@
 											})
 										}
 									}
-							  ]
+								]
 							: []),
 						...(!script.draft_only
 							? [
@@ -716,9 +716,9 @@
 											dispatch('seeDetails', initialPath)
 										}
 									}
-							  ]
+								]
 							: [])
-				  ]
+					]
 				: []
 
 		return dropdownItems.length > 0 ? dropdownItems : undefined
@@ -1640,7 +1640,7 @@
 			{template}
 			tag={script.tag}
 			lastSavedCode={savedScript?.draft?.content}
-			lastDeployedCode={savedScript?.content}
+			lastDeployedCode={savedScript?.draft_only ? undefined : savedScript?.content}
 			bind:args
 			bind:hasPreprocessor
 			bind:captureTable

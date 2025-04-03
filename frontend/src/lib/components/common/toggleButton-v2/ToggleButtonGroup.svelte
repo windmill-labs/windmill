@@ -24,7 +24,7 @@
 			if (next === undefined && !allowEmpty) {
 				return curr
 			}
-			if (curr !== next) {
+			if (curr !== next && curr !== undefined) {
 				dispatch('selected', next)
 			}
 			return next

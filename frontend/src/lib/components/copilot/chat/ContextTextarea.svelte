@@ -3,7 +3,6 @@
 	import { createEventDispatcher } from 'svelte'
 	import type { ContextElement } from './core'
 	import AvailableContextList from './AvailableContextList.svelte'
-	import getCaretCoordinates from 'textarea-caret'
 
 	export let instructions: string
 	export let availableContext: ContextElement[]
@@ -21,6 +20,120 @@
 	let tooltipPosition = { x: 0, y: 0 }
 	let textarea: HTMLTextAreaElement
 	let selectedSuggestionIndex = 0
+
+	// Properties to copy for caret position calculation
+	const properties = [
+		'direction',
+		'boxSizing',
+		'width',
+		'height',
+		'overflowX',
+		'overflowY',
+		'borderTopWidth',
+		'borderRightWidth',
+		'borderBottomWidth',
+		'borderLeftWidth',
+		'borderStyle',
+		'paddingTop',
+		'paddingRight',
+		'paddingBottom',
+		'paddingLeft',
+		'fontStyle',
+		'fontVariant',
+		'fontWeight',
+		'fontStretch',
+		'fontSize',
+		'fontSizeAdjust',
+		'lineHeight',
+		'fontFamily',
+		'textAlign',
+		'textTransform',
+		'textIndent',
+		'textDecoration',
+		'letterSpacing',
+		'wordSpacing',
+		'tabSize',
+		'MozTabSize'
+	]
+
+	function getCaretCoordinates(element: HTMLTextAreaElement, position: number) {
+		// Create mirror div
+		const div = document.createElement('div')
+		div.id = 'input-textarea-caret-position-mirror-div'
+		document.body.appendChild(div)
+
+		// Set styles
+		const style = div.style
+		const computed = window.getComputedStyle(element)
+		const isInput = element.nodeName === 'INPUT'
+
+		// Default textarea styles
+		style.whiteSpace = 'pre-wrap'
+		if (!isInput) style.wordWrap = 'break-word'
+
+		// Position off-screen
+		style.position = 'absolute'
+		style.visibility = 'hidden'
+
+		// Transfer properties
+		properties.forEach(function (prop) {
+			if (isInput && prop === 'lineHeight') {
+				// Special case for inputs
+				if (computed.boxSizing === 'border-box') {
+					const height = parseInt(computed.height)
+					const outerHeight =
+						parseInt(computed.paddingTop) +
+						parseInt(computed.paddingBottom) +
+						parseInt(computed.borderTopWidth) +
+						parseInt(computed.borderBottomWidth)
+					const targetHeight = outerHeight + parseInt(computed.lineHeight)
+					if (height > targetHeight) {
+						style.lineHeight = height - outerHeight + 'px'
+					} else if (height === targetHeight) {
+						style.lineHeight = computed.lineHeight
+					} else {
+						style.lineHeight = '0'
+					}
+				} else {
+					style.lineHeight = computed.height
+				}
+			} else {
+				style[prop] = computed[prop]
+			}
+		})
+
+		// Firefox special handling
+		const isFirefox =
+			(window as typeof window & { mozInnerScreenX: number }).mozInnerScreenX != null
+		if (isFirefox) {
+			if (element.scrollHeight > parseInt(computed.height)) style.overflowY = 'scroll'
+		} else {
+			style.overflow = 'hidden'
+		}
+
+		// Add content before caret
+		div.textContent = element.value.substring(0, position)
+
+		// Replace spaces with non-breaking spaces for input elements
+		if (isInput) div.textContent = div.textContent.replace(/\s/g, '\u00a0')
+
+		// Create span for position calculation
+		const span = document.createElement('span')
+		span.textContent = element.value.substring(position) || '.'
+		div.appendChild(span)
+
+		// Get coordinates
+		const coordinates = {
+			top: span.offsetTop + parseInt(computed['borderTopWidth']),
+			left: span.offsetLeft + parseInt(computed['borderLeftWidth']),
+			height: parseInt(computed['lineHeight'])
+		}
+
+		// Cleanup
+		document.body.removeChild(div)
+
+		return coordinates
+	}
 
 	function getHighlightedText(text: string) {
 		return text.replace(/@[\w/.-]+/g, (match) => {
@@ -57,17 +170,46 @@
 	) {
 		if (!textarea || !showContextTooltip) return
 
-		const coords = getCaretCoordinates(textarea, textarea.selectionEnd)
-		const rect = textarea.getBoundingClientRect()
+		try {
+			const coords = getCaretCoordinates(textarea, textarea.selectionEnd)
+			const rect = textarea.getBoundingClientRect()
 
-		const filteredAvailableContext = availableContext.filter(
-			(c) => !contextTooltipWord || c.title.toLowerCase().includes(contextTooltipWord.slice(1))
-		)
-		const offset = isFirstMessage ? 20 : -(55 + 30 * (filteredAvailableContext.length - 1))
+			const filteredAvailableContext = availableContext.filter(
+				(c) => !contextTooltipWord || c.title.toLowerCase().includes(contextTooltipWord.slice(1))
+			)
 
-		tooltipPosition = {
-			x: rect.left + coords.left - 70,
-			y: rect.top + coords.top + offset
+			const itemHeight = 28 // Estimated height of one item + gap (Button: p-1(8px) + text-xs(16px) = 24px; Parent: gap-1(4px) = 28px)
+			const containerPadding = 8 // p-1 top + p-1 bottom = 4px + 4px = 8px
+			const maxHeight = 192 + containerPadding // max-h-48 (192px) + containerPadding (8px)
+
+			// Calculate uncapped height, subtract gap from last item as it's not needed
+			const numItems = filteredAvailableContext.length
+			let uncappedHeight =
+				numItems > 0 ? numItems * itemHeight - 4 + containerPadding : containerPadding
+			// Ensure height is at least containerPadding even if no items
+			uncappedHeight = Math.max(uncappedHeight, containerPadding)
+
+			const estimatedTooltipHeight = Math.min(uncappedHeight, maxHeight)
+			const margin = 6 // Small margin between caret and tooltip
+
+			let finalY: number
+
+			if (isFirstMessage) {
+				// Position below the caret line
+				finalY = rect.top + coords.top + coords.height - 3
+			} else {
+				// Position above the caret line
+				finalY = rect.top + coords.top - estimatedTooltipHeight - margin
+			}
+
+			tooltipPosition = {
+				x: rect.left + coords.left - 70,
+				y: finalY
+			}
+		} catch (error) {
+			// Hide tooltip on any error related to position calculation
+			console.error('Error updating tooltip position', error)
+			showContextTooltip = false
 		}
 	}
 
@@ -173,12 +315,12 @@
 		style={instructions.length > 0
 			? 'color: transparent; -webkit-text-fill-color: transparent;'
 			: ''}
-	/>
+	></textarea>
 </div>
 
 {#if showContextTooltip}
 	<div
-		class="absolute bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-md shadow-lg p-2 z-50"
+		class="absolute bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-md shadow-lg z-50"
 		style="left: {tooltipPosition.x}px; top: {tooltipPosition.y}px;"
 	>
 		<AvailableContextList

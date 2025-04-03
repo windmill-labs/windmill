@@ -22,7 +22,12 @@
 	export let showOnDemandOnlyToggle = false
 	export let securedContext = false
 
-	const { onchange, worldStore, state, app } = getContext<AppViewerContext>('AppViewerContext')
+	const {
+		onchange,
+		worldStore,
+		state: stateStore,
+		app
+	} = getContext<AppViewerContext>('AppViewerContext')
 	const { evalPreview } = getContext<AppEditorContext>('AppEditorContext')
 
 	let editor: SimpleEditor
@@ -32,7 +37,7 @@
 
 	$: extraLib =
 		componentInput?.expr && $worldStore
-			? buildExtraLib($worldStore?.outputsById ?? {}, acceptSelf ? '' : id, $state, false)
+			? buildExtraLib($worldStore?.outputsById ?? {}, acceptSelf ? '' : id, $stateStore, false)
 			: undefined
 
 	if (

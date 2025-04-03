@@ -1,6 +1,6 @@
 import { ResourceService } from '$lib/gen/services.gen'
 import type { ResourceType, ScriptLang } from '$lib/gen/types.gen'
-import { capitalize, toCamel } from '$lib/utils'
+import { capitalize, isObject, toCamel } from '$lib/utils'
 import { get, type Writable } from 'svelte/store'
 import { getCompletion } from '../lib'
 import { compile, phpCompile, pythonCompile } from '../utils'
@@ -14,11 +14,15 @@ import type {
 import { workspaceStore, type DBSchema, dbSchemas } from '$lib/stores'
 import { scriptLangToEditorLang } from '$lib/scripts'
 import { getDbSchemas } from '$lib/components/apps/components/display/dbtable/utils'
+import { type Change } from 'diff'
 
 export function formatResourceTypes(
-	resourceTypes: ResourceType[],
+	allResourceTypes: ResourceType[],
 	lang: 'python3' | 'php' | 'bun' | 'deno' | 'nativets' | 'bunnative'
 ) {
+	const resourceTypes = allResourceTypes.filter(
+		(rt) => isObject(rt.schema) && 'properties' in rt.schema && isObject(rt.schema.properties)
+	)
 	if (lang === 'python3') {
 		const result = resourceTypes.map((resourceType) => {
 			return `class ${resourceType.name}(TypedDict):\n${pythonCompile(resourceType.schema as any)}`
@@ -33,15 +37,11 @@ export function formatResourceTypes(
 		return '\n' + result.join('\n\n')
 	} else {
 		let resultStr = 'namespace RT {\n'
-		const result = resourceTypes
-			.filter(
-				(resourceType) => Boolean(resourceType.schema) && typeof resourceType.schema === 'object'
-			)
-			.map((resourceType) => {
-				return `  type ${toCamel(capitalize(resourceType.name))} = ${compile(
-					resourceType.schema as any
-				).replaceAll('\n', '\n  ')}`
-			})
+		const result = resourceTypes.map((resourceType) => {
+			return `  type ${toCamel(capitalize(resourceType.name))} = ${compile(
+				resourceType.schema as any
+			).replaceAll('\n', '\n  ')}`
+		})
 		return resultStr + result.join('\n\n') + '\n}'
 	}
 }
@@ -272,34 +272,36 @@ export const ContextIconMap = {
 
 export type ContextElement =
 	| {
-		type: 'code'
-		content: string
-		title: string
-		lang: ScriptLang | 'bunnative'
-	}
+			type: 'code'
+			content: string
+			title: string
+			lang: ScriptLang | 'bunnative'
+	  }
 	| {
-		type: 'error'
-		content: string
-		title: 'error'
-	}
+			type: 'error'
+			content: string
+			title: 'error'
+	  }
 	| {
-		type: 'db'
-		schema?: DBSchema
-		title: string
-	}
+			type: 'db'
+			schema?: DBSchema
+			title: string
+	  }
 	| {
-		type: 'diff'
-		content: string
-		title: string
-	}
+			type: 'diff'
+			content: string
+			title: string
+			diff: Change[]
+			lang: ScriptLang | 'bunnative'
+	  }
 	| {
-		type: 'code_piece'
-		content: string
-		startLine: number
-		endLine: number
-		title: string
-		lang: ScriptLang | 'bunnative'
-	}
+			type: 'code_piece'
+			content: string
+			startLine: number
+			endLine: number
+			title: string
+			lang: ScriptLang | 'bunnative'
+	  }
 
 const applyCodePieceToCodeContext = (codePieces: ContextElement[], codeContext: string) => {
 	let code = codeContext.split('\n')
@@ -317,7 +319,7 @@ export async function prepareUserMessage(
 	language: ScriptLang | 'bunnative',
 	selectedContext: ContextElement[]
 ) {
-	let codeContext = 'CODE:\n';
+	let codeContext = 'CODE:\n'
 	let errorContext = 'ERROR:\n'
 	let dbContext = 'DATABASES:\n'
 	let diffContext = 'DIFF:\n'
@@ -330,7 +332,13 @@ export async function prepareUserMessage(
 			hasCode = true
 			codeContext += CHAT_USER_CODE_CONTEXT.replace('{title}', context.title)
 				.replace('{language}', scriptLangToEditorLang(language))
-				.replace('{code}', applyCodePieceToCodeContext(selectedContext.filter((c) => c.type === 'code_piece'), context.content))
+				.replace(
+					'{code}',
+					applyCodePieceToCodeContext(
+						selectedContext.filter((c) => c.type === 'code_piece'),
+						context.content
+					)
+				)
 		} else if (context.type === 'error') {
 			if (hasError) {
 				throw new Error('Multiple error contexts provided')
@@ -339,14 +347,21 @@ export async function prepareUserMessage(
 			errorContext = CHAT_USER_ERROR_CONTEXT.replace('{error}', context.content)
 		} else if (context.type === 'db') {
 			hasDb = true
-			dbContext += CHAT_USER_DB_CONTEXT.replace('{title}', context.title).replace('{schema}', context.schema?.stringified ?? 'to fetch with get_db_schema')
+			dbContext += CHAT_USER_DB_CONTEXT.replace('{title}', context.title).replace(
+				'{schema}',
+				context.schema?.stringified ?? 'to fetch with get_db_schema'
+			)
 		} else if (context.type === 'diff') {
 			hasDiff = true
-			diffContext = context.content.length > 3000 ? context.content.slice(0, 3000) + '...' : context.content
+			const diff = JSON.stringify(context.diff)
+			diffContext = diff.length > 3000 ? diff.slice(0, 3000) + '...' : diff
 		}
 	}
 
-	let userMessage = CHAT_USER_PROMPT.replace('{instructions}', instructions).replace('{lang_context}', getLangContext(language))
+	let userMessage = CHAT_USER_PROMPT.replace('{instructions}', instructions).replace(
+		'{lang_context}',
+		getLangContext(language)
+	)
 	if (hasCode) {
 		userMessage += codeContext
 	}
@@ -437,8 +452,16 @@ async function callTool(
 				path: args.resourcePath
 			})
 			const newDbSchemas = {}
-			await getDbSchemas(resource.resource_type, args.resourcePath, workspace, newDbSchemas, (error) => { console.error(error) })
-			dbSchemas.update(schemas => ({ ...schemas, ...newDbSchemas }))
+			await getDbSchemas(
+				resource.resource_type,
+				args.resourcePath,
+				workspace,
+				newDbSchemas,
+				(error) => {
+					console.error(error)
+				}
+			)
+			dbSchemas.update((schemas) => ({ ...schemas, ...newDbSchemas }))
 			const dbs = get(dbSchemas)
 			const db = dbs[args.resourcePath]
 			if (!db) {
@@ -481,7 +504,7 @@ export async function chatRequest(
 				const finalToolCalls: Record<number, ChatCompletionChunk.Choice.Delta.ToolCall> = {}
 
 				for await (const chunk of completion) {
-					if (!('choices' in chunk)) {
+					if (!('choices' in chunk && chunk.choices.length > 0 && 'delta' in chunk.choices[0])) {
 						continue
 					}
 					const c = chunk as ChatCompletionChunk
