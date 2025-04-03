@@ -55,6 +55,8 @@
 		| undefined = undefined
 	export let customHeight: number | undefined = undefined
 	export let rightMargin: boolean = false
+	export let disableMock: boolean = false
+	export let disableHistory: boolean = false
 
 	type SelectedJob =
 		| Job
@@ -198,70 +200,72 @@
 			)}
 		>
 			<div class="flex flex-row items-center gap-0.5">
-				<Popover
-					bind:this={stepHistoryPopover}
-					floatingConfig={{
-						placement: 'left-start',
-						offset: { mainAxis: 8, crossAxis: -4.5 },
-						gutter: 0 // hack to make offset effective, see https://github.com/melt-ui/melt-ui/issues/528
-					}}
-					contentClasses="w-[225px] overflow-hidden"
-					{closeOnOutsideClick}
-					usePointerDownOutside={closeOnOutsideClick}
-					disablePopup={!!connectingData || jsonView}
-					bind:isOpen={historyOpen}
-				>
-					<svelte:fragment slot="trigger">
-						<Button
-							color="light"
-							size="xs2"
-							variant="contained"
-							btnClasses="bg-surface h-[27px]"
-							startIcon={{ icon: History }}
-							nonCaptureEvent
-						/>
-					</svelte:fragment>
-					<svelte:fragment slot="content">
-						<div class="rounded-[inherit]" style={`height: ${popoverHeight}px`}>
-							<StepHistory
-								{moduleId}
-								{getLogs}
-								on:select={async ({ detail }) => {
-									if (!detail) {
-										selectJob(undefined)
-										togglePreview(undefined)
-										return
-									}
-									if (detail === 'mock') {
-										if (mock?.enabled) {
+				{#if !disableHistory}
+					<Popover
+						bind:this={stepHistoryPopover}
+						floatingConfig={{
+							placement: 'left-start',
+							offset: { mainAxis: 8, crossAxis: -4.5 },
+							gutter: 0 // hack to make offset effective, see https://github.com/melt-ui/melt-ui/issues/528
+						}}
+						contentClasses="w-[225px] overflow-hidden"
+						{closeOnOutsideClick}
+						usePointerDownOutside={closeOnOutsideClick}
+						disablePopup={!!connectingData || jsonView}
+						bind:isOpen={historyOpen}
+					>
+						<svelte:fragment slot="trigger">
+							<Button
+								color="light"
+								size="xs2"
+								variant="contained"
+								btnClasses="bg-surface h-[27px]"
+								startIcon={{ icon: History }}
+								nonCaptureEvent
+							/>
+						</svelte:fragment>
+						<svelte:fragment slot="content">
+							<div class="rounded-[inherit]" style={`height: ${popoverHeight}px`}>
+								<StepHistory
+									{moduleId}
+									{getLogs}
+									on:select={async ({ detail }) => {
+										if (!detail) {
 											selectJob(undefined)
 											togglePreview(undefined)
 											return
 										}
-										togglePreview('mock')
-										return
-									}
-									isLoading = true
-									const fullJob = await detail.getFullJob()
-									if (fullJob) {
-										selectJob(fullJob)
-										togglePreview('job')
-									}
-									isLoading = false
-								}}
-								mockValue={mock?.return_value}
-								mockEnabled={mock?.enabled}
-								bind:this={stepHistory}
-								{path}
-								noHistory={loopStatus
-									? loopStatus.type === 'self'
-										? 'isLoop'
-										: 'isInsideLoop'
-									: undefined}
-							/>
-						</div>
-					</svelte:fragment>
-				</Popover>
+										if (detail === 'mock') {
+											if (mock?.enabled) {
+												selectJob(undefined)
+												togglePreview(undefined)
+												return
+											}
+											togglePreview('mock')
+											return
+										}
+										isLoading = true
+										const fullJob = await detail.getFullJob()
+										if (fullJob) {
+											selectJob(fullJob)
+											togglePreview('job')
+										}
+										isLoading = false
+									}}
+									mockValue={mock?.return_value}
+									mockEnabled={mock?.enabled}
+									bind:this={stepHistory}
+									{path}
+									noHistory={loopStatus
+										? loopStatus.type === 'self'
+											? 'isLoop'
+											: 'isInsideLoop'
+										: undefined}
+								/>
+							</div>
+						</svelte:fragment>
+					</Popover>
+				{/if}
 				{#if !isLoading && (loopStatus?.type === 'self' || displayJobBadge || infoMessage || displayLastJobButton)}
 					<div
 						class={twMerge(
@@ -359,56 +363,58 @@
 					</div>
 				{/if}
 				{#if !infoMessage}
-					<Tooltip disablePopup={mock?.enabled}>
-						<Button
-							color="light"
-							size="xs2"
-							variant="contained"
-							btnClasses={twMerge(
-								'bg-transparent h-[27px]',
-								mock?.enabled
-									? 'text-white bg-blue-500 hover:text-primary hover:bg-blue-700 hover:text-gray-100'
-									: '',
-								jsonView ? 'pointer-events-none' : ''
-							)}
-							startIcon={{ icon: Pin }}
-							iconOnly
-							on:click={() => {
-								if (mock?.enabled) {
-									dispatch('updateMock', {
-										...mock,
-										enabled: false
-									})
-								} else {
-									if (selectedJob && 'result' in selectedJob) {
-										let mockValue = structuredClone(selectedJob.result)
-										if (selectedJob.result === 'never tested this far') {
-											mockValue = { example: 'value' }
-										}
-										const newMock = {
-											enabled: true,
-											return_value: mockValue
-										}
-										dispatch('updateMock', newMock)
-										selectJob(undefined) // reset the job
+					{#if !disableMock}
+						<Tooltip disablePopup={mock?.enabled}>
+							<Button
+								color="light"
+								size="xs2"
+								variant="contained"
+								btnClasses={twMerge(
+									'bg-transparent h-[27px]',
+									mock?.enabled
+										? 'text-white bg-blue-500 hover:text-primary hover:bg-blue-700 hover:text-gray-100'
+										: '',
+									jsonView ? 'pointer-events-none' : ''
+								)}
+								startIcon={{ icon: Pin }}
+								iconOnly
+								on:click={() => {
+									if (mock?.enabled) {
+										dispatch('updateMock', {
+											...mock,
+											enabled: false
+										})
 									} else {
-										if (mock?.return_value) {
-											dispatch('updateMock', {
+										if (selectedJob && 'result' in selectedJob) {
+											let mockValue = structuredClone(selectedJob.result)
+											if (selectedJob.result === 'never tested this far') {
+												mockValue = { example: 'value' }
+											}
+											const newMock = {
 												enabled: true,
-												return_value: mock.return_value
-											})
+												return_value: mockValue
+											}
+											dispatch('updateMock', newMock)
+											selectJob(undefined) // reset the job
 										} else {
-											dispatch('updateMock', {
-												enabled: true,
-												return_value: { example: 'value' }
-											})
+											if (mock?.return_value) {
+												dispatch('updateMock', {
+													enabled: true,
+													return_value: mock.return_value
+												})
+											} else {
+												dispatch('updateMock', {
+													enabled: true,
+													return_value: { example: 'value' }
+												})
+											}
 										}
 									}
-								}
-							}}
-						/>
-						<svelte:fragment slot="text">Pin output</svelte:fragment>
-					</Tooltip>
+								}}
+							/>
+							<svelte:fragment slot="text">Pin output</svelte:fragment>
+						</Tooltip>
+					{/if}
 
 					{#if jsonView}
 						<Button
@@ -647,16 +653,18 @@
 			{:else if !lastJob}
 				<div class="flex flex-col items-center justify-center h-full">
 					<p class="text-xs text-secondary">
-						Test this step to see results or <button
-							class="text-blue-500 hover:text-blue-700 underline"
-							on:click={() => {
-								const newMock = {
-									enabled: true,
-									return_value: mock?.return_value ?? { example: 'value' }
-								}
-								dispatch('updateMock', newMock)
-							}}>pin data<Pin size={16} class="inline" /></button
-						>
+						Test this step to see results{#if !disableMock}
+							or
+							<button
+								class="text-blue-500 hover:text-blue-700 underline"
+								on:click={() => {
+									const newMock = {
+										enabled: true,
+										return_value: mock?.return_value ?? { example: 'value' }
+									}
+									dispatch('updateMock', newMock)
+								}}>pin data<Pin size={16} class="inline" /></button
+							>{:else}.{/if}
 					</p>
 				</div>
 			{/if}

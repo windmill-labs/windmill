@@ -732,6 +732,8 @@
 											{testJob}
 											mod={flowModule}
 											{testIsLoading}
+											disableMock={preprocessorModule || failureModule}
+											disableHistory={failureModule}
 										/>
 									</Pane>
 								{/if}

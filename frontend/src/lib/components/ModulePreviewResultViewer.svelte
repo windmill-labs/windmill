@@ -21,6 +21,8 @@
 	export let testJob: Job | undefined = undefined
 	export let mod: FlowModule
 	export let testIsLoading: boolean = false
+	export let disableMock: boolean = false
+	export let disableHistory: boolean = false
 
 	const { flowStore, testStepStore } = getContext<FlowEditorContext>('FlowEditorContext')
 
@@ -64,7 +66,8 @@
 			bind:preview
 			path={`path` in mod.value ? mod.value.path : ''}
 			{loopStatus}
-			hideHeaderBar={mod.id === 'preprocessor'}
+			{disableMock}
+			{disableHistory}
 		>
 			<svelte:fragment slot="copilot-fix">
 				{#if lang && editor && diffEditor && $testStepStore[mod.id] && selectedJob && 'result' in selectedJob && selectedJob.result && typeof selectedJob.result == 'object' && `error` in selectedJob.result && selectedJob.result.error}
