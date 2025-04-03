@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.480.0
+  version: 1.481.0
   title: Windmill API
 
   contact:
@@ -13531,7 +13531,7 @@ components:
           csharp,
           nu,
           java
-          # KJQXZ 
+          # for related places search: ADD_NEW_LANG 
         ]
 
     Preview:

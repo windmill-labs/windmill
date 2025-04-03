@@ -381,12 +381,12 @@ function getProviderAndCompletionConfig<K extends boolean>({
 							budget_tokens: 1024
 						},
 						model: modelProvider.model.slice(0, -9)
-				  }
+					}
 				: {
 						model: modelProvider.model,
 						temperature: 0,
 						tools
-				  }),
+					}),
 			max_tokens: getModelMaxTokens(modelProvider.model),
 			messages: processedMessages,
 			stream
@@ -442,7 +442,7 @@ export async function getNonStreamingCompletion(
 					Authorization: '' // a non empty string will be unable to access Windmill backend proxy
 				},
 				dangerouslyAllowBrowser: true
-		  })
+			})
 		: workspaceAIClients.getOpenaiClient()
 	const completion = await openaiClient.chat.completions.create(config, fetchOptions)
 	response = completion.choices[0]?.message.content || ''

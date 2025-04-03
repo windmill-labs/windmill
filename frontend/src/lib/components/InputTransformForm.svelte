@@ -370,8 +370,8 @@
 											staticTemplate
 												? `\`${arg?.value?.toString().replaceAll('`', '\\`') ?? ''}\``
 												: arg.value
-												? '(' + JSON.stringify(arg?.value, null, 4) + ')'
-												: ''
+													? '(' + JSON.stringify(arg?.value, null, 4) + ')'
+													: ''
 										)
 									}
 									if (arg) {
@@ -450,11 +450,12 @@
 					</div>
 
 					<FlowPlugConnect
+						id="flow-editor-plug"
 						{connecting}
 						on:click={() => {
-							focusProp(argName, 'connect', (path) => {
+							focusProp?.(argName, 'connect', (path) => {
 								connectProperty(path)
-								dispatch('change', { argName })
+								dispatch('change', { argName, arg })
 								return true
 							})
 						}}
@@ -463,7 +464,7 @@
 			{/if}
 		</div>
 
-		<div class="max-w-xs" />
+		<div class="max-w-xs"></div>
 		<!-- svelte-ignore a11y-no-static-element-interactions -->
 		<div class="relative" on:keyup={handleKeyUp}>
 			<!-- {#if $propPickerConfig?.propName == argName && $propPickerConfig?.insertionMode == 'connect'}
@@ -568,7 +569,7 @@
 							/>
 						</div>
 						<DynamicInputHelpBox />
-						<div class="mb-2" />
+						<div class="mb-2"></div>
 					{:else}
 						Not recognized input type {argName} ({arg.expr}, {propertyType})
 						<div class="flex mt-2">
@@ -603,7 +604,7 @@
 						</svg>
 					</div>
 				{:else}
-					<div class="w-0" />
+					<div class="w-0"></div>
 				{/if}
 			</div>
 		</div>

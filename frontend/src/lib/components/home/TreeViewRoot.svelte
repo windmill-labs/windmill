@@ -27,7 +27,7 @@
 	<div class="flex flex-row items-center justify-center">
 		<div
 			class="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-900 dark:border-gray-100"
-		/>
+		></div>
 	</div>
 {:else if groupedItems.length === 0}
 	<div class="flex flex-row items-center justify-center">

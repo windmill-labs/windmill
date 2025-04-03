@@ -85,5 +85,5 @@
 			? ''
 			: `background-color: ${color};`}
 		"
-	/>
+	></div>
 </AlignWrapper>

@@ -227,13 +227,13 @@
 
 	<div class={twMerge('p-2')}>
 		{#if !$enterpriseLicense}
-			<div class="py-1" />
+			<div class="py-1"></div>
 
 			<Alert title="Content Search is an EE feature" type="warning">
 				Without EE, content search will only search among 10 scripts, 3 flows, 3 apps and 3
 				resources.
 			</Alert>
-			<div class="py-1" />
+			<div class="py-1"></div>
 		{/if}
 
 		{#if search.trim().length > 0}

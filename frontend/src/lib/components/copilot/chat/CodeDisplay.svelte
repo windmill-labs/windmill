@@ -32,9 +32,11 @@
 
 	const { message } = getContext<{ message: DisplayMessage }>('AssistantMessageContext')
 
-	$: codeContext = message.contextElements?.find((e) => e.type === 'code') as
-		| Extract<ContextElement, { type: 'code' }>
-		| undefined
+	let codeContext = $derived(
+		message.contextElements?.find((e) => e.type === 'code') as
+			| Extract<ContextElement, { type: 'code' }>
+			| undefined
+	)
 
 	function getSmartLang(lang: string) {
 		switch (lang) {
@@ -93,20 +95,22 @@
 		yaml: yaml
 	}
 
-	$: code = $astNode.children?.[0]?.children?.[0]?.value
+	let code = $derived(astNode.current.children?.[0]?.children?.[0]?.value)
 
-	$: language = ($astNode.children?.[0]?.properties?.class as string | undefined)?.split('-')[1]
+	let language = $derived(
+		(astNode.current.children?.[0]?.properties?.class as string | undefined)?.split('-')[1]
+	)
 
-	let loading = true
+	let loading = $state(true)
 	function shouldStopLoading(astNode: HastNode, replying: boolean) {
 		if (!replying || $currentReply.length > (astNode.position?.end.offset ?? 0)) {
 			loading = false
 		}
 	}
-	$: shouldStopLoading($astNode, $loadingContext)
+	$effect(() => shouldStopLoading(astNode.current, $loadingContext))
 
-	let diffEl: HTMLDivElement | undefined
-	let diffEditor: meditor.IStandaloneDiffEditor | undefined
+	let diffEl: HTMLDivElement | undefined = $state()
+	let diffEditor: meditor.IStandaloneDiffEditor | undefined = $state()
 	async function setDiffEditor(diffEl: HTMLDivElement) {
 		if (!codeContext) {
 			return
@@ -163,13 +167,15 @@
 			modifiedModel.setValue(code ?? '')
 		}
 	}
-	$: updateModifiedModel(code ?? '')
+	$effect(() => updateModifiedModel(code ?? ''))
 
-	$: diffEl &&
-		language &&
-		codeContext &&
-		getSmartLang(codeContext.lang) === getSmartLang(language) &&
-		setDiffEditor(diffEl)
+	$effect(() => {
+		diffEl &&
+			language &&
+			codeContext &&
+			getSmartLang(codeContext.lang) === getSmartLang(language) &&
+			setDiffEditor(diffEl)
+	})
 </script>
 
 <div class="flex flex-col gap-0.5 rounded-lg relative not-prose">
@@ -193,7 +199,7 @@
 				<Loader2 class="w-4 h-4 animate-spin" /> Generating code...
 			</div>
 		{:else if !loading && codeContext && getSmartLang(codeContext.lang) === getSmartLang(language)}
-			<div bind:this={diffEl} class="w-full h-full" />
+			<div bind:this={diffEl} class="w-full h-full"></div>
 		{:else}
 			<HighlightCode
 				class="p-1"

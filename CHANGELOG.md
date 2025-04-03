@@ -1,5 +1,21 @@
 # Changelog
 
+## [1.481.0](https://github.com/windmill-labs/windmill/compare/v1.480.1...v1.481.0) (2025-04-02)
+
+
+### Features
+
+* mssql support cert configuration ([#5559](https://github.com/windmill-labs/windmill/issues/5559)) ([e5519f7](https://github.com/windmill-labs/windmill/commit/e5519f79aaa83f04014364c7d1ec11157044011d))
+
+## [1.480.1](https://github.com/windmill-labs/windmill/compare/v1.480.0...v1.480.1) (2025-04-02)
+
+
+### Bug Fixes
+
+* aad_token can be empty string ([#5557](https://github.com/windmill-labs/windmill/issues/5557)) ([3fd7a5c](https://github.com/windmill-labs/windmill/commit/3fd7a5ce9c02332be40c34c0b6da57894b0b3d55))
+* improve workspace selection for default tag settings ([7083efd](https://github.com/windmill-labs/windmill/commit/7083efd051aeb7f653cccc97db099f4d9b2591a0))
+* mssql aad_token can be empty string ([#5556](https://github.com/windmill-labs/windmill/issues/5556)) ([dd30692](https://github.com/windmill-labs/windmill/commit/dd30692617e3cbc852239c4b1c50f975ff247c33))
+
 ## [1.480.0](https://github.com/windmill-labs/windmill/compare/v1.479.3...v1.480.0) (2025-03-31)
 
 

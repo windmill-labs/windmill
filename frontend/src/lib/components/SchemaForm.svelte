@@ -90,9 +90,8 @@
 		args = nargs
 	}
 
-	let keys: string[] = Array.isArray(schema?.order)
-		? schema?.order
-		: Object.keys(schema?.properties ?? {})
+	let keys: string[]
+	$: keys = Array.isArray(schema?.order) ? schema?.order : Object.keys(schema?.properties ?? {})
 
 	function removeExtraKey() {
 		const nargs = {}

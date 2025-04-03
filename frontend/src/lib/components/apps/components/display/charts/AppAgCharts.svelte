@@ -383,6 +383,6 @@
 		style={css?.container?.style ?? ''}
 	>
 		<!-- {JSON.stringify(result)} -->
-		<div id={`agchart-${id}`} class="h-full w-full" />
+		<div id={`agchart-${id}`} class="h-full w-full"></div>
 	</div>
 </RunnableWrapper>
