@@ -7106,11 +7106,13 @@ dependencies = [
  "schemars",
  "serde",
  "serde_json",
+ "sqlx",
  "tokio",
  "tokio-stream",
  "tokio-util",
  "tracing",
  "tracing-subscriber",
+ "windmill-common",
 ]
 
 [[package]]

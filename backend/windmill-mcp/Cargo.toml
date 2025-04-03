@@ -10,6 +10,8 @@ publish = false
 rmcp = { version = "0.1", features = ["server", "transport-sse-server", "transport-io"] }
 tokio = { version = "1", features = ["macros", "rt", "rt-multi-thread", "io-std", "signal"] }
 serde = { version = "1.0", features = ["derive"] }
+windmill-common = { workspace = true, default-features = false }
+sqlx = { workspace = true, features = ["postgres"] }
 serde_json = "1.0"
 anyhow = "1.0"
 tracing = "0.1"
@@ -40,3 +42,7 @@ path = "src/axum.rs"
 [[example]]
 name = "axum_router"
 path = "src/axum_router.rs"
+
+[[example]]
+name = "test"
+path = "src/test.rs"
