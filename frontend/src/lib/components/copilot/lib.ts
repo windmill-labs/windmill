@@ -445,7 +445,7 @@ export async function getNonStreamingCompletion(
 			})
 		: workspaceAIClients.getOpenaiClient()
 	const completion = await openaiClient.chat.completions.create(config, fetchOptions)
-	response = completion.choices[0]?.message.content || ''
+	response = completion.choices?.[0]?.message.content || ''
 	return response
 }
 
@@ -466,7 +466,7 @@ export async function getCompletion(
 }
 
 export function getResponseFromEvent(part: OpenAI.Chat.Completions.ChatCompletionChunk): string {
-	return part.choices[0]?.delta?.content || ''
+	return part.choices?.[0]?.delta?.content || ''
 }
 
 export async function copilot(
