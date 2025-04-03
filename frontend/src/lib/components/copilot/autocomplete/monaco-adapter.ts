@@ -438,7 +438,7 @@ export class Autocompletor {
 			endColumn: 10000
 		})
 
-		const returnedCode = await autocompleteRequest(
+		let returnedCode = await autocompleteRequest(
 			{
 				prefix,
 				modifiablePrefix,
@@ -453,6 +453,8 @@ export class Autocompletor {
 		if (!returnedCode) {
 			return
 		}
+
+		returnedCode = returnedCode.replace('<CURSOR>', '')
 
 		const editableCode = model.getValueInRange({
 			startLineNumber: modifiableStart,

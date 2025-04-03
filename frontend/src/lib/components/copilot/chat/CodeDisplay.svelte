@@ -1,8 +1,8 @@
 <script lang="ts">
 	import { Button } from '$lib/components/common'
-	import { getAstNode, type HastNode } from 'svelte-exmarkdown'
+	import { getAstNode } from 'svelte-exmarkdown'
 	import { editor as meditor } from 'monaco-editor'
-	import { getContext } from 'svelte'
+	import { getContext, untrack } from 'svelte'
 	import { Loader2 } from 'lucide-svelte'
 	import { initializeVscode } from '$lib/components/vscode'
 	import type { AIChatContext, ContextElement, DisplayMessage } from './core'
@@ -102,12 +102,13 @@
 	)
 
 	let loading = $state(true)
-	function shouldStopLoading(astNode: HastNode, replying: boolean) {
-		if (!replying || $currentReply.length > (astNode.position?.end.offset ?? 0)) {
+	$effect(() => {
+		// we only want to trigger when astNode offset is updated not currentReply, otherwise as there is some delay on the offset update, loading would be set to false too early
+		const completeReply = untrack(() => $currentReply)
+		if (!$loadingContext || completeReply.length > (astNode.current.position?.end.offset ?? 0)) {
 			loading = false
 		}
-	}
-	$effect(() => shouldStopLoading(astNode.current, $loadingContext))
+	})
 
 	let diffEl: HTMLDivElement | undefined = $state()
 	let diffEditor: meditor.IStandaloneDiffEditor | undefined = $state()
@@ -179,17 +180,19 @@
 </script>
 
 <div class="flex flex-col gap-0.5 rounded-lg relative not-prose">
-	<div class="flex justify-end items-end">
-		<Button
-			color="dark"
-			size="xs2"
-			on:click={() => {
-				applyCode(code ?? '')
-			}}
-		>
-			Apply
-		</Button>
-	</div>
+	{#if codeContext}
+		<div class="flex justify-end items-end">
+			<Button
+				color="dark"
+				size="xs2"
+				on:click={() => {
+					applyCode(code ?? '')
+				}}
+			>
+				Apply
+			</Button>
+		</div>
+	{/if}
 
 	<div
 		class="relative w-full border border-gray-300 dark:border-gray-600 rounded-lg overflow-hidden"
