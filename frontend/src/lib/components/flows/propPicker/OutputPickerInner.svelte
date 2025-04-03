@@ -79,7 +79,6 @@
 	let tmpMock: { enabled: boolean; return_value?: unknown } | undefined = undefined
 	let error = ''
 	let stepHistoryPopover: Popover | undefined = undefined
-	let stepHistory: StepHistory | undefined = undefined
 	let lastJob: SelectedJob = undefined
 	let historyOpen = false
 	let contentEl: HTMLDivElement | undefined = undefined
@@ -284,7 +283,6 @@
 									}}
 									mockValue={mock?.return_value}
 									mockEnabled={mock?.enabled}
-									bind:this={stepHistory}
 									{path}
 									noHistory={loopStatus
 										? loopStatus.type === 'self'
