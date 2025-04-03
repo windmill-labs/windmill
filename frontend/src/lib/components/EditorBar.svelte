@@ -25,6 +25,7 @@
 	import Toggle from './Toggle.svelte'
 
 	import {
+		DiffIcon,
 		DollarSign,
 		History,
 		Library,
@@ -69,6 +70,9 @@
 	export let noHistory = false
 	export let saveToWorkspace = false
 	export let customUi: EditorBarUi = {}
+	export let lastDeployedCode: string | undefined = undefined
+	export let diffMode: boolean = false
+	export let showHistoryDrawer: boolean = false
 
 	let contextualVariablePicker: ItemPicker
 	let variablePicker: ItemPicker
@@ -94,8 +98,8 @@
 		'rust',
 		'csharp',
 		'nu',
-		'java',
-		// for related places search: ADD_NEW_LANG 
+		'java'
+		// for related places search: ADD_NEW_LANG
 	].includes(lang ?? '')
 	$: showVarPicker = [
 		'python3',
@@ -110,8 +114,8 @@
 		'rust',
 		'csharp',
 		'nu',
-		'java',
-		// for related places search: ADD_NEW_LANG 
+		'java'
+		// for related places search: ADD_NEW_LANG
 	].includes(lang ?? '')
 	$: showResourcePicker = [
 		'python3',
@@ -126,8 +130,8 @@
 		'rust',
 		'csharp',
 		'nu',
-		'java',
-		// for related places search: ADD_NEW_LANG 
+		'java'
+		// for related places search: ADD_NEW_LANG
 	].includes(lang ?? '')
 	$: showResourceTypePicker =
 		['typescript', 'javascript'].includes(scriptLangToEditorLang(lang)) ||
@@ -313,13 +317,11 @@
 			})
 			.join('')
 	}
-
-	let historyBrowserDrawerOpen = false
 </script>
 
 {#if scriptPath}
-	<Drawer bind:open={historyBrowserDrawerOpen} size="1200px">
-		<DrawerContent title="Versions History" on:close={() => (historyBrowserDrawerOpen = false)}>
+	<Drawer bind:open={showHistoryDrawer} size="1200px">
+		<DrawerContent title="Versions History" on:close={() => (showHistoryDrawer = false)}>
 			<ScriptVersionHistory {scriptPath} />
 		</DrawerContent>
 	</Drawer>
@@ -381,7 +383,7 @@
 			editor.insertAtCursor(`$env.${name}`)
 		} else if (lang == 'java') {
 			editor.insertAtCursor(`System.getenv("${name}");`)
-			// for related places search: ADD_NEW_LANG 
+			// for related places search: ADD_NEW_LANG
 		}
 		sendUserToast(`${name} inserted at cursor`)
 	}}
@@ -451,7 +453,7 @@ string ${windmillPathToCamelCaseName(path)} = await client.GetStringAsync(uri);
 			editor.insertAtCursor(`get_variable ${path}`)
 		} else if (lang == 'java') {
 			editor.insertAtCursor(`(Wmill.getVariable("${path}"))`)
-			// for related places search: ADD_NEW_LANG 
+			// for related places search: ADD_NEW_LANG
 		}
 		sendUserToast(`${name} inserted at cursor`)
 	}}
@@ -538,7 +540,7 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 			editor.insertAtCursor(`get_resource ${path}`)
 		} else if (lang == 'java') {
 			editor.insertAtCursor(`(Wmill.getResource("${path}"))`)
-			// for related places search: ADD_NEW_LANG 
+			// for related places search: ADD_NEW_LANG
 		}
 
 		sendUserToast(`${path} inserted at cursor`)
@@ -697,6 +699,25 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 				{/if}
 			{/if}
 
+			{#if customUi?.diffMode != false}
+				<div class="flex items-center px-3">
+					<Toggle
+						options={{ right: '' }}
+						size="xs"
+						checked={diffMode}
+						disabled={!lastDeployedCode}
+						on:change={(e) => {
+							const turnOn = e.detail
+							dispatch(turnOn ? 'showDiffMode' : 'hideDiffMode')
+						}}
+					/>
+					<Popover>
+						<svelte:fragment slot="text">Toggle diff mode</svelte:fragment>
+						<DiffIcon class="ml-1 text-tertiary" size={14} />
+					</Popover>
+				</div>
+			{/if}
+
 			{#if collabMode && customUi?.multiplayer != false}
 				<div class="flex items-center px-3">
 					<Toggle
@@ -747,7 +768,7 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 				size="xs"
 				spacingSize="md"
 				color="light"
-				on:click={() => (historyBrowserDrawerOpen = true)}
+				on:click={() => (showHistoryDrawer = true)}
 				{iconOnly}
 				startIcon={{ icon: History }}
 				title="See history"
