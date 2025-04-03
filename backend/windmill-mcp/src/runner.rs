@@ -1,3 +1,6 @@
+use hyper::Client;
+use hyper::Request;
+use hyper::body::Body;
 use rmcp::{
     Error as McpError, RoleServer, ServerHandler, const_string, model::*, schemars,
     service::RequestContext, tool,
@@ -12,11 +15,20 @@ pub struct StructRequest {
 }
 
 #[derive(Clone)]
-pub struct Runner {}
+pub struct Runner {
+    token: Option<String>,
+}
+
 #[tool(tool_box)]
 impl Runner {
     pub fn new() -> Self {
-        Self {}
+        Self { token: None }
+    }
+
+    pub fn update_user_token(&mut self, token: String) -> Result<CallToolResult, McpError> {
+        tracing::info!("Updating user token: {}", token);
+        self.token = Some(token.clone());
+        Ok(CallToolResult::success(vec![Content::text(token)]))
     }
 
     fn _create_resource_text(&self, uri: &str, name: &str) -> Resource {
@@ -25,15 +37,25 @@ impl Runner {
 
     #[tool(description = "Get list of scripts")]
     async fn get_scripts(&self) -> Result<CallToolResult, McpError> {
-        let db = initial_connection().await.unwrap();
-        let scripts = sqlx::query!("SELECT path FROM script").fetch_all(&db).await;
-        let scripts = scripts.unwrap_or_default();
+        let client = Client::new();
+        let req = Request::builder()
+            .method("GET")
+            .uri("http://localhost:8000/api/w/admins/scripts/list")
+            .header(
+                "Authorization",
+                format!("Bearer {}", self.token.as_ref().unwrap()),
+            )
+            .body(Body::empty())
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+        let response = client
+            .request(req)
+            .await
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+        let body = hyper::body::to_bytes(response.into_body())
+            .await
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
         Ok(CallToolResult::success(vec![Content::text(
-            scripts
-                .iter()
-                .map(|s| s.path.clone())
-                .collect::<Vec<String>>()
-                .join("\n"),
+            String::from_utf8_lossy(&body).into_owned(),
         )]))
     }
 

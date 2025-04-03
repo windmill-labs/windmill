@@ -1,5 +1,3 @@
-
-
 [package]
 name = "mcp-server-examples"
 version = "0.1.5"
@@ -7,7 +5,7 @@ edition = "2024"
 publish = false
 
 [dependencies]
-rmcp = { version = "0.1", features = ["server", "transport-sse-server", "transport-io"] }
+rmcp = { version = "0.1.5", features = ["server", "transport-sse-server", "transport-io"] }
 tokio = { version = "1", features = ["macros", "rt", "rt-multi-thread", "io-std", "signal"] }
 serde = { version = "1.0", features = ["derive"] }
 windmill-common = { workspace = true, default-features = false }
@@ -24,6 +22,11 @@ futures = "0.3"
 rand = { version = "0.9" }
 axum = { version = "0.8", features = ["macros"] }
 schemars = { version = "0.8", optional = true }
+hyper = { version = "0.14", features = ["full"] }
+tower = { version = "0.4", features = ["util"] }
+tower-http = { version = "0.5", features = ["cors"] }
+http = "0.2"
+urlencoding = "2.1"
 # [dev-dependencies.'cfg(target_arch="linux")'.dependencies]
 
 [dev-dependencies]

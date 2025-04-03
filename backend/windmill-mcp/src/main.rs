@@ -1,6 +1,12 @@
 use rmcp::transport::sse_server::SseServer;
 mod runner;
 use crate::runner::Runner;
+use hyper::client::HttpConnector;
+use hyper::service::{make_service_fn, service_fn};
+use hyper::{Body, Client, Request, Server};
+use std::convert::Infallible;
+use std::net::SocketAddr;
+use std::sync::{Arc, RwLock};
 use tracing_subscriber::{
     layer::SubscriberExt,
     util::SubscriberInitExt,
@@ -8,6 +14,63 @@ use tracing_subscriber::{
 };
 
 const BIND_ADDRESS: &str = "127.0.0.1:8008";
+const INTERNAL_ADDRESS: &str = "127.0.0.1:8009";
+
+async fn proxy(
+    client: Client<HttpConnector>,
+    runner: Arc<RwLock<Runner>>,
+    req: Request<Body>,
+) -> Result<hyper::Response<Body>, hyper::Error> {
+    let path = req.uri().path_and_query().map(|x| x.as_str()).unwrap_or("");
+    let uri = format!("http://{}{}", INTERNAL_ADDRESS, path);
+    let method = req.method().clone();
+
+    tracing::info!("Incoming request: {} {}", method, req.uri());
+    tracing::info!("Headers: {:?}", req.headers());
+
+    // Log query parameters if present
+    if let Some(query) = req.uri().query() {
+        tracing::info!("Query parameters: {}", query);
+        // parse query parameters
+        let query_parts: Vec<&str> = query.split('&').collect();
+        for part in query_parts {
+            if let Some((key, value)) = part.split_once('=') {
+                tracing::info!("Key: {}, Value: {}", key, value);
+                if key == "token" {
+                    tracing::info!("Key is token");
+                    let decoded_value =
+                        urlencoding::decode(value).unwrap_or(std::borrow::Cow::Borrowed(value));
+                    tracing::info!("Decoded value: {}", decoded_value);
+                    let result = runner
+                        .write()
+                        .unwrap()
+                        .update_user_token(decoded_value.as_ref().to_string());
+                    match result {
+                        Ok(result) => {
+                            tracing::info!("Result: {:?}", result);
+                        }
+                        Err(e) => {
+                            tracing::error!("Error: {:?}", e);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    let mut proxy_req = Request::builder().method(method.clone()).uri(uri.clone());
+
+    *proxy_req.headers_mut().unwrap() = req.headers().clone();
+    let proxy_req = proxy_req.body(req.into_body()).unwrap_or_else(|_| {
+        Request::builder()
+            .method(method)
+            .uri(uri)
+            .body(Body::empty())
+            .unwrap()
+    });
+
+    client.request(proxy_req).await
+}
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -20,11 +83,37 @@ async fn main() -> anyhow::Result<()> {
         .init();
 
     tracing::info!("Starting MCP server");
-    let ct = SseServer::serve(BIND_ADDRESS.parse()?)
-        .await?
-        .with_service(Runner::new);
 
-    tokio::signal::ctrl_c().await?;
-    ct.cancel();
+    let runner = Arc::new(RwLock::new(Runner::new()));
+    let runner_clone = runner.clone();
+
+    // Start SSE server on internal port
+    let ct = SseServer::serve(INTERNAL_ADDRESS.parse()?)
+        .await?
+        .with_service(move || runner_clone.read().unwrap().clone());
+
+    // Start proxy server
+    let client = Client::new();
+    let make_svc = make_service_fn(move |_conn| {
+        let client = client.clone();
+        let runner = runner.clone();
+        async move {
+            Ok::<_, Infallible>(service_fn(move |req| {
+                proxy(client.clone(), runner.clone(), req)
+            }))
+        }
+    });
+
+    let addr: SocketAddr = BIND_ADDRESS.parse()?;
+    let server = Server::bind(&addr).serve(make_svc);
+    tracing::info!("Proxy listening on {}", BIND_ADDRESS);
+
+    tokio::select! {
+        _ = server => {},
+        _ = tokio::signal::ctrl_c() => {
+            ct.cancel();
+        }
+    }
+
     Ok(())
 }
