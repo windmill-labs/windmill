@@ -270,45 +270,53 @@ export const ContextIconMap = {
 	code_piece: Code
 }
 
-export type ContextElement =
-	| {
-			type: 'code'
-			content: string
-			title: string
-			lang: ScriptLang | 'bunnative'
-	  }
-	| {
-			type: 'error'
-			content: string
-			title: 'error'
-	  }
-	| {
-			type: 'db'
-			schema?: DBSchema
-			title: string
-	  }
-	| {
-			type: 'diff'
-			content: string
-			title: string
-			diff: Change[]
-			lang: ScriptLang | 'bunnative'
-	  }
-	| {
-			type: 'code_piece'
-			content: string
-			startLine: number
-			endLine: number
-			title: string
-			lang: ScriptLang | 'bunnative'
-	  }
+type CodeElement = {
+	type: 'code'
+	content: string
+	title: string
+	lang: ScriptLang | 'bunnative'
+}
 
-const applyCodePieceToCodeContext = (codePieces: ContextElement[], codeContext: string) => {
+type ErrorElement = {
+	type: 'error'
+	content: string
+	title: 'error'
+}
+
+type DBElement = {
+	type: 'db'
+	schema?: DBSchema
+	title: string
+}
+
+type DiffElement = {
+	type: 'diff'
+	content: string
+	title: string
+	diff: Change[]
+	lang: ScriptLang | 'bunnative'
+}
+
+type CodePieceElement = {
+	type: 'code_piece'
+	content: string
+	startLine: number
+	endLine: number
+	title: string
+	lang: ScriptLang | 'bunnative'
+}
+
+export type ContextElement = CodeElement | ErrorElement | DBElement | DiffElement | CodePieceElement
+
+const applyCodePieceToCodeContext = (codePieces: CodePieceElement[], codeContext: string) => {
 	let code = codeContext.split('\n')
+	let shiftOffset = 0
+	codePieces.sort((a, b) => a.startLine - b.startLine)
 	for (const codePiece of codePieces) {
 		if (codePiece.type === 'code_piece') {
-			code.splice(codePiece.startLine - 1, 0, '[#START]')
-			code.splice(codePiece.endLine + 1, 0, '[#END]')
+			code.splice(codePiece.endLine + shiftOffset, 0, '[#END]')
+			code.splice(codePiece.startLine + shiftOffset - 1, 0, '[#START]')
+			shiftOffset += 2
 		}
 	}
 	return code.join('\n')
