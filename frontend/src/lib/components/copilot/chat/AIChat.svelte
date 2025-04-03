@@ -144,18 +144,6 @@
 				})
 			}
 
-			if (!providerModel?.model.endsWith('/thinking')) {
-				for (const d of dbResources) {
-					const loadedSchema = dbSchemas[d.path]
-					newAvailableContext.push({
-						type: 'db',
-						title: d.path,
-						// If the db is already fetched, add the schema to the context
-						...(loadedSchema ? { schema: loadedSchema } : {})
-					})
-				}
-			}
-
 			if (error) {
 				newAvailableContext = [
 					...newAvailableContext,

@@ -222,18 +222,4 @@ export class AIChatEditorHandler {
 			this.viewZoneIds.push(...ids)
 		}
 	}
-
-	async reviewChanges(newCode: string) {
-		const hasChanges = await this.calculateVisualChanges(newCode)
-		if (!hasChanges) return
-		for (const group of this.groupChanges) {
-			const { collection, ids } = await displayVisualChanges(
-				'editor-windmill-chat-style',
-				this.editor,
-				group.changes
-			)
-			this.decorationsCollections.push(collection)
-			this.viewZoneIds.push(...ids)
-		}
-	}
 }

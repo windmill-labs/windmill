@@ -134,7 +134,6 @@
 		"svelte-infinite-loading": "^1.4.0",
 		"svelte-tiny-virtual-list": "^2.0.5",
 		"tailwind-merge": "^1.13.2",
-		"textarea-caret": "^3.1.0",
 		"vscode": "npm:@codingame/monaco-vscode-api@~11.1.2",
 		"vscode-languageclient": "~9.0.1",
 		"vscode-uri": "~3.0.8",
