@@ -1,11 +1,9 @@
-use std::sync::Arc;
-
 use rmcp::{
     Error as McpError, RoleServer, ServerHandler, const_string, model::*, schemars,
     service::RequestContext, tool,
 };
 use serde_json::json;
-use tokio::sync::Mutex;
+use windmill_common::initial_connection;
 
 #[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
 pub struct StructRequest {
@@ -14,60 +12,51 @@ pub struct StructRequest {
 }
 
 #[derive(Clone)]
-pub struct Counter {
-    counter: Arc<Mutex<i32>>,
-}
+pub struct Runner {}
 #[tool(tool_box)]
-impl Counter {
+impl Runner {
     pub fn new() -> Self {
-        Self {
-            counter: Arc::new(Mutex::new(0)),
-        }
+        Self {}
     }
 
     fn _create_resource_text(&self, uri: &str, name: &str) -> Resource {
         RawResource::new(uri, name.to_string()).no_annotation()
     }
 
-    #[tool(description = "Increment the counter by 1")]
-    async fn increment(&self) -> Result<CallToolResult, McpError> {
-        let mut counter = self.counter.lock().await;
-        *counter += 1;
+    #[tool(description = "Get list of scripts")]
+    async fn get_scripts(&self) -> Result<CallToolResult, McpError> {
+        let db = initial_connection().await.unwrap();
+        let scripts = sqlx::query!("SELECT path FROM script").fetch_all(&db).await;
+        let scripts = scripts.unwrap_or_default();
         Ok(CallToolResult::success(vec![Content::text(
-            counter.to_string(),
+            scripts
+                .iter()
+                .map(|s| s.path.clone())
+                .collect::<Vec<String>>()
+                .join("\n"),
         )]))
     }
 
-    #[tool(description = "Decrement the counter by 1")]
-    async fn decrement(&self) -> Result<CallToolResult, McpError> {
-        let mut counter = self.counter.lock().await;
-        *counter -= 1;
-        Ok(CallToolResult::success(vec![Content::text(
-            counter.to_string(),
-        )]))
-    }
-
-    #[tool(description = "Get the current counter value")]
-    async fn get_value(&self) -> Result<CallToolResult, McpError> {
-        let counter = self.counter.lock().await;
-        Ok(CallToolResult::success(vec![Content::text(
-            counter.to_string(),
-        )]))
-    }
-
-    #[tool(description = "Say hello to the client")]
-    fn say_hello(&self) -> Result<CallToolResult, McpError> {
-        Ok(CallToolResult::success(vec![Content::text("hello")]))
-    }
-
-    #[tool(description = "Repeat what you say")]
-    fn echo(
+    #[tool(description = "Run a script by path name")]
+    async fn run_script(
         &self,
         #[tool(param)]
-        #[schemars(description = "Repeat what you say")]
-        saying: String,
+        #[schemars(description = "The script path to run")]
+        script: String,
     ) -> Result<CallToolResult, McpError> {
-        Ok(CallToolResult::success(vec![Content::text(saying)]))
+        let db = initial_connection().await.unwrap();
+        let script = sqlx::query!("SELECT path FROM script WHERE path = $1", script)
+            .fetch_one(&db)
+            .await;
+        let script = match script {
+            Ok(s) => s,
+            Err(_) => {
+                return Ok(CallToolResult::success(vec![Content::text(
+                    "Script not found".to_string(),
+                )]));
+            }
+        };
+        Ok(CallToolResult::success(vec![Content::text(script.path)]))
     }
 
     #[tool(description = "Calculate the sum of two numbers")]
@@ -80,9 +69,10 @@ impl Counter {
         )]))
     }
 }
+
 const_string!(Echo = "echo");
 #[tool(tool_box)]
-impl ServerHandler for Counter {
+impl ServerHandler for Runner {
     fn get_info(&self) -> ServerInfo {
         ServerInfo {
             protocol_version: ProtocolVersion::V_2024_11_05,
@@ -92,7 +82,7 @@ impl ServerHandler for Counter {
                 .enable_tools()
                 .build(),
             server_info: Implementation::from_build_env(),
-            instructions: Some("This server provides a counter tool that can increment and decrement values. The counter starts at 0 and can be modified using the 'increment' and 'decrement' tools. Use 'get_value' to check the current count.".to_string()),
+            instructions: Some("This server provides a runner tool that can run scripts. Use 'get_scripts' to get the list of scripts.".to_string()),
         }
     }
 
@@ -118,15 +108,11 @@ impl ServerHandler for Counter {
         match uri.as_str() {
             "str:////Users/to/some/path/" => {
                 let cwd = "/Users/to/some/path/";
-                Ok(ReadResourceResult {
-                    contents: vec![ResourceContents::text(cwd, uri)],
-                })
+                Ok(ReadResourceResult { contents: vec![ResourceContents::text(cwd, uri)] })
             }
             "memo://insights" => {
                 let memo = "Business Intelligence Memo\n\nAnalysis has revealed 5 key insights ...";
-                Ok(ReadResourceResult {
-                    contents: vec![ResourceContents::text(memo, uri)],
-                })
+                Ok(ReadResourceResult { contents: vec![ResourceContents::text(memo, uri)] })
             }
             _ => Err(McpError::resource_not_found(
                 "resource_not_found",
@@ -188,9 +174,6 @@ impl ServerHandler for Counter {
         _request: PaginatedRequestParam,
         _: RequestContext<RoleServer>,
     ) -> Result<ListResourceTemplatesResult, McpError> {
-        Ok(ListResourceTemplatesResult {
-            next_cursor: None,
-            resource_templates: Vec::new(),
-        })
+        Ok(ListResourceTemplatesResult { next_cursor: None, resource_templates: Vec::new() })
     }
 }

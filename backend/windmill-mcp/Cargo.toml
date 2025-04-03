@@ -32,17 +32,5 @@ tokio-stream = { version = "0.1" }
 tokio-util = { version = "0.7", features = ["codec"] }
 
 [[example]]
-name = "std_io"
-path = "src/std_io.rs"
-
-[[example]]
-name = "axum"
-path = "src/axum.rs"
-
-[[example]]
-name = "axum_router"
-path = "src/axum_router.rs"
-
-[[example]]
 name = "test"
 path = "src/test.rs"
