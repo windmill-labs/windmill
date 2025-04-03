@@ -472,6 +472,7 @@
 							<svelte:fragment slot="trigger">
 								<div
 									class="w-full py-2 flex justify-center items-center border border-dashed rounded-md hover:bg-surface-hover"
+									id="add-flow-input-btn"
 								>
 									<Plus size={14} />
 								</div>
