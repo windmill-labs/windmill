@@ -12,7 +12,7 @@
 		Tooltip
 	} from 'chart.js'
 	import { getContext } from 'svelte'
-	import { Bar, Line } from 'svelte-chartjs'
+	import { Bar, Line } from '$lib/components/chartjs-wrappers/chartJs'
 	import { initConfig, initOutput } from '../../editor/appUtils'
 	import type { AppInput } from '../../inputType'
 	import type { AppViewerContext, ComponentCustomCSS, RichConfigurations } from '../../types'

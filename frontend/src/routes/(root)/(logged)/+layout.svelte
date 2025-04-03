@@ -384,7 +384,7 @@
 
 								menuOpen ? 'opacity-100' : 'opacity-0'
 							)}
-						/>
+						></div>
 
 						<div class="fixed inset-0 flex z-40">
 							<div
@@ -405,6 +405,7 @@
 											menuOpen = !menuOpen
 										}}
 										class="ml-1 flex items-center justify-center h-6 w-6 rounded-full focus:outline-none focus:ring-2 focus:ring-inset focus:ring-white border border-white"
+										aria-label="Close"
 									>
 										<svg
 											class="h-4 w-4 text-white"
@@ -555,6 +556,7 @@
 								on:click={() => {
 									// menuSlide = !menuSlide
 								}}
+								aria-label="Close"
 								class="ml-1 flex items-center justify-center h-8 w-8 rounded-full focus:outline-none focus:ring-2 focus:ring-inset focus:ring-white border border-white"
 							>
 								<svg
@@ -623,6 +625,7 @@
 						)}
 					>
 						<button
+							aria-label="Menu"
 							type="button"
 							on:click={() => {
 								menuOpen = true

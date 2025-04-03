@@ -620,7 +620,7 @@
 									</div>
 								{/if}
 								{#if topHash}
-									<div class="mt-2" />
+									<div class="mt-2"></div>
 									<Alert type="warning" title="Not HEAD">
 										This hash is not HEAD (latest non-archived version at this path) :
 										<a href="{base}/scripts/get/{topHash}?workspace={$workspaceStore}"
@@ -696,7 +696,7 @@
 						/>
 					</div>
 
-					<div class="py-10" />
+					<div class="py-10"></div>
 					{#if !emptyString(script.summary)}
 						<div class="mb-2">
 							<span class="!text-tertiary">{script.path}</span>

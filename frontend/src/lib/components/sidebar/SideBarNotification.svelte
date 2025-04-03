@@ -8,5 +8,5 @@
 {#if !small}
 	<Notification {notificationCount} notificationLimit={9} />
 {:else}
-	<div class="bg-red-500 rounded-md w-3 h-3 flex items-center justify-center" />
+	<div class="bg-red-500 rounded-md w-3 h-3 flex items-center justify-center"></div>
 {/if}

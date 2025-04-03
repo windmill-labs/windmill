@@ -4032,7 +4032,7 @@ pub async fn push<'c, 'd>(
             }
             _ => {
                 if authed.is_some() {
-                    tracing::warn!("Authed passed to push is not the same as permissioned_as, refetching direclty permissions for job {job_id}...")
+                    tracing::warn!("Authed passed to push is not the same as permissioned_as, refetching directly permissions for job {job_id}...")
                 }
                 fetch_authed_from_permissioned_as(
                     permissioned_as.clone(),

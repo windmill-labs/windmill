@@ -523,7 +523,7 @@
 						/>
 					</div>
 
-					<div class="py-10" />
+					<div class="py-10"></div>
 
 					{#if !emptyString(flow.summary)}
 						<div class="mb-2">
@@ -536,7 +536,7 @@
 						</span>
 
 						{#if flow.archived}
-							<div class="" />
+							<div class=""></div>
 							<Alert type="error" title="Archived">This flow was archived</Alert>
 						{/if}
 					</div>

@@ -48,11 +48,13 @@
 	let flowInputsFiltered: any = pickableProperties.flow_input
 	let resultByIdFiltered: any = pickableProperties.priorIds
 
-	let timeout: NodeJS.Timeout
+	let timeout: NodeJS.Timeout | undefined
 	function onSearch(search: string) {
 		filterActive = false
-		clearTimeout(timeout)
-		setTimeout(() => {
+		if (timeout) {
+			clearTimeout(timeout)
+		}
+		timeout = setTimeout(() => {
 			flowInputsFiltered =
 				search === EMPTY_STRING
 					? pickableProperties.flow_input
@@ -77,7 +79,7 @@
 				await VariableService.listVariable({
 					workspace: $workspaceStore ?? ''
 				})
-			).map((variable) => [variable.path, variable.is_secret ? '***' : variable.value ?? ''])
+			).map((variable) => [variable.path, variable.is_secret ? '***' : (variable.value ?? '')])
 		)
 	}
 
@@ -223,7 +225,7 @@
 				<span class="font-normal text-sm text-secondary"
 					><span class="font-mono">flow_input</span></span
 				>
-				<div class="flex space-x-2 items-center" />
+				<div class="flex space-x-2 items-center"></div>
 			</div>
 			<div class="overflow-y-auto pb-2">
 				<ObjectViewer

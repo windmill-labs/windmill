@@ -35,10 +35,10 @@
 		<div class="flex flex-row-reverse w-full pb-2">
 			<div class="flex gap-2">
 				{#if step > 2}
-					<Button variant="border" on:click={appConnect?.back}>Back</Button>
+					<Button variant="border" on:click={appConnect?.back ?? (() => {})}>Back</Button>
 				{/if}
 
-				<Button {disabled} on:click={appConnect?.next}>
+				<Button {disabled} on:click={appConnect?.next ?? (() => {})}>
 					{#if step == 2 && !manual}
 						Connect
 					{:else if step == 1}
