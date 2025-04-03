@@ -85,6 +85,7 @@
             dotnet-sdk_9
             oracle-instantclient
             svelte-language-server
+            ansible
           ]);
           packages = [
             (pkgs.writeScriptBin "wm-caddy" ''
@@ -145,6 +146,8 @@
           DOTNET_PATH = "${pkgs.dotnet-sdk_9}/bin/dotnet";
           DOTNET_ROOT = "${pkgs.dotnet-sdk_9}/share/dotnet";
           ORACLE_LIB_DIR = "${pkgs.oracle-instantclient.lib}/lib";
+          ANSIBLE_PLAYBOOK_PATH = "${pkgs.ansible}/bin/ansible-playbook";
+          ANSIBLE_GALAXY_PATH = "${pkgs.ansible}/bin/ansible-galaxy";
         };
         packages.default = self.packages.${system}.windmill;
         packages.windmill-client = pkgs.buildNpmPackage {

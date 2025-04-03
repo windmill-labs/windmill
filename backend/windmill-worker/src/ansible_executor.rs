@@ -136,15 +136,48 @@ async fn install_galaxy_collections(
         db,
     )
     .await;
-    let mut galaxy_command = Command::new(ANSIBLE_GALAXY_PATH.as_str());
-    galaxy_command
+
+    let mut galaxy_roles_cmd = Command::new(ANSIBLE_GALAXY_PATH.as_str());
+    galaxy_roles_cmd
         .current_dir(job_dir)
         .env_clear()
         .envs(PROXY_ENVS.clone())
         .env("PATH", PATH_ENV.as_str())
         .env("TZ", TZ_ENV.as_str())
-        // .env("BASE_INTERNAL_URL", base_internal_url)
-        // .env("HOME", HOME_ENV.as_str())
+        .args(vec![
+            "install",
+            "-r",
+            "requirements.yml",
+            "-p",
+            "./",
+        ])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+
+    let child = start_child_process(galaxy_roles_cmd, ANSIBLE_GALAXY_PATH.as_str()).await?;
+    handle_child(
+        job_id,
+        db,
+        mem_peak,
+        canceled_by,
+        child,
+        !*DISABLE_NSJAIL,
+        worker_name,
+        w_id,
+        "ansible galaxy install",
+        None,
+        false,
+        &mut Some(occupancy_metrics),
+    )
+    .await?;
+
+    let mut galaxy_collections_cmd = Command::new(ANSIBLE_GALAXY_PATH.as_str());
+    galaxy_collections_cmd
+        .current_dir(job_dir)
+        .env_clear()
+        .envs(PROXY_ENVS.clone())
+        .env("PATH", PATH_ENV.as_str())
+        .env("TZ", TZ_ENV.as_str())
         .args(vec![
             "collection",
             "install",
@@ -156,7 +189,7 @@ async fn install_galaxy_collections(
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
 
-    let child = start_child_process(galaxy_command, ANSIBLE_GALAXY_PATH.as_str()).await?;
+    let child = start_child_process(galaxy_collections_cmd, ANSIBLE_GALAXY_PATH.as_str()).await?;
     handle_child(
         job_id,
         db,
@@ -265,7 +298,7 @@ pub async fn handle_ansible_job(
         .unwrap_or_else(|| vec![]);
 
     let mut nsjail_extra_mounts = vec![];
-    if let Some(r) = reqs {
+    if let Some(r) = reqs.as_ref() {
         nsjail_extra_mounts = create_file_resources(
             &job.id,
             &job.workspace_id,
@@ -277,9 +310,9 @@ pub async fn handle_ansible_job(
         )
         .await?;
 
-        if let Some(collections) = r.collections {
+        if let Some(collections) = r.collections.as_ref() {
             install_galaxy_collections(
-                collections.as_str(),
+                collections,
                 job_dir,
                 &job.id,
                 worker_name,
@@ -299,6 +332,18 @@ pub async fn handle_ansible_job(
         db,
     )
     .await;
+
+    let mut passwords_cfg = String::new();
+    if let Some(vault_password_file) = reqs.as_ref().and_then(|r| r.vault_password_file.as_ref()) {
+        passwords_cfg.push_str(&format!("vault_password_file = {vault_password_file}\n"));
+    }
+    if let Some(vault_ids) = reqs.as_ref().map(|r| &r.vault_id) {
+        if !vault_ids.is_empty() {
+            let password_files = vault_ids.join(",");
+
+            passwords_cfg.push_str(&format!("vault_identity_list = {password_files}\n"));
+        }
+    }
     let ansible_cfg_content = format!(
         r#"
 [defaults]
@@ -307,8 +352,10 @@ roles_path = ./roles
 home={job_dir}/.ansible
 local_tmp={job_dir}/.ansible/tmp
 remote_tmp={job_dir}/.ansible/tmp
+{passwords_cfg}
 "#
     );
+
     write_file(job_dir, "ansible.cfg", &ansible_cfg_content)?;
 
     let mut reserved_variables =

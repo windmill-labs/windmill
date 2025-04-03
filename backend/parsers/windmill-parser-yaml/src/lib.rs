@@ -217,6 +217,8 @@ pub struct AnsibleRequirements {
     pub vars: Vec<(String, String)>,
     pub resources: Vec<(String, String)>,
     pub options: AnsiblePlaybookOptions,
+    pub vault_password_file: Option<String>,
+    pub vault_id: Vec<String>,
 }
 
 fn parse_inventories(inventory_yaml: &Yaml) -> anyhow::Result<Vec<AnsibleInventory>> {
@@ -290,6 +292,8 @@ pub fn parse_ansible_reqs(
         vars: vec![],
         resources: vec![],
         options: opts,
+        vault_password_file: None,
+        vault_id: vec![],
     };
 
     if let Yaml::Hash(doc) = &docs[0] {
@@ -344,6 +348,24 @@ pub fn parse_ansible_reqs(
                 }
                 Yaml::String(key) if key == "inventory" => {
                     ret.inventories = parse_inventories(value)?;
+                }
+                Yaml::String(key) if key == "vault_password_file" => {
+                    let Yaml::String(filename) = value else {
+                        return Err(anyhow!("Vault Password File expects a String containing the file name"));
+                    };
+                    ret.vault_password_file = Some(filename.to_string());
+                }
+                Yaml::String(key) if key == "vault_id" => {
+                    let Yaml::Array(filenames) = value else {
+                        return Err(anyhow!("Vault ID field expects an array of strings in the format: `label@filename`"));
+                    };
+
+                    for f in filenames {
+                        let Yaml::String(filename) = f else {
+                            return Err(anyhow!("The elements of the vault_id field should be strings in the format: `label@filename`"));
+                        };
+                        ret.vault_id.push(filename.to_string());
+                    }
                 }
                 Yaml::String(key) if key == "options" => {
                     if let Yaml::Array(opts) = &value {
