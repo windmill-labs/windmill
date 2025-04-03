@@ -24,7 +24,6 @@
 	import { getFailureStepPropPicker, getStepPropPicker } from '../previousResults'
 	import { deepEqual } from 'fast-equals'
 	import Section from '$lib/components/Section.svelte'
-	import { writable } from 'svelte/store'
 
 	import Button from '$lib/components/common/button/Button.svelte'
 	import Alert from '$lib/components/common/alert/Alert.svelte'
@@ -78,7 +77,7 @@
 	export let savedModule: FlowModule | undefined = undefined
 
 	let tag: string | undefined = undefined
-	let diffMode = writable(false)
+	let diffMode = false
 
 	let editor: Editor
 	let diffEditor: DiffEditor
@@ -257,7 +256,7 @@
 	}
 
 	function showDiffMode() {
-		diffMode.set(true)
+		diffMode = true
 		diffEditor?.setOriginal((savedModule?.value as RawScript).content ?? '')
 		diffEditor?.setModified(editor?.getCode() ?? '')
 		diffEditor?.show()
@@ -265,7 +264,7 @@
 	}
 
 	function hideDiffMode() {
-		diffMode.set(false)
+		diffMode = false
 		diffEditor?.hide()
 		editor?.show()
 	}
@@ -406,7 +405,6 @@
 											fixedOverflowWidgets
 											defaultLang={scriptLangToEditorLang(flowModule.value.language)}
 											class="h-full"
-											{editor}
 										/>
 									{/key}
 								{/if}
