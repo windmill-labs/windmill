@@ -34,7 +34,7 @@
 	export let editMode: boolean = false
 
 	const { selectedId } = getContext<{
-		selectedId: Writable<string>
+		selectedId: Writable<string | undefined>
 	}>('FlowGraphContext')
 
 	const { flowStore } = getContext<FlowEditorContext | undefined>('FlowEditorContext') || {}
@@ -66,7 +66,7 @@
 		concurrency: Boolean(mod?.value?.['concurrent_limit'])
 	}
 
-	$: parentLoop = $flowStore && mod ? checkIfParentLoop($flowStore, mod.id) : undefined
+	$: parentLoop = flowStore && $flowStore && mod ? checkIfParentLoop($flowStore, mod.id) : undefined
 
 	function onDelete(event: CustomEvent<MouseEvent>) {
 		dispatch('delete', event)
