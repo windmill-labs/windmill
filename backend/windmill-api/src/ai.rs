@@ -37,6 +37,7 @@ struct AIOAuthResource {
 
 #[derive(Deserialize, Debug)]
 struct AIStandardResource {
+    #[serde(alias = "baseUrl")]
     base_url: Option<String>,
     #[serde(alias = "apiKey")]
     api_key: Option<String>,
