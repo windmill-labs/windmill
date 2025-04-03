@@ -215,7 +215,7 @@ pub async fn create_token_for_owner(
                 .fetch_optional(db)
                 .await
             }
-            Connection::Http => Ok(None),
+            Connection::Http(_) => Ok(None),
         }
     };
     let job_authed = match job_perms {
@@ -235,7 +235,7 @@ pub async fn create_token_for_owner(
                         "Could not get permissions directly for job {job_id}: {e:#}"
                     ))
                 })?,
-                Connection::Http => {
+                Connection::Http(_) => {
                     return Err(Error::internal_err(format!(
                         "Could not get permissions directly for job {job_id}"
                     )))
@@ -718,7 +718,7 @@ async fn insert_wait_time(
                 .await?;
             }
         }
-        Connection::Http => todo!(),
+        Connection::Http(_) => todo!(),
     }
     Ok(())
 }
@@ -1116,7 +1116,7 @@ pub async fn run_worker(
             )
             .await
         }
-        Connection::Http => (HashMap::new(), false, vec![]),
+        Connection::Http(_) => (HashMap::new(), false, vec![]),
     };
 
     #[cfg(not(feature = "enterprise"))]
@@ -1281,7 +1281,7 @@ pub async fn run_worker(
                             job
                         }
                     }
-                    Connection::Http => panic!("same worker job on http connection"),
+                    Connection::Http(_) => panic!("same worker job on http connection"),
                 }
             } else if let Ok(_) = killpill_rx.try_recv() {
                 if !killed_but_draining_same_worker_jobs {
@@ -1316,7 +1316,7 @@ pub async fn run_worker(
                 tracing::error!("pulled 0");
                 let job = match conn {
                     Connection::Sql(db) => pull(&db, suspend_first, &worker_name).await,
-                    Connection::Http => crate::agent_workers::pull_job()
+                    Connection::Http(client) => crate::agent_workers::pull_job(&client)
                         .await
                         .map_err(|e| error::Error::InternalErr(e.to_string())),
                 };
@@ -1666,7 +1666,7 @@ pub async fn run_worker(
                                     )
                                     .await;
                                 }
-                                Connection::Http => {
+                                Connection::Http(_) => {
                                     todo!()
                                 }
                             }
@@ -1878,7 +1878,9 @@ async fn queue_init_bash_maybe<'c>(
     if let Some(content) = WORKER_CONFIG.read().await.init_bash.clone() {
         let uuid = match db {
             Connection::Sql(db) => push_init_job(db, content.clone(), worker_name).await?,
-            Connection::Http => crate::agent_workers::queue_init_job(&content).await?,
+            Connection::Http(client) => {
+                crate::agent_workers::queue_init_job(client, &content).await?
+            }
         };
         same_worker_tx
             .send(SameWorkerPayload { job_id: uuid, recoverable: false })
@@ -2022,7 +2024,7 @@ async fn handle_queued_job(
                 }
             }
         }
-        Connection::Http => {
+        Connection::Http(_) => {
             return Err(Error::internal_err(format!(
                 "Could not check email trigger usage for job with agent worker {}",
                 job.id
@@ -2069,7 +2071,7 @@ async fn handle_queued_job(
                 });
             }
         }
-        Connection::Http => todo!(),
+        Connection::Http(_) => todo!(),
     }
 
     let started = Instant::now();
@@ -2098,7 +2100,7 @@ async fn handle_queued_job(
             Connection::Sql(db) => {
                 Some(cached_result_path(db, &client, &job, preview_data.as_ref()).await)
             }
-            Connection::Http => None,
+            Connection::Http(_) => None,
         }
     } else {
         None
@@ -2223,7 +2225,7 @@ async fn handle_queued_job(
                     )
                     .await
                 }
-                Connection::Http => {
+                Connection::Http(_) => {
                     // requeue with default language
                     todo!()
                 }
@@ -2245,7 +2247,7 @@ async fn handle_queued_job(
                     )
                     .await
                 }
-                Connection::Http => {
+                Connection::Http(_) => {
                     return Err(Error::internal_err(
                         "Could not handle flow dependency job with agent worker".to_string(),
                     ));
@@ -2266,7 +2268,7 @@ async fn handle_queued_job(
                 )
                 .await
                 .map(|()| serde_json::from_str("{}").unwrap()),
-                Connection::Http => {
+                Connection::Http(_) => {
                     return Err(Error::internal_err(
                         "Could not handle app dependency job with agent worker".to_string(),
                     ));
@@ -2339,7 +2341,7 @@ async fn handle_queued_job(
                 )
                 .await
             }
-            Connection::Http => {
+            Connection::Http(_) => {
                 // send result back
                 todo!()
             }
@@ -2632,7 +2634,7 @@ async fn handle_code_execution_job(
                     (arc_data.as_ref(), arc_metadata.as_ref())
                 }
             }
-            Connection::Http => {
+            Connection::Http(_) => {
                 return Err(Error::internal_err(
                     "Could not handle deployment callback with agent worker".to_string(),
                 ));

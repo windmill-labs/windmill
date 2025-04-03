@@ -284,7 +284,7 @@ pub async fn transform_json_value(
                         serde_json::from_str(&x).map_err(|e| Error::internal_err(e.to_string()))
                     })
                 }
-                Connection::Http => {
+                Connection::Http(_) => {
                     Err(Error::NotFound("Http connection not supported".to_string()))
                 }
             }
@@ -412,7 +412,7 @@ pub async fn get_reserved_variables(
                     .await?
                     .flatten()
             }
-            Connection::Http => None,
+            Connection::Http(_) => None,
         }
     } else {
         None
@@ -496,7 +496,7 @@ pub async fn update_worker_ping_for_failed_init_script(
                 tracing::error!("Error updating worker ping for failed init script: {e:?}");
             }
         }
-        Connection::Http => {
+        Connection::Http(_) => {
             todo!()
         }
     }

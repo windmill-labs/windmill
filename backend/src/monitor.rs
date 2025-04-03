@@ -34,7 +34,7 @@ use windmill_common::ee::{jobs_waiting_alerts, worker_groups_alerts};
 #[cfg(feature = "oauth2")]
 use windmill_common::global_settings::OAUTH_SETTING;
 use windmill_common::{
-    agent_workers::{AGENT_HTTP_CLIENT, BASE_INTERNAL_URL}, ee::CriticalErrorChannel, error, flow_status::{FlowStatus, FlowStatusModule}, global_settings::{
+    agent_workers::BASE_INTERNAL_URL, ee::CriticalErrorChannel, error, flow_status::{FlowStatus, FlowStatusModule}, global_settings::{
         BASE_URL_SETTING, BUNFIG_INSTALL_SCOPES_SETTING, CRITICAL_ALERT_MUTE_UI_SETTING,
         CRITICAL_ERROR_CHANNELS_SETTING, DEFAULT_TAGS_PER_WORKSPACE_SETTING,
         DEFAULT_TAGS_WORKSPACES_SETTING, EXPOSE_DEBUG_METRICS_SETTING, EXPOSE_METRICS_SETTING,
@@ -1167,26 +1167,30 @@ pub async fn load_value_from_global_settings_with_conn(
     setting_name: &str,
     load_from_http: bool,
 ) -> error::Result<Option<serde_json::Value>> {
-    if let Some(db) = conn.as_sql() {
-       load_value_from_global_settings(db, setting_name).await
-    } else if load_from_http {
-        let response = AGENT_HTTP_CLIENT.get(format!("{}/api/agent_workers/get_global_setting/{}", *BASE_INTERNAL_URL, setting_name)).send()
-        .await.map_err(|e| anyhow::anyhow!("Error loading setting {}: {}", setting_name, e))?;
-
-        if response.status().is_success() {
-            let body = response.json::<serde_json::Value>().await.map_err(|e| anyhow::anyhow!("Error reading setting {}: {}", setting_name, e))?;
-            if body.is_null() {
-                Ok(None)
+    match conn {
+        Connection::Sql(db) => load_value_from_global_settings(db, setting_name).await,
+        Connection::Http(client) => {
+            if load_from_http {
+                let response = client.get(format!("{}/api/agent_workers/get_global_setting/{}", *BASE_INTERNAL_URL, setting_name)).send()
+                .await.map_err(|e| anyhow::anyhow!("Error loading setting {}: {}", setting_name, e))?;
+        
+                if response.status().is_success() {
+                    let body = response.json::<serde_json::Value>().await.map_err(|e| anyhow::anyhow!("Error reading setting {}: {}", setting_name, e))?;
+                    if body.is_null() {
+                        Ok(None)
+                    } else {
+                        Ok(Some(body))
+                    }
+                } else {
+                    tracing::error!("Failed to load setting {}: {}", setting_name, response.status());
+                    Ok(None)
+                } 
             } else {
-                Ok(Some(body))
+                Ok(None)
             }
-        } else {
-            tracing::error!("Failed to load setting {}: {}", setting_name, response.status());
-            Ok(None)
-        } 
-    } else {
-        Ok(None)
+        }
     }
+
 }
 
 pub async fn reload_option_setting<T: FromStr + DeserializeOwned>(

@@ -222,7 +222,7 @@ pub async fn handle_child(
                             tracing::error!(%job_id, %err, "error setting cancelation reason for job {job_id}: {err}");
                         }
                     }
-                    Connection::Http => {
+                    Connection::Http(_) => {
                         todo!()
                     }
                 }
@@ -622,7 +622,7 @@ where
                         .await
                         .expect("update worker ping");
                             }
-                            Connection::Http => {
+                            Connection::Http(_) => {
                                 todo!()
                             }
                         }
@@ -661,7 +661,7 @@ where
                                 }
                             }
                             },
-                            Connection::Http => {
+                            Connection::Http(_) => {
                                 todo!()
                             }
                         }
@@ -692,7 +692,7 @@ where
                                 (None, None, true)
                             })
                         }
-                        Connection::Http => {
+                        Connection::Http(_) => {
                             todo!()
                         }
                     };

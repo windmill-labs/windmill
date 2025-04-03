@@ -375,7 +375,7 @@ async fn get_cached_workspace_envs(conn: &Connection, w_id: &str) -> Vec<(String
             .fetch_all(db)
             .await
             .unwrap_or_default(),
-            Connection::Http => {
+            Connection::Http(_) => {
                 tracing::warn!("get_cached_workspace_envs: Http connection not supported");
                 vec![]
             }

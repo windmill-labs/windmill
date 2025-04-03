@@ -534,7 +534,7 @@ pub mod script {
         let fut = CACHE.get_or_insert_async(hash, async move {
             match conn {
                 Connection::Sql(db) => fetch_script_from_db(&db, hash, loc).await,
-                Connection::Http => Err(error::Error::InternalErr(format!(
+                Connection::Http(_) => Err(error::Error::InternalErr(format!(
                     "Cannot fetch script in HTTP mode"
                 ))),
             }
@@ -727,7 +727,7 @@ pub mod job {
                     .map_err(Into::into)
                     .and_then(unwrap_or_error(&loc, "Preview", job))
                     .map(|r| (r.raw_lock, r.raw_code, r.raw_flow)),
-                    Connection::Http => Err(error::Error::InternalErr(format!(
+                    Connection::Http(_) => Err(error::Error::InternalErr(format!(
                         "Cannot fetch preview in HTTP mode"
                     ))),
                 },

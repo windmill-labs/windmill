@@ -26,7 +26,9 @@ use windmill_common::{
         Error::{self},
     },
     utils::calculate_hash,
-    worker::{copy_dir_recursively, Connection, pad_string, write_file, PythonAnnotations, WORKER_CONFIG},
+    worker::{
+        copy_dir_recursively, pad_string, write_file, Connection, PythonAnnotations, WORKER_CONFIG,
+    },
     DB,
 };
 
@@ -1455,7 +1457,7 @@ async fn handle_python_deps(
                 )
                 .await?
                 .join("\n"),
-                Connection::Http => {
+                Connection::Http(_) => {
                     todo!()
                 }
             };

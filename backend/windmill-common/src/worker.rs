@@ -3,6 +3,7 @@ use bytes::Bytes;
 use const_format::concatcp;
 use itertools::Itertools;
 use regex::Regex;
+use reqwest_middleware::ClientWithMiddleware;
 use semver::Version;
 use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
@@ -20,7 +21,7 @@ use tokio::sync::RwLock;
 use windmill_macros::annotations;
 
 use crate::{
-    agent_workers::{AGENT_HTTP_CLIENT, AGENT_TOKEN, BASE_INTERNAL_URL},
+    agent_workers::{AGENT_TOKEN, BASE_INTERNAL_URL},
     error,
     global_settings::CUSTOM_TAGS_SETTING,
     indexer::TantivyIndexerSettings,
@@ -42,7 +43,7 @@ lazy_static::lazy_static! {
 
         #[cfg(feature = "enterprise")]
         {
-            let token = AGENT_TOKEN.as_str().trim_start_matches("jwt_agent_");
+            let token = AGENT_TOKEN.as_str().trim_start_matches(crate::agent_workers::AGENT_JWT_PREFIX);
             if token.is_empty() {
                 "default".to_string()
             } else {
@@ -50,6 +51,7 @@ lazy_static::lazy_static! {
             }
         }
     });
+
     pub static ref NO_LOGS: bool = std::env::var("NO_LOGS").ok().is_some_and(|x| x == "1" || x == "true");
 
     pub static ref CGROUP_V2_PATH_RE: Regex = Regex::new(r#"(?m)^0::(/.*)$"#).unwrap();
@@ -140,17 +142,18 @@ pub const ROOT_CACHE_NOMOUNT_DIR: &str = concatcp!(TMP_DIR, "/cache_nomount/");
 
 pub static MIN_VERSION_IS_LATEST: AtomicBool = AtomicBool::new(false);
 
+pub type HttpClient = ClientWithMiddleware;
 #[derive(Clone)]
 pub enum Connection {
     Sql(Pool<Postgres>),
-    Http,
+    Http(HttpClient),
 }
 
 impl Connection {
     pub fn as_sql(&self) -> Option<&Pool<Postgres>> {
         match self {
             Connection::Sql(db) => Some(db),
-            Connection::Http => None,
+            Connection::Http(_) => None,
         }
     }
 }
@@ -851,7 +854,7 @@ pub async fn update_min_version(conn: &Connection) -> bool {
                 .min()
                 .unwrap_or_else(|| cur_version.clone())
         }
-        Connection::Http => {
+        Connection::Http(_) => {
             // TODO: get min version from server, for now we use the current version. Min version should be of no interest for http mode workers
             cur_version.clone()
         }
@@ -1039,8 +1042,8 @@ pub async fn insert_ping(
             )
             .await?;
         }
-        Connection::Http => {
-            let response = AGENT_HTTP_CLIENT
+        Connection::Http(client) => {
+            let response = client
                 .post(format!(
                     "{}/api/agent_workers/update_ping",
                     *BASE_INTERNAL_URL

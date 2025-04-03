@@ -53,7 +53,7 @@ pub(crate) async fn append_job_logs(
                     .await;
                 }
             }
-            Connection::Http => {
+            Connection::Http(_) => {
                 todo!()
             }
         }

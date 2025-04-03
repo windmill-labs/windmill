@@ -1,7 +1,7 @@
 use backon::{BackoffBuilder, ConstantBuilder, Retryable};
 use tracing::Instrument;
 use windmill_common::{
-    agent_workers::{AGENT_HTTP_CLIENT, BASE_INTERNAL_URL},
+    agent_workers::BASE_INTERNAL_URL,
     worker::{
         get_memory, get_vcpus, get_windmill_memory_usage, get_worker_memory_usage, Connection,
         Ping, WORKER_CONFIG,
@@ -112,8 +112,8 @@ async fn update_worker_ping_full_inner(
             ).execute(db)
             .await?;
         }
-        Connection::Http => {
-            let response = AGENT_HTTP_CLIENT
+        Connection::Http(client) => {
+            let response = client
                 .post(format!(
                     "{}/api/agent_workers/update_ping",
                     *BASE_INTERNAL_URL
@@ -171,7 +171,7 @@ pub(crate) async fn queue_vacuum(conn: &Connection, worker_name: &str, hostname:
                 .instrument(current_span),
             );
         }
-        Connection::Http => {
+        Connection::Http(_) => {
             // do nothing in http mode
             ()
         }

@@ -30,6 +30,7 @@ use windmill_api::HTTP_CLIENT;
 use windmill_common::ee::{maybe_renew_license_key_on_start, LICENSE_KEY_ID, LICENSE_KEY_VALID};
 
 use windmill_common::{
+    agent_workers::build_agent_http_client,
     get_database_url,
     global_settings::{
         BASE_URL_SETTING, BUNFIG_INSTALL_SCOPES_SETTING, CRITICAL_ALERT_MUTE_UI_SETTING,
@@ -328,8 +329,25 @@ async fn windmill_main() -> anyhow::Result<()> {
         IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1))
     };
 
+    let mut first_worker_suffix = None;
+    let mut worker_names = vec![];
+
+    for _ in 0..num_workers {
+        let suffix = windmill_common::utils::worker_suffix(&hostname, &rd_string(5));
+        worker_names.push(windmill_common::utils::worker_name_with_suffix(
+            WORKER_GROUP.as_str(),
+            &suffix,
+        ));
+        if first_worker_suffix.is_none() {
+            first_worker_suffix = Some(suffix);
+        }
+    }
+
     let conn = if mode == Mode::Agent {
-        Connection::Http
+        let worker_suffix = first_worker_suffix.unwrap_or_else(|| {
+            panic!("there must be at least one worker in agent mode");
+        });
+        Connection::Http(build_agent_http_client(&worker_suffix))
     } else {
         println!("Connecting to database...");
 
@@ -385,11 +403,10 @@ async fn windmill_main() -> anyhow::Result<()> {
         }
     }
 
-    drop(conn);
     let worker_mode = num_workers > 0;
 
     let conn = if mode == Mode::Agent {
-        Connection::Http
+        conn
     } else {
         let db = windmill_common::connect_db(server_mode, indexer_mode, worker_mode).await?;
         Connection::Sql(db)
@@ -663,6 +680,7 @@ Windmill Community Edition {GIT_VERSION}
                         base_internal_url.clone(),
                         is_agent,
                         hostname.clone(),
+                        &worker_names,
                     )
                     .await?;
                     tracing::info!("All workers exited.");
@@ -967,7 +985,7 @@ Windmill Community Edition {GIT_VERSION}
                         tracing::error!("Error waiting for monitor handle: {e:#}")
                     }
                 }
-                Connection::Http => loop {
+                Connection::Http(_) => loop {
                     tokio::select! {
                         _ = monitor_killpill_rx.recv() => {
                             tracing::info!("Received killpill, exiting");
@@ -1111,6 +1129,7 @@ pub async fn run_workers(
     base_internal_url: String,
     agent_mode: bool,
     hostname: String,
+    worker_names: &[String],
 ) -> anyhow::Result<()> {
     let mut killpill_rxs = vec![];
     for _ in 0..num_workers {
@@ -1121,14 +1140,6 @@ pub async fn run_workers(
         tracing::info!("Received killpill, exiting");
         return Ok(());
     }
-    let instance_name = hostname
-        .clone()
-        .replace(" ", "")
-        .split("-")
-        .last()
-        .unwrap()
-        .to_ascii_lowercase()
-        .to_string();
 
     // #[cfg(tokio_unstable)]
     // let monitor = tokio_metrics::TaskMonitor::new();
@@ -1180,8 +1191,7 @@ pub async fn run_workers(
     );
     for i in 1..(num_workers + 1) {
         let db1 = db.clone();
-        let instance_name = instance_name.clone();
-        let worker_name = format!("wk-{}-{}-{}", *WORKER_GROUP, &instance_name, rd_string(5));
+        let worker_name = worker_names[i as usize - 1].clone();
         let ip = ip.clone();
         let rx = killpill_rxs.pop().unwrap();
         let tx = tx.clone();

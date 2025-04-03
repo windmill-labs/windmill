@@ -175,6 +175,28 @@ pub fn hostname() -> String {
     })
 }
 
+fn instance_name(hostname: &str) -> String {
+    hostname
+        .replace(" ", "")
+        .split("-")
+        .last()
+        .unwrap()
+        .to_ascii_lowercase()
+        .to_string()
+}
+
+pub fn worker_suffix(hostname: &str, rd_string: &str) -> String {
+    format!("{}-{}", instance_name(hostname), rd_string)
+}
+
+pub fn worker_name_with_suffix(worker_group: &str, suffix: &str) -> String {
+    format!("wk-{}-{}", worker_group, suffix)
+}
+
+pub fn worker_name(worker_group: &str, hostname: &str, rd_string: &str) -> String {
+    worker_name_with_suffix(worker_group, &worker_suffix(hostname, rd_string))
+}
+
 pub fn paginate(pagination: Pagination) -> (usize, usize) {
     let per_page = pagination
         .per_page

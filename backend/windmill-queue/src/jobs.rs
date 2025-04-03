@@ -364,7 +364,7 @@ pub async fn append_logs(
                 tracing::error!(%job_id, %err, "error updating logs for large_log job {job_id}: {err}");
             }
         }
-        Connection::Http => {
+        Connection::Http(_) => {
             tracing::error!("Cannot append logs to job {job_id} in http mode");
         }
     }

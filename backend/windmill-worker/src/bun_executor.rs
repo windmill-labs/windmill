@@ -851,7 +851,7 @@ pub async fn handle_bun_job(
                 )
                 .await
             }
-            Connection::Http => {
+            Connection::Http(_) => {
                 todo!()
             }
         };

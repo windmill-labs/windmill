@@ -25,7 +25,7 @@ use hyper::StatusCode;
 use quick_cache::sync::Cache;
 use serde::{Deserialize, Serialize};
 use windmill_common::{
-    agent_workers::QueueInitJob,
+    agent_workers::{QueueInitJob, AGENT_JWT_PREFIX},
     error::{JsonResult, Result},
     jwt::encode_with_internal_secret,
     worker::{update_ping_http, Ping},
@@ -82,7 +82,7 @@ impl AgentCache {
             agent
         } else {
             // #[cfg(feature = "enterprise")]
-            if let Some(trimmed) = token.strip_prefix("jwt_agent_") {
+            if let Some(trimmed) = token.strip_prefix(AGENT_JWT_PREFIX) {
                 let splitted = trimmed.split_once("_");
                 if let Some((suffix, jwt)) = splitted {
                     let decoded =
@@ -152,7 +152,11 @@ async fn create_agent_token(
     Json(claims): Json<AgentAuth>,
 ) -> JsonResult<String> {
     require_super_admin(&db, &authed.email).await?;
-    let token = format!("jwt_agent_{}", encode_with_internal_secret(claims).await?);
+    let token = format!(
+        "{}{}",
+        AGENT_JWT_PREFIX,
+        encode_with_internal_secret(claims).await?
+    );
     Ok(Json(token))
 }
 
