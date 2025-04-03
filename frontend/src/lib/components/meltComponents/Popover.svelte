@@ -42,16 +42,10 @@
 	const {
 		elements: { trigger, content, arrow, close: closeElement, overlay },
 		states,
-		options: { closeOnOutsideClick: closeOnOutsideClickOption },
+		options: { closeOnOutsideClick: closeOnOutsideClickOption, positioning },
 		ids: { content: popoverId }
 	} = createPopover({
 		forceVisible: true,
-		positioning: floatingConfig ?? {
-			placement,
-			strategy: fullScreen ? 'fixed' : 'absolute',
-			x: fullScreen ? 0 : undefined,
-			y: fullScreen ? 0 : undefined
-		},
 		portal,
 		onOpenChange: ({ curr, next }) => {
 			if (curr != next) {
@@ -75,6 +69,13 @@
 			return next
 		}
 	})
+
+	$: $positioning = floatingConfig ?? {
+		placement,
+		strategy: fullScreen ? 'fixed' : 'absolute',
+		x: fullScreen ? 0 : undefined,
+		y: fullScreen ? 0 : undefined
+	}
 
 	export let isOpen = false
 	const sync = createSync(states)
