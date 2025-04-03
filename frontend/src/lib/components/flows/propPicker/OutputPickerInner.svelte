@@ -16,7 +16,7 @@
 
 <script lang="ts">
 	import Button from '$lib/components/common/button/Button.svelte'
-	import { Pin, History, Pen, Check, X, Loader2, CircleX } from 'lucide-svelte'
+	import { Pin, History, Pen, Check, X, Loader2 } from 'lucide-svelte'
 	import ObjectViewer from '$lib/components/propertyPicker/ObjectViewer.svelte'
 	import JsonEditor from '$lib/components/JsonEditor.svelte'
 	import StepHistory from './StepHistory.svelte'
@@ -91,13 +91,11 @@
 	}
 
 	function selectJob(job: SelectedJob | undefined) {
-		if (!job || !('result' in job)) {
-			if (lastJob && 'result' in lastJob) {
-				selectJob(lastJob)
-			}
-			return
+		if (job && 'result' in job) {
+			selectedJob = job
+		} else if (lastJob && 'result' in lastJob) {
+			selectedJob = lastJob
 		}
-		selectedJob = job
 	}
 
 	export function setLastJob(job: SelectedJob, setPreview: boolean = false) {
@@ -107,21 +105,19 @@
 		lastJob = structuredClone(job)
 		selectJob(lastJob)
 		if (setPreview) {
-			togglePreview('job')
+			preview = 'job'
 		}
 	}
 
 	function togglePreview(nPrev: 'mock' | 'job' | undefined) {
-		if (nPrev === 'mock') {
-			preview = 'mock'
-		} else if (nPrev === 'job' && mock?.enabled && selectedJob) {
-			preview = 'job'
-		} else {
-			preview = undefined
+		if (!nPrev && preview === 'job') {
+			// Reset the job
+			selectJob(undefined)
 		}
+		preview = nPrev
 	}
 
-	$: infoMessage =
+	$: mockUpdateStatus =
 		preview === 'mock' && !mock?.enabled
 			? 'restore'
 			: preview === 'job' && mock?.enabled && selectedJob?.type === 'CompletedJob'
@@ -170,14 +166,47 @@
 		}, 200)
 	}
 
+	function togglePin() {
+		if (mock?.enabled && !preview) {
+			// Unpin
+			dispatch('updateMock', {
+				...mock,
+				enabled: false
+			})
+		} else if (preview === 'mock') {
+			// Restore the pin
+			dispatch('updateMock', {
+				...mock,
+				enabled: true
+			})
+		} else if (selectedJob && 'result' in selectedJob) {
+			// Pin the job
+			let mockValue = structuredClone(selectedJob.result)
+			if (selectedJob.result === 'never tested this far') {
+				mockValue = { example: 'value' }
+			}
+			const newMock = {
+				enabled: true,
+				return_value: mockValue
+			}
+			dispatch('updateMock', newMock)
+		} else {
+			// Fallback to mock
+			dispatch('updateMock', {
+				enabled: true,
+				return_value: { example: 'value' }
+			})
+		}
+		if (preview) {
+			// Reset the preview
+			if (historyOpen) {
+				stepHistoryPopover?.close()
+			}
+			togglePreview(undefined)
+		}
+	}
+
 	$: popoverHeight = customHeight ?? (clientHeight > 0 ? clientHeight : 0)
-	$: displayJobBadge =
-		!(mock?.enabled && preview != 'job') &&
-		preview !== 'mock' &&
-		selectedJob &&
-		'result' in selectedJob
-	$: displayLastJobButton =
-		!mock?.enabled && selectedJob?.id !== lastJob?.id && !preview && !historyOpen
 </script>
 
 <div
@@ -231,13 +260,11 @@
 									{getLogs}
 									on:select={async ({ detail }) => {
 										if (!detail) {
-											selectJob(undefined)
 											togglePreview(undefined)
 											return
 										}
 										if (detail === 'mock') {
 											if (mock?.enabled) {
-												selectJob(undefined)
 												togglePreview(undefined)
 												return
 											}
@@ -266,26 +293,42 @@
 						</svelte:fragment>
 					</Popover>
 				{/if}
-				{#if !isLoading && (loopStatus?.type === 'self' || displayJobBadge || infoMessage || displayLastJobButton)}
+				{#if !isLoading}
 					<div
 						class={twMerge(
 							'w-grow min-w-0 flex gap-1 items-center h-[27px] rounded-md  group',
-							preview || selectedJob?.id !== lastJob?.id ? 'p-[2px] bg-surface-secondary' : '',
-							infoMessage ? 'bg-blue-500/10 text-blue-600 dark:text-blue-200' : ''
+							preview || selectedJob?.id !== lastJob?.id ? 'p-[2px] bg-surface-secondary' : ''
 						)}
 					>
 						{#if loopStatus?.type === 'self'}
 							<div
 								class={twMerge(
 									'min-w-16 rounded-md py-1 px-2 justify-center',
-									infoMessage ? 'bg-surface h-[23px]' : 'bg-surface-secondary h-[27px]'
+									mockUpdateStatus ? 'bg-surface h-[23px]' : 'bg-surface-secondary h-[27px]'
 								)}
 							>
-								<span class="text-xs text-secondary">
+								<span
+									class="text-xs text-secondary truncate"
+									title={loopStatus.flow === 'forloopflow'
+										? 'For loop result'
+										: 'While loop result'}
+								>
 									{loopStatus.flow === 'forloopflow' ? 'For loop result' : 'While loop result'}
 								</span>
 							</div>
-						{:else if displayJobBadge}
+						{:else if preview === 'mock' || (mock?.enabled && !preview)}
+							<div
+								class={twMerge(
+									'min-w-16 text-secondary flex flex-row w-fit items-center gap-2 rounded-md bg-surface-secondary p-1 px-2',
+									mockUpdateStatus ? 'bg-surface h-[23px]' : 'bg-surface-secondary h-[27px]'
+								)}
+							>
+								<Pin size={12} class="text-blue-500" />
+								<span class="text-xs text-secondary truncate"
+									>{mock?.enabled ? 'Pin' : 'Last pin'}</span
+								>
+							</div>
+						{:else if preview === 'job' || (selectedJob && !preview)}
 							<OutputBadge
 								job={selectedJob}
 								class={twMerge(
@@ -294,185 +337,103 @@
 								)}
 							/>
 						{/if}
-						{#if infoMessage === 'override'}
-							<span class="px-2">
-								<button
-									class="inline-block text-xs underline"
-									on:click={() => {
-										const newMock = {
-											enabled: true,
-											return_value: selectedJob && 'result' in selectedJob ? selectedJob.result : ''
-										}
-										dispatch('updateMock', newMock)
-										if (historyOpen) {
-											stepHistory?.deselect()
-											stepHistoryPopover?.close()
-										} else {
-											selectJob(lastJob)
-											togglePreview(undefined)
-										}
-									}}
-								>
-									Override pin ?
-								</button>
-							</span>
-						{:else if infoMessage === 'restore'}
-							<span>
-								<button
-									class="inline-block text-xs px-2 py-1 underline"
-									on:click={() => {
-										dispatch('updateMock', {
-											...mock,
-											enabled: true
-										})
-										selectJob(undefined) // reset the job
-										togglePreview(undefined)
-										stepHistoryPopover?.close()
-									}}
-								>
-									Restore pin <Pin size={14} class="inline" />
-								</button>
-							</span>
-						{:else if displayLastJobButton}
+
+						{#if preview}
 							<button
-								class="px-1 shrink-0 underline"
-								on:click={() => {
-									selectJob(lastJob)
-									togglePreview(undefined)
-								}}>See last result</button
-							>
-						{/if}
-						{#if infoMessage}
-							<button
-								class="p-1"
+								class="px-1 shrink-0 text-secondary text-xs text-thin"
 								on:click={() => {
 									if (historyOpen) {
-										stepHistory?.deselect()
-									} else {
-										selectJob(lastJob)
-										togglePreview(undefined)
+										// closing history popover exits preview
+										stepHistoryPopover?.close()
 									}
-								}}
+									togglePreview(undefined)
+								}}>Exit preview</button
 							>
-								<CircleX
-									size={16}
-									class="text-gray-900/20 dark:text-gray-100/20 transition-all duration-200 group-hover:text-gray-900/60 dark:group-hover:text-gray-100/60"
-								/>
-							</button>
 						{/if}
 					</div>
 				{/if}
-				{#if !infoMessage}
-					{#if !disableMock}
-						<Tooltip disablePopup={mock?.enabled}>
-							<Button
-								color="light"
-								size="xs2"
-								variant="contained"
-								btnClasses={twMerge(
-									'bg-transparent h-[27px]',
-									mock?.enabled
-										? 'text-white bg-blue-500 hover:text-primary hover:bg-blue-700 hover:text-gray-100'
-										: '',
-									jsonView ? 'pointer-events-none' : ''
-								)}
-								startIcon={{ icon: Pin }}
-								iconOnly
-								on:click={() => {
-									if (mock?.enabled) {
-										dispatch('updateMock', {
-											...mock,
-											enabled: false
-										})
-									} else {
-										if (selectedJob && 'result' in selectedJob) {
-											let mockValue = structuredClone(selectedJob.result)
-											if (selectedJob.result === 'never tested this far') {
-												mockValue = { example: 'value' }
-											}
-											const newMock = {
-												enabled: true,
-												return_value: mockValue
-											}
-											dispatch('updateMock', newMock)
-											selectJob(undefined) // reset the job
-										} else {
-											if (mock?.return_value) {
-												dispatch('updateMock', {
-													enabled: true,
-													return_value: mock.return_value
-												})
-											} else {
-												dispatch('updateMock', {
-													enabled: true,
-													return_value: { example: 'value' }
-												})
-											}
-										}
-									}
-								}}
-							/>
-							<svelte:fragment slot="text">Pin output</svelte:fragment>
-						</Tooltip>
-					{/if}
 
-					{#if jsonView}
+				{#if !disableMock && !isLoading}
+					<Tooltip disablePopup={mock?.enabled}>
+						<Button
+							color="light"
+							size="xs2"
+							variant="contained"
+							btnClasses={twMerge(
+								'bg-transparent h-[27px]',
+								mock?.enabled || mockUpdateStatus === 'override'
+									? 'text-white bg-blue-500 hover:text-primary hover:bg-blue-700 hover:text-gray-100'
+									: '',
+								jsonView ? 'pointer-events-none' : ''
+							)}
+							startIcon={{ icon: Pin }}
+							iconOnly={mockUpdateStatus !== 'override'}
+							on:click={() => togglePin()}
+						>
+							{#if mockUpdateStatus === 'override'}
+								Override pin
+							{/if}
+						</Button>
+						<svelte:fragment slot="text">Pin data</svelte:fragment>
+					</Tooltip>
+				{/if}
+
+				{#if jsonView}
+					<Button
+						size="xs2"
+						color="green"
+						variant="contained"
+						startIcon={{ icon: Check }}
+						btnClasses="h-[27px]"
+						on:click={() => {
+							if (!tmpMock) {
+								return
+							}
+							jsonView = false
+							mock = tmpMock
+							dispatch('updateMock', {
+								enabled: tmpMock?.enabled ?? false,
+								return_value: tmpMock?.return_value
+							})
+							tmpMock = undefined
+						}}
+						disabled={!!error || !tmpMock}
+					/>
+					<Button
+						size="xs2"
+						color="red"
+						variant="contained"
+						startIcon={{ icon: X }}
+						btnClasses="h-[27px]"
+						on:click={() => {
+							jsonView = false
+							tmpMock = undefined
+						}}
+					/>
+				{:else if mock?.enabled && !preview}
+					<Tooltip disablePopup={mock?.enabled}>
 						<Button
 							size="xs2"
-							color="green"
+							color="light"
 							variant="contained"
-							startIcon={{ icon: Check }}
-							btnClasses="h-[27px]"
+							startIcon={{ icon: Pen }}
 							on:click={() => {
-								if (!tmpMock) {
-									return
-								}
-								jsonView = false
-								mock = tmpMock
-								dispatch('updateMock', {
-									enabled: tmpMock?.enabled ?? false,
-									return_value: tmpMock?.return_value
-								})
+								stepHistoryPopover?.close()
+								jsonView = true
 								tmpMock = undefined
 							}}
-							disabled={!!error || !tmpMock}
+							disabled={!mock?.enabled || !!connectingData}
+							btnClasses={twMerge(
+								'transition-all duration-100 h-[27px]',
+								debouncedCanEditWithDblClick
+									? 'bg-blue-500/10 text-blue-800 dark:text-blue-200'
+									: ''
+							)}
 						/>
-						<Button
-							size="xs2"
-							color="red"
-							variant="contained"
-							startIcon={{ icon: X }}
-							btnClasses="h-[27px]"
-							on:click={() => {
-								jsonView = false
-								tmpMock = undefined
-							}}
-						/>
-					{:else if mock?.enabled}
-						<Tooltip disablePopup={mock?.enabled}>
-							<Button
-								size="xs2"
-								color="light"
-								variant="contained"
-								startIcon={{ icon: Pen }}
-								on:click={() => {
-									stepHistoryPopover?.close()
-									jsonView = true
-									tmpMock = undefined
-								}}
-								disabled={!mock?.enabled || !!connectingData}
-								btnClasses={twMerge(
-									'transition-all duration-100 h-[27px]',
-									debouncedCanEditWithDblClick
-										? 'bg-blue-500/10 text-blue-800 dark:text-blue-200'
-										: ''
-								)}
-							/>
-							<svelte:fragment slot="text">
-								{'Pin the output to allow editing'}
-							</svelte:fragment>
-						</Tooltip>
-					{/if}
+						<svelte:fragment slot="text">
+							{'Pin the output to allow editing'}
+						</svelte:fragment>
+					</Tooltip>
 				{/if}
 			</div>
 

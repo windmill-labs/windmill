@@ -105,7 +105,7 @@
 					<Pin size={14} />
 
 					<span class=" grow">
-						{mockEnabled ? 'Pinned data' : 'Previous pinned data'}
+						{mockEnabled ? 'Pin' : 'Last pin'}
 					</span>
 				</div>
 			</Cell>
