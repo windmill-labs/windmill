@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT value\n                        FROM global_settings\n                        WHERE name = 'openai_azure_base_path'",
+  "query": "SELECT value\n                    FROM global_settings\n                    WHERE name = 'openai_azure_base_path'",
   "describe": {
     "columns": [
       {
@@ -16,5 +16,5 @@
       false
     ]
   },
-  "hash": "1b2a9a900848872d8d0096ab72f4f76099250be3fdc3f53704a34f44ecdbb581"
+  "hash": "a21a16064b51580a8f5c2505cb0c701281dbfa94e40994fdd1cadc86a26c294e"
 }
