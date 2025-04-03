@@ -28,7 +28,8 @@
 			aiGen: false,
 			aiCompletion: false,
 			library: false,
-			useVsCode: false
+			useVsCode: false,
+			diffMode: false
 		}
 	}
 	const newWhiteLabelUIConfig: ScriptBuilderWhitelabelCustomUi = {
@@ -53,7 +54,8 @@
 			aiGen: false,
 			aiCompletion: false,
 			library: false,
-			useVsCode: false
+			useVsCode: false,
+			diffMode: false
 		},
 		settingsPanel: {
 			metadata: {
