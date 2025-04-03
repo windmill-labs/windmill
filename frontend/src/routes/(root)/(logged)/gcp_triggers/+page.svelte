@@ -22,7 +22,18 @@
 	import ShareModal from '$lib/components/ShareModal.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import { enterpriseLicense, userStore, workspaceStore } from '$lib/stores'
-	import { Code, Eye, Pen, Plus, Share, Trash, Circle, FileUp, ClipboardCopy } from 'lucide-svelte'
+	import {
+		Code,
+		Eye,
+		Pen,
+		Plus,
+		Share,
+		Trash,
+		Circle,
+		FileUp,
+		ClipboardCopy,
+		Badge
+	} from 'lucide-svelte'
 	import { goto } from '$lib/navigation'
 	import SearchItems from '$lib/components/SearchItems.svelte'
 	import NoItemFound from '$lib/components/home/NoItemFound.svelte'
@@ -39,6 +50,7 @@
 	import GcpTriggerEditor from '$lib/components/triggers/gcp/GcpTriggerEditor.svelte'
 	import { GoogleCloudIcon } from '$lib/components/icons'
 	import { getHttpRoute } from '$lib/components/triggers/http/utils'
+	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
 
 	type TriggerD = GcpTrigger & { canWrite: boolean }
 
@@ -122,6 +134,9 @@
 	let filter = ''
 	let ownerFilter: string | undefined = undefined
 	let nbDisplayed = 15
+	let deleteSubscription = false
+	let deleteSubscriptionCallback: (() => Promise<void>) | undefined = undefined
+	let deleteGpcTriggerCallback: (() => Promise<void>) | undefined = undefined
 
 	const TRIGGER_PATH_KIND_FILTER_SETTING = 'filter_path_of'
 	const FILTER_USER_FOLDER_SETTING_NAME = 'user_and_folders_only'
@@ -211,13 +226,54 @@
 			filterUserFolders = queryFilterUserFolders == 'true'
 		}
 	}
-
 	onMount(() => {
 		loadQueryFilters()
 	})
 
 	$: updateQueryFilters(selectedFilterKind, filterUserFolders)
 </script>
+
+<ConfirmationModal
+	open={Boolean(deleteGpcTriggerCallback)}
+	title="Delete associated GCP subscription"
+	confirmationText="Remove"
+	loading={isDeleting}
+	on:canceled={() => {
+		deleteGpcTriggerCallback = undefined
+		isDeleting = false
+	}}
+	on:confirmed={async () => {
+		if (deleteGpcTriggerCallback) {
+			isDeleting = true
+			if (deleteSubscription && deleteSubscriptionCallback) {
+				try {
+					await deleteSubscriptionCallback()
+				} catch (error) {
+					sendUserToast(error.body || error.message, true)
+				}
+			}
+			await deleteGpcTriggerCallback()
+		}
+		isDeleting = false
+		deleteSubscription = false
+		deleteGpcTriggerCallback = undefined
+	}}
+>
+	<div class="flex flex-col w-full space-y-4">
+		<span>Are you sure you want to remove this trigger?</span>
+
+		<span> Do you also want to delete the associated Google Pub/Sub subscription? </span>
+		<Toggle bind:checked={deleteSubscription} />
+
+		<Alert type="info" title="Bypass confirmation">
+			<div>
+				You can press
+				<Badge color="dark-gray">SHIFT</Badge>
+				while removing a resource to bypass confirmation.
+			</div>
+		</Alert>
+	</div>
+</ConfirmationModal>
 
 <DeployWorkspaceDrawer bind:this={deploymentDrawer} />
 <GcpTriggerEditor on:update={loadTriggers} bind:this={gcpTriggerEditor} />
@@ -386,13 +442,8 @@
 												icon: Eye
 										  }}
 									color="dark"
-									loading={isDeleting}
 								>
-									{#if isDeleting}
-										Deleting...
-									{:else}
-										{canWrite ? 'Edit' : 'View'}
-									{/if}
+									{canWrite ? 'Edit' : 'View'}
 								</Button>
 								<Dropdown
 									items={[
@@ -410,19 +461,25 @@
 											disabled: !canWrite,
 											action: async () => {
 												try {
-													isDeleting = true
-													await GcpTriggerService.deleteGcpTrigger({
-														workspace: $workspaceStore ?? '',
-														path,
-														requestBody: {
-															gcp_resource_path,
-															subscription_id
-														}
-													})
-													isDeleting = false
-													loadTriggers()
+													deleteSubscriptionCallback = async () => {
+														const message = await GcpTriggerService.deleteGcpSubscription({
+															workspace: $workspaceStore ?? '',
+															requestBody: {
+																gcp_resource_path,
+																subscription_id
+															}
+														})
+														sendUserToast(message)
+													}
+													deleteGpcTriggerCallback = async () => {
+														const message = await GcpTriggerService.deleteGcpTrigger({
+															workspace: $workspaceStore ?? '',
+															path
+														})
+														sendUserToast(message)
+														loadTriggers()
+													}
 												} catch (error) {
-													isDeleting = false
 													sendUserToast(error.body, true)
 												}
 											}
