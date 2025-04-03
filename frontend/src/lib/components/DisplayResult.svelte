@@ -513,9 +513,7 @@
 
 				<div class="text-secondary text-xs flex gap-2.5 z-10 items-center">
 					{#if customUi?.disableAiFix !== true}
-						<div data-slot="copilot-fix">
-							<slot name="copilot-fix" />
-						</div>
+						<slot name="copilot-fix" />
 					{/if}
 					{#if toolbarLocation === 'self'}
 						<!-- TODO : When svelte 5 is released, use a snippet to pass the toolbar to a parent -->

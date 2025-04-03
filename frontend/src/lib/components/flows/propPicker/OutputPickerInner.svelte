@@ -470,7 +470,7 @@
 				{/if}
 			</div>
 
-			<div>
+			<div class="px-2">
 				{#if selectedJob && 'result' in selectedJob && displayResultJob && toolbarLocationJob === 'external'}
 					<DisplayResultControlBar
 						workspaceId={selectedJob.workspace_id}
