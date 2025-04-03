@@ -12,7 +12,6 @@ export function editorConfig(
 		automaticLayout,
 		readOnly: false,
 		fixedOverflowWidgets,
-		lineNumbers: 'on' as const,
 		lineDecorationsWidth: 10,
 		lineNumbersMinChars: 3,
 		scrollbar: { alwaysConsumeMouseWheel: false },
