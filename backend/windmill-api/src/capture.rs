@@ -358,6 +358,7 @@ async fn set_gcp_trigger_config(
         db,
         w_id,
         &gcp_config.gcp_resource_path,
+        None,
         &mut gcp_config.config,
     )
     .await?;
@@ -929,7 +930,7 @@ async fn gcp_payload(
     )
     .await?;
 
-    let (args, extra) = process_google_push_request(request).await?;
+    let (args, extra) = process_google_push_request(headers, request).await?;
 
     let payload = PushArgsOwned { args, extra: None };
 

@@ -142,6 +142,7 @@
 						delivery_config,
 						delivery_type,
 						gcp_resource_path,
+						subscription_id,
 						topic_id,
 						path,
 						script_path,

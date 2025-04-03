@@ -14718,6 +14718,8 @@ components:
           $ref: "#/components/schemas/DeliveryType"
         delivery_config:
           $ref: "#/components/schemas/PushConfig"
+        subscription_id:
+          type: string
         path:
           type: string
         script_path:

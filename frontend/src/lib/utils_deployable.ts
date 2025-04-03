@@ -145,6 +145,12 @@ export async function getTriggersDeployData(kind: TriggerKind, path: string, wor
 			path: path
 		})
 
+		gcpTrigger.subscription_id = ''
+		if (gcpTrigger.delivery_config) {
+			gcpTrigger.delivery_config.audience = ''
+			gcpTrigger.delivery_config.route_path = ''
+		}
+
 		return {
 			data: gcpTrigger,
 			createFn: GcpTriggerService.createGcpTrigger,
