@@ -117,6 +117,7 @@
 				{requireHtmlApproval}
 				disableExpand={resolvedConfig?.hideDetails}
 				appPath={$userStore ? undefined : $appPath}
+				forceJson={resolvedConfig?.forceJson}
 			/>
 		</div>
 	</div>
