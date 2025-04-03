@@ -169,6 +169,13 @@
 	}
 
 	$: popoverHeight = customHeight ?? (clientHeight > 0 ? clientHeight : 0)
+	$: displayJobBadge =
+		!(mock?.enabled && preview != 'job') &&
+		preview !== 'mock' &&
+		selectedJob &&
+		'result' in selectedJob
+	$: displayLastJobButton =
+		!mock?.enabled && selectedJob?.id !== lastJob?.id && !preview && !historyOpen
 </script>
 
 <div
@@ -195,7 +202,7 @@
 					bind:this={stepHistoryPopover}
 					floatingConfig={{
 						placement: 'left-start',
-						offset: { mainAxis: 8, crossAxis: -5 },
+						offset: { mainAxis: 8, crossAxis: -4.5 },
 						gutter: 0 // hack to make offset effective, see https://github.com/melt-ui/melt-ui/issues/528
 					}}
 					contentClasses="w-[225px] overflow-hidden"
@@ -255,7 +262,7 @@
 						</div>
 					</svelte:fragment>
 				</Popover>
-				{#if !isLoading}
+				{#if !isLoading && (loopStatus?.type === 'self' || displayJobBadge || infoMessage || displayLastJobButton)}
 					<div
 						class={twMerge(
 							'w-grow min-w-0 flex gap-1 items-center h-[27px] rounded-md  group',
@@ -274,7 +281,7 @@
 									{loopStatus.flow === 'forloopflow' ? 'For loop result' : 'While loop result'}
 								</span>
 							</div>
-						{:else if !(mock?.enabled && preview != 'job') && preview !== 'mock' && selectedJob && 'result' in selectedJob}
+						{:else if displayJobBadge}
 							<OutputBadge
 								job={selectedJob}
 								class={twMerge(
@@ -322,7 +329,7 @@
 									Restore pin <Pin size={14} class="inline" />
 								</button>
 							</span>
-						{:else if !mock?.enabled && selectedJob?.id !== lastJob?.id && !preview && !historyOpen}
+						{:else if displayLastJobButton}
 							<button
 								class="px-1 shrink-0 underline"
 								on:click={() => {
