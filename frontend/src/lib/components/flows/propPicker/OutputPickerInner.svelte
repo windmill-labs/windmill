@@ -105,7 +105,7 @@
 		}
 		lastJob = structuredClone(job)
 		selectJob(lastJob)
-		if (setPreview) {
+		if (setPreview && mock?.enabled) {
 			preview = 'job'
 		}
 	}
@@ -326,7 +326,7 @@
 									mockUpdateStatus ? 'bg-surface h-[23px]' : 'bg-surface-secondary h-[27px]'
 								)}
 							>
-								<Pin size={12} class="text-blue-500" />
+								<Pin size={12} />
 								<span class="text-xs text-secondary truncate"
 									>{mock?.enabled ? 'Pin' : 'Last pin'}</span
 								>
