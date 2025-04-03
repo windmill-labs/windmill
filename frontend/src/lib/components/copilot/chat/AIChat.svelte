@@ -406,6 +406,13 @@
 	}
 
 	export function addSelectedLinesToContext(lines: string, startLine: number, endLine: number) {
+		if (
+			selectedContext.find(
+				(c) => c.type === 'code_piece' && c.title === `L${startLine}-L${endLine}`
+			)
+		) {
+			return
+		}
 		selectedContext = [
 			...selectedContext,
 			{
