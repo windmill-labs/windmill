@@ -482,7 +482,6 @@ pub async fn run_server(
                     "/users",
                     users::global_service().layer(Extension(argon2.clone())),
                 )
-                .nest("/agent_workers", agent_workers::global_service())
                 .nest("/settings", settings::global_service())
                 .nest("/workers", workers::global_service())
                 .nest("/service_logs", service_logs::global_service())
@@ -497,6 +496,7 @@ pub async fn run_server(
                 .nest("/ai", ai::global_service())
                 .route_layer(from_extractor::<ApiAuthed>())
                 .route_layer(from_extractor::<users::Tokened>())
+                .nest("/agent_workers", agent_workers::global_service())
                 .nest("/jobs", jobs::global_root_service())
                 .nest(
                     "/srch/w/:workspace_id/index",

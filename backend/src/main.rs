@@ -335,6 +335,7 @@ async fn windmill_main() -> anyhow::Result<()> {
     for _ in 0..num_workers {
         let suffix = windmill_common::utils::worker_suffix(&hostname, &rd_string(5));
         worker_names.push(windmill_common::utils::worker_name_with_suffix(
+            mode == Mode::Agent,
             WORKER_GROUP.as_str(),
             &suffix,
         ));

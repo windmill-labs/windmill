@@ -10514,9 +10514,12 @@ paths:
                   type: array
                   items:
                     type: string
+                exp:
+                  type: integer
               required:
                 - worker_group
                 - tags
+                - exp
       responses:
         "200":
           description: agent token created

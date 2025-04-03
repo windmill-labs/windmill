@@ -11,10 +11,28 @@ use std::time::Duration;
 use reqwest_middleware::{ClientBuilder, ClientWithMiddleware};
 use reqwest_retry::{policies::ExponentialBackoff, RetryTransientMiddleware};
 
+use crate::jwt::decode_without_verify;
+
 lazy_static! {
     pub static ref BASE_INTERNAL_URL: String =
         std::env::var("BASE_INTERNAL_URL").unwrap_or("http://localhost:8080".to_string());
     pub static ref AGENT_TOKEN: String = std::env::var("AGENT_TOKEN").unwrap_or_default();
+    pub static ref DECODED_AGENT_TOKEN: Option<AgentAuth> = {
+        if AGENT_TOKEN.is_empty() {
+            None
+        } else {
+            decode_without_verify::<AgentAuth>(AGENT_TOKEN.trim_start_matches(AGENT_JWT_PREFIX))
+                .ok()
+        }
+    };
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct AgentAuth {
+    pub worker_group: String,
+    pub suffix: Option<String>,
+    pub tags: Vec<String>,
+    pub exp: Option<usize>,
 }
 
 pub const AGENT_JWT_PREFIX: &str = "jwt_agent_";

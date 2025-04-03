@@ -12,6 +12,7 @@
 use anyhow::anyhow;
 use futures::TryFutureExt;
 use windmill_common::{
+    agent_workers::DECODED_AGENT_TOKEN,
     apps::AppScriptId,
     auth::{fetch_authed_from_permissioned_as, JWTAuthClaims, JobPerms},
     cache::{future::FutureCachedExt, ScriptData, ScriptMetadata},
@@ -352,12 +353,18 @@ lazy_static::lazy_static! {
 
     pub static ref SLEEP_QUEUE: u64 = std::env::var("SLEEP_QUEUE")
     .ok()
-    .and_then(|x| x.parse::<u64>().ok())
-    .unwrap_or(DEFAULT_SLEEP_QUEUE * std::env::var("NUM_WORKERS")
-    .ok()
-    .map(|x| x.parse().ok())
-    .flatten()
-    .unwrap_or(2) / 2);
+        .and_then(|x| x.parse::<u64>().ok())
+        .unwrap_or_else(|| {
+            if std::env::var("MODE").unwrap_or_default() == "agent" {
+                1000
+            } else {
+                DEFAULT_SLEEP_QUEUE * std::env::var("NUM_WORKERS")
+                    .ok()
+                    .map(|x| x.parse().ok())
+                    .flatten()
+                    .unwrap_or(2) / 2
+            }
+        });
 
 
     pub static ref DISABLE_NUSER: bool = std::env::var("DISABLE_NUSER")
@@ -1087,12 +1094,20 @@ pub async fn run_worker(
     let vacuum_shift = rand::rng().random_range(0..VACUUM_PERIOD);
 
     IS_READY.store(true, Ordering::Relaxed);
-    tracing::info!(
-        worker = %worker_name, hostname = %hostname,
-        "listening for jobs, WORKER_GROUP: {}, config: {:?}",
-        *WORKER_GROUP,
-        WORKER_CONFIG.read().await
-    );
+    if let Some(token) = DECODED_AGENT_TOKEN.as_ref() {
+        tracing::info!(
+            worker = %worker_name, hostname = %hostname,
+            "listening for jobs, agent mode, tags: {:?}",
+            token.tags
+        );
+    } else {
+        tracing::info!(
+            worker = %worker_name, hostname = %hostname,
+            "listening for jobs, WORKER_GROUP: {}, config: {:?}",
+            *WORKER_GROUP,
+            WORKER_CONFIG.read().await
+        );
+    }
 
     // (dedi_path, dedicated_worker_tx, dedicated_worker_handle)
     // Option<Sender<Arc<QueuedJob>>>,
@@ -1166,10 +1181,12 @@ pub async fn run_worker(
         {
             if let Ok(_) = killpill_rx.try_recv() {
                 tracing::info!(worker = %worker_name, hostname = %hostname, "killpill received on worker waiting for valid key");
-                job_completed_tx
-                    .kill()
-                    .await
-                    .expect("send kill to job completed tx");
+                if send_result.is_some() {
+                    job_completed_tx
+                        .kill()
+                        .await
+                        .expect("send kill to job completed tx");
+                }
                 break;
             }
             let valid_key = *LICENSE_KEY_VALID.read().await;
@@ -1313,7 +1330,6 @@ pub async fn run_worker(
                     last_suspend_first = Instant::now();
                 }
 
-                tracing::error!("pulled 0");
                 let job = match conn {
                     Connection::Sql(db) => pull(&db, suspend_first, &worker_name).await,
                     Connection::Http(client) => crate::agent_workers::pull_job(&client)

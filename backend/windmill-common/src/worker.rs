@@ -21,18 +21,9 @@ use tokio::sync::RwLock;
 use windmill_macros::annotations;
 
 use crate::{
-    agent_workers::{AGENT_TOKEN, BASE_INTERNAL_URL},
-    error,
-    global_settings::CUSTOM_TAGS_SETTING,
-    indexer::TantivyIndexerSettings,
-    server::Smtp,
-    KillpillSender, DB,
+    agent_workers::BASE_INTERNAL_URL, error, global_settings::CUSTOM_TAGS_SETTING,
+    indexer::TantivyIndexerSettings, server::Smtp, KillpillSender, DB,
 };
-
-#[derive(Deserialize)]
-struct WorkerGroup {
-    pub worker_group: String,
-}
 
 lazy_static::lazy_static! {
     pub static ref WORKER_GROUP: String = std::env::var("WORKER_GROUP").unwrap_or_else(|_| {
@@ -43,11 +34,10 @@ lazy_static::lazy_static! {
 
         #[cfg(feature = "enterprise")]
         {
-            let token = AGENT_TOKEN.as_str().trim_start_matches(crate::agent_workers::AGENT_JWT_PREFIX);
-            if token.is_empty() {
-                "default".to_string()
+            if let Some(token) = crate::agent_workers::DECODED_AGENT_TOKEN.as_ref() {
+                token.worker_group.clone()
             } else {
-                crate::jwt::decode_without_verify::<WorkerGroup>(token).unwrap().worker_group
+                "default".to_string()
             }
         }
     });
@@ -897,6 +887,7 @@ pub async fn update_ping_http(
     worker_group: &str,
     db: &DB,
 ) -> anyhow::Result<()> {
+    // tracing::info!("update ping: {}", insert_ping.tags.join(","));
     if insert_ping.update {
         update_ping_query(
             worker_name,

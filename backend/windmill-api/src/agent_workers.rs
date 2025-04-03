@@ -28,6 +28,7 @@ use windmill_common::{
     agent_workers::{QueueInitJob, AGENT_JWT_PREFIX},
     error::{JsonResult, Result},
     jwt::encode_with_internal_secret,
+    utils::worker_name_with_suffix,
     worker::{update_ping_http, Ping},
 };
 use windmill_queue::{pull, push_init_job, PulledJobResult};
@@ -55,14 +56,15 @@ pub struct AgentAuth {
     pub worker_group: String,
     pub suffix: Option<String>,
     pub tags: Vec<String>,
+    pub exp: Option<usize>,
 }
 
 impl AgentAuth {
     pub fn worker_name(&self) -> String {
-        format!(
-            "wk-{}-{}",
-            self.worker_group,
-            self.suffix.as_ref().unwrap_or(&"XXXX".to_string())
+        worker_name_with_suffix(
+            true,
+            &self.worker_group,
+            &self.suffix.as_ref().unwrap_or(&"XXXX".to_string()),
         )
     }
 }
@@ -85,6 +87,7 @@ impl AgentCache {
             if let Some(trimmed) = token.strip_prefix(AGENT_JWT_PREFIX) {
                 let splitted = trimmed.split_once("_");
                 if let Some((suffix, jwt)) = splitted {
+                    tracing::info!("jwt agent token: {suffix} {}", jwt);
                     let decoded =
                         windmill_common::jwt::decode_with_internal_secret::<AgentAuth>(jwt).await;
                     if let Ok(mut decoded) = decoded {
@@ -124,7 +127,12 @@ where
         state: &S,
     ) -> std::result::Result<Self, Self::Rejection> {
         if parts.method == http::Method::OPTIONS {
-            return Ok(AgentAuth { worker_group: "".to_string(), suffix: None, tags: Vec::new() });
+            return Ok(AgentAuth {
+                worker_group: "".to_string(),
+                suffix: None,
+                tags: Vec::new(),
+                exp: None,
+            });
         };
 
         let auth_header = parts

@@ -3,6 +3,8 @@ import { SettingsService } from './gen'
 import { enterpriseLicense } from './stores'
 
 export async function setLicense() {
+	enterpriseLicense.set("fix")
+
 	try {
 		if (get(enterpriseLicense)) {
 			return

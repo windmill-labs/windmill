@@ -27,7 +27,8 @@
 			const newToken = await AgentWorkersService.createAgentToken({
 				requestBody: {
 					worker_group: workerGroup,
-					tags: selectedTags
+					tags: selectedTags,
+					exp: Math.floor(Date.now() / 1000) + 60 * 60 * 24 * 365 * 3 // 3 years
 				}
 			})
 
@@ -91,7 +92,8 @@
 			<code class="text-primary">
 {`{
 	"worker_group": "agent",
-	"tags": ["tag1", "tag2"]
+	"tags": ["tag1", "tag2"],
+	"exp": 1717334400 // 3 years from now
 }`}
 					</code>
 				</pre>
