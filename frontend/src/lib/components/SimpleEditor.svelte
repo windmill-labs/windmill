@@ -81,6 +81,9 @@
 	export let automaticLayout = true
 	export let extraLib: string = ''
 	export let placeholder: string = ''
+	export let disableSuggestions = false
+	export let disableLinting = false
+	export let hideLineNumbers = false
 
 	export let shouldBindKey: boolean = true
 	export let autoHeight = false
@@ -194,6 +197,47 @@
 		}
 	}
 
+	$: if (editor && (lang || disableLinting || disableSuggestions || hideLineNumbers)) {
+		const model = editor.getModel()
+		if (model) {
+			// Switch language if it changed
+			if (model.getLanguageId() !== lang) {
+				const currentCode = model.getValue()
+				const uri = `file:///${hash}.${langToExt(lang)}`
+				const oldModel = model
+				const newModel = meditor.createModel(currentCode, lang, mUri.parse(uri))
+				editor.setModel(newModel)
+				oldModel.dispose()
+			}
+
+			// Update editor options for suggestions, validation decorations, and line numbers
+			editor.updateOptions({
+				quickSuggestions: disableSuggestions
+					? { other: false, comments: false, strings: false }
+					: { other: true, comments: true, strings: true },
+				suggestOnTriggerCharacters: !disableSuggestions,
+				wordBasedSuggestions: disableSuggestions ? 'off' : 'matchingDocuments',
+				parameterHints: { enabled: !disableSuggestions },
+				suggest: {
+					showIcons: !disableSuggestions,
+					showSnippets: !disableSuggestions,
+					showKeywords: !disableSuggestions,
+					showWords: !disableSuggestions,
+					snippetsPreventQuickSuggestions: disableSuggestions
+				},
+				lineNumbers: hideLineNumbers ? 'off' : 'on',
+				lineDecorationsWidth: hideLineNumbers ? 0 : 6,
+				lineNumbersMinChars: hideLineNumbers ? 0 : 2,
+				// Hide validation squiggles and decorations
+				renderValidationDecorations: disableLinting ? 'off' : 'on',
+				// Hide the validation margin indicators
+				hideCursorInOverviewRuler: disableLinting,
+				overviewRulerBorder: !disableLinting,
+				overviewRulerLanes: disableLinting ? 0 : 3
+			})
+		}
+	}
+
 	async function loadMonaco() {
 		await initializeVscode()
 		initialized = true
@@ -242,8 +286,20 @@
 			model,
 			lineDecorationsWidth: 6,
 			lineNumbersMinChars: 2,
-			// overflowWidgetsDomNode: widgets,
-			fontSize: small ? 12 : 14
+			fontSize: small ? 12 : 14,
+			quickSuggestions: disableSuggestions
+				? { other: false, comments: false, strings: false }
+				: { other: true, comments: true, strings: true },
+			suggestOnTriggerCharacters: !disableSuggestions,
+			wordBasedSuggestions: disableSuggestions ? 'off' : 'matchingDocuments',
+			parameterHints: { enabled: !disableSuggestions },
+			suggest: {
+				showIcons: !disableSuggestions,
+				showSnippets: !disableSuggestions,
+				showKeywords: !disableSuggestions,
+				showWords: !disableSuggestions,
+				snippetsPreventQuickSuggestions: disableSuggestions
+			}
 		})
 
 		let timeoutModel: NodeJS.Timeout | undefined = undefined
