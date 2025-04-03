@@ -44,6 +44,7 @@
 				autoHeight
 				lang="json"
 				bind:code
+				class={$$props.class}
 			/>
 		</div>
 		{#if error != ''}

@@ -12,7 +12,7 @@ import { workspaceStore } from '$lib/stores'
 import { cleanExpr, emptySchema } from '$lib/utils'
 import { get } from 'svelte/store'
 import type { FlowModuleState } from './flowState'
-import type { PickableProperties } from './previousResults'
+import { type PickableProperties, dfs } from './previousResults'
 import { NEVER_TESTED_THIS_FAR } from './models'
 import { sendUserToast } from '$lib/toast'
 import type { Schema } from '$lib/common'
@@ -315,4 +315,18 @@ export async function initFlowStepWarnings(
 	}
 
 	return messages
+}
+
+export function checkIfParentLoop(
+	flowStore: ExtendedOpenFlow,
+	modId: string
+): { id: string; type: 'forloopflow' | 'whileloopflow' } | undefined {
+	const flow: ExtendedOpenFlow = JSON.parse(JSON.stringify(flowStore))
+	const parents = dfs(modId, flow, true)
+	for (const parent of parents.slice(1)) {
+		if (parent.value.type === 'forloopflow' || parent.value.type === 'whileloopflow') {
+			return { id: parent.id, type: parent.value.type }
+		}
+	}
+	return undefined
 }

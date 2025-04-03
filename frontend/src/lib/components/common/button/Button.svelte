@@ -129,6 +129,7 @@
 		disabled ? 'divide-text-disabled' : ''
 	)}
 	style={wrapperStyle}
+	data-interactive
 >
 	{#if href && !disabled}
 		<a

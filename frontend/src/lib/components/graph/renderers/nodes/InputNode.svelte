@@ -7,7 +7,9 @@
 	import { getContext } from 'svelte'
 	import type { Writable } from 'svelte/store'
 	import InsertModuleButton from '$lib/components/flows/map/InsertModuleButton.svelte'
-	import type { PropPickerContext } from '$lib/components/prop_picker'
+	import { schemaToObject } from '$lib/schema'
+	import type { Schema } from '$lib/common'
+	import type { FlowEditorContext } from '$lib/components/flows/types'
 
 	export let data: {
 		hasPreprocessor: boolean
@@ -20,25 +22,20 @@
 		disableMoveIds: string[]
 		cache: boolean
 		earlyStop: boolean
+		editMode: boolean
 	}
 
 	const { selectedId } = getContext<{
 		selectedId: Writable<string | undefined>
 	}>('FlowGraphContext')
 
-	const propPickerContext = getContext<PropPickerContext>('PropPickerContext')
-	const pickablePropertiesFiltered = propPickerContext?.pickablePropertiesFiltered
+	const { previewArgs, flowStore } =
+		getContext<FlowEditorContext | undefined>('FlowEditorContext') || {}
 
-	function filterIterFromInput(inputJson: Record<string, any> | undefined): Record<string, any> {
-		if (!inputJson || typeof inputJson !== 'object') return {}
-
-		const newJson = { ...inputJson }
-		delete newJson.iter
-
-		return newJson
-	}
-
-	$: filteredInput = filterIterFromInput($pickablePropertiesFiltered?.flow_input)
+	$: topFlowInput =
+		flowStore && previewArgs && $flowStore?.schema
+			? schemaToObject($flowStore.schema as Schema, $previewArgs || {})
+			: undefined
 </script>
 
 <NodeWrapper let:darkMode>
@@ -82,10 +79,11 @@
 		on:select={(e) => {
 			data.eventHandlers?.select(e.detail)
 		}}
-		inputJson={filteredInput}
+		inputJson={topFlowInput}
 		prefix="flow_input"
 		alwaysPluggable
 		cache={data.cache}
 		earlyStop={data.earlyStop}
+		editMode={data.editMode}
 	/>
 </NodeWrapper>
