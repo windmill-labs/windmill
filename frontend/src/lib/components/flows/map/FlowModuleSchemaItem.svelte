@@ -91,6 +91,7 @@
 	let connectingData: any | undefined = undefined
 	let lastJob: any | undefined = undefined
 	let outputPicker: OutputPicker | undefined = undefined
+	let historyOpen = false
 
 	const { viewport } = useSvelteFlow()
 
@@ -106,7 +107,7 @@
 		connectingData =
 			flowPropPickerConfig && pickableIds && Object.keys(pickableIds).includes(id)
 				? pickableIds[id]
-				: flowStateStore?.[id]?.previewResult ?? {}
+				: (flowStateStore?.[id]?.previewResult ?? {})
 	}
 	$: updateConnectingData(id, pickableIds, $flowPropPickerConfig, $flowStateStore)
 
@@ -322,6 +323,7 @@
 				{isConnectingCandidate}
 				let:isConnecting
 				let:selectConnection
+				{historyOpen}
 			>
 				<OutputPickerInner
 					bind:this={outputPickerInner}
@@ -335,6 +337,7 @@
 					{path}
 					{loopStatus}
 					rightMargin
+					bind:derivedHistoryOpen={historyOpen}
 				/>
 			</OutputPicker>
 		{/if}

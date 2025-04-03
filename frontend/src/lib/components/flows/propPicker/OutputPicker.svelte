@@ -11,6 +11,7 @@
 	export let hover: boolean = false
 	export let isConnectingCandidate: boolean = false
 	export let variant: 'default' | 'virtual' = 'default'
+	export let historyOpen: boolean = false
 
 	const context = getContext<PropPickerContext>('PropPickerContext')
 	const flowPropPickerConfig = context?.flowPropPickerConfig
@@ -62,7 +63,10 @@
 </script>
 
 <Popover
-	placement="bottom"
+	floatingConfig={{
+		placement: 'bottom',
+		overflowPadding: historyOpen ? 250 : 8
+	}}
 	usePointerDownOutside
 	closeOnOutsideClick={false}
 	on:click={(e) => {

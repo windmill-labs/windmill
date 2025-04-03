@@ -57,6 +57,7 @@
 	export let rightMargin: boolean = false
 	export let disableMock: boolean = false
 	export let disableHistory: boolean = false
+	export let derivedHistoryOpen: boolean = false // derived from historyOpen
 
 	type SelectedJob =
 		| Job
@@ -133,6 +134,8 @@
 	let displayResultMock: DisplayResult | undefined = undefined
 	let toolbarLocationJob: 'self' | 'external' | undefined = undefined
 	let toolbarLocationMock: 'self' | 'external' | undefined = undefined
+
+	$: derivedHistoryOpen = historyOpen
 
 	$: if (displayResultJob && typeof displayResultJob.getToolbarLocation === 'function') {
 		toolbarLocationJob = displayResultJob.getToolbarLocation()
