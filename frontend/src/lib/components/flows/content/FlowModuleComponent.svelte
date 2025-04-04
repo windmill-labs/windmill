@@ -105,7 +105,6 @@
 		const savedRawScript = savedModule?.value as RawScript
 		const currentRawScript = flowModule.value as RawScript
 		return savedRawScript?.type === 'rawscript' &&
-			savedRawScript?.type === 'rawscript' &&
 			currentRawScript.type === 'rawscript' &&
 			savedRawScript.content !== currentRawScript.content
 			? savedRawScript.content
