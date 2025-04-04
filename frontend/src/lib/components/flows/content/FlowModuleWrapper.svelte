@@ -1,5 +1,11 @@
 <script lang="ts">
-	import { type FlowModule } from '$lib/gen'
+	import {
+		type BranchAll,
+		type BranchOne,
+		type FlowModule,
+		type ForloopFlow,
+		type WhileloopFlow
+	} from '$lib/gen'
 	import { getContext } from 'svelte'
 
 	import type { FlowEditorContext } from '../types'
@@ -201,6 +207,7 @@
 			bind:flowModule={submodule}
 			bind:parentModule={flowModule}
 			previousModule={flowModule.value.modules[index - 1]}
+			savedModule={(savedModule?.value as ForloopFlow | WhileloopFlow).modules[index]}
 			{enableAi}
 		/>
 	{/each}
@@ -217,6 +224,7 @@
 				bind:flowModule={submodule}
 				bind:parentModule={flowModule}
 				previousModule={flowModule.value.default[index - 1]}
+				savedModule={flowModule.value.default[index]}
 				{enableAi}
 			/>
 		{/each}
@@ -237,6 +245,7 @@
 					bind:flowModule={submodule}
 					bind:parentModule={flowModule}
 					previousModule={flowModule.value.branches[branchIndex].modules[index - 1]}
+					savedModule={(savedModule?.value as BranchOne).branches[branchIndex].modules[index]}
 					{enableAi}
 				/>
 			{/each}
@@ -254,6 +263,7 @@
 					bind:parentModule={flowModule}
 					previousModule={flowModule.value.branches[branchIndex].modules[index - 1]}
 					{enableAi}
+					savedModule={(savedModule?.value as BranchAll).branches[branchIndex].modules[index]}
 				/>
 			{/each}
 		{/if}

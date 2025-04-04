@@ -99,17 +99,17 @@
 	let testJob: Job | undefined = undefined
 	let testIsLoading = false
 	let scriptProgress = undefined
-	let lastDeployedCode: string | undefined = undefined
 
-	$: {
+	$: lastDeployedCode = onModulesChange(savedModule, flowModule)
+	function onModulesChange(savedModule: FlowModule | undefined, flowModule: FlowModule) {
 		const savedRawScript = savedModule?.value as RawScript
 		const currentRawScript = flowModule.value as RawScript
-		lastDeployedCode =
+		return savedRawScript?.type === 'rawscript' &&
 			savedRawScript?.type === 'rawscript' &&
 			currentRawScript.type === 'rawscript' &&
 			savedRawScript.content !== currentRawScript.content
-				? savedRawScript.content
-				: undefined
+			? savedRawScript.content
+			: undefined
 	}
 
 	const { modulesStore: copilotModulesStore } =
