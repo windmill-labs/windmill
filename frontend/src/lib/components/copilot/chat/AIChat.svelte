@@ -469,6 +469,10 @@
 		}
 	}
 
+	export function focusTextArea() {
+		aiChatDisplay?.focusInput()
+	}
+
 	interface ChatSchema extends IDBSchema {
 		chats: {
 			key: string

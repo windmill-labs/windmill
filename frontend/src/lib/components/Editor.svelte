@@ -404,7 +404,7 @@
 													endColumn: edit.range.end.character + 1
 												},
 												text: edit.newText
-										  }
+											}
 										: {}
 								)
 								//@ts-ignore
@@ -465,16 +465,16 @@
 						scriptLang === 'postgresql'
 							? POSTGRES_TYPES
 							: scriptLang === 'mysql'
-							? MYSQL_TYPES
-							: scriptLang === 'snowflake'
-							? SNOWFLAKE_TYPES
-							: scriptLang === 'bigquery'
-							? BIGQUERY_TYPES
-							: scriptLang === 'mssql'
-							? MSSQL_TYPES
-							: scriptLang === 'oracledb'
-							? ORACLEDB_TYPES
-							: []
+								? MYSQL_TYPES
+								: scriptLang === 'snowflake'
+									? SNOWFLAKE_TYPES
+									: scriptLang === 'bigquery'
+										? BIGQUERY_TYPES
+										: scriptLang === 'mssql'
+											? MSSQL_TYPES
+											: scriptLang === 'oracledb'
+												? ORACLEDB_TYPES
+												: []
 					).map((t) => ({
 						label: t,
 						kind: languages.CompletionItemKind.Function,
@@ -742,7 +742,7 @@
 									uri: vscode.Uri.parse(uri),
 									name: 'windmill',
 									index: 0
-							  }
+								}
 							: undefined,
 					initializationOptions,
 					middleware: {
@@ -1206,7 +1206,11 @@
 			editor?.addCommand(KeyMod.CtrlCmd | KeyCode.KeyL, function () {
 				const selectedLines = getSelectedLines()
 				const selection = editor?.getSelection()
-				if (selection && selectedLines) {
+				const hasSelection =
+					selection &&
+					(selection.startLineNumber !== selection.endLineNumber ||
+						selection.startColumn !== selection.endColumn)
+				if (hasSelection && selectedLines) {
 					dispatch('addSelectedLinesToAiChat', {
 						lines: selectedLines,
 						startLine: selection.startLineNumber,

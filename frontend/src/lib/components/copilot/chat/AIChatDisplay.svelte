@@ -35,6 +35,12 @@
 		automaticScroll = true
 	}
 
+	let contextTextareaComponent: ContextTextarea
+
+	export function focusInput() {
+		contextTextareaComponent?.focus()
+	}
+
 	let automaticScroll = true
 	let scrollEl: HTMLDivElement
 	async function scrollDown() {
@@ -211,6 +217,7 @@
 			{/each}
 		</div>
 		<ContextTextarea
+			bind:this={contextTextareaComponent}
 			{instructions}
 			{availableContext}
 			{selectedContext}

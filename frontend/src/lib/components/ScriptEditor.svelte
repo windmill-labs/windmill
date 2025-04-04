@@ -322,6 +322,7 @@
 	) {
 		if (aiChat) {
 			aiChat.addSelectedLinesToContext(e.detail.lines, e.detail.startLine, e.detail.endLine)
+			aiChat.focusTextArea()
 		}
 	}
 
