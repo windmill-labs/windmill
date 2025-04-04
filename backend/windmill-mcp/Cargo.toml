@@ -16,14 +16,8 @@ tracing-subscriber = { version = "0.3", features = [
     "std",
     "fmt",
 ] }
-futures = "0.3"
-rand = { version = "0.9" }
-axum = { version = "0.8", features = ["macros"] }
 schemars = { version = "0.8", optional = true }
 hyper = { version = "0.14", features = ["full"] }
-tower = { version = "0.4", features = ["util"] }
-tower-http = { version = "0.5", features = ["cors"] }
-http = "0.2"
 urlencoding = "2.1"
 # [dev-dependencies.'cfg(target_arch="linux")'.dependencies]
 
