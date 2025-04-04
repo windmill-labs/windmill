@@ -108,8 +108,7 @@
 
 	function refreshActions(actions: TableAction[]) {
 		if (!deepEqual(actions, lastActions)) {
-			lastActions = [...actions]
-
+			lastActions = structuredClone(actions)
 			updateOptions()
 		}
 	}
