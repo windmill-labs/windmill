@@ -1,15 +1,22 @@
 <script lang="ts">
-	import type { DBSchema } from '$lib/stores'
-	import { type IGetRowsParams } from 'ag-grid-community'
-	import { createGrid } from 'ag-grid-community'
+	import { workspaceStore, type DBSchema } from '$lib/stores'
 	import { Table2 } from 'lucide-svelte'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import { ClearableInput } from './common'
+	import AppDbExplorer from './apps/components/display/dbtable/AppDbExplorer.svelte'
+	import { sendUserToast } from '$lib/toast'
+	import {
+		loadTableMetaData,
+		type DbType,
+		type TableMetadata
+	} from './apps/components/display/dbtable/utils'
 
 	type Props = {
 		dbSchema: DBSchema
+		resourceType: DbType
+		resourcePath: string
 	}
-	let { dbSchema }: Props = $props()
+	let { dbSchema, resourceType, resourcePath }: Props = $props()
 
 	let schemaKeys = $derived(Object.keys(dbSchema.schema))
 	let search = $state('')
@@ -17,59 +24,46 @@
 		schemaKey?: undefined | string
 		tableKey?: undefined | string
 	} = $state({})
+
 	$effect(() => {
 		if (!selected.schemaKey && schemaKeys.length) {
 			selected = { schemaKey: schemaKeys[0] }
 		}
 	})
 
-	let tableKeys = $derived(
-		selected.schemaKey ? Object.keys(dbSchema.schema[selected.schemaKey]) : []
-	)
-
-	let filteredTableKeys = $derived(tableKeys.filter((tk) => tk.includes(search)))
-
-	let eGui: HTMLDivElement | undefined = $state()
-
-	$effect(() => eGui && mountGrid())
-
-	const datasource = {
-		getRows: async (params: IGetRowsParams) => {
-			params.successCallback([])
+	let tableKeys = $derived.by(() => {
+		if (dbSchema.lang === 'graphql') {
+			sendUserToast('graphql not supported by DBExplorerTable', true)
+			return []
 		}
-	}
+		if (!selected.schemaKey) return []
+		return Object.keys(dbSchema.schema[selected.schemaKey])
+	})
 
-	function mountGrid() {
-		if (eGui) {
-			createGrid(
-				eGui,
-				{
-					rowModelType: 'infinite',
-					datasource,
-					columnDefs: [],
-					pagination: false,
-					defaultColDef: {
-						flex: 1,
-						editable: true,
-						onCellValueChanged: (e) => {
-							console.log(e)
-						}
-					},
-					infiniteInitialRowCount: 100,
-					cacheBlockSize: 100,
-					cacheOverflowSize: 10,
-					maxBlocksInCache: 20,
-					rowHeight: 44,
-					suppressColumnMoveAnimation: true,
-					suppressDragLeaveHidesColumns: true,
-					rowSelection: 'single',
-					suppressRowDeselection: true,
-					enableCellTextSelection: true
-				},
-				{}
-			)
+	$effect(() => {
+		if (tableKeys.length && !selected.tableKey) {
+			selected.tableKey = filteredTableKeys[0]
 		}
-	}
+	})
+
+	let filteredTableKeys = $derived.by(() => {
+		const l = tableKeys.filter((tk) => tk.includes(search))
+		l.sort()
+		return l
+	})
+
+	let tableMetadata: TableMetadata | undefined = $state()
+	$effect(() => {
+		tableMetadata = undefined
+		loadTableMetaData(
+			'$res:' + resourcePath,
+			$workspaceStore,
+			selected.tableKey,
+			resourceType
+		).then((tm) => {
+			tableMetadata = tm
+		})
+	})
 </script>
 
 <Splitpanes>
@@ -105,7 +99,53 @@
 			{/each}
 		</div>
 	</Pane>
-	<Pane></Pane>
+	<Pane class="p-3 pt-1">
+		{#if selected.tableKey && tableMetadata}
+			{#key (selected.schemaKey, selected.tableKey)}
+				<AppDbExplorer
+					render
+					id=""
+					configuration={{
+						type: {
+							type: 'oneOf',
+							selected: resourceType,
+							configuration: {
+								[resourceType]: {
+									resource: {
+										type: 'static',
+										value: '$res:' + resourcePath
+									},
+									table: {
+										type: 'static',
+										selectOptions: tableKeys,
+										loading: false,
+										value: selected.tableKey
+									}
+								}
+							}
+						},
+						columnDefs: {
+							value: tableMetadata,
+							type: 'static',
+							loading: false
+						},
+						rowIdCol: { type: 'static', value: '' },
+						whereClause: { type: 'static', value: '' },
+						flex: { type: 'static', value: true },
+						allEditable: { type: 'static', value: true },
+						allowDelete: { type: 'static', value: true },
+						multipleSelectable: { type: 'static', value: false },
+						rowMultiselectWithClick: { type: 'static', value: true },
+						selectFirstRowByDefault: { type: 'static', value: true },
+						extraConfig: { type: 'static', value: {} },
+						hideInsert: { type: 'static', value: false },
+						hideSearch: { type: 'static', value: false },
+						wrapActions: { type: 'static', value: false },
+						footer: { type: 'static', value: true },
+						customActionsHeader: { type: 'static' }
+					}}
+				/>
+			{/key}
+		{/if}
+	</Pane>
 </Splitpanes>
-
-<!-- <div bind:this={eGui} style:height="100%"></div> -->
