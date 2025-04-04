@@ -137,7 +137,7 @@
 			{#each $flowStore.value.modules as flowModule, index (flowModule.id ?? index)}
 				<FlowModuleWrapper
 					{noEditor}
-					bind:flowModule
+					bind:flowModule={$flowStore.value.modules[index]}
 					previousModule={$flowStore.value.modules[index - 1]}
 					{enableAi}
 				/>
