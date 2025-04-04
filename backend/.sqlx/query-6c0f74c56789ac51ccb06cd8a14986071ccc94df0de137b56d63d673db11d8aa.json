@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM job_stats WHERE job_id = ANY($1)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "UuidArray"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "6c0f74c56789ac51ccb06cd8a14986071ccc94df0de137b56d63d673db11d8aa"
+}
