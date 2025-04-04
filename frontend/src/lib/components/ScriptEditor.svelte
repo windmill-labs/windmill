@@ -302,6 +302,7 @@
 	let storedAiPanelSize = aiPanelSize > 0 ? aiPanelSize : 30
 	let testPanelSize = 30
 	let storedTestPanelSize = testPanelSize
+
 	function toggleAiPanel() {
 		if (!$copilotInfo.enabled) return
 		if (aiPanelSize > 0) {
@@ -313,6 +314,15 @@
 			codePanelSize -= storedAiPanelSize
 			aiPanelSize = storedAiPanelSize
 			localStorage.setItem('aiPanelOpen', 'true')
+		}
+	}
+
+	function addSelectedLinesToAiChat(
+		e: CustomEvent<{ lines: string; startLine: number; endLine: number }>
+	) {
+		if (aiChat) {
+			aiChat.addSelectedLinesToContext(e.detail.lines, e.detail.startLine, e.detail.endLine)
+			aiChat.focusTextArea()
 		}
 	}
 
@@ -506,7 +516,9 @@
 						}}
 						on:saveDraft
 						on:toggleAiPanel={toggleAiPanel}
+						on:addSelectedLinesToAiChat={addSelectedLinesToAiChat}
 						on:toggleTestPanel={toggleTestPanel}
+						isAiPanelOpen={aiPanelSize > 0}
 						cmdEnterAction={async () => {
 							await inferSchema(code)
 							runTest()
