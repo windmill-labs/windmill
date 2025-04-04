@@ -24,7 +24,7 @@
 			<div>
 				<AppComponentInput bind:component={gridItem.data} {resourceOnly} />
 				<div class="ml-4 mt-4">
-					{#each gridItem.data.actionButtons as _, actionIndex (gridItem.data.actionButtons[actionIndex].id)}
+					{#each gridItem.data.actionButtons as actionButton, actionIndex (actionButton.id)}
 						<AppComponentInput
 							bind:component={gridItem.data.actionButtons[actionIndex].data}
 							{resourceOnly}
@@ -37,7 +37,7 @@
 				<AppComponentInput bind:component={gridItem.data} {resourceOnly} />
 				<div class="ml-4 mt-4">
 					{#if Array.isArray(gridItem.data.actions)}
-						{#each gridItem.data.actions as _, actionIndex (gridItem.data.actions[actionIndex].id)}
+						{#each gridItem.data.actions as actionButton, actionIndex (actionButton.id)}
 							<AppComponentInput
 								bind:component={gridItem.data.actions[actionIndex].data}
 								{resourceOnly}
