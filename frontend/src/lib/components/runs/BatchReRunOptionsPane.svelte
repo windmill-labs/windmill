@@ -245,18 +245,22 @@
 											flow_input: {}
 										}}
 										hideHelpButton
-										{...!propertyAlwaysExists(propertyName, selected) && {
-											headerTooltip:
-												'This property does not exist on all versions of the script. You can handle different cases in the code below',
-											HeaderTooltipIcon: TriangleAlert,
-											headerTooltipIconClass: 'text-orange-500'
-										}}
-										{...!propertyAlwaysHasSameType(propertyName, selected) && {
-											headerTooltip:
-												'This property does not always have the same type depending on the version of the script. You can handle different cases in the code below',
-											HeaderTooltipIcon: TriangleAlert,
-											headerTooltipIconClass: 'text-orange-500'
-										}}
+										{...propertyAlwaysExists(propertyName, selected)
+											? {}
+											: {
+													headerTooltip:
+														'This property does not exist on all versions of the script. You can handle different cases in the code below',
+													HeaderTooltipIcon: TriangleAlert,
+													headerTooltipIconClass: 'text-orange-500'
+												}}
+										{...propertyAlwaysHasSameType(propertyName, selected)
+											? {}
+											: {
+													headerTooltip:
+														'This property does not always have the same type depending on the version of the script. You can handle different cases in the code below',
+													HeaderTooltipIcon: TriangleAlert,
+													headerTooltipIconClass: 'text-orange-500'
+												}}
 									/>
 								{/each}
 							{/key}
