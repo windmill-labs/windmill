@@ -659,7 +659,9 @@ export async function elementsToMap(
         path.endsWith(".nats_trigger" + ext) ||
         path.endsWith(".postgres_trigger" + ext) ||
         path.endsWith(".mqtt_trigger" + ext) ||
-        path.endsWith(".sqs_trigger" + ext))
+        path.endsWith(".sqs_trigger" + ext) || 
+        path.endsWith(".gcp_trigger" + ext)
+      )
     )
       continue;
     if (!skips.includeUsers && path.endsWith(".user" + ext)) continue;
@@ -921,7 +923,8 @@ function getOrderFromPath(p: string) {
     typ == "nats_trigger" ||
     typ == "postgres_trigger" ||
     typ == "mqtt_trigger" ||
-    typ == "sqs_trigger"
+    typ == "sqs_trigger" ||
+    typ == "gcp_trigger"
   ) {
     return 8;
   } else if (typ == "variable") {
@@ -1785,6 +1788,12 @@ export async function push(opts: GlobalOptions & SyncOptions) {
                   await wmill.deleteSqsTrigger({
                     workspace: workspaceId,
                     path: removeSuffix(target, ".sqs_trigger.json"),
+                  });
+                  break;
+                case "gcp_trigger":
+                  await wmill.deleteGcpTrigger({
+                    workspace: workspaceId,
+                    path: removeSuffix(target, ".gcp_trigger.json"),
                   });
                   break;
                 case "variable":

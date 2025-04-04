@@ -32,6 +32,7 @@ use windmill_common::{
 use anyhow::{anyhow, bail, Result};
 use windmill_queue::MiniPulledJob;
 
+use std::ops::AsyncFn;
 use std::path::Path;
 use std::{collections::HashMap, sync::Arc, time::Duration};
 

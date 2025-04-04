@@ -23,7 +23,7 @@ use rand::distr::Alphanumeric;
 use rand::{rng, Rng};
 use reqwest::Client;
 use semver::Version;
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 use sha2::{Digest, Sha256};
 use sqlx::{Pool, Postgres};
 use std::str::FromStr;
@@ -444,6 +444,14 @@ pub async fn report_recovered_critical_error(
         )
         .await;
     }
+}
+
+pub fn empty_string_as_none<'de, D>(deserializer: D) -> std::result::Result<Option<String>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let option = <Option<String> as serde::Deserialize>::deserialize(deserializer)?;
+    Ok(option.filter(|s| !s.is_empty()))
 }
 
 pub async fn fetch_mute_workspace(_db: &DB, workspace_id: &str) -> Result<bool> {

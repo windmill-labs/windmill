@@ -54,6 +54,7 @@ export type TriggerKind =
 	| 'postgres'
 	| 'mqtt'
 	| 'sqs'
+	| 'gcp'
 export function captureTriggerKindToTriggerKind(kind: CaptureTriggerKind): TriggerKind {
 	switch (kind) {
 		case 'webhook':
@@ -74,6 +75,8 @@ export function captureTriggerKindToTriggerKind(kind: CaptureTriggerKind): Trigg
 			return 'sqs'
 		case 'postgres':
 			return  'postgres'
+		case 'gcp':
+			return 'gcp'
 		default:
 			throw new Error(`Unknown CaptureTriggerKind: ${kind}`)
 	}

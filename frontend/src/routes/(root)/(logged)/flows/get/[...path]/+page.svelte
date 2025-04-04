@@ -69,6 +69,7 @@
 	import SqsTriggerPanel from '$lib/components/triggers/sqs/SqsTriggerPanel.svelte'
 	import { onDestroy } from 'svelte'
 	import LogViewer from '$lib/components/LogViewer.svelte'
+	import GcpTriggerPanel from '$lib/components/triggers/gcp/GcpTriggerPanel.svelte'
 
 	let flow: Flow | undefined
 	let can_write = false
@@ -637,6 +638,12 @@
 		<svelte:fragment slot="sqs">
 			<div class="p-2">
 				<SqsTriggerPanel path={flow.path ?? ''} isFlow />
+			</div>
+		</svelte:fragment>
+
+		<svelte:fragment slot="gcp">
+			<div class="p-2">
+				<GcpTriggerPanel path={flow.path ?? ''} isFlow />
 			</div>
 		</svelte:fragment>
 
