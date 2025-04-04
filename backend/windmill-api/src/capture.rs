@@ -16,7 +16,9 @@ use {
 };
 
 #[cfg(all(feature = "enterprise", feature = "gcp_trigger"))]
-use crate::gcp_triggers_ee::{process_google_push_request, validate_jwt_token, Config};
+use crate::gcp_triggers_ee::{
+    manage_google_subscription, process_google_push_request, validate_jwt_token, Config,
+};
 
 #[cfg(any(
     feature = "http_trigger",
@@ -345,8 +347,6 @@ async fn set_gcp_trigger_config(
     db: &DB,
     mut capture_config: NewCaptureConfig,
 ) -> Result<NewCaptureConfig> {
-    use crate::gcp_triggers_ee::manage_google_subscription;
-
     let Some(TriggerConfig::Gcp(mut gcp_config)) = capture_config.trigger_config else {
         return Err(windmill_common::error::Error::BadRequest(
             "Invalid GCP Pub/Sub config".to_string(),

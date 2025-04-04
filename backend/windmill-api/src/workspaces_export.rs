@@ -637,6 +637,25 @@ pub(crate) async fn tarball_workspace(
             }
         }
 
+        #[cfg(all(feature = "enterprise", feature = "gcp_trigger"))]
+        {
+            let gcp_triggers = sqlx::query_as!(
+                crate::gcp_triggers_ee::GcpTrigger,
+                "SELECT * FROM gcp_trigger
+                WHERE workspace_id = $1",
+                &w_id
+            )
+            .fetch_all(&mut *tx)
+            .await?;
+
+            for trigger in gcp_triggers {
+                let trigger_str = &to_string_without_metadata(&trigger, false, None).unwrap();
+                archive
+                    .write_to_archive(&trigger_str, &format!("{}.gcp_trigger.json", trigger.path))
+                    .await?;
+            }
+        }
+
         #[cfg(all(feature = "enterprise", feature = "nats"))]
         {
             let nats_triggers = sqlx::query_as!(
