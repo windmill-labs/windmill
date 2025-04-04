@@ -678,7 +678,7 @@
 		const jobIdsToReRun = selectedIds
 		askingForConfirmation = {
 			title: `Confirm re-running the selected jobs`,
-			confirmBtnText: `Move`,
+			confirmBtnText: `Re-run ${jobIdsToReRun.length} jobs`,
 			type: 'reload',
 			onConfirm: async () => {
 				await reRunJobs(jobIdsToReRun)
