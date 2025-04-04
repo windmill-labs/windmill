@@ -58,12 +58,10 @@ async function getResourceTypes(prompt: string, workspace: string) {
 
 const TS_RESOURCE_TYPE_SYSTEM = `On Windmill, credentials and configuration are stored in resources and passed as parameters to main.
 If you need credentials, you should add a parameter to \`main\` with the corresponding resource type inside the \`RT\` namespace: for instance \`RT.Stripe\`.
-You should only them if you need them to satisfy the user's instructions. Always use the RT namespace. 
-To query the RT namespace, you can use the \`search_resource_types\` function.`
+You should only use them if you need them to satisfy the user's instructions. Always use the RT namespace.`
 
 const PYTHON_RESOURCE_TYPE_SYSTEM = `On Windmill, credentials and configuration are stored in resources and passed as parameters to main.
 If you need credentials, you should add a parameter to \`main\` with the corresponding resource type.
-To query the available resource types, you can use the \`search_resource_types\` function.
 You need to **redefine** the type of the resources that are needed before the main function as TypedDict, but only include them if they are actually needed to achieve the function purpose.
 The resource type name has to be exactly as specified (has to be IN LOWERCASE).
 If an import conflicts with a resource type name, **you have to rename the imported object, not the type name**.
@@ -95,29 +93,38 @@ export const SUPPORTED_CHAT_SCRIPT_LANGUAGES = [
 	'powershell'
 ]
 
-export function getLangContext(lang: ScriptLang | 'bunnative') {
+export function getLangContext(
+	lang: ScriptLang | 'bunnative',
+	{ allowResourcesFetch = false }: { allowResourcesFetch?: boolean } = {}
+) {
+	const tsContext =
+		TS_RESOURCE_TYPE_SYSTEM +
+		(allowResourcesFetch
+			? `\nTo query the RT namespace, you can use the \`search_resource_types\` function.`
+			: '')
 	switch (lang) {
 		case 'bunnative':
 		case 'nativets':
 			return (
 				'The user is coding in TypeScript. On Windmill, it is expected that the script exports a single **async** function called `main`. You should use fetch (available globally, no need to import) and are not allowed to import any libraries.\n' +
-				TS_RESOURCE_TYPE_SYSTEM
+				tsContext
 			)
 		case 'bun':
 			return (
 				'The user is coding in TypeScript (bun runtime). On Windmill, it is expected that the script exports a single **async** function called `main`. Do not call the main function. Libraries are installed automatically, do not show how to install them.\n' +
-				TS_RESOURCE_TYPE_SYSTEM
+				tsContext
 			)
 		case 'deno':
 			return (
 				'The user is coding in TypeScript (deno runtime). On Windmill, it is expected that the script exports a single **async** function called `main`. Do not call the main function. Libraries are installed automatically, do not show how to install them.\n' +
-				TS_RESOURCE_TYPE_SYSTEM +
+				tsContext +
 				'\nYou can import deno libraries or you can import npm libraries like that: `import ... from "npm:{package}";`.'
 			)
 		case 'python3':
 			return (
 				'The user is coding in Python. On Windmill, it is expected the script contains at least one function called `main`. Do not call the main function. Libraries are installed automatically, do not show how to install them.' +
-				PYTHON_RESOURCE_TYPE_SYSTEM
+				PYTHON_RESOURCE_TYPE_SYSTEM +
+				`${allowResourcesFetch ? `\nTo query the available resource types, you can use the \`search_resource_types\` function.` : ''}`
 			)
 		case 'php':
 			return (
@@ -337,7 +344,7 @@ export async function prepareUserMessage(
 	}
 
 	const userMessage = CHAT_USER_PROMPT.replace('{instructions}', instructions)
-		.replace('{lang_context}', getLangContext(language))
+		.replace('{lang_context}', getLangContext(language, { allowResourcesFetch: true }))
 		.replace('{code_context}', codeContext)
 		.replace('{error_context}', errorContext)
 		.replace('{db_context}', dbContext)
