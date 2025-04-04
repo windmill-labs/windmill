@@ -2,6 +2,7 @@ use rmcp::transport::sse_server::SseServer;
 mod runner;
 use crate::runner::Runner;
 use hyper::client::HttpConnector;
+use hyper::server::conn::AddrStream;
 use hyper::service::{make_service_fn, service_fn};
 use hyper::{Body, Client, Request, Server};
 use std::convert::Infallible;
@@ -20,12 +21,20 @@ async fn proxy(
     client: Client<HttpConnector>,
     runner: Arc<RwLock<Runner>>,
     req: Request<Body>,
+    remote_addr: SocketAddr,
 ) -> Result<hyper::Response<Body>, hyper::Error> {
     let path = req.uri().path_and_query().map(|x| x.as_str()).unwrap_or("");
     let uri = format!("http://{}{}", INTERNAL_ADDRESS, path);
     let method = req.method().clone();
+    let version = req.version();
 
-    tracing::info!("Incoming request: {} {}", method, req.uri());
+    tracing::info!(
+        "Incoming request from {}: {} {} {:?}",
+        remote_addr,
+        method,
+        req.uri(),
+        version
+    );
     tracing::info!("Headers: {:?}", req.headers());
 
     // Log query parameters if present
@@ -44,7 +53,7 @@ async fn proxy(
                     let result = runner
                         .write()
                         .unwrap()
-                        .update_user_token(decoded_value.as_ref().to_string());
+                        .add_token(decoded_value.as_ref().to_string(), "123".to_string());
                     match result {
                         Ok(result) => {
                             tracing::info!("Result: {:?}", result);
@@ -94,12 +103,13 @@ async fn main() -> anyhow::Result<()> {
 
     // Start proxy server
     let client = Client::new();
-    let make_svc = make_service_fn(move |_conn| {
+    let make_svc = make_service_fn(move |conn: &AddrStream| {
         let client = client.clone();
         let runner = runner.clone();
+        let remote_addr = conn.remote_addr();
         async move {
             Ok::<_, Infallible>(service_fn(move |req| {
-                proxy(client.clone(), runner.clone(), req)
+                proxy(client.clone(), runner.clone(), req, remote_addr)
             }))
         }
     });
