@@ -25,6 +25,9 @@ use crate::{
     indexer::TantivyIndexerSettings, server::Smtp, KillpillSender, DB,
 };
 
+pub const DEFAULT_CLOUD_TIMEOUT: u64 = 900;
+pub const DEFAULT_SELFHOSTED_TIMEOUT: u64 = 604800; // 7 days
+
 lazy_static::lazy_static! {
     pub static ref WORKER_GROUP: String = std::env::var("WORKER_GROUP").unwrap_or_else(|_| {
         #[cfg(not(feature = "enterprise"))]
@@ -78,6 +81,15 @@ lazy_static::lazy_static! {
     pub static ref DEFAULT_TAGS_PER_WORKSPACE: AtomicBool = AtomicBool::new(false);
     pub static ref DEFAULT_TAGS_WORKSPACES: Arc<RwLock<Option<Vec<String>>>> = Arc::new(RwLock::new(None));
 
+    pub static ref MAX_TIMEOUT: u64 = std::env::var("TIMEOUT")
+    .ok()
+    .and_then(|x| x.parse::<u64>().ok())
+    .unwrap_or_else(|| if *CLOUD_HOSTED { DEFAULT_CLOUD_TIMEOUT } else { DEFAULT_SELFHOSTED_TIMEOUT });
+
+    pub static ref SCRIPT_TOKEN_EXPIRY: u64 = std::env::var("SCRIPT_TOKEN_EXPIRY")
+        .ok()
+        .and_then(|x| x.parse::<u64>().ok())
+        .unwrap_or(*MAX_TIMEOUT);
 
     pub static ref WORKER_CONFIG: Arc<RwLock<WorkerConfig>> = Arc::new(RwLock::new(WorkerConfig {
         worker_tags: Default::default(),
@@ -223,21 +235,24 @@ fn format_pull_query(peek: String) -> String {
     r
 }
 
-// pub async fn make_suspended
-pub async fn store_suspended_pull_query(wc: &WorkerConfig) {
-    if wc.worker_tags.len() == 0 {
-        tracing::error!("Empty tags in worker tags, skipping");
-        return;
-    }
-    let query = format_pull_query(format!(
+pub fn make_suspended_pull_query(tags: &[String]) -> String {
+    format_pull_query(format!(
         "SELECT id
         FROM v2_job_queue
         WHERE suspend_until IS NOT NULL AND (suspend <= 0 OR suspend_until <= now()) AND tag IN ({})
         ORDER BY priority DESC NULLS LAST, created_at
         FOR UPDATE SKIP LOCKED
         LIMIT 1",
-        wc.worker_tags.iter().map(|x| format!("'{x}'")).join(", ")
-    ));
+        tags.iter().map(|x| format!("'{x}'")).join(", ")
+    ))
+}
+// pub async fn make_suspended
+pub async fn store_suspended_pull_query(wc: &WorkerConfig) {
+    if wc.worker_tags.len() == 0 {
+        tracing::error!("Empty tags in worker tags, skipping");
+        return;
+    }
+    let query = make_suspended_pull_query(&wc.worker_tags);
     let mut l = WORKER_SUSPENDED_PULL_QUERY.write().await;
     *l = query;
 }

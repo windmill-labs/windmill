@@ -24,7 +24,7 @@ use crate::{
 
 #[derive(sqlx::Type, Serialize, Deserialize, Debug, PartialEq, Copy, Clone)]
 #[sqlx(type_name = "JOB_KIND", rename_all = "lowercase")]
-#[serde(rename_all(serialize = "lowercase"))]
+#[serde(rename_all(serialize = "lowercase", deserialize = "lowercase"))]
 pub enum JobKind {
     Script,
     #[allow(non_camel_case_types)]

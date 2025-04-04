@@ -29,8 +29,9 @@ use uuid::Uuid;
 use windmill_audit::audit_ee::{audit_log, AuditAuthor};
 use windmill_audit::ActionKind;
 
+use windmill_common::auth::JobPerms;
 use windmill_common::utils::now_from_db;
-use windmill_common::worker::Connection;
+use windmill_common::worker::{Connection, SCRIPT_TOKEN_EXPIRY};
 use windmill_common::{
     auth::{fetch_authed_from_permissioned_as, permissioned_as_to_username},
     cache::{self, FlowData},
@@ -66,6 +67,7 @@ use windmill_common::BASE_URL;
 #[cfg(feature = "cloud")]
 use windmill_common::users::SUPERADMIN_SYNC_EMAIL;
 
+use crate::flow_status::{update_flow_status_in_progress, update_workflow_as_code_status};
 use crate::jobs_ee::update_concurrency_counter;
 use crate::schedule::{get_schedule_opt, push_scheduled_job};
 
@@ -2074,7 +2076,33 @@ impl MiniPulledJob {
             None
         }
     }
+
+
+    pub async fn mark_as_started(&self, db: &DB) -> Result<(), Error> {
+        if self.is_flow_step() {
+            let _ = update_flow_status_in_progress(
+                db,
+                &self.workspace_id,
+                self.parent_job
+                    .ok_or_else(|| Error::internal_err(format!("expected parent job")))?,
+                self.id,
+            )
+            .warn_after_seconds(5)
+            .await?;
+        } else if let Some(parent_job) = self.parent_job {
+            let _ = update_workflow_as_code_status(
+                db,
+                &self.id,
+                &parent_job,
+            )
+            .await?;
+        }
+        Ok(())
+    }
+
 }
+
+
 
 #[derive(sqlx::FromRow, Debug, Clone, Serialize, Deserialize)]
 pub struct PulledJob {
@@ -2091,6 +2119,87 @@ pub struct PulledJob {
     pub permissioned_as_groups: Option<Vec<String>>,
     pub permissioned_as_folders: Option<Vec<serde_json::Value>>,
 }
+
+#[derive(Serialize, Deserialize)]
+pub struct JobAndPerms {
+    pub job: MiniPulledJob,
+    pub raw_code: Option<String>,
+    pub raw_flow: Option<Json<Box<RawValue>>>,
+    pub raw_lock: Option<String>,
+    pub parent_runnable_path: Option<String>,
+    pub token: String,
+}
+impl PulledJob {
+    pub async fn get_job_and_perms(self, db: &DB) -> JobAndPerms {
+        let job_perms = match (
+            self.permissioned_as_email,
+            self.permissioned_as_username,
+            self.permissioned_as_is_admin,
+            self.permissioned_as_is_operator,
+            self.permissioned_as_groups,
+            self.permissioned_as_folders,
+        ) {
+            (
+                Some(email),
+                Some(username),
+                Some(is_admin),
+                Some(is_operator),
+                Some(groups),
+                Some(folders),
+            ) => Some(JobPerms {
+                email,
+                username,
+                is_admin,
+                is_operator,
+                groups,
+                folders,
+            }),
+            _ => None,
+        };
+
+        let token = create_token(&db, &self.job, job_perms).await;
+        JobAndPerms {
+            job: self.job,
+            raw_code: self.raw_code,
+            raw_flow: self.raw_flow,
+            raw_lock: self.raw_lock,
+            parent_runnable_path: self.parent_runnable_path,
+            token,
+        }
+    }
+}
+
+// struct Permission
+pub async fn create_token(db: &DB, job: &MiniPulledJob, perms: Option<JobPerms>) -> String {
+    // skipping test runs
+    if job.workspace_id != "" {
+        let label = if job.permissioned_as != format!("u/{}", job.created_by)
+            && job.permissioned_as != job.created_by
+        {
+            format!("ephemeral-script-end-user-{}", job.created_by)
+        } else {
+            "ephemeral-script".to_string()
+        };
+        windmill_common::auth::create_token_for_owner(
+            db,
+            &job.workspace_id,
+            &job.permissioned_as,
+            &label,
+            *SCRIPT_TOKEN_EXPIRY,
+            &job.permissioned_as_email,
+            &job.id,
+            perms,
+        )
+        .warn_after_seconds(5)
+        .await
+        .expect("could not create job token")
+    } else {
+        return "".to_string();
+    }
+}
+
+
+
 
 impl std::ops::Deref for PulledJob {
     type Target = MiniPulledJob;
@@ -2159,14 +2268,30 @@ pub async fn pull(
     db: &Pool<Postgres>,
     suspend_first: bool,
     worker_name: &str,
+    query_o: Option<(String, String)>,
 ) -> windmill_common::error::Result<PulledJobResult> {
     loop {
+        if let Some((query_suspended, query_no_suspend)) = query_o {
+            let job = sqlx::query_as::<_, PulledJob>(&query_suspended)
+                .bind(worker_name)
+                .fetch_optional(db)
+                .await?;
+            if let Some(job) = job {
+                return Ok(PulledJobResult { job: Some(job), suspended: true });
+            } else {
+                let job = sqlx::query_as::<_, PulledJob>(&query_no_suspend)
+                    .bind(worker_name)
+                    .fetch_optional(db)
+                    .await?;
+                return Ok(PulledJobResult { job, suspended: false });
+            }
+        };
         let (job, suspended) = pull_single_job_and_mark_as_running_no_concurrency_limit(
-            db,
-            suspend_first,
-            worker_name,
-        )
-        .await?;
+                db,
+                suspend_first,
+                worker_name,
+            )
+            .await?;
 
         let Some(job) = job else {
             return Ok(PulledJobResult { job: None, suspended });

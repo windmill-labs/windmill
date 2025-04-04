@@ -29,9 +29,9 @@ use windmill_common::{
     error::{JsonResult, Result},
     jwt::encode_with_internal_secret,
     utils::worker_name_with_suffix,
-    worker::{update_ping_http, Ping},
+    worker::{make_pull_query, make_suspended_pull_query, update_ping_http, Ping},
 };
-use windmill_queue::{pull, push_init_job, PulledJobResult};
+use windmill_queue::{pull, push_init_job, JobAndPerms};
 
 #[cfg(feature = "enterprise")]
 pub fn global_service() -> Router {
@@ -197,11 +197,30 @@ pub async fn get_global_setting(
     Ok(Json(value.unwrap_or_else(|| serde_json::Value::Null)))
 }
 
+lazy_static::lazy_static! {
+    pub static ref CACHE_QUERY: Cache<Vec<String>, (String, String)> = Cache::new(100);
+}
 async fn pull_job(
     authed: AgentAuth,
     Extension(db): Extension<DB>,
     // Json(request): Json<PullJobRequest>,
-) -> JsonResult<PulledJobResult> {
-    let job = pull(&db, false, &authed.worker_name()).await?;
+) -> JsonResult<Option<JobAndPerms>> {
+    let query = CACHE_QUERY.get(&authed.tags);
+    let query = if query.is_some() {
+        query.unwrap()
+    } else {
+        let query = (
+            make_suspended_pull_query(&authed.tags),
+            make_pull_query(&authed.tags),
+        );
+        CACHE_QUERY.insert(authed.tags.clone(), query.clone());
+        query
+    };
+    let job = pull(&db, false, &authed.worker_name(), Some(query)).await?;
+    let job = if let Some(job) = job.job {
+        Some(job.get_job_and_perms(&db).await)
+    } else {
+        None
+    };
     Ok(Json(job))
 }

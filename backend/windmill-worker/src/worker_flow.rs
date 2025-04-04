@@ -53,6 +53,7 @@ use windmill_common::{
     },
     flows::{FlowModule, FlowModuleValue, FlowValue, InputTransform, Retry, Suspend},
 };
+use windmill_queue::flow_status::Step;
 use windmill_queue::schedule::get_schedule_opt;
 use windmill_queue::{
     add_completed_job, add_completed_job_error, append_logs, get_mini_pulled_job,
@@ -1384,102 +1385,6 @@ async fn compute_bool_from_expr(
         a @ _ => Err(Error::ExecutionErr(format!(
             "Expected a boolean value, found: {a:?}"
         ))),
-    }
-}
-
-pub async fn update_flow_status_in_progress(
-    db: &DB,
-    _w_id: &str,
-    flow: Uuid,
-    job_in_progress: Uuid,
-) -> error::Result<Step> {
-    let step = get_step_of_flow_status(db, flow).await?;
-    match step {
-        Step::Step(step) => {
-            sqlx::query!(
-                "UPDATE v2_job_status SET
-                    flow_status = jsonb_set(
-                        jsonb_set(flow_status, ARRAY['modules', $3::INTEGER::TEXT, 'job'], to_jsonb($1::UUID::TEXT)),
-                        ARRAY['modules', $3::INTEGER::TEXT, 'type'],
-                        to_jsonb('InProgress'::text)
-                    )
-                WHERE id = $2",
-                job_in_progress,
-                flow,
-                step as i32
-            )
-            .execute(db)
-            .await?;
-        }
-        Step::PreprocessorStep => {
-            sqlx::query!(
-                "UPDATE v2_job_status SET
-                    flow_status = jsonb_set(
-                        jsonb_set(flow_status, ARRAY['preprocessor_module', 'job'], to_jsonb($1::UUID::TEXT)),
-                        ARRAY['preprocessor_module', 'type'],
-                        to_jsonb('InProgress'::text)
-                    )
-                WHERE id = $2",
-                job_in_progress,
-                flow
-            )
-            .execute(db)
-            .await?;
-        }
-        Step::FailureStep => {
-            sqlx::query!(
-                "UPDATE v2_job_status SET
-                    flow_status = jsonb_set(
-                        jsonb_set(flow_status, ARRAY['failure_module', 'job'], to_jsonb($1::UUID::TEXT)),
-                        ARRAY['failure_module', 'type'],
-                        to_jsonb('InProgress'::text)
-                    )
-                WHERE id = $2",
-                job_in_progress,
-                flow
-            )
-            .execute(db)
-            .await?;
-        }
-    }
-
-    Ok(step)
-}
-
-#[derive(Debug, Copy, Clone)]
-pub enum Step {
-    Step(usize),
-    PreprocessorStep,
-    FailureStep,
-}
-
-impl Step {
-    fn from_i32_and_len(step: i32, len: usize) -> Self {
-        if step < 0 {
-            Step::PreprocessorStep
-        } else if (step as usize) < len {
-            Step::Step(step as usize)
-        } else {
-            Step::FailureStep
-        }
-    }
-}
-
-#[instrument(level = "trace", skip_all)]
-pub async fn get_step_of_flow_status(db: &DB, id: Uuid) -> error::Result<Step> {
-    let r = sqlx::query!(
-        "SELECT (flow_status->'step')::integer as step, jsonb_array_length(flow_status->'modules') as len
-        FROM v2_job_status WHERE id = $1",
-        id
-    )
-    .fetch_one(db)
-    .await
-    .map_err(|e| Error::internal_err(format!("fetching step flow status: {e:#}")))?;
-
-    if let Some(step) = r.step {
-        Ok(Step::from_i32_and_len(step, r.len.unwrap_or(0) as usize))
-    } else {
-        Err(Error::internal_err("step is null".to_string()))
     }
 }
 

@@ -14,13 +14,13 @@ use futures::TryFutureExt;
 use windmill_common::{
     agent_workers::DECODED_AGENT_TOKEN,
     apps::AppScriptId,
-    auth::{fetch_authed_from_permissioned_as, JWTAuthClaims, JobPerms},
     cache::{future::FutureCachedExt, ScriptData, ScriptMetadata},
-    jwt,
     schema::{should_validate_schema, SchemaValidator},
     scripts::PREVIEW_IS_TAR_CODEBASE_HASH,
     utils::WarnAfterExt,
-    worker::{write_file, Connection, ROOT_CACHE_DIR, ROOT_CACHE_NOMOUNT_DIR, TMP_DIR},
+    worker::{
+        write_file, Connection, MAX_TIMEOUT, ROOT_CACHE_DIR, ROOT_CACHE_NOMOUNT_DIR, TMP_DIR,
+    },
     KillpillSender,
 };
 
@@ -67,7 +67,7 @@ use windmill_common::{
 
 use windmill_queue::{
     append_logs, canceled_job_to_result, empty_result, pull, push_init_job, CanceledBy,
-    MiniPulledJob, PulledJob, HTTP_CLIENT,
+    JobAndPerms, MiniPulledJob, PulledJob, HTTP_CLIENT,
 };
 
 #[cfg(feature = "prometheus")]
@@ -110,7 +110,7 @@ use crate::{
     pg_executor::do_postgresql,
     result_processor::{process_result, start_background_processor},
     schema::schema_validator_from_main_arg_sig,
-    worker_flow::{handle_flow, update_flow_status_in_progress},
+    worker_flow::handle_flow,
     worker_lockfiles::{
         handle_app_dependency_job, handle_dependency_job, handle_flow_dependency_job,
     },
@@ -158,115 +158,6 @@ use crate::bench::{benchmark_init, BenchmarkInfo, BenchmarkIter};
 
 use windmill_common::add_time;
 
-// struct Permission
-pub async fn create_token(
-    conn: &Connection,
-    job: &MiniPulledJob,
-    perms: Option<JobPerms>,
-) -> String {
-    // skipping test runs
-    if job.workspace_id != "" {
-        let label = if job.permissioned_as != format!("u/{}", job.created_by)
-            && job.permissioned_as != job.created_by
-        {
-            format!("ephemeral-script-end-user-{}", job.created_by)
-        } else {
-            "ephemeral-script".to_string()
-        };
-        create_token_for_owner(
-            conn,
-            &job.workspace_id,
-            &job.permissioned_as,
-            &label,
-            *SCRIPT_TOKEN_EXPIRY,
-            &job.permissioned_as_email,
-            &job.id,
-            perms,
-        )
-        .warn_after_seconds(5)
-        .await
-        .expect("could not create job token")
-    } else {
-        return "".to_string();
-    }
-}
-
-#[tracing::instrument(level = "trace", skip_all)]
-pub async fn create_token_for_owner(
-    conn: &Connection,
-    w_id: &str,
-    owner: &str,
-    label: &str,
-    expires_in: u64,
-    email: &str,
-    job_id: &Uuid,
-    perms: Option<JobPerms>,
-) -> error::Result<String> {
-    let job_perms = if perms.is_some() {
-        Ok(perms)
-    } else {
-        match conn {
-            Connection::Sql(db) => {
-                sqlx::query_as!(
-                    JobPerms,
-                    "SELECT email, username, is_admin, is_operator, groups, folders FROM job_perms WHERE job_id = $1 AND workspace_id = $2",
-                    job_id,
-                    w_id
-                )
-                .fetch_optional(db)
-                .await
-            }
-            Connection::Http(_) => Ok(None),
-        }
-    };
-    let job_authed = match job_perms {
-        Ok(Some(jp)) => jp.into(),
-        _ => {
-            tracing::warn!("Could not get permissions for job {job_id} from job_perms table, getting permissions directly...");
-            match conn {
-                Connection::Sql(db) => fetch_authed_from_permissioned_as(
-                    owner.to_string(),
-                    email.to_string(),
-                    w_id,
-                    db,
-                )
-                .await
-                .map_err(|e| {
-                    Error::internal_err(format!(
-                        "Could not get permissions directly for job {job_id}: {e:#}"
-                    ))
-                })?,
-                Connection::Http(_) => {
-                    return Err(Error::internal_err(format!(
-                        "Could not get permissions directly for job {job_id}"
-                    )))
-                }
-            }
-        }
-    };
-
-    let payload = JWTAuthClaims {
-        email: job_authed.email,
-        username: job_authed.username,
-        is_admin: job_authed.is_admin,
-        is_operator: job_authed.is_operator,
-        groups: job_authed.groups,
-        folders: job_authed.folders,
-        label: Some(label.to_string()),
-        workspace_id: w_id.to_string(),
-        exp: (chrono::Utc::now() + chrono::Duration::seconds(expires_in as i64)).timestamp()
-            as usize,
-        job_id: Some(job_id.to_string()),
-        scopes: None,
-    };
-
-    let token = jwt::encode_with_internal_secret(&payload)
-        .await
-        .with_context(|| format!("Could not encode JWT token for job {job_id}"))?;
-
-    Ok(format!("jwt_{}", token))
-}
-
 pub const PY310_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "python_310");
 pub const PY311_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "python_311");
 pub const PY312_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "python_312");
@@ -309,8 +200,6 @@ const NUM_SECS_READINGS: u64 = 60;
 
 const INCLUDE_DEPS_PY_SH_CONTENT: &str = include_str!("../nsjail/download_deps.py.sh");
 
-pub const DEFAULT_CLOUD_TIMEOUT: u64 = 900;
-pub const DEFAULT_SELFHOSTED_TIMEOUT: u64 = 604800; // 7 days
 pub const DEFAULT_SLEEP_QUEUE: u64 = 50;
 
 // only 1 native job so that we don't have to worry about concurrency issues on non dedicated native jobs workers
@@ -434,10 +323,7 @@ lazy_static::lazy_static! {
     pub static ref INSTANCE_PYTHON_VERSION: Arc<RwLock<Option<String>>> = Arc::new(RwLock::new(None));
     pub static ref JOB_DEFAULT_TIMEOUT: Arc<RwLock<Option<i32>>> = Arc::new(RwLock::new(None));
 
-    static ref MAX_TIMEOUT: u64 = std::env::var("TIMEOUT")
-        .ok()
-        .and_then(|x| x.parse::<u64>().ok())
-        .unwrap_or_else(|| if *CLOUD_HOSTED { DEFAULT_CLOUD_TIMEOUT } else { DEFAULT_SELFHOSTED_TIMEOUT });
+
 
     pub static ref MAX_WAIT_FOR_SIGINT: u64 = std::env::var("MAX_WAIT_FOR_SIGINT")
         .ok()
@@ -451,10 +337,6 @@ lazy_static::lazy_static! {
 
     pub static ref MAX_TIMEOUT_DURATION: Duration = Duration::from_secs(*MAX_TIMEOUT);
 
-    pub static ref SCRIPT_TOKEN_EXPIRY: u64 = std::env::var("SCRIPT_TOKEN_EXPIRY")
-        .ok()
-        .and_then(|x| x.parse::<u64>().ok())
-        .unwrap_or(*MAX_TIMEOUT);
 
     pub static ref GLOBAL_CACHE_INTERVAL: u64 = std::env::var("GLOBAL_CACHE_INTERVAL")
         .ok()
@@ -769,7 +651,6 @@ pub async fn run_worker(
     mut killpill_rx: tokio::sync::broadcast::Receiver<()>,
     killpill_tx: KillpillSender,
     base_internal_url: &str,
-    agent_mode: bool,
 ) {
     #[cfg(not(feature = "enterprise"))]
     if !*DISABLE_NSJAIL {
@@ -1264,6 +1145,29 @@ pub async fn run_worker(
         } else {
             tracing::info!("benchmark not finished, still pulling jobs {}", infos.iters);
         }
+        enum NextJob {
+            Sql(PulledJob),
+            Http(JobAndPerms),
+        }
+
+        impl NextJob {
+            pub fn job(self) -> MiniPulledJob {
+                match self {
+                    NextJob::Sql(job) => job.job,
+                    NextJob::Http(job) => job.job,
+                }
+            }
+        }
+
+        impl std::ops::Deref for NextJob {
+            type Target = MiniPulledJob;
+            fn deref(&self) -> &Self::Target {
+                match self {
+                    NextJob::Sql(job) => &job.job,
+                    NextJob::Http(job) => &job.job,
+                }
+            }
+        }
 
         let next_job = {
             // println!("2: {:?}",  instant.elapsed());
@@ -1295,7 +1199,7 @@ pub async fn run_worker(
                                 .expect("send kill to job completed tx");
                             break;
                         } else {
-                            job
+                            job.map(|x| x.map(NextJob::Sql))
                         }
                     }
                     Connection::Http(_) => panic!("same worker job on http connection"),
@@ -1319,80 +1223,84 @@ pub async fn run_worker(
                     continue;
                 }
             } else {
-                let pull_time = Instant::now();
-                let likelihood_of_suspend =
-                    (1.0 + last_30jobs_suspended.iter().filter(|&&x| x).count() as f64) / 31.0;
-                let suspend_first = suspend_first_success
-                    || rand::random::<f64>() < likelihood_of_suspend
-                    || last_suspend_first.elapsed().as_secs_f64() > 5.0;
+                match &conn {
+                    Connection::Sql(db) => {
+                        let pull_time = Instant::now();
+                        let likelihood_of_suspend = (1.0
+                            + last_30jobs_suspended.iter().filter(|&&x| x).count() as f64)
+                            / 31.0;
+                        let suspend_first = suspend_first_success
+                            || rand::random::<f64>() < likelihood_of_suspend
+                            || last_suspend_first.elapsed().as_secs_f64() > 5.0;
 
-                if suspend_first {
-                    last_suspend_first = Instant::now();
-                }
+                        if suspend_first {
+                            last_suspend_first = Instant::now();
+                        }
 
-                let job = match conn {
-                    Connection::Sql(db) => pull(&db, suspend_first, &worker_name).await,
+                        let job = pull(&db, suspend_first, &worker_name, None).await;
+
+                        add_time!(bench, "job pulled from DB");
+                        let duration_pull_s = pull_time.elapsed().as_secs_f64();
+                        let err_pull = job.is_ok();
+                        // let empty = job.as_ref().is_ok_and(|x| x.is_none());
+
+                        if duration_pull_s > 0.5 {
+                            let empty = job.as_ref().is_ok_and(|x| x.job.is_none());
+                            tracing::warn!(worker = %worker_name, hostname = %hostname, "pull took more than 0.5s ({duration_pull_s}), this is a sign that the database is VERY undersized for this load. empty: {empty}, err: {err_pull}");
+                            #[cfg(feature = "prometheus")]
+                            if empty {
+                                if let Some(wp) = worker_pull_over_500_counter_empty.as_ref() {
+                                    wp.inc();
+                                }
+                            } else if let Some(wp) = worker_pull_over_500_counter.as_ref() {
+                                wp.inc();
+                            }
+                        } else if duration_pull_s > 0.1 {
+                            let empty = job.as_ref().is_ok_and(|x| x.job.is_none());
+                            tracing::warn!(worker = %worker_name, hostname = %hostname, "pull took more than 0.1s ({duration_pull_s}) this is a sign that the database is undersized for this load. empty: {empty}, err: {err_pull}");
+                            #[cfg(feature = "prometheus")]
+                            if empty {
+                                if let Some(wp) = worker_pull_over_100_counter_empty.as_ref() {
+                                    wp.inc();
+                                }
+                            } else if let Some(wp) = worker_pull_over_100_counter.as_ref() {
+                                wp.inc();
+                            }
+                        }
+
+                        if let Ok(j) = job.as_ref() {
+                            let suspend_success = j.suspended;
+                            if suspend_first {
+                                last_30jobs_suspended.push(suspend_success);
+                                if last_30jobs_suspended.len() > 30 {
+                                    last_30jobs_suspended.remove(0);
+                                }
+                            }
+                            suspend_first_success = suspend_first && suspend_success;
+                            #[cfg(feature = "prometheus")]
+                            if j.0.is_some() {
+                                if let Some(wp) = worker_pull_duration_counter.as_ref() {
+                                    wp.inc_by(duration_pull_s);
+                                }
+                                if let Some(wp) = worker_pull_duration.as_ref() {
+                                    wp.observe(duration_pull_s);
+                                }
+                            } else {
+                                if let Some(wp) = worker_pull_duration_counter_empty.as_ref() {
+                                    wp.inc_by(duration_pull_s);
+                                }
+                                if let Some(wp) = worker_pull_duration_empty.as_ref() {
+                                    wp.observe(duration_pull_s);
+                                }
+                            }
+                        }
+                        job.map(|x| x.job.map(NextJob::Sql))
+                    }
                     Connection::Http(client) => crate::agent_workers::pull_job(&client)
                         .await
-                        .map_err(|e| error::Error::InternalErr(e.to_string())),
-                };
-
-                add_time!(bench, "job pulled from DB");
-                let duration_pull_s = pull_time.elapsed().as_secs_f64();
-                let err_pull = job.is_ok();
-                // let empty = job.as_ref().is_ok_and(|x| x.is_none());
-
-                if !agent_mode && duration_pull_s > 0.5 {
-                    let empty = job.as_ref().is_ok_and(|x| x.job.is_none());
-                    tracing::warn!(worker = %worker_name, hostname = %hostname, "pull took more than 0.5s ({duration_pull_s}), this is a sign that the database is VERY undersized for this load. empty: {empty}, err: {err_pull}");
-                    #[cfg(feature = "prometheus")]
-                    if empty {
-                        if let Some(wp) = worker_pull_over_500_counter_empty.as_ref() {
-                            wp.inc();
-                        }
-                    } else if let Some(wp) = worker_pull_over_500_counter.as_ref() {
-                        wp.inc();
-                    }
-                } else if !agent_mode && duration_pull_s > 0.1 {
-                    let empty = job.as_ref().is_ok_and(|x| x.job.is_none());
-                    tracing::warn!(worker = %worker_name, hostname = %hostname, "pull took more than 0.1s ({duration_pull_s}) this is a sign that the database is undersized for this load. empty: {empty}, err: {err_pull}");
-                    #[cfg(feature = "prometheus")]
-                    if empty {
-                        if let Some(wp) = worker_pull_over_100_counter_empty.as_ref() {
-                            wp.inc();
-                        }
-                    } else if let Some(wp) = worker_pull_over_100_counter.as_ref() {
-                        wp.inc();
-                    }
+                        .map_err(|e| error::Error::InternalErr(e.to_string()))
+                        .map(|x| x.map(|y| NextJob::Http(y))),
                 }
-
-                if let Ok(j) = job.as_ref() {
-                    let suspend_success = j.suspended;
-                    if suspend_first {
-                        last_30jobs_suspended.push(suspend_success);
-                        if last_30jobs_suspended.len() > 30 {
-                            last_30jobs_suspended.remove(0);
-                        }
-                    }
-                    suspend_first_success = suspend_first && suspend_success;
-                    #[cfg(feature = "prometheus")]
-                    if j.0.is_some() {
-                        if let Some(wp) = worker_pull_duration_counter.as_ref() {
-                            wp.inc_by(duration_pull_s);
-                        }
-                        if let Some(wp) = worker_pull_duration.as_ref() {
-                            wp.observe(duration_pull_s);
-                        }
-                    } else {
-                        if let Some(wp) = worker_pull_duration_counter_empty.as_ref() {
-                            wp.inc_by(duration_pull_s);
-                        }
-                        if let Some(wp) = worker_pull_duration_empty.as_ref() {
-                            wp.observe(duration_pull_s);
-                        }
-                    }
-                }
-                job.map(|x| x.job)
             }
         };
 
@@ -1420,7 +1328,8 @@ pub async fn run_worker(
                         };
                         if let Some(key) = key_o {
                             if let Some(dedicated_worker_tx) = dedicated_workers.get(&key) {
-                                if let Err(e) = dedicated_worker_tx.send(Arc::new(job.job)).await {
+                                if let Err(e) = dedicated_worker_tx.send(Arc::new(job.job())).await
+                                {
                                     tracing::info!("failed to send jobs to dedicated workers. Likely dedicated worker has been shut down. This is normal: {e:?}");
                                 }
 
@@ -1439,7 +1348,7 @@ pub async fn run_worker(
                     add_time!(bench, "send job completed START");
                     job_completed_tx
                         .send(JobCompleted {
-                            job: Arc::new(job.job),
+                            job: Arc::new(job.job()),
                             success: true,
                             result: Arc::new(empty_result()),
                             result_columns: None,
@@ -1557,46 +1466,22 @@ pub async fn run_worker(
                     let tag = job.tag.clone();
 
                     let is_init_script: bool = job.tag.as_str() == INIT_SCRIPT_TAG;
-                    let PulledJob {
+                    let JobAndPerms {
                         job,
                         raw_code,
                         raw_lock,
                         raw_flow,
                         parent_runnable_path,
-                        permissioned_as_email,
-                        permissioned_as_username,
-                        permissioned_as_is_admin,
-                        permissioned_as_is_operator,
-                        permissioned_as_groups,
-                        permissioned_as_folders,
-                    } = job;
-                    let job_perms = match (
-                        permissioned_as_email,
-                        permissioned_as_username,
-                        permissioned_as_is_admin,
-                        permissioned_as_is_operator,
-                        permissioned_as_groups,
-                        permissioned_as_folders,
-                    ) {
-                        (
-                            Some(email),
-                            Some(username),
-                            Some(is_admin),
-                            Some(is_operator),
-                            Some(groups),
-                            Some(folders),
-                        ) => Some(JobPerms {
-                            email,
-                            username,
-                            is_admin,
-                            is_operator,
-                            groups,
-                            folders,
-                        }),
-                        _ => None,
+                        token,
+                    } = match (job, &conn) {
+                        (NextJob::Sql(job), Connection::Sql(db)) => job.get_job_and_perms(db).await,
+                        (NextJob::Sql(_), Connection::Http(_)) => {
+                            panic!("sql job on http connection")
+                        }
+                        (NextJob::Http(job), _) => job,
                     };
 
-                    let token = create_token(&conn, &job, job_perms).await;
+                    // let token = create_token(&db, &job, job_perms).await;
                     let authed_client = AuthedClient {
                         base_internal_url: base_internal_url.to_string(),
                         token,
@@ -2048,46 +1933,9 @@ async fn handle_queued_job(
         }
     }
 
-    match conn {
-        Connection::Sql(db) => {
-            if job.is_flow_step() {
-                let _ = update_flow_status_in_progress(
-                    db,
-                    &job.workspace_id,
-                    job.parent_job
-                        .ok_or_else(|| Error::internal_err(format!("expected parent job")))?,
-                    job.id,
-                )
-                .warn_after_seconds(5)
-                .await?;
-            } else if let Some(parent_job) = job.parent_job {
-                let _ = sqlx::query_scalar!(
-                    "UPDATE v2_job_status SET
-                workflow_as_code_status = jsonb_set(
-                    jsonb_set(
-                        COALESCE(workflow_as_code_status, '{}'::jsonb),
-                        array[$1],
-                        COALESCE(workflow_as_code_status->$1, '{}'::jsonb)
-                    ),
-                    array[$1, 'started_at'],
-                    to_jsonb(now()::text)
-                    )
-                WHERE id = $2",
-                    &job.id.to_string(),
-                    parent_job
-                )
-                .execute(db)
-                .warn_after_seconds(5)
-                .await
-                .inspect_err(|e| {
-                    tracing::error!(
-                        "Could not update parent job `started_at` in workflow as code status: {}",
-                        e
-                    )
-                });
-            }
-        }
-        Connection::Http(_) => todo!(),
+    // no need to mark job as started if http conn, it's done by the server when pulled
+    if let Connection::Sql(db) = conn {
+        job.mark_as_started(db).await?;
     }
 
     let started = Instant::now();

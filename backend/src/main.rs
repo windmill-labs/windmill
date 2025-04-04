@@ -679,7 +679,6 @@ Windmill Community Edition {GIT_VERSION}
                         killpill_tx.clone(),
                         num_workers,
                         base_internal_url.clone(),
-                        is_agent,
                         hostname.clone(),
                         &worker_names,
                     )
@@ -1128,7 +1127,6 @@ pub async fn run_workers(
     tx: KillpillSender,
     num_workers: i32,
     base_internal_url: String,
-    agent_mode: bool,
     hostname: String,
     worker_names: &[String],
 ) -> anyhow::Result<()> {
@@ -1214,7 +1212,6 @@ pub async fn run_workers(
                 rx,
                 tx,
                 &base_internal_url,
-                agent_mode,
             );
 
             // #[cfg(tokio_unstable)]

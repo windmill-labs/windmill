@@ -4,7 +4,7 @@ use windmill_common::{
     worker::HttpClient,
     BASE_URL,
 };
-use windmill_queue::PulledJobResult;
+use windmill_queue::JobAndPerms;
 
 pub async fn queue_init_job(client: &HttpClient, content: &str) -> anyhow::Result<Uuid> {
     let url = format!("{}/api/agent_workers/queue_init_job", BASE_URL.read().await);
@@ -23,7 +23,7 @@ pub async fn queue_init_job(client: &HttpClient, content: &str) -> anyhow::Resul
     }
 }
 
-pub async fn pull_job(client: &HttpClient) -> anyhow::Result<PulledJobResult> {
+pub async fn pull_job(client: &HttpClient) -> anyhow::Result<Option<JobAndPerms>> {
     let url = format!("{}/api/agent_workers/pull_job", *BASE_INTERNAL_URL);
     let response = client
         .post(url)
@@ -32,6 +32,11 @@ pub async fn pull_job(client: &HttpClient) -> anyhow::Result<PulledJobResult> {
         .await?;
     let status = response.status();
     if status.is_success() {
+        // let text = response.text().await?;
+        // tracing::info!("t: {text}");
+        // Ok(serde_json::from_str(&text)?)
+        tracing::info!("{:?}", response.status());
+        // Ok(PulledJobResult { job: None, suspended: false })
         Ok(response.json().await?)
     } else {
         Err(anyhow::anyhow!(format!(
