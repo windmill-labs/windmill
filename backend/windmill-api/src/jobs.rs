@@ -3379,14 +3379,30 @@ async fn batch_rerun_handle_job(
     .get(&job.script_path);
 
     let mut args: HashMap<String, Box<RawValue>> = serde_json::from_value(job.input.clone())?;
+    let use_latest_version = options.and_then(|o| o.use_latest_version).unwrap_or(false);
     let input_transforms = options
         .and_then(|o| o.input_transforms.as_ref())
         .map(|t| t.iter())
         .into_iter()
         .flatten();
-    let schema = job
-        .schema
-        .as_ref()
+
+    let latest_schema;
+    let schema = if use_latest_version {
+        latest_schema = sqlx::query_scalar!(
+            r#"SELECT COALESCE(
+                (SELECT DISTINCT ON (s.path) s.schema FROM script s WHERE s.path = jb.runnable_path AND jb.kind = 'script' ORDER BY s.path, s.created_at DESC),
+                (SELECT flow_version.schema FROM flow LEFT JOIN flow_version ON flow_version.id = flow.versions[array_upper(flow.versions, 1)] WHERE flow.path = jb.runnable_path AND jb.kind = 'flow')
+            ) FROM v2_job jb
+            WHERE jb.id = $1 AND jb.workspace_id = $2
+            GROUP BY jb.kind, jb.runnable_path"#,
+            &job.id,
+            &w_id
+        ).fetch_optional(db).await?.flatten();
+        latest_schema.as_ref()
+    } else {
+        job.schema.as_ref()
+    };
+    let schema = schema
         .and_then(serde_json::Value::as_object)
         .and_then(|s| s.get("properties"))
         .and_then(serde_json::Value::as_object);
@@ -3432,7 +3448,6 @@ async fn batch_rerun_handle_job(
             }
         }
         JobKind::Script => {
-            let use_latest_version = options.and_then(|o| o.use_latest_version).unwrap_or(false);
             let result = if use_latest_version {
                 run_script_by_path_inner(
                     authed.clone(),
