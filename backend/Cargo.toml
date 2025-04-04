@@ -128,6 +128,7 @@ quote.workspace = true
 memchr.workspace = true
 v8 = { workspace = true, optional = true }
 rustls.workspace = true
+systemstat.workspace = true
 
 [target.'cfg(not(target_env = "msvc"))'.dependencies]
 tikv-jemallocator = { optional = true, workspace = true }
@@ -357,6 +358,7 @@ pin-project-lite = "^0"
 tantivy = "0.22.0"
 
 backon = "1.3.0"
+systemstat = "0.2.4"
 
 # Macro-related
 proc-macro2 = "1.0"
