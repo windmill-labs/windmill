@@ -3,6 +3,7 @@ import { type editor as meditor } from 'monaco-editor'
 import { autocompleteRequest } from './request'
 import { sleep } from '$lib/utils'
 import { displayVisualChanges, getLines, setGlobalCSS, type VisualChange } from '../shared'
+import type { ScriptLang } from '$lib/gen'
 
 function lineChangesToVisualChanges(changes: Change[], startLineNumber: number) {
 	let originalLineNumber = startLineNumber
@@ -153,7 +154,7 @@ const MAX_PATCHES = 4
 export class Autocompletor {
 	editor: meditor.IStandaloneCodeEditor
 	language: string
-
+	scriptLang: ScriptLang | 'bunnative'
 	viewZoneIds: string[] = []
 	decorationsCollection: meditor.IEditorDecorationsCollection | undefined = undefined
 	visualChanges: VisualChange[] = []
@@ -188,9 +189,14 @@ export class Autocompletor {
 		| undefined = undefined
 	tabWidget: meditor.IContentWidget | undefined = undefined
 
-	constructor(editor: meditor.IStandaloneCodeEditor, language: string) {
+	constructor(
+		editor: meditor.IStandaloneCodeEditor,
+		language: string,
+		scriptLang: ScriptLang | 'bunnative'
+	) {
 		this.editor = editor
 		this.language = language
+		this.scriptLang = scriptLang
 		this.lastCodeValue = editor.getModel()?.getValue() || ''
 	}
 
@@ -445,6 +451,7 @@ export class Autocompletor {
 				modifiableSuffix,
 				suffix,
 				language: this.language,
+				scriptLang: this.scriptLang,
 				events: this.patches
 			},
 			this.abortController
