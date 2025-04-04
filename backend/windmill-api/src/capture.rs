@@ -382,10 +382,6 @@ async fn set_gcp_trigger_config(
 async fn set_config(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
-    #[cfg(any(
-        feature = "postgres_trigger",
-        all(feature = "enterprise", feature = "gcp_trigger")
-    ))]
     Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
     Json(nc): Json<NewCaptureConfig>,
@@ -895,6 +891,7 @@ async fn webhook_payload(
     Ok(StatusCode::NO_CONTENT)
 }
 
+#[cfg(all(feature = "enterprise", feature = "gcp_trigger"))]
 async fn gcp_payload(
     db: &DB,
     user_db: UserDB,
