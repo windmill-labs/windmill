@@ -134,9 +134,11 @@
 				description: "Let's write a script for your flow",
 				onNextClick: () => {
 					clickButtonBySelector('#flow-editor-new-bun')
-					waitForElementLoading('#flow-editor-editor', () => {
-						driver.moveNext()
-					})
+					tick().then(() =>
+						waitForElementLoading('#flow-editor-editor', () => {
+							driver.moveNext()
+						})
+					)
 				}
 			}
 		},
@@ -175,7 +177,7 @@
 			}
 		},
 		{
-			element: '.key',
+			element: '#flow-editor-step-input .prop-picker-inputs',
 			popover: {
 				title: 'Connection mode',
 				description: 'Once you pressed the connect button, you can choose what to connect to.',

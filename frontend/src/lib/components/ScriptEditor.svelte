@@ -70,8 +70,13 @@
 	export let captureTable: CaptureTable | undefined = undefined
 	export let showCaptures: boolean = true
 	export let stablePathForCaptures: string = ''
+	export let lastSavedCode: string | undefined = undefined
+	export let lastDeployedCode: string | undefined = undefined
+
+	let showHistoryDrawer = false
 
 	let jobProgressReset: () => void
+	let diffMode = false
 
 	let websocketAlive = {
 		pyright: false,
@@ -339,6 +344,21 @@
 		}
 		return undefined
 	}
+
+	function showDiffMode() {
+		diffMode = true
+		diffEditor?.setOriginal(lastDeployedCode ?? '')
+		diffEditor?.setModified(editor?.getCode() ?? '')
+		diffEditor?.show()
+		editor?.hide()
+	}
+
+	function hideDiffMode() {
+		diffMode = false
+		diffEditor?.hide()
+		editor?.show()
+	}
+
 	$: error = getStringError(testJob)
 </script>
 
@@ -376,6 +396,8 @@
 					setCollaborationMode()
 				}
 			}}
+			on:showDiffMode={showDiffMode}
+			on:hideDiffMode={hideDiffMode}
 			customUi={{ ...customUi?.editorBar, aiGen: false }}
 			collabLive={wsProvider?.shouldConnect}
 			{collabMode}
@@ -393,6 +415,11 @@
 			{args}
 			{noHistory}
 			{saveToWorkspace}
+			lastDeployedCode={lastDeployedCode && lastDeployedCode !== code
+				? lastDeployedCode
+				: undefined}
+			{diffMode}
+			bind:showHistoryDrawer
 		>
 			<slot name="editor-bar-right" slot="right" />
 		</EditorBar>
@@ -506,6 +533,11 @@
 						automaticLayout
 						defaultLang={scriptLangToEditorLang(lang)}
 						{fixedOverflowWidgets}
+						showButtons={diffMode}
+						on:hideDiffMode={hideDiffMode}
+						on:seeHistory={() => {
+							showHistoryDrawer = true
+						}}
 					/>
 				{/key}
 			</div>
@@ -520,8 +552,13 @@
 					{args}
 					{path}
 					on:applyCode={(e) => {
+						hideDiffMode()
 						editor?.reviewAndApplyCode(e.detail.code)
 					}}
+					on:showDiffMode={showDiffMode}
+					{lastSavedCode}
+					{lastDeployedCode}
+					{diffMode}
 				>
 					<svelte:fragment slot="header-left">
 						<HideButton
