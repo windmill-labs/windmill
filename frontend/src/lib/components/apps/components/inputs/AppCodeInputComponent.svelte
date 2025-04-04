@@ -4,63 +4,52 @@
 	import { type AppViewerContext, type RichConfigurations } from '../../types'
 	import { components } from '../../editor/component'
 	import ResolveConfig from '../helpers/ResolveConfig.svelte'
-	import SimpleEditor from '$lib/components/SimpleEditor.svelte'
 	import InputValue from '../helpers/InputValue.svelte'
 	import InitializeComponent from '../helpers/InitializeComponent.svelte'
 
-	export let id: string
-	export let configuration: RichConfigurations
-	export let render: boolean
+	let { id, configuration, render } = $props<{
+		id: string
+		configuration: RichConfigurations
+		render: boolean
+	}>()
 
-	const { componentControl, worldStore, selectedComponent, connectingInput } =
+	const { componentControl, worldStore, selectedComponent, connectingInput, mode } =
 		getContext<AppViewerContext>('AppViewerContext')
 
-	let resolvedConfig = initConfig(
+	let resolvedConfig = $state(initConfig(
 		components['codeinputcomponent'].initialData.configuration,
 		configuration
-	)
+	))
 
-	let code: string | undefined = undefined
-	let lang = resolvedConfig?.lang ?? 'javascript'
-	let placeholder: string | undefined = undefined
-	let defaultValue: string | undefined = undefined
+	let code = $state<string | undefined>(undefined)
+	let placeholder = $state<string | undefined>(undefined)
+	let defaultValue = $state<string | undefined>(undefined)
+	let editorInstance = $state<any>(null)
+	let lastDefaultValue = $state<string | undefined>(undefined)
 
-	let outputs = initOutput($worldStore, id, {
+	let lang = $derived(resolvedConfig?.lang ?? 'javascript')
+	let outputs = $state(initOutput($worldStore, id, {
 		result: ''
-	})
+	}))
 
-	$: if (resolvedConfig?.defaultValue !== undefined) {
-		defaultValue = resolvedConfig.defaultValue
-	}
-
-	$: if (resolvedConfig?.lang) {
-		lang = resolvedConfig.lang
-	}
-
-	$: handleDefault(defaultValue)
-
-	function handleDefault(defaultValue: string | undefined) {
-		if (defaultValue !== undefined) {
+	$effect(() => {
+		if (defaultValue !== lastDefaultValue) {
 			code = defaultValue
-			setOutput()
+			editorInstance?.setCode(defaultValue)
+			lastDefaultValue = defaultValue
 		}
-	}
-
-	function setOutput() {
 		if (code !== undefined) {
 			outputs?.result.set(code)
 		}
-	}
+	})
 
 	$componentControl[id] = {
 		...$componentControl[id],
 		setValue(value: string) {
 			code = value
-			setOutput()
+			editorInstance?.setCode(value)
 		}
 	}
-
-	$: code !== undefined && setOutput()
 </script>
 
 <InputValue key="placeholder" {id} input={configuration.placeholder} bind:value={placeholder} />
@@ -79,23 +68,31 @@
 {#if render}
 	<div
 		class="h-full flex-col flex max-h-full overflow-scroll editor-wrapper rounded-md border border-gray-300 dark:border-gray-500 wm-code-editor"
-		on:pointerdown|stopPropagation={() => {
+		onpointerdown={(e) => {
+			e.stopPropagation()
 			if (!$connectingInput.opened) {
 				$selectedComponent = [id]
 			}
 		}}
 	>
-		<SimpleEditor
-			bind:code
-			{lang}
-			automaticLayout={true}
-			autoHeight={true}
-			{placeholder}
-			disableSuggestions={resolvedConfig?.disableSuggestions ?? false}
-			disableLinting={resolvedConfig?.disableLinting ?? false}
-			hideLineNumbers={resolvedConfig?.hideLineNumbers ?? false}
-			fixedOverflowWidgets={false}
-		/>
+		{#await import('$lib/components/SimpleEditor.svelte')}
+			<div class="flex items-center justify-center h-full">
+				<div class="text-gray-500 dark:text-gray-400">Loading editor...</div>
+			</div>
+		{:then Module}
+			<Module.default
+				bind:this={editorInstance}
+				bind:code
+				{lang}
+				automaticLayout={true}
+				autoHeight={true}
+				{placeholder}
+				disableSuggestions={resolvedConfig?.disableSuggestions ?? false}
+				disableLinting={resolvedConfig?.disableLinting ?? false}
+				hideLineNumbers={resolvedConfig?.hideLineNumbers ?? false}
+				fixedOverflowWidgets={$mode == 'dnd' ? false : true}
+			/>
+		{/await}
 	</div>
 {/if}
 
