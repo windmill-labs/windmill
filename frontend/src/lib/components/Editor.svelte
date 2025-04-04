@@ -220,6 +220,7 @@
 	export let scriptLang: Preview['language'] | 'bunnative'
 	export let disabled: boolean = false
 	export let lineNumbersMinChars = 3
+	export let isAiPanelOpen: boolean = false
 
 	const rHash = randomHash()
 	$: filePath = computePath(path)
@@ -403,7 +404,7 @@
 													endColumn: edit.range.end.character + 1
 												},
 												text: edit.newText
-										  }
+											}
 										: {}
 								)
 								//@ts-ignore
@@ -464,16 +465,16 @@
 						scriptLang === 'postgresql'
 							? POSTGRES_TYPES
 							: scriptLang === 'mysql'
-							? MYSQL_TYPES
-							: scriptLang === 'snowflake'
-							? SNOWFLAKE_TYPES
-							: scriptLang === 'bigquery'
-							? BIGQUERY_TYPES
-							: scriptLang === 'mssql'
-							? MSSQL_TYPES
-							: scriptLang === 'oracledb'
-							? ORACLEDB_TYPES
-							: []
+								? MYSQL_TYPES
+								: scriptLang === 'snowflake'
+									? SNOWFLAKE_TYPES
+									: scriptLang === 'bigquery'
+										? BIGQUERY_TYPES
+										: scriptLang === 'mssql'
+											? MSSQL_TYPES
+											: scriptLang === 'oracledb'
+												? ORACLEDB_TYPES
+												: []
 					).map((t) => ({
 						label: t,
 						kind: languages.CompletionItemKind.Function,
@@ -741,7 +742,7 @@
 									uri: vscode.Uri.parse(uri),
 									name: 'windmill',
 									index: 0
-							  }
+								}
 							: undefined,
 					initializationOptions,
 					middleware: {
@@ -1203,7 +1204,24 @@
 			})
 
 			editor?.addCommand(KeyMod.CtrlCmd | KeyCode.KeyL, function () {
-				dispatch('toggleAiPanel')
+				const selectedLines = getSelectedLines()
+				const selection = editor?.getSelection()
+				const hasSelection =
+					selection &&
+					(selection.startLineNumber !== selection.endLineNumber ||
+						selection.startColumn !== selection.endColumn)
+				if (hasSelection && selectedLines) {
+					dispatch('addSelectedLinesToAiChat', {
+						lines: selectedLines,
+						startLine: selection.startLineNumber,
+						endLine: selection.endLineNumber
+					})
+					if (!isAiPanelOpen) {
+						dispatch('toggleAiPanel')
+					}
+				} else {
+					dispatch('toggleAiPanel')
+				}
 			})
 
 			editor?.addCommand(KeyMod.CtrlCmd | KeyCode.KeyU, function () {

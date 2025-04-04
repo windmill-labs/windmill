@@ -193,7 +193,11 @@
 			}
 
 			selectedContext = selectedContext
-				.map((c) => availableContext.find((ac) => ac.type === c.type && ac.title === c.title))
+				.map((c) =>
+					c.type === 'code_piece' && code.includes(c.content)
+						? c
+						: availableContext.find((ac) => ac.type === c.type && ac.title === c.title)
+				)
 				.filter((c) => c !== undefined) as ContextElement[]
 		} catch (err) {
 			console.error('Could not update available context', err)
@@ -209,7 +213,7 @@
 							type: 'db',
 							title: c.title,
 							schema: dbSchemas[c.title]
-					  }
+						}
 					: c
 			) as ContextElement[]
 		}))
@@ -277,7 +281,9 @@
 			return
 		}
 		try {
+			// Remove code pieces from the context to not include them on the next request
 			const oldSelectedContext = selectedContext
+			selectedContext = selectedContext.filter((c) => c.type !== 'code_piece')
 			if (options.removeDiff) {
 				selectedContext = selectedContext.filter((c) => c.type !== 'diff')
 			}
@@ -323,7 +329,7 @@
 				{
 					role: 'assistant',
 					content: $currentReply,
-					contextElements: selectedContext.filter((c) => c.type === 'code')
+					contextElements: oldSelectedContext.filter((c) => c.type === 'code')
 				}
 			]
 			currentReply.set('')
@@ -387,6 +393,27 @@
 		}
 	}
 
+	export function addSelectedLinesToContext(lines: string, startLine: number, endLine: number) {
+		if (
+			selectedContext.find(
+				(c) => c.type === 'code_piece' && c.title === `L${startLine}-L${endLine}`
+			)
+		) {
+			return
+		}
+		selectedContext = [
+			...selectedContext,
+			{
+				type: 'code_piece',
+				title: `L${startLine}-L${endLine}`,
+				startLine,
+				endLine,
+				content: lines,
+				lang
+			}
+		]
+	}
+
 	export function fix() {
 		if (!contextCodePath) {
 			return
@@ -430,7 +457,7 @@
 							diff: diffLines(lastDeployedCode ?? '', code),
 							lang
 						}
-				  ]
+					]
 				: [])
 		]
 		sendRequest({
@@ -440,6 +467,10 @@
 		if (options.withDiff) {
 			dispatch('showDiffMode')
 		}
+	}
+
+	export function focusTextArea() {
+		aiChatDisplay?.focusInput()
 	}
 
 	interface ChatSchema extends IDBSchema {
@@ -470,10 +501,13 @@
 
 			const chats = await indexDB.getAll('chats')
 			console.log('Retrieved chats')
-			savedChats = chats.reduce((acc, chat) => {
-				acc[chat.id] = chat
-				return acc
-			}, {} as typeof savedChats)
+			savedChats = chats.reduce(
+				(acc, chat) => {
+					acc[chat.id] = chat
+					return acc
+				},
+				{} as typeof savedChats
+			)
 		} catch (err) {
 			console.error('Could not open chat history database', err)
 		}
@@ -502,7 +536,7 @@
 					content: $currentReply,
 					contextElements: selectedContext.filter((c) => c.type === 'code')
 				}
-		  ]
+			]
 		: displayMessages}
 	bind:instructions
 	on:sendRequest={() => sendRequest()}
