@@ -8,8 +8,6 @@ publish = false
 rmcp = { version = "0.1.5", features = ["server", "transport-sse-server", "transport-io"] }
 tokio = { version = "1", features = ["macros", "rt", "rt-multi-thread", "io-std", "signal"] }
 serde = { version = "1.0", features = ["derive"] }
-windmill-common = { workspace = true, default-features = false }
-sqlx = { workspace = true, features = ["postgres"] }
 serde_json = "1.0"
 anyhow = "1.0"
 tracing = "0.1"
@@ -33,7 +31,3 @@ urlencoding = "2.1"
 tokio-stream = { version = "0.1" }
 # tokio-util = { version = "0.7", features = ["io", "codec"] }
 tokio-util = { version = "0.7", features = ["codec"] }
-
-[[example]]
-name = "test"
-path = "src/test.rs"

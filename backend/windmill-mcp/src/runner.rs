@@ -2,21 +2,19 @@ use hyper::Client;
 use hyper::Request;
 use hyper::body::Body;
 use rmcp::{
-    Error as McpError, RoleServer, ServerHandler, const_string, model::*, schemars,
-    service::RequestContext, tool,
+    Error as McpError, RoleServer, ServerHandler, model::*, schemars, service::RequestContext, tool,
 };
-use serde_json::json;
-use windmill_common::initial_connection;
-
-#[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
-pub struct StructRequest {
-    pub a: i32,
-    pub b: i32,
-}
+use serde::Deserialize;
+use serde_json::Value;
 
 #[derive(Clone)]
 pub struct Runner {
     token: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct ScriptSchemaResponse {
+    schema: Value,
 }
 
 #[tool(tool_box)]
@@ -59,40 +57,82 @@ impl Runner {
         )]))
     }
 
+    #[tool(description = "Get script schema by path")]
+    async fn get_script_schema_by_path(
+        &self,
+        #[tool(param)]
+        #[schemars(description = "The script path to get the schema for")]
+        path: String,
+    ) -> Result<CallToolResult, McpError> {
+        let client = Client::new();
+        let req = Request::builder()
+            .method("GET")
+            .uri(format!(
+                "http://localhost:8000/api/w/admins/scripts/get/p/{}",
+                path
+            ))
+            .header(
+                "Authorization",
+                format!("Bearer {}", self.token.as_ref().unwrap()),
+            )
+            .body(Body::empty())
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+        let response = client
+            .request(req)
+            .await
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+        let body = hyper::body::to_bytes(response.into_body())
+            .await
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+
+        // Deserialize the body into the defined struct
+        let response_data: ScriptSchemaResponse = serde_json::from_slice(&body).map_err(|e| {
+            McpError::internal_error(format!("Failed to parse JSON response: {}", e), None)
+        })?;
+
+        // Convert the schema field back to a string (pretty-printed)
+        let schema_str = serde_json::to_string_pretty(&response_data.schema).map_err(|e| {
+            McpError::internal_error(format!("Failed to serialize schema field: {}", e), None)
+        })?;
+
+        Ok(CallToolResult::success(vec![Content::text(
+            schema_str, // Use the extracted and serialized schema string
+        )]))
+    }
+
     #[tool(description = "Run a script by path name")]
     async fn run_script(
         &self,
         #[tool(param)]
         #[schemars(description = "The script path to run")]
         script: String,
+        #[tool(param)]
+        #[schemars(description = "The script arguments")]
+        args: String,
     ) -> Result<CallToolResult, McpError> {
-        let db = initial_connection().await.unwrap();
-        let script = sqlx::query!("SELECT path FROM script WHERE path = $1", script)
-            .fetch_one(&db)
-            .await;
-        let script = match script {
-            Ok(s) => s,
-            Err(_) => {
-                return Ok(CallToolResult::success(vec![Content::text(
-                    "Script not found".to_string(),
-                )]));
-            }
-        };
-        Ok(CallToolResult::success(vec![Content::text(script.path)]))
-    }
-
-    #[tool(description = "Calculate the sum of two numbers")]
-    fn sum(
-        &self,
-        #[tool(aggr)] StructRequest { a, b }: StructRequest,
-    ) -> Result<CallToolResult, McpError> {
+        let client = Client::new();
+        let req = Request::builder()
+            .method("POST")
+            .uri(format!("http://localhost:8000/api/w/admins/jobs/run_wait_result/p/{}?skip_preprocessor=true", script))
+            .header(
+                "Authorization",
+                format!("Bearer {}", self.token.as_ref().unwrap()),
+            )
+            .body(Body::from(args))
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+        let response = client
+            .request(req)
+            .await
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+        let body = hyper::body::to_bytes(response.into_body())
+            .await
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
         Ok(CallToolResult::success(vec![Content::text(
-            (a + b).to_string(),
+            String::from_utf8_lossy(&body).into_owned(),
         )]))
     }
 }
 
-const_string!(Echo = "echo");
 #[tool(tool_box)]
 impl ServerHandler for Runner {
     fn get_info(&self) -> ServerInfo {
@@ -113,89 +153,6 @@ impl ServerHandler for Runner {
         _request: PaginatedRequestParam,
         _: RequestContext<RoleServer>,
     ) -> Result<ListResourcesResult, McpError> {
-        Ok(ListResourcesResult {
-            resources: vec![
-                self._create_resource_text("str:////Users/to/some/path/", "cwd"),
-                self._create_resource_text("memo://insights", "memo-name"),
-            ],
-            next_cursor: None,
-        })
-    }
-
-    async fn read_resource(
-        &self,
-        ReadResourceRequestParam { uri }: ReadResourceRequestParam,
-        _: RequestContext<RoleServer>,
-    ) -> Result<ReadResourceResult, McpError> {
-        match uri.as_str() {
-            "str:////Users/to/some/path/" => {
-                let cwd = "/Users/to/some/path/";
-                Ok(ReadResourceResult { contents: vec![ResourceContents::text(cwd, uri)] })
-            }
-            "memo://insights" => {
-                let memo = "Business Intelligence Memo\n\nAnalysis has revealed 5 key insights ...";
-                Ok(ReadResourceResult { contents: vec![ResourceContents::text(memo, uri)] })
-            }
-            _ => Err(McpError::resource_not_found(
-                "resource_not_found",
-                Some(json!({
-                    "uri": uri
-                })),
-            )),
-        }
-    }
-
-    async fn list_prompts(
-        &self,
-        _request: PaginatedRequestParam,
-        _: RequestContext<RoleServer>,
-    ) -> Result<ListPromptsResult, McpError> {
-        Ok(ListPromptsResult {
-            next_cursor: None,
-            prompts: vec![Prompt::new(
-                "example_prompt",
-                Some("This is an example prompt that takes one required argument, message"),
-                Some(vec![PromptArgument {
-                    name: "message".to_string(),
-                    description: Some("A message to put in the prompt".to_string()),
-                    required: Some(true),
-                }]),
-            )],
-        })
-    }
-
-    async fn get_prompt(
-        &self,
-        GetPromptRequestParam { name, arguments }: GetPromptRequestParam,
-        _: RequestContext<RoleServer>,
-    ) -> Result<GetPromptResult, McpError> {
-        match name.as_str() {
-            "example_prompt" => {
-                let message = arguments
-                    .and_then(|json| json.get("message")?.as_str().map(|s| s.to_string()))
-                    .ok_or_else(|| {
-                        McpError::invalid_params("No message provided to example_prompt", None)
-                    })?;
-
-                let prompt =
-                    format!("This is an example prompt with your message here: '{message}'");
-                Ok(GetPromptResult {
-                    description: None,
-                    messages: vec![PromptMessage {
-                        role: PromptMessageRole::User,
-                        content: PromptMessageContent::text(prompt),
-                    }],
-                })
-            }
-            _ => Err(McpError::invalid_params("prompt not found", None)),
-        }
-    }
-
-    async fn list_resource_templates(
-        &self,
-        _request: PaginatedRequestParam,
-        _: RequestContext<RoleServer>,
-    ) -> Result<ListResourceTemplatesResult, McpError> {
-        Ok(ListResourceTemplatesResult { next_cursor: None, resource_templates: Vec::new() })
+        Ok(ListResourcesResult { resources: vec![], next_cursor: None })
     }
 }
