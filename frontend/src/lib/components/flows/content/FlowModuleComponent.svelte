@@ -102,12 +102,10 @@
 
 	$: lastDeployedCode = onModulesChange(savedModule, flowModule)
 	function onModulesChange(savedModule: FlowModule | undefined, flowModule: FlowModule) {
-		const savedRawScript = savedModule?.value as RawScript
-		const currentRawScript = flowModule.value as RawScript
-		return savedRawScript?.type === 'rawscript' &&
-			currentRawScript.type === 'rawscript' &&
-			savedRawScript.content !== currentRawScript.content
-			? savedRawScript.content
+		return savedModule?.value?.type === 'rawscript' &&
+			flowModule.value.type === 'rawscript' &&
+			savedModule.value.content !== flowModule.value.content
+			? savedModule.value.content
 			: undefined
 	}
 
