@@ -233,7 +233,7 @@
 		{#if $selectedId === `${flowModule?.id}-branch-${branchIndex}`}
 			<FlowBranchOneWrapper
 				{noEditor}
-				bind:branch
+				bind:branch={flowModule.value.branches[branchIndex]}
 				parentModule={flowModule}
 				{previousModule}
 				{enableAi}
@@ -254,7 +254,7 @@
 {:else if flowModule.value.type === 'branchall'}
 	{#each flowModule.value.branches as branch, branchIndex (branchIndex)}
 		{#if $selectedId === `${flowModule?.id}-branch-${branchIndex}`}
-			<FlowBranchAllWrapper {noEditor} bind:branch />
+			<FlowBranchAllWrapper {noEditor} bind:branch={flowModule.value.branches[branchIndex]} />
 		{:else}
 			{#each branch.modules as _, index}
 				<svelte:self
