@@ -706,7 +706,7 @@
 											})
 										}
 									}
-							  ]
+								]
 							: []),
 						...(!script.draft_only
 							? [
@@ -716,9 +716,9 @@
 											dispatch('seeDetails', initialPath)
 										}
 									}
-							  ]
+								]
 							: [])
-				  ]
+					]
 				: []
 
 		return dropdownItems.length > 0 ? dropdownItems : undefined
