@@ -1529,6 +1529,7 @@
 						$previewArgsStore = JSON.parse(JSON.stringify(e.detail))
 						flowPreviewButtons?.openPreview(true)
 					}}
+					{savedFlow}
 				/>
 			{:else}
 				<CenteredPage>Loading...</CenteredPage>
