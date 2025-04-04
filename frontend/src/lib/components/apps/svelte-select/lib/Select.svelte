@@ -845,6 +845,7 @@
 		left: 0;
 		background: transparent !important;
 		font-size: var(--font-size, 16px);
+		border: 0 !important;
 	}
 
 	:not(.multi) > .value-container > input {
