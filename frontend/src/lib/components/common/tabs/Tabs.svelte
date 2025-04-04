@@ -28,7 +28,16 @@
 
 	const selectedStore = writable(selected)
 
-	$: $selectedStore && dispatch('selected', $selectedStore)
+	$: $selectedStore && onSelectedStoreChange()
+
+	let initial = true
+	function onSelectedStoreChange() {
+		if (initial) {
+			initial = false
+			return
+		}
+		dispatch('selected', $selectedStore)
+	}
 
 	$: hashValues = values ? values.map((x) => '#' + x) : undefined
 	setContext<TabsContext>('Tabs', {
