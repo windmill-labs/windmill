@@ -69,7 +69,6 @@ Make sure to import TypedDict from typing **if you're using it**`
 
 const PHP_RESOURCE_TYPE_SYSTEM = `On Windmill, credentials and configuration are stored in resources and passed as parameters to main.
 If you need credentials, you should add a parameter to \`main\` with the corresponding resource type
-The available resource types are provided by the user under the \`RESOURCE_TYPE_CONTEXT\` key.
 You need to **redefine** the type of the resources that are needed before the main function, but only include them if they are actually needed to achieve the function purpose.
 Before defining each type, check if the class already exists using class_exists.
 The resource type name has to be exactly as specified.`
@@ -130,6 +129,7 @@ export function getLangContext(
 			return (
 				'The user is coding in PHP. On Windmill, it is expected the script contains at least one function called `main`. The script must start with <?php.' +
 				PHP_RESOURCE_TYPE_SYSTEM +
+				`${allowResourcesFetch ? `\nTo query the available resource types, you can use the \`search_resource_types\` function.` : ''}` +
 				`\nIf you need to import libraries, you need to specify them as comments in the following manner before the main function:
 \`\`\`
 // require:
