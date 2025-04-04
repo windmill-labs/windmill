@@ -6817,7 +6817,7 @@ export const deleteGcpSubscription = (data: DeleteGcpSubscriptionData): Cancelab
  * @param data The data for the request.
  * @param data.workspace
  * @param data.path
- * @returns GcpTrigger gcp trigger deleted
+ * @returns GcpTrigger gcp trigger
  * @throws ApiError
  */
 export const getGcpTrigger = (data: GetGcpTriggerData): CancelablePromise<GetGcpTriggerResponse> => { return __request(OpenAPI, {

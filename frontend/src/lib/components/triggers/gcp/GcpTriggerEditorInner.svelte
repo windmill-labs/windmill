@@ -71,7 +71,7 @@
 			fixedScriptPath = fixedScriptPath_ ?? ''
 			script_path = fixedScriptPath
 			gcp_resource_path = defaultValues?.gcp_resource_path ?? ''
-			delivery_type = defaultValues?.gcp_resource_path ?? 'pull'
+			delivery_type = defaultValues?.delivery_type ?? 'pull'
 			delivery_config = defaultValues?.delivery_config ?? undefined
 			subscription_id = defaultValues?.subscription_id ?? ''
 			topic_id = defaultValues?.topic_id
