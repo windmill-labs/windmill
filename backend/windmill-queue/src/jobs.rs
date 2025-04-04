@@ -2078,7 +2078,7 @@ impl MiniPulledJob {
     }
 
 
-    pub async fn mark_as_started(&self, db: &DB) -> Result<(), Error> {
+    pub async fn mark_as_started_if_step(&self, db: &DB) -> Result<(), Error> {
         if self.is_flow_step() {
             let _ = update_flow_status_in_progress(
                 db,

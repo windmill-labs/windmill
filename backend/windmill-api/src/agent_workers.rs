@@ -218,7 +218,9 @@ async fn pull_job(
     };
     let job = pull(&db, false, &authed.worker_name(), Some(query)).await?;
     let job = if let Some(job) = job.job {
-        Some(job.get_job_and_perms(&db).await)
+        let njob = job.get_job_and_perms(&db).await;
+        njob.job.mark_as_started_if_step(&db).await?;
+        Some(njob)
     } else {
         None
     };

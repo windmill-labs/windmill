@@ -1935,7 +1935,7 @@ async fn handle_queued_job(
 
     // no need to mark job as started if http conn, it's done by the server when pulled
     if let Connection::Sql(db) = conn {
-        job.mark_as_started(db).await?;
+        job.mark_as_started_if_step(db).await?;
     }
 
     let started = Instant::now();
