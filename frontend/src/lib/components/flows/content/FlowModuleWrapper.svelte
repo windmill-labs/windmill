@@ -201,10 +201,10 @@
 		/>
 	{/if}
 {:else if flowModule.value.type === 'forloopflow' || flowModule.value.type == 'whileloopflow'}
-	{#each flowModule.value.modules as submodule, index (index)}
+	{#each flowModule.value.modules as _, index (index)}
 		<svelte:self
 			{noEditor}
-			bind:flowModule={submodule}
+			bind:flowModule={flowModule.value.modules[index]}
 			bind:parentModule={flowModule}
 			previousModule={flowModule.value.modules[index - 1]}
 			savedModule={(savedModule?.value as ForloopFlow | WhileloopFlow).modules[index]}
@@ -218,10 +218,10 @@
 			Nothing to configure, this is the default branch if none of the predicates are met.
 		</div>
 	{:else}
-		{#each flowModule.value.default as submodule, index}
+		{#each flowModule.value.default as _, index}
 			<svelte:self
 				{noEditor}
-				bind:flowModule={submodule}
+				bind:flowModule={flowModule.value.default[index]}
 				bind:parentModule={flowModule}
 				previousModule={flowModule.value.default[index - 1]}
 				savedModule={flowModule.value.default[index]}
@@ -239,10 +239,10 @@
 				{enableAi}
 			/>
 		{:else}
-			{#each branch.modules as submodule, index}
+			{#each branch.modules as _, index}
 				<svelte:self
 					{noEditor}
-					bind:flowModule={submodule}
+					bind:flowModule={flowModule.value.branches[branchIndex].modules[index]}
 					bind:parentModule={flowModule}
 					previousModule={flowModule.value.branches[branchIndex].modules[index - 1]}
 					savedModule={(savedModule?.value as BranchOne).branches[branchIndex].modules[index]}
@@ -256,10 +256,10 @@
 		{#if $selectedId === `${flowModule?.id}-branch-${branchIndex}`}
 			<FlowBranchAllWrapper {noEditor} bind:branch />
 		{:else}
-			{#each branch.modules as submodule, index}
+			{#each branch.modules as _, index}
 				<svelte:self
 					{noEditor}
-					bind:flowModule={submodule}
+					bind:flowModule={flowModule.value.branches[branchIndex].modules[index]}
 					bind:parentModule={flowModule}
 					previousModule={flowModule.value.branches[branchIndex].modules[index - 1]}
 					{enableAi}

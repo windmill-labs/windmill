@@ -106,10 +106,13 @@
 						checked={!!aiProviders[provider]}
 						on:change={(e) => {
 							if (e.detail) {
-								aiProviders[provider] = {
-									resource_path: '',
-									models:
-										AI_DEFAULT_MODELS[provider].length > 0 ? [AI_DEFAULT_MODELS[provider][0]] : []
+								aiProviders = {
+									...aiProviders,
+									[provider]: {
+										resource_path: '',
+										models:
+											AI_DEFAULT_MODELS[provider].length > 0 ? [AI_DEFAULT_MODELS[provider][0]] : []
+									}
 								}
 
 								if (AI_DEFAULT_MODELS[provider].length > 0 && !defaultModel) {

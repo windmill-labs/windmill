@@ -286,6 +286,10 @@
 	}
 
 	$: updateTooltipPosition(availableContext, showContextTooltip, contextTooltipWord)
+
+	export function focus() {
+		textarea?.focus()
+	}
 </script>
 
 <div class="relative w-full px-2 scroll-pb-2">
