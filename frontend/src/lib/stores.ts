@@ -154,7 +154,7 @@ export const copilotSessionModel = writable<AIProviderModel | undefined>(
 		? {
 				model: sessionModel,
 				provider: sessionProvider as AIProvider
-		  }
+			}
 		: undefined
 )
 export const usedTriggerKinds = writable<string[]>([])
