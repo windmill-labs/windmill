@@ -1791,7 +1791,7 @@ export async function push(opts: GlobalOptions & SyncOptions) {
                   });
                   break;
                 case "gcp_trigger":
-                  await wmill.deleteSqsTrigger({
+                  await wmill.deleteGcpTrigger({
                     workspace: workspaceId,
                     path: removeSuffix(target, ".gcp_trigger.json"),
                   });

@@ -79,7 +79,7 @@
 				<div class="flex flex-col gap-3">
 					<div class="flex flex-col gap-1">
 						<p class="text-xs mb-1 text-tertiary">
-							Select a gcp resource.<Required required={true} />
+							Select a GCP resource.<Required required={true} />
 						</p>
 						<ResourcePicker resourceType="gcloud" bind:value={gcp_resource_path} />
 						{#if !emptyStringTrimmed(gcp_resource_path)}

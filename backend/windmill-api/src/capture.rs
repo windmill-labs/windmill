@@ -349,7 +349,7 @@ async fn set_gcp_trigger_config(
 
     let Some(TriggerConfig::Gcp(mut gcp_config)) = capture_config.trigger_config else {
         return Err(windmill_common::error::Error::BadRequest(
-            "Invalid gcp config".to_string(),
+            "Invalid GCP Pub/Sub config".to_string(),
         ));
     };
 
@@ -375,7 +375,7 @@ async fn set_gcp_trigger_config(
     _authed: ApiAuthed,
     _db: &DB,
     capture_config: NewCaptureConfig,
-) -> Result<NewCaptureConig> {
+) -> Result<NewCaptureConfig> {
     Ok(capture_config)
 }
 

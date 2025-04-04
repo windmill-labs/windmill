@@ -113,7 +113,7 @@
 			})
 		} catch (err) {
 			sendUserToast(
-				`Cannot ` + (enabled ? 'enable' : 'disable') + ` gcp trigger: ${err.body}`,
+				`Cannot ` + (enabled ? 'enable' : 'disable') + ` GCP trigger: ${err.body}`,
 				true
 			)
 		} finally {
@@ -334,7 +334,7 @@
 				<Skeleton layout={[[6], 0.4]} />
 			{/each}
 		{:else if !triggers?.length}
-			<div class="text-center text-sm text-tertiary mt-2"> No gcp triggers </div>
+			<div class="text-center text-sm text-tertiary mt-2"> No GCP triggers </div>
 		{:else if items?.length}
 			<div class="border rounded-md divide-y">
 				{#each items.slice(0, nbDisplayed) as { gcp_resource_path, workspace_id, delivery_config, delivery_type, path, edited_by, error, edited_at, script_path, is_flow, extra_perms, canWrite, enabled, server_id, subscription_id } (path)}
@@ -404,7 +404,7 @@
 												/>
 											</span>
 											<div slot="text">
-												Connected to gcp{!server_id ? ' (shutting down...)' : ''}</div
+												Connected to GCP{!server_id ? ' (shutting down...)' : ''}</div
 											>
 										</Popover>
 									{/if}
