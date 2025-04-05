@@ -46,7 +46,7 @@
 	export let folder: string | null = null
 	export let mobile: boolean = false
 	export let schedulePath: string | undefined
-
+	export let allowWildcards: boolean = false
 	// Autocomplete data
 	export let paths: string[] = []
 	export let usernames: string[] = []
@@ -312,6 +312,13 @@
 								}, 1000)
 							}}
 						/>
+						<div class="absolute top-10">
+							<Toggle
+								bind:checked={allowWildcards}
+								size="xs"
+								options={{ right: 'allow wildcards (*)' }}
+							></Toggle>
+						</div>
 					</div>
 				{/key}
 			{:else if filterBy === 'concurrencyKey'}
@@ -388,6 +395,13 @@
 								}, 1000)
 							}}
 						/>
+						<div class="absolute top-10">
+							<Toggle
+								bind:checked={allowWildcards}
+								size="xs"
+								options={{ right: 'allow wildcards (*)' }}
+							></Toggle>
+						</div>
 					</div>
 				{/key}
 			{:else if filterBy === 'schedulePath'}
@@ -456,6 +470,13 @@
 								}, 1000)
 							}}
 						/>
+						<div class="absolute top-10">
+							<Toggle
+								bind:checked={allowWildcards}
+								size="xs"
+								options={{ right: 'allow wildcards (*)' }}
+							></Toggle>
+						</div>
 					</div>
 				{/key}
 			{/if}
@@ -826,6 +847,13 @@
 							{/key}
 						{/if}
 
+						{#if filterBy === 'tag' || filterBy === 'label' || filterBy === 'worker'}
+							<Toggle
+								bind:checked={allowWildcards}
+								size="xs"
+								options={{ right: 'allow wildcards (*)' }}
+							></Toggle>
+						{/if}
 						<Label label="Kind">
 							<ToggleButtonGroup bind:selected={jobKindsCat} let:item>
 								<ToggleButton value="all" label="All" {item} />
