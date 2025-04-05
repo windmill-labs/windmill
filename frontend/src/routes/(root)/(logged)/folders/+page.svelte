@@ -85,7 +85,7 @@
 		<p>Page not available for operators</p>
 	</div>
 {:else}
-	<CenteredPage>
+	<CenteredPage useScroll>
 		<PageHeader
 			title="Folders"
 			tooltip="Folders allow to group items such as scripts/flows/resources/schedule together and to grant homogenous RBAC permissions to groups and individual users towards them."

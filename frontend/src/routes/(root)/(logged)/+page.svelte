@@ -13,6 +13,7 @@
 	import { Building, ExternalLink, GitFork, Globe2, Loader2 } from 'lucide-svelte'
 	import { hubBaseUrlStore } from '$lib/stores'
 	import { base } from '$lib/base'
+	import { layoutStore } from '$lib/layout-context'
 
 	import ItemsList from '$lib/components/home/ItemsList.svelte'
 	import CreateActionsApp from '$lib/components/flows/CreateActionsApp.svelte'
@@ -23,6 +24,7 @@
 	import { setQuery } from '$lib/navigation'
 	import { page } from '$app/stores'
 	import { goto, replaceState } from '$app/navigation'
+	import Scroll from '$lib/components/Scroll.svelte'
 
 	type Tab = 'hub' | 'workspace'
 
@@ -213,7 +215,7 @@
 	</DrawerContent>
 </Drawer>
 
-<div>
+<Scroll style={`height: calc(100vh - ${$layoutStore.topBarHeight}px)`}>
 	<div class="max-w-7xl mx-auto px-4 sm:px-6 md:px-8 h-fit-content">
 		{#if $workspaceStore == 'admins'}
 			<div class="my-4"></div>
@@ -314,8 +316,8 @@
 			</div>
 		</div>
 	</div>
-</div>
 
-{#if tab == 'workspace'}
-	<ItemsList bind:filter bind:subtab />
-{/if}
+	{#if tab == 'workspace'}
+		<ItemsList bind:filter bind:subtab />
+	{/if}
+</Scroll>

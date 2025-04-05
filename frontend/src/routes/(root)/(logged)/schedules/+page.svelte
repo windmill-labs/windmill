@@ -279,7 +279,7 @@
 		<p>Page not available for operators</p>
 	</div>
 {:else}
-	<CenteredPage>
+	<CenteredPage useScroll>
 		<PageHeader
 			title="Schedules"
 			tooltip="Trigger Scripts and Flows according to a cron schedule"

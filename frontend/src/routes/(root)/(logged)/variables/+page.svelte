@@ -150,7 +150,7 @@
 		<p>Page not available for operators</p>
 	</div>
 {:else}
-	<CenteredPage>
+	<CenteredPage useScroll>
 		<PageHeader
 			title="Variables"
 			tooltip="Save and permission strings to be reused in Scripts and Flows."

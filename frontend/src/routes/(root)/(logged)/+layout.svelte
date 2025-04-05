@@ -52,6 +52,7 @@
 	import { setContext } from 'svelte'
 	import { base } from '$app/paths'
 	import { Menubar } from '$lib/components/meltComponents'
+	import { setTopBarHeight } from '$lib/layout-context'
 
 	OpenAPI.WITH_CREDENTIALS = true
 	let menuOpen = false
@@ -340,6 +341,19 @@
 
 		muteSettings = { global: g_muted, workspace: ws_muted }
 	}
+
+	let topBarHeight = 0
+	let trackedHeight = 0
+	function updateTopBarHeight(newHeight: number) {
+		if (newHeight == trackedHeight) {
+			return
+		}
+		setTopBarHeight(newHeight)
+		trackedHeight = newHeight
+	}
+
+	// Track when the element is hidden based on conditions and media queries
+	$: updateTopBarHeight(devOnly || $userStore?.operator || innerWidth >= 768 ? 0 : topBarHeight)
 </script>
 
 <svelte:window bind:innerWidth />
@@ -613,12 +627,13 @@
 			)}
 		>
 			<main class="min-h-screen">
-				<div class="relative w-full h-full">
+				<div class="relative w-full h-full flex flex-col">
 					<div
 						class={classNames(
-							'py-2 px-2 sm:px-4 md:px-8 flex justify-between items-center shadow-sm max-w-7xl mx-auto md:hidden',
+							'py-2 px-2 sm:px-4 md:px-8 w-full justify-start shadow-sm max-w-7xl mx-auto md:hidden',
 							devOnly || $userStore?.operator ? 'hidden' : ''
 						)}
+						bind:clientHeight={topBarHeight}
 					>
 						<button
 							aria-label="Menu"
@@ -641,7 +656,10 @@
 							</svg>
 						</button>
 					</div>
-					<slot />
+
+					<div class="grow min-h-0">
+						<slot />
+					</div>
 				</div>
 			</main>
 		</div>
