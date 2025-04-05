@@ -1271,6 +1271,7 @@ try {{
                 inner_content.clone(),
                 js_code,
                 job_args,
+                job.script_entrypoint_override.clone(),
                 job.id,
                 job.timeout,
                 db,
