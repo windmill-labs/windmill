@@ -21,14 +21,10 @@ pub enum DeliveryType {
     Push,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
-#[allow(unused)]
-pub struct Config {
-    pub topic_id: String,
-    pub delivery_type: DeliveryType,
-    #[serde(default, deserialize_with = "empty_string_as_none")]
-    pub subscription_id: Option<String>,
-    pub delivery_config: Option<SqlxJson<PushConfig>>,
+impl Default for DeliveryType {
+    fn default() -> Self {
+        Self::Pull
+    }
 }
 
 #[derive(FromRow, Deserialize, Serialize, Debug)]
@@ -40,6 +36,27 @@ pub struct PushConfig {
     audience: Option<String>,
     authenticate: bool,
     base_endpoint: String,
+}
+#[derive(Default, Debug, Serialize, Deserialize)]
+#[allow(unused)]
+pub struct CreateUpdateConfig {
+    pub delivery_type: DeliveryType,
+    #[serde(default, deserialize_with = "empty_string_as_none")]
+    pub subscription_id: Option<String>,
+    pub delivery_config: Option<SqlxJson<PushConfig>>,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct ExistingGcpSubscription {
+    pub subscription_id: String,
+    pub base_endpoint: String,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(tag = "subscription_mode", rename_all = "snake_case")]
+pub enum SubscriptionMode {
+    Existing(ExistingGcpSubscription),
+    CreateUpdate(CreateUpdateConfig),
 }
 
 pub fn workspaced_service() -> Router {
@@ -54,14 +71,15 @@ pub fn start_consuming_gcp_pubsub_event(
 }
 
 pub async fn manage_google_subscription(
-    _authed: ApiAuthed,
-    _db: &DB,
-    _workspace_id: &str,
-    _gcp_resource_path: &str,
-    _path: Option<&str>,
-    _google_pubsub_config: &mut Config,
-) -> WindmillResult<()> {
-    Ok(())
+    authed: ApiAuthed,
+    db: &DB,
+    workspace_id: &str,
+    gcp_resource_path: &str,
+    path: Option<&str>,
+    topic_id: &str,
+    subscription_mode: SubscriptionMode,
+) -> WindmillResult<CreateUpdateConfig> {
+    Ok(CreateUpdateConfig::default())
 }
 
 pub async fn process_google_push_request(
