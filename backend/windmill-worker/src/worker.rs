@@ -1991,6 +1991,7 @@ async fn do_nativets(
         code.clone(),
         transpile_ts(code)?,
         job_args,
+        None,
         job.id,
         job.timeout,
         db,
