@@ -775,6 +775,7 @@ pub async fn eval_fetch_timeout(
     ts_expr: String,
     js_expr: String,
     args: Option<&Json<HashMap<String, Box<RawValue>>>>,
+    script_entrypoint_override: Option<String>,
     job_id: Uuid,
     job_timeout: Option<i32>,
     db: &DB,
@@ -902,7 +903,7 @@ pub async fn eval_fetch_timeout(
 
         let future = async {
             let r = tokio::select! {
-                r = eval_fetch(&mut js_runtime, &js_expr, Some(env_code), load_client, &job_id) => Ok(r),
+                r = eval_fetch(&mut js_runtime, &js_expr, Some(env_code), script_entrypoint_override, load_client, &job_id) => Ok(r),
                 _ = memory_limit_rx.recv() => Err(Error::ExecutionErr("Memory limit reached, killing isolate".to_string()))
             };
 
@@ -990,6 +991,7 @@ async fn eval_fetch(
     js_runtime: &mut JsRuntime,
     expr: &str,
     env_code: Option<String>,
+    script_entrypoint_override: Option<String>,
     load_client: bool,
     job_id: &Uuid,
 ) -> anyhow::Result<Box<RawValue>> {
@@ -1016,13 +1018,16 @@ async fn eval_fetch(
         })
         .context("failed to load module")?;
 
+    let main_override = script_entrypoint_override.unwrap_or("main".to_string());
     let script = js_runtime
         .execute_script(
             "<anon>",
-            r#"
+            format!(
+                r#"
 let args = Deno.core.ops.op_get_static_args().map(JSON.parse)
-import("file:///eval.ts").then((module) => module.main(...args)).then(JSON.stringify)
-"#,
+import("file:///eval.ts").then((module) => module.{main_override}(...args)).then(JSON.stringify)
+"#
+            ),
         )
         .map_err(|e| {
             write_error_expr(expr, &job_id);
