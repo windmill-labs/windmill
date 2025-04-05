@@ -53,7 +53,8 @@ import {
 	PanelTop,
 	RefreshCw,
 	ListCollapse,
-	GalleryThumbnails
+	GalleryThumbnails,
+	Code
 } from 'lucide-svelte'
 import type {
 	Aligned,
@@ -93,6 +94,7 @@ export type CustomComponentConfig = {
 export type TextComponent = BaseComponent<'textcomponent'>
 export type TextInputComponent = BaseComponent<'textinputcomponent'>
 export type QuillComponent = BaseComponent<'quillcomponent'>
+export type CodeInputComponent = BaseComponent<'codeinputcomponent'>
 export type TextareaInputComponent = BaseComponent<'textareainputcomponent'>
 export type PasswordInputComponent = BaseComponent<'passwordinputcomponent'>
 export type EmailInputComponent = BaseComponent<'emailinputcomponent'>
@@ -304,6 +306,7 @@ export type TypedComponent =
 	| JobIdFlowStatusComponent
 	| TextInputComponent
 	| QuillComponent
+	| CodeInputComponent
 	| TextareaInputComponent
 	| PasswordInputComponent
 	| EmailInputComponent
@@ -1194,6 +1197,65 @@ export const components = {
 					value: false,
 					fieldType: 'boolean',
 					tooltip: 'Remove the "No text" placeholder'
+				}
+			}
+		}
+	},
+	codeinputcomponent: {
+		name: 'Code Input',
+		icon: Code,
+		dims: '2:1-4:4' as AppComponentDimensions,
+		documentationLink: `${documentationBaseUrl}/code`,
+		customCss: {
+			text: { class: '', style: '' },
+			container: { class: '', style: '' }
+		},
+		initialData: {
+			componentInput: undefined,
+			configuration: {
+				placeholder: {
+					type: 'static',
+					value: 'Type...',
+					fieldType: 'text'
+				},
+				defaultValue: {
+					type: 'static',
+					value: undefined,
+					fieldType: 'text'
+				},
+				lang: {
+					type: 'static',
+					fieldType: 'select',
+					value: 'javascript',
+					selectOptions: [
+						'javascript',
+						'typescript',
+						'python',
+						'sql',
+						'json',
+						'html',
+						'css',
+						'markdown',
+						'yaml'
+					]
+				},
+				disableSuggestions: {
+					type: 'static',
+					fieldType: 'boolean',
+					value: false,
+					tooltip: 'Disable code completion suggestions'
+				},
+				disableLinting: {
+					type: 'static',
+					fieldType: 'boolean',
+					value: false,
+					tooltip: 'Disable code validation/linting (keeps only syntax highlighting)'
+				},
+				hideLineNumbers: {
+					type: 'static',
+					fieldType: 'boolean',
+					value: false,
+					tooltip: 'Hide line numbers in the editor'
 				}
 			}
 		}
@@ -2903,7 +2965,11 @@ See date-fns format for more information. By default, it is 'dd.MM.yyyy HH:mm'
 				type: 'static',
 				fieldType: 'array',
 				subFieldType: 'object',
-				value: [{ header: 'First', foo: 1 }, { header: 'Second', foo: 2 }, { header: 'Third', foo: 3 }] as object[]
+				value: [
+					{ header: 'First', foo: 1 },
+					{ header: 'Second', foo: 2 },
+					{ header: 'Third', foo: 3 }
+				] as object[]
 			},
 			numberOfSubgrids: 1
 		}
