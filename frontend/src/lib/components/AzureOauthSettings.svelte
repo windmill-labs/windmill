@@ -18,6 +18,17 @@
 		extra_params_callback: {}
 	}
 
+	$: if (!connect_config) {
+		connect_config = {
+			scopes: ['offline_access'],
+			auth_url: '',
+			token_url: '',
+			req_body_auth: true,
+			extra_params: { tenant_id: '' },
+			extra_params_callback: {}
+		}
+	}
+
 	$: if (connect_config.extra_params.tenant_id) {
 		connect_config.auth_url = `https://login.microsoftonline.com/${connect_config.extra_params.tenant_id}/oauth2/v2.0/authorize`
 		connect_config.token_url = `https://login.microsoftonline.com/${connect_config.extra_params.tenant_id}/oauth2/v2.0/token`
