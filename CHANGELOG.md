@@ -1,5 +1,33 @@
 # Changelog
 
+## [1.482.0](https://github.com/windmill-labs/windmill/compare/v1.481.0...v1.482.0) (2025-04-05)
+
+
+### Features
+
+* add diff toggle to flow inline scripts ([#5550](https://github.com/windmill-labs/windmill/issues/5550)) ([b3ecde3](https://github.com/windmill-labs/windmill/commit/b3ecde3316252bcd7323de98149786349019ba7e))
+* add wildcards filter for worker/label/tags ([62f14d1](https://github.com/windmill-labs/windmill/commit/62f14d1cb95e3f1c7de85c46e1c6bb092247656c))
+* add windmill context to autocomplete ([#5548](https://github.com/windmill-labs/windmill/issues/5548)) ([b47c151](https://github.com/windmill-labs/windmill/commit/b47c15165f93ca68a58f81cf2b86fc9467155482))
+* handle sending selected lines to ai context ([#5527](https://github.com/windmill-labs/windmill/issues/5527)) ([5abdc3e](https://github.com/windmill-labs/windmill/commit/5abdc3e4403b5c604309bd99a24d7a2847a17b9b))
+* Implement sending diff to ai ([#5510](https://github.com/windmill-labs/windmill/issues/5510)) ([e118d2c](https://github.com/windmill-labs/windmill/commit/e118d2cd5f9c641884a76229802a5228ef41f1a5))
+* make azure a standalone AI provider ([#5558](https://github.com/windmill-labs/windmill/issues/5558)) ([2c5e58c](https://github.com/windmill-labs/windmill/commit/2c5e58cf1ab9225d516540b38d9e4dde482a3a7f))
+* migrate to svelte5 + vite6 ([#4813](https://github.com/windmill-labs/windmill/issues/4813)) ([3c99b3f](https://github.com/windmill-labs/windmill/commit/3c99b3fdc7b78b1cdc7d8fb21d999296695f7889))
+
+
+### Bug Fixes
+
+* app editor svelte 5 fixes ([#5570](https://github.com/windmill-labs/windmill/issues/5570)) ([b926076](https://github.com/windmill-labs/windmill/commit/b9260769883348ecd5aeb5684f527a8bf0073928))
+* **cli:** properly handle enabled/disabled updates of schedules ([2629458](https://github.com/windmill-labs/windmill/commit/26294584d6c2ca02bbc4fc5f28cb8df6a5fb3790))
+* Dynamic select does not work with tag //native ([#5576](https://github.com/windmill-labs/windmill/issues/5576)) ([1f3e7d9](https://github.com/windmill-labs/windmill/commit/1f3e7d9029051832db6ab1755b3cad38176a9e96)), closes [#5490](https://github.com/windmill-labs/windmill/issues/5490)
+* fix list jobs by tag ([0c3cb37](https://github.com/windmill-labs/windmill/commit/0c3cb3700a3fb9b69e396487bd7491dbbd8861c0))
+* flow editor svelte 5 issues ([#5567](https://github.com/windmill-labs/windmill/issues/5567)) ([4f6be6e](https://github.com/windmill-labs/windmill/commit/4f6be6ed340e26bf1ed95398a9dc9f1eb41b33dd))
+* **frontend:** app builder - force json configuration in rich result ([#5565](https://github.com/windmill-labs/windmill/issues/5565)) ([6fae3a5](https://github.com/windmill-labs/windmill/commit/6fae3a566be06dae88ece8ec23f5723cd8f3f2b9))
+* **frontend:** proper each block binding + better app settings reactivity ([#5568](https://github.com/windmill-labs/windmill/issues/5568)) ([4c71af8](https://github.com/windmill-labs/windmill/commit/4c71af8a74627d0ba76917e0dac0ac9e5e984cca))
+* legacy script gen model selection ([#5574](https://github.com/windmill-labs/windmill/issues/5574)) ([3507925](https://github.com/windmill-labs/windmill/commit/3507925624a43804a3be463b6f7913cea5821384))
+* prevent invalid returned ai completion object errors ([#5564](https://github.com/windmill-labs/windmill/issues/5564)) ([9276c71](https://github.com/windmill-labs/windmill/commit/9276c717a21aaee3241845a9cc00d3fb6bce9eb9))
+* Remaining svelte 5 bugs ([#5563](https://github.com/windmill-labs/windmill/issues/5563)) ([6e9ec63](https://github.com/windmill-labs/windmill/commit/6e9ec6323c265a747ef8696865297e6d47abb016))
+* tenant id to never be undefined on teams ([#5572](https://github.com/windmill-labs/windmill/issues/5572)) ([102b58a](https://github.com/windmill-labs/windmill/commit/102b58a5f40dde22f15700d4b6c11eb7f3fbf4bb))
+
 ## [1.481.0](https://github.com/windmill-labs/windmill/compare/v1.480.1...v1.481.0) (2025-04-02)
 
 
