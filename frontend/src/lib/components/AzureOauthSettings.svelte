@@ -10,7 +10,7 @@
 		extra_params: { tenant_id: string }
 		extra_params_callback: Record<string, any>
 	} = {
-		scopes: [],
+		scopes: ['offline_access'],
 		auth_url: '',
 		token_url: '',
 		req_body_auth: true,
