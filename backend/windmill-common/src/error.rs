@@ -78,6 +78,8 @@ pub enum Error {
     FindPythonError(String),
     #[error("Problem with arguments: {0}")]
     ArgumentErr(String),
+    #[error("{1}")]
+    Generic(StatusCode, String),
 }
 
 fn prettify_location(location: &'static Location<'static>) -> String {
@@ -184,6 +186,7 @@ impl IntoResponse for Error {
             | Self::AIError(_)
             | Self::QuotaExceeded(_) => axum::http::StatusCode::BAD_REQUEST,
             Self::BadGateway(_) => axum::http::StatusCode::BAD_GATEWAY,
+            Self::Generic(status_code, _) => status_code,
             _ => axum::http::StatusCode::INTERNAL_SERVER_ERROR,
         };
 

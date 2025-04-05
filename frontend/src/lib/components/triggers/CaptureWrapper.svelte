@@ -132,6 +132,7 @@
 						subscribe_topics: []
 					}
 					break
+
 				default:
 					args = {}
 			}
@@ -361,10 +362,11 @@
 				can_write={true}
 				headless={true}
 				bind:gcp_resource_path={args.gcp_resource_path}
-				bind:subscription_id={args.subscription_id}
-				bind:delivery_config={args.delivery_config}
-				bind:delivery_type={args.delivery_type}
 				bind:topic_id={args.topic_id}
+				bind:subscription_id={args.subscription_mode.subscription_id}
+				bind:delivery_config={args.subscription_mode.delivery_config}
+				bind:delivery_type={args.subscription_mode.delivery_type}
+				bind:subscription_mode={args.subscription_mode.subscription_mode}
 				{showCapture}
 				{captureInfo}
 				bind:captureTable

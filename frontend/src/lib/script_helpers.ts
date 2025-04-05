@@ -635,7 +635,8 @@ export const TS_PREPROCESSOR_SCRIPT_INTRO = `/**
  * The structure of \`wm_trigger\` and the main trigger arguments are specific to each trigger type:
  * - Webhook/HTTP: \`(wm_trigger: { kind: 'http' | 'webhook', http?: { ... } }, body_key_1: any, body_key_2: any, ...)\`
  * - Postgres: \`(wm_trigger: { kind: 'postgres' }, transaction_type: string, schema_name: string, table_name: string, row: any)\`
- * - WebSocket/Kafka/NATS/SQS/MQTT: \`(wm_trigger: { kind: 'websocket' | 'kafka' | 'nats' | 'sqs' | 'mqtt', [kind]: { ... } }, msg: string)\`
+ * - WebSocket/Kafka/NATS/SQS: \`(wm_trigger: { kind: 'websocket' | 'kafka' | 'nats' | 'sqs', [kind]: { ... } }, msg: string)\`
+ * - GCP/MQTT: \`(wm_trigger: { kind: 'gcp' | 'mqtt', [kind]: { ... } }, payload: Array<number>)\`
  * - Email: \`(wm_trigger: { kind: 'email' }, raw_email: string, parsed_email: { ... })\`
  *
  * The returned object defines the parameter values passed to \`main()\`.
@@ -655,7 +656,8 @@ export const TS_PREPROCESSOR_FLOW_INTRO = `/**
  * The structure of \`wm_trigger\` and the main trigger arguments are specific to each trigger type:
  * - Webhook/HTTP: \`(wm_trigger: { kind: 'http' | 'webhook', http?: { ... } }, body_key_1: any, body_key_2: any, ...)\`
  * - Postgres: \`(wm_trigger: { kind: 'postgres' }, transaction_type: string, schema_name: string, table_name: string, row: any)\`
- * - WebSocket/Kafka/NATS/SQS/MQTT: \`(wm_trigger: { kind: 'websocket' | 'kafka' | 'nats' | 'sqs' | 'mqtt', [kind]: { ... } }, msg: string)\`
+ * - WebSocket/Kafka/NATS/SQS: \`(wm_trigger: { kind: 'websocket' | 'kafka' | 'nats' | 'sqs', [kind]: { ... } }, msg: string)\`
+ * - GCP/MQTT: \`(wm_trigger: { kind: 'gcp' | 'mqtt', [kind]: { ... } }, payload: Array<number>)\`
  * - Email: \`(wm_trigger: { kind: 'email' }, raw_email: string, parsed_email: { ... })\`
  * 
  * The returned object determines the parameter values passed to the flow.
@@ -782,7 +784,8 @@ export const PYTHON_PREPROCESSOR_SCRIPT_INTRO = `# Trigger preprocessor
 # The structure of \`wm_trigger\` and the main trigger arguments are specific to each trigger type:
 # - Webhook/HTTP: \`(wm_trigger: { kind: 'http' | 'webhook', http?: { ... } }, body_key_1: any, body_key_2: any, ...)\`
 # - Postgres: \`(wm_trigger: { kind: 'postgres' }, transaction_type: string, schema_name: string, table_name: string, row: any)\`
-# - WebSocket/Kafka/NATS/SQS/MQTT: \`(wm_trigger: { kind: 'websocket' | 'kafka' | 'nats' | 'sqs' | 'mqtt', [kind]: { ... } }, msg: string)\`
+# - WebSocket/Kafka/NATS/SQS: \`(wm_trigger: { kind: 'websocket' | 'kafka' | 'nats' | 'sqs', [kind]: { ... } }, msg: string)\`
+# - GCP/MQTT: \`(wm_trigger: { kind: 'gcp' | 'mqtt', [kind]: { ... } }, payload: list[int])\`
 # - Email: \`(wm_trigger: { kind: 'email' }, raw_email: string, parsed_email: { ... })\`
 #
 # The returned object defines the parameter values passed to \`main()\`.
@@ -800,7 +803,8 @@ export const PYTHON_PREPROCESSOR_FLOW_INTRO = `# Trigger preprocessor
 # plus trigger metadata in the \`wm_trigger\` object:
 # - Webhook/HTTP: \`(wm_trigger: { kind: 'http' | 'webhook', http?: { ... } }, body_key_1: any, body_key_2: any, ...)\`
 # - Postgres: \`(wm_trigger: { kind: 'postgres' }, transaction_type: string, schema_name: string, table_name: string, row: any)\`
-# - WebSocket/Kafka/NATS/SQS/MQTT: \`(wm_trigger: { kind: 'websocket' | 'kafka' | 'nats' | 'sqs' | 'mqtt', [kind]: { ... } }, msg: string)\`
+# - WebSocket/Kafka/NATS/SQS: \`(wm_trigger: { kind: 'websocket' | 'kafka' | 'nats' | 'sqs', [kind]: { ... } }, msg: string)\`
+# - GCP/MQTT: \`(wm_trigger: { kind: 'gcp' | 'mqtt', [kind]: { ... } }, payload: list[int])\`
 # - Email: \`(wm_trigger: { kind: 'email' }, raw_email: string, parsed_email: { ... })\`
 # 
 # The returned object determines the parameter values passed to the flow.

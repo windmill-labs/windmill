@@ -9284,29 +9284,6 @@ paths:
             text/plain:
               schema:
                 type: string
-    
-  /w/{workspace}/gcp_triggers/subscription/delete:
-    delete:
-      summary: delete gcp trigger
-      operationId: deleteGcpSubscription
-      tags:
-        - gcp_trigger
-      parameters:
-        - $ref: "#/components/parameters/WorkspaceId"
-      requestBody:
-        description: args to delete subscription from google cloud
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/DeleteGcpSubscription"
-      responses:
-        "200":
-          description: gcp trigger deleted
-          content:
-            text/plain:
-              schema:
-                type: string
 
   /w/{workspace}/gcp_triggers/get/{path}:
     get:
@@ -9324,25 +9301,6 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/GcpTrigger"
-
-  /w/{workspace}/gcp_triggers/list/topics/{path}:
-    get:
-      summary: list all topics of google cloud service
-      operationId: listGoogleTopics
-      tags:
-        - gcp_trigger
-      parameters:
-        - $ref: "#/components/parameters/WorkspaceId"
-        - $ref: "#/components/parameters/Path"
-      responses:
-        "200":
-          description: get all google topics
-          content:
-            application/json:
-              schema:
-                type: array
-                items:
-                  type: string
 
   /w/{workspace}/gcp_triggers/list:
     get:
@@ -9452,6 +9410,75 @@ paths:
               schema:
                 type: string
 
+
+  /w/{workspace}/gcp_triggers/subscriptions/delete/{path}:
+    delete:
+      summary: delete gcp trigger
+      operationId: deleteGcpSubscription
+      tags:
+        - gcp_trigger
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+      requestBody:
+        description: args to delete subscription from google cloud
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DeleteGcpSubscription"
+      responses:
+        "200":
+          description: gcp trigger deleted
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/gcp_triggers/topics/list/{path}:
+    get:
+      summary: list all topics of google cloud service
+      operationId: listGoogleTopics
+      tags:
+        - gcp_trigger
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+      responses:
+        "200":
+          description: get all google topics
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: string
+  
+  /w/{workspace}/gcp_triggers/subscriptions/list/{path}:
+    post:
+      summary: list all subscription of a give topic from google cloud service
+      operationId: listAllTGoogleTopicSubscriptions
+      tags:
+        - gcp_trigger
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+      requestBody:
+        description: args to get subscription's topic from google cloud
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GetAllTopicSubscription"
+      responses:
+        "200":
+          description: get all google topic subscriptions name
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: string
 
   /w/{workspace}/postgres_triggers/is_valid_postgres_configuration/{path}:
     get:
@@ -14677,6 +14704,8 @@ components:
         - push
         - pull
 
+
+
     PushConfig:
       type: object
       properties:
@@ -14723,6 +14752,48 @@ components:
         - enabled
         - delivery_type
   
+    SubscriptionMode:
+      type: string
+      enum:
+        - existing
+        - create_update
+
+    GcpExistingSubscription:
+      type: object
+      properties:
+        subscription_id:
+          type: string
+        base_endpoint:
+          type: string
+      required:
+        - subscription_id
+        - base_endpoint
+    
+    GcpCreateUpdateSubscription:
+      type: object
+      properties:
+        subscription_id:
+          type: string
+        delivery_type:
+          $ref: "#/components/schemas/DeliveryType"
+        delivery_config:
+          $ref: "#/components/schemas/PushConfig"
+      required:
+        - delivery_type
+
+
+    GcpSubscriptionModeConfig:
+      type: object
+      properties:
+        subscription_mode:
+          $ref: "#/components/schemas/SubscriptionMode"
+      required:
+        - subscription_mode
+      allOf:
+        - oneOf:
+            - $ref: "#/components/schemas/GcpExistingSubscription"
+            - $ref: "#/components/schemas/GcpCreateUpdateSubscription"
+
     NewGcpTrigger:
       type: object
       properties:
@@ -14730,12 +14801,8 @@ components:
           type: string
         topic_id:
           type: string
-        delivery_type:
-          $ref: "#/components/schemas/DeliveryType"
-        delivery_config:
-          $ref: "#/components/schemas/PushConfig"
-        subscription_id:
-          type: string
+        subscription_mode:
+          $ref: "#/components/schemas/GcpSubscriptionModeConfig"
         path:
           type: string
         script_path:
@@ -14749,8 +14816,8 @@ components:
         - script_path
         - is_flow
         - gcp_resource_path
-        - delivery_type
         - topic_id
+        - subscription_mode
 
     EditGcpTrigger:
       type: object
@@ -14759,12 +14826,8 @@ components:
           type: string
         topic_id:
           type: string
-        subscription_id:
-          type: string
-        delivery_type:
-          $ref: "#/components/schemas/DeliveryType"
-        delivery_config:
-          $ref: "#/components/schemas/PushConfig"
+        subscription_mode:
+          $ref: "#/components/schemas/GcpSubscriptionModeConfig"
         path:
           type: string
         script_path:
@@ -14782,16 +14845,23 @@ components:
         - subscription_id
         - delivery_type
         - topic_id
-    
+        - subscription_mode
+
+    GetAllTopicSubscription:
+      type: object
+      properties:
+        topic_id:
+          type: string
+      required:
+        - topic_id
+
+
     DeleteGcpSubscription:
       type: object
       properties:
-        gcp_resource_path:
-          type: string
         subscription_id:
           type: string
       required:
-        - gcp_resource_path
         - subscription_id
   
     SqsTrigger:

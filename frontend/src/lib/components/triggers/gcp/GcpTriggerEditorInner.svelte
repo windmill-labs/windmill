@@ -9,7 +9,12 @@
 	import { Loader2, Save } from 'lucide-svelte'
 	import Label from '$lib/components/Label.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
-	import { GcpTriggerService, type DeliveryType, type PushConfig } from '$lib/gen'
+	import {
+		GcpTriggerService,
+		type DeliveryType,
+		type PushConfig,
+		type SubscriptionMode
+	} from '$lib/gen'
 	import Section from '$lib/components/Section.svelte'
 	import ScriptPicker from '$lib/components/ScriptPicker.svelte'
 	import Required from '$lib/components/Required.svelte'
@@ -37,6 +42,7 @@
 	let subscription_id: string = ''
 	let isValid = false
 	let delivery_config: PushConfig | undefined = undefined
+	let subscription_mode: SubscriptionMode = 'create_update'
 	const dispatch = createEventDispatcher()
 
 	$: is_flow = itemKind === 'flow'
@@ -123,10 +129,14 @@
 					workspace: $workspaceStore!,
 					path: initialPath,
 					requestBody: {
-						delivery_config,
-						delivery_type,
 						gcp_resource_path,
-						subscription_id,
+						subscription_mode: {
+							subscription_mode,
+							subscription_id,
+							delivery_type,
+							delivery_config,
+							base_endpoint: `${window.location.origin}${base}`
+						},
 						topic_id,
 						path,
 						script_path,
@@ -139,10 +149,14 @@
 				await GcpTriggerService.createGcpTrigger({
 					workspace: $workspaceStore!,
 					requestBody: {
-						delivery_config,
-						delivery_type,
 						gcp_resource_path,
-						subscription_id,
+						subscription_mode: {
+							subscription_mode,
+							subscription_id,
+							delivery_type,
+							delivery_config,
+							base_endpoint: `${window.location.origin}${base}`
+						},
 						topic_id,
 						path,
 						script_path,
@@ -263,6 +277,7 @@
 					bind:delivery_type
 					bind:delivery_config
 					bind:topic_id
+					bind:subscription_mode
 					{can_write}
 					headless={true}
 				/>

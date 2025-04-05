@@ -17,7 +17,8 @@ use {
 
 #[cfg(all(feature = "enterprise", feature = "gcp_trigger"))]
 use crate::gcp_triggers_ee::{
-    manage_google_subscription, process_google_push_request, validate_jwt_token, Config,
+    manage_google_subscription, process_google_push_request, validate_jwt_token, CreateUpdateConfig,
+    SubscriptionMode,
 };
 
 #[cfg(any(
@@ -152,8 +153,10 @@ pub struct SqsTriggerConfig {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct GcpTriggerConfig {
     pub gcp_resource_path: String,
-    #[serde(flatten)]
-    pub config: Config,
+    #[serde(default, flatten)]
+    pub config: CreateUpdateConfig,
+    pub subscription_mode: Option<SubscriptionMode>,
+    pub topic_id: String,
 }
 
 #[cfg(all(feature = "enterprise", feature = "nats"))]
@@ -353,16 +356,25 @@ async fn set_gcp_trigger_config(
         ));
     };
 
-    manage_google_subscription(
+    let Some(subscription_mode) = gcp_config.subscription_mode else {
+        return Err(windmill_common::error::Error::BadRequest(
+            "Missing subscription mode".to_string(),
+        ));
+    };
+
+    let config = manage_google_subscription(
         authed,
         db,
         w_id,
         &gcp_config.gcp_resource_path,
         None,
-        &mut gcp_config.config,
+        &gcp_config.topic_id,
+        subscription_mode,
     )
     .await?;
 
+    gcp_config.subscription_mode = None;
+    gcp_config.config = config;
     capture_config.trigger_config = Some(TriggerConfig::Gcp(gcp_config));
 
     Ok(capture_config)

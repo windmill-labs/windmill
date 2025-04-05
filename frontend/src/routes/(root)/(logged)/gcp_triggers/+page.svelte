@@ -22,18 +22,7 @@
 	import ShareModal from '$lib/components/ShareModal.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import { enterpriseLicense, userStore, workspaceStore } from '$lib/stores'
-	import {
-		Code,
-		Eye,
-		Pen,
-		Plus,
-		Share,
-		Trash,
-		Circle,
-		FileUp,
-		ClipboardCopy,
-		Badge
-	} from 'lucide-svelte'
+	import { Code, Eye, Pen, Plus, Share, Trash, Circle, FileUp, ClipboardCopy } from 'lucide-svelte'
 	import { goto } from '$lib/navigation'
 	import SearchItems from '$lib/components/SearchItems.svelte'
 	import NoItemFound from '$lib/components/home/NoItemFound.svelte'
@@ -176,15 +165,15 @@
 						(x) =>
 							x.path.startsWith(ownerFilter + '/') &&
 							filterItemsPathsBaseOnUserFilters(x, selectedFilterKind, filterUserFolders)
-				  )
+					)
 				: triggers?.filter(
 						(x) =>
 							x.script_path.startsWith(ownerFilter + '/') &&
 							filterItemsPathsBaseOnUserFilters(x, selectedFilterKind, filterUserFolders)
-				  )
+					)
 			: triggers?.filter((x) =>
 					filterItemsPathsBaseOnUserFilters(x, selectedFilterKind, filterUserFolders)
-			  )
+				)
 
 	$: if ($workspaceStore) {
 		ownerFilter = undefined
@@ -194,10 +183,10 @@
 		selectedFilterKind === 'trigger'
 			? Array.from(
 					new Set(filteredItems?.map((x) => x.path.split('/').slice(0, 2).join('/')) ?? [])
-			  ).sort()
+				).sort()
 			: Array.from(
 					new Set(filteredItems?.map((x) => x.script_path.split('/').slice(0, 2).join('/')) ?? [])
-			  ).sort()
+				).sort()
 
 	$: items = filter !== '' ? filteredItems : preFilteredItems
 
@@ -264,16 +253,12 @@
 	<div class="flex flex-col w-full space-y-4">
 		<span>Are you sure you want to remove this trigger?</span>
 
-		<span> Do you also want to delete the associated Google Pub/Sub subscription? </span>
-		<Toggle bind:checked={deleteSubscription} />
-
-		<Alert type="info" title="Bypass confirmation">
-			<div>
-				You can press
-				<Badge color="dark-gray">SHIFT</Badge>
-				while removing a resource to bypass confirmation.
-			</div>
-		</Alert>
+		<Toggle
+			options={{
+				left: 'Delete the associated Google Pub/Sub subscription?'
+			}}
+			bind:checked={deleteSubscription}
+		/>
 	</div>
 </ConfirmationModal>
 
@@ -298,7 +283,6 @@
 		<Alert title="Not compatible with multi-tenant cloud" type="warning">
 			GCP triggers are disabled in the multi-tenant cloud.
 		</Alert>
-		<div class="py-4" />
 	{/if}
 	<div class="w-full h-full flex flex-col">
 		<div class="w-full pb-4 pt-6">
@@ -337,7 +321,7 @@
 			<div class="text-center text-sm text-tertiary mt-2"> No GCP triggers </div>
 		{:else if items?.length}
 			<div class="border rounded-md divide-y">
-				{#each items.slice(0, nbDisplayed) as { gcp_resource_path, workspace_id, delivery_config, delivery_type, path, edited_by, error, edited_at, script_path, is_flow, extra_perms, canWrite, enabled, server_id, subscription_id } (path)}
+				{#each items.slice(0, nbDisplayed) as { gcp_resource_path, topic_id, workspace_id, delivery_config, delivery_type, path, edited_by, error, edited_at, script_path, is_flow, extra_perms, canWrite, enabled, server_id, subscription_id } (path)}
 					{@const href = `${is_flow ? '/flows/get' : '/scripts/get'}/${script_path}`}
 					{@const ping = new Date()}
 					{@const pinging = ping && ping.getTime() > new Date().getTime() - 15 * 1000}
@@ -355,13 +339,7 @@
 								class="min-w-0 grow hover:underline decoration-gray-400"
 							>
 								<div class="text-primary flex-wrap text-left text-md font-semibold mb-1 truncate">
-									{path}
-								</div>
-								<div class="text-secondary text-xs truncate text-left font-light">
-									delivery_type: {delivery_type}
-								</div>
-								<div class="text-secondary text-xs truncate text-left font-light">
-									subscription_id: {subscription_id}
+									{path} - {topic_id}
 								</div>
 								<div class="text-secondary text-xs truncate text-left font-light">
 									runnable: {script_path}
@@ -442,7 +420,7 @@
 										? { icon: Pen }
 										: {
 												icon: Eye
-										  }}
+											}}
 									color="dark"
 								>
 									{canWrite ? 'Edit' : 'View'}
@@ -466,8 +444,8 @@
 													deleteSubscriptionCallback = async () => {
 														const message = await GcpTriggerService.deleteGcpSubscription({
 															workspace: $workspaceStore ?? '',
+															path: gcp_resource_path,
 															requestBody: {
-																gcp_resource_path,
 																subscription_id
 															}
 														})
@@ -506,7 +484,7 @@
 															})
 														}
 													}
-											  ]
+												]
 											: []),
 										{
 											displayName: 'Audit logs',

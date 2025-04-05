@@ -641,8 +641,30 @@ pub(crate) async fn tarball_workspace(
         {
             let gcp_triggers = sqlx::query_as!(
                 crate::gcp_triggers_ee::GcpTrigger,
-                "SELECT * FROM gcp_trigger
-                WHERE workspace_id = $1",
+                r#"
+                SELECT
+                    gcp_resource_path,
+                    subscription_id,
+                    topic_id,
+                    workspace_id,
+                    delivery_type AS "delivery_type: _",
+                    delivery_config AS "delivery_config: _",
+                    path,
+                    script_path,
+                    is_flow,
+                    edited_by,
+                    email,
+                    edited_at,
+                    server_id,
+                    last_server_ping,
+                    extra_perms,
+                    error,
+                    enabled
+                FROM 
+                    gcp_trigger
+                WHERE 
+                    workspace_id = $1
+                "#,
                 &w_id
             )
             .fetch_all(&mut *tx)
