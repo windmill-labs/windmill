@@ -10,23 +10,12 @@
 		extra_params: { tenant_id: string }
 		extra_params_callback: Record<string, any>
 	} = {
-		scopes: [],
+		scopes: ['offline_access'],
 		auth_url: '',
 		token_url: '',
 		req_body_auth: true,
 		extra_params: { tenant_id: '' },
 		extra_params_callback: {}
-	}
-
-	$: if (!connect_config) {
-		connect_config = {
-			scopes: ['offline_access'],
-			auth_url: '',
-			token_url: '',
-			req_body_auth: true,
-			extra_params: { tenant_id: '' },
-			extra_params_callback: {}
-		}
 	}
 
 	$: if (connect_config.extra_params.tenant_id) {
