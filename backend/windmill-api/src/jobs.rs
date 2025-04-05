@@ -8,7 +8,9 @@
 
 use axum::body::Body;
 use axum::http::HeaderValue;
-use futures::TryFutureExt;
+#[cfg(feature = "deno_core")]
+use deno_core::{op2, serde_v8, v8, JsRuntime, OpState};
+use futures::{StreamExt, TryFutureExt};
 use http::{HeaderMap, HeaderName};
 use itertools::Itertools;
 use quick_cache::sync::Cache;
@@ -141,6 +143,13 @@ pub fn workspaced_service() -> Router {
                 .layer(ce_headers.clone()),
         )
         .route(
+            "/run/batch_rerun_jobs",
+            post(batch_rerun_jobs)
+                .head(|| async { "" })
+                .layer(cors.clone())
+                .layer(ce_headers.clone()),
+        )
+        .route(
             "/run/workflow_as_code/:job_id/:entrypoint",
             post(run_workflow_as_code)
                 .head(|| async { "" })
@@ -203,6 +212,13 @@ pub fn workspaced_service() -> Router {
             "/list",
             get(list_jobs).layer(Extension(api_list_jobs_query_duration)),
         )
+        .route(
+            "/list_selected_job_groups",
+            // We use post because sending a huge array as a query param can produce
+            // URLs that may be too long
+            post(list_selected_job_groups),
+        )
+        .route("/list_filtered_uuids", get(list_filtered_job_uuids))
         .route("/queue/list", get(list_queue_jobs))
         .route("/queue/count", get(count_queue_jobs))
         .route("/queue/list_filtered_uuids", get(list_filtered_uuids))
@@ -642,6 +658,48 @@ async fn get_flow_job_debug_info(
             id
         )))
     }
+}
+
+async fn list_selected_job_groups(
+    authed: ApiAuthed,
+    Extension(user_db): Extension<UserDB>,
+    Path(w_id): Path<String>,
+    Json(uuids): Json<Vec<Uuid>>,
+) -> error::Result<Response> {
+    let mut tx = user_db.begin(&authed).await?;
+
+    let results = sqlx::query_scalar!(
+        r#"SELECT jsonb_build_object(
+            'kind', jb.kind,
+            'script_path', jb.runnable_path,
+            'latest_schema', COALESCE(
+                (SELECT DISTINCT ON (s.path) s.schema FROM script s WHERE s.path = jb.runnable_path AND jb.kind = 'script' ORDER BY s.path, s.created_at DESC),
+                (SELECT flow_version.schema FROM flow LEFT JOIN flow_version ON flow_version.id = flow.versions[array_upper(flow.versions, 1)] WHERE flow.path = jb.runnable_path AND jb.kind = 'flow')
+            ),
+            'schemas', ARRAY(
+                SELECT jsonb_build_object(
+                    'script_hash', LPAD(TO_HEX(COALESCE(s.hash, f.id)), 16, '0'),
+                    'job_ids', ARRAY_AGG(DISTINCT j.id),
+                    'schema', ANY_VALUE(COALESCE(s.schema, f.schema))
+                ) FROM v2_job j
+                LEFT JOIN script s ON s.hash = j.runnable_id AND j.kind = 'script'
+                LEFT JOIN flow_version f ON f.id = j.runnable_id AND j.kind = 'flow'
+                WHERE j.id = ANY(ARRAY_AGG(jb.id))
+                GROUP BY COALESCE(s.hash, f.id)
+            )
+        ) FROM v2_job jb
+        WHERE (jb.kind = 'flow' OR jb.kind = 'script')
+            AND jb.workspace_id = $1 AND jb.id = ANY($2)
+        GROUP BY jb.kind, jb.runnable_path"#,
+        &w_id,
+        &uuids
+    )
+    .fetch_all(&mut *tx)
+    .await?;
+
+    tx.commit().await?;
+
+    Ok(Json(results).into_response())
 }
 
 #[derive(Deserialize)]
@@ -1728,6 +1786,39 @@ async fn cancel_selection(
     tx.commit().await?;
 
     cancel_jobs(jobs_to_cancel, &db, authed.username.as_str(), w_id.as_str()).await
+}
+
+async fn list_filtered_job_uuids(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path(w_id): Path<String>,
+    Query(lq): Query<ListCompletedQuery>,
+) -> error::JsonResult<Vec<Uuid>> {
+    require_admin(authed.is_admin, &authed.username)?;
+
+    let mut sqlb = SqlBuilder::select_from("v2_job_completed")
+        .fields(&["v2_job_completed.id"])
+        .clone();
+
+    sqlb = join_concurrency_key(lq.concurrency_key.as_ref(), sqlb);
+    sqlb.and_where_ne("v2_job.trigger_kind", "'schedule'")
+        .or_where_is_null("v2_job.trigger_kind");
+
+    if let Some(tags) = get_scope_tags(&authed) {
+        sqlb.and_where_in("tag", &tags.iter().map(|x| quote(x)).collect::<Vec<_>>());
+    }
+
+    sqlb = filter_list_completed_query(sqlb, &lq, w_id.as_str(), false);
+
+    let sql = sqlb.query()?;
+    let mut jobs = sqlx::query_scalar(sql.as_str()).fetch_all(&db).await?;
+    jobs.extend(
+        list_filtered_uuids(authed, Extension(db), Path(w_id), Query(lq.into()))
+            .await?
+            .0,
+    );
+
+    Ok(Json(jobs))
 }
 
 async fn list_filtered_uuids(
@@ -3135,6 +3226,268 @@ pub async fn check_license_key_valid() -> error::Result<()> {
         ));
     }
     Ok(())
+}
+
+use windmill_common::flows::InputTransform;
+
+#[derive(Deserialize)]
+struct BatchReRunJobsBodyArgs {
+    job_ids: Vec<Uuid>,
+    script_options_by_path: HashMap<String, BatchReRunOptions>,
+    flow_options_by_path: HashMap<String, BatchReRunOptions>,
+}
+
+#[derive(Deserialize)]
+struct BatchReRunOptions {
+    input_transforms: Option<HashMap<String, InputTransform>>,
+    use_latest_version: Option<bool>,
+}
+
+#[derive(sqlx::FromRow, Serialize, Clone)]
+struct BatchReRunQueryReturnType {
+    id: Uuid,
+    kind: JobKind,
+    script_path: String,
+    script_hash: ScriptHash,
+    input: serde_json::Value,
+    scheduled_for: chrono::DateTime<Utc>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    schema: Option<serde_json::Value>,
+}
+
+#[cfg(feature = "deno_core")]
+#[op2]
+#[string]
+fn get_deno_core_job_value(state: &mut OpState) -> Option<String> {
+    let obj = state.borrow::<BatchReRunQueryReturnType>();
+    let str = serde_json::to_string(&obj).ok()?;
+    Some(str)
+}
+
+#[cfg(feature = "deno_core")]
+async fn batch_rerun_compute_js_expression(
+    expr: String,
+    job: BatchReRunQueryReturnType,
+) -> error::Result<Box<RawValue>> {
+    let ext = deno_core::Extension {
+        name: "batch_rerun_arg_transform_ext",
+        ops: vec![get_deno_core_job_value()].into(),
+        ..Default::default()
+    };
+    let mut isolate =
+        JsRuntime::new(deno_core::RuntimeOptions { extensions: vec![ext], ..Default::default() });
+
+    {
+        let op_state = isolate.op_state();
+        let mut op_state = op_state.borrow_mut();
+        op_state.put(BatchReRunQueryReturnType { schema: None, ..job });
+    }
+    isolate
+        .execute_script(
+            "<batch_rerun_arg_transform>",
+            "let job = JSON.parse(Deno.core.ops.get_deno_core_job_value());",
+        )
+        .map_err(|e| Error::ExecutionErr(e.to_string()))?;
+
+    // Run user expr
+    let result = isolate
+        .execute_script("<batch_rerun_arg_transform>", expr)
+        .map_err(|e| Error::ExecutionErr(e.to_string()))?;
+    let mut scope = isolate.handle_scope();
+    let result = v8::Local::new(&mut scope, result);
+    let result: serde_json::Value =
+        serde_v8::from_v8(&mut scope, result).map_err(|e| Error::ExecutionErr(e.to_string()))?;
+    let result = JsonRawValue::from_string(result.to_string())?;
+    Ok(result)
+}
+
+async fn batch_rerun_jobs(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Extension(user_db): Extension<UserDB>,
+    Path(w_id): Path<String>,
+    Json(body): Json<BatchReRunJobsBodyArgs>,
+) -> Response {
+    let stream = batch_rerun_jobs_inner(authed, db, user_db, w_id, body);
+
+    let body = axum::body::Body::from_stream(stream.map(Result::<_, std::convert::Infallible>::Ok));
+
+    Response::builder()
+        .status(201)
+        .header("Content-Type", "text/event-stream")
+        .header("Cache-Control", "no-cache")
+        .body(body)
+        .unwrap()
+}
+
+fn batch_rerun_jobs_inner(
+    authed: ApiAuthed,
+    db: DB,
+    user_db: UserDB,
+    w_id: String,
+    body: BatchReRunJobsBodyArgs,
+) -> impl futures::Stream<Item = String> {
+    let (tx, rx) = tokio::sync::mpsc::channel(10);
+    tokio::spawn(async move {
+        let mut job_stream = sqlx::query_as!(
+            BatchReRunQueryReturnType,
+            r#"SELECT 
+                    j.id,
+                    j.kind AS "kind: _",
+                    COALESCE(s.path, f.path) AS "script_path!",
+                    COALESCE(s.hash, f.id) AS "script_hash!: _",
+                    COALESCE(jc.started_at, jq.scheduled_for, make_date(1970, 1, 1)) AS "scheduled_for!: _",
+                    args AS input,
+                    COALESCE(s.schema, f.schema) AS "schema: _"
+                FROM v2_job j
+                LEFT JOIN script s ON j.runnable_id = s.hash AND j.kind = 'script'
+                LEFT JOIN flow_version f ON j.runnable_id = f.id AND j.runnable_path = f.path AND j.kind = 'flow'
+                LEFT JOIN v2_job_completed jc ON jc.id = j.id
+                LEFT JOIN v2_job_queue jq ON jq.id = j.id
+                WHERE j.id = ANY($1)
+                    AND j.workspace_id = $2
+                    AND COALESCE(s.hash, f.id) IS NOT NULL
+                    AND COALESCE(s.path, f.path) IS NOT NULL"#,
+            &body.job_ids,
+            w_id
+        ).fetch(&db);
+        while let Some(Ok(job)) = job_stream.next().await {
+            let job_result =
+                batch_rerun_handle_job(&job, &authed, &db, &user_db, &w_id, &body).await;
+            let send_to_stream_result = tx
+                .send(match job_result {
+                    Ok(uuid) => format!("{}\n", uuid),
+                    Err(err) => format!("Error: {}\n", err.to_string()),
+                })
+                .await;
+            match send_to_stream_result {
+                Ok(_) => {}
+                Err(e) => tracing::error!("Couldn't re-run job {}: {}", job.id, e.to_string()),
+            }
+        }
+    });
+    tokio_stream::wrappers::ReceiverStream::new(rx)
+}
+
+async fn batch_rerun_handle_job(
+    job: &BatchReRunQueryReturnType,
+    authed: &ApiAuthed,
+    db: &DB,
+    user_db: &UserDB,
+    w_id: &String,
+    body: &BatchReRunJobsBodyArgs,
+) -> error::Result<String> {
+    let options = if matches!(job.kind, JobKind::Script) {
+        &body.script_options_by_path
+    } else {
+        &body.flow_options_by_path
+    }
+    .get(&job.script_path);
+
+    let mut args: HashMap<String, Box<RawValue>> = serde_json::from_value(job.input.clone())?;
+    let use_latest_version = options.and_then(|o| o.use_latest_version).unwrap_or(false);
+    let input_transforms = options
+        .and_then(|o| o.input_transforms.as_ref())
+        .map(|t| t.iter())
+        .into_iter()
+        .flatten();
+
+    let latest_schema;
+    let schema = if use_latest_version {
+        latest_schema = sqlx::query_scalar!(
+            r#"SELECT COALESCE(
+                (SELECT DISTINCT ON (s.path) s.schema FROM script s WHERE s.path = jb.runnable_path AND jb.kind = 'script' ORDER BY s.path, s.created_at DESC),
+                (SELECT flow_version.schema FROM flow LEFT JOIN flow_version ON flow_version.id = flow.versions[array_upper(flow.versions, 1)] WHERE flow.path = jb.runnable_path AND jb.kind = 'flow')
+            ) FROM v2_job jb
+            WHERE jb.id = $1 AND jb.workspace_id = $2
+            GROUP BY jb.kind, jb.runnable_path"#,
+            &job.id,
+            &w_id
+        ).fetch_optional(db).await?.flatten();
+        latest_schema.as_ref()
+    } else {
+        job.schema.as_ref()
+    };
+    let schema = schema
+        .and_then(serde_json::Value::as_object)
+        .and_then(|s| s.get("properties"))
+        .and_then(serde_json::Value::as_object);
+    for (property_name, transform) in input_transforms {
+        let schema_has_key = schema
+            .map(|s| s.contains_key(property_name))
+            .unwrap_or(false);
+        if !schema_has_key {
+            continue;
+        }
+        match transform {
+            InputTransform::Static { value } => {
+                args.insert(property_name.clone(), value.clone());
+            }
+            InputTransform::Javascript { expr } => {
+                #[cfg(not(feature = "deno_core"))]
+                tracing::error!("deno_core feature is not activated, cannot evaluate: {expr}");
+                #[cfg(feature = "deno_core")]
+                args.insert(
+                    property_name.clone(),
+                    batch_rerun_compute_js_expression(expr.clone(), job.clone()).await?,
+                );
+            }
+        }
+    }
+
+    // Call appropriate function to push job to queue
+    match job.kind {
+        JobKind::Flow => {
+            let result = run_flow_by_path_inner(
+                authed.clone(),
+                db.clone(),
+                user_db.clone(),
+                w_id.clone(),
+                StripPath(job.script_path.clone()),
+                RunJobQuery { ..Default::default() },
+                PushArgsOwned { extra: None, args },
+                None,
+            )
+            .await;
+            if let Ok((_, uuid)) = result {
+                return Ok(uuid);
+            }
+        }
+        JobKind::Script => {
+            let result = if use_latest_version {
+                run_script_by_path_inner(
+                    authed.clone(),
+                    db.clone(),
+                    user_db.clone(),
+                    w_id.clone(),
+                    StripPath(job.script_path.clone()),
+                    RunJobQuery { ..Default::default() },
+                    PushArgsOwned { extra: None, args },
+                    None,
+                )
+                .await
+            } else {
+                run_job_by_hash_inner(
+                    authed.clone(),
+                    db.clone(),
+                    user_db.clone(),
+                    w_id.clone(),
+                    job.script_hash,
+                    RunJobQuery { ..Default::default() },
+                    PushArgsOwned { extra: None, args },
+                    None,
+                )
+                .await
+            };
+            if let Ok((_, uuid)) = result {
+                return Ok(uuid);
+            }
+        }
+        _ => {}
+    }
+    Err(error::Error::ExecutionErr(
+        format!("Couldn't re-run job {}", job.id).to_string(),
+    ))
 }
 
 pub async fn run_flow_by_path(
