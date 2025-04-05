@@ -1374,6 +1374,7 @@ pub struct ListQueueQuery {
     pub has_null_parent: Option<bool>,
     pub is_not_schedule: Option<bool>,
     pub concurrency_key: Option<String>,
+    pub allow_wildcards: Option<bool>,
 }
 
 impl From<ListCompletedQuery> for ListQueueQuery {
@@ -1404,6 +1405,7 @@ impl From<ListCompletedQuery> for ListQueueQuery {
             has_null_parent: lcq.has_null_parent,
             is_not_schedule: lcq.is_not_schedule,
             concurrency_key: lcq.concurrency_key,
+            allow_wildcards: lcq.allow_wildcards,
         }
     }
 }
@@ -1427,7 +1429,11 @@ pub fn filter_list_queue_query(
     }
 
     if let Some(w) = &lq.worker {
-        sqlb.and_where_eq("v2_job_queue.worker", "?".bind(w));
+        if lq.allow_wildcards.unwrap_or(false) {
+            sqlb.and_where_like_left("v2_job_queue.worker", w.replace("*", "%"));
+        } else {
+            sqlb.and_where_eq("v2_job_queue.worker", "?".bind(w));
+        }
     }
 
     if let Some(ps) = &lq.script_path_start {
@@ -1447,8 +1453,13 @@ pub fn filter_list_queue_query(
         sqlb.and_where_eq("created_by", "?".bind(cb));
     }
     if let Some(t) = &lq.tag {
-        sqlb.and_where_eq("v2_job.tag", "?".bind(t));
+        if lq.allow_wildcards.unwrap_or(false) {
+            sqlb.and_where_like_left("v2_job.tag", t.replace("*", "%"));
+        } else {
+            sqlb.and_where_eq("v2_job.tag", "?".bind(t));
+        }
     }
+
     if let Some(r) = &lq.running {
         sqlb.and_where_eq("running", &r);
     }
@@ -5446,14 +5457,27 @@ pub fn filter_list_completed_query(
     }
 
     if let Some(label) = &lq.label {
-        let mut wh = format!("result->'wm_labels' ? ");
-        wh.push_str(&format!("'{}'", &label.replace("'", "''")));
-        sqlb.and_where("result ? 'wm_labels'");
-        sqlb.and_where(&wh);
+        if lq.allow_wildcards.unwrap_or(false) {
+            let wh = format!(
+                "EXISTS (SELECT 1 FROM jsonb_array_elements_text(result->'wm_labels') label WHERE label LIKE '{}')",
+                &label.replace("*", "%").replace("'", "''")
+            );
+            sqlb.and_where("result ? 'wm_labels'");
+            sqlb.and_where(&wh);
+        } else {
+            let mut wh = format!("result->'wm_labels' ? ");
+            wh.push_str(&format!("'{}'", &label.replace("'", "''")));
+            sqlb.and_where("result ? 'wm_labels'");
+            sqlb.and_where(&wh);
+        }
     }
 
     if let Some(worker) = &lq.worker {
-        sqlb.and_where_eq("v2_job_completed.worker", "?".bind(worker));
+        if lq.allow_wildcards.unwrap_or(false) {
+            sqlb.and_where_like_left("v2_job_completed.worker", worker.replace("*", "%"));
+        } else {
+            sqlb.and_where_eq("v2_job_completed.worker", "?".bind(worker));
+        }
     }
 
     if w_id != "admins" || !lq.all_workspaces.is_some_and(|x| x) {
@@ -5475,8 +5499,13 @@ pub fn filter_list_completed_query(
         sqlb.and_where_eq("runnable_id", "?".bind(h));
     }
     if let Some(t) = &lq.tag {
-        sqlb.and_where_eq("v2_job.tag", "?".bind(t));
+        if lq.allow_wildcards.unwrap_or(false) {
+            sqlb.and_where_like_left("v2_job.tag", t.replace("*", "%"));
+        } else {
+            sqlb.and_where_eq("v2_job.tag", "?".bind(t));
+        }
     }
+
     if let Some(cb) = &lq.created_by {
         sqlb.and_where_eq("created_by", "?".bind(cb));
     }
@@ -5618,6 +5647,7 @@ pub struct ListCompletedQuery {
     pub is_not_schedule: Option<bool>,
     pub concurrency_key: Option<String>,
     pub worker: Option<String>,
+    pub allow_wildcards: Option<bool>,
 }
 
 async fn list_completed_jobs(
