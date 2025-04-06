@@ -75,7 +75,7 @@ pub async fn manage_google_subscription(
     db: &DB,
     workspace_id: &str,
     gcp_resource_path: &str,
-    path: Option<&str>,
+    path: &str,
     topic_id: &str,
     subscription_mode: SubscriptionMode,
 ) -> WindmillResult<CreateUpdateConfig> {

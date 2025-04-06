@@ -14704,8 +14704,6 @@ components:
         - push
         - pull
 
-
-
     PushConfig:
       type: object
       properties:
@@ -14757,6 +14755,7 @@ components:
       enum:
         - existing
         - create_update
+      description: "The mode of subscription. 'existing' means using an existing GCP subscription, while 'create_update' involves creating or updating a new subscription."
 
     GcpExistingSubscription:
       type: object
@@ -14793,7 +14792,11 @@ components:
         - oneOf:
             - $ref: "#/components/schemas/GcpExistingSubscription"
             - $ref: "#/components/schemas/GcpCreateUpdateSubscription"
-
+      description: |
+        "This is a union type representing the subscription mode. 
+         - 'existing': Represents an existing GCP subscription, and should be accompanied by an 'ExistingGcpSubscription' object.
+         - 'create_update': Represents a new or updated GCP subscription, and should be accompanied by a 'CreateUpdateConfig' object."
+  
     NewGcpTrigger:
       type: object
       properties:

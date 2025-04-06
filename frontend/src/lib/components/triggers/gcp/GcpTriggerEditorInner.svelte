@@ -263,7 +263,7 @@
 								btnClasses="ml-4 mt-2"
 								color="dark"
 								size="xs"
-								href={itemKind === 'flow' ? '/flows/add?hub=68' : '/scripts/add?hub=hub%2F11672'}
+								href={itemKind === 'flow' ? '/flows/add?hub=68' : '/scripts/add?hub=hub%2F11675'}
 								target="_blank">Create from template</Button
 							>
 						{/if}
@@ -278,6 +278,8 @@
 					bind:delivery_config
 					bind:topic_id
 					bind:subscription_mode
+					cloud_subscription_id={subscription_id}
+					create_update_subscription_id={subscription_id}
 					{can_write}
 					headless={true}
 				/>

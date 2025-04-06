@@ -4,7 +4,7 @@
 	import CaptureTable from '../CaptureTable.svelte'
 	import Required from '$lib/components/Required.svelte'
 	import ResourcePicker from '$lib/components/ResourcePicker.svelte'
-	import { emptyStringTrimmed } from '$lib/utils'
+	import { copyToClipboard, emptyStringTrimmed } from '$lib/utils'
 	import TestTriggerConnection from '../TestTriggerConnection.svelte'
 	import Subsection from '$lib/components/Subsection.svelte'
 	import {
@@ -25,7 +25,7 @@
 	import { workspaceStore } from '$lib/stores'
 
 	import { Button } from '$lib/components/common'
-	import { RefreshCw } from 'lucide-svelte'
+	import { ClipboardCopy, RefreshCw } from 'lucide-svelte'
 
 	export let can_write: boolean = false
 	export let headless: boolean = false
@@ -36,13 +36,14 @@
 	export let gcp_resource_path = ''
 	export let subscription_id = ''
 	export let topic_id = ''
-	export let delivery_type: DeliveryType | undefined
+	export let delivery_type: DeliveryType | undefined = 'pull'
 	export let delivery_config: PushConfig | undefined
 	export let subscription_mode: SubscriptionMode = 'create_update'
+	export let base_endpoint: string = getBaseUrl(captureInfo)
+
 	let topic_items: string[] = []
 	let subscription_items: string[] = []
 	let darkMode = false
-	let base_endpoint = `${window.location.origin}${base}`
 
 	const DEFAULT_PUSH_CONFIG: PushConfig = {
 		route_path: '',
@@ -72,23 +73,35 @@
 		}
 	}
 
-	let cloud_subscription_id = subscription_id
-	let create_update_subscription_id = subscription_id
+	export let cloud_subscription_id = ''
+	export let create_update_subscription_id = ''
 
 	$: isValid = !emptyStringTrimmed(gcp_resource_path) && !emptyStringTrimmed(topic_id)
 	$: if (!delivery_type) {
 		delivery_type = 'pull'
 	}
-	$: !delivery_config && (delivery_config = DEFAULT_PUSH_CONFIG)
+	$: if (!delivery_config) {
+		delivery_config = DEFAULT_PUSH_CONFIG
+	}
+
+	function getBaseUrl(captureInfo: CaptureInfo | undefined) {
+		if (captureInfo) {
+			return `${location.origin}${base}/api/w/${$workspaceStore}/capture_u/gcp/${
+				captureInfo.isFlow ? 'flow' : 'script'
+			}/${captureInfo.path.replaceAll('/', '.')}`
+		} else {
+			return `${window.location.origin}${base}/api/gcp/w/${$workspaceStore!}`
+		}
+	}
+
+	$: !base_endpoint && (base_endpoint = getBaseUrl(captureInfo))
 </script>
 
 <DarkModeObserver bind:darkMode />
 
 <div>
 	{#if showCapture && captureInfo}
-		{@const captureURL = `${location.origin}${base}/api/w/${$workspaceStore}/capture_u/gcp/${
-			captureInfo.isFlow ? 'flow' : 'script'
-		}/${captureInfo.path.replaceAll('/', '.')}/${delivery_config?.route_path ?? ''}`}
+		{@const captureURL = `${base_endpoint}/${delivery_config?.route_path ?? ''}`}
 		<CaptureSection
 			captureType="gcp"
 			disabled={!isValid}
@@ -166,7 +179,15 @@
 				</div>
 			</div>
 			{#if !emptyStringTrimmed(gcp_resource_path) && !emptyStringTrimmed(topic_id)}
-				<ToggleButtonGroup bind:selected={subscription_mode} let:item>
+				<ToggleButtonGroup
+					bind:selected={subscription_mode}
+					on:selected={(e) => {
+						if (e.detail === 'existing' && subscription_items.length === 0) {
+							loadAllSubscriptionFromGooglePubSubTopic()
+						}
+					}}
+					let:item
+				>
 					<ToggleButton
 						label="Create/Update"
 						value="create_update"
@@ -225,17 +246,28 @@
 							{#if delivery_type === 'push' && delivery_config}
 								<div class="flex flex-col gap-3 mt-1">
 									{#if delivery_config.route_path}
+										{@const fullUrl = `${base_endpoint}/${delivery_config?.route_path ?? ''}`}
 										<Subsection
 											label="URL"
 											tooltip="The URL of the service that receives push messages."
 										>
-											<input
-												type="text"
-												autocomplete="off"
-												placeholder="URL"
-												disabled
-												value={`${window.location.origin}${base}/${delivery_config.route_path ?? ''}`}
-											/>
+											<div class="flex gap-2">
+												<input
+													type="text"
+													autocomplete="off"
+													placeholder="URL"
+													disabled
+													value={`${base_endpoint}/${delivery_config.route_path ?? ''}`}
+												/>
+												<Button
+													on:click={() => copyToClipboard(fullUrl)}
+													color="dark"
+													size="xs"
+													startIcon={{ icon: ClipboardCopy }}
+												>
+													Copy URL
+												</Button>
+											</div>
 										</Subsection>
 										<Subsection
 											label="Audience"
@@ -264,7 +296,12 @@
 						</div>
 					{:else if subscription_mode === 'existing'}
 						<p class="text-xs mb-1 text-tertiary">
-							The ID of the existing subscription.<Required required={true} />
+							The ID of the existing subscription. <Required required={true} />
+							<br />
+							If the subscription uses <strong>push delivery</strong>, its endpoint URL must match
+							the following format:
+							<strong>{base_endpoint}/*</strong>, meaning it must start with
+							<strong>{base_endpoint}</strong> followed by any path segment.
 						</p>
 						<div class="flex gap-1">
 							<Select

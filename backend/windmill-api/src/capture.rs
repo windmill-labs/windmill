@@ -17,8 +17,7 @@ use {
 
 #[cfg(all(feature = "enterprise", feature = "gcp_trigger"))]
 use crate::gcp_triggers_ee::{
-    manage_google_subscription, process_google_push_request, validate_jwt_token, CreateUpdateConfig,
-    SubscriptionMode,
+    manage_google_subscription, process_google_push_request, validate_jwt_token, SubscriptionMode,
 };
 
 #[cfg(any(
@@ -153,9 +152,8 @@ pub struct SqsTriggerConfig {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct GcpTriggerConfig {
     pub gcp_resource_path: String,
-    #[serde(default, flatten)]
-    pub config: CreateUpdateConfig,
-    pub subscription_mode: Option<SubscriptionMode>,
+    #[serde(flatten)]
+    pub subscription_mode: SubscriptionMode,
     pub topic_id: String,
 }
 
@@ -356,25 +354,18 @@ async fn set_gcp_trigger_config(
         ));
     };
 
-    let Some(subscription_mode) = gcp_config.subscription_mode else {
-        return Err(windmill_common::error::Error::BadRequest(
-            "Missing subscription mode".to_string(),
-        ));
-    };
-
     let config = manage_google_subscription(
         authed,
         db,
         w_id,
         &gcp_config.gcp_resource_path,
-        None,
+        &capture_config.path,
         &gcp_config.topic_id,
-        subscription_mode,
+        gcp_config.subscription_mode,
     )
     .await?;
 
-    gcp_config.subscription_mode = None;
-    gcp_config.config = config;
+    gcp_config.subscription_mode = SubscriptionMode::CreateUpdate(config);
     capture_config.trigger_config = Some(TriggerConfig::Gcp(gcp_config));
 
     Ok(capture_config)
@@ -928,6 +919,10 @@ async fn gcp_payload(
 
     let authed = fetch_api_authed(owner.clone(), email, &w_id, &db, None).await?;
 
+    let SubscriptionMode::CreateUpdate(config) = &gcp_trigger_config.subscription_mode else {
+        return Err(Error::BadConfig("Bad config".to_string()));
+    };
+
     validate_jwt_token(
         db,
         user_db.clone(),
@@ -935,7 +930,7 @@ async fn gcp_payload(
         &headers,
         &gcp_trigger_config.gcp_resource_path,
         &w_id,
-        gcp_trigger_config.config.delivery_config.as_ref().unwrap(),
+        config.delivery_config.as_ref().unwrap(),
     )
     .await?;
 
