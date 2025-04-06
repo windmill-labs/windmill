@@ -6789,6 +6789,7 @@ paths:
         - $ref: "#/components/parameters/Running"
         - $ref: "#/components/parameters/ArgsFilter"
         - $ref: "#/components/parameters/ResultFilter"
+        - $ref: "#/components/parameters/AllowWildcards"
         - $ref: "#/components/parameters/Tag"
         - $ref: "#/components/parameters/Page"
         - $ref: "#/components/parameters/PerPage"
@@ -6917,6 +6918,7 @@ paths:
         - $ref: "#/components/parameters/Running"
         - $ref: "#/components/parameters/ArgsFilter"
         - $ref: "#/components/parameters/ResultFilter"
+        - $ref: "#/components/parameters/AllowWildcards"
         - $ref: "#/components/parameters/Tag"
         - $ref: "#/components/parameters/Page"
         - $ref: "#/components/parameters/PerPage"
@@ -6995,6 +6997,7 @@ paths:
         - $ref: "#/components/parameters/JobKinds"
         - $ref: "#/components/parameters/ArgsFilter"
         - $ref: "#/components/parameters/ResultFilter"
+        - $ref: "#/components/parameters/AllowWildcards"
         - $ref: "#/components/parameters/Tag"
         - $ref: "#/components/parameters/Page"
         - $ref: "#/components/parameters/PerPage"
@@ -7058,6 +7061,7 @@ paths:
         - $ref: "#/components/parameters/ArgsFilter"
         - $ref: "#/components/parameters/Tag"
         - $ref: "#/components/parameters/ResultFilter"
+        - $ref: "#/components/parameters/AllowWildcards"
         - $ref: "#/components/parameters/Page"
         - $ref: "#/components/parameters/PerPage"
         - name: is_skipped
@@ -12156,6 +12160,7 @@ paths:
         - $ref: "#/components/parameters/ArgsFilter"
         - $ref: "#/components/parameters/Tag"
         - $ref: "#/components/parameters/ResultFilter"
+        - $ref: "#/components/parameters/AllowWildcards"
         - $ref: "#/components/parameters/Page"
         - $ref: "#/components/parameters/PerPage"
         - name: is_skipped
@@ -12658,6 +12663,12 @@ components:
     Running:
       name: running
       description: filter on running jobs
+      in: query
+      schema:
+        type: boolean
+    AllowWildcards:
+      name: allow_wildcards
+      description: allow wildcards (*) in the filter of label, tag, worker
       in: query
       schema:
         type: boolean

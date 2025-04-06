@@ -58,12 +58,10 @@ async function getResourceTypes(prompt: string, workspace: string) {
 
 const TS_RESOURCE_TYPE_SYSTEM = `On Windmill, credentials and configuration are stored in resources and passed as parameters to main.
 If you need credentials, you should add a parameter to \`main\` with the corresponding resource type inside the \`RT\` namespace: for instance \`RT.Stripe\`.
-You should only them if you need them to satisfy the user's instructions. Always use the RT namespace. 
-To query the RT namespace, you can use the \`search_resource_types\` function.`
+You should only use them if you need them to satisfy the user's instructions. Always use the RT namespace.`
 
 const PYTHON_RESOURCE_TYPE_SYSTEM = `On Windmill, credentials and configuration are stored in resources and passed as parameters to main.
 If you need credentials, you should add a parameter to \`main\` with the corresponding resource type.
-To query the available resource types, you can use the \`search_resource_types\` function.
 You need to **redefine** the type of the resources that are needed before the main function as TypedDict, but only include them if they are actually needed to achieve the function purpose.
 The resource type name has to be exactly as specified (has to be IN LOWERCASE).
 If an import conflicts with a resource type name, **you have to rename the imported object, not the type name**.
@@ -71,7 +69,6 @@ Make sure to import TypedDict from typing **if you're using it**`
 
 const PHP_RESOURCE_TYPE_SYSTEM = `On Windmill, credentials and configuration are stored in resources and passed as parameters to main.
 If you need credentials, you should add a parameter to \`main\` with the corresponding resource type
-The available resource types are provided by the user under the \`RESOURCE_TYPE_CONTEXT\` key.
 You need to **redefine** the type of the resources that are needed before the main function, but only include them if they are actually needed to achieve the function purpose.
 Before defining each type, check if the class already exists using class_exists.
 The resource type name has to be exactly as specified.`
@@ -95,34 +92,44 @@ export const SUPPORTED_CHAT_SCRIPT_LANGUAGES = [
 	'powershell'
 ]
 
-function getLangContext(lang: ScriptLang | 'bunnative') {
+export function getLangContext(
+	lang: ScriptLang | 'bunnative',
+	{ allowResourcesFetch = false }: { allowResourcesFetch?: boolean } = {}
+) {
+	const tsContext =
+		TS_RESOURCE_TYPE_SYSTEM +
+		(allowResourcesFetch
+			? `\nTo query the RT namespace, you can use the \`search_resource_types\` function.`
+			: '')
 	switch (lang) {
 		case 'bunnative':
 		case 'nativets':
 			return (
 				'The user is coding in TypeScript. On Windmill, it is expected that the script exports a single **async** function called `main`. You should use fetch (available globally, no need to import) and are not allowed to import any libraries.\n' +
-				TS_RESOURCE_TYPE_SYSTEM
+				tsContext
 			)
 		case 'bun':
 			return (
 				'The user is coding in TypeScript (bun runtime). On Windmill, it is expected that the script exports a single **async** function called `main`. Do not call the main function. Libraries are installed automatically, do not show how to install them.\n' +
-				TS_RESOURCE_TYPE_SYSTEM
+				tsContext
 			)
 		case 'deno':
 			return (
 				'The user is coding in TypeScript (deno runtime). On Windmill, it is expected that the script exports a single **async** function called `main`. Do not call the main function. Libraries are installed automatically, do not show how to install them.\n' +
-				TS_RESOURCE_TYPE_SYSTEM +
+				tsContext +
 				'\nYou can import deno libraries or you can import npm libraries like that: `import ... from "npm:{package}";`.'
 			)
 		case 'python3':
 			return (
 				'The user is coding in Python. On Windmill, it is expected the script contains at least one function called `main`. Do not call the main function. Libraries are installed automatically, do not show how to install them.' +
-				PYTHON_RESOURCE_TYPE_SYSTEM
+				PYTHON_RESOURCE_TYPE_SYSTEM +
+				`${allowResourcesFetch ? `\nTo query the available resource types, you can use the \`search_resource_types\` function.` : ''}`
 			)
 		case 'php':
 			return (
 				'The user is coding in PHP. On Windmill, it is expected the script contains at least one function called `main`. The script must start with <?php.' +
 				PHP_RESOURCE_TYPE_SYSTEM +
+				`${allowResourcesFetch ? `\nTo query the available resource types, you can use the \`search_resource_types\` function.` : ''}` +
 				`\nIf you need to import libraries, you need to specify them as comments in the following manner before the main function:
 \`\`\`
 // require:
@@ -211,6 +218,7 @@ export const CHAT_SYSTEM_PROMPT = `
 
 	When the user requests code changes:
 	- Always include a **single code block** with the **entire updated file**, not just the modified sections.
+	- The code can include \`[#START]\` and \`[#END]\` markers to indicate the start and end of a code piece. You MUST only modify the code between these markers if given, and remove them in your response. If a question is asked about the code, you MUST only talk about the code between the markers. Refer to it as the code piece, not the code between the markers.
 	- Follow the instructions carefully and explain the reasoning behind your changes.
 	- If the request is abstract (e.g., "make this cleaner"), interpret it concretely and reflect that in the code block.
 	- Preserve existing formatting, indentation, and whitespace unless changes are strictly required to fulfill the user's request.
@@ -223,7 +231,7 @@ export const CHAT_SYSTEM_PROMPT = `
 `
 
 const CHAT_USER_CODE_CONTEXT = `
-CODE ({title}):
+- {title}:
 \`\`\`{language}
 {code}
 \`\`\`
@@ -241,19 +249,6 @@ INSTRUCTIONS:
 WINDMILL LANGUAGE CONTEXT:
 {lang_context}
 
-DATABASES:
-{db_context}
-
-CODE:
-{code_context}
-
-ERROR:
-{error_context}
-
-DIFF:
-{diff_context}
-
-\`\`\`
 `
 
 export const CHAT_USER_DB_CONTEXT = `- {title}: SCHEMA: \n{schema}\n`
@@ -278,71 +273,120 @@ export const ContextIconMap = {
 	code: Code,
 	error: TriangleAlert,
 	db: Database,
-	diff: Diff
+	diff: Diff,
+	code_piece: Code
 }
 
-export type ContextElement =
-	| {
-			type: 'code'
-			content: string
-			title: string
-			lang: ScriptLang | 'bunnative'
-	  }
-	| {
-			type: 'error'
-			content: string
-			title: 'error'
-	  }
-	| {
-			type: 'db'
-			schema?: DBSchema
-			title: string
-	  }
-	| {
-			type: 'diff'
-			content: string
-			title: string
-			diff: Change[]
-			lang: ScriptLang | 'bunnative'
-	  }
+type CodeElement = {
+	type: 'code'
+	content: string
+	title: string
+	lang: ScriptLang | 'bunnative'
+}
+
+type ErrorElement = {
+	type: 'error'
+	content: string
+	title: 'error'
+}
+
+type DBElement = {
+	type: 'db'
+	schema?: DBSchema
+	title: string
+}
+
+type DiffElement = {
+	type: 'diff'
+	content: string
+	title: string
+	diff: Change[]
+	lang: ScriptLang | 'bunnative'
+}
+
+type CodePieceElement = {
+	type: 'code_piece'
+	content: string
+	startLine: number
+	endLine: number
+	title: string
+	lang: ScriptLang | 'bunnative'
+}
+
+export type ContextElement = CodeElement | ErrorElement | DBElement | DiffElement | CodePieceElement
+
+const applyCodePieceToCodeContext = (codePieces: CodePieceElement[], codeContext: string) => {
+	let code = codeContext.split('\n')
+	let shiftOffset = 0
+	codePieces.sort((a, b) => a.startLine - b.startLine)
+	for (const codePiece of codePieces) {
+		code.splice(codePiece.endLine + shiftOffset, 0, '[#END]')
+		code.splice(codePiece.startLine + shiftOffset - 1, 0, '[#START]')
+		shiftOffset += 2
+	}
+	return code.join('\n')
+}
 
 export async function prepareUserMessage(
 	instructions: string,
 	language: ScriptLang | 'bunnative',
 	selectedContext: ContextElement[]
 ) {
-	let codeContext = ''
-	let errorContext = ''
-	let dbContext = ''
-	let diffContext = ''
+	let codeContext = 'CODE:\n'
+	let errorContext = 'ERROR:\n'
+	let dbContext = 'DATABASES:\n'
+	let diffContext = 'DIFF:\n'
+	let hasCode = false
+	let hasError = false
+	let hasDb = false
+	let hasDiff = false
 	for (const context of selectedContext) {
 		if (context.type === 'code') {
+			hasCode = true
 			codeContext += CHAT_USER_CODE_CONTEXT.replace('{title}', context.title)
 				.replace('{language}', scriptLangToEditorLang(language))
-				.replace('{code}', context.content)
+				.replace(
+					'{code}',
+					applyCodePieceToCodeContext(
+						selectedContext.filter((c) => c.type === 'code_piece'),
+						context.content
+					)
+				)
 		} else if (context.type === 'error') {
-			if (errorContext) {
+			if (hasError) {
 				throw new Error('Multiple error contexts provided')
 			}
+			hasError = true
 			errorContext = CHAT_USER_ERROR_CONTEXT.replace('{error}', context.content)
 		} else if (context.type === 'db') {
+			hasDb = true
 			dbContext += CHAT_USER_DB_CONTEXT.replace('{title}', context.title).replace(
 				'{schema}',
 				context.schema?.stringified ?? 'to fetch with get_db_schema'
 			)
 		} else if (context.type === 'diff') {
+			hasDiff = true
 			const diff = JSON.stringify(context.diff)
 			diffContext = diff.length > 3000 ? diff.slice(0, 3000) + '...' : diff
 		}
 	}
 
-	const userMessage = CHAT_USER_PROMPT.replace('{instructions}', instructions)
-		.replace('{lang_context}', getLangContext(language))
-		.replace('{code_context}', codeContext)
-		.replace('{error_context}', errorContext)
-		.replace('{db_context}', dbContext)
-		.replace('{diff_context}', diffContext)
-
+	let userMessage = CHAT_USER_PROMPT.replace('{instructions}', instructions).replace(
+		'{lang_context}',
+		getLangContext(language, { allowResourcesFetch: true })
+	)
+	if (hasCode) {
+		userMessage += codeContext
+	}
+	if (hasError) {
+		userMessage += errorContext
+	}
+	if (hasDb) {
+		userMessage += dbContext
+	}
+	if (hasDiff) {
+		userMessage += diffContext
+	}
 	return userMessage
 }
 

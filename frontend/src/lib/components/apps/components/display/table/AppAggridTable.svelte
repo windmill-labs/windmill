@@ -202,12 +202,8 @@
 
 	function refreshActions(actions: TableAction[]) {
 		if (!deepEqual(actions, lastActions)) {
-			// structuredClone did not work because it did not copy the array's
-			// prototype, causing deepEqual to return false although the objects were
-			// semantically the same
-			lastActions = [...actions]
-			// HACK: without setTimeout, the actions mount but aren't visible
-			setTimeout(updateOptions, 0.5)
+			lastActions = structuredClone(actions)
+			updateOptions()
 		}
 	}
 
@@ -459,7 +455,6 @@
 		}
 	}
 
-	let lastComputedColumnDefs: [Record<string, any>[] | undefined, TableAction[] | undefined]
 	function updateOptions() {
 		try {
 			const columnDefs =
@@ -480,10 +475,6 @@
 					...(!resolvedConfig?.wrapActions ? { minWidth: 130 * actions?.length } : {})
 				})
 			}
-
-			// Don't update if the columns
-			if (deepEqual(lastComputedColumnDefs, [columnDefs, actions])) return
-			lastComputedColumnDefs = [columnDefs, actions]
 
 			api?.updateGridOptions({
 				rowData: value,
