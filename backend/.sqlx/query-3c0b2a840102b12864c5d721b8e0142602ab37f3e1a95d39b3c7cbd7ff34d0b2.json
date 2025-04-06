@@ -1,0 +1,29 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT\n                    id As \"id!\",\n                    flow_status->'restarted_from'->'flow_job_id' AS \"restarted_from: Json<Uuid>\"\n                FROM v2_as_queue\n                WHERE COALESCE((SELECT flow_innermost_root_job FROM v2_job WHERE id = $1), $1) = id AND workspace_id = $2",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id!",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "restarted_from: Json<Uuid>",
+        "type_info": "Jsonb"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text"
+      ]
+    },
+    "nullable": [
+      true,
+      null
+    ]
+  },
+  "hash": "3c0b2a840102b12864c5d721b8e0142602ab37f3e1a95d39b3c7cbd7ff34d0b2"
+}

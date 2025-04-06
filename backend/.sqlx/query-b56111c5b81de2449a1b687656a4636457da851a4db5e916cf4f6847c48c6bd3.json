@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE job_stats SET scalar_float = $4 WHERE workspace_id = $1 AND job_id = $2 AND metric_id = $3",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Uuid",
+        "Text",
+        "Float4"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "b56111c5b81de2449a1b687656a4636457da851a4db5e916cf4f6847c48c6bd3"
+}
