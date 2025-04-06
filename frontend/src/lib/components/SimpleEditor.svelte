@@ -123,8 +123,6 @@
 		class?: string
 	}>()
 
-	export { className as class }
-
 	const dispatch = createEventDispatcher()
 
 	const uri = `file:///${hash}.${langToExt(lang)}`
