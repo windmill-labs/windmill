@@ -215,6 +215,7 @@ async fn get_concurrent_intervals(
             is_flow_step: _,
             all_workspaces: _,
             concurrency_key: Some(_),
+            allow_wildcards: None,
         } => true,
         _ => false,
     };
