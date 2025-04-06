@@ -755,6 +755,7 @@ pub async fn eval_fetch_timeout(
     _ts_expr: String,
     _js_expr: String,
     _args: Option<&Json<HashMap<String, Box<RawValue>>>>,
+    _script_entrypoint_override: Option<String>,
     _job_id: Uuid,
     _job_timeout: Option<i32>,
     _db: &DB,
