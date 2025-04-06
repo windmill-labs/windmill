@@ -71,13 +71,13 @@ pub fn start_consuming_gcp_pubsub_event(
 }
 
 pub async fn manage_google_subscription(
-    authed: ApiAuthed,
-    db: &DB,
-    workspace_id: &str,
-    gcp_resource_path: &str,
-    path: &str,
-    topic_id: &str,
-    subscription_mode: SubscriptionMode,
+    _authed: ApiAuthed,
+    _db: &DB,
+    _workspace_id: &str,
+    _gcp_resource_path: &str,
+    _path: &str,
+    _topic_id: &str,
+    _subscription_mode: SubscriptionMode,
 ) -> WindmillResult<CreateUpdateConfig> {
     Ok(CreateUpdateConfig::default())
 }
