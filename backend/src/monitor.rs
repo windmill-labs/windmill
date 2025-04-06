@@ -48,7 +48,8 @@ use windmill_common::{
         load_worker_config, make_pull_query, make_suspended_pull_query, reload_custom_tags_setting,
         update_min_version, DEFAULT_TAGS_PER_WORKSPACE, DEFAULT_TAGS_WORKSPACES, INDEXER_CONFIG,
         SMTP_CONFIG, TMP_DIR, WORKER_CONFIG, WORKER_GROUP,
-    }, KillpillSender, BASE_URL, CRITICAL_ALERT_MUTE_UI_ENABLED, CRITICAL_ERROR_CHANNELS, DB, DEFAULT_HUB_BASE_URL, HUB_BASE_URL, JOB_RETENTION_SECS, METRICS_DEBUG_ENABLED, METRICS_ENABLED, MONITOR_LOGS_ON_OBJECT_STORE, OTEL_LOGS_ENABLED, OTEL_METRICS_ENABLED, OTEL_TRACING_ENABLED, SERVICE_LOG_RETENTION_SECS
+    }, KillpillSender, BASE_URL, CRITICAL_ALERT_MUTE_UI_ENABLED, CRITICAL_ERROR_CHANNELS, DB, DEFAULT_HUB_BASE_URL, HUB_BASE_URL, JOB_RETENTION_SECS, METRICS_DEBUG_ENABLED, METRICS_ENABLED, MONITOR_LOGS_ON_OBJECT_STORE, OTEL_LOGS_ENABLED, OTEL_METRICS_ENABLED, OTEL_TRACING_ENABLED, SERVICE_LOG_RETENTION_SECS,
+    utils::empty_string_as_none
 };
 use windmill_queue::{cancel_job, MiniPulledJob};
 use windmill_worker::{
@@ -200,14 +201,6 @@ pub async fn load_metrics_enabled(db: &DB) -> error::Result<()> {
         _ => (),
     };
     Ok(())
-}
-
-fn empty_string_as_none<'de, D>(deserializer: D) -> Result<Option<String>, D::Error>
-where
-    D: Deserializer<'de>,
-{
-    let option = <Option<String> as serde::Deserialize>::deserialize(deserializer)?;
-    Ok(option.filter(|s| !s.is_empty()))
 }
 
 #[derive(serde::Deserialize)]
