@@ -37,7 +37,7 @@
 	export let shortCut:
 		| { key?: string; hide?: boolean; Icon?: any; withoutModifier?: boolean }
 		| undefined = undefined
-	export let tooltip:
+	export let tooltipPopover:
 		| {
 				placement?: Placement
 				content: string
@@ -134,15 +134,15 @@
 	const {
 		elements: { trigger, content },
 		states: { open }
-	} = tooltip
+	} = tooltipPopover
 		? createTooltip({
 				positioning: {
-					placement: tooltip?.placement
+					placement: tooltipPopover?.placement
 				},
-				openDelay: tooltip?.openDelay,
-				closeDelay: tooltip?.closeDelay,
+				openDelay: tooltipPopover?.openDelay,
+				closeDelay: tooltipPopover?.closeDelay,
 				group: true,
-				portal: tooltip?.portal
+				portal: tooltipPopover?.portal
 			})
 		: {
 				elements: { trigger: undefined, content: undefined },
@@ -264,7 +264,7 @@
 				</div>
 			{/if}
 		</button>
-		{#if tooltip && $open}
+		{#if tooltipPopover && $open}
 			<div use:conditionalMelt={content} {...$content} class="z-[20000]">
 				<slot name="tooltip" />
 			</div>

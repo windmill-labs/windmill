@@ -1479,7 +1479,7 @@
 							await handleSaveFlow()
 						}}
 						dropdownItems={!newFlow ? dropdownItems : undefined}
-						tooltip={{
+						tooltipPopover={{
 							placement: 'bottom-end',
 							content: 'Deploy the flow to the cloud',
 							openDelay: 0,
