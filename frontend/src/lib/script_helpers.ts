@@ -999,7 +999,7 @@ public class Main {
   }
 }
 `
-// KJQXZ
+// for related places search: ADD_NEW_LANG 
 export const INITIAL_CODE = {
 	bun: {
 		scriptInitCodeBlock: BUN_INIT_BLOCK,
@@ -1086,8 +1086,8 @@ export const INITIAL_CODE = {
 	},
 	java: {
 		script: JAVA_INIT_CODE
-	}
-	// KJQXZ
+	},
+	// for related places search: ADD_NEW_LANG 
 }
 
 export function isInitialCode(content: string): boolean {
@@ -1193,7 +1193,7 @@ export function initialCode(
 		return INITIAL_CODE.nu.script
 	} else if (language == 'java') {
 		return INITIAL_CODE.java.script
-		// KJQXZ
+		// for related places search: ADD_NEW_LANG 
 	} else if (language == 'bun' || language == 'bunnative') {
 		if (kind == 'trigger') {
 			return INITIAL_CODE.bun.trigger

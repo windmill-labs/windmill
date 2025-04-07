@@ -68,7 +68,7 @@
 					<div class="text-tertiary">Not loaded yet</div>
 				{/if}
 			</div>
-		{:else if contextElement.type === 'code'}
+		{:else if contextElement.type === 'code' || contextElement.type === 'code_piece' || contextElement.type === 'diff'}
 			<div class="max-w-96 max-h-[300px] text-xs overflow-auto">
 				<HighlightCode
 					language={contextElement.lang}

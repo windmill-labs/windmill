@@ -238,7 +238,7 @@
 		<Alert title="Not compatible with multi-tenant cloud" type="warning">
 			SQS triggers are disabled in the multi-tenant cloud.
 		</Alert>
-		<div class="py-4" />
+		<div class="py-4"></div>
 	{/if}
 	<div class="w-full h-full flex flex-col">
 		<div class="w-full pb-4 pt-6">
@@ -297,7 +297,7 @@
 								<div class="text-primary flex-wrap text-left text-md font-semibold mb-1 truncate">
 									{path}
 								</div>
-								<div class="text-secondary text-xs truncate text-left font-light" />
+								<div class="text-secondary text-xs truncate text-left font-light"></div>
 								<div class="text-secondary text-xs truncate text-left font-light">
 									runnable: {script_path}
 								</div>

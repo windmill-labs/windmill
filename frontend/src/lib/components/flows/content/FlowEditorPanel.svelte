@@ -7,7 +7,7 @@
 	import FlowFailureModule from './FlowFailureModule.svelte'
 	import FlowConstants from './FlowConstants.svelte'
 	import TriggersEditor from '../../triggers/TriggersEditor.svelte'
-	import type { FlowModule } from '$lib/gen'
+	import type { FlowModule, Flow } from '$lib/gen'
 	import { initFlowStepWarnings } from '../utils'
 	import { dfs } from '../dfs'
 	import FlowPreprocessorModule from './FlowPreprocessorModule.svelte'
@@ -18,6 +18,11 @@
 	export let enableAi = false
 	export let newFlow = false
 	export let disabledFlowInputs = false
+	export let savedFlow:
+		| (Flow & {
+				draft?: Flow | undefined
+		  })
+		| undefined = undefined
 
 	const {
 		selectedId,
@@ -137,9 +142,10 @@
 			{#each $flowStore.value.modules as flowModule, index (flowModule.id ?? index)}
 				<FlowModuleWrapper
 					{noEditor}
-					bind:flowModule
+					bind:flowModule={$flowStore.value.modules[index]}
 					previousModule={$flowStore.value.modules[index - 1]}
 					{enableAi}
+					savedModule={savedFlow?.value.modules[index]}
 				/>
 			{/each}
 		{/key}

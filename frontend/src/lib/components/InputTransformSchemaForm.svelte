@@ -77,7 +77,7 @@
 								Object.keys(args ?? {}).includes(argName) &&
 								((args[argName].type === 'static' && !args[argName].value) ||
 									(args[argName].type === 'javascript' && !args[argName].expr))
-					  )
+						)
 					: []}
 				{schema}
 			/>

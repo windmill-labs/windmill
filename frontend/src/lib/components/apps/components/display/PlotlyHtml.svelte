@@ -113,7 +113,7 @@
 					</Alert>
 				</div>
 			{/if}
-			<div on:pointerdown bind:this={divEl} />
+			<div on:pointerdown bind:this={divEl}></div>
 		</RunnableWrapper>
 	</div>
 {:else}

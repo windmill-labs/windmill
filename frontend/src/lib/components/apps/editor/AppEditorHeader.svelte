@@ -503,7 +503,7 @@
 				// custom_path requires admin so to accept update without it, we need to send as undefined when non-admin (when undefined, it will be ignored)
 				// it also means that customPath needs to be set to '' instead of undefined to unset it (when admin)
 				custom_path:
-					$userStore?.is_admin || $userStore?.is_super_admin ? customPath ?? '' : undefined
+					$userStore?.is_admin || $userStore?.is_super_admin ? (customPath ?? '') : undefined
 			}
 		})
 		savedApp = {
@@ -687,7 +687,7 @@
 							policy,
 							draft_only: true,
 							custom_path: customPath
-					  }
+						}
 					: savedApp),
 				draft: {
 					summary: $summary,
@@ -1025,7 +1025,7 @@
 					}}
 				/>
 			</div>
-			<div class="py-2" />
+			<div class="py-2"></div>
 			<Path
 				autofocus={false}
 				bind:this={path}
@@ -1036,7 +1036,7 @@
 				namePlaceholder="app"
 				kind="app"
 			/>
-			<div class="py-4" />
+			<div class="py-4"></div>
 
 			<div slot="actions">
 				<Button
@@ -1056,7 +1056,7 @@
 			<Alert title="You're not on the latest app version. " type="warning">
 				By deploying, you may overwrite changes made by other users. Press 'Deploy' to see diff.
 			</Alert>
-			<div class="py-2" />
+			<div class="py-2"></div>
 		{/if}
 		<span class="text-secondary text-sm font-bold">Summary</span>
 		<div class="w-full pt-2">
@@ -1081,7 +1081,7 @@
 				}}
 			/>
 		</div>
-		<div class="py-4" />
+		<div class="py-4"></div>
 		<span class="text-secondary text-sm font-bold">Deployment message</span>
 		<div class="w-full pt-2">
 			<!-- svelte-ignore a11y-autofocus -->
@@ -1092,7 +1092,7 @@
 				bind:value={deploymentMsg}
 			/>
 		</div>
-		<div class="py-4" />
+		<div class="py-4"></div>
 		<span class="text-secondary text-sm font-bold">Path</span>
 		<Path
 			bind:this={path}
@@ -1162,7 +1162,7 @@
 				Deploy
 			</Button>
 		</div>
-		<div class="py-2" />
+		<div class="py-2"></div>
 		{#if $appPath == ''}
 			<Alert title="Require saving" type="error">
 				Save this app once before you can publish it
@@ -1180,10 +1180,10 @@
 				</Tooltip>
 			</Alert>
 
-			<div class="mt-10" />
+			<div class="mt-10"></div>
 
 			<h2>Public URL</h2>
-			<div class="mt-4" />
+			<div class="mt-4"></div>
 
 			<div class="flex gap-2 items-center">
 				<Toggle
@@ -1218,12 +1218,12 @@
 						<Alert title="EE Only" type="warning" size="xs">
 							Custom path is an enterprise only feature.
 						</Alert>
-						<div class="mb-2" />
+						<div class="mb-2"></div>
 					{:else if !($userStore?.is_admin || $userStore?.is_super_admin)}
 						<Alert type="warning" title="Admin only" size="xs">
 							Custom path can only be set by workspace admins
 						</Alert>
-						<div class="mb-2" />
+						<div class="mb-2"></div>
 					{/if}
 					<Toggle
 						on:change={({ detail }) => {
@@ -1331,8 +1331,8 @@
 														? 'bg-red-600 !border-blue-600'
 														: 'bg-red-400'
 													: selectedJobId == id
-													? 'text-blue-600'
-													: ''
+														? 'text-blue-600'
+														: ''
 											)}
 											on:click={() => {
 												selectedJobId = id
@@ -1494,7 +1494,7 @@
 												{/if}
 											</Splitpanes>
 										{:else}
-											<div class="mt-10" />
+											<div class="mt-10"></div>
 											<FlowProgressBar {job} class="py-4" />
 											<div class="w-full mt-10 mb-20">
 												<FlowStatusViewer
@@ -1595,9 +1595,7 @@
 				<ToggleButtonGroup
 					class="h-[30px]"
 					on:selected={({ detail }) => {
-						console.log('dbg detail', detail)
 						const theme = detail === 'dark' ? true : detail === 'sun' ? false : undefined
-						console.log('dbg settheme', theme)
 						setTheme(theme)
 					}}
 					selected={$app.darkMode === undefined ? 'auto' : $app.darkMode ? 'dark' : 'sun'}
@@ -1708,10 +1706,9 @@
 			{#if hasErrors}
 				<span
 					class="animate-ping absolute inline-flex rounded-full bg-red-600 h-2 w-2 z-50 -right-0.5 -top-0.5"
-				/>
-				<span
-					class=" absolute inline-flex rounded-full bg-red-600 h-2 w-2 z-50 -right-0.5 -top-0.5"
-				/>
+				></span>
+				<span class=" absolute inline-flex rounded-full bg-red-600 h-2 w-2 z-50 -right-0.5 -top-0.5"
+				></span>
 			{/if}
 			<Button
 				on:click={() => {
@@ -1729,7 +1726,7 @@
 					<Bug size={14} />
 					<div>Debug runs</div>
 					<div class="text-2xs text-tertiary"
-						>({$jobs?.length > 99 ? '99+' : $jobs?.length ?? 0})</div
+						>({$jobs?.length > 99 ? '99+' : ($jobs?.length ?? 0)})</div
 					>
 					{#if hasErrors}
 						<Button
@@ -1769,7 +1766,7 @@
 								window.open(`/apps/add?template=${appPath}`)
 							}
 						}
-				  ]
+					]
 				: undefined}
 		>
 			Deploy

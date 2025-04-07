@@ -29,12 +29,16 @@
 	import { isInitialCode } from '$lib/script_helpers'
 	import { createLongHash, langToExt } from '$lib/editorUtils'
 	import { scriptLangToEditorLang } from '$lib/scripts'
+	import { diffLines } from 'diff'
 
 	export let lang: ScriptLang | 'bunnative'
 	export let code: string
 	export let error: string | undefined
 	export let args: Record<string, any>
 	export let path: string | undefined
+	export let lastSavedCode: string | undefined = undefined
+	export let lastDeployedCode: string | undefined = undefined
+	export let diffMode: boolean = false
 
 	$: contextCodePath = path
 		? (path.split('/').pop() ?? 'script') + '.' + langToExt(scriptLangToEditorLang(lang))
@@ -92,7 +96,9 @@
 		db: { schema: DBSchema; resource: string } | undefined,
 		providerModel: AIProviderModel | undefined,
 		dbSchemas: DBSchemas,
-		dbResources: ListResourceResponse
+		dbResources: ListResourceResponse,
+		lastSavedCode: string | undefined,
+		lastDeployedCode: string | undefined
 	) {
 		if (!contextCodePath) {
 			return
@@ -116,6 +122,26 @@
 						...(loadedSchema ? { schema: loadedSchema } : {})
 					})
 				}
+			}
+
+			if (lastSavedCode && lastSavedCode !== code) {
+				newAvailableContext.push({
+					type: 'diff',
+					title: 'diff_with_last_saved_draft',
+					content: lastSavedCode ?? '',
+					diff: diffLines(lastSavedCode ?? '', code),
+					lang
+				})
+			}
+
+			if (lastDeployedCode && lastDeployedCode !== code) {
+				newAvailableContext.push({
+					type: 'diff',
+					title: 'diff_with_last_deployed_version',
+					content: lastDeployedCode ?? '',
+					diff: diffLines(lastDeployedCode ?? '', code),
+					lang
+				})
 			}
 
 			if (error) {
@@ -167,7 +193,11 @@
 			}
 
 			selectedContext = selectedContext
-				.map((c) => availableContext.find((ac) => ac.type === c.type && ac.title === c.title))
+				.map((c) =>
+					c.type === 'code_piece' && code.includes(c.content)
+						? c
+						: availableContext.find((ac) => ac.type === c.type && ac.title === c.title)
+				)
 				.filter((c) => c !== undefined) as ContextElement[]
 		} catch (err) {
 			console.error('Could not update available context', err)
@@ -183,7 +213,7 @@
 							type: 'db',
 							title: c.title,
 							schema: dbSchemas[c.title]
-					  }
+						}
 					: c
 			) as ContextElement[]
 		}))
@@ -199,7 +229,9 @@
 		db,
 		$copilotSessionModel,
 		$dbSchemas,
-		dbResources
+		dbResources,
+		lastSavedCode,
+		lastDeployedCode
 	)
 
 	let instructions = ''
@@ -208,6 +240,7 @@
 
 	const dispatch = createEventDispatcher<{
 		applyCode: { code: string }
+		showDiffMode: null
 	}>()
 
 	setContext<AIChatContext>('AIChatContext', {
@@ -243,11 +276,25 @@
 
 	$: displayMessages = updateDisplayMessages($dbSchemas)
 
-	async function sendRequest() {
+	async function sendRequest(options: { removeDiff?: boolean; addBackCode?: boolean } = {}) {
 		if (!instructions.trim()) {
 			return
 		}
 		try {
+			// Remove code pieces from the context to not include them on the next request
+			const oldSelectedContext = selectedContext
+			selectedContext = selectedContext.filter((c) => c.type !== 'code_piece')
+			if (options.removeDiff) {
+				selectedContext = selectedContext.filter((c) => c.type !== 'diff')
+			}
+			if (options.addBackCode) {
+				const codeContext = availableContext.find(
+					(c) => c.type === 'code' && c.title === contextCodePath
+				)
+				if (codeContext) {
+					selectedContext = [...selectedContext, codeContext]
+				}
+			}
 			loading.set(true)
 			aiChatDisplay?.enableAutomaticScroll()
 			abortController = new AbortController()
@@ -257,12 +304,12 @@
 				{
 					role: 'user',
 					content: instructions,
-					contextElements: selectedContext
+					contextElements: oldSelectedContext
 				}
 			]
 			const oldInstructions = instructions
 			instructions = ''
-			const userMessage = await prepareUserMessage(oldInstructions, lang, selectedContext)
+			const userMessage = await prepareUserMessage(oldInstructions, lang, oldSelectedContext)
 
 			messages.push({ role: 'user', content: userMessage })
 			await saveChat()
@@ -272,7 +319,7 @@
 				messages,
 				abortController,
 				lang,
-				selectedContext.filter((c) => c.type === 'db').length > 0,
+				oldSelectedContext.filter((c) => c.type === 'db').length > 0,
 				(token) => currentReply.update((prev) => prev + token)
 			)
 
@@ -282,7 +329,7 @@
 				{
 					role: 'assistant',
 					content: $currentReply,
-					contextElements: selectedContext.filter((c) => c.type === 'code')
+					contextElements: oldSelectedContext.filter((c) => c.type === 'code')
 				}
 			]
 			currentReply.set('')
@@ -346,6 +393,27 @@
 		}
 	}
 
+	export function addSelectedLinesToContext(lines: string, startLine: number, endLine: number) {
+		if (
+			selectedContext.find(
+				(c) => c.type === 'code_piece' && c.title === `L${startLine}-L${endLine}`
+			)
+		) {
+			return
+		}
+		selectedContext = [
+			...selectedContext,
+			{
+				type: 'code_piece',
+				title: `L${startLine}-L${endLine}`,
+				startLine,
+				endLine,
+				content: lines,
+				lang
+			}
+		]
+	}
+
 	export function fix() {
 		if (!contextCodePath) {
 			return
@@ -362,6 +430,47 @@
 		}
 
 		sendRequest()
+	}
+
+	export function askAi(
+		prompt: string,
+		options: { withCode?: boolean; withDiff?: boolean } = {
+			withCode: true,
+			withDiff: false
+		}
+	) {
+		instructions = prompt
+		const codeContext = availableContext.find(
+			(c) => c.type === 'code' && c.title === contextCodePath
+		)
+		if (!codeContext) {
+			return
+		}
+		selectedContext = [
+			...(options.withCode === false ? [] : [codeContext]),
+			...(options.withDiff
+				? [
+						{
+							type: 'diff' as const,
+							title: 'diff_with_last_deployed_version',
+							content: lastDeployedCode ?? '',
+							diff: diffLines(lastDeployedCode ?? '', code),
+							lang
+						}
+					]
+				: [])
+		]
+		sendRequest({
+			removeDiff: options.withDiff,
+			addBackCode: options.withCode === false
+		})
+		if (options.withDiff) {
+			dispatch('showDiffMode')
+		}
+	}
+
+	export function focusTextArea() {
+		aiChatDisplay?.focusInput()
 	}
 
 	interface ChatSchema extends IDBSchema {
@@ -392,10 +501,13 @@
 
 			const chats = await indexDB.getAll('chats')
 			console.log('Retrieved chats')
-			savedChats = chats.reduce((acc, chat) => {
-				acc[chat.id] = chat
-				return acc
-			}, {} as typeof savedChats)
+			savedChats = chats.reduce(
+				(acc, chat) => {
+					acc[chat.id] = chat
+					return acc
+				},
+				{} as typeof savedChats
+			)
 		} catch (err) {
 			console.error('Could not open chat history database', err)
 		}
@@ -424,14 +536,29 @@
 					content: $currentReply,
 					contextElements: selectedContext.filter((c) => c.type === 'code')
 				}
-		  ]
+			]
 		: displayMessages}
 	bind:instructions
-	on:sendRequest={sendRequest}
+	on:sendRequest={() => sendRequest()}
 	on:cancel={cancel}
 	on:saveAndClear={saveAndClear}
 	on:deletePastChat={(e) => deletePastChat(e.detail.id)}
 	on:loadPastChat={(e) => loadPastChat(e.detail.id)}
+	on:analyzeChanges={() => {
+		askAi(
+			'Based on the changes I made to the code, look for potential issues and recommend better solutions',
+			{ withDiff: true }
+		)
+	}}
+	on:explainChanges={() =>
+		askAi('Explain the changes I made to the code from the last diff', {
+			withCode: false,
+			withDiff: true
+		})}
+	on:suggestImprovements={() =>
+		askAi('Look for potential issues and recommend better solutions in the actual code')}
+	hasDiff={!!lastDeployedCode && lastDeployedCode !== code}
+	{diffMode}
 >
 	<slot name="header-left" slot="header-left" />
 	<slot name="header-right" slot="header-right" />

@@ -40,7 +40,6 @@
 		CheckCircle,
 		Code,
 		CornerDownLeft,
-		DiffIcon,
 		Pen,
 		Plus,
 		Rocket,
@@ -81,7 +80,6 @@
 	import CaptureTable from './triggers/CaptureTable.svelte'
 	import type { SavedAndModifiedValue } from './common/confirmationModal/unsavedTypes'
 	import type { ScriptBuilderFunctionExports } from './scriptBuilder'
-
 	export let script: NewScript
 	export let fullyLoaded: boolean = true
 	export let initialPath: string = ''
@@ -669,7 +667,11 @@
 		loadingDraft = false
 	}
 
-	function computeDropdownItems(initialPath: string) {
+	function computeDropdownItems(
+		initialPath: string,
+		savedScript: NewScriptWithDraft | undefined,
+		diffDrawer: DiffDrawer | undefined
+	) {
 		let dropdownItems: { label: string; onClick: () => void }[] =
 			initialPath != '' && customUi?.topBar?.extraDeployOptions != false
 				? [
@@ -685,6 +687,27 @@
 								window.open(`/scripts/add?template=${initialPath}`)
 							}
 						},
+						...(customUi?.topBar?.diff !== false && savedScript && diffDrawer
+							? [
+									{
+										label: 'Show diff',
+										onClick: async () => {
+											if (!savedScript) {
+												return
+											}
+											await syncWithDeployed()
+
+											diffDrawer?.openDrawer()
+											diffDrawer?.setDiff({
+												mode: 'normal',
+												deployed: deployedValue ?? savedScript,
+												draft: savedScript['draft'],
+												current: script
+											})
+										}
+									}
+								]
+							: []),
 						...(!script.draft_only
 							? [
 									{
@@ -693,9 +716,9 @@
 											dispatch('seeDetails', initialPath)
 										}
 									}
-							  ]
+								]
 							: [])
-				  ]
+					]
 				: []
 
 		return dropdownItems.length > 0 ? dropdownItems : undefined
@@ -1526,33 +1549,6 @@
 				{/if}
 
 				<div class="flex flex-row gap-x-1 lg:gap-x-2">
-					{#if customUi?.topBar?.diff != false}
-						<Button
-							color="light"
-							variant="border"
-							size="xs"
-							on:click={async () => {
-								if (!savedScript) {
-									return
-								}
-								await syncWithDeployed()
-
-								diffDrawer?.openDrawer()
-								diffDrawer?.setDiff({
-									mode: 'normal',
-									deployed: deployedValue ?? savedScript,
-									draft: savedScript['draft'],
-									current: script
-								})
-							}}
-							disabled={!savedScript || !diffDrawer}
-						>
-							<div class="flex flex-row gap-2 items-center">
-								<DiffIcon size={14} />
-								<span class="hidden lg:flex"> Diff </span>
-							</div>
-						</Button>
-					{/if}
 					{#if customUi?.topBar?.settings != false}
 						<Button
 							color="light"
@@ -1586,7 +1582,7 @@
 							disabled={!fullyLoaded}
 							startIcon={{ icon: Save }}
 							on:click={() => handleEditScript(false)}
-							dropdownItems={computeDropdownItems(initialPath)}
+							dropdownItems={computeDropdownItems(initialPath, savedScript, diffDrawer)}
 						>
 							Deploy
 						</Button>
@@ -1643,6 +1639,8 @@
 			kind={script.kind}
 			{template}
 			tag={script.tag}
+			lastSavedCode={savedScript?.draft?.content}
+			lastDeployedCode={savedScript?.draft_only ? undefined : savedScript?.content}
 			bind:args
 			bind:hasPreprocessor
 			bind:captureTable

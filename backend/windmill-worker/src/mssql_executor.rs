@@ -20,6 +20,8 @@ use crate::handle_child::run_future_with_polling_update_job_poller;
 use crate::sanitized_sql_params::sanitize_and_interpolate_unsafe_sql_args;
 use crate::AuthedClient;
 
+use serde::Deserializer;
+
 #[derive(Deserialize)]
 struct MssqlDatabase {
     host: String,
@@ -28,7 +30,17 @@ struct MssqlDatabase {
     port: Option<u16>,
     dbname: String,
     instance_name: Option<String>,
-    aad_token: Option<serde_json::Value>,
+    #[serde(default, deserialize_with = "deserialize_aad_token")]
+    aad_token: Option<AadToken>,
+    trust_cert: Option<bool>,
+    #[serde(deserialize_with = "empty_string_as_none")]
+    ca_cert: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct AadToken {
+    #[serde(default, deserialize_with = "empty_string_as_none")]
+    token: Option<String>,
 }
 
 lazy_static::lazy_static! {
@@ -44,6 +56,7 @@ pub async fn do_mssql(
     canceled_by: &mut Option<CanceledBy>,
     worker_name: &str,
     occupancy_metrics: &mut OccupancyMetrics,
+    job_dir: &str,
 ) -> error::Result<Box<RawValue>> {
     let mssql_args = build_args_values(job, client, db).await?;
 
@@ -96,7 +109,7 @@ pub async fn do_mssql(
 
     // Handle authentication based on available credentials
     if let Some(token_value) = &database.aad_token {
-        if let Some(token) = token_value.get("token").and_then(|t| t.as_str()) {
+        if let Some(token) = &token_value.token {
             config.authentication(AuthMethod::aad_token(token));
         } else {
             return Err(Error::BadRequest(
@@ -110,7 +123,23 @@ pub async fn do_mssql(
             "Neither AAD token nor username/password credentials are set".to_string(),
         ));
     }
-    config.trust_cert(); // on production, it is not a good idea to do this
+
+    // Handle certificate trust configuration
+    if database.trust_cert.unwrap_or(true) {
+        // If trust_cert is true, ignore ca_cert and trust any certificate
+        config.trust_cert();
+        tracing::info!("MSSQL: disabling certificate validation");
+    } else if let Some(ca_cert) = &database.ca_cert {
+        // Only use ca_cert if trust_cert is false
+        let cert_path = format!("{}/ca_cert.pem", job_dir);
+
+        std::fs::write(&cert_path, ca_cert)
+            .map_err(|e| Error::ExecutionErr(format!("Failed to write CA certificate: {}", e)))?;
+
+        // Use the CA certificate for trust
+        config.trust_cert_ca(cert_path);
+        tracing::info!("MSSQL: using provided CA certificate for trust");
+    }
 
     let tcp = if use_instance_name {
         TcpStream::connect_named(&config).await.map_err(to_anyhow)? // named instance
@@ -347,5 +376,25 @@ fn sql_to_json_value(val: ColumnData) -> Result<Value, Error> {
             DateTime::<Utc>::from_sql_owned(ColumnData::DateTimeOffset(x)).map_err(to_anyhow)?,
             |x| Ok(Value::String(x.to_string())),
         ),
+    }
+}
+
+fn empty_string_as_none<'de, D>(deserializer: D) -> Result<Option<String>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let option = <Option<String> as serde::Deserialize>::deserialize(deserializer)?;
+    Ok(option.filter(|s| !s.is_empty()))
+}
+
+fn deserialize_aad_token<'de, D>(deserializer: D) -> Result<Option<AadToken>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let result = AadToken::deserialize(deserializer);
+
+    match result {
+        Ok(token) if token.token.is_some() => Ok(Some(token)),
+        _ => Ok(None),
     }
 }

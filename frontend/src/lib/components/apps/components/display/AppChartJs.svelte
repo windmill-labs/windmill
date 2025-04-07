@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { Chart } from 'svelte-chartjs'
+	import { Chart } from '$lib/components/chartjs-wrappers/chartJs'
 	import { Chart as ChartJS, registerables, type ChartOptions } from 'chart.js'
 	import RunnableWrapper from '../helpers/RunnableWrapper.svelte'
 	import type { AppInput } from '../../inputType'

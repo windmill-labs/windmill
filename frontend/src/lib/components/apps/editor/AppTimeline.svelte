@@ -111,12 +111,12 @@
 		<div class="flex gap-4 items-center">
 			<div class="flex gap-2 items-center text-xs">
 				<div>Waiting for executor</div>
-				<div class="h-4 w-4 bg-gray-300 dark:bg-gray-600 rounded" />
+				<div class="h-4 w-4 bg-gray-300 dark:bg-gray-600 rounded"></div>
 			</div>
 
 			<div class="flex gap-2 items-center text-xs">
 				<div>Execution</div>
-				<div class="h-4 w-4 bg-blue-500/90 rounded" />
+				<div class="h-4 w-4 bg-blue-500/90 rounded"></div>
 			</div>
 		</div>
 	</div>

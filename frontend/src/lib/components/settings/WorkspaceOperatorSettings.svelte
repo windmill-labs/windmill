@@ -101,7 +101,7 @@
 		</div>
 
 		<div class="flex justify-end mb-2">
-			<div class="flex justify-end" />
+			<div class="flex justify-end"></div>
 		</div>
 
 		<div class="flex flex-col">

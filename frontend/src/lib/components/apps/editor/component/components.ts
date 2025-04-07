@@ -963,6 +963,12 @@ export const components = {
 					value: false,
 					tooltip:
 						'Hide the details section: the object keys, the clipboard button and the maximise button'
+				},
+				forceJson: {
+					type: 'static',
+					fieldType: 'boolean',
+					value: false,
+					tooltip: 'Force the result to be displayed as JSON'
 				}
 			}
 		}
@@ -1644,9 +1650,9 @@ Hello \${ctx.username}
 				type: 'templatev2',
 				fieldType: 'template',
 				eval: `# This is a header
-## This is a subheader				
+## This is a subheader
 This is a paragraph.
-				
+
 * This is a list
 * With two items`,
 				connections: [] as InputConnectionEval[]
@@ -2680,7 +2686,7 @@ This is a paragraph.
 					type: 'static',
 					value: 'yyyy-MM-dd',
 					fieldType: 'text',
-					markdownTooltip: `### Output format				
+					markdownTooltip: `### Output format
 See date-fns format for more information. By default, it is 'yyyy-MM-dd'
 
 | Format      | Result | Description |
@@ -2737,7 +2743,7 @@ See date-fns format for more information. By default, it is 'yyyy-MM-dd'
 					fieldType: 'text',
 					documentationLink: 'https://date-fns.org/v2.30.0/docs/format',
 					placeholder: 'dd.MM.yyyy HH:mm',
-					markdownTooltip: `### Output format				
+					markdownTooltip: `### Output format
 See date-fns format for more information. By default, it is 'dd.MM.yyyy HH:mm'
 
 | Format      | Result | Description |
@@ -4153,6 +4159,12 @@ See date-fns format for more information. By default, it is 'dd.MM.yyyy HH:mm'
 					value: false,
 					tooltip:
 						'Hide the details section: the object keys, the clipboard button and the maximise button'
+				},
+				forceJson: {
+					type: 'static',
+					fieldType: 'boolean',
+					value: false,
+					tooltip: 'Force the result to be displayed as JSON'
 				}
 			}
 		}

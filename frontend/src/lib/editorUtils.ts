@@ -12,7 +12,6 @@ export function editorConfig(
 		automaticLayout,
 		readOnly: false,
 		fixedOverflowWidgets,
-		lineNumbers: 'on' as const,
 		lineDecorationsWidth: 10,
 		lineNumbersMinChars: 3,
 		scrollbar: { alwaysConsumeMouseWheel: false },
@@ -90,7 +89,7 @@ export function langToExt(lang: string): string {
 			return 'nu'
 		case 'java':
 			return 'java'
-		// KJQXZ 
+		// for related places search: ADD_NEW_LANG 
 		default:
 			return 'unknown'
 	}

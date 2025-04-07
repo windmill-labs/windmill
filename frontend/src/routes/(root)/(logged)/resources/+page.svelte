@@ -492,7 +492,7 @@
 					use:autosize
 					autocomplete="off"
 					bind:value={editResourceType.description}
-				/></label
+				></textarea></label
 			>
 			<div>
 				{#if editResourceType.formatExtension}
@@ -569,7 +569,7 @@
 			</label>
 			<label>
 				<div class="mb-1 font-semibold text-secondary">Description</div>
-				<textarea use:autosize autocomplete="off" bind:value={newResourceType.description} /></label
+				<textarea use:autosize autocomplete="off" bind:value={newResourceType.description}></textarea></label
 			>
 			<div>
 				<div class="flex justify-between w-full items-center">
@@ -709,7 +709,7 @@
 				resourceType
 			/>
 		{:else}
-			<div class="h-4" />
+			<div class="h-4"></div>
 		{/if}
 
 		<div class="overflow-x-auto pb-40 mt-4">
