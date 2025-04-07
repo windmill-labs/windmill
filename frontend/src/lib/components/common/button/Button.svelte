@@ -149,7 +149,7 @@
 				states: { open: undefined },
 				options: { openDelay: undefined }
 			}
-	$: tooltipPopover && openDelay && ($openDelay = tooltipPopover?.openDelay) //This option is reactive
+	$: tooltipPopover && openDelay !== undefined && ($openDelay = tooltipPopover?.openDelay) //This option is reactive
 
 	$: $open !== undefined && dispatch('tooltipOpen', $open)
 </script>
