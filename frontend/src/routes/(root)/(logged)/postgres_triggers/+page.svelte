@@ -226,7 +226,7 @@
 	f={(x) => (x.summary ?? '') + ' ' + x.path + ' (' + x.script_path + ')'}
 />
 
-<CenteredPage>
+<CenteredPage useScroll>
 	<PageHeader
 		title="Postgres triggers"
 		tooltip="Windmill enables real-time responsiveness by listening to specific database transactions—such as inserts, updates, and deletes—and automatically triggering scripts or workflows in response."

@@ -609,7 +609,7 @@
 	<p>Page not available for operators</p>
 </div>
 {:else}
-<CenteredPage>
+<CenteredPage useScroll>
 	<PageHeader
 		title="Resources"
 		tooltip="Save and permission rich objects (JSON) including credentials obtained through OAuth."

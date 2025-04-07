@@ -234,7 +234,7 @@
 		<p>Page not available for operators</p>
 	</div>
 {:else}
-	<CenteredPage>
+	<CenteredPage useScroll>
 		<PageHeader
 			title="Kafka triggers"
 			tooltip="Windmill can consume kafka events and trigger scripts or flows based on them."
