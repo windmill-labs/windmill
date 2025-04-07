@@ -1,16 +1,11 @@
 <script lang="ts">
-	import { workspaceStore, type DBSchema } from '$lib/stores'
+	import { type DBSchema } from '$lib/stores'
 	import { Table2 } from 'lucide-svelte'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import { ClearableInput } from './common'
-	import AppDbExplorer from './apps/components/display/dbtable/AppDbExplorer.svelte'
 	import { sendUserToast } from '$lib/toast'
-	import {
-		loadTableMetaData,
-		type DbType,
-		type TableMetadata
-	} from './apps/components/display/dbtable/utils'
-	import { deepEqual } from 'fast-equals'
+	import { type DbType } from './apps/components/display/dbtable/utils'
+	import DBTable from './DBTable.svelte'
 
 	type Props = {
 		dbSchema: DBSchema
@@ -52,22 +47,6 @@
 		l.sort()
 		return l
 	})
-
-	let tableMetadata: TableMetadata | undefined = $state()
-	$effect(() => {
-		const currSelected = { ...selected }
-		tableMetadata = undefined
-		loadTableMetaData(
-			'$res:' + resourcePath,
-			$workspaceStore,
-			selected.tableKey,
-			resourceType
-		).then((tm) => {
-			if (deepEqual(currSelected, selected)) {
-				tableMetadata = tm
-			}
-		})
-	})
 </script>
 
 <Splitpanes>
@@ -77,7 +56,6 @@
 				value={selected.schemaKey}
 				onchange={(e) => {
 					selected = { schemaKey: e.currentTarget.value }
-					console.log(e.currentTarget.value)
 				}}
 			>
 				{#each schemaKeys as schemaKey}
@@ -105,44 +83,10 @@
 	</Pane>
 	<Pane class="p-3 pt-1">
 		{#key (selected.schemaKey, selected.tableKey)}
-			<AppDbExplorer
-				render
-				id=""
-				configuration={{
-					type: {
-						type: 'oneOf',
-						selected: resourceType,
-						configuration: {
-							[resourceType]: {
-								resource: {
-									type: 'static',
-									value: '$res:' + resourcePath
-								},
-								table: {
-									type: 'static',
-									selectOptions: tableKeys,
-									loading: !!selected.tableKey && !tableMetadata,
-									value: selected.tableKey
-								}
-							}
-						}
-					},
-					columnDefs: { value: tableMetadata, type: 'static', loading: false },
-					rowIdCol: { type: 'static', value: '' },
-					whereClause: { type: 'static', value: '' },
-					flex: { type: 'static', value: true },
-					allEditable: { type: 'static', value: true },
-					allowDelete: { type: 'static', value: true },
-					multipleSelectable: { type: 'static', value: false },
-					rowMultiselectWithClick: { type: 'static', value: true },
-					selectFirstRowByDefault: { type: 'static', value: true },
-					extraConfig: { type: 'static', value: {} },
-					hideInsert: { type: 'static', value: false },
-					hideSearch: { type: 'static', value: false },
-					wrapActions: { type: 'static', value: false },
-					footer: { type: 'static', value: true },
-					customActionsHeader: { type: 'static' }
-				}}
+			<DBTable
+				{resourcePath}
+				{resourceType}
+				tableKey={`${selected.schemaKey}.${selected.tableKey}`}
 			/>
 		{/key}
 	</Pane>
