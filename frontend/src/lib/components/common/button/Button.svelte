@@ -40,7 +40,6 @@
 	export let tooltipPopover:
 		| {
 				placement?: Placement
-
 				openDelay?: number
 				closeDelay?: number
 				portal?: string
