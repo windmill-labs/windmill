@@ -3,19 +3,26 @@
 	import { Save, CornerDownLeft } from 'lucide-svelte'
 	import { createEventDispatcher } from 'svelte'
 
-	export let loading = false
-	export let loadingSave = false
-	export let newFlow = false
-	export let dropdownItems: Array<{
-		label: string
-		onClick: () => void
-	}> = []
+	const {
+		loading = false,
+		loadingSave = false,
+		newFlow = false,
+		dropdownItems = []
+	} = $props<{
+		loading?: boolean
+		loadingSave?: boolean
+		newFlow?: boolean
+		dropdownItems?: Array<{
+			label: string
+			onClick: () => void
+		}>
+	}>()
 
 	const dispatch = createEventDispatcher()
 
-	let msgInput: HTMLInputElement | undefined = undefined
-	let hideDropdown = false
-	let deploymentMsg = ''
+	let msgInput: HTMLInputElement | undefined = $state(undefined)
+	let hideDropdown = $state(false)
+	let deploymentMsg = $state('')
 </script>
 
 <Button
@@ -52,7 +59,7 @@
 				type="text"
 				placeholder="Deployment message"
 				bind:value={deploymentMsg}
-				on:keydown={async (e) => {
+				onkeydown={async (e) => {
 					if (e.key === 'Enter') {
 						dispatch('save', deploymentMsg)
 					}
