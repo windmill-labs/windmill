@@ -8,10 +8,11 @@
 	import ResourceEditorDrawer from './ResourceEditorDrawer.svelte'
 
 	import { Button } from './common'
-	import DBSchemaExplorer from './DBSchemaExplorer.svelte'
+	import DBExplorerDrawerButton from './DBExplorerDrawerButton.svelte'
 	import DarkModeObserver from './DarkModeObserver.svelte'
 	import { Pen, Plus, RotateCw } from 'lucide-svelte'
 	import { sendUserToast } from '$lib/toast'
+	import { isDbType } from './apps/components/display/dbtable/utils'
 
 	const dispatch = createEventDispatcher()
 
@@ -41,7 +42,7 @@
 					value: value ?? initialValue,
 					label: value ?? initialValue,
 					type: valueType
-			  }
+				}
 			: undefined
 
 	$: if (value === undefined && initialValue) {
@@ -219,7 +220,7 @@
 			iconOnly
 		/>
 	</div>
-	{#if showSchemaExplorer}
-		<DBSchemaExplorer {resourceType} resourcePath={value} />
+	{#if showSchemaExplorer && isDbType(resourceType) && value}
+		<DBExplorerDrawerButton {resourceType} resourcePath={value} />
 	{/if}
 </div>

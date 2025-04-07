@@ -5,7 +5,6 @@
 	import {
 		type DbType,
 		type TableMetadata,
-		getPrimaryKeys,
 		loadTableMetaData
 	} from './apps/components/display/dbtable/utils'
 	import { transformColumnDefs } from './apps/components/display/table/utils'
@@ -36,14 +35,10 @@
 	let datasource: IDatasource = {
 		rowCount: 0,
 		getRows: async function (params) {
-			let lastRow = -1
-			if (datasource?.rowCount && datasource.rowCount <= params.endRow) {
-				lastRow = datasource.rowCount
-			}
+			if (!$workspaceStore) return params.failCallback()
 
-			if (!$workspaceStore) {
-				return params.failCallback()
-			}
+			let lastRow =
+				datasource?.rowCount && datasource.rowCount <= params.endRow ? datasource.rowCount : -1
 
 			const currentParams = {
 				offset: params.startRow,
@@ -63,7 +58,7 @@
 				workspace: $workspaceStore,
 				requestBody: {
 					args: { database: '$res:' + resourcePath, ...currentParams },
-					language: resourceType as ScriptLang, // TODO: Remove after updating DbType
+					language: resourceType as ScriptLang,
 					content: query
 				}
 			})) as unknown[]
@@ -71,89 +66,35 @@
 			if (!items || !Array.isArray(items)) {
 				return params.failCallback()
 			}
-			let processedData = items.map((item: any) => {
-				let primaryKeys = getPrimaryKeys(tableMetadata)
-				let o = {}
-				primaryKeys.forEach((pk) => (o[pk] = item[pk]))
-				item['__index'] = JSON.stringify(o)
-				return item
-			})
-
-			if (items.length < params.endRow - params.startRow) {
-				lastRow = params.startRow + items.length
-			}
-
-			params.successCallback(processedData, lastRow)
+			if (items.length < params.endRow - params.startRow) lastRow = params.startRow + items.length
+			params.successCallback(items, lastRow)
 		}
 	}
 
 	$effect(() => eGui && tableMetadata && mountGrid())
 	function mountGrid() {
 		if (eGui) {
-			createGrid(
-				eGui,
-				{
-					rowModelType: 'infinite',
-					datasource,
-					columnDefs: transformColumnDefs({
-						columnDefs: tableMetadata ?? []
-					}),
-					pagination: false,
-					defaultColDef: {
-						// flex: resolvedConfig.flex ? 1 : 0,
-						// editable: resolvedConfig?.allEditable,
-						// onCellValueChanged
-					},
-					infiniteInitialRowCount: 100,
-					cacheBlockSize: 100,
-					cacheOverflowSize: 10,
-					maxBlocksInCache: 20,
-					// ...(resolvedConfig?.wrapActions
-					// 	? { rowHeight: Math.max(44, actions.length * 48) }
-					// 	: { rowHeight: 44 }),
-					suppressColumnMoveAnimation: true,
-					suppressDragLeaveHidesColumns: true,
-					// rowSelection: resolvedConfig?.multipleSelectable ? 'multiple' : 'single',
-					// rowMultiSelectWithClick: resolvedConfig?.multipleSelectable
-					// 	? resolvedConfig.rowMultiselectWithClick
-					// 	: false,
-					// initialState: state,
-					// suppressRowDeselection: true,
-					// enableCellTextSelection: true,
-					// ...(resolvedConfig?.extraConfig ?? {}),
-					// onViewportChanged: (e) => {
-					// 	firstRow = e.firstRow
-					// 	lastRow = e.lastRow
-					// },
-					// onStateUpdated: (e) => {
-					// 	state = e?.api?.getState()
-					// 	resolvedConfig?.extraConfig?.['onStateUpdated']?.(e)
-					// },
-					onGridReady: (e) => {
-						// outputs?.ready.set(true)
-						// $componentControl[id] = {
-						// 	agGrid: { api: e.api, columnApi: e.columnApi },
-						// 	setSelectedIndex: (index) => {
-						// 		e.api.getRowNode(index.toString())?.setSelected(true)
-						// 	},
-						// 	recompute: () => {
-						// 		dispatch('recompute')
-						// 	}
-						// }
-						api = e.api
-						// resolvedConfig?.extraConfig?.['onGridReady']?.(e)
-					}
-					// onSelectionChanged: (e) => {
-					// 	onSelectionChanged(e.api)
-					// 	resolvedConfig?.extraConfig?.['onSelectionChanged']?.(e)
-					// },
-					// getRowId: (data) =>
-					// 	resolvedConfig?.rowIdCol && resolvedConfig?.rowIdCol != ''
-					// 		? data.data?.[resolvedConfig?.rowIdCol]
-					// 		: (data.data?.['id'] ?? (data as any).data['__index'])
+			createGrid(eGui, {
+				rowModelType: 'infinite',
+				datasource,
+				columnDefs: transformColumnDefs({
+					columnDefs: tableMetadata ?? []
+				}),
+				pagination: false,
+				defaultColDef: {
+					editable: true, // TODO: configurable
+					onCellValueChanged: (e) => {}
 				},
-				{}
-			)
+				infiniteInitialRowCount: 100,
+				cacheBlockSize: 100,
+				cacheOverflowSize: 10,
+				maxBlocksInCache: 20,
+				suppressColumnMoveAnimation: true,
+				suppressDragLeaveHidesColumns: true,
+				onGridReady: (e) => {
+					api = e.api
+				}
+			})
 		}
 	}
 

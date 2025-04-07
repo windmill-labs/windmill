@@ -62,12 +62,8 @@
 					<option value={schemaKey}>{schemaKey}</option>
 				{/each}
 			</select>
-			<ClearableInput
-				wrapperClass="mt-3"
-				bind:value={search}
-				placeholder="Search outputs..."
-			/></div
-		>
+			<ClearableInput wrapperClass="mt-3" bind:value={search} placeholder="Search table..." />
+		</div>
 		<div class="overflow-x-clip relative mt-3">
 			{#each filteredTableKeys as tableKey}
 				<button

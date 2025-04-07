@@ -566,7 +566,9 @@ export function formatGraphqlSchema(schema: IntrospectionQuery): string {
 	return printSchema(buildClientSchema(schema))
 }
 
-export type DbType = 'mysql' | 'ms_sql_server' | 'postgresql' | 'snowflake' | 'bigquery'
+export type DbType = (typeof dbTypes)[number]
+export const dbTypes = ['mysql', 'ms_sql_server', 'postgresql', 'snowflake', 'bigquery'] as const
+export const isDbType = (str?: string): str is DbType => !!str && dbTypes.includes(str as DbType)
 
 export function buildVisibleFieldList(columnDefs: ColumnDef[], dbType: DbType) {
 	// Filter out hidden columns to avoid counting the wrong number of rows
