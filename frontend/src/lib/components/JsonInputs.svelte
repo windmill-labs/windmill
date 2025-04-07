@@ -70,7 +70,13 @@
 		}}
 		bind:code={pendingJson}
 		lang="json"
-		class="h-full"
+		class="h-full json-inputs-editor"
 		{placeholder}
 	/>
 </div>
+
+<style>
+	:global(.json-inputs-editor .monaco-editor .suggest-widget) {
+		z-index: 200000 !important;
+	}
+</style>
