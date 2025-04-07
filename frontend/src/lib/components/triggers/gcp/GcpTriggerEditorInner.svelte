@@ -85,6 +85,7 @@
 			initialPath = ''
 			edit = false
 			dirtyPath = false
+			subscription_mode = 'create_update'
 		} finally {
 			drawerLoading = false
 		}
@@ -154,7 +155,7 @@
 							subscription_mode,
 							subscription_id,
 							delivery_type,
-							delivery_config,
+							delivery_config: delivery_config ? { route_path: '', ...delivery_config } : undefined,
 							base_endpoint: `${window.location.origin}${base}`
 						},
 						topic_id,
