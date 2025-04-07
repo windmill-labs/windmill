@@ -79,7 +79,6 @@
 	import { ignoredTutorials } from './tutorials/ignoredTutorials'
 	import type DiffDrawer from './DiffDrawer.svelte'
 	import FlowHistory from './flows/FlowHistory.svelte'
-	import CustomPopover from './CustomPopover.svelte'
 	import Summary from './Summary.svelte'
 	import type { FlowBuilderWhitelabelCustomUi } from './custom_ui'
 	import FlowYamlEditor from './flows/header/FlowYamlEditor.svelte'
@@ -1260,6 +1259,8 @@
 	let msgInput: HTMLInputElement | undefined = undefined
 
 	let flowPreviewButtons: FlowPreviewButtons
+
+	let hideDropdown = false
 </script>
 
 <svelte:window on:keydown={onKeyDown} />
@@ -1303,7 +1304,8 @@
 				class="justify-between flex flex-row items-center pl-2.5 pr-6 space-x-4 scrollbar-hidden overflow-x-auto max-h-12 h-full relative"
 			>
 				{#if $copilotCurrentStepStore !== undefined}
-					<div transition:fade class="absolute inset-0 bg-gray-500 bg-opacity-75 z-[900] !m-0"></div>
+					<div transition:fade class="absolute inset-0 bg-gray-500 bg-opacity-75 z-[900] !m-0"
+					></div>
 				{/if}
 				<div class="flex w-full max-w-md gap-4 items-center">
 					<Summary
@@ -1468,21 +1470,38 @@
 						Draft
 					</Button>
 
-					<CustomPopover appearTimeout={0} focusEl={msgInput}>
-						<Button
-							disabled={loading}
-							loading={loadingSave}
-							size="xs"
-							startIcon={{ icon: Save }}
-							on:click={async () => {
-								await handleSaveFlow()
-							}}
-							dropdownItems={!newFlow ? dropdownItems : undefined}
-						>
-							Deploy
-						</Button>
-						<svelte:fragment slot="overlay">
-							<div class="flex flex-row gap-2 w-80">
+					<Button
+						disabled={loading}
+						loading={loadingSave}
+						size="xs"
+						startIcon={{ icon: Save }}
+						on:click={async () => {
+							await handleSaveFlow()
+						}}
+						dropdownItems={!newFlow ? dropdownItems : undefined}
+						tooltip={{
+							placement: 'bottom-end',
+							content: 'Deploy the flow to the cloud',
+							openDelay: 0,
+							closeDelay: 0,
+							portal: 'body'
+						}}
+						on:tooltipOpen={async ({ detail }) => {
+							if (detail) {
+								// Use setTimeout to ensure DOM is updated
+								setTimeout(() => {
+									msgInput?.focus()
+								}, 0)
+								hideDropdown = true
+							} else {
+								hideDropdown = false
+							}
+						}}
+						{hideDropdown}
+					>
+						Deploy
+						<svelte:fragment slot="tooltip">
+							<div class="flex flex-row gap-2 w-80 p-4 shadow-lg rounded-md">
 								<input
 									type="text"
 									placeholder="Deployment message"
@@ -1504,7 +1523,7 @@
 								</Button>
 							</div>
 						</svelte:fragment>
-					</CustomPopover>
+					</Button>
 				</div>
 			</div>
 
