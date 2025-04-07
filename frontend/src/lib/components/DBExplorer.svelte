@@ -72,10 +72,10 @@
 			{#each filteredTableKeys as tableKey}
 				<button
 					class={'w-full text-sm font-normal flex gap-2 items-center py-2 cursor-pointer px-3 ' +
-						(selected.tableKey === tableKey ? 'bg-gray-200' : 'hover:bg-gray-100')}
+						(selected.tableKey === tableKey ? 'bg-gray-500/25' : 'hover:bg-gray-500/10')}
 					onclick={() => (selected.tableKey = tableKey)}
 				>
-					<Table2 class="text-gray-400 shrink-0" size={16} />
+					<Table2 class="text-gray-500/40 shrink-0" size={16} />
 					<p class="truncate text-ellipsis">{tableKey}</p>
 				</button>
 			{/each}
