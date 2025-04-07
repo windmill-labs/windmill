@@ -57,7 +57,7 @@
 			dirtyPath = false
 			await loadTrigger()
 		} catch (err) {
-			sendUserToast(`Could not load gcp trigger: ${err.body}`, true)
+			sendUserToast(`Could not load GCP trigger: ${err.body}`, true)
 		} finally {
 			drawerLoading = false
 		}
@@ -199,7 +199,7 @@
 							checked={enabled}
 							options={{ right: 'enable', left: 'disable' }}
 							on:change={async (e) => {
-								sendUserToast(`${e.detail ? 'enabled' : 'disabled'} gcp trigger ${initialPath}`)
+								sendUserToast(`${e.detail ? 'enabled' : 'disabled'} GCP trigger ${initialPath}`)
 							}}
 						/>
 					</div>
