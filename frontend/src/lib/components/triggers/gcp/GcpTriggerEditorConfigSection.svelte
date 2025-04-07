@@ -178,6 +178,7 @@
 				<Section
 					label="Subscription"
 					tooltip="Choose whether to create or update a Pub/Sub subscription, or link an existing one from your Google Cloud project."
+					documentationLink="http://localhost:3001/docs/core_concepts/gcp_triggers#subscription-setup"
 				>
 					<div class="flex flex-col gap-3">
 						<ToggleButtonGroup
