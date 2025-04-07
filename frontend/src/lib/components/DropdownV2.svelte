@@ -23,6 +23,8 @@
 	export let usePointerDownOutside = false
 	export let closeOnOtherDropdownOpen = true
 	export let fixedHeight = true
+	export let hidePopup = false
+	export let open = false
 
 	const {
 		elements: { menu, item, trigger },
@@ -50,7 +52,6 @@
 		}
 	})
 
-	let open = false
 	const sync = createSync(states)
 	$: sync.open(open, (v) => (open = Boolean(v)))
 
@@ -104,7 +105,7 @@
 	{/if}
 </button>
 
-{#if open}
+{#if open && !hidePopup}
 	<div use:melt={$menu} data-menu class="z-[6000]">
 		<div
 			class="bg-surface border w-56 origin-top-right rounded-md shadow-md focus:outline-none overflow-y-auto py-1 max-h-[50vh]"
