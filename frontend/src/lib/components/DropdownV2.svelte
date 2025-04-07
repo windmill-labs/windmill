@@ -16,7 +16,6 @@
 	import ResolveOpen from '$lib/components/common/menu/ResolveOpen.svelte'
 	import Button from '$lib/components/common/button/Button.svelte'
 	import { twMerge } from 'tailwind-merge'
-	import { createEventDispatcher } from 'svelte'
 
 	export let items: Item[] | (() => Item[]) | (() => Promise<Item[]>) = []
 	export let disabled = false
@@ -24,8 +23,6 @@
 	export let usePointerDownOutside = false
 	export let closeOnOtherDropdownOpen = true
 	export let fixedHeight = true
-
-	const dispatch = createEventDispatcher()
 
 	const {
 		elements: { menu, item, trigger },
@@ -36,10 +33,7 @@
 			placement
 		},
 		loop: true,
-		onOpenChange: ({ curr, next }) => {
-			if (curr !== next) {
-				dispatch('openChange', next)
-			}
+		onOpenChange: ({ next }) => {
 			if (closeOnOtherDropdownOpen) {
 				if (next) {
 					// Close previous dropdown if exists
