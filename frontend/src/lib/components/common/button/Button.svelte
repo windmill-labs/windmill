@@ -56,7 +56,6 @@
 	}
 	export let dropdownItems: MenuItem[] | (() => MenuItem[]) | undefined = undefined
 	export let hideDropdown: boolean = false
-	export let dropdownOpen: boolean = false
 
 	function computeDropdowns(menuItems: MenuItem[] | (() => MenuItem[])): Item[] {
 		const items = typeof menuItems === 'function' ? menuItems() : menuItems
@@ -150,7 +149,7 @@
 				states: { open: undefined },
 				options: { openDelay: undefined }
 			}
-	$: tooltipPopover && ($openDelay = tooltipPopover?.openDelay) //This option is reactive
+	$: tooltipPopover && openDelay && ($openDelay = tooltipPopover?.openDelay) //This option is reactive
 
 	$: $open !== undefined && dispatch('tooltipOpen', $open)
 </script>
@@ -281,7 +280,8 @@
 			class="h-auto w-fit"
 			hidePopup={hideDropdown}
 			usePointerDownOutside
-			bind:open={dropdownOpen}
+			on:open={() => dispatch('dropdownOpen', true)}
+			on:close={() => dispatch('dropdownOpen', false)}
 		>
 			<svelte:fragment slot="buttonReplacement">
 				<div

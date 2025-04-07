@@ -1,5 +1,5 @@
 <script lang="ts">
-	import Button from './common/button/Button.svelte'
+	import { Button } from '$lib/components/common'
 	import { Save, CornerDownLeft } from 'lucide-svelte'
 	import { createEventDispatcher } from 'svelte'
 
@@ -52,7 +52,7 @@
 		}
 	}}
 	{hideDropdown}
-	bind:dropdownOpen
+	on:dropdownOpen={({ detail }) => (dropdownOpen = detail)}
 >
 	Deploy
 	<svelte:fragment slot="tooltip">
