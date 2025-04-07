@@ -48,7 +48,7 @@
 		},
 		{
 			icon: GoogleCloudIcon,
-			displayName: 'GCP',
+			displayName: 'GCP Pub/Sub',
 			action: () => handleClick('gcp'),
 			disabled: !$enterpriseLicense
 		},

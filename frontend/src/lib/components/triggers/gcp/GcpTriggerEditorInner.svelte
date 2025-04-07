@@ -57,7 +57,7 @@
 			dirtyPath = false
 			await loadTrigger()
 		} catch (err) {
-			sendUserToast(`Could not load GCP trigger: ${err.body}`, true)
+			sendUserToast(`Could not load GCP Pub/Sub trigger: ${err.body}`, true)
 		} finally {
 			drawerLoading = false
 		}
@@ -109,7 +109,7 @@
 			topic_id = s.topic_id
 			can_write = canWrite(s.path, s.extra_perms, $userStore)
 		} catch (error) {
-			sendUserToast(`Could not load GCP trigger: ${error.body}`, true)
+			sendUserToast(`Could not load GCP Pub/Sub trigger: ${error.body}`, true)
 		}
 	}
 
@@ -145,7 +145,7 @@
 						is_flow
 					}
 				})
-				sendUserToast(`GCP trigger ${path} updated`)
+				sendUserToast(`GCP Pub/Sub trigger ${path} updated`)
 			} else {
 				await GcpTriggerService.createGcpTrigger({
 					workspace: $workspaceStore!,
@@ -165,7 +165,7 @@
 						is_flow
 					}
 				})
-				sendUserToast(`GCP trigger ${path} created`)
+				sendUserToast(`GCP Pub/Sub trigger ${path} created`)
 			}
 
 			if (!$usedTriggerKinds.includes('gcp')) {
@@ -185,9 +185,9 @@
 	<DrawerContent
 		title={edit
 			? can_write
-				? `Edit GCP trigger ${initialPath}`
-				: `GCP trigger ${initialPath}`
-			: 'New GCP trigger'}
+				? `Edit GCP Pub/Sub trigger ${initialPath}`
+				: `GCP Pub/Sub trigger ${initialPath}`
+			: 'New GCP Pub/Sub trigger'}
 		on:close={drawer.closeDrawer}
 	>
 		<svelte:fragment slot="actions">
@@ -199,7 +199,9 @@
 							checked={enabled}
 							options={{ right: 'enable', left: 'disable' }}
 							on:change={async (e) => {
-								sendUserToast(`${e.detail ? 'enabled' : 'disabled'} GCP trigger ${initialPath}`)
+								sendUserToast(
+									`${e.detail ? 'enabled' : 'disabled'} GCP Pub/Sub trigger ${initialPath}`
+								)
 							}}
 						/>
 					</div>
@@ -225,7 +227,7 @@
 					{#if edit}
 						Changes can take up to 30 seconds to take effect.
 					{:else}
-						New gcp triggers can take up to 30 seconds to start listening.
+						New GCP Pub/Sub can take up to 30 seconds to start listening.
 					{/if}
 				</Alert>
 			</div>

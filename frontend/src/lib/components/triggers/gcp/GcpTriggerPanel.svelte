@@ -53,7 +53,7 @@
 			$triggersCount = { ...($triggersCount ?? {}), gcp_count: gcpTriggers?.length }
 			openForm = gcpTriggers?.length === 0 || dontCloseOnLoad
 		} catch (e) {
-			console.error('impossible to load GCP triggers', e)
+			console.error('impossible to load GCP Pub/Sub triggers', e)
 		}
 	}
 </script>
@@ -67,22 +67,22 @@
 
 {#if !$enterpriseLicense}
 	<Alert title="EE Only" type="warning" size="xs">
-		GCP triggers are an enterprise only feature.
+		GCP Pub/Sub triggers are an enterprise only feature.
 	</Alert>
 {:else if isCloudHosted()}
 	<Alert title="Not compatible with multi-tenant cloud" type="warning" size="xs">
-		GCP triggers are disabled in the multi-tenant cloud.
+		GCP Pub/Sub triggers are disabled in the multi-tenant cloud.
 	</Alert>
 {:else}
 	<div class="flex flex-col gap-4">
 		<Description link="https://cloud.google.com/pubsub/docs?hl=en">
-			GCP Pub/Sub triggers allow your scripts or flows to process messages from Google Cloud Pub/Sub
-			in real time. Each trigger listens to a Pub/Sub subscription and executes a script or a flow
-			when new messages are published to the corresponding topic.
+			GCP Pub/Sub Pub/Sub triggers allow your scripts or flows to process messages from Google Cloud
+			Pub/Sub in real time. Each trigger listens to a Pub/Sub subscription and executes a script or
+			a flow when new messages are published to the corresponding topic.
 		</Description>
 
 		{#if !newItem && gcpTriggers && gcpTriggers.length > 0}
-			<Section label="GCP">
+			<Section label="GCP Pub/Sub">
 				<div class="flex flex-col gap-4">
 					<div class="flex flex-col divide-y pt-2">
 						{#each gcpTriggers as gcpTrigger (gcpTrigger.path)}

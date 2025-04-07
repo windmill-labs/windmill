@@ -90,7 +90,7 @@
 			href: `${base}/sqs_triggers`
 		},
 		{
-			label: 'GCP triggers',
+			label: 'GCP Pub/Sub triggers',
 			id: 'triggers',
 			href: `${base}/gcp_triggers`
 		},

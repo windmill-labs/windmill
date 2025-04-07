@@ -102,7 +102,7 @@
 			})
 		} catch (err) {
 			sendUserToast(
-				`Cannot ` + (enabled ? 'enable' : 'disable') + ` GCP trigger: ${err.body}`,
+				`Cannot ` + (enabled ? 'enable' : 'disable') + ` GCP Pub/Sub trigger: ${err.body}`,
 				true
 			)
 		} finally {
@@ -224,7 +224,7 @@
 
 <ConfirmationModal
 	open={Boolean(deleteGcpTriggerCallback)}
-	title="Delete associated GCP subscription"
+	title="Delete associated GCP Pub/Sub subscription"
 	confirmationText="Remove"
 	loading={isDeleting}
 	on:canceled={() => {
@@ -273,29 +273,35 @@
 />
 
 <CenteredPage>
-	<PageHeader title="GCP triggers" tooltip="GCP trigger">
+	<PageHeader title="GCP Pub/Sub triggers" tooltip="GCP Pub/Sub trigger">
 		<Button size="md" startIcon={{ icon: Plus }} on:click={() => gcpTriggerEditor.openNew(false)}>
-			New&nbsp;GCP trigger
+			New&nbsp;GCP Pub/Sub trigger
 		</Button>
 	</PageHeader>
 
 	{#if isCloudHosted()}
 		<Alert title="Not compatible with multi-tenant cloud" type="warning">
-			GCP triggers are disabled in the multi-tenant cloud.
+			GCP Pub/Sub triggers are disabled in the multi-tenant cloud.
 		</Alert>
 	{/if}
 	<div class="w-full h-full flex flex-col">
 		<div class="w-full pb-4 pt-6">
 			<input
 				type="text"
-				placeholder="Search GCP triggers"
+				placeholder="Search GCP Pub/Sub triggers"
 				bind:value={filter}
 				class="search-item"
 			/>
 			<div class="flex flex-row items-center gap-2 mt-6">
 				<div class="text-sm shrink-0"> Filter by path of </div>
 				<ToggleButtonGroup bind:selected={selectedFilterKind} let:item>
-					<ToggleButton small value="trigger" label="GCP trigger" icon={GoogleCloudIcon} {item} />
+					<ToggleButton
+						small
+						value="trigger"
+						label="GCP Pub/Sub trigger"
+						icon={GoogleCloudIcon}
+						{item}
+					/>
 					<ToggleButton small value="script_flow" label="Script/Flow" icon={Code} {item} />
 				</ToggleButtonGroup>
 			</div>
@@ -318,7 +324,7 @@
 				<Skeleton layout={[[6], 0.4]} />
 			{/each}
 		{:else if !triggers?.length}
-			<div class="text-center text-sm text-tertiary mt-2"> No GCP triggers </div>
+			<div class="text-center text-sm text-tertiary mt-2"> No GCP Pub/Sub triggers </div>
 		{:else if items?.length}
 			<div class="border rounded-md divide-y">
 				{#each items.slice(0, nbDisplayed) as { gcp_resource_path, topic_id, workspace_id, delivery_config, delivery_type, path, edited_by, error, edited_at, script_path, is_flow, extra_perms, canWrite, enabled, server_id, subscription_id } (path)}
@@ -364,9 +370,9 @@
 											<div slot="text">
 												{#if enabled}
 													{#if !server_id}
-														GCP trigger is starting...
+														GCP Pub/Sub trigger is starting...
 													{:else}
-														Could not connect to GCP{error ? ': ' + error : ''}
+														Could not connect to GCP Pub/Sub{error ? ': ' + error : ''}
 													{/if}
 												{:else}
 													Disabled because of an error: {error}
@@ -382,7 +388,7 @@
 												/>
 											</span>
 											<div slot="text">
-												Connected to GCP{!server_id ? ' (shutting down...)' : ''}</div
+												Connected to GCP Pub/Sub{!server_id ? ' (shutting down...)' : ''}</div
 											>
 										</Popover>
 									{/if}

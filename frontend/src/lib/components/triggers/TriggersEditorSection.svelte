@@ -35,7 +35,7 @@
 		mqtt: 'MQTT trigger',
 		sqs: 'SQS trigger',
 		postgres: 'Postgres trigger',
-		gcp: 'GCP trigger'
+		gcp: 'GCP Pub/Sub trigger'
 	}
 
 	const { captureOn } = getContext<TriggerContext>('TriggerContext')

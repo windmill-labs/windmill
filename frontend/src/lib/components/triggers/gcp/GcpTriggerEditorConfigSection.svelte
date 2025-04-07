@@ -121,7 +121,7 @@
 			{/if}
 		</CaptureSection>
 	{/if}
-	<Section label="GCP" {headless}>
+	<Section label="GCP Pub/Sub" {headless}>
 		<div class="flex flex-col w-full gap-4">
 			<Subsection label="Connection setup">
 				<div class="flex flex-col gap-1 mt-2">
@@ -200,7 +200,7 @@
 							<ToggleButton
 								label="Existing subscription"
 								value="existing"
-								tooltip="Connect to an existing subscription in GCP Pub/Sub"
+								tooltip="Connect to an existing subscription in GCP Pub/Sub Pub/Sub"
 								showTooltipIcon
 								{item}
 							/>

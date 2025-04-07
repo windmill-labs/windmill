@@ -1,5 +1,5 @@
 export function load() {
 	return {
-		stuff: { title: 'GCP triggers' }
+		stuff: { title: 'GCP Pub/Sub triggers' }
 	}
 }

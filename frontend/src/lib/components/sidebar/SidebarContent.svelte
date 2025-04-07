@@ -138,7 +138,7 @@
 			kind: 'sqs'
 		},
 		{
-			label: 'GCP' + ($enterpriseLicense ? '' : ' (EE)'),
+			label: 'GCP Pub/Sub' + ($enterpriseLicense ? '' : ' (EE)'),
 			href: '/gcp_triggers',
 			icon: GoogleCloudIcon,
 			disabled: $userStore?.operator || !$enterpriseLicense,
@@ -181,7 +181,7 @@
 								icon: FolderCog,
 								faIcon: undefined
 							}
-					  ]
+						]
 					: []),
 				...($superadmin
 					? [
@@ -191,7 +191,7 @@
 								icon: ServerCog,
 								faIcon: undefined
 							}
-					  ]
+						]
 					: []),
 				...(!$superadmin && !$userStore?.is_admin
 					? [
@@ -204,7 +204,7 @@
 								icon: LogOut,
 								faIcon: undefined
 							}
-					  ]
+						]
 					: [])
 			],
 			disabled: $userStore?.operator
@@ -248,7 +248,7 @@
 										href: `${base}/service_logs`,
 										icon: Logs
 									}
-							  ]
+								]
 							: []),
 						...($enterpriseLicense
 							? [
@@ -260,16 +260,16 @@
 										icon: AlertCircle,
 										notificationCount: numUnacknowledgedCriticalAlerts
 									}
-							  ]
+								]
 							: [])
 					]
-			  }
+				}
 			: {
 					label: 'Audit logs',
 					href: `${base}/audit_logs`,
 					icon: Eye,
 					disabled: $userStore?.operator
-			  }
+				}
 	]
 
 	let hasNewChangelogs = false
