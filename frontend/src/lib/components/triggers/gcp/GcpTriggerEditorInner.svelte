@@ -81,11 +81,11 @@
 			delivery_config = defaultValues?.delivery_config ?? undefined
 			subscription_id = defaultValues?.subscription_id ?? ''
 			topic_id = defaultValues?.topic_id
+			subscription_mode = defaultValues?.subscription_mode ?? 'create_update'
 			path = ''
 			initialPath = ''
 			edit = false
 			dirtyPath = false
-			subscription_mode = 'create_update'
 		} finally {
 			drawerLoading = false
 		}

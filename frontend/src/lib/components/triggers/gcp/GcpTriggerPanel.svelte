@@ -58,7 +58,7 @@
 	}
 </script>
 
-<gcpTriggerEditor
+<GcpTriggerEditor
 	on:update={() => {
 		loadTriggers()
 	}}
