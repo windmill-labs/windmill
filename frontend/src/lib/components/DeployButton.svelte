@@ -1,0 +1,72 @@
+<script lang="ts">
+	import Button from './common/button/Button.svelte'
+	import { Save, CornerDownLeft } from 'lucide-svelte'
+	import { createEventDispatcher } from 'svelte'
+
+	export let loading = false
+	export let loadingSave = false
+	export let newFlow = false
+	export let dropdownItems: Array<{
+		label: string
+		onClick: () => void
+	}> = []
+
+	const dispatch = createEventDispatcher()
+
+	let msgInput: HTMLInputElement | undefined = undefined
+	let hideDropdown = false
+	let deploymentMsg = ''
+</script>
+
+<Button
+	disabled={loading}
+	loading={loadingSave}
+	size="xs"
+	startIcon={{ icon: Save }}
+	on:click={() => dispatch('save')}
+	dropdownItems={!newFlow ? dropdownItems : undefined}
+	tooltipPopover={{
+		placement: 'bottom-end',
+		content: 'Deploy the flow to the cloud',
+		openDelay: 0,
+		closeDelay: 0,
+		portal: 'body'
+	}}
+	on:tooltipOpen={async ({ detail }) => {
+		if (detail) {
+			// Use setTimeout to ensure DOM is updated
+			setTimeout(() => {
+				msgInput?.focus()
+			}, 0)
+			hideDropdown = true
+		} else {
+			hideDropdown = false
+		}
+	}}
+	{hideDropdown}
+>
+	Deploy
+	<svelte:fragment slot="tooltip">
+		<div class="flex flex-row gap-2 w-80 p-4 bg-surface rounded-lg shadow-lg border z-[5001]">
+			<input
+				type="text"
+				placeholder="Deployment message"
+				bind:value={deploymentMsg}
+				on:keydown={async (e) => {
+					if (e.key === 'Enter') {
+						dispatch('save', deploymentMsg)
+					}
+				}}
+				bind:this={msgInput}
+			/>
+			<Button
+				size="xs"
+				on:click={async () => dispatch('save', deploymentMsg)}
+				endIcon={{ icon: CornerDownLeft }}
+				loading={loadingSave}
+			>
+				Deploy
+			</Button>
+		</div>
+	</svelte:fragment>
+</Button>

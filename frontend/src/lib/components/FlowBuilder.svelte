@@ -48,16 +48,7 @@
 	import FlowPreviewButtons from './flows/header/FlowPreviewButtons.svelte'
 	import type { FlowEditorContext, FlowInput, FlowInputEditorState } from './flows/types'
 	import { cleanInputs, emptyFlowModuleState } from './flows/utils'
-	import {
-		Calendar,
-		Pen,
-		Save,
-		DiffIcon,
-		HistoryIcon,
-		FileJson,
-		type Icon,
-		CornerDownLeft
-	} from 'lucide-svelte'
+	import { Calendar, Pen, Save, DiffIcon, HistoryIcon, FileJson, type Icon } from 'lucide-svelte'
 	import { createEventDispatcher } from 'svelte'
 	import Awareness from './Awareness.svelte'
 	import { getAllModules } from './flows/flowExplorer'
@@ -84,6 +75,7 @@
 	import FlowYamlEditor from './flows/header/FlowYamlEditor.svelte'
 	import { type TriggerContext, type ScheduleTrigger } from './triggers'
 	import type { SavedAndModifiedValue } from './common/confirmationModal/unsavedTypes'
+	import DeployButton from './DeployButton.svelte'
 
 	export let initialPath: string = ''
 	export let pathStoreInit: string | undefined = undefined
@@ -1255,12 +1247,7 @@
 		]
 	}
 
-	let deploymentMsg = ''
-	let msgInput: HTMLInputElement | undefined = undefined
-
 	let flowPreviewButtons: FlowPreviewButtons
-
-	let hideDropdown = false
 </script>
 
 <svelte:window on:keydown={onKeyDown} />
@@ -1470,62 +1457,13 @@
 						Draft
 					</Button>
 
-					<Button
-						disabled={loading}
-						loading={loadingSave}
-						size="xs"
-						startIcon={{ icon: Save }}
-						on:click={async () => {
-							await handleSaveFlow()
-						}}
-						dropdownItems={!newFlow ? dropdownItems : undefined}
-						tooltipPopover={{
-							placement: 'bottom-end',
-							content: 'Deploy the flow to the cloud',
-							openDelay: 0,
-							closeDelay: 0,
-							portal: 'body'
-						}}
-						on:tooltipOpen={async ({ detail }) => {
-							if (detail) {
-								// Use setTimeout to ensure DOM is updated
-								setTimeout(() => {
-									msgInput?.focus()
-								}, 0)
-								hideDropdown = true
-							} else {
-								hideDropdown = false
-							}
-						}}
-						{hideDropdown}
-					>
-						Deploy
-						<svelte:fragment slot="tooltip">
-							<div
-								class="flex flex-row gap-2 w-80 p-4 bg-surface rounded-lg shadow-lg border z-[5001]"
-							>
-								<input
-									type="text"
-									placeholder="Deployment message"
-									bind:value={deploymentMsg}
-									on:keydown={async (e) => {
-										if (e.key === 'Enter') {
-											await handleSaveFlow(deploymentMsg)
-										}
-									}}
-									bind:this={msgInput}
-								/>
-								<Button
-									size="xs"
-									on:click={async () => await handleSaveFlow(deploymentMsg)}
-									endIcon={{ icon: CornerDownLeft }}
-									loading={loadingSave}
-								>
-									Deploy
-								</Button>
-							</div>
-						</svelte:fragment>
-					</Button>
+					<DeployButton
+						on:save={async ({ detail }) => await handleSaveFlow(detail)}
+						{loading}
+						{loadingSave}
+						{newFlow}
+						{dropdownItems}
+					/>
 				</div>
 			</div>
 
