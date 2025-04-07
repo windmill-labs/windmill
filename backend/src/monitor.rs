@@ -13,7 +13,7 @@ use std::{
 
 use chrono::{NaiveDateTime, Utc};
 use futures::{stream::FuturesUnordered, StreamExt};
-use serde::{de::DeserializeOwned, Deserializer};
+use serde::de::DeserializeOwned;
 use sqlx::{Pool, Postgres};
 use tokio::{
     join,
