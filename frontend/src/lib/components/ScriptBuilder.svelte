@@ -39,7 +39,6 @@
 		Calendar,
 		CheckCircle,
 		Code,
-		CornerDownLeft,
 		Pen,
 		Plus,
 		Rocket,
@@ -65,7 +64,6 @@
 	import { defaultScriptLanguages, processLangs } from '$lib/scripts'
 	import DefaultScripts from './DefaultScripts.svelte'
 	import { createEventDispatcher, onMount, setContext } from 'svelte'
-	import CustomPopover from './CustomPopover.svelte'
 	import Summary from './Summary.svelte'
 	import type { ScriptBuilderWhitelabelCustomUi } from './custom_ui'
 	import DeployOverrideConfirmationModal from '$lib/components/common/confirmationModal/DeployOverrideConfirmationModal.svelte'
@@ -80,6 +78,8 @@
 	import CaptureTable from './triggers/CaptureTable.svelte'
 	import type { SavedAndModifiedValue } from './common/confirmationModal/unsavedTypes'
 	import type { ScriptBuilderFunctionExports } from './scriptBuilder'
+	import DeployButton from './DeployButton.svelte'
+
 	export let script: NewScript
 	export let fullyLoaded: boolean = true
 	export let initialPath: string = ''
@@ -756,9 +756,6 @@
 	})()
 
 	setContext('disableTooltips', customUi?.disableTooltips === true)
-
-	let deploymentMsg = ''
-	let msgInput: HTMLInputElement | undefined = undefined
 
 	function langToLanguage(lang: SupportedLanguage | 'docker' | 'bunnative'): SupportedLanguage {
 		if (lang == 'docker') {
@@ -1575,41 +1572,13 @@
 						<span class="hidden lg:flex"> Draft </span>
 					</Button>
 
-					<CustomPopover appearTimeout={0} focusEl={msgInput}>
-						<Button
-							loading={loadingSave}
-							size="xs"
-							disabled={!fullyLoaded}
-							startIcon={{ icon: Save }}
-							on:click={() => handleEditScript(false)}
-							dropdownItems={computeDropdownItems(initialPath, savedScript, diffDrawer)}
-						>
-							Deploy
-						</Button>
-						<svelte:fragment slot="overlay">
-							<div class="flex flex-row gap-2 min-w-72">
-								<input
-									type="text"
-									placeholder="Deployment message"
-									bind:value={deploymentMsg}
-									bind:this={msgInput}
-									on:keydown={(e) => {
-										if (e.key === 'Enter') {
-											handleEditScript(false, deploymentMsg)
-										}
-									}}
-								/>
-								<Button
-									size="xs"
-									on:click={() => handleEditScript(false, deploymentMsg)}
-									endIcon={{ icon: CornerDownLeft }}
-									loading={loadingSave}
-								>
-									Deploy
-								</Button>
-							</div>
-						</svelte:fragment>
-					</CustomPopover>
+					<DeployButton
+						loading={!fullyLoaded}
+						{loadingSave}
+						newFlow={false}
+						dropdownItems={computeDropdownItems(initialPath, savedScript, diffDrawer)}
+						on:save={({ detail }) => handleEditScript(false, detail)}
+					/>
 				</div>
 			</div>
 		</div>
