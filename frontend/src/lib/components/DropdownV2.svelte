@@ -24,6 +24,7 @@
 	export let closeOnOtherDropdownOpen = true
 	export let fixedHeight = true
 	export let hidePopup = false
+	export let open = false
 
 	const {
 		elements: { menu, item, trigger },
@@ -51,7 +52,6 @@
 		}
 	})
 
-	let open = false
 	const sync = createSync(states)
 	$: sync.open(open, (v) => (open = Boolean(v)))
 

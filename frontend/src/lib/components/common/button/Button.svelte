@@ -56,6 +56,7 @@
 	}
 	export let dropdownItems: MenuItem[] | (() => MenuItem[]) | undefined = undefined
 	export let hideDropdown: boolean = false
+	export let dropdownOpen: boolean = false
 
 	function computeDropdowns(menuItems: MenuItem[] | (() => MenuItem[])): Item[] {
 		const items = typeof menuItems === 'function' ? menuItems() : menuItems
@@ -133,21 +134,24 @@
 
 	const {
 		elements: { trigger, content },
-		states: { open }
+		states: { open },
+		options: { openDelay }
 	} = tooltipPopover
 		? createTooltip({
 				positioning: {
 					placement: tooltipPopover?.placement
 				},
-				openDelay: tooltipPopover?.openDelay,
 				closeDelay: tooltipPopover?.closeDelay,
 				group: true,
 				portal: tooltipPopover?.portal
 			})
 		: {
 				elements: { trigger: undefined, content: undefined },
-				states: { open: undefined }
+				states: { open: undefined },
+				options: { openDelay: undefined }
 			}
+	$: tooltipPopover && ($openDelay = tooltipPopover?.openDelay) //This option is reactive
+
 	$: $open !== undefined && dispatch('tooltipOpen', $open)
 </script>
 
@@ -272,7 +276,13 @@
 	{/if}
 
 	{#if dropdownItems && dropdownItems.length > 0}
-		<Dropdown items={computeDropdowns(dropdownItems)} class="h-auto w-fit" hidePopup={hideDropdown}>
+		<Dropdown
+			items={computeDropdowns(dropdownItems)}
+			class="h-auto w-fit"
+			hidePopup={hideDropdown}
+			usePointerDownOutside
+			bind:open={dropdownOpen}
+		>
 			<svelte:fragment slot="buttonReplacement">
 				<div
 					class={twMerge(

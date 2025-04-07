@@ -23,6 +23,7 @@
 	let msgInput: HTMLInputElement | undefined = $state(undefined)
 	let hideDropdown = $state(false)
 	let deploymentMsg = $state('')
+	let dropdownOpen = $state(false)
 </script>
 
 <Button
@@ -35,7 +36,7 @@
 	tooltipPopover={{
 		placement: 'bottom-end',
 		content: 'Deploy the flow to the cloud',
-		openDelay: 0,
+		openDelay: dropdownOpen ? 200 : 0,
 		closeDelay: 0,
 		portal: 'body'
 	}}
@@ -51,6 +52,7 @@
 		}
 	}}
 	{hideDropdown}
+	bind:dropdownOpen
 >
 	Deploy
 	<svelte:fragment slot="tooltip">
