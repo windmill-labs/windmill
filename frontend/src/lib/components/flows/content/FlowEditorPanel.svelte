@@ -94,9 +94,9 @@
 {:else if $selectedId === 'constants'}
 	<FlowConstants {noEditor} />
 {:else if $selectedId === 'failure'}
-	<FlowFailureModule {noEditor} />
+	<FlowFailureModule {noEditor} savedModule={savedFlow?.value.failure_module} />
 {:else if $selectedId === 'preprocessor'}
-	<FlowPreprocessorModule {noEditor} />
+	<FlowPreprocessorModule {noEditor} savedModule={savedFlow?.value.preprocessor_module} />
 {:else if $selectedId === 'triggers'}
 	<TriggersEditor
 		on:applyArgs
