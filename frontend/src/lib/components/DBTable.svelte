@@ -15,6 +15,7 @@
 	import { Button } from './common'
 	import { Download } from 'lucide-svelte'
 	import Popover from './Popover.svelte'
+	import { makeCountQuery } from './apps/components/display/dbtable/queries/count'
 
 	type Props = {
 		resourceType: DbType
@@ -37,12 +38,10 @@
 	let eGui: HTMLDivElement | undefined = $state()
 
 	let datasource: IDatasource = {
-		rowCount: 0,
 		getRows: async function (params) {
-			if (!$workspaceStore) return params.failCallback()
+			if (!$workspaceStore || !tableMetadata) return params.failCallback()
 
-			let lastRow =
-				datasource?.rowCount && datasource.rowCount <= params.endRow ? datasource.rowCount : -1
+			let lastRow = rowCount && rowCount <= params.endRow ? rowCount : -1
 
 			const currentParams = {
 				offset: params.startRow,
@@ -52,12 +51,7 @@
 				is_desc: params.sortModel?.[0]?.sort === 'desc'
 			}
 
-			const query = makeSelectQuery(
-				tableKey,
-				tableMetadata ?? [],
-				undefined,
-				resourceType as DbType
-			)
+			const query = makeSelectQuery(tableKey, tableMetadata, undefined, resourceType as DbType)
 			let items = (await runPreviewJobAndPollResult({
 				workspace: $workspaceStore,
 				requestBody: {
@@ -74,6 +68,20 @@
 			params.successCallback(items, lastRow)
 		}
 	}
+	let rowCount = $state(0)
+
+	$effect(() => {
+		if (!tableMetadata || !$workspaceStore) return
+		const countQuery = makeCountQuery(resourceType, tableKey, undefined, tableMetadata)
+		runPreviewJobAndPollResult({
+			workspace: $workspaceStore,
+			requestBody: {
+				args: { database: '$res:' + resourcePath, quicksearch },
+				language: resourceType as ScriptLang,
+				content: countQuery
+			}
+		}).then((result) => (rowCount = result?.[0].count as number))
+	})
 
 	$effect(() => eGui && tableMetadata && mountGrid())
 	function mountGrid() {
@@ -152,8 +160,8 @@
 				/>
 			</Popover>
 		</div>
-		{#if datasource?.rowCount}
-			{firstRow}{'->'}{lastRow + 1} of {datasource?.rowCount} rows
+		{#if rowCount}
+			{firstRow}{'->'}{lastRow + 1} of {rowCount} rows
 		{:else}
 			{firstRow}{'->'}{lastRow + 1}
 		{/if}
