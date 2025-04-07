@@ -35,7 +35,6 @@
 	dropdownItems={!newFlow ? dropdownItems : undefined}
 	tooltipPopover={{
 		placement: 'bottom-end',
-		content: 'Deploy the flow to the cloud',
 		openDelay: dropdownOpen ? 200 : 0,
 		closeDelay: 0,
 		portal: 'body'
