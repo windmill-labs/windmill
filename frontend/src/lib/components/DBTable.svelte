@@ -12,6 +12,9 @@
 	import { makeSelectQuery } from './apps/components/display/dbtable/queries/select'
 	import { runPreviewJobAndPollResult } from './jobs/utils'
 	import type { ScriptLang } from '$lib/gen'
+	import { Button } from './common'
+	import { Download } from 'lucide-svelte'
+	import Popover from './Popover.svelte'
 
 	type Props = {
 		resourceType: DbType
@@ -28,7 +31,8 @@
 		)
 	})
 
-	let [clientHeight, clientWidth, darkMode] = $state([0, 0, false])
+	let [clientHeight, clientWidth, darkMode, firstRow, lastRow] = $state([0, 0, false, -1, -1])
+	let quicksearch = $state('')
 	let api: GridApi<any> | undefined = $state()
 	let eGui: HTMLDivElement | undefined = $state()
 
@@ -43,7 +47,7 @@
 			const currentParams = {
 				offset: params.startRow,
 				limit: params.endRow - params.startRow,
-				quicksearch: '', // TODO
+				quicksearch,
 				order_by: params.sortModel?.[0]?.colId ?? tableMetadata?.[0]?.field,
 				is_desc: params.sortModel?.[0]?.sort === 'desc'
 			}
@@ -85,6 +89,7 @@
 					editable: true, // TODO: configurable
 					onCellValueChanged: (e) => {}
 				},
+				onViewportChanged: (e) => ([firstRow, lastRow] = [e.firstRow, e.lastRow]),
 				infiniteInitialRowCount: 100,
 				cacheBlockSize: 100,
 				cacheOverflowSize: 10,
@@ -132,5 +137,25 @@
 				}
 			}}
 		></div>
+	</div>
+
+	<div class="flex gap-1 w-full justify-between items-center text-xs text-primary p-2">
+		<div>
+			<Popover>
+				<svelte:fragment slot="text">Download</svelte:fragment>
+				<Button
+					startIcon={{ icon: Download }}
+					color="light"
+					size="xs2"
+					on:click={() => api?.exportDataAsCsv()}
+					iconOnly
+				/>
+			</Popover>
+		</div>
+		{#if datasource?.rowCount}
+			{firstRow}{'->'}{lastRow + 1} of {datasource?.rowCount} rows
+		{:else}
+			{firstRow}{'->'}{lastRow + 1}
+		{/if}
 	</div>
 </div>
