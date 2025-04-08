@@ -14,7 +14,7 @@
 	import AnimatedButton from '../common/button/AnimatedButton.svelte'
 	import PulseButton from '../common/button/PulseButton.svelte'
 	import Button from '../common/button/Button.svelte'
-	import { CircleStop } from 'lucide-svelte'
+	import { CircleStop, History } from 'lucide-svelte'
 	import ConnectionIndicator, {
 		type ConnectionInfo
 	} from '../common/alert/ConnectionIndicator.svelte'
@@ -25,6 +25,7 @@
 	import Tooltip from '../Tooltip.svelte'
 	import type { TriggerContext } from '$lib/components/triggers'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
+	import { Popover } from '$lib/components/meltComponents'
 
 	export let disabled: boolean
 	export let captureType: CaptureTriggerKind
@@ -69,47 +70,60 @@
 <Splitpanes>
 	<Pane class="flex flex-col gap-1 mb-4 p-2" size={40}>
 		<div class="flex flex-col gap-1 mb-4">
-			<div class="flex flex-row items-center justify-start gap-1 w-full">
-				<div class="flex justify-center w-full">
-					<PulseButton bind:this={pulseButton} numberOfPulses={1} pulseDuration={1}>
-						<AnimatedButton animate={captureInfo.active} baseRadius="6px">
-							<Button
-								size="xs"
-								on:click={() => dispatch('captureToggle', {})}
-								{disabled}
-								color="dark"
-								btnClasses={captureInfo.active ? 'text-blue-500 hover:text-blue-500' : ''}
-							>
-								<div class="flex flex-row items-center gap-1 w-28 justify-center">
-									{#if captureInfo.active}
-										<CircleStop size={14} />
-									{:else}
-										<CaptureIcon variant="redDot" size={14} />
-									{/if}
-									{captureInfo.active ? 'Stop' : 'Start capturing'}
-								</div>
-							</Button>
-						</AnimatedButton>
-					</PulseButton>
+			<div class="flex justify-center w-full">
+				<PulseButton bind:this={pulseButton} numberOfPulses={1} pulseDuration={1}>
+					<AnimatedButton animate={captureInfo.active} baseRadius="6px">
+						<Button
+							size="xs"
+							on:click={() => dispatch('captureToggle', {})}
+							{disabled}
+							color="dark"
+							btnClasses={captureInfo.active ? 'text-blue-500 hover:text-blue-500' : ''}
+						>
+							<div class="flex flex-row items-center gap-1 w-28 justify-center">
+								{#if captureInfo.active}
+									<CircleStop size={14} />
+								{:else}
+									<CaptureIcon variant="redDot" size={14} />
+								{/if}
+								{captureInfo.active ? 'Stop' : 'Start capturing'}
+							</div>
+						</Button>
+					</AnimatedButton>
+				</PulseButton>
 
-					{#if captureInfo.active}
-						<ConnectionIndicator connectionInfo={captureInfo.connectionInfo} />
-					{:else}
-						<Tooltip>
-							Start capturing to test your runnables with real data. Once active, all incoming
-							payloads will be captured and displayed below, allowing you to test your runnables
-							effectively.
-						</Tooltip>
-					{/if}
-				</div>
-
-				{#if disabled}
-					<div class="text-sm font-normal text-red-600 dark:text-red-400" transition:slide>
-						Enter a valid configuration to start capturing.
-					</div>
+				{#if captureInfo.active}
+					<ConnectionIndicator connectionInfo={captureInfo.connectionInfo} />
+				{:else}
+					<Tooltip>
+						Start capturing to test your runnables with real data. Once active, all incoming
+						payloads will be captured and displayed below, allowing you to test your runnables
+						effectively.
+					</Tooltip>
 				{/if}
 			</div>
-			<div class="grow min-h-0">
+
+			{#if disabled}
+				<div class="text-sm font-normal text-red-600 dark:text-red-400" transition:slide>
+					Enter a valid configuration to start capturing.
+				</div>
+			{/if}
+
+			{#if $$slots.default}
+				<div class:opacity-50={disabled || !captureInfo.active} class="grow min-h-0">
+					<slot />
+				</div>
+			{/if}
+		</div>
+	</Pane>
+
+	<Pane>
+		<Popover placement="bottom-end" contentClasses="w-48 p-2">
+			<svelte:fragment slot="trigger">
+				<Button size="xs" color="light" iconOnly startIcon={{ icon: History }} nonCaptureEvent
+				></Button>
+			</svelte:fragment>
+			<svelte:fragment slot="content">
 				<CaptureTable
 					bind:this={captureTable}
 					{captureType}
@@ -124,9 +138,9 @@
 					on:testWithArgs
 					fullHeight={false}
 				/>
-			</div>
-		</div></Pane
-	>
+			</svelte:fragment>
+		</Popover>
 
-	<Pane>Capture payloads</Pane>
+		Capture payloads
+	</Pane>
 </Splitpanes>

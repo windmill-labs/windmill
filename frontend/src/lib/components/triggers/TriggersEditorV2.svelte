@@ -8,8 +8,7 @@
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import TriggersTable from './TriggersTable.svelte'
 	import RouteEditorInner from './http/RouteEditorInner.svelte'
-	import CaptureSection from './CaptureSectionV2.svelte'
-	import type { CaptureInfo } from './CaptureSectionV2.svelte'
+	import CaptureWrapper from './CaptureWrapperV2.svelte'
 
 	export let noEditor: boolean
 	export let newItem = false
@@ -22,15 +21,6 @@
 	export let canHavePreprocessor: boolean = false
 	export let hasPreprocessor: boolean = false
 	export let args: Record<string, any> = {}
-
-	let captureInfo: CaptureInfo = {
-		active: false,
-		hasPreprocessor,
-		canHavePreprocessor,
-		isFlow,
-		path: currentPath,
-		connectionInfo: undefined
-	}
 
 	let eventStreamType: 'kafka' | 'nats' | 'sqs' | 'mqtt' = 'kafka'
 	let routeEditor: RouteEditorInner | null = null
@@ -117,11 +107,16 @@
 			</Pane>
 			<Pane>
 				{#if selectedTrigger && selectedTrigger?.type === 'routes'}
-					<CaptureSection
-						disabled={false}
+					<CaptureWrapper
+						path={initialPath || fakeInitialPath}
+						{isFlow}
 						captureType={'http'}
-						{captureInfo}
-						captureTable={undefined}
+						{hasPreprocessor}
+						{canHavePreprocessor}
+						on:applyArgs
+						on:updateSchema
+						on:addPreprocessor
+						on:testWithArgs
 					/>
 				{/if}
 			</Pane>
