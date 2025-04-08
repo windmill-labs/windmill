@@ -625,6 +625,23 @@
 	{/if}
 {/snippet}
 
+{#snippet saveButton(size: 'xs' | 'sm' = 'xs')}
+	{#if !drawerLoading && can_write}
+		<Button
+			{size}
+			startIcon={{ icon: Save }}
+			disabled={pathError != '' ||
+				!isValid ||
+				(!static_asset_config && emptyString(script_path)) ||
+				(static_asset_config && emptyString(static_asset_config.s3)) ||
+				!can_write}
+			on:click={triggerScript}
+		>
+			Save
+		</Button>
+	{/if}
+{/snippet}
+
 {#if useDrawer}
 	<Drawer size="700px" bind:this={drawer}>
 		<DrawerContent
@@ -636,27 +653,20 @@
 			on:close={() => drawer?.closeDrawer()}
 		>
 			<svelte:fragment slot="actions">
-				{#if !drawerLoading && can_write}
-					<Button
-						startIcon={{ icon: Save }}
-						disabled={pathError != '' ||
-							!isValid ||
-							(!static_asset_config && emptyString(script_path)) ||
-							(static_asset_config && emptyString(static_asset_config.s3)) ||
-							!can_write}
-						on:click={triggerScript}
-					>
-						Save
-					</Button>
-				{/if}
+				{@render saveButton()}
 			</svelte:fragment>
 			{@render config()}
 		</DrawerContent>
 	</Drawer>
 {:else}
-	<div class="flex flex-col gap-12">
+	<Section
+		label={edit ? (can_write ? `Edit route ${initialPath}` : `Route ${initialPath}`) : 'New route'}
+	>
+		<svelte:fragment slot="action">
+			{@render saveButton('xs')}
+		</svelte:fragment>
 		{@render config()}
-	</div>
+	</Section>
 {/if}
 
 <ItemPicker

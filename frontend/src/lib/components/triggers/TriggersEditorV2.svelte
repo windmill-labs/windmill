@@ -7,6 +7,7 @@
 	import type { TriggerContext } from '$lib/components/triggers'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import TriggersTable from './TriggersTable.svelte'
+	import RouteEditorInner from './http/RouteEditorInner.svelte'
 
 	export let noEditor: boolean
 	export let newItem = false
@@ -21,6 +22,7 @@
 	export let args: Record<string, any> = {}
 
 	let eventStreamType: 'kafka' | 'nats' | 'sqs' | 'mqtt' = 'kafka'
+	let routeEditor: RouteEditorInner | null = null
 
 	const { selectedTrigger: contextSelectedTrigger, simplifiedPoll } =
 		getContext<TriggerContext>('TriggerContext')
@@ -50,6 +52,18 @@
 	) {
 		selectedTrigger = event.detail
 	}
+
+	$: selectedTrigger?.type === 'routes' &&
+		routeEditor &&
+		openRouteEditor(selectedTrigger.path, isFlow, selectedTrigger.isDraft ?? false)
+
+	function openRouteEditor(path: string, isFlow: boolean, isDraft: boolean) {
+		if (isDraft) {
+			routeEditor?.openNew(isFlow, currentPath)
+		} else {
+			routeEditor?.openEdit(path, isFlow)
+		}
+	}
 </script>
 
 <FlowCard {noEditor} title="Triggers">
@@ -68,20 +82,20 @@
 					</div>
 
 					<!-- Right Pane - Trigger Configuration -->
-					<div class="flex-grow overflow-auto">
+					<div class="flex-grow overflow-auto px-2">
 						<!-- Trigger configuration will go here -->
 						{#if selectedTrigger}
-							<div class="p-4">
-								{#if selectedTrigger.isDraft}
-									<h3 class="text-sm font-medium">Configure new {selectedTrigger.type} trigger</h3>
-									<!-- New trigger configuration component would go here -->
-								{:else}
-									<h3 class="text-sm font-medium"
-										>Configure trigger: {selectedTrigger.path} ({selectedTrigger.type})</h3
-									>
-									<!-- Existing trigger configuration component would go here -->
-								{/if}
-							</div>
+							{#if selectedTrigger.type === 'routes'}
+								<RouteEditorInner useDrawer={false} bind:this={routeEditor} hideTarget />
+							{:else if selectedTrigger.isDraft}
+								<h3 class="text-sm font-medium">Configure new {selectedTrigger.type} trigger</h3>
+								<!-- New trigger configuration component would go here -->
+							{:else}
+								<h3 class="text-sm font-medium"
+									>Configure trigger: {selectedTrigger.path} ({selectedTrigger.type})</h3
+								>
+								<!-- Existing trigger configuration component would go here -->
+							{/if}
 						{:else}
 							<div class="flex h-full items-center justify-center text-tertiary">
 								<p>Select a trigger from the list or add a new one</p>
