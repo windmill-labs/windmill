@@ -196,7 +196,7 @@
 		| 'csharp'
 		| 'nu'
 		| 'java'
-	// KJQXZ
+	// for related places search: ADD_NEW_LANG
 	export let code: string = ''
 	export let cmdEnterAction: (() => void) | undefined = undefined
 	export let formatAction: (() => void) | undefined = undefined
@@ -220,6 +220,7 @@
 	export let scriptLang: Preview['language'] | 'bunnative'
 	export let disabled: boolean = false
 	export let lineNumbersMinChars = 3
+	export let isAiPanelOpen: boolean = false
 
 	const rHash = randomHash()
 	$: filePath = computePath(path)
@@ -261,6 +262,10 @@
 
 	export function getCode(): string {
 		return editor?.getValue() ?? ''
+	}
+
+	export function getModel(): meditor.IEditorModel | undefined {
+		return editor?.getModel() ?? undefined
 	}
 
 	export function insertAtCursor(code: string): void {
@@ -399,7 +404,7 @@
 													endColumn: edit.range.end.character + 1
 												},
 												text: edit.newText
-										  }
+											}
 										: {}
 								)
 								//@ts-ignore
@@ -460,16 +465,16 @@
 						scriptLang === 'postgresql'
 							? POSTGRES_TYPES
 							: scriptLang === 'mysql'
-							? MYSQL_TYPES
-							: scriptLang === 'snowflake'
-							? SNOWFLAKE_TYPES
-							: scriptLang === 'bigquery'
-							? BIGQUERY_TYPES
-							: scriptLang === 'mssql'
-							? MSSQL_TYPES
-							: scriptLang === 'oracledb'
-							? ORACLEDB_TYPES
-							: []
+								? MYSQL_TYPES
+								: scriptLang === 'snowflake'
+									? SNOWFLAKE_TYPES
+									: scriptLang === 'bigquery'
+										? BIGQUERY_TYPES
+										: scriptLang === 'mssql'
+											? MSSQL_TYPES
+											: scriptLang === 'oracledb'
+												? ORACLEDB_TYPES
+												: []
 					).map((t) => ({
 						label: t,
 						kind: languages.CompletionItemKind.Function,
@@ -607,6 +612,7 @@
 
 	let reviewingChanges = writable(false)
 	let aiChatEditorHandler: AIChatEditorHandler | undefined = undefined
+
 	export function reviewAndApplyCode(code: string) {
 		aiChatEditorHandler?.reviewAndApply(code)
 	}
@@ -629,7 +635,10 @@
 			if (completorDisposable) {
 				completorDisposable.dispose()
 			}
-			autocompletor = new Autocompletor(editor, lang)
+			if (!scriptLang) {
+				throw new Error('No script lang')
+			}
+			autocompletor = new Autocompletor(editor, lang, scriptLang)
 
 			// last user events (currently disabled):
 			// let lastTs = Date.now()
@@ -684,6 +693,7 @@
 		$codeCompletionSessionEnabled &&
 		initialized &&
 		editor &&
+		scriptLang &&
 		addSuperCompletor(editor)
 
 	$: $copilotInfo.enabled && initialized && editor && addChatHandler(editor)
@@ -736,7 +746,7 @@
 									uri: vscode.Uri.parse(uri),
 									name: 'windmill',
 									index: 0
-							  }
+								}
 							: undefined,
 					initializationOptions,
 					middleware: {
@@ -1198,7 +1208,24 @@
 			})
 
 			editor?.addCommand(KeyMod.CtrlCmd | KeyCode.KeyL, function () {
-				dispatch('toggleAiPanel')
+				const selectedLines = getSelectedLines()
+				const selection = editor?.getSelection()
+				const hasSelection =
+					selection &&
+					(selection.startLineNumber !== selection.endLineNumber ||
+						selection.startColumn !== selection.endColumn)
+				if (hasSelection && selectedLines) {
+					dispatch('addSelectedLinesToAiChat', {
+						lines: selectedLines,
+						startLine: selection.startLineNumber,
+						endLine: selection.endLineNumber
+					})
+					if (!isAiPanelOpen) {
+						dispatch('toggleAiPanel')
+					}
+				} else {
+					dispatch('toggleAiPanel')
+				}
 			})
 
 			editor?.addCommand(KeyMod.CtrlCmd | KeyCode.KeyU, function () {
@@ -1381,9 +1408,9 @@
 </script>
 
 <EditorTheme />
-<div bind:this={divEl} class="{$$props.class} editor {disabled ? 'disabled' : ''}" />
+<div bind:this={divEl} class="{$$props.class} editor {disabled ? 'disabled' : ''}"></div>
 {#if $vimMode}
-	<div class="fixed bottom-0 z-30" bind:this={statusDiv} />
+	<div class="fixed bottom-0 z-30" bind:this={statusDiv}></div>
 {/if}
 
 {#if $reviewingChanges}

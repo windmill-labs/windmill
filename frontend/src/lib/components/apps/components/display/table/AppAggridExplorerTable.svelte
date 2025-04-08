@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { GridApi, createGrid, type IDatasource } from 'ag-grid-community'
 	import { sendUserToast } from '$lib/utils'
-	import { createEventDispatcher, getContext } from 'svelte'
+	import { createEventDispatcher, getContext, mount, unmount } from 'svelte'
 	import type { AppViewerContext, ComponentCustomCSS, ContextPanelContext } from '../../../types'
 
 	import type { TableAction, components } from '$lib/components/apps/editor/component'
@@ -20,6 +20,7 @@
 	import { ColumnIdentity, type ColumnDef } from '../dbtable/utils'
 	import AppAggridTableActions from './AppAggridTableActions.svelte'
 	import Popover from '$lib/components/Popover.svelte'
+	import { withProps } from '$lib/svelte5Utils.svelte'
 
 	export let id: string
 	export let customCss: ComponentCustomCSS<'aggridcomponent'> | undefined = undefined
@@ -108,8 +109,7 @@
 
 	function refreshActions(actions: TableAction[]) {
 		if (!deepEqual(actions, lastActions)) {
-			lastActions = [...actions]
-
+			lastActions = structuredClone(actions)
 			updateOptions()
 		}
 	}
@@ -126,50 +126,52 @@
 			['ContextPanel', contextPanel]
 		])
 
-		const ta = new AppAggridTableActions({
-			target: c.eGui,
-			props: {
-				p,
-				id: id,
-				actions,
-				rowIndex,
-				row,
-				render: true,
-				wrapActions: resolvedConfig.wrapActions,
-				selectRow: (p) => {
-					toggleRow(p)
-					p.node.setSelected(true)
-				},
-				onSet: (id, value, rowIndex) => {
-					if (!inputs[id]) {
-						inputs[id] = { [rowIndex]: value }
-					} else {
-						inputs[id] = { ...inputs[id], [rowIndex]: value }
-					}
-
-					outputs?.inputs.set(inputs, true)
-				},
-				onRemove: (id, rowIndex) => {
-					if (inputs?.[id] == undefined) {
-						return
-					}
-					delete inputs[id][rowIndex]
-					inputs[id] = { ...inputs[id] }
-					if (Object.keys(inputs?.[id] ?? {}).length == 0) {
-						delete inputs[id]
-						inputs = { ...inputs }
-					}
-					outputs?.inputs.set(inputs, true)
-				}
+		const taComponent = withProps(AppAggridTableActions, {
+			p,
+			id: id,
+			actions,
+			rowIndex,
+			row,
+			render: true,
+			wrapActions: resolvedConfig.wrapActions,
+			selectRow: (p) => {
+				toggleRow(p)
+				p.node.setSelected(true)
 			},
+			onSet: (id, value, rowIndex) => {
+				if (!inputs[id]) {
+					inputs[id] = { [rowIndex]: value }
+				} else {
+					inputs[id] = { ...inputs[id], [rowIndex]: value }
+				}
+
+				outputs?.inputs.set(inputs, true)
+			},
+			onRemove: (id, rowIndex) => {
+				if (inputs?.[id] == undefined) {
+					return
+				}
+				delete inputs[id][rowIndex]
+				inputs[id] = { ...inputs[id] }
+				if (Object.keys(inputs?.[id] ?? {}).length == 0) {
+					delete inputs[id]
+					inputs = { ...inputs }
+				}
+				outputs?.inputs.set(inputs, true)
+			}
+		})
+		const ta = mount(taComponent.component, {
+			target: c.eGui,
+			props: taComponent.props,
 			context: componentContext
 		})
+
 		return {
-			destroy: () => {
-				ta.$destroy()
-			},
+			destroy: () => unmount(ta),
 			refresh(params) {
-				ta.$set({ rowIndex: params.node.rowIndex ?? 0, row: params.data, p: params })
+				taComponent.props.rowIndex = params.node.rowIndex ?? 0
+				taComponent.props.row = params.data
+				taComponent.props.p = params
 			}
 		}
 	})
@@ -193,7 +195,7 @@
 				field: 'delete',
 				headerName: 'Delete',
 				cellRenderer: cellRendererFactory((c, p) => {
-					let ta = new Button({
+					const btnComponent = mount(Button, {
 						target: c.eGui,
 						props: {
 							btnClasses: 'w-12',
@@ -208,7 +210,7 @@
 					})
 					return {
 						destroy: () => {
-							ta.$destroy()
+							unmount(btnComponent)
 						},
 						refresh(params) {
 							//
@@ -320,10 +322,10 @@
 					...(resolvedConfig?.wrapActions
 						? {
 								rowHeight: Math.max(44, actions.length * 48)
-						  }
+							}
 						: {
 								rowHeight: 44
-						  }),
+							}),
 					suppressColumnMoveAnimation: true,
 					suppressDragLeaveHidesColumns: true,
 					rowSelection: resolvedConfig?.multipleSelectable ? 'multiple' : 'single',
@@ -363,7 +365,7 @@
 					getRowId: (data) =>
 						resolvedConfig?.rowIdCol && resolvedConfig?.rowIdCol != ''
 							? data.data?.[resolvedConfig?.rowIdCol]
-							: data.data?.['id'] ?? (data as any).data['__index']
+							: (data.data?.['id'] ?? (data as any).data['__index'])
 				},
 				{}
 			)
@@ -422,10 +424,10 @@
 			...(resolvedConfig?.wrapActions
 				? {
 						rowHeight: Math.max(44, actions.length * 48)
-				  }
+					}
 				: {
 						rowHeight: 44
-				  }),
+					}),
 			rowSelection: resolvedConfig?.multipleSelectable ? 'multiple' : 'single',
 			rowMultiSelectWithClick: resolvedConfig?.multipleSelectable
 				? resolvedConfig.rowMultiselectWithClick
@@ -482,7 +484,7 @@
 						}
 					}
 				}}
-			/>
+			></div>
 		</div>
 		{#if resolvedConfig && 'footer' in resolvedConfig && resolvedConfig.footer}
 			<div class="flex gap-1 w-full justify-between items-center text-xs text-primary p-2">

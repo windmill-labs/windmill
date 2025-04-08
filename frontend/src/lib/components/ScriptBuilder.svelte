@@ -39,8 +39,6 @@
 		Calendar,
 		CheckCircle,
 		Code,
-		CornerDownLeft,
-		DiffIcon,
 		Pen,
 		Plus,
 		Rocket,
@@ -66,7 +64,6 @@
 	import { defaultScriptLanguages, processLangs } from '$lib/scripts'
 	import DefaultScripts from './DefaultScripts.svelte'
 	import { createEventDispatcher, onMount, setContext } from 'svelte'
-	import CustomPopover from './CustomPopover.svelte'
 	import Summary from './Summary.svelte'
 	import type { ScriptBuilderWhitelabelCustomUi } from './custom_ui'
 	import DeployOverrideConfirmationModal from '$lib/components/common/confirmationModal/DeployOverrideConfirmationModal.svelte'
@@ -81,6 +78,7 @@
 	import CaptureTable from './triggers/CaptureTable.svelte'
 	import type { SavedAndModifiedValue } from './common/confirmationModal/unsavedTypes'
 	import type { ScriptBuilderFunctionExports } from './scriptBuilder'
+	import DeployButton from './DeployButton.svelte'
 
 	export let script: NewScript
 	export let fullyLoaded: boolean = true
@@ -669,7 +667,11 @@
 		loadingDraft = false
 	}
 
-	function computeDropdownItems(initialPath: string) {
+	function computeDropdownItems(
+		initialPath: string,
+		savedScript: NewScriptWithDraft | undefined,
+		diffDrawer: DiffDrawer | undefined
+	) {
 		let dropdownItems: { label: string; onClick: () => void }[] =
 			initialPath != '' && customUi?.topBar?.extraDeployOptions != false
 				? [
@@ -685,6 +687,27 @@
 								window.open(`/scripts/add?template=${initialPath}`)
 							}
 						},
+						...(customUi?.topBar?.diff !== false && savedScript && diffDrawer
+							? [
+									{
+										label: 'Show diff',
+										onClick: async () => {
+											if (!savedScript) {
+												return
+											}
+											await syncWithDeployed()
+
+											diffDrawer?.openDrawer()
+											diffDrawer?.setDiff({
+												mode: 'normal',
+												deployed: deployedValue ?? savedScript,
+												draft: savedScript['draft'],
+												current: script
+											})
+										}
+									}
+								]
+							: []),
 						...(!script.draft_only
 							? [
 									{
@@ -693,9 +716,9 @@
 											dispatch('seeDetails', initialPath)
 										}
 									}
-							  ]
+								]
 							: [])
-				  ]
+					]
 				: []
 
 		return dropdownItems.length > 0 ? dropdownItems : undefined
@@ -733,9 +756,6 @@
 	})()
 
 	setContext('disableTooltips', customUi?.disableTooltips === true)
-
-	let deploymentMsg = ''
-	let msgInput: HTMLInputElement | undefined = undefined
 
 	function langToLanguage(lang: SupportedLanguage | 'docker' | 'bunnative'): SupportedLanguage {
 		if (lang == 'docker') {
@@ -1526,33 +1546,6 @@
 				{/if}
 
 				<div class="flex flex-row gap-x-1 lg:gap-x-2">
-					{#if customUi?.topBar?.diff != false}
-						<Button
-							color="light"
-							variant="border"
-							size="xs"
-							on:click={async () => {
-								if (!savedScript) {
-									return
-								}
-								await syncWithDeployed()
-
-								diffDrawer?.openDrawer()
-								diffDrawer?.setDiff({
-									mode: 'normal',
-									deployed: deployedValue ?? savedScript,
-									draft: savedScript['draft'],
-									current: script
-								})
-							}}
-							disabled={!savedScript || !diffDrawer}
-						>
-							<div class="flex flex-row gap-2 items-center">
-								<DiffIcon size={14} />
-								<span class="hidden lg:flex"> Diff </span>
-							</div>
-						</Button>
-					{/if}
 					{#if customUi?.topBar?.settings != false}
 						<Button
 							color="light"
@@ -1579,41 +1572,13 @@
 						<span class="hidden lg:flex"> Draft </span>
 					</Button>
 
-					<CustomPopover appearTimeout={0} focusEl={msgInput}>
-						<Button
-							loading={loadingSave}
-							size="xs"
-							disabled={!fullyLoaded}
-							startIcon={{ icon: Save }}
-							on:click={() => handleEditScript(false)}
-							dropdownItems={computeDropdownItems(initialPath)}
-						>
-							Deploy
-						</Button>
-						<svelte:fragment slot="overlay">
-							<div class="flex flex-row gap-2 min-w-72">
-								<input
-									type="text"
-									placeholder="Deployment message"
-									bind:value={deploymentMsg}
-									bind:this={msgInput}
-									on:keydown={(e) => {
-										if (e.key === 'Enter') {
-											handleEditScript(false, deploymentMsg)
-										}
-									}}
-								/>
-								<Button
-									size="xs"
-									on:click={() => handleEditScript(false, deploymentMsg)}
-									endIcon={{ icon: CornerDownLeft }}
-									loading={loadingSave}
-								>
-									Deploy
-								</Button>
-							</div>
-						</svelte:fragment>
-					</CustomPopover>
+					<DeployButton
+						loading={!fullyLoaded}
+						{loadingSave}
+						newFlow={false}
+						dropdownItems={computeDropdownItems(initialPath, savedScript, diffDrawer)}
+						on:save={({ detail }) => handleEditScript(false, detail)}
+					/>
 				</div>
 			</div>
 		</div>
@@ -1643,6 +1608,8 @@
 			kind={script.kind}
 			{template}
 			tag={script.tag}
+			lastSavedCode={savedScript?.draft?.content}
+			lastDeployedCode={savedScript?.draft_only ? undefined : savedScript?.content}
 			bind:args
 			bind:hasPreprocessor
 			bind:captureTable

@@ -286,6 +286,10 @@
 	}
 
 	$: updateTooltipPosition(availableContext, showContextTooltip, contextTooltipWord)
+
+	export function focus() {
+		textarea?.focus()
+	}
 </script>
 
 <div class="relative w-full px-2 scroll-pb-2">
@@ -315,7 +319,7 @@
 		style={instructions.length > 0
 			? 'color: transparent; -webkit-text-fill-color: transparent;'
 			: ''}
-	/>
+	></textarea>
 </div>
 
 {#if showContextTooltip}

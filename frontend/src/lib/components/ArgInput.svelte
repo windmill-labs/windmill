@@ -133,7 +133,7 @@
 			} else {
 				const label = oneOf[0]['title']
 				oneOfSelected = label
-				value = { ...(typeof value === 'object' ? value ?? {} : {}), label }
+				value = { ...(typeof value === 'object' ? (value ?? {}) : {}), label }
 			}
 		}
 	}
@@ -264,12 +264,12 @@
 			value == undefined || value == null
 				? ''
 				: isObjectCat(inputCat)
-				? JSON.stringify(value, null, 2)
-				: isRawStringEditor(inputCat)
-				? typeof value == 'string'
-					? value
-					: JSON.stringify(value, null, 2)
-				: undefined
+					? JSON.stringify(value, null, 2)
+					: isRawStringEditor(inputCat)
+						? typeof value == 'string'
+							? value
+							: JSON.stringify(value, null, 2)
+						: undefined
 
 		if (newRawValue != rawValue) {
 			rawValue = newRawValue
@@ -415,12 +415,12 @@
 		diffStatus?.diff == 'added'
 			? 'bg-green-300 dark:bg-green-800'
 			: diffStatus?.diff === 'removed'
-			? 'bg-red-300 dark:bg-red-800'
-			: diffStatus?.diff === 'same'
-			? 'bg-surface'
-			: diffStatus?.diff === 'modified' || typeof diffStatus?.diff === 'object'
-			? 'border-2 border-green-500 bg-surface'
-			: ''
+				? 'bg-red-300 dark:bg-red-800'
+				: diffStatus?.diff === 'same'
+					? 'bg-surface'
+					: diffStatus?.diff === 'modified' || typeof diffStatus?.diff === 'object'
+						? 'border-2 border-green-500 bg-surface'
+						: ''
 	)}
 	data-schema-picker
 >
@@ -563,7 +563,7 @@
 										{#if i < itemsLimit}
 											<div class="flex max-w-md mt-1 w-full items-center">
 												{#if itemsType?.type == 'number'}
-													<input type="number" bind:value={v} id="arg-input-number-array" />
+													<input type="number" bind:value={value[i]} id="arg-input-number-array" />
 												{:else if itemsType?.type == 'string' && itemsType?.contentEncoding == 'base64'}
 													<input
 														type="file"
@@ -575,7 +575,10 @@
 													{#await import('$lib/components/JsonEditor.svelte')}
 														<Loader2 class="animate-spin" />
 													{:then Module}
-														<Module.default code={JSON.stringify(v, null, 2)} bind:value={v} />
+														<Module.default
+															code={JSON.stringify(v, null, 2)}
+															bind:value={value[i]}
+														/>
 													{/await}
 												{:else if Array.isArray(itemsType?.enum)}
 													<ArgEnum
@@ -591,14 +594,14 @@
 														{valid}
 														{disabled}
 														{autofocus}
-														bind:value={v}
+														bind:value={value[i]}
 														enum_={itemsType?.enum ?? []}
 														enumLabels={extra['enumLabels']}
 													/>
 												{:else if itemsType?.type == 'resource' && itemsType?.resourceType && resourceTypes?.includes(itemsType.resourceType)}
 													<ObjectResourceInput
 														value={v ? `$res:${v}` : undefined}
-														bind:path={v}
+														bind:path={value[i]}
 														format={'resource-' + itemsType?.resourceType}
 														defaultValue={undefined}
 													/>
@@ -615,7 +618,7 @@
 																dispatch('blur')
 															}}
 															code={JSON.stringify(v, null, 2)}
-															bind:value={v}
+															bind:value={value[i]}
 														/>
 													{/await}
 												{:else if itemsType?.type === 'object' && itemsType?.properties}
@@ -625,11 +628,11 @@
 															{disablePortal}
 															{disabled}
 															schema={getSchemaFromProperties(itemsType?.properties)}
-															bind:args={v}
+															bind:args={value[i]}
 														/>
 													</div>
 												{:else}
-													<input type="text" bind:value={v} id="arg-input-array" />
+													<input type="text" bind:value={value[i]} id="arg-input-array" />
 												{/if}
 												<button
 													transition:fade|local={{ duration: 100 }}
@@ -872,7 +875,7 @@
 									</div>
 								{/key}
 							{:else if disabled}
-								<textarea disabled />
+								<textarea disabled></textarea>
 							{:else}
 								{#await import('$lib/components/JsonEditor.svelte')}
 									<Loader2 class="animate-spin" />
@@ -894,7 +897,7 @@
 							{/if}
 						{/if}
 					{:else if disabled}
-						<textarea disabled />
+						<textarea disabled></textarea>
 					{:else}
 						{#await import('$lib/components/JsonEditor.svelte')}
 							<Loader2 class="animate-spin" />
@@ -981,7 +984,7 @@
 					{/if}
 				</div>
 			{:else if disabled}
-				<textarea disabled />
+				<textarea disabled></textarea>
 			{:else}
 				{#await import('$lib/components/JsonEditor.svelte')}
 					<Loader2 class="animate-spin" />
@@ -1042,7 +1045,7 @@
 			{/if}
 		{:else if isRawStringEditor(inputCat)}
 			{#if disabled}
-				<textarea disabled />
+				<textarea disabled></textarea>
 			{:else}
 				<div class="border my-1 mb-4 w-full">
 					{#await import('$lib/components/SimpleEditor.svelte')}
@@ -1146,7 +1149,7 @@
 								)}
 								placeholder={placeholder ?? defaultValue ?? ''}
 								bind:value
-							/>
+							></textarea>
 						{/key}
 						{#if !disabled && itemPicker && extra?.['disableVariablePicker'] != true}
 							<!-- svelte-ignore a11y-click-events-have-key-events -->
@@ -1188,7 +1191,7 @@
 			{/if}
 		</div>
 	{:else if !noMargin}
-		<div class="mb-2" />
+		<div class="mb-2"></div>
 	{/if}
 </div>
 

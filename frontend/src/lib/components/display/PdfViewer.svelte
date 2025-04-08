@@ -304,7 +304,7 @@
 				'wm-pdf'
 			)}
 			style={$$props.style ?? ''}
-		/>
+		></div>
 	{/if}
 	{#if extraButton}
 		<svelte:component this={extraButton} />

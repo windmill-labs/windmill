@@ -5,6 +5,9 @@
 	import Dropdown from '$lib/components/DropdownV2.svelte'
 	import { getModifierKey, type Item } from '$lib/utils'
 	import { Loader2, ChevronDown } from 'lucide-svelte'
+	import { createTooltip } from '@melt-ui/svelte'
+	import type { Placement } from '@floating-ui/core'
+	import { conditionalMelt } from '$lib/utils'
 
 	export let size: ButtonType.Size = 'md'
 	export let spacingSize: ButtonType.Size = size
@@ -34,6 +37,14 @@
 	export let shortCut:
 		| { key?: string; hide?: boolean; Icon?: any; withoutModifier?: boolean }
 		| undefined = undefined
+	export let tooltipPopover:
+		| {
+				placement?: Placement
+				openDelay?: number
+				closeDelay?: number
+				portal?: string
+		  }
+		| undefined = undefined
 
 	type MenuItem = {
 		label: string
@@ -43,6 +54,7 @@
 		disabled?: boolean
 	}
 	export let dropdownItems: MenuItem[] | (() => MenuItem[]) | undefined = undefined
+	export let hideDropdown: boolean = false
 
 	function computeDropdowns(menuItems: MenuItem[] | (() => MenuItem[])): Item[] {
 		const items = typeof menuItems === 'function' ? menuItems() : menuItems
@@ -117,6 +129,28 @@
 	}
 
 	$: lucideIconSize = (iconMap[size] ?? 12) * 1
+
+	const {
+		elements: { trigger, content },
+		states: { open },
+		options: { openDelay }
+	} = tooltipPopover
+		? createTooltip({
+				positioning: {
+					placement: tooltipPopover?.placement
+				},
+				closeDelay: tooltipPopover?.closeDelay,
+				group: true,
+				portal: tooltipPopover?.portal
+			})
+		: {
+				elements: { trigger: undefined, content: undefined },
+				states: { open: undefined },
+				options: { openDelay: undefined }
+			}
+	$: tooltipPopover && openDelay !== undefined && ($openDelay = tooltipPopover?.openDelay) //This option is reactive
+
+	$: $open !== undefined && dispatch('tooltipOpen', $open)
 </script>
 
 <div
@@ -129,6 +163,7 @@
 		disabled ? 'divide-text-disabled' : ''
 	)}
 	style={wrapperStyle}
+	data-interactive
 >
 	{#if href && !disabled}
 		<a
@@ -199,6 +234,8 @@
 			{...$$restProps}
 			disabled={disabled || (loading && !clickableWhileLoading)}
 			{style}
+			use:conditionalMelt={trigger}
+			{...$trigger}
 		>
 			{#if loading}
 				<Loader2 class={twMerge('animate-spin', iconOnlyPadding[size])} size={lucideIconSize} />
@@ -229,10 +266,22 @@
 				</div>
 			{/if}
 		</button>
+		{#if tooltipPopover && $open}
+			<div use:conditionalMelt={content} {...$content} class="z-[20000]">
+				<slot name="tooltip" />
+			</div>
+		{/if}
 	{/if}
 
 	{#if dropdownItems && dropdownItems.length > 0}
-		<Dropdown items={computeDropdowns(dropdownItems)} class="h-auto w-fit">
+		<Dropdown
+			items={computeDropdowns(dropdownItems)}
+			class="h-auto w-fit"
+			hidePopup={hideDropdown}
+			usePointerDownOutside
+			on:open={() => dispatch('dropdownOpen', true)}
+			on:close={() => dispatch('dropdownOpen', false)}
+		>
 			<svelte:fragment slot="buttonReplacement">
 				<div
 					class={twMerge(

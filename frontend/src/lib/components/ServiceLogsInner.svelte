@@ -527,7 +527,7 @@
 				{@const diff = maxTsN - minTsN}
 				{#if searchTerm === ''}
 					<div class="flex w-full text-2xs text-tertiary pb-6">
-						<div style="width: 60px;" />
+						<div style="width: 60px;"></div>
 
 						<div class="flex justify-between w-full"
 							><div
@@ -604,12 +604,12 @@
 															class=" w-2 bg-red-400 absolute"
 															style="left: {((file.ts - minTsN) / diff) *
 																100}%; height: {errHeight}%; bottom: {okHeight}%;"
-														/>
+														></div>
 														<div
 															class="w-2 bg-surface-secondary-inverse absolute bottom-0"
 															style="left: {((file.ts - minTsN) / diff) *
 																100}%; height: {okHeight}%"
-														/>
+														></div>
 													{/each}
 												</div>
 											{/if}
@@ -667,7 +667,7 @@
 									more precise results.
 								</div>
 							{/if}
-							<div class="py-20" />
+							<div class="py-20"></div>
 						</div>
 					{:else}
 						{#each getLogs(selected, upTo) as file}
@@ -687,7 +687,7 @@
 								{#if logsContent[file.file_path] == undefined}
 									<div
 										class="animate-skeleton dark:bg-frost-900/50 [animation-delay:1000ms] h-full w-full"
-									/>
+									></div>
 								{:else if logsContent[file.file_path]}
 									{#if logsContent[file.file_path].error}
 										{#if logsContent[file.file_path].error?.startsWith('Not Found')}
@@ -739,7 +739,7 @@
 									}}>{'<'} 5m</button
 								>
 							{:else}
-								<div />
+								<div></div>
 							{/if}
 
 							<div class="flex gap-1 relative items-center"
@@ -768,7 +768,7 @@
 									}}>5m {'>'}</button
 								>
 							{:else}
-								<div />
+								<div></div>
 							{/if}
 						</div>
 						<div>
