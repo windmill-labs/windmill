@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n                SELECT \n                    trigger_config AS \"trigger_config: _\", \n                    owner, \n                    email\n                FROM \n                    capture_config\n                WHERE \n                    workspace_id = $1 \n                    AND path = $2 \n                    AND is_flow = $3 \n                    AND trigger_kind = $4 \n                    AND last_client_ping > NOW() - INTERVAL '10 seconds'\n                ",
+  "query": "\n        SELECT \n            trigger_config AS \"trigger_config: _\", \n            owner, \n            email\n        FROM \n            capture_config\n        WHERE \n            workspace_id = $1\n            AND path = $2\n            AND is_flow = $3\n            AND trigger_kind = $4\n            AND last_client_ping > NOW() - INTERVAL '10 seconds'\n            AND (\n                $5::bool IS FALSE\n                OR (\n                    trigger_config IS NOT NULL\n                    AND trigger_config ->> 'delivery_type' = 'push'\n                )\n            )\n        ",
   "describe": {
     "columns": [
       {
@@ -42,7 +42,8 @@
               ]
             }
           }
-        }
+        },
+        "Bool"
       ]
     },
     "nullable": [
@@ -51,5 +52,5 @@
       false
     ]
   },
-  "hash": "cdfa3bab6adebb6b5adbd63a069dd7d9db1a9bf099d940091e1712b1b814e931"
+  "hash": "23419adcd74c326d716527293eff518b42f4cdb33e034441015494bd26c172d2"
 }
