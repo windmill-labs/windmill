@@ -19,6 +19,7 @@
 	import DebouncedInput from './apps/components/helpers/DebouncedInput.svelte'
 	import { makeUpdateQuery } from './apps/components/display/dbtable/queries/update'
 	import { makeDeleteQuery } from './apps/components/display/dbtable/queries/delete'
+	import InsertRowDrawerButton from './apps/components/display/InsertRowDrawerButton.svelte'
 
 	type Props = {
 		resourceType: DbType
@@ -184,19 +185,14 @@
 			bind:value={quicksearch}
 			placeholder="Search..."
 		/>
-		<div class="flex flex-row gap-2">
-			<Button
-				startIcon={{ icon: Plus }}
-				color="dark"
-				size="xs2"
-				on:click={() => {
-					// args = {}
-					// insertDrawer?.openDrawer()
-				}}
-			>
-				Insert
-			</Button>
-		</div>
+
+		<InsertRowDrawerButton
+			columnDefs={tableMetadata ?? []}
+			dbType={resourceType}
+			onInsert={() => {
+				// TODO
+			}}
+		/>
 	</div>
 	<div
 		class={'flex flex-col flex-1 component-wrapper divide-y wm-aggrid-container'}
