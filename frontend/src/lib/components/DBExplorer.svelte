@@ -1,11 +1,12 @@
 <script lang="ts">
-	import { type DBSchema } from '$lib/stores'
+	import { workspaceStore, type DBSchema } from '$lib/stores'
 	import { Table2 } from 'lucide-svelte'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import { ClearableInput } from './common'
 	import { sendUserToast } from '$lib/toast'
-	import { type DbType } from './apps/components/display/dbtable/utils'
+	import { loadTableMetaData, type DbType } from './apps/components/display/dbtable/utils'
 	import DBTable from './DBTable.svelte'
+	import { dbTableOpsWithPreviewScripts } from './dbTableOps'
 
 	type Props = {
 		dbSchema: DBSchema
@@ -47,6 +48,8 @@
 		l.sort()
 		return l
 	})
+
+	let tableKey = $derived(`${selected.schemaKey}.${selected.tableKey}`)
 </script>
 
 <Splitpanes>
@@ -78,10 +81,17 @@
 		</div>
 	</Pane>
 	<Pane class="p-3 pt-1">
-		<DBTable
-			{resourcePath}
-			{resourceType}
-			tableKey={`${selected.schemaKey}.${selected.tableKey}`}
-		/>
+		{#await loadTableMetaData('$res:' + resourcePath, $workspaceStore, tableKey, resourceType) then colDefs}
+			{#if colDefs?.length && $workspaceStore}
+				{@const dbTableOps = dbTableOpsWithPreviewScripts({
+					colDefs: colDefs,
+					resourceType,
+					resourcePath,
+					tableKey,
+					workspace: $workspaceStore
+				})}
+				<DBTable {dbTableOps} />
+			{/if}
+		{/await}
 	</Pane>
 </Splitpanes>

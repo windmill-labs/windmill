@@ -2,40 +2,19 @@
 	import { workspaceStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
 	import { createGrid, type GridApi, type IDatasource } from 'ag-grid-community'
-	import {
-		type DbType,
-		type TableMetadata,
-		getLanguageByResourceType,
-		loadTableMetaData
-	} from './apps/components/display/dbtable/utils'
 	import { transformColumnDefs } from './apps/components/display/table/utils'
 	import DarkModeObserver from './DarkModeObserver.svelte'
-	import { makeSelectQuery } from './apps/components/display/dbtable/queries/select'
-	import { runPreviewJobAndPollResult } from './jobs/utils'
 	import { Button } from './common'
 	import { Download } from 'lucide-svelte'
 	import Popover from './Popover.svelte'
-	import { makeCountQuery } from './apps/components/display/dbtable/queries/count'
 	import DebouncedInput from './apps/components/helpers/DebouncedInput.svelte'
-	import { makeUpdateQuery } from './apps/components/display/dbtable/queries/update'
-	import { makeDeleteQuery } from './apps/components/display/dbtable/queries/delete'
 	import InsertRowDrawerButton from './apps/components/display/InsertRowDrawerButton.svelte'
-	import { makeInsertQuery } from './apps/components/display/dbtable/queries/insert'
+	import type { IDbTableOps } from './dbTableOps'
 
 	type Props = {
-		resourceType: DbType
-		resourcePath: string
-		tableKey: string // Can contain schema prefix
+		dbTableOps: IDbTableOps
 	}
-
-	let tableMetadata: TableMetadata | undefined = $state()
-	$effect(() => {
-		const currSelected = tableKey
-		tableMetadata = undefined
-		loadTableMetaData('$res:' + resourcePath, $workspaceStore, tableKey, resourceType).then(
-			(tm) => tableKey === currSelected && (tableMetadata = tm)
-		)
-	})
+	let { dbTableOps }: Props = $props()
 
 	let [clientHeight, clientWidth, darkMode, firstRow, lastRow] = $state([0, 0, false, -1, -1])
 	let quicksearch = $state('')
@@ -46,31 +25,17 @@
 
 	let datasource: IDatasource = {
 		getRows: async function (params) {
-			if (!$workspaceStore || !tableMetadata) return params.failCallback()
-
+			if (!$workspaceStore) return params.failCallback()
 			let lastRow = rowCount && rowCount <= params.endRow ? rowCount : -1
 
-			const currentParams = {
+			const items = await dbTableOps.getRows({
 				offset: params.startRow,
 				limit: params.endRow - params.startRow,
 				quicksearch: params.context.quicksearch,
-				order_by: params.sortModel?.[0]?.colId ?? tableMetadata?.[0]?.field,
+				order_by: params.sortModel?.[0]?.colId ?? dbTableOps.colDefs[0]?.field,
 				is_desc: params.sortModel?.[0]?.sort === 'desc'
-			}
+			})
 
-			const query = makeSelectQuery(tableKey, tableMetadata, undefined, resourceType as DbType)
-			let items = (await runPreviewJobAndPollResult({
-				workspace: $workspaceStore,
-				requestBody: {
-					args: { database: '$res:' + resourcePath, ...currentParams },
-					language: getLanguageByResourceType(resourceType),
-					content: query
-				}
-			})) as unknown[]
-			if (resourceType === 'ms_sql_server') items = items?.[0] as unknown[]
-			if (!items || !Array.isArray(items)) {
-				return params.failCallback()
-			}
 			if (items.length < params.endRow - params.startRow) lastRow = params.startRow + items.length
 			params.successCallback(items, lastRow)
 		}
@@ -79,16 +44,8 @@
 
 	$effect(() => {
 		;[refreshCount]
-		if (!tableMetadata || !$workspaceStore) return
-		const countQuery = makeCountQuery(resourceType, tableKey, undefined, tableMetadata)
-		runPreviewJobAndPollResult({
-			workspace: $workspaceStore,
-			requestBody: {
-				args: { database: '$res:' + resourcePath, quicksearch },
-				language: getLanguageByResourceType(resourceType),
-				content: countQuery
-			}
-		}).then((result) => (rowCount = result?.[0].count as number))
+		if (!$workspaceStore) return
+		dbTableOps.getCount({ quicksearch }).then((result) => (rowCount = result))
 	})
 
 	$effect(() => eGui && mountGrid())
@@ -100,30 +57,16 @@
 				defaultColDef: {
 					editable: true, // TODO: configurable
 					onCellValueChanged: (e) => {
-						if (!tableMetadata || !$workspaceStore) return
+						if (!$workspaceStore) return
 						const colDef = e.colDef as unknown as { field: string; datatype: string }
-						const updateQuery = makeUpdateQuery(tableKey, colDef, tableMetadata, resourceType)
-
-						runPreviewJobAndPollResult({
-							workspace: $workspaceStore,
-							requestBody: {
-								args: {
-									database: '$res:' + resourcePath,
-									value_to_update: e.newValue,
-									...(e.data as object),
-									[colDef.field]: e.oldValue
-								},
-								language: getLanguageByResourceType(resourceType),
-								content: updateQuery
-							}
-						})
-							.then((result) => {
-								if (!Array.isArray(result) || result.length === 0) throw ''
-								sendUserToast('Value updated')
-							})
-							.catch(() => {
-								sendUserToast('Error updating value', true)
-							})
+						dbTableOps
+							.onUpdate(
+								{ values: { ...(e.data as object), [colDef.field]: e.oldValue } },
+								colDef,
+								e.newValue
+							)
+							.then((result) => sendUserToast('Value updated'))
+							.catch(() => sendUserToast('Error updating value', true))
 					}
 				},
 				onViewportChanged: (e) => ([firstRow, lastRow] = [e.firstRow, e.lastRow]),
@@ -141,7 +84,7 @@
 	}
 
 	$effect(() => {
-		;[quicksearch, tableMetadata, refreshCount]
+		;[quicksearch, dbTableOps.colDefs, refreshCount]
 		updateGrid()
 	})
 	function updateGrid() {
@@ -149,21 +92,12 @@
 		api?.updateGridOptions({
 			datasource,
 			columnDefs: transformColumnDefs({
-				columnDefs: tableMetadata ?? [],
+				columnDefs: dbTableOps.colDefs ?? [],
 				onDelete: (values) => {
-					if (!tableMetadata || !$workspaceStore) return
-					const deleteQuery = makeDeleteQuery(tableKey, tableMetadata, resourceType)
-
-					runPreviewJobAndPollResult({
-						workspace: $workspaceStore,
-						requestBody: {
-							args: { database: '$res:' + resourcePath, ...values },
-							language: getLanguageByResourceType(resourceType),
-							content: deleteQuery
-						}
-					})
+					if (!$workspaceStore) return
+					dbTableOps
+						.onDelete({ values })
 						.then((result) => {
-							if (!Array.isArray(result) || result.length === 0) throw ''
 							refreshCount += 1
 							sendUserToast('Row deleted')
 						})
@@ -177,8 +111,6 @@
 			}
 		})
 	}
-
-	let { resourcePath, resourceType, tableKey }: Props = $props()
 </script>
 
 <DarkModeObserver bind:darkMode />
@@ -193,19 +125,11 @@
 		/>
 
 		<InsertRowDrawerButton
-			columnDefs={tableMetadata ?? []}
-			dbType={resourceType}
-			onInsert={(args) => {
-				if (!tableMetadata || !$workspaceStore) return
-				const insertQuery = makeInsertQuery(tableKey, tableMetadata, resourceType)
-				runPreviewJobAndPollResult({
-					workspace: $workspaceStore,
-					requestBody: {
-						args: { database: '$res:' + resourcePath, ...args },
-						language: getLanguageByResourceType(resourceType),
-						content: insertQuery
-					}
-				}).then((result) => {
+			columnDefs={dbTableOps.colDefs ?? []}
+			dbType={dbTableOps.resourceType}
+			onInsert={(values) => {
+				if (!$workspaceStore) return
+				dbTableOps.onInsert({ values }).then((result) => {
 					refreshCount += 1
 					sendUserToast('Row inserted')
 				})
