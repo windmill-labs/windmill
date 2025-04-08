@@ -320,12 +320,11 @@
 <style>
 	@keyframes highlight {
 		0% {
-			border-color: rgba(34, 197, 94, 0.7);
-			box-shadow: 0 0 8px 2px rgba(34, 197, 94, 0.3);
+			color: rgba(59, 130, 246, 1);
+			background-color: rgba(59, 130, 246, 0.1);
 		}
 		100% {
-			border-color: inherit;
-			box-shadow: inherit;
+			color: inherit;
 		}
 	}
 
