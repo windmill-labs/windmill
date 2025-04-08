@@ -42,6 +42,8 @@
 	let api: GridApi<any> | undefined = $state()
 	let eGui: HTMLDivElement | undefined = $state()
 
+	let refreshCount = $state(0)
+
 	let datasource: IDatasource = {
 		getRows: async function (params) {
 			if (!$workspaceStore || !tableMetadata) return params.failCallback()
@@ -76,6 +78,7 @@
 	let rowCount = $state(0)
 
 	$effect(() => {
+		;[refreshCount]
 		if (!tableMetadata || !$workspaceStore) return
 		const countQuery = makeCountQuery(resourceType, tableKey, undefined, tableMetadata)
 		runPreviewJobAndPollResult({
@@ -138,10 +141,11 @@
 	}
 
 	$effect(() => {
-		;[quicksearch, tableMetadata]
+		;[quicksearch, tableMetadata, refreshCount]
 		updateGrid()
 	})
 	function updateGrid() {
+		api?.purgeInfiniteCache()
 		api?.updateGridOptions({
 			datasource,
 			columnDefs: transformColumnDefs({
@@ -160,6 +164,7 @@
 					})
 						.then((result) => {
 							if (!Array.isArray(result) || result.length === 0) throw ''
+							refreshCount += 1
 							sendUserToast('Row deleted')
 						})
 						.catch(() => {
@@ -200,6 +205,9 @@
 						language: getLanguageByResourceType(resourceType),
 						content: insertQuery
 					}
+				}).then((result) => {
+					refreshCount += 1
+					sendUserToast('Row inserted')
 				})
 			}}
 		/>
