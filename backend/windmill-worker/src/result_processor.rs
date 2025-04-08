@@ -74,8 +74,7 @@ pub fn start_disk_usage_checks(
                 _ = killpill_rx.recv() => {
                     break;
                 }
-                _ = tokio::time::sleep(std::time::Duration::from_secs(3)) => {
-                // _ = tokio::time::sleep(std::time::Duration::from_secs(CHECK_FREQ.clamp(1, u16::MAX as u64) * 60)) => {
+                _ = tokio::time::sleep(std::time::Duration::from_secs(CHECK_FREQ.clamp(1, u16::MAX as u64) * 60)) => {
                     #[cfg(windows)]
                     let cwd = std::env::current_dir().unwrap_or("C:\\".into());
 
