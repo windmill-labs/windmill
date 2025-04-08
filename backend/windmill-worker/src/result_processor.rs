@@ -48,9 +48,12 @@ use crate::{
 };
 
 #[cfg(feature = "enterprise")]
-pub fn start_disk_usage_checks(worker_name: String, db: DB) {
+pub fn start_disk_usage_checks(
+    mut killpill_rx: tokio::sync::broadcast::Receiver<()>,
+    worker_name: String,
+    db: DB,
+) {
     use itertools::Itertools;
-    use std::time::Duration;
     use systemstat::*;
     use windmill_common::worker::*;
 
@@ -66,33 +69,51 @@ pub fn start_disk_usage_checks(worker_name: String, db: DB) {
 
     tokio::spawn(async move {
         loop {
-            #[cfg(windows)]
-            let cwd = std::env::current_dir().unwrap_or("C:\\".into());
+            tokio::select! {
+                biased;
+                _ = killpill_rx.recv() => {
+                    break;
+                }
+                _ = tokio::time::sleep(std::time::Duration::from_secs(3)) => {
+                // _ = tokio::time::sleep(std::time::Duration::from_secs(CHECK_FREQ.clamp(1, u16::MAX as u64) * 60)) => {
+                    #[cfg(windows)]
+                    let cwd = std::env::current_dir().unwrap_or("C:\\".into());
 
-            match SYSTEM.mounts() {
-                Ok(fss) => {
-                    for Filesystem { avail, fs_mounted_on, .. } in fss
-                        .into_iter()
-                        .filter(|fs| {
-                            #[cfg(not(windows))]
-                            return matches!(
-                                fs.fs_mounted_on.as_str(),
-                                "/" | ROOT_CACHE_DIR | ROOT_CACHE_NOMOUNT_DIR | TMP_LOGS_DIR
-                            );
+                    match SYSTEM.mounts() {
+                        Ok(fss) => {
+                            for Filesystem { avail, fs_mounted_on, .. } in fss
+                                .into_iter()
+                                .filter(|fs| {
+                                    #[cfg(not(windows))]
+                                    return matches!(
+                                        fs.fs_mounted_on.as_str(),
+                                        "/" | ROOT_CACHE_DIR | ROOT_CACHE_NOMOUNT_DIR | TMP_LOGS_DIR
+                                    );
 
-                            #[cfg(windows)]
-                            // We don't actually need entire path to cwd
-                            // our point of interest is only drive letter
-                            return cwd.starts_with(fs.fs_mounted_on.as_str());
-                        })
-                        .collect_vec()
-                    {
-                        if avail < ByteSize::mb(*MIN_FREE_DISK_SPACE_MB) {
+                                    #[cfg(windows)]
+                                    // We don't actually need entire path to cwd
+                                    // our point of interest is only drive letter
+                                    return cwd.starts_with(fs.fs_mounted_on.as_str());
+                                })
+                                .collect_vec()
+                            {
+                                if avail < ByteSize::mb(*MIN_FREE_DISK_SPACE_MB) {
+                                    windmill_common::utils::report_critical_error(
+                                        format!(
+                                            "Disk mounted on `{}` is low, {} available. Worker: {}",
+                                            &fs_mounted_on, avail, worker_name
+                                        ),
+                                        db.clone(),
+                                        Some("admins"),
+                                        None,
+                                    )
+                                    .await;
+                                }
+                            }
+                        }
+                        Err(e) => {
                             windmill_common::utils::report_critical_error(
-                                format!(
-                                    "Disk mounted on `{}` is low, {} available. Worker: {}",
-                                    &fs_mounted_on, avail, worker_name
-                                ),
+                                format!("Cannot read disk usage: {e}\n\nTracking of available disk space is not possible until issue is resolved."),
                                 db.clone(),
                                 Some("admins"),
                                 None,
@@ -101,20 +122,6 @@ pub fn start_disk_usage_checks(worker_name: String, db: DB) {
                         }
                     }
                 }
-                Err(e) => {
-                    windmill_common::utils::report_critical_error(
-                                    format!("Cannot read disk usage: {e}\n\nTracking of available disk space is not possible until issue is resolved."),
-                                    db.clone(),
-                                    Some("admins"),
-                                    None,
-                                )
-                                .await;
-                }
-            }
-
-            {
-                let mins = CHECK_FREQ.clamp(1, u16::MAX as u64);
-                tokio::time::sleep(Duration::from_secs(mins * 60)).await;
             }
         }
     });

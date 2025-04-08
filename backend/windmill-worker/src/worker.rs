@@ -1049,7 +1049,11 @@ pub async fn run_worker(
     #[cfg(feature = "enterprise")]
     // Periodically check disks for low memory
     // if so send critical alert
-    crate::result_processor::start_disk_usage_checks(worker_name.clone(), db.clone());
+    crate::result_processor::start_disk_usage_checks(
+        killpill_tx.subscribe(),
+        worker_name.clone(),
+        db.clone(),
+    );
 
     let send_result = start_background_processor(
         job_completed_rx,
