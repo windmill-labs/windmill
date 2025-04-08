@@ -76,7 +76,7 @@
 {:else}
 	<div class="flex flex-col gap-4">
 		<Description link="https://cloud.google.com/pubsub/docs?hl=en">
-			GCP Pub/Sub Pub/Sub triggers allow your scripts or flows to process messages from Google Cloud
+			GCP Pub/Sub triggers allow your scripts or flows to process messages from Google Cloud
 			Pub/Sub in real time. Each trigger listens to a Pub/Sub subscription and executes a script or
 			a flow when new messages are published to the corresponding topic.
 		</Description>
