@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n        SELECT \n            gcp_resource_path, \n            script_path,\n            is_flow, \n            workspace_id,\n            path,\n            edited_by,\n            email,\n            delivery_config AS \"delivery_config: _\"\n        FROM\n            gcp_trigger\n        WHERE\n            workspace_id = $1 AND\n            delivery_type = 'push'::DELIVERY_MODE AND \n            delivery_config ->> 'route_path' = $2\n        ",
+  "query": "\n        SELECT \n            gcp_resource_path, \n            script_path,\n            is_flow, \n            workspace_id,\n            path,\n            edited_by,\n            email,\n            delivery_config AS \"delivery_config: _\"\n        FROM\n            gcp_trigger\n        WHERE\n            workspace_id = $1 AND\n            path = $2 AND\n            delivery_type = 'push'::DELIVERY_MODE \n        ",
   "describe": {
     "columns": [
       {
@@ -61,5 +61,5 @@
       true
     ]
   },
-  "hash": "c929881bbdc27cc1a924a4b4108caf5a867b055307468869f1000258587b2e33"
+  "hash": "5303206bbed76ee3ddc56d8057d8b82359c182ee2a5da6df35a4375d5d2d1ef7"
 }

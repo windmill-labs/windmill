@@ -1,0 +1,36 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                SELECT \n                    trigger_config AS \"trigger_config: _\", \n                    owner, \n                    email\n                FROM \n                    capture_config\n                WHERE \n                    workspace_id = $1\n                    AND path = $2 \n                    AND is_flow = $3 \n                    AND trigger_kind = 'gcp'\n                    AND trigger_config IS NOT NULL\n                    AND trigger_config ->> 'delivery_type' = 'push'\n                    AND last_client_ping > NOW() - INTERVAL '10 seconds'\n                ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "trigger_config: _",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 1,
+        "name": "owner",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 2,
+        "name": "email",
+        "type_info": "Varchar"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Bool"
+      ]
+    },
+    "nullable": [
+      true,
+      false,
+      false
+    ]
+  },
+  "hash": "ac04ba704a6b65e0f6c7484bbc38975768fd20875215c11eb5df92b8fc1b7551"
+}
