@@ -271,6 +271,14 @@
 		dispatch('update')
 		drawer?.closeDrawer()
 	}
+
+	$effect(() => {
+		dispatch('update-config', {
+			route_path,
+			http_method,
+			isValid
+		})
+	})
 </script>
 
 {#if static_asset_config}

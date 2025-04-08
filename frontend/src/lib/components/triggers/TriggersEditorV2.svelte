@@ -7,7 +7,7 @@
 	import type { TriggerContext } from '$lib/components/triggers'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import TriggersTable from './TriggersTable.svelte'
-	import RouteEditorInner from './http/RouteEditorInner.svelte'
+	import RouteEditorWrapper from './http/RouteEditorWrapper.svelte'
 	import CaptureWrapper from './CaptureWrapperV2.svelte'
 
 	export let noEditor: boolean
@@ -20,10 +20,9 @@
 	export let isFlow: boolean
 	export let canHavePreprocessor: boolean = false
 	export let hasPreprocessor: boolean = false
-	export let args: Record<string, any> = {}
 
 	let eventStreamType: 'kafka' | 'nats' | 'sqs' | 'mqtt' = 'kafka'
-	let routeEditor: RouteEditorInner | null = null
+	let args: Record<string, any> = {}
 
 	const { selectedTrigger: contextSelectedTrigger, simplifiedPoll } =
 		getContext<TriggerContext>('TriggerContext')
@@ -53,18 +52,6 @@
 	) {
 		selectedTrigger = event.detail
 	}
-
-	$: selectedTrigger?.type === 'routes' &&
-		routeEditor &&
-		openRouteEditor(selectedTrigger.path, isFlow, selectedTrigger.isDraft ?? false)
-
-	function openRouteEditor(path: string, isFlow: boolean, isDraft: boolean) {
-		if (isDraft) {
-			routeEditor?.openNew(isFlow, currentPath)
-		} else {
-			routeEditor?.openEdit(path, isFlow)
-		}
-	}
 </script>
 
 <FlowCard {noEditor} title="Triggers">
@@ -87,7 +74,14 @@
 						<!-- Trigger configuration will go here -->
 						{#if selectedTrigger}
 							{#if selectedTrigger.type === 'routes'}
-								<RouteEditorInner useDrawer={false} bind:this={routeEditor} hideTarget />
+								<RouteEditorWrapper
+									{selectedTrigger}
+									{isFlow}
+									{currentPath}
+									on:update-config={({ detail }) => {
+										args = detail
+									}}
+								/>
 							{:else if selectedTrigger.isDraft}
 								<h3 class="text-sm font-medium">Configure new {selectedTrigger.type} trigger</h3>
 								<!-- New trigger configuration component would go here -->
@@ -113,6 +107,7 @@
 						captureType={'http'}
 						{hasPreprocessor}
 						{canHavePreprocessor}
+						{args}
 						on:applyArgs
 						on:updateSchema
 						on:addPreprocessor

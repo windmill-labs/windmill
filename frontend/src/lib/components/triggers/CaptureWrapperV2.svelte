@@ -5,7 +5,7 @@
 	import { capitalize, isObject, sendUserToast, sleep } from '$lib/utils'
 	import { isCloudHosted } from '$lib/cloud'
 	import Alert from '../common/alert/Alert.svelte'
-	import RouteEditorConfigSection from './http/RouteEditorConfigSectionV2.svelte'
+	import RouteCapture from './http/RouteCapture.svelte'
 	import WebsocketEditorConfigSection from './websocket/WebsocketEditorConfigSection.svelte'
 	import WebhooksConfigSection from './webhook/WebhooksConfigSection.svelte'
 	import EmailTriggerConfigSection from '../details/EmailTriggerConfigSection.svelte'
@@ -249,16 +249,11 @@
 				on:testWithArgs
 			/>
 		{:else if captureType === 'http'}
-			<RouteEditorConfigSection
-				{showCapture}
-				can_write={true}
+			<RouteCapture
 				runnableArgs={data?.args}
-				bind:route_path={args.route_path}
-				bind:http_method={args.http_method}
-				bind:raw_string={args.raw_string}
-				bind:wrap_body={args.wrap_body}
-				capture_mode={true}
-				headless
+				route_path={args.route_path}
+				http_method={args.http_method}
+				isValid={args.isValid}
 				{captureInfo}
 				bind:captureTable
 				on:applyArgs

@@ -3,7 +3,6 @@
 	import Label from '$lib/components/Label.svelte'
 	import CopyableCodeBlock from '$lib/components/details/CopyableCodeBlock.svelte'
 	import { bash } from 'svelte-highlight/languages'
-	import { HttpTriggerService } from '$lib/gen'
 	// import { page } from '$app/stores'
 	import { base } from '$lib/base'
 	import type { CaptureInfo } from '../CaptureSectionV2.svelte'
@@ -12,73 +11,20 @@
 	import ClipboardPanel from '../../details/ClipboardPanel.svelte'
 	import { isObject } from '$lib/utils'
 
-	export let initialTriggerPath: string | undefined = undefined
-	export let dirtyRoutePath: boolean = false
 	export let route_path: string | undefined
 	export let http_method: 'get' | 'post' | 'put' | 'patch' | 'delete' | undefined
-	export let can_write: boolean = false
-	export let static_asset_config: { s3: string; storage?: string; filename?: string } | undefined =
-		undefined
-	export let showCapture = false
-	export let headless: boolean = false
 	export let captureInfo: CaptureInfo | undefined = undefined
 	export let captureTable: CaptureTable | undefined = undefined
-	export let workspaced_route: boolean = false
-	export let isValid = false
 	export let runnableArgs: any = {}
-	export let raw_string: boolean = false
-	export let wrap_body: boolean = false
-	export let capture_mode: boolean
+	export let isValid: boolean = false
 
-	const captureURL = `${location.origin}${base}/api/w/${$workspaceStore}/capture_u/http/${
+	$: captureURL = `${location.origin}${base}/api/w/${$workspaceStore}/capture_u/http/${
 		captureInfo?.isFlow ? 'flow' : 'script'
 	}/${captureInfo?.path.replaceAll('/', '.')}/${route_path}`
-	const cleanedRunnableArgs =
+	$: cleanedRunnableArgs =
 		isObject(runnableArgs) && 'wm_trigger' in runnableArgs
 			? Object.fromEntries(Object.entries(runnableArgs).filter(([key]) => key !== 'wm_trigger'))
 			: runnableArgs
-
-	let validateTimeout: NodeJS.Timeout | undefined = undefined
-
-	let routeError: string = ''
-	async function validateRoute(
-		routePath: string | undefined,
-		method: typeof http_method,
-		workspaced_route: boolean
-	): Promise<void> {
-		if (validateTimeout) {
-			clearTimeout(validateTimeout)
-		}
-		validateTimeout = setTimeout(async () => {
-			if (!routePath || !method || !/^:?[-\w]+(\/:?[-\w]+)*$/.test(routePath)) {
-				routeError = 'Endpoint not valid'
-			} else if (await routeExists(routePath, method, workspaced_route)) {
-				routeError = 'Endpoint already taken'
-			} else {
-				routeError = ''
-			}
-			validateTimeout = undefined
-		}, 500)
-	}
-	async function routeExists(
-		route_path: string,
-		method: Exclude<typeof http_method, undefined>,
-		workspaced_route: boolean
-	) {
-		return await HttpTriggerService.existsRoute({
-			workspace: $workspaceStore!,
-			requestBody: {
-				route_path,
-				http_method: method,
-				trigger_path: initialTriggerPath,
-				workspaced_route: workspaced_route
-			}
-		})
-	}
-
-	$: validateRoute(route_path, http_method, workspaced_route)
-
-	$: isValid = routeError === ''
 
 	$: !http_method && (http_method = 'post')
 	$: route_path === undefined && (route_path = '')
