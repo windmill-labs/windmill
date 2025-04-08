@@ -169,7 +169,7 @@
 									<ToggleButton value="nats" label="NATS" icon={NatsIcon} {item} />
 									<ToggleButton value="mqtt" label="MQTT" icon={MqttIcon} {item} />
 									<ToggleButton value="sqs" label="SQS" icon={AwsIcon} {item} />
-									<ToggleButton value="gcp" label="GCP Pub/Sub" icon={GoogleCloudIcon} {item} />
+									<ToggleButton value="gcp" label="GCP" icon={GoogleCloudIcon} {item} />
 								</ToggleButtonGroup>
 								{#if eventStreamType === 'kafka'}
 									<KafkaTriggersPanel

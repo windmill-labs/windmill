@@ -79,7 +79,7 @@
 			gcp_resource_path = defaultValues?.gcp_resource_path ?? ''
 			delivery_type = defaultValues?.delivery_type ?? 'pull'
 			delivery_config = defaultValues?.delivery_config ?? undefined
-			subscription_id = defaultValues?.subscription_id ?? ''
+			subscription_id = ''
 			topic_id = defaultValues?.topic_id
 			subscription_mode = defaultValues?.subscription_mode ?? 'create_update'
 			path = ''

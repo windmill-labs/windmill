@@ -200,7 +200,7 @@
 							<ToggleButton
 								label="Existing subscription"
 								value="existing"
-								tooltip="Connect to an existing subscription in GCP Pub/Sub Pub/Sub"
+								tooltip="Connect to an existing subscription in GCP Pub/Sub subscription"
 								showTooltipIcon
 								{item}
 							/>

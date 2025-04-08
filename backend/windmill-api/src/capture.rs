@@ -336,6 +336,7 @@ async fn set_postgres_trigger_config(
     Ok(capture_config)
 }
 
+#[inline]
 #[cfg(not(feature = "postgres_trigger"))]
 async fn set_postgres_trigger_config(
     _w_id: &str,
@@ -712,59 +713,37 @@ async fn get_capture_trigger_config_and_owner<T: DeserializeOwned>(
         owner: String,
         email: String,
     }
-    let capture_config = match kind {
-        TriggerKind::Gcp => {
-            sqlx::query_as!(
-                CaptureTriggerConfigAndOwner,
-                r#"
-                SELECT 
-                    trigger_config AS "trigger_config: _", 
-                    owner, 
-                    email
-                FROM 
-                    capture_config
-                WHERE 
-                    workspace_id = $1
-                    AND path = $2 
-                    AND is_flow = $3 
-                    AND trigger_kind = 'gcp'
-                    AND trigger_config IS NOT NULL
+    let capture_config = sqlx::query_as!(
+        CaptureTriggerConfigAndOwner,
+        r#"
+        SELECT 
+            trigger_config AS "trigger_config: _", 
+            owner, 
+            email
+        FROM 
+            capture_config
+        WHERE 
+            workspace_id = $1
+            AND path = $2
+            AND is_flow = $3
+            AND trigger_kind = $4
+            AND last_client_ping > NOW() - INTERVAL '10 seconds'
+            AND (
+                $5::bool IS FALSE
+                OR (
+                    trigger_config IS NOT NULL
                     AND trigger_config ->> 'delivery_type' = 'push'
-                    AND last_client_ping > NOW() - INTERVAL '10 seconds'
-                "#,
-                &w_id,
-                &path,
-                is_flow
+                )
             )
-            .fetch_optional(db)
-            .await?
-        }
-        _ => {
-            sqlx::query_as!(
-                CaptureTriggerConfigAndOwner,
-                r#"
-                SELECT 
-                    trigger_config AS "trigger_config: _", 
-                    owner, 
-                    email
-                FROM 
-                    capture_config
-                WHERE 
-                    workspace_id = $1 
-                    AND path = $2 
-                    AND is_flow = $3 
-                    AND trigger_kind = $4 
-                    AND last_client_ping > NOW() - INTERVAL '10 seconds'
-                "#,
-                &w_id,
-                &path,
-                is_flow,
-                kind as &TriggerKind,
-            )
-            .fetch_optional(db)
-            .await?
-        }
-    };
+        "#,
+        &w_id,
+        &path,
+        is_flow,
+        kind as &TriggerKind,
+        matches!(kind, TriggerKind::Gcp)
+    )
+    .fetch_optional(db)
+    .await?;
 
     let capture_config = not_found_if_none(
         capture_config,

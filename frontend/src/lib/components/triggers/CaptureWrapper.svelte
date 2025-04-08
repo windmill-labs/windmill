@@ -29,6 +29,7 @@
 	export let showCapture = false
 	export let data: any = {}
 	export let connectionInfo: ConnectionInfo | undefined = undefined
+	export let loading = false
 	export let args: Record<string, any> = {}
 	export let captureTable: CaptureTable | undefined = undefined
 
@@ -48,6 +49,7 @@
 			}
 		}
 		try {
+			loading = true
 			args = await CaptureService.setCaptureConfig({
 				requestBody: {
 					trigger_kind: captureType,
@@ -57,9 +59,10 @@
 				},
 				workspace: $workspaceStore!
 			})
-
+			loading = false
 			return true
 		} catch (error) {
+			loading = false
 			sendUserToast(error.body, true)
 			return false
 		}
@@ -198,7 +201,8 @@
 		canHavePreprocessor,
 		isFlow,
 		path,
-		connectionInfo
+		connectionInfo,
+		loading: loading
 	}
 
 	$: args && (captureActive = false)

@@ -288,7 +288,7 @@
 		<div class="w-full pb-4 pt-6">
 			<input
 				type="text"
-				placeholder="Search GCP Pub/Sub triggers"
+				placeholder="Search triggers"
 				bind:value={filter}
 				class="search-item"
 			/>
