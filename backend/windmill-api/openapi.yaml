@@ -14718,8 +14718,6 @@ components:
     PushConfig:
       type: object
       properties:
-        route_path:
-          type: string
         audience:
           type: string
         authenticate:

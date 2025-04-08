@@ -155,7 +155,7 @@
 							subscription_mode,
 							subscription_id,
 							delivery_type,
-							delivery_config: delivery_config ? { route_path: '', ...delivery_config } : undefined,
+							delivery_config: delivery_config,
 							base_endpoint: `${window.location.origin}${base}`
 						},
 						topic_id,
@@ -266,7 +266,7 @@
 								btnClasses="ml-4 mt-2"
 								color="dark"
 								size="xs"
-								href={itemKind === 'flow' ? '/flows/add?hub=68' : '/scripts/add?hub=hub%2F11675'}
+								href={itemKind === 'flow' ? '/flows/add?hub=68' : '/scripts/add?hub=hub%2F14250'}
 								target="_blank">Create from template</Button
 							>
 						{/if}
@@ -281,6 +281,7 @@
 					bind:delivery_config
 					bind:topic_id
 					bind:subscription_mode
+					bind:path={path}
 					cloud_subscription_id={subscription_id}
 					create_update_subscription_id={subscription_id}
 					{can_write}

@@ -724,17 +724,13 @@ export const TS_PREPROCESSOR_MODULE_CODE = `export async function preprocessor(
       }
     },
     gcp?: {
-      attributes?: Record<string, string>,
       message_id: string,
       subscription: string,
       ordering_key?: string,
-      pull?: {
-        publish_time?: number,
-      },
-      push?: {
-        headers: Record<string, string>,
-        publish_time: string
-      }
+      attributes?: Record<string, string>,
+      delivery_type: "push" | "pull",
+      headers?: Record<string, string>,
+      publish_time?: string,
     }
   }
 ) {
@@ -862,21 +858,16 @@ class Mqtt(TypedDict):
     qos: int
     v5: MqttV5Properties | None
 
-class PullExtraInfo(TypedDict):
-    publish_time: int | None
-
-class PushExtraInfo(TypedDict):
-    headers: dict[str, str] | None
-    publish_time: str
-
 class Gcp(TypedDict):
-    attributes: dict[str, str] | None
     message_id: str
     subscription: str
     ordering_key: str | None
-    pull: PullExtraInfo | None
-    push: PushExtraInfo | None
-
+    attributes: dict[str, str] | None
+    delivery_type: Literal["push", "pull"]
+    headers: dict[str, str] | None
+    publish_time: str | None
+  
+    
 class WmTrigger(TypedDict):
     kind: Literal["http", "email", "webhook", "websocket", "kafka", "nats", "postgres", "sqs", "mqtt", "gcp"]
     http: Http | None

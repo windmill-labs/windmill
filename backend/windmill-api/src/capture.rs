@@ -108,9 +108,11 @@ pub fn workspaced_unauthed_service() -> Router {
         all(feature = "enterprise", feature = "gcp_trigger")
     ))]
     {
-        router.route("/:trigger_kind/:runnable_kind/:path/*route_path", {
-            head(|| async {}).fallback(trigger_capture_payload)
-        })
+        router
+            .route("/http/:runnable_kind/:path/*route_path", {
+                head(|| async {}).fallback(http_payload)
+            })
+            .route("/gcp/:runnable_kind/:path", post(gcp_payload))
     }
 
     #[cfg(not(any(
@@ -697,7 +699,6 @@ async fn get_capture_trigger_config_and_owner<T: DeserializeOwned>(
     db: &DB,
     w_id: &str,
     path: &str,
-    route_path: &str,
     is_flow: bool,
     kind: &TriggerKind,
 ) -> Result<(T, String, String)> {
@@ -707,7 +708,7 @@ async fn get_capture_trigger_config_and_owner<T: DeserializeOwned>(
         owner: String,
         email: String,
     }
-
+    println!("{:#?}", path);
     let capture_config = match kind {
         TriggerKind::Gcp => {
             sqlx::query_as!(
@@ -724,15 +725,13 @@ async fn get_capture_trigger_config_and_owner<T: DeserializeOwned>(
                     AND path = $2 
                     AND is_flow = $3 
                     AND trigger_kind = 'gcp'
-                    AND last_client_ping > NOW() - INTERVAL '10 seconds'
                     AND trigger_config IS NOT NULL
                     AND trigger_config ->> 'delivery_type' = 'push'
-                    AND trigger_config -> 'delivery_config' ->> 'route_path' = $4
+                    AND last_client_ping > NOW() - INTERVAL '10 seconds'
                 "#,
                 &w_id,
                 &path,
-                is_flow,
-                route_path
+                is_flow
             )
             .fetch_optional(db)
             .await?
@@ -896,26 +895,16 @@ async fn webhook_payload(
 
 #[cfg(all(feature = "enterprise", feature = "gcp_trigger"))]
 async fn gcp_payload(
-    db: &DB,
-    user_db: UserDB,
-    w_id: String,
-    path: String,
-    route_path: &str,
-    kind: RunnableKind,
+    Extension(db): Extension<DB>,
+    Extension(user_db): Extension<UserDB>,
+    Path((w_id, runnable_kind, path)): Path<(String, RunnableKind, String)>,
     headers: HeaderMap,
     request: Request,
-    is_flow: bool,
-) -> Result<()> {
+) -> Result<StatusCode> {
+    let path = path.replace(".", "/");
+    let is_flow = matches!(runnable_kind, RunnableKind::Flow);
     let (gcp_trigger_config, owner, email): (GcpTriggerConfig, _, _) =
-        get_capture_trigger_config_and_owner(
-            db,
-            &w_id,
-            &path,
-            route_path,
-            matches!(kind, RunnableKind::Flow),
-            &TriggerKind::Gcp,
-        )
-        .await?;
+        get_capture_trigger_config_and_owner(&db, &w_id, &path, is_flow, &TriggerKind::Gcp).await?;
 
     let authed = fetch_api_authed(owner.clone(), email, &w_id, &db, None).await?;
 
@@ -924,7 +913,7 @@ async fn gcp_payload(
     };
 
     validate_jwt_token(
-        db,
+        &db,
         user_db.clone(),
         authed.clone(),
         &headers,
@@ -939,7 +928,7 @@ async fn gcp_payload(
     let payload = PushArgsOwned { args, extra: None };
 
     let _ = insert_capture_payload(
-        db,
+        &db,
         &w_id,
         &path,
         is_flow,
@@ -950,32 +939,25 @@ async fn gcp_payload(
     )
     .await?;
 
-    Ok(())
+    Ok(StatusCode::NO_CONTENT)
 }
 
 #[cfg(feature = "http_trigger")]
 async fn http_payload(
-    db: &DB,
-    route_path: &str,
-    w_id: String,
+    Extension(db): Extension<DB>,
+    Path((w_id, runnable_kind, path, route_path)): Path<(String, RunnableKind, String, StripPath)>,
+    Query(query): Query<HashMap<String, String>>,
     method: http::Method,
-    query: HashMap<String, String>,
     headers: HeaderMap,
-    path: String,
-    is_flow: bool,
     request: Request,
-) -> std::result::Result<(), Response> {
+) -> std::result::Result<StatusCode, Response> {
+    let path = path.replace(".", "/");
+    let is_flow = matches!(runnable_kind, RunnableKind::Flow);
+    let route_path = route_path.to_path();
     let (http_trigger_config, owner, email): (HttpTriggerConfig, _, _) =
-        get_capture_trigger_config_and_owner(
-            &db,
-            &w_id,
-            &path,
-            route_path,
-            is_flow,
-            &TriggerKind::Http,
-        )
-        .await
-        .map_err(|e| e.into_response())?;
+        get_capture_trigger_config_and_owner(&db, &w_id, &path, is_flow, &TriggerKind::Http)
+            .await
+            .map_err(|e| e.into_response())?;
 
     let args = try_from_request_body(
         request,
@@ -1037,61 +1019,6 @@ async fn http_payload(
     )
     .await
     .map_err(|e| e.into_response())?;
-
-    Ok(())
-}
-
-#[cfg(any(
-    feature = "http_trigger",
-    all(feature = "enterprise", feature = "gcp_trigger")
-))]
-async fn trigger_capture_payload(
-    Extension(db): Extension<DB>,
-    Path((w_id, trigger_kind, kind, path, route_path)): Path<(
-        String,
-        TriggerKind,
-        RunnableKind,
-        String,
-        StripPath,
-    )>,
-    #[cfg(feature = "http_trigger")] Query(query): Query<HashMap<String, String>>,
-    #[cfg(feature = "http_trigger")] method: http::Method,
-    headers: HeaderMap,
-    request: Request,
-) -> std::result::Result<StatusCode, Response> {
-    let path = path.replace(".", "/");
-    let route_path = route_path.to_path();
-    let is_flow = matches!(kind, RunnableKind::Flow);
-
-    match trigger_kind {
-        TriggerKind::Http => {
-            #[cfg(feature = "http_trigger")]
-            {
-                http_payload(
-                    &db, route_path, w_id, method, query, headers, path, is_flow, request,
-                )
-                .await
-                .map_err(|e| e.into_response())?;
-            }
-        }
-        TriggerKind::Gcp => {
-            #[cfg(all(feature = "enterprise", feature = "gcp_trigger"))]
-            gcp_payload(
-                &db,
-                UserDB::new(db.clone()),
-                w_id,
-                path,
-                route_path,
-                kind,
-                headers,
-                request,
-                is_flow,
-            )
-            .await
-            .map_err(|e| e.into_response())?;
-        }
-        _ => {}
-    }
 
     Ok(StatusCode::NO_CONTENT)
 }

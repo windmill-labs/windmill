@@ -12,13 +12,7 @@ CREATE TABLE gcp_trigger (
                               CHAR_LENGTH(subscription_id) BETWEEN 3 AND 255
                            ),
     delivery_type         DELIVERY_MODE NOT NULL,
-    delivery_config       JSONB NULL CHECK (
-                              delivery_type != 'push'::DELIVERY_MODE OR (
-                                  delivery_config IS NOT NULL AND
-                                  delivery_config ? 'route_path' AND
-                                  jsonb_typeof(delivery_config->'route_path') = 'string'
-                              )
-                           ),
+    delivery_config       JSONB NULL CHECK (delivery_type != 'push'::DELIVERY_MODE OR (delivery_config IS NOT NULL)),
     path                  VARCHAR(255) NOT NULL,
     script_path           VARCHAR(255) NOT NULL,
     is_flow               BOOLEAN NOT NULL,
@@ -33,10 +27,6 @@ CREATE TABLE gcp_trigger (
     enabled               BOOLEAN NOT NULL,
     PRIMARY KEY (path, workspace_id)
 );
-
-CREATE UNIQUE INDEX unique_route_path_on_push
-ON gcp_trigger ((delivery_config->>'route_path'), workspace_id)
-WHERE delivery_type = 'push';
 
 CREATE UNIQUE INDEX unique_subscription_per_gcp_resource
 ON gcp_trigger (subscription_id, gcp_resource_path, workspace_id);

@@ -41,13 +41,13 @@
 	export let delivery_config: PushConfig | undefined
 	export let subscription_mode: SubscriptionMode = 'create_update'
 	export let base_endpoint: string = getBaseUrl(captureInfo)
+	export let path = captureInfo ? captureInfo.path.replaceAll('/', '.') : ''
 
 	let topic_items: string[] = []
 	let subscription_items: string[] = []
 	let darkMode = false
 
 	const DEFAULT_PUSH_CONFIG: PushConfig = {
-		route_path: '',
 		audience: '',
 		authenticate: false,
 		base_endpoint
@@ -89,7 +89,7 @@
 		if (captureInfo) {
 			return `${location.origin}${base}/api/w/${$workspaceStore}/capture_u/gcp/${
 				captureInfo.isFlow ? 'flow' : 'script'
-			}/${captureInfo.path.replaceAll('/', '.')}`
+			}`
 		} else {
 			return `${window.location.origin}${base}/api/gcp/w/${$workspaceStore!}`
 		}
@@ -102,7 +102,7 @@
 
 <div>
 	{#if showCapture && captureInfo}
-		{@const captureURL = `${base_endpoint}/${delivery_config?.route_path ?? ''}`}
+		{@const captureURL = `${base_endpoint}/${path}`}
 		<CaptureSection
 			captureType="gcp"
 			disabled={!isValid}
@@ -178,7 +178,7 @@
 				<Section
 					label="Subscription"
 					tooltip="Choose whether to create or update a Pub/Sub subscription, or link an existing one from your Google Cloud project."
-					documentationLink="http://localhost:3001/docs/core_concepts/gcp_triggers#subscription-setup"
+					documentationLink="https://www.windmill.dev/docs/core_concepts/gcp_triggers#subscription-setup"
 				>
 					<div class="flex flex-col gap-3">
 						<ToggleButtonGroup
@@ -249,44 +249,41 @@
 								</Subsection>
 								{#if delivery_type === 'push' && delivery_config}
 									<div class="flex flex-col gap-3 mt-1">
-										{#if delivery_config.route_path}
-											{@const fullUrl = `${base_endpoint}/${delivery_config?.route_path ?? ''}`}
-											<Subsection
-												label="URL"
-												tooltip="The URL of the service that receives push messages."
-											>
-												<div class="flex gap-2">
-													<input
-														type="text"
-														autocomplete="off"
-														placeholder="URL"
-														disabled
-														value={`${base_endpoint}/${delivery_config.route_path ?? ''}`}
-													/>
-													<Button
-														on:click={() => copyToClipboard(fullUrl)}
-														color="dark"
-														size="xs"
-														startIcon={{ icon: ClipboardCopy }}
-													>
-														Copy URL
-													</Button>
-												</div>
-											</Subsection>
-											<Subsection
-												label="Audience"
-												tooltip="Provide the expected audience value for verifying OIDC tokens in push requests. If
-										left empty, the URL of the endpoint will be used as the default audience"
-											>
+										<Subsection
+											label="URL"
+											tooltip="The URL of the service that receives push messages."
+										>
+											<div class="flex gap-2">
 												<input
 													type="text"
 													autocomplete="off"
-													placeholder="audience"
-													bind:value={delivery_config.audience}
-													disabled={!can_write}
+													placeholder="URL"
+													disabled
+													value={`${base_endpoint}/${path}`}
 												/>
-											</Subsection>
-										{/if}
+												<Button
+													on:click={() => copyToClipboard(`${base_endpoint}/${path}`)}
+													color="dark"
+													size="xs"
+													startIcon={{ icon: ClipboardCopy }}
+												>
+													Copy URL
+												</Button>
+											</div>
+										</Subsection>
+										<Subsection
+											label="Audience"
+											tooltip="Provide the expected audience value for verifying OIDC tokens in push requests. If
+										left empty, the URL of the endpoint will be used as the default audience"
+										>
+											<input
+												type="text"
+												autocomplete="off"
+												placeholder="audience"
+												bind:value={delivery_config.audience}
+												disabled={!can_write}
+											/>
+										</Subsection>
 										<Subsection label="Authenticate">
 											<p class="text-xs mb-2 text-tertiary">
 												Enable Google Cloud authentication for push delivery using a verified token.<Required
