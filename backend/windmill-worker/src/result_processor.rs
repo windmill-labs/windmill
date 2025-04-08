@@ -67,7 +67,8 @@ pub fn start_background_processor(
         let mut infos = BenchmarkInfo::new();
 
         #[cfg(feature = "enterprise")]
-        let (mut reported_low_disk, mut reported_cannot_read_disk) = (false, false);
+        let (mut reported_low_disk, mut reported_cannot_read_disk) =
+            (std::collections::HashSet::new(), false);
 
         //if we have been killed, we want to drain the queue of jobs
         while let Some(sr) = {
@@ -216,48 +217,76 @@ pub fn start_background_processor(
             }
             #[cfg(feature = "enterprise")]
             {
+                use itertools::Itertools;
+                use std::ops::*;
                 use systemstat::*;
+                use tokio::sync::RwLock;
+                use windmill_common::worker::*;
                 lazy_static::lazy_static! {
                     static ref SYSTEM: System = System::new();
                     static ref DEF_MIN_SPACE: u64 = 5_000;
                     static ref MIN_FREE_DISK_SPACE_MB: u64 =
                     std::env::var("MIN_FREE_DISK_SPACE_MB").map(|v| v.parse::<u64>().unwrap_or(*DEF_MIN_SPACE)).unwrap_or(*DEF_MIN_SPACE);
+                    static ref DEF_FREQ: u64 = 10;
+                    static ref CHECK_FREQ: u64 =
+                    std::env::var("DISK_SPACE_CHECK_FREQ").map(|v| v.parse::<u64>().unwrap_or(*DEF_FREQ)).unwrap_or(*DEF_FREQ);
+                    static ref SKIP: RwLock<u64>  = RwLock::new(0);
                 }
-                // TODO: Test on windows
-                // TODO: Rerun benchmark
-                match SYSTEM.mount_at("/") {
-                    Ok(Filesystem { avail, .. })
-                        if avail < ByteSize::mb(*MIN_FREE_DISK_SPACE_MB) =>
-                    {
-                        // Only alert once
-                        if !reported_low_disk {
-                            windmill_common::utils::report_critical_error(
-                                format!(
-                                    "Disk is low on worker ({}): {} available",
-                                    worker_name, avail,
-                                ),
-                                db.clone(),
-                                Some("admins"),
-                                None,
-                            )
-                            .await;
-                            reported_low_disk = true;
+
+                if *SKIP.read().await == 0 {
+                    SKIP.write().await.add_assign(*CHECK_FREQ);
+                    match SYSTEM.mounts() {
+                        Ok(fss) => {
+                            reported_cannot_read_disk = false;
+                            for Filesystem { avail, fs_mounted_on, .. } in fss
+                                .into_iter()
+                                .filter(|fs| {
+                                    matches!(
+                                        fs.fs_mounted_on.as_str(),
+                                        "/" | ROOT_CACHE_DIR
+                                            | ROOT_CACHE_NOMOUNT_DIR
+                                            | TMP_LOGS_DIR
+                                    )
+                                })
+                                .collect_vec()
+                            {
+                                let reported = reported_low_disk.contains(&fs_mounted_on);
+
+                                if avail >= ByteSize::mb(*MIN_FREE_DISK_SPACE_MB) {
+                                    if reported {
+                                        reported_low_disk.remove(&fs_mounted_on);
+                                    }
+                                } else if !reported {
+                                    windmill_common::utils::report_critical_error(
+                                        format!(
+                                            "Disk mounted on `{}` is low, {} available. Worker: {}",
+                                            &fs_mounted_on, avail, worker_name
+                                        ),
+                                        db.clone(),
+                                        Some("admins"),
+                                        None,
+                                    )
+                                    .await;
+                                    reported_low_disk.insert(fs_mounted_on);
+                                }
+                            }
+                        }
+                        Err(e) => {
+                            // Only alert once
+                            if !reported_cannot_read_disk {
+                                windmill_common::utils::report_critical_error(
+                                    format!("Cannot read disk usage: {e}\n\nTracking of available disk space is not possible until issue is resolved."),
+                                    db.clone(),
+                                    Some("admins"),
+                                    None,
+                                )
+                                .await;
+                                reported_cannot_read_disk = true;
+                            }
                         }
                     }
-                    Err(e) => {
-                        // Only alert once
-                        if !reported_cannot_read_disk {
-                            windmill_common::utils::report_critical_error(
-                                format!("Cannot read disk usage: {e}"),
-                                db.clone(),
-                                Some("admins"),
-                                None,
-                            )
-                            .await;
-                            reported_cannot_read_disk = true;
-                        }
-                    }
-                    _ => (reported_low_disk, reported_cannot_read_disk) = (false, false),
+                } else {
+                    SKIP.write().await.sub_assign(1);
                 }
             }
         }
