@@ -13,9 +13,10 @@
 	import { runPreviewJobAndPollResult } from './jobs/utils'
 	import type { ScriptLang } from '$lib/gen'
 	import { Button } from './common'
-	import { Download } from 'lucide-svelte'
+	import { Download, Plus } from 'lucide-svelte'
 	import Popover from './Popover.svelte'
 	import { makeCountQuery } from './apps/components/display/dbtable/queries/count'
+	import DebouncedInput from './apps/components/helpers/DebouncedInput.svelte'
 
 	type Props = {
 		resourceType: DbType
@@ -46,7 +47,7 @@
 			const currentParams = {
 				offset: params.startRow,
 				limit: params.endRow - params.startRow,
-				quicksearch,
+				quicksearch: params.context.quicksearch,
 				order_by: params.sortModel?.[0]?.colId ?? tableMetadata?.[0]?.field,
 				is_desc: params.sortModel?.[0]?.sort === 'desc'
 			}
@@ -83,15 +84,11 @@
 		}).then((result) => (rowCount = result?.[0].count as number))
 	})
 
-	$effect(() => eGui && tableMetadata && mountGrid())
+	$effect(() => eGui && mountGrid())
 	function mountGrid() {
 		if (eGui) {
 			createGrid(eGui, {
 				rowModelType: 'infinite',
-				datasource,
-				columnDefs: transformColumnDefs({
-					columnDefs: tableMetadata ?? []
-				}),
 				pagination: false,
 				defaultColDef: {
 					editable: true, // TODO: configurable
@@ -111,10 +108,48 @@
 		}
 	}
 
+	$effect(() => {
+		;[quicksearch, tableMetadata]
+		updateGrid()
+	})
+	function updateGrid() {
+		api?.updateGridOptions({
+			datasource,
+			columnDefs: transformColumnDefs({
+				columnDefs: tableMetadata ?? []
+			}),
+			context: {
+				quicksearch
+			}
+		})
+	}
+
 	let { resourcePath, resourceType, tableKey }: Props = $props()
 </script>
 
 <DarkModeObserver bind:darkMode />
+
+<div class="flex py-2 h-12 justify-between gap-4">
+	<DebouncedInput
+		class="w-full max-w-[300px]"
+		type="text"
+		bind:value={quicksearch}
+		placeholder="Search..."
+	/>
+	<div class="flex flex-row gap-2">
+		<Button
+			startIcon={{ icon: Plus }}
+			color="dark"
+			size="xs2"
+			on:click={() => {
+				// args = {}
+				// insertDrawer?.openDrawer()
+			}}
+		>
+			Insert
+		</Button>
+	</div>
+</div>
 
 <div
 	class={'flex flex-col h-full component-wrapper divide-y wm-aggrid-container'}

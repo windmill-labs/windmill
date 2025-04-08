@@ -62,7 +62,7 @@
 </script>
 
 {#if !dbSchema}
-	<Loader2 size={14} class="animate-spin " />
+	<Loader2 size={14} class="animate-spin" />
 {:else if shouldDisplayError}
 	<Alert type="error" size="xs" title="Schema not available" class="mt-2">
 		Schema could not be loaded. Please check the permissions of the resource.
@@ -87,14 +87,18 @@
 			on:close={drawerRef.closeDrawer}
 			noPadding={mode === 'db-explorer'}
 		>
-			{#if mode === 'db-explorer'}
+			{#if refreshing}
+				<div class="h-full flex justify-center items-center">
+					<Loader2 size={24} class="animate-spin" />
+				</div>
+			{:else if mode === 'db-explorer'}
 				<DbExplorer {dbSchema} {resourceType} {resourcePath} />
 			{:else if mode === 'schema-explorer'}
 				<DbSchemaExplorer {dbSchema} />
 			{/if}
 			<svelte:fragment slot="actions">
 				<Button
-					btnClasses="!font-normal hover:text-white text-white/70"
+					btnClasses="!font-normal hover:text-primary text-primary/70"
 					size="xs"
 					color="light"
 					on:click={() => (mode = mode === 'db-explorer' ? 'schema-explorer' : 'db-explorer')}

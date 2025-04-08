@@ -78,12 +78,10 @@
 		</div>
 	</Pane>
 	<Pane class="p-3 pt-1">
-		{#key (selected.schemaKey, selected.tableKey)}
-			<DBTable
-				{resourcePath}
-				{resourceType}
-				tableKey={`${selected.schemaKey}.${selected.tableKey}`}
-			/>
-		{/key}
+		<DBTable
+			{resourcePath}
+			{resourceType}
+			tableKey={`${selected.schemaKey}.${selected.tableKey}`}
+		/>
 	</Pane>
 </Splitpanes>
