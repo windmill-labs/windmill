@@ -5,21 +5,22 @@
 	import {
 		type DbType,
 		type TableMetadata,
+		getLanguageByResourceType,
 		loadTableMetaData
 	} from './apps/components/display/dbtable/utils'
 	import { transformColumnDefs } from './apps/components/display/table/utils'
 	import DarkModeObserver from './DarkModeObserver.svelte'
 	import { makeSelectQuery } from './apps/components/display/dbtable/queries/select'
 	import { runPreviewJobAndPollResult } from './jobs/utils'
-	import type { ScriptLang } from '$lib/gen'
 	import { Button } from './common'
-	import { Download, Plus } from 'lucide-svelte'
+	import { Download } from 'lucide-svelte'
 	import Popover from './Popover.svelte'
 	import { makeCountQuery } from './apps/components/display/dbtable/queries/count'
 	import DebouncedInput from './apps/components/helpers/DebouncedInput.svelte'
 	import { makeUpdateQuery } from './apps/components/display/dbtable/queries/update'
 	import { makeDeleteQuery } from './apps/components/display/dbtable/queries/delete'
 	import InsertRowDrawerButton from './apps/components/display/InsertRowDrawerButton.svelte'
+	import { makeInsertQuery } from './apps/components/display/dbtable/queries/insert'
 
 	type Props = {
 		resourceType: DbType
@@ -60,7 +61,7 @@
 				workspace: $workspaceStore,
 				requestBody: {
 					args: { database: '$res:' + resourcePath, ...currentParams },
-					language: resourceType as ScriptLang,
+					language: getLanguageByResourceType(resourceType),
 					content: query
 				}
 			})) as unknown[]
@@ -81,7 +82,7 @@
 			workspace: $workspaceStore,
 			requestBody: {
 				args: { database: '$res:' + resourcePath, quicksearch },
-				language: resourceType as ScriptLang,
+				language: getLanguageByResourceType(resourceType),
 				content: countQuery
 			}
 		}).then((result) => (rowCount = result?.[0].count as number))
@@ -109,7 +110,7 @@
 									...(e.data as object),
 									[colDef.field]: e.oldValue
 								},
-								language: resourceType as ScriptLang,
+								language: getLanguageByResourceType(resourceType),
 								content: updateQuery
 							}
 						})
@@ -153,7 +154,7 @@
 						workspace: $workspaceStore,
 						requestBody: {
 							args: { database: '$res:' + resourcePath, ...values },
-							language: resourceType as ScriptLang,
+							language: getLanguageByResourceType(resourceType),
 							content: deleteQuery
 						}
 					})
@@ -189,8 +190,17 @@
 		<InsertRowDrawerButton
 			columnDefs={tableMetadata ?? []}
 			dbType={resourceType}
-			onInsert={() => {
-				// TODO
+			onInsert={(args) => {
+				if (!tableMetadata || !$workspaceStore) return
+				const insertQuery = makeInsertQuery(tableKey, tableMetadata, resourceType)
+				runPreviewJobAndPollResult({
+					workspace: $workspaceStore,
+					requestBody: {
+						args: { database: '$res:' + resourcePath, ...args },
+						language: getLanguageByResourceType(resourceType),
+						content: insertQuery
+					}
+				})
 			}}
 		/>
 	</div>
