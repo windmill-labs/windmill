@@ -68,7 +68,7 @@
 </script>
 
 <Splitpanes>
-	<Pane class="flex flex-col gap-1 mb-4 pr-2 py-2" size={40}>
+	<Pane class="flex flex-col gap-1 mb-4 pr-2 py-2" size={50}>
 		<div class="flex flex-col gap-1 mb-4">
 			<div class="flex justify-center w-full">
 				<PulseButton bind:this={pulseButton} numberOfPulses={1} pulseDuration={1}>
