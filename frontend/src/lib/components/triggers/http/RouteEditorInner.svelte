@@ -31,6 +31,8 @@
 	import { HubFlow } from '$lib/hub'
 	import RouteBodyTransformerOption from './RouteBodyTransformerOption.svelte'
 
+	let { useDrawer = true, hideTarget = false } = $props()
+
 	// Form data state
 	let initialPath = $state('')
 	let edit = $state(true)
@@ -283,46 +285,28 @@
 	/>
 {/if}
 
-<Drawer size="700px" bind:this={drawer}>
-	<DrawerContent
-		title={edit ? (can_write ? `Edit route ${initialPath}` : `Route ${initialPath}`) : 'New route'}
-		on:close={() => drawer?.closeDrawer()}
-	>
-		<svelte:fragment slot="actions">
-			{#if !drawerLoading && can_write}
-				<Button
-					startIcon={{ icon: Save }}
-					disabled={pathError != '' ||
-						!isValid ||
-						(!static_asset_config && emptyString(script_path)) ||
-						(static_asset_config && emptyString(static_asset_config.s3)) ||
-						!can_write}
-					on:click={triggerScript}
-				>
-					Save
-				</Button>
-			{/if}
-		</svelte:fragment>
-		{#if drawerLoading}
-			<Loader2 class="animate-spin" />
-		{:else}
-			<div class="flex flex-col gap-12">
-				<div class="flex flex-col gap-4">
-					<Label label="Path">
-						<Path
-							bind:dirty={dirtyPath}
-							bind:error={pathError}
-							bind:path
-							{initialPath}
-							checkInitialPathExistence={!edit}
-							namePlaceholder="route"
-							kind="http_trigger"
-							hideUser
-							disabled={!can_write}
-						/>
-					</Label>
-				</div>
+{#snippet config()}
+	{#if drawerLoading}
+		<Loader2 class="animate-spin" />
+	{:else}
+		<div class="flex flex-col gap-12">
+			<div class="flex flex-col gap-4">
+				<Label label="Path">
+					<Path
+						bind:dirty={dirtyPath}
+						bind:error={pathError}
+						bind:path
+						{initialPath}
+						checkInitialPathExistence={!edit}
+						namePlaceholder="route"
+						kind="http_trigger"
+						hideUser
+						disabled={!can_write}
+					/>
+				</Label>
+			</div>
 
+			{#if !hideTarget}
 				<Section label="Target">
 					{#if !isCloudHosted()}
 						<ToggleButtonGroup
@@ -465,181 +449,215 @@
 						</div>
 					{/if}
 				</Section>
+			{/if}
 
-				<RouteEditorConfigSection
-					initialTriggerPath={initialPath}
-					bind:route_path
-					bind:isValid
-					bind:dirtyRoutePath
-					bind:http_method
-					bind:workspaced_route
-					{can_write}
-					capture_mode={false}
-					bind:static_asset_config
-				/>
+			<RouteEditorConfigSection
+				initialTriggerPath={initialPath}
+				bind:route_path
+				bind:isValid
+				bind:dirtyRoutePath
+				bind:http_method
+				bind:workspaced_route
+				{can_write}
+				capture_mode={false}
+				bind:static_asset_config
+			/>
 
-				{#if !is_static_website}
-					<Section label="Advanced">
-						<div class="flex flex-col gap-4">
-							{#if !static_asset_config}
-								<div class="flex flex-row justify-between">
-									<Label label="Request type" class="w-full">
-										<svelte:fragment slot="action">
-											<ToggleButtonGroup
-												class="w-auto h-full"
-												selected={is_async ? 'async' : 'sync'}
-												on:selected={({ detail }) => {
-													is_async = detail === 'async'
-												}}
-												disabled={!can_write || !!static_asset_config}
-												let:item
-											>
-												<ToggleButton
-													label="Async"
-													value="async"
-													tooltip="The returning value is the uuid of the job assigned to execute the job."
-													{item}
-												/>
-												<ToggleButton
-													label="Sync"
-													value="sync"
-													tooltip="Triggers the execution, wait for the job to complete and return it as a response."
-													{item}
-												/>
-											</ToggleButtonGroup>
-										</svelte:fragment>
-									</Label>
-								</div>
-							{/if}
-							<Label label="Authentication" class="w-full">
-								<svelte:fragment slot="action">
-									<ToggleButtonGroup
-										class="w-auto h-full"
-										bind:selected={authentication_method}
-										on:selected={(e) => {
-											if (e.detail === 'signature' && signature_options_type === 'custom_script') {
-												raw_string = true
-											}
-										}}
-										disabled={!can_write}
-										let:item
-									>
-										{#each authentication_options as option}
-											{#if option.value === 'signature'}
-												<Popover placement="top-end" usePointerDownOutside>
-													<svelte:fragment slot="trigger">
+			{#if !is_static_website}
+				<Section label="Advanced">
+					<div class="flex flex-col gap-4">
+						{#if !static_asset_config}
+							<div class="flex flex-row justify-between">
+								<Label label="Request type" class="w-full">
+									<svelte:fragment slot="action">
+										<ToggleButtonGroup
+											class="w-auto h-full"
+											selected={is_async ? 'async' : 'sync'}
+											on:selected={({ detail }) => {
+												is_async = detail === 'async'
+											}}
+											disabled={!can_write || !!static_asset_config}
+											let:item
+										>
+											<ToggleButton
+												label="Async"
+												value="async"
+												tooltip="The returning value is the uuid of the job assigned to execute the job."
+												{item}
+											/>
+											<ToggleButton
+												label="Sync"
+												value="sync"
+												tooltip="Triggers the execution, wait for the job to complete and return it as a response."
+												{item}
+											/>
+										</ToggleButtonGroup>
+									</svelte:fragment>
+								</Label>
+							</div>
+						{/if}
+						<Label label="Authentication" class="w-full">
+							<svelte:fragment slot="action">
+								<ToggleButtonGroup
+									class="w-auto h-full"
+									bind:selected={authentication_method}
+									on:selected={(e) => {
+										if (e.detail === 'signature' && signature_options_type === 'custom_script') {
+											raw_string = true
+										}
+									}}
+									disabled={!can_write}
+									let:item
+								>
+									{#each authentication_options as option}
+										{#if option.value === 'signature'}
+											<Popover placement="top-end" usePointerDownOutside>
+												<svelte:fragment slot="trigger">
+													<ToggleButton
+														label={option.label}
+														value={option.value}
+														tooltip={option.tooltip}
+														{item}
+													/>
+												</svelte:fragment>
+												<svelte:fragment slot="content">
+													<ToggleButtonGroup
+														class="w-auto h-full"
+														bind:selected={signature_options_type}
+														on:selected={(e) => {
+															if (e.detail === 'custom_script') {
+																if (!raw_string) {
+																	raw_string = true
+																}
+															}
+														}}
+														disabled={!can_write}
+														let:item
+													>
 														<ToggleButton
-															label={option.label}
-															value={option.value}
-															tooltip={option.tooltip}
+															label="Signature validation"
+															value="custom_signature"
+															tooltip="Use a predefined or custom signature-based authentication scheme"
 															{item}
 														/>
-													</svelte:fragment>
-													<svelte:fragment slot="content">
-														<ToggleButtonGroup
-															class="w-auto h-full"
-															bind:selected={signature_options_type}
-															on:selected={(e) => {
-																if (e.detail === 'custom_script') {
-																	if (!raw_string) {
-																		raw_string = true
-																	}
-																}
-															}}
-															disabled={!can_write}
-															let:item
-														>
-															<ToggleButton
-																label="Signature validation"
-																value="custom_signature"
-																tooltip="Use a predefined or custom signature-based authentication scheme"
-																{item}
-															/>
-															<ToggleButton
-																label="Custom script"
-																value="custom_script"
-																tooltip="Use your own script logic"
-																{item}
-															/>
-														</ToggleButtonGroup>
-													</svelte:fragment>
-												</Popover>
-											{:else}
-												<ToggleButton
-													label={option.label}
-													value={option.value}
-													tooltip={option.tooltip}
-													{item}
-												/>
-											{/if}
-										{/each}
-									</ToggleButtonGroup>
-								</svelte:fragment>
-							</Label>
-
-							{#each authentication_options as option}
-								{#if option.resource_type && authentication_method === option.value}
-									<ResourcePicker
-										bind:value={authentication_resource_path}
-										resourceType={option.resource_type}
-									/>
-								{/if}
-							{/each}
-
-							{#if authentication_method === 'signature'}
-								{#if signature_options_type === 'custom_signature'}
-									<ResourcePicker
-										bind:value={authentication_resource_path}
-										resourceType={'signature_auth'}
-									/>
-								{:else if signature_options_type === 'custom_script'}
-									<p class="text-xs mt-3 mb-1 text-tertiary">
-										Pick a secret variable or create one which will be used as a secret key for your
-										custom script/flow<Required required={true} /><br />
-									</p>
-									<div class="flex flex-row gap-2">
-										<div class="flex flex-row gap-2 w-full">
-											<input
-												type="text"
-												autocomplete="off"
-												bind:value={variable_path}
-												readonly
-												disabled={true}
+														<ToggleButton
+															label="Custom script"
+															value="custom_script"
+															tooltip="Use your own script logic"
+															{item}
+														/>
+													</ToggleButtonGroup>
+												</svelte:fragment>
+											</Popover>
+										{:else}
+											<ToggleButton
+												label={option.label}
+												value={option.value}
+												tooltip={option.tooltip}
+												{item}
 											/>
-											<Button
-												title="Add variable"
-												on:click={() => variablePicker?.openDrawer()}
-												size="xs"
-												color="dark"
-											>
-												Pick variable
-											</Button>
-										</div>
-										<Button
-											disabled={emptyString(variable_path)}
-											color="dark"
-											size="xs"
-											href={itemKind === 'flow'
-												? `/flows/add?${SECRET_KEY_PATH}=${encodeURIComponent(variable_path)}&hub=${
-														HubFlow.SIGNATURE_TEMPLATE
-													}`
-												: `/scripts/add?${SECRET_KEY_PATH}=${encodeURIComponent(
-														variable_path
-													)}&hub=hub%2F${HUB_SCRIPT_ID}`}
-											target="_blank">Create from template</Button
-										>
-									</div>
-								{/if}
-							{/if}
+										{/if}
+									{/each}
+								</ToggleButtonGroup>
+							</svelte:fragment>
+						</Label>
 
-							<RouteBodyTransformerOption bind:raw_string bind:wrap_body />
-						</div>
-					</Section>
+						{#each authentication_options as option}
+							{#if option.resource_type && authentication_method === option.value}
+								<ResourcePicker
+									bind:value={authentication_resource_path}
+									resourceType={option.resource_type}
+								/>
+							{/if}
+						{/each}
+
+						{#if authentication_method === 'signature'}
+							{#if signature_options_type === 'custom_signature'}
+								<ResourcePicker
+									bind:value={authentication_resource_path}
+									resourceType={'signature_auth'}
+								/>
+							{:else if signature_options_type === 'custom_script'}
+								<p class="text-xs mt-3 mb-1 text-tertiary">
+									Pick a secret variable or create one which will be used as a secret key for your
+									custom script/flow<Required required={true} /><br />
+								</p>
+								<div class="flex flex-row gap-2">
+									<div class="flex flex-row gap-2 w-full">
+										<input
+											type="text"
+											autocomplete="off"
+											bind:value={variable_path}
+											readonly
+											disabled={true}
+										/>
+										<Button
+											title="Add variable"
+											on:click={() => variablePicker?.openDrawer()}
+											size="xs"
+											color="dark"
+										>
+											Pick variable
+										</Button>
+									</div>
+									<Button
+										disabled={emptyString(variable_path)}
+										color="dark"
+										size="xs"
+										href={itemKind === 'flow'
+											? `/flows/add?${SECRET_KEY_PATH}=${encodeURIComponent(variable_path)}&hub=${
+													HubFlow.SIGNATURE_TEMPLATE
+												}`
+											: `/scripts/add?${SECRET_KEY_PATH}=${encodeURIComponent(
+													variable_path
+												)}&hub=hub%2F${HUB_SCRIPT_ID}`}
+										target="_blank">Create from template</Button
+									>
+								</div>
+							{/if}
+						{/if}
+
+						<RouteBodyTransformerOption bind:raw_string bind:wrap_body />
+					</div>
+				</Section>
+			{/if}
+		</div>
+	{/if}
+{/snippet}
+
+{#if useDrawer}
+	<Drawer size="700px" bind:this={drawer}>
+		<DrawerContent
+			title={edit
+				? can_write
+					? `Edit route ${initialPath}`
+					: `Route ${initialPath}`
+				: 'New route'}
+			on:close={() => drawer?.closeDrawer()}
+		>
+			<svelte:fragment slot="actions">
+				{#if !drawerLoading && can_write}
+					<Button
+						startIcon={{ icon: Save }}
+						disabled={pathError != '' ||
+							!isValid ||
+							(!static_asset_config && emptyString(script_path)) ||
+							(static_asset_config && emptyString(static_asset_config.s3)) ||
+							!can_write}
+						on:click={triggerScript}
+					>
+						Save
+					</Button>
 				{/if}
-			</div>
-		{/if}
-	</DrawerContent>
-</Drawer>
+			</svelte:fragment>
+			{@render config()}
+		</DrawerContent>
+	</Drawer>
+{:else}
+	<div class="flex flex-col gap-12">
+		{@render config()}
+	</div>
+{/if}
 
 <ItemPicker
 	bind:this={variablePicker}
