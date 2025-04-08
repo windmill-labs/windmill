@@ -50,9 +50,10 @@
 					}
 				}}
 				selected={relations ? 'specific' : 'all'}
+				let:item
 			>
-				<ToggleButton value="all" label="All Tables" />
-				<ToggleButton value="specific" label="Specific Tables" />
+				<ToggleButton value="all" label="All Tables" {item} />
+				<ToggleButton value="specific" label="Specific Tables" {item}/>
 			</ToggleButtonGroup>
 		</div>
 	</div>

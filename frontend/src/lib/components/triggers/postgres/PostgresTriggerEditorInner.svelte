@@ -55,6 +55,7 @@
 	let publicationItems: string[] = []
 	let transactionType: string[] = ['Insert', 'Update', 'Delete']
 	let tab: 'advanced' | 'basic' = 'basic'
+	let isLoading = false
 	async function createPublication() {
 		try {
 			const message = await PostgresTriggerService.createPostgresPublication({
@@ -190,53 +191,59 @@
 		) {
 			return
 		}
-		if (edit) {
-			await PostgresTriggerService.updatePostgresTrigger({
-				workspace: $workspaceStore!,
-				path: initialPath,
-				requestBody: {
-					path,
-					script_path,
-					is_flow,
-					postgres_resource_path,
-					enabled,
-					replication_slot_name,
-					publication_name,
-					publication:
-						tab === 'basic'
-							? {
-									transaction_to_track,
-									table_to_track: relations
-							  }
-							: undefined
-				}
-			})
-			sendUserToast(`PostgresTrigger ${path} updated`)
-		} else {
-			await PostgresTriggerService.createPostgresTrigger({
-				workspace: $workspaceStore!,
-				requestBody: {
-					path,
-					script_path,
-					is_flow,
-					enabled: true,
-					postgres_resource_path,
-					replication_slot_name: tab === 'basic' ? undefined : replication_slot_name,
-					publication_name: tab === 'basic' ? undefined : publication_name,
-					publication: {
-						transaction_to_track,
-						table_to_track: relations
+		isLoading = true
+		try {
+			if (edit) {
+				await PostgresTriggerService.updatePostgresTrigger({
+					workspace: $workspaceStore!,
+					path: initialPath,
+					requestBody: {
+						path,
+						script_path,
+						is_flow,
+						postgres_resource_path,
+						enabled,
+						replication_slot_name,
+						publication_name,
+						publication:
+							tab === 'basic'
+								? {
+										transaction_to_track,
+										table_to_track: relations
+									}
+								: undefined
 					}
-				}
-			})
-			sendUserToast(`PostgresTrigger ${path} created`)
+				})
+				sendUserToast(`PostgresTrigger ${path} updated`)
+			} else {
+				await PostgresTriggerService.createPostgresTrigger({
+					workspace: $workspaceStore!,
+					requestBody: {
+						path,
+						script_path,
+						is_flow,
+						enabled: true,
+						postgres_resource_path,
+						replication_slot_name: tab === 'basic' ? undefined : replication_slot_name,
+						publication_name: tab === 'basic' ? undefined : publication_name,
+						publication: {
+							transaction_to_track,
+							table_to_track: relations
+						}
+					}
+				})
+				sendUserToast(`PostgresTrigger ${path} created`)
+			}
+			isLoading = false
+			if (!$usedTriggerKinds.includes('postgres')) {
+				$usedTriggerKinds = [...$usedTriggerKinds, 'postgres']
+			}
+			dispatch('update')
+			drawer.closeDrawer()
+		} catch (error) {
+			isLoading = false
+			sendUserToast(error.body || error.message, true)
 		}
-
-		if (!$usedTriggerKinds.includes('postgres')) {
-			$usedTriggerKinds = [...$usedTriggerKinds, 'postgres']
-		}
-		dispatch('update')
-		drawer.closeDrawer()
 	}
 
 	const getTemplateScript = async () => {
@@ -305,6 +312,7 @@
 						transaction_to_track.length === 0 ||
 						!can_write}
 					on:click={updateTrigger}
+					loading={isLoading}
 				>
 					Save
 				</Button>
