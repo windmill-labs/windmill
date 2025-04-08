@@ -17,6 +17,7 @@
 	import Popover from './Popover.svelte'
 	import { makeCountQuery } from './apps/components/display/dbtable/queries/count'
 	import DebouncedInput from './apps/components/helpers/DebouncedInput.svelte'
+	import { makeUpdateQuery } from './apps/components/display/dbtable/queries/update'
 
 	type Props = {
 		resourceType: DbType
@@ -92,7 +93,32 @@
 				pagination: false,
 				defaultColDef: {
 					editable: true, // TODO: configurable
-					onCellValueChanged: (e) => {}
+					onCellValueChanged: (e) => {
+						if (!tableMetadata || !$workspaceStore) return
+						const colDef = e.colDef as unknown as { field: string; datatype: string }
+						const updateQuery = makeUpdateQuery(tableKey, colDef, tableMetadata, resourceType)
+
+						runPreviewJobAndPollResult({
+							workspace: $workspaceStore,
+							requestBody: {
+								args: {
+									database: '$res:' + resourcePath,
+									value_to_update: e.newValue,
+									...(e.data as object),
+									[colDef.field]: e.oldValue
+								},
+								language: resourceType as ScriptLang,
+								content: updateQuery
+							}
+						})
+							.then((result) => {
+								if (!Array.isArray(result) || result.length === 0) throw ''
+								sendUserToast('Value updated')
+							})
+							.catch(() => {
+								sendUserToast('Error updating value', true)
+							})
+					}
 				},
 				onViewportChanged: (e) => ([firstRow, lastRow] = [e.firstRow, e.lastRow]),
 				infiniteInitialRowCount: 100,

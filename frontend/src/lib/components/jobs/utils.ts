@@ -14,10 +14,13 @@ export async function runPreviewJobAndPollResult(data: RunScriptPreviewData): Pr
 			})
 			if (result.success) {
 				return result.result
+			} else {
+				throw new Error('Job failed')
 			}
 			attempts++
 		} catch (e) {
 			attempts++
 		}
 	}
+	throw new Error('Could not get job result')
 }
