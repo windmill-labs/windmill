@@ -21,11 +21,10 @@
 		JobService,
 		ResourceService,
 		SettingService,
-		type AIProvider
+		type AIConfig
 	} from '$lib/gen'
 	import {
 		enterpriseLicense,
-		copilotInfo,
 		superadmin,
 		userStore,
 		usersWorkspaceStore,
@@ -47,7 +46,6 @@
 
 	import PremiumInfo from '$lib/components/settings/PremiumInfo.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
-	import TestAIKey from '$lib/components/copilot/TestAIKey.svelte'
 	import Portal from '$lib/components/Portal.svelte'
 
 	import { fade } from 'svelte/transition'
@@ -61,14 +59,9 @@
 	} from '$lib/workspace_settings'
 	import { base } from '$lib/base'
 	import { hubPaths } from '$lib/hub'
-	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
-	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
-	import { AI_DEFAULT_MODELS } from '$lib/components/copilot/lib'
 	import Description from '$lib/components/Description.svelte'
 	import ConnectionSection from '$lib/components/ConnectionSection.svelte'
-	import MultiSelect from 'svelte-multiselect'
-	import Label from '$lib/components/Label.svelte'
-	import ArgEnum from '$lib/components/ArgEnum.svelte'
+	import AiSettings from '$lib/components/workspaceSettings/AISettings.svelte'
 
 	type GitSyncTypeMap = {
 		scripts: boolean
@@ -119,10 +112,9 @@
 	let criticalAlertUIMuted: boolean | undefined = undefined
 	let initialCriticalAlertUIMuted: boolean | undefined = undefined
 
-	let aiResourcePath: string | undefined = undefined
-	let aiProvider: AIProvider = 'openai'
-	let aiModels: string[] = []
+	let aiProviders: Exclude<AIConfig['providers'], undefined> = {}
 	let codeCompletionModel: string | undefined = undefined
+	let defaultModel: string | undefined = undefined
 
 	let s3ResourceSettings: S3ResourceSettings = {
 		resourceType: 's3',
@@ -218,44 +210,6 @@
 			})
 			sendUserToast(`webhook removed`)
 		}
-	}
-
-	async function editCopilotConfig(): Promise<void> {
-		if (aiResourcePath) {
-			await WorkspaceService.editCopilotConfig({
-				workspace: $workspaceStore!,
-				requestBody: {
-					ai_resource: {
-						path: aiResourcePath,
-						provider: aiProvider
-					},
-					code_completion_model: codeCompletionModel,
-					ai_models: aiModels
-				}
-			})
-			copilotInfo.set({
-				ai_provider: aiProvider,
-				exists_ai_resource: true,
-				code_completion_model: codeCompletionModel,
-				ai_models: aiModels
-			})
-		} else {
-			await WorkspaceService.editCopilotConfig({
-				workspace: $workspaceStore!,
-				requestBody: {
-					ai_resource: undefined,
-					code_completion_model: codeCompletionModel,
-					ai_models: []
-				}
-			})
-			copilotInfo.set({
-				ai_provider: 'openai',
-				exists_ai_resource: false,
-				code_completion_model: codeCompletionModel,
-				ai_models: []
-			})
-		}
-		sendUserToast(`Copilot settings updated`)
 	}
 
 	async function editWindmillLFSSettings(): Promise<void> {
@@ -407,9 +361,12 @@
 		await loadWorkspaceEncryptionKey()
 		const timeEnd = new Date().getTime()
 		sendUserToast('All workspace secrets have been re-encrypted with the new key')
-		setTimeout(() => {
-			workspaceReencryptionInProgress = false
-		}, 1000 - (timeEnd - timeStart))
+		setTimeout(
+			() => {
+				workspaceReencryptionInProgress = false
+			},
+			1000 - (timeEnd - timeStart)
+		)
 	}
 
 	let loadedSettings = false
@@ -433,10 +390,9 @@
 		workspaceToDeployTo = settings.deploy_to
 		webhook = settings.webhook
 
-		aiResourcePath = settings.ai_resource?.path
-		aiProvider = settings.ai_resource?.provider ?? 'openai'
-		codeCompletionModel = settings.code_completion_model
-		aiModels = settings.ai_models
+		aiProviders = settings.ai_config?.providers ?? {}
+		defaultModel = settings.ai_config?.default_model?.model
+		codeCompletionModel = settings.ai_config?.code_completion_model?.model
 
 		errorHandlerItemKind = settings.error_handler?.split('/')[0] as 'flow' | 'script'
 		errorHandlerScriptPath = (settings.error_handler ?? '').split('/').slice(1).join('/')
@@ -450,11 +406,11 @@
 			errorHandlerSelected = emptyString(errorHandlerScriptPath)
 				? 'custom'
 				: errorHandlerScriptPath.startsWith('hub/') &&
-				  errorHandlerScriptPath.endsWith('/workspace-or-schedule-error-handler-slack')
-				? 'slack'
-				: errorHandlerScriptPath.endsWith('/workspace-or-schedule-error-handler-teams')
-				? 'teams'
-				: 'custom'
+					  errorHandlerScriptPath.endsWith('/workspace-or-schedule-error-handler-slack')
+					? 'slack'
+					: errorHandlerScriptPath.endsWith('/workspace-or-schedule-error-handler-teams')
+						? 'teams'
+						: 'custom'
 		}
 		errorHandlerExtraArgs = settings.error_handler_extra_args ?? {}
 		workspaceDefaultAppPath = settings.default_app
@@ -465,8 +421,8 @@
 			gitSyncTestJobs = []
 			gitSyncSettings = {
 				include_path:
-					settings.git_sync.include_path?.length ?? 0 > 0
-						? settings.git_sync.include_path ?? []
+					(settings.git_sync.include_path?.length ?? 0 > 0)
+						? (settings.git_sync.include_path ?? [])
 						: ['f/**'],
 				repositories: (settings.git_sync.repositories ?? []).map((settings) => {
 					gitSyncTestJobs.push({
@@ -530,8 +486,8 @@
 		if (settings.deploy_ui != undefined && settings.deploy_ui != null) {
 			deployUiSettings = {
 				include_path:
-					settings.deploy_ui.include_path?.length ?? 0 > 0
-						? settings.deploy_ui.include_path ?? []
+					(settings.deploy_ui.include_path?.length ?? 0 > 0)
+						? (settings.deploy_ui.include_path ?? [])
 						: [],
 				include_type: {
 					scripts: (settings.deploy_ui.include_type?.indexOf('script') ?? -1) >= 0,
@@ -539,7 +495,8 @@
 					apps: (settings.deploy_ui.include_type?.indexOf('app') ?? -1) >= 0,
 					resources: (settings.deploy_ui.include_type?.indexOf('resource') ?? -1) >= 0,
 					variables: (settings.deploy_ui.include_type?.indexOf('variable') ?? -1) >= 0,
-					secrets: (settings.deploy_ui.include_type?.indexOf('secret') ?? -1) >= 0
+					secrets: (settings.deploy_ui.include_type?.indexOf('secret') ?? -1) >= 0,
+					triggers: (settings.deploy_ui.include_type?.indexOf('trigger') ?? -1) >= 0
 				}
 			}
 		}
@@ -562,6 +519,7 @@
 			resources: boolean
 			variables: boolean
 			secrets: boolean
+			triggers: boolean
 		}
 	}
 
@@ -813,12 +771,12 @@
 					/>
 				{:else if slack_tabs === 'teams_commands'}
 					{#if !$enterpriseLicense}
-						<div class="pt-4" />
+						<div class="pt-4"></div>
 						<Alert type="info" title="Workspace Teams commands is an EE feature">
 							Workspace Teams commands is a Windmill EE feature. It enables using your current Slack
 							/ Teams connection to run a custom script and send notifications.
 						</Alert>
-						<div class="pb-2" />
+						<div class="pb-2"></div>
 					{/if}
 					<ConnectionSection
 						platform="teams"
@@ -868,7 +826,7 @@
 				</Button>
 			</div>
 
-			<div class="mt-20" />
+			<div class="mt-20"></div>
 			<PageHeader title="Delete workspace" primary={false} />
 			{#if !$superadmin}
 				<p class="italic text-xs"> Only instance superadmins can delete a workspace. </p>
@@ -941,12 +899,12 @@
 			</div>
 		{:else if tab == 'error_handler'}
 			{#if !$enterpriseLicense}
-				<div class="pt-4" />
+				<div class="pt-4"></div>
 				<Alert type="info" title="Workspace error handler is an EE feature">
 					Workspace error handler is a Windmill EE feature. It enables using your current Slack
 					connection or a custom script to send notifications anytime any job would fail.
 				</Alert>
-				<div class="pb-2" />
+				<div class="pb-2"></div>
 			{/if}
 			<div class="flex flex-col gap-4 my-8">
 				<div class="flex flex-col gap-1">
@@ -1051,115 +1009,12 @@
 				</div>
 			</div>
 		{:else if tab == 'ai'}
-			<div class="flex flex-col gap-4 my-8">
-				<div class="flex flex-col gap-1">
-					<div class="text-primary text-lg font-semibold"> Windmill AI</div>
-					<Description>Select an OpenAI resource to unlock Windmill AI features.</Description>
-					<Description link="https://www.windmill.dev/docs/core_concepts/ai_generation">
-						Windmill AI supports integration with your preferred AI provider for all AI features.
-					</Description>
-				</div>
-			</div>
-
-			<div class="flex flex-col gap-4">
-				<ToggleButtonGroup
-					bind:selected={aiProvider}
-					on:selected={() => {
-						aiResourcePath = ''
-						aiModels = []
-						codeCompletionModel = undefined
-					}}
-				>
-					<ToggleButton value="openai" label="OpenAI" />
-					<ToggleButton value="anthropic" label="Anthropic" />
-					<ToggleButton value="mistral" label="Mistral" />
-					<ToggleButton value="deepseek" label="DeepSeek" />
-					<ToggleButton value="googleai" label="Google AI" />
-					<ToggleButton value="groq" label="Groq" />
-					<ToggleButton value="openrouter" label="OpenRouter" />
-					<ToggleButton
-						value="customai"
-						label={'Custom AI' + ($enterpriseLicense ? '' : ' (EE)')}
-						disabled={!$enterpriseLicense}
-						tooltip="Configure a custom AI provider that is OpenAI API compatible"
-						showTooltipIcon
-					/>
-				</ToggleButtonGroup>
-				<div class="flex gap-1">
-					{#key aiProvider}
-						<ResourcePicker
-							resourceType={usingOpenaiClientCredentialsOauth
-								? 'openai_client_credentials_oauth'
-								: aiProvider}
-							initialValue={aiResourcePath}
-							bind:value={aiResourcePath}
-							on:change={() => {
-								if (aiResourcePath && aiModels.length === 0) {
-									if (aiProvider !== 'customai') {
-										aiModels = AI_DEFAULT_MODELS[aiProvider].slice(0, 1)
-									}
-								}
-							}}
-						/>
-						<TestAIKey
-							disabled={!aiResourcePath || (aiProvider === 'customai' && aiModels.length === 0)}
-							resourcePath={aiResourcePath}
-							{aiProvider}
-							model={aiProvider === 'customai' ? aiModels[0] : AI_DEFAULT_MODELS[aiProvider][0]}
-						/>
-					{/key}
-				</div>
-
-				{#if aiResourcePath}
-					<Label label="Enabled models">
-						<MultiSelect
-							options={AI_DEFAULT_MODELS[aiProvider]}
-							ulOptionsClass={'!bg-surface-secondary'}
-							allowUserOptions="append"
-							bind:selected={aiModels}
-						/>
-					</Label>
-
-					<div class="flex flex-col gap-2">
-						<Toggle
-							on:change={() => {
-								if (codeCompletionModel != undefined) {
-									codeCompletionModel = undefined
-								} else {
-									codeCompletionModel = AI_DEFAULT_MODELS[aiProvider][0] ?? ''
-								}
-							}}
-							checked={codeCompletionModel != undefined}
-							options={{
-								right: 'Code completion'
-							}}
-						/>
-
-						{#if codeCompletionModel != undefined}
-							<Label label="Code completion model">
-								<ArgEnum
-									enum_={AI_DEFAULT_MODELS[aiProvider]}
-									bind:value={codeCompletionModel}
-									disabled={false}
-									autofocus={false}
-									defaultValue={undefined}
-									valid={true}
-									create={true}
-									required={false}
-								/>
-							</Label>
-						{/if}
-					</div>
-				{/if}
-				<Button
-					disabled={(aiResourcePath && aiModels.length === 0) ||
-						(codeCompletionModel != undefined && codeCompletionModel.length === 0)}
-					size="sm"
-					on:click={editCopilotConfig}
-				>
-					Save
-				</Button>
-			</div>
+			<AiSettings
+				{aiProviders}
+				{codeCompletionModel}
+				{defaultModel}
+				{usingOpenaiClientCredentialsOauth}
+			/>
 		{:else if tab == 'windmill_lfs'}
 			<div class="flex flex-col gap-4 my-8">
 				<div class="flex flex-col gap-1">
@@ -1232,7 +1087,7 @@
 							}}
 						/>
 						{#if s3ResourceSettings.publicResource === true}
-							<div class="pt-2" />
+							<div class="pt-2"></div>
 
 							<Alert type="warning" title="S3 bucket content and resource details are shared">
 								S3 resource public access is ON, which means that the entire content of the S3
@@ -1255,7 +1110,7 @@
 							}}
 						/>
 						{#if s3ResourceSettings.publicResource === true}
-							<div class="pt-2" />
+							<div class="pt-2"></div>
 							<Alert type="warning" title="object content">
 								object public access is ON, which means that the entire content of the object store
 								will be accessible to all the users of this workspace regardless of whether they
@@ -1355,12 +1210,12 @@
 				</div>
 			</div>
 			{#if !$enterpriseLicense}
-				<div class="mb-2" />
+				<div class="mb-2"></div>
 
 				<Alert type="warning" title="Syncing workspace to Git is an EE feature">
 					Automatically saving scripts to a Git repository on each deploy is a Windmill EE feature.
 				</Alert>
-				<div class="mb-2" />
+				<div class="mb-2"></div>
 			{/if}
 			{#if gitSyncSettings != undefined}
 				<div class="flex mt-5 mb-5 gap-8">
@@ -1429,7 +1284,7 @@
 								Add filter
 							</Button>
 						</div>
-						<div class="pt-2" />
+						<div class="pt-2"></div>
 						<Alert type="info" title="Only new updates trigger git sync">
 							Only new changes matching the filters will trigger a git sync. You still need to
 							initalize the repo to the desired state first.

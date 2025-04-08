@@ -22,6 +22,9 @@
 	export let placement: Placement = 'bottom-end'
 	export let usePointerDownOutside = false
 	export let closeOnOtherDropdownOpen = true
+	export let fixedHeight = true
+	export let hidePopup = false
+	export let open = false
 
 	const {
 		elements: { menu, item, trigger },
@@ -49,7 +52,6 @@
 		}
 	})
 
-	let open = false
 	const sync = createSync(states)
 	$: sync.open(open, (v) => (open = Boolean(v)))
 
@@ -73,7 +75,7 @@
 <ResolveOpen {open} on:open on:close />
 
 <button
-	class={twMerge('w-full h-8 flex items-center justify-end', $$props.class)}
+	class={twMerge('w-full flex items-center justify-end', fixedHeight && 'h-8', $$props.class)}
 	use:melt={$trigger}
 	{disabled}
 	on:click={(e) => e.stopPropagation()}
@@ -93,11 +95,17 @@
 	{#if $$slots.buttonReplacement}
 		<slot name="buttonReplacement" />
 	{:else}
-		<Button nonCaptureEvent size="xs" color="light" startIcon={{ icon: MoreVertical }} />
+		<Button
+			nonCaptureEvent
+			size="xs"
+			color="light"
+			startIcon={{ icon: MoreVertical }}
+			btnClasses="bg-transparent"
+		/>
 	{/if}
 </button>
 
-{#if open}
+{#if open && !hidePopup}
 	<div use:melt={$menu} data-menu class="z-[6000]">
 		<div
 			class="bg-surface border w-56 origin-top-right rounded-md shadow-md focus:outline-none overflow-y-auto py-1 max-h-[50vh]"

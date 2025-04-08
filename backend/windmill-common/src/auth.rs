@@ -1,6 +1,4 @@
 use serde::{Deserialize, Serialize};
-use std::sync::Arc;
-use tokio::sync::RwLock;
 
 use crate::{
     db::Authed,
@@ -8,10 +6,6 @@ use crate::{
     users::{SUPERADMIN_NOTIFICATION_EMAIL, SUPERADMIN_SECRET_EMAIL, SUPERADMIN_SYNC_EMAIL},
     DB,
 };
-
-lazy_static::lazy_static! {
-  pub static ref JWT_SECRET : Arc<RwLock<String>> = Arc::new(RwLock::new("".to_string()));
-}
 
 #[derive(Deserialize, Serialize)]
 pub struct JWTAuthClaims {
@@ -30,15 +24,12 @@ pub struct JWTAuthClaims {
 
 #[derive(Deserialize)]
 pub struct JobPerms {
-    pub workspace_id: String,
-    pub job_id: String,
     pub email: String,
     pub username: String,
     pub is_admin: bool,
     pub is_operator: bool,
     pub groups: Vec<String>,
     pub folders: Vec<serde_json::Value>,
-    pub created_at: chrono::NaiveDateTime,
 }
 
 impl From<JobPerms> for Authed {

@@ -7,10 +7,10 @@ use itertools::Itertools;
 use tokio::{fs::File, io::AsyncReadExt, process::Command};
 use windmill_common::{
     error::{self, Error},
-    jobs::QueuedJob,
     utils::calculate_hash,
     worker::{save_cache, write_file},
 };
+use windmill_queue::MiniPulledJob;
 use windmill_queue::{append_logs, CanceledBy};
 
 use crate::{
@@ -19,8 +19,8 @@ use crate::{
         read_result, start_child_process, OccupancyMetrics,
     },
     handle_child::handle_child,
-    AuthedClientBackgroundTask, DISABLE_NSJAIL, DISABLE_NUSER, HOME_ENV, NSJAIL_PATH, PATH_ENV,
-    PROXY_ENVS, RUST_CACHE_DIR, TZ_ENV,
+    AuthedClient, DISABLE_NSJAIL, DISABLE_NUSER, HOME_ENV, NSJAIL_PATH, PATH_ENV, PROXY_ENVS,
+    RUST_CACHE_DIR, TZ_ENV,
 };
 
 #[cfg(windows)]
@@ -164,6 +164,7 @@ pub async fn generate_cargo_lockfile(
         None,
         false,
         &mut Some(occupancy_metrics),
+        None,
     )
     .await?;
 
@@ -226,6 +227,7 @@ pub async fn build_rust_crate(
         None,
         false,
         &mut Some(occupancy_metrics),
+        None,
     )
     .await?;
     append_logs(job_id, w_id, "\n\n", db).await;
@@ -245,6 +247,7 @@ pub async fn build_rust_crate(
         &bin_path,
         &format!("{RUST_OBJECT_STORE_PREFIX}{hash}"),
         &format!("{job_dir}/main"),
+        false,
     )
     .await
     {
@@ -275,9 +278,10 @@ pub fn compute_rust_hash(code: &str, requirements_o: Option<&String>) -> String 
 pub async fn handle_rust_job(
     mem_peak: &mut i32,
     canceled_by: &mut Option<CanceledBy>,
-    job: &QueuedJob,
+    job: &MiniPulledJob,
     db: &sqlx::Pool<sqlx::Postgres>,
-    client: &AuthedClientBackgroundTask,
+    client: &AuthedClient,
+    parent_runnable_path: Option<String>,
     inner_content: &str,
     job_dir: &str,
     requirements_o: Option<&String>,
@@ -293,7 +297,8 @@ pub async fn handle_rust_job(
     let bin_path = format!("{}/{hash}", RUST_CACHE_DIR);
     let remote_path = format!("{RUST_OBJECT_STORE_PREFIX}{hash}");
 
-    let (cache, cache_logs) = windmill_common::worker::load_cache(&bin_path, &remote_path).await;
+    let (cache, cache_logs) =
+        windmill_common::worker::load_cache(&bin_path, &remote_path, false).await;
 
     let cache_logs = if cache {
         let target = format!("{job_dir}/main");
@@ -343,8 +348,8 @@ pub async fn handle_rust_job(
     let logs2 = format!("{cache_logs}\n\n--- RUST CODE EXECUTION ---\n");
     append_logs(&job.id, &job.workspace_id, logs2, db).await;
 
-    let client = &client.get_authed().await;
-    let reserved_variables = get_reserved_variables(job, &client.token, db).await?;
+    let reserved_variables =
+        get_reserved_variables(job, &client.token, db, parent_runnable_path).await?;
 
     let child = if !*DISABLE_NSJAIL {
         let _ = write_file(
@@ -406,6 +411,7 @@ pub async fn handle_rust_job(
         job.timeout,
         false,
         &mut Some(occupancy_metrics),
+        None,
     )
     .await?;
     read_result(job_dir).await

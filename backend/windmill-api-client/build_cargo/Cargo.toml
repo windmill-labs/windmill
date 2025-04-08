@@ -1,0 +1,18 @@
+[package]
+name = "windmill-api-client-build"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "windmill_api_client_build"
+path = "./main.rs"
+
+
+[dependencies]
+prettyplease = "0.1.25"
+progenitor = { git = "https://github.com/oxidecomputer/progenitor", rev = "3d96016ae8d422e90513b2d34fb5b63eeab30b01" }
+serde_json = "1.0"
+syn = "1.0"
+openapiv3 = "=1.0.2"
+
+[workspace]

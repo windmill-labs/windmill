@@ -59,7 +59,6 @@ Here's a summary of the available data:
 ${YAML.stringify(availableData)}</available>
 If the branching is made inside a for-loop, the iterator value is accessible as flow_input.iter.value
 Only return the expression without any wrapper. Do not explain or discuss.`
-			const aiProvider = $copilotInfo.ai_provider
 			const result = await getNonStreamingCompletion(
 				[
 					{
@@ -67,8 +66,7 @@ Only return the expression without any wrapper. Do not explain or discuss.`
 						content: user
 					}
 				],
-				abortController,
-				aiProvider
+				abortController
 			)
 
 			dispatch('setExpr', result)
@@ -83,7 +81,7 @@ Only return the expression without any wrapper. Do not explain or discuss.`
 	}
 </script>
 
-{#if $copilotInfo.exists_ai_resource && $stepInputCompletionEnabled}
+{#if $copilotInfo.enabled && $stepInputCompletionEnabled}
 	<Popover
 		floatingConfig={{ strategy: 'absolute', placement: 'bottom-end' }}
 		contentClasses="p-4 flex w-96"
@@ -99,7 +97,7 @@ Only return the expression without any wrapper. Do not explain or discuss.`
 				btnClasses="min-h-[30px] text-violet-800 dark:text-violet-400 bg-violet-100 dark:bg-gray-700"
 				{loading}
 				clickableWhileLoading
-				on:click={loading ? () => abortController?.abort() : undefined}
+				on:click={loading ? () => abortController?.abort() : () => {}}
 			/>
 		</svelte:fragment>
 		<svelte:fragment slot="content" let:close>

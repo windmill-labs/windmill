@@ -150,6 +150,8 @@ export async function pushObj(
     await pushTrigger("nats", workspace, p, befObj, newObj);
   } else if (typeEnding === "postgres_trigger") {
     await pushTrigger("postgres", workspace, p, befObj, newObj);
+  } else if (typeEnding === "mqtt_trigger") {
+    await pushTrigger("mqtt", workspace, p, befObj, newObj);
   } else if (typeEnding === "sqs_trigger") {
     await pushTrigger("sqs", workspace, p, befObj, newObj);
   } else if (typeEnding === "user") {
@@ -199,6 +201,7 @@ export function getTypeStrFromPath(
   | "kafka_trigger"
   | "nats_trigger"
   | "postgres_trigger"
+  | "mqtt_trigger"
   | "sqs_trigger"
   | "user"
   | "group"
@@ -223,6 +226,9 @@ export function getTypeStrFromPath(
     parsed.ext == ".php" ||
     parsed.ext == ".rs" ||
     parsed.ext == ".cs" ||
+    parsed.ext == ".nu" ||
+    parsed.ext == ".java" ||
+		// for related places search: ADD_NEW_LANG 
     (parsed.ext == ".yml" && parsed.name.split(".").pop() == "playbook")
   ) {
     return "script";
@@ -245,6 +251,7 @@ export function getTypeStrFromPath(
     typeEnding === "kafka_trigger" ||
     typeEnding === "nats_trigger" ||
     typeEnding === "postgres_trigger" ||
+    typeEnding === "mqtt_trigger" ||
     typeEnding === "sqs_trigger" ||
     typeEnding === "user" ||
     typeEnding === "group" ||

@@ -6,36 +6,12 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
-use axum::{
-    extract::{Extension, Path, Query},
-    routing::{delete, get, head, post},
-    Json, Router,
-};
-#[cfg(feature = "http_trigger")]
-use http::HeaderMap;
-use hyper::StatusCode;
-#[cfg(feature = "http_trigger")]
-use serde::de::DeserializeOwned;
-use serde::{Deserialize, Serialize};
-use serde_json::value::RawValue;
-use sqlx::types::Json as SqlxJson;
-#[cfg(feature = "http_trigger")]
-use std::collections::HashMap;
-use std::fmt;
-#[cfg(feature = "http_trigger")]
-use windmill_common::error::Error;
-use windmill_common::{
-    db::UserDB,
-    error::{JsonResult, Result},
-    utils::{not_found_if_none, paginate, Pagination, StripPath},
-    worker::{to_raw_value, CLOUD_HOSTED},
-};
-use windmill_queue::{PushArgs, PushArgsOwned};
-
 #[cfg(feature = "http_trigger")]
 use crate::http_triggers::{build_http_trigger_extra, HttpMethod};
 #[cfg(all(feature = "enterprise", feature = "kafka"))]
 use crate::kafka_triggers_ee::KafkaTriggerConfigConnection;
+#[cfg(feature = "mqtt_trigger")]
+use crate::mqtt_triggers::{MqttClientVersion, MqttV3Config, MqttV5Config, SubscribeTopic};
 #[cfg(all(feature = "enterprise", feature = "nats"))]
 use crate::nats_triggers_ee::NatsTriggerConfigConnection;
 #[cfg(feature = "postgres_trigger")]
@@ -43,16 +19,46 @@ use crate::postgres_triggers::{
     create_logical_replication_slot_query, create_publication_query, drop_publication_query,
     generate_random_string, get_database_connection, PublicationData,
 };
+#[cfg(feature = "http_trigger")]
+use axum::extract::Request;
+#[cfg(feature = "http_trigger")]
+use axum::response::IntoResponse;
+#[cfg(feature = "http_trigger")]
+use http::HeaderMap;
 #[cfg(feature = "postgres_trigger")]
 use itertools::Itertools;
 #[cfg(feature = "postgres_trigger")]
 use pg_escape::quote_literal;
+#[cfg(feature = "http_trigger")]
+use serde::de::DeserializeOwned;
+#[cfg(feature = "http_trigger")]
+use std::collections::HashMap;
+#[cfg(feature = "http_trigger")]
+use windmill_common::error::Error;
 
 use crate::{
     args::WebhookArgs,
     db::{ApiAuthed, DB},
     users::fetch_api_authed,
+    utils::RunnableKind,
 };
+use axum::{
+    extract::{Extension, Path, Query},
+    routing::{delete, get, head, post},
+    Json, Router,
+};
+use hyper::StatusCode;
+use serde::{Deserialize, Serialize};
+use serde_json::value::RawValue;
+use sqlx::types::Json as SqlxJson;
+use windmill_common::{
+    db::UserDB,
+    error::{JsonResult, Result},
+    utils::{not_found_if_none, paginate, Pagination, StripPath},
+    worker::{to_raw_value, CLOUD_HOSTED},
+};
+use windmill_queue::TriggerKind;
+use windmill_queue::{PushArgs, PushArgsOwned};
 
 const KEEP_LAST: i64 = 20;
 
@@ -65,6 +71,10 @@ pub fn workspaced_service() -> Router {
         )
         .route("/get_configs/:runnable_kind/*path", get(get_configs))
         .route("/list/:runnable_kind/*path", get(list_captures))
+        .route(
+            "/move/:runnable_kind/*path",
+            post(move_captures_and_configs),
+        )
         .route("/:id", delete(delete_capture))
         .route("/:id", get(get_capture))
 }
@@ -88,41 +98,13 @@ pub fn workspaced_unauthed_service() -> Router {
     }
 }
 
-#[derive(sqlx::Type, Serialize, Deserialize, Debug)]
-#[sqlx(type_name = "TRIGGER_KIND", rename_all = "lowercase")]
-#[serde(rename_all = "lowercase")]
-pub enum TriggerKind {
-    Webhook,
-    Http,
-    Websocket,
-    Kafka,
-    Email,
-    Nats,
-    Sqs,
-    Postgres,
-}
-
-impl fmt::Display for TriggerKind {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let s = match self {
-            TriggerKind::Webhook => "webhook",
-            TriggerKind::Http => "http",
-            TriggerKind::Websocket => "websocket",
-            TriggerKind::Kafka => "kafka",
-            TriggerKind::Email => "email",
-            TriggerKind::Nats => "nats",
-            TriggerKind::Sqs => "sqs",
-            TriggerKind::Postgres => "postgres",
-        };
-        write!(f, "{}", s)
-    }
-}
-
 #[cfg(feature = "http_trigger")]
 #[derive(Serialize, Deserialize)]
 struct HttpTriggerConfig {
     route_path: String,
     http_method: HttpMethod,
+    raw_string: Option<bool>,
+    wrap_body: Option<bool>,
 }
 
 #[cfg(all(feature = "enterprise", feature = "kafka"))]
@@ -139,7 +121,7 @@ pub struct KafkaTriggerConfig {
 pub struct SqsTriggerConfig {
     pub queue_url: String,
     pub aws_resource_path: String,
-    pub message_attributes: Option<Vec<String>>
+    pub message_attributes: Option<Vec<String>>,
 }
 
 #[cfg(all(feature = "enterprise", feature = "nats"))]
@@ -155,6 +137,16 @@ pub struct NatsTriggerConfig {
     pub use_jetstream: bool,
 }
 
+#[cfg(feature = "mqtt_trigger")]
+#[derive(Debug, Serialize, Deserialize)]
+pub struct MqttTriggerConfig {
+    pub mqtt_resource_path: String,
+    pub subscribe_topics: Vec<SubscribeTopic>,
+    pub v3_config: Option<MqttV3Config>,
+    pub v5_config: Option<MqttV5Config>,
+    pub client_version: Option<MqttClientVersion>,
+    pub client_id: Option<String>,
+}
 #[cfg(feature = "postgres_trigger")]
 #[derive(Serialize, Deserialize, Debug)]
 pub struct PostgresTriggerConfig {
@@ -187,6 +179,8 @@ enum TriggerConfig {
     Kafka(KafkaTriggerConfig),
     #[cfg(all(feature = "enterprise", feature = "nats"))]
     Nats(NatsTriggerConfig),
+    #[cfg(feature = "mqtt_trigger")]
+    Mqtt(MqttTriggerConfig),
 }
 
 #[derive(Serialize, Deserialize)]
@@ -300,8 +294,7 @@ async fn set_config(
     #[cfg(feature = "postgres_trigger")]
     let nc = if let TriggerKind::Postgres = nc.trigger_kind {
         set_postgres_trigger_config(&w_id, authed.clone(), &db, user_db.clone(), nc).await?
-    }
-    else {
+    } else {
         nc
     };
 
@@ -360,13 +353,6 @@ struct Capture {
     trigger_kind: TriggerKind,
     payload: SqlxJson<Box<serde_json::value::RawValue>>,
     trigger_extra: Option<SqlxJson<Box<serde_json::value::RawValue>>>,
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "lowercase")]
-enum RunnableKind {
-    Script,
-    Flow,
 }
 
 #[derive(Deserialize)]
@@ -438,6 +424,41 @@ async fn delete_capture(
     sqlx::query!("DELETE FROM capture WHERE id = $1", id)
         .execute(&mut *tx)
         .await?;
+    tx.commit().await?;
+    Ok(())
+}
+
+#[derive(Deserialize)]
+struct MoveCapturesAndConfigsBody {
+    new_path: String,
+}
+
+async fn move_captures_and_configs(
+    authed: ApiAuthed,
+    Extension(user_db): Extension<UserDB>,
+    Path((w_id, runnable_kind, old_path)): Path<(String, RunnableKind, StripPath)>,
+    Json(body): Json<MoveCapturesAndConfigsBody>,
+) -> Result<()> {
+    let mut tx = user_db.begin(&authed).await?;
+    let old_path = old_path.to_path();
+    sqlx::query!(
+        "UPDATE capture_config SET path = $1 WHERE path = $2 AND workspace_id = $3 AND is_flow = $4",
+        body.new_path,
+        old_path,
+        &w_id,
+        matches!(runnable_kind, RunnableKind::Flow),
+    )
+    .execute(&mut *tx)
+    .await?;
+    sqlx::query!(
+        "UPDATE capture SET path = $1 WHERE path = $2 AND workspace_id = $3 AND is_flow = $4",
+        body.new_path,
+        old_path,
+        &w_id,
+        matches!(runnable_kind, RunnableKind::Flow),
+    )
+    .execute(&mut *tx)
+    .await?;
     tx.commit().await?;
     Ok(())
 }
@@ -628,8 +649,12 @@ async fn http_payload(
     Query(query): Query<HashMap<String, String>>,
     method: http::Method,
     headers: HeaderMap,
-    args: WebhookArgs,
-) -> Result<StatusCode> {
+    request: Request,
+) -> std::result::Result<StatusCode, impl IntoResponse> {
+    use axum::response::Response;
+
+    use crate::args::try_from_request_body;
+
     let route_path = route_path.to_path();
     let path = path.replace(".", "/");
 
@@ -641,16 +666,32 @@ async fn http_payload(
             matches!(kind, RunnableKind::Flow),
             &TriggerKind::Http,
         )
-        .await?;
+        .await
+        .map_err(|e| e.into_response())?;
 
-    let authed = fetch_api_authed(owner.clone(), email, &w_id, &db, None).await?;
-    let args = args.to_push_args_owned(&authed, &db, &w_id).await?;
+    let args = try_from_request_body(
+        request,
+        &db,
+        http_trigger_config.raw_string,
+        http_trigger_config.wrap_body,
+    )
+    .await
+    .map_err(|e| e.into_response())?;
+
+    let authed = fetch_api_authed(owner.clone(), email, &w_id, &db, None)
+        .await
+        .map_err(|e| e.into_response())?;
+    let mut args = args
+        .to_push_args_owned(&authed, &db, &w_id)
+        .await
+        .map_err(|e| e.into_response())?;
 
     let mut router = matchit::Router::new();
     router.insert(&http_trigger_config.route_path, ()).ok();
     let match_ = router.at(route_path).ok();
 
-    let match_ = not_found_if_none(match_, "capture http trigger", &route_path)?;
+    let match_ = not_found_if_none(match_, "capture http trigger", &route_path)
+        .map_err(|e| e.into_response())?;
 
     let matchit::Match { params, .. } = match_;
 
@@ -659,7 +700,9 @@ async fn http_payload(
         .map(|(k, v)| (k.to_string(), v.to_string()))
         .collect();
 
-    let extra: HashMap<String, Box<RawValue>> = HashMap::from_iter(vec![(
+    let extra = args.extra.get_or_insert_with(HashMap::new);
+
+    extra.insert(
         "wm_trigger".to_string(),
         build_http_trigger_extra(
             &http_trigger_config.route_path,
@@ -670,8 +713,10 @@ async fn http_payload(
             &headers,
         )
         .await,
-    )]);
+    );
 
+    let extra = Some(to_raw_value(&extra));
+    args.extra = None;
     insert_capture_payload(
         &db,
         &w_id,
@@ -679,10 +724,11 @@ async fn http_payload(
         matches!(kind, RunnableKind::Flow),
         &TriggerKind::Http,
         args,
-        Some(to_raw_value(&extra)),
+        extra,
         &owner,
     )
-    .await?;
+    .await
+    .map_err(|e| e.into_response())?;
 
-    Ok(StatusCode::NO_CONTENT)
+    Ok::<_, Response>(StatusCode::NO_CONTENT)
 }

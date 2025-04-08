@@ -26,9 +26,8 @@ use windmill_common::{
         self,
         Error::{self},
     },
-    jobs::QueuedJob,
     utils::calculate_hash,
-    worker::{write_file, PythonAnnotations, WORKER_CONFIG},
+    worker::{copy_dir_recursively, pad_string, write_file, PythonAnnotations, WORKER_CONFIG},
     DB,
 };
 
@@ -49,6 +48,7 @@ lazy_static::lazy_static! {
 
     static ref PY_CONCURRENT_DOWNLOADS: usize =
     var("PY_CONCURRENT_DOWNLOADS").ok().map(|flag| flag.parse().unwrap_or(20)).unwrap_or(20);
+
 
     static ref NON_ALPHANUM_CHAR: Regex = regex::Regex::new(r"[^0-9A-Za-z=.-]").unwrap();
 
@@ -77,9 +77,8 @@ use crate::{
         start_child_process, OccupancyMetrics,
     },
     handle_child::handle_child,
-    AuthedClientBackgroundTask, DISABLE_NSJAIL, DISABLE_NUSER, HOME_ENV, INSTANCE_PYTHON_VERSION,
-    NSJAIL_PATH, PATH_ENV, PIP_EXTRA_INDEX_URL, PIP_INDEX_URL, PROXY_ENVS, PY_INSTALL_DIR, TZ_ENV,
-    UV_CACHE_DIR,
+    AuthedClient, DISABLE_NSJAIL, DISABLE_NUSER, HOME_ENV, INSTANCE_PYTHON_VERSION, NSJAIL_PATH,
+    PATH_ENV, PIP_EXTRA_INDEX_URL, PIP_INDEX_URL, PROXY_ENVS, PY_INSTALL_DIR, TZ_ENV, UV_CACHE_DIR,
 };
 
 // To change latest stable version:
@@ -96,19 +95,23 @@ pub enum PyVersion {
 }
 
 impl PyVersion {
-    pub async fn from_instance_version() -> Self {
-        match INSTANCE_PYTHON_VERSION.read().await.clone() {
+    pub async fn from_instance_version(job_id: &Uuid, w_id: &str, db: &Pool<Postgres>) -> Self {
+        let mut err = None;
+        let pyv = match INSTANCE_PYTHON_VERSION.read().await.clone() {
             Some(v) => PyVersion::from_string_with_dots(&v).unwrap_or_else(|| {
                 let v = PyVersion::default();
-                tracing::error!(
-                "Cannot parse INSTANCE_PYTHON_VERSION ({:?}), fallback to latest_stable ({v:?})",
-                *INSTANCE_PYTHON_VERSION
-            );
+                err = Some(format!("\nCannot parse INSTANCE_PYTHON_VERSION ({:?}), fallback to latest_stable ({v:?})", *INSTANCE_PYTHON_VERSION));
                 v
             }),
             // Use latest stable
             None => PyVersion::default(),
+        };
+
+        if let Some(msg) = err {
+            append_logs(job_id, w_id, &msg, db).await;
+            tracing::error!(msg);
         }
+        pyv
     }
     /// e.g.: `/tmp/windmill/cache/python_3xy`
     pub fn to_cache_dir(&self) -> String {
@@ -223,9 +226,18 @@ impl PyVersion {
 
         if let Err(ref e) = res {
             tracing::error!(
-                "worker_name: {worker_name}, w_id: {w_id}, job_id: {job_id}\n 
+                "worker_name: {worker_name}, w_id: {w_id}, job_id: {job_id}\n
                 Error while getting python from uv, falling back to system python: {e:?}"
             );
+            append_logs(
+                job_id,
+                w_id,
+                format!(
+                    "\nError while getting python from uv, falling back to system python: {e:?}"
+                ),
+                db,
+            )
+            .await;
         }
         res
     }
@@ -339,6 +351,7 @@ impl PyVersion {
             None,
             false,
             occupancy_metrics,
+            None,
         )
         .await
     }
@@ -350,6 +363,8 @@ impl PyVersion {
         let uv_cmd = UV_PATH.as_str();
 
         let mut child_cmd = Command::new(uv_cmd);
+
+        child_cmd.env_clear();
 
         #[cfg(windows)]
         {
@@ -369,7 +384,6 @@ impl PyVersion {
 
         let output = child_cmd
             // .current_dir(job_dir)
-            .env_clear()
             .env("HOME", HOME_ENV.to_string())
             .env("PATH", PATH_ENV.to_string())
             .args([
@@ -632,6 +646,7 @@ pub async fn uv_pip_compile(
             None,
             false,
             occupancy_metrics,
+            None,
         )
         .await
         .map_err(|e| {
@@ -695,7 +710,7 @@ pub async fn uv_pip_compile(
 async fn postinstall(
     additional_python_paths: &mut Vec<String>,
     job_dir: &str,
-    job: &QueuedJob,
+    job: &MiniPulledJob,
     db: &sqlx::Pool<sqlx::Postgres>,
 ) -> windmill_common::error::Result<()> {
     // It is guranteed that additional_python_paths only contains paths within windmill/cache/
@@ -768,30 +783,6 @@ async fn postinstall(
     Ok(())
 }
 
-fn copy_dir_recursively(src: &Path, dst: &Path) -> windmill_common::error::Result<()> {
-    if !dst.exists() {
-        fs::create_dir_all(dst)?;
-    }
-
-    tracing::debug!("Copying recursively from {:?} to {:?}", src, dst);
-
-    for entry in fs::read_dir(src)? {
-        let entry = entry?;
-        let src_path = entry.path();
-        let dst_path = dst.join(entry.file_name());
-
-        if src_path.is_dir() && !src_path.is_symlink() {
-            copy_dir_recursively(&src_path, &dst_path)?;
-        } else {
-            fs::copy(&src_path, &dst_path)?;
-        }
-    }
-
-    tracing::debug!("Finished copying recursively from {:?} to {:?}", src, dst);
-
-    Ok(())
-}
-
 async fn get_python_path(
     py_version: PyVersion,
     worker_name: &str,
@@ -822,11 +813,12 @@ pub async fn handle_python_job(
     job_dir: &str,
     worker_dir: &str,
     worker_name: &str,
-    job: &QueuedJob,
+    job: &MiniPulledJob,
     mem_peak: &mut i32,
     canceled_by: &mut Option<CanceledBy>,
     db: &sqlx::Pool<sqlx::Postgres>,
-    client: &AuthedClientBackgroundTask,
+    client: &AuthedClient,
+    parent_runnable_path: Option<String>,
     inner_content: &String,
     shared_mount: &str,
     base_internal_url: &str,
@@ -834,7 +826,7 @@ pub async fn handle_python_job(
     new_args: &mut Option<HashMap<String, Box<RawValue>>>,
     occupancy_metrics: &mut OccupancyMetrics,
 ) -> windmill_common::error::Result<Box<RawValue>> {
-    let script_path = crate::common::use_flow_root_path(job.script_path());
+    let script_path = crate::common::use_flow_root_path(job.runnable_path());
 
     let (py_version, mut additional_python_paths) = handle_python_deps(
         job_dir,
@@ -897,7 +889,7 @@ pub async fn handle_python_job(
         pre_spread,
     ) = prepare_wrapper(
         job_dir,
-        job.is_flow_step,
+        job.is_flow_step(),
         job.preprocessed,
         job.script_entrypoint_override.as_deref(),
         inner_content,
@@ -1011,8 +1003,8 @@ except BaseException as e:
 
     tracing::debug!("Finished writing wrapper");
 
-    let client = client.get_authed().await;
-    let mut reserved_variables = get_reserved_variables(job, &client.token, db).await?;
+    let mut reserved_variables =
+        get_reserved_variables(job, &client.token, db, parent_runnable_path).await?;
 
     // Add /tmp/windmill/cache/python_xyz/global-site-packages to PYTHONPATH.
     // Usefull if certain wheels needs to be preinstalled before execution.
@@ -1148,6 +1140,7 @@ mount {{
         job.timeout,
         false,
         &mut Some(occupancy_metrics),
+        None,
     )
     .await?;
 
@@ -1430,7 +1423,7 @@ async fn handle_python_deps(
     let mut annotated_pyv = None;
     let mut annotated_pyv_numeric = None;
     let is_deployed = requirements_o.is_some();
-    let instance_pyv = PyVersion::from_instance_version().await;
+    let instance_pyv = PyVersion::from_instance_version(job_id, w_id, db).await;
     let annotations = windmill_common::worker::PythonAnnotations::parse(inner_content);
     let requirements = match requirements_o {
         Some(r) => r,
@@ -1693,19 +1686,6 @@ async fn spawn_uv_install(
                 .stderr(Stdio::piped());
             start_child_process(cmd, "uv").await
         }
-    }
-}
-
-/// length = 5
-/// value  = "foo"
-/// output = "foo  "
-///           12345
-fn pad_string(value: &str, total_length: usize) -> String {
-    if value.len() >= total_length {
-        value.to_string() // Return the original string if it's already long enough
-    } else {
-        let padding_needed = total_length - value.len();
-        format!("{value}{}", " ".repeat(padding_needed)) // Pad with spaces
     }
 }
 
@@ -2040,7 +2020,7 @@ pub async fn handle_python_reqs(
                     tokio::select! {
                         // Cancel was called on the job
                         _ = kill_rx.recv() => return Err(anyhow::anyhow!("S3 pull was canceled")),
-                        pull = pull_from_tar(os, venv_p.clone(), py_version.to_cache_dir_top_level()) => {
+                        pull = pull_from_tar(os, venv_p.clone(), py_version.to_cache_dir_top_level(), None, false) => {
                             if let Err(e) = pull {
                                 tracing::info!(
                                     workspace_id = %w_id,
@@ -2191,7 +2171,7 @@ pub async fn handle_python_reqs(
             #[cfg(all(feature = "enterprise", feature = "parquet", unix))]
             if s3_push {
                 if let Some(os) = OBJECT_STORE_CACHE_SETTINGS.read().await.clone() {
-                    tokio::spawn(build_tar_and_push(os, venv_p.clone(), py_version.to_cache_dir_top_level()));
+                    tokio::spawn(build_tar_and_push(os, venv_p.clone(), py_version.to_cache_dir_top_level(), None, false));
                 }
             }
 
@@ -2284,6 +2264,8 @@ use crate::{common::build_envs_map, dedicated_worker::handle_dedicated_process};
 #[cfg(feature = "enterprise")]
 use windmill_common::variables;
 
+use windmill_queue::MiniPulledJob;
+
 #[cfg(feature = "enterprise")]
 pub async fn start_worker(
     requirements_o: Option<&String>,
@@ -2297,7 +2279,7 @@ pub async fn start_worker(
     script_path: &str,
     token: &str,
     job_completed_tx: JobCompletedSender,
-    jobs_rx: tokio::sync::mpsc::Receiver<std::sync::Arc<QueuedJob>>,
+    jobs_rx: tokio::sync::mpsc::Receiver<std::sync::Arc<MiniPulledJob>>,
     killpill_rx: tokio::sync::broadcast::Receiver<()>,
 ) -> error::Result<()> {
     let mut mem_peak: i32 = 0;

@@ -102,7 +102,7 @@
 	</svelte:fragment>
 	<svelte:fragment slot="content">
 		{#if value}
-			<div class="flex flex-col w-96 p-4 gap-4 max-h-[50vh] overflow-y-auto">
+			<div class="flex flex-col w-96 p-4 gap-4 max-h-[70vh] overflow-y-auto">
 				<span class="text-sm mb-2 leading-6 font-semibold">
 					Column definitions
 					<Tooltip
@@ -195,7 +195,7 @@
 								{#if !presets.find((preset) => preset.value === value?.valueFormatter)}
 									<div
 										class="z-50 absolute bg-opacity-50 bg-surface top-0 left-0 bottom-0 right-0"
-									/>
+									></div>
 								{/if}
 								<div class="text-xs font-semibold">Presets</div>
 								<select

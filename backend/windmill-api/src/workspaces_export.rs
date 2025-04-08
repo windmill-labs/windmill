@@ -147,6 +147,7 @@ pub(crate) struct ArchiveQueryParams {
     skip_secrets: Option<bool>,
     skip_variables: Option<bool>,
     skip_resources: Option<bool>,
+    skip_resource_types: Option<bool>,
     include_schedules: Option<bool>,
     include_triggers: Option<bool>,
     include_users: Option<bool>,
@@ -249,10 +250,7 @@ struct SimplifiedSettings {
     error_handler_extra_args: Option<Value>,
     error_handler_muted_on_cancel: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
-    ai_resource: Option<serde_json::Value>,
-    ai_models: Vec<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    code_completion_model: Option<String>,
+    ai_config: Option<serde_json::Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     large_file_storage: Option<Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -280,6 +278,7 @@ pub(crate) async fn tarball_workspace(
         plain_secret,
         plain_secrets,
         skip_resources,
+        skip_resource_types,
         skip_secrets,
         skip_variables,
         include_schedules,
@@ -374,7 +373,10 @@ pub(crate) async fn tarball_workspace(
                 ScriptLang::Rust => "rs",
                 ScriptLang::Ansible => "playbook.yml",
                 ScriptLang::CSharp => "cs",
+                ScriptLang::Nu => "nu",
                 ScriptLang::OracleDB => "odb.sql",
+                ScriptLang::Java => "java",
+                // for related places search: ADD_NEW_LANG
             };
             archive
                 .write_to_archive(&script.content, &format!("{}.{}", script.path, ext))
@@ -428,7 +430,7 @@ pub(crate) async fn tarball_workspace(
         }
     }
 
-    if !skip_resources.unwrap_or(false) {
+    if !skip_resource_types.unwrap_or(false) {
         let resource_types = sqlx::query_as!(
             ResourceType,
             "SELECT * FROM resource_type WHERE workspace_id = $1",
@@ -497,8 +499,8 @@ pub(crate) async fn tarball_workspace(
     {
         let apps = sqlx::query_as::<_, AppWithLastVersion>(
              "SELECT app.id, app.path, app.summary, app.versions, app.policy, app.custom_path,
-             app.extra_perms, app_version.value, 
-             app_version.created_at, app_version.created_by from app, app_version 
+             app.extra_perms, app_version.value,
+             app_version.created_at, app_version.created_by from app, app_version
              WHERE app.workspace_id = $1 AND app_version.id = app.versions[array_upper(app.versions, 1)]",
          )
          .bind(&w_id)
@@ -534,13 +536,35 @@ pub(crate) async fn tarball_workspace(
         #[cfg(feature = "http_trigger")]
         {
             let http_triggers = sqlx::query_as!(
-                 crate::http_triggers::HttpTrigger,
-                 "SELECT workspace_id, path, route_path, route_path_key, script_path, is_flow, edited_by, edited_at, email, extra_perms, is_async, requires_auth, http_method as \"http_method: _\", static_asset_config as \"static_asset_config: _\", is_static_website FROM http_trigger
-                 WHERE workspace_id = $1",
-                 &w_id
-             )
-             .fetch_all(&mut *tx)
-             .await?;
+                crate::http_triggers::HttpTrigger,
+                r#"
+                SELECT 
+                    workspace_id, 
+                    workspaced_route,
+                    path, 
+                    route_path, 
+                    route_path_key, 
+                    authentication_resource_path,
+                    script_path, 
+                    is_flow, 
+                    edited_by, 
+                    edited_at, 
+                    email, 
+                    extra_perms, 
+                    is_async, 
+                    authentication_method  AS "authentication_method: _", 
+                    http_method AS "http_method: _", 
+                    static_asset_config AS "static_asset_config: _", 
+                    is_static_website,
+                    wrap_body,
+                    raw_string
+                FROM http_trigger
+                WHERE workspace_id = $1
+                "#,
+                &w_id
+            )
+            .fetch_all(&mut *tx)
+            .await?;
 
             for trigger in http_triggers {
                 let trigger_str = &to_string_without_metadata(&trigger, false, None).unwrap();
@@ -608,10 +632,7 @@ pub(crate) async fn tarball_workspace(
             for trigger in sqs_triggers {
                 let trigger_str = &to_string_without_metadata(&trigger, false, None).unwrap();
                 archive
-                    .write_to_archive(
-                        &trigger_str,
-                        &format!("{}.sqs_trigger.json", trigger.path),
-                    )
+                    .write_to_archive(&trigger_str, &format!("{}.sqs_trigger.json", trigger.path))
                     .await?;
             }
         }
@@ -690,7 +711,7 @@ pub(crate) async fn tarball_workspace(
 
     if include_groups.unwrap_or(false) {
         let groups = sqlx::query!(
-             r#"SELECT g_.workspace_id, name, summary, extra_perms, array_agg(u2g.usr) filter (where u2g.usr is not null) as members 
+             r#"SELECT g_.workspace_id, name, summary, extra_perms, array_agg(u2g.usr) filter (where u2g.usr is not null) as members
              FROM usr u
              JOIN usr_to_group u2g ON u2g.usr = u.username AND u2g.workspace_id = u.workspace_id
              RIGHT JOIN group_ g_ ON g_.workspace_id = u.workspace_id AND g_.name = u2g.group_
@@ -752,22 +773,20 @@ pub(crate) async fn tarball_workspace(
         let settings = sqlx::query_as!(
              SimplifiedSettings,
              r#"SELECT
-                 -- slack_team_id, 
-                 -- slack_name, 
-                 -- slack_command_script, 
+                 -- slack_team_id,
+                 -- slack_name,
+                 -- slack_command_script,
                  -- CASE WHEN slack_email = 'missing@email.xyz' THEN NULL ELSE slack_email END AS slack_email,
                  auto_invite_domain IS NOT NULL AS "auto_invite_enabled!",
-                 CASE WHEN auto_invite_operator IS TRUE THEN 'operator' ELSE 'developer' END AS "auto_invite_as!", 
-                 CASE WHEN auto_add IS TRUE THEN 'add' ELSE 'invite' END AS "auto_invite_mode!", 
-                 webhook, 
-                 deploy_to, 
-                 error_handler, 
-                 ai_resource, 
-                 ai_models,
-                 code_completion_model,
-                 error_handler_extra_args, 
-                 error_handler_muted_on_cancel, 
-                 large_file_storage, 
+                 CASE WHEN auto_invite_operator IS TRUE THEN 'operator' ELSE 'developer' END AS "auto_invite_as!",
+                 CASE WHEN auto_add IS TRUE THEN 'add' ELSE 'invite' END AS "auto_invite_mode!",
+                 webhook,
+                 deploy_to,
+                 error_handler,
+                 ai_config,
+                 error_handler_extra_args,
+                 error_handler_muted_on_cancel,
+                 large_file_storage,
                  git_sync,
                  default_app,
                  default_scripts,

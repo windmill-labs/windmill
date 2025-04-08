@@ -184,9 +184,13 @@
 			</Alert>
 			<div class="flex items-center gap-1">
 				<div>
-					<ToggleButtonGroup bind:selected={ownerKind} on:selected={() => (ownerItem = '')}>
-						<ToggleButton value="user" size="xs" label="User" />
-						<ToggleButton value="group" size="xs" label="Group" />
+					<ToggleButtonGroup
+						bind:selected={ownerKind}
+						on:selected={() => (ownerItem = '')}
+						let:item
+					>
+						<ToggleButton value="user" label="User" {item} />
+						<ToggleButton value="group" label="Group" {item} />
 					</ToggleButtonGroup>
 				</div>
 
@@ -194,7 +198,9 @@
 					<AutoComplete
 						required
 						noInputStyles
-						items={ownerKind === 'user' ? usernames.filter((x) => !perms?.map((y) => y.owner_name).includes('u/'+x)) : groups.filter((x) => !perms?.map((y) => y.owner_name).includes('g/'+x))}
+						items={ownerKind === 'user'
+							? usernames.filter((x) => !perms?.map((y) => y.owner_name).includes('u/' + x))
+							: groups.filter((x) => !perms?.map((y) => y.owner_name).includes('g/' + x))}
 						bind:selectedItem={ownerItem}
 					/>
 					{#if ownerKind == 'group'}
@@ -260,8 +266,8 @@
 			<TableCustom>
 				<tr slot="header-row">
 					<th>user/group</th>
-					<th />
-					<th />
+					<th></th>
+					<th></th>
 				</tr>
 				<tbody slot="body">
 					{#each perms as { owner_name, role }}<tr>
@@ -270,7 +276,9 @@
 								{#if can_write}
 									<div>
 										<ToggleButtonGroup
+											disabled={owner_name == 'u/' + $userStore?.username && !$userStore?.is_admin}
 											selected={role}
+											let:item
 											on:selected={async (e) => {
 												const role = e.detail
 												// const wasInFolder = (folder?.owners ?? []).includes(folder)
@@ -309,25 +317,25 @@
 										>
 											<ToggleButton
 												value="viewer"
-												size="xs"
 												label="Viewer"
 												tooltip="A viewer of a folder has read-only access to all the elements (scripts/flows/apps/schedules/resources/variables) inside the folder"
+												{item}
 											/>
 
 											<ToggleButton
 												position="center"
 												value="writer"
-												size="xs"
 												label="Writer"
 												tooltip="A writer of a folder has read AND write access to all the elements (scripts/flows/apps/schedules/resources/variables) inside the folder"
+												{item}
 											/>
 
 											<ToggleButton
 												position="right"
 												value="admin"
-												size="xs"
 												label="Admin"
 												tooltip="An admin of a folder has read AND write access to all the elements inside the folders and can manage the permissions as well as add new admins"
+												{item}
 											/>
 										</ToggleButtonGroup>
 									</div>
@@ -336,7 +344,7 @@
 								{/if}</td
 							>
 							<td>
-								{#if can_write}
+								{#if can_write && (owner_name != 'u/' + $userStore?.username || $userStore?.is_admin)}
 									<button
 										class="ml-2 text-red-500"
 										on:click={async () => {
@@ -359,6 +367,8 @@
 											loadFolder()
 										}}>remove</button
 									>
+								{:else}
+									<span class="text-tertiary text-xs">cannot remove yourself</span>
 								{/if}</td
 							>
 						</tr>{/each}

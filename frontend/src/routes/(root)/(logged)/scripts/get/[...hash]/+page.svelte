@@ -89,6 +89,7 @@
 	import PostgresTriggersPanel from '$lib/components/triggers/postgres/PostgresTriggersPanel.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import InputSelectedBadge from '$lib/components/schema/InputSelectedBadge.svelte'
+	import MqttTriggersPanel from '$lib/components/triggers/mqtt/MqttTriggersPanel.svelte'
 	import SqsTriggerPanel from '$lib/components/triggers/sqs/SqsTriggerPanel.svelte'
 
 	let script: Script | undefined
@@ -618,7 +619,7 @@
 									</div>
 								{/if}
 								{#if topHash}
-									<div class="mt-2" />
+									<div class="mt-2"></div>
 									<Alert type="warning" title="Not HEAD">
 										This hash is not HEAD (latest non-archived version at this path) :
 										<a href="{base}/scripts/get/{topHash}?workspace={$workspaceStore}"
@@ -694,7 +695,7 @@
 						/>
 					</div>
 
-					<div class="py-10" />
+					<div class="py-10"></div>
 					{#if !emptyString(script.summary)}
 						<div class="mb-2">
 							<span class="!text-tertiary">{script.path}</span>
@@ -723,6 +724,7 @@
 			<svelte:fragment slot="save_inputs">
 				{#if args}
 					<SavedInputsV2
+						schema={script?.schema}
 						bind:this={savedInputsV2}
 						scriptPath={script?.path}
 						scriptHash={topHash}
@@ -771,6 +773,11 @@
 			<svelte:fragment slot="nats">
 				<div class="p-2">
 					<NatsTriggersPanel path={script.path ?? ''} isFlow={false} />
+				</div>
+			</svelte:fragment>
+			<svelte:fragment slot="mqtt">
+				<div class="p-2">
+					<MqttTriggersPanel path={script.path ?? ''} isFlow={false} />
 				</div>
 			</svelte:fragment>
 			<svelte:fragment slot="sqs">

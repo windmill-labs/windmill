@@ -76,16 +76,42 @@
 					{
 						type: 'object',
 						title: 'SSL',
+						order: ['ca', 'certificate', 'key', 'key_password'],
 						properties: {
 							label: {
 								enum: ['SSL'],
 								type: 'string'
+							},
+							ca: {
+								type: 'string',
+								description: 'CA certificate to verify the server certificate, in PEM format'
+							},
+							certificate: {
+								type: 'string',
+								description: 'Client certificate for authentication to the server, in PEM format'
+							},
+							key: {
+								type: 'string',
+								description: 'Client key for authentication to the server, in PEM format'
+							},
+							key_password: {
+								type: 'string',
+								description: 'Password to decrypt the client key, if encrypted',
+								password: true
 							}
 						}
 					},
 					{
 						type: 'object',
-						order: ['mechanism', 'username', 'password'],
+						order: [
+							'mechanism',
+							'username',
+							'password',
+							'ca',
+							'certificate',
+							'key',
+							'key_password'
+						],
 						title: 'SASL_SSL',
 						required: ['mechanism', 'username', 'password'],
 						properties: {
@@ -104,6 +130,23 @@
 								enum: ['PLAIN', 'SCRAM-SHA-256', 'SCRAM-SHA-512'],
 								type: 'string',
 								disableCreate: true
+							},
+							ca: {
+								type: 'string',
+								description: 'CA certificate to verify the server certificate, in PEM format'
+							},
+							certificate: {
+								type: 'string',
+								description: 'Client certificate for authentication to the server, in PEM format'
+							},
+							key: {
+								type: 'string',
+								description: 'Client key for authentication to the server, in PEM format'
+							},
+							key_password: {
+								type: 'string',
+								description: 'Password to decrypt the client key, if encrypted',
+								password: true
 							}
 						}
 					}
@@ -200,9 +243,10 @@
 										delete args.security
 									}
 								}}
+								let:item
 							>
-								<ToggleButton value="static" label="Static" small={true} />
-								<ToggleButton value="resource" label="Resource" icon={Boxes} small={true} />
+								<ToggleButton value="static" label="Static" small={true} {item} />
+								<ToggleButton value="resource" label="Resource" icon={Boxes} small={true} {item} />
 							</ToggleButtonGroup>
 						{/if}
 					</svelte:fragment>

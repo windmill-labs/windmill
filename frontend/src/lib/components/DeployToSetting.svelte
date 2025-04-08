@@ -9,7 +9,6 @@
 	import Toggle from './Toggle.svelte'
 	import { emptyString } from '$lib/utils'
 
-
 	$: deployableWorkspaces = $usersWorkspaceStore?.workspaces
 		.map((w) => w.id)
 		.filter((w) => w != $workspaceStore)
@@ -21,8 +20,9 @@
 		resources: boolean
 		variables: boolean
 		secrets: boolean
+		triggers: boolean
 	}
-	type DeployUIType = 'script' | 'flow' | 'app' | 'resource' | 'variable' | 'secret'
+	type DeployUIType = 'script' | 'flow' | 'app' | 'resource' | 'variable' | 'secret' | 'trigger'
 
 	const all_ok: DeployUITypeMap = {
 		scripts: true,
@@ -30,7 +30,8 @@
 		apps: true,
 		resources: true,
 		variables: true,
-		secrets: true
+		secrets: true,
+		triggers: true
 	}
 
 	export let workspaceToDeployTo: string | undefined
@@ -41,8 +42,6 @@
 		include_path: [],
 		include_type: all_ok
 	}
-
-
 	function deployUITypeMapToArray(
 		typesMap: DeployUITypeMap,
 		expectedValue: boolean
@@ -65,6 +64,9 @@
 		}
 		if (typesMap.secrets == expectedValue) {
 			result.push('secret')
+		}
+		if (typesMap.triggers == expectedValue) {
+			result.push('trigger')
 		}
 		return result
 	}
@@ -165,18 +167,9 @@
 			</Tooltip></h4
 		>
 		<div class="flex flex-col gap-2 mt-1">
-			<Toggle
-				bind:checked={deployUiSettings.include_type.scripts}
-				options={{ right: 'Scripts' }}
-			/>
-			<Toggle
-				bind:checked={deployUiSettings.include_type.flows}
-				options={{ right: 'Flows' }}
-			/>
-			<Toggle
-				bind:checked={deployUiSettings.include_type.apps}
-				options={{ right: 'Apps' }}
-			/>
+			<Toggle bind:checked={deployUiSettings.include_type.scripts} options={{ right: 'Scripts' }} />
+			<Toggle bind:checked={deployUiSettings.include_type.flows} options={{ right: 'Flows' }} />
+			<Toggle bind:checked={deployUiSettings.include_type.apps} options={{ right: 'Apps' }} />
 			<Toggle
 				bind:checked={deployUiSettings.include_type.resources}
 				options={{ right: 'Resources' }}
@@ -198,6 +191,10 @@
 					options={{ left: 'Include secrets' }}
 				/>
 			</div>
+			<Toggle
+				bind:checked={deployUiSettings.include_type.triggers}
+				options={{ right: 'Trigger' }}
+			/>
 		</div>
 	</div>
 </div>

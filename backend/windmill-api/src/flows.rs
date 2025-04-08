@@ -12,7 +12,7 @@ use crate::db::ApiAuthed;
 use crate::triggers::{
     get_triggers_count_internal, list_tokens_internal, TriggersCount, TruncatedTokenWithEmail,
 };
-use crate::utils::WithStarredInfoQuery;
+use crate::utils::{RunnableKind, WithStarredInfoQuery};
 use crate::{
     db::DB,
     schedule::clear_schedule,
@@ -65,6 +65,10 @@ pub fn workspaced_service() -> Router {
         .route("/list_paths", get(list_paths))
         .route("/history/p/*path", get(get_flow_history))
         .route("/get_latest_version/*path", get(get_latest_version))
+        .route(
+            "/list_paths_from_workspace_runnable/:runnable_kind/*path",
+            get(list_paths_from_workspace_runnable),
+        )
         .route(
             "/history_update/v/:version/p/*path",
             post(update_flow_history),
@@ -322,6 +326,28 @@ async fn check_path_conflict<'c>(
         return Err(Error::BadRequest(format!("Flow {} already exists", path)));
     }
     return Ok(());
+}
+
+async fn list_paths_from_workspace_runnable(
+    authed: ApiAuthed,
+    Extension(user_db): Extension<UserDB>,
+    Path((w_id, runnable_kind, path)): Path<(String, RunnableKind, StripPath)>,
+) -> JsonResult<Vec<String>> {
+    let mut tx = user_db.begin(&authed).await?;
+    let runnables = sqlx::query_scalar!(
+        r#"SELECT f.path
+            FROM workspace_runnable_dependencies wru 
+            JOIN flow f
+                ON wru.flow_path = f.path AND wru.workspace_id = f.workspace_id
+            WHERE wru.runnable_path = $1 AND wru.runnable_is_flow = $2 AND wru.workspace_id = $3"#,
+        path.to_path(),
+        matches!(runnable_kind, RunnableKind::Flow),
+        w_id
+    )
+    .fetch_all(&mut *tx)
+    .await?;
+    tx.commit().await?;
+    Ok(Json(runnables))
 }
 
 async fn create_flow(
@@ -1157,12 +1183,18 @@ async fn archive_flow_by_path(
     Ok(format!("Flow {path} archived"))
 }
 
+#[derive(Deserialize)]
+struct DeleteFlowQuery {
+    keep_captures: Option<bool>,
+}
+
 async fn delete_flow_by_path(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
     Extension(webhook): Extension<WebhookShared>,
     Path((w_id, path)): Path<(String, StripPath)>,
+    Query(query): Query<DeleteFlowQuery>,
 ) -> Result<String> {
     let path = path.to_path();
     let mut tx = user_db.begin(&authed).await?;
@@ -1183,21 +1215,23 @@ async fn delete_flow_by_path(
     .execute(&mut *tx)
     .await?;
 
-    sqlx::query!(
-        "DELETE FROM capture_config WHERE path = $1 AND workspace_id = $2 AND is_flow IS TRUE",
-        path,
-        &w_id
-    )
-    .execute(&mut *tx)
-    .await?;
+    if !query.keep_captures.unwrap_or(false) {
+        sqlx::query!(
+            "DELETE FROM capture_config WHERE path = $1 AND workspace_id = $2 AND is_flow IS TRUE",
+            path,
+            &w_id
+        )
+        .execute(&mut *tx)
+        .await?;
 
-    sqlx::query!(
-        "DELETE FROM capture WHERE path = $1 AND workspace_id = $2 AND is_flow IS TRUE",
-        path,
-        &w_id
-    )
-    .execute(&mut *tx)
-    .await?;
+        sqlx::query!(
+            "DELETE FROM capture WHERE path = $1 AND workspace_id = $2 AND is_flow IS TRUE",
+            path,
+            &w_id
+        )
+        .execute(&mut *tx)
+        .await?;
+    }
 
     audit_log(
         &mut *tx,

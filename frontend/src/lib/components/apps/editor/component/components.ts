@@ -485,6 +485,7 @@ export const selectOptions = {
 	prose: ['sm', 'Default', 'lg', 'xl', '2xl'],
 	imageSourceKind: [
 		'url',
+		's3 (workspace storage)',
 		'png encoded as base64',
 		'jpeg encoded as base64',
 		'svg encoded as base64'
@@ -962,6 +963,12 @@ export const components = {
 					value: false,
 					tooltip:
 						'Hide the details section: the object keys, the clipboard button and the maximise button'
+				},
+				forceJson: {
+					type: 'static',
+					fieldType: 'boolean',
+					value: false,
+					tooltip: 'Force the result to be displayed as JSON'
 				}
 			}
 		}
@@ -1643,9 +1650,9 @@ Hello \${ctx.username}
 				type: 'templatev2',
 				fieldType: 'template',
 				eval: `# This is a header
-## This is a subheader				
+## This is a subheader
 This is a paragraph.
-				
+
 * This is a list
 * With two items`,
 				connections: [] as InputConnectionEval[]
@@ -2679,7 +2686,7 @@ This is a paragraph.
 					type: 'static',
 					value: 'yyyy-MM-dd',
 					fieldType: 'text',
-					markdownTooltip: `### Output format				
+					markdownTooltip: `### Output format
 See date-fns format for more information. By default, it is 'yyyy-MM-dd'
 
 | Format      | Result | Description |
@@ -2736,7 +2743,7 @@ See date-fns format for more information. By default, it is 'yyyy-MM-dd'
 					fieldType: 'text',
 					documentationLink: 'https://date-fns.org/v2.30.0/docs/format',
 					placeholder: 'dd.MM.yyyy HH:mm',
-					markdownTooltip: `### Output format				
+					markdownTooltip: `### Output format
 See date-fns format for more information. By default, it is 'dd.MM.yyyy HH:mm'
 
 | Format      | Result | Description |
@@ -3071,6 +3078,10 @@ See date-fns format for more information. By default, it is 'dd.MM.yyyy HH:mm'
 					value: '/logo.svg',
 					fieldType: 'text',
 					fileUpload: {
+						accept: 'image/*',
+						convertTo: 'base64'
+					},
+					fileUploadS3: {
 						accept: 'image/*',
 						convertTo: 'base64'
 					}
@@ -3688,6 +3699,12 @@ See date-fns format for more information. By default, it is 'dd.MM.yyyy HH:mm'
 								fieldType: 'boolean',
 								tooltip: 'If allowed, the user will be able to select more than one file'
 							},
+							allowDelete: {
+								type: 'static',
+								value: false,
+								fieldType: 'boolean',
+								tooltip: 'If allowed, the user will be able to delete files'
+							},
 							text: {
 								type: 'static',
 								value: 'Drag and drop files or click to select them',
@@ -4142,6 +4159,12 @@ See date-fns format for more information. By default, it is 'dd.MM.yyyy HH:mm'
 					value: false,
 					tooltip:
 						'Hide the details section: the object keys, the clipboard button and the maximise button'
+				},
+				forceJson: {
+					type: 'static',
+					fieldType: 'boolean',
+					value: false,
+					tooltip: 'Force the result to be displayed as JSON'
 				}
 			}
 		}
@@ -4157,7 +4180,22 @@ See date-fns format for more information. By default, it is 'dd.MM.yyyy HH:mm'
 		initialData: {
 			...defaultAlignement,
 			componentInput: undefined,
-			configuration: {},
+			configuration: {
+				defaultRefreshInterval: {
+					fieldType: 'select',
+					type: 'static',
+					selectOptions: [
+						{ value: '0', label: 'Once' },
+						{ value: '5', label: 'Every 5 seconds' },
+						{ value: '10', label: 'Every 10 seconds' },
+						{ value: '15', label: 'Every 15 seconds' },
+						{ value: '20', label: 'Every 20 seconds' },
+						{ value: '25', label: 'Every 25 seconds' },
+						{ value: '30', label: 'Every 30 seconds' }
+					],
+					value: '0'
+				}
+			},
 			menuItems: true
 		}
 	}

@@ -21,6 +21,9 @@
 	export let moveMode: string | undefined = undefined
 	export let componentDraggedId: string | undefined = undefined
 	export let render: boolean = false
+
+	let initializing: boolean | undefined
+
 	const { mode, app, hoverStore, connectingInput } =
 		getContext<AppViewerContext>('AppViewerContext')
 
@@ -30,8 +33,6 @@
 	const movingcomponents = editorContext?.movingcomponents
 	$: ismoving =
 		movingcomponents != undefined && $mode == 'dnd' && $movingcomponents?.includes(component.id)
-
-	let initializing: boolean | undefined = undefined
 
 	let errorHandledByComponent: boolean = false
 	let componentContainerHeight: number = 0
@@ -125,7 +126,7 @@
 					'outline-dashed outline-offset-2 outline-2 outline-blue-300 dark:outline-blue-700',
 					overlapped === component?.id ? 'bg-draggedover dark:bg-draggedover-dark' : ''
 				)}
-			/>
+			></div>
 		{/if}
 		{#if $mode !== 'preview'}
 			<ComponentHeader
@@ -215,5 +216,5 @@
 			}
 		}}
 		class="absolute inset-0 center-center flex-col border animate-skeleton dark:bg-frost-900/50 [animation-delay:1000ms]"
-	/>
+	></div>
 {/if}

@@ -52,6 +52,13 @@
 			recomputeIds: []
 		}
 
+		if (typ == 'buttoncomponent') {
+			if (newComponent?.configuration?.size) {
+				// @ts-ignore
+				newComponent.configuration.size = { type: 'static', value: 'xs2' }
+			}
+		}
+
 		items = [
 			...items,
 			{
@@ -74,7 +81,6 @@
 
 		$selectedComponent = [id]
 		$app = $app
-		console.log('items', items)
 		// Remove the corresponding item from the items array
 		items = items.filter((item) => item.originalIndex !== index)
 	}

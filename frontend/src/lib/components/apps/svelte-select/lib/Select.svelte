@@ -711,7 +711,7 @@
 
 	{#if required && (!value || value.length === 0)}
 		<slot name="required" {value}>
-			<select class="required" required tabindex="-1" aria-hidden="true" />
+			<select class="required" required tabindex="-1" aria-hidden="true"></select>
 		</slot>
 	{/if}
 </div>
@@ -845,6 +845,7 @@
 		left: 0;
 		background: transparent !important;
 		font-size: var(--font-size, 16px);
+		border: 0 !important;
 	}
 
 	:not(.multi) > .value-container > input {

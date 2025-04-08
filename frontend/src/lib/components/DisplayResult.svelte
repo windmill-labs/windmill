@@ -7,15 +7,14 @@
 	import {
 		ClipboardCopy,
 		Download,
-		Expand,
 		PanelRightOpen,
 		Table2,
 		Braces,
 		Highlighter,
-		InfoIcon,
 		ArrowDownFromLine
 	} from 'lucide-svelte'
 	import Portal from '$lib/components/Portal.svelte'
+	import DisplayResultControlBar from './DisplayResultControlBar.svelte'
 
 	import ObjectViewer from './propertyPicker/ObjectViewer.svelte'
 	import S3FilePicker from './S3FilePicker.svelte'
@@ -29,12 +28,13 @@
 	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
 	import MapResult from './MapResult.svelte'
-	import Popover from './Popover.svelte'
 	import DownloadCsv from './table/DownloadCsv.svelte'
 	import { convertJsonToCsv } from './table/tableUtils'
 	import Tooltip from './Tooltip.svelte'
 	import HighlightTheme from './HighlightTheme.svelte'
 	import PdfViewer from './display/PdfViewer.svelte'
+	import type { DisplayResultUi } from './custom_ui'
+	import { getContext, hasContext, createEventDispatcher, onDestroy } from 'svelte'
 
 	export let result: any
 	export let requireHtmlApproval = false
@@ -48,10 +48,15 @@
 	export let nodeId: string | undefined = undefined
 	export let language: string | undefined = undefined
 	export let appPath: string | undefined = undefined
+	export let customUi: DisplayResultUi | undefined = undefined
+	export let isTest: boolean = true
+	export let externalToolbarAvailable: boolean = false
 
 	const IMG_MAX_SIZE = 10000000
 	const TABLE_MAX_SIZE = 5000000
 	const DISPLAY_MAX_SIZE = 100000
+
+	const dispatch = createEventDispatcher()
 
 	let resultKind:
 		| 'json'
@@ -386,14 +391,55 @@
 		return []
 	}
 
+	export function openDrawer() {
+		jsonViewer.openDrawer()
+	}
+
 	let globalForceJson: boolean = false
 
 	let seeS3PreviewFileFromList = ''
+
+	const disableTooltips = hasContext('disableTooltips')
+		? getContext('disableTooltips') === true
+		: false
+
+	let resultHeaderHeight = 0
+
+	let toolbarLocation: 'self' | 'external' | undefined = undefined
+	function chooseToolbarLocation(shouldShowToolbar: boolean, resultHeaderHeight: number) {
+		if (!shouldShowToolbar) {
+			toolbarLocation = undefined
+		} else if (externalToolbarAvailable && resultHeaderHeight < 16) {
+			toolbarLocation = 'external'
+		} else {
+			toolbarLocation = 'self'
+		}
+		dispatch('toolbar-location-changed', toolbarLocation)
+	}
+
+	export function getToolbarLocation() {
+		return toolbarLocation
+	}
+
+	$: chooseToolbarLocation(
+		!is_render_all &&
+			resultKind != 'nondisplayable' &&
+			result != undefined &&
+			length != undefined &&
+			largeObject != undefined &&
+			!disableExpand &&
+			!noControls,
+		resultHeaderHeight
+	)
+
+	onDestroy(() => {
+		dispatch('toolbar-location-changed', undefined)
+	})
 </script>
 
 <HighlightTheme />
 {#if is_render_all}
-	<div class="flex flex-col w-full gap-6">
+	<div class="flex flex-col w-full gap-2">
 		{#if !noControls}
 			<div class="text-tertiary text-sm">
 				<ToggleButtonGroup
@@ -402,28 +448,31 @@
 					on:selected={(ev) => {
 						globalForceJson = ev.detail === 'json'
 					}}
+					let:item
 				>
-					<ToggleButton class="px-1.5" value="pretty" label="Pretty" icon={Highlighter} />
+					<ToggleButton class="px-1.5" value="pretty" label="Pretty" icon={Highlighter} {item} />
 
-					<ToggleButton class="px-1.5" value="json" label="JSON" icon={Braces} />
+					<ToggleButton class="px-1.5" value="json" label="JSON" icon={Braces} {item} />
 				</ToggleButtonGroup>
 			</div>
 		{/if}
-		{#each result['render_all'] as res}
-			<svelte:self
-				{noControls}
-				result={res}
-				{requireHtmlApproval}
-				{filename}
-				{disableExpand}
-				{jobId}
-				{nodeId}
-				{workspaceId}
-				forceJson={globalForceJson}
-				hideAsJson={true}
-			/>
-		{/each}</div
-	>
+		<div class="flex flex-col w-full gap-10">
+			{#each result['render_all'] as res}
+				<svelte:self
+					{noControls}
+					result={res}
+					{requireHtmlApproval}
+					{filename}
+					{disableExpand}
+					{jobId}
+					{nodeId}
+					{workspaceId}
+					forceJson={globalForceJson}
+					hideAsJson={true}
+				/>
+			{/each}
+		</div>
+	</div>
 {:else if resultKind === 'nondisplayable'}
 	<div class="text-red-400">Non displayable object</div>
 {:else}
@@ -434,54 +483,51 @@
 	>
 		{#if result != undefined && length != undefined && largeObject != undefined}
 			<div class="flex justify-between items-center w-full">
-				<div class="text-tertiary text-sm flex flex-row gap-2 items-center">
+				<div
+					class="text-tertiary text-sm flex flex-row gap-2 items-center"
+					bind:clientHeight={resultHeaderHeight}
+				>
 					{#if !hideAsJson && !['json', 's3object'].includes(resultKind ?? '') && typeof result === 'object'}<ToggleButtonGroup
 							class="h-6"
 							selected={forceJson ? 'json' : resultKind?.startsWith('table-') ? 'table' : 'pretty'}
+							let:item
 							on:selected={(ev) => {
 								forceJson = ev.detail === 'json'
 							}}
 						>
 							{#if ['table-col', 'table-row', 'table-row-object'].includes(resultKind ?? '')}
-								<ToggleButton class="px-1.5" value="table" label="Table" icon={Table2} />
+								<ToggleButton class="px-1.5" value="table" label="Table" icon={Table2} {item} />
 							{:else}
-								<ToggleButton class="px-1.5" value="pretty" label="Pretty" icon={Highlighter} />
+								<ToggleButton
+									class="px-1.5"
+									value="pretty"
+									label="Pretty"
+									icon={Highlighter}
+									{item}
+								/>
 							{/if}
-							<ToggleButton class="px-1.5" value="json" label="JSON" icon={Braces} />
+							<ToggleButton class="px-1.5" value="json" label="JSON" icon={Braces} {item} />
 						</ToggleButtonGroup>
 					{/if}
 				</div>
+
 				<div class="text-secondary text-xs flex gap-2.5 z-10 items-center">
-					<slot name="copilot-fix" />
-					{#if !disableExpand && !noControls}
-						<a
-							download="{filename ?? 'result'}.json"
-							class="-mt-1 text-current"
-							href={workspaceId && jobId
-								? nodeId
-									? `${base}/api/w/${workspaceId}/jobs/result_by_id/${jobId}/${nodeId}`
-									: `${base}/api/w/${workspaceId}/jobs_u/completed/get_result/${jobId}`
-								: `data:text/json;charset=utf-8,${encodeURIComponent(toJsonStr(result))}`}
-						>
-							<Download size={14} />
-						</a>
-						<Popover
-							documentationLink="https://www.windmill.dev/docs/core_concepts/rich_display_rendering"
-						>
-							<svelte:fragment slot="text">
-								The result renderer in Windmill supports rich display rendering, allowing you to
-								customize the display format of your results.
-							</svelte:fragment>
-							<div class="-mt-1">
-								<InfoIcon size={14} />
-							</div>
-						</Popover>
-						<button on:click={() => copyToClipboard(toJsonStr(result))} class="-mt-1">
-							<ClipboardCopy size={14} />
-						</button>
-						<button on:click={jsonViewer.openDrawer} class="-mt-1">
-							<Expand size={14} />
-						</button>
+					{#if customUi?.disableAiFix !== true}
+						<slot name="copilot-fix" />
+					{/if}
+					{#if toolbarLocation === 'self'}
+						<!-- TODO : When svelte 5 is released, use a snippet to pass the toolbar to a parent -->
+						<DisplayResultControlBar
+							{customUi}
+							{filename}
+							{workspaceId}
+							{jobId}
+							{nodeId}
+							{base}
+							{result}
+							{disableTooltips}
+							on:open-drawer={() => openDrawer()}
+						/>
 					{/if}
 				</div>
 			</div>
@@ -524,7 +570,7 @@
 						{/if}
 					</div>
 				{:else if !forceJson && resultKind === 'map'}
-					<div class="h-full">
+					<div class="h-full" data-interactive>
 						<MapResult
 							lat={result.map.lat}
 							lon={result.map.lon}
@@ -570,7 +616,9 @@
 						/>
 					</div>
 				{:else if !forceJson && resultKind === 'plain'}<div class="h-full text-2xs"
-						><pre>{typeof result === 'string' ? result : result?.['result']}</pre>{#if !noControls}
+						><pre class="whitespace-pre-wrap"
+							>{typeof result === 'string' ? result : result?.['result']}</pre
+						>{#if !noControls}
 							<div class="flex">
 								<Button
 									on:click={() =>
@@ -607,13 +655,33 @@
 						{/if}
 						<slot />
 					</div>
-					{#if language === 'bun'}
-						<div class="pt-20" />
+					{#if !isTest && language === 'bun'}
+						<div class="pt-20"></div>
 						<Alert size="xs" type="info" title="Seeing an odd error?">
 							Bun script are bundled for performance reasons. If you see an odd error that doesn't
 							appear when testing (which doesn't use bundling), try putting <code>//nobundling</code
 							> at the top of your script to disable bundling and feel free to mention it to the Windmill's
 							team.
+						</Alert>
+					{/if}
+					{#if language === 'python3' && result?.error?.message?.includes('ImportError: cannot import name')}
+						<Alert size="xs" type="info" title="Seeing an odd import error?">
+							Python requirements inference may be inaccurate. This is due to the fact that
+							requirement names can vary from package names they provide. Try to <a
+								href="https://www.windmill.dev/docs/advanced/dependencies_in_python#pinning-dependencies-and-requirements"
+								target="_blank"
+								rel="noopener noreferrer">manually pin requirements</a
+							>
+						</Alert>
+					{/if}
+					{#if language === 'python3' && result?.error?.message?.startsWith('execution error:\npip compile failed')}
+						<Alert size="xs" type="info" title="Seeing an odd resolution error?">
+							Python requirements inference may be inaccurate. This is due to the fact that
+							requirement names can vary from package names they provide. Try to <a
+								href="https://www.windmill.dev/docs/advanced/dependencies_in_python#pinning-dependencies-and-requirements"
+								target="_blank"
+								rel="noopener noreferrer">manually pin requirements</a
+							>
 						</Alert>
 					{/if}
 				{:else if !forceJson && resultKind === 'approval'}<div
@@ -708,7 +776,8 @@
 											appPath
 												? 'apps_u/load_image_preview/' + appPath
 												: 'job_helpers/load_image_preview'
-										}?file_key=${result.s3}` + (result.storage ? `&storage=${result.storage}` : '')}
+										}?file_key=${encodeURIComponent(result.s3)}` +
+											(result.storage ? `&storage=${result.storage}` : '')}
 									/>
 								</div>
 							{:else if result?.s3?.endsWith('.pdf')}
@@ -719,7 +788,8 @@
 											appPath
 												? 'apps_u/load_image_preview/' + appPath
 												: 'job_helpers/load_image_preview'
-										}?file_key=${result.s3}` + (result.storage ? `&storage=${result.storage}` : '')}
+										}?file_key=${encodeURIComponent(result.s3)}` +
+											(result.storage ? `&storage=${result.storage}` : '')}
 									/>
 								</div>
 							{/if}
@@ -777,8 +847,9 @@
 											<img
 												alt="preview rendered"
 												class="w-auto h-full"
-												src={`/api/w/${workspaceId}/job_helpers/load_image_preview?file_key=${s3object.s3}` +
-													(s3object.storage ? `&storage=${s3object.storage}` : '')}
+												src={`/api/w/${workspaceId}/job_helpers/load_image_preview?file_key=${encodeURIComponent(
+													s3object.s3
+												)}` + (s3object.storage ? `&storage=${s3object.storage}` : '')}
 											/>
 										</div>
 									{:else}
@@ -791,11 +862,12 @@
 										</button>
 									{/if}
 								{:else if s3object?.s3?.endsWith('.pdf')}
-									<div class="h-96 mt-2 border">
+									<div class="h-96 mt-2 border" data-interactive>
 										<PdfViewer
 											allowFullscreen
-											source={`/api/w/${workspaceId}/job_helpers/load_image_preview?file_key=${s3object.s3}` +
-												(s3object.storage ? `&storage=${s3object.storage}` : '')}
+											source={`/api/w/${workspaceId}/job_helpers/load_image_preview?file_key=${encodeURIComponent(
+												s3object.s3
+											)}` + (s3object.storage ? `&storage=${s3object.storage}` : '')}
 										/>
 									</div>
 								{/if}
@@ -885,19 +957,21 @@
 		<Drawer bind:this={jsonViewer} bind:open={drawerOpen} size="900px">
 			<DrawerContent title="Expanded Result" on:close={jsonViewer.closeDrawer}>
 				<svelte:fragment slot="actions">
-					<Button
-						download="{filename ?? 'result'}.json"
-						href={workspaceId && jobId
-							? nodeId
-								? `${base}/api/w/${workspaceId}/jobs/result_by_id/${jobId}/${nodeId}`
-								: `${base}/api/w/${workspaceId}/jobs_u/completed/get_result/${jobId}`
-							: `data:text/json;charset=utf-8,${encodeURIComponent(toJsonStr(result))}`}
-						startIcon={{ icon: Download }}
-						color="light"
-						size="xs"
-					>
-						Download
-					</Button>
+					{#if customUi?.disableDownload !== true}
+						<Button
+							download="{filename ?? 'result'}.json"
+							href={workspaceId && jobId
+								? nodeId
+									? `${base}/api/w/${workspaceId}/jobs/result_by_id/${jobId}/${nodeId}`
+									: `${base}/api/w/${workspaceId}/jobs_u/completed/get_result/${jobId}`
+								: `data:text/json;charset=utf-8,${encodeURIComponent(toJsonStr(result))}`}
+							startIcon={{ icon: Download }}
+							color="light"
+							size="xs"
+						>
+							Download
+						</Button>
+					{/if}
 					<Button
 						on:click={() => copyToClipboard(toJsonStr(result))}
 						color="light"

@@ -132,7 +132,7 @@
 				bind:value={description}
 				on:keydown={onKeyDown}
 				placeholder="Field description"
-			/>
+			></textarea>
 		</Label>
 
 		<Label label="Custom title" class="w-full">
@@ -156,7 +156,7 @@
 				bind:value={placeholder}
 				on:change={() => dispatch('change')}
 				disabled={!shouldDisplayPlaceholder(type, format, enum_, contentEncoding, pattern, extra)}
-			/>
+			></textarea>
 		</Label>
 
 		{#if type == 'array'}
@@ -193,9 +193,9 @@
 								bind:currencyLocale={extra['currencyLocale']}
 							/>
 						{:else if type == 'object' && oneOf && oneOf.length >= 2 && !isFlowInput && !isAppInput}
-							<ToggleButtonGroup bind:selected={oneOfSelected} class="mb-2">
+							<ToggleButtonGroup bind:selected={oneOfSelected} class="mb-2" let:item>
 								{#each oneOf as obj}
-									<ToggleButton value={obj.title} label={obj.title} />
+									<ToggleButton value={obj.title ?? ''} label={obj.title} {item} />
 								{/each}
 							</ToggleButtonGroup>
 							{#if oneOfSelected && oneOfSchemas}

@@ -87,7 +87,7 @@
 	}
 
 	async function onGenerate() {
-		if (!selectedCompletion && !$copilotInfo.exists_ai_resource) {
+		if (!selectedCompletion && !$copilotInfo.enabled) {
 			sendUserToast(
 				'Windmill AI is not enabled, you can activate it in the workspace settings',
 				true
@@ -245,7 +245,7 @@
 								</button>
 							</div>
 						{/each}
-						<div class="pb-1.5" />
+						<div class="pb-1.5"></div>
 					{:else}
 						<div class="text-2xs text-tertiary font-light text-center py-3 px-3 items-center">
 							No items found.

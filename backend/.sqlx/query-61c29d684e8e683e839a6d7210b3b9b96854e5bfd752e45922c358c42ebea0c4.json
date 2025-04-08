@@ -59,7 +59,9 @@
                 "rust",
                 "ansible",
                 "csharp",
-                "oracledb"
+                "oracledb",
+                "nu",
+                "java"
               ]
             }
           }

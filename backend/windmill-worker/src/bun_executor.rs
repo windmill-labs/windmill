@@ -9,7 +9,7 @@ use serde_json::value::RawValue;
 
 use uuid::Uuid;
 use windmill_parser_ts::remove_pinned_imports;
-use windmill_queue::{append_logs, CanceledBy};
+use windmill_queue::{append_logs, CanceledBy, MiniPulledJob};
 
 #[cfg(feature = "enterprise")]
 use crate::common::build_envs_map;
@@ -20,9 +20,9 @@ use crate::{
         read_file_content, read_result, start_child_process, write_file_binary, OccupancyMetrics,
     },
     handle_child::handle_child,
-    AuthedClientBackgroundTask, BUNFIG_INSTALL_SCOPES, BUN_BUNDLE_CACHE_DIR, BUN_CACHE_DIR,
-    BUN_PATH, DISABLE_NSJAIL, DISABLE_NUSER, HOME_ENV, NODE_BIN_PATH, NODE_PATH,
-    NPM_CONFIG_REGISTRY, NPM_PATH, NSJAIL_PATH, PATH_ENV, PROXY_ENVS, TZ_ENV,
+    AuthedClient, BUNFIG_INSTALL_SCOPES, BUN_BUNDLE_CACHE_DIR, BUN_CACHE_DIR, BUN_PATH,
+    DISABLE_NSJAIL, DISABLE_NUSER, HOME_ENV, NODE_BIN_PATH, NODE_PATH, NPM_CONFIG_REGISTRY,
+    NPM_PATH, NSJAIL_PATH, PATH_ENV, PROXY_ENVS, TZ_ENV,
 };
 
 #[cfg(windows)]
@@ -41,9 +41,8 @@ use windmill_common::variables;
 use windmill_common::{
     error::{self, Result},
     get_latest_hash_for_path,
-    jobs::QueuedJob,
     scripts::ScriptLang,
-    worker::{exists_in_cache, save_cache, write_file},
+    worker::{exists_in_cache, save_cache, write_file, DISABLE_BUNDLING},
     DB,
 };
 
@@ -167,6 +166,7 @@ pub async fn gen_bun_lockfile(
                 None,
                 false,
                 occupancy_metrics,
+                None,
             )
             .await?;
         } else {
@@ -350,6 +350,7 @@ pub async fn install_bun_lockfile(
             None,
             false,
             occupancy_metrics,
+            None,
         )
         .await?
     } else {
@@ -521,6 +522,7 @@ pub async fn generate_wrapper_mjs(
         timeout,
         false,
         occupancy_metrics,
+        None,
     )
     .await?;
     fs::rename(
@@ -571,6 +573,7 @@ pub async fn generate_bun_bundle(
             timeout,
             false,
             occupancy_metrics,
+            None,
         )
         .await?;
     } else {
@@ -579,60 +582,95 @@ pub async fn generate_bun_bundle(
     Ok(())
 }
 
-#[cfg(all(feature = "enterprise", feature = "parquet"))]
 pub async fn pull_codebase(w_id: &str, id: &str, job_dir: &str) -> Result<()> {
-    use crate::global_cache::extract_tar;
-
     let path = windmill_common::s3_helpers::bundle(&w_id, &id);
-    let bun_cache_path = format!("{}/{}", crate::ROOT_CACHE_NOMOUNT_DIR, path);
+    let bun_cache_path = format!(
+        "{}/{}",
+        windmill_common::worker::ROOT_CACHE_NOMOUNT_DIR,
+        path
+    );
     let is_tar = id.ends_with(".tar");
 
     let dst = format!(
         "{job_dir}/{}",
         if is_tar { "codebase.tar" } else { "main.js" }
     );
-    let dirs_splitted = bun_cache_path.split("/").collect_vec();
-    tokio::fs::create_dir_all(dirs_splitted[..dirs_splitted.len() - 1].join("/")).await?;
-    if tokio::fs::metadata(&bun_cache_path).await.is_ok() {
+
+    if std::fs::metadata(&bun_cache_path).is_ok() {
         tracing::info!("loading {bun_cache_path} from cache");
-        if is_tar {
-            extract_tar(fs::read(bun_cache_path)?.into(), job_dir).await?;
+        extract_saved_codebase(job_dir, &bun_cache_path, is_tar, &dst, false)?;
+    } else {
+        #[cfg(all(feature = "enterprise", feature = "parquet"))]
+        let object_store = windmill_common::s3_helpers::OBJECT_STORE_CACHE_SETTINGS
+            .read()
+            .await
+            .clone();
+
+        #[cfg(not(all(feature = "enterprise", feature = "parquet")))]
+        let object_store: Option<()> = None;
+
+        if &windmill_common::utils::MODE_AND_ADDONS.mode
+            == &windmill_common::utils::Mode::Standalone
+            && object_store.is_none()
+        {
+            let bun_cache_path = format!(
+                "{}{}",
+                *windmill_common::worker::ROOT_STANDALONE_BUNDLE_DIR,
+                id
+            );
+            if std::fs::metadata(&bun_cache_path).is_ok() {
+                tracing::info!("loading {bun_cache_path} from standalone bundle cache");
+                extract_saved_codebase(job_dir, &bun_cache_path, is_tar, &dst, true)?;
+            } else {
+                return Err(error::Error::ExecutionErr(format!(
+                    "(standalone bundle test mode) could not find codebase at {bun_cache_path}"
+                )));
+            }
         } else {
-            #[cfg(unix)]
-            tokio::fs::symlink(&bun_cache_path, dst).await?;
+            #[cfg(not(all(feature = "enterprise", feature = "parquet")))]
+            return Err(error::Error::ExecutionErr(
+                "codebase is an EE feature".to_string(),
+            ));
 
-            #[cfg(windows)]
-            std::os::windows::fs::symlink_dir(&bun_cache_path, &dst)?;
+            #[cfg(all(feature = "enterprise", feature = "parquet"))]
+            if let Some(os) = object_store {
+                let dirs_splitted = bun_cache_path.split("/").collect_vec();
+                std::fs::create_dir_all(dirs_splitted[..dirs_splitted.len() - 1].join("/"))?;
+
+                let bytes = attempt_fetch_bytes(os, &path).await?;
+                tracing::info!("loading {bun_cache_path} from object store");
+
+                std::fs::write(&bun_cache_path, &bytes)?;
+                extract_saved_codebase(job_dir, &bun_cache_path, is_tar, &dst, false)?;
+            }
         }
-    } else if let Some(os) = windmill_common::s3_helpers::OBJECT_STORE_CACHE_SETTINGS
-        .read()
-        .await
-        .clone()
-    {
-        let bytes = attempt_fetch_bytes(os, &path).await?;
-
-        tokio::fs::write(&bun_cache_path, &bytes).await?;
-        if is_tar {
-            extract_tar(bytes, job_dir).await?;
-        } else {
-            #[cfg(unix)]
-            tokio::fs::symlink(bun_cache_path, dst).await?;
-
-            #[cfg(windows)]
-            std::os::windows::fs::symlink_dir(&bun_cache_path, &dst)?;
-        }
-
-        // extract_tar(bytes, job_dir).await?;
     }
 
-    return Ok(());
+    Ok(())
 }
 
-#[cfg(not(all(feature = "enterprise", feature = "parquet")))]
-pub async fn pull_codebase(_w_id: &str, _id: &str, _job_dir: &str) -> Result<()> {
-    return Err(error::Error::ExecutionErr(
-        "codebase is an EE feature".to_string(),
-    ));
+fn extract_saved_codebase(
+    job_dir: &str,
+    bun_cache_path: &String,
+    is_tar: bool,
+    dst: &str,
+    copy: bool,
+) -> Result<()> {
+    use crate::global_cache::extract_tar;
+
+    Ok(if is_tar {
+        extract_tar(fs::read(bun_cache_path)?.into(), job_dir)?;
+    } else {
+        if copy {
+            std::fs::copy(bun_cache_path, dst)?;
+        } else {
+            #[cfg(unix)]
+            std::os::unix::fs::symlink(bun_cache_path, dst)?;
+
+            #[cfg(windows)]
+            std::os::windows::fs::symlink_dir(bun_cache_path, dst)?;
+        }
+    })
 }
 
 pub async fn prebundle_bun_script(
@@ -660,7 +698,7 @@ pub async fn prebundle_bun_script(
         return Ok(());
     }
     let annotation = windmill_common::worker::TypeScriptAnnotations::parse(inner_content);
-    if annotation.nobundling {
+    if annotation.nobundling || *DISABLE_BUNDLING {
         return Ok(());
     }
     let origin = format!("{job_dir}/main.js");
@@ -698,7 +736,7 @@ pub async fn prebundle_bun_script(
     )
     .await?;
 
-    save_cache(&local_path, &remote_path, &origin).await?;
+    save_cache(&local_path, &remote_path, &origin, false).await?;
 
     Ok(())
 }
@@ -788,9 +826,10 @@ pub async fn handle_bun_job(
     codebase: Option<&String>,
     mem_peak: &mut i32,
     canceled_by: &mut Option<CanceledBy>,
-    job: &QueuedJob,
+    job: &MiniPulledJob,
     db: &sqlx::Pool<sqlx::Postgres>,
-    client: &AuthedClientBackgroundTask,
+    client: &AuthedClient,
+    parent_runnable_path: Option<String>,
     job_dir: &str,
     inner_content: &String,
     base_internal_url: &str,
@@ -802,23 +841,26 @@ pub async fn handle_bun_job(
 ) -> error::Result<Box<RawValue>> {
     let mut annotation = windmill_common::worker::TypeScriptAnnotations::parse(inner_content);
 
-    let (mut has_bundle_cache, cache_logs, local_path, remote_path) =
-        if requirements_o.is_some() && !annotation.nobundling && codebase.is_none() {
-            let (local_path, remote_path) = compute_bundle_local_and_remote_path(
-                inner_content,
-                requirements_o,
-                job.script_path(),
-                Some(db.clone()),
-                &job.workspace_id,
-            )
-            .await;
+    let (mut has_bundle_cache, cache_logs, local_path, remote_path) = if requirements_o.is_some()
+        && !annotation.nobundling
+        && !*DISABLE_BUNDLING
+        && codebase.is_none()
+    {
+        let (local_path, remote_path) = compute_bundle_local_and_remote_path(
+            inner_content,
+            requirements_o,
+            job.runnable_path(),
+            Some(db.clone()),
+            &job.workspace_id,
+        )
+        .await;
 
-            let (cache, logs) =
-                windmill_common::worker::load_cache(&local_path, &remote_path).await;
-            (cache, logs, local_path, remote_path)
-        } else {
-            (false, "".to_string(), "".to_string(), "".to_string())
-        };
+        let (cache, logs) =
+            windmill_common::worker::load_cache(&local_path, &remote_path, false).await;
+        (cache, logs, local_path, remote_path)
+    } else {
+        (false, "".to_string(), "".to_string(), "".to_string())
+    };
 
     if !codebase.is_some() && !has_bundle_cache {
         let _ = write_file(job_dir, "main.ts", inner_content)?;
@@ -833,14 +875,7 @@ pub async fn handle_bun_job(
         annotation.nodejs = true
     }
     let main_override = job.script_entrypoint_override.as_deref();
-    let apply_preprocessor = !job.is_flow_step && job.preprocessed == Some(false);
-
-    #[cfg(not(feature = "enterprise"))]
-    if annotation.nodejs || annotation.npm {
-        return Err(error::Error::ExecutionErr(
-            "Nodejs / npm mode is an EE feature".to_string(),
-        ));
-    }
+    let apply_preprocessor = !job.is_flow_step() && job.preprocessed == Some(false);
 
     if has_bundle_cache {
         let target;
@@ -904,8 +939,8 @@ pub async fn handle_bun_job(
             &job.id,
             &job.workspace_id,
             Some(db),
-            &client.get_token().await,
-            &job.script_path(),
+            &client.token,
+            job.runnable_path(),
             job_dir,
             base_internal_url,
             worker_name,
@@ -1078,8 +1113,7 @@ try {{
             Ok(()) as Result<()>
         };
         let reserved_variables_f = async {
-            let client = client.get_authed().await;
-            let vars = get_reserved_variables(job, &client.token, db).await?;
+            let vars = get_reserved_variables(job, &client.token, db, parent_runnable_path).await?;
             Ok(vars) as Result<HashMap<String, String>>
         };
         let (_, reserved_variables) = tokio::try_join!(args_and_out_f, reserved_variables_f)?;
@@ -1088,6 +1122,7 @@ try {{
 
     let build_cache = !has_bundle_cache
         && !annotation.nobundling
+        && !*DISABLE_BUNDLING
         && !codebase.is_some()
         && (requirements_o.is_some() || annotation.native);
 
@@ -1096,9 +1131,9 @@ try {{
             build_loader(
                 job_dir,
                 base_internal_url,
-                &client.get_token().await,
+                &client.token,
                 &job.workspace_id,
-                &job.script_path(),
+                job.runnable_path(),
                 if annotation.nodejs {
                     LoaderMode::NodeBundle
                 } else if annotation.native {
@@ -1114,9 +1149,9 @@ try {{
             build_loader(
                 job_dir,
                 base_internal_url,
-                &client.get_token().await,
+                &client.token,
                 &job.workspace_id,
-                &job.script_path(),
+                job.runnable_path(),
                 if annotation.nodejs {
                     LoaderMode::Node
                 } else {
@@ -1150,7 +1185,14 @@ try {{
             )
             .await?;
             if !local_path.is_empty() {
-                match save_cache(&local_path, &remote_path, &format!("{job_dir}/main.js")).await {
+                match save_cache(
+                    &local_path,
+                    &remote_path,
+                    &format!("{job_dir}/main.js"),
+                    false,
+                )
+                .await
+                {
                     Err(e) => {
                         let em = format!("could not save {local_path} to bundle cache: {e:?}");
                         tracing::error!(em)
@@ -1229,6 +1271,7 @@ try {{
                 inner_content.clone(),
                 js_code,
                 job_args,
+                job.script_entrypoint_override.clone(),
                 job.id,
                 job.timeout,
                 db,
@@ -1390,6 +1433,7 @@ try {{
         job.timeout,
         false,
         &mut Some(occupancy_metrics),
+        None,
     )
     .await?;
 
@@ -1468,7 +1512,7 @@ pub async fn start_worker(
     script_path: &str,
     token: &str,
     job_completed_tx: JobCompletedSender,
-    jobs_rx: Receiver<std::sync::Arc<QueuedJob>>,
+    jobs_rx: Receiver<std::sync::Arc<MiniPulledJob>>,
     killpill_rx: tokio::sync::broadcast::Receiver<()>,
 ) -> Result<()> {
     let mut logs = "".to_string();

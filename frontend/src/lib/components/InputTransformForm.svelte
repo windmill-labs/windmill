@@ -70,7 +70,7 @@
 	const { shouldUpdatePropertyType, exprsToSet } =
 		getContext<FlowCopilotContext | undefined>('FlowCopilotContext') || {}
 
-	const { inputMatches, focusProp, propPickerConfig } =
+	const { inputMatches, focusProp, propPickerConfig, clearFocus } =
 		getContext<PropPickerWrapperContext>('PropPickerWrapper')
 
 	function setExpr() {
@@ -358,6 +358,7 @@
 					<div>
 						<ToggleButtonGroup
 							selected={propertyType}
+							let:item
 							on:selected={(e) => {
 								if (e.detail == propertyType) return
 								const staticTemplate = isStaticTemplate(inputCat)
@@ -369,8 +370,8 @@
 											staticTemplate
 												? `\`${arg?.value?.toString().replaceAll('`', '\\`') ?? ''}\``
 												: arg.value
-												? '(' + JSON.stringify(arg?.value, null, 4) + ')'
-												: ''
+													? '(' + JSON.stringify(arg?.value, null, 4) + ')'
+													: ''
 										)
 									}
 									if (arg) {
@@ -417,9 +418,10 @@
 									value="static"
 									size="xs2"
 									label={'${}'}
+									{item}
 								/>
 							{:else}
-								<ToggleButton small label="Static" value="static" />
+								<ToggleButton small label="Static" value="static" {item} />
 							{/if}
 
 							{#if codeInjectionDetected && propertyType == 'static'}
@@ -441,26 +443,35 @@
 									tooltip="JavaScript expression ('flow_input' or 'results')."
 									value="javascript"
 									icon={FunctionSquare}
+									{item}
 								/>
 							{/if}
 						</ToggleButtonGroup>
 					</div>
 
 					<FlowPlugConnect
+						id="flow-editor-plug"
 						{connecting}
 						on:click={() => {
-							focusProp(argName, 'connect', (path) => {
-								connectProperty(path)
-								dispatch('change', { argName })
-								return true
-							})
+							if (
+								$propPickerConfig?.propName == argName &&
+								$propPickerConfig?.insertionMode == 'connect'
+							) {
+								clearFocus()
+							} else {
+								focusProp?.(argName, 'connect', (path) => {
+									connectProperty(path)
+									dispatch('change', { argName })
+									return true
+								})
+							}
 						}}
 					/>
 				</div>
 			{/if}
 		</div>
 
-		<div class="max-w-xs" />
+		<div class="max-w-xs"></div>
 		<!-- svelte-ignore a11y-no-static-element-interactions -->
 		<div class="relative" on:keyup={handleKeyUp}>
 			<!-- {#if $propPickerConfig?.propName == argName && $propPickerConfig?.insertionMode == 'connect'}
@@ -565,7 +576,7 @@
 							/>
 						</div>
 						<DynamicInputHelpBox />
-						<div class="mb-2" />
+						<div class="mb-2"></div>
 					{:else}
 						Not recognized input type {argName} ({arg.expr}, {propertyType})
 						<div class="flex mt-2">
@@ -600,7 +611,7 @@
 						</svg>
 					</div>
 				{:else}
-					<div class="w-0" />
+					<div class="w-0"></div>
 				{/if}
 			</div>
 		</div>

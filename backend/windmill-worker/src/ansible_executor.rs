@@ -11,9 +11,10 @@ use tokio::process::Command;
 use uuid::Uuid;
 use windmill_common::{
     error,
-    jobs::QueuedJob,
     worker::{to_raw_value, write_file, write_file_at_user_defined_location, WORKER_CONFIG},
 };
+use windmill_queue::MiniPulledJob;
+
 use windmill_parser_yaml::{AnsibleRequirements, ResourceOrVariablePath};
 use windmill_queue::{append_logs, CanceledBy};
 
@@ -25,8 +26,8 @@ use crate::{
     },
     handle_child::handle_child,
     python_executor::{create_dependencies_dir, handle_python_reqs, uv_pip_compile, PyVersion},
-    AuthedClientBackgroundTask, DISABLE_NSJAIL, DISABLE_NUSER, HOME_ENV, NSJAIL_PATH, PATH_ENV,
-    PROXY_ENVS, PY_INSTALL_DIR, TZ_ENV,
+    AuthedClient, DISABLE_NSJAIL, DISABLE_NUSER, HOME_ENV, NSJAIL_PATH, PATH_ENV, PROXY_ENVS,
+    PY_INSTALL_DIR, TZ_ENV,
 };
 
 lazy_static::lazy_static! {
@@ -169,6 +170,7 @@ async fn install_galaxy_collections(
         None,
         false,
         &mut Some(occupancy_metrics),
+        None,
     )
     .await?;
 
@@ -180,11 +182,12 @@ pub async fn handle_ansible_job(
     job_dir: &str,
     worker_dir: &str,
     worker_name: &str,
-    job: &QueuedJob,
+    job: &MiniPulledJob,
     mem_peak: &mut i32,
     canceled_by: &mut Option<CanceledBy>,
     db: &sqlx::Pool<sqlx::Postgres>,
-    client: &AuthedClientBackgroundTask,
+    client: &AuthedClient,
+    parent_runnable_path: Option<String>,
     inner_content: &String,
     shared_mount: &str,
     base_internal_url: &str,
@@ -262,7 +265,6 @@ pub async fn handle_ansible_job(
         })
         .unwrap_or_else(|| vec![]);
 
-    let authed_client = client.get_authed().await;
     let mut nsjail_extra_mounts = vec![];
     if let Some(r) = reqs {
         nsjail_extra_mounts = create_file_resources(
@@ -271,7 +273,7 @@ pub async fn handle_ansible_job(
             job_dir,
             interpolated_args.as_ref(),
             &r,
-            &authed_client,
+            &client,
             db,
         )
         .await?;
@@ -310,7 +312,8 @@ remote_tmp={job_dir}/.ansible/tmp
     );
     write_file(job_dir, "ansible.cfg", &ansible_cfg_content)?;
 
-    let mut reserved_variables = get_reserved_variables(job, &authed_client.token, db).await?;
+    let mut reserved_variables =
+        get_reserved_variables(job, &client.token, db, parent_runnable_path).await?;
     let additional_python_paths_folders = additional_python_paths.join(":");
 
     if !*DISABLE_NSJAIL {
@@ -430,6 +433,7 @@ fi
         job.timeout,
         false,
         &mut Some(occupancy_metrics),
+        None,
     )
     .await?;
     read_and_check_result(job_dir).await

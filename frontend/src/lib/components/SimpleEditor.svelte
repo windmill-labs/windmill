@@ -109,9 +109,7 @@
 
 	export function setCode(ncode: string): void {
 		code = ncode
-		if (editor) {
-			editor.setValue(ncode)
-		}
+		editor?.setValue(ncode)
 	}
 
 	let placeholderVisible = false
@@ -471,7 +469,7 @@
 	{/if}
 </div>
 {#if allowVim && $vimMode}
-	<div class="fixed bottom-0 z-30" bind:this={statusDiv} />
+	<div class="fixed bottom-0 z-30" bind:this={statusDiv}></div>
 {/if}
 
 <style lang="postcss">

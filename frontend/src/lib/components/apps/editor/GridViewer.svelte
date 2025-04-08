@@ -64,7 +64,9 @@
 		const sizeObserver = new ResizeObserver((entries) => {
 			requestAnimationFrame(() => {
 				let width = entries[0].contentRect.width
-
+				if (width === 0) {
+					width = 1
+				}
 				if (width === containerWidth) return
 				if ($app.mobileViewOnSmallerScreens != false || !getComputedCols) {
 					getComputedCols = getColumn(parentWidth ?? width, cols)
@@ -124,7 +126,7 @@
 	{:else if showSkeleton}
 		<div
 			class="h-full w-full flex-col animate-skeleton dark:bg-frost-900/50 [animation-delay:1000ms]"
-		/>
+		></div>
 	{/if}
 </div>
 

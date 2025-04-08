@@ -5,7 +5,7 @@ import type { ResourceType } from '../../gen'
 import { capitalize, toCamel } from '$lib/utils'
 import YAML from 'yaml'
 
-function compile(schema: Schema) {
+export function compile(schema: Schema) {
 	function rec(x: { [name: string]: SchemaProperty }, root = false) {
 		let res = '{\n'
 		const entries = Object.entries(x)

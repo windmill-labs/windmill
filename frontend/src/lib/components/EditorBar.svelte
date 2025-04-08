@@ -25,6 +25,7 @@
 	import Toggle from './Toggle.svelte'
 
 	import {
+		DiffIcon,
 		DollarSign,
 		History,
 		Library,
@@ -69,6 +70,9 @@
 	export let noHistory = false
 	export let saveToWorkspace = false
 	export let customUi: EditorBarUi = {}
+	export let lastDeployedCode: string | undefined = undefined
+	export let diffMode: boolean = false
+	export let showHistoryDrawer: boolean = false
 
 	let contextualVariablePicker: ItemPicker
 	let variablePicker: ItemPicker
@@ -92,7 +96,10 @@
 		'nativets',
 		'php',
 		'rust',
-		'csharp'
+		'csharp',
+		'nu',
+		'java'
+		// for related places search: ADD_NEW_LANG
 	].includes(lang ?? '')
 	$: showVarPicker = [
 		'python3',
@@ -105,7 +112,10 @@
 		'nativets',
 		'php',
 		'rust',
-		'csharp'
+		'csharp',
+		'nu',
+		'java'
+		// for related places search: ADD_NEW_LANG
 	].includes(lang ?? '')
 	$: showResourcePicker = [
 		'python3',
@@ -118,7 +128,10 @@
 		'nativets',
 		'php',
 		'rust',
-		'csharp'
+		'csharp',
+		'nu',
+		'java'
+		// for related places search: ADD_NEW_LANG
 	].includes(lang ?? '')
 	$: showResourceTypePicker =
 		['typescript', 'javascript'].includes(scriptLangToEditorLang(lang)) ||
@@ -304,13 +317,11 @@
 			})
 			.join('')
 	}
-
-	let historyBrowserDrawerOpen = false
 </script>
 
 {#if scriptPath}
-	<Drawer bind:open={historyBrowserDrawerOpen} size="1200px">
-		<DrawerContent title="Versions History" on:close={() => (historyBrowserDrawerOpen = false)}>
+	<Drawer bind:open={showHistoryDrawer} size="1200px">
+		<DrawerContent title="Versions History" on:close={() => (showHistoryDrawer = false)}>
 			<ScriptVersionHistory {scriptPath} />
 		</DrawerContent>
 	</Drawer>
@@ -368,6 +379,11 @@
 			editor.insertAtCursor(`std::env::var("${name}").unwrap();`)
 		} else if (lang == 'csharp') {
 			editor.insertAtCursor(`Environment.GetEnvironmentVariable("${name}");`)
+		} else if (lang == 'nu') {
+			editor.insertAtCursor(`$env.${name}`)
+		} else if (lang == 'java') {
+			editor.insertAtCursor(`System.getenv("${name}");`)
+			// for related places search: ADD_NEW_LANG
 		}
 		sendUserToast(`${name} inserted at cursor`)
 	}}
@@ -433,6 +449,11 @@ client.DefaultRequestHeaders.Add("Authorization", $"Bearer {Environment.GetEnvir
 
 string ${windmillPathToCamelCaseName(path)} = await client.GetStringAsync(uri);
 `)
+		} else if (lang == 'nu') {
+			editor.insertAtCursor(`get_variable ${path}`)
+		} else if (lang == 'java') {
+			editor.insertAtCursor(`(Wmill.getVariable("${path}"))`)
+			// for related places search: ADD_NEW_LANG
 		}
 		sendUserToast(`${name} inserted at cursor`)
 	}}
@@ -515,7 +536,13 @@ client.DefaultRequestHeaders.Add("Authorization", $"Bearer {Environment.GetEnvir
 
 JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetStringAsync(uri));
 `)
+		} else if (lang == 'nu') {
+			editor.insertAtCursor(`get_resource ${path}`)
+		} else if (lang == 'java') {
+			editor.insertAtCursor(`(Wmill.getResource("${path}"))`)
+			// for related places search: ADD_NEW_LANG
 		}
+
 		sendUserToast(`${path} inserted at cursor`)
 	}}
 	tooltip="Resources represent connections to third party systems. Resources are a good way to define a connection to a frequently used third party system such as a database."
@@ -563,7 +590,7 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 		<div
 			title={validCode ? 'Main function parsable' : 'Main function not parsable'}
 			class="rounded-full w-2 h-2 mx-2 {validCode ? 'bg-green-300' : 'bg-red-300'}"
-		/>
+		></div>
 		<div class="flex items-center gap-0.5">
 			{#if showContextVarPicker && customUi?.contextVar != false}
 				<Button
@@ -593,7 +620,7 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 				</Button>
 			{/if}
 
-			{#if showResourcePicker}
+			{#if showResourcePicker && customUi?.resource != false}
 				<Button
 					title="Add resource"
 					btnClasses="!font-medium text-tertiary"
@@ -623,21 +650,23 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 				</Button>
 			{/if}
 
-			<Button
-				title="Reset Content"
-				btnClasses="!font-medium text-tertiary"
-				size="xs"
-				spacingSize="md"
-				color="light"
-				on:click={clearContent}
-				{iconOnly}
-				startIcon={{ icon: RotateCw }}
-			>
-				Reset
-			</Button>
+			{#if customUi?.reset != false}
+				<Button
+					title="Reset Content"
+					btnClasses="!font-medium text-tertiary"
+					size="xs"
+					spacingSize="md"
+					color="light"
+					on:click={clearContent}
+					{iconOnly}
+					startIcon={{ icon: RotateCw }}
+				>
+					Reset
+				</Button>
+			{/if}
 
 			{#if customUi?.assistants != false}
-				{#if lang == 'deno' || lang == 'python3' || lang == 'go' || lang == 'bash'}
+				{#if lang == 'deno' || lang == 'python3' || lang == 'go' || lang == 'bash' || lang == 'nu'}
 					<Button
 						btnClasses="!font-medium text-tertiary"
 						size="xs"
@@ -668,6 +697,25 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 						</span>
 					</Button>
 				{/if}
+			{/if}
+
+			{#if customUi?.diffMode != false}
+				<div class="flex items-center px-3">
+					<Toggle
+						options={{ right: '' }}
+						size="xs"
+						checked={diffMode}
+						disabled={!lastDeployedCode}
+						on:change={(e) => {
+							const turnOn = e.detail
+							dispatch(turnOn ? 'showDiffMode' : 'hideDiffMode')
+						}}
+					/>
+					<Popover>
+						<svelte:fragment slot="text">Toggle diff mode</svelte:fragment>
+						<DiffIcon class="ml-1 text-tertiary" size={14} />
+					</Popover>
+				</div>
 			{/if}
 
 			{#if collabMode && customUi?.multiplayer != false}
@@ -720,7 +768,7 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 				size="xs"
 				spacingSize="md"
 				color="light"
-				on:click={() => (historyBrowserDrawerOpen = true)}
+				on:click={() => (showHistoryDrawer = true)}
 				{iconOnly}
 				startIcon={{ icon: History }}
 				title="See history"

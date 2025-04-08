@@ -11,25 +11,25 @@ export interface Setting {
 		label: string
 		tooltip?: string
 		// If not specified, label will be used
-		value?: any
+		value?: string
 	}[]
 	fieldType:
-	| 'text'
-	| 'number'
-	| 'boolean'
-	| 'password'
-	| 'select'
-	| 'textarea'
-	| 'codearea'
-	| 'seconds'
-	| 'email'
-	| 'license_key'
-	| 'object_store_config'
-	| 'critical_error_channels'
-	| 'slack_connect'
-	| 'smtp_connect'
-	| 'indexer_rates'
-	| 'otel'
+		| 'text'
+		| 'number'
+		| 'boolean'
+		| 'password'
+		| 'select'
+		| 'textarea'
+		| 'codearea'
+		| 'seconds'
+		| 'email'
+		| 'license_key'
+		| 'object_store_config'
+		| 'critical_error_channels'
+		| 'slack_connect'
+		| 'smtp_connect'
+		| 'indexer_rates'
+		| 'otel'
 	storage: SettingStorage
 	advancedToggle?: {
 		label: string
@@ -81,9 +81,9 @@ export const settings: Record<string, Setting[]> = {
 			isValid: (value: string | undefined) =>
 				value
 					? value?.startsWith('http') &&
-					value.includes('://') &&
-					!value?.endsWith('/') &&
-					!value?.endsWith(' ')
+					  value.includes('://') &&
+					  !value?.endsWith('/') &&
+					  !value?.endsWith(' ')
 					: false
 		},
 		{
@@ -258,7 +258,7 @@ export const settings: Record<string, Setting[]> = {
 			storage: 'setting'
 		},
 		{
-			label: 'Pip index url',
+			label: 'UV index url',
 			description: 'Add private Pip registry',
 			key: 'pip_index_url',
 			fieldType: 'text',
@@ -267,7 +267,7 @@ export const settings: Record<string, Setting[]> = {
 			ee_only: ''
 		},
 		{
-			label: 'Pip extra index url',
+			label: 'UV extra index url',
 			description: 'Add private extra Pip registry',
 			key: 'pip_extra_index_url',
 			fieldType: 'text',
@@ -302,7 +302,24 @@ export const settings: Record<string, Setting[]> = {
 			codeAreaLang: 'xml',
 			storage: 'setting',
 			ee_only: ''
-		}
+		},
+		{
+			label: 'Maven/Ivy repositories',
+			description: 'Add private Maven/Ivy repositories',
+			key: 'maven_repos',
+			fieldType: 'text',
+			placeholder: 'https://user:password@artifacts.foo.com/maven',
+			storage: 'setting',
+			ee_only: ''
+		},
+		{
+			label: 'Disable default Maven repository',
+			description: 'Do not use default Maven repository',
+			key: 'no_default_maven',
+			fieldType: 'boolean',
+			storage: 'setting',
+			ee_only: ''
+		},
 	],
 	Alerts: [
 		{

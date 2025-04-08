@@ -133,9 +133,16 @@
 					disableVariablePicker = undefined
 				}
 			}}
+			let:item
 		>
 			{#each FIELD_SETTINGS as x}
-				<ToggleButton value={x[1]} label={x[0]} tooltip={x[2]} showTooltipIcon={Boolean(x[2])} />
+				<ToggleButton
+					value={x[1]}
+					label={x[0]}
+					tooltip={x[2]}
+					showTooltipIcon={Boolean(x[2])}
+					{item}
+				/>
 			{/each}
 		</ToggleButtonGroup>
 	{/if}
@@ -251,7 +258,7 @@
 			/>
 		{/if}
 	{:else if kind == 'resource'}
-		<div class="mt-1" />
+		<div class="mt-1"></div>
 		<ResourceTypePicker bind:value={resource} />
 	{:else if kind == 'format'}
 		<Label label="Format">
@@ -261,14 +268,14 @@
 				</Tooltip>
 			</svelte:fragment>
 			<select bind:value={format}>
-				<option value={undefined} />
+				<option value={undefined}></option>
 				{#each FORMATS as f}
 					<option value={f}>{f}</option>
 				{/each}
 			</select>
 		</Label>
 		{#if format == 'date'}
-			<div class="mt-1" />
+			<div class="mt-1"></div>
 
 			<div class="grid grid-cols-3 gap-2">
 				<Label label="Date format passed to script" class="col-span-2">

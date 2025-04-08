@@ -12,7 +12,7 @@ use crate::{
     db::{ApiAuthed, DB},
     resources::get_resource_value_interpolated_internal,
     users::{require_owner_of_path, OptAuthed},
-    utils::WithStarredInfoQuery,
+    utils::{RunnableKind, WithStarredInfoQuery},
     webhook_util::{WebhookMessage, WebhookShared},
     HTTP_CLIENT,
 };
@@ -21,7 +21,7 @@ use crate::{
     job_helpers_ee::{
         download_s3_file_internal, get_random_file_name, get_s3_resource,
         get_workspace_s3_resource, load_image_preview_internal, upload_file_from_req,
-        DownloadFileQuery, LoadImagePreviewQuery, UploadFileResponse,
+        DownloadFileQuery, LoadImagePreviewQuery,
     },
     users::fetch_api_authed_from_permissioned_as,
 };
@@ -51,8 +51,6 @@ use sqlx::{types::Uuid, FromRow};
 use std::str;
 use windmill_audit::audit_ee::audit_log;
 use windmill_audit::ActionKind;
-#[cfg(feature = "parquet")]
-use windmill_common::s3_helpers::build_object_store_client;
 use windmill_common::variables::encrypt;
 use windmill_common::{
     apps::{AppScriptId, ListAppQuery},
@@ -69,6 +67,8 @@ use windmill_common::{
     worker::{to_raw_value, CLOUD_HOSTED},
     HUB_BASE_URL,
 };
+#[cfg(feature = "parquet")]
+use windmill_common::{jwt, s3_helpers::build_object_store_client};
 
 use windmill_git_sync::{handle_deployment_metadata, DeployedObject};
 use windmill_queue::{push, PushArgs, PushArgsOwned, PushIsolationLevel};
@@ -89,6 +89,10 @@ pub fn workspaced_service() -> Router {
         .route("/history/p/*path", get(get_app_history))
         .route("/get_latest_version/*path", get(get_latest_version))
         .route("/history_update/a/:id/v/:version", post(update_app_history))
+        .route(
+            "/list_paths_from_workspace_runnable/:runnable_kind/*path",
+            get(list_paths_from_workspace_runnable),
+        )
         .route("/custom_path_exists/*custom_path", get(custom_path_exists))
 }
 
@@ -96,6 +100,7 @@ pub fn unauthed_service() -> Router {
     Router::new()
         .route("/execute_component/*path", post(execute_component))
         .route("/upload_s3_file/*path", post(upload_s3_file_from_app))
+        .route("/delete_s3_file", delete(delete_s3_file_from_app))
         .route("/download_s3_file/*path", get(download_s3_file_from_app))
         .route(
             "/load_image_preview/*path",
@@ -224,6 +229,12 @@ pub struct S3Input {
     file_key_regex: String,
 }
 
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct S3Key {
+    s3_path: String,
+    resource: String,
+}
+
 #[derive(Serialize, Deserialize, Debug, Clone, Default)]
 pub struct Policy {
     pub on_behalf_of: Option<String>,
@@ -238,6 +249,7 @@ pub struct Policy {
     pub triggerables_v2: Option<HashMap<String, PolicyTriggerableInputs>>,
     pub execution_mode: ExecutionMode,
     pub s3_inputs: Option<Vec<S3Input>>,
+    pub allowed_s3_keys: Option<Vec<S3Key>>,
 }
 
 #[derive(Deserialize)]
@@ -709,6 +721,28 @@ async fn get_secret_id(
     let hx = hex::encode(mc.encrypt_str_to_bytes(id.to_string()));
 
     Ok(hx)
+}
+
+async fn list_paths_from_workspace_runnable(
+    authed: ApiAuthed,
+    Extension(user_db): Extension<UserDB>,
+    Path((w_id, runnable_kind, path)): Path<(String, RunnableKind, StripPath)>,
+) -> JsonResult<Vec<String>> {
+    let mut tx = user_db.begin(&authed).await?;
+    let runnables = sqlx::query_scalar!(
+        r#"SELECT a.path
+            FROM workspace_runnable_dependencies wru 
+            JOIN app a
+                ON wru.app_path = a.path AND wru.workspace_id = a.workspace_id
+            WHERE wru.runnable_path = $1 AND wru.runnable_is_flow = $2 AND wru.workspace_id = $3"#,
+        path.to_path(),
+        matches!(runnable_kind, RunnableKind::Flow),
+        w_id
+    )
+    .fetch_all(&mut *tx)
+    .await?;
+    tx.commit().await?;
+    Ok(Json(runnables))
 }
 
 async fn create_app(
@@ -1497,6 +1531,13 @@ async fn upload_s3_file_from_app() -> Result<()> {
     ));
 }
 
+#[cfg(not(feature = "parquet"))]
+async fn delete_s3_file_from_app() -> Result<()> {
+    return Err(Error::BadRequest(
+        "This endpoint requires the parquet feature to be enabled".to_string(),
+    ));
+}
+
 #[cfg(feature = "parquet")]
 #[derive(Debug, Deserialize, Clone)]
 struct UploadFileToS3Query {
@@ -1512,13 +1553,31 @@ struct UploadFileToS3Query {
 }
 
 #[cfg(feature = "parquet")]
+#[derive(Serialize, Deserialize)]
+struct DeleteTokenClaims {
+    file_key: String,
+    on_behalf_of_email: String,
+    permissioned_as: String,
+    username: String,
+    s3_resource_path: Option<String>,
+    pub exp: usize,
+}
+
+#[cfg(feature = "parquet")]
+#[derive(Serialize)]
+struct AppUploadFileResponse {
+    file_key: String,
+    delete_token: String,
+}
+
+#[cfg(feature = "parquet")]
 async fn upload_s3_file_from_app(
     OptAuthed(opt_authed): OptAuthed,
     Extension(db): Extension<DB>,
     Path((w_id, path)): Path<(String, StripPath)>,
     Query(query): Query<UploadFileToS3Query>,
     request: axum::extract::Request,
-) -> JsonResult<UploadFileResponse> {
+) -> JsonResult<AppUploadFileResponse> {
     let policy = if let Some(file_key_regex) = query.force_viewer_file_key_regex {
         Some(Policy {
             execution_mode: ExecutionMode::Viewer,
@@ -1537,6 +1596,7 @@ async fn upload_s3_file_from_app(
                     .map(|s| s.split(',').map(|s| s.to_string()).collect())
                     .unwrap_or_default(),
             }]),
+            allowed_s3_keys: None,
         })
     } else {
         let policy_o = sqlx::query_scalar!(
@@ -1554,7 +1614,10 @@ async fn upload_s3_file_from_app(
 
     let user_db = UserDB::new(db.clone());
 
-    let (s3_resource_opt, file_key) = if policy.as_ref().is_some_and(|p| p.s3_inputs.is_some()) {
+    let (s3_resource_opt, file_key, on_behalf_of_email, permissioned_as, username) = if policy
+        .as_ref()
+        .is_some_and(|p| p.s3_inputs.is_some())
+    {
         let policy = policy.unwrap();
         let s3_inputs = policy.s3_inputs.as_ref().unwrap();
 
@@ -1562,11 +1625,11 @@ async fn upload_s3_file_from_app(
             get_on_behalf_details_from_policy_and_authed(&policy, &opt_authed).await?;
 
         let on_behalf_authed = fetch_api_authed_from_permissioned_as(
-            permissioned_as,
-            email,
+            permissioned_as.clone(),
+            email.clone(),
             &w_id,
             &db,
-            Some(username),
+            Some(username.clone()),
         )
         .await?;
 
@@ -1617,6 +1680,9 @@ async fn upload_s3_file_from_app(
                                     .await?,
                                 ),
                                 file_key,
+                                email,
+                                permissioned_as,
+                                username,
                             )
                         } else {
                             return Err(Error::BadRequest(
@@ -1640,13 +1706,16 @@ async fn upload_s3_file_from_app(
                                 .await?,
                             ),
                             file_key,
+                            email,
+                            permissioned_as,
+                            username,
                         )
                     }
                 } else {
                     let (_, s3_resource_opt) =
                         get_workspace_s3_resource(&on_behalf_authed, &db, None, "", &w_id, None)
                             .await?;
-                    (s3_resource_opt, file_key)
+                    (s3_resource_opt, file_key, email, permissioned_as, username)
                 }
             } else {
                 return Err(Error::BadRequest(
@@ -1672,7 +1741,7 @@ async fn upload_s3_file_from_app(
             let (_, s3_resource_opt) =
                 get_workspace_s3_resource(&on_behalf_authed, &db, None, "", &w_id, None).await?;
 
-            (s3_resource_opt, file_key)
+            (s3_resource_opt, file_key, email, permissioned_as, username)
         }
     } else {
         // backward compatibility (no policy)
@@ -1681,6 +1750,12 @@ async fn upload_s3_file_from_app(
             let file_key = query
                 .file_key
                 .unwrap_or_else(|| get_random_file_name(query.file_extension));
+
+            let (on_behalf_of_email, permissioned_as, username) = (
+                authed.email.clone(),
+                username_to_permissioned_as(&authed.username),
+                authed.display_username().to_string(),
+            );
 
             if let Some(ref s3_resource_path) = query.s3_resource_path {
                 (
@@ -1698,12 +1773,21 @@ async fn upload_s3_file_from_app(
                         .await?,
                     ),
                     file_key,
+                    on_behalf_of_email,
+                    permissioned_as,
+                    username,
                 )
             } else {
                 let (_, s3_resource) =
                     get_workspace_s3_resource(&authed, &db, None, "", &w_id, None).await?;
 
-                (s3_resource, file_key)
+                (
+                    s3_resource,
+                    file_key,
+                    on_behalf_of_email,
+                    permissioned_as,
+                    username,
+                )
             }
         } else {
             return Err(Error::BadRequest("Missing s3 policy".to_string()));
@@ -1733,7 +1817,82 @@ async fn upload_s3_file_from_app(
 
     upload_file_from_req(s3_client, &file_key, request, options).await?;
 
-    return Ok(Json(UploadFileResponse { file_key }));
+    let delete_token = jwt::encode_with_internal_secret(DeleteTokenClaims {
+        file_key: file_key.clone(),
+        on_behalf_of_email,
+        permissioned_as,
+        username,
+        s3_resource_path: query.s3_resource_path,
+        exp: (chrono::Utc::now() + chrono::Duration::seconds(3600 * 24)).timestamp() as usize,
+    })
+    .await?;
+
+    return Ok(Json(AppUploadFileResponse { file_key, delete_token }));
+}
+
+#[cfg(feature = "parquet")]
+#[derive(Deserialize)]
+struct DeleteS3FileQuery {
+    delete_token: String,
+}
+
+#[cfg(feature = "parquet")]
+async fn delete_s3_file_from_app(
+    Extension(db): Extension<DB>,
+    Extension(user_db): Extension<UserDB>,
+    Path(w_id): Path<String>,
+    Query(query): Query<DeleteS3FileQuery>,
+) -> Result<()> {
+    let DeleteTokenClaims {
+        file_key,
+        on_behalf_of_email,
+        permissioned_as,
+        username,
+        s3_resource_path,
+        ..
+    } = jwt::decode_with_internal_secret::<DeleteTokenClaims>(&query.delete_token).await?;
+
+    let on_behalf_authed = fetch_api_authed_from_permissioned_as(
+        permissioned_as,
+        on_behalf_of_email,
+        &w_id,
+        &db,
+        Some(username),
+    )
+    .await?;
+
+    let s3_resource = if let Some(s3_resource_path) = s3_resource_path {
+        get_s3_resource(
+            &on_behalf_authed,
+            &db,
+            Some(user_db),
+            "",
+            &w_id,
+            s3_resource_path.as_str(),
+            None,
+            None,
+        )
+        .await?
+    } else {
+        let (_, s3_resource) =
+            get_workspace_s3_resource(&on_behalf_authed, &db, None, "", &w_id, None).await?;
+
+        s3_resource.ok_or(Error::internal_err(
+            "No files storage resource defined at the workspace level".to_string(),
+        ))?
+    };
+
+    let s3_client = build_object_store_client(&s3_resource).await?;
+
+    let path = object_store::path::Path::parse(file_key.as_str())
+        .map_err(|e| Error::internal_err(format!("Error parsing file key: {}", e)))?;
+
+    s3_client.delete(&path).await.map_err(|err| {
+        tracing::error!("Error deleting file: {:?}", err);
+        Error::internal_err(format!("Error deleting file: {}", err.to_string()))
+    })?;
+
+    Ok(())
 }
 
 #[cfg(not(feature = "parquet"))]
@@ -1749,26 +1908,41 @@ async fn get_on_behalf_authed_from_app(
     path: &str,
     w_id: &str,
     opt_authed: &Option<ApiAuthed>,
-) -> Result<ApiAuthed> {
-    let policy_o = sqlx::query_scalar!(
-        "SELECT policy from app WHERE path = $1 AND workspace_id = $2",
-        path,
-        w_id
-    )
-    .fetch_optional(db)
-    .await?;
-
-    let policy = policy_o
-        .map(|p| serde_json::from_value::<Policy>(p).map_err(to_anyhow))
-        .transpose()?
-        .unwrap_or_else(|| Policy {
+    force_allowed_s3_keys: Option<Vec<S3Key>>,
+) -> Result<(ApiAuthed, Policy)> {
+    let policy = if let Some(force_allowed_s3_keys) = force_allowed_s3_keys {
+        Policy {
             execution_mode: ExecutionMode::Viewer,
             triggerables: None,
             triggerables_v2: None,
             on_behalf_of: None,
             on_behalf_of_email: None,
             s3_inputs: None,
-        });
+            allowed_s3_keys: Some(force_allowed_s3_keys),
+        }
+    } else {
+        // TODO: improve db query to not return uneeded fields
+        let policy_o = sqlx::query_scalar!(
+            "SELECT policy from app WHERE path = $1 AND workspace_id = $2",
+            path,
+            w_id
+        )
+        .fetch_optional(db)
+        .await?;
+
+        policy_o
+            .map(|p| serde_json::from_value::<Policy>(p).map_err(to_anyhow))
+            .transpose()?
+            .unwrap_or_else(|| Policy {
+                execution_mode: ExecutionMode::Viewer,
+                triggerables: None,
+                triggerables_v2: None,
+                on_behalf_of: None,
+                on_behalf_of_email: None,
+                s3_inputs: None,
+                allowed_s3_keys: None,
+            })
+    };
 
     let (username, permissioned_as, email) =
         get_on_behalf_details_from_policy_and_authed(&policy, &opt_authed).await?;
@@ -1777,7 +1951,7 @@ async fn get_on_behalf_authed_from_app(
         fetch_api_authed_from_permissioned_as(permissioned_as, email, &w_id, &db, Some(username))
             .await?;
 
-    Ok(on_behalf_authed)
+    Ok((on_behalf_authed, policy))
 }
 
 #[cfg(feature = "parquet")]
@@ -1787,6 +1961,7 @@ async fn check_if_allowed_to_access_s3_file_from_app(
     file_key: &str,
     w_id: &str,
     path: &str,
+    policy: &Policy,
 ) -> Result<()> {
     // if anonymous, check that the file was the result of an app script ran by an anonymous user in the last 3 hours
     // otherwise, if logged in, allow any file (TODO: change that when we implement better s3 policy)
@@ -1808,7 +1983,10 @@ async fn check_if_allowed_to_access_s3_file_from_app(
         )
         .fetch_one(db)
         .await?
-        .unwrap_or(false);
+        .unwrap_or(false)
+
+        // check if the file is allowed by the allowed_s3_keys policy
+        || policy.allowed_s3_keys.as_ref().unwrap().iter().any(|key| key.s3_path == file_key);
 
     if !allowed {
         Err(Error::BadRequest("File restricted".to_string()))
@@ -1818,20 +1996,45 @@ async fn check_if_allowed_to_access_s3_file_from_app(
 }
 
 #[cfg(feature = "parquet")]
+#[derive(Deserialize)]
+pub struct DownloadFileQueryWithForceViewerAllowedS3Keys {
+    #[serde(flatten)]
+    pub file_query: DownloadFileQuery,
+    pub force_viewer_allowed_s3_keys: Option<String>,
+}
+
+#[cfg(feature = "parquet")]
 async fn download_s3_file_from_app(
     OptAuthed(opt_authed): OptAuthed,
     Extension(db): Extension<DB>,
     Path((w_id, path)): Path<(String, StripPath)>,
-    Query(query): Query<DownloadFileQuery>,
+    Query(query): Query<DownloadFileQueryWithForceViewerAllowedS3Keys>,
 ) -> Result<Response> {
     let path = path.to_path();
 
-    let on_behalf_authed = get_on_behalf_authed_from_app(&db, &path, &w_id, &opt_authed).await?;
+    let force_viewer_allowed_s3_keys = if let Some(force_viewer_allowed_s3_keys) =
+        query.force_viewer_allowed_s3_keys.clone()
+    {
+        Some(serde_json::from_str::<Vec<S3Key>>(&force_viewer_allowed_s3_keys).unwrap_or_default())
+    } else {
+        None
+    };
 
-    check_if_allowed_to_access_s3_file_from_app(&db, &opt_authed, &query.file_key, &w_id, &path)
-        .await?;
+    let (on_behalf_authed, policy) =
+        get_on_behalf_authed_from_app(&db, &path, &w_id, &opt_authed, force_viewer_allowed_s3_keys)
+            .await?;
 
-    download_s3_file_internal(on_behalf_authed, &db, None, "", &w_id, query).await
+    check_if_allowed_to_access_s3_file_from_app(
+        &db,
+        &opt_authed,
+        &query.file_query.file_key,
+        &w_id,
+        &path,
+        &policy,
+    )
+    .await?;
+
+    download_s3_file_internal(on_behalf_authed, &db, None, "", &w_id, query.file_query).await
 }
 
 #[cfg(not(feature = "parquet"))]
@@ -1850,10 +2053,18 @@ async fn load_s3_file_image_preview_from_app(
 ) -> Result<Response> {
     let path = path.to_path();
 
-    let on_behalf_authed = get_on_behalf_authed_from_app(&db, &path, &w_id, &opt_authed).await?;
+    let (on_behalf_authed, policy) =
+        get_on_behalf_authed_from_app(&db, &path, &w_id, &opt_authed, None).await?;
 
-    check_if_allowed_to_access_s3_file_from_app(&db, &opt_authed, &query.file_key, &w_id, &path)
-        .await?;
+    check_if_allowed_to_access_s3_file_from_app(
+        &db,
+        &opt_authed,
+        &query.file_key,
+        &w_id,
+        &path,
+        &policy,
+    )
+    .await?;
 
     load_image_preview_internal(on_behalf_authed, &db, "", &w_id, query).await
 }

@@ -8,6 +8,7 @@ edition.workspace = true
 default = []
 enterprise = []
 jemalloc = ["dep:tikv-jemalloc-ctl"]
+tantivy = []
 prometheus = ["dep:prometheus"]
 loki = ["dep:tracing-loki"]
 benchmark = []
@@ -16,12 +17,14 @@ otel = ["dep:opentelemetry-semantic-conventions", "dep:opentelemetry-otlp", "dep
     "dep:opentelemetry", "dep:tracing-opentelemetry", "dep:opentelemetry-appender-tracing", "dep:tonic"]
 smtp = ["dep:mail-send"]
 scoped_cache = []
+cloud = []
 
 [lib]
 name = "windmill_common"
 path = "src/lib.rs"
 
 [dependencies]
+tar.workspace = true
 hmac.workspace = true
 sha2.workspace = true
 thiserror.workspace = true
@@ -61,6 +64,8 @@ async-stream.workspace = true
 const_format.workspace = true
 crc.workspace = true
 windmill-macros.workspace = true
+jsonwebtoken.workspace = true
+backon.workspace = true
 
 semver.workspace = true
 croner = "2.0.6"

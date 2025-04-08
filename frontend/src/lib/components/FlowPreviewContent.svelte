@@ -18,6 +18,7 @@
 	import Toggle from './Toggle.svelte'
 	import JsonInputs from './JsonInputs.svelte'
 	import FlowHistoryJobPicker from './FlowHistoryJobPicker.svelte'
+	import { NEVER_TESTED_THIS_FAR } from './flows/models'
 
 	export let previewMode: 'upTo' | 'whole'
 	export let open: boolean
@@ -50,7 +51,8 @@
 		flowStateStore,
 		flowStore,
 		pathStore,
-		initialPath,
+		initialPathStore,
+		fakeInitialPath,
 		customUi,
 		executionCount
 	} = getContext<FlowEditorContext>('FlowEditorContext')
@@ -172,27 +174,37 @@
 	$: selectedJobStep !== undefined && onSelectedJobStepChange()
 
 	async function loadIndividualStepsStates() {
+		// console.log('loadIndividualStepsStates')
 		dfs($flowStore.value.modules, async (module) => {
-			if ($flowStateStore[module.id]?.previewResult) {
+			// console.log('module', $flowStateStore[module.id], module.id)
+			const prev = $flowStateStore[module.id]?.previewResult
+			if (prev && prev != NEVER_TESTED_THIS_FAR) {
 				return
 			}
 			const previousJobId = await JobService.listJobs({
 				workspace: $workspaceStore!,
-				scriptPathExact: (initialPath == '' ? $pathStore : initialPath) + '/' + module.id,
+				scriptPathExact:
+					`path` in module.value
+						? module.value.path
+						: ($initialPathStore == '' ? $pathStore : $initialPathStore) + '/' + module.id,
 				jobKinds: ['preview', 'script', 'flowpreview', 'flow'].join(','),
 				page: 1,
 				perPage: 1
 			})
+			// console.log('previousJobId', previousJobId, module.id)
 
 			if (previousJobId.length > 0) {
 				const getJobResult = await JobService.getCompletedJobResultMaybe({
 					workspace: $workspaceStore!,
 					id: previousJobId[0].id
 				})
-				if (getJobResult.result) {
+				if ('result' in getJobResult) {
 					$flowStateStore[module.id] = {
 						...($flowStateStore[module.id] ?? {}),
-						previewResult: getJobResult.result
+						previewResult: getJobResult.result,
+						previewJobId: previousJobId[0].id,
+						previewWorkspaceId: previousJobId[0].workspace_id,
+						previewSuccess: getJobResult.success
 					}
 				}
 			}
@@ -356,7 +368,7 @@
 					class="bg-orange-200 text-orange-600 border border-orange-600 p-2 flex items-center gap-2 rounded"
 				>
 					<AlertTriangle size={14} /> Flow changed since last preview
-					<div class="flex" />
+					<div class="flex"></div>
 				</div>
 			</div>
 		{/if}
@@ -367,7 +379,8 @@
 		<div class="border-b">
 			<SchemaFormWithArgPicker
 				bind:this={schemaFormWithArgPicker}
-				runnableId={initialPath == '' ? $pathStore : initialPath}
+				runnableId={$initialPathStore}
+				stablePathForCaptures={$initialPathStore || fakeInitialPath}
 				runnableType={'FlowPath'}
 				previewArgs={$previewArgs}
 				on:openTriggers
@@ -450,7 +463,7 @@
 						jobId = currentJobId
 						currentJobId = undefined
 					}}
-					path={initialPath == '' ? $pathStore : initialPath}
+					path={$initialPathStore == '' ? $pathStore : $initialPathStore}
 				/>
 			</div>
 			{#if jobId}

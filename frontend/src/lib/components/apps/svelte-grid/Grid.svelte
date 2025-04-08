@@ -84,7 +84,9 @@
 		const sizeObserver = new ResizeObserver((entries) => {
 			requestAnimationFrame(() => {
 				let width = entries[0].contentRect.width
-
+				if (width === 0) {
+					width = 1
+				}
 				if (width === containerWidth) {
 					mounted = true
 					return
@@ -381,7 +383,7 @@
 					? 'bg-draggedover dark:bg-draggedover-dark'
 					: ''
 			)}
-		/>
+		></div>
 		{#if $overlappedStore === undefined && $componentDraggedIdStore && $fakeShadowStore}
 			{@const columnGap = gapX}
 			<!-- gap between the columns in px -->
@@ -405,7 +407,7 @@
 								width: ${$fakeShadowStore.w * xPerPx - gapX}px;
 								height: ${$fakeShadowStore.h * yPerPx - gapY}px;
 							`}
-					/>
+					></div>
 				</div>
 			</div>
 		{/if}
@@ -446,7 +448,7 @@
 								width: ${$fakeShadowStore.w * $fakeShadowStore.xPerPx - gapX * 2}px;
 								height: ${$fakeShadowStore.h * $fakeShadowStore.yPerPx - gapY * 2}px;
 							`}
-							/>
+							></div>
 						</div>
 					</div>
 				{/if}
@@ -511,7 +513,7 @@
 	{:else if root}
 		<div
 			class="h-full w-full flex-col animate-skeleton dark:bg-frost-900/50 [animation-delay:1000ms]"
-		/>
+		></div>
 	{/if}
 </div>
 

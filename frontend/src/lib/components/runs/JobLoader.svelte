@@ -18,6 +18,7 @@
 	export let jobs: Job[] | undefined
 	export let user: string | null
 	export let label: string | null = null
+	export let worker: string | null = null
 	export let folder: string | null
 	export let path: string | null
 	export let success: 'success' | 'suspended' | 'waiting' | 'failure' | 'running' | undefined =
@@ -52,7 +53,7 @@
 		| undefined
 	export let lookback: number = 0
 	export let perPage: number | undefined = undefined
-
+	export let allowWildcards: boolean = false
 	let intervalId: NodeJS.Timeout | undefined
 	let sync = true
 
@@ -61,6 +62,7 @@
 		(path &&
 			label &&
 			success &&
+			worker &&
 			isSkipped != undefined &&
 			jobKinds &&
 			concurrencyKey &&
@@ -68,6 +70,7 @@
 			lookback &&
 			user &&
 			folder &&
+			allowWildcards &&
 			schedulePath != undefined &&
 			showFutureJobs != undefined &&
 			showSchedules != undefined &&
@@ -166,13 +169,14 @@
 					success == 'running' || success == 'suspended'
 						? true
 						: success == 'waiting'
-						? false
-						: undefined,
+							? false
+							: undefined,
 				isSkipped: isSkipped ? undefined : false,
 				// isFlowStep: jobKindsCat != 'all' ? false : undefined,
 				hasNullParent: jobKindsCat != 'all' ? true : undefined,
 				label: label === null || label === '' ? undefined : label,
 				tag: tag === null || tag === '' ? undefined : tag,
+				worker: worker === null || worker === '' ? undefined : worker,
 				isNotSchedule: showSchedules == false ? true : undefined,
 				suspended: success == 'waiting' ? false : success == 'suspended' ? true : undefined,
 				scheduledForBeforeNow:
@@ -188,7 +192,8 @@
 						? resultFilter
 						: undefined,
 				allWorkspaces: allWorkspaces ? true : undefined,
-				perPage
+				perPage,
+				allowWildcards
 			})
 		} catch (e) {
 			sendUserToast('There was an issue loading jobs, see browser console for more details', true)
@@ -236,7 +241,8 @@
 						? resultFilter
 						: undefined,
 				allWorkspaces: allWorkspaces ? true : undefined,
-				perPage
+				perPage,
+				allowWildcards
 			})
 		} catch (e) {
 			sendUserToast('There was an issue loading jobs, see browser console for more details', true)
@@ -303,8 +309,8 @@
 						x.started_at
 							? new Date(x.started_at) > minDate
 							: x.created_at
-							? new Date(x.created_at) > minDate
-							: false
+								? new Date(x.created_at) > minDate
+								: false
 					)
 					externalJobs = computeExternalJobs(
 						newExternalJobs.filter((x) => x.started_at && new Date(x.started_at) > minDate)
@@ -437,8 +443,8 @@
 				x.started_at
 					? new Date(x.started_at) > minDate
 					: x.created_at
-					? new Date(x.created_at) > minDate
-					: false
+						? new Date(x.created_at) > minDate
+						: false
 			)
 		} else {
 			return jobs
@@ -479,7 +485,7 @@
 					tag: '-',
 					job_kind: 'script',
 					duration_ms: x.duration_ms
-				} as Job)
+				}) as Job
 		)
 	}
 

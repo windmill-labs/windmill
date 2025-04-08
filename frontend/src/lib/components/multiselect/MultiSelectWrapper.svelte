@@ -8,13 +8,19 @@
 	import MultiSelect from '$lib/components/multiselect/MultiSelect.svelte'
 	import DarkModeObserver from '../DarkModeObserver.svelte'
 
+	export let items: any[]
+	let propValue: string[] | undefined = []
+	export { propValue as value }
+	$: value = structuredClone(propValue)
+	export let placeholder: string | undefined = undefined
+	export let target: string | HTMLElement | undefined = undefined
+	export let topPlacement = false
 	const [floatingRef, floatingContent] = createFloatingActions({
 		strategy: 'absolute',
+		placement: topPlacement ? 'top-start' : 'bottom-start',
 		middleware: [offset(5), flip(), shift()]
 	})
 
-	export let items: any[]
-	export let value: string[] | undefined = [] as string[]
 	let outerDiv: HTMLDivElement | undefined = undefined
 	let portalRef: HTMLDivElement | undefined = undefined
 
@@ -56,6 +62,10 @@
 				--sms-selected-bg={darkMode ? '#c7d2fe' : '#e0e7ff'}
 				--sms-selected-text-color={darkMode ? '#312e81' : '#3730a3'}
 				bind:selected={value}
+				on:change={() => {
+					propValue = value
+				}}
+				{placeholder}
 				options={items}
 				on:close={() => {
 					open = false
@@ -80,7 +90,7 @@
 				</div>
 			</MultiSelect>
 		</div>
-		<Portal name="multi-select">
+		<Portal {target} name="multi-select">
 			<div use:floatingContent class="z5000" hidden={!open}>
 				<!-- svelte-ignore a11y-click-events-have-key-events -->
 				<!-- svelte-ignore a11y-no-static-element-interactions -->
@@ -89,7 +99,7 @@
 					class="multiselect"
 					style={`min-width: ${w}px;`}
 					on:click|stopPropagation
-				/>
+				></div>
 			</div>
 		</Portal>
 	{:else}

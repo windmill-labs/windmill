@@ -33,7 +33,7 @@ on:
         type: boolean
 concurrency:
   group: ${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 permissions: write-all
 
@@ -95,13 +95,12 @@ jobs:
           platforms: linux/amd64,linux/arm64
           push: true
           build-args: |
-            features=embedding,parquet,openidconnect,jemalloc,deno_core,license,http_trigger,zip,oauth2,dind,php,mysql,mssql,bigquery,oracledb,postgres_trigger,websocket,python,smtp,csharp,static_frontend,rust
+            features=embedding,parquet,openidconnect,jemalloc,license,http_trigger,zip,oauth2,dind,postgres_trigger,mqtt_trigger,websocket,smtp,static_frontend,all_languages
           tags: |
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ env.DEV_SHA }}
             ${{ steps.meta-public.outputs.tags }}
           labels: |
             ${{ steps.meta-public.outputs.labels }}
-            org.opencontainers.image.licenses=AGPLv3
 
   build_ee:
     runs-on: ubicloud
@@ -158,7 +157,7 @@ jobs:
           platforms: linux/amd64,linux/arm64
           push: true
           build-args: |
-            features=enterprise,enterprise_saml,stripe,embedding,parquet,prometheus,openidconnect,cloud,jemalloc,tantivy,deno_core,license,http_trigger,zip,oauth2,kafka,sqs_trigger,nats,otel,dind,php,mysql,mssql,bigquery,oracledb,postgres_trigger,websocket,python,smtp,csharp,static_frontend,rust
+            features=enterprise,enterprise_saml,stripe,embedding,parquet,prometheus,openidconnect,cloud,jemalloc,tantivy,license,http_trigger,zip,oauth2,kafka,sqs_trigger,nats,otel,dind,postgres_trigger,mqtt_trigger,websocket,smtp,static_frontend,all_languages
           tags: |
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee:${{ env.DEV_SHA }}
             ${{ steps.meta-ee-public.outputs.tags }}

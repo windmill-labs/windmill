@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { createEventDispatcher, getContext, onMount } from 'svelte'
+	import { createEventDispatcher, getContext } from 'svelte'
 	import type { AppViewerContext } from '../../../types'
 	import type { TableAction } from '$lib/components/apps/editor/component'
 
@@ -32,26 +32,6 @@
 	const dispatch = createEventDispatcher()
 	const { selectedComponent, hoverStore, mode, connectingInput } =
 		getContext<AppViewerContext>('AppViewerContext')
-
-	let rowDiv: HTMLDivElement | undefined = undefined
-
-	onMount(() => {
-		// apply w-full to the the parent of the parent of the rowDiv
-		if (rowDiv) {
-			const parent = rowDiv.parentElement?.parentElement?.parentElement
-			if (parent) {
-				parent.classList.add('w-full')
-			} else {
-				//sometimes the parent is not available immediately
-				setTimeout(() => {
-					const parent = rowDiv?.parentElement?.parentElement?.parentElement
-					if (parent) {
-						parent.classList.add('w-full')
-					}
-				}, 10)
-			}
-		}
-	})
 </script>
 
 <RowWrapper
@@ -62,10 +42,9 @@
 >
 	<div
 		class={twMerge(
-			'flex flex-row justify-center items-center gap-4 h-full px-4 py-1 w-full',
+			'flex flex-row justify-center items-center gap-4 h-full px-4 py-1 w-full transition-opacity duration-50',
 			wrapActions ? 'flex-wrap' : ''
 		)}
-		bind:this={rowDiv}
 	>
 		{#each actions as action, actionIndex}
 			<!-- svelte-ignore a11y-mouse-events-have-key-events -->

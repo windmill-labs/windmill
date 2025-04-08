@@ -1128,3 +1128,85 @@ export type Item = {
 	type?: 'action' | 'delete'
 	hide?: boolean | undefined
 }
+
+export function isObjectTooBig(obj: any): boolean {
+	const MAX_DEPTH = 10
+	const MAX_ITEMS = 50
+
+	function analyze(obj: any, currentDepth: number = 0): { totalItems: number; maxDepth: number } {
+		if (currentDepth > MAX_DEPTH) {
+			return { totalItems: 1, maxDepth: currentDepth }
+		}
+
+		if (typeof obj !== 'object' || obj === null) {
+			return { totalItems: 1, maxDepth: currentDepth }
+		}
+
+		let totalItems = 1
+		let maxDepth = currentDepth
+
+		for (const key in obj) {
+			const result = analyze(obj[key], currentDepth + 1)
+
+			if (result.maxDepth > MAX_DEPTH) {
+				return result
+			}
+			totalItems += result.totalItems
+			if (result.maxDepth > maxDepth) {
+				maxDepth = result.maxDepth
+			}
+		}
+
+		return { totalItems, maxDepth }
+	}
+
+	const { totalItems, maxDepth } = analyze(obj)
+	return maxDepth > MAX_DEPTH || totalItems > MAX_ITEMS
+}
+
+export function localeConcatAnd(items: string[]) {
+	if (!items.length) return ''
+	if (items.length === 1) return items[0]
+	return items.slice(0, -1).join(', ') + ' and ' + items[items.length - 1]
+}
+
+export function formatDate(dateString: string | undefined): string {
+	if (!dateString) return ''
+	const date = new Date(dateString)
+	return new Intl.DateTimeFormat('en-US', {
+		year: 'numeric',
+		month: 'short',
+		day: 'numeric',
+		hour: '2-digit',
+		minute: '2-digit'
+	}).format(date)
+}
+
+export function formatDateShort(dateString: string | undefined): string {
+	if (!dateString) return ''
+	const date = new Date(dateString)
+	const now = new Date()
+
+	// If date is today, only show time
+	if (date.toDateString() === now.toDateString()) {
+		return new Intl.DateTimeFormat('en-US', {
+			hour: '2-digit',
+			minute: '2-digit'
+		}).format(date)
+	}
+
+	// If date is this year, show only month and day
+	if (date.getFullYear() === now.getFullYear()) {
+		return new Intl.DateTimeFormat('en-US', {
+			month: 'short',
+			day: 'numeric'
+		}).format(date)
+	}
+
+	// If date is from another year, only show the date with year
+	return new Intl.DateTimeFormat('en-US', {
+		year: 'numeric',
+		month: 'short',
+		day: 'numeric'
+	}).format(date)
+}

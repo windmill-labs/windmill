@@ -127,7 +127,7 @@
 		placement: 'left-start',
 		middleware: [offset(8), flip(), shift()]
 	}}
-	contentClasses="max-h-[50vh] overflow-y-auto p-4 flex flex-col gap-4 w-96"
+	contentClasses="max-h-[70vh] overflow-y-auto p-4 flex flex-col gap-4 w-96"
 	closeOnOtherPopoverOpen
 >
 	<svelte:fragment slot="trigger">
@@ -355,7 +355,7 @@
 									{#if !presets.find((preset) => preset.value === value?.valueFormatter)}
 										<div
 											class="z-50 absolute bg-opacity-50 bg-surface top-0 left-0 bottom-0 right-0"
-										/>
+										></div>
 									{/if}
 									<div class="text-xs font-semibold">Presets</div>
 									<select

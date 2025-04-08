@@ -8,6 +8,7 @@
 	import EmailTriggerConfigSection from '../details/EmailTriggerConfigSection.svelte'
 	import KafkaTriggersConfigSection from './kafka/KafkaTriggersConfigSection.svelte'
 	import NatsTriggersConfigSection from './nats/NatsTriggersConfigSection.svelte'
+	import MqttEditorConfigSection from './mqtt/MqttEditorConfigSection.svelte'
 	import SqsTriggerEditorConfigSection from './sqs/SqsTriggerEditorConfigSection.svelte'
 	import PostgresEditorConfigSection from './postgres/PostgresEditorConfigSection.svelte'
 
@@ -56,6 +57,9 @@
 			can_write={true}
 			bind:route_path={args.route_path}
 			bind:http_method={args.http_method}
+			bind:raw_string={args.raw_string}
+			bind:wrap_body={args.wrap_body}
+			capture_mode={true}
 			headless
 		/>
 	{:else if triggerType === 'email'}
@@ -71,6 +75,18 @@
 		<KafkaTriggersConfigSection headless={true} bind:args staticInputDisabled={false} {path} />
 	{:else if triggerType === 'nats'}
 		<NatsTriggersConfigSection headless={true} bind:args staticInputDisabled={false} {path} />
+	{:else if triggerType === 'mqtt'}
+		<MqttEditorConfigSection
+			bind:v3_config={args.v3_config}
+			bind:v5_config={args.v5_config}
+			bind:client_version={args.client_version}
+			bind:subscribe_topics={args.subscribe_topics}
+			bind:mqtt_resource_path={args.mqtt_resource_path}
+			bind:client_id={args.client_id}
+			showCapture={false}
+			headless={true}
+			can_write={true}
+		/>
 	{:else if triggerType === 'sqs'}
 		<SqsTriggerEditorConfigSection
 			bind:queue_url={args.queue_url}

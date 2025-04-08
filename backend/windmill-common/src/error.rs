@@ -69,11 +69,13 @@ pub enum Error {
     #[error("Error: {0:#?}")]
     JsonErr(serde_json::Value),
     #[error("{0}")]
-    AiError(String),
+    AIError(String),
     #[error("{0}")]
     AlreadyCompleted(String),
     #[error("Find python error: {0}")]
     FindPythonError(String),
+    #[error("Problem with arguments: {0}")]
+    ArgumentErr(String),
 }
 
 fn prettify_location(location: &'static Location<'static>) -> String {
@@ -171,25 +173,26 @@ pub fn to_anyhow<T: 'static + std::error::Error + Send + Sync>(e: T) -> anyhow::
 
 impl IntoResponse for Error {
     fn into_response(self) -> axum::response::Response {
-        let e = &self;
-        let body = Body::from(e.to_string());
-
         let status = match self {
             Self::NotFound(_) => axum::http::StatusCode::NOT_FOUND,
             Self::NotAuthorized(_) => axum::http::StatusCode::UNAUTHORIZED,
             Self::RequireAdmin(_) => axum::http::StatusCode::FORBIDDEN,
             Self::SqlErr { .. }
             | Self::BadRequest(_)
-            | Self::AiError(_)
+            | Self::AIError(_)
             | Self::QuotaExceeded(_) => axum::http::StatusCode::BAD_REQUEST,
             _ => axum::http::StatusCode::INTERNAL_SERVER_ERROR,
         };
+
+        let e = &self;
 
         if matches!(status, axum::http::StatusCode::NOT_FOUND) {
             tracing::warn!(message = e.to_string());
         } else {
             tracing::error!(message = e.to_string(), error = ?e);
         };
+
+        let body = Body::from(e.to_string());
 
         axum::response::Response::builder()
             .header("Content-Type", "text/plain")

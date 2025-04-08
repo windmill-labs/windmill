@@ -1209,7 +1209,9 @@ async fn update_resource_type(
 }
 
 #[cfg(any(
+    feature = "http_trigger",
     feature = "postgres_trigger",
+    feature = "mqtt_trigger",
     all(feature = "sqs_trigger", feature = "enterprise")
 ))]
 pub async fn try_get_resource_from_db_as<T>(

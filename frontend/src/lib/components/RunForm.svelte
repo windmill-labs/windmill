@@ -13,7 +13,6 @@
 
 	import TimeAgo from './TimeAgo.svelte'
 	import Popover from './meltComponents/Popover.svelte'
-	import { autoPlacement } from '@floating-ui/core'
 	import { Calendar, CornerDownLeft } from 'lucide-svelte'
 	import RunFormAdvancedPopup from './RunFormAdvancedPopup.svelte'
 	import { page } from '$app/stores'
@@ -151,7 +150,7 @@
 		</Button>
 	{/if}
 	{#if runnable?.schema}
-		<div class="my-2" />
+		<div class="my-2"></div>
 		{#if !runnable.schema.properties || Object.keys(runnable.schema.properties).length === 0}
 			<div class="text-sm py-4 italic">No arguments</div>
 		{:else if jsonView}
@@ -191,7 +190,7 @@
 		<div class="text-xs text-tertiary">No arguments</div>
 	{/if}
 	{#if schedulable}
-		<div class="mt-10" />
+		<div class="mt-10"></div>
 		<div class="flex gap-2 items-start flex-wrap justify-between mt-2 md:mt-6 mb-6">
 			<div class="flex-row-reverse flex-wrap flex w-full gap-4">
 				<Button
@@ -205,24 +204,7 @@
 					{scheduledForStr ? 'Schedule to run later' : buttonText}
 				</Button>
 				<div>
-					<Popover
-						floatingConfig={{
-							middleware: [
-								autoPlacement({
-									allowedPlacements: [
-										'bottom-start',
-										'bottom-end',
-										'top-start',
-										'top-end',
-										'top',
-										'bottom'
-									]
-								})
-							]
-						}}
-						closeButton
-						usePointerDownOutside
-					>
+					<Popover placement="bottom" closeButton usePointerDownOutside>
 						<svelte:fragment slot="trigger">
 							<Button nonCaptureEvent startIcon={{ icon: Calendar }} size="xs" color="light">
 								Advanced

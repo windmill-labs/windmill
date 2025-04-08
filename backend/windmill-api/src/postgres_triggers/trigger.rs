@@ -1,7 +1,7 @@
 use std::{collections::HashMap, pin::Pin};
 
 use crate::{
-    capture::{insert_capture_payload, PostgresTriggerConfig, TriggerKind},
+    capture::{insert_capture_payload, PostgresTriggerConfig},
     db::{ApiAuthed, DB},
     postgres_triggers::{
         relation::RelationConverter,
@@ -11,8 +11,11 @@ use crate::{
         },
         run_job,
     },
-    users::fetch_api_authed, resources::try_get_resource_from_db_as,
+    resources::try_get_resource_from_db_as,
+    users::fetch_api_authed,
 };
+use windmill_queue::TriggerKind;
+
 use bytes::{BufMut, Bytes, BytesMut};
 use chrono::TimeZone;
 use futures::{pin_mut, SinkExt, StreamExt};
@@ -878,8 +881,8 @@ impl CaptureConfigForPostgresTrigger {
         args: Option<HashMap<String, Box<RawValue>>>,
         extra: Option<HashMap<String, Box<RawValue>>>,
     ) -> () {
-        let args = PushArgsOwned { args: args.unwrap_or_default(), extra };
-        let extra = args.extra.as_ref().map(to_raw_value);
+        let args = PushArgsOwned { args: args.unwrap_or_default(), extra: None };
+        let extra = extra.as_ref().map(to_raw_value);
         if let Err(err) = insert_capture_payload(
             db,
             &self.workspace_id,

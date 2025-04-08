@@ -118,11 +118,10 @@ Generate a description for the flow below:
 					content: config.user.replace(`{${config.placeholderName}}`, placeholderContent)
 				}
 			]
-			const aiProvider = $copilotInfo.ai_provider
-			const response = await getCompletion(messages, abortController, aiProvider)
+			const response = await getCompletion(messages, abortController)
 			generatedContent = ''
 			for await (const chunk of response) {
-				generatedContent += getResponseFromEvent(chunk, aiProvider)
+				generatedContent += getResponseFromEvent(chunk)
 			}
 		} catch (err) {
 			if (!abortController.signal.aborted) {
@@ -138,7 +137,7 @@ Generate a description for the flow below:
 	}
 
 	if (
-		$copilotInfo.exists_ai_resource &&
+		$copilotInfo.enabled &&
 		$metadataCompletionEnabled &&
 		generateOnAppear &&
 		!content &&
@@ -158,7 +157,7 @@ Generate a description for the flow below:
 	}
 
 	$: active =
-		$copilotInfo.exists_ai_resource &&
+		$copilotInfo.enabled &&
 		$metadataCompletionEnabled &&
 		!content &&
 		(loading || focused || !!generatedContent) &&
@@ -192,7 +191,7 @@ Generate a description for the flow below:
 	class={twMerge('relative', $$props.class)}
 	bind:clientWidth={width}
 	on:keydown={(event) => {
-		if (!$copilotInfo.exists_ai_resource || !$metadataCompletionEnabled) {
+		if (!$copilotInfo.enabled || !$metadataCompletionEnabled) {
 			return
 		}
 		if (event.key === 'Tab') {
@@ -275,7 +274,7 @@ Generate a description for the flow below:
 				class={active ? '!indent-[3.5rem]' : ''}
 				on:focus={() => (focused = true)}
 				on:blur={() => (focused = false)}
-			/>
+			></textarea>
 		</div>
 	{:else}
 		<input

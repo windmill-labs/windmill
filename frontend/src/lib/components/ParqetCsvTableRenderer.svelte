@@ -195,9 +195,9 @@
 	{#if !disable_download && !s3resource.endsWith('.csv')}
 		<a
 			target="_blank"
-			href="{base}/api/w/{workspaceId}/job_helpers/download_s3_parquet_file_as_csv?file_key={s3resource}{storage
-				? `&storage=${storage}`
-				: ''}"
+			href="{base}/api/w/{workspaceId}/job_helpers/download_s3_parquet_file_as_csv?file_key={encodeURIComponent(
+				s3resource
+			)}{storage ? `&storage=${storage}` : ''}"
 			class="text-secondary w-full text-right underline text-2xs whitespace-nowrap"
 			><div class="flex flex-row-reverse gap-2 items-center"><Download size={12} /> CSV</div></a
 		>
@@ -217,7 +217,7 @@
 			<div class="text-red-500">{error}</div>
 			<div>Try changing separator to fix it</div>
 		{/if}
-		<div bind:this={eGui} style="height:100%; " />
+		<div bind:this={eGui} style="height:100%; "></div>
 	</div>
 </div>
 

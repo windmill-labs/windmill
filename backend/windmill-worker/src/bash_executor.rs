@@ -15,7 +15,6 @@ use tokio::process::Command;
 use uuid::Uuid;
 use windmill_common::{
     error::Error,
-    jobs::QueuedJob,
     worker::{to_raw_value, write_file},
 };
 
@@ -25,7 +24,7 @@ use windmill_common::DB;
 #[cfg(feature = "dind")]
 use windmill_common::error::to_anyhow;
 
-use windmill_queue::{append_logs, CanceledBy};
+use windmill_queue::{append_logs, CanceledBy, MiniPulledJob};
 
 lazy_static::lazy_static! {
     pub static ref BIN_BASH: String = std::env::var("BASH_PATH").unwrap_or_else(|_| "/bin/bash".to_string());
@@ -47,7 +46,7 @@ use crate::{
         OccupancyMetrics,
     },
     handle_child::handle_child,
-    AuthedClientBackgroundTask, DISABLE_NSJAIL, DISABLE_NUSER, HOME_ENV, NSJAIL_PATH, PATH_ENV,
+    AuthedClient, DISABLE_NSJAIL, DISABLE_NUSER, HOME_ENV, NSJAIL_PATH, PATH_ENV,
     POWERSHELL_CACHE_DIR, POWERSHELL_PATH, PROXY_ENVS, TZ_ENV,
 };
 
@@ -63,9 +62,10 @@ lazy_static::lazy_static! {
 pub async fn handle_bash_job(
     mem_peak: &mut i32,
     canceled_by: &mut Option<CanceledBy>,
-    job: &QueuedJob,
+    job: &MiniPulledJob,
     db: &sqlx::Pool<sqlx::Postgres>,
-    client: &AuthedClientBackgroundTask,
+    client: &AuthedClient,
+    parent_runnable_path: Option<String>,
     content: &str,
     job_dir: &str,
     shared_mount: &str,
@@ -136,8 +136,8 @@ exit $exit_status
     );
     write_file(job_dir, "wrapper.sh", &script)?;
 
-    let token = client.get_token().await;
-    let mut reserved_variables = get_reserved_variables(job, &token, db).await?;
+    let mut reserved_variables =
+        get_reserved_variables(job, &client.token, db, parent_runnable_path).await?;
     reserved_variables.insert("RUST_LOG".to_string(), "info".to_string());
 
     let args = build_args_map(job, client, db).await?.map(Json);
@@ -163,7 +163,7 @@ exit $exit_status
 
     let nsjail = !*DISABLE_NSJAIL
         && job
-            .script_path
+            .runnable_path
             .as_ref()
             .map(|x| !x.starts_with("init_script_"))
             .unwrap_or(true);
@@ -226,6 +226,7 @@ exit $exit_status
         job.timeout,
         true,
         &mut Some(occupancy_metrics),
+        None,
     )
     .await?;
 
@@ -342,7 +343,7 @@ async fn handle_docker_job(
                                 tracing::error!("Error getting logs: {:?}", e);
                             }
                             _ => {
-                                tracing::error!("End of stream");
+                                tracing::info!("End of docker logs stream");
                                 return
                             }
                         };
@@ -470,9 +471,10 @@ fn raw_to_string(x: &str) -> String {
 pub async fn handle_powershell_job(
     mem_peak: &mut i32,
     canceled_by: &mut Option<CanceledBy>,
-    job: &QueuedJob,
+    job: &MiniPulledJob,
     db: &sqlx::Pool<sqlx::Postgres>,
-    client: &AuthedClientBackgroundTask,
+    client: &AuthedClient,
+    parent_runnable_path: Option<String>,
     content: &str,
     job_dir: &str,
     shared_mount: &str,
@@ -568,6 +570,7 @@ pub async fn handle_powershell_job(
             job.timeout,
             false,
             &mut Some(occupancy_metrics),
+            None,
         )
         .await?;
     }
@@ -654,8 +657,8 @@ $env:PSModulePath = \"{};$PSModulePathBackup\"",
         ),
     )?;
 
-    let token = client.get_token().await;
-    let mut reserved_variables = get_reserved_variables(job, &token, db).await?;
+    let mut reserved_variables =
+        get_reserved_variables(job, &client.token, db, parent_runnable_path).await?;
     reserved_variables.insert("RUST_LOG".to_string(), "info".to_string());
 
     let _ = write_file(job_dir, "result.json", "")?;
@@ -779,6 +782,7 @@ $env:PSModulePath = \"{};$PSModulePathBackup\"",
         job.timeout,
         false,
         &mut Some(occupancy_metrics),
+        None,
     )
     .await?;
 

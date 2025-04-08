@@ -58,7 +58,7 @@ use windmill_common::error::AppError;
 
 mod ai;
 mod apps;
-mod args;
+pub mod args;
 mod audit;
 mod auth;
 mod capture;
@@ -75,6 +75,8 @@ mod granular_acls;
 mod groups;
 #[cfg(feature = "http_trigger")]
 mod http_triggers;
+#[cfg(feature = "http_trigger")]
+mod http_trigger_auth;
 mod indexer_ee;
 mod inputs;
 mod integration;
@@ -83,12 +85,16 @@ mod postgres_triggers;
 
 #[cfg(feature = "enterprise")]
 mod apps_ee;
+#[cfg(feature = "enterprise")]
+mod git_sync_ee;
 #[cfg(feature = "parquet")]
 mod job_helpers_ee;
 pub mod job_metrics;
 pub mod jobs;
 #[cfg(all(feature = "enterprise", feature = "kafka"))]
 mod kafka_triggers_ee;
+#[cfg(feature = "mqtt_trigger")]
+mod mqtt_triggers;
 #[cfg(all(feature = "enterprise", feature = "nats"))]
 mod nats_triggers_ee;
 #[cfg(feature = "oauth2")]
@@ -108,6 +114,7 @@ mod smtp_server_ee;
 #[cfg(all(feature = "enterprise", feature = "sqs_trigger"))]
 mod sqs_triggers_ee;
 mod static_assets;
+#[cfg(all(feature = "stripe", feature = "enterprise"))]
 mod stripe_ee;
 mod teams_ee;
 mod tracing_init;
@@ -321,6 +328,18 @@ pub async fn run_server(
         }
     };
 
+    let mqtt_triggers_service = {
+        #[cfg(all(feature = "mqtt_trigger"))]
+        {
+            mqtt_triggers::workspaced_service()
+        }
+
+        #[cfg(not(feature = "mqtt_trigger"))]
+        {
+            Router::new()
+        }
+    };
+
     let sqs_triggers_service = {
         #[cfg(all(feature = "enterprise", feature = "sqs_trigger"))]
         {
@@ -363,7 +382,7 @@ pub async fn run_server(
         Router::new()
     };
 
-    if !*CLOUD_HOSTED {
+    if !*CLOUD_HOSTED && server_mode {
         #[cfg(feature = "websocket")]
         {
             let ws_killpill_rx = rx.resubscribe();
@@ -386,6 +405,12 @@ pub async fn run_server(
         {
             let db_killpill_rx = rx.resubscribe();
             postgres_triggers::start_database(db.clone(), db_killpill_rx);
+        }
+
+        #[cfg(feature = "mqtt_trigger")]
+        {
+            let mqtt_killpill_rx = rx.resubscribe();
+            mqtt_triggers::start_mqtt_consumer(db.clone(), mqtt_killpill_rx);
         }
 
         #[cfg(all(feature = "enterprise", feature = "sqs_trigger"))]
@@ -447,6 +472,7 @@ pub async fn run_server(
                         .nest("/websocket_triggers", websocket_triggers_service)
                         .nest("/kafka_triggers", kafka_triggers_service)
                         .nest("/nats_triggers", nats_triggers_service)
+                        .nest("/mqtt_triggers", mqtt_triggers_service)
                         .nest("/sqs_triggers", sqs_triggers_service)
                         .nest("/postgres_triggers", postgres_triggers_service),
                 )
@@ -466,6 +492,7 @@ pub async fn run_server(
                 .nest("/apps", apps::global_service().layer(cors.clone()))
                 .nest("/schedules", schedule::global_service())
                 .nest("/embeddings", embeddings::global_service())
+                .nest("/ai", ai::global_service())
                 .route_layer(from_extractor::<ApiAuthed>())
                 .route_layer(from_extractor::<users::Tokened>())
                 .nest("/jobs", jobs::global_root_service())
@@ -523,6 +550,24 @@ pub async fn run_server(
                     "/w/:workspace_id/jobs/slack_approval/:job_id",
                     get(slack_approvals::request_slack_approval),
                 )
+                .nest("/w/:workspace_id/github_app", {
+                    #[cfg(feature = "enterprise")]
+                    {
+                        git_sync_ee::workspaced_service()
+                    }
+
+                    #[cfg(not(feature = "enterprise"))]
+                    Router::new()
+                })
+                .nest("/github_app", {
+                    #[cfg(feature = "enterprise")]
+                    {
+                        git_sync_ee::global_service()
+                    }
+
+                    #[cfg(not(feature = "enterprise"))]
+                    Router::new()
+                })
                 .nest(
                     "/w/:workspace_id/resources_u",
                     resources::public_service().layer(cors.clone()),
@@ -579,8 +624,9 @@ pub async fn run_server(
                 .on_failure(MyOnFailure {}),
         )
     };
-
-    let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
+    let listener = tokio::net::TcpListener::bind(addr)
+        .await
+        .context("binding main windmill server")?;
     let port = listener.local_addr().map(|x| x.port()).unwrap_or(8000);
     let ip = listener
         .local_addr()

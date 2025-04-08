@@ -1,5 +1,11 @@
 <script lang="ts">
-	import { ScheduleService, JobService, type ScheduleWJobs } from '$lib/gen'
+	import {
+		ScheduleService,
+		JobService,
+		type ScheduleWJobs,
+		type WorkspaceDeployUISettings,
+		WorkspaceService
+	} from '$lib/gen'
 	import { canWrite, displayDate, getLocalSetting, storeLocalSetting } from '$lib/utils'
 	import { base } from '$app/paths'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
@@ -11,12 +17,13 @@
 	import SharedBadge from '$lib/components/SharedBadge.svelte'
 	import ShareModal from '$lib/components/ShareModal.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
-	import { userStore, workspaceStore, userWorkspaces } from '$lib/stores'
+	import { userStore, workspaceStore, userWorkspaces, enterpriseLicense } from '$lib/stores'
 	import {
 		Calendar,
 		Circle,
 		Code,
 		Eye,
+		FileUp,
 		List,
 		Loader2,
 		Pen,
@@ -36,6 +43,8 @@
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 	import { setQuery } from '$lib/navigation'
 	import { onMount } from 'svelte'
+	import DeployWorkspaceDrawer from '$lib/components/DeployWorkspaceDrawer.svelte'
+	import { ALL_DEPLOYABLE, isDeployable } from '$lib/utils_deployable'
 
 	type ScheduleW = ScheduleWJobs & { canWrite: boolean }
 
@@ -43,7 +52,18 @@
 	let shareModal: ShareModal
 	let loading = true
 	let loadingSchedulesWithJobStats = true
+	let deploymentDrawer: DeployWorkspaceDrawer
+	let deployUiSettings: WorkspaceDeployUISettings | undefined = undefined
 
+	async function getDeployUiSettings() {
+		if (!$enterpriseLicense) {
+			deployUiSettings = ALL_DEPLOYABLE
+			return
+		}
+		let settings = await WorkspaceService.getSettings({ workspace: $workspaceStore! })
+		deployUiSettings = settings.deploy_ui ?? ALL_DEPLOYABLE
+	}
+	getDeployUiSettings()
 	async function loadSchedules(): Promise<void> {
 		schedules = (await ScheduleService.listSchedules({ workspace: $workspaceStore! })).map((x) => {
 			return { canWrite: canWrite(x.path, x.extra_perms!, $userStore), ...x }
@@ -243,6 +263,7 @@
 	$: updateQueryFilters(selectedFilterKind, filterUserFolders, filterEnabledDisabled)
 </script>
 
+<DeployWorkspaceDrawer bind:this={deploymentDrawer} />
 <ScheduleEditor on:update={loadSchedules} bind:this={scheduleEditor} />
 
 <SearchItems
@@ -273,18 +294,18 @@
 				<input type="text" placeholder="Search schedule" bind:value={filter} class="search-item" />
 				<div class="flex flex-row items-center gap-2 mt-6">
 					<div class="text-sm shrink-0"> Filter by path of </div>
-					<ToggleButtonGroup bind:selected={selectedFilterKind}>
-						<ToggleButton small value="schedule" label="Schedule" icon={Calendar} />
-						<ToggleButton small value="script_flow" label="Script/Flow" icon={Code} />
+					<ToggleButtonGroup bind:selected={selectedFilterKind} let:item>
+						<ToggleButton small value="schedule" label="Schedule" icon={Calendar} {item} />
+						<ToggleButton small value="script_flow" label="Script/Flow" icon={Code} {item} />
 					</ToggleButtonGroup>
 				</div>
 				<ListFilters syncQuery bind:selectedFilter={ownerFilter} filters={owners} />
 
 				<div class="flex flex-row items-center justify-end gap-4">
-					<ToggleButtonGroup class="h-6 w-auto" bind:selected={filterEnabledDisabled}>
-						<ToggleButton small value="all" label="All" />
-						<ToggleButton small value="enabled" label="Enabled" />
-						<ToggleButton small value="disabled" label="Disabled" />
+					<ToggleButtonGroup class="h-6 w-auto" bind:selected={filterEnabledDisabled} let:item>
+						<ToggleButton small value="all" label="All" {item} />
+						<ToggleButton small value="enabled" label="Enabled" {item} />
+						<ToggleButton small value="disabled" label="Disabled" {item} />
 					</ToggleButtonGroup>
 					{#if $userStore?.is_super_admin && $userStore.username.includes('@')}
 						<Toggle size="xs" bind:checked={filterUserFolders} options={{ right: 'Only f/*' }} />
@@ -429,6 +450,21 @@
 													scheduleEditor?.openEdit(path, is_flow)
 												}
 											},
+											...(isDeployable('trigger', path, deployUiSettings)
+												? [
+														{
+															displayName: 'Deploy to prod/staging',
+															icon: FileUp,
+															action: () => {
+																deploymentDrawer.openDrawer(path, 'trigger', {
+																	triggers: {
+																		kind: 'schedules'
+																	}
+																})
+															}
+														}
+												  ]
+												: []),
 											{
 												displayName: 'View runs',
 												icon: List,
@@ -482,7 +518,7 @@
 														<div
 															class="{job.success ? 'bg-green-300' : 'bg-red-300'} mx-auto w-1.5"
 															style="height: {h}px"
-														/>
+														></div>
 														<!-- <div class="text-[0.6em] mt-0.5 text-center text-tertiary"
 														>{(job.duration_ms / 1000).toFixed(2)}s</div
 													> -->

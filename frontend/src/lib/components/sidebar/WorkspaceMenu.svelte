@@ -94,7 +94,7 @@
 							<div
 								class="w-5 h-5 mr-2 rounded border border-gray-300 dark:border-gray-600"
 								style="background-color: {workspace.color}"
-							/>
+							></div>
 						{/if}
 					</div>
 				</MenuItem>
@@ -156,7 +156,7 @@
 					<div
 						class="bg-blue-400 h-1"
 						style="width: {Math.min($workspaceUsageStore, 1000) / 10}%"
-					/>
+					></div>
 				</div>
 			{/if}
 			{#if $userStore?.is_admin}

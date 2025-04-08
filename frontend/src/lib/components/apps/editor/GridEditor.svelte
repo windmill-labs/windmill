@@ -149,7 +149,7 @@
 						>
 					</Popover>
 				{:else}
-					<span class="w-9" />
+					<span class="w-9"></span>
 				{/if}
 			</div>
 			<div class="flex text-2xs gap-8 items-center">

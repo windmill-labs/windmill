@@ -185,12 +185,13 @@
 					</span>
 				{/if}
 			</label>
-			<ToggleButtonGroup bind:selected={$values[setting.key]}>
+			<ToggleButtonGroup bind:selected={$values[setting.key]} let:item={toggleButton}>
 				{#each setting.select_items ?? [] as item}
 					<ToggleButton
 						value={item.value ?? item.label}
 						label={item.label}
 						tooltip={item.tooltip}
+						item={toggleButton}
 					/>
 				{/each}
 			</ToggleButtonGroup>
@@ -241,7 +242,7 @@
 						rows="2"
 						placeholder={setting.placeholder}
 						bind:value={$values[setting.key]}
-					/>
+					></textarea>
 					{#if setting.key == 'saml_metadata'}
 						<div class="flex mt-2">
 							<Button
@@ -926,7 +927,7 @@
 					</div>
 				{:else if setting.fieldType == 'object_store_config'}
 					<ObjectStoreConfigSettings bind:bucket_config={$values[setting.key]} />
-					<div class="mb-6" />
+					<div class="mb-6"></div>
 				{:else if setting.fieldType == 'number'}
 					<input
 						type="number"

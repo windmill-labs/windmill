@@ -19,24 +19,21 @@ use uuid::Uuid;
 use windmill_common::{
     add_time,
     error::{self, Error},
-    jobs::{JobKind, QueuedJob},
+    jobs::JobKind,
     utils::WarnAfterExt,
     worker::{to_raw_value, WORKER_GROUP},
-    DB,
+    KillpillSender, DB,
 };
 
 #[cfg(feature = "benchmark")]
 use crate::bench::{BenchmarkInfo, BenchmarkIter};
 
-use windmill_queue::{append_logs, get_queued_job, CanceledBy, WrappedError};
+use windmill_queue::{append_logs, get_queued_job, CanceledBy, MiniPulledJob, WrappedError};
 
 use serde_json::{json, value::RawValue};
 
 use tokio::{
-    sync::{
-        self,
-        mpsc::{Receiver, Sender},
-    },
+    sync::mpsc::{Receiver, Sender},
     task::JoinHandle,
 };
 
@@ -45,6 +42,7 @@ use windmill_queue::{add_completed_job, add_completed_job_error};
 use crate::{
     bash_executor::ANSI_ESCAPE_RE,
     common::{read_result, save_in_cache},
+    otel_ee::add_root_flow_job_to_otlp,
     worker_flow::update_flow_status_after_job_completion,
     AuthedClient, JobCompleted, JobCompletedSender, SameWorkerSender, SendResult, INIT_SCRIPT_TAG,
 };
@@ -59,7 +57,7 @@ pub fn start_background_processor(
     worker_dir: String,
     same_worker_tx: SameWorkerSender,
     worker_name: String,
-    killpill_tx: sync::broadcast::Sender<()>,
+    killpill_tx: KillpillSender,
     is_dedicated_worker: bool,
 ) -> JoinHandle<()> {
     tokio::spawn(async move {
@@ -84,7 +82,7 @@ pub fn start_background_processor(
                     let is_init_script_and_failure =
                         !jc.success && jc.job.tag.as_str() == INIT_SCRIPT_TAG;
                     let is_dependency_job = matches!(
-                        jc.job.job_kind,
+                        jc.job.kind,
                         JobKind::Dependencies | JobKind::FlowDependencies
                     );
 
@@ -101,14 +99,14 @@ pub fn start_background_processor(
                         parent_job = field::Empty,
                         otel.name = field::Empty
                     );
-                    let rj = if let Some(root_job) = jc.job.root_job {
+                    let rj = if let Some(root_job) = jc.job.flow_innermost_root_job {
                         root_job
                     } else {
                         jc.job.id
                     };
                     windmill_common::otel_ee::set_span_parent(&span, &rj);
 
-                    if let Some(lg) = jc.job.language.as_ref() {
+                    if let Some(lg) = jc.job.script_lang.as_ref() {
                         span.record("language", lg.as_str());
                     }
                     if let Some(step_id) = jc.job.flow_step_id.as_ref() {
@@ -123,10 +121,10 @@ pub fn start_background_processor(
                     if let Some(parent_job) = jc.job.parent_job.as_ref() {
                         span.record("parent_job", parent_job.to_string().as_str());
                     }
-                    if let Some(script_path) = jc.job.script_path.as_ref() {
+                    if let Some(script_path) = jc.job.runnable_path.as_ref() {
                         span.record("script_path", script_path.as_str());
                     }
-                    if let Some(root_job) = jc.job.root_job.as_ref() {
+                    if let Some(root_job) = jc.job.flow_innermost_root_job.as_ref() {
                         span.record("root_job", root_job.to_string().as_str());
                     }
 
@@ -145,12 +143,12 @@ pub fn start_background_processor(
                     .await;
 
                     if let Some(root_job) = root_job {
-                        windmill_common::otel_ee::add_root_flow_job_to_otlp(&root_job, success);
+                        add_root_flow_job_to_otlp(&root_job, success);
                     }
 
                     if is_init_script_and_failure {
                         tracing::error!("init script errored, exiting");
-                        killpill_tx.send(()).unwrap_or_default();
+                        killpill_tx.send();
                         break;
                     }
                     if is_dependency_job && is_dedicated_worker {
@@ -162,7 +160,7 @@ pub fn start_background_processor(
                             .execute(&db)
                             .await
                             .expect("update config to trigger restart of all dedicated workers at that config");
-                        killpill_tx.send(()).unwrap_or_default();
+                        killpill_tx.send();
                     }
                     add_time!(bench, "job completed processed");
 
@@ -230,14 +228,14 @@ pub fn start_background_processor(
 
 async fn send_job_completed(
     job_completed_tx: JobCompletedSender,
-    job: Arc<QueuedJob>,
+    job: Arc<MiniPulledJob>,
     result: Arc<Box<RawValue>>,
     result_columns: Option<Vec<String>>,
     mem_peak: i32,
     canceled_by: Option<CanceledBy>,
     success: bool,
     cached_res_path: Option<String>,
-    token: String,
+    token: &str,
     duration: Option<i64>,
 ) {
     let jc = JobCompleted {
@@ -248,7 +246,7 @@ async fn send_job_completed(
         canceled_by,
         success,
         cached_res_path,
-        token,
+        token: token.to_string(),
         duration,
     };
     job_completed_tx
@@ -259,14 +257,14 @@ async fn send_job_completed(
 }
 
 pub async fn process_result(
-    job: Arc<QueuedJob>,
+    job: Arc<MiniPulledJob>,
     result: error::Result<Arc<Box<RawValue>>>,
     job_dir: &str,
     job_completed_tx: JobCompletedSender,
     mem_peak: i32,
     canceled_by: Option<CanceledBy>,
     cached_res_path: Option<String>,
-    token: String,
+    token: &str,
     column_order: Option<Vec<String>>,
     new_args: Option<HashMap<String, Box<RawValue>>>,
     db: &DB,
@@ -359,7 +357,7 @@ pub async fn handle_receive_completed_job(
     worker_name: &str,
     job_completed_tx: Sender<SendResult>,
     #[cfg(feature = "benchmark")] bench: &mut BenchmarkIter,
-) -> Option<Arc<QueuedJob>> {
+) -> Option<Arc<MiniPulledJob>> {
     let token = jc.token.clone();
     let workspace = jc.job.workspace_id.clone();
     let client = AuthedClient {
@@ -426,14 +424,14 @@ pub async fn process_completed_job(
     worker_name: &str,
     job_completed_tx: Sender<SendResult>,
     #[cfg(feature = "benchmark")] bench: &mut BenchmarkIter,
-) -> error::Result<Option<Arc<QueuedJob>>> {
+) -> error::Result<Option<Arc<MiniPulledJob>>> {
     if success {
         // println!("bef completed job{:?}",  SystemTime::now());
         if let Some(cached_path) = cached_res_path {
             save_in_cache(db, client, &job, cached_path, result.clone()).await;
         }
 
-        let is_flow_step = job.is_flow_step;
+        let is_flow_step = job.is_flow_step();
         let parent_job = job.parent_job.clone();
         let job_id = job.id.clone();
         let workspace_id = job.workspace_id.clone();
@@ -514,7 +512,7 @@ pub async fn process_completed_job(
             None,
         )
         .await?;
-        if job.is_flow_step {
+        if job.is_flow_step() {
             if let Some(parent_job) = job.parent_job {
                 tracing::error!(parent_flow = %parent_job, subflow = %job.id, "process completed job error, updating flow status");
                 let r = update_flow_status_after_job_completion(
@@ -547,7 +545,7 @@ pub async fn process_completed_job(
 pub async fn handle_job_error(
     db: &Pool<Postgres>,
     client: &AuthedClient,
-    job: &QueuedJob,
+    job: &MiniPulledJob,
     mem_peak: i32,
     canceled_by: Option<CanceledBy>,
     err: Error,
@@ -584,7 +582,7 @@ pub async fn handle_job_error(
         .await
     };
 
-    let update_job_future = if job.is_flow_step || job.is_flow() {
+    let update_job_future = if job.is_flow_step() || job.is_flow() {
         let (flow, job_status_to_update) = if let Some(parent_job_id) = job.parent_job {
             if let Err(e) = update_job_future().await {
                 tracing::error!(
@@ -633,7 +631,7 @@ pub async fn handle_job_error(
                     .await;
                     let _ = add_completed_job_error(
                         db,
-                        &parent_job,
+                        &MiniPulledJob::from(&parent_job),
                         mem_peak,
                         canceled_by.clone(),
                         e,

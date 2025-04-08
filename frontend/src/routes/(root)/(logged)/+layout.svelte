@@ -17,7 +17,6 @@
 	import CriticalAlertModal from '$lib/components/sidebar/CriticalAlertModal.svelte'
 	import {
 		enterpriseLicense,
-		copilotInfo,
 		isPremiumStore,
 		starStore,
 		superadmin,
@@ -29,7 +28,8 @@
 		defaultScripts,
 		hubBaseUrlStore,
 		usedTriggerKinds,
-		devopsRole
+		devopsRole,
+		setCopilotInfo
 	} from '$lib/stores'
 	import CenteredModal from '$lib/components/CenteredModal.svelte'
 	import { afterNavigate, beforeNavigate } from '$app/navigation'
@@ -192,12 +192,17 @@
 
 	async function loadUsedTriggerKinds() {
 		let usedKinds: string[] = []
-		const { http_routes_used, websocket_used, kafka_used, postgres_used, nats_used , sqs_used} =
-			await WorkspaceService.getUsedTriggers(
-			{
-					workspace: $workspaceStore ?? ''
-				}
-		)
+		const {
+			http_routes_used,
+			websocket_used,
+			kafka_used,
+			postgres_used,
+			nats_used,
+			sqs_used,
+			mqtt_used
+		} = await WorkspaceService.getUsedTriggers({
+			workspace: $workspaceStore ?? ''
+		})
 		if (http_routes_used) {
 			usedKinds.push('http')
 		}
@@ -212,6 +217,9 @@
 		}
 		if (nats_used) {
 			usedKinds.push('nats')
+		}
+		if (mqtt_used) {
+			usedKinds.push('mqtt')
 		}
 		if (sqs_used) {
 			usedKinds.push('sqs')
@@ -249,18 +257,10 @@
 		workspaceAIClients.init(workspace)
 		try {
 			const info = await WorkspaceService.getCopilotInfo({ workspace })
-			copilotInfo.set({
-				...info,
-				ai_provider: info.ai_provider ?? 'openai'
-			})
+			setCopilotInfo(info)
 		} catch (err) {
-			copilotInfo.set({
-				ai_provider: 'openai',
-				exists_ai_resource: false,
-				code_completion_model: undefined,
-				ai_models: []
-			})
-			console.error('Could not get copilot info')
+			setCopilotInfo({})
+			console.error('Could not get copilot info', err)
 		}
 	}
 
@@ -311,6 +311,8 @@
 		) {
 			mountModal = true
 			loadCriticalAlertsMuted()
+		} else {
+			mountModal = false
 		}
 	}
 
@@ -378,7 +380,7 @@
 
 								menuOpen ? 'opacity-100' : 'opacity-0'
 							)}
-						/>
+						></div>
 
 						<div class="fixed inset-0 flex z-40">
 							<div
@@ -399,6 +401,7 @@
 											menuOpen = !menuOpen
 										}}
 										class="ml-1 flex items-center justify-center h-6 w-6 rounded-full focus:outline-none focus:ring-2 focus:ring-inset focus:ring-white border border-white"
+										aria-label="Close"
 									>
 										<svg
 											class="h-4 w-4 text-white"
@@ -549,6 +552,7 @@
 								on:click={() => {
 									// menuSlide = !menuSlide
 								}}
+								aria-label="Close"
 								class="ml-1 flex items-center justify-center h-8 w-8 rounded-full focus:outline-none focus:ring-2 focus:ring-inset focus:ring-white border border-white"
 							>
 								<svg
@@ -617,6 +621,7 @@
 						)}
 					>
 						<button
+							aria-label="Menu"
 							type="button"
 							on:click={() => {
 								menuOpen = true

@@ -199,6 +199,7 @@ async fn get_concurrent_intervals(
             result: None,
             tag: None,
             has_null_parent: None,
+            worker: None,
             label: None,
             scheduled_for_before_now: _,
             is_not_schedule: _,
@@ -214,6 +215,7 @@ async fn get_concurrent_intervals(
             is_flow_step: _,
             all_workspaces: _,
             concurrency_key: Some(_),
+            allow_wildcards: None,
         } => true,
         _ => false,
     };

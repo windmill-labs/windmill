@@ -123,7 +123,7 @@
 		if (
 			oneOf &&
 			oneOf.length >= 2 &&
-			(!oneOfSelected || !oneOf.some((o) => o.title === oneOfSelected))
+			(!oneOfSelected || !oneOf.some((o) => o.title === oneOfSelected) || !value)
 		) {
 			if (value && value['label'] && oneOf.some((o) => o.title === value['label'])) {
 				const existingValue = JSON.parse(JSON.stringify(value))
@@ -131,17 +131,23 @@
 				await tick()
 				value = existingValue
 			} else {
-				oneOfSelected = oneOf[0]['title']
+				const label = oneOf[0]['title']
+				oneOfSelected = label
+				value = { ...(typeof value === 'object' ? (value ?? {}) : {}), label }
 			}
 		}
 	}
-	function updateOneOfSelectedValue(oneOfSelected: string | undefined) {
-		if (oneOfSelected) {
-			value = { label: oneOfSelected }
+
+	$: updateOneOfSelected(oneOf)
+
+	$: oneOf && value && onOneOfChange()
+
+	function onOneOfChange() {
+		const label = value?.['label']
+		if (label && oneOf && oneOf.some((o) => o.title == label) && oneOfSelected != label) {
+			oneOfSelected = label
 		}
 	}
-	$: updateOneOfSelected(oneOf)
-	$: updateOneOfSelectedValue(oneOfSelected)
 
 	const dispatch = createEventDispatcher()
 
@@ -166,7 +172,7 @@
 			value = undefined
 		}
 		if ((value == undefined || value == null) && !ignoreValueUndefined) {
-			value = defaultValue
+			value = structuredClone(defaultValue)
 			if (defaultValue === undefined || defaultValue === null) {
 				if (inputCat === 'string') {
 					value = nullable ? null : ''
@@ -246,21 +252,52 @@
 		)
 	}
 
-	function evalValueToRaw() {
-		rawValue = isObjectCat(inputCat) ? JSON.stringify(value, null, 2) : undefined
-		rawValue && editor?.getCode() != rawValue && editor?.setCode(rawValue)
-		// console.log('evalValueToRaw', value, rawValue, inputCat, label)
+	function isRawStringEditor(inputCat?: string) {
+		return inputCat == 'sql' || inputCat == 'yaml'
 	}
 
-	$: inputCat &&
-		isObjectCat(inputCat) &&
-		rawValue == undefined &&
-		value != undefined &&
-		evalValueToRaw()
+	function evalValueToRaw() {
+		if (setCodeDisabled) {
+			return
+		}
+		const newRawValue =
+			value == undefined || value == null
+				? ''
+				: isObjectCat(inputCat)
+					? JSON.stringify(value, null, 2)
+					: isRawStringEditor(inputCat)
+						? typeof value == 'string'
+							? value
+							: JSON.stringify(value, null, 2)
+						: undefined
+
+		if (newRawValue != rawValue) {
+			rawValue = newRawValue
+			rawValue != undefined && editor?.getCode() != rawValue && editor?.setCode(rawValue)
+		}
+	}
+
+	let setCodeDisabled = false
+	$: (inputCat &&
+		(isObjectCat(inputCat) || isRawStringEditor(inputCat)) &&
+		!oneOf &&
+		evalValueToRaw()) ||
+		value
+
+	let timeout: NodeJS.Timeout | undefined = undefined
+	function setNewValueFromCode(nvalue: any) {
+		if (!deepEqual(nvalue, value)) {
+			value = nvalue
+			timeout && clearTimeout(timeout)
+			setCodeDisabled = true
+			timeout = setTimeout(() => {
+				setCodeDisabled = false
+			}, 1000)
+		}
+	}
 
 	onMount(() => {
 		computeDefaultValue()
-		// console.log('onMount', value, rawValue, inputCat)
 		evalValueToRaw()
 	})
 
@@ -378,12 +415,12 @@
 		diffStatus?.diff == 'added'
 			? 'bg-green-300 dark:bg-green-800'
 			: diffStatus?.diff === 'removed'
-			? 'bg-red-300 dark:bg-red-800'
-			: diffStatus?.diff === 'same'
-			? 'bg-surface'
-			: diffStatus?.diff === 'modified' || typeof diffStatus?.diff === 'object'
-			? 'border-2 border-green-500 bg-surface'
-			: ''
+				? 'bg-red-300 dark:bg-red-800'
+				: diffStatus?.diff === 'same'
+					? 'bg-surface'
+					: diffStatus?.diff === 'modified' || typeof diffStatus?.diff === 'object'
+						? 'border-2 border-green-500 bg-surface'
+						: ''
 	)}
 	data-schema-picker
 >
@@ -526,7 +563,7 @@
 										{#if i < itemsLimit}
 											<div class="flex max-w-md mt-1 w-full items-center">
 												{#if itemsType?.type == 'number'}
-													<input type="number" bind:value={v} id="arg-input-number-array" />
+													<input type="number" bind:value={value[i]} id="arg-input-number-array" />
 												{:else if itemsType?.type == 'string' && itemsType?.contentEncoding == 'base64'}
 													<input
 														type="file"
@@ -538,7 +575,10 @@
 													{#await import('$lib/components/JsonEditor.svelte')}
 														<Loader2 class="animate-spin" />
 													{:then Module}
-														<Module.default code={JSON.stringify(v, null, 2)} bind:value={v} />
+														<Module.default
+															code={JSON.stringify(v, null, 2)}
+															bind:value={value[i]}
+														/>
 													{/await}
 												{:else if Array.isArray(itemsType?.enum)}
 													<ArgEnum
@@ -554,14 +594,14 @@
 														{valid}
 														{disabled}
 														{autofocus}
-														bind:value={v}
+														bind:value={value[i]}
 														enum_={itemsType?.enum ?? []}
 														enumLabels={extra['enumLabels']}
 													/>
 												{:else if itemsType?.type == 'resource' && itemsType?.resourceType && resourceTypes?.includes(itemsType.resourceType)}
 													<ObjectResourceInput
 														value={v ? `$res:${v}` : undefined}
-														bind:path={v}
+														bind:path={value[i]}
 														format={'resource-' + itemsType?.resourceType}
 														defaultValue={undefined}
 													/>
@@ -578,7 +618,7 @@
 																dispatch('blur')
 															}}
 															code={JSON.stringify(v, null, 2)}
-															bind:value={v}
+															bind:value={value[i]}
 														/>
 													{/await}
 												{:else if itemsType?.type === 'object' && itemsType?.properties}
@@ -588,11 +628,11 @@
 															{disablePortal}
 															{disabled}
 															schema={getSchemaFromProperties(itemsType?.properties)}
-															bind:args={v}
+															bind:args={value[i]}
 														/>
 													</div>
 												{:else}
-													<input type="text" bind:value={v} id="arg-input-array" />
+													<input type="text" bind:value={value[i]} id="arg-input-array" />
 												{/if}
 												<button
 													transition:fade|local={{ duration: 100 }}
@@ -713,7 +753,9 @@
 								dispatch('blur')
 							}}
 							code={JSON.stringify(value ?? defaultValue ?? { s3: '' }, null, 2)}
-							bind:value
+							on:changeValue={(e) => {
+								setNewValueFromCode(e.detail)
+							}}
 						/>
 					{/await}
 					<Button
@@ -756,14 +798,22 @@
 				<div class="flex flex-col gap-2 w-full">
 					{#if oneOf && oneOf.length >= 2}
 						<ToggleButtonGroup
-							bind:selected={oneOfSelected}
-							on:selected={() => {
-								value = { label: oneOfSelected }
-								redraw += 1
+							selected={oneOfSelected}
+							on:selected={({ detail }) => {
+								oneOfSelected = detail
+								const prevValueKeys = Object.keys(
+									oneOf?.find((o) => o.title == detail)?.properties ?? {}
+								)
+								const toKeep = {}
+								for (const key of prevValueKeys) {
+									toKeep[key] = value[key]
+								}
+								value = { ...toKeep, label: detail }
 							}}
+							let:item
 						>
 							{#each oneOf as obj}
-								<ToggleButton value={obj.title} label={obj.title} />
+								<ToggleButton value={obj.title ?? ''} label={obj.title} {item} />
 							{/each}
 						</ToggleButtonGroup>
 						{#if oneOfSelected}
@@ -825,7 +875,7 @@
 									</div>
 								{/key}
 							{:else if disabled}
-								<textarea disabled />
+								<textarea disabled></textarea>
 							{:else}
 								{#await import('$lib/components/JsonEditor.svelte')}
 									<Loader2 class="animate-spin" />
@@ -839,13 +889,15 @@
 											dispatch('blur')
 										}}
 										code={rawValue}
-										bind:value
+										on:changeValue={(e) => {
+											setNewValueFromCode(e.detail)
+										}}
 									/>
 								{/await}
 							{/if}
 						{/if}
 					{:else if disabled}
-						<textarea disabled />
+						<textarea disabled></textarea>
 					{:else}
 						{#await import('$lib/components/JsonEditor.svelte')}
 							<Loader2 class="animate-spin" />
@@ -859,7 +911,9 @@
 									dispatch('blur')
 								}}
 								code={rawValue}
-								bind:value
+								on:change={(e) => {
+									value = e.detail
+								}}
 							/>
 						{/await}
 					{/if}
@@ -930,7 +984,7 @@
 					{/if}
 				</div>
 			{:else if disabled}
-				<textarea disabled />
+				<textarea disabled></textarea>
 			{:else}
 				{#await import('$lib/components/JsonEditor.svelte')}
 					<Loader2 class="animate-spin" />
@@ -944,7 +998,9 @@
 							dispatch('blur')
 						}}
 						code={rawValue}
-						bind:value
+						on:changeValue={(e) => {
+							setNewValueFromCode(e.detail)
+						}}
 					/>
 				{/await}
 			{/if}
@@ -987,11 +1043,11 @@
 			{:else}
 				<DateTimeInput {disabled} useDropdown {autofocus} bind:value />
 			{/if}
-		{:else if inputCat == 'sql' || inputCat == 'yaml'}
+		{:else if isRawStringEditor(inputCat)}
 			{#if disabled}
-				<textarea disabled />
+				<textarea disabled></textarea>
 			{:else}
-				<div class="border my-1 mb-4 w-full border-secondary">
+				<div class="border my-1 mb-4 w-full">
 					{#await import('$lib/components/SimpleEditor.svelte')}
 						<Loader2 class="animate-spin" />
 					{:then Module}
@@ -1002,9 +1058,12 @@
 							on:blur={(e) => {
 								dispatch('blur')
 							}}
+							on:change={(e) => {
+								setNewValueFromCode(e.detail?.code)
+							}}
 							bind:this={editor}
 							lang={inputCat}
-							bind:code={value}
+							code={typeof rawValue == 'string' ? rawValue : JSON.stringify(rawValue, null, 2)}
 							autoHeight
 						/>
 					{/await}
@@ -1090,7 +1149,7 @@
 								)}
 								placeholder={placeholder ?? defaultValue ?? ''}
 								bind:value
-							/>
+							></textarea>
 						{/key}
 						{#if !disabled && itemPicker && extra?.['disableVariablePicker'] != true}
 							<!-- svelte-ignore a11y-click-events-have-key-events -->
@@ -1132,7 +1191,7 @@
 			{/if}
 		</div>
 	{:else if !noMargin}
-		<div class="mb-2" />
+		<div class="mb-2"></div>
 	{/if}
 </div>
 
