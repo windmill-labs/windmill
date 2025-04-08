@@ -65,8 +65,11 @@
 								colDef,
 								e.newValue
 							)
-							.then((result) => sendUserToast('Value updated'))
-							.catch(() => sendUserToast('Error updating value', true))
+							.then(() => sendUserToast('Value updated'))
+							.catch(() => {
+								sendUserToast('Error updating value', true)
+								refreshCount += 1
+							})
 					}
 				},
 				onViewportChanged: (e) => ([firstRow, lastRow] = [e.firstRow, e.lastRow]),
