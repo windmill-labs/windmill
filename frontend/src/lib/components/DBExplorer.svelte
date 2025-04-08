@@ -1,19 +1,19 @@
 <script lang="ts">
-	import { workspaceStore, type DBSchema } from '$lib/stores'
+	import { type DBSchema } from '$lib/stores'
 	import { Table2 } from 'lucide-svelte'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import { ClearableInput } from './common'
 	import { sendUserToast } from '$lib/toast'
-	import { loadTableMetaData, type DbType } from './apps/components/display/dbtable/utils'
+	import { type ColumnDef } from './apps/components/display/dbtable/utils'
 	import DBTable from './DBTable.svelte'
-	import { dbTableOpsWithPreviewScripts } from './dbTableOps'
+	import type { IDbTableOps } from './dbOps'
 
 	type Props = {
 		dbSchema: DBSchema
-		resourceType: DbType
-		resourcePath: string
+		getColDefs: (tableKey: string) => Promise<ColumnDef[]>
+		dbTableOpsFactory: (params: { colDefs: ColumnDef[]; tableKey: string }) => IDbTableOps
 	}
-	let { dbSchema, resourceType, resourcePath }: Props = $props()
+	let { dbSchema, dbTableOpsFactory, getColDefs }: Props = $props()
 
 	let schemaKeys = $derived(Object.keys(dbSchema.schema))
 	let search = $state('')
@@ -81,15 +81,9 @@
 		</div>
 	</Pane>
 	<Pane class="p-3 pt-1">
-		{#await loadTableMetaData('$res:' + resourcePath, $workspaceStore, tableKey, resourceType) then colDefs}
-			{#if colDefs?.length && $workspaceStore}
-				{@const dbTableOps = dbTableOpsWithPreviewScripts({
-					colDefs: colDefs,
-					resourceType,
-					resourcePath,
-					tableKey,
-					workspace: $workspaceStore
-				})}
+		{#await getColDefs(tableKey) then colDefs}
+			{#if colDefs?.length}
+				{@const dbTableOps = dbTableOpsFactory({ colDefs, tableKey })}
 				<DBTable {dbTableOps} />
 			{/if}
 		{/await}

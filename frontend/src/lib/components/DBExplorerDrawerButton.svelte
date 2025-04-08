@@ -5,10 +5,16 @@
 	import DrawerContent from './common/drawer/DrawerContent.svelte'
 	import { sendUserToast } from '$lib/utils'
 	import { Loader2, RefreshCcw } from 'lucide-svelte'
-	import { getDbSchemas, scripts, type DbType } from './apps/components/display/dbtable/utils'
+	import {
+		getDbSchemas,
+		loadTableMetaData,
+		scripts,
+		type DbType
+	} from './apps/components/display/dbtable/utils'
 	import DbExplorer from './DBExplorer.svelte'
 	import { Alert } from './common'
 	import DbSchemaExplorer from './DBSchemaExplorer.svelte'
+	import { dbTableOpsWithPreviewScripts } from './dbOps'
 
 	type Props = {
 		resourceType: DbType
@@ -62,7 +68,7 @@
 	})
 </script>
 
-{#if !dbSchema}
+{#if !dbSchema || !$workspaceStore}
 	<Loader2 size={14} class="animate-spin" />
 {:else if shouldDisplayError}
 	<Alert type="error" size="xs" title="Schema not available" class="mt-2">
@@ -93,7 +99,24 @@
 					<Loader2 size={24} class="animate-spin" />
 				</div>
 			{:else if mode === 'db-explorer'}
-				<DbExplorer {dbSchema} {resourceType} {resourcePath} />
+				<DbExplorer
+					{dbSchema}
+					getColDefs={async (tableKey) =>
+						(await loadTableMetaData(
+							'$res:' + resourcePath,
+							$workspaceStore,
+							tableKey,
+							resourceType
+						)) ?? []}
+					dbTableOpsFactory={({ colDefs, tableKey }) =>
+						dbTableOpsWithPreviewScripts({
+							colDefs,
+							tableKey,
+							resourcePath,
+							resourceType,
+							workspace: $workspaceStore
+						})}
+				/>
 			{:else if mode === 'schema-explorer'}
 				<DbSchemaExplorer {dbSchema} />
 			{/if}

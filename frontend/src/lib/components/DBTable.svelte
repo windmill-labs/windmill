@@ -9,7 +9,7 @@
 	import Popover from './Popover.svelte'
 	import DebouncedInput from './apps/components/helpers/DebouncedInput.svelte'
 	import InsertRowDrawerButton from './apps/components/display/InsertRowDrawerButton.svelte'
-	import type { IDbTableOps } from './dbTableOps'
+	import type { IDbTableOps } from './dbOps'
 
 	type Props = {
 		dbTableOps: IDbTableOps
