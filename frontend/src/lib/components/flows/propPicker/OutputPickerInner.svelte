@@ -616,7 +616,7 @@
 				<div class="flex flex-col items-center justify-center h-full">
 					<p class="text-xs text-secondary">
 						Test this step to see results{#if !disableMock}
-							or
+							{' or'}
 							<button
 								class="text-blue-500 hover:text-blue-700 underline"
 								on:click={() => {
