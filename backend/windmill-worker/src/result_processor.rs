@@ -47,6 +47,79 @@ use crate::{
     AuthedClient, JobCompleted, JobCompletedSender, SameWorkerSender, SendResult, INIT_SCRIPT_TAG,
 };
 
+#[cfg(feature = "enterprise")]
+pub fn start_disk_usage_checks(worker_name: String, db: DB) {
+    use itertools::Itertools;
+    use std::time::Duration;
+    use systemstat::*;
+    use windmill_common::worker::*;
+
+    lazy_static::lazy_static! {
+        static ref SYSTEM: System = System::new();
+        static ref DEF_MIN_SPACE: u64 = 15_000;
+        static ref MIN_FREE_DISK_SPACE_MB: u64 =
+        std::env::var("MIN_FREE_DISK_SPACE_MB").map(|v| v.parse::<u64>().unwrap_or(*DEF_MIN_SPACE)).unwrap_or(*DEF_MIN_SPACE);
+        static ref DEF_FREQ: u64 = 60;
+        static ref CHECK_FREQ: u64 =
+        std::env::var("DISK_SPACE_CHECK_FREQ").map(|v| v.parse::<u64>().unwrap_or(*DEF_FREQ)).unwrap_or(*DEF_FREQ);
+    }
+
+    tokio::spawn(async move {
+        loop {
+            #[cfg(windows)]
+            let cwd = std::env::current_dir().unwrap_or("C:\\".into());
+
+            match SYSTEM.mounts() {
+                Ok(fss) => {
+                    for Filesystem { avail, fs_mounted_on, .. } in fss
+                        .into_iter()
+                        .filter(|fs| {
+                            #[cfg(not(windows))]
+                            return matches!(
+                                fs.fs_mounted_on.as_str(),
+                                "/" | ROOT_CACHE_DIR | ROOT_CACHE_NOMOUNT_DIR | TMP_LOGS_DIR
+                            );
+
+                            #[cfg(windows)]
+                            // We don't actually need entire path to cwd
+                            // our point of interest is only drive letter
+                            return cwd.starts_with(fs.fs_mounted_on.as_str());
+                        })
+                        .collect_vec()
+                    {
+                        if avail < ByteSize::mb(*MIN_FREE_DISK_SPACE_MB) {
+                            windmill_common::utils::report_critical_error(
+                                format!(
+                                    "Disk mounted on `{}` is low, {} available. Worker: {}",
+                                    &fs_mounted_on, avail, worker_name
+                                ),
+                                db.clone(),
+                                Some("admins"),
+                                None,
+                            )
+                            .await;
+                        }
+                    }
+                }
+                Err(e) => {
+                    windmill_common::utils::report_critical_error(
+                                    format!("Cannot read disk usage: {e}\n\nTracking of available disk space is not possible until issue is resolved."),
+                                    db.clone(),
+                                    Some("admins"),
+                                    None,
+                                )
+                                .await;
+                }
+            }
+
+            {
+                let mins = CHECK_FREQ.clamp(1, (u64::MAX / 60) - 1);
+                tokio::time::sleep(Duration::from_secs(mins * 60)).await;
+            }
+        }
+    });
+}
+
 pub fn start_background_processor(
     mut job_completed_rx: Receiver<SendResult>,
     job_completed_sender: Sender<SendResult>,
@@ -65,10 +138,6 @@ pub fn start_background_processor(
 
         #[cfg(feature = "benchmark")]
         let mut infos = BenchmarkInfo::new();
-
-        #[cfg(feature = "enterprise")]
-        let (mut reported_low_disk, mut reported_cannot_read_disk) =
-            (std::collections::HashSet::new(), false);
 
         //if we have been killed, we want to drain the queue of jobs
         while let Some(sr) = {
@@ -213,90 +282,6 @@ pub fn start_background_processor(
                 }
                 SendResult::Kill => {
                     has_been_killed = true;
-                }
-            }
-            #[cfg(feature = "enterprise")]
-            {
-                use itertools::Itertools;
-                use std::ops::*;
-                use systemstat::*;
-                use tokio::sync::RwLock;
-                use windmill_common::worker::*;
-                lazy_static::lazy_static! {
-                    static ref SYSTEM: System = System::new();
-                    static ref DEF_MIN_SPACE: u64 = 5_000;
-                    static ref MIN_FREE_DISK_SPACE_MB: u64 =
-                    std::env::var("MIN_FREE_DISK_SPACE_MB").map(|v| v.parse::<u64>().unwrap_or(*DEF_MIN_SPACE)).unwrap_or(*DEF_MIN_SPACE);
-                    static ref DEF_FREQ: u64 = 10;
-                    static ref CHECK_FREQ: u64 =
-                    std::env::var("DISK_SPACE_CHECK_FREQ").map(|v| v.parse::<u64>().unwrap_or(*DEF_FREQ)).unwrap_or(*DEF_FREQ);
-                    static ref SKIP: RwLock<u64>  = RwLock::new(0);
-                }
-
-                if *SKIP.read().await == 0 {
-                    SKIP.write().await.add_assign(*CHECK_FREQ);
-
-                    #[cfg(windows)]
-                    let cwd = std::env::current_dir().unwrap_or("C:\\".into());
-
-                    match SYSTEM.mounts() {
-                        Ok(fss) => {
-                            reported_cannot_read_disk = false;
-                            for Filesystem { avail, fs_mounted_on, .. } in fss
-                                .into_iter()
-                                .filter(|fs| {
-                                    #[cfg(not(windows))]
-                                    return matches!(
-                                        fs.fs_mounted_on.as_str(),
-                                        "/" | ROOT_CACHE_DIR
-                                            | ROOT_CACHE_NOMOUNT_DIR
-                                            | TMP_LOGS_DIR
-                                    );
-
-                                    #[cfg(windows)]
-                                    // We don't actually need entire path to cwd
-                                    // our point of interest is only drive letter
-                                    return cwd.starts_with(fs.fs_mounted_on.as_str());
-                                })
-                                .collect_vec()
-                            {
-                                let reported = reported_low_disk.contains(&fs_mounted_on);
-
-                                if avail >= ByteSize::mb(*MIN_FREE_DISK_SPACE_MB) {
-                                    if reported {
-                                        reported_low_disk.remove(&fs_mounted_on);
-                                    }
-                                } else if !reported {
-                                    windmill_common::utils::report_critical_error(
-                                        format!(
-                                            "Disk mounted on `{}` is low, {} available. Worker: {}",
-                                            &fs_mounted_on, avail, worker_name
-                                        ),
-                                        db.clone(),
-                                        Some("admins"),
-                                        None,
-                                    )
-                                    .await;
-                                    reported_low_disk.insert(fs_mounted_on);
-                                }
-                            }
-                        }
-                        Err(e) => {
-                            // Only alert once
-                            if !reported_cannot_read_disk {
-                                windmill_common::utils::report_critical_error(
-                                    format!("Cannot read disk usage: {e}\n\nTracking of available disk space is not possible until issue is resolved."),
-                                    db.clone(),
-                                    Some("admins"),
-                                    None,
-                                )
-                                .await;
-                                reported_cannot_read_disk = true;
-                            }
-                        }
-                    }
-                } else {
-                    SKIP.write().await.sub_assign(1);
                 }
             }
         }

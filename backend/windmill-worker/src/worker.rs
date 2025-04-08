@@ -1046,6 +1046,11 @@ pub async fn run_worker(
     let same_worker_tx = SameWorkerSender(same_worker_tx, same_worker_queue_size.clone());
     let job_completed_processor_is_done = Arc::new(AtomicBool::new(false));
 
+    #[cfg(feature = "enterprise")]
+    // Periodically check disks for low memory
+    // if so send critical alert
+    crate::result_processor::start_disk_usage_checks(worker_name.clone(), db.clone());
+
     let send_result = start_background_processor(
         job_completed_rx,
         job_completed_tx.0.clone(),
