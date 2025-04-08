@@ -227,7 +227,7 @@
 					{#if edit}
 						Changes can take up to 30 seconds to take effect.
 					{:else}
-						New GCP Pub/Sub can take up to 30 seconds to start listening.
+						New GCP Pub/Sub trigger can take up to 30 seconds to start listening.
 					{/if}
 				</Alert>
 			</div>
