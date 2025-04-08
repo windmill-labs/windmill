@@ -13,9 +13,10 @@
 	type Props = {
 		resourceType: DbType
 		resourcePath: string
+		class?: string
 	}
 
-	let { resourceType, resourcePath }: Props = $props()
+	let { resourceType, resourcePath, class: className = '' }: Props = $props()
 
 	let dbSchema: DBSchema | undefined = $derived(
 		resourcePath in $dbSchemas ? $dbSchemas[resourcePath] : undefined
@@ -73,7 +74,7 @@
 		variant="border"
 		color="blue"
 		spacingSize="xs2"
-		btnClasses="mt-1"
+		btnClasses={'mt-1 w-fit ' + className}
 		on:click={drawerRef?.openDrawer ?? (() => {})}
 	>
 		Explore database
