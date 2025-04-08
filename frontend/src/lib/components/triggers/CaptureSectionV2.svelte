@@ -48,12 +48,12 @@
 		}
 	})
 
-	function handleUpdateSchema(e: any) {
+	/* function handleUpdateSchema(e: any) {
 		dispatch('updateSchema', {
 			payloadData: e.detail.payloadData,
 			redirect: e.detail.redirect
 		})
-	}
+	} */
 
 	let pulseButton: PulseButton | undefined
 	function updateShowCaptureHint(show: boolean | undefined) {
@@ -65,6 +65,11 @@
 		}
 	}
 	$: updateShowCaptureHint($showCaptureHint)
+
+	let selectedCapture: any | undefined = undefined
+	function handleSelectCapture(e: any) {
+		selectedCapture = e.detail
+	}
 </script>
 
 <Splitpanes>
@@ -117,30 +122,34 @@
 		</div>
 	</Pane>
 
-	<Pane class="py-2 pl-2">
-		<Popover placement="bottom-end" contentClasses="w-48 p-2">
-			<svelte:fragment slot="trigger">
-				<Button size="xs" color="light" iconOnly startIcon={{ icon: History }} nonCaptureEvent
-				></Button>
-			</svelte:fragment>
-			<svelte:fragment slot="content">
-				<CaptureTable
-					bind:this={captureTable}
-					{captureType}
-					hasPreprocessor={captureInfo.hasPreprocessor}
-					canHavePreprocessor={captureInfo.canHavePreprocessor}
-					isFlow={captureInfo.isFlow}
-					path={captureInfo.path}
-					canEdit={true}
-					on:applyArgs
-					on:updateSchema={handleUpdateSchema}
-					on:addPreprocessor
-					on:testWithArgs
-					fullHeight={false}
-				/>
-			</svelte:fragment>
-		</Popover>
+	<Pane class="py-2 pl-2 flex flex-col">
+		<div class="flex flex-row gap-1">
+			<Popover placement="left" contentClasses="w-48 p-2">
+				<svelte:fragment slot="trigger">
+					<Button size="xs2" color="light" iconOnly startIcon={{ icon: History }} nonCaptureEvent
+					></Button>
+				</svelte:fragment>
+				<svelte:fragment slot="content">
+					<CaptureTable
+						{captureType}
+						bind:this={captureTable}
+						isFlow={captureInfo.isFlow}
+						path={captureInfo.path}
+						on:select={handleSelectCapture}
+						fullHeight={false}
+						headless
+						addButton={false}
+					/>
+				</svelte:fragment>
+			</Popover>
+		</div>
 
-		Capture payloads
+		{#if captureInfo.active}
+			Capturing...
+		{:else if selectedCapture}
+			{JSON.stringify(selectedCapture)}
+		{:else}
+			No capture selected
+		{/if}
 	</Pane>
 </Splitpanes>
