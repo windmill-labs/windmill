@@ -1,7 +1,7 @@
 import type { AppInput, RunnableByName } from '$lib/components/apps/inputType'
 import { getLanguageByResourceType, type ColumnDef, buildParameters, type DbType } from '../utils'
 
-function deleteWithAllValues(table: string, columns: ColumnDef[], dbType: DbType) {
+export function makeDeleteQuery(table: string, columns: ColumnDef[], dbType: DbType) {
 	let query = buildParameters(
 		dbType === 'snowflake' ? columns.flatMap((c) => [c, c]) : columns,
 		dbType
@@ -71,7 +71,7 @@ export function getDeleteInput(
 		name: 'AppDbExplorer',
 		type: 'runnableByName',
 		inlineScript: {
-			content: deleteWithAllValues(table, columns, dbType),
+			content: makeDeleteQuery(table, columns, dbType),
 			language: getLanguageByResourceType(dbType),
 			schema: {
 				$schema: 'https://json-schema.org/draft/2020-12/schema',

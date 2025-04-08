@@ -18,6 +18,7 @@
 	import { makeCountQuery } from './apps/components/display/dbtable/queries/count'
 	import DebouncedInput from './apps/components/helpers/DebouncedInput.svelte'
 	import { makeUpdateQuery } from './apps/components/display/dbtable/queries/update'
+	import { makeDeleteQuery } from './apps/components/display/dbtable/queries/delete'
 
 	type Props = {
 		resourceType: DbType
@@ -142,7 +143,27 @@
 		api?.updateGridOptions({
 			datasource,
 			columnDefs: transformColumnDefs({
-				columnDefs: tableMetadata ?? []
+				columnDefs: tableMetadata ?? [],
+				onDelete: (values) => {
+					if (!tableMetadata || !$workspaceStore) return
+					const deleteQuery = makeDeleteQuery(tableKey, tableMetadata, resourceType)
+
+					runPreviewJobAndPollResult({
+						workspace: $workspaceStore,
+						requestBody: {
+							args: { database: '$res:' + resourcePath, ...values },
+							language: resourceType as ScriptLang,
+							content: deleteQuery
+						}
+					})
+						.then((result) => {
+							if (!Array.isArray(result) || result.length === 0) throw ''
+							sendUserToast('Row deleted')
+						})
+						.catch(() => {
+							sendUserToast('Error deleting row', true)
+						})
+				}
 			}),
 			context: {
 				quicksearch

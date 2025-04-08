@@ -130,7 +130,7 @@ export function transformColumnDefs({
 	customActionsHeader?: string
 	wrapActions?: boolean
 	tableActionsFactory?: ReturnType<typeof cellRendererFactory>
-	onDelete?: (e: any) => void
+	onDelete?: (values: object) => void
 	onInvalidColumnDefs?: (errors: string[]) => void
 }): (ColDef<unknown, any> | ColGroupDef<unknown>)[] {
 	if (!columnDefs) {
