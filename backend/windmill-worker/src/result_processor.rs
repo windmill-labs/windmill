@@ -113,7 +113,7 @@ pub fn start_disk_usage_checks(worker_name: String, db: DB) {
             }
 
             {
-                let mins = CHECK_FREQ.clamp(1, (u64::MAX / 60) - 1);
+                let mins = CHECK_FREQ.clamp(1, u16::MAX as u64);
                 tokio::time::sleep(Duration::from_secs(mins * 60)).await;
             }
         }
