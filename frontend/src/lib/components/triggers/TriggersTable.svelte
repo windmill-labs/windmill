@@ -401,7 +401,7 @@
 
 <div class="flex flex-col space-y-2 w-full">
 	<div class="w-full">
-		<DropdownV2 items={addTriggerItems} placement="bottom-start" class="w-full">
+		<DropdownV2 items={addTriggerItems} placement="bottom" class="w-full">
 			<div slot="buttonReplacement" class="w-full">
 				<Button
 					size="xs"
@@ -410,20 +410,13 @@
 					nonCaptureEvent
 					btnClasses="w-full justify-center"
 				>
-					<span>Add Trigger</span>
+					<span>Add trigger</span>
 				</Button>
 			</div>
 		</DropdownV2>
 	</div>
 
 	<DataTable {loading} size="sm" tableFixed={true}>
-		<thead>
-			<tr class="text-xs text-tertiary border-b">
-				<th class="w-12 py-2 px-2">Type</th>
-				<th class="text-left py-2 px-2">Path</th>
-			</tr>
-		</thead>
-
 		<tbody>
 			{#each triggers as trigger}
 				<tr
