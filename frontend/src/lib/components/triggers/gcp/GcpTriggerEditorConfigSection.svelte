@@ -41,7 +41,7 @@
 	export let delivery_config: PushConfig | undefined
 	export let subscription_mode: SubscriptionMode = 'create_update'
 	export let base_endpoint: string = getBaseUrl(captureInfo)
-	export let path = captureInfo ? captureInfo.path.replaceAll('/', '.') : ''
+	export let path = captureInfo ? captureInfo.path : ''
 
 	let topic_items: string[] = []
 	let subscription_items: string[] = []

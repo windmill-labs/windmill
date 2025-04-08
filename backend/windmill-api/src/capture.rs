@@ -108,11 +108,15 @@ pub fn workspaced_unauthed_service() -> Router {
         all(feature = "enterprise", feature = "gcp_trigger")
     ))]
     {
+        #[cfg(feature = "http_trigger")]
+        let router = router.route("/http/:runnable_kind/:path/*route_path", {
+            head(|| async {}).fallback(http_payload)
+        });
+
+        #[cfg(all(feature = "enterprise", feature = "gcp_trigger"))]
+        let router = router.route("/gcp/:runnable_kind/*path", post(gcp_payload));
+
         router
-            .route("/http/:runnable_kind/:path/*route_path", {
-                head(|| async {}).fallback(http_payload)
-            })
-            .route("/gcp/:runnable_kind/:path", post(gcp_payload))
     }
 
     #[cfg(not(any(
@@ -708,7 +712,6 @@ async fn get_capture_trigger_config_and_owner<T: DeserializeOwned>(
         owner: String,
         email: String,
     }
-    println!("{:#?}", path);
     let capture_config = match kind {
         TriggerKind::Gcp => {
             sqlx::query_as!(
@@ -901,7 +904,6 @@ async fn gcp_payload(
     headers: HeaderMap,
     request: Request,
 ) -> Result<StatusCode> {
-    let path = path.replace(".", "/");
     let is_flow = matches!(runnable_kind, RunnableKind::Flow);
     let (gcp_trigger_config, owner, email): (GcpTriggerConfig, _, _) =
         get_capture_trigger_config_and_owner(&db, &w_id, &path, is_flow, &TriggerKind::Gcp).await?;
