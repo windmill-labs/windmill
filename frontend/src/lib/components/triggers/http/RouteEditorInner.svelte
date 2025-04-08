@@ -30,39 +30,57 @@
 	import { HUB_SCRIPT_ID, SECRET_KEY_PATH } from './utils'
 	import { HubFlow } from '$lib/hub'
 	import RouteBodyTransformerOption from './RouteBodyTransformerOption.svelte'
-	let is_flow: boolean = false
-	let initialPath = ''
-	let edit = true
 
-	let itemKind: 'flow' | 'script' = 'script'
-
-	$: is_flow = itemKind === 'flow'
-
-	let script_path = ''
-	let initialScriptPath = ''
-	let fixedScriptPath = ''
-	let path: string = ''
-	let pathError = ''
-	let isValid = false
-	let dirtyRoutePath = false
-	let is_async = false
-	let authentication_method: AuthenticationMethod = 'none'
-	let route_path = ''
-	let http_method: 'get' | 'post' | 'put' | 'patch' | 'delete' = 'post'
-	let static_asset_config: { s3: string; storage?: string; filename?: string } | undefined =
+	// Form data state
+	let initialPath = $state('')
+	let edit = $state(true)
+	let itemKind = $state<'flow' | 'script'>('script')
+	let is_flow = $state(false)
+	let script_path = $state('')
+	let initialScriptPath = $state('')
+	let fixedScriptPath = $state('')
+	let path = $state('')
+	let pathError = $state('')
+	let isValid = $state(false)
+	let dirtyRoutePath = $state(false)
+	let dirtyPath = $state(false)
+	let is_async = $state(false)
+	let authentication_method = $state<AuthenticationMethod>('none')
+	let route_path = $state('')
+	let http_method = $state<'get' | 'post' | 'put' | 'patch' | 'delete'>('post')
+	let static_asset_config = $state<{ s3: string; storage?: string; filename?: string } | undefined>(
 		undefined
-	let is_static_website: boolean = false
-	let s3FilePicker: S3FilePicker
-	let s3FileUploadRawMode = false
-	let s3Editor: SimpleEditor | undefined = undefined
-	let workspaced_route: boolean = false
-	let raw_string = false
-	let wrap_body = false
-	let drawerLoading = true
-	let authentication_resource_path: string = ''
-	let variablePicker: ItemPicker
-	let variableEditor: VariableEditor
-	let variable_path: string = ''
+	)
+	let is_static_website = $state(false)
+	let s3FileUploadRawMode = $state(false)
+	let workspaced_route = $state(false)
+	let raw_string = $state(false)
+	let wrap_body = $state(false)
+	let drawerLoading = $state(true)
+	let authentication_resource_path = $state('')
+	let variable_path = $state('')
+	let signature_options_type = $state<'custom_script' | 'custom_signature'>('custom_signature')
+	let can_write = $state(true)
+
+	// Component references
+	let s3FilePicker = $state<S3FilePicker | null>(null)
+	let s3Editor = $state<SimpleEditor | null>(null)
+	let variablePicker = $state<ItemPicker | null>(null)
+	let variableEditor = $state<VariableEditor | null>(null)
+	let drawer = $state<Drawer | null>(null)
+
+	// Use $derived for computed values
+	$effect(() => {
+		is_flow = itemKind === 'flow'
+	})
+
+	// Update is_static_website based on static_asset_config
+	$effect(() => {
+		if (!static_asset_config) {
+			is_static_website = false
+		}
+	})
+
 	type AuthenticationOption = {
 		label: string
 		value: AuthenticationMethod
@@ -73,8 +91,6 @@
 	async function loadVariables() {
 		return await VariableService.listVariable({ workspace: $workspaceStore ?? '' })
 	}
-
-	let signature_options_type: 'custom_script' | 'custom_signature' = 'custom_signature'
 
 	const authentication_options: AuthenticationOption[] = [
 		{
@@ -163,7 +179,6 @@
 
 	const dispatch = createEventDispatcher()
 
-	let can_write = true
 	async function loadTrigger(): Promise<void> {
 		const s = await HttpTriggerService.getHttpTrigger({
 			workspace: $workspaceStore!,
@@ -190,11 +205,11 @@
 		}
 		if (!isCloudHosted()) {
 			static_asset_config = s.static_asset_config
-			s3FileUploadRawMode = !!static_asset_config
+			s3FileUploadRawMode = !!s.static_asset_config
 			is_static_website = s.is_static_website
 		}
 
-		can_write = canWrite(s.path, s.extra_perms, $userStore)
+		can_write = canWrite(path, s.extra_perms, $userStore)
 	}
 
 	async function triggerScript(): Promise<void> {
@@ -211,19 +226,19 @@
 				workspace: $workspaceStore!,
 				path: initialPath,
 				requestBody: {
-					path,
-					script_path,
-					is_flow,
-					is_async,
+					path: path,
+					script_path: script_path,
+					is_flow: is_flow,
+					is_async: is_async,
 					authentication_method: auth_method,
 					route_path: $userStore?.is_admin || $userStore?.is_super_admin ? route_path : undefined,
-					http_method,
-					static_asset_config,
-					is_static_website,
-					workspaced_route,
-					authentication_resource_path,
-					wrap_body,
-					raw_string
+					http_method: http_method,
+					static_asset_config: static_asset_config,
+					is_static_website: is_static_website,
+					workspaced_route: workspaced_route,
+					authentication_resource_path: authentication_resource_path,
+					wrap_body: wrap_body,
+					raw_string: raw_string
 				}
 			})
 			sendUserToast(`Route ${path} updated`)
@@ -231,19 +246,19 @@
 			await HttpTriggerService.createHttpTrigger({
 				workspace: $workspaceStore!,
 				requestBody: {
-					path,
-					script_path,
-					is_flow,
-					is_async,
+					path: path,
+					script_path: script_path,
+					is_flow: is_flow,
+					is_async: is_async,
 					authentication_method: auth_method,
-					route_path,
-					http_method,
-					static_asset_config,
-					is_static_website,
-					workspaced_route,
-					authentication_resource_path,
-					wrap_body,
-					raw_string
+					route_path: route_path,
+					http_method: http_method,
+					static_asset_config: static_asset_config,
+					is_static_website: is_static_website,
+					workspaced_route: workspaced_route,
+					authentication_resource_path: authentication_resource_path,
+					wrap_body: wrap_body,
+					raw_string: raw_string
 				}
 			})
 			sendUserToast(`Route ${path} created`)
@@ -252,13 +267,8 @@
 			$usedTriggerKinds = [...$usedTriggerKinds, 'http']
 		}
 		dispatch('update')
-		drawer.closeDrawer()
+		drawer?.closeDrawer()
 	}
-	let drawer: Drawer
-
-	let dirtyPath = false
-
-	$: !static_asset_config && (is_static_website = false)
 </script>
 
 {#if static_asset_config}
@@ -276,7 +286,7 @@
 <Drawer size="700px" bind:this={drawer}>
 	<DrawerContent
 		title={edit ? (can_write ? `Edit route ${initialPath}` : `Route ${initialPath}`) : 'New route'}
-		on:close={drawer.closeDrawer}
+		on:close={() => drawer?.closeDrawer()}
 	>
 		<svelte:fragment slot="actions">
 			{#if !drawerLoading && can_write}
@@ -369,7 +379,7 @@
 								{#if s3FileUploadRawMode}
 									{#if can_write}
 										<JsonEditor
-											bind:editor={s3Editor}
+											bind:editor={s3Editor as any}
 											on:focus={(e) => {
 												dispatch('focus')
 											}}
@@ -598,7 +608,7 @@
 											/>
 											<Button
 												title="Add variable"
-												on:click={variablePicker.openDrawer}
+												on:click={() => variablePicker?.openDrawer()}
 												size="xs"
 												color="dark"
 											>
@@ -612,10 +622,10 @@
 											href={itemKind === 'flow'
 												? `/flows/add?${SECRET_KEY_PATH}=${encodeURIComponent(variable_path)}&hub=${
 														HubFlow.SIGNATURE_TEMPLATE
-												  }`
+													}`
 												: `/scripts/add?${SECRET_KEY_PATH}=${encodeURIComponent(
 														variable_path
-												  )}&hub=hub%2F${HUB_SCRIPT_ID}`}
+													)}&hub=hub%2F${HUB_SCRIPT_ID}`}
 											target="_blank">Create from template</Button
 										>
 									</div>
@@ -641,7 +651,7 @@
 	itemName="Variable"
 	extraField="path"
 	loadItems={loadVariables}
-	buttons={{ 'Edit/View': (x) => variableEditor.editVariable(x) }}
+	buttons={{ 'Edit/View': (x) => variableEditor?.editVariable(x) }}
 >
 	<div slot="submission" class="flex flex-row">
 		<Button
@@ -650,7 +660,7 @@
 			size="sm"
 			startIcon={{ icon: Plus }}
 			on:click={() => {
-				variableEditor.initNew()
+				variableEditor?.initNew()
 			}}
 		>
 			New variable
@@ -658,4 +668,4 @@
 	</div>
 </ItemPicker>
 
-<VariableEditor bind:this={variableEditor} on:create={variablePicker.openDrawer} />
+<VariableEditor bind:this={variableEditor} on:create={(e) => variablePicker?.openDrawer()} />
