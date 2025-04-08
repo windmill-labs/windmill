@@ -70,10 +70,10 @@
 <FlowCard {noEditor} title="Triggers">
 	{#if !$simplifiedPoll}
 		<Splitpanes horizontal>
-			<Pane>
+			<Pane class="px-4">
 				<div class="flex flex-row h-full">
 					<!-- Left Pane - Triggers List -->
-					<div class="w-1/3 min-w-[280px] max-w-[320px] border-r flex-shrink-0 overflow-auto px-2">
+					<div class="w-1/3 min-w-[280px] max-w-[320px] border-r flex-shrink-0 overflow-auto pr-2">
 						<TriggersTable
 							path={currentPath}
 							{isFlow}
@@ -105,7 +105,7 @@
 					</div>
 				</div>
 			</Pane>
-			<Pane>
+			<Pane class="px-4">
 				{#if selectedTrigger && selectedTrigger?.type === 'routes'}
 					<CaptureWrapper
 						path={initialPath || fakeInitialPath}

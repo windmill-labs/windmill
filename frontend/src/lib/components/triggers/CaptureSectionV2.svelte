@@ -68,7 +68,7 @@
 </script>
 
 <Splitpanes>
-	<Pane class="flex flex-col gap-1 mb-4 p-2" size={40}>
+	<Pane class="flex flex-col gap-1 mb-4 pr-2 py-2" size={40}>
 		<div class="flex flex-col gap-1 mb-4">
 			<div class="flex justify-center w-full">
 				<PulseButton bind:this={pulseButton} numberOfPulses={1} pulseDuration={1}>
@@ -117,7 +117,7 @@
 		</div>
 	</Pane>
 
-	<Pane>
+	<Pane class="py-2 pl-2">
 		<Popover placement="bottom-end" contentClasses="w-48 p-2">
 			<svelte:fragment slot="trigger">
 				<Button size="xs" color="light" iconOnly startIcon={{ icon: History }} nonCaptureEvent
