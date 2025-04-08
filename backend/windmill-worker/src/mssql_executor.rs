@@ -33,7 +33,7 @@ struct MssqlDatabase {
     #[serde(default, deserialize_with = "deserialize_aad_token")]
     aad_token: Option<AadToken>,
     trust_cert: Option<bool>,
-    #[serde(deserialize_with = "empty_string_as_none")]
+    #[serde(default, deserialize_with = "empty_string_as_none")]
     ca_cert: Option<String>,
 }
 
