@@ -235,18 +235,28 @@ pub fn start_background_processor(
 
                 if *SKIP.read().await == 0 {
                     SKIP.write().await.add_assign(*CHECK_FREQ);
+
+                    #[cfg(windows)]
+                    let cwd = std::env::current_dir().unwrap_or("C:\\".into());
+
                     match SYSTEM.mounts() {
                         Ok(fss) => {
                             reported_cannot_read_disk = false;
                             for Filesystem { avail, fs_mounted_on, .. } in fss
                                 .into_iter()
                                 .filter(|fs| {
-                                    matches!(
+                                    #[cfg(not(windows))]
+                                    return matches!(
                                         fs.fs_mounted_on.as_str(),
                                         "/" | ROOT_CACHE_DIR
                                             | ROOT_CACHE_NOMOUNT_DIR
                                             | TMP_LOGS_DIR
-                                    )
+                                    );
+
+                                    #[cfg(windows)]
+                                    // We don't actually need entire path to cwd
+                                    // our point of interest is only drive letter
+                                    return cwd.starts_with(fs.fs_mounted_on.as_str());
                                 })
                                 .collect_vec()
                             {
