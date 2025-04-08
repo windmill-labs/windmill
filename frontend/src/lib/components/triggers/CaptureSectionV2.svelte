@@ -72,7 +72,11 @@
 
 	let selectedCapture: any | undefined = undefined
 	function handleSelectCapture(e: any) {
-		selectedCapture = e.detail
+		if (e.detail && e.detail.id !== lastCapture?.id) {
+			selectedCapture = e.detail
+		} else if (!e.detail && lastCapture) {
+			selectedCapture = lastCapture.payload
+		}
 	}
 
 	// New code for capture fetching and management
@@ -203,36 +207,43 @@
 	<Pane class="flex flex-col gap-1 mb-4 pr-2 py-2" size={50}>
 		<div class="flex flex-col gap-1 mb-4">
 			<div class="flex justify-center w-full">
-				<PulseButton bind:this={pulseButton} numberOfPulses={1} pulseDuration={1}>
-					<AnimatedButton animate={captureInfo.active} baseRadius="6px">
+				<div class="relative h-fit">
+					<AnimatedButton
+						animate={captureInfo.active}
+						wrapperClasses={captureInfo.active ? 'm-[-2px]' : ''}
+						baseRadius="7px"
+					>
 						<Button
 							size="xs"
 							on:click={() => dispatch('captureToggle', {})}
 							{disabled}
-							color="dark"
-							btnClasses={captureInfo.active ? 'text-blue-500 hover:text-blue-500' : ''}
+							color={captureInfo.active ? 'light' : 'dark'}
+							btnClasses={captureInfo.active ? 'text-blue-500' : ''}
 						>
-							<div class="flex flex-row items-center gap-1 w-28 justify-center">
+							<div class="flex flex-row items-center gap-1 w-[160px] justify-center">
 								{#if captureInfo.active}
 									<CircleStop size={14} />
 								{:else}
 									<CaptureIcon variant="redDot" size={14} />
 								{/if}
-								{captureInfo.active ? 'Stop' : 'Start capturing'}
+								{captureInfo.active ? 'Stop capturing' : 'Start capturing'}
 							</div>
 						</Button>
 					</AnimatedButton>
-				</PulseButton>
 
-				{#if captureInfo.active}
-					<ConnectionIndicator connectionInfo={captureInfo.connectionInfo} />
-				{:else}
-					<Tooltip>
-						Start capturing to test your runnables with real data. Once active, all incoming
-						payloads will be captured and displayed below, allowing you to test your runnables
-						effectively.
-					</Tooltip>
-				{/if}
+					<div class="absolute top-1/2 -translate-y-1/2 -right-5">
+						{#if captureInfo.active}
+							<ConnectionIndicator connectionInfo={captureInfo.connectionInfo} />
+						{:else}
+							<!-- TODO: add tooltip  directly on hover the button-->
+							<Tooltip>
+								Start capturing to test your runnables with real data. Once active, all incoming
+								payloads will be captured and displayed below, allowing you to test your runnables
+								effectively.
+							</Tooltip>
+						{/if}
+					</div>
+				</div>
 			</div>
 
 			{#if disabled}
@@ -251,7 +262,15 @@
 
 	<Pane class="py-2 pl-2 flex flex-col">
 		<div class="flex flex-row gap-1">
-			<Popover placement="left" contentClasses="w-48 p-2">
+			<Popover
+				placement="left"
+				contentClasses="w-48"
+				floatingConfig={{
+					placement: 'left-start',
+					offset: { mainAxis: 8, crossAxis: -4.5 },
+					gutter: 0 // hack to make offset effective, see https://github.com/melt-ui/melt-ui/issues/528
+				}}
+			>
 				<svelte:fragment slot="trigger">
 					<Button size="xs2" color="light" iconOnly startIcon={{ icon: History }} nonCaptureEvent
 					></Button>
@@ -271,9 +290,9 @@
 			</Popover>
 		</div>
 
-		<div class="mt-2 flex flex-col gap-2 h-full">
+		<div class="flex flex-col gap-2 h-full">
 			{#if lastCapture && lastCapture.payload === 'WINDMILL_TOO_BIG' && !selectedCapture}
-				<div class="p-4 bg-surface border rounded-md flex flex-col items-center gap-2">
+				<div class="bg-surface flex flex-col items-center gap-2">
 					<div class="text-amber-500 flex items-center gap-2">
 						<AlertCircle size={20} />
 						<span>Large payload detected</span>
@@ -284,7 +303,7 @@
 				</div>
 			{:else if selectedCapture}
 				<div
-					class="bg-surface p-3 rounded-md text-sm overflow-auto max-h-[500px] grow shadow-sm border border-surface-hover"
+					class="bg-surface p-3 rounded-md text-sm overflow-auto max-h-[500px] grow shadow-sm"
 					class:animate-highlight={newCaptureReceived}
 				>
 					<pre class="whitespace-pre-wrap break-words"
