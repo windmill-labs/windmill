@@ -148,7 +148,6 @@ export async function getTriggersDeployData(kind: TriggerKind, path: string, wor
 		gcpTrigger.subscription_id = ''
 		if (gcpTrigger.delivery_config) {
 			gcpTrigger.delivery_config.audience = ''
-			gcpTrigger.delivery_config.route_path = ''
 		}
 
 		return {

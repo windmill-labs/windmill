@@ -778,7 +778,6 @@ export type EditMqttTrigger = {
 export type DeliveryType = 'push' | 'pull';
 
 export type PushConfig = {
-    route_path?: string;
     audience?: string;
     authenticate: boolean;
     base_endpoint: string;
@@ -796,12 +795,36 @@ export type GcpTrigger = TriggerExtraProperty & {
     enabled: boolean;
 };
 
+/**
+ * The mode of subscription. 'existing' means using an existing GCP subscription, while 'create_update' involves creating or updating a new subscription.
+ */
+export type SubscriptionMode = 'existing' | 'create_update';
+
+export type GcpExistingSubscription = {
+    subscription_id: string;
+    base_endpoint: string;
+};
+
+export type GcpCreateUpdateSubscription = {
+    subscription_id?: string;
+    delivery_type: DeliveryType;
+    delivery_config?: PushConfig;
+};
+
+/**
+ * "This is a union type representing the subscription mode.
+ * - 'existing': Represents an existing GCP subscription, and should be accompanied by an 'ExistingGcpSubscription' object.
+ * - 'create_update': Represents a new or updated GCP subscription, and should be accompanied by a 'CreateUpdateConfig' object."
+ *
+ */
+export type GcpSubscriptionModeConfig = (GcpExistingSubscription | GcpCreateUpdateSubscription) & {
+    subscription_mode: SubscriptionMode;
+};
+
 export type NewGcpTrigger = {
     gcp_resource_path: string;
     topic_id: string;
-    delivery_type: DeliveryType;
-    delivery_config?: PushConfig;
-    subscription_id?: string;
+    subscription_mode: GcpSubscriptionModeConfig;
     path: string;
     script_path: string;
     is_flow: boolean;
@@ -811,17 +834,18 @@ export type NewGcpTrigger = {
 export type EditGcpTrigger = {
     gcp_resource_path?: string;
     topic_id: string;
-    subscription_id: string;
-    delivery_type: DeliveryType;
-    delivery_config?: PushConfig;
+    subscription_mode: GcpSubscriptionModeConfig;
     path: string;
     script_path: string;
     is_flow: boolean;
     enabled: boolean;
 };
 
+export type GetAllTopicSubscription = {
+    topic_id: string;
+};
+
 export type DeleteGcpSubscription = {
-    gcp_resource_path: string;
     subscription_id: string;
 };
 
@@ -1939,6 +1963,11 @@ export type ParameterSuspended = boolean;
  * filter on running jobs
  */
 export type ParameterRunning = boolean;
+
+/**
+ * allow wildcards (*) in the filter of label, tag, worker
+ */
+export type ParameterAllowWildcards = boolean;
 
 /**
  * filter on jobs containing those args as a json subset (@> in postgres)
@@ -5036,6 +5065,10 @@ export type RunFlowPreviewResponse = (string);
 
 export type ListQueueData = {
     /**
+     * allow wildcards (*) in the filter of label, tag, worker
+     */
+    allowWildcards?: boolean;
+    /**
      * get jobs from all workspaces (only valid if request come from the `admins` workspace)
      */
     allWorkspaces?: boolean;
@@ -5161,6 +5194,10 @@ export type CountCompletedJobsResponse = (number);
 
 export type ListFilteredUuidsData = {
     /**
+     * allow wildcards (*) in the filter of label, tag, worker
+     */
+    allowWildcards?: boolean;
+    /**
      * get jobs from all workspaces (only valid if request come from the `admins` workspace)
      */
     allWorkspaces?: boolean;
@@ -5262,6 +5299,10 @@ export type CancelSelectionResponse = (Array<(string)>);
 
 export type ListCompletedJobsData = {
     /**
+     * allow wildcards (*) in the filter of label, tag, worker
+     */
+    allowWildcards?: boolean;
+    /**
      * filter on jobs containing those args as a json subset (@> in postgres)
      */
     args?: string;
@@ -5355,6 +5396,10 @@ export type ListCompletedJobsData = {
 export type ListCompletedJobsResponse = (Array<CompletedJob>);
 
 export type ListJobsData = {
+    /**
+     * allow wildcards (*) in the filter of label, tag, worker
+     */
+    allowWildcards?: boolean;
     /**
      * get jobs from all workspaces (only valid if request come from the `admins` workspace)
      */
@@ -6446,29 +6491,12 @@ export type DeleteGcpTriggerData = {
 
 export type DeleteGcpTriggerResponse = (string);
 
-export type DeleteGcpSubscriptionData = {
-    /**
-     * args to delete subscription from google cloud
-     */
-    requestBody: DeleteGcpSubscription;
-    workspace: string;
-};
-
-export type DeleteGcpSubscriptionResponse = (string);
-
 export type GetGcpTriggerData = {
     path: string;
     workspace: string;
 };
 
 export type GetGcpTriggerResponse = (GcpTrigger);
-
-export type ListGoogleTopicsData = {
-    path: string;
-    workspace: string;
-};
-
-export type ListGoogleTopicsResponse = (Array<(string)>);
 
 export type ListGcpTriggersData = {
     isFlow?: boolean;
@@ -6523,6 +6551,35 @@ export type TestGcpConnectionData = {
 };
 
 export type TestGcpConnectionResponse = (string);
+
+export type DeleteGcpSubscriptionData = {
+    path: string;
+    /**
+     * args to delete subscription from google cloud
+     */
+    requestBody: DeleteGcpSubscription;
+    workspace: string;
+};
+
+export type DeleteGcpSubscriptionResponse = (string);
+
+export type ListGoogleTopicsData = {
+    path: string;
+    workspace: string;
+};
+
+export type ListGoogleTopicsResponse = (Array<(string)>);
+
+export type ListAllTgoogleTopicSubscriptionsData = {
+    path: string;
+    /**
+     * args to get subscription's topic from google cloud
+     */
+    requestBody: GetAllTopicSubscription;
+    workspace: string;
+};
+
+export type ListAllTgoogleTopicSubscriptionsResponse = (Array<(string)>);
 
 export type IsValidPostgresConfigurationData = {
     path: string;
@@ -7592,6 +7649,10 @@ export type GetConcurrencyKeyData = {
 export type GetConcurrencyKeyResponse = (string);
 
 export type ListExtendedJobsData = {
+    /**
+     * allow wildcards (*) in the filter of label, tag, worker
+     */
+    allowWildcards?: boolean;
     /**
      * get jobs from all workspaces (only valid if request come from the `admins` workspace)
      */
