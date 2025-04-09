@@ -110,6 +110,7 @@
 			// Add default triggers for webhooks and emails
 			const webhookExists = triggers.some((t) => t.type === 'webhook')
 			const emailExists = triggers.some((t) => t.type === 'email')
+			const primaryScheduleExists = triggers.some((t) => t.type === 'schedule' && t.isPrimary)
 
 			if (!webhookExists) {
 				triggers = [...triggers, { type: 'webhook', path: path, isDraft: false }]
@@ -117,6 +118,10 @@
 
 			if (!emailExists) {
 				triggers = [...triggers, { type: 'email', path: path, isDraft: false }]
+			}
+
+			if (!primaryScheduleExists) {
+				triggers = [...triggers, { type: 'schedule', path: path, isPrimary: true, isDraft: false }]
 			}
 
 			// Add back draft triggers
