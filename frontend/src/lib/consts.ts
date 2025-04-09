@@ -1,3 +1,5 @@
+import type { DbType } from './components/apps/components/display/dbtable/utils'
+
 export const DEFAULT_WEBHOOK_TYPE: 'async' | 'sync' = 'async'
 
 export const HOME_SHOW_HUB = true
@@ -201,3 +203,11 @@ export const MSSQL_TYPES = [
 	'decimal',
 	'bit'
 ]
+
+export const DB_TYPES: Record<DbType, string[]> = {
+	bigquery: BIGQUERY_TYPES,
+	ms_sql_server: MSSQL_TYPES,
+	mysql: MYSQL_TYPES,
+	postgresql: POSTGRES_TYPES,
+	snowflake: SNOWFLAKE_TYPES
+}

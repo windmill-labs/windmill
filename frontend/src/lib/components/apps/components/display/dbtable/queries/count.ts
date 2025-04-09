@@ -2,7 +2,7 @@ import type { AppInput, RunnableByName } from '$lib/components/apps/inputType'
 import { buildParameters, type DbType } from '../utils'
 import { getLanguageByResourceType, type ColumnDef, buildVisibleFieldList } from '../utils'
 
-function makeCountQuery(
+export function makeCountQuery(
 	dbType: DbType,
 	table: string,
 	whereClause: string | undefined = undefined,

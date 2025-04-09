@@ -79,7 +79,7 @@ function makeSnowflakeSelectQuery(
 	return query
 }
 
-function makeSelectQuery(
+export function makeSelectQuery(
 	table: string,
 	columnDefs: ColumnDef[],
 	whereClause: string | undefined,

@@ -2,7 +2,12 @@
  * Base class for embedding a svelte component within an AGGrid call.
  * See: https://stackoverflow.com/a/72608215
  */
-import type { ICellRendererComp, ICellRendererParams } from 'ag-grid-community'
+import type { ColDef, ColGroupDef, ICellRendererComp, ICellRendererParams } from 'ag-grid-community'
+import { ColumnIdentity, type ColumnDef } from '../dbtable/utils'
+import type { TableAction } from '$lib/components/apps/editor/component'
+import { mount, unmount } from 'svelte'
+import { Button } from '$lib/components/common'
+import { Trash2 } from 'lucide-svelte'
 
 /**
  * Class for defining a cell renderer.
@@ -109,4 +114,140 @@ export function defaultCellRenderer(cellRendererType: string) {
 	} else {
 		return undefined
 	}
+}
+
+export function transformColumnDefs({
+	columnDefs,
+	actions,
+	customActionsHeader,
+	wrapActions,
+	tableActionsFactory,
+	onDelete,
+	onInvalidColumnDefs
+}: {
+	columnDefs: ColumnDef[]
+	actions?: TableAction[]
+	customActionsHeader?: string
+	wrapActions?: boolean
+	tableActionsFactory?: ReturnType<typeof cellRendererFactory>
+	onDelete?: (values: object) => void
+	onInvalidColumnDefs?: (errors: string[]) => void
+}): (ColDef<unknown, any> | ColGroupDef<unknown>)[] {
+	if (!columnDefs) {
+		return []
+	}
+
+	const { isValid, errors } = validateColumnDefs(columnDefs)
+
+	if (!isValid) {
+		onInvalidColumnDefs?.(errors)
+		return []
+	}
+
+	let r: any[] = columnDefs?.filter((x) => x && !x.ignored) ?? []
+
+	if (onDelete) {
+		r.push({
+			field: 'delete',
+			headerName: 'Delete',
+			cellRenderer: cellRendererFactory((c, p) => {
+				const btnComponent = mount(Button, {
+					target: c.eGui,
+					props: {
+						btnClasses: 'w-12',
+						wrapperClasses: 'flex justify-end items-center h-full',
+						color: 'light',
+						size: 'sm',
+						variant: 'contained',
+						iconOnly: true,
+						startIcon: { icon: Trash2 },
+						nonCaptureEvent: true
+					}
+				})
+				return {
+					destroy: () => {
+						unmount(btnComponent)
+					},
+					refresh(params) {
+						//
+					}
+				}
+			}),
+			cellRendererParams: {
+				onClick: (e) => {
+					onDelete?.(e)
+				}
+			},
+			lockPosition: 'right',
+			editable: false,
+			flex: 0,
+			width: 100
+		})
+	}
+
+	if (actions?.length) {
+		r.push({
+			headerName: customActionsHeader ?? 'Actions',
+			cellRenderer: tableActionsFactory,
+			autoHeight: true,
+			cellStyle: { textAlign: 'center' },
+			cellClass: 'grid-cell-centered',
+			lockPosition: 'right',
+
+			...(!wrapActions ? { minWidth: 130 * actions?.length } : {})
+		})
+	}
+
+	return r.map((fields) => {
+		let cr = defaultCellRenderer(fields.cellRendererType)
+		return {
+			...fields,
+			...(cr ? { cellRenderer: cr } : {})
+		}
+	})
+}
+
+export function validateColumnDefs(columnDefs: ColumnDef[]): {
+	isValid: boolean
+	errors: string[]
+} {
+	let isValid = true
+	const errors: string[] = []
+
+	if (!Array.isArray(columnDefs)) {
+		return { isValid: false, errors: ['Column definitions must be an array.'] }
+	}
+
+	// Validate each column definition
+	columnDefs.forEach((colDef, index) => {
+		let noField = !colDef.field || typeof colDef.field !== 'string' || colDef.field.trim() === ''
+
+		if (
+			(colDef.isidentity === ColumnIdentity.ByDefault ||
+				colDef.isidentity === ColumnIdentity.Always) &&
+			colDef.hideInsert == undefined
+		) {
+			colDef.hideInsert = true
+		}
+
+		// Check if 'field' property exists and is a non-empty string
+		if (noField && !(colDef.children && Array.isArray(colDef.children))) {
+			isValid = false
+			errors.push(
+				`Column at index ${index} is missing a valid 'field' property nor having any children.`
+			)
+		}
+
+		if (colDef.children && Array.isArray(colDef.children)) {
+			const { isValid: isChildrenValid, errors: childrenErrors } = validateColumnDefs(
+				colDef.children
+			)
+			if (!isChildrenValid) {
+				isValid = false
+				errors.push(...childrenErrors.map((err) => `Error in children at index ${index}: ${err}`))
+			}
+		}
+	})
+
+	return { isValid, errors }
 }

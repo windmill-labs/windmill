@@ -82,8 +82,8 @@ export async function loadTableMetaData(
 			INFORMATION_SCHEMA.COLUMNS
 	WHERE 
 			TABLE_NAME = '${table.split('.').reverse()[0]}' AND TABLE_SCHEMA = '${
-			table.split('.').reverse()[1] ?? resourceObj?.database ?? ''
-		}'
+				table.split('.').reverse()[1] ?? resourceObj?.database ?? ''
+			}'
 	ORDER BY 
 			ORDINAL_POSITION;
 	`
@@ -148,8 +148,8 @@ ORDER BY
 		CASE WHEN DATA_TYPE = 'enum' THEN 1 ELSE 0 END as IsEnum
 	from information_schema.columns
 	where table_name = '${table.split('.').reverse()[0]}' and table_schema = '${
-			table.split('.').reverse()[1] ?? 'PUBLIC'
-		}'
+		table.split('.').reverse()[1] ?? 'PUBLIC'
+	}'
 	order by ORDINAL_POSITION;
 	`
 	} else if (resourceType === 'bigquery') {
@@ -173,23 +173,22 @@ order by c.ORDINAL_POSITION;`
 		throw new Error('Unsupported database type:' + resourceType)
 	}
 
-	const maxRetries = 3
-	let attempts = 0
+	const job = await JobService.runScriptPreview({
+		workspace: workspace,
+		requestBody: {
+			language: getLanguageByResourceType(resourceType),
+			content: code,
+			args: {
+				database: resource
+			}
+		}
+	})
 
+	const maxRetries = 8
+	let attempts = 0
 	while (attempts < maxRetries) {
 		try {
-			const job = await JobService.runScriptPreview({
-				workspace: workspace,
-				requestBody: {
-					language: getLanguageByResourceType(resourceType),
-					content: code,
-					args: {
-						database: resource
-					}
-				}
-			})
-
-			await new Promise((resolve) => setTimeout(resolve, 3000))
+			await new Promise((resolve) => setTimeout(resolve, 1000 * (attempts || 0.6)))
 
 			const testResult = (await JobService.getCompletedJob({
 				workspace: workspace,
@@ -210,8 +209,6 @@ order by c.ORDINAL_POSITION;`
 		} catch (error) {
 			attempts++
 		}
-		// Exponential back-off
-		await new Promise((resolve) => setTimeout(resolve, 2000 * attempts))
 	}
 
 	console.error('Failed to load table metadata after maximum retries.')
@@ -569,7 +566,9 @@ export function formatGraphqlSchema(schema: IntrospectionQuery): string {
 	return printSchema(buildClientSchema(schema))
 }
 
-export type DbType = 'mysql' | 'ms_sql_server' | 'postgresql' | 'snowflake' | 'bigquery'
+export type DbType = (typeof dbTypes)[number]
+export const dbTypes = ['mysql', 'ms_sql_server', 'postgresql', 'snowflake', 'bigquery'] as const
+export const isDbType = (str?: string): str is DbType => !!str && dbTypes.includes(str as DbType)
 
 export function buildVisibleFieldList(columnDefs: ColumnDef[], dbType: DbType) {
 	// Filter out hidden columns to avoid counting the wrong number of rows
