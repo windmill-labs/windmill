@@ -9,6 +9,8 @@
 	import TriggersTable from './TriggersTable.svelte'
 	import RouteEditorWrapper from './http/RouteEditorWrapper.svelte'
 	import CaptureWrapper from './CaptureWrapperV2.svelte'
+	import { triggerIconMap, type Trigger } from './utils'
+	import { Star } from 'lucide-svelte'
 
 	export let noEditor: boolean
 	export let newItem = false
@@ -44,12 +46,10 @@
 	})
 
 	// State to track selected trigger
-	let selectedTrigger: { path: string; type: string; isDraft?: boolean } | null = null
+	let selectedTrigger: Trigger | null = null
 
 	// Handle trigger selection
-	function handleSelectTrigger(
-		event: CustomEvent<{ path: string; type: string; isDraft?: boolean }>
-	) {
+	function handleSelectTrigger(event: CustomEvent<Trigger>) {
 		selectedTrigger = event.detail
 	}
 </script>
@@ -60,7 +60,7 @@
 			<Pane class="px-4">
 				<div class="flex flex-row h-full">
 					<!-- Left Pane - Triggers List -->
-					<div class="w-1/3 min-w-[280px] max-w-[320px] border-r flex-shrink-0 overflow-auto pr-2">
+					<div class="w-1/3 min-w-[280px] max-w-[320px] flex-shrink-0 overflow-auto pr-2">
 						<TriggersTable
 							path={currentPath}
 							{isFlow}
@@ -81,6 +81,7 @@
 									on:update-config={({ detail }) => {
 										args = detail
 									}}
+									{header}
 								/>
 							{:else if selectedTrigger.isDraft}
 								<h3 class="text-sm font-medium">Configure new {selectedTrigger.type} trigger</h3>
@@ -128,3 +129,46 @@
 		</div>
 	{/if}
 </FlowCard>
+
+{#snippet header()}
+	<div class="flex flex-row items-center text-secondary h-[32px]">
+		<div class="text-center p-2">
+			<div class="flex justify-center items-center">
+				<svelte:component
+					this={triggerIconMap[selectedTrigger?.type ?? '']}
+					size={24}
+					class={selectedTrigger?.isDraft ? 'text-frost-400' : 'text-tertiary'}
+				/>
+
+				{#if selectedTrigger?.isPrimary}
+					<Star size={10} class="absolute -mt-3 ml-3 text-yellow-400" />
+				{/if}
+			</div>
+		</div>
+		<div class="py-2 px-2">
+			<div class="flex items-center">
+				<span class={selectedTrigger?.isDraft ? 'text-frost-400 italic' : ''}>
+					{selectedTrigger?.isDraft
+						? `New ${selectedTrigger?.type.replace(/s$/, '')} trigger`
+						: selectedTrigger?.path}
+				</span>
+
+				{#if selectedTrigger?.isPrimary}
+					<span
+						class="ml-2 text-2xs bg-yellow-100 dark:bg-yellow-900 text-yellow-800 dark:text-yellow-100 px-1.5 py-0.5 rounded"
+					>
+						Primary
+					</span>
+				{/if}
+
+				{#if selectedTrigger?.isDraft}
+					<span
+						class="ml-2 text-2xs bg-frost-100 dark:bg-frost-900 text-frost-800 dark:text-frost-100 px-1.5 py-0.5 rounded"
+					>
+						Draft
+					</span>
+				{/if}
+			</div>
+		</div>
+	</div>
+{/snippet}

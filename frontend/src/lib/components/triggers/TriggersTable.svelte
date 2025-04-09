@@ -3,21 +3,7 @@
 	import { createEventDispatcher } from 'svelte'
 	import DropdownV2 from '$lib/components/DropdownV2.svelte'
 	import Button from '$lib/components/common/button/Button.svelte'
-	import {
-		Calendar,
-		Route,
-		Unplug,
-		Database,
-		Mail,
-		Webhook,
-		Plus,
-		Star,
-		Loader2
-	} from 'lucide-svelte'
-	import KafkaIcon from '$lib/components/icons/KafkaIcon.svelte'
-	import NatsIcon from '$lib/components/icons/NatsIcon.svelte'
-	import MqttIcon from '$lib/components/icons/MqttIcon.svelte'
-	import AwsIcon from '$lib/components/icons/AwsIcon.svelte'
+	import { Plus, Star, Loader2 } from 'lucide-svelte'
 	import { twMerge } from 'tailwind-merge'
 	import type { Item } from '$lib/utils'
 	import {
@@ -35,26 +21,11 @@
 		type KafkaTrigger
 	} from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
-
+	import { triggerIconMap } from './utils'
 	// Props
 	export let path: string
 	export let isFlow: boolean = false
 	export let selectedTrigger: { path: string; type: string; isDraft?: boolean } | null = null
-
-	// Map of trigger kinds to icons
-	const triggerIconMap = {
-		webhooks: Webhook,
-		emails: Mail,
-		schedules: Calendar,
-		routes: Route, // HTTP
-		websockets: Unplug,
-		postgres: Database,
-		kafka: KafkaIcon,
-		nats: NatsIcon,
-		mqtt: MqttIcon,
-		sqs: AwsIcon,
-		primary_schedule: Calendar
-	}
 
 	// Component state
 	let triggers: {
@@ -72,14 +43,26 @@
 
 	// Dropdown items for adding new triggers
 	const addTriggerItems: Item[] = [
-		{ displayName: 'Schedule', action: () => addDraftTrigger('schedules'), icon: Calendar },
-		{ displayName: 'HTTP', action: () => addDraftTrigger('routes'), icon: Route },
-		{ displayName: 'WebSockets', action: () => addDraftTrigger('websockets'), icon: Unplug },
-		{ displayName: 'Postgres', action: () => addDraftTrigger('postgres'), icon: Database },
-		{ displayName: 'Kafka', action: () => addDraftTrigger('kafka'), icon: KafkaIcon },
-		{ displayName: 'NATS', action: () => addDraftTrigger('nats'), icon: NatsIcon },
-		{ displayName: 'MQTT', action: () => addDraftTrigger('mqtt'), icon: MqttIcon },
-		{ displayName: 'SQS', action: () => addDraftTrigger('sqs'), icon: AwsIcon }
+		{
+			displayName: 'Schedule',
+			action: () => addDraftTrigger('schedules'),
+			icon: triggerIconMap.schedules
+		},
+		{ displayName: 'HTTP', action: () => addDraftTrigger('routes'), icon: triggerIconMap.routes },
+		{
+			displayName: 'WebSockets',
+			action: () => addDraftTrigger('websockets'),
+			icon: triggerIconMap.websockets
+		},
+		{
+			displayName: 'Postgres',
+			action: () => addDraftTrigger('postgres'),
+			icon: triggerIconMap.postgres
+		},
+		{ displayName: 'Kafka', action: () => addDraftTrigger('kafka'), icon: triggerIconMap.kafka },
+		{ displayName: 'NATS', action: () => addDraftTrigger('nats'), icon: triggerIconMap.nats },
+		{ displayName: 'MQTT', action: () => addDraftTrigger('mqtt'), icon: triggerIconMap.mqtt },
+		{ displayName: 'SQS', action: () => addDraftTrigger('sqs'), icon: triggerIconMap.sqs }
 	]
 
 	function addDraftTrigger(type: string) {

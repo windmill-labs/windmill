@@ -10,7 +10,7 @@
 	import { canWrite, emptyString, sendUserToast } from '$lib/utils'
 	import { createEventDispatcher } from 'svelte'
 	import Section from '$lib/components/Section.svelte'
-	import { Loader2, Save, Pipette, Plus } from 'lucide-svelte'
+	import { Loader2, Save, Pipette, Plus, Pen } from 'lucide-svelte'
 	import Label from '$lib/components/Label.svelte'
 	import VariableEditor from '../../VariableEditor.svelte'
 	import { json } from 'svelte-highlight/languages'
@@ -36,7 +36,7 @@
 		hideTarget = false,
 		saveDisabled = false,
 		hidePath = false,
-		editMode = false
+		header = undefined
 	} = $props()
 
 	// Form data state
@@ -76,6 +76,7 @@
 	let variablePicker = $state<ItemPicker | null>(null)
 	let variableEditor = $state<VariableEditor | null>(null)
 	let drawer = $state<Drawer | null>(null)
+	let editMode = $state(false)
 
 	// Use $derived for computed values
 	$effect(() => {
@@ -278,6 +279,7 @@
 		}
 		dispatch('update')
 		drawer?.closeDrawer()
+		editMode = false
 	}
 
 	$effect(() => {
@@ -661,18 +663,15 @@
 
 {#snippet saveButton(size: 'xs' | 'sm' = 'xs')}
 	{#if !drawerLoading && can_write}
-		<Button
-			{size}
-			startIcon={{ icon: Save }}
-			disabled={pathError != '' ||
-				!isValid ||
-				(!static_asset_config && emptyString(script_path)) ||
-				(static_asset_config && emptyString(static_asset_config.s3)) ||
-				!can_write}
-			on:click={triggerScript}
-		>
-			Save
-		</Button>
+		{#if editMode}
+			<Button {size} startIcon={{ icon: Save }} disabled={saveDisabled} on:click={triggerScript}>
+				Save
+			</Button>
+		{:else}
+			<Button {size} color="light" startIcon={{ icon: Pen }} on:click={() => (editMode = true)}>
+				Edit
+			</Button>
+		{/if}
 	{/if}
 {/snippet}
 
@@ -693,9 +692,10 @@
 		</DrawerContent>
 	</Drawer>
 {:else}
-	<Section
-		label={edit ? (can_write ? `Edit route ${initialPath}` : `Route ${initialPath}`) : 'New route'}
-	>
+	<Section>
+		<svelte:fragment slot="header">
+			{@render header()}
+		</svelte:fragment>
 		<svelte:fragment slot="action">
 			{@render saveButton('xs')}
 		</svelte:fragment>
