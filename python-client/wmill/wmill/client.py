@@ -980,7 +980,7 @@ def write_s3_file(
 @init_global_client
 def sign_s3_objects(s3_objects: list[S3Object]) -> list[str]:
     """
-    Sign S3 objects to be used by anonmous users in public apps
+    Sign S3 objects to be used by anonymous users in public apps
     Returns a list of signed s3 tokens
     """
     return _client.sign_s3_objects(s3_objects)
