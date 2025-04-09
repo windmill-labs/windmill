@@ -120,12 +120,14 @@
 		</div>
 	</Pane>
 	<Pane class="p-3 pt-1">
-		{#await getColDefs(tableKey) then colDefs}
-			{#if colDefs?.length}
-				{@const dbTableOps = dbTableOpsFactory({ colDefs, tableKey })}
-				<DBTable {dbTableOps} />
-			{/if}
-		{/await}
+		{#key tableKey}
+			{#await getColDefs(tableKey) then colDefs}
+				{#if colDefs?.length}
+					{@const dbTableOps = dbTableOpsFactory({ colDefs, tableKey })}
+					<DBTable {dbTableOps} />
+				{/if}
+			{/await}
+		{/key}
 	</Pane>
 </Splitpanes>
 
