@@ -14,6 +14,8 @@
 	import WebhooksPanel from './webhook/WebhooksPanelV2.svelte'
 	import { triggerTypeToCaptureKind } from './utils'
 	import { type CaptureTriggerKind } from '$lib/gen'
+	import EmailTriggerPanel from '../details/EmailTriggerPanelV2.svelte'
+
 	export let noEditor: boolean
 	export let newItem = false
 	export let currentPath: string
@@ -98,6 +100,16 @@
 									scopes={isFlow ? [`run:flow/${currentPath}`] : [`run:script/${currentPath}`]}
 									{newItem}
 								/>
+							{:else if selectedTrigger.type === 'email'}
+								<EmailTriggerPanel
+									token=""
+									scopes={isFlow ? [`run:flow/${currentPath}`] : [`run:script/${currentPath}`]}
+									path={initialPath || fakeInitialPath}
+									{isFlow}
+									on:emailDomain={({ detail }) => {
+										config.emailDomain = detail
+									}}
+								/>
 							{:else if selectedTrigger.isDraft}
 								<h3 class="text-sm font-medium">Configure new {selectedTrigger.type} trigger</h3>
 								<!-- New trigger configuration component would go here -->
@@ -124,7 +136,7 @@
 							captureType={captureKind}
 							{hasPreprocessor}
 							{canHavePreprocessor}
-							args={config}
+							args={{}}
 							data={{ args, hash }}
 							on:applyArgs
 							on:updateSchema
@@ -140,6 +152,20 @@
 							{canHavePreprocessor}
 							args={config}
 							data={{ args }}
+							on:applyArgs
+							on:updateSchema
+							on:addPreprocessor
+							on:testWithArgs
+						/>
+					{:else if captureKind === 'email'}
+						<CaptureWrapper
+							path={initialPath || fakeInitialPath}
+							{isFlow}
+							captureType={captureKind}
+							{hasPreprocessor}
+							{canHavePreprocessor}
+							args={{}}
+							data={{ emailDomain: config.emailDomain }}
 							on:applyArgs
 							on:updateSchema
 							on:addPreprocessor

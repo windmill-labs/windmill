@@ -3,7 +3,6 @@
 	import bash from 'svelte-highlight/languages/bash'
 	import ClipboardPanel from '../../details/ClipboardPanel.svelte'
 	import { isObject } from '$lib/utils'
-	import { base } from '$lib/base'
 	import CopyableCodeBlock from '../../details/CopyableCodeBlock.svelte'
 	import CaptureSection, { type CaptureInfo } from '../CaptureSectionV2.svelte'
 	import CaptureTable from '../CaptureTable.svelte'
@@ -11,62 +10,9 @@
 
 	export let isFlow: boolean = false
 	export let path: string = ''
-	export let hash: string | undefined = undefined
 	export let runnableArgs: any
 	export let captureTable: CaptureTable | undefined = undefined
 	export let captureInfo: CaptureInfo | undefined = undefined
-
-	let webhooks: {
-		async: {
-			hash?: string
-			path: string
-		}
-		sync: {
-			hash?: string
-			path: string
-			get_path?: string
-		}
-	}
-
-	$: webhooks = isFlow ? computeFlowWebhooks(path) : computeScriptWebhooks(hash, path)
-
-	function computeScriptWebhooks(hash: string | undefined, path: string) {
-		let webhookBase = `${location.origin}${base}/api/w/${$workspaceStore}/jobs`
-		return {
-			async: {
-				hash: `${webhookBase}/run/h/${hash}`,
-				path: `${webhookBase}/run/p/${path}`
-			},
-			sync: {
-				hash: `${webhookBase}/run_wait_result/h/${hash}`,
-				path: `${webhookBase}/run_wait_result/p/${path}`,
-				get_path: `${webhookBase}/run_wait_result/p/${path}`
-			}
-		}
-	}
-
-	function computeFlowWebhooks(path: string) {
-		let webhooksBase = `${location.origin}${base}/api/w/${$workspaceStore}/jobs`
-
-		let urlAsync = `${webhooksBase}/run/f/${path}`
-		let urlSync = `${webhooksBase}/run_wait_result/f/${path}`
-		return {
-			async: {
-				path: urlAsync
-			},
-			sync: {
-				path: urlSync,
-				get_path: urlSync
-			}
-		}
-	}
-
-	let webhookType: 'async' | 'sync' = 'async'
-	let requestType: 'hash' | 'path' | 'get_path' = isFlow ? 'path' : 'path'
-
-	$: if (webhookType === 'async' && requestType === 'get_path') {
-		requestType = hash ? 'hash' : 'path'
-	}
 
 	$: cleanedRunnableArgs =
 		isObject(runnableArgs) && 'wm_trigger' in runnableArgs

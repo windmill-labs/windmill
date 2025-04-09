@@ -7,7 +7,6 @@
 	import Alert from '../common/alert/Alert.svelte'
 	import RouteCapture from './http/RouteCapture.svelte'
 	import WebsocketEditorConfigSection from './websocket/WebsocketEditorConfigSection.svelte'
-	import EmailTriggerConfigSection from '../details/EmailTriggerConfigSection.svelte'
 	import KafkaTriggersConfigSection from './kafka/KafkaTriggersConfigSection.svelte'
 	import type { ConnectionInfo } from '../common/alert/ConnectionIndicator.svelte'
 	import type { CaptureInfo } from './CaptureSection.svelte'
@@ -19,6 +18,7 @@
 	import { invalidRelations } from './postgres/utils'
 	import { DEFAULT_V3_CONFIG, DEFAULT_V5_CONFIG } from './mqtt/constant'
 	import WebhooksCapture from './webhook/WebhooksCapture.svelte'
+	import EmailTriggerCaptures from '../details/EmailTriggerCaptures.svelte'
 
 	export let isFlow: boolean
 	export let path: string
@@ -235,7 +235,6 @@
 			<WebhooksCapture
 				{isFlow}
 				{path}
-				hash={data?.hash}
 				runnableArgs={data?.args}
 				{captureInfo}
 				bind:captureTable
@@ -260,14 +259,10 @@
 				on:testWithArgs
 			/>
 		{:else if captureType === 'email'}
-			<EmailTriggerConfigSection
-				hash={data?.hash}
-				token={data?.token}
+			<EmailTriggerCaptures
 				{path}
 				{isFlow}
-				userSettings={data?.userSettings}
 				emailDomain={data?.emailDomain}
-				{showCapture}
 				{captureInfo}
 				bind:captureTable
 				on:applyArgs
