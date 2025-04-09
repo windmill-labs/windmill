@@ -133,14 +133,14 @@
 		}
 	]
 
-	export async function openEdit(ePath: string, isFlow: boolean, editMode: boolean = true) {
+	export async function openEdit(ePath: string, isFlow: boolean, isEditing: boolean = true) {
 		drawerLoading = true
 		try {
 			drawer?.openDrawer()
 			initialPath = ePath
 			itemKind = isFlow ? 'flow' : 'script'
 			edit = true
-			editMode = editMode
+			editMode = isEditing
 			dirtyPath = false
 			dirtyRoutePath = false
 			await loadTrigger()
