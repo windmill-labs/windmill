@@ -36,6 +36,7 @@
 	import Head from './table/Head.svelte'
 	import type { DbType } from './apps/components/display/dbtable/utils'
 	import { DB_TYPES } from '$lib/consts'
+	import Select from './apps/svelte-select/lib/Select.svelte'
 
 	const { onConfirm, resourceType }: DBTableEditorProps = $props()
 
@@ -97,19 +98,22 @@
 							<Cell first>
 								<input
 									type="text"
-									class={errors?.columns?.includes(column.name) ? 'border !border-red-600/60' : ''}
+									class={'h-10 ' +
+										(errors?.columns?.includes(column.name) ? 'border !border-red-600/60' : '')}
 									placeholder="column_name"
 									bind:value={column.name}
 								/>
 							</Cell>
 							<Cell>
-								<select bind:value={column.type}>
-									{#each columnTypes as columnType}
-										<option value={columnType}>{columnType}</option>
-									{/each}
-								</select>
+								<Select
+									class="!w-48"
+									value={column.type}
+									on:change={(e) => (column.type = e.detail.value)}
+									items={columnTypes}
+									clearable={false}
+								/>
 							</Cell>
-							<Cell last class="flex items-center mt-2">
+							<Cell last class="flex items-center mt-3">
 								<input type="checkbox" class="!w-4 !h-4" bind:checked={column.primaryKey} />
 								<Button
 									color="light"
