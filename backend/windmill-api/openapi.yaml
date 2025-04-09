@@ -6306,7 +6306,7 @@ paths:
 
   /w/{workspace}/apps/sign_s3_objects:
     post:
-      summary: sign s3 objects, to be used by anonmous users in public apps
+      summary: sign s3 objects, to be used by anonymous users in public apps
       operationId: signS3Objects
       tags:
         - app
