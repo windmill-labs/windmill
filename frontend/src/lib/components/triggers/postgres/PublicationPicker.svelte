@@ -94,7 +94,12 @@
 	<Select
 		disabled={!can_write}
 		class="grow shrink max-w-full"
-		bind:justValue={publication_name}
+		on:select={(e) => {
+			publication_name = e.detail.value
+		}}
+		on:clear={() => {
+			publication_name = ''
+		}}
 		value={publication_name}
 		{items}
 		placeholder="Choose a publication"
