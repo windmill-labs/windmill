@@ -7,25 +7,26 @@
 	import type { TriggerContext } from '$lib/components/triggers'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import TriggersTable from './TriggersTable.svelte'
-	import RouteEditorWrapper from './http/RouteEditorWrapper.svelte'
+	import RouteEditorConfigSection from './http/RouteEditorConfigSectionV2.svelte'
 	import CaptureWrapper from './CaptureWrapperV2.svelte'
 	import { triggerIconMap, type Trigger } from './utils'
 	import { Star } from 'lucide-svelte'
-	import WebhooksWrapper from './webhook/WebhooksWrapper.svelte'
+	import WebhooksPanel from './webhook/WebhooksPanelV2.svelte'
 	import { triggerTypeToCaptureKind } from './utils'
 
 	export let noEditor: boolean
 	export let newItem = false
 	export let currentPath: string
 	export let fakeInitialPath: string
-	//export let hash: string | undefined = undefined
+	export let hash: string | undefined = undefined
+	export let args: Record<string, any> = {}
 	export let initialPath: string
 	export let schema: any
 	export let isFlow: boolean
 	export let canHavePreprocessor: boolean = false
 	export let hasPreprocessor: boolean = false
 
-	let args: Record<string, any> = {}
+	let config: Record<string, any> = {}
 	let triggersTable: TriggersTable | null = null
 
 	const { simplifiedPoll } = getContext<TriggerContext>('TriggerContext')
@@ -66,13 +67,13 @@
 						<!-- TODO: Update triggersWrapper here -->
 						{#if selectedTrigger}
 							{#if selectedTrigger.type === 'http'}
-								<RouteEditorWrapper
+								<RouteEditorConfigSection
 									{selectedTrigger}
 									{isFlow}
 									{currentPath}
 									{header}
 									on:update-config={({ detail }) => {
-										args = detail
+										config = detail
 									}}
 									on:update={({ detail }) => {
 										triggersTable?.fetchHttpTriggers()
@@ -82,7 +83,14 @@
 									}}
 								/>
 							{:else if selectedTrigger.type === 'webhook'}
-								<WebhooksWrapper isFlow={isFlow ?? false} path={currentPath} token={''} />
+								<WebhooksPanel
+									isFlow={isFlow ?? false}
+									path={currentPath}
+									{hash}
+									token=""
+									{args}
+									scopes={isFlow ? [`run:flow/${currentPath}`] : [`run:script/${currentPath}`]}
+								/>
 							{:else if selectedTrigger.isDraft}
 								<h3 class="text-sm font-medium">Configure new {selectedTrigger.type} trigger</h3>
 								<!-- New trigger configuration component would go here -->
@@ -108,7 +116,7 @@
 						captureType={triggerTypeToCaptureKind(selectedTrigger.type)}
 						{hasPreprocessor}
 						{canHavePreprocessor}
-						{args}
+						args={config}
 						on:applyArgs
 						on:updateSchema
 						on:addPreprocessor
