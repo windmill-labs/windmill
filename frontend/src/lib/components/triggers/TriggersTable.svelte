@@ -1,5 +1,4 @@
 <script lang="ts">
-	import DataTable from '$lib/components/table/DataTable.svelte'
 	import { createEventDispatcher } from 'svelte'
 	import DropdownV2 from '$lib/components/DropdownV2.svelte'
 	import Button from '$lib/components/common/button/Button.svelte'
@@ -12,13 +11,14 @@
 		Webhook,
 		Plus,
 		Star,
-		Loader2
+		ChevronDown,
+		Pen,
+		Save
 	} from 'lucide-svelte'
 	import KafkaIcon from '$lib/components/icons/KafkaIcon.svelte'
 	import NatsIcon from '$lib/components/icons/NatsIcon.svelte'
 	import MqttIcon from '$lib/components/icons/MqttIcon.svelte'
 	import AwsIcon from '$lib/components/icons/AwsIcon.svelte'
-	import { twMerge } from 'tailwind-merge'
 	import type { Item } from '$lib/utils'
 	import {
 		HttpTriggerService,
@@ -35,11 +35,32 @@
 		type KafkaTrigger
 	} from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
+	import { createSelect, melt } from '@melt-ui/svelte'
+	import type { Trigger } from './utils'
+
+	const {
+		elements: { trigger, menu, option },
+		states: { open, selected }
+	} = createSelect<Trigger>({
+		forceVisible: true,
+		positioning: {
+			placement: 'bottom',
+			fitViewport: true,
+			sameWidth: true
+		},
+		onSelectedChange: ({ curr, next }) => {
+			if (curr !== next) {
+				dispatch('select', next?.value)
+			}
+			return next
+		}
+	})
 
 	// Props
 	export let path: string
 	export let isFlow: boolean = false
-	export let selectedTrigger: { path: string; type: string; isDraft?: boolean } | null = null
+	export let canEdit: boolean = false
+	export let isEditing: boolean = false
 
 	// Map of trigger kinds to icons
 	const triggerIconMap = {
@@ -67,7 +88,8 @@
 
 	// Event handling
 	const dispatch = createEventDispatcher<{
-		select: { path: string; type: string; isDraft?: boolean }
+		select: Trigger | undefined
+		save: void
 	}>()
 
 	// Dropdown items for adding new triggers
@@ -103,11 +125,7 @@
 
 	// Select a trigger
 	function selectTrigger(trigger: { type: string; path: string; isDraft?: boolean }) {
-		dispatch('select', {
-			path: trigger.path,
-			type: trigger.type,
-			isDraft: trigger.isDraft
-		})
+		$selected = { value: trigger, label: trigger.path }
 	}
 
 	// Fetch all triggers
@@ -116,7 +134,7 @@
 		try {
 			// Store existing draft triggers and any selected state
 			const draftTriggers = triggers.filter((t) => t.isDraft)
-			const currentSelectedType = selectedTrigger?.type
+			const currentSelectedType = $selected?.value?.type
 
 			// Clear existing triggers
 			triggers = []
@@ -397,94 +415,112 @@
 	$: if (path && $workspaceStore && !triggers.length) {
 		fetchTriggers()
 	}
+
+	$: triggerOptions = triggers.map((t) => ({
+		id: t.type + '_' + t.path,
+		trigger: t
+	}))
 </script>
 
-<div class="flex flex-col space-y-2 w-full">
-	<div class="w-full">
-		<DropdownV2 items={addTriggerItems} placement="bottom" class="w-full">
-			<div slot="buttonReplacement" class="w-full">
-				<Button
-					size="xs"
-					color="blue"
-					startIcon={{ icon: Plus }}
-					nonCaptureEvent
-					btnClasses="w-full justify-center"
+{#snippet triggerRow(trigger: {
+	type: string
+	path: string
+	isDraft?: boolean
+	isPrimary?: boolean
+})}
+	<div class="flex flex-row w-full gap-2 py-1">
+		<div class="flex justify-center items-center">
+			<svelte:component
+				this={triggerIconMap[trigger.type]}
+				size={16}
+				class={trigger.isDraft ? 'text-frost-400' : 'text-tertiary'}
+			/>
+
+			{#if trigger.isPrimary}
+				<Star size={10} class="absolute -mt-3 ml-3 text-yellow-400" />
+			{/if}
+		</div>
+
+		<div class="flex items-center">
+			<span class={trigger.isDraft ? 'text-frost-400 italic' : ''}>
+				{trigger.isDraft ? `New ${trigger.type.replace(/s$/, '')} trigger` : trigger.path}
+			</span>
+
+			{#if trigger.isPrimary}
+				<span
+					class="ml-2 text-2xs bg-yellow-100 dark:bg-yellow-900 text-yellow-800 dark:text-yellow-100 px-1.5 py-0.5 rounded"
 				>
+					Primary
+				</span>
+			{/if}
+
+			{#if trigger.isDraft}
+				<span
+					class="ml-2 text-2xs bg-frost-100 dark:bg-frost-900 text-frost-800 dark:text-frost-100 px-1.5 py-0.5 rounded"
+				>
+					Draft
+				</span>
+			{/if}
+		</div>
+	</div>
+{/snippet}
+
+<div class="flex flex-row gap-2">
+	<button
+		class="grow min-w-40 rounded-md border flex flex-row items-center justify-between px-4"
+		use:melt={$trigger}
+	>
+		{#if $selected?.value}
+			{@render triggerRow($selected?.value)}
+		{:else}
+			<span>Select a trigger</span>
+		{/if}
+		<ChevronDown size={16} class="text-secondary" />
+	</button>
+	{#if $open}
+		<div
+			use:melt={$menu}
+			class="z-[1000] max-h-[300px] overflow-y-auto rounded-lg shadow-lg bg-surface"
+		>
+			{#each triggerOptions as opt (opt.id)}
+				<div
+					use:melt={$option({ value: opt.trigger, label: opt.trigger.path })}
+					class="cursor-pointer text-secondary hover:bg-surface-hover data-[highlighted]:bg-surface-hover data-[disabled]:opacity-50 px-4"
+				>
+					{@render triggerRow(opt.trigger)}
+				</div>
+			{/each}
+		</div>
+	{/if}
+
+	<div class="flex flex-row gap-2">
+		{#if canEdit && !isEditing}
+			<Button
+				size="sm"
+				color="light"
+				variant="border"
+				startIcon={{ icon: Pen }}
+				on:click={() => (isEditing = true)}>Edit</Button
+			>
+		{:else if canEdit && isEditing}
+			<div class="flex flex-row gap-2">
+				<Button
+					size="sm"
+					color="blue"
+					startIcon={{ icon: Save }}
+					on:click={() => {
+						isEditing = false
+						dispatch('save')
+					}}>Save</Button
+				>
+			</div>
+		{/if}
+		<DropdownV2 items={addTriggerItems} placement="bottom-end" class="w-fit">
+			<div slot="buttonReplacement">
+				<Button size="sm" color="blue" startIcon={{ icon: Plus }} nonCaptureEvent>
 					<span>Add trigger</span>
 				</Button>
 			</div>
 		</DropdownV2>
 	</div>
-
-	<DataTable {loading} size="sm" tableFixed={true}>
-		<tbody>
-			{#each triggers as trigger}
-				<tr
-					class={twMerge(
-						'hover:bg-surface-hover cursor-pointer border-b border-t border-transparent',
-						selectedTrigger &&
-							selectedTrigger.path === trigger.path &&
-							selectedTrigger.type === trigger.type &&
-							selectedTrigger.isDraft === trigger.isDraft
-							? 'bg-surface-hover '
-							: ''
-					)}
-					on:click={() => selectTrigger(trigger)}
-				>
-					<td class="w-12 text-center py-2 px-2">
-						<div class="flex justify-center items-center">
-							<svelte:component
-								this={triggerIconMap[trigger.type]}
-								size={16}
-								class={trigger.isDraft ? 'text-frost-400' : 'text-tertiary'}
-							/>
-
-							{#if trigger.isPrimary}
-								<Star size={10} class="absolute -mt-3 ml-3 text-yellow-400" />
-							{/if}
-						</div>
-					</td>
-					<td class="py-2 px-2 text-xs">
-						<div class="flex items-center">
-							<span class={trigger.isDraft ? 'text-frost-400 italic' : ''}>
-								{trigger.isDraft ? `New ${trigger.type.replace(/s$/, '')} trigger` : trigger.path}
-							</span>
-
-							{#if trigger.isPrimary}
-								<span
-									class="ml-2 text-2xs bg-yellow-100 dark:bg-yellow-900 text-yellow-800 dark:text-yellow-100 px-1.5 py-0.5 rounded"
-								>
-									Primary
-								</span>
-							{/if}
-
-							{#if trigger.isDraft}
-								<span
-									class="ml-2 text-2xs bg-frost-100 dark:bg-frost-900 text-frost-800 dark:text-frost-100 px-1.5 py-0.5 rounded"
-								>
-									Draft
-								</span>
-							{/if}
-						</div>
-					</td>
-				</tr>
-			{/each}
-
-			{#if !loading && triggers.length === 0}
-				<tr>
-					<td colspan="2" class="text-center py-4 text-tertiary text-sm"> No triggers found </td>
-				</tr>
-			{/if}
-			{#if loading && triggers.length === 0}
-				<tr>
-					<td colspan="2" class="text-center py-4 text-tertiary text-sm">
-						<div class="flex justify-center items-center gap-2">
-							<Loader2 class="animate-spin" size={16} />
-							<span>Loading triggers...</span>
-						</div>
-					</td>
-				</tr>
-			{/if}
-		</tbody>
-	</DataTable>
 </div>

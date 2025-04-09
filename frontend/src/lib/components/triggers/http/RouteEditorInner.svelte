@@ -667,12 +667,7 @@
 		</DrawerContent>
 	</Drawer>
 {:else}
-	<Section
-		label={edit ? (can_write ? `Edit route ${initialPath}` : `Route ${initialPath}`) : 'New route'}
-	>
-		<svelte:fragment slot="action">
-			{@render saveButton('xs')}
-		</svelte:fragment>
+	<Section headless>
 		{@render config()}
 	</Section>
 {/if}
