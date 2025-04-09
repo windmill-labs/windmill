@@ -21,38 +21,33 @@
 		type KafkaTrigger
 	} from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
-	import { triggerIconMap } from './utils'
+	import { triggerIconMap, type Trigger, type TriggerType } from './utils'
 	// Props
 	export let path: string
 	export let isFlow: boolean = false
 	export let selectedTrigger: { path: string; type: string; isDraft?: boolean } | null = null
 
 	// Component state
-	let triggers: {
-		type: string
-		path: string
-		isPrimary?: boolean
-		isDraft?: boolean
-	}[] = []
+	let triggers: Trigger[] = []
 	let loading = false
 
 	// Event handling
 	const dispatch = createEventDispatcher<{
-		select: { path: string; type: string; isDraft?: boolean }
+		select: Trigger
 	}>()
 
 	// Dropdown items for adding new triggers
 	const addTriggerItems: Item[] = [
 		{
 			displayName: 'Schedule',
-			action: () => addDraftTrigger('schedules'),
-			icon: triggerIconMap.schedules
+			action: () => addDraftTrigger('schedule'),
+			icon: triggerIconMap.schedule
 		},
-		{ displayName: 'HTTP', action: () => addDraftTrigger('routes'), icon: triggerIconMap.routes },
+		{ displayName: 'HTTP', action: () => addDraftTrigger('http'), icon: triggerIconMap.http },
 		{
 			displayName: 'WebSockets',
-			action: () => addDraftTrigger('websockets'),
-			icon: triggerIconMap.websockets
+			action: () => addDraftTrigger('websocket'),
+			icon: triggerIconMap.websocket
 		},
 		{
 			displayName: 'Postgres',
@@ -65,7 +60,7 @@
 		{ displayName: 'SQS', action: () => addDraftTrigger('sqs'), icon: triggerIconMap.sqs }
 	]
 
-	function addDraftTrigger(type: string) {
+	function addDraftTrigger(type: TriggerType) {
 		// Remove any existing draft of the same type
 		triggers = triggers.filter((t) => !(t.isDraft && t.type === type))
 
@@ -85,12 +80,8 @@
 	}
 
 	// Select a trigger
-	function selectTrigger(trigger: { type: string; path: string; isDraft?: boolean }) {
-		dispatch('select', {
-			path: trigger.path,
-			type: trigger.type,
-			isDraft: trigger.isDraft
-		})
+	function selectTrigger(trigger: Trigger) {
+		dispatch('select', trigger)
 	}
 
 	// Fetch all triggers
@@ -117,15 +108,15 @@
 			])
 
 			// Add default triggers for webhooks and emails
-			const webhookExists = triggers.some((t) => t.type === 'webhooks')
-			const emailExists = triggers.some((t) => t.type === 'emails')
+			const webhookExists = triggers.some((t) => t.type === 'webhook')
+			const emailExists = triggers.some((t) => t.type === 'email')
 
 			if (!webhookExists) {
-				triggers = [...triggers, { type: 'webhooks', path: path, isDraft: false }]
+				triggers = [...triggers, { type: 'webhook', path: path, isDraft: false }]
 			}
 
 			if (!emailExists) {
-				triggers = [...triggers, { type: 'emails', path: path, isDraft: false }]
+				triggers = [...triggers, { type: 'email', path: path, isDraft: false }]
 			}
 
 			// Add back draft triggers
@@ -164,7 +155,7 @@
 				triggers = [
 					...triggers,
 					{
-						type: 'schedules',
+						type: 'schedule',
 						path: primarySchedule.path,
 						isPrimary: true,
 						isDraft: false
@@ -179,7 +170,7 @@
 				triggers = [
 					...triggers,
 					{
-						type: 'schedules',
+						type: 'schedule',
 						path: schedule.path,
 						isPrimary: false,
 						isDraft: false
@@ -194,7 +185,7 @@
 		if (!$workspaceStore) return
 
 		try {
-			triggers = triggers.filter((t) => t.type !== 'routes') // Remove any existing routes
+			triggers = triggers.filter((t) => t.type !== 'http') // Remove any existing routes
 			const httpTriggers: HttpTrigger[] = await HttpTriggerService.listHttpTriggers({
 				workspace: $workspaceStore,
 				path,
@@ -205,7 +196,7 @@
 				triggers = [
 					...triggers,
 					{
-						type: 'routes',
+						type: 'http',
 						path: trigger.path,
 						isPrimary: false,
 						isDraft: false
@@ -232,7 +223,7 @@
 				triggers = [
 					...triggers,
 					{
-						type: 'websockets',
+						type: 'websocket',
 						path: trigger.path,
 						isPrimary: false,
 						isDraft: false

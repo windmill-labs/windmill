@@ -13,7 +13,7 @@
 	}
 
 	$effect(() => {
-		selectedTrigger?.type === 'routes' &&
+		selectedTrigger?.type === 'http' &&
 			routeEditor &&
 			openRouteEditor(selectedTrigger.path, isFlow, selectedTrigger.isDraft ?? false)
 	})

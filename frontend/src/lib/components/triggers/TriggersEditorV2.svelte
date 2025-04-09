@@ -11,35 +11,24 @@
 	import CaptureWrapper from './CaptureWrapperV2.svelte'
 	import { triggerIconMap, type Trigger } from './utils'
 	import { Star } from 'lucide-svelte'
+	import WebhooksWrapper from './webhook/WebhooksWrapper.svelte'
+	import { triggerTypeToCaptureKind } from './utils'
 
 	export let noEditor: boolean
 	export let newItem = false
 	export let currentPath: string
 	export let fakeInitialPath: string
-	export let hash: string | undefined = undefined
+	//export let hash: string | undefined = undefined
 	export let initialPath: string
 	export let schema: any
 	export let isFlow: boolean
 	export let canHavePreprocessor: boolean = false
 	export let hasPreprocessor: boolean = false
 
-	let eventStreamType: 'kafka' | 'nats' | 'sqs' | 'mqtt' = 'kafka'
 	let args: Record<string, any> = {}
 	let triggersTable: TriggersTable | null = null
 
-	const { selectedTrigger: contextSelectedTrigger, simplifiedPoll } =
-		getContext<TriggerContext>('TriggerContext')
-
-	$: {
-		if (
-			$contextSelectedTrigger === 'kafka' ||
-			$contextSelectedTrigger === 'nats' ||
-			$contextSelectedTrigger === 'sqs' ||
-			$contextSelectedTrigger === 'mqtt'
-		) {
-			eventStreamType = $contextSelectedTrigger
-		}
-	}
+	const { simplifiedPoll } = getContext<TriggerContext>('TriggerContext')
 
 	const dispatch = createEventDispatcher()
 	onDestroy(() => {
@@ -75,7 +64,7 @@
 					<div class="flex-grow overflow-auto px-2">
 						<!-- Trigger configuration will go here -->
 						{#if selectedTrigger}
-							{#if selectedTrigger.type === 'routes'}
+							{#if selectedTrigger.type === 'http'}
 								<RouteEditorWrapper
 									{selectedTrigger}
 									{isFlow}
@@ -91,6 +80,8 @@
 										}
 									}}
 								/>
+							{:else if selectedTrigger.type === 'webhook'}
+								<WebhooksWrapper isFlow={isFlow ?? false} path={currentPath} token={''} />
 							{:else if selectedTrigger.isDraft}
 								<h3 class="text-sm font-medium">Configure new {selectedTrigger.type} trigger</h3>
 								<!-- New trigger configuration component would go here -->
@@ -109,11 +100,11 @@
 				</div>
 			</Pane>
 			<Pane class="px-4">
-				{#if selectedTrigger && selectedTrigger?.type === 'routes'}
+				{#if selectedTrigger && selectedTrigger?.type && triggerTypeToCaptureKind(selectedTrigger.type)}
 					<CaptureWrapper
 						path={initialPath || fakeInitialPath}
 						{isFlow}
-						captureType={'http'}
+						captureType={triggerTypeToCaptureKind(selectedTrigger.type)}
 						{hasPreprocessor}
 						{canHavePreprocessor}
 						{args}

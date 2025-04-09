@@ -121,7 +121,6 @@
 			}
 		}}
 		on:testWithArgs
-		args={$previewArgs}
 		currentPath={$pathStore}
 		initialPath={$initialPathStore}
 		{fakeInitialPath}
