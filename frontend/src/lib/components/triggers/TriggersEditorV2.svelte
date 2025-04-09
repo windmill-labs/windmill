@@ -96,7 +96,7 @@
 							{/if}
 						{:else}
 							<div class="flex h-full items-center justify-center text-tertiary">
-								<p>Select a trigger from the list or add a new one</p>
+								<p>Select a trigger or add a new one</p>
 							</div>
 						{/if}
 					</div>
