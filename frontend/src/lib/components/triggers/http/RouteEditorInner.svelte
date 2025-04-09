@@ -277,7 +277,7 @@
 		if (!$usedTriggerKinds.includes('http')) {
 			$usedTriggerKinds = [...$usedTriggerKinds, 'http']
 		}
-		dispatch('update')
+		dispatch('update', !edit)
 		drawer?.closeDrawer()
 		editMode = false
 	}

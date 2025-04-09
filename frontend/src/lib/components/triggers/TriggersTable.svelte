@@ -190,10 +190,11 @@
 	}
 
 	// Fetch HTTP triggers
-	async function fetchHttpTriggers() {
+	export async function fetchHttpTriggers() {
 		if (!$workspaceStore) return
 
 		try {
+			triggers = triggers.filter((t) => t.type !== 'routes') // Remove any existing routes
 			const httpTriggers: HttpTrigger[] = await HttpTriggerService.listHttpTriggers({
 				workspace: $workspaceStore,
 				path,
@@ -379,6 +380,10 @@
 	// Fetch triggers on mount and when path changes
 	$: if (path && $workspaceStore && !triggers.length) {
 		fetchTriggers()
+	}
+
+	export function deleteDraft(type: string) {
+		triggers = triggers.filter((t) => !(t.type === type && t.isDraft))
 	}
 </script>
 

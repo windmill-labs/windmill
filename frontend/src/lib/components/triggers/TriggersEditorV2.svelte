@@ -25,6 +25,7 @@
 
 	let eventStreamType: 'kafka' | 'nats' | 'sqs' | 'mqtt' = 'kafka'
 	let args: Record<string, any> = {}
+	let triggersTable: TriggersTable | null = null
 
 	const { selectedTrigger: contextSelectedTrigger, simplifiedPoll } =
 		getContext<TriggerContext>('TriggerContext')
@@ -66,6 +67,7 @@
 							{isFlow}
 							{selectedTrigger}
 							on:select={handleSelectTrigger}
+							bind:this={triggersTable}
 						/>
 					</div>
 
@@ -78,10 +80,16 @@
 									{selectedTrigger}
 									{isFlow}
 									{currentPath}
+									{header}
 									on:update-config={({ detail }) => {
 										args = detail
 									}}
-									{header}
+									on:update={({ detail }) => {
+										triggersTable?.fetchHttpTriggers()
+										if (detail) {
+											triggersTable?.deleteDraft('routes')
+										}
+									}}
 								/>
 							{:else if selectedTrigger.isDraft}
 								<h3 class="text-sm font-medium">Configure new {selectedTrigger.type} trigger</h3>

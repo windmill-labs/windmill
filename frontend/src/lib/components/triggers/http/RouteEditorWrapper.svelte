@@ -27,5 +27,6 @@
 	hideTarget
 	hidePath
 	on:update-config
+	on:update
 	{header}
 />
