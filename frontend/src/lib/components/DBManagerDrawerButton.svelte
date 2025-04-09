@@ -27,7 +27,7 @@
 	let dbSchema: DBSchema | undefined = $derived(
 		resourcePath in $dbSchemas ? $dbSchemas[resourcePath] : undefined
 	)
-	let drawerRef: Drawer | undefined = $state()
+	let isDrawerOpen: boolean = $state(false)
 	let mode: 'db-manager' | 'schema-explorer' = $state('db-manager')
 
 	let shouldDisplayError = $derived(
@@ -40,6 +40,9 @@
 	})
 
 	let expand = $state(false)
+	$effect(() => {
+		if (!isDrawerOpen) expand = false
+	})
 
 	async function getSchema() {
 		if ($dbSchemas[resourcePath] && !refreshing) return
@@ -50,7 +53,7 @@
 				$workspaceStore,
 				$dbSchemas,
 				(message: string) => {
-					if (drawerRef?.isOpen()) {
+					if (isDrawerOpen) {
 						sendUserToast(message, true)
 					}
 				}
@@ -87,12 +90,12 @@
 		color="blue"
 		spacingSize="xs2"
 		btnClasses={'mt-1 w-fit ' + className}
-		on:click={drawerRef?.openDrawer ?? (() => {})}
+		on:click={() => (isDrawerOpen = true)}
 	>
 		Manage database
 	</Button>
 	<Drawer
-		bind:this={drawerRef}
+		bind:open={isDrawerOpen}
 		size={(
 			{
 				'db-manager': expand ? `${windowWidth}px` : '1200px',
@@ -107,7 +110,7 @@
 					'schema-explorer': 'Schema Explorer'
 				} satisfies Record<typeof mode, string>
 			)[mode]}
-			on:close={drawerRef.closeDrawer}
+			on:close={() => (isDrawerOpen = false)}
 			noPadding={mode === 'db-manager'}
 		>
 			{#if refreshing}
