@@ -2,14 +2,15 @@
 	import { type DBSchema } from '$lib/stores'
 	import { MoreVertical, Table2 } from 'lucide-svelte'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
-	import { ClearableInput } from './common'
+	import { ClearableInput, Drawer, DrawerContent } from './common'
 	import { sendUserToast } from '$lib/toast'
-	import { type ColumnDef } from './apps/components/display/dbtable/utils'
+	import { type ColumnDef, type DbType } from './apps/components/display/dbtable/utils'
 	import DBTable from './DBTable.svelte'
 	import type { DbTableActionFactory, IDbTableOps } from './dbOps'
 	import DropdownV2 from './DropdownV2.svelte'
 	import ConfirmationModal from './common/confirmationModal/ConfirmationModal.svelte'
 	import Button from './common/button/Button.svelte'
+	import DbTableEditor, { type DBTableEditorProps } from './DBTableEditor.svelte'
 
 	type Props = {
 		dbSchema: DBSchema
@@ -17,8 +18,16 @@
 		dbTableOpsFactory: (params: { colDefs: ColumnDef[]; tableKey: string }) => IDbTableOps
 		dbTableActionsFactory?: DbTableActionFactory[]
 		refresh?: () => void
+		dbTableEditorProps?: DBTableEditorProps
 	}
-	let { dbSchema, dbTableOpsFactory, getColDefs, dbTableActionsFactory, refresh }: Props = $props()
+	let {
+		dbSchema,
+		dbTableOpsFactory,
+		getColDefs,
+		dbTableActionsFactory,
+		refresh,
+		dbTableEditorProps
+	}: Props = $props()
 
 	let schemaKeys = $derived(Object.keys(dbSchema.schema))
 	let search = $state('')
@@ -59,10 +68,12 @@
 	let askingForConfirmation:
 		| (ConfirmationModal['$$prop_def'] & { onConfirm: () => void })
 		| undefined = $state()
+
+	let dbTableEditorState: { open: boolean } = $state({ open: false })
 </script>
 
 <Splitpanes>
-	<Pane size={20} class="relative flex flex-col">
+	<Pane size={24} class="relative flex flex-col">
 		<div class="mx-3 mt-3">
 			<select
 				value={selected.schemaKey}
@@ -126,7 +137,11 @@
 				</button>
 			{/each}
 		</div>
-		<Button wrapperClasses="m-3">New table</Button>
+		{#if dbTableEditorProps}
+			<Button on:click={() => (dbTableEditorState = { open: true })} wrapperClasses="m-3">
+				New table
+			</Button>
+		{/if}
 	</Pane>
 	<Pane class="p-3 pt-1">
 		{#key tableKey}
@@ -145,3 +160,18 @@
 	on:canceled={() => (askingForConfirmation = undefined)}
 	on:confirmed={askingForConfirmation?.onConfirm ?? (() => {})}
 />
+
+{#if dbTableEditorProps}
+	<Drawer
+		size="600px"
+		open={dbTableEditorState.open}
+		on:close={() => (dbTableEditorState = { open: false })}
+	>
+		<DrawerContent
+			on:close={() => (dbTableEditorState = { open: false })}
+			title="Create a new table"
+		>
+			<DbTableEditor {...dbTableEditorProps} />
+		</DrawerContent>
+	</Drawer>
+{/if}

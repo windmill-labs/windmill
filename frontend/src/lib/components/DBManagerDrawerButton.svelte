@@ -27,6 +27,7 @@
 	let dbSchema: DBSchema | undefined = $derived(
 		resourcePath in $dbSchemas ? $dbSchemas[resourcePath] : undefined
 	)
+
 	let isDrawerOpen: boolean = $state(false)
 	let mode: 'db-manager' | 'schema-explorer' = $state('db-manager')
 
@@ -144,6 +145,12 @@
 					]}
 					refresh={() => {
 						refreshing = true
+					}}
+					dbTableEditorProps={{
+						resourceType,
+						onConfirm(params) {
+							// TODO
+						}
 					}}
 				/>
 			{:else if mode === 'schema-explorer'}
