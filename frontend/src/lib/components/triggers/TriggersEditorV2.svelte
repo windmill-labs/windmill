@@ -7,7 +7,7 @@
 	import type { TriggerContext } from '$lib/components/triggers'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import TriggersTable from './TriggersTable.svelte'
-	import RouteEditorConfigSection from './http/RouteEditorConfigSectionV2.svelte'
+	import RoutesPanel from './http/RoutesPanelV2.svelte'
 	import CaptureWrapper from './CaptureWrapperV2.svelte'
 	import { triggerIconMap, type Trigger } from './utils'
 	import { Star } from 'lucide-svelte'
@@ -73,10 +73,10 @@
 						<!-- TODO: Update triggersWrapper here -->
 						{#if selectedTrigger}
 							{#if selectedTrigger.type === 'http'}
-								<RouteEditorConfigSection
+								<RoutesPanel
 									{selectedTrigger}
 									{isFlow}
-									{currentPath}
+									path={initialPath || fakeInitialPath}
 									{header}
 									on:update-config={({ detail }) => {
 										config = detail
