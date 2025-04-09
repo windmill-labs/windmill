@@ -126,8 +126,8 @@
 	let deleteSubscription = false
 	let deleteSubscriptionCallback: (() => Promise<void>) | undefined = undefined
 	let deleteGcpTriggerCallback: (() => Promise<void>) | undefined = undefined
-	let subscriptionToDelete = ''
-	let currentTopic = ''
+	let subscriptionToDelete: string
+	let currentTopic: string
 	const TRIGGER_PATH_KIND_FILTER_SETTING = 'filter_path_of'
 	const FILTER_USER_FOLDER_SETTING_NAME = 'user_and_folders_only'
 	let selectedFilterKind =
@@ -229,7 +229,6 @@
 	confirmationText="Remove"
 	loading={isDeleting}
 	on:canceled={() => {
-		isDeleting = false
 		deleteGcpTriggerCallback = undefined
 	}}
 	on:confirmed={async () => {
@@ -254,7 +253,7 @@
 
 		<Toggle
 			options={{
-				left: `Also delete the Google Pub/Sub subscription "${subscriptionToDelete}" that is subscribed to the topic "${currentTopic}"?`
+				left: `Delete subscription "${subscriptionToDelete}" subscribed to topic "${currentTopic}"?`
 			}}
 			bind:checked={deleteSubscription}
 		/>
