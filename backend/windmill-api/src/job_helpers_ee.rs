@@ -36,8 +36,11 @@ pub struct LoadImagePreviewQuery {
 
 #[derive(Deserialize)]
 pub struct DownloadFileQuery {
+    #[allow(dead_code)]
     pub file_key: String,
+    #[allow(dead_code)]
     pub storage: Option<String>,
+    #[allow(dead_code)]
     pub s3_resource_path: Option<String>,
 }
 
