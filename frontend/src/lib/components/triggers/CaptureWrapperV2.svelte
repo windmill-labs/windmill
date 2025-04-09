@@ -236,9 +236,7 @@
 				{isFlow}
 				{path}
 				hash={data?.hash}
-				token={data?.token}
 				runnableArgs={data?.args}
-				scopes={data?.scopes}
 				{captureInfo}
 				bind:captureTable
 				on:applyArgs

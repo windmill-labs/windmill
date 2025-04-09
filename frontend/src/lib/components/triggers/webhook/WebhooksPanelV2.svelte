@@ -42,6 +42,5 @@
 		token={data?.token}
 		runnableArgs={data?.args}
 		scopes={data?.scopes}
-		showCapture={false}
 	/>
 </Section>

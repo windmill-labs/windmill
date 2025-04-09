@@ -84,12 +84,13 @@
 								/>
 							{:else if selectedTrigger.type === 'webhook'}
 								<WebhooksPanel
-									isFlow={isFlow ?? false}
-									path={currentPath}
+									{isFlow}
+									path={initialPath || fakeInitialPath}
 									{hash}
 									token=""
 									{args}
 									scopes={isFlow ? [`run:flow/${currentPath}`] : [`run:script/${currentPath}`]}
+									{newItem}
 								/>
 							{:else if selectedTrigger.isDraft}
 								<h3 class="text-sm font-medium">Configure new {selectedTrigger.type} trigger</h3>

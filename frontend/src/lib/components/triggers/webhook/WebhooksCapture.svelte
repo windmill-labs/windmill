@@ -4,21 +4,15 @@
 	import ClipboardPanel from '../../details/ClipboardPanel.svelte'
 	import { isObject } from '$lib/utils'
 	import { base } from '$lib/base'
-	import TriggerTokens from '../TriggerTokens.svelte'
-	import { workspaceStore, userStore } from '$lib/stores'
-	import UserSettings from '../../UserSettings.svelte'
-	import { generateRandomString } from '$lib/utils'
 	import CopyableCodeBlock from '../../details/CopyableCodeBlock.svelte'
 	import CaptureSection, { type CaptureInfo } from '../CaptureSectionV2.svelte'
 	import CaptureTable from '../CaptureTable.svelte'
+	import { workspaceStore } from '$lib/stores'
 
 	export let isFlow: boolean = false
 	export let path: string = ''
 	export let hash: string | undefined = undefined
-	export let token: string = ''
 	export let runnableArgs: any
-	export let triggerTokens: TriggerTokens | undefined = undefined
-	export let scopes: string[] = []
 	export let captureTable: CaptureTable | undefined = undefined
 	export let captureInfo: CaptureInfo | undefined = undefined
 
@@ -33,7 +27,6 @@
 			get_path?: string
 		}
 	}
-	let userSettings: UserSettings
 
 	$: webhooks = isFlow ? computeFlowWebhooks(path) : computeScriptWebhooks(hash, path)
 
@@ -91,17 +84,6 @@
 -d '${JSON.stringify(cleanedRunnableArgs ?? {}, null, 2)}'`
 	}
 </script>
-
-<UserSettings
-	bind:this={userSettings}
-	on:tokenCreated={(e) => {
-		token = e.detail
-		triggerTokens?.listTokens()
-	}}
-	newTokenWorkspace={$workspaceStore}
-	newTokenLabel={`webhook-${$userStore?.username ?? 'superadmin'}-${generateRandomString(4)}`}
-	{scopes}
-/>
 
 {#if captureInfo}
 	<CaptureSection
