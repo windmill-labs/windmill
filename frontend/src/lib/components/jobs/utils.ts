@@ -12,7 +12,6 @@ export async function runPreviewJobAndPollResult(data: RunScriptPreviewData): Pr
 				id: uuid,
 				workspace: data.workspace
 			})
-			console.log({ result })
 			if (result.success) {
 				return result.result
 			} else {

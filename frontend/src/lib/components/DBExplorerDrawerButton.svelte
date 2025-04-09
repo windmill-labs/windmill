@@ -14,7 +14,7 @@
 	import DbExplorer from './DBExplorer.svelte'
 	import { Alert } from './common'
 	import DbSchemaExplorer from './DBSchemaExplorer.svelte'
-	import { dbTableOpsWithPreviewScripts } from './dbOps'
+	import { dbDeleteTableActionWithPreviewScript, dbTableOpsWithPreviewScripts } from './dbOps'
 
 	type Props = {
 		resourceType: DbType
@@ -116,6 +116,7 @@
 							resourceType,
 							workspace: $workspaceStore
 						})}
+					dbTableActionsFactory={[dbDeleteTableActionWithPreviewScript()]}
 				/>
 			{:else if mode === 'schema-explorer'}
 				<DbSchemaExplorer {dbSchema} />

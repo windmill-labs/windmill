@@ -9,6 +9,7 @@ import { makeCountQuery } from './apps/components/display/dbtable/queries/count'
 import { makeUpdateQuery } from './apps/components/display/dbtable/queries/update'
 import { makeDeleteQuery } from './apps/components/display/dbtable/queries/delete'
 import { makeInsertQuery } from './apps/components/display/dbtable/queries/insert'
+import { Trash2 } from 'lucide-svelte'
 
 export type IDbTableOps = {
 	resourcePath: string
@@ -122,4 +123,24 @@ export function dbTableOpsWithPreviewScripts({
 			})
 		}
 	}
+}
+
+export type DbTableAction = {
+	action: () => void | Promise<void>
+	displayName: string
+	confirmTitle?: string
+	confirmBtnText?: string
+	icon?: any
+}
+
+export type DbTableActionFactory = (params: { tableKey: string }) => DbTableAction
+
+export function dbDeleteTableActionWithPreviewScript(): DbTableActionFactory {
+	return ({ tableKey }) => ({
+		confirmTitle: `Are you sure you want to delete '${tableKey}' ? This action is irreversible`,
+		displayName: 'Delete',
+		confirmBtnText: `Delete permanently`,
+		icon: Trash2,
+		action: () => {}
+	})
 }

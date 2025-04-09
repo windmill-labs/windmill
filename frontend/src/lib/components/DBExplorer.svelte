@@ -1,19 +1,22 @@
 <script lang="ts">
 	import { type DBSchema } from '$lib/stores'
-	import { Table2 } from 'lucide-svelte'
+	import { MoreVertical, Table2 } from 'lucide-svelte'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import { ClearableInput } from './common'
 	import { sendUserToast } from '$lib/toast'
 	import { type ColumnDef } from './apps/components/display/dbtable/utils'
 	import DBTable from './DBTable.svelte'
-	import type { IDbTableOps } from './dbOps'
+	import type { DbTableActionFactory, IDbTableOps } from './dbOps'
+	import DropdownV2 from './DropdownV2.svelte'
+	import ConfirmationModal from './common/confirmationModal/ConfirmationModal.svelte'
 
 	type Props = {
 		dbSchema: DBSchema
 		getColDefs: (tableKey: string) => Promise<ColumnDef[]>
 		dbTableOpsFactory: (params: { colDefs: ColumnDef[]; tableKey: string }) => IDbTableOps
+		dbTableActionsFactory?: DbTableActionFactory[]
 	}
-	let { dbSchema, dbTableOpsFactory, getColDefs }: Props = $props()
+	let { dbSchema, dbTableOpsFactory, getColDefs, dbTableActionsFactory }: Props = $props()
 
 	let schemaKeys = $derived(Object.keys(dbSchema.schema))
 	let search = $state('')
@@ -50,6 +53,10 @@
 	})
 
 	let tableKey = $derived(`${selected.schemaKey}.${selected.tableKey}`)
+
+	let askingForConfirmation:
+		| (ConfirmationModal['$$prop_def'] & { onConfirm: () => void })
+		| undefined = $state()
 </script>
 
 <Splitpanes>
@@ -70,12 +77,40 @@
 		<div class="overflow-x-clip relative mt-3">
 			{#each filteredTableKeys as tableKey}
 				<button
-					class={'w-full text-sm font-normal flex gap-2 items-center py-2 cursor-pointer px-3 ' +
+					class={'w-full text-sm font-normal flex gap-2 items-center h-10 cursor-pointer pl-3 pr-1 ' +
 						(selected.tableKey === tableKey ? 'bg-gray-500/25' : 'hover:bg-gray-500/10')}
 					onclick={() => (selected.tableKey = tableKey)}
 				>
 					<Table2 class="text-gray-500/40 shrink-0" size={16} />
-					<p class="truncate text-ellipsis">{tableKey}</p>
+					<p class="truncate text-ellipsis grow text-left">{tableKey}</p>
+					{#if dbTableActionsFactory}
+						{@const dbTableActions = dbTableActionsFactory.map((f) => f({ tableKey }))}
+						<DropdownV2
+							items={dbTableActions.map((tableAction) => ({
+								displayName: tableAction.displayName,
+								...(tableAction.icon ? { icon: tableAction.icon } : {}),
+								action: () =>
+									(askingForConfirmation = {
+										title: tableAction.confirmTitle ?? 'Are you sure ?',
+										confirmationText: tableAction.confirmBtnText ?? 'Confirm',
+										open: true,
+										onConfirm: async () => {
+											askingForConfirmation && (askingForConfirmation.loading = true)
+											await tableAction.action()
+											askingForConfirmation = undefined
+										}
+									})
+							}))}
+							class="w-fit"
+						>
+							<svelte:fragment slot="buttonReplacement">
+								<MoreVertical
+									size={8}
+									class="w-8 h-8 p-2 hover:bg-surface-hover cursor-pointer rounded-md"
+								/>
+							</svelte:fragment>
+						</DropdownV2>
+					{/if}
 				</button>
 			{/each}
 		</div>
@@ -89,3 +124,9 @@
 		{/await}
 	</Pane>
 </Splitpanes>
+
+<ConfirmationModal
+	{...askingForConfirmation ?? { confirmationText: '', title: '' }}
+	on:canceled={() => (askingForConfirmation = undefined)}
+	on:confirmed={askingForConfirmation?.onConfirm ?? (() => {})}
+/>
