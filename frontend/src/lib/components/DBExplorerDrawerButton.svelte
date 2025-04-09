@@ -4,7 +4,7 @@
 	import Drawer from './common/drawer/Drawer.svelte'
 	import DrawerContent from './common/drawer/DrawerContent.svelte'
 	import { sendUserToast } from '$lib/utils'
-	import { Loader2, RefreshCcw } from 'lucide-svelte'
+	import { Expand, Loader2, Minimize, RefreshCcw } from 'lucide-svelte'
 	import {
 		getDbSchemas,
 		loadTableMetaData,
@@ -39,6 +39,8 @@
 		if (refreshing) getSchema()
 	})
 
+	let expand = $state(false)
+
 	async function getSchema() {
 		if ($dbSchemas[resourcePath] && !refreshing) return
 		try {
@@ -66,7 +68,11 @@
 			getSchema()
 		}
 	})
+
+	let windowWidth = $state(window.innerWidth)
 </script>
+
+<svelte:window bind:innerWidth={windowWidth} />
 
 {#if !dbSchema || !$workspaceStore}
 	<Loader2 size={14} class="animate-spin" />
@@ -85,12 +91,22 @@
 	>
 		Explore database
 	</Button>
-	<Drawer bind:this={drawerRef} size={mode === 'db-explorer' ? '1320px' : '500px'}>
+	<Drawer
+		bind:this={drawerRef}
+		size={(
+			{
+				'db-explorer': expand ? `${windowWidth}px` : '1200px',
+				'schema-explorer': '500px'
+			} satisfies Record<typeof mode, `${number}px`>
+		)[mode]}
+	>
 		<DrawerContent
-			title={{
-				'db-explorer': 'Database Explorer',
-				'schema-explorer': 'Schema Explorer'
-			}[mode]}
+			title={(
+				{
+					'db-explorer': 'Database Explorer',
+					'schema-explorer': 'Schema Explorer'
+				} satisfies Record<typeof mode, string>
+			)[mode]}
 			on:close={drawerRef.closeDrawer}
 			noPadding={mode === 'db-explorer'}
 		>
@@ -149,6 +165,15 @@
 				>
 					Refresh
 				</Button>
+
+				{#if mode === 'db-explorer'}
+					<Button
+						on:click={() => (expand = !expand)}
+						startIcon={{ icon: expand ? Minimize : Expand }}
+						size="xs"
+						color="light"
+					/>
+				{/if}
 			</svelte:fragment>
 		</DrawerContent>
 	</Drawer>
