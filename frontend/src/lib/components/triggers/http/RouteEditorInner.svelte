@@ -31,7 +31,13 @@
 	import { HubFlow } from '$lib/hub'
 	import RouteBodyTransformerOption from './RouteBodyTransformerOption.svelte'
 
-	let { useDrawer = true, hideTarget = false } = $props()
+	let {
+		useDrawer = true,
+		hideTarget = false,
+		saveDisabled = false,
+		hidePath = false,
+		editMode = false
+	} = $props()
 
 	// Form data state
 	let initialPath = $state('')
@@ -126,13 +132,14 @@
 		}
 	]
 
-	export async function openEdit(ePath: string, isFlow: boolean) {
+	export async function openEdit(ePath: string, isFlow: boolean, editMode: boolean = true) {
 		drawerLoading = true
 		try {
 			drawer?.openDrawer()
 			initialPath = ePath
 			itemKind = isFlow ? 'flow' : 'script'
 			edit = true
+			editMode = editMode
 			dirtyPath = false
 			dirtyRoutePath = false
 			await loadTrigger()
@@ -153,6 +160,7 @@
 			drawer?.openDrawer()
 			is_flow = nis_flow
 			edit = false
+			editMode = true
 			itemKind = nis_flow ? 'flow' : 'script'
 			is_async = false
 			authentication_method = 'none'
@@ -279,6 +287,19 @@
 			isValid
 		})
 	})
+
+	$effect(() => {
+		saveDisabled =
+			drawerLoading ||
+			!can_write ||
+			pathError != '' ||
+			!isValid ||
+			(!static_asset_config && emptyString(script_path)) ||
+			(static_asset_config && emptyString(static_asset_config.s3)) ||
+			!can_write
+	})
+
+	$inspect(editMode)
 </script>
 
 {#if static_asset_config}
@@ -298,27 +319,29 @@
 		<Loader2 class="animate-spin" />
 	{:else}
 		<div class="flex flex-col gap-12">
-			<div class="flex flex-col gap-4">
-				<Label label="Path">
-					<Path
-						bind:dirty={dirtyPath}
-						bind:error={pathError}
-						bind:path
-						{initialPath}
-						checkInitialPathExistence={!edit}
-						namePlaceholder="route"
-						kind="http_trigger"
-						hideUser
-						disabled={!can_write}
-					/>
-				</Label>
-			</div>
+			{#if !hidePath || editMode}
+				<div class="flex flex-col gap-4">
+					<Label label="Path">
+						<Path
+							bind:dirty={dirtyPath}
+							bind:error={pathError}
+							bind:path
+							{initialPath}
+							checkInitialPathExistence={!edit}
+							namePlaceholder="route"
+							kind="http_trigger"
+							hideUser
+							disabled={!can_write || !editMode}
+						/>
+					</Label>
+				</div>
+			{/if}
 
 			{#if !hideTarget}
 				<Section label="Target">
 					{#if !isCloudHosted()}
 						<ToggleButtonGroup
-							disabled={fixedScriptPath != '' || !can_write}
+							disabled={fixedScriptPath != '' || !can_write || !editMode}
 							selected={static_asset_config
 								? is_static_website
 									? 'static_website'
@@ -365,7 +388,7 @@
 										bind:checked={s3FileUploadRawMode}
 										size="xs"
 										options={{ left: 'Existing file' }}
-										disabled={!can_write}
+										disabled={!can_write || !editMode}
 									/>
 								{/if}
 								{#if s3FileUploadRawMode}
@@ -432,14 +455,14 @@
 						<div class="flex flex-col gap-2">
 							<div class="flex flex-row mb-2">
 								<ScriptPicker
-									disabled={fixedScriptPath != '' || !can_write}
+									disabled={fixedScriptPath != '' || !can_write || !editMode}
 									initialPath={fixedScriptPath || initialScriptPath}
 									kinds={['script']}
 									allowFlow={true}
 									bind:itemKind
 									bind:scriptPath={script_path}
-									allowRefresh={can_write}
-									allowEdit={!$userStore?.operator}
+									allowRefresh={can_write && !editMode}
+									allowEdit={!$userStore?.operator && !editMode}
 								/>
 
 								{#if script_path === undefined}
@@ -466,7 +489,7 @@
 				bind:dirtyRoutePath
 				bind:http_method
 				bind:workspaced_route
-				{can_write}
+				can_write={can_write && editMode}
 				capture_mode={false}
 				bind:static_asset_config
 			/>
@@ -484,7 +507,7 @@
 											on:selected={({ detail }) => {
 												is_async = detail === 'async'
 											}}
-											disabled={!can_write || !!static_asset_config}
+											disabled={!can_write || !!static_asset_config || !editMode}
 											let:item
 										>
 											<ToggleButton
@@ -514,7 +537,7 @@
 											raw_string = true
 										}
 									}}
-									disabled={!can_write}
+									disabled={!can_write || !editMode}
 									let:item
 								>
 									{#each authentication_options as option}
@@ -539,7 +562,7 @@
 																}
 															}
 														}}
-														disabled={!can_write}
+														disabled={!can_write || !editMode}
 														let:item
 													>
 														<ToggleButton
@@ -575,6 +598,7 @@
 								<ResourcePicker
 									bind:value={authentication_resource_path}
 									resourceType={option.resource_type}
+									disabled={!can_write || !editMode}
 								/>
 							{/if}
 						{/each}
@@ -584,6 +608,7 @@
 								<ResourcePicker
 									bind:value={authentication_resource_path}
 									resourceType={'signature_auth'}
+									disabled={!can_write || !editMode}
 								/>
 							{:else if signature_options_type === 'custom_script'}
 								<p class="text-xs mt-3 mb-1 text-tertiary">
@@ -604,12 +629,13 @@
 											on:click={() => variablePicker?.openDrawer()}
 											size="xs"
 											color="dark"
+											disabled={!can_write || !editMode}
 										>
 											Pick variable
 										</Button>
 									</div>
 									<Button
-										disabled={emptyString(variable_path)}
+										disabled={emptyString(variable_path) || !can_write || !editMode}
 										color="dark"
 										size="xs"
 										href={itemKind === 'flow'
