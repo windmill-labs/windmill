@@ -9,6 +9,7 @@
 	import type { DbTableActionFactory, IDbTableOps } from './dbOps'
 	import DropdownV2 from './DropdownV2.svelte'
 	import ConfirmationModal from './common/confirmationModal/ConfirmationModal.svelte'
+	import Button from './common/button/Button.svelte'
 
 	type Props = {
 		dbSchema: DBSchema
@@ -61,7 +62,7 @@
 </script>
 
 <Splitpanes>
-	<Pane size={20}>
+	<Pane size={20} class="relative flex flex-col">
 		<div class="mx-3 mt-3">
 			<select
 				value={selected.schemaKey}
@@ -75,7 +76,7 @@
 			</select>
 			<ClearableInput wrapperClass="mt-3" bind:value={search} placeholder="Search table..." />
 		</div>
-		<div class="overflow-x-clip relative mt-3">
+		<div class="overflow-x-clip overflow-y-auto relative mt-3">
 			{#each filteredTableKeys as tableKey}
 				<button
 					class={'w-full text-sm font-normal flex gap-2 items-center h-10 cursor-pointer pl-3 pr-1 ' +
@@ -118,6 +119,7 @@
 				</button>
 			{/each}
 		</div>
+		<Button wrapperClasses="m-3">New table</Button>
 	</Pane>
 	<Pane class="p-3 pt-1">
 		{#key tableKey}
