@@ -72,61 +72,66 @@
 		</label>
 
 		<div>
-			<span class="flex items-center justify-between">
-				<!-- svelte-ignore a11y_label_has_associated_control -->
-				<label>Columns</label>
-				<Button
-					wrapperClasses="w-fit pb-1"
-					startIcon={{ icon: Plus }}
-					color="light"
-					on:click={() =>
-						values.columns.push({ name: '', type: defaultColumnType, primaryKey: false })}
-					>Add</Button
-				>
-			</span>
-			<DataTable>
-				<Head>
-					<tr>
-						<Cell head first>Name</Cell>
-						<Cell head>Type</Cell>
-						<Cell head last>Primary</Cell>
-					</tr>
-				</Head>
-				<tbody class="divide-y bg-surface">
-					{#each values.columns as column, i}
+			<!-- svelte-ignore a11y_label_has_associated_control -->
+			<label>Columns</label>
+			<div>
+				<DataTable>
+					<Head>
 						<tr>
-							<Cell first>
-								<input
-									type="text"
-									class={'h-10 ' +
-										(errors?.columns?.includes(column.name) ? 'border !border-red-600/60' : '')}
-									placeholder="column_name"
-									bind:value={column.name}
-								/>
-							</Cell>
-							<Cell>
-								<Select
-									class="!w-48"
-									value={column.type}
-									on:change={(e) => (column.type = e.detail.value)}
-									items={columnTypes}
-									clearable={false}
-								/>
-							</Cell>
-							<Cell last class="flex items-center mt-3">
-								<input type="checkbox" class="!w-4 !h-4" bind:checked={column.primaryKey} />
-								<Button
-									color="light"
-									startIcon={{ icon: X }}
-									wrapperClasses="w-fit ml-auto"
-									btnClasses="p-0"
-									on:click={() => values.columns.splice(i, 1)}
-								/>
-							</Cell>
+							<Cell head first>Name</Cell>
+							<Cell head>Type</Cell>
+							<Cell head last>Primary</Cell>
 						</tr>
-					{/each}
-				</tbody>
-			</DataTable>
+					</Head>
+					<tbody class="divide-y bg-surface">
+						{#each values.columns as column, i}
+							<tr>
+								<Cell first>
+									<input
+										type="text"
+										class={'h-10 ' +
+											(errors?.columns?.includes(column.name) ? 'border !border-red-600/60' : '')}
+										placeholder="column_name"
+										bind:value={column.name}
+									/>
+								</Cell>
+								<Cell>
+									<Select
+										class="!w-48"
+										value={column.type}
+										on:change={(e) => (column.type = e.detail.value)}
+										items={columnTypes}
+										clearable={false}
+									/>
+								</Cell>
+								<Cell last class="flex items-center mt-3">
+									<input type="checkbox" class="!w-4 !h-4" bind:checked={column.primaryKey} />
+									<Button
+										color="light"
+										startIcon={{ icon: X }}
+										wrapperClasses="w-fit ml-auto"
+										btnClasses="p-0"
+										on:click={() => values.columns.splice(i, 1)}
+									/>
+								</Cell>
+							</tr>
+						{/each}
+						<tr class="w-full">
+							<td colspan={99} class="p-1">
+								<Button
+									wrapperClasses="mx-auto"
+									startIcon={{ icon: Plus }}
+									color="light"
+									on:click={() =>
+										values.columns.push({ name: '', type: defaultColumnType, primaryKey: false })}
+								>
+									Add
+								</Button>
+							</td>
+						</tr>
+					</tbody>
+				</DataTable>
+			</div>
 		</div>
 	</div>
 	<Button disabled={!!errors} on:click={() => onConfirm(values)}>Create table</Button>
