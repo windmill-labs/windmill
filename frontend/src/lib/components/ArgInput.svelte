@@ -547,7 +547,14 @@
 								ulOptionsClass={'p-2 !bg-surface-secondary'}
 								outerDivClass={'dark:!border-gray-500 !border-gray-300'}
 								{disabled}
-								bind:selected={value}
+								bind:selected={
+									() => [...value],
+									(v) => {
+										if (!deepEqual(v, value)) {
+											value = v
+										}
+									}
+								}
 								options={itemsType?.enum ?? []}
 								selectedOptionsDraggable={true}
 								on:open={() => {
