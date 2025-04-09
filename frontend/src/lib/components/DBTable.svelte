@@ -81,7 +81,8 @@
 				suppressDragLeaveHidesColumns: true,
 				onGridReady: (e) => {
 					api = e.api
-				}
+				},
+				autoSizeStrategy: { type: 'fitCellContents' }
 			})
 		}
 	}

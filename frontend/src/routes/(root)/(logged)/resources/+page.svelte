@@ -60,7 +60,7 @@
 	import EditableSchemaWrapper from '$lib/components/schema/EditableSchemaWrapper.svelte'
 	import ResourceEditorDrawer from '$lib/components/ResourceEditorDrawer.svelte'
 	import GfmMarkdown from '$lib/components/GfmMarkdown.svelte'
-	import DbExplorerDrawerButton from '$lib/components/DBExplorerDrawerButton.svelte'
+	import DbManagerDrawerButton from '$lib/components/DBManagerDrawerButton.svelte'
 	import { isDbType } from '$lib/components/apps/components/display/dbtable/utils'
 
 	type ResourceW = ListableResource & { canWrite: boolean; marked?: string }
@@ -855,7 +855,7 @@
 										</Cell>
 										<Cell class="flex justify-end">
 											{#if path && isDbType(resource_type)}
-												<DbExplorerDrawerButton
+												<DbManagerDrawerButton
 													resourcePath={path}
 													resourceType={resource_type}
 													class="mr-8"

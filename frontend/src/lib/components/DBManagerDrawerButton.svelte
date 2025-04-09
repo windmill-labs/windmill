@@ -11,7 +11,7 @@
 		scripts,
 		type DbType
 	} from './apps/components/display/dbtable/utils'
-	import DbExplorer from './DBExplorer.svelte'
+	import DbManager from './DBManager.svelte'
 	import { Alert } from './common'
 	import DbSchemaExplorer from './DBSchemaExplorer.svelte'
 	import { dbDeleteTableActionWithPreviewScript, dbTableOpsWithPreviewScripts } from './dbOps'
@@ -28,7 +28,7 @@
 		resourcePath in $dbSchemas ? $dbSchemas[resourcePath] : undefined
 	)
 	let drawerRef: Drawer | undefined = $state()
-	let mode: 'db-explorer' | 'schema-explorer' = $state('db-explorer')
+	let mode: 'db-manager' | 'schema-explorer' = $state('db-manager')
 
 	let shouldDisplayError = $derived(
 		resourcePath && resourcePath in $dbSchemas && !$dbSchemas[resourcePath]
@@ -89,13 +89,13 @@
 		btnClasses={'mt-1 w-fit ' + className}
 		on:click={drawerRef?.openDrawer ?? (() => {})}
 	>
-		Explore database
+		Manage database
 	</Button>
 	<Drawer
 		bind:this={drawerRef}
 		size={(
 			{
-				'db-explorer': expand ? `${windowWidth}px` : '1200px',
+				'db-manager': expand ? `${windowWidth}px` : '1200px',
 				'schema-explorer': '500px'
 			} satisfies Record<typeof mode, `${number}px`>
 		)[mode]}
@@ -103,19 +103,19 @@
 		<DrawerContent
 			title={(
 				{
-					'db-explorer': 'Database Explorer',
+					'db-manager': 'Database Manager',
 					'schema-explorer': 'Schema Explorer'
 				} satisfies Record<typeof mode, string>
 			)[mode]}
 			on:close={drawerRef.closeDrawer}
-			noPadding={mode === 'db-explorer'}
+			noPadding={mode === 'db-manager'}
 		>
 			{#if refreshing}
 				<div class="h-full flex justify-center items-center">
 					<Loader2 size={24} class="animate-spin" />
 				</div>
-			{:else if mode === 'db-explorer'}
-				<DbExplorer
+			{:else if mode === 'db-manager'}
+				<DbManager
 					{dbSchema}
 					getColDefs={async (tableKey) =>
 						(await loadTableMetaData(
@@ -151,9 +151,9 @@
 					btnClasses="!font-normal hover:text-primary text-primary/70"
 					size="xs"
 					color="light"
-					on:click={() => (mode = mode === 'db-explorer' ? 'schema-explorer' : 'db-explorer')}
+					on:click={() => (mode = mode === 'db-manager' ? 'schema-explorer' : 'db-manager')}
 				>
-					{mode === 'db-explorer' ? 'Explore schema' : 'Explore database'}
+					{mode === 'db-manager' ? 'Explore schema' : 'Manage database'}
 				</Button>
 
 				<Button
@@ -166,7 +166,7 @@
 					Refresh
 				</Button>
 
-				{#if mode === 'db-explorer'}
+				{#if mode === 'db-manager'}
 					<Button
 						on:click={() => (expand = !expand)}
 						startIcon={{ icon: expand ? Minimize : Expand }}

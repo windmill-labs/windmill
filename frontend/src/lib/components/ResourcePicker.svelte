@@ -8,7 +8,7 @@
 	import ResourceEditorDrawer from './ResourceEditorDrawer.svelte'
 
 	import { Button } from './common'
-	import DBExplorerDrawerButton from './DBExplorerDrawerButton.svelte'
+	import DBManagerDrawerButton from './DBManagerDrawerButton.svelte'
 	import DarkModeObserver from './DarkModeObserver.svelte'
 	import { Pen, Plus, RotateCw } from 'lucide-svelte'
 	import { sendUserToast } from '$lib/toast'
@@ -221,6 +221,6 @@
 		/>
 	</div>
 	{#if showSchemaExplorer && isDbType(resourceType) && value}
-		<DBExplorerDrawerButton {resourceType} resourcePath={value} />
+		<DBManagerDrawerButton {resourceType} resourcePath={value} />
 	{/if}
 </div>
