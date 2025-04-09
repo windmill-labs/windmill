@@ -1093,8 +1093,6 @@ pub async fn run_worker(
             killpill_tx.send();
             tracing::error!(worker = %worker_name, hostname = %hostname, "Error queuing init bash script for worker {worker_name}: {e:#}");
             return;
-        } else {
-            tracing::error!("Sent init job");
         }
     }
 
