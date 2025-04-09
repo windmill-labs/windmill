@@ -63,6 +63,7 @@
 					<!-- Right Pane - Trigger Configuration -->
 					<div class="flex-grow overflow-auto px-2">
 						<!-- Trigger configuration will go here -->
+						<!-- TODO: Update triggersWrapper here -->
 						{#if selectedTrigger}
 							{#if selectedTrigger.type === 'http'}
 								<RouteEditorWrapper
