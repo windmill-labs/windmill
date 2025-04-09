@@ -11,7 +11,6 @@ import { makeDeleteQuery } from './apps/components/display/dbtable/queries/delet
 import { makeInsertQuery } from './apps/components/display/dbtable/queries/insert'
 import { Trash2 } from 'lucide-svelte'
 import { makeDeleteTableQuery } from './apps/components/display/dbtable/queries/deleteTable'
-import { sendUserToast } from '$lib/toast'
 
 export type IDbTableOps = {
 	resourcePath: string
@@ -133,6 +132,7 @@ export type DbTableAction = {
 	confirmTitle?: string
 	confirmBtnText?: string
 	icon?: any
+	successText?: string
 }
 
 export type DbTableActionFactory = (params: {
@@ -154,22 +154,18 @@ export function dbDeleteTableActionWithPreviewScript({
 		displayName: 'Delete',
 		confirmBtnText: `Delete permanently`,
 		icon: Trash2,
+		successText: `Table '${tableKey}' deleted successfully`,
 		action: async () => {
 			const deleteQuery = makeDeleteTableQuery(tableKey, resourceType)
-			try {
-				await runPreviewJobAndPollResult({
-					workspace,
-					requestBody: {
-						args: { database: '$res:' + resourcePath },
-						language: getLanguageByResourceType(resourceType),
-						content: deleteQuery
-					}
-				})
-				sendUserToast(`Table '${tableKey}' deleted successfully`)
-				refresh()
-			} catch (e) {
-				sendUserToast((e as Error).message, true)
-			}
+			await runPreviewJobAndPollResult({
+				workspace,
+				requestBody: {
+					args: { database: '$res:' + resourcePath },
+					language: getLanguageByResourceType(resourceType),
+					content: deleteQuery
+				}
+			})
+			refresh()
 		}
 	})
 }

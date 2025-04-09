@@ -101,7 +101,14 @@
 											open: true,
 											onConfirm: async () => {
 												askingForConfirmation && (askingForConfirmation.loading = true)
-												await tableAction.action()
+												try {
+													await tableAction.action()
+													tableAction.successText && sendUserToast(tableAction.successText)
+												} catch (e) {
+													let msg: string | undefined = (e as Error).message
+													if (typeof msg !== 'string') msg = e ? JSON.stringify(e) : undefined
+													sendUserToast(msg ?? 'Action failed!', true)
+												}
 												askingForConfirmation = undefined
 											}
 										})
