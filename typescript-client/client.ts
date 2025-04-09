@@ -772,7 +772,7 @@ export async function writeS3File(
 }
 
 /**
- * Sign S3 objects to be used by anonmous users in public apps
+ * Sign S3 objects to be used by anonymous users in public apps
  * @param s3objects s3 objects to sign
  * @returns signed s3 tokens
  */
