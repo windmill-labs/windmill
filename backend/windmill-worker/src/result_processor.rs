@@ -2,7 +2,7 @@
 use opentelemetry::trace::FutureExt;
 
 use serde::Serialize;
-use sqlx::{types::Json, Pool, Postgres};
+use sqlx::types::Json;
 use std::{
     collections::HashMap,
     sync::{
@@ -21,35 +21,105 @@ use windmill_common::{
     error::{self, Error},
     jobs::JobKind,
     utils::WarnAfterExt,
-    worker::{to_raw_value, WORKER_GROUP},
+    worker::{to_raw_value, Connection, WORKER_GROUP},
     KillpillSender, DB,
 };
 
 #[cfg(feature = "benchmark")]
 use crate::bench::{BenchmarkInfo, BenchmarkIter};
 
-use windmill_queue::{append_logs, get_queued_job, CanceledBy, MiniPulledJob, WrappedError};
+use windmill_queue::{
+    append_logs, get_queued_job, CanceledBy, JobCompleted, MiniPulledJob, WrappedError,
+};
 
 use serde_json::{json, value::RawValue};
 
-use tokio::{
-    sync::mpsc::{Receiver, Sender},
-    task::JoinHandle,
-};
+use tokio::{sync::mpsc::Receiver, task::JoinHandle};
 
 use windmill_queue::{add_completed_job, add_completed_job_error};
 
 use crate::{
     bash_executor::ANSI_ESCAPE_RE,
-    common::{read_result, save_in_cache},
+    common::{error_to_value, read_result, save_in_cache},
     otel_ee::add_root_flow_job_to_otlp,
     worker_flow::update_flow_status_after_job_completion,
-    AuthedClient, JobCompleted, JobCompletedSender, SameWorkerSender, SendResult, INIT_SCRIPT_TAG,
+    AuthedClient, JobCompletedSender, SameWorkerSender, SendResult, INIT_SCRIPT_TAG,
 };
+
+async fn process_jc(
+    jc: JobCompleted,
+    worker_name: &str,
+    base_internal_url: &str,
+    db: &DB,
+    worker_dir: &str,
+    same_worker_tx: &SameWorkerSender,
+    job_completed_sender: &JobCompletedSender,
+    #[cfg(feature = "benchmark")] bench: &mut BenchmarkIter,
+) {
+    let success: bool = jc.success;
+
+    let span = tracing::span!(
+        tracing::Level::INFO,
+        "job_postprocessing",
+        job_id = %jc.job.id, root_job = field::Empty, workspace_id = %jc.job.workspace_id,  worker = %worker_name,tag = %jc.job.tag,
+        // hostname = %hostname,
+        language = field::Empty,
+        script_path = field::Empty,
+        flow_step_id = field::Empty,
+        parent_job = field::Empty,
+        otel.name = field::Empty
+    );
+    let rj = if let Some(root_job) = jc.job.flow_innermost_root_job {
+        root_job
+    } else {
+        jc.job.id
+    };
+    windmill_common::otel_ee::set_span_parent(&span, &rj);
+
+    if let Some(lg) = jc.job.script_lang.as_ref() {
+        span.record("language", lg.as_str());
+    }
+    if let Some(step_id) = jc.job.flow_step_id.as_ref() {
+        span.record(
+            "otel.name",
+            format!("job_postprocessing {}", step_id).as_str(),
+        );
+        span.record("flow_step_id", step_id.as_str());
+    } else {
+        span.record("otel.name", "job postprocessing");
+    }
+    if let Some(parent_job) = jc.job.parent_job.as_ref() {
+        span.record("parent_job", parent_job.to_string().as_str());
+    }
+    if let Some(script_path) = jc.job.runnable_path.as_ref() {
+        span.record("script_path", script_path.as_str());
+    }
+    if let Some(root_job) = jc.job.flow_innermost_root_job.as_ref() {
+        span.record("root_job", root_job.to_string().as_str());
+    }
+
+    let root_job = handle_receive_completed_job(
+        jc,
+        &base_internal_url,
+        &db,
+        &worker_dir,
+        &same_worker_tx,
+        &worker_name,
+        job_completed_sender.clone(),
+        #[cfg(feature = "benchmark")]
+        bench,
+    )
+    .instrument(span)
+    .await;
+
+    if let Some(root_job) = root_job {
+        add_root_flow_job_to_otlp(&root_job, success);
+    }
+}
 
 pub fn start_background_processor(
     mut job_completed_rx: Receiver<SendResult>,
-    job_completed_sender: Sender<SendResult>,
+    job_completed_sender: JobCompletedSender,
     same_worker_queue_size: Arc<AtomicU16>,
     job_completed_processor_is_done: Arc<AtomicBool>,
     base_internal_url: String,
@@ -86,65 +156,18 @@ pub fn start_background_processor(
                         JobKind::Dependencies | JobKind::FlowDependencies
                     );
 
-                    let success = jc.success;
-
-                    let span = tracing::span!(
-                        tracing::Level::INFO,
-                        "job_postprocessing",
-                        job_id = %jc.job.id, root_job = field::Empty, workspace_id = %jc.job.workspace_id,  worker = %worker_name,tag = %jc.job.tag,
-                        // hostname = %hostname,
-                        language = field::Empty,
-                        script_path = field::Empty,
-                        flow_step_id = field::Empty,
-                        parent_job = field::Empty,
-                        otel.name = field::Empty
-                    );
-                    let rj = if let Some(root_job) = jc.job.flow_innermost_root_job {
-                        root_job
-                    } else {
-                        jc.job.id
-                    };
-                    windmill_common::otel_ee::set_span_parent(&span, &rj);
-
-                    if let Some(lg) = jc.job.script_lang.as_ref() {
-                        span.record("language", lg.as_str());
-                    }
-                    if let Some(step_id) = jc.job.flow_step_id.as_ref() {
-                        span.record(
-                            "otel.name",
-                            format!("job_postprocessing {}", step_id).as_str(),
-                        );
-                        span.record("flow_step_id", step_id.as_str());
-                    } else {
-                        span.record("otel.name", "job postprocessing");
-                    }
-                    if let Some(parent_job) = jc.job.parent_job.as_ref() {
-                        span.record("parent_job", parent_job.to_string().as_str());
-                    }
-                    if let Some(script_path) = jc.job.runnable_path.as_ref() {
-                        span.record("script_path", script_path.as_str());
-                    }
-                    if let Some(root_job) = jc.job.flow_innermost_root_job.as_ref() {
-                        span.record("root_job", root_job.to_string().as_str());
-                    }
-
-                    let root_job = handle_receive_completed_job(
+                    process_jc(
                         jc,
+                        &worker_name,
                         &base_internal_url,
                         &db,
                         &worker_dir,
                         &same_worker_tx,
-                        &worker_name,
-                        job_completed_sender.clone(),
+                        &job_completed_sender,
                         #[cfg(feature = "benchmark")]
                         &mut bench,
                     )
-                    .instrument(span)
                     .await;
-
-                    if let Some(root_job) = root_job {
-                        add_root_flow_job_to_otlp(&root_job, success);
-                    }
 
                     if is_init_script_and_failure {
                         tracing::error!("init script errored, exiting");
@@ -250,7 +273,7 @@ async fn send_job_completed(
         duration,
     };
     job_completed_tx
-        .send(jc)
+        .send_job(jc)
         .with_context(windmill_common::otel_ee::otel_ctx())
         .await
         .expect("send job completed")
@@ -267,20 +290,22 @@ pub async fn process_result(
     token: &str,
     column_order: Option<Vec<String>>,
     new_args: Option<HashMap<String, Box<RawValue>>>,
-    db: &DB,
+    conn: &Connection,
     duration: Option<i64>,
 ) -> error::Result<bool> {
     match result {
         Ok(r) => {
             // Update script args to preprocessed args
-            if let Some(preprocessed_args) = new_args {
-                sqlx::query!(
-                    "UPDATE v2_job SET args = $1, preprocessed = TRUE WHERE id = $2",
-                    Json(preprocessed_args) as Json<HashMap<String, Box<RawValue>>>,
-                    job.id
-                )
-                .execute(db)
-                .await?;
+            if let Connection::Sql(db) = conn {
+                if let Some(preprocessed_args) = new_args {
+                    sqlx::query!(
+                        "UPDATE v2_job SET args = $1, preprocessed = TRUE WHERE id = $2",
+                        Json(preprocessed_args) as Json<HashMap<String, Box<RawValue>>>,
+                        job.id
+                    )
+                    .execute(db)
+                    .await?;
+                }
             }
 
             send_job_completed(
@@ -307,18 +332,30 @@ pub async fn process_result(
                     if res.as_ref().is_some_and(|x| !x.get().is_empty()) {
                         res.unwrap()
                     } else {
-                        let last_10_log_lines = sqlx::query_scalar!(
+                        match conn {
+                            Connection::Sql(db) => {
+                                let last_10_log_lines = sqlx::query_scalar!(
                             "SELECT right(logs, 600) FROM job_logs WHERE job_id = $1 AND workspace_id = $2 ORDER BY created_at DESC LIMIT 1",
                             &job.id,
                             &job.workspace_id
                         ).fetch_one(db).await.ok().flatten().unwrap_or("".to_string());
 
-                        let log_lines = last_10_log_lines
-                            .split("CODE EXECUTION ---")
-                            .last()
-                            .unwrap_or(&last_10_log_lines);
+                                let log_lines = last_10_log_lines
+                                    .split("CODE EXECUTION ---")
+                                    .last()
+                                    .unwrap_or(&last_10_log_lines);
 
-                        extract_error_value(&program, log_lines, i, job.flow_step_id.clone())
+                                extract_error_value(
+                                    &program,
+                                    log_lines,
+                                    i,
+                                    job.flow_step_id.clone(),
+                                )
+                            }
+                            Connection::Http(_) => {
+                                to_raw_value(&"See logs for more details".to_string())
+                            }
+                        }
                     }
                 }
                 err @ _ => to_raw_value(&SerializedError {
@@ -355,7 +392,7 @@ pub async fn handle_receive_completed_job(
     worker_dir: &str,
     same_worker_tx: &SameWorkerSender,
     worker_name: &str,
-    job_completed_tx: Sender<SendResult>,
+    job_completed_tx: JobCompletedSender,
     #[cfg(feature = "benchmark")] bench: &mut BenchmarkIter,
 ) -> Option<Arc<MiniPulledJob>> {
     let token = jc.token.clone();
@@ -422,7 +459,7 @@ pub async fn process_completed_job(
     worker_dir: &str,
     same_worker_tx: SameWorkerSender,
     worker_name: &str,
-    job_completed_tx: Sender<SendResult>,
+    job_completed_tx: JobCompletedSender,
     #[cfg(feature = "benchmark")] bench: &mut BenchmarkIter,
 ) -> error::Result<Option<Arc<MiniPulledJob>>> {
     if success {
@@ -543,7 +580,7 @@ pub async fn process_completed_job(
 
 #[tracing::instrument(name = "job_error", level = "info", skip_all, fields(job_id = %job.id))]
 pub async fn handle_job_error(
-    db: &Pool<Postgres>,
+    db: &DB,
     client: &AuthedClient,
     job: &MiniPulledJob,
     mem_peak: i32,
@@ -553,20 +590,17 @@ pub async fn handle_job_error(
     same_worker_tx: SameWorkerSender,
     worker_dir: &str,
     worker_name: &str,
-    job_completed_tx: Sender<SendResult>,
+    job_completed_tx: JobCompletedSender,
     #[cfg(feature = "benchmark")] bench: &mut BenchmarkIter,
 ) {
-    let err = match err {
-        Error::JsonErr(err) => err,
-        _ => json!({"message": err.to_string(), "name": "InternalErr"}),
-    };
+    let err = error_to_value(err);
 
     let update_job_future = || async {
         append_logs(
             &job.id,
             &job.workspace_id,
             format!("Unexpected error during job execution:\n{err:#?}"),
-            db,
+            &db.into(),
         )
         .await;
         add_completed_job_error(
@@ -626,7 +660,7 @@ pub async fn handle_job_error(
                         &parent_job.id,
                         &job.workspace_id,
                         format!("Unexpected error during flow job error handling:\n{err}"),
-                        db,
+                        &db.into(),
                     )
                     .await;
                     let _ = add_completed_job_error(
