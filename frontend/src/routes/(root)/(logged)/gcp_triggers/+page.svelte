@@ -126,7 +126,8 @@
 	let deleteSubscription = false
 	let deleteSubscriptionCallback: (() => Promise<void>) | undefined = undefined
 	let deleteGcpTriggerCallback: (() => Promise<void>) | undefined = undefined
-
+	let subscriptionToDelete = ''
+	let currentTopic = ''
 	const TRIGGER_PATH_KIND_FILTER_SETTING = 'filter_path_of'
 	const FILTER_USER_FOLDER_SETTING_NAME = 'user_and_folders_only'
 	let selectedFilterKind =
@@ -224,12 +225,11 @@
 
 <ConfirmationModal
 	open={Boolean(deleteGcpTriggerCallback)}
-	title="Delete associated GCP Pub/Sub subscription"
+	title="Delete GCP Pub/Sub trigger"
 	confirmationText="Remove"
 	loading={isDeleting}
 	on:canceled={() => {
 		isDeleting = false
-		deleteSubscriptionCallback = undefined
 		deleteGcpTriggerCallback = undefined
 	}}
 	on:confirmed={async () => {
@@ -239,14 +239,13 @@
 				try {
 					await deleteSubscriptionCallback()
 				} catch (error) {
+					isDeleting = false
 					sendUserToast(error.body || error.message, true)
+					return
 				}
 			}
 			await deleteGcpTriggerCallback()
 		}
-		isDeleting = false
-		deleteSubscription = false
-		deleteSubscriptionCallback = undefined
 		deleteGcpTriggerCallback = undefined
 	}}
 >
@@ -255,7 +254,7 @@
 
 		<Toggle
 			options={{
-				left: 'Delete the associated Google Pub/Sub subscription?'
+				left: `Also delete the Google Pub/Sub subscription "${subscriptionToDelete}" that is subscribed to the topic "${currentTopic}"?`
 			}}
 			bind:checked={deleteSubscription}
 		/>
@@ -286,12 +285,7 @@
 	{/if}
 	<div class="w-full h-full flex flex-col">
 		<div class="w-full pb-4 pt-6">
-			<input
-				type="text"
-				placeholder="Search triggers"
-				bind:value={filter}
-				class="search-item"
-			/>
+			<input type="text" placeholder="Search triggers" bind:value={filter} class="search-item" />
 			<div class="flex flex-row items-center gap-2 mt-6">
 				<div class="text-sm shrink-0"> Filter by path of </div>
 				<ToggleButtonGroup bind:selected={selectedFilterKind} let:item>
@@ -444,27 +438,27 @@
 											icon: Trash,
 											disabled: !canWrite,
 											action: async () => {
-												try {
-													deleteSubscriptionCallback = async () => {
-														const message = await GcpTriggerService.deleteGcpSubscription({
-															workspace: $workspaceStore ?? '',
-															path: gcp_resource_path,
-															requestBody: {
-																subscription_id
-															}
-														})
-														sendUserToast(message)
-													}
-													deleteGcpTriggerCallback = async () => {
-														const message = await GcpTriggerService.deleteGcpTrigger({
-															workspace: $workspaceStore ?? '',
-															path
-														})
-														sendUserToast(message)
-														loadTriggers()
-													}
-												} catch (error) {
-													sendUserToast(error.body, true)
+												isDeleting = false
+												deleteSubscription = false
+												subscriptionToDelete = subscription_id
+												currentTopic = topic_id
+												deleteSubscriptionCallback = async () => {
+													const message = await GcpTriggerService.deleteGcpSubscription({
+														workspace: $workspaceStore ?? '',
+														path: gcp_resource_path,
+														requestBody: {
+															subscription_id
+														}
+													})
+													sendUserToast(message)
+												}
+												deleteGcpTriggerCallback = async () => {
+													const message = await GcpTriggerService.deleteGcpTrigger({
+														workspace: $workspaceStore ?? '',
+														path
+													})
+													sendUserToast(message)
+													loadTriggers()
 												}
 											}
 										},
