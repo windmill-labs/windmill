@@ -1607,10 +1607,7 @@ async fn sign_s3_objects(
 }
 
 #[cfg(not(feature = "parquet"))]
-async fn sign_s3_objects(
-    authed: ApiAuthed,
-    Json(body): Json<S3TokenRequestBody>,
-) -> Result<Json<Vec<String>>> {
+async fn sign_s3_objects() -> Result<()> {
     return Err(Error::BadRequest(
         "This endpoint requires the parquet feature to be enabled".to_string(),
     ));
