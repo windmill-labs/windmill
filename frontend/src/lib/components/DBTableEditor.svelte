@@ -1,8 +1,9 @@
 <script lang="ts" module>
 	function validate(values: Values) {
-		const columnNamesErrs = values.columns.flatMap((column) =>
-			column.name.length ? [] : [column.name]
-		)
+		const columnNamesErrs = values.columns.flatMap((column) => {
+			const isUnique = values.columns.filter((c) => c.name === column.name).length === 1
+			return !column.name.length || !isUnique ? [column.name] : []
+		})
 		const errs = {
 			name: !values.name.length,
 			columns: columnNamesErrs.length ? columnNamesErrs : undefined
