@@ -64,7 +64,7 @@ export async function loadSchedules(
 						cron: primary.schedule,
 						timezone: primary.timezone,
 						enabled: primary.enabled
-				  }
+					}
 				: false
 		}
 		primarySchedule.update((ps) => (ps === undefined || forceRefresh ? remotePrimarySchedule : ps))

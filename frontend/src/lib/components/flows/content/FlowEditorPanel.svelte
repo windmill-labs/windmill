@@ -25,7 +25,7 @@
 		  })
 		| undefined = undefined
 
-	const useV2 = true //Only for dev
+	const useV2 = false //Only for dev
 
 	const {
 		selectedId,

@@ -1,18 +1,18 @@
 <script lang="ts">
-	import ScheduleEditor from './ScheduleEditor.svelte'
-	import { Button } from './common'
+	import ScheduleEditor from '$lib/components/ScheduleEditor.svelte'
+	import { Button } from '$lib/components/common'
 	import { workspaceStore } from '$lib/stores'
 	import { ScheduleService, type Schedule } from '$lib/gen'
 	import { Calendar, Trash, Save } from 'lucide-svelte'
-	import Skeleton from './common/skeleton/Skeleton.svelte'
+	import Skeleton from '$lib/components/common/skeleton/Skeleton.svelte'
 	import Label from '$lib/components/Label.svelte'
 	import { getContext } from 'svelte'
-	import type { ScheduleTrigger, TriggerContext } from './triggers'
-	import CronInput from './CronInput.svelte'
-	import SchemaForm from './SchemaForm.svelte'
+	import type { ScheduleTrigger, TriggerContext } from '$lib/components/triggers'
+	import CronInput from '$lib/components/CronInput.svelte'
+	import SchemaForm from '$lib/components/SchemaForm.svelte'
 	import { emptyString, sendUserToast } from '$lib/utils'
-	import Toggle from './Toggle.svelte'
-	import { loadSchedules, saveSchedule } from './flows/scheduleUtils'
+	import Toggle from '$lib/components/Toggle.svelte'
+	import { loadSchedules, saveSchedule } from '$lib/components/flows/scheduleUtils'
 	import { type Writable, writable } from 'svelte/store'
 	import Description from '$lib/components/Description.svelte'
 
@@ -50,11 +50,7 @@
 		updateSchedules(true)
 	}
 
-	$: console.log(
-		'dbg primarySchedule, initialPrimarySchedule',
-		$primarySchedule,
-		$initialPrimarySchedule
-	)
+	$: console.log('dbg newItem', newItem, path)
 </script>
 
 <div class="flex flex-col gap-4 w-full">
@@ -149,7 +145,7 @@
 			<p class="text-xs text-tertiary mt-10">Define a schedule frequency first</p>
 		{/if}
 
-		{#if $initialPrimarySchedule && !newItem}
+		{#if $initialPrimarySchedule != false}
 			<div class="flex">
 				<Button size="xs" color="light" on:click={() => scheduleEditor?.openEdit(path, isFlow)}
 					>Advanced</Button
@@ -204,48 +200,5 @@
 		<CronInput schedule={''} disabled timezone={Intl.DateTimeFormat().resolvedOptions().timeZone} />
 
 		<SchemaForm disabled {schema} />
-	{/if}
-
-	{#if !newItem}
-		<div class="mt-10"></div>
-		{#if $primarySchedule}
-			<Button
-				on:click={() => scheduleEditor?.openNew(isFlow, path)}
-				variant="border"
-				color="light"
-				size="xs"
-				startIcon={{ icon: Calendar }}
-			>
-				New schedule
-			</Button>
-		{/if}
-
-		<Label label="Other schedules">
-			{#if $schedules}
-				{#if $schedules.length == 0 || $schedules == undefined}
-					<div class="text-xs text-tertiary"> No other schedules </div>
-				{:else}
-					<div class="flex flex-col divide-y">
-						{#each $schedules as schedule (schedule.path)}
-							<div class="grid grid-cols-6 text-xs items-center py-2">
-								<div class="col-span-3 truncate">{schedule.path}</div>
-								<div class="col-span-2 flex flex-row gap-4 flex-nowrap">
-									<div>{schedule.schedule}</div>
-									<div>{schedule.enabled ? 'on' : 'off'}</div>
-								</div>
-								<div class="flex justify-end">
-									<button
-										on:click={() => scheduleEditor?.openEdit(schedule.path, isFlow)}
-										class="px-2">Edit</button
-									>
-								</div>
-							</div>
-						{/each}
-					</div>
-				{/if}
-			{:else}
-				<Skeleton layout={[[8]]} />
-			{/if}
-		</Label>
 	{/if}
 </div>

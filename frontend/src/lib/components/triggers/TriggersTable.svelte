@@ -1,6 +1,6 @@
 <script lang="ts">
 	import DataTable from '$lib/components/table/DataTable.svelte'
-	import { createEventDispatcher } from 'svelte'
+	import { createEventDispatcher, getContext } from 'svelte'
 	import DropdownV2 from '$lib/components/DropdownV2.svelte'
 	import Button from '$lib/components/common/button/Button.svelte'
 	import { Plus, Star, Loader2 } from 'lucide-svelte'
@@ -22,6 +22,8 @@
 	} from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { triggerIconMap, type Trigger, type TriggerType } from './utils'
+	import type { TriggerContext } from '$lib/components/triggers'
+
 	// Props
 	export let path: string
 	export let isFlow: boolean = false
@@ -30,6 +32,9 @@
 	// Component state
 	let triggers: Trigger[] = []
 	let loading = false
+	let primaryScheduleExists = false
+
+	const { primarySchedule } = getContext<TriggerContext>('TriggerContext')
 
 	// Event handling
 	const dispatch = createEventDispatcher<{
@@ -67,8 +72,8 @@
 		// Create the new draft trigger
 		const newTrigger = {
 			type,
-			path: path,
-			isPrimary: false,
+			path: '',
+			isPrimary: type === 'schedule' && !primaryScheduleExists,
 			isDraft: true
 		}
 
@@ -92,9 +97,6 @@
 			const draftTriggers = triggers.filter((t) => t.isDraft)
 			const currentSelectedType = selectedTrigger?.type
 
-			// Clear existing triggers
-			triggers = []
-
 			// Fetch each type of trigger
 			await Promise.all([
 				fetchSchedules(),
@@ -110,7 +112,6 @@
 			// Add default triggers for webhooks and emails
 			const webhookExists = triggers.some((t) => t.type === 'webhook')
 			const emailExists = triggers.some((t) => t.type === 'email')
-			const primaryScheduleExists = triggers.some((t) => t.type === 'schedule' && t.isPrimary)
 
 			if (!webhookExists) {
 				triggers = [...triggers, { type: 'webhook', path: path, isDraft: false }]
@@ -118,10 +119,6 @@
 
 			if (!emailExists) {
 				triggers = [...triggers, { type: 'email', path: path, isDraft: false }]
-			}
-
-			if (!primaryScheduleExists) {
-				triggers = [...triggers, { type: 'schedule', path: path, isPrimary: true, isDraft: false }]
 			}
 
 			// Add back draft triggers
@@ -142,7 +139,7 @@
 	}
 
 	// Fetch schedules
-	async function fetchSchedules() {
+	export async function fetchSchedules() {
 		if (!$workspaceStore) return
 
 		try {
@@ -152,20 +149,38 @@
 				isFlow
 			})
 
-			// Find primary schedule (matches the path exactly)
-			const primarySchedule = allSchedules.find((s) => s.path === path)
+			// Clear existing schedules
+			triggers = triggers.filter((t) => t.type !== 'schedule')
 
-			if (primarySchedule) {
+			// Find primary schedule (matches the path exactly)
+			const deployedPrimarySchedule = allSchedules.find((s) => s.path === path)
+
+			if (deployedPrimarySchedule) {
 				// Add primary schedule
 				triggers = [
 					...triggers,
 					{
 						type: 'schedule',
-						path: primarySchedule.path,
+						path: deployedPrimarySchedule.path,
 						isPrimary: true,
 						isDraft: false
 					}
 				]
+				primaryScheduleExists = true
+			} else if ($primarySchedule) {
+				console.log('dbg draft primarySchedule', $primarySchedule)
+				primaryScheduleExists = true
+				triggers = [
+					...triggers,
+					{
+						type: 'schedule',
+						path: path,
+						isPrimary: true,
+						isDraft: false
+					}
+				]
+			} else {
+				primaryScheduleExists = false
 			}
 
 			// Add other schedules
