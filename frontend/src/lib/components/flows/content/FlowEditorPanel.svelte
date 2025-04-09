@@ -130,6 +130,7 @@
 		isFlow={true}
 		hasPreprocessor={!!$flowStore.value.preprocessor_module}
 		canHavePreprocessor={true}
+		args={$previewArgs}
 	/>
 {:else if $selectedId === 'triggers'}
 	<TriggersEditor

@@ -13,7 +13,7 @@
 	import { Star } from 'lucide-svelte'
 	import WebhooksPanel from './webhook/WebhooksPanelV2.svelte'
 	import { triggerTypeToCaptureKind } from './utils'
-
+	import { type CaptureTriggerKind } from '$lib/gen'
 	export let noEditor: boolean
 	export let newItem = false
 	export let currentPath: string
@@ -42,6 +42,12 @@
 	// Handle trigger selection
 	function handleSelectTrigger(event: CustomEvent<Trigger>) {
 		selectedTrigger = event.detail
+	}
+
+	let captureKind: CaptureTriggerKind | undefined = undefined
+
+	$: if (selectedTrigger) {
+		captureKind = triggerTypeToCaptureKind(selectedTrigger.type)
 	}
 </script>
 
@@ -110,19 +116,36 @@
 				</div>
 			</Pane>
 			<Pane class="px-4">
-				{#if selectedTrigger && selectedTrigger?.type && triggerTypeToCaptureKind(selectedTrigger.type)}
-					<CaptureWrapper
-						path={initialPath || fakeInitialPath}
-						{isFlow}
-						captureType={triggerTypeToCaptureKind(selectedTrigger.type)}
-						{hasPreprocessor}
-						{canHavePreprocessor}
-						args={config}
-						on:applyArgs
-						on:updateSchema
-						on:addPreprocessor
-						on:testWithArgs
-					/>
+				{#if selectedTrigger && selectedTrigger?.type && captureKind}
+					{#if captureKind === 'webhook'}
+						<CaptureWrapper
+							path={initialPath || fakeInitialPath}
+							{isFlow}
+							captureType={captureKind}
+							{hasPreprocessor}
+							{canHavePreprocessor}
+							args={config}
+							data={{ args, hash }}
+							on:applyArgs
+							on:updateSchema
+							on:addPreprocessor
+							on:testWithArgs
+						/>
+					{:else if captureKind === 'http'}
+						<CaptureWrapper
+							path={initialPath || fakeInitialPath}
+							{isFlow}
+							captureType={captureKind}
+							{hasPreprocessor}
+							{canHavePreprocessor}
+							args={config}
+							data={{ args }}
+							on:applyArgs
+							on:updateSchema
+							on:addPreprocessor
+							on:testWithArgs
+						/>
+					{/if}
 				{/if}
 			</Pane>
 		</Splitpanes>
