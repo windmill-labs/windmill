@@ -9,7 +9,6 @@
 	import TriggersTable from './TriggersTable.svelte'
 	import RouteEditorWrapper from './http/RouteEditorWrapper.svelte'
 	import CaptureWrapper from './CaptureWrapperV2.svelte'
-	import type { Trigger } from './utils'
 
 	export let noEditor: boolean
 	export let newItem = false
@@ -24,8 +23,6 @@
 
 	let eventStreamType: 'kafka' | 'nats' | 'sqs' | 'mqtt' = 'kafka'
 	let args: Record<string, any> = {}
-	let canEdit = true
-	let isEditing = false
 
 	const { selectedTrigger: contextSelectedTrigger, simplifiedPoll } =
 		getContext<TriggerContext>('TriggerContext')
@@ -47,32 +44,33 @@
 	})
 
 	// State to track selected trigger
-	let selectedTrigger: Trigger | undefined = undefined
+	let selectedTrigger: { path: string; type: string; isDraft?: boolean } | null = null
 
 	// Handle trigger selection
-	function handleSelectTrigger(event: CustomEvent<Trigger | undefined>) {
+	function handleSelectTrigger(
+		event: CustomEvent<{ path: string; type: string; isDraft?: boolean }>
+	) {
 		selectedTrigger = event.detail
 	}
 </script>
 
-<FlowCard {noEditor}>
+<FlowCard {noEditor} title="Triggers">
 	{#if !$simplifiedPoll}
 		<Splitpanes horizontal>
 			<Pane class="px-4">
-				<div class="flex flex-col h-full gap-2">
+				<div class="flex flex-row h-full">
 					<!-- Left Pane - Triggers List -->
-					<div class="w-full flex-shrink-0 overflow-auto">
+					<div class="w-1/3 min-w-[280px] max-w-[320px] border-r flex-shrink-0 overflow-auto pr-2">
 						<TriggersTable
 							path={currentPath}
 							{isFlow}
+							{selectedTrigger}
 							on:select={handleSelectTrigger}
-							{canEdit}
-							bind:isEditing
 						/>
 					</div>
 
 					<!-- Right Pane - Trigger Configuration -->
-					<div class="flex-grow overflow-auto px-2 pb-4">
+					<div class="flex-grow overflow-auto px-2">
 						<!-- Trigger configuration will go here -->
 						{#if selectedTrigger}
 							{#if selectedTrigger.type === 'routes'}
@@ -83,7 +81,6 @@
 									on:update-config={({ detail }) => {
 										args = detail
 									}}
-									{isEditing}
 								/>
 							{:else if selectedTrigger.isDraft}
 								<h3 class="text-sm font-medium">Configure new {selectedTrigger.type} trigger</h3>
