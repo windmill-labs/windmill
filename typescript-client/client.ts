@@ -3,10 +3,11 @@ import {
   VariableService,
   JobService,
   HelpersService,
+  AppService,
   MetricsService,
   OidcService,
   UserService,
-  TeamsService
+  TeamsService,
 } from "./index";
 import { OpenAPI } from "./index";
 // import type { DenoS3LightClientSettings } from "./index";
@@ -768,6 +769,21 @@ export async function writeS3File(
   return {
     s3: response.file_key,
   };
+}
+
+/**
+ * Sign S3 objects to be used by anonmous users in public apps
+ * @param s3objects s3 objects to sign
+ * @returns signed s3 tokens
+ */
+export async function signS3Objects(s3objects: S3Object[]): Promise<string[]> {
+  const signedKeys = await AppService.signS3Objects({
+    workspace: getWorkspace(),
+    requestBody: {
+      s3_objects: s3objects,
+    },
+  });
+  return signedKeys;
 }
 
 /**
