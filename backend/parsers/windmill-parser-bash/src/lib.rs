@@ -45,7 +45,7 @@ pub fn parse_powershell_sig(code: &str) -> anyhow::Result<MainArgSignature> {
 }
 
 lazy_static::lazy_static! {
-    static ref RE_BASH: Regex = Regex::new(r#"(?m)^(\w+)="\$(?:(\d+)|\{(\d+):-(.*)\})"(?:[\t ]*)?(?:#.*)?$"#).unwrap();
+    static ref RE_BASH: Regex = Regex::new(r#"(?m)^(\w+)="\$(?:(\d+)|\{(\d+)\}|\{(\d+):-(.*)\})"(?:[\t ]*)?(?:#.*)?$"#).unwrap();
 
     pub static ref RE_POWERSHELL_PARAM: Regex = Regex::new(r#"(?m)param[\t ]*\(([^)]*)\)"#).unwrap();
     static ref RE_POWERSHELL_ARGS: Regex = Regex::new(r#"(?:\[(\w+)\])?\$(\w+)[\t ]*(?:=[\t ]*(?:(?:(?:"|')([^"\n\r\$]*)(?:"|'))|([\d.]+)))?"#).unwrap();
@@ -57,11 +57,12 @@ fn parse_bash_file(code: &str) -> anyhow::Result<Option<Vec<Arg>>> {
         hm.insert(
             cap.get(2)
                 .or(cap.get(3))
+                .or(cap.get(4))
                 .and_then(|x| x.as_str().parse::<i32>().ok())
                 .ok_or_else(|| anyhow!("Impossible to parse arg digit"))?,
             (
                 cap[1].to_string(),
-                cap.get(4).map(|x| x.as_str().to_string()),
+                cap.get(5).map(|x| x.as_str().to_string()),
             ),
         );
     }
