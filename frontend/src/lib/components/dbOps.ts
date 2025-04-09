@@ -10,6 +10,8 @@ import { makeUpdateQuery } from './apps/components/display/dbtable/queries/updat
 import { makeDeleteQuery } from './apps/components/display/dbtable/queries/delete'
 import { makeInsertQuery } from './apps/components/display/dbtable/queries/insert'
 import { Trash2 } from 'lucide-svelte'
+import { makeDeleteTableQuery } from './apps/components/display/dbtable/queries/deleteTable'
+import { sendUserToast } from '$lib/toast'
 
 export type IDbTableOps = {
 	resourcePath: string
@@ -133,14 +135,41 @@ export type DbTableAction = {
 	icon?: any
 }
 
-export type DbTableActionFactory = (params: { tableKey: string }) => DbTableAction
+export type DbTableActionFactory = (params: {
+	tableKey: string
+	refresh: () => void
+}) => DbTableAction
 
-export function dbDeleteTableActionWithPreviewScript(): DbTableActionFactory {
-	return ({ tableKey }) => ({
+export function dbDeleteTableActionWithPreviewScript({
+	workspace,
+	resourcePath,
+	resourceType
+}: {
+	workspace: string
+	resourcePath: string
+	resourceType: DbType
+}): DbTableActionFactory {
+	return ({ tableKey, refresh }) => ({
 		confirmTitle: `Are you sure you want to delete '${tableKey}' ? This action is irreversible`,
 		displayName: 'Delete',
 		confirmBtnText: `Delete permanently`,
 		icon: Trash2,
-		action: () => {}
+		action: async () => {
+			const deleteQuery = makeDeleteTableQuery(tableKey, resourceType)
+			try {
+				await runPreviewJobAndPollResult({
+					workspace,
+					requestBody: {
+						args: { database: '$res:' + resourcePath },
+						language: getLanguageByResourceType(resourceType),
+						content: deleteQuery
+					}
+				})
+				sendUserToast(`Table '${tableKey}' deleted successfully`)
+				refresh()
+			} catch (e) {
+				sendUserToast((e as Error).message, true)
+			}
+		}
 	})
 }

@@ -116,7 +116,16 @@
 							resourceType,
 							workspace: $workspaceStore
 						})}
-					dbTableActionsFactory={[dbDeleteTableActionWithPreviewScript()]}
+					dbTableActionsFactory={[
+						dbDeleteTableActionWithPreviewScript({
+							resourcePath,
+							resourceType,
+							workspace: $workspaceStore
+						})
+					]}
+					refresh={() => {
+						refreshing = true
+					}}
 				/>
 			{:else if mode === 'schema-explorer'}
 				<DbSchemaExplorer {dbSchema} />

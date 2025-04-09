@@ -15,8 +15,9 @@
 		getColDefs: (tableKey: string) => Promise<ColumnDef[]>
 		dbTableOpsFactory: (params: { colDefs: ColumnDef[]; tableKey: string }) => IDbTableOps
 		dbTableActionsFactory?: DbTableActionFactory[]
+		refresh?: () => void
 	}
-	let { dbSchema, dbTableOpsFactory, getColDefs, dbTableActionsFactory }: Props = $props()
+	let { dbSchema, dbTableOpsFactory, getColDefs, dbTableActionsFactory, refresh }: Props = $props()
 
 	let schemaKeys = $derived(Object.keys(dbSchema.schema))
 	let search = $state('')
@@ -84,23 +85,26 @@
 					<Table2 class="text-gray-500/40 shrink-0" size={16} />
 					<p class="truncate text-ellipsis grow text-left">{tableKey}</p>
 					{#if dbTableActionsFactory}
-						{@const dbTableActions = dbTableActionsFactory.map((f) => f({ tableKey }))}
+						{@const dbTableActions = dbTableActionsFactory.map((f) =>
+							f({ tableKey: `${selected.schemaKey}.${tableKey}`, refresh: refresh ?? (() => {}) })
+						)}
 						<DropdownV2
-							items={dbTableActions.map((tableAction) => ({
-								displayName: tableAction.displayName,
-								...(tableAction.icon ? { icon: tableAction.icon } : {}),
-								action: () =>
-									(askingForConfirmation = {
-										title: tableAction.confirmTitle ?? 'Are you sure ?',
-										confirmationText: tableAction.confirmBtnText ?? 'Confirm',
-										open: true,
-										onConfirm: async () => {
-											askingForConfirmation && (askingForConfirmation.loading = true)
-											await tableAction.action()
-											askingForConfirmation = undefined
-										}
-									})
-							}))}
+							items={() =>
+								dbTableActions.map((tableAction) => ({
+									displayName: tableAction.displayName,
+									...(tableAction.icon ? { icon: tableAction.icon } : {}),
+									action: () =>
+										(askingForConfirmation = {
+											title: tableAction.confirmTitle ?? 'Are you sure ?',
+											confirmationText: tableAction.confirmBtnText ?? 'Confirm',
+											open: true,
+											onConfirm: async () => {
+												askingForConfirmation && (askingForConfirmation.loading = true)
+												await tableAction.action()
+												askingForConfirmation = undefined
+											}
+										})
+								}))}
 							class="w-fit"
 						>
 							<svelte:fragment slot="buttonReplacement">

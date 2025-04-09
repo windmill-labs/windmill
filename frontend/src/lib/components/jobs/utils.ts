@@ -8,17 +8,23 @@ export async function runPreviewJobAndPollResult(data: RunScriptPreviewData): Pr
 	while (attempts < maxRetries) {
 		try {
 			await new Promise((resolve) => setTimeout(resolve, 500 * (attempts || 0.75)))
-			const result = await JobService.getCompletedJob({
+			const job = await JobService.getCompletedJob({
 				id: uuid,
 				workspace: data.workspace
 			})
-			if (result.success) {
-				return result.result
+			if (job.success) {
+				return job.result
 			} else {
 				attempts = maxRetries
-				throw new Error('Job failed')
+				let errorMsg: string | undefined = (job.result as any).error.message
+				if (typeof errorMsg !== 'string') errorMsg = undefined
+				console.error('JOB FAILED', job.result)
+				throw new Error(errorMsg ?? 'Job failed')
 			}
 		} catch (e) {
+			if (attempts == maxRetries) {
+				throw e
+			}
 			attempts++
 		}
 	}
