@@ -13,6 +13,7 @@
 	import FlowPreprocessorModule from './FlowPreprocessorModule.svelte'
 	import type { TriggerContext } from '$lib/components/triggers'
 	import { insertNewPreprocessorModule } from '../flowStateUtils'
+	import TriggersEditorV2 from '../../triggers/TriggersEditorV2.svelte'
 
 	export let noEditor = false
 	export let enableAi = false
@@ -23,6 +24,8 @@
 				draft?: Flow | undefined
 		  })
 		| undefined = undefined
+
+	const useV2 = true //Only for dev
 
 	const {
 		selectedId,
@@ -97,6 +100,38 @@
 	<FlowFailureModule {noEditor} savedModule={savedFlow?.value.failure_module} />
 {:else if $selectedId === 'preprocessor'}
 	<FlowPreprocessorModule {noEditor} savedModule={savedFlow?.value.preprocessor_module} />
+{:else if $selectedId === 'triggers' && useV2}
+	<TriggersEditorV2
+		on:applyArgs
+		on:addPreprocessor={async () => {
+			await insertNewPreprocessorModule(flowStore, flowStateStore, {
+				language: 'bun'
+			})
+			$selectedId = 'preprocessor'
+		}}
+		on:updateSchema={(e) => {
+			const { payloadData, redirect } = e.detail
+			if (payloadData) {
+				$previewArgs = JSON.parse(JSON.stringify(payloadData))
+			}
+			if (redirect) {
+				$selectedId = 'Input'
+				$flowInputEditorState.selectedTab = 'captures'
+				$flowInputEditorState.payloadData = payloadData
+			}
+		}}
+		on:testWithArgs
+		args={$previewArgs}
+		currentPath={$pathStore}
+		initialPath={$initialPathStore}
+		{fakeInitialPath}
+		schema={$flowStore.schema}
+		{noEditor}
+		newItem={newFlow}
+		isFlow={true}
+		hasPreprocessor={!!$flowStore.value.preprocessor_module}
+		canHavePreprocessor={true}
+	/>
 {:else if $selectedId === 'triggers'}
 	<TriggersEditor
 		on:applyArgs

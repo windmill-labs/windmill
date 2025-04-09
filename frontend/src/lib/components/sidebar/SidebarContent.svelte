@@ -142,7 +142,7 @@
 			icon: MqttIcon,
 			disabled: $userStore?.operator,
 			kind: 'mqtt'
-		},
+		}
 	]
 
 	$: extraTriggerLinks = defaultExtraTriggerLinks.filter((link) => {
