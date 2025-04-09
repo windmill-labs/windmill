@@ -31,11 +31,14 @@ pub struct UploadFileResponse {
 #[derive(Deserialize)]
 pub struct LoadImagePreviewQuery {
     pub file_key: String,
+    pub storage: Option<String>,
 }
 
 #[derive(Deserialize)]
 pub struct DownloadFileQuery {
     pub file_key: String,
+    pub storage: Option<String>,
+    pub s3_resource_path: Option<String>,
 }
 
 pub fn workspaced_service() -> Router {
