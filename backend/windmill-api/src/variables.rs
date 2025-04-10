@@ -61,7 +61,7 @@ async fn list_contextual_variables(
 ) -> JsonResult<Vec<ContextualVariable>> {
     Ok(Json(
         get_reserved_variables(
-            &db,
+            &db.into(),
             &w_id,
             "q1A0qcPuO00yxioll7iph76N9CJDqn",
             &email,
