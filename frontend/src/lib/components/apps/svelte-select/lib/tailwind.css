@@ -1,7 +1,7 @@
 @import 'tailwindcss/theme' layer(theme);
 @import 'tailwindcss/preflight' layer(base);
 
-@config "../../../../../../tailwind.config.cjs";
+@config "../../../../../../tailwind.config.js";
 
 .svelte-select {
 	@apply border rounded-sm box-border h-10 relative flex items-center px-4 py-0 bg-white m-0	w-full

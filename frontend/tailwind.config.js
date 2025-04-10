@@ -1,5 +1,4 @@
 const plugin = require('tailwindcss/plugin')
-
 const lightTheme = {
 	surface: '#ffffff',
 	surfaceSecondary: '#f3f4f6',
@@ -932,4 +931,4 @@ const config = {
 	darkMode: 'class'
 }
 
-module.exports = config
+export default config

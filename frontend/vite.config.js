@@ -1,5 +1,6 @@
 import { sveltekit } from '@sveltejs/kit/vite'
 import { readFileSync } from 'fs'
+import tailwindcss from '@tailwindcss/vite'
 import { fileURLToPath } from 'url'
 import circleDependency from 'vite-plugin-circular-dependency'
 // import mkcert from 'vite-plugin-mkcert'
@@ -35,7 +36,7 @@ const config = {
 	preview: {
 		port: 3000
 	},
-	plugins: [sveltekit(), circleDependency({ circleImportThrowErr: false })],
+	plugins: [tailwindcss(), sveltekit(), circleDependency({ circleImportThrowErr: false })],
 	define: {
 		__pkg__: version
 	},
