@@ -85,7 +85,6 @@
 
 	let darkMode = false
 
-	$: publication_name && getAllRelations()
 </script>
 
 <DarkModeObserver bind:darkMode />
@@ -94,8 +93,9 @@
 	<Select
 		disabled={!can_write}
 		class="grow shrink max-w-full"
-		on:select={(e) => {
+		on:select={async (e) => {
 			publication_name = e.detail.value
+		    await getAllRelations();
 		}}
 		on:clear={() => {
 			publication_name = ''
@@ -108,7 +108,6 @@
 			? SELECT_INPUT_DEFAULT_STYLE.containerStylesDark
 			: SELECT_INPUT_DEFAULT_STYLE.containerStyles}
 		portal={false}
-		on:select={getAllRelations}
 	/>
 	<Button
 		disabled={!can_write}

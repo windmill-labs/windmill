@@ -53,7 +53,7 @@
 				let:item
 			>
 				<ToggleButton value="all" label="All Tables" {item} />
-				<ToggleButton value="specific" label="Specific Tables" {item}/>
+				<ToggleButton value="specific" label="Specific Tables" {item} />
 			</ToggleButtonGroup>
 		</div>
 	</div>
@@ -119,15 +119,29 @@
 											<MultiSelect
 												options={table_to_track.columns_name ?? []}
 												allowUserOptions="append"
-												bind:selected={table_to_track.columns_name}
 												ulOptionsClass={'!bg-surface !text-sm'}
 												ulSelectedClass="!text-sm"
 												outerDivClass="!bg-surface !min-h-[38px] !border-[#d1d5db]"
 												noMatchingOptionsMsg=""
 												createOptionMsg={null}
 												duplicates={false}
+												selected={table_to_track.columns_name ?? []}
 												placeholder="Select columns"
 												--sms-options-margin="4px"
+												on:change={(e) => {
+													const option = e.detail.option?.toString()
+													if (e.detail.type === 'add') {
+														option && table_to_track.columns_name?.push(option)
+													} else if (e.detail.type === 'remove') {
+														table_to_track.columns_name =  table_to_track.columns_name?.filter((column) => column !== option)
+													} else if (e.detail.type === 'removeAll') {
+														table_to_track.columns_name = []
+													} else {
+														console.error(
+															`Priority tags multiselect - unknown event type: '${e.detail.type}'`
+														)
+													}
+												}}
 											>
 												<svelte:fragment slot="remove-icon">
 													<div class="hover:text-primary p-0.5">
