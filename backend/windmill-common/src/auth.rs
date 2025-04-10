@@ -1,8 +1,11 @@
+use anyhow::Context;
 use serde::{Deserialize, Serialize};
+use uuid::Uuid;
 
 use crate::{
     db::Authed,
     error::{Error, Result},
+    jwt,
     users::{SUPERADMIN_NOTIFICATION_EMAIL, SUPERADMIN_SECRET_EMAIL, SUPERADMIN_SYNC_EMAIL},
     DB,
 };
@@ -22,7 +25,7 @@ pub struct JWTAuthClaims {
     pub scopes: Option<Vec<String>>,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Debug)]
 pub struct JobPerms {
     pub email: String,
     pub username: String,
@@ -204,4 +207,63 @@ pub async fn get_groups_for_user(
     .into_iter().filter_map(|x| x)
     .collect();
     Ok(groups)
+}
+
+#[tracing::instrument(level = "trace", skip_all)]
+pub async fn create_token_for_owner(
+    db: &DB,
+    w_id: &str,
+    owner: &str,
+    label: &str,
+    expires_in: u64,
+    email: &str,
+    job_id: &Uuid,
+    perms: Option<JobPerms>,
+) -> crate::error::Result<String> {
+    let job_perms = if perms.is_some() {
+        Ok(perms)
+    } else {
+        sqlx::query_as!(
+            JobPerms,
+            "SELECT email, username, is_admin, is_operator, groups, folders FROM job_perms WHERE job_id = $1 AND workspace_id = $2",
+            job_id,
+            w_id
+        )
+        .fetch_optional(db)
+        .await
+    };
+    let job_authed = match job_perms {
+        Ok(Some(jp)) => jp.into(),
+        _ => {
+            tracing::warn!("Could not get permissions for job {job_id} from job_perms table, getting permissions directly...");
+            fetch_authed_from_permissioned_as(owner.to_string(), email.to_string(), w_id, db)
+                .await
+                .map_err(|e| {
+                    Error::internal_err(format!(
+                        "Could not get permissions directly for job {job_id}: {e:#}"
+                    ))
+                })?
+        }
+    };
+
+    let payload = JWTAuthClaims {
+        email: job_authed.email,
+        username: job_authed.username,
+        is_admin: job_authed.is_admin,
+        is_operator: job_authed.is_operator,
+        groups: job_authed.groups,
+        folders: job_authed.folders,
+        label: Some(label.to_string()),
+        workspace_id: w_id.to_string(),
+        exp: (chrono::Utc::now() + chrono::Duration::seconds(expires_in as i64)).timestamp()
+            as usize,
+        job_id: Some(job_id.to_string()),
+        scopes: None,
+    };
+
+    let token = jwt::encode_with_internal_secret(&payload)
+        .await
+        .with_context(|| format!("Could not encode JWT token for job {job_id}"))?;
+
+    Ok(format!("jwt_{}", token))
 }
