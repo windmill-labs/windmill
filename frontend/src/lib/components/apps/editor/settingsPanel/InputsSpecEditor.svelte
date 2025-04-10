@@ -66,7 +66,6 @@
 	let s3FolderPrefix: string = ''
 	let s3FileUploadRawMode = componentInput?.type == 'uploadS3' && !!componentInput.value?.s3
 
-	$: console.log('rawmode', s3FileUploadRawMode)
 
 	function updateSelectedS3File() {
 		if (s3PickerSelection) {
