@@ -30,7 +30,9 @@ pub struct UploadFileResponse {
 
 #[derive(Deserialize)]
 pub struct LoadImagePreviewQuery {
+    #[allow(dead_code)]
     pub file_key: String,
+    #[allow(dead_code)]
     pub storage: Option<String>,
 }
 
