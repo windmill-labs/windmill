@@ -1450,23 +1450,26 @@ async fn handle_python_deps(
         None => {
             let mut already_visited = vec![];
 
-            requirements = match conn {
-                Connection::Sql(db) => windmill_parser_py_imports::parse_python_imports(
-                    inner_content,
-                    w_id,
-                    script_path,
-                    db,
-                    &mut already_visited,
-                    &mut annotated_pyv_numeric,
-                )
-                .await?
-                .join("\n"),
+            (requirements, compilation_error_hint) = match conn {
+                Connection::Sql(db) => {
+                    let (r, h) = windmill_parser_py_imports::parse_python_imports(
+                        inner_content,
+                        w_id,
+                        script_path,
+                        db,
+                        &mut already_visited,
+                        &mut annotated_pyv_numeric,
+                    )
+                    .await?;
+
+                    (r.join("\n"), h)
+                }
                 Connection::Http(_) => match precomputed_agent_info {
                     Some(PrecomputedAgentInfo::Python { py_version, requirements }) => {
                         annotated_pyv_numeric = py_version;
-                        requirements.clone().unwrap_or_else(|| "".to_string())
+                        (requirements.clone().unwrap_or_else(|| "".to_string()), None)
                     }
-                    _ => "".to_string(),
+                    _ => ("".to_string(), None),
                 },
             };
 
