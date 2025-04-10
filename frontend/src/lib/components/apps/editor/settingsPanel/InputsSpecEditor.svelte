@@ -122,7 +122,6 @@
 		}
 	}
 
-	$: console.log('input', componentInput)
 </script>
 
 {#if !(resourceOnly && (fieldType !== 'object' || !format?.startsWith('resource-')))}
