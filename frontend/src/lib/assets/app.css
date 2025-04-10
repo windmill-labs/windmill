@@ -1,3 +1,5 @@
+@config "../../../tailwind.config.cjs";
+
 /* Write your global styles here, in PostCSS syntax */
 @tailwind base;
 @tailwind components;
