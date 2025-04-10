@@ -418,16 +418,6 @@ pub async fn report_critical_error(
     }
 }
 
-pub fn empty_string_as_none<'de, D>(
-    deserializer: D,
-) -> std::result::Result<Option<String>, D::Error>
-where
-    D: Deserializer<'de>,
-{
-    let option = <Option<String> as serde::Deserialize>::deserialize(deserializer)?;
-    Ok(option.filter(|s| !s.is_empty()))
-}
-
 pub async fn report_recovered_critical_error(
     message: String,
     _db: DB,
@@ -478,7 +468,9 @@ pub async fn report_recovered_critical_error(
     }
 }
 
-pub fn empty_string_as_none<'de, D>(deserializer: D) -> std::result::Result<Option<String>, D::Error>
+pub fn empty_string_as_none<'de, D>(
+    deserializer: D,
+) -> std::result::Result<Option<String>, D::Error>
 where
     D: Deserializer<'de>,
 {
