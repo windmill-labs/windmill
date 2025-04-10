@@ -18,6 +18,7 @@
 		bgHover: '',
 		class: ''
 	}
+	export let neverShowLoader = false
 
 	const perPage = 20
 
@@ -142,6 +143,7 @@
 	{loadingMore}
 	{rounded}
 	{noBorder}
+	{neverShowLoader}
 >
 	<slot name="columns" />
 
@@ -174,7 +176,7 @@
 	</tbody>
 
 	<svelte:fragment slot="emptyMessage">
-		{#if (!items || items?.length === 0) && !loading}
+		{#if (!items || items?.length === 0) && (!loading || neverShowLoader)}
 			<slot name="empty" {items} />
 		{/if}
 	</svelte:fragment>

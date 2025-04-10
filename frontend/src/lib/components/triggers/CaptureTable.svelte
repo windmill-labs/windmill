@@ -1,6 +1,6 @@
 <script lang="ts">
 	import Label from '../Label.svelte'
-	import { DatabaseIcon, Info, Trash2 } from 'lucide-svelte'
+	import { DatabaseIcon, Info, Loader2, Trash2 } from 'lucide-svelte'
 	import ToggleButton from '../common/toggleButton-v2/ToggleButton.svelte'
 	import ToggleButtonGroup from '../common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import Button from '../common/button/Button.svelte'
@@ -29,6 +29,7 @@
 	export let canEdit = false
 	export let fullHeight = true
 	export let limitPayloadSize = false
+	export let captureActiveIndicator: boolean | undefined = undefined
 
 	let selected: number | undefined = undefined
 	let testKind: 'preprocessor' | 'main' = 'main'
@@ -98,13 +99,13 @@
 							? {
 									payload: capture.payload,
 									...trigger_extra
-							  }
+								}
 							: typeof capture.payload === 'object'
-							? {
-									...capture.payload,
-									...trigger_extra
-							  }
-							: trigger_extra
+								? {
+										...capture.payload,
+										...trigger_extra
+									}
+								: trigger_extra
 						: capture.payload
 
 				return newCapture
@@ -141,7 +142,7 @@
 					? {
 							...(typeof fullCapture.payload === 'object' ? fullCapture.payload : {}),
 							...(typeof fullCapture.trigger_extra === 'object' ? fullCapture.trigger_extra : {})
-					  }
+						}
 					: fullCapture.payload
 		} else {
 			payloadData = structuredClone(capture.payloadData)
@@ -204,6 +205,9 @@
 				<CaptureButton small={true} on:openTriggers />
 			</div>
 		{/if}
+		{#if captureActiveIndicator}
+			<Loader2 class="animate-spin" size={16} />
+		{/if}
 	</svelte:fragment>
 	<svelte:fragment slot="action">
 		{#if canHavePreprocessor && !isEmpty}
@@ -235,8 +239,8 @@
 				? 'h-full'
 				: 'min-h-0 grow'
 			: capturesLength > 7
-			? 'h-[300px]'
-			: 'h-fit'}
+				? 'h-[300px]'
+				: 'h-fit'}
 	>
 		<InfiniteList
 			bind:this={infiniteList}
@@ -245,6 +249,7 @@
 			on:error={(e) => handleError(e.detail)}
 			on:select={(e) => handleSelect(e.detail)}
 			bind:length={capturesLength}
+			neverShowLoader={captureActiveIndicator !== undefined}
 		>
 			<svelte:fragment slot="columns">
 				<colgroup>
@@ -336,8 +341,8 @@
 										title={isFlow && testKind === 'main'
 											? 'Test flow with args'
 											: testKind === 'preprocessor'
-											? 'Apply args to preprocessor'
-											: 'Apply args to inputs'}
+												? 'Apply args to preprocessor'
+												: 'Apply args to inputs'}
 										startIcon={isFlow && testKind === 'main' ? { icon: Play } : {}}
 									>
 										{isFlow && testKind === 'main' ? 'Test' : 'Apply args'}
@@ -361,7 +366,7 @@
 				</SchemaPickerRow>
 			</svelte:fragment>
 			<svelte:fragment slot="empty">
-				<div class="text-center text-xs text-tertiary">No captures yet</div>
+				<div class="text-center text-xs text-tertiary my-2">No captures yet</div>
 			</svelte:fragment>
 		</InfiniteList>
 	</div>
