@@ -161,14 +161,18 @@ fn parse_code_for_imports(code: &str, path: &str) -> error::Result<Vec<NImport>>
     })?;
 
     let find_pin = |range: TextRange, key: String| {
+        let hs = code
+            .chars()
+            .skip(range.end().to_usize())
+            .take_while(|e| *e != '\n')
+            .collect::<String>();
+
+        if hs.trim_start().is_empty(){
+            return None;
+        }
+
         PIN_RE
-            .captures(
-                &code
-                    .chars()
-                    .skip(range.end().to_usize())
-                    .take_while(|e| *e != '\n')
-                    .collect::<String>(),
-            )
+            .captures(&hs)
             .and_then(|x| {
                 x.get(1).zip(x.get(2)).and_then(|(ty_m, pkg_m)| {
                     let pkg = pkg_m.as_str().to_owned();
