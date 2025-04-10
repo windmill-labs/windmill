@@ -9,6 +9,7 @@ use serde_json::{json, value::RawValue, Value};
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use windmill_common::error::to_anyhow;
+use windmill_common::worker::Connection;
 
 use windmill_common::{error::Error, worker::to_raw_value};
 use windmill_parser_sql::{parse_db_resource, parse_snowflake_sig, parse_sql_blocks};
@@ -249,14 +250,14 @@ pub async fn do_snowflake(
     job: &MiniPulledJob,
     client: &AuthedClient,
     query: &str,
-    db: &sqlx::Pool<sqlx::Postgres>,
+    conn: &Connection,
     mem_peak: &mut i32,
     canceled_by: &mut Option<CanceledBy>,
     worker_name: &str,
     column_order: &mut Option<Vec<String>>,
     occupancy_metrics: &mut OccupancyMetrics,
 ) -> windmill_common::error::Result<Box<RawValue>> {
-    let snowflake_args = build_args_values(job, client, db).await?;
+    let snowflake_args = build_args_values(job, client, conn).await?;
 
     let inline_db_res_path = parse_db_resource(&query);
 
@@ -362,7 +363,7 @@ pub async fn do_snowflake(
             json!(database.database.unwrap().to_uppercase()),
         );
     }
-    let timeout = resolve_job_timeout(&db, &job.workspace_id, job.id, job.timeout)
+    let timeout = resolve_job_timeout(&conn, &job.workspace_id, job.id, job.timeout)
         .await
         .0
         .as_secs();
@@ -371,7 +372,7 @@ pub async fn do_snowflake(
     let queries = parse_sql_blocks(query);
 
     let (timeout_duration, _, _) =
-        resolve_job_timeout(&db, &job.workspace_id, job.id, job.timeout).await;
+        resolve_job_timeout(&conn, &job.workspace_id, job.id, job.timeout).await;
 
     let http_client = build_http_client(timeout_duration)?;
 
@@ -424,7 +425,7 @@ pub async fn do_snowflake(
     let r = run_future_with_polling_update_job_poller(
         job.id,
         job.timeout,
-        db,
+        conn,
         mem_peak,
         canceled_by,
         result_f.map_err(to_anyhow),

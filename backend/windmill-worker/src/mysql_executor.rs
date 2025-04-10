@@ -11,7 +11,7 @@ use serde_json::{json, value::RawValue, Value};
 use tokio::sync::Mutex;
 use windmill_common::{
     error::{to_anyhow, Error},
-    worker::to_raw_value,
+    worker::{to_raw_value, Connection},
 };
 use windmill_parser_sql::{
     parse_db_resource, parse_mysql_sig, parse_sql_blocks, parse_sql_statement_named_params,
@@ -106,14 +106,14 @@ pub async fn do_mysql(
     job: &MiniPulledJob,
     client: &AuthedClient,
     query: &str,
-    db: &sqlx::Pool<sqlx::Postgres>,
+    conn: &Connection,
     mem_peak: &mut i32,
     canceled_by: &mut Option<CanceledBy>,
     worker_name: &str,
     column_order: &mut Option<Vec<String>>,
     occupancy_metrics: &mut OccupancyMetrics,
 ) -> windmill_common::error::Result<Box<RawValue>> {
-    let job_args = build_args_values(job, client, db).await?;
+    let job_args = build_args_values(job, client, conn).await?;
 
     let inline_db_res_path = parse_db_resource(&query);
 
@@ -234,8 +234,8 @@ pub async fn do_mysql(
     }
 
     let pool = mysql_async::Pool::new(opts);
-    let conn = pool.get_conn().await.map_err(to_anyhow)?;
-    let conn_a = Arc::new(Mutex::new(conn));
+    let mysql_conn = pool.get_conn().await.map_err(to_anyhow)?;
+    let conn_a = Arc::new(Mutex::new(mysql_conn));
 
     let queries = parse_sql_blocks(query);
 
@@ -281,7 +281,7 @@ pub async fn do_mysql(
     let result = run_future_with_polling_update_job_poller(
         job.id,
         job.timeout,
-        db,
+        conn,
         mem_peak,
         canceled_by,
         result_f,

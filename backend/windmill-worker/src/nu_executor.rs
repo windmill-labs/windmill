@@ -3,7 +3,10 @@ use std::{collections::HashMap, process::Stdio};
 use itertools::Itertools;
 use serde_json::value::RawValue;
 use tokio::{fs::File, io::AsyncWriteExt, process::Command};
-use windmill_common::{error::Error, worker::write_file};
+use windmill_common::{
+    error::Error,
+    worker::{write_file, Connection},
+};
 use windmill_parser::Arg;
 use windmill_parser_nu::parse_nu_signature;
 use windmill_queue::{append_logs, CanceledBy, MiniPulledJob};
@@ -30,7 +33,7 @@ pub(crate) struct JobHandlerInput<'a> {
     pub canceled_by: &'a mut Option<CanceledBy>,
     pub client: &'a AuthedClient,
     pub parent_runnable_path: Option<String>,
-    pub db: &'a sqlx::Pool<sqlx::Postgres>,
+    pub conn: &'a Connection,
     pub envs: HashMap<String, String>,
     pub inner_content: &'a str,
     pub job: &'a MiniPulledJob,
@@ -52,7 +55,7 @@ pub async fn handle_nu_job<'a>(mut args: JobHandlerInput<'a>) -> Result<Box<RawV
     // --- Handle relative ---
     // --- Wrap and write to fs ---
     {
-        create_args_and_out_file(&args.client, args.job, args.job_dir, args.db).await?;
+        create_args_and_out_file(&args.client, args.job, args.job_dir, args.conn).await?;
         File::create(format!("{}/main.nu", args.job_dir))
             .await?
             .write_all(&wrap(args.inner_content)?.into_bytes())
@@ -217,7 +220,7 @@ async fn run<'a>(
         canceled_by,
         worker_name,
         job,
-        db,
+        conn,
         job_dir,
         shared_mount,
         client,
@@ -229,13 +232,13 @@ async fn run<'a>(
     // plugins: Vec<&'a str>,
 ) -> Result<(), Error> {
     let reserved_variables =
-        get_reserved_variables(job, &client.token, db, parent_runnable_path.clone()).await?;
+        get_reserved_variables(job, &client.token, conn, parent_runnable_path.clone()).await?;
     let child = if !cfg!(windows) && !*DISABLE_NSJAIL {
         append_logs(
             &job.id,
             &job.workspace_id,
             format!("\n\n--- ISOLATED NU CODE EXECUTION ---\n"),
-            db.clone(),
+            conn,
         )
         .await;
 
@@ -274,7 +277,7 @@ async fn run<'a>(
             &job.id,
             &job.workspace_id,
             format!("\n\n--- NU CODE EXECUTION ---\n"),
-            db.clone(),
+            &conn,
         )
         .await;
 
@@ -323,7 +326,7 @@ async fn run<'a>(
     };
     handle_child::handle_child(
         &job.id,
-        db,
+        conn,
         mem_peak,
         canceled_by,
         child,

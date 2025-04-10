@@ -45,7 +45,7 @@ use windmill_common::error::Error;
 #[cfg(feature = "deno_core")]
 use windmill_common::worker::{write_file, TMP_DIR};
 
-use windmill_common::{flow_status::JobResult, DB};
+use windmill_common::flow_status::JobResult;
 use windmill_queue::CanceledBy;
 
 use crate::{common::OccupancyMetrics, AuthedClient};
@@ -749,6 +749,9 @@ fn capture_proxy(s: &str) -> Option<(String, Option<(String, String)>)> {
         )
     })
 }
+
+use windmill_common::worker::Connection;
+
 #[cfg(not(feature = "deno_core"))]
 pub async fn eval_fetch_timeout(
     _env_code: String,
@@ -758,7 +761,7 @@ pub async fn eval_fetch_timeout(
     _script_entrypoint_override: Option<String>,
     _job_id: Uuid,
     _job_timeout: Option<i32>,
-    _db: &DB,
+    _conn: &Connection,
     _mem_peak: &mut i32,
     _canceled_by: &mut Option<CanceledBy>,
     _worker_name: &str,
@@ -779,7 +782,7 @@ pub async fn eval_fetch_timeout(
     script_entrypoint_override: Option<String>,
     job_id: Uuid,
     job_timeout: Option<i32>,
-    db: &DB,
+    conn: &Connection,
     mem_peak: &mut i32,
     canceled_by: &mut Option<CanceledBy>,
     worker_name: &str,
@@ -825,7 +828,7 @@ pub async fn eval_fetch_timeout(
         ));
     }
 
-    let db_ = db.clone();
+    let conn_ = conn.clone();
     let w_id_ = w_id.to_string();
     let result_f = tokio::task::spawn_blocking(move || {
         let ops = vec![op_get_static_args(), op_log()];
@@ -921,7 +924,7 @@ pub async fn eval_fetch_timeout(
                     "{extra_logs}{}",
                     js_runtime.op_state().borrow().borrow::<LogString>().s
                 ),
-                db_,
+                &conn_,
             )
             .await;
 
@@ -936,7 +939,7 @@ pub async fn eval_fetch_timeout(
     let res = run_future_with_polling_update_job_poller(
         job_id,
         job_timeout,
-        db,
+        conn,
         mem_peak,
         canceled_by,
         async { result_f.await? },

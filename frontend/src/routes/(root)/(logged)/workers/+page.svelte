@@ -32,6 +32,7 @@
 	import YAML from 'yaml'
 	import { DEFAULT_TAGS_WORKSPACES_SETTING } from '$lib/consts'
 	import AutoscalingEvents from '$lib/components/AutoscalingEvents.svelte'
+	import HttpAgentWorkerDrawer from '$lib/components/HttpAgentWorkerDrawer.svelte'
 
 	let workers: WorkerPing[] | undefined = undefined
 	let workerGroups: Record<string, any> | undefined = undefined
@@ -256,6 +257,8 @@
 
 		return Math.ceil(occupancy_rate * 100) + '%'
 	}
+
+	let newHttpAgentWorkerDrawer: Drawer | undefined = undefined
 </script>
 
 {#if $superadmin}
@@ -276,6 +279,15 @@
 		<svelte:fragment slot="actions">
 			<Button size="sm" on:click={importConfigFromYaml} disabled={!importConfigCode}>Import</Button>
 		</svelte:fragment>
+	</DrawerContent>
+</Drawer>
+
+<Drawer bind:this={newHttpAgentWorkerDrawer} size="800px">
+	<DrawerContent
+		title="New HTTP agent worker"
+		on:close={() => newHttpAgentWorkerDrawer?.toggleDrawer?.()}
+	>
+		<HttpAgentWorkerDrawer {customTags} />
 	</DrawerContent>
 </Drawer>
 
@@ -353,7 +365,16 @@
 				<div></div>
 
 				{#if $superadmin}
-					<div class="flex flex-row items-center">
+					<div class="flex flex-row gap-4 items-center">
+						<Button
+							size="sm"
+							color="light"
+							variant="border"
+							startIcon={{ icon: Plus }}
+							on:click={() => {
+								newHttpAgentWorkerDrawer?.toggleDrawer?.()
+							}}>New agent worker</Button
+						>
 						<Popover
 							floatingConfig={{ strategy: 'absolute', placement: 'bottom-end' }}
 							containerClasses="border rounded-lg shadow-lg p-4 bg-surface"
@@ -390,7 +411,7 @@
 															importConfigDrawer?.toggleDrawer?.()
 														}
 													}
-											  ]
+												]
 											: undefined}
 									>
 										<span class="hidden md:block"

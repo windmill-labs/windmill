@@ -10,6 +10,7 @@ use tokio::io::AsyncReadExt;
 use uuid::Uuid;
 
 pub const ENTRYPOINT_OVERRIDE: &str = "_ENTRYPOINT_OVERRIDE";
+pub const LARGE_LOG_THRESHOLD_SIZE: usize = 9000;
 
 use crate::{
     apps::AppScriptId,
@@ -24,7 +25,7 @@ use crate::{
 
 #[derive(sqlx::Type, Serialize, Deserialize, Debug, PartialEq, Copy, Clone)]
 #[sqlx(type_name = "JOB_KIND", rename_all = "lowercase")]
-#[serde(rename_all(serialize = "lowercase"))]
+#[serde(rename_all(serialize = "lowercase", deserialize = "lowercase"))]
 pub enum JobKind {
     Script,
     #[allow(non_camel_case_types)]
@@ -49,6 +50,13 @@ impl JobKind {
         matches!(
             self,
             JobKind::Flow | JobKind::FlowPreview | JobKind::SingleScriptFlow | JobKind::FlowNode
+        )
+    }
+
+    pub fn is_dependency(&self) -> bool {
+        matches!(
+            self,
+            JobKind::FlowDependencies | JobKind::AppDependencies | JobKind::Dependencies
         )
     }
 }

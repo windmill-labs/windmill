@@ -13,7 +13,7 @@ use uuid::Uuid;
 use windmill_common::{
     error::{self, Error},
     utils::calculate_hash,
-    worker::{copy_dir_recursively, save_cache, write_file},
+    worker::{copy_dir_recursively, save_cache, write_file, Connection},
 };
 use windmill_parser::Arg;
 use windmill_parser_java::parse_java_sig_meta;
@@ -44,7 +44,7 @@ pub(crate) struct JobHandlerInput<'a> {
     pub canceled_by: &'a mut Option<CanceledBy>,
     pub client: &'a AuthedClient,
     pub parent_runnable_path: Option<String>,
-    pub db: &'a sqlx::Pool<sqlx::Postgres>,
+    pub conn: &'a Connection,
     pub envs: HashMap<String, String>,
     pub inner_content: &'a str,
     pub job: &'a MiniPulledJob,
@@ -67,7 +67,7 @@ pub async fn handle_java_job<'a>(mut args: JobHandlerInput<'a>) -> Result<Box<Ra
         &args.job.id,
         &args.inner_content,
         &args.job_dir,
-        &args.db,
+        &args.conn,
         &args.job.workspace_id,
     )
     .await?;
@@ -91,11 +91,11 @@ pub async fn handle_java_job<'a>(mut args: JobHandlerInput<'a>) -> Result<Box<Ra
 }
 
 async fn prepare<'a>(
-    JobHandlerInput { job, db, job_dir, client, inner_content, .. }: &mut JobHandlerInput<'a>,
+    JobHandlerInput { job, conn, job_dir, client, inner_content, .. }: &mut JobHandlerInput<'a>,
 ) -> Result<(), Error> {
     // Create needed files
     {
-        create_args_and_out_file(&client, job, job_dir, db).await?;
+        create_args_and_out_file(&client, job, job_dir, conn).await?;
         let app_path = format!("{}/src/main/java/net/script/", job_dir);
         create_dir_all(&app_path).await?;
         File::create(format!("{app_path}/App.java"))
@@ -120,7 +120,7 @@ pub async fn resolve<'a>(
     job_id: &Uuid,
     code: &str,
     job_dir: &str,
-    db: &sqlx::Pool<sqlx::Postgres>,
+    conn: &Connection,
     w_id: &str,
 ) -> Result<String, Error> {
     let deps = {
@@ -152,21 +152,23 @@ pub async fn resolve<'a>(
     };
 
     let req_hash = format!("java-{}", calculate_hash(&deps));
-    if let Some(cached) = sqlx::query_scalar!(
-        "SELECT lockfile FROM pip_resolution_cache WHERE hash = $1",
-        req_hash
-    )
-    .fetch_optional(db)
-    .await?
-    {
-        return Ok(cached);
+    if let Connection::Sql(db) = conn {
+        if let Some(cached) = sqlx::query_scalar!(
+            "SELECT lockfile FROM pip_resolution_cache WHERE hash = $1",
+            req_hash
+        )
+        .fetch_optional(db)
+        .await?
+        {
+            return Ok(cached);
+        }
     }
     let lock = {
         append_logs(
             job_id,
             w_id,
             format!("\n--- RESOLVING LOCKFILE ---\n"),
-            db.clone(),
+            &conn,
         )
         .await;
 
@@ -239,18 +241,22 @@ pub async fn resolve<'a>(
         }
     };
 
-    sqlx::query!(
+    if let Connection::Sql(db) = conn {
+        sqlx::query!(
         "INSERT INTO pip_resolution_cache (hash, lockfile, expiration) VALUES ($1, $2, now() + ('3 days')::interval) ON CONFLICT (hash) DO UPDATE SET lockfile = $2",
         req_hash,
-        lock.clone(),
-    ).fetch_optional(db).await?;
+            lock.clone(),
+        )
+        .fetch_optional(db)
+        .await?;
+    }
 
-    append_logs(job_id, w_id, format!("\n{}", &lock), db.clone()).await;
+    append_logs(job_id, w_id, format!("\n{}", &lock), &conn).await;
     Ok(lock)
 }
 
 async fn install<'a>(
-    JobHandlerInput { worker_name, job, db, job_dir, .. }: &mut JobHandlerInput<'a>,
+    JobHandlerInput { worker_name, job, conn, job_dir, .. }: &mut JobHandlerInput<'a>,
     deps: String,
 ) -> Result<String, Error> {
     let deps = deps
@@ -411,7 +417,7 @@ async fn install<'a>(
         &job.id,
         &job.workspace_id,
         worker_name,
-        db,
+        conn,
     )
     .await?;
     Ok(classpath)
@@ -424,7 +430,7 @@ async fn compile<'a>(
         canceled_by,
         worker_name,
         job,
-        db,
+        conn,
         job_dir,
         client,
         envs,
@@ -448,7 +454,7 @@ async fn compile<'a>(
         ))
     }
     let reserved_variables =
-        get_reserved_variables(job, &client.token, db, parent_runnable_path.clone()).await?;
+        get_reserved_variables(job, &client.token, conn, parent_runnable_path.clone()).await?;
     let hash = compute_hash(inner_content, *requirements_o);
     let bin_path = format!("{}/{hash}", JAVA_CACHE_DIR);
     let remote_path = format!("java_jar/{hash}");
@@ -474,7 +480,7 @@ async fn compile<'a>(
                 &job.id,
                 &job.workspace_id,
                 format!("\n--- COMPILING .JAVA FILES\n"),
-                db.clone(),
+                &conn,
             )
             .await;
 
@@ -514,7 +520,7 @@ async fn compile<'a>(
         };
         handle_child::handle_child(
             &job.id,
-            db,
+            conn,
             mem_peak,
             canceled_by,
             child,
@@ -559,7 +565,7 @@ async fn run<'a>(
         canceled_by,
         worker_name,
         job,
-        db,
+        conn,
         job_dir,
         shared_mount,
         client,
@@ -571,14 +577,14 @@ async fn run<'a>(
     classpath: &'a str,
 ) -> Result<(), Error> {
     let reserved_variables =
-        get_reserved_variables(job, &client.token, db, parent_runnable_path.clone()).await?;
+        get_reserved_variables(job, &client.token, conn, parent_runnable_path.clone()).await?;
 
     let child = if !cfg!(windows) && !*DISABLE_NSJAIL {
         append_logs(
             &job.id,
             &job.workspace_id,
             format!("\n--- ISOLATED JAVA CODE EXECUTION ---\n"),
-            db.clone(),
+            &conn,
         )
         .await;
 
@@ -640,7 +646,7 @@ async fn run<'a>(
             &job.id,
             &job.workspace_id,
             format!("\n--- JAVA CODE EXECUTION ---\n"),
-            db.clone(),
+            &conn,
         )
         .await;
 
@@ -697,7 +703,7 @@ async fn run<'a>(
     };
     handle_child::handle_child(
         &job.id,
-        db,
+        conn,
         mem_peak,
         canceled_by,
         child,

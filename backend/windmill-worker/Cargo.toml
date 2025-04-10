@@ -103,6 +103,7 @@ urlencoding.workspace = true
 nix.workspace = true
 bytes.workspace = true
 reqwest.workspace = true
+reqwest-middleware.workspace = true
 hex.workspace = true
 tiberius = { workspace = true, optional = true }
 tokio-util = { workspace = true, optional = true }
