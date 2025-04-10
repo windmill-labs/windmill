@@ -637,7 +637,7 @@ export const TS_PREPROCESSOR_SCRIPT_INTRO = `/**
  * - Postgres: \`(wm_trigger: { kind: 'postgres' }, transaction_type: string, schema_name: string, table_name: string, row: any)\`
  * - WebSocket/Kafka/NATS/SQS: \`(wm_trigger: { kind: 'websocket' | 'kafka' | 'nats' | 'sqs', [kind]: { ... } }, msg: string)\`
  * - MQTT: \`(wm_trigger: { kind: 'mqtt', [kind]: { ... } }, payload: Array<number>)\`
- * - GCP: \`(wm_trigger: { kind: 'gcp', [kind]: { ... } }, payload: string)\`*
+ * - GCP: \`(wm_trigger: { kind: 'gcp', [kind]: { ... } }, payload: string)\`
  * - Email: \`(wm_trigger: { kind: 'email' }, raw_email: string, parsed_email: { ... })\`
  *
  * The returned object defines the parameter values passed to \`main()\`.
