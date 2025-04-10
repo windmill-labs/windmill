@@ -10759,6 +10759,41 @@ paths:
                 items:
                   $ref: "#/components/schemas/AutoscalingEvent"
 
+  /agent_workers/create_agent_token:
+    post:
+      summary: create agent token
+      operationId: createAgentToken
+      tags:
+        - agent_workers
+      requestBody:
+        description: agent token
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                worker_group:
+                  type: string
+                tags:
+                  type: array
+                  items:
+                    type: string
+                exp:
+                  type: integer
+              required:
+                - worker_group
+                - tags
+                - exp
+      responses:
+        "200":
+          description: agent token created
+          content:
+            application/json:
+              schema:
+                type: string
+
+
   /w/{workspace}/acls/get/{kind}/{path}:
     get:
       summary: get granular acls

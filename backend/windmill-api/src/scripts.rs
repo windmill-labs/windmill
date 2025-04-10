@@ -44,12 +44,21 @@ use windmill_audit::ActionKind;
 use windmill_common::error::to_anyhow;
 
 use windmill_common::{
-    db::UserDB, error::{Error, JsonResult, Result}, jobs::JobPayload, schedule::Schedule, schema::should_validate_schema, scripts::{
+    db::UserDB,
+    error::{Error, JsonResult, Result},
+    jobs::JobPayload,
+    schedule::Schedule,
+    schema::should_validate_schema,
+    scripts::{
         to_i64, HubScript, ListScriptQuery, ListableScript, NewScript, Schema, Script, ScriptHash,
         ScriptHistory, ScriptHistoryUpdate, ScriptKind, ScriptLang, ScriptWithStarred,
-    }, users::username_to_permissioned_as, utils::{
+    },
+    users::username_to_permissioned_as,
+    utils::{
         not_found_if_none, paginate, query_elems_from_hub, require_admin, Pagination, StripPath,
-    }, worker::to_raw_value, HUB_BASE_URL
+    },
+    worker::to_raw_value,
+    HUB_BASE_URL,
 };
 use windmill_git_sync::{handle_deployment_metadata, DeployedObject};
 use windmill_parser_ts::remove_pinned_imports;
@@ -409,10 +418,10 @@ async fn create_snapshot_script(
                 std::fs::create_dir_all(
                     windmill_common::worker::ROOT_STANDALONE_BUNDLE_DIR.clone(),
                 )?;
-                windmill_common::worker::write_file(
+                windmill_common::worker::write_file_bytes(
                     &windmill_common::worker::ROOT_STANDALONE_BUNDLE_DIR,
                     &hash,
-                    &String::from_utf8_lossy(&data),
+                    &data,
                 )?;
             } else {
                 #[cfg(not(all(feature = "enterprise", feature = "parquet")))]

@@ -53,14 +53,14 @@ pub async fn do_mssql(
     job: &MiniPulledJob,
     client: &AuthedClient,
     query: &str,
-    db: &sqlx::Pool<sqlx::Postgres>,
+    conn: &Connection,
     mem_peak: &mut i32,
     canceled_by: &mut Option<CanceledBy>,
     worker_name: &str,
     occupancy_metrics: &mut OccupancyMetrics,
     job_dir: &str,
 ) -> error::Result<Box<RawValue>> {
-    let mssql_args = build_args_values(job, client, db).await?;
+    let mssql_args = build_args_values(job, client, conn).await?;
 
     let inline_db_res_path = parse_db_resource(&query);
 
@@ -106,7 +106,7 @@ pub async fn do_mssql(
 
     if readonly_intent {
         let logs = format!("\nSetting ApplicationIntent to ReadOnly");
-        append_logs(&job.id, &job.workspace_id, logs, db).await;
+        append_logs(&job.id, &job.workspace_id, logs, conn).await;
     }
 
     // Handle authentication based on available credentials
@@ -224,7 +224,7 @@ pub async fn do_mssql(
     let raw_result = run_future_with_polling_update_job_poller(
         job.id,
         job.timeout,
-        db,
+        conn,
         mem_peak,
         canceled_by,
         result_f,

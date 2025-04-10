@@ -133,6 +133,7 @@
 			on:addPreprocessor
 			on:testWithArgs
 			fullHeight={false}
+			captureActiveIndicator={captureInfo.active}
 		/>
 	</div>
 </div>

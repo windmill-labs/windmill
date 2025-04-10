@@ -75,8 +75,8 @@ lazy_static::lazy_static! {
                 if std::env::var("BASE_INTERNAL_URL").is_err() {
                     panic!("BASE_INTERNAL_URL is required in agent mode")
                 }
-                if std::env::var("JOB_TOKEN").is_err() {
-                    println!("JOB_TOKEN is not passed, hence workers will still need to create permissions for each job and the DATABASE_URL needs to be of a role that can INSERT into the job_perms table")
+                if std::env::var("AGENT_TOKEN").is_err() {
+                    println!("AGENT_TOKEN is not passed. This is required for the agent to work and contains the JWT to authenticate with the server.")
                 }
 
                 #[cfg(not(feature = "enterprise"))]
@@ -173,6 +173,28 @@ pub fn hostname() -> String {
             .map(|x| x.to_string())
             .unwrap_or_else(|| rd_string(5))
     })
+}
+
+fn instance_name(hostname: &str) -> String {
+    hostname
+        .replace(" ", "")
+        .split("-")
+        .last()
+        .unwrap()
+        .to_ascii_lowercase()
+        .to_string()
+}
+
+pub fn worker_suffix(hostname: &str, rd_string: &str) -> String {
+    format!("{}-{}", instance_name(hostname), rd_string)
+}
+
+pub fn worker_name_with_suffix(is_agent: bool, worker_group: &str, suffix: &str) -> String {
+    if is_agent {
+        format!("ag-{}-{}", worker_group, suffix)
+    } else {
+        format!("wk-{}-{}", worker_group, suffix)
+    }
 }
 
 pub fn paginate(pagination: Pagination) -> (usize, usize) {
@@ -394,6 +416,16 @@ pub async fn report_critical_error(
     } else {
         send_critical_alert(error_message, &_db, CriticalAlertKind::CriticalError, None).await;
     }
+}
+
+pub fn empty_string_as_none<'de, D>(
+    deserializer: D,
+) -> std::result::Result<Option<String>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let option = <Option<String> as serde::Deserialize>::deserialize(deserializer)?;
+    Ok(option.filter(|s| !s.is_empty()))
 }
 
 pub async fn report_recovered_critical_error(
