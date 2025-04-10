@@ -2572,7 +2572,7 @@ dependencies = [
  "hashbrown 0.14.5",
  "lock_api",
  "once_cell",
- "parking_lot_core",
+ "parking_lot_core 0.9.10",
 ]
 
 [[package]]
@@ -2626,7 +2626,7 @@ dependencies = [
  "log",
  "num_cpus",
  "object_store",
- "parking_lot",
+ "parking_lot 0.12.3",
  "parquet",
  "paste",
  "pin-project-lite",
@@ -2687,7 +2687,7 @@ dependencies = [
  "hashbrown 0.14.5",
  "log",
  "object_store",
- "parking_lot",
+ "parking_lot 0.12.3",
  "rand 0.8.5",
  "tempfile",
  "url",
@@ -2867,7 +2867,7 @@ dependencies = [
  "itertools 0.12.1",
  "log",
  "once_cell",
- "parking_lot",
+ "parking_lot 0.12.3",
  "pin-project-lite",
  "rand 0.8.5",
  "tokio",
@@ -2998,7 +2998,7 @@ dependencies = [
  "indexmap 2.8.0",
  "log",
  "once_cell",
- "parking_lot",
+ "parking_lot 0.12.3",
  "serde",
  "serde_json",
  "sha2 0.10.8",
@@ -3080,7 +3080,7 @@ dependencies = [
  "indexmap 2.8.0",
  "libc",
  "memoffset",
- "parking_lot",
+ "parking_lot 0.12.3",
  "percent-encoding",
  "pin-project",
  "serde",
@@ -3325,7 +3325,7 @@ dependencies = [
  "log",
  "once_cell",
  "os_pipe",
- "parking_lot",
+ "parking_lot 0.12.3",
  "pin-project",
  "rand 0.8.5",
  "tokio",
@@ -3705,7 +3705,7 @@ dependencies = [
  "log",
  "node_resolver",
  "once_cell",
- "parking_lot",
+ "parking_lot 0.12.3",
  "sys_traits",
  "thiserror 2.0.12",
  "url",
@@ -3862,7 +3862,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d774fd83f26b24f0805a6ab8b26834a0d06ceac0db517b769b1e4633c96a2057"
 dependencies = [
  "futures",
- "parking_lot",
+ "parking_lot 0.12.3",
  "tokio",
 ]
 
@@ -4972,7 +4972,7 @@ checksum = "1d930c203dd0b6ff06e0201a4a2fe9149b43c684fd4420555b26d21b1a02956f"
 dependencies = [
  "futures-core",
  "lock_api",
- "parking_lot",
+ "parking_lot 0.12.3",
 ]
 
 [[package]]
@@ -5638,7 +5638,7 @@ dependencies = [
  "ipconfig",
  "moka",
  "once_cell",
- "parking_lot",
+ "parking_lot 0.12.3",
  "rand 0.9.0",
  "resolv-conf",
  "serde",
@@ -7230,7 +7230,7 @@ dependencies = [
  "crossbeam-epoch",
  "crossbeam-utils",
  "loom",
- "parking_lot",
+ "parking_lot 0.12.3",
  "portable-atomic",
  "rustc_version 0.4.1",
  "smallvec",
@@ -7933,7 +7933,7 @@ dependencies = [
  "hyper 1.6.0",
  "itertools 0.13.0",
  "md-5 0.10.6",
- "parking_lot",
+ "parking_lot 0.12.3",
  "percent-encoding",
  "quick-xml 0.36.2",
  "rand 0.8.5",
@@ -8351,12 +8351,37 @@ checksum = "f38d5652c16fde515bb1ecef450ab0f6a219d619a7274976324d5e377f7dceba"
 
 [[package]]
 name = "parking_lot"
+version = "0.11.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7d17b78036a60663b797adeaee46f5c9dfebb86948d1255007a1d6be0271ff99"
+dependencies = [
+ "instant",
+ "lock_api",
+ "parking_lot_core 0.8.6",
+]
+
+[[package]]
+name = "parking_lot"
 version = "0.12.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f1bf18183cf54e8d6059647fc3063646a1801cf30896933ec2311622cc4b9a27"
 dependencies = [
  "lock_api",
- "parking_lot_core",
+ "parking_lot_core 0.9.10",
+]
+
+[[package]]
+name = "parking_lot_core"
+version = "0.8.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "60a2cfe6f0ad2bfc16aefa463b497d5c7a5ecd44a23efa72aa342d90177356dc"
+dependencies = [
+ "cfg-if",
+ "instant",
+ "libc",
+ "redox_syscall 0.2.16",
+ "smallvec",
+ "winapi",
 ]
 
 [[package]]
@@ -8957,7 +8982,7 @@ dependencies = [
  "fnv",
  "lazy_static",
  "memchr",
- "parking_lot",
+ "parking_lot 0.12.3",
  "thiserror 2.0.12",
 ]
 
@@ -9111,7 +9136,7 @@ dependencies = [
  "ahash 0.8.11",
  "equivalent",
  "hashbrown 0.15.2",
- "parking_lot",
+ "parking_lot 0.12.3",
 ]
 
 [[package]]
@@ -9361,6 +9386,15 @@ checksum = "03251193000f4bd3b042892be858ee50e8b3719f2b08e5833ac4353724632430"
 
 [[package]]
 name = "redox_syscall"
+version = "0.2.16"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fb5a58c1855b4b6819d59012155603f0b22ad30cad752600aadfcb695265519a"
+dependencies = [
+ "bitflags 1.3.2",
+]
+
+[[package]]
+name = "redox_syscall"
 version = "0.3.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "567664f262709473930a4bf9e51bf2ebf3348f2e748ccc50dea20646858f8f29"
@@ -9569,12 +9603,58 @@ dependencies = [
 ]
 
 [[package]]
+name = "reqwest-middleware"
+version = "0.4.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "64e8975513bd9a7a43aad01030e79b3498e05db14e9d945df6483e8cf9b8c4c4"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "http 1.3.1",
+ "reqwest 0.12.15",
+ "serde",
+ "thiserror 1.0.69",
+ "tower-service",
+]
+
+[[package]]
+name = "reqwest-retry"
+version = "0.7.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "29c73e4195a6bfbcb174b790d9b3407ab90646976c55de58a6515da25d851178"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "futures",
+ "getrandom 0.2.15",
+ "http 1.3.1",
+ "hyper 1.6.0",
+ "parking_lot 0.11.2",
+ "reqwest 0.12.15",
+ "reqwest-middleware",
+ "retry-policies",
+ "thiserror 1.0.69",
+ "tokio",
+ "tracing",
+ "wasm-timer",
+]
+
+[[package]]
 name = "resolv-conf"
 version = "0.7.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "48375394603e3dd4b2d64371f7148fd8c7baa2680e28741f2cb8d23b59e3d4c4"
 dependencies = [
  "hostname",
+]
+
+[[package]]
+name = "retry-policies"
+version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5875471e6cab2871bc150ecb8c727db5113c9338cc3354dc5ee3425b6aa40a1c"
+dependencies = [
+ "rand 0.8.5",
 ]
 
 [[package]]
@@ -12278,7 +12358,7 @@ dependencies = [
  "bytes",
  "libc",
  "mio 1.0.3",
- "parking_lot",
+ "parking_lot 0.12.3",
  "pin-project-lite",
  "signal-hook-registry",
  "socket2",
@@ -12342,7 +12422,7 @@ dependencies = [
  "futures-channel",
  "futures-util",
  "log",
- "parking_lot",
+ "parking_lot 0.12.3",
  "percent-encoding",
  "phf",
  "pin-project-lite",
@@ -12368,7 +12448,7 @@ dependencies = [
  "futures-channel",
  "futures-util",
  "log",
- "parking_lot",
+ "parking_lot 0.12.3",
  "percent-encoding",
  "phf",
  "pin-project-lite",
@@ -12627,7 +12707,7 @@ dependencies = [
  "cookie 0.18.1",
  "futures-util",
  "http 1.3.1",
- "parking_lot",
+ "parking_lot 0.12.3",
  "pin-project-lite",
  "tower-layer",
  "tower-service",
@@ -13475,6 +13555,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "wasm-timer"
+version = "0.2.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "be0ecb0db480561e9a7642b5d3e4187c128914e58aa84330b9493e3eb68c5e7f"
+dependencies = [
+ "futures",
+ "js-sys",
+ "parking_lot 0.11.2",
+ "pin-utils",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+ "web-sys",
+]
+
+[[package]]
 name = "wasm_dep_analyzer"
 version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -13547,7 +13642,7 @@ dependencies = [
  "log",
  "naga",
  "once_cell",
- "parking_lot",
+ "parking_lot 0.12.3",
  "profiling",
  "raw-window-handle",
  "ron",
@@ -13589,7 +13684,7 @@ dependencies = [
  "ndk-sys",
  "objc",
  "once_cell",
- "parking_lot",
+ "parking_lot 0.12.3",
  "profiling",
  "range-alloc",
  "raw-window-handle",
@@ -13828,8 +13923,10 @@ dependencies = [
  "windmill-indexer",
  "windmill-parser",
  "windmill-parser-py",
+ "windmill-parser-py-imports",
  "windmill-parser-ts",
  "windmill-queue",
+ "windmill-worker",
 ]
 
 [[package]]
@@ -13916,6 +14013,8 @@ dependencies = [
  "rand 0.9.0",
  "regex",
  "reqwest 0.12.15",
+ "reqwest-middleware",
+ "reqwest-retry",
  "semver 1.0.26",
  "serde",
  "serde_json",
@@ -14282,6 +14381,7 @@ dependencies = [
  "rand 0.9.0",
  "regex",
  "reqwest 0.12.15",
+ "reqwest-middleware",
  "rust_decimal",
  "serde",
  "serde_json",

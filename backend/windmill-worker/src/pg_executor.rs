@@ -27,7 +27,7 @@ use tokio_postgres::{
 use uuid::Uuid;
 use windmill_common::error::to_anyhow;
 use windmill_common::error::{self, Error};
-use windmill_common::worker::{to_raw_value, CLOUD_HOSTED};
+use windmill_common::worker::{to_raw_value, Connection, CLOUD_HOSTED};
 use windmill_parser::{Arg, Typ};
 use windmill_parser_sql::{
     parse_db_resource, parse_pg_statement_arg_indices, parse_pgsql_sig, parse_sql_blocks,
@@ -161,14 +161,14 @@ pub async fn do_postgresql(
     job: &MiniPulledJob,
     client: &AuthedClient,
     query: &str,
-    db: &sqlx::Pool<sqlx::Postgres>,
+    conn: &Connection,
     mem_peak: &mut i32,
     canceled_by: &mut Option<CanceledBy>,
     worker_name: &str,
     column_order: &mut Option<Vec<String>>,
     occupancy_metrics: &mut OccupancyMetrics,
 ) -> error::Result<Box<RawValue>> {
-    let pg_args = build_args_values(job, client, db).await?;
+    let pg_args = build_args_values(job, client, conn).await?;
 
     let inline_db_res_path = parse_db_resource(&query);
 
@@ -353,7 +353,7 @@ pub async fn do_postgresql(
     let result = run_future_with_polling_update_job_poller(
         job.id,
         job.timeout,
-        db,
+        conn,
         mem_peak,
         canceled_by,
         result_f,
