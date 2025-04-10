@@ -11,7 +11,7 @@
 	let clientWidth = window.innerWidth
 </script>
 
-<main class="flex-grow w-full overflow-y-auto" bind:clientWidth>
+<main class="grow w-full overflow-y-auto" bind:clientWidth>
 		{#if clientWidth >= 768}
 			<SplitPanesWrapper class="hidden md:block">
 				<Splitpanes>

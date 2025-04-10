@@ -374,7 +374,7 @@
 												dispatch('focus')
 											}}
 											on:blur={(e) => {
-												dispatch('blur')
+												dispatch('blur-xs')
 											}}
 											code={JSON.stringify(static_asset_config ?? { s3: '' }, null, 2)}
 											bind:value={static_asset_config}

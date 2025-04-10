@@ -27,7 +27,7 @@
 		<div
 			class={twMerge(
 				'w-full h-full border border-gray-400',
-				'flex flex-row gap-2 items-center justify-between rounded-sm overflow-hidden'
+				'flex flex-row gap-2 items-center justify-between rounded-xs overflow-hidden'
 			)}
 			style="width: 275px; height: 34px; background-color: {document.documentElement.classList.contains(
 				'dark'
@@ -46,7 +46,7 @@
 						data.nodeCallbackHandler('removeBranch', data.node.id, data.node, data.parentIds, false)
 					}}
 					type="button"
-					class="text-primary bg-surface border mx-[1px] border-gray-300 dark:border-gray-500 focus:outline-none hover:bg-surface-hover focus:ring-4 focus:ring-gray-200 font-medium rounded-full text-sm w-[25px] h-[25px] flex items-center justify-center"
+					class="text-primary bg-surface border mx-[1px] border-gray-300 dark:border-gray-500 focus:outline-hidden hover:bg-surface-hover focus:ring-4 focus:ring-gray-200 font-medium rounded-full text-sm w-[25px] h-[25px] flex items-center justify-center"
 				>
 					<X class="m-[5px]" size={15} />
 				</button>

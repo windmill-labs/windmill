@@ -87,7 +87,7 @@
 							<div class="flex flex-col w-full gap-4 items-center p-5">
 								{#each v.table_to_track as table_to_track, j}
 									<div
-										class="relative rounded bg-surface-disabled p-2 flex w-full flex-col gap-4 group"
+										class="relative rounded-xs bg-surface-disabled p-2 flex w-full flex-col gap-4 group"
 									>
 										<Label label="Table Name" required>
 											<svelte:fragment slot="header">
@@ -96,7 +96,7 @@
 											<input
 												type="text"
 												bind:value={table_to_track.table_name}
-												class="!bg-surface mt-1"
+												class="bg-surface! mt-1"
 											/>
 										</Label>
 										<!-- svelte-ignore a11y-label-has-associated-control -->
@@ -127,9 +127,9 @@
 													options={table_to_track.columns_name ?? []}
 													allowUserOptions="append"
 													bind:selected={table_to_track.columns_name}
-													ulOptionsClass={'!bg-surface !text-sm'}
-													ulSelectedClass="!text-sm"
-													outerDivClass="!bg-surface !min-h-[38px] !border-[#d1d5db]"
+													ulOptionsClass={'bg-surface! text-sm!'}
+													ulSelectedClass="text-sm!"
+													outerDivClass="bg-surface! min-h-[38px]! border-[#d1d5db]!"
 													noMatchingOptionsMsg=""
 													createOptionMsg={null}
 													duplicates={false}
@@ -171,7 +171,7 @@
 											<input
 												type="text"
 												bind:value={table_to_track.where_clause}
-												class="!bg-surface mt-1"
+												class="bg-surface! mt-1"
 											/>
 										</Label>
 										<Button

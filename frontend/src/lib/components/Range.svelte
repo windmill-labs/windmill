@@ -84,7 +84,7 @@
 	</div>
 
 	{#if !hideInput}
-		<input bind:value type="number" class="!w-16 h-8 !text-xs mb-6" {max} {min} {disabled} />
+		<input bind:value type="number" class="w-16! h-8 text-xs! mb-6" {max} {min} {disabled} />
 	{/if}
 </div>
 

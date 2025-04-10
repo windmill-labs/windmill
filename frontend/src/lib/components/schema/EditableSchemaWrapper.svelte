@@ -163,10 +163,10 @@
 				}}
 				noResultsText="No matches, try the 'Choose another extension' option"
 				bind:selectedItem={formatExtension}
-				inputClassName="!h-[32px] py-1 !text-xs !w-64"
+				inputClassName="h-[32px]! py-1 text-xs! w-64!"
 				hideArrow
-				className={'!font-bold'}
-				dropdownClassName="!font-normal !w-64 !max-w-64"
+				className={'font-bold!'}
+				dropdownClassName="font-normal! w-64! max-w-64!"
 				maxItemsToShowInList={8}
 				moreItemsText={null}
 				lock={true}
@@ -176,7 +176,7 @@
 			<input
 				autofocus={true}
 				bind:value={formatExtension}
-				class="!h-[32px] py-1 !text-xs !w-64"
+				class="h-[32px]! py-1 text-xs! w-64!"
 				placeholder="Enter your extension"
 				on:keydown={(event) => {
 					if (event.key === 'Enter') {

@@ -133,7 +133,7 @@
 							size="xs"
 							color="light"
 							buttonType="button"
-							btnClasses="!ml-2 text-violet-800 dark:text-violet-400 bg-violet-100 dark:bg-gray-700"
+							btnClasses="ml-2! text-violet-800 dark:text-violet-400 bg-violet-100 dark:bg-gray-700"
 							aria-label="Generate"
 							on:click={() => {
 								close()

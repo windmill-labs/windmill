@@ -1,3 +1,3 @@
-<div class="w-full flex-grow bg-blue-300">
+<div class="w-full grow bg-blue-300">
 	<slot />
 </div>

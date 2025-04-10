@@ -69,7 +69,7 @@
 			on:input={handleInput}
 			on:blur={saveEdit}
 			id="cell"
-			class="!appearance-none !bg-transparent !border-none !p-0 !m-0 leading-normal !text-xs"
+			class="appearance-none! bg-transparent! border-none! p-0! m-0! leading-normal text-xs!"
 			style="outline: none; box-shadow: none; height: auto; resize: none;"
 			on:keypress={(e) => {
 				if (e.key === 'Enter') {

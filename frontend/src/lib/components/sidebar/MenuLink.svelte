@@ -32,11 +32,11 @@
 				'group flex items-center px-2 py-2 text-sm font-light rounded-md h-8 gap-3',
 				isSelected
 					? lightMode
-						? 'bg-surface-selected hover:bg-surface-hover rounded-none data-[highlighted]:bg-surface-hover'
-						: 'bg-frost-700 hover:bg-[#30404e] data-[highlighted]:bg-[#30404e]'
+						? 'bg-surface-selected hover:bg-surface-hover rounded-none data-highlighted:bg-surface-hover'
+						: 'bg-frost-700 hover:bg-[#30404e] data-highlighted:bg-[#30404e]'
 					: lightMode
-					? 'hover:bg-surface-hover rounded-none data-[highlighted]:bg-surface-hover'
-					: 'hover:bg-[#2A3648] data-[highlighted]:bg-[#2A3648]',
+					? 'hover:bg-surface-hover rounded-none data-highlighted:bg-surface-hover'
+					: 'hover:bg-[#2A3648] data-highlighted:bg-[#2A3648]',
 
 				'hover:transition-all',
 				$$props.class
@@ -51,7 +51,7 @@
 					this={icon}
 					size={16}
 					class={classNames(
-						'flex-shrink-0',
+						'shrink-0',
 						isSelected
 							? lightMode
 								? 'text-primary group-hover:text-secondary'

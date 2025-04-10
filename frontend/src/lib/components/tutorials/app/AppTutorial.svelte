@@ -244,7 +244,7 @@
 							'Once opened, you can select the output you want to connect to. Here we will connect the result output of the text component to the input "x" of the inline runnable.'
 
 						const objectViewer = document.createElement('div')
-						objectViewer.innerHTML = `<div class="rounded-lg shadow-md border p-4 bg-surface"><span class="s-UNyBDXJ1E286">  <ul class="w-full pl-2 border-none s-UNyBDXJ1E286"><li class="s-UNyBDXJ1E286"><button class="whitespace-nowrap s-UNyBDXJ1E286"><span class="key border  font-semibold rounded px-1 hover:bg-surface-hover text-2xs text-secondary s-UNyBDXJ1E286">result</span> :</button> <button class="val  rounded px-1 hover:bg-blue-100 string s-UNyBDXJ1E286"><span title="" class="text-2xs s-UNyBDXJ1E286">""</span></button></li> </ul> </span> <span class="border border-blue-600 rounded px-1 cursor-pointer hover:bg-gray-200 s-UNyBDXJ1E286 hidden">{...}</span> </div>`
+						objectViewer.innerHTML = `<div class="rounded-lg shadow-md border p-4 bg-surface"><span class="s-UNyBDXJ1E286">  <ul class="w-full pl-2 border-none s-UNyBDXJ1E286"><li class="s-UNyBDXJ1E286"><button class="whitespace-nowrap s-UNyBDXJ1E286"><span class="key border  font-semibold rounded-xs px-1 hover:bg-surface-hover text-2xs text-secondary s-UNyBDXJ1E286">result</span> :</button> <button class="val  rounded-xs px-1 hover:bg-blue-100 string s-UNyBDXJ1E286"><span title="" class="text-2xs s-UNyBDXJ1E286">""</span></button></li> </ul> </span> <span class="border border-blue-600 rounded-xs px-1 cursor-pointer hover:bg-gray-200 s-UNyBDXJ1E286 hidden">{...}</span> </div>`
 
 						wrapper.appendChild(p1)
 						wrapper.appendChild(id)

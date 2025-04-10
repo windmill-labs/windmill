@@ -28,12 +28,12 @@
 				disabled={item?.disabled}
 				class={twMerge(
 					'px-4 py-2 text-primary font-semibold hover:bg-surface-hover cursor-pointer text-xs transition-all',
-					'data-[highlighted]:bg-surface-hover',
+					'data-highlighted:bg-surface-hover',
 					'flex flex-row gap-2 items-center',
 					item?.disabled && 'text-gray-400 cursor-not-allowed',
 					item?.type === 'delete' &&
 						!item?.disabled &&
-						'text-red-500 hover:bg-red-100 hover:text-red-500 data-[highlighted]:text-red-500 data-[highlighted]:bg-red-100'
+						'text-red-500 hover:bg-red-100 hover:text-red-500 data-highlighted:text-red-500 data-highlighted:bg-red-100'
 				)}
 				item={meltItem}
 			>

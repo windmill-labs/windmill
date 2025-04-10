@@ -178,7 +178,7 @@
 			<AlignWrapper {verticalAlignment}>
 				<textarea
 					class={twMerge(
-						'whitespace-pre-wrap !outline-none !border-0 !bg-transparent !resize-none !ring-0 !p-0',
+						'whitespace-pre-wrap outline-hidden! border-0! bg-transparent! resize-none! ring-0! p-0!',
 						css?.text?.class,
 						'wm-text',
 						classes,
@@ -250,7 +250,7 @@
 									variant="border"
 									size="xs"
 									color="light"
-									btnClasses="!p-1"
+									btnClasses="p-1!"
 									on:click={() => copyToClipboard(result)}
 								>
 									<Clipboard size={14} strokeWidth={2} />

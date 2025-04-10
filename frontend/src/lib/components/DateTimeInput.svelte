@@ -79,14 +79,14 @@
 		bind:value={date}
 		{autofocus}
 		{disabled}
-		class={twMerge('h-8 text-sm !w-3/4 ', inputClass)}
+		class={twMerge('h-8 text-sm w-3/4! ', inputClass)}
 		min={minDate}
 		max={maxDate}
 	/>
 	<input
 		type="time"
 		bind:value={time}
-		class={twMerge('h-8 text-sm !w-1/4 min-w-[100px] ', inputClass)}
+		class={twMerge('h-8 text-sm w-1/4! min-w-[100px] ', inputClass)}
 		{disabled}
 	/>
 	<Button

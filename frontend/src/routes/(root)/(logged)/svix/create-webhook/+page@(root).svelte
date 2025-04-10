@@ -80,7 +80,7 @@
 <div class="flex items-center justify-center h-screen w-screen min-w-0">
 	<div class="flex flex-col gap-5 min-w-0 px-2">
 		<div class="flex flex-row gap-3 items-center justify-center break-words whitespace-normal py-8">
-			<h1 class="!text-3xl font-semibold text-center"
+			<h1 class="text-3xl! font-semibold text-center"
 				>{`${clientName} wants to create a webhook`}</h1
 			>
 		</div>
@@ -142,7 +142,7 @@
 						bind:value={token}
 						disabled={itemPath == undefined}
 						placeholder="enter or generate token"
-						class="!text-md min-w-10 max-w-40"
+						class="text-md! min-w-10 max-w-40"
 					/>
 					<Button
 						size="md"

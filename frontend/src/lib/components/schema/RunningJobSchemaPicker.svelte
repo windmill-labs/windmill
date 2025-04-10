@@ -60,7 +60,7 @@
 				</div>
 			</svelte:fragment>
 			<svelte:fragment slot="extra">
-				<div class="center-center {hovering ? '' : '!hidden'}">
+				<div class="center-center {hovering ? '' : 'hidden!'}">
 					<a
 						target="_blank"
 						href="{base}/run/{job.id}?workspace={$workspaceStore}"

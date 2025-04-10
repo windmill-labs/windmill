@@ -9,7 +9,7 @@
 
 {#if hasError}
 	<div class={classNames('bg-red-100 w-full h-full flex items-center justify-center text-red-500')}>
-		<Popover notClickable placement="bottom" popupClass="!bg-surface border w-96">
+		<Popover notClickable placement="bottom" popupClass="bg-surface! border w-96">
 			<Bug size={14} />
 			<span slot="text">
 				<div class="bg-surface">

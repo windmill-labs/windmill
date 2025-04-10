@@ -323,7 +323,7 @@
 	}
 
 	const itemClass = twMerge(
-		'text-secondary font-normal w-full block px-4 py-2 text-2xs data-[highlighted]:bg-surface-hover data-[highlighted]:text-primary'
+		'text-secondary font-normal w-full block px-4 py-2 text-2xs data-highlighted:bg-surface-hover data-highlighted:text-primary'
 	)
 </script>
 
@@ -335,7 +335,7 @@
 	<div class={twMerge('pt-4 mb-6 md:mb-10')}>
 		<div class="space-y-1">
 			{#each mainMenuLinks as menuLink (menuLink.href ?? menuLink.label)}
-				<MenuLink class="!text-xs" {...menuLink} {isCollapsed} />
+				<MenuLink class="text-xs!" {...menuLink} {isCollapsed} />
 			{/each}
 		</div>
 		<div class="pt-4">
@@ -345,15 +345,15 @@
 			>
 			<Menubar let:createMenu class="flex flex-col gap-1">
 				{#each triggerMenuLinks as menuLink (menuLink.href ?? menuLink.label)}
-					<MenuLink class="!text-xs" {...menuLink} {isCollapsed} />
+					<MenuLink class="text-xs!" {...menuLink} {isCollapsed} />
 				{/each}
 				{#if extraTriggerLinks.length > 0 && !$userStore?.operator}
 					<Menu {createMenu} let:item usePointerDownOutside>
 						<svelte:fragment slot="trigger" let:trigger>
 							<MeltButton
 								class={twMerge(
-									'w-full text-gray-400 text-2xs flex flex-row gap-1 py-1 items-center px-2 hover:bg-[#2A3648] dark:hover:bg-[#30404e] rounded',
-									'data-[highlighted]:bg-[#2A3648] dark:data-[highlighted]:bg-[#30404e]'
+									'w-full text-gray-400 text-2xs flex flex-row gap-1 py-1 items-center px-2 hover:bg-[#2A3648] dark:hover:bg-[#30404e] rounded-xs',
+									'data-highlighted:bg-[#2A3648] dark:data-highlighted:bg-[#30404e]'
 								)}
 								meltElement={trigger}
 							>
@@ -390,7 +390,7 @@
 					<Menu {createMenu} let:item usePointerDownOutside>
 						<svelte:fragment slot="trigger" let:trigger>
 							<MenuButton
-								class="!text-2xs"
+								class="text-2xs!"
 								{...menuLink}
 								{isCollapsed}
 								{notificationsCount}
@@ -425,10 +425,10 @@
 					<MenuSingleItem {createMenu} let:item>
 						<svelte:fragment slot="trigger" let:trigger>
 							<div class="w-full">
-								<MenuButton class="!text-2xs" {...menuLink} {isCollapsed} {trigger} />
+								<MenuButton class="text-2xs!" {...menuLink} {isCollapsed} {trigger} />
 							</div>
 						</svelte:fragment>
-						<MenuLink class="!text-2xs" {...menuLink} {isCollapsed} {item} />
+						<MenuLink class="text-2xs!" {...menuLink} {isCollapsed} {item} />
 					</MenuSingleItem>
 				{/if}
 			{/each}
@@ -447,7 +447,7 @@
 									}
 								}}
 							>
-								<MenuButton class="!text-2xs" {...menuLink} {isCollapsed} {trigger} />
+								<MenuButton class="text-2xs!" {...menuLink} {isCollapsed} {trigger} />
 								{#if menuLink.label === 'Help' && hasNewChangelogs}
 									<span
 										class={twMerge(

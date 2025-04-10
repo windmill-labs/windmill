@@ -29,7 +29,7 @@
 			? 'rounded-l-sm'
 			: position == 'right'
 			? 'rounded-r-sm'
-			: 'rounded-sm'} center-center text-white text-2xs whitespace-nowrap hover:outline outline-1 outline-black"
+			: 'rounded-xs'} center-center text-white text-2xs whitespace-nowrap hover:outline outline-1 outline-black"
 	>
 		<svelte:fragment slot="text"
 			><a href="{base}/run/{id}" class="inline-flex items-center gap-1" target="_blank"

@@ -52,7 +52,7 @@
 			<button
 				title={isConditionalDebugMode ? 'Debug conditions' : 'Debug tabs'}
 				class={classNames(
-					'px-1 text-2xs font-bold w-fit h-full cursor-pointer rounded',
+					'px-1 text-2xs font-bold w-fit h-full cursor-pointer rounded-xs',
 					isManuallySelected
 						? 'hover:bg-red-200 hover:text-red-800'
 						: 'text-blue-600 hover:bg-blue-300 hover:text-blue-800'

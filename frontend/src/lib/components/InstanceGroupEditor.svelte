@@ -70,7 +70,7 @@
 				variant="contained"
 				color="blue"
 				size="sm"
-				btnClasses="!ml-4"
+				btnClasses="ml-4!"
 				on:click={async () => {
 					await GroupService.addUserToInstanceGroup({
 						name,

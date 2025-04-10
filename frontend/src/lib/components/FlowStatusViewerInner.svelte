@@ -902,7 +902,7 @@
 				</p>
 			{/if}
 			{#if render}
-				<div class="w-full h-full border rounded-sm bg-surface p-1 overflow-auto">
+				<div class="w-full h-full border rounded-xs bg-surface p-1 overflow-auto">
 					<DisplayResult
 						workspaceId={job?.workspace_id}
 						{jobId}
@@ -912,7 +912,7 @@
 				</div>
 			{/if}
 		{:else if render}
-			<div class={'border rounded-md shadow p-2'}>
+			<div class={'border rounded-md shadow-xs p-2'}>
 				<FlowPreviewStatus {job} />
 				{#if !job}
 					<div>
@@ -1026,7 +1026,7 @@
 								}}
 								endIcon={{
 									icon: ChevronDown,
-									classes: forloop_selected == loopJobId ? '!rotate-180' : ''
+									classes: forloop_selected == loopJobId ? 'rotate-180!' : ''
 								}}
 							>
 								<span class="truncate font-mono">
@@ -1119,7 +1119,7 @@
 										}}
 										endIcon={{
 											icon: ChevronDown,
-											classes: retry_selected == failedRetry ? '!rotate-180' : ''
+											classes: retry_selected == failedRetry ? 'rotate-180!' : ''
 										}}
 									>
 										<span class="truncate font-mono">

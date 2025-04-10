@@ -254,7 +254,7 @@
 	$: error && sendUserToast(error, true)
 </script>
 
-<div class="bg-surface px-4 py-8 shadow md:border sm:rounded-lg sm:px-10">
+<div class="bg-surface px-4 py-8 shadow-xs md:border sm:rounded-lg sm:px-10">
 	<div class="grid {logins && logins.length > 2 ? 'grid-cols-2' : ''} gap-4">
 		{#if !logins}
 			{#each Array(4) as _}
@@ -307,7 +307,7 @@
 				size="xs"
 				color="blue"
 				variant="border"
-				btnClasses="!border-none"
+				btnClasses="border-none!"
 				on:click={() => {
 					showPassword = !showPassword
 				}}
@@ -341,7 +341,7 @@
 							bind:value={email}
 							id="email"
 							autocomplete="email"
-							class="block w-full rounded-md border-0 py-1.5 text-primary shadow-sm ring-1 ring-inset placeholder:text-secondary focus:ring-2 focus:ring-inset focus:ring-frost-600 sm:text-sm sm:leading-6"
+							class="block w-full rounded-md border-0 py-1.5 text-primary shadow-2xs ring-1 ring-inset placeholder:text-secondary focus:ring-2 focus:ring-inset focus:ring-frost-600 sm:text-sm sm:leading-6"
 						/>
 					</div>
 				</div>
@@ -357,7 +357,7 @@
 							id="password"
 							type="password"
 							autocomplete="current-password"
-							class="block w-full rounded-md border-0 py-1.5 text-shadow shadow-sm ring-1 ring-inset placeholder:text-secondary focus:ring-2 focus:ring-inset focus:ring-frost-600 sm:text-sm sm:leading-6"
+							class="block w-full rounded-md border-0 py-1.5 text-shadow shadow-2xs ring-1 ring-inset placeholder:text-secondary focus:ring-2 focus:ring-inset focus:ring-frost-600 sm:text-sm sm:leading-6"
 						/>
 					</div>
 				</div>
@@ -366,7 +366,7 @@
 					<button
 						on:click={login}
 						disabled={!email || !password}
-						class="flex w-full justify-center rounded-md bg-frost-600 px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-frost-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-frost-600"
+						class="flex w-full justify-center rounded-md bg-frost-600 px-3 py-2 text-sm font-semibold text-white shadow-2xs hover:bg-frost-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-frost-600"
 					>
 						Sign in
 					</button>

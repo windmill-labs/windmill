@@ -33,7 +33,7 @@
 		{/if}
 	</span>
 	{#if !disabled}
-		<Required {required} class="!ml-0" />
+		<Required {required} class="ml-0!" />
 	{/if}
 
 	{#if displayType}

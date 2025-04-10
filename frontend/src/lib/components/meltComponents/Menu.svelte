@@ -74,7 +74,7 @@
 			use:melt={$menuElement}
 			data-menu
 			class={twMerge(
-				'z-[6000] border w-56 origin-top-right rounded-md shadow-md focus:outline-none overflow-y-auto',
+				'z-6000 border w-56 origin-top-right rounded-md shadow-md focus:outline-hidden overflow-y-auto',
 				lightMode ? 'bg-surface-inverse' : 'bg-surface',
 				invisible ? 'opacity-0' : ''
 			)}

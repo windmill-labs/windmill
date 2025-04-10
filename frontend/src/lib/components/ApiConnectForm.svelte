@@ -518,7 +518,7 @@
 																	<td class="py-2">
 																		{#if $userWorkspaces.find((w) => w.id === installation.workspace_id)?.color}
 																			<span
-																				class="inline-flex items-center px-2 py-0.5 rounded text-xs"
+																				class="inline-flex items-center px-2 py-0.5 rounded-xs text-xs"
 																				style="background-color: {$userWorkspaces.find(
 																					(w) => w.id === installation.workspace_id
 																				)?.color}20; color: {$userWorkspaces.find(
@@ -589,7 +589,7 @@
 																	<td class="py-2">
 																		{#if $userWorkspaces.find((w) => w.id === installation.workspace_id)?.color}
 																			<span
-																				class="inline-flex items-center px-2 py-0.5 rounded text-xs"
+																				class="inline-flex items-center px-2 py-0.5 rounded-xs text-xs"
 																				style="background-color: {$userWorkspaces.find(
 																					(w) => w.id === installation.workspace_id
 																				)?.color}20; color: {$userWorkspaces.find(
@@ -689,7 +689,7 @@
 	{#if !emptyString(error)}<span class="text-red-400 text-xs mb-1 flex flex-row-reverse"
 			>{error}</span
 		>{:else}<div class="py-2"></div>{/if}
-	<div class="h-full w-full border p-1 rounded">
+	<div class="h-full w-full border p-1 rounded-xs">
 		{#await import('$lib/components/SimpleEditor.svelte')}
 			<Loader2 class="animate-spin" />
 		{:then Module}
@@ -707,7 +707,7 @@
 		File content ({resourceTypeInfo.format_extension})
 	</h5>
 	<div class="py-2"></div>
-	<div class="h-full w-full border p-1 rounded">
+	<div class="h-full w-full border p-1 rounded-xs">
 		{#await import('$lib/components/SimpleEditor.svelte')}
 			<Loader2 class="animate-spin" />
 		{:then Module}

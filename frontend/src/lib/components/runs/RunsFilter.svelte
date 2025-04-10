@@ -197,10 +197,10 @@
 							items={usernames}
 							value={user}
 							bind:selectedItem={user}
-							inputClassName="!h-[32px] py-1 !text-xs !w-64"
+							inputClassName="h-[32px]! py-1 text-xs! w-64!"
 							hideArrow
-							className={user ? '!font-bold' : ''}
-							dropdownClassName="!font-normal !w-64 !max-w-64"
+							className={user ? 'font-bold!' : ''}
+							dropdownClassName="font-normal! w-64! max-w-64!"
 						/>
 					</div>
 				{/key}
@@ -228,10 +228,10 @@
 							items={folders}
 							value={folder}
 							bind:selectedItem={folder}
-							inputClassName="!h-[32px] py-1 !text-xs !w-64"
+							inputClassName="h-[32px]! py-1 text-xs! w-64!"
 							hideArrow
-							className={folder ? '!font-bold' : ''}
-							dropdownClassName="!font-normal !w-64 !max-w-64"
+							className={folder ? 'font-bold!' : ''}
+							dropdownClassName="font-normal! w-64! max-w-64!"
 						/>
 					</div>
 				{/key}
@@ -265,10 +265,10 @@
 							items={paths}
 							value={path}
 							bind:selectedItem={path}
-							inputClassName="!h-[32px] py-1 !text-xs !w-64"
+							inputClassName="h-[32px]! py-1 text-xs! w-64!"
 							hideArrow
-							className={path ? '!font-bold' : ''}
-							dropdownClassName="!font-normal !w-64 !max-w-64"
+							className={path ? 'font-bold!' : ''}
+							dropdownClassName="font-normal! w-64! max-w-64!"
 						/>
 					</div>
 				{/key}
@@ -300,7 +300,7 @@
 						<input
 							autofocus
 							type="text"
-							class="!h-[32px] py-1 !text-xs !w-64"
+							class="h-[32px]! py-1 text-xs! w-64!"
 							bind:value={displayedLabel}
 							on:keydown={(e) => {
 								if (labelTimeout) {
@@ -349,7 +349,7 @@
 						<input
 							autofocus
 							type="text"
-							class="!h-[32px] py-1 !text-xs !w-64"
+							class="h-[32px]! py-1 text-xs! w-64!"
 							bind:value={displayedConcurrencyKey}
 							on:keydown={(e) => {
 								if (concurrencyKeyTimeout) {
@@ -383,7 +383,7 @@
 						<input
 							autofocus
 							type="text"
-							class="!h-[32px] py-1 !text-xs !w-64"
+							class="h-[32px]! py-1 text-xs! w-64!"
 							bind:value={displayedTag}
 							on:keydown={(e) => {
 								if (tagTimeout) {
@@ -424,7 +424,7 @@
 						<input
 							autofocus
 							type="text"
-							class="!h-[32px] py-1 !text-xs !w-64"
+							class="h-[32px]! py-1 text-xs! w-64!"
 							bind:value={displayedSchedule}
 							on:keydown={(e) => {
 								if (tagTimeout) {
@@ -458,7 +458,7 @@
 						<input
 							autofocus
 							type="text"
-							class="!h-[32px] py-1 !text-xs !w-64"
+							class="h-[32px]! py-1 text-xs! w-64!"
 							bind:value={displayedWorker}
 							on:keydown={(e) => {
 								if (workerTimeout) {
@@ -638,10 +638,10 @@
 											items={usernames}
 											value={user}
 											bind:selectedItem={user}
-											inputClassName="!h-[32px] py-1 !text-xs !w-80"
+											inputClassName="h-[32px]! py-1 text-xs! w-80!"
 											hideArrow
-											className={user ? '!font-bold' : ''}
-											dropdownClassName="!font-normal !w-80 !max-w-80"
+											className={user ? 'font-bold!' : ''}
+											dropdownClassName="font-normal! w-80! max-w-80!"
 										/>
 									</div>
 								</Label>
@@ -668,10 +668,10 @@
 											items={folders}
 											value={folder}
 											bind:selectedItem={folder}
-											inputClassName="!h-[32px] py-1 !text-xs !w-80"
+											inputClassName="h-[32px]! py-1 text-xs! w-80!"
 											hideArrow
-											className={folder ? '!font-bold' : ''}
-											dropdownClassName="!font-normal !w-80 !max-w-80"
+											className={folder ? 'font-bold!' : ''}
+											dropdownClassName="font-normal! w-80! max-w-80!"
 										/>
 									</div>
 								</Label>
@@ -698,10 +698,10 @@
 											items={paths}
 											value={path}
 											bind:selectedItem={path}
-											inputClassName="!h-[32px] py-1 !text-xs !w-80"
+											inputClassName="h-[32px]! py-1 text-xs! w-80!"
 											hideArrow
-											className={path ? '!font-bold' : ''}
-											dropdownClassName="!font-normal !w-80 !max-w-80"
+											className={path ? 'font-bold!' : ''}
+											dropdownClassName="font-normal! w-80! max-w-80!"
 										/>
 									</div>
 								</Label>
@@ -725,7 +725,7 @@
 										<input
 											autofocus
 											type="text"
-											class="!h-[32px] py-1 !text-xs !w-80"
+											class="h-[32px]! py-1 text-xs! w-80!"
 											bind:value={displayedTag}
 											on:keydown={(e) => {
 												if (tagTimeout) {
@@ -760,7 +760,7 @@
 										<input
 											autofocus
 											type="text"
-											class="!h-[32px] py-1 !text-xs !w-80"
+											class="h-[32px]! py-1 text-xs! w-80!"
 											bind:value={displayedLabel}
 											on:keydown={(e) => {
 												if (labelTimeout) {
@@ -795,7 +795,7 @@
 										<input
 											autofocus
 											type="text"
-											class="!h-[32px] py-1 !text-xs !w-80"
+											class="h-[32px]! py-1 text-xs! w-80!"
 											bind:value={displayedConcurrencyKey}
 											on:keydown={(e) => {
 												if (concurrencyKeyTimeout) {
@@ -830,7 +830,7 @@
 										<input
 											autofocus
 											type="text"
-											class="!h-[32px] py-1 !text-xs !w-80"
+											class="h-[32px]! py-1 text-xs! w-80!"
 											bind:value={displayedWorker}
 											on:keydown={(e) => {
 												if (workerTimeout) {

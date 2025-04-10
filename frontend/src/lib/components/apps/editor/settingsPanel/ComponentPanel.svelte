@@ -192,7 +192,7 @@
 					}}
 					size="xs"
 					btnClasses={twMerge(
-						'p-1 text-gray-300 hover:!text-gray-600 dark:text-gray-500 dark:hover:!text-gray-200 bg-transparent'
+						'p-1 text-gray-300 hover:text-gray-600! dark:text-gray-500 dark:hover:text-gray-200! bg-transparent'
 					)}
 					on:click={() => {
 						const tableId = componentSettings?.item?.id?.split?.('_')?.[0]
@@ -246,7 +246,7 @@
 							/>
 							<div
 								class={classNames(
-									'text-white px-2 text-2xs py-0.5 font-bold rounded-sm',
+									'text-white px-2 text-2xs py-0.5 font-bold rounded-xs',
 									'bg-indigo-500'
 								)}
 							>
@@ -271,7 +271,7 @@
 									bind:componentInput={componentSettings.item.data.componentInput}
 								/>
 							{:else if componentSettings.item.data?.componentInput?.type === 'template' || componentSettings.item.data?.componentInput?.type === 'templatev2'}
-								<div class="py-1 min-h-[28px] rounded border border-1 border-gray-500">
+								<div class="py-1 min-h-[28px] rounded-xs border border-1 border-gray-500">
 									<TemplateEditor
 										fontSize={12}
 										bind:code={componentSettings.item.data.componentInput.eval}
@@ -483,7 +483,7 @@
 					</Button>
 				</div>
 				<div class="flex gap-2 items-center flex-wrap">
-					<div class="!text-2xs">Full height</div>
+					<div class="text-2xs!">Full height</div>
 					{#if componentSettings?.item?.[12]?.fullHeight !== undefined}
 						<Toggle
 							bind:checked={componentSettings.item[12].fullHeight}

@@ -48,7 +48,7 @@
 		/></label
 	>
 	{#if enabled}
-		<div class="p-2 rounded border">
+		<div class="p-2 rounded-xs border">
 			<label class="block pb-2">
 				<div class="flex gap-2 items-end">
 					<div>

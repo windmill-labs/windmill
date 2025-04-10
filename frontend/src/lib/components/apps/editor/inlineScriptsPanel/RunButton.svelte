@@ -25,7 +25,7 @@
 			loading={runLoading}
 			size="xs"
 			color="dark"
-			btnClasses="!px-2 !py-1"
+			btnClasses="px-2! py-1!"
 			on:click={async () => {
 				runLoading = true
 				$runnableJobEditorPanel.focused = true
@@ -44,7 +44,7 @@
 			size="xs"
 			color="red"
 			variant="border"
-			btnClasses="!px-2 !py-1 !ml-[3px]"
+			btnClasses="px-2! py-1! ml-[3px]!"
 			on:click={async () => {
 				cancelable?.forEach((f) => f.cancel())
 				runLoading = false

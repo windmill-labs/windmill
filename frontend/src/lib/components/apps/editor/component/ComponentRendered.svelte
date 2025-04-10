@@ -114,7 +114,7 @@
 			<div
 				class={twMerge('absolute inset-0 bg-locked center-center flex-col z-50', 'bg-locked-hover')}
 			>
-				<div class="bg-surface p-2 shadow-sm rounded-md flex center-center flex-col gap-2">
+				<div class="bg-surface p-2 shadow-2xs rounded-md flex center-center flex-col gap-2">
 					<Anchor size={24} class="text-primary " />
 					<div class="text-xs"> Anchored: The component cannot be moved. </div>
 				</div>

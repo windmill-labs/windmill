@@ -1186,7 +1186,7 @@
 		})
 
 		editor?.onDidBlurEditorText(() => {
-			dispatch('blur')
+			dispatch('blur-xs')
 		})
 
 		editor?.onDidFocusEditorText(() => {

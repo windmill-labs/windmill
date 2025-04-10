@@ -597,7 +597,7 @@
 							if (!disabled) add(option, event)
 						}}
 						title={disabled ? disabledTitle : (is_selected(label) && selectedTitle) || title}
-						class={twMerge('hover:bg-blue-100 hover:dark:bg-gray-900 cursor-pointer  !px-2 py-1')}
+						class={twMerge('hover:bg-blue-100 dark:hover:bg-gray-900 cursor-pointer  px-2! py-1')}
 						on:mouseover={() => {
 							if (!disabled) activeIndex = index
 						}}

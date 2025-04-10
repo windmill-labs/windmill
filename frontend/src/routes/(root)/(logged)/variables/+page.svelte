@@ -229,7 +229,7 @@
 					<DataTable size="xs">
 						<Head>
 							<tr>
-								<Cell head first class="!px-0" />
+								<Cell head first class="px-0!" />
 								<Cell head>Path</Cell>
 								<Cell head>Value</Cell>
 								<Cell head>Description</Cell>
@@ -240,7 +240,7 @@
 						<tbody class="divide-y">
 							{#each filteredItems as { path, value, is_secret, description, extra_perms, canWrite, account, is_refreshed, is_expired, refresh_error, is_linked, marked }}
 								<Row>
-									<Cell class="!px-0 text-center w-12" first>
+									<Cell class="px-0! text-center w-12" first>
 										<SharedBadge {canWrite} extraPerms={extra_perms} />
 									</Cell>
 									<Cell>

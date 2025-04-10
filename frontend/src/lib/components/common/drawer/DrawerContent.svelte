@@ -18,7 +18,7 @@
 		<div class="flex items-center gap-2 w-full truncate">
 			<CloseButton on:close />
 
-			<span class="font-semibold truncate text-primary !text-lg max-w-sm"
+			<span class="font-semibold truncate text-primary text-lg! max-w-sm"
 				>{title ?? ''}
 				{#if tooltip != '' || documentationLink}
 					<Tooltip {documentationLink} scale={0.9}>{tooltip}</Tooltip>
@@ -36,7 +36,7 @@
 		class={classNames(
 			noPadding ? '' : 'p-4',
 			'grow h-full max-h-full',
-			forceOverflowVisible ? '!overflow-visible' : ''
+			forceOverflowVisible ? 'overflow-visible!' : ''
 		)}
 		class:overflow-y-auto={overflow_y}
 	>

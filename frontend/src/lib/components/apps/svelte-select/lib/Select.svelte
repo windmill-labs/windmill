@@ -395,7 +395,7 @@
 
 	async function handleBlur(e) {
 		if (listOpen || focused) {
-			dispatch('blur', e)
+			dispatch('blur-xs', e)
 			closeList()
 			focused = false
 			activeValue = undefined
@@ -819,7 +819,7 @@
 	.prepend,
 	.indicators {
 		display: flex;
-		flex-shrink: 0;
+		shrink: 0;
 		align-items: center;
 	}
 
@@ -918,7 +918,7 @@
 		color: var(--clear-select-color, var(--icons-color));
 		margin: var(--clear-select-margin, 0);
 		pointer-events: all;
-		flex-shrink: 0;
+		shrink: 0;
 	}
 
 	.clear-select:focus {
@@ -930,7 +930,7 @@
 		height: var(--loading-height);
 		color: var(--loading-color, var(--icons-color));
 		margin: var(--loading--margin, 0);
-		flex-shrink: 0;
+		shrink: 0;
 	}
 
 	.chevron {
@@ -940,7 +940,7 @@
 		pointer-events: var(--chevron-pointer-events, none);
 		color: var(--chevron-color, var(--icons-color));
 		border: var(--chevron-border, 0 0 0 1px solid #d8dbdf);
-		flex-shrink: 0;
+		shrink: 0;
 	}
 
 	.multi {

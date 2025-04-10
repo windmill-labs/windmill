@@ -598,7 +598,7 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 					color="light"
 					on:click={contextualVariablePicker.openDrawer}
 					size="xs"
-					btnClasses="!font-medium text-tertiary"
+					btnClasses="font-medium! text-tertiary"
 					spacingSize="md"
 					startIcon={{ icon: DollarSign }}
 					{iconOnly}
@@ -609,7 +609,7 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 				<Button
 					title="Add variable"
 					color="light"
-					btnClasses="!font-medium text-tertiary"
+					btnClasses="font-medium! text-tertiary"
 					on:click={variablePicker.openDrawer}
 					size="xs"
 					spacingSize="md"
@@ -623,7 +623,7 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 			{#if showResourcePicker && customUi?.resource != false}
 				<Button
 					title="Add resource"
-					btnClasses="!font-medium text-tertiary"
+					btnClasses="font-medium! text-tertiary"
 					size="xs"
 					spacingSize="md"
 					color="light"
@@ -638,7 +638,7 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 			{#if showResourceTypePicker && customUi?.type != false}
 				<Button
 					title="Add resource type"
-					btnClasses="!font-medium text-tertiary"
+					btnClasses="font-medium! text-tertiary"
 					size="xs"
 					spacingSize="md"
 					color="light"
@@ -653,7 +653,7 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 			{#if customUi?.reset != false}
 				<Button
 					title="Reset Content"
-					btnClasses="!font-medium text-tertiary"
+					btnClasses="font-medium! text-tertiary"
 					size="xs"
 					spacingSize="md"
 					color="light"
@@ -668,7 +668,7 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 			{#if customUi?.assistants != false}
 				{#if lang == 'deno' || lang == 'python3' || lang == 'go' || lang == 'bash' || lang == 'nu'}
 					<Button
-						btnClasses="!font-medium text-tertiary"
+						btnClasses="font-medium! text-tertiary"
 						size="xs"
 						spacingSize="md"
 						color="light"
@@ -733,7 +733,7 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 					{#if collabLive}
 						<button
 							title="Show invite link"
-							class="p-1 rounded hover:bg-gray-400 mx-1 border"
+							class="p-1 rounded-xs hover:bg-gray-400 mx-1 border"
 							on:click={() => dispatch('collabPopup')}><Link size={14} /></button
 						>
 						<div class="isolate flex -space-x-2 pl-2">
@@ -764,7 +764,7 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 		<slot name="right" />
 		{#if scriptPath && !noHistory}
 			<Button
-				btnClasses="!font-medium text-tertiary"
+				btnClasses="font-medium! text-tertiary"
 				size="xs"
 				spacingSize="md"
 				color="light"
@@ -778,7 +778,7 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 		{/if}
 		{#if SCRIPT_EDITOR_SHOW_EXPLORE_OTHER_SCRIPTS && customUi?.library != false}
 			<Button
-				btnClasses="!font-medium text-tertiary"
+				btnClasses="font-medium! text-tertiary"
 				size="xs"
 				spacingSize="md"
 				color="light"

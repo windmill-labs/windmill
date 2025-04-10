@@ -53,7 +53,7 @@
 			<div class="flex flex-row gap-1">
 				{hidden ? 'Show' : 'Hide '} the {panelName ?? direction} panel.
 
-				<div class="flex flex-row items-center !text-md opacity-60 gap-0 font-normal">
+				<div class="flex flex-row items-center text-md! opacity-60 gap-0 font-normal">
 					{getModifierKey()}{shortcut ?? shortcuts[direction]}
 				</div>
 			</div>
@@ -66,8 +66,8 @@
 		}}
 		{size}
 		btnClasses={twMerge(
-			'p-1 text-gray-300 hover:!text-gray-600 dark:text-gray-500 dark:hover:!text-gray-200 bg-transparent',
-			hidden ? 'bg-surface-selected !text-primary' : '',
+			'p-1 text-gray-300 hover:text-gray-600! dark:text-gray-500 dark:hover:text-gray-200! bg-transparent',
+			hidden ? 'bg-surface-selected text-primary!' : '',
 			btnClasses
 		)}
 		on:click

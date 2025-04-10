@@ -40,14 +40,14 @@
 			)}
 			value={value ?? defaultValue}
 			hideArrow={true}
-			dropdownClassName="!text-sm !py-2 !rounded-sm !border-gray-200 !border !shadow-md !bg-surface-primary"
+			dropdownClassName="text-sm! py-2! rounded-xs! border-gray-200! border! shadow-md! bg-surface-primary!"
 			className="w-full"
 			noInputStyles
 			onFocus={() => {
 				dispatch('focus')
 			}}
 			onBlur={() => {
-				dispatch('blur')
+				dispatch('blur-xs')
 			}}
 			{create}
 			{required}

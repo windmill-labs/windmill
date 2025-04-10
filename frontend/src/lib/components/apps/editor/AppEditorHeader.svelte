@@ -1311,7 +1311,7 @@
 		tooltip="Look at latests runs to spot potential bugs."
 		documentationLink="https://www.windmill.dev/docs/apps/app_debugging"
 	>
-		<Splitpanes class="!overflow-visible">
+		<Splitpanes class="overflow-visible!">
 			<Pane size={25}>
 				<PanelSection title="Past Runs">
 					<div class="flex flex-col gap-2 w-full">
@@ -1328,7 +1328,7 @@
 												selectedJob.error ? 'border border-red-500 text-primary' : '',
 												selectedJob.error && $errorByComponent[selectedJob.component]?.id == id
 													? selectedJobId == id
-														? 'bg-red-600 !border-blue-600'
+														? 'bg-red-600 border-blue-600!'
 														: 'bg-red-400'
 													: selectedJobId == id
 														? 'text-blue-600'
@@ -1648,7 +1648,7 @@
 								rightTooltip:
 									'Desktop view is enabled by default. Enable this to customize the layout of the components for the mobile view'
 							}}
-							textClass="text-2xs whitespace-nowrap white !w-full"
+							textClass="text-2xs whitespace-nowrap white w-full!"
 							bind:checked={$app.mobileViewOnSmallerScreens}
 							class="flex flex-row px-2 items-center"
 						/>
@@ -1731,7 +1731,7 @@
 					{#if hasErrors}
 						<Button
 							size="xs"
-							btnClasses="-my-2 !px-1 !py-0"
+							btnClasses="-my-2 px-1! py-0!"
 							color="light"
 							variant="border"
 							on:click={() => errorByComponent.set({})}

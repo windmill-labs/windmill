@@ -18,7 +18,7 @@
 			<span class="font-semibold text-xs leading-6">ID</span>
 			<span class="text-xs">{log.id}</span>
 			<span class="font-semibold text-xs leading-6">Parameters</span>
-			<div class="text-xs p-2 bg-surface-secondary rounded-sm">
+			<div class="text-xs p-2 bg-surface-secondary rounded-xs">
 				{JSON.stringify(log.parameters, null, 2)}
 			</div>
 

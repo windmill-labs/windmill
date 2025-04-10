@@ -107,7 +107,7 @@
 									}}
 								/>
 							</div>
-							<div class="p-2 border rounded">
+							<div class="p-2 border rounded-xs">
 								<label class="block pb-2">
 									<span class="text-primary font-semibold text-sm">Custom Name</span>
 									<input
@@ -191,7 +191,7 @@
 								}}
 							/>
 						</div>
-						<div class="p-2 border rounded">
+						<div class="p-2 border rounded-xs">
 							<label class="block pb-2">
 								<span class="text-primary font-semibold text-sm">Client Id</span>
 								<input type="text" placeholder="Client Id" bind:value={oauths[k]['id']} />

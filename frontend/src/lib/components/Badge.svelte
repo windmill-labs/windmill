@@ -5,7 +5,7 @@
 	export let tooltip: string | undefined = undefined
 </script>
 
-<span class="{twBgColor} {twTextColor} text-2xs rounded px-1 whitespace-nowrap">
+<span class="{twBgColor} {twTextColor} text-2xs rounded-xs px-1 whitespace-nowrap">
 	<slot />
 	{#if tooltip && tooltip != ''}
 		<Tooltip>{tooltip}</Tooltip>

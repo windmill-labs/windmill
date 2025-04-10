@@ -310,13 +310,13 @@
 												type="number"
 												min="0"
 												bind:value={branchOrIterationN}
-												class="!w-32 grow"
+												class="w-32! grow"
 												on:click|stopPropagation={() => {}}
 											/>
 										{:else}
 											<select
 												bind:value={branchOrIterationN}
-												class="!w-32 grow"
+												class="w-32! grow"
 												on:click|stopPropagation={() => {}}
 											>
 												{#each restartBranchNames as [branchIdx, branchName]}
@@ -328,7 +328,7 @@
 											size="xs"
 											color="blue"
 											buttonType="button"
-											btnClasses="!p-1 !w-[34px] !ml-1"
+											btnClasses="p-1! w-[34px]! ml-1!"
 											aria-label="Restart flow"
 											on:click|once={() => {
 												runPreview($previewArgs, {
@@ -365,7 +365,7 @@
 		{#if lastPreviewFlow && JSON.stringify($flowStore) != lastPreviewFlow}
 			<div class="pt-1">
 				<div
-					class="bg-orange-200 text-orange-600 border border-orange-600 p-2 flex items-center gap-2 rounded"
+					class="bg-orange-200 text-orange-600 border border-orange-600 p-2 flex items-center gap-2 rounded-xs"
 				>
 					<AlertTriangle size={14} /> Flow changed since last preview
 					<div class="flex"></div>
@@ -474,7 +474,7 @@
 						on:click={() => {
 							initial = false
 						}}
-						class="cursor-pointer h-full hover:bg-gray-500/20 dark:hover:bg-gray-500/20 dark:bg-gray-500/80 rounded bg-gray-500/40 absolute top-0 left-0 w-full z-50"
+						class="cursor-pointer h-full hover:bg-gray-500/20 dark:hover:bg-gray-500/20 dark:bg-gray-500/80 rounded-xs bg-gray-500/40 absolute top-0 left-0 w-full z-50"
 					>
 						<div class="text-center text-primary text-lg py-2 pt-20"
 							><span class="font-bold border p-2 bg-surface-secondary rounded-md"

@@ -156,7 +156,7 @@
 						on:pointerdown|stopPropagation
 						on:click={() => (selected = res)}
 						class={twMerge(
-							'rounded-sm !truncate text-sm  hover:text-primary px-1 py-2',
+							'rounded-xs truncate! text-sm  hover:text-primary px-1 py-2',
 							css?.allTabs?.class,
 							'wm-tabs-alltabs',
 							selected == res
@@ -184,7 +184,7 @@
 							on:pointerdown|stopPropagation
 							on:click={() => (selected = res)}
 							class={twMerge(
-								'w-full text-left bg-surface !truncate text-sm hover:text-primary px-1 py-2',
+								'w-full text-left bg-surface truncate! text-sm hover:text-primary px-1 py-2',
 								css?.allTabs?.class,
 								'wm-tabs-alltabs',
 								selected == res

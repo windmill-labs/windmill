@@ -185,7 +185,7 @@
 						<Button
 							size="xs2"
 							color="light"
-							btnClasses="!text-tertiary"
+							btnClasses="text-tertiary!"
 							endIcon={{ icon: ExternalLink }}
 							on:click={() => {
 								window.open(`/runs/${runnableId}`, '_blank')

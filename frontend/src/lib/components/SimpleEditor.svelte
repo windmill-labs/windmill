@@ -303,7 +303,7 @@
 		})
 
 		editor.onDidBlurEditorText(() => {
-			dispatch('blur')
+			dispatch('blur-xs')
 			code = getCode()
 		})
 

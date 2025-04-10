@@ -135,10 +135,10 @@
 		class={twMerge(
 			'relative border rounded-md bg-surface shadow-lg',
 			fullScreen
-				? `fixed !top-1/2 !left-1/2 !-translate-x-1/2 !-translate-y-1/2 !resize-none`
+				? `fixed top-1/2! left-1/2! -translate-x-1/2! -translate-y-1/2! resize-none!`
 				: 'w-fit',
 			contentClasses,
-			`z-[5001]`
+			`z-5001`
 		)}
 		data-popover
 		{...extraProps}
@@ -180,7 +180,7 @@
 	.close {
 		@apply absolute right-1.5 top-1.5 flex h-7 w-7 items-center justify-center rounded-full;
 		@apply text-primary  transition-colors hover:bg-surface-hover;
-		@apply focus-visible:ring focus-visible:ring-gray-400 focus-visible:ring-offset-2;
+		@apply focus-visible:ring-3 focus-visible:ring-gray-400 focus-visible:ring-offset-2;
 		@apply bg-surface p-0 text-sm font-medium;
 	}
 </style>

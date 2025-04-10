@@ -34,7 +34,7 @@
 			<div class="flex flex-row gap-2 items-center">
 				<input
 					size="9"
-					class="!text-xs !h-6 !text-primary"
+					class="text-xs! h-6! text-primary!"
 					type="text"
 					id="cron-schedule"
 					name="cron-schedule"

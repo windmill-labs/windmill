@@ -10,7 +10,7 @@
 	export let label: string = 'Component ID'
 	export let value = initialId
 	export let buttonText = ''
-	export let btnClasses = '!p-1 !w-[34px] !ml-1'
+	export let btnClasses = 'p-1! w-[34px]! ml-1!'
 	export let acceptUnderScores = false
 
 	let error = ''
@@ -49,7 +49,7 @@
 			bind:this={inputDiv}
 			type="text"
 			bind:value
-			class="!w-auto grow"
+			class="w-auto! grow"
 			on:click|stopPropagation={() => {}}
 			on:keydown|stopPropagation={({ key }) => {
 				if (key === 'Enter' && error === '' && value !== initialId) {

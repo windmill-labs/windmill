@@ -160,7 +160,7 @@
 							type="textarea"
 							disabled={isQuickMenuOpen}
 							wrapperClass="h-full min-h-[72px]"
-							inputClass="h-full !text-xs !rounded-none !p-2 !shadow-none !border-gray-200 dark:!border-gray-600 "
+							inputClass="h-full text-xs! rounded-none! p-2! shadow-none! border-gray-200! dark:border-gray-600! "
 						/>
 					</div>
 					{#if quickStyleProperties?.length && isQuickMenuOpen}
@@ -203,7 +203,7 @@
 					</div>
 					<div class="relative">
 						<SimpleEditor
-							class="h-24 border !rounded-none"
+							class="h-24 border rounded-none!"
 							lang="tailwindcss"
 							{tailwindClasses}
 							bind:code={value.class}

@@ -951,7 +951,7 @@
 														variant="border"
 														color={isPicked ? 'blue' : 'light'}
 														btnClasses={isPicked
-															? '!border-2 !bg-blue-50/75 dark:!bg-frost-900/75'
+															? 'border-2! bg-blue-50/75! dark:bg-frost-900/75!'
 															: 'm-[1px]'}
 														on:click={() => {
 															if (lang == 'docker') {
@@ -990,7 +990,7 @@
 														<LanguageIcon {lang} />
 														<span class="ml-2 py-2 truncate">{label}</span>
 														{#if lang === 'ansible' || lang === 'nu'}
-															<span class="text-tertiary !text-xs"> BETA </span>
+															<span class="text-tertiary text-xs!"> BETA </span>
 														{/if}
 													</Button>
 													<svelte:fragment slot="text"
@@ -1293,7 +1293,7 @@
 												<svelte:fragment slot="right">
 													<input
 														type="number"
-														class="!w-16 ml-4"
+														class="w-16! ml-4"
 														disabled={script.priority === undefined}
 														bind:value={script.priority}
 														on:focus
@@ -1520,7 +1520,7 @@
 									>
 										<Badge
 											color="gray"
-											class="center-center !bg-surface-secondary !text-tertiary !h-[28px]  !w-[70px] rounded-none hover:!bg-surface-hover transition-all"
+											class="center-center bg-surface-secondary! text-tertiary! h-[28px]!  w-[70px]! rounded-none hover:bg-surface-hover! transition-all"
 										>
 											<Pen size={12} class="mr-2" /> Path
 										</Badge>
@@ -1532,7 +1532,7 @@
 								readonly
 								value={script.path}
 								size={script.path?.length || 50}
-								class="font-mono !text-xs !min-w-[96px] !max-w-[300px] !w-full !h-[28px] !my-0 !py-0 !border-l-0 !rounded-l-none !border-0 !shadow-none"
+								class="font-mono text-xs! min-w-[96px]! max-w-[300px]! w-full! h-[28px]! my-0! py-0! border-l-0! rounded-l-none! border-0! shadow-none!"
 								on:focus={({ currentTarget }) => {
 									currentTarget.select()
 								}}

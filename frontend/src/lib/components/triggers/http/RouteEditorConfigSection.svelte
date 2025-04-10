@@ -173,7 +173,7 @@
 				<div class="flex justify-start w-full">
 					<Badge
 						color="gray"
-						class="center-center !bg-surface-secondary !text-tertiary !w-[90px] !h-[24px] rounded-r-none border"
+						class="center-center bg-surface-secondary! text-tertiary! w-[90px]! h-[24px]! rounded-r-none border"
 					>
 						Full endpoint
 					</Badge>
@@ -182,7 +182,7 @@
 						readonly
 						value={fullRoute}
 						size={fullRoute.length || 50}
-						class="font-mono !text-xs max-w-[calc(100%-70px)] !w-auto !h-[24px] !py-0 !border-l-0 !rounded-l-none"
+						class="font-mono text-xs! max-w-[calc(100%-70px)] w-auto! h-[24px]! py-0! border-l-0! rounded-l-none!"
 						on:focus={({ currentTarget }) => {
 							currentTarget.select()
 						}}

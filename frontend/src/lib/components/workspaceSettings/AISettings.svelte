@@ -160,7 +160,7 @@
 								<!-- svelte-ignore binding_property_non_reactive -->
 								<MultiSelect
 									options={AI_DEFAULT_MODELS[provider]}
-									ulOptionsClass={'!bg-surface-secondary'}
+									ulOptionsClass={'bg-surface-secondary!'}
 									allowUserOptions="append"
 									bind:selected={aiProviders[provider].models}
 								/>

@@ -109,7 +109,7 @@
 				<span class={classNames(badgeClass, colors['blue'])}>
 					{changeEvent}
 					{#if changeEvent === 'Eval'}
-						<Tooltip class="!text-blue-600 ml-1">
+						<Tooltip class="text-blue-600! ml-1">
 							At least one input is configured as an evaluated input and the component will be
 							triggered if the result of the eval change. Eval expressions are re-evaluated on any
 							output or state changes.
@@ -170,7 +170,7 @@
 				{#each inlineScript?.suggestedRefreshOn ?? [] as suggestion}
 					<button
 						class={classNames(
-							'p-0.5 rounded-md hover:bg-blue-400 cursor-pointer !text-2xs text-secondary',
+							'p-0.5 rounded-md hover:bg-blue-400 cursor-pointer text-2xs! text-secondary',
 							badgeClass
 						)}
 						on:click={() => {

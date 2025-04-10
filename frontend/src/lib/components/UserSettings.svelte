@@ -158,7 +158,7 @@
 							border
 							border-gray-300
 							shadow-sm
-							focus:border-indigo-300 focus:ring focus:ring-indigo-200 focus:ring-opacity-50
+							focus:border-indigo-300 focus:ring-3 focus:ring-indigo-200 focus:ring-opacity-50
 							text-sm
 							"
 												/>
@@ -308,7 +308,7 @@
 								</select>
 							</div>
 							<div class="flex items-end">
-								<Button btnClasses="!mt-2" on:click={createToken}>New token</Button>
+								<Button btnClasses="mt-2!" on:click={createToken}>New token</Button>
 							</div>
 						</div>
 					</div>

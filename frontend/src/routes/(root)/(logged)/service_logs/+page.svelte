@@ -15,7 +15,7 @@
 	<div class="px-2">
 		<div class="flex items-center space-x-2 flex-row justify-between">
 			<div class="flex flex-row flex-wrap justify-between py-2 my-4 px-4 gap-1 items-center">
-				<h1 class="!text-2xl font-semibold leading-6 tracking-tight">Service logs</h1>
+				<h1 class="text-2xl! font-semibold leading-6 tracking-tight">Service logs</h1>
 				<Tooltip>Explore and search Windmill service logs from within Windmill!</Tooltip>
 			</div>
 		</div>
@@ -32,7 +32,7 @@
 			<input
 				id="quickSearchInput"
 				type="text"
-				class="quick-search-input !bg-surface"
+				class="quick-search-input bg-surface!"
 				bind:value={searchTerm}
 				autocomplete="off"
 				autofocus

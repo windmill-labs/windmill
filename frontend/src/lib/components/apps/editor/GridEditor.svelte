@@ -119,7 +119,7 @@
 	}
 </script>
 
-<div class="w-full z-[1000] overflow-visible h-full">
+<div class="w-full z-1000 overflow-visible h-full">
 	<div class={$app.hideLegacyTopBar ? 'hidden' : ''}>
 		<div
 			class="w-full sticky top-0 flex justify-between border-b {$componentActive
@@ -135,7 +135,7 @@
 				</div>
 				{#if $bgRuns.length > 0}
 					<Popover notClickable>
-						<span class="!text-2xs text-tertiary inline-flex gap-1 items-center"
+						<span class="text-2xs! text-tertiary inline-flex gap-1 items-center"
 							><Loader2 size={10} class="animate-spin" /> {$bgRuns.length}
 						</span>
 						<span slot="text"
@@ -173,7 +173,7 @@
 		class={twMerge(
 			'p-2 overflow-visible z-50',
 			$app.css?.['app']?.['grid']?.class ?? '',
-			'wm-app-grid !static h-full w-full'
+			'wm-app-grid static! h-full w-full'
 		)}
 		on:pointerdown={() => {
 			$selectedComponent = undefined

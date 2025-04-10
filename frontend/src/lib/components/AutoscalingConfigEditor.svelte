@@ -205,7 +205,7 @@
 						{#if config}
 							{#if config.custom_tags}
 								<MultiSelect
-									outerDivClass="text-secondary !bg-surface-disabled !border-0"
+									outerDivClass="text-secondary bg-surface-disabled! border-0!"
 									selected={config.custom_tags}
 									on:change={(e) => {
 										console.log(e.detail.type, config?.custom_tags)
@@ -232,7 +232,7 @@
 									}}
 									options={worker_tags ?? []}
 									selectedOptionsDraggable={false}
-									ulOptionsClass={'!bg-surface-secondary'}
+									ulOptionsClass={'bg-surface-secondary!'}
 									placeholder="Tags"
 								/>
 							{:else}
@@ -333,7 +333,7 @@
 				<div class="flex flex-row gap-2 mt-4">
 					<Button color="light" size="xs" variant="contained">Test scaling</Button>
 					<div class="flex text-xs flex-row gap-2 items-center">
-						<input class="!w-16" type="number" bind:value={test_input} />
+						<input class="w-16!" type="number" bind:value={test_input} />
 						workers
 					</div>
 				</div>

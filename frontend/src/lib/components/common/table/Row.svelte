@@ -24,8 +24,8 @@
 
 <div
 	class={twMerge(
-		'hover:bg-surface-hover w-full inline-flex items-center gap-4 first-of-type:!border-t-0 first-of-type:rounded-t-md last-of-type:rounded-b-md [*:not(:last-child)]:border-b px-4 py-2.5 border-b last:border-b-0',
-		depth > 0 ? '!rounded-none' : ''
+		'hover:bg-surface-hover w-full inline-flex items-center gap-4 first-of-type:border-t-0! first-of-type:rounded-t-md last-of-type:rounded-b-md [*:not(:last-child)]:border-b px-4 py-2.5 border-b last:border-b-0',
+		depth > 0 ? 'rounded-none!' : ''
 	)}
 	style={depth > 0 ? `padding-left: ${depth * 32}px;` : ''}
 >

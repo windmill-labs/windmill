@@ -19,7 +19,7 @@
 <Menu {createMenu} let:item usePointerDownOutside>
 	<svelte:fragment slot="trigger" let:trigger>
 		<MenuButton
-			class="!text-xs"
+			class="text-xs!"
 			icon={Star}
 			label={'Favorites'}
 			{isCollapsed}
@@ -41,7 +41,7 @@
 					<MenuItem
 						href={favorite.href}
 						{item}
-						class="w-full inline-flex flex-row px-4 py-2 data-[highlighted]:bg-surface-hover"
+						class="w-full inline-flex flex-row px-4 py-2 data-highlighted:bg-surface-hover"
 					>
 						<span class="center-center">
 							{#if favorite.kind == 'script'}

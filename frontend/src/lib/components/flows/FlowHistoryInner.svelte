@@ -78,7 +78,7 @@
 	$: selectedVersion !== undefined && loadFlow(selectedVersion.id)
 </script>
 
-<Splitpanes class="!overflow-visible">
+<Splitpanes class="overflow-visible!">
 	<Pane size={20}>
 		<div class="flex flex-col gap-2 w-full px-2 py-2">
 			{#if !loading}
@@ -123,7 +123,7 @@
 										<input
 											type="text"
 											bind:value={deploymentMsgUpdate}
-											class="!w-auto grow"
+											class="w-auto! grow"
 											on:click|stopPropagation={() => {}}
 											on:keydown|stopPropagation
 											on:keypress|stopPropagation={({ key }) => {
@@ -134,7 +134,7 @@
 											size="xs"
 											color="blue"
 											buttonType="button"
-											btnClasses="!p-1 !w-[34px] !ml-1"
+											btnClasses="p-1! w-[34px]! ml-1!"
 											aria-label="Save deployment message"
 											on:click={() => {
 												updateDeploymentMsg(selectedVersion?.id)
@@ -146,7 +146,7 @@
 											size="xs"
 											color="light"
 											buttonType="button"
-											btnClasses="!p-1 !w-[34px] !ml-1"
+											btnClasses="p-1! w-[34px]! ml-1!"
 											aria-label="Abort"
 											on:click={() => {
 												deploymentMsgUpdateMode = false
@@ -168,7 +168,7 @@
 											deploymentMsgUpdateMode = true
 										}}
 										title="Update commit message"
-										class="flex items-center px-1 rounded-sm hover:text-primary text-secondary h-5"
+										class="flex items-center px-1 rounded-xs hover:text-primary text-secondary h-5"
 										aria-label="Update commit message"
 									>
 										<Pencil size={14} />

@@ -395,7 +395,7 @@
 		/>
 	</div>
 </Modal>
-<div class="border-b shadow-sm px-1 pr-4" bind:clientWidth={width}>
+<div class="border-b shadow-2xs px-1 pr-4" bind:clientWidth={width}>
 	<div class="flex justify-between space-x-2">
 		<EditorBar
 			scriptPath={edit ? path : undefined}
@@ -452,9 +452,9 @@
 	</div>
 </div>
 <SplitPanesWrapper>
-	<Splitpanes class="!overflow-visible">
-		<Pane bind:size={codePanelSize} minSize={10} class="!overflow-visible">
-			<div class="h-full !overflow-visible bg-gray-50 dark:bg-[#272D38] relative">
+	<Splitpanes class="overflow-visible!">
+		<Pane bind:size={codePanelSize} minSize={10} class="overflow-visible!">
+			<div class="h-full overflow-visible! bg-gray-50 dark:bg-[#272D38] relative">
 				<div class="absolute top-2 right-4 z-10 flex flex-row gap-2">
 					{#if aiPanelSize === 0}
 						{#if customUi?.editorBar?.aiGen != false && SUPPORTED_CHAT_SCRIPT_LANGUAGES.includes(lang ?? '')}
@@ -466,7 +466,7 @@
 								size="md"
 								usePopoverOverride={!$copilotInfo.enabled}
 								customHiddenIcon={WandSparkles}
-								btnClasses="!text-violet-800 dark:!text-violet-400 border border-gray-200 dark:border-gray-600 bg-surface"
+								btnClasses="text-violet-800! dark:text-violet-400! border border-gray-200 dark:border-gray-600 bg-surface"
 								on:click={() => {
 									toggleAiPanel()
 								}}
@@ -495,7 +495,7 @@
 								on:click={() => {
 									toggleTestPanel()
 								}}
-								btnClasses="bg-marine-400 hover:bg-marine-200 !text-primary-inverse hover:!text-primary-inverse hover:dark:!text-primary-inverse dark:bg-marine-50 dark:hover:bg-marine-50/70"
+								btnClasses="bg-marine-400 hover:bg-marine-200 text-primary-inverse! hover:text-primary-inverse! dark:hover:text-primary-inverse! dark:bg-marine-50 dark:hover:bg-marine-50/70"
 								color="marine"
 							/>
 						{/if}
@@ -532,7 +532,7 @@
 							}
 							dispatch('format')
 						}}
-						class="flex flex-1 h-full !overflow-visible"
+						class="flex flex-1 h-full overflow-visible!"
 						lang={scriptLangToEditorLang(lang)}
 						scriptLang={lang}
 						automaticLayout={true}
@@ -597,7 +597,7 @@
 								on:click={() => {
 									toggleTestPanel()
 								}}
-								btnClasses="bg-marine-400 hover:bg-marine-200 !text-primary-inverse hover:!text-primary-inverse hover:dark:!text-primary-inverse dark:bg-marine-50 dark:hover:bg-marine-50/70"
+								btnClasses="bg-marine-400 hover:bg-marine-200 text-primary-inverse! hover:text-primary-inverse! dark:hover:text-primary-inverse! dark:bg-marine-50 dark:hover:bg-marine-50/70"
 								color="marine"
 							/>
 						{/if}
@@ -691,7 +691,7 @@
 						</div>
 					{/if}
 				</div>
-				<Splitpanes horizontal class="!max-h-[calc(100%-43px)]">
+				<Splitpanes horizontal class="max-h-[calc(100%-43px)]!">
 					<Pane size={33}>
 						<div class="px-4">
 							<div class="break-words relative font-sans">

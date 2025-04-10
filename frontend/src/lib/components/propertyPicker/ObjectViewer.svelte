@@ -94,7 +94,7 @@
 					size="xs2"
 					variant="border"
 					on:click={collapse}
-					wrapperClasses="!inline-flex w-fit"
+					wrapperClasses="inline-flex! w-fit"
 					btnClasses="font-mono h-4 text-2xs px-1 font-thin text-primary rounded-[0.275rem]"
 					>-</Button
 				>
@@ -152,7 +152,7 @@
 							<span
 								class="val inline text-left {pureViewer
 									? 'cursor-auto'
-									: ''} rounded pl-0.5 {getTypeAsString(json[key])}"
+									: ''} rounded-xs pl-0.5 {getTypeAsString(json[key])}"
 								on:click={() => {
 									selectProp(key, json[key], true)
 								}}
@@ -231,7 +231,7 @@
 				size="xs2"
 				variant="border"
 				on:click={collapse}
-				wrapperClasses="!inline-flex w-fit"
+				wrapperClasses="inline-flex! w-fit"
 				btnClasses="h-4 text-[9px] px-1  text-primary rounded-[0.275rem]"
 			>
 				{openBracket}{collapsedSymbol}{closeBracket}

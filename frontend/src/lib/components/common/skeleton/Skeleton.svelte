@@ -20,7 +20,7 @@
 		<div
 			class="flex grow flex-col overflow-hidden transition-[opacity] duration-1000 opacity-0 {mounted
 				? 'opacity-100'
-				: ''} {overlay ? 'absolute w-full h-full z-[1000]' : ''} {$$props.class}"
+				: ''} {overlay ? 'absolute w-full h-full z-1000' : ''} {$$props.class}"
 		>
 			{#each layout as row}
 				<div class="flex justify-between items-start gap-4">

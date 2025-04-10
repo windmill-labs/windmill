@@ -153,7 +153,7 @@
 	{extraQueryParams}
 	autoRefresh={false}
 	forceSchemaDisplay={true}
-	runnableClass="!block"
+	runnableClass="block!"
 	{outputs}
 	bind:result
 	errorHandledByComponent={true}

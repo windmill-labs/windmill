@@ -388,7 +388,7 @@
 			nodesDraggable={false}
 			--background-color={false}
 		>
-			<div class="absolute inset-0 !bg-surface-secondary"></div>
+			<div class="absolute inset-0 bg-surface-secondary!"></div>
 			<Controls position="top-right" orientation="horizontal" showLock={false}>
 				{#if download}
 					<ControlButton
@@ -403,7 +403,7 @@
 							}
 							window.open('/view_graph', '_blank')
 						}}
-						class="!bg-surface"
+						class="bg-surface!"
 					>
 						<Expand size="14" />
 					</ControlButton>
@@ -416,7 +416,7 @@
 				showLock={false}
 				showZoom={false}
 				showFitView={false}
-				class="!shadow-none"
+				class="shadow-none!"
 			>
 				{#if showDataflow}
 					<Toggle

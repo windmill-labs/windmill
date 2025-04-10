@@ -450,7 +450,7 @@
 				{#if meta.ownerKind === 'user'}
 					<label class="block shrink min-w-0">
 						<input
-							class="!w-36"
+							class="w-36!"
 							type="text"
 							bind:value={meta.owner}
 							placeholder={$userStore?.username ?? ''}
@@ -471,7 +471,7 @@
 							</select>
 							<Button
 								title="View folder"
-								btnClasses="!p-1.5"
+								btnClasses="p-1.5!"
 								variant="border"
 								color="light"
 								size="xs"
@@ -482,7 +482,7 @@
 							/>
 							<Button
 								title="New folder"
-								btnClasses="!p-1.5"
+								btnClasses="p-1.5!"
 								variant="border"
 								color="light"
 								size="xs"
@@ -520,7 +520,7 @@
 		<div class="flex justify-start w-full">
 			<Badge
 				color="gray"
-				class="center-center !bg-surface-secondary !text-tertiary !w-[70px] !h-[24px] rounded-r-none border"
+				class="center-center bg-surface-secondary! text-tertiary! w-[70px]! h-[24px]! rounded-r-none border"
 			>
 				Full path
 			</Badge>
@@ -529,7 +529,7 @@
 				readonly
 				value={path}
 				size={path?.length || 50}
-				class="font-mono !text-xs max-w-[calc(100%-70px)] !w-auto !h-[24px] !py-0 !border-l-0 !rounded-l-none"
+				class="font-mono text-xs! max-w-[calc(100%-70px)] w-auto! h-[24px]! py-0! border-l-0! rounded-l-none!"
 				on:focus={({ currentTarget }) => {
 					currentTarget.select()
 				}}

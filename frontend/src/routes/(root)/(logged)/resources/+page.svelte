@@ -479,7 +479,7 @@
 									id="inp"
 									type="text"
 									bind:value={editResourceType.name}
-									class={classNames('!h-8  !border !border-gray-200')}
+									class={classNames('h-8!  border! border-gray-200!')}
 								/>
 							</div>
 						</div>
@@ -546,7 +546,7 @@
 								id="inp"
 								type="text"
 								bind:value={newResourceType.name}
-								class={classNames('!h-8  !border ', !disableCustomPrefix ? '!rounded-l-none' : '')}
+								class={classNames('h-8!  border! ', !disableCustomPrefix ? 'rounded-l-none!' : '')}
 								on:input={validateResourceTypeName}
 							/>
 						</div>

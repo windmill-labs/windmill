@@ -57,7 +57,7 @@
 <Menu {createMenu} let:item usePointerDownOutside>
 	<svelte:fragment slot="trigger" let:trigger>
 		<MenuButton
-			class="!text-xs"
+			class="text-xs!"
 			icon={Building}
 			label={$workspaceStore ?? ''}
 			{isCollapsed}
@@ -74,7 +74,7 @@
 						'text-xs min-w-0 w-full overflow-hidden flex flex-col py-1.5',
 						$workspaceStore === workspace.id
 							? 'cursor-default bg-surface-selected'
-							: 'cursor-pointer hover:bg-surface-hover data-[highlighted]:bg-surface-hover'
+							: 'cursor-pointer hover:bg-surface-hover data-highlighted:bg-surface-hover'
 					)}
 					on:click={async () => {
 						await toggleSwitchWorkspace(workspace.id)
@@ -92,7 +92,7 @@
 						</div>
 						{#if workspace.color}
 							<div
-								class="w-5 h-5 mr-2 rounded border border-gray-300 dark:border-gray-600"
+								class="w-5 h-5 mr-2 rounded-xs border border-gray-300 dark:border-gray-600"
 								style="background-color: {workspace.color}"
 							></div>
 						{/if}
@@ -122,7 +122,7 @@
 					}}
 					class={twMerge(
 						'text-primary block px-4 py-2 text-xs hover:bg-surface-hover hover:text-primary',
-						'data-[highlighted]:bg-surface-hover data-[highlighted]:text-primary'
+						'data-highlighted:bg-surface-hover data-highlighted:text-primary'
 					)}
 					{item}
 				>
@@ -136,7 +136,7 @@
 					href="{base}/workspace_settings"
 					class={twMerge(
 						'text-secondary px-4 py-2 text-xs hover:bg-surface-hover hover:text-primary flex flex-flow gap-2',
-						'data-[highlighted]:bg-surface-hover data-[highlighted]:text-primary'
+						'data-highlighted:bg-surface-hover data-highlighted:text-primary'
 					)}
 					{item}
 				>
@@ -163,7 +163,7 @@
 				<MenuItem
 					class={twMerge(
 						'text-secondary block font-normal w-full text-left px-4 py-2 text-sm hover:bg-gray-100 hover:text-gray-900',
-						'data-[highlighted]:bg-gray-100 data-[highlighted]:text-gray-900'
+						'data-highlighted:bg-gray-100 data-highlighted:text-gray-900'
 					)}
 					on:click={() => {
 						goto('/workspace_settings?tab=premium')

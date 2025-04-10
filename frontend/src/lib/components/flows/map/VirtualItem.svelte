@@ -48,13 +48,13 @@
 			style={borderColor ? `border-color: ${borderColor};` : 'border: 0'}
 			class="flex flex-row gap-1 justify-between {center
 				? 'items-center'
-				: 'items-baseline'} w-full overflow-hidden rounded-sm border p-2 text-2xs module text-primary border-gray-400 dark:border-gray-600"
+				: 'items-baseline'} w-full overflow-hidden rounded-xs border p-2 text-2xs module text-primary border-gray-400 dark:border-gray-600"
 		>
 			{#if $$slots.icon}
 				<slot name="icon" />
 				<span class="mr-2"></span>
 			{/if}
-			<div class="flex flex-col flex-grow shrink-0 max-w-full min-w-0">
+			<div class="flex flex-col grow shrink-0 max-w-full min-w-0">
 				{#if label}
 					<div class="truncate text-center">{label}</div>
 				{/if}
@@ -100,7 +100,7 @@
 			<Popover notClickable>
 				<div
 					transition:fade|local={{ duration: 200 }}
-					class="center-center rounded border bg-surface border-gray-400 text-secondary px-1 py-0.5"
+					class="center-center rounded-xs border bg-surface border-gray-400 text-secondary px-1 py-0.5"
 				>
 					<Database size={12} />
 				</div>
@@ -111,7 +111,7 @@
 			<Popover notClickable>
 				<div
 					transition:fade|local={{ duration: 200 }}
-					class="center-center bg-surface rounded border border-gray-400 text-secondary px-1 py-0.5"
+					class="center-center bg-surface rounded-xs border border-gray-400 text-secondary px-1 py-0.5"
 				>
 					<Square size={12} />
 				</div>

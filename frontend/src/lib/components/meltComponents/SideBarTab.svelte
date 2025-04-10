@@ -35,7 +35,7 @@
 
 <!-- svelte-ignore a11y-no-static-element-interactions -->
 <div
-	class="flex flex-col relative !overflow-visible w-[33px]"
+	class="flex flex-col relative overflow-visible! w-[33px]"
 	on:mouseenter={handleMouseEnter}
 	on:mouseleave={handleMouseLeave}
 >

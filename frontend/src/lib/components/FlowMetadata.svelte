@@ -16,7 +16,7 @@
 </script>
 
 <div
-	class="rounded-md p-3 bg-surface-secondary shadow-sm sm:text-sm md:text-base overflow-x-auto"
+	class="rounded-md p-3 bg-surface-secondary shadow-2xs sm:text-sm md:text-base overflow-x-auto"
 	style="min-height: 150px;"
 >
 	<JobStatus {job} />

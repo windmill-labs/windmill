@@ -30,7 +30,7 @@
 >
 	<div class="p-2 min-h-[60px] flex flex-col">
 		<div class="flex items-start w-full">
-			<div class="flex-shrink-0 mt-0.5">
+			<div class="shrink-0 mt-0.5">
 				{#if error}
 					<XCircleIcon class="h-4 w-4 text-red-400" />
 				{:else}
@@ -48,11 +48,11 @@
 				{/if}
 			</div>
 
-			<div class="ml-4 flex flex-shrink-0">
+			<div class="ml-4 flex shrink-0">
 				<button
 					type="button"
 					on:click={handleClose}
-					class="inline-flex rounded-md bg-surface-secondary text-gray-400 hover:text-tertiary focus:outline-none"
+					class="inline-flex rounded-md bg-surface-secondary text-gray-400 hover:text-tertiary focus:outline-hidden"
 				>
 					<span class="sr-only">Close</span>
 					<svg class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
@@ -70,7 +70,7 @@
 						action.callback()
 						toast.pop(toastId)
 					}}
-					class="text-sm !text-primary"
+					class="text-sm text-primary!"
 				>
 					{action.label}
 				</Button>

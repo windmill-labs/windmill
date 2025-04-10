@@ -14,7 +14,7 @@
 		variant="border"
 		color="light"
 		size="xs"
-		btnClasses="!min-h-[30px] !rounded-r-none"
+		btnClasses="min-h-[30px]! rounded-r-none!"
 		on:click={() => dispatch('undo')}
 		{...undoProps}
 	>
@@ -25,7 +25,7 @@
 		variant="border"
 		color="light"
 		size="xs"
-		btnClasses="!min-h-[30px] !rounded-l-none !border-l-0"
+		btnClasses="min-h-[30px]! rounded-l-none! border-l-0!"
 		on:click={() => dispatch('redo')}
 		{...redoProps}
 	>

@@ -104,7 +104,7 @@
 						color="light"
 						variant="contained"
 						buttonType="button"
-						btnClasses="!ml-2 text-violet-800 dark:text-violet-400 bg-violet-100 dark:bg-gray-700"
+						btnClasses="ml-2! text-violet-800 dark:text-violet-400 bg-violet-100 dark:bg-gray-700"
 						title="Generate CRON schedule from prompt"
 						aria-label="Generate"
 						iconOnly

@@ -73,7 +73,7 @@
 	{#if schema && mod}
 		<button
 			class={twMerge(
-				'w-full shadow-md rounded-sm',
+				'w-full shadow-md rounded-xs',
 				selected ? 'bg-surface-selected' : 'hover:bg-surface-hover'
 			)}
 			disabled={!schema}

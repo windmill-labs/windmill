@@ -230,7 +230,7 @@
 							on:keydown|stopPropagation
 							bind:value={name}
 							placeholder="Inline script name"
-							class="!text-xs !rounded-sm !shadow-none"
+							class="text-xs! rounded-xs! shadow-none!"
 							on:keyup={() => {
 								$app = $app
 								$stateId++
@@ -238,7 +238,7 @@
 						/>
 						<div
 							title={validCode ? 'Main function parsable' : 'Main function not parsable'}
-							class="rounded-full !w-2 !h-2 {validCode ? 'bg-green-300' : 'bg-red-300'}"
+							class="rounded-full w-2! h-2! {validCode ? 'bg-green-300' : 'bg-red-300'}"
 						></div>
 					</div>
 				{:else}

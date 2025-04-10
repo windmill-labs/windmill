@@ -54,7 +54,7 @@
 	<!-- svelte-ignore a11y-no-static-element-interactions -->
 	{#if float}
 		<div
-			class="absolute z-[100] top-0 right-0 border-t h-full"
+			class="absolute z-100 top-0 right-0 border-t h-full"
 			style="width: {$runnableJobEditorPanel.width}px; transform: translateX({$runnableJobEditorPanel.width}px);"
 		>
 			<RunnableJobPanelInner {testIsLoading} {frontendJob} {testJob} />

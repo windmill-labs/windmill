@@ -95,7 +95,7 @@
 		<div
 			transition:fade|local={{ duration: transitionDuration }}
 			class={classNames(
-				'z-50 absolute mt-2 rounded-md shadow-lg bg-surface ring-1 ring-black ring-opacity-5 focus:outline-none',
+				'z-50 absolute mt-2 rounded-md shadow-lg bg-surface ring-1 ring-black ring-opacity-5 focus:outline-hidden',
 				placementsClasses[placement],
 				noMinW ? 'min-w-0' : 'w-60',
 				popupClasses

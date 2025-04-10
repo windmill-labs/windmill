@@ -50,7 +50,7 @@
 		colors[color],
 		href &&
 			(color.startsWith(ColorModifier) ? hovers[color.replace(ColorModifier, '')] : hovers[color]),
-		rounded ? 'rounded-full px-2 py-1' : 'rounded px-2.5 py-0.5',
+		rounded ? 'rounded-full px-2 py-1' : 'rounded-xs px-2.5 py-0.5',
 		'flex flex-row gap-1 items-center',
 		$$props.class
 	)

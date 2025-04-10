@@ -22,7 +22,7 @@
 
 <Drawer bind:this={codeDrawer}>
 	<DrawerContent title="Theme viewer" on:close={codeDrawer.closeDrawer}>
-		<div class="p-2 border rounded-sm">
+		<div class="p-2 border rounded-xs">
 			<Highlight code={code ?? ''} language={css} />
 		</div>
 	</DrawerContent>

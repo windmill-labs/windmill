@@ -98,7 +98,7 @@
 								on:pointerdown|stopPropagation
 								on:click={() => toggleAccordion(index)}
 								class={twMerge(
-									'w-full text-left bg-surface !truncate text-sm hover:text-primary px-1 py-2',
+									'w-full text-left bg-surface truncate! text-sm hover:text-primary px-1 py-2',
 									'wm-tabs-alltabs',
 									activeIndex === index
 										? twMerge('bg-surface text-primary ', 'wm-tabs-selectedTab')

@@ -25,7 +25,7 @@
 	<svelte:fragment slot="trigger">
 		<button
 			title="Open calendar picker"
-			class="absolute bottom-1 right-2 top-1 py-1 min-w-min !px-2 items-center text-primary bg-surface border rounded center-center hover:bg-surface-hover transition-all cursor-pointer"
+			class="absolute bottom-1 right-2 top-1 py-1 min-w-min px-2! items-center text-primary bg-surface border rounded-xs center-center hover:bg-surface-hover transition-all cursor-pointer"
 			aria-label="Open calendar picker"
 			on:click={() => {
 				input?.focus()

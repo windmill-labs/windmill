@@ -30,7 +30,7 @@
 	let html = highlightSnippet(content)
 </script>
 
-<button on:click class="font-light !m-0 !p-0">
+<button on:click class="font-light m-0! p-0!">
 <pre
 	class="bg-surface-secondary hover:bg-surface px-2 py-1 text-secondary text-xs w-[100%] whitespace-pre border min-w-full text-start" >
 {@html html}

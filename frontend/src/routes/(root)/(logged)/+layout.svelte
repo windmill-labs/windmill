@@ -376,7 +376,7 @@
 					>
 						<div
 							class={classNames(
-								'fixed inset-0 dark:bg-[#1e232e] bg-[#202125] dark:bg-opacity-75 bg-opacity-75 transition-opacity ease-linear duration-300 z-40 !dark',
+								'fixed inset-0 dark:bg-[#1e232e] bg-[#202125] dark:bg-opacity-75 bg-opacity-75 transition-opacity ease-linear duration-300 z-40 dark!',
 
 								menuOpen ? 'opacity-100' : 'opacity-0'
 							)}
@@ -400,7 +400,7 @@
 										on:click={() => {
 											menuOpen = !menuOpen
 										}}
-										class="ml-1 flex items-center justify-center h-6 w-6 rounded-full focus:outline-none focus:ring-2 focus:ring-inset focus:ring-white border border-white"
+										class="ml-1 flex items-center justify-center h-6 w-6 rounded-full focus:outline-hidden focus:ring-2 focus:ring-inset focus:ring-white border border-white"
 										aria-label="Close"
 									>
 										<svg
@@ -420,8 +420,8 @@
 										</svg>
 									</button>
 								</div>
-								<div class="dark:bg-[#1e232e] bg-[#202125] h-full !dark flex flex-col">
-									<div class="flex gap-x-2 flex-shrink-0 p-4 font-semibold text-gray-200 w-40">
+								<div class="dark:bg-[#1e232e] bg-[#202125] h-full dark! flex flex-col">
+									<div class="flex gap-x-2 shrink-0 p-4 font-semibold text-gray-200 w-40">
 										<WindmillIcon white={true} height="20px" width="20px" />
 										Windmill
 									</div>
@@ -436,7 +436,7 @@
 											isCollapsed={false}
 											icon={Search}
 											label="Search"
-											class="!text-xs"
+											class="text-xs!"
 											shortcut={`${getModifierKey()}k`}
 										/>
 									</div>
@@ -457,11 +457,11 @@
 						class={classNames(
 							'flex flex-col fixed inset-y-0 transition-all ease-in-out duration-200 shadow-md z-40 ',
 							isCollapsed ? 'md:w-12' : 'md:w-40',
-							devOnly ? '!hidden' : ''
+							devOnly ? 'hidden!' : ''
 						)}
 					>
 						<div
-							class="flex-1 flex flex-col min-h-0 h-screen shadow-lg dark:bg-[#1e232e] bg-[#202125] !dark"
+							class="flex-1 flex flex-col min-h-0 h-screen shadow-lg dark:bg-[#1e232e] bg-[#202125] dark!"
 						>
 							<button
 								on:click={() => {
@@ -469,7 +469,7 @@
 								}}
 							>
 								<div
-									class="flex-row flex-shrink-0 px-3.5 py-3.5 text-opacity-70 h-12 flex items-center gap-1.5"
+									class="flex-row shrink-0 px-3.5 py-3.5 text-opacity-70 h-12 flex items-center gap-1.5"
 									class:w-40={!isCollapsed}
 								>
 									<div class:mr-1={!isCollapsed}>
@@ -491,7 +491,7 @@
 									{isCollapsed}
 									icon={Search}
 									label="Search"
-									class="!text-xs"
+									class="text-xs!"
 									shortcut={`${getModifierKey()}k`}
 								/>
 							</div>
@@ -503,7 +503,7 @@
 									: numUnacknowledgedCriticalAlerts}
 							/>
 
-							<div class="flex-shrink-0 flex px-4 pb-3.5">
+							<div class="shrink-0 flex px-4 pb-3.5">
 								<button
 									on:click={() => {
 										isCollapsed = !isCollapsed
@@ -512,7 +512,7 @@
 									<ArrowLeft
 										size={16}
 										class={classNames(
-											'flex-shrink-0 h-4 w-4 transition-all ease-in-out duration-200 text-white',
+											'shrink-0 h-4 w-4 transition-all ease-in-out duration-200 text-white',
 											isCollapsed ? 'rotate-180' : 'rotate-0'
 										)}
 									/>
@@ -530,7 +530,7 @@
 			<!-- Legacy menu -->
 			<div
 				class={classNames(
-					'fixed inset-0 dark:bg-[#1e232e] bg-[#202125] dark:bg-opacity-75 bg-opacity-75 transition-opacity ease-linear duration-300  !dark',
+					'fixed inset-0 dark:bg-[#1e232e] bg-[#202125] dark:bg-opacity-75 bg-opacity-75 transition-opacity ease-linear duration-300  dark!',
 					'opacity-0'
 				)}
 			>
@@ -553,7 +553,7 @@
 									// menuSlide = !menuSlide
 								}}
 								aria-label="Close"
-								class="ml-1 flex items-center justify-center h-8 w-8 rounded-full focus:outline-none focus:ring-2 focus:ring-inset focus:ring-white border border-white"
+								class="ml-1 flex items-center justify-center h-8 w-8 rounded-full focus:outline-hidden focus:ring-2 focus:ring-inset focus:ring-white border border-white"
 							>
 								<svg
 									class="h-6 w-6 text-white"
@@ -568,9 +568,9 @@
 								</svg>
 							</button>
 						</div>
-						<div class="dark:bg-[#1e232e] bg-[#202125] h-full !dark">
+						<div class="dark:bg-[#1e232e] bg-[#202125] h-full dark!">
 							<div
-								class="flex gap-x-2 flex-shrink-0 p-4 font-semibold text-gray-200 w-10"
+								class="flex gap-x-2 shrink-0 p-4 font-semibold text-gray-200 w-10"
 								class:w-40={!isCollapsed}
 							>
 								<WindmillIcon white={true} height="20px" width="20px" />
@@ -588,7 +588,7 @@
 									{isCollapsed}
 									icon={Search}
 									label="Search"
-									class="!text-xs"
+									class="text-xs!"
 									shortcut={`${getModifierKey()}k`}
 								/>
 							</div>
@@ -608,7 +608,7 @@
 			id="content"
 			class={classNames(
 				'w-full flex flex-col flex-1 h-full',
-				devOnly || $userStore?.operator ? '!pl-0' : isCollapsed ? 'md:pl-12' : 'md:pl-40',
+				devOnly || $userStore?.operator ? 'pl-0!' : isCollapsed ? 'md:pl-12' : 'md:pl-40',
 				'transition-all ease-in-out duration-200'
 			)}
 		>
@@ -616,7 +616,7 @@
 				<div class="relative w-full h-full">
 					<div
 						class={classNames(
-							'py-2 px-2 sm:px-4 md:px-8 flex justify-between items-center shadow-sm max-w-7xl mx-auto md:hidden',
+							'py-2 px-2 sm:px-4 md:px-8 flex justify-between items-center shadow-2xs max-w-7xl mx-auto md:hidden',
 							devOnly || $userStore?.operator ? 'hidden' : ''
 						)}
 					>
@@ -626,7 +626,7 @@
 							on:click={() => {
 								menuOpen = true
 							}}
-							class="h-8 w-8 inline-flex items-center justify-center rounded-md text-tertiary hover:text-primary focus:outline-none focus:ring-2 focus:ring-inset focus:ring-indigo-500"
+							class="h-8 w-8 inline-flex items-center justify-center rounded-md text-tertiary hover:text-primary focus:outline-hidden focus:ring-2 focus:ring-inset focus:ring-indigo-500"
 						>
 							<svg
 								class="h-6 w-6"

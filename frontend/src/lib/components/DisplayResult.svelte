@@ -552,7 +552,7 @@
 										Warning
 									</div>
 									<p
-										class="text-tertiary mb-2 text-left border-2 !border-t-0 rounded-b border-red-400 overflow-auto p-1"
+										class="text-tertiary mb-2 text-left border-2 border-t-0! rounded-b border-red-400 overflow-auto p-1"
 										>Rendering HTML can expose you to <a
 											href="https://owasp.org/www-community/attacks/xss/"
 											target="_blank"
@@ -641,7 +641,7 @@
 					</div>
 				{:else if !forceJson && resultKind === 'error' && result?.error}
 					<div class="flex flex-col items-start">
-						<span class="text-red-500 pt-2 font-semibold !text-xs whitespace-pre-wrap"
+						<span class="text-red-500 pt-2 font-semibold text-xs! whitespace-pre-wrap"
 							>{#if result.error.name || result.error.message}{result.error.name}: {result.error
 									.message}{:else}{JSON.stringify(result.error, null, 4)}{/if}</span
 						>
@@ -875,7 +875,7 @@
 						</div>
 					</div>
 				{:else if !forceJson && resultKind === 'markdown'}
-					<div class="prose-xs dark:prose-invert !list-disc !list-outside">
+					<div class="prose-xs dark:prose-invert list-disc! list-outside!">
 						<Markdown md={result?.md ?? result?.markdown} />
 					</div>
 				{:else if largeObject || hasBigInt}

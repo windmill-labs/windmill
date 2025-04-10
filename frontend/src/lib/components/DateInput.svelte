@@ -76,7 +76,7 @@
 		type="date"
 		bind:value={date}
 		{autofocus}
-		class="!w-full app-editor-input"
+		class="w-full! app-editor-input"
 		min={minDate}
 		max={maxDate}
 		on:change={() => {

@@ -62,7 +62,7 @@
 						color="light"
 						size="xs"
 						variant="border"
-						btnClasses="!p-0 !w-[34px] !h-[34px]"
+						btnClasses="p-0! w-[34px]! h-[34px]!"
 						aria-label="Set {key} to {color}"
 						style={`background-color: ${color};`}
 						on:click={() => (value = color)}
@@ -73,7 +73,7 @@
 		{:else if type === StylePropertyType.number}
 			<ClearableInput
 				type="number"
-				inputClass={inline ? '!w-[90px]' : ''}
+				inputClass={inline ? 'w-[90px]!' : ''}
 				bind:value
 				step={prop.value?.['step'] || 1}
 				min={prop.value?.['min']}
@@ -81,9 +81,9 @@
 			/>
 		{:else if type === StylePropertyType.unit}
 			<ClearableInput
-				wrapperClass="flex items-center {inline ? '!grow-0' : ''}"
-				inputClass="!border-r-0 !rounded-r-none {inline ? '!w-[90px]' : ''}"
-				buttonClass="!right-9"
+				wrapperClass="flex items-center {inline ? 'grow-0!' : ''}"
+				inputClass="border-r-0! rounded-r-none! {inline ? 'w-[90px]!' : ''}"
+				buttonClass="right-9!"
 				type="number"
 				value={internalValue}
 				on:change={({ detail }) => updateValue(detail)}
@@ -92,16 +92,16 @@
 					let:close
 					noMinW
 					wrapperClasses="h-full bg-surface rounded-r-md border-y border-r pr-0.5"
-					popupClasses="!mt-0"
+					popupClasses="mt-0!"
 				>
 					<button
 						slot="trigger"
 						type="button"
-						class="font-normal text-xs px-1 py-1.5 w-8 rounded mt-0.5 duration-200 hover:bg-gray-200/90"
+						class="font-normal text-xs px-1 py-1.5 w-8 rounded-xs mt-0.5 duration-200 hover:bg-gray-200/90"
 					>
 						{unit}
 					</button>
-					<ul class="bg-surface rounded border py-1 overflow-auto">
+					<ul class="bg-surface rounded-xs border py-1 overflow-auto">
 						{#each StylePropertyUnits as u}
 							<li class="w-full">
 								<Button
@@ -109,7 +109,7 @@
 									color="light"
 									size="xs"
 									variant="contained"
-									btnClasses="!justify-start !rounded-none !w-full !px-3 !py-1.5"
+									btnClasses="justify-start! rounded-none! w-full! px-3! py-1.5!"
 									on:click={() => {
 										updateUnit(u)
 										close()
@@ -129,7 +129,7 @@
 						color={value === option.text ? 'dark' : 'light'}
 						size="xs"
 						variant={value === option.text ? 'contained' : 'border'}
-						btnClasses="!p-1 !min-w-[34px] !h-[34px]"
+						btnClasses="p-1! min-w-[34px]! h-[34px]!"
 						aria-label="Set {key} to {option.text}"
 						on:click={() => {
 							if (value === option.text) {

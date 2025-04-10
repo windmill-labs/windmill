@@ -87,7 +87,7 @@
 					<input
 						bind:value={token}
 						placeholder="paste your token here once created to alter examples below"
-						class="!text-xs"
+						class="text-xs!"
 					/>
 					<Button size="xs" color="light" variant="border" on:click={userSettings.openDrawer}>
 						Create an Email-specific Token

@@ -122,7 +122,7 @@
 				<div class=" flex flex-col gap-y-2"></div>
 				{#each databases as database}
 					<button
-						class="btn btn-outline-primary mt-2 border p-2 w-full border-secondary-inverse hover:border-secondary rounded"
+						class="btn btn-outline-primary mt-2 border p-2 w-full border-secondary-inverse hover:border-secondary rounded-xs"
 						on:click={() => {
 							selectedDatabase = database
 
@@ -130,7 +130,7 @@
 						}}
 					>
 						<div class="flex flex-row items-center">
-							<div class="flex-grow">
+							<div class="grow">
 								<h3 class="text-lg font-semibold">{database.name}</h3>
 
 								<p class="text-sm text-secondary">id: {database.id} - region: {database.region}</p>

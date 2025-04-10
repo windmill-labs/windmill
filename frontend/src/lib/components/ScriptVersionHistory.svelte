@@ -59,7 +59,7 @@
 	let previousHash: string | undefined = $state()
 </script>
 
-<Splitpanes class="!overflow-visible">
+<Splitpanes class="overflow-visible!">
 	<Pane size={20}>
 		<div class="flex flex-col gap-2 px-2 pt-2 w-full">
 			{#if !loading}
@@ -133,7 +133,7 @@
 									<input
 										type="text"
 										bind:value={deploymentMsgUpdate}
-										class="!w-auto grow"
+										class="w-auto! grow"
 										onclick={(e) => {
 											e.stopPropagation()
 										}}
@@ -149,7 +149,7 @@
 										size="xs"
 										color="blue"
 										buttonType="button"
-										btnClasses="!p-1 !w-[34px] !ml-1"
+										btnClasses="p-1! w-[34px]! ml-1!"
 										aria-label="Save deployment message"
 										on:click={() => {
 											updateDeploymentMsg(selectedVersion?.script_hash)
@@ -161,7 +161,7 @@
 										size="xs"
 										color="light"
 										buttonType="button"
-										btnClasses="!p-1 !w-[34px] !ml-1"
+										btnClasses="p-1! w-[34px]! ml-1!"
 										aria-label="Abort"
 										on:click={() => {
 											deploymentMsgUpdateMode = false
@@ -183,7 +183,7 @@
 										deploymentMsgUpdateMode = true
 									}}
 									title="Update commit message"
-									class="flex items-center px-1 rounded-sm hover:text-primary text-secondary h-5"
+									class="flex items-center px-1 rounded-xs hover:text-primary text-secondary h-5"
 									aria-label="Update commit message"
 								>
 									<Pencil size={14} />
@@ -208,12 +208,12 @@
 
 								{#if showDiff}
 									<div class="text-xs">Versions:</div>
-									<select bind:value={previousHash} class="!text-xs !w-40">
+									<select bind:value={previousHash} class="text-xs! w-40!">
 										{#each versions?.slice(selectedVersionIndex + 1) ?? [] as version}
 											<option
 												value={version.script_hash}
 												selected={version.script_hash === selectedVersion.script_hash}
-												class="!text-xs"
+												class="text-xs!"
 											>
 												{version.deployment_msg ?? version.script_hash}
 											</option>

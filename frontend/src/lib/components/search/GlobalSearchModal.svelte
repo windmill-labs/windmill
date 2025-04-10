@@ -507,7 +507,7 @@
 			class={twMerge(
 				`fixed top-0 bottom-0 left-0 right-0 transition-all duration-50 flex items-start justify-center`,
 				' bg-black bg-opacity-40',
-				'z-[1100]'
+				'z-1100'
 			)}
 		>
 			<div
@@ -524,7 +524,7 @@
 							id="quickSearchInput"
 							bind:this={textInput}
 							type="text"
-							class="quick-search-input !bg-surface"
+							class="quick-search-input bg-surface!"
 							bind:value={searchTerm}
 							autocomplete="off"
 						/>
@@ -671,12 +671,12 @@
 														<div class="text-xs"> {r?.document.script_path} </div>
 														<div class="flex flex-row gap-2">
 															<div
-																class="whitespace-nowrap col-span-2 !text-tertiary !text-2xs overflow-hidden text-ellipsis flex-shrink text-center"
+																class="whitespace-nowrap col-span-2 text-tertiary! text-2xs! overflow-hidden text-ellipsis shrink text-center"
 															>
 																{displayDateOnly(new Date(r?.document.created_at[0]))}
 															</div>
 															<div
-																class="whitespace-nowrap col-span-2 !text-tertiary !text-2xs overflow-hidden text-ellipsis flex-shrink text-center"
+																class="whitespace-nowrap col-span-2 text-tertiary! text-2xs! overflow-hidden text-ellipsis shrink text-center"
 															>
 																<TimeAgo date={r?.document.created_at[0] ?? ''} />
 															</div>

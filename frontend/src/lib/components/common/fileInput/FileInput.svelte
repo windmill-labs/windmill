@@ -227,7 +227,7 @@
 		</slot>
 	{/if}
 	<input
-		class="!absolute !inset-0 !z-10 !opacity-0 !cursor-pointer"
+		class="absolute! inset-0! z-10! opacity-0! cursor-pointer!"
 		type="file"
 		{...{ webkitdirectory: folderOnly }}
 		title={files ? `${files.length} file${files.length > 1 ? 's' : ''} chosen` : 'No file chosen'}

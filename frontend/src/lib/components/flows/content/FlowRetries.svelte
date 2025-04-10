@@ -78,7 +78,7 @@
 		<div class="w-1/2 h-full overflow-auto pr-2">
 			{#if delayType === 'constant'}
 				{#if flowModuleRetry?.constant}
-					<div class="text-xs font-bold !mt-2">Attempts</div>
+					<div class="text-xs font-bold mt-2!">Attempts</div>
 					<div class="flex gap-1">
 						<input
 							max={u32Max.toString()}
@@ -92,12 +92,12 @@
 							>max</button
 						>
 					</div>
-					<div class="text-xs font-bold !mt-2">Delay</div>
+					<div class="text-xs font-bold mt-2!">Delay</div>
 					<SecondsInput bind:seconds={flowModuleRetry.constant.seconds} />
 				{/if}
 			{:else if delayType === 'exponential'}
 				{#if flowModuleRetry?.exponential}
-					<div class="text-xs font-bold !mt-2">Attempts</div>
+					<div class="text-xs font-bold mt-2!">Attempts</div>
 					<div class="flex gap-1">
 						<input max="100" bind:value={flowModuleRetry.exponential.attempts} type="number" />
 						<button
@@ -107,12 +107,12 @@
 							>max</button
 						>
 					</div>
-					<div class="text-xs font-bold !mt-2">Multiplier</div>
+					<div class="text-xs font-bold mt-2!">Multiplier</div>
 					<span class="text-xs text-tertiary">delay = multiplier * base ^ (number of attempt)</span>
 					<input bind:value={flowModuleRetry.exponential.multiplier} type="number" />
-					<div class="text-xs font-bold !mt-2">Base (in seconds)</div>
+					<div class="text-xs font-bold mt-2!">Base (in seconds)</div>
 					<input bind:value={flowModuleRetry.exponential.seconds} type="number" step="1" />
-					<div class="text-xs font-bold !mt-2">Randomization factor (percentage)</div>
+					<div class="text-xs font-bold mt-2!">Randomization factor (percentage)</div>
 					<div class="flex w-full gap-4">
 						{#if !$enterpriseLicense}
 							<div class="flex text-xs items-center gap-1 text-yellow-500 whitespace-nowrap">
@@ -156,7 +156,7 @@
 					(_, i) => (multiplier || 0) * (eSeconds || 0) ** (i + cArray.length + 1)
 				)}
 				{@const array = [...cArray, ...eArray]}
-				<div class="bg-surface-secondary border rounded px-4 py-2">
+				<div class="bg-surface-secondary border rounded-xs px-4 py-2">
 					<div class="text-xs font-medium mb-2">Retry attempts</div>
 					{#if array.length > 0}
 						<table class="text-xs">

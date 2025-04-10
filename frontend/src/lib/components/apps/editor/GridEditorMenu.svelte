@@ -179,7 +179,7 @@
 							<Popover
 								notClickable
 								placement="right"
-								popupClass="z-[7000]"
+								popupClass="z-7000"
 								disablePopup={!item.tooltip}
 								appearTimeout={800}
 							>

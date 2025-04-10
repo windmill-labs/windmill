@@ -186,7 +186,7 @@
 							{/if}
 						</div>
 						{#if index === selected}
-							<kbd class="!text-xs">&crarr;</kbd>
+							<kbd class="text-xs!">&crarr;</kbd>
 						{/if}
 					</button>
 				</Popover>

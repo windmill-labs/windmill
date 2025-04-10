@@ -440,9 +440,9 @@
 						items={groupedWorkers.map((x) => x[0])}
 						bind:selectedItem={selectedTab}
 						hideArrow={true}
-						inputClassName={'flex !font-gray-600 !font-primary !bg-surface-primary"'}
-						dropdownClassName="!text-sm !py-2 !rounded-sm  !border-gray-200 !border !shadow-md"
-						className="!font-gray-600 !font-primary !bg-surface-primary"
+						inputClassName={'flex font-gray-600! font-primary! bg-surface-primary!"'}
+						dropdownClassName="text-sm! py-2! rounded-xs!  border-gray-200! border! shadow-md!"
+						className="font-gray-600! font-primary! bg-surface-primary!"
 					/>
 
 					<!-- <select
@@ -504,7 +504,7 @@
 
 					<div class="flex flex-row items-center gap-2 relative my-2">
 						<input
-							class="max-w-80 border rounded-md !pl-8"
+							class="max-w-80 border rounded-md pl-8!"
 							placeholder="Search workers by name..."
 							autocomplete="off"
 							bind:value={search}
@@ -552,7 +552,7 @@
 												? 11
 												: 9}
 											scope="colgroup"
-											class="bg-surface-secondary/30 !py-1 border-b !text-xs"
+											class="bg-surface-secondary/30 py-1! border-b text-xs!"
 										>
 											<div class="flex flex-row w-full">
 												<div class="min-w-64">
@@ -627,7 +627,7 @@
 													</div>
 												</Cell>
 												<Cell>
-													<div class="!text-2xs">
+													<div class="text-2xs!">
 														{wm_version.split('-')[0]}<Tooltip>{wm_version}</Tooltip>
 													</div>
 												</Cell>

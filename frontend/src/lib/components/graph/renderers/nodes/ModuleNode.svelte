@@ -107,7 +107,7 @@
 		{#if (data.value.type === 'branchall' || data.value.type === 'branchone') && data.insertable}
 			<button
 				title="Add branch"
-				class="rounded text-secondary border hover:bg-surface-hover bg-surface p-1"
+				class="rounded-xs text-secondary border hover:bg-surface-hover bg-surface p-1"
 				on:click={() => {
 					data?.eventHandlers?.newBranch(data.module)
 				}}

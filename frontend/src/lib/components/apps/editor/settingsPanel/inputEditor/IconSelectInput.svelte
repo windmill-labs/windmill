@@ -51,7 +51,7 @@
 				{value}
 				on:change={({ detail }) => (value = detail)}
 				on:focus={getData}
-				class="!pr-6"
+				class="pr-6!"
 			/>
 			{#if loading}
 				<div class="center-center absolute right-2 top-1/2 transform -translate-y-1/2 p-0.5">

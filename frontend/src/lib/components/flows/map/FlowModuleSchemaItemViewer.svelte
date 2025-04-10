@@ -30,7 +30,7 @@
 		class="absolute left-1/2 transform -translate-x-1/2 center-center"
 		style="max-width: calc(100% - {marginLeft}px)"
 	>
-		<div class="text-center truncate {bold ? '!font-bold' : 'font-normal'}">
+		<div class="text-center truncate {bold ? 'font-bold!' : 'font-normal'}">
 			{label}
 		</div>
 		<svelte:fragment slot="text">
@@ -46,7 +46,7 @@
 			<Badge
 				color="indigo"
 				wrapperClass="max-w-full"
-				baseClass="max-w-full truncate !px-1"
+				baseClass="max-w-full truncate px-1!"
 				title={id}
 			>
 				<span class="max-w-full text-2xs truncate">{id}</span></Badge
@@ -54,15 +54,15 @@
 			{#if deletable}
 				<button
 					class="absolute -left-[28px] z-10 h-[20px] rounded-l rounded-t rounded-s w-[20px] trash center-center text-secondary bg-surface duration-150 hover:bg-blue-400 {editId
-						? '!bg-blue-400'
+						? 'bg-blue-400!'
 						: ''} hover:text-white
-hover:border-blue-700 hover:!visible {hover ? '' : '!hidden'}"
+hover:border-blue-700 hover:!visible {hover ? '' : 'hidden!'}"
 					on:click|preventDefault|stopPropagation={(event) => (editId = !editId)}
 					title="Edit Id"><Pencil size={14} /></button
 				>
 			{/if}
 		{:else if id?.startsWith('subflow:')}
-			<Badge color="blue" wrapperClass="max-w-full" baseClass="!px-1" title={id}>
+			<Badge color="blue" wrapperClass="max-w-full" baseClass="px-1!" title={id}>
 				<span class="max-w-full text-2xs truncate">{id.substring('subflow:'.length)}</span></Badge
 			>
 		{/if}

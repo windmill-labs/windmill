@@ -155,7 +155,7 @@
 			color="light"
 			size="xs"
 			disabled={resolvedDisabled}
-			btnClasses={orientation === 'vertical' ? '!justify-start !whitespace-normal !text-left' : ''}
+			btnClasses={orientation === 'vertical' ? 'justify-start! whitespace-normal! text-left!' : ''}
 		>
 			{#if navbarItem.icon}
 				{#key navbarItem.icon}

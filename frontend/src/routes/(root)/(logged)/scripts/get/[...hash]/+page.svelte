@@ -698,7 +698,7 @@
 					<div class="py-10"></div>
 					{#if !emptyString(script.summary)}
 						<div class="mb-2">
-							<span class="!text-tertiary">{script.path}</span>
+							<span class="text-tertiary!">{script.path}</span>
 						</div>
 					{/if}
 					<div class="flex flex-row gap-x-2 flex-wrap items-center">

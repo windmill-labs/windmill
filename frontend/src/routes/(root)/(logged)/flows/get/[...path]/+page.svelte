@@ -377,7 +377,7 @@
 </script>
 
 <Skeleton
-	class="!max-w-7xl !px-4 sm:!px-6 md:!px-8"
+	class="max-w-7xl! px-4! sm:px-6! md:px-8!"
 	loading={!flow}
 	layout={[0.75, [2, 0, 2], 2.25, [{ h: 1.5, w: 40 }], 0.2, [{ h: 1, w: 30 }]]}
 />
@@ -526,7 +526,7 @@
 
 					{#if !emptyString(flow.summary)}
 						<div class="mb-2">
-							<span class="!text-tertiary">{flow.path}</span>
+							<span class="text-tertiary!">{flow.path}</span>
 						</div>
 					{/if}
 					<div class="flex flex-row gap-x-2 flex-wrap items-center">

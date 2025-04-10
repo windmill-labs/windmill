@@ -50,7 +50,7 @@ export function createAppFromScript(path: string, schema: Record<string, any> | 
 					configuration: {},
 					customCss: {
 						container: {
-							class: '!p-0',
+							class: 'p-0!',
 							style: ''
 						}
 					},
@@ -612,7 +612,7 @@ export function createAppFromFlow(path: string, schema: Record<string, any> | un
 					configuration: {},
 					customCss: {
 						container: {
-							class: '!p-0',
+							class: 'p-0!',
 							style: ''
 						}
 					},

@@ -283,7 +283,7 @@
 													<div class="flex flex-wrap gap-1 mb-2">
 														{#each alert.tags_to_monitor as tag}
 															<span
-																class="inline-block bg-blue-100 dark:bg-blue-700 rounded px-2 py-1 text-xs"
+																class="inline-block bg-blue-100 dark:bg-blue-700 rounded-xs px-2 py-1 text-xs"
 															>
 																{tag}
 																<button
@@ -301,7 +301,7 @@
 															placeholder="{workerTags.length === alert.tags_to_monitor.length ? 'All tags already added' : 'Add tag from dropdown' }"
 															on:input={(e) => filterTags(e)}
 															disabled={workerTags.length === alert.tags_to_monitor.length}
-															class="p-1 flex-grow mr-1"
+															class="p-1 grow mr-1"
 														/>
 														<button on:click={() => addTag(index, newTag)} aria-label="Add tag">
 															<PlusCircle size={16} />
@@ -310,7 +310,7 @@
 													<!-- Add the new "Add All Tags" button here -->
 													<button
 														on:click={() => addAllTags(index)}
-														class="text-xs hover:bg-gray-200 dark:hover:bg-gray-700 rounded px-2 py-1 mt-1"
+														class="text-xs hover:bg-gray-200 dark:hover:bg-gray-700 rounded-xs px-2 py-1 mt-1"
 														disabled={workerTags.length === alert.tags_to_monitor.length}
 													>
 														Add All Tags
@@ -338,7 +338,7 @@
 													<div class="flex flex-wrap gap-1">
 														{#each alert.tags_to_monitor as tag}
 															<span
-																class="inline-block bg-blue-100 dark:bg-blue-700 rounded px-2 py-1 text-xs"
+																class="inline-block bg-blue-100 dark:bg-blue-700 rounded-xs px-2 py-1 text-xs"
 																>{tag}</span
 															>
 														{/each}

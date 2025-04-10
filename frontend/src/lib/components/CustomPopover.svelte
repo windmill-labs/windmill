@@ -74,7 +74,7 @@
 			use:popperContent={popperOptions}
 			on:mouseenter={open}
 			on:mouseleave={close}
-			class="z-[5001] border rounded-lg shadow-lg {noPadding ? '' : 'p-4'} bg-surface"
+			class="z-5001 border rounded-lg shadow-lg {noPadding ? '' : 'p-4'} bg-surface"
 		>
 			<slot name="overlay" />
 		</div>

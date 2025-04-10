@@ -200,7 +200,7 @@
 					<Label label="Label" class="p-2 flex flex-col gap-2">
 						<input
 							type="text"
-							class="w-full !bg-surface"
+							class="w-full bg-surface!"
 							on:keydown={(event) => {
 								if (event.key === 'Enter') {
 									createVariant(variantName)
@@ -251,7 +251,7 @@
 					<Label label="Label" class="p-2 flex flex-col gap-2">
 						<input
 							type="text"
-							class="w-full !bg-surface"
+							class="w-full bg-surface!"
 							on:keydown={(event) => {
 								if (event.key === 'Enter') {
 									if (oneOfSelected) {

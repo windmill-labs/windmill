@@ -38,7 +38,7 @@
 		{#if moduleRetry}
 			<Popover
 				placement="bottom"
-				class="center-center rounded p-2 bg-blue-100 text-blue-800 border border-blue-300 hover:bg-blue-200 dark:bg-frost-700 dark:text-frost-100 dark:border-frost-600"
+				class="center-center rounded-xs p-2 bg-blue-100 text-blue-800 border border-blue-300 hover:bg-blue-200 dark:bg-frost-700 dark:text-frost-100 dark:border-frost-600"
 				on:click={() => dispatch('toggleRetry')}
 			>
 				<Repeat size={14} />
@@ -48,7 +48,7 @@
 		{#if module?.value?.['concurrent_limit'] != undefined}
 			<Popover
 				placement="bottom"
-				class="center-center rounded p-2 bg-blue-100 text-blue-800 border border-blue-300 hover:bg-blue-200 dark:bg-frost-700 dark:text-frost-100 dark:border-frost-600"
+				class="center-center rounded-xs p-2 bg-blue-100 text-blue-800 border border-blue-300 hover:bg-blue-200 dark:bg-frost-700 dark:text-frost-100 dark:border-frost-600"
 				on:click={() => dispatch('toggleConcurrency')}
 			>
 				<Gauge size={14} />
@@ -58,7 +58,7 @@
 		{#if module.cache_ttl != undefined}
 			<Popover
 				placement="bottom"
-				class="center-center rounded p-2 bg-blue-100 text-blue-800 border border-blue-300 hover:bg-blue-200 dark:bg-frost-700 dark:text-frost-100 dark:border-frost-600"
+				class="center-center rounded-xs p-2 bg-blue-100 text-blue-800 border border-blue-300 hover:bg-blue-200 dark:bg-frost-700 dark:text-frost-100 dark:border-frost-600"
 				on:click={() => dispatch('toggleCache')}
 			>
 				<Database size={14} />
@@ -68,7 +68,7 @@
 		{#if module.stop_after_if || module.stop_after_all_iters_if}
 			<Popover
 				placement="bottom"
-				class="center-center rounded p-2 bg-blue-100 text-blue-800 border border-blue-300 hover:bg-blue-200 dark:bg-frost-700 dark:text-frost-100 dark:border-frost-600"
+				class="center-center rounded-xs p-2 bg-blue-100 text-blue-800 border border-blue-300 hover:bg-blue-200 dark:bg-frost-700 dark:text-frost-100 dark:border-frost-600"
 				on:click={() => dispatch('toggleStopAfterIf')}
 			>
 				<Square size={14} />
@@ -78,7 +78,7 @@
 		{#if module.suspend}
 			<Popover
 				placement="bottom"
-				class="center-center rounded p-2 bg-blue-100 text-blue-800 border border-blue-300 hover:bg-blue-200 dark:bg-frost-700 dark:text-frost-100 dark:border-frost-600"
+				class="center-center rounded-xs p-2 bg-blue-100 text-blue-800 border border-blue-300 hover:bg-blue-200 dark:bg-frost-700 dark:text-frost-100 dark:border-frost-600"
 				on:click={() => dispatch('toggleSuspend')}
 			>
 				<PhoneIncoming size={14} />
@@ -88,7 +88,7 @@
 		{#if module.sleep}
 			<Popover
 				placement="bottom"
-				class="center-center rounded p-2 bg-blue-100 text-blue-800 border border-blue-300 hover:bg-blue-200 dark:bg-frost-700 dark:text-frost-100 dark:border-frost-600"
+				class="center-center rounded-xs p-2 bg-blue-100 text-blue-800 border border-blue-300 hover:bg-blue-200 dark:bg-frost-700 dark:text-frost-100 dark:border-frost-600"
 				on:click={() => dispatch('toggleSleep')}
 			>
 				<Bed size={14} />
@@ -98,7 +98,7 @@
 		{#if module.mock?.enabled}
 			<Popover
 				placement="bottom"
-				class="center-center rounded p-2 bg-blue-100 text-blue-800 border border-blue-300 hover:bg-blue-200 dark:bg-frost-700 dark:text-frost-100 dark:border-frost-600"
+				class="center-center rounded-xs p-2 bg-blue-100 text-blue-800 border border-blue-300 hover:bg-blue-200 dark:bg-frost-700 dark:text-frost-100 dark:border-frost-600"
 				on:click={() => dispatch('togglePin')}
 			>
 				<Pin size={14} />

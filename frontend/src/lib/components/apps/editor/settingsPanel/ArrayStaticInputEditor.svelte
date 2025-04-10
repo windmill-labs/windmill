@@ -278,7 +278,7 @@
 				on:finalize={handleFinalize}
 			>
 				{#each items as item, index (item.id)}
-					<div class="border-0 outline-none w-full">
+					<div class="border-0 outline-hidden w-full">
 						<!-- svelte-ignore a11y-no-noninteractive-tabindex -->
 
 						<div class="flex flex-row gap-2 items-center relative my-1 w-full">

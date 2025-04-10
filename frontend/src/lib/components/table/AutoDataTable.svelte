@@ -168,7 +168,7 @@
 	<div class="flex flex-col gap-2 py-1 my-1" style={`max-width: ${wrapperWidth}px;`}>
 		<div class="flex flex-row justify-between items-center gap-2">
 			<div class="flex flex-row gap-2 items-center whitespace-nowrap w-full">
-				<input bind:value={search} placeholder="Search..." class="h-8 !text-xs" />
+				<input bind:value={search} placeholder="Search..." class="h-8 text-xs!" />
 				{#if selection.length > 0}
 					<span class="text-xs text-gray-500 dark:text-gray-200">
 						{pluralize(selection?.length ?? 1, 'item') + ' selected'}
@@ -281,7 +281,7 @@
 					<Head>
 						<tr>
 							<Cell head first={true} last={false}>
-								<input type="checkbox" class="!w-4 !h-4" on:change={handleSelectAllChange} />
+								<input type="checkbox" class="w-4! h-4!" on:change={handleSelectAllChange} />
 							</Cell>
 							{#each headers ?? [] as key, index}
 								<Cell head last={index == headers.length - 1}>
@@ -318,7 +318,7 @@
 										{/if}
 										<input
 											type="checkbox"
-											class="!w-4 !h-4"
+											class="w-4! h-4!"
 											checked={colSelection.includes(key)}
 											on:change={() => handleColumnSelected(key)}
 										/>
@@ -333,7 +333,7 @@
 								<Cell first={true} last={false} class="w-6">
 									<input
 										type="checkbox"
-										class="!w-4 !h-4"
+										class="w-4! h-4!"
 										checked={selection.includes(_id)}
 										on:change={() => handleCheckboxChange(_id)}
 									/>
@@ -363,7 +363,7 @@
 											<div class="flex flex-row gap-1 w-full max-w-32 flex-wrap min-w-32">
 												{#each value as val}
 													<div
-														class="p-2 bg-surface-secondary rounded-md text-2xs text-wrap whitespace-pre-wrap flex flex-grow w-max overflow-hidden"
+														class="p-2 bg-surface-secondary rounded-md text-2xs text-wrap whitespace-pre-wrap flex grow w-max overflow-hidden"
 													>
 														{JSON.stringify(val, null, 2)}
 													</div>
@@ -373,7 +373,7 @@
 											<div class="flex flex-row gap-1 w-full flex-wrap min-w-96">
 												{#each value as val}
 													<div
-														class="p-2 bg-surface-secondary rounded-md text-2xs text-wrap whitespace-pre-wrap flex flex-grow w-max overflow-hidden"
+														class="p-2 bg-surface-secondary rounded-md text-2xs text-wrap whitespace-pre-wrap flex grow w-max overflow-hidden"
 													>
 														{JSON.stringify(val, null, 2)}
 													</div>
@@ -400,7 +400,7 @@
 												disablePopup={typeof value === 'string' && value.length < 100}
 											>
 												<div
-													class="max-w-[100ch] text-wrap whitespace-pre-wrap flex flex-grow w-max three-lines cursor-text"
+													class="max-w-[100ch] text-wrap whitespace-pre-wrap flex grow w-max three-lines cursor-text"
 												>
 													{txt?.length > 100 ? txt.slice(0, 100) + '...' : txt}
 												</div>

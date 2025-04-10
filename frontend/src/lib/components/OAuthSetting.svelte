@@ -65,7 +65,7 @@
 <div class="flex flex-col">
 	<!-- svelte-ignore a11y-label-has-associated-control -->
 	<label
-		class="text-sm flex gap-4 items-center font-medium text-primary {enabled ? 'rounded py-2' : ''}"
+		class="text-sm flex gap-4 items-center font-medium text-primary {enabled ? 'rounded-xs py-2' : ''}"
 		><div class="w-[120px]"><IconedResourceType {name} after={true} /></div><Toggle
 			checked={enabled}
 			disabled={eeOnly && !$enterpriseLicense}
@@ -86,7 +86,7 @@
 		{/if}
 	</label>
 	{#if enabled}
-		<div class="p-2 rounded border mb-4">
+		<div class="p-2 rounded-xs border mb-4">
 			{#if name != 'slack' && name != 'teams'}
 				<label class="block pb-2">
 					<span class="text-primary font-semibold text-sm">Custom Name</span>
@@ -125,7 +125,7 @@
 									}}
 								/>
 								<button
-									class="text-primary text-xs rounded hover:bg-surface-hover"
+									class="text-primary text-xs rounded-xs hover:bg-surface-hover"
 									on:click={() => {
 										value['allowed_domains'] = value['allowed_domains']?.filter((d) => d != domain)
 										if (value['allowed_domains'].length == 0) {
@@ -139,7 +139,7 @@
 						{/each}
 						<div class="flex gap-2">
 							<button
-								class="text-primary text-sm border rounded p-1"
+								class="text-primary text-sm border rounded-xs p-1"
 								on:click={() => {
 									value['allowed_domains'] = [...(value['allowed_domains'] ?? []), 'mydomain.com']
 								}}>+ Add domain</button

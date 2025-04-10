@@ -85,7 +85,7 @@
 		>
 		<button
 			disabled={checking || (!automateUsernameCreation && (errorUsername != '' || !username))}
-			class="place-items-end bg-blue-500 hover:bg-blue-700 text-white font-bold py-1 px-2 border rounded"
+			class="place-items-end bg-blue-500 hover:bg-blue-700 text-white font-bold py-1 px-2 border rounded-xs"
 			type="button"
 			on:click={acceptInvite}
 		>

@@ -105,7 +105,7 @@
 </script>
 
 <Splitpanes
-	class={twMerge('!overflow-visible')}
+	class={twMerge('overflow-visible!')}
 	style={width !== undefined ? `width:${width}px;` : 'width: 100%;'}
 >
 	<Pane size={25}>

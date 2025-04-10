@@ -24,7 +24,7 @@ export namespace ButtonType {
 
 	export const SpacingClasses: Record<ButtonType.Size, Record<ButtonType.Variant, string>> = {
 		xs3: {
-			border: 'px-0.5 py-[1px] !rounded-xs',
+			border: 'px-0.5 py-[1px] rounded-xs!',
 			contained: 'px-0.5 py-[1px]',
 			divider: ''
 		},
@@ -74,14 +74,14 @@ export namespace ButtonType {
 
 		blue: {
 			border:
-				'border-frost-500 dark:border-frost-300 hover:border-frost-700 dark:hover:border-frost-400 focus-visible:border-frost-700 bg-surface hover:bg-frost-100 dark:hover:bg-frost-900 focus-visible:bg-frost-100 focus-visible:dark:text-frost-100 dark:focus-visible:bg-frost-900 text-frost-500 dark:text-frost-300 dark:hover:text-frost-400 hover:text-frost-700 focus-visible:text-frost-700 focus-visible:ring-frost-300',
+				'border-frost-500 dark:border-frost-300 hover:border-frost-700 dark:hover:border-frost-400 focus-visible:border-frost-700 bg-surface hover:bg-frost-100 dark:hover:bg-frost-900 focus-visible:bg-frost-100 dark:focus-visible:text-frost-100 dark:focus-visible:bg-frost-900 text-frost-500 dark:text-frost-300 dark:hover:text-frost-400 hover:text-frost-700 focus-visible:text-frost-700 focus-visible:ring-frost-300',
 			contained:
 				'bg-frost-500 hover:bg-frost-700 focus-visible:bg-frost-700 text-white focus-visible:ring-frost-300 dark:bg-frost-500/90 dark:hover:bg-frost-600/90',
 			divider: 'divide-x divide-frost-600'
 		},
 		marine: {
 			border:
-				'border-marine-300 dark:border-marine-200 hover:border-marine-500 dark:hover:border-marine-400 focus-visible:border-marine-500 bg-surface hover:bg-marine-500 dark:hover:bg-marine-400 focus-visible:bg-marine-100 focus-visible:dark:text-marine-50 dark:focus-visible:bg-marine-500 text-marine-50 dark:text-marine-50 dark:hover:text-marine-50 hover:text-marine-50 focus-visible:text-marine-300 focus-visible:ring-marine-200',
+				'border-marine-300 dark:border-marine-200 hover:border-marine-500 dark:hover:border-marine-400 focus-visible:border-marine-500 bg-surface hover:bg-marine-500 dark:hover:bg-marine-400 focus-visible:bg-marine-100 dark:focus-visible:text-marine-50 dark:focus-visible:bg-marine-500 text-marine-50 dark:text-marine-50 dark:hover:text-marine-50 hover:text-marine-50 focus-visible:text-marine-300 focus-visible:ring-marine-200',
 			contained:
 				'bg-marine-300 hover:bg-marine-500 focus-visible:bg-marine-500 text-gray-50 focus-visible:ring-marine-200 dark:bg-marine-200 dark:hover:bg-marine-400',
 			divider: 'divide-x divide-marine-500'
@@ -109,7 +109,7 @@ export namespace ButtonType {
 		},
 		gray: {
 			border:
-				'border-gray-500 dark:border-gray-300 hover:border-gray-700 dark:hover:border-gray-400 focus-visible:border-gray-700 bg-surface hover:bg-gray-100 dark:hover:bg-gray-900 focus-visible:bg-gray-100 focus-visible:dark:text-gray-100 dark:focus-visible:bg-gray-900 text-gray-500 dark:text-gray-300 dark:hover:text-gray-400 hover:text-gray-700 focus-visible:text-gray-700 focus-visible:ring-gray-300',
+				'border-gray-500 dark:border-gray-300 hover:border-gray-700 dark:hover:border-gray-400 focus-visible:border-gray-700 bg-surface hover:bg-gray-100 dark:hover:bg-gray-900 focus-visible:bg-gray-100 dark:focus-visible:text-gray-100 dark:focus-visible:bg-gray-900 text-gray-500 dark:text-gray-300 dark:hover:text-gray-400 hover:text-gray-700 focus-visible:text-gray-700 focus-visible:ring-gray-300',
 			contained:
 				'bg-gray-500 hover:bg-gray-700 focus-visible:bg-gray-700 text-white focus-visible:ring-gray-300',
 			divider: 'divide-x divide-gray-600'

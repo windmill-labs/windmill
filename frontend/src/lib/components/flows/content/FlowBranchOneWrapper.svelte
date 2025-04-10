@@ -20,7 +20,7 @@
 		<div slot="header" class="grow">
 			<input bind:value={branch.summary} placeholder={'Summary'} />
 		</div>
-		<div class="overflow-hidden flex-grow">
+		<div class="overflow-hidden grow">
 			<h3 class="p-2">Predicate expression</h3>
 			<BranchPredicateEditor
 				{branch}

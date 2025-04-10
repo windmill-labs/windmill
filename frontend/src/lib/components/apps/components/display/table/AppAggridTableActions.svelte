@@ -85,7 +85,7 @@
 					<div
 						title={`Id: ${action.id}`}
 						class={twMerge(
-							'px-2 text-2xs font-bold absolute shadow  -top-2 -left-4 border z-50 rounded-sm w-8 !h-5 flex justify-center items-center',
+							'px-2 text-2xs font-bold absolute shadow-xs  -top-2 -left-4 border z-50 rounded-xs w-8 h-5! flex justify-center items-center',
 							'bg-indigo-500/90 border-indigo-600 text-white',
 							$hoverStore === action.id && $selectedComponent?.[0] !== action.id
 								? 'bg-blue-500/90 border-blue-600'

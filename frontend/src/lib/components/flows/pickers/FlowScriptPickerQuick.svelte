@@ -52,6 +52,6 @@
 		{label}{#if eeRestricted}&nbsp;(EE){/if}
 	</span>
 	{#if selected}
-		<kbd class="!text-xs">&crarr;</kbd>
+		<kbd class="text-xs!">&crarr;</kbd>
 	{/if}
 </button>

@@ -131,9 +131,9 @@
 						options={message_attributes ?? []}
 						allowUserOptions="append"
 						bind:selected={message_attributes}
-						ulOptionsClass={'!bg-surface !text-sm'}
-						ulSelectedClass="!text-sm"
-						outerDivClass="!bg-surface !min-h-[38px] !border-[#d1d5db]"
+						ulOptionsClass={'bg-surface! text-sm!'}
+						ulSelectedClass="text-sm!"
+						outerDivClass="bg-surface! min-h-[38px]! border-[#d1d5db]!"
 						noMatchingOptionsMsg=""
 						createOptionMsg={null}
 						duplicates={false}

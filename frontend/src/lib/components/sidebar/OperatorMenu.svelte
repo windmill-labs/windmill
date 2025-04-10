@@ -144,7 +144,7 @@
 	<Menu {createMenu} let:item usePointerDownOutside>
 		<svelte:fragment slot="trigger" let:trigger>
 			<MenuButton
-				class="!text-xs"
+				class="text-xs!"
 				icon={MenuIcon}
 				{isCollapsed}
 				lightMode
@@ -159,7 +159,7 @@
 					{item}
 					class={twMerge(
 						'w-full inline-flex flex-row px-2 py-2 hover:bg-surface-hover',
-						'data-[highlighted]:bg-surface-hover'
+						'data-highlighted:bg-surface-hover'
 					)}
 				>
 					<span class="center-center">
@@ -179,7 +179,7 @@
 		</div>
 
 		{#each mainMenuLinks as menuLink (menuLink.href ?? menuLink.label)}
-			<MenuLink class="!text-xs" {...menuLink} {isCollapsed} lightMode {item} />
+			<MenuLink class="text-xs!" {...menuLink} {isCollapsed} lightMode {item} />
 		{/each}
 
 		<div class="divide-y" role="none">
@@ -190,7 +190,7 @@
 						'flex flex-row gap-3.5 items-center px-2 py-2 ',
 						'text-secondary text-xs',
 						'hover:bg-surface-hover hover:text-primary cursor-pointer',
-						'data-[highlighted]:bg-surface-hover data-[highlighted]:text-primary'
+						'data-highlighted:bg-surface-hover data-highlighted:text-primary'
 					)}
 					{item}
 				>
@@ -213,7 +213,7 @@
 					class={twMerge(
 						'text-secondary block text-left px-2 py-2 font-normal text-xs hover:bg-surface-hover hover:text-primary w-full',
 						'flex flex-row items-center gap-3.5 ',
-						'data-[highlighted]:bg-surface-hover data-[highlighted]:text-primary'
+						'data-highlighted:bg-surface-hover data-highlighted:text-primary'
 					)}
 					{item}
 				>
@@ -231,7 +231,7 @@
 					}}
 					class={twMerge(
 						'text-primary flex gap-3.5 px-2 py-2 text-xs hover:bg-surface-hover hover:text-primary',
-						'data-[highlighted]:bg-surface-hover data-[highlighted]:text-primary'
+						'data-highlighted:bg-surface-hover data-highlighted:text-primary'
 					)}
 					{item}
 				>
@@ -246,7 +246,7 @@
 							'flex flex-row gap-3.5 items-center px-2 py-2 ',
 							'text-secondary text-xs',
 							'hover:bg-surface-hover hover:text-primary cursor-pointer',
-							'data-[highlighted]:bg-surface-hover data-[highlighted]:text-primary'
+							'data-highlighted:bg-surface-hover data-highlighted:text-primary'
 						)}
 						{item}
 					>
@@ -261,7 +261,7 @@
 						'flex flex-row gap-3.5  items-center px-2 py-2 w-full',
 						'text-secondary text-xs',
 						'hover:bg-surface-hover hover:text-primary cursor-pointer',
-						'data-[highlighted]:bg-surface-hover data-[highlighted]:text-primary'
+						'data-highlighted:bg-surface-hover data-highlighted:text-primary'
 					)}
 					{item}
 				>
@@ -290,7 +290,7 @@
 								href={menuLink.href}
 								class={twMerge(
 									'flex flex-row gap-3.5 items-center px-2 py-2 text-secondary text-2xs hover:bg-surface-hover hover:text-primary cursor-pointer',
-									'data-[highlighted]:bg-surface-hover data-[highlighted]:text-primary'
+									'data-highlighted:bg-surface-hover data-highlighted:text-primary'
 								)}
 								{item}
 								on:m-focusin={() => debouncedSetMoreOpen(true)}

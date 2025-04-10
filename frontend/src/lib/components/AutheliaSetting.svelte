@@ -45,7 +45,7 @@
 		/></label
 	>
 	{#if enabled}
-		<div class="border rounded p-2">
+		<div class="border rounded-xs p-2">
 			<label class="block pb-2">
 				<span class="text-primary font-semibold text-sm"
 					>Authelia Url ({'AUTHELIA_URL/api/oidc/authorization'})</span

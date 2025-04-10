@@ -196,7 +196,7 @@
 	$: search, $inputMatches, $propPickerConfig, pickableProperties, updateState()
 </script>
 
-<div class="flex flex-col h-full rounded">
+<div class="flex flex-col h-full rounded-xs">
 	<div class="px-1 py-1">
 		<ClearableInput bind:value={search} placeholder="Search prop..." />
 	</div>

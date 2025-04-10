@@ -185,7 +185,7 @@
 									<Badge small color="blue"
 										>Current app
 
-										<Tooltip class="ml-2 !text-blue-900">
+										<Tooltip class="ml-2 text-blue-900!">
 											Clicking on those items will keep you in the current tab and change the output
 											of the component.
 										</Tooltip>

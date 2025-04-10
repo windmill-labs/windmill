@@ -85,9 +85,9 @@
 				on:click={testConnection}
 			>
 				{#if loading}
-					<Loader2 class="animate-spin mr-2 !h-4 !w-4" />
+					<Loader2 class="animate-spin mr-2 h-4! w-4!" />
 				{:else}
-					<Database class="mr-2 !h-4 !w-4" />
+					<Database class="mr-2 h-4! w-4!" />
 				{/if}
 				Test from a server
 			</Button>

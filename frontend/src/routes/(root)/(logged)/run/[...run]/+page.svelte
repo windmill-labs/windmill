@@ -621,13 +621,13 @@
 											type="number"
 											min="0"
 											bind:value={branchOrIterationN}
-											class="!w-32 grow"
+											class="w-32! grow"
 											on:click|stopPropagation={() => {}}
 										/>
 									{:else}
 										<select
 											bind:value={branchOrIterationN}
-											class="!w-32 grow"
+											class="w-32! grow"
 											on:click|stopPropagation={() => {}}
 										>
 											{#each restartBranchNames as [branchIdx, branchName]}
@@ -640,7 +640,7 @@
 										size="xs"
 										color="blue"
 										buttonType="button"
-										btnClasses="!p-1 !w-[34px] !ml-1"
+										btnClasses="p-1! w-[34px]! ml-1!"
 										aria-label="Restart flow"
 										on:click|once={() => {
 											restartFlow(job?.id, selectedJobStep, branchOrIterationN)
@@ -858,7 +858,7 @@
 									localStorage.setItem('hideExplicitProgressTip', 'true')
 									showExplicitProgressTip = false
 								}}
-								class="absolute m-2 top-0 right-0 inline-flex rounded-md bg-surface-secondary text-gray-400 hover:text-tertiary focus:outline-none"
+								class="absolute m-2 top-0 right-0 inline-flex rounded-md bg-surface-secondary text-gray-400 hover:text-tertiary focus:outline-hidden"
 							>
 								<span class="sr-only">Close</span>
 								<svg class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">

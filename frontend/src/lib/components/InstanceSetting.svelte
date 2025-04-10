@@ -218,7 +218,7 @@
 						type="text"
 						placeholder={setting.placeholder}
 						class={hasError
-							? 'border !border-red-700 !border-opacity-30 !focus:border-red-700 !focus:border-opacity-30'
+							? 'border border-red-700! border-opacity-30! !focus:border-red-700 !focus:border-opacity-30'
 							: ''}
 						bind:value={$values[setting.key]}
 					/>
@@ -751,7 +751,7 @@
 						{/if}
 					</div>
 				{:else if setting.fieldType == 'smtp_connect'}
-					<div class="flex flex-col gap-4 border rounded p-4">
+					<div class="flex flex-col gap-4 border rounded-xs p-4">
 						{#if $values[setting.key]}
 							<div class="flex gap-4"
 								><input type="email" bind:value={to} placeholder="contact@windmill.dev" />
@@ -843,7 +843,7 @@
 						{/if}
 					</div>
 				{:else if setting.fieldType == 'otel'}
-					<div class="flex flex-col gap-4 border rounded p-4">
+					<div class="flex flex-col gap-4 border rounded-xs p-4">
 						{#if $values[setting.key]}
 							<div class="flex gap-8">
 								<Toggle

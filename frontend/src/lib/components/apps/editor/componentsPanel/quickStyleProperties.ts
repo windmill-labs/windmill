@@ -292,7 +292,7 @@ export const StyleProperty: StyleProperty[] = [
 			},
 			{
 				type: StylePropertyType.unit,
-				title: 'blur'
+				title: 'blur-xs'
 			},
 			{
 				type: StylePropertyType.unit,

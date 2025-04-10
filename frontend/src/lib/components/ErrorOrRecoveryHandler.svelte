@@ -440,11 +440,11 @@
 	</span>
 	{#if workspaceConnectedToTeams}
 		<div class="w-2/3 flex flex-row items-center gap-2">
-			<div class="pt-1 flex-shrink-0">
+			<div class="pt-1 shrink-0">
 				<MsTeamsIcon height="24px" width="24px" />
 			</div>
 			<p class="text-sm">Teams Channel</p>
-			<div class="flex-grow">
+			<div class="grow">
 				<select class="w-full" bind:value={handlerExtraArgs['channel']}>
 					{#if teams_channels.length === 0}
 						<option value="" disabled selected>Bot not connected to any channel</option>
@@ -458,7 +458,7 @@
 					{/if}
 				</select>
 			</div>
-			<div class="flex-shrink-0">
+			<div class="shrink-0">
 				<button on:click={loadTeamsResources} class="flex items-center gap-1 mt-2">
 					<RefreshCcw size={16} class={isFetching ? 'animate-spin' : ''} />
 				</button>

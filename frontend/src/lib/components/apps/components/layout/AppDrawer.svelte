@@ -126,7 +126,7 @@
 			bind:this={appDrawer}
 			size="800px"
 			alwaysOpen
-			positionClass={$mode == 'dnd' ? '!absolute' : '!fixed'}
+			positionClass={$mode == 'dnd' ? 'absolute!' : 'fixed!'}
 			shouldUsePortal={false}
 			on:open={() => {
 				outputs?.open.set(true)

@@ -197,7 +197,7 @@
 								placeholder="Update variable value"
 							></textarea>
 						{:else if editorKind == 'json'}
-							<div class="border rounded mb-4 w-full">
+							<div class="border rounded-xs mb-4 w-full">
 								{#await import('$lib/components/SimpleEditor.svelte')}
 									<Loader2 class="animate-spin" />
 								{:then Module}
@@ -211,7 +211,7 @@
 								{/await}
 							</div>
 						{:else if editorKind == 'yaml'}
-							<div class="border rounded mb-4 w-full">
+							<div class="border rounded-xs mb-4 w-full">
 								{#await import('$lib/components/SimpleEditor.svelte')}
 									<Loader2 class="animate-spin" />
 								{:then Module}

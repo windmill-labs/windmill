@@ -112,7 +112,7 @@
 			type="text"
 			placeholder="Search Hub Scripts"
 			bind:value={filter}
-			class="text-2xl grow !pr-9"
+			class="text-2xl grow pr-9!"
 		/>
 		{#if loading}
 			<Loader2 class="animate-spin text-gray-400 absolute right-2 top-2.5" />

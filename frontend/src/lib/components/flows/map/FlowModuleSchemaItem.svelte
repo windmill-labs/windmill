@@ -145,7 +145,7 @@
 			<div>
 				<IdEditorInput
 					buttonText="Edit Id "
-					btnClasses="!ml-1"
+					btnClasses="ml-1!"
 					label=""
 					initialId={id}
 					acceptUnderScores
@@ -195,10 +195,10 @@
 <!-- svelte-ignore a11y-no-static-element-interactions -->
 <div
 	class={classNames(
-		'w-full module flex rounded-sm cursor-pointer max-w-full',
+		'w-full module flex rounded-xs cursor-pointer max-w-full',
 		selected ? 'outline outline-offset-0  outline-2  outline-slate-500 dark:outline-gray-400' : '',
 		'flex relative',
-		$copilotCurrentStepStore === id ? 'z-[901]' : ''
+		$copilotCurrentStepStore === id ? 'z-901' : ''
 	)}
 	style="width: 275px; height: 38px; background-color: {bgColor};"
 	on:mouseenter={() => (hover = true)}
@@ -210,7 +210,7 @@
 			<Popover notClickable>
 				<div
 					transition:fade|local={{ duration: 200 }}
-					class="center-center rounded border bg-surface border-gray-400 text-secondary px-1 py-0.5"
+					class="center-center rounded-xs border bg-surface border-gray-400 text-secondary px-1 py-0.5"
 				>
 					{#if retries}<span class="text-red-400 mr-2">{retries}</span>{/if}
 					<Repeat size={12} />
@@ -223,7 +223,7 @@
 			<Popover notClickable>
 				<div
 					transition:fade|local={{ duration: 200 }}
-					class="center-center rounded border bg-surface border-gray-400 text-secondary px-1 py-0.5"
+					class="center-center rounded-xs border bg-surface border-gray-400 text-secondary px-1 py-0.5"
 				>
 					<Gauge size={12} />
 				</div>
@@ -234,7 +234,7 @@
 			<Popover notClickable>
 				<div
 					transition:fade|local={{ duration: 200 }}
-					class="center-center rounded border bg-surface border-gray-400 text-secondary px-1 py-0.5"
+					class="center-center rounded-xs border bg-surface border-gray-400 text-secondary px-1 py-0.5"
 				>
 					<Database size={12} />
 				</div>
@@ -245,7 +245,7 @@
 			<Popover notClickable>
 				<div
 					transition:fade|local={{ duration: 200 }}
-					class="center-center bg-surface rounded border border-gray-400 text-secondary px-1 py-0.5"
+					class="center-center bg-surface rounded-xs border border-gray-400 text-secondary px-1 py-0.5"
 				>
 					<Square size={12} />
 				</div>
@@ -260,7 +260,7 @@
 			<Popover notClickable>
 				<div
 					transition:fade|local={{ duration: 200 }}
-					class="center-center bg-surface rounded border border-gray-400 text-secondary px-1 py-0.5"
+					class="center-center bg-surface rounded-xs border border-gray-400 text-secondary px-1 py-0.5"
 				>
 					<SkipForward size={12} />
 				</div>
@@ -271,7 +271,7 @@
 			<Popover notClickable>
 				<div
 					transition:fade|local={{ duration: 200 }}
-					class="center-center bg-surface rounded border border-gray-400 text-secondary px-1 py-0.5"
+					class="center-center bg-surface rounded-xs border border-gray-400 text-secondary px-1 py-0.5"
 				>
 					<PhoneIncoming size={12} />
 				</div>
@@ -282,7 +282,7 @@
 			<Popover notClickable>
 				<div
 					transition:fade|local={{ duration: 200 }}
-					class="center-center bg-surface rounded border border-gray-400 text-secondary px-1 py-0.5"
+					class="center-center bg-surface rounded-xs border border-gray-400 text-secondary px-1 py-0.5"
 				>
 					<Bed size={12} />
 				</div>
@@ -293,7 +293,7 @@
 			<Popover notClickable>
 				<button
 					transition:fade|local={{ duration: 200 }}
-					class="center-center bg-surface rounded border border-gray-400 text-secondary px-1 py-0.5"
+					class="center-center bg-surface rounded-xs border border-gray-400 text-secondary px-1 py-0.5"
 					on:click={() => {
 						outputPicker?.toggleOpen()
 					}}
@@ -347,7 +347,7 @@
 		<button
 			class="absolute -top-[10px] -right-[10px] rounded-full h-[20px] w-[20px] trash center-center text-secondary
 	outline-[1px] outline dark:outline-gray-500 outline-gray-300 bg-surface duration-150 hover:bg-red-400 hover:text-white
-	 {hover || selected ? '' : '!hidden'}"
+	 {hover || selected ? '' : 'hidden!'}"
 			title="Delete"
 			on:click|preventDefault|stopPropagation={(event) =>
 				dispatch('delete', { event, id, type: modType })}
@@ -359,7 +359,7 @@
 			<button
 				class="absolute -top-[10px] right-[60px] rounded-full h-[20px] w-[20px] trash center-center text-secondary
 outline-[1px] outline dark:outline-gray-500 outline-gray-300 bg-surface duration-150 hover:bg-blue-400 hover:text-white
- {hover ? '' : '!hidden'}"
+ {hover ? '' : 'hidden!'}"
 				on:click|preventDefault|stopPropagation={(event) => dispatch('move')}
 				title="Move"
 			>

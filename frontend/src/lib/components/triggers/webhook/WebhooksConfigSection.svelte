@@ -297,7 +297,7 @@ done`
 					<input
 						bind:value={token}
 						placeholder="paste your token here once created to alter examples below"
-						class="!text-xs !font-normal"
+						class="text-xs! font-normal!"
 					/>
 					<Button size="xs" color="light" variant="border" on:click={userSettings.openDrawer}>
 						Create a Webhook-specific Token

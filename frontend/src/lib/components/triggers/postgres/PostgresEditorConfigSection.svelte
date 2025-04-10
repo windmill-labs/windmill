@@ -126,9 +126,9 @@
 						options={transactionType}
 						allowUserOptions="append"
 						bind:selected={publication.transaction_to_track}
-						ulOptionsClass={'!bg-surface !text-sm'}
-						ulSelectedClass="!text-sm"
-						outerDivClass="!bg-surface !min-h-[38px] !border-[#d1d5db]"
+						ulOptionsClass={'bg-surface! text-sm!'}
+						ulSelectedClass="text-sm!"
+						outerDivClass="bg-surface! min-h-[38px]! border-[#d1d5db]!"
 						placeholder="Select transactions"
 						--sms-options-margin="4px"
 					>

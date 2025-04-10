@@ -45,8 +45,8 @@
 	}
 
 	const manuallyOpenColor = {
-		blue: 'text-primary dark:text-gray-50 bg-gray-300 rounded-sm dark:bg-gray-600',
-		indigo: 'text-primary bg-gray-300 dark:text-gray-50 rounded-sm dark:bg-gray-600'
+		blue: 'text-primary dark:text-gray-50 bg-gray-300 rounded-xs dark:bg-gray-600',
+		indigo: 'text-primary bg-gray-300 dark:text-gray-50 rounded-xs dark:bg-gray-600'
 	}
 
 	const idClass = {
@@ -239,11 +239,11 @@
 					disabled={!(selectable && !$selectedComponent?.includes(id)) || $connectingInput?.opened}
 					title="Select component"
 					on:click|stopPropagation={() => ($selectedComponent = [id])}
-					class="flex items-center ml-0.5 rounded-sm bg-surface-selected hover:text-primary text-tertiary"
+					class="flex items-center ml-0.5 rounded-xs bg-surface-selected hover:text-primary text-tertiary"
 				>
 					<div
 						class={classNames(
-							'text-2xs  font-bold px-2 py-0.5 rounded-sm',
+							'text-2xs  font-bold px-2 py-0.5 rounded-xs',
 							$selectedComponent?.includes(id) ? idClass[color] : ''
 						)}
 					>
@@ -277,7 +277,7 @@
 					/>
 				{/if}
 				{name}
-				<div class={classNames('bg-surface-secondary rounded-sm')}>
+				<div class={classNames('bg-surface-secondary rounded-xs')}>
 					{#if !open}
 						<ChevronDown size={14} color="gray" />
 					{:else if $manuallyOpened[id]}

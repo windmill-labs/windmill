@@ -662,7 +662,7 @@
 							<div class="flex justify-start w-full">
 								<Badge
 									color="gray"
-									class="center-center !bg-surface-secondary !text-tertiary  !h-[24px] rounded-r-none border"
+									class="center-center bg-surface-secondary! text-tertiary!  h-[24px]! rounded-r-none border"
 								>
 									Schedule path (not editable)
 								</Badge>
@@ -671,7 +671,7 @@
 									readonly
 									value={path}
 									size={path?.length || 50}
-									class="font-mono !text-xs grow shrink overflow-x-auto !h-[24px] !py-0 !border-l-0 !rounded-l-none"
+									class="font-mono text-xs! grow shrink overflow-x-auto h-[24px]! py-0! border-l-0! rounded-l-none!"
 									on:focus={({ currentTarget }) => {
 										currentTarget.select()
 									}}
@@ -921,7 +921,7 @@
 											Triggered when schedule failed</p
 										>
 										<select
-											class="!w-14"
+											class="w-14!"
 											bind:value={failedExact}
 											disabled={!$enterpriseLicense || emptyString(errorHandlerPath)}
 										>
@@ -1027,7 +1027,7 @@
 										<p>Triggered when schedule recovered</p>
 										<input
 											type="number"
-											class="!w-14 mx-2 text-center"
+											class="w-14! mx-2 text-center"
 											bind:value={recoveredTimes}
 											min="1"
 											{disabled}

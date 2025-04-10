@@ -182,7 +182,7 @@
 	})
 </script>
 
-<div class="flex flex-col !divide-y">
+<div class="flex flex-col divide-y!">
 	{#each properties as property}
 		{#each Object.keys(property) as group (group)}
 			{@const prefix = `${componentType}_${componentProperty}_${group}`}
@@ -191,9 +191,9 @@
 				title={group}
 				{prefix}
 				openByDefault={false}
-				wrapperClasses="!px-0 !py-0 "
+				wrapperClasses="px-0! py-0! "
 				toggleClasses=" !rounded-b-none !py-0
-				{isOpen[prefix] ? '!bg-surface-secondary hover:!bg-surface-hover' : ''}"
+				{isOpen[prefix] ? 'bg-surface-secondary! hover:bg-surface-hover!' : ''}"
 			>
 				<svelte:fragment slot="title">
 					<span class="font-normal text-xs">

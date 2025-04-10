@@ -41,8 +41,8 @@
 			class={twMerge(
 				'group flex items-center px-2 py-2 font-light rounded-md h-8 gap-3 w-full',
 				lightMode
-					? 'text-primary data-[highlighted]:bg-surface-hover hover:bg-surface-hover'
-					: 'data-[highlighted]:bg-[#2A3648] hover:bg-[#2A3648] text-primary-inverse dark:text-primary',
+					? 'text-primary data-highlighted:bg-surface-hover hover:bg-surface-hover'
+					: 'data-highlighted:bg-[#2A3648] hover:bg-[#2A3648] text-primary-inverse dark:text-primary',
 				color ? 'border-4' : '',
 				'transition-all relative',
 				$$props.class
@@ -57,7 +57,7 @@
 					this={icon}
 					size={16}
 					class={twMerge(
-						'flex-shrink-0',
+						'shrink-0',
 						lightMode
 							? 'text-primary group-hover:text-secondary'
 							: 'text-primary-inverse group-hover:text-secondary-inverse dark:group-hover:text-secondary dark:text-primary',

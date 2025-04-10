@@ -221,7 +221,7 @@
 			'text-xs px-1',
 			'border-none',
 			hideHeaderBar || connectingData ? 'hidden' : 'block',
-			hasOverflow ? 'shadow-sm' : ''
+			hasOverflow ? 'shadow-2xs' : ''
 		)}
 	>
 		<div
@@ -334,7 +334,7 @@
 								job={selectedJob}
 								class={twMerge(
 									'min-w-16 text-secondary',
-									preview || selectedJob?.id !== lastJob?.id ? 'bg-surface shadow-sm h-[23px]' : ''
+									preview || selectedJob?.id !== lastJob?.id ? 'bg-surface shadow-2xs h-[23px]' : ''
 								)}
 							/>
 						{/if}

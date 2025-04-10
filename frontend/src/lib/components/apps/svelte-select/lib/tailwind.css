@@ -1,14 +1,16 @@
+@import 'tailwindcss/theme' layer(theme);
+@import 'tailwindcss/preflight' layer(base);
+
 @config "../../../../../../tailwind.config.cjs";
-@import 'tailwindcss/base';
 
 .svelte-select {
-	@apply border rounded box-border h-10 relative flex items-center px-4 py-0 bg-white m-0	w-full
+	@apply border rounded-sm box-border h-10 relative flex items-center px-4 py-0 bg-white m-0	w-full
         hover:border-gray-400;
 }
 
 .svelte-select input {
 	@apply cursor-default border-none text-tertiary h-10 leading-10 px-4 py-0 bg-transparent text-sm absolute left-0 m-0 w-full 
-        focus:outline-none hover:border-gray-400;
+        focus:outline-hidden hover:border-gray-400;
 }
 
 .svelte-select.focused {
@@ -25,7 +27,7 @@
 
 .svelte-select .selected-item {
 	@apply leading-10 h-10 overflow-x-hidden pr-5
-        focus:outline-none;
+        focus:outline-hidden;
 }
 
 .svelte-select .icons {
@@ -71,11 +73,11 @@
 }
 
 .list {
-	@apply shadow-md rounded-sm max-h-64 overflow-y-auto bg-white border-none absolute z-10 w-full left-0 right-0;
+	@apply shadow-md rounded-xs max-h-64 overflow-y-auto bg-white border-none absolute z-10 w-full left-0 right-0;
 }
 
 .list .list-group-title {
-	@apply text-gray-400 cursor-default text-sm font-medium h-10 leading-10 px-5 overflow-ellipsis whitespace-nowrap uppercase;
+	@apply text-gray-400 cursor-default text-sm font-medium h-10 leading-10 px-5 text-ellipsis whitespace-nowrap uppercase;
 }
 
 .list .empty {
@@ -83,7 +85,7 @@
 }
 
 .item {
-	@apply cursor-default h-10 leading-10 px-5 text-gray-800 overflow-ellipsis overflow-hidden whitespace-nowrap;
+	@apply cursor-default h-10 leading-10 px-5 text-gray-800 text-ellipsis overflow-hidden whitespace-nowrap;
 }
 
 .item.group-item {
@@ -115,7 +117,7 @@
 }
 
 .multi-item {
-	@apply bg-gray-100 mt-1 border border-gray-200 rounded-sm h-8 leading-8 flex cursor-default pr-1 pl-1 max-w-full items-center mr-1 overflow-hidden overflow-ellipsis whitespace-nowrap;
+	@apply bg-gray-100 mt-1 border border-gray-200 rounded-xs h-8 leading-8 flex cursor-default pr-1 pl-1 max-w-full items-center mr-1 overflow-hidden text-ellipsis whitespace-nowrap;
 }
 
 .multi-item.disabled {

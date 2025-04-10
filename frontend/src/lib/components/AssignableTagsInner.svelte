@@ -36,7 +36,7 @@
 		<div class="flex flex-col gap-y-1">
 			{#each customTags as customTag}
 				<div class="flex gap-0.5 items-center"
-					><div class="text-2xs p-1 rounded border text-primary">{customTag}</div>
+					><div class="text-2xs p-1 rounded-xs border text-primary">{customTag}</div>
 					<button
 						class="z-10 rounded-full p-1 duration-200 hover:bg-gray-200"
 						aria-label="Remove item"

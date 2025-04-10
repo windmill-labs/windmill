@@ -50,7 +50,7 @@
 					<Tooltip class="ml-1" {documentationLink}>{tooltip}</Tooltip>
 				{/if}
 			</h1>
-			<ChevronDown class="rotate-0 duration-300 {isOpen ? '!rotate-180' : ''}" />
+			<ChevronDown class="rotate-0 duration-300 {isOpen ? 'rotate-180!' : ''}" />
 		</button>
 		{#if isOpen}
 			<div transition:slide|local={{ duration: 300 }} class="px-2 {contentWrapperClasses}">

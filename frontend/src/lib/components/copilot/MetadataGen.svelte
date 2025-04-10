@@ -264,14 +264,14 @@ Generate a description for the flow below:
 	</div>
 	{#if elementType === 'textarea'}
 		<div>
-			<div class="flex flex-row-reverse !text-3xs text-tertiary -mt-4">GH Markdown</div>
+			<div class="flex flex-row-reverse text-3xs! text-tertiary -mt-4">GH Markdown</div>
 			<textarea
 				bind:this={el}
 				bind:value={content}
 				use:autosize
 				{...elementProps}
 				placeholder={!active ? elementProps.placeholder : ''}
-				class={active ? '!indent-[3.5rem]' : ''}
+				class={active ? 'indent-[3.5rem]!' : ''}
 				on:focus={() => (focused = true)}
 				on:blur={() => (focused = false)}
 			></textarea>
@@ -281,10 +281,10 @@ Generate a description for the flow below:
 			bind:this={el}
 			bind:value={content}
 			placeholder={!active ? elementProps.placeholder : ''}
-			class={active ? '!indent-[3.5rem]' : ''}
+			class={active ? 'indent-[3.5rem]!' : ''}
 			on:focus={() => (focused = true)}
 			on:blur={() => (focused = false)}
 		/>
 	{/if}
-	<!-- <slot {updateFocus} {active} {generatedContent} classNames={active ? '!indent-[8.8rem]' : ''} /> -->
+	<!-- <slot {updateFocus} {active} {generatedContent} classNames={active ? 'indent-[8.8rem]!' : ''} /> -->
 </div>

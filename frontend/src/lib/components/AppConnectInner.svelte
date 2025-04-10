@@ -416,7 +416,7 @@
 						size="sm"
 						variant="border"
 						color={key === resourceType ? 'blue' : 'light'}
-						btnClasses={key === resourceType ? '!border-2' : 'm-[1px]'}
+						btnClasses={key === resourceType ? 'border-2!' : 'm-[1px]'}
 						on:click={() => {
 							manual = false
 							resourceType = key
@@ -466,7 +466,7 @@
 							size="sm"
 							variant="border"
 							color={key === resourceType ? 'blue' : 'light'}
-							btnClasses={key === resourceType ? '!border-2' : 'm-[1px]'}
+							btnClasses={key === resourceType ? 'border-2!' : 'm-[1px]'}
 							on:click={() => {
 								manual = true
 								resourceType = key
@@ -490,7 +490,7 @@
 							size="sm"
 							variant="border"
 							color={key === resourceType ? 'blue' : 'light'}
-							btnClasses={key === resourceType ? '!border-2' : 'm-[1px]'}
+							btnClasses={key === resourceType ? 'border-2!' : 'm-[1px]'}
 							on:click={() => {
 								manual = true
 								resourceType = key

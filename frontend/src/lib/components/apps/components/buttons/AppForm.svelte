@@ -119,7 +119,7 @@
 						Once a script or flow is chosen, set some <strong>Runnable Inputs</strong> to
 						<strong>
 							User Input
-							<User size={20} class="rounded-sm bg-gray-200 p-1 ml-0.5" />
+							<User size={20} class="rounded-xs bg-gray-200 p-1 ml-0.5" />
 						</strong>
 					</div>
 				{/if}

@@ -1291,7 +1291,7 @@
 				class="justify-between flex flex-row items-center pl-2.5 pr-6 space-x-4 scrollbar-hidden overflow-x-auto max-h-12 h-full relative"
 			>
 				{#if $copilotCurrentStepStore !== undefined}
-					<div transition:fade class="absolute inset-0 bg-gray-500 bg-opacity-75 z-[900] !m-0"
+					<div transition:fade class="absolute inset-0 bg-gray-500 bg-opacity-75 z-900 m-0!"
 					></div>
 				{/if}
 				<div class="flex w-full max-w-md gap-4 items-center">
@@ -1363,7 +1363,7 @@
 								>
 									<Badge
 										color="gray"
-										class="center-center !bg-gray-300 !text-tertiary dark:!bg-gray-700 dark:!text-gray-300 !h-[28px]  !w-[70px] rounded-r-none"
+										class="center-center bg-gray-300! text-tertiary! dark:bg-gray-700! dark:text-gray-300! h-[28px]!  w-[70px]! rounded-r-none"
 									>
 										<Pen size={12} class="mr-2" /> Path
 									</Badge>
@@ -1373,7 +1373,7 @@
 								type="text"
 								readonly
 								value={$pathStore && $pathStore != '' ? $pathStore : 'Choose a path'}
-								class="font-mono !text-xs !min-w-[96px] !max-w-[300px] !w-full !h-[28px] !my-0 !py-0 !border-l-0 !rounded-l-none"
+								class="font-mono text-xs! min-w-[96px]! max-w-[300px]! w-full! h-[28px]! my-0! py-0! border-l-0! rounded-l-none!"
 								on:focus={({ currentTarget }) => {
 									currentTarget.select()
 								}}

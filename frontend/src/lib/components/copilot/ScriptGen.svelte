@@ -244,7 +244,7 @@
 <svelte:window on:resize={autoResize} bind:innerWidth />
 
 {#if genLoading}
-	<div transition:fade class="fixed z-[4999] inset-0 bg-gray-500/75"></div>
+	<div transition:fade class="fixed z-4999 inset-0 bg-gray-500/75"></div>
 {/if}
 
 {#if $generatedCode.length > 0 && !genLoading}
@@ -252,7 +252,7 @@
 		<div class="flex gap-1">
 			<Button
 				title="Discard generated code"
-				btnClasses="!font-medium px-2 w-7"
+				btnClasses="font-medium! px-2 w-7"
 				size="xs"
 				color="red"
 				on:click={rejectDiff}
@@ -262,7 +262,7 @@
 			/>
 			<Button
 				title="Accept generated code"
-				btnClasses="!font-medium px-2 w-7"
+				btnClasses="font-medium! px-2 w-7"
 				size="xs"
 				color="green"
 				on:click={acceptDiff}
@@ -274,7 +274,7 @@
 		<div class="flex gap-1 px-2">
 			<Button
 				title="Discard generated code"
-				btnClasses="!font-medium px-2"
+				btnClasses="font-medium! px-2"
 				size="xs"
 				color="red"
 				on:click={rejectDiff}
@@ -285,7 +285,7 @@
 				Discard
 			</Button><Button
 				title="Accept generated code"
-				btnClasses="!font-medium px-2"
+				btnClasses="font-medium! px-2"
 				size="xs"
 				color="green"
 				on:click={acceptDiff}
@@ -313,7 +313,7 @@
 				<Button
 					size="xs"
 					color={genLoading ? 'red' : 'light'}
-					btnClasses={genLoading ? '!px-3 z-[5000]' : '!px-2'}
+					btnClasses={genLoading ? 'px-3! z-5000' : 'px-2!'}
 					propagateEvent={!genLoading}
 					on:click={genLoading
 						? () => abortController?.abort()
@@ -340,8 +340,8 @@
 				<Button
 					title="Generate code from prompt"
 					btnClasses={twMerge(
-						'!font-medium',
-						genLoading ? 'z-[5000]' : 'text-violet-800 dark:text-violet-400'
+						'font-medium!',
+						genLoading ? 'z-5000' : 'text-violet-800 dark:text-violet-400'
 					)}
 					size="xs"
 					color={genLoading ? 'red' : 'light'}
@@ -422,7 +422,7 @@
 								size="xs"
 								color="light"
 								buttonType="button"
-								btnClasses="!h-[34px] qhd:!h-[38px] !ml-2 text-violet-800 dark:text-violet-400 bg-violet-100 dark:bg-gray-700"
+								btnClasses="h-[34px]! qhd:h-[38px]! ml-2! text-violet-800 dark:text-violet-400 bg-violet-100 dark:bg-gray-700"
 								title="Generate code from prompt"
 								aria-label="Generate"
 								on:click={() => {

@@ -764,7 +764,7 @@ export const customisationByComponent: Customisation[] = [
 			{
 				variable: '--sms-options-shadow',
 				value: '0 0 14pt -8pt black',
-				comment: 'Box shadow of dropdown list.'
+				comment: 'Box shadow-xs of dropdown list.'
 			},
 			{ variable: '--sms-options-border', value: '' },
 			{ variable: '--sms-options-border-width', value: '' },

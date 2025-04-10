@@ -149,7 +149,7 @@
 				bind:outerDiv
 				outerDivClass={`${resolvedConfig.allowOverflow ? '' : 'h-full'}`}
 				ulSelectedClass={`${resolvedConfig.allowOverflow ? '' : 'overflow-auto max-h-full'} `}
-				ulOptionsClass={'p-2 !bg-surface-secondary'}
+				ulOptionsClass={'p-2 bg-surface-secondary!'}
 				--sms-border={'none'}
 				--sms-min-height={'32px'}
 				--sms-focus-border={'none'}

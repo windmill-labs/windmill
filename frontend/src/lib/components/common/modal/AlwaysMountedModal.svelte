@@ -30,7 +30,7 @@
 			`${
 				$mode == 'dnd' ? 'absolute' : 'fixed'
 			} top-0 bottom-0 left-0 right-0 transition-all duration-50 overflow-hidden`,
-			isOpen ? 'z-[1100] bg-black bg-opacity-60' : 'hidden'
+			isOpen ? 'z-1100 bg-black bg-opacity-60' : 'hidden'
 		)}
 	>
 		<div class="flex min-h-full items-center justify-center p-4">
@@ -65,7 +65,7 @@
 				<div class="relative bg-surface rounded-md" on:click|stopPropagation={() => {}}>
 					<div
 						class={twMerge(
-							'max-w-screen-lg max-h-screen-80 overflow-auto flex flex-col',
+							'max-w-(--breakpoint-lg) max-h-screen-80 overflow-auto flex flex-col',
 							$$props.class
 						)}
 						{style}

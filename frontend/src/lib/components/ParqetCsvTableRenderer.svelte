@@ -209,7 +209,7 @@
 		<Loader2 class="animate-spin ml-0.5" size={12} />
 	{/if}
 	<div
-		class="ag-theme-alpine shadow-sm h-full"
+		class="ag-theme-alpine shadow-2xs h-full"
 		class:ag-theme-alpine-dark={darkMode}
 		style="height: 600px;"
 	>

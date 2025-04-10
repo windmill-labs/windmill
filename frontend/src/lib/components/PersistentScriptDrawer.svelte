@@ -152,11 +152,11 @@
 						</td>
 						<td class="text-xs">
 							{#if status === 'running'}
-								<Badge color="yellow" baseClass="!px-1.5">
+								<Badge color="yellow" baseClass="px-1.5!">
 									<Play size={14} />
 								</Badge>
 							{:else}
-								<Badge baseClass="!px-1.5">
+								<Badge baseClass="px-1.5!">
 									<Hourglass size={14} />
 								</Badge>
 							{/if}

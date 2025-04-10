@@ -331,7 +331,7 @@
 					on:keydown|stopPropagation
 					placeholder={placeholder ?? 'Static value'}
 					bind:value={componentInput.value}
-					class="!pr-12"
+					class="pr-12!"
 				></textarea>
 			</div>
 		{/if}

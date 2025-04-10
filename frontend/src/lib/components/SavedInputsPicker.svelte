@@ -259,7 +259,7 @@
 									</form>
 								{:else}
 									<small
-										class="whitespace-nowrap overflow-hidden text-ellipsis flex-shrink text-left"
+										class="whitespace-nowrap overflow-hidden text-ellipsis shrink text-left"
 									>
 										{item.name}
 									</small>

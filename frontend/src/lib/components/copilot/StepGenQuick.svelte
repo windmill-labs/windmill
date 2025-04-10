@@ -50,7 +50,7 @@
 	f={(x) => (emptyString(x.summary) ? x.path : x.summary + ' (' + x.path + ')')}
 />
 
-<div class="relative text-primary items-center transition-all flex-grow">
+<div class="relative text-primary items-center transition-all grow">
 	<div class="grow items-cente">
 		<input
 			bind:this={input}

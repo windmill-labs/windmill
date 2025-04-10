@@ -373,9 +373,9 @@
 			items={resources}
 			value={resource}
 			bind:selectedItem={resource}
-			inputClassName="!h-[34px] py-1 !text-xs !w-48"
+			inputClassName="h-[34px]! py-1 text-xs! w-48!"
 			hideArrow
-			dropdownClassName="!text-sm"
+			dropdownClassName="text-sm!"
 		/>
 	</div>
 
@@ -393,7 +393,7 @@
 	<div class="flex gap-1 relative w-full">
 		<span class="text-xs absolute -top-4">Action</span>
 
-		<select class="!truncate" bind:value={actionKind}>
+		<select class="truncate!" bind:value={actionKind}>
 			<option selected value="all">all</option>
 			{#each ['Create', 'Update', 'Delete', 'Execute'] as e}
 				<option value={e.toLocaleLowerCase()}>{e}</option>

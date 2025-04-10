@@ -26,7 +26,7 @@
 				$selectedComponent = [id]
 			}}
 			title="Edit ID"
-			class="flex items-center px-1 rounded-sm bg-surface-secondary hover:text-primary text-secondary h-5"
+			class="flex items-center px-1 rounded-xs bg-surface-secondary hover:text-primary text-secondary h-5"
 			aria-label="Open component ID editor"
 		>
 			<Pencil size={14} />

@@ -56,6 +56,6 @@
 		{/if}
 	</span>
 	{#if returnIcon && selected}
-		<kbd class="!text-xs text-right">&crarr;</kbd>
+		<kbd class="text-xs! text-right">&crarr;</kbd>
 	{/if}
 </button>

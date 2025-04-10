@@ -16,7 +16,7 @@
 		</div>
 	{/if}
 
-	<div class="min-h-0 flex-grow">
+	<div class="min-h-0 grow">
 		<slot />
 	</div>
 </div>

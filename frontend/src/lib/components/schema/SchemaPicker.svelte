@@ -27,7 +27,7 @@
 
 <button
 	class={twMerge(
-		'w-full rounded-sm px-2',
+		'w-full rounded-xs px-2',
 		hovering ? 'bg-surface-hover' : '',
 		selected ? 'bg-surface-selected' : ''
 	)}

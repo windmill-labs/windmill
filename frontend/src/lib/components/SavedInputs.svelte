@@ -169,7 +169,7 @@
 		<Pane>
 			<div class="w-full flex flex-col gap-4 p-2">
 				<div class="w-full flex justify-between items-center gap-4 flex-wrap">
-					<span class="text-sm font-semibold flex-shrink-0"
+					<span class="text-sm font-semibold shrink-0"
 						>Saved Inputs<Tooltip
 							>Shared inputs are available to anyone with access to the script</Tooltip
 						></span
@@ -194,7 +194,7 @@
 						{#each savedInputs as i}
 							<button
 								class={classNames(
-									`w-full flex items-center text-sm group justify-between gap-4 py-1.5 px-4 text-left border rounded-sm hover:bg-surface-hover transition-all`,
+									`w-full flex items-center text-sm group justify-between gap-4 py-1.5 px-4 text-left border rounded-xs hover:bg-surface-hover transition-all`,
 									selectedInput === i ? 'border-blue-500 bg-blue-50 dark:bg-blue-900' : ''
 								)}
 								on:click={async () => {
@@ -222,7 +222,7 @@
 										</form>
 									{:else}
 										<small
-											class="whitespace-nowrap overflow-hidden text-ellipsis flex-shrink text-left"
+											class="whitespace-nowrap overflow-hidden text-ellipsis shrink text-left"
 										>
 											{i.name}
 										</small>
@@ -295,7 +295,7 @@
 						{#each jobs as i (i.id)}
 							<button
 								class={classNames(
-									`w-full flex items-center justify-between gap-4 py-2 px-4 text-left border rounded-sm hover:bg-surface-hover transition-a`,
+									`w-full flex items-center justify-between gap-4 py-2 px-4 text-left border rounded-xs hover:bg-surface-hover transition-a`,
 									'border-orange-400'
 								)}
 								on:click={async () => {
@@ -329,7 +329,7 @@
 										{i.created_by}
 									</div>
 									<div
-										class="whitespace-nowrap col-span-3 !text-tertiary !text-2xs overflow-hidden text-ellipsis flex-shrink text-center"
+										class="whitespace-nowrap col-span-3 text-tertiary! text-2xs! overflow-hidden text-ellipsis shrink text-center"
 									>
 										<TimeAgo noDate date={i.started_at ?? ''} />
 									</div>
@@ -363,7 +363,7 @@
 						{#each previousInputs as i (i.id)}
 							<button
 								class={classNames(
-									`w-full flex items-center justify-between gap-4 py-2 px-4 text-left border rounded-sm hover:bg-surface-hover transition-a`,
+									`w-full flex items-center justify-between gap-4 py-2 px-4 text-left border rounded-xs hover:bg-surface-hover transition-a`,
 									selectedInput === i ? 'border-blue-500 bg-blue-50 dark:bg-blue-900' : ''
 								)}
 								on:click={async () => {
@@ -385,12 +385,12 @@
 										{i.created_by}
 									</div>
 									<div
-										class="whitespace-nowrap col-span-2 !text-tertiary !text-2xs overflow-hidden text-ellipsis flex-shrink text-center"
+										class="whitespace-nowrap col-span-2 text-tertiary! text-2xs! overflow-hidden text-ellipsis shrink text-center"
 									>
 										{displayDateOnly(new Date(i.created_at))}
 									</div>
 									<div
-										class="whitespace-nowrap col-span-2 !text-tertiary !text-2xs overflow-hidden text-ellipsis flex-shrink text-center"
+										class="whitespace-nowrap col-span-2 text-tertiary! text-2xs! overflow-hidden text-ellipsis shrink text-center"
 									>
 										<TimeAgo noDate date={i.created_at ?? ''} />
 									</div>

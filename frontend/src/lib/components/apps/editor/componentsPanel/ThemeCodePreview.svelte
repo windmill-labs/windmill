@@ -17,7 +17,7 @@
 </script>
 
 <div class="relative h-full">
-	<div class="absolute z-[100] left-[50%] top-[50%] translate-x-[-50%] translate-y-[-50%]">
+	<div class="absolute z-100 left-[50%] top-[50%] translate-x-[-50%] translate-y-[-50%]">
 		<slot />
 	</div>
 	<div class="absolute top-0 left-0 right-0 bottom-0 bg-gray-100 bg-opacity-50 z-50"></div>

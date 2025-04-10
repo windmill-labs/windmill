@@ -49,7 +49,7 @@
 			{type}
 			{value}
 			{placeholder}
-			class="duration-200 {(value ? '!pr-[26px] ' : '') + inputClass}"
+			class="duration-200 {(value ? 'pr-[26px]! ' : '') + inputClass}"
 			{...$$restProps}
 			on:input={handleInput}
 			on:keydown|stopPropagation

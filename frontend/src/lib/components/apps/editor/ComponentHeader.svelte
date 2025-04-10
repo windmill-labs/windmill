@@ -122,7 +122,7 @@
 			draggable="false"
 			title={`Id: ${component.id}`}
 			class={twMerge(
-				'py-0.5 text-2xs w-fit h-full min-h-5 rounded z-50 cursor-move flex flex-row flex-nowrap font-semibold items-center shadow',
+				'py-0.5 text-2xs w-fit h-full min-h-5 rounded-xs z-50 cursor-move flex flex-row flex-nowrap font-semibold items-center shadow-xs',
 				selected
 					? 'bg-blue-600/90 text-white'
 					: $connectingInput.opened
@@ -142,7 +142,7 @@
 					<button
 						title="Fill height"
 						class={twMerge(
-							'px-1 py-0.5 text-2xs font-bold rounded cursor-pointer w-fit h-full',
+							'px-1 py-0.5 text-2xs font-bold rounded-xs cursor-pointer w-fit h-full',
 							fullHeight
 								? 'bg-blue-300 text-blue-800'
 								: 'text-white hover:bg-blue-400 hover:text-white'
@@ -156,7 +156,7 @@
 					<button
 						title="Lock Position"
 						class={twMerge(
-							'px-1 py-0.5 text-2xs font-bold rounded cursor-pointer w-fit h-full',
+							'px-1 py-0.5 text-2xs font-bold rounded-xs cursor-pointer w-fit h-full',
 							locked ? 'bg-blue-300 text-blue-800' : 'text-white hover:bg-blue-400 hover:text-white'
 						)}
 						on:click={() => dispatch('lock')}
@@ -172,7 +172,7 @@
 						<button
 							title="Expand"
 							class={twMerge(
-								'px-1 py-0.5 text-2xs font-bold rounded cursor-pointer w-fit h-full text-white hover:bg-blue-400 hover:text-white'
+								'px-1 py-0.5 text-2xs font-bold rounded-xs cursor-pointer w-fit h-full text-white hover:bg-blue-400 hover:text-white'
 							)}
 							on:click={() => dispatch('expand')}
 							on:pointerdown|stopPropagation
@@ -186,7 +186,7 @@
 		{#if selected && !connecting && checkComponentOptions()}
 			<div
 				class={twMerge(
-					'px-1 py-0.5 text-2xs font-semibold w-fit min-h-5 shadow rounded z-50 flex flex-row items-center flex-nowrap',
+					'px-1 py-0.5 text-2xs font-semibold w-fit min-h-5 shadow-xs rounded-xs z-50 flex flex-row items-center flex-nowrap',
 					isManuallySelected || componentIsDebugging
 						? 'bg-red-100 text-red-600 border-red-500'
 						: 'bg-blue-100/90 border-blue-200 text-blue-600'
@@ -196,7 +196,7 @@
 					<button
 						title="Edit"
 						class={twMerge(
-							'px-1 py-0.5 text-2xs font-bold rounded cursor-pointer w-fit h-full',
+							'px-1 py-0.5 text-2xs font-bold rounded-xs cursor-pointer w-fit h-full',
 							inlineEditorOpened
 								? 'bg-blue-300 text-blue-800'
 								: 'text-blue-600 hover:bg-blue-300 hover:text-blue-800'
@@ -226,7 +226,7 @@
 					<button
 						title={'Open Decision Tree Editor'}
 						class={twMerge(
-							'px-1 py-0.5 text-2xs font-bold rounded cursor-pointer w-fit h-full center-center',
+							'px-1 py-0.5 text-2xs font-bold rounded-xs cursor-pointer w-fit h-full center-center',
 							componentIsDebugging
 								? 'text-red-600 hover:bg-red-300 hover:text-red-800'
 								: 'text-blue-600 hover:bg-blue-300 hover:text-blue-800'
@@ -258,7 +258,7 @@
 					<div
 						title="Fill height"
 						class={classNames(
-							'px-1 text-2xs py-0.5 font-bold w-fit border cursor-pointer rounded-sm',
+							'px-1 text-2xs py-0.5 font-bold w-fit border cursor-pointer rounded-xs',
 							'bg-red-100 text-red-600 border-red-500 hover:bg-red-200 hover:text-red-800'
 						)}
 					>
@@ -278,10 +278,10 @@
 	<span
 		title="Error"
 		class={classNames(
-			'text-red-500 px-1 text-2xs py-0.5 font-bold w-fit absolute border border-red-500 -bottom-1  shadow left-1/2 transform -translate-x-1/2 z-50 cursor-pointer'
+			'text-red-500 px-1 text-2xs py-0.5 font-bold w-fit absolute border border-red-500 -bottom-1  shadow-xs left-1/2 transform -translate-x-1/2 z-50 cursor-pointer'
 		)}
 	>
-		<Popover notClickable placement="bottom" contentClasses="!bg-surface border w-96 p-4">
+		<Popover notClickable placement="bottom" contentClasses="bg-surface! border w-96 p-4">
 			<svelte:fragment slot="trigger">
 				<Bug size={14} />
 			</svelte:fragment>

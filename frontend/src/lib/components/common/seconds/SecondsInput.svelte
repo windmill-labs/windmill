@@ -66,7 +66,7 @@
 				Sec
 				<input
 					type="number"
-					class="!w-14"
+					class="w-14!"
 					{disabled}
 					bind:value={sec}
 					on:change={convertUnitsToSeconds}
@@ -77,7 +77,7 @@
 				Min
 				<input
 					type="number"
-					class="!w-14"
+					class="w-14!"
 					{disabled}
 					bind:value={min}
 					on:change={convertUnitsToSeconds}
@@ -90,7 +90,7 @@
 				Hour
 				<input
 					type="number"
-					class="!w-14"
+					class="w-14!"
 					{disabled}
 					bind:value={hour}
 					on:change={convertUnitsToSeconds}
@@ -101,7 +101,7 @@
 				Day
 				<input
 					type="number"
-					class="!w-14"
+					class="w-14!"
 					{disabled}
 					bind:value={day}
 					on:change={convertUnitsToSeconds}

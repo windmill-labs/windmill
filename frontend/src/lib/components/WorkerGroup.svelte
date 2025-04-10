@@ -289,7 +289,7 @@
 					<div class="flex gap-3 gap-y-2 flex-wrap pb-2">
 						{#each config.worker_tags as tag}
 							<div class="flex gap-0.5 items-center"
-								><div class="text-2xs p-1 rounded border text-primary">{tag}</div>
+								><div class="text-2xs p-1 rounded-xs border text-primary">{tag}</div>
 								{#if $superadmin}
 									<button
 										class={'z-10 rounded-full p-1 duration-200 hover:bg-gray-200'}
@@ -323,9 +323,9 @@
 								].filter((x) => !nconfig?.worker_tags?.includes(x))}
 								bind:selectedItem={newTag}
 								hideArrow={true}
-								inputClassName={'flex !font-gray-600 !font-primary !bg-surface-primary"'}
-								dropdownClassName="!text-sm !py-2 !rounded-sm  !border-gray-200 !border !shadow-md"
-								className="w-full !font-gray-600 !font-primary !bg-surface-primary"
+								inputClassName={'flex font-gray-600! font-primary! bg-surface-primary!"'}
+								dropdownClassName="text-sm! py-2! rounded-xs!  border-gray-200! border! shadow-md!"
+								className="w-full font-gray-600! font-primary! bg-surface-primary!"
 								onFocus={() => {
 									dispatch('focus')
 								}}
@@ -433,9 +433,9 @@
 									noInputStyles
 									hideArrow={true}
 									items={workspaces.map((w) => w.id)}
-									inputClassName={'flex !font-gray-600 !font-primary !bg-surface-primary'}
-									dropdownClassName="!text-sm !py-2 !rounded-sm  !border-gray-200 !border !shadow-md"
-									className="!font-gray-600 !font-primary !bg-surface-primary"
+									inputClassName={'flex font-gray-600! font-primary! bg-surface-primary!'}
+									dropdownClassName="text-sm! py-2! rounded-xs!  border-gray-200! border! shadow-md!"
+									className="font-gray-600! font-primary! bg-surface-primary!"
 									create
 									onCreate={(c) => c}
 									placeholder="Workspace ID"
@@ -455,7 +455,7 @@
 										</Tooltip>
 									</svelte:fragment>
 									<Multiselect
-										outerDivClass="text-secondary !bg-surface-disabled !border-0"
+										outerDivClass="text-secondary bg-surface-disabled! border-0!"
 										disabled={!$enterpriseLicense}
 										bind:selected={selectedPriorityTags}
 										on:change={(e) => {
@@ -484,7 +484,7 @@
 										}}
 										options={nconfig?.worker_tags}
 										selectedOptionsDraggable={false}
-										ulOptionsClass={'!bg-surface-secondary'}
+										ulOptionsClass={'bg-surface-secondary!'}
 										placeholder="High priority tags"
 									/>
 								</Label>
@@ -516,7 +516,7 @@
 								<p>Triggered when number of workers in group is lower than</p>
 								<input
 									type="number"
-									class="!w-14 text-center"
+									class="w-14! text-center"
 									disabled={!$enterpriseLicense}
 									min="1"
 									bind:value={nconfig.min_alive_workers_alert_threshold}

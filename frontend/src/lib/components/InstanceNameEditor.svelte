@@ -59,7 +59,7 @@
 					<input
 						type="text"
 						bind:value
-						class="!w-auto grow"
+						class="w-auto! grow"
 						on:click|stopPropagation={() => {}}
 						on:keydown|stopPropagation
 						on:keypress|stopPropagation={({ key }) => {
@@ -88,7 +88,7 @@
 					<input
 						type="password"
 						bind:value={password}
-						class="!w-auto grow"
+						class="w-auto! grow"
 						on:click|stopPropagation={() => {}}
 						on:keydown|stopPropagation
 						on:keypress|stopPropagation={({ key }) => {
@@ -122,7 +122,7 @@
 					<input
 						type="text"
 						bind:value={login_type}
-						class="!w-auto grow"
+						class="w-auto! grow"
 						on:click|stopPropagation={() => {}}
 						on:keydown|stopPropagation
 						on:keypress|stopPropagation={({ key }) => {

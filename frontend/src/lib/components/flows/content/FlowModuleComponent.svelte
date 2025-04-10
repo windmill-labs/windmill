@@ -333,7 +333,7 @@
 
 			<div class="h-full flex flex-col">
 				{#if flowModule.value.type === 'rawscript' && !noEditor}
-					<div class="border-b-2 shadow-sm px-1">
+					<div class="border-b-2 shadow-2xs px-1">
 						<EditorBar
 							customUi={customUi?.editorBar}
 							{validCode}
@@ -356,7 +356,7 @@
 					</div>
 				{/if}
 
-				<div class="min-h-0 flex-grow" id="flow-editor-editor">
+				<div class="min-h-0 grow" id="flow-editor-editor">
 					<Splitpanes horizontal>
 						<Pane bind:size={editorPanelSize} minSize={10}>
 							{#if flowModule.value.type === 'rawscript'}
@@ -635,7 +635,7 @@
 															</svelte:fragment>
 															<input
 																type="number"
-																class="!w-24"
+																class="w-24!"
 																disabled={flowModule.priority === undefined}
 																bind:value={flowModule.priority}
 																on:focus

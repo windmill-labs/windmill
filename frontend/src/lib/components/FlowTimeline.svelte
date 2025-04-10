@@ -163,7 +163,7 @@
 				{#if ($durationStatuses?.[k]?.iteration_from ?? 0) > 0}
 					<div class="w-full flex flex-row-reverse sticky top-0">
 						<button
-							class="!text-secondary underline mr-2 text-2xs text-right whitespace-nowrap"
+							class="text-secondary! underline mr-2 text-2xs text-right whitespace-nowrap"
 							on:click={() => {
 								let r = $durationStatuses[k]
 								if (r.iteration_from) {

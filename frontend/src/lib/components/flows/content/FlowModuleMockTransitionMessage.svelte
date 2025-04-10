@@ -21,12 +21,12 @@
 <div class="p-1.5">
 	<!-- Header Banner -->
 	<div
-		class="bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-900/20 dark:to-indigo-900/20
+		class="bg-linear-to-r from-blue-50 to-indigo-50 dark:from-blue-900/20 dark:to-indigo-900/20
                 text-blue-700 dark:text-blue-300 rounded-md px-3 py-2 flex items-center justify-between mb-3"
 	>
 		<div class="flex items-center gap-2">
 			<div
-				class="bg-blue-600 dark:bg-blue-400 px-1.5 py-0.5 text-white text-xs font-bold tracking-wide rounded shadow-sm"
+				class="bg-blue-600 dark:bg-blue-400 px-1.5 py-0.5 text-white text-xs font-bold tracking-wide rounded-xs shadow-2xs"
 				>NEW</div
 			>
 			<span class="font-normal text-sm">Mock has evolved into</span>
@@ -35,7 +35,7 @@
 				PIN
 			</span>
 		</div>
-		<div class="text-xs bg-white/60 dark:bg-slate-800/60 py-0.5 px-2 rounded">
+		<div class="text-xs bg-white/60 dark:bg-slate-800/60 py-0.5 px-2 rounded-xs">
 			<span class="font-medium">Find it in:</span>
 			<span class="font-semibold">"Test this step"</span> tab
 		</div>
@@ -51,13 +51,13 @@
 			<!-- Step 1 -->
 			<div class="flex items-start gap-2 group">
 				<div
-					class="bg-surface-secondary text-secondary rounded-full w-5 h-5 flex items-center justify-center text-xs font-medium flex-shrink-0 -mt-0.5"
+					class="bg-surface-secondary text-secondary rounded-full w-5 h-5 flex items-center justify-center text-xs font-medium shrink-0 -mt-0.5"
 					>1</div
 				>
 				<div class="w-full">
 					<div class="font-medium mb-1.5">Pick a result from history</div>
 					<div
-						class="border rounded-md p-1 bg-white dark:bg-slate-800 h-56 overflow-hidden shadow-sm group-hover:shadow transition-shadow"
+						class="border rounded-md p-1 bg-white dark:bg-slate-800 h-56 overflow-hidden shadow-2xs group-hover:shadow-xs transition-shadow"
 					>
 						<!--svelte-ignore a11y-click-events-have-key-events-->
 						<!-- svelte-ignore a11y-no-noninteractive-element-interactions -->
@@ -74,13 +74,13 @@
 			<!-- Step 2 -->
 			<div class="flex items-start gap-2 group">
 				<div
-					class="bg-surface-secondary text-secondary rounded-full w-5 h-5 flex items-center justify-center text-xs font-medium flex-shrink-0 -mt-0.5"
+					class="bg-surface-secondary text-secondary rounded-full w-5 h-5 flex items-center justify-center text-xs font-medium shrink-0 -mt-0.5"
 					>2</div
 				>
 				<div class="w-full">
 					<div class="font-medium mb-1.5">Pin it as a fixed output</div>
 					<div
-						class="border rounded-md p-1 bg-white dark:bg-slate-800 h-56 overflow-hidden shadow-sm group-hover:shadow transition-shadow"
+						class="border rounded-md p-1 bg-white dark:bg-slate-800 h-56 overflow-hidden shadow-2xs group-hover:shadow-xs transition-shadow"
 					>
 						<!--svelte-ignore a11y-click-events-have-key-events-->
 						<!-- svelte-ignore a11y-no-noninteractive-element-interactions -->
@@ -97,13 +97,13 @@
 			<!-- Step 3 -->
 			<div class="flex items-start gap-2 group">
 				<div
-					class="bg-surface-secondary text-secondary rounded-full w-5 h-5 flex items-center justify-center text-xs font-medium flex-shrink-0 -mt-0.5"
+					class="bg-surface-secondary text-secondary rounded-full w-5 h-5 flex items-center justify-center text-xs font-medium shrink-0 -mt-0.5"
 					><Info size="14" /></div
 				>
 				<div class="w-full">
 					<div class="font-medium mb-1.5">The last pin can be recovered from history</div>
 					<div
-						class="border rounded-md p-1 bg-white dark:bg-slate-800 h-56 overflow-hidden shadow-sm group-hover:shadow transition-shadow"
+						class="border rounded-md p-1 bg-white dark:bg-slate-800 h-56 overflow-hidden shadow-2xs group-hover:shadow-xs transition-shadow"
 					>
 						<!--svelte-ignore a11y-click-events-have-key-events-->
 						<!-- svelte-ignore a11y-no-noninteractive-element-interactions -->
@@ -120,14 +120,14 @@
 			<!-- Step 4 -->
 			<div class="flex items-start gap-2 group">
 				<div
-					class="bg-surface-secondary text-secondary rounded-full w-5 h-5 flex items-center justify-center text-xs font-medium flex-shrink-0 -mt-0.5"
+					class="bg-surface-secondary text-secondary rounded-full w-5 h-5 flex items-center justify-center text-xs font-medium shrink-0 -mt-0.5"
 				>
 					<Info size="14" />
 				</div>
 				<div class="w-full">
 					<div class="font-medium mb-1.5">All of this can be done from the flow view</div>
 					<div
-						class="border rounded-md p-1 bg-white dark:bg-slate-800 h-56 overflow-hidden shadow-sm group-hover:shadow transition-shadow"
+						class="border rounded-md p-1 bg-white dark:bg-slate-800 h-56 overflow-hidden shadow-2xs group-hover:shadow-xs transition-shadow"
 					>
 						<!--svelte-ignore a11y-click-events-have-key-events-->
 						<!-- svelte-ignore a11y-no-noninteractive-element-interactions -->

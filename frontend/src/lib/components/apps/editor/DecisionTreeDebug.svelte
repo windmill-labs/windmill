@@ -101,7 +101,7 @@
 			<button
 				title={'Debug tabs'}
 				class={classNames(
-					'px-1 text-2xs font-bold rounded cursor-pointer w-fit h-full',
+					'px-1 text-2xs font-bold rounded-xs cursor-pointer w-fit h-full',
 					componentIsDebugging
 						? ' hover:bg-red-300 hover:text-red-800'
 						: 'text-blue-600 hover:bg-blue-300 hover:text-blue-800'

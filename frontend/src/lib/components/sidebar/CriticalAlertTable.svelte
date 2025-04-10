@@ -111,7 +111,7 @@
 							</Cell>
 
 							<Cell wrap>
-								<div class="flex-shrink min-w-0 break-words">{message}</div>
+								<div class="shrink min-w-0 break-words">{message}</div>
 							</Cell>
 							<!-- Flexible width -->
 							<Cell wrap>{formatDate(created_at)}</Cell>

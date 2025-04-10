@@ -219,7 +219,7 @@
 			on:keydown|stopPropagation
 			bind:value={runnable.name}
 			placeholder="Background runnable name"
-			class="!text-xs !rounded-xs"
+			class="text-xs! rounded-xs!"
 		/>
 	</div>
 	<div class="w-full grow overflow-y-auto">

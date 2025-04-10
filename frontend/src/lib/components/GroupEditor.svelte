@@ -130,7 +130,7 @@
 	{#if can_write}
 		<div class="flex items-start">
 			<AutoComplete required noInputStyles items={usernames} bind:selectedItem={username} />
-			<Button variant="contained" color="blue" size="sm" btnClasses="!ml-4" on:click={addToGroup}>
+			<Button variant="contained" color="blue" size="sm" btnClasses="ml-4!" on:click={addToGroup}>
 				Add member
 			</Button>
 		</div>

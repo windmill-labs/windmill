@@ -104,19 +104,19 @@
 		<Pane
 			minSize={20}
 			size={60}
-			class={twMerge('relative !transition-none ', noPadding ? '' : 'p-2')}
+			class={twMerge('relative transition-none! ', noPadding ? '' : 'p-2')}
 		>
 			<slot />
 		</Pane>
 		<Pane
 			minSize={20}
 			size={40}
-			class="!transition-none z-1000 {$propPickerConfig ? 'ml-[-1px]' : ''} {paneClass}"
+			class="transition-none! z-1000 {$propPickerConfig ? 'ml-[-1px]' : ''} {paneClass}"
 		>
 			<AnimatedButton
 				animate={$propPickerConfig?.insertionMode == 'connect'}
 				baseRadius="4px"
-				wrapperClasses="prop-picker-inputs h-full w-full pt-2 !bg-surface "
+				wrapperClasses="prop-picker-inputs h-full w-full pt-2 bg-surface! "
 				marginWidth="3px"
 				ringColor={$propPickerConfig?.insertionMode == 'insert' ||
 				$propPickerConfig?.insertionMode == 'append'

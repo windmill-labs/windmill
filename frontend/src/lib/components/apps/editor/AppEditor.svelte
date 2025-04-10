@@ -901,7 +901,7 @@
 						</div>
 					</Pane>
 					<Pane bind:size={centerPanelSize}>
-						<Splitpanes id="o2" horizontal class="!overflow-visible">
+						<Splitpanes id="o2" horizontal class="overflow-visible!">
 							<Pane bind:size={gridPanelSize} class="ovisible">
 								<div
 									on:pointerdown={(e) => {
@@ -1125,7 +1125,7 @@
 					{:else}
 						<Pane bind:size={rightPanelSize} minSize={15} maxSize={33}>
 							<div bind:clientWidth={$runnableJob.width} class="relative flex flex-col h-full">
-								<Tabs bind:selected={selectedTab} wrapperClass="!min-h-[42px]" class="!h-full">
+								<Tabs bind:selected={selectedTab} wrapperClass="min-h-[42px]!" class="h-full!">
 									<Popover disappearTimeout={0} notClickable placement="bottom">
 										<svelte:fragment slot="text">Component library</svelte:fragment>
 										<Tab
@@ -1195,7 +1195,7 @@
 												/>
 												<SecondaryMenu right />
 											{:else}
-												<div class="min-w-[150px] text-sm !text-secondary text-center py-8 px-2">
+												<div class="min-w-[150px] text-sm text-secondary! text-center py-8 px-2">
 													Select a component to see the settings&nbsp;for&nbsp;it
 												</div>
 											{/if}

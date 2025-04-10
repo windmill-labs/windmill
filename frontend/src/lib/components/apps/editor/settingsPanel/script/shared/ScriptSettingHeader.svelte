@@ -12,7 +12,7 @@
 <div
 	class={twMerge(
 		'flex flex-row px-2 py-1 justify-between bg-surface-secondary  ',
-		noBorder ? '' : 'border rounded'
+		noBorder ? '' : 'border rounded-xs'
 	)}
 >
 	<div class="flex flex-row gap-2 items-center min-w-0">

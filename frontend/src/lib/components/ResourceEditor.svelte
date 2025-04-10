@@ -243,7 +243,7 @@
 					<h5 class="mt-4 inline-flex items-center gap-4 pb-2">
 						File content ({resourceTypeInfo.format_extension})
 					</h5>
-					<div class="h-full w-full border p-1 rounded">
+					<div class="h-full w-full border p-1 rounded-xs">
 						<SimpleEditor
 							autoHeight
 							class="editor"
@@ -276,7 +276,7 @@
 				{#if !emptyString(jsonError)}<span class="text-red-400 text-xs mb-1 flex flex-row-reverse"
 						>{jsonError}</span
 					>{:else}<div class="py-2"></div>{/if}
-				<div class="h-full w-full border p-1 rounded">
+				<div class="h-full w-full border p-1 rounded-xs">
 					<SimpleEditor
 						autoHeight
 						class="editor"

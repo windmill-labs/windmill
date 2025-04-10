@@ -60,7 +60,7 @@
 		}}
 		on:blur={async () => {
 			if (updateOnBlur) {
-				dispatch('blur')
+				dispatch('blur-xs')
 			}
 		}}
 		on:change={(e) => {

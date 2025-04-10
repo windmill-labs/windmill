@@ -51,9 +51,9 @@
 
 <div use:floatingRef bind:clientWidth={w}>
 	{#if !value || Array.isArray(value)}
-		<div class="border rounded-md border-gray-300 shadow-sm dark:border-gray-600 !w-full">
+		<div class="border rounded-md border-gray-300 shadow-2xs dark:border-gray-600 w-full!">
 			<MultiSelect
-				outerDivClass={`!text-xs`}
+				outerDivClass={`text-xs!`}
 				ulSelectedClass="overflow-auto"
 				bind:outerDiv
 				--sms-border={'none'}

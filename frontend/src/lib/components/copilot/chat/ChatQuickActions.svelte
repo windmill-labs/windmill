@@ -5,7 +5,7 @@
 
 	export let diffMode: boolean = false
 
-	let iconClasses = '!w-3 !h-3 !px-0 !m-0'
+	let iconClasses = 'w-3! h-3! px-0! m-0!'
 
 	const dispatch = createEventDispatcher<{
 		analyzeChanges: null
@@ -15,8 +15,8 @@
 
 	$: btnClasses = `!px-1 !py-0.5 !gap-1 ${
 		diffMode
-			? '!bg-surface dark:!bg-surface border-frost-500 dark:border-frost-500'
-			: '!font-normal'
+			? 'bg-surface! dark:bg-surface! border-frost-500 dark:border-frost-500'
+			: 'font-normal!'
 	}`
 </script>
 

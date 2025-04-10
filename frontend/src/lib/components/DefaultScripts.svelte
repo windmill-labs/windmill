@@ -24,7 +24,7 @@
 		startIcon={{ icon: SettingsIcon }}
 		color="light"
 		{size}
-		btnClasses="!text-tertiary"
+		btnClasses="text-tertiary!"
 		variant="contained"
 	>
 		{noText ? '' : 'defaults'}

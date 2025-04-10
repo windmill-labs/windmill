@@ -37,10 +37,10 @@
 </script>
 
 <NodeWrapper let:darkMode>
-	<div class="rounded-sm group">
+	<div class="rounded-xs group">
 		<Button
 			class={twMerge(
-				'p-2 bg-surface w-full h-8 relative rounded-sm border border-gray-400',
+				'p-2 bg-surface w-full h-8 relative rounded-xs border border-gray-400',
 				selected ? 'outline outline-2 outline-offset-2 outline-gray-600' : '',
 				'flex flex-row gap-2 items-center justify-between'
 			)}

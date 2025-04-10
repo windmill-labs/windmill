@@ -49,7 +49,7 @@
 		<div class="flex flex-col gap-y-1">
 			{#each defaultTags.sort() as tag (tag)}
 				<div class="flex gap-2 items-center"
-					><div class="p-1 text-xs px-2 rounded border text-primary w-32">{tag} </div><div
+					><div class="p-1 text-xs px-2 rounded-xs border text-primary w-32">{tag} </div><div
 						class="flex gap-2 items-center w-92"
 						>&rightarrow;
 						<input

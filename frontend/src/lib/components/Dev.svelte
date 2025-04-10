@@ -607,7 +607,7 @@
 				>
 			</div>
 
-			<div class="absolute top-2 right-2 !text-tertiary text-xs">
+			<div class="absolute top-2 right-2 text-tertiary! text-xs">
 				{#if $userStore != undefined}
 					As {$userStore?.username} in {$workspaceStore}
 				{:else}

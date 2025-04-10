@@ -73,7 +73,7 @@
 			</div>
 		{/if}
 		{#if isExternal}
-			<Badge color="gray" baseClass="!px-1.5">
+			<Badge color="gray" baseClass="px-1.5!">
 				<ShieldQuestion size={14} />
 			</Badge>
 		{:else if 'success' in job && job.success}
@@ -82,32 +82,32 @@
 					<FastForward size={14} />
 				</Badge>
 			{:else}
-				<Badge color="green" baseClass="!px-1.5">
+				<Badge color="green" baseClass="px-1.5!">
 					<Check size={14} />
 				</Badge>
 			{/if}
 		{:else if 'success' in job}
-			<Badge color="red" baseClass="!px-1.5">
+			<Badge color="red" baseClass="px-1.5!">
 				<X size={14} />
 			</Badge>
 		{:else if 'running' in job && job.running && job.suspend}
-			<Badge color="violet" baseClass="!px-1.5" title="Suspended">
+			<Badge color="violet" baseClass="px-1.5!" title="Suspended">
 				<Hourglass size={14} />
 			</Badge>
 		{:else if 'running' in job && job.running}
-			<Badge color="yellow" baseClass="!px-1.5">
+			<Badge color="yellow" baseClass="px-1.5!">
 				<Play size={14} />
 			</Badge>
 		{:else if job && 'running' in job && job.scheduled_for && forLater(job.scheduled_for)}
-			<Badge color="blue" baseClass="!px-1.5">
+			<Badge color="blue" baseClass="px-1.5!">
 				<Calendar size={14} />
 			</Badge>
 		{:else if job.canceled}
-			<Badge color="red" baseClass="!px-1.5">
+			<Badge color="red" baseClass="px-1.5!">
 				<Hourglass size={14} />
 			</Badge>
 		{:else}
-			<Badge baseClass="!px-1.5">
+			<Badge baseClass="px-1.5!">
 				<Hourglass size={14} />
 			</Badge>
 		{/if}
@@ -237,7 +237,7 @@
 								size="xs3"
 								btnClasses={twMerge(
 									activeLabel == label ? 'bg-blue-50 dark:bg-blue-900/50' : '',
-									'!text-2xs !font-normal truncate max-w-28'
+									'text-2xs! font-normal! truncate max-w-28'
 								)}
 								color="light"
 								on:click={() => {

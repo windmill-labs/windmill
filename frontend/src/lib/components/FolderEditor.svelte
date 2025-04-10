@@ -206,7 +206,7 @@
 					{#if ownerKind == 'group'}
 						<Button
 							title="View Group"
-							btnClasses="!p-1.5"
+							btnClasses="p-1.5!"
 							variant="border"
 							size="xs"
 							disabled={!ownerItem || ownerItem == ''}
@@ -216,7 +216,7 @@
 						/>
 						<Button
 							title="New Group"
-							btnClasses="!p-1.5"
+							btnClasses="p-1.5!"
 							variant="border"
 							on:click={newGroup.openDrawer}
 							size="xs"
@@ -386,7 +386,7 @@
 						variant="contained"
 						color="blue"
 						size="sm"
-						btnClasses="!ml-4"
+						btnClasses="ml-4!"
 						on:click={addToManagingFolder}
 					>
 						Add folder managing this folder

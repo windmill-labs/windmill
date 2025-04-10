@@ -30,7 +30,7 @@
 	<Portal name="manual-popover">
 		<div
 			use:popperContent
-			class={twMerge('z-[901] rounded-lg shadow-md border p-4 bg-surface', $$props.class)}
+			class={twMerge('z-901 rounded-lg shadow-md border p-4 bg-surface', $$props.class)}
 			transition:fade={{ duration: 200 }}
 		>
 			<slot name="content" />

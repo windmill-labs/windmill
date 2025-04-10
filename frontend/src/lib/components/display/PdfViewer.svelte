@@ -107,7 +107,7 @@
 			const viewport = page.getViewport({ scale })
 			canvas.height = viewport.height
 			canvas.width = viewport.width
-			canvas.classList.add('mx-auto', 'my-4', 'shadow-sm')
+			canvas.classList.add('mx-auto', 'my-4', 'shadow-2xs')
 			await page.render({ canvasContext, viewport }).promise
 			nextChildren.push(canvas)
 		}
@@ -176,7 +176,7 @@
 </script>
 
 <div
-	class={twMerge('flex flex-col w-full h-full', fullscreen ? 'fixed inset-0 z-[9999]' : 'relative')}
+	class={twMerge('flex flex-col w-full h-full', fullscreen ? 'fixed inset-0 z-9999' : 'relative')}
 >
 	{#if source && zoom}
 		{#if pages?.length}
@@ -194,7 +194,7 @@
 						variant="border"
 						title="Zoom out"
 						aria-label="Zoom out"
-						btnClasses="!rounded-r-none !px-2"
+						btnClasses="rounded-r-none! px-2!"
 					>
 						<ZoomOut size={16} />
 					</Button>
@@ -207,7 +207,7 @@
 							variant="border"
 							title="Reset zoom"
 							aria-label="Reset zoom"
-							btnClasses="!w-[50px] !font-medium !rounded-none !border-l-0 !px-1"
+							btnClasses="w-[50px]! font-medium! rounded-none! border-l-0! px-1!"
 						>
 							{zoom.toFixed(0)}%
 						</Button>
@@ -220,7 +220,7 @@
 						variant="border"
 						title="Scale to viewport"
 						aria-label="Scale to viewport"
-						btnClasses="!rounded-none !border-l-0 !px-2"
+						btnClasses="rounded-none! border-l-0! px-2!"
 					>
 						<MoveHorizontal size={16} />
 					</Button>
@@ -232,7 +232,7 @@
 						variant="border"
 						title="Zoom in"
 						aria-label="Zoom in"
-						btnClasses="!rounded-l-none !px-2 !border-l-0"
+						btnClasses="rounded-l-none! px-2! border-l-0!"
 					>
 						<ZoomIn size={16} />
 					</Button>
@@ -247,7 +247,7 @@
 						value={pageNumber}
 						disabled={!doc}
 						type="number"
-						class="!w-[45px] !px-1 !py-0"
+						class="w-[45px]! px-1! py-0!"
 					/>
 					<span class="whitespace-nowrap pl-1">
 						/ {pages.length}
@@ -261,7 +261,7 @@
 						color="light"
 						title="Download PDF"
 						aria-label="Download PDF"
-						btnClasses="!font-medium !px-2"
+						btnClasses="font-medium! px-2!"
 					>
 						<Download size={14} />
 					</Button>
@@ -273,7 +273,7 @@
 							color="light"
 							title="Toggle fullscreen"
 							aria-label="Toggle fullscreen"
-							btnClasses="!font-medium !px-2"
+							btnClasses="font-medium! px-2!"
 						>
 							{#if fullscreen}
 								<Shrink size={14} />

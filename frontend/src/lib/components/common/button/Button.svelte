@@ -104,7 +104,7 @@
 		'justify-center items-center text-center whitespace-nowrap inline-flex gap-2',
 		btnClasses,
 		'active:opacity-80 transition-all',
-		disabled ? '!bg-surface-disabled !text-tertiary cursor-not-allowed' : '',
+		disabled ? 'bg-surface-disabled! text-tertiary! cursor-not-allowed' : '',
 		loading ? 'cursor-wait' : ''
 	)
 
@@ -210,7 +210,7 @@
 				/>
 			{/if}
 			{#if shortCut && !shortCut.hide}
-				<div class="flex flex-row items-center !text-md opacity-60 gap-0 font-normal">
+				<div class="flex flex-row items-center text-md! opacity-60 gap-0 font-normal">
 					{#if shortCut.withoutModifier !== true}{getModifierKey()}{/if}{#if shortCut.Icon}<shortCut.Icon
 							class="w-4 h-4"
 							size={lucideIconSize}
@@ -259,7 +259,7 @@
 			{/if}
 			{#if shortCut && !shortCut.hide}
 				{@const Icon = shortCut.Icon}
-				<div class="flex flex-row items-center !text-md opacity-60 gap-0 font-normal">
+				<div class="flex flex-row items-center text-md! opacity-60 gap-0 font-normal">
 					{#if shortCut.withoutModifier !== true}{getModifierKey()}{/if}{#if shortCut.Icon}<Icon
 							size={lucideIconSize}
 						/>{:else}{shortCut.key}{/if}
@@ -267,7 +267,7 @@
 			{/if}
 		</button>
 		{#if tooltipPopover && $open}
-			<div use:conditionalMelt={content} {...$content} class="z-[20000]">
+			<div use:conditionalMelt={content} {...$content} class="z-20000">
 				<slot name="tooltip" />
 			</div>
 		{/if}
@@ -286,9 +286,9 @@
 				<div
 					class={twMerge(
 						buttonClass,
-						'rounded-md m-0 p-0 !w-10 center-center h-full',
+						'rounded-md m-0 p-0 w-10! center-center h-full',
 						variant === 'border' ? 'border-0 border-r border-y ' : 'border-0',
-						'rounded-r-md !rounded-l-none'
+						'rounded-r-md rounded-l-none!'
 					)}
 				>
 					<ChevronDown class="w-5 h-5" />

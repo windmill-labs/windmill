@@ -495,7 +495,7 @@
 		})
 
 		editor.onDidBlurEditorText(() => {
-			dispatch('blur')
+			dispatch('blur-xs')
 			code = getCode()
 		})
 
@@ -629,7 +629,7 @@
 <div
 	bind:this={divEl}
 	style="height: 18px;"
-	class="{$$props.class ?? ''} border template nonmain-editor rounded min-h-4 mx-0.5 overflow-clip"
+	class="{$$props.class ?? ''} border template nonmain-editor rounded-xs min-h-4 mx-0.5 overflow-clip"
 	bind:clientWidth={width}
 ></div>
 

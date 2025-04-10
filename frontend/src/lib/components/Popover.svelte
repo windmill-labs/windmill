@@ -78,7 +78,7 @@
 			on:mouseenter={open}
 			on:mouseleave={close}
 			class={twMerge(
-				'z-[5001] py-2 px-3 rounded-md text-sm font-normal !text-gray-300 bg-gray-800 whitespace-normal text-left',
+				'z-5001 py-2 px-3 rounded-md text-sm font-normal text-gray-300! bg-gray-800 whitespace-normal text-left',
 				popupClass
 			)}
 		>

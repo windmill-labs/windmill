@@ -107,7 +107,7 @@
 						'w-6 h-6 flex items-center justify-center',
 						'border border-gray-300 dark:border-gray-500',
 						'text-primary text-sm',
-						'bg-surface focus:outline-none hover:bg-surface-hover focus:ring-4 focus:ring-surface-selected rounded-full '
+						'bg-surface focus:outline-hidden hover:bg-surface-hover focus:ring-4 focus:ring-surface-selected rounded-full '
 					)}
 				>
 					<ClipboardCopy size={14} />

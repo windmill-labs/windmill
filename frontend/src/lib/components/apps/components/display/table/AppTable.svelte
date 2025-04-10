@@ -414,7 +414,7 @@
 											{#if context}
 												{@const component = renderCell(header.column.columnDef.header, context)}
 												{@const displayName = getDisplayNameById(header.id)}
-												<th class="!p-0">
+												<th class="p-0!">
 													<div
 														class="flex flex-row items-center gap-1 px-4 py-4 text-xs text-primary font-medium border-b"
 													>
@@ -442,7 +442,7 @@
 										{/if}
 									{/each}
 									{#if actionButtons.length > 0}
-										<th class="!p-0">
+										<th class="p-0!">
 											<div
 												class="flex flex-row items-center px-4 py-4 text-xs text-primary font-medium border-b"
 											>
@@ -462,7 +462,7 @@
 								{@const rowIndex = row.original['__index']}
 								<tr
 									class={twMerge(
-										isLastRow ? '!border-b-0' : '',
+										isLastRow ? 'border-b-0!' : '',
 										'divide-x w-full',
 										index % 2 === 0 ? 'bg-gray-50/50' : '',
 										selectedRowIndex === rowIndex
@@ -553,7 +553,7 @@
 																<span
 																	title={`Id: ${actionButton.id}`}
 																	class={classNames(
-																		'px-2 text-2xs font-bold w-fit absolute shadow  -top-2 -left-2 border z-50 rounded-sm',
+																		'px-2 text-2xs font-bold w-fit absolute shadow-xs  -top-2 -left-2 border z-50 rounded-xs',
 																		'bg-indigo-500/90 border-indigo-600 text-white',
 																		$selectedComponent?.includes(actionButton.id) ||
 																			$hoverStore === actionButton.id

@@ -380,7 +380,7 @@
 					/>
 					{#if !$enterpriseLicense}
 						<span
-							class="inline-flex text-xs items-center gap-1 !text-yellow-500 whitespace-nowrap ml-8"
+							class="inline-flex text-xs items-center gap-1 text-yellow-500! whitespace-nowrap ml-8"
 						>
 							<AlertTriangle size={16} />
 							EE only <Tooltip>Enterprise Edition only feature</Tooltip>
@@ -488,7 +488,7 @@
 					<svelte:fragment slot="right">
 						<input
 							type="number"
-							class="!w-16 text-xs ml-4 absolute left-52"
+							class="w-16! text-xs ml-4 absolute left-52"
 							disabled={$flowStore.value.priority === undefined}
 							bind:value={$flowStore.value.priority}
 							on:focus
@@ -502,7 +502,7 @@
 						/>
 						{#if !$enterpriseLicense || isCloudHosted()}
 							<span
-								class="inline-flex absolute top-0 left-72 text-xs items-center gap-1 !text-yellow-500 whitespace-nowrap ml-8"
+								class="inline-flex absolute top-0 left-72 text-xs items-center gap-1 text-yellow-500! whitespace-nowrap ml-8"
 							>
 								<AlertTriangle size={16} />
 								EE only <Tooltip>Enterprise Edition only feature</Tooltip>

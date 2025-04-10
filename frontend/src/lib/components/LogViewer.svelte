@@ -213,8 +213,8 @@
 				{#if !noAutoScroll}
 					<div
 						class="{small ? '' : 'py-2'} pr-2 {small
-							? '!text-2xs'
-							: '!text-xs'} flex gap-2 text-tertiary items-center"
+							? 'text-2xs!'
+							: 'text-xs!'} flex gap-2 text-tertiary items-center"
 					>
 						Auto scroll
 						<input class="windmillapp" type="checkbox" bind:checked={scroll} />
@@ -227,26 +227,26 @@
 				<Loader2 class="animate-spin" />
 				{#if tag}
 					<div class="flex flex-row items-center gap-1">
-						<div class="text-secondary {small ? '!text-2xs' : '!text-xs'}">tag: {tag}</div>
+						<div class="text-secondary {small ? 'text-2xs!' : 'text-xs!'}">tag: {tag}</div>
 						<NoWorkerWithTagWarning {tag} />
 					</div>
 				{/if}
 			</div>
 		{:else if duration}
 			<span
-				class="absolute {small ? '!text-2xs' : '!text-xs'} text-tertiary dark:text-gray-400 {small
+				class="absolute {small ? 'text-2xs!' : 'text-xs!'} text-tertiary dark:text-gray-400 {small
 					? 'top-0'
 					: 'top-2'} left-2">took {duration}ms</span
 			>
 		{/if}
 		{#if mem}
 			<span
-				class="absolute {small ? '!text-2xs' : '!text-xs'} text-tertiary dark:text-gray-400 {small
+				class="absolute {small ? 'text-2xs!' : 'text-xs!'} text-tertiary dark:text-gray-400 {small
 					? 'top-0'
 					: 'top-2'}  left-36">mem peak: {(mem / 1024).toPrecision(4)}MB</span
 			>
 		{/if}
-		<pre class="whitespace-pre break-words {small ? '!text-2xs' : '!text-xs'} w-full p-2"
+		<pre class="whitespace-pre break-words {small ? 'text-2xs!' : 'text-xs!'} w-full p-2"
 			>{#if content}{@const len =
 					(content?.length ?? 0) +
 					(loadedFromObjectStore?.length ?? 0)}{#if downloadStartUrl}<button on:click={getStoreLogs}

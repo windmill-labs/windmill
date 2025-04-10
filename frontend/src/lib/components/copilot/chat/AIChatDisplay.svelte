@@ -82,7 +82,7 @@
 						on:click={() => {}}
 						title="History"
 						size="md"
-						btnClasses="!p-1"
+						btnClasses="p-1!"
 						startIcon={{ icon: HistoryIcon }}
 						iconOnly
 						variant="border"
@@ -113,7 +113,7 @@
 										<Button
 											iconOnly
 											size="xs2"
-											btnClasses="!p-1"
+											btnClasses="p-1!"
 											color="light"
 											variant="border"
 											startIcon={{ icon: X }}
@@ -134,7 +134,7 @@
 					dispatch('saveAndClear')
 				}}
 				size="md"
-				btnClasses="!p-1"
+				btnClasses="p-1!"
 				startIcon={{ icon: Plus }}
 				iconOnly
 				variant="border"

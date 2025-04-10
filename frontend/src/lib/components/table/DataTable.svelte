@@ -102,7 +102,7 @@
 					</span>
 
 					{#if perPage !== undefined}
-						<select class="!text-xs !w-16" bind:value={perPage}>
+						<select class="text-xs! w-16!" bind:value={perPage}>
 							<option value={25}>25</option>
 							<option value={100}>100</option>
 							<option value={1000}>1000</option>

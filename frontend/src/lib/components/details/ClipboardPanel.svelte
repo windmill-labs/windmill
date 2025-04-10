@@ -30,5 +30,5 @@
 	<div class={twMerge('truncate whitespace-no-wrap grow', size === 'sm' ? 'text-xs' : 'text-sm')}
 		>{content}</div
 	>
-	<Clipboard size={12} class="flex-shrink-0" />
+	<Clipboard size={12} class="shrink-0" />
 </div>

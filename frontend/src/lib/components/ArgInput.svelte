@@ -530,8 +530,8 @@
 					{#if Array.isArray(itemsType?.multiselect) && Array.isArray(value)}
 						<div class="items-start">
 							<Multiselect
-								ulOptionsClass={'p-2 !bg-surface-secondary'}
-								outerDivClass={'dark:!border-gray-500 !border-gray-300'}
+								ulOptionsClass={'p-2 bg-surface-secondary!'}
+								outerDivClass={'dark:border-gray-500! border-gray-300!'}
 								{disabled}
 								bind:selected={value}
 								options={itemsType?.multiselect ?? []}
@@ -544,8 +544,8 @@
 					{:else if itemsType?.enum != undefined && Array.isArray(itemsType?.enum) && Array.isArray(value)}
 						<div class="items-start">
 							<Multiselect
-								ulOptionsClass={'p-2 !bg-surface-secondary'}
-								outerDivClass={'dark:!border-gray-500 !border-gray-300'}
+								ulOptionsClass={'p-2 bg-surface-secondary!'}
+								outerDivClass={'dark:border-gray-500! border-gray-300!'}
 								{disabled}
 								bind:selected={value}
 								options={itemsType?.enum ?? []}
@@ -588,7 +588,7 @@
 															dispatch('focus')
 														}}
 														on:blur={(e) => {
-															dispatch('blur')
+															dispatch('blur-xs')
 														}}
 														{defaultValue}
 														{valid}
@@ -615,7 +615,7 @@
 																dispatch('focus')
 															}}
 															on:blur={(e) => {
-																dispatch('blur')
+																dispatch('blur-xs')
 															}}
 															code={JSON.stringify(v, null, 2)}
 															bind:value={value[i]}
@@ -750,7 +750,7 @@
 								dispatch('focus')
 							}}
 							on:blur={(e) => {
-								dispatch('blur')
+								dispatch('blur-xs')
 							}}
 							code={JSON.stringify(value ?? defaultValue ?? { s3: '' }, null, 2)}
 							on:changeValue={(e) => {
@@ -821,7 +821,7 @@
 							{@const obj = oneOf[objIdx]}
 							{#if obj && obj.properties && Object.keys(obj.properties).length > 0}
 								{#key redraw}
-									<div class="py-4 pr-2 pl-6 border rounded w-full">
+									<div class="py-4 pr-2 pl-6 border rounded-xs w-full">
 										{#if orderEditable}
 											<SchemaFormDnd
 												{nestedClasses}
@@ -886,7 +886,7 @@
 											dispatch('focus')
 										}}
 										on:blur={(e) => {
-											dispatch('blur')
+											dispatch('blur-xs')
 										}}
 										code={rawValue}
 										on:changeValue={(e) => {
@@ -908,7 +908,7 @@
 									dispatch('focus')
 								}}
 								on:blur={(e) => {
-									dispatch('blur')
+									dispatch('blur-xs')
 								}}
 								code={rawValue}
 								on:change={(e) => {
@@ -995,7 +995,7 @@
 							dispatch('focus')
 						}}
 						on:blur={(e) => {
-							dispatch('blur')
+							dispatch('blur-xs')
 						}}
 						code={rawValue}
 						on:changeValue={(e) => {
@@ -1032,7 +1032,7 @@
 						dispatch('focus')
 					}}
 					on:blur={(e) => {
-						dispatch('blur')
+						dispatch('blur-xs')
 					}}
 					enumLabels={extra['enumLabels']}
 				/>
@@ -1056,7 +1056,7 @@
 								dispatch('focus')
 							}}
 							on:blur={(e) => {
-								dispatch('blur')
+								dispatch('blur-xs')
 							}}
 							on:change={(e) => {
 								setNewValueFromCode(e.detail?.code)
@@ -1136,7 +1136,7 @@
 									dispatch('focus')
 								}}
 								on:blur={(e) => {
-									dispatch('blur')
+									dispatch('blur-xs')
 								}}
 								use:autosize
 								on:keydown={onKeyDown}
@@ -1154,14 +1154,14 @@
 						{#if !disabled && itemPicker && extra?.['disableVariablePicker'] != true}
 							<!-- svelte-ignore a11y-click-events-have-key-events -->
 							<button
-								class="absolute right-1 top-1 py-1 min-w-min !px-2 items-center text-gray-800 bg-surface-secondary border rounded center-center hover:bg-gray-300 transition-all cursor-pointer"
+								class="absolute right-1 top-1 py-1 min-w-min px-2! items-center text-gray-800 bg-surface-secondary border rounded-xs center-center hover:bg-gray-300 transition-all cursor-pointer"
 								on:click={() => {
 									pickForField = label
 									itemPicker?.openDrawer?.()
 								}}
 								title="Insert a Variable"
 							>
-								<DollarSign class="!text-tertiary" size={14} />
+								<DollarSign class="text-tertiary!" size={14} />
 							</button>
 						{/if}
 					{/if}

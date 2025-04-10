@@ -76,7 +76,7 @@ const emptyApp = {
 				configuration: {},
 				customCss: {
 					container: {
-						class: '!p-0',
+						class: 'p-0!',
 						style: ''
 					}
 				},

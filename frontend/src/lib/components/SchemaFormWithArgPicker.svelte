@@ -92,13 +92,13 @@
 </script>
 
 <div class="h-fit">
-	<div class="relative z-[100000] w-full">
+	<div class="relative z-100000 w-full">
 		<div class="absolute" style="right: calc({100 - inputPanelSize}%); top: -1px;">
 			<SideBarTab expandRight={rightPanelOpen} {dropdownItems} fullMenu={true} noTrigger={true} />
 		</div>
 	</div>
 	<Splitpanes class={!rightPanelOpen ? 'splitter-hidden' : ''}>
-		<Pane bind:size={inputPanelSize} class="!overflow-visible" minSize={30}>
+		<Pane bind:size={inputPanelSize} class="overflow-visible!" minSize={30}>
 			<div class="relative w-full h-fit pr-12 pb-4" bind:clientHeight={rightHeight}>
 				<slot />
 			</div>

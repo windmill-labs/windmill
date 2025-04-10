@@ -101,8 +101,8 @@
 				id={`flow-editor-iteration picker-${id}`}
 				type="button"
 				class={twMerge(
-					'text-xs bg-surface border-[1px] border-gray-300 dark:border-gray-500 focus:outline-none',
-					'hover:bg-surface-hover focus:ring-4 focus:ring-surface-selected font-medium rounded-sm w-[40px] gap-1 h-[20px]',
+					'text-xs bg-surface border-[1px] border-gray-300 dark:border-gray-500 focus:outline-hidden',
+					'hover:bg-surface-hover focus:ring-4 focus:ring-surface-selected font-medium rounded-xs w-[40px] gap-1 h-[20px]',
 					'flex items-center justify-center',
 					flowJobsSuccess?.[selected] == false ? 'text-red-400' : 'text-secondary'
 				)}
@@ -124,7 +124,7 @@
 								class={twMerge(
 									'text-primary text-xs w-full text-left py-1 pl-2 hover:bg-surface-hover whitespace-nowrap flex flex-row gap-2 items-center',
 									items[idx].success == false ? 'text-red-400' : '',
-									'data-[highlighted]:bg-surface-hover'
+									'data-highlighted:bg-surface-hover'
 								)}
 								on:click={() => {
 									dispatch('selectedIteration', {

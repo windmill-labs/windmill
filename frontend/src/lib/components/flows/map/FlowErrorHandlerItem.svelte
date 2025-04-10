@@ -63,7 +63,7 @@
 	class={classNames(
 		'z-10',
 		$copilotCurrentStepStore !== undefined ? 'border-gray-500/75' : 'cursor-pointer',
-		'border transition-colors duration-[400ms] ease-linear rounded-sm px-2 py-1 gap-2 bg-surface text-sm flex items-center flex-row',
+		'border transition-colors duration-[400ms] ease-linear rounded-xs px-2 py-1 gap-2 bg-surface text-sm flex items-center flex-row',
 		$selectedId?.includes('failure')
 			? 'outline outline-offset-1 outline-2 outline-slate-900 dark:outline-slate-900/0 dark:bg-surface-secondary dark:border-gray-400'
 			: ''
@@ -77,7 +77,7 @@
 	}}
 >
 	{#if $copilotCurrentStepStore !== undefined}
-		<div transition:fade class="absolute inset-0 bg-gray-500 bg-opacity-75 z-[900]"></div>
+		<div transition:fade class="absolute inset-0 bg-gray-500 bg-opacity-75 z-900"></div>
 	{/if}
 	<div class="flex items-center grow-0 min-w-0 gap-2">
 		<Bug size={16} color={$flowStore?.value?.failure_module ? '#3b82f6' : '#9CA3AF'} />
@@ -115,7 +115,7 @@
 				'w-5 h-5 flex items-center justify-center grow-0 shrink-0',
 				'outline-[1px] outline dark:outline-gray-500 outline-gray-300',
 				'text-secondary',
-				'bg-surface focus:outline-none hover:bg-surface-hover rounded '
+				'bg-surface focus:outline-hidden hover:bg-surface-hover rounded-xs '
 			)}
 			on:click={() => {
 				$flowStore.value.failure_module = undefined

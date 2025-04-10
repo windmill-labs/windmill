@@ -85,7 +85,7 @@
 	}
 
 	const spanClass =
-		'text-center text-sm font-medium bg-blue-100 text-blue-800 rounded px-2.5 py-0.5'
+		'text-center text-sm font-medium bg-blue-100 text-blue-800 rounded-xs px-2.5 py-0.5'
 	function computeWidth() {
 		let maxValue = resolvedConfig.max ?? 0 + (resolvedConfig.step ?? 0)
 

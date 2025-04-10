@@ -33,7 +33,7 @@
 		<HistoryIcon size={14} />
 	</svelte:fragment>
 	<svelte:fragment slot="content">
-		<div class="p-2 h-[400px] overflow-hidden w-80 border shadow-sm">
+		<div class="p-2 h-[400px] overflow-hidden w-80 border shadow-2xs">
 			<HistoricInputs
 				on:select={(e) => {
 					if (e.detail) {

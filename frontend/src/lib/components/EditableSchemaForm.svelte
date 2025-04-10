@@ -246,7 +246,7 @@
 </script>
 
 <div class="w-full h-full">
-	<div class="relative z-[100000]">
+	<div class="relative z-100000">
 		<div
 			class="absolute"
 			style="right: calc({editPanelSize}% - 1px - {pannelExtraButtonWidth}px); top: 0px;"
@@ -389,7 +389,7 @@
 																	<div class="flex flex-col gap-2">
 																		<input
 																			type="text"
-																			class="w-full !bg-surface"
+																			class="w-full bg-surface!"
 																			value={argName}
 																			id={argName + i}
 																			on:keydown={(event) => {
@@ -611,7 +611,7 @@
 						</div>
 					{:else}
 						<div class="p-2">
-							<div class="border rounded h-full">
+							<div class="border rounded-xs h-full">
 								<SimpleEditor
 									bind:this={editor}
 									small

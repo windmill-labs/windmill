@@ -55,7 +55,7 @@
 >
 	Deploy
 	<svelte:fragment slot="tooltip">
-		<div class="flex flex-row gap-2 w-80 p-4 bg-surface rounded-lg shadow-lg border z-[5001]">
+		<div class="flex flex-row gap-2 w-80 p-4 bg-surface rounded-lg shadow-lg border z-5001">
 			<input
 				type="text"
 				placeholder="Deployment message"

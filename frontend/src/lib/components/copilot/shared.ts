@@ -106,7 +106,7 @@ function getReviewButtons(
 	const { contentWidth, verticalScrollbarWidth } = editor.getLayoutInfo()
 	const scrollLeft = editor.getScrollLeft()
 	const reviewButtons = document.createElement('div')
-	reviewButtons.classList.add('absolute', 'flex', 'flex-row', 'z-10', 'rounded')
+	reviewButtons.classList.add('absolute', 'flex', 'flex-row', 'z-10', 'rounded-xs')
 
 	Object.assign(reviewButtons.style, {
 		fontFamily: 'Inter',

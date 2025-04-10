@@ -36,7 +36,7 @@
 		<Button
 			size="xs"
 			btnClasses={twMerge(
-				$currentStepStore !== undefined ? 'z-[901]' : '',
+				$currentStepStore !== undefined ? 'z-901' : '',
 				copilotLoading || ($currentStepStore !== undefined && $currentStepStore !== 'Input')
 					? ''
 					: 'text-violet-800 dark:text-violet-400'
@@ -75,7 +75,7 @@
 				? 'Exit'
 				: 'AI Builder'}
 		</Button>
-		<div slot="content" class="text-sm flex flex-row items-center z-[901]">
+		<div slot="content" class="text-sm flex flex-row items-center z-901">
 			<span class="font-semibold">
 				{copilotStatus}
 			</span>

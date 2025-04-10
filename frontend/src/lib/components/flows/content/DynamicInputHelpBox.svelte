@@ -14,7 +14,7 @@
 		}}
 		color="light"
 		size="xs2"
-		endIcon={{ icon: ChevronDown, classes: `rotate-0 duration-300 ${opened ? '!rotate-180' : ''}` }}
+		endIcon={{ icon: ChevronDown, classes: `rotate-0 duration-300 ${opened ? 'rotate-180!' : ''}` }}
 	>
 		Help
 	</Button>

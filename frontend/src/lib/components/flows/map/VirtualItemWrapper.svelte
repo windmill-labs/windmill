@@ -27,10 +27,10 @@
 <!-- svelte-ignore a11y-no-static-element-interactions -->
 <div
 	class={classNames(
-		'w-full flex relative rounded-sm',
+		'w-full flex relative rounded-xs',
 		selectable ? 'cursor-pointer' : '',
 		selected ? 'outline outline-offset-1 outline-2  outline-gray-600 dark:outline-gray-400' : '',
-		onTop ? 'z-[901]' : ''
+		onTop ? 'z-901' : ''
 	)}
 	style="width: 275px; max-height: 38px; background-color: {bgColor} !important;"
 	on:click={() => {

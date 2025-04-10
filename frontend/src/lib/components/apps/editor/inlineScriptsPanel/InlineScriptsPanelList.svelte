@@ -200,13 +200,13 @@
 					size="xs"
 					color="light"
 					variant="border"
-					btnClasses="!rounded-full !p-1"
+					btnClasses="rounded-full! p-1!"
 					title="Create a new background runnable"
 					aria-label="Create a new background runnable"
 					on:click={createBackgroundScript}
 					id="create-background-runnable"
 				>
-					<Plus size={14} class="!text-primary" />
+					<Plus size={14} class="text-primary!" />
 				</Button>
 			</div>
 			<div class="flex flex-col gap-1 w-full">
