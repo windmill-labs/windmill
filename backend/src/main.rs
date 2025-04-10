@@ -12,7 +12,7 @@ use monitor::{
     reload_indexer_config, reload_instance_python_version_setting, reload_maven_repos_setting,
     reload_no_default_maven_setting, reload_nuget_config_setting,
     reload_timeout_wait_result_setting, send_current_log_file_to_object_store,
-    send_logs_to_object_store,
+    send_logs_to_object_store, WORKERS_NAMES,
 };
 use rand::Rng;
 use sqlx::postgres::PgListener;
@@ -986,6 +986,7 @@ Windmill Community Edition {GIT_VERSION}
                                         tx.clone(),
                                     )
                                     .await;
+                                    monitor_disk_usage(&conn).await;
                                     if server_mode {
                                         tracing::info!("monitor task finished");
                                     }
@@ -1205,13 +1206,12 @@ pub async fn run_workers(
     for i in 1..(num_workers + 1) {
         let db1 = db.clone();
         let worker_name = worker_names[i as usize - 1].clone();
+        WORKERS_NAMES.write().await.push(worker_name.clone());
         let ip = ip.clone();
         let rx = killpill_rxs.pop().unwrap();
         let tx = tx.clone();
         let base_internal_url = base_internal_url.clone();
         let hostname = hostname.clone();
-
-        monitor_disk_usage(tx.subscribe(), worker_name.clone(), db.clone());
 
         handles.push(tokio::spawn(async move {
             if num_workers > 1 {
