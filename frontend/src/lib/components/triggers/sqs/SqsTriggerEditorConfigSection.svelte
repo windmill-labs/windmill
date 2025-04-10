@@ -33,14 +33,11 @@
 	}
 	let itemPicker: ItemPicker
 	let variableEditor: VariableEditor
-
 	let cached: string[] = []
-	let urlError: string = ''
 	let all_attributes = message_attributes.includes('All')
 	let tab: 'specific' | 'all' = all_attributes ? 'all' : 'specific'
 
-	$: isValid =
-		urlError === '' && !emptyStringTrimmed(aws_resource_path) && !emptyStringTrimmed(queue_url)
+	$: isValid = !emptyStringTrimmed(aws_resource_path) && !emptyStringTrimmed(queue_url)
 </script>
 
 <div>
