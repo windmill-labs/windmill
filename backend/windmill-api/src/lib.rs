@@ -25,6 +25,8 @@ use crate::{
     webhook_util::WebhookShared,
 };
 
+#[cfg(feature = "agent_worker_server")]
+use agent_workers_ee::AgentCache;
 use anyhow::Context;
 use argon2::Argon2;
 use axum::extract::DefaultBodyLimit;
@@ -56,6 +58,8 @@ use windmill_common::{utils::GIT_VERSION, BASE_URL, INSTANCE_NAME};
 use crate::scim_ee::has_scim_token;
 use windmill_common::error::AppError;
 
+#[cfg(feature = "agent_worker_server")]
+mod agent_workers_ee;
 mod ai;
 mod apps;
 pub mod args;
@@ -74,9 +78,9 @@ mod folders;
 mod granular_acls;
 mod groups;
 #[cfg(feature = "http_trigger")]
-mod http_triggers;
-#[cfg(feature = "http_trigger")]
 mod http_trigger_auth;
+#[cfg(feature = "http_trigger")]
+mod http_triggers;
 mod indexer_ee;
 mod inputs;
 mod integration;
@@ -209,10 +213,10 @@ pub async fn run_server(
     job_index_reader: Option<IndexReader>,
     log_index_reader: Option<ServiceLogIndexReader>,
     addr: SocketAddr,
-    mut rx: tokio::sync::broadcast::Receiver<()>,
+    mut killpill_rx: tokio::sync::broadcast::Receiver<()>,
     port_tx: tokio::sync::oneshot::Sender<String>,
     server_mode: bool,
-    #[cfg(feature = "smtp")] base_internal_url: String,
+    _base_internal_url: String,
 ) -> anyhow::Result<()> {
     let user_db = UserDB::new(db.clone());
 
@@ -246,7 +250,10 @@ pub async fn run_server(
         .layer(Extension(log_index_reader))
         // .layer(Extension(index_writer))
         .layer(CookieManagerLayer::new())
-        .layer(Extension(WebhookShared::new(rx.resubscribe(), db.clone())))
+        .layer(Extension(WebhookShared::new(
+            killpill_rx.resubscribe(),
+            db.clone(),
+        )))
         .layer(DefaultBodyLimit::max(
             REQUEST_SIZE_LIMIT.read().await.clone(),
         ));
@@ -279,7 +286,7 @@ pub async fn run_server(
                     db: db.clone(),
                     user_db: user_db,
                     auth_cache: auth_cache.clone(),
-                    base_internal_url: base_internal_url.clone(),
+                    base_internal_url: _base_internal_url.clone(),
                 });
                 if let Err(err) = smtp_server.start_listener_thread(addr).await {
                     tracing::error!("Error starting SMTP server: {err:#}");
@@ -385,40 +392,47 @@ pub async fn run_server(
     if !*CLOUD_HOSTED && server_mode {
         #[cfg(feature = "websocket")]
         {
-            let ws_killpill_rx = rx.resubscribe();
+            let ws_killpill_rx = killpill_rx.resubscribe();
             websocket_triggers::start_websockets(db.clone(), ws_killpill_rx);
         }
 
         #[cfg(all(feature = "enterprise", feature = "kafka"))]
         {
-            let kafka_killpill_rx = rx.resubscribe();
+            let kafka_killpill_rx = killpill_rx.resubscribe();
             kafka_triggers_ee::start_kafka_consumers(db.clone(), kafka_killpill_rx);
         }
 
         #[cfg(all(feature = "enterprise", feature = "nats"))]
         {
-            let nats_killpill_rx = rx.resubscribe();
+            let nats_killpill_rx = killpill_rx.resubscribe();
             nats_triggers_ee::start_nats_consumers(db.clone(), nats_killpill_rx);
         }
 
         #[cfg(feature = "postgres_trigger")]
         {
-            let db_killpill_rx = rx.resubscribe();
+            let db_killpill_rx = killpill_rx.resubscribe();
             postgres_triggers::start_database(db.clone(), db_killpill_rx);
         }
 
         #[cfg(feature = "mqtt_trigger")]
         {
-            let mqtt_killpill_rx = rx.resubscribe();
+            let mqtt_killpill_rx = killpill_rx.resubscribe();
             mqtt_triggers::start_mqtt_consumer(db.clone(), mqtt_killpill_rx);
         }
 
         #[cfg(all(feature = "enterprise", feature = "sqs_trigger"))]
         {
-            let sqs_killpill_rx = rx.resubscribe();
+            let sqs_killpill_rx = killpill_rx.resubscribe();
             sqs_triggers_ee::start_sqs(db.clone(), sqs_killpill_rx);
         }
     }
+
+    #[cfg(feature = "agent_worker_server")]
+    let (agent_workers_router, agent_workers_bg_processor, agent_workers_killpill_tx) =
+        agent_workers_ee::workspaced_service(db.clone(), _base_internal_url.clone());
+
+    #[cfg(feature = "agent_worker_server")]
+    let agent_cache = Arc::new(AgentCache::new());
 
     // build our application with a route
     let app = Router::new()
@@ -495,6 +509,26 @@ pub async fn run_server(
                 .nest("/ai", ai::global_service())
                 .route_layer(from_extractor::<ApiAuthed>())
                 .route_layer(from_extractor::<users::Tokened>())
+                .nest("/agent_workers", {
+                    #[cfg(feature = "agent_worker_server")]
+                    {
+                        agent_workers_ee::global_service().layer(Extension(agent_cache.clone()))
+                    }
+                    #[cfg(not(feature = "agent_worker_server"))]
+                    {
+                        Router::new()
+                    }
+                })
+                .nest("/w/:workspace_id/agent_workers", {
+                    #[cfg(feature = "agent_worker_server")]
+                    {
+                        agent_workers_router.layer(Extension(agent_cache.clone()))
+                    }
+                    #[cfg(not(feature = "agent_worker_server"))]
+                    {
+                        Router::new()
+                    }
+                })
                 .nest("/jobs", jobs::global_root_service())
                 .nest(
                     "/srch/w/:workspace_id/index",
@@ -647,11 +681,22 @@ pub async fn run_server(
         .expect("Failed to send port");
 
     let server = server.with_graceful_shutdown(async move {
-        rx.recv().await.ok();
+        killpill_rx.recv().await.ok();
+        #[cfg(feature = "agent_worker_server")]
+        if let Err(e) = agent_workers_killpill_tx.kill().await {
+            tracing::error!("Error killing agent workers: {e:#}");
+        }
         tracing::info!("Graceful shutdown of server");
     });
 
     server.await?;
+
+    #[cfg(feature = "agent_worker_server")]
+    if let Some(bg_processor) = agent_workers_bg_processor {
+        tracing::info!("server off. shutting down agent workers bg processor");
+        bg_processor.await?;
+        tracing::info!("agent workers bg processor shut down");
+    }
     Ok(())
 }
 

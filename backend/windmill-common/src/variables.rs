@@ -7,6 +7,7 @@
  */
 
 use crate::error;
+use crate::worker::Connection;
 use crate::{worker::WORKER_GROUP, BASE_URL, DB};
 use chrono::{SecondsFormat, Utc};
 use magic_crypt::{MagicCrypt256, MagicCryptError, MagicCryptTrait};
@@ -166,7 +167,7 @@ lazy_static::lazy_static! {
 }
 
 pub async fn get_reserved_variables(
-    db: &DB,
+    conn: &Connection,
     w_id: &str,
     token: &str,
     email: &str,
@@ -206,7 +207,7 @@ pub async fn get_reserved_variables(
         }
     };
 
-    let custom_envs = get_cached_workspace_envs(db, w_id).await;
+    let custom_envs = get_cached_workspace_envs(conn, w_id).await;
 
     let joined_schedule_path = schedule_path
         .clone()
@@ -354,10 +355,7 @@ pub async fn get_reserved_variables(
 ).collect()
 }
 
-async fn get_cached_workspace_envs(
-    db: &sqlx::Pool<sqlx::Postgres>,
-    w_id: &str,
-) -> Vec<(String, String)> {
+async fn get_cached_workspace_envs(conn: &Connection, w_id: &str) -> Vec<(String, String)> {
     let cached_envs_o = CUSTOM_ENVS_CACHE.get(w_id).and_then(|(ts, envs)| {
         if ts > chrono::Utc::now().timestamp() - (60 * 15) {
             Some(envs)
@@ -369,13 +367,19 @@ async fn get_cached_workspace_envs(
     let custom_envs = if let Some(cached_envs) = cached_envs_o {
         cached_envs
     } else {
-        let custom_envs = sqlx::query_as::<_, (String, String)>(
-            "SELECT name, value FROM workspace_env WHERE workspace_id = $1",
-        )
-        .bind(w_id)
-        .fetch_all(db)
-        .await
-        .unwrap_or_default();
+        let custom_envs = match conn {
+            Connection::Sql(db) => sqlx::query_as::<_, (String, String)>(
+                "SELECT name, value FROM workspace_env WHERE workspace_id = $1",
+            )
+            .bind(w_id)
+            .fetch_all(db)
+            .await
+            .unwrap_or_default(),
+            Connection::Http(client) => client
+                .get(&format!("/api/w/{w_id}/agent_workers/custom_envs"))
+                .await
+                .unwrap_or_default(),
+        };
         CUSTOM_ENVS_CACHE.insert(
             w_id.to_string(),
             (chrono::Utc::now().timestamp(), custom_envs.clone()),
