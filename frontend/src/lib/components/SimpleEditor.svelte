@@ -469,7 +469,7 @@
 	{/if}
 </div>
 {#if allowVim && $vimMode}
-	<div class="fixed bottom-0 z-30" bind:this={statusDiv} />
+	<div class="fixed bottom-0 z-30" bind:this={statusDiv}></div>
 {/if}
 
 <style lang="postcss">

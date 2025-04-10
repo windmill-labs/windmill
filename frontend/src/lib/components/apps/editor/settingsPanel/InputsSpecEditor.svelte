@@ -64,11 +64,15 @@
 	let s3FilePicker: S3FilePicker | undefined
 	let s3PickerSelection: { s3: string; storage?: string } | undefined = undefined
 	let s3FolderPrefix: string = ''
-	$: s3PickerSelection && updateSelectedS3File()
 
 	function updateSelectedS3File() {
 		if (s3PickerSelection) {
-			componentInput['value'] = `s3://${s3PickerSelection.s3}`
+			// @ts-ignore
+			componentInput = {
+				...componentInput,
+				type: 'static',
+				value: `s3://${s3PickerSelection.s3}`
+			}
 		}
 	}
 
@@ -125,8 +129,8 @@
 						{customTitle
 							? customTitle
 							: shouldCapitalize
-							? capitalize(addWhitespaceBeforeCapitals(key))
-							: key}
+								? capitalize(addWhitespaceBeforeCapitals(key))
+								: key}
 					</span>
 					{#if loading}
 						<Loader2 size={14} class="animate-spin ml-2" />
@@ -235,7 +239,12 @@
 			<UploadInputEditor bind:componentInput {fileUpload} />
 		{:else if componentInput?.type === 'uploadS3'}
 			<div class="w-12/12 pb-2 flex flex-row mb-1 gap-1">
-				<input type="text" placeholder="S3 Folder prefix" bind:value={s3FolderPrefix} aria-label="S3 Folder prefix" />
+				<input
+					type="text"
+					placeholder="S3 Folder prefix"
+					bind:value={s3FolderPrefix}
+					aria-label="S3 Folder prefix"
+				/>
 			</div>
 			<UploadInputEditor
 				bind:componentInput
@@ -260,8 +269,10 @@
 			<S3FilePicker
 				bind:this={s3FilePicker}
 				folderOnly={false}
-				fromWorkspaceSettings={true}
-				bind:selectedFileKey={s3PickerSelection}
+				on:close={(e) => {
+					s3PickerSelection = e.detail
+					updateSelectedS3File()
+				}}
 				readOnlyMode={false}
 				regexFilter={/\.(png|jpg|jpeg|svg|webp)$/i}
 			/>

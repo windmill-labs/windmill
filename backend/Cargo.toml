@@ -1,6 +1,6 @@
 [package]
 name = "windmill"
-version = "1.479.3"
+version = "1.481.0"
 authors.workspace = true
 edition.workspace = true
 
@@ -32,7 +32,7 @@ members = [
 ]
 
 [workspace.package]
-version = "1.479.3"
+version = "1.481.0"
 authors = ["Ruben Fiszel <ruben@windmill.dev>"]
 edition = "2021"
 
@@ -49,6 +49,7 @@ lto = "thin"
 
 [features]
 default = []
+agent_worker_server = ["windmill-api/agent_worker_server"]
 enterprise = ["windmill-worker/enterprise", "windmill-queue/enterprise", "windmill-api/enterprise", "dep:windmill-autoscaling", "windmill-autoscaling/enterprise", "windmill-git-sync/enterprise", "windmill-common/prometheus", "windmill-common/enterprise"]
 enterprise_saml = ["windmill-api/enterprise_saml", "oauth2"]
 stripe = ["windmill-api/stripe"]
@@ -169,6 +170,9 @@ windmill-parser-sql = { path = "./parsers/windmill-parser-sql" }
 windmill-parser-graphql = { path = "./parsers/windmill-parser-graphql" }
 windmill-parser-php = { path = "./parsers/windmill-parser-php" }
 windmill-api-client = { path = "./windmill-api-client" }
+
+reqwest-retry = "^0"
+reqwest-middleware = { version = "^0", features = ["json"] }
 
 rustls = "0.23.0"
 memchr = "2.7.4"

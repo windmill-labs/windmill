@@ -70,15 +70,20 @@
 	export let captureTable: CaptureTable | undefined = undefined
 	export let showCaptures: boolean = true
 	export let stablePathForCaptures: string = ''
+	export let lastSavedCode: string | undefined = undefined
+	export let lastDeployedCode: string | undefined = undefined
+
+	let showHistoryDrawer = false
 
 	let jobProgressReset: () => void
+	let diffMode = false
 
 	let websocketAlive = {
 		pyright: false,
 		deno: false,
 		go: false,
 		ruff: false,
-		shellcheck: false,
+		shellcheck: false
 	}
 
 	const dispatch = createEventDispatcher()
@@ -297,6 +302,7 @@
 	let storedAiPanelSize = aiPanelSize > 0 ? aiPanelSize : 30
 	let testPanelSize = 30
 	let storedTestPanelSize = testPanelSize
+
 	function toggleAiPanel() {
 		if (!$copilotInfo.enabled) return
 		if (aiPanelSize > 0) {
@@ -308,6 +314,15 @@
 			codePanelSize -= storedAiPanelSize
 			aiPanelSize = storedAiPanelSize
 			localStorage.setItem('aiPanelOpen', 'true')
+		}
+	}
+
+	function addSelectedLinesToAiChat(
+		e: CustomEvent<{ lines: string; startLine: number; endLine: number }>
+	) {
+		if (aiChat) {
+			aiChat.addSelectedLinesToContext(e.detail.lines, e.detail.startLine, e.detail.endLine)
+			aiChat.focusTextArea()
 		}
 	}
 
@@ -339,6 +354,21 @@
 		}
 		return undefined
 	}
+
+	function showDiffMode() {
+		diffMode = true
+		diffEditor?.setOriginal(lastDeployedCode ?? '')
+		diffEditor?.setModified(editor?.getCode() ?? '')
+		diffEditor?.show()
+		editor?.hide()
+	}
+
+	function hideDiffMode() {
+		diffMode = false
+		diffEditor?.hide()
+		editor?.show()
+	}
+
 	$: error = getStringError(testJob)
 </script>
 
@@ -376,6 +406,8 @@
 					setCollaborationMode()
 				}
 			}}
+			on:showDiffMode={showDiffMode}
+			on:hideDiffMode={hideDiffMode}
 			customUi={{ ...customUi?.editorBar, aiGen: false }}
 			collabLive={wsProvider?.shouldConnect}
 			{collabMode}
@@ -393,6 +425,11 @@
 			{args}
 			{noHistory}
 			{saveToWorkspace}
+			lastDeployedCode={lastDeployedCode && lastDeployedCode !== code
+				? lastDeployedCode
+				: undefined}
+			{diffMode}
+			bind:showHistoryDrawer
 		>
 			<slot name="editor-bar-right" slot="right" />
 		</EditorBar>
@@ -479,7 +516,9 @@
 						}}
 						on:saveDraft
 						on:toggleAiPanel={toggleAiPanel}
+						on:addSelectedLinesToAiChat={addSelectedLinesToAiChat}
 						on:toggleTestPanel={toggleTestPanel}
+						isAiPanelOpen={aiPanelSize > 0}
 						cmdEnterAction={async () => {
 							await inferSchema(code)
 							runTest()
@@ -506,6 +545,11 @@
 						automaticLayout
 						defaultLang={scriptLangToEditorLang(lang)}
 						{fixedOverflowWidgets}
+						showButtons={diffMode}
+						on:hideDiffMode={hideDiffMode}
+						on:seeHistory={() => {
+							showHistoryDrawer = true
+						}}
 					/>
 				{/key}
 			</div>
@@ -520,8 +564,13 @@
 					{args}
 					{path}
 					on:applyCode={(e) => {
+						hideDiffMode()
 						editor?.reviewAndApplyCode(e.detail.code)
 					}}
+					on:showDiffMode={showDiffMode}
+					{lastSavedCode}
+					{lastDeployedCode}
+					{diffMode}
 				>
 					<svelte:fragment slot="header-left">
 						<HideButton
@@ -537,7 +586,7 @@
 					</svelte:fragment>
 					<svelte:fragment slot="header-right">
 						{#if testPanelSize === 0}
-							<div class="bg-gray-200 h-6 w-[1px] rounded-full dark:bg-gray-600" />
+							<div class="bg-gray-200 h-6 w-[1px] rounded-full dark:bg-gray-600"></div>
 							<HideButton
 								hidden={true}
 								direction="right"

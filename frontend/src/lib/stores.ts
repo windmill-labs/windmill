@@ -102,6 +102,17 @@ export function setCopilotInfo(aiConfig: AIConfig) {
 			([provider, providerConfig]) =>
 				providerConfig.models.map((m) => ({ model: m, provider: provider as AIProvider }))
 		)
+
+		copilotSessionModel.update((model) => {
+			if (
+				model &&
+				!aiModels.some((m) => m.model === model.model && m.provider === model.provider)
+			) {
+				return undefined
+			}
+			return model
+		})
+
 		copilotInfo.set({
 			enabled: true,
 			codeCompletionModel: aiConfig.code_completion_model,
@@ -109,6 +120,8 @@ export function setCopilotInfo(aiConfig: AIConfig) {
 			aiModels: aiModels
 		})
 	} else {
+		copilotSessionModel.set(undefined)
+
 		copilotInfo.set({
 			enabled: false,
 			codeCompletionModel: undefined,
@@ -141,7 +154,7 @@ export const copilotSessionModel = writable<AIProviderModel | undefined>(
 		? {
 				model: sessionModel,
 				provider: sessionProvider as AIProvider
-		  }
+			}
 		: undefined
 )
 export const usedTriggerKinds = writable<string[]>([])
@@ -158,8 +171,17 @@ type SQLBaseSchema = {
 	}
 }
 
+export const SQLSchemaLanguages = [
+	'mysql',
+	'bigquery',
+	'postgresql',
+	'snowflake',
+	'mssql',
+	'oracledb'
+] as const
+
 export interface SQLSchema {
-	lang: 'mysql' | 'bigquery' | 'postgresql' | 'snowflake' | 'mssql' | 'oracledb'
+	lang: (typeof SQLSchemaLanguages)[number]
 	schema: SQLBaseSchema
 	publicOnly: boolean | undefined
 	stringified: string

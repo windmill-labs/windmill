@@ -147,8 +147,8 @@
 				<TableCustom>
 					<tr slot="header-row">
 						<th>owner</th>
-						<th />
-						<th />
+						<th></th>
+						<th></th>
 					</tr>
 					<tbody slot="body">
 						{#each acls as [owner, write]}

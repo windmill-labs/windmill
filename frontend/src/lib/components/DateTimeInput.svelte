@@ -43,12 +43,14 @@
 	let initialTime = time
 
 	function parseDateAndTime(date: string | undefined, time: string | undefined) {
+		console.log(date, time)
 		if (date && time && (initialDate != date || initialTime != time)) {
 			let newDate = new Date(`${date}T${time}`)
-			if (newDate.toString() != 'Invalid Date') {
-				value = newDate.toISOString()
-				dispatch('change', value)
-			}
+			if (newDate.toString() === 'Invalid Date') return
+			if (newDate.getFullYear() < 2000) return
+
+			value = newDate.toISOString()
+			dispatch('change', value)
 		}
 	}
 
@@ -123,7 +125,7 @@
 							setTimeLater(7 * 60 * 24)
 						}
 					}
-			  ]
+				]
 			: undefined}
 		on:click={() => {
 			setTimeLater(0)

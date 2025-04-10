@@ -21,7 +21,6 @@
 		JobService,
 		ResourceService,
 		SettingService,
-		type AIProvider,
 		type AIConfig
 	} from '$lib/gen'
 	import {
@@ -30,8 +29,7 @@
 		userStore,
 		usersWorkspaceStore,
 		workspaceStore,
-		isCriticalAlertsUIOpen,
-		setCopilotInfo
+		isCriticalAlertsUIOpen
 	} from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
 	import { emptyString, tryEvery } from '$lib/utils'
@@ -48,7 +46,6 @@
 
 	import PremiumInfo from '$lib/components/settings/PremiumInfo.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
-	import TestAIKey from '$lib/components/copilot/TestAIKey.svelte'
 	import Portal from '$lib/components/Portal.svelte'
 
 	import { fade } from 'svelte/transition'
@@ -62,12 +59,9 @@
 	} from '$lib/workspace_settings'
 	import { base } from '$lib/base'
 	import { hubPaths } from '$lib/hub'
-	import { AI_DEFAULT_MODELS } from '$lib/components/copilot/lib'
 	import Description from '$lib/components/Description.svelte'
 	import ConnectionSection from '$lib/components/ConnectionSection.svelte'
-	import MultiSelect from 'svelte-multiselect'
-	import Label from '$lib/components/Label.svelte'
-	import ArgEnum from '$lib/components/ArgEnum.svelte'
+	import AiSettings from '$lib/components/workspaceSettings/AISettings.svelte'
 
 	type GitSyncTypeMap = {
 		scripts: boolean
@@ -118,30 +112,9 @@
 	let criticalAlertUIMuted: boolean | undefined = undefined
 	let initialCriticalAlertUIMuted: boolean | undefined = undefined
 
-	const aiProviderLabels: [AIProvider, string][] = [
-		['openai', 'OpenAI'],
-		['anthropic', 'Anthropic'],
-		['mistral', 'Mistral'],
-		['deepseek', 'DeepSeek'],
-		['googleai', 'Google AI'],
-		['groq', 'Groq'],
-		['openrouter', 'OpenRouter'],
-		['togetherai', 'Together AI'],
-		['customai', 'Custom AI']
-	]
-
 	let aiProviders: Exclude<AIConfig['providers'], undefined> = {}
 	let codeCompletionModel: string | undefined = undefined
 	let defaultModel: string | undefined = undefined
-
-	$: availableAIModels = Object.values(aiProviders).flatMap((p) => p.models)
-	$: modelProviderMap = Object.fromEntries(
-		Object.entries(aiProviders).flatMap(([provider, config]) =>
-			config.models.map((m) => [m, provider as AIProvider])
-		)
-	)
-	$: Object.keys(aiProviders).length < 1 &&
-		((codeCompletionModel = undefined), (defaultModel = undefined))
 
 	let s3ResourceSettings: S3ResourceSettings = {
 		resourceType: 's3',
@@ -237,37 +210,6 @@
 			})
 			sendUserToast(`webhook removed`)
 		}
-	}
-
-	async function editCopilotConfig(): Promise<void> {
-		if (Object.keys(aiProviders ?? {}).length > 0) {
-			const code_completion_model = codeCompletionModel
-				? { model: codeCompletionModel, provider: modelProviderMap[codeCompletionModel] }
-				: undefined
-			const default_model = defaultModel
-				? { model: defaultModel, provider: modelProviderMap[defaultModel] }
-				: undefined
-			await WorkspaceService.editCopilotConfig({
-				workspace: $workspaceStore!,
-				requestBody: {
-					providers: aiProviders,
-					code_completion_model,
-					default_model
-				}
-			})
-			setCopilotInfo({
-				providers: aiProviders,
-				code_completion_model,
-				default_model
-			})
-		} else {
-			await WorkspaceService.editCopilotConfig({
-				workspace: $workspaceStore!,
-				requestBody: {}
-			})
-			setCopilotInfo({})
-		}
-		sendUserToast(`Copilot settings updated`)
 	}
 
 	async function editWindmillLFSSettings(): Promise<void> {
@@ -419,9 +361,12 @@
 		await loadWorkspaceEncryptionKey()
 		const timeEnd = new Date().getTime()
 		sendUserToast('All workspace secrets have been re-encrypted with the new key')
-		setTimeout(() => {
-			workspaceReencryptionInProgress = false
-		}, 1000 - (timeEnd - timeStart))
+		setTimeout(
+			() => {
+				workspaceReencryptionInProgress = false
+			},
+			1000 - (timeEnd - timeStart)
+		)
 	}
 
 	let loadedSettings = false
@@ -461,11 +406,11 @@
 			errorHandlerSelected = emptyString(errorHandlerScriptPath)
 				? 'custom'
 				: errorHandlerScriptPath.startsWith('hub/') &&
-				  errorHandlerScriptPath.endsWith('/workspace-or-schedule-error-handler-slack')
-				? 'slack'
-				: errorHandlerScriptPath.endsWith('/workspace-or-schedule-error-handler-teams')
-				? 'teams'
-				: 'custom'
+					  errorHandlerScriptPath.endsWith('/workspace-or-schedule-error-handler-slack')
+					? 'slack'
+					: errorHandlerScriptPath.endsWith('/workspace-or-schedule-error-handler-teams')
+						? 'teams'
+						: 'custom'
 		}
 		errorHandlerExtraArgs = settings.error_handler_extra_args ?? {}
 		workspaceDefaultAppPath = settings.default_app
@@ -476,8 +421,8 @@
 			gitSyncTestJobs = []
 			gitSyncSettings = {
 				include_path:
-					settings.git_sync.include_path?.length ?? 0 > 0
-						? settings.git_sync.include_path ?? []
+					(settings.git_sync.include_path?.length ?? 0 > 0)
+						? (settings.git_sync.include_path ?? [])
 						: ['f/**'],
 				repositories: (settings.git_sync.repositories ?? []).map((settings) => {
 					gitSyncTestJobs.push({
@@ -541,8 +486,8 @@
 		if (settings.deploy_ui != undefined && settings.deploy_ui != null) {
 			deployUiSettings = {
 				include_path:
-					settings.deploy_ui.include_path?.length ?? 0 > 0
-						? settings.deploy_ui.include_path ?? []
+					(settings.deploy_ui.include_path?.length ?? 0 > 0)
+						? (settings.deploy_ui.include_path ?? [])
 						: [],
 				include_type: {
 					scripts: (settings.deploy_ui.include_type?.indexOf('script') ?? -1) >= 0,
@@ -826,12 +771,12 @@
 					/>
 				{:else if slack_tabs === 'teams_commands'}
 					{#if !$enterpriseLicense}
-						<div class="pt-4" />
+						<div class="pt-4"></div>
 						<Alert type="info" title="Workspace Teams commands is an EE feature">
 							Workspace Teams commands is a Windmill EE feature. It enables using your current Slack
 							/ Teams connection to run a custom script and send notifications.
 						</Alert>
-						<div class="pb-2" />
+						<div class="pb-2"></div>
 					{/if}
 					<ConnectionSection
 						platform="teams"
@@ -881,7 +826,7 @@
 				</Button>
 			</div>
 
-			<div class="mt-20" />
+			<div class="mt-20"></div>
 			<PageHeader title="Delete workspace" primary={false} />
 			{#if !$superadmin}
 				<p class="italic text-xs"> Only instance superadmins can delete a workspace. </p>
@@ -954,12 +899,12 @@
 			</div>
 		{:else if tab == 'error_handler'}
 			{#if !$enterpriseLicense}
-				<div class="pt-4" />
+				<div class="pt-4"></div>
 				<Alert type="info" title="Workspace error handler is an EE feature">
 					Workspace error handler is a Windmill EE feature. It enables using your current Slack
 					connection or a custom script to send notifications anytime any job would fail.
 				</Alert>
-				<div class="pb-2" />
+				<div class="pb-2"></div>
 			{/if}
 			<div class="flex flex-col gap-4 my-8">
 				<div class="flex flex-col gap-1">
@@ -1064,153 +1009,12 @@
 				</div>
 			</div>
 		{:else if tab == 'ai'}
-			<div class="flex flex-col gap-4 my-8">
-				<div class="flex flex-col gap-1">
-					<div class="text-primary text-lg font-semibold"> Windmill AI</div>
-					<Description link="https://www.windmill.dev/docs/core_concepts/ai_generation">
-						Windmill AI integrates with your favorite AI providers and models.
-					</Description>
-				</div>
-			</div>
-
-			<div class="flex flex-col gap-8">
-				<div class="flex flex-col gap-2">
-					<p class="font-semibold">AI Providers</p>
-					<div class="flex flex-col gap-4">
-						{#each aiProviderLabels as [provider, label]}
-							<div class="flex flex-col gap-2">
-								<Toggle
-									options={{
-										right: label
-									}}
-									checked={!!aiProviders[provider]}
-									on:change={(e) => {
-										if (e.detail) {
-											aiProviders[provider] = {
-												resource_path: '',
-												models:
-													AI_DEFAULT_MODELS[provider].length > 0
-														? [AI_DEFAULT_MODELS[provider][0]]
-														: []
-											}
-
-											if (AI_DEFAULT_MODELS[provider].length > 0 && !defaultModel) {
-												defaultModel = AI_DEFAULT_MODELS[provider][0]
-											}
-										} else {
-											aiProviders = Object.fromEntries(
-												Object.entries(aiProviders).filter(([key]) => key !== provider)
-											)
-										}
-									}}
-								/>
-								{#if aiProviders[provider]}
-									<div class="mb-4 flex flex-col gap-2">
-										<div class="flex flex-row gap-1">
-											{#key aiProviders[provider].resource_path}
-												<ResourcePicker
-													resourceType={usingOpenaiClientCredentialsOauth
-														? 'openai_client_credentials_oauth'
-														: provider}
-													initialValue={aiProviders[provider].resource_path}
-													bind:value={aiProviders[provider].resource_path}
-													on:change={() => {
-														if (
-															aiProviders[provider].resource_path &&
-															aiProviders[provider].models.length === 0 &&
-															AI_DEFAULT_MODELS[provider].length > 0
-														) {
-															aiProviders[provider].models = AI_DEFAULT_MODELS[provider].slice(0, 1)
-														}
-													}}
-												/>
-											{/key}
-											<TestAIKey
-												aiProvider={provider}
-												resourcePath={aiProviders[provider].resource_path}
-												model={aiProviders[provider].models[0]}
-											/>
-										</div>
-
-										<Label label="Enabled models">
-											<MultiSelect
-												options={AI_DEFAULT_MODELS[provider]}
-												ulOptionsClass={'!bg-surface-secondary'}
-												allowUserOptions="append"
-												bind:selected={aiProviders[provider].models}
-											/>
-										</Label>
-									</div>
-								{/if}
-							</div>
-						{/each}
-					</div>
-				</div>
-
-				{#if Object.keys(aiProviders).length > 0}
-					<div class="flex flex-col gap-2">
-						<p class="font-semibold">Settings</p>
-						<div class="flex flex-col gap-4">
-							<Label label="Default chat model">
-								<ArgEnum
-									enum_={availableAIModels}
-									bind:value={defaultModel}
-									disabled={false}
-									autofocus={false}
-									defaultValue={undefined}
-									valid={true}
-									create={false}
-									required={false}
-								/>
-							</Label>
-
-							<div class="flex flex-col gap-2">
-								<Toggle
-									on:change={(e) => {
-										if (e.detail) {
-											codeCompletionModel = ''
-										} else {
-											codeCompletionModel = undefined
-										}
-									}}
-									checked={codeCompletionModel != undefined}
-									options={{
-										right: 'Code completion'
-									}}
-								/>
-
-								{#if codeCompletionModel != undefined}
-									<Label label="Code completion model">
-										<ArgEnum
-											enum_={availableAIModels}
-											bind:value={codeCompletionModel}
-											disabled={false}
-											autofocus={false}
-											defaultValue={undefined}
-											valid={true}
-											create={false}
-											required={false}
-										/>
-										<p class="text-xs">
-											We highly recommend using Mistral's Codestral model for code completion.
-										</p>
-									</Label>
-								{/if}
-							</div>
-						</div>
-					</div>
-				{/if}
-
-				<Button
-					wrapperClasses="self-start"
-					disabled={!Object.values(aiProviders).every((p) => p.resource_path) ||
-						(codeCompletionModel != undefined && codeCompletionModel.length === 0) ||
-						(Object.keys(aiProviders).length > 0 && !defaultModel)}
-					on:click={editCopilotConfig}
-				>
-					Save
-				</Button>
-			</div>
+			<AiSettings
+				{aiProviders}
+				{codeCompletionModel}
+				{defaultModel}
+				{usingOpenaiClientCredentialsOauth}
+			/>
 		{:else if tab == 'windmill_lfs'}
 			<div class="flex flex-col gap-4 my-8">
 				<div class="flex flex-col gap-1">
@@ -1283,7 +1087,7 @@
 							}}
 						/>
 						{#if s3ResourceSettings.publicResource === true}
-							<div class="pt-2" />
+							<div class="pt-2"></div>
 
 							<Alert type="warning" title="S3 bucket content and resource details are shared">
 								S3 resource public access is ON, which means that the entire content of the S3
@@ -1306,7 +1110,7 @@
 							}}
 						/>
 						{#if s3ResourceSettings.publicResource === true}
-							<div class="pt-2" />
+							<div class="pt-2"></div>
 							<Alert type="warning" title="object content">
 								object public access is ON, which means that the entire content of the object store
 								will be accessible to all the users of this workspace regardless of whether they
@@ -1406,12 +1210,12 @@
 				</div>
 			</div>
 			{#if !$enterpriseLicense}
-				<div class="mb-2" />
+				<div class="mb-2"></div>
 
 				<Alert type="warning" title="Syncing workspace to Git is an EE feature">
 					Automatically saving scripts to a Git repository on each deploy is a Windmill EE feature.
 				</Alert>
-				<div class="mb-2" />
+				<div class="mb-2"></div>
 			{/if}
 			{#if gitSyncSettings != undefined}
 				<div class="flex mt-5 mb-5 gap-8">
@@ -1480,7 +1284,7 @@
 								Add filter
 							</Button>
 						</div>
-						<div class="pt-2" />
+						<div class="pt-2"></div>
 						<Alert type="info" title="Only new updates trigger git sync">
 							Only new changes matching the filters will trigger a git sync. You still need to
 							initalize the repo to the desired state first.
