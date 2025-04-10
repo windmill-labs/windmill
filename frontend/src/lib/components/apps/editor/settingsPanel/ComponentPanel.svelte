@@ -59,7 +59,7 @@
 		worldStore,
 		focusedGrid,
 		stateId,
-		state,
+		state: stateStore,
 		errorByComponent,
 		componentControl
 	} = getContext<AppViewerContext>('AppViewerContext')
@@ -115,9 +115,9 @@
 			? buildExtraLib(
 					$worldStore?.outputsById ?? {},
 					componentSettings?.item?.data?.id,
-					$state,
+					$stateStore,
 					false
-			  )
+				)
 			: undefined
 
 	// 	`
@@ -139,8 +139,6 @@
 	const componentInput: RichConfiguration | undefined = componentSettings?.item?.data?.type
 		? ccomponents[componentSettings?.item?.data?.type]?.initialData?.componentInput
 		: undefined
-
-	$: componentSettings?.item?.data && ($app = $app)
 
 	const hasInteraction = componentSettings?.item.data.type
 		? isTriggerable(componentSettings?.item.data.type)
@@ -235,10 +233,10 @@
 					title={componentSettings?.item.data.type == 'steppercomponent'
 						? 'Validations'
 						: componentSettings?.item.data.type == 's3fileinputcomponent'
-						? 'Path template'
-						: hasInteraction
-						? 'Event handler'
-						: 'Data source'}
+							? 'Path template'
+							: hasInteraction
+								? 'Event handler'
+								: 'Data source'}
 					id={'component-input'}
 				>
 					<svelte:fragment slot="action">
@@ -469,7 +467,7 @@
 
 		<EventHandlers bind:item={componentSettings.item} ownId={component.id} />
 
-		<div class="grow shrink" />
+		<div class="grow shrink"></div>
 
 		{#if Object.keys(ccomponents[component.type]?.customCss ?? {}).length > 0}
 			<PanelSection title="Styling">

@@ -26,6 +26,7 @@
 	export let contentHeight: number = 0
 	export let tableFixed: boolean = false
 	export let infiniteScroll: boolean | undefined = undefined
+	export let neverShowLoader = false
 
 	let footerHeight: number = 0
 	let tableHeight: number = 0
@@ -81,6 +82,7 @@
 			<table class={tableFixed ? 'table-fixed w-full' : 'min-w-full'}>
 				<slot />
 			</table>
+			<slot name="emptyMessage" />
 		</div>
 		{#if paginated && !shouldHidePagination}
 			<div
@@ -140,7 +142,7 @@
 				</Button>
 			</div>
 		{/if}
-		{#if loading || loadingMore}
+		{#if (loading || loadingMore) && !neverShowLoader}
 			<div
 				class="text-tertiary bg-surface border-t flex flex-row justify-center py-2 items-center gap-2"
 			>

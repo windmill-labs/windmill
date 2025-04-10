@@ -8,13 +8,7 @@
 	import type Editor from '../Editor.svelte'
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
 	import TooltipV2 from '$lib/components/meltComponents/Tooltip.svelte'
-	import {
-		dbSchemas,
-		copilotInfo,
-		type DBSchema,
-		workspaceStore,
-		copilotSessionModel
-	} from '$lib/stores'
+	import { dbSchemas, copilotInfo, type DBSchema, workspaceStore } from '$lib/stores'
 	import type DiffEditor from '../DiffEditor.svelte'
 	import { scriptLangToEditorLang } from '$lib/scripts'
 	import type SimpleEditor from '../SimpleEditor.svelte'
@@ -31,6 +25,7 @@
 	import { isInitialCode } from '$lib/script_helpers'
 	import { twMerge } from 'tailwind-merge'
 	import { onDestroy } from 'svelte'
+	import ProviderModelSelector from './chat/ProviderModelSelector.svelte'
 
 	// props
 	export let iconOnly: boolean = false
@@ -249,7 +244,7 @@
 <svelte:window on:resize={autoResize} bind:innerWidth />
 
 {#if genLoading}
-	<div transition:fade class="fixed z-[4999] inset-0 bg-gray-500/75" />
+	<div transition:fade class="fixed z-[4999] inset-0 bg-gray-500/75"></div>
 {/if}
 
 {#if $generatedCode.length > 0 && !genLoading}
@@ -333,7 +328,7 @@
 								setTimeout(() => {
 									autoResize()
 								}, 0)
-						  }}
+							}}
 					bind:element={button}
 					iconOnly
 					title="Generate code from prompt"
@@ -366,7 +361,7 @@
 								setTimeout(() => {
 									autoResize()
 								}, 0)
-						  }}
+							}}
 					bind:element={button}
 					{iconOnly}
 				>
@@ -404,33 +399,7 @@
 								<ToggleButton value={'edit'} label="Edit existing code" light class="px-2" {item} />
 							</ToggleButtonGroup>
 
-							<div class="min-w-0">
-								<TooltipV2>
-									{#if $copilotInfo.aiModels.length > 1}
-										<select
-											bind:value={$copilotSessionModel}
-											class="!text-xs !pr-5 !bg-[right_center] overflow-ellipsis text-right !border-none !shadow-none"
-										>
-											{#each $copilotInfo.aiModels as providerModel}
-												<option value={providerModel.model} class="pr-4"
-													>{providerModel.model}</option
-												>
-											{/each}
-										</select>
-									{:else if $copilotInfo.aiModels.length === 1}
-										<div class="text-xs whitespace-nowrap overflow-hidden overflow-ellipsis">
-											{$copilotInfo.aiModels[0].model}
-										</div>
-									{/if}
-									<svelte:fragment slot="text">
-										<span class="text-xs"
-											>{$copilotInfo.aiModels.length > 1
-												? $copilotSessionModel
-												: $copilotInfo.aiModels[0].model}</span
-										>
-									</svelte:fragment>
-								</TooltipV2>
-							</div>
+							<ProviderModelSelector />
 						</div>
 						<div class="flex w-96 items-start">
 							<textarea
@@ -448,7 +417,7 @@
 									: 'Describe what the script should do'}
 								rows="1"
 								class="resize-none overflow-hidden"
-							/>
+							></textarea>
 							<Button
 								size="xs"
 								color="light"

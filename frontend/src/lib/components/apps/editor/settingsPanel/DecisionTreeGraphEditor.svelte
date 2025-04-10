@@ -29,6 +29,8 @@
 	$: selectedNode = nodes?.find((node) => node.id == $selectedNodeId)
 
 	setContext('DecisionTreeEditor', { selectedNodeId })
+
+	$: sortedSelectedNextNodes = selectedNode?.next.sort((n1, n2) => n1.id.localeCompare(n2.id))
 </script>
 
 <Drawer bind:this={drawer} on:close={() => {}} on:open={() => {}} size="1200px">
@@ -86,16 +88,15 @@
 									bind:value={selectedNode.label}
 									on:input={() => {
 										debounce(() => {
+											nodes = nodes
 											renderCount++
 										}, 300)()
 									}}
 								/>
 							</Label>
 
-							{#if selectedNode.next.length > 1}
-								{#each selectedNode.next.sort((n1, n2) => {
-									return n1.id.localeCompare(n2.id)
-								}) as subNode, index (subNode.id)}
+							{#if selectedNode.next.length > 1 && sortedSelectedNextNodes}
+								{#each sortedSelectedNextNodes as subNode, index (subNode.id)}
 									{#if subNode.condition}
 										<div class="flex flex-row gap-4 items-center w-full justify-center">
 											<div class="grow relative">

@@ -79,7 +79,7 @@
 				<tr slot="header-row">
 					<th>Concurrency key</th>
 					<th>Jobs running</th>
-					<th />
+					<th></th>
 				</tr>
 				<tbody slot="body">
 					{#each concurrencyGroups as { concurrency_key, total_running }}
