@@ -1008,7 +1008,8 @@ pub async fn run_worker(
 
     let same_worker_queue_size = Arc::new(AtomicU16::new(0));
     let same_worker_tx = SameWorkerSender(same_worker_tx, same_worker_queue_size.clone());
-    let job_completed_processor_is_done = Arc::new(AtomicBool::new(false));
+    let job_completed_processor_is_done =
+        Arc::new(AtomicBool::new(matches!(conn, Connection::Http(_))));
 
     let send_result = match (conn, job_completed_rx) {
         (Connection::Sql(db), Some(job_completed_rx)) => Some(start_background_processor(
