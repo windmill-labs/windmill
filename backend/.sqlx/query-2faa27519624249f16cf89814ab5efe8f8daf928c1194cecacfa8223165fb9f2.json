@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "UPDATE v2_job_runtime r SET\n                                memory_peak = $1,\n                                ping = now()\n                            FROM v2_job_queue q\n                            WHERE r.id = $2 AND q.id = r.id\n                            RETURNING canceled_by, canceled_reason",
+  "query": "UPDATE v2_job_runtime r SET\n        memory_peak = $1,\n        ping = now()\n    FROM v2_job_queue q\n    WHERE r.id = $2 AND q.id = r.id\n    RETURNING canceled_by, canceled_reason",
   "describe": {
     "columns": [
       {
@@ -25,5 +25,5 @@
       true
     ]
   },
-  "hash": "6ff7a025f529c077c1b6c9632a367aa29e2f0fdac3f1984550484d5a06a6ea21"
+  "hash": "2faa27519624249f16cf89814ab5efe8f8daf928c1194cecacfa8223165fb9f2"
 }

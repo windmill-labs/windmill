@@ -6891,6 +6891,7 @@ paths:
         - $ref: "#/components/parameters/Running"
         - $ref: "#/components/parameters/ArgsFilter"
         - $ref: "#/components/parameters/ResultFilter"
+        - $ref: "#/components/parameters/AllowWildcards"
         - $ref: "#/components/parameters/Tag"
         - $ref: "#/components/parameters/Page"
         - $ref: "#/components/parameters/PerPage"
@@ -7091,6 +7092,7 @@ paths:
         - $ref: "#/components/parameters/Running"
         - $ref: "#/components/parameters/ArgsFilter"
         - $ref: "#/components/parameters/ResultFilter"
+        - $ref: "#/components/parameters/AllowWildcards"
         - $ref: "#/components/parameters/Tag"
         - $ref: "#/components/parameters/Page"
         - $ref: "#/components/parameters/PerPage"
@@ -7169,6 +7171,7 @@ paths:
         - $ref: "#/components/parameters/JobKinds"
         - $ref: "#/components/parameters/ArgsFilter"
         - $ref: "#/components/parameters/ResultFilter"
+        - $ref: "#/components/parameters/AllowWildcards"
         - $ref: "#/components/parameters/Tag"
         - $ref: "#/components/parameters/Page"
         - $ref: "#/components/parameters/PerPage"
@@ -7232,6 +7235,7 @@ paths:
         - $ref: "#/components/parameters/ArgsFilter"
         - $ref: "#/components/parameters/Tag"
         - $ref: "#/components/parameters/ResultFilter"
+        - $ref: "#/components/parameters/AllowWildcards"
         - $ref: "#/components/parameters/Page"
         - $ref: "#/components/parameters/PerPage"
         - name: is_skipped
@@ -10666,6 +10670,41 @@ paths:
                 items:
                   $ref: "#/components/schemas/AutoscalingEvent"
 
+  /agent_workers/create_agent_token:
+    post:
+      summary: create agent token
+      operationId: createAgentToken
+      tags:
+        - agent_workers
+      requestBody:
+        description: agent token
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                worker_group:
+                  type: string
+                tags:
+                  type: array
+                  items:
+                    type: string
+                exp:
+                  type: integer
+              required:
+                - worker_group
+                - tags
+                - exp
+      responses:
+        "200":
+          description: agent token created
+          content:
+            application/json:
+              schema:
+                type: string
+
+
   /w/{workspace}/acls/get/{kind}/{path}:
     get:
       summary: get granular acls
@@ -12055,6 +12094,7 @@ paths:
         - $ref: "#/components/parameters/ArgsFilter"
         - $ref: "#/components/parameters/Tag"
         - $ref: "#/components/parameters/ResultFilter"
+        - $ref: "#/components/parameters/AllowWildcards"
         - $ref: "#/components/parameters/Page"
         - $ref: "#/components/parameters/PerPage"
         - name: is_skipped
@@ -12552,6 +12592,12 @@ components:
     Running:
       name: running
       description: filter on running jobs
+      in: query
+      schema:
+        type: boolean
+    AllowWildcards:
+      name: allow_wildcards
+      description: allow wildcards (*) in the filter of label, tag, worker
       in: query
       schema:
         type: boolean

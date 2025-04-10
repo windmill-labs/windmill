@@ -59,6 +59,7 @@
 	let user: string | null = $page.url.searchParams.get('user')
 	let folder: string | null = $page.url.searchParams.get('folder')
 	let label: string | null = $page.url.searchParams.get('label')
+	let allowWildcards: boolean = $page.url.searchParams.get('allow_wildcards') == 'true'
 	let concurrencyKey: string | null = $page.url.searchParams.get('concurrency_key')
 	let tag: string | null = $page.url.searchParams.get('tag')
 	// Rest of filters handled by RunsFilter
@@ -109,6 +110,7 @@
 		concurrencyKey = $page.url.searchParams.get('concurrency_key')
 		tag = $page.url.searchParams.get('tag')
 		worker = $page.url.searchParams.get('worker')
+		allowWildcards = $page.url.searchParams.get('allow_wildcards') == 'true'
 		// Rest of filters handled by RunsFilter
 		success = ($page.url.searchParams.get('success') ?? undefined) as
 			| 'running'
@@ -214,6 +216,7 @@
 		graph ||
 		maxTs ||
 		allWorkspaces ||
+		allowWildcards ||
 		$workspaceStore) &&
 		setQuery(false)
 
@@ -323,6 +326,12 @@
 			searchParams.delete('label')
 		}
 
+		if (allowWildcards) {
+			searchParams.set('allow_wildcards', allowWildcards.toString())
+		} else {
+			searchParams.delete('allow_wildcards')
+		}
+
 		if (graph != 'RunChart') {
 			searchParams.set('graph', graph)
 		} else {
@@ -427,6 +436,7 @@
 		tag = null
 		schedulePath = undefined
 		worker = null
+		allowWildcards = false
 	}
 
 	function filterByConcurrencyKey(e: CustomEvent<string>) {
@@ -449,6 +459,7 @@
 		tag = e.detail
 		schedulePath = undefined
 		worker = null
+		allowWildcards = false
 	}
 
 	function filterBySchedule(e: CustomEvent<string>) {
@@ -471,6 +482,7 @@
 		tag = null
 		schedulePath = undefined
 		worker = e.detail
+		allowWildcards = false
 	}
 
 	let calendarChangeTimeout: NodeJS.Timeout | undefined = undefined
@@ -542,7 +554,8 @@
 				resultFilter && resultFilter != '{}' && resultFilter != '' && resultError == ''
 					? resultFilter
 					: undefined,
-			allWorkspaces: allWorkspaces ? true : undefined
+			allWorkspaces: allWorkspaces ? true : undefined,
+			allowWildcards: allowWildcards ? true : undefined
 		}
 	}
 
@@ -727,6 +740,7 @@
 </script>
 
 <JobLoader
+	{allowWildcards}
 	{allWorkspaces}
 	bind:jobs
 	{user}
@@ -830,6 +844,7 @@
 					</div>
 				</div>
 				<RunsFilter
+					bind:allowWildcards
 					bind:isSkipped
 					bind:user
 					bind:folder
@@ -1167,6 +1182,7 @@
 					</Tooltip>
 				</div>
 				<RunsFilter
+					bind:allowWildcards
 					bind:isSkipped
 					{paths}
 					{usernames}

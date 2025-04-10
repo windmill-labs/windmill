@@ -45,7 +45,7 @@ use windmill_common::error::Error;
 #[cfg(feature = "deno_core")]
 use windmill_common::worker::{write_file, TMP_DIR};
 
-use windmill_common::{flow_status::JobResult, DB};
+use windmill_common::flow_status::JobResult;
 use windmill_queue::CanceledBy;
 
 use crate::{common::OccupancyMetrics, AuthedClient};
@@ -749,15 +749,19 @@ fn capture_proxy(s: &str) -> Option<(String, Option<(String, String)>)> {
         )
     })
 }
+
+use windmill_common::worker::Connection;
+
 #[cfg(not(feature = "deno_core"))]
 pub async fn eval_fetch_timeout(
     _env_code: String,
     _ts_expr: String,
     _js_expr: String,
     _args: Option<&Json<HashMap<String, Box<RawValue>>>>,
+    _script_entrypoint_override: Option<String>,
     _job_id: Uuid,
     _job_timeout: Option<i32>,
-    _db: &DB,
+    _conn: &Connection,
     _mem_peak: &mut i32,
     _canceled_by: &mut Option<CanceledBy>,
     _worker_name: &str,
@@ -775,9 +779,10 @@ pub async fn eval_fetch_timeout(
     ts_expr: String,
     js_expr: String,
     args: Option<&Json<HashMap<String, Box<RawValue>>>>,
+    script_entrypoint_override: Option<String>,
     job_id: Uuid,
     job_timeout: Option<i32>,
-    db: &DB,
+    conn: &Connection,
     mem_peak: &mut i32,
     canceled_by: &mut Option<CanceledBy>,
     worker_name: &str,
@@ -789,7 +794,13 @@ pub async fn eval_fetch_timeout(
 
     let (sender, mut receiver) = oneshot::channel::<IsolateHandle>();
 
-    let parsed_args = windmill_parser_ts::parse_deno_signature(&ts_expr, true, false, None)?.args;
+    let parsed_args = windmill_parser_ts::parse_deno_signature(
+        &ts_expr,
+        true,
+        false,
+        script_entrypoint_override.clone(),
+    )?
+    .args;
     let spread = parsed_args
         .into_iter()
         .map(|x| {
@@ -817,7 +828,7 @@ pub async fn eval_fetch_timeout(
         ));
     }
 
-    let db_ = db.clone();
+    let conn_ = conn.clone();
     let w_id_ = w_id.to_string();
     let result_f = tokio::task::spawn_blocking(move || {
         let ops = vec![op_get_static_args(), op_log()];
@@ -902,7 +913,7 @@ pub async fn eval_fetch_timeout(
 
         let future = async {
             let r = tokio::select! {
-                r = eval_fetch(&mut js_runtime, &js_expr, Some(env_code), load_client, &job_id) => Ok(r),
+                r = eval_fetch(&mut js_runtime, &js_expr, Some(env_code), script_entrypoint_override, load_client, &job_id) => Ok(r),
                 _ = memory_limit_rx.recv() => Err(Error::ExecutionErr("Memory limit reached, killing isolate".to_string()))
             };
 
@@ -913,7 +924,7 @@ pub async fn eval_fetch_timeout(
                     "{extra_logs}{}",
                     js_runtime.op_state().borrow().borrow::<LogString>().s
                 ),
-                db_,
+                &conn_,
             )
             .await;
 
@@ -928,7 +939,7 @@ pub async fn eval_fetch_timeout(
     let res = run_future_with_polling_update_job_poller(
         job_id,
         job_timeout,
-        db,
+        conn,
         mem_peak,
         canceled_by,
         async { result_f.await? },
@@ -990,6 +1001,7 @@ async fn eval_fetch(
     js_runtime: &mut JsRuntime,
     expr: &str,
     env_code: Option<String>,
+    script_entrypoint_override: Option<String>,
     load_client: bool,
     job_id: &Uuid,
 ) -> anyhow::Result<Box<RawValue>> {
@@ -1016,13 +1028,16 @@ async fn eval_fetch(
         })
         .context("failed to load module")?;
 
+    let main_override = script_entrypoint_override.unwrap_or("main".to_string());
     let script = js_runtime
         .execute_script(
             "<anon>",
-            r#"
+            format!(
+                r#"
 let args = Deno.core.ops.op_get_static_args().map(JSON.parse)
-import("file:///eval.ts").then((module) => module.main(...args)).then(JSON.stringify)
-"#,
+import("file:///eval.ts").then((module) => module.{main_override}(...args)).then(JSON.stringify)
+"#
+            ),
         )
         .map_err(|e| {
             write_error_expr(expr, &job_id);

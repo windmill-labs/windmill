@@ -34,6 +34,8 @@ serde_json.workspace = true
 chrono.workspace = true
 chrono-tz.workspace = true
 hex.workspace = true
+reqwest-middleware = { workspace = true }
+reqwest-retry = { workspace = true }
 rand.workspace = true
 sqlx = { workspace = true, features = ["postgres"] }
 uuid.workspace = true
