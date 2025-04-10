@@ -4,7 +4,7 @@
 	import Drawer from './common/drawer/Drawer.svelte'
 	import DrawerContent from './common/drawer/DrawerContent.svelte'
 	import { sendUserToast } from '$lib/utils'
-	import { Expand, Loader2, Minimize, RefreshCcw } from 'lucide-svelte'
+	import { Database, Expand, Loader2, Minimize, RefreshCcw } from 'lucide-svelte'
 	import {
 		getDbSchemas,
 		loadTableMetaData,
@@ -93,7 +93,7 @@
 		btnClasses={'mt-1 w-fit ' + className}
 		on:click={() => (isDrawerOpen = true)}
 	>
-		Manage database
+		<Database size={18} /> Manager
 	</Button>
 	<Drawer
 		bind:open={isDrawerOpen}

@@ -4,7 +4,7 @@
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import { ClearableInput, Drawer, DrawerContent } from './common'
 	import { sendUserToast } from '$lib/toast'
-	import { type ColumnDef, type DbType } from './apps/components/display/dbtable/utils'
+	import { type ColumnDef } from './apps/components/display/dbtable/utils'
 	import DBTable from './DBTable.svelte'
 	import type { DbTableActionFactory, IDbTableOps } from './dbOps'
 	import DropdownV2 from './DropdownV2.svelte'
@@ -87,7 +87,7 @@
 			</select>
 			<ClearableInput wrapperClass="mt-3" bind:value={search} placeholder="Search table..." />
 		</div>
-		<div class="overflow-x-clip overflow-y-auto relative mt-3">
+		<div class="overflow-x-clip overflow-y-auto relative mt-3 border-y">
 			{#each filteredTableKeys as tableKey}
 				<button
 					class={'w-full text-sm font-normal flex gap-2 items-center h-10 cursor-pointer pl-3 pr-1 ' +
@@ -138,7 +138,11 @@
 			{/each}
 		</div>
 		{#if dbTableEditorProps}
-			<Button on:click={() => (dbTableEditorState = { open: true })} wrapperClasses="m-3">
+			<Button
+				color="light"
+				on:click={() => (dbTableEditorState = { open: true })}
+				wrapperClasses="mx-2 my-1"
+			>
 				New table
 			</Button>
 		{/if}
