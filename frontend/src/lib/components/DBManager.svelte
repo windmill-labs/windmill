@@ -18,7 +18,7 @@
 		dbTableOpsFactory: (params: { colDefs: ColumnDef[]; tableKey: string }) => IDbTableOps
 		dbTableActionsFactory?: DbTableActionFactory[]
 		refresh?: () => void
-		dbTableEditorProps?: DBTableEditorProps
+		dbTableEditorPropsFactory?: (params: { selectedSchemaKey: string }) => DBTableEditorProps
 	}
 	let {
 		dbSchema,
@@ -26,7 +26,7 @@
 		getColDefs,
 		dbTableActionsFactory,
 		refresh,
-		dbTableEditorProps
+		dbTableEditorPropsFactory
 	}: Props = $props()
 
 	let schemaKeys = $derived(Object.keys(dbSchema.schema))
@@ -70,6 +70,10 @@
 		| undefined = $state()
 
 	let dbTableEditorState: { open: boolean } = $state({ open: false })
+
+	let dbTableEditorProps = $derived(
+		selected.schemaKey && dbTableEditorPropsFactory?.({ selectedSchemaKey: selected.schemaKey })
+	)
 </script>
 
 <Splitpanes>
@@ -87,7 +91,7 @@
 			</select>
 			<ClearableInput wrapperClass="mt-3" bind:value={search} placeholder="Search table..." />
 		</div>
-		<div class="overflow-x-clip overflow-y-auto relative mt-3 border-y">
+		<div class="overflow-x-clip overflow-y-auto relative mt-3 border-y flex-1">
 			{#each filteredTableKeys as tableKey}
 				<button
 					class={'w-full text-sm font-normal flex gap-2 items-center h-10 cursor-pointer pl-3 pr-1 ' +
@@ -175,7 +179,13 @@
 			on:close={() => (dbTableEditorState = { open: false })}
 			title="Create a new table"
 		>
-			<DbTableEditor {...dbTableEditorProps} />
+			<DbTableEditor
+				{...dbTableEditorProps}
+				onConfirm={async (values) => {
+					await dbTableEditorProps.onConfirm(values)
+					dbTableEditorState = { open: false }
+				}}
+			/>
 		</DrawerContent>
 	</Drawer>
 {/if}

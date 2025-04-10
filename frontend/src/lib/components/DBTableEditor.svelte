@@ -1,5 +1,5 @@
 <script lang="ts" module>
-	function validate(values: Values) {
+	function validate(values: CreateTableValues) {
 		const columnNamesErrs = values.columns.flatMap((column) => {
 			const isUnique = values.columns.filter((c) => c.name === column.name).length === 1
 			return !column.name.length || !isUnique ? [column.name] : []
@@ -13,19 +13,9 @@
 	}
 
 	export type DBTableEditorProps = {
-		onConfirm: (params: {}) => void | Promise<void>
+		onConfirm: (values: CreateTableValues) => void | Promise<void>
+		previewSql?: (values: CreateTableValues) => string
 		resourceType: DbType
-	}
-
-	type Values = {
-		name: string
-		columns: {
-			name: string
-			type: string
-			primaryKey?: boolean
-			defaultValue?: string
-			not_null?: boolean
-		}[]
 	}
 </script>
 
@@ -41,8 +31,11 @@
 	import Select from './apps/svelte-select/lib/Select.svelte'
 	import Popover from './meltComponents/Popover.svelte'
 	import Tooltip from './meltComponents/Tooltip.svelte'
+	import type { CreateTableValues } from './apps/components/display/dbtable/queries/createTable'
+	import ConfirmationModal from './common/confirmationModal/ConfirmationModal.svelte'
+	import { sendUserToast } from '$lib/toast'
 
-	const { onConfirm, resourceType }: DBTableEditorProps = $props()
+	const { onConfirm, resourceType, previewSql }: DBTableEditorProps = $props()
 
 	const columnTypes = DB_TYPES[resourceType]
 	const defaultColumnType = (
@@ -55,12 +48,16 @@
 		} satisfies Record<DbType, string>
 	)[resourceType]
 
-	const values: Values = $state({
+	const values: CreateTableValues = $state({
 		name: '',
-		columns: [{ name: 'id', type: defaultColumnType, primaryKey: true }]
+		columns: [{ name: 'id', datatype: defaultColumnType, primaryKey: true }]
 	})
 
 	const errors: ReturnType<typeof validate> = $derived(validate(values))
+
+	let askingForConfirmation:
+		| (ConfirmationModal['$$prop_def'] & { onConfirm: () => void; codeContent?: string })
+		| undefined = $state()
 </script>
 
 <div class="flex flex-col h-full">
@@ -102,8 +99,8 @@
 								<Cell>
 									<Select
 										class="!w-48"
-										value={column.type}
-										on:change={(e) => (column.type = e.detail.value)}
+										value={column.datatype}
+										on:change={(e) => (column.datatype = e.detail.value)}
 										items={columnTypes}
 										clearable={false}
 									/>
@@ -155,7 +152,11 @@
 									startIcon={{ icon: Plus }}
 									color="light"
 									on:click={() =>
-										values.columns.push({ name: '', type: defaultColumnType, primaryKey: false })}
+										values.columns.push({
+											name: '',
+											datatype: defaultColumnType,
+											primaryKey: false
+										})}
 								>
 									Add
 								</Button>
@@ -166,5 +167,38 @@
 			</div>
 		</div>
 	</div>
-	<Button disabled={!!errors} on:click={() => onConfirm(values)}>Create table</Button>
+	<Button
+		disabled={!!errors}
+		on:click={() =>
+			(askingForConfirmation = {
+				onConfirm: async () => {
+					try {
+						askingForConfirmation && (askingForConfirmation.loading = true)
+						await onConfirm(values)
+						sendUserToast(values.name + ' created!')
+					} catch (e) {
+						let msg: string | undefined = (e as Error)?.message
+						if (typeof msg !== 'string') msg = e ? JSON.stringify(e) : 'An error occured'
+						sendUserToast(e, true)
+					}
+					askingForConfirmation = undefined
+				},
+				title: 'Confirm running the following:',
+				confirmationText: 'Create ' + values.name,
+				open: true,
+				...(previewSql && { codeContent: previewSql(values) })
+			})}>Create table</Button
+	>
 </div>
+
+<ConfirmationModal
+	{...askingForConfirmation ?? { confirmationText: '', title: '' }}
+	on:canceled={() => (askingForConfirmation = undefined)}
+	on:confirmed={askingForConfirmation?.onConfirm ?? (() => {})}
+>
+	{#if askingForConfirmation?.codeContent}
+		<code class="whitespace-pre-wrap">
+			{askingForConfirmation.codeContent}
+		</code>
+	{/if}
+</ConfirmationModal>

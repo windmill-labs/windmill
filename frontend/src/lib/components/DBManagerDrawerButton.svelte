@@ -15,6 +15,9 @@
 	import { Alert } from './common'
 	import DbSchemaExplorer from './DBSchemaExplorer.svelte'
 	import { dbDeleteTableActionWithPreviewScript, dbTableOpsWithPreviewScripts } from './dbOps'
+	import { makeCreateTableQuery } from './apps/components/display/dbtable/queries/createTable'
+	import { runPreviewJobAndPollResult } from './jobs/utils'
+	import { type ScriptLang } from '$lib/gen'
 
 	type Props = {
 		resourceType: DbType
@@ -146,12 +149,21 @@
 					refresh={() => {
 						refreshing = true
 					}}
-					dbTableEditorProps={{
+					dbTableEditorPropsFactory={({ selectedSchemaKey }) => ({
 						resourceType,
-						onConfirm(params) {
-							// TODO
+						previewSql: (values) => makeCreateTableQuery(values, resourceType, selectedSchemaKey),
+						async onConfirm(values) {
+							await runPreviewJobAndPollResult({
+								workspace: $workspaceStore,
+								requestBody: {
+									args: { database: '$res:' + resourcePath },
+									content: makeCreateTableQuery(values, resourceType, selectedSchemaKey),
+									language: resourceType as ScriptLang
+								}
+							})
+							refreshing = true
 						}
-					}}
+					})}
 				/>
 			{:else if mode === 'schema-explorer'}
 				<DbSchemaExplorer {dbSchema} />
