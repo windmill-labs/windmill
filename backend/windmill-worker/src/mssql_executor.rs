@@ -11,7 +11,7 @@ use uuid::Uuid;
 use windmill_common::{
     error::{self, to_anyhow, Error},
     utils::empty_string_as_none,
-    worker::to_raw_value,
+    worker::{to_raw_value, Connection},
 };
 use windmill_parser_sql::{parse_db_resource, parse_mssql_sig};
 use windmill_queue::MiniPulledJob;
