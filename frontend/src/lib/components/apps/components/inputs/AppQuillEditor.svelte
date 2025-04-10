@@ -101,6 +101,7 @@
 {/if}
 
 <style lang="postcss">
+	@reference "../../../../assets/app.css";
 	:global(.ql-toolbar) {
 		@apply rounded-t-md;
 	}

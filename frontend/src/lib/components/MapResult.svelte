@@ -135,6 +135,8 @@
 <div bind:this={mapElement} class="w-full h-[300px]"></div>
 
 <style global lang="postcss">
+	@reference "../assets/app.css";
+
 	.ol-overlaycontainer-stopevent {
 		@apply flex flex-col justify-start items-end;
 	}

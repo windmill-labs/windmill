@@ -473,6 +473,7 @@
 {/if}
 
 <style lang="postcss">
+	@reference "../assets/app.css";
 	.editor {
 		@apply rounded-lg p-0;
 	}

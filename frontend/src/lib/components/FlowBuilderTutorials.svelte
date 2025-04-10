@@ -83,6 +83,8 @@
 </ConfirmationModal>
 
 <style global>
+	@reference "../assets/app.css";
+
 	.driver-popover-title {
 		@apply leading-6 text-primary text-base;
 	}

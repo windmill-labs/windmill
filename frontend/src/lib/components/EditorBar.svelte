@@ -805,6 +805,8 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 </div>
 
 <style lang="postcss">
+	@reference "../assets/app.css";
+
 	span.green {
 		@apply text-green-600 animate-[pulse_5s_ease-in-out_infinite];
 	}

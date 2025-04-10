@@ -252,6 +252,7 @@
 <AppTutorials bind:this={appTutorials} on:reload />
 
 <style lang="postcss">
+	@reference "../../../../assets/app.css";
 	.panel-item {
 		@apply border flex gap-1 truncate font-normal justify-between w-full items-center py-1 px-2 rounded-sm duration-200;
 	}

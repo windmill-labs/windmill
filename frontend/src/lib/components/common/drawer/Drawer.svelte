@@ -94,6 +94,7 @@
 </ConditionalPortal>
 
 <style lang="postcss">
+	@reference "../../../assets/app.css";
 	.drawer {
 		position: fixed;
 		top: 0;
@@ -140,7 +141,9 @@
 		width: 100%;
 		@apply bg-surface;
 		z-index: 3;
-		transition: transform var(--duration) ease, max-width var(--duration) ease,
+		transition:
+			transform var(--duration) ease,
+			max-width var(--duration) ease,
 			max-height var(--duration) ease;
 		height: 100%;
 	}

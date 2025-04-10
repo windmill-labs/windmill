@@ -247,6 +247,7 @@
 {/if}
 
 <style lang="postcss">
+	@reference "../../assets/app.css";
 	ul {
 		list-style: none;
 		@apply text-sm;

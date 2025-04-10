@@ -27,6 +27,7 @@
 </div>
 
 <style lang="postcss" global>
+	@reference "../assets/app.css";
 	.app-title {
 		@apply !block !text-sm !w-full !p-1 !px-2 !rounded !border-0 !font-semibold;
 	}

@@ -182,11 +182,11 @@
 		class="
 			{inputClasses?.formatted ?? DEFAULT_CLASS_FORMATTED}
 			{isNegativeAllowed && !isZero && !isNegative
-			? inputClasses?.formattedPositive ?? DEFAULT_CLASS_FORMATTED_POSITIVE
+			? (inputClasses?.formattedPositive ?? DEFAULT_CLASS_FORMATTED_POSITIVE)
 			: ''}
-			{isZero ? inputClasses?.formattedZero ?? DEFAULT_CLASS_FORMATTED_ZERO : ''}
+			{isZero ? (inputClasses?.formattedZero ?? DEFAULT_CLASS_FORMATTED_ZERO) : ''}
 			{isNegativeAllowed && isNegative
-			? inputClasses?.formattedNegative ?? DEFAULT_CLASS_FORMATTED_NEGATIVE
+			? (inputClasses?.formattedNegative ?? DEFAULT_CLASS_FORMATTED_NEGATIVE)
 			: ''}
 		"
 		style={style ? style : noColor ? (darkMode ? 'color: white;' : 'color: black;') : ''}
@@ -203,6 +203,7 @@
 </div>
 
 <style lang="postcss">
+	@reference "../../../../../assets/app.css";
 	input.currencyInput__formatted {
 		border: 1px solid #e2e2e2;
 		padding: 10px;

@@ -177,6 +177,7 @@
 {/if}
 
 <style lang="postcss">
+	@reference "../../assets/app.css";
 	.close {
 		@apply absolute right-1.5 top-1.5 flex h-7 w-7 items-center justify-center rounded-full;
 		@apply text-primary  transition-colors hover:bg-surface-hover;

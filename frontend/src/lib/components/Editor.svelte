@@ -1425,6 +1425,8 @@
 {/if}
 
 <style global lang="postcss">
+	@reference "../assets/app.css";
+
 	.editor {
 		@apply p-0;
 	}
