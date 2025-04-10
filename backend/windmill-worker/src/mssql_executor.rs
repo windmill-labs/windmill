@@ -8,9 +8,11 @@ use tiberius::{AuthMethod, Client, ColumnData, Config, FromSqlOwned, Query, Row,
 use tokio::net::TcpStream;
 use tokio_util::compat::TokioAsyncWriteCompatExt;
 use uuid::Uuid;
-use windmill_common::error::to_anyhow;
-use windmill_common::error::{self, Error};
-use windmill_common::worker::{to_raw_value, Connection};
+use windmill_common::{
+    error::{self, to_anyhow, Error},
+    utils::empty_string_as_none,
+    worker::{to_raw_value, Connection},
+};
 use windmill_parser_sql::{parse_db_resource, parse_mssql_sig};
 use windmill_queue::MiniPulledJob;
 use windmill_queue::{append_logs, CanceledBy};
@@ -377,14 +379,6 @@ fn sql_to_json_value(val: ColumnData) -> Result<Value, Error> {
             |x| Ok(Value::String(x.to_string())),
         ),
     }
-}
-
-fn empty_string_as_none<'de, D>(deserializer: D) -> Result<Option<String>, D::Error>
-where
-    D: Deserializer<'de>,
-{
-    let option = <Option<String> as serde::Deserialize>::deserialize(deserializer)?;
-    Ok(option.filter(|s| !s.is_empty()))
 }
 
 fn deserialize_aad_token<'de, D>(deserializer: D) -> Result<Option<AadToken>, D::Error>

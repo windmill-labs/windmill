@@ -7,11 +7,12 @@ export const SIGNATURE_TEMPLATE_SCRIPT_HUB_PATH: string = `hub/${HUB_SCRIPT_ID}`
 export const SIGNATURE_TEMPLATE_FLOW_HUB_ID = '67'
 
 export function getHttpRoute(
+	route_prefix: string,
 	route_path: string | undefined,
 	workspaced_route: boolean,
-	workspace_id: string
+	workspace_id: string,
 ) {
-	return `${location.origin}${base}/api/r/${
+	return `${location.origin}${base}/api/${route_prefix}/${
 		isCloudHosted() || workspaced_route ? workspace_id + '/' : ''
 	}${route_path ?? ''}`
 }

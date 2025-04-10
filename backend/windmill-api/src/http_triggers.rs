@@ -953,7 +953,7 @@ async fn route_job(
 
     let args = try_from_request_body(
         request,
-        &db,
+        &(),
         Some(match trigger.authentication_method {
             AuthenticationMethod::CustomScript | AuthenticationMethod::Signature => true,
             _ => trigger.raw_string,

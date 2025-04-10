@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT owner, email\n        FROM capture_config\n        WHERE workspace_id = $1 AND path = $2 AND is_flow = $3 AND trigger_kind = $4 AND last_client_ping > NOW() - INTERVAL '10 seconds'",
+  "query": "\n        SELECT \n            owner, \n            email\n        FROM \n            capture_config\n        WHERE \n            workspace_id = $1 \n            AND path = $2 \n            AND is_flow = $3 \n            AND trigger_kind = $4 \n            AND last_client_ping > NOW() - INTERVAL '10 seconds'\n        ",
   "describe": {
     "columns": [
       {
@@ -32,7 +32,8 @@
                 "nats",
                 "postgres",
                 "sqs",
-                "mqtt"
+                "mqtt",
+                "gcp"
               ]
             }
           }
@@ -44,5 +45,5 @@
       false
     ]
   },
-  "hash": "71d51bbc35da7b9930e3ea3a634451217ccb9f1bc35b1ad6e10d16bc19c41447"
+  "hash": "87564a196a1662f524407d853db506bf08c28efe82b68b3d44bafbd3d0e91c29"
 }

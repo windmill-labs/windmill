@@ -6,13 +6,14 @@
 		NatsTriggerService,
 		SqsTriggerService,
 		PostgresTriggerService,
-		WebsocketTriggerService
+		WebsocketTriggerService,
+		GcpTriggerService
 	} from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
 	import Button from '../common/button/Button.svelte'
 
-	export let kind: 'websocket' | 'nats' | 'kafka' | 'postgres' | 'sqs' | 'mqtt'
+	export let kind: 'websocket' | 'nats' | 'kafka' | 'postgres' | 'sqs' | 'mqtt' | 'gcp'
 	export let args: Record<string, any>
 	export let noButton = false
 	export let testLoading: boolean = false
@@ -23,7 +24,8 @@
 		kafka: 'Kafka broker(s)',
 		sqs: 'SQS',
 		postgres: 'Postgres',
-		mqtt: 'MQTT broker'
+		mqtt: 'MQTT broker',
+		gcp: 'Google Cloud Pub/Sub'
 	}
 
 	let promise: CancelablePromise<any> | null = null
@@ -62,6 +64,11 @@
 				})
 			} else if (kind === 'postgres') {
 				promise = PostgresTriggerService.testPostgresConnection({
+					workspace: $workspaceStore!,
+					requestBody: args as any
+				})
+			} else if (kind === 'gcp') {
+				promise = GcpTriggerService.testGcpConnection({
 					workspace: $workspaceStore!,
 					requestBody: args as any
 				})

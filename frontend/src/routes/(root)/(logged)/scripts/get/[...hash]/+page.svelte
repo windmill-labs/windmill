@@ -91,6 +91,7 @@
 	import InputSelectedBadge from '$lib/components/schema/InputSelectedBadge.svelte'
 	import MqttTriggersPanel from '$lib/components/triggers/mqtt/MqttTriggersPanel.svelte'
 	import SqsTriggerPanel from '$lib/components/triggers/sqs/SqsTriggerPanel.svelte'
+	import GcpTriggerPanel from '$lib/components/triggers/gcp/GcpTriggerPanel.svelte'
 
 	let script: Script | undefined
 	let topHash: string | undefined
@@ -783,6 +784,11 @@
 			<svelte:fragment slot="sqs">
 				<div class="p-2">
 					<SqsTriggerPanel path={script.path ?? ''} isFlow={false} />
+				</div>
+			</svelte:fragment>
+			<svelte:fragment slot="gcp">
+				<div class="p-2">
+					<GcpTriggerPanel path={script.path ?? ''} isFlow={false} />
 				</div>
 			</svelte:fragment>
 			<svelte:fragment slot="emails">
