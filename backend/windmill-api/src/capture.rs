@@ -12,6 +12,7 @@ use {
         args::try_from_request_body,
         http_triggers::{build_http_trigger_extra, HttpMethod},
     },
+    axum::response::{IntoResponse, Response},
     std::collections::HashMap,
 };
 
@@ -25,10 +26,7 @@ use crate::gcp_triggers_ee::{
     all(feature = "enterprise", feature = "gcp_trigger")
 ))]
 use {
-    axum::extract::Request,
-    axum::response::{IntoResponse, Response},
-    http::HeaderMap,
-    serde::de::DeserializeOwned,
+    axum::extract::Request, http::HeaderMap, serde::de::DeserializeOwned,
     windmill_common::error::Error,
 };
 

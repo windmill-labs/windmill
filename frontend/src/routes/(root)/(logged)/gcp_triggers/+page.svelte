@@ -126,8 +126,8 @@
 	let deleteSubscription = false
 	let deleteSubscriptionCallback: (() => Promise<void>) | undefined = undefined
 	let deleteGcpTriggerCallback: (() => Promise<void>) | undefined = undefined
-	let subscriptionToDelete: string
-	let currentTopic: string
+	let subscriptionToDelete: string = ''
+	let currentTopic: string = ''
 	const TRIGGER_PATH_KIND_FILTER_SETTING = 'filter_path_of'
 	const FILTER_USER_FOLDER_SETTING_NAME = 'user_and_folders_only'
 	let selectedFilterKind =
