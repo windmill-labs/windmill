@@ -67,8 +67,9 @@ use windmill_common::{
 };
 
 use windmill_queue::{
-    append_logs, canceled_job_to_result, empty_result, pull, push_init_job, CanceledBy,
-    JobAndPerms, JobCompleted, MiniPulledJob, PrecomputedAgentInfo, PulledJob, HTTP_CLIENT,
+    append_logs, canceled_job_to_result, empty_result, get_same_worker_job, pull, push_init_job,
+    CanceledBy, JobAndPerms, JobCompleted, MiniPulledJob, PrecomputedAgentInfo, PulledJob,
+    SameWorkerPayload, HTTP_CLIENT,
 };
 
 #[cfg(feature = "prometheus")]
@@ -94,6 +95,7 @@ use tokio::{
 use rand::Rng;
 
 use crate::{
+    agent_workers::queue_init_job,
     bash_executor::{handle_bash_job, handle_powershell_job},
     bun_executor::handle_bun_job,
     common::{
@@ -541,11 +543,6 @@ impl JobCompletedSender {
 
 #[derive(Clone)]
 pub struct SameWorkerSender(pub Sender<SameWorkerPayload>, pub Arc<AtomicU16>);
-
-pub struct SameWorkerPayload {
-    pub job_id: Uuid,
-    pub recoverable: bool,
-}
 
 impl JobCompletedSender {
     pub async fn send_job(&self, jc: JobCompleted) -> anyhow::Result<()> {
@@ -1247,6 +1244,7 @@ pub async fn run_worker(
                     "received {} from same worker channel",
                     same_worker_job.job_id
                 );
+
                 match &conn {
                     Connection::Sql(db) => {
                         let job = get_same_worker_job(db, &same_worker_job).await;
@@ -1265,7 +1263,17 @@ pub async fn run_worker(
                             job.map(|x| x.map(NextJob::Sql))
                         }
                     }
-                    Connection::Http(_) => panic!("same worker job on http connection"),
+                    Connection::Http(client) => client
+                        .post(
+                            &format!(
+                                "/api/agent_workers/same_worker_job/{}",
+                                same_worker_job.job_id
+                            ),
+                            &same_worker_job,
+                        )
+                        .await
+                        .map_err(|e| error::Error::InternalErr(e.to_string()))
+                        .map(|x: Option<JobAndPerms>| x.map(|y| NextJob::Http(y))),
                 }
             } else if let Ok(_) = killpill_rx.try_recv() {
                 if !killed_but_draining_same_worker_jobs {
@@ -1785,86 +1793,33 @@ pub async fn run_worker(
     tracing::info!(worker = %worker_name, hostname = %hostname, "number of jobs executed: {}", jobs_executed);
 }
 
-async fn get_same_worker_job(
-    db: &DB,
-    same_worker_job: &SameWorkerPayload,
-) -> windmill_common::error::Result<Option<PulledJob>> {
-    sqlx::query_as::<_, PulledJob>(
-        "WITH ping AS (
-                        UPDATE v2_job_runtime SET ping = NOW() WHERE id = $1
-                    ),
-                    started_at AS (
-                        UPDATE v2_job_queue SET started_at = NOW() WHERE id = $1
-                    )
-                    SELECT
-                    v2_job_queue.workspace_id,
-                    v2_job_queue.id,
-                    v2_job.args,
-                    v2_job.parent_job,
-                    v2_job.created_by,
-                    v2_job_queue.started_at,
-                    scheduled_for,
-                    v2_job.runnable_path,
-                    v2_job.kind,
-                    v2_job.runnable_id,
-                    v2_job_queue.canceled_reason,
-                    v2_job_queue.canceled_by,
-                    v2_job.permissioned_as,
-                    v2_job.permissioned_as_email,
-                    v2_job_status.flow_status,
-                    v2_job.tag,
-                    v2_job.script_lang,
-                    v2_job.same_worker,
-                    v2_job.pre_run_error,
-                    v2_job.concurrent_limit,
-                    v2_job.concurrency_time_window_s,
-                    v2_job.flow_innermost_root_job,
-                    v2_job.timeout,
-                    v2_job.flow_step_id,
-                    v2_job.cache_ttl,
-                    v2_job_queue.priority,
-                    v2_job.preprocessed,
-                    v2_job.script_entrypoint_override,
-                    v2_job.trigger,
-                    v2_job.trigger_kind,
-                    v2_job.visible_to_owner,
-                    v2_job.raw_code,
-                    v2_job.raw_lock,
-                    v2_job.raw_flow,
-                    pj.runnable_path as parent_runnable_path,
-                    p.email as permissioned_as_email, p.username as permissioned_as_username, p.is_admin as permissioned_as_is_admin,
-                    p.is_operator as permissioned_as_is_operator, p.groups as permissioned_as_groups, p.folders as permissioned_as_folders
-                    FROM v2_job_queue
-                    INNER JOIN v2_job ON v2_job.id = v2_job_queue.id
-                    LEFT JOIN v2_job_status ON v2_job_status.id = v2_job_queue.id
-                    LEFT JOIN job_perms p ON p.job_id = v2_job.id
-                    LEFT JOIN v2_job pj ON v2_job.parent_job = pj.id
-                    WHERE v2_job_queue.id = $1
-",
-    )
-    .bind(same_worker_job.job_id)
-    .fetch_optional(db)
-    .await
-    .map_err(|e| {
-        Error::internal_err(format!(
-            "Impossible to fetch same_worker job {}: {}",
-            same_worker_job.job_id, e
-        ))
-    })
-}
-
 async fn queue_init_bash_maybe<'c>(
-    db: &Connection,
+    conn: &Connection,
     same_worker_tx: SameWorkerSender,
     worker_name: &str,
 ) -> anyhow::Result<bool> {
-    if let Some(content) = WORKER_CONFIG.read().await.init_bash.clone() {
-        let uuid = match db {
-            Connection::Sql(db) => push_init_job(db, content.clone(), worker_name).await?,
-            Connection::Http(client) => {
-                crate::agent_workers::queue_init_job(client, &content).await?
+    let uuid_content = match conn {
+        Connection::Sql(db) => {
+            if let Some(content) = WORKER_CONFIG.read().await.init_bash.clone() {
+                Some((
+                    push_init_job(db, content.clone(), worker_name).await?,
+                    content,
+                ))
+            } else {
+                None
             }
-        };
+        }
+        Connection::Http(client) => {
+            let init_script = std::env::var("INIT_SCRIPT");
+            if init_script.is_ok() {
+                let content = init_script.unwrap();
+                Some((queue_init_job(client, &content).await?, content))
+            } else {
+                None
+            }
+        }
+    };
+    if let Some((uuid, content)) = uuid_content {
         same_worker_tx
             .send(SameWorkerPayload { job_id: uuid, recoverable: false })
             .await

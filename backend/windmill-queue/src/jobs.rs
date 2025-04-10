@@ -4570,3 +4570,78 @@ async fn restarted_flows_resolution(
         flow_status.cleanup_module,
     ))
 }
+
+
+#[derive(Serialize, Deserialize)]
+pub struct SameWorkerPayload {
+    pub job_id: Uuid,
+    pub recoverable: bool,
+}
+
+pub async fn get_same_worker_job(
+    db: &DB,
+    same_worker_job: &SameWorkerPayload,
+) -> windmill_common::error::Result<Option<PulledJob>> {
+    sqlx::query_as::<_, PulledJob>(
+        "WITH ping AS (
+                        UPDATE v2_job_runtime SET ping = NOW() WHERE id = $1
+                    ),
+                    started_at AS (
+                        UPDATE v2_job_queue SET started_at = NOW() WHERE id = $1
+                    )
+                    SELECT
+                    v2_job_queue.workspace_id,
+                    v2_job_queue.id,
+                    v2_job.args,
+                    v2_job.parent_job,
+                    v2_job.created_by,
+                    v2_job_queue.started_at,
+                    scheduled_for,
+                    v2_job.runnable_path,
+                    v2_job.kind,
+                    v2_job.runnable_id,
+                    v2_job_queue.canceled_reason,
+                    v2_job_queue.canceled_by,
+                    v2_job.permissioned_as,
+                    v2_job.permissioned_as_email,
+                    v2_job_status.flow_status,
+                    v2_job.tag,
+                    v2_job.script_lang,
+                    v2_job.same_worker,
+                    v2_job.pre_run_error,
+                    v2_job.concurrent_limit,
+                    v2_job.concurrency_time_window_s,
+                    v2_job.flow_innermost_root_job,
+                    v2_job.timeout,
+                    v2_job.flow_step_id,
+                    v2_job.cache_ttl,
+                    v2_job_queue.priority,
+                    v2_job.preprocessed,
+                    v2_job.script_entrypoint_override,
+                    v2_job.trigger,
+                    v2_job.trigger_kind,
+                    v2_job.visible_to_owner,
+                    v2_job.raw_code,
+                    v2_job.raw_lock,
+                    v2_job.raw_flow,
+                    pj.runnable_path as parent_runnable_path,
+                    p.email as permissioned_as_email, p.username as permissioned_as_username, p.is_admin as permissioned_as_is_admin,
+                    p.is_operator as permissioned_as_is_operator, p.groups as permissioned_as_groups, p.folders as permissioned_as_folders
+                    FROM v2_job_queue
+                    INNER JOIN v2_job ON v2_job.id = v2_job_queue.id
+                    LEFT JOIN v2_job_status ON v2_job_status.id = v2_job_queue.id
+                    LEFT JOIN job_perms p ON p.job_id = v2_job.id
+                    LEFT JOIN v2_job pj ON v2_job.parent_job = pj.id
+                    WHERE v2_job_queue.id = $1
+",
+    )
+    .bind(same_worker_job.job_id)
+    .fetch_optional(db)
+    .await
+    .map_err(|e| {
+        Error::internal_err(format!(
+            "Impossible to fetch same_worker job {}: {}",
+            same_worker_job.job_id, e
+        ))
+    })
+}

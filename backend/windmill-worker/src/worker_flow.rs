@@ -16,8 +16,7 @@ use crate::bench::BenchmarkIter;
 use crate::common::{cached_result_path, save_in_cache};
 use crate::js_eval::{eval_timeout, IdContext};
 use crate::{
-    AuthedClient, JobCompletedSender, PreviousResult, SameWorkerPayload, SameWorkerSender,
-    SendResult, KEEP_JOB_DIR,
+    AuthedClient, JobCompletedSender, PreviousResult, SameWorkerSender, SendResult, KEEP_JOB_DIR,
 };
 use anyhow::Context;
 use futures::TryFutureExt;
@@ -58,7 +57,7 @@ use windmill_queue::schedule::get_schedule_opt;
 use windmill_queue::{
     add_completed_job, add_completed_job_error, append_logs, get_mini_pulled_job,
     handle_maybe_scheduled_job, CanceledBy, MiniPulledJob, PushArgs, PushIsolationLevel,
-    WrappedError,
+    SameWorkerPayload, WrappedError,
 };
 
 type DB = sqlx::Pool<sqlx::Postgres>;
