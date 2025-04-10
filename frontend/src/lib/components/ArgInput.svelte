@@ -765,18 +765,6 @@
 							}}
 						/>
 					{/await}
-					<Button
-						variant="border"
-						color="light"
-						size="xs"
-						btnClasses="mt-1"
-						on:click={() => {
-							s3FilePicker?.open?.(value)
-						}}
-						startIcon={{ icon: Pipette }}
-					>
-						Choose an object from the catalog
-					</Button>
 				{:else}
 					<FileUpload
 						{appPath}
@@ -799,6 +787,18 @@
 						initialValue={value}
 					/>
 				{/if}
+				<Button
+					variant="border"
+					color="light"
+					size="xs"
+					btnClasses="mt-1"
+					on:click={() => {
+						s3FilePicker?.open?.(value)
+					}}
+					startIcon={{ icon: Pipette }}
+				>
+					Choose an object from the catalog
+				</Button>
 			</div>
 		{:else if inputCat == 'object' || inputCat == 'resource-object' || isListJson}
 			{#if oneOf && oneOf.length >= 2}

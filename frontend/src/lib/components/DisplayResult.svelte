@@ -776,7 +776,7 @@
 											appPath
 												? 'apps_u/load_image_preview/' + appPath
 												: 'job_helpers/load_image_preview'
-										}?file_key=${encodeURIComponent(result.s3)}` +
+										}?${appPath ? 's3' : 'file_key'}=${encodeURIComponent(result.s3)}` +
 											(result.storage ? `&storage=${result.storage}` : '')}
 									/>
 								</div>
@@ -788,7 +788,7 @@
 											appPath
 												? 'apps_u/load_image_preview/' + appPath
 												: 'job_helpers/load_image_preview'
-										}?file_key=${encodeURIComponent(result.s3)}` +
+										}?${appPath ? 's3' : 'file_key'}=${encodeURIComponent(result.s3)}` +
 											(result.storage ? `&storage=${result.storage}` : '')}
 									/>
 								</div>

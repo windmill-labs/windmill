@@ -6323,12 +6323,7 @@ paths:
                 s3_objects:
                   type: array
                   items:
-                    type: object
-                    properties:
-                      s3:
-                        type: string
-                      storage:
-                        type: string
+                    $ref: "#/components/schemas/S3Object"
       responses:
         "200":
           description: signed s3 tokens
@@ -6337,7 +6332,7 @@ paths:
               schema:
                 type: array
                 items:
-                  type: string
+                  $ref: "#/components/schemas/S3Object"
 
   /w/{workspace}/apps_u/execute_component/{path}:
     post:
@@ -16053,3 +16048,17 @@ components:
       required:
         - account_id
         - installation_id
+
+    S3Object:
+      type: object
+      properties:
+        s3:
+          type: string
+        filename:
+          type: string
+        storage:
+          type: string
+        presigned:
+          type: string
+      required:
+        - s3

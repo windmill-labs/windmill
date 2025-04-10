@@ -902,7 +902,7 @@ pub async fn get_cached_resource_value_if_valid(
                     S3Object {
                         s3: s3_file_key.clone(),
                         storage: resource.storage.clone(),
-                        filename: None,
+                        ..Default::default()
                     },
                 )
                 .await;

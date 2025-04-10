@@ -71,9 +71,13 @@ use windmill_git_sync::{handle_deployment_metadata, DeployedObject};
 use windmill_queue::{push, PushArgs, PushArgsOwned, PushIsolationLevel};
 
 #[cfg(feature = "parquet")]
+use hmac::Mac;
+#[cfg(feature = "parquet")]
 use windmill_common::{
     jwt,
+    oauth2::HmacSha256,
     s3_helpers::{build_object_store_client, S3Object},
+    variables::get_workspace_key,
 };
 
 pub fn workspaced_service() -> Router {
@@ -236,7 +240,8 @@ pub struct S3Input {
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct S3Key {
     s3_path: String,
-    resource: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    storage: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Default)]
@@ -1569,41 +1574,80 @@ struct S3DeleteTokenClaims {
 }
 
 #[cfg(feature = "parquet")]
-#[derive(Serialize, Deserialize)]
-struct SignedS3TokenClaims {
-    file_key: String,
-    storage: Option<String>,
-    workspace: String,
-    pub exp: usize,
-}
-
-#[cfg(feature = "parquet")]
-const S3_TOKEN_PREFIX: &str = "__wm_s3_token_";
-
-#[cfg(feature = "parquet")]
 #[derive(Deserialize)]
 struct S3TokenRequestBody {
     s3_objects: Vec<S3Object>,
 }
 #[cfg(feature = "parquet")]
 async fn sign_s3_objects(
+    Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
     Json(body): Json<S3TokenRequestBody>,
-) -> Result<Json<Vec<String>>> {
-    let futures = body.s3_objects.iter().map(|s3_object| async {
-        jwt::encode_with_internal_secret(SignedS3TokenClaims {
-            file_key: s3_object.s3.clone(),
-            storage: s3_object.storage.clone(),
-            workspace: w_id.clone(),
-            exp: (chrono::Utc::now() + chrono::Duration::hours(12)).timestamp() as usize,
-        })
-        .await
-        .map(|token| format!("{}{}", S3_TOKEN_PREFIX, token))
+) -> Result<Json<Vec<S3Object>>> {
+    let workspace_key = get_workspace_key(&w_id, &db).await?;
+
+    let futures = body.s3_objects.into_iter().map(|s3_object| async {
+        let exp = (chrono::Utc::now() + chrono::Duration::hours(12)).timestamp();
+        let mut message = format!("file_key={}&exp={}", s3_object.s3.clone(), exp);
+        if let Some(ref storage) = s3_object.storage {
+            message = format!("{}&storage={}", message, storage);
+        }
+
+        let mut max = HmacSha256::new_from_slice(workspace_key.as_bytes())
+            .map_err(|err| Error::internal_err(format!("Failed to create hmac: {}", err)))?;
+        max.update(message.as_bytes());
+        let result = max.finalize();
+        let signature = hex::encode(result.into_bytes());
+
+        let presigned = format!("exp={}&sig={}", exp, signature);
+
+        Ok::<_, Error>(S3Object { presigned: Some(presigned), ..s3_object })
     });
 
-    let tokens = futures::future::try_join_all(futures).await?;
+    let signed_s3_objects = futures::future::try_join_all(futures).await?;
 
-    Ok(Json(tokens))
+    Ok(Json(signed_s3_objects))
+}
+
+#[cfg(feature = "parquet")]
+async fn validate_s3_signature(s3_object: &S3Object, w_id: &str, db: &DB) -> Result<()> {
+    use url::form_urlencoded;
+
+    let workspace_key = get_workspace_key(w_id, &db).await?;
+
+    let params: HashMap<_, _> =
+        form_urlencoded::parse(s3_object.presigned.as_ref().unwrap().as_bytes())
+            .into_owned()
+            .collect();
+
+    let exp = params
+        .get("exp")
+        .map(|s| s.parse::<i64>().unwrap_or_default())
+        .ok_or_else(|| Error::NotAuthorized("Missing exp".to_string()))?;
+
+    let signature = params
+        .get("sig")
+        .ok_or_else(|| Error::NotAuthorized("Missing signature".to_string()))?;
+
+    let mut message = format!("file_key={}&exp={}", s3_object.s3.clone(), exp);
+    if let Some(ref storage) = s3_object.storage {
+        message = format!("{}&storage={}", message, storage);
+    }
+
+    let mut mac = HmacSha256::new_from_slice(workspace_key.as_bytes())
+        .map_err(|err| Error::internal_err(format!("Failed to create hmac: {}", err)))?;
+
+    mac.update(message.as_bytes());
+
+    let signature_bytes = hex::decode(signature)?;
+    mac.verify_slice(&signature_bytes)
+        .map_err(|err| Error::NotAuthorized(format!("Invalid signature: {}", err)))?;
+
+    if exp < chrono::Utc::now().timestamp() {
+        return Err(Error::NotAuthorized("Signature expired".to_string()));
+    }
+
+    Ok(())
 }
 
 #[cfg(not(feature = "parquet"))]
@@ -2014,7 +2058,7 @@ async fn get_on_behalf_authed_from_app(
 async fn check_if_allowed_to_access_s3_file_from_app(
     db: &DB,
     opt_authed: &Option<ApiAuthed>,
-    file_query: &mut LoadImagePreviewQuery,
+    file_query: &mut S3Object,
     w_id: &str,
     path: &str,
     policy: &Policy,
@@ -2022,15 +2066,8 @@ async fn check_if_allowed_to_access_s3_file_from_app(
     // if anonymous, check that the file was the result of an app script ran by an anonymous user in the last 3 hours
     // otherwise, if logged in, allow any file (TODO: change that when we implement better s3 policy)
 
-    if file_query.file_key.starts_with(S3_TOKEN_PREFIX) {
-        let token = file_query.file_key.strip_prefix(S3_TOKEN_PREFIX).unwrap();
-        let claims = jwt::decode_with_internal_secret::<SignedS3TokenClaims>(token).await?;
-        if claims.workspace != w_id {
-            return Err(Error::BadRequest("Invalid workspace in token".to_string()));
-        }
-        file_query.file_key = claims.file_key;
-        file_query.storage = claims.storage;
-        return Ok(());
+    if file_query.presigned.is_some() {
+        validate_s3_signature(file_query, w_id, &db).await?;
     }
 
     let allowed = opt_authed.is_some()
@@ -2039,7 +2076,7 @@ async fn check_if_allowed_to_access_s3_file_from_app(
             .as_ref()
             .unwrap()
             .iter()
-            .any(|key| key.s3_path == file_query.file_key)
+            .any(|key| key.s3_path == file_query.s3 && key.storage == file_query.storage)
         || {
             sqlx::query_scalar!(
                 r#"SELECT EXISTS (
@@ -2051,7 +2088,7 @@ async fn check_if_allowed_to_access_s3_file_from_app(
                     AND script_path LIKE $3 || '/%' 
                     AND result @> ('{"s3":"' || $1 ||  '"}')::jsonb 
             )"#,
-                file_query.file_key,
+                file_query.s3,
                 w_id,
                 path,
             )
@@ -2069,21 +2106,10 @@ async fn check_if_allowed_to_access_s3_file_from_app(
 
 #[cfg(feature = "parquet")]
 #[derive(Deserialize)]
-pub struct FileQueryWithForceViewerAllowedS3Keys {
+pub struct S3ObjectWithForceViewerAllowedS3Keys {
     #[serde(flatten)]
-    pub file_query: LoadImagePreviewQuery,
+    pub file_query: S3Object,
     pub force_viewer_allowed_s3_keys: Option<String>,
-}
-
-#[cfg(feature = "parquet")]
-impl From<LoadImagePreviewQuery> for DownloadFileQuery {
-    fn from(query: LoadImagePreviewQuery) -> Self {
-        DownloadFileQuery {
-            file_key: query.file_key,
-            storage: query.storage,
-            s3_resource_path: None,
-        }
-    }
 }
 
 #[cfg(feature = "parquet")]
@@ -2091,7 +2117,7 @@ async fn download_s3_file_from_app(
     OptAuthed(opt_authed): OptAuthed,
     Extension(db): Extension<DB>,
     Path((w_id, path)): Path<(String, StripPath)>,
-    Query(mut query): Query<FileQueryWithForceViewerAllowedS3Keys>,
+    Query(mut query): Query<S3ObjectWithForceViewerAllowedS3Keys>,
 ) -> Result<Response> {
     let path = path.to_path();
 
@@ -2123,7 +2149,11 @@ async fn download_s3_file_from_app(
         None,
         "",
         &w_id,
-        query.file_query.into(),
+        DownloadFileQuery {
+            file_key: query.file_query.s3,
+            s3_resource_path: None,
+            storage: query.file_query.storage,
+        },
     )
     .await
 }
@@ -2140,7 +2170,7 @@ async fn load_s3_file_image_preview_from_app(
     OptAuthed(opt_authed): OptAuthed,
     Extension(db): Extension<DB>,
     Path((w_id, path)): Path<(String, StripPath)>,
-    Query(mut query): Query<LoadImagePreviewQuery>,
+    Query(mut query): Query<S3Object>,
 ) -> Result<Response> {
     let path = path.to_path();
 
@@ -2157,7 +2187,14 @@ async fn load_s3_file_image_preview_from_app(
     )
     .await?;
 
-    load_image_preview_internal(on_behalf_authed, &db, "", &w_id, query).await
+    load_image_preview_internal(
+        on_behalf_authed,
+        &db,
+        "",
+        &w_id,
+        LoadImagePreviewQuery { file_key: query.s3, storage: query.storage },
+    )
+    .await
 }
 
 fn get_on_behalf_of(policy: &Policy) -> Result<(String, String)> {
