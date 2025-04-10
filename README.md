@@ -364,7 +364,6 @@ you to have it being synced automatically everyday.
 | DISABLE_RESPONSE_LOGS               | false                  | Disable response logs                                                                                                                                                                              | Server                |
 | CREATE_WORKSPACE_REQUIRE_SUPERADMIN | true                   | If true, only superadmins can create new workspaces                                                                                                                                                | Server                |
 | MIN_FREE_DISK_SPACE_MB              | 15000                  | Minimum amount of free space on worker. Sends critical alert if worker has less free space.                                                                                                        | Worker                |
-| DISK_SPACE_CHECK_FREQ               | 60                     | How often workers check for free space (in minutes). For example with value 15 worker would check once per 15 mins.                                                                                | Worker                |
 
 ## Run a local dev setup
 
