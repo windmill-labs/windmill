@@ -32,6 +32,7 @@ postgres_trigger = ["dep:rust-postgres", "dep:pg_escape", "dep:byteorder", "dep:
 mqtt_trigger = ["dep:thiserror", "dep:rumqttc"]
 sqs_trigger = ["dep:aws-sdk-sqs", "dep:thiserror", "dep:aws-config"]
 cloud = ["windmill-common/cloud"]
+bedrock = ["dep:aws-config", "dep:aws-sdk-bedrockruntime"]
 
 [dependencies]
 windmill-queue.workspace = true
@@ -43,6 +44,7 @@ windmill-parser-py.workspace = true
 windmill-git-sync.workspace = true
 windmill-indexer = { workspace = true, optional = true }
 tokio.workspace = true
+tokio-stream.workspace = true
 anyhow.workspace = true
 argon2.workspace = true
 axum.workspace = true
@@ -125,5 +127,6 @@ thiserror = { workspace = true, optional = true }
 rust_decimal = { workspace = true, optional = true }
 rust-postgres-native-tls = { workspace = true, optional = true}
 rumqttc = { workspace = true, optional = true }
-aws-sdk-sqs = { workspace = true, optional = true } 
-aws-config = { workspace = true, optional = true}
+aws-sdk-sqs = { workspace = true, optional = true }
+aws-config = { workspace = true, optional = true }
+aws-sdk-bedrockruntime = { workspace = true, optional = true }

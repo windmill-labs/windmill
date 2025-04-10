@@ -28,7 +28,7 @@ members = [
     "./parsers/windmill-parser-py",
     "./parsers/windmill-parser-py-imports",
     "./parsers/windmill-sql-datatype-parser-wasm",
-    "./parsers/windmill-parser-yaml", "windmill-macros", "parsers/windmill-parser-nu",
+    "./parsers/windmill-parser-yaml", "windmill-macros", "parsers/windmill-parser-nu", "bedrock_test",
 ]
 
 [workspace.package]
@@ -78,6 +78,7 @@ http_trigger = ["windmill-api/http_trigger"]
 zip = ["windmill-api/zip"]
 static_frontend = ["windmill-api/static_frontend"]
 scoped_cache = ["windmill-common/scoped_cache"]
+bedrock = ["windmill-api/bedrock"]
 # Languages
 python = ["windmill-worker/python"]
 deno_core = ["windmill-worker/deno_core", "dep:deno_core", "dep:v8"]
@@ -176,6 +177,7 @@ axum = { version = "^0.7", features = ["multipart"] }
 headers = "^0"
 hyper = { version = "^1", features = ["full"] }
 tokio = { version = "^1.42.0", features = ["full", "tracing", "time"] }
+tokio-stream = { version = "^0.1", features = ["full"] }
 tower = "^0"
 tower-http = { version = "^0.6", features = ["trace", "cors"] }
 tower-cookies = "^0.10"
@@ -323,9 +325,10 @@ nu-parser = { version = "0.101.0", default-features = false }
 datafusion = "39.0.0"
 object_store = { version = "0.10.0", features = ["aws", "azure"] }
 openidconnect = { version = "4.0.0-rc.1" }
-aws-config = "^1"
+aws-config = "1.1.6"
 aws-sdk-sqs = "1.57.0"
 aws-sdk-sts = "^1"
+aws-sdk-bedrockruntime = { version = "1.7.0", features = [] }
 
 crc = "^3"
 tar = "^0"

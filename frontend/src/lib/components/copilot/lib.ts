@@ -37,6 +37,7 @@ export const AI_DEFAULT_MODELS: Record<AIProvider, string[]> = {
 	groq: ['llama-3.3-70b-versatile', 'llama-3.1-8b-instant'],
 	openrouter: ['meta-llama/llama-3.2-3b-instruct:free'],
 	togetherai: ['meta-llama/Llama-3.3-70B-Instruct-Turbo'],
+	aws_bedrock: ['meta.llama3-3-70b-instruct-v1:0','mistral.mistral-7b-instruct-v0:2'],
 	customai: []
 }
 
@@ -69,6 +70,14 @@ function prepareMessages(aiProvider: AIProvider, messages: ChatCompletionMessage
 				messages = [...startMessages, ...messages]
 			}
 			return messages
+		case 'aws_bedrock':
+			// Convert messages to Bedrock format
+			return messages.map(msg => ({
+				role: msg.role,
+				content: typeof msg.content === 'string'
+					? [{ type: 'text', text: msg.content }]
+					: msg.content
+			}))
 		default:
 			return messages
 	}
@@ -96,7 +105,11 @@ export const PROVIDER_COMPLETION_CONFIG_MAP: Record<AIProvider, ChatCompletionCr
 		...DEFAULT_COMPLETION_CONFIG,
 		seed: undefined
 	},
-	anthropic: DEFAULT_COMPLETION_CONFIG
+	anthropic: DEFAULT_COMPLETION_CONFIG,
+	aws_bedrock: {
+		...DEFAULT_COMPLETION_CONFIG,
+		seed: undefined
+	} as ChatCompletionCreateParams
 } as const
 
 class WorkspacedAIClients {

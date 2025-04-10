@@ -1997,7 +1997,7 @@ paths:
                 required:
                   - premium
                   - owner
-  
+
   /w/{workspace}/workspaces/threshold_alert:
     get:
       summary: get threshold alert info
@@ -2368,7 +2368,7 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/AIConfig"
-                
+
 
   /w/{workspace}/workspaces/edit_error_handler:
     post:
@@ -12508,7 +12508,7 @@ components:
 
     AIProvider:
       type: string
-      enum: [openai, azure_openai, anthropic, mistral, deepseek, googleai, groq, openrouter, togetherai, customai]
+      enum: [openai, azure_openai, anthropic, mistral, deepseek, googleai, groq, openrouter, togetherai, customai, aws_bedrock]
 
     AIProviderModel:
       type: object
@@ -13542,7 +13542,7 @@ components:
           csharp,
           nu,
           java
-          # for related places search: ADD_NEW_LANG 
+          # for related places search: ADD_NEW_LANG
         ]
 
     Preview:

@@ -22,6 +22,7 @@
 		['groq', 'Groq'],
 		['openrouter', 'OpenRouter'],
 		['togetherai', 'Together AI'],
+		['aws_bedrock', 'Amazon Bedrock'],
 		['customai', 'Custom AI']
 	]
 
