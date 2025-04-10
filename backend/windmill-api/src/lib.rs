@@ -443,7 +443,7 @@ pub async fn run_server(
 
         #[cfg(all(feature = "enterprise", feature = "gcp_trigger"))]
         {
-            let gcp_killpill_rx = rx.resubscribe();
+            let gcp_killpill_rx = killpill_rx.resubscribe();
             gcp_triggers_ee::start_consuming_gcp_pubsub_event(db.clone(), gcp_killpill_rx);
         }
     }
