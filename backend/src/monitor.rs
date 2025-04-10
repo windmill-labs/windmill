@@ -2006,6 +2006,83 @@ async fn cancel_zombie_flow_job(
     Ok(())
 }
 
+pub fn monitor_disk_usage(
+    mut killpill_rx: tokio::sync::broadcast::Receiver<()>,
+    worker_name: String,
+    db: DB,
+) {
+    use systemstat::*;
+    use windmill_common::worker::*;
+
+    lazy_static::lazy_static! {
+        static ref SYSTEM: System = System::new();
+        static ref DEF_MIN_SPACE: u64 = 15_000;
+        static ref MIN_FREE_DISK_SPACE_MB: u64 =
+        std::env::var("MIN_FREE_DISK_SPACE_MB").map(|v| v.parse::<u64>().unwrap_or(*DEF_MIN_SPACE)).unwrap_or(*DEF_MIN_SPACE);
+        static ref DEF_FREQ: u64 = 60;
+        static ref CHECK_FREQ: u64 =
+        std::env::var("DISK_SPACE_CHECK_FREQ").map(|v| v.parse::<u64>().unwrap_or(*DEF_FREQ)).unwrap_or(*DEF_FREQ);
+    }
+
+    tokio::spawn(async move {
+        loop {
+            tokio::select! {
+                biased;
+                _ = killpill_rx.recv() => {
+                    break;
+                }
+                _ = tokio::time::sleep(std::time::Duration::from_secs(CHECK_FREQ.clamp(1, u16::MAX as u64) * 60)) => {
+                    #[cfg(windows)]
+                    let cwd = std::env::current_dir().unwrap_or("C:\\".into());
+
+                    match SYSTEM.mounts() {
+                        Ok(fss) => {
+                            for Filesystem { avail, fs_mounted_on, .. } in fss
+                                .into_iter()
+                                .filter(|fs| {
+                                    #[cfg(not(windows))]
+                                    return matches!(
+                                        fs.fs_mounted_on.as_str(),
+                                        "/" | ROOT_CACHE_DIR | ROOT_CACHE_NOMOUNT_DIR | TMP_LOGS_DIR
+                                    );
+
+                                    #[cfg(windows)]
+                                    // We don't actually need entire path to cwd
+                                    // our point of interest is only drive letter
+                                    return cwd.starts_with(fs.fs_mounted_on.as_str());
+                                })
+                                .collect::<Vec<Filesystem>>()
+                            {
+                                if avail < ByteSize::mb(*MIN_FREE_DISK_SPACE_MB) {
+                                    windmill_common::utils::report_critical_error(
+                                        format!(
+                                            "Disk mounted on `{}` is low, {} available. Worker: {}",
+                                            &fs_mounted_on, avail, worker_name
+                                        ),
+                                        db.clone(),
+                                        Some("admins"),
+                                        None,
+                                    )
+                                    .await;
+                                }
+                            }
+                        }
+                        Err(e) => {
+                            windmill_common::utils::report_critical_error(
+                                format!("Cannot read disk usage: {e}\n\nTracking of available disk space is not possible until issue is resolved."),
+                                db.clone(),
+                                Some("admins"),
+                                None,
+                            )
+                            .await;
+                        }
+                    }
+                }
+            }
+        }
+    });
+}
+
 pub async fn reload_hub_base_url_setting(db: &DB, server_mode: bool) -> error::Result<()> {
     let hub_base_url = load_value_from_global_settings(db, HUB_BASE_URL_SETTING).await?;
 

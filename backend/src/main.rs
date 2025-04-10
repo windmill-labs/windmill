@@ -8,8 +8,8 @@
 
 use anyhow::Context;
 use monitor::{
-    load_base_url, load_otel, reload_delete_logs_periodically_setting, reload_indexer_config,
-    reload_instance_python_version_setting, reload_maven_repos_setting,
+    load_base_url, load_otel, monitor_disk_usage, reload_delete_logs_periodically_setting,
+    reload_indexer_config, reload_instance_python_version_setting, reload_maven_repos_setting,
     reload_no_default_maven_setting, reload_nuget_config_setting,
     reload_timeout_wait_result_setting, send_current_log_file_to_object_store,
     send_logs_to_object_store,
@@ -1124,6 +1124,7 @@ pub async fn run_workers(
         "Starting {num_workers} workers and SLEEP_QUEUE={}ms",
         *windmill_worker::SLEEP_QUEUE
     );
+
     for i in 1..(num_workers + 1) {
         let db1 = db.clone();
         let instance_name = instance_name.clone();
@@ -1133,6 +1134,8 @@ pub async fn run_workers(
         let tx = tx.clone();
         let base_internal_url = base_internal_url.clone();
         let hostname = hostname.clone();
+
+        monitor_disk_usage(tx.subscribe(), worker_name.clone(), db.clone());
 
         handles.push(tokio::spawn(async move {
             if num_workers > 1 {
