@@ -1,11 +1,16 @@
 <script lang="ts">
 	import { FileInput } from '../../../../common'
-	import type { UploadAppInput, UploadS3AppInput, FileUploadData } from '../../../inputType'
+	import type {
+		UploadAppInput,
+		UploadS3AppInput,
+		FileUploadData,
+		StaticInput
+	} from '../../../inputType'
 	import type { ReadFileAs } from '../../../../common/fileInput/model'
 	import FileUpload from '$lib/components/common/fileUpload/FileUpload.svelte'
 	import { writable, type Writable } from 'svelte/store'
 
-	export let componentInput: UploadAppInput | UploadS3AppInput | undefined
+	export let componentInput: UploadAppInput | UploadS3AppInput | StaticInput<any> | undefined
 	export let fileUpload: UploadAppInput['fileUpload'] | UploadS3AppInput['fileUploadS3'] | undefined
 	export let s3: boolean | undefined = false
 	export let prefix: string | undefined = undefined
@@ -33,8 +38,10 @@
 			return `${cleanPrefix}${file.name}`
 		}}
 		on:addition={({ detail }) => {
-			if (componentInput) {
-				componentInput.value = `s3://${detail.path}`
+			componentInput = {
+				...componentInput,
+				type: 'static',
+				value: `s3://${detail.path}`
 			}
 		}}
 	/>
@@ -46,8 +53,10 @@
 		iconSize={24}
 		class="text-sm py-4"
 		on:change={({ detail }) => {
-			if (componentInput) {
-				componentInput.value = fileUpload?.multiple ? detail : detail?.[0]
+			componentInput = {
+				...componentInput,
+				type: 'static',
+				value: fileUpload?.multiple ? detail : detail?.[0]
 			}
 		}}
 	>
