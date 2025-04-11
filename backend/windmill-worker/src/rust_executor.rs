@@ -39,6 +39,8 @@ lazy_static::lazy_static! {
     static ref CARGO_PATH: String = std::env::var("CARGO_PATH").unwrap_or_else(|_| format!("{}/bin/cargo", CARGO_HOME.as_str()));
     static ref CARGO_SWEEP_PATH: String = std::env::var("CARGO_SWEEP_PATH").unwrap_or_else(|_| format!("{}/bin/cargo-sweep", CARGO_HOME.as_str()));
     static ref SWEEP_MAXSIZE: String = std::env::var("CARGO_SWEEP_MAXSIZE").unwrap_or("5GB".to_owned());
+    static ref NO_SHARED_BUILD_DIR: bool = var("RUST_NO_SHARED_BUILD_DIR").ok().map(|flag| flag == "true").unwrap_or(false);
+
 }
 
 #[cfg(windows)]
@@ -200,7 +202,9 @@ pub async fn build_rust_crate(
             path.replace('/', "."),
             &job.created_by
         );
-        if let Err(e) = create_dir_all(&t).await {
+        if *NO_SHARED_BUILD_DIR {
+            None
+        } else if let Err(e) = create_dir_all(&t).await {
             tracing::warn!("Could not create shared target dir. Incremental compilation is not possible.\ne: {e}");
             None
         } else {
