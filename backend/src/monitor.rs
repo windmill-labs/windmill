@@ -125,6 +125,17 @@ pub async fn initial_load(
     server_mode: bool,
     #[cfg(feature = "parquet")] disable_s3_store: bool,
 ) {
+    if let Err(e) = reload_base_url_setting(&conn).await {
+        tracing::error!("Error loading base url: {:?}", e)
+    }
+
+    if let Some(db) = conn.as_sql() {
+        if let Err(e) = reload_critical_error_channels_setting(&db).await {
+            tracing::error!("Could loading critical error emails setting: {:?}", e);
+        }
+    }
+
+    
     if let Err(e) = load_metrics_enabled(conn).await {
         tracing::error!("Error loading expose metrics: {e:#}");
     }
