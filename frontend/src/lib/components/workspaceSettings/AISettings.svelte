@@ -2,7 +2,6 @@
 	import { WorkspaceService, type AIConfig, type AIProvider } from '$lib/gen'
 	import { setCopilotInfo, workspaceStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
-	import MultiSelect from 'svelte-multiselect'
 	import { AI_DEFAULT_MODELS } from '../copilot/lib'
 	import TestAiKey from '../copilot/TestAIKey.svelte'
 	import Description from '../Description.svelte'
@@ -11,6 +10,7 @@
 	import Toggle from '../Toggle.svelte'
 	import ArgEnum from '../ArgEnum.svelte'
 	import Button from '../common/button/Button.svelte'
+	import MultiSelectWrapper from '../multiselect/MultiSelectWrapper.svelte'
 
 	const aiProviderLabels: [AIProvider, string][] = [
 		['openai', 'OpenAI'],
@@ -122,6 +122,22 @@
 								aiProviders = Object.fromEntries(
 									Object.entries(aiProviders).filter(([key]) => key !== provider)
 								)
+								if (defaultModel) {
+									const currentDefaultModel = Object.values(aiProviders).find(
+										(p) => defaultModel && p.models.includes(defaultModel)
+									)
+									if (!currentDefaultModel) {
+										defaultModel = undefined
+									}
+								}
+								if (codeCompletionModel) {
+									const currentCodeCompletionModel = Object.values(aiProviders).find(
+										(p) => codeCompletionModel && p.models.includes(codeCompletionModel)
+									)
+									if (!currentCodeCompletionModel) {
+										codeCompletionModel = undefined
+									}
+								}
 							}
 						}}
 					/>
@@ -139,8 +155,8 @@
 										bind:value={aiProviders[provider].resource_path}
 										on:change={() => {
 											if (
-												aiProviders[provider].resource_path &&
-												aiProviders[provider].models.length === 0 &&
+												aiProviders[provider]?.resource_path &&
+												aiProviders[provider]?.models.length === 0 &&
 												AI_DEFAULT_MODELS[provider].length > 0
 											) {
 												aiProviders[provider].models = AI_DEFAULT_MODELS[provider].slice(0, 1)
@@ -158,11 +174,11 @@
 							<Label label="Enabled models">
 								<!-- this can be removed once the parent component moves to runes -->
 								<!-- svelte-ignore binding_property_non_reactive -->
-								<MultiSelect
-									options={AI_DEFAULT_MODELS[provider]}
-									ulOptionsClass={'!bg-surface-secondary'}
+								<MultiSelectWrapper
+									items={AI_DEFAULT_MODELS[provider]}
+									bind:value={aiProviders[provider].models}
+									placeholder="Select models"
 									allowUserOptions="append"
-									bind:selected={aiProviders[provider].models}
 								/>
 							</Label>
 						</div>
@@ -177,16 +193,18 @@
 			<p class="font-semibold">Settings</p>
 			<div class="flex flex-col gap-4">
 				<Label label="Default chat model">
-					<ArgEnum
-						enum_={availableAIModels}
-						bind:value={defaultModel}
-						disabled={false}
-						autofocus={false}
-						defaultValue={undefined}
-						valid={true}
-						create={false}
-						required={false}
-					/>
+					{#key Object.keys(aiProviders).length}
+						<ArgEnum
+							enum_={availableAIModels}
+							bind:value={defaultModel}
+							disabled={false}
+							autofocus={false}
+							defaultValue={undefined}
+							valid={true}
+							create={false}
+							required={false}
+						/>
+					{/key}
 				</Label>
 
 				<div class="flex flex-col gap-2">

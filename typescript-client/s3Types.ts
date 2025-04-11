@@ -1,6 +1,7 @@
 export type S3Object = {
   s3: string;
   storage?: string;
+  presigned?: string;
 };
 
 export type DenoS3LightClientSettings = {

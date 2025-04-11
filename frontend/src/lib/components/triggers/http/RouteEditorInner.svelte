@@ -362,7 +362,7 @@
 										class="flex justify-end"
 										bind:checked={s3FileUploadRawMode}
 										size="xs"
-										options={{ left: 'Existing file' }}
+										options={{ left: 'Raw S3 object input' }}
 										disabled={!can_write}
 									/>
 								{/if}
@@ -385,20 +385,6 @@
 											code={JSON.stringify(static_asset_config ?? { s3: '' }, null, 2)}
 										/>
 									{/if}
-									{#if can_write}
-										<Button
-											variant="border"
-											color="light"
-											size="xs"
-											btnClasses="mt-1"
-											on:click={() => {
-												s3FilePicker?.open?.(!is_static_website ? static_asset_config : undefined)
-											}}
-											startIcon={{ icon: Pipette }}
-										>
-											Choose an object from the catalog
-										</Button>
-									{/if}
 								{:else}
 									{#key is_static_website}
 										<FileUpload
@@ -419,6 +405,20 @@
 											}}
 										/>
 									{/key}
+								{/if}
+								{#if can_write}
+									<Button
+										variant="border"
+										color="light"
+										size="xs"
+										btnClasses="mt-1"
+										on:click={() => {
+											s3FilePicker?.open?.(!is_static_website ? static_asset_config : undefined)
+										}}
+										startIcon={{ icon: Pipette }}
+									>
+										Choose an object from the catalog
+									</Button>
 								{/if}
 							</div>
 						</div>
@@ -612,10 +612,10 @@
 											href={itemKind === 'flow'
 												? `/flows/add?${SECRET_KEY_PATH}=${encodeURIComponent(variable_path)}&hub=${
 														HubFlow.SIGNATURE_TEMPLATE
-												  }`
+													}`
 												: `/scripts/add?${SECRET_KEY_PATH}=${encodeURIComponent(
 														variable_path
-												  )}&hub=hub%2F${HUB_SCRIPT_ID}`}
+													)}&hub=hub%2F${HUB_SCRIPT_ID}`}
 											target="_blank">Create from template</Button
 										>
 									</div>

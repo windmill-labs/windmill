@@ -352,10 +352,10 @@
 			.filter((x) => (x.data as AppComponent).type === 'imagecomponent')
 			.map((x) => {
 				const c = x.data as AppComponent
-				const config = c.configuration as any
-				return computeS3ImageViewerPolicy(config, $app)
+				const config = c.configuration
+				return computeS3ImageViewerPolicy(config)
 			})
-			.filter(Boolean) as { s3_path?: string | undefined; resource?: string | undefined }[]
+			.filter(Boolean) as { s3_path: string; storage?: string | undefined }[]
 
 		policy.allowed_s3_keys = s3FileKeys
 	}

@@ -485,6 +485,12 @@ export const selectOptions = {
 	prose: ['sm', 'Default', 'lg', 'xl', '2xl'],
 	imageSourceKind: [
 		'url',
+		'png encoded as base64',
+		'jpeg encoded as base64',
+		'svg encoded as base64'
+	],
+	imageSourceKindWithS3: [
+		'url',
 		's3 (workspace storage)',
 		'png encoded as base64',
 		'jpeg encoded as base64',
@@ -2903,7 +2909,11 @@ See date-fns format for more information. By default, it is 'dd.MM.yyyy HH:mm'
 				type: 'static',
 				fieldType: 'array',
 				subFieldType: 'object',
-				value: [{ header: 'First', foo: 1 }, { header: 'Second', foo: 2 }, { header: 'Third', foo: 3 }] as object[]
+				value: [
+					{ header: 'First', foo: 1 },
+					{ header: 'Second', foo: 2 },
+					{ header: 'Third', foo: 3 }
+				] as object[]
 			},
 			numberOfSubgrids: 1
 		}
@@ -3089,8 +3099,8 @@ See date-fns format for more information. By default, it is 'dd.MM.yyyy HH:mm'
 				sourceKind: {
 					fieldType: 'select',
 					type: 'static',
-					selectOptions: selectOptions.imageSourceKind,
-					value: 'url' as (typeof selectOptions.imageSourceKind)[number]
+					selectOptions: selectOptions.imageSourceKindWithS3,
+					value: 'url' as (typeof selectOptions.imageSourceKindWithS3)[number]
 				},
 				imageFit: {
 					fieldType: 'select',

@@ -11,7 +11,7 @@
 	import ResolveStyle from '../helpers/ResolveStyle.svelte'
 	import { defaultIfEmptyString } from '$lib/utils'
 	import { userStore } from '$lib/stores'
-	import { computeS3ImageViewerPolicy } from '../../editor/appUtilsS3'
+	import { computeS3ImageViewerPolicy, isPartialS3Object } from '../../editor/appUtilsS3'
 
 	export let id: string
 	export let configuration: RichConfigurations
@@ -22,7 +22,7 @@
 		if (!isEditor) {
 			return undefined
 		}
-		const policy = computeS3ImageViewerPolicy(configuration, $app)
+		const policy = computeS3ImageViewerPolicy(configuration)
 		return policy
 	}
 
@@ -46,25 +46,36 @@
 
 	let imageUrl: string | undefined = undefined
 
-	async function getS3Image(source: string | undefined) {
+	async function getS3Image(source: string | undefined, storage?: string, presigned?: string) {
 		if (!source) return ''
 		const appPathOrUser = defaultIfEmptyString(
 			$appPath,
 			`u/${$userStore?.username ?? 'unknown'}/newapp`
 		)
 		const params = new URLSearchParams()
-		params.append('file_key', source)
+		params.append('s3', source)
+		if (storage) {
+			params.append('storage', storage)
+		}
 
 		const forceViewerPolicies = computeForceViewerPolicies()
 		if (forceViewerPolicies) {
 			params.append('force_viewer_allowed_s3_keys', JSON.stringify([forceViewerPolicies]))
 		}
 
-		return `/api/w/${workspace}/apps_u/download_s3_file/${appPathOrUser}?${params.toString()}`
+		return `/api/w/${workspace}/apps_u/download_s3_file/${appPathOrUser}?${params.toString()}${presigned ? `&${presigned}` : ''}`
 	}
 
 	async function loadImage() {
-		if (
+		if (isPartialS3Object(resolvedConfig.source)) {
+			imageUrl = await getS3Image(
+				resolvedConfig.source.s3,
+				resolvedConfig.source.storage,
+				resolvedConfig.source.presigned
+			)
+		} else if (resolvedConfig.source && typeof resolvedConfig.source !== 'string') {
+			throw new Error('Invalid image object' + typeof resolvedConfig.source)
+		} else if (
 			resolvedConfig.sourceKind === 's3 (workspace storage)' ||
 			resolvedConfig.source?.startsWith('s3://')
 		) {

@@ -19,8 +19,8 @@
 	export let containerText: string = folderOnly
 		? 'Drag and drop a folder here or click to browse'
 		: allowMultiple
-		? 'Drag and drop files here or click to browse'
-		: 'Drag and drop a file here or click to browse'
+			? 'Drag and drop files here or click to browse'
+			: 'Drag and drop a file here or click to browse'
 	export let customResourcePath: string | undefined = undefined
 	export let customResourceType: 's3' | 'azure_blob' | undefined = undefined // when customResourcePath is provided, this should be provided as well. Will default to S3 if not
 	export let customClass: string = ''
@@ -70,7 +70,10 @@
 				| undefined)
 		| undefined = undefined
 
-	const dispatch = createEventDispatcher()
+	const dispatch = createEventDispatcher<{
+		addition: { path?: string; filename?: string }
+		deletion: { path: string }
+	}>()
 
 	type FileUploadData = {
 		name: string
@@ -146,9 +149,9 @@
 		} else {
 			path =
 				typeof pathTransformer == 'function'
-					? (await pathTransformer?.({
+					? ((await pathTransformer?.({
 							file: fileToUpload
-					  })) ?? fileToUploadKey
+						})) ?? fileToUploadKey)
 					: fileToUploadKey
 		}
 		const uploadData: FileUploadData = {
@@ -269,10 +272,10 @@
 					appPath
 						? `/api/w/${
 								workspace ?? $workspaceStore
-						  }/apps_u/upload_s3_file/${appPath}?${params.toString()}`
+							}/apps_u/upload_s3_file/${appPath}?${params.toString()}`
 						: `/api/w/${
 								workspace ?? $workspaceStore
-						  }/job_helpers/upload_s3_file?${params.toString()}`,
+							}/job_helpers/upload_s3_file?${params.toString()}`,
 					true
 				)
 				xhr?.setRequestHeader('Content-Type', 'application/octet-stream')
@@ -469,10 +472,10 @@
 							color={fileUpload.errorMessage
 								? '#ef4444'
 								: fileUpload.cancelled
-								? '#eab308'
-								: fileUpload.progress === 100
-								? '#22c55e'
-								: '#3b82f6'}
+									? '#eab308'
+									: fileUpload.progress === 100
+										? '#22c55e'
+										: '#3b82f6'}
 							ended={fileUpload.cancelled || fileUpload.errorMessage !== undefined}
 						>
 							{#if fileUpload.errorMessage}
