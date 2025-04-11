@@ -60,6 +60,7 @@
 		MeltButton
 	} from '$lib/components/meltComponents'
 	import MenuButton from './MenuButton.svelte'
+	import GoogleCloudIcon from '../icons/GoogleCloudIcon.svelte'
 
 	export let numUnacknowledgedCriticalAlerts = 0
 
@@ -137,12 +138,19 @@
 			kind: 'sqs'
 		},
 		{
+			label: 'GCP Pub/Sub' + ($enterpriseLicense ? '' : ' (EE)'),
+			href: '/gcp_triggers',
+			icon: GoogleCloudIcon,
+			disabled: $userStore?.operator || !$enterpriseLicense,
+			kind: 'gcp'
+		},
+		{
 			label: 'MQTT',
 			href: '/mqtt_triggers',
 			icon: MqttIcon,
 			disabled: $userStore?.operator,
 			kind: 'mqtt'
-		},
+		}
 	]
 
 	$: extraTriggerLinks = defaultExtraTriggerLinks.filter((link) => {

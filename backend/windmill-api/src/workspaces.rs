@@ -1307,6 +1307,7 @@ struct UsedTriggers {
     pub postgres_used: bool,
     pub mqtt_used: bool,
     pub sqs_used: bool,
+    pub gcp_used: bool,
 }
 
 async fn get_used_triggers(
@@ -1325,7 +1326,8 @@ async fn get_used_triggers(
             EXISTS(SELECT 1 FROM nats_trigger WHERE workspace_id = $1) as "nats_used!",
             EXISTS(SELECT 1 FROM postgres_trigger WHERE workspace_id = $1) AS "postgres_used!",
             EXISTS(SELECT 1 FROM mqtt_trigger WHERE workspace_id = $1) AS "mqtt_used!",
-            EXISTS(SELECT 1 FROM sqs_trigger WHERE workspace_id = $1) AS "sqs_used!"
+            EXISTS(SELECT 1 FROM sqs_trigger WHERE workspace_id = $1) AS "sqs_used!",
+            EXISTS(SELECT 1 FROM gcp_trigger WHERE workspace_id = $1) AS "gcp_used!"
         "#,
         w_id
     )

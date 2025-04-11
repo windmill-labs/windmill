@@ -15,11 +15,12 @@
 	import PostgresTriggersPanel from './postgres/PostgresTriggersPanel.svelte'
 	import ToggleButtonGroup from '../common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '../common/toggleButton-v2/ToggleButton.svelte'
-	import { KafkaIcon, MqttIcon, NatsIcon, AwsIcon } from '../icons'
+	import { KafkaIcon, MqttIcon, NatsIcon, AwsIcon, GoogleCloudIcon } from '../icons'
 	import KafkaTriggersPanel from './kafka/KafkaTriggersPanel.svelte'
 	import NatsTriggersPanel from './nats/NatsTriggersPanel.svelte'
 	import MqttTriggersPanel from './mqtt/MqttTriggersPanel.svelte'
 	import SqsTriggerPanel from './sqs/SqsTriggerPanel.svelte'
+	import GcpTriggerPanel from './gcp/GcpTriggerPanel.svelte'
 
 	export let noEditor: boolean
 	export let newItem = false
@@ -32,14 +33,15 @@
 	export let canHavePreprocessor: boolean = false
 	export let hasPreprocessor: boolean = false
 	export let args: Record<string, any> = {}
-	let eventStreamType: 'kafka' | 'nats' | 'sqs' | 'mqtt' = 'kafka'
+	let eventStreamType: 'kafka' | 'nats' | 'sqs' | 'mqtt' | 'gcp' = 'kafka'
 
 	$: {
 		if (
 			$selectedTrigger === 'kafka' ||
 			$selectedTrigger === 'nats' ||
 			$selectedTrigger === 'sqs' ||
-			$selectedTrigger === 'mqtt'
+			$selectedTrigger === 'mqtt' ||
+			$selectedTrigger === 'gcp'
 		) {
 			eventStreamType = $selectedTrigger
 		}
@@ -64,7 +66,7 @@
 				<Tab value="postgres" selectedClass="text-primary text-sm font-semibold">Postgres</Tab>
 				<Tab
 					value="kafka"
-					otherValues={['nats', 'sqs', 'mqtt']}
+					otherValues={['nats', 'sqs', 'mqtt', 'gcp']}
 					selectedClass="text-primary text-sm font-semibold"
 				>
 					Event streams
@@ -160,13 +162,14 @@
 									isEditor={true}
 								/>
 							</div>
-						{:else if $selectedTrigger === 'kafka' || $selectedTrigger === 'nats' || $selectedTrigger === 'sqs' || $selectedTrigger === 'mqtt'}
+						{:else if $selectedTrigger === 'kafka' || $selectedTrigger === 'nats' || $selectedTrigger === 'sqs' || $selectedTrigger === 'mqtt' || $selectedTrigger === 'gcp'}
 							<div class="p-4 flex flex-col gap-2">
 								<ToggleButtonGroup bind:selected={eventStreamType} let:item>
 									<ToggleButton value="kafka" label="Kafka" icon={KafkaIcon} {item} />
 									<ToggleButton value="nats" label="NATS" icon={NatsIcon} {item} />
 									<ToggleButton value="mqtt" label="MQTT" icon={MqttIcon} {item} />
 									<ToggleButton value="sqs" label="SQS" icon={AwsIcon} {item} />
+									<ToggleButton value="gcp" label="GCP" icon={GoogleCloudIcon} {item} />
 								</ToggleButtonGroup>
 								{#if eventStreamType === 'kafka'}
 									<KafkaTriggersPanel
@@ -207,6 +210,19 @@
 									/>
 								{:else if eventStreamType === 'mqtt'}
 									<MqttTriggersPanel
+										on:applyArgs
+										on:addPreprocessor
+										on:updateSchema
+										on:testWithArgs
+										{newItem}
+										path={initialPath || fakeInitialPath}
+										{isFlow}
+										isEditor={true}
+										{canHavePreprocessor}
+										{hasPreprocessor}
+									/>
+								{:else if eventStreamType === 'gcp'}
+									<GcpTriggerPanel
 										on:applyArgs
 										on:addPreprocessor
 										on:updateSchema
