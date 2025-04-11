@@ -5,6 +5,7 @@ use futures::{FutureExt, TryFutureExt};
 use reqwest::Client;
 use serde_json::{json, value::RawValue, Value};
 use windmill_common::error::to_anyhow;
+use windmill_common::worker::Connection;
 use windmill_common::{error::Error, worker::to_raw_value};
 use windmill_parser_sql::{
     parse_bigquery_sig, parse_db_resource, parse_sql_blocks, parse_sql_statement_named_params,
@@ -209,14 +210,14 @@ pub async fn do_bigquery(
     job: &MiniPulledJob,
     client: &AuthedClient,
     query: &str,
-    db: &sqlx::Pool<sqlx::Postgres>,
+    conn: &Connection,
     mem_peak: &mut i32,
     canceled_by: &mut Option<CanceledBy>,
     worker_name: &str,
     column_order: &mut Option<Vec<String>>,
     occupancy_metrics: &mut OccupancyMetrics,
 ) -> windmill_common::error::Result<Box<RawValue>> {
-    let bigquery_args = build_args_values(job, client, db).await?;
+    let bigquery_args = build_args_values(job, client, conn).await?;
 
     let inline_db_res_path = parse_db_resource(&query);
 
@@ -252,7 +253,7 @@ pub async fn do_bigquery(
         .map_err(|e| Error::ExecutionErr(e.to_string()))?;
 
     let (timeout_duration, _, _) =
-        resolve_job_timeout(&db, &job.workspace_id, job.id, job.timeout).await;
+        resolve_job_timeout(&conn, &job.workspace_id, job.id, job.timeout).await;
     let timeout_ms = timeout_duration.as_millis() as u64;
     let http_client = build_http_client(timeout_duration)?;
 
@@ -366,7 +367,7 @@ pub async fn do_bigquery(
     let r = run_future_with_polling_update_job_poller(
         job.id,
         job.timeout,
-        db,
+        conn,
         mem_peak,
         canceled_by,
         result_f.map_err(to_anyhow),

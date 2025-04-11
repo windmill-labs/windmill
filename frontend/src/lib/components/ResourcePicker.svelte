@@ -41,7 +41,7 @@
 					value: value ?? initialValue,
 					label: value ?? initialValue,
 					type: valueType
-			  }
+				}
 			: undefined
 
 	$: if (value === undefined && initialValue) {
@@ -97,7 +97,9 @@
 
 	$: $workspaceStore && loadResources(resourceType)
 
-	$: dispatch('change', value)
+	let oldValue = value
+	$:  (oldValue !== value) && dispatch('change', (oldValue = value))
+	
 
 	let appConnect: AppConnect
 	let resourceEditor: ResourceEditorDrawer

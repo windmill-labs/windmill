@@ -49,6 +49,7 @@ lto = "thin"
 
 [features]
 default = []
+agent_worker_server = ["windmill-api/agent_worker_server"]
 enterprise = ["windmill-worker/enterprise", "windmill-queue/enterprise", "windmill-api/enterprise", "dep:windmill-autoscaling", "windmill-autoscaling/enterprise", "windmill-git-sync/enterprise", "windmill-common/prometheus", "windmill-common/enterprise"]
 enterprise_saml = ["windmill-api/enterprise_saml", "oauth2"]
 stripe = ["windmill-api/stripe"]
@@ -68,13 +69,14 @@ nats = ["windmill-api/nats"]
 otel = ["windmill-common/otel", "windmill-worker/otel"]
 dind = ["windmill-worker/dind"]
 websocket = ["windmill-api/websocket"]
+http_trigger = ["windmill-api/http_trigger"]
 postgres_trigger = ["windmill-api/postgres_trigger"]
 mqtt_trigger = ["windmill-api/mqtt_trigger"]
 sqs_trigger = ["windmill-api/sqs_trigger"]
+gcp_trigger = ["windmill-api/gcp_trigger"]
 smtp = ["windmill-api/smtp", "windmill-common/smtp"]
 license = ["windmill-api/license"]
 oauth2 = ["windmill-api/oauth2"]
-http_trigger = ["windmill-api/http_trigger"]
 zip = ["windmill-api/zip"]
 static_frontend = ["windmill-api/static_frontend"]
 scoped_cache = ["windmill-common/scoped_cache"]
@@ -170,6 +172,9 @@ windmill-parser-graphql = { path = "./parsers/windmill-parser-graphql" }
 windmill-parser-php = { path = "./parsers/windmill-parser-php" }
 windmill-api-client = { path = "./windmill-api-client" }
 
+reqwest-retry = "^0"
+reqwest-middleware = { version = "^0", features = ["json"] }
+
 rustls = "0.23.0"
 memchr = "2.7.4"
 axum = { version = "^0.7", features = ["multipart"] }
@@ -238,6 +243,8 @@ deno_runtime = { version = "0.198.0", features = ["transpile"] }
 deno_telemetry = "0.12.0"
 deno_error = "=0.5.5"
 
+google-cloud-pubsub = "0.30.0"
+google-cloud-googleapis = {version = "0.16.1", features = ["pubsub"]}
 # TODO: remove once deno fixes the issue on their end
 # https://github.com/denoland/deno/issues/28557
 winapi = { version = "0.3.9", features = ["sysinfoapi"] }

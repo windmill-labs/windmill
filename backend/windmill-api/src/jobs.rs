@@ -26,7 +26,7 @@ use tower::ServiceBuilder;
 use windmill_common::error::JsonResult;
 use windmill_common::flow_status::{JobResult, RestartedFrom};
 use windmill_common::jobs::{format_completed_job_result, format_result, ENTRYPOINT_OVERRIDE};
-use windmill_common::worker::{CLOUD_HOSTED, TMP_DIR};
+use windmill_common::worker::{Connection, CLOUD_HOSTED, TMP_DIR};
 
 use windmill_common::scripts::PREVIEW_IS_CODEBASE_HASH;
 use windmill_common::variables::get_workspace_key;
@@ -372,7 +372,6 @@ async fn cancel_job_api(
             email: "anonymous".to_string(),
         },
     };
-
     let (mut tx, job_option) = tokio::time::timeout(
         std::time::Duration::from_secs(120),
         windmill_queue::cancel_job(
@@ -587,7 +586,9 @@ async fn get_flow_job_debug_info(
     Extension(db): Extension<DB>,
     Path((w_id, id)): Path<(String, Uuid)>,
 ) -> error::Result<Response> {
-    let job = GetQuery::new().fetch_queued(&db, id, &w_id).await?;
+    let job = GetQuery::new()
+        .fetch_queued((&db).into(), id, &w_id)
+        .await?;
     if let Some(job) = job {
         let is_flow = job.is_flow();
         if job.is_flow_step || !is_flow {
@@ -926,8 +927,9 @@ impl<'a> GetQuery<'a> {
             // Try to fetch the code from the cache, fallback to the preview code.
             // NOTE: This could check for the job kinds instead of the `or_else` but it's not
             // necessary as `fetch_script` return early if the job kind is not a preview one.
-            cache::job::fetch_script(db, kind, hash)
-                .or_else(|_| cache::job::fetch_preview_script(db, &id, raw_lock, raw_code))
+            let conn = Connection::from(db.clone());
+            cache::job::fetch_script(db.clone(), kind, hash)
+                .or_else(|_| cache::job::fetch_preview_script(&conn, &id, raw_lock, raw_code))
                 .await
                 .ok()
                 .inspect(|data| {
@@ -956,7 +958,7 @@ impl<'a> GetQuery<'a> {
 
         self.check_auth(job.as_ref().map(|job| job.created_by.as_str()))?;
         if let Some(job) = job.as_mut() {
-            self.resolve_raw_values(db, job.id, job.job_kind, job.script_hash, job)
+            self.resolve_raw_values(&db, job.id, job.job_kind, job.script_hash, job)
                 .await;
         }
         if self.with_flow {
@@ -993,12 +995,14 @@ impl<'a> GetQuery<'a> {
             self.resolve_raw_values(db, job.id, job.job_kind, job.script_hash, job)
                 .await;
         }
+
         if self.with_flow {
             cjob = resolve_maybe_value(db, workspace_id, self.with_code, cjob, |job| {
                 job.raw_flow.as_mut()
             })
             .await?;
         }
+
         if let Some(mut cjob) = cjob {
             cjob.inner = format_completed_job_result(cjob.inner);
             return Ok(Some(cjob));
@@ -1008,7 +1012,7 @@ impl<'a> GetQuery<'a> {
 
     async fn fetch(self, db: &DB, job_id: Uuid, workspace_id: &str) -> error::Result<Job> {
         let cjob = self
-            .fetch_completed(db, job_id, workspace_id)
+            .fetch_completed(db.into(), job_id, workspace_id)
             .await?
             .map(Job::CompletedJob);
 
@@ -1016,7 +1020,7 @@ impl<'a> GetQuery<'a> {
             Some(cjob) => Ok(cjob),
             None => {
                 let job_maybe = self
-                    .fetch_queued(db, job_id, workspace_id)
+                    .fetch_queued(db.into(), job_id, workspace_id)
                     .await?
                     .map(Job::QueuedJob);
                 // potential race condition here, if the job was in queue and completed right after the fetch completed, so we need to check one last time
@@ -1024,7 +1028,7 @@ impl<'a> GetQuery<'a> {
                     return Ok(job);
                 } else {
                     let cjob2 = self
-                        .fetch_completed(db, job_id, workspace_id)
+                        .fetch_completed(db.into(), job_id, workspace_id)
                         .await?
                         .map(Job::CompletedJob);
                     not_found_if_none(cjob2, "Job", job_id.to_string())
