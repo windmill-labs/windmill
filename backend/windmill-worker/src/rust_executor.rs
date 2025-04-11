@@ -27,6 +27,8 @@ use crate::{
 use crate::SYSTEM_ROOT;
 
 const NSJAIL_CONFIG_RUN_RUST_CONTENT: &str = include_str!("../nsjail/run.rust.config.proto");
+const NSJAIL_CONFIG_COMPILE_RUST_CONTENT: &str =
+    include_str!("../nsjail/download.rust.config.proto");
 
 lazy_static::lazy_static! {
     static ref HOME_DIR: String = std::env::var("HOME").expect("Could not find the HOME environment variable");
@@ -176,53 +178,90 @@ pub async fn generate_cargo_lockfile(
 }
 
 pub async fn build_rust_crate(
-    job_id: &Uuid,
+    job: &MiniPulledJob,
     mem_peak: &mut i32,
     canceled_by: &mut Option<CanceledBy>,
     job_dir: &str,
     conn: &Connection,
     worker_name: &str,
-    w_id: &str,
     base_internal_url: &str,
     hash: &str,
     occupancy_metrics: &mut OccupancyMetrics,
+    envs: HashMap<String, String>,
+    reserved_variables: HashMap<String, String>,
 ) -> error::Result<String> {
     let bin_path = format!("{}/{hash}", RUST_CACHE_DIR);
 
-    let mut build_rust_cmd = Command::new(CARGO_PATH.as_str());
-    build_rust_cmd
-        .current_dir(job_dir)
-        .env_clear()
-        .envs(PROXY_ENVS.clone())
-        .env("PATH", PATH_ENV.as_str())
-        .env("BASE_INTERNAL_URL", base_internal_url)
-        .env("HOME", HOME_ENV.as_str())
-        .env("CARGO_HOME", CARGO_HOME.as_str())
-        .env("RUSTUP_HOME", RUSTUP_HOME.as_str())
-        .args(vec!["build", "--release"])
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
+    let child = if !*DISABLE_NSJAIL {
+        let _ = write_file(
+            job_dir,
+            "run.config.proto",
+            &NSJAIL_CONFIG_COMPILE_RUST_CONTENT
+                .replace("{JOB_DIR}", job_dir)
+                .replace("{CACHE_DIR}", RUST_CACHE_DIR)
+                .replace("{CACHE_HASH}", &hash)
+                .replace("{CLONE_NEWUSER}", &(!*DISABLE_NUSER).to_string()), // .replace("{SHARED_MOUNT}", shared_mount),
+        )?;
+        let mut nsjail_cmd = Command::new(NSJAIL_PATH.as_str());
+        nsjail_cmd
+            .current_dir(job_dir)
+            .env_clear()
+            .envs(envs)
+            .envs(reserved_variables)
+            .env("PATH", PATH_ENV.as_str())
+            .env("TZ", TZ_ENV.as_str())
+            .env("BASE_INTERNAL_URL", base_internal_url)
+            .envs(PROXY_ENVS.clone())
+            .env("BASE_INTERNAL_URL", base_internal_url)
+            .env("HOME", HOME_ENV.as_str())
+            .env("CARGO_HOME", CARGO_HOME.as_str())
+            .env("RUSTUP_HOME", RUSTUP_HOME.as_str())
+            .args(vec![
+                "--config",
+                "run.config.proto",
+                "--",
+                "build",
+                "--release",
+            ])
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
+        start_child_process(nsjail_cmd, NSJAIL_PATH.as_str()).await?
+    } else {
+        let mut build_rust_cmd = Command::new(CARGO_PATH.as_str());
+        build_rust_cmd
+            .current_dir(job_dir)
+            .env_clear()
+            .envs(PROXY_ENVS.clone())
+            .env("PATH", PATH_ENV.as_str())
+            .env("BASE_INTERNAL_URL", base_internal_url)
+            .env("HOME", HOME_ENV.as_str())
+            .env("CARGO_HOME", CARGO_HOME.as_str())
+            .env("RUSTUP_HOME", RUSTUP_HOME.as_str())
+            .args(vec!["build", "--release"])
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
 
-    #[cfg(windows)]
-    {
-        build_rust_cmd.env("SystemRoot", SYSTEM_ROOT.as_str());
-        build_rust_cmd.env(
-            "TMP",
-            std::env::var("TMP").unwrap_or_else(|_| "C:\\tmp".to_string()),
-        );
-        build_rust_cmd.env("USERPROFILE", crate::USERPROFILE_ENV.as_str());
-    }
+        #[cfg(windows)]
+        {
+            build_rust_cmd.env("SystemRoot", SYSTEM_ROOT.as_str());
+            build_rust_cmd.env(
+                "TMP",
+                std::env::var("TMP").unwrap_or_else(|_| "C:\\tmp".to_string()),
+            );
+            build_rust_cmd.env("USERPROFILE", crate::USERPROFILE_ENV.as_str());
+        }
 
-    let build_rust_process = start_child_process(build_rust_cmd, CARGO_PATH.as_str()).await?;
+        start_child_process(build_rust_cmd, CARGO_PATH.as_str()).await?
+    };
     handle_child(
-        job_id,
+        &job.id,
         conn,
         mem_peak,
         canceled_by,
-        build_rust_process,
+        child,
         false,
         worker_name,
-        w_id,
+        &job.workspace_id,
         "rust build",
         None,
         false,
@@ -230,7 +269,7 @@ pub async fn build_rust_crate(
         None,
     )
     .await?;
-    append_logs(job_id, w_id, "\n\n", conn).await;
+    append_logs(&job.id, &job.workspace_id, "\n\n", conn).await;
 
     tokio::fs::copy(
         &format!("{job_dir}/target/release/main"),
@@ -297,6 +336,9 @@ pub async fn handle_rust_job(
     let bin_path = format!("{}/{hash}", RUST_CACHE_DIR);
     let remote_path = format!("{RUST_OBJECT_STORE_PREFIX}{hash}");
 
+    let reserved_variables =
+        get_reserved_variables(job, &client.token, conn, parent_runnable_path).await?;
+
     let (cache, cache_logs) =
         windmill_common::worker::load_cache(&bin_path, &remote_path, false).await;
 
@@ -331,25 +373,23 @@ pub async fn handle_rust_job(
         create_args_and_out_file(client, job, job_dir, conn).await?;
 
         build_rust_crate(
-            &job.id,
+            &job,
             mem_peak,
             canceled_by,
             job_dir,
             conn,
             worker_name,
-            &job.workspace_id,
             base_internal_url,
             &hash,
             occupancy_metrics,
+            envs.clone(),
+            reserved_variables.clone(),
         )
         .await?
     };
 
     let logs2 = format!("{cache_logs}\n\n--- RUST CODE EXECUTION ---\n");
     append_logs(&job.id, &job.workspace_id, logs2, conn).await;
-
-    let reserved_variables =
-        get_reserved_variables(job, &client.token, conn, parent_runnable_path).await?;
 
     let child = if !*DISABLE_NSJAIL {
         let _ = write_file(
