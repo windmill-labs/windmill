@@ -48,6 +48,8 @@
 
 	let jobs: Job[] | undefined
 	let selectedIds: string[] = []
+	let loadingSelectedIds = false
+	$: loadingSelectedIds && selectedIds.length && setTimeout(() => (loadingSelectedIds = false), 250)
 	let selectedWorkspace: string | undefined = undefined
 
 	let batchReRunOptions: BatchReRunOptions = { flow: {}, script: {} }
@@ -676,15 +678,10 @@
 
 	async function onReRunFilteredJobs() {
 		const selectedFilters = getSelectedFilters()
-		askingForConfirmation = {
-			title: 'Loading filtered jobs',
-			confirmBtnText: 'Loading ...',
-			preContent: JSON.stringify(selectedFilters, null, 4),
-			loading: true
-		}
+		selectedIds = []
+		loadingSelectedIds = true
 		selectedIds = await JobService.listFilteredJobsUuids(selectedFilters)
 		selectionMode = 're-run'
-		askingForConfirmation = undefined
 	}
 
 	async function onReRunSelectedJobs() {
@@ -983,6 +980,7 @@
 				/>
 				<div class="flex flex-row">
 					<RunsBatchActionsDropdown
+						isLoading={loadingSelectedIds}
 						{selectionMode}
 						selectionCount={selectedIds.length}
 						{onSetSelectionMode}

@@ -4,10 +4,11 @@
 
 <script lang="ts">
 	import { userStore, superadmin } from '$lib/stores'
-	import { X, Check, ChevronDown } from 'lucide-svelte'
+	import { X, Check, ChevronDown, Loader2 } from 'lucide-svelte'
 	import { Button } from '../common'
 	import DropdownV2 from '../DropdownV2.svelte'
 
+	export let isLoading = false
 	export let selectionCount: number
 	export let selectionMode: RunsSelectionMode | false
 	export let onSetSelectionMode: (mode: RunsSelectionMode | false) => void
@@ -21,7 +22,11 @@
 	}
 </script>
 
-{#if selectionMode}
+{#if isLoading}
+	<Button size="xs" color="light" disabled>
+		<Loader2 class="animate-spin" size={20} />
+	</Button>
+{:else if selectionMode}
 	<div class="mt-1 p-2 h-8 flex flex-row items-center gap-1">
 		<Button
 			startIcon={{ icon: X }}
