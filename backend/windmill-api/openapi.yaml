@@ -6331,7 +6331,7 @@ paths:
                 - s3_objects
       responses:
         "200":
-          description: signed s3 tokens
+          description: signed s3 objects
           content:
             application/json:
               schema:
