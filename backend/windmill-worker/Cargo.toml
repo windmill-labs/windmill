@@ -52,6 +52,7 @@ windmill-parser-sql.workspace = true
 windmill-parser-graphql.workspace = true
 windmill-parser-php = { workspace = true, optional = true }
 windmill-git-sync.workspace = true
+flume.workspace = true
 sqlx.workspace = true
 uuid.workspace = true
 tracing.workspace = true

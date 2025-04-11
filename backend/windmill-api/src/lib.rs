@@ -728,10 +728,10 @@ pub async fn run_server(
     server.await?;
 
     #[cfg(feature = "agent_worker_server")]
-    if let Some(bg_processor) = agent_workers_bg_processor {
-        tracing::info!("server off. shutting down agent workers bg processor");
+    for (i, bg_processor) in agent_workers_bg_processor.into_iter().enumerate() {
+        tracing::info!("server off. shutting down agent worker bg processor {i}");
         bg_processor.await?;
-        tracing::info!("agent workers bg processor shut down");
+        tracing::info!("agent worker bg processor {i} shut down");
     }
     Ok(())
 }

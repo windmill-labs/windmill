@@ -365,6 +365,8 @@ tantivy = "0.22.0"
 
 backon = "1.3.0"
 
+flume = { version = "0.11.1", features = ["async"] }
+
 # Macro-related
 proc-macro2 = "1.0"
 pulldown-cmark = "0.9"
