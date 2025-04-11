@@ -83,7 +83,8 @@ export function computeS3FileInputPolicy(s3Config: any, app: App) {
 
 const partialS3ObjectSchema = z.object({
 	s3: z.string(),
-	storage: z.string().optional()
+	storage: z.string().optional(),
+	presigned: z.string().optional()
 })
 
 export function isPartialS3Object(input: unknown): input is z.infer<typeof partialS3ObjectSchema> {
@@ -91,24 +92,21 @@ export function isPartialS3Object(input: unknown): input is z.infer<typeof parti
 }
 
 export function computeS3ImageViewerPolicy(config: RichConfigurations) {
-	if (config.source.type === 'static') {
-		if (isPartialS3Object(config.source.value)) {
-			return {
-				s3_path: config.source.value.s3,
-				storage: config.source.value.storage
-			}
-		} else if (
-			typeof config.source.value === 'string' &&
-			((config.sourceKind.type === 'static' &&
-				config.sourceKind.value === 's3 (workspace storage)') ||
-				config.source.value.startsWith('s3://'))
-		) {
-			return {
-				s3_path: config.source.value.replace('s3://', ''),
-				storage: undefined
-			}
-		} else {
-			return undefined
+	if (config.source.type === 'uploadS3' && isPartialS3Object(config.source.value)) {
+		return {
+			s3_path: config.source.value.s3,
+			storage: config.source.value.storage
+		}
+	} else if (
+		config.source.type === 'static' &&
+		typeof config.source.value === 'string' &&
+		((config.sourceKind.type === 'static' &&
+			config.sourceKind.value === 's3 (workspace storage)') ||
+			config.source.value.startsWith('s3://'))
+	) {
+		return {
+			s3_path: config.source.value.replace('s3://', ''),
+			storage: undefined
 		}
 	} else {
 		return undefined

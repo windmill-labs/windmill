@@ -6327,6 +6327,8 @@ paths:
                   type: array
                   items:
                     $ref: "#/components/schemas/S3Object"
+              required:
+                - s3_objects
       responses:
         "200":
           description: signed s3 tokens

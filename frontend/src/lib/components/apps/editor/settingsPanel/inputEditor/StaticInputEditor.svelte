@@ -10,7 +10,7 @@
 	import Toggle from '$lib/components/Toggle.svelte'
 	import autosize from '$lib/autosize'
 	import Button from '$lib/components/common/button/Button.svelte'
-	import { Settings } from 'lucide-svelte'
+	import { Loader2, Pipette, Settings } from 'lucide-svelte'
 	import AgGridWizard from '$lib/components/wizards/AgGridWizard.svelte'
 	import TableColumnWizard from '$lib/components/wizards/TableColumnWizard.svelte'
 	import PlotlyWizard from '$lib/components/wizards/PlotlyWizard.svelte'
@@ -23,6 +23,8 @@
 	import EditableSchemaDrawer from '$lib/components/schema/EditableSchemaDrawer.svelte'
 	import AppPicker from '$lib/components/wizards/AppPicker.svelte'
 	import JsonEditor from '$lib/components/JsonEditor.svelte'
+	import S3FilePicker from '$lib/components/S3FilePicker.svelte'
+	import FileUpload from '$lib/components/common/fileUpload/FileUpload.svelte'
 
 	export let componentInput: StaticInput<any> | undefined
 	export let fieldType: InputType | undefined = undefined
@@ -33,6 +35,9 @@
 	export let id: string | undefined
 
 	const { onchange } = getContext<AppViewerContext>('AppViewerContext')
+
+	let s3FileUploadRawMode = false
+	let s3FilePicker: S3FilePicker | undefined = undefined
 
 	$: componentInput && onchange?.()
 </script>
@@ -136,7 +141,72 @@
 		{:else if fieldType === 'color'}
 			<ColorInput bind:value={componentInput.value} />
 		{:else if fieldType === 'object' || fieldType == 'labeledselect'}
-			{#if format?.startsWith('resource-') && (componentInput.value == undefined || typeof componentInput.value == 'string')}
+			{#if format && format.split('-').length > 1 && format
+					.replace('resource-', '')
+					.replace('_', '')
+					.toLowerCase() == 's3object'}
+				<div class="flex flex-col w-full gap-1">
+					<Toggle
+						class="flex justify-end"
+						bind:checked={s3FileUploadRawMode}
+						size="xs"
+						options={{ left: 'Raw S3 object input' }}
+					/>
+					{#if s3FileUploadRawMode}
+						{#await import('$lib/components/JsonEditor.svelte')}
+							<Loader2 class="animate-spin" />
+						{:then Module}
+							<Module.default
+								code={JSON.stringify(componentInput.value ?? { s3: '' }, null, 2)}
+								bind:value={componentInput.value}
+							/>
+						{/await}
+					{:else}
+						<FileUpload
+							allowMultiple={false}
+							randomFileKey={true}
+							on:addition={(evt) => {
+								if (componentInput) {
+									componentInput.value = {
+										s3: evt.detail?.path ?? '',
+										filename: evt.detail?.filename ?? ''
+									}
+									s3FileUploadRawMode = true
+								}
+							}}
+							on:deletion={(evt) => {
+								if (componentInput) {
+									componentInput.value = {
+										s3: ''
+									}
+								}
+							}}
+						/>
+					{/if}
+					<Button
+						variant="border"
+						color="light"
+						size="xs"
+						btnClasses="mt-1"
+						on:click={() => {
+							s3FilePicker?.open?.()
+						}}
+						startIcon={{ icon: Pipette }}
+					>
+						Choose an object from the catalog
+					</Button>
+				</div>
+				<S3FilePicker
+					bind:this={s3FilePicker}
+					readOnlyMode={false}
+					on:close={(e) => {
+						if (componentInput?.value?.s3) {
+							s3FileUploadRawMode = true
+						}
+					}}
+					bind:selectedFileKey={componentInput.value}
+				/>
+			{:else if format?.startsWith('resource-') && (componentInput.value == undefined || typeof componentInput.value == 'string')}
 				<ResourcePicker
 					initialValue={componentInput.value?.split('$res:')?.[1] || ''}
 					on:change={(e) => {

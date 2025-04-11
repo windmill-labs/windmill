@@ -20,8 +20,7 @@ use crate::{
 use crate::{
     job_helpers_ee::{
         download_s3_file_internal, get_random_file_name, get_s3_resource,
-        get_workspace_s3_resource, load_image_preview_internal, upload_file_from_req,
-        DownloadFileQuery, LoadImagePreviewQuery,
+        get_workspace_s3_resource, upload_file_from_req, DownloadFileQuery,
     },
     users::fetch_api_authed_from_permissioned_as,
 };
@@ -110,10 +109,6 @@ pub fn unauthed_service() -> Router {
         .route("/upload_s3_file/*path", post(upload_s3_file_from_app))
         .route("/delete_s3_file", delete(delete_s3_file_from_app))
         .route("/download_s3_file/*path", get(download_s3_file_from_app))
-        .route(
-            "/load_image_preview/*path",
-            get(load_s3_file_image_preview_from_app),
-        )
         .route("/public_app/:secret", get(get_public_app_by_secret))
         .route("/public_resource/*path", get(get_public_resource))
 }
@@ -1610,27 +1605,24 @@ async fn sign_s3_objects(
 }
 
 #[cfg(feature = "parquet")]
-async fn validate_s3_signature(s3_object: &S3Object, w_id: &str, db: &DB) -> Result<()> {
-    use url::form_urlencoded;
-
+async fn validate_s3_signature(file_query: &AppS3FileQuery, w_id: &str, db: &DB) -> Result<()> {
     let workspace_key = get_workspace_key(w_id, &db).await?;
 
-    let params: HashMap<_, _> =
-        form_urlencoded::parse(s3_object.presigned.as_ref().unwrap().as_bytes())
-            .into_owned()
-            .collect();
+    let Some(exp) = file_query
+        .exp
+        .as_ref()
+        .map(|e| e.parse::<i64>().unwrap_or_default())
+    else {
+        return Err(Error::BadRequest("Missing exp".to_string()));
+    };
 
-    let exp = params
-        .get("exp")
-        .map(|s| s.parse::<i64>().unwrap_or_default())
-        .ok_or_else(|| Error::NotAuthorized("Missing exp".to_string()))?;
+    let Some(ref sig) = file_query.sig else {
+        return Err(Error::BadRequest("Missing signature".to_string()));
+    };
 
-    let signature = params
-        .get("sig")
-        .ok_or_else(|| Error::NotAuthorized("Missing signature".to_string()))?;
+    let mut message = format!("file_key={}&exp={}", file_query.s3, exp);
 
-    let mut message = format!("file_key={}&exp={}", s3_object.s3.clone(), exp);
-    if let Some(ref storage) = s3_object.storage {
+    if let Some(ref storage) = file_query.storage {
         message = format!("{}&storage={}", message, storage);
     }
 
@@ -1639,12 +1631,12 @@ async fn validate_s3_signature(s3_object: &S3Object, w_id: &str, db: &DB) -> Res
 
     mac.update(message.as_bytes());
 
-    let signature_bytes = hex::decode(signature)?;
-    mac.verify_slice(&signature_bytes)
-        .map_err(|err| Error::NotAuthorized(format!("Invalid signature: {}", err)))?;
+    let sig_bytes = hex::decode(sig)?;
+    mac.verify_slice(&sig_bytes)
+        .map_err(|err| Error::BadRequest(format!("Invalid signature: {}", err)))?;
 
     if exp < chrono::Utc::now().timestamp() {
-        return Err(Error::NotAuthorized("Signature expired".to_string()));
+        return Err(Error::BadRequest("Signature expired".to_string()));
     }
 
     Ok(())
@@ -2058,7 +2050,7 @@ async fn get_on_behalf_authed_from_app(
 async fn check_if_allowed_to_access_s3_file_from_app(
     db: &DB,
     opt_authed: &Option<ApiAuthed>,
-    file_query: &mut S3Object,
+    file_query: &AppS3FileQuery,
     w_id: &str,
     path: &str,
     policy: &Policy,
@@ -2066,49 +2058,59 @@ async fn check_if_allowed_to_access_s3_file_from_app(
     // if anonymous, check that the file was the result of an app script ran by an anonymous user in the last 3 hours
     // otherwise, if logged in, allow any file (TODO: change that when we implement better s3 policy)
 
-    if file_query.presigned.is_some() {
-        validate_s3_signature(file_query, w_id, &db).await?;
-    }
-
-    let allowed = opt_authed.is_some()
-        || policy
+    if file_query.sig.is_some() {
+        validate_s3_signature(file_query, w_id, &db).await
+    } else if opt_authed.is_some() {
+        Ok(())
+    } else {
+        let allowed = policy
             .allowed_s3_keys
             .as_ref()
             .unwrap()
             .iter()
             .any(|key| key.s3_path == file_query.s3 && key.storage == file_query.storage)
-        || {
-            sqlx::query_scalar!(
-                r#"SELECT EXISTS (
-                SELECT 1 FROM v2_as_completed_job 
-                WHERE workspace_id = $2 
+            || {
+                sqlx::query_scalar!(
+                    r#"SELECT EXISTS (
+                SELECT 1 FROM v2_as_completed_job
+                WHERE workspace_id = $2
                     AND (job_kind = 'appscript' OR job_kind = 'preview')
-                    AND created_by = 'anonymous' 
+                    AND created_by = 'anonymous'
                     AND started_at > now() - interval '3 hours'
-                    AND script_path LIKE $3 || '/%' 
-                    AND result @> ('{"s3":"' || $1 ||  '"}')::jsonb 
+                    AND script_path LIKE $3 || '/%'
+                    AND result @> ('{"s3":"' || $1 ||  '"}')::jsonb
             )"#,
-                file_query.s3,
-                w_id,
-                path,
-            )
-            .fetch_one(db)
-            .await?
-            .unwrap_or(false)
-        };
+                    file_query.s3,
+                    w_id,
+                    path,
+                )
+                .fetch_one(db)
+                .await?
+                .unwrap_or(false)
+            };
 
-    if !allowed {
-        Err(Error::BadRequest("File restricted".to_string()))
-    } else {
-        Ok(())
+        if !allowed {
+            Err(Error::BadRequest("File restricted".to_string()))
+        } else {
+            Ok(())
+        }
     }
 }
 
 #[cfg(feature = "parquet")]
-#[derive(Deserialize)]
-pub struct S3ObjectWithForceViewerAllowedS3Keys {
+#[derive(Deserialize, Debug)]
+struct AppS3FileQuery {
+    s3: String,
+    storage: Option<String>,
+    sig: Option<String>,
+    exp: Option<String>,
+}
+
+#[cfg(feature = "parquet")]
+#[derive(Deserialize, Debug)]
+struct AppS3FileQueryWithForceViewerAllowedS3Keys {
     #[serde(flatten)]
-    pub file_query: S3Object,
+    pub file_query: AppS3FileQuery,
     pub force_viewer_allowed_s3_keys: Option<String>,
 }
 
@@ -2117,7 +2119,7 @@ async fn download_s3_file_from_app(
     OptAuthed(opt_authed): OptAuthed,
     Extension(db): Extension<DB>,
     Path((w_id, path)): Path<(String, StripPath)>,
-    Query(mut query): Query<S3ObjectWithForceViewerAllowedS3Keys>,
+    Query(query): Query<AppS3FileQueryWithForceViewerAllowedS3Keys>,
 ) -> Result<Response> {
     let path = path.to_path();
 
@@ -2136,7 +2138,7 @@ async fn download_s3_file_from_app(
     check_if_allowed_to_access_s3_file_from_app(
         &db,
         &opt_authed,
-        &mut query.file_query,
+        &query.file_query,
         &w_id,
         &path,
         &policy,
@@ -2154,45 +2156,6 @@ async fn download_s3_file_from_app(
             s3_resource_path: None,
             storage: query.file_query.storage,
         },
-    )
-    .await
-}
-
-#[cfg(not(feature = "parquet"))]
-async fn load_s3_file_image_preview_from_app() -> Result<()> {
-    return Err(Error::BadRequest(
-        "This endpoint requires the parquet feature to be enabled".to_string(),
-    ));
-}
-
-#[cfg(feature = "parquet")]
-async fn load_s3_file_image_preview_from_app(
-    OptAuthed(opt_authed): OptAuthed,
-    Extension(db): Extension<DB>,
-    Path((w_id, path)): Path<(String, StripPath)>,
-    Query(mut query): Query<S3Object>,
-) -> Result<Response> {
-    let path = path.to_path();
-
-    let (on_behalf_authed, policy) =
-        get_on_behalf_authed_from_app(&db, &path, &w_id, &opt_authed, None).await?;
-
-    check_if_allowed_to_access_s3_file_from_app(
-        &db,
-        &opt_authed,
-        &mut query,
-        &w_id,
-        &path,
-        &policy,
-    )
-    .await?;
-
-    load_image_preview_internal(
-        on_behalf_authed,
-        &db,
-        "",
-        &w_id,
-        LoadImagePreviewQuery { file_key: query.s3, storage: query.storage },
     )
     .await
 }

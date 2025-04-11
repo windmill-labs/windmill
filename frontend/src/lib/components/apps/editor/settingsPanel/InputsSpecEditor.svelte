@@ -66,7 +66,6 @@
 	let s3FolderPrefix: string = ''
 	let s3FileUploadRawMode = componentInput?.type == 'uploadS3' && !!componentInput.value?.s3
 
-
 	function updateSelectedS3File() {
 		if (s3PickerSelection) {
 			if (componentInput.type === 'uploadS3') {
@@ -120,7 +119,6 @@
 			onConnect: applyConnection
 		}
 	}
-
 </script>
 
 {#if !(resourceOnly && (fieldType !== 'object' || !format?.startsWith('resource-')))}
@@ -258,9 +256,6 @@
 						<Loader2 class="animate-spin" />
 					{:then Module}
 						<Module.default
-							on:focus={(e) => {
-								dispatch('focus')
-							}}
 							code={JSON.stringify(componentInput.value ?? { s3: '' }, null, 2)}
 							bind:value={componentInput.value}
 						/>

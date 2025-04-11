@@ -774,9 +774,11 @@ export async function writeS3File(
 /**
  * Sign S3 objects to be used by anonymous users in public apps
  * @param s3objects s3 objects to sign
- * @returns signed s3 tokens
+ * @returns signed s3 objects
  */
-export async function signS3Objects(s3objects: S3Object[]): Promise<string[]> {
+export async function signS3Objects(
+  s3objects: S3Object[]
+): Promise<S3Object[]> {
   const signedKeys = await AppService.signS3Objects({
     workspace: getWorkspace(),
     requestBody: {
@@ -784,6 +786,16 @@ export async function signS3Objects(s3objects: S3Object[]): Promise<string[]> {
     },
   });
   return signedKeys;
+}
+
+/**
+ * Sign S3 object to be used by anonymous users in public apps
+ * @param s3object s3 object to sign
+ * @returns signed s3 object
+ */
+export async function signS3Object(s3object: S3Object): Promise<S3Object> {
+  const [signedObject] = await signS3Objects([s3object]);
+  return signedObject;
 }
 
 /**

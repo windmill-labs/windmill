@@ -46,7 +46,7 @@
 
 	let imageUrl: string | undefined = undefined
 
-	async function getS3Image(source: string | undefined, storage?: string) {
+	async function getS3Image(source: string | undefined, storage?: string, presigned?: string) {
 		if (!source) return ''
 		const appPathOrUser = defaultIfEmptyString(
 			$appPath,
@@ -63,14 +63,18 @@
 			params.append('force_viewer_allowed_s3_keys', JSON.stringify([forceViewerPolicies]))
 		}
 
-		return `/api/w/${workspace}/apps_u/download_s3_file/${appPathOrUser}?${params.toString()}`
+		return `/api/w/${workspace}/apps_u/download_s3_file/${appPathOrUser}?${params.toString()}${presigned ? `&${presigned}` : ''}`
 	}
 
 	async function loadImage() {
 		if (isPartialS3Object(resolvedConfig.source)) {
-			imageUrl = await getS3Image(resolvedConfig.source.s3, resolvedConfig.source.storage)
+			imageUrl = await getS3Image(
+				resolvedConfig.source.s3,
+				resolvedConfig.source.storage,
+				resolvedConfig.source.presigned
+			)
 		} else if (resolvedConfig.source && typeof resolvedConfig.source !== 'string') {
-			throw new Error('Invalid s3 object' + typeof resolvedConfig.source)
+			throw new Error('Invalid image object' + typeof resolvedConfig.source)
 		} else if (
 			resolvedConfig.sourceKind === 's3 (workspace storage)' ||
 			resolvedConfig.source?.startsWith('s3://')
