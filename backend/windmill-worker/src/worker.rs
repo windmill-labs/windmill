@@ -211,8 +211,8 @@ pub const DEFAULT_NATIVE_JOBS: usize = 1;
 
 const VACUUM_PERIOD: u32 = 50000;
 
-#[cfg(any(target_os = "linux"))]
-const DROP_CACHE_PERIOD: u32 = 1000;
+// #[cfg(any(target_os = "linux"))]
+// const DROP_CACHE_PERIOD: u32 = 1000;
 
 pub const MAX_BUFFERED_DEDICATED_JOBS: usize = 3;
 

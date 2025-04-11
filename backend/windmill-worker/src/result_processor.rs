@@ -34,10 +34,7 @@ use windmill_queue::{
 
 use serde_json::{json, value::RawValue};
 
-use tokio::{
-    sync::{broadcast, mpsc::Receiver},
-    task::JoinHandle,
-};
+use tokio::{sync::broadcast, task::JoinHandle};
 
 use windmill_queue::{add_completed_job, add_completed_job_error};
 
