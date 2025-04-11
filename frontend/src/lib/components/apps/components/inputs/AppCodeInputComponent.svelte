@@ -98,10 +98,6 @@
 {/if}
 
 <style lang="postcss">
-	:global(.monaco-editor) {
-		min-height: 100%;
-	}
-
 	:global(.suggest-widget) {
 		position: fixed !important;
 	}
