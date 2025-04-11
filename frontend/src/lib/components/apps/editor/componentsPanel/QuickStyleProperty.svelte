@@ -11,12 +11,14 @@
 		type StyleStoreValue,
 		type StylePropertyValue
 	} from './quickStyleProperties'
+	import { createDispatcherIfMounted } from '$lib/createDispatcherIfMounted'
 
 	export let prop: StyleStoreValue['style'][number]['prop']
 	export let value: string | undefined
 	export let inline = false
 	const styleStore = getContext<StyleStore>(STYLE_STORE_KEY)
 	const dispatch = createEventDispatcher()
+	const dispatchIfMounted = createDispatcherIfMounted(dispatch)
 	const key = prop.key
 	const type = prop.value?.['type']
 	let unit: (typeof StylePropertyUnits)[number] = StylePropertyUnits[0]
@@ -35,7 +37,7 @@
 		return ''
 	}
 	$: internalValue = getInteralValue(value, prop.value as StylePropertyValue)
-	$: dispatch('change', value)
+	$: dispatchIfMounted('change', value)
 
 	function updateValue(next: number) {
 		value = next ? next + unit : ''

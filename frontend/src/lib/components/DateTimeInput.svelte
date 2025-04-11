@@ -3,6 +3,7 @@
 	import { Button } from './common'
 	import { Clock, X } from 'lucide-svelte'
 	import { twMerge } from 'tailwind-merge'
+	import { createDispatcherIfMounted } from '$lib/createDispatcherIfMounted'
 	// import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
 	// import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
 
@@ -50,7 +51,7 @@
 			if (newDate.getFullYear() < 2000) return
 
 			value = newDate.toISOString()
-			dispatch('change', value)
+			dispatchIfMounted('change', value)
 		}
 	}
 
@@ -61,6 +62,7 @@
 	}
 
 	const dispatch = createEventDispatcher()
+	const dispatchIfMounted = createDispatcherIfMounted(dispatch)
 
 	function setTimeLater(mins: number) {
 		let newDate = new Date()

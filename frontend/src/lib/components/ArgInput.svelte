@@ -38,6 +38,7 @@
 	import type { Script } from '$lib/gen'
 	import type { SchemaDiff } from '$lib/components/schema/schemaUtils'
 	import type { ComponentCustomCSS } from './apps/types'
+	import { createDispatcherIfMounted } from '$lib/createDispatcherIfMounted'
 
 	export let label: string = ''
 	export let value: any
@@ -150,6 +151,7 @@
 	}
 
 	const dispatch = createEventDispatcher()
+	const dispatchIfMounded = createDispatcherIfMounted(dispatch)
 
 	let ignoreValueUndefined = false
 	let error: string = ''
@@ -388,7 +390,7 @@
 	function compareValues(value) {
 		if (!deepEqual(oldValue, value)) {
 			oldValue = value
-			dispatch('change')
+			dispatchIfMounded('change')
 		}
 	}
 
