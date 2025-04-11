@@ -651,28 +651,30 @@ pub async fn drop_slot_name(
 
     let mut connection = get_raw_postgres_connection(&database).await?;
 
-    #[derive(Debug, FromRow)]
-    struct ActiveReplicationSlot {
-        pid: i32,
-    }
+    let active_pid = sqlx::query_scalar!(
+        r#"SELECT 
+            active_pid 
+        FROM 
+            pg_replication_slots 
+        WHERE 
+            slot_name = $1
+        "#,
+        &name
+    )
+    .fetch_optional(&mut connection)
+    .await?
+    .flatten();
 
-    let start_query = format!("START_REPLICATION SLOT {}%", &name);
-
-    let query = format!("SELECT pid FROM pg_stat_activity WHERE backend_type = 'walsender' AND datname = {} AND usename = {} AND  query LIKE {}", quote_literal(&database.dbname), quote_literal(&database.user), quote_literal(&start_query));
-
-    let active_replication_slots = sqlx::query_as::<_, ActiveReplicationSlot>(&query)
-        .fetch_optional(&mut connection)
-        .await?;
-
-    if let Some(ActiveReplicationSlot { pid }) = active_replication_slots {
-        let terminate_backend_id = format!("SELECT pg_terminate_backend({});", pid);
-        let _ = sqlx::query(&terminate_backend_id)
+    if let Some(pid) = active_pid {
+        sqlx::query("SELECT pg_terminate_backend($1)")
+            .bind(pid)
             .execute(&mut connection)
             .await?;
-
-        let query = drop_logical_replication_slot_query(&name);
-        sqlx::query(&query).execute(&mut connection).await?;
     }
+    sqlx::query("SELECT pg_drop_replication_slot($1)")
+        .bind(&name)
+        .execute(&mut connection)
+        .await?;
 
     Ok(format!("Replication slot {} deleted!", name))
 }

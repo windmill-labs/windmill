@@ -133,7 +133,9 @@
 													if (e.detail.type === 'add') {
 														option && table_to_track.columns_name?.push(option)
 													} else if (e.detail.type === 'remove') {
-														table_to_track.columns_name =  table_to_track.columns_name?.filter((column) => column !== option)
+														table_to_track.columns_name = table_to_track.columns_name?.filter(
+															(column) => column !== option
+														)
 													} else if (e.detail.type === 'removeAll') {
 														table_to_track.columns_name = []
 													} else {
@@ -233,49 +235,48 @@
 				</div>
 			{/each}
 		</div>
-	{:else if relations}
-		<div class="grow min-w-0 pr-10">
-			<AddPropertyFormV2
-				customName="Schema"
-				on:add={({ detail }) => {
-					if (relations == undefined || !Array.isArray(relations)) {
-						relations = []
-						relations = relations.concat({
-							schema_name: 'public',
-							table_to_track: []
-						})
-					} else if (emptyStringTrimmed(detail.name)) {
-						sendUserToast('Schema name must not be empty', true)
-					} else {
-						const appendedRelations = relations.concat({
-							schema_name: detail.name,
-							table_to_track: []
-						})
-						if (
-							invalidRelations(appendedRelations, {
-								showError: true,
-								trackSchemaTableError: false
-							}) === false
-						) {
-							relations = appendedRelations
-						}
-					}
-				}}
-			>
-				<svelte:fragment slot="trigger">
-					<Button
-						variant="border"
-						color="light"
-						size="xs"
-						btnClasses="w-full"
-						disabled={!can_write}
-						startIcon={{ icon: Plus }}
-						nonCaptureEvent
-					>
-						Add schema
-					</Button>
-				</svelte:fragment>
-			</AddPropertyFormV2>
-		</div>
 	{/if}
+	<div class="grow min-w-0 pr-10">
+		<AddPropertyFormV2
+			customName="Schema"
+			on:add={({ detail }) => {
+				if (relations == undefined || !Array.isArray(relations)) {
+					relations = []
+					relations = relations.concat({
+						schema_name: 'public',
+						table_to_track: []
+					})
+				} else if (emptyStringTrimmed(detail.name)) {
+					sendUserToast('Schema name must not be empty', true)
+				} else {
+					const appendedRelations = relations.concat({
+						schema_name: detail.name,
+						table_to_track: []
+					})
+					if (
+						invalidRelations(appendedRelations, {
+							showError: true,
+							trackSchemaTableError: false
+						}) === false
+					) {
+						relations = appendedRelations
+					}
+				}
+			}}
+		>
+			<svelte:fragment slot="trigger">
+				<Button
+					variant="border"
+					color="light"
+					size="xs"
+					btnClasses="w-full"
+					disabled={!can_write}
+					startIcon={{ icon: Plus }}
+					nonCaptureEvent
+				>
+					Add schema
+				</Button>
+			</svelte:fragment>
+		</AddPropertyFormV2>
+	</div>
 </div>
