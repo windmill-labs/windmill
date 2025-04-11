@@ -467,6 +467,7 @@ impl PostgresConfig {
 
         let client = PostgresSimpleClient::new(&database).await?;
 
+
         let publication = client
             .execute_query(&format!(
                 "SELECT pubname FROM pg_publication WHERE pubname = {}",
@@ -605,6 +606,7 @@ async fn listen_to_transactions(
                                         }
                                     };
 
+                                    
                                     let message = match message {
                                         Ok(message) => message,
                                         Err(err) => {

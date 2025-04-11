@@ -70,7 +70,12 @@
 <div class="flex gap-1">
 	<Select
 		class="grow shrink max-w-full"
-		bind:justValue={replication_slot_name}
+		on:select={(e) => {
+			replication_slot_name = e.detail.value
+		}}
+		on:clear={() => {
+			replication_slot_name = ''
+		}}
 		value={replication_slot_name}
 		{items}
 		placeholder="Choose a slot name"

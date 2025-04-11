@@ -14,9 +14,8 @@
 	export let can_write: boolean = true
 	export let publication_name: string = ''
 	export let postgres_resource_path: string = ''
-	export let relations: Relations[] = []
+	export let relations: Relations[] | undefined = undefined
 	export let transaction_to_track: string[] = []
-	export let selectedTable: 'all' | 'specific' = 'specific'
 
 	async function listDatabasePublication() {
 		try {
@@ -56,7 +55,7 @@
 				publication: publication_name
 			})
 			items = items.filter((item) => item != publication_name)
-			relations = []
+			relations = undefined
 			transaction_to_track = ['Insert', 'Update', 'Delete']
 			publication_name = ''
 			sendUserToast(message)
@@ -73,13 +72,10 @@
 				publication: publication_name
 			})
 			transaction_to_track = [...publication_data.transaction_to_track]
-			relations = publication_data.table_to_track ?? []
-			if (relations.length === 0) {
-				selectedTable = 'all'
-			} else {
-				selectedTable = 'specific'
-			}
-			selectedTable = selectedTable
+			relations =
+				publication_data.table_to_track && publication_data.table_to_track.length > 0
+					? publication_data.table_to_track
+					: undefined
 		} catch (error) {
 			sendUserToast(error.body, true)
 		}
@@ -89,7 +85,6 @@
 
 	let darkMode = false
 
-	$: publication_name && getAllRelations()
 </script>
 
 <DarkModeObserver bind:darkMode />
@@ -98,7 +93,13 @@
 	<Select
 		disabled={!can_write}
 		class="grow shrink max-w-full"
-		bind:justValue={publication_name}
+		on:select={async (e) => {
+			publication_name = e.detail.value
+		    await getAllRelations();
+		}}
+		on:clear={() => {
+			publication_name = ''
+		}}
 		value={publication_name}
 		{items}
 		placeholder="Choose a publication"
@@ -107,7 +108,6 @@
 			? SELECT_INPUT_DEFAULT_STYLE.containerStylesDark
 			: SELECT_INPUT_DEFAULT_STYLE.containerStyles}
 		portal={false}
-		on:select={getAllRelations}
 	/>
 	<Button
 		disabled={!can_write}
