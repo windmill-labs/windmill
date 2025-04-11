@@ -72,7 +72,7 @@
 				}
 
 				if (!isStillRunning) {
-					if (v.started_at && v.duration_ms) {
+					if (v.started_at && v.duration_ms != undefined) {
 						let lmax = v.started_at + v.duration_ms
 						if (!nmax) {
 							nmax = lmax
