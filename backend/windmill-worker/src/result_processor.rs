@@ -34,7 +34,10 @@ use windmill_queue::{
 
 use serde_json::{json, value::RawValue};
 
-use tokio::{sync::mpsc::Receiver, task::JoinHandle};
+use tokio::{
+    sync::{broadcast, mpsc::Receiver},
+    task::JoinHandle,
+};
 
 use windmill_queue::{add_completed_job, add_completed_job_error};
 
@@ -118,7 +121,7 @@ async fn process_jc(
 }
 
 pub fn start_background_processor(
-    mut job_completed_rx: Receiver<SendResult>,
+    job_completed_rx: flume::Receiver<SendResult>,
     job_completed_sender: JobCompletedSender,
     same_worker_queue_size: Arc<AtomicU16>,
     job_completed_processor_is_done: Arc<AtomicBool>,
@@ -127,6 +130,7 @@ pub fn start_background_processor(
     worker_dir: String,
     same_worker_tx: SameWorkerSender,
     worker_name: String,
+    mut killpill_rx: broadcast::Receiver<()>,
     killpill_tx: KillpillSender,
     is_dedicated_worker: bool,
 ) -> JoinHandle<()> {
@@ -136,19 +140,33 @@ pub fn start_background_processor(
         #[cfg(feature = "benchmark")]
         let mut infos = BenchmarkInfo::new();
 
+        enum JobCompletedRx {
+            JobCompleted(SendResult),
+            Killpill,
+        }
         //if we have been killed, we want to drain the queue of jobs
         while let Some(sr) = {
             if has_been_killed && same_worker_queue_size.load(Ordering::SeqCst) == 0 {
-                job_completed_rx.try_recv().ok()
+                job_completed_rx
+                    .try_recv()
+                    .ok()
+                    .map(JobCompletedRx::JobCompleted)
             } else {
-                job_completed_rx.recv().await
+                tokio::select! {
+                    result = job_completed_rx.recv_async() => {
+                        result.ok().map(JobCompletedRx::JobCompleted)
+                    }
+                    _ = killpill_rx.recv() => {
+                        Some(JobCompletedRx::Killpill)
+                    }
+                }
             }
         } {
             #[cfg(feature = "benchmark")]
             let mut bench = BenchmarkIter::new();
 
             match sr {
-                SendResult::JobCompleted(jc) => {
+                JobCompletedRx::JobCompleted(SendResult::JobCompleted(jc)) => {
                     let is_init_script_and_failure =
                         !jc.success && jc.job.tag.as_str() == INIT_SCRIPT_TAG;
                     let is_dependency_job = matches!(
@@ -192,7 +210,7 @@ pub fn start_background_processor(
                         infos.add_iter(bench, true);
                     }
                 }
-                SendResult::UpdateFlow {
+                JobCompletedRx::JobCompleted(SendResult::UpdateFlow {
                     flow,
                     w_id,
                     success,
@@ -200,7 +218,7 @@ pub fn start_background_processor(
                     worker_dir,
                     stop_early_override,
                     token,
-                } => {
+                }) => {
                     // let r;
                     tracing::info!(parent_flow = %flow, "updating flow status");
                     if let Err(e) = update_flow_status_after_job_completion(
@@ -230,7 +248,7 @@ pub fn start_background_processor(
                         tracing::error!("Error updating flow status after job completion for {flow} on {worker_name}: {e:#}");
                     }
                 }
-                SendResult::Kill => {
+                JobCompletedRx::Killpill => {
                     has_been_killed = true;
                 }
             }

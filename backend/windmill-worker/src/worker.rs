@@ -85,6 +85,7 @@ use tokio::fs::symlink_file as symlink;
 
 use tokio::{
     sync::{
+        broadcast,
         mpsc::{self, Receiver, Sender},
         RwLock,
     },
@@ -518,20 +519,33 @@ impl AuthedClient {
     }
 }
 
+#[derive(Clone)]
+pub struct SameWorkerSender(pub Sender<SameWorkerPayload>, pub Arc<AtomicU16>);
+
 #[allow(dead_code)]
 #[derive(Clone)]
 pub enum JobCompletedSender {
-    Sql(Sender<SendResult>),
+    Sql(flume::Sender<SendResult>, broadcast::Sender<()>),
     Http(HttpClient),
     NeverUsed,
 }
 
 impl JobCompletedSender {
-    pub fn new(conn: &Connection, buffer_size: usize) -> (Self, Option<Receiver<SendResult>>) {
+    pub fn new(
+        conn: &Connection,
+        buffer_size: usize,
+    ) -> (
+        Self,
+        Option<(flume::Receiver<SendResult>, broadcast::Receiver<()>)>,
+    ) {
         match conn {
             Connection::Sql(_) => {
-                let (sender, receiver) = mpsc::channel::<SendResult>(buffer_size);
-                (Self::Sql(sender), Some(receiver))
+                let (sender, receiver) = flume::bounded::<SendResult>(buffer_size);
+                let (killpill_tx, killpill_rx) = broadcast::channel::<()>(buffer_size);
+                (
+                    Self::Sql(sender, killpill_tx),
+                    Some((receiver, killpill_rx)),
+                )
             }
             Connection::Http(client) => (Self::Http(client.clone()), None),
         }
@@ -539,16 +553,11 @@ impl JobCompletedSender {
     pub fn new_never_used() -> (Self, Option<Receiver<SendResult>>) {
         (Self::NeverUsed, None)
     }
-}
 
-#[derive(Clone)]
-pub struct SameWorkerSender(pub Sender<SameWorkerPayload>, pub Arc<AtomicU16>);
-
-impl JobCompletedSender {
     pub async fn send_job(&self, jc: JobCompleted) -> anyhow::Result<()> {
         match self {
-            Self::Sql(sender) => sender
-                .send(SendResult::JobCompleted(jc))
+            Self::Sql(sender, _) => sender
+                .send_async(SendResult::JobCompleted(jc))
                 .await
                 .map_err(|_e| {
                     anyhow::anyhow!("Failed to send job completed to background processor")
@@ -566,12 +575,9 @@ impl JobCompletedSender {
         }
     }
 
-    pub async fn send(
-        &self,
-        send_result: SendResult,
-    ) -> Result<(), tokio::sync::mpsc::error::SendError<SendResult>> {
+    pub async fn send(&self, send_result: SendResult) -> Result<(), flume::SendError<SendResult>> {
         match self {
-            Self::Sql(sender) => sender.send(send_result).await,
+            Self::Sql(sender, _) => sender.send_async(send_result).await,
             Self::Http(_) => {
                 tracing::error!("Sending job completed to http client, this should not happen");
                 Ok(())
@@ -585,9 +591,13 @@ impl JobCompletedSender {
         }
     }
 
-    pub async fn kill(&self) -> Result<(), tokio::sync::mpsc::error::SendError<SendResult>> {
+    pub async fn kill(&self) -> Result<(), broadcast::error::SendError<()>> {
         match self {
-            Self::Sql(sender) => sender.send(SendResult::Kill).await,
+            Self::Sql(_, killpill_tx) => {
+                tracing::info!("Sending killpill to bg processors");
+                killpill_tx.send(())?;
+                Ok(())
+            }
             Self::Http(_) => {
                 tracing::error!("Sending kill to http client, this should not happen");
                 Ok(())
@@ -627,11 +637,11 @@ pub async fn drop_cache() {
         Ok(mut file) => {
             // Write '3' to the file to drop caches
             if let Err(e) = tokio::io::AsyncWriteExt::write_all(&mut file, b"3").await {
-                tracing::warn!("Failed to write to /proc/sys/vm/drop_caches (expected to not work in not in privileged mode, only required to forcefully drop the cache to avoid spurrious oom killer): {}", e);
+                tracing::warn!("Failed to write to /proc/sys/vm/drop_caches (expected to work only in privileged mode, only required to forcefully drop the cache to avoid spurrious oom killer): {}", e);
             }
         }
         Err(e) => {
-            tracing::warn!("Failed to open /proc/sys/vm/drop_caches (expected to not work in not in privileged mode, only required to forcefully drop the cache to avoid spurrious oom killer):: {}", e);
+            tracing::warn!("Failed to open /proc/sys/vm/drop_caches (expected to work only in privileged mode, only required to forcefully drop the cache to avoid spurrious oom killer):: {}", e);
         }
     }
 }
@@ -1012,19 +1022,22 @@ pub async fn run_worker(
         Arc::new(AtomicBool::new(matches!(conn, Connection::Http(_))));
 
     let send_result = match (conn, job_completed_rx) {
-        (Connection::Sql(db), Some(job_completed_rx)) => Some(start_background_processor(
-            job_completed_rx,
-            job_completed_tx.clone(),
-            same_worker_queue_size.clone(),
-            job_completed_processor_is_done.clone(),
-            base_internal_url.to_string(),
-            db.clone(),
-            worker_dir.clone(),
-            same_worker_tx.clone(),
-            worker_name.clone(),
-            killpill_tx.clone(),
-            is_dedicated_worker,
-        )),
+        (Connection::Sql(db), Some((job_completed_rx, bg_killpill_rx))) => {
+            Some(start_background_processor(
+                job_completed_rx,
+                job_completed_tx.clone(),
+                same_worker_queue_size.clone(),
+                job_completed_processor_is_done.clone(),
+                base_internal_url.to_string(),
+                db.clone(),
+                worker_dir.clone(),
+                same_worker_tx.clone(),
+                worker_name.clone(),
+                bg_killpill_rx,
+                killpill_tx.clone(),
+                is_dedicated_worker,
+            ))
+        }
         _ => None,
     };
 
@@ -1190,11 +1203,11 @@ pub async fn run_worker(
             jobs_executed += 1;
         }
 
-        #[cfg(any(target_os = "linux"))]
-        if (jobs_executed as u32 + 1) % DROP_CACHE_PERIOD == 0 {
-            drop_cache().await;
-            jobs_executed += 1;
-        }
+        // #[cfg(any(target_os = "linux"))]
+        // if (jobs_executed as u32 + 1) % DROP_CACHE_PERIOD == 0 {
+        //     drop_cache().await;
+        //     jobs_executed += 1;
+        // }
 
         #[cfg(feature = "benchmark")]
         if benchmark_jobs > 0 && infos.iters == benchmark_jobs as u64 {
@@ -1843,7 +1856,6 @@ pub enum SendResult {
         stop_early_override: Option<bool>,
         token: String,
     },
-    Kill,
 }
 
 async fn do_nativets(
