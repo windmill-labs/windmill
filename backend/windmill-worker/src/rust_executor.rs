@@ -193,14 +193,13 @@ async fn get_build_dir(
     conn: &Connection,
     worker_name: &str,
     occupancy_metrics: &mut OccupancyMetrics,
+    is_preview: bool,
 ) -> anyhow::Result<String> {
-    // TODO:
-    // Check deployment and if it uses shared build dir. It should not!
     let (bd, use_shared) = job
         .runnable_path
         .as_ref()
         .and_then(|p| {
-            if *NO_SHARED_BUILD_DIR {
+            if !is_preview || *NO_SHARED_BUILD_DIR {
                 None
             } else {
                 Some((
@@ -216,9 +215,9 @@ async fn get_build_dir(
         })
         .unwrap_or((format!("{RUST_CACHE_DIR}/build/{}", Uuid::new_v4()), false));
 
-    create_dir_all(&bd)
+    create_dir_all(format!("{}/target", &bd))
         .await
-        .map_err(|e| anyhow::anyhow!("Could not create build dir.\ne: {e}"))?;
+        .map_err(|e| anyhow::anyhow!("Could not create build dir and target.\ne: {e}"))?;
 
     if use_shared {
         // Also run sweep to make sure target isn't using too much disk
@@ -287,6 +286,7 @@ pub async fn build_rust_crate(
     occupancy_metrics: &mut OccupancyMetrics,
     envs: HashMap<String, String>,
     reserved_variables: HashMap<String, String>,
+    is_preview: bool,
 ) -> error::Result<String> {
     let bin_path = format!("{}/{hash}", RUST_CACHE_DIR);
 
@@ -298,6 +298,7 @@ pub async fn build_rust_crate(
         conn,
         worker_name,
         occupancy_metrics,
+        is_preview,
     )
     .await?;
 
@@ -331,10 +332,12 @@ pub async fn build_rust_crate(
                 "--",
                 CARGO_PATH.as_ref(),
                 "build",
-                "--release",
             ])
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
+        if !is_preview {
+            nsjail_cmd.arg("--release");
+        }
         start_child_process(nsjail_cmd, NSJAIL_PATH.as_str()).await?
     } else {
         let mut build_rust_cmd = Command::new(CARGO_PATH.as_str());
@@ -348,10 +351,13 @@ pub async fn build_rust_crate(
             .env("CARGO_HOME", CARGO_HOME.as_str())
             .env("RUSTUP_HOME", RUSTUP_HOME.as_str())
             .env("CARGO_TARGET_DIR", &(build_dir.clone() + "/target"))
-            .args(vec!["build", "--release"])
+            .args(vec!["build"])
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
 
+        if !is_preview {
+            build_rust_cmd.arg("--release");
+        }
         #[cfg(windows)]
         {
             build_rust_cmd.env("SystemRoot", SYSTEM_ROOT.as_str());
@@ -382,13 +388,16 @@ pub async fn build_rust_crate(
     append_logs(&job.id, &job.workspace_id, "\n\n", conn).await;
 
     tokio::fs::copy(
-        &format!("{build_dir}/target/release/main"),
+        &format!(
+            "{build_dir}/target/{}/main",
+            if is_preview { "debug" } else { "release" },
+        ),
         format! {"{job_dir}/main"},
     )
     .await
     .map_err(|e| {
         Error::ExecutionErr(format!(
-            "could not copy built binary from [...]/target/release/main to {job_dir}/main: {e:?}"
+            "could not copy built binary from [...]/target/.../main to {job_dir}/main: {e:?}"
         ))
     })?;
 
@@ -494,6 +503,7 @@ pub async fn handle_rust_job(
             occupancy_metrics,
             envs.clone(),
             reserved_variables.clone(),
+            requirements_o.is_none(),
         )
         .await?
     };
