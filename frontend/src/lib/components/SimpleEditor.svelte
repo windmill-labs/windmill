@@ -208,8 +208,8 @@
 	})
 
 	let vimDisposable: IDisposable | undefined = undefined
-	let shouldUpdateVim = $derived(allowVim && editor !== null && vimMode && statusDiv)
-	let shouldDisableVim = $derived(!vimMode && vimDisposable)
+	let shouldUpdateVim = $derived(allowVim && editor !== null && $vimMode && statusDiv)
+	let shouldDisableVim = $derived(!$vimMode && vimDisposable)
 
 	$effect(() => {
 		if (shouldUpdateVim) {
