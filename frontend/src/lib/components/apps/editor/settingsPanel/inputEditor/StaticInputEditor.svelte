@@ -200,8 +200,8 @@
 					bind:this={s3FilePicker}
 					readOnlyMode={false}
 					on:close={(e) => {
-						if (componentInput?.value?.s3) {
-							if (e.detail) {
+						if (e.detail) {
+							if (componentInput) {
 								componentInput.value = e.detail
 							}
 							s3FileUploadRawMode = true
