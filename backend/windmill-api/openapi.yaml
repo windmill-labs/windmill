@@ -2701,6 +2701,8 @@ paths:
                     type: boolean
                   mqtt_used:
                     type: boolean
+                  gcp_used:
+                    type: boolean
                   sqs_used:
                     type: boolean
                 required:
@@ -2710,6 +2712,7 @@ paths:
                   - nats_used
                   - postgres_used
                   - mqtt_used
+                  - gcp_used
                   - sqs_used
   /w/{workspace}/users/list:
     get:
@@ -9396,6 +9399,265 @@ paths:
               schema:
                 type: string
 
+  /w/{workspace}/gcp_triggers/create:
+    post:
+      summary: create gcp trigger
+      operationId: createGcpTrigger
+      tags:
+        - gcp_trigger
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        description: new gcp trigger
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/NewGcpTrigger"
+      responses:
+        "201":
+          description: gcp trigger created
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/gcp_triggers/update/{path}:
+    post:
+      summary: update gcp trigger
+      operationId: updateGcpTrigger
+      tags:
+        - gcp_trigger
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+      requestBody:
+        description: updated trigger
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EditGcpTrigger"
+      responses:
+        "200":
+          description: gcp trigger updated
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/gcp_triggers/delete/{path}:
+    delete:
+      summary: delete gcp trigger
+      operationId: deleteGcpTrigger
+      tags:
+        - gcp_trigger
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+      responses:
+        "200":
+          description: gcp trigger deleted
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/gcp_triggers/get/{path}:
+    get:
+      summary: get gcp trigger
+      operationId: getGcpTrigger
+      tags:
+        - gcp_trigger
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+      responses:
+        "200":
+          description: gcp trigger deleted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GcpTrigger"
+
+  /w/{workspace}/gcp_triggers/list:
+    get:
+      summary: list gcp triggers
+      operationId: listGcpTriggers
+      tags:
+        - gcp_trigger
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+          required: true
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/PerPage"
+        - name: path
+          description: filter by path
+          in: query
+          schema:
+            type: string
+        - name: is_flow
+          in: query
+          schema:
+            type: boolean
+        - name: path_start
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: gcp trigger list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/GcpTrigger"
+
+  /w/{workspace}/gcp_triggers/exists/{path}:
+    get:
+      summary: does gcp trigger exists
+      operationId: existsGcpTrigger
+      tags:
+        - gcp_trigger
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+      responses:
+        "200":
+          description: gcp trigger exists
+          content:
+            application/json:
+              schema:
+                type: boolean
+
+  /w/{workspace}/gcp_triggers/setenabled/{path}:
+    post:
+      summary: set enabled gcp trigger
+      operationId: setGcpTriggerEnabled
+      tags:
+        - gcp_trigger
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+      requestBody:
+        description: updated gcp trigger enable
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                enabled:
+                  type: boolean
+              required:
+                - enabled
+      responses:
+        "200":
+          description: gcp trigger enabled set
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/gcp_triggers/test:
+    post:
+      summary: test gcp connection
+      operationId: testGcpConnection
+      tags:
+        - gcp_trigger
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        description: test gcp connection
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                connection:
+                  type: object
+              required:
+                - connection
+      responses:
+        "200":
+          description: try to connect to a gcp broker
+          content:
+            text/plain:
+              schema:
+                type: string
+
+
+  /w/{workspace}/gcp_triggers/subscriptions/delete/{path}:
+    delete:
+      summary: delete gcp trigger
+      operationId: deleteGcpSubscription
+      tags:
+        - gcp_trigger
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+      requestBody:
+        description: args to delete subscription from google cloud
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DeleteGcpSubscription"
+      responses:
+        "200":
+          description: gcp trigger deleted
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/gcp_triggers/topics/list/{path}:
+    get:
+      summary: list all topics of google cloud service
+      operationId: listGoogleTopics
+      tags:
+        - gcp_trigger
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+      responses:
+        "200":
+          description: get all google topics
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: string
+  
+  /w/{workspace}/gcp_triggers/subscriptions/list/{path}:
+    post:
+      summary: list all subscription of a give topic from google cloud service
+      operationId: listAllTGoogleTopicSubscriptions
+      tags:
+        - gcp_trigger
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+      requestBody:
+        description: args to get subscription's topic from google cloud
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GetAllTopicSubscription"
+      responses:
+        "200":
+          description: get all google topic subscriptions name
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: string
+
   /w/{workspace}/postgres_triggers/is_valid_postgres_configuration/{path}:
     get:
       summary: check if postgres configuration is set to logical
@@ -10736,6 +10998,7 @@ paths:
                 nats_trigger,
                 postgres_trigger,
                 mqtt_trigger,
+                gcp_trigger,
                 sqs_trigger
               ]
       responses:
@@ -10779,6 +11042,7 @@ paths:
                 nats_trigger,
                 postgres_trigger,
                 mqtt_trigger,
+                gcp_trigger,
                 sqs_trigger
               ]
       requestBody:
@@ -10833,6 +11097,7 @@ paths:
                 nats_trigger,
                 postgres_trigger,
                 mqtt_trigger,
+                gcp_trigger,
                 sqs_trigger
               ]
       requestBody:
@@ -10885,6 +11150,10 @@ paths:
       responses:
         "200":
           description: capture config set
+          content:
+            application/json:
+              schema:
+                type: object
 
   /w/{workspace}/capture/ping_config/{trigger_kind}/{runnable_kind}/{path}:
     post:
@@ -14349,6 +14618,8 @@ components:
           type: number
         mqtt_count:
           type: number
+        gcp_count:
+          type: number
         sqs_count:
           type: number
 
@@ -14633,6 +14904,173 @@ components:
         - subscribe_topics
         - mqtt_resource_path
 
+    DeliveryType:
+      type: string
+      enum:
+        - push
+        - pull
+
+    PushConfig:
+      type: object
+      properties:
+        audience:
+          type: string
+        authenticate:
+          type: boolean
+        base_endpoint:
+          type: string
+      required:
+        - authenticate
+        - base_endpoint
+
+    GcpTrigger:
+      allOf:
+        - $ref: "#/components/schemas/TriggerExtraProperty"
+      type: object
+      properties:
+        gcp_resource_path:
+          type: string
+        topic_id:
+          type: string
+        subscription_id:
+          type: string
+        server_id:
+          type: string
+        delivery_type:
+          $ref: "#/components/schemas/DeliveryType"
+        delivery_config:
+          $ref: "#/components/schemas/PushConfig"
+        last_server_ping:
+          type: string
+          format: date-time
+        error:
+          type: string
+        enabled:
+          type: boolean
+      required:
+        - gcp_resource_path
+        - topic_id
+        - subscription_id
+        - enabled
+        - delivery_type
+  
+    SubscriptionMode:
+      type: string
+      enum:
+        - existing
+        - create_update
+      description: "The mode of subscription. 'existing' means using an existing GCP subscription, while 'create_update' involves creating or updating a new subscription."
+
+    GcpExistingSubscription:
+      type: object
+      properties:
+        subscription_id:
+          type: string
+        base_endpoint:
+          type: string
+      required:
+        - subscription_id
+        - base_endpoint
+    
+    GcpCreateUpdateSubscription:
+      type: object
+      properties:
+        subscription_id:
+          type: string
+        delivery_type:
+          $ref: "#/components/schemas/DeliveryType"
+        delivery_config:
+          $ref: "#/components/schemas/PushConfig"
+      required:
+        - delivery_type
+
+
+    GcpSubscriptionModeConfig:
+      type: object
+      properties:
+        subscription_mode:
+          $ref: "#/components/schemas/SubscriptionMode"
+      required:
+        - subscription_mode
+      allOf:
+        - oneOf:
+            - $ref: "#/components/schemas/GcpExistingSubscription"
+            - $ref: "#/components/schemas/GcpCreateUpdateSubscription"
+      description: |
+        "This is a union type representing the subscription mode. 
+         - 'existing': Represents an existing GCP subscription, and should be accompanied by an 'ExistingGcpSubscription' object.
+         - 'create_update': Represents a new or updated GCP subscription, and should be accompanied by a 'CreateUpdateConfig' object."
+  
+    NewGcpTrigger:
+      type: object
+      properties:
+        gcp_resource_path:
+          type: string
+        topic_id:
+          type: string
+        subscription_mode:
+          $ref: "#/components/schemas/GcpSubscriptionModeConfig"
+        path:
+          type: string
+        script_path:
+          type: string
+        is_flow:
+          type: boolean
+        enabled:
+          type: boolean
+      required:
+        - path
+        - script_path
+        - is_flow
+        - gcp_resource_path
+        - topic_id
+        - subscription_mode
+
+    EditGcpTrigger:
+      type: object
+      properties:
+        gcp_resource_path:
+          type: string
+        topic_id:
+          type: string
+        subscription_mode:
+          $ref: "#/components/schemas/GcpSubscriptionModeConfig"
+        path:
+          type: string
+        script_path:
+          type: string
+        is_flow:
+          type: boolean
+        enabled:
+          type: boolean
+      required:
+        - path
+        - script_path
+        - is_flow
+        - enabled
+        - mqtt_resource_path
+        - subscription_id
+        - delivery_type
+        - topic_id
+        - subscription_mode
+
+    GetAllTopicSubscription:
+      type: object
+      properties:
+        topic_id:
+          type: string
+      required:
+        - topic_id
+
+
+    DeleteGcpSubscription:
+      type: object
+      properties:
+        subscription_id:
+          type: string
+      required:
+        - subscription_id
+  
     SqsTrigger:
       allOf:
         - $ref: "#/components/schemas/TriggerExtraProperty"
@@ -16006,7 +16444,7 @@ components:
 
     CaptureTriggerKind:
       type: string
-      enum: [webhook, http, websocket, kafka, email, nats, postgres, sqs, mqtt]
+      enum: [webhook, http, websocket, kafka, email, nats, postgres, sqs, mqtt, gcp]
 
     Capture:
       type: object
