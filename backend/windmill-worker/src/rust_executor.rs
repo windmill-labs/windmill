@@ -39,7 +39,7 @@ lazy_static::lazy_static! {
     static ref CARGO_PATH: String = std::env::var("CARGO_PATH").unwrap_or_else(|_| format!("{}/bin/cargo", CARGO_HOME.as_str()));
     static ref CARGO_SWEEP_PATH: String = std::env::var("CARGO_SWEEP_PATH").unwrap_or_else(|_| format!("{}/bin/cargo-sweep", CARGO_HOME.as_str()));
     static ref SWEEP_MAXSIZE: String = std::env::var("CARGO_SWEEP_MAXSIZE").unwrap_or("5GB".to_owned());
-    static ref NO_SHARED_BUILD_DIR: bool = var("RUST_NO_SHARED_BUILD_DIR").ok().map(|flag| flag == "true").unwrap_or(false);
+    static ref NO_SHARED_BUILD_DIR: bool = std::env::var("RUST_NO_SHARED_BUILD_DIR").ok().map(|flag| flag == "true").unwrap_or(false);
 
 }
 
@@ -225,7 +225,7 @@ pub async fn build_rust_crate(
                 Ok(sweep_process) => {
                     handle_child(
                         &job.id,
-                        db,
+                        conn,
                         mem_peak,
                         canceled_by,
                         sweep_process,
@@ -285,7 +285,7 @@ pub async fn build_rust_crate(
     let build_rust_process = start_child_process(build_rust_cmd, CARGO_PATH.as_str()).await?;
     handle_child(
         &job.id,
-        db,
+        conn,
         mem_peak,
         canceled_by,
         build_rust_process,
@@ -299,7 +299,7 @@ pub async fn build_rust_crate(
         None,
     )
     .await?;
-    append_logs(&job.id, &job.workspace_id, "\n\n", db).await;
+    append_logs(&job.id, &job.workspace_id, "\n\n", conn).await;
 
     tokio::fs::copy(
         &format!(
