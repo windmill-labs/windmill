@@ -30,12 +30,20 @@ pub struct UploadFileResponse {
 
 #[derive(Deserialize)]
 pub struct LoadImagePreviewQuery {
+    #[allow(dead_code)]
     pub file_key: String,
+    #[allow(dead_code)]
+    pub storage: Option<String>,
 }
 
 #[derive(Deserialize)]
 pub struct DownloadFileQuery {
+    #[allow(dead_code)]
     pub file_key: String,
+    #[allow(dead_code)]
+    pub storage: Option<String>,
+    #[allow(dead_code)]
+    pub s3_resource_path: Option<String>,
 }
 
 pub fn workspaced_service() -> Router {
@@ -106,19 +114,6 @@ pub async fn download_s3_file_internal(
     _token: &str,
     _w_id: &str,
     _query: DownloadFileQuery,
-) -> error::Result<Response> {
-    Err(error::Error::internal_err(
-        "Not implemented in Windmill's Open Source repository".to_string(),
-    ))
-}
-
-#[cfg(feature = "parquet")]
-pub async fn load_image_preview_internal(
-    _authed: ApiAuthed,
-    _db: &DB,
-    _token: &str,
-    _w_id: &str,
-    _query: LoadImagePreviewQuery,
 ) -> error::Result<Response> {
     Err(error::Error::internal_err(
         "Not implemented in Windmill's Open Source repository".to_string(),
