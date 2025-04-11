@@ -6,7 +6,7 @@
 	import '@codingame/monaco-vscode-standalone-json-language-features'
 	import '@codingame/monaco-vscode-standalone-css-language-features'
 	import '@codingame/monaco-vscode-standalone-typescript-language-features'
-
+	import '@codingame/monaco-vscode-standalone-html-language-features'
 	languages.typescript.javascriptDefaults.setCompilerOptions({
 		target: languages.typescript.ScriptTarget.Latest,
 		allowNonTsExtensions: true,
