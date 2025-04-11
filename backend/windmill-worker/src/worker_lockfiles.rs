@@ -1853,6 +1853,7 @@ async fn capture_dependency_job(
                         &mut annotated_pyv_numeric,
                     )
                     .await?
+                    .0
                     .join("\n")
                 };
 

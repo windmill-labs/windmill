@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                SELECT content FROM script WHERE path = $1 AND workspace_id = $2\n                AND created_at = (SELECT max(created_at) FROM script WHERE path = $1 AND\n                workspace_id = $2)\n                ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "content",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "443bd83bcea1d37c79cb080095343c98104529879f991c49585cd181e34aa827"
+}
