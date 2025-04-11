@@ -3,6 +3,7 @@
 	import { Button } from './common'
 	import { Clock, X } from 'lucide-svelte'
 	import { twMerge } from 'tailwind-merge'
+	import { createDispatcherIfMounted } from '$lib/createDispatcherIfMounted'
 	// import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
 	// import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
 
@@ -43,14 +44,13 @@
 	let initialTime = time
 
 	function parseDateAndTime(date: string | undefined, time: string | undefined) {
-		console.log(date, time)
 		if (date && time && (initialDate != date || initialTime != time)) {
 			let newDate = new Date(`${date}T${time}`)
 			if (newDate.toString() === 'Invalid Date') return
 			if (newDate.getFullYear() < 2000) return
 
 			value = newDate.toISOString()
-			dispatch('change', value)
+			dispatchIfMounted('change', value)
 		}
 	}
 
@@ -61,6 +61,7 @@
 	}
 
 	const dispatch = createEventDispatcher()
+	const dispatchIfMounted = createDispatcherIfMounted(dispatch)
 
 	function setTimeLater(mins: number) {
 		let newDate = new Date()

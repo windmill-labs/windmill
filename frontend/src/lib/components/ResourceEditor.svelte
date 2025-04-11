@@ -18,6 +18,7 @@
 	import autosize from '$lib/autosize'
 	import GfmMarkdown from './GfmMarkdown.svelte'
 	import TestTriggerConnection from './triggers/TestTriggerConnection.svelte'
+	import { createDispatcherIfMounted } from '$lib/createDispatcherIfMounted'
 
 	export let canSave = true
 	export let resource_type: string | undefined = undefined
@@ -52,8 +53,9 @@
 	let viewJsonSchema = false
 
 	const dispatch = createEventDispatcher()
+	const dispatchIfMounted = createDispatcherIfMounted(dispatch)
 
-	$: watchChanges && dispatch('change', { path, args, description })
+	$: watchChanges && dispatchIfMounted('change', { path, args, description })
 
 	let rawCode: string | undefined = undefined
 

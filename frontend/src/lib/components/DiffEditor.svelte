@@ -131,7 +131,7 @@
 		bind:this={diffDivEl}
 		class="{$$props.class} editor nonmain-editor"
 		bind:clientWidth={editorWidth}
-	/>
+	></div>
 	{#if showButtons}
 		<div
 			class="absolute flex flex-row gap-2 bottom-10 left-1/2 z-10 -translate-x-1/2 rounded-md p-1 w-full justify-center"

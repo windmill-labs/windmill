@@ -199,12 +199,14 @@
 		tag ||
 		graph ||
 		maxTs ||
+		minTs ||
 		allWorkspaces ||
 		allowWildcards ||
 		$workspaceStore) &&
 		setQuery(false)
 
 	$: minTs || setQuery(true)
+	$: maxTs || setQuery(true)
 
 	function setQuery(replaceState: boolean) {
 		let searchParams = new URLSearchParams()
@@ -330,7 +332,7 @@
 			$page.url.pathname != newUrl.split('?')[0]
 		) {
 			// replaceState(newUrl.toString(), $page.state)
-			goto(newUrl.toString(), { replaceState: replaceState })
+			goto(newUrl.toString(), { replaceState: replaceState, keepFocus: true })
 		}
 	}
 

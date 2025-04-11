@@ -2,6 +2,7 @@
 	import { createEventDispatcher } from 'svelte'
 	import { fade } from 'svelte/transition'
 	import { X } from 'lucide-svelte'
+	import { createDispatcherIfMounted } from '$lib/createDispatcherIfMounted'
 
 	export let value: any = ''
 	export let placeholder = ''
@@ -10,10 +11,11 @@
 	export let wrapperClass = ''
 	export let buttonClass = ''
 	const dispatch = createEventDispatcher()
+	const dispatchIfMounted = createDispatcherIfMounted(dispatch)
 	let isHovered = false
 
 	$: isNumeric = ['number', 'range'].includes(type)
-	$: dispatch('change', value)
+	$: dispatchIfMounted('change', value)
 
 	function handleInput(e) {
 		value = isNumeric ? +e.target.value : e.target.value

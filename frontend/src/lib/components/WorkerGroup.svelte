@@ -78,10 +78,10 @@
 				? config
 				: {
 						worker_tags: []
-				  }
+					}
 			: {
 					worker_tags: []
-			  }
+				}
 		if (nconfig.priority_tags === undefined) {
 			nconfig.priority_tags = new Map<string, number>()
 		}
@@ -215,7 +215,7 @@
 				Workers can still have their WORKER_TAGS, INIT_SCRIPT and WHITELIST_ENVS passed as env.
 				Dedicated workers are an enterprise only feature.
 			</Alert>
-			<div class="pb-4" />
+			<div class="pb-4"></div>
 		{/if}
 
 		<ToggleButtonGroup
@@ -402,7 +402,7 @@
 				{/if}
 			</Section>
 			{#if nconfig !== undefined}
-				<div class="mt-8" />
+				<div class="mt-8"></div>
 				<Section label="Alerts" tooltip="Alert is sent to the configured critical error channels">
 					<Toggle
 						size="sm"
@@ -465,7 +465,7 @@
 			{/if}
 		{/if}
 
-		<div class="mt-8" />
+		<div class="mt-8"></div>
 		<Section
 			label="Python runtime settings"
 			collapsable={true}
@@ -576,7 +576,7 @@
 			</div>
 		</Section>
 
-		<div class="mt-8" />
+		<div class="mt-8"></div>
 
 		<Section
 			label="Environment variables passed to jobs"
@@ -716,7 +716,7 @@
 				</div>
 			{/if}
 		</Section>
-		<div class="mt-8" />
+		<div class="mt-8"></div>
 
 		<Section label="Autoscaling" collapsable>
 			<div slot="header" class="ml-4 flex flex-row gap-2 items-center">
@@ -731,7 +731,7 @@
 				bind:config={nconfig.autoscaling}
 			/>
 		</Section>
-		<div class="mt-8" />
+		<div class="mt-8"></div>
 
 		<Section
 			label="Init script"

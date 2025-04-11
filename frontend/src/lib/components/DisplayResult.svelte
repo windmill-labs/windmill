@@ -35,6 +35,7 @@
 	import PdfViewer from './display/PdfViewer.svelte'
 	import type { DisplayResultUi } from './custom_ui'
 	import { getContext, hasContext, createEventDispatcher, onDestroy } from 'svelte'
+	import { createDispatcherIfMounted } from '$lib/createDispatcherIfMounted'
 
 	export let result: any
 	export let requireHtmlApproval = false
@@ -57,6 +58,7 @@
 	const DISPLAY_MAX_SIZE = 100000
 
 	const dispatch = createEventDispatcher()
+	const dispatchIfMounted = createDispatcherIfMounted(dispatch)
 
 	let resultKind:
 		| 'json'
@@ -414,7 +416,7 @@
 		} else {
 			toolbarLocation = 'self'
 		}
-		dispatch('toolbar-location-changed', toolbarLocation)
+		dispatchIfMounted('toolbar-location-changed', toolbarLocation)
 	}
 
 	export function getToolbarLocation() {

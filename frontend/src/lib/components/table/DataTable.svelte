@@ -10,6 +10,7 @@
 	import { ArrowDownIcon, ArrowLeftIcon, ArrowRightIcon, Loader2 } from 'lucide-svelte'
 	import { twMerge } from 'tailwind-merge'
 	import List from '$lib/components/common/layout/List.svelte'
+	import { createDispatcherIfMounted } from '$lib/createDispatcherIfMounted'
 
 	export let paginated: boolean = false
 	export let currentPage: number = 1
@@ -31,6 +32,7 @@
 	let footerHeight: number = 0
 	let tableHeight: number = 0
 	const dispatch = createEventDispatcher()
+	const dispatchIfMounted = createDispatcherIfMounted(dispatch)
 	let tableContainer: HTMLDivElement
 	export let loading = false
 	export let loadingMore = false
@@ -45,7 +47,7 @@
 
 		const hasScrollbar = tableContainer.scrollHeight > tableContainer.clientHeight
 		if (!hasScrollbar && hasMore) {
-			dispatch('loadMore')
+			dispatchIfMounted('loadMore')
 		}
 	}
 

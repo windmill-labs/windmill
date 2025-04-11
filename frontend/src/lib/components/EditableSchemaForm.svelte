@@ -24,6 +24,7 @@
 	import { tweened } from 'svelte/motion'
 	import type { SchemaDiff } from '$lib/components/schema/schemaUtils'
 	import type { EditableSchemaFormUi } from '$lib/components/custom_ui'
+	import { createDispatcherIfMounted } from '$lib/createDispatcherIfMounted'
 
 	export let schema: Schema | any
 	export let schemaSkippedValues: string[] = []
@@ -57,6 +58,7 @@
 	export let customUi: EditableSchemaFormUi | undefined = undefined
 
 	const dispatch = createEventDispatcher()
+	const dispatchIfMounted = createDispatcherIfMounted(dispatch)
 
 	let clazz: string = ''
 	export { clazz as class }
@@ -230,7 +232,7 @@
 	function updatePanelSizes(editSize: number, inputSize: number) {
 		editPanelSize = editSize
 		inputPanelSize = inputSize
-		dispatch('editPanelSizeChanged', editSize)
+		dispatchIfMounted('editPanelSizeChanged', editSize)
 	}
 	$: updatePanelSizes($editPanelSizeSmooth, $inputPanelSizeSmooth)
 

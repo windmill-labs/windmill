@@ -1,10 +1,11 @@
 <script>
 	// @ts-nocheck
-	import { beforeUpdate, createEventDispatcher, onDestroy, onMount, tick } from 'svelte'
+	import { beforeUpdate, createEventDispatcher, onDestroy, onMount } from 'svelte'
 	import { offset, flip, shift } from '@floating-ui/dom'
 	import { createFloatingActions } from 'svelte-floating-ui'
 
-	const dispatch = createEventDispatcher()
+	// This component caused trouble with svelte 5 so better be extra safe
+	const dispatch = createDispatcherIfMounted(createEventDispatcher())
 
 	import _filter from './filter'
 	import _getItems from './get-items'
@@ -17,6 +18,7 @@
 
 	import { extractCustomProperties, truncate } from '$lib/utils'
 	import { twMerge } from 'tailwind-merge'
+	import { createDispatcherIfMounted } from '$lib/createDispatcherIfMounted'
 
 	export let portal = true
 

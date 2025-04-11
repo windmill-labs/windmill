@@ -3,6 +3,8 @@
 </script>
 
 <script lang="ts">
+	import { createDispatcherIfMounted } from '$lib/createDispatcherIfMounted'
+
 	import { zIndexes } from '$lib/zIndexes'
 
 	import { createEventDispatcher } from 'svelte'
@@ -50,6 +52,7 @@
 	}
 
 	const dispatch = createEventDispatcher()
+	const dispatchIfMounted = createDispatcherIfMounted(dispatch)
 
 	function handleClickAway(e) {
 		const last = openedDrawers[openedDrawers.length - 1]
@@ -81,7 +84,7 @@
 
 	$: zIndex = zIndexes.disposables + offset
 
-	$: open ? dispatch('open') : dispatch('close')
+	$: dispatchIfMounted(open ? 'open' : 'close')
 </script>
 
 <svelte:window on:keydown={onKeyDown} />
