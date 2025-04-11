@@ -201,24 +201,21 @@
 	}
 
 	let disableTabCond: meditor.IContextKey<boolean> | undefined
-	let shouldUpdateTabCond = $derived(!code && !!suggestion)
 
 	$effect(() => {
-		disableTabCond?.set(shouldUpdateTabCond)
+		disableTabCond?.set(!code && !!suggestion)
 	})
 
 	let vimDisposable: IDisposable | undefined = undefined
-	let shouldUpdateVim = $derived(allowVim && editor !== null && $vimMode && statusDiv)
-	let shouldDisableVim = $derived(!$vimMode && vimDisposable)
 
 	$effect(() => {
-		if (shouldUpdateVim) {
+		if (allowVim && editor !== null && $vimMode && statusDiv) {
 			onVimMode()
 		}
 	})
 
 	$effect(() => {
-		if (shouldDisableVim) {
+		if (!$vimMode && vimDisposable) {
 			onVimDisable()
 		}
 	})
@@ -234,8 +231,6 @@
 			})
 		}
 	}
-
-	let shouldUpdateEditor = $derived(editor !== null && (lang || disableLinting || disableSuggestions || hideLineNumbers))
 
 	function updateModelAndOptions() {
 		const model = editor?.getModel()
@@ -279,7 +274,7 @@
 	}
 
 	$effect(() => {
-		if (shouldUpdateEditor && editor) {
+		if (editor !== null && (lang || disableLinting || disableSuggestions || hideLineNumbers)) {
 			updateModelAndOptions()
 		}
 	})
