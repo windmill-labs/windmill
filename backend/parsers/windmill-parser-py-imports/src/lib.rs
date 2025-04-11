@@ -11,6 +11,7 @@ mod mapping;
 use async_recursion::async_recursion;
 use itertools::Itertools;
 use lazy_static::lazy_static;
+use std::collections::HashMap;
 
 use mapping::{FULL_IMPORTS_MAP, SHORT_IMPORTS_MAP};
 #[cfg(not(target_arch = "wasm32"))]
@@ -20,6 +21,7 @@ use regex_lite::Regex;
 
 use rustpython_parser::{
     ast::{Stmt, StmtImport, StmtImportFrom, Suite},
+    text_size::TextRange,
     Parse,
 };
 use sqlx::{Pool, Postgres};
@@ -41,9 +43,10 @@ fn replace_full_import(x: &str) -> Option<String> {
 
 lazy_static! {
     static ref RE: Regex = Regex::new(r"^\#\s?(\S+)\s*$").unwrap();
+    static ref PIN_RE: Regex = Regex::new(r"(?:\s*#\s*(pin|repin):\s*)(\S*)").unwrap();
 }
 
-fn process_import(module: Option<String>, path: &str, level: usize) -> Vec<String> {
+fn process_import(module: Option<String>, path: &str, level: usize) -> Vec<NImport> {
     if level > 0 {
         let mut imports = vec![];
         let splitted_path = path.split("/");
@@ -52,17 +55,18 @@ fn process_import(module: Option<String>, path: &str, level: usize) -> Vec<Strin
             .take(splitted_path.count() - level)
             .join("/");
         if let Some(m) = module {
-            imports.push(format!("relative:{base}/{}", m.replace(".", "/")));
+            imports.push(NImport::Relative(format!("{base}/{}", m.replace(".", "/"))));
         } else {
-            imports.push(format!("relative:{base}"));
+            imports.push(NImport::Relative(format!("{base}")));
         }
         imports
     } else if let Some(module) = module {
         let imprt = module.split('.').next().unwrap_or("").replace("_", "-");
         if imprt == "u" || imprt == "f" {
-            vec![format!("relative:{}", module.replace(".", "/"))]
+            vec![NImport::Relative(module.replace(".", "/"))]
         } else {
-            vec![replace_full_import(&module).unwrap_or(replace_import(imprt))]
+            let pkg = replace_full_import(&module).unwrap_or(replace_import(imprt));
+            vec![NImport::Auto { key: if module == pkg { None } else { Some(module) }, pkg }]
         }
     } else {
         vec![]
@@ -73,17 +77,68 @@ pub fn parse_relative_imports(code: &str, path: &str) -> error::Result<Vec<Strin
     let nimports = parse_code_for_imports(code, path)?;
     return Ok(nimports
         .into_iter()
-        .filter_map(|x| {
-            if x.starts_with("relative:") {
-                Some(x.replace("relative:", ""))
-            } else {
-                None
-            }
+        .filter_map(|x| match x {
+            NImport::Relative(path) => Some(path),
+            _ => None,
         })
         .collect());
 }
 
-fn parse_code_for_imports(code: &str, path: &str) -> error::Result<Vec<String>> {
+#[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+enum NImport {
+    // Order matters! First we want to resolve all repins
+
+    // manually repinned requirement
+    // e.g.:
+    // import pandas # repin: pandas==x.y.z
+    Repin {
+        pin: ImportPin,
+        key: String,
+    },
+    // manually pinned requirements
+    // e.g.:
+    // import pandas # pin: pandas>=x.y.z
+    // import pandas # pin: pandas<=x.y.z
+    //
+    // NOTE: It is possible for multiple pins exist on same import
+    // That's why we store vector of pins
+    Pin {
+        pins: Vec<ImportPin>,
+        key: String,
+    },
+    // Automatically inferred requirement
+    // e.g.:
+    // import pandas
+    Auto {
+        // Take `x.y.z` for example
+        // x is going to be the `root`
+        // and x.y.z is `full`
+        //
+        // `full` will be None if it is equal to root
+        //
+        // We will use `root` as a requirement name and pass to `uv pip compile` if it was not replaced with any pin
+        pkg: String,
+
+        // However we still need full, since all pins pin against full import names
+        key: Option<String>,
+    },
+    // Relative imports
+    Relative(String),
+}
+#[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+enum NImportResolved {
+    Repin { pin: ImportPin, key: String },
+    Pin { pins: Vec<ImportPin>, key: String },
+    Auto { pkg: String, key: Option<String> },
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+struct ImportPin {
+    pkg: String,
+    path: String,
+}
+
+fn parse_code_for_imports(code: &str, path: &str) -> error::Result<Vec<NImport>> {
     let mut code = code.split(DEF_MAIN).next().unwrap_or("").to_string();
 
     // remove main function decorator from end of file if it exists
@@ -104,19 +159,56 @@ fn parse_code_for_imports(code: &str, path: &str) -> error::Result<Vec<String>> 
     let ast = Suite::parse(&code, "main.py").map_err(|e| {
         error::Error::ExecutionErr(format!("Error parsing code for imports: {}", e.to_string()))
     })?;
-    let nimports: Vec<String> = ast
+
+    let find_pin = |range: TextRange, key: String| {
+        let hs = code
+            .chars()
+            .skip(range.end().to_usize())
+            .take_while(|e| *e != '\n')
+            .collect::<String>();
+
+        if hs.trim_start().is_empty(){
+            return None;
+        }
+
+        PIN_RE
+            .captures(&hs)
+            .and_then(|x| {
+                x.get(1).zip(x.get(2)).and_then(|(ty_m, pkg_m)| {
+                    let pkg = pkg_m.as_str().to_owned();
+                    if ty_m.as_str() == "pin" {
+                        Some(vec![NImport::Pin {
+                            pins: vec![ImportPin { pkg, path: path.to_owned() }],
+                            key,
+                        }])
+                    } else if ty_m.as_str() == "repin" {
+                        Some(vec![NImport::Repin {
+                            pin: ImportPin { pkg, path: path.to_owned() },
+                            key,
+                        }])
+                    } else {
+                        None
+                    }
+                })
+            })
+    };
+
+    let mut nimports: Vec<NImport> = ast
         .into_iter()
         .filter_map(|x| match x {
-            Stmt::Import(StmtImport { names, .. }) => Some(
-                names
-                    .into_iter()
-                    .map(|x| {
-                        let name = x.name.to_string();
-                        process_import(Some(name), path, 0)
-                    })
-                    .flatten()
-                    .collect::<Vec<String>>(),
-            ),
+            Stmt::Import(StmtImport { names, range }) => names
+                .get(0)
+                .and_then(|al| find_pin(range, al.name.to_string()))
+                .or(Some(
+                    names
+                        .into_iter()
+                        .map(|x| {
+                            let name = x.name.to_string();
+                            process_import(Some(name), path, 0)
+                        })
+                        .flatten()
+                        .collect::<Vec<NImport>>(),
+                )),
             Stmt::ImportFrom(StmtImportFrom { level: Some(i), module, .. }) if i.to_u32() > 0 => {
                 Some(process_import(
                     module.map(|x| x.to_string()),
@@ -124,15 +216,25 @@ fn parse_code_for_imports(code: &str, path: &str) -> error::Result<Vec<String>> 
                     i.to_usize(),
                 ))
             }
-            Stmt::ImportFrom(StmtImportFrom { level: _, module, .. }) => {
-                Some(process_import(module.map(|x| x.to_string()), path, 0))
-            }
+            Stmt::ImportFrom(StmtImportFrom { level: _, module, range, .. }) => find_pin(
+                range,
+                module.clone().map(|x| x.to_string()).unwrap_or_default(),
+            )
+            .or(Some(process_import(module.map(|x| x.to_string()), path, 0))),
             _ => None,
         })
         .flatten()
-        .filter(|x| !STDIMPORTS.contains(&x.as_str()))
+        .filter(|x| {
+            if let NImport::Auto { ref pkg, .. } = x {
+                !STDIMPORTS.contains(&(*pkg).as_str())
+            } else {
+                true
+            }
+        })
         .unique()
         .collect();
+
+    nimports.sort();
     return Ok(nimports);
 }
 
@@ -143,8 +245,9 @@ pub async fn parse_python_imports(
     db: &Pool<Postgres>,
     already_visited: &mut Vec<String>,
     annotated_pyv_numeric: &mut Option<u32>,
-) -> error::Result<Vec<String>> {
-    parse_python_imports_inner(
+) -> error::Result<(Vec<String>, Option<String>)> {
+    let mut compile_error_hint: Option<String> = None;
+    let mut imports = parse_python_imports_inner(
         code,
         w_id,
         path,
@@ -153,7 +256,32 @@ pub async fn parse_python_imports(
         annotated_pyv_numeric,
         &mut annotated_pyv_numeric.and_then(|_| Some(path.to_owned())),
     )
-    .await
+    .await?
+    .into_values()
+    .map(|nimport| match nimport {
+        NImportResolved::Pin { pins, .. } => pins.into_iter().map(|p| {
+            if let Some(hint) = &mut compile_error_hint{
+                    hint.push_str(&format!("\n - pin to {} in {}", p.pkg, p.path));
+            } else {
+                compile_error_hint = Some("\n\nMultiple pins can cause problems during lockfile resolution.\nMake sure you checked every pin for conflicts:\n".into())
+            };
+            Ok(p.pkg)
+        }).collect_vec(),
+        NImportResolved::Repin { pin: ImportPin { pkg, .. }, .. } => vec![Ok(pkg)],
+        NImportResolved::Auto { pkg, ..} => vec![Ok(pkg)],
+    })
+    .flatten()
+    .collect::<error::Result<Vec<String>>>()?
+    .into_iter()
+    .unique()
+    .collect_vec();
+
+    imports.sort();
+
+    compile_error_hint
+        .as_mut()
+        .map(|e| e.push_str("\n\nNOTE: You can also `repin` to override all pins"));
+    Ok((imports, compile_error_hint))
 }
 
 #[async_recursion]
@@ -165,7 +293,7 @@ async fn parse_python_imports_inner(
     already_visited: &mut Vec<String>,
     annotated_pyv_numeric: &mut Option<u32>,
     path_where_annotated_pyv: &mut Option<String>,
-) -> error::Result<Vec<String>> {
+) -> error::Result<HashMap<String, NImportResolved>> {
     let PythonAnnotations { py310, py311, py312, py313, .. } = PythonAnnotations::parse(&code);
 
     // we pass only if there is none or only one annotation
@@ -194,7 +322,6 @@ async fn parse_python_imports_inner(
             } else {
                 *annotated_pyv_numeric = Some(numeric);
             }
-
             *path_where_annotated_pyv = Some(path.to_owned());
         }
         Ok(())
@@ -209,74 +336,205 @@ async fn parse_python_imports_inner(
         .lines()
         .find_position(|x| x.starts_with("#requirements:") || x.starts_with("# requirements:"));
     if let Some((pos, _)) = find_requirements {
-        let lines = code
-            .lines()
+        let mut requirements = HashMap::new();
+        code.lines()
             .skip(pos + 1)
             .map_while(|x| {
-                RE.captures(x)
-                    .map(|x| x.get(1).unwrap().as_str().to_string())
+                RE.captures(x).and_then(|x| {
+                    x.get(1).map(|m| {
+                        let requirement = m.as_str().to_string();
+                        requirements.insert(
+                            requirement.clone(),
+                            NImportResolved::Repin {
+                                pin: ImportPin { pkg: requirement, path: Default::default() },
+                                key: Default::default(),
+                            },
+                        );
+                    })
+                })
             })
-            .collect();
-        Ok(lines)
+            .collect_vec();
+
+        Ok(requirements)
     } else {
         let find_extra_requirements = code.lines().find_position(|x| {
             x.starts_with("#extra_requirements:") || x.starts_with("# extra_requirements:")
         });
-        let mut imports: Vec<String> = vec![];
+        let mut imports: HashMap<String, NImportResolved> = HashMap::new();
         if let Some((pos, _)) = find_extra_requirements {
-            let lines: Vec<String> = code
-                .lines()
+            code.lines()
                 .skip(pos + 1)
                 .map_while(|x| {
-                    RE.captures(x)
-                        .map(|x| x.get(1).unwrap().as_str().to_string())
+                    RE.captures(x).and_then(|x| {
+                        x.get(1).map(|m| {
+                            let requirement = m.as_str().to_string();
+                            imports.insert(
+                                requirement.clone(),
+                                NImportResolved::Auto { key: None, pkg: requirement },
+                            );
+                        })
+                    })
                 })
-                .collect();
-            imports.extend(lines);
+                .collect_vec();
         }
 
-        let nimports = parse_code_for_imports(code, path)?;
-        for n in nimports.iter() {
-            let nested = if n.starts_with("relative:") {
-                let rpath = n.replace("relative:", "");
-                let code = sqlx::query_scalar!(
-                    r#"
-                    SELECT content FROM script WHERE path = $1 AND workspace_id = $2
-                    AND created_at = (SELECT max(created_at) FROM script WHERE path = $1 AND
-                    workspace_id = $2)
-                    "#,
-                    &rpath,
-                    w_id
-                )
-                .fetch_optional(db)
-                .await?
-                .unwrap_or_else(|| "".to_string());
+        // Will get unsorted vector of imports found in current script
+        let mut nimports = parse_code_for_imports(code, path)?;
 
-                if already_visited.contains(&rpath) {
-                    vec![]
-                } else {
-                    already_visited.push(rpath.clone());
-                    parse_python_imports_inner(
-                        &code,
-                        w_id,
+        // It is important to note, that sorting is important and will always result in this pattern:
+        // 1. All Repins go first
+        // 2. All Pins go second
+        // 3. All Auto go third
+        // 4. All relative imports go the last
+        //
+        // This way we make sure all repins are resolved before (re)pins inside imported relative scripts.
+        nimports.sort();
+
+        for n in nimports.into_iter() {
+            let mut nested = match n {
+                NImport::Relative(rpath) => {
+                    let code = sqlx::query_scalar!(
+                        r#"
+                SELECT content FROM script WHERE path = $1 AND workspace_id = $2
+                AND created_at = (SELECT max(created_at) FROM script WHERE path = $1 AND
+                workspace_id = $2)
+                "#,
                         &rpath,
-                        db,
-                        already_visited,
-                        annotated_pyv_numeric,
-                        path_where_annotated_pyv,
+                        w_id
                     )
+                    .fetch_optional(db)
                     .await?
+                    .unwrap_or_else(|| "".to_string());
+
+                    if already_visited.contains(&rpath) {
+                        vec![]
+                    } else {
+                        already_visited.push(rpath.clone());
+                        // Because the algo goes depth first, this function will never return relative import
+                        // This why we can safely assume later, that there is no relative imports
+                        parse_python_imports_inner(
+                            &code,
+                            w_id,
+                            &rpath,
+                            db,
+                            already_visited,
+                            annotated_pyv_numeric,
+                            path_where_annotated_pyv,
+                        )
+                        .await?
+                        .into_values()
+                        .collect_vec()
+                    }
                 }
-            } else {
-                vec![n.to_string()]
+                NImport::Repin { pin, key } => vec![NImportResolved::Repin { pin, key }],
+                NImport::Pin { pins, key } => vec![NImportResolved::Pin { pins, key }],
+                NImport::Auto { pkg, key } => vec![NImportResolved::Auto { pkg, key }],
             };
+
+            // Nested should also be sorted for the same reason
+            nested.sort();
+
+            // At this point there should be no NImport::Relative in `nested`
             for imp in nested {
-                if !imports.contains(&imp) {
-                    imports.push(imp);
+                let key = match imp.clone() {
+                    NImportResolved::Pin { key, .. } => key,
+                    NImportResolved::Repin { key, .. } => key,
+                    NImportResolved::Auto { key, pkg } => key.unwrap_or(pkg),
+                };
+                // Handled cases:
+                //
+                //  1.
+                //  Error: Imported windmill scripts have different pins
+                //
+                //  auto
+                //  ├── pin:2
+                //  └── pin:1
+                //
+                //  Fix 1:
+                //
+                //  auto
+                //  ├── pin:1
+                //  └── pin:1
+                //
+                //  Fix 2:
+                //
+                //  repin:1
+                //  ├── pin:2
+                //  └── pin:1
+                //
+                //  2.
+                //  Error: Imported windmill scripts have different pins
+                //
+                //  pin:2
+                //  └── pin:1
+                //
+                //  Fix 1:
+                //
+                //  auto
+                //  └── pin:1
+                //
+                //  Fix 2:
+                //
+                //  repin:2
+                //  └── pin:1
+                //
+                //  3. repins allowed to be repinned again
+                //
+                //  repin:2
+                //  └── repin:1
+                //
+                match imp.clone() {
+                    NImportResolved::Repin { .. } => {
+                        if let Some(existing_import) = imports.get(&key) {
+                            match existing_import {
+                                // replace
+                                p if matches!(
+                                    p,
+                                    NImportResolved::Pin { .. } | NImportResolved::Auto { .. }
+                                ) =>
+                                {
+                                    imports.insert(key, imp);
+                                }
+                                // do nothing (older repins have greater precedence)
+                                NImportResolved::Repin { .. } => {}
+                                // Should not be possible
+                                _ => {
+                                    return Err(anyhow::anyhow!(
+                                        "Internal error: cannot resolve requirement pins",
+                                    )
+                                    .into());
+                                }
+                            }
+                        } else {
+                            imports.insert(key, imp.clone());
+                        }
+                    }
+                    NImportResolved::Pin { pins: new_pins, .. } => {
+                        if let Some(existing_import) = imports.get_mut(&key) {
+                            match existing_import {
+                                // Check if pin is the same version, if same, do nothing, if not error
+                                NImportResolved::Pin { pins: existing_pins, .. } => {
+                                    existing_pins.extend(new_pins)
+                                }
+                                // do nothing
+                                NImportResolved::Repin { .. } => {}
+                                // Replace with new pin
+                                NImportResolved::Auto { .. } => {
+                                    imports.insert(key, imp);
+                                }
+                            }
+                        } else {
+                            imports.insert(key, imp.clone());
+                        }
+                    }
+                    NImportResolved::Auto { .. } => {
+                        if !imports.contains_key(&key) {
+                            imports.insert(key, imp);
+                        }
+                    }
                 }
             }
         }
-        imports.sort();
         Ok(imports)
     }
 }
