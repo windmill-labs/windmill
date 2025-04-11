@@ -10,8 +10,10 @@
 	import { Plus, Loader2, Link2Off } from 'lucide-svelte'
 	import type { AppViewerContext } from './apps/types'
 	import { sendUserToast } from '$lib/toast'
+	import { createDispatcherIfMounted } from '$lib/createDispatcherIfMounted'
 
 	const dispatch = createEventDispatcher()
+	const dispatchIfMounted = createDispatcherIfMounted(dispatch)
 
 	export let initialValue: string | undefined = undefined
 	export let value: string | undefined = initialValue
@@ -29,7 +31,7 @@
 			? {
 					value: value ?? initialValue,
 					label: value ?? initialValue
-			  }
+				}
 			: undefined
 
 	let collection = [valueSelect]
@@ -64,7 +66,7 @@
 
 	$: $workspaceStore && loadResources(resourceType)
 
-	$: dispatch('change', value)
+	$: dispatchIfMounted('change', value)
 
 	let darkMode: boolean = false
 

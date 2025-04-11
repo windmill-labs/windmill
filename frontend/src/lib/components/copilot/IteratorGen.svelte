@@ -14,6 +14,7 @@
 	import { yamlStringifyExceptKeys } from './utils'
 	import { copilotInfo, stepInputCompletionEnabled } from '$lib/stores'
 	import { twMerge } from 'tailwind-merge'
+	import { createDispatcherIfMounted } from '$lib/createDispatcherIfMounted'
 
 	let generatedContent = ''
 	let loading = false
@@ -96,6 +97,7 @@ Only output the expression, do not explain or discuss.`
 	}
 
 	const dispatch = createEventDispatcher()
+	const dispatchIfMounted = createDispatcherIfMounted(dispatch)
 
 	function automaticGeneration() {
 		if (empty) {
@@ -125,7 +127,7 @@ Only output the expression, do not explain or discuss.`
 		generatedContent = ''
 	}
 
-	$: dispatch('showExpr', generatedContent)
+	$: dispatchIfMounted('showExpr', generatedContent)
 
 	let out = true // hack to prevent regenerating answer when accepting the answer due to mouseenter on new icon
 </script>
