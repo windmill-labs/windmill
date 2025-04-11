@@ -4,7 +4,11 @@ use uuid::Uuid;
 use windmill_parser_rust::parse_rust_deps_into_manifest;
 
 use itertools::Itertools;
-use tokio::{fs::File, io::AsyncReadExt, process::Command};
+use tokio::{
+    fs::{create_dir_all, File},
+    io::AsyncReadExt,
+    process::Command,
+};
 use windmill_common::{
     error::{self, Error},
     utils::calculate_hash,
@@ -35,6 +39,10 @@ lazy_static::lazy_static! {
     static ref CARGO_HOME: String = std::env::var("CARGO_HOME").unwrap_or_else(|_| { CARGO_HOME_DEFAULT.clone() });
     static ref RUSTUP_HOME: String = std::env::var("RUSTUP_HOME").unwrap_or_else(|_| { RUSTUP_HOME_DEFAULT.clone() });
     static ref CARGO_PATH: String = std::env::var("CARGO_PATH").unwrap_or_else(|_| format!("{}/bin/cargo", CARGO_HOME.as_str()));
+    static ref CARGO_SWEEP_PATH: String = std::env::var("CARGO_SWEEP_PATH").unwrap_or_else(|_| format!("{}/bin/cargo-sweep", CARGO_HOME.as_str()));
+    static ref SWEEP_MAXSIZE: String = std::env::var("CARGO_SWEEP_MAXSIZE").unwrap_or("5GB".to_owned());
+    static ref NO_SHARED_BUILD_DIR: bool = std::env::var("RUST_NO_SHARED_BUILD_DIR").ok().map(|flag| flag == "true").unwrap_or(false);
+
 }
 
 #[cfg(windows)]
@@ -177,6 +185,96 @@ pub async fn generate_cargo_lockfile(
     Ok(req_content)
 }
 
+async fn get_build_dir(
+    job: &MiniPulledJob,
+    mem_peak: &mut i32,
+    canceled_by: &mut Option<CanceledBy>,
+    job_dir: &str,
+    conn: &Connection,
+    worker_name: &str,
+    occupancy_metrics: &mut OccupancyMetrics,
+) -> anyhow::Result<String> {
+    // TODO:
+    // Check deployment and if it uses shared build dir. It should not!
+    let (bd, use_shared) = job
+        .runnable_path
+        .as_ref()
+        .and_then(|p| {
+            if *NO_SHARED_BUILD_DIR {
+                None
+            } else {
+                Some((
+                    format!(
+                        "{RUST_CACHE_DIR}/build/{}@{}@{}",
+                        &job.workspace_id,
+                        p.replace('/', "."),
+                        &job.created_by
+                    ),
+                    true,
+                ))
+            }
+        })
+        .unwrap_or((format!("{RUST_CACHE_DIR}/build/{}", Uuid::new_v4()), false));
+
+    create_dir_all(&bd)
+        .await
+        .map_err(|e| anyhow::anyhow!("Could not create build dir.\ne: {e}"))?;
+
+    if use_shared {
+        // Also run sweep to make sure target isn't using too much disk
+        let mut sweep_cmd = Command::new(CARGO_SWEEP_PATH.as_str());
+        sweep_cmd
+            .current_dir(job_dir)
+            .env_clear()
+            .env("PATH", PATH_ENV.as_str())
+            .env("CARGO_HOME", CARGO_HOME.as_str())
+            .env("HOME", HOME_ENV.as_str())
+            .env("CARGO_TARGET_DIR", &(bd.clone() + "/target"))
+            .env("RUSTUP_HOME", RUSTUP_HOME.as_str())
+            .args(["sweep", "--maxsize", SWEEP_MAXSIZE.as_str()])
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
+
+        #[cfg(windows)]
+        {
+            sweep_cmd.env("SystemRoot", SYSTEM_ROOT.as_str());
+            sweep_cmd.env(
+                "TMP",
+                std::env::var("TMP").unwrap_or_else(|_| "C:\\tmp".to_string()),
+            );
+            sweep_cmd.env("USERPROFILE", crate::USERPROFILE_ENV.as_str());
+        }
+        if let Err(e) = match start_child_process(sweep_cmd, CARGO_SWEEP_PATH.as_str()).await {
+            Ok(sweep_process) => {
+                handle_child(
+                    &job.id,
+                    conn,
+                    mem_peak,
+                    canceled_by,
+                    sweep_process,
+                    false,
+                    worker_name,
+                    &job.workspace_id,
+                    "cargo sweep",
+                    None,
+                    false,
+                    &mut Some(occupancy_metrics),
+                    None,
+                )
+                .await
+            }
+            Err(e) => Err(e),
+        } {
+            tracing::warn!(
+                workspace_id = %job.workspace_id,
+                job_id = %job.id,
+                "Failed to run `cargo sweep`. Rust cache may grow over time, cargo sweep is meant to clean up unused cache.\ne: {e}\n"
+            );
+        }
+    }
+    Ok(bd)
+}
+
 pub async fn build_rust_crate(
     job: &MiniPulledJob,
     mem_peak: &mut i32,
@@ -192,15 +290,25 @@ pub async fn build_rust_crate(
 ) -> error::Result<String> {
     let bin_path = format!("{}/{hash}", RUST_CACHE_DIR);
 
+    let build_dir = get_build_dir(
+        job,
+        mem_peak,
+        canceled_by,
+        job_dir,
+        conn,
+        worker_name,
+        occupancy_metrics,
+    )
+    .await?;
+
     let child = if !*DISABLE_NSJAIL {
         let _ = write_file(
             job_dir,
-            "run.config.proto",
+            "download.config.proto",
             &NSJAIL_CONFIG_COMPILE_RUST_CONTENT
                 .replace("{JOB_DIR}", job_dir)
                 .replace("{CACHE_DIR}", RUST_CACHE_DIR)
-                .replace("{CACHE_HASH}", &hash)
-                .replace("{CLONE_NEWUSER}", &(!*DISABLE_NUSER).to_string()), // .replace("{SHARED_MOUNT}", shared_mount),
+                .replace("{BUILD}", &build_dir),
         )?;
         let mut nsjail_cmd = Command::new(NSJAIL_PATH.as_str());
         nsjail_cmd
@@ -214,12 +322,14 @@ pub async fn build_rust_crate(
             .envs(PROXY_ENVS.clone())
             .env("BASE_INTERNAL_URL", base_internal_url)
             .env("HOME", HOME_ENV.as_str())
-            .env("CARGO_HOME", CARGO_HOME.as_str())
+            .env("CARGO_HOME", &build_dir)
             .env("RUSTUP_HOME", RUSTUP_HOME.as_str())
+            .env("CARGO_TARGET_DIR", &(build_dir.clone() + "/target"))
             .args(vec![
                 "--config",
-                "run.config.proto",
+                "download.config.proto",
                 "--",
+                CARGO_PATH.as_ref(),
                 "build",
                 "--release",
             ])
@@ -237,6 +347,7 @@ pub async fn build_rust_crate(
             .env("HOME", HOME_ENV.as_str())
             .env("CARGO_HOME", CARGO_HOME.as_str())
             .env("RUSTUP_HOME", RUSTUP_HOME.as_str())
+            .env("CARGO_TARGET_DIR", &(build_dir.clone() + "/target"))
             .args(vec!["build", "--release"])
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
@@ -250,7 +361,6 @@ pub async fn build_rust_crate(
             );
             build_rust_cmd.env("USERPROFILE", crate::USERPROFILE_ENV.as_str());
         }
-
         start_child_process(build_rust_cmd, CARGO_PATH.as_str()).await?
     };
     handle_child(
@@ -272,7 +382,7 @@ pub async fn build_rust_crate(
     append_logs(&job.id, &job.workspace_id, "\n\n", conn).await;
 
     tokio::fs::copy(
-        &format!("{job_dir}/target/release/main"),
+        &format!("{build_dir}/target/release/main"),
         format! {"{job_dir}/main"},
     )
     .await

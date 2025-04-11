@@ -1,4 +1,4 @@
-name: "rust run script"
+name: "rust download script"
 
 mode: ONCE
 hostname: "rust"
@@ -9,7 +9,7 @@ disable_rl: true
 cwd: "/tmp"
 
 clone_newnet: false
-clone_newuser: {CLONE_NEWUSER}
+# clone_newuser: {CLONE_NEWUSER}
 
 keep_caps: false
 keep_env: true
@@ -55,27 +55,6 @@ mount {
     options: "size=500000000"
 }
 
-
-mount {
-    src: "{JOB_DIR}/main"
-    dst: "/tmp/main"
-    is_bind: true
-    mandatory: false
-}
-
-mount {
-    src: "{JOB_DIR}/args.json"
-    dst: "/tmp/args.json"
-    is_bind: true
-}
-
-mount {
-    src: "{JOB_DIR}/result.json"
-    dst: "/tmp/result.json"
-    rw: true
-    is_bind: true
-}
-
 mount {
     src: "/etc"
     dst: "/etc"
@@ -87,6 +66,12 @@ mount {
     dst: "/dev/random"
     is_bind: true
 }
+mount {
+    src: "{JOB_DIR}"
+    dst: "{JOB_DIR}"
+    is_bind: true
+    rw: true
+}
 
 mount {
     src: "/dev/urandom"
@@ -97,10 +82,9 @@ mount {
 iface_no_lo: true
 
 mount {
-    src: "{CACHE_DIR}/{CACHE_HASH}"
-    dst: "/tmp/.cache/rust/{CACHE_HASH}"
+    src: "{BUILD}"
+    dst: "{BUILD}"
     is_bind: true
     mandatory: false
+    rw: true
 }
-
-{SHARED_MOUNT}
