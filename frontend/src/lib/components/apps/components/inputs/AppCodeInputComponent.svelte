@@ -84,8 +84,9 @@
 				bind:this={editorInstance}
 				bind:code
 				{lang}
+				class="h-full"
 				automaticLayout={true}
-				autoHeight={true}
+				autoHeight={false}
 				{placeholder}
 				disableSuggestions={resolvedConfig?.disableSuggestions ?? false}
 				disableLinting={resolvedConfig?.disableLinting ?? false}
