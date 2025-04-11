@@ -119,16 +119,3 @@ pub async fn download_s3_file_internal(
         "Not implemented in Windmill's Open Source repository".to_string(),
     ))
 }
-
-#[cfg(feature = "parquet")]
-pub async fn load_image_preview_internal(
-    _authed: ApiAuthed,
-    _db: &DB,
-    _token: &str,
-    _w_id: &str,
-    _query: LoadImagePreviewQuery,
-) -> error::Result<Response> {
-    Err(error::Error::internal_err(
-        "Not implemented in Windmill's Open Source repository".to_string(),
-    ))
-}
