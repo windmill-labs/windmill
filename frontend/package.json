@@ -85,6 +85,7 @@
 		"@aws-crypto/sha256-js": "^4.0.0",
 		"@codingame/monaco-vscode-configuration-service-override": "~11.1.2",
 		"@codingame/monaco-vscode-standalone-css-language-features": "~11.1.2",
+		"@codingame/monaco-vscode-standalone-html-language-features": "^11.1.2",
 		"@codingame/monaco-vscode-standalone-json-language-features": "~11.1.2",
 		"@codingame/monaco-vscode-standalone-languages": "~11.1.2",
 		"@codingame/monaco-vscode-standalone-typescript-language-features": "~11.1.2",
@@ -152,7 +153,8 @@
 		"y-monaco": "^0.1.4",
 		"y-websocket": "^1.5.4",
 		"yaml": "^2.3.4",
-		"yjs": "^13.6.7"
+		"yjs": "^13.6.7",
+		"zod": "^3.24.2"
 	},
 	"peerDependencies": {
 		"svelte": "^4.0.0"
