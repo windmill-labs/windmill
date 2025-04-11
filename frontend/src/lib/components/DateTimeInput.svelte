@@ -44,7 +44,6 @@
 	let initialTime = time
 
 	function parseDateAndTime(date: string | undefined, time: string | undefined) {
-		console.log(date, time)
 		if (date && time && (initialDate != date || initialTime != time)) {
 			let newDate = new Date(`${date}T${time}`)
 			if (newDate.toString() === 'Invalid Date') return
