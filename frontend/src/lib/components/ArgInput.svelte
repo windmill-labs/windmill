@@ -151,7 +151,7 @@
 	}
 
 	const dispatch = createEventDispatcher()
-	const dispatchIfMounded = createDispatcherIfMounted(dispatch)
+	const dispatchIfMounted = createDispatcherIfMounted(dispatch)
 
 	let ignoreValueUndefined = false
 	let error: string = ''
@@ -390,7 +390,7 @@
 	function compareValues(value) {
 		if (!deepEqual(oldValue, value)) {
 			oldValue = value
-			dispatchIfMounded('change')
+			dispatchIfMounted('change')
 		}
 	}
 
