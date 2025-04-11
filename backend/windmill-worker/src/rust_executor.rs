@@ -221,6 +221,15 @@ pub async fn build_rust_crate(
                 .stdout(Stdio::piped())
                 .stderr(Stdio::piped());
 
+            #[cfg(windows)]
+            {
+                sweep_cmd.env("SystemRoot", SYSTEM_ROOT.as_str());
+                sweep_cmd.env(
+                    "TMP",
+                    std::env::var("TMP").unwrap_or_else(|_| "C:\\tmp".to_string()),
+                );
+                sweep_cmd.env("USERPROFILE", crate::USERPROFILE_ENV.as_str());
+            }
             if let Err(e) = match start_child_process(sweep_cmd, CARGO_SWEEP_PATH.as_str()).await {
                 Ok(sweep_process) => {
                     handle_child(
