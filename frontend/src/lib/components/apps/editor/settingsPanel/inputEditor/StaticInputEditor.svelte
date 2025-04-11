@@ -201,10 +201,12 @@
 					readOnlyMode={false}
 					on:close={(e) => {
 						if (componentInput?.value?.s3) {
+							if (e.detail) {
+								componentInput.value = e.detail
+							}
 							s3FileUploadRawMode = true
 						}
 					}}
-					bind:selectedFileKey={componentInput.value}
 				/>
 			{:else if format?.startsWith('resource-') && (componentInput.value == undefined || typeof componentInput.value == 'string')}
 				<ResourcePicker
