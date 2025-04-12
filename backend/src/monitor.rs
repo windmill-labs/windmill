@@ -1914,7 +1914,7 @@ async fn handle_zombie_jobs(db: &Pool<Postgres>, base_internal_url: &str, worker
             worker_name,
             send_result_never_used,
             #[cfg(feature = "benchmark")]
-            &mut windmill_worker::bench::BenchmarkIter::new(),
+            &mut windmill_common::bench::BenchmarkIter::new(),
         )
         .await;
     }

@@ -1,9 +1,9 @@
-use serde::Serialize;
-use tokio::time::Instant;
-use windmill_common::{
+use crate::{
     worker::{write_file, TMP_DIR},
     DB,
 };
+use serde::Serialize;
+use tokio::time::Instant;
 
 #[derive(Serialize)]
 pub struct BenchmarkInfo {
@@ -41,8 +41,8 @@ impl BenchmarkInfo {
         self.total_duration = Some(total_duration as u64);
 
         println!(
-            "Writing benchmark {path}, duration of benchmark: {total_duration}s and RPS: {}",
-            self.iters as f64 / total_duration as f64
+            "Writing benchmark {path}, duration of benchmark: {total_duration}ms and RPS: {}",
+            self.iters as f64 / total_duration as f64 * 1000.0
         );
         write_file(TMP_DIR, path, &serde_json::to_string(&self).unwrap()).expect("write profiling");
         Ok(())
@@ -79,7 +79,7 @@ impl BenchmarkIter {
 }
 
 pub async fn benchmark_init(benchmark_jobs: i32, db: &DB) {
-    use windmill_common::{jobs::JobKind, scripts::ScriptLang};
+    use crate::{jobs::JobKind, scripts::ScriptLang};
 
     let benchmark_kind = std::env::var("BENCHMARK_KIND").unwrap_or("noop".to_string());
 
