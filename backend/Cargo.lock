@@ -14435,6 +14435,7 @@ dependencies = [
  "itertools 0.14.0",
  "lazy_static",
  "prometheus",
+ "rand 0.9.0",
  "regex",
  "reqwest 0.12.15",
  "serde",

@@ -235,7 +235,7 @@ pub async fn benchmark_init(benchmark_jobs: i32, db: &DB) {
                 )
                 .fetch_all(&mut *tx)
                 .await.unwrap_or_else(|_e| panic!("failed to insert noop jobs (1)"));
-                sqlx::query!("INSERT INTO v2_job_queue (id, workspace_id, scheduled_for, tag) SELECT unnest($1::uuid[]), $2, now(), $3", &uuids, "admins", "deno")
+                sqlx::query!("INSERT INTO v2_job_queue_partitioned (id, workspace_id, scheduled_for, tag, shard_id) SELECT unnest($1::uuid[]), $2, now(), $3, (floor(random() * 4 + 1))::int", &uuids, "admins", "deno")
                 .execute(&mut *tx)
                 .await.unwrap_or_else(|_e| panic!("failed to insert noop jobs (2)"));
                 sqlx::query!(
@@ -244,7 +244,7 @@ pub async fn benchmark_init(benchmark_jobs: i32, db: &DB) {
                 )
                 .execute(&mut *tx)
                 .await
-                .unwrap_or_else(|_e| panic!("failed to insert noop jobs (3)"));
+                .unwrap_or_else(|_e| panic!("failed to insert noop jobs (3): {_e:#}"));
             }
         }
         tx.commit().await.unwrap();

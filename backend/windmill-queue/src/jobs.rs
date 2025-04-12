@@ -727,7 +727,7 @@ pub async fn add_completed_job<T: Serialize + Send + Sync + ValidableJson>(
                         WHEN $2::BOOL THEN 'success'::job_status
                         ELSE 'failure'::job_status END AS status,
                         q.worker
-                FROM v2_job_queue q LEFT JOIN v2_job_status USING (id) WHERE q.id = $1
+                FROM v2_job_queue_partitioned q LEFT JOIN v2_job_status USING (id) WHERE q.id = $1
             ON CONFLICT (id) DO UPDATE SET status = EXCLUDED.status, result = $3 RETURNING duration_ms AS \"duration_ms!\"",
             /* $1 */ queued_job.id,
             /* $2 */ success,
@@ -2572,7 +2572,7 @@ async fn pull_single_job_and_mark_as_running_no_concurrency_limit<'c>(
             return Ok((None, false));
         }
 
-        let r = if suspend_first {
+        let r = if suspend_first && false {
             // tracing::info!("Pulling job with query: {}", query);
             sqlx::query_as::<_, PulledJob>(&query)
                 .bind(worker_name)
@@ -2602,6 +2602,7 @@ async fn pull_single_job_and_mark_as_running_no_concurrency_limit<'c>(
 
                 let r = sqlx::query_as::<_, PulledJob>(query)
                     .bind(worker_name)
+                    .bind(((rand::random::<i8>() % 4) + 1) as i32)
                     .fetch_optional(db)
                     .await?;
 
@@ -3066,7 +3067,7 @@ pub async fn delete_job<'c>(
     }
 
     let job_removed =
-        sqlx::query_scalar!("DELETE FROM v2_job_queue WHERE id = $1 RETURNING 1", job_id,)
+        sqlx::query_scalar!("DELETE FROM v2_job_queue_partitioned WHERE id = $1 RETURNING 1", job_id)
             .fetch_optional(&mut *tx)
             .await;
 
@@ -4239,8 +4240,8 @@ pub async fn push<'c, 'd>(
     tracing::debug!("Pushing job {job_id} with tag {tag}, schedule_path {schedule_path:?}, script_path: {script_path:?}, email {email}, workspace_id {workspace_id}");
     let uuid = sqlx::query_scalar!(
         "INSERT INTO v2_job_queue
-            (workspace_id, id, running, scheduled_for, started_at, tag, priority)
-            VALUES ($1, $2, $3, COALESCE($4, now()), CASE WHEN $3 THEN now() END, $5, $6) \
+            (workspace_id, id, running, scheduled_for, started_at, tag, priority, shard_id)
+            VALUES ($1, $2, $3, COALESCE($4, now()), CASE WHEN $3 THEN now() END, $5, $6, $7) \
          RETURNING id AS \"id!\"",
         workspace_id,
         job_id,
@@ -4248,6 +4249,16 @@ pub async fn push<'c, 'd>(
         scheduled_for_o,
         tag,
         final_priority,
+        if std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+            % 2 == 0
+        {
+            1
+        } else {
+            2
+        }
     )
     .fetch_one(&mut *tx)
     .warn_after_seconds(1)

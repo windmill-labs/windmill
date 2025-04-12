@@ -240,12 +240,12 @@ fn format_pull_query(peek: String) -> String {
         "WITH peek AS (
             {}
         ), q AS NOT MATERIALIZED (
-            UPDATE v2_job_queue SET
+            UPDATE v2_job_queue_partitioned SET
                 running = true,
                 started_at = coalesce(started_at, now()),
                 suspend_until = null,
                 worker = $1
-            WHERE id = (SELECT id FROM peek)
+            WHERE id = (SELECT id FROM peek) AND shard_id = $2
             RETURNING
                 started_at, scheduled_for,
                 canceled_by, canceled_reason, worker
@@ -309,12 +309,12 @@ pub async fn store_suspended_pull_query(wc: &WorkerConfig) {
 pub fn make_pull_query(tags: &[String]) -> String {
     format_pull_query(format!(
         "SELECT id
-        FROM v2_job_queue
-        WHERE running = false AND tag IN ({}) AND scheduled_for <= now()
+        FROM v2_job_queue_partitioned
+        WHERE running = false AND tag IN ({}) AND scheduled_for <= now() AND shard_id = $2
         ORDER BY priority DESC NULLS LAST, scheduled_for
         FOR UPDATE SKIP LOCKED
         LIMIT 1",
-        tags.iter().map(|x| format!("'{x}'")).join(", ")
+        tags.iter().map(|x| format!("'{x}'")).join(", "),
     ))
 }
 

@@ -16,6 +16,7 @@ benchmark = ["windmill-common/benchmark"]
 prometheus = ["dep:prometheus"]
 
 [dependencies]
+rand.workspace = true
 windmill-audit.workspace = true
 windmill-common = { workspace = true, default-features = false }
 anyhow.workspace = true

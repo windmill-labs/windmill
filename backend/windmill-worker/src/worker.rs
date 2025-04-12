@@ -1002,10 +1002,8 @@ pub async fn run_worker(
 
     #[cfg(feature = "benchmark")]
     {
-        if i_worker == 1 {
-            if let Some(db) = conn.as_sql() {
-                benchmark_init(benchmark_jobs, db).await;
-            }
+        if let Some(db) = conn.as_sql() {
+            benchmark_init(benchmark_jobs, db).await;
         }
     }
 
