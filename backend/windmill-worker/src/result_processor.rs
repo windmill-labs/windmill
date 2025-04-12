@@ -26,7 +26,7 @@ use windmill_common::{
 };
 
 #[cfg(feature = "benchmark")]
-use crate::bench::{BenchmarkInfo, BenchmarkIter};
+use windmill_common::bench::{BenchmarkInfo, BenchmarkIter};
 
 use windmill_queue::{
     append_logs, get_queued_job, CanceledBy, JobCompleted, MiniPulledJob, WrappedError,
@@ -506,6 +506,8 @@ pub async fn process_completed_job(
                 ))
             })?;
         }
+
+        add_time!(bench, "pre add_completed_job");
 
         add_completed_job(
             db,

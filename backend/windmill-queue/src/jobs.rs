@@ -29,7 +29,11 @@ use uuid::Uuid;
 use windmill_audit::audit_ee::{audit_log, AuditAuthor};
 use windmill_audit::ActionKind;
 
+#[cfg(feature = "benchmark")]
+use windmill_common::add_time;
 use windmill_common::auth::JobPerms;
+#[cfg(feature = "benchmark")]
+use windmill_common::bench::BenchmarkIter;
 use windmill_common::utils::now_from_db;
 use windmill_common::worker::{Connection, SCRIPT_TOKEN_EXPIRY};
 use windmill_common::{
@@ -2310,6 +2314,7 @@ pub async fn pull(
     suspend_first: bool,
     worker_name: &str,
     query_o: Option<(String, String)>,
+    #[cfg(feature = "benchmark")] bench: &mut BenchmarkIter,
 ) -> windmill_common::error::Result<PulledJobResult> {
     loop {
         if let Some((query_suspended, query_no_suspend)) = query_o.as_ref() {
@@ -2351,6 +2356,7 @@ pub async fn pull(
                 db,
                 suspend_first,
                 worker_name,
+                #[cfg(feature = "benchmark")] bench,
             )
             .await?;
 
@@ -2549,6 +2555,7 @@ async fn pull_single_job_and_mark_as_running_no_concurrency_limit<'c>(
     db: &Pool<Postgres>,
     suspend_first: bool,
     worker_name: &str,
+    #[cfg(feature = "benchmark")] bench: &mut BenchmarkIter,
 ) -> windmill_common::error::Result<(Option<PulledJob>, bool)> {
     let job_and_suspended: (Option<PulledJob>, bool) = {
         /* Jobs can be started if they:
@@ -2589,10 +2596,17 @@ async fn pull_single_job_and_mark_as_running_no_concurrency_limit<'c>(
             for query in queries.iter() {
                 // tracing::info!("Pulling job with query: {}", query);
                 // let instant = std::time::Instant::now();
+
+                #[cfg(feature = "benchmark")]
+                add_time!(bench, "pre pull");
+
                 let r = sqlx::query_as::<_, PulledJob>(query)
                     .bind(worker_name)
                     .fetch_optional(db)
                     .await?;
+
+                #[cfg(feature = "benchmark")]
+                add_time!(bench, "post pull");
 
                 if let Some(pulled_job) = r {
                     // tracing::info!("pulled job: {:?}", instant.elapsed().as_micros());
