@@ -1127,7 +1127,7 @@ pub async fn run_worker(
     };
     let mut suspend_first_success = false;
     let mut last_reading = Instant::now() - Duration::from_secs(NUM_SECS_READINGS + 1);
-    let mut last_30jobs_suspended: Vec<bool> = vec![false; 30];
+    let mut last_30jobs_suspended = 0;
     let mut last_suspend_first = Instant::now();
     let mut killed_but_draining_same_worker_jobs = false;
 
@@ -1311,9 +1311,7 @@ pub async fn run_worker(
                 match &conn {
                     Connection::Sql(db) => {
                         let pull_time = Instant::now();
-                        let likelihood_of_suspend = (1.0
-                            + last_30jobs_suspended.iter().filter(|&&x| x).count() as f64)
-                            / 31.0;
+                        let likelihood_of_suspend = last_30jobs_suspended as f64 / 30.0;
                         let suspend_first = suspend_first_success
                             || rand::random::<f64>() < likelihood_of_suspend
                             || last_suspend_first.elapsed().as_secs_f64() > 5.0;
@@ -1364,10 +1362,11 @@ pub async fn run_worker(
                         if let Ok(j) = job.as_ref() {
                             let suspend_success = j.suspended;
                             if suspend_first {
-                                last_30jobs_suspended.push(suspend_success);
-                                if last_30jobs_suspended.len() > 30 {
-                                    last_30jobs_suspended.remove(0);
+                                if last_30jobs_suspended < 30 {
+                                    last_30jobs_suspended += 1;
                                 }
+                            } else {
+                                last_30jobs_suspended -= 1;
                             }
                             suspend_first_success = suspend_first && suspend_success;
                             #[cfg(feature = "prometheus")]
