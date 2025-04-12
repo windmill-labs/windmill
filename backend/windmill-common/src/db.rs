@@ -72,12 +72,6 @@ impl UserDB {
     where
         T: Authable,
     {
-        let user = if authed.is_admin() {
-            "windmill_admin"
-        } else {
-            "windmill_user"
-        };
-
         let (folders_write, folders_read): &(Vec<_>, Vec<_>) =
             &authed.folders().into_iter().partition(|x| x.1);
 
@@ -95,10 +89,6 @@ impl UserDB {
 
         let mut tx = self.db.begin().await?;
 
-        sqlx::query(&format!("SET LOCAL ROLE {}", user))
-            .execute(&mut *tx)
-            .await?;
-
         if let Some(schema) = PG_SCHEMA.as_ref() {
             sqlx::query(&format!("SET LOCAL search_path TO {}", schema))
                 .execute(&mut *tx)
@@ -106,52 +96,85 @@ impl UserDB {
         }
 
         sqlx::query!(
-            "SELECT set_config('session.user', $1, true)",
-            authed.username()
-        )
-        .fetch_optional(&mut *tx)
-        .await?;
-
-        sqlx::query!(
-            "SELECT set_config('session.groups', $1, true)",
-            &authed.groups().join(",")
-        )
-        .fetch_optional(&mut *tx)
-        .await?;
-
-        sqlx::query!(
-            "SELECT set_config('session.pgroups', $1, true)",
-            &authed
+            "SELECT set_session_context($1, $2, $3, $4, $5, $6)",
+            authed.is_admin(),
+            authed.username(),
+            authed.groups().join(","),
+            authed
                 .groups()
                 .iter()
                 .map(|x| format!("g/{}", x))
                 .collect::<Vec<_>>()
-                .join(",")
-        )
-        .fetch_optional(&mut *tx)
-        .await?;
-
-        sqlx::query!(
-            "SELECT set_config('session.folders_read', $1, true)",
+                .join(","),
             folders_read
                 .iter()
                 .map(|x| x.0.clone())
                 .collect::<Vec<_>>()
-                .join(",")
-        )
-        .fetch_optional(&mut *tx)
-        .await?;
-
-        sqlx::query!(
-            "SELECT set_config('session.folders_write', $1, true)",
+                .join(","),
             folders_write
                 .iter()
                 .map(|x| x.0.clone())
                 .collect::<Vec<_>>()
                 .join(",")
         )
-        .fetch_optional(&mut *tx)
+        .execute(&mut *tx)
         .await?;
+
+        // set_session_context(
+        //     username TEXT,
+        //     groups TEXT,
+        //     pgroups TEXT,
+        //     folders_read TEXT,
+        //     folders_write TEXT
+        // )
+
+        // sqlx::query!(
+        //     "SELECT set_config('session.user', $1, true)",
+        //     authed.username()
+        // )
+        // .fetch_optional(&mut *tx)
+        // .await?;
+
+        // sqlx::query!(
+        //     "SELECT set_config('session.groups', $1, true)",
+        //     &authed.groups().join(",")
+        // )
+        // .fetch_optional(&mut *tx)
+        // .await?;
+
+        // sqlx::query!(
+        //     "SELECT set_config('session.pgroups', $1, true)",
+        //     &authed
+        //         .groups()
+        //         .iter()
+        //         .map(|x| format!("g/{}", x))
+        //         .collect::<Vec<_>>()
+        //         .join(",")
+        // )
+        // .fetch_optional(&mut *tx)
+        // .await?;
+
+        // sqlx::query!(
+        //     "SELECT set_config('session.folders_read', $1, true)",
+        //     folders_read
+        //         .iter()
+        //         .map(|x| x.0.clone())
+        //         .collect::<Vec<_>>()
+        //         .join(",")
+        // )
+        // .fetch_optional(&mut *tx)
+        // .await?;
+
+        // sqlx::query!(
+        //     "SELECT set_config('session.folders_write', $1, true)",
+        //     folders_write
+        //         .iter()
+        //         .map(|x| x.0.clone())
+        //         .collect::<Vec<_>>()
+        //         .join(",")
+        // )
+        // .fetch_optional(&mut *tx)
+        // .await?;
 
         Ok(tx)
     }
