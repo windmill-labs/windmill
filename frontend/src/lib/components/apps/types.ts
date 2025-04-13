@@ -113,6 +113,7 @@ export type GridItem = FilledItem<AppComponent>
 export type InlineScript = {
 	content: string
 	language: Preview['language'] | 'frontend'
+	path?: string
 	schema?: Schema
 	lock?: string
 	cache_ttl?: number
