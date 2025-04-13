@@ -267,3 +267,121 @@ pub async fn create_token_for_owner(
 
     Ok(format!("jwt_{}", token))
 }
+
+#[cfg(feature = "aws_auth")]
+pub mod aws {
+    use std::future::Future;
+
+    use crate::error::to_anyhow;
+
+    use super::*;
+    use crate::utils::empty_string_as_none;
+    use aws_config::{BehaviorVersion, Region};
+    use aws_sdk_sts::{
+        config::Credentials as AwsCredenditals,
+        operation::{
+            assume_role_with_saml::AssumeRoleWithSamlOutput,
+            assume_role_with_web_identity::{
+                builders::AssumeRoleWithWebIdentityFluentBuilder, AssumeRoleWithWebIdentityOutput,
+            },
+        },
+        types::Credentials,
+        Client,
+    };
+
+    pub trait GetAuthenticationOutput {
+        fn get_credentials(&self) -> Result<&Credentials>;
+    }
+
+    impl GetAuthenticationOutput for AssumeRoleWithSamlOutput {
+        fn get_credentials(&self) -> Result<&Credentials> {
+            let credentials = self.credentials.as_ref().ok_or(Error::BadGateway(
+                "Error fetching credentials from AWS STS".to_string(),
+            ))?;
+            Ok(credentials)
+        }
+    }
+
+    impl GetAuthenticationOutput for AssumeRoleWithWebIdentityOutput {
+        fn get_credentials(&self) -> Result<&Credentials> {
+            let credentials = self.credentials.as_ref().ok_or(Error::BadGateway(
+                "Error fetching credentials from AWS STS".to_string(),
+            ))?;
+            Ok(credentials)
+        }
+    }
+
+    #[derive(Debug, Deserialize)]
+    pub struct CredentialsAuth {
+        #[serde(deserialize_with = "empty_string_as_none")]
+        pub region: Option<String>,
+        #[serde(rename = "accessKeyId")]
+        pub access_key_id: String,
+        #[serde(rename = "secretAccessKey")]
+        pub secret_access_key: String,
+    }
+
+    #[derive(Debug, Deserialize)]
+    pub struct OidcAuth {
+        #[serde(deserialize_with = "empty_string_as_none")]
+        pub region: Option<String>,
+        #[serde(rename = "roleArn")]
+        pub role_arn: String,
+        #[serde(deserialize_with = "empty_string_as_none")]
+        pub audience: Option<String>,
+    }
+
+    #[derive(Debug, Deserialize)]
+    #[serde(tag = "label")]
+    pub enum AWSAuthConfig {
+        Credentials(CredentialsAuth),
+        Oidc(OidcAuth),
+    }
+
+    #[derive(Debug, Deserialize)]
+    pub struct AwsAuthResource {
+        pub aws_auth_config: AWSAuthConfig,
+    }
+
+    pub async fn get_oidc_authentication_data<'c, F, Fut>(
+        oidc_auth: OidcAuth,
+        role_session_name: Option<impl ToString>,
+        gen_token: F,
+    ) -> Result<(
+        AssumeRoleWithWebIdentityFluentBuilder,
+        AssumeRoleWithWebIdentityOutput,
+    )>
+    where
+        F: FnOnce(String) -> Fut,
+        Fut: Future<Output = Result<String>> + Send + 'static,
+    {
+        let region = oidc_auth.region.unwrap_or_else(|| "us-east-1".to_string());
+
+        let credentials = AwsCredenditals::new("", "", None, None, "UserInput");
+        let config = aws_config::defaults(BehaviorVersion::latest())
+            .credentials_provider(credentials)
+            .region(Region::new(region.clone()))
+            .load()
+            .await;
+
+        let audience = oidc_auth
+            .audience
+            .unwrap_or_else(|| "sts.amazonaws.com".to_string());
+
+        let token = gen_token(audience.clone()).await?;
+
+        let assume_role_with_web_identity_fluent_builder = Client::new(&config)
+            .assume_role_with_web_identity()
+            .set_role_arn(Some(oidc_auth.role_arn))
+            .set_role_session_name(role_session_name.map(|str| str.to_string()))
+            .set_web_identity_token(Some(token));
+
+        let resp = assume_role_with_web_identity_fluent_builder
+            .clone()
+            .send()
+            .await
+            .map_err(to_anyhow)?;
+
+            Ok((assume_role_with_web_identity_fluent_builder, resp))
+    }
+}
