@@ -25,7 +25,7 @@
 	let schemaFormDrawer: Drawer | undefined = undefined
 	let editableSchemaForm: EditableSchemaForm | undefined = undefined
 
-	$: items = ((schema?.order ?? Object.keys(schema.properties ?? {}))?.map((item, index) => {
+	$: items = ((schema?.order ?? Object.keys(schema?.properties ?? {}))?.map((item, index) => {
 		return { value: item, id: item }
 	}) ?? []) as Array<{
 		value: string
@@ -53,7 +53,7 @@
 		schema.order = keys
 
 		schema = { ...schema }
-		dispatch('change', schema)
+		tick().then(() => dispatch('change', schema))
 	}
 
 	export let jsonView: boolean = false
@@ -86,7 +86,15 @@
 			schemaString = JSON.stringify(schema, null, '\t')
 			editor?.setCode(schemaString)
 		}
-		dispatch('change', schema)
+		// TODO: find out why this work.
+		// Solves a bug where adding a new field in a OneOf input in a flow did not do anything
+		//
+		// It seemed that the schema was correctly changed but then reset higher in the component
+		// tree due to the change event, as removing the dispatched removed the bug.
+		// I already spent way too long trying to figure out the chain of effects
+		setTimeout(() => {
+			dispatch('change', schema)
+		}, 0.5)
 	}}
 	bind:schema
 	bind:this={addProperty}
@@ -209,7 +217,7 @@
 		</DrawerContent>
 	</Drawer>
 {:else}
-	<div class="mt-2" />
+	<div class="mt-2"></div>
 	<SimpleEditor
 		bind:this={editor}
 		small

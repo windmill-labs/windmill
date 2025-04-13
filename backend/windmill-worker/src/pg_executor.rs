@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use std::net::IpAddr;
-use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -17,7 +17,7 @@ use serde::Deserialize;
 use serde_json::value::RawValue;
 use serde_json::Map;
 use serde_json::Value;
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, RwLock};
 use tokio_postgres::Client;
 use tokio_postgres::{types::ToSql, NoTls, Row};
 use tokio_postgres::{
@@ -25,18 +25,19 @@ use tokio_postgres::{
     Column,
 };
 use uuid::Uuid;
+use windmill_common::error::to_anyhow;
 use windmill_common::error::{self, Error};
-use windmill_common::worker::{to_raw_value, CLOUD_HOSTED};
-use windmill_common::{error::to_anyhow, jobs::QueuedJob};
+use windmill_common::worker::{to_raw_value, Connection, CLOUD_HOSTED};
 use windmill_parser::{Arg, Typ};
 use windmill_parser_sql::{
     parse_db_resource, parse_pg_statement_arg_indices, parse_pgsql_sig, parse_sql_blocks,
 };
-use windmill_queue::CanceledBy;
+use windmill_queue::{CanceledBy, MiniPulledJob};
 
 use crate::common::{build_args_values, sizeof_val, OccupancyMetrics};
 use crate::handle_child::run_future_with_polling_update_job_poller;
-use crate::{AuthedClientBackgroundTask, MAX_RESULT_SIZE};
+use crate::sanitized_sql_params::sanitize_and_interpolate_unsafe_sql_args;
+use crate::{AuthedClient, MAX_RESULT_SIZE};
 use bytes::Buf;
 use lazy_static::lazy_static;
 use urlencoding::encode;
@@ -55,8 +56,9 @@ struct PgDatabase {
 lazy_static! {
     pub static ref CONNECTION_CACHE: Arc<Mutex<Option<(String, tokio_postgres::Client)>>> =
         Arc::new(Mutex::new(None));
+    pub static ref CONNECTION_COUNTER: Arc<RwLock<HashMap<String, u64>>> =
+        Arc::new(RwLock::new(HashMap::new()));
     pub static ref LAST_QUERY: AtomicU64 = AtomicU64::new(0);
-    pub static ref RUNNING: AtomicBool = AtomicBool::new(false);
 }
 
 fn do_postgresql_inner<'a>(
@@ -156,25 +158,23 @@ fn do_postgresql_inner<'a>(
 }
 
 pub async fn do_postgresql(
-    job: &QueuedJob,
-    client: &AuthedClientBackgroundTask,
+    job: &MiniPulledJob,
+    client: &AuthedClient,
     query: &str,
-    db: &sqlx::Pool<sqlx::Postgres>,
+    conn: &Connection,
     mem_peak: &mut i32,
     canceled_by: &mut Option<CanceledBy>,
     worker_name: &str,
     column_order: &mut Option<Vec<String>>,
     occupancy_metrics: &mut OccupancyMetrics,
 ) -> error::Result<Box<RawValue>> {
-    let pg_args = build_args_values(job, client, db).await?;
+    let pg_args = build_args_values(job, client, conn).await?;
 
     let inline_db_res_path = parse_db_resource(&query);
 
     let db_arg = if let Some(inline_db_res_path) = inline_db_res_path {
         Some(
             client
-                .get_authed()
-                .await
                 .get_resource_value_interpolated::<serde_json::Value>(
                     &inline_db_res_path,
                     Some(job.id.to_string()),
@@ -211,14 +211,10 @@ pub async fn do_postgresql(
     );
     let database_string_clone = database_string.clone();
 
-    RUNNING.store(true, std::sync::atomic::Ordering::Relaxed);
-    LAST_QUERY.store(
-        chrono::Utc::now().timestamp().try_into().unwrap_or(0),
-        std::sync::atomic::Ordering::Relaxed,
-    );
     let mtex;
     if !*CLOUD_HOSTED {
-        mtex = Some(CONNECTION_CACHE.lock().await);
+        mtex = CONNECTION_CACHE.try_lock().ok();
+        increment_connection_counter(&database_string).await;
     } else {
         mtex = None;
     }
@@ -226,9 +222,15 @@ pub async fn do_postgresql(
     let has_cached_con = mtex
         .as_ref()
         .is_some_and(|x| x.as_ref().is_some_and(|y| y.0 == database_string));
-    let new_client = if has_cached_con {
+
+    // tracing::error!("HAS CACHED CON: {}", has_cached_con);
+    let (new_client, mtex) = if has_cached_con {
         tracing::info!("Using cached connection");
-        None
+        LAST_QUERY.store(
+            chrono::Utc::now().timestamp().try_into().unwrap_or(0),
+            std::sync::atomic::Ordering::Relaxed,
+        );
+        (None, mtex)
     } else if sslmode == "require" {
         tracing::info!("Creating new connection");
         let mut connector = TlsConnector::builder();
@@ -266,7 +268,7 @@ pub async fn do_postgresql(
                 tracing::error!("connection error: {}", e);
             }
         });
-        Some((client, handle))
+        (Some((client, handle)), None)
     } else {
         tracing::info!("Creating new connection");
         let (client, connection) = tokio::time::timeout(
@@ -284,8 +286,12 @@ pub async fn do_postgresql(
                 tracing::error!("connection error: {}", e);
             }
         });
-        Some((client, handle))
+        (Some((client, handle)), None)
     };
+
+    let sig = parse_pgsql_sig(&query).map_err(|x| Error::ExecutionErr(x.to_string()))?;
+
+    let (query, _) = &sanitize_and_interpolate_unsafe_sql_args(query, &sig.args, &pg_args)?;
 
     let queries = parse_sql_blocks(query);
 
@@ -296,7 +302,6 @@ pub async fn do_postgresql(
         (client, None)
     };
 
-    let sig = parse_pgsql_sig(&query).map_err(|x| Error::ExecutionErr(x.to_string()))?;
     let param_idx_to_arg_and_value = sig
         .args
         .iter()
@@ -348,7 +353,7 @@ pub async fn do_postgresql(
     let result = run_future_with_polling_update_job_poller(
         job.id,
         job.timeout,
-        db,
+        conn,
         mem_peak,
         canceled_by,
         result_f,
@@ -359,61 +364,96 @@ pub async fn do_postgresql(
     )
     .await?;
 
+    // drop the mtex to avoid holding the lock for too long, result has been returned
+    drop(mtex);
+
     *mem_peak = size.load(Ordering::Relaxed) as i32;
 
-    RUNNING.store(false, std::sync::atomic::Ordering::Relaxed);
-
     if let Some(handle) = handle {
-        if let Some(mut mtex) = mtex {
-            let abort_handler = handle.abort_handle();
+        if !*CLOUD_HOSTED {
+            // tracing::error!("Found handle");
+            if let Ok(mut mtex) = CONNECTION_CACHE.try_lock() {
+                if mtex.as_ref().is_none_or(|x| x.0 != database_string) {
+                    // tracing::error!("Locked conn cached");
+                    let abort_handler = handle.abort_handle();
 
-            if let Some(new_client) = new_client {
-                *mtex = Some((database_string, new_client.0));
-            }
-            drop(mtex);
-            LAST_QUERY.store(
-                chrono::Utc::now().timestamp().try_into().unwrap_or(0),
-                std::sync::atomic::Ordering::Relaxed,
-            );
-
-            tokio::spawn(async move {
-                loop {
-                    tokio::time::sleep(Duration::from_secs(5)).await;
-                    let last_query = LAST_QUERY.load(std::sync::atomic::Ordering::Relaxed);
-                    let now = chrono::Utc::now().timestamp().try_into().unwrap_or(0);
-
-                    //we cache connection for 5 minutes at most
-                    if last_query + 60 * 5 < now
-                        && !RUNNING.load(std::sync::atomic::Ordering::Relaxed)
-                    {
-                        tracing::info!("Closing cache connection due to inactivity");
-                        break;
-                    }
-                    let mtex = CONNECTION_CACHE.lock().await;
-                    if mtex.is_none() {
-                        // connection is not in the mutex anymore
-                        break;
-                    } else if let Some(mtex) = mtex.as_ref() {
-                        if mtex.0.as_str() != &database_string_clone {
-                            // connection is not the latest one
-                            break;
+                    let mut cache_new_con = false;
+                    if let Some(new_client) = new_client {
+                        cache_new_con = is_most_used_conn(&database_string).await;
+                        if cache_new_con {
+                            *mtex = Some((database_string, new_client.0));
+                        } else {
+                            new_client.1.abort();
                         }
+                    } else {
+                        handle.abort();
                     }
 
-                    tracing::debug!("Keeping cached connection alive due to activity")
+                    if cache_new_con {
+                        LAST_QUERY.store(
+                            chrono::Utc::now().timestamp().try_into().unwrap_or(0),
+                            std::sync::atomic::Ordering::Relaxed,
+                        );
+                        tokio::spawn(async move {
+                            loop {
+                                tokio::time::sleep(Duration::from_secs(5)).await;
+                                let last_query =
+                                    LAST_QUERY.load(std::sync::atomic::Ordering::Relaxed);
+                                let now = chrono::Utc::now().timestamp().try_into().unwrap_or(0);
+
+                                //we cache connection for 5 minutes at most
+                                if last_query + 60 * 1 < now {
+                                    // tracing::error!("Closing cache connection due to inactivity");
+                                    tracing::info!(
+                                        "Closing cache pg executor connection due to inactivity"
+                                    );
+                                    break;
+                                }
+                                let mtex = CONNECTION_CACHE.lock().await;
+                                if mtex.is_none() {
+                                    // connection is not in the mutex anymore
+                                    break;
+                                } else if let Some(mtex) = mtex.as_ref() {
+                                    if mtex.0.as_str() != &database_string_clone {
+                                        // connection is not the latest one
+                                        break;
+                                    }
+                                }
+
+                                tracing::debug!(
+                                    "Keeping cached pg executor connection alive due to activity"
+                                )
+                            }
+                            let mut mtex = CONNECTION_CACHE.lock().await;
+                            *mtex = None;
+                            abort_handler.abort();
+                        });
+                    }
+                } else {
+                    handle.abort();
                 }
-                let mut mtex = CONNECTION_CACHE.lock().await;
-                *mtex = None;
-                abort_handler.abort();
-            });
+            } else {
+                handle.abort();
+            }
         } else {
             handle.abort();
         }
     }
-    let raw_result = to_raw_value(&result);
-    *mem_peak = (raw_result.get().len() / 1000) as i32;
+    *mem_peak = (result.get().len() / 1000) as i32;
     // And then check that we got back the same string we sent over.
-    return Ok(raw_result);
+    return Ok(result);
+}
+
+async fn is_most_used_conn(database_string: &str) -> bool {
+    let counter_map = CONNECTION_COUNTER.read().await;
+    let current_count = counter_map.get(database_string).copied().unwrap_or(0);
+    let max_count = counter_map.values().copied().max().unwrap_or(0);
+    current_count >= max_count
+}
+
+async fn increment_connection_counter(database_string: &str) {
+    let mut counter_map = CONNECTION_COUNTER.write().await;
+    *counter_map.entry(database_string.to_string()).or_insert(0) += 1;
 }
 
 fn map_as_single_type<T>(
@@ -766,6 +806,7 @@ pub fn pg_cell_to_json_value(
         Type::BYTEA_ARRAY => get_array(row, column, column_i, |a: Vec<u8>| {
             Ok(JSONValue::String(format!("\\x{}", hex::encode(a))))
         })?,
+        Type::VOID => JSONValue::Null,
         _ => get_basic(row, column, column_i, |a: String| Ok(JSONValue::String(a)))?,
     })
 }

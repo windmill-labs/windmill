@@ -76,12 +76,33 @@
 	$: resolvedConfig.beforeIcon && beforeIconComponent && handleBeforeIcon()
 	$: resolvedConfig.afterIcon && afterIconComponent && handleAfterIcon()
 
+	function getIconSize() {
+		switch (resolvedConfig.size as 'xs' | 'xs2' | 'xs3' | 'sm' | 'md' | 'lg' | 'xl') {
+			case 'xs':
+				return 14
+			case 'xs2':
+				return 12
+			case 'xs3':
+				return 10
+			case 'sm':
+				return 16
+			case 'md':
+				return 20
+			case 'lg':
+				return 24
+			case 'xl':
+				return 26
+			default:
+				return 24
+		}
+	}
+
 	async function handleBeforeIcon() {
 		if (resolvedConfig.beforeIcon) {
 			beforeIconComponent = await loadIcon(
 				resolvedConfig.beforeIcon,
 				beforeIconComponent,
-				14,
+				getIconSize(),
 				undefined,
 				undefined
 			)
@@ -93,7 +114,7 @@
 			afterIconComponent = await loadIcon(
 				resolvedConfig.afterIcon,
 				afterIconComponent,
-				14,
+				getIconSize(),
 				undefined,
 				undefined
 			)
@@ -227,7 +248,7 @@
 			>
 				{#if resolvedConfig.beforeIcon}
 					{#key resolvedConfig.beforeIcon}
-						<div class="min-w-4" bind:this={beforeIconComponent} />
+						<div class="min-w-4" bind:this={beforeIconComponent}></div>
 					{/key}
 				{/if}
 				{#if resolvedConfig.label?.toString() && resolvedConfig.label?.toString()?.length > 0}
@@ -235,7 +256,7 @@
 				{/if}
 				{#if resolvedConfig.afterIcon}
 					{#key resolvedConfig.afterIcon}
-						<div class="min-w-4" bind:this={afterIconComponent} />
+						<div class="min-w-4" bind:this={afterIconComponent}></div>
 					{/key}
 				{/if}
 			</Button>

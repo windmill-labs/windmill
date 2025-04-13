@@ -7,9 +7,10 @@
 <script lang="ts">
 	import { createEventDispatcher, setContext } from 'svelte'
 	import Button from '../common/button/Button.svelte'
-	import { ArrowDownIcon, ArrowLeftIcon, ArrowRightIcon } from 'lucide-svelte'
+	import { ArrowDownIcon, ArrowLeftIcon, ArrowRightIcon, Loader2 } from 'lucide-svelte'
 	import { twMerge } from 'tailwind-merge'
 	import List from '$lib/components/common/layout/List.svelte'
+	import { createDispatcherIfMounted } from '$lib/createDispatcherIfMounted'
 
 	export let paginated: boolean = false
 	export let currentPage: number = 1
@@ -26,13 +27,15 @@
 	export let contentHeight: number = 0
 	export let tableFixed: boolean = false
 	export let infiniteScroll: boolean | undefined = undefined
+	export let neverShowLoader = false
 
 	let footerHeight: number = 0
 	let tableHeight: number = 0
 	const dispatch = createEventDispatcher()
+	const dispatchIfMounted = createDispatcherIfMounted(dispatch)
 	let tableContainer: HTMLDivElement
 	export let loading = false
-
+	export let loadingMore = false
 	setContext<DatatableContext>('datatable', {
 		size
 	})
@@ -44,7 +47,7 @@
 
 		const hasScrollbar = tableContainer.scrollHeight > tableContainer.clientHeight
 		if (!hasScrollbar && hasMore) {
-			dispatch('loadMore')
+			dispatchIfMounted('loadMore')
 		}
 	}
 
@@ -81,6 +84,7 @@
 			<table class={tableFixed ? 'table-fixed w-full' : 'min-w-full'}>
 				<slot />
 			</table>
+			<slot name="emptyMessage" />
 		</div>
 		{#if paginated && !shouldHidePagination}
 			<div
@@ -138,6 +142,16 @@
 				>
 					Load {loadMore} more
 				</Button>
+			</div>
+		{/if}
+		{#if (loading || loadingMore) && !neverShowLoader}
+			<div
+				class="text-tertiary bg-surface border-t flex flex-row justify-center py-2 items-center gap-2"
+			>
+				<Loader2 class="animate-spin" size={14} />
+				{#if loadingMore}
+					<span class="text-xs">Loading more...</span>
+				{/if}
 			</div>
 		{/if}
 	</List>

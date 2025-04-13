@@ -71,9 +71,9 @@
 
 	$: enableAllState = (() => {
 		const values = Object.values(operatorWorkspaceSettings)
-		if (values.every((v) => v === true)) return true
-		if (values.every((v) => v === false)) return false
-		return null
+		if (values.every((v) => v === true)) return 'true'
+		if (values.every((v) => v === false)) return 'false'
+		return undefined
 	})()
 
 	function toggleAllSettings(event) {
@@ -101,7 +101,7 @@
 		</div>
 
 		<div class="flex justify-end mb-2">
-			<div class="flex justify-end" />
+			<div class="flex justify-end"></div>
 		</div>
 
 		<div class="flex flex-col">
@@ -111,9 +111,25 @@
 						<Cell head first>Section</Cell>
 						<Cell head>Description</Cell>
 						<Cell head last>
-							<ToggleButtonGroup bind:selected={enableAllState} on:selected={toggleAllSettings}>
-								<ToggleButton icon={EyeIcon} small={true} value={true} label="Enable All" />
-								<ToggleButton icon={EyeOffIcon} small={true} value={false} label="Disable All" />
+							<ToggleButtonGroup
+								bind:selected={enableAllState}
+								on:selected={toggleAllSettings}
+								let:item
+							>
+								<ToggleButton
+									icon={EyeIcon}
+									small={true}
+									value={'true'}
+									label="Enable All"
+									{item}
+								/>
+								<ToggleButton
+									icon={EyeOffIcon}
+									small={true}
+									value={'false'}
+									label="Disable All"
+									{item}
+								/>
 							</ToggleButtonGroup>
 						</Cell>
 					</tr>
@@ -124,9 +140,13 @@
 							<Cell first>{title}</Cell>
 							<Cell>{description}</Cell>
 							<Cell last class="pl-8">
-								<ToggleButtonGroup bind:selected={operatorWorkspaceSettings[key]}>
-									<ToggleButton icon={EyeIcon} small={true} value={true} label="On" />
-									<ToggleButton icon={EyeOffIcon} small={true} value={false} label="Off" />
+								<ToggleButtonGroup
+									selected={operatorWorkspaceSettings[key] ? 'on' : 'off'}
+									on:selected={({ detail }) => (operatorWorkspaceSettings[key] = detail === 'on')}
+									let:item
+								>
+									<ToggleButton icon={EyeIcon} small={true} value={'on'} label="On" {item} />
+									<ToggleButton icon={EyeOffIcon} small={true} value={'off'} label="Off" {item} />
 								</ToggleButtonGroup>
 							</Cell>
 						</tr>

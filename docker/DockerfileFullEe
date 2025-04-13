@@ -19,11 +19,12 @@ RUN if [ "$TARGETPLATFORM" = "linux/arm64" ]; then \
 
 FROM ghcr.io/windmill-labs/windmill-ee:dev
 
+# Rust
 COPY --from=rust:1.81.0 /usr/local/cargo /usr/local/cargo
 COPY --from=rust:1.81.0 /usr/local/rustup /usr/local/rustup
 
-RUN pip3 install ansible
-
+# Ansible
+RUN uv tool install ansible && [ -d "$(uv tool dir)/ansible/bin/" ] && find "$(uv tool dir)/ansible/bin/" -mindepth 1 -maxdepth 1 -type f -executable -regextype posix-extended -regex '^((.+/)?)[^.]+' -print0 | xargs -0 ln -s -t "$UV_TOOL_BIN_DIR/" || true
 # dotnet SDK
 COPY --from=bitnami/dotnet-sdk:9.0.101-debian-12-r0 /opt/bitnami/dotnet-sdk /opt/dotnet-sdk
 RUN ln -s /opt/dotnet-sdk/bin/dotnet /usr/bin/dotnet
@@ -33,3 +34,13 @@ ENV DOTNET_ROOT="/opt/dotnet-sdk/bin"
 COPY --from=oracledb-client /opt/oracle/23/lib /opt/oracle/23/lib
 RUN apt-get -y update && apt-get install -y libaio1
 RUN echo /opt/oracle/23/lib > /etc/ld.so.conf.d/oracle-instantclient.conf && ldconfig
+
+# Nushell
+COPY --from=ghcr.io/nushell/nushell:0.101.0-bookworm /usr/bin/nu /usr/bin/nu
+
+# Java
+RUN apt-get -y update && apt-get install -y default-jdk 
+RUN curl -fLo coursier https://github.com/coursier/coursier/releases/download/v2.1.24/coursier \
+	&& mv ./coursier /usr/bin/coursier \
+	&& chmod +x /usr/bin/coursier
+RUN /usr/bin/java -jar /usr/bin/coursier about

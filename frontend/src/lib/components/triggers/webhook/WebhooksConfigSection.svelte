@@ -14,7 +14,7 @@
 	import { Highlight } from 'svelte-highlight'
 	import { typescript } from 'svelte-highlight/languages'
 	import ClipboardPanel from '../../details/ClipboardPanel.svelte'
-	import { copyToClipboard } from '$lib/utils'
+	import { copyToClipboard, isObject } from '$lib/utils'
 	// import { page } from '$app/stores'
 	import { base } from '$lib/base'
 	import TriggerTokens from '../TriggerTokens.svelte'
@@ -104,6 +104,11 @@
 		return headers
 	}
 
+	$: cleanedRunnableArgs =
+		isObject(runnableArgs) && 'wm_trigger' in runnableArgs
+			? Object.fromEntries(Object.entries(runnableArgs).filter(([key]) => key !== 'wm_trigger'))
+			: runnableArgs
+
 	function fetchCode() {
 		if (webhookType === 'sync') {
 			return `
@@ -117,10 +122,11 @@ async function triggerJob() {
   ${
 		requestType === 'get_path'
 			? '// Payload is a base64 encoded string of the arguments'
-			: `const body = JSON.stringify(${JSON.stringify(runnableArgs ?? {}, null, 2).replaceAll(
-					'\n',
-					'\n\t'
-			  )});`
+			: `const body = JSON.stringify(${JSON.stringify(
+					cleanedRunnableArgs ?? {},
+					null,
+					2
+			  ).replaceAll('\n', '\n\t')});`
 	}
   const endpoint = \`${url}\`;
 
@@ -145,7 +151,7 @@ export async function main() {
 		// triggerJob function
 		let triggerJobFunction = `
 async function triggerJob() {
-  const body = JSON.stringify(${JSON.stringify(runnableArgs ?? {}, null, 2).replaceAll(
+  const body = JSON.stringify(${JSON.stringify(cleanedRunnableArgs ?? {}, null, 2).replaceAll(
 		'\n',
 		'\n\t'
 	)});
@@ -200,12 +206,12 @@ function waitForJobCompletion(UUID) {
 		return `curl \\
 -X POST ${captureUrl} \\
 -H 'Content-Type: application/json' \\
--d '{"foo": 42}'`
+-d '${JSON.stringify(cleanedRunnableArgs ?? {}, null, 2)}'`
 	}
 
 	function curlCode() {
 		return `TOKEN='${token}'
-${requestType !== 'get_path' ? `BODY='${JSON.stringify(runnableArgs ?? {})}'` : ''}
+${requestType !== 'get_path' ? `BODY='${JSON.stringify(cleanedRunnableArgs ?? {})}'` : ''}
 URL='${url}'
 ${webhookType === 'sync' ? 'RESULT' : 'UUID'}=$(curl -s ${
 			requestType != 'get_path' ? "-H 'Content-Type: application/json'" : ''
@@ -236,12 +242,12 @@ done`
 		(tokenType === 'query'
 			? `?token=${token}${
 					requestType === 'get_path'
-						? `&payload=${encodeURIComponent(btoa(JSON.stringify(runnableArgs ?? {})))}`
+						? `&payload=${encodeURIComponent(btoa(JSON.stringify(cleanedRunnableArgs ?? {})))}`
 						: ''
 			  }`
 			: `${
 					requestType === 'get_path'
-						? `?payload=${encodeURIComponent(btoa(JSON.stringify(runnableArgs ?? {})))}`
+						? `?payload=${encodeURIComponent(btoa(JSON.stringify(cleanedRunnableArgs ?? {})))}`
 						: ''
 			  }`)
 </script>
@@ -308,26 +314,29 @@ done`
 			<div class="flex flex-row justify-between">
 				<div class="text-sm font-normal text-secondary flex flex-row items-center">Request type</div
 				>
-				<ToggleButtonGroup class="h-[30px] w-auto" bind:selected={webhookType}>
+				<ToggleButtonGroup class="h-[30px] w-auto" bind:selected={webhookType} let:item>
 					<ToggleButton
 						label="Async"
 						value="async"
 						tooltip="The returning value is the uuid of the job assigned to execute the job."
+						{item}
 					/>
 					<ToggleButton
 						label="Sync"
 						value="sync"
 						tooltip="Triggers the execution, wait for the job to complete and return it as a response."
+						{item}
 					/>
 				</ToggleButtonGroup>
 			</div>
 			<div class="flex flex-row justify-between">
 				<div class="text-sm font-normal text-secondary flex flex-row items-center">Call method</div>
-				<ToggleButtonGroup class="h-[30px] w-auto" bind:selected={requestType}>
+				<ToggleButtonGroup class="h-[30px] w-auto" bind:selected={requestType} let:item>
 					<ToggleButton
 						label="POST by path"
 						value="path"
 						icon={ArrowUpRight}
+						{item}
 						selectedColor="#fb923c"
 					/>
 					{#if !isFlow}
@@ -337,6 +346,7 @@ done`
 							icon={ArrowUpRight}
 							selectedColor="#fb923c"
 							disabled={!hash}
+							{item}
 						/>
 					{/if}
 
@@ -345,6 +355,7 @@ done`
 						value="get_path"
 						icon={ArrowDownRight}
 						disabled={webhookType !== 'sync'}
+						{item}
 						selectedColor="#14b8a6"
 					/>
 				</ToggleButtonGroup>
@@ -353,9 +364,9 @@ done`
 				<div class="text-sm font-normal text-secondary flex flex-row items-center"
 					>Token configuration</div
 				>
-				<ToggleButtonGroup class="h-[30px] w-auto" bind:selected={tokenType}>
-					<ToggleButton label="Token in Headers" value="headers" />
-					<ToggleButton label="Token in Query" value="query" />
+				<ToggleButtonGroup class="h-[30px] w-auto" bind:selected={tokenType} let:item>
+					<ToggleButton label="Token in Headers" value="headers" {item} />
+					<ToggleButton label="Token in Query" value="query" {item} />
 				</ToggleButtonGroup>
 			</div>
 		</div>
@@ -379,7 +390,7 @@ done`
 
 								{#if requestType !== 'get_path'}
 									<Label label="Body">
-										<ClipboardPanel content={JSON.stringify(runnableArgs ?? {}, null, 2)} />
+										<ClipboardPanel content={JSON.stringify(cleanedRunnableArgs ?? {}, null, 2)} />
 									</Label>
 								{/if}
 								{#key requestType}

@@ -15,6 +15,7 @@
 	import ResolveStyle from '../helpers/ResolveStyle.svelte'
 	import { components } from '../../editor/component'
 	import ResolveConfig from '../helpers/ResolveConfig.svelte'
+	import { userStore } from '$lib/stores'
 
 	export let id: string
 	export let componentInput: AppInput | undefined
@@ -96,7 +97,8 @@
 				{result}
 				{requireHtmlApproval}
 				disableExpand={resolvedConfig?.hideDetails}
-				appPath={$appPath}
+				appPath={$userStore ? undefined : $appPath}
+				forceJson={resolvedConfig?.forceJson}
 			/>
 		</div>
 	</div>

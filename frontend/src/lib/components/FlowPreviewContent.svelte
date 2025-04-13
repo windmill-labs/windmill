@@ -1,7 +1,8 @@
 <script lang="ts">
 	import { type Job, JobService, type Flow, type RestartedFrom, type OpenFlow } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
-	import { Badge, Button, Popup } from './common'
+	import { Badge, Button } from './common'
+	import Popover from '$lib/components/meltComponents/Popover.svelte'
 	import { createEventDispatcher, getContext } from 'svelte'
 	import type { FlowEditorContext } from './flows/types'
 	import { runFlowPreview } from './flows/utils'
@@ -17,6 +18,7 @@
 	import Toggle from './Toggle.svelte'
 	import JsonInputs from './JsonInputs.svelte'
 	import FlowHistoryJobPicker from './FlowHistoryJobPicker.svelte'
+	import { NEVER_TESTED_THIS_FAR } from './flows/models'
 
 	export let previewMode: 'upTo' | 'whole'
 	export let open: boolean
@@ -49,7 +51,8 @@
 		flowStateStore,
 		flowStore,
 		pathStore,
-		initialPath,
+		initialPathStore,
+		fakeInitialPath,
 		customUi,
 		executionCount
 	} = getContext<FlowEditorContext>('FlowEditorContext')
@@ -169,6 +172,44 @@
 	}
 
 	$: selectedJobStep !== undefined && onSelectedJobStepChange()
+
+	async function loadIndividualStepsStates() {
+		// console.log('loadIndividualStepsStates')
+		dfs($flowStore.value.modules, async (module) => {
+			// console.log('module', $flowStateStore[module.id], module.id)
+			const prev = $flowStateStore[module.id]?.previewResult
+			if (prev && prev != NEVER_TESTED_THIS_FAR) {
+				return
+			}
+			const previousJobId = await JobService.listJobs({
+				workspace: $workspaceStore!,
+				scriptPathExact:
+					`path` in module.value
+						? module.value.path
+						: ($initialPathStore == '' ? $pathStore : $initialPathStore) + '/' + module.id,
+				jobKinds: ['preview', 'script', 'flowpreview', 'flow'].join(','),
+				page: 1,
+				perPage: 1
+			})
+			// console.log('previousJobId', previousJobId, module.id)
+
+			if (previousJobId.length > 0) {
+				const getJobResult = await JobService.getCompletedJobResultMaybe({
+					workspace: $workspaceStore!,
+					id: previousJobId[0].id
+				})
+				if ('result' in getJobResult) {
+					$flowStateStore[module.id] = {
+						...($flowStateStore[module.id] ?? {}),
+						previewResult: getJobResult.result,
+						previewJobId: previousJobId[0].id,
+						previewWorkspaceId: previousJobId[0].workspace_id,
+						previewSuccess: getJobResult.success
+					}
+				}
+			}
+		})
+	}
 </script>
 
 <svelte:window on:keydown={onKeyDown} />
@@ -233,7 +274,10 @@
 							</Badge>
 						</Button>
 					{:else}
-						<Popup floatingConfig={{ strategy: 'absolute', placement: 'bottom-start' }}>
+						<Popover
+							floatingConfig={{ strategy: 'absolute', placement: 'bottom-start' }}
+							contentClasses="p-4"
+						>
 							<svelte:fragment slot="button">
 								<Button
 									title={`Re-start this flow from step ${selectedJobStep} (included).`}
@@ -255,49 +299,51 @@
 									</Badge>
 								</Button>
 							</svelte:fragment>
-							<label class="block text-primary">
-								<div class="pb-1 text-sm text-secondary"
-									>{selectedJobStepType == 'forloop' ? 'From iteration #:' : 'From branch:'}</div
-								>
-								<div class="flex w-full">
-									{#if selectedJobStepType === 'forloop'}
-										<input
-											type="number"
-											min="0"
-											bind:value={branchOrIterationN}
-											class="!w-32 grow"
-											on:click|stopPropagation={() => {}}
-										/>
-									{:else}
-										<select
-											bind:value={branchOrIterationN}
-											class="!w-32 grow"
-											on:click|stopPropagation={() => {}}
-										>
-											{#each restartBranchNames as [branchIdx, branchName]}
-												<option value={branchIdx}>{branchName}</option>
-											{/each}
-										</select>
-									{/if}
-									<Button
-										size="xs"
-										color="blue"
-										buttonType="button"
-										btnClasses="!p-1 !w-[34px] !ml-1"
-										aria-label="Restart flow"
-										on:click|once={() => {
-											runPreview($previewArgs, {
-												flow_job_id: jobId,
-												step_id: selectedJobStep,
-												branch_or_iteration_n: branchOrIterationN
-											})
-										}}
+							<svelte:fragment slot="content">
+								<label class="block text-primary p-4">
+									<div class="pb-1 text-sm text-secondary"
+										>{selectedJobStepType == 'forloop' ? 'From iteration #:' : 'From branch:'}</div
 									>
-										<ArrowRight size={18} />
-									</Button>
-								</div>
-							</label>
-						</Popup>
+									<div class="flex w-full">
+										{#if selectedJobStepType === 'forloop'}
+											<input
+												type="number"
+												min="0"
+												bind:value={branchOrIterationN}
+												class="!w-32 grow"
+												on:click|stopPropagation={() => {}}
+											/>
+										{:else}
+											<select
+												bind:value={branchOrIterationN}
+												class="!w-32 grow"
+												on:click|stopPropagation={() => {}}
+											>
+												{#each restartBranchNames as [branchIdx, branchName]}
+													<option value={branchIdx}>{branchName}</option>
+												{/each}
+											</select>
+										{/if}
+										<Button
+											size="xs"
+											color="blue"
+											buttonType="button"
+											btnClasses="!p-1 !w-[34px] !ml-1"
+											aria-label="Restart flow"
+											on:click|once={() => {
+												runPreview($previewArgs, {
+													flow_job_id: jobId,
+													step_id: selectedJobStep,
+													branch_or_iteration_n: branchOrIterationN
+												})
+											}}
+										>
+											<ArrowRight size={18} />
+										</Button>
+									</div>
+								</label>
+							</svelte:fragment>
+						</Popover>
 					{/if}
 				{/if}
 				<Button
@@ -322,7 +368,7 @@
 					class="bg-orange-200 text-orange-600 border border-orange-600 p-2 flex items-center gap-2 rounded"
 				>
 					<AlertTriangle size={14} /> Flow changed since last preview
-					<div class="flex" />
+					<div class="flex"></div>
 				</div>
 			</div>
 		{/if}
@@ -333,7 +379,8 @@
 		<div class="border-b">
 			<SchemaFormWithArgPicker
 				bind:this={schemaFormWithArgPicker}
-				runnableId={initialPath == '' ? $pathStore : initialPath}
+				runnableId={$initialPathStore}
+				stablePathForCaptures={$initialPathStore || fakeInitialPath}
 				runnableType={'FlowPath'}
 				previewArgs={$previewArgs}
 				on:openTriggers
@@ -401,6 +448,9 @@
 				class="absolute top-[22px] right-2 border p-1.5 hover:bg-surface-hover rounded-md center-center"
 			>
 				<FlowHistoryJobPicker
+					on:nohistory={() => {
+						loadIndividualStepsStates()
+					}}
 					on:select={(e) => {
 						if (!currentJobId) {
 							currentJobId = jobId
@@ -413,7 +463,7 @@
 						jobId = currentJobId
 						currentJobId = undefined
 					}}
-					path={initialPath == '' ? $pathStore : initialPath}
+					path={$initialPathStore == '' ? $pathStore : $initialPathStore}
 				/>
 			</div>
 			{#if jobId}
@@ -439,11 +489,14 @@
 					{flowStateStore}
 					{jobId}
 					on:done={() => {
-						console.log('done')
 						$executionCount = $executionCount + 1
 					}}
 					on:jobsLoaded={({ detail }) => {
 						job = detail
+						if (initial) {
+							console.log('loading initial steps after initial job loaded')
+							loadIndividualStepsStates()
+						}
 					}}
 					bind:selectedJobStep
 				/>

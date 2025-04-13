@@ -1,17 +1,14 @@
+use anyhow::Context;
 use serde::{Deserialize, Serialize};
-use std::sync::Arc;
-use tokio::sync::RwLock;
+use uuid::Uuid;
 
 use crate::{
     db::Authed,
     error::{Error, Result},
+    jwt,
     users::{SUPERADMIN_NOTIFICATION_EMAIL, SUPERADMIN_SECRET_EMAIL, SUPERADMIN_SYNC_EMAIL},
     DB,
 };
-
-lazy_static::lazy_static! {
-  pub static ref JWT_SECRET : Arc<RwLock<String>> = Arc::new(RwLock::new("".to_string()));
-}
 
 #[derive(Deserialize, Serialize)]
 pub struct JWTAuthClaims {
@@ -28,17 +25,14 @@ pub struct JWTAuthClaims {
     pub scopes: Option<Vec<String>>,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Debug)]
 pub struct JobPerms {
-    pub workspace_id: String,
-    pub job_id: String,
     pub email: String,
     pub username: String,
     pub is_admin: bool,
     pub is_operator: bool,
     pub groups: Vec<String>,
     pub folders: Vec<serde_json::Value>,
-    pub created_at: chrono::NaiveDateTime,
 }
 
 impl From<JobPerms> for Authed {
@@ -67,7 +61,7 @@ pub async fn is_super_admin_email(db: &DB, email: &str) -> Result<bool> {
     let is_admin = sqlx::query_scalar!("SELECT super_admin FROM password WHERE email = $1", email)
         .fetch_optional(db)
         .await
-        .map_err(|e| Error::InternalErr(format!("fetching super admin: {e:#}")))?
+        .map_err(|e| Error::internal_err(format!("fetching super admin: {e:#}")))?
         .unwrap_or(false);
 
     Ok(is_admin)
@@ -81,7 +75,7 @@ pub async fn is_devops_email(db: &DB, email: &str) -> Result<bool> {
     let is_devops = sqlx::query_scalar!("SELECT devops FROM password WHERE email = $1", email)
         .fetch_optional(db)
         .await
-        .map_err(|e| Error::InternalErr(format!("fetching super admin: {e:#}")))?
+        .map_err(|e| Error::internal_err(format!("fetching super admin: {e:#}")))?
         .unwrap_or(false);
 
     Ok(is_devops)
@@ -123,7 +117,7 @@ pub async fn fetch_authed_from_permissioned_as(
                 if let Some(r) = r {
                     (r.is_admin, r.operator)
                 } else {
-                    return Err(Error::InternalErr(format!(
+                    return Err(Error::internal_err(format!(
                         "user {name} not found in workspace {w_id}"
                     )));
                 }
@@ -213,4 +207,63 @@ pub async fn get_groups_for_user(
     .into_iter().filter_map(|x| x)
     .collect();
     Ok(groups)
+}
+
+#[tracing::instrument(level = "trace", skip_all)]
+pub async fn create_token_for_owner(
+    db: &DB,
+    w_id: &str,
+    owner: &str,
+    label: &str,
+    expires_in: u64,
+    email: &str,
+    job_id: &Uuid,
+    perms: Option<JobPerms>,
+) -> crate::error::Result<String> {
+    let job_perms = if perms.is_some() {
+        Ok(perms)
+    } else {
+        sqlx::query_as!(
+            JobPerms,
+            "SELECT email, username, is_admin, is_operator, groups, folders FROM job_perms WHERE job_id = $1 AND workspace_id = $2",
+            job_id,
+            w_id
+        )
+        .fetch_optional(db)
+        .await
+    };
+    let job_authed = match job_perms {
+        Ok(Some(jp)) => jp.into(),
+        _ => {
+            tracing::warn!("Could not get permissions for job {job_id} from job_perms table, getting permissions directly...");
+            fetch_authed_from_permissioned_as(owner.to_string(), email.to_string(), w_id, db)
+                .await
+                .map_err(|e| {
+                    Error::internal_err(format!(
+                        "Could not get permissions directly for job {job_id}: {e:#}"
+                    ))
+                })?
+        }
+    };
+
+    let payload = JWTAuthClaims {
+        email: job_authed.email,
+        username: job_authed.username,
+        is_admin: job_authed.is_admin,
+        is_operator: job_authed.is_operator,
+        groups: job_authed.groups,
+        folders: job_authed.folders,
+        label: Some(label.to_string()),
+        workspace_id: w_id.to_string(),
+        exp: (chrono::Utc::now() + chrono::Duration::seconds(expires_in as i64)).timestamp()
+            as usize,
+        job_id: Some(job_id.to_string()),
+        scopes: None,
+    };
+
+    let token = jwt::encode_with_internal_secret(&payload)
+        .await
+        .with_context(|| format!("Could not encode JWT token for job {job_id}"))?;
+
+    Ok(format!("jwt_{}", token))
 }

@@ -8,27 +8,33 @@
 	import MultiSelect from '$lib/components/multiselect/MultiSelect.svelte'
 	import DarkModeObserver from '../DarkModeObserver.svelte'
 
+	export let items: any[]
+	let propValue: string[] | undefined = []
+	export { propValue as value }
+	$: value = structuredClone(propValue)
+	export let placeholder: string | undefined = undefined
+	export let target: string | HTMLElement | undefined = undefined
+	export let topPlacement = false
+	export let allowUserOptions: boolean | 'append' | undefined = undefined
 	const [floatingRef, floatingContent] = createFloatingActions({
 		strategy: 'absolute',
+		placement: topPlacement ? 'top-start' : 'bottom-start',
 		middleware: [offset(5), flip(), shift()]
 	})
 
-	export let items: any[]
-	export let value: string[] | undefined = [] as string[]
 	let outerDiv: HTMLDivElement | undefined = undefined
 	let portalRef: HTMLDivElement | undefined = undefined
 
 	function moveOptionsToPortal() {
 		// Find ul element with class 'options' within the outerDiv
 		const ul = outerDiv?.querySelector('.options')
-
 		if (ul) {
 			// Move the ul element to the portal
 			portalRef?.appendChild(ul)
 		}
 	}
 
-	$: if (portalRef && outerDiv && items?.length > 0) {
+	$: if (portalRef && outerDiv && (allowUserOptions || items?.length > 0)) {
 		tick().then(() => {
 			moveOptionsToPortal()
 		})
@@ -47,6 +53,7 @@
 	{#if !value || Array.isArray(value)}
 		<div class="border rounded-md border-gray-300 shadow-sm dark:border-gray-600 !w-full">
 			<MultiSelect
+				{allowUserOptions}
 				outerDivClass={`!text-xs`}
 				ulSelectedClass="overflow-auto"
 				bind:outerDiv
@@ -56,6 +63,10 @@
 				--sms-selected-bg={darkMode ? '#c7d2fe' : '#e0e7ff'}
 				--sms-selected-text-color={darkMode ? '#312e81' : '#3730a3'}
 				bind:selected={value}
+				on:change={() => {
+					propValue = value
+				}}
+				{placeholder}
 				options={items}
 				on:close={() => {
 					open = false
@@ -80,7 +91,7 @@
 				</div>
 			</MultiSelect>
 		</div>
-		<Portal name="multi-select">
+		<Portal {target} name="multi-select">
 			<div use:floatingContent class="z5000" hidden={!open}>
 				<!-- svelte-ignore a11y-click-events-have-key-events -->
 				<!-- svelte-ignore a11y-no-static-element-interactions -->
@@ -89,7 +100,7 @@
 					class="multiselect"
 					style={`min-width: ${w}px;`}
 					on:click|stopPropagation
-				/>
+				></div>
 			</div>
 		</Portal>
 	{:else}

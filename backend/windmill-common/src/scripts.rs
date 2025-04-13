@@ -19,16 +19,19 @@ use crate::{
 
 use crate::worker::HUB_CACHE_DIR;
 use anyhow::Context;
+use backon::ConstantBuilder;
+use backon::{BackoffBuilder, Retryable};
 use serde::de::Error as _;
 use serde::{ser::SerializeSeq, Deserialize, Deserializer, Serialize};
 
 use crate::utils::StripPath;
 
-#[derive(Serialize, Deserialize, Debug, PartialEq, Copy, Clone, Hash, Eq, sqlx::Type)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Copy, Clone, Hash, Eq, sqlx::Type, Default)]
 #[sqlx(type_name = "SCRIPT_LANG", rename_all = "lowercase")]
 #[serde(rename_all(serialize = "lowercase", deserialize = "lowercase"))]
 pub enum ScriptLang {
     Nativets,
+    #[default]
     Deno,
     Python3,
     Go,
@@ -47,6 +50,9 @@ pub enum ScriptLang {
     Rust,
     Ansible,
     CSharp,
+    Nu,
+    Java,
+    // for related places search: ADD_NEW_LANG
 }
 
 impl ScriptLang {
@@ -71,6 +77,9 @@ impl ScriptLang {
             ScriptLang::Rust => "rust",
             ScriptLang::Ansible => "ansible",
             ScriptLang::CSharp => "csharp",
+            ScriptLang::Nu => "nu",
+            ScriptLang::Java => "java",
+            // for related places search: ADD_NEW_LANG
         }
     }
 }
@@ -414,6 +423,8 @@ pub async fn get_hub_script_by_path(
         Some(db),
     )
     .await?
+    .error_for_status()
+    .map_err(to_anyhow)?
     .text()
     .await
     .map_err(to_anyhow);
@@ -439,6 +450,8 @@ pub async fn get_hub_script_by_path(
                     Some(db),
                 )
                 .await?
+                .error_for_status()
+                .map_err(to_anyhow)?
                 .text()
                 .await
                 .map_err(to_anyhow)?;
@@ -464,7 +477,7 @@ pub async fn get_full_hub_script_by_path(
     let mut path_iterator = path.split("/");
     let version = path_iterator
         .next()
-        .ok_or_else(|| Error::InternalErr(format!("expected hub path to have version number")))?;
+        .ok_or_else(|| Error::internal_err(format!("expected hub path to have version number")))?;
     let cache_path = format!("{HUB_CACHE_DIR}/{version}");
     let script;
     if tokio::fs::metadata(&cache_path).await.is_err() {
@@ -493,49 +506,67 @@ async fn get_full_hub_script_by_path_inner(
 ) -> crate::error::Result<HubScript> {
     let hub_base_url = HUB_BASE_URL.read().await.clone();
 
-    let result = http_get_from_hub(
-        http_client,
-        &format!("{}/raw2/{}", hub_base_url, path),
-        true,
-        None,
-        db,
-    )
-    .await?
-    .json::<HubScript>()
-    .await
-    .context("Decoding hub response to script");
+    let response = (|| async {
+        let response = http_get_from_hub(
+            http_client,
+            &format!("{}/raw2/{}", hub_base_url, path),
+            true,
+            None,
+            db,
+        )
+        .await
+        .and_then(|r| r.error_for_status().map_err(|e| to_anyhow(e).into()));
 
-    match result {
-        Ok(result) => Ok(result),
-        Err(e) => {
-            if hub_base_url != DEFAULT_HUB_BASE_URL
-                && path
-                    .split("/")
-                    .next()
-                    .is_some_and(|x| x.parse::<i32>().is_ok_and(|x| x < 10_000_000))
-            {
-                tracing::info!(
-                    "Not found on private hub, fallback to default hub for {}",
-                    path
-                );
-                let value = http_get_from_hub(
-                    http_client,
-                    &format!("{}/raw2/{}", DEFAULT_HUB_BASE_URL, path),
-                    true,
-                    None,
-                    db,
-                )
-                .await?
-                .json::<HubScript>()
-                .await
-                .context("Decoding hub response to script")?;
-
-                Ok(value)
-            } else {
-                Err(e)?
+        match response {
+            Ok(response) => Ok(response),
+            Err(e) => {
+                if hub_base_url != DEFAULT_HUB_BASE_URL
+                    && path
+                        .split("/")
+                        .next()
+                        .is_some_and(|x| x.parse::<i32>().is_ok_and(|x| x < 10_000_000))
+                {
+                    // TODO: should only fallback to default hub if status is 404 (hub returns 500 currently)
+                    tracing::info!(
+                        "Not found on private hub, fallback to default hub for {}",
+                        path
+                    );
+                    http_get_from_hub(
+                        http_client,
+                        &format!("{}/raw2/{}", DEFAULT_HUB_BASE_URL, path),
+                        true,
+                        None,
+                        db,
+                    )
+                    .await?
+                    .error_for_status()
+                    .map_err(|e| to_anyhow(e).into())
+                } else {
+                    Err(e)
+                }
             }
         }
-    }
+    })
+    .retry(
+        ConstantBuilder::default()
+            .with_delay(std::time::Duration::from_secs(5))
+            .with_max_times(2)
+            .build(),
+    )
+    .notify(|err, dur| {
+        tracing::warn!(
+            "Could not get hub script at path {path}, retrying in {dur:#?}, err: {err:#?}"
+        );
+    })
+    .sleep(tokio::time::sleep)
+    .await?;
+
+    let script = response
+        .json::<HubScript>()
+        .await
+        .context(format!("Decoding hub response for script at path {path}"))?;
+
+    Ok(script)
 }
 
 #[derive(Deserialize, Serialize)]

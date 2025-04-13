@@ -4,14 +4,17 @@ export interface SyncOptions {
   stateful?: boolean;
   raw?: boolean;
   yes?: boolean;
+  dryRun?: boolean;
   skipPull?: boolean;
   failConflicts?: boolean;
   plainSecrets?: boolean;
   json?: boolean;
   skipVariables?: boolean;
   skipResources?: boolean;
+  skipResourceTypes?: boolean;
   skipSecrets?: boolean;
   includeSchedules?: boolean;
+  includeTriggers?: boolean;
   includeUsers?: boolean;
   includeGroups?: boolean;
   includeSettings?: boolean;

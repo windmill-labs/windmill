@@ -2,7 +2,7 @@ import type { FlowStatusModule } from '$lib/gen'
 
 export const NODE = {
 	width: 275,
-	height: 34,
+	height: 38,
 	gap: {
 		horizontal: 40,
 		vertical: 50
@@ -27,7 +27,7 @@ export function getStateColor(
 		case 'InProgress':
 			return isDark ? '#f59e0b' : 'rgb(253, 240, 176)'
 		case 'WaitingForEvents':
-			return isDark ? '#db2777' : 'rgb(229, 176, 253)'
+			return isDark ? '#75599E' : '#c4b5fd'
 		case 'WaitingForExecutor':
 			return isDark ? '#ea580c' : 'rgb(255, 208, 193)'
 		default:

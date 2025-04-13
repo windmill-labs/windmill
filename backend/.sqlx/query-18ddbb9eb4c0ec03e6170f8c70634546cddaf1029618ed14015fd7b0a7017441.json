@@ -1,0 +1,27 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT set_session_context($1, $2, $3, $4, $5, $6)",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "set_session_context",
+        "type_info": "Void"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Bool",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "18ddbb9eb4c0ec03e6170f8c70634546cddaf1029618ed14015fd7b0a7017441"
+}

@@ -10,7 +10,8 @@
 		type OpenFlow,
 		type RawScript,
 		type InputTransform,
-		type TriggersCount
+		type TriggersCount,
+		CaptureService
 	} from '$lib/gen'
 	import { initHistory, push, redo, undo } from '$lib/history'
 	import {
@@ -24,6 +25,7 @@
 		cleanValueProperties,
 		encodeState,
 		formatCron,
+		generateRandomString,
 		orderedJsonStringify,
 		replaceFalseWithUndefined,
 		sleep,
@@ -46,17 +48,7 @@
 	import FlowPreviewButtons from './flows/header/FlowPreviewButtons.svelte'
 	import type { FlowEditorContext, FlowInput, FlowInputEditorState } from './flows/types'
 	import { cleanInputs, emptyFlowModuleState } from './flows/utils'
-	import {
-		Calendar,
-		Pen,
-		Save,
-		DiffIcon,
-		MoreVertical,
-		HistoryIcon,
-		FileJson,
-		type Icon,
-		CornerDownLeft
-	} from 'lucide-svelte'
+	import { Calendar, Pen, Save, DiffIcon, HistoryIcon, FileJson, type Icon } from 'lucide-svelte'
 	import { createEventDispatcher } from 'svelte'
 	import Awareness from './Awareness.svelte'
 	import { getAllModules } from './flows/flowExplorer'
@@ -73,19 +65,17 @@
 	import { loadFlowModuleState, pickScript } from './flows/flowStateUtils'
 	import FlowCopilotInputsModal from './copilot/FlowCopilotInputsModal.svelte'
 	import FlowBuilderTutorials from './FlowBuilderTutorials.svelte'
-
+	import Dropdown from '$lib/components/DropdownV2.svelte'
 	import FlowTutorials from './FlowTutorials.svelte'
 	import { ignoredTutorials } from './tutorials/ignoredTutorials'
 	import type DiffDrawer from './DiffDrawer.svelte'
 	import FlowHistory from './flows/FlowHistory.svelte'
-	import ButtonDropdown from './common/button/ButtonDropdown.svelte'
-	import { MenuItem } from '@rgossiaux/svelte-headlessui'
-	import { twMerge } from 'tailwind-merge'
-	import CustomPopover from './CustomPopover.svelte'
 	import Summary from './Summary.svelte'
 	import type { FlowBuilderWhitelabelCustomUi } from './custom_ui'
 	import FlowYamlEditor from './flows/header/FlowYamlEditor.svelte'
 	import { type TriggerContext, type ScheduleTrigger } from './triggers'
+	import type { SavedAndModifiedValue } from './common/confirmationModal/unsavedTypes'
+	import DeployButton from './DeployButton.svelte'
 
 	export let initialPath: string = ''
 	export let pathStoreInit: string | undefined = undefined
@@ -108,6 +98,18 @@
 	export let version: number | undefined = undefined
 	export let setSavedraftCb: ((cb: () => void) => void) | undefined = undefined
 
+	let initialPathStore = writable(initialPath)
+	$: initialPathStore.set(initialPath)
+
+	// used for new flows for captures
+	let fakeInitialPath =
+		'u/' +
+		($userStore?.username?.includes('@')
+			? $userStore!.username.split('@')[0].replace(/[^a-zA-Z0-9_]/g, '')
+			: $userStore!.username!) +
+		'/' +
+		generateRandomString(12)
+
 	// Used by multiplayer deploy collision warning
 	let deployedValue: Value | undefined = undefined // Value to diff against
 	let deployedBy: string | undefined = undefined // Author
@@ -116,6 +118,12 @@
 
 	$: setContext('customUi', customUi)
 
+	export function getInitialAndModifiedValues(): SavedAndModifiedValue {
+		return {
+			savedValue: savedFlow,
+			modifiedValue: $flowStore
+		}
+	}
 	let onLatest = true
 	async function compareVersions() {
 		if (version === undefined) {
@@ -213,14 +221,25 @@
 				if (savedFlow?.draft_only) {
 					await FlowService.deleteFlowByPath({
 						workspace: $workspaceStore!,
-						path: initialPath
+						path: initialPath,
+						keepCaptures: true
+					})
+				}
+				if (!initialPath || $pathStore != initialPath) {
+					await CaptureService.moveCapturesAndConfigs({
+						workspace: $workspaceStore!,
+						path: initialPath || fakeInitialPath,
+						requestBody: {
+							new_path: $pathStore
+						},
+						runnableKind: 'flow'
 					})
 				}
 				await FlowService.createFlow({
 					workspace: $workspaceStore!,
 					requestBody: {
 						path: $pathStore,
-						summary: flow.summary,
+						summary: flow.summary ?? '',
 						description: flow.description ?? '',
 						value: flow.value,
 						schema: flow.schema,
@@ -351,7 +370,7 @@
 					workspace: $workspaceStore!,
 					requestBody: {
 						path: $pathStore,
-						summary: flow.summary,
+						summary: flow.summary ?? '',
 						description: flow.description ?? '',
 						value: flow.value,
 						schema: flow.schema,
@@ -362,6 +381,14 @@
 						on_behalf_of_email: flow.on_behalf_of_email,
 						deployment_message: deploymentMsg || undefined
 					}
+				})
+				await CaptureService.moveCapturesAndConfigs({
+					workspace: $workspaceStore!,
+					path: fakeInitialPath,
+					requestBody: {
+						new_path: $pathStore
+					},
+					runnableKind: 'flow'
 				})
 				if ($primaryScheduleStore && $primaryScheduleStore.enabled) {
 					await createSchedule($pathStore)
@@ -541,7 +568,8 @@
 		pathStore,
 		testStepStore,
 		saveDraft,
-		initialPath,
+		initialPathStore,
+		fakeInitialPath,
 		flowInputsStore: writable<FlowInput>({}),
 		customUi,
 		insertButtonOpen,
@@ -820,7 +848,6 @@
 		try {
 			push(history, $flowStore)
 			let module = stepOnly ? $copilotModulesStore[0] : $copilotModulesStore[idx]
-			const aiProvider = $copilotInfo.ai_provider
 
 			copilotLoading = true
 			copilotStatus = "Generating code for step '" + module.id + "'..."
@@ -950,8 +977,7 @@
 						  })
 						: undefined,
 					isFirstInLoop,
-					abortController,
-					aiProvider
+					abortController
 				)
 				unsubscribe()
 			}
@@ -967,7 +993,7 @@
 						pastModule.value.type === 'script')
 				) {
 					const stepSchema: Schema = JSON.parse(JSON.stringify($flowStateStore[module.id].schema)) // deep copy
-					if (isHubStep && pastModule !== undefined && $copilotInfo.exists_ai_resource) {
+					if (isHubStep && pastModule !== undefined && $copilotInfo.enabled) {
 						// ask AI to set step inputs
 						abortController = new AbortController()
 						const { inputs, allExprs } = await glueCopilot(
@@ -977,8 +1003,7 @@
 								value: RawScript | PathScript
 							},
 							isFirstInLoop,
-							abortController,
-							aiProvider
+							abortController
 						)
 
 						// create flow inputs used by AI for autocompletion
@@ -1026,7 +1051,7 @@
 							$shouldUpdatePropertyType[key] = 'javascript'
 						})
 					} else {
-						if (isHubStep && pastModule !== undefined && !$copilotInfo.exists_ai_resource) {
+						if (isHubStep && pastModule !== undefined && !$copilotInfo.enabled) {
 							sendUserToast(
 								'For better input generation, enable Windmill AI in the workspace settings',
 								true
@@ -1222,9 +1247,6 @@
 		]
 	}
 
-	let deploymentMsg = ''
-	let msgInput: HTMLInputElement | undefined = undefined
-
 	let flowPreviewButtons: FlowPreviewButtons
 </script>
 
@@ -1269,7 +1291,8 @@
 				class="justify-between flex flex-row items-center pl-2.5 pr-6 space-x-4 scrollbar-hidden overflow-x-auto max-h-12 h-full relative"
 			>
 				{#if $copilotCurrentStepStore !== undefined}
-					<div transition:fade class="absolute inset-0 bg-gray-500 bg-opacity-75 z-[900] !m-0" />
+					<div transition:fade class="absolute inset-0 bg-gray-500 bg-opacity-75 z-[900] !m-0"
+					></div>
 				{/if}
 				<div class="flex w-full max-w-md gap-4 items-center">
 					<Summary
@@ -1364,33 +1387,7 @@
 					{/if}
 					<div>
 						{#if moreItems?.length > 0}
-							<ButtonDropdown hasPadding={false}>
-								<svelte:fragment slot="buttonReplacement">
-									<Button nonCaptureEvent size="xs" color="light">
-										<div class="flex flex-row items-center">
-											<MoreVertical size={14} />
-										</div>
-									</Button>
-								</svelte:fragment>
-								<svelte:fragment slot="items">
-									{#each moreItems as item}
-										<MenuItem
-											on:click={item.action}
-											disabled={item.disabled}
-											class={item.disabled ? 'opacity-50' : ''}
-										>
-											<div
-												class={twMerge(
-													'text-primary flex flex-row items-center text-left px-4 py-2 gap-2 cursor-pointer hover:bg-surface-hover !text-xs font-semibold'
-												)}
-											>
-												<svelte:component this={item.icon} size={14} />
-												{item.displayName}
-											</div>
-										</MenuItem>
-									{/each}
-								</svelte:fragment>
-							</ButtonDropdown>
+							<Dropdown items={moreItems} />
 						{/if}
 					</div>
 					{#if customUi?.topBar?.tutorials != false}
@@ -1460,43 +1457,13 @@
 						Draft
 					</Button>
 
-					<CustomPopover appearTimeout={0} focusEl={msgInput}>
-						<Button
-							disabled={loading}
-							loading={loadingSave}
-							size="xs"
-							startIcon={{ icon: Save }}
-							on:click={async () => {
-								await handleSaveFlow()
-							}}
-							dropdownItems={!newFlow ? dropdownItems : undefined}
-						>
-							Deploy
-						</Button>
-						<svelte:fragment slot="overlay">
-							<div class="flex flex-row gap-2 w-80">
-								<input
-									type="text"
-									placeholder="Deployment message"
-									bind:value={deploymentMsg}
-									on:keydown={async (e) => {
-										if (e.key === 'Enter') {
-											await handleSaveFlow(deploymentMsg)
-										}
-									}}
-									bind:this={msgInput}
-								/>
-								<Button
-									size="xs"
-									on:click={async () => await handleSaveFlow(deploymentMsg)}
-									endIcon={{ icon: CornerDownLeft }}
-									loading={loadingSave}
-								>
-									Deploy
-								</Button>
-							</div>
-						</svelte:fragment>
-					</CustomPopover>
+					<DeployButton
+						on:save={async ({ detail }) => await handleSaveFlow(detail)}
+						{loading}
+						{loadingSave}
+						{newFlow}
+						{dropdownItems}
+					/>
 				</div>
 			</div>
 
@@ -1521,6 +1488,7 @@
 						$previewArgsStore = JSON.parse(JSON.stringify(e.detail))
 						flowPreviewButtons?.openPreview(true)
 					}}
+					{savedFlow}
 				/>
 			{:else}
 				<CenteredPage>Loading...</CenteredPage>

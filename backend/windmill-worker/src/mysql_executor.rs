@@ -8,23 +8,23 @@ use mysql_async::{
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{json, value::RawValue, Value};
-use sqlx::types::Json;
 use tokio::sync::Mutex;
 use windmill_common::{
     error::{to_anyhow, Error},
-    jobs::QueuedJob,
-    worker::to_raw_value,
+    worker::{to_raw_value, Connection},
 };
 use windmill_parser_sql::{
     parse_db_resource, parse_mysql_sig, parse_sql_blocks, parse_sql_statement_named_params,
     RE_ARG_MYSQL_NAMED,
 };
 use windmill_queue::CanceledBy;
+use windmill_queue::MiniPulledJob;
 
 use crate::{
-    common::{build_args_map, OccupancyMetrics},
+    common::{build_args_values, OccupancyMetrics},
     handle_child::run_future_with_polling_update_job_poller,
-    AuthedClientBackgroundTask,
+    sanitized_sql_params::sanitize_and_interpolate_unsafe_sql_args,
+    AuthedClient,
 };
 
 #[derive(Deserialize)]
@@ -103,46 +103,35 @@ pub fn do_mysql_inner<'a>(
 }
 
 pub async fn do_mysql(
-    job: &QueuedJob,
-    client: &AuthedClientBackgroundTask,
+    job: &MiniPulledJob,
+    client: &AuthedClient,
     query: &str,
-    db: &sqlx::Pool<sqlx::Postgres>,
+    conn: &Connection,
     mem_peak: &mut i32,
     canceled_by: &mut Option<CanceledBy>,
     worker_name: &str,
     column_order: &mut Option<Vec<String>>,
     occupancy_metrics: &mut OccupancyMetrics,
 ) -> windmill_common::error::Result<Box<RawValue>> {
-    let args = build_args_map(job, client, db).await?.map(Json);
-    let job_args = if args.is_some() {
-        args.as_ref()
-    } else {
-        job.args.as_ref()
-    };
+    let job_args = build_args_values(job, client, conn).await?;
 
     let inline_db_res_path = parse_db_resource(&query);
 
     let db_arg = if let Some(inline_db_res_path) = inline_db_res_path {
-        let val = client
-            .get_authed()
-            .await
-            .get_resource_value_interpolated::<serde_json::Value>(
-                &inline_db_res_path,
-                Some(job.id.to_string()),
-            )
-            .await?;
-
-        let as_raw = serde_json::from_value(val).map_err(|e| {
-            Error::InternalErr(format!("Error while parsing inline resource: {e:#}"))
-        })?;
-
-        Some(as_raw)
+        Some(
+            client
+                .get_resource_value_interpolated::<serde_json::Value>(
+                    &inline_db_res_path,
+                    Some(job.id.to_string()),
+                )
+                .await?,
+        )
     } else {
-        job_args.and_then(|x| x.get("database").cloned())
+        job_args.get("database").cloned()
     };
 
     let database = if let Some(db) = db_arg {
-        serde_json::from_str::<MysqlDatabase>(db.get())
+        serde_json::from_value::<MysqlDatabase>(db)
             .map_err(|e| Error::ExecutionErr(e.to_string()))?
     } else {
         return Err(Error::BadRequest("Missing database argument".to_string()));
@@ -171,6 +160,8 @@ pub async fn do_mysql(
         .map_err(|x| Error::ExecutionErr(x.to_string()))?
         .args;
 
+    let (query, args_to_skip) = &sanitize_and_interpolate_unsafe_sql_args(query, &sig, &job_args)?;
+
     let using_named_params = RE_ARG_MYSQL_NAMED.captures_iter(query).count() > 0;
 
     let mut statement_values: Params = match using_named_params {
@@ -178,18 +169,17 @@ pub async fn do_mysql(
         false => Params::Positional(vec![]),
     };
     for arg in &sig {
+        if args_to_skip.contains(&arg.name) {
+            continue;
+        }
         let arg_t = arg.otyp.clone().unwrap_or_else(|| "text".to_string());
         let arg_n = arg.name.clone();
         let mysql_v = match job_args
-            .and_then(|x| {
-                x.get(arg.name.as_str())
-                    .map(|x| serde_json::from_str::<serde_json::Value>(x.get()).ok())
-            })
-            .flatten()
-            .unwrap_or_else(|| json!(null))
+            .get(arg.name.as_str())
+            .unwrap_or_else(|| &json!(null))
         {
             Value::Null => mysql_async::Value::NULL,
-            Value::Bool(b) => mysql_async::Value::Int(if b { 1 } else { 0 }),
+            Value::Bool(b) => mysql_async::Value::Int(if *b { 1 } else { 0 }),
             Value::String(s)
                 if arg_t == "timestamp"
                     || arg_t == "datetime"
@@ -244,8 +234,8 @@ pub async fn do_mysql(
     }
 
     let pool = mysql_async::Pool::new(opts);
-    let conn = pool.get_conn().await.map_err(to_anyhow)?;
-    let conn_a = Arc::new(Mutex::new(conn));
+    let mysql_conn = pool.get_conn().await.map_err(to_anyhow)?;
+    let conn_a = Arc::new(Mutex::new(mysql_conn));
 
     let queries = parse_sql_blocks(query);
 
@@ -291,7 +281,7 @@ pub async fn do_mysql(
     let result = run_future_with_polling_update_job_poller(
         job.id,
         job.timeout,
-        db,
+        conn,
         mem_peak,
         canceled_by,
         result_f,

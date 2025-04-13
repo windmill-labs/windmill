@@ -231,6 +231,12 @@ declare function setTab(id: string, index: number): void;
 */
 declare function recompute(id: string): void;
 
+/** recompute all components runnables and background runnables
+ * Make sure to disable the toggle "Run on start and app refresh" in the 
+ * settings panel to avoid circular recomputes
+*/
+declare function globalRecompute(): void;
+
 /** get the ag grid api from an AgGridTable
  * @param id component's id
 */
@@ -248,7 +254,7 @@ declare function setValue(id: string, value: any): void;
  */
 declare function setSelectedIndex(id: string, index: number): void;
 
-/** close a drawer or modal
+/** open a drawer or modal
   * @param id component's id
  */
 declare function open(id: string): void;

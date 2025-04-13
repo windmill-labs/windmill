@@ -111,13 +111,15 @@ pub struct S3AwsOidcResource {
     pub audience: Option<String>,
 }
 
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
 pub struct S3Object {
     pub s3: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub storage: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub filename: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub presigned: Option<String>,
 }
 
 #[cfg(feature = "parquet")]
@@ -298,7 +300,7 @@ pub async fn build_s3_client(s3_resource_ref: &S3Resource) -> error::Result<Arc<
 
     let store = store_builder.build().map_err(|err| {
         tracing::error!("Error building object store client: {:?}", err);
-        error::Error::InternalErr(format!(
+        error::Error::internal_err(format!(
             "Error building object store client: {}",
             err.to_string()
         ))
@@ -365,7 +367,7 @@ fn build_azure_blob_client(
 
     let store = store_builder.build().map_err(|err| {
         tracing::error!("Error building object store client: {:?}", err);
-        error::Error::InternalErr(format!(
+        error::Error::internal_err(format!(
             "Error building object store client: {}",
             err.to_string()
         ))

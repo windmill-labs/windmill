@@ -42,8 +42,10 @@ use uuid::Uuid;
 
 #[cfg(feature = "deno_core")]
 use windmill_common::error::Error;
+#[cfg(feature = "deno_core")]
+use windmill_common::worker::{write_file, TMP_DIR};
 
-use windmill_common::{flow_status::JobResult, DB};
+use windmill_common::flow_status::JobResult;
 use windmill_queue::CanceledBy;
 
 use crate::{common::OccupancyMetrics, AuthedClient};
@@ -106,9 +108,10 @@ impl FetchPermissions for PermissionsContainer {
     #[inline(always)]
     fn check_read<'a>(
         &mut self,
+        _resolved: bool,
         p: &'a std::path::Path,
         _api_name: &str,
-    ) -> Result<Cow<'a, std::path::Path>, deno_permissions::PermissionCheckError> {
+    ) -> Result<Cow<'a, std::path::Path>, deno_io::fs::FsError> {
         Ok(Cow::Borrowed(p))
     }
 }
@@ -373,9 +376,10 @@ fn replace_with_await(expr: String, fn_name: &str) -> String {
 }
 lazy_static! {
     static ref RE: Regex =
-        Regex::new(r#"(?m)(?P<r>results(?:(?:\.[a-zA-Z_0-9]+)|(?:\[\".*?\"\])))"#).unwrap();
+        Regex::new(r#"(?m)(?P<r>results(?:\?)?(?:(?:\.[a-zA-Z_0-9]+)|(?:\[\".*?\"\])))"#).unwrap();
     static ref RE_FULL: Regex =
-        Regex::new(r"(?m)^results\.([a-zA-Z_0-9]+)(?:\[(\d+)\])?((?:\.[a-zA-Z_0-9]+)+)?$").unwrap();
+        Regex::new(r"(?m)^results(?:\?)?\.([a-zA-Z_0-9]+)(?:\[(\d+)\])?((?:\.[a-zA-Z_0-9]+)+)?$")
+            .unwrap();
     static ref RE_PROXY: Regex =
         Regex::new(r"^(https?)://(([^:@\s]+):([^:@\s]+)@)?([^:@\s]+)(:(\d+))?$").unwrap();
 }
@@ -552,12 +556,17 @@ function get_from_env(name) {{
 async fn op_variable(
     op_state: Rc<RefCell<OpState>>,
     #[string] path: String,
-) -> Result<String, anyhow::Error> {
+) -> Result<String, deno_error::JsErrorBox> {
     let client = op_state.borrow().borrow::<OptAuthedClient>().0.clone();
     if let Some(client) = client {
-        Ok(client.get_variable_value(&path).await?)
+        Ok(client
+            .get_variable_value(&path)
+            .await
+            .map_err(|e| deno_error::JsErrorBox::generic(e.to_string()))?)
     } else {
-        anyhow::bail!("No client found in op state");
+        Err(deno_error::JsErrorBox::generic(
+            "No client found in op state",
+        ))
     }
 }
 
@@ -567,16 +576,18 @@ async fn op_variable(
 async fn op_get_result(
     op_state: Rc<RefCell<OpState>>,
     #[string] id: String,
-) -> Result<String, anyhow::Error> {
+) -> Result<String, deno_error::JsErrorBox> {
     let client = op_state.borrow().borrow::<OptAuthedClient>().0.clone();
     if let Some(client) = client {
-        let result = client
+        client
             .get_completed_job_result::<Box<RawValue>>(&id, None)
-            .await?
-            .clone();
-        Ok(result.get().to_string())
+            .await
+            .map_err(|e| deno_error::JsErrorBox::generic(e.to_string()))
+            .map(|x| x.get().to_string())
     } else {
-        anyhow::bail!("No client found in op state");
+        Err(deno_error::JsErrorBox::generic(
+            "No client found in op state",
+        ))
     }
 }
 
@@ -587,7 +598,7 @@ async fn op_get_id(
     op_state: Rc<RefCell<OpState>>,
     #[string] flow_job_id: String,
     #[string] node_id: String,
-) -> Result<Option<String>, anyhow::Error> {
+) -> Result<Option<String>, deno_error::JsErrorBox> {
     let client = op_state.borrow().borrow::<OptAuthedClient>().0.clone();
     if let Some(client) = client {
         let result = client
@@ -600,7 +611,9 @@ async fn op_get_id(
             Ok(None)
         }
     } else {
-        anyhow::bail!("No client found in op state");
+        Err(deno_error::JsErrorBox::generic(
+            "No client found in op state",
+        ))
     }
 }
 
@@ -610,15 +623,18 @@ async fn op_get_id(
 async fn op_resource(
     op_state: Rc<RefCell<OpState>>,
     #[string] path: String,
-) -> Result<Option<String>, anyhow::Error> {
+) -> Result<Option<String>, deno_error::JsErrorBox> {
     let client = op_state.borrow().borrow::<OptAuthedClient>().0.clone();
     if let Some(client) = client {
         client
             .get_resource_value_interpolated::<Option<Box<RawValue>>>(&path, None)
             .await
             .map(|x| x.map(|x| x.get().to_string()))
+            .map_err(|e| deno_error::JsErrorBox::generic(e.to_string()))
     } else {
-        anyhow::bail!("No client found in op state");
+        Err(deno_error::JsErrorBox::generic(
+            "No client found in op state",
+        ))
     }
 }
 
@@ -733,15 +749,19 @@ fn capture_proxy(s: &str) -> Option<(String, Option<(String, String)>)> {
         )
     })
 }
+
+use windmill_common::worker::Connection;
+
 #[cfg(not(feature = "deno_core"))]
 pub async fn eval_fetch_timeout(
     _env_code: String,
     _ts_expr: String,
     _js_expr: String,
     _args: Option<&Json<HashMap<String, Box<RawValue>>>>,
+    _script_entrypoint_override: Option<String>,
     _job_id: Uuid,
     _job_timeout: Option<i32>,
-    _db: &DB,
+    _conn: &Connection,
     _mem_peak: &mut i32,
     _canceled_by: &mut Option<CanceledBy>,
     _worker_name: &str,
@@ -759,9 +779,10 @@ pub async fn eval_fetch_timeout(
     ts_expr: String,
     js_expr: String,
     args: Option<&Json<HashMap<String, Box<RawValue>>>>,
+    script_entrypoint_override: Option<String>,
     job_id: Uuid,
     job_timeout: Option<i32>,
-    db: &DB,
+    conn: &Connection,
     mem_peak: &mut i32,
     canceled_by: &mut Option<CanceledBy>,
     worker_name: &str,
@@ -773,7 +794,13 @@ pub async fn eval_fetch_timeout(
 
     let (sender, mut receiver) = oneshot::channel::<IsolateHandle>();
 
-    let parsed_args = windmill_parser_ts::parse_deno_signature(&ts_expr, true, None)?.args;
+    let parsed_args = windmill_parser_ts::parse_deno_signature(
+        &ts_expr,
+        true,
+        false,
+        script_entrypoint_override.clone(),
+    )?
+    .args;
     let spread = parsed_args
         .into_iter()
         .map(|x| {
@@ -801,7 +828,7 @@ pub async fn eval_fetch_timeout(
         ));
     }
 
-    let db_ = db.clone();
+    let conn_ = conn.clone();
     let w_id_ = w_id.to_string();
     let result_f = tokio::task::spawn_blocking(move || {
         let ops = vec![op_get_static_args(), op_log()];
@@ -820,6 +847,7 @@ pub async fn eval_fetch_timeout(
         };
 
         let exts: Vec<Extension> = vec![
+            deno_telemetry::deno_telemetry::init_ops(),
             deno_webidl::deno_webidl::init_ops(),
             deno_url::deno_url::init_ops(),
             deno_console::deno_console::init_ops(),
@@ -885,7 +913,7 @@ pub async fn eval_fetch_timeout(
 
         let future = async {
             let r = tokio::select! {
-                r = eval_fetch(&mut js_runtime, &js_expr, Some(env_code), load_client) => Ok(r),
+                r = eval_fetch(&mut js_runtime, &js_expr, Some(env_code), script_entrypoint_override, load_client, &job_id) => Ok(r),
                 _ = memory_limit_rx.recv() => Err(Error::ExecutionErr("Memory limit reached, killing isolate".to_string()))
             };
 
@@ -896,7 +924,7 @@ pub async fn eval_fetch_timeout(
                     "{extra_logs}{}",
                     js_runtime.op_state().borrow().borrow::<LogString>().s
                 ),
-                db_,
+                &conn_,
             )
             .await;
 
@@ -911,7 +939,7 @@ pub async fn eval_fetch_timeout(
     let res = run_future_with_polling_update_job_poller(
         job_id,
         job_timeout,
-        db,
+        conn,
         mem_peak,
         canceled_by,
         async { result_f.await? },
@@ -935,11 +963,47 @@ pub async fn eval_fetch_timeout(
 const WINDMILL_CLIENT: &str = include_str!("./windmill-client.js");
 
 #[cfg(feature = "deno_core")]
+const ERROR_DIR: &str = const_format::concatcp!(TMP_DIR, "/native_errors");
+
+#[cfg(feature = "deno_core")]
+fn write_error_expr(expr: &str, uuid: &Uuid) {
+    if let Err(e) = std::fs::create_dir_all(ERROR_DIR) {
+        tracing::error!("failed to create error dir {ERROR_DIR}: {e}");
+        return;
+    }
+    let dir_entries = match std::fs::read_dir(ERROR_DIR) {
+        Ok(entries) => entries.count(),
+        Err(_) => {
+            tracing::error!("failed to read error dir {ERROR_DIR}");
+            return;
+        }
+    };
+
+    if std::env::var("PRINT_NATIVE_ERRORS").is_ok() {
+        tracing::info!("native error for job {uuid}: {expr}");
+    }
+    if dir_entries >= 100 {
+        tracing::info!("Too many error files in {ERROR_DIR}, skipping write");
+        return;
+    }
+
+    let path = format!("/{uuid}.js");
+    tracing::info!(
+        "nativets job {uuid} failed, writing error expr to {ERROR_DIR}/{path} for debugging: {path}"
+    );
+    if let Err(e) = write_file(ERROR_DIR, &path, expr) {
+        tracing::error!("failed to write error expr to file {path}: {e}");
+    }
+}
+
+#[cfg(feature = "deno_core")]
 async fn eval_fetch(
     js_runtime: &mut JsRuntime,
     expr: &str,
     env_code: Option<String>,
+    script_entrypoint_override: Option<String>,
     load_client: bool,
+    job_id: &Uuid,
 ) -> anyhow::Result<Box<RawValue>> {
     if load_client {
         if let Some(env_code) = env_code.as_ref() {
@@ -951,26 +1015,45 @@ async fn eval_fetch(
                 .await?;
         }
     }
-
+    use anyhow::Context;
     let _ = js_runtime
         .load_side_es_module_from_code(
             &deno_core::resolve_url("file:///eval.ts")?,
             format!("{}\n{expr}", env_code.unwrap_or_default()),
         )
-        .await?;
+        .await
+        .map_err(|e| {
+            write_error_expr(expr, &job_id);
+            e
+        })
+        .context("failed to load module")?;
 
-    let script = js_runtime.execute_script(
-        "<anon>",
-        r#"
+    let main_override = script_entrypoint_override.unwrap_or("main".to_string());
+    let script = js_runtime
+        .execute_script(
+            "<anon>",
+            format!(
+                r#"
 let args = Deno.core.ops.op_get_static_args().map(JSON.parse)
-import("file:///eval.ts").then((module) => module.main(...args)).then(JSON.stringify)
-"#,
-    )?;
+import("file:///eval.ts").then((module) => module.{main_override}(...args)).then(JSON.stringify)
+"#
+            ),
+        )
+        .map_err(|e| {
+            write_error_expr(expr, &job_id);
+            e
+        })
+        .context("native script initialization")?;
 
     let fut = js_runtime.resolve(script);
     let global = js_runtime
         .with_event_loop_promise(fut, PollEventLoopOptions::default())
-        .await?;
+        .await
+        .map_err(|e| {
+            write_error_expr(expr, &job_id);
+            e
+        })
+        .context("native script event loop")?;
 
     let scope = &mut js_runtime.handle_scope();
     let local = v8::Local::new(scope, global);

@@ -2,16 +2,11 @@
 	import { deleteGroup, getGroup, updateGroup } from './groupUtils'
 	import { workspaceStore } from '$lib/stores'
 	import Cell from '$lib/components/table/Cell.svelte'
-
+	import Dropdown from '$lib/components/DropdownV2.svelte'
 	import { Trash } from 'lucide-svelte'
 	import { sendUserToast } from '$lib/toast'
-	import { twMerge } from 'tailwind-merge'
 	import { createEventDispatcher } from 'svelte'
 	import GroupNameEditor from './NameEditor.svelte'
-
-	import ButtonDropdown from '$lib/components/common/button/ButtonDropdown.svelte'
-	import { classNames } from '$lib/utils'
-	import { MenuItem } from '@rgossiaux/svelte-headlessui'
 
 	export let row: {
 		name: string
@@ -26,6 +21,17 @@
 		}
 		dispatch('reloadGroups')
 		sendUserToast('Group deleted:\n' + row.name)
+	}
+
+	function getItems() {
+		return [
+			{
+				action: toggleDelete,
+				icon: Trash,
+				displayName: 'Delete',
+				type: 'delete' as const
+			}
+		]
 	}
 </script>
 
@@ -54,23 +60,6 @@
 	</Cell>
 
 	<Cell last>
-		<div class={twMerge('flex flex-row gap-1 justify-end  z-[10000]')}>
-			<button on:pointerdown|stopPropagation>
-				<ButtonDropdown target="#group_portal" hasPadding={false}>
-					<svelte:fragment slot="items">
-						<MenuItem on:click={toggleDelete}>
-							<div
-								class={classNames(
-									'!text-red-600 flex flex-row items-center text-left px-4 py-2 gap-2 cursor-pointer hover:bg-gray-100 !text-xs font-semibold'
-								)}
-							>
-								<Trash size={16} />
-								Delete
-							</div>
-						</MenuItem>
-					</svelte:fragment>
-				</ButtonDropdown>
-			</button>
-		</div>
+		<Dropdown items={getItems()} />
 	</Cell>
 </tr>

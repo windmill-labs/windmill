@@ -11,6 +11,8 @@ pub const LICENSE_KEY_SETTING: &str = "license_key";
 pub const NPM_CONFIG_REGISTRY_SETTING: &str = "npm_config_registry";
 pub const BUNFIG_INSTALL_SCOPES_SETTING: &str = "bunfig_install_scopes";
 pub const NUGET_CONFIG_SETTING: &str = "nuget_config";
+pub const MAVEN_REPOS_SETTING: &str = "maven_repos";
+pub const NO_DEFAULT_MAVEN_SETTING: &str = "no_default_maven";
 
 pub const EXTRA_PIP_INDEX_URL_SETTING: &str = "pip_extra_index_url";
 pub const PIP_INDEX_URL_SETTING: &str = "pip_index_url";
@@ -40,7 +42,7 @@ pub const JWT_SECRET_SETTING: &str = "jwt_secret";
 pub const EMAIL_DOMAIN_SETTING: &str = "email_domain";
 pub const OTEL_SETTING: &str = "otel";
 
-pub const ENV_SETTINGS: [&str; 55] = [
+pub const ENV_SETTINGS: &[&str] = &[
     "DISABLE_NSJAIL",
     "MODE",
     "NUM_WORKERS",
@@ -58,8 +60,11 @@ pub const ENV_SETTINGS: [&str; 55] = [
     "S3_CACHE_BUCKET",
     "COOKIE_DOMAIN",
     "PYTHON_PATH",
+    "NU_PATH",
     "DENO_PATH",
     "GO_PATH",
+    "JAVA_PATH",
+    // for related places search: ADD_NEW_LANG
     "GOPRIVATE",
     "GOPROXY",
     "NETRC",
@@ -96,11 +101,14 @@ pub const ENV_SETTINGS: [&str; 55] = [
     "OTEL_METRICS",
     "OTEL_TRACING",
     "OTEL_LOGS",
+    "DISABLE_S3_STORE",
+    "PG_SCHEMA",
+    "PG_LISTENER_REFRESH_PERIOD_SECS",
 ];
 
 use crate::error;
-use sqlx::Pool;
 use sqlx::postgres::Postgres;
+use sqlx::Pool;
 
 pub async fn load_value_from_global_settings(
     db: &Pool<Postgres>,

@@ -50,7 +50,7 @@
 	})
 
 	let result: Schema | undefined = undefined
-	let args: Record<string, unknown> = {}
+	let args: Record<string, unknown> = !iterContext ? outputs?.values?.peak() ?? {} : {}
 
 	function handleArgsChange() {
 		const newArgs: Record<string, unknown> = {}
@@ -76,6 +76,7 @@
 	$componentControl[id] = {
 		setValue(nvalue: any) {
 			args = nvalue
+			outputs.values.set(nvalue, false)
 		},
 		invalidate(key: string, error: string) {
 			schemaForm?.invalidate(key, error)
@@ -151,6 +152,7 @@
 					!$connectingInput.opened && selectId(e, id, selectedComponent, $app)}
 			>
 				<SchemaForm
+					noVariablePicker
 					onlyMaskPassword
 					defaultValues={resolvedConfig.defaultValues}
 					dynamicEnums={resolvedConfig.dynamicEnums}

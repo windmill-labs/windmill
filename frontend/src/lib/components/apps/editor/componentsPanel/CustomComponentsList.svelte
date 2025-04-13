@@ -69,8 +69,6 @@
 	getCustomComponents()
 </script>
 
-<div id="cc_portal" />
-
 <div class="p-2 flex flex-col items-start w-auto gap-2 relative">
 	<div class="w-full flex flex-col gap-y-2 pb-8">
 		<div>
@@ -124,7 +122,7 @@
 							{/key}
 						{/each}
 					{:else}
-						<tr>Loading...</tr>
+						<!-- <tr>Loading...</tr> -->
 					{/if}
 				</tbody>
 			</DataTable>

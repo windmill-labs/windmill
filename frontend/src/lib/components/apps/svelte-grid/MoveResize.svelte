@@ -39,6 +39,7 @@
 	export let type: string | undefined = undefined
 	export let fakeShadow: GridShadow | undefined = undefined
 	export let disableMove: boolean = true
+	export let mounted: boolean = false
 
 	const ctx = getContext<AppEditorContext>('AppEditorContext')
 	const { mode, app } = getContext<AppViewerContext>('AppViewerContext')
@@ -504,7 +505,7 @@
 		: trans
 		? `transform: translate(${cordDiff.x}px, ${cordDiff.y}px); position:absolute; transition: width 0.2s, height 0.2s;`
 		: `${
-				xPerPx > 0 ? 'transition: transform 0.1s, opacity 0.1s;' : ''
+				xPerPx > 0 && mounted ? 'transition: transform 0.1s, opacity 0.1s;' : ''
 		  } transform: translate(${left}px, ${top}px); `} "
 >
 	<slot />
@@ -512,12 +513,12 @@
 		<div
 			class="svlt-grid-resizer-bottom"
 			on:pointerdown={(e) => resizePointerDown(e, 'vertical')}
-		/>
+		></div>
 		<div
 			class="svlt-grid-resizer-side"
 			on:pointerdown={(e) => resizePointerDown(e, 'horizontal')}
-		/>
-		<div class="svlt-grid-resizer" on:pointerdown={(e) => resizePointerDown(e, 'both')} />
+		></div>
+		<div class="svlt-grid-resizer" on:pointerdown={(e) => resizePointerDown(e, 'both')}></div>
 	{/if}
 </div>
 
@@ -531,7 +532,7 @@
 			gapY * 2}px; transform: translate({shadow.x * xPerPx + gapX}px, {shadow.y * yPerPx +
 			gapY}px); "
 		bind:this={shadowElement}
-	/>
+	></div>
 {/if}
 
 <style>

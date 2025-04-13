@@ -11,14 +11,24 @@
 	import type { AppInput } from '../../../inputType'
 	import RunnableWrapper from '../../helpers/RunnableWrapper.svelte'
 	import { writable } from 'svelte/store'
-	import {
-		createSvelteTable,
-		flexRender,
-		type HeaderGroup,
-		type Row,
-		type Table,
-		type TableOptions
-	} from '@tanstack/svelte-table'
+
+	// tanstack-table v8 does not support svelte 5.
+	//
+	// This packages acts as a drop-in replacement:
+	// https://github.com/dummdidumm/tanstack-table-8-svelte-5
+	// It re-exports the core lib types but for some reason I can't
+	// import them so I get them manually from node_modules.
+	//
+	// tanstack-table v9 supports svelte 5 but is still in alpha at the
+	// time of writing, and introduces unstable breaking changes
+	import { createSvelteTable, flexRender } from '@tanstack/svelte-table'
+	import type {
+		HeaderGroup,
+		Row,
+		Table,
+		TableOptions
+	} from '$lib/../../node_modules/@tanstack/table-core/build/lib'
+
 	import AppButton from '../../buttons/AppButton.svelte'
 	import { classNames, isObject, sendUserToast } from '$lib/utils'
 	import DebouncedInput from '../../helpers/DebouncedInput.svelte'
@@ -39,12 +49,12 @@
 	import AppSelect from '../../inputs/AppSelect.svelte'
 	import RowWrapper from '../../layout/RowWrapper.svelte'
 	import ResolveStyle from '../../helpers/ResolveStyle.svelte'
-	import { Popup } from '$lib/components/common'
 	import ComponentOutputViewer from '$lib/components/apps/editor/contextPanel/ComponentOutputViewer.svelte'
 	import { EyeIcon, Plug2 } from 'lucide-svelte'
 	import AppCell from './AppCell.svelte'
 	import sum from 'hash-sum'
 	import RefreshButton from '$lib/components/apps/components/helpers/RefreshButton.svelte'
+	import Popover from '$lib/components/meltComponents/Popover.svelte'
 
 	export let id: string
 	export let componentInput: AppInput | undefined
@@ -199,12 +209,12 @@
 								pageSize: resolvedConfig?.pagination?.configuration?.auto?.pageSize ?? 20
 							}
 						}
-				  }
+					}
 				: {}),
 			manualPagination: resolvedConfig?.pagination?.selected == 'manual',
 			pageCount:
 				resolvedConfig?.pagination?.selected == 'manual'
-					? resolvedConfig?.pagination?.configuration.manual.pageCount ?? -1
+					? (resolvedConfig?.pagination?.configuration.manual.pageCount ?? -1)
 					: undefined,
 			data: filteredResult,
 			columns: headers.map((header) => {
@@ -249,6 +259,12 @@
 		setSelectedIndex: (index: number) => {
 			if (filteredResult) {
 				toggleRow({ original: filteredResult[index] }, true)
+			}
+		},
+		setValue(nvalue) {
+			if (Array.isArray(nvalue)) {
+				result = nvalue
+				outputs?.result.set(nvalue)
 			}
 		}
 	}
@@ -357,7 +373,7 @@
 							/>
 						</div>
 					{:else}
-						<div />
+						<div></div>
 					{/if}
 
 					{#if componentInput?.hideRefreshButton && componentInput['autoRefresh']}
@@ -553,31 +569,35 @@
 
 																{#if $connectingInput.opened}
 																	<div class="absolute z-50 left-8 -top-[10px]">
-																		<Popup
+																		<Popover
 																			floatingConfig={{
 																				strategy: 'absolute',
 																				placement: 'bottom-start'
 																			}}
+																			closeOnOtherPopoverOpen
+																			contentClasses="p-4"
 																		>
-																			<svelte:fragment slot="button">
+																			<svelte:fragment slot="trigger">
 																				<button
 																					class="bg-red-500/70 border border-red-600 px-1 py-0.5"
 																					title="Outputs"
 																					aria-label="Open output"><Plug2 size={12} /></button
 																				>
 																			</svelte:fragment>
-																			<ComponentOutputViewer
-																				suffix="table"
-																				on:select={({ detail }) =>
-																					connectOutput(
-																						connectingInput,
-																						'buttoncomponent',
-																						actionButton.id,
-																						detail
-																					)}
-																				componentId={actionButton.id}
-																			/>
-																		</Popup>
+																			<svelte:fragment slot="content">
+																				<ComponentOutputViewer
+																					suffix="table"
+																					on:select={({ detail }) =>
+																						connectOutput(
+																							connectingInput,
+																							'buttoncomponent',
+																							actionButton.id,
+																							detail
+																						)}
+																					componentId={actionButton.id}
+																				/>
+																			</svelte:fragment>
+																		</Popover>
 																	</div>
 																{/if}
 															{/if}

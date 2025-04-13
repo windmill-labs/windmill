@@ -1,11 +1,13 @@
 <script lang="ts">
 	import { createEventDispatcher, getContext, onDestroy, tick } from 'svelte'
+	import { get } from 'svelte/store'
 	import type {
 		AppInput,
 		EvalAppInput,
 		EvalV2AppInput,
 		TemplateV2Input,
-		UploadAppInput
+		UploadAppInput,
+		UploadS3AppInput
 	} from '../../inputType'
 	import type {
 		AppEditorContext,
@@ -20,6 +22,7 @@
 	import { deepEqual } from 'fast-equals'
 	import { deepMergeWithPriority, isCodeInjection } from '$lib/utils'
 	import sum from 'hash-sum'
+	import { createDispatcherIfMounted } from '$lib/createDispatcherIfMounted'
 
 	type T = string | number | boolean | Record<string | number, any> | undefined
 
@@ -32,7 +35,8 @@
 	export let onDemandOnly: boolean = false
 	export let exportValueFunction: boolean = false
 
-	const { componentControl, runnableComponents } = getContext<AppViewerContext>('AppViewerContext')
+	const { componentControl, runnableComponents, recomputeAllContext } =
+		getContext<AppViewerContext>('AppViewerContext')
 
 	const editorContext = getContext<AppEditorContext>('AppEditorContext')
 	const iterContext = getContext<ListContext>('ListWrapperContext')
@@ -73,8 +77,11 @@
 		debounceTemplate()
 
 	const dispatch = createEventDispatcher()
+	const dispatchIfMounted = createDispatcherIfMounted(dispatch)
 
 	if (input == undefined) {
+		// How did this ever do anything at the top level in svelte 4 if
+		// events were not being picked up before the component fully mounted?
 		dispatch('done')
 	}
 
@@ -91,7 +98,7 @@
 		}
 	}
 
-	const { worldStore, state, mode } = getContext<AppViewerContext>('AppViewerContext')
+	const { worldStore, state: stateStore, mode } = getContext<AppViewerContext>('AppViewerContext')
 
 	$: stateId = $worldStore?.stateId
 
@@ -142,7 +149,7 @@
 		lastInput.type == 'template' &&
 		isCodeInjection(lastInput.eval) &&
 		$stateId &&
-		$state &&
+		$stateStore &&
 		debounce(debounceTemplate)
 
 	let lastExprHash: any = undefined
@@ -168,7 +175,7 @@
 		}
 	}
 
-	$: lastInput && lastInput.type == 'eval' && $stateId && $state && debounce2(debounceEval)
+	$: lastInput && lastInput.type == 'eval' && $stateId && $stateStore && debounce2(debounceEval)
 
 	$: lastInput?.type == 'evalv2' && lastInput.expr && debounceEval('exprChanged')
 	$: lastInput?.type == 'templatev2' && lastInput.eval && debounceTemplate()
@@ -194,7 +201,7 @@
 				}
 			}
 		} else if (lastInput?.type === 'static' || lastInput?.type == 'template') {
-			value = await getValue(lastInput)
+			await debounceTemplate()
 		} else if (lastInput?.type == 'eval') {
 			value = await evalExpr(lastInput as EvalAppInput)
 		} else if (lastInput?.type == 'evalv2') {
@@ -234,12 +241,14 @@
 			}
 		} else if (lastInput?.type == 'upload') {
 			value = (lastInput as UploadAppInput).value
+		} else if (lastInput?.type == 'uploadS3') {
+			value = (lastInput as UploadS3AppInput).value
 		} else {
 			value = undefined
 		}
 
 		await tick()
-		dispatch('done')
+		dispatchIfMounted('done')
 	}
 
 	function onEvalChange(previousValueKey: string) {
@@ -264,18 +273,20 @@
 		try {
 			const context = computeGlobalContext(
 				$worldStore,
+				id,
 				deepMergeWithPriority(fullContext, args ?? {})
 			)
 			const r = await eval_like(
 				input.expr,
 				context,
-				$state,
+				$stateStore,
 				$mode == 'dnd',
 				$componentControl,
 				$worldStore,
 				$runnableComponents,
 				false,
-				groupContext?.id
+				groupContext?.id,
+				get(recomputeAllContext)?.onRefresh
 			)
 			error = ''
 			return r
@@ -293,15 +304,16 @@
 		if ((input.type === 'template' || input.type == 'templatev2') && isCodeInjection(input.eval)) {
 			try {
 				const r = await eval_like(
-					'`' + input.eval + '`',
-					computeGlobalContext($worldStore, fullContext),
-					$state,
+					'`' + input.eval.replaceAll('`', '\\`') + '`',
+					computeGlobalContext($worldStore, id, fullContext),
+					$stateStore,
 					$mode == 'dnd',
 					$componentControl,
 					$worldStore,
 					$runnableComponents,
 					false,
-					groupContext?.id
+					groupContext?.id,
+					get(recomputeAllContext)?.onRefresh
 				)
 				error = ''
 				return r
@@ -316,10 +328,12 @@
 		}
 	}
 
-	function onValueChange(newValue: any): void {
+	function onValueChange(newValue: any, force?: boolean): void {
 		if (iterContext && $iterContext.disabled) return
-
-		if (lastInput?.type === 'connected' && newValue !== undefined && newValue !== null) {
+		if (
+			lastInput?.type === 'connected' &&
+			((newValue !== undefined && newValue !== null) || force)
+		) {
 			const { connection } = lastInput
 			if (!connection) {
 				// No connection

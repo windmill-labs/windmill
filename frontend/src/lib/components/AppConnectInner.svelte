@@ -25,6 +25,7 @@
 	import { Pen } from 'lucide-svelte'
 	import GfmMarkdown from './GfmMarkdown.svelte'
 	import { apiTokenApps, forceSecretValue, linkedSecretValue } from './app_connect'
+	import type { SchemaProperty } from '$lib/common'
 
 	export let step = 1
 	export let resourceType = ''
@@ -55,18 +56,20 @@
 	let args: any = {}
 	let renderDescription = true
 
-	function computeCandidates(resourceType: string, argsKeys: string[]) {
+	function computeCandidates(resourceType: string, argsKeys: string[], passwords: string[]) {
 		return apiTokenApps[resourceType]?.linkedSecret
 			? ([apiTokenApps[resourceType]?.linkedSecret] as string[])
-			: argsKeys.filter((x) =>
-					['token', 'secret', 'key', 'pass', 'private'].some((y) => x.toLowerCase().includes(y))
+			: argsKeys.filter(
+					(x) =>
+						passwords.includes(x) ||
+						['token', 'secret', 'key', 'pass', 'private'].some((y) => x.toLowerCase().includes(y))
 			  )
 	}
 
 	let linkedSecret: string | undefined = undefined
 	let linkedSecretCandidates: string[] | undefined = undefined
-	function computeLinkedSecret(resourceType: string, argsKeys: string[]) {
-		linkedSecretCandidates = computeCandidates(resourceType, argsKeys)
+	function computeLinkedSecret(resourceType: string, argsKeys: string[], passwords: string[]) {
+		linkedSecretCandidates = computeCandidates(resourceType, argsKeys, passwords)
 		return (
 			forceSecretValue(resourceType) ??
 			linkedSecretCandidates?.sort((ua, ub) => linkedSecretValue(ub) - linkedSecretValue(ua))?.[0]
@@ -240,9 +243,13 @@
 			workspace: $workspaceStore!,
 			path: resourceType
 		})
-		const newArgsKeys = Object.keys(resourceTypeInfo?.schema?.['properties'] ?? {}) ?? []
+		const props: Record<string, SchemaProperty> = resourceTypeInfo?.schema?.['properties'] ?? {}
+		const newArgsKeys = Object.keys(props) ?? []
+		const passwords = newArgsKeys.filter((x) => {
+			return props?.[x]?.password
+		})
 		if (!linkedSecret) {
-			linkedSecret = computeLinkedSecret(resourceType, newArgsKeys)
+			linkedSecret = computeLinkedSecret(resourceType, newArgsKeys, passwords)
 		}
 	}
 	export async function next() {
@@ -473,7 +480,7 @@
 			{/if}
 		</div>
 
-		<div class="mt-8 mb-4" />
+		<div class="mt-8 mb-4"></div>
 		<div class="grid sm:grid-cols-2 md:grid-cols-3 gap-x-2 gap-y-1 items-center mb-2">
 			{#if filteredConnectsManual}
 				{#each filteredConnectsManual as [key, _]}
@@ -545,18 +552,19 @@
 		{#if renderDescription}
 			<div>
 				<div class="flex flex-row-reverse text-2xs text-tertiary -mt-1">GH Markdown</div>
-				<textarea use:autosize bind:value={description} placeholder={'Resource description'} />
+				<textarea use:autosize bind:value={description} placeholder={'Resource description'}></textarea>
 			</div>
 		{:else if description == undefined || description == ''}
 			<div class="text-sm text-tertiary">No description provided</div>
 		{:else}
-			<div class="mt-2" />
+			<div class="mt-2"></div>
 			<GfmMarkdown md={description} />
 		{/if}
 		<div class="mt-12">
 			{#key resourceTypeInfo}
 				<ApiConnectForm
 					bind:linkedSecret
+					bind:description
 					{linkedSecretCandidates}
 					{resourceType}
 					{resourceTypeInfo}

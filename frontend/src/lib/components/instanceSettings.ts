@@ -11,7 +11,7 @@ export interface Setting {
 		label: string
 		tooltip?: string
 		// If not specified, label will be used
-		value?: any
+		value?: string
 	}[]
 	fieldType:
 		| 'text'
@@ -224,7 +224,7 @@ export const settings: Record<string, Setting[]> = {
 			requiresReloadOnChange: true
 		}
 	],
-	'Auth/OAuth': [],
+	'Auth/OAuth/SAML': [],
 	Registries: [
 		{
 			label: 'Instance Python Version',
@@ -258,7 +258,7 @@ export const settings: Record<string, Setting[]> = {
 			storage: 'setting'
 		},
 		{
-			label: 'Pip index url',
+			label: 'UV index url',
 			description: 'Add private Pip registry',
 			key: 'pip_index_url',
 			fieldType: 'text',
@@ -267,7 +267,7 @@ export const settings: Record<string, Setting[]> = {
 			ee_only: ''
 		},
 		{
-			label: 'Pip extra index url',
+			label: 'UV extra index url',
 			description: 'Add private extra Pip registry',
 			key: 'pip_extra_index_url',
 			fieldType: 'text',
@@ -302,7 +302,24 @@ export const settings: Record<string, Setting[]> = {
 			codeAreaLang: 'xml',
 			storage: 'setting',
 			ee_only: ''
-		}
+		},
+		{
+			label: 'Maven/Ivy repositories',
+			description: 'Add private Maven/Ivy repositories',
+			key: 'maven_repos',
+			fieldType: 'text',
+			placeholder: 'https://user:password@artifacts.foo.com/maven',
+			storage: 'setting',
+			ee_only: ''
+		},
+		{
+			label: 'Disable default Maven repository',
+			description: 'Do not use default Maven repository',
+			key: 'no_default_maven',
+			fieldType: 'boolean',
+			storage: 'setting',
+			ee_only: ''
+		},
 	],
 	Alerts: [
 		{

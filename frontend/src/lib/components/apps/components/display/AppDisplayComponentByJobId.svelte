@@ -16,6 +16,7 @@
 	import ResolveStyle from '../helpers/ResolveStyle.svelte'
 	import InitializeComponent from '../helpers/InitializeComponent.svelte'
 	import DisplayResult from '$lib/components/DisplayResult.svelte'
+	import { userStore } from '$lib/stores'
 
 	export let id: string
 	export let initializing: boolean | undefined = false
@@ -23,7 +24,7 @@
 	export let configuration: RichConfigurations
 	export let render: boolean
 
-	const { app, worldStore, workspace } = getContext<AppViewerContext>('AppViewerContext')
+	const { app, worldStore, workspace, appPath } = getContext<AppViewerContext>('AppViewerContext')
 	const requireHtmlApproval = getContext<boolean | undefined>(IS_APP_PUBLIC_CONTEXT_KEY)
 
 	let resolvedConfig = initConfig(
@@ -115,6 +116,8 @@
 				{result}
 				{requireHtmlApproval}
 				disableExpand={resolvedConfig?.hideDetails}
+				appPath={$userStore ? undefined : $appPath}
+				forceJson={resolvedConfig?.forceJson}
 			/>
 		</div>
 	</div>

@@ -22,7 +22,7 @@ use crate::{
     error::Error,
     more_serde::{default_empty_string, default_id, default_null, default_true, is_default},
     scripts::{Schema, ScriptHash, ScriptLang},
-    worker::to_raw_value,
+    worker::{to_raw_value, Connection}, DB,
 };
 
 #[derive(Serialize, Deserialize, sqlx::FromRow)]
@@ -60,6 +60,8 @@ pub struct FlowWithStarred {
     pub flow: Flow,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub starred: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub lock_error_logs: Option<String>,
 }
 
 fn is_none_or_false(b: &Option<bool>) -> bool {
@@ -729,14 +731,14 @@ pub async fn resolve_maybe_value<T>(
 }
 
 /// Resolve modules recursively.
-pub async fn resolve_value(
+async fn resolve_value(
     e: &sqlx::PgPool,
     workspace_id: &str,
     value: &mut Box<JsonRawValue>,
     with_code: bool,
 ) -> Result<(), Error> {
     let mut val = serde_json::from_str::<FlowValue>(value.get()).map_err(|err| {
-        Error::InternalErr(format!("resolve: Failed to parse flow value: {}", err))
+        Error::internal_err(format!("resolve: Failed to parse flow value: {}", err))
     })?;
     for module in &mut val.modules {
         resolve_module(e, workspace_id, &mut module.value, with_code).await?;
@@ -747,7 +749,7 @@ pub async fn resolve_value(
 
 /// Resolve module value recursively.
 pub async fn resolve_module(
-    e: &sqlx::PgPool,
+    db: &DB,
     workspace_id: &str,
     value: &mut Box<JsonRawValue>,
     with_code: bool,
@@ -755,7 +757,7 @@ pub async fn resolve_module(
     use FlowModuleValue::*;
 
     let mut val = serde_json::from_str::<FlowModuleValue>(value.get()).map_err(|err| {
-        Error::InternalErr(format!(
+        Error::internal_err(format!(
             "resolve: Failed to parse flow module value: {}",
             err
         ))
@@ -781,7 +783,7 @@ pub async fn resolve_module(
             let (lock, content) = if !with_code {
                 (Some("...".to_string()), "...".to_string())
             } else {
-                cache::flow::fetch_script(e, id)
+                cache::flow::fetch_script(&Connection::Sql(db.clone()), id)
                     .await
                     .map(|data| (data.lock.clone(), data.code.clone()))?
             };
@@ -799,13 +801,13 @@ pub async fn resolve_module(
             };
         }
         ForloopFlow { modules, modules_node, .. } | WhileloopFlow { modules, modules_node, .. } => {
-            resolve_modules(e, workspace_id, modules, modules_node.take(), with_code).await?;
+            resolve_modules(db, workspace_id, modules, modules_node.take(), with_code).await?;
         }
         BranchOne { branches, default, default_node } => {
-            resolve_modules(e, workspace_id, default, default_node.take(), with_code).await?;
+            resolve_modules(db, workspace_id, default, default_node.take(), with_code).await?;
             for branch in branches {
                 resolve_modules(
-                    e,
+                    db,
                     workspace_id,
                     &mut branch.modules,
                     branch.modules_node.take(),
@@ -817,7 +819,7 @@ pub async fn resolve_module(
         BranchAll { branches, .. } => {
             for branch in branches {
                 resolve_modules(
-                    e,
+                    db,
                     workspace_id,
                     &mut branch.modules,
                     branch.modules_node.take(),

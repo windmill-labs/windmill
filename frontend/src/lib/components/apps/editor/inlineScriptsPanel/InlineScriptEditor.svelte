@@ -32,8 +32,14 @@
 	export let transformer: boolean = false
 	export let componentType: string | undefined = undefined
 
-	const { runnableComponents, stateId, worldStore, state, appPath, app } =
-		getContext<AppViewerContext>('AppViewerContext')
+	const {
+		runnableComponents,
+		stateId,
+		worldStore,
+		state: stateStore,
+		appPath,
+		app
+	} = getContext<AppViewerContext>('AppViewerContext')
 
 	export let editor: Editor | undefined = undefined
 	let diffEditor: DiffEditor
@@ -56,6 +62,20 @@
 		return schema
 	}
 
+<<<<<<< HEAD
+=======
+	$: name && onNameChange()
+
+	function onNameChange() {
+		if (inlineScript) {
+			inlineScript.path = `${defaultIfEmptyString(
+				$appPath,
+				`u/${$userStore?.username ?? 'unknown'}/newapp`
+			)}/${name?.replaceAll(' ', '_')}`
+		}
+	}
+
+>>>>>>> main
 	onMount(async () => {
 		if (inlineScript && !inlineScript.schema) {
 			if (inlineScript.language != 'frontend') {
@@ -71,6 +91,9 @@
 		}
 		if (inlineScript?.language == 'frontend' && inlineScript.content) {
 			inferSuggestions(inlineScript.content)
+		}
+		if (!inlineScript?.path) {
+			onNameChange()
 		}
 	})
 
@@ -167,7 +190,7 @@
 
 	$: extraLib =
 		inlineScript?.language == 'frontend' && worldStore
-			? buildExtraLib($worldStore?.outputsById ?? {}, id, $state, true)
+			? buildExtraLib($worldStore?.outputsById ?? {}, id, $stateStore, true)
 			: undefined
 
 	// 	`
@@ -234,7 +257,7 @@
 						<div
 							title={validCode ? 'Main function parsable' : 'Main function not parsable'}
 							class="rounded-full !w-2 !h-2 {validCode ? 'bg-green-300' : 'bg-red-300'}"
-						/>
+						></div>
 					</div>
 				{:else}
 					<span class="text-xs font-semibold truncate w-full">{name} of {id}</span>

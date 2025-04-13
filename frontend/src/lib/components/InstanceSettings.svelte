@@ -210,8 +210,6 @@
 		oauths['snowflake_oauth'].connect_config = connect_config
 	}
 
-	let to: string = ''
-
 	async function sendStats() {
 		await SettingService.sendStats()
 		sendUserToast('Usage sent')
@@ -278,13 +276,16 @@
 							Anonymous usage data is collected to help improve Windmill.
 							<br />The following information is collected:
 							<ul class="list-disc list-inside pl-2">
-								<li>version of your instance</li>
-								<li>number and total duration of jobs</li>
-								<li>accounts usage</li>
-								<li>login type usage</li>
-								<li>workers usage</li>
-								<li>vCPUs usage</li>
+								<li>version of your instances</li>
+								<li>instance base URL</li>
+								<li>job usage (language, total duration, count)</li>
+								<li>login type usage (login type, count)</li>
+								<li>worker usage (worker, worker instance, vCPUs, memory)</li>
+								<li>user usage (author count, operator count)</li>
+								<li>superadmin email addresses</li>
+								<li>vCPU usage</li>
 								<li>memory usage</li>
+								<li>development instance status</li>
 							</ul>
 						</div>
 						{#if $enterpriseLicense}
@@ -302,7 +303,7 @@
 								size="xs">Send usage</Button
 							>
 						{/if}
-					{:else if category == 'Auth/OAuth'}
+					{:else if category == 'Auth/OAuth/SAML'}
 						<AuthSettings
 							bind:oauths
 							bind:snowflakeAccountIdentifier
@@ -336,32 +337,6 @@
 							{/each}
 						</div>
 					</div>
-					{#if category == 'SMTP'}
-						{@const smtp = $values['smtp_settings']}
-						<div class="flex gap-4"
-							><input type="email" bind:value={to} placeholder="contact@windmill.dev" />
-							<Button
-								disabled={to == '' || !smtp}
-								on:click={async () => {
-									await SettingService.testSmtp({
-										requestBody: {
-											to,
-											smtp: {
-												host: smtp['smtp_host'],
-												username: smtp['smtp_username'],
-												password: smtp['smtp_password'],
-												port: smtp['smtp_port'],
-												from: smtp['smtp_from'],
-												tls_implicit: smtp['smtp_tls_implicit'],
-												disable_tls: smtp['smtp_disable_tls']
-											}
-										}
-									})
-									sendUserToast('Test email sent')
-								}}>Test SMTP settings</Button
-							></div
-						>
-					{/if}
 				</TabContent>
 			{/each}
 		</svelte:fragment>
@@ -370,5 +345,5 @@
 
 {#if !hideSave}
 	<Button on:click={saveSettings}>Save settings</Button>
-	<div class="pb-8" />
+	<div class="pb-8"></div>
 {/if}

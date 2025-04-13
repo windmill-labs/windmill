@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { getContext } from 'svelte'
 	import type { AppEditorContext, AppViewerContext } from '../types'
-	import { columnConfiguration, gridColumns, isFixed, toggleFixed } from '../gridUtils'
+	import { gridColumns, isFixed, toggleFixed } from '../gridUtils'
 	import { twMerge } from 'tailwind-merge'
 
 	import HiddenComponent from '../components/helpers/HiddenComponent.svelte'
@@ -149,7 +149,7 @@
 						>
 					</Popover>
 				{:else}
-					<span class="w-9" />
+					<span class="w-9"></span>
 				{/if}
 			</div>
 			<div class="flex text-2xs gap-8 items-center">
@@ -195,11 +195,9 @@
 				}}
 				root
 				let:dataItem
-				let:hidden
 				let:overlapped
 				let:moveMode
 				let:componentDraggedId
-				cols={columnConfiguration}
 				on:dropped={(e) => {
 					const { id, overlapped, x, y } = e.detail
 
@@ -252,7 +250,6 @@
 						fullHeight={dataItem?.[$breakpoint === 'sm' ? 3 : 12]?.fullHeight}
 					>
 						<Component
-							{hidden}
 							render={true}
 							component={dataItem.data}
 							selected={Boolean($selectedComponent?.includes(dataItem.id))}
@@ -263,6 +260,12 @@
 							}}
 							on:fillHeight={() => {
 								handleFillHeight(dataItem.id)
+							}}
+							on:expand={() => {
+								push(history, $app)
+								$selectedComponent = [dataItem.id]
+								expandGriditem($app.grid, dataItem.id, $breakpoint)
+								$app = $app
 							}}
 							{overlapped}
 							{moveMode}

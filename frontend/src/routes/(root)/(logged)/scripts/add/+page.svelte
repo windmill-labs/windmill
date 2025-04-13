@@ -10,6 +10,8 @@
 	import { replaceState } from '$app/navigation'
 	import UnsavedConfirmationModal from '$lib/components/common/confirmationModal/UnsavedConfirmationModal.svelte'
 	import type { ScheduleTrigger } from '$lib/components/triggers'
+	import type { GetInitialAndModifiedValues } from '$lib/components/common/confirmationModal/unsavedTypes'
+	import { replaceScriptPlaceholderWithItsValues } from '$lib/hub'
 
 	// Default
 	let schema: Schema = emptySchema()
@@ -86,7 +88,7 @@
 				path: hubPath
 			})
 			script.description = `Fork of ${hubPath}`
-			script.content = content
+			script.content = replaceScriptPlaceholderWithItsValues(hubPath, content)
 			script.summary = summary ?? ''
 			script.language = language as Script['language']
 			scriptBuilder?.setCode(script.content)
@@ -100,7 +102,8 @@
 			loadTemplate()
 		}
 	}
-	let savedScript: Script | undefined = undefined
+
+	let getInitialAndModifiedValues: GetInitialAndModifiedValues = undefined
 </script>
 
 <ScriptBuilder
@@ -115,12 +118,12 @@
 		let path = e.detail
 		goto(`/scripts/edit/${path}`)
 	}}
-	bind:savedScript
+	bind:getInitialAndModifiedValues
 	searchParams={$page.url.searchParams}
 	{script}
 	{showMeta}
 	{savedPrimarySchedule}
 	replaceStateFn={(path) => replaceState(path, $page.state)}
 >
-	<UnsavedConfirmationModal savedValue={savedScript} modifiedValue={script} />
+	<UnsavedConfirmationModal {getInitialAndModifiedValues} />
 </ScriptBuilder>

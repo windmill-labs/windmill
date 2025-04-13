@@ -10,8 +10,7 @@ use tokio::io::AsyncReadExt;
 use uuid::Uuid;
 
 pub const ENTRYPOINT_OVERRIDE: &str = "_ENTRYPOINT_OVERRIDE";
-
-pub const PREPROCESSOR_FAKE_ENTRYPOINT: &str = "__WM_PREPROCESSOR";
+pub const LARGE_LOG_THRESHOLD_SIZE: usize = 9000;
 
 use crate::{
     apps::AppScriptId,
@@ -26,7 +25,7 @@ use crate::{
 
 #[derive(sqlx::Type, Serialize, Deserialize, Debug, PartialEq, Copy, Clone)]
 #[sqlx(type_name = "JOB_KIND", rename_all = "lowercase")]
-#[serde(rename_all(serialize = "lowercase"))]
+#[serde(rename_all(serialize = "lowercase", deserialize = "lowercase"))]
 pub enum JobKind {
     Script,
     #[allow(non_camel_case_types)]
@@ -53,6 +52,13 @@ impl JobKind {
             JobKind::Flow | JobKind::FlowPreview | JobKind::SingleScriptFlow | JobKind::FlowNode
         )
     }
+
+    pub fn is_dependency(&self) -> bool {
+        matches!(
+            self,
+            JobKind::FlowDependencies | JobKind::AppDependencies | JobKind::Dependencies
+        )
+    }
 }
 
 #[derive(sqlx::FromRow, Debug, Serialize, Clone)]
@@ -71,6 +77,7 @@ pub struct QueuedJob {
     pub script_hash: Option<ScriptHash>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub script_path: Option<String>,
+    pub script_entrypoint_override: Option<String>,
     pub args: Option<Json<HashMap<String, Box<RawValue>>>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub logs: Option<String>,
@@ -116,6 +123,8 @@ pub struct QueuedJob {
     pub cache_ttl: Option<i32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub priority: Option<i16>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub preprocessed: Option<bool>,
 }
 
 impl QueuedJob {
@@ -170,6 +179,7 @@ impl Default for QueuedJob {
             flow_status: None,
             is_flow_step: false,
             language: None,
+            script_entrypoint_override: None,
             same_worker: false,
             pre_run_error: None,
             email: "".to_string(),
@@ -185,6 +195,7 @@ impl Default for QueuedJob {
             flow_step_id: None,
             cache_ttl: None,
             priority: None,
+            preprocessed: None,
         }
     }
 }
@@ -197,7 +208,7 @@ pub struct CompletedJob {
     pub parent_job: Option<Uuid>,
     pub created_by: String,
     pub created_at: chrono::DateTime<chrono::Utc>,
-    pub started_at: chrono::DateTime<chrono::Utc>,
+    pub started_at: Option<chrono::DateTime<chrono::Utc>>,
     pub duration_ms: i64,
     pub success: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -207,6 +218,7 @@ pub struct CompletedJob {
     pub args: Option<sqlx::types::Json<HashMap<String, Box<RawValue>>>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub result: Option<sqlx::types::Json<Box<RawValue>>>,
+    pub result_columns: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub logs: Option<String>,
     pub deleted: bool,
@@ -234,6 +246,8 @@ pub struct CompletedJob {
     pub priority: Option<i16>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub labels: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub preprocessed: Option<bool>,
 }
 
 impl CompletedJob {
@@ -249,12 +263,6 @@ impl CompletedJob {
             .as_ref()
             .and_then(|v| serde_json::from_str::<FlowStatus>((**v).get()).ok())
     }
-}
-
-#[derive(sqlx::FromRow)]
-pub struct BranchResults {
-    pub result: sqlx::types::Json<Box<RawValue>>,
-    pub id: Uuid,
 }
 
 #[derive(Debug, Clone)]
@@ -353,7 +361,7 @@ pub enum JobPayload {
     Noop,
 }
 
-#[derive(Clone, Serialize, Deserialize, Debug)]
+#[derive(Clone, Serialize, Deserialize, Debug, Default)]
 pub struct RawCode {
     pub content: String,
     pub path: Option<String>,
@@ -480,7 +488,7 @@ pub async fn script_hash_to_tag_and_limits<'c>(
     .fetch_one(&mut **db)
     .await
     .map_err(|e| {
-        Error::InternalErr(format!(
+        Error::internal_err(format!(
             "querying getting tag for hash {script_hash}: {e:#}"
         ))
     })?;
@@ -535,19 +543,9 @@ pub async fn get_payload_tag_from_prefixed_path(
     Ok((payload, tag, on_behalf_of))
 }
 
-#[derive(Deserialize)]
-struct FlowStatusMetadata {
-    column_order: Vec<String>,
-}
-
-#[derive(Deserialize)]
-struct FlowStatusWithMetadataOnly {
-    _metadata: FlowStatusMetadata,
-}
-
 pub fn order_columns(
     rows: Option<Vec<Box<RawValue>>>,
-    column_order: Vec<String>,
+    column_order: &Vec<String>,
 ) -> Option<Box<RawValue>> {
     if let Some(mut rows) = rows {
         if let Some(first_row) = rows.get(0) {
@@ -555,7 +553,7 @@ pub fn order_columns(
             if let Ok(first_row) = first_row {
                 let mut new_first_row = IndexMap::new();
                 for col in column_order {
-                    if let Some(val) = first_row.get(&col) {
+                    if let Some(val) = first_row.get(col) {
                         new_first_row.insert(col.clone(), val.clone());
                     }
                 }
@@ -572,39 +570,21 @@ pub fn order_columns(
 }
 
 pub fn format_result(
-    language: Option<&ScriptLang>,
-    flow_status: Option<&sqlx::types::Json<Box<RawValue>>>,
+    result_columns: Option<&Vec<String>>,
     result: Option<&mut sqlx::types::Json<Box<RawValue>>>,
 ) -> () {
-    match language {
-        Some(&ScriptLang::Postgresql)
-        | Some(&ScriptLang::Mysql)
-        | Some(&ScriptLang::Snowflake)
-        | Some(&ScriptLang::Bigquery) => {
-            if let Some(Ok(flow_status)) =
-                flow_status.map(|x| serde_json::from_str::<FlowStatusWithMetadataOnly>(x.get()))
-            {
-                if let Some(result) = result {
-                    let rows = serde_json::from_str::<Vec<Box<RawValue>>>(result.get()).ok();
-                    if let Some(ordered_result) =
-                        order_columns(rows, flow_status._metadata.column_order)
-                    {
-                        *result = sqlx::types::Json(ordered_result);
-                    }
-                }
+    if let Some(result_columns) = result_columns {
+        if let Some(result) = result {
+            let rows = serde_json::from_str::<Vec<Box<RawValue>>>(result.get()).ok();
+            if let Some(ordered_result) = order_columns(rows, result_columns) {
+                *result = sqlx::types::Json(ordered_result);
             }
         }
-        _ => {}
     }
 }
 
 pub fn format_completed_job_result(mut cj: CompletedJob) -> CompletedJob {
-    format_result(
-        cj.language.as_ref(),
-        cj.flow_status.as_ref(),
-        cj.result.as_mut(),
-    );
-
+    format_result(cj.result_columns.as_ref(), cj.result.as_mut());
     cj
 }
 

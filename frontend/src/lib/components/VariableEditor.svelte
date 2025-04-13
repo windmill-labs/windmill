@@ -183,10 +183,10 @@
 								>{/if}{/if}
 					</div>
 					<div class="flex flex-col gap-2">
-						<ToggleButtonGroup bind:selected={editorKind}>
-							<ToggleButton value="plain" label="Plain" />
-							<ToggleButton value="json" label="Json" />
-							<ToggleButton value="yaml" label="YAML" />
+						<ToggleButtonGroup bind:selected={editorKind} let:item>
+							<ToggleButton value="plain" label="Plain" {item} />
+							<ToggleButton value="json" label="Json" {item} />
+							<ToggleButton value="yaml" label="YAML" {item} />
 						</ToggleButtonGroup>
 						{#if editorKind == 'plain'}
 							<textarea
@@ -195,7 +195,7 @@
 								use:autosize
 								bind:value={variable.value}
 								placeholder="Update variable value"
-							/>
+							></textarea>
 						{:else if editorKind == 'json'}
 							<div class="border rounded mb-4 w-full">
 								{#await import('$lib/components/SimpleEditor.svelte')}
@@ -234,7 +234,7 @@
 					use:autosize
 					bind:value={variable.description}
 					placeholder="Used for X"
-				/>
+				></textarea>
 			</Section>
 		</div>
 		<svelte:fragment slot="actions">

@@ -2,11 +2,7 @@
 use std::{collections::HashMap, os::unix::fs::PermissionsExt, path::PathBuf, process::Stdio};
 
 #[cfg(windows)]
-use std::{
-    collections::HashMap,
-    path::{Path, PathBuf},
-    process::Stdio,
-};
+use std::{collections::HashMap, path::PathBuf, process::Stdio};
 
 use anyhow::anyhow;
 use itertools::Itertools;
@@ -15,9 +11,12 @@ use tokio::process::Command;
 use uuid::Uuid;
 use windmill_common::{
     error,
-    jobs::QueuedJob,
-    worker::{to_raw_value, write_file, write_file_at_user_defined_location, WORKER_CONFIG},
+    worker::{
+        to_raw_value, write_file, write_file_at_user_defined_location, Connection, WORKER_CONFIG,
+    },
 };
+use windmill_queue::MiniPulledJob;
+
 use windmill_parser_yaml::{AnsibleRequirements, ResourceOrVariablePath};
 use windmill_queue::{append_logs, CanceledBy};
 
@@ -29,8 +28,8 @@ use crate::{
     },
     handle_child::handle_child,
     python_executor::{create_dependencies_dir, handle_python_reqs, uv_pip_compile, PyVersion},
-    AuthedClientBackgroundTask, DISABLE_NSJAIL, DISABLE_NUSER, HOME_ENV, NSJAIL_PATH, PATH_ENV,
-    PROXY_ENVS, TZ_ENV,
+    AuthedClient, DISABLE_NSJAIL, DISABLE_NUSER, HOME_ENV, NSJAIL_PATH, PATH_ENV, PROXY_ENVS,
+    PY_INSTALL_DIR, TZ_ENV,
 };
 
 lazy_static::lazy_static! {
@@ -49,7 +48,7 @@ async fn handle_ansible_python_deps(
     ansible_reqs: Option<&AnsibleRequirements>,
     w_id: &str,
     job_id: &Uuid,
-    db: &sqlx::Pool<sqlx::Postgres>,
+    conn: &Connection,
     worker_name: &str,
     worker_dir: &str,
     mem_peak: &mut i32,
@@ -80,12 +79,11 @@ async fn handle_ansible_python_deps(
                     mem_peak,
                     canceled_by,
                     job_dir,
-                    db,
+                    conn,
                     worker_name,
                     w_id,
                     &mut Some(occupancy_metrics),
                     PyVersion::Py311,
-                    false,
                     false,
                 )
                 .await
@@ -107,13 +105,12 @@ async fn handle_ansible_python_deps(
             w_id,
             mem_peak,
             canceled_by,
-            db,
+            conn,
             worker_name,
             job_dir,
             worker_dir,
             &mut Some(occupancy_metrics),
             crate::python_executor::PyVersion::Py311,
-            false,
         )
         .await?;
         additional_python_paths.append(&mut venv_path);
@@ -129,7 +126,7 @@ async fn install_galaxy_collections(
     w_id: &str,
     mem_peak: &mut i32,
     canceled_by: &mut Option<CanceledBy>,
-    db: &sqlx::Pool<sqlx::Postgres>,
+    conn: &Connection,
     occupancy_metrics: &mut OccupancyMetrics,
 ) -> anyhow::Result<()> {
     write_file(job_dir, "requirements.yml", collections_yml)?;
@@ -138,7 +135,7 @@ async fn install_galaxy_collections(
         job_id,
         w_id,
         "\n\n--- ANSIBLE GALAXY INSTALL ---\n".to_string(),
-        db,
+        conn,
     )
     .await;
     let mut galaxy_command = Command::new(ANSIBLE_GALAXY_PATH.as_str());
@@ -164,7 +161,7 @@ async fn install_galaxy_collections(
     let child = start_child_process(galaxy_command, ANSIBLE_GALAXY_PATH.as_str()).await?;
     handle_child(
         job_id,
-        db,
+        conn,
         mem_peak,
         canceled_by,
         child,
@@ -175,6 +172,7 @@ async fn install_galaxy_collections(
         None,
         false,
         &mut Some(occupancy_metrics),
+        None,
     )
     .await?;
 
@@ -186,11 +184,12 @@ pub async fn handle_ansible_job(
     job_dir: &str,
     worker_dir: &str,
     worker_name: &str,
-    job: &QueuedJob,
+    job: &MiniPulledJob,
     mem_peak: &mut i32,
     canceled_by: &mut Option<CanceledBy>,
-    db: &sqlx::Pool<sqlx::Postgres>,
-    client: &AuthedClientBackgroundTask,
+    conn: &Connection,
+    client: &AuthedClient,
+    parent_runnable_path: Option<String>,
     inner_content: &String,
     shared_mount: &str,
     base_internal_url: &str,
@@ -204,7 +203,7 @@ pub async fn handle_ansible_job(
     )?;
 
     let (logs, reqs, playbook) = windmill_parser_yaml::parse_ansible_reqs(inner_content)?;
-    append_logs(&job.id, &job.workspace_id, logs, db).await;
+    append_logs(&job.id, &job.workspace_id, logs, conn).await;
     write_file(job_dir, "main.yml", &playbook)?;
 
     let additional_python_paths = handle_ansible_python_deps(
@@ -213,7 +212,7 @@ pub async fn handle_ansible_job(
         reqs.as_ref(),
         &job.workspace_id,
         &job.id,
-        db,
+        conn,
         worker_name,
         worker_dir,
         mem_peak,
@@ -230,7 +229,7 @@ pub async fn handle_ansible_job(
                 args.insert(name.clone(), to_raw_value(path));
             }
         }
-        if let Some(x) = transform_json(client, &job.workspace_id, &args, job, db).await? {
+        if let Some(x) = transform_json(client, &job.workspace_id, &args, job, conn).await? {
             write_file(
                 job_dir,
                 "args.json",
@@ -268,19 +267,20 @@ pub async fn handle_ansible_job(
         })
         .unwrap_or_else(|| vec![]);
 
-    let authed_client = client.get_authed().await;
     let mut nsjail_extra_mounts = vec![];
     if let Some(r) = reqs {
-        nsjail_extra_mounts = create_file_resources(
-            &job.id,
-            &job.workspace_id,
-            job_dir,
-            interpolated_args.as_ref(),
-            &r,
-            &authed_client,
-            db,
-        )
-        .await?;
+        if let Some(db) = conn.as_sql() {
+            nsjail_extra_mounts = create_file_resources(
+                &job.id,
+                &job.workspace_id,
+                job_dir,
+                interpolated_args.as_ref(),
+                &r,
+                &client,
+                db,
+            )
+            .await?;
+        }
 
         if let Some(collections) = r.collections {
             install_galaxy_collections(
@@ -291,7 +291,7 @@ pub async fn handle_ansible_job(
                 &job.workspace_id,
                 mem_peak,
                 canceled_by,
-                db,
+                conn,
                 occupancy_metrics,
             )
             .await?;
@@ -301,7 +301,7 @@ pub async fn handle_ansible_job(
         &job.id,
         &job.workspace_id,
         "\n\n--- ANSIBLE PLAYBOOK EXECUTION ---\n".to_string(),
-        db,
+        conn,
     )
     .await;
     let ansible_cfg_content = format!(
@@ -316,7 +316,8 @@ remote_tmp={job_dir}/.ansible/tmp
     );
     write_file(job_dir, "ansible.cfg", &ansible_cfg_content)?;
 
-    let mut reserved_variables = get_reserved_variables(job, &authed_client.token, db).await?;
+    let mut reserved_variables =
+        get_reserved_variables(job, &client.token, conn, parent_runnable_path).await?;
     let additional_python_paths_folders = additional_python_paths.join(":");
 
     if !*DISABLE_NSJAIL {
@@ -339,6 +340,7 @@ mount {{
             job_dir,
             "run.config.proto",
             &NSJAIL_CONFIG_RUN_ANSIBLE_CONTENT
+                .replace("{PY_INSTALL_DIR}", PY_INSTALL_DIR)
                 .replace("{JOB_DIR}", job_dir)
                 .replace("{CLONE_NEWUSER}", &(!*DISABLE_NUSER).to_string())
                 .replace("{SHARED_MOUNT}", shared_mount)
@@ -424,7 +426,7 @@ fi
 
     handle_child(
         &job.id,
-        db,
+        conn,
         mem_peak,
         canceled_by,
         child,
@@ -435,6 +437,7 @@ fi
         job.timeout,
         false,
         &mut Some(occupancy_metrics),
+        None,
     )
     .await?;
     read_and_check_result(job_dir).await
@@ -565,7 +568,7 @@ async fn create_file_resources(
             file_res.target_path, file_res.resource_path
         ));
     }
-    append_logs(job_id, w_id, logs, db).await;
+    append_logs(job_id, w_id, logs, &Connection::Sql(db.clone())).await;
 
     Ok(nsjail_mounts)
 }

@@ -57,9 +57,12 @@ fn filter_non_main(code: &str, main_name: &str) -> String {
     return filtered_code;
 }
 
+/// skip_params is a micro optimization for when we just want to find the main
+/// function without parsing all the params.
 pub fn parse_python_signature(
     code: &str,
     override_main: Option<String>,
+    skip_params: bool,
 ) -> anyhow::Result<MainArgSignature> {
     let main_name = override_main.unwrap_or("main".to_string());
 
@@ -78,11 +81,13 @@ pub fn parse_python_signature(
     let ast = Suite::parse(&filtered_code, "main.py")
         .map_err(|e| anyhow::anyhow!("Error parsing code: {}", e.to_string()))?;
 
-    let param = ast.into_iter().find_map(|x| match x {
+    let params = ast.into_iter().find_map(|x| match x {
         Stmt::FunctionDef(StmtFunctionDef { name, args, .. }) if &name == &main_name => Some(*args),
         _ => None,
     });
-    if let Some(params) = param {
+
+    if !skip_params && params.is_some() {
+        let params = params.unwrap();
         //println!("{:?}", params);
         let def_arg_start = params.args.len() - params.defaults().count();
         Ok(MainArgSignature {
@@ -93,11 +98,11 @@ pub fn parse_python_signature(
                 .iter()
                 .enumerate()
                 .map(|(i, x)| {
-                    let mut typ = x
+                    let (mut typ, has_default) = x
                         .as_arg()
                         .annotation
                         .as_ref()
-                        .map_or(Typ::Unknown, |e| parse_expr(e));
+                        .map_or((Typ::Unknown, false), |e| parse_expr(e));
 
                     let default = if i >= def_arg_start {
                         params
@@ -135,7 +140,7 @@ pub fn parse_python_signature(
                         otyp: None,
                         name: x.as_arg().arg.to_string(),
                         typ,
-                        has_default: default.is_some(),
+                        has_default: has_default || default.is_some(),
                         default,
                         oidx: None,
                     }
@@ -149,23 +154,33 @@ pub fn parse_python_signature(
             star_args: false,
             star_kwargs: false,
             args: vec![],
-            no_main_func: Some(true),
+            no_main_func: Some(params.is_none()),
             has_preprocessor: Some(has_preprocessor),
         })
     }
 }
 
-fn parse_expr(e: &Box<Expr>) -> Typ {
+fn parse_expr(e: &Box<Expr>) -> (Typ, bool) {
     match e.as_ref() {
-        Expr::Name(ExprName { id, .. }) => parse_typ(id.as_ref()),
+        Expr::Name(ExprName { id, .. }) => (parse_typ(id.as_ref()), false),
         Expr::Attribute(x) => {
             if x.value
                 .as_name_expr()
                 .is_some_and(|x| x.id.as_str() == "wmill")
             {
-                parse_typ(x.attr.as_str())
+                (parse_typ(x.attr.as_str()), false)
             } else {
-                Typ::Unknown
+                (Typ::Unknown, false)
+            }
+        }
+        Expr::BinOp(x) => {
+            if matches!(
+                x.right.as_ref(),
+                Expr::Constant(ExprConstant { value: Constant::None, .. })
+            ) {
+                (parse_expr(&x.left).0, true)
+            } else {
+                (Typ::Unknown, false)
             }
         }
         Expr::Subscript(x) => match x.value.as_ref() {
@@ -190,14 +205,15 @@ fn parse_expr(e: &Box<Expr>) -> Typ {
                         }
                         _ => None,
                     };
-                    Typ::Str(values)
+                    (Typ::Str(values), false)
                 }
-                "List" => Typ::List(Box::new(parse_expr(&x.slice))),
-                _ => Typ::Unknown,
+                "List" | "list" => (Typ::List(Box::new(parse_expr(&x.slice).0)), false),
+                "Optional" => (parse_expr(&x.slice).0, true),
+                _ => (Typ::Unknown, false),
             },
-            _ => Typ::Unknown,
+            _ => (Typ::Unknown, false),
         },
-        _ => Typ::Unknown,
+        _ => (Typ::Unknown, false),
     }
 }
 
@@ -287,7 +303,7 @@ def main(test1: str, name: datetime.datetime = datetime.now(), byte: bytes = byt
 ";
         //println!("{}", serde_json::to_string()?);
         assert_eq!(
-            parse_python_signature(code, None)?,
+            parse_python_signature(code, None, false)?,
             MainArgSignature {
                 star_args: false,
                 star_kwargs: false,
@@ -376,7 +392,7 @@ def main(test1: str,
 ";
         //println!("{}", serde_json::to_string()?);
         assert_eq!(
-            parse_python_signature(code, None)?,
+            parse_python_signature(code, None, false)?,
             MainArgSignature {
                 star_args: false,
                 star_kwargs: false,
@@ -436,7 +452,7 @@ def main(test1: str,
 ";
         //println!("{}", serde_json::to_string()?);
         assert_eq!(
-            parse_python_signature(code, None)?,
+            parse_python_signature(code, None, false)?,
             MainArgSignature {
                 star_args: false,
                 star_kwargs: false,
@@ -493,7 +509,7 @@ def main(test1: Literal["foo", "bar"], test2: List[Literal["foo", "bar"]]): retu
 "#;
         //println!("{}", serde_json::to_string()?);
         assert_eq!(
-            parse_python_signature(code, None)?,
+            parse_python_signature(code, None, false)?,
             MainArgSignature {
                 star_args: false,
                 star_kwargs: false,
@@ -537,7 +553,7 @@ def main(test1: DynSelect_foo): return
 "#;
         //println!("{}", serde_json::to_string()?);
         assert_eq!(
-            parse_python_signature(code, None)?,
+            parse_python_signature(code, None, false)?,
             MainArgSignature {
                 star_args: false,
                 star_kwargs: false,
@@ -568,7 +584,7 @@ def hello(): return
 "#;
         //println!("{}", serde_json::to_string()?);
         assert_eq!(
-            parse_python_signature(code, None)?,
+            parse_python_signature(code, None, false)?,
             MainArgSignature {
                 star_args: false,
                 star_kwargs: false,
@@ -596,7 +612,7 @@ def main(): return
 "#;
         //println!("{}", serde_json::to_string()?);
         assert_eq!(
-            parse_python_signature(code, None)?,
+            parse_python_signature(code, None, false)?,
             MainArgSignature {
                 star_args: false,
                 star_kwargs: false,
@@ -617,10 +633,10 @@ def main(a: list, e: List[int], b: list = [1,2,3,4], c = [1,2,3,4], d = ["a", "b
 "#;
         println!(
             "{}",
-            serde_json::to_string(&parse_python_signature(code, None)?)?
+            serde_json::to_string(&parse_python_signature(code, None, false)?)?
         );
         assert_eq!(
-            parse_python_signature(code, None)?,
+            parse_python_signature(code, None, false)?,
             MainArgSignature {
                 star_args: false,
                 star_kwargs: false,
@@ -665,6 +681,55 @@ def main(a: list, e: List[int], b: list = [1,2,3,4], c = [1,2,3,4], d = ["a", "b
                         has_default: true,
                         oidx: None
                     }
+                ],
+                no_main_func: Some(false),
+                has_preprocessor: Some(false)
+            }
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_parse_python_sig_9() -> anyhow::Result<()> {
+        let code = r#"
+from typing import Optional
+def main(a: str, b: Optional[str], c: str | None): return
+"#;
+        println!(
+            "{}",
+            serde_json::to_string(&parse_python_signature(code, None, false)?)?
+        );
+        assert_eq!(
+            parse_python_signature(code, None, false)?,
+            MainArgSignature {
+                star_args: false,
+                star_kwargs: false,
+                args: vec![
+                    Arg {
+                        otyp: None,
+                        name: "a".to_string(),
+                        typ: Typ::Str(None),
+                        default: None,
+                        has_default: false,
+                        oidx: None
+                    },
+                    Arg {
+                        otyp: None,
+                        name: "b".to_string(),
+                        typ: Typ::Str(None),
+                        default: None,
+                        has_default: true,
+                        oidx: None
+                    },
+                    Arg {
+                        otyp: None,
+                        name: "c".to_string(),
+                        typ: Typ::Str(None),
+                        default: None,
+                        has_default: true,
+                        oidx: None
+                    },
                 ],
                 no_main_func: Some(false),
                 has_preprocessor: Some(false)

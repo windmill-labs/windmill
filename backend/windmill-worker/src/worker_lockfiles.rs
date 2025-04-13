@@ -1,4 +1,6 @@
+use std::borrow::Cow;
 use std::collections::HashMap;
+use std::fs::{create_dir_all, remove_dir_all};
 use std::path::{Component, Path, PathBuf};
 
 use async_recursion::async_recursion;
@@ -15,14 +17,13 @@ use windmill_common::jobs::JobPayload;
 use windmill_common::scripts::ScriptHash;
 #[cfg(feature = "python")]
 use windmill_common::worker::PythonAnnotations;
-use windmill_common::worker::{to_raw_value, to_raw_value_owned, write_file};
+use windmill_common::worker::{to_raw_value, to_raw_value_owned, write_file, Connection};
 
 use windmill_common::{
     apps::AppScriptId,
     cache::{self, RawData},
     error::{self, to_anyhow},
     flows::{add_virtual_items_if_necessary, FlowValue},
-    jobs::QueuedJob,
     scripts::ScriptLang,
     DB,
 };
@@ -30,17 +31,19 @@ use windmill_git_sync::{handle_deployment_metadata, DeployedObject};
 #[cfg(feature = "python")]
 use windmill_parser_py_imports::parse_relative_imports;
 use windmill_parser_ts::parse_expr_for_imports;
-use windmill_queue::{append_logs, CanceledBy, PushIsolationLevel};
+use windmill_queue::{append_logs, CanceledBy, MiniPulledJob, PushIsolationLevel};
 
 use crate::common::OccupancyMetrics;
 use crate::csharp_executor::generate_nuget_lockfile;
+
+#[cfg(feature = "java")]
+use crate::java_executor::resolve;
 
 #[cfg(feature = "php")]
 use crate::php_executor::{composer_install, parse_php_imports};
 #[cfg(feature = "python")]
 use crate::python_executor::{
-    create_dependencies_dir, handle_python_reqs, uv_pip_compile, PyVersion, USE_PIP_COMPILE,
-    USE_PIP_INSTALL,
+    create_dependencies_dir, handle_python_reqs, uv_pip_compile, PyVersion,
 };
 #[cfg(feature = "rust")]
 use crate::rust_executor::generate_cargo_lockfile;
@@ -80,7 +83,7 @@ pub async fn update_script_dependency_map(
         )
         .await?;
         tx.commit().await?;
-        append_logs(job_id, w_id, logs, db).await;
+        append_logs(job_id, w_id, logs, &db.into()).await;
     }
     Ok(())
 }
@@ -178,7 +181,7 @@ fn try_normalize(path: &Path) -> Option<PathBuf> {
     Some(ret)
 }
 
-fn parse_bun_relative_imports(raw_code: &str, script_path: &str) -> error::Result<Vec<String>> {
+fn parse_ts_relative_imports(raw_code: &str, script_path: &str) -> error::Result<Vec<String>> {
     let mut relative_imports = vec![];
     let r = parse_expr_for_imports(raw_code)?;
     for import in r {
@@ -210,27 +213,27 @@ pub fn extract_relative_imports(
     match language {
         #[cfg(feature = "python")]
         Some(ScriptLang::Python3) => parse_relative_imports(&raw_code, script_path).ok(),
-        Some(ScriptLang::Bun) | Some(ScriptLang::Bunnative) => {
-            parse_bun_relative_imports(&raw_code, script_path).ok()
+        Some(ScriptLang::Bun) | Some(ScriptLang::Bunnative) | Some(ScriptLang::Deno) => {
+            parse_ts_relative_imports(&raw_code, script_path).ok()
         }
         _ => None,
     }
 }
 #[tracing::instrument(level = "trace", skip_all)]
 pub async fn handle_dependency_job(
-    job: &QueuedJob,
+    job: &MiniPulledJob,
     preview_data: Option<&RawData>,
     mem_peak: &mut i32,
     canceled_by: &mut Option<CanceledBy>,
     job_dir: &str,
-    db: &sqlx::Pool<sqlx::Postgres>,
+    db: &DB,
     worker_name: &str,
     worker_dir: &str,
     base_internal_url: &str,
     token: &str,
     occupancy_metrics: &mut OccupancyMetrics,
 ) -> error::Result<Box<RawValue>> {
-    let script_path = job.script_path();
+    let script_path = job.runnable_path();
     let raw_deps = job
         .args
         .as_ref()
@@ -240,7 +243,7 @@ pub async fn handle_dependency_job(
         })
         .unwrap_or(false);
     let npm_mode = if job
-        .language
+        .script_lang
         .as_ref()
         .map(|v| v == &ScriptLang::Bun)
         .unwrap_or(false)
@@ -261,17 +264,42 @@ pub async fn handle_dependency_job(
     // `JobKind::Dependencies` job store either:
     // - A saved script `hash` in the `script_hash` column.
     // - Preview raw lock and code in the `queue` or `job` table.
-    let script_data = match job.script_hash {
-        Some(hash) => &cache::script::fetch(db, hash).await?.0,
+    let script_data = &match job.runnable_id {
+        Some(hash) => match cache::script::fetch(&Connection::from(db.clone()), hash).await {
+            Ok(d) => Cow::Owned(d.0),
+            Err(e) => {
+                let logs2 = sqlx::query_scalar!(
+                    "SELECT logs FROM job_logs WHERE job_id = $1 AND workspace_id = $2",
+                    &job.id,
+                    &job.workspace_id
+                )
+                .fetch_optional(db)
+                .await?
+                .flatten()
+                .unwrap_or_else(|| "no logs".to_string());
+                sqlx::query!(
+                    "UPDATE script SET lock_error_logs = $1 WHERE hash = $2 AND workspace_id = $3",
+                    &format!("{logs2}\n{e}"),
+                    &job.runnable_id.unwrap_or(ScriptHash(0)).0,
+                    &job.workspace_id
+                )
+                .execute(db)
+                .await?;
+                return Err(Error::ExecutionErr(format!(
+                    "Error creating schema validator: {e}"
+                )));
+            }
+        },
         _ => match preview_data {
-            Some(RawData::Script(data)) => data,
-            _ => return Err(Error::InternalErr("expected script hash".into())),
+            Some(RawData::Script(data)) => Cow::Borrowed(data),
+            _ => return Err(Error::internal_err("expected script hash")),
         },
     };
+
     let content = capture_dependency_job(
         &job.id,
-        job.language.as_ref().map(|v| Ok(v)).unwrap_or_else(|| {
-            Err(Error::InternalErr(
+        job.script_lang.as_ref().map(|v| Ok(v)).unwrap_or_else(|| {
+            Err(Error::internal_err(
                 "Job Language required for dependency jobs".to_owned(),
             ))
         })?,
@@ -294,14 +322,14 @@ pub async fn handle_dependency_job(
 
     match content {
         Ok(content) => {
-            if job.script_hash.is_none() {
+            if job.runnable_id.is_none() {
                 // it a one-off raw script dependency job, no need to update the db
                 return Ok(to_raw_value_owned(
                     json!({ "status": "Successful lock file generation", "lock": content }),
                 ));
             }
 
-            let hash = job.script_hash.unwrap_or(ScriptHash(0));
+            let hash = job.runnable_id.unwrap_or(ScriptHash(0));
             let w_id = &job.workspace_id;
             sqlx::query!(
                 "UPDATE script SET lock = $1 WHERE hash = $2 AND workspace_id = $3",
@@ -319,7 +347,7 @@ pub async fn handle_dependency_job(
                 get_deployment_msg_and_parent_path_from_args(job.args.clone());
 
             if let Err(e) = handle_deployment_metadata(
-                &job.email,
+                &job.permissioned_as_email,
                 &job.created_by,
                 &db,
                 &w_id,
@@ -337,7 +365,7 @@ pub async fn handle_dependency_job(
             }
 
             let relative_imports =
-                extract_relative_imports(&script_data.code, script_path, &job.language);
+                extract_relative_imports(&script_data.code, script_path, &job.script_lang);
             if let Some(relative_imports) = relative_imports {
                 update_script_dependency_map(
                     &job.id,
@@ -363,7 +391,7 @@ pub async fn handle_dependency_job(
                     script_path,
                     deployment_message,
                     parent_path,
-                    &job.email,
+                    &job.permissioned_as_email,
                     &job.created_by,
                     &job.permissioned_as,
                     db,
@@ -392,14 +420,23 @@ pub async fn handle_dependency_job(
             sqlx::query!(
                 "UPDATE script SET lock_error_logs = $1 WHERE hash = $2 AND workspace_id = $3",
                 &format!("{logs2}\n{error}"),
-                &job.script_hash.unwrap_or(ScriptHash(0)).0,
+                &job.runnable_id.unwrap_or(ScriptHash(0)).0,
                 &job.workspace_id
             )
             .execute(db)
             .await?;
-            Err(Error::ExecutionErr(format!("Error locking file: {error}")))?
+            Err(Error::ExecutionErr(format!(
+                "Error locking file: {error}\n\nlogs:\n{}",
+                remove_ansi_codes(&logs2)
+            )))?
         }
     }
+}
+fn remove_ansi_codes(s: &str) -> String {
+    lazy_static::lazy_static! {
+        static ref ANSI_REGEX: regex::Regex = regex::Regex::new(r"\x1b\[[0-9;]*[a-zA-Z]").unwrap();
+    }
+    ANSI_REGEX.replace_all(s, "").to_string()
 }
 
 async fn trigger_dependents_to_recompute_dependencies(
@@ -538,7 +575,7 @@ async fn trigger_dependents_to_recompute_dependencies(
 }
 
 pub async fn handle_flow_dependency_job(
-    job: &QueuedJob,
+    job: &MiniPulledJob,
     preview_data: Option<&RawData>,
     mem_peak: &mut i32,
     canceled_by: &mut Option<CanceledBy>,
@@ -550,8 +587,8 @@ pub async fn handle_flow_dependency_job(
     token: &str,
     occupancy_metrics: &mut OccupancyMetrics,
 ) -> error::Result<Box<serde_json::value::RawValue>> {
-    let job_path = job.script_path.clone().ok_or_else(|| {
-        error::Error::InternalErr(
+    let job_path = job.runnable_path.clone().ok_or_else(|| {
+        error::Error::internal_err(
             "Cannot resolve flow dependencies for flow without path".to_string(),
         )
     })?;
@@ -571,10 +608,10 @@ pub async fn handle_flow_dependency_job(
         None
     } else {
         Some(
-            job.script_hash
+            job.runnable_id
                 .clone()
                 .ok_or_else(|| {
-                    Error::InternalErr(
+                    Error::internal_err(
                         "Flow Dependency requires script hash (flow version)".to_owned(),
                     )
                 })?
@@ -598,11 +635,11 @@ pub async fn handle_flow_dependency_job(
     // `JobKind::FlowDependencies` job store either:
     // - A saved flow version `id` in the `script_hash` column.
     // - Preview raw flow in the `queue` or `job` table.
-    let mut flow = match job.script_hash {
+    let mut flow = match job.runnable_id {
         Some(ScriptHash(id)) => cache::flow::fetch_version(db, id).await?,
         _ => match preview_data {
             Some(RawData::Flow(data)) => data.clone(),
-            _ => return Err(Error::InternalErr("expected script hash".into())),
+            _ => return Err(Error::internal_err("expected script hash")),
         },
     }
     .value()
@@ -612,8 +649,16 @@ pub async fn handle_flow_dependency_job(
 
     tx = clear_dependency_parent_path(&parent_path, &job_path, &job.workspace_id, "flow", tx)
         .await?;
+    sqlx::query!(
+        "DELETE FROM workspace_runnable_dependencies WHERE flow_path = $1 AND workspace_id = $2",
+        job_path,
+        job.workspace_id
+    )
+    .execute(&mut *tx)
+    .await?;
     let modified_ids;
-    (flow.modules, tx, modified_ids) = lock_modules(
+    let errors;
+    (flow.modules, tx, modified_ids, errors) = lock_modules(
         flow.modules,
         job,
         mem_peak,
@@ -630,18 +675,57 @@ pub async fn handle_flow_dependency_job(
         occupancy_metrics,
     )
     .await?;
+    if !errors.is_empty() {
+        let error_message = errors
+            .iter()
+            .map(|e| format!("{}: {}", e.id, e.error))
+            .collect::<Vec<String>>()
+            .join("\n");
+        let logs2 = sqlx::query_scalar!(
+            "SELECT logs FROM job_logs WHERE job_id = $1 AND workspace_id = $2",
+            &job.id,
+            &job.workspace_id
+        )
+        .fetch_optional(db)
+        .await?
+        .flatten()
+        .unwrap_or_else(|| "no logs".to_string());
+        sqlx::query!(
+            "UPDATE flow SET lock_error_logs = $1 WHERE path = $2 AND workspace_id = $3",
+            &format!("{logs2}\n{error_message}"),
+            &job.runnable_path(),
+            &job.workspace_id
+        )
+        .execute(db)
+        .await?;
+        return Err(Error::ExecutionErr(format!(
+            "Error locking flow modules:\n{}\n\nlogs:\n{}",
+            error_message,
+            remove_ansi_codes(&logs2)
+        )));
+    } else {
+        sqlx::query!(
+            "UPDATE flow SET lock_error_logs = NULL WHERE path = $1 AND workspace_id = $2",
+            &job.runnable_path(),
+            &job.workspace_id
+        )
+        .execute(db)
+        .await?;
+    }
     let new_flow_value = Json(serde_json::value::to_raw_value(&flow).map_err(to_anyhow)?);
 
     // Re-check cancellation to ensure we don't accidentally override a flow.
-    if sqlx::query_scalar!("SELECT canceled FROM queue WHERE id = $1", job.id)
-        .fetch_optional(db)
-        .await
-        .map(|v| Some(true) == v)
-        .unwrap_or_else(|err| {
-            tracing::error!(%job.id, %err, "error checking cancellation for job {0}: {err}", job.id);
-            false
-        })
-    {
+    if sqlx::query_scalar!(
+        "SELECT canceled_by IS NOT NULL AS \"canceled!\" FROM v2_job_queue WHERE id = $1",
+        job.id
+    )
+    .fetch_optional(db)
+    .await
+    .map(|v| Some(true) == v)
+    .unwrap_or_else(|err| {
+        tracing::error!(%job.id, %err, "error checking cancellation for job {0}: {err}", job.id);
+        false
+    }) {
         return Ok(to_raw_value_owned(json!({
             "status": "Flow lock generation was canceled",
         })));
@@ -649,7 +733,7 @@ pub async fn handle_flow_dependency_job(
 
     if !skip_flow_update {
         let version = version.ok_or_else(|| {
-            Error::InternalErr("Flow Dependency requires script hash (flow version)".to_owned())
+            Error::internal_err("Flow Dependency requires script hash (flow version)".to_owned())
         })?;
 
         sqlx::query!(
@@ -691,7 +775,7 @@ pub async fn handle_flow_dependency_job(
         tx.commit().await?;
 
         if let Err(e) = handle_deployment_metadata(
-            &job.email,
+            &job.permissioned_as_email,
             &job.created_by,
             &db,
             &job.workspace_id,
@@ -737,9 +821,14 @@ fn get_deployment_msg_and_parent_path_from_args(
     (deployment_message, parent_path)
 }
 
+struct LockModuleError {
+    id: String,
+    error: Error,
+}
+
 async fn lock_modules<'c>(
     modules: Vec<FlowModule>,
-    job: &QueuedJob,
+    job: &MiniPulledJob,
     mem_peak: &mut i32,
     canceled_by: &mut Option<CanceledBy>,
     job_dir: &str,
@@ -757,10 +846,13 @@ async fn lock_modules<'c>(
     Vec<FlowModule>,
     sqlx::Transaction<'c, sqlx::Postgres>,
     Vec<String>,
+    Vec<LockModuleError>,
 )> {
     let mut new_flow_modules = Vec::new();
     let mut modified_ids = Vec::new();
+    let mut errors = Vec::new();
     for mut e in modules.into_iter() {
+        let id = e.id.clone();
         let mut nmodified_ids = Vec::new();
         let FlowModuleValue::RawScript {
             lock,
@@ -785,7 +877,7 @@ async fn lock_modules<'c>(
                     parallelism,
                 } => {
                     let nmodules;
-                    (nmodules, tx, nmodified_ids) = Box::pin(lock_modules(
+                    (nmodules, tx, modified_ids, errors) = Box::pin(lock_modules(
                         modules,
                         job,
                         mem_peak,
@@ -818,7 +910,8 @@ async fn lock_modules<'c>(
                     for mut b in branches {
                         let nmodules;
                         let inner_modified_ids;
-                        (nmodules, tx, inner_modified_ids) = Box::pin(lock_modules(
+                        let inner_errors;
+                        (nmodules, tx, inner_modified_ids, inner_errors) = Box::pin(lock_modules(
                             b.modules,
                             job,
                             mem_peak,
@@ -836,6 +929,7 @@ async fn lock_modules<'c>(
                         ))
                         .await?;
                         nmodified_ids.extend(inner_modified_ids);
+                        errors.extend(inner_errors);
                         b.modules = nmodules;
                         nbranches.push(b)
                     }
@@ -843,7 +937,7 @@ async fn lock_modules<'c>(
                 }
                 FlowModuleValue::WhileloopFlow { modules, modules_node, skip_failures } => {
                     let nmodules;
-                    (nmodules, tx, nmodified_ids) = Box::pin(lock_modules(
+                    (nmodules, tx, nmodified_ids, errors) = Box::pin(lock_modules(
                         modules,
                         job,
                         mem_peak,
@@ -873,8 +967,8 @@ async fn lock_modules<'c>(
                     for mut b in branches {
                         let nmodules;
                         let inner_modified_ids;
-
-                        (nmodules, tx, inner_modified_ids) = Box::pin(lock_modules(
+                        let inner_errors;
+                        (nmodules, tx, inner_modified_ids, inner_errors) = Box::pin(lock_modules(
                             b.modules,
                             job,
                             mem_peak,
@@ -892,11 +986,13 @@ async fn lock_modules<'c>(
                         ))
                         .await?;
                         nmodified_ids.extend(inner_modified_ids);
+                        errors.extend(inner_errors);
                         b.modules = nmodules;
                         nbranches.push(b)
                     }
                     let ndefault;
-                    (ndefault, tx, nmodified_ids) = Box::pin(lock_modules(
+                    let ninner_errors;
+                    (ndefault, tx, nmodified_ids, ninner_errors) = Box::pin(lock_modules(
                         default,
                         job,
                         mem_peak,
@@ -913,12 +1009,34 @@ async fn lock_modules<'c>(
                         occupancy_metrics,
                     ))
                     .await?;
+                    errors.extend(ninner_errors);
                     e.value = FlowModuleValue::BranchOne {
                         branches: nbranches,
                         default: ndefault,
                         default_node,
                     }
                     .into();
+                }
+                FlowModuleValue::Script { path, hash, .. } if !path.starts_with("hub/") => {
+                    sqlx::query!(
+                        "INSERT INTO workspace_runnable_dependencies (flow_path, runnable_path, script_hash, runnable_is_flow, workspace_id) VALUES ($1, $2, $3, FALSE, $4) ON CONFLICT DO NOTHING",
+                        job_path,
+                        path,
+                        hash.map(|h| h.0),
+                        job.workspace_id
+                    )
+                    .execute(&mut *tx)
+                    .await?;
+                }
+                FlowModuleValue::Flow { path, .. } => {
+                    sqlx::query!(
+                        "INSERT INTO workspace_runnable_dependencies (flow_path, runnable_path, runnable_is_flow, workspace_id) VALUES ($1, $2, TRUE, $3) ON CONFLICT DO NOTHING",
+                        job_path,
+                        path,
+                        job.workspace_id,
+                    )
+                    .execute(&mut *tx)
+                    .await?;
                 }
                 _ => (),
             };
@@ -944,6 +1062,12 @@ async fn lock_modules<'c>(
 
         modified_ids.push(e.id.clone());
 
+        remove_dir_all(job_dir).map_err(|e| {
+            Error::ExecutionErr(format!("Error removing job dir for flow step lock: {e}"))
+        })?;
+        create_dir_all(job_dir).map_err(|e| {
+            Error::ExecutionErr(format!("Error creating job dir for flow step lock: {e}"))
+        })?;
         let new_lock = capture_dependency_job(
             &job.id,
             &language,
@@ -997,7 +1121,7 @@ async fn lock_modules<'c>(
                         Some(e.id.clone()),
                     )
                     .await?;
-                    append_logs(&job.id, &job.workspace_id, logs, db).await;
+                    append_logs(&job.id, &job.workspace_id, logs, &db.into()).await;
                 }
 
                 if language == ScriptLang::Bun || language == ScriptLang::Bunnative {
@@ -1012,12 +1136,7 @@ async fn lock_modules<'c>(
             }
             Err(error) => {
                 // TODO: Record flow raw script error lock logs
-                tracing::warn!(
-                    path = path,
-                    language = ?language,
-                    error = ?error,
-                    "Failed to generate flow lock for raw script"
-                );
+                errors.push(LockModuleError { id, error });
                 None
             }
         };
@@ -1036,7 +1155,8 @@ async fn lock_modules<'c>(
         new_flow_modules.push(e);
         continue;
     }
-    Ok((new_flow_modules, tx, modified_ids))
+
+    Ok((new_flow_modules, tx, modified_ids, errors))
 }
 
 async fn insert_flow_node<'c>(
@@ -1128,7 +1248,6 @@ async fn insert_flow_modules<'c>(
         same_worker,
     ))
     .await?;
-    add_virtual_items_if_necessary(modules);
     if modules.is_empty() || crate::worker_flow::is_simple_modules(modules, failure_module) {
         return Ok(tx);
     }
@@ -1163,7 +1282,7 @@ async fn reduce_flow<'c>(
     for module in &mut *modules {
         let mut val =
             serde_json::from_str::<FlowModuleValue>(module.value.get()).map_err(|err| {
-                Error::InternalErr(format!(
+                Error::internal_err(format!(
                     "reduce_flow: Failed to parse flow module value: {}",
                     err
                 ))
@@ -1257,6 +1376,7 @@ async fn reduce_flow<'c>(
         }
         module.value = to_raw_value(&val);
     }
+    add_virtual_items_if_necessary(&mut *modules);
     Ok(tx)
 }
 
@@ -1274,7 +1394,7 @@ async fn reduce_app(db: &sqlx::Pool<sqlx::Postgres>, value: &mut Value, app: i64
                 // replace `content` with an empty string:
                 let Some(Value::String(code)) = script.get_mut("content").map(std::mem::take)
                 else {
-                    return Err(error::Error::InternalErr(
+                    return Err(error::Error::internal_err(
                         "Missing `content` in inlineScript".to_string(),
                     ));
                 };
@@ -1317,7 +1437,7 @@ fn skip_creating_new_lock(language: &ScriptLang, content: &str) -> bool {
 #[async_recursion]
 async fn lock_modules_app(
     value: Value,
-    job: &QueuedJob,
+    job: &MiniPulledJob,
     mem_peak: &mut i32,
     canceled_by: &mut Option<CanceledBy>,
     job_dir: &str,
@@ -1331,6 +1451,22 @@ async fn lock_modules_app(
 ) -> Result<Value> {
     match value {
         Value::Object(mut m) => {
+            if let (Some(Value::String(ref run_type)), Some(path), Some("runnableByPath")) = (
+                m.get("runType"),
+                m.get("path").and_then(|s| s.as_str()),
+                m.get("type").and_then(|s| s.as_str()),
+            ) {
+                // No script_hash because apps don't supports script version locks yet
+                sqlx::query!(
+                    "INSERT INTO workspace_runnable_dependencies (app_path, runnable_path, runnable_is_flow, workspace_id) VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING",
+                    job_path,
+                    path,
+                    run_type == "flow",
+                    job.workspace_id
+                )
+                .execute(db)
+                .await?;
+            }
             if m.contains_key("inlineScript") {
                 let v = m.get_mut("inlineScript").unwrap();
                 if let Some(v) = v.as_object_mut() {
@@ -1369,7 +1505,7 @@ async fn lock_modules_app(
                                 worker_dir,
                                 base_internal_url,
                                 token,
-                                &format!("{}/app", job.script_path()),
+                                &format!("{}/app", job.runnable_path()),
                                 false,
                                 None,
                                 occupancy_metrics,
@@ -1377,7 +1513,7 @@ async fn lock_modules_app(
                             .await;
                             match new_lock {
                                 Ok(new_lock) => {
-                                    append_logs(&job.id, &job.workspace_id, logs, db).await;
+                                    append_logs(&job.id, &job.workspace_id, logs, &db.into()).await;
                                     let anns =
                                         windmill_common::worker::TypeScriptAnnotations::parse(
                                             &content,
@@ -1465,7 +1601,7 @@ async fn lock_modules_app(
 }
 
 pub async fn handle_app_dependency_job(
-    job: &QueuedJob,
+    job: &MiniPulledJob,
     mem_peak: &mut i32,
     canceled_by: &mut Option<CanceledBy>,
     job_dir: &str,
@@ -1476,17 +1612,26 @@ pub async fn handle_app_dependency_job(
     token: &str,
     occupancy_metrics: &mut OccupancyMetrics,
 ) -> error::Result<()> {
-    let job_path = job.script_path.clone().ok_or_else(|| {
-        error::Error::InternalErr(
+    let job_path = job.runnable_path.clone().ok_or_else(|| {
+        error::Error::internal_err(
             "Cannot resolve app dependencies for app without path".to_string(),
         )
     })?;
 
     let id = job
-        .script_hash
+        .runnable_id
         .clone()
-        .ok_or_else(|| Error::InternalErr("App Dependency requires script hash".to_owned()))?
+        .ok_or_else(|| Error::internal_err("App Dependency requires script hash".to_owned()))?
         .0;
+
+    sqlx::query!(
+        "DELETE FROM workspace_runnable_dependencies WHERE app_path = $1 AND workspace_id = $2",
+        job_path,
+        job.workspace_id
+    )
+    .execute(db)
+    .await?;
+
     let record = sqlx::query!("SELECT app_id, value FROM app_version WHERE id = $1", id)
         .fetch_optional(db)
         .await?
@@ -1525,15 +1670,17 @@ pub async fn handle_app_dependency_job(
         .await?;
 
         // Re-check cancelation to ensure we don't accidentially override an app.
-        if sqlx::query_scalar!("SELECT canceled FROM queue WHERE id = $1", job.id)
-            .fetch_optional(db)
-            .await
-            .map(|v| Some(true) == v)
-            .unwrap_or_else(|err| {
-                tracing::error!(%job.id, %err, "error checking cancelation for job {0}: {err}", job.id);
-                false
-            })
-        {
+        if sqlx::query_scalar!(
+            "SELECT canceled_by IS NOT NULL AS \"canceled!\" FROM v2_job_queue WHERE id = $1",
+            job.id
+        )
+        .fetch_optional(db)
+        .await
+        .map(|v| Some(true) == v)
+        .unwrap_or_else(|err| {
+            tracing::error!(%job.id, %err, "error checking cancelation for job {0}: {err}", job.id);
+            false
+        }) {
             return Ok(());
         }
 
@@ -1545,7 +1692,7 @@ pub async fn handle_app_dependency_job(
             get_deployment_msg_and_parent_path_from_args(job.args.clone());
 
         if let Err(e) = handle_deployment_metadata(
-            &job.email,
+            &job.permissioned_as_email,
             &job.created_by,
             &db,
             &job.workspace_id,
@@ -1572,7 +1719,7 @@ pub async fn handle_app_dependency_job(
         // match tx {
         //     PushIsolationLevel::Transaction(tx) => tx.commit().await?,
         //     _ => {
-        //         return Err(Error::InternalErr(
+        //         return Err(Error::internal_err(
         //             "Expected a transaction here".to_string(),
         //         ));
         //     }
@@ -1682,8 +1829,6 @@ async fn python_dep(
     occupancy_metrics: &mut Option<&mut OccupancyMetrics>,
     annotated_pyv_numeric: Option<u32>,
     annotations: PythonAnnotations,
-    no_uv_compile: bool,
-    no_uv_install: bool,
 ) -> std::result::Result<String, Error> {
     create_dependencies_dir(job_dir).await;
 
@@ -1700,7 +1845,7 @@ async fn python_dep(
 
     let final_version = annotated_pyv_numeric
         .and_then(|pyv| PyVersion::from_numeric(pyv))
-        .unwrap_or(PyVersion::from_instance_version().await);
+        .unwrap_or(PyVersion::from_instance_version(job_id, w_id, &db.into()).await);
 
     let req: std::result::Result<String, Error> = uv_pip_compile(
         job_id,
@@ -1708,13 +1853,12 @@ async fn python_dep(
         mem_peak,
         canceled_by,
         job_dir,
-        db,
+        &db.into(),
         worker_name,
         w_id,
         occupancy_metrics,
         final_version,
         annotations.no_cache,
-        no_uv_compile,
     )
     .await;
     // install the dependencies to pre-fill the cache
@@ -1725,13 +1869,12 @@ async fn python_dep(
             w_id,
             mem_peak,
             canceled_by,
-            db,
+            &Connection::Sql(db.clone()),
             worker_name,
             job_dir,
             worker_dir,
             occupancy_metrics,
             final_version,
-            no_uv_install,
         )
         .await;
 
@@ -1766,7 +1909,7 @@ async fn capture_dependency_job(
     match job_language {
         ScriptLang::Python3 => {
             #[cfg(not(feature = "python"))]
-            return Err(Error::InternalErr(
+            return Err(Error::internal_err(
                 "Python requires the python feature to be enabled".to_string(),
             ));
             #[cfg(feature = "python")]
@@ -1794,23 +1937,9 @@ async fn capture_dependency_job(
                         &mut annotated_pyv_numeric,
                     )
                     .await?
+                    .0
                     .join("\n")
                 };
-                let PythonAnnotations { no_uv, no_uv_install, no_uv_compile, .. } = anns;
-                if no_uv || no_uv_install || no_uv_compile || *USE_PIP_COMPILE || *USE_PIP_INSTALL {
-                    if let Err(e) = sqlx::query!(
-                        r#"
-                          INSERT INTO metrics (id, value) 
-                               VALUES ('no_uv_usage_py', $1)
-                        "#,
-                        serde_json::to_value("").map_err(to_anyhow)?
-                    )
-                    .execute(db)
-                    .await
-                    {
-                        tracing::error!("Error inserting no_uv_usage_py to db: {:?}", e);
-                    }
-                }
 
                 python_dep(
                     reqs,
@@ -1825,15 +1954,13 @@ async fn capture_dependency_job(
                     &mut Some(occupancy_metrics),
                     annotated_pyv_numeric,
                     anns,
-                    no_uv_compile | no_uv,
-                    no_uv_install | no_uv,
                 )
                 .await
             }
         }
         ScriptLang::Ansible => {
             #[cfg(not(feature = "python"))]
-            return Err(Error::InternalErr(
+            return Err(Error::internal_err(
                 "Ansible requires the python feature to be enabled".to_string(),
             ));
 
@@ -1846,21 +1973,6 @@ async fn capture_dependency_job(
                 }
                 let (_logs, reqs, _) = windmill_parser_yaml::parse_ansible_reqs(job_raw_code)?;
                 let reqs = reqs.map(|r| r.python_reqs.join("\n")).unwrap_or_default();
-
-                if *USE_PIP_COMPILE || *USE_PIP_INSTALL {
-                    if let Err(e) = sqlx::query!(
-                        r#"
-                        INSERT INTO metrics (id, value) 
-                            VALUES ('no_uv_usage_ansible', $1)
-                        "#,
-                        serde_json::to_value("").map_err(to_anyhow)?
-                    )
-                    .execute(db)
-                    .await
-                    {
-                        tracing::error!("Error inserting no_uv_usage_ansible to db: {:?}", e);
-                    };
-                }
 
                 python_dep(
                     reqs,
@@ -1875,8 +1987,6 @@ async fn capture_dependency_job(
                     &mut Some(occupancy_metrics),
                     None,
                     PythonAnnotations::default(),
-                    false,
-                    false,
                 )
                 .await
             }
@@ -1893,7 +2003,7 @@ async fn capture_dependency_job(
                 mem_peak,
                 canceled_by,
                 job_dir,
-                db,
+                &db.into(),
                 false,
                 false,
                 false,
@@ -1915,7 +2025,7 @@ async fn capture_dependency_job(
                 mem_peak,
                 canceled_by,
                 job_dir,
-                Some(db),
+                Some(&db.into()),
                 w_id,
                 worker_name,
                 base_internal_url,
@@ -1935,7 +2045,7 @@ async fn capture_dependency_job(
                 canceled_by,
                 job_id,
                 w_id,
-                Some(db),
+                Some(&db.into()),
                 token,
                 script_path,
                 job_dir,
@@ -1958,7 +2068,7 @@ async fn capture_dependency_job(
                     script_path,
                     job_id,
                     w_id,
-                    Some(db.clone()),
+                    Some(&db),
                     &job_dir,
                     base_internal_url,
                     worker_name,
@@ -1971,7 +2081,7 @@ async fn capture_dependency_job(
         }
         ScriptLang::Php => {
             #[cfg(not(feature = "php"))]
-            return Err(Error::InternalErr(
+            return Err(Error::internal_err(
                 "PHP requires the php feature to be enabled".to_string(),
             ));
 
@@ -1995,7 +2105,7 @@ async fn capture_dependency_job(
                     canceled_by,
                     job_id,
                     w_id,
-                    db,
+                    &Connection::Sql(db.clone()),
                     job_dir,
                     worker_name,
                     reqs,
@@ -2013,7 +2123,7 @@ async fn capture_dependency_job(
             }
 
             #[cfg(not(feature = "rust"))]
-            return Err(Error::InternalErr(
+            return Err(Error::internal_err(
                 "Rust requires the rust feature to be enabled".to_string(),
             ));
 
@@ -2024,7 +2134,7 @@ async fn capture_dependency_job(
                 mem_peak,
                 canceled_by,
                 job_dir,
-                db,
+                &Connection::Sql(db.clone()),
                 worker_name,
                 w_id,
                 occupancy_metrics,
@@ -2047,22 +2157,31 @@ async fn capture_dependency_job(
                 mem_peak,
                 canceled_by,
                 job_dir,
-                db,
+                &Connection::Sql(db.clone()),
                 worker_name,
                 w_id,
                 occupancy_metrics,
             )
             .await
         }
-        ScriptLang::Postgresql => Ok("".to_owned()),
-        ScriptLang::Mysql => Ok("".to_owned()),
-        ScriptLang::Bigquery => Ok("".to_owned()),
-        ScriptLang::Snowflake => Ok("".to_owned()),
-        ScriptLang::Mssql => Ok("".to_owned()),
-        ScriptLang::Graphql => Ok("".to_owned()),
-        ScriptLang::OracleDB => Ok("".to_owned()),
-        ScriptLang::Bash => Ok("".to_owned()),
-        ScriptLang::Powershell => Ok("".to_owned()),
-        ScriptLang::Nativets => Ok("".to_owned()),
+        #[cfg(feature = "java")]
+        ScriptLang::Java => {
+            if raw_deps {
+                return Err(Error::ExecutionErr(
+                    "Raw dependencies not supported for Java".to_string(),
+                ));
+            }
+
+            resolve(
+                job_id,
+                job_raw_code,
+                job_dir,
+                &Connection::Sql(db.clone()),
+                w_id,
+            )
+            .await
+        }
+        // for related places search: ADD_NEW_LANG
+        _ => Ok("".to_owned()),
     }
 }

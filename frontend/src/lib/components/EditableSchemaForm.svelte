@@ -11,18 +11,20 @@
 	import FlowPropertyEditor from './schema/FlowPropertyEditor.svelte'
 	import PropertyEditor from './schema/PropertyEditor.svelte'
 	import SimpleEditor from './SimpleEditor.svelte'
-	import { createEventDispatcher } from 'svelte'
+	import { createEventDispatcher, tick } from 'svelte'
 	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
 	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import Label from './Label.svelte'
 	import { sendUserToast } from '$lib/toast'
 	import Toggle from './Toggle.svelte'
 	import { emptyString } from '$lib/utils'
-	import Popup from './common/popup/Popup.svelte'
+	import Popover from './meltComponents/Popover.svelte'
 	import SchemaFormDnd from './schema/SchemaFormDND.svelte'
 	import { deepEqual } from 'fast-equals'
 	import { tweened } from 'svelte/motion'
 	import type { SchemaDiff } from '$lib/components/schema/schemaUtils'
+	import type { EditableSchemaFormUi } from '$lib/components/custom_ui'
+	import { createDispatcherIfMounted } from '$lib/createDispatcherIfMounted'
 
 	export let schema: Schema | any
 	export let hiddenArgs: string[] = []
@@ -36,6 +38,7 @@
 	export let jsonEnabled: boolean = true
 	export let isAppInput: boolean = false
 	export let displayWebhookWarning: boolean = false
+	export let onlyMaskPassword: boolean = false
 	export let dndType: string | undefined = undefined
 	export let editTab:
 		| 'inputEditor'
@@ -52,8 +55,10 @@
 	export let disableDnd: boolean = false
 	export let shouldDispatchChanges: boolean = false
 	export let isValid: boolean = true
+	export let customUi: EditableSchemaFormUi | undefined = undefined
 
 	const dispatch = createEventDispatcher()
+	const dispatchIfMounted = createDispatcherIfMounted(dispatch)
 
 	let clazz: string = ''
 	export { clazz as class }
@@ -80,7 +85,7 @@
 
 	let keys: string[] = Array.isArray(schema?.order)
 		? [...schema.order]
-		: Object.keys(schema?.properties ?? {}) ?? Object.keys(schema?.properties ?? {})
+		: (Object.keys(schema?.properties ?? {}) ?? Object.keys(schema?.properties ?? {}))
 
 	$: schema && onSchemaChange()
 
@@ -154,10 +159,10 @@
 			? property.type !== 'object'
 				? property.type
 				: property.format === 'resource-s3_object'
-				? 'S3'
-				: property.oneOf && property.oneOf.length >= 2
-				? 'oneOf'
-				: 'object'
+					? 'S3'
+					: property.oneOf && property.oneOf.length >= 2
+						? 'oneOf'
+						: 'object'
 			: ''
 	}
 
@@ -200,13 +205,13 @@
 		}
 	}
 
-	let jsonView: boolean = false
+	let jsonView: boolean = customUi?.jsonOnly == true
 	let schemaString: string = JSON.stringify(schema, null, '\t')
 	let error: string | undefined = undefined
 	let editor: SimpleEditor | undefined = undefined
 
 	const editTabDefaultSize = noPreview ? 100 : 50
-	editPanelSize = editTab ? editPanelInitialSize ?? editTabDefaultSize : 0
+	editPanelSize = editTab ? (editPanelInitialSize ?? editTabDefaultSize) : 0
 	let inputPanelSize = 100 - editPanelSize
 	let editPanelSizeSmooth = tweened(editPanelSize, {
 		duration: 150
@@ -227,7 +232,7 @@
 	function updatePanelSizes(editSize: number, inputSize: number) {
 		editPanelSize = editSize
 		inputPanelSize = inputSize
-		dispatch('editPanelSizeChanged', editSize)
+		dispatchIfMounted('editPanelSizeChanged', editSize)
 	}
 	$: updatePanelSizes($editPanelSizeSmooth, $inputPanelSizeSmooth)
 
@@ -282,6 +287,7 @@
 							schema={previewSchema ? previewSchema : schema}
 							{dndType}
 							{disableDnd}
+							{onlyMaskPassword}
 							bind:args
 							on:click={(e) => {
 								opened = e.detail
@@ -289,11 +295,11 @@
 							on:reorder={(e) => {
 								schema.order = e.detail
 								schema = schema
-								dispatch('change', schema)
+								tick().then(() => dispatch('change', schema))
 							}}
 							on:change={() => {
 								schema = schema
-								dispatch('change', schema)
+								tick().then(() => dispatch('change', schema))
 							}}
 							prettifyHeader={isAppInput}
 							disabled={!!previewSchema}
@@ -305,6 +311,7 @@
 							}}
 							{shouldDispatchChanges}
 							bind:isValid
+							noVariablePicker={noVariablePicker || customUi?.disableVariablePicker === true}
 						/>
 
 						<slot name="runButton" />
@@ -323,7 +330,7 @@
 					<slot name="extraTab" />
 				{:else}
 					<!-- WIP -->
-					{#if jsonEnabled}
+					{#if jsonEnabled && customUi?.jsonOnly != true}
 						<div class="w-full p-3 flex justify-end">
 							<Toggle
 								bind:checked={jsonView}
@@ -369,12 +376,8 @@
 												{argName}
 												{#if !uiOnly}
 													<div on:click|stopPropagation|preventDefault>
-														<Popup
-															floatingConfig={{ strategy: 'absolute', placement: 'bottom-end' }}
-															containerClasses="border rounded-lg shadow-lg p-4 bg-surface"
-															let:close
-														>
-															<svelte:fragment slot="button">
+														<Popover placement="bottom-end" containerClasses="p-4" closeButton>
+															<svelte:fragment slot="trigger">
 																<Button
 																	color="light"
 																	size="xs2"
@@ -383,34 +386,36 @@
 																	iconOnly
 																/>
 															</svelte:fragment>
-															<Label label="Name">
-																<div class="flex flex-col gap-2">
-																	<input
-																		type="text"
-																		class="w-full !bg-surface"
-																		value={argName}
-																		id={argName + i}
-																		on:keydown={(event) => {
-																			if (event.key === 'Enter') {
+															<svelte:fragment slot="content" let:close>
+																<Label label="Name" class="p-4">
+																	<div class="flex flex-col gap-2">
+																		<input
+																			type="text"
+																			class="w-full !bg-surface"
+																			value={argName}
+																			id={argName + i}
+																			on:keydown={(event) => {
+																				if (event.key === 'Enter') {
+																					renameProperty(argName, argName + i)
+																					close()
+																				}
+																			}}
+																		/>
+																		<Button
+																			variant="border"
+																			color="light"
+																			size="xs"
+																			on:click={() => {
 																				renameProperty(argName, argName + i)
-																				close(null)
-																			}
-																		}}
-																	/>
-																	<Button
-																		variant="border"
-																		color="light"
-																		size="xs"
-																		on:click={() => {
-																			renameProperty(argName, argName + i)
-																			close(null)
-																		}}
-																	>
-																		Rename
-																	</Button>
-																</div>
-															</Label>
-														</Popup>
+																				close()
+																			}}
+																		>
+																			Rename
+																		</Button>
+																	</div>
+																</Label>
+															</svelte:fragment>
+														</Popover>
 													</div>
 												{/if}
 											</div>
@@ -444,8 +449,9 @@
 															bind:enum_={schema.properties[argName].enum}
 															bind:format={schema.properties[argName].format}
 															bind:contentEncoding={schema.properties[argName].contentEncoding}
-															bind:customErrorMessage={schema.properties[argName]
-																.customErrorMessage}
+															bind:customErrorMessage={
+																schema.properties[argName].customErrorMessage
+															}
 															bind:itemsType={schema.properties[argName].items}
 															bind:extra={schema.properties[argName]}
 															bind:title={schema.properties[argName].title}
@@ -465,6 +471,7 @@
 																		<ToggleButtonGroup
 																			tabListClass="flex-wrap"
 																			class="h-auto"
+																			let:item
 																			bind:selected
 																			on:selected={(e) => {
 																				const isS3 = e.detail == 'S3'
@@ -545,7 +552,7 @@
 																			}}
 																		>
 																			{#each [['String', 'string'], ['Number', 'number'], ['Integer', 'integer'], ['Object', 'object'], ['OneOf', 'oneOf'], ['Array', 'array'], ['Boolean', 'boolean'], ['S3 Object', 'S3']] as x}
-																				<ToggleButton value={x[1]} label={x[0]} />
+																				<ToggleButton value={x[1]} label={x[0]} {item} />
 																			{/each}
 																		</ToggleButtonGroup>
 																	</Label>

@@ -1,7 +1,6 @@
 <script lang="ts">
 	import { SCRIPT_VIEW_SHOW_SCHEDULE_RUN_LATER } from '$lib/consts'
 	import Label from './Label.svelte'
-	import CloseButton from './common/CloseButton.svelte'
 	import Toggle from './Toggle.svelte'
 	import Tooltip from './Tooltip.svelte'
 	import { userStore, workerTags, workspaceStore } from '$lib/stores'
@@ -36,19 +35,15 @@
 	}
 </script>
 
-<div class="flex flex-col gap-4 p-2">
+<div class="flex flex-col gap-4 p-4">
 	<div class="flex flex-col gap-2">
 		{#if SCRIPT_VIEW_SHOW_SCHEDULE_RUN_LATER}
 			<div class="">
-				<Label label="Schedule to run later">
-					<svelte:fragment slot="action">
-						<CloseButton on:close noBg />
-					</svelte:fragment>
-				</Label>
+				<Label label="Schedule to run later" />
 
 				<div class="flex flex-row items-center my-1">
 					<div>
-						<label for="run-time" />
+						<label for="run-time"></label>
 						<DateTimeInput
 							value={scheduledForStr}
 							on:change={(e) => {

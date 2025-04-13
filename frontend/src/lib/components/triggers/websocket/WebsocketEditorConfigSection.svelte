@@ -102,9 +102,10 @@
 					url = ev.detail === 'runnable' ? '$script:' : ''
 					url_runnable_args = {}
 				}}
+				let:item
 			>
-				<ToggleButton value="static" label="Static URL" />
-				<ToggleButton value="runnable" label="Runnable result as URL" />
+				<ToggleButton value="static" label="Static URL" {item} />
+				<ToggleButton value="runnable" label="Runnable result as URL" {item} />
 			</ToggleButtonGroup>
 		</div>
 		{#if url?.startsWith('$')}
@@ -158,27 +159,29 @@
 		{:else}
 			<div class="flex flex-col w-full gap-4">
 				<label class="block grow w-full">
-					<div class="text-secondary text-sm flex items-center gap-1 w-full justify-between">
-						<div>
-							URL
-							<Required required={true} />
+					<div class="flex flex-col gap-1">
+						<div class="text-secondary text-sm flex items-center gap-1 w-full justify-between">
+							<div>
+								URL
+								<Required required={true} />
+							</div>
 						</div>
-					</div>
-					<input
-						type="text"
-						autocomplete="off"
-						bind:value={url}
-						disabled={!can_write}
-						on:input={() => {
-							dirtyUrl = true
-						}}
-						placeholder="ws://example.com"
-						class={urlError === ''
-							? ''
-							: 'border border-red-700 bg-red-100 border-opacity-30 focus:border-red-700 focus:border-opacity-30 focus-visible:ring-red-700 focus-visible:ring-opacity-25 focus-visible:border-red-700'}
-					/>
-					<div class="text-red-600 dark:text-red-400 text-2xs mt-1.5">
-						{dirtyUrl ? urlError : ''}
+						<input
+							type="text"
+							autocomplete="off"
+							bind:value={url}
+							disabled={!can_write}
+							on:input={() => {
+								dirtyUrl = true
+							}}
+							placeholder="ws://example.com"
+							class={urlError === ''
+								? ''
+								: 'border border-red-700 bg-red-100 border-opacity-30 focus:border-red-700 focus:border-opacity-30 focus-visible:ring-red-700 focus-visible:ring-opacity-25 focus-visible:border-red-700'}
+						/>
+						<div class="text-red-600 dark:text-red-400 text-2xs mt-1.5">
+							{dirtyUrl ? urlError : ''}
+						</div>
 					</div>
 				</label>
 			</div>

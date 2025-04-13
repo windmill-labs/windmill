@@ -40,11 +40,13 @@
 	const iterContext = getContext<ListContext>('ListWrapperContext')
 	const listInputs: ListInputs | undefined = getContext<ListInputs>('ListInputs')
 
-	let value: string | undefined = resolvedConfig.defaultValue
-
 	let outputs = initOutput($worldStore, id, {
-		result: value ?? ''
+		result: undefined as string | undefined
 	})
+
+	let initValue = outputs?.result.peak()
+	let value: string | undefined =
+		!iterContext && initValue && initValue != '' ? initValue : resolvedConfig.defaultValue
 
 	onDestroy(() => {
 		listInputs?.remove(id)
@@ -53,12 +55,16 @@
 	$componentControl[id] = {
 		setValue(nvalue: string) {
 			value = nvalue
+			outputs?.result.set(value)
 		}
 	}
 
+	let initialHandleDefault = true
 	$: handleDefault(resolvedConfig.defaultValue)
 
-	$: {
+	$: value && onValueChange()
+
+	function onValueChange() {
 		let val = value ?? ''
 		outputs?.result.set(val)
 		if (iterContext && listInputs) {
@@ -67,6 +73,12 @@
 	}
 
 	function handleDefault(defaultValue: string | undefined) {
+		if (initialHandleDefault) {
+			initialHandleDefault = false
+			if (value != undefined && value != '') {
+				return
+			}
+		}
 		value = defaultValue
 	}
 
@@ -149,14 +161,14 @@
 			bind:value
 			placeholder={resolvedConfig.placeholder}
 			disabled={resolvedConfig.disabled}
-		/>
+		></textarea>
 	{:else}
 		<AlignWrapper {render} {verticalAlignment}>
 			<div class="relative w-full">
 				<div class="absolute top-1/2 -translate-y-1/2 left-2">
 					{#if resolvedConfig.beforeIcon}
 						{#key resolvedConfig.beforeIcon}
-							<div class="min-w-4" bind:this={beforeIconComponent} />
+							<div class="min-w-4" bind:this={beforeIconComponent}></div>
 						{/key}
 					{/if}
 				</div>
@@ -215,7 +227,7 @@
 				<div class="absolute top-1/2 -translate-y-1/2 right-2">
 					{#if resolvedConfig.afterIcon}
 						{#key resolvedConfig.afterIcon}
-							<div class="min-w-4" bind:this={afterIconComponent} />
+							<div class="min-w-4" bind:this={afterIconComponent}></div>
 						{/key}
 					{/if}
 				</div>

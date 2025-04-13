@@ -12,7 +12,6 @@ export function editorConfig(
 		automaticLayout,
 		readOnly: false,
 		fixedOverflowWidgets,
-		lineNumbers: 'on' as const,
 		lineDecorationsWidth: 10,
 		lineNumbersMinChars: 3,
 		scrollbar: { alwaysConsumeMouseWheel: false },
@@ -42,6 +41,10 @@ export function editorConfig(
 
 export function createHash() {
 	return (Math.random() + 1).toString(36).substring(2)
+}
+
+export function createLongHash() {
+	return 'h' + Math.random().toString(36).substring(2) + Math.random().toString(36).substring(2)
 }
 
 export function langToExt(lang: string): string {
@@ -86,6 +89,7 @@ export function langToExt(lang: string): string {
 			return 'yml'
 		case 'csharp':
 			return 'cs'
+<<<<<<< HEAD
 		case 'svelte':
 			return 'svelte'
 		case 'vue':
@@ -135,6 +139,13 @@ export function extToLang(ext: string) {
 			return 'svelte'
 		case 'vue':
 			return 'vue'
+=======
+		case 'nu':
+			return 'nu'
+		case 'java':
+			return 'java'
+		// for related places search: ADD_NEW_LANG 
+>>>>>>> main
 		default:
 			return 'unknown'
 	}

@@ -20,6 +20,7 @@
 	export let diff: Record<string, SchemaDiff> = {}
 	export let nestedClasses = ''
 	export let isValid: boolean = true
+	export let noVariablePicker: boolean = false
 
 	const dispatch = createEventDispatcher()
 	const flipDurationMs = 200
@@ -100,6 +101,7 @@
 	{nestedParent}
 	{shouldDispatchChanges}
 	bind:isValid
+	{noVariablePicker}
 >
 	<svelte:fragment slot="actions">
 		{#if !disableDnd}

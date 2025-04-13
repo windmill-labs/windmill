@@ -3,7 +3,9 @@ import { derived, type Readable, writable } from 'svelte/store'
 
 import type { IntrospectionQuery } from 'graphql'
 import {
+	type AIConfig,
 	type AIProvider,
+	type AIProviderModel,
 	type OperatorSettings,
 	type TokenResponse,
 	type UserWorkspaceList,
@@ -83,21 +85,60 @@ export const userWorkspaces: Readable<
 	}
 })
 export const copilotInfo = writable<{
-	ai_provider: AIProvider
-	exists_ai_resource: boolean
-	code_completion_model?: string
-	ai_models: string[]
+	enabled: boolean
+	codeCompletionModel?: AIProviderModel
+	defaultModel?: AIProviderModel
+	aiModels: AIProviderModel[]
 }>({
-	ai_provider: 'openai',
-	exists_ai_resource: false,
-	ai_models: []
+	enabled: false,
+	codeCompletionModel: undefined,
+	defaultModel: undefined,
+	aiModels: []
 })
+
+export function setCopilotInfo(aiConfig: AIConfig) {
+	if (Object.keys(aiConfig.providers ?? {}).length > 0) {
+		const aiModels = Object.entries(aiConfig.providers ?? {}).flatMap(
+			([provider, providerConfig]) =>
+				providerConfig.models.map((m) => ({ model: m, provider: provider as AIProvider }))
+		)
+
+		copilotSessionModel.update((model) => {
+			if (
+				model &&
+				!aiModels.some((m) => m.model === model.model && m.provider === model.provider)
+			) {
+				return undefined
+			}
+			return model
+		})
+
+		copilotInfo.set({
+			enabled: true,
+			codeCompletionModel: aiConfig.code_completion_model,
+			defaultModel: aiConfig.default_model,
+			aiModels: aiModels
+		})
+	} else {
+		copilotSessionModel.set(undefined)
+
+		copilotInfo.set({
+			enabled: false,
+			codeCompletionModel: undefined,
+			defaultModel: undefined,
+			aiModels: []
+		})
+	}
+}
+
 export const codeCompletionLoading = writable<boolean>(false)
 export const metadataCompletionEnabled = writable<boolean>(true)
 export const stepInputCompletionEnabled = writable<boolean>(true)
 export const FORMAT_ON_SAVE_SETTING_NAME = 'formatOnSave'
 export const VIM_MODE_SETTING_NAME = 'vimMode'
 export const CODE_COMPLETION_SETTING_NAME = 'codeCompletionSessionEnabled'
+export const COPILOT_SESSION_MODEL_SETTING_NAME = 'copilotSessionModel'
+export const COPILOT_SESSION_PROVIDER_SETTING_NAME = 'copilotSessionProvider'
 export const formatOnSave = writable<boolean>(
 	getLocalSetting(FORMAT_ON_SAVE_SETTING_NAME) != 'false'
 )
@@ -105,8 +146,16 @@ export const vimMode = writable<boolean>(getLocalSetting(VIM_MODE_SETTING_NAME) 
 export const codeCompletionSessionEnabled = writable<boolean>(
 	getLocalSetting(CODE_COMPLETION_SETTING_NAME) != 'false'
 )
-export const copilotSessionModel = writable<string | undefined>(
-	getLocalSetting(CODE_COMPLETION_SETTING_NAME) ?? undefined
+
+const sessionModel = getLocalSetting(COPILOT_SESSION_MODEL_SETTING_NAME)
+const sessionProvider = getLocalSetting(COPILOT_SESSION_PROVIDER_SETTING_NAME)
+export const copilotSessionModel = writable<AIProviderModel | undefined>(
+	sessionModel && sessionProvider
+		? {
+				model: sessionModel,
+				provider: sessionProvider as AIProvider
+			}
+		: undefined
 )
 export const usedTriggerKinds = writable<string[]>([])
 
@@ -122,8 +171,17 @@ type SQLBaseSchema = {
 	}
 }
 
+export const SQLSchemaLanguages = [
+	'mysql',
+	'bigquery',
+	'postgresql',
+	'snowflake',
+	'mssql',
+	'oracledb'
+] as const
+
 export interface SQLSchema {
-	lang: 'mysql' | 'bigquery' | 'postgresql' | 'snowflake' | 'mssql' | 'oracledb'
+	lang: (typeof SQLSchemaLanguages)[number]
 	schema: SQLBaseSchema
 	publicOnly: boolean | undefined
 	stringified: string

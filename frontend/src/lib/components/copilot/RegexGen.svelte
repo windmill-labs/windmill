@@ -4,7 +4,7 @@
 
 	import { getNonStreamingCompletion } from './lib'
 	import { sendUserToast } from '$lib/toast'
-	import Popup from '../common/popup/Popup.svelte'
+	import Popover from '$lib/components/meltComponents/Popover.svelte'
 	import { copilotInfo } from '$lib/stores'
 
 	import { autoPlacement } from '@floating-ui/core'
@@ -25,7 +25,6 @@
 		savePrompt()
 		genLoading = true
 		abortController = new AbortController()
-		const aiProvider = $copilotInfo.ai_provider
 		try {
 			const res = await getNonStreamingCompletion(
 				[
@@ -39,8 +38,7 @@
 						content: funcDesc
 					}
 				],
-				abortController,
-				aiProvider
+				abortController
 			)
 			dispatch('gen', { res: res, prompt: funcDesc })
 			funcDesc = ''
@@ -91,7 +89,7 @@
 	}
 </script>
 
-<Popup
+<Popover
 	floatingConfig={{
 		middleware: [
 			autoPlacement({
@@ -99,9 +97,8 @@
 			})
 		]
 	}}
-	let:close
 >
-	<svelte:fragment slot="button">
+	<svelte:fragment slot="trigger">
 		<Button
 			title="Generate regexes from prompt"
 			btnClasses="text-violet-800 dark:text-violet-400 bg-violet-100 dark:bg-gray-700"
@@ -115,67 +112,69 @@
 			on:click={genLoading ? () => abortController?.abort() : () => {}}
 		/>
 	</svelte:fragment>
-	<div class="block text-primary z-[2000]">
-		{#if $copilotInfo.exists_ai_resource}
-			<div class="flex flex-col gap-4">
-				<div class="flex w-96">
-					<input
-						type="text"
-						bind:this={input}
-						bind:value={funcDesc}
-						on:keypress={({ key }) => {
-							if (key === 'Enter' && funcDesc?.length > 0) {
-								close(input || null)
+	<svelte:fragment slot="content" let:close>
+		<div class="block text-primary p-4">
+			{#if $copilotInfo.enabled}
+				<div class="flex flex-col gap-4">
+					<div class="flex w-96">
+						<input
+							type="text"
+							bind:this={input}
+							bind:value={funcDesc}
+							on:keypress={({ key }) => {
+								if (key === 'Enter' && funcDesc?.length > 0) {
+									close()
+									onGenerate()
+								}
+							}}
+							placeholder={'Describe what the regex should doww'}
+						/>
+						<Button
+							size="xs"
+							color="light"
+							buttonType="button"
+							btnClasses="!ml-2 text-violet-800 dark:text-violet-400 bg-violet-100 dark:bg-gray-700"
+							aria-label="Generate"
+							on:click={() => {
+								close()
 								onGenerate()
-							}
-						}}
-						placeholder={'Describe what the regex should do'}
-					/>
-					<Button
-						size="xs"
-						color="light"
-						buttonType="button"
-						btnClasses="!ml-2 text-violet-800 dark:text-violet-400 bg-violet-100 dark:bg-gray-700"
-						aria-label="Generate"
-						on:click={() => {
-							close(input || null)
-							onGenerate()
-						}}
-						disabled={funcDesc?.length <= 0}
-						iconOnly
-						startIcon={{ icon: Wand2 }}
-					/>
-				</div>
-				{#if promptHistory.length > 0}
-					<div class="w-96 flex flex-col gap-1">
-						{#each promptHistory as p}
-							<Button
-								size="xs2"
-								color="light"
-								btnClasses="justify-start overflow-x-scroll no-scrollbar"
-								startIcon={{ icon: HistoryIcon, classes: 'shrink-0' }}
-								on:click={() => {
-									funcDesc = p
-								}}>{p}</Button
-							>
-						{/each}
-						<button
-							class="underline text-xs text-start px-2 text-secondary font-normal"
-							on:click={clearPromptHistory}>clear history</button
-						>
+							}}
+							disabled={funcDesc?.length <= 0}
+							iconOnly
+							startIcon={{ icon: Wand2 }}
+						/>
 					</div>
-				{/if}
-			</div>
-		{:else}
-			<p class="text-sm">
-				Enable Windmill AI in the <a
-					href="{base}/workspace_settings?tab=ai"
-					target="_blank"
-					class="inline-flex flex-row items-center gap-1"
-				>
-					workspace settings <ExternalLink size={16} />
-				</a>
-			</p>
-		{/if}
-	</div>
-</Popup>
+					{#if promptHistory.length > 0}
+						<div class="w-96 flex flex-col gap-1">
+							{#each promptHistory as p}
+								<Button
+									size="xs2"
+									color="light"
+									btnClasses="justify-start overflow-x-scroll no-scrollbar"
+									startIcon={{ icon: HistoryIcon, classes: 'shrink-0' }}
+									on:click={() => {
+										funcDesc = p
+									}}>{p}</Button
+								>
+							{/each}
+							<button
+								class="underline text-xs text-start px-2 text-secondary font-normal"
+								on:click={clearPromptHistory}>clear history</button
+							>
+						</div>
+					{/if}
+				</div>
+			{:else}
+				<p class="text-sm">
+					Enable Windmill AI in the <a
+						href="{base}/workspace_settings?tab=ai"
+						target="_blank"
+						class="inline-flex flex-row items-center gap-1"
+					>
+						workspace settings <ExternalLink size={16} />
+					</a>
+				</p>
+			{/if}
+		</div>
+	</svelte:fragment>
+</Popover>

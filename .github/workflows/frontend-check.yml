@@ -1,10 +1,15 @@
 name: check frontend build
 on:
-  pull_request:
-    types: [opened, synchronize, reopened, closed]
+  workflow_run:
+    workflows: ["Change versions"]
+    types:
+      - completed
+
+  merge_group:
+  push:
     paths:
       - "frontend/**"
-  merge_group:
+      - ".github/workflows/frontend-check.yml"
 
 jobs:
   npm_check:
@@ -16,5 +21,6 @@ jobs:
           node-version: 18
       - name: "npm check"
         timeout-minutes: 5
-        run: cd frontend && npm ci && npm run generate-backend-client && npm run
+        run:
+          cd frontend && npm ci && npm run generate-backend-client && npm run
           check

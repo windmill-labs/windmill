@@ -1,6 +1,6 @@
 use crate::db::ApiAuthed;
 
-use crate::workspaces::CREATE_WORKSPACE_REQUIRE_SUPERADMIN;
+use crate::workspaces::{check_w_id_conflict, CREATE_WORKSPACE_REQUIRE_SUPERADMIN};
 use crate::{db::DB, utils::require_super_admin};
 
 use axum::{
@@ -46,20 +46,7 @@ pub(crate) async fn change_workspace_id(
 
     let mut tx = db.begin().await?;
 
-    let workspace_conflict = sqlx::query_scalar!(
-        "SELECT EXISTS(SELECT 1 FROM workspace WHERE id = $1)",
-        &rw.new_id,
-    )
-    .fetch_one(&mut *tx)
-    .await?
-    .unwrap_or(false);
-
-    if workspace_conflict {
-        return Err(Error::BadRequest(format!(
-            "workspace id {} already used",
-            &rw.new_id
-        )));
-    }
+    check_w_id_conflict(&mut tx, &rw.new_id).await?;
 
     // duplicate workspace with new id name
     sqlx::query!(
@@ -144,7 +131,7 @@ pub(crate) async fn change_workspace_id(
     .await?;
 
     sqlx::query!(
-        "UPDATE completed_job SET workspace_id = $1 WHERE workspace_id = $2",
+        "UPDATE v2_job_completed SET workspace_id = $1 WHERE workspace_id = $2",
         &rw.new_id,
         &old_id
     )
@@ -196,6 +183,14 @@ pub(crate) async fn change_workspace_id(
 
     sqlx::query!(
         "UPDATE flow_version SET workspace_id = $1 WHERE workspace_id = $2",
+        &rw.new_id,
+        &old_id
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    sqlx::query!(
+        "UPDATE workspace_runnable_dependencies SET workspace_id = $1 WHERE workspace_id = $2",
         &rw.new_id,
         &old_id
     )
@@ -269,7 +264,7 @@ pub(crate) async fn change_workspace_id(
     .await?;
 
     sqlx::query!(
-        "UPDATE queue SET workspace_id = $1 WHERE workspace_id = $2",
+        "UPDATE v2_job_queue SET workspace_id = $1 WHERE workspace_id = $2",
         &rw.new_id,
         &old_id
     )
@@ -277,7 +272,7 @@ pub(crate) async fn change_workspace_id(
     .await?;
 
     sqlx::query!(
-        "UPDATE job SET workspace_id = $1 WHERE workspace_id = $2",
+        "UPDATE v2_job SET workspace_id = $1 WHERE workspace_id = $2",
         &rw.new_id,
         &old_id
     )
@@ -430,7 +425,10 @@ pub(crate) async fn delete_workspace(
     sqlx::query!("DELETE FROM dependency_map WHERE workspace_id = $1", &w_id)
         .execute(&mut *tx)
         .await?;
-    sqlx::query!("DELETE FROM queue WHERE workspace_id = $1", &w_id)
+    sqlx::query!("DELETE FROM v2_job_queue WHERE workspace_id = $1", &w_id)
+        .execute(&mut *tx)
+        .await?;
+    sqlx::query!("DELETE FROM v2_job WHERE workspace_id = $1", &w_id)
         .execute(&mut *tx)
         .await?;
     sqlx::query!("DELETE FROM capture WHERE workspace_id = $1", &w_id)
@@ -468,9 +466,12 @@ pub(crate) async fn delete_workspace(
         .execute(&mut *tx)
         .await?;
 
-    sqlx::query!("DELETE FROM completed_job WHERE workspace_id = $1", &w_id)
-        .execute(&mut *tx)
-        .await?;
+    sqlx::query!(
+        "DELETE FROM v2_job_completed WHERE workspace_id = $1",
+        &w_id
+    )
+    .execute(&mut *tx)
+    .await?;
 
     sqlx::query!("DELETE FROM job_stats WHERE workspace_id = $1", &w_id)
         .execute(&mut *tx)

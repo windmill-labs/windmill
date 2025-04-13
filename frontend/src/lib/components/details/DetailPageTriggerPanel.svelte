@@ -7,14 +7,15 @@
 		Terminal,
 		Webhook,
 		Unplug,
-		PlugZap
+		PlugZap,
+		Database
 	} from 'lucide-svelte'
 
 	import HighlightTheme from '../HighlightTheme.svelte'
-	import KafkaIcon from '../icons/KafkaIcon.svelte'
-	import NatsIcon from '../icons/NatsIcon.svelte'
 	import ToggleButtonGroup from '../common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '../common/toggleButton-v2/ToggleButton.svelte'
+	import { MqttIcon, NatsIcon, KafkaIcon, AwsIcon } from '../icons'
+	import GoogleCloudIcon from '../icons/GoogleCloudIcon.svelte'
 
 	export let triggerSelected:
 		| 'webhooks'
@@ -26,13 +27,22 @@
 		| 'kafka'
 		| 'postgres'
 		| 'nats'
+		| 'sqs'
+		| 'mqtt'
+		| 'gcp'
 		| 'scheduledPoll' = 'webhooks'
 	export let simplfiedPoll: boolean = false
 
-	export let eventStreamType: 'kafka' | 'nats' = 'kafka'
+	export let eventStreamType: 'kafka' | 'nats' | 'sqs' | 'mqtt' | 'gcp' = 'kafka'
 
 	$: {
-		if (triggerSelected === 'kafka' || triggerSelected === 'nats') {
+		if (
+			triggerSelected === 'kafka' ||
+			triggerSelected === 'nats' ||
+			triggerSelected === 'sqs' ||
+			triggerSelected === 'mqtt' ||
+			triggerSelected === 'gcp'
+		) {
 			eventStreamType = triggerSelected
 		}
 	}
@@ -69,11 +79,11 @@
 			</Tab>
 			<Tab value="postgres">
 				<span class="flex flex-row gap-2 items-center text-xs">
-					<Unplug size={12} />
+					<Database size={12} />
 					Postgres
 				</span>
 			</Tab>
-			<Tab value="kafka" otherValues={['nats']}>
+			<Tab value="kafka" otherValues={['nats', 'sqs', 'mqtt', 'gcp']}>
 				<span class="flex flex-row gap-2 items-center text-xs">
 					<PlugZap size={12} />
 					Event streams
@@ -106,17 +116,26 @@
 						<slot name="websockets" />
 					{:else if triggerSelected === 'postgres'}
 						<slot name="postgres" />
-					{:else if triggerSelected === 'kafka' || triggerSelected === 'nats'}
+					{:else if triggerSelected === 'kafka' || triggerSelected === 'nats' || triggerSelected === 'sqs' || triggerSelected === 'mqtt' || triggerSelected === 'gcp'}
 						<div class="m-1.5">
-							<ToggleButtonGroup bind:selected={eventStreamType}>
-								<ToggleButton value="kafka" label="Kafka" icon={KafkaIcon} />
-								<ToggleButton value="nats" label="NATS" icon={NatsIcon} />
+							<ToggleButtonGroup bind:selected={eventStreamType} let:item>
+								<ToggleButton value="kafka" label="Kafka" icon={KafkaIcon} {item} />
+								<ToggleButton value="nats" label="NATS" icon={NatsIcon} {item} />
+								<ToggleButton value="mqtt" label="MQTT" icon={MqttIcon} {item} />
+								<ToggleButton value="sqs" label="SQS" icon={AwsIcon} {item} />
+								<ToggleButton value="gcp" label="GCP Pub/Sub" icon={GoogleCloudIcon} {item} />
 							</ToggleButtonGroup>
 						</div>
 						{#if eventStreamType === 'kafka'}
 							<slot name="kafka" />
 						{:else if eventStreamType === 'nats'}
 							<slot name="nats" />
+						{:else if eventStreamType === 'sqs'}
+							<slot name="sqs" />
+						{:else if eventStreamType === 'mqtt'}
+							<slot name="mqtt" />
+						{:else if eventStreamType === 'gcp'}
+							<slot name="gcp" />
 						{/if}
 					{:else if triggerSelected === 'cli'}
 						<slot name="cli" />

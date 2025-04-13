@@ -122,8 +122,13 @@
 			<Toggle
 				options={{
 					right: 'Continue on disapproval/timeout',
-					rightTooltip:
-						'Instead of failing the flow and bubbling up the error, continue to the next step which would allow to put a branchone right after to handle both cases separately. If any disapproval/timeout event is received, the resume payload will be similar to every error result in Winmdill, an object containing an `error` field which you can use to distinguish between approvals and disapproval/timeouts'
+					rightTooltip: `Instead of failing the flow and bubbling up the error, continue to the next step which would allow to put a branchone right after to handle both cases separately. 
+						If any disapproval/timeout event is received, the resume payload will be similar to every error result in Windmill, an object containing an "error" field which you can use 
+						to distinguish between approvals and disapproval/timeouts. 
+						
+						We recommend using the expr "resume?.error" to handle null payload values. 
+						To filter timeout, use "resume?.error?.name === "SuspendedTimedOut" 
+						To filter disapproval, use "resume?.error?.name === "SuspendedDisapproved"`
 				}}
 				checked={Boolean(flowModule.suspend?.continue_on_disapprove_timeout)}
 				disabled={!Boolean(flowModule.suspend)}
@@ -133,6 +138,14 @@
 					}
 				}}
 			/>
+			{#if Boolean(flowModule.suspend?.continue_on_disapprove_timeout)}
+				<Alert type="info" title="Continue on disapproval/timeout">
+					We recommend using the expr <code>resume?.error</code> to handle null payload values.
+					<br />
+					To filter timeout, use <code>resume?.error?.name === "SuspendedTimedOut"</code>. <br />
+					To filter disapproval, use <code>resume?.error?.name === "SuspendedDisapproved"</code>
+				</Alert>
+			{/if}
 		</div>
 	{:else if suspendTabSelected === 'permissions'}
 		<div class="flex flex-col mt-4 gap-4">
@@ -177,7 +190,7 @@
 						}}
 					/>
 
-					<div class="mb-4" />
+					<div class="mb-4"></div>
 
 					{#if Boolean(flowModule.suspend.user_auth_required) && allUserGroups.length !== 0 && flowModule.suspend && schema.properties['groups']}
 						<span class="text-xs font-bold"

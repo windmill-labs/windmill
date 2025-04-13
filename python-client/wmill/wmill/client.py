@@ -40,7 +40,24 @@ class Windmill:
         self.workspace = workspace or os.environ.get("WM_WORKSPACE")
         self.path = os.environ.get("WM_JOB_PATH")
 
+        self.mocked_api = self.get_mocked_api()
+
         assert self.workspace, f"workspace required as an argument or as WM_WORKSPACE environment variable"
+
+    def get_mocked_api(self) -> Optional[dict]:
+        mocked_path = os.environ.get("WM_MOCKED_API_FILE")
+        if not mocked_path:
+            return None
+        logger.info("Using mocked API from %s", mocked_path)
+        mocked_api = {"variables": {}, "resources": {}}
+        try:
+            with open(mocked_path, "r") as f:
+                incoming_mocked_api = json.load(f)
+            mocked_api = {**mocked_api, **incoming_mocked_api}
+        except Exception as e:
+            logger.warning("Error parsing mocked API file at path %s Using empty mocked API.", mocked_path)
+            logger.debug(e)
+        return mocked_api
 
     def get_client(self) -> httpx.Client:
         return httpx.Client(
@@ -277,10 +294,22 @@ class Windmill:
             return result_text
 
     def get_variable(self, path: str) -> str:
+        if self.mocked_api is not None:
+            variables = self.mocked_api["variables"]
+            try:
+                result = variables[path]
+                return result
+            except KeyError:
+                logger.info(f"MockedAPI present, but variable not found at {path}, falling back to real API")
+
         """Get variable from Windmill"""
         return self.get(f"/w/{self.workspace}/variables/get_value/{path}").json()
 
     def set_variable(self, path: str, value: str, is_secret: bool = False) -> None:
+        if self.mocked_api is not None:
+            self.mocked_api["variables"][path] = value
+            return
+
         """Set variable from Windmill"""
         # check if variable exists
         r = self.get(f"/w/{self.workspace}/variables/get/{path}", raise_for_status=False)
@@ -307,6 +336,18 @@ class Windmill:
         path: str,
         none_if_undefined: bool = False,
     ) -> dict | None:
+        if self.mocked_api is not None:
+            resources = self.mocked_api["resources"]
+            try:
+                result = resources[path]
+                return result
+            except KeyError:
+                # NOTE: should mocked_api respect `none_if_undefined`?
+                if none_if_undefined:
+                    logger.info(f"resource not found at ${path}, but none_if_undefined is True, so returning None")
+                    return None
+                logger.info(f"MockedAPI present, but resource not found at ${path}, falling back to real API")
+
         """Get resource from Windmill"""
         try:
             return self.get(f"/w/{self.workspace}/resources/get_value_interpolated/{path}").json()
@@ -322,6 +363,10 @@ class Windmill:
         path: str,
         resource_type: str,
     ):
+        if self.mocked_api is not None:
+            self.mocked_api["resources"][path] = value
+            return
+
         # check if resource exists
         r = self.get(f"/w/{self.workspace}/resources/get/{path}", raise_for_status=False)
         if r.status_code == 404:
@@ -541,6 +586,12 @@ class Windmill:
             raise Exception("Could not write file to S3") from e
         return S3Object(s3=response["file_key"])
 
+    def sign_s3_objects(self, s3_objects: list[S3Object]) -> list[S3Object]:
+        return self.post(f"/w/{self.workspace}/apps/sign_s3_objects", json={"s3_objects": s3_objects}).json()
+
+    def sign_s3_object(self, s3_object: S3Object) -> S3Object:
+        return self.post(f"/w/{self.workspace}/apps/sign_s3_objects", json={"s3_objects": [s3_object]}).json()[0]
+
     def __boto3_connection_settings(self, s3_resource) -> Boto3ConnectionSettings:
         endpoint_url_prefix = "https://" if s3_resource["useSSL"] else "http://"
         return Boto3ConnectionSettings(
@@ -708,6 +759,13 @@ class Windmill:
         Indeed, in the viewer context WM_USERNAME is set to the username of the viewer but WM_EMAIL is set to the email of the creator of the app.
         """
         return self.get(f"/w/{self.workspace}/users/username_to_email/{username}").text
+    
+
+    def send_teams_message(self, conversation_id: str, text: str, success: bool = True, card_block: dict = None):
+        """
+        Send a message to a Microsoft Teams conversation with conversation_id, where success is used to style the message
+        """
+        return self.post(f"/teams/activities", json={"conversation_id": conversation_id, "text": text, "success": success, "card_block": card_block})
 
 
 def init_global_client(f):
@@ -923,6 +981,24 @@ def write_s3_file(
 
 
 @init_global_client
+def sign_s3_objects(s3_objects: list[S3Object]) -> list[S3Object]:
+    """
+    Sign S3 objects to be used by anonymous users in public apps
+    Returns a list of signed s3 tokens
+    """
+    return _client.sign_s3_objects(s3_objects)
+
+
+@init_global_client
+def sign_s3_object(s3_object: S3Object) -> S3Object:
+    """
+    Sign S3 object to be used by anonymous users in public apps
+    Returns a signed s3 object
+    """
+    return _client.sign_s3_object(s3_object)
+
+
+@init_global_client
 def whoami() -> dict:
     """
     Returns the current user
@@ -1067,6 +1143,10 @@ def request_interactive_slack_approval(
         default_args_json=default_args_json,
         dynamic_enums_json=dynamic_enums_json,
     )
+
+@init_global_client
+def send_teams_message(conversation_id: str, text: str, success: bool, card_block: dict = None):
+    return _client.send_teams_message(conversation_id, text, success, card_block)
 
 @init_global_client
 def cancel_running() -> dict:

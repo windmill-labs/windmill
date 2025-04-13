@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { Button, Drawer, DrawerContent, Popup } from '$lib/components/common'
+	import { Button, Drawer, DrawerContent } from '$lib/components/common'
 	import { base } from '$lib/base'
 	import FlowModuleScript from '$lib/components/flows/content/FlowModuleScript.svelte'
 	import FlowPathViewer from '$lib/components/flows/content/FlowPathViewer.svelte'
@@ -23,8 +23,12 @@
 	import { sendUserToast } from '$lib/toast'
 	import { autoPlacement } from '@floating-ui/core'
 	import { ExternalLink, Eye, GitFork, Pen, RefreshCw, Trash } from 'lucide-svelte'
+<<<<<<< HEAD
 	import { get } from 'svelte/store'
 	import RunButton from '$lib/components/RunButton.svelte'
+=======
+	import Popover from '$lib/components/meltComponents/Popover.svelte'
+>>>>>>> main
 
 	export let runnable: RunnableByPath
 	export let fields:
@@ -197,7 +201,7 @@
 				Fork
 			</Button>
 		{/if}
-		<Popup
+		<Popover
 			floatingConfig={{
 				middleware: [
 					autoPlacement({
@@ -212,8 +216,10 @@
 					})
 				]
 			}}
+			closeButton
+			contentClasses="block text-primary text-xs p-4 w-[20vh]"
 		>
-			<svelte:fragment slot="button">
+			<svelte:fragment slot="trigger">
 				<Button
 					nonCaptureEvent={true}
 					btnClasses={'bg-surface text-primay hover:bg-hover'}
@@ -222,11 +228,12 @@
 					size="xs">Cache</Button
 				>
 			</svelte:fragment>
-			<div class="block text-primary">
+			<svelte:fragment slot="content">
 				Since this is a reference to a workspace {runnable.runType}, set the cache in the {runnable.runType}
-				settings directly by editing it. The cache will be shared by any app or flow that uses this {runnable.runType}.
-			</div>
-		</Popup>
+				settings directly by editing it. The cache will be shared by any app or flow that uses this
+				{runnable.runType}.
+			</svelte:fragment>
+		</Popover>
 
 		<input
 			on:keydown|stopPropagation

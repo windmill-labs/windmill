@@ -47,9 +47,11 @@
 	// All Filters
 	// Filter by
 	let path: string | null = $page.params.path
+	let worker: string | null = $page.url.searchParams.get('worker')
 	let user: string | null = $page.url.searchParams.get('user')
 	let folder: string | null = $page.url.searchParams.get('folder')
 	let label: string | null = $page.url.searchParams.get('label')
+	let allowWildcards: boolean = $page.url.searchParams.get('allow_wildcards') == 'true'
 	let concurrencyKey: string | null = $page.url.searchParams.get('concurrency_key')
 	let tag: string | null = $page.url.searchParams.get('tag')
 	// Rest of filters handled by RunsFilter
@@ -68,14 +70,14 @@
 		$page.url.searchParams.get('show_schedules') != undefined
 			? $page.url.searchParams.get('show_schedules') == 'true'
 			: localStorage.getItem('show_schedules_in_run') == 'false'
-			? false
-			: true
+				? false
+				: true
 	let showFutureJobs: boolean =
 		$page.url.searchParams.get('show_future_jobs') != undefined
 			? $page.url.searchParams.get('show_future_jobs') == 'true'
 			: localStorage.getItem('show_future_jobs') == 'false'
-			? false
-			: true
+				? false
+				: true
 
 	let argFilter: any = $page.url.searchParams.get('arg')
 		? JSON.parse(decodeURIComponent($page.url.searchParams.get('arg') ?? '{}'))
@@ -89,7 +91,7 @@
 	let maxTs = $page.url.searchParams.get('max_ts') ?? undefined
 	let schedulePath = $page.url.searchParams.get('schedule_path') ?? undefined
 	let jobKindsCat = $page.url.searchParams.get('job_kinds') ?? 'runs'
-	let allWorkspaces = $page.url.searchParams.get('all_workspaces') == 'true' ?? false
+	let allWorkspaces = $page.url.searchParams.get('all_workspaces') == 'true'
 	let lastFetchWentToEnd = false
 
 	function loadFromQuery() {
@@ -99,6 +101,8 @@
 		label = $page.url.searchParams.get('label')
 		concurrencyKey = $page.url.searchParams.get('concurrency_key')
 		tag = $page.url.searchParams.get('tag')
+		worker = $page.url.searchParams.get('worker')
+		allowWildcards = $page.url.searchParams.get('allow_wildcards') == 'true'
 		// Rest of filters handled by RunsFilter
 		success = ($page.url.searchParams.get('success') ?? undefined) as
 			| 'running'
@@ -114,14 +118,14 @@
 			$page.url.searchParams.get('show_schedules') != undefined
 				? $page.url.searchParams.get('show_schedules') == 'true'
 				: localStorage.getItem('show_schedules_in_run') == 'false'
-				? false
-				: true
+					? false
+					: true
 		showFutureJobs =
 			$page.url.searchParams.get('show_future_jobs') != undefined
 				? $page.url.searchParams.get('show_future_jobs') == 'true'
 				: localStorage.getItem('show_future_jobs') == 'false'
-				? false
-				: true
+					? false
+					: true
 
 		argFilter = $page.url.searchParams.get('arg')
 			? JSON.parse(decodeURIComponent($page.url.searchParams.get('arg') ?? '{}'))
@@ -135,7 +139,7 @@
 		maxTs = $page.url.searchParams.get('max_ts') ?? undefined
 		schedulePath = $page.url.searchParams.get('schedule_path') ?? undefined
 		jobKindsCat = $page.url.searchParams.get('job_kinds') ?? 'runs'
-		allWorkspaces = $page.url.searchParams.get('all_workspaces') == 'true' ?? false
+		allWorkspaces = $page.url.searchParams.get('all_workspaces') == 'true'
 	}
 
 	let queue_count: Tweened<number> | undefined = undefined
@@ -152,11 +156,20 @@
 	let resultError = ''
 	let filterTimeout: NodeJS.Timeout | undefined = undefined
 	let selectedManualDate = 0
-	let autoRefresh: boolean = true
+	let autoRefresh: boolean = getAutoRefresh()
 	let runDrawer: Drawer
 	let isCancelingVisibleJobs = false
 	let isCancelingFilteredJobs = false
 	let lookback: number = 1
+
+	function getAutoRefresh() {
+		try {
+			return localStorage.getItem('auto_refresh_in_runs') != 'false'
+		} catch (e) {
+			console.error('Error getting auto refresh', e)
+			return true
+		}
+	}
 
 	let innerWidth = window.innerWidth
 	let jobLoader: JobLoader | undefined = undefined
@@ -170,6 +183,7 @@
 	let runsTable: RunsTable
 
 	$: (user ||
+		worker ||
 		label ||
 		folder ||
 		path ||
@@ -185,11 +199,14 @@
 		tag ||
 		graph ||
 		maxTs ||
+		minTs ||
 		allWorkspaces ||
+		allowWildcards ||
 		$workspaceStore) &&
 		setQuery(false)
 
 	$: minTs || setQuery(true)
+	$: maxTs || setQuery(true)
 
 	function setQuery(replaceState: boolean) {
 		let searchParams = new URLSearchParams()
@@ -198,6 +215,12 @@
 			searchParams.set('user', user)
 		} else {
 			searchParams.delete('user')
+		}
+
+		if (worker) {
+			searchParams.set('worker', worker)
+		} else {
+			searchParams.delete('worker')
 		}
 
 		if (folder) {
@@ -289,6 +312,12 @@
 			searchParams.delete('label')
 		}
 
+		if (allowWildcards) {
+			searchParams.set('allow_wildcards', allowWildcards.toString())
+		} else {
+			searchParams.delete('allow_wildcards')
+		}
+
 		if (graph != 'RunChart') {
 			searchParams.set('graph', graph)
 		} else {
@@ -303,7 +332,7 @@
 			$page.url.pathname != newUrl.split('?')[0]
 		) {
 			// replaceState(newUrl.toString(), $page.state)
-			goto(newUrl.toString(), { replaceState: replaceState })
+			goto(newUrl.toString(), { replaceState: replaceState, keepFocus: true })
 		}
 	}
 
@@ -360,6 +389,7 @@
 		concurrencyKey = null
 		tag = null
 		schedulePath = undefined
+		worker = null
 	}
 
 	function filterByUser(e: CustomEvent<string>) {
@@ -380,6 +410,7 @@
 		concurrencyKey = null
 		tag = null
 		schedulePath = undefined
+		worker = null
 	}
 
 	function filterByLabel(e: CustomEvent<string>) {
@@ -390,6 +421,8 @@
 		concurrencyKey = null
 		tag = null
 		schedulePath = undefined
+		worker = null
+		allowWildcards = false
 	}
 
 	function filterByConcurrencyKey(e: CustomEvent<string>) {
@@ -400,6 +433,7 @@
 		concurrencyKey = e.detail
 		tag = null
 		schedulePath = undefined
+		worker = null
 	}
 
 	function filterByTag(e: CustomEvent<string>) {
@@ -410,6 +444,8 @@
 		concurrencyKey = null
 		tag = e.detail
 		schedulePath = undefined
+		worker = null
+		allowWildcards = false
 	}
 
 	function filterBySchedule(e: CustomEvent<string>) {
@@ -420,6 +456,19 @@
 		concurrencyKey = null
 		tag = null
 		schedulePath = e.detail
+		worker = null
+	}
+
+	function filterByWorker(e: CustomEvent<string>) {
+		path = null
+		user = null
+		folder = null
+		label = null
+		concurrencyKey = null
+		tag = null
+		schedulePath = undefined
+		worker = e.detail
+		allowWildcards = false
 	}
 
 	let calendarChangeTimeout: NodeJS.Timeout | undefined = undefined
@@ -464,8 +513,8 @@
 				success == 'running' || success == 'suspended'
 					? true
 					: success == 'waiting'
-					? false
-					: undefined,
+						? false
+						: undefined,
 			isSkipped: isSkipped ? undefined : false,
 			// isFlowStep: jobKindsCat != 'all' ? false : undefined,
 			hasNullParent:
@@ -484,7 +533,8 @@
 				resultFilter && resultFilter != '{}' && resultFilter != '' && resultError == ''
 					? resultFilter
 					: undefined,
-			allWorkspaces: allWorkspaces ? true : undefined
+			allWorkspaces: allWorkspaces ? true : undefined,
+			allowWildcards: allowWildcards ? true : undefined
 		}
 
 		selectedFiltersString = JSON.stringify(selectedFilters, null, 4)
@@ -529,6 +579,7 @@
 		schedulePath = undefined
 		path = null
 		tag = null
+		worker = null
 		if (success == f) {
 			success = undefined
 		} else {
@@ -541,11 +592,13 @@
 </script>
 
 <JobLoader
+	{allowWildcards}
 	{allWorkspaces}
 	bind:jobs
 	{user}
 	{folder}
 	{path}
+	{worker}
 	{label}
 	{success}
 	{isSkipped}
@@ -639,13 +692,12 @@
 	}}
 />
 
-{#if $userStore?.operator && $workspaceStore && !$userWorkspaces.find(_ => _.id === $workspaceStore)?.operator_settings?.runs}
-<div class="bg-red-100 border-l-4 border-red-600 text-orange-700 p-4 m-4 mt-12" role="alert">
-	<p class="font-bold">Unauthorized</p>
-	<p>Page not available for operators</p>
-</div>
-{:else}
-{#if innerWidth > 900}
+{#if $userStore?.operator && $workspaceStore && !$userWorkspaces.find((_) => _.id === $workspaceStore)?.operator_settings?.runs}
+	<div class="bg-red-100 border-l-4 border-red-600 text-orange-700 p-4 m-4 mt-12" role="alert">
+		<p class="font-bold">Unauthorized</p>
+		<p>Page not available for operators</p>
+	</div>
+{:else if innerWidth > 900}
 	<div class="w-full h-screen">
 		<div class="px-2">
 			<div class="flex items-center space-x-2 flex-row justify-between">
@@ -669,12 +721,14 @@
 					</div>
 				</div>
 				<RunsFilter
+					bind:allowWildcards
 					bind:isSkipped
 					bind:user
 					bind:folder
 					bind:label
 					bind:concurrencyKey
 					bind:tag
+					bind:worker
 					bind:path
 					bind:success
 					bind:argFilter
@@ -702,13 +756,16 @@
 				<div class="absolute right-0 -mt-6">
 					<div class="flex flex-row justify-between items-center">
 						<ToggleButtonGroup
-							bind:selected={graph}
-							on:selected={() => {
+							selected={graph}
+							on:selected={({ detail }) => {
+								graph = detail
 								graphIsRunsChart = graph === 'RunChart'
 							}}
+							let:item
 						>
-							<ToggleButton value="RunChart" label="Duration" />
+							<ToggleButton value="RunChart" label="Duration" {item} />
 							<ToggleButton
+								{item}
 								value="ConcurrencyChart"
 								label="Concurrency"
 								icon={warnJobLimit ? AlertTriangle : undefined}
@@ -969,6 +1026,9 @@
 				<Toggle
 					size="xs"
 					bind:checked={autoRefresh}
+					on:change={() => {
+						localStorage.setItem('auto_refresh_in_runs', autoRefresh ? 'true' : 'false')
+					}}
 					options={{ right: 'Auto-refresh' }}
 					textClass="whitespace-nowrap"
 				/>
@@ -997,6 +1057,7 @@
 							on:filterByConcurrencyKey={filterByConcurrencyKey}
 							on:filterByTag={filterByTag}
 							on:filterBySchedule={filterBySchedule}
+							on:filterByWorker={filterByWorker}
 							bind:this={runsTable}
 						/>
 					{:else}
@@ -1014,6 +1075,7 @@
 						{:else}
 							<JobPreview
 								on:filterByConcurrencyKey={filterByConcurrencyKey}
+								on:filterByWorker={filterByWorker}
 								id={selectedIds[0]}
 								workspace={selectedWorkspace}
 							/>
@@ -1047,6 +1109,7 @@
 					</Tooltip>
 				</div>
 				<RunsFilter
+					bind:allowWildcards
 					bind:isSkipped
 					{paths}
 					{usernames}
@@ -1056,6 +1119,7 @@
 					bind:path
 					bind:user
 					bind:label
+					bind:worker
 					bind:concurrencyKey
 					bind:tag
 					bind:success
@@ -1079,13 +1143,15 @@
 			<div class="relative z-10">
 				<div class="absolute right-2">
 					<ToggleButtonGroup
-						bind:selected={graph}
-						on:selected={() => {
+						selected={graph}
+						on:selected={({ detail }) => {
+							graph = detail
 							graphIsRunsChart = graph == 'RunChart'
 						}}
+						let:item
 					>
-						<ToggleButton value="RunChart" label="Duration" />
-						<ToggleButton value="ConcurrencyChart" label="Concurrency" />
+						<ToggleButton value="RunChart" label="Duration" {item} />
+						<ToggleButton value="ConcurrencyChart" label="Concurrency" {item} />
 					</ToggleButtonGroup>
 					{#if !graphIsRunsChart}
 						<DropdownV2
@@ -1346,6 +1412,9 @@
 				<Toggle
 					size="xs"
 					bind:checked={autoRefresh}
+					on:change={() => {
+						localStorage.setItem('auto_refresh_in_runs', autoRefresh ? 'true' : 'false')
+					}}
 					options={{ right: 'Auto-refresh' }}
 					textClass="whitespace-nowrap"
 				/>
@@ -1371,10 +1440,10 @@
 				on:filterByFolder={filterByFolder}
 				on:filterByLabel={filterByLabel}
 				on:filterByConcurrencyKey={filterByConcurrencyKey}
+				on:filterByWorker={filterByWorker}
 				on:filterByTag={filterByTag}
 				bind:this={runsTable}
 			/>
 		</div>
 	</div>
-{/if}
 {/if}

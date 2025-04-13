@@ -5,6 +5,7 @@
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
 
 	let name: string = ''
+	export let customName: string | undefined = undefined
 
 	const dispatch = createEventDispatcher()
 
@@ -12,23 +13,21 @@
 		dispatch('add', { name })
 		name = ''
 	}
-
-	let open: boolean = false
 </script>
 
-<Popover closeButton={false} bind:open>
+<Popover closeButton={false} class="w-full">
 	<svelte:fragment slot="trigger">
 		<slot name="trigger" />
 	</svelte:fragment>
-	<svelte:fragment slot="content">
+	<svelte:fragment slot="content" let:close>
 		<div class="flex flex-row gap-2 p-2 rounded-md">
 			<input
 				bind:value={name}
-				placeholder="Field name"
+				placeholder={`${customName ?? 'Field'} name`}
 				on:keydown={(event) => {
 					if (event.key === 'Enter') {
 						addField()
-						open = false
+						close()
 					}
 				}}
 			/>
@@ -39,12 +38,12 @@
 				id="flow-editor-add-property"
 				on:click={() => {
 					addField()
-					open = false
+					close()
 				}}
 				disabled={!name}
 				shortCut={{ Icon: CornerDownLeft, withoutModifier: true }}
 			>
-				Add field
+				Add {customName ? customName.toLowerCase() : 'field'}
 			</Button>
 		</div>
 	</svelte:fragment>

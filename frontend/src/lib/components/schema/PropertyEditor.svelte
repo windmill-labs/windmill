@@ -15,6 +15,7 @@
 	import ToggleButtonGroup from '../common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '../common/toggleButton-v2/ToggleButton.svelte'
 	import { createEventDispatcher, onMount } from 'svelte'
+	import { createDispatcherIfMounted } from '$lib/createDispatcherIfMounted'
 
 	export let description: string = ''
 	export let format: string | undefined = undefined
@@ -43,6 +44,7 @@
 		| undefined = undefined
 
 	const dispatch = createEventDispatcher()
+	const dispatchIfMounted = createDispatcherIfMounted(dispatch)
 	let el: HTMLTextAreaElement | undefined = undefined
 
 	let oneOfSelected: string | undefined =
@@ -102,7 +104,7 @@
 		if (!deepEqual(extra, initialExtra)) {
 			initialExtra = structuredClone(extra)
 			console.debug('property content updated')
-			dispatch('change')
+			dispatchIfMounted('change')
 		}
 	}
 
@@ -115,7 +117,7 @@
 				order
 			}
 			console.debug('property schema updated')
-			dispatch('change')
+			dispatchIfMounted('change')
 		}
 	}
 </script>
@@ -132,7 +134,7 @@
 				bind:value={description}
 				on:keydown={onKeyDown}
 				placeholder="Field description"
-			/>
+			></textarea>
 		</Label>
 
 		<Label label="Custom title" class="w-full">
@@ -156,7 +158,7 @@
 				bind:value={placeholder}
 				on:change={() => dispatch('change')}
 				disabled={!shouldDisplayPlaceholder(type, format, enum_, contentEncoding, pattern, extra)}
-			/>
+			></textarea>
 		</Label>
 
 		{#if type == 'array'}
@@ -193,9 +195,9 @@
 								bind:currencyLocale={extra['currencyLocale']}
 							/>
 						{:else if type == 'object' && oneOf && oneOf.length >= 2 && !isFlowInput && !isAppInput}
-							<ToggleButtonGroup bind:selected={oneOfSelected} class="mb-2">
+							<ToggleButtonGroup bind:selected={oneOfSelected} class="mb-2" let:item>
 								{#each oneOf as obj}
-									<ToggleButton value={obj.title} label={obj.title} />
+									<ToggleButton value={obj.title ?? ''} label={obj.title} {item} />
 								{/each}
 							</ToggleButtonGroup>
 							{#if oneOfSelected && oneOfSchemas}

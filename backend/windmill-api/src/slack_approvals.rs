@@ -23,7 +23,7 @@ use windmill_common::{
     error::{self, Error},
     jobs::JobKind,
     scripts::ScriptHash,
-    variables::{build_crypt, decrypt},
+    variables::get_secret_value_as_admin,
 };
 
 #[derive(Deserialize, Debug)]
@@ -838,26 +838,9 @@ fn process_non_datetime_inputs(
 }
 
 async fn get_slack_token(db: &DB, slack_resource_path: &str, w_id: &str) -> anyhow::Result<String> {
-    let slack_token = match sqlx::query!(
-        "SELECT value, is_secret FROM variable WHERE path = $1",
-        slack_resource_path
-    )
-    .fetch_optional(db)
-    .await?
-    {
-        Some(row) => row,
-        None => {
-            return Err(anyhow::anyhow!("No slack token found"));
-        }
-    };
-
-    if slack_token.is_secret {
-        let mc = build_crypt(&db, w_id).await?;
-        let bot_token = decrypt(&mc, slack_token.value)?;
-        Ok(bot_token)
-    } else {
-        Ok(slack_token.value)
-    }
+    get_secret_value_as_admin(db, w_id, slack_resource_path)
+        .await
+        .map_err(|e| anyhow::anyhow!(e.to_string()))
 }
 
 // Sends a Slack message with a button that opens a modal
@@ -977,17 +960,17 @@ async fn get_modal_blocks(
 
     let (job_kind, script_hash, raw_flow, parent_job_id, created_at, created_by, script_path, args) = sqlx::query!(
         "SELECT
-            queue.job_kind AS \"job_kind: JobKind\",
-            queue.script_hash AS \"script_hash: ScriptHash\",
-            queue.raw_flow AS \"raw_flow: sqlx::types::Json<Box<RawValue>>\",
-            completed_job.parent_job AS \"parent_job: Uuid\",
-            completed_job.created_at AS \"created_at: chrono::NaiveDateTime\",
-            completed_job.created_by AS \"created_by!\",
-            queue.script_path,
-            queue.args AS \"args: sqlx::types::Json<Box<RawValue>>\"
-        FROM queue
-        JOIN completed_job ON completed_job.parent_job = queue.id
-        WHERE completed_job.id = $1 AND completed_job.workspace_id = $2
+            v2_as_queue.job_kind AS \"job_kind!: JobKind\",
+            v2_as_queue.script_hash AS \"script_hash: ScriptHash\",
+            v2_as_queue.raw_flow AS \"raw_flow: sqlx::types::Json<Box<RawValue>>\",
+            v2_as_completed_job.parent_job AS \"parent_job: Uuid\",
+            v2_as_completed_job.created_at AS \"created_at!: chrono::NaiveDateTime\",
+            v2_as_completed_job.created_by AS \"created_by!\",
+            v2_as_queue.script_path,
+            v2_as_queue.args AS \"args: sqlx::types::Json<Box<RawValue>>\"
+        FROM v2_as_queue
+        JOIN v2_as_completed_job ON v2_as_completed_job.parent_job = v2_as_queue.id
+        WHERE v2_as_completed_job.id = $1 AND v2_as_completed_job.workspace_id = $2
         LIMIT 1",
         job_id,
         &w_id

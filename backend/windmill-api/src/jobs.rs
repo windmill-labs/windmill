@@ -26,9 +26,8 @@ use tower::ServiceBuilder;
 use windmill_common::error::JsonResult;
 use windmill_common::flow_status::{JobResult, RestartedFrom};
 use windmill_common::jobs::{format_completed_job_result, format_result, ENTRYPOINT_OVERRIDE};
-use windmill_common::worker::{CLOUD_HOSTED, TMP_DIR};
+use windmill_common::worker::{Connection, CLOUD_HOSTED, TMP_DIR};
 
-#[cfg(all(feature = "enterprise", feature = "parquet"))]
 use windmill_common::scripts::PREVIEW_IS_CODEBASE_HASH;
 use windmill_common::variables::get_workspace_key;
 
@@ -87,8 +86,8 @@ use windmill_common::{METRICS_DEBUG_ENABLED, METRICS_ENABLED};
 
 use windmill_common::{get_latest_deployed_hash_for_path, BASE_URL};
 use windmill_queue::{
-    cancel_job, get_queued_job, get_result_and_success_by_id_from_flow, job_is_complete, push,
-    PushArgs, PushArgsOwned, PushIsolationLevel,
+    cancel_job, get_result_and_success_by_id_from_flow, job_is_complete, push, PushArgs,
+    PushArgsOwned, PushIsolationLevel,
 };
 
 #[cfg(feature = "prometheus")]
@@ -336,16 +335,21 @@ async fn get_root_job(
     Ok(Json(res))
 }
 
-async fn compute_root_job_for_flow(db: &DB, w_id: &str, job_id: Uuid) -> error::Result<String> {
-    let mut job = get_queued_job(&job_id, w_id, db).await?;
-    while let Some(j) = job {
-        if let Some(uuid) = j.parent_job {
-            job = get_queued_job(&uuid, w_id, db).await?;
-        } else {
-            return Ok(j.id.to_string());
+async fn compute_root_job_for_flow(db: &DB, w_id: &str, mut job_id: Uuid) -> error::Result<String> {
+    // TODO: use `root_job` ?
+    loop {
+        job_id = match sqlx::query_scalar!(
+            "SELECT parent_job FROM v2_job WHERE id = $1 AND workspace_id = $2",
+            job_id,
+            w_id
+        )
+        .fetch_one(db)
+        .await
+        {
+            Ok(Some(job_id)) => job_id,
+            _ => return Ok(job_id.to_string()),
         }
     }
-    Ok(job_id.to_string())
 }
 
 async fn get_db_clock(Extension(db): Extension<DB>) -> windmill_common::error::JsonResult<i64> {
@@ -368,7 +372,6 @@ async fn cancel_job_api(
             email: "anonymous".to_string(),
         },
     };
-
     let (mut tx, job_option) = tokio::time::timeout(
         std::time::Duration::from_secs(120),
         windmill_queue::cancel_job(
@@ -384,7 +387,7 @@ async fn cancel_job_api(
     )
     .await
     .map_err(|e| {
-        Error::InternalErr(format!(
+        Error::internal_err(format!(
             "timeout after 120s while cancelling job {id} in {w_id}: {e:#}"
         ))
     })??;
@@ -495,7 +498,7 @@ async fn force_cancel(
     )
     .await
     .map_err(|e| {
-        Error::InternalErr(format!(
+        Error::internal_err(format!(
             "timeout after 120s while cancelling job {id} in {w_id}: {e:#}"
         ))
     })??;
@@ -554,7 +557,7 @@ pub async fn get_path_tag_limits_cache_for_hash(
     .fetch_optional(&mut *tx)
     .await
     .map_err(|e| {
-        Error::InternalErr(format!(
+        Error::internal_err(format!(
             "querying getting path for hash {hash} in {w_id}: {e:#}"
         ))
     })?.ok_or_else(|| Error::NotFound(format!(
@@ -583,7 +586,9 @@ async fn get_flow_job_debug_info(
     Extension(db): Extension<DB>,
     Path((w_id, id)): Path<(String, Uuid)>,
 ) -> error::Result<Response> {
-    let job = GetQuery::new().fetch_queued(&db, id, &w_id).await?;
+    let job = GetQuery::new()
+        .fetch_queued((&db).into(), id, &w_id)
+        .await?;
     if let Some(job) = job {
         let is_flow = job.is_flow();
         if job.is_flow_step || !is_flow {
@@ -602,7 +607,7 @@ async fn get_flow_job_debug_info(
 
         let mut job_ids = vec![];
         let jobs_with_root = sqlx::query_scalar!(
-            "SELECT id FROM queue WHERE workspace_id = $1 and root_job = $2",
+            "SELECT id FROM v2_job WHERE workspace_id = $1 and flow_innermost_root_job = $2",
             &w_id,
             &id,
         )
@@ -672,57 +677,166 @@ async fn get_job(
 }
 
 macro_rules! get_job_query {
-    ("completed_job_view", $($opts:tt)*) => {
+    ("v2_job_completed", $($opts:tt)*) => {
         get_job_query!(
-            @impl "completed_job_view", ($($opts)*),
-            "duration_ms, success, result, deleted, is_skipped, result->'wm_labels' as labels, \
+            @impl "v2_job_completed", ($($opts)*),
+            "v2_job_completed.duration_ms, CASE WHEN status = 'success' OR status = 'skipped' THEN true ELSE false END as success, result_columns, deleted, status = 'skipped' as is_skipped, result->'wm_labels' as labels, \
             CASE WHEN result is null or pg_column_size(result) < 90000 THEN result ELSE '\"WINDMILL_TOO_BIG\"'::jsonb END as result",
+            "",
         )
     };
-    ("queue_view", $($opts:tt)*) => {
+    ("v2_job_queue", $($opts:tt)*) => {
         get_job_query!(
-            @impl "queue_view", ($($opts)*),
-            "scheduled_for, running, last_ping, suspend, suspend_until, same_worker, pre_run_error, visible_to_owner, \
-            root_job, leaf_jobs, concurrent_limit, concurrency_time_window_s, timeout, flow_step_id, cache_ttl",
+            @impl "v2_job_queue", ($($opts)*),
+            "scheduled_for, running, ping as last_ping, suspend, suspend_until, same_worker, pre_run_error, visible_to_owner, \
+            flow_innermost_root_job  AS root_job, flow_leaf_jobs AS leaf_jobs, concurrent_limit, concurrency_time_window_s, timeout, flow_step_id, cache_ttl,\
+            script_entrypoint_override",
+            "LEFT JOIN v2_job_runtime ON v2_job_runtime.id = v2_job_queue.id LEFT JOIN v2_job_status ON v2_job_status.id = v2_job_queue.id",
         )
     };
-    (@impl $table:literal, (with_logs: $with_logs:expr, $($rest:tt)*), $additional_fields:literal, $($args:tt)*) => {
+    (@impl $table:literal, (with_logs: $with_logs:expr, $($rest:tt)*), $additional_fields:literal, $additional_joins:literal, $($args:tt)*) => {
         if $with_logs {
-            get_job_query!(@impl $table, ($($rest)*), $additional_fields, logs = const_format::formatcp!("right({}.logs, 20000)", $table), $($args)*)
+            get_job_query!(@impl $table, ($($rest)*), $additional_fields, $additional_joins, logs = "right(job_logs.logs, 20000)", $($args)*)
         } else {
-            get_job_query!(@impl $table, ($($rest)*), $additional_fields, logs = "null", $($args)*)
+            get_job_query!(@impl $table, ($($rest)*), $additional_fields, $additional_joins, logs = "null", $($args)*)
         }
     };
-    (@impl $table:literal, (with_code: $with_code:expr, $($rest:tt)*), $additional_fields:literal, $($args:tt)*) => {
+    (@impl $table:literal, (with_code: $with_code:expr, $($rest:tt)*), $additional_fields:literal, $additional_joins:literal, $($args:tt)*) => {
         if $with_code {
-            get_job_query!(@impl $table, ($($rest)*), $additional_fields, lock = "raw_lock", code = "raw_code", $($args)*)
+            get_job_query!(@impl $table, ($($rest)*), $additional_fields, $additional_joins, lock = "raw_lock", code = "raw_code", $($args)*)
         } else {
-            get_job_query!(@impl $table, ($($rest)*), $additional_fields, lock = "null", code = "null", $($args)*)
+            get_job_query!(@impl $table, ($($rest)*), $additional_fields, $additional_joins, lock = "null", code = "null", $($args)*)
         }
     };
-    (@impl $table:literal, (with_flow: $with_flow:expr, $($rest:tt)*), $additional_fields:literal, $($args:tt)*) => {
+    (@impl $table:literal, (with_flow: $with_flow:expr, $($rest:tt)*), $additional_fields:literal, $additional_joins:literal, $($args:tt)*) => {
         if $with_flow {
-            get_job_query!(@impl $table, ($($rest)*), $additional_fields, flow = "raw_flow", $($args)*)
+            get_job_query!(@impl $table, ($($rest)*), $additional_fields, $additional_joins, flow = "raw_flow", $($args)*)
         } else {
-            get_job_query!(@impl $table, ($($rest)*), $additional_fields, flow = "null", $($args)*)
+            get_job_query!(@impl $table, ($($rest)*), $additional_fields, $additional_joins, flow = "null", $($args)*)
         }
     };
-    (@impl $table:literal, (), $additional_fields:literal, $($args:tt)*) => {
+    (@impl $table:literal, (), $additional_fields:literal, $additional_joins:literal, $($args:tt)*) => {
         const_format::formatcp!(
             "SELECT \
-            id, {table}.workspace_id, parent_job, created_by, {table}.created_at, started_at, script_hash, script_path, \
-            CASE WHEN args is null or pg_column_size(args) < 90000 THEN args ELSE '{{\"reason\": \"WINDMILL_TOO_BIG\"}}'::jsonb END as args, \
-            {logs} as logs, {code} as raw_code, canceled, canceled_by, canceled_reason, job_kind, \
-            schedule_path, permissioned_as, flow_status, {flow} as raw_flow, is_flow_step, language, \
-            {lock} as raw_lock, email, visible_to_owner, mem_peak, tag, priority, {additional_fields} \
-            FROM {table} \
-            WHERE id = $1 AND {table}.workspace_id = $2 AND ($3::text[] IS NULL OR tag = ANY($3)) LIMIT 1",
+            {table}.id, {table}.workspace_id, parent_job, v2_job.created_by, v2_job.created_at, started_at, v2_job.runnable_id as script_hash, v2_job.runnable_path as script_path, \
+            CASE WHEN args is null THEN NULL
+            WHEN pg_column_size(args) < 90000 THEN 
+                CASE WHEN jsonb_typeof(args) = 'object' THEN args
+                ELSE jsonb_build_object('value', args)
+                END
+            ELSE '{{\"reason\": \"WINDMILL_TOO_BIG\"}}'::jsonb END as args, COALESCE(flow_status, workflow_as_code_status) AS flow_status, \
+            {logs} as logs, {code} as raw_code, canceled_by is not null as canceled, canceled_by, canceled_reason, kind as job_kind, \
+            CASE WHEN trigger_kind = 'schedule'::job_trigger_kind THEN trigger END AS schedule_path, permissioned_as, \
+            {flow} as raw_flow, flow_step_id IS NOT NULL AS is_flow_step, script_lang as language, \
+            {lock} as raw_lock, permissioned_as_email as email, visible_to_owner, memory_peak as mem_peak, v2_job.tag, v2_job.priority, preprocessed, worker,\
+            {additional_fields} \
+            FROM {table} 
+            INNER JOIN v2_job ON v2_job.id = {table}.id \
+            {additional_joins} \
+            LEFT JOIN job_logs ON {table}.id = job_id \
+            WHERE {table}.id = $1 AND {table}.workspace_id = $2 AND ($3::text[] IS NULL OR v2_job.tag = ANY($3))",
             table = $table,
             additional_fields = $additional_fields,
+            additional_joins = $additional_joins,
             $($args)*
         )
     }
 }
+
+// CREATE OR REPLACE VIEW v2_as_queue AS
+// SELECT
+//     j.id,
+//     j.workspace_id,
+//     j.parent_job,
+//     j.created_by,
+//     j.created_at,
+//     q.started_at,
+//     q.scheduled_for,
+//     q.running,
+//     j.runnable_id              AS script_hash,
+//     j.runnable_path            AS script_path,
+//     j.args,
+//     j.raw_code,
+//     q.canceled_by IS NOT NULL  AS canceled,
+//     q.canceled_by,
+//     q.canceled_reason,
+//     r.ping                     AS last_ping,
+//     j.kind                     AS job_kind,
+//     CASE WHEN j.trigger_kind = 'schedule'::job_trigger_kind THEN j.trigger END
+//                                AS schedule_path,
+//     j.permissioned_as,
+//     COALESCE(s.flow_status, s.workflow_as_code_status) AS flow_status,
+//     j.raw_flow,
+//     j.flow_step_id IS NOT NULL AS is_flow_step,
+//     j.script_lang              AS language,
+//     q.suspend,
+//     q.suspend_until,
+//     j.same_worker,
+//     j.raw_lock,
+//     j.pre_run_error,
+//     j.permissioned_as_email    AS email,
+//     j.visible_to_owner,
+//     r.memory_peak              AS mem_peak,
+//     j.flow_innermost_root_job  AS root_job,
+//     s.flow_leaf_jobs           AS leaf_jobs,
+//     j.tag,
+//     j.concurrent_limit,
+//     j.concurrency_time_window_s,
+//     j.timeout,
+//     j.flow_step_id,
+//     j.cache_ttl,
+//     j.priority,
+//     NULL::TEXT                 AS logs,
+//     j.script_entrypoint_override,
+//     j.preprocessed
+// FROM v2_job_queue q
+//      JOIN v2_job j USING (id)
+//      LEFT JOIN v2_job_runtime r USING (id)
+//      LEFT JOIN v2_job_status s USING (id)
+// ;
+
+// -- Add up migration script here
+// CREATE OR REPLACE VIEW v2_as_completed_job AS
+// SELECT
+//     j.id,
+//     j.workspace_id,
+//     j.parent_job,
+//     j.created_by,
+//     j.created_at,
+//     c.duration_ms,
+//     c.status = 'success' OR c.status = 'skipped' AS success,
+//     j.runnable_id              AS script_hash,
+//     j.runnable_path            AS script_path,
+//     j.args,
+//     c.result,
+//     FALSE                      AS deleted,
+//     j.raw_code,
+//     c.status = 'canceled'      AS canceled,
+//     c.canceled_by,
+//     c.canceled_reason,
+//     j.kind                     AS job_kind,
+//     CASE WHEN j.trigger_kind = 'schedule'::job_trigger_kind THEN j.trigger END
+//                                AS schedule_path,
+//     j.permissioned_as,
+//     COALESCE(c.flow_status, c.workflow_as_code_status) AS flow_status,
+//     j.raw_flow,
+//     j.flow_step_id IS NOT NULL AS is_flow_step,
+//     j.script_lang              AS language,
+//     c.started_at,
+//     c.status = 'skipped'       AS is_skipped,
+//     j.raw_lock,
+//     j.permissioned_as_email    AS email,
+//     j.visible_to_owner,
+//     c.memory_peak              AS mem_peak,
+//     j.tag,
+//     j.priority,
+//     NULL::TEXT                 AS logs,
+//     c.result_columns,
+//     j.script_entrypoint_override,
+//     j.preprocessed
+// FROM v2_job_completed c
+//      JOIN v2_job j USING (id)
+// ;
 
 #[derive(Copy, Clone)]
 struct GetQuery<'a> {
@@ -813,8 +927,9 @@ impl<'a> GetQuery<'a> {
             // Try to fetch the code from the cache, fallback to the preview code.
             // NOTE: This could check for the job kinds instead of the `or_else` but it's not
             // necessary as `fetch_script` return early if the job kind is not a preview one.
-            cache::job::fetch_script(db, kind, hash)
-                .or_else(|_| cache::job::fetch_preview_script(db, &id, raw_lock, raw_code))
+            let conn = Connection::from(db.clone());
+            cache::job::fetch_script(db.clone(), kind, hash)
+                .or_else(|_| cache::job::fetch_preview_script(&conn, &id, raw_lock, raw_code))
                 .await
                 .ok()
                 .inspect(|data| {
@@ -829,7 +944,7 @@ impl<'a> GetQuery<'a> {
         job_id: Uuid,
         workspace_id: &str,
     ) -> error::Result<Option<JobExtended<QueuedJob>>> {
-        let query = get_job_query!("queue_view",
+        let query = get_job_query!("v2_job_queue",
             with_logs: self.with_logs,
             with_code: self.with_code,
             with_flow: self.with_flow,
@@ -843,7 +958,7 @@ impl<'a> GetQuery<'a> {
 
         self.check_auth(job.as_ref().map(|job| job.created_by.as_str()))?;
         if let Some(job) = job.as_mut() {
-            self.resolve_raw_values(db, job.id, job.job_kind, job.script_hash, job)
+            self.resolve_raw_values(&db, job.id, job.job_kind, job.script_hash, job)
                 .await;
         }
         if self.with_flow {
@@ -861,11 +976,13 @@ impl<'a> GetQuery<'a> {
         job_id: Uuid,
         workspace_id: &str,
     ) -> error::Result<Option<JobExtended<CompletedJob>>> {
-        let query = get_job_query!("completed_job_view",
+        let query = get_job_query!("v2_job_completed",
             with_logs: self.with_logs,
             with_code: self.with_code,
             with_flow: self.with_flow,
         );
+
+        // tracing::info!("query: {}", query);
         let query = sqlx::query_as::<_, JobExtended<CompletedJob>>(query)
             .bind(job_id)
             .bind(workspace_id)
@@ -878,12 +995,14 @@ impl<'a> GetQuery<'a> {
             self.resolve_raw_values(db, job.id, job.job_kind, job.script_hash, job)
                 .await;
         }
+
         if self.with_flow {
             cjob = resolve_maybe_value(db, workspace_id, self.with_code, cjob, |job| {
                 job.raw_flow.as_mut()
             })
             .await?;
         }
+
         if let Some(mut cjob) = cjob {
             cjob.inner = format_completed_job_result(cjob.inner);
             return Ok(Some(cjob));
@@ -893,7 +1012,7 @@ impl<'a> GetQuery<'a> {
 
     async fn fetch(self, db: &DB, job_id: Uuid, workspace_id: &str) -> error::Result<Job> {
         let cjob = self
-            .fetch_completed(db, job_id, workspace_id)
+            .fetch_completed(db.into(), job_id, workspace_id)
             .await?
             .map(Job::CompletedJob);
 
@@ -901,10 +1020,19 @@ impl<'a> GetQuery<'a> {
             Some(cjob) => Ok(cjob),
             None => {
                 let job_maybe = self
-                    .fetch_queued(db, job_id, workspace_id)
+                    .fetch_queued(db.into(), job_id, workspace_id)
                     .await?
                     .map(Job::QueuedJob);
-                not_found_if_none(job_maybe, "Job", job_id.to_string())
+                // potential race condition here, if the job was in queue and completed right after the fetch completed, so we need to check one last time
+                if let Some(job) = job_maybe {
+                    return Ok(job);
+                } else {
+                    let cjob2 = self
+                        .fetch_completed(db.into(), job_id, workspace_id)
+                        .await?
+                        .map(Job::CompletedJob);
+                    not_found_if_none(cjob2, "Job", job_id.to_string())
+                }
             }
         }
     }
@@ -1009,10 +1137,10 @@ async fn get_job_logs(
         .flatten();
 
     let record = sqlx::query!(
-        "SELECT created_by, CONCAT(coalesce(completed_job.logs, ''), coalesce(job_logs.logs, '')) as logs, job_logs.log_offset, job_logs.log_file_index
-        FROM completed_job 
-        LEFT JOIN job_logs ON job_logs.job_id = completed_job.id 
-        WHERE completed_job.id = $1 AND completed_job.workspace_id = $2 AND ($3::text[] IS NULL OR completed_job.tag = ANY($3))",
+        "SELECT created_by AS \"created_by!\", CONCAT(coalesce(v2_as_completed_job.logs, ''), coalesce(job_logs.logs, '')) as logs, job_logs.log_offset, job_logs.log_file_index
+        FROM v2_as_completed_job 
+        LEFT JOIN job_logs ON job_logs.job_id = v2_as_completed_job.id 
+        WHERE v2_as_completed_job.id = $1 AND v2_as_completed_job.workspace_id = $2 AND ($3::text[] IS NULL OR v2_as_completed_job.tag = ANY($3))",
         id,
         w_id,
         tags.as_ref().map(|v| v.as_slice())
@@ -1046,10 +1174,10 @@ async fn get_job_logs(
         Ok(content_plain(Body::from(logs)))
     } else {
         let text = sqlx::query!(
-            "SELECT created_by, CONCAT(coalesce(queue.logs, ''), coalesce(job_logs.logs, '')) as logs, coalesce(job_logs.log_offset, 0) as log_offset, job_logs.log_file_index
-            FROM queue 
-            LEFT JOIN job_logs ON job_logs.job_id = queue.id 
-            WHERE queue.id = $1 AND queue.workspace_id = $2 AND ($3::text[] IS NULL OR queue.tag = ANY($3))",
+            "SELECT created_by AS \"created_by!\", CONCAT(coalesce(v2_as_queue.logs, ''), coalesce(job_logs.logs, '')) as logs, coalesce(job_logs.log_offset, 0) as log_offset, job_logs.log_file_index
+            FROM v2_as_queue 
+            LEFT JOIN job_logs ON job_logs.job_id = v2_as_queue.id 
+            WHERE v2_as_queue.id = $1 AND v2_as_queue.workspace_id = $2 AND ($3::text[] IS NULL OR v2_as_queue.tag = ANY($3))",
             id,
             w_id,
             tags.as_ref().map(|v| v.as_slice())
@@ -1087,29 +1215,23 @@ async fn get_job_logs(
     }
 }
 
-#[derive(FromRow)]
-pub struct RawArgs {
-    pub args: Option<sqlx::types::Json<Box<RawValue>>>,
-    pub created_by: String,
-}
-
 async fn get_args(
     OptAuthed(opt_authed): OptAuthed,
     Extension(db): Extension<DB>,
     Path((w_id, id)): Path<(String, Uuid)>,
-) -> error::JsonResult<Box<serde_json::value::RawValue>> {
+) -> JsonResult<Box<RawValue>> {
     let tags = opt_authed
         .as_ref()
         .map(|authed| get_scope_tags(authed))
         .flatten();
-    let record = sqlx::query_as::<_, RawArgs>(
-        "SELECT created_by, args
-        FROM completed_job 
-        WHERE completed_job.id = $1 AND completed_job.workspace_id = $2 AND ($3::text[] IS NULL OR completed_job.tag = ANY($3))",
+    let record = sqlx::query!(
+        "SELECT created_by AS \"created_by!\", args as \"args: sqlx::types::Json<Box<RawValue>>\"
+        FROM v2_as_completed_job 
+        WHERE id = $1 AND workspace_id = $2 AND ($3::text[] IS NULL OR tag = ANY($3))",
+        id,
+        &w_id,
+        tags.as_ref().map(|v| v.as_slice()) as Option<&[&str]>,
     )
-    .bind(&id)
-    .bind(&w_id)
-    .bind(tags.as_ref().map(|v| v.as_slice()))
     .fetch_optional(&db)
     .await?;
 
@@ -1124,14 +1246,14 @@ async fn get_args(
 
         Ok(Json(record.args.map(|x| x.0).unwrap_or_default()))
     } else {
-        let record = sqlx::query_as::<_, RawArgs>(
-            "SELECT created_by, args
-            FROM queue
-            WHERE queue.id = $1 AND queue.workspace_id = $2 AND ($3::text[] IS NULL OR queue.tag = ANY($3))",
+        let record = sqlx::query!(
+            "SELECT created_by AS \"created_by!\", args as \"args: sqlx::types::Json<Box<RawValue>>\"
+            FROM v2_job
+            WHERE id = $1 AND workspace_id = $2 AND ($3::text[] IS NULL OR tag = ANY($3))",
+            id,
+            &w_id,
+            tags.as_ref().map(|v| v.as_slice()) as Option<&[&str]>,
         )
-        .bind(&id)
-        .bind(&w_id)
-        .bind(tags.as_ref().map(|v| v.as_slice()))
         .fetch_optional(&db)
         .await?;
         let record = not_found_if_none(record, "Job Args", id.to_string())?;
@@ -1156,7 +1278,7 @@ pub struct ListableCompletedJob {
     pub parent_job: Option<Uuid>,
     pub created_by: String,
     pub created_at: chrono::DateTime<chrono::Utc>,
-    pub started_at: chrono::DateTime<chrono::Utc>,
+    pub started_at: Option<chrono::DateTime<chrono::Utc>>,
     pub duration_ms: i64,
     pub success: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -1246,6 +1368,7 @@ pub struct ListQueueQuery {
     pub order_desc: Option<bool>,
     pub job_kinds: Option<String>,
     pub suspended: Option<bool>,
+    pub worker: Option<String>,
     // filter by matching a subset of the args using base64 encoded json subset
     pub args: Option<String>,
     pub tag: Option<String>,
@@ -1255,6 +1378,7 @@ pub struct ListQueueQuery {
     pub has_null_parent: Option<bool>,
     pub is_not_schedule: Option<bool>,
     pub concurrency_key: Option<String>,
+    pub allow_wildcards: Option<bool>,
 }
 
 impl From<ListCompletedQuery> for ListQueueQuery {
@@ -1270,6 +1394,7 @@ impl From<ListCompletedQuery> for ListQueueQuery {
             created_after: lcq.created_after,
             created_or_started_before: lcq.created_or_started_before,
             created_or_started_after: lcq.created_or_started_after,
+            worker: lcq.worker,
             running: lcq.running,
             parent_job: lcq.parent_job,
             order_desc: lcq.order_desc,
@@ -1284,6 +1409,7 @@ impl From<ListCompletedQuery> for ListQueueQuery {
             has_null_parent: lcq.has_null_parent,
             is_not_schedule: lcq.is_not_schedule,
             concurrency_key: lcq.concurrency_key,
+            allow_wildcards: lcq.allow_wildcards,
         }
     }
 }
@@ -1294,34 +1420,50 @@ pub fn filter_list_queue_query(
     w_id: &str,
     join_outstanding_wait_times: bool,
 ) -> SqlBuilder {
+    sqlb.join("v2_job").on_eq("v2_job_queue.id", "v2_job.id");
+
     if join_outstanding_wait_times {
         sqlb.left()
             .join("outstanding_wait_time")
-            .on_eq("id", "outstanding_wait_time.job_id");
+            .on_eq("v2_job.id", "outstanding_wait_time.job_id");
     }
 
     if w_id != "admins" || !lq.all_workspaces.is_some_and(|x| x) {
-        sqlb.and_where_eq("workspace_id", "?".bind(&w_id));
+        sqlb.and_where_eq("v2_job.workspace_id", "?".bind(&w_id));
+    }
+
+    if let Some(w) = &lq.worker {
+        if lq.allow_wildcards.unwrap_or(false) {
+            sqlb.and_where_like_left("v2_job_queue.worker", w.replace("*", "%"));
+        } else {
+            sqlb.and_where_eq("v2_job_queue.worker", "?".bind(w));
+        }
     }
 
     if let Some(ps) = &lq.script_path_start {
-        sqlb.and_where_like_left("script_path", ps);
+        sqlb.and_where_like_left("runnable_path", ps);
     }
     if let Some(p) = &lq.script_path_exact {
-        sqlb.and_where_eq("script_path", "?".bind(p));
+        sqlb.and_where_eq("runnable_path", "?".bind(p));
     }
     if let Some(p) = &lq.schedule_path {
-        sqlb.and_where_eq("schedule_path", "?".bind(p));
+        sqlb.and_where_eq("trigger", "?".bind(p));
+        sqlb.and_where_eq("trigger_kind", "'schedule'");
     }
     if let Some(h) = &lq.script_hash {
-        sqlb.and_where_eq("script_hash", "?".bind(h));
+        sqlb.and_where_eq("runnable_id", "?".bind(h));
     }
     if let Some(cb) = &lq.created_by {
         sqlb.and_where_eq("created_by", "?".bind(cb));
     }
     if let Some(t) = &lq.tag {
-        sqlb.and_where_eq("tag", "?".bind(t));
+        if lq.allow_wildcards.unwrap_or(false) {
+            sqlb.and_where_like_left("v2_job.tag", t.replace("*", "%"));
+        } else {
+            sqlb.and_where_eq("v2_job.tag", "?".bind(t));
+        }
     }
+
     if let Some(r) = &lq.running {
         sqlb.and_where_eq("running", &r);
     }
@@ -1335,7 +1477,11 @@ pub fn filter_list_queue_query(
         sqlb.and_where_ge("started_at", "?".bind(&dt.to_rfc3339()));
     }
     if let Some(fs) = &lq.is_flow_step {
-        sqlb.and_where_eq("is_flow_step", fs);
+        if *fs {
+            sqlb.and_where_is_not_null("flow_step_id");
+        } else {
+            sqlb.and_where_is_null("flow_step_id");
+        }
     }
     if let Some(fs) = &lq.has_null_parent {
         if *fs {
@@ -1344,20 +1490,20 @@ pub fn filter_list_queue_query(
     }
 
     if let Some(dt) = &lq.created_before {
-        sqlb.and_where_le("created_at", "?".bind(&dt.to_rfc3339()));
+        sqlb.and_where_le("v2_job.created_at", "?".bind(&dt.to_rfc3339()));
     }
     if let Some(dt) = &lq.created_after {
-        sqlb.and_where_ge("created_at", "?".bind(&dt.to_rfc3339()));
+        sqlb.and_where_ge("v2_job.created_at", "?".bind(&dt.to_rfc3339()));
     }
 
     if let Some(dt) = &lq.created_or_started_after {
         let ts = dt.timestamp_millis();
-        sqlb.and_where(format!("(started_at IS NOT NULL AND started_at >= to_timestamp({}  / 1000.0)) OR (started_at IS NULL AND created_at >= to_timestamp({}  / 1000.0))", ts, ts));
+        sqlb.and_where(format!("(started_at IS NOT NULL AND started_at >= to_timestamp({}  / 1000.0)) OR (started_at IS NULL AND v2_job.created_at >= to_timestamp({}  / 1000.0))", ts, ts));
     }
 
     if let Some(dt) = &lq.created_or_started_before {
         let ts = dt.timestamp_millis();
-        sqlb.and_where(format!("(started_at IS NOT NULL AND started_at < to_timestamp({}  / 1000.0)) OR (started_at IS NULL AND created_at < to_timestamp({}  / 1000.0))", ts, ts));
+        sqlb.and_where(format!("(started_at IS NOT NULL AND started_at < to_timestamp({}  / 1000.0)) OR (started_at IS NULL AND v2_job.created_at < to_timestamp({}  / 1000.0))", ts, ts));
     }
 
     if let Some(s) = &lq.suspended {
@@ -1370,7 +1516,7 @@ pub fn filter_list_queue_query(
 
     if let Some(jk) = &lq.job_kinds {
         sqlb.and_where_in(
-            "job_kind",
+            "kind",
             &jk.split(',').into_iter().map(quote).collect::<Vec<_>>(),
         );
     }
@@ -1384,7 +1530,8 @@ pub fn filter_list_queue_query(
     }
 
     if lq.is_not_schedule.unwrap_or(false) {
-        sqlb.and_where("schedule_path IS null");
+        sqlb.and_where("trigger_kind != 'schedule'")
+            .or_where("trigger_kind IS NULL");
     }
 
     sqlb
@@ -1399,15 +1546,18 @@ pub fn list_queue_jobs_query(
     tags: Option<Vec<&str>>,
 ) -> SqlBuilder {
     let (limit, offset) = paginate_without_limits(pagination);
-    let mut sqlb = SqlBuilder::select_from("queue")
+    let mut sqlb = SqlBuilder::select_from("v2_job_queue")
         .fields(fields)
-        .order_by("created_at", lq.order_desc.unwrap_or(true))
+        .order_by("v2_job.created_at", lq.order_desc.unwrap_or(true))
         .limit(limit)
         .offset(offset)
         .clone();
 
     if let Some(tags) = tags {
-        sqlb.and_where_in("tag", &tags.iter().map(|x| quote(x)).collect::<Vec<_>>());
+        sqlb.and_where_in(
+            "v2_job.tag",
+            &tags.iter().map(|x| quote(x)).collect::<Vec<_>>(),
+        );
     }
 
     filter_list_queue_query(sqlb, lq, w_id, join_outstanding_wait_times)
@@ -1446,26 +1596,25 @@ async fn list_queue_jobs(
         &w_id,
         &lq,
         &[
-            "id",
-            "running",
-            "created_by",
-            "created_at",
-            "started_at",
-            "scheduled_for",
-            "script_hash",
-            "script_path",
+            "v2_job.id",
+            "v2_job_queue.running",
+            "v2_job.created_by",
+            "v2_job.created_at",
+            "v2_job_queue.started_at",
+            "v2_job_queue.scheduled_for",
+            "v2_job.runnable_id as script_hash",
+            "v2_job.runnable_path as script_path",
             "null as args",
-            "job_kind",
-            "schedule_path",
-            "permissioned_as",
-            "is_flow_step",
-            "language",
-            "same_worker",
-            "email",
-            "suspend",
-            "tag",
-            "priority",
-            "workspace_id",
+            "v2_job.kind as job_kind",
+            "CASE WHEN v2_job.trigger_kind = 'schedule' THEN v2_job.trigger END as schedule_path",
+            "v2_job.permissioned_as",
+            "v2_job.flow_step_id IS NOT NULL as is_flow_step",
+            "v2_job.script_lang as language",
+            "v2_job.permissioned_as_email as email",
+            "v2_job_queue.suspend",
+            "v2_job.tag",
+            "v2_job.priority",
+            "v2_job.workspace_id",
         ],
         pagination,
         false,
@@ -1488,75 +1637,36 @@ async fn cancel_jobs(
 ) -> error::JsonResult<Vec<Uuid>> {
     let mut uuids = vec![];
     let mut tx = db.begin().await?;
-    let trivial_jobs =  sqlx::query!("INSERT INTO completed_job AS cj
+    let trivial_jobs =  sqlx::query!("INSERT INTO v2_job_completed AS cj
                    ( workspace_id
                    , id
-                   , parent_job
-                   , created_by
-                   , created_at
-                   , started_at
                    , duration_ms
-                   , success
-                   , script_hash
-                   , script_path
-                   , args
                    , result
-                   , raw_code
-                   , raw_lock
-                   , canceled
                    , canceled_by
                    , canceled_reason
-                   , job_kind
-                   , schedule_path
-                   , permissioned_as
                    , flow_status
-                   , raw_flow
-                   , is_flow_step
-                   , is_skipped
-                   , language
-                   , email
-                   , visible_to_owner
-                   , mem_peak
-                   , tag
-                   , priority
+                   , status
+                   , worker
                 )
-                SELECT  workspace_id
-                   , id
-                   , parent_job
-                   , created_by
-                   , created_at
-                   , now()
+                SELECT  q.workspace_id
+                   , q.id
                    , 0
-                   , false
-                   , script_hash
-                   , script_path
-                   , args
                    , $4
-                   , raw_code
-                   , raw_lock
-                   , true
                    , $1
-                   , canceled_reason
-                   , job_kind
-                   , schedule_path
-                   , permissioned_as
-                   , flow_status
-                   , raw_flow
-                   , is_flow_step
-                   , false
-                   , language
-                   , email
-                   , visible_to_owner
-                   , mem_peak
-                   , tag
-                   , priority FROM queue 
-        WHERE id = any($2) AND running = false AND parent_job IS NULL AND workspace_id = $3 AND schedule_path IS NULL FOR UPDATE SKIP LOCKED
-        ON CONFLICT (id) DO NOTHING RETURNING id", username, &jobs, w_id, serde_json::json!({"error": { "message": format!("Job canceled: cancel all by {username}"), "name": "Canceled", "reason": "cancel all", "canceler": username}}))
+                   , 'cancel all'
+                   , (SELECT flow_status FROM v2_job_status WHERE id = q.id)
+                   , 'canceled'::job_status
+                   , worker
+        FROM v2_job_queue q
+            JOIN v2_job USING (id)
+        WHERE q.id = any($2) AND running = false AND parent_job IS NULL AND q.workspace_id = $3 AND trigger IS NULL
+            FOR UPDATE SKIP LOCKED
+        ON CONFLICT (id) DO NOTHING RETURNING id AS \"id!\"", username, &jobs, w_id, serde_json::json!({"error": { "message": format!("Job canceled: cancel all by {username}"), "name": "Canceled", "reason": "cancel all", "canceler": username}}))
         .fetch_all(&mut *tx)
         .await?.into_iter().map(|x| x.id).collect::<Vec<Uuid>>();
 
     sqlx::query!(
-        "DELETE FROM queue WHERE id = any($1) AND workspace_id = $2",
+        "DELETE FROM v2_job_queue WHERE id = any($1) AND workspace_id = $2",
         &trivial_jobs,
         w_id
     )
@@ -1624,7 +1734,7 @@ async fn cancel_selection(
     let mut tx = user_db.begin(&authed).await?;
     let tags = get_scope_tags(&authed).map(|v| v.iter().map(|s| s.to_string()).collect_vec());
     let jobs_to_cancel = sqlx::query_scalar!(
-        "SELECT id FROM queue WHERE id = ANY($1) AND schedule_path IS NULL AND ($2::text[] IS NULL OR tag = ANY($2))",
+        "SELECT id AS \"id!\" FROM v2_as_queue WHERE id = ANY($1) AND schedule_path IS NULL AND ($2::text[] IS NULL OR tag = ANY($2))",
         &jobs,
         tags.as_ref().map(|v| v.as_slice())
     )
@@ -1644,14 +1754,20 @@ async fn list_filtered_uuids(
 ) -> error::JsonResult<Vec<Uuid>> {
     require_admin(authed.is_admin, &authed.username)?;
 
-    let mut sqlb = SqlBuilder::select_from("queue").fields(&["id"]).clone();
+    let mut sqlb = SqlBuilder::select_from("v2_job_queue")
+        .fields(&["v2_job_queue.id"])
+        .clone();
 
     sqlb = join_concurrency_key(lq.concurrency_key.as_ref(), sqlb);
 
-    sqlb.and_where_is_null("schedule_path");
+    sqlb.and_where_ne("v2_job.trigger_kind", "'schedule'")
+        .or_where_is_null("v2_job.trigger_kind");
 
     if let Some(tags) = get_scope_tags(&authed) {
-        sqlb.and_where_in("tag", &tags.iter().map(|x| quote(x)).collect::<Vec<_>>());
+        sqlb.and_where_in(
+            "v2_job.tag",
+            &tags.iter().map(|x| quote(x)).collect::<Vec<_>>(),
+        );
     }
 
     sqlb = filter_list_queue_query(sqlb, &lq, w_id.as_str(), false);
@@ -1662,7 +1778,7 @@ async fn list_filtered_uuids(
     Ok(Json(jobs))
 }
 
-#[derive(Serialize, Debug, FromRow)]
+#[derive(Serialize)]
 struct QueueStats {
     database_length: i64,
     suspended: Option<i64>,
@@ -1671,6 +1787,7 @@ struct QueueStats {
 #[derive(Deserialize)]
 pub struct CountQueueJobsQuery {
     all_workspaces: Option<bool>,
+    tags: Option<String>,
 }
 
 async fn count_queue_jobs(
@@ -1678,12 +1795,16 @@ async fn count_queue_jobs(
     Path(w_id): Path<String>,
     Query(cq): Query<CountQueueJobsQuery>,
 ) -> error::JsonResult<QueueStats> {
+    let tags = cq
+        .tags
+        .map(|t| t.split(',').map(|s| s.to_string()).collect::<Vec<_>>());
     Ok(Json(
         sqlx::query_as!(
             QueueStats,
-            "SELECT coalesce(COUNT(*) FILTER(WHERE suspend = 0 AND running = false), 0) as \"database_length!\", coalesce(COUNT(*) FILTER(WHERE suspend > 0), 0) as \"suspended!\" FROM queue WHERE (workspace_id = $1 OR $2) AND scheduled_for <= now()",
+            "SELECT coalesce(COUNT(*) FILTER(WHERE suspend = 0 AND running = false), 0) as \"database_length!\", coalesce(COUNT(*) FILTER(WHERE suspend > 0), 0) as \"suspended!\" FROM v2_as_queue WHERE (workspace_id = $1 OR $2) AND scheduled_for <= now() AND ($3::text[] IS NULL OR tag = ANY($3))",
             w_id,
             w_id == "admins" && cq.all_workspaces.unwrap_or(false),
+            tags.as_ref().map(|v| v.as_slice())
         )
         .fetch_one(&db)
         .await?,
@@ -1703,28 +1824,33 @@ async fn count_completed_jobs_detail(
     Path(w_id): Path<String>,
     Query(query): Query<CountCompletedJobsQuery>,
 ) -> error::JsonResult<i64> {
-    let mut sqlb = SqlBuilder::select_from("completed_job");
+    let mut sqlb = SqlBuilder::select_from("v2_job_completed");
+    //FOR RLS
+    sqlb.join("v2_job USING (id)");
     sqlb.field("COUNT(*) as count");
 
     if !query.all_workspaces.unwrap_or(false) {
-        sqlb.and_where_eq("workspace_id", "?".bind(&w_id));
+        sqlb.and_where_eq("v2_job.workspace_id", "?".bind(&w_id));
     }
 
     if let Some(after_s_ago) = query.completed_after_s_ago {
         let after = Utc::now() - chrono::Duration::seconds(after_s_ago);
-        sqlb.and_where_gt(
-            "started_at + duration_ms / 1000 * interval '1 second'",
-            "?".bind(&after.to_rfc3339()),
-        );
+        sqlb.and_where_gt("ended_at", "?".bind(&after.to_rfc3339()));
     }
 
     if let Some(success) = query.success {
-        sqlb.and_where_eq("success", "?".bind(&success));
+        if success {
+            sqlb.and_where_eq("status", "'success'")
+                .or_where_eq("status", "'skipped'");
+        } else {
+            sqlb.and_where_ne("status", "'success'")
+                .and_where_ne("status", "'skipped'");
+        }
     }
 
     if let Some(tags) = query.tags {
         sqlb.and_where_in(
-            "tag",
+            "v2_job.tag",
             &tags
                 .split(",")
                 .map(|t| format!("'{}'", t))
@@ -1745,7 +1871,7 @@ async fn count_completed_jobs(
     Ok(Json(
         sqlx::query_as!(
             QueueStats,
-            "SELECT coalesce(COUNT(*), 0) as \"database_length!\", null::bigint as suspended FROM completed_job WHERE workspace_id = $1",
+            "SELECT coalesce(COUNT(*), 0) as \"database_length!\", null::bigint as suspended FROM v2_job_completed WHERE workspace_id = $1",
             w_id
         )
         .fetch_one(&db)
@@ -1819,13 +1945,13 @@ async fn list_jobs(
         }
         sqlc.unwrap().limit(per_page).offset(offset).query()?
     };
-    let mut tx = user_db.begin(&authed).await?;
+    let mut tx: Transaction<'_, Postgres> = user_db.begin(&authed).await?;
 
     #[cfg(feature = "prometheus")]
     let start = Instant::now();
 
     #[cfg(feature = "prometheus")]
-    if _api_list_jobs_query_duration.is_some() {
+    if _api_list_jobs_query_duration.is_some() || true {
         tracing::info!("list_jobs query: {}", sql);
     }
 
@@ -1959,7 +2085,7 @@ async fn resume_suspended_job_internal(
 
     if !approved {
         sqlx::query!(
-            "UPDATE queue SET suspend = 0 WHERE id = $1",
+            "UPDATE v2_job_queue SET suspend = 0 WHERE id = $1",
             parent_flow_info.id
         )
         .execute(&mut *tx)
@@ -2045,7 +2171,7 @@ async fn resume_immediately_if_relevant<'c>(
             if matches!(status.current_step(), Some(FlowStatusModule::WaitingForEvents { job, .. }) if job == &job_id)
             {
                 sqlx::query!(
-                    "UPDATE queue SET suspend = $1 WHERE id = $2",
+                    "UPDATE v2_job_queue SET suspend = $1 WHERE id = $2",
                     suspend,
                     flow.id,
                 )
@@ -2096,9 +2222,11 @@ async fn get_suspended_parent_flow_info(job_id: Uuid, db: &DB) -> error::Result<
     let flow = sqlx::query_as!(
         FlowInfo,
         r#"
-        SELECT id, flow_status, suspend, script_path
-        FROM queue
-        WHERE id = ( SELECT parent_job FROM queue WHERE id = $1 UNION ALL SELECT parent_job FROM completed_job WHERE id = $1)
+        SELECT q.id, f.flow_status, q.suspend, j.runnable_path AS script_path
+        FROM v2_job_queue q
+            JOIN v2_job j USING (id)
+            JOIN v2_job_status f USING (id)
+        WHERE id = ( SELECT parent_job FROM v2_job WHERE id = $1 )
         FOR UPDATE
         "#,
         job_id,
@@ -2116,8 +2244,8 @@ async fn get_suspended_flow_info<'c>(
     let flow = sqlx::query_as!(
         FlowInfo,
         r#"
-        SELECT id, flow_status, suspend, script_path
-        FROM queue
+        SELECT id AS "id!", flow_status, suspend AS "suspend!", script_path
+        FROM v2_as_queue
         WHERE id = $1
         "#,
         job_id,
@@ -2176,11 +2304,7 @@ pub async fn get_suspended_job_flow(
     let flow_id = sqlx::query_scalar!(
         r#"
         SELECT parent_job
-        FROM queue
-        WHERE id = $1 AND workspace_id = $2
-        UNION ALL
-        SELECT parent_job
-        FROM completed_job
+        FROM v2_job
         WHERE id = $1 AND workspace_id = $2
         "#,
         job,
@@ -2286,8 +2410,10 @@ fn conditionally_require_authed_user(
                                     return Ok(());
                                 }
                             }
-                            let error_msg = format!("Only users from one of the following groups are allowed to approve this workflow: {}", 
-                            approval_conditions.user_groups_required.join(", "));
+                            let error_msg = format!(
+                                "Only users from one of the following groups are allowed to approve this workflow: {}",
+                                approval_conditions.user_groups_required.join(", ")
+                            );
                             return Err(Error::PermissionDenied(error_msg));
                         }
                     }
@@ -2317,7 +2443,7 @@ pub async fn get_flow_user_state(
     let r = sqlx::query_scalar!(
         r#"
         SELECT flow_status->'user_states'->$1
-        FROM queue
+        FROM v2_as_queue
         WHERE id = $2 AND workspace_id = $3
         "#,
         key,
@@ -2339,8 +2465,9 @@ pub async fn set_flow_user_state(
     let mut tx = user_db.begin(&authed).await?;
     let r = sqlx::query_scalar!(
         r#"
-        UPDATE queue SET flow_status = JSONB_SET(flow_status,  ARRAY['user_states'], JSONB_SET(COALESCE(flow_status->'user_states', '{}'::jsonb), ARRAY[$1], $2))
-        WHERE id = $3 AND workspace_id = $4 AND job_kind IN ('flow', 'flowpreview', 'flownode') RETURNING 1
+        UPDATE v2_job_status f SET flow_status = JSONB_SET(flow_status,  ARRAY['user_states'], JSONB_SET(COALESCE(flow_status->'user_states', '{}'::jsonb), ARRAY[$1], $2))
+        FROM v2_job j
+        WHERE f.id = $3 AND f.id = j.id AND j.workspace_id = $4 AND kind IN ('flow', 'flowpreview', 'flownode') RETURNING 1
         "#,
         key,
         value,
@@ -2449,6 +2576,9 @@ pub struct JobExtended<T> {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub raw_flow: Option<sqlx::types::Json<Box<RawValue>>>,
 
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub worker: Option<String>,
+
     #[sqlx(skip)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub self_wait_time_ms: Option<i64>,
@@ -2468,6 +2598,7 @@ impl<T> JobExtended<T> {
             raw_code: None,
             raw_lock: None,
             raw_flow: None,
+            worker: None,
             self_wait_time_ms,
             aggregate_wait_time_ms,
         }
@@ -2682,79 +2813,86 @@ pub struct UnifiedJob {
     pub labels: Option<serde_json::Value>,
     pub self_wait_time_ms: Option<i64>,
     pub aggregate_wait_time_ms: Option<i64>,
+    pub preprocessed: Option<bool>,
+    pub worker: Option<String>,
 }
 
 const CJ_FIELDS: &[&str] = &[
     "'CompletedJob' as typ",
-    "id",
-    "workspace_id",
-    "parent_job",
-    "created_by",
-    "created_at",
-    "started_at",
+    "v2_job.id",
+    "v2_job.workspace_id",
+    "v2_job.parent_job",
+    "v2_job.created_by",
+    "v2_job.created_at",
+    "v2_job_completed.started_at",
     "null as scheduled_for",
     "null as running",
-    "script_hash",
-    "script_path",
+    "v2_job.runnable_id as script_hash",
+    "v2_job.runnable_path as script_path",
     "null as args",
-    "duration_ms",
-    "success",
-    "deleted",
-    "canceled",
-    "canceled_by",
-    "job_kind",
-    "schedule_path",
-    "permissioned_as",
-    "is_flow_step",
-    "language",
-    "is_skipped",
-    "email",
-    "visible_to_owner",
+    "v2_job_completed.duration_ms",
+    "v2_job_completed.status = 'success' OR v2_job_completed.status = 'skipped' as success",
+    "false as deleted",
+    "v2_job_completed.status = 'canceled' as canceled",
+    "v2_job_completed.canceled_by",
+    "v2_job.kind as job_kind",
+    "CASE WHEN v2_job.trigger_kind = 'schedule' THEN v2_job.trigger END as schedule_path",
+    "v2_job.permissioned_as",
+    "v2_job.flow_step_id IS NOT NULL as is_flow_step",
+    "v2_job.script_lang as language",
+    "v2_job_completed.status = 'skipped' as is_skipped",
+    "v2_job.permissioned_as_email as email",
+    "v2_job.visible_to_owner",
     "null as suspend",
-    "mem_peak",
-    "tag",
+    "v2_job_completed.memory_peak as mem_peak",
+    "v2_job.tag",
     "null as concurrent_limit",
     "null as concurrency_time_window_s",
-    "priority",
-    "result->'wm_labels' as labels",
+    "v2_job.priority",
+    "v2_job_completed.result->'wm_labels' as labels",
     "self_wait_time_ms",
     "aggregate_wait_time_ms",
+    "v2_job.preprocessed",
+    "v2_job_completed.worker",
 ];
+
 const QJ_FIELDS: &[&str] = &[
     "'QueuedJob' as typ",
-    "id",
-    "workspace_id",
-    "parent_job",
-    "created_by",
-    "created_at",
-    "started_at",
-    "scheduled_for",
-    "running",
-    "script_hash",
-    "script_path",
+    "v2_job.id",
+    "v2_job.workspace_id",
+    "v2_job.parent_job",
+    "v2_job.created_by",
+    "v2_job.created_at",
+    "v2_job_queue.started_at",
+    "v2_job_queue.scheduled_for",
+    "v2_job_queue.running",
+    "v2_job.runnable_id as script_hash",
+    "v2_job.runnable_path as script_path",
     "null as args",
     "null as duration_ms",
     "null as success",
     "false as deleted",
-    "canceled",
-    "canceled_by",
-    "job_kind",
-    "schedule_path",
-    "permissioned_as",
-    "is_flow_step",
-    "language",
+    "v2_job_queue.canceled_by IS NOT NULL as canceled",
+    "v2_job_queue.canceled_by",
+    "v2_job.kind as job_kind",
+    "CASE WHEN v2_job.trigger_kind = 'schedule' THEN v2_job.trigger END as schedule_path",
+    "v2_job.permissioned_as",
+    "v2_job.flow_step_id IS NOT NULL as is_flow_step",
+    "v2_job.script_lang as language",
     "false as is_skipped",
-    "email",
-    "visible_to_owner",
-    "suspend",
-    "mem_peak",
-    "tag",
-    "concurrent_limit",
-    "concurrency_time_window_s",
-    "priority",
+    "v2_job.permissioned_as_email as email",
+    "v2_job.visible_to_owner",
+    "v2_job_queue.suspend",
+    "null as mem_peak",
+    "v2_job.tag",
+    "v2_job.concurrent_limit",
+    "v2_job.concurrency_time_window_s",
+    "v2_job.priority",
     "null as labels",
     "self_wait_time_ms",
     "aggregate_wait_time_ms",
+    "v2_job.preprocessed",
+    "v2_job_queue.worker",
 ];
 
 impl UnifiedJob {
@@ -2778,13 +2916,14 @@ impl<'a> From<UnifiedJob> for Job {
                     parent_job: uj.parent_job,
                     created_by: uj.created_by,
                     created_at: uj.created_at,
-                    started_at: uj.started_at.unwrap_or(uj.created_at),
+                    started_at: uj.started_at,
                     duration_ms: uj.duration_ms.unwrap(),
                     success: uj.success.unwrap(),
                     script_hash: uj.script_hash,
                     script_path: uj.script_path,
                     args: None,
                     result: None,
+                    result_columns: None,
                     logs: None,
                     flow_status: None,
                     deleted: uj.deleted,
@@ -2803,6 +2942,7 @@ impl<'a> From<UnifiedJob> for Job {
                     tag: uj.tag,
                     priority: uj.priority,
                     labels: uj.labels,
+                    preprocessed: uj.preprocessed,
                 },
             )),
             "QueuedJob" => Job::QueuedJob(JobExtended::new(
@@ -2831,6 +2971,7 @@ impl<'a> From<UnifiedJob> for Job {
                     permissioned_as: uj.permissioned_as,
                     is_flow_step: uj.is_flow_step,
                     language: uj.language,
+                    script_entrypoint_override: None,
                     same_worker: false,
                     pre_run_error: None,
                     email: uj.email,
@@ -2846,6 +2987,7 @@ impl<'a> From<UnifiedJob> for Job {
                     flow_step_id: None,
                     cache_ttl: None,
                     priority: uj.priority,
+                    preprocessed: uj.preprocessed,
                 },
             )),
             t => panic!("job type {} not valid", t),
@@ -3150,11 +3292,15 @@ pub async fn restart_flow(
     check_license_key_valid().await?;
 
     let mut tx = user_db.clone().begin(&authed).await?;
-    let completed_job = sqlx::query_as::<_, CompletedJob>(
-        "SELECT *, result->'wm_labels' as labels from completed_job WHERE id = $1 and workspace_id = $2",
+    let completed_job = sqlx::query!(
+        "SELECT
+            script_path, args AS \"args: sqlx::types::Json<HashMap<String, Box<RawValue>>>\",
+            tag AS \"tag!\", priority
+        FROM v2_as_completed_job
+        WHERE id = $1 and workspace_id = $2",
+        job_id,
+        &w_id,
     )
-    .bind(job_id)
-    .bind(&w_id)
     .fetch_optional(&mut *tx)
     .await?
     .with_context(|| "Unable to find completed job with the given job UUID")?;
@@ -3180,11 +3326,7 @@ pub async fn restart_flow(
         &db,
         tx,
         &w_id,
-        JobPayload::RestartedFlow {
-            completed_job_id: job_id,
-            step_id: step_id,
-            branch_or_iteration_n: branch_or_iteration_n,
-        },
+        JobPayload::RestartedFlow { completed_job_id: job_id, step_id, branch_or_iteration_n },
         push_args,
         &authed.username,
         &authed.email,
@@ -3355,7 +3497,7 @@ pub async fn run_workflow_as_code(
                 path: job.script_path,
                 language: job.language.unwrap_or_else(|| ScriptLang::Deno),
                 lock: raw_lock,
-                custom_concurrency_key: windmill_queue::custom_concurrency_key(&db, job.id)
+                custom_concurrency_key: windmill_queue::custom_concurrency_key(&db, &job.id)
                     .await
                     .map_err(to_anyhow)?,
                 concurrent_limit: job.concurrent_limit,
@@ -3454,14 +3596,29 @@ pub async fn run_workflow_as_code(
 
     if !wkflow_query.skip_update.unwrap_or(false) {
         sqlx::query!(
-            "UPDATE queue SET flow_status = jsonb_set(COALESCE(flow_status, '{}'::jsonb), array[$1], jsonb_set(jsonb_set('{}'::jsonb, '{scheduled_for}', to_jsonb(now()::text)), '{name}', to_jsonb($4::text))) WHERE id = $2 AND workspace_id = $3",
-            uuid.to_string(),
+            "INSERT INTO v2_job_status (id, workflow_as_code_status)
+            VALUES ($1, JSONB_SET('{}'::JSONB, array[$2], $3))
+            ON CONFLICT (id) DO UPDATE SET
+                workflow_as_code_status = JSONB_SET(
+                    COALESCE(v2_job_status.workflow_as_code_status, '{}'::JSONB), 
+                    array[$2],
+                    $3
+                )",
             job_id,
-            w_id,
-            entrypoint
-        ).execute(&mut *tx).await?;
+            uuid.to_string(),
+            serde_json::json!({ "scheduled_for": Utc::now(), "name": entrypoint }),
+        )
+        .execute(&mut *tx)
+        .await?;
     } else {
         tracing::info!("Skipping update of flow status for job {job_id} in workspace {w_id}");
+        sqlx::query!(
+            "INSERT INTO v2_job_status (id, workflow_as_code_status) VALUES ($1, '{}'::JSONB)
+            ON CONFLICT (id) DO NOTHING",
+            job_id,
+        )
+        .execute(&mut *tx)
+        .await?;
     }
 
     if *CLOUD_HOSTED {
@@ -3587,17 +3744,21 @@ pub async fn run_wait_result_internal(
         }
 
         if result.is_none() {
-            let row = sqlx::query_as::<_, RawResultWithSuccess>(
-                "SELECT '' as created_by, result, language, flow_status, success FROM completed_job WHERE id = $1 AND workspace_id = $2",
+            let row = sqlx::query!(
+                "SELECT
+                    result AS \"result: sqlx::types::Json<Box<RawValue>>\",
+                    result_columns,
+                    status = 'success' AS \"success!\"
+                FROM v2_job_completed
+                WHERE id = $1 AND workspace_id = $2",
+                uuid,
+                &w_id
             )
-            .bind(uuid)
-            .bind(&w_id)
             .fetch_optional(db)
             .await?;
             if let Some(mut raw_result) = row {
                 format_result(
-                    raw_result.language.as_ref(),
-                    raw_result.flow_status.as_ref(),
+                    raw_result.result_columns.as_ref(),
                     raw_result.result.as_mut(),
                 );
                 result = raw_result.result.map(|x| x.0);
@@ -3682,10 +3843,10 @@ pub async fn run_wait_result(
             if let Some(windmill_headers) = windmill_headers {
                 for (k, v) in windmill_headers {
                     let k = HeaderName::from_str(k.as_str()).map_err(|err| {
-                        Error::InternalErr(format!("Invalid header name {k}: {err}"))
+                        Error::internal_err(format!("Invalid header name {k}: {err}"))
                     })?;
                     let v = HeaderValue::from_str(v.as_str()).map_err(|err| {
-                        Error::InternalErr(format!("Invalid header value {v}: {err}"))
+                        Error::internal_err(format!("Invalid header value {v}: {err}"))
                     })?;
                     headers.insert(k, v);
                 }
@@ -3704,7 +3865,7 @@ pub async fn run_wait_result(
                 headers.insert(
                     http::header::CONTENT_TYPE,
                     HeaderValue::from_str(content_type.as_str()).map_err(|err| {
-                        Error::InternalErr(format!("Invalid content type {content_type}: {err}"))
+                        Error::internal_err(format!("Invalid content type {content_type}: {err}"))
                     })?,
                 );
                 return Ok((status_code_or_default, headers, serialized_result).into_response());
@@ -3729,17 +3890,19 @@ pub async fn run_wait_result(
 
 async fn delete_job_metadata_after_use(db: &DB, job_uuid: Uuid) -> Result<(), Error> {
     sqlx::query!(
-        "UPDATE completed_job
-        SET logs = '##DELETED##', args = '{}'::jsonb, result = '{}'::jsonb
-        WHERE id = $1",
+        "UPDATE v2_job SET args = '{}'::jsonb WHERE id = $1",
         job_uuid,
     )
     .execute(db)
     .await?;
     sqlx::query!(
-        "UPDATE job_logs
-        SET logs = '##DELETED##'
-        WHERE job_id = $1",
+        "UPDATE v2_job_completed SET result = '{}'::jsonb WHERE id = $1",
+        job_uuid,
+    )
+    .execute(db)
+    .await?;
+    sqlx::query!(
+        "UPDATE job_logs SET logs = '##DELETED##' WHERE job_id = $1",
         job_uuid,
     )
     .execute(db)
@@ -3750,7 +3913,7 @@ async fn delete_job_metadata_after_use(db: &DB, job_uuid: Uuid) -> Result<(), Er
 pub async fn check_queue_too_long(db: &DB, queue_limit: Option<i64>) -> error::Result<()> {
     if let Some(limit) = queue_limit {
         let count = sqlx::query_scalar!(
-            "SELECT COUNT(*) FROM queue WHERE  canceled = false AND (scheduled_for <= now()
+            "SELECT COUNT(*) FROM v2_as_queue WHERE  canceled = false AND (scheduled_for <= now()
         OR (suspend_until IS NOT NULL
             AND (   suspend <= 0
                  OR suspend_until <= now())))",
@@ -3760,7 +3923,7 @@ pub async fn check_queue_too_long(db: &DB, queue_limit: Option<i64>) -> error::R
         .unwrap_or(0);
 
         if count > queue_limit.unwrap() {
-            return Err(Error::InternalErr(format!(
+            return Err(Error::internal_err(format!(
                 "Number of queued job is too high: {count} > {limit}"
             )));
         }
@@ -3872,7 +4035,7 @@ pub async fn run_wait_result_job_by_path_get(
         return Ok(Json(serde_json::json!("")).into_response());
     }
     let payload_r = run_query.payload.map(decode_payload).map(|x| {
-        x.map_err(|e| Error::InternalErr(format!("Impossible to decode query payload: {e:#?}")))
+        x.map_err(|e| Error::internal_err(format!("Impossible to decode query payload: {e:#?}")))
     });
 
     let mut payload_args = if let Some(payload) = payload_r {
@@ -3967,7 +4130,7 @@ pub async fn run_wait_result_flow_by_path_get(
     }
     let payload_r = run_query.payload.clone().map(decode_payload).map(|x| {
         x.map_err(|e| {
-            error::Error::InternalErr(format!("Impossible to decode query payload: {e:#?}"))
+            error::Error::internal_err(format!("Impossible to decode query payload: {e:#?}"))
         })
     });
 
@@ -4372,7 +4535,6 @@ async fn run_preview_script(
     Ok((StatusCode::CREATED, uuid.to_string()))
 }
 
-#[cfg(all(feature = "enterprise", feature = "parquet"))]
 async fn run_bundle_preview_script(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
@@ -4382,8 +4544,6 @@ async fn run_bundle_preview_script(
     mut multipart: axum::extract::Multipart,
 ) -> error::Result<(StatusCode, String)> {
     use windmill_common::scripts::PREVIEW_IS_TAR_CODEBASE_HASH;
-
-    check_license_key_valid().await?;
 
     check_scopes(&authed, || format!("jobs:runscript"))?;
     if authed.is_operator {
@@ -4432,8 +4592,8 @@ async fn run_bundle_preview_script(
                     path: preview.path,
                     language: preview.language.unwrap_or(ScriptLang::Deno),
                     lock: preview.lock,
-                    concurrent_limit: None, // TODO(gbouv): once I find out how to store limits in the content of a script, should be easy to plug limits here
-                    concurrency_time_window_s: None, // TODO(gbouv): same as above
+                    concurrent_limit: None,
+                    concurrency_time_window_s: None,
                     cache_ttl: None,
                     dedicated_worker: preview.dedicated_worker,
                     custom_concurrency_key: None,
@@ -4479,21 +4639,48 @@ async fn run_bundle_preview_script(
 
             uploaded = true;
 
-            if let Some(os) = windmill_common::s3_helpers::OBJECT_STORE_CACHE_SETTINGS
+            #[cfg(all(feature = "enterprise", feature = "parquet"))]
+            let object_store = windmill_common::s3_helpers::OBJECT_STORE_CACHE_SETTINGS
                 .read()
                 .await
-                .clone()
+                .clone();
+
+            #[cfg(not(all(feature = "enterprise", feature = "parquet")))]
+            let object_store: Option<()> = None;
+
+            if &windmill_common::utils::MODE_AND_ADDONS.mode
+                == &windmill_common::utils::Mode::Standalone
+                && object_store.is_none()
             {
-                let path = windmill_common::s3_helpers::bundle(&w_id, &id);
-                if let Err(e) = os
-                    .put(&object_store::path::Path::from(path.clone()), data.into())
-                    .await
-                {
-                    tracing::info!("Failed to put snapshot to s3 at {path}: {:?}", e);
-                    return Err(Error::ExecutionErr(format!("Failed to put {path} to s3")));
-                }
+                std::fs::create_dir_all(
+                    windmill_common::worker::ROOT_STANDALONE_BUNDLE_DIR.clone(),
+                )?;
+                windmill_common::worker::write_file_bytes(
+                    &windmill_common::worker::ROOT_STANDALONE_BUNDLE_DIR,
+                    &id,
+                    &data,
+                )?;
             } else {
-                return Err(Error::BadConfig("Object store is required for snapshot script and is not configured for servers".to_string()));
+                #[cfg(not(all(feature = "enterprise", feature = "parquet")))]
+                {
+                    return Err(Error::ExecutionErr("codebase is an EE feature".to_string()));
+                }
+
+                #[cfg(all(feature = "enterprise", feature = "parquet"))]
+                if let Some(os) = object_store {
+                    check_license_key_valid().await?;
+
+                    let path = windmill_common::s3_helpers::bundle(&w_id, &id);
+                    if let Err(e) = os
+                        .put(&object_store::path::Path::from(path.clone()), data.into())
+                        .await
+                    {
+                        tracing::info!("Failed to put snapshot to s3 at {path}: {:?}", e);
+                        return Err(Error::ExecutionErr(format!("Failed to put {path} to s3")));
+                    }
+                } else {
+                    return Err(Error::BadConfig("Object store is required for snapshot script and is not configured for servers".to_string()));
+                }
             }
         }
         // println!("Length of `{}` is {} bytes", name, data.len());
@@ -4510,13 +4697,6 @@ async fn run_bundle_preview_script(
     tx.unwrap().commit().await?;
 
     Ok((StatusCode::CREATED, job_id.unwrap().to_string()))
-}
-
-#[cfg(not(all(feature = "enterprise", feature = "parquet")))]
-async fn run_bundle_preview_script() -> error::Result<(StatusCode, String)> {
-    return Err(Error::BadRequest(
-        "bundle preview is an ee feature".to_string(),
-    ));
 }
 
 #[derive(Deserialize)]
@@ -4551,7 +4731,7 @@ async fn run_dependencies_job(
     }
 
     if req.raw_scripts.len() != 1 || req.raw_scripts[0].script_path != req.entrypoint {
-        return Err(error::Error::InternalErr(
+        return Err(error::Error::internal_err(
             "For now only a single raw script can be passed to this endpoint, and the entrypoint should be set to the script path".to_string(),
         ));
     }
@@ -4684,6 +4864,7 @@ struct BatchInfo {
     flow_value: Option<FlowValue>,
     path: Option<String>,
     rawscript: Option<BatchRawScript>,
+    tag: Option<String>,
 }
 
 #[tracing::instrument(level = "trace", skip_all)]
@@ -4790,10 +4971,10 @@ async fn add_batch_jobs(
                 )
                 .fetch_optional(&mut *tx)
                 .await?
-                .ok_or_else(|| Error::InternalErr(format!("not found flow at path {:?}", path)))?;
+                .ok_or_else(|| Error::internal_err(format!("not found flow at path {:?}", path)))?;
                 let value =
                     serde_json::from_str::<FlowValue>(value_json.value.get()).map_err(|err| {
-                        Error::InternalErr(format!(
+                        Error::internal_err(format!(
                             "could not convert json to flow for {path}: {err:?}"
                         ))
                     })?;
@@ -4852,6 +5033,8 @@ async fn add_batch_jobs(
         } else {
             format!("{}", language.as_str())
         }
+    } else if let Some(tag) = batch_info.tag {
+        tag
     } else {
         format!("{}", language.as_str())
     };
@@ -4860,49 +5043,92 @@ async fn add_batch_jobs(
 
     let uuids = sqlx::query_scalar!(
         r#"WITH uuid_table as (
-            select gen_random_uuid() as uuid from generate_series(1, $5)
+            select gen_random_uuid() as uuid from generate_series(1, $16)
         )
-        INSERT INTO job
-            (id, workspace_id, raw_code, raw_lock, raw_flow)
-            (SELECT uuid, $1, $2, $3, $4 FROM uuid_table)
-        RETURNING id"#,
+        INSERT INTO v2_job
+            (id, workspace_id, raw_code, raw_lock, raw_flow, tag, runnable_id, runnable_path, kind,
+             script_lang, created_by, permissioned_as, permissioned_as_email, concurrent_limit,
+             concurrency_time_window_s, timeout, args)
+            (SELECT uuid, $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15,
+             ('{ "uuid": "' || uuid || '" }')::jsonb FROM uuid_table)
+        RETURNING id AS "id!""#,
         w_id,
         raw_code,
         raw_lock,
         raw_flow.map(sqlx::types::Json) as Option<sqlx::types::Json<FlowValue>>,
-        n
+        tag,
+        hash.map(|h| h.0),
+        path,
+        job_kind.clone() as JobKind,
+        language as ScriptLang,
+        authed.username,
+        username_to_permissioned_as(&authed.username),
+        authed.email,
+        concurrent_limit,
+        concurrent_time_window_s,
+        timeout,
+        n,
     )
     .fetch_all(&mut *tx)
     .await?;
 
     let uuids = sqlx::query_scalar!(
         r#"WITH uuid_table as (
-            select unnest($11::uuid[]) as uuid
+            select unnest($4::uuid[]) as uuid
         )
-        INSERT INTO queue 
-            (id, script_hash, script_path, job_kind, language, args, tag, created_by, permissioned_as, email, scheduled_for, workspace_id, concurrent_limit, concurrency_time_window_s, timeout, flow_status)
-            (SELECT uuid, $1, $2, $3, $4, ('{ "uuid": "' || uuid || '" }')::jsonb, $5, $6, $7, $8, $9, $10, $12, $13, $14, $15 FROM uuid_table) 
+        INSERT INTO v2_job_queue
+            (id, workspace_id, scheduled_for, tag)
+            (SELECT uuid, $1, $2, $3 FROM uuid_table) 
         RETURNING id"#,
-            hash.map(|h| h.0),
-            path,
-            job_kind.clone() as JobKind,
-            language as ScriptLang,
-            tag,
-            authed.username,
-            username_to_permissioned_as(&authed.username),
-            authed.email,
-            Utc::now(),
-            w_id,
+        w_id,
+        Utc::now(),
+        tag,
+        &uuids
+    )
+    .fetch_all(&mut *tx)
+    .await?;
+
+    sqlx::query!(
+        "INSERT INTO v2_job_runtime (id, ping) SELECT unnest($1::uuid[]), null",
+        &uuids,
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    sqlx::query!(
+        "INSERT INTO job_perms (job_id, email, username, is_admin, is_operator, folders, groups, workspace_id) 
+        SELECT unnest($1::uuid[]), $2, $3, $4, $5, $6, $7, $8",
+        &uuids,
+        authed.email,
+        authed.username,
+        authed.is_admin,
+        authed.is_operator,
+        &[],
+        &[],
+        w_id,
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    if let Some(flow_status) = flow_status {
+        sqlx::query!(
+            "INSERT INTO v2_job_status (id, flow_status)
+            SELECT unnest($1::uuid[]), $2",
             &uuids,
-            concurrent_limit,
-            concurrent_time_window_s,
-            timeout,
-            flow_status.map(sqlx::types::Json) as Option<sqlx::types::Json<FlowStatus>>
+            sqlx::types::Json(flow_status) as sqlx::types::Json<FlowStatus>
         )
-        .fetch_all(&mut *tx)
+        .execute(&mut *tx)
         .await?;
+    }
 
     if let Some(custom_concurrency_key) = custom_concurrency_key {
+        sqlx::query!(
+            "INSERT INTO concurrency_counter(concurrency_id, job_uuids) 
+             VALUES ($1, '{}'::jsonb)",
+            &custom_concurrency_key
+        )
+        .execute(&mut *tx)
+        .await?;
         sqlx::query!(
             "INSERT INTO concurrency_key (job_id, key) SELECT id, $1 FROM unnest($2::uuid[]) as id",
             custom_concurrency_key,
@@ -5138,7 +5364,7 @@ async fn get_log_file(Path((_w_id, file_p)): Path<(String, String)>) -> error::R
                     .unwrap();
                 return Ok(res);
             } else {
-                return Err(error::Error::InternalErr(format!(
+                return Err(error::Error::internal_err(format!(
                     "Error getting bytes from file: {}",
                     file_p
                 )));
@@ -5150,7 +5376,7 @@ async fn get_log_file(Path((_w_id, file_p)): Path<(String, String)>) -> error::R
             )));
         }
     } else {
-        return Err(error::Error::InternalErr(format!(
+        return Err(error::Error::internal_err(format!(
             "Object store client not present and file not found on server logs volume at {local_file}"
         )));
     }
@@ -5162,107 +5388,76 @@ async fn get_log_file(Path((_w_id, file_p)): Path<(String, String)>) -> error::R
     )));
 }
 
-#[derive(Deserialize, sqlx::FromRow)]
-pub struct JobUpdateRow {
-    pub running: bool,
-    pub logs: Option<String>,
-    pub mem_peak: Option<i32>,
-    pub flow_status: Option<sqlx::types::Json<Box<serde_json::value::RawValue>>>,
-    pub log_offset: Option<i32>,
-    pub created_by: String,
-}
 async fn get_job_update(
     OptAuthed(opt_authed): OptAuthed,
     Extension(db): Extension<DB>,
     Path((w_id, job_id)): Path<(String, Uuid)>,
-    Query(JobUpdateQuery { running, log_offset, get_progress }): Query<JobUpdateQuery>,
-) -> error::JsonResult<JobUpdate> {
-    let record = sqlx::query_as::<_, JobUpdateRow>(
-        "SELECT running, substr(concat(coalesce(queue.logs, ''), job_logs.logs), greatest($1 - job_logs.log_offset, 0)) as logs, mem_peak, 
-        CASE WHEN is_flow_step is true then NULL else flow_status END as flow_status,
-        job_logs.log_offset + char_length(job_logs.logs) + 1 as log_offset, created_by
-        FROM queue
-        LEFT JOIN job_logs ON job_logs.job_id =  queue.id 
-        WHERE queue.workspace_id = $2 AND queue.id = $3",
+    Query(JobUpdateQuery { log_offset, get_progress, running }): Query<JobUpdateQuery>,
+) -> JsonResult<JobUpdate> {
+    let record = sqlx::query!(
+        "SELECT
+            c.id IS NOT NULL AS completed,
+            CASE 
+                WHEN q.id IS NOT NULL THEN (CASE WHEN NOT $5 AND q.running THEN true ELSE null END)
+                ELSE false
+            END AS running,
+            SUBSTR(logs, GREATEST($1 - log_offset, 0)) AS logs,
+            COALESCE(r.memory_peak, c.memory_peak) AS mem_peak,
+            CASE
+                -- flow step:
+                WHEN flow_step_id IS NOT NULL THEN NULL
+                -- completed:
+                WHEN c.id IS NOT NULL THEN COALESCE(
+                    c.workflow_as_code_status || c.flow_status,
+                    c.workflow_as_code_status,
+                    c.flow_status
+                )
+                -- not completed:
+                ELSE COALESCE(
+                    f.workflow_as_code_status || f.flow_status,
+                    f.workflow_as_code_status,
+                    f.flow_status
+                )
+            END AS \"flow_status: sqlx::types::Json<Box<RawValue>>\",
+            job_logs.log_offset + CHAR_LENGTH(job_logs.logs) + 1 AS log_offset,
+            created_by AS \"created_by!\",
+            CASE WHEN $4::BOOLEAN THEN (
+                SELECT scalar_int FROM job_stats WHERE job_id = $3 AND metric_id = 'progress_perc'
+            ) END AS progress
+        FROM v2_job j
+            LEFT JOIN v2_job_queue q USING (id)
+            LEFT JOIN v2_job_runtime r USING (id)
+            LEFT JOIN v2_job_status f USING (id)
+            LEFT JOIN v2_job_completed c USING (id)
+            LEFT JOIN job_logs ON job_logs.job_id =  $3
+        WHERE j.workspace_id = $2 AND j.id = $3",
+        log_offset,
+        &w_id,
+        job_id,
+        get_progress.unwrap_or(false),
+        running,
     )
-    .bind(log_offset)
-    .bind(&w_id)
-    .bind(&job_id)
     .fetch_optional(&db)
-    .await?;
+    .await?
+    .ok_or_else(|| Error::NotFound(format!("Job not found: {}", job_id)))?;
 
-    let progress: Option<i32> = if get_progress == Some(true) {
-        sqlx::query_scalar!(
-                "SELECT scalar_int FROM job_stats WHERE workspace_id = $1 AND job_id = $2 AND metric_id = $3",
-                &w_id,
-                 job_id,
-                "progress_perc"
-            )
-            .fetch_optional(&db)
-            .await?.and_then(|inner| inner)
-    } else {
-        None
-    };
-
-    if let Some(record) = record {
-        if opt_authed.is_none() && record.created_by != "anonymous" {
-            return Err(Error::BadRequest(
-                "As a non logged in user, you can only see jobs ran by anonymous users".to_string(),
-            ));
-        }
-        log_job_view(&db, opt_authed.as_ref(), &w_id, &job_id).await?;
-        Ok(Json(JobUpdate {
-            running: if !running && record.running {
-                Some(true)
-            } else {
-                None
-            },
-            log_offset: record.log_offset,
-            completed: None,
-            new_logs: record.logs,
-            mem_peak: record.mem_peak,
-            progress,
-            flow_status: record
-                .flow_status
-                .map(|x: sqlx::types::Json<Box<RawValue>>| x.0),
-        }))
-    } else {
-        let record = sqlx::query_as::<_, JobUpdateRow>(
-            "SELECT false as running, substr(concat(coalesce(completed_job.logs, ''), job_logs.logs), greatest($1 - job_logs.log_offset, 0))  as logs, mem_peak, 
-            CASE WHEN is_flow_step is true then NULL else flow_status END as flow_status,
-            job_logs.log_offset + char_length(job_logs.logs) + 1 as log_offset, created_by
-            FROM completed_job 
-            LEFT JOIN job_logs ON job_logs.job_id = completed_job.id 
-            WHERE completed_job.workspace_id = $2 AND id = $3",
-        )
-        .bind(log_offset)
-        .bind(&w_id)
-        .bind(&job_id)
-        .fetch_optional(&db)
-        .await?;
-        if let Some(record) = record {
-            if opt_authed.is_none() && record.created_by != "anonymous" {
-                return Err(Error::BadRequest(
-                    "As a non logged in user, you can only see jobs ran by anonymous users"
-                        .to_string(),
-                ));
-            }
-            log_job_view(&db, opt_authed.as_ref(), &w_id, &job_id).await?;
-            Ok(Json(JobUpdate {
-                running: Some(false),
-                completed: Some(true),
-                log_offset: record.log_offset,
-                new_logs: record.logs,
-                mem_peak: record.mem_peak,
-                progress,
-                flow_status: record
-                    .flow_status
-                    .map(|x: sqlx::types::Json<Box<RawValue>>| x.0),
-            }))
-        } else {
-            Err(error::Error::NotFound(format!("Job not found: {}", job_id)))
-        }
+    if opt_authed.is_none() && record.created_by != "anonymous" {
+        return Err(Error::BadRequest(
+            "As a non logged in user, you can only see jobs ran by anonymous users".to_string(),
+        ));
     }
+    log_job_view(&db, opt_authed.as_ref(), &w_id, &job_id).await?;
+    Ok(Json(JobUpdate {
+        running: record.running,
+        completed: record.completed,
+        log_offset: record.log_offset,
+        new_logs: record.logs,
+        mem_peak: record.mem_peak,
+        progress: record.progress,
+        flow_status: record
+            .flow_status
+            .map(|x: sqlx::types::Json<Box<RawValue>>| x.0),
+    }))
 }
 
 pub fn filter_list_completed_query(
@@ -5271,44 +5466,76 @@ pub fn filter_list_completed_query(
     w_id: &str,
     join_outstanding_wait_times: bool,
 ) -> SqlBuilder {
+    sqlb.join("v2_job")
+        .on_eq("v2_job_completed.id", "v2_job.id");
+
     if join_outstanding_wait_times {
         sqlb.left()
             .join("outstanding_wait_time")
-            .on_eq("id", "outstanding_wait_time.job_id");
+            .on_eq("v2_job.id", "outstanding_wait_time.job_id");
     }
 
     if let Some(label) = &lq.label {
-        let mut wh = format!("result->'wm_labels' ? ");
-        wh.push_str(&format!("'{}'", &label.replace("'", "''")));
-        sqlb.and_where("result ? 'wm_labels'");
-        sqlb.and_where(&wh);
+        if lq.allow_wildcards.unwrap_or(false) {
+            let wh = format!(
+                "EXISTS (SELECT 1 FROM jsonb_array_elements_text(result->'wm_labels') label WHERE label LIKE '{}')",
+                &label.replace("*", "%").replace("'", "''")
+            );
+            sqlb.and_where("result ? 'wm_labels'");
+            sqlb.and_where(&wh);
+        } else {
+            let mut wh = format!("result->'wm_labels' ? ");
+            wh.push_str(&format!("'{}'", &label.replace("'", "''")));
+            sqlb.and_where("result ? 'wm_labels'");
+            sqlb.and_where(&wh);
+        }
+    }
+
+    if let Some(worker) = &lq.worker {
+        if lq.allow_wildcards.unwrap_or(false) {
+            sqlb.and_where_like_left("v2_job_completed.worker", worker.replace("*", "%"));
+        } else {
+            sqlb.and_where_eq("v2_job_completed.worker", "?".bind(worker));
+        }
     }
 
     if w_id != "admins" || !lq.all_workspaces.is_some_and(|x| x) {
-        sqlb.and_where_eq("workspace_id", "?".bind(&w_id));
+        sqlb.and_where_eq("v2_job.workspace_id", "?".bind(&w_id));
     }
 
     if let Some(p) = &lq.schedule_path {
-        sqlb.and_where_eq("schedule_path", "?".bind(p));
+        sqlb.and_where_eq("trigger", "?".bind(p));
+        sqlb.and_where_eq("trigger_kind", "'schedule'");
     }
 
     if let Some(ps) = &lq.script_path_start {
-        sqlb.and_where_like_left("script_path", ps);
+        sqlb.and_where_like_left("runnable_path", ps);
     }
     if let Some(p) = &lq.script_path_exact {
-        sqlb.and_where_eq("script_path", "?".bind(p));
+        sqlb.and_where_eq("runnable_path", "?".bind(p));
     }
     if let Some(h) = &lq.script_hash {
-        sqlb.and_where_eq("script_hash", "?".bind(h));
+        sqlb.and_where_eq("runnable_id", "?".bind(h));
     }
     if let Some(t) = &lq.tag {
-        sqlb.and_where_eq("tag", "?".bind(t));
+        if lq.allow_wildcards.unwrap_or(false) {
+            sqlb.and_where_like_left("v2_job.tag", t.replace("*", "%"));
+        } else {
+            sqlb.and_where_eq("v2_job.tag", "?".bind(t));
+        }
     }
+
     if let Some(cb) = &lq.created_by {
         sqlb.and_where_eq("created_by", "?".bind(cb));
     }
     if let Some(r) = &lq.success {
-        sqlb.and_where_eq("success", r);
+        if *r {
+            sqlb.and_where_eq("status", "'success'")
+                .or_where_eq("status", "'skipped'");
+        } else {
+            sqlb.and_where_eq("status", "'failure'")
+                .or_where_eq("status", "'canceled'");
+        }
     }
     if let Some(pj) = &lq.parent_job {
         sqlb.and_where_eq("parent_job", "?".bind(pj));
@@ -5339,10 +5566,18 @@ pub fn filter_list_completed_query(
     }
 
     if let Some(sk) = &lq.is_skipped {
-        sqlb.and_where_eq("is_skipped", sk);
+        if *sk {
+            sqlb.and_where_eq("status", "'skipped'");
+        } else {
+            sqlb.and_where_ne("status", "'skipped'");
+        }
     }
     if let Some(fs) = &lq.is_flow_step {
-        sqlb.and_where_eq("is_flow_step", fs);
+        if *fs {
+            sqlb.and_where_is_not_null("flow_step_id");
+        } else {
+            sqlb.and_where_is_null("flow_step_id");
+        }
     }
     if let Some(fs) = &lq.has_null_parent {
         if *fs {
@@ -5351,7 +5586,7 @@ pub fn filter_list_completed_query(
     }
     if let Some(jk) = &lq.job_kinds {
         sqlb.and_where_in(
-            "job_kind",
+            "kind",
             &jk.split(',').into_iter().map(quote).collect::<Vec<_>>(),
         );
     }
@@ -5365,7 +5600,8 @@ pub fn filter_list_completed_query(
     }
 
     if lq.is_not_schedule.unwrap_or(false) {
-        sqlb.and_where("schedule_path IS null");
+        sqlb.and_where("trigger_kind != 'schedule'")
+            .or_where("trigger_kind IS NULL");
     }
 
     sqlb
@@ -5380,15 +5616,18 @@ pub fn list_completed_jobs_query(
     join_outstanding_wait_times: bool,
     tags: Option<Vec<&str>>,
 ) -> SqlBuilder {
-    let mut sqlb = SqlBuilder::select_from("completed_job")
+    let mut sqlb = SqlBuilder::select_from("v2_job_completed")
         .fields(fields)
-        .order_by("created_at", lq.order_desc.unwrap_or(true))
+        .order_by("v2_job.created_at", lq.order_desc.unwrap_or(true))
         .offset(offset)
         .limit(per_page)
         .clone();
 
     if let Some(tags) = tags {
-        sqlb.and_where_in("tag", &tags.iter().map(|x| quote(x)).collect::<Vec<_>>());
+        sqlb.and_where_in(
+            "v2_job.tag",
+            &tags.iter().map(|x| quote(x)).collect::<Vec<_>>(),
+        );
     }
 
     filter_list_completed_query(sqlb, lq, w_id, join_outstanding_wait_times)
@@ -5426,6 +5665,8 @@ pub struct ListCompletedQuery {
     pub label: Option<String>,
     pub is_not_schedule: Option<bool>,
     pub concurrency_key: Option<String>,
+    pub worker: Option<String>,
+    pub allow_wildcards: Option<bool>,
 }
 
 async fn list_completed_jobs(
@@ -5445,35 +5686,35 @@ async fn list_completed_jobs(
         offset,
         &lq,
         &[
-            "id",
-            "workspace_id",
-            "parent_job",
-            "created_by",
-            "created_at",
-            "started_at",
-            "duration_ms",
-            "success",
-            "script_hash",
-            "script_path",
-            "deleted",
-            "canceled",
-            "canceled_by",
-            "canceled_reason",
-            "job_kind",
-            "schedule_path",
-            "permissioned_as",
+            "v2_job.id",
+            "v2_job.workspace_id",
+            "v2_job.parent_job",
+            "v2_job.created_by",
+            "v2_job.created_at",
+            "v2_job_completed.started_at",
+            "v2_job_completed.duration_ms",
+            "v2_job_completed.status = 'success' OR v2_job_completed.status = 'skipped' as success",
+            "v2_job.runnable_id as script_hash",
+            "v2_job.runnable_path as script_path",
+            "false as deleted",
+            "v2_job_completed.status = 'canceled' as canceled",
+            "v2_job_completed.canceled_by",
+            "v2_job_completed.canceled_reason",
+            "v2_job.kind as job_kind",
+            "CASE WHEN v2_job.trigger_kind = 'schedule' THEN v2_job.trigger END as schedule_path",
+            "v2_job.permissioned_as",
             "null as raw_code",
             "null as flow_status",
             "null as raw_flow",
-            "is_flow_step",
-            "language",
-            "is_skipped",
-            "email",
-            "visible_to_owner",
-            "mem_peak",
-            "tag",
-            "priority",
-            "result->'wm_labels' as labels",
+            "v2_job.flow_step_id IS NOT NULL as is_flow_step",
+            "v2_job.script_lang as language",
+            "v2_job_completed.status = 'skipped' as is_skipped",
+            "v2_job.permissioned_as_email as email",
+            "v2_job.visible_to_owner",
+            "v2_job_completed.memory_peak as mem_peak",
+            "v2_job.tag",
+            "v2_job.priority",
+            "v2_job_completed.result->'wm_labels' as labels",
             "'CompletedJob' as type",
         ],
         false,
@@ -5523,18 +5764,8 @@ async fn get_completed_job<'a>(
 #[derive(FromRow)]
 pub struct RawResult {
     pub result: Option<sqlx::types::Json<Box<RawValue>>>,
-    pub flow_status: Option<sqlx::types::Json<Box<RawValue>>>,
-    pub language: Option<ScriptLang>,
+    pub result_columns: Option<Vec<String>>,
     pub created_by: Option<String>,
-}
-
-#[derive(FromRow)]
-pub struct RawResultWithSuccess {
-    pub result: Option<sqlx::types::Json<Box<RawValue>>>,
-    pub flow_status: Option<sqlx::types::Json<Box<RawValue>>>,
-    pub language: Option<ScriptLang>,
-    pub success: bool,
-    pub created_by: String,
 }
 
 async fn get_completed_job_result(
@@ -5548,27 +5779,38 @@ async fn get_completed_job_result(
         .map(|authed| get_scope_tags(authed))
         .flatten();
     let result_o = if let Some(json_path) = json_path {
-        sqlx::query_as::<_, RawResult>(
-            "SELECT result #> $3 as result, flow_status, language, created_by FROM completed_job WHERE id = $1 AND workspace_id = $2 AND ($4::text[] IS NULL OR tag = ANY($4))",
+        sqlx::query_as!(
+            RawResult,
+            "SELECT
+                result #> $3 AS \"result: sqlx::types::Json<Box<RawValue>>\",
+                result_columns,
+                created_by AS \"created_by!\"
+            FROM v2_job_completed c
+                JOIN v2_job USING (id)
+            WHERE c.id = $1 AND c.workspace_id = $2 AND ($4::text[] IS NULL OR tag = ANY($4))",
+            id,
+            &w_id,
+            json_path.split(".").collect::<Vec<_>>() as Vec<&str>,
+            tags.as_ref().map(|v| v.as_slice()) as Option<&[&str]>,
         )
-        .bind(id)
-        .bind(&w_id)
-        .bind(
-            json_path
-                .split(".")
-                .map(|x| x.to_string())
-                .collect::<Vec<_>>(),
-        )
-        .bind(tags.as_ref().map(|v| v.as_slice()))
         .fetch_optional(&db)
         .await?
     } else {
-        sqlx::query_as::<_, RawResult>("SELECT result, flow_status, language, created_by FROM completed_job WHERE id = $1 AND workspace_id = $2 AND ($3::text[] IS NULL OR tag = ANY($3))")
-            .bind(id)
-            .bind(&w_id)
-            .bind(tags.as_ref().map(|v| v.as_slice()))
-            .fetch_optional(&db)
-            .await?
+        sqlx::query_as!(
+            RawResult,
+            "SELECT
+                result AS \"result: sqlx::types::Json<Box<RawValue>>\",
+                result_columns,
+                created_by AS \"created_by!\"
+            FROM v2_job_completed c
+                JOIN v2_job USING (id)
+            WHERE c.id = $1 AND c.workspace_id = $2 AND ($3::text[] IS NULL OR tag = ANY($3))",
+            id,
+            &w_id,
+            tags.as_ref().map(|v| v.as_slice()) as Option<&[&str]>,
+        )
+        .fetch_optional(&db)
+        .await?
     };
 
     let mut raw_result = not_found_if_none(result_o, "Completed Job", id.to_string())?;
@@ -5579,7 +5821,7 @@ async fn get_completed_job_result(
                 let mut parent_job = id;
                 while parent_job != suspended_job {
                     let p_job = sqlx::query_scalar!(
-                        "SELECT parent_job FROM queue WHERE id = $1 AND workspace_id = $2",
+                        "SELECT parent_job FROM v2_job WHERE id = $1 AND workspace_id = $2",
                         parent_job,
                         &w_id
                     )
@@ -5612,8 +5854,7 @@ async fn get_completed_job_result(
     }
 
     format_result(
-        raw_result.language.as_ref(),
-        raw_result.flow_status.as_ref(),
+        raw_result.result_columns.as_ref(),
         raw_result.result.as_mut(),
     );
 
@@ -5646,7 +5887,7 @@ async fn count_by_tag(
         TagCount,
         r#"
         SELECT tag as "tag!", COUNT(*) as "count!"
-        FROM completed_job
+        FROM v2_as_completed_job
         WHERE started_at > NOW() - make_interval(secs => $1) AND ($2::text IS NULL OR workspace_id = $2)
         GROUP BY tag
         ORDER BY "count!" DESC
@@ -5683,21 +5924,24 @@ async fn get_completed_job_result_maybe(
         .as_ref()
         .map(|authed| get_scope_tags(authed))
         .flatten();
-    let result_o = sqlx::query_as::<_, RawResultWithSuccess>(
-        "SELECT result, success, language, flow_status, created_by FROM completed_job WHERE id = $1 AND workspace_id = $2 AND ($3::text[] IS NULL OR tag = ANY($3))",
+    let result_o = sqlx::query!(
+        "SELECT
+            result AS \"result: sqlx::types::Json<Box<RawValue>>\",
+            result_columns,
+            status = 'success' AS \"success!\",
+            created_by AS \"created_by!\"
+        FROM v2_job_completed c
+            JOIN v2_job j USING (id)
+        WHERE c.id = $1 AND c.workspace_id = $2 AND ($3::text[] IS NULL OR tag = ANY($3))",
+        id,
+        &w_id,
+        tags.as_ref().map(|v| v.as_slice()) as Option<&[&str]>,
     )
-    .bind(id)
-    .bind(&w_id)
-    .bind(tags.as_ref().map(|v| v.as_slice()))
     .fetch_optional(&db)
     .await?;
 
     if let Some(mut res) = result_o {
-        format_result(
-            res.language.as_ref(),
-            res.flow_status.as_ref(),
-            res.result.as_mut(),
-        );
+        format_result(res.result_columns.as_ref(), res.result.as_mut());
         if opt_authed.is_none() && res.created_by != "anonymous" {
             return Err(Error::BadRequest(
                 "As a non logged in user, you can only see jobs ran by anonymous users".to_string(),
@@ -5715,7 +5959,7 @@ async fn get_completed_job_result_maybe(
         .into_response())
     } else if get_started.is_some_and(|x| x) {
         let started = sqlx::query_scalar!(
-            "SELECT running FROM queue WHERE id = $1 AND workspace_id = $2",
+            "SELECT running AS \"running!\" FROM v2_job_queue WHERE id = $1 AND workspace_id = $2",
             id,
             w_id
         )
@@ -5743,6 +5987,7 @@ async fn get_completed_job_result_maybe(
 async fn delete_completed_job<'a>(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
+    Extension(db): Extension<DB>,
     Path((w_id, id)): Path<(String, Uuid)>,
 ) -> error::Result<Response> {
     check_scopes(&authed, || format!("jobs:deletejob"))?;
@@ -5751,18 +5996,29 @@ async fn delete_completed_job<'a>(
 
     require_admin(authed.is_admin, &authed.username)?;
     let tags = get_scope_tags(&authed);
-    let job_o = sqlx::query_as::<_, CompletedJob>(
-        "UPDATE completed_job SET args = null, logs = '', result = null, deleted = true WHERE id = $1 AND workspace_id = $2 AND ($3::text[] IS NULL OR tag = ANY($3)) \
-         RETURNING *, null as labels",
+    let job_o = sqlx::query_scalar!(
+        "UPDATE v2_job_completed c SET
+                result = NULL,
+                deleted = TRUE
+            FROM v2_job j
+            WHERE c.id = $1
+                AND j.id = c.id
+                AND c.workspace_id = $2
+                AND ($3::TEXT[] IS NULL OR tag = ANY($3))
+            RETURNING c.id
+        ",
+        id,
+        &w_id,
+        tags.as_ref().map(|v| v.as_slice()) as Option<&[&str]>,
     )
-    .bind(id)
-    .bind(&w_id)
-    .bind(tags.as_ref().map(|v| v.as_slice()))
     .fetch_optional(&mut *tx)
     .await?;
 
-    let cj = not_found_if_none(job_o, "Completed Job", id.to_string())?;
+    not_found_if_none(job_o, "Completed Job", id.to_string())?;
 
+    sqlx::query!("UPDATE v2_job SET args = NULL WHERE id = $1", id)
+        .execute(&mut *tx)
+        .await?;
     sqlx::query!("DELETE FROM job_logs WHERE job_id = $1", id)
         .execute(&mut *tx)
         .await?;
@@ -5779,9 +6035,5 @@ async fn delete_completed_job<'a>(
     .await?;
 
     tx.commit().await?;
-
-    let cj = format_completed_job_result(cj);
-
-    let response = Json(cj).into_response();
-    Ok(response)
+    return get_completed_job(OptAuthed(Some(authed)), Extension(db), Path((w_id, id))).await;
 }

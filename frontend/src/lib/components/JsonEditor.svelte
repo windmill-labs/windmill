@@ -2,6 +2,8 @@
 	import '@codingame/monaco-vscode-standalone-json-language-features'
 
 	import SimpleEditor from '$lib/components/SimpleEditor.svelte'
+	import { createEventDispatcher } from 'svelte'
+	import { createDispatcherIfMounted } from '$lib/createDispatcherIfMounted'
 	export let code: string | undefined
 	export let value: any = undefined
 	export let error = ''
@@ -9,6 +11,9 @@
 	export let small = false
 
 	$: tooBig = code && code?.length > 1000000
+
+	const dispatch = createEventDispatcher()
+	const dispatchIfMounted = createDispatcherIfMounted(dispatch)
 
 	function parseJson() {
 		try {
@@ -18,6 +23,7 @@
 				return
 			}
 			value = JSON.parse(code ?? '')
+			dispatchIfMounted('changeValue', value)
 			error = ''
 		} catch (e) {
 			error = e.message
@@ -40,6 +46,7 @@
 				autoHeight
 				lang="json"
 				bind:code
+				class={$$props.class}
 			/>
 		</div>
 		{#if error != ''}

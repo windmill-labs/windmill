@@ -18,7 +18,6 @@ use crate::{
     webhook_util::{WebhookMessage, WebhookShared},
     HTTP_CLIENT,
 };
-#[cfg(all(feature = "enterprise", feature = "parquet"))]
 use axum::extract::Multipart;
 
 use axum::{
@@ -42,7 +41,6 @@ use std::{
 use windmill_audit::audit_ee::audit_log;
 use windmill_audit::ActionKind;
 
-#[cfg(all(feature = "enterprise", feature = "parquet"))]
 use windmill_common::error::to_anyhow;
 
 use windmill_common::{
@@ -50,6 +48,7 @@ use windmill_common::{
     error::{Error, JsonResult, Result},
     jobs::JobPayload,
     schedule::Schedule,
+    schema::should_validate_schema,
     scripts::{
         to_i64, HubScript, ListScriptQuery, ListableScript, NewScript, Schema, Script, ScriptHash,
         ScriptHistory, ScriptHistoryUpdate, ScriptKind, ScriptLang, ScriptWithStarred,
@@ -157,6 +156,10 @@ pub fn workspaced_service() -> Router {
         )
         .route("/history/p/*path", get(get_script_history))
         .route("/get_latest_version/*path", get(get_latest_version))
+        .route(
+            "/list_paths_from_workspace_runnable/*path",
+            get(list_paths_from_workspace_runnable),
+        )
         .route(
             "/history_update/h/:hash/p/*path",
             post(update_script_history),
@@ -311,7 +314,7 @@ async fn list_scripts(
             .fields(&["dm.deployment_msg"]);
     }
 
-    let sql = sqlb.sql().map_err(|e| Error::InternalErr(e.to_string()))?;
+    let sql = sqlb.sql().map_err(|e| Error::internal_err(e.to_string()))?;
     let mut tx = user_db.begin(&authed).await?;
     let rows = sqlx::query_as::<_, ListableScript>(&sql)
         .fetch_all(&mut *tx)
@@ -358,12 +361,6 @@ fn hash_script(ns: &NewScript) -> i64 {
     dh.finish() as i64
 }
 
-#[cfg(not(all(feature = "enterprise", feature = "parquet")))]
-async fn create_snapshot_script() -> Result<(StatusCode, String)> {
-    Err(Error::BadRequest("Upgrade to EE to use bundle".to_string()))
-}
-
-#[cfg(all(feature = "enterprise", feature = "parquet"))]
 async fn create_snapshot_script(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
@@ -404,21 +401,48 @@ async fn create_snapshot_script(
             })?;
 
             uploaded = true;
-            if let Some(os) = windmill_common::s3_helpers::OBJECT_STORE_CACHE_SETTINGS
+
+            #[cfg(all(feature = "enterprise", feature = "parquet"))]
+            let object_store = windmill_common::s3_helpers::OBJECT_STORE_CACHE_SETTINGS
                 .read()
                 .await
-                .clone()
+                .clone();
+
+            #[cfg(not(all(feature = "enterprise", feature = "parquet")))]
+            let object_store: Option<()> = None;
+
+            if &windmill_common::utils::MODE_AND_ADDONS.mode
+                == &windmill_common::utils::Mode::Standalone
+                && object_store.is_none()
             {
-                let path = windmill_common::s3_helpers::bundle(&w_id, &hash);
-                if let Err(e) = os
-                    .put(&object_store::path::Path::from(path.clone()), data.into())
-                    .await
-                {
-                    tracing::info!("Failed to put snapshot to s3 at {path}: {:?}", e);
-                    return Err(Error::ExecutionErr(format!("Failed to put {path} to s3")));
-                }
+                std::fs::create_dir_all(
+                    windmill_common::worker::ROOT_STANDALONE_BUNDLE_DIR.clone(),
+                )?;
+                windmill_common::worker::write_file_bytes(
+                    &windmill_common::worker::ROOT_STANDALONE_BUNDLE_DIR,
+                    &hash,
+                    &data,
+                )?;
             } else {
-                return Err(Error::BadConfig("Object store is required for snapshot script and is not configured for servers".to_string()));
+                #[cfg(not(all(feature = "enterprise", feature = "parquet")))]
+                {
+                    return Err(Error::ExecutionErr("codebase is an EE feature".to_string()));
+                }
+
+                #[cfg(all(feature = "enterprise", feature = "parquet"))]
+                if let Some(os) = object_store {
+                    let path = windmill_common::s3_helpers::bundle(&w_id, &hash);
+
+                    if let Err(e) = os
+                        .put(&object_store::path::Path::from(path.clone()), data.into())
+                        .await
+                    {
+                        tracing::info!("Failed to put snapshot to s3 at {path}: {:?}", e);
+                        return Err(Error::ExecutionErr(format!("Failed to put {path} to s3")));
+                    }
+                } else {
+                    return Err(Error::BadConfig("Object store is required for snapshot script and is not configured for servers".to_string()));
+                }
             }
         }
         // println!("Length of `{}` is {} bytes", name, data.len());
@@ -434,6 +458,24 @@ async fn create_snapshot_script(
 
     tx.unwrap().commit().await?;
     return Ok((StatusCode::CREATED, format!("{}", script_hash.unwrap())));
+}
+
+async fn list_paths_from_workspace_runnable(
+    authed: ApiAuthed,
+    Extension(user_db): Extension<UserDB>,
+    Path((w_id, path)): Path<(String, StripPath)>,
+) -> JsonResult<Vec<String>> {
+    let mut tx = user_db.begin(&authed).await?;
+    let runnables = sqlx::query_scalar!(
+        r#"SELECT importer_path FROM dependency_map 
+            WHERE workspace_id = $1 AND imported_path = $2"#,
+        w_id,
+        path.to_path(),
+    )
+    .fetch_all(&mut *tx)
+    .await?;
+    tx.commit().await?;
+    Ok(Json(runnables))
 }
 
 async fn create_script(
@@ -591,16 +633,20 @@ async fn create_script_internal<'c>(
         .unwrap_or(json!({}));
     let lock = if ns.codebase.is_some() {
         Some(String::new())
-    } else if !(ns.language == ScriptLang::Python3
-        || ns.language == ScriptLang::Go
-        || ns.language == ScriptLang::Bun
-        || ns.language == ScriptLang::Bunnative
-        || ns.language == ScriptLang::Deno
-        || ns.language == ScriptLang::Rust
-        || ns.language == ScriptLang::Ansible
-        || ns.language == ScriptLang::CSharp
-        || ns.language == ScriptLang::Php)
-    {
+    } else if !(
+        ns.language == ScriptLang::Python3
+            || ns.language == ScriptLang::Go
+            || ns.language == ScriptLang::Bun
+            || ns.language == ScriptLang::Bunnative
+            || ns.language == ScriptLang::Deno
+            || ns.language == ScriptLang::Rust
+            || ns.language == ScriptLang::Ansible
+            || ns.language == ScriptLang::CSharp
+            || ns.language == ScriptLang::Nu
+            || ns.language == ScriptLang::Php
+            || ns.language == ScriptLang::Java
+        // for related places search: ADD_NEW_LANG
+    ) {
         Some(String::new())
     } else {
         ns.lock
@@ -625,13 +671,28 @@ async fn create_script_internal<'c>(
     } else {
         ns.language.clone()
     };
+
+    let validate_schema = should_validate_schema(&ns.content, &ns.language);
+
+    let (no_main_func, has_preprocessor) = match lang {
+        ScriptLang::Bun | ScriptLang::Bunnative | ScriptLang::Deno | ScriptLang::Nativets => {
+            let args = windmill_parser_ts::parse_deno_signature(&ns.content, true, true, None)?;
+            (args.no_main_func, args.has_preprocessor)
+        }
+        ScriptLang::Python3 => {
+            let args = windmill_parser_py::parse_python_signature(&ns.content, None, true)?;
+            (args.no_main_func, args.has_preprocessor)
+        }
+        _ => (ns.no_main_func, ns.has_preprocessor),
+    };
+
     sqlx::query!(
         "INSERT INTO script (workspace_id, hash, path, parent_hashes, summary, description, \
          content, created_by, schema, is_template, extra_perms, lock, language, kind, tag, \
          draft_only, envs, concurrent_limit, concurrency_time_window_s, cache_ttl, \
          dedicated_worker, ws_error_handler_muted, priority, restart_unless_cancelled, \
-         delete_after_use, timeout, concurrency_key, visible_to_runner_only, no_main_func, codebase, has_preprocessor, on_behalf_of_email) \
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::text::json, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32)",
+         delete_after_use, timeout, concurrency_key, visible_to_runner_only, no_main_func, codebase, has_preprocessor, on_behalf_of_email, schema_validation) \
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::text::json, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33)",
         &w_id,
         &hash.0,
         ns.path,
@@ -660,14 +721,15 @@ async fn create_script_internal<'c>(
         ns.timeout,
         ns.concurrency_key,
         ns.visible_to_runner_only,
-        ns.no_main_func,
+        no_main_func.filter(|x| *x), // should be Some(true) or None
         codebase,
-        ns.has_preprocessor,
+        has_preprocessor.filter(|x| *x), // should be Some(true) or None
         if ns.on_behalf_of_email.is_some() {
             Some(&authed.email)
         } else {
             None
-        }
+        },
+        validate_schema,
     )
     .execute(&mut *tx)
     .await?;
@@ -1337,7 +1399,7 @@ async fn archive_script_by_path(
     )
     .fetch_one(&db)
     .await
-    .map_err(|e| Error::InternalErr(format!("archiving script in {w_id}: {e:#}")))?;
+    .map_err(|e| Error::internal_err(format!("archiving script in {w_id}: {e:#}")))?;
     audit_log(
         &mut *tx,
         &authed,
@@ -1387,7 +1449,7 @@ async fn archive_script_by_hash(
     .bind(&hash.0)
     .fetch_one(&mut *tx)
     .await
-    .map_err(|e| Error::InternalErr(format!("archiving script in {w_id}: {e:#}")))?;
+    .map_err(|e| Error::internal_err(format!("archiving script in {w_id}: {e:#}")))?;
 
     audit_log(
         &mut *tx,
@@ -1427,7 +1489,7 @@ async fn delete_script_by_hash(
     .bind(&w_id)
     .fetch_one(&db)
     .await
-    .map_err(|e| Error::InternalErr(format!("deleting script by hash {w_id}: {e:#}")))?;
+    .map_err(|e| Error::internal_err(format!("deleting script by hash {w_id}: {e:#}")))?;
 
     audit_log(
         &mut *tx,
@@ -1449,12 +1511,18 @@ async fn delete_script_by_hash(
     Ok(Json(script))
 }
 
+#[derive(Deserialize)]
+struct DeleteScriptQuery {
+    keep_captures: Option<bool>,
+}
+
 async fn delete_script_by_path(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
     Extension(webhook): Extension<WebhookShared>,
     Extension(db): Extension<DB>,
     Path((w_id, path)): Path<(String, StripPath)>,
+    Query(query): Query<DeleteScriptQuery>,
 ) -> JsonResult<String> {
     let path = path.to_path();
 
@@ -1487,7 +1555,7 @@ async fn delete_script_by_path(
         )
         .fetch_one(&db)
         .await
-        .map_err(|e| Error::InternalErr(format!("deleting script by path {w_id}: {e:#}")))?
+        .map_err(|e| Error::internal_err(format!("deleting script by path {w_id}: {e:#}")))?
     } else {
         // If the script is draft only, we can delete it without admin permissions but we still need write permissions
         sqlx::query_scalar!(
@@ -1497,7 +1565,7 @@ async fn delete_script_by_path(
         )
         .fetch_one(&mut *tx)
         .await
-        .map_err(|e| Error::InternalErr(format!("deleting script by path {w_id}: {e:#}")))?
+        .map_err(|e| Error::internal_err(format!("deleting script by path {w_id}: {e:#}")))?
     };
 
     sqlx::query!(
@@ -1508,21 +1576,23 @@ async fn delete_script_by_path(
     .execute(&db)
     .await?;
 
-    sqlx::query!(
-        "DELETE FROM capture_config WHERE path = $1 AND workspace_id = $2 AND is_flow IS FALSE",
-        path,
-        w_id
-    )
-    .execute(&db)
-    .await?;
+    if !query.keep_captures.unwrap_or(false) {
+        sqlx::query!(
+            "DELETE FROM capture_config WHERE path = $1 AND workspace_id = $2 AND is_flow IS FALSE",
+            path,
+            w_id
+        )
+        .execute(&db)
+        .await?;
 
-    sqlx::query!(
-        "DELETE FROM capture WHERE path = $1 AND workspace_id = $2 AND is_flow IS FALSE",
-        path,
-        w_id
-    )
-    .execute(&db)
-    .await?;
+        sqlx::query!(
+            "DELETE FROM capture WHERE path = $1 AND workspace_id = $2 AND is_flow IS FALSE",
+            path,
+            w_id
+        )
+        .execute(&db)
+        .await?;
+    }
 
     audit_log(
         &mut *tx,
@@ -1559,7 +1629,7 @@ async fn delete_script_by_path(
     .execute(&db)
     .await
     .map_err(|e| {
-        Error::InternalErr(format!(
+        Error::internal_err(format!(
             "error deleting deployment metadata for script with path {path} in workspace {w_id}: {e:#}"
         ))
     })?;

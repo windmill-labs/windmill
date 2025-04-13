@@ -1,7 +1,8 @@
 <script lang="ts">
-	import { Button, Popup } from './common'
+	import { Button } from './common'
 	import { Pen } from 'lucide-svelte'
 	import Tooltip from './Tooltip.svelte'
+	import Popover from './meltComponents/Popover.svelte'
 
 	import DefaultTagsInner from './DefaultTagsInner.svelte'
 
@@ -11,11 +12,8 @@
 	let placement: 'bottom-end' | 'top-end' = 'bottom-end'
 </script>
 
-<Popup
-	floatingConfig={{ strategy: 'absolute', placement: placement }}
-	containerClasses="border rounded-lg shadow-lg p-4 bg-surface"
->
-	<svelte:fragment slot="button">
+<Popover floatingConfig={{ strategy: 'absolute', placement: placement }} contentClasses="p-4">
+	<svelte:fragment slot="trigger">
 		<Button color="dark" size="xs" nonCaptureEvent={true}>
 			<div class="flex flex-row gap-1 items-center"
 				><Pen size={14} /> Default tags&nbsp;<Tooltip light
@@ -25,5 +23,7 @@
 			>
 		</Button>
 	</svelte:fragment>
-	<DefaultTagsInner bind:defaultTagPerWorkspace bind:defaultTagWorkspaces />
-</Popup>
+	<svelte:fragment slot="content">
+		<DefaultTagsInner bind:defaultTagPerWorkspace bind:defaultTagWorkspaces />
+	</svelte:fragment>
+</Popover>

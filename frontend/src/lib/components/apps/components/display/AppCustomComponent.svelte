@@ -50,7 +50,7 @@
 		}
 	}
 	let loaded = false
-
+	let renderer: ((props: CCProps<number>) => void) | undefined = undefined
 	// $: renderer && divEl && renderer(ccProps)
 	onMount(async () => {
 		// //@ts-ignore
@@ -81,8 +81,7 @@
 		)
 		loaded = true
 		try {
-			let renderer: (props: CCProps<number>) => void =
-				globalThis.windmill[customComponent?.name ?? 'no_name']
+			renderer = globalThis.windmill[customComponent?.name ?? 'no_name']
 			if (!renderer) {
 				sendUserToast(
 					'Custom Component seem to be ill-defined (renderer missing). is COMPONENT_NAME in vite.config.ts matching the name of the custom component?',
@@ -95,14 +94,16 @@
 			sendUserToast('Custom Component seem to be ill-defined', true)
 			console.error(e)
 		}
+		console.log('mounted', render, setRender)
 	})
 	let result
 
-	$: render != undefined && handleRender()
+	$: render != undefined && setRender && handleRender()
 	function handleRender() {
 		setRender?.(render)
 	}
-	$: result != undefined && handleResult()
+
+	$: result != undefined && setInput && handleResult()
 	function handleResult() {
 		setInput?.(result)
 	}
@@ -110,13 +111,11 @@
 </script>
 
 <InitializeComponent {id} />
-{#if render}
-	<div class="w-full h-full overflow-auto {customComponent?.name ?? 'no_name'}">
-		<RunnableWrapper {outputs} {render} autoRefresh {componentInput} {id} bind:result>
-			{#if !loaded}
-				<Loader2 class="animate-spin" />
-			{/if}
-			<div id={divId} />
-		</RunnableWrapper>
-	</div>
-{/if}
+<div class="w-full h-full overflow-auto {customComponent?.name ?? 'no_name'}">
+	<RunnableWrapper {outputs} render autoRefresh {componentInput} {id} bind:result>
+		{#if !loaded}
+			<Loader2 class="animate-spin" />
+		{/if}
+		<div id={divId}></div>
+	</RunnableWrapper>
+</div>

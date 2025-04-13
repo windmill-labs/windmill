@@ -20,7 +20,7 @@ flow_testing = []
 cloud = []
 sqlx = []
 deno_core = ["dep:deno_fetch", "dep:deno_webidl", "dep:deno_web", "dep:deno_net", "dep:deno_console", "dep:deno_url", "dep:deno_core",
-    "dep:deno_ast", "dep:deno_tls", "dep:deno_permissions"]
+    "dep:deno_ast", "dep:deno_tls", "dep:deno_permissions", "dep:deno_io", "dep:deno_runtime", "dep:deno_telemetry", "dep:deno_error", "dep:winapi"]
 otel = ["windmill-common/otel", "dep:opentelemetry"]
 dind = ["dep:bollard"]
 php = ["dep:windmill-parser-php"]
@@ -29,16 +29,21 @@ oracledb = ["dep:oracle"]
 python = ["dep:windmill-parser-py", "dep:windmill-parser-py-imports"]
 csharp = ["dep:windmill-parser-csharp"]
 rust = ["dep:windmill-parser-rust"]
+nu = ["dep:windmill-parser-nu"]
+java = ["dep:windmill-parser-java"]
 
 [dependencies]
 windmill-queue.workspace = true
 windmill-audit.workspace = true # there isn't really a reason for audit-worth actions to happen in the worker.
 windmill-common = { workspace = true, default-features = false }
+windmill-macros.workspace = true
 windmill-parser.workspace = true
 windmill-parser-ts.workspace = true
 windmill-parser-go.workspace = true
 windmill-parser-rust = { workspace = true, optional = true }
 windmill-parser-csharp = { workspace = true, optional = true }
+windmill-parser-nu = { workspace = true, optional = true }
+windmill-parser-java = { workspace = true, optional = true }
 windmill-parser-py = { workspace = true, optional = true }
 windmill-parser-yaml.workspace = true
 windmill-parser-py-imports = { workspace = true, optional = true }
@@ -47,6 +52,7 @@ windmill-parser-sql.workspace = true
 windmill-parser-graphql.workspace = true
 windmill-parser-php = { workspace = true, optional = true }
 windmill-git-sync.workspace = true
+flume.workspace = true
 sqlx.workspace = true
 uuid.workspace = true
 tracing.workspace = true
@@ -70,6 +76,8 @@ dyn-iter.workspace = true
 once_cell.workspace = true
 tokio-postgres.workspace = true
 bit-vec.workspace = true
+url.workspace = true
+deno_telemetry = { workspace = true, optional = true }
 deno_fetch = { workspace = true, optional = true }
 deno_webidl = { workspace = true, optional = true }
 deno_web = { workspace = true, optional = true }
@@ -80,6 +88,8 @@ deno_core = { workspace = true, optional = true }
 deno_ast = { workspace = true, optional = true }
 deno_tls = { workspace = true, optional = true }
 deno_permissions = { workspace = true, optional = true }
+deno_io = { workspace = true, optional = true }
+deno_error = { workspace = true, optional = true }
 
 postgres-native-tls.workspace = true
 native-tls.workspace = true
@@ -94,6 +104,7 @@ urlencoding.workspace = true
 nix.workspace = true
 bytes.workspace = true
 reqwest.workspace = true
+reqwest-middleware.workspace = true
 hex.workspace = true
 tiberius = { workspace = true, optional = true }
 tokio-util = { workspace = true, optional = true }
@@ -102,6 +113,7 @@ object_store = { workspace = true, optional = true}
 convert_case.workspace = true
 yaml-rust.workspace = true
 backon.workspace = true
+winapi = { workspace = true, optional = true }
 
 opentelemetry = { workspace = true, optional = true }
 bollard = { workspace = true, optional = true }
@@ -118,3 +130,7 @@ deno_core = { workspace = true, optional = true }
 deno_ast = { workspace = true, optional = true }
 deno_tls = { workspace = true, optional = true }
 deno_permissions = { workspace = true, optional = true }
+deno_io = { workspace = true, optional = true }
+deno_runtime = { workspace = true, optional = true }
+deno_telemetry = { workspace = true, optional = true }
+winapi = { workspace = true, optional = true }

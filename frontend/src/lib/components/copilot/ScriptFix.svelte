@@ -9,15 +9,14 @@
 	import { dbSchemas, copilotInfo, type DBSchema, workspaceStore } from '$lib/stores'
 	import type DiffEditor from '../DiffEditor.svelte'
 	import { scriptLangToEditorLang } from '$lib/scripts'
-	import Popover from '../Popover.svelte'
-	import Popup from '../common/popup/Popup.svelte'
+	import Popover from '$lib/components/meltComponents/Popover.svelte'
 	import { writable } from 'svelte/store'
-	import { sleep } from '$lib/utils'
 	import { WindmillIcon } from '../icons'
 	import HighlightCode from '../HighlightCode.svelte'
 	import LoadingIcon from '../apps/svelte-select/lib/LoadingIcon.svelte'
 	import { autoPlacement } from '@floating-ui/core'
-	import { Check, Wand2, X } from 'lucide-svelte'
+	import { Check, Wand2, X, RotateCw } from 'lucide-svelte'
+	import { createEventDispatcher } from 'svelte'
 
 	// props
 	export let lang: SupportedLanguage
@@ -25,6 +24,7 @@
 	export let diffEditor: DiffEditor | undefined
 	export let error: string
 	export let args: Record<string, any>
+	export let chatMode: boolean = false
 
 	// state
 	let genLoading: boolean = false
@@ -33,14 +33,17 @@
 	let dbSchema: DBSchema | undefined = undefined
 	let abortController: AbortController | undefined = undefined
 
-	async function onFix(closePopup: () => void) {
+	const dispatch = createEventDispatcher<{
+		fix: null
+	}>()
+
+	async function onFix() {
 		if (!error) {
 			return
 		}
 		try {
 			genLoading = true
 			abortController = new AbortController()
-			const aiProvider = $copilotInfo.ai_provider
 			await copilot(
 				{
 					language: lang,
@@ -52,14 +55,10 @@
 				},
 				generatedCode,
 				abortController,
-				aiProvider,
 				generatedExplanation
 			)
 			setupDiff()
 			diffEditor?.setModified($generatedCode)
-			await sleep(500)
-			closePopup()
-			await sleep(300)
 			showDiff()
 		} catch (err) {
 			if (!abortController?.signal.aborted) {
@@ -70,7 +69,6 @@
 					console.error(err)
 				}
 			}
-			closePopup()
 		} finally {
 			genLoading = false
 		}
@@ -117,110 +115,136 @@
 		}
 	}
 	$: updateSchema(lang, args)
+
+	let popover: Popover | undefined = undefined
 </script>
 
 {#if SUPPORTED_LANGUAGES.has(lang)}
-	<div>
-		{#if !genLoading && $generatedCode.length > 0}
-			<div class="flex gap-1">
+	{#if !genLoading && $generatedCode.length > 0}
+		<div class="flex gap-1">
+			<Button
+				title="Discard generated code"
+				size="xs"
+				color="red"
+				spacingSize="xs2"
+				on:click={() => {
+					popover?.close()
+					rejectDiff()
+				}}
+				variant="contained"
+				startIcon={{ icon: X }}
+				propagateEvent={true}
+			>
+				Discard
+			</Button>
+			<Button
+				title="Accept generated code"
+				size="xs"
+				color="green"
+				spacingSize="xs2"
+				on:click={() => {
+					popover?.close()
+					acceptDiff()
+				}}
+				startIcon={{ icon: Check }}
+				propagateEvent={true}
+			>
+				Accept
+			</Button>
+			<Button
+				size="xs"
+				color="light"
+				spacingSize="xs2"
+				on:click={() => {
+					$generatedExplanation = ''
+					popover?.open()
+					onFix()
+				}}
+				startIcon={{ icon: RotateCw }}
+				title="Retry"
+				btnClasses="text-violet-800 dark:text-violet-400"
+			/>
+		</div>
+	{/if}
+	<Popover
+		bind:this={popover}
+		floatingConfig={{
+			middleware: [
+				autoPlacement({
+					allowedPlacements: ['bottom-end', 'top-end']
+				})
+			]
+		}}
+		closeOnOutsideClick={!genLoading}
+		closeButton={!genLoading}
+		displayArrow={true}
+	>
+		<svelte:fragment slot="trigger" let:isOpen>
+			<div class="flex flex-row">
 				<Button
-					title="Discard generated code"
+					title="Fix code"
 					size="xs"
-					color="red"
+					color={genLoading ? 'red' : 'light'}
 					spacingSize="xs2"
-					on:click={rejectDiff}
-					variant="contained"
-					startIcon={{ icon: X }}
+					startIcon={genLoading ? undefined : { icon: Wand2 }}
+					propagateEvent={!chatMode}
+					on:click={chatMode
+						? () => dispatch('fix')
+						: genLoading
+						? () => abortController?.abort()
+						: $generatedCode.length > 0
+							? () => {}
+							: () => onFix()}
+					btnClasses={genLoading
+						? ''
+						: 'text-violet-800 dark:text-violet-400 bg-violet-100 dark:bg-gray-700 min-w-[84px]'}
 				>
-					Discard
-				</Button><Button
-					title="Accept generated code"
-					size="xs"
-					color="green"
-					spacingSize="xs2"
-					on:click={acceptDiff}
-					startIcon={{ icon: Check }}
-				>
-					Accept
+					{#if genLoading}
+						<WindmillIcon
+							white
+							class="mr-1 text-white"
+							height="16px"
+							width="20px"
+							spin="veryfast"
+						/>
+						Stop
+					{:else if $generatedCode.length > 0}
+						<span class="text-xs">{isOpen ? 'Hide' : 'Show'}</span>
+					{:else}
+						AI Fix
+					{/if}
 				</Button>
-				{#if $generatedExplanation.length > 0}
-					<Popover>
-						<svelte:fragment slot="text">{$generatedExplanation}</svelte:fragment>
-						<Button size="xs" color="light" variant="contained" spacingSize="xs2">Explain</Button>
-					</Popover>
+			</div>
+		</svelte:fragment>
+		<svelte:fragment slot="content">
+			<div class="p-4">
+				{#if $copilotInfo.enabled}
+					<div class="w-[42rem] min-h-[3rem] max-h-[34rem] overflow-y-auto">
+						{#if $generatedCode.length > 0 && genLoading}
+							<div class="overflow-x-scroll">
+								<HighlightCode language={lang} code={$generatedCode} />
+							</div>
+						{:else if genLoading}
+							<LoadingIcon />
+						{/if}
+						{#if $generatedExplanation.length > 0}
+							<p class="text-sm mt-2"
+								><span class="font-bold">Explanation: test</span> {$generatedExplanation}</p
+							>
+						{/if}
+					</div>
+				{:else}
+					<div class="w-80">
+						<p class="text-sm"
+							>Enable Windmill AI in the <a
+								class="inline-flex flex-row items-center gap-1"
+								href="{base}/workspace_settings?tab=ai"
+								target="_blank">workspace settings</a
+							></p
+						></div
+					>
 				{/if}
 			</div>
-		{:else}
-			<Popup
-				floatingConfig={{
-					middleware: [
-						autoPlacement({
-							allowedPlacements: ['bottom-end', 'top-end']
-						})
-					]
-				}}
-				let:close
-			>
-				<svelte:fragment slot="button">
-					<Button
-						title="Fix code"
-						size="xs"
-						color={genLoading ? 'red' : 'light'}
-						spacingSize="xs2"
-						startIcon={genLoading ? undefined : { icon: Wand2 }}
-						nonCaptureEvent={!genLoading}
-						on:click={genLoading ? () => abortController?.abort() : undefined}
-						btnClasses={genLoading
-							? ''
-							: 'text-violet-800 dark:text-violet-400 bg-violet-100 dark:bg-gray-700'}
-						>{#if genLoading}
-							<WindmillIcon
-								white
-								class="mr-1 text-white"
-								height="16px"
-								width="20px"
-								spin="veryfast"
-							/>
-							Stop
-						{:else}
-							AI Fix
-						{/if}
-					</Button>
-				</svelte:fragment>
-				{@const fixAction = (_) => {
-					if ($copilotInfo.exists_ai_resource) {
-						onFix(() => close(null))
-					}
-				}}
-				<div use:fixAction>
-					{#if $copilotInfo.exists_ai_resource}
-						<div class="w-[42rem] min-h-[3rem] max-h-[34rem] overflow-y-scroll">
-							{#if $generatedCode.length > 0}
-								<div class="overflow-x-scroll">
-									<HighlightCode language={lang} code={$generatedCode} />
-								</div>
-								{#if $generatedExplanation.length > 0}
-									<p class="text-sm mt-2"
-										><span class="font-bold">Explanation:</span> {$generatedExplanation}</p
-									>
-								{/if}
-							{:else}
-								<LoadingIcon />
-							{/if}
-						</div>
-					{:else}
-						<div class="w-80">
-							<p class="text-sm"
-								>Enable Windmill AI in the <a
-									class="inline-flex flex-row items-center gap-1"
-									href="{base}/workspace_settings?tab=ai"
-									target="_blank">workspace settings</a
-								></p
-							></div
-						>
-					{/if}
-				</div>
-			</Popup>
-		{/if}
-	</div>
+		</svelte:fragment>
+	</Popover>
 {/if}

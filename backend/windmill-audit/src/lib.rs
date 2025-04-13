@@ -34,4 +34,5 @@ pub struct ListAuditLogQuery {
     pub resource: Option<String>,
     pub before: Option<chrono::DateTime<chrono::Utc>>,
     pub after: Option<chrono::DateTime<chrono::Utc>>,
+    pub all_workspaces: Option<bool>,
 }

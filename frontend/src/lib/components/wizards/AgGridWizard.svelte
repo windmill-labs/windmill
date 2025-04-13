@@ -1,10 +1,11 @@
 <script lang="ts">
-	import { Alert, Popup } from '../common'
+	import { Alert } from '../common'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import SimpleEditor from '../SimpleEditor.svelte'
 	import Label from '../Label.svelte'
 	import Tooltip from '../Tooltip.svelte'
 	import Button from '../common/button/Button.svelte'
+	import Popover from '$lib/components/meltComponents/Popover.svelte'
 	import { offset, flip, shift } from 'svelte-floating-ui/dom'
 
 	type Column = {
@@ -88,162 +89,165 @@
 	}
 </script>
 
-<Popup
+<Popover
 	floatingConfig={{
 		strategy: 'fixed',
 		placement: 'left-end',
 		middleware: [offset(8), flip(), shift()]
 	}}
-	containerClasses="border rounded-lg shadow-lg bg-surface p-4"
+	closeOnOtherPopoverOpen
 >
-	<svelte:fragment slot="button">
+	<svelte:fragment slot="trigger">
 		<slot name="trigger" />
 	</svelte:fragment>
-	{#if value}
-		<div class="flex flex-col w-96 p-2 gap-4">
-			<span class="text-sm mb-2 leading-6 font-semibold">
-				Column definitions
-				<Tooltip
-					documentationLink="https://www.ag-grid.com/javascript-data-grid/column-definitions/"
-				>
-					Column definitions are used to define columns in ag-Grid.
-				</Tooltip>
-			</span>
-
-			<Label label="Header name">
-				<input type="text" placeholder="Header name" bind:value={value.headerName} />
-			</Label>
-
-			<Label label="Editable value">
-				<Toggle
-					on:pointerdown={(e) => {
-						e?.stopPropagation()
-					}}
-					options={{ right: 'Editable' }}
-					bind:checked={value.editable}
-					size="xs"
-				/>
-			</Label>
-
-			<Label label="Min width (px)">
-				<input type="number" placeholder="width" bind:value={value.minWidth} />
-			</Label>
-
-			<Label label="Flex">
-				<svelte:fragment slot="header">
+	<svelte:fragment slot="content">
+		{#if value}
+			<div class="flex flex-col w-96 p-4 gap-4 max-h-[70vh] overflow-y-auto">
+				<span class="text-sm mb-2 leading-6 font-semibold">
+					Column definitions
 					<Tooltip
-						documentationLink="https://www.ag-grid.com/javascript-data-grid/column-sizing/#column-flex"
+						documentationLink="https://www.ag-grid.com/javascript-data-grid/column-definitions/"
 					>
-						It's often required that one or more columns fill the entire available space in the
-						grid. For this scenario, it is possible to use the flex config. Some columns could be
-						set with a regular width config, while other columns would have a flex config. Flex
-						sizing works by dividing the remaining space in the grid among all flex columns in
-						proportion to their flex value. For example, suppose the grid has a total width of 450px
-						and it has three columns: the first with width: 150; the second with flex: 1; and third
-						with flex: 2. The first column will be 150px wide, leaving 300px remaining. The column
-						with flex: 2 has twice the size with flex: 1. So final sizes will be: 150px, 100px,
-						200px.
+						Column definitions are used to define columns in ag-Grid.
 					</Tooltip>
-				</svelte:fragment>
+				</span>
 
-				<input type="range" step="1" bind:value={value.flex} min={1} max={12} />
-				<div class="text-xs">{value.flex}</div>
-			</Label>
+				<Label label="Header name">
+					<input type="text" placeholder="Header name" bind:value={value.headerName} />
+				</Label>
 
-			<Label label="Hide">
-				<Toggle
-					on:pointerdown={(e) => {
-						e?.stopPropagation()
-					}}
-					options={{ right: 'Hide' }}
-					bind:checked={value.hide}
-					size="xs"
-				/>
-			</Label>
-
-			<Label label="Value formatter">
-				<svelte:fragment slot="header">
-					<Tooltip
-						documentationLink="https://www.ag-grid.com/javascript-data-grid/value-formatters/"
-					>
-						Value formatters allow you to format values for display. This is useful when data is one
-						type (e.g. numeric) but needs to be converted for human reading (e.g. putting in
-						currency symbols and number formatting).
-					</Tooltip>
-				</svelte:fragment>
-				<svelte:fragment slot="action">
-					<Button
-						size="xs"
-						color="light"
-						variant="border"
-						on:click={() => {
-							// @ts-ignore
-							value.valueFormatter = null
-							renderCount++
+				<Label label="Editable value">
+					<Toggle
+						on:pointerdown={(e) => {
+							e?.stopPropagation()
 						}}
-					>
-						Clear
-					</Button>
-				</svelte:fragment>
-			</Label>
-			<div>
-				{#key renderCount}
-					<div class="flex flex-col gap-4">
-						<div class="relative">
-							{#if !presets.find((preset) => preset.value === value?.valueFormatter)}
-								<div class="z-50 absolute bg-opacity-50 bg-surface top-0 left-0 bottom-0 right-0" />
-							{/if}
-							<div class="text-xs font-semibold">Presets</div>
-							<select
-								bind:value={value.valueFormatter}
-								on:change={() => {
-									renderCount++
-								}}
-								placeholder="Code"
-							>
-								{#each presets as preset}
-									<option value={preset.value}>{preset.label}</option>
-								{/each}
-							</select>
+						options={{ right: 'Editable' }}
+						bind:checked={value.editable}
+						size="xs"
+					/>
+				</Label>
+
+				<Label label="Min width (px)">
+					<input type="number" placeholder="width" bind:value={value.minWidth} />
+				</Label>
+
+				<Label label="Flex">
+					<svelte:fragment slot="header">
+						<Tooltip
+							documentationLink="https://www.ag-grid.com/javascript-data-grid/column-sizing/#column-flex"
+						>
+							It's often required that one or more columns fill the entire available space in the
+							grid. For this scenario, it is possible to use the flex config. Some columns could be
+							set with a regular width config, while other columns would have a flex config. Flex
+							sizing works by dividing the remaining space in the grid among all flex columns in
+							proportion to their flex value. For example, suppose the grid has a total width of
+							450px and it has three columns: the first with width: 150; the second with flex: 1;
+							and third with flex: 2. The first column will be 150px wide, leaving 300px remaining.
+							The column with flex: 2 has twice the size with flex: 1. So final sizes will be:
+							150px, 100px, 200px.
+						</Tooltip>
+					</svelte:fragment>
+
+					<input type="range" step="1" bind:value={value.flex} min={1} max={12} />
+					<div class="text-xs">{value.flex}</div>
+				</Label>
+
+				<Label label="Hide">
+					<Toggle
+						on:pointerdown={(e) => {
+							e?.stopPropagation()
+						}}
+						options={{ right: 'Hide' }}
+						bind:checked={value.hide}
+						size="xs"
+					/>
+				</Label>
+
+				<Label label="Value formatter">
+					<svelte:fragment slot="header">
+						<Tooltip
+							documentationLink="https://www.ag-grid.com/javascript-data-grid/value-formatters/"
+						>
+							Value formatters allow you to format values for display. This is useful when data is
+							one type (e.g. numeric) but needs to be converted for human reading (e.g. putting in
+							currency symbols and number formatting).
+						</Tooltip>
+					</svelte:fragment>
+					<svelte:fragment slot="action">
+						<Button
+							size="xs"
+							color="light"
+							variant="border"
+							on:click={() => {
+								// @ts-ignore
+								value.valueFormatter = null
+								renderCount++
+							}}
+						>
+							Clear
+						</Button>
+					</svelte:fragment>
+				</Label>
+				<div>
+					{#key renderCount}
+						<div class="flex flex-col gap-4">
+							<div class="relative">
+								{#if !presets.find((preset) => preset.value === value?.valueFormatter)}
+									<div
+										class="z-50 absolute bg-opacity-50 bg-surface top-0 left-0 bottom-0 right-0"
+									></div>
+								{/if}
+								<div class="text-xs font-semibold">Presets</div>
+								<select
+									bind:value={value.valueFormatter}
+									on:change={() => {
+										renderCount++
+									}}
+									placeholder="Code"
+								>
+									{#each presets as preset}
+										<option value={preset.value}>{preset.label}</option>
+									{/each}
+								</select>
+							</div>
+
+							<SimpleEditor
+								extraLib={'declare const value: any'}
+								autoHeight
+								lang="javascript"
+								bind:code={value.valueFormatter}
+							/>
+							<div class="text-xs text-secondary -mt-4">Use `value` in the formatter</div>
 						</div>
+					{/key}
+				</div>
 
-						<SimpleEditor
-							extraLib={'declare const value: any'}
-							autoHeight
-							lang="javascript"
-							bind:code={value.valueFormatter}
-						/>
-						<div class="text-xs text-secondary -mt-4">Use `value` in the formatter</div>
-					</div>
-				{/key}
-			</div>
+				<Label label="Sort">
+					<select bind:value={value.sort}>
+						<option value={null}>None</option>
+						<option value="asc">Ascending</option>
+						<option value="desc">Descending</option>
+					</select>
+				</Label>
 
-			<Label label="Sort">
-				<select bind:value={value.sort}>
-					<option value={null}>None</option>
-					<option value="asc">Ascending</option>
-					<option value="desc">Descending</option>
-				</select>
-			</Label>
+				<Label label="Filter">
+					<svelte:fragment slot="header">
+						<Tooltip documentationLink="https://www.ag-grid.com/javascript-data-grid/filtering/">
+							Filtering allows you to limit the rows displayed in your grid to those that match
+							criteria you specify.
+						</Tooltip>
+					</svelte:fragment>
+					<Toggle
+						on:pointerdown={(e) => {
+							e?.stopPropagation()
+						}}
+						options={{ right: 'Enable filter' }}
+						bind:checked={value.filter}
+						size="xs"
+					/>
+				</Label>
 
-			<Label label="Filter">
-				<svelte:fragment slot="header">
-					<Tooltip documentationLink="https://www.ag-grid.com/javascript-data-grid/filtering/">
-						Filtering allows you to limit the rows displayed in your grid to those that match
-						criteria you specify.
-					</Tooltip>
-				</svelte:fragment>
-				<Toggle
-					on:pointerdown={(e) => {
-						e?.stopPropagation()
-					}}
-					options={{ right: 'Enable filter' }}
-					bind:checked={value.filter}
-					size="xs"
-				/>
-			</Label>
-
-			<!--
+				<!--
 		EE only
 
 		<Label label="Aggregation function">
@@ -275,27 +279,28 @@
 		</Label>
 		 -->
 
-			<Label label="Type">
-				<select bind:value={value.cellRendererType}>
-					<option value="text">Text</option>
-					<option value="link">Link</option>
-				</select>
-			</Label>
+				<Label label="Type">
+					<select bind:value={value.cellRendererType}>
+						<option value="text">Text</option>
+						<option value="link">Link</option>
+					</select>
+				</Label>
 
-			{#if value.cellRendererType === 'link'}
-				<Alert type="info" title="Label" size="xs">
-					They are two ways to define a link:
-					<ul class="list-disc list-inside">
-						<li>
-							<strong>String</strong>: The string will be used as the link and the label.
-						</li>
-						<li>
-							<strong>Object</strong>: The object must have a <code>href</code> and a
-							<code>label</code> property.
-						</li>
-					</ul>
-				</Alert>
-			{/if}
-		</div>
-	{/if}
-</Popup>
+				{#if value.cellRendererType === 'link'}
+					<Alert type="info" title="Label" size="xs">
+						They are two ways to define a link:
+						<ul class="list-disc list-inside">
+							<li>
+								<strong>String</strong>: The string will be used as the link and the label.
+							</li>
+							<li>
+								<strong>Object</strong>: The object must have a <code>href</code> and a
+								<code>label</code> property.
+							</li>
+						</ul>
+					</Alert>
+				{/if}
+			</div>
+		{/if}
+	</svelte:fragment>
+</Popover>

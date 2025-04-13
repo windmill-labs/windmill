@@ -7,7 +7,7 @@
 	import type { FlowCopilotContext } from './flow'
 	import { charsToNumber } from '../flows/idUtils'
 	import { copilotInfo } from '$lib/stores'
-	import Popup from '../common/popup/Popup.svelte'
+	import Popover from '$lib/components/meltComponents/Popover.svelte'
 	import type { FlowModule } from '$lib/gen'
 	import type { FlowEditorContext } from '../flows/types'
 	import { ExternalLink, Wand2 } from 'lucide-svelte'
@@ -31,7 +31,7 @@
 	$: copilotStatus && copilotPopover?.refresh()
 </script>
 
-{#if $copilotInfo.exists_ai_resource}
+{#if $copilotInfo.enabled}
 	<ManualPopover bind:this={copilotPopover}>
 		<Button
 			size="xs"
@@ -114,13 +114,8 @@
 		</div>
 	</ManualPopover>
 {:else}
-	<Popup
-		floatingConfig={{
-			strategy: 'absolute',
-			placement: 'bottom'
-		}}
-	>
-		<svelte:fragment slot="button">
+	<Popover placement="bottom">
+		<svelte:fragment slot="trigger">
 			<Button
 				size="xs"
 				startIcon={{
@@ -134,15 +129,17 @@
 				AI builder
 			</Button>
 		</svelte:fragment>
-		<div class="block text-primary">
-			<p class="text-sm"
-				>Enable Windmill AI in the <a
-					href="{base}/workspace_settings?tab=ai"
-					target="_blank"
-					class="inline-flex flex-row items-center gap-1"
-					>workspace settings <ExternalLink size={16} /></a
-				></p
-			>
-		</div>
-	</Popup>
+		<svelte:fragment slot="content">
+			<div class="block text-primary p-4">
+				<p class="text-sm"
+					>Enable Windmill AI in the <a
+						href="{base}/workspace_settings?tab=ai"
+						target="_blank"
+						class="inline-flex flex-row items-center gap-1"
+						>workspace settings <ExternalLink size={16} /></a
+					></p
+				>
+			</div>
+		</svelte:fragment>
+	</Popover>
 {/if}

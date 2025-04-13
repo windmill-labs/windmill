@@ -3,6 +3,7 @@
 	import { Button } from './common'
 	import { Clock, X } from 'lucide-svelte'
 	import { twMerge } from 'tailwind-merge'
+	import { createDispatcherIfMounted } from '$lib/createDispatcherIfMounted'
 	// import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
 	// import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
 
@@ -45,10 +46,11 @@
 	function parseDateAndTime(date: string | undefined, time: string | undefined) {
 		if (date && time && (initialDate != date || initialTime != time)) {
 			let newDate = new Date(`${date}T${time}`)
-			if (newDate.toString() != 'Invalid Date') {
-				value = newDate.toISOString()
-				dispatch('change', value)
-			}
+			if (newDate.toString() === 'Invalid Date') return
+			if (newDate.getFullYear() < 2000) return
+
+			value = newDate.toISOString()
+			dispatchIfMounted('change', value)
 		}
 	}
 
@@ -59,6 +61,7 @@
 	}
 
 	const dispatch = createEventDispatcher()
+	const dispatchIfMounted = createDispatcherIfMounted(dispatch)
 
 	function setTimeLater(mins: number) {
 		let newDate = new Date()
@@ -123,7 +126,7 @@
 							setTimeLater(7 * 60 * 24)
 						}
 					}
-			  ]
+				]
 			: undefined}
 		on:click={() => {
 			setTimeLater(0)
@@ -146,9 +149,9 @@
 		</Button>
 	{/if}
 	<!-- <div>
-		<ToggleButtonGroup bind:selected={format}>
-			<ToggleButton light small value={'local'} label="local" />
-			<ToggleButton light small value={'utc'} label="utc" />
+		<ToggleButtonGroup bind:selected={format} let:item>
+			<ToggleButton light small value={'local'} label="local" {item} />
+			<ToggleButton light small value={'utc'} label="utc" {item} />
 		</ToggleButtonGroup>
 	</div> -->
 </div>

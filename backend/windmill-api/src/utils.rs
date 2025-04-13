@@ -8,7 +8,7 @@
 
 use axum::{body::Body, response::Response};
 use regex::Regex;
-use serde::Deserialize;
+use serde::{Deserialize, Deserializer};
 use sqlx::{Postgres, Transaction};
 #[cfg(feature = "enterprise")]
 use windmill_common::worker::CLOUD_HOSTED;
@@ -27,6 +27,13 @@ use axum::Json;
 #[derive(Deserialize)]
 pub struct WithStarredInfoQuery {
     pub with_starred_info: Option<bool>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum RunnableKind {
+    Script,
+    Flow,
 }
 
 pub async fn require_super_admin(db: &DB, email: &str) -> error::Result<()> {
@@ -76,7 +83,7 @@ pub async fn generate_instance_wide_unique_username<'c>(
     let mut i = 1;
     while username_conflict {
         if i > 1000 {
-            return Err(Error::InternalErr(format!(
+            return Err(Error::internal_err(format!(
                 "too many username conflicts for {}",
                 email
             )));
@@ -168,7 +175,7 @@ pub async fn get_instance_username_or_create_pending<'c>(
             )
             .execute(&mut **tx)
             .await
-            .map_err(|e| Error::InternalErr(format!("creating pending user: {e:#}")))?;
+            .map_err(|e| Error::internal_err(format!("creating pending user: {e:#}")))?;
 
             Ok(username)
         }
@@ -181,6 +188,15 @@ pub fn content_plain(body: Body) -> Response {
         .header(header::CONTENT_TYPE, "text/plain")
         .body(body)
         .unwrap()
+}
+
+#[allow(unused)]
+pub fn non_empty_str<'de, D>(deserializer: D) -> Result<Option<String>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let o: Option<String> = Option::deserialize(deserializer)?;
+    Ok(o.filter(|s| !s.trim().is_empty()))
 }
 
 use serde::Serialize;

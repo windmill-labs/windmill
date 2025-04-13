@@ -165,7 +165,7 @@
 						</Tab>
 					{/if}
 				</Tabs>
-				<div class="my-2" />
+				<div class="my-2"></div>
 				<div class="flex flex-col gap-y-16">
 					<div class="flex flex-col">
 						{#if tab == 'inlinescripts'}

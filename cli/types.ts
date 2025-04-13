@@ -22,6 +22,7 @@ import { pushSchedule } from "./schedule.ts";
 import { pushWorkspaceUser } from "./user.ts";
 import { pushGroup } from "./user.ts";
 import { pushWorkspaceSettings, pushWorkspaceKey } from "./settings.ts";
+import { pushTrigger } from "./trigger.ts";
 
 export interface DifferenceCreate {
   type: "CREATE";
@@ -80,7 +81,7 @@ export function showDiff(local: string, remote: string) {
     return;
   }
 
-  for (const part of Diff.diffLines(local ?? '', remote ?? '')) {
+  for (const part of Diff.diffLines(local ?? "", remote ?? "")) {
     if (part.removed) {
       // print red if removed without newline
       finalString += `\x1b[31m${part.value}\x1b[0m`;
@@ -139,6 +140,22 @@ export async function pushObj(
     await pushResourceType(workspace, p, befObj, newObj);
   } else if (typeEnding === "schedule") {
     await pushSchedule(workspace, p, befObj, newObj);
+  } else if (typeEnding === "http_trigger") {
+    await pushTrigger("http", workspace, p, befObj, newObj);
+  } else if (typeEnding === "websocket_trigger") {
+    await pushTrigger("websocket", workspace, p, befObj, newObj);
+  } else if (typeEnding === "kafka_trigger") {
+    await pushTrigger("kafka", workspace, p, befObj, newObj);
+  } else if (typeEnding === "nats_trigger") {
+    await pushTrigger("nats", workspace, p, befObj, newObj);
+  } else if (typeEnding === "postgres_trigger") {
+    await pushTrigger("postgres", workspace, p, befObj, newObj);
+  } else if (typeEnding === "mqtt_trigger") {
+    await pushTrigger("mqtt", workspace, p, befObj, newObj);
+  } else if (typeEnding === "sqs_trigger") {
+    await pushTrigger("sqs", workspace, p, befObj, newObj);
+  } else if (typeEnding === "gcp_trigger") {
+    await pushTrigger("gcp", workspace, p, befObj, newObj);
   } else if (typeEnding === "user") {
     await pushWorkspaceUser(workspace, p, befObj, newObj);
   } else if (typeEnding === "group") {
@@ -158,8 +175,8 @@ export function parseFromPath(p: string, content: string): any {
   return p.endsWith(".yaml")
     ? yamlParseContent(p, content)
     : p.endsWith(".json")
-      ? JSON.parse(content)
-      : content;
+    ? JSON.parse(content)
+    : content;
 }
 export function parseFromFile(p: string): any {
   if (p.endsWith(".json")) {
@@ -181,6 +198,14 @@ export function getTypeStrFromPath(
   | "folder"
   | "app"
   | "schedule"
+  | "http_trigger"
+  | "websocket_trigger"
+  | "kafka_trigger"
+  | "nats_trigger"
+  | "postgres_trigger"
+  | "mqtt_trigger"
+  | "sqs_trigger"
+  | "gcp_trigger"
   | "user"
   | "group"
   | "settings"
@@ -204,6 +229,9 @@ export function getTypeStrFromPath(
     parsed.ext == ".php" ||
     parsed.ext == ".rs" ||
     parsed.ext == ".cs" ||
+    parsed.ext == ".nu" ||
+    parsed.ext == ".java" ||
+		// for related places search: ADD_NEW_LANG 
     (parsed.ext == ".yml" && parsed.name.split(".").pop() == "playbook")
   ) {
     return "script";
@@ -221,6 +249,14 @@ export function getTypeStrFromPath(
     typeEnding === "resource-type" ||
     typeEnding === "app" ||
     typeEnding === "schedule" ||
+    typeEnding === "http_trigger" ||
+    typeEnding === "websocket_trigger" ||
+    typeEnding === "kafka_trigger" ||
+    typeEnding === "nats_trigger" ||
+    typeEnding === "postgres_trigger" ||
+    typeEnding === "mqtt_trigger" ||
+    typeEnding === "sqs_trigger" ||
+    typeEnding === "gcp_trigger" ||
     typeEnding === "user" ||
     typeEnding === "group" ||
     typeEnding === "settings" ||

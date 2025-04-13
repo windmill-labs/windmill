@@ -14,7 +14,7 @@
 		Repeat,
 		Save,
 		Square,
-		Voicemail
+		Pin
 	} from 'lucide-svelte'
 	import Popover from '../../Popover.svelte'
 	import type { FlowEditorContext } from '../types'
@@ -99,15 +99,15 @@
 			<Popover
 				placement="bottom"
 				class="center-center rounded p-2 bg-blue-100 text-blue-800 border border-blue-300 hover:bg-blue-200 dark:bg-frost-700 dark:text-frost-100 dark:border-frost-600"
-				on:click={() => dispatch('toggleMock')}
+				on:click={() => dispatch('togglePin')}
 			>
-				<Voicemail size={14} />
-				<svelte:fragment slot="text">Mock</svelte:fragment>
+				<Pin size={14} />
+				<svelte:fragment slot="text">This step is pinned</svelte:fragment>
 			</Popover>
 		{/if}
 	{/if}
 	{#if module.value.type === 'script'}
-		<div class="w-2" />
+		<div class="w-2"></div>
 
 		{#if !module.value.path.startsWith('hub/') && customUi?.scriptEdit != false}
 			<Button
@@ -173,7 +173,7 @@
 			iconOnly={true}
 		/>
 	{/if}
-	<div class="px-0.5" />
+	<div class="px-0.5"></div>
 	{#if module.value.type === 'rawscript'}
 		<FlowModuleWorkerTagSelect bind:tag={module.value.tag} />
 		<Button

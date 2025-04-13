@@ -15,9 +15,9 @@
 	import { Button } from '$lib/components/common'
 	import { loadIcon } from '../icon'
 	import ResolveStyle from '../helpers/ResolveStyle.svelte'
-	import Menu from '$lib/components/common/menu/MenuV2.svelte'
 	import { AppButton } from '../buttons'
 	import AlignWrapper from '../helpers/AlignWrapper.svelte'
+	import { Menubar, Menu, MeltButton } from '$lib/components/meltComponents'
 
 	export let id: string
 	export let configuration: RichConfigurations
@@ -96,71 +96,82 @@
 
 {#if render}
 	<AlignWrapper {horizontalAlignment} {verticalAlignment}>
-		<Menu placement="bottom-end" justifyEnd={false} on:close on:open>
-			<div slot="trigger">
-				<Button
-					on:pointerdown={(e) => e.stopPropagation()}
-					btnClasses={twMerge(
-						css?.button?.class,
-						'wm-button',
-						'wm-menu-button',
-						resolvedConfig.fillContainer ? 'w-full h-full' : ''
-					)}
-					wrapperClasses={twMerge(
-						'wm-button-container',
-						'wm-menu-button-container',
-						resolvedConfig.fillContainer ? 'w-full h-full' : ''
-					)}
-					style={css?.button?.style}
-					size={resolvedConfig.size}
-					color={resolvedConfig.color}
-					nonCaptureEvent
-				>
-					<span class="truncate inline-flex gap-2 items-center">
-						{#if resolvedConfig.beforeIcon}
-							{#key resolvedConfig.beforeIcon}
-								<div class="min-w-4" bind:this={beforeIconComponent} />
-							{/key}
-						{/if}
-						{#if resolvedConfig.label && resolvedConfig.label?.length > 0}
-							<div>{resolvedConfig.label}</div>
-						{/if}
-						{#if resolvedConfig.afterIcon}
-							{#key resolvedConfig.afterIcon}
-								<div class="min-w-4" bind:this={afterIconComponent} />
-							{/key}
-						{/if}
-					</span>
-				</Button>
-			</div>
+		<Menubar let:createMenu class={resolvedConfig.fillContainer ? 'w-full h-full' : ''}>
+			<Menu
+				{createMenu}
+				placement="bottom-end"
+				justifyEnd={false}
+				class={resolvedConfig.fillContainer ? 'w-full h-full' : ''}
+				usePointerDownOutside={true}
+			>
+				<svelte:fragment slot="trigger" let:trigger>
+					<MeltButton meltElement={trigger} class="w-full h-full">
+						<Button
+							on:pointerdown={(e) => e.stopPropagation()}
+							btnClasses={twMerge(
+								css?.button?.class,
+								'wm-button',
+								'wm-menu-button',
+								resolvedConfig.fillContainer ? 'w-full h-full' : ''
+							)}
+							wrapperClasses={twMerge(
+								'wm-button-container',
+								'wm-menu-button-container',
+								resolvedConfig.fillContainer ? 'w-full h-full' : ''
+							)}
+							style={css?.button?.style}
+							size={resolvedConfig.size}
+							color={resolvedConfig.color}
+							nonCaptureEvent
+						>
+							<span class="truncate inline-flex gap-2 items-center">
+								{#if resolvedConfig.beforeIcon}
+									{#key resolvedConfig.beforeIcon}
+										<div class="min-w-4" bind:this={beforeIconComponent}></div>
+									{/key}
+								{/if}
+								{#if resolvedConfig.label && resolvedConfig.label?.length > 0}
+									<div>{resolvedConfig.label}</div>
+								{/if}
+								{#if resolvedConfig.afterIcon}
+									{#key resolvedConfig.afterIcon}
+										<div class="min-w-4" bind:this={afterIconComponent}></div>
+									{/key}
+								{/if}
+							</span>
+						</Button>
+					</MeltButton>
+				</svelte:fragment>
 
-			<div class="flex flex-col w-full p-1 gap-2">
-				{#if menuItems.length > 0}
-					{#each menuItems as actionButton, actionIndex (actionButton?.id)}
-						{#if actionButton.type == 'buttoncomponent'}
-							<div
-								on:pointerup={() => {
-									outputs?.result.set({
-										latestButtonClicked: actionButton.id
-									})
-								}}
-							>
-								<AppButton
-									extraKey={'idx' + actionIndex}
-									{render}
-									id={actionButton.id}
-									customCss={actionButton.customCss}
-									configuration={actionButton.configuration}
-									recomputeIds={actionButton.recomputeIds}
-									componentInput={actionButton.componentInput}
-									noWFull={false}
-									isMenuItem={true}
-								/>
-							</div>
-						{/if}
-					{/each}
-				{/if}
-			</div>
-		</Menu>
+				<div class="flex flex-col w-full p-1 gap-2 max-h-[50vh] overflow-y-auto">
+					{#if menuItems.length > 0}
+						{#each menuItems as actionButton, actionIndex (actionButton?.id)}
+							{#if actionButton.type == 'buttoncomponent'}
+								<div
+									on:pointerup={() => {
+										outputs?.result.set({
+											latestButtonClicked: actionButton.id
+										})
+									}}
+								>
+									<AppButton
+										noInitialize
+										extraKey={'idx' + actionIndex}
+										render={true}
+										id={actionButton.id}
+										customCss={actionButton.customCss}
+										configuration={actionButton.configuration}
+										recomputeIds={actionButton.recomputeIds}
+										componentInput={actionButton.componentInput}
+										noWFull={false}
+										isMenuItem={true}
+									/>
+								</div>
+							{/if}
+						{/each}
+					{/if}
+				</div>
+			</Menu>
+		</Menubar>
 	</AlignWrapper>
 {/if}

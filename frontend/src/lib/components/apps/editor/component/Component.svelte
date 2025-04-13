@@ -1,161 +1,26 @@
-<script lang="ts" context="module">
-	let outTimeout: NodeJS.Timeout | undefined = undefined
-</script>
-
 <script lang="ts">
 	import { getContext } from 'svelte'
-	import { twMerge } from 'tailwind-merge'
-	import type { AppEditorContext, AppViewerContext } from '../../types'
-	import ComponentHeader from '../ComponentHeader.svelte'
+	import ComponentInner from './ComponentInner.svelte'
+	import ComponentRendered from './ComponentRendered.svelte'
 	import type { AppComponent } from './components'
-
-	import AppMultiSelect from '../../components/inputs/AppMultiSelect.svelte'
-	import AppMultiSelectV2 from '../../components/inputs/AppMultiSelectV2.svelte'
-	import AppModal from '../../components/layout/AppModal.svelte'
-	import AppSchemaForm from '../../components/buttons/AppSchemaForm.svelte'
-	import AppStepper from '../../components/layout/AppStepper.svelte'
-	import AppSelectTab from '../../components/inputs/AppSelectTab.svelte'
-	import AppConditionalWrapper from '../../components/layout/AppConditionalWrapper.svelte'
-	import AppSelectStep from '../../components/inputs/AppSelectStep.svelte'
-	import AppDownload from '../../components/display/AppDownload.svelte'
-	import AppLogsComponent from '../../components/display/AppLogsComponent.svelte'
-	import AppFlowStatusComponent from '../../components/display/AppFlowStatusComponent.svelte'
-	import AppChartJs from '../../components/display/AppChartJs.svelte'
-	import AppChartJsV2 from '../../components/display/AppChartJsV2.svelte'
-	import AppQuillEditor from '../../components/inputs/AppQuillEditor.svelte'
-	import AppList from '../../components/layout/AppList.svelte'
-	import AppJobIdLogComponent from '../../components/display/AppJobIdLogComponent.svelte'
-	import AppJobIdFlowStatus from '../../components/display/AppJobIdFlowStatus.svelte'
-	import AppCarouselList from '../../components/display/AppCarouselList.svelte'
-	import AppAccordionList from '../../components/display/AppAccordionList.svelte'
-	import AppAggridTableEe from '../../components/display/table/AppAggridTableEe.svelte'
-	import AppCustomComponent from '../../components/display/AppCustomComponent.svelte'
-	import AppStatCard from '../../components/display/AppStatCard.svelte'
-	import AppMenu from '../../components/display/AppMenu.svelte'
-	import AppDecisionTree from '../../components/layout/AppDecisionTree.svelte'
-	import AppAgCharts from '../../components/display/charts/AppAgCharts.svelte'
-	import AppDbExplorer from '../../components/display/dbtable/AppDbExplorer.svelte'
-	import AppS3FileInput from '../../components/inputs/AppS3FileInput.svelte'
-	import AppAlert from '../../components/display/AppAlert.svelte'
-	import AppDateSliderInput from '../../components/inputs/AppDateSliderInput.svelte'
-	import AppTimeInput from '../../components/inputs/AppTimeInput.svelte'
-	import AppDateTimeInput from '../../components/inputs/AppDateTimeInput.svelte'
-	import AppAggridInfiniteTable from '../../components/display/table/AppAggridInfiniteTable.svelte'
-	import AppAggridInfiniteTableEe from '../../components/display/table/AppAggridInfiniteTableEe.svelte'
-	import AppDisplayComponent from '../../components/display/AppDisplayComponent.svelte'
-	import AppTimeseries from '../../components/display/AppTimeseries.svelte'
-	import AppHtml from '../../components/display/AppHtml.svelte'
-	import AppMarkdown from '../../components/display/AppMarkdown.svelte'
-	import VegaLiteHtml from '../../components/display/VegaLiteHtml.svelte'
-	import PlotlyHtml from '../../components/display/PlotlyHtml.svelte'
-	import PlotlyHtmlV2 from '../../components/display/PlotlyHtmlV2.svelte'
-	import AppScatterChart from '../../components/display/AppScatterChart.svelte'
-	import AppPieChart from '../../components/display/AppPieChart.svelte'
-	import AppTable from '../../components/display/table/AppTable.svelte'
-	import AppAggridTable from '../../components/display/table/AppAggridTable.svelte'
-	import AppText from '../../components/display/AppText.svelte'
-	import AppButton from '../../components/buttons/AppButton.svelte'
-	import AppForm from '../../components/buttons/AppForm.svelte'
-	import AppFormButton from '../../components/buttons/AppFormButton.svelte'
-	import AppCheckbox from '../../components/inputs/AppCheckbox.svelte'
-	import AppTextInput from '../../components/inputs/AppTextInput.svelte'
-	import AppDateInput from '../../components/inputs/AppDateInput.svelte'
-	import AppSelect from '../../components/inputs/AppSelect.svelte'
-	import AppBarChart from '../../components/display/AppBarChart.svelte'
-	import AppDivider from '../../components/layout/AppDivider.svelte'
-	import AppRangeInput from '../../components/inputs/AppRangeInput.svelte'
-	import AppTabs from '../../components/layout/AppTabs.svelte'
-	import AppContainer from '../../components/layout/AppContainer.svelte'
-	import AppSplitpanes from '../../components/layout/AppSplitpanes.svelte'
-	import AppIcon from '../../components/display/AppIcon.svelte'
-	import AppFileInput from '../../components/inputs/AppFileInput.svelte'
-	import AppImage from '../../components/display/AppImage.svelte'
-	import AppDrawer from '../../components/layout/AppDrawer.svelte'
-	import AppMap from '../../components/display/AppMap.svelte'
-	import AppPdf from '../../components/display/AppPdf.svelte'
-	import AppCurrencyInput from '../../components/inputs/currency/AppCurrencyInput.svelte'
-	import AppSliderInputs from '../../components/inputs/AppSliderInputs.svelte'
-	import AppNumberInput from '../../components/inputs/AppNumberInput.svelte'
-	import AppNavbar from '../../components/display/AppNavbar.svelte'
-	import AppDateSelect from '../../components/inputs/AppDateSelect.svelte'
-	import AppDisplayComponentByJobId from '../../components/display/AppRecomputeAll.svelte'
-	import AppRecomputeAll from '../../components/display/AppRecomputeAll.svelte'
-	import AppUserResource from '../../components/inputs/AppUserResource.svelte'
-	import { Anchor } from 'lucide-svelte'
-	import { findGridItemParentGrid, isContainer } from '../appUtils'
+	import type { AppViewerContext } from '../../types'
 
 	export let component: AppComponent
 	export let selected: boolean
 	export let locked: boolean = false
 	export let render: boolean
-	export let hidden: boolean
 	export let fullHeight: boolean
 	export let overlapped: string | undefined = undefined
-	export let moveMode: string | undefined = undefined
 	export let componentDraggedId: string | undefined = undefined
-	const { mode, app, hoverStore, connectingInput } =
-		getContext<AppViewerContext>('AppViewerContext')
 
-	const editorContext = getContext<AppEditorContext>('AppEditorContext')
-	const componentActive = editorContext?.componentActive
+	const { app } = getContext<AppViewerContext>('AppViewerContext')
+	export let moveMode: string | undefined = undefined
+	let everRender = render
 
-	const movingcomponents = editorContext?.movingcomponents
-	$: ismoving =
-		movingcomponents != undefined && $mode == 'dnd' && $movingcomponents?.includes(component.id)
-
-	let initializing: boolean | undefined = undefined
-	let errorHandledByComponent: boolean = false
-	let componentContainerHeight: number = 0
-	let componentContainerWidth: number = 0
-
-	let inlineEditorOpened: boolean = false
-
-	function mouseOut() {
-		outTimeout && clearTimeout(outTimeout)
-		outTimeout = setTimeout(() => {
-			if ($hoverStore !== undefined) {
-				// In order to avoid flickering when hovering over table actions,
-				// we leave the actions to manage the hover state
-				if ($hoverStore.startsWith(`${component.id}_`)) {
-					return
-				}
-
-				$hoverStore = undefined
-			}
-		}, 50)
-	}
-
-	function componentDraggedIsNotChild(componentDraggedId: string, componentId: string) {
-		let parentGrid = findGridItemParentGrid($app, componentDraggedId)
-
-		return !parentGrid?.startsWith(`${componentId}-`)
-	}
-
-	function areOnTheSameSubgrid(componentDraggedId: string, componentId: string) {
-		return (
-			findGridItemParentGrid($app, componentDraggedId) === findGridItemParentGrid($app, componentId)
-		)
-	}
-
-	let cachedComponentDraggedIsNotChild: boolean | undefined
-	let cachedAreOnTheSameSubgrid: boolean | undefined
-
-	function updateCache(componentDraggedId: string | undefined) {
-		if (componentDraggedId) {
-			cachedComponentDraggedIsNotChild = componentDraggedIsNotChild(
-				componentDraggedId,
-				component.id
-			)
-			cachedAreOnTheSameSubgrid = areOnTheSameSubgrid(componentDraggedId, component.id)
-		} else {
-			cachedComponentDraggedIsNotChild = undefined
-			cachedAreOnTheSameSubgrid = undefined
-		}
-	}
-
-	$: updateCache(componentDraggedId)
+	$: render && !everRender && (everRender = true)
 </script>
 
+<<<<<<< HEAD
 <!-- svelte-ignore a11y-mouse-events-have-key-events -->
 <!-- svelte-ignore a11y-no-static-element-interactions -->
 <div
@@ -965,5 +830,28 @@
 			}
 		}}
 		class="absolute inset-0 center-center flex-col [animation-delay:1000ms] dark:bg-frost-900/50 border animate-skeleton"
+=======
+{#if everRender || $app.eagerRendering}
+	<ComponentRendered
+		on:expand
+		on:lock
+		on:fillHeight
+		{moveMode}
+		{componentDraggedId}
+		{overlapped}
+		{render}
+		{component}
+		{selected}
+		{locked}
+		{fullHeight}
+	/>
+{:else}
+	<ComponentInner
+		{component}
+		render={false}
+		componentContainerHeight={0}
+		errorHandledByComponent={false}
+		inlineEditorOpened={false}
+>>>>>>> main
 	/>
 {/if}

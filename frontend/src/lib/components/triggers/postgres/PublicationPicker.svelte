@@ -11,12 +11,11 @@
 	import { RefreshCw } from 'lucide-svelte'
 
 	export let items: string[] = []
+	export let can_write: boolean = true
 	export let publication_name: string = ''
 	export let postgres_resource_path: string = ''
-	export let table_to_track: Relations[] = []
-	export let relations: Relations[] = []
+	export let relations: Relations[] | undefined = undefined
 	export let transaction_to_track: string[] = []
-	export let selectedTable: 'all' | 'specific' = 'specific'
 
 	async function listDatabasePublication() {
 		try {
@@ -38,7 +37,7 @@
 				workspace: $workspaceStore!,
 				publication: publication_name,
 				requestBody: {
-					table_to_track,
+					table_to_track: relations,
 					transaction_to_track: transaction_to_track
 				}
 			})
@@ -56,7 +55,7 @@
 				publication: publication_name
 			})
 			items = items.filter((item) => item != publication_name)
-			relations = []
+			relations = undefined
 			transaction_to_track = ['Insert', 'Update', 'Delete']
 			publication_name = ''
 			sendUserToast(message)
@@ -73,13 +72,10 @@
 				publication: publication_name
 			})
 			transaction_to_track = [...publication_data.transaction_to_track]
-			relations = publication_data.table_to_track ?? []
-			if (relations.length === 0) {
-				selectedTable = 'all'
-			} else {
-				selectedTable = 'specific'
-			}
-			selectedTable = selectedTable
+			relations =
+				publication_data.table_to_track && publication_data.table_to_track.length > 0
+					? publication_data.table_to_track
+					: undefined
 		} catch (error) {
 			sendUserToast(error.body, true)
 		}
@@ -89,15 +85,21 @@
 
 	let darkMode = false
 
-	$: publication_name && getAllRelations()
 </script>
 
 <DarkModeObserver bind:darkMode />
 
 <div class="flex gap-1">
 	<Select
+		disabled={!can_write}
 		class="grow shrink max-w-full"
-		bind:justValue={publication_name}
+		on:select={async (e) => {
+			publication_name = e.detail.value
+		    await getAllRelations();
+		}}
+		on:clear={() => {
+			publication_name = ''
+		}}
 		value={publication_name}
 		{items}
 		placeholder="Choose a publication"
@@ -106,9 +108,9 @@
 			? SELECT_INPUT_DEFAULT_STYLE.containerStylesDark
 			: SELECT_INPUT_DEFAULT_STYLE.containerStyles}
 		portal={false}
-		on:select={getAllRelations}
 	/>
 	<Button
+		disabled={!can_write}
 		variant="border"
 		color="light"
 		wrapperClasses="self-stretch"
@@ -120,14 +122,14 @@
 		color="light"
 		size="xs"
 		variant="border"
-		disabled={emptyString(publication_name)}
+		disabled={emptyString(publication_name) || !can_write}
 		on:click={updatePublication}>Update</Button
 	>
 	<Button
 		color="light"
 		size="xs"
 		variant="border"
-		disabled={emptyString(publication_name)}
+		disabled={emptyString(publication_name) || !can_write}
 		on:click={deletePublication}>Delete</Button
 	>
 </div>

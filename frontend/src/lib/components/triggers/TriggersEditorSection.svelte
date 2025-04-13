@@ -26,12 +26,16 @@
 	export let showCapture: boolean = false
 
 	const captureTypeLabels: Record<CaptureTriggerKind, string> = {
-		http: '+ New custom HTTP route',
-		websocket: '+ New WebSocket trigger',
+		http: 'custom HTTP route',
+		websocket: 'WebSocket trigger',
 		webhook: 'Webhook',
-		kafka: '+ New Kafka trigger',
+		kafka: 'Kafka trigger',
 		email: 'Email trigger',
-		nats: '+ New NATS trigger'
+		nats: 'NATS trigger',
+		mqtt: 'MQTT trigger',
+		sqs: 'SQS trigger',
+		postgres: 'Postgres trigger',
+		gcp: 'GCP Pub/Sub trigger'
 	}
 
 	const { captureOn } = getContext<TriggerContext>('TriggerContext')
@@ -52,7 +56,11 @@
 	}
 </script>
 
-<Section label={captureTypeLabels[triggerType]} collapsable={!alwaysOpened} bind:collapsed>
+<Section
+	label={`+ New ${captureTypeLabels[triggerType]}`}
+	collapsable={!alwaysOpened}
+	bind:collapsed
+>
 	<svelte:fragment slot="action">
 		{#if !collapsed || alwaysOpened}
 			<div class="flex flex-row grow w-min-0 gap-2 items-center justify-end">

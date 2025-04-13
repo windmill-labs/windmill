@@ -35,9 +35,6 @@
 		AlertCircle,
 		Database
 	} from 'lucide-svelte'
-	import Menu from '../common/menu/MenuV2.svelte'
-	import MenuButton from './MenuButton.svelte'
-	import { MenuItem } from '@rgossiaux/svelte-headlessui'
 	import UserMenu from './UserMenu.svelte'
 	import DiscordIcon from '../icons/brands/Discord.svelte'
 	import { WorkspaceService } from '$lib/gen'
@@ -53,6 +50,17 @@
 	import SideBarNotification from './SideBarNotification.svelte'
 	import KafkaIcon from '../icons/KafkaIcon.svelte'
 	import NatsIcon from '../icons/NatsIcon.svelte'
+	import MqttIcon from '../icons/MqttIcon.svelte'
+	import AwsIcon from '../icons/AwsIcon.svelte'
+	import {
+		Menubar,
+		Menu,
+		MenuSingleItem,
+		MenuItem,
+		MeltButton
+	} from '$lib/components/meltComponents'
+	import MenuButton from './MenuButton.svelte'
+	import GoogleCloudIcon from '../icons/GoogleCloudIcon.svelte'
 
 	export let numUnacknowledgedCriticalAlerts = 0
 
@@ -86,7 +94,7 @@
 		goto('/user/workspaces')
 	}
 
-	const defaultExtraTriggerLinks = [
+	$: defaultExtraTriggerLinks = [
 		{
 			label: 'HTTP',
 			href: '/routes',
@@ -121,6 +129,27 @@
 			icon: NatsIcon,
 			disabled: $userStore?.operator || !$enterpriseLicense,
 			kind: 'nats'
+		},
+		{
+			label: 'SQS' + ($enterpriseLicense ? '' : ' (EE)'),
+			href: '/sqs_triggers',
+			icon: AwsIcon,
+			disabled: $userStore?.operator || !$enterpriseLicense,
+			kind: 'sqs'
+		},
+		{
+			label: 'GCP Pub/Sub' + ($enterpriseLicense ? '' : ' (EE)'),
+			href: '/gcp_triggers',
+			icon: GoogleCloudIcon,
+			disabled: $userStore?.operator || !$enterpriseLicense,
+			kind: 'gcp'
+		},
+		{
+			label: 'MQTT',
+			href: '/mqtt_triggers',
+			icon: MqttIcon,
+			disabled: $userStore?.operator,
+			kind: 'mqtt'
 		}
 	]
 
@@ -152,7 +181,7 @@
 								icon: FolderCog,
 								faIcon: undefined
 							}
-					  ]
+						]
 					: []),
 				...($superadmin
 					? [
@@ -162,7 +191,7 @@
 								icon: ServerCog,
 								faIcon: undefined
 							}
-					  ]
+						]
 					: []),
 				...(!$superadmin && !$userStore?.is_admin
 					? [
@@ -175,7 +204,7 @@
 								icon: LogOut,
 								faIcon: undefined
 							}
-					  ]
+						]
 					: [])
 			],
 			disabled: $userStore?.operator
@@ -219,7 +248,7 @@
 										href: `${base}/service_logs`,
 										icon: Logs
 									}
-							  ]
+								]
 							: []),
 						...($enterpriseLicense
 							? [
@@ -231,16 +260,16 @@
 										icon: AlertCircle,
 										notificationCount: numUnacknowledgedCriticalAlerts
 									}
-							  ]
+								]
 							: [])
 					]
-			  }
+				}
 			: {
 					label: 'Audit logs',
 					href: `${base}/audit_logs`,
 					icon: Eye,
 					disabled: $userStore?.operator
-			  }
+				}
 	]
 
 	let hasNewChangelogs = false
@@ -254,7 +283,7 @@
 			hasNewChangelogs =
 				recentChangelogs.length > 0 && lastOpened !== new Date().toISOString().split('T')[0]
 		} else {
-			recentChangelogs = changelogs.slice(-3)
+			recentChangelogs = changelogs.slice(0, 3)
 		}
 	})
 
@@ -290,7 +319,6 @@
 	]
 
 	export let isCollapsed: boolean = false
-	export let noGap: boolean = false
 
 	let leaveWorkspaceModal = false
 
@@ -301,15 +329,18 @@
 		}
 		return count
 	}
+
+	const itemClass = twMerge(
+		'text-secondary font-normal w-full block px-4 py-2 text-2xs data-[highlighted]:bg-surface-hover data-[highlighted]:text-primary'
+	)
 </script>
 
 <nav
 	class={twMerge(
-		'grow flex flex-col overflow-x-hidden scrollbar-hidden px-2 md:pb-2 justify-between',
-		noGap ? 'gap-0' : 'gap-16'
+		'grow flex flex-col overflow-x-hidden scrollbar-hidden px-2 md:pb-2 justify-between gap-2'
 	)}
 >
-	<div class={twMerge('pt-4 ', noGap ? 'md:mb-0 mb-0' : 'mb-6 md:mb-10')}>
+	<div class={twMerge('pt-4 mb-6 md:mb-10')}>
 		<div class="space-y-1">
 			{#each mainMenuLinks as menuLink (menuLink.href ?? menuLink.label)}
 				<MenuLink class="!text-xs" {...menuLink} {isCollapsed} />
@@ -320,171 +351,144 @@
 				class="text-gray-400 text-[0.5rem] uppercase transition-opacity"
 				class:opacity-0={isCollapsed}>Triggers</div
 			>
-			<div class="space-y-1">
+			<Menubar let:createMenu class="flex flex-col gap-1">
 				{#each triggerMenuLinks as menuLink (menuLink.href ?? menuLink.label)}
 					<MenuLink class="!text-xs" {...menuLink} {isCollapsed} />
 				{/each}
 				{#if extraTriggerLinks.length > 0 && !$userStore?.operator}
-					<Menu>
-						<div
-							slot="trigger"
-							class="w-full text-gray-400 text-2xs flex flex-row gap-1 py-1 items-center px-2 hover:bg-[#2A3648] dark:hover:bg-[#30404e] rounded"
-						>
-							<Plus size={14} />
-						</div>
+					<Menu {createMenu} let:item usePointerDownOutside>
+						<svelte:fragment slot="trigger" let:trigger>
+							<MeltButton
+								class={twMerge(
+									'w-full text-gray-400 text-2xs flex flex-row gap-1 py-1 items-center px-2 hover:bg-[#2A3648] dark:hover:bg-[#30404e] rounded',
+									'data-[highlighted]:bg-[#2A3648] dark:data-[highlighted]:bg-[#30404e]'
+								)}
+								meltElement={trigger}
+							>
+								<Plus size={14} />
+							</MeltButton>
+						</svelte:fragment>
 						{#each extraTriggerLinks as subItem (subItem.href ?? subItem.label)}
-							<MenuItem>
-								<div class="py-1" role="none">
-									<a
-										href={subItem.disabled ? '' : subItem.href}
-										class={twMerge(
-											'text-secondary block px-4 py-2 text-2xs hover:bg-surface-hover hover:text-primary',
-											subItem.disabled ? 'pointer-events-none opacity-50' : ''
-										)}
-										role="menuitem"
-										tabindex="-1"
-									>
-										<div class="flex flex-row items-center gap-2">
-											{#if subItem.icon}
-												<svelte:component this={subItem.icon} size={16} />
-											{/if}
-											{subItem.label}
-										</div>
-									</a>
+							<MenuItem
+								href={subItem.disabled ? '' : subItem.href}
+								class={twMerge(itemClass, subItem.disabled ? 'pointer-events-none opacity-50' : '')}
+								{item}
+								disabled={subItem.disabled}
+							>
+								<div class="flex flex-row items-center gap-2">
+									{#if subItem.icon}
+										<svelte:component this={subItem.icon} size={16} />
+									{/if}
+									{subItem.label}
 								</div>
 							</MenuItem>
 						{/each}
 					</Menu>
 				{/if}
-			</div>
+			</Menubar>
 		</div>
 	</div>
 	<div class="flex flex-col h-full justify-end">
-		<div class={twMerge('space-y-0.5 mb-6 md:mb-10', noGap ? 'md:mb-0 mb-0' : 'mb-6 md:mb-10')}>
-			<UserMenu {isCollapsed} />
+		<Menubar let:createMenu class="flex flex-col gap-1 mb-6 md:mb-10">
+			<UserMenu {isCollapsed} {createMenu} />
+
 			{#each secondaryMenuLinks as menuLink (menuLink.href ?? menuLink.label)}
 				{#if menuLink.subItems}
 					{@const notificationsCount = computeAllNotificationsCount(menuLink.subItems)}
-					<Menu>
-						<div slot="trigger">
-							<MenuButton class="!text-2xs" {...menuLink} {isCollapsed} {notificationsCount} />
-						</div>
+					<Menu {createMenu} let:item usePointerDownOutside>
+						<svelte:fragment slot="trigger" let:trigger>
+							<MenuButton
+								class="!text-2xs"
+								{...menuLink}
+								{isCollapsed}
+								{notificationsCount}
+								{trigger}
+							/>
+						</svelte:fragment>
+
 						{#each menuLink.subItems as subItem (subItem.href ?? subItem.label)}
-							<MenuItem>
-								<div class="py-1" role="none">
-									{#if subItem?.['action']}
-										<button
-											class="text-secondary font-normal w-full block px-4 py-2 text-2xs hover:bg-surface-hover hover:text-primary"
-											on:click={subItem?.['action']}
-										>
-											<div class="flex flex-row items-center gap-2">
-												{#if subItem.icon}
-													<svelte:component this={subItem.icon} size={16} />
-												{/if}
-
-												{subItem.label}
-												{#if subItem?.['notificationCount']}
-													<div class="ml-auto">
-														<SideBarNotification notificationCount={subItem['notificationCount']} />
-													</div>
-												{/if}
-											</div>
-										</button>
-									{:else}
-										<a
-											href={subItem.href}
-											class="text-secondary font-normal block px-4 py-2 text-2xs hover:bg-surface-hover hover:text-primary"
-											role="menuitem"
-											tabindex="-1"
-										>
-											<div class="flex flex-row items-center gap-2">
-												{#if subItem.icon}
-													<svelte:component this={subItem.icon} size={16} />
-												{/if}
-
-												{subItem.label}
-
-												{#if subItem?.['notificationCount']}
-													<div class="ml-auto">
-														<SideBarNotification notificationCount={subItem['notificationCount']} />
-													</div>
-												{/if}
-											</div>
-										</a>
+							<MenuItem
+								class={itemClass}
+								href={subItem.href}
+								{item}
+								on:click={() => {
+									subItem?.['action']?.()
+								}}
+							>
+								<div class="flex flex-row items-center gap-2">
+									{#if subItem.icon}
+										<svelte:component this={subItem.icon} size={16} />
+									{/if}
+									{subItem.label}
+									{#if subItem?.['notificationCount']}
+										<div class="ml-auto">
+											<SideBarNotification notificationCount={subItem['notificationCount']} />
+										</div>
 									{/if}
 								</div>
 							</MenuItem>
 						{/each}
 					</Menu>
 				{:else}
-					<MenuLink class="!text-2xs" {...menuLink} {isCollapsed} />
+					<MenuSingleItem {createMenu} let:item>
+						<svelte:fragment slot="trigger" let:trigger>
+							<div class="w-full">
+								<MenuButton class="!text-2xs" {...menuLink} {isCollapsed} {trigger} />
+							</div>
+						</svelte:fragment>
+						<MenuLink class="!text-2xs" {...menuLink} {isCollapsed} {item} />
+					</MenuSingleItem>
 				{/if}
 			{/each}
-		</div>
-		<div class="space-y-0.5">
+		</Menubar>
+
+		<Menubar let:createMenu class="flex flex-col gap-1">
 			{#each thirdMenuLinks as menuLink (menuLink)}
 				{#if menuLink.subItems}
-					<Menu>
-						<div slot="trigger">
-							<!-- svelte-ignore a11y-click-events-have-key-events -->
-							<!-- svelte-ignore a11y-no-static-element-interactions -->
-							<div
-								class="relative"
+					<Menu {createMenu} let:item usePointerDownOutside>
+						<svelte:fragment slot="trigger" let:trigger>
+							<button
+								class="relative w-full"
 								on:click={() => {
 									if (menuLink.label === 'Help') {
 										openChangelogs()
 									}
 								}}
 							>
-								<MenuButton class="!text-2xs" {...menuLink} {isCollapsed} />
+								<MenuButton class="!text-2xs" {...menuLink} {isCollapsed} {trigger} />
 								{#if menuLink.label === 'Help' && hasNewChangelogs}
-									<span class="absolute top-1 right-1 flex h-2 w-2">
+									<span
+										class={twMerge(
+											'flex h-2 w-2 absolute',
+											isCollapsed ? 'top-1 right-1' : 'right-2 top-1/2 -translate-y-1/2'
+										)}
+									>
 										<span
 											class="animate-ping absolute inline-flex h-full w-full rounded-full bg-frost-400 opacity-75"
-										/>
-										<span class="relative inline-flex rounded-full h-2 w-2 bg-frost-500" />
+										></span>
+										<span class="relative inline-flex rounded-full h-2 w-2 bg-frost-500"></span>
 									</span>
 								{/if}
-							</div>
-						</div>
+							</button>
+						</svelte:fragment>
 						{#each menuLink.subItems as subItem (subItem.href ?? subItem.label)}
-							<MenuItem>
-								<div class="py-1" role="none">
-									<a
-										href={subItem.href}
-										class="text-secondary block px-4 py-2 text-xs hover:bg-surface-hover hover:text-primary relative"
-										role="menuitem"
-										tabindex="-1"
-										target="_blank"
-									>
-										<div class="flex flex-row items-center gap-2">
-											{#if subItem.icon}
-												<svelte:component this={subItem.icon} size={16} />
-											{/if}
+							<MenuItem href={subItem.href} class={itemClass} target="_blank" {item}>
+								<div class="flex flex-row items-center gap-2">
+									{#if subItem.icon}
+										<svelte:component this={subItem.icon} size={16} />
+									{/if}
 
-											{subItem.label}
-										</div>
-									</a>
+									{subItem.label}
 								</div>
 							</MenuItem>
 						{/each}
 						{#if recentChangelogs.length > 0}
-							<div class="w-full h-1 border-t" />
+							<div class="w-full h-1 border-t"></div>
 							<span class="text-xs px-4 font-bold"> Latest changelogs </span>
 							{#each recentChangelogs as changelog}
-								<MenuItem>
-									<div class="py-1" role="none">
-										<a
-											href={changelog.href}
-											class="text-secondary block px-4 py-2 text-xs hover:bg-surface-hover hover:text-primary relative"
-											role="menuitem"
-											tabindex="-1"
-											target="_blank"
-										>
-											<div class="flex flex-row items-center gap-2">
-												{changelog.label}
-											</div>
-										</a>
+								<MenuItem href={changelog.href} class={itemClass} target="_blank" {item}>
+									<div class="flex flex-row items-center gap-2">
+										{changelog.label}
 									</div>
 								</MenuItem>
 							{/each}
@@ -492,7 +496,7 @@
 					</Menu>
 				{/if}
 			{/each}
-		</div>
+		</Menubar>
 	</div>
 </nav>
 

@@ -16,6 +16,7 @@
 	export let collapsed: boolean = true
 	export let headless: boolean = false
 	export let animate: boolean = false
+	export let breakAll: boolean = false
 </script>
 
 <div class={twMerge('w-full flex flex-col', wrapperClass)}>
@@ -24,6 +25,7 @@
 			<h2
 				class={twMerge(
 					'font-semibold flex flex-row items-center gap-1',
+					breakAll ? 'break-all' : '',
 					small ? 'text-sm' : 'text-base'
 				)}
 			>
@@ -46,6 +48,8 @@
 				<slot name="header" />
 				{#if tooltip}
 					<Tooltip {documentationLink}>{tooltip}</Tooltip>
+				{:else if $$slots.tooltip}
+					<slot name="tooltip" />
 				{/if}
 				{#if eeOnly}
 					{#if !$enterpriseLicense}

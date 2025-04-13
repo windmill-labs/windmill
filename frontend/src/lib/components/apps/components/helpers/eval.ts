@@ -3,7 +3,11 @@ import { sendUserToast } from '$lib/toast'
 import { waitJob } from '$lib/components/waitJob'
 import { base } from '$lib/base'
 
-export function computeGlobalContext(world: World | undefined, extraContext: any = {}) {
+export function computeGlobalContext(
+	world: World | undefined,
+	id: string | undefined,
+	extraContext: any = {}
+) {
 	return {
 		...Object.fromEntries(
 			Object.entries(world?.outputsById ?? {})
@@ -15,7 +19,8 @@ export function computeGlobalContext(world: World | undefined, extraContext: any
 					]
 				})
 		),
-		...extraContext
+		...extraContext,
+		id
 	}
 }
 
@@ -26,7 +31,7 @@ function create_context_function_template(
 ) {
 	let hasReturnAsLastLine = noReturn || eval_string.split('\n').some((x) => x.startsWith('return '))
 	return `
-return async function (context, state, createProxy, goto, setTab, recompute, getAgGrid, setValue, setSelectedIndex, openModal, closeModal, open, close, validate, invalidate, validateAll, clearFiles, showToast, waitJob, askNewResource, downloadFile) {
+return async function (context, state, createProxy, goto, setTab, recompute, globalRecompute, getAgGrid, setValue, setSelectedIndex, openModal, closeModal, open, close, validate, invalidate, validateAll, clearFiles, showToast, waitJob, askNewResource, downloadFile) {
 "use strict";
 ${
 	contextKeys && contextKeys.length > 0
@@ -51,6 +56,7 @@ type WmFunctor = (
 	goto,
 	setTab,
 	recompute,
+	globalRecompute,
 	getAgGrid,
 	setValue,
 	setSelectedIndex,
@@ -122,7 +128,8 @@ export async function eval_like(
 	worldStore: World | undefined,
 	runnableComponents: Record<string, { cb?: (() => void)[] }>,
 	noReturn: boolean,
-	groupContextId: string | undefined
+	groupContextId: string | undefined,
+	globalRecomputeFunction: ((excludeIds?: string) => void) | undefined
 ) {
 	const createProxy = (name: string, obj: any) => {
 		// console.log('Creating proxy', name, obj)
@@ -200,6 +207,12 @@ export async function eval_like(
 		(id) => {
 			runnableComponents[id]?.cb?.forEach((f) => f())
 		},
+		() => {
+			const callerId = ((context ?? {}) as any).id
+			if (callerId) {
+				globalRecomputeFunction?.(callerId)
+			}
+		},
 		(id) => {
 			return controlComponents[id]?.agGrid
 		},
@@ -270,10 +283,10 @@ export async function eval_like(
 			}
 
 			if (typeof input === 'object' && input.s3) {
-				const workspaceId = computeGlobalContext(worldStore).ctx.workspace
-				const s3href = `${base}/api/w/${workspaceId}/job_helpers/download_s3_file?file_key=${
-					input?.s3
-				}${input?.storage ? `&storage=${input.storage}` : ''}`
+				const workspaceId = ((context ?? {}) as any).ctx?.workspace
+				const s3href = `${base}/api/w/${workspaceId}/job_helpers/download_s3_file?file_key=${encodeURIComponent(
+					input?.s3 ?? ''
+				)}${input?.storage ? `&storage=${input.storage}` : ''}`
 				downloadFile(s3href, filename || input.s3)
 			} else if (typeof input === 'string') {
 				if (input.startsWith('data:')) {

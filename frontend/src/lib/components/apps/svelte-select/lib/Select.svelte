@@ -1,10 +1,11 @@
 <script>
 	// @ts-nocheck
-	import { beforeUpdate, createEventDispatcher, onDestroy, onMount, tick } from 'svelte'
+	import { beforeUpdate, createEventDispatcher, onDestroy, onMount } from 'svelte'
 	import { offset, flip, shift } from '@floating-ui/dom'
 	import { createFloatingActions } from 'svelte-floating-ui'
 
-	const dispatch = createEventDispatcher()
+	// This component caused trouble with svelte 5 so better be extra safe
+	const dispatch = createDispatcherIfMounted(createEventDispatcher())
 
 	import _filter from './filter'
 	import _getItems from './get-items'
@@ -17,6 +18,7 @@
 
 	import { extractCustomProperties, truncate } from '$lib/utils'
 	import { twMerge } from 'tailwind-merge'
+	import { createDispatcherIfMounted } from '$lib/createDispatcherIfMounted'
 
 	export let portal = true
 
@@ -711,7 +713,7 @@
 
 	{#if required && (!value || value.length === 0)}
 		<slot name="required" {value}>
-			<select class="required" required tabindex="-1" aria-hidden="true" />
+			<select class="required" required tabindex="-1" aria-hidden="true"></select>
 		</slot>
 	{/if}
 </div>
@@ -845,6 +847,7 @@
 		left: 0;
 		background: transparent !important;
 		font-size: var(--font-size, 16px);
+		border: 0 !important;
 	}
 
 	:not(.multi) > .value-container > input {
