@@ -19,7 +19,7 @@ use git_version::git_version;
 
 use chrono::Utc;
 use croner::Cron;
-use rand::{distributions::Alphanumeric, Rng};
+use rand::{distr::Alphanumeric, rng, Rng};
 use reqwest::Client;
 use semver::Version;
 use serde::{Deserialize, Deserializer, Serialize};
