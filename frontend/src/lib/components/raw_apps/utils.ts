@@ -1,5 +1,4 @@
 import { schemaToTsType } from '$lib/schema'
-import type { UserExt } from '$lib/stores'
 import { capitalize } from '$lib/utils'
 import type { HiddenRunnable } from '../apps/types'
 

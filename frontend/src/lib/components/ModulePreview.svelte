@@ -1,21 +1,13 @@
 <script lang="ts">
 	import type { Schema } from '$lib/common'
-<<<<<<< HEAD
-	import { ScriptService, type FlowModule, type Job, type Script } from '$lib/gen'
-=======
-	import { ScriptService, type FlowModule, type Job, JobService } from '$lib/gen'
->>>>>>> main
+	import { ScriptService, type FlowModule, type Job } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { getScriptByPath } from '$lib/scripts'
 
-	import { Loader2 } from 'lucide-svelte'
+	import { CornerDownLeft, Loader2 } from 'lucide-svelte'
 	import { getContext } from 'svelte'
-<<<<<<< HEAD
-	import { Pane, Splitpanes } from 'svelte-splitpanes'
-	import DisplayResult from './DisplayResult.svelte'
-=======
+
 	import Button from './common/button/Button.svelte'
->>>>>>> main
 	import type { FlowEditorContext } from './flows/types'
 
 	import TestJobLoader from './TestJobLoader.svelte'
@@ -23,13 +15,6 @@
 
 	import { evalValue } from './flows/utils'
 	import type { PickableProperties } from './flows/previousResults'
-<<<<<<< HEAD
-	import type DiffEditor from './DiffEditor.svelte'
-	import type Editor from './Editor.svelte'
-	import ScriptFix from './copilot/ScriptFix.svelte'
-	import RunButton from '$lib/components/RunButton.svelte'
-=======
->>>>>>> main
 
 	export let mod: FlowModule
 	export let schema: Schema | { properties?: Record<string, any> }
@@ -144,77 +129,5 @@
 		{/if}
 	</div>
 
-<<<<<<< HEAD
-		<div class="w-full justify-center flex">
-			<RunButton
-				isLoading={testIsLoading}
-				hideShortcut={false}
-				onRun={() => runTest(stepArgs)}
-				onCancel={() => testJobLoader?.cancelJob()}
-			/>
-		</div>
-
-		<ModulePreviewForm {pickableProperties} {mod} {schema} bind:args={stepArgs} />
-	</Pane>
-	<Pane size={50} minSize={20}>
-		<Splitpanes horizontal>
-			<Pane size={50} minSize={10}>
-				<LogViewer
-					small
-					jobId={testJob?.id}
-					duration={testJob?.['duration_ms']}
-					mem={testJob?.['mem_peak']}
-					content={testJob?.logs}
-					isLoading={testIsLoading && testJob?.['running'] == false}
-					tag={testJob?.tag}
-				/>
-			</Pane>
-			<Pane size={50} minSize={10} class="text-sm text-tertiary">
-				{#if scriptProgress}
-					<JobProgressBar
-						job={testJob}
-						bind:scriptProgress
-						bind:reset={jobProgressReset}
-						compact={true}
-					/>
-				{/if}
-				{#if testJob != undefined && 'result' in testJob && testJob.result != undefined}
-					<div class="break-words relative h-full p-2">
-						<DisplayResult
-							bind:forceJson
-							workspaceId={testJob?.workspace_id}
-							jobId={testJob?.id}
-							result={testJob.result}
-						>
-							<svelte:fragment slot="copilot-fix">
-								{#if lang && editor && diffEditor && stepArgs && typeof testJob?.result == 'object' && `error` in testJob?.result && testJob?.result.error}
-									<ScriptFix
-										error={JSON.stringify(testJob.result.error)}
-										{lang}
-										{editor}
-										{diffEditor}
-										args={stepArgs}
-									/>
-								{/if}
-							</svelte:fragment>
-						</DisplayResult>
-					</div>
-				{:else}
-					<div class="p-2">
-						{#if testIsLoading}
-							{#if !scriptProgress}
-								<Loader2 class="animate-spin" />
-							{/if}
-						{:else}
-							Test to see the result here
-						{/if}
-					</div>
-				{/if}
-			</Pane>
-		</Splitpanes>
-	</Pane>
-</Splitpanes>
-=======
 	<ModulePreviewForm {pickableProperties} {mod} {schema} bind:args={stepArgs} />
 </div>
->>>>>>> main

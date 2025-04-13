@@ -8,7 +8,7 @@
 	import { inferArgs, parseOutputs } from '$lib/infer'
 	import type { Schema } from '$lib/common'
 	import Editor from '$lib/components/Editor.svelte'
-	import { emptySchema, itemsExists } from '$lib/utils'
+	import { defaultIfEmptyString, emptySchema, itemsExists } from '$lib/utils'
 	import { computeFields } from './utils'
 	import { deepEqual } from 'fast-equals'
 	import type { AppInput } from '../../inputType'
@@ -20,6 +20,7 @@
 	import DiffEditor from '$lib/components/DiffEditor.svelte'
 	import CacheTtlPopup from './CacheTtlPopup.svelte'
 	import EditorSettings from '$lib/components/EditorSettings.svelte'
+	import { userStore } from '$lib/stores'
 
 	let inlineScriptEditorDrawer: InlineScriptEditorDrawer
 
@@ -62,8 +63,6 @@
 		return schema
 	}
 
-<<<<<<< HEAD
-=======
 	$: name && onNameChange()
 
 	function onNameChange() {
@@ -75,7 +74,6 @@
 		}
 	}
 
->>>>>>> main
 	onMount(async () => {
 		if (inlineScript && !inlineScript.schema) {
 			if (inlineScript.language != 'frontend') {

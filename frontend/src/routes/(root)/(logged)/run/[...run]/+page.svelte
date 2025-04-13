@@ -955,12 +955,14 @@
 				class="py-4 max-w-7xl mx-auto px-4"
 			/>
 			<div class="w-full mt-10">
-<<<<<<< HEAD
 				{#if job?.id}
 					<FlowStatusViewer
-						jobId={job?.id}
+						jobId={job?.id ?? ''}
 						on:jobsLoaded={({ detail }) => {
 							job = detail
+						}}
+						on:done={(e) => {
+							job = e.detail
 						}}
 						initialJob={job}
 						workspaceId={$workspaceStore}
@@ -969,20 +971,6 @@
 				{:else}
 					<Skeleton layout={[[5]]} />
 				{/if}
-=======
-				<FlowStatusViewer
-					jobId={job?.id ?? ''}
-					on:jobsLoaded={({ detail }) => {
-						job = detail
-					}}
-					on:done={(e) => {
-						job = e.detail
-					}}
-					initialJob={job}
-					workspaceId={$workspaceStore}
-					bind:selectedJobStep
-				/>
->>>>>>> main
 			</div>
 		{/if}
 	</div>

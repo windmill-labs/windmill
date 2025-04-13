@@ -36,14 +36,9 @@
 
 	const appContext = getContext<AppViewerContext>('AppViewerContext')
 
-<<<<<<< HEAD
 	$: componentInput && appContext?.onchange?.()
-=======
 	let s3FileUploadRawMode = false
 	let s3FilePicker: S3FilePicker | undefined = undefined
-
-	$: componentInput && onchange?.()
->>>>>>> main
 </script>
 
 {#key subFieldType}

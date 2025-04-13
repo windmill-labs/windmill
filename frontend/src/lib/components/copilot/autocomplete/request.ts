@@ -64,7 +64,7 @@ export async function autocompleteRequest(
 		modifiableSuffix: string
 		suffix: string
 		language: string
-		scriptLang: ScriptLang | 'bunnative'
+		scriptLang: ScriptLang | 'bunnative' | 'jsx' | 'tsx' | 'json'
 		events: string[]
 	},
 	abortController: AbortController

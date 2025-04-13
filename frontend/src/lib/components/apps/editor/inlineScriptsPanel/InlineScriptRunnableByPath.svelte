@@ -23,12 +23,9 @@
 	import { sendUserToast } from '$lib/toast'
 	import { autoPlacement } from '@floating-ui/core'
 	import { ExternalLink, Eye, GitFork, Pen, RefreshCw, Trash } from 'lucide-svelte'
-<<<<<<< HEAD
 	import { get } from 'svelte/store'
 	import RunButton from '$lib/components/RunButton.svelte'
-=======
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
->>>>>>> main
 
 	export let runnable: RunnableByPath
 	export let fields:

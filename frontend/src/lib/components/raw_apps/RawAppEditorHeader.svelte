@@ -19,7 +19,6 @@
 	} from 'lucide-svelte'
 	import { createEventDispatcher } from 'svelte'
 	import {
-		classNames,
 		cleanValueProperties,
 		orderedJsonStringify,
 		type Value,
@@ -35,8 +34,6 @@
 	import { sendUserToast } from '$lib/toast'
 	import DeploymentHistory from '../apps/editor/DeploymentHistory.svelte'
 	import Awareness from '$lib/components/Awareness.svelte'
-	import ButtonDropdown from '$lib/components/common/button/ButtonDropdown.svelte'
-	import { MenuItem } from '@rgossiaux/svelte-headlessui'
 	import type DiffDrawer from '$lib/components/DiffDrawer.svelte'
 
 	import Summary from '$lib/components/Summary.svelte'
@@ -49,6 +46,8 @@
 	import AppJobsDrawer from '../apps/editor/AppJobsDrawer.svelte'
 	import type { Runnable } from '../apps/inputType'
 	import { collectStaticFields, hash, type TriggerableV2 } from '../apps/editor/commonAppUtils'
+	import type { SavedAndModifiedValue } from '../common/confirmationModal/unsavedTypes'
+	import DropdownV2 from '../DropdownV2.svelte'
 
 	// async function hash(message) {
 	// 	try {
@@ -320,7 +319,7 @@
 					// custom_path requires admin so to accept update without it, we need to send as undefined when non-admin (when undefined, it will be ignored)
 					// it also means that customPath needs to be set to '' instead of undefined to unset it (when admin)
 					custom_path:
-						$userStore?.is_admin || $userStore?.is_super_admin ? customPath ?? '' : undefined
+						$userStore?.is_admin || $userStore?.is_super_admin ? (customPath ?? '') : undefined
 				},
 				js,
 				css
@@ -523,7 +522,7 @@
 							policy,
 							draft_only: true,
 							custom_path: customPath
-					  }
+						}
 					: savedApp),
 				draft: {
 					summary: summary,
@@ -659,19 +658,22 @@
 	$: customPath !== undefined && validateCustomPath(customPath)
 
 	let jobsDrawerOpen = false
+
+	function getInitialAndModifiedValues(): SavedAndModifiedValue {
+		return {
+			savedValue: savedApp,
+			modifiedValue: {
+				summary: summary,
+				value: app,
+				path: newEditedPath || savedApp?.draft?.path || savedApp?.path,
+				policy,
+				custom_path: customPath
+			}
+		}
+	}
 </script>
 
-<UnsavedConfirmationModal
-	{diffDrawer}
-	savedValue={savedApp}
-	modifiedValue={{
-		summary: summary,
-		value: app,
-		path: newEditedPath || savedApp?.draft?.path || savedApp?.path,
-		policy,
-		custom_path: customPath
-	}}
-/>
+<UnsavedConfirmationModal {diffDrawer} {getInitialAndModifiedValues} />
 
 <DeployOverrideConfirmationModal
 	bind:deployedBy
@@ -1031,7 +1033,7 @@
 		<Awareness />
 	{/if}
 	<div class="flex flex-row gap-2 justify-end items-center overflow-visible">
-		<ButtonDropdown hasPadding={false}>
+		<DropdownV2 items={moreItems} class="h-auto">
 			<svelte:fragment slot="buttonReplacement">
 				<Button nonCaptureEvent size="xs" color="light">
 					<div class="flex flex-row items-center">
@@ -1039,25 +1041,7 @@
 					</div>
 				</Button>
 			</svelte:fragment>
-			<svelte:fragment slot="items">
-				{#each moreItems as item}
-					<MenuItem
-						on:click={item.action}
-						disabled={item.disabled}
-						class={item.disabled ? 'opacity-50' : ''}
-					>
-						<div
-							class={classNames(
-								'text-primary flex flex-row items-center text-left px-4 py-2 gap-2 cursor-pointer hover:bg-surface-hover !text-xs font-semibold'
-							)}
-						>
-							<svelte:component this={item.icon} size={14} />
-							{item.displayName}
-						</div>
-					</MenuItem>
-				{/each}
-			</svelte:fragment>
-		</ButtonDropdown>
+		</DropdownV2>
 
 		<div class="hidden md:inline relative overflow-visible">
 			<Button
@@ -1073,7 +1057,8 @@
 					<Bug size={14} />
 					<div>Debug runs</div>
 
-					<div class="text-2xs text-tertiary">({jobs?.length > 99 ? '99+' : jobs?.length ?? 0})</div
+					<div class="text-2xs text-tertiary"
+						>({jobs?.length > 99 ? '99+' : (jobs?.length ?? 0)})</div
 					>
 				</div>
 			</Button>
@@ -1102,7 +1087,7 @@
 								window.open(`/apps/add?template=${appPath}`)
 							}
 						}
-				  ]
+					]
 				: undefined}
 		>
 			Deploy

@@ -119,13 +119,8 @@
 	import { initializeVscode } from '$lib/components/vscode'
 
 	import { initializeMode } from 'monaco-graphql/esm/initializeMode.js'
-<<<<<<< HEAD
 	import type { MonacoGraphQLAPI } from 'monaco-graphql/esm/api.js'
 
-	import { sleep } from '$lib/utils'
-	import { editorCodeCompletion } from '$lib/components/copilot/completion'
-=======
->>>>>>> main
 	import {
 		editor as meditor,
 		languages,
@@ -150,47 +145,22 @@
 	import { initVim } from './monaco_keybindings'
 	import { buildWorkerDefinition } from '$lib/monaco_workers/build_workers'
 	import { parseTypescriptDeps } from '$lib/relative_imports'
-<<<<<<< HEAD
-<<<<<<< HEAD
-	import type { AiProviderTypes } from './copilot/lib'
+
 	import { scriptLangToEditorLang } from '$lib/scripts'
 	import * as htmllang from '$lib/svelteMonarch'
 	import { conf, language } from '$lib/vueMonarch'
-=======
->>>>>>> main
 
-=======
 	import { Autocompletor } from './copilot/autocomplete/monaco-adapter'
 	import { AIChatEditorHandler } from './copilot/chat/monaco-adapter'
 	import GlobalReviewButtons from './copilot/chat/GlobalReviewButtons.svelte'
 	import { writable } from 'svelte/store'
 	import { formatResourceTypes } from './copilot/chat/core'
->>>>>>> main
 	// import EditorTheme from './EditorTheme.svelte'
 
 	let divEl: HTMLDivElement | null = null
 	let editor: meditor.IStandaloneCodeEditor | null = null
 
-<<<<<<< HEAD
-=======
-	export let lang:
-		| 'typescript'
-		| 'python'
-		| 'go'
-		| 'shell'
-		| 'sql'
-		| 'graphql'
-		| 'powershell'
-		| 'php'
-		| 'css'
-		| 'javascript'
-		| 'rust'
-		| 'yaml'
-		| 'csharp'
-		| 'nu'
-		| 'java'
 	// for related places search: ADD_NEW_LANG
->>>>>>> main
 	export let code: string = ''
 	export let cmdEnterAction: (() => void) | undefined = undefined
 	export let formatAction: (() => void) | undefined = undefined
@@ -214,13 +184,10 @@
 	export let scriptLang: Preview['language'] | 'bunnative' | 'tsx' | 'jsx' | 'json' | undefined
 	export let disabled: boolean = false
 	export let lineNumbersMinChars = 3
-<<<<<<< HEAD
 	export let files: Record<string, { code: string; readonly?: boolean }> | undefined = {}
 	export let extraLib: string | undefined = undefined
 	export let changeTimeout: number = 500
-=======
 	export let isAiPanelOpen: boolean = false
->>>>>>> main
 
 	let lang = scriptLangToEditorLang(scriptLang)
 	$: lang = scriptLangToEditorLang(scriptLang)
@@ -246,14 +213,7 @@
 	let dbSchema: DBSchema | undefined = undefined
 
 	let destroyed = false
-<<<<<<< HEAD
 	const uri = computeUri(filePath, scriptLang)
-=======
-	const uri =
-		lang != 'go' && lang != 'typescript' && lang != 'python' && lang != 'nu'
-			? `file:///${filePath ?? rHash}.${langToExt(lang)}`
-			: `file:///tmp/monaco/${randomHash()}.${langToExt(lang)}`
->>>>>>> main
 
 	console.log('uri', uri)
 
@@ -302,7 +262,7 @@
 				editor.setModel(nmodel)
 			}
 			model = nmodel
-			setTypescriptExtraLibsATA()
+			setTypescriptExtraLibs()
 		}
 	}
 
@@ -817,7 +777,7 @@
 								})
 						}
 					}
-				},
+				}
 			})
 			return client
 		}
@@ -1382,12 +1342,8 @@
 
 		reloadWebsocket()
 
-<<<<<<< HEAD
-		setTypescriptExtraLibsATA()
-=======
 		setTypescriptExtraLibs()
 		setTypescriptRTNamespace()
->>>>>>> main
 		return () => {
 			console.log('disposing editor')
 			ata = undefined
@@ -1403,18 +1359,10 @@
 		}
 	}
 
-<<<<<<< HEAD
 	export async function fetchPackageDeps(deps: DepsToGet) {
 		ata?.(deps)
 	}
 
-	async function setTypescriptExtraLibsATA() {
-		if (extraLib) {
-			const uri = mUri.parse('file:///extraLib.d.ts')
-			languages.typescript.typescriptDefaults.addExtraLib(extraLib, uri.toString())
-		}
-		if (lang === 'typescript' && (scriptLang == 'bun' || scriptLang == 'tsx') && ata == undefined) {
-=======
 	async function setTypescriptRTNamespace() {
 		if (
 			scriptLang &&
@@ -1437,8 +1385,11 @@
 	}
 
 	async function setTypescriptExtraLibs() {
-		if (lang === 'typescript' && scriptLang != 'deno') {
->>>>>>> main
+		if (extraLib) {
+			const uri = mUri.parse('file:///extraLib.d.ts')
+			languages.typescript.typescriptDefaults.addExtraLib(extraLib, uri.toString())
+		}
+		if (lang === 'typescript' && (scriptLang == 'bun' || scriptLang == 'tsx') && ata == undefined) {
 			const hostname = getHostname()
 
 			const addLibraryToRuntime = async (code: string, _path: string) => {

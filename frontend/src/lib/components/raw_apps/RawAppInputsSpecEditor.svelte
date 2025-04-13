@@ -47,8 +47,8 @@
 						{customTitle
 							? customTitle
 							: shouldCapitalize
-							? capitalize(addWhitespaceBeforeCapitals(key))
-							: key}
+								? capitalize(addWhitespaceBeforeCapitals(key))
+								: key}
 					</span>
 					{#if loading}
 						<Loader2 size={14} class="animate-spin ml-2" />
@@ -70,9 +70,9 @@
 
 			<div class={classNames('flex gap-x-2 gap-y-1 justify-end items-center')}>
 				{#if componentInput?.type && allowTypeChange !== false}
-					<ToggleButtonGroup class="h-7" bind:selected={componentInput.type}>
-						<ToggleButton value="user" icon={User} iconOnly tooltip="User Input" />
-						<ToggleButton value="static" icon={Pen} iconOnly tooltip="Static" />
+					<ToggleButtonGroup class="h-7" bind:selected={componentInput.type} let:item>
+						<ToggleButton {item} value="user" icon={User} iconOnly tooltip="User Input" />
+						<ToggleButton {item} value="static" icon={Pen} iconOnly tooltip="Static" />
 					</ToggleButtonGroup>
 				{/if}
 			</div>

@@ -35,6 +35,7 @@
 		| undefined = undefined
 
 	export let diffDrawer: DiffDrawer | undefined = undefined
+	export let version: number | undefined = undefined
 
 	let runnables = writable(initRunnables)
 
@@ -163,7 +164,7 @@
 				title="UI builder"
 				src="/ui_builder/index.html?dark={darkMode}"
 				class="w-full h-full"
-			/>
+			></iframe>
 		</Pane>
 		<Pane>
 			<!-- svelte-ignore a11y-no-static-element-interactions -->
