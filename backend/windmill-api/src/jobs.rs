@@ -1830,7 +1830,6 @@ async fn list_filtered_job_uuids(
         get_scope_tags(&authed),
     );
     let query = sqlb.union_all(sqlb2.subquery()?).subquery()?;
-    println!("QUERYYYYY {}", query.as_str());
     let ids = sqlx::query_scalar(query.as_str()).fetch_all(&db).await?;
     Ok(Json(ids))
 }

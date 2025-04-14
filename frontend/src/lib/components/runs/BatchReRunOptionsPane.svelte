@@ -204,7 +204,9 @@
 							options={{
 								right: 'Always use latest version',
 								rightTooltip:
-									'Run all jobs with the latest version of the script even if they originally ran an older version'
+									selected.kind === 'flow'
+										? 'Flow jobs will always run on the latest version of the flow'
+										: 'Run all jobs with the latest version of the script even if they originally ran an older version'
 							}}
 						/>
 
