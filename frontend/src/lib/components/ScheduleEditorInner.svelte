@@ -565,6 +565,572 @@
 	}
 </script>
 
+{#snippet saveButton()}
+	{#if edit}
+		<div class="mr-8">
+			<Button
+				size="sm"
+				variant="border"
+				startIcon={{ icon: List }}
+				disabled={!allowSchedule || pathError != '' || emptyString(script_path)}
+				href={`${base}/runs/${script_path}?show_schedules=true&show_future_jobs=true`}
+			>
+				View runs
+			</Button>
+		</div>
+		{#if can_write}
+			<div class="mr-8 center-center -mt-1">
+				<Toggle
+					disabled={!can_write}
+					checked={enabled}
+					options={{ right: 'Enabled' }}
+					on:change={async (e) => {
+						await ScheduleService.setScheduleEnabled({
+							path: initialPath,
+							workspace: $workspaceStore ?? '',
+							requestBody: { enabled: e.detail }
+						})
+						dispatch('update')
+						sendUserToast(`${e.detail ? 'enabled' : 'disabled'} schedule ${initialPath}`)
+					}}
+				/>
+			</div>
+		{/if}
+	{/if}
+	<Button
+		startIcon={{ icon: Save }}
+		disabled={!allowSchedule ||
+			pathError != '' ||
+			emptyString(script_path) ||
+			(errorHandlerSelected == 'slack' &&
+				!emptyString(errorHandlerPath) &&
+				emptyString(errorHandlerExtraArgs['channel'])) ||
+			!can_write}
+		on:click={scheduleScript}
+	>
+		{edit ? 'Save' : 'Schedule'}
+	</Button>
+{/snippet}
+
+{#snippet content()}
+	{#if drawerLoading}
+		<Loader2 class="animate-spin" />
+	{:else}
+		<div class="flex flex-col gap-12">
+			<div class="flex flex-col gap-4">
+				<div>
+					<h2 class="text-base font-semibold mb-2">Metadata</h2>
+					<Label label="Summary">
+						<!-- svelte-ignore a11y_autofocus -->
+						<input
+							autofocus
+							type="text"
+							placeholder="Short summary to be displayed when listed"
+							class="text-sm w-full"
+							bind:value={summary}
+							disabled={!can_write}
+							onkeyup={() => {
+								if (!edit && summary?.length > 0 && !dirtyPath) {
+									pathC?.setName(
+										summary
+											.toLowerCase()
+											.replace(/[^a-z0-9_]/g, '_')
+											.replace(/-+/g, '_')
+											.replace(/^-|-$/g, '')
+									)
+								}
+							}}
+						/>
+					</Label>
+				</div>
+				<Label label="Path">
+					{#if !edit}
+						<Path
+							bind:dirty={dirtyPath}
+							bind:this={pathC}
+							checkInitialPathExistence
+							bind:error={pathError}
+							bind:path
+							{initialPath}
+							namePlaceholder="schedule"
+							kind="schedule"
+						/>
+					{:else}
+						<div class="flex justify-start w-full">
+							<Badge
+								color="gray"
+								class="center-center !bg-surface-secondary !text-tertiary  !h-[24px] rounded-r-none border"
+							>
+								Schedule path (not editable)
+							</Badge>
+							<input
+								type="text"
+								readonly
+								value={path}
+								size={path?.length || 50}
+								class="font-mono !text-xs grow shrink overflow-x-auto !h-[24px] !py-0 !border-l-0 !rounded-l-none"
+								onfocus={({ currentTarget }) => {
+									currentTarget.select()
+								}}
+							/>
+							<!-- <span class="font-mono text-sm break-all">{path}</span> -->
+						</div>
+					{/if}
+				</Label>
+
+				<Label label="Description">
+					<textarea
+						rows="4"
+						use:autosize
+						bind:value={description}
+						placeholder="What this schedule does and how to use it"
+					></textarea>
+				</Label>
+			</div>
+
+			<Section label="Schedule">
+				{#snippet header()}
+					{#if cronVersion === 'v1'}
+						<Tooltip>Schedules use CRON syntax. Seconds are mandatory.</Tooltip>
+					{:else}
+						<Tooltip
+							>Schedules use <a
+								href="https://www.windmill.dev/docs/core_concepts/scheduling#cron-syntax"
+								>extended CRON syntax</a
+							>.</Tooltip
+						>
+					{/if}
+				{/snippet}
+				{#if initialCronVersion !== 'v2'}
+					<div class="flex flex-row">
+						<AlertTriangle color="orange" class="mr-2" size={16} />
+						<Toggle
+							options={{
+								right: 'enable latest Cron syntax',
+								rightTooltip:
+									'The latest Cron syntax is more flexible and allows for more complex schedules. See the documentation for more information.',
+								rightDocumentationLink:
+									'https://www.windmill.dev/docs/core_concepts/scheduling#cron-syntax'
+							}}
+							size="xs"
+							bind:checked={isLatestCron}
+							on:change={onVersionChange}
+							disabled={!can_write}
+						/>
+					</div>
+				{/if}
+				<CronInput
+					disabled={!can_write}
+					bind:schedule
+					bind:timezone
+					bind:validCRON
+					bind:cronVersion
+				/>
+				<Toggle
+					options={{
+						right: 'Pause schedule until...',
+						rightTooltip:
+							'Pausing the schedule will program the next job to run as if the schedule starts at the time the pause is lifted, instead of now.'
+					}}
+					bind:checked={showPauseUntil}
+					size="xs"
+					disabled={!can_write}
+				/>
+				{#if showPauseUntil}
+					<DateTimeInput bind:value={paused_until} />
+				{/if}
+			</Section>
+			<Section label="Runnable">
+				{#if !edit}
+					<p class="text-xs mb-1 text-tertiary">
+						Pick a script or flow to be triggered by the schedule<Required required={true} />
+					</p>
+					<ScriptPicker
+						disabled={initialScriptPath != '' || !can_write}
+						initialPath={initialScriptPath}
+						kinds={['script']}
+						allowFlow={true}
+						allowRefresh={can_write}
+						bind:itemKind
+						bind:scriptPath={script_path}
+						on:select={(e) => {
+							loadScript(e.detail.path)
+						}}
+					/>
+				{:else}
+					<Alert type="info" title="Runnable path cannot be edited" collapsible>
+						Once a schedule is created, the runnable path cannot be changed. However, when renaming
+						a script or a flow, the runnable path will automatically update itself.
+					</Alert>
+					<div class="my-2"></div>
+					<ScriptPicker
+						disabled
+						initialPath={script_path}
+						scriptPath={script_path}
+						allowFlow={true}
+						{itemKind}
+						allowView={script_path != '' && !!runnable}
+						allowEdit={script_path != '' && !!runnable && !$userStore?.operator}
+					/>
+				{/if}
+				{#if itemKind == 'flow'}
+					<Toggle
+						options={{ right: 'no overlap of flows' }}
+						bind:checked={no_flow_overlap}
+						class="mt-2"
+					/>
+				{/if}
+				{#if itemKind == 'script'}
+					<div class="flex gap-2 items-center mt-2">
+						<Toggle options={{ right: 'no overlap' }} checked={true} disabled /><Tooltip
+							>Currently, overlapping scripts' executions is not supported. The next execution will
+							be scheduled only after the previous iteration has completed.</Tooltip
+						>
+					</div>
+				{/if}
+				<div class="mt-6">
+					{#if !loading}
+						{#if runnable}
+							{#if runnable?.schema && runnable.schema.properties && Object.keys(runnable.schema.properties).length > 0}
+								{#await import('$lib/components/SchemaForm.svelte')}
+									<Loader2 class="animate-spin" />
+								{:then Module}
+									<Module.default
+										showReset
+										disabled={!can_write}
+										schema={runnable.schema}
+										bind:isValid
+										bind:args
+									/>
+								{/await}
+							{:else}
+								<div class="text-xs texg-gray-700">
+									This {is_flow ? 'flow' : 'script'} takes no argument
+								</div>
+							{/if}
+						{:else if script_path != ''}
+							<div class="text-xs texg-gray-700 my-2">
+								You cannot see the the {is_flow ? 'flow' : 'script'} input form as you do not have access
+								to it.
+							</div>
+						{:else}
+							<div class="text-xs texg-gray-700 my-2">
+								Pick a {is_flow ? 'flow' : 'script'} and fill its argument here
+							</div>
+						{/if}
+					{:else}
+						<Loader2 class="animate-spin" />
+					{/if}
+				</div>
+			</Section>
+
+			<div class="flex flex-col gap-2">
+				{#if !loading}
+					<Tabs bind:selected={optionTabSelected}>
+						<Tab value="error_handler">Error Handler</Tab>
+						<Tab value="recovery_handler">Recovery Handler</Tab>
+						<Tab value="success_handler">Success Handler</Tab>
+						{#if itemKind === 'script'}
+							<Tab value="retries">Retries</Tab>
+							<Tab value="tag">Custom tag</Tab>
+						{/if}
+					</Tabs>
+					<div class="pt-0.5"></div>
+					{#if optionTabSelected === 'error_handler'}
+						<Section label="Error handler">
+							{#snippet header()}
+								<div class="flex flex-row gap-2">
+									{#if !$enterpriseLicense}<span class="text-normal text-2xs">(ee only)</span>{/if}
+								</div>
+							{/snippet}
+							{#snippet action()}
+								<div class="flex flex-row items-center gap-1 text-2xs text-tertiary">
+									defaults
+									<Dropdown
+										disabled={!can_write}
+										items={[
+											{
+												displayName: `Override future schedules only`,
+												action: () => saveAsDefaultErrorHandler(false)
+											},
+											{
+												displayName: 'Override all existing',
+												type: 'delete',
+												action: () => saveAsDefaultErrorHandler(true)
+											}
+										]}
+									>
+										{#snippet children()}
+											<Save size={12} class="mr-1" />
+											Set as default
+										{/snippet}
+									</Dropdown>
+								</div>
+							{/snippet}
+							<div class="flex flex-row py-2">
+								<Toggle
+									size="xs"
+									disabled={!can_write || !$enterpriseLicense}
+									bind:checked={wsErrorHandlerMuted}
+									options={{ right: 'Mute workspace error handler for this schedule' }}
+								/>
+							</div>
+
+							<ErrorOrRecoveryHandler
+								isEditable={can_write}
+								errorOrRecovery="error"
+								showScriptHelpText={true}
+								bind:handlerSelected={errorHandlerSelected}
+								bind:handlerPath={errorHandlerPath}
+								customInitialScriptPath={errorHandlerCustomInitialPath}
+								toggleText="Alert channel on error"
+								customScriptTemplate="/scripts/add?hub=hub%2F9081%2Fwindmill%2Fschedule_error_handler_template"
+								bind:customHandlerKind={errorHandleritemKind}
+								bind:handlerExtraArgs={errorHandlerExtraArgs}
+							>
+								<!-- @migration-task: migrate this slot by hand, `custom-tab-tooltip` is an invalid identifier -->
+								<svelte:fragment slot="custom-tab-tooltip">
+									<Tooltip>
+										<div class="flex gap-20 items-start mt-3">
+											<div class="text-sm"
+												>The following args will be passed to the error handler:
+												<ul class="mt-1 ml-2">
+													<li><b>path</b>: The path of the script or flow that failed.</li>
+													<li><b>is_flow</b>: Whether the runnable is a flow.</li>
+													<li><b>schedule_path</b>: The path of the schedule.</li>
+													<li><b>error</b>: The error details.</li>
+													<li
+														><b>failed_times</b>: Minimum number of times the schedule failed before
+														calling the error handler.</li
+													>
+													<li
+														><b>started_at</b>: The start datetime of the latest job that failed.</li
+													>
+												</ul>
+											</div>
+										</div>
+									</Tooltip>
+								</svelte:fragment>
+							</ErrorOrRecoveryHandler>
+							<div class="flex flex-row items-center justify-between">
+								<div class="flex flex-row items-center mt-4 font-semibold text-sm gap-2">
+									<p class={emptyString(errorHandlerPath) ? 'text-tertiary' : ''}>
+										Triggered when schedule failed</p
+									>
+									<select
+										class="!w-14"
+										bind:value={failedExact}
+										disabled={!$enterpriseLicense || emptyString(errorHandlerPath)}
+									>
+										<option value={false}>&gt;=</option>
+										<option value={true}>==</option>
+									</select>
+									<input
+										type="number"
+										class="!w-14 text-center {emptyString(errorHandlerPath) ? 'text-tertiary' : ''}"
+										bind:value={failedTimes}
+										disabled={!$enterpriseLicense}
+										min="1"
+									/>
+									<p class={emptyString(errorHandlerPath) ? 'text-tertiary' : ''}
+										>time{failedTimes > 1 ? 's in a row' : ''}</p
+									>
+								</div>
+							</div>
+						</Section>
+					{:else if optionTabSelected === 'recovery_handler'}
+						{@const disabled = !can_write || emptyString($enterpriseLicense)}
+						<Section label="Recovery handler">
+							{#snippet header()}
+								<div class="flex flex-row gap-2">
+									{#if !$enterpriseLicense}<span class="text-normal text-2xs">(ee only)</span>{/if}
+								</div>
+							{/snippet}
+							{#snippet action()}
+								<div class="flex flex-row items-center text-tertiary text-2xs gap-2">
+									defaults
+									<Dropdown
+										{disabled}
+										items={[
+											{
+												displayName: `Override future schedules only`,
+												action: () => saveAsDefaultRecoveryHandler(false)
+											},
+											{
+												displayName: 'Override all existing',
+												type: 'delete',
+												action: () => saveAsDefaultRecoveryHandler(true)
+											}
+										]}
+									>
+										{#snippet children()}
+											<Save size={12} class="mr-1" />
+											Set as default
+										{/snippet}
+									</Dropdown>
+								</div>
+							{/snippet}
+							<ErrorOrRecoveryHandler
+								isEditable={!disabled}
+								errorOrRecovery="recovery"
+								bind:handlerSelected={recoveryHandlerSelected}
+								bind:handlerPath={recoveryHandlerPath}
+								customInitialScriptPath={recoveryHandlerCustomInitialPath}
+								toggleText="Alert channel when error recovered"
+								customScriptTemplate="/scripts/add?hub=hub%2F9082%2Fwindmill%2Fschedule_recovery_handler_template"
+								bind:customHandlerKind={recoveryHandlerItemKind}
+								bind:handlerExtraArgs={recoveryHandlerExtraArgs}
+							>
+								<!-- @migration-task: migrate this slot by hand, `custom-tab-tooltip` is an invalid identifier -->
+								<svelte:fragment slot="custom-tab-tooltip">
+									<Tooltip>
+										<div class="flex gap-20 items-start mt-3">
+											<div class=" text-sm"
+												>The following args will be passed to the recovery handler:
+												<ul class="mt-1 ml-2">
+													<li><b>path</b>: The path of the script or flow that recovered.</li>
+													<li><b>is_flow</b>: Whether the runnable is a flow.</li>
+													<li><b>schedule_path</b>: The path of the schedule.</li>
+													<li><b>error</b>: The error of the last job that errored</li>
+													<li
+														><b>error_started_at</b>: The start datetime of the last job that
+														errored</li
+													>
+													<li
+														><b>success_times</b>: The number of times the schedule succeeded before
+														calling the recovery handler.</li
+													>
+													<li><b>success_result</b>: The result of the latest successful job</li>
+													<li
+														><b>success_started_at</b>: The start datetime of the latest successful
+														job</li
+													>
+												</ul>
+											</div>
+										</div>
+									</Tooltip>
+								</svelte:fragment>
+							</ErrorOrRecoveryHandler>
+							<div class="flex flex-row items-center justify-between">
+								<div
+									class="flex flex-row items-center mt-5 font-semibold text-sm {emptyString(
+										recoveryHandlerPath
+									)
+										? 'text-tertiary'
+										: ''}"
+								>
+									<p>Triggered when schedule recovered</p>
+									<input
+										type="number"
+										class="!w-14 mx-2 text-center"
+										bind:value={recoveredTimes}
+										min="1"
+										{disabled}
+									/>
+									<p>time{recoveredTimes > 1 ? 's in a row' : ''}</p>
+								</div>
+							</div>
+						</Section>
+					{:else if optionTabSelected === 'success_handler'}
+						{@const disabled = !can_write || emptyString($enterpriseLicense)}
+						<Section label="Success handler">
+							{#snippet header()}
+								<div class="flex flex-row gap-2">
+									{#if !$enterpriseLicense}<span class="text-normal text-2xs">(ee only)</span>{/if}
+								</div>
+							{/snippet}
+							{#snippet action()}
+								<div class="flex flex-row items-center text-tertiary text-2xs gap-2">
+									defaults
+									<Dropdown
+										{disabled}
+										items={[
+											{
+												displayName: `Override future schedules only`,
+												action: () => saveAsDefaultSuccessHandler(false)
+											},
+											{
+												displayName: 'Override all existing',
+												type: 'delete',
+												action: () => saveAsDefaultSuccessHandler(true)
+											}
+										]}
+									>
+										{#snippet children()}
+											<Save size={12} class="mr-1" />
+											Set as default
+										{/snippet}
+									</Dropdown>
+								</div>
+							{/snippet}
+							<ErrorOrRecoveryHandler
+								isEditable={!disabled}
+								errorOrRecovery="success"
+								bind:handlerSelected={successHandlerSelected}
+								bind:handlerPath={successHandlerPath}
+								customInitialScriptPath={successHandlerCustomInitialPath}
+								toggleText="Alert channel when successful"
+								customScriptTemplate="/scripts/add?hub=hub%2F9071%2Fwindmill%2Fschedule_success_handler_template"
+								bind:customHandlerKind={successHandlerItemKind}
+								bind:handlerExtraArgs={successHandlerExtraArgs}
+							>
+								<!-- @migration-task: migrate this slot by hand, `custom-tab-tooltip` is an invalid identifier -->
+								<svelte:fragment slot="custom-tab-tooltip">
+									<Tooltip>
+										<div class="flex gap-20 items-start mt-3">
+											<div class=" text-sm"
+												>The following args will be passed to the success handler:
+												<ul class="mt-1 ml-2">
+													<li><b>path</b>: The path of the script or flow that succeeded.</li>
+													<li><b>is_flow</b>: Whether the runnable is a flow.</li>
+													<li><b>schedule_path</b>: The path of the schedule.</li>
+													<li><b>success_result</b>: The result of the successful job</li>
+													<li
+														><b>success_started_at</b>: The start datetime of the successful job</li
+													>
+												</ul>
+											</div>
+										</div>
+									</Tooltip>
+								</svelte:fragment>
+							</ErrorOrRecoveryHandler>
+						</Section>
+					{:else if optionTabSelected === 'retries'}
+						{@const disabled = !can_write || emptyString($enterpriseLicense)}
+						<Section label="Retries">
+							{#snippet header()}
+								<div class="flex flex-row gap-2">
+									{#if !$enterpriseLicense}<span class="text-normal text-2xs">(ee only)</span>{/if}
+								</div>
+								<Tooltip>
+									If defined, upon error this schedule will be retried with a delay and a maximum
+									number of attempts as defined below.
+									<br />
+									This is only available for individual script. For flows, retries can be set on each
+									flow step in the flow editor.
+								</Tooltip>
+							{/snippet}
+							<FlowRetries
+								bind:flowModuleRetry={retry}
+								disabled={itemKind !== 'script' || disabled}
+							/>
+						</Section>
+					{:else if optionTabSelected === 'tag'}
+						<Section
+							label="Custom script tag"
+							tooltip="When set, the script tag will be overridden by this tag"
+						>
+							<WorkerTagPicker bind:tag popupPlacement="top-end" disabled={!can_write} />
+						</Section>
+					{/if}
+				{:else}
+					<Loader2 class="animate-spin" />
+				{/if}
+			</div>
+		</div>
+	{/if}
+{/snippet}
+
 <Drawer size="900px" bind:this={drawer}>
 	<DrawerContent
 		title={edit
@@ -575,574 +1141,8 @@
 		on:close={drawer.closeDrawer}
 	>
 		<svelte:fragment slot="actions">
-			{#if !drawerLoading}
-				{#if edit}
-					<div class="mr-8">
-						<Button
-							size="sm"
-							variant="border"
-							startIcon={{ icon: List }}
-							disabled={!allowSchedule || pathError != '' || emptyString(script_path)}
-							href={`${base}/runs/${script_path}?show_schedules=true&show_future_jobs=true`}
-						>
-							View runs
-						</Button>
-					</div>
-					{#if can_write}
-						<div class="mr-8 center-center -mt-1">
-							<Toggle
-								disabled={!can_write}
-								checked={enabled}
-								options={{ right: 'Enabled' }}
-								on:change={async (e) => {
-									await ScheduleService.setScheduleEnabled({
-										path: initialPath,
-										workspace: $workspaceStore ?? '',
-										requestBody: { enabled: e.detail }
-									})
-									dispatch('update')
-									sendUserToast(`${e.detail ? 'enabled' : 'disabled'} schedule ${initialPath}`)
-								}}
-							/>
-						</div>
-					{/if}
-				{/if}
-				<Button
-					startIcon={{ icon: Save }}
-					disabled={!allowSchedule ||
-						pathError != '' ||
-						emptyString(script_path) ||
-						(errorHandlerSelected == 'slack' &&
-							!emptyString(errorHandlerPath) &&
-							emptyString(errorHandlerExtraArgs['channel'])) ||
-						!can_write}
-					on:click={scheduleScript}
-				>
-					{edit ? 'Save' : 'Schedule'}
-				</Button>
-			{/if}
+			{@render saveButton()}
 		</svelte:fragment>
-		{#if drawerLoading}
-			<Loader2 class="animate-spin" />
-		{:else}
-			<div class="flex flex-col gap-12">
-				<div class="flex flex-col gap-4">
-					<div>
-						<h2 class="text-base font-semibold mb-2">Metadata</h2>
-						<Label label="Summary">
-							<!-- svelte-ignore a11y_autofocus -->
-							<input
-								autofocus
-								type="text"
-								placeholder="Short summary to be displayed when listed"
-								class="text-sm w-full"
-								bind:value={summary}
-								disabled={!can_write}
-								onkeyup={() => {
-									if (!edit && summary?.length > 0 && !dirtyPath) {
-										pathC?.setName(
-											summary
-												.toLowerCase()
-												.replace(/[^a-z0-9_]/g, '_')
-												.replace(/-+/g, '_')
-												.replace(/^-|-$/g, '')
-										)
-									}
-								}}
-							/>
-						</Label>
-					</div>
-					<Label label="Path">
-						{#if !edit}
-							<Path
-								bind:dirty={dirtyPath}
-								bind:this={pathC}
-								checkInitialPathExistence
-								bind:error={pathError}
-								bind:path
-								{initialPath}
-								namePlaceholder="schedule"
-								kind="schedule"
-							/>
-						{:else}
-							<div class="flex justify-start w-full">
-								<Badge
-									color="gray"
-									class="center-center !bg-surface-secondary !text-tertiary  !h-[24px] rounded-r-none border"
-								>
-									Schedule path (not editable)
-								</Badge>
-								<input
-									type="text"
-									readonly
-									value={path}
-									size={path?.length || 50}
-									class="font-mono !text-xs grow shrink overflow-x-auto !h-[24px] !py-0 !border-l-0 !rounded-l-none"
-									onfocus={({ currentTarget }) => {
-										currentTarget.select()
-									}}
-								/>
-								<!-- <span class="font-mono text-sm break-all">{path}</span> -->
-							</div>
-						{/if}
-					</Label>
-
-					<Label label="Description">
-						<textarea
-							rows="4"
-							use:autosize
-							bind:value={description}
-							placeholder="What this schedule does and how to use it"
-						></textarea>
-					</Label>
-				</div>
-
-				<Section label="Schedule">
-					{#snippet header()}
-						{#if cronVersion === 'v1'}
-							<Tooltip>Schedules use CRON syntax. Seconds are mandatory.</Tooltip>
-						{:else}
-							<Tooltip
-								>Schedules use <a
-									href="https://www.windmill.dev/docs/core_concepts/scheduling#cron-syntax"
-									>extended CRON syntax</a
-								>.</Tooltip
-							>
-						{/if}
-					{/snippet}
-					{#if initialCronVersion !== 'v2'}
-						<div class="flex flex-row">
-							<AlertTriangle color="orange" class="mr-2" size={16} />
-							<Toggle
-								options={{
-									right: 'enable latest Cron syntax',
-									rightTooltip:
-										'The latest Cron syntax is more flexible and allows for more complex schedules. See the documentation for more information.',
-									rightDocumentationLink:
-										'https://www.windmill.dev/docs/core_concepts/scheduling#cron-syntax'
-								}}
-								size="xs"
-								bind:checked={isLatestCron}
-								on:change={onVersionChange}
-								disabled={!can_write}
-							/>
-						</div>
-					{/if}
-					<CronInput
-						disabled={!can_write}
-						bind:schedule
-						bind:timezone
-						bind:validCRON
-						bind:cronVersion
-					/>
-					<Toggle
-						options={{
-							right: 'Pause schedule until...',
-							rightTooltip:
-								'Pausing the schedule will program the next job to run as if the schedule starts at the time the pause is lifted, instead of now.'
-						}}
-						bind:checked={showPauseUntil}
-						size="xs"
-						disabled={!can_write}
-					/>
-					{#if showPauseUntil}
-						<DateTimeInput bind:value={paused_until} />
-					{/if}
-				</Section>
-				<Section label="Runnable">
-					{#if !edit}
-						<p class="text-xs mb-1 text-tertiary">
-							Pick a script or flow to be triggered by the schedule<Required required={true} />
-						</p>
-						<ScriptPicker
-							disabled={initialScriptPath != '' || !can_write}
-							initialPath={initialScriptPath}
-							kinds={['script']}
-							allowFlow={true}
-							allowRefresh={can_write}
-							bind:itemKind
-							bind:scriptPath={script_path}
-							on:select={(e) => {
-								loadScript(e.detail.path)
-							}}
-						/>
-					{:else}
-						<Alert type="info" title="Runnable path cannot be edited" collapsible>
-							Once a schedule is created, the runnable path cannot be changed. However, when
-							renaming a script or a flow, the runnable path will automatically update itself.
-						</Alert>
-						<div class="my-2"></div>
-						<ScriptPicker
-							disabled
-							initialPath={script_path}
-							scriptPath={script_path}
-							allowFlow={true}
-							{itemKind}
-							allowView={script_path != '' && !!runnable}
-							allowEdit={script_path != '' && !!runnable && !$userStore?.operator}
-						/>
-					{/if}
-					{#if itemKind == 'flow'}
-						<Toggle
-							options={{ right: 'no overlap of flows' }}
-							bind:checked={no_flow_overlap}
-							class="mt-2"
-						/>
-					{/if}
-					{#if itemKind == 'script'}
-						<div class="flex gap-2 items-center mt-2">
-							<Toggle options={{ right: 'no overlap' }} checked={true} disabled /><Tooltip
-								>Currently, overlapping scripts' executions is not supported. The next execution
-								will be scheduled only after the previous iteration has completed.</Tooltip
-							>
-						</div>
-					{/if}
-					<div class="mt-6">
-						{#if !loading}
-							{#if runnable}
-								{#if runnable?.schema && runnable.schema.properties && Object.keys(runnable.schema.properties).length > 0}
-									{#await import('$lib/components/SchemaForm.svelte')}
-										<Loader2 class="animate-spin" />
-									{:then Module}
-										<Module.default
-											showReset
-											disabled={!can_write}
-											schema={runnable.schema}
-											bind:isValid
-											bind:args
-										/>
-									{/await}
-								{:else}
-									<div class="text-xs texg-gray-700">
-										This {is_flow ? 'flow' : 'script'} takes no argument
-									</div>
-								{/if}
-							{:else if script_path != ''}
-								<div class="text-xs texg-gray-700 my-2">
-									You cannot see the the {is_flow ? 'flow' : 'script'} input form as you do not have
-									access to it.
-								</div>
-							{:else}
-								<div class="text-xs texg-gray-700 my-2">
-									Pick a {is_flow ? 'flow' : 'script'} and fill its argument here
-								</div>
-							{/if}
-						{:else}
-							<Loader2 class="animate-spin" />
-						{/if}
-					</div>
-				</Section>
-
-				<div class="flex flex-col gap-2">
-					{#if !loading}
-						<Tabs bind:selected={optionTabSelected}>
-							<Tab value="error_handler">Error Handler</Tab>
-							<Tab value="recovery_handler">Recovery Handler</Tab>
-							<Tab value="success_handler">Success Handler</Tab>
-							{#if itemKind === 'script'}
-								<Tab value="retries">Retries</Tab>
-								<Tab value="tag">Custom tag</Tab>
-							{/if}
-						</Tabs>
-						<div class="pt-0.5"></div>
-						{#if optionTabSelected === 'error_handler'}
-							<Section label="Error handler">
-								{#snippet header()}
-									<div class="flex flex-row gap-2">
-										{#if !$enterpriseLicense}<span class="text-normal text-2xs">(ee only)</span
-											>{/if}
-									</div>
-								{/snippet}
-								{#snippet action()}
-									<div class="flex flex-row items-center gap-1 text-2xs text-tertiary">
-										defaults
-										<Dropdown
-											disabled={!can_write}
-											items={[
-												{
-													displayName: `Override future schedules only`,
-													action: () => saveAsDefaultErrorHandler(false)
-												},
-												{
-													displayName: 'Override all existing',
-													type: 'delete',
-													action: () => saveAsDefaultErrorHandler(true)
-												}
-											]}
-										>
-											{#snippet children()}
-												<Save size={12} class="mr-1" />
-												Set as default
-											{/snippet}
-										</Dropdown>
-									</div>
-								{/snippet}
-								<div class="flex flex-row py-2">
-									<Toggle
-										size="xs"
-										disabled={!can_write || !$enterpriseLicense}
-										bind:checked={wsErrorHandlerMuted}
-										options={{ right: 'Mute workspace error handler for this schedule' }}
-									/>
-								</div>
-
-								<ErrorOrRecoveryHandler
-									isEditable={can_write}
-									errorOrRecovery="error"
-									showScriptHelpText={true}
-									bind:handlerSelected={errorHandlerSelected}
-									bind:handlerPath={errorHandlerPath}
-									customInitialScriptPath={errorHandlerCustomInitialPath}
-									toggleText="Alert channel on error"
-									customScriptTemplate="/scripts/add?hub=hub%2F9081%2Fwindmill%2Fschedule_error_handler_template"
-									bind:customHandlerKind={errorHandleritemKind}
-									bind:handlerExtraArgs={errorHandlerExtraArgs}
-								>
-									<!-- @migration-task: migrate this slot by hand, `custom-tab-tooltip` is an invalid identifier -->
-									<svelte:fragment slot="custom-tab-tooltip">
-										<Tooltip>
-											<div class="flex gap-20 items-start mt-3">
-												<div class="text-sm"
-													>The following args will be passed to the error handler:
-													<ul class="mt-1 ml-2">
-														<li><b>path</b>: The path of the script or flow that failed.</li>
-														<li><b>is_flow</b>: Whether the runnable is a flow.</li>
-														<li><b>schedule_path</b>: The path of the schedule.</li>
-														<li><b>error</b>: The error details.</li>
-														<li
-															><b>failed_times</b>: Minimum number of times the schedule failed
-															before calling the error handler.</li
-														>
-														<li
-															><b>started_at</b>: The start datetime of the latest job that failed.</li
-														>
-													</ul>
-												</div>
-											</div>
-										</Tooltip>
-									</svelte:fragment>
-								</ErrorOrRecoveryHandler>
-								<div class="flex flex-row items-center justify-between">
-									<div class="flex flex-row items-center mt-4 font-semibold text-sm gap-2">
-										<p class={emptyString(errorHandlerPath) ? 'text-tertiary' : ''}>
-											Triggered when schedule failed</p
-										>
-										<select
-											class="!w-14"
-											bind:value={failedExact}
-											disabled={!$enterpriseLicense || emptyString(errorHandlerPath)}
-										>
-											<option value={false}>&gt;=</option>
-											<option value={true}>==</option>
-										</select>
-										<input
-											type="number"
-											class="!w-14 text-center {emptyString(errorHandlerPath)
-												? 'text-tertiary'
-												: ''}"
-											bind:value={failedTimes}
-											disabled={!$enterpriseLicense}
-											min="1"
-										/>
-										<p class={emptyString(errorHandlerPath) ? 'text-tertiary' : ''}
-											>time{failedTimes > 1 ? 's in a row' : ''}</p
-										>
-									</div>
-								</div>
-							</Section>
-						{:else if optionTabSelected === 'recovery_handler'}
-							{@const disabled = !can_write || emptyString($enterpriseLicense)}
-							<Section label="Recovery handler">
-								{#snippet header()}
-									<div class="flex flex-row gap-2">
-										{#if !$enterpriseLicense}<span class="text-normal text-2xs">(ee only)</span
-											>{/if}
-									</div>
-								{/snippet}
-								{#snippet action()}
-									<div class="flex flex-row items-center text-tertiary text-2xs gap-2">
-										defaults
-										<Dropdown
-											{disabled}
-											items={[
-												{
-													displayName: `Override future schedules only`,
-													action: () => saveAsDefaultRecoveryHandler(false)
-												},
-												{
-													displayName: 'Override all existing',
-													type: 'delete',
-													action: () => saveAsDefaultRecoveryHandler(true)
-												}
-											]}
-										>
-											{#snippet children()}
-												<Save size={12} class="mr-1" />
-												Set as default
-											{/snippet}
-										</Dropdown>
-									</div>
-								{/snippet}
-								<ErrorOrRecoveryHandler
-									isEditable={!disabled}
-									errorOrRecovery="recovery"
-									bind:handlerSelected={recoveryHandlerSelected}
-									bind:handlerPath={recoveryHandlerPath}
-									customInitialScriptPath={recoveryHandlerCustomInitialPath}
-									toggleText="Alert channel when error recovered"
-									customScriptTemplate="/scripts/add?hub=hub%2F9082%2Fwindmill%2Fschedule_recovery_handler_template"
-									bind:customHandlerKind={recoveryHandlerItemKind}
-									bind:handlerExtraArgs={recoveryHandlerExtraArgs}
-								>
-									<!-- @migration-task: migrate this slot by hand, `custom-tab-tooltip` is an invalid identifier -->
-									<svelte:fragment slot="custom-tab-tooltip">
-										<Tooltip>
-											<div class="flex gap-20 items-start mt-3">
-												<div class=" text-sm"
-													>The following args will be passed to the recovery handler:
-													<ul class="mt-1 ml-2">
-														<li><b>path</b>: The path of the script or flow that recovered.</li>
-														<li><b>is_flow</b>: Whether the runnable is a flow.</li>
-														<li><b>schedule_path</b>: The path of the schedule.</li>
-														<li><b>error</b>: The error of the last job that errored</li>
-														<li
-															><b>error_started_at</b>: The start datetime of the last job that
-															errored</li
-														>
-														<li
-															><b>success_times</b>: The number of times the schedule succeeded
-															before calling the recovery handler.</li
-														>
-														<li><b>success_result</b>: The result of the latest successful job</li>
-														<li
-															><b>success_started_at</b>: The start datetime of the latest
-															successful job</li
-														>
-													</ul>
-												</div>
-											</div>
-										</Tooltip>
-									</svelte:fragment>
-								</ErrorOrRecoveryHandler>
-								<div class="flex flex-row items-center justify-between">
-									<div
-										class="flex flex-row items-center mt-5 font-semibold text-sm {emptyString(
-											recoveryHandlerPath
-										)
-											? 'text-tertiary'
-											: ''}"
-									>
-										<p>Triggered when schedule recovered</p>
-										<input
-											type="number"
-											class="!w-14 mx-2 text-center"
-											bind:value={recoveredTimes}
-											min="1"
-											{disabled}
-										/>
-										<p>time{recoveredTimes > 1 ? 's in a row' : ''}</p>
-									</div>
-								</div>
-							</Section>
-						{:else if optionTabSelected === 'success_handler'}
-							{@const disabled = !can_write || emptyString($enterpriseLicense)}
-							<Section label="Success handler">
-								{#snippet header()}
-									<div class="flex flex-row gap-2">
-										{#if !$enterpriseLicense}<span class="text-normal text-2xs">(ee only)</span
-											>{/if}
-									</div>
-								{/snippet}
-								{#snippet action()}
-									<div class="flex flex-row items-center text-tertiary text-2xs gap-2">
-										defaults
-										<Dropdown
-											{disabled}
-											items={[
-												{
-													displayName: `Override future schedules only`,
-													action: () => saveAsDefaultSuccessHandler(false)
-												},
-												{
-													displayName: 'Override all existing',
-													type: 'delete',
-													action: () => saveAsDefaultSuccessHandler(true)
-												}
-											]}
-										>
-											{#snippet children()}
-												<Save size={12} class="mr-1" />
-												Set as default
-											{/snippet}
-										</Dropdown>
-									</div>
-								{/snippet}
-								<ErrorOrRecoveryHandler
-									isEditable={!disabled}
-									errorOrRecovery="success"
-									bind:handlerSelected={successHandlerSelected}
-									bind:handlerPath={successHandlerPath}
-									customInitialScriptPath={successHandlerCustomInitialPath}
-									toggleText="Alert channel when successful"
-									customScriptTemplate="/scripts/add?hub=hub%2F9071%2Fwindmill%2Fschedule_success_handler_template"
-									bind:customHandlerKind={successHandlerItemKind}
-									bind:handlerExtraArgs={successHandlerExtraArgs}
-								>
-									<!-- @migration-task: migrate this slot by hand, `custom-tab-tooltip` is an invalid identifier -->
-									<svelte:fragment slot="custom-tab-tooltip">
-										<Tooltip>
-											<div class="flex gap-20 items-start mt-3">
-												<div class=" text-sm"
-													>The following args will be passed to the success handler:
-													<ul class="mt-1 ml-2">
-														<li><b>path</b>: The path of the script or flow that succeeded.</li>
-														<li><b>is_flow</b>: Whether the runnable is a flow.</li>
-														<li><b>schedule_path</b>: The path of the schedule.</li>
-														<li><b>success_result</b>: The result of the successful job</li>
-														<li
-															><b>success_started_at</b>: The start datetime of the successful job</li
-														>
-													</ul>
-												</div>
-											</div>
-										</Tooltip>
-									</svelte:fragment>
-								</ErrorOrRecoveryHandler>
-							</Section>
-						{:else if optionTabSelected === 'retries'}
-							{@const disabled = !can_write || emptyString($enterpriseLicense)}
-							<Section label="Retries">
-								{#snippet header()}
-									<div class="flex flex-row gap-2">
-										{#if !$enterpriseLicense}<span class="text-normal text-2xs">(ee only)</span
-											>{/if}
-									</div>
-									<Tooltip>
-										If defined, upon error this schedule will be retried with a delay and a maximum
-										number of attempts as defined below.
-										<br />
-										This is only available for individual script. For flows, retries can be set on each
-										flow step in the flow editor.
-									</Tooltip>
-								{/snippet}
-								<FlowRetries
-									bind:flowModuleRetry={retry}
-									disabled={itemKind !== 'script' || disabled}
-								/>
-							</Section>
-						{:else if optionTabSelected === 'tag'}
-							<Section
-								label="Custom script tag"
-								tooltip="When set, the script tag will be overridden by this tag"
-							>
-								<WorkerTagPicker bind:tag popupPlacement="top-end" disabled={!can_write} />
-							</Section>
-						{/if}
-					{:else}
-						<Loader2 class="animate-spin" />
-					{/if}
-				</div>
-			</div>
-		{/if}
+		{@render content()}
 	</DrawerContent>
 </Drawer>
