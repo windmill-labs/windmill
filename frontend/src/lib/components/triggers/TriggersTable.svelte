@@ -3,7 +3,7 @@
 	import { createEventDispatcher, getContext } from 'svelte'
 	import DropdownV2 from '$lib/components/DropdownV2.svelte'
 	import Button from '$lib/components/common/button/Button.svelte'
-	import { Plus, Star, Loader2 } from 'lucide-svelte'
+	import { Plus, Star, Loader2, Trash, Pen, EllipsisVertical } from 'lucide-svelte'
 	import { twMerge } from 'tailwind-merge'
 	import type { Item } from '$lib/utils'
 	import {
@@ -63,6 +63,24 @@
 		{ displayName: 'NATS', action: () => addDraftTrigger('nats'), icon: triggerIconMap.nats },
 		{ displayName: 'MQTT', action: () => addDraftTrigger('mqtt'), icon: triggerIconMap.mqtt },
 		{ displayName: 'SQS', action: () => addDraftTrigger('sqs'), icon: triggerIconMap.sqs }
+	]
+
+	const deleteTriggerItems: Item[] = [
+		{
+			displayName: 'Edit',
+			action: () => {
+				console.log('edit trigger')
+			},
+			icon: Pen
+		},
+		{
+			displayName: 'Delete',
+			action: () => {
+				console.log('delete trigger')
+			},
+			icon: Trash,
+			type: 'delete'
+		}
 	]
 
 	function addDraftTrigger(type: TriggerType) {
@@ -444,25 +462,50 @@
 						</div>
 					</td>
 					<td class="py-2 px-2 text-xs">
-						<div class="flex items-center">
-							<span class={trigger.isDraft ? 'text-frost-400 italic' : ''}>
-								{trigger.isDraft ? `New ${trigger.type.replace(/s$/, '')} trigger` : trigger.path}
-							</span>
-
-							{#if trigger.isPrimary}
-								<span
-									class="ml-2 text-2xs bg-yellow-100 dark:bg-yellow-900 text-yellow-800 dark:text-yellow-100 px-1.5 py-0.5 rounded"
-								>
-									Primary
+						<div class="flex items-center justify-between gap-2">
+							<div class="flex items-center">
+								<span class={trigger.isDraft ? 'text-frost-400 italic' : ''}>
+									{trigger.isDraft ? `New ${trigger.type.replace(/s$/, '')} trigger` : trigger.path}
 								</span>
-							{/if}
 
-							{#if trigger.isDraft}
-								<span
-									class="ml-2 text-2xs bg-frost-100 dark:bg-frost-900 text-frost-800 dark:text-frost-100 px-1.5 py-0.5 rounded"
-								>
-									Draft
-								</span>
+								{#if trigger.isPrimary}
+									<span
+										class="ml-2 text-2xs bg-yellow-100 dark:bg-yellow-900 text-yellow-800 dark:text-yellow-100 px-1.5 py-0.5 rounded"
+									>
+										Primary
+									</span>
+								{/if}
+
+								{#if trigger.isDraft}
+									<span
+										class="ml-2 text-2xs bg-frost-100 dark:bg-frost-900 text-frost-800 dark:text-frost-100 px-1.5 py-0.5 rounded"
+									>
+										Draft
+									</span>
+								{/if}
+							</div>
+
+							{#if ['schedule', 'http'].includes(trigger.type)}
+								{#if trigger.isDraft}
+									<Button
+										size="xs"
+										color="light"
+										btnClasses="hover:bg-red-500 hover:text-white bg-transparent"
+										startIcon={{ icon: Trash }}
+										iconOnly
+										on:click={() => deleteDraft(trigger.type)}
+									/>
+								{:else}
+									<DropdownV2
+										items={deleteTriggerItems}
+										placement="bottom-end"
+										class="w-fit h-fit px-3"
+									>
+										<svelte:fragment slot="buttonReplacement">
+											<EllipsisVertical size={14} />
+										</svelte:fragment>
+									</DropdownV2>
+								{/if}
 							{/if}
 						</div>
 					</td>
