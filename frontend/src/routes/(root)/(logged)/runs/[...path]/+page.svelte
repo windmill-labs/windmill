@@ -226,9 +226,6 @@
 	$: minTs || setQuery(true)
 	$: maxTs || setQuery(true)
 
-	$: disableBatchActions = jobKindsCat != 'runs'
-	$: disableBatchActions && onSetSelectionMode(false)
-
 	function setQuery(replaceState: boolean) {
 		let searchParams = new URLSearchParams()
 
@@ -990,18 +987,16 @@
 						jobsFilter('suspended')
 					}}
 				/>
-				{#if !disableBatchActions}
-					<RunsBatchActionsDropdown
-						isLoading={loadingSelectedIds}
-						{selectionMode}
-						selectionCount={selectedIds.length}
-						{onSetSelectionMode}
-						{onCancelFilteredJobs}
-						{onCancelSelectedJobs}
-						{onReRunFilteredJobs}
-						{onReRunSelectedJobs}
-					/>
-				{/if}
+				<RunsBatchActionsDropdown
+					isLoading={loadingSelectedIds}
+					{selectionMode}
+					selectionCount={selectedIds.length}
+					{onSetSelectionMode}
+					{onCancelFilteredJobs}
+					{onCancelSelectedJobs}
+					{onReRunFilteredJobs}
+					{onReRunSelectedJobs}
+				/>
 			</div>
 			<div class="relative flex gap-2 items-center pr-8 w-40" bind:clientWidth={schedulesWidth}>
 				<Toggle
