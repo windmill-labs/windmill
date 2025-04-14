@@ -554,20 +554,20 @@
 					<Module.default
 						bind:error
 						small
-					on:changeValue={({ detail }) => {
-						if (mock?.enabled) {
-							const newMock = {
-								enabled: true,
-								return_value: structuredClone(detail)
+						on:changeValue={({ detail }) => {
+							if (mock?.enabled) {
+								const newMock = {
+									enabled: true,
+									return_value: structuredClone(detail)
+								}
+								tmpMock = newMock
 							}
-							tmpMock = newMock
-						}
-					}}
-					code={JSON.stringify(
-						mock?.enabled && mock.return_value ? mock.return_value : '',
-						null,
-						2
-					)}
+						}}
+						code={JSON.stringify(
+							mock?.enabled && mock.return_value ? mock.return_value : '',
+							null,
+							2
+						)}
 						class="h-full"
 					/>
 				{/await}
