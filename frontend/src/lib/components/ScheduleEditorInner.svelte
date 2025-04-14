@@ -32,50 +32,50 @@
 	import autosize from '$lib/autosize'
 
 	let optionTabSelected: 'error_handler' | 'recovery_handler' | 'success_handler' | 'retries' =
-		'error_handler'
+		$state('error_handler')
 
-	let is_flow: boolean = false
-	let initialPath = ''
-	let edit = true
-	let schedule: string = '0 0 12 * *'
-	let cronVersion: string = 'v2'
-	let isLatestCron = true
-	let initialCronVersion: string = 'v2'
+	let is_flow: boolean = $state(false)
+	let initialPath = $state('')
+	let edit = $state(true)
+	let schedule: string = $state('0 0 12 * *')
+	let cronVersion: string = $state('v2')
+	let isLatestCron = $state(true)
+	let initialCronVersion: string = $state('v2')
 	let initialSchedule: string
-	let timezone: string = Intl.DateTimeFormat().resolvedOptions().timeZone
-	let paused_until: string | undefined = undefined
+	let timezone: string = $state(Intl.DateTimeFormat().resolvedOptions().timeZone)
+	let paused_until: string | undefined = $state(undefined)
 
-	let itemKind: 'flow' | 'script' = 'script'
-	let errorHandleritemKind: 'flow' | 'script' = 'script'
-	let wsErrorHandlerMuted: boolean = false
-	let errorHandlerPath: string | undefined = undefined
-	let errorHandlerCustomInitialPath: string | undefined = undefined
-	let errorHandlerSelected: 'custom' | 'slack' | 'teams' = 'slack'
-	let errorHandlerExtraArgs: Record<string, any> = {}
-	let recoveryHandlerPath: string | undefined = undefined
-	let recoveryHandlerCustomInitialPath: string | undefined = undefined
-	let recoveryHandlerSelected: 'custom' | 'slack' | 'teams' = 'slack'
-	let recoveryHandlerItemKind: 'flow' | 'script' = 'script'
-	let recoveryHandlerExtraArgs: Record<string, any> = {}
-	let successHandlerPath: string | undefined = undefined
-	let successHandlerCustomInitialPath: string | undefined = undefined
-	let successHandlerSelected: 'custom' | 'slack' | 'teams' = 'slack'
-	let successHandlerItemKind: 'flow' | 'script' = 'script'
-	let successHandlerExtraArgs: Record<string, any> = {}
-	let failedTimes = 1
-	let failedExact = false
-	let recoveredTimes = 1
-	let retry: Retry | undefined = undefined
+	let itemKind: 'flow' | 'script' = $state('script')
+	let errorHandleritemKind: 'flow' | 'script' = $state('script')
+	let wsErrorHandlerMuted: boolean = $state(false)
+	let errorHandlerPath: string | undefined = $state(undefined)
+	let errorHandlerCustomInitialPath: string | undefined = $state(undefined)
+	let errorHandlerSelected: 'custom' | 'slack' | 'teams' = $state('slack')
+	let errorHandlerExtraArgs: Record<string, any> = $state({})
+	let recoveryHandlerPath: string | undefined = $state(undefined)
+	let recoveryHandlerCustomInitialPath: string | undefined = $state(undefined)
+	let recoveryHandlerSelected: 'custom' | 'slack' | 'teams' = $state('slack')
+	let recoveryHandlerItemKind: 'flow' | 'script' = $state('script')
+	let recoveryHandlerExtraArgs: Record<string, any> = $state({})
+	let successHandlerPath: string | undefined = $state(undefined)
+	let successHandlerCustomInitialPath: string | undefined = $state(undefined)
+	let successHandlerSelected: 'custom' | 'slack' | 'teams' = $state('slack')
+	let successHandlerItemKind: 'flow' | 'script' = $state('script')
+	let successHandlerExtraArgs: Record<string, any> = $state({})
+	let failedTimes = $state(1)
+	let failedExact = $state(false)
+	let recoveredTimes = $state(1)
+	let retry: Retry | undefined = $state(undefined)
 
-	let script_path = ''
-	let initialScriptPath = ''
+	let script_path = $state('')
+	let initialScriptPath = $state('')
 
-	let runnable: Script | Flow | undefined
-	let args: Record<string, any> = {}
+	let runnable: Script | Flow | undefined = $state()
+	let args: Record<string, any> = $state({})
 
-	let loading = false
+	let loading = $state(false)
 
-	let drawerLoading = true
+	let drawerLoading = $state(true)
 	export function openEdit(ePath: string, isFlow: boolean) {
 		drawerLoading = true
 		try {
@@ -193,26 +193,30 @@
 		}
 	}
 
-	$: (is_flow = itemKind == 'flow') && resetRetries()
+	$effect(() => {
+		;(is_flow = itemKind == 'flow') && resetRetries()
+	})
 
-	let isValid = true
+	let isValid = $state(true)
 
-	let path: string = ''
-	let enabled: boolean = false
-	let pathError = ''
-	let summary = ''
-	let description = ''
-	let no_flow_overlap = false
-	let tag: string | undefined = undefined
+	let path: string = $state('')
+	let enabled: boolean = $state(false)
+	let pathError = $state('')
+	let summary = $state('')
+	let description = $state('')
+	let no_flow_overlap = $state(false)
+	let tag: string | undefined = $state(undefined)
 
-	let validCRON = true
-	$: allowSchedule = isValid && validCRON && script_path != ''
+	let validCRON = $state(true)
+	let allowSchedule = $derived(isValid && validCRON && script_path != '')
 
 	// set isValid to true when a script/flow without any properties is selected
-	$: runnable?.schema &&
-		runnable.schema.properties &&
-		Object.keys(runnable.schema.properties).length === 0 &&
-		(isValid = true)
+	$effect(() => {
+		runnable?.schema &&
+			runnable.schema.properties &&
+			Object.keys(runnable.schema.properties).length === 0 &&
+			(isValid = true)
+	})
 
 	const dispatch = createEventDispatcher()
 
@@ -314,7 +318,7 @@
 		}
 	}
 
-	let can_write = true
+	let can_write = $state(true)
 	async function loadSchedule(): Promise<void> {
 		loading = true
 		try {
@@ -482,7 +486,7 @@
 			sendUserToast(`Schedule ${path} created`)
 		}
 		dispatch('update')
-		drawer.closeDrawer()
+		drawer?.closeDrawer()
 	}
 
 	function getHandlerType(
@@ -527,21 +531,23 @@
 		}
 	}
 
-	$: {
+	$effect(() => {
 		if ($workspaceStore) {
 			if (edit && path != '') {
 				loadSchedule()
 			}
 		}
-	}
+	})
 
-	let drawer: Drawer
+	let drawer: Drawer | undefined = $state()
 
-	let pathC: Path
-	let dirtyPath = false
+	let pathC: Path | undefined = $state()
+	let dirtyPath = $state(false)
 
-	let showPauseUntil = false
-	$: !showPauseUntil && (paused_until = undefined)
+	let showPauseUntil = $state(false)
+	$effect(() => {
+		!showPauseUntil && (paused_until = undefined)
+	})
 
 	function onVersionChange() {
 		cronVersion = isLatestCron ? 'v2' : 'v1'
@@ -624,7 +630,7 @@
 					<div>
 						<h2 class="text-base font-semibold mb-2">Metadata</h2>
 						<Label label="Summary">
-							<!-- svelte-ignore a11y-autofocus -->
+							<!-- svelte-ignore a11y_autofocus -->
 							<input
 								autofocus
 								type="text"
@@ -632,7 +638,7 @@
 								class="text-sm w-full"
 								bind:value={summary}
 								disabled={!can_write}
-								on:keyup={() => {
+								onkeyup={() => {
 									if (!edit && summary?.length > 0 && !dirtyPath) {
 										pathC?.setName(
 											summary
@@ -672,7 +678,7 @@
 									value={path}
 									size={path?.length || 50}
 									class="font-mono !text-xs grow shrink overflow-x-auto !h-[24px] !py-0 !border-l-0 !rounded-l-none"
-									on:focus={({ currentTarget }) => {
+									onfocus={({ currentTarget }) => {
 										currentTarget.select()
 									}}
 								/>
@@ -692,7 +698,7 @@
 				</div>
 
 				<Section label="Schedule">
-					<svelte:fragment slot="header">
+					{#snippet header()}
 						{#if cronVersion === 'v1'}
 							<Tooltip>Schedules use CRON syntax. Seconds are mandatory.</Tooltip>
 						{:else}
@@ -703,7 +709,7 @@
 								>.</Tooltip
 							>
 						{/if}
-					</svelte:fragment>
+					{/snippet}
 					{#if initialCronVersion !== 'v2'}
 						<div class="flex flex-row">
 							<AlertTriangle color="orange" class="mr-2" size={16} />
@@ -841,13 +847,13 @@
 						<div class="pt-0.5"></div>
 						{#if optionTabSelected === 'error_handler'}
 							<Section label="Error handler">
-								<svelte:fragment slot="header">
+								{#snippet header()}
 									<div class="flex flex-row gap-2">
 										{#if !$enterpriseLicense}<span class="text-normal text-2xs">(ee only)</span
 											>{/if}
 									</div>
-								</svelte:fragment>
-								<svelte:fragment slot="action">
+								{/snippet}
+								{#snippet action()}
 									<div class="flex flex-row items-center gap-1 text-2xs text-tertiary">
 										defaults
 										<Dropdown
@@ -864,13 +870,13 @@
 												}
 											]}
 										>
-											<svelte:fragment>
+											{#snippet children()}
 												<Save size={12} class="mr-1" />
 												Set as default
-											</svelte:fragment>
+											{/snippet}
 										</Dropdown>
 									</div>
-								</svelte:fragment>
+								{/snippet}
 								<div class="flex flex-row py-2">
 									<Toggle
 										size="xs"
@@ -892,6 +898,7 @@
 									bind:customHandlerKind={errorHandleritemKind}
 									bind:handlerExtraArgs={errorHandlerExtraArgs}
 								>
+									<!-- @migration-task: migrate this slot by hand, `custom-tab-tooltip` is an invalid identifier -->
 									<svelte:fragment slot="custom-tab-tooltip">
 										<Tooltip>
 											<div class="flex gap-20 items-start mt-3">
@@ -946,13 +953,13 @@
 						{:else if optionTabSelected === 'recovery_handler'}
 							{@const disabled = !can_write || emptyString($enterpriseLicense)}
 							<Section label="Recovery handler">
-								<svelte:fragment slot="header">
+								{#snippet header()}
 									<div class="flex flex-row gap-2">
 										{#if !$enterpriseLicense}<span class="text-normal text-2xs">(ee only)</span
 											>{/if}
 									</div>
-								</svelte:fragment>
-								<svelte:fragment slot="action">
+								{/snippet}
+								{#snippet action()}
 									<div class="flex flex-row items-center text-tertiary text-2xs gap-2">
 										defaults
 										<Dropdown
@@ -969,13 +976,13 @@
 												}
 											]}
 										>
-											<svelte:fragment>
+											{#snippet children()}
 												<Save size={12} class="mr-1" />
 												Set as default
-											</svelte:fragment>
+											{/snippet}
 										</Dropdown>
 									</div>
-								</svelte:fragment>
+								{/snippet}
 								<ErrorOrRecoveryHandler
 									isEditable={!disabled}
 									errorOrRecovery="recovery"
@@ -987,6 +994,7 @@
 									bind:customHandlerKind={recoveryHandlerItemKind}
 									bind:handlerExtraArgs={recoveryHandlerExtraArgs}
 								>
+									<!-- @migration-task: migrate this slot by hand, `custom-tab-tooltip` is an invalid identifier -->
 									<svelte:fragment slot="custom-tab-tooltip">
 										<Tooltip>
 											<div class="flex gap-20 items-start mt-3">
@@ -1039,13 +1047,13 @@
 						{:else if optionTabSelected === 'success_handler'}
 							{@const disabled = !can_write || emptyString($enterpriseLicense)}
 							<Section label="Success handler">
-								<svelte:fragment slot="header">
+								{#snippet header()}
 									<div class="flex flex-row gap-2">
 										{#if !$enterpriseLicense}<span class="text-normal text-2xs">(ee only)</span
 											>{/if}
 									</div>
-								</svelte:fragment>
-								<svelte:fragment slot="action">
+								{/snippet}
+								{#snippet action()}
 									<div class="flex flex-row items-center text-tertiary text-2xs gap-2">
 										defaults
 										<Dropdown
@@ -1062,13 +1070,13 @@
 												}
 											]}
 										>
-											<svelte:fragment>
+											{#snippet children()}
 												<Save size={12} class="mr-1" />
 												Set as default
-											</svelte:fragment>
+											{/snippet}
 										</Dropdown>
 									</div>
-								</svelte:fragment>
+								{/snippet}
 								<ErrorOrRecoveryHandler
 									isEditable={!disabled}
 									errorOrRecovery="success"
@@ -1080,6 +1088,7 @@
 									bind:customHandlerKind={successHandlerItemKind}
 									bind:handlerExtraArgs={successHandlerExtraArgs}
 								>
+									<!-- @migration-task: migrate this slot by hand, `custom-tab-tooltip` is an invalid identifier -->
 									<svelte:fragment slot="custom-tab-tooltip">
 										<Tooltip>
 											<div class="flex gap-20 items-start mt-3">
@@ -1103,7 +1112,7 @@
 						{:else if optionTabSelected === 'retries'}
 							{@const disabled = !can_write || emptyString($enterpriseLicense)}
 							<Section label="Retries">
-								<svelte:fragment slot="header">
+								{#snippet header()}
 									<div class="flex flex-row gap-2">
 										{#if !$enterpriseLicense}<span class="text-normal text-2xs">(ee only)</span
 											>{/if}
@@ -1115,7 +1124,7 @@
 										This is only available for individual script. For flows, retries can be set on each
 										flow step in the flow editor.
 									</Tooltip>
-								</svelte:fragment>
+								{/snippet}
 								<FlowRetries
 									bind:flowModuleRetry={retry}
 									disabled={itemKind !== 'script' || disabled}
