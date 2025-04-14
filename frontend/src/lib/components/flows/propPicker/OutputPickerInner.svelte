@@ -57,6 +57,7 @@
 	export let disableMock: boolean = false
 	export let disableHistory: boolean = false
 	export let derivedHistoryOpen: boolean = false // derived from historyOpen
+	export let historyOffset = { mainAxis: 8, crossAxis: -4.5 }
 
 	type SelectedJob =
 		| Job
@@ -211,7 +212,7 @@
 </script>
 
 <div
-	class="w-full h-full flex flex-col"
+	class={twMerge('w-full h-full flex flex-col', $$props.class)}
 	bind:clientHeight
 	style={canEditWithDblClick ? 'cursor: text;' : ''}
 >
@@ -234,8 +235,9 @@
 					<Popover
 						bind:this={stepHistoryPopover}
 						floatingConfig={{
+							strategy: 'fixed',
 							placement: 'left-start',
-							offset: { mainAxis: 8, crossAxis: -4.5 },
+							offset: historyOffset,
 							gutter: 0 // hack to make offset effective, see https://github.com/melt-ui/melt-ui/issues/528
 						}}
 						contentClasses="w-[225px] overflow-hidden"
