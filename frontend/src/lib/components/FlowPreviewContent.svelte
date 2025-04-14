@@ -187,7 +187,7 @@
 					`path` in module.value
 						? module.value.path
 						: ($initialPathStore == '' ? $pathStore : $initialPathStore) + '/' + module.id,
-				jobKinds: ['preview', 'script', 'flowpreview', 'flow'].join(','),
+				jobKinds: undefined,
 				page: 1,
 				perPage: 1
 			})
