@@ -62,6 +62,7 @@
 	</div>
 {:else}
 	<DropdownV2
+		class="w-fit mx-auto"
 		items={[
 			{
 				displayName: 'Select jobs to cancel',
