@@ -64,6 +64,7 @@ cloud = ["windmill-queue/cloud", "windmill-worker/cloud", "windmill-common/cloud
 jemalloc = ["windmill-common/jemalloc", "dep:tikv-jemallocator", "dep:tikv-jemalloc-sys", "dep:tikv-jemalloc-ctl"]
 tantivy = ["dep:windmill-indexer", "windmill-api/tantivy", "windmill-indexer/enterprise", "windmill-indexer/parquet", "windmill-common/tantivy", "enterprise", "parquet"]
 sqlx = ["windmill-worker/sqlx"]
+deno_core = ["windmill-worker/deno_core", "windmill-api/deno_core", "dep:deno_core", "dep:v8"]
 kafka = ["windmill-api/kafka"]
 nats = ["windmill-api/nats"]
 otel = ["windmill-common/otel", "windmill-worker/otel"]
@@ -82,7 +83,6 @@ static_frontend = ["windmill-api/static_frontend"]
 scoped_cache = ["windmill-common/scoped_cache"]
 # Languages
 python = ["windmill-worker/python"]
-deno_core = ["windmill-worker/deno_core", "dep:deno_core", "dep:v8"]
 rust = ["windmill-worker/rust"]
 mysql = ["windmill-worker/mysql"]
 oracledb = ["windmill-worker/oracledb"]
@@ -98,6 +98,7 @@ all_languages = [ "python", "deno_core", "rust", "mysql", "oracledb", "mssql", "
 [dependencies]
 anyhow.workspace = true
 tokio.workspace = true
+tokio-stream.workspace = true
 dotenv.workspace = true
 windmill-queue.workspace = true
 windmill-common = { workspace = true, default-features = false }
@@ -181,6 +182,7 @@ axum = { version = "^0.7", features = ["multipart"] }
 headers = "^0"
 hyper = { version = "^1", features = ["full"] }
 tokio = { version = "^1.42.0", features = ["full", "tracing", "time"] }
+tokio-stream = { version = "0.1.17" }
 tower = "^0"
 tower-http = { version = "^0.6", features = ["trace", "cors"] }
 tower-cookies = "^0.10"
