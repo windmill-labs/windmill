@@ -186,7 +186,6 @@
 				]
 				primaryScheduleExists = true
 			} else if ($primarySchedule) {
-				console.log('dbg draft primarySchedule', $primarySchedule)
 				primaryScheduleExists = true
 				triggers = [
 					...triggers,

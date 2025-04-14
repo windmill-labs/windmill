@@ -49,12 +49,6 @@
 		await saveSchedule(path, newItem, $workspaceStore ?? '', primarySchedule, isFlow)
 		updateSchedules(true)
 	}
-
-	$: console.log(
-		'dbg primarySchedule, initialPrimarySchedule',
-		$primarySchedule,
-		$initialPrimarySchedule
-	)
 </script>
 
 <div class="flex flex-col gap-4 w-full">
