@@ -1810,30 +1810,29 @@ async fn list_filtered_job_uuids(
     Query(lq): Query<ListCompletedQuery>,
 ) -> error::JsonResult<Vec<Uuid>> {
     require_admin(authed.is_admin, &authed.username)?;
+    check_scopes(&authed, || format!("jobs:listjobs"))?;
 
-    let mut sqlb = SqlBuilder::select_from("v2_job_completed")
-        .fields(&["v2_job_completed.id"])
-        .clone();
-
-    sqlb = join_concurrency_key(lq.concurrency_key.as_ref(), sqlb);
-    sqlb.and_where_ne("v2_job.trigger_kind", "'schedule'")
-        .or_where_is_null("v2_job.trigger_kind");
-
-    if let Some(tags) = get_scope_tags(&authed) {
-        sqlb.and_where_in("tag", &tags.iter().map(|x| quote(x)).collect::<Vec<_>>());
-    }
-
-    sqlb = filter_list_completed_query(sqlb, &lq, w_id.as_str(), false);
-
-    let sql = sqlb.query()?;
-    let mut jobs = sqlx::query_scalar(sql.as_str()).fetch_all(&db).await?;
-    jobs.extend(
-        list_filtered_uuids(authed, Extension(db), Path(w_id), Query(lq.into()))
-            .await?
-            .0,
+    let mut sqlb = list_completed_jobs_query(
+        w_id.as_str(),
+        None,
+        0,
+        &lq,
+        &["v2_job.id"],
+        false,
+        get_scope_tags(&authed),
     );
-
-    Ok(Json(jobs))
+    let sqlb2 = list_queue_jobs_query(
+        w_id.as_str(),
+        &lq.into(),
+        &["v2_job.id"],
+        Pagination { page: None, per_page: None },
+        false,
+        get_scope_tags(&authed),
+    );
+    let query = sqlb.union_all(sqlb2.subquery()?).subquery()?;
+    println!("QUERYYYYY {}", query.as_str());
+    let ids = sqlx::query_scalar(query.as_str()).fetch_all(&db).await?;
+    Ok(Json(ids))
 }
 
 async fn list_filtered_uuids(
@@ -1992,7 +1991,7 @@ async fn list_jobs(
     let sqlc = if lq.running.is_none() {
         Some(list_completed_jobs_query(
             &w_id,
-            per_page + offset,
+            Some(per_page + offset),
             0,
             &ListCompletedQuery { order_desc: Some(true), ..lqc },
             UnifiedJob::completed_job_fields(),
@@ -2031,7 +2030,9 @@ async fn list_jobs(
     } else {
         if sqlc.is_none() {
             return Err(error::Error::BadRequest(
-                "cannot specify success, label, created_or_started_before, or started_before with running".to_string(),
+                "cannot specify success, label, created_or_started_before, or starte
+                d_before with running"
+                    .to_string(),
             ));
         }
         sqlc.unwrap().limit(per_page).offset(offset).query()?
@@ -5947,7 +5948,7 @@ pub fn filter_list_completed_query(
 
 pub fn list_completed_jobs_query(
     w_id: &str,
-    per_page: usize,
+    per_page: Option<usize>,
     offset: usize,
     lq: &ListCompletedQuery,
     fields: &[&str],
@@ -5958,8 +5959,10 @@ pub fn list_completed_jobs_query(
         .fields(fields)
         .order_by("v2_job.created_at", lq.order_desc.unwrap_or(true))
         .offset(offset)
-        .limit(per_page)
         .clone();
+    if let Some(per_page) = per_page {
+        sqlb.limit(per_page);
+    }
 
     if let Some(tags) = tags {
         sqlb.and_where_in(
@@ -6020,7 +6023,7 @@ async fn list_completed_jobs(
 
     let sql = list_completed_jobs_query(
         &w_id,
-        per_page,
+        Some(per_page),
         offset,
         &lq,
         &[

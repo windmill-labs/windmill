@@ -224,6 +224,9 @@
 
 	$: minTs || setQuery(true)
 
+	$: disableBatchActions = jobKindsCat != 'runs'
+	$: disableBatchActions && onSetSelectionMode(false)
+
 	function setQuery(replaceState: boolean) {
 		let searchParams = new URLSearchParams()
 
@@ -680,7 +683,14 @@
 		const selectedFilters = getSelectedFilters()
 		selectedIds = []
 		loadingSelectedIds = true
-		selectedIds = await JobService.listFilteredJobsUuids(selectedFilters)
+
+		if (jobKindsCat !== 'runs') {
+			sendUserToast('Batch re-run is only supported for scripts and flows', true)
+		}
+		selectedIds = await JobService.listFilteredJobsUuids({
+			...selectedFilters,
+			jobKinds: 'script,flow'
+		})
 		selectionMode = 're-run'
 	}
 
@@ -978,7 +988,7 @@
 						jobsFilter('suspended')
 					}}
 				/>
-				<div class="flex flex-row">
+				{#if !disableBatchActions}
 					<RunsBatchActionsDropdown
 						isLoading={loadingSelectedIds}
 						{selectionMode}
@@ -989,7 +999,7 @@
 						{onReRunFilteredJobs}
 						{onReRunSelectedJobs}
 					/>
-				</div>
+				{/if}
 			</div>
 			<div class="relative flex gap-2 items-center pr-8 w-40" bind:clientWidth={schedulesWidth}>
 				<Toggle
