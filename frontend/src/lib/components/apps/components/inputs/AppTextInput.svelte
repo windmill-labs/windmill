@@ -62,7 +62,7 @@
 	let initialHandleDefault = true
 	$: handleDefault(resolvedConfig.defaultValue)
 
-	$: value && onValueChange()
+	$: value, onValueChange()
 
 	function onValueChange() {
 		let val = value ?? ''

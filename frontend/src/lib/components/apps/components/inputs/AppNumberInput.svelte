@@ -54,12 +54,12 @@
 
 	$: handleDefault(resolvedConfig.defaultValue)
 
-	$: value && onChangeValue()
+	$: value, onChangeValue()
 
 	function onChangeValue() {
-		outputs?.result.set(value)
+		outputs?.result.set(value ?? undefined)
 		if (iterContext && listInputs) {
-			listInputs.set(id, value)
+			listInputs.set(id, value ?? undefined)
 		}
 	}
 
