@@ -1,8 +1,9 @@
 <script lang="ts">
 	import { twMerge } from 'tailwind-merge'
 	import Required from './Required.svelte'
-	import Tooltip from '$lib/components/Tooltip.svelte'
 	import { capitalize, emptyString } from '$lib/utils'
+	import Tooltip from './meltComponents/Tooltip.svelte'
+	import { InfoIcon } from 'lucide-svelte'
 
 	export let label: string
 	export let format: string = ''
@@ -15,6 +16,8 @@
 	export let prettify = false
 	export let simpleTooltip: string | undefined = undefined
 	export let lightHeader = false
+	export let SimpleTooltipIcon = InfoIcon
+	export let simpleTooltipIconClass = ''
 </script>
 
 <div class="inline-flex flex-row items-baseline truncated">
@@ -51,8 +54,9 @@
 	{/if}
 
 	{#if !emptyString(simpleTooltip)}
-		<Tooltip class="ml-2">
-			<span class="text-xs">
+		<Tooltip class="ml-2" placement="bottom">
+			<SimpleTooltipIcon size="14" class={'-mb-0.5 ' + simpleTooltipIconClass} />
+			<span class="text-xs" slot="text">
 				{simpleTooltip}
 			</span>
 		</Tooltip>
