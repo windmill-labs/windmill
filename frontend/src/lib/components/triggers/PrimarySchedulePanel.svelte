@@ -1,9 +1,9 @@
 <script lang="ts">
 	import ScheduleEditor from '$lib/components/ScheduleEditor.svelte'
-	import { Button } from '$lib/components/common'
+	import { Button, Section } from '$lib/components/common'
 	import { workspaceStore } from '$lib/stores'
 	import { ScheduleService, type Schedule } from '$lib/gen'
-	import { Calendar, Trash, Save } from 'lucide-svelte'
+	import { Trash, Save, Pen, X } from 'lucide-svelte'
 	import Skeleton from '$lib/components/common/skeleton/Skeleton.svelte'
 	import Label from '$lib/components/Label.svelte'
 	import { getContext } from 'svelte'
@@ -15,21 +15,31 @@
 	import { loadSchedules, saveSchedule } from '$lib/components/flows/scheduleUtils'
 	import { type Writable, writable } from 'svelte/store'
 	import Description from '$lib/components/Description.svelte'
+	import { createEventDispatcher } from 'svelte'
+	import { onMount, tick } from 'svelte'
 
 	export let schema: any
 	export let isFlow: boolean
 	export let path: string
 	export let can_write: boolean
 	export let newItem: boolean = false
+	export let isNewSchedule: boolean = false
+	export let isDraft: boolean = false
 
 	const { primarySchedule, triggersCount } = getContext<TriggerContext>('TriggerContext')
+	const dispatch = createEventDispatcher<{
+		update: 'save' | 'delete' | 'update'
+	}>()
 
 	let scheduleEditor: ScheduleEditor
 	let schedules: Writable<Schedule[] | undefined> = writable(undefined)
 	let initialPrimarySchedule: Writable<ScheduleTrigger | false | undefined> = writable(undefined)
+	let tmpPrimarySchedule: false | ScheduleTrigger | undefined = undefined // Used to save draft
+	let editMode: boolean = false
 
 	async function updateSchedules(forceRefresh: boolean) {
 		const loadPrimarySchedule = true
+		await tick()
 		loadSchedules(
 			forceRefresh,
 			path,
@@ -41,21 +51,167 @@
 			triggersCount,
 			loadPrimarySchedule
 		)
+		tmpPrimarySchedule = structuredClone($primarySchedule)
 	}
 
 	$: updateSchedules(false) || path
 
 	async function save() {
+		if (!tmpPrimarySchedule) return
+		$primarySchedule = structuredClone(tmpPrimarySchedule)
+		editMode = false
 		await saveSchedule(path, newItem, $workspaceStore ?? '', primarySchedule, isFlow)
 		updateSchedules(true)
 	}
+
+	function saveDraft() {
+		if (!tmpPrimarySchedule) return
+		const firstSave = !$primarySchedule
+		$primarySchedule = structuredClone(tmpPrimarySchedule)
+		if (firstSave) {
+			$triggersCount = {
+				...($triggersCount ?? {}),
+				schedule_count: ($triggersCount?.schedule_count ?? 0) + 1,
+				primary_schedule: { schedule: tmpPrimarySchedule?.cron }
+			}
+			dispatch('update', 'save')
+		} else {
+			dispatch('update', 'update')
+		}
+		editMode = false
+	}
+
+	// For external use only will be transferred to TriggersTable
+	export function deleteDraft() {
+		$primarySchedule = false
+		$triggersCount = {
+			...($triggersCount ?? {}),
+			schedule_count: ($triggersCount?.schedule_count ?? 1) - 1,
+			primary_schedule: undefined
+		}
+		dispatch('update', 'delete')
+	}
+
+	export function setNewSchedule() {
+		tmpPrimarySchedule = {
+			summary: '',
+			args: {},
+			cron: '0 0 */1 * * *',
+			timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+			enabled: true
+		}
+		editMode = true
+	}
+
+	onMount(() => {
+		if (isNewSchedule) {
+			setNewSchedule()
+		}
+	})
+
+	let flowIsDeployed = false //TODO: get from flow
 </script>
 
-<div class="flex flex-col gap-4 w-full">
+<Section label="Primary schedule" class="flex flex-col gap-4 w-full">
+	<svelte:fragment slot="header"
+		><span
+			class="ml-1 bg-blue-50 dark:bg-blue-900/40 px-2 py-1 rounded text-xs font-normal text-blue-700 dark:text-blue-100"
+		>
+			Deployed automatically with the flow
+		</span>
+	</svelte:fragment>
+	<svelte:fragment slot="action">
+		<div class="flex flex-row gap-2 items-center">
+			{#if can_write}
+				<Button
+					on:click={() => {
+						if (isDraft) {
+							deleteDraft()
+						}
+					}}
+					btnClasses="hover:bg-red-500 hover:text-white"
+					color="light"
+					size="xs"
+					startIcon={{ icon: Trash }}
+				/>
+			{/if}
+			{#if $primarySchedule && !newItem}
+				<Toggle
+					disabled={emptyString($primarySchedule.cron) || !can_write}
+					bind:checked={$primarySchedule.enabled}
+					options={{
+						right: 'Enabled'
+					}}
+					size="xs"
+					on:change={async (e) => {
+						if (flowIsDeployed) {
+							await ScheduleService.setScheduleEnabled({
+								path: path,
+								workspace: $workspaceStore ?? '',
+								requestBody: { enabled: e.detail }
+							})
+
+							sendUserToast(`${e.detail ? 'enabled' : 'disabled'} schedule ${path}`)
+						}
+					}}
+				/>
+			{/if}
+			{#if !editMode && can_write}
+				<Button
+					size="xs"
+					color="light"
+					startIcon={{ icon: Pen }}
+					on:click={() => {
+						tmpPrimarySchedule = structuredClone($primarySchedule)
+						editMode = true
+					}}>Edit</Button
+				>
+			{:else if editMode && !$primarySchedule}
+				<Button size="xs" startIcon={{ icon: Save }} on:click={saveDraft}>Save</Button>
+			{:else if editMode}
+				{#if flowIsDeployed}
+					<Button
+						on:click={save}
+						color="dark"
+						size="xs"
+						startIcon={{ icon: Save }}
+						disabled={JSON.stringify({ ...$primarySchedule, enabled: true }) ==
+							JSON.stringify({ ...tmpPrimarySchedule, enabled: true })}>Deploy now</Button
+					>
+				{:else}
+					<Button
+						size="xs"
+						startIcon={{ icon: Save }}
+						on:click={() => saveDraft()}
+						disabled={JSON.stringify({ ...$primarySchedule, enabled: true }) ==
+							JSON.stringify({ ...tmpPrimarySchedule, enabled: true })}
+					>
+						Save
+					</Button>
+				{/if}
+			{/if}
+			{#if editMode}
+				<Button
+					size="xs"
+					color="light"
+					variant="border"
+					on:click={() => {
+						tmpPrimarySchedule = structuredClone($primarySchedule)
+						editMode = false
+					}}
+					startIcon={{ icon: X }}
+				>
+					Cancel
+				</Button>
+			{/if}
+		</div>
+	</svelte:fragment>
+
 	<Description link="https://www.windmill.dev/docs/core_concepts/scheduling">
 		Run scripts and flows automatically on a recurring basis using cron expressions. Each script or
 		flow can have multiple schedules, with one designated as primary.
 	</Description>
+
 	<ScheduleEditor
 		on:update={() => {
 			updateSchedules(true)
@@ -65,65 +221,8 @@
 
 	{#if $primarySchedule == undefined}
 		<Skeleton layout={[[12]]} />
-	{:else if $primarySchedule}
+	{:else if tmpPrimarySchedule}
 		<div class="w-full flex flex-col mb-4">
-			{#if can_write}
-				<div class="w-full flex-row-reverse flex mb-2">
-					<div class="flex flex-row gap-4">
-						<Button
-							on:click={() => {
-								$primarySchedule = false
-								$triggersCount = {
-									...($triggersCount ?? {}),
-									schedule_count: ($triggersCount?.schedule_count ?? 1) - 1,
-									primary_schedule: undefined
-								}
-							}}
-							variant="border"
-							color="light"
-							size="xs"
-							startIcon={{ icon: Trash }}
-						/>
-						{#if initialPrimarySchedule && !newItem}
-							<Toggle
-								disabled={emptyString($primarySchedule.cron)}
-								bind:checked={$primarySchedule.enabled}
-								options={{
-									right: 'Enabled'
-								}}
-								on:change={async (e) => {
-									if (!newItem) {
-										await ScheduleService.setScheduleEnabled({
-											path: path,
-											workspace: $workspaceStore ?? '',
-											requestBody: { enabled: e.detail }
-										})
-
-										sendUserToast(`${e.detail ? 'enabled' : 'disabled'} schedule ${path}`)
-									}
-								}}
-							/>
-						{/if}
-
-						{#if !newItem}
-							<Button
-								on:click={save}
-								color="dark"
-								size="sm"
-								startIcon={{ icon: Save }}
-								disabled={JSON.stringify({ ...$primarySchedule, enabled: true }) ==
-									JSON.stringify({ ...initialPrimarySchedule, enabled: true })}
-								>Apply changes now</Button
-							>
-						{:else}
-							<div class="text-sm text-secondary mt-1 text-center"
-								>Deployed automatically with {isFlow ? 'flow' : 'script'}</div
-							>
-						{/if}
-					</div>
-				</div>
-			{/if}
-
 			<!-- svelte-ignore a11y-autofocus -->
 			<div class="mt-5">
 				<Label label="Summary" class="font-semibold" primary>
@@ -132,71 +231,36 @@
 						type="text"
 						placeholder="Short summary to be displayed when listed"
 						class="text-sm w-full"
-						bind:value={$primarySchedule.summary}
+						bind:value={tmpPrimarySchedule.summary}
+						disabled={!editMode}
 					/>
 				</Label>
 			</div>
 		</div>
-		<CronInput bind:schedule={$primarySchedule.cron} bind:timezone={$primarySchedule.timezone} />
-		<SchemaForm onlyMaskPassword {schema} bind:args={$primarySchedule.args} />
-		{#if emptyString($primarySchedule.cron)}
+		<CronInput
+			bind:schedule={tmpPrimarySchedule.cron}
+			bind:timezone={tmpPrimarySchedule.timezone}
+			disabled={!editMode}
+		/>
+		<SchemaForm
+			onlyMaskPassword
+			{schema}
+			bind:args={tmpPrimarySchedule.args}
+			disabled={!editMode}
+		/>
+		{#if emptyString(tmpPrimarySchedule.cron) && editMode}
 			<p class="text-xs text-tertiary mt-10">Define a schedule frequency first</p>
 		{/if}
 
-		{#if $initialPrimarySchedule != false}
+		{#if $primarySchedule && !newItem}
 			<div class="flex">
-				<Button size="xs" color="light" on:click={() => scheduleEditor?.openEdit(path, isFlow)}
-					>Advanced</Button
+				<Button
+					size="sm"
+					color="light"
+					variant="border"
+					on:click={() => scheduleEditor?.openEdit(path, isFlow)}>Advanced</Button
 				>
 			</div>
 		{/if}
-	{:else}
-		<div class="flex flex-row gap-4 mt-2">
-			<div class="flex items-center">
-				<Button
-					on:click={() => {
-						$primarySchedule = {
-							summary: '',
-							args: {},
-							cron: '0 0 */1 * * *',
-							timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-							enabled: true
-						}
-						$triggersCount = {
-							...($triggersCount ?? {}),
-							schedule_count: ($triggersCount?.schedule_count ?? 0) + 1,
-							primary_schedule: { schedule: $primarySchedule.cron }
-						}
-					}}
-					variant="contained"
-					color="dark"
-					size="sm"
-					startIcon={{ icon: Calendar }}
-				>
-					Set primary schedule
-				</Button>
-			</div>
-			{#if $initialPrimarySchedule != undefined && $initialPrimarySchedule != false && !newItem}
-				<Button on:click={save} color="dark" size="md" startIcon={{ icon: Save }}>
-					Apply changes now
-				</Button>
-			{:else}
-				<div class="text-sm text-center text-secondary mt-2"
-					>Deployed automatically with {isFlow ? 'flow' : 'script'}</div
-				>
-			{/if}
-		</div>
-
-		<Label label="Summary" class="font-semibold" primary>
-			<input
-				type="text"
-				disabled
-				placeholder="Short summary to be displayed when listed"
-				class="text-sm w-full"
-			/>
-		</Label>
-		<CronInput schedule={''} disabled timezone={Intl.DateTimeFormat().resolvedOptions().timeZone} />
-
-		<SchemaForm disabled {schema} />
 	{/if}
-</div>
+</Section>

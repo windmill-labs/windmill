@@ -32,6 +32,7 @@
 
 	let config: Record<string, any> = {}
 	let triggersTable: TriggersTable | null = null
+	let primarySchedulePanel: PrimarySchedulePanel | null = null
 
 	const { simplifiedPoll } = getContext<TriggerContext>('TriggerContext')
 
@@ -119,6 +120,14 @@
 									path={initialPath}
 									{newItem}
 									can_write={canWrite(currentPath, {}, $userStore)}
+									on:update={({ detail }) => {
+										triggersTable?.fetchSchedules()
+										if (detail === 'save') {
+											triggersTable?.deleteDraft(selectedTrigger)
+										}
+									}}
+									isNewSchedule={selectedTrigger.isDraft}
+									bind:this={primarySchedulePanel}
 								/>
 							{:else if selectedTrigger.type === 'schedule'}
 								<SchedulePanel {selectedTrigger} {isFlow} path={initialPath} />
