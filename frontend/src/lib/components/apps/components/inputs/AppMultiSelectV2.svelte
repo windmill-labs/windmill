@@ -44,7 +44,7 @@
 
 	let selectedItems: (number | string | { value: string; label: any })[] | undefined = [
 		...new Set(outputs?.result.peak())
-	] as string[]
+	] as (number | string | { value: string; label: any })[]
 
 	function setResultsFromSelectedItems() {
 		outputs?.result.set([
