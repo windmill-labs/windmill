@@ -52,6 +52,7 @@
 	import { workspaceStore } from '$lib/stores'
 	import { checkIfParentLoop } from '../utils'
 	import ModulePreviewResultViewer from '$lib/components/ModulePreviewResultViewer.svelte'
+	import { Loader2 } from 'lucide-svelte'
 
 	const {
 		selectedId,
@@ -358,49 +359,55 @@
 
 				<div class="min-h-0 flex-grow" id="flow-editor-editor">
 					<Splitpanes horizontal>
-						<Pane bind:size={editorPanelSize} minSize={10}>
+						<Pane bind:size={editorPanelSize} minSize={10} class="relative">
 							{#if flowModule.value.type === 'rawscript'}
 								{#if !noEditor}
 									{#key flowModule.id}
-										<Editor
-											folding
-											path={$pathStore + '/' + flowModule.id}
-											bind:websocketAlive
-											bind:this={editor}
-											class="h-full relative"
-											bind:code={flowModule.value.content}
-											lang={scriptLangToEditorLang(flowModule.value.language)}
-											scriptLang={flowModule.value.language}
-											automaticLayout={true}
-											cmdEnterAction={async () => {
-												selected = 'test'
-												if ($selectedId == flowModule.id) {
+										{#await import('$lib/components/Editor.svelte')}
+											<div class="flex absolute inset-0 justify-center items-center">
+												<Loader2 class="animate-spin" />
+											</div>
+										{:then Editor}
+											<Editor.default
+												folding
+												path={$pathStore + '/' + flowModule.id}
+												bind:websocketAlive
+												bind:this={editor}
+												class="h-full relative"
+												bind:code={flowModule.value.content}
+												lang={scriptLangToEditorLang(flowModule.value.language)}
+												scriptLang={flowModule.value.language}
+												automaticLayout={true}
+												cmdEnterAction={async () => {
+													selected = 'test'
+													if ($selectedId == flowModule.id) {
+														if (flowModule.value.type === 'rawscript') {
+															flowModule.value.content = editor.getCode()
+														}
+														await reload(flowModule)
+														modulePreview?.runTestWithStepArgs()
+													}
+												}}
+												on:change={async (event) => {
 													if (flowModule.value.type === 'rawscript') {
-														flowModule.value.content = editor.getCode()
+														flowModule.value.content = event.detail
 													}
 													await reload(flowModule)
-													modulePreview?.runTestWithStepArgs()
-												}
-											}}
-											on:change={async (event) => {
-												if (flowModule.value.type === 'rawscript') {
-													flowModule.value.content = event.detail
-												}
-												await reload(flowModule)
-											}}
-											formatAction={() => {
-												reload(flowModule)
-												saveDraft()
-											}}
-											fixedOverflowWidgets={true}
-											args={Object.entries(flowModule.value.input_transforms).reduce(
-												(acc, [key, obj]) => {
-													acc[key] = obj.type === 'static' ? obj.value : undefined
-													return acc
-												},
-												{}
-											)}
-										/>
+												}}
+												formatAction={() => {
+													reload(flowModule)
+													saveDraft()
+												}}
+												fixedOverflowWidgets={true}
+												args={Object.entries(flowModule.value.input_transforms).reduce(
+													(acc, [key, obj]) => {
+														acc[key] = obj.type === 'static' ? obj.value : undefined
+														return acc
+													},
+													{}
+												)}
+											/>
+										{/await}
 										<DiffEditor
 											open={false}
 											bind:this={diffEditor}
