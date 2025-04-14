@@ -91,7 +91,7 @@
 					hideHeaderBar
 					simpleViewer={inputJson}
 					rightMargin
-					historyOffset={{ mainAxis: 12, crossAxis: -9.5 }}
+					historyOffset={{ mainAxis: 12, crossAxis: -9 }}
 					class="p-1"
 				/>
 			</OutputPicker>
