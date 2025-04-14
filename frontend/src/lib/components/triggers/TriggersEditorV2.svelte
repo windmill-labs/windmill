@@ -41,7 +41,7 @@
 	})
 
 	// State to track selected trigger
-	let selectedTrigger: Trigger | null = null
+	let selectedTrigger: Trigger | undefined = undefined
 
 	// Handle trigger selection
 	function handleSelectTrigger(event: CustomEvent<Trigger>) {
@@ -88,7 +88,7 @@
 									on:update={({ detail }) => {
 										triggersTable?.fetchHttpTriggers()
 										if (detail) {
-											triggersTable?.deleteDraft('routes')
+											triggersTable?.deleteDraft(selectedTrigger)
 										}
 									}}
 								/>

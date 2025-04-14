@@ -39,6 +39,7 @@
 	// Event handling
 	const dispatch = createEventDispatcher<{
 		select: Trigger
+		delete: Trigger
 	}>()
 
 	// Dropdown items for adding new triggers
@@ -410,8 +411,12 @@
 		fetchTriggers()
 	}
 
-	export function deleteDraft(type: string) {
-		triggers = triggers.filter((t) => !(t.type === type && t.isDraft))
+	export function deleteDraft(trigger: Trigger | undefined) {
+		if (!trigger) return
+		triggers = triggers.filter(
+			(t) => !(t.type === trigger.type && t.isDraft && t.isPrimary === trigger.isPrimary)
+		)
+		selectTrigger(triggers[-1])
 	}
 </script>
 
@@ -492,7 +497,7 @@
 										btnClasses="hover:bg-red-500 hover:text-white bg-transparent"
 										startIcon={{ icon: Trash }}
 										iconOnly
-										on:click={() => deleteDraft(trigger.type)}
+										on:click={() => deleteDraft(trigger)}
 									/>
 								{:else}
 									<DropdownV2
