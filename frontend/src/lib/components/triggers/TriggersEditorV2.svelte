@@ -72,7 +72,7 @@
 					</div>
 
 					<!-- Right Pane - Trigger Configuration -->
-					<div class="flex-grow overflow-auto px-2">
+					<div class="flex-grow overflow-auto px-2 pb-4">
 						<!-- Trigger configuration will go here -->
 						<!-- TODO: Update triggersWrapper here -->
 						{#if selectedTrigger}
