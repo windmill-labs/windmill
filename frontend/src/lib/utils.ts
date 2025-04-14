@@ -22,7 +22,7 @@ export function isJobCancelable(j: Job): boolean {
 	return j.type === 'QueuedJob' && !j.schedule_path && !j.canceled
 }
 export function isJobReRunnable(j: Job): boolean {
-	return j.job_kind === 'script' || j.job_kind === 'flow'
+	return (j.job_kind === 'script' || j.job_kind === 'flow') && j.parent_job === undefined
 }
 
 export function isJobSelectable(selectionType: RunsSelectionMode) {
