@@ -38,6 +38,7 @@
 	import type { Script } from '$lib/gen'
 	import type { SchemaDiff } from '$lib/components/schema/schemaUtils'
 	import type { ComponentCustomCSS } from './apps/types'
+	import { createDispatcherIfMounted } from '$lib/createDispatcherIfMounted'
 
 	export let label: string = ''
 	export let value: any
@@ -150,6 +151,7 @@
 	}
 
 	const dispatch = createEventDispatcher()
+	const dispatchIfMounted = createDispatcherIfMounted(dispatch)
 
 	let ignoreValueUndefined = false
 	let error: string = ''
@@ -388,7 +390,7 @@
 	function compareValues(value) {
 		if (!deepEqual(oldValue, value)) {
 			oldValue = value
-			dispatch('change')
+			dispatchIfMounted('change')
 		}
 	}
 
@@ -765,18 +767,6 @@
 							}}
 						/>
 					{/await}
-					<Button
-						variant="border"
-						color="light"
-						size="xs"
-						btnClasses="mt-1"
-						on:click={() => {
-							s3FilePicker?.open?.(value)
-						}}
-						startIcon={{ icon: Pipette }}
-					>
-						Choose an object from the catalog
-					</Button>
 				{:else}
 					<FileUpload
 						{appPath}
@@ -799,6 +789,18 @@
 						initialValue={value}
 					/>
 				{/if}
+				<Button
+					variant="border"
+					color="light"
+					size="xs"
+					btnClasses="mt-1"
+					on:click={() => {
+						s3FilePicker?.open?.(value)
+					}}
+					startIcon={{ icon: Pipette }}
+				>
+					Choose an object from the catalog
+				</Button>
 			</div>
 		{:else if inputCat == 'object' || inputCat == 'resource-object' || isListJson}
 			{#if oneOf && oneOf.length >= 2}

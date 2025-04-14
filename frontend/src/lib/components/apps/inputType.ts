@@ -78,7 +78,7 @@ export type UploadInput = {
 
 export type UploadS3Input = {
 	type: 'uploadS3'
-	value: string
+	value: any
 }
 
 export type FileUploadData = {

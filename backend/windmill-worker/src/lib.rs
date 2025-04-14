@@ -13,8 +13,6 @@ mod bash_executor;
 #[cfg(feature = "java")]
 mod java_executor;
 
-#[cfg(feature = "benchmark")]
-pub mod bench;
 mod bun_executor;
 pub mod common;
 mod config;

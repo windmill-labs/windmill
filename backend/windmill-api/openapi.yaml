@@ -6361,6 +6361,38 @@ paths:
               schema:
                 type: boolean
 
+  /w/{workspace}/apps/sign_s3_objects:
+    post:
+      summary: sign s3 objects, to be used by anonymous users in public apps
+      operationId: signS3Objects
+      tags:
+        - app
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        description: s3 objects to sign
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                s3_objects:
+                  type: array
+                  items:
+                    $ref: "#/components/schemas/S3Object"
+              required:
+                - s3_objects
+      responses:
+        "200":
+          description: signed s3 objects
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/S3Object"
+
   /w/{workspace}/apps_u/execute_component/{path}:
     post:
       summary: executeComponent
@@ -16603,3 +16635,17 @@ components:
       required:
         - account_id
         - installation_id
+
+    S3Object:
+      type: object
+      properties:
+        s3:
+          type: string
+        filename:
+          type: string
+        storage:
+          type: string
+        presigned:
+          type: string
+      required:
+        - s3

@@ -60,8 +60,11 @@ pub fn initialize_tracing(
             "RUST_LOG",
             &format!("windmill={}", rust_log_env.as_ref().unwrap()),
         )
-    }
-    let default_env_filter = if rust_log_env.is_ok_and(|x| x == "debug") {
+    } else if rust_log_env.as_ref().is_ok_and(|x| x == "sqlxdebug") {
+        std::env::set_var("RUST_LOG", "windmill=debug,sqlx=debug");
+    };
+
+    let default_env_filter = if rust_log_env.is_ok_and(|x| x == "debug" || x == "sqlxdebug") {
         LevelFilter::DEBUG
     } else {
         LevelFilter::INFO

@@ -5448,6 +5448,21 @@ async fn add_batch_jobs(
     .execute(&mut *tx)
     .await?;
 
+    sqlx::query!(
+        "INSERT INTO job_perms (job_id, email, username, is_admin, is_operator, folders, groups, workspace_id) 
+        SELECT unnest($1::uuid[]), $2, $3, $4, $5, $6, $7, $8",
+        &uuids,
+        authed.email,
+        authed.username,
+        authed.is_admin,
+        authed.is_operator,
+        &[],
+        &[],
+        w_id,
+    )
+    .execute(&mut *tx)
+    .await?;
+
     if let Some(flow_status) = flow_status {
         sqlx::query!(
             "INSERT INTO v2_job_status (id, flow_status)

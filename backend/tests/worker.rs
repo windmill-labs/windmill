@@ -3831,6 +3831,209 @@ def main():
     run_preview_relative_imports(&db, content, ScriptLang::Python3).await;
 }
 
+async fn assert_lockfile(
+    db: &Pool<Postgres>,
+    script_content: String,
+    language: ScriptLang,
+    expected_lines: Vec<&str>,
+) {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await;
+    let port = server.addr.port();
+    let client = windmill_api_client::create_client(
+        &format!("http://localhost:{port}"),
+        "SECRET_TOKEN".to_string(),
+    );
+
+    client
+        .create_script(
+            "test-workspace",
+            &NewScript {
+                language: NewScriptLanguage::from_str(language.as_str()).unwrap(),
+                content: script_content,
+                path: "f/system/test_import".to_string(),
+                concurrent_limit: None,
+                concurrency_time_window_s: None,
+                cache_ttl: None,
+                dedicated_worker: None,
+                description: "".to_string(),
+                draft_only: None,
+                envs: vec![],
+                is_template: None,
+                kind: None,
+                parent_hash: None,
+                lock: None,
+                summary: "".to_string(),
+                tag: None,
+                schema: std::collections::HashMap::new(),
+                ws_error_handler_muted: Some(false),
+                priority: None,
+                delete_after_use: None,
+                timeout: None,
+                restart_unless_cancelled: None,
+                deployment_message: None,
+                concurrency_key: None,
+                visible_to_runner_only: None,
+                no_main_func: None,
+                codebase: None,
+                has_preprocessor: None,
+                on_behalf_of_email: None,
+            },
+        )
+        .await
+        .unwrap();
+
+    let mut completed = listen_for_completed_jobs(&db).await;
+    let db2 = db.clone();
+    in_test_worker(
+        &db,
+        async move {
+            completed.next().await; // deployed script
+
+            let script = sqlx::query!(
+                "SELECT hash FROM script WHERE path = $1",
+                "f/system/test_import".to_string()
+            )
+            .fetch_one(&db2)
+            .await
+            .unwrap();
+
+            let job = RunJob::from(JobPayload::Dependencies {
+                path: "f/system/test_import".to_string(),
+                hash: ScriptHash(script.hash),
+                dedicated_worker: None,
+                language,
+            })
+            .push(&db2)
+            .await;
+
+            completed.next().await; // completed job
+
+            let result = completed_job(job, &db2).await.json_result().unwrap();
+
+            assert_eq!(
+                result,
+                json!({
+                    "lock": expected_lines.join("\n"),
+                    "status": "Successful lock file generation"
+                })
+            );
+        },
+        port,
+    )
+    .await;
+}
+#[sqlx::test(fixtures("base", "lockfile_python"))]
+async fn test_requirements_python(db: Pool<Postgres>) {
+    let content = r#"
+# py311
+# requirements:
+# tiny==0.1.3
+
+import bar
+import baz # pin: foo
+import baz # repin: fee
+import bug # repin: free
+    
+def main():
+    pass
+"#
+    .to_string();
+
+    assert_lockfile(
+        &db,
+        content,
+        ScriptLang::Python3,
+        vec!["# py311", "tiny==0.1.3"],
+    )
+    .await;
+}
+#[sqlx::test(fixtures("base", "lockfile_python"))]
+async fn test_extra_requirements_python(db: Pool<Postgres>) {
+    {
+        let content = r#"
+# py311
+# extra_requirements:
+# tiny
+
+import f.system.extra_requirements
+import tiny # pin: tiny==0.1.0
+import tiny # pin: tiny==0.1.1
+import tiny # repin: tiny==0.1.2
+
+def main():
+    pass
+    "#
+        .to_string();
+
+        assert_lockfile(
+            &db,
+            content,
+            ScriptLang::Python3,
+            vec!["# py311", "bottle==0.13.2", "tiny==0.1.2"],
+        )
+        .await;
+    }
+}
+#[sqlx::test(fixtures("base", "lockfile_python"))]
+async fn test_extra_requirements_python2(db: Pool<Postgres>) {
+
+    let content = r#"
+# py311
+# extra_requirements:
+# tiny==0.1.3
+
+import simplejson # pin: simplejson==3.20.1
+def main():
+    pass
+"#
+    .to_string();
+
+    assert_lockfile(
+        &db,
+        content,
+        ScriptLang::Python3,
+        vec![
+            "# py311",
+            "simplejson==3.20.1",
+            "tiny==0.1.3"
+        ],
+    )
+    .await;
+    
+}
+
+#[sqlx::test(fixtures("base", "lockfile_python"))]
+async fn test_pins_python(db: Pool<Postgres>) {
+    let content = r#"
+# py311
+# extra_requirements:
+# tiny==0.1.3
+
+import f.system.requirements
+import f.system.pins
+import tiny # repin: bottle==0.13.0
+import simplejson
+
+def main():
+    pass
+"#
+    .to_string();
+
+    assert_lockfile(
+        &db,
+        content,
+        ScriptLang::Python3,
+        vec![
+            "# py311",
+            "bottle==0.13.0",
+            "microdot==2.2.0",
+            "simplejson==3.19.3",
+            "tiny==0.1.3"
+        ],
+    )
+    .await;
+}
 #[sqlx::test(fixtures("base", "result_format"))]
 async fn test_result_format(db: Pool<Postgres>) {
     let ordered_result_job_id = "1eecb96a-c8b0-4a3d-b1b6-087878c55e41";
