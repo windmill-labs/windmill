@@ -29,7 +29,7 @@
 	import Alert from '$lib/components/common/alert/Alert.svelte'
 	import FlowModuleSleep from './FlowModuleSleep.svelte'
 	import FlowPathViewer from './FlowPathViewer.svelte'
-	import InputTransformSchemaForm from '$lib/components/InputTransformSchemaForm.svelte'
+	import type InputTransformSchemaForm from '$lib/components/InputTransformSchemaForm.svelte'
 	import FlowModuleMockTransitionMessage from './FlowModuleMockTransitionMessage.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import { SecondsInput } from '$lib/components/common'
@@ -461,20 +461,26 @@
 													error={failureModule}
 													noPadding
 												>
-													<InputTransformSchemaForm
-														class="px-1 xl:px-2"
-														bind:this={inputTransformSchemaForm}
-														pickableProperties={stepPropPicker.pickableProperties}
-														schema={$flowStateStore[$selectedId]?.schema ?? {}}
-														previousModuleId={previousModule?.id}
-														bind:args={flowModule.value.input_transforms}
-														extraLib={stepPropPicker.extraLib}
-														{enableAi}
-														on:changeArg={(e) => {
-															const { argName } = e.detail
-															setFlowInput(argName)
-														}}
-													/>
+													{#await import('$lib/components/InputTransformSchemaForm.svelte')}
+														<div class="flex absolute inset-0 justify-center items-center">
+															<Loader2 class="animate-spin" />
+														</div>
+													{:then InputTransformSchemaForm}
+														<InputTransformSchemaForm.default
+															class="px-1 xl:px-2"
+															bind:this={inputTransformSchemaForm}
+															pickableProperties={stepPropPicker.pickableProperties}
+															schema={$flowStateStore[$selectedId]?.schema ?? {}}
+															previousModuleId={previousModule?.id}
+															bind:args={flowModule.value.input_transforms}
+															extraLib={stepPropPicker.extraLib}
+															{enableAi}
+															on:changeArg={(e) => {
+																const { argName } = e.detail
+																setFlowInput(argName)
+															}}
+														/>
+													{/await}
 												</PropPickerWrapper>
 											</div>
 										{:else if selected === 'test'}

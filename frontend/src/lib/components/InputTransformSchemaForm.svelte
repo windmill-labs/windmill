@@ -57,14 +57,11 @@
 
 	let keys: string[] = []
 	$: {
-		// Async for performance
-		setTimeout(() => {
-			let lkeys = Object.keys(schema?.properties ?? {})
-			if (schema?.properties && JSON.stringify(lkeys) != JSON.stringify(keys)) {
-				keys = lkeys
-				removeExtraKey()
-			}
-		}, 0)
+		let lkeys = Object.keys(schema?.properties ?? {})
+		if (schema?.properties && JSON.stringify(lkeys) != JSON.stringify(keys)) {
+			keys = lkeys
+			removeExtraKey()
+		}
 	}
 </script>
 
