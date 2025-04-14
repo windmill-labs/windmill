@@ -456,7 +456,7 @@
 							/>
 
 							{#if trigger.isPrimary}
-								<Star size={10} class="absolute -mt-3 ml-3 text-yellow-400" />
+								<Star size={10} class="absolute -mt-3 ml-3 text-blue-400" />
 							{/if}
 						</div>
 					</td>
@@ -469,7 +469,7 @@
 
 								{#if trigger.isPrimary}
 									<span
-										class="ml-2 text-2xs bg-yellow-100 dark:bg-yellow-900 text-yellow-800 dark:text-yellow-100 px-1.5 py-0.5 rounded"
+										class="ml-2 bg-blue-50 dark:bg-blue-900/40 px-1.5 py-0.5 rounded text-xs text-blue-700 dark:text-blue-100"
 									>
 										Primary
 									</span>
