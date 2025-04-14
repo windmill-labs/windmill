@@ -5,7 +5,7 @@ edition = "2024"
 publish = false
 
 [dependencies]
-rmcp = { version = "0.1.5", features = ["server", "transport-sse-server", "transport-io"] }
+rmcp = { git = "https://github.com/modelcontextprotocol/rust-sdk", features = ["server", "transport-sse-server", "transport-io"] }
 tokio = { version = "1", features = ["macros", "rt", "rt-multi-thread", "io-std", "signal"] }
 tokio-util = { version = "0.7", features = ["codec"] }
 serde = { version = "1.0", features = ["derive"] }

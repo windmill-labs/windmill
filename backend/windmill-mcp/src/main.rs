@@ -53,7 +53,7 @@ async fn proxy(
                     let result = runner
                         .write()
                         .unwrap()
-                        .add_token(decoded_value.as_ref().to_string(), "123".to_string());
+                        .update_user_token(decoded_value.as_ref().to_string());
                     match result {
                         Ok(result) => {
                             tracing::info!("Result: {:?}", result);
@@ -97,6 +97,7 @@ async fn main() -> anyhow::Result<()> {
     let runner_clone = runner.clone();
 
     // Start SSE server on internal port
+
     let ct = SseServer::serve(INTERNAL_ADDRESS.parse()?)
         .await?
         .with_service(move || runner_clone.read().unwrap().clone());

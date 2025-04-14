@@ -14,8 +14,7 @@ use std::collections::HashMap;
 
 #[derive(Clone)]
 pub struct Runner {
-    token_map: HashMap<String, String>,
-    peer: Option<Peer<RoleServer>>,
+    token: Option<String>,
 }
 
 #[derive(Deserialize, Serialize, JsonSchema)]
@@ -39,15 +38,13 @@ struct ScriptSchemaResponse {
 
 impl Runner {
     pub fn new() -> Self {
-        Self { token_map: HashMap::new(), peer: None }
+        Self { token: None }
     }
 
-    pub fn add_token(&mut self, token: String, user_id: String) -> Result<CallToolResult, Error> {
+    pub fn update_user_token(&mut self, token: String) -> Result<(), Error> {
         tracing::info!("Updating user token: {}", token);
-        if !self.token_map.contains_key(&token) {
-            self.token_map.insert(token.clone(), user_id);
-        }
-        Ok(CallToolResult::success(vec![Content::text(token)]))
+        self.token = Some(token);
+        Ok(())
     }
 
     fn _create_resource_text(&self, uri: &str, name: &str) -> Resource {
@@ -58,18 +55,18 @@ impl Runner {
         &self,
         context: RequestContext<RoleServer>,
     ) -> Result<CallToolResult, Error> {
-        tracing::info!(
-            "get_scripts called via manual handler. Context ID: {:?}",
-            context.id
-        );
-        tracing::info!(
-            "get_scripts called via manual handler. Context : {:?}",
-            context
-        );
-        tracing::info!(
-            "get_scripts called via manual handler. Context peer: {:?}",
-            context.peer.peer_info()
-        );
+        // tracing::info!(
+        //     "get_scripts called via manual handler. Context extensions: {:?}",
+        //     context.extensions
+        // );
+        // tracing::info!(
+        //     "get_scripts called via manual handler. Context : {:?}",
+        //     context
+        // );
+        // tracing::info!(
+        //     "get_scripts called via manual handler. Context peer: {:?}",
+        //     context.peer.peer_info()
+        // );
         let ct = context.ct;
 
         tokio::select! {
@@ -86,7 +83,7 @@ impl Runner {
                         "Authorization",
                         format!(
                             "Bearer {}",
-                            String::from("zfg8ZyUDwf2sGwNUw1aEIR1gqfY1ywZ9")
+                            self.token.clone().unwrap_or_default()
                         ),
                     )
                     .body(Body::empty())
@@ -266,28 +263,31 @@ impl ServerHandler for Runner {
 
     async fn list_tools(
         &self,
-        _request: PaginatedRequestParam,
+        _request: Option<PaginatedRequestParam>,
         _context: RequestContext<RoleServer>,
     ) -> Result<ListToolsResult, Error> {
         tracing::debug!("Handling list_tools request");
         let tools = vec![
             Tool {
                 name: "get_scripts".into(),
-                description: "Get list of scripts".into(),
+                description: Some("Get list of scripts".into()),
                 input_schema: rmcp::handler::server::tool::cached_schema_for_type::<EmptyObject>(),
+                annotations: None,
             },
             Tool {
                 name: "get_script_schema_by_path".into(),
-                description: "Get script schema by path".into(),
+                description: Some("Get script schema by path".into()),
                 input_schema: rmcp::handler::server::tool::cached_schema_for_type::<
                     GetScriptSchemaByPathParams,
                 >(),
+                annotations: None,
             },
             Tool {
                 name: "run_script".into(),
-                description: "Run a script by path name".into(),
+                description: Some("Run a script by path name".into()),
                 input_schema: rmcp::handler::server::tool::cached_schema_for_type::<RunScriptParams>(
                 ),
+                annotations: None,
             },
         ];
 
@@ -307,14 +307,6 @@ impl ServerHandler for Runner {
         }
     }
 
-    fn get_peer(&self) -> Option<Peer<RoleServer>> {
-        self.peer.clone()
-    }
-
-    fn set_peer(&mut self, peer: Peer<RoleServer>) {
-        self.peer = Some(peer);
-    }
-
     async fn initialize(
         &self,
         _request: InitializeRequestParam,
@@ -325,8 +317,8 @@ impl ServerHandler for Runner {
 
     async fn list_resources(
         &self,
-        _request: PaginatedRequestParam,
-        _: RequestContext<RoleServer>,
+        _request: Option<PaginatedRequestParam>,
+        _context: RequestContext<RoleServer>,
     ) -> Result<ListResourcesResult, Error> {
         tracing::warn!("list_resources called but not implemented");
         Ok(ListResourcesResult { resources: vec![], next_cursor: None })
@@ -334,16 +326,16 @@ impl ServerHandler for Runner {
 
     async fn list_prompts(
         &self,
-        _req: PaginatedRequestParam,
-        _ctx: RequestContext<RoleServer>,
+        _request: Option<PaginatedRequestParam>,
+        _context: RequestContext<RoleServer>,
     ) -> Result<ListPromptsResult, Error> {
         Ok(ListPromptsResult::default())
     }
 
     async fn list_resource_templates(
         &self,
-        _req: PaginatedRequestParam,
-        _ctx: RequestContext<RoleServer>,
+        _request: Option<PaginatedRequestParam>,
+        _context: RequestContext<RoleServer>,
     ) -> Result<ListResourceTemplatesResult, Error> {
         Ok(ListResourceTemplatesResult::default())
     }
