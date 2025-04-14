@@ -7087,6 +7087,7 @@ name = "mcp-server-examples"
 version = "0.1.5"
 dependencies = [
  "anyhow",
+ "axum 0.8.3",
  "hyper 0.14.32",
  "rmcp",
  "schemars",
@@ -7094,6 +7095,7 @@ dependencies = [
  "serde_json",
  "tokio",
  "tokio-util",
+ "tower 0.4.13",
  "tracing",
  "tracing-subscriber",
  "urlencoding",

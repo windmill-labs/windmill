@@ -20,3 +20,5 @@ tracing-subscriber = { version = "0.3", features = [
 schemars = { version = "0.8", optional = true }
 hyper = { version = "0.14", features = ["full"] }
 urlencoding = "2.1"
+axum = "0.8.3"
+tower = "0.4"
