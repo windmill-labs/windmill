@@ -27,7 +27,7 @@
 			const previousJobs = await JobService.listCompletedJobs({
 				workspace: $workspaceStore!,
 				scriptPathExact: path === '' ? $pathStore + '/' + moduleId : path,
-				jobKinds: undefined,
+				jobKinds: ['preview', 'script', 'flowpreview', 'flow', 'flowscript'].join(','),
 				page,
 				perPage
 			})
