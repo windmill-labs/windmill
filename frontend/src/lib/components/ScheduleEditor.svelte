@@ -2,6 +2,8 @@
 	import { tick } from 'svelte'
 	import ScheduleEditorInner from './ScheduleEditorInner.svelte'
 
+	export let useDrawer = true
+
 	let open = false
 	export async function openEdit(ePath: string, isFlow: boolean) {
 		open = true
@@ -19,5 +21,5 @@
 </script>
 
 {#if open}
-	<ScheduleEditorInner on:update bind:this={drawer} />
+	<ScheduleEditorInner on:update {useDrawer} bind:this={drawer} />
 {/if}

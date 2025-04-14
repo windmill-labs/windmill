@@ -31,6 +31,8 @@
 	import DateTimeInput from './DateTimeInput.svelte'
 	import autosize from '$lib/autosize'
 
+	let { useDrawer = true } = $props()
+
 	let optionTabSelected: 'error_handler' | 'recovery_handler' | 'success_handler' | 'retries' =
 		$state('error_handler')
 
@@ -740,6 +742,7 @@
 					<DateTimeInput bind:value={paused_until} />
 				{/if}
 			</Section>
+
 			<Section label="Runnable">
 				{#if !edit}
 					<p class="text-xs mb-1 text-tertiary">
@@ -1131,18 +1134,27 @@
 	{/if}
 {/snippet}
 
-<Drawer size="900px" bind:this={drawer}>
-	<DrawerContent
-		title={edit
-			? can_write
-				? `Edit schedule ${initialPath}`
-				: `View schedule ${initialPath}`
-			: 'New schedule'}
-		on:close={drawer.closeDrawer}
-	>
-		<svelte:fragment slot="actions">
+{#if useDrawer}
+	<Drawer size="900px" bind:this={drawer}>
+		<DrawerContent
+			title={edit
+				? can_write
+					? `Edit schedule ${initialPath}`
+					: `View schedule ${initialPath}`
+				: 'New schedule'}
+			on:close={drawer.closeDrawer}
+		>
+			<svelte:fragment slot="actions">
+				{@render saveButton()}
+			</svelte:fragment>
+			{@render content()}
+		</DrawerContent>
+	</Drawer>
+{:else}
+	<Section label="Schedule">
+		<svelte:fragment slot="action">
 			{@render saveButton()}
 		</svelte:fragment>
 		{@render content()}
-	</DrawerContent>
-</Drawer>
+	</Section>
+{/if}

@@ -15,7 +15,8 @@
 	import { triggerTypeToCaptureKind } from './utils'
 	import { type CaptureTriggerKind } from '$lib/gen'
 	import EmailTriggerPanel from '../details/EmailTriggerPanelV2.svelte'
-	import SchedulePanel from './PrimarySchedulePanel.svelte'
+	import PrimarySchedulePanel from './PrimarySchedulePanel.svelte'
+	import SchedulePanel from '$lib/components/SchedulePanel.svelte'
 
 	export let noEditor: boolean
 	export let newItem = false
@@ -112,7 +113,7 @@
 									}}
 								/>
 							{:else if selectedTrigger.type === 'schedule' && selectedTrigger.isPrimary}
-								<SchedulePanel
+								<PrimarySchedulePanel
 									{schema}
 									{isFlow}
 									path={initialPath}
@@ -120,7 +121,7 @@
 									can_write={canWrite(currentPath, {}, $userStore)}
 								/>
 							{:else if selectedTrigger.type === 'schedule'}
-								SCHEDULE
+								<SchedulePanel {selectedTrigger} {isFlow} path={initialPath} />
 							{:else if selectedTrigger.isDraft}
 								<h3 class="text-sm font-medium">Configure new {selectedTrigger.type} trigger</h3>
 								<!-- New trigger configuration component would go here -->
