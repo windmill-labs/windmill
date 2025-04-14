@@ -272,13 +272,27 @@
 											togglePreview('mock')
 											return
 										}
-										isLoading = true
-										const fullJob = await detail.getFullJob()
-										if (fullJob) {
-											selectJob(fullJob)
-											togglePreview('job')
+										if (detail.id === lastJob?.id && !mock?.enabled) {
+											togglePreview(undefined)
+											return
 										}
-										isLoading = false
+
+										// Create a timeout to show loading state after 200ms
+										const loadingTimeout = setTimeout(() => {
+											isLoading = true
+										}, 200)
+
+										try {
+											const fullJob = await detail.getFullJob()
+											if (fullJob) {
+												selectJob(fullJob)
+												togglePreview('job')
+											}
+										} finally {
+											// Clear the timeout if operation completed before 200ms
+											clearTimeout(loadingTimeout)
+											isLoading = false
+										}
 									}}
 									mockValue={mock?.return_value}
 									mockEnabled={mock?.enabled}
