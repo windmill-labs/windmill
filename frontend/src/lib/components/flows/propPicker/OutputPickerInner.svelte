@@ -18,7 +18,6 @@
 	import Button from '$lib/components/common/button/Button.svelte'
 	import { Pin, History, Pen, Check, X, Loader2 } from 'lucide-svelte'
 	import ObjectViewer from '$lib/components/propertyPicker/ObjectViewer.svelte'
-	import JsonEditor from '$lib/components/JsonEditor.svelte'
 	import StepHistory from './StepHistory.svelte'
 	import { Popover } from '$lib/components/meltComponents'
 	import { createEventDispatcher } from 'svelte'
@@ -535,9 +534,12 @@
 					{allowCopy}
 				/>
 			{:else if jsonView}
-				<JsonEditor
-					bind:error
-					small
+				{#await import('$lib/components/JsonEditor.svelte')}
+					<Loader2 class="animate-spin" />
+				{:then Module}
+					<Module.default
+						bind:error
+						small
 					on:changeValue={({ detail }) => {
 						if (mock?.enabled) {
 							const newMock = {
@@ -552,8 +554,9 @@
 						null,
 						2
 					)}
-					class="h-full"
-				/>
+						class="h-full"
+					/>
+				{/await}
 			{:else if (mock?.enabled || preview == 'mock') && preview != 'job'}
 				{#if fullResult}
 					<div class="break-words relative h-full">

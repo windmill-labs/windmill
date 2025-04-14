@@ -572,7 +572,7 @@
 		{/if}
 	{/if}
 	<!-- only render options dropdown if options or searchText is not empty (needed to avoid briefly flashing empty dropdown) -->
-	{#if (searchText && noMatchingOptionsMsg) || options?.length > 0}
+	{#if allowUserOptions || (searchText && noMatchingOptionsMsg) || options?.length > 0}
 		<div class="options bg-surface shadow-md rounded-component">
 			<VirtualList
 				width="100%"

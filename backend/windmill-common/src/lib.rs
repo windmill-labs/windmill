@@ -25,6 +25,8 @@ use sqlx::{Pool, Postgres};
 pub mod agent_workers;
 pub mod apps;
 pub mod auth;
+#[cfg(feature = "benchmark")]
+pub mod bench;
 pub mod cache;
 pub mod db;
 pub mod ee;
@@ -38,6 +40,7 @@ pub mod indexer;
 pub mod job_metrics;
 #[cfg(feature = "parquet")]
 pub mod job_s3_helpers_ee;
+
 pub mod jobs;
 pub mod jwt;
 pub mod more_serde;

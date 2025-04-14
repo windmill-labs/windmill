@@ -329,26 +329,16 @@ async fn windmill_main() -> anyhow::Result<()> {
         IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1))
     };
 
-    let mut first_worker_suffix = None;
-    let mut worker_names = vec![];
-
-    for _ in 0..num_workers {
+    let (conn, first_suffix) = if mode == Mode::Agent {
+        tracing::info!(
+            "Creating http client for cluster using base internal url {}",
+            std::env::var("BASE_INTERNAL_URL").unwrap_or_default()
+        );
         let suffix = windmill_common::utils::worker_suffix(&hostname, &rd_string(5));
-        worker_names.push(windmill_common::utils::worker_name_with_suffix(
-            mode == Mode::Agent,
-            WORKER_GROUP.as_str(),
-            &suffix,
-        ));
-        if first_worker_suffix.is_none() {
-            first_worker_suffix = Some(suffix);
-        }
-    }
-
-    let conn = if mode == Mode::Agent {
-        let worker_suffix = first_worker_suffix.unwrap_or_else(|| {
-            panic!("there must be at least one worker in agent mode");
-        });
-        Connection::Http(build_agent_http_client(&worker_suffix))
+        (
+            Connection::Http(build_agent_http_client(&suffix)),
+            Some(suffix),
+        )
     } else {
         println!("Connecting to database...");
 
@@ -366,7 +356,7 @@ async fn windmill_main() -> anyhow::Result<()> {
         load_otel(&db).await;
 
         tracing::info!("Database connected");
-        Connection::Sql(db)
+        (Connection::Sql(db), None)
     };
 
     let environment = load_base_url(&conn)
@@ -409,6 +399,7 @@ async fn windmill_main() -> anyhow::Result<()> {
     let conn = if mode == Mode::Agent {
         conn
     } else {
+        // This time we use a pool of connections
         let db = windmill_common::connect_db(server_mode, indexer_mode, worker_mode).await?;
         Connection::Sql(db)
     };
@@ -438,16 +429,6 @@ Windmill Community Edition {GIT_VERSION}
     );
 
     display_config(&ENV_SETTINGS);
-
-    if let Err(e) = reload_base_url_setting(&conn).await {
-        tracing::error!("Error loading base url: {:?}", e)
-    }
-
-    if let Some(db) = conn.as_sql() {
-        if let Err(e) = reload_critical_error_channels_setting(&db).await {
-            tracing::error!("Could loading critical error emails setting: {:?}", e);
-        }
-    }
 
     #[cfg(feature = "enterprise")]
     {
@@ -686,14 +667,34 @@ Windmill Community Edition {GIT_VERSION}
             if !killpill_rx.try_recv().is_ok() {
                 let base_internal_url = base_internal_rx.await?;
                 if worker_mode {
+                    let mut workers = vec![];
+                    for i in 0..num_workers {
+                        let suffix: String = if i == 0 && first_suffix.as_ref().is_some() {
+                            first_suffix.as_ref().unwrap().clone()
+                        } else {
+                            windmill_common::utils::worker_suffix(&hostname, &rd_string(5))
+                        };
+                        let worker_conn = WorkerConn {
+                            conn: if i == 0 || mode != Mode::Agent {
+                                conn.clone()
+                            } else {
+                                Connection::Http(build_agent_http_client(&suffix))
+                            },
+                            worker_name: windmill_common::utils::worker_name_with_suffix(
+                                mode == Mode::Agent,
+                                WORKER_GROUP.as_str(),
+                                &suffix,
+                            ),
+                        };
+                        workers.push(worker_conn);
+                    }
+
                     run_workers(
-                        conn.clone(),
                         rx,
                         killpill_tx.clone(),
-                        num_workers,
                         base_internal_url.clone(),
                         hostname.clone(),
-                        &worker_names,
+                        &workers,
                     )
                     .await?;
                     tracing::info!("All workers exited.");
@@ -1135,16 +1136,20 @@ fn display_config(envs: &[&str]) {
     )
 }
 
+pub struct WorkerConn {
+    conn: Connection,
+    worker_name: String,
+}
+
 pub async fn run_workers(
-    db: Connection,
     mut rx: tokio::sync::broadcast::Receiver<()>,
     tx: KillpillSender,
-    num_workers: i32,
     base_internal_url: String,
     hostname: String,
-    worker_names: &[String],
+    workers: &[WorkerConn],
 ) -> anyhow::Result<()> {
     let mut killpill_rxs = vec![];
+    let num_workers = workers.len();
     for _ in 0..num_workers {
         killpill_rxs.push(rx.resubscribe());
     }
@@ -1204,8 +1209,9 @@ pub async fn run_workers(
     );
 
     for i in 1..(num_workers + 1) {
-        let db1 = db.clone();
-        let worker_name = worker_names[i as usize - 1].clone();
+        let wk_conf = &workers[i as usize - 1];
+        let conn1 = wk_conf.conn.clone();
+        let worker_name = wk_conf.worker_name.clone();
         WORKERS_NAMES.write().await.push(worker_name.clone());
         let ip = ip.clone();
         let rx = killpill_rxs.pop().unwrap();
@@ -1219,7 +1225,7 @@ pub async fn run_workers(
             }
 
             let f = windmill_worker::run_worker(
-                &db1,
+                &conn1,
                 &hostname,
                 worker_name,
                 i as u64,

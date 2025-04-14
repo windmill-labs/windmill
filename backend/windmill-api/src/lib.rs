@@ -89,6 +89,8 @@ mod postgres_triggers;
 
 #[cfg(feature = "enterprise")]
 mod apps_ee;
+#[cfg(all(feature = "enterprise", feature = "gcp_trigger"))]
+mod gcp_triggers_ee;
 #[cfg(feature = "enterprise")]
 mod git_sync_ee;
 #[cfg(feature = "parquet")]
@@ -117,6 +119,7 @@ mod slack_approvals;
 mod smtp_server_ee;
 #[cfg(all(feature = "enterprise", feature = "sqs_trigger"))]
 mod sqs_triggers_ee;
+
 mod static_assets;
 #[cfg(all(feature = "stripe", feature = "enterprise"))]
 mod stripe_ee;
@@ -347,6 +350,18 @@ pub async fn run_server(
         }
     };
 
+    let gcp_triggers_service = {
+        #[cfg(all(feature = "enterprise", feature = "gcp_trigger"))]
+        {
+            gcp_triggers_ee::workspaced_service()
+        }
+
+        #[cfg(not(all(feature = "enterprise", feature = "gcp_trigger")))]
+        {
+            Router::new()
+        }
+    };
+
     let sqs_triggers_service = {
         #[cfg(all(feature = "enterprise", feature = "sqs_trigger"))]
         {
@@ -425,6 +440,12 @@ pub async fn run_server(
             let sqs_killpill_rx = killpill_rx.resubscribe();
             sqs_triggers_ee::start_sqs(db.clone(), sqs_killpill_rx);
         }
+
+        #[cfg(all(feature = "enterprise", feature = "gcp_trigger"))]
+        {
+            let gcp_killpill_rx = killpill_rx.resubscribe();
+            gcp_triggers_ee::start_consuming_gcp_pubsub_event(db.clone(), gcp_killpill_rx);
+        }
     }
 
     #[cfg(feature = "agent_worker_server")]
@@ -488,6 +509,7 @@ pub async fn run_server(
                         .nest("/nats_triggers", nats_triggers_service)
                         .nest("/mqtt_triggers", mqtt_triggers_service)
                         .nest("/sqs_triggers", sqs_triggers_service)
+                        .nest("/gcp_triggers", gcp_triggers_service)
                         .nest("/postgres_triggers", postgres_triggers_service),
                 )
                 .nest("/workspaces", workspaces::global_service())
@@ -638,6 +660,20 @@ pub async fn run_server(
                     }
                     .layer(from_extractor::<OptAuthed>()),
                 )
+                .nest(
+                    "/gcp/w/:workspace_id",
+                    {
+                        #[cfg(all(feature = "enterprise", feature = "gcp_trigger"))]
+                        {
+                            gcp_triggers_ee::gcp_push_route_handler()
+                        }
+                        #[cfg(not(all(feature = "enterprise", feature = "gcp_trigger")))]
+                        {
+                            Router::new()
+                        }
+                    }
+                    .layer(from_extractor::<OptAuthed>()),
+                )
                 .route("/version", get(git_v))
                 .route("/uptodate", get(is_up_to_date))
                 .route("/ee_license", get(ee_license))
@@ -692,10 +728,10 @@ pub async fn run_server(
     server.await?;
 
     #[cfg(feature = "agent_worker_server")]
-    if let Some(bg_processor) = agent_workers_bg_processor {
-        tracing::info!("server off. shutting down agent workers bg processor");
+    for (i, bg_processor) in agent_workers_bg_processor.into_iter().enumerate() {
+        tracing::info!("server off. shutting down agent worker bg processor {i}");
         bg_processor.await?;
-        tracing::info!("agent workers bg processor shut down");
+        tracing::info!("agent worker bg processor {i} shut down");
     }
     Ok(())
 }

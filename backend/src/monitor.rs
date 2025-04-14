@@ -9,7 +9,7 @@ use std::{
 
 use chrono::{NaiveDateTime, Utc};
 use futures::{stream::FuturesUnordered, StreamExt};
-use serde::{de::DeserializeOwned,  Deserializer};
+use serde::de::DeserializeOwned;
 use sqlx::{Pool, Postgres};
 use tokio::{
     join,
@@ -30,6 +30,7 @@ use windmill_common::ee::{jobs_waiting_alerts, worker_groups_alerts};
 #[cfg(feature = "oauth2")]
 use windmill_common::global_settings::OAUTH_SETTING;
 use windmill_common::{
+    utils::empty_string_as_none,
     agent_workers::DECODED_AGENT_TOKEN, auth::create_token_for_owner, ee::CriticalErrorChannel, error, flow_status::{FlowStatus, FlowStatusModule}, global_settings::{
         BASE_URL_SETTING, BUNFIG_INSTALL_SCOPES_SETTING, CRITICAL_ALERT_MUTE_UI_SETTING,
         CRITICAL_ERROR_CHANNELS_SETTING, DEFAULT_TAGS_PER_WORKSPACE_SETTING,
@@ -42,7 +43,7 @@ use windmill_common::{
         SAML_METADATA_SETTING, SCIM_TOKEN_SETTING, TIMEOUT_WAIT_RESULT_SETTING,
     }, indexer::load_indexer_config, jobs::QueuedJob, jwt::JWT_SECRET, oauth2::REQUIRE_PREEXISTING_USER_FOR_OAUTH, server::load_smtp_config, tracing_init::JSON_FMT, users::truncate_token, utils::{now_from_db, rd_string, report_critical_error, Mode}, worker::{
         load_worker_config, reload_custom_tags_setting, store_pull_query, store_suspended_pull_query, update_min_version, Connection, DEFAULT_TAGS_PER_WORKSPACE, DEFAULT_TAGS_WORKSPACES, INDEXER_CONFIG, SCRIPT_TOKEN_EXPIRY, SMTP_CONFIG, TMP_DIR, WORKER_CONFIG, WORKER_GROUP
-    }, KillpillSender, BASE_URL, CRITICAL_ALERT_MUTE_UI_ENABLED, CRITICAL_ERROR_CHANNELS, DB, DEFAULT_HUB_BASE_URL, HUB_BASE_URL, JOB_RETENTION_SECS, METRICS_DEBUG_ENABLED, METRICS_ENABLED, MONITOR_LOGS_ON_OBJECT_STORE, OTEL_LOGS_ENABLED, OTEL_METRICS_ENABLED, OTEL_TRACING_ENABLED, SERVICE_LOG_RETENTION_SECS
+    }, KillpillSender, BASE_URL, CRITICAL_ALERT_MUTE_UI_ENABLED, CRITICAL_ERROR_CHANNELS, DB, DEFAULT_HUB_BASE_URL, HUB_BASE_URL, JOB_RETENTION_SECS, METRICS_DEBUG_ENABLED, METRICS_ENABLED, MONITOR_LOGS_ON_OBJECT_STORE, OTEL_LOGS_ENABLED, OTEL_METRICS_ENABLED, OTEL_TRACING_ENABLED, SERVICE_LOG_RETENTION_SECS,
 };
 use windmill_queue::{cancel_job, MiniPulledJob, SameWorkerPayload};
 use windmill_worker::{
@@ -120,6 +121,17 @@ pub async fn initial_load(
     server_mode: bool,
     #[cfg(feature = "parquet")] disable_s3_store: bool,
 ) {
+    if let Err(e) = reload_base_url_setting(&conn).await {
+        tracing::error!("Error loading base url: {:?}", e)
+    }
+
+    if let Some(db) = conn.as_sql() {
+        if let Err(e) = reload_critical_error_channels_setting(&db).await {
+            tracing::error!("Could loading critical error emails setting: {:?}", e);
+        }
+    }
+
+    
     if let Err(e) = load_metrics_enabled(conn).await {
         tracing::error!("Error loading expose metrics: {e:#}");
     }
@@ -215,14 +227,6 @@ pub async fn load_metrics_enabled(conn: &Connection) -> error::Result<()> {
         _ => (),
     };
     Ok(())
-}
-
-fn empty_string_as_none<'de, D>(deserializer: D) -> Result<Option<String>, D::Error>
-where
-    D: Deserializer<'de>,
-{
-    let option = <Option<String> as serde::Deserialize>::deserialize(deserializer)?;
-    Ok(option.filter(|s| !s.is_empty()))
 }
 
 #[derive(serde::Deserialize)]
@@ -1906,7 +1910,7 @@ async fn handle_zombie_jobs(db: &Pool<Postgres>, base_internal_url: &str, worker
             worker_name,
             send_result_never_used,
             #[cfg(feature = "benchmark")]
-            &mut windmill_worker::bench::BenchmarkIter::new(),
+            &mut windmill_common::bench::BenchmarkIter::new(),
         )
         .await;
     }
