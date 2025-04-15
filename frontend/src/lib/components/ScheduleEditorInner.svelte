@@ -31,7 +31,7 @@
 	import DateTimeInput from './DateTimeInput.svelte'
 	import autosize from '$lib/autosize'
 
-	let { useDrawer = true } = $props()
+	let { useDrawer = true, hideTarget = false } = $props()
 
 	let optionTabSelected: 'error_handler' | 'recovery_handler' | 'success_handler' | 'retries' =
 		$state('error_handler')
@@ -745,89 +745,91 @@
 				{/if}
 			</Section>
 
-			<Section label="Runnable">
-				{#if !edit}
-					<p class="text-xs mb-1 text-tertiary">
-						Pick a script or flow to be triggered by the schedule<Required required={true} />
-					</p>
-					<ScriptPicker
-						disabled={initialScriptPath != '' || !can_write}
-						initialPath={initialScriptPath}
-						kinds={['script']}
-						allowFlow={true}
-						allowRefresh={can_write}
-						bind:itemKind
-						bind:scriptPath={script_path}
-						on:select={(e) => {
-							loadScript(e.detail.path)
-						}}
-					/>
-				{:else}
-					<Alert type="info" title="Runnable path cannot be edited" collapsible>
-						Once a schedule is created, the runnable path cannot be changed. However, when renaming
-						a script or a flow, the runnable path will automatically update itself.
-					</Alert>
-					<div class="my-2"></div>
-					<ScriptPicker
-						disabled
-						initialPath={script_path}
-						scriptPath={script_path}
-						allowFlow={true}
-						{itemKind}
-						allowView={script_path != '' && !!runnable}
-						allowEdit={script_path != '' && !!runnable && !$userStore?.operator}
-					/>
-				{/if}
-				{#if itemKind == 'flow'}
-					<Toggle
-						options={{ right: 'no overlap of flows' }}
-						bind:checked={no_flow_overlap}
-						class="mt-2"
-					/>
-				{/if}
-				{#if itemKind == 'script'}
-					<div class="flex gap-2 items-center mt-2">
-						<Toggle options={{ right: 'no overlap' }} checked={true} disabled /><Tooltip
-							>Currently, overlapping scripts' executions is not supported. The next execution will
-							be scheduled only after the previous iteration has completed.</Tooltip
-						>
-					</div>
-				{/if}
-				<div class="mt-6">
-					{#if !loading}
-						{#if runnable}
-							{#if runnable?.schema && runnable.schema.properties && Object.keys(runnable.schema.properties).length > 0}
-								{#await import('$lib/components/SchemaForm.svelte')}
-									<Loader2 class="animate-spin" />
-								{:then Module}
-									<Module.default
-										showReset
-										disabled={!can_write}
-										schema={runnable.schema}
-										bind:isValid
-										bind:args
-									/>
-								{/await}
+			{#if !hideTarget}
+				<Section label="Runnable">
+					{#if !edit}
+						<p class="text-xs mb-1 text-tertiary">
+							Pick a script or flow to be triggered by the schedule<Required required={true} />
+						</p>
+						<ScriptPicker
+							disabled={initialScriptPath != '' || !can_write}
+							initialPath={initialScriptPath}
+							kinds={['script']}
+							allowFlow={true}
+							allowRefresh={can_write}
+							bind:itemKind
+							bind:scriptPath={script_path}
+							on:select={(e) => {
+								loadScript(e.detail.path)
+							}}
+						/>
+					{:else}
+						<Alert type="info" title="Runnable path cannot be edited" collapsible>
+							Once a schedule is created, the runnable path cannot be changed. However, when
+							renaming a script or a flow, the runnable path will automatically update itself.
+						</Alert>
+						<div class="my-2"></div>
+						<ScriptPicker
+							disabled
+							initialPath={script_path}
+							scriptPath={script_path}
+							allowFlow={true}
+							{itemKind}
+							allowView={script_path != '' && !!runnable}
+							allowEdit={script_path != '' && !!runnable && !$userStore?.operator}
+						/>
+					{/if}
+					{#if itemKind == 'flow'}
+						<Toggle
+							options={{ right: 'no overlap of flows' }}
+							bind:checked={no_flow_overlap}
+							class="mt-2"
+						/>
+					{/if}
+					{#if itemKind == 'script'}
+						<div class="flex gap-2 items-center mt-2">
+							<Toggle options={{ right: 'no overlap' }} checked={true} disabled /><Tooltip
+								>Currently, overlapping scripts' executions is not supported. The next execution
+								will be scheduled only after the previous iteration has completed.</Tooltip
+							>
+						</div>
+					{/if}
+					<div class="mt-6">
+						{#if !loading}
+							{#if runnable}
+								{#if runnable?.schema && runnable.schema.properties && Object.keys(runnable.schema.properties).length > 0}
+									{#await import('$lib/components/SchemaForm.svelte')}
+										<Loader2 class="animate-spin" />
+									{:then Module}
+										<Module.default
+											showReset
+											disabled={!can_write}
+											schema={runnable.schema}
+											bind:isValid
+											bind:args
+										/>
+									{/await}
+								{:else}
+									<div class="text-xs texg-gray-700">
+										This {is_flow ? 'flow' : 'script'} takes no argument
+									</div>
+								{/if}
+							{:else if script_path != ''}
+								<div class="text-xs texg-gray-700 my-2">
+									You cannot see the the {is_flow ? 'flow' : 'script'} input form as you do not have
+									access to it.
+								</div>
 							{:else}
-								<div class="text-xs texg-gray-700">
-									This {is_flow ? 'flow' : 'script'} takes no argument
+								<div class="text-xs texg-gray-700 my-2">
+									Pick a {is_flow ? 'flow' : 'script'} and fill its argument here
 								</div>
 							{/if}
-						{:else if script_path != ''}
-							<div class="text-xs texg-gray-700 my-2">
-								You cannot see the the {is_flow ? 'flow' : 'script'} input form as you do not have access
-								to it.
-							</div>
 						{:else}
-							<div class="text-xs texg-gray-700 my-2">
-								Pick a {is_flow ? 'flow' : 'script'} and fill its argument here
-							</div>
+							<Loader2 class="animate-spin" />
 						{/if}
-					{:else}
-						<Loader2 class="animate-spin" />
-					{/if}
-				</div>
-			</Section>
+					</div>
+				</Section>
+			{/if}
 
 			<div class="flex flex-col gap-2">
 				{#if !loading}

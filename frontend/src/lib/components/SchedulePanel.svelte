@@ -18,10 +18,16 @@
 			openScheduleEditor(isFlow, selectedTrigger.isDraft ?? false)
 	})
 
-	$inspect('dbg inspect', selectedTrigger?.path)
+	$inspect('dbg inspect', selectedTrigger?.isDraft)
 </script>
 
-<ScheduleEditor useDrawer={false} bind:this={scheduleEditor} on:update-config on:update />
+<ScheduleEditor
+	useDrawer={false}
+	bind:this={scheduleEditor}
+	on:update-config
+	on:update
+	hideTarget
+/>
 <!-- hideTarget
 	hidePath
     {header} -->

@@ -3,6 +3,7 @@
 	import ScheduleEditorInner from './ScheduleEditorInner.svelte'
 
 	export let useDrawer = true
+	export let hideTarget = false
 
 	let open = false
 	export async function openEdit(ePath: string, isFlow: boolean) {
@@ -21,5 +22,5 @@
 </script>
 
 {#if open}
-	<ScheduleEditorInner on:update {useDrawer} bind:this={drawer} />
+	<ScheduleEditorInner on:update {useDrawer} bind:this={drawer} {hideTarget} />
 {/if}
