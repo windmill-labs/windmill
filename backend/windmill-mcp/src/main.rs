@@ -20,13 +20,15 @@ const BIND_ADDRESS: &str = "127.0.0.1:8008";
 
 // Middleware function to log query parameters
 async fn log_query_params(
-    req: axum::http::Request<axum::body::Body>,
+    mut req: axum::http::Request<axum::body::Body>,
     next: axum::middleware::Next,
 ) -> Result<axum::response::Response, StatusCode> {
     // Log the URI and extract query parameters
-    let uri = req.uri();
+    let uri = req.uri().clone();
+    let mut token_value = String::from("fewfewfew");
+
     if let Some(query) = uri.query() {
-        tracing::info!("Request query parameters: {}", query);
+        tracing::info!("Request query parameters: {} for url {}", query, uri.path());
 
         // Parse and log individual query parameters
         let params: Vec<(&str, &str)> = query
@@ -42,10 +44,21 @@ async fn log_query_params(
 
         for (key, value) in params {
             tracing::info!("Query param: {}={}", key, value);
+            // if key == "token" {
+            //     token_value = Some(value.to_string());
+            // }
         }
     } else {
         tracing::info!("No query parameters in request to {}", uri.path());
     }
+
+    // Now insert the token if we found one
+    // if let Some(token) = token_value {
+    //     tracing::info!("Inserting token into request extensions: {}", token);
+    //     req.extensions_mut().insert(token);
+    // }
+
+    req.extensions_mut().insert(token_value);
 
     // Continue with the request
     Ok(next.run(req).await)
@@ -72,7 +85,10 @@ async fn main() -> anyhow::Result<()> {
     let (sse_server, router) = SseServer::new(config);
 
     // Apply middleware to log query parameters
-    let router = router.layer(middleware::from_fn(log_query_params));
+    // let router = router.layer(middleware::from_fn(log_query_params));
+
+    // add test extension to router
+    let router = router.layer(Extension(String::from("test")));
 
     let listener = tokio::net::TcpListener::bind(sse_server.config.bind).await?;
 

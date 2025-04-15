@@ -41,12 +41,6 @@ impl Runner {
         Self { token: None }
     }
 
-    pub fn update_user_token(&mut self, token: String) -> Result<(), Error> {
-        tracing::info!("Updating user token: {}", token);
-        self.token = Some(token);
-        Ok(())
-    }
-
     fn _create_resource_text(&self, uri: &str, name: &str) -> Resource {
         RawResource::new(uri, name.to_string()).no_annotation()
     }
@@ -55,10 +49,7 @@ impl Runner {
         &self,
         context: RequestContext<RoleServer>,
     ) -> Result<CallToolResult, Error> {
-        // tracing::info!(
-        //     "get_scripts called via manual handler. Context extensions: {:?}",
-        //     context.extensions
-        // );
+        tracing::info!("Context token: {:?}", context.user_token);
         // tracing::info!(
         //     "get_scripts called via manual handler. Context : {:?}",
         //     context
@@ -83,7 +74,7 @@ impl Runner {
                         "Authorization",
                         format!(
                             "Bearer {}",
-                            self.token.clone().unwrap_or_default()
+                            context.user_token
                         ),
                     )
                     .body(Body::empty())
@@ -107,11 +98,6 @@ impl Runner {
         context: RequestContext<RoleServer>,
         path: String,
     ) -> Result<CallToolResult, Error> {
-        tracing::info!(
-            "get_script_schema_by_path called via manual handler. Path: {}, Context ID: {:?}",
-            path,
-            context.id
-        );
         let ct = context.ct;
 
         tokio::select! {
@@ -131,7 +117,7 @@ impl Runner {
                         "Authorization",
                         format!(
                             "Bearer {}",
-                            String::from("zfg8ZyUDwf2sGwNUw1aEIR1gqfY1ywZ9")
+                            context.user_token
                         ),
                     )
                     .body(Body::empty())
@@ -163,11 +149,6 @@ impl Runner {
         script: String,
         args: String,
     ) -> Result<CallToolResult, Error> {
-        tracing::info!(
-            "run_script called via manual handler. Script: {}, Context ID: {:?}",
-            script,
-            context.id
-        );
         let ct = context.ct;
 
         tokio::select! {
@@ -184,7 +165,7 @@ impl Runner {
                         "Authorization",
                         format!(
                             "Bearer {}",
-                            String::from("zfg8ZyUDwf2sGwNUw1aEIR1gqfY1ywZ9")
+                            context.user_token
                         ),
                     )
                     .header("Content-Type", "application/json")
@@ -312,6 +293,11 @@ impl ServerHandler for Runner {
         _request: InitializeRequestParam,
         _context: RequestContext<RoleServer>,
     ) -> Result<InitializeResult, Error> {
+        tracing::info!("initialize called");
+        tracing::info!(
+            "Context extensions in initialize: {:?}",
+            _context.extensions.get::<String>()
+        );
         Ok(self.get_info())
     }
 

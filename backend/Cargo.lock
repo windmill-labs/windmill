@@ -1156,6 +1156,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "de45108900e1f9b9242f7f2e254aa3e2c029c921c258fe9e6b4217eeebd54288"
 dependencies = [
  "axum-core 0.5.2",
+ "axum-macros",
  "bytes",
  "form_urlencoded",
  "futures-util",
@@ -1222,6 +1223,17 @@ dependencies = [
  "tower-layer",
  "tower-service",
  "tracing",
+]
+
+[[package]]
+name = "axum-macros"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "604fde5e028fea851ce1d8570bbdc034bec850d157f7569d10f347d06808c05c"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.100",
 ]
 
 [[package]]
@@ -7089,6 +7101,7 @@ dependencies = [
  "anyhow",
  "axum 0.8.3",
  "hyper 0.14.32",
+ "rand 0.8.5",
  "rmcp",
  "schemars",
  "serde",
@@ -9742,7 +9755,7 @@ dependencies = [
 [[package]]
 name = "rmcp"
 version = "0.1.5"
-source = "git+https://github.com/modelcontextprotocol/rust-sdk#9fc1cc0e0e6450f310bbaf3c0c431046f0974d04"
+source = "git+https://github.com/centdix/rust-sdk#ac7b13610896df0060aeea4c845081d28905eb87"
 dependencies = [
  "axum 0.8.3",
  "base64 0.21.7",
@@ -9765,7 +9778,7 @@ dependencies = [
 [[package]]
 name = "rmcp-macros"
 version = "0.1.5"
-source = "git+https://github.com/modelcontextprotocol/rust-sdk#9fc1cc0e0e6450f310bbaf3c0c431046f0974d04"
+source = "git+https://github.com/centdix/rust-sdk#ac7b13610896df0060aeea4c845081d28905eb87"
 dependencies = [
  "proc-macro2",
  "quote",
