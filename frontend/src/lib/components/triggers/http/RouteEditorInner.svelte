@@ -10,7 +10,7 @@
 	import { canWrite, emptyString, sendUserToast } from '$lib/utils'
 	import { createEventDispatcher } from 'svelte'
 	import Section from '$lib/components/Section.svelte'
-	import { Loader2, Save, Pipette, Plus, Pen } from 'lucide-svelte'
+	import { Loader2, Save, Pipette, Plus, Pen, X } from 'lucide-svelte'
 	import Label from '$lib/components/Label.svelte'
 	import VariableEditor from '../../VariableEditor.svelte'
 	import { json } from 'svelte-highlight/languages'
@@ -36,7 +36,8 @@
 		hideTarget = false,
 		saveDisabled = false,
 		hidePath = false,
-		description = undefined
+		description = undefined,
+		useEditButton = false
 	} = $props()
 
 	// Form data state
@@ -77,6 +78,7 @@
 	let variableEditor = $state<VariableEditor | null>(null)
 	let drawer = $state<Drawer | null>(null)
 	let editMode = $state(false)
+	let resetEditMode = $state(() => {})
 
 	// Use $derived for computed values
 	$effect(() => {
@@ -134,6 +136,7 @@
 	]
 
 	export async function openEdit(ePath: string, isFlow: boolean, isEditing: boolean = true) {
+		resetEditMode = () => openEdit(ePath, isFlow, false)
 		drawerLoading = true
 		try {
 			drawer?.openDrawer()
@@ -662,17 +665,32 @@
 {/snippet}
 
 {#snippet saveButton(size: 'xs' | 'sm' = 'xs')}
-	{#if !drawerLoading && can_write}
-		{#if editMode}
-			<Button {size} startIcon={{ icon: Save }} disabled={saveDisabled} on:click={triggerScript}>
-				Save
-			</Button>
-		{:else}
-			<Button {size} color="light" startIcon={{ icon: Pen }} on:click={() => (editMode = true)}>
-				Edit
-			</Button>
+	<div class="flex flex-row gap-2 items-center">
+		{#if !drawerLoading && can_write}
+			{#if editMode}
+				<Button {size} startIcon={{ icon: Save }} disabled={saveDisabled} on:click={triggerScript}>
+					Save
+				</Button>
+			{/if}
+			{#if useEditButton && !editMode}
+				<Button {size} color="light" startIcon={{ icon: Pen }} on:click={() => (editMode = true)}>
+					Edit
+				</Button>
+			{:else if useEditButton && editMode}
+				<Button
+					{size}
+					color="light"
+					startIcon={{ icon: X }}
+					on:click={() => {
+						editMode = false
+						resetEditMode()
+					}}
+				>
+					Cancel
+				</Button>
+			{/if}
 		{/if}
-	{/if}
+	</div>
 {/snippet}
 
 {#if useDrawer}

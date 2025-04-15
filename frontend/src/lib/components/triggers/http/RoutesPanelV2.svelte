@@ -27,6 +27,7 @@
 	bind:this={routeEditor}
 	hideTarget
 	hidePath
+	useEditButton
 	on:update-config
 	on:update
 >
