@@ -203,7 +203,7 @@
 	style="width: 275px; height: 38px; background-color: {bgColor};"
 	on:mouseenter={() => (hover = true)}
 	on:mouseleave={() => (hover = false)}
-	on:click|preventDefault|stopPropagation
+	on:pointerdown|preventDefault|stopPropagation
 >
 	<div class="absolute text-sm right-12 -bottom-3 flex flex-row gap-1 z-10">
 		{#if retry}
