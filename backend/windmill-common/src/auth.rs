@@ -319,7 +319,7 @@ pub mod aws {
     use crate::utils::empty_string_as_none;
     use aws_config::{BehaviorVersion, Region};
     use aws_sdk_sts::{
-        config::Credentials as AwsCredendtials,
+        config::Credentials as AwsCredentials,
         operation::{
             assume_role_with_saml::AssumeRoleWithSamlOutput,
             assume_role_with_web_identity::AssumeRoleWithWebIdentityOutput,
