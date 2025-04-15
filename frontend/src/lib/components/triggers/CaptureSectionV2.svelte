@@ -265,7 +265,10 @@
 			{/if}
 
 			{#if $$slots.default}
-				<div class:opacity-50={disabled || !captureInfo.active} class="grow min-h-0">
+				<div
+					class:opacity-50={disabled || !captureInfo.active}
+					class="grow min-h-0 flex flex-col gap-4"
+				>
 					<slot />
 				</div>
 			{/if}
