@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.481.0
+  version: 1.482.0
   title: Windmill API
 
   contact:
@@ -6623,7 +6623,7 @@ paths:
                         type: object
                         additionalProperties:
                           $ref: "#/components/schemas/InputTransform"
-                      use_latest_version: boolean
+                      use_latest_version: 1.482.0
                 flow_options_by_path:
                   type: object
                   additionalProperties:
@@ -6633,7 +6633,7 @@ paths:
                         type: object
                         additionalProperties:
                           $ref: "#/components/schemas/InputTransform"
-                      use_latest_version: boolean
+                      use_latest_version: 1.482.0
       responses:
         "201":
           description: stream of created job uuids separated by \n. Lines may start with 'Error:'
