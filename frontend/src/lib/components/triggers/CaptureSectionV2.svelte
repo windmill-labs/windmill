@@ -29,6 +29,9 @@
 	import { CaptureService } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/utils'
+	import { Highlight } from 'svelte-highlight'
+	import { json } from 'svelte-highlight/languages'
+	import { toJsonStr } from '$lib/utils'
 
 	export let disabled: boolean
 	export let captureType: CaptureTriggerKind
@@ -264,10 +267,10 @@
 		<div class="flex flex-row gap-1">
 			<Popover
 				placement="left"
-				contentClasses="w-48"
+				contentClasses="w-48 min-h-48 max-h-64 overflow-auto"
 				floatingConfig={{
 					placement: 'left-start',
-					offset: { mainAxis: 8, crossAxis: -4.5 },
+					offset: { mainAxis: 10, crossAxis: -9 },
 					gutter: 0 // hack to make offset effective, see https://github.com/melt-ui/melt-ui/issues/528
 				}}
 			>
@@ -285,6 +288,7 @@
 						fullHeight={false}
 						headless
 						addButton={false}
+						noBorder
 					/>
 				</svelte:fragment>
 			</Popover>
@@ -306,9 +310,7 @@
 					class="bg-surface p-3 rounded-md text-sm overflow-auto max-h-[500px] grow shadow-sm"
 					class:animate-highlight={newCaptureReceived}
 				>
-					<pre class="whitespace-pre-wrap break-words"
-						>{JSON.stringify(selectedCapture, null, 2)}</pre
-					>
+					<Highlight language={json} code={toJsonStr(selectedCapture).replace(/\\n/g, '\n')} />
 				</div>
 			{:else}
 				<div class="text-center text-tertiary p-4 bg-surface rounded-md">No capture selected</div>

@@ -29,6 +29,7 @@
 	export let canEdit = false
 	export let fullHeight = true
 	export let limitPayloadSize = false
+	export let noBorder = false
 
 	let selected: number | undefined = undefined
 	let testKind: 'preprocessor' | 'main' = 'main'
@@ -245,6 +246,7 @@
 			on:error={(e) => handleError(e.detail)}
 			on:select={(e) => handleSelect(e.detail)}
 			bind:length={capturesLength}
+			{noBorder}
 		>
 			<svelte:fragment slot="columns">
 				<colgroup>

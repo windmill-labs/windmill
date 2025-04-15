@@ -35,6 +35,7 @@
 	import PdfViewer from './display/PdfViewer.svelte'
 	import type { DisplayResultUi } from './custom_ui'
 	import { getContext, hasContext, createEventDispatcher, onDestroy } from 'svelte'
+	import { toJsonStr } from '$lib/utils'
 
 	export let result: any
 	export let requireHtmlApproval = false
@@ -266,15 +267,6 @@
 
 	let jsonViewer: Drawer
 	let s3FileViewer: S3FilePicker
-
-	function toJsonStr(result: any) {
-		try {
-			// console.log(result)
-			return JSON.stringify(result ?? null, null, 4) ?? 'null'
-		} catch (e) {
-			return 'error stringifying object: ' + e.toString()
-		}
-	}
 
 	function checkIfHasBigInt(result: any) {
 		if (typeof result === 'number' && Number.isInteger(result) && !Number.isSafeInteger(result)) {
