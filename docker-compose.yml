@@ -135,9 +135,9 @@ services:
       replicas: 0 # set to 1 to enable full-text job and log search
     restart: unless-stopped
     expose:
-      - 8001
+      - 8002
     environment:
-      - PORT=8001
+      - PORT=8002
       - DATABASE_URL=${DATABASE_URL}
       - MODE=indexer
     depends_on:
