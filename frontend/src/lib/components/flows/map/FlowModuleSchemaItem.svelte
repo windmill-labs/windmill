@@ -203,7 +203,7 @@
 	style="width: 275px; height: 38px; background-color: {bgColor};"
 	on:mouseenter={() => (hover = true)}
 	on:mouseleave={() => (hover = false)}
-	on:click|preventDefault|stopPropagation
+	on:pointerdown|preventDefault|stopPropagation
 >
 	<div class="absolute text-sm right-12 -bottom-3 flex flex-row gap-1 z-10">
 		{#if retry}
@@ -338,6 +338,8 @@
 					{loopStatus}
 					rightMargin
 					bind:derivedHistoryOpen={historyOpen}
+					historyOffset={{ mainAxis: 12, crossAxis: -9 }}
+					class="p-1"
 				/>
 			</OutputPicker>
 		{/if}
