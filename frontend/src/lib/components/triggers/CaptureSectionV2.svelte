@@ -231,15 +231,11 @@
 							{disabled}
 							color={captureInfo.active ? 'light' : 'dark'}
 							btnClasses={captureInfo.active ? 'text-blue-500' : ''}
+							startIcon={captureInfo.active
+								? { icon: CircleStop }
+								: { icon: CaptureIcon, props: { variant: 'redDot' } }}
 						>
-							<div class="flex flex-row items-center gap-1 w-[160px] justify-center">
-								{#if captureInfo.active}
-									<CircleStop size={14} />
-								{:else}
-									<CaptureIcon variant="redDot" size={14} />
-								{/if}
-								{captureInfo.active ? 'Stop capturing' : 'Start capturing'}
-							</div>
+							{captureInfo.active ? 'Stop capturing' : 'Start capturing'}
 						</Button>
 					</AnimatedButton>
 
@@ -336,8 +332,7 @@
 				{:else if selectedCapture}
 					<Button
 						size="xs2"
-						color="light"
-						variant="border"
+						color="blue"
 						dropdownItems={[
 							{
 								label: 'Use as input schema',
@@ -368,13 +363,13 @@
 						}}
 						disabled={testKind === 'preprocessor' && !hasPreprocessor}
 						title={isFlow && testKind === 'main'
-							? 'Test flow with args'
+							? 'Test flow with data'
 							: testKind === 'preprocessor'
 								? 'Apply args to preprocessor'
 								: 'Apply args to inputs'}
 						startIcon={isFlow && testKind === 'main' ? { icon: Play } : {}}
 					>
-						{isFlow && testKind === 'main' ? 'Test flow with args' : 'Apply args'}
+						{isFlow && testKind === 'main' ? 'Test flow with data' : 'Apply args'}
 					</Button>
 				{/if}
 				{#if selectedCapture}
@@ -387,7 +382,7 @@
 						on:click={() => {
 							//infiniteList?.deleteItem(item.id)
 						}}
-						btnClasses="hover:text-white hover:bg-red-500 text-red-500"
+						btnClasses="hover:text-white hover:bg-red-500 "
 					/>
 				{/if}
 			</div>

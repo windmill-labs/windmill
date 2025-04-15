@@ -196,6 +196,7 @@
 					this={startIcon.icon}
 					class={twMerge(startIcon?.classes, iconOnlyPadding[size])}
 					size={lucideIconSize}
+					{...startIcon.props}
 				/>
 			{/if}
 
@@ -244,6 +245,7 @@
 					this={startIcon.icon}
 					class={twMerge(startIcon?.classes, iconOnlyPadding[size])}
 					size={lucideIconSize}
+					{...startIcon.props}
 				/>
 			{/if}
 
