@@ -33,6 +33,7 @@
 	let triggers: Trigger[] = []
 	let loading = false
 	let primaryScheduleExists = false
+	let triggersButtonWidth = 0
 
 	const { primarySchedule } = getContext<TriggerContext>('TriggerContext')
 
@@ -424,8 +425,13 @@
 
 <div class="flex flex-col space-y-2 w-full">
 	<div class="w-full">
-		<DropdownV2 items={addTriggerItems} placement="bottom" class="w-full">
-			<div slot="buttonReplacement" class="w-full">
+		<DropdownV2
+			items={addTriggerItems}
+			placement="bottom"
+			class="w-full"
+			customWidth={triggersButtonWidth}
+		>
+			<div slot="buttonReplacement" class="w-full" bind:clientWidth={triggersButtonWidth}>
 				<Button
 					size="xs"
 					color="blue"
@@ -438,7 +444,6 @@
 			</div>
 		</DropdownV2>
 	</div>
-
 	<DataTable {loading} size="sm" tableFixed={true}>
 		<tbody>
 			{#each triggers as trigger}
