@@ -15,6 +15,10 @@
 	class={'w-full pr-14 z-9 mt-[-1px] mb-[1px] leading-5 overflow-x-auto mycontainer ' + className}
 	style="padding-left: {marginLeft};"
 >
+	<div
+		class="absolute inset-x-0 h-[1.36rem] bg-[#3A4252] mix-blend-lighten"
+		style="margin-left: {marginLeft};"
+	></div>
 	<code
 		class="text-nowrap whitespace-pre-wrap text-ellipsis overflow-clip text-tertiary"
 		style="font-size: {fontSize}px;"
