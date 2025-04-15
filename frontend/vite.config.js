@@ -33,6 +33,10 @@ const config = {
 				target: process.env.REMOTE_MP ?? 'https://app.windmill.dev',
 				changeOrigin: true,
 				ws: true
+			},
+			'^/ui_builder/.*': {
+				target: 'http://localhost:4000',
+				changeOrigin: true
 			}
 		}
 	},
