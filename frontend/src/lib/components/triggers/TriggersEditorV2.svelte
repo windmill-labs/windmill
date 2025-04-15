@@ -148,53 +148,55 @@
 					</div>
 				</div>
 			</Pane>
-			<Pane class="px-4">
-				{#if selectedTrigger && selectedTrigger?.type && captureKind}
-					{#if captureKind === 'webhook'}
-						<CaptureWrapper
-							path={initialPath || fakeInitialPath}
-							{isFlow}
-							captureType={captureKind}
-							{hasPreprocessor}
-							{canHavePreprocessor}
-							args={{}}
-							data={{ args, hash }}
-							on:applyArgs
-							on:updateSchema
-							on:addPreprocessor
-							on:testWithArgs
-						/>
-					{:else if captureKind === 'http'}
-						<CaptureWrapper
-							path={initialPath || fakeInitialPath}
-							{isFlow}
-							captureType={captureKind}
-							{hasPreprocessor}
-							{canHavePreprocessor}
-							args={config}
-							data={{ args }}
-							on:applyArgs
-							on:updateSchema
-							on:addPreprocessor
-							on:testWithArgs
-						/>
-					{:else if captureKind === 'email'}
-						<CaptureWrapper
-							path={initialPath || fakeInitialPath}
-							{isFlow}
-							captureType={captureKind}
-							{hasPreprocessor}
-							{canHavePreprocessor}
-							args={{}}
-							data={{ emailDomain: config.emailDomain }}
-							on:applyArgs
-							on:updateSchema
-							on:addPreprocessor
-							on:testWithArgs
-						/>
+			{#if selectedTrigger?.type !== 'schedule'}
+				<Pane class="px-4">
+					{#if selectedTrigger && selectedTrigger?.type && captureKind}
+						{#if captureKind === 'webhook'}
+							<CaptureWrapper
+								path={initialPath || fakeInitialPath}
+								{isFlow}
+								captureType={captureKind}
+								{hasPreprocessor}
+								{canHavePreprocessor}
+								args={{}}
+								data={{ args, hash }}
+								on:applyArgs
+								on:updateSchema
+								on:addPreprocessor
+								on:testWithArgs
+							/>
+						{:else if captureKind === 'http'}
+							<CaptureWrapper
+								path={initialPath || fakeInitialPath}
+								{isFlow}
+								captureType={captureKind}
+								{hasPreprocessor}
+								{canHavePreprocessor}
+								args={config}
+								data={{ args }}
+								on:applyArgs
+								on:updateSchema
+								on:addPreprocessor
+								on:testWithArgs
+							/>
+						{:else if captureKind === 'email'}
+							<CaptureWrapper
+								path={initialPath || fakeInitialPath}
+								{isFlow}
+								captureType={captureKind}
+								{hasPreprocessor}
+								{canHavePreprocessor}
+								args={{}}
+								data={{ emailDomain: config.emailDomain }}
+								on:applyArgs
+								on:updateSchema
+								on:addPreprocessor
+								on:testWithArgs
+							/>
+						{/if}
 					{/if}
-				{/if}
-			</Pane>
+				</Pane>
+			{/if}
 		</Splitpanes>
 	{:else}
 		<div class="px-4 pb-2">
