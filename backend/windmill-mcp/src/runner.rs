@@ -46,7 +46,7 @@ impl Runner {
         &self,
         context: RequestContext<RoleServer>,
     ) -> Result<CallToolResult, Error> {
-        tracing::info!("Context token: {:?}", context.user_token);
+        // tracing::info!("Context token: {:?}", context.user_token);
         // tracing::info!(
         //     "get_scripts called via manual handler. Context : {:?}",
         //     context
@@ -71,7 +71,8 @@ impl Runner {
                         "Authorization",
                         format!(
                             "Bearer {}",
-                            context.user_token
+                            "1234567890"
+                            // context.user_token
                         ),
                     )
                     .body(Body::empty())
@@ -114,7 +115,7 @@ impl Runner {
                         "Authorization",
                         format!(
                             "Bearer {}",
-                            context.user_token
+                            "1234567890"
                         ),
                     )
                     .body(Body::empty())
@@ -162,7 +163,7 @@ impl Runner {
                         "Authorization",
                         format!(
                             "Bearer {}",
-                            context.user_token
+                            "1234567890"
                         ),
                     )
                     .header("Content-Type", "application/json")
