@@ -581,35 +581,31 @@
 
 {#snippet saveButton(size: 'sm' | 'xs')}
 	{#if edit}
-		<div class="mr-8">
-			<Button
-				{size}
-				variant="border"
-				startIcon={{ icon: List }}
-				disabled={!allowSchedule || pathError != '' || emptyString(script_path)}
-				href={`${base}/runs/${script_path}?show_schedules=true&show_future_jobs=true`}
-			>
-				View runs
-			</Button>
-		</div>
+		<Button
+			{size}
+			variant="border"
+			startIcon={{ icon: List }}
+			disabled={!allowSchedule || pathError != '' || emptyString(script_path)}
+			href={`${base}/runs/${script_path}?show_schedules=true&show_future_jobs=true`}
+		>
+			View runs
+		</Button>
 		{#if can_write}
-			<div class="mr-8 center-center -mt-1">
-				<Toggle
-					disabled={!can_write}
-					checked={enabled}
-					options={{ right: 'Enabled' }}
-					{size}
-					on:change={async (e) => {
-						await ScheduleService.setScheduleEnabled({
-							path: initialPath,
-							workspace: $workspaceStore ?? '',
-							requestBody: { enabled: e.detail }
-						})
-						dispatch('update')
-						sendUserToast(`${e.detail ? 'enabled' : 'disabled'} schedule ${initialPath}`)
-					}}
-				/>
-			</div>
+			<Toggle
+				disabled={!can_write}
+				checked={enabled}
+				options={{ right: 'Enabled' }}
+				{size}
+				on:change={async (e) => {
+					await ScheduleService.setScheduleEnabled({
+						path: initialPath,
+						workspace: $workspaceStore ?? '',
+						requestBody: { enabled: e.detail }
+					})
+					dispatch('update')
+					sendUserToast(`${e.detail ? 'enabled' : 'disabled'} schedule ${initialPath}`)
+				}}
+			/>
 		{/if}
 	{/if}
 	{#if editMode}
@@ -635,7 +631,9 @@
 		</Button>
 	{/if}
 	{#if useEditButton && !editMode}
-		<Button {size} on:click={() => (editMode = true)} startIcon={{ icon: Pen }}>Edit</Button>
+		<Button {size} color="light" on:click={() => (editMode = true)} startIcon={{ icon: Pen }}
+			>Edit</Button
+		>
 	{:else if useEditButton && editMode}
 		<Button
 			{size}
@@ -1182,7 +1180,9 @@
 			on:close={drawer.closeDrawer}
 		>
 			<svelte:fragment slot="actions">
-				{@render saveButton('sm')}
+				<div class="flex flex-row gap-4 items-center">
+					{@render saveButton('sm')}
+				</div>
 			</svelte:fragment>
 			{@render content()}
 		</DrawerContent>
@@ -1190,7 +1190,7 @@
 {:else}
 	<Section label="Schedule">
 		<svelte:fragment slot="action">
-			<div class="flex flex-row gap-1 items-center">
+			<div class="flex flex-row gap-2 items-center">
 				{@render saveButton('xs')}
 			</div>
 		</svelte:fragment>
