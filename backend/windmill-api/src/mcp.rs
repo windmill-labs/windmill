@@ -1,3 +1,5 @@
+use std::borrow::Cow;
+
 use axum::Router;
 use chrono::{DateTime, Utc};
 use rmcp::transport::sse_server::{SseServer, SseServerConfig};
@@ -40,6 +42,12 @@ struct ScriptSchemaResponse {
     schema: Value,
 }
 
+#[derive(Serialize, FromRow)]
+struct ScriptInfo {
+    path: String,
+    summary: Option<String>,
+}
+
 impl Runner {
     pub fn new() -> Self {
         Self {}
@@ -47,6 +55,31 @@ impl Runner {
 
     fn _create_resource_text(&self, uri: &str, name: &str) -> Resource {
         RawResource::new(uri, name.to_string()).no_annotation()
+    }
+
+    async fn inner_get_scripts(
+        &self,
+        user_db: &UserDB,
+        authed: &ApiAuthed,
+        workspace_id: String,
+    ) -> Result<Vec<ScriptInfo>, Error> {
+        let mut tx = user_db.clone().begin(authed).await.map_err(|e| {
+            Error::internal_error(format!("Failed to begin transaction: {}", e), None)
+        })?;
+        let scripts: Vec<ScriptInfo> = sqlx::query_as!(
+            ScriptInfo,
+            "SELECT path, summary FROM script WHERE workspace_id = $1 AND archived = false ORDER BY created_at DESC LIMIT 100",
+            workspace_id
+        )
+        .fetch_all(&mut *tx)
+        .await
+        .map_err(|e| Error::internal_error(format!("Failed to fetch scripts: {}", e), None))?;
+
+        tx.commit().await.map_err(|e| {
+            Error::internal_error(format!("Failed to commit transaction: {}", e), None)
+        })?;
+
+        Ok(scripts)
     }
 
     async fn get_scripts(
@@ -65,33 +98,9 @@ impl Runner {
                 let workspace_id = "admins".to_string();
                 let user_db = context.req_extensions.get::<UserDB>().unwrap();
                 let authed = context.req_extensions.get::<ApiAuthed>().unwrap();
-                let mut tx = match user_db.clone().begin(authed).await {
-                    Ok(tx) => tx,
-                    Err(e) => return Err(Error::internal_error(format!("Failed to begin transaction: {}", e), None)),
-                };
+                let scripts = self.inner_get_scripts(user_db, authed, workspace_id).await?;
 
-                #[derive(Serialize, FromRow)]
-                struct ScriptInfo {
-                    path: String,
-                    summary: Option<String>,
-                }
-
-                let scripts: Vec<ScriptInfo> = sqlx::query_as!(
-                    ScriptInfo,
-                    "SELECT path, summary FROM script WHERE workspace_id = $1 AND archived = false ORDER BY created_at DESC LIMIT 100",
-                    workspace_id
-                )
-                .fetch_all(&mut *tx)
-                .await
-                .map_err(|e| Error::internal_error(format!("Failed to fetch scripts: {}", e), None))?;
-
-                let result_json = serde_json::to_value(scripts)
-                    .map_err(|e| Error::internal_error(format!("Failed to serialize scripts: {}", e), None))?;
-
-                tx.commit().await
-                    .map_err(|e| Error::internal_error(format!("Failed to commit transaction: {}", e), None))?;
-
-                let content = Content::json(result_json)?;
+                let content = Content::json(scripts)?;
                 Ok(CallToolResult::success(vec![content]))
 
             } => { result }
@@ -201,29 +210,21 @@ impl ServerHandler for Runner {
         _context: RequestContext<RoleServer>,
     ) -> Result<ListToolsResult, Error> {
         tracing::debug!("Handling list_tools request");
-        let tools = vec![
-            Tool {
-                name: "get_scripts".into(),
-                description: Some("Get list of scripts".into()),
+        let workspace_id = "admins".to_string();
+        let user_db = _context.req_extensions.get::<UserDB>().unwrap();
+        let authed = _context.req_extensions.get::<ApiAuthed>().unwrap();
+        let scripts = self
+            .inner_get_scripts(user_db, authed, workspace_id)
+            .await?;
+        let tools = scripts
+            .iter()
+            .map(|script| Tool {
+                name: Cow::Owned(script.path.clone()),
+                description: Some(Cow::Owned(script.summary.clone().unwrap_or_default())),
                 input_schema: rmcp::handler::server::tool::cached_schema_for_type::<EmptyObject>(),
                 annotations: None,
-            },
-            Tool {
-                name: "get_script_schema_by_path".into(),
-                description: Some("Get script schema by path".into()),
-                input_schema: rmcp::handler::server::tool::cached_schema_for_type::<
-                    GetScriptSchemaByPathParams,
-                >(),
-                annotations: None,
-            },
-            Tool {
-                name: "run_script".into(),
-                description: Some("Run a script by path name".into()),
-                input_schema: rmcp::handler::server::tool::cached_schema_for_type::<RunScriptParams>(
-                ),
-                annotations: None,
-            },
-        ];
+            })
+            .collect();
 
         Ok(ListToolsResult { tools, next_cursor: None })
     }
