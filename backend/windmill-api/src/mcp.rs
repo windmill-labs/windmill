@@ -1,4 +1,5 @@
 use axum::Router;
+use chrono::{DateTime, Utc};
 use rmcp::transport::sse_server::{SseServer, SseServerConfig};
 use rmcp::{
     handler::server::ServerHandler,
@@ -9,7 +10,11 @@ use rmcp::{
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use sqlx::FromRow;
 use tokio_util::sync::CancellationToken;
+use windmill_common::db::UserDB;
+
+use crate::db::ApiAuthed;
 
 const BIND_ADDRESS: &str = "127.0.0.1:8008"; // This address is only used when running standalone
 
@@ -48,15 +53,6 @@ impl Runner {
         &self,
         context: RequestContext<RoleServer>,
     ) -> Result<CallToolResult, Error> {
-        // tracing::info!("Context token: {:?}", context.user_token);
-        // tracing::info!(
-        //     "get_scripts called via manual handler. Context : {:?}",
-        //     context
-        // );
-        // tracing::info!(
-        //     "get_scripts called via manual handler. Context peer: {:?}",
-        //     context.peer.peer_info()
-        // );
         let ct = context.ct;
 
         tokio::select! {
@@ -65,33 +61,39 @@ impl Runner {
                 return Err(Error::internal_error("Operation cancelled", None));
             }
             result = async {
-                // let client = Client::new();
-                // let req = Request::builder()
-                //     .method("GET")
-                //     .uri("http://localhost:8000/api/w/admins/scripts/list")
-                //     .header(
-                //         "Authorization",
-                //         format!(
-                //             "Bearer {}",
-                //             "1234567890"
-                //             // context.user_token
-                //         ),
-                //     )
-                //     .body(Body::empty())
-                //     .map_err(|e| Error::internal_error(e.to_string(), None))?;
-                // let response = client
-                //     .request(req)
-                //     .await
-                //     .map_err(|e| Error::internal_error(e.to_string(), None))?;
-                // let body = hyper::body::to_bytes(response.into_body())
-                //     .await
-                //     .map_err(|e| Error::internal_error(e.to_string(), None))?;
-                // Ok(CallToolResult::success(vec![Content::text(
-                //     String::from_utf8_lossy(&body).into_owned(),
-                // )]))
-                Ok(CallToolResult::success(vec![Content::text(
-                    "Hello, world!".to_string(),
-                )]))
+
+                let workspace_id = "admins".to_string();
+                let user_db = context.req_extensions.get::<UserDB>().unwrap();
+                let authed = context.req_extensions.get::<ApiAuthed>().unwrap();
+                let mut tx = match user_db.clone().begin(authed).await {
+                    Ok(tx) => tx,
+                    Err(e) => return Err(Error::internal_error(format!("Failed to begin transaction: {}", e), None)),
+                };
+
+                #[derive(Serialize, FromRow)]
+                struct ScriptInfo {
+                    path: String,
+                    summary: Option<String>,
+                }
+
+                let scripts: Vec<ScriptInfo> = sqlx::query_as!(
+                    ScriptInfo,
+                    "SELECT path, summary FROM script WHERE workspace_id = $1 AND archived = false ORDER BY created_at DESC LIMIT 100",
+                    workspace_id
+                )
+                .fetch_all(&mut *tx)
+                .await
+                .map_err(|e| Error::internal_error(format!("Failed to fetch scripts: {}", e), None))?;
+
+                let result_json = serde_json::to_value(scripts)
+                    .map_err(|e| Error::internal_error(format!("Failed to serialize scripts: {}", e), None))?;
+
+                tx.commit().await
+                    .map_err(|e| Error::internal_error(format!("Failed to commit transaction: {}", e), None))?;
+
+                let content = Content::json(result_json)?;
+                Ok(CallToolResult::success(vec![content]))
+
             } => { result }
         }
     }
@@ -109,39 +111,6 @@ impl Runner {
                 return Err(Error::internal_error("Operation cancelled", None));
             }
             result = async {
-                // let client = Client::new();
-                // let req = Request::builder()
-                //     .method("GET")
-                //     .uri(format!(
-                //         "http://localhost:8000/api/w/admins/scripts/get/p/{}",
-                //         path
-                //     ))
-                //     .header(
-                //         "Authorization",
-                //         format!(
-                //             "Bearer {}",
-                //             "1234567890"
-                //         ),
-                //     )
-                //     .body(Body::empty())
-                //     .map_err(|e| Error::internal_error(e.to_string(), None))?;
-                // let response = client
-                //     .request(req)
-                //     .await
-                //     .map_err(|e| Error::internal_error(e.to_string(), None))?;
-                // let body = hyper::body::to_bytes(response.into_body())
-                //     .await
-                //     .map_err(|e| Error::internal_error(e.to_string(), None))?;
-
-                // let response_data: ScriptSchemaResponse = serde_json::from_slice(&body).map_err(|e| {
-                //     Error::internal_error(format!("Failed to parse JSON response: {}", e), None)
-                // })?;
-
-                // let schema_str = serde_json::to_string_pretty(&response_data.schema).map_err(|e| {
-                //     Error::internal_error(format!("Failed to serialize schema field: {}", e), None)
-                // })?;
-
-                // Ok(CallToolResult::success(vec![Content::text(schema_str)]))
                 Ok(CallToolResult::success(vec![Content::text(
                     "Hello, world!".to_string(),
                 )]))
@@ -163,31 +132,6 @@ impl Runner {
                 return Err(Error::internal_error("Operation cancelled", None));
             }
             result = async {
-                // let client = Client::new();
-                // let req = Request::builder()
-                //     .method("POST")
-                //     .uri(format!("http://localhost:8000/api/w/admins/jobs/run_wait_result/p/{}?skip_preprocessor=true", script))
-                //     .header(
-                //         "Authorization",
-                //         format!(
-                //             "Bearer {}",
-                //             "1234567890"
-                //         ),
-                //     )
-                //     .header("Content-Type", "application/json")
-                //     .body(Body::from(args))
-                //     .map_err(|e| Error::internal_error(e.to_string(), None))?;
-                // let response = client
-                //     .request(req)
-                //     .await
-                //     .map_err(|e| Error::internal_error(e.to_string(), None))?;
-                // let body = hyper::body::to_bytes(response.into_body())
-                //     .await
-                //     .map_err(|e| Error::internal_error(e.to_string(), None))?;
-
-                // Ok(CallToolResult::success(vec![Content::text(
-                //     String::from_utf8_lossy(&body).into_owned(),
-                // )]))
                 Ok(CallToolResult::success(vec![Content::text(
                     "Hello, world!".to_string(),
                 )]))
@@ -354,15 +298,12 @@ impl ServerHandler for Runner {
 
 pub fn setup_mcp_server() -> anyhow::Result<(SseServer, Router)> {
     let config = SseServerConfig {
-        // The bind address here is for the MCP server *if run standalone*.
-        // It's ignored when the router is nested within another Axum server.
         bind: BIND_ADDRESS.parse()?,
-        sse_path: "/sse".to_string(), // Relative path handled by SseServer's router
-        post_path: "/message".to_string(), // Relative path handled by SseServer's router
-        ct: CancellationToken::new(), // Independent cancellation for this MCP instance
+        sse_path: "/sse".to_string(),
+        post_path: "/message".to_string(),
+        ct: CancellationToken::new(),
         sse_keep_alive: None,
     };
 
-    // SseServer::new conveniently returns the server instance and the router together.
     Ok(SseServer::new(config))
 }
