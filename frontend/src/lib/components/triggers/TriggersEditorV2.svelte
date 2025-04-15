@@ -16,6 +16,7 @@
 	import EmailTriggerPanel from '../details/EmailTriggerPanelV2.svelte'
 	import PrimarySchedulePanel from './PrimarySchedulePanel.svelte'
 	import SchedulePanel from '$lib/components/SchedulePanel.svelte'
+	import { twMerge } from 'tailwind-merge'
 
 	export let noEditor: boolean
 	export let newItem = false
@@ -61,7 +62,12 @@
 			<Pane class="px-4">
 				<div class="flex flex-row h-full">
 					<!-- Left Pane - Triggers List -->
-					<div class="w-[350px] flex-shrink-0 overflow-auto pr-2">
+					<div
+						class={twMerge(
+							'w-[350px] flex-shrink-0 overflow-auto pr-2 transition-all duration-200 ease-in-out',
+							!selectedTrigger && 'w-full'
+						)}
+					>
 						<TriggersTable
 							path={currentPath}
 							{isFlow}
@@ -71,11 +77,9 @@
 						/>
 					</div>
 
-					<!-- Right Pane - Trigger Configuration -->
-					<div class="flex-grow overflow-auto px-2 pb-4">
-						<!-- Trigger configuration will go here -->
-						<!-- TODO: Update triggersWrapper here -->
-						{#if selectedTrigger}
+					<!-- TODO: Update triggersWrapper here -->
+					{#if selectedTrigger}
+						<div class="flex-grow overflow-auto px-2 pb-4 transition-all duration-200 ease-in-out">
 							{#if selectedTrigger.type === 'http'}
 								<RoutesPanel
 									{selectedTrigger}
@@ -149,12 +153,8 @@
 								>
 								<!-- Existing trigger configuration component would go here -->
 							{/if}
-						{:else}
-							<div class="flex h-full items-center justify-center text-tertiary">
-								<p>Select a trigger or add a new one</p>
-							</div>
-						{/if}
-					</div>
+						</div>
+					{/if}
 				</div>
 			</Pane>
 			{#if selectedTrigger && selectedTrigger.type !== 'schedule'}
