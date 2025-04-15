@@ -24,14 +24,14 @@
 	import { base } from '$lib/base'
 	import { createEventDispatcher } from 'svelte'
 	import Section from '$lib/components/Section.svelte'
-	import { List, Loader2, Save, AlertTriangle } from 'lucide-svelte'
+	import { List, Loader2, Save, AlertTriangle, Pen, X } from 'lucide-svelte'
 	import FlowRetries from './flows/content/FlowRetries.svelte'
 	import WorkerTagPicker from './WorkerTagPicker.svelte'
 	import Label from './Label.svelte'
 	import DateTimeInput from './DateTimeInput.svelte'
 	import autosize from '$lib/autosize'
 
-	let { useDrawer = true, hideTarget = false } = $props()
+	let { useDrawer = true, hideTarget = false, useEditButton = false } = $props()
 
 	let optionTabSelected: 'error_handler' | 'recovery_handler' | 'success_handler' | 'retries' =
 		$state('error_handler')
@@ -78,7 +78,13 @@
 	let loading = $state(false)
 
 	let drawerLoading = $state(true)
-	export function openEdit(ePath: string, isFlow: boolean) {
+	let editMode = $state(true) //Edit mode allow editing, if false, it's a view only mode
+	let resetEditMode = $state(() => {})
+
+	export function openEdit(ePath: string, isFlow: boolean, editing: boolean = true) {
+		resetEditMode = () => {
+			openEdit(ePath, isFlow, editing) // This is more like a hack to reset the edit mode. Todo: have a temporary state to reset the edit mode and compare initial values to allow save.
+		}
 		drawerLoading = true
 		try {
 			drawer?.openDrawer()
@@ -91,6 +97,7 @@
 				path = ePath
 			}
 			edit = true
+			editMode = editing
 		} finally {
 			drawerLoading = false
 		}
@@ -600,20 +607,41 @@
 			</div>
 		{/if}
 	{/if}
-	<Button
-		startIcon={{ icon: Save }}
-		disabled={!allowSchedule ||
-			pathError != '' ||
-			emptyString(script_path) ||
-			(errorHandlerSelected == 'slack' &&
-				!emptyString(errorHandlerPath) &&
-				emptyString(errorHandlerExtraArgs['channel'])) ||
-			!can_write}
-		on:click={scheduleScript}
-		{size}
-	>
-		{edit ? 'Save' : 'Schedule'}
-	</Button>
+	{#if editMode}
+		<Button
+			startIcon={{ icon: Save }}
+			disabled={!allowSchedule ||
+				pathError != '' ||
+				emptyString(script_path) ||
+				(errorHandlerSelected == 'slack' &&
+					!emptyString(errorHandlerPath) &&
+					emptyString(errorHandlerExtraArgs['channel'])) ||
+				!can_write ||
+				!editMode}
+			on:click={() => {
+				scheduleScript()
+				if (editMode && useEditButton) {
+					editMode = false
+				}
+			}}
+			{size}
+		>
+			{edit ? 'Save' : 'Schedule'}
+		</Button>
+	{/if}
+	{#if useEditButton && !editMode}
+		<Button {size} on:click={() => (editMode = true)} startIcon={{ icon: Pen }}>Edit</Button>
+	{:else if useEditButton && editMode}
+		<Button
+			{size}
+			on:click={() => {
+				editMode = false
+				resetEditMode()
+			}}
+			startIcon={{ icon: X }}
+			color="light">Cancel</Button
+		>
+	{/if}
 {/snippet}
 
 {#snippet content()}
@@ -632,7 +660,7 @@
 							placeholder="Short summary to be displayed when listed"
 							class="text-sm w-full"
 							bind:value={summary}
-							disabled={!can_write}
+							disabled={!can_write || !editMode}
 							onkeyup={() => {
 								if (!edit && summary?.length > 0 && !dirtyPath) {
 									pathC?.setName(
@@ -688,6 +716,7 @@
 						use:autosize
 						bind:value={description}
 						placeholder="What this schedule does and how to use it"
+						disabled={!editMode}
 					></textarea>
 				</Label>
 			</div>
@@ -719,12 +748,12 @@
 							size="xs"
 							bind:checked={isLatestCron}
 							on:change={onVersionChange}
-							disabled={!can_write}
+							disabled={!can_write || !editMode}
 						/>
 					</div>
 				{/if}
 				<CronInput
-					disabled={!can_write}
+					disabled={!can_write || !editMode}
 					bind:schedule
 					bind:timezone
 					bind:validCRON
@@ -738,7 +767,7 @@
 					}}
 					bind:checked={showPauseUntil}
 					size="xs"
-					disabled={!can_write}
+					disabled={!can_write || !editMode}
 				/>
 				{#if showPauseUntil}
 					<DateTimeInput bind:value={paused_until} />
@@ -866,12 +895,14 @@
 								items={[
 									{
 										displayName: `Override future schedules only`,
-										action: () => saveAsDefaultErrorHandler(false)
+										action: () => saveAsDefaultErrorHandler(false),
+										disabled: !editMode
 									},
 									{
 										displayName: 'Override all existing',
 										type: 'delete',
-										action: () => saveAsDefaultErrorHandler(true)
+										action: () => saveAsDefaultErrorHandler(true),
+										disabled: !editMode
 									}
 								]}
 							>
@@ -885,14 +916,14 @@
 					<div class="flex flex-row py-2">
 						<Toggle
 							size="xs"
-							disabled={!can_write || !$enterpriseLicense}
+							disabled={!can_write || !$enterpriseLicense || !editMode}
 							bind:checked={wsErrorHandlerMuted}
 							options={{ right: 'Mute workspace error handler for this schedule' }}
 						/>
 					</div>
 
 					<ErrorOrRecoveryHandler
-						isEditable={can_write}
+						isEditable={can_write && editMode}
 						errorOrRecovery="error"
 						showScriptHelpText={true}
 						bind:handlerSelected={errorHandlerSelected}
@@ -933,7 +964,7 @@
 							<select
 								class="!w-14"
 								bind:value={failedExact}
-								disabled={!$enterpriseLicense || emptyString(errorHandlerPath)}
+								disabled={!$enterpriseLicense || emptyString(errorHandlerPath) || !editMode}
 							>
 								<option value={false}>&gt;=</option>
 								<option value={true}>==</option>
@@ -942,7 +973,7 @@
 								type="number"
 								class="!w-14 text-center {emptyString(errorHandlerPath) ? 'text-tertiary' : ''}"
 								bind:value={failedTimes}
-								disabled={!$enterpriseLicense}
+								disabled={!$enterpriseLicense || !editMode}
 								min="1"
 							/>
 							<p class={emptyString(errorHandlerPath) ? 'text-tertiary' : ''}
@@ -952,7 +983,7 @@
 					</div>
 				</Section>
 			{:else if optionTabSelected === 'recovery_handler'}
-				{@const disabled = !can_write || emptyString($enterpriseLicense)}
+				{@const disabled = !can_write || emptyString($enterpriseLicense) || !editMode}
 				<Section label="Recovery handler">
 					{#snippet header()}
 						<div class="flex flex-row gap-2">
@@ -1043,7 +1074,7 @@
 					</div>
 				</Section>
 			{:else if optionTabSelected === 'success_handler'}
-				{@const disabled = !can_write || emptyString($enterpriseLicense)}
+				{@const disabled = !can_write || emptyString($enterpriseLicense) || !editMode}
 				<Section label="Success handler">
 					{#snippet header()}
 						<div class="flex flex-row gap-2">
@@ -1105,7 +1136,7 @@
 					</ErrorOrRecoveryHandler>
 				</Section>
 			{:else if optionTabSelected === 'retries'}
-				{@const disabled = !can_write || emptyString($enterpriseLicense)}
+				{@const disabled = !can_write || emptyString($enterpriseLicense) || !editMode}
 				<Section label="Retries">
 					{#snippet header()}
 						<div class="flex flex-row gap-2">
@@ -1126,7 +1157,7 @@
 					label="Custom script tag"
 					tooltip="When set, the script tag will be overridden by this tag"
 				>
-					<WorkerTagPicker bind:tag popupPlacement="top-end" disabled={!can_write} />
+					<WorkerTagPicker bind:tag popupPlacement="top-end" disabled={!can_write || !editMode} />
 				</Section>
 			{/if}
 		{:else}
@@ -1154,7 +1185,7 @@
 {:else}
 	<Section label="Schedule">
 		<svelte:fragment slot="action">
-			<div class="flex flex-row gap-2 items-center">
+			<div class="flex flex-row gap-1 items-center">
 				{@render saveButton('xs')}
 			</div>
 		</svelte:fragment>

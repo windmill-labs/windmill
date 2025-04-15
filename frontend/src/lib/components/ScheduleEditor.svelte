@@ -4,12 +4,13 @@
 
 	export let useDrawer = true
 	export let hideTarget = false
+	export let useEditButton = false
 
 	let open = false
-	export async function openEdit(ePath: string, isFlow: boolean) {
+	export async function openEdit(ePath: string, isFlow: boolean, editing: boolean = true) {
 		open = true
 		await tick()
-		drawer?.openEdit(ePath, isFlow)
+		drawer?.openEdit(ePath, isFlow, editing)
 	}
 
 	export async function openNew(is_flow: boolean, initial_script_path?: string) {
@@ -22,5 +23,5 @@
 </script>
 
 {#if open}
-	<ScheduleEditorInner on:update {useDrawer} bind:this={drawer} {hideTarget} />
+	<ScheduleEditorInner on:update {useDrawer} bind:this={drawer} {hideTarget} {useEditButton} />
 {/if}

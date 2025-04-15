@@ -8,7 +8,7 @@
 		if (isDraft) {
 			scheduleEditor?.openNew(isFlow, path)
 		} else {
-			scheduleEditor?.openEdit(selectedTrigger.path, isFlow)
+			scheduleEditor?.openEdit(selectedTrigger.path, isFlow, false)
 		}
 	}
 
@@ -27,6 +27,7 @@
 	on:update-config
 	on:update
 	hideTarget
+	useEditButton
 />
 <!-- hideTarget
 	hidePath
