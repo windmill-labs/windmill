@@ -216,7 +216,7 @@
 </script>
 
 <Splitpanes>
-	<Pane class="flex flex-col gap-1 mb-4 pr-2 py-2 ">
+	<Pane class="flex flex-col gap-1 mb-4 pr-2 py-2" size={50}>
 		<div class="flex flex-col gap-1 mb-4">
 			<div class="flex justify-center w-full">
 				<div class="relative h-fit">
@@ -275,146 +275,144 @@
 		</div>
 	</Pane>
 
-	{#if lastCapture}
-		<Pane class="py-2 pl-2 flex flex-col transition-all duration-200 ease-in-out" size={50}>
-			<div class="flex flex-row gap-1 justify-between">
-				<Popover
-					placement="left"
-					contentClasses="w-48 min-h-48 max-h-64 overflow-auto"
-					floatingConfig={{
-						placement: 'left-start',
-						offset: { mainAxis: 10, crossAxis: -9 },
-						gutter: 0 // hack to make offset effective, see https://github.com/melt-ui/melt-ui/issues/528
-					}}
-				>
-					<svelte:fragment slot="trigger">
-						<Button size="xs2" color="light" iconOnly startIcon={{ icon: History }} nonCaptureEvent
-						></Button>
-					</svelte:fragment>
-					<svelte:fragment slot="content">
-						<CaptureTable
-							{captureType}
-							bind:this={captureTable}
-							isFlow={captureInfo.isFlow}
-							path={captureInfo.path}
-							on:select={handleSelectCapture}
-							fullHeight={false}
-							headless
-							addButton={false}
-							noBorder
-						/>
-					</svelte:fragment>
-				</Popover>
-				<div class="flex flex-row items-center gap-2 px-2">
-					{#if testKind === 'preprocessor' && !hasPreprocessor}
-						<CustomPopover noPadding>
-							<Button
-								size="xs2"
-								color="dark"
-								disabled
-								endIcon={{
-									icon: Info
-								}}
-								wrapperClasses="h-full"
-							>
-								Apply args
-							</Button>
-							<svelte:fragment slot="overlay">
-								<div class="text-sm p-2 flex flex-col gap-1 items-start">
-									<p> You need to add a preprocessor to use preprocessor captures as args </p>
-									<Button
-										size="xs2"
-										color="dark"
-										on:click={() => {
-											dispatch('addPreprocessor')
-										}}
-									>
-										Add preprocessor
-									</Button>
-								</div>
-							</svelte:fragment>
-						</CustomPopover>
-					{:else if selectedCapture}
+	<Pane class="py-2 pl-2 flex flex-col">
+		<div class="flex flex-row gap-1 justify-between">
+			<Popover
+				placement="left"
+				contentClasses="w-48 min-h-48 max-h-64 overflow-auto"
+				floatingConfig={{
+					placement: 'left-start',
+					offset: { mainAxis: 10, crossAxis: -9 },
+					gutter: 0 // hack to make offset effective, see https://github.com/melt-ui/melt-ui/issues/528
+				}}
+			>
+				<svelte:fragment slot="trigger">
+					<Button size="xs2" color="light" iconOnly startIcon={{ icon: History }} nonCaptureEvent
+					></Button>
+				</svelte:fragment>
+				<svelte:fragment slot="content">
+					<CaptureTable
+						{captureType}
+						bind:this={captureTable}
+						isFlow={captureInfo.isFlow}
+						path={captureInfo.path}
+						on:select={handleSelectCapture}
+						fullHeight={false}
+						headless
+						addButton={false}
+						noBorder
+					/>
+				</svelte:fragment>
+			</Popover>
+			<div class="flex flex-row items-center gap-2 px-2">
+				{#if testKind === 'preprocessor' && !hasPreprocessor}
+					<CustomPopover noPadding>
 						<Button
 							size="xs2"
-							color="light"
-							variant="border"
-							dropdownItems={[
-								{
-									label: 'Use as input schema',
-									onClick: async () => {
-										if (!lastCapture) return
-										const payloadData = selectedCapture
-										dispatch('updateSchema', {
-											payloadData,
-											redirect: true,
-											args: true
-										})
-									},
-									disabled: !selectedCapture,
-									hidden: !isFlow || testKind !== 'main'
-								}
-							].filter((item) => !item.hidden)}
-							on:click={async () => {
-								if (!lastCapture) return
-								const payloadData = selectedCapture
-								if (isFlow && testKind === 'main') {
-									dispatch('testWithArgs', payloadData)
-								} else {
-									dispatch('applyArgs', {
-										kind: testKind,
-										args: payloadData
-									})
-								}
+							color="dark"
+							disabled
+							endIcon={{
+								icon: Info
 							}}
-							disabled={testKind === 'preprocessor' && !hasPreprocessor}
-							title={isFlow && testKind === 'main'
-								? 'Test flow with args'
-								: testKind === 'preprocessor'
-									? 'Apply args to preprocessor'
-									: 'Apply args to inputs'}
-							startIcon={isFlow && testKind === 'main' ? { icon: Play } : {}}
+							wrapperClasses="h-full"
 						>
-							{isFlow && testKind === 'main' ? 'Test flow with args' : 'Apply args'}
+							Apply args
 						</Button>
-					{/if}
-					{#if selectedCapture}
-						<Button
-							size="xs2"
-							color="light"
-							variant="contained"
-							iconOnly
-							startIcon={{ icon: Trash2 }}
-							on:click={() => {
-								//infiniteList?.deleteItem(item.id)
-							}}
-							btnClasses="hover:text-white hover:bg-red-500 text-red-500"
-						/>
-					{/if}
-				</div>
-			</div>
-			<div class="flex flex-col gap-2 h-full">
-				{#if lastCapture && lastCapture.payload === 'WINDMILL_TOO_BIG' && !selectedCapture}
-					<div class="bg-surface flex flex-col items-center gap-2">
-						<div class="text-amber-500 flex items-center gap-2">
-							<AlertCircle size={20} />
-							<span>Large payload detected</span>
-						</div>
-						<Button color="dark" loading={isLoadingBigPayload} on:click={loadBigPayload}>
-							Load large payload
-						</Button>
-					</div>
+						<svelte:fragment slot="overlay">
+							<div class="text-sm p-2 flex flex-col gap-1 items-start">
+								<p> You need to add a preprocessor to use preprocessor captures as args </p>
+								<Button
+									size="xs2"
+									color="dark"
+									on:click={() => {
+										dispatch('addPreprocessor')
+									}}
+								>
+									Add preprocessor
+								</Button>
+							</div>
+						</svelte:fragment>
+					</CustomPopover>
 				{:else if selectedCapture}
-					<div
-						class="bg-surface p-3 rounded-md text-sm overflow-auto max-h-[500px] grow shadow-sm"
-						class:animate-highlight={newCaptureReceived}
+					<Button
+						size="xs2"
+						color="light"
+						variant="border"
+						dropdownItems={[
+							{
+								label: 'Use as input schema',
+								onClick: async () => {
+									if (!lastCapture) return
+									const payloadData = selectedCapture
+									dispatch('updateSchema', {
+										payloadData,
+										redirect: true,
+										args: true
+									})
+								},
+								disabled: !selectedCapture,
+								hidden: !isFlow || testKind !== 'main'
+							}
+						].filter((item) => !item.hidden)}
+						on:click={async () => {
+							if (!lastCapture) return
+							const payloadData = selectedCapture
+							if (isFlow && testKind === 'main') {
+								dispatch('testWithArgs', payloadData)
+							} else {
+								dispatch('applyArgs', {
+									kind: testKind,
+									args: payloadData
+								})
+							}
+						}}
+						disabled={testKind === 'preprocessor' && !hasPreprocessor}
+						title={isFlow && testKind === 'main'
+							? 'Test flow with args'
+							: testKind === 'preprocessor'
+								? 'Apply args to preprocessor'
+								: 'Apply args to inputs'}
+						startIcon={isFlow && testKind === 'main' ? { icon: Play } : {}}
 					>
-						<Highlight language={json} code={toJsonStr(selectedCapture).replace(/\\n/g, '\n')} />
-					</div>
+						{isFlow && testKind === 'main' ? 'Test flow with args' : 'Apply args'}
+					</Button>
+				{/if}
+				{#if selectedCapture}
+					<Button
+						size="xs2"
+						color="light"
+						variant="contained"
+						iconOnly
+						startIcon={{ icon: Trash2 }}
+						on:click={() => {
+							//infiniteList?.deleteItem(item.id)
+						}}
+						btnClasses="hover:text-white hover:bg-red-500 text-red-500"
+					/>
 				{/if}
 			</div>
-		</Pane>
-	{/if}
+		</div>
+		<div class="flex flex-col gap-2 h-full">
+			{#if lastCapture && lastCapture.payload === 'WINDMILL_TOO_BIG' && !selectedCapture}
+				<div class="bg-surface flex flex-col items-center gap-2">
+					<div class="text-amber-500 flex items-center gap-2">
+						<AlertCircle size={20} />
+						<span>Large payload detected</span>
+					</div>
+					<Button color="dark" loading={isLoadingBigPayload} on:click={loadBigPayload}>
+						Load large payload
+					</Button>
+				</div>
+			{:else if selectedCapture}
+				<div
+					class="bg-surface p-3 rounded-md text-sm overflow-auto max-h-[500px] grow shadow-sm"
+					class:animate-highlight={newCaptureReceived}
+				>
+					<Highlight language={json} code={toJsonStr(selectedCapture).replace(/\\n/g, '\n')} />
+				</div>
+			{/if}
+		</div>
+	</Pane>
 </Splitpanes>
 
 <style>
