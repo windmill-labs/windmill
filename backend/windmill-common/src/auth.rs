@@ -389,7 +389,7 @@ pub mod aws {
     ) -> Result<AssumeRoleWithWebIdentityOutput> {
         let region = oidc_auth.region.unwrap_or_else(|| "us-east-1".to_string());
 
-        let credentials = AwsCredendtials::new("", "", None, None, "UserInput");
+        let credentials = AwsCredentials::new("", "", None, None, "UserInput");
 
         let config = aws_config::defaults(BehaviorVersion::latest())
             .credentials_provider(credentials)
