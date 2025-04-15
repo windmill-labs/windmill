@@ -343,7 +343,7 @@
 				{:else if selectedCapture}
 					<Button
 						size="xs2"
-						color="blue"
+						color="dark"
 						btnClasses="h-[27px]"
 						dropdownItems={[
 							{
