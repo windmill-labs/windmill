@@ -208,6 +208,15 @@ pub struct AnsibleInventory {
     resource_type: Option<String>,
     pub pinned_resource: Option<String>,
 }
+
+#[derive(Debug, Clone)]
+pub struct GitRepo {
+    pub url: String,
+    pub commit: Option<String>,
+    pub branch: Option<String>,
+    pub target_path: String,
+}
+
 #[derive(Debug, Clone)]
 pub struct AnsibleRequirements {
     pub python_reqs: Vec<String>,
@@ -219,6 +228,7 @@ pub struct AnsibleRequirements {
     pub options: AnsiblePlaybookOptions,
     pub vault_password_file: Option<String>,
     pub vault_id: Vec<String>,
+    pub git_repos: Vec<GitRepo>,
 }
 
 fn parse_inventories(inventory_yaml: &Yaml) -> anyhow::Result<Vec<AnsibleInventory>> {
@@ -294,6 +304,7 @@ pub fn parse_ansible_reqs(
         options: opts,
         vault_password_file: None,
         vault_id: vec![],
+        git_repos: vec![],
     };
 
     if let Yaml::Hash(doc) = &docs[0] {
@@ -351,7 +362,9 @@ pub fn parse_ansible_reqs(
                 }
                 Yaml::String(key) if key == "vault_password_file" => {
                     let Yaml::String(filename) = value else {
-                        return Err(anyhow!("Vault Password File expects a String containing the file name"));
+                        return Err(anyhow!(
+                            "Vault Password File expects a String containing the file name"
+                        ));
                     };
                     ret.vault_password_file = Some(filename.to_string());
                 }
@@ -372,6 +385,18 @@ pub fn parse_ansible_reqs(
                         ret.options = parse_ansible_options(opts);
                     }
                 }
+                Yaml::String(key) if key == "git_repos" => {
+                    let Yaml::Array(repos) = &value else {
+                        return Err(anyhow!("git_repos field expects an array of repos"));
+                    };
+
+                    for r in repos {
+                        ret.git_repos.push(
+                            parse_git_repo(r)
+                                .map_err(|e| anyhow!("Failed to parse git repo: {e}"))?,
+                        );
+                    }
+                }
                 Yaml::String(key) => logs.push_str(&format!("\nUnknown field `{}`. Ignoring", key)),
                 _ => (),
             }
@@ -384,6 +409,38 @@ pub fn parse_ansible_reqs(
         emitter.dump(&docs[i])?;
     }
     Ok((logs, Some(ret), out_str))
+}
+
+fn parse_git_repo(r: &Yaml) -> anyhow::Result<GitRepo> {
+    let Yaml::Hash(repo) = r else {
+        return Err(anyhow!("Should be a Map"));
+    };
+
+    let url = repo
+        .get(&Yaml::String("url".to_string()))
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string())
+        .ok_or(anyhow!("Expected `url` field"))?;
+
+    let target_path = repo
+        .get(&Yaml::String("target".to_string()))
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string())
+        .ok_or(anyhow!(
+            "Expected `target` field (target directory for cloning the repo)"
+        ))?;
+
+    let branch = repo
+        .get(&Yaml::String("branch".to_string()))
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
+
+    let commit = repo
+        .get(&Yaml::String("commit".to_string()))
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
+
+    Ok(GitRepo { url, commit, branch, target_path })
 }
 
 fn parse_ansible_options(opts: &Vec<Yaml>) -> AnsiblePlaybookOptions {

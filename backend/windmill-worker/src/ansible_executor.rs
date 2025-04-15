@@ -11,11 +11,11 @@ use tokio::process::Command;
 use uuid::Uuid;
 use windmill_common::{
     error,
-    worker::{to_raw_value, write_file, write_file_at_user_defined_location, WORKER_CONFIG},
+    worker::{is_allowed_file_location, to_raw_value, write_file, write_file_at_user_defined_location, WORKER_CONFIG},
 };
 use windmill_queue::MiniPulledJob;
 
-use windmill_parser_yaml::{AnsibleRequirements, ResourceOrVariablePath};
+use windmill_parser_yaml::{AnsibleRequirements, GitRepo, ResourceOrVariablePath};
 use windmill_queue::{append_logs, CanceledBy};
 
 use crate::{
@@ -26,8 +26,8 @@ use crate::{
     },
     handle_child::handle_child,
     python_executor::{create_dependencies_dir, handle_python_reqs, uv_pip_compile, PyVersion},
-    AuthedClient, DISABLE_NSJAIL, DISABLE_NUSER, HOME_ENV, NSJAIL_PATH, PATH_ENV, PROXY_ENVS,
-    PY_INSTALL_DIR, TZ_ENV,
+    AuthedClient, DISABLE_NSJAIL, DISABLE_NUSER, GIT_PATH, HOME_ENV, NSJAIL_PATH, PATH_ENV,
+    PROXY_ENVS, PY_INSTALL_DIR, TZ_ENV,
 };
 
 lazy_static::lazy_static! {
@@ -39,6 +39,84 @@ lazy_static::lazy_static! {
 }
 
 const NSJAIL_CONFIG_RUN_ANSIBLE_CONTENT: &str = include_str!("../nsjail/run.ansible.config.proto");
+
+async fn clone_repo(
+    repo: &GitRepo,
+    job_dir: &str,
+    job_id: &Uuid,
+    worker_name: &str,
+    db: &sqlx::Pool<sqlx::Postgres>,
+    mem_peak: &mut i32,
+    canceled_by: &mut Option<CanceledBy>,
+    w_id: &str,
+    occupancy_metrics: &mut OccupancyMetrics,
+) -> error::Result<()> {
+    let target_path = is_allowed_file_location(job_dir, &repo.target_path)?;
+    let mut clone_cmd = Command::new(GIT_PATH.as_str());
+    clone_cmd
+        .current_dir(job_dir)
+        .env_clear()
+        .envs(PROXY_ENVS.clone())
+        .env("PATH", PATH_ENV.as_str())
+        .env("TZ", TZ_ENV.as_str())
+        .arg("clone")
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    if let Some(branch) = &repo.branch {
+        clone_cmd.args(["--branch", branch]);
+    }
+    clone_cmd.args([&repo.url, &target_path]);
+
+    let clone_cmd_child = start_child_process(clone_cmd, GIT_PATH.as_str()).await?;
+    handle_child(
+        job_id,
+        db,
+        mem_peak,
+        canceled_by,
+        clone_cmd_child,
+        false,
+        worker_name,
+        w_id,
+        "git clone",
+        None,
+        false,
+        &mut Some(occupancy_metrics),
+    )
+    .await?;
+
+    // Checkout specific commit if provided
+    if let Some(commit) = &repo.commit {
+        let mut checkout_cmd = Command::new(GIT_PATH.as_str());
+        checkout_cmd
+            .current_dir(job_dir)
+            .env_clear()
+            .envs(PROXY_ENVS.clone())
+            .env("PATH", PATH_ENV.as_str())
+            .env("TZ", TZ_ENV.as_str())
+            .args(["-C", &repo.target_path, "checkout", commit])
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
+
+        let checkout_cmd_child = start_child_process(checkout_cmd, GIT_PATH.as_str()).await?;
+        handle_child(
+            job_id,
+            db,
+            mem_peak,
+            canceled_by,
+            checkout_cmd_child,
+            false,
+            worker_name,
+            w_id,
+            "git checkout",
+            None,
+            false,
+            &mut Some(occupancy_metrics),
+        )
+        .await?;
+    }
+
+    Ok(())
+}
 
 async fn handle_ansible_python_deps(
     job_dir: &str,
@@ -144,13 +222,7 @@ async fn install_galaxy_collections(
         .envs(PROXY_ENVS.clone())
         .env("PATH", PATH_ENV.as_str())
         .env("TZ", TZ_ENV.as_str())
-        .args(vec![
-            "install",
-            "-r",
-            "requirements.yml",
-            "-p",
-            "./",
-        ])
+        .args(vec!["install", "-r", "requirements.yml", "-p", "./"])
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
 
@@ -309,6 +381,21 @@ pub async fn handle_ansible_job(
             db,
         )
         .await?;
+
+        for repo in r.git_repos {
+            clone_repo(
+                &repo,
+                job_dir,
+                &job.id,
+                worker_name,
+                db,
+                mem_peak,
+                canceled_by,
+                w_id,
+                occupancy_metrics,
+            )
+            .await?;
+        }
 
         if let Some(collections) = r.collections.as_ref() {
             install_galaxy_collections(
