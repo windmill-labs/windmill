@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use anyhow::Context;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -16,13 +18,15 @@ pub struct IdToken {
     expiration: DateTime<Utc>,
 }
 
-pub fn has_expired(expiration_time: DateTime<Utc>) -> bool {
+pub fn has_expired(expiration_time: DateTime<Utc>, take: Option<Duration>) -> bool {
     let now = Utc::now();
 
-    if now > expiration_time {
-        return true;
-    }
-    return false;
+    let adjusted_expiration = match take {
+        Some(duration) => expiration_time - duration,
+        None => expiration_time,
+    };
+
+    now > adjusted_expiration
 }
 
 impl From<IdToken> for String {
