@@ -157,7 +157,7 @@
 					</div>
 				</div>
 			</Pane>
-			{#if selectedTrigger?.type !== 'schedule'}
+			{#if selectedTrigger && selectedTrigger.type !== 'schedule'}
 				<Pane class="px-4">
 					{#if selectedTrigger && selectedTrigger?.type && captureKind}
 						{#if captureKind === 'webhook'}
