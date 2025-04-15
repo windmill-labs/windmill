@@ -14,7 +14,7 @@
 	import AnimatedButton from '../common/button/AnimatedButton.svelte'
 	import PulseButton from '../common/button/PulseButton.svelte'
 	import Button from '../common/button/Button.svelte'
-	import { CircleStop, History, AlertCircle, Info, Play, Trash2 } from 'lucide-svelte'
+	import { CircleStop, History, AlertCircle, Info, Play } from 'lucide-svelte'
 	import ConnectionIndicator, {
 		type ConnectionInfo
 	} from '../common/alert/ConnectionIndicator.svelte'
@@ -379,19 +379,6 @@
 					>
 						{isFlow && testKind === 'main' ? 'Test flow with data' : 'Apply args'}
 					</Button>
-				{/if}
-				{#if selectedCapture}
-					<Button
-						size="xs"
-						color="light"
-						variant="contained"
-						iconOnly
-						startIcon={{ icon: Trash2 }}
-						on:click={() => {
-							//infiniteList?.deleteItem(item.id)
-						}}
-						btnClasses="hover:text-white hover:bg-red-500 h-[27px]"
-					/>
 				{/if}
 			</div>
 
