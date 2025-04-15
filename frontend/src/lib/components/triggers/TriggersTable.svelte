@@ -411,12 +411,14 @@
 		fetchTriggers()
 	}
 
-	export function deleteDraft(trigger: Trigger | undefined) {
+	export function deleteDraft(trigger: Trigger | undefined, keepSelection: boolean = false) {
 		if (!trigger) return
 		triggers = triggers.filter(
 			(t) => !(t.type === trigger.type && t.isDraft && t.isPrimary === trigger.isPrimary)
 		)
-		selectTrigger(triggers[-1])
+		if (!keepSelection) {
+			selectTrigger(triggers[-1])
+		}
 	}
 </script>
 

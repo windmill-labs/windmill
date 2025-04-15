@@ -123,7 +123,7 @@
 									on:update={({ detail }) => {
 										triggersTable?.fetchSchedules()
 										if (detail === 'save') {
-											triggersTable?.deleteDraft(selectedTrigger)
+											triggersTable?.deleteDraft(selectedTrigger, true)
 										}
 									}}
 									isNewSchedule={selectedTrigger.isDraft}
