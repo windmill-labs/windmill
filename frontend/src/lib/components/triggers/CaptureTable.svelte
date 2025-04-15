@@ -98,13 +98,13 @@
 							? {
 									payload: capture.payload,
 									...trigger_extra
-							  }
+								}
 							: typeof capture.payload === 'object'
-							? {
-									...capture.payload,
-									...trigger_extra
-							  }
-							: trigger_extra
+								? {
+										...capture.payload,
+										...trigger_extra
+									}
+								: trigger_extra
 						: capture.payload
 
 				return newCapture
@@ -141,7 +141,7 @@
 					? {
 							...(typeof fullCapture.payload === 'object' ? fullCapture.payload : {}),
 							...(typeof fullCapture.trigger_extra === 'object' ? fullCapture.trigger_extra : {})
-					  }
+						}
 					: fullCapture.payload
 		} else {
 			payloadData = structuredClone(capture.payloadData)
@@ -235,8 +235,8 @@
 				? 'h-full'
 				: 'min-h-0 grow'
 			: capturesLength > 7
-			? 'h-[300px]'
-			: 'h-fit'}
+				? 'h-[300px]'
+				: 'h-fit'}
 	>
 		<InfiniteList
 			bind:this={infiniteList}
@@ -336,8 +336,8 @@
 										title={isFlow && testKind === 'main'
 											? 'Test flow with args'
 											: testKind === 'preprocessor'
-											? 'Apply args to preprocessor'
-											: 'Apply args to inputs'}
+												? 'Apply args to preprocessor'
+												: 'Apply args to inputs'}
 										startIcon={isFlow && testKind === 'main' ? { icon: Play } : {}}
 									>
 										{isFlow && testKind === 'main' ? 'Test' : 'Apply args'}
