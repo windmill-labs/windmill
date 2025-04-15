@@ -78,7 +78,7 @@
 	let variableEditor = $state<VariableEditor | null>(null)
 	let drawer = $state<Drawer | null>(null)
 	let editMode = $state(false)
-	let resetEditMode = $state(() => {})
+	let resetEditMode = $state<(() => void) | null>(null)
 
 	// Use $derived for computed values
 	$effect(() => {
@@ -159,6 +159,7 @@
 		fixedScriptPath_?: string,
 		defaultValues?: Record<string, any>
 	) {
+		resetEditMode = null
 		drawerLoading = true
 		try {
 			drawer?.openDrawer()
@@ -674,14 +675,14 @@
 				<Button {size} color="light" startIcon={{ icon: Pen }} on:click={() => (editMode = true)}>
 					Edit
 				</Button>
-			{:else if useEditButton && editMode}
+			{:else if useEditButton && editMode && !!resetEditMode}
 				<Button
 					{size}
 					color="light"
 					startIcon={{ icon: X }}
 					on:click={() => {
 						editMode = false
-						resetEditMode()
+						resetEditMode?.()
 					}}
 				>
 					Cancel
