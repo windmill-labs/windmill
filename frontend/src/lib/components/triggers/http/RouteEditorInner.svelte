@@ -303,8 +303,6 @@
 			(static_asset_config && emptyString(static_asset_config.s3)) ||
 			!can_write
 	})
-
-	$inspect(editMode)
 </script>
 
 {#if static_asset_config}
