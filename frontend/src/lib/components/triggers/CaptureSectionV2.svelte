@@ -266,48 +266,52 @@
 	<Pane class="flex flex-col">
 		<div class="flex flex-row gap-1 justify-between min-h-[33.5px] pl-1">
 			<div class="flex flex-row gap-1 items-center">
-				<Popover
-					placement="left"
-					contentClasses="w-48 min-h-48 max-h-64 overflow-auto"
-					floatingConfig={{
-						placement: 'left-start',
-						offset: { mainAxis: 8, crossAxis: -4.5 },
-						gutter: 0 // hack to make offset effective, see https://github.com/melt-ui/melt-ui/issues/528
-					}}
-					usePointerDownOutside
-				>
-					<svelte:fragment slot="trigger">
-						<Button
-							size="xs2"
-							color="light"
-							iconOnly
-							startIcon={{ icon: History }}
-							nonCaptureEvent
-							btnClasses="h-[27px]"
-						></Button>
-					</svelte:fragment>
-					<svelte:fragment slot="content">
-						<CaptureTable
-							{captureType}
-							bind:this={captureTable}
-							isFlow={captureInfo.isFlow}
-							path={captureInfo.path}
-							on:selectCapture={handleSelectCapture}
-							fullHeight={false}
-							headless
-							addButton={false}
-							noBorder
-						/>
-					</svelte:fragment>
-				</Popover>
-				<div
-					class={'min-w-16 text-secondary flex flex-row w-fit items-center gap-2 rounded-md bg-surface-secondary p-1 px-2 h-[27px]'}
-				>
-					<svelte:component this={triggerIconMap[captureType]} size={12} />
-					<span class="text-xs text-secondary truncate">
-						Capture {formatDateShort(selectedCapture?.created_at)}
-					</span>
-				</div>
+				{#if lastCapture}
+					<Popover
+						placement="left"
+						contentClasses="w-48 min-h-48 max-h-64 overflow-auto"
+						floatingConfig={{
+							placement: 'left-start',
+							offset: { mainAxis: 8, crossAxis: -4.5 },
+							gutter: 0 // hack to make offset effective, see https://github.com/melt-ui/melt-ui/issues/528
+						}}
+						usePointerDownOutside
+					>
+						<svelte:fragment slot="trigger">
+							<Button
+								size="xs2"
+								color="light"
+								iconOnly
+								startIcon={{ icon: History }}
+								nonCaptureEvent
+								btnClasses="h-[27px]"
+							></Button>
+						</svelte:fragment>
+						<svelte:fragment slot="content">
+							<CaptureTable
+								{captureType}
+								bind:this={captureTable}
+								isFlow={captureInfo.isFlow}
+								path={captureInfo.path}
+								on:selectCapture={handleSelectCapture}
+								fullHeight={false}
+								headless
+								addButton={false}
+								noBorder
+							/>
+						</svelte:fragment>
+					</Popover>
+				{/if}
+				{#if selectedCapture}
+					<div
+						class={'min-w-16 text-secondary flex flex-row w-fit items-center gap-2 rounded-md bg-surface-secondary p-1 px-2 h-[27px]'}
+					>
+						<svelte:component this={triggerIconMap[captureType]} size={12} />
+						<span class="text-xs text-secondary truncate">
+							Capture {formatDateShort(selectedCapture?.created_at)}
+						</span>
+					</div>
+				{/if}
 				{#if testKind === 'preprocessor' && !hasPreprocessor}
 					<CustomPopover noPadding>
 						<Button
