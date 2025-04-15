@@ -36,6 +36,7 @@
 	let initialPrimarySchedule: Writable<ScheduleTrigger | false | undefined> = writable(undefined)
 	let tmpPrimarySchedule: false | ScheduleTrigger | undefined = undefined // Used to save draft
 	let editMode: boolean = false
+	let isDeployed: Writable<boolean | undefined> = writable(undefined)
 
 	async function updateSchedules(forceRefresh: boolean) {
 		const loadPrimarySchedule = true
@@ -49,9 +50,12 @@
 			initialPrimarySchedule,
 			$workspaceStore ?? '',
 			triggersCount,
-			loadPrimarySchedule
+			loadPrimarySchedule,
+			isDeployed
 		)
-		tmpPrimarySchedule = structuredClone($primarySchedule)
+		if ($primarySchedule) {
+			tmpPrimarySchedule = structuredClone($primarySchedule)
+		}
 	}
 
 	$: updateSchedules(false) || path
@@ -109,16 +113,18 @@
 		}
 	})
 
-	let flowIsDeployed = false //TODO: get from flow
+	$: console.log('dbg isDeployed', $isDeployed, $primarySchedule, tmpPrimarySchedule)
 </script>
 
 <Section label="Primary schedule" class="flex flex-col gap-4 w-full">
-	<svelte:fragment slot="header"
-		><span
-			class="ml-1 bg-blue-50 dark:bg-blue-900/40 px-2 py-1 rounded text-xs font-normal text-blue-700 dark:text-blue-100"
-		>
-			Deployed automatically with the flow
-		</span>
+	<svelte:fragment slot="header">
+		{#if !$isDeployed}
+			<span
+				class="ml-1 bg-blue-50 dark:bg-blue-900/40 px-2 py-1 rounded text-xs font-normal text-blue-700 dark:text-blue-100"
+			>
+				Deployed automatically with the flow
+			</span>
+		{/if}
 	</svelte:fragment>
 	<svelte:fragment slot="action">
 		<div class="flex flex-row gap-2 items-center">
@@ -144,7 +150,7 @@
 					}}
 					size="xs"
 					on:change={async (e) => {
-						if (flowIsDeployed) {
+						if ($isDeployed) {
 							await ScheduleService.setScheduleEnabled({
 								path: path,
 								workspace: $workspaceStore ?? '',
@@ -167,9 +173,9 @@
 					}}>Edit</Button
 				>
 			{:else if editMode && !$primarySchedule}
-				<Button size="xs" startIcon={{ icon: Save }} on:click={saveDraft}>Save</Button>
+				<Button size="xs" startIcon={{ icon: Save }} on:click={saveDraft}>Save draft</Button>
 			{:else if editMode}
-				{#if flowIsDeployed}
+				{#if $isDeployed}
 					<Button
 						on:click={save}
 						color="dark"
@@ -190,7 +196,7 @@
 					</Button>
 				{/if}
 			{/if}
-			{#if editMode}
+			{#if editMode && $primarySchedule}
 				<Button
 					size="xs"
 					color="light"

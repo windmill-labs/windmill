@@ -1,6 +1,7 @@
 import { ScheduleService, type Schedule, type TriggersCount } from '$lib/gen'
 import type { ScheduleTrigger } from '../triggers'
 import type { Writable } from 'svelte/store'
+import { writable } from 'svelte/store'
 import { get } from 'svelte/store'
 import { sendUserToast } from '$lib/utils'
 
@@ -38,7 +39,8 @@ export async function loadSchedules(
 	initialPrimarySchedule: Writable<ScheduleTrigger | false | undefined>,
 	workspace: string,
 	triggersCount: Writable<TriggersCount | undefined>,
-	loadPrimarySchedule: boolean = false
+	loadPrimarySchedule: boolean = false,
+	isDeployed: Writable<boolean | undefined> = writable(undefined)
 ) {
 	if (!path || path == '') {
 		schedules.set([])
@@ -53,6 +55,9 @@ export async function loadSchedules(
 			isFlow
 		})
 		const primary = allSchedules.find((s) => s.path == path)
+		if (primary) {
+			isDeployed.set(true)
+		}
 		let remotePrimarySchedule: ScheduleTrigger | false | undefined = undefined
 		if (loadPrimarySchedule && primary) {
 			remotePrimarySchedule = await loadSchedule(path, workspace)
