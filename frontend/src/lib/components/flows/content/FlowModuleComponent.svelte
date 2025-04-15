@@ -369,6 +369,7 @@
 											</div>
 										{:then Editor}
 											<Editor.default
+												fadeTransition
 												folding
 												path={$pathStore + '/' + flowModule.id}
 												bind:websocketAlive

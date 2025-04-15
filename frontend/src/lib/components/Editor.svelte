@@ -175,6 +175,7 @@
 	import GlobalReviewButtons from './copilot/chat/GlobalReviewButtons.svelte'
 	import { writable } from 'svelte/store'
 	import { formatResourceTypes } from './copilot/chat/core'
+	import { fade } from 'svelte/transition'
 	// import EditorTheme from './EditorTheme.svelte'
 
 	let divEl: HTMLDivElement | null = null
@@ -221,6 +222,7 @@
 	export let disabled: boolean = false
 	export let lineNumbersMinChars = 3
 	export let isAiPanelOpen: boolean = false
+	export let fadeTransition = false
 
 	const rHash = randomHash()
 	$: filePath = computePath(path)
@@ -1408,7 +1410,11 @@
 </script>
 
 <EditorTheme />
-<div bind:this={divEl} class="{$$props.class} editor {disabled ? 'disabled' : ''}"></div>
+<div
+	bind:this={divEl}
+	class="{$$props.class} editor {disabled ? 'disabled' : ''}"
+	transition:fade={{ duration: fadeTransition ? 500 : 0 }}
+></div>
 {#if $vimMode}
 	<div class="fixed bottom-0 z-30" bind:this={statusDiv}></div>
 {/if}

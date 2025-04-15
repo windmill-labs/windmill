@@ -11,6 +11,7 @@
 	import ItemPicker from './ItemPicker.svelte'
 	import VariableEditor from './VariableEditor.svelte'
 	import { Plus } from 'lucide-svelte'
+	import { fade } from 'svelte/transition'
 
 	export let schema: Schema | { properties?: Record<string, any> }
 	export let args: Record<string, InputTransform | any> = {}
@@ -65,7 +66,7 @@
 	}
 </script>
 
-<div class="w-full {clazz}">
+<div class="w-full {clazz}" transition:fade>
 	{#if enableAi}
 		<div class="px-0.5 pt-0.5">
 			<StepInputsGen
