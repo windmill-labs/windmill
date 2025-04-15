@@ -238,8 +238,8 @@
 							<!-- TODO: add tooltip  directly on hover the button-->
 							<Tooltip>
 								Start capturing to test your runnables with real data. Once active, all incoming
-								payloads will be captured and displayed below, allowing you to test your runnables
-								effectively.
+								payloads will be captured and displayed on the right pane, allowing you to test your
+								runnables effectively.
 							</Tooltip>
 						{/if}
 					</div>
@@ -342,7 +342,7 @@
 					</CustomPopover>
 				{:else if selectedCapture}
 					<Button
-						size="xs"
+						size="xs2"
 						color="blue"
 						btnClasses="h-[27px]"
 						dropdownItems={[
@@ -375,13 +375,13 @@
 						}}
 						disabled={testKind === 'preprocessor' && !hasPreprocessor}
 						title={isFlow && testKind === 'main'
-							? 'Test flow with data'
+							? 'Test flow using captured data'
 							: testKind === 'preprocessor'
 								? 'Apply args to preprocessor'
 								: 'Apply args to inputs'}
 						startIcon={isFlow && testKind === 'main' ? { icon: Play } : {}}
 					>
-						{isFlow && testKind === 'main' ? 'Test flow with data' : 'Apply args'}
+						{isFlow && testKind === 'main' ? 'Test flow' : 'Apply args'}
 					</Button>
 				{/if}
 			</div>
