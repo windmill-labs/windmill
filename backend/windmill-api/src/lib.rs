@@ -25,7 +25,7 @@ use crate::{
     webhook_util::WebhookShared,
 };
 
-use windmill_mcp::{runner::Runner as McpRunner, setup_mcp_server};
+use mcp::{setup_mcp_server, Runner as McpRunner};
 
 use anyhow::Context;
 use argon2::Argon2;
@@ -133,6 +133,8 @@ mod workspaces;
 mod workspaces_ee;
 mod workspaces_export;
 mod workspaces_extra;
+
+mod mcp;
 
 pub const DEFAULT_BODY_LIMIT: usize = 2097152 * 100; // 200MB
 
