@@ -567,11 +567,11 @@
 	}
 </script>
 
-{#snippet saveButton()}
+{#snippet saveButton(size: 'sm' | 'xs')}
 	{#if edit}
 		<div class="mr-8">
 			<Button
-				size="sm"
+				{size}
 				variant="border"
 				startIcon={{ icon: List }}
 				disabled={!allowSchedule || pathError != '' || emptyString(script_path)}
@@ -586,6 +586,7 @@
 					disabled={!can_write}
 					checked={enabled}
 					options={{ right: 'Enabled' }}
+					{size}
 					on:change={async (e) => {
 						await ScheduleService.setScheduleEnabled({
 							path: initialPath,
@@ -609,6 +610,7 @@
 				emptyString(errorHandlerExtraArgs['channel'])) ||
 			!can_write}
 		on:click={scheduleScript}
+		{size}
 	>
 		{edit ? 'Save' : 'Schedule'}
 	</Button>
@@ -1145,7 +1147,7 @@
 			on:close={drawer.closeDrawer}
 		>
 			<svelte:fragment slot="actions">
-				{@render saveButton()}
+				{@render saveButton('sm')}
 			</svelte:fragment>
 			{@render content()}
 		</DrawerContent>
@@ -1153,7 +1155,9 @@
 {:else}
 	<Section label="Schedule">
 		<svelte:fragment slot="action">
-			{@render saveButton()}
+			<div class="flex flex-row gap-2 items-center">
+				{@render saveButton('xs')}
+			</div>
 		</svelte:fragment>
 		{@render content()}
 	</Section>
