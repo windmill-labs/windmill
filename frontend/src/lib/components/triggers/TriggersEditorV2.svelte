@@ -130,7 +130,18 @@
 									bind:this={primarySchedulePanel}
 								/>
 							{:else if selectedTrigger.type === 'schedule'}
-								<SchedulePanel {selectedTrigger} {isFlow} path={initialPath} />
+								<SchedulePanel
+									{selectedTrigger}
+									{isFlow}
+									path={initialPath}
+									on:update={({ detail }) => {
+										if (selectedTrigger?.isDraft && detail?.path) {
+											triggersTable?.fetchSchedules()
+											selectedTrigger.isDraft = false
+											selectedTrigger.path = detail.path
+										}
+									}}
+								/>
 							{:else if selectedTrigger.isDraft}
 								<h3 class="text-sm font-medium">Configure new {selectedTrigger.type} trigger</h3>
 								<!-- New trigger configuration component would go here -->

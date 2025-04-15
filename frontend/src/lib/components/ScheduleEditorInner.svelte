@@ -487,7 +487,7 @@
 			})
 			sendUserToast(`Schedule ${path} created`)
 		}
-		dispatch('update')
+		dispatch('update', { path })
 		drawer?.closeDrawer()
 	}
 
