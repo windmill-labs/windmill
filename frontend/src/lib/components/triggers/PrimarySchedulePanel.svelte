@@ -52,10 +52,11 @@
 			triggersCount,
 			loadPrimarySchedule,
 			isDeployed
-		)
-		if ($primarySchedule) {
-			tmpPrimarySchedule = structuredClone($primarySchedule)
-		}
+		).then(() => {
+			if ($primarySchedule) {
+				tmpPrimarySchedule = structuredClone($primarySchedule)
+			}
+		})
 	}
 
 	$: updateSchedules(false) || path
