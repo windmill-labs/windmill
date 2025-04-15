@@ -12,7 +12,7 @@ pub fn setup_mcp_server() -> anyhow::Result<(SseServer, Router)> {
         // It's ignored when the router is nested within another Axum server.
         bind: BIND_ADDRESS.parse()?,
         sse_path: "/sse".to_string(), // Relative path handled by SseServer's router
-        post_path: "/api/w/admins/mcp/message".to_string(), // Relative path handled by SseServer's router
+        post_path: "/message".to_string(), // Relative path handled by SseServer's router
         ct: CancellationToken::new(), // Independent cancellation for this MCP instance
         sse_keep_alive: None,
     };

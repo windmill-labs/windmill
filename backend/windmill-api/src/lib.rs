@@ -454,7 +454,6 @@ pub async fn run_server(
                         .nest("/job_metrics", job_metrics::workspaced_service())
                         .nest("/job_helpers", job_helpers_service)
                         .nest("/jobs", jobs::workspaced_service())
-                        .nest_service("/mcp", mcp_router)
                         .nest("/oauth", {
                             #[cfg(feature = "oauth2")]
                             {
@@ -538,6 +537,8 @@ pub async fn run_server(
                         .layer(from_extractor::<OptAuthed>())
                         .layer(cors.clone()),
                 )
+                .nest_service("/w/:workspace_id/mcp", mcp_router)
+                .layer(from_extractor::<OptAuthed>())
                 .nest(
                     "/w/:workspace_id/jobs_u",
                     jobs::workspace_unauthed_service().layer(cors.clone()),

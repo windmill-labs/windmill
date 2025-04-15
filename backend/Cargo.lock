@@ -1121,7 +1121,8 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "edca88bc138befd0323b20752846e6587272d3b03b0343c8ea28a6f819e6e71f"
 dependencies = [
  "async-trait",
- "axum-core 0.4.5",
+ "axum-core",
+ "axum-macros",
  "bytes",
  "futures-util",
  "http 1.3.1",
@@ -1130,45 +1131,10 @@ dependencies = [
  "hyper 1.6.0",
  "hyper-util",
  "itoa",
- "matchit 0.7.3",
+ "matchit",
  "memchr",
  "mime",
  "multer",
- "percent-encoding",
- "pin-project-lite",
- "rustversion",
- "serde",
- "serde_json",
- "serde_path_to_error",
- "serde_urlencoded",
- "sync_wrapper 1.0.2",
- "tokio",
- "tower 0.5.2",
- "tower-layer",
- "tower-service",
- "tracing",
-]
-
-[[package]]
-name = "axum"
-version = "0.8.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "de45108900e1f9b9242f7f2e254aa3e2c029c921c258fe9e6b4217eeebd54288"
-dependencies = [
- "axum-core 0.5.2",
- "axum-macros",
- "bytes",
- "form_urlencoded",
- "futures-util",
- "http 1.3.1",
- "http-body 1.0.1",
- "http-body-util",
- "hyper 1.6.0",
- "hyper-util",
- "itoa",
- "matchit 0.8.4",
- "memchr",
- "mime",
  "percent-encoding",
  "pin-project-lite",
  "rustversion",
@@ -1206,30 +1172,10 @@ dependencies = [
 ]
 
 [[package]]
-name = "axum-core"
-version = "0.5.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "68464cd0412f486726fb3373129ef5d2993f90c34bc2bc1c1e9943b2f4fc7ca6"
-dependencies = [
- "bytes",
- "futures-core",
- "http 1.3.1",
- "http-body 1.0.1",
- "http-body-util",
- "mime",
- "pin-project-lite",
- "rustversion",
- "sync_wrapper 1.0.2",
- "tower-layer",
- "tower-service",
- "tracing",
-]
-
-[[package]]
 name = "axum-macros"
-version = "0.5.0"
+version = "0.4.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "604fde5e028fea851ce1d8570bbdc034bec850d157f7569d10f347d06808c05c"
+checksum = "57d123550fa8d071b7255cb0cc04dc302baa6c8c4a79f55701552684d8399bce"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -6041,7 +5987,7 @@ dependencies = [
  "js-sys",
  "log",
  "wasm-bindgen",
- "windows-core 0.57.0",
+ "windows-core 0.58.0",
 ]
 
 [[package]]
@@ -6743,7 +6689,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fc2f4eb4bc735547cfed7c0a4922cbd04a4655978c09b54f1f7b228750664c34"
 dependencies = [
  "cfg-if",
- "windows-targets 0.48.5",
+ "windows-targets 0.52.6",
 ]
 
 [[package]]
@@ -7087,12 +7033,6 @@ name = "matchit"
 version = "0.7.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0e7465ac9959cc2b1404e8e2367b43684a6d13790fe23056cc8c6c5a6b7bcb94"
-
-[[package]]
-name = "matchit"
-version = "0.8.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "47e1ffaa40ddd1f3ed91f717a33c8c0ee23fff369e3aa8772b9605cc1d22f4c3"
 
 [[package]]
 name = "md-5"
@@ -9735,30 +9675,35 @@ dependencies = [
 [[package]]
 name = "rmcp"
 version = "0.1.5"
-source = "git+https://github.com/centdix/rust-sdk#ac7b13610896df0060aeea4c845081d28905eb87"
 dependencies = [
- "axum 0.8.3",
+ "anyhow",
+ "async-trait",
+ "axum",
  "base64 0.21.7",
  "chrono",
  "futures",
  "paste",
  "pin-project-lite",
  "rand 0.9.0",
+ "reqwest 0.12.15",
  "rmcp-macros",
  "schemars",
  "serde",
  "serde_json",
+ "sse-stream",
  "thiserror 2.0.12",
  "tokio",
  "tokio-stream",
  "tokio-util",
+ "tower-service",
  "tracing",
+ "tracing-subscriber",
+ "url",
 ]
 
 [[package]]
 name = "rmcp-macros"
 version = "0.1.5"
-source = "git+https://github.com/centdix/rust-sdk#ac7b13610896df0060aeea4c845081d28905eb87"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -11228,6 +11173,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "sse-stream"
+version = "0.1.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "150ffbc62464270222a175e9d9ffae6ba2f5c5534da0fcd2d953f4b71dda9e08"
+dependencies = [
+ "bytes",
+ "futures-util",
+ "http-body 1.0.1",
+ "http-body-util",
+ "pin-project-lite",
+]
+
+[[package]]
 name = "stable_deref_trait"
 version = "1.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -12646,7 +12604,7 @@ checksum = "877c5b330756d856ffcc4553ab34a5684481ade925ecc54bcd1bf02b1d0d4d52"
 dependencies = [
  "async-stream",
  "async-trait",
- "axum 0.7.9",
+ "axum",
  "base64 0.22.1",
  "bytes",
  "h2 0.4.8",
@@ -12714,7 +12672,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4fd0118512cf0b3768f7fcccf0bef1ae41d68f2b45edc1e77432b36c97c56c6d"
 dependencies = [
  "async-trait",
- "axum-core 0.4.5",
+ "axum-core",
  "cookie 0.18.1",
  "futures-util",
  "http 1.3.1",
@@ -13782,7 +13740,7 @@ name = "windmill"
 version = "1.481.0"
 dependencies = [
  "anyhow",
- "axum 0.7.9",
+ "axum",
  "base64 0.22.1",
  "chrono",
  "constant_time_eq",
@@ -13836,7 +13794,7 @@ dependencies = [
  "async_zip",
  "aws-config",
  "aws-sdk-sqs",
- "axum 0.7.9",
+ "axum",
  "base32",
  "base64 0.22.1",
  "byteorder",
@@ -13864,7 +13822,7 @@ dependencies = [
  "lazy_static",
  "magic-crypt",
  "mail-parser",
- "matchit 0.7.3",
+ "matchit",
  "mime_guess",
  "native-tls",
  "nkeys",
@@ -13903,7 +13861,7 @@ dependencies = [
  "tokio-tar",
  "tokio-tungstenite",
  "tokio-util",
- "tower 0.4.13",
+ "tower 0.5.2",
  "tower-cookies",
  "tower-http",
  "tracing",
@@ -13973,7 +13931,7 @@ dependencies = [
  "async-stream",
  "aws-config",
  "aws-sdk-sts",
- "axum 0.7.9",
+ "axum",
  "backon",
  "bytes",
  "chrono",
@@ -14081,7 +14039,7 @@ name = "windmill-mcp"
 version = "0.1.5"
 dependencies = [
  "anyhow",
- "axum 0.8.3",
+ "axum",
  "hyper 0.14.32",
  "rand 0.8.5",
  "rmcp",
@@ -14305,7 +14263,7 @@ version = "1.481.0"
 dependencies = [
  "anyhow",
  "async-recursion",
- "axum 0.7.9",
+ "axum",
  "backon",
  "chrono",
  "chrono-tz 0.10.3",

@@ -1,0 +1,19 @@
+
+
+[package]
+name = "rmcp-macros"
+version = "0.1.5"
+edition = "2024"
+publish = false
+
+[lib]
+proc-macro = true
+
+[dependencies]
+syn = {version = "2", features = ["full"]}
+quote = "1"
+proc-macro2 = "1"
+
+
+[features]
+[dev-dependencies]
