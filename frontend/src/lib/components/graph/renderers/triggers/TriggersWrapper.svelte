@@ -25,7 +25,7 @@
 		class="flex w-full flex-row gap-1 px-2 p-1 items-center {selected
 			? 'outline  outline-2  outline-gray-600 rounded-sm dark:bg-white/5 dark:outline-gray-400'
 			: ''}"
-		on:click={() => {
+		on:pointerdown={() => {
 			dispatch('select')
 		}}
 	>
