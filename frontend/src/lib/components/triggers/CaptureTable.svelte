@@ -363,7 +363,7 @@
 				</SchemaPickerRow>
 			</svelte:fragment>
 			<svelte:fragment slot="empty">
-				<div class="text-center text-xs text-tertiary">No captures yet</div>
+				<div class="text-center text-xs text-tertiary py-2">No captures yet</div>
 			</svelte:fragment>
 		</InfiniteList>
 	</div>
