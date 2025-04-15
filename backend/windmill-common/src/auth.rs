@@ -1,4 +1,5 @@
 use anyhow::Context;
+use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -9,6 +10,45 @@ use crate::{
     users::{SUPERADMIN_NOTIFICATION_EMAIL, SUPERADMIN_SECRET_EMAIL, SUPERADMIN_SYNC_EMAIL},
     DB,
 };
+
+pub struct IdToken {
+    token: String,
+    expiration: DateTime<Utc>,
+}
+
+pub fn has_expired(expiration_time: DateTime<Utc>) -> bool {
+    let now = Utc::now();
+
+    if now > expiration_time {
+        return true;
+    }
+    return false;
+}
+
+impl From<IdToken> for String {
+    fn from(value: IdToken) -> Self {
+        value.token
+    }
+}
+
+impl ToString for IdToken {
+    fn to_string(&self) -> String {
+        self.token.clone()
+    }
+}
+
+impl IdToken {
+    pub fn new(token: String, expiration: DateTime<Utc>) -> Self {
+        Self { token, expiration }
+    }
+
+    pub fn token(&self) -> &str {
+        &self.token
+    }
+    pub fn expiration(&self) -> &DateTime<Utc> {
+        &self.expiration
+    }
+}
 
 #[derive(Deserialize, Serialize)]
 pub struct JWTAuthClaims {
@@ -270,7 +310,6 @@ pub async fn create_token_for_owner(
 
 #[cfg(feature = "aws_auth")]
 pub mod aws {
-    use std::future::Future;
 
     use crate::error::to_anyhow;
 
@@ -281,9 +320,7 @@ pub mod aws {
         config::Credentials as AwsCredenditals,
         operation::{
             assume_role_with_saml::AssumeRoleWithSamlOutput,
-            assume_role_with_web_identity::{
-                builders::AssumeRoleWithWebIdentityFluentBuilder, AssumeRoleWithWebIdentityOutput,
-            },
+            assume_role_with_web_identity::AssumeRoleWithWebIdentityOutput,
         },
         types::Credentials,
         Client,
@@ -323,7 +360,7 @@ pub mod aws {
         pub secret_access_key: String,
     }
 
-    #[derive(Debug, Deserialize)]
+    #[derive(Clone, Debug, Deserialize)]
     pub struct OidcAuth {
         #[serde(deserialize_with = "empty_string_as_none")]
         pub region: Option<String>,
@@ -351,6 +388,7 @@ pub mod aws {
         let region = oidc_auth.region.unwrap_or_else(|| "us-east-1".to_string());
 
         let credentials = AwsCredenditals::new("", "", None, None, "UserInput");
+
         let config = aws_config::defaults(BehaviorVersion::latest())
             .credentials_provider(credentials)
             .region(Region::new(region.clone()))
