@@ -6,16 +6,13 @@ use rmcp::{
     handler::server::ServerHandler,
     model::*,
     schemars::{self, JsonSchema},
-    service::{Peer, RequestContext, RoleServer},
+    service::{RequestContext, RoleServer},
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::collections::HashMap;
 
 #[derive(Clone)]
-pub struct Runner {
-    token: Option<String>,
-}
+pub struct Runner {}
 
 #[derive(Deserialize, Serialize, JsonSchema)]
 struct GetScriptSchemaByPathParams {
@@ -38,7 +35,7 @@ struct ScriptSchemaResponse {
 
 impl Runner {
     pub fn new() -> Self {
-        Self { token: None }
+        Self {}
     }
 
     fn _create_resource_text(&self, uri: &str, name: &str) -> Resource {

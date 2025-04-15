@@ -7095,26 +7095,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "47e1ffaa40ddd1f3ed91f717a33c8c0ee23fff369e3aa8772b9605cc1d22f4c3"
 
 [[package]]
-name = "mcp-server-examples"
-version = "0.1.5"
-dependencies = [
- "anyhow",
- "axum 0.8.3",
- "hyper 0.14.32",
- "rand 0.8.5",
- "rmcp",
- "schemars",
- "serde",
- "serde_json",
- "tokio",
- "tokio-util",
- "tower 0.4.13",
- "tracing",
- "tracing-subscriber",
- "urlencoding",
-]
-
-[[package]]
 name = "md-5"
 version = "0.9.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -13936,6 +13916,7 @@ dependencies = [
  "windmill-common",
  "windmill-git-sync",
  "windmill-indexer",
+ "windmill-mcp",
  "windmill-parser",
  "windmill-parser-py",
  "windmill-parser-ts",
@@ -14093,6 +14074,26 @@ dependencies = [
  "quote",
  "regex",
  "syn 2.0.100",
+]
+
+[[package]]
+name = "windmill-mcp"
+version = "0.1.5"
+dependencies = [
+ "anyhow",
+ "axum 0.8.3",
+ "hyper 0.14.32",
+ "rand 0.8.5",
+ "rmcp",
+ "schemars",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tokio-util",
+ "tower 0.4.13",
+ "tracing",
+ "tracing-subscriber",
+ "urlencoding",
 ]
 
 [[package]]

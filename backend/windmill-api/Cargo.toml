@@ -34,6 +34,7 @@ sqs_trigger = ["dep:aws-sdk-sqs", "dep:thiserror", "dep:aws-config"]
 cloud = ["windmill-common/cloud"]
 
 [dependencies]
+windmill-mcp = { path = "../windmill-mcp" }
 windmill-queue.workspace = true
 windmill-common = { workspace = true, default-features = false }
 windmill-audit.workspace = true

@@ -1,68 +1,9 @@
-use rmcp::transport::sse_server::{SseServer, SseServerConfig};
-mod runner;
-use crate::runner::Runner;
-use axum::{Router, extract::Extension, http::StatusCode, middleware, response::Response};
-use hyper::client::HttpConnector;
-use hyper::server::conn::AddrStream;
-use hyper::service::{make_service_fn, service_fn};
-use hyper::{Body, Client, Server};
-use std::convert::Infallible;
-use std::net::SocketAddr;
-use std::sync::{Arc, RwLock};
-use tower::ServiceBuilder;
 use tracing_subscriber::{
     layer::SubscriberExt,
     util::SubscriberInitExt,
     {self},
 };
-
-const BIND_ADDRESS: &str = "127.0.0.1:8008";
-
-// Middleware function to log query parameters
-async fn log_query_params(
-    mut req: axum::http::Request<axum::body::Body>,
-    next: axum::middleware::Next,
-) -> Result<axum::response::Response, StatusCode> {
-    // Log the URI and extract query parameters
-    let uri = req.uri().clone();
-    let mut token_value = String::from("fewfewfew");
-
-    if let Some(query) = uri.query() {
-        tracing::info!("Request query parameters: {} for url {}", query, uri.path());
-
-        // Parse and log individual query parameters
-        let params: Vec<(&str, &str)> = query
-            .split('&')
-            .filter_map(|kv| {
-                let mut parts = kv.split('=');
-                match (parts.next(), parts.next()) {
-                    (Some(k), Some(v)) => Some((k, v)),
-                    _ => None,
-                }
-            })
-            .collect();
-
-        for (key, value) in params {
-            tracing::info!("Query param: {}={}", key, value);
-            // if key == "token" {
-            //     token_value = Some(value.to_string());
-            // }
-        }
-    } else {
-        tracing::info!("No query parameters in request to {}", uri.path());
-    }
-
-    // Now insert the token if we found one
-    // if let Some(token) = token_value {
-    //     tracing::info!("Inserting token into request extensions: {}", token);
-    //     req.extensions_mut().insert(token);
-    // }
-
-    req.extensions_mut().insert(token_value);
-
-    // Continue with the request
-    Ok(next.run(req).await)
-}
+use windmill_mcp::{runner::Runner, setup_mcp_server};
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -74,40 +15,32 @@ async fn main() -> anyhow::Result<()> {
         .with(tracing_subscriber::fmt::layer())
         .init();
 
-    let config = SseServerConfig {
-        bind: BIND_ADDRESS.parse()?,
-        sse_path: "/sse".to_string(),
-        post_path: "/message".to_string(),
-        ct: tokio_util::sync::CancellationToken::new(),
-        sse_keep_alive: None,
-    };
-
-    let (sse_server, router) = SseServer::new(config);
-
-    // Apply middleware to log query parameters
-    // let router = router.layer(middleware::from_fn(log_query_params));
-
-    // add test extension to router
-    let router = router.layer(Extension(String::from("test")));
+    let (sse_server, router) = setup_mcp_server()?;
 
     let listener = tokio::net::TcpListener::bind(sse_server.config.bind).await?;
+    tracing::info!(bind = %sse_server.config.bind, "MCP server listening");
 
-    let ct = sse_server.config.ct.child_token();
+    let shutdown_ct = sse_server.config.ct.child_token();
+    let main_ct = sse_server.config.ct.clone();
+
+    let service_ct = sse_server.with_service(Runner::new);
 
     let server = axum::serve(listener, router).with_graceful_shutdown(async move {
-        ct.cancelled().await;
-        tracing::info!("sse server cancelled");
+        shutdown_ct.cancelled().await;
+        tracing::info!("MCP server shutdown requested");
     });
 
     tokio::spawn(async move {
         if let Err(e) = server.await {
-            tracing::error!(error = %e, "sse server shutdown with error");
+            tracing::error!(error = %e, "Axum server shutdown with error");
         }
+        tracing::info!("Axum server task finished");
     });
 
-    let ct = sse_server.with_service(Runner::new);
-
     tokio::signal::ctrl_c().await?;
-    ct.cancel();
+    tracing::info!("Ctrl-C received, cancelling services");
+    main_ct.cancel();
+    service_ct.cancelled().await;
+    tracing::info!("MCP services cancelled, exiting.");
     Ok(())
 }

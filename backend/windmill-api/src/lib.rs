@@ -25,6 +25,8 @@ use crate::{
     webhook_util::WebhookShared,
 };
 
+use windmill_mcp::{runner::Runner as McpRunner, setup_mcp_server};
+
 use anyhow::Context;
 use argon2::Argon2;
 use axum::extract::DefaultBodyLimit;
@@ -74,9 +76,9 @@ mod folders;
 mod granular_acls;
 mod groups;
 #[cfg(feature = "http_trigger")]
-mod http_triggers;
-#[cfg(feature = "http_trigger")]
 mod http_trigger_auth;
+#[cfg(feature = "http_trigger")]
+mod http_triggers;
 mod indexer_ee;
 mod inputs;
 mod integration;
@@ -420,6 +422,11 @@ pub async fn run_server(
         }
     }
 
+    // Setup MCP server
+    let (mcp_sse_server, mcp_router) = setup_mcp_server()?;
+    let mcp_main_ct = mcp_sse_server.config.ct.clone(); // Token to signal shutdown *to* MCP
+    let mcp_service_ct = mcp_sse_server.with_service(McpRunner::new); // Token to wait for MCP *service* shutdown
+
     // build our application with a route
     let app = Router::new()
         .nest(
@@ -447,6 +454,7 @@ pub async fn run_server(
                         .nest("/job_metrics", job_metrics::workspaced_service())
                         .nest("/job_helpers", job_helpers_service)
                         .nest("/jobs", jobs::workspaced_service())
+                        .nest_service("/mcp", mcp_router)
                         .nest("/oauth", {
                             #[cfg(feature = "oauth2")]
                             {
@@ -648,10 +656,18 @@ pub async fn run_server(
 
     let server = server.with_graceful_shutdown(async move {
         rx.recv().await.ok();
-        tracing::info!("Graceful shutdown of server");
+        tracing::info!("Graceful shutdown signal received for main server");
+        mcp_main_ct.cancel(); // <-- Signal MCP server to shut down
+        tracing::info!("MCP server cancellation signaled");
     });
 
     server.await?;
+    tracing::info!("Main Axum server task completed.");
+
+    // Wait for the MCP service itself to finish shutting down
+    mcp_service_ct.cancelled().await;
+    tracing::info!("MCP service task completed.");
+
     Ok(())
 }
 
