@@ -222,6 +222,7 @@
 	export let disabled: boolean = false
 	export let lineNumbersMinChars = 3
 	export let isAiPanelOpen: boolean = false
+	export let loadAsync = false
 
 	const rHash = randomHash()
 	$: filePath = computePath(path)
@@ -1375,12 +1376,15 @@
 		})
 	}
 
-	onMount(() => {
-		setTimeout(() => {
-			if (BROWSER) {
-				loadMonaco().then((x) => (disposeMethod = x))
+	onMount(async () => {
+		if (BROWSER) {
+			if (loadAsync) {
+				setTimeout(() => loadMonaco().then((x) => (disposeMethod = x)), 0)
+			} else {
+				let m = await loadMonaco()
+				disposeMethod = m
 			}
-		}, 0)
+		}
 	})
 
 	onDestroy(() => {
@@ -1412,7 +1416,12 @@
 
 <EditorTheme />
 {#if !editor}
-	<FakeMonacoPlaceHolder marginLeft="51px" {code} fontSize={!small ? 14 : 12} />
+	<FakeMonacoPlaceHolder
+		marginLeft="51px"
+		{code}
+		fontSize={!small ? 14 : 12}
+		className="dark:bg-[#272D38] h-full"
+	/>
 {/if}
 <div bind:this={divEl} class="{$$props.class} editor {disabled ? 'disabled' : ''}"></div>
 {#if $vimMode}
