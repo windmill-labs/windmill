@@ -38,6 +38,7 @@
 	export let raw_string: boolean = false
 	export let wrap_body: boolean = false
 	export let capture_mode: boolean
+
 	let validateTimeout: NodeJS.Timeout | undefined = undefined
 
 	let routeError: string = ''
@@ -196,6 +197,7 @@
 						<Toggle
 							size="sm"
 							checked={workspaced_route}
+							disabled={!can_write}
 							on:change={() => {
 								workspaced_route = !workspaced_route
 								dirtyRoutePath = true
