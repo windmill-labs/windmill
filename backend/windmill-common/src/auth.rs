@@ -319,7 +319,7 @@ pub mod aws {
     use crate::utils::empty_string_as_none;
     use aws_config::{BehaviorVersion, Region};
     use aws_sdk_sts::{
-        config::Credentials as AwsCredenditals,
+        config::Credentials as AwsCredendtials,
         operation::{
             assume_role_with_saml::AssumeRoleWithSamlOutput,
             assume_role_with_web_identity::AssumeRoleWithWebIdentityOutput,
@@ -389,7 +389,7 @@ pub mod aws {
     ) -> Result<AssumeRoleWithWebIdentityOutput> {
         let region = oidc_auth.region.unwrap_or_else(|| "us-east-1".to_string());
 
-        let credentials = AwsCredenditals::new("", "", None, None, "UserInput");
+        let credentials = AwsCredendtials::new("", "", None, None, "UserInput");
 
         let config = aws_config::defaults(BehaviorVersion::latest())
             .credentials_provider(credentials)
