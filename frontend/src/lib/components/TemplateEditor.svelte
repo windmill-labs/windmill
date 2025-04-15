@@ -19,6 +19,7 @@
 	import { initializeVscode } from './vscode'
 	import EditorTheme from './EditorTheme.svelte'
 	import { buildWorkerDefinition } from '$lib/monaco_workers/build_workers'
+	import FakeMonacoPlaceHolder from './FakeMonacoPlaceHolder.svelte'
 
 	export const conf = {
 		wordPattern:
@@ -592,11 +593,13 @@
 	}
 
 	let mounted = false
-	onMount(async () => {
-		if (BROWSER) {
-			await loadMonaco()
-			mounted = true
-		}
+	onMount(() => {
+		setTimeout(async () => {
+			if (BROWSER) {
+				await loadMonaco()
+				mounted = true
+			}
+		}, 0)
 	})
 
 	$: mounted && extraLib && initialized && loadExtraLib()
@@ -626,10 +629,16 @@
 
 <EditorTheme />
 
+{#if !editor}
+	<FakeMonacoPlaceHolder {code} {fontSize} />
+{/if}
 <div
 	bind:this={divEl}
 	style="height: 18px;"
-	class="{$$props.class ?? ''} border template nonmain-editor rounded min-h-4 mx-0.5 overflow-clip"
+	class="{$$props.class ??
+		''} border template nonmain-editor rounded min-h-4 mx-0.5 overflow-clip {!editor
+		? 'absolute'
+		: ''}"
 	bind:clientWidth={width}
 ></div>
 

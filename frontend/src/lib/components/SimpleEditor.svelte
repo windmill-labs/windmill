@@ -65,6 +65,7 @@
 	import { vimMode } from '$lib/stores'
 	import { initVim } from './monaco_keybindings'
 	import { buildWorkerDefinition } from '$lib/monaco_workers/build_workers'
+	import FakeMonacoPlaceHolder from './FakeMonacoPlaceHolder.svelte'
 	// import { createConfiguredEditor } from 'vscode/monaco'
 	// import type { IStandaloneCodeEditor } from 'vscode/vscode/vs/editor/standalone/browser/standaloneCodeEditor'
 
@@ -509,16 +510,18 @@
 		}
 	}
 
-	onMount(async () => {
-		if (BROWSER) {
-			mounted = true
-			await loadMonaco()
-			if (autofocus) {
-				setTimeout(() => {
-					focus()
-				}, 0)
+	onMount(() => {
+		setTimeout(async () => {
+			if (BROWSER) {
+				mounted = true
+				await loadMonaco()
+				if (autofocus) {
+					setTimeout(() => {
+						focus()
+					}, 0)
+				}
 			}
-		}
+		}, 0)
 	})
 
 	$effect(() => {
@@ -556,6 +559,11 @@
 		{suggestion}
 	</div>
 {/if}
+
+{#if !editor}
+	<FakeMonacoPlaceHolder {code} fontSize={small ? 12 : 14} />
+{/if}
+
 <div
 	bind:this={divEl}
 	class="relative {className} editor simple-editor {!allowVim ? 'nonmain-editor' : ''}"
