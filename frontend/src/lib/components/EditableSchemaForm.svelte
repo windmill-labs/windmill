@@ -11,7 +11,7 @@
 	import FlowPropertyEditor from './schema/FlowPropertyEditor.svelte'
 	import PropertyEditor from './schema/PropertyEditor.svelte'
 	import SimpleEditor from './SimpleEditor.svelte'
-	import { createEventDispatcher } from 'svelte'
+	import { createEventDispatcher, tick } from 'svelte'
 	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
 	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import Label from './Label.svelte'
@@ -24,6 +24,7 @@
 	import { tweened } from 'svelte/motion'
 	import type { SchemaDiff } from '$lib/components/schema/schemaUtils'
 	import type { EditableSchemaFormUi } from '$lib/components/custom_ui'
+	import { createDispatcherIfMounted } from '$lib/createDispatcherIfMounted'
 
 	export let schema: Schema | any
 	export let schemaSkippedValues: string[] = []
@@ -57,6 +58,7 @@
 	export let customUi: EditableSchemaFormUi | undefined = undefined
 
 	const dispatch = createEventDispatcher()
+	const dispatchIfMounted = createDispatcherIfMounted(dispatch)
 
 	let clazz: string = ''
 	export { clazz as class }
@@ -83,7 +85,7 @@
 
 	let keys: string[] = Array.isArray(schema?.order)
 		? [...schema.order]
-		: Object.keys(schema?.properties ?? {}) ?? Object.keys(schema?.properties ?? {})
+		: (Object.keys(schema?.properties ?? {}) ?? Object.keys(schema?.properties ?? {}))
 
 	$: schema && onSchemaChange()
 
@@ -157,10 +159,10 @@
 			? property.type !== 'object'
 				? property.type
 				: property.format === 'resource-s3_object'
-				? 'S3'
-				: property.oneOf && property.oneOf.length >= 2
-				? 'oneOf'
-				: 'object'
+					? 'S3'
+					: property.oneOf && property.oneOf.length >= 2
+						? 'oneOf'
+						: 'object'
 			: ''
 	}
 
@@ -209,7 +211,7 @@
 	let editor: SimpleEditor | undefined = undefined
 
 	const editTabDefaultSize = noPreview ? 100 : 50
-	editPanelSize = editTab ? editPanelInitialSize ?? editTabDefaultSize : 0
+	editPanelSize = editTab ? (editPanelInitialSize ?? editTabDefaultSize) : 0
 	let inputPanelSize = 100 - editPanelSize
 	let editPanelSizeSmooth = tweened(editPanelSize, {
 		duration: 150
@@ -230,7 +232,7 @@
 	function updatePanelSizes(editSize: number, inputSize: number) {
 		editPanelSize = editSize
 		inputPanelSize = inputSize
-		dispatch('editPanelSizeChanged', editSize)
+		dispatchIfMounted('editPanelSizeChanged', editSize)
 	}
 	$: updatePanelSizes($editPanelSizeSmooth, $inputPanelSizeSmooth)
 
@@ -293,11 +295,11 @@
 							on:reorder={(e) => {
 								schema.order = e.detail
 								schema = schema
-								dispatch('change', schema)
+								tick().then(() => dispatch('change', schema))
 							}}
 							on:change={() => {
 								schema = schema
-								dispatch('change', schema)
+								tick().then(() => dispatch('change', schema))
 							}}
 							prettifyHeader={isAppInput}
 							disabled={!!previewSchema}
@@ -447,8 +449,9 @@
 															bind:enum_={schema.properties[argName].enum}
 															bind:format={schema.properties[argName].format}
 															bind:contentEncoding={schema.properties[argName].contentEncoding}
-															bind:customErrorMessage={schema.properties[argName]
-																.customErrorMessage}
+															bind:customErrorMessage={
+																schema.properties[argName].customErrorMessage
+															}
 															bind:itemsType={schema.properties[argName].items}
 															bind:extra={schema.properties[argName]}
 															bind:title={schema.properties[argName].title}

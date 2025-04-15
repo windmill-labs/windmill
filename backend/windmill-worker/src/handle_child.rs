@@ -4,8 +4,9 @@ use futures::Future;
 use nix::sys::signal::{self, Signal};
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 use nix::unistd::Pid;
+use windmill_common::agent_workers::PingJobStatusResponse;
+use windmill_common::jobs::LARGE_LOG_THRESHOLD_SIZE;
 
-use sqlx::{Pool, Postgres};
 #[cfg(windows)]
 use std::process::Stdio;
 use tokio::fs::File;
@@ -15,7 +16,10 @@ use windmill_common::error::to_anyhow;
 
 use windmill_common::error::{self, Error};
 
-use windmill_common::worker::{get_windmill_memory_usage, get_worker_memory_usage, CLOUD_HOSTED};
+use windmill_common::worker::{
+    get_windmill_memory_usage, get_worker_memory_usage, set_job_cancelled_query, Connection,
+    JobCancelled, CLOUD_HOSTED,
+};
 
 use windmill_queue::{append_logs, CanceledBy};
 
@@ -29,7 +33,6 @@ use std::{io, panic, time::Duration};
 
 use tracing::{trace_span, Instrument};
 use uuid::Uuid;
-use windmill_common::DB;
 
 #[cfg(feature = "enterprise")]
 use windmill_common::job_metrics;
@@ -49,8 +52,9 @@ use futures::{
 };
 
 use crate::common::{resolve_job_timeout, OccupancyMetrics};
-use crate::job_logger::{append_job_logs, append_with_limit, LARGE_LOG_THRESHOLD_SIZE};
+use crate::job_logger::{append_job_logs, append_with_limit};
 use crate::job_logger_ee::process_streaming_log_lines;
+use crate::worker_utils::{ping_job_status, update_worker_ping_from_job};
 use crate::{MAX_RESULT_SIZE, MAX_WAIT_FOR_SIGINT, MAX_WAIT_FOR_SIGTERM};
 
 lazy_static::lazy_static! {
@@ -92,7 +96,7 @@ async fn kill_process_tree(pid: Option<u32>) -> Result<(), String> {
 #[tracing::instrument(name="run_subprocess", level = "info", skip_all, fields(otel.name = %child_name))]
 pub async fn handle_child(
     job_id: &Uuid,
-    db: &Pool<Postgres>,
+    conn: &Connection,
     mem_peak: &mut i32,
     canceled_by_ref: &mut Option<CanceledBy>,
     mut child: Child,
@@ -103,6 +107,8 @@ pub async fn handle_child(
     custom_timeout: Option<i32>,
     sigterm: bool,
     occupancy_metrics: &mut Option<&mut OccupancyMetrics>,
+    // Do not print logs to output, but instead save to string.
+    pipe_stdout: Option<&mut String>,
 ) -> error::Result<()> {
     let start = Instant::now();
 
@@ -136,7 +142,7 @@ pub async fn handle_child(
      * waiting for the child to exit normally */
     let update_job = update_job_poller(
         job_id,
-        db,
+        conn,
         mem_peak,
         canceled_by_ref,
         Box::pin(stream::unfold((), move |_| async move {
@@ -182,15 +188,13 @@ pub async fn handle_child(
     }
 
     let (timeout_duration, timeout_warn_msg, is_job_specific) =
-        resolve_job_timeout(&db, w_id, job_id, custom_timeout).await;
+        resolve_job_timeout(&conn, w_id, job_id, custom_timeout).await;
     if let Some(msg) = timeout_warn_msg {
-        append_logs(&job_id, w_id, msg.as_str(), db).await;
+        append_logs(&job_id, w_id, msg.as_str(), conn).await;
     }
 
     /* a future that completes when the child process exits */
     let wait_on_child = async {
-        let db = db.clone();
-
         let kill_reason = tokio::select! {
             biased;
             result = child.wait() => return result.map(Ok),
@@ -206,18 +210,33 @@ pub async fn handle_child(
 
         let set_reason = async {
             if matches!(kill_reason, KillReason::Timeout { .. }) {
-                if let Err(err) = sqlx::query!(
-                    "UPDATE v2_job_queue
-                        SET canceled_by = 'timeout'
-                          , canceled_reason = $1
-                    WHERE id = $2",
-                    format!("duration > {}", timeout_duration.as_secs()),
-                    job_id
-                )
-                .execute(&db)
-                .await
-                {
-                    tracing::error!(%job_id, %err, "error setting cancelation reason for job {job_id}: {err}");
+                match conn {
+                    Connection::Sql(db) => {
+                        if let Err(err) = set_job_cancelled_query(
+                            job_id,
+                            db,
+                            "timeout",
+                            &format!("duration > {}", timeout_duration.as_secs()),
+                        )
+                        .await
+                        {
+                            tracing::error!(%job_id, %err, "error setting cancelation reason for job {job_id}: {err}");
+                        }
+                    }
+                    Connection::Http(client) => {
+                        if let Err(err) = client
+                            .post::<_, ()>(
+                                &format!("/api/agent_workers/set_job_cancelled/{}", job_id),
+                                &JobCancelled {
+                                    canceled_by: "timeout".to_string(),
+                                    reason: format!("duration > {}", timeout_duration.as_secs()),
+                                },
+                            )
+                            .await
+                        {
+                            tracing::error!(%job_id, %err, "error setting cancelation reason for job using http {job_id}: {err}");
+                        }
+                    }
                 }
             }
         };
@@ -304,6 +323,8 @@ pub async fn handle_child(
         let mut log_total_size: u64 = 0;
         let pg_log_total_size = Arc::new(AtomicU32::new(0));
 
+        let mut pipe_stdout = pipe_stdout;
+
         while let Some(line) =  output.by_ref().next().await {
 
             let do_write_ = do_write.shared();
@@ -385,9 +406,14 @@ pub async fn handle_child(
 
             let worker_name = worker.to_string();
             let w_id2 = w_id.to_string();
-            (do_write, write_result) = tokio::spawn(append_job_logs(job_id, w_id2, joined, db.clone(), compact_logs, pg_log_total_size.clone(), worker_name)).remote_handle();
 
 
+            if let Some(buf) = &mut pipe_stdout {
+                buf.push_str(&joined);
+                (do_write, write_result) = tokio::spawn(async { }).remote_handle();
+            } else {
+                (do_write, write_result) = tokio::spawn(append_job_logs(job_id, w_id2, joined, conn.clone(), compact_logs, pg_log_total_size.clone(), worker_name)).remote_handle();
+            }
 
             if let Err(err) = result {
                 tracing::error!(%job_id, %err, "error reading output for job {job_id} '{child_name}': {err}");
@@ -490,7 +516,7 @@ pub(crate) async fn get_mem_peak(pid: Option<u32>, nsjail: bool) -> i32 {
 pub async fn run_future_with_polling_update_job_poller<Fut, T, S>(
     job_id: Uuid,
     timeout: Option<i32>,
-    db: &DB,
+    conn: &Connection,
     mem_peak: &mut i32,
     canceled_by_ref: &mut Option<CanceledBy>,
     result_f: Fut,
@@ -507,7 +533,7 @@ where
 
     let update_job = update_job_poller(
         job_id,
-        db,
+        conn,
         mem_peak,
         canceled_by_ref,
         get_mem,
@@ -518,7 +544,7 @@ where
     );
 
     let timeout_ms = u64::try_from(
-        resolve_job_timeout(&db, &w_id, job_id, timeout)
+        resolve_job_timeout(&conn, &w_id, job_id, timeout)
             .await
             .0
             .as_millis(),
@@ -553,7 +579,7 @@ pub enum UpdateJobPollingExit {
 
 pub async fn update_job_poller<S>(
     job_id: Uuid,
-    db: &DB,
+    conn: &Connection,
     mem_peak: &mut i32,
     canceled_by_ref: &mut Option<CanceledBy>,
     mut get_mem: S,
@@ -567,8 +593,7 @@ where
 {
     let update_job_interval = Duration::from_millis(500);
 
-    let db = db.clone();
-
+    let conn = conn.clone();
     let mut interval = interval(update_job_interval);
     interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
 
@@ -590,22 +615,9 @@ where
                     tracing::info!("job {job_id} on {worker_name} in {w_id} worker memory snapshot {}kB/{}kB", memory_usage.unwrap_or_default()/1024, wm_memory_usage.unwrap_or_default()/1024);
                     let occupancy = occupancy_metrics.as_mut().map(|x| x.update_occupancy_metrics());
                     if job_id != Uuid::nil() {
-                        sqlx::query!(
-                            "UPDATE worker_ping SET ping_at = now(), current_job_id = $1, current_job_workspace_id = $2, memory_usage = $3, wm_memory_usage = $4,
-                            occupancy_rate = $6, occupancy_rate_15s = $7, occupancy_rate_5m = $8, occupancy_rate_30m = $9 WHERE worker = $5",
-                            &job_id,
-                            &w_id,
-                            memory_usage,
-                            wm_memory_usage,
-                            &worker_name,
-                            occupancy.map(|x| x.0),
-                            occupancy.and_then(|x| x.1),
-                            occupancy.and_then(|x| x.2),
-                            occupancy.and_then(|x| x.3),
-                        )
-                        .execute(&db)
-                        .await
-                        .expect("update worker ping");
+                        if let Err(err) = update_worker_ping_from_job(&conn, &job_id, w_id, worker_name, memory_usage, wm_memory_usage, occupancy).await {
+                            tracing::error!("Unable to update worker ping for job {} in workspace {}. Error was: {:?}", job_id, w_id, err);
+                        }
                     }
                 }
                 let current_mem = get_mem.next().await.unwrap_or(0);
@@ -620,55 +632,49 @@ where
                 #[cfg(feature = "enterprise")]
                 {
                     if job_id != Uuid::nil() {
-
-                        // tracking metric starting at i >= 2 b/c first point it useless and we don't want to track metric for super fast jobs
-                        if i == 2 {
-                            memory_metric_id = job_metrics::register_metric_for_job(
-                                &db,
-                                w_id.to_string(),
-                                job_id,
-                                "memory_kb".to_string(),
-                                job_metrics::MetricKind::TimeseriesInt,
-                                Some("Job Memory Footprint (kB)".to_string()),
-                            )
-                            .await;
-                        }
-                        if let Ok(ref metric_id) = memory_metric_id {
-                            if let Err(err) = job_metrics::record_metric(&db, w_id.to_string(), job_id, metric_id.to_owned(), job_metrics::MetricNumericValue::Integer(current_mem)).await {
-                                tracing::error!("Unable to save memory stat for job {} in workspace {}. Error was: {:?}", job_id, w_id, err);
+                        if let Connection::Sql(ref db) = conn {
+                            // tracking metric starting at i >= 2 b/c first point it useless and we don't want to track metric for super fast jobs
+                            if i == 2 {
+                                        memory_metric_id = job_metrics::register_metric_for_job(
+                                    &db,
+                                    w_id.to_string(),
+                                    job_id,
+                                    "memory_kb".to_string(),
+                                    job_metrics::MetricKind::TimeseriesInt,
+                                    Some("Job Memory Footprint (kB)".to_string()),
+                                )
+                                .await;
+                            }
+                            if let Ok(ref metric_id) = memory_metric_id {
+                                if let Err(err) = job_metrics::record_metric(&db, w_id.to_string(), job_id, metric_id.to_owned(), job_metrics::MetricNumericValue::Integer(current_mem)).await {
+                                    tracing::error!("Unable to save memory stat for job {} in workspace {}. Error was: {:?}", job_id, w_id, err);
+                                }
                             }
                         }
                     }
                 }
                 if job_id != Uuid::nil() {
-                    let (canceled_by, canceled_reason, already_completed) = sqlx::query!(
-                            "UPDATE v2_job_runtime r SET
-                                memory_peak = $1,
-                                ping = now()
-                            FROM v2_job_queue q
-                            WHERE r.id = $2 AND q.id = r.id
-                            RETURNING canceled_by, canceled_reason",
-                            *mem_peak,
-                            job_id
-                        )
-                        .map(|x| (x.canceled_by, x.canceled_reason, false))
-                        .fetch_optional(&db)
-                        .await
-                        .unwrap_or_else(|e| {
-                            tracing::error!(%e, "error updating job {job_id}: {e:#}");
-                            Some((None, None, false))
-                        })
-                        .unwrap_or_else(|| {
-                            // if the job is not in queue, it can only be in the completed_job so it is already complete
-                            (None, None, true)
-                        });
-                    if already_completed {
+                    if matches!(conn, Connection::Http(_)) {
+                        if i % 4 != 0 {
+                            // only ping every 4th time (2s) on http agent mode
+                            continue;
+                        }
+                    }
+                    let ping_job_status = ping_job_status(&conn, &job_id, Some(*mem_peak), if current_mem > 0 { Some(current_mem) } else { None }).await.unwrap_or_else(|e| {
+                            tracing::error!("Unable to ping job status for job {job_id}. Error was: {:?}", e);
+                            PingJobStatusResponse {
+                            canceled_by: None,
+                            canceled_reason: None,
+                            already_completed: false,
+                        }
+                    });
+                    if ping_job_status.already_completed {
                         return UpdateJobPollingExit::AlreadyCompleted
                     }
-                    if canceled_by.is_some() {
+                    if ping_job_status.canceled_by.is_some() {
                         canceled_by_ref.replace(CanceledBy {
-                            username: canceled_by.clone(),
-                            reason: canceled_reason.clone(),
+                            username: ping_job_status.canceled_by.clone(),
+                            reason: ping_job_status.canceled_reason.clone(),
                         });
                         break
                     }

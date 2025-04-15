@@ -15,8 +15,11 @@ use crate::{
     PATH_ENV, TZ_ENV,
 };
 use tokio::{fs::File, io::AsyncReadExt, process::Command};
-use windmill_common::error::{self};
 use windmill_common::{error::Result, worker::write_file, BASE_URL};
+use windmill_common::{
+    error::{self},
+    worker::Connection,
+};
 use windmill_parser::Typ;
 
 lazy_static::lazy_static! {
@@ -97,7 +100,7 @@ pub async fn generate_deno_lock(
     mem_peak: &mut i32,
     canceled_by: &mut Option<CanceledBy>,
     job_dir: &str,
-    db: Option<&sqlx::Pool<sqlx::Postgres>>,
+    db: Option<&Connection>,
     w_id: &str,
     worker_name: &str,
     base_internal_url: &str,
@@ -156,6 +159,7 @@ pub async fn generate_deno_lock(
             None,
             false,
             occupancy_metrics,
+            None,
         )
         .await?;
     } else {
@@ -178,7 +182,7 @@ pub async fn handle_deno_job(
     mem_peak: &mut i32,
     canceled_by: &mut Option<CanceledBy>,
     job: &MiniPulledJob,
-    db: &sqlx::Pool<sqlx::Postgres>,
+    conn: &Connection,
     client: &AuthedClient,
     parent_runnable_path: Option<String>,
     job_dir: &str,
@@ -191,7 +195,7 @@ pub async fn handle_deno_job(
 ) -> error::Result<Box<RawValue>> {
     // let mut start = Instant::now();
     let logs1 = "\n\n--- DENO CODE EXECUTION ---\n".to_string();
-    append_logs(&job.id, &job.workspace_id, logs1, db).await;
+    append_logs(&job.id, &job.workspace_id, logs1, conn).await;
 
     let main_override = job.script_entrypoint_override.as_deref();
     let apply_preprocessor = !job.is_flow_step() && job.preprocessed == Some(false);
@@ -315,11 +319,12 @@ try {{
 
     let reserved_variables_args_out_f = async {
         let args_and_out_f = async {
-            create_args_and_out_file(&client, job, job_dir, db).await?;
+            create_args_and_out_file(&client, job, job_dir, conn).await?;
             Ok(()) as Result<()>
         };
         let reserved_variables_f = async {
-            let vars = get_reserved_variables(job, &client.token, db, parent_runnable_path).await?;
+            let vars =
+                get_reserved_variables(job, &client.token, conn, parent_runnable_path).await?;
             Ok(vars) as Result<HashMap<String, String>>
         };
         let (_, reserved_variables) = tokio::try_join!(args_and_out_f, reserved_variables_f)?;
@@ -403,7 +408,7 @@ try {{
     // start = Instant::now();
     handle_child(
         &job.id,
-        db,
+        conn,
         mem_peak,
         canceled_by,
         child,
@@ -414,6 +419,7 @@ try {{
         job.timeout,
         false,
         &mut Some(occupancy_metrics),
+        None,
     )
     .await?;
     // logs.push_str(format!("execute: {:?}\n", start.elapsed().as_millis()).as_str());
@@ -512,7 +518,7 @@ pub async fn start_worker(
     let common_deno_proc_envs = get_common_deno_proc_envs(&token, base_internal_url).await;
 
     let context = variables::get_reserved_variables(
-        db,
+        &db.into(),
         w_id,
         &token,
         "dedicated_worker@windmill.dev",

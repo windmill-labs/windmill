@@ -140,7 +140,7 @@
 						/>
 					{/if}
 					<span class="mt-2 text-xs font-bold">Stop condition expression</span>
-					<textarea disabled rows="3" class="min-h-[80px]" />
+					<textarea disabled rows="3" class="min-h-[80px]"></textarea>
 				{/if}
 			</div>
 		</Section>
@@ -225,7 +225,7 @@
 						/>
 					{/if}
 					<span class="mt-2 text-xs font-bold">Stop condition expression</span>
-					<textarea disabled rows="3" class="min-h-[80px]" />
+					<textarea disabled rows="3" class="min-h-[80px]"></textarea>
 				{/if}
 			</div>
 		</Section>

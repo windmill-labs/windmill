@@ -21,7 +21,7 @@
 	import ShareModal from '$lib/components/ShareModal.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import { enterpriseLicense, userStore, workspaceStore } from '$lib/stores'
-	import { Code, Eye, Pen, Plus, Share, Trash, Circle, Database, FileUp } from 'lucide-svelte'
+	import { Code, Eye, Pen, Plus, Share, Trash, Circle, FileUp } from 'lucide-svelte'
 	import { goto } from '$lib/navigation'
 	import SearchItems from '$lib/components/SearchItems.svelte'
 	import NoItemFound from '$lib/components/home/NoItemFound.svelte'
@@ -36,6 +36,7 @@
 	import SqsTriggerEditor from '$lib/components/triggers/sqs/SqsTriggerEditor.svelte'
 	import { ALL_DEPLOYABLE, isDeployable } from '$lib/utils_deployable'
 	import DeployWorkspaceDrawer from '$lib/components/DeployWorkspaceDrawer.svelte'
+	import { AwsIcon } from '$lib/components/icons'
 
 	type TriggerD = SqsTrigger & { canWrite: boolean }
 
@@ -237,7 +238,7 @@
 		<Alert title="Not compatible with multi-tenant cloud" type="warning">
 			SQS triggers are disabled in the multi-tenant cloud.
 		</Alert>
-		<div class="py-4" />
+		<div class="py-4"></div>
 	{/if}
 	<div class="w-full h-full flex flex-col">
 		<div class="w-full pb-4 pt-6">
@@ -250,7 +251,7 @@
 			<div class="flex flex-row items-center gap-2 mt-6">
 				<div class="text-sm shrink-0"> Filter by path of </div>
 				<ToggleButtonGroup bind:selected={selectedFilterKind} let:item>
-					<ToggleButton small value="trigger" label="SQS trigger" icon={Database} {item} />
+					<ToggleButton small value="trigger" label="SQS trigger" icon={AwsIcon} {item} />
 					<ToggleButton small value="script_flow" label="Script/Flow" icon={Code} {item} />
 				</ToggleButtonGroup>
 			</div>
@@ -296,7 +297,7 @@
 								<div class="text-primary flex-wrap text-left text-md font-semibold mb-1 truncate">
 									{path}
 								</div>
-								<div class="text-secondary text-xs truncate text-left font-light" />
+								<div class="text-secondary text-xs truncate text-left font-light"></div>
 								<div class="text-secondary text-xs truncate text-left font-light">
 									runnable: {script_path}
 								</div>
@@ -418,7 +419,7 @@
 											displayName: canWrite ? 'Share' : 'See Permissions',
 											icon: Share,
 											action: () => {
-												shareModal.openDrawer(path, 'websocket_trigger')
+												shareModal.openDrawer(path, 'sqs_trigger')
 											}
 										}
 									]}

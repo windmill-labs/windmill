@@ -480,7 +480,7 @@
 			{/if}
 		</div>
 
-		<div class="mt-8 mb-4" />
+		<div class="mt-8 mb-4"></div>
 		<div class="grid sm:grid-cols-2 md:grid-cols-3 gap-x-2 gap-y-1 items-center mb-2">
 			{#if filteredConnectsManual}
 				{#each filteredConnectsManual as [key, _]}
@@ -552,18 +552,19 @@
 		{#if renderDescription}
 			<div>
 				<div class="flex flex-row-reverse text-2xs text-tertiary -mt-1">GH Markdown</div>
-				<textarea use:autosize bind:value={description} placeholder={'Resource description'} />
+				<textarea use:autosize bind:value={description} placeholder={'Resource description'}></textarea>
 			</div>
 		{:else if description == undefined || description == ''}
 			<div class="text-sm text-tertiary">No description provided</div>
 		{:else}
-			<div class="mt-2" />
+			<div class="mt-2"></div>
 			<GfmMarkdown md={description} />
 		{/if}
 		<div class="mt-12">
 			{#key resourceTypeInfo}
 				<ApiConnectForm
 					bind:linkedSecret
+					bind:description
 					{linkedSecretCandidates}
 					{resourceType}
 					{resourceTypeInfo}

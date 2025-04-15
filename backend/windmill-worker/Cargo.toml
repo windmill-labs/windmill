@@ -30,17 +30,20 @@ python = ["dep:windmill-parser-py", "dep:windmill-parser-py-imports"]
 csharp = ["dep:windmill-parser-csharp"]
 rust = ["dep:windmill-parser-rust"]
 nu = ["dep:windmill-parser-nu"]
+java = ["dep:windmill-parser-java"]
 
 [dependencies]
 windmill-queue.workspace = true
 windmill-audit.workspace = true # there isn't really a reason for audit-worth actions to happen in the worker.
 windmill-common = { workspace = true, default-features = false }
+windmill-macros.workspace = true
 windmill-parser.workspace = true
 windmill-parser-ts.workspace = true
 windmill-parser-go.workspace = true
 windmill-parser-rust = { workspace = true, optional = true }
 windmill-parser-csharp = { workspace = true, optional = true }
 windmill-parser-nu = { workspace = true, optional = true }
+windmill-parser-java = { workspace = true, optional = true }
 windmill-parser-py = { workspace = true, optional = true }
 windmill-parser-yaml.workspace = true
 windmill-parser-py-imports = { workspace = true, optional = true }
@@ -49,6 +52,7 @@ windmill-parser-sql.workspace = true
 windmill-parser-graphql.workspace = true
 windmill-parser-php = { workspace = true, optional = true }
 windmill-git-sync.workspace = true
+flume.workspace = true
 sqlx.workspace = true
 uuid.workspace = true
 tracing.workspace = true
@@ -72,6 +76,7 @@ dyn-iter.workspace = true
 once_cell.workspace = true
 tokio-postgres.workspace = true
 bit-vec.workspace = true
+url.workspace = true
 deno_telemetry = { workspace = true, optional = true }
 deno_fetch = { workspace = true, optional = true }
 deno_webidl = { workspace = true, optional = true }
@@ -99,6 +104,7 @@ urlencoding.workspace = true
 nix.workspace = true
 bytes.workspace = true
 reqwest.workspace = true
+reqwest-middleware.workspace = true
 hex.workspace = true
 tiberius = { workspace = true, optional = true }
 tokio-util = { workspace = true, optional = true }

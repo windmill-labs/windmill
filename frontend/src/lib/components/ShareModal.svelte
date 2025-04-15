@@ -31,6 +31,7 @@
 		| 'mqtt_trigger'
 		| 'sqs_trigger'
 		| 'postgres_trigger'
+		| 'gcp_trigger'
 	let kind: Kind
 
 	let path: string = ''
@@ -147,8 +148,8 @@
 				<TableCustom>
 					<tr slot="header-row">
 						<th>owner</th>
-						<th />
-						<th />
+						<th></th>
+						<th></th>
 					</tr>
 					<tbody slot="body">
 						{#each acls as [owner, write]}

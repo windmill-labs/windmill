@@ -60,6 +60,7 @@
 		MeltButton
 	} from '$lib/components/meltComponents'
 	import MenuButton from './MenuButton.svelte'
+	import GoogleCloudIcon from '../icons/GoogleCloudIcon.svelte'
 
 	export let numUnacknowledgedCriticalAlerts = 0
 
@@ -137,12 +138,19 @@
 			kind: 'sqs'
 		},
 		{
+			label: 'GCP Pub/Sub' + ($enterpriseLicense ? '' : ' (EE)'),
+			href: '/gcp_triggers',
+			icon: GoogleCloudIcon,
+			disabled: $userStore?.operator || !$enterpriseLicense,
+			kind: 'gcp'
+		},
+		{
 			label: 'MQTT',
 			href: '/mqtt_triggers',
 			icon: MqttIcon,
 			disabled: $userStore?.operator,
 			kind: 'mqtt'
-		},
+		}
 	]
 
 	$: extraTriggerLinks = defaultExtraTriggerLinks.filter((link) => {
@@ -457,8 +465,8 @@
 									>
 										<span
 											class="animate-ping absolute inline-flex h-full w-full rounded-full bg-frost-400 opacity-75"
-										/>
-										<span class="relative inline-flex rounded-full h-2 w-2 bg-frost-500" />
+										></span>
+										<span class="relative inline-flex rounded-full h-2 w-2 bg-frost-500"></span>
 									</span>
 								{/if}
 							</button>
@@ -475,7 +483,7 @@
 							</MenuItem>
 						{/each}
 						{#if recentChangelogs.length > 0}
-							<div class="w-full h-1 border-t" />
+							<div class="w-full h-1 border-t"></div>
 							<span class="text-xs px-4 font-bold"> Latest changelogs </span>
 							{#each recentChangelogs as changelog}
 								<MenuItem href={changelog.href} class={itemClass} target="_blank" {item}>

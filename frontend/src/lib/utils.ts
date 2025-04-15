@@ -16,9 +16,21 @@ import type { EnumType, SchemaProperty } from './common'
 import type { Schema } from './common'
 export { sendUserToast }
 import type { AnyMeltElement } from '@melt-ui/svelte'
+import type { RunsSelectionMode } from './components/runs/RunsBatchActionsDropdown.svelte'
 
 export function isJobCancelable(j: Job): boolean {
 	return j.type === 'QueuedJob' && !j.schedule_path && !j.canceled
+}
+export function isJobReRunnable(j: Job): boolean {
+	return (j.job_kind === 'script' || j.job_kind === 'flow') && j.parent_job === undefined
+}
+
+export function isJobSelectable(selectionType: RunsSelectionMode) {
+	const f: (j: Job) => boolean = {
+		cancel: isJobCancelable,
+		're-run': isJobReRunnable
+	}[selectionType]
+	return f
 }
 
 export function validateUsername(username: string): string {
@@ -85,7 +97,7 @@ export function displayDate(
 			? {
 					day: 'numeric',
 					month: 'numeric'
-			  }
+				}
 			: {}
 		return date.toLocaleString(undefined, {
 			...timeChoices,
@@ -229,7 +241,7 @@ export function clickOutside(
 		}
 	}
 
-	const capture = typeof options === 'boolean' ? options : options?.capture ?? true
+	const capture = typeof options === 'boolean' ? options : (options?.capture ?? true)
 	document.addEventListener('click', handleClick, capture ?? true)
 
 	return {
@@ -603,6 +615,10 @@ export function pluralize(quantity: number, word: string, customPlural?: string)
 	} else {
 		return `${quantity} ${word}s`
 	}
+}
+
+export function addDeterminant(word: string): string {
+	return (/^[aeiou]/i.test(word) ? 'an ' : 'a ') + word
 }
 
 export function capitalize(word: string): string {
@@ -1168,4 +1184,45 @@ export function localeConcatAnd(items: string[]) {
 	if (!items.length) return ''
 	if (items.length === 1) return items[0]
 	return items.slice(0, -1).join(', ') + ' and ' + items[items.length - 1]
+}
+
+export function formatDate(dateString: string | undefined): string {
+	if (!dateString) return ''
+	const date = new Date(dateString)
+	return new Intl.DateTimeFormat('en-US', {
+		year: 'numeric',
+		month: 'short',
+		day: 'numeric',
+		hour: '2-digit',
+		minute: '2-digit'
+	}).format(date)
+}
+
+export function formatDateShort(dateString: string | undefined): string {
+	if (!dateString) return ''
+	const date = new Date(dateString)
+	const now = new Date()
+
+	// If date is today, only show time
+	if (date.toDateString() === now.toDateString()) {
+		return new Intl.DateTimeFormat('en-US', {
+			hour: '2-digit',
+			minute: '2-digit'
+		}).format(date)
+	}
+
+	// If date is this year, show only month and day
+	if (date.getFullYear() === now.getFullYear()) {
+		return new Intl.DateTimeFormat('en-US', {
+			month: 'short',
+			day: 'numeric'
+		}).format(date)
+	}
+
+	// If date is from another year, only show the date with year
+	return new Intl.DateTimeFormat('en-US', {
+		year: 'numeric',
+		month: 'short',
+		day: 'numeric'
+	}).format(date)
 }

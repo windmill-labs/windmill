@@ -101,7 +101,7 @@
 		{/if}
 		<SharedBadge canWrite={flow.canWrite} extraPerms={flow.extra_perms} />
 		<DraftBadge has_draft={flow.has_draft} draft_only={flow.draft_only} />
-		<div class="w-8 center-center" />
+		<div class="w-8 center-center"></div>
 	</svelte:fragment>
 	<svelte:fragment slot="actions">
 		<span class="hidden md:inline-flex gap-x-1">

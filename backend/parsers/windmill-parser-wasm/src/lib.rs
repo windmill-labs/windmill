@@ -155,3 +155,11 @@ pub fn parse_csharp(code: &str) -> String {
 pub fn parse_nu(code: &str) -> String {
     wrap_sig(windmill_parser_nu::parse_nu_signature(code))
 }
+
+#[cfg(feature = "java-parser")]
+#[wasm_bindgen]
+pub fn parse_java(code: &str) -> String {
+    wrap_sig(windmill_parser_java::parse_java_signature(code))
+}
+
+// for related places search: ADD_NEW_LANG

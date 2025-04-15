@@ -116,7 +116,7 @@
 			</div>
 		</div>
 
-		<div class="mt-2" />
+		<div class="mt-2"></div>
 		<Alert size="xs" title="Group fields are mutable" type="info">
 			You may set the value of a group field in a frontend script within the group using: <code
 				>group.x = 42</code

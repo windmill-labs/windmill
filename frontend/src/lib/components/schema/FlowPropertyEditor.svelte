@@ -18,6 +18,7 @@
 	import { Pen, Plus, Trash2 } from 'lucide-svelte'
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
 	import { deepEqual } from 'fast-equals'
+	import { createDispatcherIfMounted } from '$lib/createDispatcherIfMounted'
 
 	export let format: string | undefined = undefined
 	export let contentEncoding: 'base64' | 'binary' | undefined = undefined
@@ -92,6 +93,7 @@
 	$: orderUpdate(order)
 
 	const dispatch = createEventDispatcher()
+	const dispatchIfMounted = createDispatcherIfMounted(dispatch)
 
 	function getResourceTypesFromFormat(format: string | undefined): string[] {
 		if (format?.startsWith('resource-')) {
@@ -132,7 +134,7 @@
 					}
 				}
 			})
-			dispatch('schemaChange', { properties, order, requiredProperty, oneOf })
+			dispatchIfMounted('schemaChange', { properties, order, requiredProperty, oneOf })
 		}
 	}
 

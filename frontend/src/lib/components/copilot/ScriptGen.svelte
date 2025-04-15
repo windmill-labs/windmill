@@ -8,13 +8,7 @@
 	import type Editor from '../Editor.svelte'
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
 	import TooltipV2 from '$lib/components/meltComponents/Tooltip.svelte'
-	import {
-		dbSchemas,
-		copilotInfo,
-		type DBSchema,
-		workspaceStore,
-		copilotSessionModel
-	} from '$lib/stores'
+	import { dbSchemas, copilotInfo, type DBSchema, workspaceStore } from '$lib/stores'
 	import type DiffEditor from '../DiffEditor.svelte'
 	import { scriptLangToEditorLang } from '$lib/scripts'
 	import type SimpleEditor from '../SimpleEditor.svelte'
@@ -31,6 +25,7 @@
 	import { isInitialCode } from '$lib/script_helpers'
 	import { twMerge } from 'tailwind-merge'
 	import { onDestroy } from 'svelte'
+	import ProviderModelSelector from './chat/ProviderModelSelector.svelte'
 
 	// props
 	export let iconOnly: boolean = false
@@ -65,7 +60,6 @@
 			return
 		}
 		savePrompt()
-		const aiProvider = $copilotInfo.ai_provider
 		try {
 			genLoading = true
 			blockPopupOpen = true
@@ -82,8 +76,7 @@
 						workspace: $workspaceStore!
 					},
 					generatedCode,
-					abortController,
-					aiProvider
+					abortController
 				)
 			} else {
 				await copilot(
@@ -96,8 +89,7 @@
 						workspace: $workspaceStore!
 					},
 					generatedCode,
-					abortController,
-					aiProvider
+					abortController
 				)
 			}
 			setupDiff()
@@ -239,16 +231,6 @@
 		}
 	}
 
-	function checkForInvalidModel() {
-		if (
-			!$copilotSessionModel ||
-			($copilotSessionModel && !$copilotInfo.ai_models.includes($copilotSessionModel))
-		) {
-			$copilotSessionModel = $copilotInfo.ai_models[0]
-		}
-	}
-	$: $copilotInfo && checkForInvalidModel()
-
 	function handlePublicOnlySelected({ detail }: { detail: string }) {
 		if (!dbSchema) return
 		;(dbSchema as any).publicOnly = detail === 'true'
@@ -262,7 +244,7 @@
 <svelte:window on:resize={autoResize} bind:innerWidth />
 
 {#if genLoading}
-	<div transition:fade class="fixed z-[4999] inset-0 bg-gray-500/75" />
+	<div transition:fade class="fixed z-[4999] inset-0 bg-gray-500/75"></div>
 {/if}
 
 {#if $generatedCode.length > 0 && !genLoading}
@@ -346,7 +328,7 @@
 								setTimeout(() => {
 									autoResize()
 								}, 0)
-						  }}
+							}}
 					bind:element={button}
 					iconOnly
 					title="Generate code from prompt"
@@ -379,7 +361,7 @@
 								setTimeout(() => {
 									autoResize()
 								}, 0)
-						  }}
+							}}
 					bind:element={button}
 					{iconOnly}
 				>
@@ -403,7 +385,7 @@
 							<LoadingIcon />
 						{/if}
 					</div>
-				{:else if $copilotInfo.exists_ai_resource}
+				{:else if $copilotInfo.enabled}
 					<div class="flex flex-col gap-4">
 						<div class="flex flex-row justify-between items-center w-96 gap-2">
 							<ToggleButtonGroup class="w-auto shrink-0 h-auto" bind:selected={mode} let:item>
@@ -417,31 +399,7 @@
 								<ToggleButton value={'edit'} label="Edit existing code" light class="px-2" {item} />
 							</ToggleButtonGroup>
 
-							<div class="min-w-0">
-								<TooltipV2>
-									{#if $copilotInfo.ai_models.length > 1}
-										<select
-											bind:value={$copilotSessionModel}
-											class="!text-xs !pr-5 !bg-[right_center] overflow-ellipsis text-right !border-none !shadow-none"
-										>
-											{#each $copilotInfo.ai_models as model}
-												<option value={model} class="pr-4">{model}</option>
-											{/each}
-										</select>
-									{:else if $copilotInfo.ai_models.length === 1}
-										<div class="text-xs whitespace-nowrap overflow-hidden overflow-ellipsis">
-											{$copilotInfo.ai_models[0]}
-										</div>
-									{/if}
-									<svelte:fragment slot="text">
-										<span class="text-xs"
-											>{$copilotInfo.ai_models.length > 1
-												? $copilotSessionModel
-												: $copilotInfo.ai_models[0]}</span
-										>
-									</svelte:fragment>
-								</TooltipV2>
-							</div>
+							<ProviderModelSelector />
 						</div>
 						<div class="flex w-96 items-start">
 							<textarea
@@ -459,7 +417,7 @@
 									: 'Describe what the script should do'}
 								rows="1"
 								class="resize-none overflow-hidden"
-							/>
+							></textarea>
 							<Button
 								size="xs"
 								color="light"

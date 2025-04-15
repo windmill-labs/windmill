@@ -61,7 +61,7 @@ async fn list_contextual_variables(
 ) -> JsonResult<Vec<ContextualVariable>> {
     Ok(Json(
         get_reserved_variables(
-            &db,
+            &db.into(),
             &w_id,
             "q1A0qcPuO00yxioll7iph76N9CJDqn",
             &email,
@@ -691,14 +691,21 @@ pub async fn get_variable_or_self(path: String, db: &DB, w_id: &str) -> Result<S
         &path,
         &w_id
     )
-    .fetch_one(db)
+    .fetch_optional(db)
     .await?;
 
-    let mut value = record.value;
-    if record.is_secret {
-        let mc = build_crypt(db, w_id).await?;
-        value = decrypt(&mc, value)?;
-    }
+    if let Some(record) = record {
+        let mut value = record.value;
+        if record.is_secret {
+            let mc = build_crypt(db, w_id).await?;
+            value = decrypt(&mc, value)?;
+        }
 
-    Ok(value)
+        Ok(value)
+    } else {
+        Err(Error::NotFound(format!(
+            "Variable not found when resolving `$var:{}`",
+            path
+        )))
+    }
 }

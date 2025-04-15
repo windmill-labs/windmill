@@ -8,9 +8,11 @@ use tiberius::{AuthMethod, Client, ColumnData, Config, FromSqlOwned, Query, Row,
 use tokio::net::TcpStream;
 use tokio_util::compat::TokioAsyncWriteCompatExt;
 use uuid::Uuid;
-use windmill_common::error::to_anyhow;
-use windmill_common::error::{self, Error};
-use windmill_common::worker::to_raw_value;
+use windmill_common::{
+    error::{self, to_anyhow, Error},
+    utils::empty_string_as_none,
+    worker::{to_raw_value, Connection},
+};
 use windmill_parser_sql::{parse_db_resource, parse_mssql_sig};
 use windmill_queue::MiniPulledJob;
 use windmill_queue::{append_logs, CanceledBy};
@@ -20,14 +22,27 @@ use crate::handle_child::run_future_with_polling_update_job_poller;
 use crate::sanitized_sql_params::sanitize_and_interpolate_unsafe_sql_args;
 use crate::AuthedClient;
 
+use serde::Deserializer;
+
 #[derive(Deserialize)]
 struct MssqlDatabase {
     host: String,
-    user: String,
-    password: String,
+    user: Option<String>,
+    password: Option<String>,
     port: Option<u16>,
     dbname: String,
     instance_name: Option<String>,
+    #[serde(default, deserialize_with = "deserialize_aad_token")]
+    aad_token: Option<AadToken>,
+    trust_cert: Option<bool>,
+    #[serde(default, deserialize_with = "empty_string_as_none")]
+    ca_cert: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct AadToken {
+    #[serde(default, deserialize_with = "empty_string_as_none")]
+    token: Option<String>,
 }
 
 lazy_static::lazy_static! {
@@ -38,13 +53,14 @@ pub async fn do_mssql(
     job: &MiniPulledJob,
     client: &AuthedClient,
     query: &str,
-    db: &sqlx::Pool<sqlx::Postgres>,
+    conn: &Connection,
     mem_peak: &mut i32,
     canceled_by: &mut Option<CanceledBy>,
     worker_name: &str,
     occupancy_metrics: &mut OccupancyMetrics,
+    job_dir: &str,
 ) -> error::Result<Box<RawValue>> {
-    let mssql_args = build_args_values(job, client, db).await?;
+    let mssql_args = build_args_values(job, client, conn).await?;
 
     let inline_db_res_path = parse_db_resource(&query);
 
@@ -90,12 +106,42 @@ pub async fn do_mssql(
 
     if readonly_intent {
         let logs = format!("\nSetting ApplicationIntent to ReadOnly");
-        append_logs(&job.id, &job.workspace_id, logs, db).await;
+        append_logs(&job.id, &job.workspace_id, logs, conn).await;
     }
 
-    // Using SQL Server authentication.
-    config.authentication(AuthMethod::sql_server(database.user, database.password));
-    config.trust_cert(); // on production, it is not a good idea to do this
+    // Handle authentication based on available credentials
+    if let Some(token_value) = &database.aad_token {
+        if let Some(token) = &token_value.token {
+            config.authentication(AuthMethod::aad_token(token));
+        } else {
+            return Err(Error::BadRequest(
+                "Invalid AAD token format - expected { token: string }".to_string(),
+            ));
+        }
+    } else if let (Some(user), Some(password)) = (&database.user, &database.password) {
+        config.authentication(AuthMethod::sql_server(user.clone(), password.clone()));
+    } else {
+        return Err(Error::BadRequest(
+            "Neither AAD token nor username/password credentials are set".to_string(),
+        ));
+    }
+
+    // Handle certificate trust configuration
+    if database.trust_cert.unwrap_or(true) {
+        // If trust_cert is true, ignore ca_cert and trust any certificate
+        config.trust_cert();
+        tracing::info!("MSSQL: disabling certificate validation");
+    } else if let Some(ca_cert) = &database.ca_cert {
+        // Only use ca_cert if trust_cert is false
+        let cert_path = format!("{}/ca_cert.pem", job_dir);
+
+        std::fs::write(&cert_path, ca_cert)
+            .map_err(|e| Error::ExecutionErr(format!("Failed to write CA certificate: {}", e)))?;
+
+        // Use the CA certificate for trust
+        config.trust_cert_ca(cert_path);
+        tracing::info!("MSSQL: using provided CA certificate for trust");
+    }
 
     let tcp = if use_instance_name {
         TcpStream::connect_named(&config).await.map_err(to_anyhow)? // named instance
@@ -178,7 +224,7 @@ pub async fn do_mssql(
     let raw_result = run_future_with_polling_update_job_poller(
         job.id,
         job.timeout,
-        db,
+        conn,
         mem_peak,
         canceled_by,
         result_f,
@@ -332,5 +378,17 @@ fn sql_to_json_value(val: ColumnData) -> Result<Value, Error> {
             DateTime::<Utc>::from_sql_owned(ColumnData::DateTimeOffset(x)).map_err(to_anyhow)?,
             |x| Ok(Value::String(x.to_string())),
         ),
+    }
+}
+
+fn deserialize_aad_token<'de, D>(deserializer: D) -> Result<Option<AadToken>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let result = AadToken::deserialize(deserializer);
+
+    match result {
+        Ok(token) if token.token.is_some() => Ok(Some(token)),
+        _ => Ok(None),
     }
 }

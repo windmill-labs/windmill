@@ -3,6 +3,7 @@ import type { Writable } from 'svelte/store'
 
 export type ScheduleTrigger = {
 	summary: string | undefined
+	description?: string
 	args: Record<string, any>
 	cron: string
 	timezone: string
@@ -53,6 +54,7 @@ export type TriggerKind =
 	| 'postgres'
 	| 'mqtt'
 	| 'sqs'
+	| 'gcp'
 export function captureTriggerKindToTriggerKind(kind: CaptureTriggerKind): TriggerKind {
 	switch (kind) {
 		case 'webhook':
@@ -73,6 +75,8 @@ export function captureTriggerKindToTriggerKind(kind: CaptureTriggerKind): Trigg
 			return 'sqs'
 		case 'postgres':
 			return  'postgres'
+		case 'gcp':
+			return 'gcp'
 		default:
 			throw new Error(`Unknown CaptureTriggerKind: ${kind}`)
 	}

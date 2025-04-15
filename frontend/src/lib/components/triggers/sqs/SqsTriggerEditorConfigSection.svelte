@@ -8,9 +8,15 @@
 	import MultiSelect from 'svelte-multiselect'
 	import TestTriggerConnection from '../TestTriggerConnection.svelte'
 	import Subsection from '$lib/components/Subsection.svelte'
-	import { X } from 'lucide-svelte'
+	import { Plus, X } from 'lucide-svelte'
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
+	import ArgInput from '$lib/components/ArgInput.svelte'
+	import ItemPicker from '$lib/components/ItemPicker.svelte'
+	import VariableEditor from '$lib/components/VariableEditor.svelte'
+	import { Button } from '$lib/components/common'
+	import { VariableService } from '$lib/gen'
+	import { workspaceStore } from '$lib/stores'
 
 	export let can_write: boolean = false
 	export let headless: boolean = false
@@ -21,29 +27,17 @@
 	export let queue_url = ''
 	export let aws_resource_path = ''
 	export let message_attributes: string[] = []
+
+	async function loadVariables() {
+		return await VariableService.listVariable({ workspace: $workspaceStore ?? '' })
+	}
+	let itemPicker: ItemPicker
+	let variableEditor: VariableEditor
 	let cached: string[] = []
-	let dirtyUrl: boolean = false
-	let urlError: string = ''
-	let validateTimeout: NodeJS.Timeout | undefined = undefined
 	let all_attributes = message_attributes.includes('All')
 	let tab: 'specific' | 'all' = all_attributes ? 'all' : 'specific'
-	function validateUrl(queue_url: string | undefined) {
-		if (validateTimeout) {
-			clearTimeout(validateTimeout)
-		}
-		validateTimeout = setTimeout(() => {
-			if (!queue_url || /^(https:)\/\/[^\s]+$/.test(queue_url) === false) {
-				urlError = 'Queue url must start with https://'
-			} else {
-				urlError = ''
-			}
-			validateTimeout = undefined
-		}, 500)
-	}
-	$: validateUrl(queue_url)
 
-	$: isValid =
-		urlError === '' && !emptyStringTrimmed(aws_resource_path) && !emptyStringTrimmed(queue_url)
+	$: isValid = !emptyStringTrimmed(aws_resource_path) && !emptyStringTrimmed(queue_url)
 </script>
 
 <div>
@@ -85,22 +79,20 @@
 								</p>
 							</div>
 						</div>
-						<input
-							type="text"
-							autocomplete="off"
-							bind:value={queue_url}
-							disabled={!can_write}
-							on:input={() => {
-								dirtyUrl = true
-							}}
+
+						<ArgInput
 							placeholder="https://example.com"
-							class={urlError === ''
-								? ''
-								: 'border border-red-700 bg-red-100 border-opacity-30 focus:border-red-700 focus:border-opacity-30 focus-visible:ring-red-700 focus-visible:ring-opacity-25 focus-visible:border-red-700'}
+							resourceTypes={undefined}
+							noDefaultOnSelectFirst
+							{itemPicker}
+							bind:value={queue_url}
+							type="string"
+							displayHeader={false}
+							disabled={!can_write}
+							{variableEditor}
+							compact
+							noMargin
 						/>
-						<div class="text-red-600 dark:text-red-400 text-2xs mt-1.5">
-							{dirtyUrl ? urlError : ''}
-						</div>
 					</div>
 				</div>
 			</Subsection>
@@ -152,3 +144,32 @@
 		</div>
 	</Section>
 </div>
+
+<ItemPicker
+	bind:this={itemPicker}
+	pickCallback={(path, _) => {
+		queue_url = '$var:' + path
+	}}
+	tooltip="Variables are dynamic values that have a key associated to them and can be retrieved during the execution of a Script or Flow."
+	documentationLink="https://www.windmill.dev/docs/core_concepts/variables_and_secrets"
+	itemName="Variable"
+	extraField="path"
+	loadItems={loadVariables}
+	buttons={{ 'Edit/View': (x) => variableEditor.editVariable(x) }}
+>
+	<div slot="submission" class="flex flex-row">
+		<Button
+			variant="border"
+			color="blue"
+			size="sm"
+			startIcon={{ icon: Plus }}
+			on:click={() => {
+				variableEditor.initNew()
+			}}
+		>
+			New variable
+		</Button>
+	</div>
+</ItemPicker>
+
+<VariableEditor bind:this={variableEditor} on:create={itemPicker.openDrawer} />

@@ -6,6 +6,7 @@
 		isFlow: boolean
 		path: string
 		connectionInfo: ConnectionInfo | undefined
+		loading?: boolean
 	}
 </script>
 
@@ -70,7 +71,11 @@
 		<div class="flex flex-col gap-1 mb-4">
 			<div class="flex flex-row items-center justify-start gap-1">
 				<PulseButton bind:this={pulseButton} numberOfPulses={1} pulseDuration={1}>
-					<AnimatedButton animate={captureInfo.active} baseRadius="6px" wrapperClasses="ml-[-2px]">
+					<AnimatedButton
+						animate={captureInfo.active || captureInfo.loading}
+						baseRadius="6px"
+						wrapperClasses="ml-[-2px]"
+					>
 						<Button
 							size="xs2"
 							on:click={() => dispatch('captureToggle', {})}
@@ -128,6 +133,7 @@
 			on:addPreprocessor
 			on:testWithArgs
 			fullHeight={false}
+			captureActiveIndicator={captureInfo.active}
 		/>
 	</div>
 </div>

@@ -17,7 +17,9 @@ export type ScriptLanguage =
   | "rust"
   | "csharp"
   | "nu"
-  | "ansible";
+  | "ansible"
+  | "java";
+	// for related places search: ADD_NEW_LANG 
 
 export function inferContentTypeFromFilePath(
   contentPath: string,
@@ -63,6 +65,9 @@ export function inferContentTypeFromFilePath(
     return "ansible";
   } else if (contentPath.endsWith(".nu")) {
     return "nu";
+  } else if (contentPath.endsWith(".java")) {
+    return "java";
+	// for related places search: ADD_NEW_LANG 
   } else {
     throw new Error(
       "Invalid language: " + contentPath.substring(contentPath.lastIndexOf("."))

@@ -114,11 +114,23 @@
 			})
 			await WorkspaceService.editCopilotConfig({
 				workspace: id,
-				requestBody: {
-					ai_resource: { path, provider: selected },
-					ai_models: aiKey ? AI_DEFAULT_MODELS[selected].slice(0, 1) : [],
-					code_completion_model: codeCompletionEnabled ? AI_DEFAULT_MODELS[selected][0] : undefined
-				}
+				requestBody: aiKey
+					? {
+							providers: {
+								[selected]: {
+									resource_path: path,
+									models: [AI_DEFAULT_MODELS[selected][0]]
+								}
+							},
+							default_model: {
+								model: AI_DEFAULT_MODELS[selected][0],
+								provider: selected
+							},
+							code_completion_model: codeCompletionEnabled
+								? { model: AI_DEFAULT_MODELS[selected][0], provider: selected }
+								: undefined
+					  }
+					: {}
 			})
 		}
 
@@ -253,8 +265,6 @@
 					<ToggleButton value="anthropic" label="Anthropic" {item} />
 					<ToggleButton value="mistral" label="Mistral" {item} />
 					<ToggleButton value="deepseek" label="DeepSeek" {item} />
-					<ToggleButton value="groq" label="Groq" {item} />
-					<ToggleButton value="openrouter" label="OpenRouter" {item} />
 				</ToggleButtonGroup>
 			</div>
 		</label>

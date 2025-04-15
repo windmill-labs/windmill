@@ -127,7 +127,7 @@
 							<span class="truncate inline-flex gap-2 items-center">
 								{#if resolvedConfig.beforeIcon}
 									{#key resolvedConfig.beforeIcon}
-										<div class="min-w-4" bind:this={beforeIconComponent} />
+										<div class="min-w-4" bind:this={beforeIconComponent}></div>
 									{/key}
 								{/if}
 								{#if resolvedConfig.label && resolvedConfig.label?.length > 0}
@@ -135,7 +135,7 @@
 								{/if}
 								{#if resolvedConfig.afterIcon}
 									{#key resolvedConfig.afterIcon}
-										<div class="min-w-4" bind:this={afterIconComponent} />
+										<div class="min-w-4" bind:this={afterIconComponent}></div>
 									{/key}
 								{/if}
 							</span>

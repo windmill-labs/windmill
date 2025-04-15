@@ -11,6 +11,7 @@
 	import MqttEditorConfigSection from './mqtt/MqttEditorConfigSection.svelte'
 	import SqsTriggerEditorConfigSection from './sqs/SqsTriggerEditorConfigSection.svelte'
 	import PostgresEditorConfigSection from './postgres/PostgresEditorConfigSection.svelte'
+	import GcpTriggerEditorConfigSection from './gcp/GcpTriggerEditorConfigSection.svelte'
 
 	export let triggerType: CaptureTriggerKind = 'webhook'
 	export let cloudDisabled: boolean = false
@@ -57,6 +58,9 @@
 			can_write={true}
 			bind:route_path={args.route_path}
 			bind:http_method={args.http_method}
+			bind:raw_string={args.raw_string}
+			bind:wrap_body={args.wrap_body}
+			capture_mode={true}
 			headless
 		/>
 	{:else if triggerType === 'email'}
@@ -89,6 +93,21 @@
 			bind:queue_url={args.queue_url}
 			bind:aws_resource_path={args.aws_resource_path}
 			bind:message_attributes={args.message_attributes}
+			headless={true}
+			can_write={true}
+			showCapture={false}
+		/>
+	{:else if triggerType === 'gcp'}
+		<GcpTriggerEditorConfigSection
+			bind:gcp_resource_path={args.gcp_resource_path}
+			bind:topic_id={args.topic_id}
+			bind:subscription_id={args.subscription_id}
+			bind:delivery_config={args.delivery_config}
+			bind:delivery_type={args.delivery_type}
+			bind:subscription_mode={args.subscription_mode}
+			bind:cloud_subscription_id={args.subscription_id}
+			bind:create_update_subscription_id={args.subscription_id}
+			bind:base_endpoint={args.base_endpoint}
 			headless={true}
 			can_write={true}
 			showCapture={false}

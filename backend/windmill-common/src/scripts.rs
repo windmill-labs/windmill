@@ -51,6 +51,8 @@ pub enum ScriptLang {
     Ansible,
     CSharp,
     Nu,
+    Java,
+    // for related places search: ADD_NEW_LANG
 }
 
 impl ScriptLang {
@@ -76,6 +78,8 @@ impl ScriptLang {
             ScriptLang::Ansible => "ansible",
             ScriptLang::CSharp => "csharp",
             ScriptLang::Nu => "nu",
+            ScriptLang::Java => "java",
+            // for related places search: ADD_NEW_LANG
         }
     }
 }

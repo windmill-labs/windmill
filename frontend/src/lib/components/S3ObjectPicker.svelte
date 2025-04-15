@@ -66,18 +66,6 @@
 				bind:value
 			/>
 		{/await}
-		<Button
-			variant="border"
-			color="light"
-			size="xs"
-			btnClasses="mt-1"
-			on:click={() => {
-				s3FilePicker?.open?.(value)
-			}}
-			startIcon={{ icon: Pipette }}
-		>
-			Choose an object from the catalog
-		</Button>
 	{:else}
 		<FileUpload
 			allowMultiple={false}
@@ -95,4 +83,16 @@
 			defaultValue={value?.s3}
 		/>
 	{/if}
+	<Button
+		variant="border"
+		color="light"
+		size="xs"
+		btnClasses="mt-1"
+		on:click={() => {
+			s3FilePicker?.open?.(value)
+		}}
+		startIcon={{ icon: Pipette }}
+	>
+		Choose an object from the catalog
+	</Button>
 </div>

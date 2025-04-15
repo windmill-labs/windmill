@@ -12,8 +12,10 @@
 	import DarkModeObserver from './DarkModeObserver.svelte'
 	import { Pen, Plus, RotateCw } from 'lucide-svelte'
 	import { sendUserToast } from '$lib/toast'
+	import { createDispatcherIfMounted } from '$lib/createDispatcherIfMounted'
 
 	const dispatch = createEventDispatcher()
+	const dispatchIfMounted = createDispatcherIfMounted(dispatch)
 
 	export let initialValue: string | undefined = undefined
 	export let value: string | undefined = initialValue
@@ -41,7 +43,7 @@
 					value: value ?? initialValue,
 					label: value ?? initialValue,
 					type: valueType
-			  }
+				}
 			: undefined
 
 	$: if (value === undefined && initialValue) {
@@ -97,7 +99,7 @@
 
 	$: $workspaceStore && loadResources(resourceType)
 
-	$: dispatch('change', value)
+	$: dispatchIfMounted('change', value)
 
 	let appConnect: AppConnect
 	let resourceEditor: ResourceEditorDrawer
@@ -164,7 +166,7 @@
 			<div class="text-2xs text-tertiary mr-2">0 found</div>
 		{/if}
 		{#if !loading}
-			<div class="mx-0.5" />
+			<div class="mx-0.5"></div>
 			{#if value && value != ''}
 				<Button
 					{disabled}
@@ -203,7 +205,7 @@
 						Add a {resourceType} resource
 					{/if}</Button
 				>
-				<div class="mx-0.5" />
+				<div class="mx-0.5"></div>
 			{/if}
 		{/if}
 

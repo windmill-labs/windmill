@@ -22,8 +22,11 @@ use error::Error;
 use scripts::ScriptLang;
 use sqlx::{Pool, Postgres};
 
+pub mod agent_workers;
 pub mod apps;
 pub mod auth;
+#[cfg(feature = "benchmark")]
+pub mod bench;
 pub mod cache;
 pub mod db;
 pub mod ee;
@@ -37,6 +40,7 @@ pub mod indexer;
 pub mod job_metrics;
 #[cfg(feature = "parquet")]
 pub mod job_s3_helpers_ee;
+
 pub mod jobs;
 pub mod jwt;
 pub mod more_serde;
@@ -45,6 +49,7 @@ pub mod otel_ee;
 pub mod queue;
 pub mod s3_helpers;
 pub mod schedule;
+pub mod schema;
 pub mod scripts;
 pub mod server;
 pub mod stats_ee;
@@ -55,7 +60,6 @@ pub mod utils;
 pub mod variables;
 pub mod worker;
 pub mod workspaces;
-pub mod schema;
 
 pub const DEFAULT_MAX_CONNECTIONS_SERVER: u32 = 50;
 pub const DEFAULT_MAX_CONNECTIONS_WORKER: u32 = 5;

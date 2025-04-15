@@ -27,6 +27,7 @@
 	import { ctxRegex } from '../../utils'
 	import { computeWorkspaceS3FileInputPolicy } from '../../editor/appUtilsS3'
 	import SchemaForm from '$lib/components/SchemaForm.svelte'
+	import { createDispatcherIfMounted } from '$lib/createDispatcherIfMounted'
 
 	// Component props
 	export let id: string
@@ -72,7 +73,7 @@
 		errorByComponent,
 		mode,
 		stateId,
-		state,
+		state: stateStore,
 		componentControl,
 		initialized,
 		selectedComponent,
@@ -88,6 +89,7 @@
 	const groupContext = getContext<GroupContext>('GroupContext')
 
 	const dispatch = createEventDispatcher()
+	const dispatchIfMounted = createDispatcherIfMounted(dispatch)
 
 	$runnableComponents = $runnableComponents
 
@@ -139,10 +141,10 @@
 		resultJobLoader &&
 		refreshIfAutoRefresh('arg changed')
 
-	$: runnableInputValues && dispatch('argsChanged')
+	$: runnableInputValues && dispatchIfMounted('argsChanged')
 
 	$: refreshOn =
-		runnable && runnable.type === 'runnableByName' ? runnable.inlineScript?.refreshOn ?? [] : []
+		runnable && runnable.type === 'runnableByName' ? (runnable.inlineScript?.refreshOn ?? []) : []
 
 	function refreshIfAutoRefresh(src: 'arg changed' | 'static changed') {
 		// console.log(
@@ -292,7 +294,7 @@
 						row: rowContext ? $rowContext : undefined,
 						group: groupContext ? get(groupContext.context) : undefined
 					}),
-					$state,
+					$stateStore,
 					isEditor,
 					$componentControl,
 					$worldStore,
@@ -303,7 +305,7 @@
 				)
 
 				await setResult(r, job)
-				$state = $state
+				$stateStore = $stateStore
 			} catch (e) {
 				let additionalInfo = ''
 				if (
@@ -535,7 +537,7 @@
 						group: groupContext ? get(groupContext.context) : undefined,
 						result: res
 					}),
-					$state,
+					$stateStore,
 					isEditor,
 					$componentControl,
 					$worldStore,

@@ -15,10 +15,11 @@
 	import CaptureSection from '../CaptureSection.svelte'
 	import CaptureTable from '../CaptureTable.svelte'
 	import ClipboardPanel from '../../details/ClipboardPanel.svelte'
-	import { isCloudHosted } from '$lib/cloud'
-	import Toggle from '$lib/components/Toggle.svelte'
 	import { isObject } from '$lib/utils'
 	import { getHttpRoute } from './utils'
+	import RouteBodyTransformerOption from './RouteBodyTransformerOption.svelte'
+	import { isCloudHosted } from '$lib/cloud'
+	import Toggle from '$lib/components/Toggle.svelte'
 
 	export let initialTriggerPath: string | undefined = undefined
 	export let dirtyRoutePath: boolean = false
@@ -34,6 +35,9 @@
 	export let workspaced_route: boolean = false
 	export let isValid = false
 	export let runnableArgs: any = {}
+	export let raw_string: boolean = false
+	export let wrap_body: boolean = false
+	export let capture_mode: boolean
 	let validateTimeout: NodeJS.Timeout | undefined = undefined
 
 	let routeError: string = ''
@@ -76,7 +80,7 @@
 
 	$: isValid = routeError === ''
 
-	$: fullRoute = getHttpRoute(route_path, workspaced_route, $workspaceStore ?? '')
+	$: fullRoute = getHttpRoute('r', route_path, workspaced_route, $workspaceStore ?? '')
 
 	$: !http_method && (http_method = 'post')
 	$: route_path === undefined && (route_path = '')
@@ -123,7 +127,7 @@
 			<Alert type="info" title="Admin only" collapsible>
 				Route endpoints can only be edited by workspace admins
 			</Alert>
-			<div class="my-2" />
+			<div class="my-2"></div>
 		{/if}
 		<div class="flex flex-col w-full gap-4">
 			<label class="block grow w-full">
@@ -187,7 +191,7 @@
 				<div class="text-red-600 dark:text-red-400 text-2xs mt-1.5"
 					>{dirtyRoutePath ? routeError : ''}</div
 				>
-				{#if !isCloudHosted()}
+				{#if !capture_mode && !isCloudHosted()}
 					<div class="mt-1">
 						<Toggle
 							size="sm"
@@ -199,12 +203,17 @@
 							options={{
 								right: 'Prefix with workspace',
 								rightTooltip:
-									'Prefixes the route with the workspace ID (e.g., {base_url}/api/r/{workspace_id}/{route}). Note: deploying the HTTP trigger to another workspace updates the route workspace prefix accordingly.'
+									'Prefixes the route with the workspace ID (e.g., {base_url}/api/r/{workspace_id}/{route}). Note: deploying the HTTP trigger to another workspace updates the route workspace prefix accordingly.',
+								rightDocumentationLink:
+									'https://www.windmill.dev/docs/core_concepts/http_routing#workspace-prefix'
 							}}
 						/>
 					</div>
 				{/if}
 			</div>
+			{#if capture_mode}
+				<RouteBodyTransformerOption bind:raw_string bind:wrap_body />
+			{/if}
 		</div>
 	</Section>
 </div>

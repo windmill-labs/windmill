@@ -42,14 +42,16 @@
 		result: [] as string[]
 	})
 
-	let selectedItems: (string | { value: string; label: any })[] | undefined = [
+	let selectedItems: (number | string | { value: string; label: any })[] | undefined = [
 		...new Set(outputs?.result.peak())
-	] as string[]
+	] as (number | string | { value: string; label: any })[]
 
 	function setResultsFromSelectedItems() {
 		outputs?.result.set([
 			...(selectedItems?.map((item) => {
-				if (typeof item == 'object' && item.value != undefined && item.label != undefined) {
+				if (typeof item == 'number') {
+					return item.toString()
+				} else if (typeof item == 'object' && item.value != undefined && item.label != undefined) {
 					return item?.value ?? `NOT_STRING`
 				} else if (typeof item == 'string') {
 					return item
@@ -80,6 +82,9 @@
 				if (typeof item == 'object' && item.value != undefined && item.label != undefined) {
 					return item
 				}
+				if (typeof item == 'number') {
+					return item.toString()
+				}
 				return typeof item === 'string' ? item : `NOT_STRING`
 			})
 		}
@@ -97,11 +102,13 @@
 								return deepEqual(item.value, value)
 							}
 							return item == value
-						}) ?? (typeof value == 'string' ? value : undefined)
+						}) ??
+						(typeof value == 'string' ? value : undefined) ??
+						(typeof value == 'number' ? value.toString() : undefined)
 					)
 				})
 				.filter((item) => item != undefined)
-			selectedItems = [...new Set(nvalue)] as (string | { value: string; label: any })[]
+			selectedItems = [...new Set(nvalue)]
 			setResultsFromSelectedItems()
 		}
 	}
@@ -215,7 +222,7 @@
 						e.target?.['parentElement']?.dispatchEvent(newe)
 					}}
 				>
-					{typeof option == 'object' ? option?.label ?? 'NO_LABEL' : option}
+					{typeof option == 'object' ? (option?.label ?? 'NO_LABEL') : option}
 				</div>
 			</MultiSelect>
 			<Portal name="app-multiselect-v2">
@@ -227,7 +234,7 @@
 						class="multiselect"
 						style={`min-width: ${w}px;`}
 						on:click|stopPropagation
-					/>
+					></div>
 				</div>
 			</Portal>
 		{:else}

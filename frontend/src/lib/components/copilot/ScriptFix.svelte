@@ -16,6 +16,7 @@
 	import LoadingIcon from '../apps/svelte-select/lib/LoadingIcon.svelte'
 	import { autoPlacement } from '@floating-ui/core'
 	import { Check, Wand2, X, RotateCw } from 'lucide-svelte'
+	import { createEventDispatcher } from 'svelte'
 
 	// props
 	export let lang: SupportedLanguage
@@ -23,6 +24,7 @@
 	export let diffEditor: DiffEditor | undefined
 	export let error: string
 	export let args: Record<string, any>
+	export let chatMode: boolean = false
 
 	// state
 	let genLoading: boolean = false
@@ -31,6 +33,10 @@
 	let dbSchema: DBSchema | undefined = undefined
 	let abortController: AbortController | undefined = undefined
 
+	const dispatch = createEventDispatcher<{
+		fix: null
+	}>()
+
 	async function onFix() {
 		if (!error) {
 			return
@@ -38,7 +44,6 @@
 		try {
 			genLoading = true
 			abortController = new AbortController()
-			const aiProvider = $copilotInfo.ai_provider
 			await copilot(
 				{
 					language: lang,
@@ -50,7 +55,6 @@
 				},
 				generatedCode,
 				abortController,
-				aiProvider,
 				generatedExplanation
 			)
 			setupDiff()
@@ -183,12 +187,14 @@
 					color={genLoading ? 'red' : 'light'}
 					spacingSize="xs2"
 					startIcon={genLoading ? undefined : { icon: Wand2 }}
-					propagateEvent={true}
-					on:click={genLoading
+					propagateEvent={!chatMode}
+					on:click={chatMode
+						? () => dispatch('fix')
+						: genLoading
 						? () => abortController?.abort()
 						: $generatedCode.length > 0
-						? undefined
-						: () => onFix()}
+							? () => {}
+							: () => onFix()}
 					btnClasses={genLoading
 						? ''
 						: 'text-violet-800 dark:text-violet-400 bg-violet-100 dark:bg-gray-700 min-w-[84px]'}
@@ -212,7 +218,7 @@
 		</svelte:fragment>
 		<svelte:fragment slot="content">
 			<div class="p-4">
-				{#if $copilotInfo.exists_ai_resource}
+				{#if $copilotInfo.enabled}
 					<div class="w-[42rem] min-h-[3rem] max-h-[34rem] overflow-y-auto">
 						{#if $generatedCode.length > 0 && genLoading}
 							<div class="overflow-x-scroll">

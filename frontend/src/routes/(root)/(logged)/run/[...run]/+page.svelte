@@ -755,7 +755,8 @@
 								<Badge color="blue">priority: {job.priority}</Badge>
 							</div>
 						{/if}
-						{#if job.tag && !['deno', 'python3', 'flow', 'other', 'go', 'postgresql', 'mysql', 'bigquery', 'snowflake', 'mssql', 'graphql', 'oracledb', 'nativets', 'bash', 'powershell', 'php', 'rust', 'other', 'ansible', 'csharp', 'dependency', 'nu'].includes(job.tag)}
+						{#if job.tag && !['deno', 'python3', 'flow', 'other', 'go', 'postgresql', 'mysql', 'bigquery', 'snowflake', 'mssql', 'graphql', 'oracledb', 'nativets', 'bash', 'powershell', 'php', 'rust', 'other', 'ansible', 'csharp', 'nu', 'java', 'dependency'].includes(job.tag)}
+							<!-- for related places search: ADD_NEW_LANG -->
 							<div>
 								<Badge color="indigo">Tag: {job.tag}</Badge>
 							</div>
@@ -824,7 +825,7 @@
 					The content of this run was deleted (by an admin, no less)
 				</Alert>
 			</div>
-			<div class="my-4" />
+			<div class="my-4"></div>
 		{/if}
 
 		<!-- Arguments and actions -->
@@ -883,7 +884,7 @@
 			{/if}
 			<div class="max-w-7xl mx-auto w-full px-4 mb-10">
 				{#if job?.flow_status && typeof job.flow_status == 'object' && !('_metadata' in job.flow_status)}
-					<div class="mt-10" />
+					<div class="mt-10"></div>
 					<WorkflowTimeline
 						flow_status={asWorkflowStatus(job.flow_status)}
 						flowDone={job.type == 'CompletedJob'}
@@ -936,7 +937,8 @@
 									workspaceId={job?.workspace_id}
 									jobId={job?.id}
 									result={job.result}
-									language={job.language}
+									language={job?.language}
+									isTest={false}
 								/>
 							{:else if job}
 								No output is available yet
@@ -946,7 +948,7 @@
 				</div>
 			</div>
 		{:else if !job?.['deleted']}
-			<div class="mt-10" />
+			<div class="mt-10"></div>
 			<FlowProgressBar
 				{job}
 				bind:currentSubJobProgress={scriptProgress}

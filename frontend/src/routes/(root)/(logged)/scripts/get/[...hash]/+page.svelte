@@ -91,6 +91,7 @@
 	import InputSelectedBadge from '$lib/components/schema/InputSelectedBadge.svelte'
 	import MqttTriggersPanel from '$lib/components/triggers/mqtt/MqttTriggersPanel.svelte'
 	import SqsTriggerPanel from '$lib/components/triggers/sqs/SqsTriggerPanel.svelte'
+	import GcpTriggerPanel from '$lib/components/triggers/gcp/GcpTriggerPanel.svelte'
 
 	let script: Script | undefined
 	let topHash: string | undefined
@@ -619,7 +620,7 @@
 									</div>
 								{/if}
 								{#if topHash}
-									<div class="mt-2" />
+									<div class="mt-2"></div>
 									<Alert type="warning" title="Not HEAD">
 										This hash is not HEAD (latest non-archived version at this path) :
 										<a href="{base}/scripts/get/{topHash}?workspace={$workspaceStore}"
@@ -695,7 +696,7 @@
 						/>
 					</div>
 
-					<div class="py-10" />
+					<div class="py-10"></div>
 					{#if !emptyString(script.summary)}
 						<div class="mb-2">
 							<span class="!text-tertiary">{script.path}</span>
@@ -783,6 +784,11 @@
 			<svelte:fragment slot="sqs">
 				<div class="p-2">
 					<SqsTriggerPanel path={script.path ?? ''} isFlow={false} />
+				</div>
+			</svelte:fragment>
+			<svelte:fragment slot="gcp">
+				<div class="p-2">
+					<GcpTriggerPanel path={script.path ?? ''} isFlow={false} />
 				</div>
 			</svelte:fragment>
 			<svelte:fragment slot="emails">
