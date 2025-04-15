@@ -109,7 +109,7 @@
 {#if open && !hidePopup}
 	<div use:melt={$menu} data-menu class="z-[6000]">
 		<div
-			class="bg-surface border origin-top-right rounded-md shadow-md focus:outline-none overflow-y-auto py-1 max-h-[50vh]"
+			class="bg-surface border w-56 origin-top-right rounded-md shadow-md focus:outline-none overflow-y-auto py-1 max-h-[50vh]"
 			style={customWidth ? `width: ${customWidth}px` : ''}
 		>
 			<DropdownV2Inner items={computeItems} meltItem={item} />
