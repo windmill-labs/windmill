@@ -175,6 +175,7 @@
 	import GlobalReviewButtons from './copilot/chat/GlobalReviewButtons.svelte'
 	import { writable } from 'svelte/store'
 	import { formatResourceTypes } from './copilot/chat/core'
+	import FakeMonacoPlaceHolder from './FakeMonacoPlaceHolder.svelte'
 	// import EditorTheme from './EditorTheme.svelte'
 
 	let divEl: HTMLDivElement | null = null
@@ -1375,9 +1376,11 @@
 	}
 
 	onMount(() => {
-		if (BROWSER) {
-			loadMonaco().then((x) => (disposeMethod = x))
-		}
+		setTimeout(() => {
+			if (BROWSER) {
+				loadMonaco().then((x) => (disposeMethod = x))
+			}
+		}, 0)
 	})
 
 	onDestroy(() => {
@@ -1408,6 +1411,9 @@
 </script>
 
 <EditorTheme />
+{#if !editor}
+	<FakeMonacoPlaceHolder marginLeft="51px" {code} fontSize={!small ? 14 : 12} />
+{/if}
 <div bind:this={divEl} class="{$$props.class} editor {disabled ? 'disabled' : ''}"></div>
 {#if $vimMode}
 	<div class="fixed bottom-0 z-30" bind:this={statusDiv}></div>

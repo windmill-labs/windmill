@@ -4,12 +4,16 @@
 	type Props = {
 		code: string
 		fontSize: number
+		marginLeft?: string
 	}
 
-	let { code, fontSize }: Props = $props()
+	let { code, fontSize, marginLeft = '23px' }: Props = $props()
 </script>
 
-<div class="w-full pl-6 pr-14 z-9 leading-5 overflow-x-auto mycontainer">
+<div
+	class="w-full pr-14 z-9 mt-[-1px] mb-[1px] leading-5 overflow-x-auto mycontainer"
+	style="margin-left: {marginLeft};"
+>
 	<code
 		class="text-nowrap whitespace-pre-wrap text-ellipsis overflow-clip"
 		style="font-size: {fontSize}px;">{code}</code
