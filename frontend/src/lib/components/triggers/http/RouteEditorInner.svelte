@@ -31,13 +31,7 @@
 	import { HubFlow } from '$lib/hub'
 	import RouteBodyTransformerOption from './RouteBodyTransformerOption.svelte'
 
-	let {
-		useDrawer = true,
-		hideTarget = false,
-		saveDisabled = false,
-		hidePath = false,
-		header = undefined
-	} = $props()
+	let { useDrawer = true, hideTarget = false, saveDisabled = false, hidePath = false } = $props()
 
 	// Form data state
 	let initialPath = $state('')
@@ -692,10 +686,7 @@
 		</DrawerContent>
 	</Drawer>
 {:else}
-	<Section>
-		<svelte:fragment slot="header">
-			{@render header()}
-		</svelte:fragment>
+	<Section label={'HTTP Route'}>
 		<svelte:fragment slot="action">
 			{@render saveButton('xs')}
 		</svelte:fragment>

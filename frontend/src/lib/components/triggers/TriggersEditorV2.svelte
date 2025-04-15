@@ -9,8 +9,7 @@
 	import TriggersTable from './TriggersTable.svelte'
 	import RoutesPanel from './http/RoutesPanelV2.svelte'
 	import CaptureWrapper from './CaptureWrapperV2.svelte'
-	import { triggerIconMap, type Trigger } from './utils'
-	import { Star } from 'lucide-svelte'
+	import { type Trigger } from './utils'
 	import WebhooksPanel from './webhook/WebhooksPanelV2.svelte'
 	import { triggerTypeToCaptureKind } from './utils'
 	import { type CaptureTriggerKind } from '$lib/gen'
@@ -82,7 +81,6 @@
 									{selectedTrigger}
 									{isFlow}
 									path={initialPath || fakeInitialPath}
-									{header}
 									on:update-config={({ detail }) => {
 										config = detail
 									}}
@@ -221,46 +219,3 @@
 		</div>
 	{/if}
 </FlowCard>
-
-{#snippet header()}
-	<div class="flex flex-row items-center text-secondary h-[32px]">
-		<div class="text-center p-2">
-			<div class="flex justify-center items-center">
-				<svelte:component
-					this={triggerIconMap[selectedTrigger?.type ?? '']}
-					size={24}
-					class={selectedTrigger?.isDraft ? 'text-frost-400' : 'text-tertiary'}
-				/>
-
-				{#if selectedTrigger?.isPrimary}
-					<Star size={10} class="absolute -mt-3 ml-3 text-yellow-400" />
-				{/if}
-			</div>
-		</div>
-		<div class="py-2 px-2">
-			<div class="flex items-center">
-				<span class={selectedTrigger?.isDraft ? 'text-frost-400 italic' : ''}>
-					{selectedTrigger?.isDraft
-						? `New ${selectedTrigger?.type.replace(/s$/, '')} trigger`
-						: selectedTrigger?.path}
-				</span>
-
-				{#if selectedTrigger?.isPrimary}
-					<span
-						class="ml-2 bg-blue-50 dark:bg-blue-900/40 px-1.5 py-0.5 rounded text-xs text-blue-700 dark:text-blue-100"
-					>
-						Primary
-					</span>
-				{/if}
-
-				{#if selectedTrigger?.isDraft}
-					<span
-						class="ml-2 text-2xs bg-frost-100 dark:bg-frost-900 text-frost-800 dark:text-frost-100 px-1.5 py-0.5 rounded"
-					>
-						Draft
-					</span>
-				{/if}
-			</div>
-		</div>
-	</div>
-{/snippet}

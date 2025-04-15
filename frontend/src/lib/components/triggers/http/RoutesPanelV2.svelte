@@ -2,7 +2,7 @@
 	import RouteEditorInner from './RouteEditorInner.svelte'
 
 	let routeEditor = $state<RouteEditorInner | null>(null)
-	let { selectedTrigger, isFlow, path, header = undefined } = $props()
+	let { selectedTrigger, isFlow, path } = $props()
 
 	function openRouteEditor(isFlow: boolean, isDraft: boolean) {
 		if (isDraft) {
@@ -28,5 +28,4 @@
 	hidePath
 	on:update-config
 	on:update
-	{header}
 />
