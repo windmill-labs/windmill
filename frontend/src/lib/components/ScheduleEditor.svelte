@@ -5,6 +5,7 @@
 	export let useDrawer = true
 	export let hideTarget = false
 	export let useEditButton = false
+	export let description: undefined | (() => any) = undefined
 
 	let open = false
 	export async function openEdit(ePath: string, isFlow: boolean, editing: boolean = true) {
@@ -23,5 +24,12 @@
 </script>
 
 {#if open}
-	<ScheduleEditorInner on:update {useDrawer} bind:this={drawer} {hideTarget} {useEditButton} />
+	<ScheduleEditorInner
+		on:update
+		{useDrawer}
+		bind:this={drawer}
+		{hideTarget}
+		{useEditButton}
+		docDescription={description}
+	/>
 {/if}

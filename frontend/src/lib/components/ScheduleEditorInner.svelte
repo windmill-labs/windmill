@@ -31,7 +31,12 @@
 	import DateTimeInput from './DateTimeInput.svelte'
 	import autosize from '$lib/autosize'
 
-	let { useDrawer = true, hideTarget = false, useEditButton = false } = $props()
+	let {
+		useDrawer = true,
+		hideTarget = false,
+		useEditButton = false,
+		docDescription = undefined
+	} = $props()
 
 	let optionTabSelected: 'error_handler' | 'recovery_handler' | 'success_handler' | 'retries' =
 		$state('error_handler')
@@ -1189,6 +1194,9 @@
 				{@render saveButton('xs')}
 			</div>
 		</svelte:fragment>
+		{#if docDescription}
+			{@render docDescription()}
+		{/if}
 		{@render content()}
 	</Section>
 {/if}
