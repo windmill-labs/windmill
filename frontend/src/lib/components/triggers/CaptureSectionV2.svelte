@@ -410,6 +410,8 @@
 				>
 					<Highlight language={json} code={toJsonStr(selectedCapture).replace(/\\n/g, '\n')} />
 				</div>
+			{:else}
+				<div class="text-center text-tertiary p-4 bg-surface rounded-md">No captures yet.</div>
 			{/if}
 		</div>
 	</Pane>
