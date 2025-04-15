@@ -65,7 +65,7 @@
 	let workspaced_route = $state(false)
 	let raw_string = $state(false)
 	let wrap_body = $state(false)
-	let drawerLoading = $state(true)
+	let drawerLoading = $state(false)
 	let authentication_resource_path = $state('')
 	let variable_path = $state('')
 	let signature_options_type = $state<'custom_script' | 'custom_signature'>('custom_signature')
@@ -137,7 +137,9 @@
 
 	export async function openEdit(ePath: string, isFlow: boolean, isEditing: boolean = true) {
 		resetEditMode = () => openEdit(ePath, isFlow, false)
-		drawerLoading = true
+		let loader = setTimeout(() => {
+			drawerLoading = true
+		}, 100) // if loading takes less than 100ms, we don't show the loader
 		try {
 			drawer?.openDrawer()
 			initialPath = ePath
@@ -150,6 +152,7 @@
 		} catch (err) {
 			sendUserToast(`Could not load route: ${err}`, true)
 		} finally {
+			clearTimeout(loader)
 			drawerLoading = false
 		}
 	}
@@ -160,7 +163,9 @@
 		defaultValues?: Record<string, any>
 	) {
 		resetEditMode = null
-		drawerLoading = true
+		let loader = setTimeout(() => {
+			drawerLoading = true
+		}, 100) // if loading takes less than 100ms, we don't show the loader
 		try {
 			drawer?.openDrawer()
 			is_flow = nis_flow
@@ -188,6 +193,7 @@
 			raw_string = defaultValues?.raw_string ?? false
 			wrap_body = defaultValues?.wrap_body ?? false
 		} finally {
+			clearTimeout(loader)
 			drawerLoading = false
 		}
 	}
