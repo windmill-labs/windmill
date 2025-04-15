@@ -174,26 +174,21 @@
 			{:else if editMode && !$primarySchedule}
 				<Button size="xs" startIcon={{ icon: Save }} on:click={saveDraft}>Save draft</Button>
 			{:else if editMode}
-				{#if $isDeployed}
-					<Button
-						on:click={save}
-						color="dark"
-						size="xs"
-						startIcon={{ icon: Save }}
-						disabled={JSON.stringify({ ...$primarySchedule, enabled: true }) ==
-							JSON.stringify({ ...tmpPrimarySchedule, enabled: true })}>Deploy now</Button
-					>
-				{:else}
-					<Button
-						size="xs"
-						startIcon={{ icon: Save }}
-						on:click={() => saveDraft()}
-						disabled={JSON.stringify({ ...$primarySchedule, enabled: true }) ==
-							JSON.stringify({ ...tmpPrimarySchedule, enabled: true })}
-					>
-						Save
-					</Button>
-				{/if}
+				<Button
+					size="xs"
+					startIcon={{ icon: Save }}
+					on:click={() => {
+						if ($isDeployed) {
+							save()
+						} else {
+							saveDraft()
+						}
+					}}
+					disabled={JSON.stringify({ ...$primarySchedule, enabled: true }) ==
+						JSON.stringify({ ...tmpPrimarySchedule, enabled: true })}
+				>
+					Save
+				</Button>
 			{/if}
 			{#if editMode && $primarySchedule}
 				<Button
