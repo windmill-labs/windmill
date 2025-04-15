@@ -233,6 +233,7 @@
 			/>
 		{:else if captureType === 'webhook'}
 			<WebhooksCapture
+				{hasPreprocessor}
 				{isFlow}
 				{path}
 				runnableArgs={data?.args}
@@ -251,6 +252,8 @@
 				http_method={args.http_method}
 				isValid={args.isValid}
 				{captureInfo}
+				{hasPreprocessor}
+				{isFlow}
 				bind:captureTable
 				on:applyArgs
 				on:updateSchema
@@ -264,6 +267,7 @@
 				{isFlow}
 				emailDomain={data?.emailDomain}
 				{captureInfo}
+				{hasPreprocessor}
 				bind:captureTable
 				on:applyArgs
 				on:updateSchema

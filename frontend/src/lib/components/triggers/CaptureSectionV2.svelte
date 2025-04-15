@@ -14,7 +14,7 @@
 	import AnimatedButton from '../common/button/AnimatedButton.svelte'
 	import PulseButton from '../common/button/PulseButton.svelte'
 	import Button from '../common/button/Button.svelte'
-	import { CircleStop, History, AlertCircle } from 'lucide-svelte'
+	import { CircleStop, History, AlertCircle, Info, Play, Trash2 } from 'lucide-svelte'
 	import ConnectionIndicator, {
 		type ConnectionInfo
 	} from '../common/alert/ConnectionIndicator.svelte'
@@ -32,15 +32,24 @@
 	import { Highlight } from 'svelte-highlight'
 	import { json } from 'svelte-highlight/languages'
 	import { toJsonStr } from '$lib/utils'
+	import CustomPopover from '$lib/components/CustomPopover.svelte'
 
 	export let disabled: boolean
 	export let captureType: CaptureTriggerKind
 	export let captureInfo: CaptureInfo
 	export let captureTable: CaptureTable | undefined
+	export let hasPreprocessor = false
+	export let isFlow = false
+
+	let testKind: 'preprocessor' | 'main' = 'main'
+	$: hasPreprocessor && (testKind = 'preprocessor')
 
 	const dispatch = createEventDispatcher<{
 		captureToggle: { disableOnly?: boolean }
-		updateSchema: { payloadData: Record<string, any>; redirect: boolean }
+		updateSchema: { payloadData: Record<string, any>; redirect: boolean; args?: boolean }
+		addPreprocessor: null
+		testWithArgs: { payloadData: Record<string, any> }
+		applyArgs: { kind: 'main' | 'preprocessor'; args: Record<string, any> }
 	}>()
 
 	const { showCaptureHint } = getContext<TriggerContext>('TriggerContext')
@@ -264,7 +273,7 @@
 	</Pane>
 
 	<Pane class="py-2 pl-2 flex flex-col">
-		<div class="flex flex-row gap-1">
+		<div class="flex flex-row gap-1 justify-between">
 			<Popover
 				placement="left"
 				contentClasses="w-48 min-h-48 max-h-64 overflow-auto"
@@ -292,8 +301,94 @@
 					/>
 				</svelte:fragment>
 			</Popover>
+			<div class="flex flex-row items-center gap-2 px-2">
+				{#if testKind === 'preprocessor' && !hasPreprocessor}
+					<CustomPopover noPadding>
+						<Button
+							size="xs2"
+							color="dark"
+							disabled
+							endIcon={{
+								icon: Info
+							}}
+							wrapperClasses="h-full"
+						>
+							Apply args
+						</Button>
+						<svelte:fragment slot="overlay">
+							<div class="text-sm p-2 flex flex-col gap-1 items-start">
+								<p> You need to add a preprocessor to use preprocessor captures as args </p>
+								<Button
+									size="xs2"
+									color="dark"
+									on:click={() => {
+										dispatch('addPreprocessor')
+									}}
+								>
+									Add preprocessor
+								</Button>
+							</div>
+						</svelte:fragment>
+					</CustomPopover>
+				{:else if selectedCapture}
+					<Button
+						size="xs2"
+						color="light"
+						variant="border"
+						dropdownItems={[
+							{
+								label: 'Use as input schema',
+								onClick: async () => {
+									if (!lastCapture) return
+									const payloadData = selectedCapture
+									dispatch('updateSchema', {
+										payloadData,
+										redirect: true,
+										args: true
+									})
+								},
+								disabled: !selectedCapture,
+								hidden: !isFlow || testKind !== 'main'
+							}
+						].filter((item) => !item.hidden)}
+						on:click={async () => {
+							if (!lastCapture) return
+							const payloadData = selectedCapture
+							if (isFlow && testKind === 'main') {
+								dispatch('testWithArgs', payloadData)
+							} else {
+								dispatch('applyArgs', {
+									kind: testKind,
+									args: payloadData
+								})
+							}
+						}}
+						disabled={testKind === 'preprocessor' && !hasPreprocessor}
+						title={isFlow && testKind === 'main'
+							? 'Test flow with args'
+							: testKind === 'preprocessor'
+								? 'Apply args to preprocessor'
+								: 'Apply args to inputs'}
+						startIcon={isFlow && testKind === 'main' ? { icon: Play } : {}}
+					>
+						{isFlow && testKind === 'main' ? 'Test flow with args' : 'Apply args'}
+					</Button>
+				{/if}
+				{#if selectedCapture}
+					<Button
+						size="xs2"
+						color="light"
+						variant="contained"
+						iconOnly
+						startIcon={{ icon: Trash2 }}
+						on:click={() => {
+							//infiniteList?.deleteItem(item.id)
+						}}
+						btnClasses="hover:text-white hover:bg-red-500 text-red-500"
+					/>
+				{/if}
+			</div>
 		</div>
-
 		<div class="flex flex-col gap-2 h-full">
 			{#if lastCapture && lastCapture.payload === 'WINDMILL_TOO_BIG' && !selectedCapture}
 				<div class="bg-surface flex flex-col items-center gap-2">
@@ -312,8 +407,6 @@
 				>
 					<Highlight language={json} code={toJsonStr(selectedCapture).replace(/\\n/g, '\n')} />
 				</div>
-			{:else}
-				<div class="text-center text-tertiary p-4 bg-surface rounded-md">No capture selected</div>
 			{/if}
 		</div>
 	</Pane>

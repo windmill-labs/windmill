@@ -17,6 +17,8 @@
 	export let captureTable: CaptureTable | undefined = undefined
 	export let runnableArgs: any = {}
 	export let isValid: boolean = false
+	export let hasPreprocessor: boolean = false
+	export let isFlow: boolean = false
 
 	$: captureURL = `${location.origin}${base}/api/w/${$workspaceStore}/capture_u/http/${
 		captureInfo?.isFlow ? 'flow' : 'script'
@@ -41,6 +43,8 @@
 		on:addPreprocessor
 		on:testWithArgs
 		bind:captureTable
+		{hasPreprocessor}
+		{isFlow}
 	>
 		<Label label="URL">
 			<ClipboardPanel content={captureURL} disabled={!captureInfo.active} />

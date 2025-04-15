@@ -11,6 +11,7 @@
 	export let emailDomain: string | null = null
 	export let captureInfo: CaptureInfo | undefined = undefined
 	export let captureTable: CaptureTable | undefined = undefined
+	export let hasPreprocessor: boolean = false
 
 	function getCaptureEmail() {
 		const cleanedPath = path.replaceAll('/', '.')
@@ -37,6 +38,8 @@
 		on:updateSchema
 		on:addPreprocessor
 		on:testWithArgs
+		{hasPreprocessor}
+		{isFlow}
 	>
 		<Label label="Email address">
 			<ClipboardPanel content={captureEmail} disabled={!captureInfo.active} />

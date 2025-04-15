@@ -13,6 +13,7 @@
 	export let runnableArgs: any
 	export let captureTable: CaptureTable | undefined = undefined
 	export let captureInfo: CaptureInfo | undefined = undefined
+	export let hasPreprocessor: boolean = false
 
 	$: cleanedRunnableArgs =
 		isObject(runnableArgs) && 'wm_trigger' in runnableArgs
@@ -42,6 +43,8 @@
 		on:updateSchema
 		on:addPreprocessor
 		on:testWithArgs
+		{isFlow}
+		{hasPreprocessor}
 	>
 		<Label label="URL">
 			<ClipboardPanel content={captureUrl} disabled={!captureInfo.active} />
