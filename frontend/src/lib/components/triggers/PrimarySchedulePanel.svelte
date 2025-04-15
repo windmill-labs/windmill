@@ -194,7 +194,6 @@
 				<Button
 					size="xs"
 					color="light"
-					variant="border"
 					on:click={() => {
 						tmpPrimarySchedule = structuredClone($primarySchedule)
 						editMode = false
