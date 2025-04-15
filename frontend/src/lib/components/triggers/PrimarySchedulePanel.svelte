@@ -112,8 +112,6 @@
 			setNewSchedule()
 		}
 	})
-
-	$: console.log('dbg isDeployed', $isDeployed, $primarySchedule, tmpPrimarySchedule)
 </script>
 
 <Section label="Primary schedule" class="flex flex-col gap-4 w-full">
