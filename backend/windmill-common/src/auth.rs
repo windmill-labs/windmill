@@ -289,6 +289,8 @@ pub mod aws {
         Client,
     };
 
+    pub const AWS_OIDC_AUDIENCE: &'static str = "sts.amazonaws.com";
+
     pub trait GetAuthenticationOutput {
         fn get_credentials(&self) -> Result<&Credentials>;
     }
@@ -327,8 +329,6 @@ pub mod aws {
         pub region: Option<String>,
         #[serde(rename = "roleArn")]
         pub role_arn: String,
-        #[serde(deserialize_with = "empty_string_as_none")]
-        pub audience: Option<String>,
     }
 
     #[derive(Debug, Deserialize)]
@@ -343,18 +343,11 @@ pub mod aws {
         pub aws_auth_config: AWSAuthConfig,
     }
 
-    pub async fn get_oidc_authentication_data<'c, F, Fut>(
+    pub async fn get_oidc_authentication_data(
         oidc_auth: OidcAuth,
         role_session_name: Option<impl ToString>,
-        gen_token: F,
-    ) -> Result<(
-        AssumeRoleWithWebIdentityFluentBuilder,
-        AssumeRoleWithWebIdentityOutput,
-    )>
-    where
-        F: FnOnce(String) -> Fut,
-        Fut: Future<Output = Result<String>> + Send + 'static,
-    {
+        token: String,
+    ) -> Result<AssumeRoleWithWebIdentityOutput> {
         let region = oidc_auth.region.unwrap_or_else(|| "us-east-1".to_string());
 
         let credentials = AwsCredenditals::new("", "", None, None, "UserInput");
@@ -363,12 +356,6 @@ pub mod aws {
             .region(Region::new(region.clone()))
             .load()
             .await;
-
-        let audience = oidc_auth
-            .audience
-            .unwrap_or_else(|| "sts.amazonaws.com".to_string());
-
-        let token = gen_token(audience.clone()).await?;
 
         let assume_role_with_web_identity_fluent_builder = Client::new(&config)
             .assume_role_with_web_identity()
@@ -382,6 +369,6 @@ pub mod aws {
             .await
             .map_err(to_anyhow)?;
 
-            Ok((assume_role_with_web_identity_fluent_builder, resp))
+        Ok(resp)
     }
 }
