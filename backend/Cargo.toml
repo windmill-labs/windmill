@@ -16,7 +16,6 @@ members = [
     "./windmill-autoscaling",
     "./windmill-indexer",
     "./windmill-macros",
-    "./windmill-mcp",
     "./parsers/windmill-parser",
     "./parsers/windmill-parser-ts",
     "./parsers/windmill-parser-wasm",
@@ -155,7 +154,6 @@ windmill-git-sync = { path = "./windmill-git-sync" }
 windmill-autoscaling = { path = "./windmill-autoscaling" }
 windmill-indexer = {path = "./windmill-indexer"}
 windmill-macros = {path = "./windmill-macros"}
-windmill-mcp = { path = "./windmill-mcp" }
 windmill-parser = { path = "./parsers/windmill-parser" }
 windmill-parser-ts = { path = "./parsers/windmill-parser-ts" }
 windmill-parser-py = { path = "./parsers/windmill-parser-py" }

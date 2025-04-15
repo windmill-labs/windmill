@@ -14035,26 +14035,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "windmill-mcp"
-version = "0.1.5"
-dependencies = [
- "anyhow",
- "axum",
- "hyper 0.14.32",
- "rand 0.8.5",
- "rmcp",
- "schemars",
- "serde",
- "serde_json",
- "tokio",
- "tokio-util",
- "tower 0.4.13",
- "tracing",
- "tracing-subscriber",
- "urlencoding",
-]
-
-[[package]]
 name = "windmill-parser"
 version = "1.481.0"
 dependencies = [
