@@ -58,6 +58,7 @@
 		}
 		select: any
 		testWithArgs: any
+		selectCapture: Capture | undefined
 	}>()
 
 	interface CaptureWithPayload extends Capture {
@@ -130,6 +131,7 @@
 			const payloadData = await getPayload(capture)
 			selected = capture.id
 			dispatch('select', structuredClone(payloadData))
+			dispatch('selectCapture', capture)
 		}
 	}
 

@@ -29,10 +29,12 @@
 	import { CaptureService } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/utils'
-	import { Highlight } from 'svelte-highlight'
-	import { json } from 'svelte-highlight/languages'
-	import { toJsonStr } from '$lib/utils'
 	import CustomPopover from '$lib/components/CustomPopover.svelte'
+	import { triggerIconMap } from './utils'
+	import { formatDateShort } from '$lib/utils'
+	import DisplayResult from '$lib/components/DisplayResult.svelte'
+	import DisplayResultControlBar from '$lib/components/DisplayResultControlBar.svelte'
+	import { base } from '$lib/base'
 
 	export let disabled: boolean
 	export let captureType: CaptureTriggerKind
@@ -48,7 +50,7 @@
 		captureToggle: { disableOnly?: boolean }
 		updateSchema: { payloadData: Record<string, any>; redirect: boolean; args?: boolean }
 		addPreprocessor: null
-		testWithArgs: { payloadData: Record<string, any> }
+		testWithArgs: Record<string, any>
 		applyArgs: { kind: 'main' | 'preprocessor'; args: Record<string, any> }
 	}>()
 
@@ -82,12 +84,12 @@
 	}
 	$: updateShowCaptureHint($showCaptureHint)
 
-	let selectedCapture: any | undefined = undefined
+	let selectedCapture: Capture | undefined = undefined
 	function handleSelectCapture(e: any) {
-		if (e.detail && e.detail.id !== lastCapture?.id) {
+		if (e.detail) {
 			selectedCapture = e.detail
 		} else if (!e.detail && lastCapture) {
-			selectedCapture = lastCapture.payload
+			selectedCapture = lastCapture
 		}
 	}
 
@@ -97,6 +99,8 @@
 	let isLoadingBigPayload = false
 	let capturePollingInterval: ReturnType<typeof setInterval> | undefined = undefined
 	let lastCaptureId: number | undefined = undefined
+	let displayResult: DisplayResult | undefined = undefined
+	let toolbarLocation: 'internal' | 'external' | undefined = undefined
 
 	// Function to fetch the last capture when component mounts
 	async function fetchLastCapture() {
@@ -116,10 +120,7 @@
 				lastCapture = captures[0]
 				lastCaptureId = lastCapture.id
 
-				// If it's a big payload, don't load it automatically
-				if (lastCapture.payload !== 'WINDMILL_TOO_BIG') {
-					selectedCapture = lastCapture.payload
-				}
+				selectedCapture = lastCapture
 			}
 		} catch (error) {
 			console.error('Failed to fetch last capture:', error)
@@ -150,16 +151,7 @@
 					// Trigger animation for new capture
 					showNewCaptureAnimation()
 
-					// If it's not a large payload, automatically select it and display it
-					if (lastCapture.payload !== 'WINDMILL_TOO_BIG') {
-						selectedCapture = lastCapture.payload
-					} else {
-						// For big payloads, we can show the placeholder but keep existing selectedCapture if it exists
-						if (!selectedCapture) {
-							// This will trigger the UI to show the "Load large payload" button
-							selectedCapture = undefined
-						}
-					}
+					selectedCapture = lastCapture
 				}
 			} catch (error) {
 				console.error('Error polling for new captures:', error)
@@ -184,17 +176,17 @@
 	}
 
 	// Load big payload when requested
-	async function loadBigPayload() {
-		if (!lastCapture) return
+	async function loadBigPayload(capture: Capture | undefined) {
+		if (!capture) return
 
 		try {
 			isLoadingBigPayload = true
 			const fullCapture = await CaptureService.getCapture({
 				workspace: $workspaceStore!,
-				id: lastCapture.id
+				id: capture.id
 			})
 
-			selectedCapture = fullCapture.payload
+			capture.payload = fullCapture.payload
 			isLoadingBigPayload = false
 		} catch (error) {
 			sendUserToast('Failed to load large payload', true)
@@ -271,36 +263,51 @@
 		</div>
 	</Pane>
 
-	<Pane class="py-2 pl-2 flex flex-col">
-		<div class="flex flex-row gap-1 justify-between">
-			<Popover
-				placement="left"
-				contentClasses="w-48 min-h-48 max-h-64 overflow-auto"
-				floatingConfig={{
-					placement: 'left-start',
-					offset: { mainAxis: 10, crossAxis: -9 },
-					gutter: 0 // hack to make offset effective, see https://github.com/melt-ui/melt-ui/issues/528
-				}}
-			>
-				<svelte:fragment slot="trigger">
-					<Button size="xs2" color="light" iconOnly startIcon={{ icon: History }} nonCaptureEvent
-					></Button>
-				</svelte:fragment>
-				<svelte:fragment slot="content">
-					<CaptureTable
-						{captureType}
-						bind:this={captureTable}
-						isFlow={captureInfo.isFlow}
-						path={captureInfo.path}
-						on:select={handleSelectCapture}
-						fullHeight={false}
-						headless
-						addButton={false}
-						noBorder
-					/>
-				</svelte:fragment>
-			</Popover>
-			<div class="flex flex-row items-center gap-2 px-2">
+	<Pane class="flex flex-col">
+		<div class="flex flex-row gap-1 justify-between min-h-[33.5px] pl-1">
+			<div class="flex flex-row gap-1 items-center">
+				<Popover
+					placement="left"
+					contentClasses="w-48 min-h-48 max-h-64 overflow-auto"
+					floatingConfig={{
+						placement: 'left-start',
+						offset: { mainAxis: 8, crossAxis: -4.5 },
+						gutter: 0 // hack to make offset effective, see https://github.com/melt-ui/melt-ui/issues/528
+					}}
+					usePointerDownOutside
+				>
+					<svelte:fragment slot="trigger">
+						<Button
+							size="xs2"
+							color="light"
+							iconOnly
+							startIcon={{ icon: History }}
+							nonCaptureEvent
+							btnClasses="h-[27px]"
+						></Button>
+					</svelte:fragment>
+					<svelte:fragment slot="content">
+						<CaptureTable
+							{captureType}
+							bind:this={captureTable}
+							isFlow={captureInfo.isFlow}
+							path={captureInfo.path}
+							on:selectCapture={handleSelectCapture}
+							fullHeight={false}
+							headless
+							addButton={false}
+							noBorder
+						/>
+					</svelte:fragment>
+				</Popover>
+				<div
+					class={'min-w-16 text-secondary flex flex-row w-fit items-center gap-2 rounded-md bg-surface-secondary p-1 px-2 h-[27px]'}
+				>
+					<svelte:component this={triggerIconMap[captureType]} size={12} />
+					<span class="text-xs text-secondary truncate">
+						Capture {formatDateShort(selectedCapture?.created_at)}
+					</span>
+				</div>
 				{#if testKind === 'preprocessor' && !hasPreprocessor}
 					<CustomPopover noPadding>
 						<Button
@@ -331,16 +338,17 @@
 					</CustomPopover>
 				{:else if selectedCapture}
 					<Button
-						size="xs2"
+						size="xs"
 						color="blue"
+						btnClasses="h-[27px]"
 						dropdownItems={[
 							{
 								label: 'Use as input schema',
 								onClick: async () => {
 									if (!lastCapture) return
-									const payloadData = selectedCapture
+									const payloadData = selectedCapture?.payload
 									dispatch('updateSchema', {
-										payloadData,
+										payloadData: payloadData ?? {},
 										redirect: true,
 										args: true
 									})
@@ -351,7 +359,7 @@
 						].filter((item) => !item.hidden)}
 						on:click={async () => {
 							if (!lastCapture) return
-							const payloadData = selectedCapture
+							const payloadData = selectedCapture?.payload ?? {}
 							if (isFlow && testKind === 'main') {
 								dispatch('testWithArgs', payloadData)
 							} else {
@@ -374,7 +382,7 @@
 				{/if}
 				{#if selectedCapture}
 					<Button
-						size="xs2"
+						size="xs"
 						color="light"
 						variant="contained"
 						iconOnly
@@ -382,28 +390,54 @@
 						on:click={() => {
 							//infiniteList?.deleteItem(item.id)
 						}}
-						btnClasses="hover:text-white hover:bg-red-500 "
+						btnClasses="hover:text-white hover:bg-red-500 h-[27px]"
 					/>
 				{/if}
 			</div>
+
+			{#if displayResult && toolbarLocation === 'external'}
+				<DisplayResultControlBar
+					{base}
+					result={selectedCapture?.payload}
+					disableTooltips={false}
+					on:open-drawer={() => {
+						if (displayResult && typeof displayResult.openDrawer === 'function') {
+							displayResult.openDrawer()
+						}
+					}}
+				/>
+			{/if}
 		</div>
-		<div class="flex flex-col gap-2 h-full">
-			{#if lastCapture && lastCapture.payload === 'WINDMILL_TOO_BIG' && !selectedCapture}
+		<div class="grow min-h-0 rounded-md w-full pl-2 py-1 pb-2 overflow-auto">
+			{#if selectedCapture && selectedCapture.payload === 'WINDMILL_TOO_BIG'}
 				<div class="bg-surface flex flex-col items-center gap-2">
 					<div class="text-amber-500 flex items-center gap-2">
 						<AlertCircle size={20} />
 						<span>Large payload detected</span>
 					</div>
-					<Button color="dark" loading={isLoadingBigPayload} on:click={loadBigPayload}>
+					<Button
+						color="dark"
+						loading={isLoadingBigPayload}
+						on:click={() => loadBigPayload(selectedCapture)}
+					>
 						Load large payload
 					</Button>
 				</div>
-			{:else if selectedCapture}
+			{:else if selectedCapture?.payload}
 				<div
-					class="bg-surface p-3 rounded-md text-sm overflow-auto max-h-[500px] grow shadow-sm"
+					class="bg-surface rounded-md text-sm overflow-auto max-h-[500px] grow"
 					class:animate-highlight={newCaptureReceived}
 				>
-					<Highlight language={json} code={toJsonStr(selectedCapture).replace(/\\n/g, '\n')} />
+					<DisplayResult
+						bind:this={displayResult}
+						workspaceId={undefined}
+						jobId={undefined}
+						result={selectedCapture.payload}
+						externalToolbarAvailable
+						on:toolbar-location-changed={({ detail }) => {
+							toolbarLocation = detail
+						}}
+					/>
 				</div>
 			{:else}
 				<div class="text-center text-tertiary p-4 bg-surface rounded-md">No captures yet.</div>
