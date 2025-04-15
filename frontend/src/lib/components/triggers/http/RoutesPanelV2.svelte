@@ -1,5 +1,6 @@
 <script lang="ts">
 	import RouteEditorInner from './RouteEditorInner.svelte'
+	import Description from '$lib/components/Description.svelte'
 
 	let routeEditor = $state<RouteEditorInner | null>(null)
 	let { selectedTrigger, isFlow, path } = $props()
@@ -28,4 +29,11 @@
 	hidePath
 	on:update-config
 	on:update
-/>
+>
+	{#snippet description()}
+		<Description link="https://www.windmill.dev/docs/core_concepts/http_routing" class="mb-4"
+			>Routes expose your scripts and flows as HTTP endpoints. Each route can be configured with a
+			specific HTTP method and path.</Description
+		>
+	{/snippet}
+</RouteEditorInner>
