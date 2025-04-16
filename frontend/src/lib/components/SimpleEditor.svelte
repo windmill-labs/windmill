@@ -559,7 +559,7 @@
 {/if}
 
 {#if !editor}
-	<FakeMonacoPlaceHolder marginLeft="1.44em" {code} fontSize={small ? 12 : 14} />
+	<FakeMonacoPlaceHolder marginLeft="23px" {code} fontSize={small ? 12 : 14} />
 {/if}
 
 <div

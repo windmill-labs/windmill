@@ -12,17 +12,17 @@
 </script>
 
 <div
-	class={'relative w-full pr-14 z-9 mt-[-0.026em] dark:bg-[#272D38] mb-[0.026em] leading-5 overflow-y-clip overflow-x-auto mycontainer ' +
+	class={'relative w-full pr-14 z-9 mt-[-1px] mb-[1px] leading-[20px] dark:bg-[#272D38] overflow-y-clip overflow-x-auto mycontainer ' +
 		className}
 	style="padding-left: {marginLeft};"
 >
 	<div
-		class="absolute inset-x-0 h-[1.36em] dark:bg-[#3A4252] mix-blend-lighten"
+		class="absolute inset-x-0 h-[22px] dark:bg-[#3A4252] mix-blend-lighten"
 		style="margin-left: {marginLeft};"
 	></div>
 	<code
 		class="text-nowrap whitespace-pre-wrap overflow-clip text-tertiary/50"
-		style="font-size: {fontSize / 16}em;"
+		style="font-size: {fontSize}px;"
 	>
 		{code}
 		{#if code.endsWith('\n')}
@@ -34,7 +34,7 @@
 <style>
 	.mycontainer::-webkit-scrollbar {
 		/* Try to match monaco's scrollbar */
-		height: 0.75em;
+		height: 12px;
 	}
 	.mycontainer::-webkit-scrollbar-thumb {
 		background-color: transparent;
