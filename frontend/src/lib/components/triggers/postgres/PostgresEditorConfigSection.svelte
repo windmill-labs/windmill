@@ -35,7 +35,6 @@
 	export let publication: PublicationData = DEFAULT_PUBLICATION
 
 	function updateValidity(publication: PublicationData) {
-		console.log({ publication })
 		isValid =
 			!emptyString(postgres_resource_path) &&
 			(!publication.table_to_track || publication.table_to_track.length === 0)
