@@ -790,18 +790,9 @@ export type GcpTrigger = TriggerExtraProperty & {
     server_id?: string;
     delivery_type: DeliveryType;
     delivery_config?: PushConfig;
-    last_server_ping?: string;
-    error?: string;
-    enabled: boolean;
-};
-
-export type GcpTriggerCliTypeSafe = TriggerExtraProperty & {
-    gcp_resource_path: string;
-    topic_id: string;
-    subscription_id: string;
-    server_id?: string;
-    delivery_type: DeliveryType;
-    delivery_config?: PushConfig;
+    /**
+     * This field is not sent externally and is only used for internal purposes.
+     */
     subscription_mode: GcpSubscriptionModeConfig;
     last_server_ping?: string;
     error?: string;

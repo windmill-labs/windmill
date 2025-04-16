@@ -90,7 +90,7 @@ async function updateTrigger<K extends TriggerType>(
     postgres: wmill.updatePostgresTrigger,
     mqtt: wmill.updateMqttTrigger,
     sqs: wmill.updateSqsTrigger,
-    gcp: wmill.updateGcpTrigger as any
+    gcp: wmill.updateGcpTrigger
   };
   const triggerFunction = triggerFunctions[triggerType];
   await triggerFunction({ workspace, path, requestBody: trigger });
@@ -116,7 +116,7 @@ async function createTrigger<K extends TriggerType>(
     postgres: wmill.createPostgresTrigger,
     mqtt: wmill.createMqttTrigger,
     sqs: wmill.createSqsTrigger,
-    gcp: wmill.createGcpTrigger as any
+    gcp: wmill.createGcpTrigger
   };
   const triggerFunction = triggerFunctions[triggerType];
   await triggerFunction({ workspace, path, requestBody: trigger });

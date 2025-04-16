@@ -14972,6 +14972,9 @@ components:
           $ref: "#/components/schemas/DeliveryType"
         delivery_config:
           $ref: "#/components/schemas/PushConfig"
+        subscription_mode:
+          $ref: "#/components/schemas/GcpSubscriptionModeConfig"
+          description: "This field is not sent externally and is only used for internal purposes."
         last_server_ping:
           type: string
           format: date-time
@@ -14985,6 +14988,8 @@ components:
         - subscription_id
         - enabled
         - delivery_type
+        - subscription_mode
+
   
     SubscriptionMode:
       type: string
