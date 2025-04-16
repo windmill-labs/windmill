@@ -344,6 +344,7 @@
 						namePlaceholder="route"
 						kind="http_trigger"
 						hideUser
+						disableEditing={!can_write || !editMode}
 					/>
 				</Label>
 			</Section>
