@@ -6,6 +6,7 @@ use std::{collections::HashMap, path::PathBuf, process::Stdio};
 
 use anyhow::anyhow;
 use itertools::Itertools;
+use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
 use tokio::process::Command;
 use uuid::Uuid;
@@ -53,7 +54,7 @@ async fn clone_repo(
     canceled_by: &mut Option<CanceledBy>,
     w_id: &str,
     occupancy_metrics: &mut OccupancyMetrics,
-) -> error::Result<()> {
+) -> error::Result<String> {
     let target_path = is_allowed_file_location(job_dir, &repo.target_path)?;
 
     let mut clone_cmd = Command::new(GIT_PATH.as_str());
@@ -63,7 +64,7 @@ async fn clone_repo(
         .envs(PROXY_ENVS.clone())
         .env("PATH", PATH_ENV.as_str())
         .env("TZ", TZ_ENV.as_str())
-        .arg("clone")
+        .args(["clone", "--quiet"])
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
     if let Some(branch) = &repo.branch {
@@ -101,7 +102,7 @@ async fn clone_repo(
             .env("TZ", TZ_ENV.as_str())
             .arg("-C")
             .arg(&target_path)
-            .args(["checkout", commit])
+            .args(["checkout", "--quiet", commit])
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
 
@@ -124,7 +125,29 @@ async fn clone_repo(
         .await?;
     }
 
-    Ok(())
+    let mut rev_parse_cmd = Command::new(GIT_PATH.as_str());
+
+    let commit_hash_output = rev_parse_cmd
+        .current_dir(job_dir)
+        .env_clear()
+        .envs(PROXY_ENVS.clone())
+        .env("PATH", PATH_ENV.as_str())
+        .env("TZ", TZ_ENV.as_str())
+        .arg("-C")
+        .arg(&target_path)
+        .args(["rev-parse", "HEAD"])
+        .stderr(Stdio::piped())
+        .output()
+        .await?;
+
+    if !commit_hash_output.status.success() {
+        let stderr = String::from_utf8(commit_hash_output.stderr)?;
+        return Err(anyhow!("Error getting git repo commit hash: {stderr}").into());
+    }
+
+    let commit_hash = String::from_utf8(commit_hash_output.stdout)?.trim().to_string();
+
+    Ok(commit_hash)
 }
 
 pub fn create_empty_dir(path: &PathBuf) -> std::io::Result<()> {
@@ -462,6 +485,85 @@ async fn install_galaxy_collections(
     Ok(())
 }
 
+#[derive(Serialize, Deserialize)]
+pub struct AnsibleDependencyLocks {
+    pub python_lockfile: String,
+    pub git_repos: HashMap<String, String>, // URL to full commit hash
+}
+
+pub async fn get_git_repo_full_head_commit_hash(repo: &GitRepo) -> anyhow::Result<String> {
+    let mut git_cmd = Command::new(GIT_PATH.as_str());
+
+    git_cmd.args(["ls-remote", &repo.url, "HEAD"]);
+
+    let output = git_cmd.stderr(Stdio::piped()).output().await?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8(output.stderr)?;
+        return Err(anyhow!("Error getting git repo commit hash: {stderr}"));
+    }
+
+    let stdout = String::from_utf8(output.stdout)?;
+
+    let lines: Vec<&str> = stdout.lines().collect();
+
+    if lines.len() != 1 {
+        return Err(anyhow!("Unexpected output format for git ls-remote",));
+    }
+
+    Ok(lines
+        .first()
+        .ok_or(anyhow!(
+            "The HEAD commit hash was not found for repo `{}`",
+            &repo.url
+        ))?
+        .split_whitespace()
+        .next()
+        .map(|s| s.to_string())
+        .ok_or(anyhow!("Unexpected output format for git ls-remote"))?)
+}
+
+pub async fn get_git_repos_lock(
+    repos: &Vec<GitRepo>,
+    job_dir: &str,
+    job_id: &Uuid,
+    worker_name: &str,
+    conn: &Connection,
+    mem_peak: &mut i32,
+    canceled_by: &mut Option<CanceledBy>,
+    w_id: &str,
+    occupancy_metrics: &mut OccupancyMetrics,
+) -> anyhow::Result<HashMap<String, String>> {
+    let mut ret = HashMap::new();
+
+    for repo in repos {
+        if repo.commit.is_some() {
+            ret.insert(
+                repo.url.to_string(),
+                clone_repo(
+                    repo,
+                    job_dir,
+                    job_id,
+                    worker_name,
+                    conn,
+                    mem_peak,
+                    canceled_by,
+                    w_id,
+                    occupancy_metrics,
+                )
+                .await?,
+            );
+        } else {
+            ret.insert(
+                repo.url.to_string(),
+                get_git_repo_full_head_commit_hash(repo).await?,
+            );
+        }
+    }
+
+    Ok(ret)
+}
+
 pub async fn handle_ansible_job(
     requirements_o: Option<&String>,
     job_dir: &str,
@@ -485,13 +587,17 @@ pub async fn handle_ansible_job(
         "ansible",
     )?;
 
+    let req_lockfiles: Option<AnsibleDependencyLocks> = requirements_o
+        .map(|s| serde_json::from_str(s))
+        .transpose()?;
+
     let (logs, reqs, playbook) = windmill_parser_yaml::parse_ansible_reqs(inner_content)?;
     append_logs(&job.id, &job.workspace_id, logs, conn).await;
     write_file(job_dir, "main.yml", &playbook)?;
 
     let additional_python_paths = handle_ansible_python_deps(
         job_dir,
-        requirements_o,
+        req_lockfiles.as_ref().map(|r| &r.python_lockfile),
         reqs.as_ref(),
         &job.workspace_id,
         &job.id,
@@ -566,19 +672,46 @@ pub async fn handle_ansible_job(
         }
 
         for repo in &r.git_repos {
-            clone_repo(
-                repo,
-                job_dir,
+            append_logs(
                 &job.id,
-                worker_name,
-                conn,
-                mem_peak,
-                canceled_by,
                 &job.workspace_id,
-                occupancy_metrics,
+                format!("\nCloning {}...", &repo.url),
+                conn,
             )
-            .await
-            .map_err(|e| anyhow!("Failed to clone git repo `{}`: {e}", repo.url))?;
+            .await;
+            if let Some(full_commit_hash) = req_lockfiles
+                .as_ref()
+                .and_then(|r| r.git_repos.get(&repo.url))
+            {
+                clone_repo_without_history(
+                    repo,
+                    full_commit_hash,
+                    job_dir,
+                    &job.id,
+                    worker_name,
+                    conn,
+                    mem_peak,
+                    canceled_by,
+                    &job.workspace_id,
+                    occupancy_metrics,
+                )
+                .await
+                .map_err(|e| anyhow!("Failed to clone git repo `{}`: {e}", repo.url))?;
+            } else {
+                clone_repo(
+                    repo,
+                    job_dir,
+                    &job.id,
+                    worker_name,
+                    conn,
+                    mem_peak,
+                    canceled_by,
+                    &job.workspace_id,
+                    occupancy_metrics,
+                )
+                .await
+                .map_err(|e| anyhow!("Failed to clone git repo `{}`: {e}", repo.url))?;
+            }
 
             append_logs(
                 &job.id,

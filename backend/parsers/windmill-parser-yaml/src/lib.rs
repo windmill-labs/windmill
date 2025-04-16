@@ -231,6 +231,29 @@ pub struct AnsibleRequirements {
     pub git_repos: Vec<GitRepo>,
 }
 
+impl Default for AnsibleRequirements {
+    fn default() -> Self {
+        Self {
+            python_reqs: vec![],
+            collections: None,
+            file_resources: vec![],
+            inventories: vec![],
+            vars: vec![],
+            resources: vec![],
+            options: AnsiblePlaybookOptions {
+                verbosity: None,
+                forks: None,
+                timeout: None,
+                flush_cache: None,
+                force_handlers: None,
+            },
+            vault_password_file: None,
+            vault_id: vec![],
+            git_repos: vec![],
+        }
+    }
+}
+
 fn parse_inventories(inventory_yaml: &Yaml) -> anyhow::Result<Vec<AnsibleInventory>> {
     if let Yaml::Array(arr) = inventory_yaml {
         let mut ret = vec![];
