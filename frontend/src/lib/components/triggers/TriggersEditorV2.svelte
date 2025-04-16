@@ -17,6 +17,7 @@
 	import PrimarySchedulePanel from './PrimarySchedulePanel.svelte'
 	import SchedulePanel from '$lib/components/SchedulePanel.svelte'
 	import { twMerge } from 'tailwind-merge'
+	import TriggersLoader from './TriggersLoader.svelte'
 
 	export let noEditor: boolean
 	export let newItem = false
@@ -31,7 +32,6 @@
 	export let hasPreprocessor: boolean = false
 
 	let config: Record<string, any> = {}
-	let triggersTable: TriggersTable | null = null
 
 	const { simplifiedPoll, selectedTriggerV2: selectedTrigger } =
 		getContext<TriggerContext>('TriggerContext')
@@ -51,10 +51,15 @@
 	$: if ($selectedTrigger) {
 		captureKind = triggerTypeToCaptureKind($selectedTrigger.type)
 	}
+
+	let triggers: Trigger[] = []
+	let triggersLoader: TriggersLoader | null = null
 </script>
 
 <FlowCard {noEditor} title="Triggers">
 	{#if !$simplifiedPoll}
+		<TriggersLoader path={currentPath} {isFlow} bind:triggers bind:this={triggersLoader} />
+
 		<Splitpanes horizontal>
 			<Pane class="px-4">
 				<div class="flex flex-row h-full">
@@ -66,11 +71,15 @@
 						)}
 					>
 						<TriggersTable
-							path={currentPath}
-							{isFlow}
 							selectedTrigger={$selectedTrigger}
 							on:select={handleSelectTrigger}
-							bind:this={triggersTable}
+							{triggers}
+							on:addDraftTrigger={({ detail }) => {
+								triggersLoader?.addDraftTrigger(detail)
+							}}
+							on:deleteDraft={({ detail }) => {
+								triggersLoader?.deleteDraft(detail.trigger, detail.keepSelection)
+							}}
 						/>
 					</div>
 
@@ -86,9 +95,9 @@
 										config = detail
 									}}
 									on:update={({ detail }) => {
-										triggersTable?.fetchHttpTriggers()
+										triggersLoader?.fetchHttpTriggers()
 										if (detail) {
-											triggersTable?.deleteDraft($selectedTrigger)
+											triggersLoader?.deleteDraft($selectedTrigger)
 										}
 									}}
 								/>
@@ -120,9 +129,9 @@
 									{newItem}
 									can_write={canWrite(currentPath, {}, $userStore)}
 									on:update={({ detail }) => {
-										triggersTable?.fetchSchedules()
+										triggersLoader?.fetchSchedules()
 										if (detail === 'save') {
-											triggersTable?.deleteDraft($selectedTrigger, true)
+											triggersLoader?.deleteDraft($selectedTrigger, true)
 										}
 									}}
 									isNewSchedule={$selectedTrigger.isDraft}
@@ -134,7 +143,7 @@
 									path={initialPath}
 									on:update={({ detail }) => {
 										if ($selectedTrigger && $selectedTrigger.isDraft && detail?.path) {
-											triggersTable?.fetchSchedules()
+											triggersLoader?.fetchSchedules()
 											$selectedTrigger.isDraft = false
 											$selectedTrigger.path = detail.path
 										}
