@@ -1,5 +1,6 @@
 import type { CaptureTriggerKind, TriggersCount } from '$lib/gen'
 import type { Writable } from 'svelte/store'
+import type { Trigger } from './triggers/utils'
 
 export type ScheduleTrigger = {
 	summary: string | undefined
@@ -12,6 +13,7 @@ export type ScheduleTrigger = {
 
 export type TriggerContext = {
 	selectedTrigger: Writable<TriggerKind>
+	selectedTriggerV2: Writable<Trigger | undefined>
 	primarySchedule: Writable<ScheduleTrigger | undefined | false>
 	triggersCount: Writable<TriggersCount | undefined>
 	simplifiedPoll: Writable<boolean | undefined>

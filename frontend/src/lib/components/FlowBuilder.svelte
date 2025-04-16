@@ -579,6 +579,7 @@
 
 	setContext<TriggerContext>('TriggerContext', {
 		selectedTrigger: selectedTriggerStore,
+		selectedTriggerV2: writable(undefined),
 		primarySchedule: primaryScheduleStore,
 		triggersCount,
 		simplifiedPoll,
