@@ -28,19 +28,19 @@
 <div
 	class={classNames(
 		'w-full flex relative rounded-sm',
-		selectable ? 'cursor-pointer' : '',
+		selectable ? 'cursor-pointer hover:!bg-surface-secondary active:!bg-surface' : '',
 		selected ? 'outline outline-offset-1 outline-2  outline-gray-600 dark:outline-gray-400' : '',
 		onTop ? 'z-[901]' : ''
 	)}
-	style="width: 275px; max-height: 38px; background-color: {bgColor} !important;"
+	style="width: 275px; max-height: 38px; background-color: {bgColor};"
 	on:pointerdown={() => {
-		if (selectable) {
-			if (id) {
-				dispatch('select', id)
-			} else {
-				dispatch('select', label || label || '')
+		// setTimeout to avoid freezing event loop that handles css on pointerdown
+		// which makes the button feel reactive
+		setTimeout(() => {
+			if (selectable) {
+				dispatch('select', id || label || '')
 			}
-		}
+		})
 	}}
 	on:mouseenter={() => {
 		hover = true

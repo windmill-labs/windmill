@@ -198,12 +198,18 @@
 		'w-full module flex rounded-sm cursor-pointer max-w-full',
 		selected ? 'outline outline-offset-0  outline-2  outline-slate-500 dark:outline-gray-400' : '',
 		'flex relative',
-		$copilotCurrentStepStore === id ? 'z-[901]' : ''
+		$copilotCurrentStepStore === id ? 'z-[901]' : '',
+		'hover:!bg-surface-secondary active:!bg-surface'
 	)}
 	style="width: 275px; height: 38px; background-color: {bgColor};"
 	on:mouseenter={() => (hover = true)}
 	on:mouseleave={() => (hover = false)}
-	on:pointerdown|preventDefault|stopPropagation
+	on:pointerdown|preventDefault|stopPropagation={() =>
+		// setTimeout to avoid freezing event loop that handles css on pointerdown
+		// which makes the button feel reactive
+		setTimeout(() => {
+			dispatch('pointerdown')
+		})}
 >
 	<div class="absolute text-sm right-12 -bottom-3 flex flex-row gap-1 z-10">
 		{#if retry}
