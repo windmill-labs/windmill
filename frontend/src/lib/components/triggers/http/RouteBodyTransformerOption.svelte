@@ -4,7 +4,8 @@
 	import Tooltip from '$lib/components/Tooltip.svelte'
 
 	export let raw_string: boolean
-	export let wrap_body: boolean 
+	export let wrap_body: boolean
+	export let disabled: boolean = false
 </script>
 
 <Label label="Raw body" class="w-full">
@@ -21,6 +22,7 @@
 			on:change={() => {
 				raw_string = !raw_string
 			}}
+			{disabled}
 		/>
 	</svelte:fragment>
 </Label>
@@ -36,6 +38,7 @@
 			on:change={() => {
 				wrap_body = !wrap_body
 			}}
+			{disabled}
 		/>
 	</svelte:fragment>
 </Label>

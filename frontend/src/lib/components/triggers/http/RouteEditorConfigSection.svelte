@@ -178,12 +178,13 @@
 					!can_write ||
 					!!static_asset_config}
 				let:item
+				let:disabled
 			>
-				<ToggleButton label="GET" value="get" {item} />
-				<ToggleButton label="POST" value="post" {item} />
-				<ToggleButton label="PUT" value="put" {item} />
-				<ToggleButton label="PATCH" value="patch" {item} />
-				<ToggleButton label="DELETE" value="delete" {item} />
+				<ToggleButton label="GET" value="get" {item} {disabled} />
+				<ToggleButton label="POST" value="post" {item} {disabled} />
+				<ToggleButton label="PUT" value="put" {item} {disabled} />
+				<ToggleButton label="PATCH" value="patch" {item} {disabled} />
+				<ToggleButton label="DELETE" value="delete" {item} {disabled} />
 			</ToggleButtonGroup>
 			<div class="flex flex-col w-full">
 				<div class="flex justify-start w-full">
@@ -221,7 +222,7 @@
 				<div class="text-red-600 dark:text-red-400 text-2xs mt-1.5"
 					>{dirtyRoutePath ? routeError : ''}</div
 				>
-				{#if !capture_mode && !isCloudHosted()}
+				{#if !isCloudHosted()}
 					<div class="mt-1">
 						<Toggle
 							size="sm"
