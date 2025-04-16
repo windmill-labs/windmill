@@ -12,7 +12,8 @@ use uuid::Uuid;
 use windmill_common::{
     error,
     worker::{
-        is_allowed_file_location, to_raw_value, write_file, write_file_at_user_defined_location, Connection, WORKER_CONFIG,
+        is_allowed_file_location, to_raw_value, write_file, write_file_at_user_defined_location,
+        Connection, WORKER_CONFIG,
     },
 };
 use windmill_queue::MiniPulledJob;
@@ -47,13 +48,21 @@ async fn clone_repo(
     job_dir: &str,
     job_id: &Uuid,
     worker_name: &str,
-    db: &sqlx::Pool<sqlx::Postgres>,
+    conn: &Connection,
     mem_peak: &mut i32,
     canceled_by: &mut Option<CanceledBy>,
     w_id: &str,
     occupancy_metrics: &mut OccupancyMetrics,
 ) -> error::Result<()> {
-    let target_path = is_allowed_file_location(job_dir, &repo.target_path)?;
+    let target_path = is_allowed_file_location(job_dir, &repo.target_path)?
+        .into_os_string()
+        .into_string()
+        .map_err(|_| {
+            anyhow!(
+                "Failed to get UTF-8 String for location `{}`",
+                &repo.target_path
+            )
+        })?;
     let mut clone_cmd = Command::new(GIT_PATH.as_str());
     clone_cmd
         .current_dir(job_dir)
@@ -72,7 +81,7 @@ async fn clone_repo(
     let clone_cmd_child = start_child_process(clone_cmd, GIT_PATH.as_str()).await?;
     handle_child(
         job_id,
-        db,
+        conn,
         mem_peak,
         canceled_by,
         clone_cmd_child,
@@ -83,6 +92,7 @@ async fn clone_repo(
         None,
         false,
         &mut Some(occupancy_metrics),
+        None,
     )
     .await?;
 
@@ -102,7 +112,7 @@ async fn clone_repo(
         let checkout_cmd_child = start_child_process(checkout_cmd, GIT_PATH.as_str()).await?;
         handle_child(
             job_id,
-            db,
+            conn,
             mem_peak,
             canceled_by,
             checkout_cmd_child,
@@ -113,6 +123,7 @@ async fn clone_repo(
             None,
             false,
             &mut Some(occupancy_metrics),
+            None,
         )
         .await?;
     }
@@ -231,7 +242,7 @@ async fn install_galaxy_collections(
     let child = start_child_process(galaxy_roles_cmd, ANSIBLE_GALAXY_PATH.as_str()).await?;
     handle_child(
         job_id,
-        db,
+        conn,
         mem_peak,
         canceled_by,
         child,
@@ -242,6 +253,7 @@ async fn install_galaxy_collections(
         None,
         false,
         &mut Some(occupancy_metrics),
+        None,
     )
     .await?;
 
@@ -387,19 +399,19 @@ pub async fn handle_ansible_job(
             .await?;
         }
 
-        for repo in r.git_repos {
+        for repo in &r.git_repos {
             clone_repo(
-                &repo,
+                repo,
                 job_dir,
                 &job.id,
                 worker_name,
-                db,
+                conn,
                 mem_peak,
                 canceled_by,
-                w_id,
+                &job.workspace_id,
                 occupancy_metrics,
             )
-            .await?;
+            .await.map_err(|e| anyhow!("Failed to clone git repo `{}`: {e}", repo.url))?;
         }
 
         if let Some(collections) = r.collections.as_ref() {

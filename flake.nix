@@ -159,6 +159,7 @@
           ];
 
           inherit PKG_CONFIG_PATH RUSTY_V8_ARCHIVE;
+          GIT_PATH = "${pkgs.git}/bin/git";
           NODE_ENV = "development";
           NODE_OPTIONS = "--max-old-space-size=16384";
           DATABASE_URL = "postgres://postgres:changeme@127.0.0.1:5432/";
