@@ -1416,12 +1416,14 @@
 
 <EditorTheme />
 {#if !editor}
-	<FakeMonacoPlaceHolder
-		marginLeft="51px"
-		{code}
-		fontSize={!small ? 14 : 12}
-		className="dark:bg-[#272D38] h-full"
-	/>
+	<div class="inset-0 absolute overflow-clip">
+		<FakeMonacoPlaceHolder
+			marginLeft="51px"
+			{code}
+			fontSize={!small ? 14 : 12}
+			className="dark:bg-[#272D38] h-full"
+		/>
+	</div>
 {/if}
 <div bind:this={divEl} class="{$$props.class} editor {disabled ? 'disabled' : ''}"></div>
 {#if $vimMode}

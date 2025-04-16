@@ -637,7 +637,7 @@
 	style="height: 18px;"
 	class="{$$props.class ??
 		''} border template nonmain-editor rounded min-h-4 mx-0.5 overflow-clip {!editor
-		? 'absolute'
+		? 'hidden'
 		: ''}"
 	bind:clientWidth={width}
 ></div>

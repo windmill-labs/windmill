@@ -516,9 +516,7 @@
 				mounted = true
 				await loadMonaco()
 				if (autofocus) {
-					setTimeout(() => {
-						focus()
-					}, 0)
+					setTimeout(() => focus(), 0)
 				}
 			}
 		}, 0)
