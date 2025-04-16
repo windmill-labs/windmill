@@ -630,7 +630,7 @@
 <EditorTheme />
 
 {#if !editor}
-	<FakeMonacoPlaceHolder {code} {fontSize} />
+	<FakeMonacoPlaceHolder {code} {fontSize} marginLeft="1.6em" />
 {/if}
 <div
 	bind:this={divEl}

@@ -559,12 +559,14 @@
 {/if}
 
 {#if !editor}
-	<FakeMonacoPlaceHolder {code} fontSize={small ? 12 : 14} />
+	<FakeMonacoPlaceHolder marginLeft="1.44em" {code} fontSize={small ? 12 : 14} />
 {/if}
 
 <div
 	bind:this={divEl}
-	class="relative {className} editor simple-editor {!allowVim ? 'nonmain-editor' : ''}"
+	class="relative {className} {!editor ? 'hidden' : ''} editor simple-editor {!allowVim
+		? 'nonmain-editor'
+		: ''}"
 	bind:clientWidth={width}
 >
 	{#if placeholder}

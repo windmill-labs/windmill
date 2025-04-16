@@ -1418,7 +1418,7 @@
 {#if !editor}
 	<div class="inset-0 absolute overflow-clip">
 		<FakeMonacoPlaceHolder
-			marginLeft="51px"
+			marginLeft="3.19em"
 			{code}
 			fontSize={!small ? 14 : 12}
 			className="dark:bg-[#272D38] h-full"
