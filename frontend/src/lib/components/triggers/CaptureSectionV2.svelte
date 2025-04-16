@@ -308,7 +308,7 @@
 								isFlow={captureInfo.isFlow}
 								path={captureInfo.path}
 								on:selectCapture={handleSelectCapture}
-								fullHeight={false}
+								fullHeight
 								headless
 								addButton={false}
 								noBorder
