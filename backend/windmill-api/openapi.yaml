@@ -6623,7 +6623,8 @@ paths:
                         type: object
                         additionalProperties:
                           $ref: "#/components/schemas/InputTransform"
-                      use_latest_version: 1.482.0
+                      use_latest_version:
+                        type: boolean
                 flow_options_by_path:
                   type: object
                   additionalProperties:
@@ -6633,7 +6634,8 @@ paths:
                         type: object
                         additionalProperties:
                           $ref: "#/components/schemas/InputTransform"
-                      use_latest_version: 1.482.0
+                      use_latest_version:
+                        type: boolean
       responses:
         "201":
           description: stream of created job uuids separated by \n. Lines may start with 'Error:'
