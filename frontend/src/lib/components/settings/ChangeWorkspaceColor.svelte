@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { workspaceStore, usersWorkspaceStore } from '$lib/stores'
+	import { workspaceStore, usersWorkspaceStore, superadmin } from '$lib/stores'
 	import Button from '../common/button/Button.svelte'
 	import { sendUserToast } from '$lib/toast'
 	import { WorkspaceService } from '$lib/gen'
@@ -16,11 +16,19 @@
 
 	$: $usersWorkspaceStore && $workspaceStore !== lastWorkspace && onWorkspaceChange()
 
-	function onWorkspaceChange() {
+	async function onWorkspaceChange() {
 		lastWorkspace = $workspaceStore
 		savedWorkspaceColor = $usersWorkspaceStore?.workspaces.find(
 			(w) => w.id === $workspaceStore
 		)?.color
+
+		// If the workspace color is not set, and the user is superadmin try to get the color from the superadmin list
+		if (!savedWorkspaceColor && $superadmin) {
+			savedWorkspaceColor = (await WorkspaceService.listWorkspacesAsSuperAdmin()).find(
+				(w) => w.id === $workspaceStore
+			)?.color
+		}
+
 		workspaceColor = savedWorkspaceColor
 	}
 
@@ -76,9 +84,7 @@
 			}}
 		/>
 	</div>
-	<p class="italic text-xs">
-		Color to identify the current workspace in the list of workspaces
-	</p>
+	<p class="italic text-xs"> Color to identify the current workspace in the list of workspaces </p>
 </div>
 
 <Modal bind:open title="Change Workspace Color">
