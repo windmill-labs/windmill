@@ -7,14 +7,18 @@
 	import { Pen } from 'lucide-svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
 
-	let colorEnabled = false
-	let workspaceColor: string | undefined = undefined
-	let savedWorkspaceColor: string | undefined = undefined
-	let lastWorkspace: string | undefined = undefined
+	let { open = false } = $props<{ open?: boolean }>()
 
-	export let open = false
+	let colorEnabled = $state(false)
+	let workspaceColor = $state<string | undefined>(undefined)
+	let savedWorkspaceColor = $state<string | undefined>(undefined)
+	let lastWorkspace = $state<string | undefined>(undefined)
 
-	$: $usersWorkspaceStore && $workspaceStore !== lastWorkspace && onWorkspaceChange()
+	$effect(() => {
+		if ($usersWorkspaceStore && $workspaceStore !== lastWorkspace) {
+			onWorkspaceChange()
+		}
+	})
 
 	async function onWorkspaceChange() {
 		lastWorkspace = $workspaceStore
@@ -32,8 +36,15 @@
 		workspaceColor = savedWorkspaceColor
 	}
 
-	$: colorEnabled = !!workspaceColor
-	$: if (colorEnabled && !workspaceColor) generateRandomColor()
+	$effect(() => {
+		colorEnabled = !!workspaceColor
+	})
+
+	$effect(() => {
+		if (colorEnabled && !workspaceColor) {
+			generateRandomColor()
+		}
+	})
 
 	function generateRandomColor() {
 		const randomColor =
