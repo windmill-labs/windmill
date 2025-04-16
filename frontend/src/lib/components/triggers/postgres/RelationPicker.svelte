@@ -13,7 +13,7 @@
 
 	export let relations: Relations[] | undefined = undefined
 	export let can_write: boolean = true
-
+	let selected: 'all' | 'specific' = relations && relations.length > 0 ? 'specific' : 'all'
 	let cached: Relations[] | undefined = relations
 
 	function addTable(name: string, index: number) {
@@ -49,7 +49,7 @@
 						]
 					}
 				}}
-				selected={relations ? 'specific' : 'all'}
+				bind:selected
 				let:item
 			>
 				<ToggleButton value="all" label="All Tables" {item} />
@@ -236,47 +236,49 @@
 			{/each}
 		</div>
 	{/if}
-	<div class="grow min-w-0 pr-10">
-		<AddPropertyFormV2
-			customName="Schema"
-			on:add={({ detail }) => {
-				if (relations == undefined || !Array.isArray(relations)) {
-					relations = []
-					relations = relations.concat({
-						schema_name: 'public',
-						table_to_track: []
-					})
-				} else if (emptyStringTrimmed(detail.name)) {
-					sendUserToast('Schema name must not be empty', true)
-				} else {
-					const appendedRelations = relations.concat({
-						schema_name: detail.name,
-						table_to_track: []
-					})
-					if (
-						invalidRelations(appendedRelations, {
-							showError: true,
-							trackSchemaTableError: false
-						}) === false
-					) {
-						relations = appendedRelations
+	{#if selected === 'specific'}
+		<div class="grow min-w-0 pr-10">
+			<AddPropertyFormV2
+				customName="Schema"
+				on:add={({ detail }) => {
+					if (relations == undefined || !Array.isArray(relations)) {
+						relations = []
+						relations = relations.concat({
+							schema_name: 'public',
+							table_to_track: []
+						})
+					} else if (emptyStringTrimmed(detail.name)) {
+						sendUserToast('Schema name must not be empty', true)
+					} else {
+						const appendedRelations = relations.concat({
+							schema_name: detail.name,
+							table_to_track: []
+						})
+						if (
+							invalidRelations(appendedRelations, {
+								showError: true,
+								trackSchemaTableError: false
+							}) === false
+						) {
+							relations = appendedRelations
+						}
 					}
-				}
-			}}
-		>
-			<svelte:fragment slot="trigger">
-				<Button
-					variant="border"
-					color="light"
-					size="xs"
-					btnClasses="w-full"
-					disabled={!can_write}
-					startIcon={{ icon: Plus }}
-					nonCaptureEvent
-				>
-					Add schema
-				</Button>
-			</svelte:fragment>
-		</AddPropertyFormV2>
-	</div>
+				}}
+			>
+				<svelte:fragment slot="trigger">
+					<Button
+						variant="border"
+						color="light"
+						size="xs"
+						btnClasses="w-full"
+						disabled={!can_write}
+						startIcon={{ icon: Plus }}
+						nonCaptureEvent
+					>
+						Add schema
+					</Button>
+				</svelte:fragment>
+			</AddPropertyFormV2>
+		</div>
+	{/if}
 </div>
