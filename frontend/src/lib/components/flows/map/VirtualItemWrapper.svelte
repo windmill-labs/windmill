@@ -33,7 +33,7 @@
 		onTop ? 'z-[901]' : ''
 	)}
 	style="width: 275px; max-height: 38px; background-color: {bgColor} !important;"
-	on:click={() => {
+	on:pointerdown={() => {
 		if (selectable) {
 			if (id) {
 				dispatch('select', id)
