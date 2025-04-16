@@ -115,6 +115,12 @@ async fn sse_handler(
     let session = session.clone();
     let stream = ReceiverStream::new(from_client_rx);
     let sink = PollSender::new(to_client_tx);
+    // Construct the full nested path
+    let workspace_id = match path_params.get("workspace_id") {
+        // Use the name from your route definition
+        Some(id) => id.clone(), // Clone it for use in the formatted string
+        None => String::from("test"),
+    };
     let transport = SseServerTransport {
         stream,
         sink,
@@ -122,6 +128,7 @@ async fn sse_handler(
         tx_store: app.txs.clone(),
         user_token: token.clone(),
         req_extensions: request.extensions().clone(),
+        workspace_id: workspace_id.clone(),
     };
     let transport_send_result = app.transport_tx.send(transport);
     if transport_send_result.is_err() {
@@ -133,12 +140,6 @@ async fn sse_handler(
     }
     let ping_interval = app.sse_ping_interval;
     let relative_post_path = app.post_path.trim_start_matches('/'); // Ensure no leading slash, e.g., "message"
-    // Construct the full nested path
-    let workspace_id = match path_params.get("workspace_id") {
-        // Use the name from your route definition
-        Some(id) => id.clone(), // Clone it for use in the formatted string
-        None => String::from("test"),
-    };
     let full_endpoint_path = format!("/api/w/{}/mcp/{}", workspace_id, relative_post_path);
     let stream = futures::stream::once(futures::future::ok(
         Event::default()
@@ -161,6 +162,7 @@ pub struct SseServerTransport {
     tx_store: TxStore,
     pub user_token: Arc<String>,
     pub req_extensions: Extensions,
+    pub workspace_id: String,
 }
 
 // --- Add this trait ---
@@ -171,6 +173,10 @@ impl crate::service::ProvidesConnectionToken for SseServerTransport {
 
     fn get_extensions(&self) -> &Extensions {
         &self.req_extensions
+    }
+
+    fn get_workspace_id(&self) -> String {
+        self.workspace_id.clone()
     }
 }
 

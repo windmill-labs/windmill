@@ -49,7 +49,7 @@ struct ScriptSchemaResponse {
 struct ScriptInfo {
     path: String,
     summary: Option<String>,
-    schema: Option<Schema>,
+    schema: Option<Value>,
 }
 
 impl Runner {
@@ -93,12 +93,7 @@ impl Runner {
                 .try_get("schema")
                 .map_err(|e| Error::internal_error(format!("Failed to get schema: {}", e), None))?;
 
-            let schema = schema_json.map(|v| {
-                let raw_value = serde_json::value::to_raw_value(&v).unwrap_or_else(|_| {
-                    serde_json::value::RawValue::from_string("{}".to_string()).unwrap()
-                });
-                Schema(sqlx::types::Json(raw_value))
-            });
+            let schema = schema_json;
 
             scripts.push(ScriptInfo { path, summary, schema });
         }
@@ -238,24 +233,27 @@ impl ServerHandler for Runner {
         _context: RequestContext<RoleServer>,
     ) -> Result<ListToolsResult, Error> {
         tracing::debug!("Handling list_tools request");
-        let workspace_id = "admins".to_string();
-        let user_db = _context.req_extensions.get::<UserDB>().unwrap();
-        let authed = _context.req_extensions.get::<ApiAuthed>().unwrap();
+        let workspace_id = _context.workspace_id;
+        let user_db = _context
+            .req_extensions
+            .get::<UserDB>()
+            .ok_or_else(|| Error::internal_error("UserDB not found", None))?;
+        let authed = _context
+            .req_extensions
+            .get::<ApiAuthed>()
+            .ok_or_else(|| Error::internal_error("ApiAuthed not found", None))?;
         let scripts = self
             .inner_get_scripts(user_db, authed, workspace_id)
             .await?;
         let tools = scripts
-            .iter()
+            .into_iter()
             .map(|script| Tool {
-                name: Cow::Owned(script.path.clone()),
-                description: Some(Cow::Owned(script.summary.clone().unwrap_or_default())),
+                name: Cow::Owned(script.path),
+                description: Some(Cow::Owned(script.summary.unwrap_or_default())),
                 input_schema: script
                     .schema
-                    .as_ref()
                     .map(|schema| {
-                        let value = serde_json::from_str::<serde_json::Value>(schema.0.get())
-                            .unwrap_or(serde_json::Value::Null);
-                        if let serde_json::Value::Object(map) = value {
+                        if let serde_json::Value::Object(map) = schema {
                             Arc::new(map)
                         } else {
                             Arc::new(serde_json::Map::new())

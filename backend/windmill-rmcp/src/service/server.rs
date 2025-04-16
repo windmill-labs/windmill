@@ -134,6 +134,7 @@ where
 {
     let user_token = transport.get_connection_token();
     let req_extensions = transport.get_extensions().clone();
+    let workspace_id = transport.get_workspace_id();
     let (sink, stream) = transport.into_transport();
     let mut sink = Box::pin(sink);
     let mut stream = Box::pin(stream);
@@ -166,6 +167,7 @@ where
         peer: peer.clone(),
         user_token: user_token.clone(),
         req_extensions: req_extensions.clone(),
+        workspace_id: workspace_id.clone(),
     };
     // Send initialize response
     let init_response = service.handle_request(request.clone(), context).await;
@@ -219,6 +221,7 @@ where
         ct,
         user_token,
         req_extensions,
+        workspace_id,
     )
     .await
 }

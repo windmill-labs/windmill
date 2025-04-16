@@ -18,6 +18,7 @@ pub trait ProvidesConnectionToken {
     // Returns the token associated with the initial connection, if any.
     fn get_connection_token(&self) -> Arc<String>;
     fn get_extensions(&self) -> &AxumExtensions;
+    fn get_workspace_id(&self) -> String;
 }
 
 #[cfg(feature = "client")]
@@ -290,10 +291,7 @@ impl<R: ServiceRole> RequestHandle<R> {
     /// Cancel this request
     pub async fn cancel(self, reason: Option<String>) -> Result<(), ServiceError> {
         let notification = CancelledNotification {
-            params: CancelledNotificationParam {
-                request_id: self.id,
-                reason,
-            },
+            params: CancelledNotificationParam { request_id: self.id, reason },
             method: crate::model::CancelledNotificationMethod,
             extensions: Default::default(),
         };
@@ -371,10 +369,7 @@ impl<R: ServiceRole> Peer<R> {
     pub async fn send_notification(&self, notification: R::Not) -> Result<(), ServiceError> {
         let (responder, receiver) = tokio::sync::oneshot::channel();
         self.tx
-            .send(PeerSinkMessage::Notification {
-                notification,
-                responder,
-            })
+            .send(PeerSinkMessage::Notification { notification, responder })
             .await
             .map_err(|_m| {
                 ServiceError::Transport(std::io::Error::other("disconnected: receiver dropped"))
@@ -413,20 +408,10 @@ impl<R: ServiceRole> Peer<R> {
         }
         let (responder, receiver) = tokio::sync::oneshot::channel();
         self.tx
-            .send(PeerSinkMessage::Request {
-                request,
-                id: id.clone(),
-                responder,
-            })
+            .send(PeerSinkMessage::Request { request, id: id.clone(), responder })
             .await
             .map_err(|_m| ServiceError::Transport(std::io::Error::other("disconnected")))?;
-        Ok(RequestHandle {
-            id,
-            rx: receiver,
-            progress_token,
-            options,
-            peer: self.clone(),
-        })
+        Ok(RequestHandle { id, rx: receiver, progress_token, options, peer: self.clone() })
     }
     pub fn peer_info(&self) -> &R::PeerInfo {
         &self.info
@@ -485,6 +470,7 @@ pub struct RequestContext<R: ServiceRole> {
     pub peer: Peer<R>,
     pub user_token: Arc<String>,
     pub req_extensions: AxumExtensions,
+    pub workspace_id: String,
 }
 
 /// Use this function to skip initialization process
@@ -518,6 +504,7 @@ where
     let (peer, peer_rx) = Peer::new(Arc::new(AtomicU32RequestIdProvider::default()), peer_info);
     let user_token = transport.get_connection_token();
     let req_extensions = transport.get_extensions().clone();
+    let workspace_id = transport.get_workspace_id();
     serve_inner(
         service,
         transport,
@@ -526,6 +513,7 @@ where
         ct,
         user_token,
         req_extensions,
+        workspace_id,
     )
     .await
 }
@@ -539,6 +527,7 @@ async fn serve_inner<R, S, T, E, A>(
     ct: CancellationToken,
     user_token: Arc<String>,
     req_extensions: AxumExtensions,
+    workspace_id: String,
 ) -> Result<RunningService<R, S>, E>
 where
     R: ServiceRole,
@@ -632,11 +621,7 @@ where
                         }
                     }
                 }
-                Event::ProxyMessage(PeerSinkMessage::Request {
-                    request,
-                    id,
-                    responder,
-                }) => {
+                Event::ProxyMessage(PeerSinkMessage::Request { request, id, responder }) => {
                     local_responder_pool.insert(id.clone(), responder);
                     let send_result = sink
                         .send(JsonRpcMessage::request(request, id.clone()))
@@ -648,10 +633,7 @@ where
                         }
                     }
                 }
-                Event::ProxyMessage(PeerSinkMessage::Notification {
-                    notification,
-                    responder,
-                }) => {
+                Event::ProxyMessage(PeerSinkMessage::Notification { notification, responder }) => {
                     // catch cancellation notification
                     let mut cancellation_param = None;
                     let notification = match notification.try_into() {
@@ -695,6 +677,7 @@ where
                             extensions: request.extensions().clone(),
                             user_token: user_token.clone(),
                             req_extensions: req_extensions.clone(),
+                            workspace_id: workspace_id.clone(),
                         };
                         tokio::spawn(async move {
                             let result = service.handle_request(request, context).await;
@@ -781,10 +764,5 @@ where
         tracing::info!(?quit_reason, "serve finished");
         quit_reason
     });
-    Ok(RunningService {
-        service,
-        peer: peer_return,
-        handle,
-        ct,
-    })
+    Ok(RunningService { service, peer: peer_return, handle, ct })
 }
