@@ -71,12 +71,13 @@
 			offset={zIndexes.monacoEditor}
 		>
 			<Splitpanes horizontal class="h-full">
-				<Pane size={50}>
+				<Pane size={50} class="leading-[16px]">
 					<SimpleEditor
+						loadAsync
 						class="h-full w-full"
 						bind:this={editor}
 						lang="javascript"
-						bind:code={componentInput.expr}
+						bind:code={() => componentInput.expr ?? '', (e) => (componentInput.expr = e)}
 						shouldBindKey={false}
 						fixedOverflowWidgets={false}
 						{extraLib}
@@ -102,13 +103,14 @@
 			</Splitpanes>
 		</Drawer>
 	{/if}
-	<div class="border relative">
+	<div class="border relative leading-[16px]">
 		{#if !fullscreen}
 			<SimpleEditor
+				loadAsync
 				small
 				bind:this={editor}
 				lang="javascript"
-				bind:code={componentInput.expr}
+				bind:code={() => componentInput.expr ?? '', (e) => (componentInput.expr = e)}
 				shouldBindKey={false}
 				{extraLib}
 				autoHeight

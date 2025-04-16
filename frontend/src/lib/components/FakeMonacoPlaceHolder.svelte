@@ -12,7 +12,7 @@
 </script>
 
 <div
-	class={'relative w-full pr-14 z-9 mt-[-1px] mb-[1px] leading-[20px] dark:bg-[#272D38] overflow-y-clip overflow-x-auto mycontainer ' +
+	class={'relative w-full pr-14 py-0 z-9 mt-[-1px] mb-[1px] dark:bg-[#272D38] overflow-y-clip overflow-x-auto mycontainer ' +
 		className}
 	style="padding-left: {marginLeft};"
 >
@@ -21,7 +21,7 @@
 		style="margin-left: {marginLeft};"
 	></div>
 	<code
-		class="text-nowrap whitespace-pre-wrap overflow-clip text-tertiary/50"
+		class="text-nowrap whitespace-pre overflow-clip text-tertiary/50"
 		style="font-size: {fontSize}px;"
 	>
 		{code}

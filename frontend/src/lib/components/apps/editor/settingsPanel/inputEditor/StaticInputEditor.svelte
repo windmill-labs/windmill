@@ -233,8 +233,9 @@
 					placeholder="Label"
 				/>
 			{:else}
-				<div class="flex w-full flex-col">
+				<div class="flex w-full flex-col leading-[16px]">
 					<JsonEditor
+						loadAsync
 						small
 						bind:value={componentInput.value}
 						code={JSON.stringify(componentInput.value, null, 2)}

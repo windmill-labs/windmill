@@ -1421,7 +1421,7 @@
 			marginLeft="51px"
 			{code}
 			fontSize={!small ? 14 : 12}
-			className="dark:bg-[#272D38] h-full"
+			className="dark:bg-[#272D38] h-full leading-[20px]"
 		/>
 	</div>
 {/if}
