@@ -5,7 +5,7 @@
 	let routeEditor = $state<RouteEditorInner | null>(null)
 	let { selectedTrigger, isFlow, path } = $props()
 
-	function openRouteEditor(isFlow: boolean, isDraft: boolean) {
+	async function openRouteEditor(isFlow: boolean, isDraft: boolean) {
 		if (isDraft) {
 			routeEditor?.openNew(isFlow, path)
 		} else {
@@ -26,7 +26,6 @@
 	useDrawer={false}
 	bind:this={routeEditor}
 	hideTarget
-	hidePath
 	useEditButton
 	on:update-config
 	on:update

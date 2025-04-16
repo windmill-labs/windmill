@@ -36,7 +36,6 @@
 		useDrawer = true,
 		hideTarget = false,
 		saveDisabled = false,
-		hidePath = false,
 		description = undefined,
 		useEditButton = false,
 		showCapture = false
@@ -333,23 +332,20 @@
 		<Loader2 class="animate-spin" />
 	{:else}
 		<div class="flex flex-col gap-12">
-			{#if !hidePath || editMode}
-				<div class="flex flex-col gap-4">
-					<Label label="Path">
-						<Path
-							bind:dirty={dirtyPath}
-							bind:error={pathError}
-							bind:path
-							{initialPath}
-							checkInitialPathExistence={!edit}
-							namePlaceholder="route"
-							kind="http_trigger"
-							hideUser
-							disabled={!can_write || !editMode}
-						/>
-					</Label>
-				</div>
-			{/if}
+			<Section label="Metadata">
+				<Label label="Path">
+					<Path
+						bind:dirty={dirtyPath}
+						bind:error={pathError}
+						bind:path
+						{initialPath}
+						checkInitialPathExistence={!edit}
+						namePlaceholder="route"
+						kind="http_trigger"
+						hideUser
+					/>
+				</Label>
+			</Section>
 
 			{#if !hideTarget}
 				<Section label="Target">
