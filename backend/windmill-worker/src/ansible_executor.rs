@@ -54,15 +54,8 @@ async fn clone_repo(
     w_id: &str,
     occupancy_metrics: &mut OccupancyMetrics,
 ) -> error::Result<()> {
-    let target_path = is_allowed_file_location(job_dir, &repo.target_path)?
-        .into_os_string()
-        .into_string()
-        .map_err(|_| {
-            anyhow!(
-                "Failed to get UTF-8 String for location `{}`",
-                &repo.target_path
-            )
-        })?;
+    let target_path = is_allowed_file_location(job_dir, &repo.target_path)?;
+
     let mut clone_cmd = Command::new(GIT_PATH.as_str());
     clone_cmd
         .current_dir(job_dir)
@@ -76,7 +69,8 @@ async fn clone_repo(
     if let Some(branch) = &repo.branch {
         clone_cmd.args(["--branch", branch]);
     }
-    clone_cmd.args([&repo.url, &target_path]);
+    clone_cmd.arg(&repo.url);
+    clone_cmd.arg(&target_path);
 
     let clone_cmd_child = start_child_process(clone_cmd, GIT_PATH.as_str()).await?;
     handle_child(
@@ -105,7 +99,9 @@ async fn clone_repo(
             .envs(PROXY_ENVS.clone())
             .env("PATH", PATH_ENV.as_str())
             .env("TZ", TZ_ENV.as_str())
-            .args(["-C", &repo.target_path, "checkout", commit])
+            .arg("-C")
+            .arg(&target_path)
+            .args(["checkout", commit])
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
 
@@ -131,6 +127,176 @@ async fn clone_repo(
     Ok(())
 }
 
+pub fn create_empty_dir(path: &PathBuf) -> std::io::Result<()> {
+    if path.exists() {
+        if path.is_dir() {
+            let mut entries = std::fs::read_dir(&path)?;
+            if entries.next().is_some() {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::AlreadyExists,
+                    format!(
+                        "Directory '{}' already exists and is not empty",
+                        path.display()
+                    ),
+                ));
+            }
+            Ok(())
+        } else {
+            Err(std::io::Error::new(
+                std::io::ErrorKind::AlreadyExists,
+                format!("Path '{}' exists and is not a directory", path.display()),
+            ))
+        }
+    } else {
+        std::fs::create_dir_all(path)
+    }
+}
+
+async fn clone_repo_without_history(
+    repo: &GitRepo,
+    full_commit: &str,
+    job_dir: &str,
+    job_id: &Uuid,
+    worker_name: &str,
+    conn: &Connection,
+    mem_peak: &mut i32,
+    canceled_by: &mut Option<CanceledBy>,
+    w_id: &str,
+    occupancy_metrics: &mut OccupancyMetrics,
+) -> error::Result<()> {
+    let target_path = is_allowed_file_location(job_dir, &repo.target_path)?;
+
+    create_empty_dir(&target_path)?;
+
+    let mut init_cmd = Command::new(GIT_PATH.as_str());
+    init_cmd
+        .current_dir(job_dir)
+        .env_clear()
+        .envs(PROXY_ENVS.clone())
+        .env("PATH", PATH_ENV.as_str())
+        .env("TZ", TZ_ENV.as_str())
+        .arg("-C")
+        .arg(&target_path)
+        .args(["init", "--quiet"])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    if let Some(branch) = &repo.branch {
+        init_cmd.args(["--initial-branch", branch]);
+    }
+
+    let init_cmd_child = start_child_process(init_cmd, GIT_PATH.as_str()).await?;
+    handle_child(
+        job_id,
+        conn,
+        mem_peak,
+        canceled_by,
+        init_cmd_child,
+        false,
+        worker_name,
+        w_id,
+        "git init",
+        None,
+        false,
+        &mut Some(occupancy_metrics),
+        None,
+    )
+    .await?;
+
+    let mut add_remote_cmd = Command::new(GIT_PATH.as_str());
+    add_remote_cmd
+        .current_dir(job_dir)
+        .env_clear()
+        .envs(PROXY_ENVS.clone())
+        .env("PATH", PATH_ENV.as_str())
+        .env("TZ", TZ_ENV.as_str())
+        .arg("-C")
+        .arg(&target_path)
+        .args(vec!["remote", "add", "origin", &repo.url])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+
+    let add_remote_cmd_child = start_child_process(add_remote_cmd, GIT_PATH.as_str()).await?;
+    handle_child(
+        job_id,
+        conn,
+        mem_peak,
+        canceled_by,
+        add_remote_cmd_child,
+        false,
+        worker_name,
+        w_id,
+        "git add remote",
+        None,
+        false,
+        &mut Some(occupancy_metrics),
+        None,
+    )
+    .await?;
+
+    let mut fetch_cmd = Command::new(GIT_PATH.as_str());
+    fetch_cmd
+        .current_dir(job_dir)
+        .env_clear()
+        .envs(PROXY_ENVS.clone())
+        .env("PATH", PATH_ENV.as_str())
+        .env("TZ", TZ_ENV.as_str())
+        .arg("-C")
+        .arg(&target_path)
+        .args(vec!["fetch", "--depth=1", "--quiet", "origin", full_commit])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+
+    let fetch_cmd_child = start_child_process(fetch_cmd, GIT_PATH.as_str()).await?;
+    handle_child(
+        job_id,
+        conn,
+        mem_peak,
+        canceled_by,
+        fetch_cmd_child,
+        false,
+        worker_name,
+        w_id,
+        "git fetch",
+        None,
+        false,
+        &mut Some(occupancy_metrics),
+        None,
+    )
+    .await?;
+
+    let mut checkout_cmd = Command::new(GIT_PATH.as_str());
+    checkout_cmd
+        .current_dir(job_dir)
+        .env_clear()
+        .envs(PROXY_ENVS.clone())
+        .env("PATH", PATH_ENV.as_str())
+        .env("TZ", TZ_ENV.as_str())
+        .arg("-C")
+        .arg(&target_path)
+        .args(["checkout", "--quiet", "FETCH_HEAD"])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+
+    let checkout_cmd_child = start_child_process(checkout_cmd, GIT_PATH.as_str()).await?;
+    handle_child(
+        job_id,
+        conn,
+        mem_peak,
+        canceled_by,
+        checkout_cmd_child,
+        false,
+        worker_name,
+        w_id,
+        "git checkout",
+        None,
+        false,
+        &mut Some(occupancy_metrics),
+        None,
+    )
+    .await?;
+
+    Ok(())
+}
 async fn handle_ansible_python_deps(
     job_dir: &str,
     requirements_o: Option<&String>,
@@ -411,7 +577,16 @@ pub async fn handle_ansible_job(
                 &job.workspace_id,
                 occupancy_metrics,
             )
-            .await.map_err(|e| anyhow!("Failed to clone git repo `{}`: {e}", repo.url))?;
+            .await
+            .map_err(|e| anyhow!("Failed to clone git repo `{}`: {e}", repo.url))?;
+
+            append_logs(
+                &job.id,
+                &job.workspace_id,
+                format!("\nCloned {} into {}", &repo.url, &repo.target_path),
+                conn,
+            )
+            .await;
         }
 
         if let Some(collections) = r.collections.as_ref() {
