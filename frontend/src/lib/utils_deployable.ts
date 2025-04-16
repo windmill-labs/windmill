@@ -153,6 +153,7 @@ export async function getTriggersDeployData(kind: TriggerKind, path: string, wor
 		}
 
 		const data: NewGcpTrigger = {
+			...gcpTrigger,
 			subscription_mode: {
 				subscription_mode: 'create_update',
 				subscription_id: gcpTrigger.subscription_id,
@@ -160,7 +161,6 @@ export async function getTriggersDeployData(kind: TriggerKind, path: string, wor
 				delivery_config: gcpTrigger.delivery_config,
 				base_endpoint: `${window.location.origin}${base}`
 			},
-			...gcpTrigger
 		}
 
 		return {
