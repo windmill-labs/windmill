@@ -1,5 +1,5 @@
 use anyhow::Context;
-use chrono::{DateTime, Utc, Duration};
+use chrono::{DateTime, Duration, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -11,6 +11,7 @@ use crate::{
     DB,
 };
 
+#[derive(Debug)]
 pub struct IdToken {
     token: String,
     expiration: DateTime<Utc>,
@@ -19,12 +20,12 @@ pub struct IdToken {
 pub fn has_expired(expiration_time: DateTime<Utc>, take: Option<Duration>) -> bool {
     let now = Utc::now();
 
-    let adjusted_expiration = match take {
+    let expiration = match take {
         Some(duration) => expiration_time - duration,
         None => expiration_time,
     };
 
-    now > adjusted_expiration
+    now > expiration
 }
 
 impl From<IdToken> for String {
@@ -356,9 +357,7 @@ pub mod aws {
     pub struct CredentialsAuth {
         #[serde(deserialize_with = "empty_string_as_none")]
         pub region: Option<String>,
-        #[serde(rename = "accessKeyId")]
         pub access_key_id: String,
-        #[serde(rename = "secretAccessKey")]
         pub secret_access_key: String,
     }
 
@@ -366,20 +365,14 @@ pub mod aws {
     pub struct OidcAuth {
         #[serde(deserialize_with = "empty_string_as_none")]
         pub region: Option<String>,
-        #[serde(rename = "roleArn")]
         pub role_arn: String,
     }
 
     #[derive(Debug, Deserialize)]
-    #[serde(tag = "label")]
+    #[serde(untagged)]
     pub enum AWSAuthConfig {
         Credentials(CredentialsAuth),
         Oidc(OidcAuth),
-    }
-
-    #[derive(Debug, Deserialize)]
-    pub struct AwsAuthResource {
-        pub aws_auth_config: AWSAuthConfig,
     }
 
     pub async fn get_oidc_authentication_data(
