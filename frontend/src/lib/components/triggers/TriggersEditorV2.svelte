@@ -16,7 +16,6 @@
 	import EmailTriggerPanel from '../details/EmailTriggerPanelV2.svelte'
 	import PrimarySchedulePanel from './PrimarySchedulePanel.svelte'
 	import SchedulePanel from '$lib/components/SchedulePanel.svelte'
-	import { twMerge } from 'tailwind-merge'
 	import {
 		fetchHttpTriggers as fetchHttpTriggersUtil,
 		fetchSchedules as fetchSchedulesUtil,
@@ -69,12 +68,7 @@
 			<Pane class="px-4">
 				<div class="flex flex-row h-full">
 					<!-- Left Pane - Triggers List -->
-					<div
-						class={twMerge(
-							'w-[350px] flex-shrink-0 overflow-auto pr-2 transition-all duration-200 ease-in-out',
-							!selectedTrigger && 'w-full'
-						)}
-					>
+					<div class="w-[350px] flex-shrink-0 overflow-auto pr-2">
 						<TriggersTable
 							selectedTrigger={$selectedTrigger}
 							on:select={handleSelectTrigger}
@@ -184,6 +178,10 @@
 								<!-- Existing trigger configuration component would go here -->
 							{/if}
 						</div>
+					{:else}
+						<span class="text-sm text-tertiary text-center mx-auto mt-2"
+							>Select a trigger from the table or add a new one</span
+						>
 					{/if}
 				</div>
 			</Pane>
