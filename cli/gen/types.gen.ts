@@ -795,6 +795,19 @@ export type GcpTrigger = TriggerExtraProperty & {
     enabled: boolean;
 };
 
+export type GcpTriggerCliTypeSafe = TriggerExtraProperty & {
+    gcp_resource_path: string;
+    topic_id: string;
+    subscription_id: string;
+    server_id?: string;
+    delivery_type: DeliveryType;
+    delivery_config?: PushConfig;
+    subscription_mode: GcpSubscriptionModeConfig;
+    last_server_ping?: string;
+    error?: string;
+    enabled: boolean;
+};
+
 /**
  * The mode of subscription. 'existing' means using an existing GCP subscription, while 'create_update' involves creating or updating a new subscription.
  */
@@ -1562,6 +1575,13 @@ export type GithubInstallations = Array<{
 export type WorkspaceGithubInstallation = {
     account_id: string;
     installation_id: number;
+};
+
+export type S3Object = {
+    s3: string;
+    filename?: string;
+    storage?: string;
+    presigned?: string;
 };
 
 export type OpenFlow = {
@@ -4058,6 +4078,29 @@ export type GetScriptDeploymentStatusResponse = ({
     lock_error_logs?: string;
 });
 
+export type ListSelectedJobGroupsData = {
+    /**
+     * script args
+     */
+    requestBody: Array<(string)>;
+    workspace: string;
+};
+
+export type ListSelectedJobGroupsResponse = (Array<{
+    kind: 'script' | 'flow';
+    script_path: string;
+    latest_schema: {
+        [key: string]: unknown;
+    };
+    schemas: Array<{
+        schema: {
+            [key: string]: unknown;
+        };
+        script_hash: string;
+        job_ids: Array<(string)>;
+    }>;
+}>);
+
 export type RunScriptByPathData = {
     /**
      * Override the cache time to live (in seconds). Can not be used to disable caching, only override with a new cache ttl
@@ -4784,6 +4827,18 @@ export type CustomPathExistsData = {
 
 export type CustomPathExistsResponse = (boolean);
 
+export type SignS3ObjectsData = {
+    /**
+     * s3 objects to sign
+     */
+    requestBody: {
+        s3_objects: Array<S3Object>;
+    };
+    workspace: string;
+};
+
+export type SignS3ObjectsResponse = (Array<S3Object>);
+
 export type ExecuteComponentData = {
     path: string;
     /**
@@ -4887,6 +4942,34 @@ export type RunFlowByPathData = {
 };
 
 export type RunFlowByPathResponse = (string);
+
+export type BatchReRunJobsData = {
+    /**
+     * list of job ids to re run and arg tranforms
+     */
+    requestBody: {
+        job_ids: Array<(string)>;
+        script_options_by_path: {
+            [key: string]: {
+                input_transforms?: {
+                    [key: string]: InputTransform;
+                };
+                use_latest_version?: unknown;
+            };
+        };
+        flow_options_by_path: {
+            [key: string]: {
+                input_transforms?: {
+                    [key: string]: InputTransform;
+                };
+                use_latest_version?: unknown;
+            };
+        };
+    };
+    workspace: string;
+};
+
+export type BatchReRunJobsResponse = (string);
 
 export type RestartFlowAtStepData = {
     /**
@@ -5192,7 +5275,133 @@ export type CountCompletedJobsData = {
 
 export type CountCompletedJobsResponse = (number);
 
-export type ListFilteredUuidsData = {
+export type ListFilteredJobsUuidsData = {
+    /**
+     * get jobs from all workspaces (only valid if request come from the `admins` workspace)
+     */
+    allWorkspaces?: boolean;
+    /**
+     * filter on jobs containing those args as a json subset (@> in postgres)
+     */
+    args?: string;
+    /**
+     * filter on created after (exclusive) timestamp
+     */
+    createdAfter?: string;
+    /**
+     * filter on created before (inclusive) timestamp
+     */
+    createdBefore?: string;
+    /**
+     * mask to filter exact matching user creator
+     */
+    createdBy?: string;
+    /**
+     * filter on created_at for non non started job and started_at otherwise after (exclusive) timestamp
+     */
+    createdOrStartedAfter?: string;
+    /**
+     * filter on created_at for non non started job and started_at otherwise after (exclusive) timestamp but only for the completed jobs
+     */
+    createdOrStartedAfterCompletedJobs?: string;
+    /**
+     * filter on created_at for non non started job and started_at otherwise before (inclusive) timestamp
+     */
+    createdOrStartedBefore?: string;
+    /**
+     * has null parent
+     */
+    hasNullParent?: boolean;
+    /**
+     * is the job a flow step
+     */
+    isFlowStep?: boolean;
+    /**
+     * is not a scheduled job
+     */
+    isNotSchedule?: boolean;
+    /**
+     * is the job skipped
+     */
+    isSkipped?: boolean;
+    /**
+     * filter on job kind (values 'preview', 'script', 'dependencies', 'flow') separated by,
+     */
+    jobKinds?: string;
+    /**
+     * mask to filter exact matching job's label (job labels are completed jobs with as a result an object containing a string in the array at key 'wm_labels')
+     */
+    label?: string;
+    /**
+     * which page to return (start at 1, default 1)
+     */
+    page?: number;
+    /**
+     * The parent job that is at the origin and responsible for the execution of this script if any
+     */
+    parentJob?: string;
+    /**
+     * number of items to return for a given page (default 30, max 100)
+     */
+    perPage?: number;
+    /**
+     * filter on jobs containing those result as a json subset (@> in postgres)
+     */
+    result?: string;
+    /**
+     * filter on running jobs
+     */
+    running?: boolean;
+    /**
+     * filter on jobs scheduled_for before now (hence waitinf for a worker)
+     */
+    scheduledForBeforeNow?: boolean;
+    /**
+     * mask to filter by schedule path
+     */
+    schedulePath?: string;
+    /**
+     * mask to filter exact matching path
+     */
+    scriptHash?: string;
+    /**
+     * mask to filter exact matching path
+     */
+    scriptPathExact?: string;
+    /**
+     * mask to filter matching starting path
+     */
+    scriptPathStart?: string;
+    /**
+     * filter on started after (exclusive) timestamp
+     */
+    startedAfter?: string;
+    /**
+     * filter on started before (inclusive) timestamp
+     */
+    startedBefore?: string;
+    /**
+     * filter on successful jobs
+     */
+    success?: boolean;
+    /**
+     * filter on suspended jobs
+     */
+    suspended?: boolean;
+    /**
+     * filter on jobs with a given tag/worker group
+     */
+    tag?: string;
+    /**
+     * worker this job was ran on
+     */
+    worker?: string;
+    workspace: string;
+};
+
+export type ListFilteredJobsUuidsResponse = (Array<(string)>);
+
+export type ListFilteredQueueUuidsData = {
     /**
      * allow wildcards (*) in the filter of label, tag, worker
      */
@@ -5285,7 +5494,7 @@ export type ListFilteredUuidsData = {
     workspace: string;
 };
 
-export type ListFilteredUuidsResponse = (Array<(string)>);
+export type ListFilteredQueueUuidsResponse = (Array<(string)>);
 
 export type CancelSelectionData = {
     /**
@@ -7120,6 +7329,19 @@ export type ListAutoscalingEventsData = {
 };
 
 export type ListAutoscalingEventsResponse = (Array<AutoscalingEvent>);
+
+export type CreateAgentTokenData = {
+    /**
+     * agent token
+     */
+    requestBody: {
+        worker_group: string;
+        tags: Array<(string)>;
+        exp: number;
+    };
+};
+
+export type CreateAgentTokenResponse = (string);
 
 export type GetGranularAclsData = {
     kind: 'script' | 'group_' | 'resource' | 'schedule' | 'variable' | 'flow' | 'folder' | 'app' | 'raw_app' | 'http_trigger' | 'websocket_trigger' | 'kafka_trigger' | 'nats_trigger' | 'postgres_trigger' | 'mqtt_trigger' | 'gcp_trigger' | 'sqs_trigger';
