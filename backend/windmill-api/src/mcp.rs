@@ -1,6 +1,9 @@
 use std::borrow::Cow;
+use std::collections::HashMap;
 use std::sync::Arc;
 
+use axum::body::to_bytes;
+use axum::extract::{Path, Query};
 use axum::Router;
 use chrono::{DateTime, Utc};
 use rmcp::transport::sse_server::{SseServer, SseServerConfig};
@@ -12,14 +15,19 @@ use rmcp::{
     Error,
 };
 use serde::{Deserialize, Serialize};
+use serde_json::value::RawValue;
 use serde_json::Value;
 use sqlx::FromRow;
 use sqlx::Row;
 use tokio_util::sync::CancellationToken;
 use windmill_common::db::UserDB;
-use windmill_common::scripts::Schema;
+use windmill_common::worker::to_raw_value;
+use windmill_common::DB;
 
+use crate::args::WebhookArgs;
 use crate::db::ApiAuthed;
+use crate::jobs::{run_script_by_path_inner, run_wait_result_script_by_path_internal, RunJobQuery};
+use windmill_common::utils::StripPath;
 
 const BIND_ADDRESS: &str = "127.0.0.1:8008"; // This address is only used when running standalone
 
@@ -189,41 +197,57 @@ impl ServerHandler for Runner {
             })
         };
 
-        match request.name.as_ref() {
-            "get_scripts" => {
-                if request.arguments.is_some() && !request.arguments.as_ref().unwrap().is_empty() {
-                    return Err(Error::invalid_params(
-                        "get_scripts takes no arguments",
-                        None,
-                    ));
-                }
-                self.get_scripts(context).await
+        let authed = context.req_extensions.get::<ApiAuthed>().unwrap().clone();
+        let db = context.req_extensions.get::<DB>().unwrap().clone();
+        let user_db = context.req_extensions.get::<UserDB>().unwrap().clone();
+        let path = request.name.clone();
+        let args = parse_args(request.arguments)?;
+
+        // Convert Value to PushArgsOwned
+        let push_args = if let Value::Object(map) = args.clone() {
+            let mut args_hash = HashMap::new();
+            for (k, v) in map {
+                args_hash.insert(k, to_raw_value(&v));
             }
-            "get_script_schema_by_path" => {
-                let args_val = parse_args(request.arguments)?;
-                let params: GetScriptSchemaByPathParams = serde_json::from_value(args_val)
+            windmill_queue::PushArgsOwned { extra: None, args: args_hash }
+        } else {
+            windmill_queue::PushArgsOwned::default()
+        };
+
+        let w_id = context.workspace_id.clone();
+        let script_path = StripPath(path.into_owned());
+        let run_query = RunJobQuery::default(); // This assumes RunJobQuery has a default implementation
+
+        let result = run_wait_result_script_by_path_internal(
+            db,
+            run_query,
+            script_path,
+            authed,
+            user_db,
+            w_id,
+            push_args,
+            None,
+        )
+        .await;
+
+        match result {
+            Ok(response) => {
+                // Extract the response body as bytes, then convert to a string
+                let body_bytes = to_bytes(response.into_body(), usize::MAX)
+                    .await
                     .map_err(|e| {
-                        Error::invalid_params(
-                            format!("Invalid arguments for get_script_schema_by_path: {}", e),
-                            None,
-                        )
+                        Error::internal_error(format!("Failed to read response body: {}", e), None)
                     })?;
-                self.get_script_schema_by_path(context, params.path).await
-            }
-            "run_script" => {
-                let args_val = parse_args(request.arguments)?;
-                let params: RunScriptParams = serde_json::from_value(args_val).map_err(|e| {
-                    Error::invalid_params(format!("Invalid arguments for run_script: {}", e), None)
+                let body_str = String::from_utf8(body_bytes.to_vec()).map_err(|e| {
+                    Error::internal_error(format!("Failed to decode response body: {}", e), None)
                 })?;
-                self.run_script(context, params.script, params.args).await
+
+                Ok(CallToolResult::success(vec![Content::text(body_str)]))
             }
-            _ => {
-                tracing::warn!("Received call for unknown tool: {}", request.name);
-                Err(Error::invalid_params(
-                    format!("Unknown tool: {}", request.name),
-                    None,
-                ))
-            }
+            Err(e) => Err(Error::internal_error(
+                format!("Failed to run script: {}", e),
+                None,
+            )),
         }
     }
 
