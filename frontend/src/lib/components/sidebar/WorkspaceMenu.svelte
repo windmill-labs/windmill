@@ -5,7 +5,8 @@
 		userStore,
 		userWorkspaces,
 		workspaceStore,
-		workspaceUsageStore
+		workspaceUsageStore,
+		workspaceColor
 	} from '$lib/stores'
 	import { Building, Plus, Settings } from 'lucide-svelte'
 	import MenuButton from '$lib/components/sidebar/MenuButton.svelte'
@@ -61,7 +62,7 @@
 			icon={Building}
 			label={$workspaceStore ?? ''}
 			{isCollapsed}
-			color={$userWorkspaces.find((w) => w.id === $workspaceStore)?.color}
+			color={$workspaceColor}
 			{trigger}
 		/>
 	</svelte:fragment>
@@ -153,9 +154,7 @@
 					>{$workspaceUsageStore}/1000 free workspace execs</span
 				>
 				<div class="w-full bg-gray-200 h-1">
-					<div
-						class="bg-blue-400 h-1"
-						style="width: {Math.min($workspaceUsageStore, 1000) / 10}%"
+					<div class="bg-blue-400 h-1" style="width: {Math.min($workspaceUsageStore, 1000) / 10}%"
 					></div>
 				</div>
 			{/if}
