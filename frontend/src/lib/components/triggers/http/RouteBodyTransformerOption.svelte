@@ -2,14 +2,21 @@
 	import Label from '$lib/components/Label.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
+	import type { Snippet } from 'svelte'
 
 	interface Props {
 		raw_string: boolean
 		wrap_body: boolean
 		disabled?: boolean
+		testingBadge?: Snippet | undefined
 	}
 
-	let { raw_string = $bindable(), wrap_body = $bindable(), disabled = false }: Props = $props()
+	let {
+		raw_string = $bindable(),
+		wrap_body = $bindable(),
+		disabled = false,
+		testingBadge = undefined
+	}: Props = $props()
 </script>
 
 <Label label="Raw body" class="w-full">
@@ -19,6 +26,9 @@
 			script authentication method and useful for signature verification or other advanced use
 			cases.
 		</Tooltip>
+		{#if testingBadge}
+			{@render testingBadge()}
+		{/if}
 	{/snippet}
 	{#snippet action()}
 		<Toggle
@@ -35,6 +45,9 @@
 		<Tooltip
 			>Wraps the payload in an object under the 'body' key, useful for handling unknown payloads.</Tooltip
 		>
+		{#if testingBadge}
+			{@render testingBadge()}
+		{/if}
 	{/snippet}
 	{#snippet action()}
 		<Toggle

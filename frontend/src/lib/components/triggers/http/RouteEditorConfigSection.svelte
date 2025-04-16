@@ -20,8 +20,7 @@
 	import RouteBodyTransformerOption from './RouteBodyTransformerOption.svelte'
 	import { isCloudHosted } from '$lib/cloud'
 	import Toggle from '$lib/components/Toggle.svelte'
-	import { Tooltip } from '$lib/components/meltComponents'
-	import { FlaskConical } from 'lucide-svelte'
+	import TestingBadge from '../testingBadge.svelte'
 
 	export let initialTriggerPath: string | undefined = undefined
 	export let dirtyRoutePath: boolean = false
@@ -133,10 +132,7 @@
 	<Section label="HTTP" {headless}>
 		<svelte:fragment slot="header">
 			{#if showCapture}
-				<Tooltip>
-					<FlaskConical size={16} class="text-tertiary" />
-					<span slot="text">Only this section affects the test URL</span>
-				</Tooltip>
+				<TestingBadge />
 			{/if}
 		</svelte:fragment>
 		{#if !($userStore?.is_admin || $userStore?.is_super_admin)}

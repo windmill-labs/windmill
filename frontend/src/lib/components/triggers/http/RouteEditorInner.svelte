@@ -30,6 +30,7 @@
 	import { HUB_SCRIPT_ID, SECRET_KEY_PATH } from './utils'
 	import { HubFlow } from '$lib/hub'
 	import RouteBodyTransformerOption from './RouteBodyTransformerOption.svelte'
+	import TestingBadge from '../testingBadge.svelte'
 
 	let {
 		useDrawer = true,
@@ -297,6 +298,8 @@
 		dispatch('update-config', {
 			route_path,
 			http_method,
+			raw_string,
+			wrap_body,
 			isValid
 		})
 	})
@@ -376,10 +379,11 @@
 								}
 							}}
 							let:item
+							let:disabled
 						>
-							<ToggleButton label="Runnable" value="runnable" {item} />
-							<ToggleButton label="Static asset" value="static_asset" {item} />
-							<ToggleButton label="Static website" value="static_website" {item} />
+							<ToggleButton label="Runnable" value="runnable" {item} {disabled} />
+							<ToggleButton label="Static asset" value="static_asset" {item} {disabled} />
+							<ToggleButton label="Static website" value="static_website" {item} {disabled} />
 						</ToggleButtonGroup>
 					{/if}
 
@@ -507,7 +511,7 @@
 			/>
 
 			{#if !is_static_website}
-				<Section label="Advanced" collapsable>
+				<Section label="Advanced">
 					<div class="flex flex-col gap-4">
 						{#if !static_asset_config}
 							<div class="flex flex-row justify-between">
@@ -521,18 +525,21 @@
 											}}
 											disabled={!can_write || !!static_asset_config || !editMode}
 											let:item
+											let:disabled
 										>
 											<ToggleButton
 												label="Async"
 												value="async"
 												tooltip="The returning value is the uuid of the job assigned to execute the job."
 												{item}
+												{disabled}
 											/>
 											<ToggleButton
 												label="Sync"
 												value="sync"
 												tooltip="Triggers the execution, wait for the job to complete and return it as a response."
 												{item}
+												{disabled}
 											/>
 										</ToggleButtonGroup>
 									</svelte:fragment>
@@ -551,6 +558,7 @@
 									}}
 									disabled={!can_write || !editMode}
 									let:item
+									let:disabled
 								>
 									{#each authentication_options as option}
 										{#if option.value === 'signature'}
@@ -561,6 +569,7 @@
 														value={option.value}
 														tooltip={option.tooltip}
 														{item}
+														{disabled}
 													/>
 												</svelte:fragment>
 												<svelte:fragment slot="content">
@@ -576,18 +585,21 @@
 														}}
 														disabled={!can_write || !editMode}
 														let:item
+														let:disabled
 													>
 														<ToggleButton
 															label="Signature validation"
 															value="custom_signature"
 															tooltip="Use a predefined or custom signature-based authentication scheme"
 															{item}
+															{disabled}
 														/>
 														<ToggleButton
 															label="Custom script"
 															value="custom_script"
 															tooltip="Use your own script logic"
 															{item}
+															{disabled}
 														/>
 													</ToggleButtonGroup>
 												</svelte:fragment>
@@ -598,6 +610,7 @@
 												value={option.value}
 												tooltip={option.tooltip}
 												{item}
+												{disabled}
 											/>
 										{/if}
 									{/each}
@@ -663,11 +676,22 @@
 							{/if}
 						{/if}
 
-						<RouteBodyTransformerOption bind:raw_string bind:wrap_body />
+						<RouteBodyTransformerOption
+							bind:raw_string
+							bind:wrap_body
+							disabled={!editMode}
+							{testingBadge}
+						/>
 					</div>
 				</Section>
 			{/if}
 		</div>
+	{/if}
+{/snippet}
+
+{#snippet testingBadge()}
+	{#if showCapture}
+		<TestingBadge />
 	{/if}
 {/snippet}
 
