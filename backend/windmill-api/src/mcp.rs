@@ -1,4 +1,5 @@
 use std::borrow::Cow;
+use std::sync::Arc;
 
 use axum::Router;
 use chrono::{DateTime, Utc};
@@ -13,8 +14,10 @@ use rmcp::{
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sqlx::FromRow;
+use sqlx::Row;
 use tokio_util::sync::CancellationToken;
 use windmill_common::db::UserDB;
+use windmill_common::scripts::Schema;
 
 use crate::db::ApiAuthed;
 
@@ -46,6 +49,7 @@ struct ScriptSchemaResponse {
 struct ScriptInfo {
     path: String,
     summary: Option<String>,
+    schema: Option<Schema>,
 }
 
 impl Runner {
@@ -66,14 +70,38 @@ impl Runner {
         let mut tx = user_db.clone().begin(authed).await.map_err(|e| {
             Error::internal_error(format!("Failed to begin transaction: {}", e), None)
         })?;
-        let scripts: Vec<ScriptInfo> = sqlx::query_as!(
-            ScriptInfo,
-            "SELECT path, summary FROM script WHERE workspace_id = $1 AND archived = false ORDER BY created_at DESC LIMIT 100",
-            workspace_id
+
+        // Skip the sqlx::query_as! macro to avoid conversion issues
+        // Use sqlx::query directly and convert manually
+        let rows = sqlx::query(
+            "SELECT path, summary, schema FROM script WHERE workspace_id = $1 AND archived = false ORDER BY created_at DESC LIMIT 100"
         )
+        .bind(workspace_id)
         .fetch_all(&mut *tx)
         .await
         .map_err(|e| Error::internal_error(format!("Failed to fetch scripts: {}", e), None))?;
+
+        let mut scripts = Vec::with_capacity(rows.len());
+        for row in rows {
+            let path: String = row
+                .try_get("path")
+                .map_err(|e| Error::internal_error(format!("Failed to get path: {}", e), None))?;
+            let summary: Option<String> = row.try_get("summary").map_err(|e| {
+                Error::internal_error(format!("Failed to get summary: {}", e), None)
+            })?;
+            let schema_json: Option<Value> = row
+                .try_get("schema")
+                .map_err(|e| Error::internal_error(format!("Failed to get schema: {}", e), None))?;
+
+            let schema = schema_json.map(|v| {
+                let raw_value = serde_json::value::to_raw_value(&v).unwrap_or_else(|_| {
+                    serde_json::value::RawValue::from_string("{}".to_string()).unwrap()
+                });
+                Schema(sqlx::types::Json(raw_value))
+            });
+
+            scripts.push(ScriptInfo { path, summary, schema });
+        }
 
         tx.commit().await.map_err(|e| {
             Error::internal_error(format!("Failed to commit transaction: {}", e), None)
@@ -221,7 +249,19 @@ impl ServerHandler for Runner {
             .map(|script| Tool {
                 name: Cow::Owned(script.path.clone()),
                 description: Some(Cow::Owned(script.summary.clone().unwrap_or_default())),
-                input_schema: rmcp::handler::server::tool::cached_schema_for_type::<EmptyObject>(),
+                input_schema: script
+                    .schema
+                    .as_ref()
+                    .map(|schema| {
+                        let value = serde_json::from_str::<serde_json::Value>(schema.0.get())
+                            .unwrap_or(serde_json::Value::Null);
+                        if let serde_json::Value::Object(map) = value {
+                            Arc::new(map)
+                        } else {
+                            Arc::new(serde_json::Map::new())
+                        }
+                    })
+                    .unwrap_or_default(),
                 annotations: None,
             })
             .collect();

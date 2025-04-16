@@ -664,11 +664,11 @@ pub async fn run_server(
         tracing::info!("MCP server cancellation signaled");
     });
 
-    mcp_service_ct.cancelled().await;
-    tracing::info!("MCP service task completed.");
-
     server.await?;
     tracing::info!("Main Axum server task completed.");
+
+    mcp_service_ct.cancelled().await;
+    tracing::info!("MCP service task completed.");
 
     Ok(())
 }
