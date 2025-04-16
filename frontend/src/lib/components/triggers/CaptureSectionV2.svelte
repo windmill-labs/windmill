@@ -252,11 +252,12 @@
 				</div>
 			{/if}
 
+			<div class="mt-4 mb-2">
+				<slot name="description" />
+			</div>
+
 			{#if $$slots.default}
-				<div
-					class:opacity-50={disabled || !captureInfo.active}
-					class="grow min-h-0 flex flex-col gap-4"
-				>
+				<div class="grow min-h-0 flex flex-col gap-4">
 					<slot />
 				</div>
 			{/if}
