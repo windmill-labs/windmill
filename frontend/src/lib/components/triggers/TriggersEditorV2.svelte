@@ -88,7 +88,7 @@
 						<div class="flex-grow overflow-auto px-2 pb-4 transition-all duration-200 ease-in-out">
 							{#if $selectedTrigger.type === 'http'}
 								<RoutesPanel
-									{selectedTrigger}
+									selectedTrigger={$selectedTrigger}
 									{isFlow}
 									path={initialPath || fakeInitialPath}
 									on:update-config={({ detail }) => {
