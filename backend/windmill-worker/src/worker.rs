@@ -284,6 +284,8 @@ lazy_static::lazy_static! {
         let mut proxy_env = Vec::new();
         if let Some(no_proxy) = NO_PROXY.as_ref() {
             proxy_env.push(("NO_PROXY", no_proxy.to_string()));
+        } else if HTTPS_PROXY.is_some() || HTTP_PROXY.is_some() {
+            proxy_env.push(("NO_PROXY", "localhost,127.0.0.1".to_string()));
         }
         if let Some(http_proxy) = HTTP_PROXY.as_ref() {
             proxy_env.push(("HTTP_PROXY", http_proxy.to_string()));
