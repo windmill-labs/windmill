@@ -92,7 +92,7 @@
 									right: 'Enabled'
 								}}
 								on:change={async (e) => {
-									if (!newItem) {
+									if (!newItem && $initialPrimarySchedule != false) {
 										await ScheduleService.setScheduleEnabled({
 											path: path,
 											workspace: $workspaceStore ?? '',
@@ -143,7 +143,7 @@
 			<p class="text-xs text-tertiary mt-10">Define a schedule frequency first</p>
 		{/if}
 
-		{#if $initialPrimarySchedule != false}
+		{#if $initialPrimarySchedule != false && !newItem}
 			<div class="flex">
 				<Button size="xs" color="light" on:click={() => scheduleEditor?.openEdit(path, isFlow)}
 					>Advanced</Button
