@@ -38,9 +38,11 @@
 		return {}
 	}
 
-	function computeStatus(state: GraphModuleState | undefined): FlowStatusModule["type"] | undefined {
+	function computeStatus(
+		state: GraphModuleState | undefined
+	): FlowStatusModule['type'] | undefined {
 		if (state?.type == 'InProgress' || state?.type == 'Success' || state?.type == 'Failure') {
-			let r = state?.flow_jobs_success?.[state?.selectedForloopIndex ?? 0] 
+			let r = state?.flow_jobs_success?.[state?.selectedForloopIndex ?? 0]
 			if (r == undefined) return 'InProgress'
 			return r ? 'Success' : 'InProgress'
 		}
@@ -79,7 +81,7 @@
 		bgColor={getStateColor(undefined, darkMode)}
 		borderColor={getStateColor(computeStatus(data.flowModuleStates?.[data.id]), darkMode)}
 		on:select={(e) => {
-			data?.eventHandlers?.select(e.detail)
+			setTimeout(() => data?.eventHandlers?.select(e.detail))
 		}}
 		inputJson={filteredInput}
 		prefix="flow_input"

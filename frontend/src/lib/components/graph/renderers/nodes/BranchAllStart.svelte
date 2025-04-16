@@ -37,10 +37,10 @@
 			? getStateColor(borderStatus, darkMode) + (!darkMode ? '; border-width: 3px' : '')
 			: undefined}
 		on:select={() => {
-			data.eventHandlers.select(data.id)
+			setTimeout(() => data.eventHandlers.select(data.id))
 		}}
 		on:insert={(e) => {
-			data.eventHandlers.insert(e.detail)
+			setTimeout(() => data.eventHandlers.insert(e.detail))
 		}}
 	/>
 	{#if data.insertable}

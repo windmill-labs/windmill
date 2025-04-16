@@ -26,7 +26,6 @@
 		'branchone',
 		data.flowModuleStates?.[data.id]
 	)
-	
 </script>
 
 <NodeWrapper let:darkMode offset={data.offset}>
@@ -38,7 +37,7 @@
 		bgColor={getStateColor(undefined, darkMode)}
 		borderColor={borderStatus ? getStateColor(borderStatus, darkMode) : undefined}
 		on:select={() => {
-			data.eventHandlers.select(data.id)
+			setTimeout(() => data?.eventHandlers?.select(data.id))
 		}}
 	/>
 	{#if data.insertable}

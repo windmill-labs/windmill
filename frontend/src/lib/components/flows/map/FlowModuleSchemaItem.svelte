@@ -204,12 +204,7 @@
 	style="width: 275px; height: 38px; background-color: {bgColor};"
 	on:mouseenter={() => (hover = true)}
 	on:mouseleave={() => (hover = false)}
-	on:pointerdown|preventDefault|stopPropagation={() =>
-		// setTimeout to avoid freezing event loop that handles css on pointerdown
-		// which makes the button feel reactive
-		setTimeout(() => {
-			dispatch('pointerdown')
-		})}
+	on:pointerdown|preventDefault|stopPropagation={() => dispatch('pointerdown')}
 >
 	<div class="absolute text-sm right-12 -bottom-3 flex flex-row gap-1 z-10">
 		{#if retry}

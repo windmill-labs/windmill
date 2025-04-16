@@ -33,7 +33,7 @@
 		bgColor={getStateColor(undefined, darkMode)}
 		borderColor={getStateColor(borderStatus, darkMode)}
 		on:select={(e) => {
-			data?.eventHandlers?.select(e.detail)
+			setTimeout(() => data?.eventHandlers?.select(e.detail))
 		}}
 	/>
 </NodeWrapper>

@@ -30,7 +30,7 @@
 			darkMode
 		)}
 		on:select={(e) => {
-			data?.eventHandlers?.select(e.detail)
+			setTimeout(() => data?.eventHandlers?.select(e.detail))
 		}}
 	/>
 </NodeWrapper>

@@ -74,10 +74,10 @@
 		selected={$selectedId === 'Input'}
 		bgColor={getStateColor(undefined, darkMode)}
 		on:insert={(e) => {
-			data.eventHandlers?.insert(e.detail)
+			setTimeout(() => data?.eventHandlers?.insert(e.detail))
 		}}
 		on:select={(e) => {
-			data.eventHandlers?.select(e.detail)
+			setTimeout(() => data?.eventHandlers?.select(e.detail))
 		}}
 		inputJson={topFlowInput}
 		prefix="flow_input"

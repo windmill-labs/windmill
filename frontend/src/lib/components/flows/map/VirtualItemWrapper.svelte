@@ -34,13 +34,9 @@
 	)}
 	style="width: 275px; max-height: 38px; background-color: {bgColor};"
 	on:pointerdown={() => {
-		// setTimeout to avoid freezing event loop that handles css on pointerdown
-		// which makes the button feel reactive
-		setTimeout(() => {
-			if (selectable) {
-				dispatch('select', id || label || '')
-			}
-		})
+		if (selectable) {
+			dispatch('select', id || label || '')
+		}
 	}}
 	on:mouseenter={() => {
 		hover = true

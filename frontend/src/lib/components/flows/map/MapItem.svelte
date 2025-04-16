@@ -122,7 +122,7 @@
 					on:changeId
 					on:move={() => dispatch('move')}
 					on:delete={onDelete}
-					on:pointerdown={() => dispatch('select', mod.id)}
+					on:pointerdown={() => setTimeout(() => dispatch('select', mod.id))}
 					on:updateMock={({ detail }) => {
 						mod.mock = detail
 						dispatch('updateMock')
@@ -148,7 +148,7 @@
 					on:changeId
 					on:delete={onDelete}
 					on:move={() => dispatch('move')}
-					on:pointerdown={() => dispatch('select', mod.id)}
+					on:pointerdown={() => setTimeout(() => dispatch('select', mod.id))}
 					{...itemProps}
 					id={mod.id}
 					label={mod.summary || 'Run one branch'}
@@ -165,7 +165,7 @@
 					on:changeId
 					on:delete={onDelete}
 					on:move={() => dispatch('move')}
-					on:pointerdown={() => dispatch('select', mod.id)}
+					on:pointerdown={() => setTimeout(() => dispatch('select', mod.id))}
 					id={mod.id}
 					{...itemProps}
 					label={mod.summary || `Run all branches${mod.value.parallel ? ' (parallel)' : ''}`}
@@ -180,7 +180,7 @@
 					{retries}
 					{editMode}
 					on:changeId
-					on:pointerdown={() => dispatch('select', mod.id)}
+					on:pointerdown={() => setTimeout(() => dispatch('select', mod.id))}
 					on:delete={onDelete}
 					on:move={() => dispatch('move')}
 					on:updateMock={({ detail }) => {

@@ -30,7 +30,7 @@
 		bgColor={getStateColor(undefined, darkMode)}
 		borderColor={undefined}
 		on:select={() => {
-			data.eventHandlers.select(data.id)
+			setTimeout(() => data.eventHandlers?.select(data.id))
 		}}
 	/>
 	<button
