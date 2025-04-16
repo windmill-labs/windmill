@@ -25,7 +25,8 @@
 		simplifiedPoll: writable(false),
 		defaultValues: writable(undefined),
 		captureOn: writable(undefined),
-		showCaptureHint: writable(undefined)
+		showCaptureHint: writable(undefined),
+		triggers: writable([])
 	})
 
 	async function loadFlow(path: string) {

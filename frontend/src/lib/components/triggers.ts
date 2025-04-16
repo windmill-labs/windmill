@@ -20,6 +20,7 @@ export type TriggerContext = {
 	defaultValues: Writable<Record<string, any> | undefined>
 	captureOn: Writable<boolean | undefined>
 	showCaptureHint: Writable<boolean | undefined>
+	triggers: Writable<Trigger[]>
 }
 
 export function setScheduledPollSchedule(
@@ -75,7 +76,7 @@ export function captureTriggerKindToTriggerKind(kind: CaptureTriggerKind): Trigg
 		case 'sqs':
 			return 'sqs'
 		case 'postgres':
-			return  'postgres'
+			return 'postgres'
 		default:
 			throw new Error(`Unknown CaptureTriggerKind: ${kind}`)
 	}

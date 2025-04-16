@@ -43,7 +43,8 @@
 		simplifiedPoll,
 		defaultValues: writable(undefined),
 		captureOn: writable(undefined),
-		showCaptureHint: writable(undefined)
+		showCaptureHint: writable(undefined),
+		triggers: writable([])
 	})
 </script>
 

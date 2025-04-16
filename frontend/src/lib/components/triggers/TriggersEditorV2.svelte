@@ -17,7 +17,13 @@
 	import PrimarySchedulePanel from './PrimarySchedulePanel.svelte'
 	import SchedulePanel from '$lib/components/SchedulePanel.svelte'
 	import { twMerge } from 'tailwind-merge'
-	import TriggersLoader from './TriggersLoader.svelte'
+	import {
+		fetchHttpTriggers as fetchHttpTriggersUtil,
+		fetchSchedules as fetchSchedulesUtil,
+		deleteDraft,
+		addDraftTrigger
+	} from './utils'
+	import { workspaceStore } from '$lib/stores'
 
 	export let noEditor: boolean
 	export let newItem = false
@@ -33,8 +39,12 @@
 
 	let config: Record<string, any> = {}
 
-	const { simplifiedPoll, selectedTriggerV2: selectedTrigger } =
-		getContext<TriggerContext>('TriggerContext')
+	const {
+		simplifiedPoll,
+		selectedTriggerV2: selectedTrigger,
+		triggers,
+		primarySchedule
+	} = getContext<TriggerContext>('TriggerContext')
 
 	const dispatch = createEventDispatcher()
 	onDestroy(() => {
@@ -51,15 +61,10 @@
 	$: if ($selectedTrigger) {
 		captureKind = triggerTypeToCaptureKind($selectedTrigger.type)
 	}
-
-	let triggers: Trigger[] = []
-	let triggersLoader: TriggersLoader | null = null
 </script>
 
 <FlowCard {noEditor} title="Triggers">
 	{#if !$simplifiedPoll}
-		<TriggersLoader path={currentPath} {isFlow} bind:triggers bind:this={triggersLoader} />
-
 		<Splitpanes horizontal>
 			<Pane class="px-4">
 				<div class="flex flex-row h-full">
@@ -73,12 +78,16 @@
 						<TriggersTable
 							selectedTrigger={$selectedTrigger}
 							on:select={handleSelectTrigger}
-							{triggers}
+							triggers={$triggers}
 							on:addDraftTrigger={({ detail }) => {
-								triggersLoader?.addDraftTrigger(detail)
+								const newTrigger = addDraftTrigger(triggers, detail, !!$primarySchedule)
+								$selectedTrigger = newTrigger
 							}}
 							on:deleteDraft={({ detail }) => {
-								triggersLoader?.deleteDraft(detail.trigger, detail.keepSelection)
+								deleteDraft(triggers, detail.trigger)
+								if ($triggers.length > 0) {
+									$selectedTrigger = $triggers[$triggers.length - 1]
+								}
 							}}
 						/>
 					</div>
@@ -95,9 +104,13 @@
 										config = detail
 									}}
 									on:update={({ detail }) => {
-										triggersLoader?.fetchHttpTriggers()
+										fetchHttpTriggersUtil(triggers, $workspaceStore, currentPath, isFlow)
+
 										if (detail) {
-											triggersLoader?.deleteDraft($selectedTrigger)
+											deleteDraft(triggers, $selectedTrigger)
+											if ($triggers.length > 0) {
+												$selectedTrigger = $triggers[$triggers.length - 1]
+											}
 										}
 									}}
 								/>
@@ -128,10 +141,16 @@
 									path={initialPath}
 									{newItem}
 									can_write={canWrite(currentPath, {}, $userStore)}
-									on:update={({ detail }) => {
-										triggersLoader?.fetchSchedules()
+									on:update={async ({ detail }) => {
+										await fetchSchedulesUtil(
+											triggers,
+											$workspaceStore,
+											currentPath,
+											isFlow,
+											$primarySchedule
+										)
 										if (detail === 'save') {
-											triggersLoader?.deleteDraft($selectedTrigger, true)
+											deleteDraft(triggers, $selectedTrigger)
 										}
 									}}
 									isNewSchedule={$selectedTrigger.isDraft}
@@ -141,9 +160,15 @@
 									selectedTrigger={$selectedTrigger}
 									{isFlow}
 									path={initialPath}
-									on:update={({ detail }) => {
+									on:update={async ({ detail }) => {
 										if ($selectedTrigger && $selectedTrigger.isDraft && detail?.path) {
-											triggersLoader?.fetchSchedules()
+											await fetchSchedulesUtil(
+												triggers,
+												$workspaceStore,
+												currentPath,
+												isFlow,
+												$primarySchedule
+											)
 											$selectedTrigger.isDraft = false
 											$selectedTrigger.path = detail.path
 										}

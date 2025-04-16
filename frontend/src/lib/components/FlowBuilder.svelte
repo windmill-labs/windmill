@@ -76,6 +76,8 @@
 	import { type TriggerContext, type ScheduleTrigger } from './triggers'
 	import type { SavedAndModifiedValue } from './common/confirmationModal/unsavedTypes'
 	import DeployButton from './DeployButton.svelte'
+	import type { Trigger } from './triggers/utils'
+	import { fetchTriggers } from './triggers/utils'
 
 	export let initialPath: string = ''
 	export let pathStoreInit: string | undefined = undefined
@@ -577,6 +579,9 @@
 		flowInputEditorState: flowInputEditorStateStore
 	})
 
+	// Add triggers context store
+	const triggersStore = writable<Trigger[]>([])
+
 	setContext<TriggerContext>('TriggerContext', {
 		selectedTrigger: selectedTriggerStore,
 		selectedTriggerV2: writable(undefined),
@@ -585,7 +590,8 @@
 		simplifiedPoll,
 		defaultValues: writable(undefined),
 		captureOn,
-		showCaptureHint
+		showCaptureHint,
+		triggers: triggersStore
 	})
 
 	async function loadTriggers() {
@@ -602,6 +608,9 @@
 				}
 			}
 		}
+
+		// Initialize triggers using utility function
+		fetchTriggers(triggersStore, $workspaceStore, initialPath, true, $primaryScheduleStore)
 	}
 
 	$: selectedId && select(selectedId)

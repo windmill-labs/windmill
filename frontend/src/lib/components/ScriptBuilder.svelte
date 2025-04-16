@@ -199,7 +199,8 @@
 		simplifiedPoll,
 		defaultValues: triggerDefaultValuesStore,
 		captureOn: captureOn,
-		showCaptureHint: showCaptureHint
+		showCaptureHint: showCaptureHint,
+		triggers: writable([])
 	})
 
 	const enterpriseLangs = ['bigquery', 'snowflake', 'mssql', 'oracledb']
