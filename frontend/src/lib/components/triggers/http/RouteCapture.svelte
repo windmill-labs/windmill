@@ -10,6 +10,7 @@
 	import CaptureTable from '../CaptureTable.svelte'
 	import ClipboardPanel from '../../details/ClipboardPanel.svelte'
 	import { isObject } from '$lib/utils'
+	import { FlaskConical } from 'lucide-svelte'
 
 	export let route_path: string | undefined
 	export let http_method: 'get' | 'post' | 'put' | 'patch' | 'delete' | undefined
@@ -51,10 +52,11 @@
 				Send a POST request to the URL below to simulate a webhook event.
 			{:else}
 				The test URL below is generated from the production configuration. Only the section marked
-				with test are affecting this url. Hit start capturing to listen to webhook events.
+				with "<FlaskConical size={12} class="inline-block" />" affects the test URL. Hit start
+				capturing to listen to webhook events.
 			{/if}
 		</svelte:fragment>
-		<Label label="URL" disabled={!captureInfo.active}>
+		<Label label="Test URL" disabled={!captureInfo.active}>
 			<ClipboardPanel content={captureURL} disabled={!captureInfo.active} />
 		</Label>
 

@@ -42,6 +42,7 @@
 	export let capture_mode: boolean
 
 	let validateTimeout: NodeJS.Timeout | undefined = undefined
+	let selectedRoute: 'test' | 'full' = 'full'
 
 	let routeError: string = ''
 	async function validateRoute(
@@ -87,6 +88,10 @@
 
 	$: !http_method && (http_method = 'post')
 	$: route_path === undefined && (route_path = '')
+
+	$: captureURL = `${location.origin}${base}/api/w/${$workspaceStore}/capture_u/http/${
+		captureInfo?.isFlow ? 'flow' : 'script'
+	}/${captureInfo?.path.replaceAll('/', '.')}/${route_path}`
 </script>
 
 <div>
@@ -129,7 +134,7 @@
 		<svelte:fragment slot="header">
 			{#if showCapture}
 				<Tooltip>
-					<FlaskConical size={16} />
+					<FlaskConical size={16} class="text-tertiary" />
 					<span slot="text">Only this section affects the test URL</span>
 				</Tooltip>
 			{/if}
@@ -180,23 +185,37 @@
 				<ToggleButton label="PATCH" value="patch" {item} />
 				<ToggleButton label="DELETE" value="delete" {item} />
 			</ToggleButtonGroup>
-			<div class="flex flex-col w-full mt-2">
+			<div class="flex flex-col w-full">
 				<div class="flex justify-start w-full">
-					<Badge
-						color="gray"
-						class="center-center !bg-surface-secondary !text-tertiary !w-[90px] !h-[24px] rounded-r-none border"
-					>
-						Full endpoint
-					</Badge>
-					<input
-						type="text"
-						readonly
-						value={fullRoute}
-						size={fullRoute.length || 50}
-						class="font-mono !text-xs max-w-[calc(100%-70px)] !w-auto !h-[24px] !py-0 !border-l-0 !rounded-l-none"
-						on:focus={({ currentTarget }) => {
-							currentTarget.select()
-						}}
+					{#if showCapture}
+						<ToggleButtonGroup
+							let:item
+							bind:selected={selectedRoute}
+							tabListClass="rounded-r-none"
+							class="w-fit"
+						>
+							<ToggleButton
+								small
+								label="Production URL"
+								value="full"
+								{item}
+								class="whitespace-nowrap"
+							/>
+							<ToggleButton
+								small
+								label="Test URL"
+								value="test"
+								{item}
+								class="whitespace-nowrap"
+								tooltip="Test URL is used to capture HTTP requests to the endpoint. Hit start capturing in the pane bellow to listen to requests."
+							/>
+						</ToggleButtonGroup>
+					{:else}
+						<Badge color="gray" class="rounded-r-none h-[27px]">Full endpoint</Badge>
+					{/if}
+					<ClipboardPanel
+						content={selectedRoute === 'full' ? fullRoute : captureURL}
+						class="rounded-l-none bg-surface border-none outline outline-2 outline-surface-secondary outline-offset-[-2px]"
 					/>
 				</div>
 				<div class="text-red-600 dark:text-red-400 text-2xs mt-1.5"
