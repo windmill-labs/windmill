@@ -32,7 +32,6 @@
 
 	let config: Record<string, any> = {}
 	let triggersTable: TriggersTable | null = null
-	let primarySchedulePanel: PrimarySchedulePanel | null = null
 
 	const { simplifiedPoll } = getContext<TriggerContext>('TriggerContext')
 
@@ -129,7 +128,6 @@
 										}
 									}}
 									isNewSchedule={selectedTrigger.isDraft}
-									bind:this={primarySchedulePanel}
 								/>
 							{:else if selectedTrigger.type === 'schedule'}
 								<SchedulePanel
