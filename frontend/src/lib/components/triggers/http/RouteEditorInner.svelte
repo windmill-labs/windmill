@@ -144,6 +144,7 @@
 		try {
 			drawer?.openDrawer()
 			initialPath = ePath
+			path = ePath
 			itemKind = isFlow ? 'flow' : 'script'
 			edit = true
 			editMode = isEditing

@@ -33,6 +33,7 @@
 	import { random_adj } from './random_positive_adjetive'
 	import { Eye, Folder, Loader2, Plus, SearchCode, User } from 'lucide-svelte'
 	import Tooltip from './Tooltip.svelte'
+	import { tick } from 'svelte'
 
 	type PathKind =
 		| 'resource'
@@ -292,7 +293,8 @@
 		}
 	}
 
-	function initPath() {
+	async function initPath() {
+		await tick()
 		if (path != undefined && path != '') {
 			meta = pathToMeta(path, hideUser)
 			onMetaChange()
