@@ -2,7 +2,7 @@
 
 <script lang="ts">
 	type Props = {
-		code: string
+		code?: string
 		fontSize: number
 		marginLeft?: string
 		className?: string
@@ -25,7 +25,7 @@
 		style="font-size: {fontSize}px;"
 	>
 		{code}
-		{#if code.endsWith('\n')}
+		{#if code?.endsWith('\n')}
 			&nbsp;
 		{/if}
 	</code>
