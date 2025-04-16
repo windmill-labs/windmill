@@ -100,7 +100,8 @@
 		autofocus = false,
 		allowVim = false,
 		tailwindClasses = [],
-		class: className = ''
+		class: className = '',
+		loadAsync = false
 	} = $props<{
 		lang: string
 		code?: string
@@ -122,6 +123,7 @@
 		allowVim?: boolean
 		tailwindClasses?: string[]
 		class?: string
+		loadAsync?: boolean
 	}>()
 
 	const dispatch = createEventDispatcher()
@@ -510,16 +512,20 @@
 		}
 	}
 
-	onMount(() => {
-		setTimeout(async () => {
-			if (BROWSER) {
-				mounted = true
+	onMount(async () => {
+		if (BROWSER) {
+			if (loadAsync) {
+				setTimeout(async () => {
+					await loadMonaco()
+					mounted = true
+					if (autofocus) setTimeout(() => focus(), 0)
+				}, 0)
+			} else {
 				await loadMonaco()
-				if (autofocus) {
-					setTimeout(() => focus(), 0)
-				}
+				mounted = true
+				if (autofocus) setTimeout(() => focus(), 0)
 			}
-		}, 0)
+		}
 	})
 
 	$effect(() => {

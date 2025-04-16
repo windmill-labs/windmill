@@ -375,6 +375,7 @@
 	export let autoHeight = true
 	export let fixedOverflowWidgets = true
 	export let fontSize = 16
+	export let loadAsync = false
 
 	if (typeof code != 'string') {
 		code = ''
@@ -593,13 +594,18 @@
 	}
 
 	let mounted = false
-	onMount(() => {
-		setTimeout(async () => {
-			if (BROWSER) {
+	onMount(async () => {
+		if (BROWSER) {
+			if (loadAsync) {
+				setTimeout(async () => {
+					await loadMonaco()
+					mounted = true
+				}, 0)
+			} else {
 				await loadMonaco()
 				mounted = true
 			}
-		}, 0)
+		}
 	})
 
 	$: mounted && extraLib && initialized && loadExtraLib()
