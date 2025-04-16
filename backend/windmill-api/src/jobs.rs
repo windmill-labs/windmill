@@ -3441,7 +3441,11 @@ async fn batch_rerun_handle_job(
             }
             InputTransform::Javascript { expr } => {
                 #[cfg(not(feature = "deno_core"))]
-                tracing::error!("deno_core feature is not activated, cannot evaluate: {expr}");
+                Err(error::Error::ExecutionErr(
+                    format!("deno_core feature is not activated, cannot evaluate: {expr}")
+                        .to_string(),
+                ))?;
+
                 #[cfg(feature = "deno_core")]
                 args.insert(
                     property_name.clone(),
