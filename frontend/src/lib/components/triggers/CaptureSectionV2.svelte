@@ -10,7 +10,7 @@
 </script>
 
 <script lang="ts">
-	import { slide } from 'svelte/transition'
+	import { slide, fade } from 'svelte/transition'
 	import AnimatedButton from '../common/button/AnimatedButton.svelte'
 	import PulseButton from '../common/button/PulseButton.svelte'
 	import Button from '../common/button/Button.svelte'
@@ -35,8 +35,9 @@
 	import DisplayResult from '$lib/components/DisplayResult.svelte'
 	import DisplayResultControlBar from '$lib/components/DisplayResultControlBar.svelte'
 	import { base } from '$lib/base'
+	import Description from '$lib/components/Description.svelte'
 
-	export let disabled: boolean
+	export let disabled: boolean | undefined = undefined
 	export let captureType: CaptureTriggerKind
 	export let captureInfo: CaptureInfo
 	export let captureTable: CaptureTable | undefined
@@ -246,14 +247,26 @@
 				</div>
 			</div>
 
-			{#if disabled}
+			{#if disabled === true}
 				<div class="text-sm font-normal text-red-600 dark:text-red-400" transition:slide>
 					Enter a valid configuration to start capturing.
 				</div>
 			{/if}
 
 			<div class="mt-4 mb-2">
-				<slot name="description" />
+				<Description>
+					<div class="relative min-h-8">
+						{#key captureInfo.active}
+							<div
+								class="absolute top-0 left-0 w-full text-center"
+								in:fade={{ duration: 100, delay: 50 }}
+								out:fade={{ duration: 50 }}
+							>
+								<slot name="description" />
+							</div>
+						{/key}
+					</div>
+				</Description>
 			</div>
 
 			{#if $$slots.default}

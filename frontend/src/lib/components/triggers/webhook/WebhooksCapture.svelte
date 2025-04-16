@@ -7,8 +7,6 @@
 	import CaptureSection, { type CaptureInfo } from '../CaptureSectionV2.svelte'
 	import CaptureTable from '../CaptureTable.svelte'
 	import { workspaceStore } from '$lib/stores'
-	import Description from '$lib/components/Description.svelte'
-	import { fade } from 'svelte/transition'
 
 	export let isFlow: boolean = false
 	export let path: string = ''
@@ -48,26 +46,14 @@
 		{isFlow}
 		{hasPreprocessor}
 	>
-		<div slot="description">
-			<Description>
-				<div class="relative min-h-8">
-					{#key captureInfo.active}
-						<div
-							class="absolute top-0 left-0 w-full text-center"
-							in:fade={{ duration: 100, delay: 50 }}
-							out:fade={{ duration: 50 }}
-						>
-							{#if captureInfo.active}
-								Send a POST request to the URL below to simulate a webhook event.
-							{:else}
-								The test URL below allows you to test the webhook trigger without affecting your
-								production configuration. Hit start capturing to listen to webhook events.
-							{/if}
-						</div>
-					{/key}
-				</div>
-			</Description>
-		</div>
+		<svelte:fragment slot="description">
+			{#if captureInfo.active}
+				Send a POST request to the URL below to simulate a webhook event.
+			{:else}
+				The test URL below allows you to test the webhook trigger without affecting your production
+				configuration. Hit start capturing to listen to webhook events.
+			{/if}
+		</svelte:fragment>
 		<Label label="Test URL" disabled={!captureInfo.active}>
 			<ClipboardPanel content={captureUrl} disabled={!captureInfo.active} />
 		</Label>

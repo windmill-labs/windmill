@@ -5,8 +5,6 @@
 	import ClipboardPanel from './ClipboardPanel.svelte'
 	import CaptureSection, { type CaptureInfo } from '../triggers/CaptureSectionV2.svelte'
 	import CaptureTable from '../triggers/CaptureTable.svelte'
-	import Description from '$lib/components/Description.svelte'
-	import { fade } from 'svelte/transition'
 
 	export let isFlow: boolean = false
 	export let path: string
@@ -44,24 +42,12 @@
 		{isFlow}
 	>
 		<svelte:fragment slot="description">
-			<Description>
-				<div class="relative min-h-8">
-					{#key captureInfo.active}
-						<div
-							class="absolute top-0 left-0 w-full text-center"
-							in:fade={{ duration: 100, delay: 50 }}
-							out:fade={{ duration: 50 }}
-						>
-							{#if captureInfo.active}
-								Send an email to the test address below to simulate an email trigger.
-							{:else}
-								The test email address below allows you to test the email trigger without affecting
-								your production configuration. Hit start capturing to listen to email events.
-							{/if}
-						</div>
-					{/key}
-				</div>
-			</Description>
+			{#if captureInfo.active}
+				Send an email to the test address below to simulate an email trigger.
+			{:else}
+				The test email address below allows you to test the email trigger without affecting your
+				production configuration. Hit start capturing to listen to email events.
+			{/if}
 		</svelte:fragment>
 		<Label label="Test email address" disabled={!captureInfo.active}>
 			<ClipboardPanel content={captureEmail} disabled={!captureInfo.active} />

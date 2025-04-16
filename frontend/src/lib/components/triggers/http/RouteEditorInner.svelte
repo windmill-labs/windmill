@@ -37,7 +37,8 @@
 		saveDisabled = false,
 		hidePath = false,
 		description = undefined,
-		useEditButton = false
+		useEditButton = false,
+		showCapture = false
 	} = $props()
 
 	// Form data state
@@ -502,6 +503,7 @@
 				can_write={can_write && editMode}
 				capture_mode={false}
 				bind:static_asset_config
+				{showCapture}
 			/>
 
 			{#if !is_static_website}

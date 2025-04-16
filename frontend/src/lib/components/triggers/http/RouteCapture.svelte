@@ -16,7 +16,7 @@
 	export let captureInfo: CaptureInfo | undefined = undefined
 	export let captureTable: CaptureTable | undefined = undefined
 	export let runnableArgs: any = {}
-	export let isValid: boolean = false
+	export let isValid: boolean | undefined = undefined
 	export let hasPreprocessor: boolean = false
 	export let isFlow: boolean = false
 
@@ -35,7 +35,7 @@
 {#if captureInfo}
 	<CaptureSection
 		captureType="http"
-		disabled={!isValid}
+		disabled={isValid === false}
 		{captureInfo}
 		on:captureToggle
 		on:applyArgs
@@ -46,11 +46,19 @@
 		{hasPreprocessor}
 		{isFlow}
 	>
-		<Label label="URL">
+		<svelte:fragment slot="description">
+			{#if captureInfo.active}
+				Send a POST request to the URL below to simulate a webhook event.
+			{:else}
+				The test URL below is generated from the production configuration. Only the section marked
+				with test are affecting this url. Hit start capturing to listen to webhook events.
+			{/if}
+		</svelte:fragment>
+		<Label label="URL" disabled={!captureInfo.active}>
 			<ClipboardPanel content={captureURL} disabled={!captureInfo.active} />
 		</Label>
 
-		<Label label="Example cUrl">
+		<Label label="Example cURL" disabled={!captureInfo.active}>
 			<CopyableCodeBlock
 				disabled={!captureInfo.active}
 				code={`curl \\

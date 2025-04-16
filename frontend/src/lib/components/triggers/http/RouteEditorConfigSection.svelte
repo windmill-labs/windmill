@@ -20,6 +20,8 @@
 	import RouteBodyTransformerOption from './RouteBodyTransformerOption.svelte'
 	import { isCloudHosted } from '$lib/cloud'
 	import Toggle from '$lib/components/Toggle.svelte'
+	import { Tooltip } from '$lib/components/meltComponents'
+	import { FlaskConical } from 'lucide-svelte'
 
 	export let initialTriggerPath: string | undefined = undefined
 	export let dirtyRoutePath: boolean = false
@@ -124,8 +126,16 @@
 		</CaptureSection>
 	{/if}
 	<Section label="HTTP" {headless}>
+		<svelte:fragment slot="header">
+			{#if showCapture}
+				<Tooltip>
+					<FlaskConical size={16} />
+					<span slot="text">Only this section affects the test URL</span>
+				</Tooltip>
+			{/if}
+		</svelte:fragment>
 		{#if !($userStore?.is_admin || $userStore?.is_super_admin)}
-			<Alert type="info" title="Admin only" collapsible>
+			<Alert type="info" title="Admin only" collapsible size="xs">
 				Route endpoints can only be edited by workspace admins
 			</Alert>
 			<div class="my-2"></div>
