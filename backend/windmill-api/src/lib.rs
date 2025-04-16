@@ -539,7 +539,7 @@ pub async fn run_server(
                         .layer(from_extractor::<OptAuthed>())
                         .layer(cors.clone()),
                 )
-                .nest_service("/w/:workspace_id/mcp", mcp_router)
+                .nest("/w/:workspace_id/mcp", mcp_router)
                 .layer(from_extractor::<OptAuthed>())
                 .nest(
                     "/w/:workspace_id/jobs_u",
@@ -659,16 +659,15 @@ pub async fn run_server(
 
     let server = server.with_graceful_shutdown(async move {
         rx.recv().await.ok();
-        tracing::info!("Graceful shutdown signal received for main server");
-        mcp_main_ct.cancel(); // <-- Signal MCP server to shut down
-        tracing::info!("MCP server cancellation signaled");
+        tracing::info!("Received shutdown signal, cancelling MCP server...");
+        mcp_main_ct.cancel();
+        tracing::info!("Waiting for MCP service cancellation...");
+        mcp_service_ct.cancelled().await;
+        tracing::info!("MCP service cancelled.");
     });
 
     server.await?;
     tracing::info!("Main Axum server task completed.");
-
-    mcp_service_ct.cancelled().await;
-    tracing::info!("MCP service task completed.");
 
     Ok(())
 }

@@ -39,12 +39,14 @@ struct App {
     transport_tx: tokio::sync::mpsc::UnboundedSender<SseServerTransport>,
     post_path: Arc<str>,
     sse_ping_interval: Duration,
+    ct: CancellationToken,
 }
 
 impl App {
     pub fn new(
         post_path: String,
         sse_ping_interval: Duration,
+        ct: CancellationToken,
     ) -> (
         Self,
         tokio::sync::mpsc::UnboundedReceiver<SseServerTransport>,
@@ -56,6 +58,7 @@ impl App {
                 transport_tx,
                 post_path: post_path.into(),
                 sse_ping_interval,
+                ct,
             },
             transport_rx,
         )
@@ -141,18 +144,60 @@ async fn sse_handler(
     let ping_interval = app.sse_ping_interval;
     let relative_post_path = app.post_path.trim_start_matches('/'); // Ensure no leading slash, e.g., "message"
     let full_endpoint_path = format!("/api/w/{}/mcp/{}", workspace_id, relative_post_path);
-    let stream = futures::stream::once(futures::future::ok(
-        Event::default()
-            .event("endpoint")
-            .data(format!("{full_endpoint_path}?sessionId={session}")),
-    ))
-    .chain(ReceiverStream::new(to_client_rx).map(|message| {
-        match serde_json::to_string(&message) {
-            Ok(bytes) => Ok(Event::default().event("message").data(&bytes)),
-            Err(e) => Err(io::Error::new(io::ErrorKind::InvalidData, e)),
+    let server_ct = app.ct.clone();
+
+    // Clone variables needed for the cleanup task *before* they are moved by async_stream
+    let session_for_cleanup = session.clone();
+    let server_ct_for_cleanup = server_ct.clone();
+    let tx_store_for_cleanup = app.txs.clone();
+
+    let mut message_stream = ReceiverStream::new(to_client_rx);
+    let client_stream = async_stream::stream! {
+        yield Ok(Event::default()
+                .event("endpoint")
+                .data(format!("{full_endpoint_path}?sessionId={session}")));
+
+        loop {
+            tokio::select! {
+                biased;
+                _ = server_ct.cancelled() => {
+                    tracing::info!(%session, "SSE connection cancelled via token.");
+                    break;
+                }
+                maybe_message = message_stream.next() => {
+                    match maybe_message {
+                        Some(message) => {
+                            match serde_json::to_string(&message) {
+                                Ok(bytes) => yield Ok(Event::default().event("message").data(bytes)),
+                                Err(e) => {
+                                    tracing::error!(%session, "Failed to serialize message: {}", e);
+                                    yield Err(io::Error::new(io::ErrorKind::InvalidData, e));
+                                    break;
+                                }
+                            }
+                        }
+                        None => {
+                            tracing::info!(%session, "Message channel closed, ending SSE stream.");
+                            break;
+                        }
+                    }
+                }
+            }
         }
-    }));
-    Ok(Sse::new(stream).keep_alive(KeepAlive::new().interval(ping_interval)))
+        tracing::debug!(%session, "SSE client_stream finished.");
+    };
+
+    // Clean up the tx entry when the SSE connection handler finishes (either normally or cancelled)
+    tokio::spawn(async move {
+        server_ct_for_cleanup.cancelled().await;
+        tracing::debug!(session=%session_for_cleanup, "Removing session from tx store due to cancellation or handler exit.");
+        tx_store_for_cleanup
+            .write()
+            .await
+            .remove(&session_for_cleanup);
+    });
+
+    Ok(Sse::new(client_stream).keep_alive(KeepAlive::new().interval(ping_interval)))
 }
 
 pub struct SseServerTransport {
@@ -292,6 +337,7 @@ impl SseServer {
         let (app, transport_rx) = App::new(
             config.post_path.clone(),
             config.sse_keep_alive.unwrap_or(DEFAULT_AUTO_PING_INTERVAL),
+            config.ct.clone(),
         );
         let router = Router::new()
             .route(&config.sse_path, get(sse_handler))

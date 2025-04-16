@@ -9677,6 +9677,7 @@ name = "rmcp"
 version = "0.1.5"
 dependencies = [
  "anyhow",
+ "async-stream",
  "async-trait",
  "axum",
  "base64 0.21.7",

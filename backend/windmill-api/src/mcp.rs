@@ -3,9 +3,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use axum::body::to_bytes;
-use axum::extract::{Path, Query};
 use axum::Router;
-use chrono::{DateTime, Utc};
 use rmcp::transport::sse_server::{SseServer, SseServerConfig};
 use rmcp::{
     handler::server::ServerHandler,
@@ -15,7 +13,6 @@ use rmcp::{
     Error,
 };
 use serde::{Deserialize, Serialize};
-use serde_json::value::RawValue;
 use serde_json::Value;
 use sqlx::FromRow;
 use sqlx::Row;
@@ -24,9 +21,8 @@ use windmill_common::db::UserDB;
 use windmill_common::worker::to_raw_value;
 use windmill_common::DB;
 
-use crate::args::WebhookArgs;
 use crate::db::ApiAuthed;
-use crate::jobs::{run_script_by_path_inner, run_wait_result_script_by_path_internal, RunJobQuery};
+use crate::jobs::{run_wait_result_script_by_path_internal, RunJobQuery};
 use windmill_common::utils::StripPath;
 
 const BIND_ADDRESS: &str = "127.0.0.1:8008"; // This address is only used when running standalone
@@ -46,11 +42,6 @@ struct RunScriptParams {
     script: String,
     #[schemars(description = "The script arguments")]
     args: String,
-}
-
-#[derive(Deserialize)]
-struct ScriptSchemaResponse {
-    schema: Value,
 }
 
 #[derive(Serialize, FromRow)]
@@ -111,72 +102,6 @@ impl Runner {
         })?;
 
         Ok(scripts)
-    }
-
-    async fn get_scripts(
-        &self,
-        context: RequestContext<RoleServer>,
-    ) -> Result<CallToolResult, Error> {
-        let ct = context.ct;
-
-        tokio::select! {
-             _ = ct.cancelled() => {
-                tracing::info!("get_scripts cancelled.");
-                return Err(Error::internal_error("Operation cancelled", None));
-            }
-            result = async {
-
-                let workspace_id = "admins".to_string();
-                let user_db = context.req_extensions.get::<UserDB>().unwrap();
-                let authed = context.req_extensions.get::<ApiAuthed>().unwrap();
-                let scripts = self.inner_get_scripts(user_db, authed, workspace_id).await?;
-
-                let content = Content::json(scripts)?;
-                Ok(CallToolResult::success(vec![content]))
-
-            } => { result }
-        }
-    }
-
-    async fn get_script_schema_by_path(
-        &self,
-        context: RequestContext<RoleServer>,
-        path: String,
-    ) -> Result<CallToolResult, Error> {
-        let ct = context.ct;
-
-        tokio::select! {
-             _ = ct.cancelled() => {
-                tracing::info!("get_script_schema_by_path cancelled.");
-                return Err(Error::internal_error("Operation cancelled", None));
-            }
-            result = async {
-                Ok(CallToolResult::success(vec![Content::text(
-                    "Hello, world!".to_string(),
-                )]))
-            } => { result }
-        }
-    }
-
-    async fn run_script(
-        &self,
-        context: RequestContext<RoleServer>,
-        script: String,
-        args: String,
-    ) -> Result<CallToolResult, Error> {
-        let ct = context.ct;
-
-        tokio::select! {
-             _ = ct.cancelled() => {
-                tracing::info!("run_script cancelled.");
-                return Err(Error::internal_error("Operation cancelled", None));
-            }
-            result = async {
-                Ok(CallToolResult::success(vec![Content::text(
-                    "Hello, world!".to_string(),
-                )]))
-            } => { result }
-        }
     }
 }
 
