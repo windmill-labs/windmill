@@ -33,25 +33,23 @@
 	let config: Record<string, any> = {}
 	let triggersTable: TriggersTable | null = null
 
-	const { simplifiedPoll } = getContext<TriggerContext>('TriggerContext')
+	const { simplifiedPoll, selectedTriggerV2: selectedTrigger } =
+		getContext<TriggerContext>('TriggerContext')
 
 	const dispatch = createEventDispatcher()
 	onDestroy(() => {
 		dispatch('exitTriggers')
 	})
 
-	// State to track selected trigger
-	let selectedTrigger: Trigger | undefined = undefined
-
 	// Handle trigger selection
 	function handleSelectTrigger(event: CustomEvent<Trigger>) {
-		selectedTrigger = event.detail
+		$selectedTrigger = event.detail
 	}
 
 	let captureKind: CaptureTriggerKind | undefined = undefined
 
-	$: if (selectedTrigger) {
-		captureKind = triggerTypeToCaptureKind(selectedTrigger.type)
+	$: if ($selectedTrigger) {
+		captureKind = triggerTypeToCaptureKind($selectedTrigger.type)
 	}
 </script>
 
@@ -70,16 +68,16 @@
 						<TriggersTable
 							path={currentPath}
 							{isFlow}
-							{selectedTrigger}
+							selectedTrigger={$selectedTrigger}
 							on:select={handleSelectTrigger}
 							bind:this={triggersTable}
 						/>
 					</div>
 
 					<!-- TODO: Update triggersWrapper here -->
-					{#if selectedTrigger}
+					{#if $selectedTrigger}
 						<div class="flex-grow overflow-auto px-2 pb-4 transition-all duration-200 ease-in-out">
-							{#if selectedTrigger.type === 'http'}
+							{#if $selectedTrigger.type === 'http'}
 								<RoutesPanel
 									{selectedTrigger}
 									{isFlow}
@@ -90,11 +88,11 @@
 									on:update={({ detail }) => {
 										triggersTable?.fetchHttpTriggers()
 										if (detail) {
-											triggersTable?.deleteDraft(selectedTrigger)
+											triggersTable?.deleteDraft($selectedTrigger)
 										}
 									}}
 								/>
-							{:else if selectedTrigger.type === 'webhook'}
+							{:else if $selectedTrigger.type === 'webhook'}
 								<WebhooksPanel
 									{isFlow}
 									path={initialPath || fakeInitialPath}
@@ -104,7 +102,7 @@
 									scopes={isFlow ? [`run:flow/${currentPath}`] : [`run:script/${currentPath}`]}
 									{newItem}
 								/>
-							{:else if selectedTrigger.type === 'email'}
+							{:else if $selectedTrigger.type === 'email'}
 								<EmailTriggerPanel
 									token=""
 									scopes={isFlow ? [`run:flow/${currentPath}`] : [`run:script/${currentPath}`]}
@@ -114,7 +112,7 @@
 										config.emailDomain = detail
 									}}
 								/>
-							{:else if selectedTrigger.type === 'schedule' && selectedTrigger.isPrimary}
+							{:else if $selectedTrigger.type === 'schedule' && $selectedTrigger.isPrimary}
 								<PrimarySchedulePanel
 									{schema}
 									{isFlow}
@@ -124,30 +122,30 @@
 									on:update={({ detail }) => {
 										triggersTable?.fetchSchedules()
 										if (detail === 'save') {
-											triggersTable?.deleteDraft(selectedTrigger, true)
+											triggersTable?.deleteDraft($selectedTrigger, true)
 										}
 									}}
-									isNewSchedule={selectedTrigger.isDraft}
+									isNewSchedule={$selectedTrigger.isDraft}
 								/>
-							{:else if selectedTrigger.type === 'schedule'}
+							{:else if $selectedTrigger.type === 'schedule'}
 								<SchedulePanel
-									{selectedTrigger}
+									selectedTrigger={$selectedTrigger}
 									{isFlow}
 									path={initialPath}
 									on:update={({ detail }) => {
-										if (selectedTrigger?.isDraft && detail?.path) {
+										if ($selectedTrigger && $selectedTrigger.isDraft && detail?.path) {
 											triggersTable?.fetchSchedules()
-											selectedTrigger.isDraft = false
-											selectedTrigger.path = detail.path
+											$selectedTrigger.isDraft = false
+											$selectedTrigger.path = detail.path
 										}
 									}}
 								/>
-							{:else if selectedTrigger.isDraft}
-								<h3 class="text-sm font-medium">Configure new {selectedTrigger.type} trigger</h3>
+							{:else if $selectedTrigger.isDraft}
+								<h3 class="text-sm font-medium">Configure new {$selectedTrigger.type} trigger</h3>
 								<!-- New trigger configuration component would go here -->
 							{:else}
 								<h3 class="text-sm font-medium"
-									>Configure trigger: {selectedTrigger.path} ({selectedTrigger.type})</h3
+									>Configure trigger: {$selectedTrigger.path} ({$selectedTrigger.type})</h3
 								>
 								<!-- Existing trigger configuration component would go here -->
 							{/if}
@@ -155,9 +153,9 @@
 					{/if}
 				</div>
 			</Pane>
-			{#if selectedTrigger && selectedTrigger.type !== 'schedule'}
+			{#if $selectedTrigger && $selectedTrigger.type !== 'schedule'}
 				<Pane class="px-4">
-					{#if selectedTrigger && selectedTrigger?.type && captureKind}
+					{#if $selectedTrigger && $selectedTrigger?.type && captureKind}
 						{#if captureKind === 'webhook'}
 							<CaptureWrapper
 								path={initialPath || fakeInitialPath}
