@@ -432,7 +432,9 @@
 					/>
 				</div>
 			{:else}
-				<div class="text-center text-tertiary p-4 bg-surface rounded-md">No captures yet.</div>
+				<div class="text-center text-tertiary p-4 bg-surface rounded-md"
+					>No captures to show yet.</div
+				>
 			{/if}
 		</div>
 	</Pane>
