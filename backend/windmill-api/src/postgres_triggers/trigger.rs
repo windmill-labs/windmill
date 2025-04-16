@@ -12,6 +12,7 @@ use crate::{
         run_job,
     },
     resources::try_get_resource_from_db_as,
+    trigger_helpers::TriggerJobArgs,
     users::fetch_api_authed,
 };
 use windmill_queue::TriggerKind;
@@ -31,7 +32,6 @@ use sqlx::types::Json as SqlxJson;
 use windmill_common::{
     db::UserDB, error, utils::report_critical_error, worker::to_raw_value, INSTANCE_NAME,
 };
-use windmill_queue::PushArgsOwned;
 
 use super::{
     drop_logical_replication_slot_query, drop_publication_query, get_database_connection,
@@ -369,13 +369,8 @@ impl PostgresTrigger {
         .await
     }
 
-    async fn handle(
-        &self,
-        db: &DB,
-        args: Option<HashMap<String, Box<RawValue>>>,
-        extra: Option<HashMap<String, Box<RawValue>>>,
-    ) -> () {
-        if let Err(err) = run_job(args, extra, db, self).await {
+    async fn handle(&self, db: &DB, payload: HashMap<String, Box<RawValue>>) -> () {
+        if let Err(err) = run_job(payload, db, self).await {
             report_critical_error(
                 format!(
                     "Failed to trigger job from postgres {}: {:?}",
@@ -387,6 +382,20 @@ impl PostgresTrigger {
             )
             .await;
         };
+    }
+}
+
+impl TriggerJobArgs<HashMap<String, Box<RawValue>>> for PostgresTrigger {
+    fn v1_payload_fn(payload: HashMap<String, Box<RawValue>>) -> HashMap<String, Box<RawValue>> {
+        payload
+    }
+
+    fn v2_payload_fn(payload: HashMap<String, Box<RawValue>>) -> HashMap<String, Box<RawValue>> {
+        payload
+    }
+
+    fn trigger_kind() -> TriggerKind {
+        TriggerKind::Postgres
     }
 }
 
@@ -467,7 +476,6 @@ impl PostgresConfig {
 
         let client = PostgresSimpleClient::new(&database).await?;
 
-
         let publication = client
             .execute_query(&format!(
                 "SELECT pubname FROM pg_publication WHERE pubname = {}",
@@ -508,15 +516,10 @@ impl PostgresConfig {
         }
     }
 
-    async fn handle(
-        &self,
-        db: &DB,
-        args: Option<HashMap<String, Box<RawValue>>>,
-        extra: Option<HashMap<String, Box<RawValue>>>,
-    ) -> () {
+    async fn handle(&self, db: &DB, payload: HashMap<String, Box<RawValue>>) -> () {
         match self {
-            PostgresConfig::Trigger(trigger) => trigger.handle(&db, args, extra).await,
-            PostgresConfig::Capture(capture) => capture.handle(&db, args, extra).await,
+            PostgresConfig::Trigger(trigger) => trigger.handle(&db, payload).await,
+            PostgresConfig::Capture(capture) => capture.handle(&db, payload).await,
         }
     }
 
@@ -606,7 +609,7 @@ async fn listen_to_transactions(
                                         }
                                     };
 
-                                    
+
                                     let message = match message {
                                         Ok(message) => message,
                                         Err(err) => {
@@ -674,13 +677,9 @@ async fn listen_to_transactions(
                                                     ("transaction_type".to_string(), to_raw_value(&transaction_type)),
                                                     ("row".to_string(), to_raw_value(&body)),
                                                 ]);
-                                                let extra = Some(HashMap::from([(
-                                                    "wm_trigger".to_string(),
-                                                    to_raw_value(&serde_json::json!({"kind": "postgres", })),
-                                                )]));
 
 
-                                                let _ = pg.handle(&db, Some(database_info), extra).await;
+                                                let _ = pg.handle(&db, database_info).await;
                                             }
 
                                         }
@@ -877,22 +876,17 @@ impl CaptureConfigForPostgresTrigger {
         }
     }
 
-    async fn handle(
-        &self,
-        db: &DB,
-        args: Option<HashMap<String, Box<RawValue>>>,
-        extra: Option<HashMap<String, Box<RawValue>>>,
-    ) -> () {
-        let args = PushArgsOwned { args: args.unwrap_or_default(), extra: None };
-        let extra = extra.as_ref().map(to_raw_value);
+    async fn handle(&self, db: &DB, payload: HashMap<String, Box<RawValue>>) -> () {
+        let main_args = PostgresTrigger::build_job_args_v2(false, payload.clone(), HashMap::new());
+        let preprocessor_args = PostgresTrigger::build_job_args_v2(true, payload, HashMap::new());
         if let Err(err) = insert_capture_payload(
             db,
             &self.workspace_id,
             &self.path,
             self.is_flow,
             &TriggerKind::Postgres,
-            args,
-            extra,
+            main_args,
+            preprocessor_args,
             &self.owner,
         )
         .await

@@ -1943,7 +1943,7 @@ async fn handle_successful_schedule<'a, 'c, T: Serialize + Send + Sync>(
     Ok(())
 }
 
-#[derive(sqlx::Type, Serialize, Deserialize, Debug, Clone)]
+#[derive(sqlx::Type, Serialize, Deserialize, Debug, Clone, Eq, PartialEq, Hash)]
 #[sqlx(type_name = "TRIGGER_KIND", rename_all = "lowercase")]
 #[serde(rename_all = "lowercase")]
 pub enum TriggerKind {
@@ -1957,6 +1957,24 @@ pub enum TriggerKind {
     Sqs,
     Postgres,
     Gcp
+}
+
+
+impl TriggerKind {
+    pub fn to_key(&self) -> String {
+        match self {
+            TriggerKind::Webhook => "webhook".to_string(),
+            TriggerKind::Http => "http".to_string(),
+            TriggerKind::Websocket => "websocket".to_string(),
+            TriggerKind::Kafka => "kafka".to_string(),
+            TriggerKind::Email => "email".to_string(),
+            TriggerKind::Nats => "nats".to_string(),
+            TriggerKind::Mqtt => "mqtt".to_string(),
+            TriggerKind::Sqs => "sqs".to_string(),
+            TriggerKind::Postgres => "postgres".to_string(),
+            TriggerKind::Gcp => "gcp".to_string(),
+        }
+    }
 }
 
 #[derive(sqlx::Type, Serialize, Deserialize, Debug, Clone)]
@@ -3234,7 +3252,7 @@ pub async fn push<'c, 'd>(
     mut tx: PushIsolationLevel<'c>,
     workspace_id: &str,
     job_payload: JobPayload,
-    mut args: PushArgs<'d>,
+    args: PushArgs<'d>,
     user: &str,
     mut email: &str,
     mut permissioned_as: String,
@@ -3450,17 +3468,10 @@ pub async fn push<'c, 'd>(
             priority,
             apply_preprocessor,
         } => {
-            let extra = args.extra.get_or_insert_with(HashMap::new);
             if apply_preprocessor {
                 preprocessed = Some(false);
-                extra.entry("wm_trigger".to_string()).or_insert_with(|| {
-                    to_raw_value(&serde_json::json!({
-                        "kind": "webhook",
-                    }))
-                });
-            } else {
-                extra.remove("wm_trigger");
-            }
+            } 
+
             (
                 Some(hash.0),
                 Some(path),
@@ -3862,17 +3873,10 @@ pub async fn push<'c, 'd>(
             let concurrency_time_window_s = value.concurrency_time_window_s;
             let concurrent_limit = value.concurrent_limit;
 
-            let extra = args.extra.get_or_insert_with(HashMap::new);
             if !apply_preprocessor {
                 value.preprocessor_module = None;
-                extra.remove("wm_trigger");
             } else {
                 preprocessed = Some(false);
-                extra.entry("wm_trigger".to_string()).or_insert_with(|| {
-                    to_raw_value(&serde_json::json!({
-                        "kind": "webhook",
-                    }))
-                });
             }
 
             // this is a new flow being pushed, status is set to `value`.

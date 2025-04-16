@@ -7,6 +7,7 @@
  */
 
 use axum::body::Body;
+use axum::extract::Request;
 use axum::http::HeaderValue;
 use futures::TryFutureExt;
 use http::{HeaderMap, HeaderName};
@@ -35,10 +36,11 @@ use crate::add_webhook_allowed_origin;
 use crate::concurrency_groups::join_concurrency_key;
 use crate::db::ApiAuthed;
 
+use crate::trigger_helpers::RunnableId;
 use crate::users::get_scope_tags;
 use crate::utils::content_plain;
 use crate::{
-    args::{DecodeQueries, WebhookArgs},
+    args::{DecodeQueries, RawWebhookArgs},
     db::DB,
     users::{check_scopes, require_owner_of_path, OptAuthed},
     utils::require_super_admin,
@@ -53,7 +55,7 @@ use axum::{
 use base64::Engine;
 use chrono::Utc;
 use hmac::Mac;
-use hyper::{Request, StatusCode};
+use hyper::StatusCode;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use sql_builder::prelude::*;
 use sqlx::types::JsonRawValue;
@@ -3158,9 +3160,17 @@ pub async fn run_flow_by_path(
     Extension(user_db): Extension<UserDB>,
     Path((w_id, flow_path)): Path<(String, StripPath)>,
     Query(run_query): Query<RunJobQuery>,
-    args: WebhookArgs,
+    args: RawWebhookArgs,
 ) -> error::Result<(StatusCode, String)> {
-    let args = args.to_push_args_owned(&authed, &db, &w_id).await?;
+    let args = args
+        .to_args_from_runnable(
+            &authed,
+            &db,
+            &w_id,
+            RunnableId::from_flow_path(&flow_path.0),
+            run_query.skip_preprocessor,
+        )
+        .await?;
 
     run_flow_by_path_inner(authed, db, user_db, w_id, flow_path, run_query, args, None).await
 }
@@ -3357,20 +3367,19 @@ pub async fn run_script_by_path(
     Extension(user_db): Extension<UserDB>,
     Path((w_id, script_path)): Path<(String, StripPath)>,
     Query(run_query): Query<RunJobQuery>,
-    args: WebhookArgs,
+    args: RawWebhookArgs,
 ) -> error::Result<(StatusCode, String)> {
-    let args = args.to_push_args_owned(&authed, &db, &w_id).await?;
-    run_script_by_path_inner(
-        authed,
-        db,
-        user_db,
-        w_id,
-        script_path,
-        run_query,
-        args,
-        None,
-    )
-    .await
+    let args = args
+        .to_args_from_runnable(
+            &authed,
+            &db,
+            &w_id,
+            RunnableId::from_script_path(&script_path.0),
+            run_query.skip_preprocessor,
+        )
+        .await?;
+
+    run_script_by_path_inner(authed, db, user_db, w_id, script_path, run_query, args).await
 }
 
 pub async fn run_script_by_path_inner(
@@ -3381,7 +3390,6 @@ pub async fn run_script_by_path_inner(
     script_path: StripPath,
     run_query: RunJobQuery,
     args: PushArgsOwned,
-    label_prefix: Option<String>,
 ) -> error::Result<(StatusCode, String)> {
     #[cfg(feature = "enterprise")]
     check_license_key_valid().await?;
@@ -3422,9 +3430,7 @@ pub async fn run_script_by_path_inner(
         &w_id,
         job_payload,
         PushArgs { args: &args.args, extra: args.extra },
-        &label_prefix
-            .map(|x| x + authed.display_username())
-            .unwrap_or_else(|| authed.display_username().to_string()),
+        authed.display_username(),
         email,
         permissioned_as,
         scheduled_for,
@@ -4158,12 +4164,20 @@ pub async fn run_wait_result_script_by_path(
     Extension(db): Extension<DB>,
     Path((w_id, script_path)): Path<(String, StripPath)>,
     Query(run_query): Query<RunJobQuery>,
-    args: WebhookArgs,
+    args: RawWebhookArgs,
 ) -> error::Result<Response> {
     #[cfg(feature = "enterprise")]
     check_license_key_valid().await?;
 
-    let args = args.to_push_args_owned(&authed, &db, &w_id).await?;
+    let args = args
+        .to_args_from_runnable(
+            &authed,
+            &db,
+            &w_id,
+            RunnableId::from_script_path(&script_path.0),
+            run_query.skip_preprocessor,
+        )
+        .await?;
 
     run_wait_result_script_by_path_internal(
         db,
@@ -4258,12 +4272,20 @@ pub async fn run_wait_result_script_by_hash(
     Extension(db): Extension<DB>,
     Path((w_id, script_hash)): Path<(String, ScriptHash)>,
     Query(run_query): Query<RunJobQuery>,
-    args: WebhookArgs,
+    args: RawWebhookArgs,
 ) -> error::Result<Response> {
     #[cfg(feature = "enterprise")]
     check_license_key_valid().await?;
 
-    let args = args.to_push_args_owned(&authed, &db, &w_id).await?;
+    let args = args
+        .to_args_from_runnable(
+            &authed,
+            &db,
+            &w_id,
+            RunnableId::from_script_hash(script_hash),
+            run_query.skip_preprocessor,
+        )
+        .await?;
 
     check_queue_too_long(&db, run_query.queue_limit).await?;
 
@@ -4362,12 +4384,20 @@ pub async fn run_wait_result_flow_by_path(
     Extension(db): Extension<DB>,
     Path((w_id, flow_path)): Path<(String, StripPath)>,
     Query(run_query): Query<RunJobQuery>,
-    args: WebhookArgs,
+    args: RawWebhookArgs,
 ) -> error::Result<Response> {
     #[cfg(feature = "enterprise")]
     check_license_key_valid().await?;
 
-    let args = args.to_push_args_owned(&authed, &db, &w_id).await?;
+    let args = args
+        .to_args_from_runnable(
+            &authed,
+            &db,
+            &w_id,
+            RunnableId::from_flow_path(&flow_path.0),
+            run_query.skip_preprocessor,
+        )
+        .await?;
 
     run_wait_result_flow_by_path_internal(
         db, run_query, flow_path, authed, user_db, args, w_id, None,
@@ -5202,9 +5232,18 @@ pub async fn run_job_by_hash(
     Extension(user_db): Extension<UserDB>,
     Path((w_id, script_hash)): Path<(String, ScriptHash)>,
     Query(run_query): Query<RunJobQuery>,
-    args: WebhookArgs,
+    args: RawWebhookArgs,
 ) -> error::Result<(StatusCode, String)> {
-    let args = args.to_push_args_owned(&authed, &db, &w_id).await?;
+    let args = args
+        .to_args_from_runnable(
+            &authed,
+            &db,
+            &w_id,
+            RunnableId::from_script_hash(script_hash),
+            run_query.skip_preprocessor,
+        )
+        .await?;
+
     run_job_by_hash_inner(
         authed,
         db,
