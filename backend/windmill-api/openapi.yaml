@@ -14048,6 +14048,8 @@ components:
           type: string
         path:
           type: string
+        script_hash:
+          type: string
         args:
           $ref: "#/components/schemas/ScriptArgs"
         language:
