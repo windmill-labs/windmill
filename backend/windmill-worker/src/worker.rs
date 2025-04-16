@@ -2456,16 +2456,22 @@ async fn handle_code_execution_job(
                 _ => None,
             };
 
-            arc_data =
-                preview.ok_or_else(|| Error::internal_err("expected preview".to_string()))?;
-            metadata = ScriptMetadata {
-                language: job.script_lang,
-                codebase,
-                envs: None,
-                schema: None,
-                schema_validator: None,
-            };
-            (arc_data.as_ref(), &metadata)
+            if codebase.is_none() && job.runnable_id.is_some() {
+                (arc_data, arc_metadata) =
+                    cache::script::fetch(conn, job.runnable_id.unwrap()).await?;
+                (arc_data.as_ref(), arc_metadata.as_ref())
+            } else {
+                arc_data =
+                    preview.ok_or_else(|| Error::internal_err("expected preview".to_string()))?;
+                metadata = ScriptMetadata {
+                    language: job.script_lang,
+                    codebase,
+                    envs: None,
+                    schema: None,
+                    schema_validator: None,
+                };
+                (arc_data.as_ref(), &metadata)
+            }
         }
         JobKind::Script_Hub => {
             let ContentReqLangEnvs { content, lockfile, language, envs, codebase, schema } =
