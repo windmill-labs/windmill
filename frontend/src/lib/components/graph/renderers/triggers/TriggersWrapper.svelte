@@ -21,7 +21,7 @@
 
 <div style={`width: ${NODE.width}px;`}>
 	<button
-		style="background-color: {bgColor} !important;"
+		style="background-color: {bgColor};"
 		class="flex w-full flex-row gap-1 px-2 p-1 items-center {selected
 			? 'outline  outline-2  outline-gray-600 rounded-sm dark:bg-white/5 dark:outline-gray-400'
 			: ''}"

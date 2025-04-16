@@ -19,6 +19,7 @@
 	export let insertable: boolean
 	export let annotation: string | undefined = undefined
 	export let bgColor: string = ''
+	export let bgHoverColor: string = ''
 	export let moving: string | undefined = undefined
 	export let duration_ms: number | undefined = undefined
 
@@ -129,6 +130,7 @@
 					}}
 					{...itemProps}
 					{bgColor}
+					{bgHoverColor}
 					warningMessage={mod?.value?.type === 'forloopflow' &&
 					mod?.value?.iterator?.type === 'javascript' &&
 					mod?.value?.iterator?.expr === ''
@@ -153,6 +155,7 @@
 					id={mod.id}
 					label={mod.summary || 'Run one branch'}
 					{bgColor}
+					{bgHoverColor}
 				>
 					<div slot="icon">
 						<GitBranch size={16} />
@@ -170,6 +173,7 @@
 					{...itemProps}
 					label={mod.summary || `Run all branches${mod.value.parallel ? ' (parallel)' : ''}`}
 					{bgColor}
+					{bgHoverColor}
 				>
 					<div slot="icon">
 						<GitBranch size={16} />
@@ -192,6 +196,7 @@
 					{...itemProps}
 					modType={mod.value.type}
 					{bgColor}
+					{bgHoverColor}
 					label={mod.summary ||
 						(mod.id === 'preprocessor'
 							? 'Preprocessor'
