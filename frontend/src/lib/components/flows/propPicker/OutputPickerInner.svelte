@@ -57,6 +57,7 @@
 	export let disableMock: boolean = false
 	export let disableHistory: boolean = false
 	export let derivedHistoryOpen: boolean = false // derived from historyOpen
+	export let historyOffset = { mainAxis: 8, crossAxis: -4.5 }
 
 	type SelectedJob =
 		| Job
@@ -211,7 +212,7 @@
 </script>
 
 <div
-	class="w-full h-full flex flex-col"
+	class={twMerge('w-full h-full flex flex-col', $$props.class)}
 	bind:clientHeight
 	style={canEditWithDblClick ? 'cursor: text;' : ''}
 >
@@ -234,8 +235,9 @@
 					<Popover
 						bind:this={stepHistoryPopover}
 						floatingConfig={{
+							strategy: 'fixed',
 							placement: 'left-start',
-							offset: { mainAxis: 8, crossAxis: -4.5 },
+							offset: historyOffset,
 							gutter: 0 // hack to make offset effective, see https://github.com/melt-ui/melt-ui/issues/528
 						}}
 						contentClasses="w-[225px] overflow-hidden"
@@ -272,13 +274,27 @@
 											togglePreview('mock')
 											return
 										}
-										isLoading = true
-										const fullJob = await detail.getFullJob()
-										if (fullJob) {
-											selectJob(fullJob)
-											togglePreview('job')
+										if (detail.id === lastJob?.id && !mock?.enabled) {
+											togglePreview(undefined)
+											return
 										}
-										isLoading = false
+
+										// Create a timeout to show loading state after 200ms
+										const loadingTimeout = setTimeout(() => {
+											isLoading = true
+										}, 200)
+
+										try {
+											const fullJob = await detail.getFullJob()
+											if (fullJob) {
+												selectJob(fullJob)
+												togglePreview('job')
+											}
+										} finally {
+											// Clear the timeout if operation completed before 200ms
+											clearTimeout(loadingTimeout)
+											isLoading = false
+										}
 									}}
 									mockValue={mock?.return_value}
 									mockEnabled={mock?.enabled}
@@ -540,20 +556,20 @@
 					<Module.default
 						bind:error
 						small
-					on:changeValue={({ detail }) => {
-						if (mock?.enabled) {
-							const newMock = {
-								enabled: true,
-								return_value: structuredClone(detail)
+						on:changeValue={({ detail }) => {
+							if (mock?.enabled) {
+								const newMock = {
+									enabled: true,
+									return_value: structuredClone(detail)
+								}
+								tmpMock = newMock
 							}
-							tmpMock = newMock
-						}
-					}}
-					code={JSON.stringify(
-						mock?.enabled && mock.return_value ? mock.return_value : '',
-						null,
-						2
-					)}
+						}}
+						code={JSON.stringify(
+							mock?.enabled && mock.return_value ? mock.return_value : '',
+							null,
+							2
+						)}
 						class="h-full"
 					/>
 				{/await}
