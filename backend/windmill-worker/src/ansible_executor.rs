@@ -145,7 +145,9 @@ async fn clone_repo(
         return Err(anyhow!("Error getting git repo commit hash: {stderr}").into());
     }
 
-    let commit_hash = String::from_utf8(commit_hash_output.stdout)?.trim().to_string();
+    let commit_hash = String::from_utf8(commit_hash_output.stdout)?
+        .trim()
+        .to_string();
 
     Ok(commit_hash)
 }
@@ -675,7 +677,7 @@ pub async fn handle_ansible_job(
             append_logs(
                 &job.id,
                 &job.workspace_id,
-                format!("\nCloning {}...", &repo.url),
+                format!("\nCloning {}...\n", &repo.url),
                 conn,
             )
             .await;
@@ -698,6 +700,15 @@ pub async fn handle_ansible_job(
                 .await
                 .map_err(|e| anyhow!("Failed to clone git repo `{}`: {e}", repo.url))?;
             } else {
+                if req_lockfiles.is_some() {
+                    append_logs(
+                        &job.id,
+                        &job.workspace_id,
+                        format!("Warning: `{}` is using latest commit because the lockfile didn't store a commit hash for this repo. Updates to the repo could break the deployed playbook.\n", &repo.url),
+                        conn,
+                    )
+                    .await;
+                }
                 clone_repo(
                     repo,
                     job_dir,
@@ -716,7 +727,7 @@ pub async fn handle_ansible_job(
             append_logs(
                 &job.id,
                 &job.workspace_id,
-                format!("\nCloned {} into {}", &repo.url, &repo.target_path),
+                format!("Cloned {} into {}\n", &repo.url, &repo.target_path),
                 conn,
             )
             .await;
