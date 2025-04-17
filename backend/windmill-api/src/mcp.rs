@@ -236,7 +236,10 @@ impl ServerHandler for Runner {
             .map(|script| {
                 // if summary exist and is not empty, use it
                 let name = match script.summary {
-                    Some(summary) if !summary.is_empty() => summary,
+                    Some(summary) if !summary.is_empty() => {
+                        let parts: Vec<&str> = summary.split_whitespace().collect();
+                        parts.join("_")
+                    }
                     _ => {
                         // Determine the name based on whether the path is duplicated
                         let calculated_name = if last_path == Some(script.path.clone()) {
@@ -253,7 +256,6 @@ impl ServerHandler for Runner {
                         // Update last_path *after* determining the name
                         last_path = Some(script.path.clone());
                         // Return the calculated name
-                        tracing::info!("Calculated name: {}", calculated_name);
                         calculated_name
                     }
                 };
