@@ -30,10 +30,9 @@ use windmill_common::{
 };
 
 use super::{
-    create_logical_replication_slot_query, create_publication_query,
-    drop_logical_replication_slot_query, drop_publication_query, generate_random_string,
-    get_database_connection, get_raw_postgres_connection, ERROR_PUBLICATION_NAME_NOT_EXISTS,
-    ERROR_REPLICATION_SLOT_NOT_EXISTS,
+    create_logical_replication_slot_query, create_publication_query, drop_publication_query,
+    generate_random_string, get_database_connection, get_raw_postgres_connection,
+    ERROR_PUBLICATION_NAME_NOT_EXISTS, ERROR_REPLICATION_SLOT_NOT_EXISTS,
 };
 use lazy_static::lazy_static;
 
@@ -396,7 +395,7 @@ pub async fn create_postgres_trigger(
                 "Missing replication slot name".to_string(),
             ));
         }
-        (publication_name.unwrap(), replication_slot_name.unwrap(), )
+        (publication_name.unwrap(), replication_slot_name.unwrap())
     };
 
     let mut tx = user_db.begin(&authed).await?;
