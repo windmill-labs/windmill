@@ -19,7 +19,7 @@
 		dbTableOpsFactory: (params: { colDefs: ColumnDef[]; tableKey: string }) => IDbTableOps
 		dbTableActionsFactory?: DbTableActionFactory[]
 		refresh?: () => void
-		dbTableEditorPropsFactory?: (params: { selectedSchemaKey: string }) => DBTableEditorProps
+		dbTableEditorPropsFactory?: (params: { selectedSchemaKey?: string }) => DBTableEditorProps
 	}
 	let {
 		dbSchema,
@@ -76,7 +76,7 @@
 	let dbTableEditorState: { open: boolean } = $state({ open: false })
 
 	let dbTableEditorProps = $derived(
-		selected.schemaKey && dbTableEditorPropsFactory?.({ selectedSchemaKey: selected.schemaKey })
+		dbTableEditorPropsFactory?.({ selectedSchemaKey: selected.schemaKey })
 	)
 </script>
 
@@ -147,15 +147,13 @@
 				</button>
 			{/each}
 		</div>
-		{#if dbTableEditorProps}
-			<Button
-				color="light"
-				on:click={() => (dbTableEditorState = { open: true })}
-				wrapperClasses="mx-2 my-1"
-			>
-				New table
-			</Button>
-		{/if}
+		<Button
+			color="light"
+			on:click={() => (dbTableEditorState = { open: true })}
+			wrapperClasses="mx-2 my-1"
+		>
+			New table
+		</Button>
 	</Pane>
 	<Pane class="p-3 pt-1">
 		{#key tableKey}

@@ -161,10 +161,12 @@
 												</span>
 												<input type="text" placeholder="NULL" bind:value={column.defaultValue} />
 											</label>
-											<label class="flex gap-2 items-center text-xs">
-												<input type="checkbox" class="!w-4 !h-4" bind:checked={column.not_null} />
-												Not nullable
-											</label>
+											{#if !column.primaryKey}
+												<label class="flex gap-2 items-center text-xs">
+													<input type="checkbox" class="!w-4 !h-4" bind:checked={column.not_null} />
+													Not nullable
+												</label>
+											{/if}
 										{/snippet}
 									</Popover>
 									<Button
