@@ -164,12 +164,54 @@ export function toStatic(
 	return { app: newApp, summary }
 }
 
+// function hasCycle(path, obj, seen = new Set()) {
+// 	if (obj && typeof obj === 'object') {
+// 		if (seen.has(obj)) {
+// 			console.log('cycle detected', path)
+// 			return true // cycle detected
+// 		}
+// 		seen.add(obj)
+// 		for (const key in obj) {
+// 			if (hasCycle(path + '.' + key, obj[key], seen)) {
+// 				return true
+// 			}
+// 		}
+// 		seen.delete(obj) // backtrack for other branches
+// 	}
+// 	return false
+// }
+
+export function deepCloneWithFunctions(obj) {
+	if (obj === null || typeof obj !== 'object') return obj
+	if (typeof obj === 'function') return obj
+
+	if (Array.isArray(obj)) {
+		return obj.map(deepCloneWithFunctions)
+	}
+
+	const cloned = {}
+	for (const key in obj) {
+		cloned[key] = deepCloneWithFunctions(obj[key])
+	}
+	return cloned
+}
+
 export function buildExtraLib(
 	components: Record<string, Record<string, Output<any>>>,
 	idToExclude: string,
 	state: Record<string, any>,
 	goto: boolean
 ): string {
+	// console.log(
+	// 	Object.entries(components).map(([k, v]) => [
+	// 		k,
+	// 		Object.values(v).map((x) => x.peak()),
+	// 		hasCycle(
+	// 			k,
+	// 			Object.values(v).map((x) => x.peak())
+	// 		)
+	// 	])
+	// )
 	const cs = Object.entries(components)
 		.filter(([k, v]) => k != idToExclude && k != 'state')
 		.map(([k, v]) => [k, Object.fromEntries(Object.entries(v).map(([k, v]) => [k, v.peak()]))])
