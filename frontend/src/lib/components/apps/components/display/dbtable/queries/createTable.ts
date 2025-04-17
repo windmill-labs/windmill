@@ -51,6 +51,7 @@ function formatDefaultValue(str: string, datatype: string, resourceType: DbType)
 }
 
 export function datatypeDefaultLength(datatype: string): number {
+	datatype = datatype.toLowerCase()
 	if (datatype == 'bit') return 1
 	if (['varchar', 'char', 'nvarchar', 'nchar', 'varbinary', 'binary'].includes(datatype)) {
 		return 255
