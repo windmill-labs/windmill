@@ -3,7 +3,7 @@
 	import NodeWrapper from './NodeWrapper.svelte'
 	import { X } from 'lucide-svelte'
 	import type { GraphModuleState } from '../../model'
-	import { getStateColor } from '../../util'
+	import { getStateColor, getStateHoverColor } from '../../util'
 	import type { FlowModule } from '$lib/gen'
 	import type { GraphEventHandlers } from '../../graphBuilder'
 	import { computeBorderStatus } from '../utils'
@@ -26,7 +26,6 @@
 		'branchone',
 		data.flowModuleStates?.[data.id]
 	)
-	
 </script>
 
 <NodeWrapper let:darkMode offset={data.offset}>
@@ -36,9 +35,10 @@
 		selectable
 		selected={data.selected}
 		bgColor={getStateColor(undefined, darkMode)}
+		bgHoverColor={getStateHoverColor(undefined, darkMode)}
 		borderColor={borderStatus ? getStateColor(borderStatus, darkMode) : undefined}
 		on:select={() => {
-			data.eventHandlers.select(data.id)
+			setTimeout(() => data?.eventHandlers?.select(data.id))
 		}}
 	/>
 	{#if data.insertable}
