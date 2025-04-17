@@ -63,11 +63,16 @@
 		return schema
 	}
 
-	$: inlineScript &&
-		(inlineScript.path = `${defaultIfEmptyString(
-			$appPath,
-			`u/${$userStore?.username ?? 'unknown'}/newapp`
-		)}/${name?.replaceAll(' ', '_')}`)
+	$: name && onNameChange()
+
+	function onNameChange() {
+		if (inlineScript) {
+			inlineScript.path = `${defaultIfEmptyString(
+				$appPath,
+				`u/${$userStore?.username ?? 'unknown'}/newapp`
+			)}/${name?.replaceAll(' ', '_')}`
+		}
+	}
 
 	onMount(async () => {
 		if (inlineScript && !inlineScript.schema) {
@@ -84,6 +89,9 @@
 		}
 		if (inlineScript?.language == 'frontend' && inlineScript.content) {
 			inferSuggestions(inlineScript.content)
+		}
+		if (!inlineScript?.path) {
+			onNameChange()
 		}
 	})
 

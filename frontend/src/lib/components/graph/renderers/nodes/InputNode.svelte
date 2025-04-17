@@ -3,7 +3,7 @@
 	import NodeWrapper from './NodeWrapper.svelte'
 	import type { GraphEventHandlers } from '../../graphBuilder'
 	import type { FlowModule } from '$lib/gen'
-	import { getStateColor } from '../../util'
+	import { getStateColor, getStateHoverColor } from '../../util'
 	import { getContext } from 'svelte'
 	import type { Writable } from 'svelte/store'
 	import InsertModuleButton from '$lib/components/flows/map/InsertModuleButton.svelte'
@@ -73,11 +73,12 @@
 		selectable
 		selected={$selectedId === 'Input'}
 		bgColor={getStateColor(undefined, darkMode)}
+		bgHoverColor={getStateHoverColor(undefined, darkMode)}
 		on:insert={(e) => {
-			data.eventHandlers?.insert(e.detail)
+			setTimeout(() => data?.eventHandlers?.insert(e.detail))
 		}}
 		on:select={(e) => {
-			data.eventHandlers?.select(e.detail)
+			setTimeout(() => data?.eventHandlers?.select(e.detail))
 		}}
 		inputJson={topFlowInput}
 		prefix="flow_input"

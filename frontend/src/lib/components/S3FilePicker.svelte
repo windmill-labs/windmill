@@ -799,7 +799,7 @@
 		deleteFileFromS3(fileMetadata?.fileKey)
 	}}
 	keyListen={false}
-	bind:loading={fileDeletionInProgress}
+	loading={fileDeletionInProgress}
 >
 	<div class="flex flex-col w-full space-y-4">
 		<span
@@ -819,7 +819,7 @@
 		moveS3File(fileMetadata?.fileKey, moveDestKey)
 	}}
 	keyListen={false}
-	bind:loading={fileMoveInProgress}
+	loading={fileMoveInProgress}
 >
 	<div class="flex flex-col space-y-4">
 		<div class="flex items-center justify-between">

@@ -15,6 +15,7 @@
 	import ToggleButtonGroup from '../common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '../common/toggleButton-v2/ToggleButton.svelte'
 	import { MqttIcon, NatsIcon, KafkaIcon, AwsIcon } from '../icons'
+	import GoogleCloudIcon from '../icons/GoogleCloudIcon.svelte'
 
 	export let triggerSelected:
 		| 'webhooks'
@@ -28,17 +29,19 @@
 		| 'nats'
 		| 'sqs'
 		| 'mqtt'
+		| 'gcp'
 		| 'scheduledPoll' = 'webhooks'
 	export let simplfiedPoll: boolean = false
 
-	export let eventStreamType: 'kafka' | 'nats' | 'sqs' | 'mqtt' = 'kafka'
+	export let eventStreamType: 'kafka' | 'nats' | 'sqs' | 'mqtt' | 'gcp' = 'kafka'
 
 	$: {
 		if (
 			triggerSelected === 'kafka' ||
 			triggerSelected === 'nats' ||
 			triggerSelected === 'sqs' ||
-			triggerSelected === 'mqtt'
+			triggerSelected === 'mqtt' ||
+			triggerSelected === 'gcp'
 		) {
 			eventStreamType = triggerSelected
 		}
@@ -80,7 +83,7 @@
 					Postgres
 				</span>
 			</Tab>
-			<Tab value="kafka" otherValues={['nats', 'sqs', 'mqtt']}>
+			<Tab value="kafka" otherValues={['nats', 'sqs', 'mqtt', 'gcp']}>
 				<span class="flex flex-row gap-2 items-center text-xs">
 					<PlugZap size={12} />
 					Event streams
@@ -113,13 +116,14 @@
 						<slot name="websockets" />
 					{:else if triggerSelected === 'postgres'}
 						<slot name="postgres" />
-					{:else if triggerSelected === 'kafka' || triggerSelected === 'nats' || triggerSelected === 'sqs' || triggerSelected === 'mqtt'}
+					{:else if triggerSelected === 'kafka' || triggerSelected === 'nats' || triggerSelected === 'sqs' || triggerSelected === 'mqtt' || triggerSelected === 'gcp'}
 						<div class="m-1.5">
 							<ToggleButtonGroup bind:selected={eventStreamType} let:item>
 								<ToggleButton value="kafka" label="Kafka" icon={KafkaIcon} {item} />
 								<ToggleButton value="nats" label="NATS" icon={NatsIcon} {item} />
 								<ToggleButton value="mqtt" label="MQTT" icon={MqttIcon} {item} />
 								<ToggleButton value="sqs" label="SQS" icon={AwsIcon} {item} />
+								<ToggleButton value="gcp" label="GCP Pub/Sub" icon={GoogleCloudIcon} {item} />
 							</ToggleButtonGroup>
 						</div>
 						{#if eventStreamType === 'kafka'}
@@ -130,6 +134,8 @@
 							<slot name="sqs" />
 						{:else if eventStreamType === 'mqtt'}
 							<slot name="mqtt" />
+						{:else if eventStreamType === 'gcp'}
+							<slot name="gcp" />
 						{/if}
 					{:else if triggerSelected === 'cli'}
 						<slot name="cli" />

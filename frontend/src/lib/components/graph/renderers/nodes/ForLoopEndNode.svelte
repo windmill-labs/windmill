@@ -26,7 +26,7 @@
 			bgColor={getStateColor(undefined, darkMode)}
 			borderColor={getStateColor(data.flowModuleStates?.[data.id]?.type, darkMode)}
 			on:select={(e) => {
-				data?.eventHandlers?.select(e.detail)
+				setTimeout(() => data?.eventHandlers?.select(e.detail))
 			}}
 		/>
 	{:else}
@@ -38,7 +38,7 @@
 			bgColor={getStateColor(undefined, darkMode)}
 			borderColor={getStateColor(data.flowModuleStates?.[data.id]?.type, darkMode)}
 			on:select={(e) => {
-				data?.eventHandlers?.select(e.detail)
+				setTimeout(() => data?.eventHandlers?.select(e.detail))
 			}}
 		/>
 	{/if}

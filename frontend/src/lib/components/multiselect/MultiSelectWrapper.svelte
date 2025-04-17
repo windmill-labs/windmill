@@ -15,6 +15,7 @@
 	export let placeholder: string | undefined = undefined
 	export let target: string | HTMLElement | undefined = undefined
 	export let topPlacement = false
+	export let allowUserOptions: boolean | 'append' | undefined = undefined
 	const [floatingRef, floatingContent] = createFloatingActions({
 		strategy: 'absolute',
 		placement: topPlacement ? 'top-start' : 'bottom-start',
@@ -27,14 +28,13 @@
 	function moveOptionsToPortal() {
 		// Find ul element with class 'options' within the outerDiv
 		const ul = outerDiv?.querySelector('.options')
-
 		if (ul) {
 			// Move the ul element to the portal
 			portalRef?.appendChild(ul)
 		}
 	}
 
-	$: if (portalRef && outerDiv && items?.length > 0) {
+	$: if (portalRef && outerDiv && (allowUserOptions || items?.length > 0)) {
 		tick().then(() => {
 			moveOptionsToPortal()
 		})
@@ -53,6 +53,7 @@
 	{#if !value || Array.isArray(value)}
 		<div class="border rounded-md border-gray-300 shadow-sm dark:border-gray-600 !w-full">
 			<MultiSelect
+				{allowUserOptions}
 				outerDivClass={`!text-xs`}
 				ulSelectedClass="overflow-auto"
 				bind:outerDiv

@@ -11,6 +11,7 @@
 	import AwsIcon from '../icons/AwsIcon.svelte'
 	import DropdownV2 from '$lib/components/DropdownV2.svelte'
 	import MqttIcon from '../icons/MqttIcon.svelte'
+	import GoogleCloudIcon from '../icons/GoogleCloudIcon.svelte'
 
 	export let small = false
 
@@ -43,6 +44,12 @@
 			icon: AwsIcon,
 			displayName: 'SQS',
 			action: () => handleClick('sqs'),
+			disabled: !$enterpriseLicense
+		},
+		{
+			icon: GoogleCloudIcon,
+			displayName: 'GCP Pub/Sub',
+			action: () => handleClick('gcp'),
 			disabled: !$enterpriseLicense
 		},
 		{

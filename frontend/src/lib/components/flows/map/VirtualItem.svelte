@@ -13,6 +13,7 @@
 
 	export let label: string | undefined = undefined
 	export let bgColor: string = ''
+	export let bgHoverColor: string = ''
 	export let selected: boolean
 	export let selectable: boolean
 	export let id: string | undefined = undefined
@@ -36,6 +37,7 @@
 <VirtualItemWrapper
 	{label}
 	{bgColor}
+	{bgHoverColor}
 	{selected}
 	{selectable}
 	{id}
@@ -91,6 +93,8 @@
 					hideHeaderBar
 					simpleViewer={inputJson}
 					rightMargin
+					historyOffset={{ mainAxis: 12, crossAxis: -9 }}
+					class="p-1"
 				/>
 			</OutputPicker>
 		{/if}

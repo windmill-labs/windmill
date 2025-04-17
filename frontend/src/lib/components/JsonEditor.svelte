@@ -3,15 +3,18 @@
 
 	import SimpleEditor from '$lib/components/SimpleEditor.svelte'
 	import { createEventDispatcher } from 'svelte'
+	import { createDispatcherIfMounted } from '$lib/createDispatcherIfMounted'
 	export let code: string | undefined
 	export let value: any = undefined
 	export let error = ''
 	export let editor: SimpleEditor | undefined = undefined
 	export let small = false
+	export let loadAsync = false
 
 	$: tooBig = code && code?.length > 1000000
 
 	const dispatch = createEventDispatcher()
+	const dispatchIfMounted = createDispatcherIfMounted(dispatch)
 
 	function parseJson() {
 		try {
@@ -21,7 +24,7 @@
 				return
 			}
 			value = JSON.parse(code ?? '')
-			dispatch('changeValue', value)
+			dispatchIfMounted('changeValue', value)
 			error = ''
 		} catch (e) {
 			error = e.message
@@ -36,6 +39,7 @@
 	<div class="flex flex-col w-full">
 		<div class="border w-full">
 			<SimpleEditor
+				{loadAsync}
 				{small}
 				on:focus
 				on:blur

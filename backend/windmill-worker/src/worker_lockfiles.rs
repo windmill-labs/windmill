@@ -17,7 +17,7 @@ use windmill_common::jobs::JobPayload;
 use windmill_common::scripts::ScriptHash;
 #[cfg(feature = "python")]
 use windmill_common::worker::PythonAnnotations;
-use windmill_common::worker::{to_raw_value, to_raw_value_owned, write_file};
+use windmill_common::worker::{to_raw_value, to_raw_value_owned, write_file, Connection};
 
 use windmill_common::{
     apps::AppScriptId,
@@ -83,7 +83,7 @@ pub async fn update_script_dependency_map(
         )
         .await?;
         tx.commit().await?;
-        append_logs(job_id, w_id, logs, db).await;
+        append_logs(job_id, w_id, logs, &db.into()).await;
     }
     Ok(())
 }
@@ -226,7 +226,7 @@ pub async fn handle_dependency_job(
     mem_peak: &mut i32,
     canceled_by: &mut Option<CanceledBy>,
     job_dir: &str,
-    db: &sqlx::Pool<sqlx::Postgres>,
+    db: &DB,
     worker_name: &str,
     worker_dir: &str,
     base_internal_url: &str,
@@ -265,7 +265,7 @@ pub async fn handle_dependency_job(
     // - A saved script `hash` in the `script_hash` column.
     // - Preview raw lock and code in the `queue` or `job` table.
     let script_data = &match job.runnable_id {
-        Some(hash) => match cache::script::fetch(db, hash).await {
+        Some(hash) => match cache::script::fetch(&Connection::from(db.clone()), hash).await {
             Ok(d) => Cow::Owned(d.0),
             Err(e) => {
                 let logs2 = sqlx::query_scalar!(
@@ -1121,7 +1121,7 @@ async fn lock_modules<'c>(
                         Some(e.id.clone()),
                     )
                     .await?;
-                    append_logs(&job.id, &job.workspace_id, logs, db).await;
+                    append_logs(&job.id, &job.workspace_id, logs, &db.into()).await;
                 }
 
                 if language == ScriptLang::Bun || language == ScriptLang::Bunnative {
@@ -1513,7 +1513,7 @@ async fn lock_modules_app(
                             .await;
                             match new_lock {
                                 Ok(new_lock) => {
-                                    append_logs(&job.id, &job.workspace_id, logs, db).await;
+                                    append_logs(&job.id, &job.workspace_id, logs, &db.into()).await;
                                     let anns =
                                         windmill_common::worker::TypeScriptAnnotations::parse(
                                             &content,
@@ -1761,7 +1761,7 @@ async fn python_dep(
 
     let final_version = annotated_pyv_numeric
         .and_then(|pyv| PyVersion::from_numeric(pyv))
-        .unwrap_or(PyVersion::from_instance_version(job_id, w_id, db).await);
+        .unwrap_or(PyVersion::from_instance_version(job_id, w_id, &db.into()).await);
 
     let req: std::result::Result<String, Error> = uv_pip_compile(
         job_id,
@@ -1769,7 +1769,7 @@ async fn python_dep(
         mem_peak,
         canceled_by,
         job_dir,
-        db,
+        &db.into(),
         worker_name,
         w_id,
         occupancy_metrics,
@@ -1785,7 +1785,7 @@ async fn python_dep(
             w_id,
             mem_peak,
             canceled_by,
-            db,
+            &Connection::Sql(db.clone()),
             worker_name,
             job_dir,
             worker_dir,
@@ -1853,6 +1853,7 @@ async fn capture_dependency_job(
                         &mut annotated_pyv_numeric,
                     )
                     .await?
+                    .0
                     .join("\n")
                 };
 
@@ -1918,7 +1919,7 @@ async fn capture_dependency_job(
                 mem_peak,
                 canceled_by,
                 job_dir,
-                db,
+                &db.into(),
                 false,
                 false,
                 false,
@@ -1940,7 +1941,7 @@ async fn capture_dependency_job(
                 mem_peak,
                 canceled_by,
                 job_dir,
-                Some(db),
+                Some(&db.into()),
                 w_id,
                 worker_name,
                 base_internal_url,
@@ -1960,7 +1961,7 @@ async fn capture_dependency_job(
                 canceled_by,
                 job_id,
                 w_id,
-                Some(db),
+                Some(&db.into()),
                 token,
                 script_path,
                 job_dir,
@@ -1983,7 +1984,7 @@ async fn capture_dependency_job(
                     script_path,
                     job_id,
                     w_id,
-                    Some(db.clone()),
+                    Some(&db),
                     &job_dir,
                     base_internal_url,
                     worker_name,
@@ -2020,7 +2021,7 @@ async fn capture_dependency_job(
                     canceled_by,
                     job_id,
                     w_id,
-                    db,
+                    &Connection::Sql(db.clone()),
                     job_dir,
                     worker_name,
                     reqs,
@@ -2049,7 +2050,7 @@ async fn capture_dependency_job(
                 mem_peak,
                 canceled_by,
                 job_dir,
-                db,
+                &Connection::Sql(db.clone()),
                 worker_name,
                 w_id,
                 occupancy_metrics,
@@ -2072,7 +2073,7 @@ async fn capture_dependency_job(
                 mem_peak,
                 canceled_by,
                 job_dir,
-                db,
+                &Connection::Sql(db.clone()),
                 worker_name,
                 w_id,
                 occupancy_metrics,
@@ -2087,7 +2088,14 @@ async fn capture_dependency_job(
                 ));
             }
 
-            resolve(job_id, job_raw_code, job_dir, db, w_id).await
+            resolve(
+                job_id,
+                job_raw_code,
+                job_dir,
+                &Connection::Sql(db.clone()),
+                w_id,
+            )
+            .await
         }
         // for related places search: ADD_NEW_LANG
         _ => Ok("".to_owned()),
