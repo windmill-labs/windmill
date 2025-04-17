@@ -329,9 +329,13 @@ impl ServerHandler for Runner {
     }
 }
 
-pub fn setup_mcp_server(path: &str) -> anyhow::Result<(SseServer, Router)> {
+pub fn setup_mcp_server(
+    addr: SocketAddr,
+    port: u16,
+    path: &str,
+) -> anyhow::Result<(SseServer, Router)> {
     let config = SseServerConfig {
-        bind: BIND_ADDRESS.parse()?,
+        bind: addr,
         sse_path: "/sse".to_string(),
         post_path: "/message".to_string(),
         full_message_path: path.to_string(),

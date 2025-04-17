@@ -424,8 +424,17 @@ pub async fn run_server(
         }
     }
 
+    let listener = tokio::net::TcpListener::bind(addr)
+        .await
+        .context("binding main windmill server")?;
+    let port = listener.local_addr().map(|x| x.port()).unwrap_or(8000);
+    let ip = listener
+        .local_addr()
+        .map(|x| x.ip().to_string())
+        .unwrap_or("localhost".to_string());
+
     // Setup MCP server
-    let (mcp_sse_server, mcp_router) = setup_mcp_server("/api/w/:workspace_id/mcp")?;
+    let (mcp_sse_server, mcp_router) = setup_mcp_server(addr, port, "/api/w/:workspace_id/mcp")?;
     let mcp_main_ct = mcp_sse_server.config.ct.clone(); // Token to signal shutdown *to* MCP
     let mcp_service_ct = mcp_sse_server.with_service(McpRunner::new); // Token to wait for MCP *service* shutdown
 
@@ -635,14 +644,6 @@ pub async fn run_server(
                 .on_failure(MyOnFailure {}),
         )
     };
-    let listener = tokio::net::TcpListener::bind(addr)
-        .await
-        .context("binding main windmill server")?;
-    let port = listener.local_addr().map(|x| x.port()).unwrap_or(8000);
-    let ip = listener
-        .local_addr()
-        .map(|x| x.ip().to_string())
-        .unwrap_or("localhost".to_string());
 
     let server = axum::serve(listener, app.into_make_service());
 
