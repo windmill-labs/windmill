@@ -1,5 +1,6 @@
 use std::borrow::Cow;
 use std::collections::HashMap;
+use std::net::SocketAddr;
 use std::sync::Arc;
 
 use axum::body::to_bytes;
@@ -25,24 +26,8 @@ use crate::db::ApiAuthed;
 use crate::jobs::{run_wait_result_script_by_path_internal, RunJobQuery};
 use windmill_common::utils::StripPath;
 
-const BIND_ADDRESS: &str = "127.0.0.1:8008"; // This address is only used when running standalone
-
 #[derive(Clone)]
 pub struct Runner {}
-
-#[derive(Deserialize, Serialize, JsonSchema)]
-struct GetScriptSchemaByPathParams {
-    #[schemars(description = "The script path to get the schema for")]
-    path: String,
-}
-
-#[derive(Deserialize, Serialize, JsonSchema)]
-struct RunScriptParams {
-    #[schemars(description = "The script path to run")]
-    script: String,
-    #[schemars(description = "The script arguments")]
-    args: String,
-}
 
 #[derive(Serialize, FromRow)]
 struct ScriptInfo {
@@ -292,7 +277,6 @@ impl ServerHandler for Runner {
         _request: Option<PaginatedRequestParam>,
         _context: RequestContext<RoleServer>,
     ) -> Result<ListResourcesResult, Error> {
-        tracing::warn!("list_resources called but not implemented");
         Ok(ListResourcesResult { resources: vec![], next_cursor: None })
     }
 
@@ -329,11 +313,7 @@ impl ServerHandler for Runner {
     }
 }
 
-pub fn setup_mcp_server(
-    addr: SocketAddr,
-    port: u16,
-    path: &str,
-) -> anyhow::Result<(SseServer, Router)> {
+pub fn setup_mcp_server(addr: SocketAddr, path: &str) -> anyhow::Result<(SseServer, Router)> {
     let config = SseServerConfig {
         bind: addr,
         sse_path: "/sse".to_string(),
