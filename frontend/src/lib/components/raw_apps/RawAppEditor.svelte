@@ -158,7 +158,7 @@
 				title="UI builder"
 				src="http://localhost:4000/ui_builder/index.html?dark={darkMode}"
 				class="w-full h-full"
-			/> -->
+			></iframe> -->
 			<iframe
 				bind:this={iframe}
 				title="UI builder"
