@@ -3172,7 +3172,7 @@ pub async fn run_flow_by_path(
         )
         .await?;
 
-    run_flow_by_path_inner(authed, db, user_db, w_id, flow_path, run_query, args, None).await
+    run_flow_by_path_inner(authed, db, user_db, w_id, flow_path, run_query, args).await
 }
 
 pub async fn run_flow_by_path_inner(
@@ -3183,7 +3183,6 @@ pub async fn run_flow_by_path_inner(
     flow_path: StripPath,
     run_query: RunJobQuery,
     args: PushArgsOwned,
-    label_prefix: Option<String>,
 ) -> error::Result<(StatusCode, String)> {
     #[cfg(feature = "enterprise")]
     check_license_key_valid().await?;
@@ -3243,9 +3242,7 @@ pub async fn run_flow_by_path_inner(
                 && has_preprocessor.unwrap_or(false),
         },
         PushArgs { args: &args.args, extra: args.extra },
-        &label_prefix
-            .map(|x| x + authed.display_username())
-            .unwrap_or_else(|| authed.display_username().to_string()),
+        authed.display_username(),
         email,
         permissioned_as,
         scheduled_for,
@@ -4152,10 +4149,8 @@ pub async fn run_wait_result_flow_by_path_get(
 
     let args = PushArgsOwned { extra: Some(payload_args), args: HashMap::new() };
 
-    run_wait_result_flow_by_path_internal(
-        db, run_query, flow_path, authed, user_db, args, w_id, None,
-    )
-    .await
+    run_wait_result_flow_by_path_internal(db, run_query, flow_path, authed, user_db, args, w_id)
+        .await
 }
 
 pub async fn run_wait_result_script_by_path(
@@ -4179,17 +4174,8 @@ pub async fn run_wait_result_script_by_path(
         )
         .await?;
 
-    run_wait_result_script_by_path_internal(
-        db,
-        run_query,
-        script_path,
-        authed,
-        user_db,
-        w_id,
-        args,
-        None,
-    )
-    .await
+    run_wait_result_script_by_path_internal(db, run_query, script_path, authed, user_db, w_id, args)
+        .await
 }
 
 pub async fn run_wait_result_script_by_path_internal(
@@ -4200,7 +4186,6 @@ pub async fn run_wait_result_script_by_path_internal(
     user_db: UserDB,
     w_id: String,
     args: PushArgsOwned,
-    label_prefix: Option<String>,
 ) -> error::Result<Response> {
     check_queue_too_long(&db, QUEUE_LIMIT_WAIT_RESULT.or(run_query.queue_limit)).await?;
     let script_path = script_path.to_path();
@@ -4236,9 +4221,7 @@ pub async fn run_wait_result_script_by_path_internal(
         &w_id,
         job_payload,
         PushArgs { args: &args.args, extra: args.extra },
-        &label_prefix
-            .map(|x| x + authed.display_username())
-            .unwrap_or_else(|| authed.display_username().to_string()),
+        authed.display_username(),
         email,
         permissioned_as,
         None,
@@ -4399,10 +4382,8 @@ pub async fn run_wait_result_flow_by_path(
         )
         .await?;
 
-    run_wait_result_flow_by_path_internal(
-        db, run_query, flow_path, authed, user_db, args, w_id, None,
-    )
-    .await
+    run_wait_result_flow_by_path_internal(db, run_query, flow_path, authed, user_db, args, w_id)
+        .await
 }
 
 pub async fn run_wait_result_flow_by_path_internal(
@@ -4413,7 +4394,6 @@ pub async fn run_wait_result_flow_by_path_internal(
     user_db: UserDB,
     args: PushArgsOwned,
     w_id: String,
-    label_prefix: Option<String>,
 ) -> error::Result<Response> {
     check_queue_too_long(&db, run_query.queue_limit).await?;
 
@@ -4472,9 +4452,7 @@ pub async fn run_wait_result_flow_by_path_internal(
                 && has_preprocessor.unwrap_or(false),
         },
         PushArgs { args: &args.args, extra: args.extra },
-        &label_prefix
-            .map(|x| x + authed.display_username())
-            .unwrap_or_else(|| authed.display_username().to_string()),
+        authed.display_username(),
         email,
         permissioned_as,
         scheduled_for,
@@ -5244,17 +5222,7 @@ pub async fn run_job_by_hash(
         )
         .await?;
 
-    run_job_by_hash_inner(
-        authed,
-        db,
-        user_db,
-        w_id,
-        script_hash,
-        run_query,
-        args,
-        None,
-    )
-    .await
+    run_job_by_hash_inner(authed, db, user_db, w_id, script_hash, run_query, args).await
 }
 
 pub async fn run_job_by_hash_inner(
@@ -5265,7 +5233,6 @@ pub async fn run_job_by_hash_inner(
     script_hash: ScriptHash,
     run_query: RunJobQuery,
     args: PushArgsOwned,
-    label_prefix: Option<String>,
 ) -> error::Result<(StatusCode, String)> {
     #[cfg(feature = "enterprise")]
     check_license_key_valid().await?;
@@ -5332,9 +5299,7 @@ pub async fn run_job_by_hash_inner(
                 && has_preprocessor.unwrap_or(false),
         },
         PushArgs { args: &args.args, extra: args.extra },
-        &label_prefix
-            .map(|x| x + authed.display_username())
-            .unwrap_or_else(|| authed.display_username().to_string()),
+        authed.display_username(),
         email,
         permissioned_as,
         scheduled_for,

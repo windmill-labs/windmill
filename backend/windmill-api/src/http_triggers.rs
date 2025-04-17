@@ -1099,7 +1099,6 @@ async fn route_job(
                 StripPath(trigger.script_path.to_owned()),
                 run_query,
                 args,
-                None,
             )
             .await
             .into_response()
@@ -1112,7 +1111,6 @@ async fn route_job(
                 user_db,
                 args,
                 trigger.workspace_id.clone(),
-                None,
             )
             .await
             .into_response()
@@ -1139,7 +1137,6 @@ async fn route_job(
                 user_db,
                 trigger.workspace_id.clone(),
                 args,
-                None,
             )
             .await
             .into_response()

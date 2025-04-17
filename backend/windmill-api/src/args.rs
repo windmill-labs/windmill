@@ -18,6 +18,7 @@ use crate::{
     trigger_helpers::{get_runnable_format, RunnableFormat, RunnableFormatVersion, RunnableId},
 };
 
+#[derive(Debug)]
 pub enum RawBody {
     Json(String),
     CEJson(String),
@@ -156,6 +157,7 @@ impl RawWebhookArgs {
         force_use_raw: Option<bool>,
     ) -> Result<WebhookArgs, Error> {
         let use_raw = force_use_raw.unwrap_or(self.metadata.query_use_raw);
+
         match self.body {
             RawBody::Multipart(multipart) => {
                 let body = Self::process_multipart(multipart, authed, db, w_id).await?;
@@ -242,12 +244,12 @@ impl WebhookArgs {
         skip_preprocessor: Option<bool>,
     ) -> Result<PushArgsOwned, Error> {
         if skip_preprocessor.unwrap_or(false) {
+            self.to_main_args()
+        } else {
             let runnable_format =
                 get_runnable_format(runnable_id, w_id, db, &TriggerKind::Webhook).await?;
 
             self.to_args_from_format(runnable_format)
-        } else {
-            self.to_main_args()
         }
     }
 
@@ -383,7 +385,7 @@ where
         } else {
             let str = String::from_utf8(bytes.to_vec())
                 .map_err(|e| Error::BadRequest(format!("invalid utf8: {}", e)).into_response())?;
-            Ok(RawWebhookArgs { body: RawBody::Text(str), metadata })
+            Ok(RawWebhookArgs { body: RawBody::Json(str), metadata })
         }
     } else if content_type
         .unwrap()
@@ -436,7 +438,7 @@ where
     type Rejection = Response;
 
     async fn from_request(request: Request, _state: &S) -> Result<Self, Self::Rejection> {
-        let args = try_from_request_body(request, _state, true).await?;
+        let args = try_from_request_body(request, _state, false).await?;
 
         Ok(args)
     }

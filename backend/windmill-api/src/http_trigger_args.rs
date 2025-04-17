@@ -50,7 +50,7 @@ where
     type Rejection = Response;
 
     async fn from_request(request: Request, _state: &S) -> Result<Self, Self::Rejection> {
-        let args = try_from_request_body(request, _state, false).await?;
+        let args = try_from_request_body(request, _state, true).await?;
 
         Ok(Self(args))
     }

@@ -477,8 +477,8 @@ struct Capture {
     id: i64,
     created_at: chrono::DateTime<chrono::Utc>,
     trigger_kind: TriggerKind,
-    payload: SqlxJson<Box<serde_json::value::RawValue>>,
-    trigger_extra: Option<SqlxJson<Box<serde_json::value::RawValue>>>,
+    main_args: SqlxJson<Box<serde_json::value::RawValue>>,
+    preprocessor_args: Option<SqlxJson<Box<serde_json::value::RawValue>>>,
 }
 
 #[derive(Deserialize)]
@@ -506,10 +506,13 @@ async fn list_captures(
             created_at, 
             trigger_kind AS "trigger_kind: _",
             CASE 
-                WHEN pg_column_size(payload) < 40000 THEN payload 
+                WHEN pg_column_size(main_args) < 40000 THEN main_args 
                 ELSE '"WINDMILL_TOO_BIG"'::jsonb 
-            END AS "payload!: _",
-            trigger_extra AS "trigger_extra: _"
+            END AS "main_args!: _",
+            CASE
+                WHEN pg_column_size(preprocessor_args) < 40000 THEN preprocessor_args
+                ELSE '"WINDMILL_TOO_BIG"'::jsonb
+            END AS "preprocessor_args: _"
         FROM 
             capture
         WHERE 
@@ -551,8 +554,8 @@ async fn get_capture(
             id, 
             created_at, 
             trigger_kind AS "trigger_kind: _", 
-            payload AS "payload!: _", 
-            trigger_extra AS "trigger_extra: _"
+            main_args AS "main_args!: _", 
+            preprocessor_args AS "preprocessor_args: _"
         FROM 
             capture
         WHERE 
@@ -809,7 +812,7 @@ pub async fn insert_capture_payload(
         r#"
     INSERT INTO 
         capture (
-            workspace_id, path, is_flow, trigger_kind, payload, trigger_extra, created_by
+            workspace_id, path, is_flow, trigger_kind, main_args, preprocessor_args, created_by
         )
     VALUES (
         $1, $2, $3, $4, $5, $6, $7

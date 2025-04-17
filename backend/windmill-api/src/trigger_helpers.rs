@@ -16,7 +16,7 @@ lazy_static::lazy_static! {
 }
 
 const RUNNABLE_FORMAT_VERSION_CACHE_EXPIRATION: std::time::Duration =
-    std::time::Duration::from_secs(60);
+    std::time::Duration::from_secs(5);
 
 #[derive(Debug, Clone, Eq, PartialEq, Hash)]
 pub struct ExpiringRunnableFormat {

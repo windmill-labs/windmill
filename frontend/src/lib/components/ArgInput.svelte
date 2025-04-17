@@ -126,15 +126,18 @@
 			oneOf.length >= 2 &&
 			(!oneOfSelected || !oneOf.some((o) => o.title === oneOfSelected) || !value)
 		) {
-			if (value && value['label'] && oneOf.some((o) => o.title === value['label'])) {
+			const tagKey = oneOf.find((o) => Object.keys(o.properties ?? {}).includes('kind'))
+				? 'kind'
+				: 'label'
+			if (value && value[tagKey] && oneOf.some((o) => o.title === value[tagKey])) {
 				const existingValue = JSON.parse(JSON.stringify(value))
-				oneOfSelected = value['label']
+				oneOfSelected = value[tagKey]
 				await tick()
 				value = existingValue
 			} else {
-				const label = oneOf[0]['title']
-				oneOfSelected = label
-				value = { ...(typeof value === 'object' ? (value ?? {}) : {}), label }
+				const variantTitle = oneOf[0]['title']
+				oneOfSelected = variantTitle
+				value = { ...(typeof value === 'object' ? (value ?? {}) : {}), [tagKey]: variantTitle }
 			}
 		}
 	}
@@ -145,8 +148,11 @@
 
 	function onOneOfChange() {
 		const label = value?.['label']
+		const kind = value?.['kind']
 		if (label && oneOf && oneOf.some((o) => o.title == label) && oneOfSelected != label) {
 			oneOfSelected = label
+		} else if (kind && oneOf && oneOf.some((o) => o.title == kind) && oneOfSelected != kind) {
+			oneOfSelected = kind
 		}
 	}
 
@@ -817,7 +823,10 @@
 								for (const key of prevValueKeys) {
 									toKeep[key] = value[key]
 								}
-								value = { ...toKeep, label: detail }
+								const tagKey = oneOf.find((o) => Object.keys(o.properties ?? {}).includes('kind'))
+									? 'kind'
+									: 'label'
+								value = { ...toKeep, [tagKey]: detail }
 							}}
 							let:item
 						>
@@ -846,7 +855,7 @@
 												}}
 												bind:args={value}
 												dndType={`nested-${title}`}
-												schemaSkippedValues={['label']}
+												schemaSkippedValues={['label', 'kind']}
 												on:reorder={(e) => {
 													if (oneOf && oneOf[objIdx]) {
 														const keys = e.detail
@@ -865,7 +874,7 @@
 												{onlyMaskPassword}
 												{disablePortal}
 												{disabled}
-												schemaSkippedValues={['label']}
+												schemaSkippedValues={['label', 'kind']}
 												schema={{
 													properties: obj.properties,
 													order: obj.order,

@@ -118,7 +118,6 @@ async fn run_job(
             StripPath(trigger.script_path.to_owned()),
             run_query,
             args,
-            None,
         )
         .await?;
     } else {

@@ -609,7 +609,6 @@ async fn wait_runnable_result(
             StripPath(path.clone()),
             RunJobQuery::default(),
             args,
-            None,
         )
         .await?;
 
@@ -1394,7 +1393,6 @@ async fn run_job(
                 runnable_path,
                 run_query,
                 args,
-                None,
             )
             .await?;
         } else {
