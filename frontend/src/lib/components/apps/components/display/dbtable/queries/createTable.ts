@@ -20,10 +20,10 @@ export function makeCreateTableQuery(
 	schema?: string
 ) {
 	function transformColumn(c: CreateTableValuesColumn): string {
-		const defValue = c.defaultValue && formatDefaultValue(c.defaultValue, c.datatype, resourceType)
+		const datatype = c.datatype_length ? `${c.datatype}(${c.datatype_length})` : c.datatype
+		const defValue = c.defaultValue && formatDefaultValue(c.defaultValue, datatype, resourceType)
 
-		let str = `  ${c.name} ${c.datatype}`
-		if (c.datatype_length) str += ` (${c.datatype_length})`
+		let str = `  ${c.name} ${datatype}`
 		if (c.not_null) str += ' NOT NULL'
 		if (defValue) str += ` DEFAULT ${defValue}`
 		if (c.primaryKey) str += ' PRIMARY KEY'
@@ -42,12 +42,10 @@ function formatDefaultValue(str: string, datatype: string, resourceType: DbType)
 	if (str.startsWith('{') && str.endsWith('}')) {
 		return str.slice(1, str.length - 1)
 	}
-	switch (resourceType) {
-		case 'postgresql':
-			return `'${str}'::${datatype}`
-		default:
-			throw 'TODO: Unimplemented db type (formatDefaultValue()) !'
+	if (resourceType === 'postgresql') {
+		return `CAST('${str}' AS ${datatype})`
 	}
+	return `'${str}'`
 }
 
 export function datatypeDefaultLength(datatype: string): number {
