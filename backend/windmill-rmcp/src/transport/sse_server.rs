@@ -38,6 +38,7 @@ struct App {
     txs: TxStore,
     transport_tx: tokio::sync::mpsc::UnboundedSender<SseServerTransport>,
     post_path: Arc<str>,
+    full_message_path: Arc<str>,
     sse_ping_interval: Duration,
     ct: CancellationToken,
 }
@@ -45,6 +46,7 @@ struct App {
 impl App {
     pub fn new(
         post_path: String,
+        full_message_path: String,
         sse_ping_interval: Duration,
         ct: CancellationToken,
     ) -> (
@@ -57,6 +59,7 @@ impl App {
                 txs: Default::default(),
                 transport_tx,
                 post_path: post_path.into(),
+                full_message_path: full_message_path.into(),
                 sse_ping_interval,
                 ct,
             },
@@ -142,8 +145,10 @@ async fn sse_handler(
         return Err(response);
     }
     let ping_interval = app.sse_ping_interval;
-    let relative_post_path = app.post_path.trim_start_matches('/'); // Ensure no leading slash, e.g., "message"
-    let full_endpoint_path = format!("/api/w/{}/mcp/{}", workspace_id, relative_post_path);
+    let post_path = app.post_path.clone();
+    let full_endpoint_path = app
+        .full_message_path
+        .replace(":workspace_id", &workspace_id);
     let server_ct = app.ct.clone();
 
     // Clone variables needed for the cleanup task *before* they are moved by async_stream
@@ -155,7 +160,7 @@ async fn sse_handler(
     let client_stream = async_stream::stream! {
         yield Ok(Event::default()
                 .event("endpoint")
-                .data(format!("{full_endpoint_path}?sessionId={session}")));
+                .data(format!("{full_endpoint_path}{post_path}?sessionId={session}")));
 
         loop {
             tokio::select! {
@@ -293,6 +298,7 @@ pub struct SseServerConfig {
     pub post_path: String,
     pub ct: CancellationToken,
     pub sse_keep_alive: Option<Duration>,
+    pub full_message_path: String,
 }
 
 #[derive(Debug)]
@@ -309,6 +315,7 @@ impl SseServer {
             post_path: "/message".to_string(),
             ct: CancellationToken::new(),
             sse_keep_alive: None,
+            full_message_path: "/message".to_string(),
         })
         .await
     }
@@ -336,6 +343,7 @@ impl SseServer {
     pub fn new(config: SseServerConfig) -> (SseServer, Router) {
         let (app, transport_rx) = App::new(
             config.post_path.clone(),
+            config.full_message_path.clone(),
             config.sse_keep_alive.unwrap_or(DEFAULT_AUTO_PING_INTERVAL),
             config.ct.clone(),
         );

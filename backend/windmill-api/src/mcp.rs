@@ -284,11 +284,12 @@ impl ServerHandler for Runner {
     }
 }
 
-pub fn setup_mcp_server() -> anyhow::Result<(SseServer, Router)> {
+pub fn setup_mcp_server(path: &str) -> anyhow::Result<(SseServer, Router)> {
     let config = SseServerConfig {
         bind: BIND_ADDRESS.parse()?,
         sse_path: "/sse".to_string(),
         post_path: "/message".to_string(),
+        full_message_path: path.to_string(),
         ct: CancellationToken::new(),
         sse_keep_alive: None,
     };

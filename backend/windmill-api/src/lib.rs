@@ -425,7 +425,7 @@ pub async fn run_server(
     }
 
     // Setup MCP server
-    let (mcp_sse_server, mcp_router) = setup_mcp_server()?;
+    let (mcp_sse_server, mcp_router) = setup_mcp_server("/api/w/:workspace_id/mcp")?;
     let mcp_main_ct = mcp_sse_server.config.ct.clone(); // Token to signal shutdown *to* MCP
     let mcp_service_ct = mcp_sse_server.with_service(McpRunner::new); // Token to wait for MCP *service* shutdown
 
