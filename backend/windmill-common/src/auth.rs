@@ -353,18 +353,30 @@ pub mod aws {
         }
     }
 
+    #[derive(Debug, Serialize, Deserialize, sqlx::Type)]
+    #[sqlx(type_name = "AWS_AUTH_RESOURCE_TYPE", rename_all = "lowercase")]
+    #[serde(rename_all = "lowercase")]
+    pub enum AwsAuthResourceType {
+        Credentials,
+        Oidc,
+    }
+
     #[derive(Debug, Deserialize)]
     pub struct CredentialsAuth {
         #[serde(deserialize_with = "empty_string_as_none")]
         pub region: Option<String>,
-        pub access_key_id: String,
-        pub secret_access_key: String,
+        #[serde(rename = "awsAccessKeyId")]
+        pub aws_access_key_id: String,
+        #[serde(rename = "awsSecretAccessKey")]
+        pub aws_secret_access_key: String,
     }
 
     #[derive(Clone, Debug, Deserialize)]
+    #[serde(rename_all = "snake_case")]
     pub struct OidcAuth {
         #[serde(deserialize_with = "empty_string_as_none")]
         pub region: Option<String>,
+        #[serde(rename = "roleArn")]
         pub role_arn: String,
     }
 
