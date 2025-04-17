@@ -440,8 +440,7 @@ where
                 Ok(tokened)
             } else {
                 BRUTE_FORCE_COUNTER.increment().await;
-                // Err((StatusCode::UNAUTHORIZED, "Unauthorized".to_owned()))
-                Ok(Self { token: "1234567890".to_string() })
+                Err((StatusCode::UNAUTHORIZED, "Unauthorized".to_owned()))
             }
         }
     }

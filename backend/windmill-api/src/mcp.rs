@@ -14,8 +14,8 @@ use rmcp::{
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use sql_builder::prelude::*;
 use sqlx::FromRow;
-use sqlx::Row;
 use tokio_util::sync::CancellationToken;
 use windmill_common::db::UserDB;
 use windmill_common::worker::to_raw_value;
@@ -67,45 +67,30 @@ impl Runner {
         authed: &ApiAuthed,
         workspace_id: String,
     ) -> Result<Vec<ScriptInfo>, Error> {
-        let mut tx = user_db.clone().begin(authed).await.map_err(|e| {
-            Error::internal_error(format!("Failed to begin transaction: {}", e), None)
-        })?;
-
-        // Skip the sqlx::query_as! macro to avoid conversion issues
-        // Use sqlx::query directly and convert manually
-        let rows = sqlx::query(
-            "SELECT path, summary, description, schema FROM script WHERE workspace_id = $1 AND archived = false ORDER BY created_at DESC LIMIT 100"
-        )
-        .bind(workspace_id)
-        .fetch_all(&mut *tx)
-        .await
-        .map_err(|e| Error::internal_error(format!("Failed to fetch scripts: {}", e), None))?;
-
-        let mut scripts = Vec::with_capacity(rows.len());
-        for row in rows {
-            let path: String = row
-                .try_get("path")
-                .map_err(|e| Error::internal_error(format!("Failed to get path: {}", e), None))?;
-            let summary: Option<String> = row.try_get("summary").map_err(|e| {
-                Error::internal_error(format!("Failed to get summary: {}", e), None)
-            })?;
-            let description: Option<String> = row.try_get("description").map_err(|e| {
-                Error::internal_error(format!("Failed to get description: {}", e), None)
-            })?;
-            let schema_json: Option<Value> = row
-                .try_get("schema")
-                .map_err(|e| Error::internal_error(format!("Failed to get schema: {}", e), None))?;
-
-            let schema = schema_json;
-
-            scripts.push(ScriptInfo { path, summary, description, schema });
-        }
-
-        tx.commit().await.map_err(|e| {
-            Error::internal_error(format!("Failed to commit transaction: {}", e), None)
-        })?;
-
-        Ok(scripts)
+        let workspace_condition = "workspace_id = ?".bind(&workspace_id);
+        let sqlb = SqlBuilder::select_from("script")
+            .fields(&["path", "summary", "description", "schema"])
+            .and_where(workspace_condition)
+            .and_where("archived = false")
+            .order_by("created_at", false)
+            .limit(100)
+            .clone();
+        let sql = sqlb
+            .sql()
+            .map_err(|_e| Error::internal_error("failed to build sql", None))?;
+        let mut tx = user_db
+            .clone()
+            .begin(authed)
+            .await
+            .map_err(|_e| Error::internal_error("failed to begin transaction", None))?;
+        let rows = sqlx::query_as::<_, ScriptInfo>(&sql)
+            .fetch_all(&mut *tx)
+            .await
+            .map_err(|_e| Error::internal_error("failed to fetch scripts", None))?;
+        tx.commit()
+            .await
+            .map_err(|_e| Error::internal_error("failed to commit transaction", None))?;
+        Ok(rows)
     }
 }
 
@@ -299,10 +284,6 @@ impl ServerHandler for Runner {
         _context: RequestContext<RoleServer>,
     ) -> Result<InitializeResult, Error> {
         tracing::info!("initialize called");
-        tracing::info!(
-            "Context extensions in initialize: {:?}",
-            _context.extensions.get::<String>()
-        );
         Ok(self.get_info())
     }
 
