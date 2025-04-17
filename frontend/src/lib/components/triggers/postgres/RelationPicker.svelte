@@ -13,7 +13,7 @@
 
 	export let relations: Relations[] | undefined = undefined
 	export let can_write: boolean = true
-
+	let selected: 'all' | 'specific' = relations && relations.length > 0 ? 'specific' : 'all'
 	let cached: Relations[] | undefined = relations
 
 	function addTable(name: string, index: number) {
@@ -49,7 +49,7 @@
 						]
 					}
 				}}
-				selected={relations ? 'specific' : 'all'}
+				bind:selected
 				let:item
 			>
 				<ToggleButton value="all" label="All Tables" {item} />
@@ -235,7 +235,8 @@
 				</div>
 			{/each}
 		</div>
-	{:else if relations}
+	{/if}
+	{#if selected === 'specific'}
 		<div class="grow min-w-0 pr-10">
 			<AddPropertyFormV2
 				customName="Schema"

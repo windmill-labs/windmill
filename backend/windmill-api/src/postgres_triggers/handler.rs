@@ -395,7 +395,7 @@ pub async fn create_postgres_trigger(
                 "Missing replication slot name".to_string(),
             ));
         }
-        (publication_name.unwrap(), replication_slot_name.unwrap(), )
+        (publication_name.unwrap(), replication_slot_name.unwrap())
     };
 
     let mut tx = user_db.begin(&authed).await?;

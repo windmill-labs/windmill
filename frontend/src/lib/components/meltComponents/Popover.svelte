@@ -115,7 +115,8 @@
 	}}
 	on:pointerdown_outside={() => {
 		if (usePointerDownOutside) {
-			close()
+			if (fullScreen) fullScreen = false
+			else close()
 		}
 	}}
 	data-popover
