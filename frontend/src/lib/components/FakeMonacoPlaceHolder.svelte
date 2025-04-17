@@ -7,6 +7,7 @@
 		lineNumbersWidth?: number
 		lineNumbersOffset?: number
 		class?: string
+		fontSize?: number
 	}
 
 	let {
@@ -14,13 +15,14 @@
 		autoheight = false,
 		lineNumbersWidth = 51,
 		lineNumbersOffset = 0,
-		class: className
+		class: className = '',
+		fontSize = 14
 	}: Props = $props()
 
 	let lines = $derived(code?.split('\n') ?? [])
 
 	const charWidth = 9 // try to match as closely as possible to monaco editor
-	const lineHeight = 21
+	const lineHeight = fontSize * 1.5
 	let [clientWidth, clientHeight] = $state([0, 0])
 	let showHorizontalScrollbar = $derived(
 		lines.some((line) => line.length * charWidth > clientWidth - 40)
@@ -55,7 +57,7 @@
 					class="margin-view-overlays"
 					role="presentation"
 					aria-hidden="true"
-					style="position: absolute; font-family: Menlo, Monaco, 'Courier New', monospace; font-weight: normal; font-size: 14px; font-feature-settings: 'liga' 0, 'calt' 0; font-variation-settings: normal; line-height: {lineHeight}px; letter-spacing: 0px; width: {lineNumbersWidth}px; height: 4893px;"
+					style="position: absolute; font-family: Menlo, Monaco, 'Courier New', monospace; font-weight: normal; font-size: {fontSize}px; font-feature-settings: 'liga' 0, 'calt' 0; font-variation-settings: normal; line-height: {lineHeight}px; letter-spacing: 0px; width: {lineNumbersWidth}px; height: 4893px;"
 				>
 					{#each lines as _, i}
 						<div style="top:{lineHeight * i}px;height:{lineHeight}px;">
@@ -74,7 +76,7 @@
 				>
 					<div
 						class="view-lines monaco-mouse-cursor-text text-tertiary/60"
-						style="line-height: {lineHeight}px; position: absolute; font-family: Menlo, Monaco, 'Courier New', monospace; font-weight: normal; font-size: 14px; font-feature-settings: 'liga' 0, 'calt' 0; font-variation-settings: normal; line-height: {lineHeight}px; letter-spacing: 0px; width: 1143px; height: 789px;"
+						style="line-height: {lineHeight}px; position: absolute; font-family: Menlo, Monaco, 'Courier New', monospace; font-weight: normal; font-size: {fontSize}px; font-feature-settings: 'liga' 0, 'calt' 0; font-variation-settings: normal; line-height: {lineHeight}px; letter-spacing: 0px; width: 1143px; height: 789px;"
 					>
 						{#each lines as line, i}
 							<div

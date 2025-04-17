@@ -282,6 +282,8 @@
 		}
 	})
 
+	let fontSize = $derived(small ? 12 : 14)
+
 	async function loadMonaco() {
 		await initializeVscode()
 		initialized = true
@@ -330,7 +332,7 @@
 			model,
 			lineDecorationsWidth: 6,
 			lineNumbersMinChars: 2,
-			fontSize: small ? 12 : 14,
+			fontSize: fontSize,
 			quickSuggestions: disableSuggestions
 				? { other: false, comments: false, strings: false }
 				: { other: true, comments: true, strings: true },
@@ -565,7 +567,13 @@
 {/if}
 
 {#if !editor}
-	<FakeMonacoPlaceHolder {code} autoheight lineNumbersWidth={23} lineNumbersOffset={-8} />
+	<FakeMonacoPlaceHolder
+		{code}
+		autoheight
+		lineNumbersWidth={(23 * fontSize) / 14}
+		lineNumbersOffset={fontSize == 14 ? -8 : -11}
+		{fontSize}
+	/>
 {/if}
 
 <div
