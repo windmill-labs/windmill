@@ -1379,7 +1379,7 @@
 	onMount(async () => {
 		if (BROWSER) {
 			if (loadAsync) {
-				// setTimeout(() => loadMonaco().then((x) => (disposeMethod = x)), 0)
+				setTimeout(() => loadMonaco().then((x) => (disposeMethod = x)), 0)
 			} else {
 				let m = await loadMonaco()
 				disposeMethod = m
