@@ -353,7 +353,7 @@ pub mod aws {
         }
     }
 
-    #[derive(Debug, Serialize, Deserialize, sqlx::Type)]
+    #[derive(Debug, Clone, Serialize, Deserialize, sqlx::Type)]
     #[sqlx(type_name = "AWS_AUTH_RESOURCE_TYPE", rename_all = "lowercase")]
     #[serde(rename_all = "lowercase")]
     pub enum AwsAuthResourceType {
