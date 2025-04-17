@@ -124,11 +124,13 @@ export async function main(
   transaction_type: "insert" | "update" | "delete",
   schema_name: string,
   table_name: string,
-  row: {}
+  row: {},
+  old_row?: {}
 ) {{
 }}
     "#,
-            struct_definition
+            &struct_definition,
+            &struct_definition
         )
     }
 }
