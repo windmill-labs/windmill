@@ -94,7 +94,7 @@
 			data.eventHandlers.newBranch(data.module)
 		}}
 		on:select={(e) => {
-			data.eventHandlers.select(e.detail)
+			setTimeout(() => data.eventHandlers.select(e.detail))
 		}}
 		on:selectedIteration={(e) => {
 			data.eventHandlers.selectedIteration(e.detail, data.module.id)
