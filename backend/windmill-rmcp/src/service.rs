@@ -15,8 +15,6 @@ use crate::{
 use axum::http::Extensions as AxumExtensions;
 
 pub trait ProvidesConnectionToken {
-    // Returns the token associated with the initial connection, if any.
-    fn get_connection_token(&self) -> Arc<String>;
     fn get_extensions(&self) -> &AxumExtensions;
     fn get_workspace_id(&self) -> String;
 }
@@ -468,7 +466,6 @@ pub struct RequestContext<R: ServiceRole> {
     pub extensions: Extensions,
     /// An interface to fetch the remote client or server
     pub peer: Peer<R>,
-    pub user_token: Arc<String>,
     pub req_extensions: AxumExtensions,
     pub workspace_id: String,
 }
@@ -502,7 +499,6 @@ where
     E: std::error::Error + Send + Sync + 'static,
 {
     let (peer, peer_rx) = Peer::new(Arc::new(AtomicU32RequestIdProvider::default()), peer_info);
-    let user_token = transport.get_connection_token();
     let req_extensions = transport.get_extensions().clone();
     let workspace_id = transport.get_workspace_id();
     serve_inner(
@@ -511,7 +507,6 @@ where
         peer,
         peer_rx,
         ct,
-        user_token,
         req_extensions,
         workspace_id,
     )
@@ -525,7 +520,6 @@ async fn serve_inner<R, S, T, E, A>(
     peer: Peer<R>,
     mut peer_rx: tokio::sync::mpsc::Receiver<PeerSinkMessage<R>>,
     ct: CancellationToken,
-    user_token: Arc<String>,
     req_extensions: AxumExtensions,
     workspace_id: String,
 ) -> Result<RunningService<R, S>, E>
@@ -675,7 +669,6 @@ where
                             peer: peer.clone(),
                             meta: request.get_meta().clone(),
                             extensions: request.extensions().clone(),
-                            user_token: user_token.clone(),
                             req_extensions: req_extensions.clone(),
                             workspace_id: workspace_id.clone(),
                         };

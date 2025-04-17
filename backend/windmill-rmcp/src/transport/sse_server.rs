@@ -11,7 +11,6 @@ use axum::{
     routing::{get, post},
 };
 use futures::{Sink, SinkExt, Stream};
-use serde::Deserialize;
 use tokio_stream::wrappers::ReceiverStream;
 use tokio_util::sync::{CancellationToken, PollSender};
 use tracing::Instrument;
@@ -27,11 +26,6 @@ type TxStore =
 pub type TransportReceiver = ReceiverStream<RxJsonRpcMessage<RoleServer>>;
 
 const DEFAULT_AUTO_PING_INTERVAL: Duration = Duration::from_secs(15);
-
-#[derive(Deserialize)]
-struct TokenParams {
-    token: Option<String>,
-}
 
 #[derive(Clone)]
 struct App {
@@ -102,13 +96,10 @@ async fn post_event_handler(
 #[axum::debug_handler]
 async fn sse_handler(
     State(app): State<App>,
-    Query(params): Query<TokenParams>,
     Path(path_params): Path<HashMap<String, String>>,
     request: Request,
 ) -> Result<Sse<impl Stream<Item = Result<Event, io::Error>>>, Response<String>> {
     let session = session_id();
-    let user_token = params.token.unwrap_or_else(|| "".to_string());
-    let token = Arc::new(user_token);
     tracing::info!(%session, "sse connection");
     use tokio_stream::{StreamExt, wrappers::ReceiverStream};
     use tokio_util::sync::PollSender;
@@ -132,7 +123,6 @@ async fn sse_handler(
         sink,
         session_id: session.clone(),
         tx_store: app.txs.clone(),
-        user_token: token.clone(),
         req_extensions: request.extensions().clone(),
         workspace_id: workspace_id.clone(),
     };
@@ -210,17 +200,12 @@ pub struct SseServerTransport {
     sink: PollSender<TxJsonRpcMessage<RoleServer>>,
     session_id: SessionId,
     tx_store: TxStore,
-    pub user_token: Arc<String>,
-    pub req_extensions: Extensions,
-    pub workspace_id: String,
+    req_extensions: Extensions,
+    workspace_id: String,
 }
 
 // --- Add this trait ---
 impl crate::service::ProvidesConnectionToken for SseServerTransport {
-    fn get_connection_token(&self) -> Arc<String> {
-        self.user_token.clone()
-    }
-
     fn get_extensions(&self) -> &Extensions {
         &self.req_extensions
     }

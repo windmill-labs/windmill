@@ -132,7 +132,6 @@ where
     T: IntoTransport<RoleServer, E, A> + ProvidesConnectionToken,
     E: std::error::Error + From<std::io::Error> + Send + Sync + 'static,
 {
-    let user_token = transport.get_connection_token();
     let req_extensions = transport.get_extensions().clone();
     let workspace_id = transport.get_workspace_id();
     let (sink, stream) = transport.into_transport();
@@ -165,7 +164,6 @@ where
         meta: request.get_meta().clone(),
         extensions: request.extensions().clone(),
         peer: peer.clone(),
-        user_token: user_token.clone(),
         req_extensions: req_extensions.clone(),
         workspace_id: workspace_id.clone(),
     };
@@ -219,7 +217,6 @@ where
         peer,
         peer_rx,
         ct,
-        user_token,
         req_extensions,
         workspace_id,
     )
