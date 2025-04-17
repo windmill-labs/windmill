@@ -2,7 +2,7 @@
 	import VirtualItem from '$lib/components/flows/map/VirtualItem.svelte'
 	import NodeWrapper from './NodeWrapper.svelte'
 	import type { FlowModule, FlowStatusModule } from '$lib/gen'
-	import { getStateColor } from '../../util'
+	import { getStateColor, getStateHoverColor } from '../../util'
 	import type { GraphModuleState } from '../../model'
 	import type { GraphEventHandlers } from '../../graphBuilder'
 	import { getContext } from 'svelte'
@@ -79,6 +79,7 @@
 		id={data.id}
 		hideId
 		bgColor={getStateColor(undefined, darkMode)}
+		bgHoverColor={getStateHoverColor(undefined, darkMode)}
 		borderColor={getStateColor(computeStatus(data.flowModuleStates?.[data.id]), darkMode)}
 		on:select={(e) => {
 			setTimeout(() => data?.eventHandlers?.select(e.detail))

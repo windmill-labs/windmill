@@ -9,6 +9,7 @@
 	export let id: string | undefined
 	export let onTop: boolean = false
 	export let bgColor: string
+	export let bgHoverColor: string = ''
 
 	const dispatch = createEventDispatcher<{
 		insert: {
@@ -33,7 +34,9 @@
 		onTop ? 'z-[901]' : '',
 		'outline-offset-1 outline-gray-600 dark:outline-gray-400'
 	)}
-	style="width: 275px; max-height: 38px; background-color: {bgColor};"
+	style="width: 275px; max-height: 38px; background-color: {hover && bgHoverColor
+		? bgHoverColor
+		: bgColor};"
 	on:pointerdown={() => {
 		if (selectable) {
 			dispatch('select', id || label || '')

@@ -57,7 +57,7 @@ export function getStateHoverColor(
 			if (nonVirtualItem) {
 				return isDark ? '#343B46' : '#f6f6f6'
 			} else {
-				return isDark ? '#343B46' : '#f6f6f6'
+				return isDark ? '#343B46' : '#d5dee8'
 			}
 	}
 }
