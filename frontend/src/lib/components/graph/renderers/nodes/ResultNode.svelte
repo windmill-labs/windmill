@@ -3,7 +3,7 @@
 	import NodeWrapper from './NodeWrapper.svelte'
 	import type { FlowModule } from '$lib/gen'
 	import type { GraphEventHandlers } from '../../graphBuilder'
-	import { getStateColor } from '../../util'
+	import { getStateColor, getStateHoverColor } from '../../util'
 	import type { Writable } from 'svelte/store'
 	import { getContext } from 'svelte'
 
@@ -29,8 +29,12 @@
 			data.success == undefined ? undefined : data.success ? 'Success' : 'Failure',
 			darkMode
 		)}
+		bgHoverColor={getStateHoverColor(
+			data.success == undefined ? undefined : data.success ? 'Success' : 'Failure',
+			darkMode
+		)}
 		on:select={(e) => {
-			data?.eventHandlers?.select(e.detail)
+			setTimeout(() => data?.eventHandlers?.select(e.detail))
 		}}
 	/>
 </NodeWrapper>

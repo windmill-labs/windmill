@@ -23,12 +23,11 @@
 	}>()
 </script>
 
-<Popover disablePopup={contextElement.type === 'code' && deletable}>
+<Popover>
 	<svelte:fragment slot="trigger">
 		<div
 			class={twMerge(
-				'border rounded-md px-1 py-0.5 flex flex-row items-center gap-1 text-tertiary text-xs cursor-default hover:bg-surface-hover',
-				contextElement.type === 'code' && deletable ? '' : 'hover:cursor-pointer'
+				'border rounded-md px-1 py-0.5 flex flex-row items-center gap-1 text-tertiary text-xs cursor-default hover:bg-surface-hover hover:cursor-pointer'
 			)}
 			on:mouseenter={() => (showDelete = true)}
 			on:mouseleave={() => (showDelete = false)}
