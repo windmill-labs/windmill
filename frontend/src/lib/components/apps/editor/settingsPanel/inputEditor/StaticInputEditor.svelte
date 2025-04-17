@@ -233,7 +233,7 @@
 					placeholder="Label"
 				/>
 			{:else}
-				<div class="flex w-full flex-col leading-[16px]">
+				<div class="flex w-full flex-col">
 					<JsonEditor
 						loadAsync
 						small

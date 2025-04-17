@@ -71,7 +71,7 @@
 			offset={zIndexes.monacoEditor}
 		>
 			<Splitpanes horizontal class="h-full">
-				<Pane size={50} class="leading-[16px]">
+				<Pane size={50}>
 					<SimpleEditor
 						loadAsync
 						class="h-full w-full"
@@ -103,7 +103,7 @@
 			</Splitpanes>
 		</Drawer>
 	{/if}
-	<div class="border relative leading-[16px]">
+	<div class="border relative">
 		{#if !fullscreen}
 			<SimpleEditor
 				loadAsync

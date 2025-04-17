@@ -494,7 +494,7 @@
 			<!-- {inputCat}
 			{propertyType} -->
 			<div class="relative flex flex-row items-top gap-2 justify-between">
-				<div class="min-w-0 grow leading-[20px]">
+				<div class="min-w-0 grow">
 					{#if isStaticTemplate(inputCat) && propertyType == 'static' && !noDynamicToggle}
 						{#if argName && schema?.properties?.[argName]?.description}
 							<div class="text-xs italic pb-1 text-secondary">
