@@ -239,6 +239,7 @@ pub async fn get_runnable_format(
     Ok(runnable_format)
 }
 
+#[allow(dead_code)]
 pub trait TriggerJobArgs<T: Clone> {
     fn v1_payload_fn(payload: T) -> HashMap<String, Box<RawValue>>;
     fn v2_payload_fn(payload: T) -> HashMap<String, Box<RawValue>> {
