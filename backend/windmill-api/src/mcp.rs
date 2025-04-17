@@ -48,6 +48,7 @@ struct RunScriptParams {
 struct ScriptInfo {
     path: String,
     summary: Option<String>,
+    description: Option<String>,
     schema: Option<Value>,
 }
 
@@ -73,7 +74,7 @@ impl Runner {
         // Skip the sqlx::query_as! macro to avoid conversion issues
         // Use sqlx::query directly and convert manually
         let rows = sqlx::query(
-            "SELECT path, summary, schema FROM script WHERE workspace_id = $1 AND archived = false ORDER BY created_at DESC LIMIT 100"
+            "SELECT path, summary, description, schema FROM script WHERE workspace_id = $1 AND archived = false ORDER BY created_at DESC LIMIT 100"
         )
         .bind(workspace_id)
         .fetch_all(&mut *tx)
@@ -88,13 +89,16 @@ impl Runner {
             let summary: Option<String> = row.try_get("summary").map_err(|e| {
                 Error::internal_error(format!("Failed to get summary: {}", e), None)
             })?;
+            let description: Option<String> = row.try_get("description").map_err(|e| {
+                Error::internal_error(format!("Failed to get description: {}", e), None)
+            })?;
             let schema_json: Option<Value> = row
                 .try_get("schema")
                 .map_err(|e| Error::internal_error(format!("Failed to get schema: {}", e), None))?;
 
             let schema = schema_json;
 
-            scripts.push(ScriptInfo { path, summary, schema });
+            scripts.push(ScriptInfo { path, summary, description, schema });
         }
 
         tx.commit().await.map_err(|e| {
@@ -125,8 +129,40 @@ impl ServerHandler for Runner {
         let authed = context.req_extensions.get::<ApiAuthed>().unwrap().clone();
         let db = context.req_extensions.get::<DB>().unwrap().clone();
         let user_db = context.req_extensions.get::<UserDB>().unwrap().clone();
-        let path = request.name.clone();
         let args = parse_args(request.arguments)?;
+
+        // find path from list of tools, by checking annotations.title
+        let tools = self.list_tools(None, context.clone()).await?; // Clone context for reuse
+        let path = tools.tools.iter().find_map(|tool| {
+            // Check if annotations exist and then if the title matches
+            if tool.name.as_ref() == &request.name {
+                if let Some(annotations) = &tool.annotations {
+                    if let Some(title) = &annotations.title {
+                        Some(title.clone())
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                }
+            } else {
+                None
+            }
+        });
+
+        // Handle the case where the tool was not found
+        let owned_path = match path {
+            Some(cow_path) => cow_path, // Convert Cow -> String
+            None => {
+                return Err(Error::invalid_params(
+                    format!(
+                        "Tool with name '{}' not found or title mismatch",
+                        request.name
+                    ),
+                    Some(request.name.into()),
+                ));
+            }
+        };
 
         // Convert Value to PushArgsOwned
         let push_args = if let Value::Object(map) = args.clone() {
@@ -140,7 +176,7 @@ impl ServerHandler for Runner {
         };
 
         let w_id = context.workspace_id.clone();
-        let script_path = StripPath(path.into_owned());
+        let script_path = StripPath(owned_path); // Use the owned String path
         let run_query = RunJobQuery::default(); // This assumes RunJobQuery has a default implementation
 
         let result = run_wait_result_script_by_path_internal(
@@ -181,7 +217,7 @@ impl ServerHandler for Runner {
         _request: Option<PaginatedRequestParam>,
         _context: RequestContext<RoleServer>,
     ) -> Result<ListToolsResult, Error> {
-        tracing::debug!("Handling list_tools request");
+        tracing::info!("Handling list_tools request");
         let workspace_id = _context.workspace_id;
         let user_db = _context
             .req_extensions
@@ -194,22 +230,48 @@ impl ServerHandler for Runner {
         let scripts = self
             .inner_get_scripts(user_db, authed, workspace_id)
             .await?;
+        let mut last_path = scripts.first().map(|script| script.path.clone());
         let tools = scripts
             .into_iter()
-            .map(|script| Tool {
-                name: Cow::Owned(script.path),
-                description: Some(Cow::Owned(script.summary.unwrap_or_default())),
-                input_schema: script
-                    .schema
-                    .map(|schema| {
-                        if let serde_json::Value::Object(map) = schema {
-                            Arc::new(map)
+            .map(|script| {
+                // if summary exist and is not empty, use it
+                let name = match script.summary {
+                    Some(summary) if !summary.is_empty() => summary,
+                    _ => {
+                        // Determine the name based on whether the path is duplicated
+                        let calculated_name = if last_path == Some(script.path.clone()) {
+                            script.path.replace('/', "_")
                         } else {
-                            Arc::new(serde_json::Map::new())
-                        }
-                    })
-                    .unwrap_or_default(),
-                annotations: None,
+                            // get last part of script after last /
+                            script
+                                .path
+                                .split('/')
+                                .last()
+                                .unwrap_or(&script.path)
+                                .to_string()
+                        };
+                        // Update last_path *after* determining the name
+                        last_path = Some(script.path.clone());
+                        // Return the calculated name
+                        tracing::info!("Calculated name: {}", calculated_name);
+                        calculated_name
+                    }
+                };
+                Tool {
+                    name: Cow::Owned(name),
+                    description: Some(Cow::Owned(script.description.unwrap_or_default())),
+                    input_schema: script
+                        .schema
+                        .map(|schema| {
+                            if let serde_json::Value::Object(map) = schema {
+                                Arc::new(map)
+                            } else {
+                                Arc::new(serde_json::Map::new())
+                            }
+                        })
+                        .unwrap_or_default(),
+                    annotations: Some(ToolAnnotations::with_title(script.path)),
+                }
             })
             .collect();
 
