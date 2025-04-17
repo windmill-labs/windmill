@@ -13970,6 +13970,7 @@ dependencies = [
  "async_zip",
  "aws-config",
  "aws-sdk-sqs",
+ "aws-sdk-sts",
  "axum",
  "base32",
  "base64 0.22.1",

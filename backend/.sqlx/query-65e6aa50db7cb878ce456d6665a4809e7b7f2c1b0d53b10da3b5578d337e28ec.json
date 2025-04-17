@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        INSERT INTO global_settings (name, value)\n        VALUES ('rsa_keys', $1)\n        ON CONFLICT (name) DO UPDATE\n        SET value = EXCLUDED.value\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Jsonb"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "65e6aa50db7cb878ce456d6665a4809e7b7f2c1b0d53b10da3b5578d337e28ec"
+}

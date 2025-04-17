@@ -64,7 +64,7 @@
 								required={true}
 							/>
 						</p>
-						<ResourcePicker resourceType="aws" bind:value={aws_resource_path} />
+						<ResourcePicker resourceType="aws_auth" bind:value={aws_resource_path} />
 						{#if isValid}
 							<TestTriggerConnection kind="sqs" args={{ aws_resource_path, queue_url }} />
 						{/if}

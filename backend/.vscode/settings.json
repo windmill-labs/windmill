@@ -11,5 +11,5 @@
   "remote.autoForwardPorts": true,
   "conventionalCommits.scopes": [
     "restructring triggers, decoding trigger message on work"
-  ],
+  ]
 }
