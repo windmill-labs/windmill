@@ -713,3 +713,12 @@ export async function getTablesByResource(
 			return []
 	}
 }
+
+export function dbSupportsSchemas(dbType: DbType): boolean {
+	return dbType === 'postgresql' || dbType === 'snowflake' || dbType === 'ms_sql_server'
+}
+
+export function datatypeHasLength(datatype: string): boolean {
+	const lengthDataTypes = ['varchar', 'char', 'nvarchar', 'nchar', 'varbinary', 'binary', 'bit']
+	return lengthDataTypes.some((type) => datatype.startsWith(type))
+}

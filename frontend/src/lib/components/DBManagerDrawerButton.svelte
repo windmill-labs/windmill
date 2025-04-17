@@ -31,6 +31,8 @@
 		resourcePath in $dbSchemas ? $dbSchemas[resourcePath] : undefined
 	)
 
+	console.log('dbSchemas', $dbSchemas)
+
 	let isDrawerOpen: boolean = $state(false)
 	let mode: 'db-manager' | 'schema-explorer' = $state('db-manager')
 

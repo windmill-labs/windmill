@@ -26,12 +26,15 @@
 	import { Cell } from './table'
 	import DataTable from './table/DataTable.svelte'
 	import Head from './table/Head.svelte'
-	import type { DbType } from './apps/components/display/dbtable/utils'
+	import { datatypeHasLength, type DbType } from './apps/components/display/dbtable/utils'
 	import { DB_TYPES } from '$lib/consts'
 	import Select from './apps/svelte-select/lib/Select.svelte'
 	import Popover from './meltComponents/Popover.svelte'
 	import Tooltip from './meltComponents/Tooltip.svelte'
-	import type { CreateTableValues } from './apps/components/display/dbtable/queries/createTable'
+	import {
+		datatypeDefaultLength,
+		type CreateTableValues
+	} from './apps/components/display/dbtable/queries/createTable'
 	import ConfirmationModal from './common/confirmationModal/ConfirmationModal.svelte'
 	import { sendUserToast } from '$lib/toast'
 
@@ -50,8 +53,20 @@
 
 	const values: CreateTableValues = $state({
 		name: '',
-		columns: [{ name: 'id', datatype: defaultColumnType, primaryKey: true }]
+		columns: []
 	})
+
+	function addColumn({ name, primaryKey }: { name: string; primaryKey?: boolean }) {
+		values.columns.push({
+			name,
+			datatype: defaultColumnType,
+			...(datatypeHasLength(defaultColumnType) && {
+				datatype_length: datatypeDefaultLength(defaultColumnType)
+			}),
+			...(primaryKey && { primaryKey })
+		})
+	}
+	addColumn({ name: 'id', primaryKey: true })
 
 	const errors: ReturnType<typeof validate> = $derived(validate(values))
 
@@ -100,7 +115,14 @@
 									<Select
 										class="!w-48"
 										value={column.datatype}
-										on:change={(e) => (column.datatype = e.detail.value)}
+										on:change={(e) => {
+											column.datatype = e.detail.value
+											if (datatypeHasLength(column.datatype)) {
+												column.datatype_length = datatypeDefaultLength(column.datatype)
+											} else {
+												column.datatype_length = undefined
+											}
+										}}
 										items={columnTypes}
 										clearable={false}
 									/>
@@ -112,6 +134,16 @@
 											<Settings size={18} />
 										{/snippet}
 										{#snippet content()}
+											{#if datatypeHasLength(column.datatype)}
+												<label class="text-xs">
+													Length
+													<input
+														type="number"
+														placeholder="0"
+														bind:value={column.datatype_length}
+													/>
+												</label>
+											{/if}
 											<label class="text-xs">
 												<span class="flex gap-1 mb-1">
 													Default value
@@ -151,12 +183,7 @@
 									wrapperClasses="mx-auto"
 									startIcon={{ icon: Plus }}
 									color="light"
-									on:click={() =>
-										values.columns.push({
-											name: '',
-											datatype: defaultColumnType,
-											primaryKey: false
-										})}
+									on:click={() => addColumn({ name: '' })}
 								>
 									Add
 								</Button>
@@ -179,7 +206,7 @@
 					} catch (e) {
 						let msg: string | undefined = (e as Error)?.message
 						if (typeof msg !== 'string') msg = e ? JSON.stringify(e) : 'An error occured'
-						sendUserToast(e, true)
+						sendUserToast(msg, true)
 					}
 					askingForConfirmation = undefined
 				},
