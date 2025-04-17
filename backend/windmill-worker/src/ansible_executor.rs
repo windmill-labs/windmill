@@ -398,7 +398,7 @@ async fn handle_ansible_python_deps(
     Ok(additional_python_paths)
 }
 
-async fn install_galaxy_collections(
+pub async fn install_galaxy_collections(
     collections_yml: &str,
     job_dir: &str,
     job_id: &Uuid,
@@ -426,7 +426,7 @@ async fn install_galaxy_collections(
         .envs(PROXY_ENVS.clone())
         .env("PATH", PATH_ENV.as_str())
         .env("TZ", TZ_ENV.as_str())
-        .args(vec!["install", "-r", "requirements.yml", "-p", "./"])
+        .args(vec!["role", "install", "-r", "requirements.yml", "-p", "./roles"])
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
 
@@ -440,7 +440,7 @@ async fn install_galaxy_collections(
         !*DISABLE_NSJAIL,
         worker_name,
         w_id,
-        "ansible galaxy install",
+        "ansible-galaxy role install",
         None,
         false,
         &mut Some(occupancy_metrics),
@@ -476,7 +476,7 @@ async fn install_galaxy_collections(
         !*DISABLE_NSJAIL,
         worker_name,
         w_id,
-        "ansible galaxy install",
+        "ansible-galaxy collection install",
         None,
         false,
         &mut Some(occupancy_metrics),
@@ -491,6 +491,99 @@ async fn install_galaxy_collections(
 pub struct AnsibleDependencyLocks {
     pub python_lockfile: String,
     pub git_repos: HashMap<String, String>, // URL to full commit hash
+    pub collection_versions: HashMap<String, String>, //
+    pub role_versions: HashMap<String, String>,
+}
+
+pub async fn get_collection_locks(
+    job_dir: &str,
+) -> anyhow::Result<(HashMap<String, String>, String)> {
+    let mut ansible_cmd = Command::new(ANSIBLE_GALAXY_PATH.as_str());
+
+    ansible_cmd
+        .current_dir(job_dir)
+        .args(["collection", "list", "--format", "json", "-p", "./"]);
+
+    let output = ansible_cmd.output().await?;
+
+    let mut ret = HashMap::new();
+    let mut logs = String::new();
+
+    if !output.status.success() {
+        let stderr = String::from_utf8(output.stderr)?;
+        return Err(anyhow!(
+            "Error getting ansible collection versions: {stderr}"
+        ));
+    }
+
+    let stdout = String::from_utf8(output.stdout)?;
+
+    let val: serde_json::Value = serde_json::from_str(&stdout)?;
+
+    let Some(own_collections) = val.get(format!("{}/ansible_collections", job_dir)) else {
+        return Ok((ret, logs));
+    };
+
+    let collections = own_collections.as_object().ok_or(anyhow!(
+        "Expected an object (map) for the `ansible-galaxy collection list` command output and got {}",
+        own_collections
+    ))?;
+
+    for (c_name, c) in collections.iter() {
+        if let Some(v) = c.get("version").and_then(|v| v.as_str()) {
+            // TODO: Check if version is not something like `(undefined)`
+            ret.insert(c_name.clone(), v.to_string());
+        } else {
+            logs.push_str(&format!("Failed to get version for collection `{}`. Expected an object with a string in the `version` field but received {}\n", c_name, c));
+        }
+    }
+
+    Ok((ret, logs))
+}
+
+pub async fn get_role_locks(job_dir: &str) -> anyhow::Result<(HashMap<String, String>, String)> {
+    let mut ansible_cmd = Command::new(ANSIBLE_GALAXY_PATH.as_str());
+
+    ansible_cmd
+        .current_dir(job_dir)
+        .args(["role", "list", "-p", "./roles"]);
+
+    let output = ansible_cmd.output().await?;
+    let mut ret = HashMap::new();
+    let mut logs = String::new();
+
+    if !output.status.success() {
+        let stderr = String::from_utf8(output.stderr)?;
+        // return Err(anyhow!("Error getting ansible role versions: {stderr}"));
+        logs.push_str(&format!("Error getting ansible role versions: {stderr}"));
+        return Ok((ret, logs));
+    }
+
+    let stdout = String::from_utf8(output.stdout)?;
+
+    let mut lines = stdout.lines();
+
+    while let Some(line) = lines.next() {
+        if line == format!("# {}/roles", job_dir) {
+            break;
+        }
+    }
+
+    for line in lines {
+        let line = line.strip_prefix("-").unwrap_or(line);
+        let mut cols = line.split(",");
+
+        if let Some(name) = cols.next().map(|n| n.trim()) {
+            if let Some(version) = cols.next().map(|v| v.trim()) {
+                // TODO: Check if version is not something like `(undefined)`
+                ret.insert(name.to_string(), version.to_string());
+            } else {
+                logs.push_str(&format!("Failed to get version for role `{}`.", name));
+            }
+        }
+    }
+
+    Ok((ret, logs))
 }
 
 pub async fn get_git_repo_full_head_commit_hash(repo: &GitRepo) -> anyhow::Result<String> {
@@ -564,6 +657,35 @@ pub async fn get_git_repos_lock(
     }
 
     Ok(ret)
+}
+
+pub fn create_ansible_cfg(reqs: Option<&AnsibleRequirements>, job_dir: &str) -> error::Result<()> {
+    let mut passwords_cfg = String::new();
+    if let Some(vault_password_file) = reqs.as_ref().and_then(|r| r.vault_password_file.as_ref()) {
+        passwords_cfg.push_str(&format!("vault_password_file = {vault_password_file}\n"));
+    }
+    if let Some(vault_ids) = reqs.as_ref().map(|r| &r.vault_id) {
+        if !vault_ids.is_empty() {
+            let password_files = vault_ids.join(",");
+
+            passwords_cfg.push_str(&format!("vault_identity_list = {password_files}\n"));
+        }
+    }
+    let ansible_cfg_content = format!(
+        r#"
+[defaults]
+collections_path = ./
+roles_path = ./roles
+home={job_dir}/.ansible
+local_tmp={job_dir}/.ansible/tmp
+remote_tmp={job_dir}/.ansible/tmp
+{passwords_cfg}
+"#
+    );
+
+    write_file(job_dir, "ansible.cfg", &ansible_cfg_content)?;
+
+    Ok(())
 }
 
 pub async fn handle_ansible_job(
@@ -748,6 +870,7 @@ pub async fn handle_ansible_job(
             .await?;
         }
     }
+
     append_logs(
         &job.id,
         &job.workspace_id,
@@ -756,30 +879,7 @@ pub async fn handle_ansible_job(
     )
     .await;
 
-    let mut passwords_cfg = String::new();
-    if let Some(vault_password_file) = reqs.as_ref().and_then(|r| r.vault_password_file.as_ref()) {
-        passwords_cfg.push_str(&format!("vault_password_file = {vault_password_file}\n"));
-    }
-    if let Some(vault_ids) = reqs.as_ref().map(|r| &r.vault_id) {
-        if !vault_ids.is_empty() {
-            let password_files = vault_ids.join(",");
-
-            passwords_cfg.push_str(&format!("vault_identity_list = {password_files}\n"));
-        }
-    }
-    let ansible_cfg_content = format!(
-        r#"
-[defaults]
-collections_path = ./
-roles_path = ./roles
-home={job_dir}/.ansible
-local_tmp={job_dir}/.ansible/tmp
-remote_tmp={job_dir}/.ansible/tmp
-{passwords_cfg}
-"#
-    );
-
-    write_file(job_dir, "ansible.cfg", &ansible_cfg_content)?;
+    create_ansible_cfg(reqs.as_ref(), job_dir)?;
 
     let mut reserved_variables =
         get_reserved_variables(job, &client.token, conn, parent_runnable_path).await?;

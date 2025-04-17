@@ -1821,6 +1821,10 @@ async fn ansible_dep(
     worker_dir: &str,
     occupancy_metrics: &mut OccupancyMetrics,
 ) -> std::result::Result<String, Error> {
+    use crate::ansible_executor::{
+        create_ansible_cfg, get_collection_locks, get_role_locks, install_galaxy_collections,
+    };
+
     let python_lockfile = python_dep(
         reqs.python_reqs.join("\n").to_string(),
         job_id,
@@ -1837,12 +1841,14 @@ async fn ansible_dep(
     )
     .await?;
 
+    let conn = &Connection::Sql(db.clone());
+
     let git_repos = get_git_repos_lock(
         &reqs.git_repos,
         job_dir,
         job_id,
         worker_name,
-        &Connection::Sql(db.clone()),
+        conn,
         mem_peak,
         canceled_by,
         w_id,
@@ -1850,7 +1856,44 @@ async fn ansible_dep(
     )
     .await?;
 
-    let ansible_lockfile = AnsibleDependencyLocks { python_lockfile, git_repos };
+    let ansible_lockfile;
+
+    create_ansible_cfg(Some(&reqs), job_dir)?;
+
+    if let Some(collections) = reqs.collections.as_ref() {
+        install_galaxy_collections(
+            collections,
+            job_dir,
+            job_id,
+            worker_name,
+            w_id,
+            mem_peak,
+            canceled_by,
+            conn,
+            occupancy_metrics,
+        )
+        .await?;
+
+        let (collection_versions, logs) = get_collection_locks(job_dir).await?;
+        append_logs(job_id, w_id, logs, conn).await;
+
+        let (role_versions, logs) = get_role_locks(job_dir).await?;
+        append_logs(job_id, w_id, logs, conn).await;
+
+        ansible_lockfile = AnsibleDependencyLocks {
+            python_lockfile,
+            git_repos,
+            collection_versions,
+            role_versions,
+        };
+    } else {
+        ansible_lockfile = AnsibleDependencyLocks {
+            python_lockfile,
+            git_repos,
+            collection_versions: HashMap::new(),
+            role_versions: HashMap::new(),
+        };
+    }
 
     serde_json::to_string(&ansible_lockfile).map_err(|e| e.into())
 }
