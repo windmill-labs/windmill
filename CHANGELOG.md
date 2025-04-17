@@ -1,5 +1,15 @@
 # Changelog
 
+## [1.482.1](https://github.com/windmill-labs/windmill/compare/v1.482.0...v1.482.1) (2025-04-16)
+
+
+### Bug Fixes
+
+* flow editor workspace script test use actual workspace script hash ([24e893b](https://github.com/windmill-labs/windmill/commit/24e893b8c50fafdb41f4b6e1777cb34aceafc466))
+* **frontend:** postgres remove selectedTable ([#5386](https://github.com/windmill-labs/windmill/issues/5386)) ([bd7c6a2](https://github.com/windmill-labs/windmill/commit/bd7c6a2a46047de5fe89753decdfdf1f4851ee3f))
+* **openapi:** fix openapi def of batch re-run jobs ([cb8731e](https://github.com/windmill-labs/windmill/commit/cb8731e7e37fb6cd052f5dae6fdce46e6ca2409c))
+* show workspace color if superadmin and not in workspace + change workspace name when switching workspace ([#5625](https://github.com/windmill-labs/windmill/issues/5625)) ([cc4384f](https://github.com/windmill-labs/windmill/commit/cc4384f48cc89f883237a2082d854d69a7b5dc56))
+
 ## [1.482.0](https://github.com/windmill-labs/windmill/compare/v1.481.0...v1.482.0) (2025-04-15)
 
 
