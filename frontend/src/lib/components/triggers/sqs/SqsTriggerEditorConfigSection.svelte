@@ -64,7 +64,9 @@
 							Select an AWS resource to authenticate your account. <Required required={true} />
 						</p>
 
-						<ToggleButtonGroup bind:selected={aws_auth_resource_type} let:item>
+						<ToggleButtonGroup bind:selected={aws_auth_resource_type} on:selected={() => {
+							aws_resource_path = ''
+						}} let:item>
 							<ToggleButton label="Credentials" value="credentials" {item} />
 							<ToggleButton label="Oidc" value="oidc" {item} />
 						</ToggleButtonGroup>
