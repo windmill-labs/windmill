@@ -65,7 +65,10 @@
 								colDef,
 								e.newValue
 							)
-							.then(() => sendUserToast('Value updated'))
+							.then(() => {
+								sendUserToast('Value updated')
+								refreshCount += 1
+							})
 							.catch(() => {
 								sendUserToast('Error updating value', true)
 								refreshCount += 1

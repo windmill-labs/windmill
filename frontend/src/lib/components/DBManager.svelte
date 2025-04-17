@@ -14,6 +14,7 @@
 
 	type Props = {
 		dbSchema: DBSchema
+		dbSupportsSchemas: boolean
 		getColDefs: (tableKey: string) => Promise<ColumnDef[]>
 		dbTableOpsFactory: (params: { colDefs: ColumnDef[]; tableKey: string }) => IDbTableOps
 		dbTableActionsFactory?: DbTableActionFactory[]
@@ -26,7 +27,8 @@
 		getColDefs,
 		dbTableActionsFactory,
 		refresh,
-		dbTableEditorPropsFactory
+		dbTableEditorPropsFactory,
+		dbSupportsSchemas
 	}: Props = $props()
 
 	let schemaKeys = $derived(Object.keys(dbSchema.schema))
@@ -63,7 +65,9 @@
 		return l
 	})
 
-	let tableKey = $derived(`${selected.schemaKey}.${selected.tableKey}`)
+	let tableKey = $derived(
+		dbSupportsSchemas ? `${selected.schemaKey}.${selected.tableKey}` : selected.tableKey
+	)
 
 	let askingForConfirmation:
 		| (ConfirmationModal['$$prop_def'] & { onConfirm: () => void })
@@ -79,16 +83,18 @@
 <Splitpanes>
 	<Pane size={24} class="relative flex flex-col">
 		<div class="mx-3 mt-3">
-			<select
-				value={selected.schemaKey}
-				onchange={(e) => {
-					selected = { schemaKey: e.currentTarget.value }
-				}}
-			>
-				{#each schemaKeys as schemaKey}
-					<option value={schemaKey}>{schemaKey}</option>
-				{/each}
-			</select>
+			{#if dbSupportsSchemas}
+				<select
+					value={selected.schemaKey}
+					onchange={(e) => {
+						selected = { schemaKey: e.currentTarget.value }
+					}}
+				>
+					{#each schemaKeys as schemaKey}
+						<option value={schemaKey}>{schemaKey}</option>
+					{/each}
+				</select>
+			{/if}
 			<ClearableInput wrapperClass="mt-3" bind:value={search} placeholder="Search table..." />
 		</div>
 		<div class="overflow-x-clip overflow-y-auto relative mt-3 border-y flex-1">
@@ -153,12 +159,14 @@
 	</Pane>
 	<Pane class="p-3 pt-1">
 		{#key tableKey}
-			{#await getColDefs(tableKey) then colDefs}
-				{#if colDefs?.length}
-					{@const dbTableOps = dbTableOpsFactory({ colDefs, tableKey })}
-					<DBTable {dbTableOps} />
-				{/if}
-			{/await}
+			{#if tableKey}
+				{#await getColDefs(tableKey) then colDefs}
+					{#if colDefs?.length}
+						{@const dbTableOps = dbTableOpsFactory({ colDefs, tableKey })}
+						<DBTable {dbTableOps} />
+					{/if}
+				{/await}
+			{/if}
 		{/key}
 	</Pane>
 </Splitpanes>

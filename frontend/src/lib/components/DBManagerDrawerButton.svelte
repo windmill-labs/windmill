@@ -6,6 +6,7 @@
 	import { sendUserToast } from '$lib/utils'
 	import { Database, Expand, Loader2, Minimize, RefreshCcw } from 'lucide-svelte'
 	import {
+		dbSupportsSchemas,
 		getDbSchemas,
 		loadTableMetaData,
 		scripts,
@@ -125,6 +126,7 @@
 				</div>
 			{:else if mode === 'db-manager'}
 				<DbManager
+					dbSupportsSchemas={dbSupportsSchemas(resourceType)}
 					{dbSchema}
 					getColDefs={async (tableKey) =>
 						(await loadTableMetaData(

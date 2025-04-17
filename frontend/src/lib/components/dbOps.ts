@@ -85,7 +85,7 @@ export function dbTableOpsWithPreviewScripts({
 		onUpdate: async ({ values }, colDef, newValue) => {
 			const updateQuery = makeUpdateQuery(tableKey, colDef, colDefs, resourceType)
 
-			const result = await runPreviewJobAndPollResult({
+			await runPreviewJobAndPollResult({
 				workspace,
 				requestBody: {
 					args: {
@@ -97,12 +97,12 @@ export function dbTableOpsWithPreviewScripts({
 					content: updateQuery
 				}
 			})
-			if (!Array.isArray(result) || result.length === 0) throw ''
 		},
 		onDelete: async ({ values }) => {
 			const deleteQuery = makeDeleteQuery(tableKey, colDefs, resourceType)
+			console.log(deleteQuery)
 
-			const result = await runPreviewJobAndPollResult({
+			await runPreviewJobAndPollResult({
 				workspace,
 				requestBody: {
 					args: { database: '$res:' + resourcePath, ...values },
@@ -110,7 +110,6 @@ export function dbTableOpsWithPreviewScripts({
 					content: deleteQuery
 				}
 			})
-			if (!Array.isArray(result) || result.length === 0) throw ''
 		},
 		onInsert: async ({ values }) => {
 			const insertQuery = makeInsertQuery(tableKey, colDefs, resourceType)
