@@ -29,12 +29,12 @@
 <div
 	class={classNames(
 		'w-full flex relative rounded-sm',
-		selectable ? 'cursor-pointer' : '',
-		selected ? 'outline outline-2' : 'active:outline active:outline-2',
+		selectable ? 'cursor-pointer active:outline active:outline-2' : '',
+		selected ? 'outline outline-2' : '',
 		onTop ? 'z-[901]' : '',
 		'outline-offset-1 outline-gray-600 dark:outline-gray-400'
 	)}
-	style="width: 275px; max-height: 38px; background-color: {hover && bgHoverColor
+	style="width: 275px; max-height: 38px; background-color: {hover && bgHoverColor && selectable
 		? bgHoverColor
 		: bgColor};"
 	on:pointerdown={() => {
