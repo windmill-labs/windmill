@@ -681,7 +681,7 @@ async fn list_selected_job_groups(
                 SELECT jsonb_build_object(
                     'script_hash', LPAD(TO_HEX(COALESCE(s.hash, f.id)), 16, '0'),
                     'job_ids', ARRAY_AGG(DISTINCT j.id),
-                    'schema', ANY_VALUE(COALESCE(s.schema, f.schema))
+                    'schema', (ARRAY_AGG(COALESCE(s.schema, f.schema)))[1]
                 ) FROM v2_job j
                 LEFT JOIN script s ON s.hash = j.runnable_id AND j.kind = 'script'
                 LEFT JOIN flow_version f ON f.id = j.runnable_id AND j.kind = 'flow'
@@ -3441,7 +3441,11 @@ async fn batch_rerun_handle_job(
             }
             InputTransform::Javascript { expr } => {
                 #[cfg(not(feature = "deno_core"))]
-                tracing::error!("deno_core feature is not activated, cannot evaluate: {expr}");
+                Err(error::Error::ExecutionErr(
+                    format!("deno_core feature is not activated, cannot evaluate: {expr}")
+                        .to_string(),
+                ))?;
+
                 #[cfg(feature = "deno_core")]
                 args.insert(
                     property_name.clone(),
