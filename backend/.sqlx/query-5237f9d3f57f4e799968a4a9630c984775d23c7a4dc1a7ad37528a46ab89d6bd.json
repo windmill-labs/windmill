@@ -1,12 +1,22 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n            SELECT\n                queue_url,\n                aws_resource_path,\n                message_attributes,\n                workspace_id,\n                path,\n                script_path,\n                is_flow,\n                edited_by,\n                email,\n                edited_at,\n                server_id,\n                last_server_ping,\n                extra_perms,\n                error,\n                enabled\n            FROM\n                sqs_trigger\n            WHERE\n                enabled IS TRUE\n                AND (last_server_ping IS NULL OR\n                    last_server_ping < now() - interval '15 seconds'\n                )\n            ",
+  "query": "\n        SELECT\n            aws_auth_resource_type AS \"aws_auth_resource_type: _\",\n            aws_resource_path,\n            message_attributes,\n            queue_url,\n            workspace_id,\n            path,\n            script_path,\n            is_flow,\n            edited_by,\n            email,\n            edited_at,\n            server_id,\n            last_server_ping,\n            extra_perms,\n            error,\n            enabled\n        FROM \n            sqs_trigger\n        WHERE \n            workspace_id = $1 AND \n            path = $2\n        ",
   "describe": {
     "columns": [
       {
         "ordinal": 0,
-        "name": "queue_url",
-        "type_info": "Varchar"
+        "name": "aws_auth_resource_type: _",
+        "type_info": {
+          "Custom": {
+            "name": "aws_auth_resource_type",
+            "kind": {
+              "Enum": [
+                "oidc",
+                "credentials"
+              ]
+            }
+          }
+        }
       },
       {
         "ordinal": 1,
@@ -20,72 +30,81 @@
       },
       {
         "ordinal": 3,
-        "name": "workspace_id",
+        "name": "queue_url",
         "type_info": "Varchar"
       },
       {
         "ordinal": 4,
-        "name": "path",
+        "name": "workspace_id",
         "type_info": "Varchar"
       },
       {
         "ordinal": 5,
-        "name": "script_path",
+        "name": "path",
         "type_info": "Varchar"
       },
       {
         "ordinal": 6,
+        "name": "script_path",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 7,
         "name": "is_flow",
         "type_info": "Bool"
       },
       {
-        "ordinal": 7,
+        "ordinal": 8,
         "name": "edited_by",
         "type_info": "Varchar"
       },
       {
-        "ordinal": 8,
+        "ordinal": 9,
         "name": "email",
         "type_info": "Varchar"
       },
       {
-        "ordinal": 9,
+        "ordinal": 10,
         "name": "edited_at",
         "type_info": "Timestamptz"
       },
       {
-        "ordinal": 10,
+        "ordinal": 11,
         "name": "server_id",
         "type_info": "Varchar"
       },
       {
-        "ordinal": 11,
+        "ordinal": 12,
         "name": "last_server_ping",
         "type_info": "Timestamptz"
       },
       {
-        "ordinal": 12,
+        "ordinal": 13,
         "name": "extra_perms",
         "type_info": "Jsonb"
       },
       {
-        "ordinal": 13,
+        "ordinal": 14,
         "name": "error",
         "type_info": "Text"
       },
       {
-        "ordinal": 14,
+        "ordinal": 15,
         "name": "enabled",
         "type_info": "Bool"
       }
     ],
     "parameters": {
-      "Left": []
+      "Left": [
+        "Text",
+        "Text"
+      ]
     },
     "nullable": [
       false,
       false,
       true,
+      false,
       false,
       false,
       false,
@@ -100,5 +119,5 @@
       false
     ]
   },
-  "hash": "e6adaebcade2e25be800e8b888b23c94caae2421f3cae7c06d6346bd6de1d94a"
+  "hash": "5237f9d3f57f4e799968a4a9630c984775d23c7a4dc1a7ad37528a46ab89d6bd"
 }

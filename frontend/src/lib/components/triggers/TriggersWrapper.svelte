@@ -93,6 +93,7 @@
 			bind:queue_url={args.queue_url}
 			bind:aws_resource_path={args.aws_resource_path}
 			bind:message_attributes={args.message_attributes}
+			bind:aws_auth_resource_type={args.aws_auth_resource_type}
 			headless={true}
 			can_write={true}
 			showCapture={false}

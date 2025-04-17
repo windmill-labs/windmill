@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT workspace_id, path, url, script_path, is_flow, edited_by, email, edited_at, server_id, last_server_ping, extra_perms, error, enabled, filters as \"filters: _\", initial_messages as \"initial_messages: _\", url_runnable_args as \"url_runnable_args: _\", can_return_message FROM websocket_trigger\n                 WHERE workspace_id = $1",
+  "query": "\n                SELECT \n                    workspace_id,\n                    path,\n                    url,\n                    script_path,\n                    is_flow,\n                    edited_by,\n                    email,\n                    edited_at,\n                    server_id,\n                    last_server_ping,\n                    extra_perms,\n                    error,\n                    enabled,\n                    filters AS \"filters: _\",\n                    initial_messages AS \"initial_messages: _\",\n                    url_runnable_args AS \"url_runnable_args: _\",\n                    can_return_message\n                FROM \n                    websocket_trigger\n                WHERE \n                    workspace_id = $1\n                ",
   "describe": {
     "columns": [
       {
@@ -114,5 +114,5 @@
       false
     ]
   },
-  "hash": "1aa8ead10f8d994f6685d266fcbd409b0fff43111d9600e64b2348401ed8929d"
+  "hash": "8eabeee5527da4aad3f46ad185015262b4304667449f3e1a71efd7477a39f7fc"
 }
