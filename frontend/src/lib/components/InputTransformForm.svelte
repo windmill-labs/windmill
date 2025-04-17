@@ -515,6 +515,7 @@
 									on:change={() => {
 										dispatch('change', { argName, arg })
 									}}
+									loadAsync
 								/>
 							{/if}
 						</div>
@@ -583,6 +584,7 @@
 									focused = false
 								}}
 								autoHeight
+								loadAsync
 							/>
 						</div>
 						{#if !hideHelpButton}

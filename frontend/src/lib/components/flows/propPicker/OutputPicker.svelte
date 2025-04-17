@@ -80,6 +80,7 @@
 	fullScreenWidthOffset={2 * width}
 	extraProps={{ 'data-prop-picker': true }}
 	closeOnOtherPopoverOpen
+	class="outline-none"
 >
 	<svelte:fragment slot="trigger" let:isOpen>
 		<div

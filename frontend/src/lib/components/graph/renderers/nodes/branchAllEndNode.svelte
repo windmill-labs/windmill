@@ -3,7 +3,7 @@
 	import NodeWrapper from './NodeWrapper.svelte'
 	import type { FlowModule } from '$lib/gen'
 	import type { GraphEventHandlers } from '../../graphBuilder'
-	import { getStateColor } from '../../util'
+	import { getStateColor, getStateHoverColor } from '../../util'
 	import type { GraphModuleState } from '../../model'
 
 	export let data: {
@@ -23,6 +23,7 @@
 		selectable={true}
 		selected={false}
 		bgColor={getStateColor(undefined, darkMode)}
+		bgHoverColor={getStateHoverColor(undefined, darkMode)}
 		borderColor={getStateColor(data?.flowModuleStates?.[data?.id]?.type, darkMode)}
 		on:select={(e) => {
 			data?.eventHandlers?.select(e.detail)

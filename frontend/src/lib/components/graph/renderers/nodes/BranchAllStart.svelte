@@ -3,7 +3,7 @@
 	import NodeWrapper from './NodeWrapper.svelte'
 	import { X } from 'lucide-svelte'
 	import type { GraphModuleState } from '../../model'
-	import { getStateColor } from '../../util'
+	import { getStateColor, getStateHoverColor } from '../../util'
 	import type { FlowModule } from '$lib/gen'
 	import type { GraphEventHandlers } from '../../graphBuilder'
 	import { computeBorderStatus } from '../utils'
@@ -33,14 +33,15 @@
 		selectable
 		selected={data.selected}
 		bgColor={getStateColor(undefined, darkMode)}
+		bgHoverColor={getStateHoverColor(undefined, darkMode)}
 		borderColor={borderStatus
 			? getStateColor(borderStatus, darkMode) + (!darkMode ? '; border-width: 3px' : '')
 			: undefined}
 		on:select={() => {
-			data.eventHandlers.select(data.id)
+			setTimeout(() => data.eventHandlers.select(data.id))
 		}}
 		on:insert={(e) => {
-			data.eventHandlers.insert(e.detail)
+			setTimeout(() => data.eventHandlers.insert(e.detail))
 		}}
 	/>
 	{#if data.insertable}

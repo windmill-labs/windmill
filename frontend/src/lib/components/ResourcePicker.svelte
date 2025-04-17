@@ -135,7 +135,7 @@
 	}}
 />
 
-<div class="flex flex-col w-full items-start">
+<div class="flex flex-col w-full items-start min-h-9">
 	<div class="flex flex-row w-full items-center">
 		{#if collection?.length > 0}
 			<Select
