@@ -15106,6 +15106,12 @@ components:
           type: string
       required:
         - subscription_id
+
+    AwsAuthResourceType:
+      type: string
+      enum:
+        - oidc
+        - credentials
   
     SqsTrigger:
       allOf:
@@ -15114,6 +15120,8 @@ components:
       properties:
         queue_url:
           type: string
+        aws_auth_resource_type:
+          $ref: "#/components/schemas/AwsAuthResourceType"
         aws_resource_path:
           type: string
         message_attributes:
@@ -15134,12 +15142,15 @@ components:
         - queue_url
         - aws_resource_path
         - enabled
+        - aws_auth_resource_type
 
     NewSqsTrigger:
       type: object
       properties:
         queue_url:
           type: string
+        aws_auth_resource_type:
+          $ref: "#/components/schemas/AwsAuthResourceType"
         aws_resource_path:
           type: string
         message_attributes:
@@ -15160,12 +15171,15 @@ components:
         - path
         - script_path
         - is_flow
+        - aws_auth_resource_type
 
     EditSqsTrigger:
       type: object
       properties:
         queue_url:
           type: string
+        aws_auth_resource_type:
+          $ref: "#/components/schemas/AwsAuthResourceType"
         aws_resource_path:
           type: string
         message_attributes:
@@ -15187,6 +15201,7 @@ components:
         - script_path
         - is_flow
         - enabled
+        - aws_auth_resource_type
 
     Slot:
       type: object
