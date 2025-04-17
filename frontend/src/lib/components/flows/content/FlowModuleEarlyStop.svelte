@@ -52,8 +52,8 @@
 			label={(isLoop
 				? 'Break loop'
 				: parentLoopId
-				? 'Break parent loop module ' + parentLoopId
-				: 'Stop flow early') + (isLoop ? ' (evaluated after each iteration)' : '')}
+					? 'Break parent loop module ' + parentLoopId
+					: 'Stop flow early') + (isLoop ? ' (evaluated after each iteration)' : '')}
 			class="w-full"
 		>
 			<svelte:fragment slot="header">
@@ -79,8 +79,8 @@
 					right: isLoop
 						? 'Break loop'
 						: parentLoopId
-						? 'Break parent loop module'
-						: 'Stop flow' + ' if condition met'
+							? 'Break parent loop module'
+							: 'Stop flow' + ' if condition met'
 				}}
 			/>
 
@@ -94,8 +94,8 @@
 						? Array.isArray(result) && result.length > 0
 							? result[result.length - 1]
 							: result === NEVER_TESTED_THIS_FAR
-							? result
-							: undefined
+								? result
+								: undefined
 						: result}
 					{#if !parentLoopId && !isLoop}
 						<Toggle
@@ -125,6 +125,7 @@
 								bind:code={flowModule.stop_after_if.expr}
 								class="few-lines-editor"
 								extraLib={`declare const result = ${JSON.stringify(earlyStopResult)};` +
+									`\n declare const flow_input = ${JSON.stringify(stepPropPicker.pickableProperties.flow_input)};` +
 									(isLoop ? `\ndeclare const all_iters = ${JSON.stringify(result)};` : '')}
 							/>
 						</PropPickerWrapper>
@@ -210,7 +211,8 @@
 								lang="javascript"
 								bind:code={flowModule.stop_after_all_iters_if.expr}
 								class="few-lines-editor"
-								extraLib={`declare const result = ${JSON.stringify(result)};`}
+								extraLib={`declare const result = ${JSON.stringify(result)};` +
+									`\ndeclare const flow_input = ${JSON.stringify(stepPropPicker.pickableProperties.flow_input)};`}
 							/>
 						</PropPickerWrapper>
 					</div>
