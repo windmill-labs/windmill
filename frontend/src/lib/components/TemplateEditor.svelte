@@ -636,7 +636,13 @@
 <EditorTheme />
 
 {#if !editor}
-	<FakeMonacoPlaceHolder {code} {fontSize} marginLeft="25px" className="border-[2px]" />
+	<FakeMonacoPlaceHolder
+		autoheight
+		{code}
+		lineNumbersWidth={23}
+		lineNumbersOffset={-8}
+		class="border template nonmain-editor rounded min-h-4 mx-0.5 overflow-clip"
+	/>
 {/if}
 <div
 	bind:this={divEl}

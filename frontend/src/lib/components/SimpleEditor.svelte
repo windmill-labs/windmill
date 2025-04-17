@@ -565,7 +565,7 @@
 {/if}
 
 {#if !editor}
-	<FakeMonacoPlaceHolder marginLeft="23px" {code} fontSize={small ? 12 : 14} />
+	<FakeMonacoPlaceHolder {code} autoheight lineNumbersWidth={23} lineNumbersOffset={-8} />
 {/if}
 
 <div

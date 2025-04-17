@@ -3,48 +3,70 @@
 <script lang="ts">
 	type Props = {
 		code?: string
+		autoheight?: boolean
+		lineNumbersWidth?: number
+		lineNumbersOffset?: number
+		class?: string
 	}
 
-	let { code }: Props = $props()
+	let {
+		code,
+		autoheight = false,
+		lineNumbersWidth = 51,
+		lineNumbersOffset = 0,
+		class: className
+	}: Props = $props()
 
 	let lines = $derived(code?.split('\n') ?? [])
 
+	const charWidth = 9 // try to match as closely as possible to monaco editor
+	const lineHeight = 21
 	let [clientWidth, clientHeight] = $state([0, 0])
+	let showHorizontalScrollbar = $derived(
+		lines.some((line) => line.length * charWidth > clientWidth - 40)
+	)
+
+	let [editorWidth, editorHeight] = $derived([
+		clientWidth,
+		autoheight ? lines.length * lineHeight + (showHorizontalScrollbar ? 12 : 0) : clientHeight
+	])
 </script>
+
+<!-- Copy pasted from actual monaco editor in the web inspector -->
 
 <div
 	bind:clientWidth
 	bind:clientHeight
-	class="h-full w-full relative editor dark:bg-[#272D38]"
-	style="--vscode-editorCodeLens-lineHeight: 18px; --vscode-editorCodeLens-fontSize: 12px; --vscode-editorCodeLens-fontFeatureSettings: &quot;liga&quot; off, &quot;calt&quot; off; --code-editorInlayHintsFontFamily: Menlo, Monaco, 'Courier New', monospace;"
+	class="h-full w-full relative editor dark:bg-[#272D38] {className}"
+	style="--vscode-editorCodeLens-lineHeight: 18px; --vscode-editorCodeLens-fontSize: 12px; --vscode-editorCodeLens-fontFeatureSettings: 'liga' off, 'calt' off; --code-editorInlayHintsFontFamily: Menlo, Monaco, 'Courier New', monospace;"
 >
 	<div
 		class="monaco-editor no-user-select mac standalone showUnused showDeprecated vs-dark"
 		role="code"
 	>
-		<div class="overflow-guard" style="width: {clientWidth}px; height: {clientHeight}px;">
+		<div class="overflow-guard" style="width: {editorWidth}px; height: {editorHeight}px;">
 			<div
 				class="margin"
 				role="presentation"
 				aria-hidden="true"
-				style="position: absolute; transform: translate3d(0px, 0px, 0px); contain: strict; top: 0px; width: {clientWidth}px; height: {clientHeight}px;"
+				style="position: absolute; transform: translate3d(0px, 0px, 0px); contain: strict; top: 0px; width: {editorWidth}px; height: {editorHeight}px;"
 			>
 				<div
 					class="margin-view-overlays"
 					role="presentation"
 					aria-hidden="true"
-					style="position: absolute; font-family: Menlo, Monaco, &quot;Courier New&quot;, monospace; font-weight: normal; font-size: 14px; font-feature-settings: &quot;liga&quot; 0, &quot;calt&quot; 0; font-variation-settings: normal; line-height: 21px; letter-spacing: 0px; width: 51px; height: 4893px;"
+					style="position: absolute; font-family: Menlo, Monaco, 'Courier New', monospace; font-weight: normal; font-size: 14px; font-feature-settings: 'liga' 0, 'calt' 0; font-variation-settings: normal; line-height: {lineHeight}px; letter-spacing: 0px; width: {lineNumbersWidth}px; height: 4893px;"
 				>
 					{#each lines as _, i}
-						<div style="top:{21 * i}px;height:21px;">
-							<div class="line-numbers" style="left:0px;width:25px;">{i + 1}</div>
+						<div style="top:{lineHeight * i}px;height:{lineHeight}px;">
+							<div class="line-numbers" style="left:{lineNumbersOffset}px;width:25px;">{i + 1}</div>
 						</div>
 					{/each}
 				</div>
 			</div>
 			<div
 				class="monaco-scrollable-element editor-scrollable vs-dark mac"
-				style="position: absolute; overflow: hidden; left: 51px; width: {clientWidth}px; height: {clientHeight}px"
+				style="position: absolute; overflow: hidden; left: {lineNumbersWidth}px; width: {editorWidth}px; height: {editorHeight}px"
 			>
 				<div
 					class="lines-content monaco-editor-background"
@@ -52,10 +74,13 @@
 				>
 					<div
 						class="view-lines monaco-mouse-cursor-text text-tertiary/60"
-						style="line-height: 21px; position: absolute; font-family: Menlo, Monaco, &quot;Courier New&quot;, monospace; font-weight: normal; font-size: 14px; font-feature-settings: &quot;liga&quot; 0, &quot;calt&quot; 0; font-variation-settings: normal; line-height: 21px; letter-spacing: 0px; width: 1143px; height: 789px;"
+						style="line-height: {lineHeight}px; position: absolute; font-family: Menlo, Monaco, 'Courier New', monospace; font-weight: normal; font-size: 14px; font-feature-settings: 'liga' 0, 'calt' 0; font-variation-settings: normal; line-height: {lineHeight}px; letter-spacing: 0px; width: 1143px; height: 789px;"
 					>
 						{#each lines as line, i}
-							<div style="height: 21px; top: {i * 21}px;" class="text-nowrap whitespace-pre">
+							<div
+								style="height: {lineHeight}px; top: {i * lineHeight}px;"
+								class="text-nowrap whitespace-pre"
+							>
 								{line}
 							</div>
 						{/each}
