@@ -11,7 +11,8 @@
 		'border w-full rounded-sm p-2 bg-surface text-sm cursor-pointer flex items-center h-[32px]',
 		$selectedId?.startsWith('settings')
 			? 'border border-1  border-slate-800 dark:bg-white/5 dark:border-slate-400/60 dark:border-gray-400'
-			: ''
+			: '',
+		'hover:!bg-surface-secondary active:!bg-surface'
 	)
 </script>
 

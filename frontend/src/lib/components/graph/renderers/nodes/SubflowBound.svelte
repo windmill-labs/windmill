@@ -3,7 +3,7 @@
 	import NodeWrapper from './NodeWrapper.svelte'
 	import { Minimize2 } from 'lucide-svelte'
 	import type { GraphModuleState } from '../../model'
-	import { getStateColor } from '../../util'
+	import { getStateColor, getStateHoverColor } from '../../util'
 	import type { FlowModule } from '$lib/gen'
 	import type { GraphEventHandlers } from '../../graphBuilder'
 
@@ -28,9 +28,10 @@
 		selectable
 		selected={data.selected}
 		bgColor={getStateColor(undefined, darkMode)}
+		bgHoverColor={getStateHoverColor(undefined, darkMode)}
 		borderColor={undefined}
 		on:select={() => {
-			data.eventHandlers.select(data.id)
+			setTimeout(() => data.eventHandlers?.select(data.id))
 		}}
 	/>
 	<button

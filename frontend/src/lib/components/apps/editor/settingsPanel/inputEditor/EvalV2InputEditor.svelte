@@ -73,10 +73,11 @@
 			<Splitpanes horizontal class="h-full">
 				<Pane size={50}>
 					<SimpleEditor
+						loadAsync
 						class="h-full w-full"
 						bind:this={editor}
 						lang="javascript"
-						bind:code={componentInput.expr}
+						bind:code={() => componentInput.expr ?? '', (e) => (componentInput.expr = e)}
 						shouldBindKey={false}
 						fixedOverflowWidgets={false}
 						{extraLib}
@@ -105,10 +106,11 @@
 	<div class="border relative">
 		{#if !fullscreen}
 			<SimpleEditor
+				loadAsync
 				small
 				bind:this={editor}
 				lang="javascript"
-				bind:code={componentInput.expr}
+				bind:code={() => componentInput.expr ?? '', (e) => (componentInput.expr = e)}
 				shouldBindKey={false}
 				{extraLib}
 				autoHeight
