@@ -614,27 +614,19 @@ export async function main(
 			</div>
 		</Section>
 
-		{#if screenshotKind == 'png'}
-			<Section label="Custom resolution" collapsable>
-				<div class="flex gap-4 w-52">
-					<input
-						type="number"
-						class="text-sm"
-						bind:value={customWidth}
-						placeholder="auto"
-						min="768"
-					/>
-					x
-					<input
-						type="number"
-						class="text-sm"
-						bind:value={customHeight}
-						placeholder="auto"
-						min="0"
-					/>
-				</div>
-			</Section>
-		{/if}
+		<Section label="Custom resolution" collapsable>
+			<div class="flex gap-4 w-52">
+				<input
+					type="number"
+					class="text-sm"
+					bind:value={customWidth}
+					placeholder="auto"
+					min="768"
+				/>
+				x
+				<input type="number" class="text-sm" bind:value={customHeight} placeholder="auto" min="0" />
+			</div>
+		</Section>
 
 		<Section label="Notification">
 			<Tabs bind:selected={selectedTab}>
