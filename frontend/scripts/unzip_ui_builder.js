@@ -3,14 +3,20 @@ import fs from 'fs'
 
 import { x } from 'tar'
 
+const tarUrl = 'https://pub-06154ed168a24e73a86ab84db6bf15d8.r2.dev/ui_builder-ec1cec3.tar.gz'
 const outputTarPath = path.join(process.cwd(), 'ui_builder.tar.gz')
 const extractTo = path.join(process.cwd(), 'static/ui_builder/')
 
 import { fileURLToPath } from 'url'
-import { dirname, join } from 'path'
+import { dirname } from 'path'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = dirname(__filename)
+
+// Download the tar file
+const response = await fetch(tarUrl)
+const buffer = await response.arrayBuffer()
+await fs.promises.writeFile(outputTarPath, Buffer.from(buffer))
 
 // Check if this script is being run from the package root
 const isRootInstall = process.cwd() + '/scripts' === __dirname

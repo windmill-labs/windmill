@@ -11,3 +11,4 @@ storageState.json
 dist/
 static/tsdocs/
 static/ui_builder/
+ui_builder.tar.gz
