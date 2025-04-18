@@ -1,7 +1,6 @@
 import { sveltekit } from '@sveltejs/kit/vite'
 import { readFileSync } from 'fs'
 import { fileURLToPath } from 'url'
-import circleDependency from 'vite-plugin-circular-dependency'
 // import mkcert from 'vite-plugin-mkcert'
 import importMetaUrlPlugin from '@windmill-labs/esbuild-import-meta-url-plugin'
 
@@ -35,7 +34,7 @@ const config = {
 	preview: {
 		port: 3000
 	},
-	plugins: [sveltekit(), circleDependency({ circleImportThrowErr: false })],
+	plugins: [sveltekit()],
 	define: {
 		__pkg__: version
 	},
