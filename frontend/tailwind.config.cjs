@@ -472,11 +472,16 @@ const config = {
 				'4k': '3800px'
 			},
 			animation: {
-				'spin-counter-clockwise': 'spin-counter-clockwise 1s linear infinite'
+				'spin-counter-clockwise': 'spin-counter-clockwise 1s linear infinite',
+				'zoom-in': 'zoom-in 0.25s ease-in-out'
 			},
 			keyframes: {
 				'spin-counter-clockwise': {
 					to: { transform: 'rotate(-360deg)' }
+				},
+				'zoom-in': {
+					'0%': { transform: 'scale(0.95)' },
+					'100%': { transform: 'scale(1)' }
 				}
 			}
 		}

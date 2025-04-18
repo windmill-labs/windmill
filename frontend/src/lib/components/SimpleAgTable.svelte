@@ -5,8 +5,9 @@
 
 	type Props = {
 		data: Record<string, any>[]
+		class?: string
 	}
-	let { data }: Props = $props()
+	let { data, class: className }: Props = $props()
 	let api: GridApi<any> | undefined = $state()
 	let eGui: HTMLDivElement | undefined = $state()
 
@@ -37,7 +38,13 @@
 
 	$effect(() => {
 		api?.updateGridOptions({
-			rowData: data,
+			rowData: data.map((row) => {
+				const newRow: Record<string, any> = {}
+				for (const key in row) {
+					newRow[key] = typeof row[key] === 'string' ? row[key].trim() : JSON.stringify(row[key])
+				}
+				return newRow
+			}),
 			columnDefs
 		})
 	})
@@ -49,7 +56,7 @@
 <DarkModeObserver bind:darkMode />
 
 <div
-	class={'flex flex-col flex- h-full component-wrapper divide-y wm-aggrid-container'}
+	class={'flex flex-col flex- h-full component-wrapper divide-y wm-aggrid-container ' + className}
 	bind:clientHeight
 	bind:clientWidth
 >

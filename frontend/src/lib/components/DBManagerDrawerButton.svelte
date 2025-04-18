@@ -4,7 +4,7 @@
 	import Drawer from './common/drawer/Drawer.svelte'
 	import DrawerContent from './common/drawer/DrawerContent.svelte'
 	import { sendUserToast } from '$lib/utils'
-	import { Database, Expand, Loader2, Minimize, RefreshCcw } from 'lucide-svelte'
+	import { ArrowLeft, Database, Expand, Loader2, Minimize, RefreshCcw } from 'lucide-svelte'
 	import {
 		dbSupportsSchemas,
 		getDbSchemas,
@@ -86,13 +86,30 @@
 	let windowWidth = $state(window.innerWidth)
 
 	let replPanelSize = $state(0)
+
+	$effect(() => {
+		if (mode !== 'db-manager') {
+			replPanelSize = 0
+			replResultData = undefined
+		}
+	})
 	const openRepl = () => (replPanelSize = 32)
 	openRepl()
 
 	let replResultData: undefined | Record<string, any>[] = $state(undefined)
 </script>
 
-<svelte:window bind:innerWidth={windowWidth} />
+<svelte:window
+	bind:innerWidth={windowWidth}
+	onkeydown={(e) => {
+		if (e.key === 'Escape') {
+			console.log('Escape pressed')
+			if (replResultData) {
+				replResultData = undefined
+			}
+		}
+	}}
+/>
 
 {#if !dbSchema || !$workspaceStore}
 	<Loader2 size={14} class="animate-spin" />
@@ -119,25 +136,43 @@
 				'schema-explorer': '500px'
 			} satisfies Record<typeof mode, `${number}px`>
 		)[mode]}
+		preventEscape
 	>
 		<DrawerContent
-			title={(
-				{
-					'db-manager': 'Database Manager',
-					'schema-explorer': 'Schema Explorer'
-				} satisfies Record<typeof mode, string>
-			)[mode]}
-			on:close={() => (isDrawerOpen = false)}
+			title={replResultData
+				? 'Query Result'
+				: (
+						{
+							'db-manager': 'Database Manager',
+							'schema-explorer': 'Schema Explorer'
+						} satisfies Record<typeof mode, string>
+					)[mode]}
+			on:close={() => {
+				if (replResultData) {
+					replResultData = undefined
+				} else {
+					isDrawerOpen = false
+				}
+			}}
+			CloseIcon={replResultData ? ArrowLeft : undefined}
 			noPadding={mode === 'db-manager'}
 		>
 			<Splitpanes horizontal>
 				<Pane class="relative">
+					<div
+						class={'absolute inset-0 z-10 p-12 ' +
+							(replResultData
+								? 'bg-white/90'
+								: 'transition-colors bg-transparent pointer-events-none select-none')}
+					>
+						{#if replResultData}
+							<SimpleAgTable data={replResultData} class="animate-zoom-in" />
+						{/if}
+					</div>
 					{#if refreshing}
 						<div class="h-full flex justify-center items-center">
 							<Loader2 size={24} class="animate-spin" />
 						</div>
-					{:else if replResultData}
-						<SimpleAgTable data={replResultData} />
 					{:else if mode === 'db-manager'}
 						<DbManager
 							dbSupportsSchemas={dbSupportsSchemas(resourceType)}
@@ -207,7 +242,7 @@
 				</Pane>
 			</Splitpanes>
 			<svelte:fragment slot="actions">
-				{#if !replPanelSize}
+				{#if !replPanelSize && mode === 'db-manager'}
 					<Button
 						btnClasses="!font-normal hover:text-primary text-primary/70"
 						size="xs"
