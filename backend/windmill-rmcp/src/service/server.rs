@@ -60,7 +60,7 @@ impl<S: Service<RoleServer>> ServiceExt<RoleServer> for S {
         ct: CancellationToken,
     ) -> impl Future<Output = Result<RunningService<RoleServer, Self>, E>> + Send
     where
-        T: IntoTransport<RoleServer, E, A> + ProvidesConnectionToken,
+        T: IntoTransport<RoleServer, E, A> + ProvidesAxiumExtensions,
         E: std::error::Error + From<std::io::Error> + Send + Sync + 'static,
         Self: Sized,
     {
@@ -74,7 +74,7 @@ pub async fn serve_server<S, T, E, A>(
 ) -> Result<RunningService<RoleServer, S>, E>
 where
     S: Service<RoleServer>,
-    T: IntoTransport<RoleServer, E, A> + ProvidesConnectionToken,
+    T: IntoTransport<RoleServer, E, A> + ProvidesAxiumExtensions,
     E: std::error::Error + From<std::io::Error> + Send + Sync + 'static,
 {
     serve_server_with_ct(service, transport, CancellationToken::new()).await
@@ -129,7 +129,7 @@ pub async fn serve_server_with_ct<S, T, E, A>(
 ) -> Result<RunningService<RoleServer, S>, E>
 where
     S: Service<RoleServer>,
-    T: IntoTransport<RoleServer, E, A> + ProvidesConnectionToken,
+    T: IntoTransport<RoleServer, E, A> + ProvidesAxiumExtensions,
     E: std::error::Error + From<std::io::Error> + Send + Sync + 'static,
 {
     let req_extensions = transport.get_extensions().clone();

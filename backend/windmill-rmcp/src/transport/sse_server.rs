@@ -204,8 +204,7 @@ pub struct SseServerTransport {
     workspace_id: String,
 }
 
-// --- Add this trait ---
-impl crate::service::ProvidesConnectionToken for SseServerTransport {
+impl crate::service::ProvidesAxiumExtensions for SseServerTransport {
     fn get_extensions(&self) -> &Extensions {
         &self.req_extensions
     }

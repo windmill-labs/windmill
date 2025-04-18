@@ -34,7 +34,7 @@ sqs_trigger = ["dep:aws-sdk-sqs", "dep:thiserror", "dep:aws-config"]
 cloud = ["windmill-common/cloud"]
 
 [dependencies]
-rmcp = { path = "../windmill-rmcp", features = ["transport-sse-server"] }
+rmcp = { git = "https://github.com/windmill-labs/rust-sdk", features = ["transport-sse-server"] }
 windmill-queue.workspace = true
 windmill-common = { workspace = true, default-features = false }
 windmill-audit.workspace = true

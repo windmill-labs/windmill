@@ -88,13 +88,10 @@ impl Runner {
         let workspace_settings = self
             .get_settings(user_db, authed, workspace_id.clone())
             .await?;
-        tracing::info!("workspace_settings: {:#?}", workspace_settings);
         let favorite_only = workspace_settings
             .ai_config
             .and_then(|ai_config| ai_config.0.mcp_favorite_only)
             .unwrap_or(true); // Default to true if not defined
-
-        tracing::info!("favorite_only: {}", favorite_only);
 
         let mut sqlb = SqlBuilder::select_from("script as o");
         sqlb.fields(&["o.path", "o.summary", "o.description", "o.schema"]);
@@ -111,7 +108,6 @@ impl Runner {
         }
         sqlb.and_where("o.workspace_id = ?".bind(&workspace_id))
             .and_where("o.archived = false")
-            .and_where("o.draft_only = false")
             .order_by("o.created_at", false)
             .limit(100);
         let sql = sqlb.sql().map_err(|_e| {

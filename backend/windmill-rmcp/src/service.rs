@@ -14,7 +14,7 @@ use crate::{
 
 use axum::http::Extensions as AxumExtensions;
 
-pub trait ProvidesConnectionToken {
+pub trait ProvidesAxiumExtensions {
     fn get_extensions(&self) -> &AxumExtensions;
     fn get_workspace_id(&self) -> String;
 }
@@ -117,7 +117,7 @@ pub trait ServiceExt<R: ServiceRole>: Service<R> + Sized {
         transport: T,
     ) -> impl Future<Output = Result<RunningService<R, Self>, E>> + Send
     where
-        T: IntoTransport<R, E, A> + ProvidesConnectionToken,
+        T: IntoTransport<R, E, A> + ProvidesAxiumExtensions,
         E: std::error::Error + From<std::io::Error> + Send + Sync + 'static,
         Self: Sized,
     {
@@ -129,7 +129,7 @@ pub trait ServiceExt<R: ServiceRole>: Service<R> + Sized {
         ct: CancellationToken,
     ) -> impl Future<Output = Result<RunningService<R, Self>, E>> + Send
     where
-        T: IntoTransport<R, E, A> + ProvidesConnectionToken,
+        T: IntoTransport<R, E, A> + ProvidesAxiumExtensions,
         E: std::error::Error + From<std::io::Error> + Send + Sync + 'static,
         Self: Sized;
 }
@@ -479,7 +479,7 @@ pub async fn serve_directly<R, S, T, E, A>(
 where
     R: ServiceRole,
     S: Service<R>,
-    T: IntoTransport<R, E, A> + ProvidesConnectionToken,
+    T: IntoTransport<R, E, A> + ProvidesAxiumExtensions,
     E: std::error::Error + Send + Sync + 'static,
 {
     serve_directly_with_ct(service, transport, peer_info, Default::default()).await
@@ -495,7 +495,7 @@ pub async fn serve_directly_with_ct<R, S, T, E, A>(
 where
     R: ServiceRole,
     S: Service<R>,
-    T: IntoTransport<R, E, A> + ProvidesConnectionToken,
+    T: IntoTransport<R, E, A> + ProvidesAxiumExtensions,
     E: std::error::Error + Send + Sync + 'static,
 {
     let (peer, peer_rx) = Peer::new(Arc::new(AtomicU32RequestIdProvider::default()), peer_info);
