@@ -19,6 +19,9 @@
 	import { makeCreateTableQuery } from './apps/components/display/dbtable/queries/createTable'
 	import { runPreviewJobAndPollResult } from './jobs/utils'
 	import { type ScriptLang } from '$lib/gen'
+	import { Pane, Splitpanes } from 'svelte-splitpanes'
+	import PanelSection from './apps/editor/settingsPanel/common/PanelSection.svelte'
+	import HideButton from './apps/editor/settingsPanel/HideButton.svelte'
 
 	type Props = {
 		resourceType: DbType
@@ -80,6 +83,10 @@
 	})
 
 	let windowWidth = $state(window.innerWidth)
+
+	let replPanelSize = $state(0)
+	const openRepl = () => (replPanelSize = 32)
+	openRepl()
 </script>
 
 <svelte:window bind:innerWidth={windowWidth} />
@@ -120,59 +127,85 @@
 			on:close={() => (isDrawerOpen = false)}
 			noPadding={mode === 'db-manager'}
 		>
-			{#if refreshing}
-				<div class="h-full flex justify-center items-center">
-					<Loader2 size={24} class="animate-spin" />
-				</div>
-			{:else if mode === 'db-manager'}
-				<DbManager
-					dbSupportsSchemas={dbSupportsSchemas(resourceType)}
-					{dbSchema}
-					getColDefs={async (tableKey) =>
-						(await loadTableMetaData(
-							'$res:' + resourcePath,
-							$workspaceStore,
-							tableKey,
-							resourceType
-						)) ?? []}
-					dbTableOpsFactory={({ colDefs, tableKey }) =>
-						dbTableOpsWithPreviewScripts({
-							colDefs,
-							tableKey,
-							resourcePath,
-							resourceType,
-							workspace: $workspaceStore
-						})}
-					dbTableActionsFactory={[
-						dbDeleteTableActionWithPreviewScript({
-							resourcePath,
-							resourceType,
-							workspace: $workspaceStore
-						})
-					]}
-					refresh={() => {
-						refreshing = true
-					}}
-					dbTableEditorPropsFactory={({ selectedSchemaKey }) => ({
-						resourceType,
-						previewSql: (values) => makeCreateTableQuery(values, resourceType, selectedSchemaKey),
-						async onConfirm(values) {
-							await runPreviewJobAndPollResult({
-								workspace: $workspaceStore,
-								requestBody: {
-									args: { database: '$res:' + resourcePath },
-									content: makeCreateTableQuery(values, resourceType, selectedSchemaKey),
-									language: resourceType as ScriptLang
+			<Splitpanes horizontal>
+				<Pane>
+					{#if refreshing}
+						<div class="h-full flex justify-center items-center">
+							<Loader2 size={24} class="animate-spin" />
+						</div>
+					{:else if mode === 'db-manager'}
+						<DbManager
+							dbSupportsSchemas={dbSupportsSchemas(resourceType)}
+							{dbSchema}
+							getColDefs={async (tableKey) =>
+								(await loadTableMetaData(
+									'$res:' + resourcePath,
+									$workspaceStore,
+									tableKey,
+									resourceType
+								)) ?? []}
+							dbTableOpsFactory={({ colDefs, tableKey }) =>
+								dbTableOpsWithPreviewScripts({
+									colDefs,
+									tableKey,
+									resourcePath,
+									resourceType,
+									workspace: $workspaceStore
+								})}
+							dbTableActionsFactory={[
+								dbDeleteTableActionWithPreviewScript({
+									resourcePath,
+									resourceType,
+									workspace: $workspaceStore
+								})
+							]}
+							refresh={() => {
+								refreshing = true
+							}}
+							dbTableEditorPropsFactory={({ selectedSchemaKey }) => ({
+								resourceType,
+								previewSql: (values) =>
+									makeCreateTableQuery(values, resourceType, selectedSchemaKey),
+								async onConfirm(values) {
+									await runPreviewJobAndPollResult({
+										workspace: $workspaceStore,
+										requestBody: {
+											args: { database: '$res:' + resourcePath },
+											content: makeCreateTableQuery(values, resourceType, selectedSchemaKey),
+											language: resourceType as ScriptLang
+										}
+									})
+									refreshing = true
 								}
-							})
-							refreshing = true
-						}
-					})}
-				/>
-			{:else if mode === 'schema-explorer'}
-				<DbSchemaExplorer {dbSchema} />
-			{/if}
+							})}
+						/>
+					{:else if mode === 'schema-explorer'}
+						<DbSchemaExplorer {dbSchema} />
+					{/if}
+				</Pane>
+				<Pane bind:size={replPanelSize}>
+					<PanelSection title="SQL Repl" class="bg-surface-secondary">
+						{#snippet action()}
+							<HideButton
+								btnClasses="text-primary"
+								direction="bottom"
+								on:click={() => (replPanelSize = 0)}
+							/>
+						{/snippet}
+					</PanelSection>
+				</Pane>
+			</Splitpanes>
 			<svelte:fragment slot="actions">
+				{#if !replPanelSize}
+					<Button
+						btnClasses="!font-normal hover:text-primary text-primary/70"
+						size="xs"
+						color="light"
+						on:click={openRepl}
+					>
+						SQL Repl
+					</Button>
+				{/if}
 				<Button
 					btnClasses="!font-normal hover:text-primary text-primary/70"
 					size="xs"
