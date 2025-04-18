@@ -95,26 +95,21 @@ impl Runner {
 
         let mut sqlb = SqlBuilder::select_from("script as o");
         sqlb.fields(&["o.path", "o.summary", "o.description", "o.schema"]);
-        tracing::info!("authed: {:#?}", authed);
 
         if favorite_only {
             sqlb.join("favorite")
                 .on("favorite.favorite_kind = 'script' AND favorite.workspace_id = o.workspace_id AND favorite.path = o.path AND favorite.usr = ?"
                     .bind(&authed.username));
-            tracing::debug!(
-                "Executing favorite scripts query with username: {}",
-                &authed.username
-            );
         }
         sqlb.and_where("o.workspace_id = ?".bind(&workspace_id))
             .and_where("o.archived = false")
+            .and_where("o.draft_only IS NOT TRUE")
             .order_by("o.created_at", false)
             .limit(100);
         let sql = sqlb.sql().map_err(|_e| {
             tracing::error!("failed to build sql: {}", _e);
             Error::internal_error("failed to build sql", None)
         })?;
-        tracing::debug!("Generated SQL: {}", sql);
         let mut tx = user_db
             .clone()
             .begin(authed)
@@ -127,7 +122,6 @@ impl Runner {
                 tracing::error!("Failed to fetch scripts: {}", _e);
                 Error::internal_error("failed to fetch scripts", None)
             })?;
-        tracing::debug!("Fetched {} script rows", rows.len());
         tx.commit()
             .await
             .map_err(|_e| Error::internal_error("failed to commit transaction", None))?;
@@ -141,8 +135,6 @@ impl ServerHandler for Runner {
         request: CallToolRequestParam,
         context: RequestContext<RoleServer>,
     ) -> Result<CallToolResult, Error> {
-        tracing::debug!("Handling call_tool request: {}", request.name);
-
         let parse_args = |args_opt: Option<JsonObject>| -> Result<Value, Error> {
             args_opt.map(Value::Object).ok_or_else(|| {
                 Error::invalid_params(
@@ -243,7 +235,6 @@ impl ServerHandler for Runner {
         _request: Option<PaginatedRequestParam>,
         _context: RequestContext<RoleServer>,
     ) -> Result<ListToolsResult, Error> {
-        tracing::info!("Handling list_tools request");
         let workspace_id = _context.workspace_id;
         let user_db = _context
             .req_extensions
@@ -307,7 +298,6 @@ impl ServerHandler for Runner {
     }
 
     fn get_info(&self) -> ServerInfo {
-        tracing::debug!("Handling get_info request");
         ServerInfo {
             protocol_version: Default::default(),
             capabilities: ServerCapabilities::builder()
@@ -324,7 +314,6 @@ impl ServerHandler for Runner {
         _request: InitializeRequestParam,
         _context: RequestContext<RoleServer>,
     ) -> Result<InitializeResult, Error> {
-        tracing::info!("initialize called");
         Ok(self.get_info())
     }
 
@@ -350,22 +339,6 @@ impl ServerHandler for Runner {
         _context: RequestContext<RoleServer>,
     ) -> Result<ListResourceTemplatesResult, Error> {
         Ok(ListResourceTemplatesResult::default())
-    }
-
-    async fn on_cancelled(&self, _params: CancelledNotificationParam) {
-        tracing::debug!("on_cancelled notification received");
-    }
-
-    async fn on_progress(&self, _params: ProgressNotificationParam) {
-        tracing::debug!("on_progress notification received");
-    }
-
-    async fn on_initialized(&self) {
-        tracing::debug!("on_initialized notification received");
-    }
-
-    async fn on_roots_list_changed(&self) {
-        tracing::debug!("on_roots_list_changed notification received");
     }
 }
 
