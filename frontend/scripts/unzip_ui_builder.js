@@ -24,33 +24,36 @@ if (isRootInstall) {
 	process.exit(0)
 }
 
+const directory = await unzipper.Open.file(outputZipPath)
+await directory.extract({ path: extractTo })
+
 // Download zip
-https
-	.get(zipUrl, (res) => {
-		if (res.statusCode !== 200) {
-			console.error(`Failed to download zip. Status code: ${res.statusCode}`)
-			return
-		}
+// https
+// 	.get(zipUrl, (res) => {
+// 		if (res.statusCode !== 200) {
+// 			console.error(`Failed to download zip. Status code: ${res.statusCode}`)
+// 			return
+// 		}
 
-		const fileStream = fs.createWriteStream(outputZipPath)
-		res.pipe(fileStream)
+// 		const fileStream = fs.createWriteStream(outputZipPath)
+// 		res.pipe(fileStream)
 
-		fileStream.on('finish', () => {
-			fileStream.close(() => {
-				console.log('Download complete. Extracting...')
+// 		fileStream.on('finish', () => {
+// 			fileStream.close(() => {
+// 				console.log('Download complete. Extracting...')
 
-				fs.createReadStream(outputZipPath)
-					.pipe(unzipper.Extract({ path: extractTo }))
-					.on('close', () => {
-						console.log(`Extraction complete to ${extractTo}`)
-						fs.unlinkSync(outputZipPath) // optional cleanup
-					})
-					.on('error', (err) => {
-						console.error('Error during extraction:', err)
-					})
-			})
-		})
-	})
-	.on('error', (err) => {
-		console.error('Download error:', err)
-	})
+// 				fs.createReadStream(outputZipPath)
+// 					.pipe(unzipper.Extract({ path: extractTo }))
+// 					.on('close', () => {
+// 						console.log(`Extraction complete to ${extractTo}`)
+// 						fs.unlinkSync(outputZipPath) // optional cleanup
+// 					})
+// 					.on('error', (err) => {
+// 						console.error('Error during extraction:', err)
+// 					})
+// 			})
+// 		})
+// 	})
+// 	.on('error', (err) => {
+// 		console.error('Download error:', err)
+// 	})
