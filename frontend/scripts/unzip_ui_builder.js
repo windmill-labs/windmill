@@ -1,5 +1,6 @@
 import unzipper from 'unzipper'
 import path from 'path'
+import fs from 'fs'
 
 const outputZipPath = path.join(process.cwd(), 'ui_builder.zip')
 const extractTo = path.join(process.cwd(), 'static/ui_builder')
