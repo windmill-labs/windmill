@@ -308,6 +308,10 @@ pub struct AIConfig {
     pub default_model: Option<ProviderModel>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub code_completion_model: Option<ProviderModel>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mcp_favorite_only: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mcp_folder: Option<String>,
 }
 
 pub fn global_service() -> Router {

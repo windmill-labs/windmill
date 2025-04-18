@@ -748,6 +748,8 @@ async fn get_copilot_info(
             providers: None,
             default_model: None,
             code_completion_model: None,
+            mcp_favorite_only: None,
+            mcp_folder: None,
         }))
     }
 }

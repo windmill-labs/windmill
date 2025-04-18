@@ -115,6 +115,7 @@
 	let aiProviders: Exclude<AIConfig['providers'], undefined> = {}
 	let codeCompletionModel: string | undefined = undefined
 	let defaultModel: string | undefined = undefined
+	let mcp_favorite_only: boolean | undefined = undefined
 
 	let s3ResourceSettings: S3ResourceSettings = {
 		resourceType: 's3',
@@ -393,6 +394,7 @@
 		aiProviders = settings.ai_config?.providers ?? {}
 		defaultModel = settings.ai_config?.default_model?.model
 		codeCompletionModel = settings.ai_config?.code_completion_model?.model
+		mcp_favorite_only = settings.ai_config?.mcp_favorite_only
 
 		errorHandlerItemKind = settings.error_handler?.split('/')[0] as 'flow' | 'script'
 		errorHandlerScriptPath = (settings.error_handler ?? '').split('/').slice(1).join('/')
@@ -1014,6 +1016,7 @@
 				{codeCompletionModel}
 				{defaultModel}
 				{usingOpenaiClientCredentialsOauth}
+				{mcp_favorite_only}
 			/>
 		{:else if tab == 'windmill_lfs'}
 			<div class="flex flex-col gap-4 my-8">

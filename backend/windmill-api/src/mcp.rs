@@ -9,11 +9,10 @@ use rmcp::transport::sse_server::{SseServer, SseServerConfig};
 use rmcp::{
     handler::server::ServerHandler,
     model::*,
-    schemars::{self, JsonSchema},
     service::{RequestContext, RoleServer},
     Error,
 };
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use serde_json::Value;
 use sql_builder::prelude::*;
 use sqlx::FromRow;
@@ -22,6 +21,7 @@ use windmill_common::db::UserDB;
 use windmill_common::worker::to_raw_value;
 use windmill_common::DB;
 
+use crate::ai::AIConfig;
 use crate::db::ApiAuthed;
 use crate::jobs::{run_wait_result_script_by_path_internal, RunJobQuery};
 use windmill_common::utils::StripPath;
@@ -37,6 +37,11 @@ struct ScriptInfo {
     schema: Option<Value>,
 }
 
+#[derive(Serialize, FromRow)]
+struct WorkspaceSettings {
+    ai_config: Option<sqlx::types::Json<AIConfig>>,
+}
+
 impl Runner {
     pub fn new() -> Self {
         Self {}
@@ -46,35 +51,84 @@ impl Runner {
         RawResource::new(uri, name.to_string()).no_annotation()
     }
 
+    async fn get_settings(
+        &self,
+        user_db: &UserDB,
+        authed: &ApiAuthed,
+        workspace_id: String,
+    ) -> Result<WorkspaceSettings, Error> {
+        let mut tx = user_db
+            .clone()
+            .begin(authed)
+            .await
+            .map_err(|e| Error::internal_error(format!("getting settings: {e:#}"), None))?;
+        let settings = sqlx::query_as::<_, WorkspaceSettings>(
+            "SELECT ai_config FROM workspace_settings WHERE workspace_id = ?",
+        )
+        .bind(&workspace_id)
+        .fetch_one(&mut *tx)
+        .await
+        .map_err(|e| Error::internal_error(format!("getting settings: {e:#}"), None))?;
+        tx.commit()
+            .await
+            .map_err(|e| Error::internal_error(format!("getting settings: {e:#}"), None))?;
+        Ok(settings)
+    }
+
     async fn inner_get_scripts(
         &self,
         user_db: &UserDB,
         authed: &ApiAuthed,
         workspace_id: String,
     ) -> Result<Vec<ScriptInfo>, Error> {
-        let workspace_condition = "workspace_id = ?".bind(&workspace_id);
-        let sqlb = SqlBuilder::select_from("script")
-            .fields(&["path", "summary", "description", "schema"])
-            .and_where(workspace_condition)
-            .and_where("archived = false")
-            .order_by("created_at", false)
-            .limit(100)
+        let workspace_settings = self
+            .get_settings(user_db, authed, workspace_id.clone())
+            .await?;
+        let favorite_only = workspace_settings
+            .ai_config
+            .and_then(|ai_config| ai_config.mcp_favorite_only)
+            .unwrap_or(true); // Default to true if not defined
+
+        tracing::info!("favorite_only: {}", favorite_only);
+
+        let mut sqlb = SqlBuilder::select_from("script as o")
+            .fields(&["o.path", "o.summary", "o.description", "o.schema"])
             .clone();
+
+        if favorite_only {
+            // Join with favorites table to filter only favorite scripts
+            sqlb.join("favorite")
+                .on(
+                    "favorite.favorite_kind = 'script' AND favorite.workspace_id = o.workspace_id AND favorite.path = o.path AND favorite.usr = ?"
+                        .bind(&authed.username),
+                );
+        }
+
+        sqlb.and_where("o.workspace_id = ?".bind(&workspace_id))
+            .and_where("o.archived = false")
+            .and_where("o.draft_only = false")
+            .order_by("o.created_at", false)
+            .limit(100);
+
         let sql = sqlb
             .sql()
             .map_err(|_e| Error::internal_error("failed to build sql", None))?;
+
         let mut tx = user_db
             .clone()
             .begin(authed)
             .await
             .map_err(|_e| Error::internal_error("failed to begin transaction", None))?;
+
         let rows = sqlx::query_as::<_, ScriptInfo>(&sql)
             .fetch_all(&mut *tx)
             .await
             .map_err(|_e| Error::internal_error("failed to fetch scripts", None))?;
+
         tx.commit()
             .await
             .map_err(|_e| Error::internal_error("failed to commit transaction", None))?;
+
         Ok(rows)
     }
 }
