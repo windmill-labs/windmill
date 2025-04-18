@@ -22,6 +22,7 @@
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import HideButton from './apps/editor/settingsPanel/HideButton.svelte'
 	import SqlRepl from './SqlRepl.svelte'
+	import SimpleAgTable from './SimpleAgTable.svelte'
 
 	type Props = {
 		resourceType: DbType
@@ -87,6 +88,8 @@
 	let replPanelSize = $state(0)
 	const openRepl = () => (replPanelSize = 32)
 	openRepl()
+
+	let replResultData: undefined | Record<string, any>[] = $state(undefined)
 </script>
 
 <svelte:window bind:innerWidth={windowWidth} />
@@ -128,11 +131,13 @@
 			noPadding={mode === 'db-manager'}
 		>
 			<Splitpanes horizontal>
-				<Pane>
+				<Pane class="relative">
 					{#if refreshing}
 						<div class="h-full flex justify-center items-center">
 							<Loader2 size={24} class="animate-spin" />
 						</div>
+					{:else if replResultData}
+						<SimpleAgTable data={replResultData} />
 					{:else if mode === 'db-manager'}
 						<DbManager
 							dbSupportsSchemas={dbSupportsSchemas(resourceType)}
@@ -192,7 +197,13 @@
 							on:click={() => (replPanelSize = 0)}
 						/>
 					</div>
-					<SqlRepl {resourcePath} {resourceType} />
+					<SqlRepl
+						{resourcePath}
+						{resourceType}
+						onData={(data) => {
+							replResultData = data
+						}}
+					/>
 				</Pane>
 			</Splitpanes>
 			<svelte:fragment slot="actions">
