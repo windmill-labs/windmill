@@ -23,7 +23,9 @@ use windmill_common::DB;
 
 use crate::ai::AIConfig;
 use crate::db::ApiAuthed;
-use crate::jobs::{run_wait_result_script_by_path_internal, RunJobQuery};
+use crate::jobs::{
+    run_wait_result_flow_by_path_internal, run_wait_result_script_by_path_internal, RunJobQuery,
+};
 use windmill_common::utils::StripPath;
 
 #[derive(Clone)]
@@ -136,16 +138,17 @@ impl Runner {
 
 fn generate_tool_name(summary: Option<String>, path: &str, last_path: Option<String>) -> String {
     match summary {
+        // if summary exist and is not empty, use it
         Some(summary) if !summary.is_empty() => {
             let parts: Vec<&str> = summary.split_whitespace().collect();
             parts.join("_")
         }
         _ => {
-            // Determine the name based on whether the path is duplicated
+            // if path is duplicated, use the full path
             if last_path == Some(path.to_string()) {
                 path.replace('/', "_")
             } else {
-                // get last part of script after last /
+                // if path is not duplicated, use the last part of the path
                 path.split('/').last().unwrap_or(path).to_string()
             }
         }
@@ -191,9 +194,21 @@ impl ServerHandler for Runner {
             }
         });
 
-        // Handle the case where the tool was not found
-        let owned_path = match path {
-            Some(cow_path) => cow_path, // Convert Cow -> String
+        let (tool_type, path) = match path {
+            Some(path) => {
+                let split = path.split(":").collect::<Vec<&str>>();
+                if split.len() == 2 {
+                    (split[0].to_string(), split[1].to_string())
+                } else {
+                    return Err(Error::invalid_params(
+                        format!(
+                            "Tool with name '{}' not found or title mismatch",
+                            request.name
+                        ),
+                        Some(request.name.into()),
+                    ));
+                }
+            }
             None => {
                 return Err(Error::invalid_params(
                     format!(
@@ -217,20 +232,34 @@ impl ServerHandler for Runner {
         };
 
         let w_id = context.workspace_id.clone();
-        let script_path = StripPath(owned_path); // Use the owned String path
-        let run_query = RunJobQuery::default(); // This assumes RunJobQuery has a default implementation
+        let script_or_flow_path = StripPath(path);
+        let run_query = RunJobQuery::default();
 
-        let result = run_wait_result_script_by_path_internal(
-            db,
-            run_query,
-            script_path,
-            authed,
-            user_db,
-            w_id,
-            push_args,
-            None,
-        )
-        .await;
+        let result = if tool_type == "script" {
+            run_wait_result_script_by_path_internal(
+                db,
+                run_query,
+                script_or_flow_path,
+                authed,
+                user_db,
+                w_id,
+                push_args,
+                None,
+            )
+            .await
+        } else {
+            run_wait_result_flow_by_path_internal(
+                db,
+                run_query,
+                script_or_flow_path,
+                authed,
+                user_db,
+                push_args,
+                w_id,
+                None,
+            )
+            .await
+        };
 
         match result {
             Ok(response) => {
@@ -290,7 +319,10 @@ impl ServerHandler for Runner {
                             }
                         })
                         .unwrap_or_default(),
-                    annotations: Some(ToolAnnotations::with_title(script.path)),
+                    annotations: Some(ToolAnnotations::with_title(format!(
+                        "script:{}",
+                        script.path
+                    ))),
                 }
             })
             .collect();
@@ -315,7 +347,7 @@ impl ServerHandler for Runner {
                             }
                         })
                         .unwrap_or_default(),
-                    annotations: Some(ToolAnnotations::with_title(flow.path)),
+                    annotations: Some(ToolAnnotations::with_title(format!("flow:{}", flow.path))),
                 }
             })
             .collect();
