@@ -11,8 +11,6 @@
 	import Toggle from '../Toggle.svelte'
 	import ArgEnum from '../ArgEnum.svelte'
 	import Button from '../common/button/Button.svelte'
-	import ToggleButtonGroup from '../common/toggleButton-v2/ToggleButtonGroup.svelte'
-	import ToggleButton from '../common/toggleButton-v2/ToggleButton.svelte'
 
 	const aiProviderLabels: [AIProvider, string][] = [
 		['openai', 'OpenAI'],
@@ -31,14 +29,12 @@
 		aiProviders = $bindable(),
 		codeCompletionModel = $bindable(),
 		defaultModel = $bindable(),
-		usingOpenaiClientCredentialsOauth = $bindable(),
-		mcp_favorite_only = $bindable()
+		usingOpenaiClientCredentialsOauth = $bindable()
 	}: {
 		aiProviders: Exclude<AIConfig['providers'], undefined>
 		codeCompletionModel: string | undefined
 		defaultModel: string | undefined
 		usingOpenaiClientCredentialsOauth: boolean
-		mcp_favorite_only: boolean | undefined
 	} = $props()
 
 	let availableAIModels = $derived(Object.values(aiProviders).flatMap((p) => p.models))
@@ -69,8 +65,7 @@
 				requestBody: {
 					providers: aiProviders,
 					code_completion_model,
-					default_model,
-					mcp_favorite_only: mcp_favorite_only === undefined || mcp_favorite_only === true
+					default_model
 				}
 			})
 			setCopilotInfo({
@@ -99,33 +94,6 @@
 </div>
 
 <div class="flex flex-col gap-8">
-	<div class="flex flex-col gap-2">
-		<p class="font-semibold">MCP</p>
-		<Description>Configure which scripts are available to MCP.</Description>
-		<ToggleButtonGroup
-			selected={mcp_favorite_only === undefined || mcp_favorite_only === true ? 'favorites' : 'all'}
-			on:selected={async (e) => {
-				mcp_favorite_only = e.detail === 'favorites'
-			}}
-			let:item
-		>
-			<ToggleButton
-				value={'favorites'}
-				size="xs"
-				label="Favorites"
-				{item}
-				tooltip="Only make scripts you have favorited available to MCP"
-			/>
-			<ToggleButton
-				value={'all'}
-				size="xs"
-				label="All"
-				{item}
-				tooltip="Make all scripts in the workspace available to MCP"
-			/>
-		</ToggleButtonGroup>
-	</div>
-
 	<div class="flex flex-col gap-2">
 		<p class="font-semibold">AI Providers</p>
 		<div class="flex flex-col gap-4">
