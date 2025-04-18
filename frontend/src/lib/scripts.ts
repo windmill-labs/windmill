@@ -47,7 +47,7 @@ export function scriptLangToEditorLang(
 		return 'nu'
 	} else if (lang == 'java') {
 		return 'java'
-		// for related places search: ADD_NEW_LANG 
+		// for related places search: ADD_NEW_LANG
 	} else if (lang == undefined) {
 		return 'typescript'
 	} else {
@@ -130,7 +130,7 @@ const scriptLanguagesArray: [SupportedLanguage | 'docker' | 'bunnative', string]
 	['docker', 'Docker'],
 	['nu', 'Nu'],
 	['java', 'Java']
-	// for related places search: ADD_NEW_LANG 
+	// for related places search: ADD_NEW_LANG
 ]
 export function processLangs(selected: string | undefined, langs: string[]): string[] {
 	if (selected === 'nativets') {
@@ -140,7 +140,7 @@ export function processLangs(selected: string | undefined, langs: string[]): str
 
 		//those languages are newer and may not be in the saved list
 		let nl = ['bunnative', 'rust', 'ansible', 'csharp', 'nu', 'java']
-		// for related places search: ADD_NEW_LANG 
+		// for related places search: ADD_NEW_LANG
 		nl.forEach((lang) => {
 			if (!ls.includes(lang)) {
 				ls.push(lang)
@@ -162,6 +162,7 @@ export async function getScriptByPath(path: string): Promise<{
 	concurrency_time_window_s: number | undefined
 	lock?: string
 	created_at?: string
+	hash?: string
 }> {
 	if (path.startsWith('hub/')) {
 		const { content, language, schema, lockfile } = await ScriptService.getHubScriptByPath({ path })
@@ -190,6 +191,7 @@ export async function getScriptByPath(path: string): Promise<{
 			concurrent_limit: script.concurrent_limit,
 			concurrency_time_window_s: script.concurrency_time_window_s,
 			lock: script.lock,
+			hash: script.hash,
 			created_at: script.created_at
 		}
 	}

@@ -21,6 +21,9 @@ use crate::gcp_triggers_ee::{
     manage_google_subscription, process_google_push_request, validate_jwt_token, SubscriptionMode,
 };
 
+#[cfg(all(feature = "enterprise", feature = "sqs_trigger"))]
+use windmill_common::auth::aws::AwsAuthResourceType;
+
 #[cfg(any(
     feature = "http_trigger",
     all(feature = "enterprise", feature = "gcp_trigger")
@@ -150,6 +153,7 @@ pub struct SqsTriggerConfig {
     pub queue_url: String,
     pub aws_resource_path: String,
     pub message_attributes: Option<Vec<String>>,
+    pub aws_auth_resource_type: AwsAuthResourceType,
 }
 
 #[cfg(all(feature = "enterprise", feature = "gcp_trigger"))]
