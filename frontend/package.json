@@ -18,7 +18,7 @@
 		"filter-classes": "node filterTailwindClasses.js"
 	},
 	"devDependencies": {
-		"unzipper": "^0.10.11",
+		"tar": "^7.4.3",
 		"@floating-ui/core": "^1.3.1",
 		"@hey-api/openapi-ts": "^0.43.0",
 		"@melt-ui/pp": "^0.3.2",

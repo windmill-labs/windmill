@@ -1,9 +1,10 @@
-import unzipper from 'unzipper'
 import path from 'path'
 import fs from 'fs'
 
-const outputZipPath = path.join(process.cwd(), 'ui_builder.zip')
-const extractTo = path.join(process.cwd(), 'static/ui_builder')
+import { x } from 'tar'
+
+const outputTarPath = path.join(process.cwd(), 'ui_builder.tar.gz')
+const extractTo = path.join(process.cwd(), 'static/ui_builder/')
 
 import { fileURLToPath } from 'url'
 import { dirname, join } from 'path'
@@ -22,7 +23,20 @@ if (isRootInstall) {
 	process.exit(0)
 }
 
-const directory = await unzipper.Open.file(outputZipPath)
-await directory.extract({ path: extractTo })
+// Create extract directory if it doesn't exist
+try {
+	await fs.promises.mkdir(extractTo, { recursive: true })
+} catch (err) {
+	if (err.code !== 'EEXIST') {
+		throw err
+	}
+}
 
-await fs.promises.unlink(outputZipPath)
+await x({
+	file: outputTarPath,
+	cwd: extractTo,
+	sync: false,
+	gzip: true
+})
+
+await fs.promises.unlink(outputTarPath)
