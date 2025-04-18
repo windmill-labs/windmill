@@ -91,12 +91,12 @@
 	}
 </script>
 
-<Editor bind:code lang="sql" scriptLang="mysql" class="w-full h-full" />
+<Editor bind:code lang="sql" scriptLang="mysql" class="w-full h-full" cmdEnterAction={run} />
 <Button
 	wrapperClasses="absolute z-10 bottom-2 right-6"
-	color="dark"
+	color={isRunning ? 'red' : 'dark'}
 	shortCut={{ Icon: CornerDownLeft }}
 	on:click={run}
 >
-	Run query
+	{isRunning ? 'Running...' : 'Run'}
 </Button>
