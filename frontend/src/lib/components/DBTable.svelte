@@ -54,27 +54,29 @@
 			createGrid(eGui, {
 				rowModelType: 'infinite',
 				pagination: false,
-				defaultColDef: {
-					editable: true, // TODO: configurable
-					onCellValueChanged: (e) => {
-						if (!$workspaceStore) return
-						const colDef = e.colDef as unknown as { field: string; datatype: string }
-						dbTableOps
-							.onUpdate(
-								{ values: { ...(e.data as object), [colDef.field]: e.oldValue } },
-								colDef,
-								e.newValue
-							)
-							.then(() => {
-								sendUserToast('Value updated')
-								refreshCount += 1
-							})
-							.catch(() => {
-								sendUserToast('Error updating value', true)
-								refreshCount += 1
-							})
+				...(dbTableOps.onUpdate && {
+					defaultColDef: {
+						editable: true,
+						onCellValueChanged: (e) => {
+							if (!$workspaceStore) return
+							const colDef = e.colDef as unknown as { field: string; datatype: string }
+							dbTableOps
+								.onUpdate?.(
+									{ values: { ...(e.data as object), [colDef.field]: e.oldValue } },
+									colDef,
+									e.newValue
+								)
+								.then(() => {
+									sendUserToast('Value updated')
+									refreshCount += 1
+								})
+								.catch(() => {
+									sendUserToast('Error updating value', true)
+									refreshCount += 1
+								})
+						}
 					}
-				},
+				}),
 				onViewportChanged: (e) => ([firstRow, lastRow] = [e.firstRow, e.lastRow]),
 				infiniteInitialRowCount: 100,
 				cacheBlockSize: 100,
@@ -100,18 +102,20 @@
 			datasource,
 			columnDefs: transformColumnDefs({
 				columnDefs: dbTableOps.colDefs ?? [],
-				onDelete: (values) => {
-					if (!$workspaceStore) return
-					dbTableOps
-						.onDelete({ values })
-						.then((result) => {
-							refreshCount += 1
-							sendUserToast('Row deleted')
-						})
-						.catch(() => {
-							sendUserToast('Error deleting row', true)
-						})
-				}
+				...(dbTableOps.onDelete && {
+					onDelete: (values) => {
+						if (!$workspaceStore) return
+						dbTableOps
+							.onDelete?.({ values })
+							.then((result) => {
+								refreshCount += 1
+								sendUserToast('Row deleted')
+							})
+							.catch(() => {
+								sendUserToast('Error deleting row', true)
+							})
+					}
+				})
 			}),
 			context: {
 				quicksearch
@@ -130,18 +134,19 @@
 			bind:value={quicksearch}
 			placeholder="Search..."
 		/>
-
-		<InsertRowDrawerButton
-			columnDefs={dbTableOps.colDefs ?? []}
-			dbType={dbTableOps.resourceType}
-			onInsert={(values) => {
-				if (!$workspaceStore) return
-				dbTableOps.onInsert({ values }).then((result) => {
-					refreshCount += 1
-					sendUserToast('Row inserted')
-				})
-			}}
-		/>
+		{#if dbTableOps.onInsert}
+			<InsertRowDrawerButton
+				columnDefs={dbTableOps.colDefs ?? []}
+				dbType={dbTableOps.resourceType}
+				onInsert={(values) => {
+					if (!$workspaceStore) return
+					dbTableOps.onInsert?.({ values }).then((result) => {
+						refreshCount += 1
+						sendUserToast('Row inserted')
+					})
+				}}
+			/>
+		{/if}
 	</div>
 	<div
 		class={'flex flex-col flex-1 component-wrapper divide-y wm-aggrid-container'}

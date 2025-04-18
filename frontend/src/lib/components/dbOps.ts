@@ -26,13 +26,13 @@ export type IDbTableOps = {
 		is_desc: boolean
 	}) => Promise<unknown[]>
 	getCount: (params: { quicksearch: string }) => Promise<number>
-	onUpdate: (
+	onUpdate?: (
 		row: { values: object },
 		colDef: { field: string; datatype: string },
 		newValue: string
 	) => Promise<void>
-	onDelete: (row: { values: object }) => Promise<void>
-	onInsert: (row: { values: object }) => Promise<void>
+	onDelete?: (row: { values: object }) => Promise<void>
+	onInsert?: (row: { values: object }) => Promise<void>
 }
 
 export function dbTableOpsWithPreviewScripts({
