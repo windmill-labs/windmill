@@ -37,7 +37,7 @@ struct ScriptInfo {
     schema: Option<Value>,
 }
 
-#[derive(Serialize, FromRow)]
+#[derive(Serialize, FromRow, Debug)]
 struct WorkspaceSettings {
     ai_config: Option<sqlx::types::Json<AIConfig>>,
 }
@@ -63,15 +63,19 @@ impl Runner {
             .await
             .map_err(|e| Error::internal_error(format!("getting settings: {e:#}"), None))?;
         let settings = sqlx::query_as::<_, WorkspaceSettings>(
-            "SELECT ai_config FROM workspace_settings WHERE workspace_id = ?",
+            "SELECT ai_config FROM workspace_settings WHERE workspace_id = $1",
         )
         .bind(&workspace_id)
         .fetch_one(&mut *tx)
         .await
-        .map_err(|e| Error::internal_error(format!("getting settings: {e:#}"), None))?;
-        tx.commit()
-            .await
-            .map_err(|e| Error::internal_error(format!("getting settings: {e:#}"), None))?;
+        .map_err(|e| {
+            tracing::error!("getting settings: {e:#}");
+            Error::internal_error(format!("getting settings: {e:#}"), None)
+        })?;
+        tx.commit().await.map_err(|e| {
+            tracing::error!("getting settings: {e:#}");
+            Error::internal_error(format!("getting settings: {e:#}"), None)
+        })?;
         Ok(settings)
     }
 
@@ -84,51 +88,53 @@ impl Runner {
         let workspace_settings = self
             .get_settings(user_db, authed, workspace_id.clone())
             .await?;
+        tracing::info!("workspace_settings: {:#?}", workspace_settings);
         let favorite_only = workspace_settings
             .ai_config
-            .and_then(|ai_config| ai_config.mcp_favorite_only)
+            .and_then(|ai_config| ai_config.0.mcp_favorite_only)
             .unwrap_or(true); // Default to true if not defined
 
         tracing::info!("favorite_only: {}", favorite_only);
 
-        let mut sqlb = SqlBuilder::select_from("script as o")
-            .fields(&["o.path", "o.summary", "o.description", "o.schema"])
-            .clone();
+        let mut sqlb = SqlBuilder::select_from("script as o");
+        sqlb.fields(&["o.path", "o.summary", "o.description", "o.schema"]);
+        tracing::info!("authed: {:#?}", authed);
 
         if favorite_only {
-            // Join with favorites table to filter only favorite scripts
             sqlb.join("favorite")
-                .on(
-                    "favorite.favorite_kind = 'script' AND favorite.workspace_id = o.workspace_id AND favorite.path = o.path AND favorite.usr = ?"
-                        .bind(&authed.username),
-                );
+                .on("favorite.favorite_kind = 'script' AND favorite.workspace_id = o.workspace_id AND favorite.path = o.path AND favorite.usr = ?"
+                    .bind(&authed.username));
+            tracing::debug!(
+                "Executing favorite scripts query with username: {}",
+                &authed.username
+            );
         }
-
         sqlb.and_where("o.workspace_id = ?".bind(&workspace_id))
             .and_where("o.archived = false")
             .and_where("o.draft_only = false")
             .order_by("o.created_at", false)
             .limit(100);
-
-        let sql = sqlb
-            .sql()
-            .map_err(|_e| Error::internal_error("failed to build sql", None))?;
-
+        let sql = sqlb.sql().map_err(|_e| {
+            tracing::error!("failed to build sql: {}", _e);
+            Error::internal_error("failed to build sql", None)
+        })?;
+        tracing::debug!("Generated SQL: {}", sql);
         let mut tx = user_db
             .clone()
             .begin(authed)
             .await
             .map_err(|_e| Error::internal_error("failed to begin transaction", None))?;
-
         let rows = sqlx::query_as::<_, ScriptInfo>(&sql)
             .fetch_all(&mut *tx)
             .await
-            .map_err(|_e| Error::internal_error("failed to fetch scripts", None))?;
-
+            .map_err(|_e| {
+                tracing::error!("Failed to fetch scripts: {}", _e);
+                Error::internal_error("failed to fetch scripts", None)
+            })?;
+        tracing::debug!("Fetched {} script rows", rows.len());
         tx.commit()
             .await
             .map_err(|_e| Error::internal_error("failed to commit transaction", None))?;
-
         Ok(rows)
     }
 }
