@@ -253,8 +253,8 @@ mod zoom {
     use super::*;
 
     #[derive(Debug, Deserialize)]
-    #[serde(rename_all = "snake_case")]
     struct ZoomPayload {
+        #[serde(rename = "plainToken")]
         plain_token: String,
     }
 
