@@ -46,6 +46,8 @@
 	let customPathSchema: Record<string, any> = {}
 	let args: Record<string, any> = {}
 	let areArgsValid = true
+	let customWidth: null | number = 1200
+	let customHeight: null | number = null
 
 	$: customPath
 		? loadSchemaFromPath(customPath).then((schema) => {
@@ -57,9 +59,9 @@
 									([key, _]) => key !== 'screenshot' && key !== 'app_path' && key !== 'kind'
 								)
 							)
-					  }
+						}
 					: {}
-		  })
+			})
 		: (customPathSchema = {})
 
 	let isSlackConnectedWorkspace = false
@@ -101,18 +103,21 @@
 					? flow.value.modules[1].value.path === notificationScripts.email.path
 						? 'email'
 						: flow.value.modules[1].value.path === notificationScripts.slack.path
-						? 'slack'
-						: flow.value.modules[1].value.path === notificationScripts.discord.path
-						? 'discord'
-						: 'custom'
+							? 'slack'
+							: flow.value.modules[1].value.path === notificationScripts.discord.path
+								? 'discord'
+								: 'custom'
 					: 'custom'
+
+			if (schedule.args?.customWidth) customWidth = schedule.args?.customWidth as number
+			if (schedule.args?.customHeight) customHeight = schedule.args?.customHeight as number
 
 			const nargs = schedule.args
 				? Object.fromEntries(
 						Object.entries(schedule.args).filter(
 							([key, _]) => key !== 'app_path' && key !== 'startup_duration' && key !== 'kind'
 						)
-				  )
+					)
 				: {}
 			setTimeout(() => {
 				args = structuredClone(nargs)
@@ -147,7 +152,13 @@
 
 	const appPreviewScript = `import puppeteer from 'puppeteer-core';
 import dayjs from 'dayjs';
-export async function main(app_path: string, startup_duration = 5, kind: 'pdf' | 'png' = 'pdf') {
+export async function main(
+  app_path: string,
+  startup_duration = 5,
+  kind: 'pdf' | 'png' = 'pdf',
+  customWidth: null | number,
+  customHeight: null | number,
+) {
   let browser = null
   try {
   browser = await puppeteer.launch({ headless: true, executablePath: '/usr/bin/chromium', args: ['--no-sandbox',
@@ -168,27 +179,31 @@ export async function main(app_path: string, startup_duration = 5, kind: 'pdf' |
   await page.setViewport({ width: 1200, height: 2000 });
   await page.goto(Bun.env["BASE_URL"] + '/apps/get/' + app_path + '?workspace=' + Bun.env["WM_WORKSPACE"] + "&hideRefreshBar=true&hideEditBtn=true");
 	await page.waitForSelector("#app-content", { timeout: 20000 })
+  
+  const elem = await page.$('#app-content');
+  let width: null | number = customWidth || 1200
+  let height: null | number = customHeight || (await elem.boundingBox()).height
+  await page.setViewport({ width, height });
   await new Promise((resolve, _) => {
 		setTimeout(resolve, startup_duration * 1000)
   })
-  await page.$eval("#sidebar", el => el.remove())
+  try {
+    await page.$eval("#sidebar", el => el.remove())
+  } catch {}
   await page.$eval("#content", el => el.classList.remove("md:pl-12"))
-	await page.$$eval(".app-component-refresh-btn", els => els.forEach(el => el.remove()))
-	await page.$$eval(".app-table-footer-btn", els => els.forEach(el => el.remove()))
-  const elem = await page.$('#app-content');
-  const { height } = await elem.boundingBox();
-  await page.setViewport({ width: 1200, height });
-  await new Promise((resolve, _) => {
-		setTimeout(resolve, 500)
-  })
+  await page.$$eval(".app-component-refresh-btn", els => els.forEach(el => el.remove()))
+  await page.$$eval(".app-table-footer-btn", els => els.forEach(el => el.remove()))
+
+  await new Promise((resolve, _) => setTimeout(resolve, 500))
+  
   const screenshot = kind === "pdf" ? await page.pdf({
 		printBackground: true,
-		width: 1200,
+		width,
 		height
   }) : await page.screenshot({
 		fullPage: true,
 		type: "png",
-    captureBeyondViewport: false
+    	captureBeyondViewport: false
 	});
 	await browser.close();
 	return Buffer.from(screenshot).toString('base64');
@@ -261,11 +276,13 @@ export async function main(app_path: string, startup_duration = 5, kind: 'pdf' |
 			app_path: appPath,
 			startup_duration: appReportingStartupDuration,
 			kind: screenshotKind,
+			customWidth,
+			customHeight,
 			...args,
 			...(selectedTab === 'slack'
 				? {
 						slack: '$res:' + WORKSPACE_SLACK_BOT_TOKEN_PATH
-				  }
+					}
 				: {})
 		}
 	}
@@ -289,6 +306,14 @@ export async function main(app_path: string, startup_duration = 5, kind: 'pdf' |
 				type: 'javascript',
 				expr: 'flow_input.kind'
 			},
+			customWidth: {
+				type: 'javascript',
+				expr: 'flow_input.customWidth'
+			},
+			customHeight: {
+				type: 'javascript',
+				expr: 'flow_input.customHeight'
+			},
 			...Object.fromEntries(
 				Object.keys(args).map((key) => [
 					key,
@@ -304,7 +329,7 @@ export async function main(app_path: string, startup_duration = 5, kind: 'pdf' |
 							type: 'javascript',
 							expr: 'flow_input.slack'
 						}
-				  }
+					}
 				: {})
 		}
 
@@ -328,6 +353,14 @@ export async function main(app_path: string, startup_duration = 5, kind: 'pdf' |
 							},
 							kind: {
 								expr: 'flow_input.kind',
+								type: 'javascript' as const
+							},
+							customWidth: {
+								expr: 'flow_input.customWidth',
+								type: 'javascript' as const
+							},
+							customHeight: {
+								expr: 'flow_input.customHeight',
 								type: 'javascript' as const
 							}
 						}
@@ -399,6 +432,18 @@ export async function main(app_path: string, startup_duration = 5, kind: 'pdf' |
 							default: 'pdf',
 							format: ''
 						},
+						customWidth: {
+							description: '',
+							type: 'integer',
+							format: '',
+							default: 1200
+						},
+						customHeight: {
+							description: '',
+							type: 'integer',
+							format: '',
+							default: 1200
+						},
 						...(selectedTab === 'custom'
 							? customPathSchema.properties
 							: notificationScripts[selectedTab].schema.properties),
@@ -411,7 +456,7 @@ export async function main(app_path: string, startup_duration = 5, kind: 'pdf' |
 										properties: {},
 										required: []
 									}
-							  }
+								}
 							: {})
 					},
 					required: [
@@ -579,8 +624,22 @@ export async function main(app_path: string, startup_duration = 5, kind: 'pdf' |
 					<option value="pdf">PDF</option>
 					<option value="png">PNG</option>
 				</select>
-			</div></Section
-		>
+			</div>
+		</Section>
+
+		<Section label="Custom resolution" collapsable>
+			<div class="flex gap-4 w-52">
+				<input
+					type="number"
+					class="text-sm"
+					bind:value={customWidth}
+					placeholder="auto"
+					min="768"
+				/>
+				x
+				<input type="number" class="text-sm" bind:value={customHeight} placeholder="auto" min="0" />
+			</div>
+		</Section>
 
 		<Section label="Notification">
 			<Tabs bind:selected={selectedTab}>
