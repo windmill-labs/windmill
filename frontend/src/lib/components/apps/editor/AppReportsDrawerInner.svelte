@@ -109,6 +109,9 @@
 								: 'custom'
 					: 'custom'
 
+			if (schedule.args?.customWidth) customWidth = schedule.args?.customWidth as number
+			if (schedule.args?.customHeight) customHeight = schedule.args?.customHeight as number
+
 			const nargs = schedule.args
 				? Object.fromEntries(
 						Object.entries(schedule.args).filter(
@@ -429,8 +432,18 @@ export async function main(
 							default: 'pdf',
 							format: ''
 						},
-						customWidth: Math.max(customWidth ?? 0, 768),
-						customHeight,
+						customWidth: {
+							description: '',
+							type: 'integer',
+							format: '',
+							default: 1200
+						},
+						customHeight: {
+							description: '',
+							type: 'integer',
+							format: '',
+							default: 1200
+						},
 						...(selectedTab === 'custom'
 							? customPathSchema.properties
 							: notificationScripts[selectedTab].schema.properties),
