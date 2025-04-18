@@ -13,15 +13,15 @@
 
 	type Props = {
 		dbTableOps: IDbTableOps
+		refreshCount?: number
+		refresh?: () => void
 	}
-	let { dbTableOps }: Props = $props()
+	let { dbTableOps, refresh, refreshCount }: Props = $props()
 
 	let [clientHeight, clientWidth, darkMode, firstRow, lastRow] = $state([0, 0, false, -1, -1])
 	let quicksearch = $state('')
 	let api: GridApi<any> | undefined = $state()
 	let eGui: HTMLDivElement | undefined = $state()
-
-	let refreshCount = $state(0)
 
 	let datasource: IDatasource = {
 		getRows: async function (params) {
@@ -68,11 +68,11 @@
 								)
 								.then(() => {
 									sendUserToast('Value updated')
-									refreshCount += 1
+									refresh?.()
 								})
 								.catch(() => {
 									sendUserToast('Error updating value', true)
-									refreshCount += 1
+									refresh?.()
 								})
 						}
 					}
@@ -108,7 +108,7 @@
 						dbTableOps
 							.onDelete?.({ values })
 							.then((result) => {
-								refreshCount += 1
+								refresh?.()
 								sendUserToast('Row deleted')
 							})
 							.catch(() => {
@@ -141,7 +141,7 @@
 				onInsert={(values) => {
 					if (!$workspaceStore) return
 					dbTableOps.onInsert?.({ values }).then((result) => {
-						refreshCount += 1
+						refresh?.()
 						sendUserToast('Row inserted')
 					})
 				}}

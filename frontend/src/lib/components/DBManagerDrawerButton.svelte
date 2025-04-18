@@ -23,6 +23,7 @@
 	import HideButton from './apps/editor/settingsPanel/HideButton.svelte'
 	import SqlRepl from './SqlRepl.svelte'
 	import SimpleAgTable from './SimpleAgTable.svelte'
+	import { untrack } from 'svelte'
 
 	type Props = {
 		resourceType: DbType
@@ -45,10 +46,16 @@
 		resourcePath && resourcePath in $dbSchemas && !$dbSchemas[resourcePath]
 	)
 
+	let refreshCount = $state(0)
+	$effect(() => {
+		if (refreshing) untrack(() => (refreshCount += 1))
+	})
+
 	let refreshing = $state(false)
 	$effect(() => {
 		if (refreshing) getSchema()
 	})
+	const refresh = () => !refreshing && (refreshing = true)
 
 	let expand = $state(false)
 	$effect(() => {
@@ -169,11 +176,7 @@
 							<SimpleAgTable data={replResultData} class="animate-zoom-in" />
 						{/if}
 					</div>
-					{#if refreshing}
-						<div class="h-full flex justify-center items-center">
-							<Loader2 size={24} class="animate-spin" />
-						</div>
-					{:else if mode === 'db-manager'}
+					{#if mode === 'db-manager'}
 						<DbManager
 							dbSupportsSchemas={dbSupportsSchemas(resourceType)}
 							{dbSchema}
@@ -199,9 +202,8 @@
 									workspace: $workspaceStore
 								})
 							]}
-							refresh={() => {
-								refreshing = true
-							}}
+							{refresh}
+							{refreshCount}
 							dbTableEditorPropsFactory={({ selectedSchemaKey }) => ({
 								resourceType,
 								previewSql: (values) =>
@@ -215,7 +217,7 @@
 											language: resourceType as ScriptLang
 										}
 									})
-									refreshing = true
+									refresh()
 								}
 							})}
 						/>
@@ -263,7 +265,7 @@
 
 				<Button
 					loading={refreshing}
-					on:click={() => (refreshing = true)}
+					on:click={() => refresh()}
 					startIcon={{ icon: RefreshCcw }}
 					size="xs"
 					color="light"

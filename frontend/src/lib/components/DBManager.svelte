@@ -19,6 +19,7 @@
 		dbTableOpsFactory: (params: { colDefs: ColumnDef[]; tableKey: string }) => IDbTableOps
 		dbTableActionsFactory?: DbTableActionFactory[]
 		refresh?: () => void
+		refreshCount?: number
 		dbTableEditorPropsFactory?: (params: { selectedSchemaKey?: string }) => DBTableEditorProps
 	}
 	let {
@@ -28,7 +29,8 @@
 		dbTableActionsFactory,
 		refresh,
 		dbTableEditorPropsFactory,
-		dbSupportsSchemas
+		dbSupportsSchemas,
+		refreshCount
 	}: Props = $props()
 
 	let schemaKeys = $derived(Object.keys(dbSchema.schema))
@@ -108,7 +110,10 @@
 					<p class="truncate text-ellipsis grow text-left">{tableKey}</p>
 					{#if dbTableActionsFactory}
 						{@const dbTableActions = dbTableActionsFactory.map((f) =>
-							f({ tableKey: `${selected.schemaKey}.${tableKey}`, refresh: refresh ?? (() => {}) })
+							f({
+								tableKey: `${selected.schemaKey}.${tableKey}`,
+								refresh: refresh ?? (() => {})
+							})
 						)}
 						<DropdownV2
 							items={() =>
@@ -161,7 +166,7 @@
 				{#await getColDefs(tableKey) then colDefs}
 					{#if colDefs?.length}
 						{@const dbTableOps = dbTableOpsFactory({ colDefs, tableKey })}
-						<DBTable {dbTableOps} />
+						<DBTable {dbTableOps} {refresh} {refreshCount} />
 					{/if}
 				{/await}
 			{/if}
