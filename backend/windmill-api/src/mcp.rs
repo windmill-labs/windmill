@@ -38,6 +38,14 @@ struct ScriptInfo {
 }
 
 #[derive(Serialize, FromRow, Debug)]
+struct FlowInfo {
+    path: String,
+    summary: Option<String>,
+    description: Option<String>,
+    schema: Option<Value>,
+}
+
+#[derive(Serialize, FromRow, Debug)]
 struct WorkspaceSettings {
     ai_config: Option<sqlx::types::Json<AIConfig>>,
 }
@@ -49,6 +57,43 @@ impl Runner {
 
     fn _create_resource_text(&self, uri: &str, name: &str) -> Resource {
         RawResource::new(uri, name.to_string()).no_annotation()
+    }
+
+    async fn inner_get_flows(
+        &self,
+        user_db: &UserDB,
+        authed: &ApiAuthed,
+        workspace_id: String,
+    ) -> Result<Vec<FlowInfo>, Error> {
+        let mut sqlb = SqlBuilder::select_from("flow as o");
+        sqlb.fields(&["o.path", "o.summary", "o.description", "o.schema"]).join("favorite")
+                .on("favorite.favorite_kind = 'flow' AND favorite.workspace_id = o.workspace_id AND favorite.path = o.path AND favorite.usr = ?"
+                    .bind(&authed.username));
+        sqlb.and_where("o.workspace_id = ?".bind(&workspace_id))
+            .and_where("o.archived = false")
+            .and_where("o.draft_only IS NOT TRUE")
+            .order_by("o.edited_at", false)
+            .limit(100);
+        let sql = sqlb.sql().map_err(|_e| {
+            tracing::error!("failed to build sql: {}", _e);
+            Error::internal_error("failed to build sql", None)
+        })?;
+        let mut tx = user_db
+            .clone()
+            .begin(authed)
+            .await
+            .map_err(|_e| Error::internal_error("failed to begin transaction", None))?;
+        let rows = sqlx::query_as::<_, FlowInfo>(&sql)
+            .fetch_all(&mut *tx)
+            .await
+            .map_err(|_e| {
+                tracing::error!("Failed to fetch flows: {}", _e);
+                Error::internal_error("failed to fetch flows", None)
+            })?;
+        tx.commit()
+            .await
+            .map_err(|_e| Error::internal_error("failed to commit transaction", None))?;
+        Ok(rows)
     }
 
     async fn inner_get_scripts(
@@ -86,6 +131,24 @@ impl Runner {
             .await
             .map_err(|_e| Error::internal_error("failed to commit transaction", None))?;
         Ok(rows)
+    }
+}
+
+fn generate_tool_name(summary: Option<String>, path: &str, last_path: Option<String>) -> String {
+    match summary {
+        Some(summary) if !summary.is_empty() => {
+            let parts: Vec<&str> = summary.split_whitespace().collect();
+            parts.join("_")
+        }
+        _ => {
+            // Determine the name based on whether the path is duplicated
+            if last_path == Some(path.to_string()) {
+                path.replace('/', "_")
+            } else {
+                // get last part of script after last /
+                path.split('/').last().unwrap_or(path).to_string()
+            }
+        }
     }
 }
 
@@ -205,37 +268,15 @@ impl ServerHandler for Runner {
             .get::<ApiAuthed>()
             .ok_or_else(|| Error::internal_error("ApiAuthed not found", None))?;
         let scripts = self
-            .inner_get_scripts(user_db, authed, workspace_id)
+            .inner_get_scripts(user_db, authed, workspace_id.clone())
             .await?;
         let mut last_path = scripts.first().map(|script| script.path.clone());
-        let tools = scripts
+        let script_tools: Vec<Tool> = scripts
             .into_iter()
             .map(|script| {
-                // if summary exist and is not empty, use it
-                let name = match script.summary {
-                    Some(summary) if !summary.is_empty() => {
-                        let parts: Vec<&str> = summary.split_whitespace().collect();
-                        parts.join("_")
-                    }
-                    _ => {
-                        // Determine the name based on whether the path is duplicated
-                        let calculated_name = if last_path == Some(script.path.clone()) {
-                            script.path.replace('/', "_")
-                        } else {
-                            // get last part of script after last /
-                            script
-                                .path
-                                .split('/')
-                                .last()
-                                .unwrap_or(&script.path)
-                                .to_string()
-                        };
-                        // Update last_path *after* determining the name
-                        last_path = Some(script.path.clone());
-                        // Return the calculated name
-                        calculated_name
-                    }
-                };
+                let name = generate_tool_name(script.summary, &script.path, last_path.clone());
+                last_path = Some(script.path.clone());
+
                 Tool {
                     name: Cow::Owned(name),
                     description: Some(Cow::Owned(script.description.unwrap_or_default())),
@@ -253,6 +294,32 @@ impl ServerHandler for Runner {
                 }
             })
             .collect();
+
+        let flows = self.inner_get_flows(user_db, authed, workspace_id).await?;
+        let flow_tools = flows
+            .into_iter()
+            .map(|flow| {
+                let name = generate_tool_name(flow.summary, &flow.path, last_path.clone());
+                last_path = Some(flow.path.clone());
+
+                Tool {
+                    name: Cow::Owned(name),
+                    description: Some(Cow::Owned(flow.description.unwrap_or_default())),
+                    input_schema: flow
+                        .schema
+                        .map(|schema| {
+                            if let serde_json::Value::Object(map) = schema {
+                                Arc::new(map)
+                            } else {
+                                Arc::new(serde_json::Map::new())
+                            }
+                        })
+                        .unwrap_or_default(),
+                    annotations: Some(ToolAnnotations::with_title(flow.path)),
+                }
+            })
+            .collect();
+        let tools = [script_tools, flow_tools].concat();
 
         Ok(ListToolsResult { tools, next_cursor: None })
     }
