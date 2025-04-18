@@ -7,21 +7,6 @@ const zipUrl = 'https://pub-06154ed168a24e73a86ab84db6bf15d8.r2.dev/ui_builder-9
 const outputZipPath = path.join(process.cwd(), 'tmp.zip')
 const extractTo = path.join(process.cwd(), 'static/ui_builder')
 
-const isDirectInstall = (() => {
-	try {
-		const argv = JSON.parse(process.env.npm_config_argv || '{}')
-		const original = argv.original || []
-		return original.includes('install')
-	} catch (e) {
-		return false
-	}
-})()
-
-if (!isDirectInstall) {
-	console.log('Skipping fetch-and-unzip during dependency install.')
-	process.exit(0)
-}
-
 // Download zip
 https
 	.get(zipUrl, (res) => {
