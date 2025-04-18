@@ -20,8 +20,8 @@
 	import { runPreviewJobAndPollResult } from './jobs/utils'
 	import { type ScriptLang } from '$lib/gen'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
-	import PanelSection from './apps/editor/settingsPanel/common/PanelSection.svelte'
 	import HideButton from './apps/editor/settingsPanel/HideButton.svelte'
+	import SqlRepl from './SqlRepl.svelte'
 
 	type Props = {
 		resourceType: DbType
@@ -183,16 +183,16 @@
 						<DbSchemaExplorer {dbSchema} />
 					{/if}
 				</Pane>
-				<Pane bind:size={replPanelSize}>
-					<PanelSection title="SQL Repl" class="bg-surface-secondary">
-						{#snippet action()}
-							<HideButton
-								btnClasses="text-primary"
-								direction="bottom"
-								on:click={() => (replPanelSize = 0)}
-							/>
-						{/snippet}
-					</PanelSection>
+				<Pane bind:size={replPanelSize} class="relative">
+					<div class="absolute top-2 right-6 z-10">
+						<HideButton
+							btnClasses="!text-primary border border-gray-200 dark:border-gray-600 bg-surface"
+							direction="bottom"
+							variant="contained"
+							on:click={() => (replPanelSize = 0)}
+						/>
+					</div>
+					<SqlRepl {resourcePath} {resourceType} />
 				</Pane>
 			</Splitpanes>
 			<svelte:fragment slot="actions">
