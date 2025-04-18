@@ -33,10 +33,6 @@ const config = {
 				changeOrigin: true,
 				ws: true
 			}
-			// '^/ui_builder/.*': {
-			// 	target: 'http://localhost:4000',
-			// 	changeOrigin: true
-			// }
 		}
 	},
 	preview: {
