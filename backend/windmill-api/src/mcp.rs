@@ -51,56 +51,16 @@ impl Runner {
         RawResource::new(uri, name.to_string()).no_annotation()
     }
 
-    async fn get_settings(
-        &self,
-        user_db: &UserDB,
-        authed: &ApiAuthed,
-        workspace_id: String,
-    ) -> Result<WorkspaceSettings, Error> {
-        let mut tx = user_db
-            .clone()
-            .begin(authed)
-            .await
-            .map_err(|e| Error::internal_error(format!("getting settings: {e:#}"), None))?;
-        let settings = sqlx::query_as::<_, WorkspaceSettings>(
-            "SELECT ai_config FROM workspace_settings WHERE workspace_id = $1",
-        )
-        .bind(&workspace_id)
-        .fetch_one(&mut *tx)
-        .await
-        .map_err(|e| {
-            tracing::error!("getting settings: {e:#}");
-            Error::internal_error(format!("getting settings: {e:#}"), None)
-        })?;
-        tx.commit().await.map_err(|e| {
-            tracing::error!("getting settings: {e:#}");
-            Error::internal_error(format!("getting settings: {e:#}"), None)
-        })?;
-        Ok(settings)
-    }
-
     async fn inner_get_scripts(
         &self,
         user_db: &UserDB,
         authed: &ApiAuthed,
         workspace_id: String,
     ) -> Result<Vec<ScriptInfo>, Error> {
-        let workspace_settings = self
-            .get_settings(user_db, authed, workspace_id.clone())
-            .await?;
-        let favorite_only = workspace_settings
-            .ai_config
-            .and_then(|ai_config| ai_config.0.mcp_favorite_only)
-            .unwrap_or(true); // Default to true if not defined
-
         let mut sqlb = SqlBuilder::select_from("script as o");
-        sqlb.fields(&["o.path", "o.summary", "o.description", "o.schema"]);
-
-        if favorite_only {
-            sqlb.join("favorite")
+        sqlb.fields(&["o.path", "o.summary", "o.description", "o.schema"]).join("favorite")
                 .on("favorite.favorite_kind = 'script' AND favorite.workspace_id = o.workspace_id AND favorite.path = o.path AND favorite.usr = ?"
                     .bind(&authed.username));
-        }
         sqlb.and_where("o.workspace_id = ?".bind(&workspace_id))
             .and_where("o.archived = false")
             .and_where("o.draft_only IS NOT TRUE")

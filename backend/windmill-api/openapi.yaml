@@ -12534,10 +12534,6 @@ components:
           $ref: "#/components/schemas/AIProviderModel"
         code_completion_model:
           $ref: "#/components/schemas/AIProviderModel"
-        mcp_favorite_only:
-          type: boolean
-        mcp_folder:
-          type: string
 
     Script:
       type: object
