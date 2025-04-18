@@ -7,6 +7,23 @@ const zipUrl = 'https://pub-06154ed168a24e73a86ab84db6bf15d8.r2.dev/ui_builder-9
 const outputZipPath = path.join(process.cwd(), 'tmp.zip')
 const extractTo = path.join(process.cwd(), 'static/ui_builder')
 
+import { fileURLToPath } from 'url'
+import { dirname, join } from 'path'
+
+const __filename = fileURLToPath(import.meta.url)
+const __dirname = dirname(__filename)
+
+// Check if this script is being run from the package root
+const isRootInstall = process.cwd() + '/scripts' === __dirname
+
+if (isRootInstall) {
+	console.log('Running postinstall: direct install')
+	// Your postinstall logic here
+} else {
+	console.log('Skipping postinstall: installed as dependency')
+	process.exit(0)
+}
+
 // Download zip
 https
 	.get(zipUrl, (res) => {
