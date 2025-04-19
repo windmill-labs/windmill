@@ -58,9 +58,9 @@
 					inlineScript?.content,
 					emptySchema()
 				)
-				syncFields()
 			}
 		}
+		syncFields()
 	})
 
 	async function syncFields() {

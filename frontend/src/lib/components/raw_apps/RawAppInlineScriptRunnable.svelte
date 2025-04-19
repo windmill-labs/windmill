@@ -32,7 +32,7 @@
 						...(runnable ?? {}),
 						...o.runnable,
 						fields: o.fields
-				  }
+					}
 	}
 
 	let selectedTab = 'inputs'

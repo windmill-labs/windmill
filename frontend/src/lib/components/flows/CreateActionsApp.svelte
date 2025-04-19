@@ -46,7 +46,7 @@
 				}
 			},
 			{
-				label: 'Build an app in React/Vue/Svelte',
+				label: 'Build app in React/Vue/Svelte (alpha)',
 				onClick: () => goto('/apps_raw/add?nodraft=true')
 			}
 		]}

@@ -1,3 +1,4 @@
+import type { Schema } from '$lib/common'
 import { schemaToTsType } from '$lib/schema'
 import { capitalize } from '$lib/utils'
 import type { HiddenRunnable } from '../apps/types'
@@ -26,13 +27,29 @@ export function htmlContent(workspace: string, version: number, ctx: any) {
     `
 }
 
+function removeStaticFields(schema: Schema, fields: Record<string, { type: string }>): Schema {
+	const staticFields = Object.keys(fields).filter((k) => fields[k].type == 'static')
+	return {
+		...schema,
+		properties: {
+			...Object.fromEntries(
+				Object.entries(schema.properties ?? {}).filter(([k]) => !staticFields.includes(k))
+			)
+		}
+	}
+}
+
 function hiddenRunnableToTsType(runnable: HiddenRunnable) {
 	if (runnable.type == 'runnableByName') {
 		if (runnable.inlineScript?.schema) {
-			return schemaToTsType(runnable.inlineScript?.schema)
+			return schemaToTsType(removeStaticFields(runnable.inlineScript?.schema, runnable.fields))
 		} else {
 			return '{}'
 		}
+	} else if (runnable.type == 'runnableByPath') {
+		return schemaToTsType(removeStaticFields(runnable.schema, runnable.fields))
+	} else {
+		return '{}'
 	}
 }
 
@@ -41,20 +58,20 @@ export function genWmillTs(runnables: Record<string, HiddenRunnable>) {
 // AND GENERATED AUTOMATICALLY FROM YOUR RUNNABLES
 	
 ${Object.entries(runnables)
-			.map(([k, v]) => `export type RunBg${capitalize(k)} = ${hiddenRunnableToTsType(v)}\n`)
+	.map(([k, v]) => `export type RunBg${capitalize(k)} = ${hiddenRunnableToTsType(v)}\n`)
 
-			.join('\n')}
+	.join('\n')}
 
 export const runBg = {
 ${Object.keys(runnables)
-			.map((k) => `  ${k}: null as unknown as (data: RunBg${capitalize(k)}) => Promise<any>`)
-			.join(',\n')}
+	.map((k) => `  ${k}: null as unknown as (data: RunBg${capitalize(k)}) => Promise<any>`)
+	.join(',\n')}
 }
 	
 export const runBgAsync = {
 ${Object.keys(runnables)
-			.map((k) => `  ${k}: null as unknown as (data: RunBg${capitalize(k)}) => Promise<string>`)
-			.join(',\n')}
+	.map((k) => `  ${k}: null as unknown as (data: RunBg${capitalize(k)}) => Promise<string>`)
+	.join(',\n')}
 }
 	
 
@@ -76,7 +93,7 @@ export type Job = {
 // @ts-ignore
 export function waitJob(id: string): Promise<Job> {
 	// implementation passed when bundling/deploying
-	return null as Promise<Job>
+	return null as unknown as Promise<Job>
 }
 
 /**
@@ -86,7 +103,7 @@ export function waitJob(id: string): Promise<Job> {
 // @ts-ignore
 export function getJob(id: string): Promise<Job> {
 	// implementation passed when bundling/deploying
-	return null as Promise<Job>
+	return null as unknown as Promise<Job>
 }
 `
 }
