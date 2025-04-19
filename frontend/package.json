@@ -70,7 +70,6 @@
 		"typescript": "^5.5.0",
 		"vite": "^6.3.2",
 		"vite-plugin-mkcert": "^1.17.5",
-		"vite-plugin-serve-static": "^1.1.0",
 		"yootils": "^0.3.1"
 	},
 	"overrides": {
@@ -112,9 +111,7 @@
 		"hash-sum": "^2.0.0",
 		"highlight.js": "^11.8.0",
 		"idb": "^8.0.2",
-		"idb-keyval": "^6.2.1",
 		"lucide-svelte": "^0.399.0",
-		"memfs": "^4.15.3",
 		"minimatch": "^10.0.1",
 		"monaco-editor": "npm:@codingame/monaco-vscode-editor-api@~11.1.2",
 		"monaco-editor-wrapper": "6.1.1",
