@@ -1343,24 +1343,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "bindgen"
-version = "0.71.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5f58bf3d7db68cfbac37cfc485a8d711e87e064c3d0fe0435b92f7a407f9d6b3"
-dependencies = [
- "bitflags 2.9.0",
- "cexpr",
- "clang-sys",
- "itertools 0.13.0",
- "proc-macro2",
- "quote",
- "regex",
- "rustc-hash 2.1.1",
- "shlex",
- "syn 2.0.100",
-]
-
-[[package]]
 name = "bit-set"
 version = "0.5.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6860,11 +6842,10 @@ dependencies = [
 
 [[package]]
 name = "libxml"
-version = "0.3.4"
+version = "0.3.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "86119bbd85c39c7f890fe970a18f77e9a599467fa613d44929aea4acecb9a031"
+checksum = "5fe73cdec2bcb36d25a9fe3f607ffcd44bb8907ca0100c4098d1aa342d1e7bec"
 dependencies = [
- "bindgen 0.71.1",
  "libc",
  "pkg-config",
  "vcpkg",
@@ -14020,6 +14001,7 @@ dependencies = [
  "itertools 0.14.0",
  "jsonwebtoken 8.3.0",
  "lazy_static",
+ "libxml",
  "magic-crypt",
  "mail-parser",
  "matchit",
