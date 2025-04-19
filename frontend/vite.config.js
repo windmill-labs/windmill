@@ -13,11 +13,6 @@ const config = {
 	server: {
 		https: true,
 		port: 3000,
-		headers: {
-			'Cross-Origin-Opener-Policy': 'same-origin',
-			'Cross-Origin-Embedder-Policy': 'require-corp',
-			'Cross-Origin-Resource-Policy': 'cross-origin'
-		},
 		proxy: {
 			'^/api/.*': {
 				target: process.env.REMOTE ?? 'https://app.windmill.dev/',
@@ -48,21 +43,7 @@ const config = {
 	preview: {
 		port: 3000
 	},
-	plugins: [
-		sveltekit(),
-		mkcert(),
-		{
-			name: 'set-cross-origin-headers',
-			configureServer(server) {
-				server.middlewares.use((req, res, next) => {
-					res.setHeader('Cross-Origin-Opener-Policy', 'same-origin')
-					res.setHeader('Cross-Origin-Embedder-Policy', 'require-corp')
-					res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin')
-					next()
-				})
-			}
-		}
-	],
+	plugins: [sveltekit(), mkcert()],
 	define: {
 		__pkg__: version
 	},

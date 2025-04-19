@@ -35,7 +35,6 @@
 			return result
 		}
 		if (event.data.type == 'runBg' || event.data.type == 'runBgAsync') {
-			console.log('runBg callback', data)
 			const runnable_id = data.runnable_id
 			let runnable = runnables[runnable_id]
 			if (runnable) {
@@ -49,9 +48,15 @@
 					{
 						component: runnable_id,
 						args: data.v,
-						force_viewer_allow_user_resources: [],
+						force_viewer_allow_user_resources: Object.keys(runnable.fields).filter(
+							(k) => runnable.fields[k]?.type == 'user' && runnable.fields[k]?.allowUserResources
+						),
 						force_viewer_one_of_fields: {},
-						force_viewer_static_fields: {}
+						force_viewer_static_fields: Object.fromEntries(
+							Object.entries(runnable.fields)
+								.filter(([k, v]) => v.type == 'static')
+								.map(([k, v]) => [k, v?.['value']])
+						)
 					},
 					undefined
 				)
