@@ -44,11 +44,11 @@
 					drawer?.toggleDrawer?.()
 					importType = 'json'
 				}
-			},
-			{
-				label: 'Build app in React/Vue/Svelte (alpha)',
-				onClick: () => goto('/apps_raw/add?nodraft=true')
 			}
+			// {
+			// 	label: 'Build app in React/Vue/Svelte (alpha)',
+			// 	onClick: () => goto('/apps_raw/add?nodraft=true')
+			// }
 		]}
 	>
 		<div class="flex flex-row items-center">
