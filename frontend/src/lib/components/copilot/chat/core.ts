@@ -93,7 +93,7 @@ export const SUPPORTED_CHAT_SCRIPT_LANGUAGES = [
 ]
 
 export function getLangContext(
-	lang: ScriptLang | 'bunnative',
+	lang: ScriptLang | 'bunnative' | 'jsx' | 'tsx' | 'json',
 	{ allowResourcesFetch = false }: { allowResourcesFetch?: boolean } = {}
 ) {
 	const tsContext =

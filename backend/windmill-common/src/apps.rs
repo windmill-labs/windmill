@@ -6,6 +6,8 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
+use std::collections::HashMap;
+
 use serde::{Deserialize, Serialize};
 
 /// Id in the `app_script` table.
@@ -20,4 +22,9 @@ pub struct ListAppQuery {
     pub path_start: Option<String>,
     pub include_draft_only: Option<bool>,
     pub with_deployment_msg: Option<bool>,
+}
+
+#[derive(Deserialize)]
+pub struct RawAppValue {
+    pub files: HashMap<String, String>,
 }

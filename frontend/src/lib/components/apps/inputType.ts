@@ -142,6 +142,8 @@ export type RunnableByName = {
 
 export type Runnable = RunnableByPath | RunnableByName | undefined
 
+export type RunnableWithFields = Runnable & { fields?: Record<string, StaticAppInput> }
+
 // Runnable input, set by the developer in the component panel
 export type ResultInput = {
 	runnable: Runnable

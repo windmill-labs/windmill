@@ -156,7 +156,6 @@
 					type: 'runnableByName',
 					name: `Eval of ${id}`,
 					inlineScript: {
-						path: `${id}_eval`,
 						content: `return ${componentSettings?.item.data.componentInput?.['expr']}`,
 						language: 'frontend',
 						refreshOn: componentSettings?.item.data.componentInput?.['connections']?.map((c) => {

@@ -24,10 +24,10 @@ use crate::{
     },
     users::fetch_api_authed_from_permissioned_as,
 };
-#[cfg(feature = "parquet")]
 use axum::response::Response;
 use axum::{
-    extract::{Extension, Json, Path, Query},
+    body::Body,
+    extract::{Extension, Json, Multipart, Path, Query},
     response::IntoResponse,
     routing::{delete, get, post},
     Router,
@@ -88,10 +88,13 @@ pub fn workspaced_service() -> Router {
         .route("/get/draft/*path", get(get_app_w_draft))
         .route("/secret_of/*path", get(get_secret_id))
         .route("/get/v/*id", get(get_app_by_id))
+        .route("/get_data/v/*id", get(get_raw_app_data))
         .route("/exists/*path", get(exists_app))
         .route("/update/*path", post(update_app))
+        .route("/update_raw/*path", post(update_app_raw))
         .route("/delete/*path", delete(delete_app))
         .route("/create", post(create_app))
+        .route("/create_raw", post(create_app_raw))
         .route("/history/p/*path", get(get_app_history))
         .route("/get_latest_version/*path", get(get_latest_version))
         .route("/history_update/a/:id/v/:version", post(update_app_history))
@@ -135,6 +138,12 @@ pub struct ListableApp {
     #[sqlx(default)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub deployment_msg: Option<String>,
+    #[serde(skip_serializing_if = "is_false")]
+    pub raw_app: bool,
+}
+
+fn is_false(b: &bool) -> bool {
+    !b
 }
 
 #[derive(FromRow, Serialize, Deserialize)]
@@ -328,7 +337,8 @@ async fn list_apps(
             "app.extra_perms",
             "favorite.path IS NOT NULL as starred",
             "draft.path IS NOT NULL as has_draft",
-            "draft_only"
+            "draft_only",
+            "app_version.raw_app",
         ])
         .left()
         .join("favorite")
@@ -386,6 +396,44 @@ async fn list_apps(
 
     Ok(Json(rows))
 }
+
+async fn get_raw_app_data(Path((w_id, version_id)): Path<(String, String)>) -> Result<Response> {
+    let file_path = format!("/tmp/wmill/{}/{}", w_id, version_id);
+    let file = tokio::fs::File::open(file_path).await?;
+    let stream = tokio_util::io::ReaderStream::new(file);
+    let res = Response::builder().header(
+        http::header::CONTENT_TYPE,
+        if version_id.ends_with(".css") {
+            "text/css"
+        } else {
+            "text/javascript"
+        },
+    );
+    Ok(res.body(Body::from_stream(stream)).unwrap())
+}
+
+// async fn get_app_version(
+//     authed: ApiAuthed,
+//     Extension(user_db): Extension<UserDB>,
+//     Path((w_id, path)): Path<(String, StripPath)>,
+// ) -> JsonResult<i64> {
+//     let path = path.to_path();
+//     let mut tx = user_db.begin(&authed).await?;
+
+//     let version_o = sqlx::query_scalar!(
+//         "SELECT app.versions[array_upper(app.versions, 1)] as version FROM app
+//             WHERE app.path = $1 AND app.workspace_id = $2",
+//         path,
+//         &w_id,
+//     )
+//     .fetch_optional(&mut *tx)
+//     .await?
+//     .flatten();
+//     tx.commit().await?;
+
+//     let version = not_found_if_none(version_o, "App", path)?;
+//     Ok(Json(version))
+// }
 
 async fn get_app(
     authed: ApiAuthed,
@@ -727,6 +775,97 @@ async fn get_secret_id(
     Ok(hx)
 }
 
+macro_rules! process_app_multipart {
+    ($authed:expr, $user_db:expr, $db:expr, $w_id:expr, $path:expr, $multipart:expr, $internal_fn:expr) => {
+        async {
+            let mut saved_app = None;
+            let mut uploaded_js = false;
+
+            //todo: use s3 instead
+            let file_path = format!("/tmp/wmill/{}", $w_id);
+            std::fs::create_dir_all(&file_path).unwrap();
+
+            let mut multipart = $multipart;
+            while let Some(field) = multipart.next_field().await.unwrap() {
+                let name = field.name().unwrap().to_string();
+                let data = field.bytes().await.unwrap();
+                if name == "app" {
+                    let app = serde_json::from_slice(&data).map_err(to_anyhow)?;
+                    let (ntx, npath, nid) = $internal_fn(
+                        $authed.clone(),
+                        $db.clone(),
+                        $user_db.clone(),
+                        $w_id,
+                        $path,
+                        true,
+                        app,
+                    )
+                    .await?;
+                    saved_app = Some((npath, nid, ntx));
+                } else if name == "js" {
+                    if let Some((_npath, id, _tx)) = saved_app.as_ref() {
+                        let file_path = format!("{}/{}.js", file_path, id);
+                        std::fs::write(file_path, data).unwrap();
+                        uploaded_js = true;
+                    } else {
+                        return Err(Error::BadRequest(
+                            "App payload need to be created first".to_string(),
+                        ));
+                    }
+                } else if name == "css" {
+                    if let Some((_npath, id, _tx)) = saved_app.as_ref() {
+                        let file_path = format!("{}/{}.css", file_path, id);
+                        std::fs::write(file_path, data).unwrap();
+                    } else {
+                        return Err(Error::BadRequest(
+                            "App payload need to be created first".to_string(),
+                        ));
+                    }
+                } else {
+                    return Err(Error::BadRequest(format!("Unsupported field: {}", name)));
+                }
+            }
+            if !uploaded_js {
+                return Err(Error::BadRequest("js or css file not uploaded".to_string()));
+            }
+            if let Some((npath, id, tx)) = saved_app {
+                tx.commit().await?;
+                Ok((npath, id))
+            } else {
+                Err(Error::BadRequest("App not created".to_string()))
+            }
+        }
+    };
+}
+
+async fn create_app_raw<'a>(
+    authed: ApiAuthed,
+    Extension(user_db): Extension<UserDB>,
+    Extension(db): Extension<DB>,
+    Extension(webhook): Extension<WebhookShared>,
+    Path(w_id): Path<String>,
+    multipart: Multipart,
+) -> Result<(StatusCode, String)> {
+    let (path, _id) = process_app_multipart!(
+        authed,
+        user_db,
+        db,
+        &w_id,
+        "",
+        multipart,
+        |authed, db, user_db, w_id, _path, raw_app, app| create_app_internal(
+            authed, db, user_db, w_id, raw_app, app
+        )
+    )
+    .await?;
+
+    webhook.send_message(
+        w_id.clone(),
+        WebhookMessage::CreateApp { workspace: w_id, path: path.clone() },
+    );
+    Ok((StatusCode::CREATED, path))
+}
+
 async fn list_paths_from_workspace_runnable(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
@@ -755,17 +894,36 @@ async fn create_app(
     Extension(db): Extension<DB>,
     Extension(webhook): Extension<WebhookShared>,
     Path(w_id): Path<String>,
-    Json(mut app): Json<CreateApp>,
+    Json(app): Json<CreateApp>,
 ) -> Result<(StatusCode, String)> {
-    let mut tx = user_db.clone().begin(&authed).await?;
+    let path = app.path.clone();
+    let (new_tx, _path, _id) = create_app_internal(authed, db, user_db, &w_id, false, app).await?;
 
+    new_tx.commit().await?;
+
+    webhook.send_message(
+        w_id.clone(),
+        WebhookMessage::CreateApp { workspace: w_id, path: path.clone() },
+    );
+
+    Ok((StatusCode::CREATED, path))
+}
+
+async fn create_app_internal<'a>(
+    authed: ApiAuthed,
+    db: sqlx::Pool<sqlx::Postgres>,
+    user_db: UserDB,
+    w_id: &String,
+    raw_app: bool,
+    mut app: CreateApp,
+) -> Result<(sqlx::Transaction<'a, sqlx::Postgres>, String, i64)> {
+    let mut tx = user_db.clone().begin(&authed).await?;
     app.policy.on_behalf_of = Some(username_to_permissioned_as(&authed.username));
     app.policy.on_behalf_of_email = Some(authed.email.clone());
-
+    let path = app.path.clone();
     if &app.path == "" {
         return Err(Error::BadRequest("App path cannot be empty".to_string()));
     }
-
     let exists = sqlx::query_scalar!(
         "SELECT EXISTS(SELECT 1 FROM app WHERE path = $1 AND workspace_id = $2)",
         &app.path,
@@ -774,21 +932,19 @@ async fn create_app(
     .fetch_one(&mut *tx)
     .await?
     .unwrap_or(false);
-
     if exists {
         return Err(Error::BadRequest(format!(
             "App with path {} already exists",
             &app.path
         )));
     }
-
     if let Some(custom_path) = &app.custom_path {
         require_admin(authed.is_admin, &authed.username)?;
 
         let exists = sqlx::query_scalar!(
             "SELECT EXISTS(SELECT 1 FROM app WHERE custom_path = $1 AND ($2::TEXT IS NULL OR workspace_id = $2))",
             custom_path,
-            if *CLOUD_HOSTED { Some(&w_id) } else { None }
+            if *CLOUD_HOSTED { Some(w_id) } else { None }
         )
         .fetch_one(&mut *tx)
         .await?.unwrap_or(false);
@@ -800,7 +956,6 @@ async fn create_app(
             )));
         }
     }
-
     sqlx::query!(
         "DELETE FROM draft WHERE path = $1 AND workspace_id = $2 AND typ = 'app'",
         &app.path,
@@ -808,7 +963,6 @@ async fn create_app(
     )
     .execute(&mut *tx)
     .await?;
-
     let id = sqlx::query_scalar!(
         "INSERT INTO app
             (workspace_id, path, summary, policy, versions, draft_only, custom_path)
@@ -819,24 +973,24 @@ async fn create_app(
         json!(app.policy),
         app.draft_only,
         app.custom_path
+            .as_ref()
             .map(|s| if s.is_empty() { None } else { Some(s) })
             .flatten()
     )
     .fetch_one(&mut *tx)
     .await?;
-
     let v_id = sqlx::query_scalar!(
         "INSERT INTO app_version
-            (app_id, value, created_by)
-            VALUES ($1, $2::text::json, $3) RETURNING id",
+            (app_id, value, created_by, raw_app)
+            VALUES ($1, $2::text::json, $3, $4) RETURNING id",
         id,
         //to preserve key orders
         serde_json::to_string(&app.value).unwrap(),
         authed.username,
+        raw_app
     )
     .fetch_one(&mut *tx)
     .await?;
-
     sqlx::query!(
         "UPDATE app SET versions = array_append(versions, $1::bigint) WHERE id = $2",
         v_id,
@@ -850,22 +1004,20 @@ async fn create_app(
         &authed,
         "apps.create",
         ActionKind::Create,
-        &w_id,
+        w_id,
         Some(&app.path),
         None,
     )
     .await?;
-
     let mut args: HashMap<String, Box<serde_json::value::RawValue>> = HashMap::new();
-    if let Some(dm) = app.deployment_message {
+    if let Some(dm) = &app.deployment_message {
         args.insert("deployment_message".to_string(), to_raw_value(&dm));
     }
-
     let tx = PushIsolationLevel::Transaction(tx);
     let (dependency_job_uuid, new_tx) = push(
         &db,
         tx,
-        &w_id,
+        w_id,
         JobPayload::AppDependencies { path: app.path.clone(), version: v_id },
         PushArgs { args: &args, extra: None },
         &authed.username,
@@ -889,14 +1041,7 @@ async fn create_app(
     .await?;
     tracing::info!("Pushed app dependency job {}", dependency_job_uuid);
 
-    new_tx.commit().await?;
-
-    webhook.send_message(
-        w_id.clone(),
-        WebhookMessage::CreateApp { workspace: w_id, path: app.path.clone() },
-    );
-
-    Ok((StatusCode::CREATED, app.path))
+    Ok((new_tx, path, v_id))
 }
 
 async fn list_hub_apps(Extension(db): Extension<DB>) -> impl IntoResponse {
@@ -1017,12 +1162,76 @@ async fn update_app(
     Path((w_id, path)): Path<(String, StripPath)>,
     Json(ns): Json<EditApp>,
 ) -> Result<String> {
-    use sql_builder::prelude::*;
-
+    // create_app_internal(authed, user_db, db, &w_id, &mut app).await?;
     let path = path.to_path();
+    let opath = path.to_string();
+    let (new_tx, npath, _v_id) =
+        update_app_internal(authed, db, user_db, &w_id, path, false, ns).await?;
+    new_tx.commit().await?;
 
+    webhook.send_message(
+        w_id.clone(),
+        WebhookMessage::UpdateApp {
+            workspace: w_id.clone(),
+            old_path: opath.clone(),
+            new_path: npath.clone(),
+        },
+    );
+
+    Ok(format!("app {} updated (npath: {:?})", opath, npath))
+}
+
+async fn update_app_raw<'a>(
+    authed: ApiAuthed,
+    Extension(user_db): Extension<UserDB>,
+    Extension(db): Extension<DB>,
+    Extension(webhook): Extension<WebhookShared>,
+    Path((w_id, path)): Path<(String, StripPath)>,
+    multipart: Multipart,
+) -> Result<String> {
+    let path = path.to_path();
+    let opath = path.to_string();
+    let (npath, _id) = process_app_multipart!(
+        authed,
+        user_db,
+        db,
+        &w_id,
+        path,
+        multipart,
+        update_app_internal
+    )
+    .await?;
+
+    webhook.send_message(
+        w_id.clone(),
+        WebhookMessage::UpdateApp {
+            workspace: w_id.clone(),
+            old_path: opath.to_owned(),
+            new_path: npath.clone(),
+        },
+    );
+
+    Ok(format!("app {} updated (npath: {:?})", opath, npath))
+}
+// async fn create_app_internal<'a>(
+//     authed: ApiAuthed,
+//     db: sqlx::Pool<sqlx::Postgres>,
+//     user_db: UserDB,
+//     w_id: &String,
+//     app: &mut CreateApp,
+// )
+
+async fn update_app_internal<'a>(
+    authed: ApiAuthed,
+    db: sqlx::Pool<sqlx::Postgres>,
+    user_db: UserDB,
+    w_id: &str,
+    path: &str,
+    raw_app: bool,
+    ns: EditApp,
+) -> Result<(sqlx::Transaction<'a, sqlx::Postgres>, String, i64)> {
+    use sql_builder::prelude::*;
     let mut tx = user_db.clone().begin(&authed).await?;
-
     let npath = if ns.policy.is_some()
         || ns.path.is_some()
         || ns.summary.is_some()
@@ -1069,7 +1278,7 @@ async fn update_app(
                 let exists = sqlx::query_scalar!(
                     "SELECT EXISTS(SELECT 1 FROM app WHERE custom_path = $1 AND ($2::TEXT IS NULL OR workspace_id = $2) AND NOT (path = $3 AND workspace_id = $4))",
                     ncustom_path,
-                    if *CLOUD_HOSTED { Some(&w_id) } else { None },
+                    if *CLOUD_HOSTED { Some(w_id) } else { None },
                     path,
                     w_id
                 )
@@ -1116,12 +1325,13 @@ async fn update_app(
 
         let v_id = sqlx::query_scalar!(
             "INSERT INTO app_version
-                (app_id, value, created_by)
-                VALUES ($1, $2::text::json, $3) RETURNING id",
+                (app_id, value, created_by, raw_app)
+                VALUES ($1, $2::text::json, $3, $4) RETURNING id",
             app_id,
             //to preserve key orders
             serde_json::to_string(&nvalue).unwrap(),
             authed.username,
+            raw_app
         )
         .fetch_one(&mut *tx)
         .await?;
@@ -1152,7 +1362,6 @@ async fn update_app(
             )));
         }
     };
-
     sqlx::query!(
         "DELETE FROM draft WHERE path = $1 AND workspace_id = $2 AND typ = 'app'",
         path,
@@ -1160,29 +1369,26 @@ async fn update_app(
     )
     .execute(&mut *tx)
     .await?;
-
     audit_log(
         &mut *tx,
         &authed,
         "apps.update",
         ActionKind::Update,
-        &w_id,
+        w_id,
         Some(&npath),
         None,
     )
     .await?;
-
     let tx = PushIsolationLevel::Transaction(tx);
     let mut args: HashMap<String, Box<serde_json::value::RawValue>> = HashMap::new();
     if let Some(dm) = ns.deployment_message {
         args.insert("deployment_message".to_string(), to_raw_value(&dm));
     }
     args.insert("parent_path".to_string(), to_raw_value(&path));
-
     let (dependency_job_uuid, new_tx) = push(
         &db,
         tx,
-        &w_id,
+        w_id,
         JobPayload::AppDependencies { path: npath.clone(), version: v_id },
         PushArgs { args: &args, extra: None },
         &authed.username,
@@ -1205,18 +1411,7 @@ async fn update_app(
     )
     .await?;
     tracing::info!("Pushed app dependency job {}", dependency_job_uuid);
-    new_tx.commit().await?;
-
-    webhook.send_message(
-        w_id.clone(),
-        WebhookMessage::UpdateApp {
-            workspace: w_id,
-            old_path: path.to_owned(),
-            new_path: npath.clone(),
-        },
-    );
-
-    Ok(format!("app {} updated (npath: {:?})", path, npath))
+    Ok((new_tx, npath, v_id))
 }
 
 #[derive(Debug, Deserialize, Clone)]
