@@ -27,8 +27,8 @@
 	let tab: Tab = onlyFlow
 		? 'workspaceflows'
 		: unusedInlineScripts?.length > 0
-		? 'inlinescripts'
-		: 'workspacescripts'
+			? 'inlinescripts'
+			: 'workspacescripts'
 	let filter: string = ''
 	let picker: Drawer
 
@@ -207,7 +207,7 @@
 		on:click={() => picker?.openDrawer()}
 		size="xs"
 		color="blue"
-		variant="border"
+		variant={rawApps ? 'contained' : 'border'}
 		startIcon={{ icon: MousePointer }}
 		btnClasses="truncate w-full"
 	>
