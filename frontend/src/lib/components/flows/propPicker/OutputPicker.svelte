@@ -91,6 +91,10 @@
 				'shadow-[inset_0_1px_5px_0_rgba(0,0,0,0.05)] rounded-b-sm',
 				'group'
 			)}
+			on:pointerdown={(e) => {
+				e.preventDefault()
+				e.stopPropagation()
+			}}
 			data-prop-picker
 			title={`${isOpen ? 'Close' : 'Open'} step output`}
 		>
