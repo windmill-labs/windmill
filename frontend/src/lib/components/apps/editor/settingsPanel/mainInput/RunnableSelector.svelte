@@ -6,12 +6,13 @@
 	import type { Runnable, StaticAppInput } from '$lib/components/apps/inputType'
 	import WorkspaceScriptList from './WorkspaceScriptList.svelte'
 	import WorkspaceFlowList from './WorkspaceFlowList.svelte'
-	import type { AppViewerContext } from '$lib/components/apps/types'
-	import { createEventDispatcher, getContext } from 'svelte'
+	import { createEventDispatcher } from 'svelte'
 	import type { Schema } from '$lib/common'
-	import { getAllScriptNames, schemaToInputsSpec } from '$lib/components/apps/utils'
+	import { schemaToInputsSpec } from '$lib/components/apps/utils'
 	import { defaultIfEmptyString, emptySchema } from '$lib/utils'
 	import { loadSchema } from '$lib/infer'
+	import { workspaceStore } from '$lib/stores'
+	import type { InlineScript } from '$lib/components/apps/types'
 
 	type Tab = 'hubscripts' | 'workspacescripts' | 'workspaceflows' | 'inlinescripts'
 
@@ -19,14 +20,15 @@
 	export let hideCreateScript = false
 	export let onlyFlow = false
 	export let rawApps = false
+	export let unusedInlineScripts: { name: string; inlineScript: InlineScript }[]
 
-	const { app, workspace } = getContext<AppViewerContext>('AppViewerContext')
+	// const { app, workspace } = getContext<AppViewerContext>('AppViewerContext')
 
 	let tab: Tab = onlyFlow
 		? 'workspaceflows'
-		: $app?.unusedInlineScripts?.length > 0
-		? 'inlinescripts'
-		: 'workspacescripts'
+		: unusedInlineScripts?.length > 0
+			? 'inlinescripts'
+			: 'workspacescripts'
 	let filter: string = ''
 	let picker: Drawer
 
@@ -41,7 +43,7 @@
 		path: string,
 		runType: 'script' | 'flow' | 'hubscript'
 	): Promise<{ schema: Schema; summary: string | undefined }> {
-		const schema = await loadSchema(workspace, path, runType)
+		const schema = await loadSchema($workspaceStore!, path, runType)
 		if (!schema.schema.order) {
 			schema.schema.order = Object.keys(schema.schema.properties ?? {})
 		}
@@ -88,7 +90,7 @@
 			type: 'runnableByPath',
 			path,
 			runType: 'hubscript',
-			schema,
+			schema: schema.schema,
 			name: defaultIfEmptyString(schema.summary, path)
 		} as const
 		dispatch('pick', {
@@ -98,10 +100,8 @@
 	}
 
 	function pickInlineScript(name: string) {
-		const unusedInlineScriptIndex = $app.unusedInlineScripts?.findIndex(
-			(script) => script.name === name
-		)
-		const unusedInlineScript = $app.unusedInlineScripts?.[unusedInlineScriptIndex]
+		const unusedInlineScriptIndex = unusedInlineScripts?.findIndex((script) => script.name === name)
+		const unusedInlineScript = unusedInlineScripts?.[unusedInlineScriptIndex]
 		dispatch('pick', {
 			runnable: {
 				type: 'runnableByName',
@@ -111,25 +111,17 @@
 			fields: {}
 		})
 
-		$app.unusedInlineScripts.splice(unusedInlineScriptIndex, 1)
-		$app.unusedInlineScripts = $app.unusedInlineScripts
+		unusedInlineScripts.splice(unusedInlineScriptIndex, 1)
+		unusedInlineScripts = unusedInlineScripts
 	}
 
 	function createScript() {
-		let index = 0
-		let newScriptPath = `Inline Script ${index}`
-
-		const names = getAllScriptNames($app)
-
-		// Find a name that is not used by any other inline script
-		while (names.includes(newScriptPath)) {
-			newScriptPath = `Inline Script ${++index}`
-		}
+		let newScriptName = `Inline Script`
 
 		dispatch('pick', {
 			runnable: {
 				type: 'runnableByName',
-				name: newScriptPath,
+				name: newScriptName,
 				inlineScript: undefined
 			},
 			fields: {}
@@ -179,8 +171,8 @@
 						{#if tab == 'inlinescripts'}
 							<InlineScriptList
 								on:pick={(e) => pickInlineScript(e.detail)}
-								inlineScripts={$app.unusedInlineScripts
-									? $app.unusedInlineScripts.map((uis) => uis.name)
+								inlineScripts={unusedInlineScripts
+									? unusedInlineScripts.map((uis) => uis.name)
 									: []}
 							/>
 						{:else if tab == 'workspacescripts'}
@@ -215,7 +207,7 @@
 		on:click={() => picker?.openDrawer()}
 		size="xs"
 		color="blue"
-		variant="border"
+		variant={rawApps ? 'contained' : 'border'}
 		startIcon={{ icon: MousePointer }}
 		btnClasses="truncate w-full"
 	>

@@ -476,3 +476,7 @@ impl CredentialProvider for AwsCredentialAdapter {
 pub fn bundle(w_id: &str, hash: &str) -> String {
     format!("script_bundle/{}/{}", w_id, hash)
 }
+
+pub fn raw_app(w_id: &str, version: &i64) -> String {
+    format!("/home/rfiszel/raw_app/{}/{}", w_id, version)
+}

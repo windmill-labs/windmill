@@ -1,7 +1,7 @@
 import { sveltekit } from '@sveltejs/kit/vite'
 import { readFileSync } from 'fs'
 import { fileURLToPath } from 'url'
-// import mkcert from 'vite-plugin-mkcert'
+import mkcert from 'vite-plugin-mkcert'
 import importMetaUrlPlugin from '@windmill-labs/esbuild-import-meta-url-plugin'
 
 const file = fileURLToPath(new URL('package.json', import.meta.url))
@@ -11,7 +11,7 @@ const version = JSON.parse(json)
 /** @type {import('vite').UserConfig} */
 const config = {
 	server: {
-		https: false,
+		https: true,
 		port: 3000,
 		proxy: {
 			'^/api/.*': {
@@ -28,13 +28,22 @@ const config = {
 				target: process.env.REMOTE_MP ?? 'https://app.windmill.dev',
 				changeOrigin: true,
 				ws: true
+			},
+			'^/ui_builder/.*': {
+				target: 'http://localhost:4000',
+				changeOrigin: true,
+				headers: {
+					'Cross-Origin-Opener-Policy': 'same-origin',
+					'Cross-Origin-Embedder-Policy': 'require-corp',
+					'Cross-Origin-Resource-Policy': 'cross-origin'
+				}
 			}
 		}
 	},
 	preview: {
 		port: 3000
 	},
-	plugins: [sveltekit()],
+	plugins: [sveltekit(), mkcert()],
 	define: {
 		__pkg__: version
 	},
@@ -48,6 +57,9 @@ const config = {
 			plugins: [importMetaUrlPlugin]
 		}
 	},
+	worker: {
+		format: 'es'
+	},
 	resolve: {
 		alias: {
 			path: 'path-browserify',
@@ -55,9 +67,6 @@ const config = {
 				'vscode/vscode/vs/editor/contrib/hover/browser/hoverContribution'
 		},
 		dedupe: ['vscode', 'monaco-editor']
-	},
-	worker: {
-		format: 'es'
 	},
 	assetsInclude: ['**/*.wasm']
 }
