@@ -9447,7 +9447,7 @@ paths:
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/NewGcpTrigger"
+              $ref: "#/components/schemas/GcpTriggerData"
       responses:
         "201":
           description: gcp trigger created
@@ -9471,7 +9471,7 @@ paths:
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/EditGcpTrigger"
+              $ref: "#/components/schemas/GcpTriggerData"
       responses:
         "200":
           description: gcp trigger updated
@@ -14977,8 +14977,7 @@ components:
         delivery_config:
           $ref: "#/components/schemas/PushConfig"
         subscription_mode:
-          $ref: "#/components/schemas/GcpSubscriptionModeConfig"
-          description: "This field is not sent externally and is only used for internal purposes."
+          $ref: "#/components/schemas/SubscriptionMode"
         last_server_ping:
           type: string
           format: date-time
@@ -15025,32 +15024,23 @@ components:
       required:
         - delivery_type
 
-
-    GcpSubscriptionModeConfig:
-      type: object
-      properties:
-        subscription_mode:
-          $ref: "#/components/schemas/SubscriptionMode"
-      required:
-        - subscription_mode
-      allOf:
-        - oneOf:
-            - $ref: "#/components/schemas/GcpExistingSubscription"
-            - $ref: "#/components/schemas/GcpCreateUpdateSubscription"
-      description: |
-        "This is a union type representing the subscription mode. 
-         - 'existing': Represents an existing GCP subscription, and should be accompanied by an 'ExistingGcpSubscription' object.
-         - 'create_update': Represents a new or updated GCP subscription, and should be accompanied by a 'CreateUpdateConfig' object."
-  
-    NewGcpTrigger:
+    GcpTriggerData:
       type: object
       properties:
         gcp_resource_path:
           type: string
+        subscription_mode:
+          $ref: "#/components/schemas/SubscriptionMode"
         topic_id:
           type: string
-        subscription_mode:
-          $ref: "#/components/schemas/GcpSubscriptionModeConfig"
+        subscription_id:
+          type: string
+        base_endpoint:
+          type: string
+        delivery_type:
+          $ref: "#/components/schemas/DeliveryType"
+        delivery_config:
+          $ref: "#/components/schemas/PushConfig"
         path:
           type: string
         script_path:
@@ -15064,34 +15054,6 @@ components:
         - script_path
         - is_flow
         - gcp_resource_path
-        - topic_id
-        - subscription_mode
-
-    EditGcpTrigger:
-      type: object
-      properties:
-        gcp_resource_path:
-          type: string
-        topic_id:
-          type: string
-        subscription_mode:
-          $ref: "#/components/schemas/GcpSubscriptionModeConfig"
-        path:
-          type: string
-        script_path:
-          type: string
-        is_flow:
-          type: boolean
-        enabled:
-          type: boolean
-      required:
-        - path
-        - script_path
-        - is_flow
-        - enabled
-        - mqtt_resource_path
-        - subscription_id
-        - delivery_type
         - topic_id
         - subscription_mode
 

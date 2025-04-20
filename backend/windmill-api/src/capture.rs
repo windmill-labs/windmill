@@ -30,7 +30,7 @@ use windmill_common::auth::aws::AwsAuthResourceType;
 ))]
 use {
     axum::extract::Request, http::HeaderMap, serde::de::DeserializeOwned,
-    windmill_common::error::Error,
+    windmill_common::{utils::empty_string_as_none, error::Error},
 };
 
 #[cfg(all(feature = "enterprise", feature = "kafka"))]
@@ -53,10 +53,7 @@ use {
 };
 
 use crate::{
-    args::WebhookArgs,
-    db::{ApiAuthed, DB},
-    users::fetch_api_authed,
-    utils::RunnableKind,
+    args::WebhookArgs, db::{ApiAuthed, DB}, gcp_triggers_ee::CreateUpdateConfig, users::fetch_api_authed, utils::RunnableKind
 };
 
 use axum::{
@@ -160,8 +157,13 @@ pub struct SqsTriggerConfig {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct GcpTriggerConfig {
     pub gcp_resource_path: String,
-    #[serde(flatten)]
     pub subscription_mode: SubscriptionMode,
+    #[serde(deserialize_with = "empty_string_as_none")]
+    pub subscription_id: Option<String>,
+    #[serde(deserialize_with = "empty_string_as_none")]
+    pub base_endpoint: Option<String>,
+    #[serde(flatten)]
+    pub create_update: Option<CreateUpdateConfig>,
     pub topic_id: String,
 }
 
@@ -370,11 +372,14 @@ async fn set_gcp_trigger_config(
         &gcp_config.gcp_resource_path,
         &capture_config.path,
         &gcp_config.topic_id,
+        &mut gcp_config.subscription_id,
+        &mut gcp_config.base_endpoint,
         gcp_config.subscription_mode,
+        gcp_config.create_update
     )
     .await?;
-
-    gcp_config.subscription_mode = SubscriptionMode::CreateUpdate(config);
+    gcp_config.create_update = Some(config);
+    gcp_config.subscription_mode = SubscriptionMode::CreateUpdate;
     capture_config.trigger_config = Some(TriggerConfig::Gcp(gcp_config));
 
     Ok(capture_config)
@@ -891,7 +896,7 @@ async fn gcp_payload(
 
     let authed = fetch_api_authed(owner.clone(), email, &w_id, &db, None).await?;
 
-    let SubscriptionMode::CreateUpdate(config) = &gcp_trigger_config.subscription_mode else {
+    let Some(config) = &gcp_trigger_config.create_update else {
         return Err(Error::BadConfig("Bad config".to_string()));
     };
 

@@ -692,6 +692,7 @@ pub(crate) async fn tarball_workspace(
                     workspace_id,
                     delivery_type AS "delivery_type: _",
                     delivery_config AS "delivery_config: _",
+                    subscription_mode AS "subscription_mode: _",
                     path,
                     script_path,
                     is_flow,
