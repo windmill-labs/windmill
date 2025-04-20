@@ -24,7 +24,8 @@ FROM node:20-alpine as frontend
 
 # install dependencies
 WORKDIR /frontend
-COPY ./frontend/package.json ./frontend/package-lock.json ./frontend/scripts/ ./
+COPY ./frontend/package.json ./frontend/package-lock.json ./
+COPY ./frontend/scripts/ ./scripts/
 RUN npm ci
 
 # Copy all local files into the image.
