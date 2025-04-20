@@ -149,7 +149,7 @@
 		fields: Record<string, any>
 	): Promise<[string, TriggerableV2] | undefined> {
 		const staticInputs = collectStaticFields(fields)
-		const allowUserResources: string[] = Object.entries(fields)
+		const allowUserResources: string[] = Object.entries(fields ?? {})
 			.map(([k, v]) => {
 				return v['allowUserResources'] ? k : undefined
 			})
