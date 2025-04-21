@@ -402,7 +402,7 @@
 								: 'Apply args to inputs'}
 						startIcon={isFlow && testKind === 'main' ? { icon: Play } : {}}
 					>
-						{isFlow && testKind === 'main' ? 'Test flow' : 'Apply args'}
+						{isFlow && testKind === 'main' ? 'Test args' : 'Apply args'}
 					</Button>
 				{/if}
 			</div>
