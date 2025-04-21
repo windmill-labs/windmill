@@ -701,7 +701,7 @@
 					}}
 				/>
 			</div>
-			<div class="py-2" />
+			<div class="py-2"></div>
 			<Path
 				autofocus={false}
 				bind:this={path}
@@ -712,7 +712,7 @@
 				namePlaceholder="app"
 				kind="app"
 			/>
-			<div class="py-4" />
+			<div class="py-4"></div>
 
 			<div slot="actions">
 				<Button
@@ -732,7 +732,7 @@
 			<Alert title="You're not on the latest app version. " type="warning">
 				By deploying, you may overwrite changes made by other users. Press 'Deploy' to see diff.
 			</Alert>
-			<div class="py-2" />
+			<div class="py-2"></div>
 		{/if}
 		<span class="text-secondary text-sm font-bold">Summary</span>
 		<div class="w-full pt-2">
@@ -757,7 +757,7 @@
 				}}
 			/>
 		</div>
-		<div class="py-4" />
+		<div class="py-4"></div>
 		<span class="text-secondary text-sm font-bold">Deployment message</span>
 		<div class="w-full pt-2">
 			<!-- svelte-ignore a11y-autofocus -->
@@ -768,7 +768,7 @@
 				bind:value={deploymentMsg}
 			/>
 		</div>
-		<div class="py-4" />
+		<div class="py-4"></div>
 		<span class="text-secondary text-sm font-bold">Path</span>
 		<Path
 			bind:this={path}
@@ -838,7 +838,7 @@
 				Deploy
 			</Button>
 		</div>
-		<div class="py-2" />
+		<div class="py-2"></div>
 		{#if appPath == ''}
 			<Alert title="Require saving" type="error">
 				Save this app once before you can publish it
@@ -856,10 +856,10 @@
 				</Tooltip>
 			</Alert>
 
-			<div class="mt-10" />
+			<div class="mt-10"></div>
 
 			<h2>Public URL</h2>
-			<div class="mt-4" />
+			<div class="mt-4"></div>
 
 			<div class="flex gap-2 items-center">
 				<Toggle
@@ -894,12 +894,12 @@
 						<Alert title="EE Only" type="warning" size="xs">
 							Custom path is an enterprise only feature.
 						</Alert>
-						<div class="mb-2" />
+						<div class="mb-2"></div>
 					{:else if !($userStore?.is_admin || $userStore?.is_super_admin)}
 						<Alert type="warning" title="Admin only" size="xs">
 							Custom path can only be set by workspace admins
 						</Alert>
-						<div class="mb-2" />
+						<div class="mb-2"></div>
 					{/if}
 					<Toggle
 						on:change={({ detail }) => {
