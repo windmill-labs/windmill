@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n                SELECT\n                    gcp_resource_path,\n                    subscription_id,\n                    topic_id,\n                    workspace_id,\n                    delivery_type AS \"delivery_type: _\",\n                    delivery_config AS \"delivery_config: _\",\n                    path,\n                    script_path,\n                    is_flow,\n                    edited_by,\n                    email,\n                    edited_at,\n                    server_id,\n                    last_server_ping,\n                    extra_perms,\n                    error,\n                    enabled\n                FROM \n                    gcp_trigger\n                WHERE \n                    workspace_id = $1\n                ",
+  "query": "\n            SELECT\n                gcp_resource_path,\n                subscription_id,\n                topic_id,\n                workspace_id,\n                delivery_type AS \"delivery_type: _\",\n                delivery_config AS \"delivery_config: _\",\n                subscription_mode AS \"subscription_mode: _\",\n                path,\n                script_path,\n                is_flow,\n                edited_by,\n                email,\n                edited_at,\n                server_id,\n                last_server_ping,\n                extra_perms,\n                error,\n                enabled\n            FROM\n                gcp_trigger\n            WHERE\n                delivery_type != 'push'::DELIVERY_MODE AND\n                enabled IS TRUE\n                AND (last_server_ping IS NULL OR\n                    last_server_ping < now() - interval '15 seconds'\n                )\n            ",
   "describe": {
     "columns": [
       {
@@ -45,64 +45,77 @@
       },
       {
         "ordinal": 6,
+        "name": "subscription_mode: _",
+        "type_info": {
+          "Custom": {
+            "name": "gcp_subscription_mode",
+            "kind": {
+              "Enum": [
+                "create_update",
+                "existing"
+              ]
+            }
+          }
+        }
+      },
+      {
+        "ordinal": 7,
         "name": "path",
         "type_info": "Varchar"
       },
       {
-        "ordinal": 7,
+        "ordinal": 8,
         "name": "script_path",
         "type_info": "Varchar"
       },
       {
-        "ordinal": 8,
+        "ordinal": 9,
         "name": "is_flow",
         "type_info": "Bool"
       },
       {
-        "ordinal": 9,
+        "ordinal": 10,
         "name": "edited_by",
         "type_info": "Varchar"
       },
       {
-        "ordinal": 10,
+        "ordinal": 11,
         "name": "email",
         "type_info": "Varchar"
       },
       {
-        "ordinal": 11,
+        "ordinal": 12,
         "name": "edited_at",
         "type_info": "Timestamptz"
       },
       {
-        "ordinal": 12,
+        "ordinal": 13,
         "name": "server_id",
         "type_info": "Varchar"
       },
       {
-        "ordinal": 13,
+        "ordinal": 14,
         "name": "last_server_ping",
         "type_info": "Timestamptz"
       },
       {
-        "ordinal": 14,
+        "ordinal": 15,
         "name": "extra_perms",
         "type_info": "Jsonb"
       },
       {
-        "ordinal": 15,
+        "ordinal": 16,
         "name": "error",
         "type_info": "Text"
       },
       {
-        "ordinal": 16,
+        "ordinal": 17,
         "name": "enabled",
         "type_info": "Bool"
       }
     ],
     "parameters": {
-      "Left": [
-        "Text"
-      ]
+      "Left": []
     },
     "nullable": [
       false,
@@ -117,6 +130,7 @@
       false,
       false,
       false,
+      false,
       true,
       true,
       false,
@@ -124,5 +138,5 @@
       false
     ]
   },
-  "hash": "0102308ffa1c0dbfba54d29246535bb81146a4cfae0ec408435570e0813a3bef"
+  "hash": "2dcff8b16da75740c362015b2293f578a21813f038d75184a5034c37d4daf36e"
 }
