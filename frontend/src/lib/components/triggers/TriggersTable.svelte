@@ -6,47 +6,21 @@
 	import { Plus, Star, Loader2, Trash, Pen, EllipsisVertical } from 'lucide-svelte'
 	import { twMerge } from 'tailwind-merge'
 	import type { Item } from '$lib/utils'
-	import { triggerIconMap, type Trigger, type TriggerType } from './utils'
-
+	import { triggerIconMap, type Trigger } from './utils'
+	import AddTriggersButton from './AddTriggersButton.svelte'
 	// Props
 	export let selectedTrigger: { path: string; type: string; isDraft?: boolean } | null = null
 	export let triggers: Trigger[] = []
 
 	// Component state
 	let loading = false
-	let triggersButtonWidth = 0
 
 	// Event handling
 	const dispatch = createEventDispatcher<{
 		select: Trigger
 		delete: Trigger
-		addDraftTrigger: TriggerType
 		deleteDraft: { trigger: Trigger | undefined; keepSelection: boolean }
 	}>()
-
-	// Dropdown items for adding new triggers
-	const addTriggerItems: Item[] = [
-		{
-			displayName: 'Schedule',
-			action: () => addDraftTrigger('schedule'),
-			icon: triggerIconMap.schedule
-		},
-		{ displayName: 'HTTP', action: () => addDraftTrigger('http'), icon: triggerIconMap.http },
-		{
-			displayName: 'WebSockets',
-			action: () => addDraftTrigger('websocket'),
-			icon: triggerIconMap.websocket
-		},
-		{
-			displayName: 'Postgres',
-			action: () => addDraftTrigger('postgres'),
-			icon: triggerIconMap.postgres
-		},
-		{ displayName: 'Kafka', action: () => addDraftTrigger('kafka'), icon: triggerIconMap.kafka },
-		{ displayName: 'NATS', action: () => addDraftTrigger('nats'), icon: triggerIconMap.nats },
-		{ displayName: 'MQTT', action: () => addDraftTrigger('mqtt'), icon: triggerIconMap.mqtt },
-		{ displayName: 'SQS', action: () => addDraftTrigger('sqs'), icon: triggerIconMap.sqs }
-	]
 
 	const deleteTriggerItems: Item[] = [
 		{
@@ -66,10 +40,6 @@
 		}
 	]
 
-	function addDraftTrigger(type: TriggerType) {
-		dispatch('addDraftTrigger', type)
-	}
-
 	// Select a trigger
 	function selectTrigger(trigger: Trigger) {
 		dispatch('select', trigger)
@@ -82,24 +52,17 @@
 
 <div class="flex flex-col space-y-2 w-full">
 	<div class="w-full">
-		<DropdownV2
-			items={addTriggerItems}
-			placement="bottom"
-			class="w-full"
-			customWidth={triggersButtonWidth}
-		>
-			<div slot="buttonReplacement" class="w-full" bind:clientWidth={triggersButtonWidth}>
-				<Button
-					size="xs"
-					color="blue"
-					startIcon={{ icon: Plus }}
-					nonCaptureEvent
-					btnClasses="w-full justify-center"
-				>
-					<span>Add trigger</span>
-				</Button>
-			</div>
-		</DropdownV2>
+		<AddTriggersButton on:addDraftTrigger>
+			<Button
+				size="xs"
+				color="blue"
+				startIcon={{ icon: Plus }}
+				nonCaptureEvent
+				btnClasses="w-full justify-center"
+			>
+				<span>Add trigger</span>
+			</Button>
+		</AddTriggersButton>
 	</div>
 	<DataTable {loading} size="sm" tableFixed={true}>
 		<tbody>
