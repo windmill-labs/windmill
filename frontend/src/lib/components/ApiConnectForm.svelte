@@ -153,9 +153,7 @@
 		viewJsonSchema = false
 		try {
 			schema = resourceTypeInfo.schema as any
-
 			schema.order = schema.order ?? Object.keys(schema.properties).sort()
-
 			notFound = false
 		} catch (e) {
 			notFound = true
