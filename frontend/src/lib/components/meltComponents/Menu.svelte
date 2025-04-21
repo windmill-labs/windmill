@@ -81,7 +81,7 @@
 			on:click
 		>
 			<div class="py-1" style="max-height: {maxHeight}px; ">
-				<slot {item} />
+				<slot {item} {open} />
 			</div>
 		</div>
 	{/if}
