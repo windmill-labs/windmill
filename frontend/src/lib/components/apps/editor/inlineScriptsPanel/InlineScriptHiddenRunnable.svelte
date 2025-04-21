@@ -10,7 +10,7 @@
 	export let id: string
 	export let transformer: boolean
 
-	const { runnableComponents } = getContext<AppViewerContext>('AppViewerContext')
+	const { runnableComponents, app } = getContext<AppViewerContext>('AppViewerContext')
 	async function fork(nrunnable: Runnable) {
 		runnable = { ...runnable, ...nrunnable, autoRefresh: true, recomputeOnInputChanged: true }
 	}
@@ -37,9 +37,11 @@
 			bind:inlineScript={runnable.transformer}
 			name="Transformer"
 			on:delete={() => {
-				delete $runnableComponents[id]
-				runnable.transformer = undefined
-				runnable = runnable
+				if (runnableComponents) {
+					delete $runnableComponents[id]
+					runnable.transformer = undefined
+					runnable = runnable
+				}
 			}}
 		/>
 	{:else}
@@ -67,8 +69,8 @@
 	/>
 {:else}
 	<EmptyInlineScript
+		unusedInlineScripts={$app?.unusedInlineScripts}
 		on:pick={(e) => onPick(e.detail)}
-		name={runnable.name}
 		on:delete
 		showScriptPicker
 		on:new={(e) => {

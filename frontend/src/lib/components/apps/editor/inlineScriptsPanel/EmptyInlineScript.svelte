@@ -10,26 +10,25 @@
 	import { defaultScriptLanguages, getScriptByPath, processLangs } from '$lib/scripts'
 
 	import { Building, GitFork, Globe2 } from 'lucide-svelte'
-	import { createEventDispatcher, getContext } from 'svelte'
+	import { createEventDispatcher } from 'svelte'
 	import { fly } from 'svelte/transition'
-	import type { AppViewerContext } from '../../types'
 	import { defaultCode } from '../component'
-	import InlineScriptList from '../settingsPanel/mainInput/InlineScriptList.svelte'
 	import WorkspaceScriptList from '../settingsPanel/mainInput/WorkspaceScriptList.svelte'
 	import RunnableSelector from '../settingsPanel/mainInput/RunnableSelector.svelte'
 	import { defaultScripts } from '$lib/stores'
 	import DefaultScripts from '$lib/components/DefaultScripts.svelte'
 	import type { Preview } from '$lib/gen'
+	import type { InlineScript } from '../../types'
 
-	export let name: string
 	export let componentType: string | undefined = undefined
 	export let showScriptPicker = false
+	export let rawApps = false
+	export let unusedInlineScripts: { name: string; inlineScript: InlineScript }[]
 
-	let tab = 'inlinescripts'
+	let tab = 'workspacescripts'
 	let filter: string = ''
 	let picker: Drawer
 
-	const { appPath, app } = getContext<AppViewerContext>('AppViewerContext')
 	const dispatch = createEventDispatcher()
 
 	async function inferInlineScriptSchema(
@@ -48,26 +47,22 @@
 
 	async function createInlineScriptByLanguage(
 		language: Preview['language'],
-		path: string,
 		subkind: 'pgsql' | 'mysql' | 'fetch' | undefined = undefined
 	) {
 		const content =
 			defaultCode(componentType ?? '', (subkind || language) ?? '') ??
 			initialCode(language, 'script', subkind ?? 'flow')
 
-		return newInlineScript(content, language, path)
+		return newInlineScript(content, language)
 	}
 
-	async function newInlineScript(content: string, language: Preview['language'], path: string) {
-		const fullPath = `${$appPath}/${path}`
-
+	async function newInlineScript(content: string, language: Preview['language']) {
 		let schema: Schema = emptySchema()
 
 		schema = await inferInlineScriptSchema(language, content, schema)
 		const newInlineScript = {
 			content,
 			language,
-			path: fullPath,
 			schema
 		}
 		dispatch('new', newInlineScript)
@@ -75,23 +70,12 @@
 
 	async function pickScript(path: string) {
 		const script = await getScriptByPath(path)
-		newInlineScript(script.content, script.language, path)
+		newInlineScript(script.content, script.language)
 	}
 
 	async function pickHubScript(path: string) {
 		const script = await getScriptByPath(path)
-		newInlineScript(script.content, script.language, path)
-	}
-
-	function pickInlineScript(name: string) {
-		const unusedInlineScriptIndex = $app.unusedInlineScripts?.findIndex(
-			(script) => script.name === name
-		)
-		const unusedInlineScript = $app.unusedInlineScripts?.[unusedInlineScriptIndex]
-
-		$app.unusedInlineScripts.splice(unusedInlineScriptIndex, 1)
-		$app = $app
-		dispatch('new', unusedInlineScript.inlineScript)
+		newInlineScript(script.content, script.language)
 	}
 
 	$: langs = processLangs(undefined, $defaultScripts?.order ?? Object.keys(defaultScriptLanguages))
@@ -108,12 +92,6 @@
 		<div>
 			<div class="max-w-6xl">
 				<Tabs bind:selected={tab}>
-					<Tab size="sm" value="inlinescripts">
-						<div class="flex gap-2 items-center my-1">
-							<Building size={18} />
-							Detached Inline Scripts
-						</div>
-					</Tab>
 					<Tab size="sm" value="workspacescripts">
 						<div class="flex gap-2 items-center my-1">
 							<Building size={18} />
@@ -131,14 +109,7 @@
 				<div class="my-2"></div>
 				<div class="flex flex-col gap-y-16">
 					<div class="flex flex-col">
-						{#if tab == 'inlinescripts'}
-							<InlineScriptList
-								on:pick={(e) => pickInlineScript(e.detail)}
-								inlineScripts={$app.unusedInlineScripts
-									? $app.unusedInlineScripts.map((uis) => uis.name)
-									: []}
-							/>
-						{:else if tab == 'workspacescripts'}
+						{#if tab == 'workspacescripts'}
 							<WorkspaceScriptList on:pick={(e) => pickScript(e.detail)} />
 						{:else if tab == 'hubscripts'}
 							<PickHubScript bind:filter on:pick={(e) => pickHubScript(e.detail.path)} />
@@ -159,7 +130,7 @@
 		<div class="font-bold items-baseline truncate">Choose a language</div>
 		<div class="flex gap-2">
 			{#if showScriptPicker}
-				<RunnableSelector on:pick hideCreateScript />
+				<RunnableSelector {unusedInlineScripts} {rawApps} on:pick hideCreateScript />
 			{/if}
 			<Button
 				on:click={() => picker?.openDrawer()}
@@ -194,30 +165,32 @@
 						{label}
 						{lang}
 						on:click={() => {
-							createInlineScriptByLanguage(lang, name)
+							createInlineScriptByLanguage(lang)
 						}}
 						id={`create-${lang}-script`}
 					/>
 				{/each}
 			</div>
 		</div>
-		<div id="app-editor-frontend-runnables">
-			<div class="mb-1 text-sm font-semibold">
-				Frontend
-				<Tooltip
-					documentationLink="https://www.windmill.dev/docs/apps/app-runnable-panel#frontend-scripts"
-				>
-					Frontend scripts are executed in the browser and can manipulate the app context directly.
-				</Tooltip>
-			</div>
+		{#if !rawApps}
+			<div id="app-editor-frontend-runnables">
+				<div class="mb-1 text-sm font-semibold">
+					Frontend
+					<Tooltip
+						documentationLink="https://www.windmill.dev/docs/apps/app-runnable-panel#frontend-scripts"
+					>
+						Frontend scripts are executed in the browser and can manipulate the app context
+						directly.
+					</Tooltip>
+				</div>
 
-			<div>
-				<FlowScriptPicker
-					label={`JavaScript`}
-					lang="javascript"
-					on:click={() => {
-						const newInlineScript = {
-							content: `// read outputs and ctx
+				<div>
+					<FlowScriptPicker
+						label={`JavaScript`}
+						lang="javascript"
+						on:click={() => {
+							const newInlineScript = {
+								content: `// read outputs and ctx
 console.log(ctx.email)
 
 // access a global state store
@@ -235,14 +208,15 @@ state.foo += 1
 // all helpers can be found at https://www.windmill.dev/docs/apps/app-runnable-panel#frontend-scripts-helpers
 
 return state.foo`,
-							language: 'frontend',
-							path: 'frontend script',
-							schema: undefined
-						}
-						dispatch('new', newInlineScript)
-					}}
-				/>
+								language: 'frontend',
+								path: 'frontend script',
+								schema: undefined
+							}
+							dispatch('new', newInlineScript)
+						}}
+					/>
+				</div>
 			</div>
-		</div>
+		{/if}
 	</div>
 </div>

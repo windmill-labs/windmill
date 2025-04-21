@@ -10,8 +10,8 @@ const config = {
 		preprocess({
 			postcss: true
 		}),
-			preprocessMeltUI()
-		]),
+		preprocessMeltUI()
+	]),
 
 	kit: {
 		adapter:
@@ -22,7 +22,7 @@ const config = {
 						pages: 'build',
 						assets: 'build',
 						fallback: '200.html'
-				  }),
+					}),
 		prerender: { entries: [] },
 		paths: {
 			base: process.env.VITE_BASE_URL ?? ''
