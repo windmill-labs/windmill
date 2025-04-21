@@ -8,6 +8,7 @@ use mysql_async::{
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{json, value::RawValue, Value};
+use std::str::FromStr;
 use tokio::sync::Mutex;
 use windmill_common::{
     error::{to_anyhow, Error},
@@ -305,22 +306,31 @@ pub async fn do_mysql(
 
 fn string_date_to_mysql_date(s: &str) -> mysql_async::Value {
     // 2023-12-01T16:18:00.000Z
-    let re = regex::Regex::new(r"(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})\.(\d+)Z").unwrap();
-    let caps = re.captures(s);
+    let re1 =
+        regex::Regex::new(r"(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})\.(\d+)Z").unwrap();
+    // 2025-04-21 10:08:00
+    let re2 = regex::Regex::new(r"(\d{4})-(\d{2})-(\d{2}) (\d{2}):(\d{2}):(\d{2})").unwrap();
+    let caps = re1.captures(s).or_else(|| re2.captures(s));
 
     if let Some(caps) = caps {
         mysql_async::Value::Date(
-            caps.get(1).unwrap().as_str().parse().unwrap_or_default(),
-            caps.get(2).unwrap().as_str().parse().unwrap_or_default(),
-            caps.get(3).unwrap().as_str().parse().unwrap_or_default(),
-            caps.get(4).unwrap().as_str().parse().unwrap_or_default(),
-            caps.get(5).unwrap().as_str().parse().unwrap_or_default(),
-            caps.get(6).unwrap().as_str().parse().unwrap_or_default(),
-            caps.get(7).unwrap().as_str().parse().unwrap_or_default(),
+            get_capture_by_index(&caps, 1),
+            get_capture_by_index(&caps, 2),
+            get_capture_by_index(&caps, 3),
+            get_capture_by_index(&caps, 4),
+            get_capture_by_index(&caps, 5),
+            get_capture_by_index(&caps, 6),
+            get_capture_by_index(&caps, 7),
         )
     } else {
         mysql_async::Value::Date(0, 0, 0, 0, 0, 0, 0)
     }
+}
+
+fn get_capture_by_index<T: FromStr + Default>(caps: &regex::Captures, n: usize) -> T {
+    caps.get(n)
+        .and_then(|s| s.as_str().parse::<T>().ok())
+        .unwrap_or_default()
 }
 
 fn convert_row_to_value(row: Row) -> serde_json::Value {
