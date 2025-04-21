@@ -9,7 +9,7 @@
 
 import { deepEqual } from 'fast-equals'
 import YAML from 'yaml'
-import { usedTriggerKinds, type UserExt } from './stores'
+import { type UserExt } from './stores'
 import { sendUserToast } from './toast'
 import type { Job, Script } from './gen'
 import type { EnumType, SchemaProperty } from './common'

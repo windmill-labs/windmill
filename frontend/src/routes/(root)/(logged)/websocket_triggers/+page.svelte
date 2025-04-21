@@ -11,7 +11,7 @@
 		getLocalSetting,
 		sendUserToast,
 		storeLocalSetting,
-		removeTriggerKindIfUnsued
+		removeTriggerKindIfUnused
 	} from '$lib/utils'
 	import { base } from '$app/paths'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
@@ -61,7 +61,7 @@
 		).map((x) => {
 			return { canWrite: canWrite(x.path, x.extra_perms!, $userStore), ...x }
 		})
-		$usedTriggerKinds = removeTriggerKindIfUnsued(triggers.length, 'websockets', $usedTriggerKinds)
+		$usedTriggerKinds = removeTriggerKindIfUnused(triggers.length, 'websockets', $usedTriggerKinds)
 		loading = false
 	}
 

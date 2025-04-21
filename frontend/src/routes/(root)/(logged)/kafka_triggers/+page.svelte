@@ -11,7 +11,7 @@
 		getLocalSetting,
 		sendUserToast,
 		storeLocalSetting,
-		removeTriggerKindIfUnsued
+		removeTriggerKindIfUnused
 	} from '$lib/utils'
 	import { base } from '$app/paths'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
@@ -69,7 +69,7 @@
 				return { canWrite: canWrite(x.path, x.extra_perms!, $userStore), ...x }
 			}
 		)
-		$usedTriggerKinds = removeTriggerKindIfUnsued(triggers.length, 'kafka', $usedTriggerKinds)
+		$usedTriggerKinds = removeTriggerKindIfUnused(triggers.length, 'kafka', $usedTriggerKinds)
 		loading = false
 	}
 
