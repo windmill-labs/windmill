@@ -41,8 +41,15 @@
 		)
 	)
 
-	// Extract unique trigger types for display
-	let triggersToDisplay = $derived(Object.keys(triggersGrouped) as TriggerType[])
+	// Extract unique trigger types for display, only keep the first 5
+	let allTriggerTypes = $derived(Object.keys(triggersGrouped) as TriggerType[])
+	let triggersToDisplay = $derived(allTriggerTypes.slice(0, 5))
+	let extraTriggers = $derived(
+		allTriggerTypes.length > 5
+			? allTriggerTypes.slice(5).flatMap((type) => triggersGrouped[type])
+			: []
+	)
+
 	let menuOpen = $state(false)
 
 	const dispatch = createEventDispatcher<{
@@ -94,7 +101,7 @@
 	)
 </script>
 
-<Menubar class="flex flex-row gap-1.5 items-center">
+<Menubar class="flex flex-row gap-1 items-center">
 	{#snippet children({ createMenu })}
 		{#each triggersToDisplay as type}
 			{@const isSelected = selected && $selectedTriggerV2 && $selectedTriggerV2.type === type}
@@ -124,35 +131,7 @@
 						{#snippet children({ item })}
 							{#if triggersGrouped[type] && triggersGrouped[type].length > 0}
 								{#each triggersGrouped[type] as trigger}
-									<MenuItem
-										{item}
-										class={itemClass}
-										on:click={() => {
-											dispatch('select', trigger)
-										}}
-									>
-										<span class={trigger.isDraft ? 'text-frost-400 italic' : ''}>
-											{trigger.isDraft
-												? `New ${trigger.type.replace(/s$/, '')} trigger`
-												: trigger.path}
-										</span>
-
-										{#if trigger.isPrimary}
-											<span
-												class="ml-2 bg-blue-50 dark:bg-blue-900/40 px-1.5 py-0.5 rounded text-xs text-blue-700 dark:text-blue-100"
-											>
-												Primary
-											</span>
-										{/if}
-
-										{#if trigger.isDraft}
-											<span
-												class="ml-2 text-2xs bg-frost-100 dark:bg-frost-900 text-frost-800 dark:text-frost-100 px-1.5 py-0.5 rounded"
-											>
-												Draft
-											</span>
-										{/if}
-									</MenuItem>
+									{@render triggerItem({ trigger, item })}
 								{/each}
 							{:else}
 								<div class="text-xs text-gray-400 p-2">No {camelCaseToWords(type)} triggers</div>
@@ -162,6 +141,31 @@
 				{/if}
 			</Tooltip>
 		{/each}
+		{#if extraTriggers.length > 0}
+			<Menu
+				{createMenu}
+				usePointerDownOutside
+				placement="bottom"
+				menuClass={'min-w-56 w-fit'}
+				class="h-fit center-center mr-1"
+				bind:open={menuOpen}
+			>
+				{#snippet trigger({ trigger })}
+					<MeltButton
+						class="w-[23px] h-[23px] rounded-md center-center text-[12px] hover:bg-slate-300 transition-all duration-100 font-normal text-secondary hover:text-primary"
+						meltElement={trigger}
+					>
+						+{extraTriggers.length}
+					</MeltButton>
+				{/snippet}
+
+				{#snippet children({ item })}
+					{#each extraTriggers as trigger}
+						{@render triggerItem({ trigger, item })}
+					{/each}
+				{/snippet}
+			</Menu>
+		{/if}
 	{/snippet}
 </Menubar>
 
@@ -198,4 +202,34 @@
 			<SvelteComponent size={12} />
 		</MeltButton>
 	{/if}
+{/snippet}
+
+{#snippet triggerItem({ trigger, item })}
+	<MenuItem
+		{item}
+		class={itemClass}
+		on:click={() => {
+			dispatch('select', trigger)
+		}}
+	>
+		<span class={trigger.isDraft ? 'text-frost-400 italic' : ''}>
+			{trigger.isDraft ? `New ${trigger.type.replace(/s$/, '')} trigger` : trigger.path}
+		</span>
+
+		{#if trigger.isPrimary}
+			<span
+				class="ml-2 bg-blue-50 dark:bg-blue-900/40 px-1.5 py-0.5 rounded text-xs text-blue-700 dark:text-blue-100"
+			>
+				Primary
+			</span>
+		{/if}
+
+		{#if trigger.isDraft}
+			<span
+				class="ml-2 text-2xs bg-frost-100 dark:bg-frost-900 text-frost-800 dark:text-frost-100 px-1.5 py-0.5 rounded"
+			>
+				Draft
+			</span>
+		{/if}
+	</MenuItem>
 {/snippet}
