@@ -59,6 +59,13 @@ struct ResourceInfo {
     resource_type: String,
 }
 
+#[derive(Serialize, FromRow, Debug)]
+struct ResourceType {
+    name: String,
+    description: Option<String>,
+}
+
+
 impl Runner {
     pub fn new() -> Self {
         Self {}
@@ -68,6 +75,39 @@ impl Runner {
         RawResource::new(uri, name.to_string()).no_annotation()
     }
 
+    async fn inner_get_resource_info(
+        &self,
+        user_db: &UserDB,
+        authed: &ApiAuthed,
+        workspace_id: String,
+        resource_type: String,
+    ) -> Result<ResourceType, Error> {
+        let mut sqlb = SqlBuilder::select_from("resource_type as o");
+        sqlb.fields(&["o.name", "o.description"]);
+        sqlb.and_where("o.workspace_id = ?".bind(&workspace_id));
+        sqlb.and_where("o.name = ?".bind(&resource_type));
+        let sql = sqlb.sql().map_err(|_e| {
+            tracing::error!("failed to build sql: {}", _e);
+            Error::internal_error("failed to build sql", None)
+        })?;
+        let mut tx = user_db
+            .clone()
+            .begin(authed)
+            .await
+            .map_err(|_e| Error::internal_error("failed to begin transaction", None))?;
+        let rows = sqlx::query_as::<_, ResourceType>(&sql)
+            .fetch_one(&mut *tx)
+            .await
+            .map_err(|_e| {
+                tracing::error!("Failed to fetch resource info: {}", _e);
+                Error::internal_error("failed to fetch resource info", None)
+            })?;
+        tx.commit()
+            .await
+            .map_err(|_e| Error::internal_error("failed to commit transaction", None))?;
+        Ok(rows)
+    }
+        
     async fn inner_get_resources(
         &self,
         user_db: &UserDB,
@@ -184,41 +224,46 @@ impl Runner {
             .map_err(|_e| Error::internal_error("failed to commit transaction", None))?;
         Ok(rows)
     }
-}
 
-fn generate_tool_name(summary: Option<String>, path: &str, last_path: Option<String>) -> String {
-    match summary {
-        // if summary exist and is not empty, use it
-        Some(summary) if !summary.is_empty() => {
-            let parts: Vec<&str> = summary.split_whitespace().collect();
-            parts.join("_")
-        }
-        _ => {
-            // if path is duplicated, use the full path
-            if last_path == Some(path.to_string()) {
-                path.replace('/', "_")
-            } else {
-                // if path is not duplicated, use the last part of the path
-                path.split('/').last().unwrap_or(path).to_string()
+    fn generate_tool_name(&self, summary: Option<String>, path: &str, last_path: Option<String>) -> String {
+        match summary {
+            // if summary exist and is not empty, use it
+            Some(summary) if !summary.is_empty() => {
+                let parts: Vec<&str> = summary.split_whitespace().collect();
+                parts.join("_")
+            }
+            _ => {
+                // if path is duplicated, use the full path
+                if last_path == Some(path.to_string()) {
+                    path.replace('/', "_")
+                } else {
+                    // if path is not duplicated, use the last part of the path
+                    path.split('/').last().unwrap_or(path).to_string()
+                }
             }
         }
     }
-}
-
-fn transform_schema_for_resources(schema: &mut serde_json::Value) {
-    if let serde_json::Value::Object(schema_obj) = schema {
-        if let Some(serde_json::Value::Object(properties)) = schema_obj.get_mut("properties") {
-            for (_key, prop) in properties.iter_mut() {
-                if let serde_json::Value::Object(prop_obj) = prop {
-                    if let Some(serde_json::Value::String(format)) = prop_obj.get("format") {
-                        if format.contains("resource") {
-                            // Replace type with "string" for resource formats
-                            prop_obj.insert("type".to_string(), serde_json::Value::String("string".to_string()));
+    
+    async fn transform_schema_for_resources(&self, schema: &mut serde_json::Value, user_db: &UserDB, authed: &ApiAuthed, w_id: String) -> Result<(), Error> {
+        if let serde_json::Value::Object(schema_obj) = schema {
+            if let Some(serde_json::Value::Object(properties)) = schema_obj.get_mut("properties") {
+                for (_key, prop) in properties.iter_mut() {
+                    if let serde_json::Value::Object(prop_obj) = prop {
+                        if let Some(serde_json::Value::String(format)) = prop_obj.get("format") {
+                            if format.contains("resource") {
+                                let resource_type = format.split("-").last().unwrap_or_default();
+                                let resource_info = self.inner_get_resource_info(&user_db, &authed, w_id.clone(), resource_type.to_string()).await?;
+                                let resources = self.inner_get_resources(&user_db, &authed, w_id.clone(), vec![resource_type.to_string()]).await?;
+                                prop_obj.insert("description".to_string(), serde_json::Value::String(format!("This is a resource named {} with the following description: {}. It contains a predefined set of resources. The path of the resource should be used to specify the resource. If no resource is found, the LLM should tell the user that no resources are available and he should create one from his windmill workspace.", resource_info.name, resource_info.description.as_deref().unwrap_or("No description"))));
+                                prop_obj.insert("oneOf".to_string(), serde_json::Value::Array(resources.iter().map(|resource| serde_json::Value::Object(serde_json::Map::from_iter([("const".to_string(), serde_json::Value::String(resource.path.clone())), ("title".to_string(), serde_json::Value::String(resource.description.as_deref().unwrap_or("No description").to_string()))].into_iter()))).collect()));
+                                prop_obj.insert("type".to_string(), serde_json::Value::String("string".to_string()));
+                            }
                         }
                     }
                 }
             }
         }
+        Ok(())
     }
 }
 
@@ -292,16 +337,12 @@ impl ServerHandler for Runner {
             }
         };
 
-
-        let mut resources_args: HashMap<String, String> = HashMap::new();
         // Convert Value to PushArgsOwned
         let push_args = if let Value::Object(map) = args.clone() {
             let mut args_hash = HashMap::new();
             for (k, v) in map {
                 // Check if we need to transform this argument based on schema
                 let mut value_to_use = v.clone();
-                let mut key_copy: Option<String> = None;
-                let mut type_copy: Option<String> = None;
                 if let Some(ref schema) = schema {
                     if let Some(properties) = schema.get("properties") {
                         if let Some(property) = properties.get(&k) {
@@ -311,10 +352,6 @@ impl ServerHandler for Runner {
                                         // Modify string values to have "$res:" prefix for resource types
                                         if let Value::String(s) = &v {
                                             value_to_use = Value::String(format!("$res:{}", s));
-                                            // add to resources_args
-                                            key_copy = Some(k.clone());
-                                            // type_copy is format split by -
-                                            type_copy = Some(format_str.split("-").collect::<Vec<&str>>()[1].to_string());
                                         }
                                     }
                                 }
@@ -323,9 +360,6 @@ impl ServerHandler for Runner {
                     }
                 }
                 args_hash.insert(k, to_raw_value(&value_to_use.clone()));
-                if let Some(key_copy) = key_copy {
-                    resources_args.insert(key_copy, type_copy.unwrap_or_default());
-                }
             }
             windmill_queue::PushArgsOwned { extra: None, args: args_hash }
         } else {
@@ -373,19 +407,6 @@ impl ServerHandler for Runner {
                 let body_str = String::from_utf8(body_bytes.to_vec()).map_err(|e| {
                     Error::internal_error(format!("Failed to decode response body: {}", e), None)
                 })?;
-
-                // Check for invalid resource path errors
-                if body_str.contains("invalid resource path") {
-                    let resource_types = resources_args.values().cloned().collect::<Vec<String>>();
-                    let resources = self.inner_get_resources(&user_db, &authed, w_id, resource_types).await?;
-                    let error_response = serde_json::json!({
-                        "error": "Resource not found",
-                        "available_resources": resources
-                    });
-                    
-                    return Ok(CallToolResult::success(vec![Content::text(error_response.to_string())]));
-                }
-
                 Ok(CallToolResult::success(vec![Content::text(body_str)]))
             }
             Err(e) => Err(Error::internal_error(
@@ -413,72 +434,45 @@ impl ServerHandler for Runner {
             .inner_get_scripts(user_db, authed, workspace_id.clone())
             .await?;
         let mut last_path = scripts.first().map(|script| script.path.clone());
-        let script_tools: Vec<Tool> = scripts
-            .into_iter()
-            .map(|script| {
-                let name = generate_tool_name(script.summary, &script.path, last_path.clone());
-                last_path = Some(script.path.clone());
+        let mut script_tools: Vec<Tool> = Vec::with_capacity(scripts.len());
+        for script in scripts {
+            let name = self.generate_tool_name(script.summary, &script.path, last_path.clone());
+            last_path = Some(script.path.clone());
+            let mut schema = script.schema.unwrap_or_default();
+            self.transform_schema_for_resources(&mut schema, user_db, authed, workspace_id.clone()).await?;
+            script_tools.push(Tool {
+                name: Cow::Owned(name),
+                description: Some(Cow::Owned(script.description.unwrap_or_default())),
+                input_schema: if let serde_json::Value::Object(map) = schema {
+                    Arc::new(map)
+                } else {
+                    Arc::new(serde_json::Map::new())
+                },
+                annotations: Some(ToolAnnotations::with_title(format!("script:{}", script.path))),
+            });
+        }
 
-                Tool {
-                    name: Cow::Owned(name),
-                    description: Some(Cow::Owned(script.description.unwrap_or_default())),
-                    input_schema: script
-                        .schema
-                        .map(|schema| {
-                            if let serde_json::Value::Object(map) = schema {
-                                let mut schema_value = serde_json::Value::Object(map);
-                                transform_schema_for_resources(&mut schema_value);
-                                if let serde_json::Value::Object(transformed_map) = schema_value {
-                                    Arc::new(transformed_map)
-                                } else {
-                                    Arc::new(serde_json::Map::new())
-                                }
-                            } else {
-                                Arc::new(serde_json::Map::new())
-                            }
-                        })
-                        .unwrap_or_default(),
-                    annotations: Some(ToolAnnotations::with_title(format!(
-                        "script:{}",
-                        script.path
-                    ))),
-                }
-            })
-            .collect();
+        let flows = self.inner_get_flows(user_db, authed, workspace_id.clone()).await?;
+        let mut last_path = flows.first().map(|flow| flow.path.clone());
+        let mut flow_tools: Vec<Tool> = Vec::with_capacity(flows.len());
+        for flow in flows {
+            let name = self.generate_tool_name(flow.summary, &flow.path, last_path.clone());
+            last_path = Some(flow.path.clone());
+            let mut schema = flow.schema.unwrap_or_default();
+            self.transform_schema_for_resources(&mut schema, user_db, authed, workspace_id.clone()).await?;
+            flow_tools.push(Tool {
+                name: Cow::Owned(name),
+                description: Some(Cow::Owned(flow.description.unwrap_or_default())),
+                input_schema: if let serde_json::Value::Object(map) = schema {
+                    Arc::new(map)
+                } else {
+                    Arc::new(serde_json::Map::new())
+                },
+                annotations: Some(ToolAnnotations::with_title(format!("flow:{}", flow.path))),
+            });
+        }
 
-        let flows = self.inner_get_flows(user_db, authed, workspace_id).await?;
-        let flow_tools = flows
-            .into_iter()
-            .map(|flow| {
-                let name = generate_tool_name(flow.summary, &flow.path, last_path.clone());
-                last_path = Some(flow.path.clone());
-
-                Tool {
-                    name: Cow::Owned(name),
-                    description: Some(Cow::Owned(flow.description.unwrap_or_default())),
-                    input_schema: flow
-                        .schema
-                        .map(|schema| {
-                            if let serde_json::Value::Object(map) = schema {
-                                let mut schema_value = serde_json::Value::Object(map);
-                                transform_schema_for_resources(&mut schema_value);
-                                if let serde_json::Value::Object(transformed_map) = schema_value {
-                                    Arc::new(transformed_map)
-                                } else {
-                                    Arc::new(serde_json::Map::new())
-                                }
-                            } else {
-                                Arc::new(serde_json::Map::new())
-                            }
-                        })
-                        .unwrap_or_default(),
-                    annotations: Some(ToolAnnotations::with_title(format!("flow:{}", flow.path))),
-                }
-            })
-            .collect();
-        let tools = [script_tools, flow_tools].concat();
-
-        Ok(ListToolsResult { tools, next_cursor: None })
+        Ok(ListToolsResult { tools: [script_tools, flow_tools].concat(), next_cursor: None })
     }
 
     fn get_info(&self) -> ServerInfo {

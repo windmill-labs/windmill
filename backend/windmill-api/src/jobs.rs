@@ -3338,9 +3338,7 @@ pub async fn run_script_by_path(
     Query(run_query): Query<RunJobQuery>,
     args: WebhookArgs,
 ) -> error::Result<(StatusCode, String)> {
-    tracing::info!("{:?}", run_query);
     let args = args.to_push_args_owned(&authed, &db, &w_id).await?;
-    tracing::info!("{:?}", args.args);
     run_script_by_path_inner(
         authed,
         db,
