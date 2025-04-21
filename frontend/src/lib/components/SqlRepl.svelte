@@ -45,15 +45,25 @@
 	import { workspaceStore } from '$lib/stores'
 	import type { ScriptLang } from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
+	import { untrack } from 'svelte'
 
 	type Props = {
 		resourceType: string
 		resourcePath: string
 		onData: (data: Record<string, any>[]) => void
+		placeholderTableName?: string
 	}
-	let { resourcePath, resourceType, onData }: Props = $props()
+	let { resourcePath, resourceType, onData, placeholderTableName }: Props = $props()
 
-	let code = $state('SELECT * FROM users')
+	const DEFAULT_SQL = 'SELECT * FROM _'
+	let code = $state(DEFAULT_SQL)
+	$effect(() => {
+		const _code = untrack(() => code)
+		console.log('placeholderTableName', placeholderTableName)
+		if (placeholderTableName && _code === DEFAULT_SQL) {
+			code = _code.replace('_', placeholderTableName ?? 'table')
+		}
+	})
 	let isRunning = $state(false)
 
 	async function run() {

@@ -3,7 +3,7 @@
 	import Button from './common/button/Button.svelte'
 	import Drawer from './common/drawer/Drawer.svelte'
 	import DrawerContent from './common/drawer/DrawerContent.svelte'
-	import { sendUserToast } from '$lib/utils'
+	import { sendUserToast, sortArray } from '$lib/utils'
 	import { ArrowLeft, Database, Expand, Loader2, Minimize, RefreshCcw } from 'lucide-svelte'
 	import {
 		dbSupportsSchemas,
@@ -240,6 +240,7 @@
 						onData={(data) => {
 							replResultData = data
 						}}
+						placeholderTableName={sortArray(Object.keys(Object.values(dbSchema?.schema)[0]))[0]}
 					/>
 				</Pane>
 			</Splitpanes>
