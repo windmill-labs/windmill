@@ -134,7 +134,7 @@
 	wrapperClasses="absolute z-10 bottom-2 right-6"
 	color={isRunning ? 'red' : 'dark'}
 	shortCut={{ Icon: CornerDownLeft }}
-	on:click={run}
+	on:click={() => run()}
 >
 	{isRunning ? 'Running...' : 'Run'}
 </Button>

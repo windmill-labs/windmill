@@ -6,7 +6,7 @@
 
 	export let noBg = false
 	export let small: boolean = false
-	export let Icon: any | undefined
+	export let Icon: any | undefined = undefined
 	const dispatch = createEventDispatcher()
 </script>
 
