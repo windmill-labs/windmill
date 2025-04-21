@@ -7,6 +7,8 @@
 	import InsertModuleButton from '$lib/components/flows/map/InsertModuleButton.svelte'
 	import type { FlowModule } from '$lib/gen'
 	import { twMerge } from 'tailwind-merge'
+	import AddTriggersButton from '$lib/components/triggers/AddTriggersButton.svelte'
+	import { Plus } from 'lucide-svelte'
 
 	export let path: string
 	export let newItem: boolean
@@ -62,6 +64,15 @@
 					'hover:bg-surface-hover rounded-md border text-xs w-[23px] h-[23px] relative center-center cursor-pointer bg-surface outline-0'
 				)}
 			/>
+			<AddTriggersButton on:addDraftTrigger class="w-fit">
+				<button
+					class={twMerge(
+						'hover:bg-slate-300 rounded-md border border-dashed border-secondary text-xs w-[23px] h-[23px] relative center-center cursor-pointer text-secondary'
+					)}
+				>
+					<Plus size={12} />
+				</button>
+			</AddTriggersButton>
 		{/if}
 	</button>
 </div>

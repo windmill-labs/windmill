@@ -9,6 +9,7 @@
 	import { getStateColor } from '../../util'
 	import { setScheduledPollSchedule, type TriggerContext } from '$lib/components/triggers'
 	import VirtualItemWrapper from '$lib/components/flows/map/VirtualItemWrapper.svelte'
+	import { addDraftTrigger } from '$lib/components/triggers/utils'
 
 	export let data: {
 		path: string
@@ -66,6 +67,10 @@
 			}}
 			on:delete={(e) => {
 				data.eventHandlers.delete(e, '')
+			}}
+			on:addDraftTrigger={(e) => {
+				const newTrigger = addDraftTrigger(triggers, e.detail, !!$primarySchedule)
+				$selectedTriggerV2 = newTrigger
 			}}
 			selected={$selectedId == 'triggers'}
 			newItem={data.newFlow}

@@ -52,7 +52,7 @@
 
 <div class="flex flex-col space-y-2 w-full">
 	<div class="w-full">
-		<AddTriggersButton on:addDraftTrigger>
+		<AddTriggersButton on:addDraftTrigger setDropdownWidthToButtonWidth class="w-full">
 			<Button
 				size="xs"
 				color="blue"

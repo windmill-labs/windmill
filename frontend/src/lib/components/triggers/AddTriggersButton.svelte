@@ -3,6 +3,8 @@
 	import DropdownV2 from '$lib/components/DropdownV2.svelte'
 	import { createEventDispatcher } from 'svelte'
 
+	export let setDropdownWidthToButtonWidth: boolean = false
+
 	const dispatch = createEventDispatcher<{
 		addDraftTrigger: TriggerType
 	}>()
@@ -41,10 +43,11 @@
 <DropdownV2
 	items={addTriggerItems}
 	placement="bottom"
-	class="w-full"
-	customWidth={triggersButtonWidth}
+	class={$$props.class}
+	customWidth={setDropdownWidthToButtonWidth ? triggersButtonWidth : undefined}
+	usePointerDownOutside
 >
-	<div slot="buttonReplacement" class="w-full" bind:clientWidth={triggersButtonWidth}>
+	<div slot="buttonReplacement" class={$$props.class} bind:clientWidth={triggersButtonWidth}>
 		<slot />
 	</div>
 </DropdownV2>
