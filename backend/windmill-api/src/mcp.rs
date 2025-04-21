@@ -193,11 +193,15 @@ impl Runner {
         user_db: &UserDB,
         authed: &ApiAuthed,
         workspace_id: String,
+        scope_type: String,
     ) -> Result<Vec<ScriptInfo>, Error> {
         let mut sqlb = SqlBuilder::select_from("script as o");
-        sqlb.fields(&["o.path", "o.summary", "o.description", "o.schema"]).join("favorite")
+        sqlb.fields(&["o.path", "o.summary", "o.description", "o.schema"]);
+        if scope_type == "favorites" {
+            sqlb.join("favorite")
                 .on("favorite.favorite_kind = 'script' AND favorite.workspace_id = o.workspace_id AND favorite.path = o.path AND favorite.usr = ?"
                     .bind(&authed.username));
+        }
         sqlb.and_where("o.workspace_id = ?".bind(&workspace_id))
             .and_where("o.archived = false")
             .and_where("o.draft_only IS NOT TRUE")
@@ -430,8 +434,10 @@ impl ServerHandler for Runner {
             .req_extensions
             .get::<ApiAuthed>()
             .ok_or_else(|| Error::internal_error("ApiAuthed not found", None))?;
+        let scope = authed.scopes.as_ref().and_then(|scopes| scopes.iter().find(|scope| scope.starts_with("mcp:")));
+        let scope_type = scope.map_or("all", |scope| scope.split(":").last().unwrap_or("all"));
         let scripts = self
-            .inner_get_scripts(user_db, authed, workspace_id.clone())
+            .inner_get_scripts(user_db, authed, workspace_id.clone(), scope_type.to_string())
             .await?;
         let mut last_path = scripts.first().map(|script| script.path.clone());
         let mut script_tools: Vec<Tool> = Vec::with_capacity(scripts.len());
