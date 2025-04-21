@@ -184,32 +184,8 @@
 			</ToggleButtonGroup>
 			<div class="flex flex-col w-full">
 				<div class="flex justify-start w-full">
-					{#if showCapture}
-						<ToggleButtonGroup
-							let:item
-							bind:selected={selectedRoute}
-							tabListClass="rounded-r-none"
-							class="w-fit"
-						>
-							<ToggleButton
-								small
-								label="Production URL"
-								value="full"
-								{item}
-								class="whitespace-nowrap"
-							/>
-							<ToggleButton
-								small
-								label="Test URL"
-								value="test"
-								{item}
-								class="whitespace-nowrap"
-								tooltip="Test URL is used to capture HTTP requests to the endpoint. Hit start capturing in the pane bellow to listen to requests."
-							/>
-						</ToggleButtonGroup>
-					{:else}
-						<Badge color="gray" class="rounded-r-none h-[27px]">Full endpoint</Badge>
-					{/if}
+					<Badge color="gray" class="rounded-r-none h-[27px]">Production URL</Badge>
+
 					<ClipboardPanel
 						content={selectedRoute === 'full' ? fullRoute : captureURL}
 						class="rounded-l-none bg-surface border-none outline outline-2 outline-surface-secondary outline-offset-[-2px]"
