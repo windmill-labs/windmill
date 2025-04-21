@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { Calendar, Mail, Webhook, Unplug, Database, PlugZap } from 'lucide-svelte'
+	import { Calendar, Mail, Webhook, Unplug, Database } from 'lucide-svelte'
 	import Popover from '$lib/components/Popover.svelte'
 	import TriggerCount from './TriggerCount.svelte'
 	import { createEventDispatcher, onMount, type ComponentType } from 'svelte'
