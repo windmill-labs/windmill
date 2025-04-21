@@ -1,6 +1,5 @@
 <script lang="ts">
 	import { Calendar, Mail, Webhook, Unplug, Database } from 'lucide-svelte'
-	import Popover from '$lib/components/Popover.svelte'
 	import TriggerCount from './TriggerCount.svelte'
 	import { createEventDispatcher, onMount, type ComponentType } from 'svelte'
 	import { Route } from 'lucide-svelte'
@@ -10,7 +9,7 @@
 	import { enterpriseLicense, workspaceStore } from '$lib/stores'
 	import { MqttIcon, NatsIcon, KafkaIcon, AwsIcon } from '$lib/components/icons'
 	import type { Trigger, TriggerType } from '$lib/components/triggers/utils'
-	import { Menu, Menubar, MeltButton, MenuItem } from '$lib/components/meltComponents'
+	import { Menu, Menubar, MeltButton, MenuItem, Tooltip } from '$lib/components/meltComponents'
 	import { twMerge } from 'tailwind-merge'
 
 	const { selectedTriggerV2, triggersCount } = getContext<TriggerContext>('TriggerContext')
@@ -44,6 +43,7 @@
 
 	// Extract unique trigger types for display
 	let triggersToDisplay = $derived(Object.keys(triggersGrouped) as TriggerType[])
+	let menuOpen = $state(false)
 
 	const dispatch = createEventDispatcher<{
 		select: Trigger | undefined
@@ -98,7 +98,7 @@
 	{#snippet children({ createMenu })}
 		{#each triggersToDisplay as type}
 			{@const isSelected = selected && $selectedTriggerV2 && $selectedTriggerV2.type === type}
-			<Popover disablePopup={false} on:click={(e) => e.stopPropagation()}>
+			<Tooltip disablePopup={menuOpen} on:click={(e) => e.stopPropagation()}>
 				{#snippet text()}
 					{camelCaseToWords(type)}
 				{/snippet}
@@ -111,6 +111,7 @@
 						placement="bottom-start"
 						menuClass={'min-w-56 w-fit'}
 						class="h-fit"
+						bind:open={menuOpen}
 					>
 						{#snippet trigger({ trigger })}
 							{@render triggerButton({
@@ -159,7 +160,7 @@
 						{/snippet}
 					</Menu>
 				{/if}
-			</Popover>
+			</Tooltip>
 		{/each}
 	{/snippet}
 </Menubar>

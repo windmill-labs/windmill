@@ -16,6 +16,7 @@
 	export let invisible: boolean = false
 	export let usePointerDownOutside: boolean = false
 	export let menuClass: string = ''
+	export let open = false
 
 	// Use the passed createMenu function
 	const menu = createMenu({
@@ -32,8 +33,6 @@
 		elements: { trigger, menu: menuElement, item },
 		states
 	} = menu
-
-	let open = false
 
 	const sync = createSync(states)
 	$: sync.open(open, (v) => (open = Boolean(v)))
