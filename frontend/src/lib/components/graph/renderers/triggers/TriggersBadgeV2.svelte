@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { Calendar, Mail, Webhook, Unplug, Database } from 'lucide-svelte'
-	import TriggerCount from './TriggerCount.svelte'
+	import { Loader2 } from 'lucide-svelte'
 	import { createEventDispatcher, onMount, type ComponentType } from 'svelte'
 	import { Route } from 'lucide-svelte'
 	import { getContext } from 'svelte'
@@ -94,7 +94,7 @@
 	)
 </script>
 
-<Menubar class="flex flex-row gap-1 items-center">
+<Menubar class="flex flex-row gap-1.5 items-center">
 	{#snippet children({ createMenu })}
 		{#each triggersToDisplay as type}
 			{@const isSelected = selected && $selectedTriggerV2 && $selectedTriggerV2.type === type}
@@ -108,7 +108,7 @@
 					<Menu
 						{createMenu}
 						usePointerDownOutside
-						placement="bottom-start"
+						placement="bottom"
 						menuClass={'min-w-56 w-fit'}
 						class="h-fit"
 						bind:open={menuOpen}
@@ -171,7 +171,8 @@
 		<MeltButton
 			class={twMerge(
 				'hover:bg-surface-hover rounded-md shadow-sm text-xs w-[23px] h-[23px] relative center-center cursor-pointer bg-surface',
-				isSelected ? 'outline-1 outline-tertiary outline' : 'outline-0'
+				'dark:outline outline-1 outline-offset-[-1px] outline-tertiary/20',
+				isSelected ? 'outline-tertiary outline' : ''
 			)}
 			on:click={() => {
 				if (triggersGrouped[type] && triggersGrouped[type].length > 0) {
@@ -181,7 +182,18 @@
 			{meltElement}
 		>
 			{#if countKey}
-				<TriggerCount count={$triggersCount?.[countKey]} />
+				{@const count = $triggersCount?.[countKey]}
+				{#if count && count > 0}
+					<div
+						class="absolute -right-1 -top-1 z-10 bg-surface-secondary-inverse bg-opacity-80 rounded-sm shadow-lg h-3 w-3 flex center-center text-primary-inverse text-[10px] font-mono"
+					>
+						{#if count === undefined}
+							<Loader2 class="animate-spin text-2xs" />
+						{:else}
+							{count}
+						{/if}
+					</div>
+				{/if}
 			{/if}
 			<SvelteComponent size={12} />
 		</MeltButton>

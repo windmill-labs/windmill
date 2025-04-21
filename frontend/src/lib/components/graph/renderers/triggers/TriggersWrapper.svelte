@@ -25,8 +25,8 @@
 <div style={`width: ${NODE.width}px;`}>
 	<button
 		style="background-color: {bgColor} !important;"
-		class="flex w-full flex-row gap-1 px-2 p-1 items-center {selected
-			? 'outline  outline-2  outline-gray-600 rounded-sm dark:bg-white/5 dark:outline-gray-400'
+		class="flex w-full flex-row gap-1.5 px-2 p-1 items-center rounded-sm {selected
+			? 'outline  outline-2  outline-gray-600 dark:bg-white/5 dark:outline-gray-400'
 			: ''}"
 		on:click={() => {
 			dispatch('select')
@@ -61,7 +61,7 @@
 				index={0}
 				{modules}
 				class={twMerge(
-					'hover:bg-surface-hover rounded-md shadow-sm text-xs w-[23px] h-[23px] relative center-center cursor-pointer bg-surface outline-0'
+					'hover:bg-surface-hover rounded-md shadow-sm text-xs w-[23px] h-[23px] relative center-center cursor-pointer bg-surface outline-0 dark:outline dark:outline-1 dark:outline-offset-[-1px] dark:outline-tertiary/20'
 				)}
 			/>
 			<AddTriggersButton on:addDraftTrigger class="w-fit h-fit">

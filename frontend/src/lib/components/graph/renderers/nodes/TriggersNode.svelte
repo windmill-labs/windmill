@@ -31,7 +31,7 @@
 		getContext<TriggerContext>('TriggerContext')
 </script>
 
-<NodeWrapper wrapperClass="shadow-md" let:darkMode>
+<NodeWrapper wrapperClass="shadow-md rounded-sm" let:darkMode>
 	{#if data.simplifiableFlow?.simplifiedFlow != true}
 		<TriggersWrapper
 			disableAi={data.disableAi}
