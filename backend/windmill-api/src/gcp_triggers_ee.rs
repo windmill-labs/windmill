@@ -53,10 +53,9 @@ pub struct ExistingGcpSubscription {
 }
 
 #[derive(Debug, Deserialize, Serialize)]
-#[serde(tag = "subscription_mode", rename_all = "snake_case")]
 pub enum SubscriptionMode {
-    Existing(ExistingGcpSubscription),
-    CreateUpdate(CreateUpdateConfig),
+    Existing,
+    CreateUpdate,
 }
 
 pub fn workspaced_service() -> Router {
@@ -77,7 +76,11 @@ pub async fn manage_google_subscription(
     _gcp_resource_path: &str,
     _path: &str,
     _topic_id: &str,
+    _subscription_id: &mut Option<String>,
+    _base_endpoint: &mut Option<String>,
     _subscription_mode: SubscriptionMode,
+    _create_update_config: Option<CreateUpdateConfig>,
+    _trigger_mode: bool,
 ) -> WindmillResult<CreateUpdateConfig> {
     Ok(CreateUpdateConfig::default())
 }
