@@ -19,6 +19,8 @@ export function makeCreateTableQuery(
 	resourceType: DbType,
 	schema?: string
 ) {
+	const pkCount = values.columns.reduce((p, c) => p + (c.primaryKey ? 1 : 0), 0)
+
 	function transformColumn(c: CreateTableValuesColumn): string {
 		const datatype = c.datatype_length ? `${c.datatype}(${c.datatype_length})` : c.datatype
 		const defValue = c.defaultValue && formatDefaultValue(c.defaultValue, datatype, resourceType)
@@ -26,14 +28,20 @@ export function makeCreateTableQuery(
 		let str = `  ${c.name} ${datatype}`
 		if (c.not_null) str += ' NOT NULL'
 		if (defValue) str += ` DEFAULT ${defValue}`
-		if (c.primaryKey) str += ' PRIMARY KEY'
+		if (pkCount === 1 && c.primaryKey) str += ' PRIMARY KEY'
 		return str
 	}
 
 	const useSchema = dbSupportsSchemas(resourceType)
 
+	const lines = values.columns.map(transformColumn)
+	if (pkCount > 1) {
+		const pks = values.columns.filter((c) => c.primaryKey)
+		lines.push(`  PRIMARY KEY (${pks.map((c) => c.name).join(', ')})`)
+	}
+
 	return `CREATE TABLE ${useSchema && schema ? schema.trim() + '.' : ''}${values.name.trim()} (
-${values.columns.map(transformColumn).join(',\n')}
+${lines.join(',\n')}
 );`
 }
 
