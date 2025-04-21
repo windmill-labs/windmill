@@ -6,6 +6,7 @@ use itertools::Itertools;
 use mysql_async::{
     consts::ColumnType, prelude::*, FromValueError, OptsBuilder, Params, Row, SslOpts,
 };
+use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, value::RawValue, Value};
 use std::str::FromStr;
@@ -304,13 +305,16 @@ pub async fn do_mysql(
     return Ok(raw_result);
 }
 
+// 2023-12-01T16:18:00.000Z
+static DATE_REGEX_TZ: Lazy<regex::Regex> = Lazy::new(|| {
+    regex::Regex::new(r"(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})\.(\d+)Z").unwrap()
+});
+// 2025-04-21 10:08:00
+static DATE_REGEX: Lazy<regex::Regex> =
+    Lazy::new(|| regex::Regex::new(r"(\d{4})-(\d{2})-(\d{2}) (\d{2}):(\d{2}):(\d{2})").unwrap());
+
 fn string_date_to_mysql_date(s: &str) -> mysql_async::Value {
-    // 2023-12-01T16:18:00.000Z
-    let re1 =
-        regex::Regex::new(r"(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})\.(\d+)Z").unwrap();
-    // 2025-04-21 10:08:00
-    let re2 = regex::Regex::new(r"(\d{4})-(\d{2})-(\d{2}) (\d{2}):(\d{2}):(\d{2})").unwrap();
-    let caps = re1.captures(s).or_else(|| re2.captures(s));
+    let caps = DATE_REGEX_TZ.captures(s).or_else(|| DATE_REGEX.captures(s));
 
     if let Some(caps) = caps {
         mysql_async::Value::Date(
