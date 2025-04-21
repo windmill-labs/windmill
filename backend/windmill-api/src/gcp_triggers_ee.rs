@@ -52,7 +52,7 @@ pub struct ExistingGcpSubscription {
     pub base_endpoint: String,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, Serialize, sqlx::Type)]
 #[serde(rename_all = "snake_case")]
 #[sqlx(type_name = "GCP_SUBSCRIPTION_MODE", rename_all = "snake_case")]
 pub enum SubscriptionMode {
