@@ -2,7 +2,7 @@
 	// code may be composed of many sql statements separated by ';'
 	// this function splits them while taking into account that ';' may not
 	// be the end of a statement (string or escaped)
-	function splitSqlLastStatement(code: string) {
+	function splitSqlStatements(code: string) {
 		const statements: string[] = []
 		let currentStatement = ''
 		let inSingleQuote = false
@@ -66,16 +66,32 @@
 	})
 	let isRunning = $state(false)
 
-	async function run() {
+	async function run({ doPostgresRowToJsonFix }: { doPostgresRowToJsonFix?: boolean } = {}) {
 		if (isRunning || !$workspaceStore) return
 		isRunning = true
 		try {
-			const statements = splitSqlLastStatement(code)
+			const statements = splitSqlStatements(code)
+
+			// Transform all to JSON in case of select. This fixes the issue of
+			// custom postgres enum type failing to convert to a rust type in the backend.
+			// We don't always put the fix by default for row ordering concerns
+			let tranformedCode = code
+			if (doPostgresRowToJsonFix) {
+				tranformedCode = statements
+					.map((statement) => {
+						if (statement.trim().toUpperCase().startsWith('SELECT')) {
+							return `SELECT row_to_json(__t__) FROM (${statement}) __t__`
+						}
+						return statement
+					})
+					.join(';')
+			}
+
 			let result = (await runPreviewJobAndPollResult({
 				workspace: $workspaceStore,
 				requestBody: {
 					language: resourceType as ScriptLang,
-					content: code,
+					content: tranformedCode,
 					args: {
 						database: '$res:' + resourcePath
 					}
@@ -88,12 +104,24 @@
 				sendUserToast('Query result is not an array', true)
 				return
 			}
+
+			if (doPostgresRowToJsonFix) {
+				result = result.map((row: any) => row['row_to_json'])
+			}
+
 			if (statements[statements.length - 1].toUpperCase().trim().startsWith('SELECT')) {
 				onData(result)
 			}
-			sendUserToast('Query executed')
+			if (doPostgresRowToJsonFix)
+				sendUserToast('Query failed but recovered with the row_to_json fix')
+			else sendUserToast('Query executed')
 		} catch (e) {
 			console.error(e)
+			if (resourceType === 'postgresql' && !doPostgresRowToJsonFix) {
+				console.error('Error running query, trying with row_to_json fix')
+				isRunning = false
+				return await run({ doPostgresRowToJsonFix: true })
+			}
 			sendUserToast('Error running query: ' + (e.message ?? e.error.message), true)
 		} finally {
 			isRunning = false
