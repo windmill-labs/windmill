@@ -9,9 +9,11 @@ import {
 	ScheduleService,
 	SqsTriggerService,
 	WebsocketTriggerService,
+	type GcpTriggerData,
 	type WorkspaceDeployUISettings
 } from './gen'
 import type { TriggerKind } from './components/triggers'
+import { base } from './base'
 
 type DeployUIType = 'script' | 'flow' | 'app' | 'resource' | 'variable' | 'secret' | 'trigger'
 
@@ -144,12 +146,19 @@ export async function getTriggersDeployData(kind: TriggerKind, path: string, wor
 
 		gcpTrigger.subscription_id = ''
 		gcpTrigger.subscription_mode = 'create_update'
+
 		if (gcpTrigger.delivery_config) {
 			gcpTrigger.delivery_config.audience = ''
 		}
 
+		const data: GcpTriggerData = {
+			...gcpTrigger,
+			base_endpoint:
+				gcpTrigger.delivery_type === 'push' ? `${window.location.origin}${base}` : undefined
+		}
+
 		return {
-			data: gcpTrigger,
+			data,
 			createFn: GcpTriggerService.createGcpTrigger,
 			updateFn: GcpTriggerService.updateGcpTrigger
 		}

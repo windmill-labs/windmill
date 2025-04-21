@@ -153,7 +153,7 @@
 						subscription_mode,
 						subscription_id,
 						delivery_type,
-						delivery_config: delivery_config,
+						delivery_config,
 						base_endpoint,
 						topic_id,
 						path,

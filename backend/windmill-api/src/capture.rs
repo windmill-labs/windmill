@@ -164,9 +164,9 @@ pub struct SqsTriggerConfig {
 pub struct GcpTriggerConfig {
     pub gcp_resource_path: String,
     pub subscription_mode: SubscriptionMode,
-    #[serde(deserialize_with = "empty_string_as_none")]
+    #[serde(default, deserialize_with = "empty_string_as_none")]
     pub subscription_id: Option<String>,
-    #[serde(deserialize_with = "empty_string_as_none")]
+    #[serde(default, deserialize_with = "empty_string_as_none")]
     pub base_endpoint: Option<String>,
     #[serde(flatten)]
     pub create_update: Option<CreateUpdateConfig>,
