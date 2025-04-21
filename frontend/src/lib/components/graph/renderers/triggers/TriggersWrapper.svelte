@@ -4,11 +4,11 @@
 	import type { Trigger } from '$lib/components/triggers/utils'
 	import TriggersBadge from './TriggersBadge.svelte'
 	import TriggersBadgeV2 from './TriggersBadgeV2.svelte'
-	import InsertModuleButton from '$lib/components/flows/map/InsertModuleButton.svelte'
 	import type { FlowModule } from '$lib/gen'
-	import { twMerge } from 'tailwind-merge'
-	import AddTriggersButton from '$lib/components/triggers/AddTriggersButton.svelte'
 	import { Plus } from 'lucide-svelte'
+	import InsertModuleInner from '$lib/components/flows/map/InsertModuleInner.svelte'
+	import AddTriggersButton from '$lib/components/triggers/AddTriggersButton.svelte'
+
 	interface Props {
 		path: string
 		newItem: boolean
@@ -63,26 +63,19 @@
 			<TriggersBadge showOnlyWithCount={false} {path} {newItem} isFlow {selected} on:select />
 		{/if}
 		{#if isEditor}
-			<InsertModuleButton
-				{disableAi}
-				on:new
-				on:pickScript
-				on:select
-				on:open={() => {
-					dispatch('openScheduledPoll')
+			<AddTriggersButton
+				on:addDraftTrigger
+				on:addScheduledPoll={() => {
+					showTriggerScriptPicker = true
 				}}
-				kind="trigger"
-				index={0}
-				{modules}
-				class={twMerge(
-					'hover:bg-surface-hover rounded-md shadow-sm text-xs w-[23px] h-[23px] relative center-center cursor-pointer bg-surface outline-0 dark:outline dark:outline-1 dark:outline-offset-[-1px] dark:outline-tertiary/20'
-				)}
-			/>
-			<AddTriggersButton on:addDraftTrigger class="w-fit h-fit">
+				class="w-fit h-fit"
+				triggerScriptPicker={showTriggerScriptPicker ? triggerScriptPicker : undefined}
+				on:close={() => {
+					showTriggerScriptPicker = false
+				}}
+			>
 				<button
-					class={twMerge(
-						'hover:bg-slate-300 rounded-md outline-1 outline-dashed outline-secondary outline-offset-[-1px] text-xs w-[23px] h-[23px] relative center-center cursor-pointer text-secondary'
-					)}
+					class="hover:bg-slate-300 rounded-md outline-1 outline-dashed outline-secondary outline-offset-[-1px] text-xs w-[23px] h-[23px] relative center-center cursor-pointer text-secondary"
 				>
 					<Plus size={12} />
 				</button>
@@ -90,3 +83,20 @@
 		{/if}
 	</button>
 </div>
+
+{#snippet triggerScriptPicker()}
+	<div class="border rounded-lg shadow-lg bg-surface z5000">
+		<InsertModuleInner
+			{disableAi}
+			on:new
+			on:pickScript
+			on:select
+			on:open={() => {
+				dispatch('openScheduledPoll')
+			}}
+			kind="trigger"
+			index={0}
+			{modules}
+		/>
+	</div>
+{/snippet}

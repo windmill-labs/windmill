@@ -4,10 +4,23 @@
 	import { createEventDispatcher } from 'svelte'
 	import { SchedulePollIcon } from '$lib/components/icons'
 
-	export let setDropdownWidthToButtonWidth: boolean = false
+	interface Props {
+		setDropdownWidthToButtonWidth?: boolean
+		children?: import('svelte').Snippet
+		triggerScriptPicker?: import('svelte').Snippet | undefined
+		class?: string
+	}
+
+	let {
+		setDropdownWidthToButtonWidth = false,
+		children,
+		class: className,
+		triggerScriptPicker
+	}: Props = $props()
 
 	const dispatch = createEventDispatcher<{
-		addDraftTrigger: TriggerType | 'scheduled_poll'
+		addDraftTrigger: TriggerType
+		addScheduledPoll: void
 	}>()
 
 	// Dropdown items for adding new triggers
@@ -34,14 +47,17 @@
 		{ displayName: 'SQS', action: () => addDraftTrigger('sqs'), icon: triggerIconMap.sqs },
 		{
 			displayName: 'Scheduled Poll',
-			action: () => addDraftTrigger('scheduled_poll'),
+			action: (e) => {
+				e.preventDefault()
+				dispatch('addScheduledPoll')
+			},
 			icon: SchedulePollIcon
 		}
 	]
 
-	let triggersButtonWidth = 0
+	let triggersButtonWidth = $state(0)
 
-	function addDraftTrigger(type: TriggerType | 'scheduled_poll') {
+	function addDraftTrigger(type: TriggerType) {
 		dispatch('addDraftTrigger', type)
 	}
 </script>
@@ -49,11 +65,19 @@
 <DropdownV2
 	items={addTriggerItems}
 	placement="bottom"
-	class={$$props.class}
+	class={className}
 	customWidth={setDropdownWidthToButtonWidth ? triggersButtonWidth : undefined}
 	usePointerDownOutside
+	customMenu={!!triggerScriptPicker}
+	on:close
+	on:open
 >
-	<div slot="buttonReplacement" class={$$props.class} bind:clientWidth={triggersButtonWidth}>
-		<slot />
-	</div>
+	{#snippet buttonReplacement()}
+		<div class={className} bind:clientWidth={triggersButtonWidth}>
+			{@render children?.()}
+		</div>
+	{/snippet}
+	{#snippet menu()}
+		{@render triggerScriptPicker?.()}
+	{/snippet}
 </DropdownV2>
