@@ -10,7 +10,7 @@
 </script>
 
 <script lang="ts">
-	import { slide, fade } from 'svelte/transition'
+	import { fade } from 'svelte/transition'
 	import AnimatedButton from '../common/button/AnimatedButton.svelte'
 	import PulseButton from '../common/button/PulseButton.svelte'
 	import Button from '../common/button/Button.svelte'
@@ -36,6 +36,7 @@
 	import DisplayResultControlBar from '$lib/components/DisplayResultControlBar.svelte'
 	import { base } from '$lib/base'
 	import Description from '$lib/components/Description.svelte'
+	import { twMerge } from 'tailwind-merge'
 
 	export let disabled: boolean | undefined = undefined
 	export let captureType: CaptureTriggerKind
@@ -247,22 +248,23 @@
 				</div>
 			</div>
 
-			{#if disabled === true}
-				<div class="text-sm font-normal text-red-600 dark:text-red-400" transition:slide>
-					Enter a valid configuration to start capturing.
-				</div>
-			{/if}
-
 			<div class="mt-4 mb-2">
 				<Description>
 					<div class="relative min-h-8">
-						{#key captureInfo.active}
+						{#key (captureInfo.active, disabled)}
 							<div
-								class="absolute top-0 left-0 w-full text-center"
+								class={twMerge(
+									'absolute top-0 left-0 w-full text-center',
+									disabled === true ? 'text-red-600 dark:text-red-400' : ''
+								)}
 								in:fade={{ duration: 100, delay: 50 }}
 								out:fade={{ duration: 50 }}
 							>
-								<slot name="description" />
+								{#if disabled === true}
+									Enter a valid configuration to start capturing.
+								{:else}
+									<slot name="description" />
+								{/if}
 							</div>
 						{/key}
 					</div>

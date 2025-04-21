@@ -51,9 +51,7 @@
 			{#if captureInfo.active}
 				Send a POST request to the URL below to simulate a webhook event.
 			{:else}
-				The test URL below is generated from the production configuration. Only the parameters
-				marked with "<FlaskConical size={12} class="inline-block" />" for the test endpoint. Hit
-				start capturing to listen to webhook events.
+				Start capturing to listen to HTTP requests on this test URL.
 			{/if}
 		</svelte:fragment>
 		<Label label="Test URL" disabled={!captureInfo.active}>

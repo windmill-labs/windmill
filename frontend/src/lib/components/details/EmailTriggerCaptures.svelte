@@ -45,8 +45,7 @@
 			{#if captureInfo.active}
 				Send an email to the test address below to simulate an email trigger.
 			{:else}
-				The test email address below allows you to test the email trigger without affecting your
-				production configuration. Hit start capturing to listen to email events.
+				Start capturing to listen to email events on this test address.
 			{/if}
 		</svelte:fragment>
 		<Label label="Test email address" disabled={!captureInfo.active}>

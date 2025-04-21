@@ -26,7 +26,7 @@
 		selectedId: Writable<string | undefined>
 	}>('FlowGraphContext')
 
-	const { primarySchedule, triggersCount, selectedTrigger, triggers } =
+	const { primarySchedule, triggersCount, selectedTrigger } =
 		getContext<TriggerContext>('TriggerContext')
 </script>
 

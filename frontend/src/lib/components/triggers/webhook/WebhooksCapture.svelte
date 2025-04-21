@@ -50,8 +50,7 @@
 			{#if captureInfo.active}
 				Send a POST request to the URL below to simulate a webhook event.
 			{:else}
-				The test URL below allows you to test the webhook trigger without affecting your production
-				configuration. Hit start capturing to listen to webhook events.
+				Hit start capturing to listen to webhook events on this test URL.
 			{/if}
 		</svelte:fragment>
 		<Label label="Test URL" disabled={!captureInfo.active}>
