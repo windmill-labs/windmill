@@ -2,11 +2,12 @@
 	import { triggerIconMap, type TriggerType } from './utils'
 	import DropdownV2 from '$lib/components/DropdownV2.svelte'
 	import { createEventDispatcher } from 'svelte'
+	import { SchedulePollIcon } from '$lib/components/icons'
 
 	export let setDropdownWidthToButtonWidth: boolean = false
 
 	const dispatch = createEventDispatcher<{
-		addDraftTrigger: TriggerType
+		addDraftTrigger: TriggerType | 'scheduled_poll'
 	}>()
 
 	// Dropdown items for adding new triggers
@@ -30,12 +31,17 @@
 		{ displayName: 'Kafka', action: () => addDraftTrigger('kafka'), icon: triggerIconMap.kafka },
 		{ displayName: 'NATS', action: () => addDraftTrigger('nats'), icon: triggerIconMap.nats },
 		{ displayName: 'MQTT', action: () => addDraftTrigger('mqtt'), icon: triggerIconMap.mqtt },
-		{ displayName: 'SQS', action: () => addDraftTrigger('sqs'), icon: triggerIconMap.sqs }
+		{ displayName: 'SQS', action: () => addDraftTrigger('sqs'), icon: triggerIconMap.sqs },
+		{
+			displayName: 'Scheduled Poll',
+			action: () => addDraftTrigger('scheduled_poll'),
+			icon: SchedulePollIcon
+		}
 	]
 
 	let triggersButtonWidth = 0
 
-	function addDraftTrigger(type: TriggerType) {
+	function addDraftTrigger(type: TriggerType | 'scheduled_poll') {
 		dispatch('addDraftTrigger', type)
 	}
 </script>
