@@ -118,6 +118,8 @@
 				resourceTypeInfo = resourceType
 				if (resourceType.schema) {
 					resourceSchema = resourceType.schema as Schema
+					resourceSchema.order =
+						resourceSchema.order ?? Object.keys(resourceSchema.properties).sort()
 				}
 				if (resourceTypeInfo?.format_extension) {
 					textFileContent = args.content
@@ -237,7 +239,7 @@
 				}}
 			/>
 		</div>
-		<div class="text-sm">
+		<div>
 			{#if loadingSchema}
 				<Skeleton layout={[[4]]} />
 			{:else if !viewJsonSchema && resourceSchema && resourceSchema?.properties}
