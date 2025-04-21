@@ -44,6 +44,7 @@
 	import AppTable from '../../components/display/table/AppTable.svelte'
 	import AppAggridTable from '../../components/display/table/AppAggridTable.svelte'
 	import AppText from '../../components/display/AppText.svelte'
+	import AppCodeInputComponent from '../../components/inputs/AppCodeInputComponent.svelte'
 	import AppButton from '../../components/buttons/AppButton.svelte'
 	import AppForm from '../../components/buttons/AppForm.svelte'
 	import AppFormButton from '../../components/buttons/AppFormButton.svelte'
@@ -295,6 +296,8 @@
 		componentInput={component.componentInput}
 		{render}
 	/>
+{:else if component.type === 'codeinputcomponent'}
+	<AppCodeInputComponent id={component.id} configuration={component.configuration} {render} />
 {:else if component.type === 'buttoncomponent'}
 	<AppButton
 		id={component.id}
@@ -390,6 +393,7 @@
 		verticalAlignment={component.verticalAlignment}
 		configuration={component.configuration}
 		customCss={component.customCss}
+		onChange={component.onChange}
 		{render}
 	/>
 {:else if component.type === 'quillcomponent'}
@@ -402,6 +406,7 @@
 		customCss={component.customCss}
 		inputType="textarea"
 		appCssKey="textareainputcomponent"
+		onChange={component.onChange}
 		{render}
 	/>
 {:else if component.type === 'emailinputcomponent'}
@@ -412,6 +417,7 @@
 		appCssKey="emailinputcomponent"
 		id={component.id}
 		customCss={component.customCss}
+		onChange={component.onChange}
 		{render}
 	/>
 {:else if component.type === 'passwordinputcomponent'}
@@ -422,6 +428,7 @@
 		appCssKey="passwordinputcomponent"
 		id={component.id}
 		customCss={component.customCss}
+		onChange={component.onChange}
 		{render}
 	/>
 {:else if component.type === 'dateinputcomponent'}
@@ -431,6 +438,7 @@
 		inputType="date"
 		id={component.id}
 		customCss={component.customCss}
+		onChange={component.onChange}
 		{render}
 	/>
 {:else if component.type === 'timeinputcomponent'}
@@ -439,6 +447,7 @@
 		configuration={component.configuration}
 		id={component.id}
 		customCss={component.customCss}
+		onChange={component.onChange}
 		{render}
 	/>
 {:else if component.type === 'datetimeinputcomponent'}
@@ -448,6 +457,7 @@
 		inputType="date"
 		id={component.id}
 		customCss={component.customCss}
+		onChange={component.onChange}
 		{render}
 	/>
 {:else if component.type === 'numberinputcomponent'}
@@ -456,6 +466,7 @@
 		configuration={component.configuration}
 		id={component.id}
 		customCss={component.customCss}
+		onChange={component.onChange}
 		{render}
 	/>
 {:else if component.type === 'currencycomponent'}

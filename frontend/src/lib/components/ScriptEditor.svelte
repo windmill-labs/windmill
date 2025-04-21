@@ -43,6 +43,7 @@
 	import HideButton from './apps/editor/settingsPanel/HideButton.svelte'
 	import { base } from '$lib/base'
 	import { SUPPORTED_CHAT_SCRIPT_LANGUAGES } from './copilot/chat/core'
+	import { createDispatcherIfMounted } from '$lib/createDispatcherIfMounted'
 
 	// Exported
 	export let schema: Schema | any = emptySchema()
@@ -87,10 +88,11 @@
 	}
 
 	const dispatch = createEventDispatcher()
+	const dispatchIfMounted = createDispatcherIfMounted(dispatch)
 
 	$: watchChanges &&
 		(code != undefined || schema != undefined) &&
-		dispatch('change', { code, schema })
+		dispatchIfMounted('change', { code, schema })
 
 	let width = 1200
 
@@ -533,7 +535,6 @@
 							dispatch('format')
 						}}
 						class="flex flex-1 h-full !overflow-visible"
-						lang={scriptLangToEditorLang(lang)}
 						scriptLang={lang}
 						automaticLayout={true}
 						{fixedOverflowWidgets}

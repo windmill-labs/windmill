@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { getContext } from 'svelte'
-	import type { AppEditorContext, AppViewerContext, HiddenRunnable } from '../../types'
+	import type { AppEditorContext, AppViewerContext } from '../../types'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import InlineScriptsPanelList from './InlineScriptsPanelList.svelte'
 	import InlineScriptEditor from './InlineScriptEditor.svelte'
@@ -9,13 +9,11 @@
 	import InlineScriptHiddenRunnable from './InlineScriptHiddenRunnable.svelte'
 	import { BG_PREFIX } from '../../utils'
 	import { sendUserToast } from '$lib/toast'
-	import type { RunnableByName } from '../../inputType'
-	import { ScriptService } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
-	import { findNextAvailablePath } from '$lib/path'
 	import { twMerge } from 'tailwind-merge'
+	import { createScriptFromInlineScript } from './utils'
 
-	const { app, runnableComponents } = getContext<AppViewerContext>('AppViewerContext')
+	const { app, runnableComponents, appPath } = getContext<AppViewerContext>('AppViewerContext')
 	const { selectedComponentInEditor } = getContext<AppEditorContext>('AppEditorContext')
 
 	function deleteBackgroundScript(index: number) {
@@ -36,8 +34,10 @@
 		}
 
 		$selectedComponentInEditor = undefined
-		delete $runnableComponents[BG_PREFIX + index]
-		$runnableComponents = $runnableComponents
+		if (runnableComponents) {
+			delete $runnableComponents[BG_PREFIX + index]
+			$runnableComponents = $runnableComponents
+		}
 	}
 
 	$: gridItem =
@@ -57,50 +57,6 @@
 		(k_, index) => `unused-${index}` === $selectedComponentInEditor
 	)
 
-	async function createScriptFromInlineScript(
-		id: string,
-		runnable: HiddenRunnable | RunnableByName
-	) {
-		if (runnable.type != 'runnableByName') {
-			sendUserToast('Only inline scripts can be saved to workspace', true)
-			return
-		}
-		if (!runnable.inlineScript) {
-			sendUserToast('No inline script found', true)
-			return
-		}
-		let path = `${runnable.inlineScript.path}/inline_${id}`
-		path = await findNextAvailablePath(path)
-		let language = runnable.inlineScript.language
-		if (language == 'frontend') {
-			sendUserToast('Frontend scripts can not be saved to workspace', true)
-			return
-		}
-		await ScriptService.createScript({
-			workspace: $workspaceStore!,
-			requestBody: {
-				path: path,
-				summary: runnable.name ?? '',
-				description: '',
-				content: runnable.inlineScript.content,
-				parent_hash: undefined,
-				schema: runnable.inlineScript.schema,
-				is_template: false,
-				language: language!
-			}
-		})
-
-		Object.assign(runnable, {
-			type: 'runnableByPath',
-			schema: runnable.inlineScript.schema,
-			runType: 'script',
-			recomputeIds: undefined,
-			path
-		})
-
-		$app = $app
-	}
-
 	export let width: number | undefined = undefined
 </script>
 
@@ -114,13 +70,18 @@
 	<Pane size={75}>
 		{#if !$selectedComponentInEditor}
 			<div class="text-sm text-secondary text-center py-8 px-2">
-				Select a script on the left panel
+				Select a runnable on the left panel
 			</div>
 		{:else if gridItem}
 			{#key gridItem?.id}
 				<InlineScriptsPanelWithTable
 					on:createScriptFromInlineScript={(e) => {
-						createScriptFromInlineScript(gridItem?.id ?? 'unknown', e.detail)
+						createScriptFromInlineScript(
+							gridItem?.id ?? 'unknown',
+							e.detail,
+							$workspaceStore ?? '',
+							$appPath
+						)
 					}}
 					bind:gridItem
 				/>
@@ -145,7 +106,13 @@
 				{#if $app.hiddenInlineScripts?.[hiddenInlineScript]}
 					<InlineScriptHiddenRunnable
 						on:createScriptFromInlineScript={(e) => {
-							createScriptFromInlineScript(BG_PREFIX + hiddenInlineScript, e.detail)
+							createScriptFromInlineScript(
+								BG_PREFIX + hiddenInlineScript,
+								e.detail,
+								$workspaceStore ?? '',
+								$appPath
+							)
+							$app = $app
 						}}
 						transformer={$selectedComponentInEditor?.endsWith('_transformer')}
 						on:delete={() => deleteBackgroundScript(hiddenInlineScript)}
@@ -154,7 +121,7 @@
 					/>{/if}{/key}
 		{:else}
 			<div class="text-sm text-tertiary text-center py-8 px-2">
-				No script found at id {$selectedComponentInEditor}
+				No runnable found at id {$selectedComponentInEditor}
 			</div>
 		{/if}
 	</Pane>

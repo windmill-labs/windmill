@@ -126,7 +126,8 @@
 		lang: SupportedLanguage | undefined,
 		args: Record<string, any>,
 		tag: string | undefined,
-		lock?: string
+		lock?: string,
+		hash?: string
 	): Promise<string> {
 		// Reset in case we rerun job without reloading
 		scriptProgress = undefined
@@ -141,7 +142,8 @@
 					args,
 					language: lang as Preview['language'],
 					tag,
-					lock
+					lock,
+					script_hash: hash
 				}
 			})
 		)

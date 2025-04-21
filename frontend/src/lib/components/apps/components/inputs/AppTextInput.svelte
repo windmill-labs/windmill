@@ -28,9 +28,16 @@
 		| 'emailinputcomponent'
 		| 'textareainputcomponent' = 'textinputcomponent'
 	export let render: boolean
+	export let onChange: string[] | undefined = undefined
 
-	const { app, worldStore, selectedComponent, connectingInput, componentControl } =
-		getContext<AppViewerContext>('AppViewerContext')
+	const {
+		app,
+		worldStore,
+		selectedComponent,
+		connectingInput,
+		componentControl,
+		runnableComponents
+	} = getContext<AppViewerContext>('AppViewerContext')
 
 	let resolvedConfig = initConfig(
 		components['textinputcomponent'].initialData.configuration,
@@ -62,13 +69,20 @@
 	let initialHandleDefault = true
 	$: handleDefault(resolvedConfig.defaultValue)
 
-	$: value && onValueChange()
+	$: value, onValueChange()
 
 	function onValueChange() {
 		let val = value ?? ''
 		outputs?.result.set(val)
 		if (iterContext && listInputs) {
 			listInputs.set(id, val)
+		}
+		fireOnChange()
+	}
+
+	function fireOnChange() {
+		if (onChange) {
+			onChange.forEach((id) => $runnableComponents?.[id]?.cb?.forEach((cb) => cb()))
 		}
 	}
 

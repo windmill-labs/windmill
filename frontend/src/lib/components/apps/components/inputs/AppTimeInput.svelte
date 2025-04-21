@@ -15,8 +15,9 @@
 	export let verticalAlignment: 'top' | 'center' | 'bottom' | undefined = undefined
 	export let customCss: ComponentCustomCSS<'timeinputcomponent'> | undefined = undefined
 	export let render: boolean
+	export let onChange: string[] | undefined = undefined
 
-	const { app, worldStore, selectedComponent, componentControl } =
+	const { app, worldStore, selectedComponent, componentControl, runnableComponents } =
 		getContext<AppViewerContext>('AppViewerContext')
 
 	let resolvedConfig = initConfig(
@@ -77,6 +78,13 @@
 
 			// At the end, set the validity
 			outputs?.validity.set(isValid)
+		}
+		fireOnChange()
+	}
+
+	function fireOnChange() {
+		if (onChange) {
+			onChange.forEach((id) => $runnableComponents?.[id]?.cb?.forEach((cb) => cb()))
 		}
 	}
 

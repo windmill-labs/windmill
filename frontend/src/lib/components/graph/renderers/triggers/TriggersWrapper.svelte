@@ -15,19 +15,24 @@
 	export let disableAi: boolean = false
 	export let modules: FlowModule[] = []
 	export let bgColor: string
+	export let bgHoverColor: string = ''
 
 	const dispatch = createEventDispatcher()
+
+	let hover = false
 </script>
 
 <div style={`width: ${NODE.width}px;`}>
 	<button
-		style="background-color: {bgColor} !important;"
+		style="background-color: {hover && bgHoverColor ? bgHoverColor : bgColor};"
 		class="flex w-full flex-row gap-1 px-2 p-1 items-center {selected
 			? 'outline  outline-2  outline-gray-600 rounded-sm dark:bg-white/5 dark:outline-gray-400'
 			: ''}"
-		on:click={() => {
+		on:pointerdown={() => {
 			dispatch('select')
 		}}
+		on:mouseenter={() => (hover = true)}
+		on:mouseleave={() => (hover = false)}
 	>
 		<div class="flex flex-col mr-1 ml-1">
 			<div class="flex flex-row items-center text-2xs font-normal"> Triggers </div>

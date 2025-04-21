@@ -8,7 +8,7 @@
 	import Toggle from '$lib/components/Toggle.svelte'
 	import { createScriptFromInlineScript, fork } from '$lib/components/flows/flowStateUtils'
 
-	import type { FlowModule } from '$lib/gen'
+	import type { FlowModule, RawScript } from '$lib/gen'
 	import FlowCard from '../common/FlowCard.svelte'
 	import FlowModuleHeader from './FlowModuleHeader.svelte'
 	import { getLatestHashForScript, scriptLangToEditorLang } from '$lib/scripts'
@@ -74,8 +74,10 @@
 	export let scriptTemplate: 'pgsql' | 'mysql' | 'script' | 'docker' | 'powershell' = 'script'
 	export let noEditor: boolean
 	export let enableAi: boolean
+	export let savedModule: FlowModule | undefined = undefined
 
 	let tag: string | undefined = undefined
+	let diffMode = false
 
 	let editor: Editor
 	let diffEditor: DiffEditor
@@ -97,6 +99,15 @@
 	let testJob: Job | undefined = undefined
 	let testIsLoading = false
 	let scriptProgress = undefined
+
+	$: lastDeployedCode = onModulesChange(savedModule, flowModule)
+	function onModulesChange(savedModule: FlowModule | undefined, flowModule: FlowModule) {
+		return savedModule?.value?.type === 'rawscript' &&
+			flowModule.value.type === 'rawscript' &&
+			savedModule.value.content !== flowModule.value.content
+			? savedModule.value.content
+			: undefined
+	}
 
 	const { modulesStore: copilotModulesStore } =
 		getContext<FlowCopilotContext | undefined>('FlowCopilotContext') || {}
@@ -246,6 +257,20 @@
 	} else {
 		leftPanelSize = 100
 	}
+
+	function showDiffMode() {
+		diffMode = true
+		diffEditor?.setOriginal((savedModule?.value as RawScript).content ?? '')
+		diffEditor?.setModified(editor?.getCode() ?? '')
+		diffEditor?.show()
+		editor?.hide()
+	}
+
+	function hideDiffMode() {
+		diffMode = false
+		diffEditor?.hide()
+		editor?.show()
+	}
 </script>
 
 <svelte:window on:keydown={onKeyDown} />
@@ -323,17 +348,22 @@
 								acc[key] = obj.type === 'static' ? obj.value : undefined
 								return acc
 							}, {})}
+							on:showDiffMode={showDiffMode}
+							on:hideDiffMode={hideDiffMode}
+							{lastDeployedCode}
+							{diffMode}
 						/>
 					</div>
 				{/if}
 
 				<div class="min-h-0 flex-grow" id="flow-editor-editor">
 					<Splitpanes horizontal>
-						<Pane bind:size={editorPanelSize} minSize={10}>
+						<Pane bind:size={editorPanelSize} minSize={10} class="relative">
 							{#if flowModule.value.type === 'rawscript'}
 								{#if !noEditor}
 									{#key flowModule.id}
 										<Editor
+											loadAsync
 											folding
 											path={$pathStore + '/' + flowModule.id}
 											bind:websocketAlive

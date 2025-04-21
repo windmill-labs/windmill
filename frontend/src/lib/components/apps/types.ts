@@ -196,6 +196,17 @@ export type ListInputs = {
 
 export type GroupContext = { id: string; context: Writable<Record<string, any>> }
 
+export type JobById = {
+	job: string
+	component: string
+	result?: any
+	error?: any
+	transformer?: { result?: any; error?: string }
+	created_at?: number
+	started_at?: number
+	duration_ms?: number
+}
+
 export type AppViewerContext = {
 	worldStore: Writable<World>
 	app: Writable<App>
@@ -227,21 +238,7 @@ export type AppViewerContext = {
 	isEditor: boolean
 	jobs: Writable<string[]>
 	// jobByComponent: Writable<Record<string, string>>,
-	jobsById: Writable<
-		Record<
-			string,
-			{
-				job: string
-				component: string
-				result?: string
-				error?: any
-				transformer?: { result?: string; error?: string }
-				created_at?: number
-				started_at?: number
-				duration_ms?: number
-			}
-		>
-	>
+	jobsById: Writable<Record<string, JobById>>
 	noBackend: boolean
 	errorByComponent: Writable<Record<string, { id?: string; error: string }>>
 	openDebugRun: Writable<((jobID: string) => void) | undefined>

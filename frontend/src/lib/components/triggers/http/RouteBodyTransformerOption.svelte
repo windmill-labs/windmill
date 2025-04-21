@@ -4,12 +4,14 @@
 	import Tooltip from '$lib/components/Tooltip.svelte'
 
 	export let raw_string: boolean
-	export let wrap_body: boolean 
+	export let wrap_body: boolean
 </script>
 
 <Label label="Raw body" class="w-full">
 	<svelte:fragment slot="header">
-		<Tooltip>
+		<Tooltip
+			documentationLink="https://www.windmill.dev/docs/core_concepts/http_routing#body-processing-options"
+		>
 			Provides the raw JSON payload as a string under the 'raw_string' key. Required for custom
 			script authentication method and useful for signature verification or other advanced use
 			cases.
@@ -27,6 +29,7 @@
 <Label label="Wrap body" class="w-full">
 	<svelte:fragment slot="header">
 		<Tooltip
+			documentationLink="https://www.windmill.dev/docs/core_concepts/http_routing#body-processing-options"
 			>Wraps the payload in an object under the 'body' key, useful for handling unknown payloads.</Tooltip
 		>
 	</svelte:fragment>

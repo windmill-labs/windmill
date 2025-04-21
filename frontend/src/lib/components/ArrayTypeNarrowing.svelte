@@ -25,8 +25,8 @@
 		itemsType?.type != 'string'
 			? itemsType?.type
 			: Array.isArray(itemsType?.enum)
-			? 'enum'
-			: 'string'
+				? 'enum'
+				: 'string'
 
 	let schema = {
 		properties: itemsType?.properties || {},
@@ -105,16 +105,17 @@
 	<label for="input" class="text-secondary text-xs">
 		Enums
 		<div class="flex flex-col gap-1">
-			{#each itemsType?.enum || [] as e}
+			{#each itemsType?.enum || [] as _, index}
 				<div class="flex flex-row max-w-md gap-1 items-center">
-					<input id="input" type="text" bind:value={e} />
+					<input id="input" type="text" bind:value={itemsType.enum[index]} />
 					<div>
 						<button
 							transition:fade|local={{ duration: 100 }}
 							class="rounded-full p-1 bg-surface-secondary duration-200 hover:bg-surface-hover ml-2"
 							on:click={() => {
-								if (itemsType?.enum) {
-									itemsType.enum = (itemsType.enum || []).filter((el) => el !== e)
+								if (itemsType && itemsType.enum) {
+									const enumValue = itemsType.enum[index]
+									itemsType.enum = itemsType.enum.filter((el) => el !== enumValue)
 								}
 							}}
 						>

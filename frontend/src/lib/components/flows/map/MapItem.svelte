@@ -19,6 +19,7 @@
 	export let insertable: boolean
 	export let annotation: string | undefined = undefined
 	export let bgColor: string = ''
+	export let bgHoverColor: string = ''
 	export let moving: string | undefined = undefined
 	export let duration_ms: number | undefined = undefined
 
@@ -122,13 +123,14 @@
 					on:changeId
 					on:move={() => dispatch('move')}
 					on:delete={onDelete}
-					on:click={() => dispatch('select', mod.id)}
+					on:pointerdown={() => dispatch('select', mod.id)}
 					on:updateMock={({ detail }) => {
 						mod.mock = detail
 						dispatch('updateMock')
 					}}
 					{...itemProps}
 					{bgColor}
+					{bgHoverColor}
 					warningMessage={mod?.value?.type === 'forloopflow' &&
 					mod?.value?.iterator?.type === 'javascript' &&
 					mod?.value?.iterator?.expr === ''
@@ -148,11 +150,12 @@
 					on:changeId
 					on:delete={onDelete}
 					on:move={() => dispatch('move')}
-					on:click={() => dispatch('select', mod.id)}
+					on:pointerdown={() => dispatch('select', mod.id)}
 					{...itemProps}
 					id={mod.id}
 					label={mod.summary || 'Run one branch'}
 					{bgColor}
+					{bgHoverColor}
 				>
 					<div slot="icon">
 						<GitBranch size={16} />
@@ -165,11 +168,12 @@
 					on:changeId
 					on:delete={onDelete}
 					on:move={() => dispatch('move')}
-					on:click={() => dispatch('select', mod.id)}
+					on:pointerdown={() => dispatch('select', mod.id)}
 					id={mod.id}
 					{...itemProps}
 					label={mod.summary || `Run all branches${mod.value.parallel ? ' (parallel)' : ''}`}
 					{bgColor}
+					{bgHoverColor}
 				>
 					<div slot="icon">
 						<GitBranch size={16} />
@@ -180,7 +184,7 @@
 					{retries}
 					{editMode}
 					on:changeId
-					on:click={() => dispatch('select', mod.id)}
+					on:pointerdown={() => dispatch('select', mod.id)}
 					on:delete={onDelete}
 					on:move={() => dispatch('move')}
 					on:updateMock={({ detail }) => {
@@ -192,12 +196,13 @@
 					{...itemProps}
 					modType={mod.value.type}
 					{bgColor}
+					{bgHoverColor}
 					label={mod.summary ||
 						(mod.id === 'preprocessor'
 							? 'Preprocessor'
 							: mod.id.startsWith('failure')
-							? 'Error Handler'
-							: undefined) ||
+								? 'Error Handler'
+								: undefined) ||
 						(`path` in mod.value ? mod.value.path : undefined) ||
 						(mod.value.type === 'rawscript'
 							? `Inline ${prettyLanguage(mod.value.language)}`

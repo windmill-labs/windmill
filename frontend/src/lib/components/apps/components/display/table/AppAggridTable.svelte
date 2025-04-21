@@ -33,7 +33,7 @@
 		SkipForward
 	} from 'lucide-svelte'
 	import { twMerge } from 'tailwind-merge'
-	import { initCss } from '$lib/components/apps/utils'
+	import { deepCloneWithFunctions, initCss } from '$lib/components/apps/utils'
 	import ResolveStyle from '../../helpers/ResolveStyle.svelte'
 
 	import AppAggridTableActions from './AppAggridTableActions.svelte'
@@ -193,7 +193,7 @@
 		}
 	}
 
-	let extraConfig = resolvedConfig.extraConfig
+	let extraConfig = deepCloneWithFunctions(resolvedConfig.extraConfig)
 	let api: GridApi<any> | undefined = undefined
 	let eGui: HTMLDivElement
 	let state: any = undefined
@@ -202,12 +202,8 @@
 
 	function refreshActions(actions: TableAction[]) {
 		if (!deepEqual(actions, lastActions)) {
-			// structuredClone did not work because it did not copy the array's
-			// prototype, causing deepEqual to return false although the objects were
-			// semantically the same
-			lastActions = [...actions]
-			// HACK: without setTimeout, the actions mount but aren't visible
-			setTimeout(updateOptions, 0.5)
+			lastActions = structuredClone(actions)
+			updateOptions()
 		}
 	}
 
@@ -306,7 +302,9 @@
 			? (data?.[resolvedConfig?.rowIdCol] ?? data['__index'])
 			: data['__index']
 	}
+
 	function mountGrid() {
+		// console.log(resolvedConfig?.extraConfig)
 		if (eGui) {
 			try {
 				let columnDefs =
@@ -362,7 +360,7 @@
 						suppressRowDeselection: true,
 						suppressDragLeaveHidesColumns: true,
 						enableCellTextSelection: true,
-						...(resolvedConfig?.extraConfig ?? {}),
+						...deepCloneWithFunctions(resolvedConfig?.extraConfig ?? {}),
 						onStateUpdated: (e) => {
 							state = e?.api?.getState()
 							resolvedConfig?.extraConfig?.['onStateUpdated']?.(e)
@@ -426,7 +424,7 @@
 	$: value && updateValue()
 
 	$: if (!deepEqual(extraConfig, resolvedConfig.extraConfig)) {
-		extraConfig = resolvedConfig.extraConfig
+		extraConfig = deepCloneWithFunctions(resolvedConfig.extraConfig)
 		if (extraConfig) {
 			api?.updateGridOptions(extraConfig)
 		}
@@ -459,7 +457,6 @@
 		}
 	}
 
-	let lastComputedColumnDefs: [Record<string, any>[] | undefined, TableAction[] | undefined]
 	function updateOptions() {
 		try {
 			const columnDefs =
@@ -480,10 +477,6 @@
 					...(!resolvedConfig?.wrapActions ? { minWidth: 130 * actions?.length } : {})
 				})
 			}
-
-			// Don't update if the columns
-			if (deepEqual(lastComputedColumnDefs, [columnDefs, actions])) return
-			lastComputedColumnDefs = [columnDefs, actions]
 
 			api?.updateGridOptions({
 				rowData: value,
@@ -510,7 +503,7 @@
 				rowHeight: resolvedConfig.compactness
 					? rowHeights[resolvedConfig.compactness]
 					: rowHeights['normal'],
-				...(resolvedConfig?.extraConfig ?? {})
+				...deepCloneWithFunctions(resolvedConfig?.extraConfig ?? {})
 			})
 		} catch (e) {
 			console.error(e)

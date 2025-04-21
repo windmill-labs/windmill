@@ -7,7 +7,7 @@
 	import FlowFailureModule from './FlowFailureModule.svelte'
 	import FlowConstants from './FlowConstants.svelte'
 	import TriggersEditor from '../../triggers/TriggersEditor.svelte'
-	import type { FlowModule } from '$lib/gen'
+	import type { FlowModule, Flow } from '$lib/gen'
 	import { initFlowStepWarnings } from '../utils'
 	import { dfs } from '../dfs'
 	import FlowPreprocessorModule from './FlowPreprocessorModule.svelte'
@@ -18,6 +18,11 @@
 	export let enableAi = false
 	export let newFlow = false
 	export let disabledFlowInputs = false
+	export let savedFlow:
+		| (Flow & {
+				draft?: Flow | undefined
+		  })
+		| undefined = undefined
 
 	const {
 		selectedId,
@@ -89,9 +94,9 @@
 {:else if $selectedId === 'constants'}
 	<FlowConstants {noEditor} />
 {:else if $selectedId === 'failure'}
-	<FlowFailureModule {noEditor} />
+	<FlowFailureModule {noEditor} savedModule={savedFlow?.value.failure_module} />
 {:else if $selectedId === 'preprocessor'}
-	<FlowPreprocessorModule {noEditor} />
+	<FlowPreprocessorModule {noEditor} savedModule={savedFlow?.value.preprocessor_module} />
 {:else if $selectedId === 'triggers'}
 	<TriggersEditor
 		on:applyArgs
@@ -140,6 +145,7 @@
 					bind:flowModule={$flowStore.value.modules[index]}
 					previousModule={$flowStore.value.modules[index - 1]}
 					{enableAi}
+					savedModule={savedFlow?.value.modules[index]}
 				/>
 			{/each}
 		{/key}

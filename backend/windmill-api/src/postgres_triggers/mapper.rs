@@ -26,8 +26,8 @@ fn postgres_to_typescript_type(postgres_type: Option<Type>) -> String {
             Type::DATE_ARRAY => "Array<string>",
             Type::TIME => "string",
             Type::TIME_ARRAY => "Array<string>",
-            Type::TIMESTAMPTZ | Type::TIMESTAMP => "Date",
-            Type::TIMESTAMPTZ_ARRAY | Type::TIMESTAMP_ARRAY => "Array<Date>",
+            Type::TIMESTAMPTZ | Type::TIMESTAMP => "string",
+            Type::TIMESTAMPTZ_ARRAY | Type::TIMESTAMP_ARRAY => "Array<string>",
             Type::UUID => "string",
             Type::UUID_ARRAY => "Array<string>",
             Type::JSON | Type::JSONB | Type::JSON_ARRAY | Type::JSONB_ARRAY => "unknown",
@@ -124,11 +124,13 @@ export async function main(
   transaction_type: "insert" | "update" | "delete",
   schema_name: string,
   table_name: string,
-  row: {}
+  row: {},
+  old_row?: {}
 ) {{
 }}
     "#,
-            struct_definition
+            &struct_definition,
+            &struct_definition
         )
     }
 }

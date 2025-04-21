@@ -45,7 +45,7 @@
 	let postgres_resource_path = ''
 	let publication_name: string = ''
 	let replication_slot_name: string = ''
-	let relations: Relations[] = []
+	let relations: Relations[] | undefined = []
 	let transaction_to_track: string[] = []
 	let language: Language = 'Typescript'
 	let loading = false
@@ -54,8 +54,8 @@
 	let selectedSlotAction: actions
 	let publicationItems: string[] = []
 	let transactionType: string[] = ['Insert', 'Update', 'Delete']
-	let selectedTable: 'all' | 'specific' = 'specific'
 	let tab: 'advanced' | 'basic' = 'basic'
+	let isLoading = false
 	async function createPublication() {
 		try {
 			const message = await PostgresTriggerService.createPostgresPublication({
@@ -125,7 +125,6 @@
 		try {
 			selectedPublicationAction = 'create'
 			selectedSlotAction = 'create'
-			selectedTable = 'specific'
 			tab = 'basic'
 
 			drawer?.openDrawer()
@@ -179,13 +178,12 @@
 		})
 		transaction_to_track = [...publication_data.transaction_to_track]
 		relations = publication_data.table_to_track ?? []
-		selectedTable = relations.length === 0 ? 'all' : 'specific'
 		can_write = canWrite(s.path, s.extra_perms, $userStore)
 	}
 
 	async function updateTrigger(): Promise<void> {
 		if (
-			selectedTable === 'specific' &&
+			relations &&
 			invalidRelations(relations, {
 				showError: true,
 				trackSchemaTableError: true
@@ -193,61 +191,66 @@
 		) {
 			return
 		}
-		if (edit) {
-			await PostgresTriggerService.updatePostgresTrigger({
-				workspace: $workspaceStore!,
-				path: initialPath,
-				requestBody: {
-					path,
-					script_path,
-					is_flow,
-					postgres_resource_path,
-					enabled,
-					replication_slot_name,
-					publication_name,
-					publication:
-						tab === 'basic'
-							? {
-									transaction_to_track,
-									table_to_track: relations
-							  }
-							: undefined
-				}
-			})
-			sendUserToast(`PostgresTrigger ${path} updated`)
-		} else {
-			await PostgresTriggerService.createPostgresTrigger({
-				workspace: $workspaceStore!,
-				requestBody: {
-					path,
-					script_path,
-					is_flow,
-					enabled: true,
-					postgres_resource_path,
-					replication_slot_name: tab === 'basic' ? undefined : replication_slot_name,
-					publication_name: tab === 'basic' ? undefined : publication_name,
-					publication: {
-						transaction_to_track,
-						table_to_track: relations
+		isLoading = true
+		try {
+			if (edit) {
+				await PostgresTriggerService.updatePostgresTrigger({
+					workspace: $workspaceStore!,
+					path: initialPath,
+					requestBody: {
+						path,
+						script_path,
+						is_flow,
+						postgres_resource_path,
+						enabled,
+						replication_slot_name,
+						publication_name,
+						publication:
+							tab === 'basic'
+								? {
+										transaction_to_track,
+										table_to_track: relations
+									}
+								: undefined
 					}
-				}
-			})
-			sendUserToast(`PostgresTrigger ${path} created`)
+				})
+				sendUserToast(`PostgresTrigger ${path} updated`)
+			} else {
+				await PostgresTriggerService.createPostgresTrigger({
+					workspace: $workspaceStore!,
+					requestBody: {
+						path,
+						script_path,
+						is_flow,
+						enabled: true,
+						postgres_resource_path,
+						replication_slot_name: tab === 'basic' ? undefined : replication_slot_name,
+						publication_name: tab === 'basic' ? undefined : publication_name,
+						publication: {
+							transaction_to_track,
+							table_to_track: relations
+						}
+					}
+				})
+				sendUserToast(`PostgresTrigger ${path} created`)
+			}
+			isLoading = false
+			if (!$usedTriggerKinds.includes('postgres')) {
+				$usedTriggerKinds = [...$usedTriggerKinds, 'postgres']
+			}
+			dispatch('update')
+			drawer.closeDrawer()
+		} catch (error) {
+			isLoading = false
+			sendUserToast(error.body || error.message, true)
 		}
-
-		if (!$usedTriggerKinds.includes('postgres')) {
-			$usedTriggerKinds = [...$usedTriggerKinds, 'postgres']
-		}
-		dispatch('update')
-		drawer.closeDrawer()
 	}
 
 	const getTemplateScript = async () => {
-		if (relations.length === 0 || emptyString(postgres_resource_path)) {
+		if (!relations || relations.length === 0 || emptyString(postgres_resource_path)) {
 			sendUserToast('You must pick a database resource and choose at least one schema', true)
 			return
 		}
-
 		try {
 			loading = true
 			let templateId = await PostgresTriggerService.createTemplateScript({
@@ -304,10 +307,11 @@
 						emptyString(script_path) ||
 						(tab === 'advanced' && emptyString(replication_slot_name)) ||
 						emptyString(publication_name) ||
-						(selectedTable !== 'all' && tab === 'basic' && relations.length === 0) ||
+						(relations && tab === 'basic' && relations.length === 0) ||
 						transaction_to_track.length === 0 ||
 						!can_write}
 					on:click={updateTrigger}
+					loading={isLoading}
 				>
 					Save
 				</Button>
@@ -354,7 +358,7 @@
 							allowRefresh
 						/>
 
-						{#if script_path === undefined && is_flow === false}
+						{#if emptyStringTrimmed(script_path) && is_flow === false}
 							<div class="flex">
 								<Button
 									disabled={!can_write}
@@ -473,7 +477,7 @@
 									<svelte:fragment slot="content">
 										<div class="mt-5 overflow-hidden bg-surface">
 											<TabContent value="basic">
-												<RelationPicker {can_write} bind:selectedTable bind:relations />
+												<RelationPicker {can_write} bind:relations />
 											</TabContent>
 											<TabContent value="advanced">
 												<div class="flex flex-col gap-6"
@@ -533,7 +537,6 @@
 																on:selected={({ detail }) => {
 																	selectedPublicationAction = detail
 																	if (selectedPublicationAction === 'create') {
-																		selectedTable = 'specific'
 																		publication_name = `windmill_publication_${random_adj()}`
 																		relations = [{ schema_name: 'public', table_to_track: [] }]
 																		return
@@ -561,7 +564,7 @@
 																		size="xs"
 																		variant="border"
 																		disabled={emptyStringTrimmed(publication_name) ||
-																			(selectedTable != 'all' && relations.length === 0) ||
+																			(relations && relations.length === 0) ||
 																			!can_write}
 																		on:click={createPublication}>Create</Button
 																	>
@@ -574,10 +577,9 @@
 																	bind:relations
 																	bind:items={publicationItems}
 																	bind:publication_name
-																	bind:selectedTable
 																/>
 															{/if}
-															<RelationPicker {can_write} bind:selectedTable bind:relations />
+															<RelationPicker {can_write} bind:relations />
 														</div>
 													</Section></div
 												>

@@ -1,0 +1,35 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        UPDATE \n            capture_config\n        SET \n            last_client_ping = NOW()\n        WHERE \n            workspace_id = $1 \n            AND path = $2 \n            AND is_flow = $3 \n            AND trigger_kind = $4\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Bool",
+        {
+          "Custom": {
+            "name": "trigger_kind",
+            "kind": {
+              "Enum": [
+                "webhook",
+                "http",
+                "websocket",
+                "kafka",
+                "email",
+                "nats",
+                "postgres",
+                "sqs",
+                "mqtt",
+                "gcp"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "42b4b73e9d60348e2d90fcade9dcad6d8995242dc20a4e14c1a8fae4fc6a9fd2"
+}

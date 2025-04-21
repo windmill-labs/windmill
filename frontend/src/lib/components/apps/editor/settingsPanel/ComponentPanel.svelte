@@ -14,7 +14,7 @@
 	import AlignmentEditor from './AlignmentEditor.svelte'
 	import RunnableInputEditor from './inputEditor/RunnableInputEditor.svelte'
 	import TemplateEditor from '$lib/components/TemplateEditor.svelte'
-	import { ccomponents, components, type AppComponent } from '../component'
+	import { ccomponents, components } from '../component'
 	import CssProperty from '../componentsPanel/CssProperty.svelte'
 	import GridTab from './GridTab.svelte'
 	import { deleteGridItem, isTableAction } from '../appUtils'
@@ -45,7 +45,6 @@
 	import Badge from '$lib/components/common/badge/Badge.svelte'
 	import { twMerge } from 'tailwind-merge'
 	import Popover from '$lib/components/Popover.svelte'
-	import { createOnObjChange } from '../../components/helpers/onObjChange'
 
 	export let componentSettings: { item: GridItem; parent: string | undefined } | undefined =
 		undefined
@@ -141,9 +140,6 @@
 		? ccomponents[componentSettings?.item?.data?.type]?.initialData?.componentInput
 		: undefined
 
-	const onDataChange = createOnObjChange<AppComponent>()
-	$: onDataChange(componentSettings?.item?.data, () => ($app = $app))
-
 	const hasInteraction = componentSettings?.item.data.type
 		? isTriggerable(componentSettings?.item.data.type)
 		: false
@@ -160,7 +156,6 @@
 					type: 'runnableByName',
 					name: `Eval of ${id}`,
 					inlineScript: {
-						path: `${id}_eval`,
 						content: `return ${componentSettings?.item.data.componentInput?.['expr']}`,
 						language: 'frontend',
 						refreshOn: componentSettings?.item.data.componentInput?.['connections']?.map((c) => {

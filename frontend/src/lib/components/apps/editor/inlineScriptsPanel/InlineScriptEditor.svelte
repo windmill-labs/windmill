@@ -14,13 +14,13 @@
 	import type { AppInput } from '../../inputType'
 	import SimpleEditor from '$lib/components/SimpleEditor.svelte'
 	import { buildExtraLib } from '../../utils'
-	import RunButton from './RunButton.svelte'
+	import RunButton from './AppRunButton.svelte'
 	import { scriptLangToEditorLang } from '$lib/scripts'
 	import ScriptGen from '$lib/components/copilot/ScriptGen.svelte'
 	import DiffEditor from '$lib/components/DiffEditor.svelte'
-	import { userStore } from '$lib/stores'
 	import CacheTtlPopup from './CacheTtlPopup.svelte'
 	import EditorSettings from '$lib/components/EditorSettings.svelte'
+	import { userStore } from '$lib/stores'
 
 	let inlineScriptEditorDrawer: InlineScriptEditorDrawer
 
@@ -63,11 +63,16 @@
 		return schema
 	}
 
-	$: inlineScript &&
-		(inlineScript.path = `${defaultIfEmptyString(
-			$appPath,
-			`u/${$userStore?.username ?? 'unknown'}/newapp`
-		)}/${name?.replaceAll(' ', '_')}`)
+	$: name && onNameChange()
+
+	function onNameChange() {
+		if (inlineScript) {
+			inlineScript.path = `${defaultIfEmptyString(
+				$appPath,
+				`u/${$userStore?.username ?? 'unknown'}/newapp`
+			)}/${name?.replaceAll(' ', '_')}`
+		}
+	}
 
 	onMount(async () => {
 		if (inlineScript && !inlineScript.schema) {
@@ -84,6 +89,9 @@
 		}
 		if (inlineScript?.language == 'frontend' && inlineScript.content) {
 			inferSuggestions(inlineScript.content)
+		}
+		if (!inlineScript?.path) {
+			onNameChange()
 		}
 	})
 
@@ -171,7 +179,9 @@
 
 			if (!deepEqual(newFields, fields)) {
 				fields = newFields
-				$stateId++
+				if (stateId) {
+					$stateId++
+				}
 			}
 		}
 	}
@@ -203,7 +213,9 @@
 					]
 				}
 			}
-			$stateId++
+			if (stateId) {
+				$stateId++
+			}
 		}
 	}
 </script>
@@ -211,6 +223,8 @@
 {#if inlineScript}
 	{#if inlineScript.language != 'frontend'}
 		<InlineScriptEditorDrawer
+			{id}
+			appPath={$appPath}
 			bind:isOpen={drawerIsOpen}
 			{editor}
 			bind:this={inlineScriptEditorDrawer}
@@ -233,7 +247,9 @@
 							class="!text-xs !rounded-sm !shadow-none"
 							on:keyup={() => {
 								$app = $app
-								$stateId++
+								if (stateId) {
+									$stateId++
+								}
 							}}
 						/>
 						<div
@@ -310,11 +326,10 @@
 			{#if !drawerIsOpen}
 				{#if inlineScript.language != 'frontend'}
 					<Editor
-						path={inlineScript.path}
+						path={$appPath + '/' + id}
 						bind:this={editor}
 						small
 						class="flex flex-1 grow h-full"
-						lang={scriptLangToEditorLang(inlineScript?.language)}
 						scriptLang={inlineScript.language}
 						bind:code={inlineScript.content}
 						fixedOverflowWidgets={true}

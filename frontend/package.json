@@ -1,10 +1,11 @@
 {
 	"name": "windmill-components",
-	"version": "1.481.0",
+	"version": "1.483.1",
 	"scripts": {
 		"dev": "vite dev",
 		"build": "vite build",
 		"preview": "vite preview",
+		"postinstall": "node scripts/untar_ui_builder.js",
 		"check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --threshold warning",
 		"check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",
 		"lint": "prettier --ignore-path .gitignore --check --plugin-search-dir=. . && eslint --ignore-path .gitignore .",
@@ -22,7 +23,6 @@
 		"@melt-ui/pp": "^0.3.2",
 		"@melt-ui/svelte": "^0.86.2",
 		"@playwright/test": "^1.34.3",
-		"@rgossiaux/svelte-headlessui": "^2.0.0",
 		"@sveltejs/adapter-static": "^3.0.6",
 		"@sveltejs/kit": "^2.16.0",
 		"@sveltejs/package": "^2.3.7",
@@ -65,17 +65,14 @@
 		"svelte-splitpanes": "^8.0.9",
 		"svelte2tsx": "^0.6.16",
 		"tailwindcss": "^3.4.1",
+		"tar": "^7.4.3",
 		"tslib": "^2.6.1",
 		"typescript": "^5.5.0",
-		"vite": "^6.2.1",
-		"vite-plugin-circular-dependency": "^0.2.1",
+		"vite": "^6.3.2",
 		"vite-plugin-mkcert": "^1.17.5",
 		"yootils": "^0.3.1"
 	},
 	"overrides": {
-		"@rgossiaux/svelte-headlessui": {
-			"svelte": "$svelte"
-		},
 		"monaco-graphql": {
 			"monaco-editor": "$monaco-editor"
 		}
@@ -85,6 +82,7 @@
 		"@aws-crypto/sha256-js": "^4.0.0",
 		"@codingame/monaco-vscode-configuration-service-override": "~11.1.2",
 		"@codingame/monaco-vscode-standalone-css-language-features": "~11.1.2",
+		"@codingame/monaco-vscode-standalone-html-language-features": "^11.1.2",
 		"@codingame/monaco-vscode-standalone-json-language-features": "~11.1.2",
 		"@codingame/monaco-vscode-standalone-languages": "~11.1.2",
 		"@codingame/monaco-vscode-standalone-typescript-language-features": "~11.1.2",
@@ -144,15 +142,16 @@
 		"windmill-parser-wasm-nu": "^1.474.1",
 		"windmill-parser-wasm-php": "^1.429.0",
 		"windmill-parser-wasm-py": "^1.477.1",
-		"windmill-parser-wasm-regex": "^1.478.2",
+		"windmill-parser-wasm-regex": "^1.481.0",
 		"windmill-parser-wasm-rust": "^1.429.0",
-		"windmill-parser-wasm-ts": "^1.429.0",
+		"windmill-parser-wasm-ts": "^1.438.2",
 		"windmill-parser-wasm-yaml": "^1.429.0",
 		"windmill-sql-datatype-parser-wasm": "^1.318.0",
 		"y-monaco": "^0.1.4",
 		"y-websocket": "^1.5.4",
 		"yaml": "^2.3.4",
-		"yjs": "^13.6.7"
+		"yjs": "^13.6.7",
+		"zod": "^3.24.2"
 	},
 	"peerDependencies": {
 		"svelte": "^4.0.0"
