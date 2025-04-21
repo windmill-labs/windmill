@@ -2801,6 +2801,11 @@ See date-fns format for more information. By default, it is 'yyyy-MM-dd'
 
 					documentationLink: 'https://date-fns.org/v2.30.0/docs/format',
 					placeholder: 'yyyy-MM-dd'
+				},
+				disabled: {
+					type: 'static',
+					value: false,
+					fieldType: 'boolean'
 				}
 			}
 		}

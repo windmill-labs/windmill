@@ -108,6 +108,7 @@
 			on:pointerdown|stopPropagation
 			type="date"
 			bind:value
+			disabled={resolvedConfig.disabled}
 			min={resolvedConfig.minDate}
 			max={resolvedConfig.maxDate}
 			placeholder="Type..."
