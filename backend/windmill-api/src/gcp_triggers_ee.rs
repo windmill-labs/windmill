@@ -53,6 +53,8 @@ pub struct ExistingGcpSubscription {
 }
 
 #[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+#[sqlx(type_name = "GCP_SUBSCRIPTION_MODE", rename_all = "snake_case")]
 pub enum SubscriptionMode {
     Existing,
     CreateUpdate,
@@ -120,6 +122,7 @@ pub struct GcpTrigger {
     pub subscription_id: String,
     pub delivery_type: DeliveryType,
     pub delivery_config: Option<SqlxJson<PushConfig>>,
+    pub subscription_mode: SubscriptionMode,
     pub topic_id: String,
     pub path: String,
     pub script_path: String,
