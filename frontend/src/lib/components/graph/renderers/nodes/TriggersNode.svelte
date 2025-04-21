@@ -26,7 +26,7 @@
 		selectedId: Writable<string | undefined>
 	}>('FlowGraphContext')
 
-	const { primarySchedule, triggersCount, selectedTrigger } =
+	const { primarySchedule, triggersCount, selectedTrigger, selectedTriggerV2, triggers } =
 		getContext<TriggerContext>('TriggerContext')
 </script>
 
@@ -60,6 +60,9 @@
 			}}
 			on:select={(e) => {
 				data?.eventHandlers?.select('triggers')
+				if (e.detail) {
+					$selectedTriggerV2 = e.detail
+				}
 			}}
 			on:delete={(e) => {
 				data.eventHandlers.delete(e, '')
@@ -67,6 +70,7 @@
 			selected={$selectedId == 'triggers'}
 			newItem={data.newFlow}
 			modules={data.modules}
+			triggers={$triggers}
 		/>
 	{:else}
 		<VirtualItemWrapper
