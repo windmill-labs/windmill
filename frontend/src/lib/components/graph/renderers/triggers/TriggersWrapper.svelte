@@ -9,15 +9,29 @@
 	import { twMerge } from 'tailwind-merge'
 	import AddTriggersButton from '$lib/components/triggers/AddTriggersButton.svelte'
 	import { Plus } from 'lucide-svelte'
+	interface Props {
+		path: string
+		newItem: boolean
+		selected: boolean
+		isEditor?: boolean
+		disableAi?: boolean
+		modules?: FlowModule[]
+		bgColor: string
+		triggers?: Trigger[]
+	}
 
-	export let path: string
-	export let newItem: boolean
-	export let selected: boolean
-	export let isEditor: boolean = false
-	export let disableAi: boolean = false
-	export let modules: FlowModule[] = []
-	export let bgColor: string
-	export let triggers: Trigger[] = []
+	let {
+		path,
+		newItem,
+		selected,
+		isEditor = false,
+		disableAi = false,
+		modules = [],
+		bgColor,
+		triggers = []
+	}: Props = $props()
+
+	let showTriggerScriptPicker = $state(false)
 
 	const dispatch = createEventDispatcher()
 </script>
@@ -28,7 +42,7 @@
 		class="flex w-full flex-row gap-1.5 px-2 p-1 items-center rounded-sm {selected
 			? 'outline  outline-2  outline-gray-600 dark:bg-white/5 dark:outline-gray-400'
 			: ''}"
-		on:click={() => {
+		onclick={() => {
 			dispatch('select')
 		}}
 	>
