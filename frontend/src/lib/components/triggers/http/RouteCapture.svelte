@@ -10,7 +10,6 @@
 	import CaptureTable from '../CaptureTable.svelte'
 	import ClipboardPanel from '../../details/ClipboardPanel.svelte'
 	import { isObject } from '$lib/utils'
-	import { FlaskConical } from 'lucide-svelte'
 
 	export let route_path: string | undefined
 	export let http_method: 'get' | 'post' | 'put' | 'patch' | 'delete' | undefined
