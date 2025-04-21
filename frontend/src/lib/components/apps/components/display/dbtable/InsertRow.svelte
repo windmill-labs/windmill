@@ -41,8 +41,13 @@
 		.map((column) => {
 			const type = column.datatype
 			const name = column.field
-			const isPrimaryKey = column.isprimarykey
-			const defaultValue = column.defaultValueNull ? null : column.defaultUserValue
+			const isPrimaryKey =
+				typeof column.isprimarykey === 'string'
+					? column.isprimarykey === 'YES'
+					: column.isprimarykey
+			const defaultValue = column.defaultValueNull
+				? null
+				: (column.defaultUserValue ?? column.defaultvalue)
 
 			return {
 				type,
@@ -123,6 +128,7 @@
 
 			properties[field.name] = schemaProperty
 
+			console.log('field', field)
 			const isRequired =
 				(field.isPrimaryKey || field.defaultValue === undefined || field.defaultValue === null) &&
 				field.nullable !== 'YES' &&
