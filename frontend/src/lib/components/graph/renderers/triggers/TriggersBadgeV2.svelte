@@ -84,7 +84,7 @@
 	}
 
 	const itemClass = twMerge(
-		'text-secondary align-left font-normal w-full block px-4 py-2 text-2xs data-[highlighted]:bg-surface-hover data-[highlighted]:text-primary'
+		'text-secondary text-left font-normal w-full block px-4 py-2 text-2xs data-[highlighted]:bg-surface-hover data-[highlighted]:text-primary'
 	)
 </script>
 
@@ -92,7 +92,14 @@
 	{#each triggersToDisplay as type}
 		{@const { icon, countKey } = triggerTypeConfig[type]}
 		{@const isSelected = selected && $selectedTriggerV2 && $selectedTriggerV2.type === type}
-		<Menu {createMenu} usePointerDownOutside placement="bottom-start" let:open let:item>
+		<Menu
+			{createMenu}
+			usePointerDownOutside
+			placement="bottom-start"
+			menuClass={'min-w-56 w-fit'}
+			let:open
+			let:item
+		>
 			<svelte:fragment slot="trigger" let:trigger>
 				{#if (!showOnlyWithCount || ((countKey && $triggersCount?.[countKey]) || 0) > 0) && !(type === 'sqs' && !$enterpriseLicense) && !(type === 'kafka' && !$enterpriseLicense) && !(type === 'nats' && !$enterpriseLicense) && !(type === 'mqtt')}
 					<Popover disablePopup={open}>
@@ -125,12 +132,24 @@
 							dispatch('select', trigger)
 						}}
 					>
-						{trigger.path}
-						{#if trigger.isDraft}
-							<span class="text-yellow-500 ml-1">(Draft)</span>
-						{/if}
+						<span class={trigger.isDraft ? 'text-frost-400 italic' : ''}>
+							{trigger.isDraft ? `New ${trigger.type.replace(/s$/, '')} trigger` : trigger.path}
+						</span>
+
 						{#if trigger.isPrimary}
-							<span class="text-blue-500 ml-1">(Primary)</span>
+							<span
+								class="ml-2 bg-blue-50 dark:bg-blue-900/40 px-1.5 py-0.5 rounded text-xs text-blue-700 dark:text-blue-100"
+							>
+								Primary
+							</span>
+						{/if}
+
+						{#if trigger.isDraft}
+							<span
+								class="ml-2 text-2xs bg-frost-100 dark:bg-frost-900 text-frost-800 dark:text-frost-100 px-1.5 py-0.5 rounded"
+							>
+								Draft
+							</span>
 						{/if}
 					</MenuItem>
 				{/each}

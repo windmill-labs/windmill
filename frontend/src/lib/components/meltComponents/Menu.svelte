@@ -15,6 +15,7 @@
 	export let createMenu: MenubarBuilders['createMenu']
 	export let invisible: boolean = false
 	export let usePointerDownOutside: boolean = false
+	export let menuClass: string = ''
 
 	// Use the passed createMenu function
 	const menu = createMenu({
@@ -76,7 +77,8 @@
 			class={twMerge(
 				'z-[6000] border w-56 origin-top-right rounded-md shadow-md focus:outline-none overflow-y-auto',
 				lightMode ? 'bg-surface-inverse' : 'bg-surface',
-				invisible ? 'opacity-0' : ''
+				invisible ? 'opacity-0' : '',
+				menuClass
 			)}
 			on:click
 		>
