@@ -33,7 +33,6 @@ export type TriggerType =
 	| 'nats'
 	| 'mqtt'
 	| 'sqs'
-	| 'primary_schedule'
 
 export type Trigger = { path: string; type: TriggerType; isDraft?: boolean; isPrimary?: boolean }
 
