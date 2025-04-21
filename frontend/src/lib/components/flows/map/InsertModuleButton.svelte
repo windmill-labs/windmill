@@ -32,10 +32,7 @@
 	}
 	$: !open && (funcDesc = '')
 
-	let small = false
 	let open = false
-
-	$: small = kind === 'preprocessor' || kind === 'failure'
 </script>
 
 <!-- <Menu transitionDuration={0} pointerDown bind:show={open} noMinW {placement} let:close> -->
