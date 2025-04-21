@@ -52,6 +52,13 @@ struct WorkspaceSettings {
     ai_config: Option<sqlx::types::Json<AIConfig>>,
 }
 
+#[derive(Serialize, FromRow, Debug)]
+struct ResourceInfo {
+    path: String,
+    description: Option<String>,
+    resource_type: String,
+}
+
 impl Runner {
     pub fn new() -> Self {
         Self {}
@@ -59,6 +66,49 @@ impl Runner {
 
     fn _create_resource_text(&self, uri: &str, name: &str) -> Resource {
         RawResource::new(uri, name.to_string()).no_annotation()
+    }
+
+    async fn inner_get_resources(
+        &self,
+        user_db: &UserDB,
+        authed: &ApiAuthed,
+        workspace_id: String,
+        resource_types: Vec<String>,
+    ) -> Result<Vec<ResourceInfo>, Error> {
+        let mut sqlb = SqlBuilder::select_from("resource as o");
+        sqlb.fields(&["o.path", "o.description", "o.resource_type"]);
+        sqlb.and_where("o.workspace_id = ?".bind(&workspace_id));
+        let prepared_resource_types: Vec<String> = resource_types
+        .iter()
+        .map(|s| quote(s))
+        .collect();
+    
+    if !prepared_resource_types.is_empty() {
+        sqlb.and_where_in("o.resource_type", &prepared_resource_types);
+    } else {
+        println!("Warning: resource_types is empty, IN clause will not be added.");
+    }
+        let sql = sqlb.sql().map_err(|_e| {
+            tracing::error!("failed to build sql: {}", _e);
+            Error::internal_error("failed to build sql", None)
+        })?;
+        let mut tx = user_db
+            .clone()
+            .begin(authed)
+            .await
+            .map_err(|_e| Error::internal_error("failed to begin transaction", None))?;
+        let rows = sqlx::query_as::<_, ResourceInfo>(&sql)
+            .fetch_all(&mut *tx)
+            .await
+            .map_err(|_e| {
+                tracing::error!("Failed to fetch resources: {}", _e);
+                Error::internal_error("failed to fetch resources", None)
+            })?;
+        tx.commit()
+            .await
+            .map_err(|_e| Error::internal_error("failed to commit transaction", None))?;
+
+        Ok(rows)
     }
 
     async fn inner_get_flows(
@@ -155,6 +205,23 @@ fn generate_tool_name(summary: Option<String>, path: &str, last_path: Option<Str
     }
 }
 
+fn transform_schema_for_resources(schema: &mut serde_json::Value) {
+    if let serde_json::Value::Object(schema_obj) = schema {
+        if let Some(serde_json::Value::Object(properties)) = schema_obj.get_mut("properties") {
+            for (_key, prop) in properties.iter_mut() {
+                if let serde_json::Value::Object(prop_obj) = prop {
+                    if let Some(serde_json::Value::String(format)) = prop_obj.get("format") {
+                        if format.contains("resource") {
+                            // Replace type with "string" for resource formats
+                            prop_obj.insert("type".to_string(), serde_json::Value::String("string".to_string()));
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
 impl ServerHandler for Runner {
     async fn call_tool(
         &self,
@@ -177,12 +244,12 @@ impl ServerHandler for Runner {
 
         // find path from list of tools, by checking annotations.title
         let tools = self.list_tools(None, context.clone()).await?; // Clone context for reuse
-        let path = tools.tools.iter().find_map(|tool| {
+        let path_and_schema = tools.tools.iter().find_map(|tool| {
             // Check if annotations exist and then if the title matches
             if tool.name.as_ref() == &request.name {
                 if let Some(annotations) = &tool.annotations {
                     if let Some(title) = &annotations.title {
-                        Some(title.clone())
+                        Some((title.clone(), tool.input_schema.clone()))
                     } else {
                         None
                     }
@@ -193,6 +260,11 @@ impl ServerHandler for Runner {
                 None
             }
         });
+
+        let (path, schema) = match path_and_schema {
+            Some((path, schema)) => (Some(path), Some(schema)),
+            None => (None, None),
+        };
 
         let (tool_type, path) = match path {
             Some(path) => {
@@ -220,11 +292,40 @@ impl ServerHandler for Runner {
             }
         };
 
+
+        let mut resources_args: HashMap<String, String> = HashMap::new();
         // Convert Value to PushArgsOwned
         let push_args = if let Value::Object(map) = args.clone() {
             let mut args_hash = HashMap::new();
             for (k, v) in map {
-                args_hash.insert(k, to_raw_value(&v));
+                // Check if we need to transform this argument based on schema
+                let mut value_to_use = v.clone();
+                let mut key_copy: Option<String> = None;
+                let mut type_copy: Option<String> = None;
+                if let Some(ref schema) = schema {
+                    if let Some(properties) = schema.get("properties") {
+                        if let Some(property) = properties.get(&k) {
+                            if let Some(format) = property.get("format") {
+                                if let Value::String(format_str) = format {
+                                    if format_str.starts_with("resource") {
+                                        // Modify string values to have "$res:" prefix for resource types
+                                        if let Value::String(s) = &v {
+                                            value_to_use = Value::String(format!("$res:{}", s));
+                                            // add to resources_args
+                                            key_copy = Some(k.clone());
+                                            // type_copy is format split by -
+                                            type_copy = Some(format_str.split("-").collect::<Vec<&str>>()[1].to_string());
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                args_hash.insert(k, to_raw_value(&value_to_use.clone()));
+                if let Some(key_copy) = key_copy {
+                    resources_args.insert(key_copy, type_copy.unwrap_or_default());
+                }
             }
             windmill_queue::PushArgsOwned { extra: None, args: args_hash }
         } else {
@@ -240,9 +341,9 @@ impl ServerHandler for Runner {
                 db,
                 run_query,
                 script_or_flow_path,
-                authed,
-                user_db,
-                w_id,
+                authed.clone(),
+                user_db.clone(),
+                w_id.clone(),
                 push_args,
                 None,
             )
@@ -252,10 +353,10 @@ impl ServerHandler for Runner {
                 db,
                 run_query,
                 script_or_flow_path,
-                authed,
-                user_db,
+                authed.clone(),
+                user_db.clone(),
                 push_args,
-                w_id,
+                w_id.clone(),
                 None,
             )
             .await
@@ -272,6 +373,18 @@ impl ServerHandler for Runner {
                 let body_str = String::from_utf8(body_bytes.to_vec()).map_err(|e| {
                     Error::internal_error(format!("Failed to decode response body: {}", e), None)
                 })?;
+
+                // Check for invalid resource path errors
+                if body_str.contains("invalid resource path") {
+                    let resource_types = resources_args.values().cloned().collect::<Vec<String>>();
+                    let resources = self.inner_get_resources(&user_db, &authed, w_id, resource_types).await?;
+                    let error_response = serde_json::json!({
+                        "error": "Resource not found",
+                        "available_resources": resources
+                    });
+                    
+                    return Ok(CallToolResult::success(vec![Content::text(error_response.to_string())]));
+                }
 
                 Ok(CallToolResult::success(vec![Content::text(body_str)]))
             }
@@ -313,7 +426,13 @@ impl ServerHandler for Runner {
                         .schema
                         .map(|schema| {
                             if let serde_json::Value::Object(map) = schema {
-                                Arc::new(map)
+                                let mut schema_value = serde_json::Value::Object(map);
+                                transform_schema_for_resources(&mut schema_value);
+                                if let serde_json::Value::Object(transformed_map) = schema_value {
+                                    Arc::new(transformed_map)
+                                } else {
+                                    Arc::new(serde_json::Map::new())
+                                }
                             } else {
                                 Arc::new(serde_json::Map::new())
                             }
@@ -341,7 +460,13 @@ impl ServerHandler for Runner {
                         .schema
                         .map(|schema| {
                             if let serde_json::Value::Object(map) = schema {
-                                Arc::new(map)
+                                let mut schema_value = serde_json::Value::Object(map);
+                                transform_schema_for_resources(&mut schema_value);
+                                if let serde_json::Value::Object(transformed_map) = schema_value {
+                                    Arc::new(transformed_map)
+                                } else {
+                                    Arc::new(serde_json::Map::new())
+                                }
                             } else {
                                 Arc::new(serde_json::Map::new())
                             }
