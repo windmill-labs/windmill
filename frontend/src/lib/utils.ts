@@ -142,7 +142,7 @@ export function msToSec(ms: number | undefined, maximumFractionDigits?: number):
 	})
 }
 
-export function removeTriggerKindIfUnsued(
+export function removeTriggerKindIfUnused(
 	length: number,
 	triggerKind: TriggerKind,
 	usedTriggerKinds: string[]
