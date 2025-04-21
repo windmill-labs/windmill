@@ -11,7 +11,7 @@ const version = JSON.parse(json)
 /** @type {import('vite').UserConfig} */
 const config = {
 	server: {
-		https: true,
+		https: process.env.HTTPS === 'true',
 		port: 3000,
 		proxy: {
 			'^/api/.*': {
@@ -43,7 +43,7 @@ const config = {
 	preview: {
 		port: 3000
 	},
-	plugins: [sveltekit(), mkcert()],
+	plugins: [sveltekit(), ...(process.env.HTTPS === 'true' ? [mkcert()] : [])],
 	define: {
 		__pkg__: version
 	},
