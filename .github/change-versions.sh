@@ -24,4 +24,4 @@ sed -i -e "/^wmill_pg =/s/= .*/= \">=$VERSION\"/" ${root_dirpath}/lsp/Pipfile
 
 sed -i -zE "s/name = \"windmill\"\nversion = \"[^\"]*\"\\n(.*)/name = \"windmill\"\nversion = \"$VERSION\"\\n\\1/" ${root_dirpath}/backend/Cargo.lock
 
-cd ${root_dirpath}/frontend && npm i --package-lock-only
+cd ${root_dirpath}/frontend && npm i --package-lock-only --ignore-scripts
