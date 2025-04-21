@@ -50,7 +50,6 @@
 	const DEFAULT_PUSH_CONFIG: PushConfig = {
 		audience: '',
 		authenticate: false,
-		base_endpoint
 	}
 
 	async function loadAllPubSubTopicsFromProject() {
@@ -87,7 +86,7 @@
 
 	function getBaseUrl(captureInfo: CaptureInfo | undefined) {
 		if (captureInfo) {
-			return `${location.origin}${base}/api/w/${$workspaceStore}/capture_u/gcp/${
+			return `${window.location.origin}${base}/api/w/${$workspaceStore}/capture_u/gcp/${
 				captureInfo.isFlow ? 'flow' : 'script'
 			}`
 		} else {

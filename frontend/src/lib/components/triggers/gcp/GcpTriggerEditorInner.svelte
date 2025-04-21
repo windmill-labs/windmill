@@ -103,6 +103,7 @@
 			delivery_type = s.delivery_type
 			subscription_id = s.subscription_id
 			delivery_config = s.delivery_config
+			subscription_mode = s.subscription_mode
 			is_flow = s.is_flow
 			path = s.path
 			enabled = s.enabled
@@ -122,7 +123,6 @@
 					sendUserToast('Must set route path when delivery type is push', true)
 					return
 				}
-				delivery_config.base_endpoint = base_endpoint
 			} else {
 				delivery_config = undefined
 			}

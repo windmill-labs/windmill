@@ -14953,8 +14953,6 @@ components:
           type: string
         authenticate:
           type: boolean
-        base_endpoint:
-          type: string
       required:
         - authenticate
         - base_endpoint
@@ -15001,28 +14999,6 @@ components:
         - create_update
       description: "The mode of subscription. 'existing' means using an existing GCP subscription, while 'create_update' involves creating or updating a new subscription."
 
-    GcpExistingSubscription:
-      type: object
-      properties:
-        subscription_id:
-          type: string
-        base_endpoint:
-          type: string
-      required:
-        - subscription_id
-        - base_endpoint
-    
-    GcpCreateUpdateSubscription:
-      type: object
-      properties:
-        subscription_id:
-          type: string
-        delivery_type:
-          $ref: "#/components/schemas/DeliveryType"
-        delivery_config:
-          $ref: "#/components/schemas/PushConfig"
-      required:
-        - delivery_type
 
     GcpTriggerData:
       type: object

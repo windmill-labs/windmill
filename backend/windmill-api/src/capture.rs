@@ -18,7 +18,8 @@ use {
 
 #[cfg(all(feature = "enterprise", feature = "gcp_trigger"))]
 use crate::gcp_triggers_ee::{
-    manage_google_subscription, process_google_push_request, validate_jwt_token, SubscriptionMode,
+    manage_google_subscription, process_google_push_request, validate_jwt_token,
+    CreateUpdateConfig, SubscriptionMode,
 };
 
 #[cfg(all(feature = "enterprise", feature = "sqs_trigger"))]
@@ -29,8 +30,10 @@ use windmill_common::auth::aws::AwsAuthResourceType;
     all(feature = "enterprise", feature = "gcp_trigger")
 ))]
 use {
-    axum::extract::Request, http::HeaderMap, serde::de::DeserializeOwned,
-    windmill_common::{utils::empty_string_as_none, error::Error},
+    axum::extract::Request,
+    http::HeaderMap,
+    serde::de::DeserializeOwned,
+    windmill_common::{error::Error, utils::empty_string_as_none},
 };
 
 #[cfg(all(feature = "enterprise", feature = "kafka"))]
@@ -53,7 +56,10 @@ use {
 };
 
 use crate::{
-    args::WebhookArgs, db::{ApiAuthed, DB}, gcp_triggers_ee::CreateUpdateConfig, users::fetch_api_authed, utils::RunnableKind
+    args::WebhookArgs,
+    db::{ApiAuthed, DB},
+    users::fetch_api_authed,
+    utils::RunnableKind,
 };
 
 use axum::{
@@ -375,7 +381,8 @@ async fn set_gcp_trigger_config(
         &mut gcp_config.subscription_id,
         &mut gcp_config.base_endpoint,
         gcp_config.subscription_mode,
-        gcp_config.create_update
+        gcp_config.create_update,
+        false,
     )
     .await?;
     gcp_config.create_update = Some(config);
