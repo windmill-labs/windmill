@@ -61,13 +61,13 @@
 				index={0}
 				{modules}
 				class={twMerge(
-					'hover:bg-surface-hover rounded-md border text-xs w-[23px] h-[23px] relative center-center cursor-pointer bg-surface outline-0'
+					'hover:bg-surface-hover rounded-md shadow-sm text-xs w-[23px] h-[23px] relative center-center cursor-pointer bg-surface outline-0'
 				)}
 			/>
 			<AddTriggersButton on:addDraftTrigger class="w-fit h-fit">
 				<button
 					class={twMerge(
-						'hover:bg-slate-300 rounded-md border border-dashed border-secondary text-xs w-[23px] h-[23px] relative center-center cursor-pointer text-secondary'
+						'hover:bg-slate-300 rounded-md outline-1 outline-dashed outline-secondary outline-offset-[-1px] text-xs w-[23px] h-[23px] relative center-center cursor-pointer text-secondary'
 					)}
 				>
 					<Plus size={12} />

@@ -170,7 +170,7 @@
 	{#if (!showOnlyWithCount || ((countKey && $triggersCount?.[countKey]) || 0) > 0) && !triggerTypeConfig[type].disabled}
 		<MeltButton
 			class={twMerge(
-				'hover:bg-surface-hover rounded-md border text-xs w-[23px] h-[23px] relative center-center cursor-pointer bg-surface',
+				'hover:bg-surface-hover rounded-md shadow-sm text-xs w-[23px] h-[23px] relative center-center cursor-pointer bg-surface',
 				isSelected ? 'outline-1 outline-tertiary outline' : 'outline-0'
 			)}
 			on:click={() => {
