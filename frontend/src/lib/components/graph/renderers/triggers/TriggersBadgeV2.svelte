@@ -20,35 +20,21 @@
 		isFlow: boolean
 		selected: boolean
 		showOnlyWithCount: boolean
-		triggers?: Trigger[]
+		triggersToDisplay: TriggerType[]
+		triggersGrouped: Record<TriggerType, Trigger[]>
+		extraTriggers: Trigger[]
 	}
 
-	let { path, newItem, isFlow, selected, showOnlyWithCount, triggers = [] }: Props = $props()
-
-	// Group triggers by their mapped type
-	let triggersGrouped = $derived(
-		triggers.reduce(
-			(acc, trigger) => {
-				const configType = trigger.type
-
-				if (!acc[configType]) {
-					acc[configType] = []
-				}
-				acc[configType].push(trigger)
-				return acc
-			},
-			{} as Record<TriggerType, Trigger[]>
-		)
-	)
-
-	// Extract unique trigger types for display, only keep the first 5
-	let allTriggerTypes = $derived(Object.keys(triggersGrouped) as TriggerType[])
-	let triggersToDisplay = $derived(allTriggerTypes.slice(0, 5))
-	let extraTriggers = $derived(
-		allTriggerTypes.length > 5
-			? allTriggerTypes.slice(5).flatMap((type) => triggersGrouped[type])
-			: []
-	)
+	let {
+		path,
+		newItem,
+		isFlow,
+		selected,
+		showOnlyWithCount,
+		triggersToDisplay,
+		triggersGrouped,
+		extraTriggers
+	}: Props = $props()
 
 	let menuOpen = $state(false)
 

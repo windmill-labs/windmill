@@ -8,6 +8,8 @@
 	import { Plus } from 'lucide-svelte'
 	import InsertModuleInner from '$lib/components/flows/map/InsertModuleInner.svelte'
 	import AddTriggersButton from '$lib/components/triggers/AddTriggersButton.svelte'
+	import type { TriggerType } from '$lib/components/triggers/utils'
+	import { twMerge } from 'tailwind-merge'
 
 	interface Props {
 		path: string
@@ -32,6 +34,30 @@
 	}: Props = $props()
 
 	let showTriggerScriptPicker = $state(false)
+	// Group triggers by their mapped type
+	let triggersGrouped = $derived(
+		triggers.reduce(
+			(acc, trigger) => {
+				const configType = trigger.type
+
+				if (!acc[configType]) {
+					acc[configType] = []
+				}
+				acc[configType].push(trigger)
+				return acc
+			},
+			{} as Record<TriggerType, Trigger[]>
+		)
+	)
+
+	// Extract unique trigger types for display, only keep the first 5
+	let allTriggerTypes = $derived(Object.keys(triggersGrouped) as TriggerType[])
+	let triggersToDisplay = $derived(allTriggerTypes.slice(0, 7))
+	let extraTriggers = $derived(
+		allTriggerTypes.length > 7
+			? allTriggerTypes.slice(8).flatMap((type) => triggersGrouped[type])
+			: []
+	)
 
 	const dispatch = createEventDispatcher()
 </script>
@@ -39,16 +65,22 @@
 <div style={`width: ${NODE.width}px;`}>
 	<button
 		style="background-color: {bgColor} !important;"
-		class="flex w-full flex-row gap-1.5 px-2 p-1 items-center rounded-sm {selected
+		class="relative flex w-full flex-row gap-1.5 px-2 p-1 items-center rounded-sm {selected
 			? 'outline  outline-2  outline-gray-600 dark:bg-white/5 dark:outline-gray-400'
 			: ''}"
 		onclick={() => {
 			dispatch('select')
 		}}
 	>
-		<div class="flex flex-col mr-1 ml-1">
-			<div class="flex flex-row items-center text-2xs font-normal"> Triggers </div>
+		<div
+			class={twMerge(
+				'flex flex-row items-center text-2xs font-normal',
+				allTriggerTypes.length > 6 ? 'absolute left-0 -top-[20px]' : ''
+			)}
+		>
+			Triggers
 		</div>
+
 		{#if isEditor}
 			<TriggersBadgeV2
 				showOnlyWithCount={false}
@@ -56,7 +88,9 @@
 				{newItem}
 				isFlow
 				{selected}
-				{triggers}
+				{triggersToDisplay}
+				{triggersGrouped}
+				{extraTriggers}
 				on:select
 			/>
 		{:else}
