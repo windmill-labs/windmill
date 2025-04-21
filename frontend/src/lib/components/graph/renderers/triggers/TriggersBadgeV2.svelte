@@ -70,18 +70,18 @@
 	}
 
 	const triggerTypeConfig: {
-		[key in TriggerType]: { icon: ComponentType; countKey?: string }
+		[key in TriggerType]: { icon: ComponentType; countKey?: string; disabled?: boolean }
 	} = {
 		webhook: { icon: Webhook, countKey: 'webhook_count' },
 		schedule: { icon: Calendar, countKey: 'schedule_count' },
 		http: { icon: Route, countKey: 'http_routes_count' },
 		websocket: { icon: Unplug, countKey: 'websocket_count' },
 		postgres: { icon: Database, countKey: 'postgres_count' },
-		kafka: { icon: KafkaIcon, countKey: 'kafka_count' },
+		kafka: { icon: KafkaIcon, countKey: 'kafka_count', disabled: !$enterpriseLicense },
 		email: { icon: Mail, countKey: 'email_count' },
-		nats: { icon: NatsIcon, countKey: 'nats_count' },
-		mqtt: { icon: MqttIcon, countKey: 'mqtt_count' },
-		sqs: { icon: AwsIcon, countKey: 'sqs_count' }
+		nats: { icon: NatsIcon, countKey: 'nats_count', disabled: !$enterpriseLicense },
+		mqtt: { icon: MqttIcon, countKey: 'mqtt_count', disabled: !$enterpriseLicense },
+		sqs: { icon: AwsIcon, countKey: 'sqs_count', disabled: !$enterpriseLicense }
 	}
 
 	function camelCaseToWords(s: string) {
@@ -97,27 +97,13 @@
 <Menubar class="flex flex-row gap-1 items-center">
 	{#snippet children({ createMenu })}
 		{#each triggersToDisplay as type}
-			{@const { icon: SvelteComponent, countKey } = triggerTypeConfig[type]}
 			{@const isSelected = selected && $selectedTriggerV2 && $selectedTriggerV2.type === type}
-			<Popover disablePopup={true} on:click={(e) => e.stopPropagation()}>
+			<Popover disablePopup={false} on:click={(e) => e.stopPropagation()}>
 				{#snippet text()}
 					{camelCaseToWords(type)}
 				{/snippet}
 				{#if triggersGrouped[type] && triggersGrouped[type].length === 1}
-					<button
-						class={twMerge(
-							'hover:bg-surface-hover rounded-md border text-xs w-[23px] h-[23px] relative center-center cursor-pointer bg-surface',
-							isSelected ? 'outline-1 outline-tertiary outline' : 'outline-0'
-						)}
-						onclick={() => {
-							dispatch('select', triggersGrouped[type][0])
-						}}
-					>
-						{#if countKey}
-							<TriggerCount count={$triggersCount?.[countKey]} />
-						{/if}
-						<SvelteComponent size={12} />
-					</button>
+					{@render triggerButton({ type, isSelected })}
 				{:else}
 					<Menu
 						{createMenu}
@@ -127,20 +113,11 @@
 						class="h-fit"
 					>
 						{#snippet trigger({ trigger })}
-							{#if (!showOnlyWithCount || ((countKey && $triggersCount?.[countKey]) || 0) > 0) && !(type === 'sqs' && !$enterpriseLicense) && !(type === 'kafka' && !$enterpriseLicense) && !(type === 'nats' && !$enterpriseLicense) && !(type === 'mqtt')}
-								<MeltButton
-									class={twMerge(
-										'hover:bg-surface-hover rounded-md border text-xs w-[23px] h-[23px] relative center-center cursor-pointer bg-surface',
-										isSelected ? 'outline-1 outline-tertiary outline' : 'outline-0'
-									)}
-									meltElement={trigger}
-								>
-									{#if countKey}
-										<TriggerCount count={$triggersCount?.[countKey]} />
-									{/if}
-									<SvelteComponent size={12} />
-								</MeltButton>
-							{/if}
+							{@render triggerButton({
+								type,
+								isSelected,
+								meltElement: trigger
+							})}
 						{/snippet}
 
 						{#snippet children({ item })}
@@ -186,3 +163,26 @@
 		{/each}
 	{/snippet}
 </Menubar>
+
+{#snippet triggerButton({ type, isSelected, meltElement = undefined })}
+	{@const { icon: SvelteComponent, countKey } = triggerTypeConfig[type]}
+	{#if (!showOnlyWithCount || ((countKey && $triggersCount?.[countKey]) || 0) > 0) && !triggerTypeConfig[type].disabled}
+		<MeltButton
+			class={twMerge(
+				'hover:bg-surface-hover rounded-md border text-xs w-[23px] h-[23px] relative center-center cursor-pointer bg-surface',
+				isSelected ? 'outline-1 outline-tertiary outline' : 'outline-0'
+			)}
+			on:click={() => {
+				if (triggersGrouped[type] && triggersGrouped[type].length > 0) {
+					dispatch('select', triggersGrouped[type][0])
+				}
+			}}
+			{meltElement}
+		>
+			{#if countKey}
+				<TriggerCount count={$triggersCount?.[countKey]} />
+			{/if}
+			<SvelteComponent size={12} />
+		</MeltButton>
+	{/if}
+{/snippet}
