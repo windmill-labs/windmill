@@ -88,7 +88,7 @@
 	)
 </script>
 
-<Menubar let:createMenu class="flex flex-row gap-1">
+<Menubar let:createMenu class="flex flex-row gap-1 items-center">
 	{#each triggersToDisplay as type}
 		{@const { icon, countKey } = triggerTypeConfig[type]}
 		{@const isSelected = selected && $selectedTriggerV2 && $selectedTriggerV2.type === type}
@@ -97,6 +97,7 @@
 			usePointerDownOutside
 			placement="bottom-start"
 			menuClass={'min-w-56 w-fit'}
+			class="h-fit"
 			let:open
 			let:item
 		>
