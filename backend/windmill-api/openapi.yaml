@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.482.1
+  version: 1.483.1
   title: Windmill API
 
   contact:
@@ -5985,6 +5985,55 @@ paths:
               schema:
                 type: string
 
+  /w/{workspace}/apps/create_raw:
+    post:
+      summary: create app raw
+      operationId: createAppRaw
+      tags:
+        - app
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        description: new app
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                app:
+                  type: object
+                  properties:
+                    path:
+                      type: string
+                    value: {}
+                    summary:
+                      type: string
+                    policy:
+                      $ref: "#/components/schemas/Policy"
+                    draft_only:
+                      type: boolean
+                    deployment_message:
+                      type: string
+                    custom_path:
+                      type: string
+                  required:
+                    - path
+                    - value
+                    - summary
+                    - policy
+                js:
+                  type: string
+                css:
+                  type: string
+      responses:
+        "201":
+          description: app created
+          content:
+            text/plain:
+              schema:
+                type: string
+
   /w/{workspace}/apps/exists/{path}:
     get:
       summary: does an app exisst at path
@@ -6335,6 +6384,49 @@ paths:
                 deployment_message:
                   type: string
                 custom_path:
+                  type: string
+      responses:
+        "200":
+          description: app updated
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/apps/update_raw/{path}:
+    post:
+      summary: update app
+      operationId: updateAppRaw
+      tags:
+        - app
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/ScriptPath"
+      requestBody:
+        description: update app
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                app:
+                  type: object
+                  properties:
+                    path:
+                      type: string
+                    summary:
+                      type: string
+                    value: {}
+                    policy:
+                      $ref: "#/components/schemas/Policy"
+                    deployment_message:
+                      type: string
+                    custom_path:
+                      type: string
+                js:
+                  type: string
+                css:
                   type: string
       responses:
         "200":
@@ -15106,6 +15198,12 @@ components:
           type: string
       required:
         - subscription_id
+
+    AwsAuthResourceType:
+      type: string
+      enum:
+        - oidc
+        - credentials
   
     SqsTrigger:
       allOf:
@@ -15114,6 +15212,8 @@ components:
       properties:
         queue_url:
           type: string
+        aws_auth_resource_type:
+          $ref: "#/components/schemas/AwsAuthResourceType"
         aws_resource_path:
           type: string
         message_attributes:
@@ -15134,12 +15234,15 @@ components:
         - queue_url
         - aws_resource_path
         - enabled
+        - aws_auth_resource_type
 
     NewSqsTrigger:
       type: object
       properties:
         queue_url:
           type: string
+        aws_auth_resource_type:
+          $ref: "#/components/schemas/AwsAuthResourceType"
         aws_resource_path:
           type: string
         message_attributes:
@@ -15160,12 +15263,15 @@ components:
         - path
         - script_path
         - is_flow
+        - aws_auth_resource_type
 
     EditSqsTrigger:
       type: object
       properties:
         queue_url:
           type: string
+        aws_auth_resource_type:
+          $ref: "#/components/schemas/AwsAuthResourceType"
         aws_resource_path:
           type: string
         message_attributes:
@@ -15187,6 +15293,7 @@ components:
         - script_path
         - is_flow
         - enabled
+        - aws_auth_resource_type
 
     Slot:
       type: object
@@ -15906,6 +16013,8 @@ components:
         execution_mode:
           type: string
           enum: [viewer, publisher, anonymous]
+        raw_app:
+          type: boolean
       required:
         - id
         - workspace_id

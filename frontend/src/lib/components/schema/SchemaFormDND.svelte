@@ -13,7 +13,7 @@
 	export let onlyMaskPassword: boolean = false
 	export let disablePortal: boolean = false
 	export let disabled: boolean = false
-	export let schemaSkippedValues: string[] = []
+	export let hiddenArgs: string[] = []
 	export let nestedParent: { label: string; nestedParent: any | undefined } | undefined = undefined
 	export let disableDnd: boolean = false
 	export let shouldDispatchChanges: boolean = false
@@ -73,7 +73,7 @@
 <!-- svelte-ignore a11y-no-noninteractive-tabindex -->
 <SchemaForm
 	{nestedClasses}
-	{schemaSkippedValues}
+	{hiddenArgs}
 	on:click
 	on:change
 	on:reorder

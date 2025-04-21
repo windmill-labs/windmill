@@ -375,6 +375,9 @@
 			(e.ctrlKey || e.metaKey) &&
 			(e.key == 'Enter' || e.key == 'c' || e.key == 'v' || e.key == 'x')
 		) {
+			if (e.key == 'Enter') {
+				dispatch('keydownCmdEnter')
+			}
 			return
 		}
 		e.stopPropagation()
@@ -846,7 +849,7 @@
 												}}
 												bind:args={value}
 												dndType={`nested-${title}`}
-												schemaSkippedValues={['label']}
+												hiddenArgs={['label']}
 												on:reorder={(e) => {
 													if (oneOf && oneOf[objIdx]) {
 														const keys = e.detail
@@ -865,7 +868,7 @@
 												{onlyMaskPassword}
 												{disablePortal}
 												{disabled}
-												schemaSkippedValues={['label']}
+												hiddenArgs={['label']}
 												schema={{
 													properties: obj.properties,
 													order: obj.order,

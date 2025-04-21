@@ -18,7 +18,7 @@
 	import type { ComponentCustomCSS } from './apps/types'
 
 	export let schema: Schema | any
-	export let schemaSkippedValues: string[] = []
+	export let hiddenArgs: string[] = []
 	export let schemaFieldTooltip: Record<string, string> = {}
 	export let args: Record<string, any> = {}
 	export let disabledArgs: string[] = []
@@ -204,7 +204,7 @@
 					: ''}
 			>
 				<!-- svelte-ignore a11y-click-events-have-key-events -->
-				{#if !schemaSkippedValues.includes(argName) && keys.includes(argName)}
+				{#if !hiddenArgs.includes(argName) && keys.includes(argName)}
 					{#if typeof diff[argName] === 'object' && diff[argName].oldSchema}
 						{@const formerProperty = diff[argName].oldSchema}
 						<div class="px-2">
@@ -278,6 +278,7 @@
 									}}
 									on:acceptChange={(e) => dispatch('acceptChange', e.detail)}
 									on:rejectChange={(e) => dispatch('rejectChange', e.detail)}
+									on:keydownCmdEnter={() => dispatch('keydownCmdEnter')}
 									{disablePortal}
 									{resourceTypes}
 									{prettifyHeader}

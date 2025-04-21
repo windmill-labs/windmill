@@ -2,7 +2,7 @@
 	import type { Schema } from '$lib/common'
 	import Alert from '$lib/components/common/alert/Alert.svelte'
 	import Popover from '$lib/components/Popover.svelte'
-	import { AppService, type ExecuteComponentData } from '$lib/gen'
+	import { type ExecuteComponentData } from '$lib/gen'
 	import { classNames, defaultIfEmptyString, emptySchema, sendUserToast } from '$lib/utils'
 	import { deepEqual } from 'fast-equals'
 	import { Bug } from 'lucide-svelte'
@@ -26,6 +26,7 @@
 	import RefreshButton from '$lib/components/apps/components/helpers/RefreshButton.svelte'
 	import { ctxRegex } from '../../utils'
 	import { computeWorkspaceS3FileInputPolicy } from '../../editor/appUtilsS3'
+	import { executeRunnable } from './executeRunnable'
 	import SchemaForm from '$lib/components/SchemaForm.svelte'
 	import { createDispatcherIfMounted } from '$lib/createDispatcherIfMounted'
 
@@ -40,7 +41,6 @@
 	export let forceSchemaDisplay: boolean = false
 	export let wrapperClass = ''
 	export let wrapperStyle = ''
-	export let initializing: boolean | undefined = undefined
 	export let render: boolean
 	export let outputs: {
 		result: Output<any>
@@ -48,6 +48,7 @@
 		jobId?: Output<any> | undefined
 	}
 	export let extraKey = ''
+	export let initializing: boolean = false
 	export let recomputeOnInputChanged: boolean = true
 	export let loading = false
 	export let refreshOnStart: boolean = false
@@ -350,84 +351,22 @@
 
 		try {
 			jobId = await resultJobLoader?.abstractRun(async () => {
-				const nonStaticRunnableInputs = dynamicArgsOverride ?? {}
-				const staticRunnableInputs = {}
-				const allowUserResources: string[] = []
-				for (const k of Object.keys(fields ?? {})) {
-					let field = fields[k]
-					if (field?.type == 'static' && fields[k]) {
-						if (isEditor) {
-							staticRunnableInputs[k] = field.value
-						}
-					} else if (field?.type == 'user') {
-						nonStaticRunnableInputs[k] = args?.[k]
-						if (isEditor && field.allowUserResources) {
-							allowUserResources.push(k)
-						}
-					} else if (field?.type == 'eval' || (field?.type == 'evalv2' && inputValues[k])) {
-						const ctxMatch = field.expr.match(ctxRegex)
-						if (ctxMatch) {
-							nonStaticRunnableInputs[k] = '$ctx:' + ctxMatch[1]
-						} else {
-							nonStaticRunnableInputs[k] = await inputValues[k]?.computeExpr()
-						}
-						if (isEditor && field?.type == 'evalv2' && field.allowUserResources) {
-							allowUserResources.push(k)
-						}
-					} else {
-						if (isEditor && field?.type == 'connected' && field.allowUserResources) {
-							allowUserResources.push(k)
-						}
-						nonStaticRunnableInputs[k] = runnableInputValues[k]
-					}
-				}
-
-				const oneOfRunnableInputs = isEditor ? collectOneOfFields(fields, $app) : {}
-
-				const requestBody: ExecuteComponentData['requestBody'] = {
-					args: nonStaticRunnableInputs,
-					component: id,
-					force_viewer_static_fields: !isEditor ? undefined : staticRunnableInputs,
-					force_viewer_one_of_fields: !isEditor ? undefined : oneOfRunnableInputs,
-					force_viewer_allow_user_resources: !isEditor ? undefined : allowUserResources
-				}
-
-				if (runnable?.type === 'runnableByName') {
-					const { inlineScript } = inlineScriptOverride
-						? { inlineScript: inlineScriptOverride }
-						: runnable
-
-					if (inlineScript) {
-						if (inlineScript.id !== undefined) {
-							requestBody['id'] = inlineScript.id
-						}
-						requestBody['raw_code'] = {
-							content: inlineScript.id === undefined ? inlineScript.content : '',
-							language: inlineScript.language ?? '',
-							path: inlineScript.path,
-							lock: inlineScript.id === undefined ? inlineScript.lock : undefined,
-							cache_ttl: inlineScript.cache_ttl
-						}
-					}
-				} else if (runnable?.type === 'runnableByPath') {
-					const { path, runType } = runnable
-					requestBody['path'] = runType !== 'hubscript' ? `${runType}/${path}` : `script/${path}`
-				}
-
-				if ($app.version !== undefined) {
-					requestBody['version'] = $app.version
-				}
-
-				const uuid = await AppService.executeComponent({
+				const uuid = await executeRunnable(
+					runnable,
 					workspace,
-					path: defaultIfEmptyString($appPath, `u/${$userStore?.username ?? 'unknown'}/newapp`),
-					requestBody
-				})
+					$app.version,
+					$userStore?.username,
+					$appPath,
+					id,
+					await buildRequestBody(dynamicArgsOverride),
+					inlineScriptOverride
+				)
 				if (isEditor) {
 					addJob(uuid)
 				}
 				return uuid
 			}, callbacks)
+
 			if (setRunnableJobEditorPanel && editorContext) {
 				editorContext.runnableJobEditorPanel.update((p) => {
 					return {
@@ -448,6 +387,51 @@
 		}
 	}
 	type Callbacks = { done: (x: any) => void; cancel: () => void; error: (e: any) => void }
+
+	export async function buildRequestBody(dynamicArgsOverride: Record<string, any> | undefined) {
+		const nonStaticRunnableInputs = dynamicArgsOverride ?? {}
+		const staticRunnableInputs = {}
+		const allowUserResources: string[] = []
+		for (const k of Object.keys(fields ?? {})) {
+			let field = fields[k]
+			if (field?.type == 'static' && fields[k]) {
+				if (isEditor) {
+					staticRunnableInputs[k] = field.value
+				}
+			} else if (field?.type == 'user') {
+				nonStaticRunnableInputs[k] = args?.[k]
+				if (isEditor && field.allowUserResources) {
+					allowUserResources.push(k)
+				}
+			} else if (field?.type == 'eval' || (field?.type == 'evalv2' && inputValues[k])) {
+				const ctxMatch = field.expr.match(ctxRegex)
+				if (ctxMatch) {
+					nonStaticRunnableInputs[k] = '$ctx:' + ctxMatch[1]
+				} else {
+					nonStaticRunnableInputs[k] = await inputValues[k]?.computeExpr()
+				}
+				if (isEditor && field?.type == 'evalv2' && field.allowUserResources) {
+					allowUserResources.push(k)
+				}
+			} else {
+				if (isEditor && field?.type == 'connected' && field.allowUserResources) {
+					allowUserResources.push(k)
+				}
+				nonStaticRunnableInputs[k] = runnableInputValues[k]
+			}
+		}
+
+		const oneOfRunnableInputs = isEditor ? collectOneOfFields(fields, $app) : {}
+
+		const requestBody: ExecuteComponentData['requestBody'] = {
+			args: nonStaticRunnableInputs,
+			component: id,
+			force_viewer_static_fields: !isEditor ? undefined : staticRunnableInputs,
+			force_viewer_one_of_fields: !isEditor ? undefined : oneOfRunnableInputs,
+			force_viewer_allow_user_resources: !isEditor ? undefined : allowUserResources
+		}
+		return requestBody
+	}
 
 	export async function runComponent(
 		noToast = true,
@@ -647,15 +631,16 @@
 			}
 		}
 
+		const nautoRefresh = (autoRefresh && recomputableByRefreshButton) || overrideAutoRefresh
 		if (replaceCallback) {
 			$runnableComponents[id] = {
-				autoRefresh: (autoRefresh && recomputableByRefreshButton) || overrideAutoRefresh,
+				autoRefresh: nautoRefresh,
 				refreshOnStart: refreshOnStart,
 				cb: [cancellableRun]
 			}
 		} else {
 			$runnableComponents[id] = {
-				autoRefresh: (autoRefresh && recomputableByRefreshButton) || overrideAutoRefresh,
+				autoRefresh: nautoRefresh,
 				refreshOnStart: refreshOnStart,
 				cb: [...($runnableComponents[id]?.cb ?? []), cancellableRun]
 			}
@@ -663,6 +648,10 @@
 
 		if (!noInitialize && !$initialized.initializedComponents.includes(id)) {
 			$initialized.initializedComponents = [...$initialized.initializedComponents, id]
+		}
+		// console.log(initializing, $initialized.initialized, refreshOnStart)
+		if (initializing && $initialized.initialized && (refreshOnStart || nautoRefresh)) {
+			setDebouncedExecute()
 		}
 	})
 
@@ -850,7 +839,8 @@
 				<slot />
 			</div>
 		{/if}
-		{#if render && !initializing && autoRefresh === true && !hideRefreshButton}
+
+		{#if render && autoRefresh === true && !hideRefreshButton}
 			<div class="flex absolute top-1 right-1 z-50 app-component-refresh-btn">
 				<RefreshButton {loading} {id} />
 			</div>

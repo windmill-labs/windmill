@@ -1,11 +1,12 @@
 <script lang="ts">
 	import type { Schema } from '$lib/common'
-	import { ScriptService, type FlowModule, type Job, JobService } from '$lib/gen'
+	import { ScriptService, type FlowModule, type Job } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { getScriptByPath } from '$lib/scripts'
 
 	import { CornerDownLeft, Loader2 } from 'lucide-svelte'
 	import { getContext } from 'svelte'
+
 	import Button from './common/button/Button.svelte'
 	import type { FlowEditorContext } from './flows/types'
 
@@ -70,17 +71,10 @@
 				args,
 				$flowStore?.tag ?? (val.tag_override ? val.tag_override : script.tag),
 				script.lock,
-				val.hash
+				val.hash ?? script.hash
 			)
 		} else if (val.type == 'flow') {
-			await testJobLoader?.abstractRun(() =>
-				JobService.runFlowByPath({
-					workspace: $workspaceStore!,
-					path: val.path,
-					requestBody: args,
-					skipPreprocessor: true
-				})
-			)
+			await testJobLoader?.runFlowByPath(val.path, args)
 		} else {
 			throw Error('Not supported module type')
 		}
