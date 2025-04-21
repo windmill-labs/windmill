@@ -37,6 +37,7 @@
 	import { base } from '$lib/base'
 	import Description from '$lib/components/Description.svelte'
 	import { twMerge } from 'tailwind-merge'
+	import { FlaskConical } from 'lucide-svelte'
 
 	export let disabled: boolean | undefined = undefined
 	export let captureType: CaptureTriggerKind
@@ -211,6 +212,10 @@
 
 <Splitpanes>
 	<Pane class="flex flex-col gap-1 mb-4 pr-2 py-2" size={50}>
+		<div class="text-sm text-secondary flex items-center gap-1">
+			<FlaskConical size={16} />
+			Test trigger
+		</div>
 		<div class="flex flex-col gap-1 mb-4">
 			<div class="flex justify-center w-full">
 				<div class="relative h-fit">
