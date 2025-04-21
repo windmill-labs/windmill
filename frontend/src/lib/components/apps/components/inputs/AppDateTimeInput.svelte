@@ -25,8 +25,8 @@
 	export let verticalAlignment: VerticalAlignment | undefined = undefined
 	export let customCss: ComponentCustomCSS<'datetimeinputcomponent'> | undefined = undefined
 	export let render: boolean
-
-	const { app, worldStore, componentControl, selectedComponent } =
+	export let onChange: string[] | undefined = undefined
+	const { app, worldStore, componentControl, selectedComponent, runnableComponents } =
 		getContext<AppViewerContext>('AppViewerContext')
 
 	const iterContext = getContext<ListContext>('ListWrapperContext')
@@ -118,6 +118,13 @@
 			if (iterContext && listInputs) {
 				listInputs.set(id, undefined)
 			}
+		}
+		fireOnChange()
+	}
+
+	function fireOnChange() {
+		if (onChange) {
+			onChange.forEach((id) => $runnableComponents?.[id]?.cb?.forEach((cb) => cb()))
 		}
 	}
 

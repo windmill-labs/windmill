@@ -393,6 +393,7 @@
 		verticalAlignment={component.verticalAlignment}
 		configuration={component.configuration}
 		customCss={component.customCss}
+		onChange={component.onChange}
 		{render}
 	/>
 {:else if component.type === 'quillcomponent'}
@@ -405,6 +406,7 @@
 		customCss={component.customCss}
 		inputType="textarea"
 		appCssKey="textareainputcomponent"
+		onChange={component.onChange}
 		{render}
 	/>
 {:else if component.type === 'emailinputcomponent'}
@@ -415,6 +417,7 @@
 		appCssKey="emailinputcomponent"
 		id={component.id}
 		customCss={component.customCss}
+		onChange={component.onChange}
 		{render}
 	/>
 {:else if component.type === 'passwordinputcomponent'}
@@ -425,6 +428,7 @@
 		appCssKey="passwordinputcomponent"
 		id={component.id}
 		customCss={component.customCss}
+		onChange={component.onChange}
 		{render}
 	/>
 {:else if component.type === 'dateinputcomponent'}
@@ -434,6 +438,7 @@
 		inputType="date"
 		id={component.id}
 		customCss={component.customCss}
+		onChange={component.onChange}
 		{render}
 	/>
 {:else if component.type === 'timeinputcomponent'}
@@ -442,6 +447,7 @@
 		configuration={component.configuration}
 		id={component.id}
 		customCss={component.customCss}
+		onChange={component.onChange}
 		{render}
 	/>
 {:else if component.type === 'datetimeinputcomponent'}
@@ -451,6 +457,7 @@
 		inputType="date"
 		id={component.id}
 		customCss={component.customCss}
+		onChange={component.onChange}
 		{render}
 	/>
 {:else if component.type === 'numberinputcomponent'}
@@ -459,6 +466,7 @@
 		configuration={component.configuration}
 		id={component.id}
 		customCss={component.customCss}
+		onChange={component.onChange}
 		{render}
 	/>
 {:else if component.type === 'currencycomponent'}
