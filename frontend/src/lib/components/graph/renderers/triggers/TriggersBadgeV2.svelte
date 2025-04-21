@@ -15,29 +15,35 @@
 
 	const { selectedTriggerV2, triggersCount } = getContext<TriggerContext>('TriggerContext')
 
-	export let path: string
-	export let newItem: boolean
-	export let isFlow: boolean
-	export let selected: boolean
-	export let showOnlyWithCount: boolean
-	export let triggers: Trigger[] = []
+	interface Props {
+		path: string
+		newItem: boolean
+		isFlow: boolean
+		selected: boolean
+		showOnlyWithCount: boolean
+		triggers?: Trigger[]
+	}
+
+	let { path, newItem, isFlow, selected, showOnlyWithCount, triggers = [] }: Props = $props()
 
 	// Group triggers by their mapped type
-	$: triggersGrouped = triggers.reduce(
-		(acc, trigger) => {
-			const configType = trigger.type
+	let triggersGrouped = $derived(
+		triggers.reduce(
+			(acc, trigger) => {
+				const configType = trigger.type
 
-			if (!acc[configType]) {
-				acc[configType] = []
-			}
-			acc[configType].push(trigger)
-			return acc
-		},
-		{} as Record<TriggerType, Trigger[]>
+				if (!acc[configType]) {
+					acc[configType] = []
+				}
+				acc[configType].push(trigger)
+				return acc
+			},
+			{} as Record<TriggerType, Trigger[]>
+		)
 	)
 
 	// Extract unique trigger types for display
-	$: triggersToDisplay = Object.keys(triggersGrouped) as TriggerType[]
+	let triggersToDisplay = $derived(Object.keys(triggersGrouped) as TriggerType[])
 
 	const dispatch = createEventDispatcher<{
 		select: Trigger | undefined
@@ -88,88 +94,95 @@
 	)
 </script>
 
-<Menubar let:createMenu class="flex flex-row gap-1 items-center">
-	{#each triggersToDisplay as type}
-		{@const { icon, countKey } = triggerTypeConfig[type]}
-		{@const isSelected = selected && $selectedTriggerV2 && $selectedTriggerV2.type === type}
-		<Popover disablePopup={true} on:click={(e) => e.stopPropagation()}>
-			<svelte:fragment slot="text">{camelCaseToWords(type)}</svelte:fragment>
-			{#if triggersGrouped[type] && triggersGrouped[type].length === 1}
-				<button
-					class={twMerge(
-						'hover:bg-surface-hover rounded-md border text-xs w-[23px] h-[23px] relative center-center cursor-pointer bg-surface',
-						isSelected ? 'outline-1 outline-tertiary outline' : 'outline-0'
-					)}
-					on:click={() => {
-						dispatch('select', triggersGrouped[type][0])
-					}}
-				>
-					{#if countKey}
-						<TriggerCount count={$triggersCount?.[countKey]} />
-					{/if}
-					<svelte:component this={icon} size={12} />
-				</button>
-			{:else}
-				<Menu
-					{createMenu}
-					usePointerDownOutside
-					placement="bottom-start"
-					menuClass={'min-w-56 w-fit'}
-					class="h-fit"
-					let:item
-				>
-					<svelte:fragment slot="trigger" let:trigger>
-						{#if (!showOnlyWithCount || ((countKey && $triggersCount?.[countKey]) || 0) > 0) && !(type === 'sqs' && !$enterpriseLicense) && !(type === 'kafka' && !$enterpriseLicense) && !(type === 'nats' && !$enterpriseLicense) && !(type === 'mqtt')}
-							<MeltButton
-								class={twMerge(
-									'hover:bg-surface-hover rounded-md border text-xs w-[23px] h-[23px] relative center-center cursor-pointer bg-surface',
-									isSelected ? 'outline-1 outline-tertiary outline' : 'outline-0'
-								)}
-								meltElement={trigger}
-							>
-								{#if countKey}
-									<TriggerCount count={$triggersCount?.[countKey]} />
-								{/if}
-								<svelte:component this={icon} size={12} />
-							</MeltButton>
+<Menubar class="flex flex-row gap-1 items-center">
+	{#snippet children({ createMenu })}
+		{#each triggersToDisplay as type}
+			{@const { icon: SvelteComponent, countKey } = triggerTypeConfig[type]}
+			{@const isSelected = selected && $selectedTriggerV2 && $selectedTriggerV2.type === type}
+			<Popover disablePopup={true} on:click={(e) => e.stopPropagation()}>
+				{#snippet text()}
+					{camelCaseToWords(type)}
+				{/snippet}
+				{#if triggersGrouped[type] && triggersGrouped[type].length === 1}
+					<button
+						class={twMerge(
+							'hover:bg-surface-hover rounded-md border text-xs w-[23px] h-[23px] relative center-center cursor-pointer bg-surface',
+							isSelected ? 'outline-1 outline-tertiary outline' : 'outline-0'
+						)}
+						onclick={() => {
+							dispatch('select', triggersGrouped[type][0])
+						}}
+					>
+						{#if countKey}
+							<TriggerCount count={$triggersCount?.[countKey]} />
 						{/if}
-					</svelte:fragment>
+						<SvelteComponent size={12} />
+					</button>
+				{:else}
+					<Menu
+						{createMenu}
+						usePointerDownOutside
+						placement="bottom-start"
+						menuClass={'min-w-56 w-fit'}
+						class="h-fit"
+					>
+						{#snippet trigger({ trigger })}
+							{#if (!showOnlyWithCount || ((countKey && $triggersCount?.[countKey]) || 0) > 0) && !(type === 'sqs' && !$enterpriseLicense) && !(type === 'kafka' && !$enterpriseLicense) && !(type === 'nats' && !$enterpriseLicense) && !(type === 'mqtt')}
+								<MeltButton
+									class={twMerge(
+										'hover:bg-surface-hover rounded-md border text-xs w-[23px] h-[23px] relative center-center cursor-pointer bg-surface',
+										isSelected ? 'outline-1 outline-tertiary outline' : 'outline-0'
+									)}
+									meltElement={trigger}
+								>
+									{#if countKey}
+										<TriggerCount count={$triggersCount?.[countKey]} />
+									{/if}
+									<SvelteComponent size={12} />
+								</MeltButton>
+							{/if}
+						{/snippet}
 
-					{#if triggersGrouped[type] && triggersGrouped[type].length > 0}
-						{#each triggersGrouped[type] as trigger}
-							<MenuItem
-								{item}
-								class={itemClass}
-								on:click={() => {
-									dispatch('select', trigger)
-								}}
-							>
-								<span class={trigger.isDraft ? 'text-frost-400 italic' : ''}>
-									{trigger.isDraft ? `New ${trigger.type.replace(/s$/, '')} trigger` : trigger.path}
-								</span>
-
-								{#if trigger.isPrimary}
-									<span
-										class="ml-2 bg-blue-50 dark:bg-blue-900/40 px-1.5 py-0.5 rounded text-xs text-blue-700 dark:text-blue-100"
+						{#snippet children({ item })}
+							{#if triggersGrouped[type] && triggersGrouped[type].length > 0}
+								{#each triggersGrouped[type] as trigger}
+									<MenuItem
+										{item}
+										class={itemClass}
+										on:click={() => {
+											dispatch('select', trigger)
+										}}
 									>
-										Primary
-									</span>
-								{/if}
+										<span class={trigger.isDraft ? 'text-frost-400 italic' : ''}>
+											{trigger.isDraft
+												? `New ${trigger.type.replace(/s$/, '')} trigger`
+												: trigger.path}
+										</span>
 
-								{#if trigger.isDraft}
-									<span
-										class="ml-2 text-2xs bg-frost-100 dark:bg-frost-900 text-frost-800 dark:text-frost-100 px-1.5 py-0.5 rounded"
-									>
-										Draft
-									</span>
-								{/if}
-							</MenuItem>
-						{/each}
-					{:else}
-						<div class="text-xs text-gray-400 p-2">No {camelCaseToWords(type)} triggers</div>
-					{/if}
-				</Menu>
-			{/if}
-		</Popover>
-	{/each}
+										{#if trigger.isPrimary}
+											<span
+												class="ml-2 bg-blue-50 dark:bg-blue-900/40 px-1.5 py-0.5 rounded text-xs text-blue-700 dark:text-blue-100"
+											>
+												Primary
+											</span>
+										{/if}
+
+										{#if trigger.isDraft}
+											<span
+												class="ml-2 text-2xs bg-frost-100 dark:bg-frost-900 text-frost-800 dark:text-frost-100 px-1.5 py-0.5 rounded"
+											>
+												Draft
+											</span>
+										{/if}
+									</MenuItem>
+								{/each}
+							{:else}
+								<div class="text-xs text-gray-400 p-2">No {camelCaseToWords(type)} triggers</div>
+							{/if}
+						{/snippet}
+					</Menu>
+				{/if}
+			</Popover>
+		{/each}
+	{/snippet}
 </Menubar>
