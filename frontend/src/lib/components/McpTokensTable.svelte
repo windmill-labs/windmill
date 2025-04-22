@@ -22,9 +22,6 @@
 	let newMcpScope = $state('favorites')
 	let newMcpUrl = $state<string | undefined>(undefined)
 
-	$effect(() => {
-		console.log('displayCreateMcpUrl', displayCreateMcpUrl)
-	})
 	// --- Functions ---
 	async function createMcpUrl(): Promise<void> {
 		const scope = `mcp:${newMcpScope}`
