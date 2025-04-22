@@ -159,11 +159,15 @@ impl Runner {
         user_db: &UserDB,
         authed: &ApiAuthed,
         workspace_id: String,
+        scope_type: String,
     ) -> Result<Vec<FlowInfo>, Error> {
         let mut sqlb = SqlBuilder::select_from("flow as o");
-        sqlb.fields(&["o.path", "o.summary", "o.description", "o.schema"]).join("favorite")
+        sqlb.fields(&["o.path", "o.summary", "o.description", "o.schema"]);
+        if scope_type == "favorites" {
+            sqlb.join("favorite")
                 .on("favorite.favorite_kind = 'flow' AND favorite.workspace_id = o.workspace_id AND favorite.path = o.path AND favorite.usr = ?"
                     .bind(&authed.username));
+        }
         sqlb.and_where("o.workspace_id = ?".bind(&workspace_id))
             .and_where("o.archived = false")
             .and_where("o.draft_only IS NOT TRUE")
@@ -398,11 +402,13 @@ impl ServerHandler for Runner {
             .ok_or_else(|| Error::internal_error("ApiAuthed not found", None))?;
         let scope = authed.scopes.as_ref().and_then(|scopes| scopes.iter().find(|scope| scope.starts_with("mcp:")));
         let scope_type = scope.map_or("all", |scope| scope.split(":").last().unwrap_or("all"));
-        let scripts = self
-            .inner_get_scripts(user_db, authed, workspace_id.clone(), scope_type.to_string())
-            .await?;
-        let mut script_tools: Vec<Tool> = Vec::with_capacity(scripts.len());
         let mut resources_info: HashMap<String, ResourceCache> = HashMap::new();
+
+        let scripts_fn = self.inner_get_scripts(user_db, authed, workspace_id.clone(), scope_type.to_string());
+        let flows_fn = self.inner_get_flows(user_db, authed, workspace_id.clone(), scope_type.to_string());
+        let (scripts, flows) = try_join!(scripts_fn, flows_fn)?;
+
+        let mut script_tools: Vec<Tool> = Vec::with_capacity(scripts.len());
         for script in scripts {
             let name = format!("script-{}", script.path.clone().replace("/", "_"));
             let description = format!("This is a script named {} with the following description: {}.", script.summary.unwrap_or_default(), script.description.unwrap_or_default());
@@ -420,7 +426,6 @@ impl ServerHandler for Runner {
             });
         }
 
-        let flows = self.inner_get_flows(user_db, authed, workspace_id.clone()).await?;
         let mut flow_tools: Vec<Tool> = Vec::with_capacity(flows.len());
         for flow in flows {
             let name = format!("flow-{}", flow.path.clone().replace("/", "_"));
