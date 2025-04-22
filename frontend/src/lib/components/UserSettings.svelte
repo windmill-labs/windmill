@@ -18,6 +18,7 @@
 	import type { Writable } from 'svelte/store'
 	import McpTokensTable from './McpTokensTable.svelte'
 	import TokensTable from './TokensTable.svelte'
+	import { createEventDispatcher } from 'svelte'
 
 	export let scopes: string[] | undefined = undefined
 	export let newTokenLabel: string | undefined = undefined
@@ -31,6 +32,8 @@
 	let drawer: Drawer
 	let mcpTokens: TruncatedToken[] = []
 	let tokenPage = 1
+
+	const dispatch = createEventDispatcher()
 
 	export function openDrawer() {
 		loadLoginType()
@@ -109,6 +112,7 @@
 
 	function handleTokenCreated(event: CustomEvent<string>) {
 		newToken = event.detail
+		dispatch('tokenCreated', newToken)
 	}
 
 	loadSettings()
