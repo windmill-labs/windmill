@@ -124,8 +124,8 @@ impl Runner {
     async fn inner_get_resource_type_info(
         user_db: &UserDB,
         authed: &ApiAuthed,
-        workspace_id: String,
-        resource_type: String,
+        workspace_id: &str,
+        resource_type: &str,
     ) -> Result<ResourceType, Error> {
         let mut sqlb = SqlBuilder::select_from("resource_type as o");
         sqlb.fields(&["o.name", "o.description"]);
@@ -156,22 +156,13 @@ impl Runner {
     async fn inner_get_resources(
         user_db: &UserDB,
         authed: &ApiAuthed,
-        workspace_id: String,
-        resource_types: Vec<String>,
+        workspace_id: &str,
+        resource_type: &str,
     ) -> Result<Vec<ResourceInfo>, Error> {
         let mut sqlb = SqlBuilder::select_from("resource as o");
         sqlb.fields(&["o.path", "o.description", "o.resource_type"]);
         sqlb.and_where("o.workspace_id = ?".bind(&workspace_id));
-        let prepared_resource_types: Vec<String> = resource_types
-        .iter()
-        .map(|s| quote(s))
-        .collect();
-    
-    if !prepared_resource_types.is_empty() {
-        sqlb.and_where_in("o.resource_type", &prepared_resource_types);
-    } else {
-        println!("Warning: resource_types is empty, IN clause will not be added.");
-    }
+        sqlb.and_where("o.resource_type = ?".bind(&resource_type));
         let sql = sqlb.sql().map_err(|_e| {
             tracing::error!("failed to build sql: {}", _e);
             Error::internal_error("failed to build sql", None)
@@ -198,8 +189,8 @@ impl Runner {
     async fn inner_get_flows(
         user_db: &UserDB,
         authed: &ApiAuthed,
-        workspace_id: String,
-        scope_type: String,
+        workspace_id: &str,
+        scope_type: &str,
     ) -> Result<Vec<FlowInfo>, Error> {
         let mut sqlb = SqlBuilder::select_from("flow as o");
         sqlb.fields(&["o.path", "o.summary", "o.description", "o.schema"]);
@@ -238,8 +229,8 @@ impl Runner {
     async fn inner_get_scripts(
         user_db: &UserDB,
         authed: &ApiAuthed,
-        workspace_id: String,
-        scope_type: String,
+        workspace_id: &str,
+        scope_type: &str,
     ) -> Result<Vec<ScriptInfo>, Error> {
         let mut sqlb = SqlBuilder::select_from("script as o");
         sqlb.fields(&["o.path", "o.summary", "o.description", "o.schema"]);
@@ -275,7 +266,7 @@ impl Runner {
         Ok(rows)
     }
 
-    async fn transform_schema_for_resources(schema: &mut serde_json::Value, user_db: &UserDB, authed: &ApiAuthed, w_id: String, resources_info: &mut HashMap<String, ResourceCache>) -> Result<(), Error> {
+    async fn transform_schema_for_resources(schema: &mut serde_json::Value, user_db: &UserDB, authed: &ApiAuthed, w_id: &str, resources_info: &mut HashMap<String, ResourceCache>) -> Result<(), Error> {
         if let serde_json::Value::Object(schema_obj) = schema {
             if let Some(serde_json::Value::Object(properties)) = schema_obj.get_mut("properties") {
                 for (_key, prop) in properties.iter_mut() {
@@ -286,8 +277,8 @@ impl Runner {
 
                                 if !resources_info.contains_key(&resource_type_key) {
                                     let fetch_result = async {
-                                        let resource_type_info_future = Runner::inner_get_resource_type_info(user_db, authed, w_id.clone(), resource_type_key.clone());
-                                        let resources_data_future = Runner::inner_get_resources(user_db, authed, w_id.clone(), vec![resource_type_key.clone()]);
+                                        let resource_type_info_future = Runner::inner_get_resource_type_info(user_db, authed, &w_id, &resource_type_key);
+                                        let resources_data_future = Runner::inner_get_resources(user_db, authed, &w_id, &resource_type_key);
                                         let (resource_type_info, resources_data) = try_join!(resource_type_info_future, resources_data_future)?;
                                         Ok::<_, Error>(ResourceCache {
                                             resource_type: resource_type_info,
@@ -442,8 +433,8 @@ impl ServerHandler for Runner {
         let scope_type = scope.map_or("all", |scope| scope.split(":").last().unwrap_or("all"));
         let mut resources_info: HashMap<String, ResourceCache> = HashMap::new();
 
-        let scripts_fn = Runner::inner_get_scripts(user_db, authed, workspace_id.clone(), scope_type.to_string());
-        let flows_fn = Runner::inner_get_flows(user_db, authed, workspace_id.clone(), scope_type.to_string());
+        let scripts_fn = Runner::inner_get_scripts(user_db, authed, &workspace_id, scope_type);
+        let flows_fn = Runner::inner_get_flows(user_db, authed, &workspace_id, scope_type);
         let (scripts, flows) = try_join!(scripts_fn, flows_fn)?;
 
         let mut script_tools: Vec<Tool> = Vec::with_capacity(scripts.len());
@@ -451,7 +442,7 @@ impl ServerHandler for Runner {
             let name = Runner::transform_path(&script.path, "script").unwrap_or_default();
             let description = format!("This is a script named {} with the following description: {}.", script.summary.unwrap_or_default(), script.description.unwrap_or_default());
             let mut schema = script.schema.unwrap_or_default();
-            Runner::transform_schema_for_resources(&mut schema, user_db, authed, workspace_id.clone(), &mut resources_info).await?;
+            Runner::transform_schema_for_resources(&mut schema, user_db, authed, &workspace_id, &mut resources_info).await?;
             script_tools.push(Tool {
                 name: Cow::Owned(name),
                 description: Some(Cow::Owned(description)),
@@ -469,7 +460,7 @@ impl ServerHandler for Runner {
             let name = Runner::transform_path(&flow.path, "flow").unwrap_or_default();
             let description = format!("This is a flow named {} with the following description: {}.", flow.summary.unwrap_or_default(), flow.description.unwrap_or_default());
             let mut schema = flow.schema.unwrap_or_default();
-            Runner::transform_schema_for_resources(&mut schema, user_db, authed, workspace_id.clone(), &mut resources_info).await?;
+            Runner::transform_schema_for_resources(&mut schema, user_db, authed, &workspace_id, &mut resources_info).await?;
             flow_tools.push(Tool {
                 name: Cow::Owned(name),
                 description: Some(Cow::Owned(description)),
