@@ -171,6 +171,7 @@
 										}
 									}}
 									isNewSchedule={$selectedTrigger.isDraft}
+									{isDeployed}
 								/>
 							{:else if $selectedTrigger.type === 'schedule'}
 								<SchedulePanel

@@ -24,6 +24,7 @@
 	export let can_write: boolean
 	export let newItem: boolean = false
 	export let isNewSchedule: boolean = false
+	export let isDeployed: boolean = false
 
 	const { primarySchedule, triggersCount } = getContext<TriggerContext>('TriggerContext')
 	const dispatch = createEventDispatcher<{
@@ -35,7 +36,7 @@
 	let initialPrimarySchedule: Writable<ScheduleTrigger | false | undefined> = writable(undefined)
 	let tmpPrimarySchedule: false | ScheduleTrigger | undefined = undefined // Used to save draft
 	let editMode: boolean = false
-	let isDeployed: Writable<boolean | undefined> = writable(undefined)
+	let scheduleIsDeployed: Writable<boolean | undefined> = writable(undefined)
 
 	async function updateSchedules(forceRefresh: boolean) {
 		const loadPrimarySchedule = true
@@ -50,7 +51,7 @@
 			$workspaceStore ?? '',
 			triggersCount,
 			loadPrimarySchedule,
-			isDeployed
+			scheduleIsDeployed
 		).then(() => {
 			if ($primarySchedule) {
 				tmpPrimarySchedule = structuredClone($primarySchedule)
@@ -119,17 +120,17 @@
 
 <Section label="Primary schedule" class="flex flex-col gap-4 w-full">
 	<svelte:fragment slot="header">
-		{#if !$isDeployed}
+		{#if !$scheduleIsDeployed && !isDeployed && $primarySchedule}
 			<span
 				class="ml-1 bg-blue-50 dark:bg-blue-900/40 px-2 py-1 rounded text-xs font-normal text-blue-700 dark:text-blue-100"
 			>
-				Deployed automatically with the flow
+				Will be deployed automatically with the flow
 			</span>
 		{/if}
 	</svelte:fragment>
 	<svelte:fragment slot="action">
 		<div class="flex flex-row gap-2 items-center">
-			{#if can_write && !$isDeployed}
+			{#if can_write && !$scheduleIsDeployed}
 				<Button
 					on:click={() => {
 						if (isNewSchedule) {
@@ -153,7 +154,7 @@
 					}}
 					size="xs"
 					on:change={async (e) => {
-						if ($isDeployed) {
+						if ($scheduleIsDeployed) {
 							await ScheduleService.setScheduleEnabled({
 								path: path,
 								workspace: $workspaceStore ?? '',
@@ -175,14 +176,14 @@
 						editMode = true
 					}}>Edit</Button
 				>
-			{:else if editMode && !$primarySchedule}
-				<Button size="xs" startIcon={{ icon: Save }} on:click={saveDraft}>Save draft</Button>
+			{:else if editMode && !$primarySchedule && !isDeployed}
+				<Button size="xs" startIcon={{ icon: Save }} on:click={saveDraft}>Deploy with flow</Button>
 			{:else if editMode}
 				<Button
 					size="xs"
 					startIcon={{ icon: Save }}
 					on:click={() => {
-						if ($isDeployed) {
+						if (isDeployed) {
 							save()
 						} else {
 							saveDraft()
