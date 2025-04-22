@@ -31,7 +31,7 @@
 		try {
 			const newToken = await UserService.createToken({
 				requestBody: {
-					label: 'MCP url',
+					label: 'MCP token',
 					expiration: undefined,
 					scopes: [scope],
 					workspace_id: $workspaceStore
@@ -42,7 +42,6 @@
 			onListTokens()
 		} catch (err) {
 			console.error('Failed to create MCP URL:', err)
-			displayCreateMcpUrl = false
 		}
 	}
 
@@ -118,7 +117,7 @@
 				</ToggleButtonGroup>
 			</div>
 			<div class="flex items-end justify-start">
-				<Button on:click={createMcpUrl}>Generate url</Button>
+				<Button on:click={createMcpUrl}>Generate URL</Button>
 				<Button btnClasses="ml-2" on:click={handleCancelClick}>Cancel</Button>
 			</div>
 		</div>

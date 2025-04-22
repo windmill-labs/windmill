@@ -97,7 +97,7 @@
 	</div>
 </div>
 <div class="text-2xs text-tertiary italic pb-6">
-	Authentify to the Windmill API with access tokens.
+	Authenticate to the Windmill API with access tokens.
 </div>
 
 <div>
