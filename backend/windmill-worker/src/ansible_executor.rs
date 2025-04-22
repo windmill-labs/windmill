@@ -5,9 +5,10 @@ use std::{collections::HashMap, os::unix::fs::PermissionsExt, path::PathBuf, pro
 use std::{collections::HashMap, path::PathBuf, process::Stdio};
 
 use anyhow::anyhow;
+use futures::future::try_join_all;
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
-use serde_json::value::RawValue;
+use serde_json::{json, value::RawValue};
 use tokio::process::Command;
 use uuid::Uuid;
 use windmill_common::{
@@ -54,6 +55,7 @@ async fn clone_repo(
     canceled_by: &mut Option<CanceledBy>,
     w_id: &str,
     occupancy_metrics: &mut OccupancyMetrics,
+    git_ssh_cmd: &str,
 ) -> error::Result<String> {
     let target_path = is_allowed_file_location(job_dir, &repo.target_path)?;
 
@@ -64,6 +66,7 @@ async fn clone_repo(
         .envs(PROXY_ENVS.clone())
         .env("PATH", PATH_ENV.as_str())
         .env("TZ", TZ_ENV.as_str())
+        .env("GIT_SSH_COMMAND", git_ssh_cmd)
         .args(["clone", "--quiet"])
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
@@ -100,6 +103,7 @@ async fn clone_repo(
             .envs(PROXY_ENVS.clone())
             .env("PATH", PATH_ENV.as_str())
             .env("TZ", TZ_ENV.as_str())
+            .env("GIT_SSH_COMMAND", git_ssh_cmd)
             .arg("-C")
             .arg(&target_path)
             .args(["checkout", "--quiet", commit])
@@ -133,6 +137,7 @@ async fn clone_repo(
         .envs(PROXY_ENVS.clone())
         .env("PATH", PATH_ENV.as_str())
         .env("TZ", TZ_ENV.as_str())
+        .env("GIT_SSH_COMMAND", git_ssh_cmd)
         .arg("-C")
         .arg(&target_path)
         .args(["rev-parse", "HEAD"])
@@ -188,6 +193,7 @@ async fn clone_repo_without_history(
     canceled_by: &mut Option<CanceledBy>,
     w_id: &str,
     occupancy_metrics: &mut OccupancyMetrics,
+    git_ssh_cmd: &str,
 ) -> error::Result<()> {
     let target_path = is_allowed_file_location(job_dir, &repo.target_path)?;
 
@@ -234,6 +240,7 @@ async fn clone_repo_without_history(
         .envs(PROXY_ENVS.clone())
         .env("PATH", PATH_ENV.as_str())
         .env("TZ", TZ_ENV.as_str())
+        .env("GIT_SSH_COMMAND", git_ssh_cmd)
         .arg("-C")
         .arg(&target_path)
         .args(vec!["remote", "add", "origin", &repo.url])
@@ -265,6 +272,7 @@ async fn clone_repo_without_history(
         .envs(PROXY_ENVS.clone())
         .env("PATH", PATH_ENV.as_str())
         .env("TZ", TZ_ENV.as_str())
+        .env("GIT_SSH_COMMAND", git_ssh_cmd)
         .arg("-C")
         .arg(&target_path)
         .args(vec!["fetch", "--depth=1", "--quiet", "origin", full_commit])
@@ -296,6 +304,7 @@ async fn clone_repo_without_history(
         .envs(PROXY_ENVS.clone())
         .env("PATH", PATH_ENV.as_str())
         .env("TZ", TZ_ENV.as_str())
+        .env("GIT_SSH_COMMAND", git_ssh_cmd)
         .arg("-C")
         .arg(&target_path)
         .args(["checkout", "--quiet", "FETCH_HEAD"])
@@ -408,6 +417,7 @@ pub async fn install_galaxy_collections(
     canceled_by: &mut Option<CanceledBy>,
     conn: &Connection,
     occupancy_metrics: &mut OccupancyMetrics,
+    git_ssh_cmd: &str,
 ) -> anyhow::Result<()> {
     write_file(job_dir, "requirements.yml", collections_yml)?;
 
@@ -426,7 +436,15 @@ pub async fn install_galaxy_collections(
         .envs(PROXY_ENVS.clone())
         .env("PATH", PATH_ENV.as_str())
         .env("TZ", TZ_ENV.as_str())
-        .args(vec!["role", "install", "-r", "requirements.yml", "-p", "./roles"])
+        .env("GIT_SSH_COMMAND", git_ssh_cmd)
+        .args(vec![
+            "role",
+            "install",
+            "-r",
+            "requirements.yml",
+            "-p",
+            "./roles",
+        ])
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
 
@@ -455,6 +473,7 @@ pub async fn install_galaxy_collections(
         .envs(PROXY_ENVS.clone())
         .env("PATH", PATH_ENV.as_str())
         .env("TZ", TZ_ENV.as_str())
+        .env("GIT_SSH_COMMAND", git_ssh_cmd)
         .args(vec![
             "collection",
             "install",
@@ -586,10 +605,15 @@ pub async fn get_role_locks(job_dir: &str) -> anyhow::Result<(HashMap<String, St
     Ok((ret, logs))
 }
 
-pub async fn get_git_repo_full_head_commit_hash(repo: &GitRepo) -> anyhow::Result<String> {
+pub async fn get_git_repo_full_head_commit_hash(
+    repo: &GitRepo,
+    git_ssh_cmd: &str,
+) -> anyhow::Result<String> {
     let mut git_cmd = Command::new(GIT_PATH.as_str());
 
-    git_cmd.args(["ls-remote", &repo.url, "HEAD"]);
+    git_cmd
+        .env("GIT_SSH_COMMAND", git_ssh_cmd)
+        .args(["ls-remote", &repo.url, "HEAD"]);
 
     let output = git_cmd.stderr(Stdio::piped()).output().await?;
 
@@ -628,6 +652,7 @@ pub async fn get_git_repos_lock(
     canceled_by: &mut Option<CanceledBy>,
     w_id: &str,
     occupancy_metrics: &mut OccupancyMetrics,
+    git_ssh_cmd: &str,
 ) -> anyhow::Result<HashMap<String, String>> {
     let mut ret = HashMap::new();
 
@@ -645,13 +670,14 @@ pub async fn get_git_repos_lock(
                     canceled_by,
                     w_id,
                     occupancy_metrics,
+                    git_ssh_cmd,
                 )
                 .await?,
             );
         } else {
             ret.insert(
                 repo.url.to_string(),
-                get_git_repo_full_head_commit_hash(repo).await?,
+                get_git_repo_full_head_commit_hash(repo, git_ssh_cmd).await?,
             );
         }
     }
@@ -686,6 +712,40 @@ remote_tmp={job_dir}/.ansible/tmp
     write_file(job_dir, "ansible.cfg", &ansible_cfg_content)?;
 
     Ok(())
+}
+
+pub async fn get_git_ssh_cmd(reqs: &AnsibleRequirements, job_dir: &str, client: &AuthedClient) -> error::Result<String> {
+    let ssh_id_files = try_join_all(reqs
+        .git_ssh_identity_files
+        .iter()
+        .enumerate()
+        .map(async |(i, var_path)| -> error::Result<String> {
+            let id_file_name = format!(".ssh_id_priv_{}", i);
+            let loc = is_allowed_file_location(job_dir, &id_file_name)?;
+
+            let content = client
+                .get_variable_value(var_path)
+                .await
+                .map_err(|e| {
+                    error::Error::NotFound(format!("Variable {var_path} not found for git ssh id file: {e:#}"))
+                })?;
+
+            let file = write_file(job_dir, &id_file_name, &content)?;
+
+            #[cfg(unix)]
+            {
+                let perm = std::os::unix::fs::PermissionsExt::from_mode(0o600);
+                file.set_permissions(perm)?;
+            }
+
+            Ok(format!(
+                " -i '{}'",
+                loc.to_string_lossy().replace('\'', r"'\''")
+            ))
+        })).await?;
+
+    let git_ssh_cmd = format!("ssh -o StrictHostKeyChecking=no{}", ssh_id_files.join(""));
+    Ok(git_ssh_cmd)
 }
 
 pub async fn handle_ansible_job(
@@ -733,6 +793,11 @@ pub async fn handle_ansible_job(
         occupancy_metrics,
     )
     .await?;
+
+    let git_ssh_cmd = &match &reqs {
+        Some(r) => get_git_ssh_cmd(r, job_dir, client).await?,
+        None => "ssh".to_string(),
+    };
 
     let interpolated_args;
     if let Some(args) = &job.args {
@@ -818,6 +883,7 @@ pub async fn handle_ansible_job(
                     canceled_by,
                     &job.workspace_id,
                     occupancy_metrics,
+                    git_ssh_cmd,
                 )
                 .await
                 .map_err(|e| anyhow!("Failed to clone git repo `{}`: {e}", repo.url))?;
@@ -841,6 +907,7 @@ pub async fn handle_ansible_job(
                     canceled_by,
                     &job.workspace_id,
                     occupancy_metrics,
+                    git_ssh_cmd,
                 )
                 .await
                 .map_err(|e| anyhow!("Failed to clone git repo `{}`: {e}", repo.url))?;
@@ -866,6 +933,7 @@ pub async fn handle_ansible_job(
                 canceled_by,
                 conn,
                 occupancy_metrics,
+                git_ssh_cmd,
             )
             .await?;
         }

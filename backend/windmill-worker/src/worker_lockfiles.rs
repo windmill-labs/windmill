@@ -1820,9 +1820,15 @@ async fn ansible_dep(
     w_id: &str,
     worker_dir: &str,
     occupancy_metrics: &mut OccupancyMetrics,
+    token: &str,
+    base_internal_url: &str,
 ) -> std::result::Result<String, Error> {
-    use crate::ansible_executor::{
-        create_ansible_cfg, get_collection_locks, get_role_locks, install_galaxy_collections,
+    use crate::{
+        ansible_executor::{
+            create_ansible_cfg, get_collection_locks, get_git_ssh_cmd, get_role_locks,
+            install_galaxy_collections,
+        },
+        AuthedClient,
     };
 
     let python_lockfile = python_dep(
@@ -1843,6 +1849,15 @@ async fn ansible_dep(
 
     let conn = &Connection::Sql(db.clone());
 
+    let authed_client = AuthedClient {
+        base_internal_url: base_internal_url.to_string(),
+        token: token.to_string(),
+        workspace: w_id.to_string(),
+        force_client: None,
+    };
+
+    let git_ssh_cmd = get_git_ssh_cmd(&reqs, job_dir, &authed_client).await?;
+
     let git_repos = get_git_repos_lock(
         &reqs.git_repos,
         job_dir,
@@ -1853,6 +1868,7 @@ async fn ansible_dep(
         canceled_by,
         w_id,
         occupancy_metrics,
+        &git_ssh_cmd,
     )
     .await?;
 
@@ -1871,6 +1887,7 @@ async fn ansible_dep(
             canceled_by,
             conn,
             occupancy_metrics,
+            &git_ssh_cmd,
         )
         .await?;
 
@@ -1994,6 +2011,8 @@ async fn capture_dependency_job(
                     w_id,
                     worker_dir,
                     occupancy_metrics,
+                    token,
+                    base_internal_url,
                 )
                 .await
             }

@@ -229,6 +229,7 @@ pub struct AnsibleRequirements {
     pub vault_password_file: Option<String>,
     pub vault_id: Vec<String>,
     pub git_repos: Vec<GitRepo>,
+    pub git_ssh_identity_files: Vec<String>,
 }
 
 impl Default for AnsibleRequirements {
@@ -250,6 +251,7 @@ impl Default for AnsibleRequirements {
             vault_password_file: None,
             vault_id: vec![],
             git_repos: vec![],
+            git_ssh_identity_files: vec![],
         }
     }
 }
@@ -310,25 +312,7 @@ pub fn parse_ansible_reqs(
         return Ok((logs, None, inner_content.to_string()));
     }
 
-    let opts = AnsiblePlaybookOptions {
-        verbosity: None,
-        forks: None,
-        timeout: None,
-        flush_cache: None,
-        force_handlers: None,
-    };
-    let mut ret = AnsibleRequirements {
-        python_reqs: vec![],
-        collections: None,
-        file_resources: vec![],
-        inventories: vec![],
-        vars: vec![],
-        resources: vec![],
-        options: opts,
-        vault_password_file: None,
-        vault_id: vec![],
-        git_repos: vec![],
-    };
+    let mut ret = AnsibleRequirements::default();
 
     if let Yaml::Hash(doc) = &docs[0] {
         for (key, value) in doc {
@@ -418,6 +402,23 @@ pub fn parse_ansible_reqs(
                             parse_git_repo(r)
                                 .map_err(|e| anyhow!("Failed to parse git repo: {e}"))?,
                         );
+                    }
+                }
+                Yaml::String(key) if key == "git_ssh_identity_files" => {
+                    let Yaml::Array(indentity_files) = &value else {
+                        return Err(anyhow!(
+                            "git_ssh_identity_files expects an array of identity file names"
+                        ));
+                    };
+
+                    for r in indentity_files {
+                        let Yaml::String(file_name) = r else {
+                            return Err(anyhow!(
+                                "Git ssh identity file must be a string defining a file name"
+                            ));
+                        };
+
+                        ret.git_ssh_identity_files.push(file_name.clone());
                     }
                 }
                 Yaml::String(key) => logs.push_str(&format!("\nUnknown field `{}`. Ignoring", key)),
