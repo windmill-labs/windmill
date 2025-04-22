@@ -309,9 +309,9 @@ impl Runner {
                                                 resource_cache.resource_type.name,
                                                 resource_cache.resource_type.description.as_deref().unwrap_or("No description"),
                                                 if resources_count == 0 {
-                                                    "This resource does not have any available, you should create one from your windmill workspace"
+                                                    "This resource does not have any available instances, you should create one from your windmill workspace"
                                                 } else if resources_count > 1 {
-                                                    "This resource have mutilple available, you should precisely select the one you want to use"
+                                                    "This resource has multiple available instances, you should precisely select the one you want to use"
                                                 } else {
                                                     "There is 1 resource available"
                                                 })));
