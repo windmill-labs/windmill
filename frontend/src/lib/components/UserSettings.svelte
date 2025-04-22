@@ -65,9 +65,17 @@
 	}
 
 	async function listTokens(): Promise<void> {
-		const allTokens = await UserService.listTokens({ excludeEphemeral: true, page: tokenPage, perPage: 100 })
-		tokens = allTokens.filter(token => !token.scopes || token.scopes.find(scope => !scope.startsWith('mcp:')))
-		mcpTokens = allTokens.filter(token => token.scopes && token.scopes.find(scope => scope.startsWith('mcp:')))
+		const allTokens = await UserService.listTokens({
+			excludeEphemeral: true,
+			page: tokenPage,
+			perPage: 100
+		})
+		tokens = allTokens.filter(
+			(token) => !token.scopes || token.scopes.find((scope) => !scope.startsWith('mcp:'))
+		)
+		mcpTokens = allTokens.filter(
+			(token) => token.scopes && token.scopes.find((scope) => scope.startsWith('mcp:'))
+		)
 	}
 
 	async function deleteToken(tokenPrefix: string) {
@@ -213,18 +221,14 @@
 					</div>
 				{/if}
 
-				<McpTokensTable 
-					tokens={mcpTokens} 
-					onDeleteToken={deleteToken} 
-					onListTokens={listTokens} 
-				/>
-				
-				<TokensTable 
-					tokens={tokens} 
+				<McpTokensTable tokens={mcpTokens} onDeleteToken={deleteToken} onListTokens={listTokens} />
+
+				<TokensTable
+					{tokens}
 					defaultNewTokenLabel={newTokenLabel}
 					defaultNewTokenWorkspace={newTokenWorkspace}
-					onDeleteToken={deleteToken} 
-					tokenPage={tokenPage}
+					onDeleteToken={deleteToken}
+					{tokenPage}
 					onNextPage={handleNextPage}
 					onPreviousPage={handlePreviousPage}
 					onListTokens={listTokens}
