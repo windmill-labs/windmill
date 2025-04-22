@@ -79,14 +79,14 @@ export function triggerTypeToCaptureKind(triggerType: TriggerType): CaptureTrigg
 /**
  * Add a draft trigger to the store
  */
-export function addDraftTrigger(
-	triggersStore: Writable<Trigger[]>,
-	type: TriggerType,
-	primaryScheduleExists: boolean
-): Trigger {
+export function addDraftTrigger(triggersStore: Writable<Trigger[]>, type: TriggerType): Trigger {
 	// Remove any existing draft of the same type from the store
 	const currentTriggers = get(triggersStore)
 	triggersStore.set(currentTriggers.filter((t) => !(t.isDraft && t.type === type)))
+
+	const primaryScheduleExists = currentTriggers.some(
+		(t) => t.type === 'schedule' && t.isPrimary && !t.isDraft
+	)
 
 	// Create the new draft trigger
 	const newTrigger = {

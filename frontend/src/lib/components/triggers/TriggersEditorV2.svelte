@@ -84,7 +84,7 @@
 							on:select={handleSelectTrigger}
 							triggers={$triggers}
 							on:addDraftTrigger={({ detail }) => {
-								const newTrigger = addDraftTrigger(triggers, detail, !!$primarySchedule)
+								const newTrigger = addDraftTrigger(triggers, detail)
 								$selectedTrigger = newTrigger
 							}}
 							on:deleteDraft={({ detail }) => {
