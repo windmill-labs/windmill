@@ -580,7 +580,10 @@
 	})
 
 	// Add triggers context store
-	const triggersStore = writable<Trigger[]>([])
+	const triggersStore = writable<Trigger[]>([
+		{ type: 'webhook', path: '', isDraft: false },
+		{ type: 'email', path: '', isDraft: false }
+	])
 
 	setContext<TriggerContext>('TriggerContext', {
 		selectedTrigger: selectedTriggerStore,

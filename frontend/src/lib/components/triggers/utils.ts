@@ -147,22 +147,6 @@ export async function fetchTriggers(
 		fetchSqsTriggers(triggersStore, workspaceId, path, isFlow)
 	])
 
-	// Add default triggers for webhooks and emails
-	const currentTriggersAfterFetch = get(triggersStore)
-	const webhookExists = currentTriggersAfterFetch.some((t) => t.type === 'webhook')
-	const emailExists = currentTriggersAfterFetch.some((t) => t.type === 'email')
-
-	if (!webhookExists) {
-		triggersStore.update((triggers) => [
-			...triggers,
-			{ type: 'webhook', path: path, isDraft: false }
-		])
-	}
-
-	if (!emailExists) {
-		triggersStore.update((triggers) => [...triggers, { type: 'email', path: path, isDraft: false }])
-	}
-
 	// Add back draft triggers
 	triggersStore.update((triggers) => [...triggers, ...draftTriggers])
 }

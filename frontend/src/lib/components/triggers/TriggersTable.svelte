@@ -90,7 +90,13 @@
 						<div class="flex items-center justify-between gap-2">
 							<div class="flex items-center">
 								<span class={trigger.isDraft ? 'text-frost-400 italic' : ''}>
-									{trigger.isDraft ? `New ${trigger.type.replace(/s$/, '')} trigger` : trigger.path}
+									{trigger.isDraft
+										? `New ${trigger.type.replace(/s$/, '')} trigger`
+										: trigger.path === ''
+											? trigger.type === 'webhook'
+												? 'Webhooks'
+												: 'Emails'
+											: trigger.path}
 								</span>
 
 								{#if trigger.isPrimary}
