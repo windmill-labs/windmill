@@ -78,8 +78,43 @@ impl Runner {
         Self {}
     }
 
+    fn transform_path(path: &str, type_str: &str) -> Result<String, String> {
+        if type_str != "script" && type_str != "flow" {
+            return Err(format!("Invalid type: {}", type_str));
+        }
+        // Escape underscores first
+        let escaped_path = path.replace('_', "__");
+        // Then replace slashes
+        let transformed = escaped_path.replace('/', "_");
+        Ok(format!("{}-{}", type_str, transformed))
+    }
+    
+    fn reverse_transform(transformed_path: &str) -> Result<(&str, String), String> {
+        let prefix = if transformed_path.starts_with("script-") {
+            "script-"
+        } else if transformed_path.starts_with("flow-") {
+            "flow-"
+        } else {
+            return Err(format!("Invalid prefix in transformed path: {}", transformed_path));
+        };
+    
+        let type_str = &prefix[..prefix.len() - 1]; // "script" or "flow"
+        let mangled_path = &transformed_path[prefix.len()..];
+    
+        // Use a temporary placeholder unlikely to appear naturally.
+        const TEMP_PLACEHOLDER: &str = "@@UNDERSCORE@@";
+    
+        // 1. Replace escaped double underscores with the placeholder
+        let path_with_placeholder = mangled_path.replace("__", TEMP_PLACEHOLDER);
+        // 2. Replace single underscores (originally slashes) back to slashes
+        let path_with_slashes = path_with_placeholder.replace('_', "/");
+        // 3. Replace the placeholder back to the original single underscore
+        let original_path = path_with_slashes.replace(TEMP_PLACEHOLDER, "_");
+    
+        Ok((type_str, original_path))
+    }
+
     async fn inner_get_resource_type_info(
-        &self,
         user_db: &UserDB,
         authed: &ApiAuthed,
         workspace_id: String,
@@ -112,7 +147,6 @@ impl Runner {
     }
         
     async fn inner_get_resources(
-        &self,
         user_db: &UserDB,
         authed: &ApiAuthed,
         workspace_id: String,
@@ -155,7 +189,6 @@ impl Runner {
     }
 
     async fn inner_get_flows(
-        &self,
         user_db: &UserDB,
         authed: &ApiAuthed,
         workspace_id: String,
@@ -196,7 +229,6 @@ impl Runner {
     }
 
     async fn inner_get_scripts(
-        &self,
         user_db: &UserDB,
         authed: &ApiAuthed,
         workspace_id: String,
@@ -236,7 +268,7 @@ impl Runner {
         Ok(rows)
     }
 
-    async fn transform_schema_for_resources(&self, schema: &mut serde_json::Value, user_db: &UserDB, authed: &ApiAuthed, w_id: String, resources_info: &mut HashMap<String, ResourceCache>) -> Result<(), Error> {
+    async fn transform_schema_for_resources(schema: &mut serde_json::Value, user_db: &UserDB, authed: &ApiAuthed, w_id: String, resources_info: &mut HashMap<String, ResourceCache>) -> Result<(), Error> {
         if let serde_json::Value::Object(schema_obj) = schema {
             if let Some(serde_json::Value::Object(properties)) = schema_obj.get_mut("properties") {
                 for (_key, prop) in properties.iter_mut() {
@@ -247,8 +279,8 @@ impl Runner {
 
                                 if !resources_info.contains_key(&resource_type_key) {
                                     let fetch_result = async {
-                                        let resource_type_info_future = self.inner_get_resource_type_info(&user_db, &authed, w_id.clone(), resource_type_key.clone());
-                                        let resources_data_future = self.inner_get_resources(&user_db, &authed, w_id.clone(), vec![resource_type_key.clone()]);
+                                        let resource_type_info_future = Runner::inner_get_resource_type_info(user_db, authed, w_id.clone(), resource_type_key.clone());
+                                        let resources_data_future = Runner::inner_get_resources(user_db, authed, w_id.clone(), vec![resource_type_key.clone()]);
                                         let (resource_type_info, resources_data) = try_join!(resource_type_info_future, resources_data_future)?;
                                         Ok::<_, Error>(ResourceCache {
                                             resource_type: resource_type_info,
@@ -285,7 +317,9 @@ impl Runner {
                                                 } else {
                                                     "There is 1 resource available"
                                                 })));
-                                    prop_obj.insert("oneOf".to_string(), serde_json::Value::Array(resource_cache.resources.iter().map(|resource| serde_json::Value::Object(serde_json::Map::from_iter([("const".to_string(), serde_json::Value::String(format!("$res:{}", resource.path.clone()))), ("title".to_string(), serde_json::Value::String(resource.description.as_deref().unwrap_or("No description").to_string()))].into_iter()))).collect()));
+                                    if resources_count > 0 {
+                                        prop_obj.insert("oneOf".to_string(), serde_json::Value::Array(resource_cache.resources.iter().map(|resource| serde_json::Value::Object(serde_json::Map::from_iter([("const".to_string(), serde_json::Value::String(format!("$res:{}", resource.path.clone()))), ("title".to_string(), serde_json::Value::String(resource.description.as_deref().unwrap_or("No description").to_string()))].into_iter()))).collect()));
+                                    }
                                     prop_obj.insert("type".to_string(), serde_json::Value::String("string".to_string()));
                                 } else {
                                     tracing::error!("Resource cache entry unexpectedly missing for key: {}", resource_type_key);
@@ -320,10 +354,7 @@ impl ServerHandler for Runner {
         let user_db = context.req_extensions.get::<UserDB>().ok_or_else(|| Error::internal_error("UserDB not found", None))?;
         let args = parse_args(request.arguments)?;
 
-        let path_str = request.name.clone(); // Bind the unwrapped Cow to a variable
-        let split: Vec<&str> = path_str.split("-").collect(); // Now split borrows from path_str
-        let tool_type = split[0].to_string();
-        let path = split[1].replacen('_', "/", 2);
+        let (tool_type, path) = Runner::reverse_transform(&request.name).unwrap_or_default();
 
         // Convert Value to PushArgsOwned
         let push_args = if let Value::Object(map) = args.clone() {
@@ -404,16 +435,16 @@ impl ServerHandler for Runner {
         let scope_type = scope.map_or("all", |scope| scope.split(":").last().unwrap_or("all"));
         let mut resources_info: HashMap<String, ResourceCache> = HashMap::new();
 
-        let scripts_fn = self.inner_get_scripts(user_db, authed, workspace_id.clone(), scope_type.to_string());
-        let flows_fn = self.inner_get_flows(user_db, authed, workspace_id.clone(), scope_type.to_string());
+        let scripts_fn = Runner::inner_get_scripts(user_db, authed, workspace_id.clone(), scope_type.to_string());
+        let flows_fn = Runner::inner_get_flows(user_db, authed, workspace_id.clone(), scope_type.to_string());
         let (scripts, flows) = try_join!(scripts_fn, flows_fn)?;
 
         let mut script_tools: Vec<Tool> = Vec::with_capacity(scripts.len());
         for script in scripts {
-            let name = format!("script-{}", script.path.clone().replace("/", "_"));
+            let name = Runner::transform_path(&script.path, "script").unwrap_or_default();
             let description = format!("This is a script named {} with the following description: {}.", script.summary.unwrap_or_default(), script.description.unwrap_or_default());
             let mut schema = script.schema.unwrap_or_default();
-            self.transform_schema_for_resources(&mut schema, user_db, authed, workspace_id.clone(), &mut resources_info).await?;
+            Runner::transform_schema_for_resources(&mut schema, user_db, authed, workspace_id.clone(), &mut resources_info).await?;
             script_tools.push(Tool {
                 name: Cow::Owned(name),
                 description: Some(Cow::Owned(description)),
@@ -428,10 +459,10 @@ impl ServerHandler for Runner {
 
         let mut flow_tools: Vec<Tool> = Vec::with_capacity(flows.len());
         for flow in flows {
-            let name = format!("flow-{}", flow.path.clone().replace("/", "_"));
+            let name = Runner::transform_path(&flow.path, "flow").unwrap_or_default();
             let description = format!("This is a flow named {} with the following description: {}.", flow.summary.unwrap_or_default(), flow.description.unwrap_or_default());
             let mut schema = flow.schema.unwrap_or_default();
-            self.transform_schema_for_resources(&mut schema, user_db, authed, workspace_id.clone(), &mut resources_info).await?;
+            Runner::transform_schema_for_resources(&mut schema, user_db, authed, workspace_id.clone(), &mut resources_info).await?;
             flow_tools.push(Tool {
                 name: Cow::Owned(name),
                 description: Some(Cow::Owned(description)),
