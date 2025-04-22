@@ -54,7 +54,8 @@
 
 	const values: CreateTableValues = $state({
 		name: '',
-		columns: []
+		columns: [],
+		foreignKeys: []
 	})
 
 	function addColumn({ name, primaryKey }: { name: string; primaryKey?: boolean }) {
@@ -204,69 +205,77 @@
 					<Head>
 						<tr>
 							<Cell head first>Table</Cell>
-							<Cell head>Columns</Cell>
-							<Cell head last></Cell>
+							<Cell head last>Columns</Cell>
 						</tr>
 					</Head>
 					<tbody class="divide-y bg-surface">
-						{#each [1, 2] as _}
+						{#each values.foreignKeys as foreignKey, foreignKeyIndex}
 							<tr>
 								<Cell first class="flex">
 									<Select
 										containerStyles="--height: 2rem;"
 										class="!w-48"
 										placeholder=""
-										value={''}
-										on:change={(e) => {}}
+										value={foreignKey.targetTable}
+										on:change={(e) => (foreignKey.targetTable = e.detail.value)}
 										items={['a', 'b', 'c']}
 										clearable={false}
 									/>
 								</Cell>
 								<Cell>
-									<div class="flex flex-col gap-2 w-60">
-										<div class="flex items-center gap-1">
-											<Select
-												containerStyles="--height: 2rem;"
-												placeholder=""
-												value={''}
-												on:change={(e) => {}}
-												items={['a', 'b', 'c']}
-												clearable={false}
-											/>
-											<ArrowRight size={16} class="h-fit shrink-0" />
-											<Select
-												containerStyles="--height: 2rem;"
-												placeholder=""
-												value={''}
-												on:change={(e) => {}}
-												items={['a', 'b', 'c']}
-												clearable={false}
-											/>
-										</div>
+									<div class="flex flex-col gap-2">
+										{#each foreignKey.columns as column, columnIndex}
+											<div class="flex">
+												<div class="flex items-center gap-1 w-60">
+													<Select
+														containerStyles="--height: 2rem;"
+														placeholder=""
+														value={column.sourceColumn}
+														on:change={(e) => (column.sourceColumn = e.detail.value)}
+														items={['a', 'b', 'c']}
+														clearable={false}
+													/>
+													<ArrowRight size={16} class="h-fit shrink-0" />
+													<Select
+														containerStyles="--height: 2rem;"
+														placeholder=""
+														value={column.targetColumn}
+														on:change={(e) => (column.targetColumn = e.detail.value)}
+														items={['a', 'b', 'c']}
+														clearable={false}
+													/>
+												</div>
+												<div class="ml-auto flex">
+													{#if columnIndex === 0}
+														<Popover contentClasses="py-3 px-5 flex flex-col gap-6">
+															{#snippet trigger()}
+																<Settings size={18} />
+															{/snippet}
+															{#snippet content()}
+																fdsdok
+															{/snippet}
+														</Popover>
+													{/if}
+													<Button
+														color="light"
+														startIcon={{ icon: X }}
+														wrapperClasses="w-fit ml-2"
+														btnClasses="p-0"
+														on:click={foreignKey.columns.length > 1
+															? () => foreignKey.columns.splice(columnIndex, 1)
+															: () => values.foreignKeys.splice(foreignKeyIndex, 1)}
+													/>
+												</div>
+											</div>
+										{/each}
 										<button
-											class="border-dashed border-2 rounded-md flex justify-center items-center py-1 gap-2 text-gray-500 font-normal"
+											class="w-60 border-dashed border-2 rounded-md flex justify-center items-center py-1 gap-2 text-gray-500 font-normal"
+											onclick={() => foreignKey.columns.push({})}
 										>
 											<Plus class="h-fit" size={12} /> Add
 										</button>
-									</div>
-								</Cell>
-								<Cell last class="flex mt-1.5">
-									<Popover class="ml-auto" contentClasses="py-3 px-5 flex flex-col gap-6">
-										{#snippet trigger()}
-											<Settings size={18} />
-										{/snippet}
-										{#snippet content()}
-											fdsdok
-										{/snippet}
-									</Popover>
-									<Button
-										color="light"
-										startIcon={{ icon: X }}
-										wrapperClasses="w-fit ml-2"
-										btnClasses="p-0"
-										on:click={() => {}}
-									/>
-								</Cell>
+									</div></Cell
+								>
 							</tr>
 						{/each}
 						<tr class="w-full">
@@ -275,7 +284,12 @@
 									wrapperClasses="mx-auto"
 									startIcon={{ icon: Plus }}
 									color="light"
-									on:click={() => {}}
+									on:click={() =>
+										values.foreignKeys.push({
+											columns: [{}],
+											onDelete: 'NO ACTION',
+											onUpdate: 'NO ACTION'
+										})}
 								>
 									Add
 								</Button>

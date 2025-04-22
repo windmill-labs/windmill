@@ -3,6 +3,15 @@ import { dbSupportsSchemas, type DbType } from '../utils'
 export type CreateTableValues = {
 	name: string
 	columns: CreateTableValuesColumn[]
+	foreignKeys: {
+		targetTable?: string
+		columns: {
+			sourceColumn?: string
+			targetColumn?: string
+		}[]
+		onDelete: 'CASCADE' | 'SET NULL' | 'NO ACTION'
+		onUpdate: 'CASCADE' | 'SET NULL' | 'NO ACTION'
+	}[]
 }
 
 type CreateTableValuesColumn = {
