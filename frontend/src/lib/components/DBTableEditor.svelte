@@ -244,7 +244,7 @@
 					</Head>
 					<tbody class="divide-y bg-surface">
 						{#each values.foreignKeys as foreignKey, foreignKeyIndex}
-							{@const fkErrors = errors?.foreignKeys[foreignKeyIndex]}
+							{@const fkErrors = errors?.foreignKeys?.[foreignKeyIndex]}
 							<tr>
 								<Cell first class="flex">
 									<Select
