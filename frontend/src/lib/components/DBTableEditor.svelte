@@ -244,9 +244,9 @@
 											/>
 										</div>
 										<button
-											class="border-dashed border-2 rounded-md flex justify-center py-1 gap-2"
+											class="border-dashed border-2 rounded-md flex justify-center items-center py-1 gap-2 text-gray-500 font-normal"
 										>
-											<Plus class="inline" size={16} /> Add
+											<Plus class="h-fit" size={12} /> Add
 										</button>
 									</div>
 								</Cell>
