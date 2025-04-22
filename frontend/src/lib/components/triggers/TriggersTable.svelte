@@ -63,7 +63,7 @@
 			{#each triggers as trigger}
 				<tr
 					class={twMerge(
-						'hover:bg-surface-hover cursor-pointer border-b border-t border-transparent',
+						'hover:bg-surface-hover cursor-pointer h-10',
 						selectedTrigger &&
 							selectedTrigger.path === trigger.path &&
 							selectedTrigger.type === trigger.type &&
