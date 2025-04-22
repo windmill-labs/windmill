@@ -82,10 +82,15 @@ impl Runner {
         if type_str != "script" && type_str != "flow" {
             return Err(format!("Invalid type: {}", type_str));
         }
-        // Escape underscores first
-        let escaped_path = path.replace('_', "__");
-        // Then replace slashes
-        let transformed = escaped_path.replace('/', "_");
+        
+        // Only apply special underscore escaping for paths starting with "f/"
+        let transformed = if path.starts_with("f/") {
+            let escaped_path = path.replace('_', "__");
+            escaped_path.replace('/', "_")
+        } else {
+            path.replace('/', "_")
+        };
+        
         Ok(format!("{}-{}", type_str, transformed))
     }
     
@@ -100,16 +105,18 @@ impl Runner {
     
         let type_str = &prefix[..prefix.len() - 1]; // "script" or "flow"
         let mangled_path = &transformed_path[prefix.len()..];
-    
-        // Use a temporary placeholder unlikely to appear naturally.
-        const TEMP_PLACEHOLDER: &str = "@@UNDERSCORE@@";
-    
-        // 1. Replace escaped double underscores with the placeholder
-        let path_with_placeholder = mangled_path.replace("__", TEMP_PLACEHOLDER);
-        // 2. Replace single underscores (originally slashes) back to slashes
-        let path_with_slashes = path_with_placeholder.replace('_', "/");
-        // 3. Replace the placeholder back to the original single underscore
-        let original_path = path_with_slashes.replace(TEMP_PLACEHOLDER, "_");
+        
+        // Check if this path was previously transformed with special underscore handling
+        let is_special_path = mangled_path.starts_with("f_");
+        
+        let original_path = if is_special_path {
+            const TEMP_PLACEHOLDER: &str = "@@UNDERSCORE@@";
+            let path_with_placeholder = mangled_path.replace("__", TEMP_PLACEHOLDER);
+            let path_with_slashes = path_with_placeholder.replace('_', "/");
+            path_with_slashes.replace(TEMP_PLACEHOLDER, "_")
+        } else {
+            mangled_path.replacen('_', "/", 2)
+        };
     
         Ok((type_str, original_path))
     }
