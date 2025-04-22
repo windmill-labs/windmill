@@ -160,8 +160,11 @@
 											isFlow,
 											$primarySchedule
 										)
-										if (detail === 'save') {
+										if ((detail === 'save' || detail === 'delete') && $selectedTrigger?.isDraft) {
 											deleteDraft(triggers, $selectedTrigger)
+											if (detail === 'delete') {
+												$selectedTrigger = undefined
+											}
 										}
 									}}
 									isNewSchedule={$selectedTrigger.isDraft}

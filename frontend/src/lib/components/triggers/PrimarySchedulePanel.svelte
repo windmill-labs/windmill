@@ -24,7 +24,6 @@
 	export let can_write: boolean
 	export let newItem: boolean = false
 	export let isNewSchedule: boolean = false
-	export let isDraft: boolean = false
 
 	const { primarySchedule, triggersCount } = getContext<TriggerContext>('TriggerContext')
 	const dispatch = createEventDispatcher<{
@@ -86,8 +85,11 @@
 		editMode = false
 	}
 
-	// For external use only will be transferred to TriggersTable
-	export function deleteDraft() {
+	function deleteDraft() {
+		dispatch('update', 'delete')
+	}
+
+	function deletePendingPrimarySchedule() {
 		$primarySchedule = false
 		$triggersCount = {
 			...($triggersCount ?? {}),
@@ -127,11 +129,13 @@
 	</svelte:fragment>
 	<svelte:fragment slot="action">
 		<div class="flex flex-row gap-2 items-center">
-			{#if can_write}
+			{#if can_write && !$isDeployed}
 				<Button
 					on:click={() => {
-						if (isDraft) {
+						if (isNewSchedule) {
 							deleteDraft()
+						} else {
+							deletePendingPrimarySchedule()
 						}
 					}}
 					btnClasses="hover:bg-red-500 hover:text-white"
