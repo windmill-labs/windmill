@@ -232,25 +232,6 @@ impl Runner {
         Ok(rows)
     }
 
-    fn generate_tool_name(&self, summary: Option<String>, path: &str, last_path: Option<String>) -> String {
-        match summary {
-            // if summary exist and is not empty, use it
-            Some(summary) if !summary.is_empty() => {
-                let parts: Vec<&str> = summary.split_whitespace().collect();
-                parts.join("_")
-            }
-            _ => {
-                // if path is duplicated, use the full path
-                if last_path == Some(path.to_string()) {
-                    path.replace('/', "_")
-                } else {
-                    // if path is not duplicated, use the last part of the path
-                    path.split('/').last().unwrap_or(path).to_string()
-                }
-            }
-        }
-    }
-    
     async fn transform_schema_for_resources(&self, schema: &mut serde_json::Value, user_db: &UserDB, authed: &ApiAuthed, w_id: String, resources_info: &mut HashMap<String, ResourceCache>) -> Result<(), Error> {
         if let serde_json::Value::Object(schema_obj) = schema {
             if let Some(serde_json::Value::Object(properties)) = schema_obj.get_mut("properties") {
@@ -335,39 +316,10 @@ impl ServerHandler for Runner {
         let user_db = context.req_extensions.get::<UserDB>().ok_or_else(|| Error::internal_error("UserDB not found", None))?;
         let args = parse_args(request.arguments)?;
 
-        // find path from list of tools, by checking annotations.title
-        let tools = self.list_tools(None, context.clone()).await?; // Clone context for reuse
-        let path = tools.tools.iter().find_map(|tool| {
-            // Check if annotations exist and then if the title matches
-            if tool.name.as_ref() == &request.name {
-                if let Some(annotations) = &tool.annotations {
-                    if let Some(title) = &annotations.title {
-                        Some(title.clone())
-                    } else {
-                        None
-                    }
-                } else {
-                    None
-                }
-            } else {
-                None
-            }
-        });
-
-        if path.is_none() {
-            return Err(Error::invalid_params(
-                format!(
-                    "Tool with name '{}' not found or title mismatch",
-                    request.name
-                ),
-                Some(request.name.into()),
-            ));
-        }
-
-        let path_str = path.unwrap(); // Bind the unwrapped Cow to a variable
-        let split: Vec<&str> = path_str.split(":").collect(); // Now split borrows from path_str
+        let path_str = request.name.clone(); // Bind the unwrapped Cow to a variable
+        let split: Vec<&str> = path_str.split("-").collect(); // Now split borrows from path_str
         let tool_type = split[0].to_string();
-        let path = split[1].to_string();
+        let path = split[1].replacen('_', "/", 2);
 
         // Convert Value to PushArgsOwned
         let push_args = if let Value::Object(map) = args.clone() {
@@ -449,43 +401,41 @@ impl ServerHandler for Runner {
         let scripts = self
             .inner_get_scripts(user_db, authed, workspace_id.clone(), scope_type.to_string())
             .await?;
-        let mut last_path = scripts.first().map(|script| script.path.clone());
         let mut script_tools: Vec<Tool> = Vec::with_capacity(scripts.len());
         let mut resources_info: HashMap<String, ResourceCache> = HashMap::new();
         for script in scripts {
-            let name = self.generate_tool_name(script.summary, &script.path, last_path.clone());
-            last_path = Some(script.path.clone());
+            let name = format!("script-{}", script.path.clone().replace("/", "_"));
+            let description = format!("This is a script named {} with the following description: {}.", script.summary.unwrap_or_default(), script.description.unwrap_or_default());
             let mut schema = script.schema.unwrap_or_default();
             self.transform_schema_for_resources(&mut schema, user_db, authed, workspace_id.clone(), &mut resources_info).await?;
             script_tools.push(Tool {
                 name: Cow::Owned(name),
-                description: Some(Cow::Owned(script.description.unwrap_or_default())),
+                description: Some(Cow::Owned(description)),
                 input_schema: if let serde_json::Value::Object(map) = schema {
                     Arc::new(map)
                 } else {
                     Arc::new(serde_json::Map::new())
                 },
-                annotations: Some(ToolAnnotations::with_title(format!("script:{}", script.path))),
+                annotations: None
             });
         }
 
         let flows = self.inner_get_flows(user_db, authed, workspace_id.clone()).await?;
-        let mut last_path = flows.first().map(|flow| flow.path.clone());
         let mut flow_tools: Vec<Tool> = Vec::with_capacity(flows.len());
         for flow in flows {
-            let name = self.generate_tool_name(flow.summary, &flow.path, last_path.clone());
-            last_path = Some(flow.path.clone());
+            let name = format!("flow-{}", flow.path.clone().replace("/", "_"));
+            let description = format!("This is a flow named {} with the following description: {}.", flow.summary.unwrap_or_default(), flow.description.unwrap_or_default());
             let mut schema = flow.schema.unwrap_or_default();
             self.transform_schema_for_resources(&mut schema, user_db, authed, workspace_id.clone(), &mut resources_info).await?;
             flow_tools.push(Tool {
                 name: Cow::Owned(name),
-                description: Some(Cow::Owned(flow.description.unwrap_or_default())),
+                description: Some(Cow::Owned(description)),
                 input_schema: if let serde_json::Value::Object(map) = schema {
                     Arc::new(map)
                 } else {
                     Arc::new(serde_json::Map::new())
                 },
-                annotations: Some(ToolAnnotations::with_title(format!("flow:{}", flow.path))),
+                annotations: None
             });
         }
 
