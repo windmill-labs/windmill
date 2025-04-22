@@ -6081,7 +6081,7 @@ dependencies = [
  "js-sys",
  "log",
  "wasm-bindgen",
- "windows-core 0.58.0",
+ "windows-core 0.57.0",
 ]
 
 [[package]]
@@ -6798,7 +6798,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fc2f4eb4bc735547cfed7c0a4922cbd04a4655978c09b54f1f7b228750664c34"
 dependencies = [
  "cfg-if",
- "windows-targets 0.52.6",
+ "windows-targets 0.48.5",
 ]
 
 [[package]]
@@ -9873,7 +9873,7 @@ dependencies = [
 [[package]]
 name = "rmcp"
 version = "0.1.5"
-source = "git+https://github.com/windmill-labs/rust-sdk#b1d7da49653d3916110e5d05d5a13b024a10126c"
+source = "git+https://github.com/windmill-labs/rust-sdk#e6c368965711a2afe45218149d1be5324b098a4d"
 dependencies = [
  "async-stream",
  "axum",
@@ -9897,7 +9897,7 @@ dependencies = [
 [[package]]
 name = "rmcp-macros"
 version = "0.1.5"
-source = "git+https://github.com/windmill-labs/rust-sdk#b1d7da49653d3916110e5d05d5a13b024a10126c"
+source = "git+https://github.com/windmill-labs/rust-sdk#e6c368965711a2afe45218149d1be5324b098a4d"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -13805,7 +13805,7 @@ dependencies = [
  "log",
  "naga",
  "once_cell",
- "parking_lot 0.12.3",
+ "parking_lot 0.11.2",
  "profiling",
  "raw-window-handle",
  "ron",
@@ -13847,7 +13847,7 @@ dependencies = [
  "ndk-sys",
  "objc",
  "once_cell",
- "parking_lot 0.12.3",
+ "parking_lot 0.11.2",
  "profiling",
  "range-alloc",
  "raw-window-handle",
@@ -14080,7 +14080,7 @@ dependencies = [
  "tokio-tungstenite",
  "tokio-util",
  "tonic",
- "tower 0.5.2",
+ "tower 0.4.13",
  "tower-cookies",
  "tower-http",
  "tracing",

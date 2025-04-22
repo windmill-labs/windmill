@@ -336,15 +336,6 @@
 												}}>Delete</button
 											></td
 										>
-									<!--td class="grow"
-										><button
-											class="text-red-500 text-xs underline"
-											on:click={() => {
-												// TODO: Implement delete for MCP tokens if needed, requires knowing the token prefix
-												// deleteToken(token_prefix) // Need prefix from the original token
-											}}>Delete</button
-										></td
-									-->
 								</tr>
 							{/each}
 					</tbody>
