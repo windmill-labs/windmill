@@ -266,12 +266,25 @@
 												</div>
 												<div class="ml-auto flex">
 													{#if columnIndex === 0}
-														<Popover contentClasses="py-3 px-5 flex flex-col gap-6">
+														<Popover contentClasses="py-3 px-5 w-52 flex flex-col gap-6">
 															{#snippet trigger()}
 																<Settings size={18} />
 															{/snippet}
 															{#snippet content()}
-																fdsdok
+																<span>
+																	ON DELETE <select bind:value={foreignKey.onDelete}>
+																		<option value="NO ACTION" selected>NO ACTION</option>
+																		<option value="CASCADE" selected>CASCADE</option>
+																		<option value="SET NULL" selected>SET NULL</option>
+																	</select>
+																</span>
+																<span>
+																	ON UPDATE <select bind:value={foreignKey.onUpdate}>
+																		<option value="NO ACTION" selected>NO ACTION</option>
+																		<option value="CASCADE" selected>CASCADE</option>
+																		<option value="SET NULL" selected>SET NULL</option>
+																	</select>
+																</span>
 															{/snippet}
 														</Popover>
 													{/if}
