@@ -1,9 +1,11 @@
 <script lang="ts">
 	import RouteEditorInner from './RouteEditorInner.svelte'
 	import Description from '$lib/components/Description.svelte'
+	import { userStore } from '$lib/stores'
+	import { Alert } from '$lib/components/common'
 
 	let routeEditor = $state<RouteEditorInner | null>(null)
-	let { selectedTrigger, isFlow, path, edit = false } = $props()
+	let { selectedTrigger, isFlow, path, edit = false, isDeployed = false } = $props()
 
 	async function openRouteEditor(isFlow: boolean, isDraft: boolean) {
 		if (isDraft) {
@@ -30,11 +32,24 @@
 	showCapture
 	editMode={edit}
 	on:toggle-edit-mode
+	preventSave={!isDeployed}
 >
 	{#snippet description()}
-		<Description link="https://www.windmill.dev/docs/core_concepts/http_routing" class="mb-4"
-			>Routes expose your scripts and flows as HTTP endpoints. Each route can be configured with a
-			specific HTTP method and path.</Description
-		>
+		<div class="flex flex-col gap-2 pb-4">
+			<Description link="https://www.windmill.dev/docs/core_concepts/http_routing"
+				>Routes expose your scripts and flows as HTTP endpoints. Each route can be configured with a
+				specific HTTP method and path.</Description
+			>
+
+			{#if !$userStore?.is_admin && !$userStore?.is_super_admin && selectedTrigger.isDraft}
+				<Alert title="Only workspace admins can create routes" type="info" size="xs" />
+			{:else if !isDeployed}
+				<Alert
+					title={`Deploy the ${isFlow ? 'flow' : 'script'} to save the route`}
+					type="info"
+					size="xs"
+				/>
+			{/if}
+		</div>
 	{/snippet}
 </RouteEditorInner>

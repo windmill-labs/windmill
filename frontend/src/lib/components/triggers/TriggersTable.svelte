@@ -29,7 +29,8 @@
 			action: () => {
 				dispatch('edit', trigger)
 			},
-			icon: Pen
+			icon: Pen,
+			disabled: !trigger.canWrite
 		}
 	]
 

@@ -35,6 +35,7 @@
 	export let isFlow: boolean
 	export let canHavePreprocessor: boolean = false
 	export let hasPreprocessor: boolean = false
+	export let isDeployed: boolean = false
 
 	let config: Record<string, any> = {}
 	let editTrigger: Trigger | undefined = undefined
@@ -124,6 +125,7 @@
 										on:toggle-edit-mode={({ detail }) => {
 											editTrigger = detail ? $selectedTrigger : undefined
 										}}
+										{isDeployed}
 									/>
 								{/key}
 							{:else if $selectedTrigger.type === 'webhook'}

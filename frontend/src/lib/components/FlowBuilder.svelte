@@ -610,7 +610,14 @@
 		}
 
 		// Initialize triggers using utility function
-		fetchTriggers(triggersStore, $workspaceStore, initialPath, true, $primaryScheduleStore)
+		fetchTriggers(
+			triggersStore,
+			$workspaceStore,
+			initialPath,
+			true,
+			$primaryScheduleStore,
+			$userStore
+		)
 	}
 
 	$: selectedId && select(selectedId)

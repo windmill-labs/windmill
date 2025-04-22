@@ -39,7 +39,8 @@
 		description = undefined,
 		useEditButton = false,
 		showCapture = false,
-		editMode = false
+		editMode = true,
+		preventSave = false
 	} = $props()
 
 	// Form data state
@@ -80,6 +81,8 @@
 	let variableEditor = $state<VariableEditor | null>(null)
 	let drawer = $state<Drawer | null>(null)
 	let resetEditMode = $state<(() => void) | null>(null)
+	let isDraft = $state(false)
+	let isAdmin = $derived($userStore?.is_admin || $userStore?.is_super_admin)
 
 	// Use $derived for computed values
 	$effect(() => {
@@ -192,6 +195,7 @@
 			signature_options_type = 'custom_signature'
 			raw_string = defaultValues?.raw_string ?? false
 			wrap_body = defaultValues?.wrap_body ?? false
+			isDraft = true
 			toggleEditMode(true)
 		} finally {
 			clearTimeout(loader)
@@ -265,7 +269,7 @@
 					is_flow: is_flow,
 					is_async: is_async,
 					authentication_method: auth_method,
-					route_path: $userStore?.is_admin || $userStore?.is_super_admin ? route_path : undefined,
+					route_path: isAdmin ? route_path : undefined,
 					http_method: http_method,
 					static_asset_config: static_asset_config,
 					is_static_website: is_static_website,
@@ -323,7 +327,7 @@
 			!isValid ||
 			(!static_asset_config && emptyString(script_path)) ||
 			(static_asset_config && emptyString(static_asset_config.s3)) ||
-			!can_write
+			preventSave
 	})
 
 	function toggleEditMode(newValue: boolean) {
@@ -521,6 +525,7 @@
 				capture_mode={false}
 				bind:static_asset_config
 				{showCapture}
+				{isDraft}
 			/>
 
 			{#if !is_static_website}
@@ -710,7 +715,7 @@
 
 {#snippet saveButton(size: 'xs' | 'sm' = 'xs')}
 	<div class="flex flex-row gap-2 items-center">
-		{#if !drawerLoading && can_write}
+		{#if !drawerLoading && can_write && (isAdmin || edit)}
 			{#if editMode}
 				<Button {size} startIcon={{ icon: Save }} disabled={saveDisabled} on:click={triggerScript}>
 					Save

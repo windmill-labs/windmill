@@ -131,6 +131,7 @@
 		hasPreprocessor={!!$flowStore.value.preprocessor_module}
 		canHavePreprocessor={true}
 		args={$previewArgs}
+		isDeployed={savedFlow && !savedFlow?.draft_only}
 	/>
 {:else if $selectedId === 'triggers'}
 	<TriggersEditor

@@ -21,6 +21,8 @@ import {
 	type KafkaTrigger
 } from '$lib/gen'
 import type { ScheduleTrigger } from '$lib/components/triggers'
+import { canWrite } from '$lib/utils'
+import type { UserExt } from '$lib/stores'
 
 export type TriggerType =
 	| 'webhook'
@@ -34,7 +36,13 @@ export type TriggerType =
 	| 'mqtt'
 	| 'sqs'
 
-export type Trigger = { path: string; type: TriggerType; isDraft?: boolean; isPrimary?: boolean }
+export type Trigger = {
+	path: string
+	type: TriggerType
+	isDraft?: boolean
+	isPrimary?: boolean
+	canWrite?: boolean
+}
 
 // Map of trigger kinds to icons
 export const triggerIconMap = {
@@ -118,7 +126,8 @@ export async function fetchTriggers(
 	workspaceId: string | undefined,
 	path: string,
 	isFlow: boolean,
-	primarySchedule: ScheduleTrigger | undefined | false = undefined
+	primarySchedule: ScheduleTrigger | undefined | false = undefined,
+	user: UserExt | undefined = undefined
 ): Promise<void> {
 	if (!workspaceId) return
 
@@ -129,7 +138,7 @@ export async function fetchTriggers(
 	// Fetch each type of trigger
 	await Promise.all([
 		fetchSchedules(triggersStore, workspaceId, path, isFlow, primarySchedule),
-		fetchHttpTriggers(triggersStore, workspaceId, path, isFlow),
+		fetchHttpTriggers(triggersStore, workspaceId, path, isFlow, user),
 		fetchWebsocketTriggers(triggersStore, workspaceId, path, isFlow),
 		fetchPostgresTriggers(triggersStore, workspaceId, path, isFlow),
 		fetchKafkaTriggers(triggersStore, workspaceId, path, isFlow),
@@ -238,7 +247,8 @@ export async function fetchHttpTriggers(
 	triggersStore: Writable<Trigger[]>,
 	workspaceId: string | undefined,
 	path: string,
-	isFlow: boolean
+	isFlow: boolean,
+	user: UserExt | undefined = undefined
 ): Promise<void> {
 	if (!workspaceId) return
 	try {
@@ -258,7 +268,8 @@ export async function fetchHttpTriggers(
 					type: 'http',
 					path: trigger.path,
 					isPrimary: false,
-					isDraft: false
+					isDraft: false,
+					canWrite: canWrite(trigger.path, trigger.extra_perms, user)
 				}
 			])
 		}

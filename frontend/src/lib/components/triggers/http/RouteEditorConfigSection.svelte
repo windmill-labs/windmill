@@ -39,6 +39,7 @@
 	export let raw_string: boolean = false
 	export let wrap_body: boolean = false
 	export let capture_mode: boolean
+	export let isDraft: boolean = true
 
 	let validateTimeout: NodeJS.Timeout | undefined = undefined
 	let selectedRoute: 'test' | 'full' = 'full'
@@ -91,6 +92,9 @@
 	$: captureURL = `${location.origin}${base}/api/w/${$workspaceStore}/capture_u/http/${
 		captureInfo?.isFlow ? 'flow' : 'script'
 	}/${captureInfo?.path.replaceAll('/', '.')}/${route_path}`
+
+	$: userIsAdmin = $userStore?.is_admin || $userStore?.is_super_admin
+	$: userCanEditConfig = userIsAdmin || isDraft // User can edit config if they are admin or if the trigger is a draft which will not be saved
 </script>
 
 <div>
@@ -135,7 +139,7 @@
 				<TestingBadge />
 			{/if}
 		</svelte:fragment>
-		{#if !($userStore?.is_admin || $userStore?.is_super_admin)}
+		{#if !userCanEditConfig && !isDraft}
 			<Alert type="info" title="Admin only" collapsible size="xs">
 				Route endpoints can only be edited by workspace admins
 			</Alert>
@@ -156,7 +160,7 @@
 						type="text"
 						autocomplete="off"
 						bind:value={route_path}
-						disabled={!($userStore?.is_admin || $userStore?.is_super_admin) || !can_write}
+						disabled={!userCanEditConfig || !can_write}
 						class={routeError === ''
 							? ''
 							: 'border border-red-700 bg-red-100 border-opacity-30 focus:border-red-700 focus:border-opacity-30 focus-visible:ring-red-700 focus-visible:ring-opacity-25 focus-visible:border-red-700'}
@@ -170,9 +174,7 @@
 			<ToggleButtonGroup
 				class="w-auto"
 				bind:selected={http_method}
-				disabled={!($userStore?.is_admin || $userStore?.is_super_admin) ||
-					!can_write ||
-					!!static_asset_config}
+				disabled={!userCanEditConfig || !can_write || !!static_asset_config}
 				let:item
 				let:disabled
 			>
