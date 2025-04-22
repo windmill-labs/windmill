@@ -31,7 +31,7 @@
 		class?: string
 	}
 
-	let { resourceType, resourcePath, class: className = '' }: Props = $props()
+	let { resourceType, resourcePath }: Props = $props()
 
 	let dbSchema: DBSchema | undefined = $derived(
 		resourcePath in $dbSchemas ? $dbSchemas[resourcePath] : undefined
@@ -119,7 +119,9 @@
 />
 
 {#if !dbSchema || !$workspaceStore}
-	<Loader2 size={14} class="animate-spin" />
+	<Button size="xs" variant="border" spacingSize="xs2" btnClasses="mt-1 w-24" disabled>
+		<Loader2 size={14} class="animate-spin" />
+	</Button>
 {:else if shouldDisplayError}
 	<Alert type="error" size="xs" title="Schema not available" class="mt-2">
 		Schema could not be loaded. Please check the permissions of the resource.
@@ -128,9 +130,8 @@
 	<Button
 		size="xs"
 		variant="border"
-		color="blue"
 		spacingSize="xs2"
-		btnClasses={'mt-1 w-fit ' + className}
+		btnClasses="mt-1 w-24"
 		on:click={() => (isDrawerOpen = true)}
 	>
 		<Database size={18} /> Manager
