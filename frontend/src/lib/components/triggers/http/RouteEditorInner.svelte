@@ -192,13 +192,26 @@
 			signature_options_type = 'custom_signature'
 			raw_string = defaultValues?.raw_string ?? false
 			wrap_body = defaultValues?.wrap_body ?? false
+			toggleEditMode(true)
 		} finally {
 			clearTimeout(loader)
 			drawerLoading = false
 		}
 	}
 
-	const dispatch = createEventDispatcher()
+	const dispatch = createEventDispatcher<{
+		'update-config': {
+			route_path: string
+			http_method: string
+			raw_string: boolean
+			wrap_body: boolean
+			isValid: boolean
+		}
+		'toggle-edit-mode': boolean
+		update: string
+		focus: undefined
+		blur: undefined
+	}>()
 
 	async function loadTrigger(): Promise<void> {
 		const s = await HttpTriggerService.getHttpTrigger({
@@ -287,7 +300,7 @@
 		if (!$usedTriggerKinds.includes('http')) {
 			$usedTriggerKinds = [...$usedTriggerKinds, 'http']
 		}
-		dispatch('update', !edit)
+		dispatch('update', path)
 		drawer?.closeDrawer()
 		toggleEditMode(false)
 	}

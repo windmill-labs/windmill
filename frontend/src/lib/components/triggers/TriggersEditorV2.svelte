@@ -112,14 +112,13 @@
 										config = detail
 									}}
 									on:update={({ detail }) => {
-										fetchHttpTriggersUtil(triggers, $workspaceStore, currentPath, isFlow)
-
-										if (detail) {
-											deleteDraft(triggers, $selectedTrigger)
-											if ($triggers.length > 0) {
-												$selectedTrigger = $triggers[$triggers.length - 1]
-											}
+										if ($selectedTrigger?.isDraft) {
+											$selectedTrigger.isDraft = false
 										}
+										if ($selectedTrigger) {
+											$selectedTrigger.path = detail
+										}
+										fetchHttpTriggersUtil(triggers, $workspaceStore, currentPath, isFlow)
 									}}
 									on:toggle-edit-mode={({ detail }) => {
 										editTrigger = detail ? $selectedTrigger : undefined
