@@ -46,6 +46,7 @@
 		resourcePath && resourcePath in $dbSchemas && !$dbSchemas[resourcePath]
 	)
 
+	// `refreshCount` is a derived state. `refreshing` is the source of truth
 	let refreshCount = $state(0)
 	$effect(() => {
 		if (refreshing) untrack(() => (refreshCount += 1))
@@ -65,6 +66,7 @@
 	async function getSchema() {
 		if ($dbSchemas[resourcePath] && !refreshing) return
 		try {
+			const oldDbSchema = $dbSchemas[resourcePath]
 			await getDbSchemas(
 				resourceType,
 				resourcePath,
@@ -76,7 +78,9 @@
 					}
 				}
 			)
-			$dbSchemas = $dbSchemas
+			// avoid infinite loop on error due to the way getDbSchemas is implemented
+			// and relying on an assignement side effect
+			if (oldDbSchema !== $dbSchemas[resourcePath]) $dbSchemas = $dbSchemas
 		} catch (e) {
 			console.error(e)
 		} finally {
@@ -110,7 +114,6 @@
 	bind:innerWidth={windowWidth}
 	onkeydown={(e) => {
 		if (e.key === 'Escape') {
-			console.log('Escape pressed')
 			if (replResultData) {
 				replResultData = undefined
 			}
