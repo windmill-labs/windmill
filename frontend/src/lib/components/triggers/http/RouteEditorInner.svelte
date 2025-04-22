@@ -38,7 +38,8 @@
 		saveDisabled = false,
 		description = undefined,
 		useEditButton = false,
-		showCapture = false
+		showCapture = false,
+		editMode = false
 	} = $props()
 
 	// Form data state
@@ -78,7 +79,6 @@
 	let variablePicker = $state<ItemPicker | null>(null)
 	let variableEditor = $state<VariableEditor | null>(null)
 	let drawer = $state<Drawer | null>(null)
-	let editMode = $state(false)
 	let resetEditMode = $state<(() => void) | null>(null)
 
 	// Use $derived for computed values
@@ -136,8 +136,8 @@
 		}
 	]
 
-	export async function openEdit(ePath: string, isFlow: boolean, isEditing: boolean = true) {
-		resetEditMode = () => openEdit(ePath, isFlow, false)
+	export async function openEdit(ePath: string, isFlow: boolean) {
+		resetEditMode = () => openEdit(ePath, isFlow)
 		let loader = setTimeout(() => {
 			drawerLoading = true
 		}, 100) // if loading takes less than 100ms, we don't show the loader
@@ -147,7 +147,6 @@
 			path = ePath
 			itemKind = isFlow ? 'flow' : 'script'
 			edit = true
-			editMode = isEditing
 			dirtyPath = false
 			dirtyRoutePath = false
 			await loadTrigger()
@@ -172,7 +171,6 @@
 			drawer?.openDrawer()
 			is_flow = nis_flow
 			edit = false
-			editMode = true
 			itemKind = nis_flow ? 'flow' : 'script'
 			is_async = false
 			authentication_method = 'none'
@@ -291,7 +289,7 @@
 		}
 		dispatch('update', !edit)
 		drawer?.closeDrawer()
-		editMode = false
+		toggleEditMode(false)
 	}
 
 	$effect(() => {
@@ -314,6 +312,10 @@
 			(static_asset_config && emptyString(static_asset_config.s3)) ||
 			!can_write
 	})
+
+	function toggleEditMode(newValue: boolean) {
+		dispatch('toggle-edit-mode', newValue)
+	}
 </script>
 
 {#if static_asset_config}
@@ -702,7 +704,12 @@
 				</Button>
 			{/if}
 			{#if useEditButton && !editMode}
-				<Button {size} color="light" startIcon={{ icon: Pen }} on:click={() => (editMode = true)}>
+				<Button
+					{size}
+					color="light"
+					startIcon={{ icon: Pen }}
+					on:click={() => toggleEditMode(true)}
+				>
 					Edit
 				</Button>
 			{:else if useEditButton && editMode && !!resetEditMode}
@@ -711,7 +718,7 @@
 					color="light"
 					startIcon={{ icon: X }}
 					on:click={() => {
-						editMode = false
+						toggleEditMode(false)
 						resetEditMode?.()
 					}}
 				>

@@ -20,20 +20,21 @@
 		select: Trigger
 		delete: Trigger
 		deleteDraft: { trigger: Trigger | undefined; keepSelection: boolean }
+		edit: Trigger
 	}>()
 
-	const deleteTriggerItems: Item[] = [
+	const deleteTriggerItems = (trigger: Trigger): Item[] => [
 		{
 			displayName: 'Edit',
 			action: () => {
-				console.log('edit trigger')
+				dispatch('edit', trigger)
 			},
 			icon: Pen
 		},
 		{
 			displayName: 'Delete',
 			action: () => {
-				console.log('delete trigger')
+				dispatch('delete', trigger)
 			},
 			icon: Trash,
 			type: 'delete'
@@ -128,7 +129,7 @@
 									/>
 								{:else}
 									<DropdownV2
-										items={deleteTriggerItems}
+										items={deleteTriggerItems(trigger)}
 										placement="bottom-end"
 										class="w-fit h-fit px-3"
 									>

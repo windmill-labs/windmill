@@ -37,6 +37,7 @@
 	export let hasPreprocessor: boolean = false
 
 	let config: Record<string, any> = {}
+	let editTrigger: Trigger | undefined = undefined
 
 	const {
 		simplifiedPoll,
@@ -60,6 +61,14 @@
 	$: if ($selectedTrigger) {
 		captureKind = triggerTypeToCaptureKind($selectedTrigger.type)
 	}
+
+	function updateEditTrigger(trigger: Trigger | undefined) {
+		if (editTrigger !== trigger) {
+			editTrigger = undefined
+		}
+	}
+
+	$: updateEditTrigger($selectedTrigger)
 </script>
 
 <FlowCard {noEditor} title="Triggers">
@@ -83,6 +92,10 @@
 									$selectedTrigger = $triggers[$triggers.length - 1]
 								}
 							}}
+							on:edit={({ detail }) => {
+								editTrigger = detail
+								$selectedTrigger = detail
+							}}
 						/>
 					</div>
 
@@ -94,6 +107,7 @@
 									selectedTrigger={$selectedTrigger}
 									{isFlow}
 									path={initialPath || fakeInitialPath}
+									edit={editTrigger === $selectedTrigger}
 									on:update-config={({ detail }) => {
 										config = detail
 									}}
@@ -106,6 +120,9 @@
 												$selectedTrigger = $triggers[$triggers.length - 1]
 											}
 										}
+									}}
+									on:toggle-edit-mode={({ detail }) => {
+										editTrigger = detail ? $selectedTrigger : undefined
 									}}
 								/>
 							{:else if $selectedTrigger.type === 'webhook'}
