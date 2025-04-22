@@ -1,9 +1,10 @@
 <script lang="ts">
 	import ScheduleEditor from './ScheduleEditor.svelte'
 	import Description from '$lib/components/Description.svelte'
+	import { Alert } from '$lib/components/common'
 
 	let scheduleEditor = $state<ScheduleEditor | null>(null)
-	let { selectedTrigger, isFlow, path } = $props()
+	let { selectedTrigger, isFlow, path, isDeployed = false } = $props()
 
 	function openScheduleEditor(isFlow: boolean, isDraft: boolean) {
 		if (isDraft) {
@@ -29,12 +30,23 @@
 	on:update
 	hideTarget
 	useEditButton
+	preventSave={!isDeployed}
 >
 	{#snippet description()}
-		<Description link="https://www.windmill.dev/docs/core_concepts/scheduling" class="mb-4">
-			Run scripts and flows automatically on a recurring basis using cron expressions. Each script
-			or flow can have multiple schedules, with one designated as primary.
-		</Description>
+		<div class="flex flex-col gap-2 pb-4">
+			<Description link="https://www.windmill.dev/docs/core_concepts/scheduling">
+				Run scripts and flows automatically on a recurring basis using cron expressions. Each script
+				or flow can have multiple schedules, with one designated as primary.
+			</Description>
+
+			{#if !isDeployed}
+				<Alert
+					title={`Deploy the ${isFlow ? 'flow' : 'script'} to save the schedule`}
+					type="info"
+					size="xs"
+				/>
+			{/if}
+		</div>
 	{/snippet}
 </ScheduleEditor>
 <!-- hideTarget

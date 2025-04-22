@@ -35,7 +35,8 @@
 		useDrawer = true,
 		hideTarget = false,
 		useEditButton = false,
-		docDescription = undefined
+		docDescription = undefined,
+		preventSave = false
 	} = $props()
 
 	let optionTabSelected: 'error_handler' | 'recovery_handler' | 'success_handler' | 'retries' =
@@ -608,42 +609,44 @@
 			/>
 		{/if}
 	{/if}
-	{#if editMode}
-		<Button
-			startIcon={{ icon: Save }}
-			disabled={!allowSchedule ||
-				pathError != '' ||
-				emptyString(script_path) ||
-				(errorHandlerSelected == 'slack' &&
-					!emptyString(errorHandlerPath) &&
-					emptyString(errorHandlerExtraArgs['channel'])) ||
-				!can_write ||
-				!editMode}
-			on:click={() => {
-				scheduleScript()
-				if (editMode && useEditButton) {
+	{#if !preventSave}
+		{#if editMode}
+			<Button
+				startIcon={{ icon: Save }}
+				disabled={!allowSchedule ||
+					pathError != '' ||
+					emptyString(script_path) ||
+					(errorHandlerSelected == 'slack' &&
+						!emptyString(errorHandlerPath) &&
+						emptyString(errorHandlerExtraArgs['channel'])) ||
+					!can_write ||
+					!editMode}
+				on:click={() => {
+					scheduleScript()
+					if (editMode && useEditButton) {
+						editMode = false
+					}
+				}}
+				{size}
+			>
+				{edit ? 'Save' : 'Schedule'}
+			</Button>
+		{/if}
+		{#if useEditButton && !editMode}
+			<Button {size} color="light" on:click={() => (editMode = true)} startIcon={{ icon: Pen }}
+				>Edit</Button
+			>
+		{:else if useEditButton && editMode}
+			<Button
+				{size}
+				on:click={() => {
 					editMode = false
-				}
-			}}
-			{size}
-		>
-			{edit ? 'Save' : 'Schedule'}
-		</Button>
-	{/if}
-	{#if useEditButton && !editMode}
-		<Button {size} color="light" on:click={() => (editMode = true)} startIcon={{ icon: Pen }}
-			>Edit</Button
-		>
-	{:else if useEditButton && editMode}
-		<Button
-			{size}
-			on:click={() => {
-				editMode = false
-				resetEditMode()
-			}}
-			startIcon={{ icon: X }}
-			color="light">Cancel</Button
-		>
+					resetEditMode()
+				}}
+				startIcon={{ icon: X }}
+				color="light">Cancel</Button
+			>
+		{/if}
 	{/if}
 {/snippet}
 

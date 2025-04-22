@@ -6,6 +6,7 @@
 	export let hideTarget = false
 	export let useEditButton = false
 	export let description: undefined | (() => any) = undefined
+	export let preventSave = false
 
 	let open = false
 	export async function openEdit(ePath: string, isFlow: boolean, editing: boolean = true) {
@@ -31,5 +32,6 @@
 		{hideTarget}
 		{useEditButton}
 		docDescription={description}
+		{preventSave}
 	/>
 {/if}

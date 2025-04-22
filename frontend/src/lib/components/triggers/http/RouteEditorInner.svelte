@@ -326,8 +326,7 @@
 			pathError != '' ||
 			!isValid ||
 			(!static_asset_config && emptyString(script_path)) ||
-			(static_asset_config && emptyString(static_asset_config.s3)) ||
-			preventSave
+			(!!static_asset_config && emptyString(static_asset_config.s3))
 	})
 
 	function toggleEditMode(newValue: boolean) {
@@ -715,7 +714,7 @@
 
 {#snippet saveButton(size: 'xs' | 'sm' = 'xs')}
 	<div class="flex flex-row gap-2 items-center">
-		{#if !drawerLoading && can_write && (isAdmin || edit)}
+		{#if !drawerLoading && can_write && (isAdmin || edit) && !preventSave}
 			{#if editMode}
 				<Button {size} startIcon={{ icon: Save }} disabled={saveDisabled} on:click={triggerScript}>
 					Save
