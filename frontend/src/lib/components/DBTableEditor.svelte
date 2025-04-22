@@ -20,7 +20,7 @@
 </script>
 
 <script lang="ts">
-	import { ClipboardCopy, Info, Plus, Settings, X } from 'lucide-svelte'
+	import { ArrowRight, ClipboardCopy, Info, Plus, Settings, X } from 'lucide-svelte'
 
 	import { Button } from './common'
 	import { Cell } from './table'
@@ -107,12 +107,14 @@
 										type="text"
 										class={'h-10 ' +
 											(errors?.columns?.includes(column.name) ? 'border !border-red-600/60' : '')}
+										style="height: 2rem;"
 										placeholder="column_name"
 										bind:value={column.name}
 									/>
 								</Cell>
 								<Cell>
 									<Select
+										containerStyles="--height: 2rem;"
 										class="!w-48"
 										value={column.datatype}
 										on:change={(e) => {
@@ -127,7 +129,7 @@
 										clearable={false}
 									/>
 								</Cell>
-								<Cell last class="flex items-center mt-3">
+								<Cell last class="flex items-center mt-1.5">
 									<input type="checkbox" class="!w-4 !h-4" bind:checked={column.primaryKey} />
 									<Popover class="ml-8" contentClasses="py-3 px-5 flex flex-col gap-6">
 										{#snippet trigger()}
@@ -186,6 +188,94 @@
 									startIcon={{ icon: Plus }}
 									color="light"
 									on:click={() => addColumn({ name: '' })}
+								>
+									Add
+								</Button>
+							</td>
+						</tr>
+					</tbody>
+				</DataTable>
+			</div>
+		</label>
+		<label>
+			Foreign Keys
+			<div>
+				<DataTable>
+					<Head>
+						<tr>
+							<Cell head first>Table</Cell>
+							<Cell head>Columns</Cell>
+							<Cell head last></Cell>
+						</tr>
+					</Head>
+					<tbody class="divide-y bg-surface">
+						{#each [1, 2] as _}
+							<tr>
+								<Cell first class="flex">
+									<Select
+										containerStyles="--height: 2rem;"
+										class="!w-48"
+										placeholder=""
+										value={''}
+										on:change={(e) => {}}
+										items={['a', 'b', 'c']}
+										clearable={false}
+									/>
+								</Cell>
+								<Cell>
+									<div class="flex flex-col gap-2 w-60">
+										<div class="flex items-center gap-1">
+											<Select
+												containerStyles="--height: 2rem;"
+												placeholder=""
+												value={''}
+												on:change={(e) => {}}
+												items={['a', 'b', 'c']}
+												clearable={false}
+											/>
+											<ArrowRight size={16} class="h-fit shrink-0" />
+											<Select
+												containerStyles="--height: 2rem;"
+												placeholder=""
+												value={''}
+												on:change={(e) => {}}
+												items={['a', 'b', 'c']}
+												clearable={false}
+											/>
+										</div>
+										<button
+											class="border-dashed border-2 rounded-md flex justify-center py-1 gap-2"
+										>
+											<Plus class="inline" size={16} /> Add
+										</button>
+									</div>
+								</Cell>
+								<Cell last class="flex mt-1.5">
+									<Popover class="ml-auto" contentClasses="py-3 px-5 flex flex-col gap-6">
+										{#snippet trigger()}
+											<Settings size={18} />
+										{/snippet}
+										{#snippet content()}
+											fdsdok
+										{/snippet}
+									</Popover>
+									<Button
+										color="light"
+										startIcon={{ icon: X }}
+										wrapperClasses="w-fit ml-2"
+										btnClasses="p-0"
+										on:click={() => {}}
+									/>
+								</Cell>
+							</tr>
+						{/each}
+						<tr class="w-full">
+							<td colspan={99} class="p-1">
+								<Button
+									wrapperClasses="mx-auto"
+									startIcon={{ icon: Plus }}
+									color="light"
+									on:click={() => {}}
 								>
 									Add
 								</Button>
