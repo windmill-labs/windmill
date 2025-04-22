@@ -103,27 +103,29 @@
 					{#if $selectedTrigger}
 						<div class="flex-grow overflow-auto px-2 pb-4 transition-all duration-200 ease-in-out">
 							{#if $selectedTrigger.type === 'http'}
-								<RoutesPanel
-									selectedTrigger={$selectedTrigger}
-									{isFlow}
-									path={initialPath || fakeInitialPath}
-									edit={editTrigger === $selectedTrigger}
-									on:update-config={({ detail }) => {
-										config = detail
-									}}
-									on:update={({ detail }) => {
-										if ($selectedTrigger?.isDraft) {
-											$selectedTrigger.isDraft = false
-										}
-										if ($selectedTrigger) {
-											$selectedTrigger.path = detail
-										}
-										fetchHttpTriggersUtil(triggers, $workspaceStore, currentPath, isFlow)
-									}}
-									on:toggle-edit-mode={({ detail }) => {
-										editTrigger = detail ? $selectedTrigger : undefined
-									}}
-								/>
+								{#key $selectedTrigger.path}
+									<RoutesPanel
+										selectedTrigger={$selectedTrigger}
+										{isFlow}
+										path={initialPath || fakeInitialPath}
+										edit={editTrigger === $selectedTrigger}
+										on:update-config={({ detail }) => {
+											config = detail
+										}}
+										on:update={({ detail }) => {
+											if ($selectedTrigger?.isDraft) {
+												$selectedTrigger.isDraft = false
+											}
+											if ($selectedTrigger) {
+												$selectedTrigger.path = detail
+											}
+											fetchHttpTriggersUtil(triggers, $workspaceStore, currentPath, isFlow)
+										}}
+										on:toggle-edit-mode={({ detail }) => {
+											editTrigger = detail ? $selectedTrigger : undefined
+										}}
+									/>
+								{/key}
 							{:else if $selectedTrigger.type === 'webhook'}
 								<WebhooksPanel
 									{isFlow}
