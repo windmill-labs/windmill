@@ -18,8 +18,6 @@
 			routeEditor &&
 			openRouteEditor(isFlow, selectedTrigger.isDraft ?? false)
 	})
-
-	$inspect('dbg inspect', selectedTrigger?.path)
 </script>
 
 <RouteEditorInner
