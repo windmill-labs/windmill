@@ -192,6 +192,8 @@
 		>
 			<DbTableEditor
 				{...dbTableEditorProps}
+				{dbSchema}
+				currentSchema={selected.schemaKey}
 				onConfirm={async (values) => {
 					await dbTableEditorProps.onConfirm(values)
 					dbTableEditorState = { open: false }

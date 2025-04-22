@@ -232,3 +232,16 @@ export const workspaceColor: Readable<string | null | undefined> = derived(
 		})
 	}
 )
+
+export function getFlatTableNamesFromSchema(dbSchema: DBSchema | undefined): string[] {
+	const schema = dbSchema?.schema ?? {}
+	const tableNames: string[] = []
+
+	for (const schemaKey in schema) {
+		for (const tableKey in schema[schemaKey]) {
+			tableNames.push(`${schemaKey}.${tableKey}`)
+		}
+	}
+
+	return tableNames
+}

@@ -16,6 +16,8 @@
 		onConfirm: (values: CreateTableValues) => void | Promise<void>
 		previewSql?: (values: CreateTableValues) => string
 		resourceType: DbType
+		dbSchema?: DBSchema
+		currentSchema?: string
 	}
 </script>
 
@@ -38,8 +40,10 @@
 	import ConfirmationModal from './common/confirmationModal/ConfirmationModal.svelte'
 	import { sendUserToast } from '$lib/toast'
 	import { copyToClipboard } from '$lib/utils'
+	import { getFlatTableNamesFromSchema, type DBSchema } from '$lib/stores'
 
-	const { onConfirm, resourceType, previewSql }: DBTableEditorProps = $props()
+	const { onConfirm, resourceType, previewSql, dbSchema, currentSchema }: DBTableEditorProps =
+		$props()
 
 	const columnTypes = DB_TYPES[resourceType]
 	const defaultColumnType = (
@@ -218,7 +222,13 @@
 										placeholder=""
 										value={foreignKey.targetTable}
 										on:change={(e) => (foreignKey.targetTable = e.detail.value)}
-										items={['a', 'b', 'c']}
+										items={getFlatTableNamesFromSchema(dbSchema).map((o) => ({
+											value: o,
+											label:
+												currentSchema && o.startsWith(currentSchema)
+													? o.substring(currentSchema.length + 1)
+													: o
+										}))}
 										clearable={false}
 									/>
 								</Cell>
@@ -232,7 +242,7 @@
 														placeholder=""
 														value={column.sourceColumn}
 														on:change={(e) => (column.sourceColumn = e.detail.value)}
-														items={['a', 'b', 'c']}
+														items={values.columns.map((c) => c.name)}
 														clearable={false}
 													/>
 													<ArrowRight size={16} class="h-fit shrink-0" />
@@ -241,7 +251,11 @@
 														placeholder=""
 														value={column.targetColumn}
 														on:change={(e) => (column.targetColumn = e.detail.value)}
-														items={['a', 'b', 'c']}
+														items={Object.keys(
+															dbSchema?.schema?.[foreignKey.targetTable?.split('.')?.[0] ?? '']?.[
+																foreignKey.targetTable?.split('.')[1]
+															] ?? {}
+														)}
 														clearable={false}
 													/>
 												</div>
