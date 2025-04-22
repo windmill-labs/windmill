@@ -212,8 +212,8 @@
 	</svelte:fragment>
 
 	<Description link="https://www.windmill.dev/docs/core_concepts/scheduling">
-		Run scripts and flows automatically on a recurring basis using cron expressions. Each script or
-		flow can have multiple schedules, with one designated as primary.
+		Run scripts and flows automatically on a recurring basis using cron expressions. The primary
+		schedule shares the path of the script or flow.
 	</Description>
 
 	<ScheduleEditor
@@ -256,7 +256,7 @@
 			<p class="text-xs text-tertiary mt-10">Define a schedule frequency first</p>
 		{/if}
 
-		{#if $primarySchedule && !newItem}
+		{#if $scheduleIsDeployed}
 			<div class="flex">
 				<Button
 					size="sm"
