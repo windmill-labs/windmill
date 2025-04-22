@@ -70,6 +70,7 @@
 			}}
 			on:addDraftTrigger={(e) => {
 				const newTrigger = addDraftTrigger(triggers, e.detail, !!$primarySchedule)
+				data?.eventHandlers?.select('triggers')
 				$selectedTriggerV2 = newTrigger
 			}}
 			selected={$selectedId == 'triggers'}
