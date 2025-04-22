@@ -1,12 +1,37 @@
 <script lang="ts" module>
-	function validate(values: CreateTableValues) {
+	function validate(values: CreateTableValues, dbSchema?: DBSchema) {
 		const columnNamesErrs = values.columns.flatMap((column) => {
 			const isUnique = values.columns.filter((c) => c.name === column.name).length === 1
 			return !column.name.length || !isUnique ? [column.name] : []
 		})
+		const fkErrs = values.foreignKeys.map((fk) => ({
+			emptyTarget: !fk.targetTable,
+			nonExistingSourceColumns: fk.columns
+				.map((c) => c.sourceColumn)
+				.filter((sc) => values.columns.every((c) => c.name !== sc)),
+			nonExistingTargetColumns: fk.columns
+				.map((c) => c.targetColumn)
+				.filter(
+					(tc) =>
+						!tc ||
+						!Object.keys(
+							dbSchema?.schema?.[fk.targetTable?.split('.')?.[0] ?? '']?.[
+								fk.targetTable?.split('.')[1]
+							] ?? {}
+						).includes(tc)
+				)
+		}))
+		const someFkErr = fkErrs.some(
+			(fkErr) =>
+				fkErr.emptyTarget ||
+				fkErr.nonExistingSourceColumns.length ||
+				fkErr.nonExistingTargetColumns.length
+		)
+
 		const errs = {
 			name: !values.name.length,
-			columns: columnNamesErrs.length ? columnNamesErrs : undefined
+			columns: columnNamesErrs.length ? columnNamesErrs : undefined,
+			foreignKeys: someFkErr ? fkErrs : undefined
 		}
 		if (Object.values(errs).every((v) => !v)) return undefined
 		return errs
@@ -45,6 +70,7 @@
 	import { sendUserToast } from '$lib/toast'
 	import { copyToClipboard } from '$lib/utils'
 	import { getFlatTableNamesFromSchema, type DBSchema } from '$lib/stores'
+	import { twMerge } from 'tailwind-merge'
 
 	const { onConfirm, resourceType, previewSql, dbSchema, currentSchema }: DBTableEditorProps =
 		$props()
@@ -78,7 +104,7 @@
 	}
 	addColumn({ name: 'id', primaryKey: true })
 
-	const errors: ReturnType<typeof validate> = $derived(validate(values))
+	const errors: ReturnType<typeof validate> = $derived(validate(values, dbSchema))
 
 	let askingForConfirmation:
 		| (ConfirmationModal['$$prop_def'] & { onConfirm: () => void; codeContent?: string })
@@ -218,11 +244,15 @@
 					</Head>
 					<tbody class="divide-y bg-surface">
 						{#each values.foreignKeys as foreignKey, foreignKeyIndex}
+							{@const fkErrors = errors?.foreignKeys[foreignKeyIndex]}
 							<tr>
 								<Cell first class="flex">
 									<Select
 										containerStyles="--height: 2rem;"
-										class="!w-48"
+										class={twMerge(
+											'!w-48',
+											fkErrors?.emptyTarget ? 'border !border-red-600/60' : ''
+										)}
 										placeholder=""
 										value={foreignKey.targetTable}
 										on:change={(e) => (foreignKey.targetTable = e.detail.value)}
@@ -244,6 +274,9 @@
 												<div class="flex items-center gap-1 w-60">
 													<Select
 														containerStyles="--height: 2rem;"
+														class={fkErrors?.nonExistingSourceColumns.includes(column.sourceColumn)
+															? 'border !border-red-600/60'
+															: ''}
 														placeholder=""
 														value={column.sourceColumn}
 														on:change={(e) => (column.sourceColumn = e.detail.value)}
@@ -253,6 +286,9 @@
 													<ArrowRight size={16} class="h-fit shrink-0" />
 													<Select
 														containerStyles="--height: 2rem;"
+														class={fkErrors?.nonExistingTargetColumns.includes(column.targetColumn)
+															? 'border !border-red-600/60'
+															: ''}
 														placeholder=""
 														value={column.targetColumn}
 														on:change={(e) => (column.targetColumn = e.detail.value)}
