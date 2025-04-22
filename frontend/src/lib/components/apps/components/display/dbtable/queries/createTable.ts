@@ -41,9 +41,26 @@ export function makeCreateTableQuery(
 		return str
 	}
 
+	function transformFk(fk: CreateTableValues['foreignKeys'][number]): string {
+		const sourceColumns = fk.columns.map((c) => c.sourceColumn).filter(Boolean)
+		const targetColumns = fk.columns.map((c) => c.targetColumn).filter(Boolean)
+		const targetTable =
+			useSchema || !fk.targetTable?.includes('.')
+				? fk.targetTable
+				: fk.targetTable?.split('.').pop()
+
+		let l = `  FOREIGN KEY (${sourceColumns.join(', ')}) REFERENCES ${targetTable} (${targetColumns.join(
+			', '
+		)})`
+		if (fk.onDelete !== 'NO ACTION') l += ` ON DELETE ${fk.onDelete}`
+		if (fk.onUpdate !== 'NO ACTION') l += ` ON UPDATE ${fk.onUpdate}`
+		return l
+	}
+
 	const useSchema = dbSupportsSchemas(resourceType)
 
 	const lines = values.columns.map(transformColumn)
+	lines.push(...values.foreignKeys.map(transformFk))
 	if (pkCount > 1) {
 		const pks = values.columns.filter((c) => c.primaryKey)
 		lines.push(`  PRIMARY KEY (${pks.map((c) => c.name).join(', ')})`)

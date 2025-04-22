@@ -28,7 +28,11 @@
 	import { Cell } from './table'
 	import DataTable from './table/DataTable.svelte'
 	import Head from './table/Head.svelte'
-	import { datatypeHasLength, type DbType } from './apps/components/display/dbtable/utils'
+	import {
+		datatypeHasLength,
+		dbSupportsSchemas,
+		type DbType
+	} from './apps/components/display/dbtable/utils'
 	import { DB_TYPES } from '$lib/consts'
 	import Select from './apps/svelte-select/lib/Select.svelte'
 	import Popover from './meltComponents/Popover.svelte'
@@ -225,8 +229,9 @@
 										items={getFlatTableNamesFromSchema(dbSchema).map((o) => ({
 											value: o,
 											label:
-												currentSchema && o.startsWith(currentSchema)
-													? o.substring(currentSchema.length + 1)
+												(currentSchema && o.startsWith(currentSchema)) ||
+												!dbSupportsSchemas(resourceType)
+													? o.split('.')[1]
 													: o
 										}))}
 										clearable={false}
