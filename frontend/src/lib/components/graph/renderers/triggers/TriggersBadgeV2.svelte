@@ -161,7 +161,7 @@
 		<MeltButton
 			class={twMerge(
 				'hover:bg-surface-hover rounded-md shadow-sm text-xs w-[23px] h-[23px] relative center-center cursor-pointer bg-surface',
-				'dark:outline outline-1 outline-offset-[-1px] outline-tertiary/20',
+				'dark:outline outline-1 outline-offset-[-1px] outline-tertiary/20 group',
 				isSelected ? 'outline-tertiary outline' : ''
 			)}
 			on:click={() => {
@@ -175,7 +175,10 @@
 				{@const count = $triggersCount?.[countKey]}
 				{#if count && count > 0}
 					<div
-						class="absolute -right-1 -top-1 z-10 bg-surface-secondary-inverse bg-opacity-80 rounded-sm shadow-lg h-3 w-3 flex center-center text-primary-inverse text-[10px] font-mono"
+						class={twMerge(
+							'absolute -right-1 -top-1 z-10 bg-surface-secondary-inverse bg-opacity-40 group-hover:bg-opacity-80 transition-all duration-100',
+							'rounded-sm shadow-lg h-3 w-3 flex center-center text-primary-inverse text-[8px] font-mono'
+						)}
 					>
 						{#if count === undefined}
 							<Loader2 class="animate-spin text-2xs" />
