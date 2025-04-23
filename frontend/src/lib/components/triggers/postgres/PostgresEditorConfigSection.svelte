@@ -37,7 +37,7 @@
 	function updateValidity(publication: PublicationData) {
 		isValid =
 			!emptyString(postgres_resource_path) &&
-			(!publication.table_to_track || publication.table_to_track.length === 0)
+			(!publication.table_to_track || publication.table_to_track.length !== 0)
 	}
 
 	$: updateValidity(publication)
