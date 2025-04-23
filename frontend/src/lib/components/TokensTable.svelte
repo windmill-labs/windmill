@@ -85,7 +85,7 @@
 				newToken = `${createdToken}`
 			}
 
-			dispatch('tokenCreated', newToken)
+			dispatch('tokenCreated', newToken ?? newMcpToken)
 			onListTokens()
 			mcpCreationMode = false
 			displayCreateToken = false
