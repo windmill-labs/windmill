@@ -619,6 +619,7 @@ pub async fn run_server(
                         Router::new()
                     }
                 })
+                .layer(from_extractor::<OptAuthed>())
                 .nest(
                     "/w/:workspace_id/jobs_u",
                     jobs::workspace_unauthed_service().layer(cors.clone()),

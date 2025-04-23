@@ -48,6 +48,7 @@ struct SchemaProperty {
     #[serde(skip_serializing_if = "Option::is_none")]
     r#type: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[allow(non_snake_case)]
     oneOf: Option<Vec<Value>>,
     #[serde(flatten)]
     other: HashMap<String, Value>,
@@ -336,7 +337,7 @@ impl Runner {
 
                         prop.r#type = Some("string".to_string());
                         prop.description = Some(format!(
-                            "This is a resource named {} with the following description: {}.\n                        The path of the resource should be used to specify the resource.\n                        {}",
+                            "This is a resource named {} with the following description: {}.\nThe path of the resource should be used to specify the resource.\n{}",
                             resource_cache.resource_type.name,
                             resource_cache.resource_type.description.as_deref().unwrap_or("No description"),
                             if resources_count == 0 {
