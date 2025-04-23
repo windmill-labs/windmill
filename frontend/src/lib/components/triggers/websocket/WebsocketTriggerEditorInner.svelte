@@ -265,62 +265,64 @@
 
 {#snippet actionsButtons(size: 'xs' | 'sm' = 'sm')}
 	{#if !drawerLoading}
-		{#if edit}
-			<div class="mr-8 center-center -mt-1">
-				<Toggle
-					{size}
-					disabled={!can_write || !editMode}
-					checked={enabled}
-					options={{ right: 'enable', left: 'disable' }}
-					on:change={async (e) => {
-						await WebsocketTriggerService.setWebsocketTriggerEnabled({
-							path: initialPath,
-							workspace: $workspaceStore ?? '',
-							requestBody: { enabled: e.detail }
-						})
-						sendUserToast(`${e.detail ? 'enabled' : 'disabled'} websocket trigger ${initialPath}`)
-					}}
-				/>
-			</div>
-		{/if}
-		{#if !preventSave}
-			{#if can_write && editMode}
-				<Button
-					{size}
-					startIcon={{ icon: Save }}
-					disabled={pathError != '' ||
-						!isValid ||
-						invalidInitialMessages ||
-						emptyString(script_path) ||
-						!can_write}
-					on:click={updateTrigger}
-				>
-					Save
-				</Button>
+		<div class="flex flex-row gap-2 items-center">
+			{#if edit}
+				<div class="center-center">
+					<Toggle
+						{size}
+						disabled={!can_write || !editMode}
+						checked={enabled}
+						options={{ right: 'enable', left: 'disable' }}
+						on:change={async (e) => {
+							await WebsocketTriggerService.setWebsocketTriggerEnabled({
+								path: initialPath,
+								workspace: $workspaceStore ?? '',
+								requestBody: { enabled: e.detail }
+							})
+							sendUserToast(`${e.detail ? 'enabled' : 'disabled'} websocket trigger ${initialPath}`)
+						}}
+					/>
+				</div>
 			{/if}
-			{#if !editMode && can_write}
-				<Button
-					{size}
-					color="light"
-					startIcon={{ icon: Pen }}
-					on:click={() => toggleEditMode(true)}
-				>
-					Edit
-				</Button>
-			{:else if editMode && !!resetEditMode}
-				<Button
-					{size}
-					color="light"
-					startIcon={{ icon: X }}
-					on:click={() => {
-						toggleEditMode(false)
-						resetEditMode?.()
-					}}
-				>
-					Cancel
-				</Button>
+			{#if !preventSave}
+				{#if can_write && editMode}
+					<Button
+						{size}
+						startIcon={{ icon: Save }}
+						disabled={pathError != '' ||
+							!isValid ||
+							invalidInitialMessages ||
+							emptyString(script_path) ||
+							!can_write}
+						on:click={updateTrigger}
+					>
+						Save
+					</Button>
+				{/if}
+				{#if !editMode && can_write}
+					<Button
+						{size}
+						color="light"
+						startIcon={{ icon: Pen }}
+						on:click={() => toggleEditMode(true)}
+					>
+						Edit
+					</Button>
+				{:else if editMode && !!resetEditMode}
+					<Button
+						{size}
+						color="light"
+						startIcon={{ icon: X }}
+						on:click={() => {
+							toggleEditMode(false)
+							resetEditMode?.()
+						}}
+					>
+						Cancel
+					</Button>
+				{/if}
 			{/if}
-		{/if}
+		</div>
 	{/if}
 {/snippet}
 
