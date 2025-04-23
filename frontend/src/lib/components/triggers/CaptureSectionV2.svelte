@@ -22,7 +22,6 @@
 	import { createEventDispatcher, onDestroy, getContext, onMount } from 'svelte'
 	import type { CaptureTriggerKind, Capture } from '$lib/gen'
 	import CaptureIcon from './CaptureIcon.svelte'
-	import Tooltip from '../Tooltip.svelte'
 	import type { TriggerContext } from '$lib/components/triggers'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import { Popover } from '$lib/components/meltComponents'
@@ -241,13 +240,6 @@
 					<div class="absolute top-1/2 -translate-y-1/2 -right-5">
 						{#if captureInfo.active}
 							<ConnectionIndicator connectionInfo={captureInfo.connectionInfo} />
-						{:else}
-							<!-- TODO: add tooltip  directly on hover the button-->
-							<Tooltip>
-								Start capturing to test your runnables with real data. Once active, all incoming
-								payloads will be captured and displayed on the right pane, allowing you to test your
-								runnables effectively.
-							</Tooltip>
 						{/if}
 					</div>
 				</div>
