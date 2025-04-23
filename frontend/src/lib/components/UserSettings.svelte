@@ -23,7 +23,7 @@
 	export let newTokenLabel: string | undefined = undefined
 	export let newTokenWorkspace: string | undefined = undefined
 	export let newToken: string | undefined = undefined
-	export let showMcpCreation: boolean = false
+	export let showMcpMode: boolean = false
 
 	let newPassword: string | undefined
 	let passwordError: string | undefined
@@ -31,10 +31,12 @@
 	let login_type = 'none'
 	let drawer: Drawer
 	let tokenPage = 1
+	let openWithMcpMode = false
 
 	const dispatch = createEventDispatcher()
 
-	export function openDrawer() {
+	export function openDrawer(mcpMode: boolean = false) {
+		openWithMcpMode = mcpMode
 		loadLoginType()
 		listTokens()
 		drawer?.openDrawer()
@@ -220,7 +222,8 @@
 
 				<TokensTable
 					{tokens}
-					{showMcpCreation}
+					{showMcpMode}
+					{openWithMcpMode}
 					defaultNewTokenLabel={newTokenLabel}
 					defaultNewTokenWorkspace={newTokenWorkspace}
 					onDeleteToken={deleteToken}

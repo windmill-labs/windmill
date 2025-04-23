@@ -70,8 +70,9 @@
 	$: $page.url && onQueryChange()
 
 	function onQueryChangeUserSettings() {
-		if (userSettings && $page.url.hash === USER_SETTINGS_HASH) {
-			userSettings.openDrawer()
+		if (userSettings && $page.url.hash.startsWith(USER_SETTINGS_HASH)) {
+			const mcpMode = $page.url.hash.includes('-mcp')
+			userSettings.openDrawer(mcpMode)
 		}
 	}
 
@@ -348,7 +349,7 @@
 
 <svelte:window bind:innerWidth />
 
-<UserSettings bind:this={userSettings} showMcpCreation={true} />
+<UserSettings bind:this={userSettings} showMcpMode={true} />
 {#if $page.status == 404}
 	<CenteredModal title="Page not found, redirecting you to login">
 		<div class="w-full">

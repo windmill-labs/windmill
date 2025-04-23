@@ -15,7 +15,8 @@
 	// --- Props ---
 	interface Props {
 		tokens?: TruncatedToken[]
-		showMcpCreation?: boolean
+		showMcpMode?: boolean
+		openWithMcpMode?: boolean
 		defaultNewTokenLabel?: string
 		defaultNewTokenWorkspace?: string
 		onDeleteToken: (tokenPrefix: string) => void
@@ -28,7 +29,8 @@
 
 	let {
 		tokens = [],
-		showMcpCreation = false,
+		showMcpMode = false,
+		openWithMcpMode = false,
 		onDeleteToken,
 		defaultNewTokenLabel,
 		defaultNewTokenWorkspace,
@@ -51,6 +53,12 @@
 
 	const mcpBaseUrl = $derived(`${window.location.origin}/api/w/${$workspaceStore}/mcp/sse?token=`)
 	const dispatch = createEventDispatcher()
+
+	$effect(() => {
+		if (openWithMcpMode === true) {
+			handleCreateClick('mcpUrl')
+		}
+	})
 
 	// --- Functions ---
 	async function createToken(): Promise<void> {
@@ -99,7 +107,7 @@
 
 	function handleCreateClick(type: 'token' | 'mcpUrl') {
 		mcpCreationMode = type === 'mcpUrl'
-		displayCreateToken = type === 'token'
+		displayCreateToken = true
 		newMcpToken = undefined
 		newToken = undefined
 		newTokenExpiration = undefined
@@ -176,7 +184,7 @@
 					</div>
 				{/each}
 			{/if}
-			{#if showMcpCreation}
+			{#if showMcpMode}
 				<Toggle
 					on:change={(e) => {
 						mcpCreationMode = e.detail
@@ -192,6 +200,7 @@
 							'Generate a new MCP URL to make your scripts and flows available as tools.'
 					}}
 					class="mb-4"
+					size="xs"
 				/>
 			{/if}
 			<div class="flex flex-row flex-wrap gap-x-2 w-full justify-between">
