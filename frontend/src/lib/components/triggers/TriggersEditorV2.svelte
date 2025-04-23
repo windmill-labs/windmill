@@ -258,7 +258,11 @@
 					<div class="h-full w-full overflow-auto px-4" style="scrollbar-gutter: stable">
 						{#if $selectedTrigger && $selectedTrigger?.type && captureKind}
 							{#key captureKind}
-								<div in:fade={{ duration: 100, delay: 100 }} out:fade={{ duration: 100 }}>
+								<div
+									in:fade={{ duration: 100, delay: 100 }}
+									out:fade={{ duration: 100 }}
+									class="h-full w-full"
+								>
 									{#if captureKind === 'webhook'}
 										<CaptureWrapper
 											path={initialPath || fakeInitialPath}
