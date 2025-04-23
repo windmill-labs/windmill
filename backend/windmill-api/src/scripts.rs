@@ -40,6 +40,7 @@ use std::{
 };
 use windmill_audit::audit_ee::audit_log;
 use windmill_audit::ActionKind;
+use windmill_worker::process_relative_imports;
 
 use windmill_common::error::to_anyhow;
 
@@ -894,6 +895,25 @@ async fn create_script_internal<'c>(
         .await?;
         Ok((hash, new_tx))
     } else {
+        if let Err(e) = process_relative_imports(
+            &db,
+            None,
+            None,
+            &w_id,
+            &ns.path,
+            p_path_opt.clone(),
+            ns.deployment_message.clone(),
+            &ns.content,
+            &Some(ns.language.clone()),
+            &authed.email,
+            &authed.username,
+            &permissioned_as,
+        )
+        .await
+        {
+            tracing::error!(%e, "error processing relative imports");
+        }
+
         handle_deployment_metadata(
             &authed.email,
             &authed.username,
