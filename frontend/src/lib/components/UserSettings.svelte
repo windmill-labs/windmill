@@ -23,6 +23,7 @@
 	export let newTokenLabel: string | undefined = undefined
 	export let newTokenWorkspace: string | undefined = undefined
 	export let newToken: string | undefined = undefined
+	export let showMcpCreation: boolean = false
 
 	let newPassword: string | undefined
 	let passwordError: string | undefined
@@ -219,6 +220,7 @@
 
 				<TokensTable
 					{tokens}
+					{showMcpCreation}
 					defaultNewTokenLabel={newTokenLabel}
 					defaultNewTokenWorkspace={newTokenWorkspace}
 					onDeleteToken={deleteToken}

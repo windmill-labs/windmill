@@ -9,10 +9,13 @@
 	import { createEventDispatcher } from 'svelte'
 	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
+	import Toggle from './Toggle.svelte'
+	import ClipboardPanel from './details/ClipboardPanel.svelte'
 
 	// --- Props ---
 	interface Props {
 		tokens?: TruncatedToken[]
+		showMcpCreation?: boolean
 		defaultNewTokenLabel?: string
 		defaultNewTokenWorkspace?: string
 		onDeleteToken: (tokenPrefix: string) => void
@@ -25,6 +28,7 @@
 
 	let {
 		tokens = [],
+		showMcpCreation = false,
 		onDeleteToken,
 		defaultNewTokenLabel,
 		defaultNewTokenWorkspace,
@@ -41,10 +45,11 @@
 	let newTokenExpiration = $state<number | undefined>(undefined)
 	let newTokenWorkspace = $state<string | undefined>(defaultNewTokenWorkspace)
 	let displayCreateToken = $state(scopes != undefined)
-	let displayCreateMcpUrl = $state(false)
+	let mcpCreationMode = $state(false)
 	let newMcpScope = $state('favorites')
-	let newMcpUrl = $state<string | undefined>(undefined)
+	let newMcpToken = $state<string | undefined>(undefined)
 
+	const mcpBaseUrl = $derived(`${window.location.origin}/api/w/${$workspaceStore}/mcp/sse?token=`)
 	const dispatch = createEventDispatcher()
 
 	// --- Functions ---
@@ -83,8 +88,9 @@
 					workspace_id: $workspaceStore
 				} as NewToken
 			})
-			newMcpUrl = `${window.location.origin}/api/w/${$workspaceStore}/mcp/sse?token=${newToken}`
-			displayCreateMcpUrl = false
+			newMcpToken = `${newToken}`
+			mcpCreationMode = false
+			displayCreateToken = false
 			onListTokens()
 		} catch (err) {
 			console.error('Failed to create MCP URL:', err)
@@ -92,9 +98,9 @@
 	}
 
 	function handleCreateClick(type: 'token' | 'mcpUrl') {
-		displayCreateMcpUrl = type === 'mcpUrl'
+		mcpCreationMode = type === 'mcpUrl'
 		displayCreateToken = type === 'token'
-		newMcpUrl = undefined
+		newMcpToken = undefined
 		newToken = undefined
 		newTokenExpiration = undefined
 		newTokenLabel = undefined
@@ -102,14 +108,6 @@
 
 	function handleCreateTokenClick() {
 		handleCreateClick('token')
-	}
-
-	function handleCreateMcpUrlClick() {
-		handleCreateClick('mcpUrl')
-	}
-
-	function handleCopyMcpUrlClick() {
-		copyToClipboard(newMcpUrl ?? '')
 	}
 
 	function handleCopyClick() {
@@ -132,14 +130,6 @@
 		>
 			Create token
 		</Button>
-		<Button
-			size="sm"
-			startIcon={{ icon: Plus }}
-			btnClasses={displayCreateMcpUrl ? 'hidden' : ''}
-			on:click={handleCreateMcpUrlClick}
-		>
-			Create MCP URL
-		</Button>
 	</div>
 </div>
 <div class="text-2xs text-tertiary italic pb-6">
@@ -147,62 +137,34 @@
 </div>
 
 <div>
-	{#if newToken || newMcpUrl}
+	{#if newToken}
 		<div
 			class="border rounded-md mb-6 px-2 py-2 bg-green-50 dark:bg-green-200 dark:text-green-800 flex flex-row flex-wrap"
 		>
-			{#if newToken}
-				<div>
-					Added token: <button onclick={handleCopyClick} class="inline-flex gap-2 items-center">
-						{newToken}
-						<Clipboard size={12} />
-					</button>
-				</div>
-				<div class="pt-1 text-xs ml-2">
-					Make sure to copy your personal access token now. You won't be able to see it again!
-				</div>
-			{/if}
-			{#if newMcpUrl}
-				<div>
-					Generated URL: <button
-						onclick={handleCopyMcpUrlClick}
-						class="inline-flex gap-2 items-center"
-					>
-						{newMcpUrl}
-						<Clipboard size={12} />
-					</button>
-				</div>
-				<div class="pt-1 text-xs ml-2">
-					Make sure to copy your new MCP URL now. You won't be able to see the full token again!
-				</div>
-			{/if}
-		</div>
-	{/if}
-
-	<!-- MCP URL Creation Interface -->
-	{#if displayCreateMcpUrl}
-		<div class="py-3 px-3 border rounded-md mb-6 bg-surface-secondary min-w-min">
-			<h3 class="pb-3 font-semibold">Generate a new MCP URL</h3>
-			<div class="flex flex-col gap-3">
-				<div>
-					<span class="block text-sm font-medium text-secondary mb-1"
-						>Scope: Select resources accessible via this URL. 'Favorites Only' restricts access to
-						starred scripts/flows. 'All Resources' allows access to any script/flow the owner can
-						run.</span
-					>
-					<ToggleButtonGroup bind:selected={newMcpScope} allowEmpty={false} let:item>
-						<ToggleButton {item} value="favorites" label="Favorites Only" />
-						<ToggleButton {item} value="all" label="All Resources" />
-					</ToggleButtonGroup>
-				</div>
-				<div class="flex items-end justify-start">
-					<Button on:click={createMcpUrl}>Generate URL</Button>
-				</div>
+			<div>
+				Added token: <button onclick={handleCopyClick} class="inline-flex gap-2 items-center">
+					{newToken}
+					<Clipboard size={12} />
+				</button>
+			</div>
+			<div class="pt-1 text-xs ml-2">
+				Make sure to copy your personal access token now. You won't be able to see it again!
 			</div>
 		</div>
 	{/if}
 
-	<!-- Token creation interface -->
+	{#if newMcpToken}
+		<div
+			class="border rounded-md mb-6 px-2 py-2 bg-green-50 dark:bg-green-200 dark:text-green-800 flex flex-row flex-wrap"
+		>
+			<p class="text-sm mb-2">New MCP URL:</p>
+			<ClipboardPanel content={`${mcpBaseUrl}${newMcpToken}`} />
+			<p class="pt-1 text-xs">
+				Make sure to copy this URL now. You won't be able to see it again!
+			</p>
+		</div>
+	{/if}
+
 	{#if displayCreateToken}
 		<div class="py-3 px-3 border rounded-md mb-6 bg-surface-secondary min-w-min">
 			<h3 class="pb-3 font-semibold">Add a new token</h3>
@@ -214,7 +176,34 @@
 					</div>
 				{/each}
 			{/if}
+			{#if showMcpCreation}
+				<Toggle
+					on:change={(e) => {
+						mcpCreationMode = e.detail
+						if (e.detail) {
+							newTokenLabel = 'MCP token'
+							newTokenExpiration = undefined
+						}
+					}}
+					checked={mcpCreationMode}
+					options={{
+						right: 'Generate MCP URL',
+						rightTooltip:
+							'Generate a new MCP URL to make your scripts and flows available as tools.'
+					}}
+					class="mb-4"
+				/>
+			{/if}
 			<div class="flex flex-row flex-wrap gap-x-2 w-full justify-between">
+				{#if mcpCreationMode}
+					<div class="flex flex-col">
+						<label for="label">Scope</label>
+						<ToggleButtonGroup bind:selected={newMcpScope} allowEmpty={false} let:item>
+							<ToggleButton {item} value="favorites" label="Favorites Only" />
+							<ToggleButton {item} value="all" label="All Resources" />
+						</ToggleButtonGroup>
+					</div>
+				{/if}
 				<div class="flex flex-col">
 					<label for="label">Label <span class="text-xs text-tertiary">(optional)</span></label>
 					<input type="text" bind:value={newTokenLabel} />
@@ -223,7 +212,7 @@
 					<label for="expires"
 						>Expires In &nbsp;<span class="text-xs text-tertiary">(optional)</span>
 					</label>
-					<select bind:value={newTokenExpiration}>
+					<select bind:value={newTokenExpiration} disabled={mcpCreationMode}>
 						<option value={undefined}>No expiration</option>
 						<option value={15 * 60}>15m</option>
 						<option value={30 * 60}>30m</option>
@@ -235,7 +224,9 @@
 					</select>
 				</div>
 				<div class="flex items-end">
-					<Button btnClasses="!mt-2" on:click={createToken}>New token</Button>
+					<Button btnClasses="!mt-2" on:click={mcpCreationMode ? createMcpUrl : createToken}>
+						New token
+					</Button>
 				</div>
 			</div>
 		</div>

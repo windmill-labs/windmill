@@ -348,7 +348,7 @@
 
 <svelte:window bind:innerWidth />
 
-<UserSettings bind:this={userSettings} />
+<UserSettings bind:this={userSettings} showMcpCreation={true} />
 {#if $page.status == 404}
 	<CenteredModal title="Page not found, redirecting you to login">
 		<div class="w-full">

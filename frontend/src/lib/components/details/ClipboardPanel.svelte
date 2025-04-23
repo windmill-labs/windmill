@@ -7,6 +7,7 @@
 	export let title: string | undefined = undefined
 	export let size: 'sm' | 'md' = 'sm'
 	export let disabled = false
+	export let className: string | undefined = undefined
 </script>
 
 {#if title !== undefined}
@@ -16,7 +17,11 @@
 <!-- svelte-ignore a11y-click-events-have-key-events -->
 <!-- svelte-ignore a11y-no-static-element-interactions -->
 <div
-	class="grow min-w-0 w-full px-2 py-1 border flex items-center bg-surface-secondary text-primary justify-between rounded-md"
+	class={twMerge(
+		'grow min-w-0 w-full px-2 py-1 border flex items-center bg-surface-secondary text-primary justify-between rounded-md',
+		className,
+		disabled ? 'opacity-50' : ''
+	)}
 	class:cursor-not-allowed={disabled}
 	class:cursor-pointer={!disabled}
 	on:click={(e) => {
