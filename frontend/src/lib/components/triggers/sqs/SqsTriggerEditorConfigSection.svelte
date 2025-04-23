@@ -15,7 +15,7 @@
 	import ItemPicker from '$lib/components/ItemPicker.svelte'
 	import VariableEditor from '$lib/components/VariableEditor.svelte'
 	import { Button } from '$lib/components/common'
-	import { VariableService } from '$lib/gen'
+	import { VariableService, type AwsAuthResourceType } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 
 	export let can_write: boolean = false
@@ -26,6 +26,7 @@
 	export let isValid: boolean = false
 	export let queue_url = ''
 	export let aws_resource_path = ''
+	export let aws_auth_resource_type: AwsAuthResourceType = 'credentials'
 	export let message_attributes: string[] = []
 
 	async function loadVariables() {
@@ -58,13 +59,23 @@
 		<div class="flex flex-col w-full gap-4">
 			<Subsection label="Connection setup">
 				<div class="flex flex-col gap-3">
-					<div class="flex flex-col gap-1">
-						<p class="text-xs mb-1 text-tertiary">
-							Select an AWS resource with credentials to authenticate your account. <Required
-								required={true}
-							/>
+					<div class="flex flex-col gap-3">
+						<p class="text-xs text-tertiary">
+							Select an AWS resource to authenticate your account. <Required required={true} />
 						</p>
-						<ResourcePicker resourceType="aws" bind:value={aws_resource_path} />
+
+						<ToggleButtonGroup bind:selected={aws_auth_resource_type} on:selected={() => {
+							aws_resource_path = ''
+						}} let:item>
+							<ToggleButton label="Credentials" value="credentials" {item} />
+							<ToggleButton label="Oidc" value="oidc" {item} />
+						</ToggleButtonGroup>
+
+						{#if aws_auth_resource_type === 'credentials'}
+							<ResourcePicker resourceType="aws" bind:value={aws_resource_path} />
+						{:else if aws_auth_resource_type === 'oidc'}
+							<ResourcePicker resourceType="aws_oidc" bind:value={aws_resource_path} />
+						{/if}
 						{#if isValid}
 							<TestTriggerConnection kind="sqs" args={{ aws_resource_path, queue_url }} />
 						{/if}

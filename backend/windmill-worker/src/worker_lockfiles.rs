@@ -368,44 +368,21 @@ pub async fn handle_dependency_job(
                 tracing::error!(%e, "error handling deployment metadata");
             }
 
-            let relative_imports =
-                extract_relative_imports(&script_data.code, script_path, &job.script_lang);
-            if let Some(relative_imports) = relative_imports {
-                update_script_dependency_map(
-                    &job.id,
-                    db,
-                    w_id,
-                    &parent_path,
-                    script_path,
-                    relative_imports,
-                )
-                .await?;
-                let already_visited = job
-                    .args
-                    .as_ref()
-                    .map(|x| {
-                        x.get("already_visited")
-                            .map(|v| serde_json::from_str::<Vec<String>>(v.get()).ok())
-                            .flatten()
-                    })
-                    .flatten()
-                    .unwrap_or_default();
-                if let Err(e) = trigger_dependents_to_recompute_dependencies(
-                    w_id,
-                    script_path,
-                    deployment_message,
-                    parent_path,
-                    &job.permissioned_as_email,
-                    &job.created_by,
-                    &job.permissioned_as,
-                    db,
-                    already_visited,
-                )
-                .await
-                {
-                    tracing::error!(%e, "error triggering dependents to recompute dependencies");
-                }
-            }
+            process_relative_imports(
+                db,
+                Some(job.id),
+                job.args.as_ref(),
+                &job.workspace_id,
+                script_path,
+                parent_path,
+                deployment_message,
+                &script_data.code,
+                &job.script_lang,
+                &job.permissioned_as_email,
+                &job.created_by,
+                &job.permissioned_as,
+            )
+            .await?;
 
             Ok(to_raw_value_owned(
                 json!({ "status": "Successful lock file generation", "lock": content }),
@@ -441,6 +418,58 @@ fn remove_ansi_codes(s: &str) -> String {
         static ref ANSI_REGEX: regex::Regex = regex::Regex::new(r"\x1b\[[0-9;]*[a-zA-Z]").unwrap();
     }
     ANSI_REGEX.replace_all(s, "").to_string()
+}
+
+pub async fn process_relative_imports(
+    db: &sqlx::Pool<sqlx::Postgres>,
+    job_id: Option<Uuid>,
+    args: Option<&Json<HashMap<String, Box<RawValue>>>>,
+    w_id: &str,
+    script_path: &str,
+    parent_path: Option<String>,
+    deployment_message: Option<String>,
+    code: &str,
+    script_lang: &Option<ScriptLang>,
+    permissioned_as_email: &str,
+    created_by: &str,
+    permissioned_as: &str,
+) -> error::Result<()> {
+    let relative_imports = extract_relative_imports(&code, script_path, script_lang);
+    if let Some(relative_imports) = relative_imports {
+        update_script_dependency_map(
+            &job_id.unwrap_or_else(|| Uuid::nil()),
+            db,
+            w_id,
+            &parent_path,
+            script_path,
+            relative_imports,
+        )
+        .await?;
+        let already_visited = args
+            .map(|x| {
+                x.get("already_visited")
+                    .map(|v| serde_json::from_str::<Vec<String>>(v.get()).ok())
+                    .flatten()
+            })
+            .flatten()
+            .unwrap_or_default();
+        if let Err(e) = trigger_dependents_to_recompute_dependencies(
+            w_id,
+            script_path,
+            deployment_message,
+            parent_path,
+            permissioned_as_email,
+            created_by,
+            permissioned_as,
+            db,
+            already_visited,
+        )
+        .await
+        {
+            tracing::error!(%e, "error triggering dependents to recompute dependencies");
+        }
+    }
+    Ok(())
 }
 
 async fn trigger_dependents_to_recompute_dependencies(
@@ -1734,6 +1763,90 @@ pub async fn handle_app_dependency_job(
         Ok(())
     }
 }
+
+// async fn upload_raw_app(
+//     app_value: &RawAppValue,
+//     job: &QueuedJob,
+//     mem_peak: &mut i32,
+//     canceled_by: &mut Option<CanceledBy>,
+//     job_dir: &str,
+//     db: &sqlx::Pool<sqlx::Postgres>,
+//     worker_name: &str,
+//     occupancy_metrics: &mut Option<&mut OccupancyMetrics>,
+//     version: i64,
+// ) -> Result<()> {
+//     let mut entrypoint = "index.ts";
+//     for file in app_value.files.iter() {
+//         if file.0 == "/index.tsx" {
+//             entrypoint = "index.tsx";
+//         } else if file.0 == "/index.js" {
+//             entrypoint = "index.js";
+//         }
+//         write_file(&job_dir, file.0, &file.1)?;
+//     }
+//     let common_bun_proc_envs: HashMap<String, String> = get_common_bun_proc_envs(None).await;
+
+//     install_bun_lockfile(
+//         mem_peak,
+//         canceled_by,
+//         &job.id,
+//         &job.workspace_id,
+//         Some(db),
+//         job_dir,
+//         worker_name,
+//         common_bun_proc_envs,
+//         false,
+//         occupancy_metrics,
+//     )
+//     .await?;
+//     let mut cmd = tokio::process::Command::new("esbuild");
+//     let mut args = "--bundle --minify --outdir=dist/"
+//         .split(' ')
+//         .collect::<Vec<_>>();
+//     args.push(entrypoint);
+//     cmd.current_dir(job_dir)
+//         .env_clear()
+//         .args(args)
+//         .stdout(Stdio::piped())
+//         .stderr(Stdio::piped());
+//     let child = start_child_process(cmd, "esbuild").await?;
+
+//     crate::handle_child::handle_child(
+//         &job.id,
+//         db,
+//         mem_peak,
+//         canceled_by,
+//         child,
+//         false,
+//         worker_name,
+//         &job.workspace_id,
+//         "esbuild",
+//         Some(30),
+//         false,
+//         occupancy_metrics,
+//     )
+//     .await?;
+//     let output_dir = format!("{}/dist", job_dir);
+//     let target_dir = format!("/home/rfiszel/wmill/{}/{}", job.workspace_id, version);
+
+//     tokio::fs::create_dir_all(&target_dir).await?;
+
+//     tracing::info!("Copying files from {} to {}", output_dir, target_dir);
+
+//     let index_ts = format!("{}/index.js", output_dir);
+//     let index_css = format!("{}/index.css", output_dir);
+
+//     if tokio::fs::metadata(&index_ts).await.is_ok() {
+//         tokio::fs::copy(&index_ts, format!("{}/index.js", target_dir)).await?;
+//     }
+
+//     if tokio::fs::metadata(&index_css).await.is_ok() {
+//         tokio::fs::copy(&index_css, format!("{}/index.css", target_dir)).await?;
+//     }
+//     // let file_path = format!("/home/rfiszel/wmill/{}/{}", job.workspace_id, version);
+
+//     Ok(())
+// }
 
 #[cfg(feature = "python")]
 async fn python_dep(

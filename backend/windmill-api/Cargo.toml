@@ -13,7 +13,7 @@ default = []
 enterprise = ["windmill-queue/enterprise", "windmill-audit/enterprise", "windmill-git-sync/enterprise", "windmill-common/enterprise", "windmill-worker/enterprise"]
 stripe = []
 agent_worker_server = []
-enterprise_saml = ["dep:samael"]
+enterprise_saml = ["dep:samael", "dep:libxml"]
 benchmark = []
 embedding = ["dep:tinyvector", "dep:hf-hub", "dep:tokenizers", "dep:candle-core", "dep:candle-transformers", "dep:candle-nn", "dep:half"]
 parquet = ["dep:datafusion", "dep:object_store", "dep:url", "windmill-common/parquet", "windmill-worker/parquet"]
@@ -100,6 +100,7 @@ async_zip = { workspace = true, optional = true }
 regex.workspace = true
 bytes.workspace = true
 samael = { workspace = true, optional = true }
+libxml = { workspace = true, optional = true }
 async-recursion.workspace = true
 rsa = { workspace = true, optional = true}
 uuid.workspace = true
@@ -133,6 +134,7 @@ rust-postgres-native-tls = { workspace = true, optional = true}
 rumqttc = { workspace = true, optional = true }
 aws-sdk-sqs = { workspace = true, optional = true } 
 aws-config = { workspace = true, optional = true }
+aws-sdk-sts = { workspace = true, optional = true }
 google-cloud-pubsub = { workspace = true, optional = true }
 google-cloud-googleapis = { workspace = true , optional = true }
 tonic = { workspace = true, optional = true }

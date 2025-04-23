@@ -18,16 +18,22 @@ use {
 
 #[cfg(all(feature = "enterprise", feature = "gcp_trigger"))]
 use crate::gcp_triggers_ee::{
-    manage_google_subscription, process_google_push_request, validate_jwt_token, SubscriptionMode,
+    manage_google_subscription, process_google_push_request, validate_jwt_token,
+    CreateUpdateConfig, SubscriptionMode,
 };
+
+#[cfg(all(feature = "enterprise", feature = "sqs_trigger"))]
+use windmill_common::auth::aws::AwsAuthResourceType;
 
 #[cfg(any(
     feature = "http_trigger",
     all(feature = "enterprise", feature = "gcp_trigger")
 ))]
 use {
-    axum::extract::Request, http::HeaderMap, serde::de::DeserializeOwned,
-    windmill_common::error::Error,
+    axum::extract::Request,
+    http::HeaderMap,
+    serde::de::DeserializeOwned,
+    windmill_common::{error::Error, utils::empty_string_as_none},
 };
 
 #[cfg(all(feature = "enterprise", feature = "kafka"))]
@@ -150,14 +156,20 @@ pub struct SqsTriggerConfig {
     pub queue_url: String,
     pub aws_resource_path: String,
     pub message_attributes: Option<Vec<String>>,
+    pub aws_auth_resource_type: AwsAuthResourceType,
 }
 
 #[cfg(all(feature = "enterprise", feature = "gcp_trigger"))]
 #[derive(Debug, Serialize, Deserialize)]
 pub struct GcpTriggerConfig {
     pub gcp_resource_path: String,
-    #[serde(flatten)]
     pub subscription_mode: SubscriptionMode,
+    #[serde(default, deserialize_with = "empty_string_as_none")]
+    pub subscription_id: Option<String>,
+    #[serde(default, deserialize_with = "empty_string_as_none")]
+    pub base_endpoint: Option<String>,
+    #[serde(flatten)]
+    pub create_update: Option<CreateUpdateConfig>,
     pub topic_id: String,
 }
 
@@ -366,11 +378,15 @@ async fn set_gcp_trigger_config(
         &gcp_config.gcp_resource_path,
         &capture_config.path,
         &gcp_config.topic_id,
+        &mut gcp_config.subscription_id,
+        &mut gcp_config.base_endpoint,
         gcp_config.subscription_mode,
+        gcp_config.create_update,
+        false,
     )
     .await?;
-
-    gcp_config.subscription_mode = SubscriptionMode::CreateUpdate(config);
+    gcp_config.create_update = Some(config);
+    gcp_config.subscription_mode = SubscriptionMode::CreateUpdate;
     capture_config.trigger_config = Some(TriggerConfig::Gcp(gcp_config));
 
     Ok(capture_config)
@@ -887,7 +903,7 @@ async fn gcp_payload(
 
     let authed = fetch_api_authed(owner.clone(), email, &w_id, &db, None).await?;
 
-    let SubscriptionMode::CreateUpdate(config) = &gcp_trigger_config.subscription_mode else {
+    let Some(config) = &gcp_trigger_config.create_update else {
         return Err(Error::BadConfig("Bad config".to_string()));
     };
 

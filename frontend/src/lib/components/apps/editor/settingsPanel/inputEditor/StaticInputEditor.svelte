@@ -34,12 +34,11 @@
 	export let format: string | undefined = undefined
 	export let id: string | undefined
 
-	const { onchange } = getContext<AppViewerContext>('AppViewerContext')
+	const appContext = getContext<AppViewerContext>('AppViewerContext')
 
+	$: componentInput && appContext?.onchange?.()
 	let s3FileUploadRawMode = false
 	let s3FilePicker: S3FilePicker | undefined = undefined
-
-	$: componentInput && onchange?.()
 </script>
 
 {#key subFieldType}
@@ -235,6 +234,7 @@
 			{:else}
 				<div class="flex w-full flex-col">
 					<JsonEditor
+						loadAsync
 						small
 						bind:value={componentInput.value}
 						code={JSON.stringify(componentInput.value, null, 2)}

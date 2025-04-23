@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { workspaceStore, usersWorkspaceStore } from '$lib/stores'
+	import { workspaceStore, usersWorkspaceStore, workspaceColor } from '$lib/stores'
 	import Button from '../common/button/Button.svelte'
 	import { sendUserToast } from '$lib/toast'
 	import { WorkspaceService } from '$lib/gen'
@@ -7,25 +7,25 @@
 	import { Pen } from 'lucide-svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
 
-	let colorEnabled = false
-	let workspaceColor: string | undefined = undefined
-	let savedWorkspaceColor: string | undefined = undefined
-	let lastWorkspace: string | undefined = undefined
+	let { open = false } = $props<{ open?: boolean }>()
 
-	export let open = false
+	let colorEnabled = $state(false)
+	let editingColor = $state<string | undefined>(undefined)
+	let lastWorkspace = $state<string | undefined>(undefined)
 
-	$: $usersWorkspaceStore && $workspaceStore !== lastWorkspace && onWorkspaceChange()
+	$effect(() => {
+		if ($workspaceStore !== lastWorkspace) {
+			lastWorkspace = $workspaceStore
+			editingColor = $workspaceColor ?? undefined
+			colorEnabled = !!$workspaceColor
+		}
+	})
 
-	function onWorkspaceChange() {
-		lastWorkspace = $workspaceStore
-		savedWorkspaceColor = $usersWorkspaceStore?.workspaces.find(
-			(w) => w.id === $workspaceStore
-		)?.color
-		workspaceColor = savedWorkspaceColor
-	}
-
-	$: colorEnabled = !!workspaceColor
-	$: if (colorEnabled && !workspaceColor) generateRandomColor()
+	$effect(() => {
+		if (colorEnabled && !editingColor) {
+			generateRandomColor()
+		}
+	})
 
 	function generateRandomColor() {
 		const randomColor =
@@ -33,11 +33,11 @@
 			Math.floor(Math.random() * 16777215)
 				.toString(16)
 				.padStart(6, '0')
-		workspaceColor = randomColor
+		editingColor = randomColor
 	}
 
 	async function changeWorkspaceColor() {
-		const colorToSave = colorEnabled && workspaceColor ? workspaceColor : undefined
+		const colorToSave = colorEnabled && editingColor ? editingColor : undefined
 		open = false
 		await WorkspaceService.changeWorkspaceColor({
 			workspace: $workspaceStore!,
@@ -47,7 +47,6 @@
 		})
 
 		usersWorkspaceStore.set(await WorkspaceService.listUserWorkspaces())
-		savedWorkspaceColor = colorToSave
 		sendUserToast(`Workspace color updated.`)
 	}
 </script>
@@ -55,10 +54,10 @@
 <div>
 	<p class="font-semibold text-sm">Workspace color</p>
 	<div class="flex flex-row gap-0.5 items-center">
-		{#if savedWorkspaceColor}
+		{#if $workspaceColor}
 			<div
 				class="w-5 h-5 rounded-full border border-gray-300 dark:border-gray-600"
-				style="background-color: {savedWorkspaceColor}"
+				style="background-color: {$workspaceColor}"
 			></div>
 		{:else}
 			<span class="text-xs text-secondary">No color set</span>
@@ -76,9 +75,7 @@
 			}}
 		/>
 	</div>
-	<p class="italic text-xs">
-		Color to identify the current workspace in the list of workspaces
-	</p>
+	<p class="italic text-xs"> Color to identify the current workspace in the list of workspaces </p>
 </div>
 
 <Modal bind:open title="Change Workspace Color">
@@ -88,12 +85,12 @@
 			<div class="flex items-center gap-2">
 				<Toggle bind:checked={colorEnabled} options={{ right: 'Enable' }} />
 				{#if colorEnabled}
-					<input class="w-10" type="color" bind:value={workspaceColor} disabled={!colorEnabled} />
+					<input class="w-10" type="color" bind:value={editingColor} disabled={!colorEnabled} />
 				{/if}
 				<input
 					type="text"
 					class="w-24 text-sm"
-					bind:value={workspaceColor}
+					bind:value={editingColor}
 					disabled={!colorEnabled}
 				/>
 				<Button on:click={generateRandomColor} size="xs" disabled={!colorEnabled}>Random</Button>

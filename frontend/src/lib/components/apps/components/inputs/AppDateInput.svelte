@@ -17,8 +17,9 @@
 	export let verticalAlignment: 'top' | 'center' | 'bottom' | undefined = undefined
 	export let customCss: ComponentCustomCSS<'dateinputcomponent'> | undefined = undefined
 	export let render: boolean
+	export let onChange: string[] | undefined = undefined
 
-	const { app, worldStore, selectedComponent, componentControl } =
+	const { app, worldStore, selectedComponent, componentControl, runnableComponents } =
 		getContext<AppViewerContext>('AppViewerContext')
 
 	let resolvedConfig = initConfig(
@@ -64,6 +65,13 @@
 		} else {
 			outputs?.result.set(undefined)
 		}
+		fireOnChange()
+	}
+
+	function fireOnChange() {
+		if (onChange) {
+			onChange.forEach((id) => $runnableComponents?.[id]?.cb?.forEach((cb) => cb()))
+		}
 	}
 
 	function handleDefault(defaultValue: string | undefined) {
@@ -100,6 +108,7 @@
 			on:pointerdown|stopPropagation
 			type="date"
 			bind:value
+			disabled={resolvedConfig.disabled}
 			min={resolvedConfig.minDate}
 			max={resolvedConfig.maxDate}
 			placeholder="Type..."

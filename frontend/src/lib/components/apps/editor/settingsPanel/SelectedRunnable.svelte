@@ -46,36 +46,25 @@
 		appInput?.runnable?.type === 'runnableByPath' ||
 		(appInput?.runnable?.type === 'runnableByName' && appInput.runnable?.inlineScript !== undefined)
 
-	function getActions(hasScript: boolean): ActionType[] {
-		if (hasScript) {
-			return [
-				...(appInput.runnable?.type === 'runnableByName' && appInput.runnable.inlineScript
-					? ([
-							{
-								label: 'Detach',
-								icon: ExternalLink,
-								color: 'light',
-								callback: detach
-							}
-					  ] as const)
-					: []),
-				{
-					label: 'Clear',
-					icon: X,
-					color: 'red',
-					callback: clear
-				}
-			]
-		} else {
-			return [
-				{
-					label: 'Clear',
-					icon: X,
-					color: 'red',
-					callback: clear
-				}
-			]
-		}
+	function getActions(_hasScript: boolean): ActionType[] {
+		return [
+			...(appInput.runnable?.type === 'runnableByName' && appInput.runnable.inlineScript
+				? ([
+						{
+							label: 'Detach',
+							icon: ExternalLink,
+							color: 'light',
+							callback: detach
+						}
+				  ] as const)
+				: []),
+			{
+				label: 'Clear',
+				icon: X,
+				color: 'red',
+				callback: clear
+			}
+		]
 	}
 
 	$: actions = getActions(hasScript)

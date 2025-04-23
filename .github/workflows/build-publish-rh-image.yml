@@ -64,7 +64,7 @@ jobs:
           platforms: linux/amd64
           push: true
           build-args: |
-            features=enterprise,enterprise_saml,stripe,embedding,parquet,prometheus,openidconnect,cloud,jemalloc,license,otel,http_trigger,zip,oauth2,kafka,sqs_trigger,nats,postgres_trigger,gcp_trigger,mqtt_trigger,websocket,smtp,static_frontend,all_languages
+            features=enterprise,enterprise_saml,stripe,embedding,parquet,prometheus,openidconnect,cloud,jemalloc,license,otel,http_trigger,zip,oauth2,kafka,sqs_trigger,nats,postgres_trigger,gcp_trigger,mqtt_trigger,websocket,smtp,static_frontend,all_languages,deno_core
           secrets: |
             rh_username=${{ secrets.RH_USERNAME }}
             rh_password=${{ secrets.RH_PASSWORD }}
@@ -81,7 +81,7 @@ jobs:
           platforms: linux/arm64
           push: true
           build-args: |
-            features=enterprise,enterprise_saml,stripe,embedding,parquet,prometheus,openidconnect,cloud,jemalloc,license,otel,http_trigger,zip,oauth2,kafka,sqs_trigger,nats,postgres_trigger,gcp_trigger,mqtt_trigger,websocket,smtp,static_frontend,all_languages
+            features=enterprise,enterprise_saml,stripe,embedding,parquet,prometheus,openidconnect,cloud,jemalloc,license,otel,http_trigger,zip,oauth2,kafka,sqs_trigger,nats,postgres_trigger,gcp_trigger,mqtt_trigger,websocket,smtp,static_frontend,all_languages,deno_core
           secrets: |
             rh_username=${{ secrets.RH_USERNAME }}
             rh_password=${{ secrets.RH_PASSWORD }}
@@ -111,8 +111,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: RHEL9-amd64 build
-          path:
-            ${{ steps.extract-ee-amd64.outputs.destination
+          path: ${{ steps.extract-ee-amd64.outputs.destination
             }}/windmill-ee-amd64-rhel9
 
       # - uses: actions/upload-artifact@v4
