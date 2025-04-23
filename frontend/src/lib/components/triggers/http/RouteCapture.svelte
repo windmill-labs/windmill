@@ -48,7 +48,7 @@
 	>
 		<svelte:fragment slot="description">
 			{#if captureInfo.active}
-				Send a POST request to the URL below to simulate a webhook event.
+				Send a POST request to the URL below to simulate a http event.
 			{:else}
 				Start capturing to listen to HTTP requests on this test URL.
 			{/if}

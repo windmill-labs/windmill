@@ -6,7 +6,6 @@
 	import { isCloudHosted } from '$lib/cloud'
 	import Alert from '../common/alert/Alert.svelte'
 	import RouteCapture from './http/RouteCapture.svelte'
-	import WebsocketEditorConfigSection from './websocket/WebsocketEditorConfigSection.svelte'
 	import KafkaTriggersConfigSection from './kafka/KafkaTriggersConfigSection.svelte'
 	import type { ConnectionInfo } from '../common/alert/ConnectionIndicator.svelte'
 	import type { CaptureInfo } from './CaptureSection.svelte'
@@ -19,6 +18,7 @@
 	import { DEFAULT_V3_CONFIG, DEFAULT_V5_CONFIG } from './mqtt/constant'
 	import WebhooksCapture from './webhook/WebhooksCapture.svelte'
 	import EmailTriggerCaptures from '../details/EmailTriggerCaptures.svelte'
+	import WebsocketCapture from './websocket/WebsocketCapture.svelte'
 
 	export let isFlow: boolean
 	export let path: string
@@ -202,12 +202,7 @@
 				{capitalize(captureType)} triggers are disabled in the multi-tenant cloud.
 			</Alert>
 		{:else if captureType === 'websocket'}
-			<WebsocketEditorConfigSection
-				can_write={true}
-				headless={true}
-				bind:url={args.url}
-				bind:url_runnable_args={args.url_runnable_args}
-				{showCapture}
+			<WebsocketCapture
 				{captureInfo}
 				bind:captureTable
 				on:applyArgs

@@ -287,6 +287,20 @@
 											on:addPreprocessor
 											on:testWithArgs
 										/>
+									{:else if captureKind === 'websocket'}
+										<CaptureWrapper
+											path={initialPath || fakeInitialPath}
+											{isFlow}
+											captureType={captureKind}
+											{hasPreprocessor}
+											{canHavePreprocessor}
+											args={config}
+											data={{ args }}
+											on:applyArgs
+											on:updateSchema
+											on:addPreprocessor
+											on:testWithArgs
+										/>
 									{:else if captureKind === 'email'}
 										<CaptureWrapper
 											path={initialPath || fakeInitialPath}
