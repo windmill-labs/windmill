@@ -15,26 +15,28 @@
 	import Toggle from '$lib/components/Toggle.svelte'
 	import KafkaTriggersConfigSection from './KafkaTriggersConfigSection.svelte'
 
-	let drawer: Drawer
-	let is_flow: boolean = false
-	let initialPath = ''
-	let edit = true
-	let itemKind: 'flow' | 'script' = 'script'
-	let script_path = ''
-	let initialScriptPath = ''
-	let fixedScriptPath = ''
-	let path: string = ''
-	let pathError = ''
-	let enabled = false
-	let dirtyPath = false
-	let can_write = true
-	let drawerLoading = true
-	let defaultValues: Record<string, any> | undefined = undefined
-	let args: Record<string, any> = {}
+	let drawer: Drawer | undefined = $state()
+	let is_flow: boolean = $state(false)
+	let initialPath = $state('')
+	let edit = $state(true)
+	let itemKind: 'flow' | 'script' = $state('script')
+	let script_path = $state('')
+	let initialScriptPath = $state('')
+	let fixedScriptPath = $state('')
+	let path: string = $state('')
+	let pathError = $state('')
+	let enabled = $state(false)
+	let dirtyPath = $state(false)
+	let can_write = $state(true)
+	let drawerLoading = $state(true)
+	let defaultValues: Record<string, any> | undefined = $state(undefined)
+	let args: Record<string, any> = $state({})
 
 	const dispatch = createEventDispatcher()
 
-	$: is_flow = itemKind === 'flow'
+	$effect(() => {
+		is_flow = itemKind === 'flow'
+	})
 
 	export async function openEdit(ePath: string, isFlow: boolean) {
 		drawerLoading = true
@@ -130,7 +132,7 @@
 			$usedTriggerKinds = [...$usedTriggerKinds, 'kafka']
 		}
 		dispatch('update')
-		drawer.closeDrawer()
+		drawer?.closeDrawer()
 	}
 
 	function useDefaultValues() {
@@ -147,7 +149,7 @@
 		)
 	}
 
-	let isValid = false
+	let isValid = $state(false)
 </script>
 
 <Drawer size="800px" bind:this={drawer}>
