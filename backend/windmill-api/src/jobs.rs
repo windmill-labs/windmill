@@ -5839,7 +5839,7 @@ pub fn filter_list_completed_query(
     if let Some(label) = &lq.label {
         if lq.allow_wildcards.unwrap_or(false) {
             let wh = format!(
-                "EXISTS (SELECT 1 FROM jsonb_array_elements_text(result->'wm_labels') label WHERE label LIKE '{}')",
+                "EXISTS (SELECT 1 FROM jsonb_array_elements_text(result->'wm_labels') label WHERE jsonb_typeof(result->'wm_labels') = 'array' AND label LIKE '{}')",
                 &label.replace("*", "%").replace("'", "''")
             );
             sqlb.and_where("result ? 'wm_labels'");
