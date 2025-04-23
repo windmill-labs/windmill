@@ -18,13 +18,14 @@ use crate::oauth2_ee::SlackVerifier;
 #[cfg(feature = "smtp")]
 use crate::smtp_server_ee::SmtpServer;
 
+#[cfg(feature = "mcp")]
+use crate::mcp::{setup_mcp_server, Runner as McpRunner};
 use crate::tracing_init::MyOnFailure;
 use crate::{
     tracing_init::{MyMakeSpan, MyOnResponse},
     users::OptAuthed,
     webhook_util::WebhookShared,
 };
-use mcp::{setup_mcp_server, Runner as McpRunner};
 
 #[cfg(feature = "agent_worker_server")]
 use agent_workers_ee::AgentCache;
@@ -141,6 +142,7 @@ mod workspaces_ee;
 mod workspaces_export;
 mod workspaces_extra;
 
+#[cfg(feature = "mcp")]
 mod mcp;
 
 pub const DEFAULT_BODY_LIMIT: usize = 2097152 * 100; // 200MB
@@ -462,8 +464,11 @@ pub async fn run_server(
         .unwrap_or("localhost".to_string());
 
     // Setup MCP server
+    #[cfg(feature = "mcp")]
     let (mcp_sse_server, mcp_router) = setup_mcp_server(addr, "/api/w/:workspace_id/mcp")?;
+    #[cfg(feature = "mcp")]
     let mcp_main_ct = mcp_sse_server.config.ct.clone(); // Token to signal shutdown *to* MCP
+    #[cfg(feature = "mcp")]
     let mcp_service_ct = mcp_sse_server.with_service(McpRunner::new); // Token to wait for MCP *service* shutdown
 
     #[cfg(feature = "agent_worker_server")]
@@ -604,8 +609,16 @@ pub async fn run_server(
                         .layer(from_extractor::<OptAuthed>())
                         .layer(cors.clone()),
                 )
-                .nest("/w/:workspace_id/mcp", mcp_router)
-                .layer(from_extractor::<OptAuthed>())
+                .nest("/w/:workspace_id/mcp", {
+                    #[cfg(feature = "mcp")]
+                    {
+                        mcp_router
+                    }
+                    #[cfg(not(feature = "mcp"))]
+                    {
+                        Router::new()
+                    }
+                })
                 .nest(
                     "/w/:workspace_id/jobs_u",
                     jobs::workspace_unauthed_service().layer(cors.clone()),
@@ -735,11 +748,15 @@ pub async fn run_server(
             tracing::error!("Error killing agent workers: {e:#}");
         }
         tracing::info!("Graceful shutdown of server");
-        tracing::info!("Received shutdown signal, cancelling MCP server...");
-        mcp_main_ct.cancel();
-        tracing::info!("Waiting for MCP service cancellation...");
-        mcp_service_ct.cancelled().await;
-        tracing::info!("MCP service cancelled.");
+
+        #[cfg(feature = "mcp")]
+        {
+            tracing::info!("Received shutdown signal, cancelling MCP server...");
+            mcp_main_ct.cancel();
+            tracing::info!("Waiting for MCP service cancellation...");
+            mcp_service_ct.cancelled().await;
+            tracing::info!("MCP service cancelled.");
+        }
     });
 
     server.await?;
