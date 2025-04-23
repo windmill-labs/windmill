@@ -10,7 +10,7 @@
 	import { canWrite, emptyString, emptyStringTrimmed, sendUserToast } from '$lib/utils'
 	import { createEventDispatcher } from 'svelte'
 	import Section from '$lib/components/Section.svelte'
-	import { Loader2, Save, X } from 'lucide-svelte'
+	import { Loader2, Save, X, Pen } from 'lucide-svelte'
 	import Label from '$lib/components/Label.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import ResourcePicker from '$lib/components/ResourcePicker.svelte'
@@ -27,6 +27,30 @@
 	import { invalidRelations } from './utils'
 	import CheckPostgresRequirement from './CheckPostgresRequirement.svelte'
 	import { base } from '$lib/base'
+	import type { Snippet } from 'svelte'
+	import { twMerge } from 'tailwind-merge'
+
+	interface Props {
+		useDrawer?: boolean
+		description?: Snippet | undefined
+		hideTarget?: boolean
+		editMode?: boolean
+		preventSave?: boolean
+		useEditButton?: boolean
+		isEditor?: boolean
+		hideTooltips?: boolean
+	}
+
+	let {
+		useDrawer = true,
+		description = undefined,
+		hideTarget = false,
+		editMode = true,
+		preventSave = false,
+		useEditButton = false,
+		isEditor = false,
+		hideTooltips = false
+	}: Props = $props()
 
 	let drawer: Drawer | undefined = $state(undefined)
 	let is_flow: boolean = $state(false)
@@ -42,6 +66,8 @@
 	let dirtyPath = $state(false)
 	let can_write = $state(true)
 	let drawerLoading = $state(true)
+	let showLoading = $state(false)
+	let resetEditMode = $state<(() => void) | undefined>(undefined)
 	let postgres_resource_path = $state('')
 	let publication_name: string = $state('')
 	let replication_slot_name: string = $state('')
@@ -56,6 +82,7 @@
 	let transactionType: string[] = ['Insert', 'Update', 'Delete']
 	let tab: 'advanced' | 'basic' = $state('basic')
 	let isLoading = $state(false)
+
 	async function createPublication() {
 		try {
 			const message = await PostgresTriggerService.createPostgresPublication({
@@ -96,7 +123,11 @@
 	})
 
 	export async function openEdit(ePath: string, isFlow: boolean) {
+		let loadingTimeout = setTimeout(() => {
+			showLoading = true
+		}, 100) // Do not show loading spinner for the first 100ms
 		drawerLoading = true
+		resetEditMode = () => openEdit(ePath, isFlow)
 		try {
 			drawer?.openDrawer()
 			initialPath = ePath
@@ -114,7 +145,9 @@
 		} catch (err) {
 			sendUserToast(`Could not load postgres trigger: ${err.body}`, true)
 		} finally {
+			clearTimeout(loadingTimeout)
 			drawerLoading = false
+			showLoading = false
 		}
 	}
 
@@ -123,6 +156,9 @@
 		fixedScriptPath_?: string,
 		defaultValues?: Record<string, any>
 	) {
+		let loadingTimeout = setTimeout(() => {
+			showLoading = true
+		}, 100) // Do not show loading spinner for the first 100ms
 		drawerLoading = true
 		try {
 			selectedPublicationAction = 'create'
@@ -153,8 +189,11 @@
 					table_to_track: []
 				}
 			]
+			toggleEditMode(true)
 		} finally {
+			clearTimeout(loadingTimeout)
 			drawerLoading = false
+			showLoading = false
 		}
 	}
 
@@ -240,12 +279,17 @@
 			if (!$usedTriggerKinds.includes('postgres')) {
 				$usedTriggerKinds = [...$usedTriggerKinds, 'postgres']
 			}
-			dispatch('update')
+			dispatch('update', path)
 			drawer?.closeDrawer()
+			toggleEditMode(false)
 		} catch (error) {
 			isLoading = false
 			sendUserToast(error.body || error.message, true)
 		}
+	}
+
+	function toggleEditMode(newEditMode: boolean) {
+		dispatch('toggle-edit-mode', newEditMode)
 	}
 
 	const getTemplateScript = async () => {
@@ -272,98 +316,152 @@
 	}
 </script>
 
-<Drawer size="800px" bind:this={drawer}>
-	<DrawerContent
-		title={edit
-			? can_write
-				? `Edit Postgres trigger ${initialPath}`
-				: `Postgres trigger ${initialPath}`
-			: 'New Postgres trigger'}
-		on:close={drawer.closeDrawer}
-	>
-		<svelte:fragment slot="actions">
-			{#if !drawerLoading && can_write}
-				{#if edit}
-					<div class="mr-8 center-center -mt-1">
-						<Toggle
-							disabled={!can_write}
-							checked={enabled}
-							options={{ right: 'enable', left: 'disable' }}
-							on:change={async (e) => {
-								await PostgresTriggerService.setPostgresTriggerEnabled({
-									path: initialPath,
-									workspace: $workspaceStore ?? '',
-									requestBody: { enabled: e.detail }
-								})
-								sendUserToast(
-									`${e.detail ? 'enabled' : 'disabled'} postgres trigger ${initialPath}`
-								)
-							}}
-						/>
-					</div>
-				{/if}
-				<Button
-					startIcon={{ icon: Save }}
-					disabled={pathError != '' ||
-						emptyString(postgres_resource_path) ||
-						emptyString(script_path) ||
-						(tab === 'advanced' && emptyString(replication_slot_name)) ||
-						emptyString(publication_name) ||
-						(relations && tab === 'basic' && relations.length === 0) ||
-						transaction_to_track.length === 0 ||
-						!can_write}
-					on:click={updateTrigger}
-					loading={isLoading}
-				>
-					Save
-				</Button>
-			{/if}
+{#if useDrawer}
+	<Drawer size="800px" bind:this={drawer}>
+		<DrawerContent
+			title={edit
+				? can_write
+					? `Edit Postgres trigger ${initialPath}`
+					: `Postgres trigger ${initialPath}`
+				: 'New Postgres trigger'}
+			on:close={drawer.closeDrawer}
+		>
+			<svelte:fragment slot="actions">{@render actions('sm')}</svelte:fragment>
+			{@render content()}
+		</DrawerContent>
+	</Drawer>
+{:else}
+	<Section label="Postgres trigger">
+		<svelte:fragment slot="action">
+			{@render actions('xs')}
 		</svelte:fragment>
-		{#if drawerLoading}
-			<div class="flex flex-col items-center justify-center h-full w-full">
-				<Loader2 size="50" class="animate-spin" />
-				<p>Loading...</p>
-			</div>
-		{:else}
-			<Alert title="Info" type="info">
-				{#if edit}
-					Changes can take up to 30 seconds to take effect.
-				{:else}
-					New postgres triggers can take up to 30 seconds to start listening.
-				{/if}
-			</Alert>
-			<div class="flex flex-col gap-12 mt-6">
-				<Label label="Path">
-					<Path
-						bind:dirty={dirtyPath}
-						bind:error={pathError}
-						bind:path
-						{initialPath}
-						checkInitialPathExistence={!edit}
-						namePlaceholder="postgres_trigger"
-						kind="postgres_trigger"
-						disabled={!can_write}
+		{@render content()}
+	</Section>
+{/if}
+
+{#snippet actions(size: 'xs' | 'sm' = 'sm')}
+	{#if !drawerLoading}
+		<div class="flex flex-row gap-2 items-center">
+			{#if edit}
+				<div class={twMerge('center-center', size === 'sm' ? '-mt-1' : '')}>
+					<Toggle
+						{size}
+						disabled={!can_write || !editMode}
+						checked={enabled}
+						options={{ right: 'enable', left: 'disable' }}
+						on:change={async (e) => {
+							await PostgresTriggerService.setPostgresTriggerEnabled({
+								path: initialPath,
+								workspace: $workspaceStore ?? '',
+								requestBody: { enabled: e.detail }
+							})
+							sendUserToast(`${e.detail ? 'enabled' : 'disabled'} postgres trigger ${initialPath}`)
+						}}
 					/>
-				</Label>
+				</div>
+			{/if}
+			{#if !preventSave}
+				{#if can_write && editMode}
+					<Button
+						{size}
+						startIcon={{ icon: Save }}
+						disabled={pathError != '' ||
+							emptyString(postgres_resource_path) ||
+							emptyString(script_path) ||
+							(tab === 'advanced' && emptyString(replication_slot_name)) ||
+							emptyString(publication_name) ||
+							(relations && tab === 'basic' && relations.length === 0) ||
+							transaction_to_track.length === 0 ||
+							!can_write}
+						on:click={updateTrigger}
+						loading={isLoading}
+					>
+						Save
+					</Button>
+				{/if}
+				{#if !editMode && useEditButton}
+					<Button
+						{size}
+						color="light"
+						startIcon={{ icon: Pen }}
+						on:click={() => toggleEditMode(true)}
+					>
+						Edit
+					</Button>
+				{:else if editMode && !!resetEditMode && useEditButton}
+					<Button
+						{size}
+						color="light"
+						startIcon={{ icon: X }}
+						on:click={() => {
+							toggleEditMode(false)
+							resetEditMode?.()
+						}}
+					>
+						Cancel
+					</Button>
+				{/if}
+			{/if}
+		</div>
+	{/if}
+{/snippet}
+
+{#snippet content()}
+	{#if drawerLoading}
+		{#if showLoading}
+			<Loader2 size="50" class="animate-spin" />
+			<p>Loading...</p>
+		{/if}
+	{:else}
+		<div class="flex flex-col gap-4">
+			{#if description}
+				{@render description()}
+			{/if}
+			{#if !hideTooltips}
+				<Alert title="Info" type="info" size="xs">
+					{#if edit}
+						Changes can take up to 30 seconds to take effect.
+					{:else}
+						New postgres triggers can take up to 30 seconds to start listening.
+					{/if}
+				</Alert>
+			{/if}
+		</div>
+		<div class="flex flex-col gap-12 mt-6">
+			<Label label="Path">
+				<Path
+					bind:dirty={dirtyPath}
+					bind:error={pathError}
+					bind:path
+					{initialPath}
+					checkInitialPathExistence={!edit}
+					namePlaceholder="postgres_trigger"
+					kind="postgres_trigger"
+					disabled={!can_write}
+					disableEditing={!editMode}
+				/>
+			</Label>
+			{#if !hideTarget}
 				<Section label="Runnable">
 					<p class="text-xs text-tertiary">
 						Pick a script or flow to be triggered <Required required={true} />
 					</p>
 					<div class="flex flex-row mb-2">
 						<ScriptPicker
-							disabled={fixedScriptPath != '' || !can_write}
+							disabled={fixedScriptPath != '' || !can_write || !editMode}
 							initialPath={fixedScriptPath || initialScriptPath}
 							kinds={['script']}
 							allowFlow={true}
 							bind:itemKind
 							bind:scriptPath={script_path}
-							allowRefresh
+							allowRefresh={can_write}
+							allowEdit={!$userStore?.operator}
 						/>
 
 						{#if emptyStringTrimmed(script_path) && is_flow === false}
 							<div class="flex">
 								<Button
-									disabled={!can_write}
+									disabled={!can_write || !editMode}
 									btnClasses="ml-4 mt-2"
 									color="dark"
 									size="xs"
@@ -382,221 +480,226 @@
 						{/if}
 					</div>
 				</Section>
-				<Section label="Database">
-					<p class="text-xs text-tertiary mb-2">
-						Pick a database to connect to <Required required={true} />
-					</p>
-					<div class="flex flex-col gap-8">
-						<div class="flex flex-col gap-2">
-							<ResourcePicker
-								disabled={!can_write}
-								bind:value={postgres_resource_path}
-								resourceType={'postgresql'}
-							/>
-							<CheckPostgresRequirement bind:postgres_resource_path bind:can_write />
-						</div>
-
-						{#if postgres_resource_path}
-							<Label label="Transactions">
-								{#snippet header()}
-									<Tooltip>
-										<p>
-											Choose the types of database transactions that should trigger a script or
-											flow. You can select from <strong>Insert</strong>, <strong>Update</strong>,
-											<strong>Delete</strong>, or any combination of these operations to define when
-											the trigger should activate.
-										</p>
-									</Tooltip>
-								{/snippet}
-								<MultiSelect
-									noMatchingOptionsMsg=""
-									createOptionMsg={null}
-									duplicates={false}
-									options={transactionType}
-									allowUserOptions="append"
-									bind:selected={transaction_to_track}
-									ulOptionsClass={'!bg-surface !text-sm'}
-									ulSelectedClass="!text-sm"
-									outerDivClass="!bg-surface !min-h-[38px] !border-[#d1d5db]"
-									placeholder="Select transactions"
-									--sms-options-margin="4px"
-									--sms-open-z-index="100"
-								>
-									<!-- @migration-task: migrate this slot by hand, `remove-icon` is an invalid identifier -->
-									<svelte:fragment slot="remove-icon">
-										<div class="hover:text-primary p-0.5">
-											<X size={12} />
-										</div>
-									</svelte:fragment>
-								</MultiSelect>
-							</Label>
-							<Label label="Table Tracking">
-								{#snippet header()}
-									<Tooltip
-										documentationLink="https://www.windmill.dev/docs/core_concepts/postgres_triggers#define-what-to-track"
-									>
-										<p>
-											Select the tables to track. You can choose to track
-											<strong>all tables in your database</strong>,
-											<strong>all tables within a specific schema</strong>,
-											<strong>specific tables in a schema</strong>, or even
-											<strong>specific columns of a table</strong>. Additionally, you can apply a
-											<strong>filter</strong> to retrieve only rows that do not match the specified criteria.
-										</p>
-									</Tooltip>
-								{/snippet}
-								<Tabs bind:selected={tab}>
-									<Tab value="basic"
-										><div class="flex flex-row gap-1"
-											>Basic<Tooltip
-												documentationLink="https://www.windmill.dev/docs/core_concepts/postgres_triggers#define-what-to-track"
-												><p
-													>Choose the <strong>relations</strong> to track without worrying about the
-													underlying mechanics of creating a
-													<strong>publication</strong>
-													or <strong>slot</strong>. This simplified option lets you focus only on
-													the data you want to monitor.</p
-												></Tooltip
-											></div
-										></Tab
-									>
-									<Tab value="advanced"
-										><div class="flex flex-row gap-1"
-											>Advanced<Tooltip
-												documentationLink="https://www.windmill.dev/docs/core_concepts/postgres_triggers#advanced"
-												><p
-													>Select a specific <strong>publication</strong> from your database to
-													track, and manage it by <strong>creating</strong>,
-													<strong>updating</strong>, or <strong>deleting</strong>. For
-													<strong>slots</strong>, you can <strong>create</strong> or
-													<strong>delete</strong>
-													them. Both <strong>non-active slots</strong> and the
-													<strong>currently used slot</strong> by the trigger will be retrieved from
-													your database for management.</p
-												></Tooltip
-											></div
-										></Tab
-									>
-									<svelte:fragment slot="content">
-										<div class="mt-5 overflow-hidden bg-surface">
-											<TabContent value="basic">
-												<RelationPicker {can_write} bind:relations />
-											</TabContent>
-											<TabContent value="advanced">
-												<div class="flex flex-col gap-6"
-													><Section
-														small
-														label="Replication slot"
-														tooltip="Choose and manage the slots for your trigger. You can create or delete slots. Both non-active slots and the currently used slot by the trigger (if any) will be retrieved from your database for management."
-														documentationLink="https://www.windmill.dev/docs/core_concepts/postgres_triggers#managing-postgres-replication-slots"
-													>
-														<div class="flex flex-col gap-3">
-															<ToggleButtonGroup
-																bind:selected={selectedSlotAction}
-																on:selected={() => {
-																	replication_slot_name = ''
-																}}
-																disabled={!can_write}
-															>
-																{#snippet children({ item })}
-																	<ToggleButton value="create" label="Create Slot" {item} />
-																	<ToggleButton value="get" label="Get Slot" {item} />
-																{/snippet}
-															</ToggleButtonGroup>
-															{#if selectedSlotAction === 'create'}
-																<div class="flex gap-3">
-																	<input
-																		type="text"
-																		bind:value={replication_slot_name}
-																		placeholder={'Choose a slot name'}
-																	/>
-																	<Button
-																		color="light"
-																		size="xs"
-																		variant="border"
-																		disabled={emptyStringTrimmed(replication_slot_name)}
-																		on:click={createSlot}>Create</Button
-																	>
-																</div>
-															{:else}
-																<SlotPicker
-																	bind:edit
-																	{postgres_resource_path}
-																	bind:replication_slot_name
-																/>
-															{/if}
-														</div>
-													</Section>
-
-													<Section
-														small
-														label="Publication"
-														tooltip="Select and manage the publications for tracking data. You can create, update, or delete publications. Only existing publications in your database will be available for selection, giving you full control over what data is tracked."
-														documentationLink="https://www.windmill.dev/docs/core_concepts/postgres_triggers#managing-postgres-publications"
-													>
-														<div class="flex flex-col gap-3">
-															<ToggleButtonGroup
-																selected={selectedPublicationAction}
-																disabled={!can_write}
-																on:selected={({ detail }) => {
-																	selectedPublicationAction = detail
-																	if (selectedPublicationAction === 'create') {
-																		publication_name = `windmill_publication_${random_adj()}`
-																		relations = [{ schema_name: 'public', table_to_track: [] }]
-																		return
-																	}
-
-																	publication_name = ''
-																	relations = []
-																	transaction_to_track = []
-																}}
-															>
-																{#snippet children({ item })}
-																	<ToggleButton value="create" label="Create Publication" {item} />
-																	<ToggleButton value="get" label="Get Publication" {item} />
-																{/snippet}
-															</ToggleButtonGroup>
-															{#if selectedPublicationAction === 'create'}
-																<div class="flex gap-3">
-																	<input
-																		disabled={!can_write}
-																		type="text"
-																		bind:value={publication_name}
-																		placeholder={'Publication Name'}
-																	/>
-																	<Button
-																		color="light"
-																		size="xs"
-																		variant="border"
-																		disabled={emptyStringTrimmed(publication_name) ||
-																			(relations && relations.length === 0) ||
-																			!can_write}
-																		on:click={createPublication}>Create</Button
-																	>
-																</div>
-															{:else}
-																<PublicationPicker
-																	{can_write}
-																	{postgres_resource_path}
-																	bind:transaction_to_track
-																	bind:relations
-																	bind:items={publicationItems}
-																	bind:publication_name
-																/>
-															{/if}
-															<RelationPicker {can_write} bind:relations />
-														</div>
-													</Section></div
-												>
-											</TabContent>
-										</div>
-									</svelte:fragment>
-								</Tabs>
-							</Label>
-						{/if}
+			{/if}
+			<Section label="Database" showTestingBadge={isEditor}>
+				<p class="text-xs text-tertiary mb-2">
+					Pick a database to connect to <Required required={true} />
+				</p>
+				<div class="flex flex-col gap-8">
+					<div class="flex flex-col gap-2">
+						<ResourcePicker
+							disabled={!can_write || !editMode}
+							bind:value={postgres_resource_path}
+							resourceType={'postgresql'}
+						/>
+						<CheckPostgresRequirement bind:postgres_resource_path bind:can_write />
 					</div>
-				</Section>
-			</div>
-		{/if}
-	</DrawerContent>
-</Drawer>
+
+					{#if postgres_resource_path}
+						<Label label="Transactions">
+							{#snippet header()}
+								<Tooltip>
+									<p>
+										Choose the types of database transactions that should trigger a script or flow.
+										You can select from <strong>Insert</strong>, <strong>Update</strong>,
+										<strong>Delete</strong>, or any combination of these operations to define when
+										the trigger should activate.
+									</p>
+								</Tooltip>
+							{/snippet}
+							<MultiSelect
+								noMatchingOptionsMsg=""
+								createOptionMsg={null}
+								duplicates={false}
+								options={transactionType}
+								allowUserOptions="append"
+								bind:selected={transaction_to_track}
+								ulOptionsClass={'!bg-surface !text-sm'}
+								ulSelectedClass="!text-sm"
+								outerDivClass="!bg-surface !min-h-[38px] !border-[#d1d5db]"
+								placeholder="Select transactions"
+								--sms-options-margin="4px"
+								--sms-open-z-index="100"
+								disabled={!editMode}
+							>
+								<!-- @migration-task: migrate this slot by hand, `remove-icon` is an invalid identifier -->
+								<svelte:fragment slot="remove-icon">
+									<div class="hover:text-primary p-0.5">
+										<X size={12} />
+									</div>
+								</svelte:fragment>
+							</MultiSelect>
+						</Label>
+						<Label label="Table Tracking">
+							{#snippet header()}
+								<Tooltip
+									documentationLink="https://www.windmill.dev/docs/core_concepts/postgres_triggers#define-what-to-track"
+								>
+									<p>
+										Select the tables to track. You can choose to track
+										<strong>all tables in your database</strong>,
+										<strong>all tables within a specific schema</strong>,
+										<strong>specific tables in a schema</strong>, or even
+										<strong>specific columns of a table</strong>. Additionally, you can apply a
+										<strong>filter</strong> to retrieve only rows that do not match the specified criteria.
+									</p>
+								</Tooltip>
+							{/snippet}
+							<Tabs bind:selected={tab}>
+								<Tab value="basic"
+									><div class="flex flex-row gap-1"
+										>Basic<Tooltip
+											documentationLink="https://www.windmill.dev/docs/core_concepts/postgres_triggers#define-what-to-track"
+											><p
+												>Choose the <strong>relations</strong> to track without worrying about the
+												underlying mechanics of creating a
+												<strong>publication</strong>
+												or <strong>slot</strong>. This simplified option lets you focus only on the
+												data you want to monitor.</p
+											></Tooltip
+										></div
+									></Tab
+								>
+								<Tab value="advanced"
+									><div class="flex flex-row gap-1"
+										>Advanced<Tooltip
+											documentationLink="https://www.windmill.dev/docs/core_concepts/postgres_triggers#advanced"
+											><p
+												>Select a specific <strong>publication</strong> from your database to track,
+												and manage it by <strong>creating</strong>,
+												<strong>updating</strong>, or <strong>deleting</strong>. For
+												<strong>slots</strong>, you can <strong>create</strong> or
+												<strong>delete</strong>
+												them. Both <strong>non-active slots</strong> and the
+												<strong>currently used slot</strong> by the trigger will be retrieved from your
+												database for management.</p
+											></Tooltip
+										></div
+									></Tab
+								>
+								<svelte:fragment slot="content">
+									<div class="mt-5 overflow-hidden bg-surface">
+										<TabContent value="basic">
+											<RelationPicker {can_write} bind:relations disabled={!editMode} />
+										</TabContent>
+										<TabContent value="advanced">
+											<div class="flex flex-col gap-6"
+												><Section
+													small
+													label="Replication slot"
+													tooltip="Choose and manage the slots for your trigger. You can create or delete slots. Both non-active slots and the currently used slot by the trigger (if any) will be retrieved from your database for management."
+													documentationLink="https://www.windmill.dev/docs/core_concepts/postgres_triggers#managing-postgres-replication-slots"
+												>
+													<div class="flex flex-col gap-3">
+														<ToggleButtonGroup
+															bind:selected={selectedSlotAction}
+															on:selected={() => {
+																replication_slot_name = ''
+															}}
+															disabled={!can_write || !editMode}
+														>
+															{#snippet children({ item })}
+																<ToggleButton value="create" label="Create Slot" {item} />
+																<ToggleButton value="get" label="Get Slot" {item} />
+															{/snippet}
+														</ToggleButtonGroup>
+														{#if selectedSlotAction === 'create'}
+															<div class="flex gap-3">
+																<input
+																	type="text"
+																	bind:value={replication_slot_name}
+																	placeholder={'Choose a slot name'}
+																	disabled={!editMode}
+																/>
+																<Button
+																	color="light"
+																	size="xs"
+																	variant="border"
+																	disabled={emptyStringTrimmed(replication_slot_name) || !editMode}
+																	on:click={createSlot}>Create</Button
+																>
+															</div>
+														{:else}
+															<SlotPicker
+																bind:edit
+																{postgres_resource_path}
+																bind:replication_slot_name
+																disabled={!editMode}
+															/>
+														{/if}
+													</div>
+												</Section>
+
+												<Section
+													small
+													label="Publication"
+													tooltip="Select and manage the publications for tracking data. You can create, update, or delete publications. Only existing publications in your database will be available for selection, giving you full control over what data is tracked."
+													documentationLink="https://www.windmill.dev/docs/core_concepts/postgres_triggers#managing-postgres-publications"
+												>
+													<div class="flex flex-col gap-3">
+														<ToggleButtonGroup
+															selected={selectedPublicationAction}
+															disabled={!can_write || !editMode}
+															on:selected={({ detail }) => {
+																selectedPublicationAction = detail
+																if (selectedPublicationAction === 'create') {
+																	publication_name = `windmill_publication_${random_adj()}`
+																	relations = [{ schema_name: 'public', table_to_track: [] }]
+																	return
+																}
+
+																publication_name = ''
+																relations = []
+																transaction_to_track = []
+															}}
+														>
+															{#snippet children({ item })}
+																<ToggleButton value="create" label="Create Publication" {item} />
+																<ToggleButton value="get" label="Get Publication" {item} />
+															{/snippet}
+														</ToggleButtonGroup>
+														{#if selectedPublicationAction === 'create'}
+															<div class="flex gap-3">
+																<input
+																	disabled={!can_write || !editMode}
+																	type="text"
+																	bind:value={publication_name}
+																	placeholder={'Publication Name'}
+																/>
+																<Button
+																	color="light"
+																	size="xs"
+																	variant="border"
+																	disabled={emptyStringTrimmed(publication_name) ||
+																		(relations && relations.length === 0) ||
+																		!can_write ||
+																		!editMode}
+																	on:click={createPublication}>Create</Button
+																>
+															</div>
+														{:else}
+															<PublicationPicker
+																{can_write}
+																{postgres_resource_path}
+																bind:transaction_to_track
+																bind:relations
+																bind:items={publicationItems}
+																bind:publication_name
+																disabled={!editMode}
+															/>
+														{/if}
+														<RelationPicker {can_write} bind:relations disabled={!editMode} />
+													</div>
+												</Section></div
+											>
+										</TabContent>
+									</div>
+								</svelte:fragment>
+							</Tabs>
+						</Label>
+					{/if}
+				</div>
+			</Section>
+		</div>
+	{/if}
+{/snippet}

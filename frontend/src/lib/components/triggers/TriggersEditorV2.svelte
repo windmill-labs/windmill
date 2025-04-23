@@ -20,12 +20,14 @@
 		fetchHttpTriggers as fetchHttpTriggersUtil,
 		fetchSchedules as fetchSchedulesUtil,
 		fetchWebsocketTriggers,
+		fetchPostgresTriggers,
 		deleteDraft,
 		addDraftTrigger
 	} from './utils'
 	import { workspaceStore } from '$lib/stores'
 	import WebsocketTriggersPanel from './websocket/WebsocketTriggersPanelV2.svelte'
 	import { fade } from 'svelte/transition'
+	import PostgresTriggersPanel from './postgres/PostgresTriggersPanelV2.svelte'
 
 	export let noEditor: boolean
 	export let newItem = false
@@ -234,6 +236,33 @@
 											}}
 											on:update-config={({ detail }) => {
 												config = detail
+											}}
+										/>
+									{:else if $selectedTrigger.type === 'postgres'}
+										<PostgresTriggersPanel
+											{isFlow}
+											path={initialPath || fakeInitialPath}
+											selectedTrigger={$selectedTrigger}
+											edit={editTrigger === $selectedTrigger}
+											{isDeployed}
+											isEditor={true}
+											on:toggle-edit-mode={({ detail }) => {
+												editTrigger = detail ? $selectedTrigger : undefined
+											}}
+											on:update={({ detail }) => {
+												if ($selectedTrigger?.isDraft) {
+													$selectedTrigger.isDraft = false
+												}
+												if ($selectedTrigger) {
+													$selectedTrigger.path = detail
+												}
+												fetchPostgresTriggers(
+													triggers,
+													$workspaceStore,
+													currentPath,
+													isFlow,
+													$userStore
+												)
 											}}
 										/>
 									{:else if $selectedTrigger.isDraft}
