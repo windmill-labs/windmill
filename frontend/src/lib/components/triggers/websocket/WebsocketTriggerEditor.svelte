@@ -6,9 +6,10 @@
 	interface Props {
 		useDrawer?: boolean
 		description?: Snippet | undefined
+		hideTarget?: boolean
 	}
 
-	let { useDrawer = true, description = undefined }: Props = $props()
+	let { useDrawer = true, description = undefined, hideTarget = false }: Props = $props()
 
 	let open = $state(false)
 	export async function openEdit(ePath: string, isFlow: boolean) {
@@ -31,5 +32,11 @@
 </script>
 
 {#if open}
-	<WebsocketTriggerEditorInner on:update bind:this={drawer} {useDrawer} {description} />
+	<WebsocketTriggerEditorInner
+		on:update
+		bind:this={drawer}
+		{useDrawer}
+		{description}
+		{hideTarget}
+	/>
 {/if}

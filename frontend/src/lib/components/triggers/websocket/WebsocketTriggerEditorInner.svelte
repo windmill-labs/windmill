@@ -30,9 +30,10 @@
 	interface Props {
 		useDrawer?: boolean
 		description?: Snippet | undefined
+		hideTarget?: boolean
 	}
 
-	let { useDrawer = true, description = undefined }: Props = $props()
+	let { useDrawer = true, description = undefined, hideTarget = false }: Props = $props()
 
 	let drawer: Drawer | undefined = $state()
 	let is_flow: boolean = $state(false)
@@ -313,46 +314,48 @@
 				</Label>
 			</div>
 
-			<Section label="Runnable" class="flex flex-col gap-4">
-				<div>
-					<p class="text-xs mb-1 text-tertiary">
-						Pick a script or flow to be triggered<Required required={true} />
-					</p>
-					<div class="flex flex-row mb-2">
-						<ScriptPicker
-							disabled={fixedScriptPath != '' || !can_write}
-							initialPath={fixedScriptPath || initialScriptPath}
-							kinds={['script']}
-							allowFlow={true}
-							bind:itemKind
-							bind:scriptPath={script_path}
-							allowRefresh={can_write}
-							allowEdit={!$userStore?.operator}
-						/>
-						{#if emptyString(script_path)}
-							<Button
-								btnClasses="ml-4 mt-2"
-								color="dark"
-								size="xs"
-								href={itemKind === 'flow' ? '/flows/add?hub=64' : '/scripts/add?hub=hub%2F11636'}
-								target="_blank">Create from template</Button
-							>
-						{/if}
+			{#if !hideTarget}
+				<Section label="Runnable" class="flex flex-col gap-4">
+					<div>
+						<p class="text-xs mb-1 text-tertiary">
+							Pick a script or flow to be triggered<Required required={true} />
+						</p>
+						<div class="flex flex-row mb-2">
+							<ScriptPicker
+								disabled={fixedScriptPath != '' || !can_write}
+								initialPath={fixedScriptPath || initialScriptPath}
+								kinds={['script']}
+								allowFlow={true}
+								bind:itemKind
+								bind:scriptPath={script_path}
+								allowRefresh={can_write}
+								allowEdit={!$userStore?.operator}
+							/>
+							{#if emptyString(script_path)}
+								<Button
+									btnClasses="ml-4 mt-2"
+									color="dark"
+									size="xs"
+									href={itemKind === 'flow' ? '/flows/add?hub=64' : '/scripts/add?hub=hub%2F11636'}
+									target="_blank">Create from template</Button
+								>
+							{/if}
+						</div>
 					</div>
-				</div>
 
-				<Toggle
-					checked={can_return_message}
-					on:change={() => {
-						can_return_message = !can_return_message
-					}}
-					options={{
-						right: 'Send runnable result',
-						rightTooltip:
-							'Whether the runnable result should be sent as a message to the websocket server when not null.'
-					}}
-				/>
-			</Section>
+					<Toggle
+						checked={can_return_message}
+						on:change={() => {
+							can_return_message = !can_return_message
+						}}
+						options={{
+							right: 'Send runnable result',
+							rightTooltip:
+								'Whether the runnable result should be sent as a message to the websocket server when not null.'
+						}}
+					/>
+				</Section>
+			{/if}
 
 			<WebsocketEditorConfigSection
 				bind:url
