@@ -26,6 +26,7 @@
 	import Toggle from '$lib/components/Toggle.svelte'
 	import WebsocketEditorConfigSection from './WebsocketEditorConfigSection.svelte'
 	import type { Snippet } from 'svelte'
+	import { twMerge } from 'tailwind-merge'
 
 	interface Props {
 		useDrawer?: boolean
@@ -34,6 +35,7 @@
 		editMode?: boolean
 		preventSave?: boolean
 		hideTooltips?: boolean
+		useEditButton?: boolean
 	}
 
 	let {
@@ -42,7 +44,8 @@
 		hideTarget = false,
 		editMode = true,
 		preventSave = false,
-		hideTooltips = false
+		hideTooltips = false,
+		useEditButton = false
 	}: Props = $props()
 
 	let drawer: Drawer | undefined = $state()
@@ -267,7 +270,7 @@
 	{#if !drawerLoading}
 		<div class="flex flex-row gap-2 items-center">
 			{#if edit}
-				<div class="center-center">
+				<div class={twMerge('center-center', size === 'sm' ? '-mt-1' : '')}>
 					<Toggle
 						{size}
 						disabled={!can_write || !editMode}
@@ -299,7 +302,7 @@
 						Save
 					</Button>
 				{/if}
-				{#if !editMode && can_write}
+				{#if !editMode && useEditButton}
 					<Button
 						{size}
 						color="light"
@@ -308,7 +311,7 @@
 					>
 						Edit
 					</Button>
-				{:else if editMode && !!resetEditMode}
+				{:else if editMode && !!resetEditMode && useEditButton}
 					<Button
 						{size}
 						color="light"

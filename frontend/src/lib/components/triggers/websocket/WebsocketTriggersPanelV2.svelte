@@ -33,6 +33,7 @@
 			editMode={edit}
 			preventSave={!isDeployed}
 			hideTooltips={!isDeployed}
+			useEditButton
 			on:toggle-edit-mode
 			on:update
 		>
