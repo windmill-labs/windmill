@@ -253,8 +253,8 @@ mod zoom {
     use super::*;
 
     #[derive(Debug, Deserialize)]
-    #[serde(rename_all = "snake_case")]
     struct ZoomPayload {
+        #[serde(rename = "plainToken")]
         plain_token: String,
     }
 
@@ -618,7 +618,9 @@ impl AuthenticationMethod {
                 api_key_header,
                 api_key_secret,
             }) => {
-                let api_key_to_cmp = headers.try_get_webhook_header(&api_key_header)?;
+                let api_key_to_cmp = headers
+                    .try_get_webhook_header(&api_key_header)
+                    .map_err(|_| AuthenticationError::InvalidApiKey)?;
                 if api_key_to_cmp != api_key_secret {
                     return Err(AuthenticationError::InvalidApiKey);
                 }
@@ -734,7 +736,9 @@ impl IntoResponse for AuthenticationError {
                 )
                     .into_response()
             }
-            AuthenticationError::InvalidApiKey => (StatusCode::FORBIDDEN, self.to_string()),
+            AuthenticationError::InvalidApiKey => {
+                return (StatusCode::UNAUTHORIZED, "Unauthorized").into_response()
+            }
         };
 
         let body = json!({ "error": error_message });

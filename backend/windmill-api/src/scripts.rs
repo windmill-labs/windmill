@@ -40,16 +40,26 @@ use std::{
 };
 use windmill_audit::audit_ee::audit_log;
 use windmill_audit::ActionKind;
+use windmill_worker::process_relative_imports;
 
 use windmill_common::error::to_anyhow;
 
 use windmill_common::{
-    db::UserDB, error::{Error, JsonResult, Result}, jobs::JobPayload, schedule::Schedule, schema::should_validate_schema, scripts::{
+    db::UserDB,
+    error::{Error, JsonResult, Result},
+    jobs::JobPayload,
+    schedule::Schedule,
+    schema::should_validate_schema,
+    scripts::{
         to_i64, HubScript, ListScriptQuery, ListableScript, NewScript, Schema, Script, ScriptHash,
         ScriptHistory, ScriptHistoryUpdate, ScriptKind, ScriptLang, ScriptWithStarred,
-    }, users::username_to_permissioned_as, utils::{
+    },
+    users::username_to_permissioned_as,
+    utils::{
         not_found_if_none, paginate, query_elems_from_hub, require_admin, Pagination, StripPath,
-    }, worker::to_raw_value, HUB_BASE_URL
+    },
+    worker::to_raw_value,
+    HUB_BASE_URL,
 };
 use windmill_git_sync::{handle_deployment_metadata, DeployedObject};
 use windmill_parser_ts::remove_pinned_imports;
@@ -409,10 +419,10 @@ async fn create_snapshot_script(
                 std::fs::create_dir_all(
                     windmill_common::worker::ROOT_STANDALONE_BUNDLE_DIR.clone(),
                 )?;
-                windmill_common::worker::write_file(
+                windmill_common::worker::write_file_bytes(
                     &windmill_common::worker::ROOT_STANDALONE_BUNDLE_DIR,
                     &hash,
-                    &String::from_utf8_lossy(&data),
+                    &data,
                 )?;
             } else {
                 #[cfg(not(all(feature = "enterprise", feature = "parquet")))]
@@ -885,6 +895,38 @@ async fn create_script_internal<'c>(
         .await?;
         Ok((hash, new_tx))
     } else {
+        let db2 = db.clone();
+        let w_id2 = w_id.clone();
+        let authed2 = authed.clone();
+        let permissioned_as2 = permissioned_as.clone();
+        let script_path2 = script_path.clone();
+        let parent_path = p_path_opt.clone();
+        let deployment_message = ns.deployment_message.clone();
+        let content = ns.content.clone();
+        let language = ns.language.clone();
+        tokio::spawn(async move {
+            // wait for 10 seconds to make sure the script is deployed and that the CLI sync that pushed it (f one) is complete
+            tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+            if let Err(e) = process_relative_imports(
+                &db2,
+                None,
+                None,
+                &w_id2,
+                &script_path2,
+                parent_path,
+                deployment_message,
+                &content,
+                &Some(language),
+                &authed2.email,
+                &authed2.username,
+                &permissioned_as2,
+            )
+            .await
+            {
+                tracing::error!(%e, "error processing relative imports");
+            }
+        });
+
         handle_deployment_metadata(
             &authed.email,
             &authed.username,

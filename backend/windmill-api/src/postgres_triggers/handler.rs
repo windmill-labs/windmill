@@ -6,6 +6,7 @@ use std::collections::{
 use crate::{
     db::{ApiAuthed, DB},
     postgres_triggers::mapper::{Mapper, MappingInfo},
+    resources::try_get_resource_from_db_as,
 };
 use axum::{
     extract::{Path, Query},
@@ -29,9 +30,9 @@ use windmill_common::{
 };
 
 use super::{
-    create_logical_replication_slot_query, create_publication_query,
-    drop_logical_replication_slot_query, drop_publication_query, generate_random_string,
-    get_database_connection, ERROR_PUBLICATION_NAME_NOT_EXISTS, ERROR_REPLICATION_SLOT_NOT_EXISTS,
+    create_logical_replication_slot_query, create_publication_query, drop_publication_query,
+    generate_random_string, get_database_connection, get_raw_postgres_connection,
+    ERROR_PUBLICATION_NAME_NOT_EXISTS, ERROR_REPLICATION_SLOT_NOT_EXISTS,
 };
 use lazy_static::lazy_static;
 
@@ -394,7 +395,7 @@ pub async fn create_postgres_trigger(
                 "Missing replication slot name".to_string(),
             ));
         }
-        (replication_slot_name.unwrap(), publication_name.unwrap())
+        (publication_name.unwrap(), replication_slot_name.unwrap())
     };
 
     let mut tx = user_db.begin(&authed).await?;
@@ -628,7 +629,7 @@ pub async fn create_slot(
 
     sqlx::query(&query).execute(&mut connection).await?;
 
-    Ok(format!("Slot {} created!", name))
+    Ok(format!("Replication slot {} created!", name))
 }
 
 pub async fn drop_slot_name(
@@ -638,19 +639,43 @@ pub async fn drop_slot_name(
     Path((w_id, postgres_resource_path)): Path<(String, String)>,
     Json(Slot { name }): Json<Slot>,
 ) -> Result<String> {
-    let mut connection = get_database_connection(
-        authed.clone(),
-        Some(user_db.clone()),
+    let database = try_get_resource_from_db_as::<Postgres>(
+        authed,
+        Some(user_db),
         &db,
         &postgres_resource_path,
         &w_id,
     )
     .await?;
 
-    let query = drop_logical_replication_slot_query(&name);
-    sqlx::query(&query).execute(&mut connection).await?;
+    let mut connection = get_raw_postgres_connection(&database).await?;
 
-    Ok(format!("Slot name {} deleted!", name))
+    let active_pid = sqlx::query_scalar!(
+        r#"SELECT 
+            active_pid 
+        FROM 
+            pg_replication_slots 
+        WHERE 
+            slot_name = $1
+        "#,
+        &name
+    )
+    .fetch_optional(&mut connection)
+    .await?
+    .flatten();
+
+    if let Some(pid) = active_pid {
+        sqlx::query("SELECT pg_terminate_backend($1)")
+            .bind(pid)
+            .execute(&mut connection)
+            .await?;
+    }
+    sqlx::query("SELECT pg_drop_replication_slot($1)")
+        .bind(&name)
+        .execute(&mut connection)
+        .await?;
+
+    Ok(format!("Replication slot {} deleted!", name))
 }
 #[derive(Debug, Serialize)]
 struct PublicationName {

@@ -2,7 +2,7 @@
 	import { BROWSER } from 'esm-env'
 	import { createEventDispatcher, onMount } from 'svelte'
 
-	import '@codingame/monaco-vscode-standalone-languages'
+	// import '@codingame/monaco-vscode-standalone-languages'
 	import '@codingame/monaco-vscode-standalone-json-language-features'
 	import '@codingame/monaco-vscode-standalone-typescript-language-features'
 	import { editor as meditor } from 'monaco-editor'
@@ -131,7 +131,7 @@
 		bind:this={diffDivEl}
 		class="{$$props.class} editor nonmain-editor"
 		bind:clientWidth={editorWidth}
-	/>
+	></div>
 	{#if showButtons}
 		<div
 			class="absolute flex flex-row gap-2 bottom-10 left-1/2 z-10 -translate-x-1/2 rounded-md p-1 w-full justify-center"

@@ -9,16 +9,29 @@
 
 import { deepEqual } from 'fast-equals'
 import YAML from 'yaml'
-import type { UserExt } from './stores'
+import { type UserExt } from './stores'
 import { sendUserToast } from './toast'
 import type { Job, Script } from './gen'
 import type { EnumType, SchemaProperty } from './common'
 import type { Schema } from './common'
 export { sendUserToast }
 import type { AnyMeltElement } from '@melt-ui/svelte'
+import type { RunsSelectionMode } from './components/runs/RunsBatchActionsDropdown.svelte'
+import type { TriggerKind } from './components/triggers'
 
 export function isJobCancelable(j: Job): boolean {
 	return j.type === 'QueuedJob' && !j.schedule_path && !j.canceled
+}
+export function isJobReRunnable(j: Job): boolean {
+	return (j.job_kind === 'script' || j.job_kind === 'flow') && j.parent_job === undefined
+}
+
+export function isJobSelectable(selectionType: RunsSelectionMode) {
+	const f: (j: Job) => boolean = {
+		cancel: isJobCancelable,
+		're-run': isJobReRunnable
+	}[selectionType]
+	return f
 }
 
 export function validateUsername(username: string): string {
@@ -85,7 +98,7 @@ export function displayDate(
 			? {
 					day: 'numeric',
 					month: 'numeric'
-			  }
+				}
 			: {}
 		return date.toLocaleString(undefined, {
 			...timeChoices,
@@ -127,6 +140,17 @@ export function msToSec(ms: number | undefined, maximumFractionDigits?: number):
 		maximumFractionDigits: maximumFractionDigits ?? 3,
 		minimumFractionDigits: maximumFractionDigits
 	})
+}
+
+export function removeTriggerKindIfUnused(
+	length: number,
+	triggerKind: TriggerKind,
+	usedTriggerKinds: string[]
+) {
+	if (length === 0 && usedTriggerKinds.includes(triggerKind)) {
+		return usedTriggerKinds.filter((kind) => kind != triggerKind)
+	}
+	return usedTriggerKinds
 }
 
 export function msToReadableTime(ms: number | undefined): string {
@@ -229,7 +253,7 @@ export function clickOutside(
 		}
 	}
 
-	const capture = typeof options === 'boolean' ? options : options?.capture ?? true
+	const capture = typeof options === 'boolean' ? options : (options?.capture ?? true)
 	document.addEventListener('click', handleClick, capture ?? true)
 
 	return {
@@ -603,6 +627,10 @@ export function pluralize(quantity: number, word: string, customPlural?: string)
 	} else {
 		return `${quantity} ${word}s`
 	}
+}
+
+export function addDeterminant(word: string): string {
+	return (/^[aeiou]/i.test(word) ? 'an ' : 'a ') + word
 }
 
 export function capitalize(word: string): string {
@@ -1218,4 +1246,25 @@ export function toJsonStr(result: any) {
 	} catch (e) {
 		return 'error stringifying object: ' + e.toString()
 	}
+}
+
+export function getOS() {
+	const userAgent = window.navigator.userAgent
+	const platform = window.navigator.platform
+	const macosPlatforms = ['Macintosh', 'MacIntel', 'MacPPC', 'Mac68K']
+	const windowsPlatforms = ['Win32', 'Win64', 'Windows', 'WinCE']
+	const iosPlatforms = ['iPhone', 'iPad', 'iPod']
+	if (macosPlatforms.includes(platform)) {
+		return 'macOS' as const
+	} else if (iosPlatforms.includes(platform)) {
+		return 'iOS' as const
+	} else if (windowsPlatforms.includes(platform)) {
+		return 'Windows' as const
+	} else if (/Android/.test(userAgent)) {
+		return 'Android' as const
+	} else if (/Linux/.test(platform)) {
+		return 'Linux' as const
+	}
+
+	return 'Unknown OS' as const
 }

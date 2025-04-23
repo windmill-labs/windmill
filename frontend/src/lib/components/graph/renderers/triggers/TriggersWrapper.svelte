@@ -20,6 +20,7 @@
 		modules?: FlowModule[]
 		bgColor: string
 		triggers?: Trigger[]
+		bgHoverColor?: string
 	}
 
 	let {
@@ -30,7 +31,8 @@
 		disableAi = false,
 		modules = [],
 		bgColor,
-		triggers = []
+		triggers = [],
+		bgHoverColor = ''
 	}: Props = $props()
 
 	let showTriggerScriptPicker = $state(false)
@@ -60,17 +62,21 @@
 	)
 
 	const dispatch = createEventDispatcher()
+
+	let hover = $state(false)
 </script>
 
 <div style={`width: ${NODE.width}px;`}>
 	<button
-		style="background-color: {bgColor} !important;"
+		style="background-color: {hover && bgHoverColor ? bgHoverColor : bgColor};"
 		class="relative flex w-full flex-row gap-1.5 px-2 p-1 items-center rounded-sm {selected
 			? 'outline  outline-2  outline-gray-600 dark:bg-white/5 dark:outline-gray-400'
 			: ''}"
 		onclick={() => {
 			dispatch('select')
 		}}
+		onmouseenter={() => (hover = true)}
+		onmouseleave={() => (hover = false)}
 	>
 		<div
 			class={twMerge(

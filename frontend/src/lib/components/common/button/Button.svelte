@@ -8,6 +8,7 @@
 	import { createTooltip } from '@melt-ui/svelte'
 	import type { Placement } from '@floating-ui/core'
 	import { conditionalMelt } from '$lib/utils'
+	import { createDispatcherIfMounted } from '$lib/createDispatcherIfMounted'
 
 	export let size: ButtonType.Size = 'md'
 	export let spacingSize: ButtonType.Size = size
@@ -72,6 +73,7 @@
 	}
 
 	const dispatch = createEventDispatcher()
+	const dispatchIfMounted = createDispatcherIfMounted(dispatch)
 	// Order of classes: border, border modifier, bg, bg modifier, text, text modifier, everything else
 
 	async function onClick(event: MouseEvent) {
@@ -150,7 +152,7 @@
 			}
 	$: tooltipPopover && openDelay !== undefined && ($openDelay = tooltipPopover?.openDelay) //This option is reactive
 
-	$: $open !== undefined && dispatch('tooltipOpen', $open)
+	$: $open !== undefined && dispatchIfMounted('tooltipOpen', $open)
 </script>
 
 <div

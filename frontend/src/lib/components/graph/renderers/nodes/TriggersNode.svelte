@@ -6,7 +6,7 @@
 	import { getContext } from 'svelte'
 	import type { Writable } from 'svelte/store'
 	import { Maximize2, Minimize2, Calendar } from 'lucide-svelte'
-	import { getStateColor } from '../../util'
+	import { getStateColor, getStateHoverColor } from '../../util'
 	import { setScheduledPollSchedule, type TriggerContext } from '$lib/components/triggers'
 	import VirtualItemWrapper from '$lib/components/flows/map/VirtualItemWrapper.svelte'
 	import { addDraftTrigger } from '$lib/components/triggers/utils'
@@ -38,6 +38,7 @@
 			isEditor={data.isEditor}
 			path={data.path}
 			bgColor={getStateColor(undefined, darkMode)}
+			bgHoverColor={getStateHoverColor(undefined, darkMode)}
 			on:new={(e) => {
 				data?.eventHandlers.insert({
 					modules: data.modules,

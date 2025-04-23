@@ -36,6 +36,7 @@
 	import type { DisplayResultUi } from './custom_ui'
 	import { getContext, hasContext, createEventDispatcher, onDestroy } from 'svelte'
 	import { toJsonStr } from '$lib/utils'
+	import { createDispatcherIfMounted } from '$lib/createDispatcherIfMounted'
 
 	export let result: any
 	export let requireHtmlApproval = false
@@ -58,6 +59,7 @@
 	const DISPLAY_MAX_SIZE = 100000
 
 	const dispatch = createEventDispatcher()
+	const dispatchIfMounted = createDispatcherIfMounted(dispatch)
 
 	let resultKind:
 		| 'json'
@@ -406,7 +408,7 @@
 		} else {
 			toolbarLocation = 'self'
 		}
-		dispatch('toolbar-location-changed', toolbarLocation)
+		dispatchIfMounted('toolbar-location-changed', toolbarLocation)
 	}
 
 	export function getToolbarLocation() {
@@ -764,24 +766,30 @@
 									<img
 										alt="preview rendered"
 										class="w-auto h-full"
-										src={`/api/w/${workspaceId}/${
+										src="{`/api/w/${workspaceId}/${
 											appPath
-												? 'apps_u/load_image_preview/' + appPath
+												? 'apps_u/download_s3_file/' + appPath
 												: 'job_helpers/load_image_preview'
-										}?file_key=${encodeURIComponent(result.s3)}` +
-											(result.storage ? `&storage=${result.storage}` : '')}
+										}?${appPath ? 's3' : 'file_key'}=${encodeURIComponent(result.s3)}` +
+											(result.storage ? `&storage=${result.storage}` : '')}{appPath &&
+										result.presigned
+											? `&${result.presigned}`
+											: ''}"
 									/>
 								</div>
 							{:else if result?.s3?.endsWith('.pdf')}
 								<div class="h-96 mt-2 border">
 									<PdfViewer
 										allowFullscreen
-										source={`/api/w/${workspaceId}/${
+										source="{`/api/w/${workspaceId}/${
 											appPath
-												? 'apps_u/load_image_preview/' + appPath
+												? 'apps_u/download_s3_file/' + appPath
 												: 'job_helpers/load_image_preview'
-										}?file_key=${encodeURIComponent(result.s3)}` +
-											(result.storage ? `&storage=${result.storage}` : '')}
+										}?${appPath ? 's3' : 'file_key'}=${encodeURIComponent(result.s3)}` +
+											(result.storage ? `&storage=${result.storage}` : '')}{appPath &&
+										result.presigned
+											? `&${result.presigned}`
+											: ''}"
 									/>
 								</div>
 							{/if}

@@ -467,6 +467,7 @@ impl PostgresConfig {
 
         let client = PostgresSimpleClient::new(&database).await?;
 
+
         let publication = client
             .execute_query(&format!(
                 "SELECT pubname FROM pg_publication WHERE pubname = {}",
@@ -605,6 +606,7 @@ async fn listen_to_transactions(
                                         }
                                     };
 
+                                    
                                     let message = match message {
                                         Ok(message) => message,
                                         Err(err) => {
@@ -648,37 +650,79 @@ async fn listen_to_transactions(
                                                     None
                                                 }
                                                 Insert(insert) => {
-                                                    Some((insert.o_id, relations.body_to_json((insert.o_id, insert.tuple)), "insert"))
+                                                    Some((insert.o_id, Ok(None), relations.row_to_json((insert.o_id, insert.tuple)), "insert"))
                                                 }
                                                 Update(update) => {
-                                                    Some((update.o_id, relations.body_to_json((update.o_id, update.new_tuple)), "update"))
+                                                    let old_row = update.old_tuple.map(|old_tuple| relations.row_to_json((update.o_id, old_tuple))).transpose();
+                                                    let row = relations.row_to_json((update.o_id, update.new_tuple));
+                                                    Some((update.o_id, old_row, row, "update"))
                                                 }
                                                 Delete(delete) => {
-                                                    let body = delete.old_tuple.unwrap_or_else(|| delete.key_tuple.unwrap());
-                                                    Some((delete.o_id, relations.body_to_json((delete.o_id, body)), "delete"))
+                                                    let row = delete.old_tuple.unwrap_or_else(|| delete.key_tuple.unwrap());
+                                                    Some((delete.o_id, Ok(None), relations.row_to_json((delete.o_id, row)), "delete"))
                                                 }
                                             };
-                                            if let Some((o_id, Ok(body), transaction_type)) = json {
-                                                let relation = match relations.get_relation(o_id) {
-                                                    Ok(relation) => relation,
-                                                    Err(err) => {
-                                                        tracing::error!("Postgres trigger named: {}, error: {}", pg.get_path(), err.to_string());
-                                                        continue;
+                                            match json {
+                                                Some((o_id, Ok(old_row), Ok(row), transaction_type)) => {
+                                                    let relation = match relations.get_relation(o_id) {
+                                                        Ok(relation) => relation,
+                                                        Err(err) => {
+                                                            tracing::error!("Postgres trigger named: {}, error: {}", pg.get_path(), err.to_string());
+                                                            continue;
+                                                        }
+                                                    };
+                                                    let database_info = HashMap::from([
+                                                        ("schema_name".to_string(), to_raw_value(&relation.namespace)),
+                                                        ("table_name".to_string(), to_raw_value(&relation.name)),
+                                                        ("transaction_type".to_string(), to_raw_value(&transaction_type)),
+                                                        ("old_row".to_string(), to_raw_value(&old_row)),
+                                                        ("row".to_string(), to_raw_value(&row)),
+                                                    ]);
+                                                    let extra = Some(HashMap::from([(
+                                                        "wm_trigger".to_string(),
+                                                        to_raw_value(&serde_json::json!({"kind": "postgres", })),
+                                                    )]));
+    
+    
+                                                    let _ = pg.handle(&db, Some(database_info), extra).await;
+                                                }
+                                                Some((o_id, old_row, row, transaction_type)) => {
+                                                    let relation = match relations.get_relation(o_id) {
+                                                        Ok(relation) => relation,
+                                                        Err(err) => {
+                                                            tracing::error!("Postgres trigger named: {}, error: {}", pg.get_path(), err.to_string());
+                                                            continue;
+                                                        }
+                                                    };
+                                                
+                                                    if let Err(err) = old_row {
+                                                        tracing::error!(
+                                                            transaction_type = ?transaction_type,
+                                                            schema = %relation.namespace,
+                                                            table = %relation.name,
+                                                            error = %err,
+                                                            "Failed to decode OLD row for {} transaction on {}.{}",
+                                                            transaction_type,
+                                                            relation.namespace,
+                                                            relation.name,
+                                                        );
                                                     }
-                                                };
-                                                let database_info = HashMap::from([
-                                                    ("schema_name".to_string(), to_raw_value(&relation.namespace)),
-                                                    ("table_name".to_string(), to_raw_value(&relation.name)),
-                                                    ("transaction_type".to_string(), to_raw_value(&transaction_type)),
-                                                    ("row".to_string(), to_raw_value(&body)),
-                                                ]);
-                                                let extra = Some(HashMap::from([(
-                                                    "wm_trigger".to_string(),
-                                                    to_raw_value(&serde_json::json!({"kind": "postgres", })),
-                                                )]));
-
-
-                                                let _ = pg.handle(&db, Some(database_info), extra).await;
+                                                    
+                                                    if let Err(err) = row {
+                                                        tracing::error!(
+                                                            transaction_type = ?transaction_type,
+                                                            schema = %relation.namespace,
+                                                            table = %relation.name,
+                                                            error = %err,
+                                                            "Failed to decode NEW row for {} transaction on {}.{}",
+                                                            transaction_type,
+                                                            relation.namespace,
+                                                            relation.name,
+                                                        );
+                                                    }
+                                                    
+                                                }
+                                                _ => {}
                                             }
 
                                         }

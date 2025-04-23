@@ -425,7 +425,7 @@
 										class="flex justify-end"
 										bind:checked={s3FileUploadRawMode}
 										size="xs"
-										options={{ left: 'Existing file' }}
+										options={{ left: 'Raw S3 object input' }}
 										disabled={!can_write || !editMode}
 									/>
 								{/if}
@@ -448,20 +448,6 @@
 											code={JSON.stringify(static_asset_config ?? { s3: '' }, null, 2)}
 										/>
 									{/if}
-									{#if can_write}
-										<Button
-											variant="border"
-											color="light"
-											size="xs"
-											btnClasses="mt-1"
-											on:click={() => {
-												s3FilePicker?.open?.(!is_static_website ? static_asset_config : undefined)
-											}}
-											startIcon={{ icon: Pipette }}
-										>
-											Choose an object from the catalog
-										</Button>
-									{/if}
 								{:else}
 									{#key is_static_website}
 										<FileUpload
@@ -482,6 +468,20 @@
 											}}
 										/>
 									{/key}
+								{/if}
+								{#if can_write}
+									<Button
+										variant="border"
+										color="light"
+										size="xs"
+										btnClasses="mt-1"
+										on:click={() => {
+											s3FilePicker?.open?.(!is_static_website ? static_asset_config : undefined)
+										}}
+										startIcon={{ icon: Pipette }}
+									>
+										Choose an object from the catalog
+									</Button>
 								{/if}
 							</div>
 						</div>

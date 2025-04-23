@@ -12,8 +12,10 @@
 	import DarkModeObserver from './DarkModeObserver.svelte'
 	import { Pen, Plus, RotateCw } from 'lucide-svelte'
 	import { sendUserToast } from '$lib/toast'
+	import { createDispatcherIfMounted } from '$lib/createDispatcherIfMounted'
 
 	const dispatch = createEventDispatcher()
+	const dispatchIfMounted = createDispatcherIfMounted(dispatch)
 
 	export let initialValue: string | undefined = undefined
 	export let value: string | undefined = initialValue
@@ -41,7 +43,7 @@
 					value: value ?? initialValue,
 					label: value ?? initialValue,
 					type: valueType
-			  }
+				}
 			: undefined
 
 	$: if (value === undefined && initialValue) {
@@ -97,7 +99,7 @@
 
 	$: $workspaceStore && loadResources(resourceType)
 
-	$: dispatch('change', value)
+	$: dispatchIfMounted('change', value)
 
 	let appConnect: AppConnect
 	let resourceEditor: ResourceEditorDrawer
@@ -133,7 +135,7 @@
 	}}
 />
 
-<div class="flex flex-col w-full items-start">
+<div class="flex flex-col w-full items-start min-h-9">
 	<div class="flex flex-row w-full items-center">
 		{#if collection?.length > 0}
 			<Select

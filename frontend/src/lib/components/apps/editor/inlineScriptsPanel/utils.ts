@@ -1,6 +1,8 @@
 import type { Schema } from '$lib/common'
-import type { AppInputs, Runnable } from '../../inputType'
-import type { GridItem, InlineScript } from '../../types'
+import { ScriptService } from '$lib/gen'
+import { sendUserToast } from '$lib/toast'
+import type { AppInputs, Runnable, RunnableByName } from '../../inputType'
+import type { GridItem, HiddenRunnable, InlineScript } from '../../types'
 import { fieldTypeToTsType, schemaToInputsSpec } from '../../utils'
 import type { AppComponent } from '../component'
 
@@ -111,7 +113,7 @@ export function getAppScripts(
 	grid: GridItem[],
 	subgrids: Record<string, GridItem[]> | undefined
 ): AppScriptsList {
-	const scriptsList = grid.reduce(
+	const scriptsList = (grid ?? []).reduce(
 		(acc, gridComponent) => processGridItemRunnable(gridComponent, acc),
 		{ inline: [], imported: [], transformer: false } as AppScriptsList
 	)
@@ -141,5 +143,47 @@ function processRunnable(
 		name: runnable[runnable.type === 'runnableByPath' ? 'path' : 'name'],
 		id,
 		transformer: transformer !== undefined
+	})
+}
+
+export async function createScriptFromInlineScript(
+	id: string,
+	runnable: HiddenRunnable | RunnableByName,
+	workspace: string,
+	appPath: string
+) {
+	if (runnable.type != 'runnableByName') {
+		sendUserToast('Only inline scripts can be saved to workspace', true)
+		return
+	}
+	if (!runnable.inlineScript) {
+		sendUserToast('No inline script found', true)
+		return
+	}
+	let language = runnable.inlineScript.language
+	if (language == 'frontend') {
+		sendUserToast('Frontend scripts can not be saved to workspace', true)
+		return
+	}
+	await ScriptService.createScript({
+		workspace,
+		requestBody: {
+			path: appPath + '/' + id,
+			summary: runnable.name ?? '',
+			description: '',
+			content: runnable.inlineScript.content,
+			parent_hash: undefined,
+			schema: runnable.inlineScript.schema,
+			is_template: false,
+			language: language!
+		}
+	})
+
+	Object.assign(runnable, {
+		type: 'runnableByPath',
+		schema: runnable.inlineScript.schema,
+		runType: 'script',
+		recomputeIds: undefined,
+		path: appPath + '/' + id
 	})
 }

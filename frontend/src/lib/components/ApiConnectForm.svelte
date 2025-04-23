@@ -5,7 +5,13 @@
 		type ResourceType,
 		type GetGlobalConnectedRepositoriesResponse
 	} from '$lib/gen'
-	import { workspaceStore, enterpriseLicense, userWorkspaces, userStore } from '$lib/stores'
+	import {
+		workspaceStore,
+		enterpriseLicense,
+		userWorkspaces,
+		userStore,
+		workspaceColor
+	} from '$lib/stores'
 	import { base } from '$lib/base'
 	import { emptySchema, emptyString } from '$lib/utils'
 	import SchemaForm from './SchemaForm.svelte'
@@ -147,9 +153,7 @@
 		viewJsonSchema = false
 		try {
 			schema = resourceTypeInfo.schema as any
-
 			schema.order = schema.order ?? Object.keys(schema.properties).sort()
-
 			notFound = false
 		} catch (e) {
 			notFound = true
@@ -516,14 +520,10 @@
 																<tr class="border-t border-gray-200 dark:border-gray-700">
 																	<td class="py-2">{installation.account_id}</td>
 																	<td class="py-2">
-																		{#if $userWorkspaces.find((w) => w.id === installation.workspace_id)?.color}
+																		{#if $workspaceColor}
 																			<span
 																				class="inline-flex items-center px-2 py-0.5 rounded text-xs"
-																				style="background-color: {$userWorkspaces.find(
-																					(w) => w.id === installation.workspace_id
-																				)?.color}20; color: {$userWorkspaces.find(
-																					(w) => w.id === installation.workspace_id
-																				)?.color}"
+																				style="background-color: {$workspaceColor}20; color: {$workspaceColor}"
 																			>
 																				{installation.workspace_id}
 																			</span>

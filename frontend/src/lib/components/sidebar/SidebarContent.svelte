@@ -60,6 +60,7 @@
 		MeltButton
 	} from '$lib/components/meltComponents'
 	import MenuButton from './MenuButton.svelte'
+	import GoogleCloudIcon from '../icons/GoogleCloudIcon.svelte'
 
 	export let numUnacknowledgedCriticalAlerts = 0
 
@@ -135,6 +136,13 @@
 			icon: AwsIcon,
 			disabled: $userStore?.operator || !$enterpriseLicense,
 			kind: 'sqs'
+		},
+		{
+			label: 'GCP Pub/Sub' + ($enterpriseLicense ? '' : ' (EE)'),
+			href: '/gcp_triggers',
+			icon: GoogleCloudIcon,
+			disabled: $userStore?.operator || !$enterpriseLicense,
+			kind: 'gcp'
 		},
 		{
 			label: 'MQTT',

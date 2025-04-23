@@ -11,6 +11,7 @@
 	import { FlowService, ScriptService } from '$lib/gen'
 	import { enterpriseLicense, workspaceStore } from '$lib/stores'
 	import { MqttIcon, NatsIcon, KafkaIcon, AwsIcon } from '$lib/components/icons'
+	import GoogleCloudIcon from '$lib/components/icons/GoogleCloudIcon.svelte'
 
 	const { selectedTrigger, triggersCount } = getContext<TriggerContext>('TriggerContext')
 
@@ -31,6 +32,7 @@
 		| 'eventStreams'
 		| 'postgres'
 		| 'sqs'
+		| 'gcp'
 	)[] = showOnlyWithCount
 		? ['webhooks', 'schedules', 'routes', 'websockets', 'kafka', 'nats', 'emails']
 		: ['webhooks', 'schedules', 'routes', 'websockets', 'eventStreams', 'emails']
@@ -69,6 +71,7 @@
 		nats: { icon: NatsIcon, countKey: 'nats_count' },
 		mqtt: { icon: MqttIcon, countKey: 'mqtt_count' },
 		sqs: { icon: AwsIcon, countKey: 'sqs_count' },
+		gcp: { icon: GoogleCloudIcon, countKey: 'gcp_count' },
 		eventStreams: { icon: PlugZap }
 	}
 
@@ -80,7 +83,7 @@
 
 {#each triggersToDisplay as type}
 	{@const { icon, countKey } = triggerTypeConfig[type]}
-	{#if (!showOnlyWithCount || ((countKey && $triggersCount?.[countKey]) || 0) > 0) && !(type === 'sqs' && !$enterpriseLicense) && !(type === 'kafka' && !$enterpriseLicense) && !(type === 'nats' && !$enterpriseLicense) && !(type === 'mqtt')}
+	{#if (!showOnlyWithCount || ((countKey && $triggersCount?.[countKey]) || 0) > 0) && !(type === 'gcp' && !$enterpriseLicense) && !(type === 'sqs' && !$enterpriseLicense) && !(type === 'kafka' && !$enterpriseLicense) && !(type === 'nats' && !$enterpriseLicense) && !(type === 'mqtt')}
 		<Popover>
 			<svelte:fragment slot="text">{camelCaseToWords(type)}</svelte:fragment>
 			<TriggerButton
@@ -94,7 +97,8 @@
 							($selectedTrigger === 'kafka' ||
 								$selectedTrigger === 'nats' ||
 								$selectedTrigger === 'sqs' ||
-								$selectedTrigger === 'mqtt')))}
+								$selectedTrigger === 'mqtt' ||
+								$selectedTrigger === 'gcp')))}
 			>
 				{#if countKey}
 					<TriggerCount count={$triggersCount?.[countKey]} />

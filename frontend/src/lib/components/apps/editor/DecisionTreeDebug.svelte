@@ -112,6 +112,7 @@
 				{#if componentIsDebugging}
 					<div class="flex flex-row items-center gap-2">
 						{`${isSmall ? '' : 'Debugging node'} ${nodes[$debuggingComponents[id] ?? 0]?.id}`}
+						<!-- svelte-ignore node_invalid_placement_ssr -->
 						<button
 							on:click={() => {
 								$componentControl?.[id]?.setTab?.(0)

@@ -18,8 +18,9 @@
 	import AutoComplete from 'simple-svelte-autocomplete'
 	import YAML from 'yaml'
 	import Toggle from './Toggle.svelte'
-	import type { AutoscalingConfig } from './worker_group'
+	import { defaultTags, nativeTags, type AutoscalingConfig } from './worker_group'
 	import AutoscalingConfigEditor from './AutoscalingConfigEditor.svelte'
+	import TagsToListenTo from './TagsToListenTo.svelte'
 
 	export let name: string
 	export let config:
@@ -109,35 +110,6 @@
 		value: string | undefined
 	}[] = []
 
-	const defaultTags = [
-		'deno',
-		'python3',
-		'go',
-		'bash',
-		'powershell',
-		'dependency',
-		'flow',
-		'other',
-		'bun',
-		'php',
-		'rust',
-		'ansible',
-		'csharp',
-		'nu',
-		'java'
-		// for related places search: ADD_NEW_LANG 
-	]
-	const nativeTags = [
-		'nativets',
-		'postgresql',
-		'mysql',
-		'graphql',
-		'snowflake',
-		'mssql',
-		'bigquery',
-		'oracledb'
-	]
-
 	const aws_env_vars_preset = [
 		'AWS_REGION',
 		'AWS_DEFAULT_REGION',
@@ -153,7 +125,6 @@
 		'SSL_CERT_DIR'
 	]
 
-	let newTag: string = ''
 	$: selected = nconfig?.dedicated_worker != undefined ? 'dedicated' : 'normal'
 	$: {
 		selectedPriorityTags = []
@@ -185,8 +156,6 @@
 	let openClean = false
 
 	let drawer: Drawer
-
-	let createdTags: string[] = []
 </script>
 
 <ConfirmationModal
@@ -285,212 +254,151 @@
 		</ToggleButtonGroup>
 		{#if selected == 'normal'}
 			<Section label="Tags to listen to">
-				{#if config?.worker_tags != undefined}
-					<div class="flex gap-3 gap-y-2 flex-wrap pb-2">
-						{#each config.worker_tags as tag}
-							<div class="flex gap-0.5 items-center"
-								><div class="text-2xs p-1 rounded border text-primary">{tag}</div>
-								{#if $superadmin}
-									<button
-										class={'z-10 rounded-full p-1 duration-200 hover:bg-gray-200'}
-										aria-label="Remove item"
-										on:click|preventDefault|stopPropagation={() => {
-											if (nconfig != undefined) {
-												dirty = true
-												nconfig.worker_tags = nconfig?.worker_tags?.filter((t) => t != tag) ?? []
-												if (nconfig.priority_tags) {
-													delete nconfig.priority_tags[tag]
-												}
-												selectedPriorityTags = selectedPriorityTags.filter((t) => t != tag) ?? []
-											}
-										}}
-									>
-										<X size={12} />
-									</button>
-								{/if}</div
-							>
-						{/each}
-					</div>
-					{#if $superadmin}
-						<div class="max-w-md">
-							<AutoComplete
-								noInputStyles
-								items={[
-									...(customTags ?? []),
-									...createdTags,
-									...defaultTags,
-									...nativeTags
-								].filter((x) => !nconfig?.worker_tags?.includes(x))}
-								bind:selectedItem={newTag}
-								hideArrow={true}
-								inputClassName={'flex !font-gray-600 !font-primary !bg-surface-primary"'}
-								dropdownClassName="!text-sm !py-2 !rounded-sm  !border-gray-200 !border !shadow-md"
-								className="w-full !font-gray-600 !font-primary !bg-surface-primary"
-								onFocus={() => {
-									dispatch('focus')
-								}}
-								create
-								onCreate={(c) => {
-									createdTags.push(c)
-									createdTags = [...createdTags]
-									return c
-								}}
-								createText="Press enter to use this non-predefined value"
-							/>
+				{#if nconfig?.worker_tags != undefined}
+					<TagsToListenTo
+						on:dirty={() => {
+							dirty = true
+						}}
+						on:deletePriorityTag={(e) => {
+							const tag = e.detail
+							if (nconfig.priority_tags) {
+								delete nconfig.priority_tags[tag]
+							}
+							selectedPriorityTags = selectedPriorityTags.filter((t) => t != tag) ?? []
+						}}
+						bind:worker_tags={nconfig.worker_tags}
+						{customTags}
+					/>
 
-							<div class="mt-1"></div>
-							<div class="flex">
-								<Button
-									variant="contained"
-									color="blue"
-									size="xs"
-									startIcon={{ icon: Plus }}
-									disabled={newTag == '' || nconfig.worker_tags?.includes(newTag)}
-									on:click={() => {
-										if (nconfig != undefined) {
-											nconfig.worker_tags = [
-												...(nconfig?.worker_tags ?? []),
-												newTag.replaceAll(' ', '_')
-											]
-											newTag = ''
+					<div class="flex flex-wrap mt-2 items-center gap-1 pt-2">
+						<Button
+							variant="contained"
+							color="light"
+							size="xs"
+							on:click={() => {
+								if (nconfig != undefined) {
+									nconfig.worker_tags =
+										defaultTagPerWorkspace && workspaceTag
+											? defaultTags.concat(nativeTags).map((nt) => `${nt}-${workspaceTag}`)
+											: defaultTags.concat(nativeTags)
+
+									dirty = true
+								}
+							}}
+						>
+							Reset to all tags <Tooltip
+								>{(defaultTagPerWorkspace && workspaceTag
+									? defaultTags.concat(nativeTags).map((nt) => `${nt}-${workspaceTag}`)
+									: defaultTags.concat(nativeTags)
+								).join(', ')}</Tooltip
+							>
+						</Button>
+						<Button
+							variant="contained"
+							color="light"
+							size="xs"
+							on:click={() => {
+								if (nconfig != undefined) {
+									nconfig.worker_tags =
+										defaultTagPerWorkspace && workspaceTag
+											? defaultTags.map((nt) => `${nt}-${workspaceTag}`)
+											: defaultTags
+									dirty = true
+								}
+							}}
+						>
+							Reset to all tags minus native ones <Tooltip
+								>{(defaultTagPerWorkspace
+									? defaultTags.map((nt) => `${nt}-${workspaceTag}`)
+									: defaultTags
+								).join(', ')}</Tooltip
+							>
+						</Button>
+						<Button
+							variant="contained"
+							color="light"
+							size="xs"
+							on:click={() => {
+								if (nconfig != undefined) {
+									nconfig.worker_tags =
+										defaultTagPerWorkspace && workspaceTag
+											? nativeTags.map((nt) => `${nt}-${workspaceTag}`)
+											: nativeTags
+									dirty = true
+								}
+							}}
+						>
+							Reset to native tags <Tooltip
+								>{(defaultTagPerWorkspace && workspaceTag
+									? nativeTags.map((nt) => `${nt}-${workspaceTag}`)
+									: nativeTags
+								).join(', ')}</Tooltip
+							>
+						</Button>
+
+						{#if defaultTagPerWorkspace}
+							<AutoComplete
+								bind:selectedItem={workspaceTag}
+								noInputStyles
+								hideArrow={true}
+								items={workspaces.map((w) => w.id)}
+								inputClassName={'flex !font-gray-600 !font-primary !bg-surface-primary'}
+								dropdownClassName="!text-sm !py-2 !rounded-sm  !border-gray-200 !border !shadow-md"
+								className="!font-gray-600 !font-primary !bg-surface-primary"
+								create
+								onCreate={(c) => c}
+								placeholder="Workspace ID"
+							/>
+						{/if}
+					</div>
+					<div class="max-w mt-2 items-center gap-1 pt-2">
+						{#if nconfig?.worker_tags !== undefined && nconfig?.worker_tags.length > 0}
+							<Label label="High-priority tags">
+								<svelte:fragment slot="header">
+									<Tooltip>
+										Jobs with the following high-priority tags will be picked up in priority by this
+										worker.
+										{#if !enterpriseLicense}
+											This is a feature only available in enterprise edition.
+										{/if}
+									</Tooltip>
+								</svelte:fragment>
+								<Multiselect
+									outerDivClass="text-secondary !bg-surface-disabled !border-0"
+									disabled={!$enterpriseLicense}
+									bind:selected={selectedPriorityTags}
+									on:change={(e) => {
+										if (e.detail.type === 'add') {
+											if (nconfig.priority_tags) {
+												if (e.detail.option && typeof e.detail.option !== 'object') {
+													nconfig.priority_tags[e.detail.option] = 100
+												}
+											}
 											dirty = true
+										} else if (e.detail.type === 'remove') {
+											if (nconfig.priority_tags) {
+												if (e.detail.option && typeof e.detail.option !== 'object') {
+													delete nconfig.priority_tags[e.detail.option]
+												}
+											}
+											dirty = true
+										} else if (e.detail.type === 'removeAll') {
+											nconfig.priority_tags = undefined
+											dirty = true
+										} else {
+											console.error(
+												`Priority tags multiselect - unknown event type: '${e.detail.type}'`
+											)
 										}
 									}}
-								>
-									Add tag
-								</Button>
-							</div>
-						</div>
-						<div class="flex flex-wrap mt-2 items-center gap-1 pt-2">
-							<Button
-								variant="contained"
-								color="light"
-								size="xs"
-								on:click={() => {
-									if (nconfig != undefined) {
-										nconfig.worker_tags =
-											defaultTagPerWorkspace && workspaceTag
-												? defaultTags.concat(nativeTags).map((nt) => `${nt}-${workspaceTag}`)
-												: defaultTags.concat(nativeTags)
-
-										dirty = true
-									}
-								}}
-							>
-								Reset to all tags <Tooltip
-									>{(defaultTagPerWorkspace && workspaceTag
-										? defaultTags.concat(nativeTags).map((nt) => `${nt}-${workspaceTag}`)
-										: defaultTags.concat(nativeTags)
-									).join(', ')}</Tooltip
-								>
-							</Button>
-							<Button
-								variant="contained"
-								color="light"
-								size="xs"
-								on:click={() => {
-									if (nconfig != undefined) {
-										nconfig.worker_tags =
-											defaultTagPerWorkspace && workspaceTag
-												? defaultTags.map((nt) => `${nt}-${workspaceTag}`)
-												: defaultTags
-										dirty = true
-									}
-								}}
-							>
-								Reset to all tags minus native ones <Tooltip
-									>{(defaultTagPerWorkspace
-										? defaultTags.map((nt) => `${nt}-${workspaceTag}`)
-										: defaultTags
-									).join(', ')}</Tooltip
-								>
-							</Button>
-							<Button
-								variant="contained"
-								color="light"
-								size="xs"
-								on:click={() => {
-									if (nconfig != undefined) {
-										nconfig.worker_tags =
-											defaultTagPerWorkspace && workspaceTag
-												? nativeTags.map((nt) => `${nt}-${workspaceTag}`)
-												: nativeTags
-										dirty = true
-									}
-								}}
-							>
-								Reset to native tags <Tooltip
-									>{(defaultTagPerWorkspace && workspaceTag
-										? nativeTags.map((nt) => `${nt}-${workspaceTag}`)
-										: nativeTags
-									).join(', ')}</Tooltip
-								>
-							</Button>
-
-							{#if defaultTagPerWorkspace}
-								<AutoComplete
-									bind:selectedItem={workspaceTag}
-									noInputStyles
-									hideArrow={true}
-									items={workspaces.map((w) => w.id)}
-									inputClassName={'flex !font-gray-600 !font-primary !bg-surface-primary'}
-									dropdownClassName="!text-sm !py-2 !rounded-sm  !border-gray-200 !border !shadow-md"
-									className="!font-gray-600 !font-primary !bg-surface-primary"
-									create
-									onCreate={(c) => c}
-									placeholder="Workspace ID"
+									options={nconfig?.worker_tags}
+									selectedOptionsDraggable={false}
+									ulOptionsClass={'!bg-surface-secondary'}
+									placeholder="High priority tags"
 								/>
-							{/if}
-						</div>
-						<div class="max-w mt-2 items-center gap-1 pt-2">
-							{#if nconfig?.worker_tags !== undefined && nconfig?.worker_tags.length > 0}
-								<Label label="High-priority tags">
-									<svelte:fragment slot="header">
-										<Tooltip>
-											Jobs with the following high-priority tags will be picked up in priority by
-											this worker.
-											{#if !enterpriseLicense}
-												This is a feature only available in enterprise edition.
-											{/if}
-										</Tooltip>
-									</svelte:fragment>
-									<Multiselect
-										outerDivClass="text-secondary !bg-surface-disabled !border-0"
-										disabled={!$enterpriseLicense}
-										bind:selected={selectedPriorityTags}
-										on:change={(e) => {
-											if (e.detail.type === 'add') {
-												if (nconfig.priority_tags) {
-													if (e.detail.option && typeof e.detail.option !== 'object') {
-														nconfig.priority_tags[e.detail.option] = 100
-													}
-												}
-												dirty = true
-											} else if (e.detail.type === 'remove') {
-												if (nconfig.priority_tags) {
-													if (e.detail.option && typeof e.detail.option !== 'object') {
-														delete nconfig.priority_tags[e.detail.option]
-													}
-												}
-												dirty = true
-											} else if (e.detail.type === 'removeAll') {
-												nconfig.priority_tags = undefined
-												dirty = true
-											} else {
-												console.error(
-													`Priority tags multiselect - unknown event type: '${e.detail.type}'`
-												)
-											}
-										}}
-										options={nconfig?.worker_tags}
-										selectedOptionsDraggable={false}
-										ulOptionsClass={'!bg-surface-secondary'}
-										placeholder="High priority tags"
-									/>
-								</Label>
-							{/if}
-						</div>
-					{/if}
+							</Label>
+						{/if}
+					</div>
 				{/if}
 			</Section>
 			{#if nconfig !== undefined}
@@ -840,7 +748,6 @@
 						disabled={!$superadmin}
 						class="flex flex-1 grow h-full w-full"
 						automaticLayout
-						lang="shell"
 						scriptLang={'bash'}
 						useWebsockets={false}
 						fixedOverflowWidgets={false}

@@ -21,8 +21,8 @@
 	export let verticalAlignment: 'top' | 'center' | 'bottom' | undefined = undefined
 	export let customCss: ComponentCustomCSS<'numberinputcomponent'> | undefined = undefined
 	export let render: boolean
-
-	const { app, worldStore, selectedComponent, componentControl } =
+	export let onChange: string[] | undefined = undefined
+	const { app, worldStore, selectedComponent, componentControl, runnableComponents } =
 		getContext<AppViewerContext>('AppViewerContext')
 	const iterContext = getContext<ListContext>('ListWrapperContext')
 	const listInputs: ListInputs | undefined = getContext<ListInputs>('ListInputs')
@@ -54,12 +54,19 @@
 
 	$: handleDefault(resolvedConfig.defaultValue)
 
-	$: value && onChangeValue()
+	$: value, onChangeValue()
 
 	function onChangeValue() {
-		outputs?.result.set(value)
+		outputs?.result.set(value ?? undefined)
 		if (iterContext && listInputs) {
-			listInputs.set(id, value)
+			listInputs.set(id, value ?? undefined)
+		}
+		fireOnChange()
+	}
+
+	function fireOnChange() {
+		if (onChange) {
+			onChange.forEach((id) => $runnableComponents?.[id]?.cb?.forEach((cb) => cb()))
 		}
 	}
 

@@ -17,6 +17,7 @@
 		| 'kafka'
 		| 'mqtt'
 		| 'sqs'
+		| 'gcp'
 		| 'nats' = 'webhooks'
 	export let flow_json: any | undefined = undefined
 	export let simplfiedPoll: boolean = false
@@ -61,6 +62,7 @@
 						<slot slot="nats" name="nats" />
 						<slot slot="mqtt" name="mqtt" />
 						<slot slot="sqs" name="sqs" />
+						<slot slot="gcp" name="gcp" />
 						<slot slot="emails" name="emails" />
 						<slot slot="schedules" name="schedules" />
 						<slot slot="cli" name="cli" />

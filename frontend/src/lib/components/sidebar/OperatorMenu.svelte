@@ -90,6 +90,11 @@
 			href: `${base}/sqs_triggers`
 		},
 		{
+			label: 'GCP Pub/Sub triggers',
+			id: 'triggers',
+			href: `${base}/gcp_triggers`
+		},
+		{
 			label: 'MQTT triggers',
 			id: 'triggers',
 			href: `${base}/mqtt_triggers`

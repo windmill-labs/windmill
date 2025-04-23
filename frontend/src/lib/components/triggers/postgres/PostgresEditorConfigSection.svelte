@@ -24,42 +24,23 @@
 	}
 
 	let transactionType: string[] = ['Insert', 'Update', 'Delete']
+	let isValid: boolean = false
+
 	export let headless: boolean = false
 	export let can_write: boolean = false
 	export let showCapture: boolean = false
 	export let captureTable: CaptureTable | undefined = undefined
 	export let captureInfo: CaptureInfo | undefined = undefined
-	export let isValid: boolean = false
 	export let postgres_resource_path: string = ''
-	export let publication: PublicationData = {
-		transaction_to_track: ['Insert', 'Update', 'Delete'],
-		table_to_track: [
-			{
-				schema_name: 'public',
-				table_to_track: []
-			}
-		]
-	}
+	export let publication: PublicationData = DEFAULT_PUBLICATION
 
-	let selectedTable: 'all' | 'specific' = 'all'
-
-	function updateConfig(publication: PublicationData) {
-		if (publication === undefined) {
-			publication = { ...DEFAULT_PUBLICATION }
-			selectedTable = 'specific'
-		} else {
-			selectedTable =
-				publication.table_to_track && publication.table_to_track.length > 0 ? 'specific' : 'all'
-		}
-		const notEmpty = publication.table_to_track && publication.table_to_track.length > 0
-		selectedTable = notEmpty ? 'specific' : 'all'
+	function updateValidity(publication: PublicationData) {
 		isValid =
 			!emptyString(postgres_resource_path) &&
-			publication.transaction_to_track.length > 0 &&
-			(selectedTable === 'all' || (notEmpty ?? false))
+			(!publication.table_to_track || publication.table_to_track.length !== 0)
 	}
 
-	$: updateConfig(publication)
+	$: updateValidity(publication)
 
 	let testTriggerConnection: TestTriggerConnection | undefined = undefined
 </script>
@@ -90,7 +71,6 @@
 					resourceType={'postgresql'}
 					on:change={() => {
 						if (emptyString(postgres_resource_path)) {
-							selectedTable = 'specific'
 							publication = { ...DEFAULT_PUBLICATION }
 						}
 					}}
@@ -141,7 +121,10 @@
 				</Label>
 				<Label label="Table tracking">
 					<svelte:fragment slot="header">
-						<Tooltip documentationLink="https://www.windmill.dev/docs/core_concepts/postgres_triggers#define-what-to-track" small>
+						<Tooltip
+							documentationLink="https://www.windmill.dev/docs/core_concepts/postgres_triggers#define-what-to-track"
+							small
+						>
 							Select the tables to track. You can choose to track
 							<strong>all tables in your database</strong>,
 							<strong>all tables within a specific schema</strong>,
@@ -150,7 +133,7 @@
 							<strong>filter</strong> to retrieve only rows that do not match the specified criteria.
 						</Tooltip>
 					</svelte:fragment>
-					<RelationPicker bind:selectedTable bind:relations={publication.table_to_track} />
+					<RelationPicker bind:relations={publication.table_to_track} />
 				</Label>
 			{/if}
 		</div>

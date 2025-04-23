@@ -1,6 +1,6 @@
 [package]
 name = "windmill"
-version = "1.481.0"
+version = "1.483.1"
 authors.workspace = true
 edition.workspace = true
 
@@ -32,7 +32,7 @@ members = [
 ]
 
 [workspace.package]
-version = "1.481.0"
+version = "1.483.1"
 authors = ["Ruben Fiszel <ruben@windmill.dev>"]
 edition = "2021"
 
@@ -49,6 +49,7 @@ lto = "thin"
 
 [features]
 default = []
+agent_worker_server = ["windmill-api/agent_worker_server"]
 enterprise = ["windmill-worker/enterprise", "windmill-queue/enterprise", "windmill-api/enterprise", "dep:windmill-autoscaling", "windmill-autoscaling/enterprise", "windmill-git-sync/enterprise", "windmill-common/prometheus", "windmill-common/enterprise"]
 enterprise_saml = ["windmill-api/enterprise_saml", "oauth2"]
 stripe = ["windmill-api/stripe"]
@@ -63,24 +64,25 @@ cloud = ["windmill-queue/cloud", "windmill-worker/cloud", "windmill-common/cloud
 jemalloc = ["windmill-common/jemalloc", "dep:tikv-jemallocator", "dep:tikv-jemalloc-sys", "dep:tikv-jemalloc-ctl"]
 tantivy = ["dep:windmill-indexer", "windmill-api/tantivy", "windmill-indexer/enterprise", "windmill-indexer/parquet", "windmill-common/tantivy", "enterprise", "parquet"]
 sqlx = ["windmill-worker/sqlx"]
+deno_core = ["windmill-worker/deno_core", "windmill-api/deno_core", "dep:deno_core", "dep:v8"]
 kafka = ["windmill-api/kafka"]
 nats = ["windmill-api/nats"]
 otel = ["windmill-common/otel", "windmill-worker/otel"]
 dind = ["windmill-worker/dind"]
 websocket = ["windmill-api/websocket"]
+http_trigger = ["windmill-api/http_trigger"]
 postgres_trigger = ["windmill-api/postgres_trigger"]
 mqtt_trigger = ["windmill-api/mqtt_trigger"]
-sqs_trigger = ["windmill-api/sqs_trigger"]
+sqs_trigger = ["windmill-api/sqs_trigger", "windmill-common/aws_auth", "windmill-api/openidconnect"]
+gcp_trigger = ["windmill-api/gcp_trigger"]
 smtp = ["windmill-api/smtp", "windmill-common/smtp"]
 license = ["windmill-api/license"]
 oauth2 = ["windmill-api/oauth2"]
-http_trigger = ["windmill-api/http_trigger"]
 zip = ["windmill-api/zip"]
 static_frontend = ["windmill-api/static_frontend"]
 scoped_cache = ["windmill-common/scoped_cache"]
 # Languages
 python = ["windmill-worker/python"]
-deno_core = ["windmill-worker/deno_core", "dep:deno_core", "dep:v8"]
 rust = ["windmill-worker/rust"]
 mysql = ["windmill-worker/mysql"]
 oracledb = ["windmill-worker/oracledb"]
@@ -96,6 +98,7 @@ all_languages = [ "python", "deno_core", "rust", "mysql", "oracledb", "mssql", "
 [dependencies]
 anyhow.workspace = true
 tokio.workspace = true
+tokio-stream.workspace = true
 dotenv.workspace = true
 windmill-queue.workspace = true
 windmill-common = { workspace = true, default-features = false }
@@ -170,12 +173,16 @@ windmill-parser-graphql = { path = "./parsers/windmill-parser-graphql" }
 windmill-parser-php = { path = "./parsers/windmill-parser-php" }
 windmill-api-client = { path = "./windmill-api-client" }
 
+reqwest-retry = "^0"
+reqwest-middleware = { version = "^0", features = ["json"] }
+
 rustls = "0.23.0"
 memchr = "2.7.4"
 axum = { version = "^0.7", features = ["multipart"] }
 headers = "^0"
 hyper = { version = "^1", features = ["full"] }
 tokio = { version = "^1.42.0", features = ["full", "tracing", "time"] }
+tokio-stream = { version = "0.1.17" }
 tower = "^0"
 tower-http = { version = "^0.6", features = ["trace", "cors"] }
 tower-cookies = "^0.10"
@@ -238,6 +245,8 @@ deno_runtime = { version = "0.198.0", features = ["transpile"] }
 deno_telemetry = "0.12.0"
 deno_error = "=0.5.5"
 
+google-cloud-pubsub = "0.30.0"
+google-cloud-googleapis = {version = "0.16.1", features = ["pubsub"]}
 # TODO: remove once deno fixes the issue on their end
 # https://github.com/denoland/deno/issues/28557
 winapi = { version = "0.3.9", features = ["sysinfoapi"] }
@@ -295,6 +304,7 @@ postgres-native-tls = "^0"
 native-tls = "^0"
 # samael will break compilation on MacOS. Use this fork instead to make it work
 # samael = { git="https://github.com/njaremko/samael", rev="464d015e3ae393e4b5dd00b4d6baa1b617de0dd6", features = ["xmlsec"] }
+libxml = { version = "=0.3.3" }
 samael = { version="0.0.14", features = ["xmlsec"] }
 gcp_auth = "0.9.0"
 rust_decimal = { version = "^1", features = ["db-postgres", "serde-float"]}
@@ -357,6 +367,8 @@ pin-project-lite = "^0"
 tantivy = "0.22.0"
 
 backon = "1.3.0"
+
+flume = { version = "0.11.1", features = ["async"] }
 
 # Macro-related
 proc-macro2 = "1.0"

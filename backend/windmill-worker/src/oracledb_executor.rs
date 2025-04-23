@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, value::RawValue, Value};
 use windmill_common::{
     error::{to_anyhow, Error},
-    worker::to_raw_value,
+    worker::{to_raw_value, Connection},
 };
 use windmill_queue::MiniPulledJob;
 
@@ -296,7 +296,7 @@ pub async fn do_oracledb(
     job: &MiniPulledJob,
     client: &AuthedClient,
     query: &str,
-    db: &sqlx::Pool<sqlx::Postgres>,
+    conn: &Connection,
     mem_peak: &mut i32,
     canceled_by: &mut Option<CanceledBy>,
     worker_name: &str,
@@ -309,7 +309,7 @@ pub async fn do_oracledb(
         "Oracle Database",
     )?;
 
-    let job_args = build_args_values(job, client, db).await?;
+    let job_args = build_args_values(job, client, conn).await?;
 
     let inline_db_res_path = parse_db_resource(&query);
 
@@ -354,14 +354,14 @@ pub async fn do_oracledb(
             .init();
     }
 
-    let conn = tokio::task::spawn_blocking(|| {
+    let oracle_conn = tokio::task::spawn_blocking(|| {
         oracle::Connection::connect(database.user, database.password, database.database)
             .map_err(|e| Error::ExecutionErr(e.to_string()))
     })
     .await
     .map_err(to_anyhow)??;
 
-    let conn_a = Arc::new(std::sync::Mutex::new(conn));
+    let conn_a = Arc::new(std::sync::Mutex::new(oracle_conn));
 
     let queries = parse_sql_blocks(&query);
 
@@ -396,7 +396,7 @@ pub async fn do_oracledb(
     let result = run_future_with_polling_update_job_poller(
         job.id,
         job.timeout,
-        db,
+        conn,
         mem_peak,
         canceled_by,
         result_f,

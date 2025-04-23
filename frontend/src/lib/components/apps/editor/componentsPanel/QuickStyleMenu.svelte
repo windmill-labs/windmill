@@ -58,9 +58,10 @@
 			current[s.prop.key] = convertValue(s.value)
 		})
 		const entries = Object.entries(current)
-		value = entries.reduce((style, [k, v]) => {
+		const newValue = entries.reduce((style, [k, v]) => {
 			return v ? `${style} ${k}: ${v}; `.trim() : style
 		}, '')
+		if (value !== newValue) value = newValue
 	}
 
 	function convertValue(value: any) {

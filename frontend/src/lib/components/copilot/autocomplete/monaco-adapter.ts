@@ -154,22 +154,22 @@ const MAX_PATCHES = 4
 export class Autocompletor {
 	editor: meditor.IStandaloneCodeEditor
 	language: string
-	scriptLang: ScriptLang | 'bunnative'
+	scriptLang: ScriptLang | 'bunnative' | 'jsx' | 'tsx' | 'json'
 	viewZoneIds: string[] = []
 	decorationsCollection: meditor.IEditorDecorationsCollection | undefined = undefined
 	visualChanges: VisualChange[] = []
 	modifiedCode: string = ''
 	applyZone:
 		| {
-				startLineNumber: number
-				endLineNumber: number
-		  }
+			startLineNumber: number
+			endLineNumber: number
+		}
 		| undefined = undefined
 	lastChangePosition:
 		| {
-				lineNumber: number
-				column: number
-		  }
+			lineNumber: number
+			column: number
+		}
 		| undefined = undefined
 
 	abortController: AbortController | undefined = undefined
@@ -180,19 +180,19 @@ export class Autocompletor {
 
 	predictedChange:
 		| {
-				position: {
-					lineNumber: number
-					column: number
-				}
-				distance: number
-		  }
+			position: {
+				lineNumber: number
+				column: number
+			}
+			distance: number
+		}
 		| undefined = undefined
 	tabWidget: meditor.IContentWidget | undefined = undefined
 
 	constructor(
 		editor: meditor.IStandaloneCodeEditor,
 		language: string,
-		scriptLang: ScriptLang | 'bunnative'
+		scriptLang: ScriptLang | 'bunnative' | 'jsx' | 'tsx' | 'json'
 	) {
 		this.editor = editor
 		this.language = language
@@ -240,18 +240,18 @@ export class Autocompletor {
 
 			let closestPosition:
 				| {
-						lineNumber: number
-						column: number
-				  }
+					lineNumber: number
+					column: number
+				}
 				| undefined = undefined
 			let closestDistance = Infinity
 			for (const change of this.visualChanges) {
 				if (change.type === 'deleted') {
 					const distance = Math.min(
 						Math.abs(change.range.startLine - position.lineNumber) +
-							Math.abs(change.range.startColumn - position.column) / 10000,
+						Math.abs(change.range.startColumn - position.column) / 10000,
 						Math.abs(change.range.endLine - position.lineNumber) +
-							Math.abs(change.range.endColumn - position.column) / 10000
+						Math.abs(change.range.endColumn - position.column) / 10000
 					)
 					if (distance < closestDistance) {
 						closestDistance = distance

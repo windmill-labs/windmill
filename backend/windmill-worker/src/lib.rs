@@ -5,18 +5,14 @@ mod mssql_executor;
 #[cfg(feature = "enterprise")]
 mod snowflake_executor;
 
+mod agent_workers;
 #[cfg(feature = "python")]
 mod ansible_executor;
 mod bash_executor;
 
-#[cfg(feature = "nu")]
-mod nu_executor;
-
 #[cfg(feature = "java")]
 mod java_executor;
 
-#[cfg(feature = "benchmark")]
-pub mod bench;
 mod bun_executor;
 pub mod common;
 mod config;
@@ -28,11 +24,13 @@ mod global_cache;
 mod go_executor;
 mod graphql_executor;
 mod handle_child;
-mod job_logger;
+pub mod job_logger;
 mod job_logger_ee;
 mod js_eval;
 #[cfg(feature = "mysql")]
 mod mysql_executor;
+#[cfg(feature = "nu")]
+mod nu_executor;
 #[cfg(feature = "oracledb")]
 mod oracledb_executor;
 mod otel_ee;
@@ -41,7 +39,7 @@ mod pg_executor;
 mod php_executor;
 #[cfg(feature = "python")]
 mod python_executor;
-mod result_processor;
+pub mod result_processor;
 #[cfg(feature = "rust")]
 mod rust_executor;
 mod sanitized_sql_params;
@@ -49,12 +47,16 @@ mod schema;
 mod worker;
 mod worker_flow;
 mod worker_lockfiles;
+mod worker_utils;
+
+pub use worker_lockfiles::process_relative_imports;
 
 pub use worker::*;
 
 pub use result_processor::handle_job_error;
 
 pub use bun_executor::{
-    get_common_bun_proc_envs, install_bun_lockfile, prebundle_bun_script, prepare_job_dir,
+    compute_bundle_local_and_remote_path, get_common_bun_proc_envs, install_bun_lockfile,
+    prebundle_bun_script, prepare_job_dir,
 };
 pub use deno_executor::generate_deno_lock;

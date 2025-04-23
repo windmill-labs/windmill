@@ -84,7 +84,7 @@
 
 	$: isValid = routeError === ''
 
-	$: fullRoute = getHttpRoute(route_path, workspaced_route, $workspaceStore ?? '')
+	$: fullRoute = getHttpRoute('r', route_path, workspaced_route, $workspaceStore ?? '')
 
 	$: !http_method && (http_method = 'post')
 	$: route_path === undefined && (route_path = '')
@@ -209,7 +209,9 @@
 							options={{
 								right: 'Prefix with workspace',
 								rightTooltip:
-									'Prefixes the route with the workspace ID (e.g., {base_url}/api/r/{workspace_id}/{route}). Note: deploying the HTTP trigger to another workspace updates the route workspace prefix accordingly.'
+									'Prefixes the route with the workspace ID (e.g., {base_url}/api/r/{workspace_id}/{route}). Note: deploying the HTTP trigger to another workspace updates the route workspace prefix accordingly.',
+								rightDocumentationLink:
+									'https://www.windmill.dev/docs/core_concepts/http_routing#workspace-prefix'
 							}}
 						/>
 					</div>

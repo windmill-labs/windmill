@@ -19,6 +19,7 @@
 	import PostgresEditorConfigSection from './postgres/PostgresEditorConfigSection.svelte'
 	import { invalidRelations } from './postgres/utils'
 	import { DEFAULT_V3_CONFIG, DEFAULT_V5_CONFIG } from './mqtt/constant'
+	import GcpTriggerEditorConfigSection from './gcp/GcpTriggerEditorConfigSection.svelte'
 
 	export let isFlow: boolean
 	export let path: string
@@ -28,6 +29,7 @@
 	export let showCapture = false
 	export let data: any = {}
 	export let connectionInfo: ConnectionInfo | undefined = undefined
+	export let loading = false
 	export let args: Record<string, any> = {}
 	export let captureTable: CaptureTable | undefined = undefined
 
@@ -37,7 +39,6 @@
 				sendUserToast('Table to track must be set', true)
 				return false
 			}
-
 			if (
 				invalidRelations(args.publication.table_to_track, {
 					showError: true,
@@ -48,7 +49,8 @@
 			}
 		}
 		try {
-			await CaptureService.setCaptureConfig({
+			loading = true
+			args = await CaptureService.setCaptureConfig({
 				requestBody: {
 					trigger_kind: captureType,
 					path,
@@ -57,8 +59,10 @@
 				},
 				workspace: $workspaceStore!
 			})
+			loading = false
 			return true
 		} catch (error) {
+			loading = false
 			sendUserToast(error.body, true)
 			return false
 		}
@@ -69,19 +73,20 @@
 	let captureConfigs: {
 		[key: string]: CaptureConfig
 	} = {}
+
+	const STREAMING_CAPTURES = ['mqtt', 'sqs', 'websocket', 'postgres', 'kafka', 'nats', 'gcp']
+
 	async function getCaptureConfigs() {
 		const captureConfigsList = await CaptureService.getCaptureConfigs({
 			workspace: $workspaceStore!,
 			runnableKind: isFlow ? 'flow' : 'script',
 			path
 		})
-
 		captureConfigs = captureConfigsList.reduce((acc, c) => {
 			acc[c.trigger_kind] = c
 			return acc
 		}, {})
-		const streamingCapture = ['postgres', 'websocket', 'kafka', 'sqs', 'mqtt']
-		if (streamingCapture.includes(captureType) && captureActive) {
+		if (isStreamingCapture() && captureActive) {
 			const config = captureConfigs[captureType]
 			if (config && config.error) {
 				const serverEnabled = getServerEnabled(config)
@@ -130,6 +135,7 @@
 						subscribe_topics: []
 					}
 					break
+
 				default:
 					args = {}
 			}
@@ -153,7 +159,6 @@
 			captureActive = false
 		} else {
 			const configSet = await setConfig()
-
 			if (configSet) {
 				capture()
 			}
@@ -162,11 +167,18 @@
 
 	let config: CaptureConfig | undefined
 	$: config = captureConfigs[captureType]
-	const streamingCaptures = ['mqtt', 'sqs', 'websocket', 'postgres', 'kafka', 'nats']
-	let cloudDisabled = streamingCaptures.includes(captureType) && isCloudHosted()
+
+	let cloudDisabled = STREAMING_CAPTURES.includes(captureType) && isCloudHosted()
+
+	function isStreamingCapture() {
+		if (captureType === 'gcp' && args.delivery_type === 'push') {
+			return false
+		}
+		return ['mqtt', 'sqs', 'websocket', 'postgres', 'kafka', 'nats', 'gcp'].includes(captureType)
+	}
 
 	function updateConnectionInfo(config: CaptureConfig | undefined, captureActive: boolean) {
-		if (streamingCaptures.includes(captureType) && config && captureActive) {
+		if (isStreamingCapture() && config && captureActive) {
 			const serverEnabled = getServerEnabled(config)
 			const connected = serverEnabled && !config.error
 			const message = connected
@@ -189,7 +201,8 @@
 		canHavePreprocessor,
 		isFlow,
 		path,
-		connectionInfo
+		connectionInfo,
+		loading: loading
 	}
 
 	$: args && (captureActive = false)
@@ -339,6 +352,29 @@
 				bind:queue_url={args.queue_url}
 				bind:aws_resource_path={args.aws_resource_path}
 				bind:message_attributes={args.message_attributes}
+				bind:aws_auth_resource_type={args.aws_auth_resource_type}
+				{showCapture}
+				{captureInfo}
+				bind:captureTable
+				on:applyArgs
+				on:updateSchema
+				on:addPreprocessor
+				on:captureToggle={handleCapture}
+				on:testWithArgs
+			/>
+		{:else if captureType === 'gcp'}
+			<GcpTriggerEditorConfigSection
+				can_write={true}
+				headless={true}
+				bind:gcp_resource_path={args.gcp_resource_path}
+				bind:topic_id={args.topic_id}
+				bind:subscription_id={args.subscription_id}
+				bind:cloud_subscription_id={args.subscription_id}
+				bind:create_update_subscription_id={args.subscription_id}
+				bind:delivery_config={args.delivery_config}
+				bind:delivery_type={args.delivery_type}
+				bind:subscription_mode={args.subscription_mode}
+				bind:base_endpoint={args.base_endpoint}
 				{showCapture}
 				{captureInfo}
 				bind:captureTable

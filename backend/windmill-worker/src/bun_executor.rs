@@ -9,7 +9,7 @@ use serde_json::value::RawValue;
 
 use uuid::Uuid;
 use windmill_parser_ts::remove_pinned_imports;
-use windmill_queue::{append_logs, CanceledBy, MiniPulledJob};
+use windmill_queue::{append_logs, CanceledBy, MiniPulledJob, PrecomputedAgentInfo};
 
 #[cfg(feature = "enterprise")]
 use crate::common::build_envs_map;
@@ -42,7 +42,7 @@ use windmill_common::{
     error::{self, Result},
     get_latest_hash_for_path,
     scripts::ScriptLang,
-    worker::{exists_in_cache, save_cache, write_file, DISABLE_BUNDLING},
+    worker::{exists_in_cache, save_cache, write_file, Connection, DISABLE_BUNDLING},
     DB,
 };
 
@@ -96,7 +96,7 @@ pub async fn gen_bun_lockfile(
     canceled_by: &mut Option<CanceledBy>,
     job_id: &Uuid,
     w_id: &str,
-    db: Option<&sqlx::Pool<sqlx::Postgres>>,
+    db: Option<&Connection>,
     token: &str,
     script_path: &str,
     job_dir: &str,
@@ -273,7 +273,7 @@ pub async fn install_bun_lockfile(
     canceled_by: &mut Option<CanceledBy>,
     job_id: &Uuid,
     w_id: &str,
-    db: Option<&sqlx::Pool<sqlx::Postgres>>,
+    db: Option<&Connection>,
     job_dir: &str,
     worker_name: &str,
     common_bun_proc_envs: HashMap<String, String>,
@@ -488,7 +488,7 @@ pub async fn generate_wrapper_mjs(
     w_id: &str,
     job_id: &Uuid,
     worker_name: &str,
-    db: &sqlx::Pool<sqlx::Postgres>,
+    db: &Connection,
     timeout: Option<i32>,
     mem_peak: &mut i32,
     canceled_by: &mut Option<CanceledBy>,
@@ -538,7 +538,7 @@ pub async fn generate_bun_bundle(
     w_id: &str,
     job_id: &Uuid,
     worker_name: &str,
-    db: Option<sqlx::Pool<sqlx::Postgres>>,
+    db: Option<&Connection>,
     timeout: Option<i32>,
     mem_peak: &mut i32,
     canceled_by: &mut Option<CanceledBy>,
@@ -679,21 +679,15 @@ pub async fn prebundle_bun_script(
     script_path: &str,
     job_id: &Uuid,
     w_id: &str,
-    db: Option<DB>,
+    db: Option<&DB>,
     job_dir: &str,
     base_internal_url: &str,
     worker_name: &str,
     token: &str,
     occupancy_metrics: &mut Option<&mut OccupancyMetrics>,
 ) -> Result<()> {
-    let (local_path, remote_path) = compute_bundle_local_and_remote_path(
-        inner_content,
-        lockfile,
-        script_path,
-        db.clone(),
-        w_id,
-    )
-    .await;
+    let (local_path, remote_path) =
+        compute_bundle_local_and_remote_path(inner_content, lockfile, script_path, db, w_id).await;
     if exists_in_cache(&local_path, &remote_path).await {
         return Ok(());
     }
@@ -727,7 +721,7 @@ pub async fn prebundle_bun_script(
         w_id,
         job_id,
         worker_name,
-        db.clone(),
+        db.map(|x| Connection::from(x.clone())).as_ref(),
         None,
         &mut 0,
         &mut None,
@@ -755,11 +749,11 @@ async fn get_script_import_updated_at(db: &DB, w_id: &str, script_path: &str) ->
     Ok(last_updated_at.to_string())
 }
 
-async fn compute_bundle_local_and_remote_path(
+pub async fn compute_bundle_local_and_remote_path(
     inner_content: &str,
     requirements_o: Option<&String>,
     script_path: &str,
-    db: Option<DB>,
+    db: Option<&DB>,
     w_id: &str,
 ) -> (String, String) {
     let mut input_src = format!(
@@ -827,7 +821,7 @@ pub async fn handle_bun_job(
     mem_peak: &mut i32,
     canceled_by: &mut Option<CanceledBy>,
     job: &MiniPulledJob,
-    db: &sqlx::Pool<sqlx::Postgres>,
+    conn: &Connection,
     client: &AuthedClient,
     parent_runnable_path: Option<String>,
     job_dir: &str,
@@ -838,6 +832,7 @@ pub async fn handle_bun_job(
     shared_mount: &str,
     new_args: &mut Option<HashMap<String, Box<RawValue>>>,
     occupancy_metrics: &mut OccupancyMetrics,
+    precomputed_agent_info: Option<PrecomputedAgentInfo>,
 ) -> error::Result<Box<RawValue>> {
     let mut annotation = windmill_common::worker::TypeScriptAnnotations::parse(inner_content);
 
@@ -846,14 +841,29 @@ pub async fn handle_bun_job(
         && !*DISABLE_BUNDLING
         && codebase.is_none()
     {
-        let (local_path, remote_path) = compute_bundle_local_and_remote_path(
-            inner_content,
-            requirements_o,
-            job.runnable_path(),
-            Some(db.clone()),
-            &job.workspace_id,
-        )
-        .await;
+        let (local_path, remote_path) = match conn {
+            Connection::Sql(db) => {
+                compute_bundle_local_and_remote_path(
+                    inner_content,
+                    requirements_o,
+                    job.runnable_path(),
+                    Some(db),
+                    &job.workspace_id,
+                )
+                .await
+            }
+            Connection::Http(_) => {
+                let (local_path, remote_path) = match precomputed_agent_info {
+                    Some(PrecomputedAgentInfo::Bun { local, remote }) => (local, remote),
+                    _ => {
+                        return Err(error::Error::ExecutionErr(
+                            "bun bundle is missing the precomputed agent info".to_string(),
+                        ))
+                    }
+                };
+                (local_path, remote_path)
+            }
+        };
 
         let (cache, logs) =
             windmill_common::worker::load_cache(&local_path, &remote_path, false).await;
@@ -920,7 +930,7 @@ pub async fn handle_bun_job(
                 canceled_by,
                 &job.id,
                 &job.workspace_id,
-                Some(db),
+                Some(conn),
                 job_dir,
                 worker_name,
                 common_bun_proc_envs.clone(),
@@ -932,13 +942,13 @@ pub async fn handle_bun_job(
     } else {
         // if !*DISABLE_NSJAIL || !empty_trusted_deps || has_custom_config_registry {
         let logs1 = "\n\n--- BUN INSTALL ---\n".to_string();
-        append_logs(&job.id, &job.workspace_id, logs1, db).await;
+        append_logs(&job.id, &job.workspace_id, logs1, conn).await;
         let _ = gen_bun_lockfile(
             mem_peak,
             canceled_by,
             &job.id,
             &job.workspace_id,
-            Some(db),
+            Some(conn),
             &client.token,
             job.runnable_path(),
             job_dir,
@@ -1108,12 +1118,13 @@ try {{
     let reserved_variables_args_out_f = async {
         let args_and_out_f = async {
             if !annotation.native {
-                create_args_and_out_file(&client, job, job_dir, db).await?;
+                create_args_and_out_file(&client, job, job_dir, conn).await?;
             }
             Ok(()) as Result<()>
         };
         let reserved_variables_f = async {
-            let vars = get_reserved_variables(job, &client.token, db, parent_runnable_path).await?;
+            let vars =
+                get_reserved_variables(job, &client.token, conn, parent_runnable_path).await?;
             Ok(vars) as Result<HashMap<String, String>>
         };
         let (_, reserved_variables) = tokio::try_join!(args_and_out_f, reserved_variables_f)?;
@@ -1176,7 +1187,7 @@ try {{
                 &job.workspace_id,
                 &job.id,
                 worker_name,
-                Some(db.clone()),
+                Some(conn),
                 job.timeout,
                 mem_peak,
                 canceled_by,
@@ -1225,7 +1236,7 @@ try {{
                 &job.workspace_id,
                 &job.id,
                 worker_name,
-                db,
+                conn,
                 job.timeout,
                 mem_peak,
                 canceled_by,
@@ -1255,7 +1266,7 @@ try {{
                 .join("\n"));
             let js_code = read_file_content(&format!("{job_dir}/main.js")).await?;
             let started_at = Instant::now();
-            let args = crate::common::build_args_map(job, client, db)
+            let args = crate::common::build_args_map(job, client, conn)
                 .await?
                 .map(sqlx::types::Json);
             let job_args = if args.is_some() {
@@ -1264,7 +1275,7 @@ try {{
                 job.args.as_ref()
             };
 
-            append_logs(&job.id, &job.workspace_id, format!("{init_logs}\n"), db).await;
+            append_logs(&job.id, &job.workspace_id, format!("{init_logs}\n"), conn).await;
 
             let result = crate::js_eval::eval_fetch_timeout(
                 env_code,
@@ -1274,7 +1285,7 @@ try {{
                 job.script_entrypoint_override.clone(),
                 job.id,
                 job.timeout,
-                db,
+                conn,
                 mem_peak,
                 canceled_by,
                 worker_name,
@@ -1290,7 +1301,7 @@ try {{
             return Ok(result);
         }
     }
-    append_logs(&job.id, &job.workspace_id, init_logs, db).await;
+    append_logs(&job.id, &job.workspace_id, init_logs, conn).await;
 
     //do not cache local dependencies
     let child = if !*DISABLE_NSJAIL {
@@ -1422,7 +1433,7 @@ try {{
 
     handle_child(
         &job.id,
-        db,
+        conn,
         mem_peak,
         canceled_by,
         child,
@@ -1532,7 +1543,7 @@ pub async fn start_worker(
     annotation.nodejs = true;
 
     let context = variables::get_reserved_variables(
-        db,
+        &Connection::from(db.clone()),
         w_id,
         &token,
         "dedicated_worker@windmill.dev",
@@ -1583,7 +1594,7 @@ pub async fn start_worker(
                 &mut canceled_by,
                 &Uuid::nil(),
                 &w_id,
-                Some(db),
+                Some(&Connection::from(db.clone())),
                 job_dir,
                 worker_name,
                 common_bun_proc_envs.clone(),
@@ -1600,7 +1611,7 @@ pub async fn start_worker(
             &mut canceled_by,
             &Uuid::nil(),
             &w_id,
-            Some(db),
+            Some(&Connection::from(db.clone())),
             token,
             &script_path,
             job_dir,
@@ -1701,7 +1712,7 @@ for await (const line of Readline.createInterface({{ input: process.stdin }})) {
             w_id,
             &Uuid::nil(),
             worker_name,
-            db,
+            &Connection::from(db.clone()),
             None,
             &mut mem_peak,
             &mut canceled_by,

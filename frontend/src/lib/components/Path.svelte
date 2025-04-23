@@ -20,7 +20,9 @@
 		PostgresTriggerService,
 		NatsTriggerService,
 		MqttTriggerService,
-		SqsTriggerService
+		SqsTriggerService,
+		GcpTriggerService
+
 	} from '$lib/gen'
 	import { superadmin, userStore, workspaceStore } from '$lib/stores'
 	import { createEventDispatcher, getContext } from 'svelte'
@@ -50,6 +52,7 @@
 		| 'nats_trigger'
 		| 'mqtt_trigger'
 		| 'sqs_trigger'
+		| 'gcp_trigger'
 	let meta: Meta | undefined = undefined
 	export let fullNamePlaceholder: string | undefined = undefined
 	export let namePlaceholder = ''
@@ -261,6 +264,11 @@
 			})
 		} else if (kind == 'sqs_trigger') {
 			return await SqsTriggerService.existsSqsTrigger({
+				workspace: $workspaceStore!,
+				path: path
+			})
+		} else if (kind === 'gcp_trigger') {
+			return await GcpTriggerService.existsGcpTrigger({
 				workspace: $workspaceStore!,
 				path: path
 			})

@@ -21,7 +21,9 @@
 
 <Label label="Raw body" class="w-full">
 	{#snippet header()}
-		<Tooltip>
+		<Tooltip
+			documentationLink="https://www.windmill.dev/docs/core_concepts/http_routing#body-processing-options"
+		>
 			Provides the raw JSON payload as a string under the 'raw_string' key. Required for custom
 			script authentication method and useful for signature verification or other advanced use
 			cases.
@@ -43,6 +45,7 @@
 <Label label="Wrap body" class="w-full">
 	{#snippet header()}
 		<Tooltip
+			documentationLink="https://www.windmill.dev/docs/core_concepts/http_routing#body-processing-options"
 			>Wraps the payload in an object under the 'body' key, useful for handling unknown payloads.</Tooltip
 		>
 		{#if testingBadge}

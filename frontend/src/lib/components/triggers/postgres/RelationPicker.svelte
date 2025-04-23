@@ -11,26 +11,19 @@
 	import Label from '$lib/components/Label.svelte'
 	import { emptyStringTrimmed, sendUserToast } from '$lib/utils'
 
-	export let relations: Relations[] = []
-	export let selectedTable: 'all' | 'specific'
+	export let relations: Relations[] | undefined = undefined
 	export let can_write: boolean = true
-
-	let cached: Relations[] = relations
-
-	const defaultRelations: Relations[] = [
-		{
-			schema_name: 'public',
-			table_to_track: []
-		}
-	]
+	let selected: 'all' | 'specific' = relations && relations.length > 0 ? 'specific' : 'all'
+	let cached: Relations[] | undefined = relations
 
 	function addTable(name: string, index: number) {
-		if (relations == undefined || !Array.isArray(relations)) {
-			relations = []
-			relations = relations.concat({
-				schema_name: 'public',
-				table_to_track: []
-			})
+		if (!relations || !Array.isArray(relations)) {
+			relations = [
+				{
+					schema_name: 'public',
+					table_to_track: []
+				}
+			]
 		}
 		relations[index].table_to_track = relations[index].table_to_track.concat({
 			table_name: name,
@@ -46,185 +39,204 @@
 				on:selected={({ detail }) => {
 					if (detail === 'all') {
 						cached = relations
-						relations = []
+						relations = undefined
 					} else {
-						if (cached.length === 0) {
-							relations = defaultRelations
-						} else {
-							relations = cached
-						}
+						relations = cached ?? [
+							{
+								schema_name: 'public',
+								table_to_track: []
+							}
+						]
 					}
-					selectedTable = detail
 				}}
-				selected={selectedTable}
+				bind:selected
 				let:item
 			>
-				<ToggleButton value="all" label="All Tables" light {item} />
-				<ToggleButton value="specific" label="Specific Tables" light {item} />
+				<ToggleButton value="all" label="All Tables" {item} />
+				<ToggleButton value="specific" label="Specific Tables" {item} />
 			</ToggleButtonGroup>
 		</div>
 	</div>
-	{#if selectedTable !== 'all'}
-		{#if relations && relations.length > 0}
-			<div class="flex flex-col gap-4 grow min-h-0 overflow-y-auto">
-				{#each relations as v, i}
-					<div class="flex w-full gap-3 items-center">
-						<div class="w-full flex flex-col gap-2 border py-2 px-4 rounded-md">
-							<Label label="Schema Name" required class="w-full">
-								<svelte:fragment slot="header">
-									<Tooltip small>
-										<p>
-											Enter the name of the <strong>schema</strong> that contains the table(s) you
-											want to track.
-											<br />If no tables are added, all tables within the <strong>schema</strong> will
-											be tracked for the selected transactions (insert, update, delete).
-										</p>
-									</Tooltip>
-								</svelte:fragment>
 
-								<input class="mt-1" type="text" bind:value={v.schema_name} />
-							</Label>
-							<div class="flex flex-col w-full gap-4 items-center p-5">
-								{#each v.table_to_track as table_to_track, j}
-									<div
-										class="relative rounded bg-surface-disabled p-2 flex w-full flex-col gap-4 group"
-									>
-										<Label label="Table Name" required>
-											<svelte:fragment slot="header">
-												<Tooltip small>Enter the name of the table you want to track.</Tooltip>
-											</svelte:fragment>
-											<input
-												type="text"
-												bind:value={table_to_track.table_name}
-												class="!bg-surface mt-1"
-											/>
-										</Label>
-										<!-- svelte-ignore a11y-label-has-associated-control -->
-										<Label label="Columns">
-											<svelte:fragment slot="header">
-												<Tooltip
-													documentationLink="https://www.windmill.dev/docs/core_concepts/postgres_triggers#selecting-specific-columns"
-													small
-												>
-													<p>
-														Enter the names of the <strong>columns</strong> you want to track.
-														<br />If no columns are specified, all columns in the table will be
-														tracked for the selected transactions (insert, update, delete).
-													</p>
-													<p class="text-xs text-gray-500 mt-1">
-														<strong class="font-semibold">Note:</strong>
-														<br />- If your trigger contains <strong>UPDATE</strong> or
-														<strong>DELETE</strong>
-														transactions, the row filter WHERE clause must contain only columns covered
-														by the <strong>replica identity</strong> (see REPLICA IDENTITY).
-														<br />- If your trigger contains only <strong>INSERT</strong> transactions,
-														the row filter WHERE clause can use any column.
-													</p>
-												</Tooltip>
-											</svelte:fragment>
-											<div class="mt-1">
-												<MultiSelect
-													options={table_to_track.columns_name ?? []}
-													allowUserOptions="append"
-													bind:selected={table_to_track.columns_name}
-													ulOptionsClass={'!bg-surface !text-sm'}
-													ulSelectedClass="!text-sm"
-													outerDivClass="!bg-surface !min-h-[38px] !border-[#d1d5db]"
-													noMatchingOptionsMsg=""
-													createOptionMsg={null}
-													duplicates={false}
-													placeholder="Select columns"
-													--sms-options-margin="4px"
-												>
-													<svelte:fragment slot="remove-icon">
-														<div class="hover:text-primary p-0.5">
-															<X size={12} />
-														</div>
-													</svelte:fragment>
-												</MultiSelect>
-											</div>
-										</Label>
-										<Label label="Where Clause">
-											<svelte:fragment slot="header">
-												<Tooltip
-													documentationLink="https://www.windmill.dev/docs/core_concepts/postgres_triggers#filtering-rows-with-where-condition"
-													small
-												>
-													<p class="text-sm">
-														Use this field to define a row filter for the selected table. The <strong
-															>WHERE</strong
-														> clause allows only simple expressions and cannot include user-defined functions,
-														operators, types, collations, system column references, or non-immutable
-														built-in functions.
-													</p>
-													<p class="text-xs text-gray-500 mt-1">
-														<strong class="font-semibold">Note:</strong>
-														<br />- If your trigger contains <strong>UPDATE</strong> or
-														<strong>DELETE</strong>
-														transactions, the row filter WHERE clause must contain only columns covered
-														by the <strong>replica identity</strong> (see REPLICA IDENTITY).
-														<br />- If your trigger contains only <strong>INSERT</strong> transactions,
-														the row filter WHERE clause can use any column.
-													</p>
-												</Tooltip>
-											</svelte:fragment>
-											<input
-												type="text"
-												bind:value={table_to_track.where_clause}
-												class="!bg-surface mt-1"
-											/>
-										</Label>
-										<Button
-											variant="border"
-											wrapperClasses="absolute -top-3 -right-3"
-											btnClasses="hidden group-hover:block hover:bg-red-500 hover:text-white p-2 rounded-full hover:border-red-500 transition-all duration-300"
-											color="light"
-											size="xs"
-											on:click={() => {
-												v.table_to_track = v.table_to_track.filter((_, index) => index !== j)
-											}}
-											iconOnly
-											startIcon={{ icon: Trash }}
-										/>
-									</div>
-								{/each}
-								<AddPropertyFormV2
-									customName="Table"
-									on:add={({ detail }) => {
-										addTable(detail.name, i)
-									}}
+	{#if relations && relations.length > 0}
+		<div class="flex flex-col gap-4 grow min-h-0 overflow-y-auto">
+			{#each relations as v, i}
+				<div class="flex w-full gap-3 items-center">
+					<div class="w-full flex flex-col gap-2 border py-2 px-4 rounded-md">
+						<Label label="Schema Name" required class="w-full">
+							<svelte:fragment slot="header">
+								<Tooltip small>
+									<p>
+										Enter the name of the <strong>schema</strong> that contains the table(s) you
+										want to track.
+										<br />If no tables are added, all tables within the <strong>schema</strong> will
+										be tracked for the selected transactions (insert, update, delete).
+									</p>
+								</Tooltip>
+							</svelte:fragment>
+
+							<input class="mt-1" type="text" bind:value={v.schema_name} />
+						</Label>
+						<div class="flex flex-col w-full gap-4 items-center p-5">
+							{#each v.table_to_track as table_to_track, j}
+								<div
+									class="relative rounded bg-surface-disabled p-2 flex w-full flex-col gap-4 group"
 								>
-									<svelte:fragment slot="trigger">
-										<Button
-											wrapperClasses="w-full border border-dashed rounded-md"
-											color="light"
-											size="xs"
-											startIcon={{ icon: Plus }}
-											nonCaptureEvent
-										>
-											Add table
-										</Button>
-									</svelte:fragment>
-								</AddPropertyFormV2>
-							</div>
+									<Label label="Table Name" required>
+										<svelte:fragment slot="header">
+											<Tooltip small>Enter the name of the table you want to track.</Tooltip>
+										</svelte:fragment>
+										<input
+											type="text"
+											bind:value={table_to_track.table_name}
+											class="!bg-surface mt-1"
+										/>
+									</Label>
+									<!-- svelte-ignore a11y-label-has-associated-control -->
+									<Label label="Columns">
+										<svelte:fragment slot="header">
+											<Tooltip
+												documentationLink="https://www.windmill.dev/docs/core_concepts/postgres_triggers#selecting-specific-columns"
+												small
+											>
+												<p>
+													Enter the names of the <strong>columns</strong> you want to track.
+													<br />If no columns are specified, all columns in the table will be
+													tracked for the selected transactions (insert, update, delete).
+												</p>
+												<p class="text-xs text-gray-500 mt-1">
+													<strong class="font-semibold">Note:</strong>
+													<br />- If your trigger contains <strong>UPDATE</strong> or
+													<strong>DELETE</strong>
+													transactions, the row filter WHERE clause must contain only columns covered
+													by the <strong>replica identity</strong> (see REPLICA IDENTITY).
+													<br />- If your trigger contains only <strong>INSERT</strong> transactions,
+													the row filter WHERE clause can use any column.
+												</p>
+											</Tooltip>
+										</svelte:fragment>
+										<div class="mt-1">
+											<MultiSelect
+												options={table_to_track.columns_name ?? []}
+												allowUserOptions="append"
+												ulOptionsClass={'!bg-surface !text-sm'}
+												ulSelectedClass="!text-sm"
+												outerDivClass="!bg-surface !min-h-[38px] !border-[#d1d5db]"
+												noMatchingOptionsMsg=""
+												createOptionMsg={null}
+												duplicates={false}
+												selected={table_to_track.columns_name ?? []}
+												placeholder="Select columns"
+												--sms-options-margin="4px"
+												on:change={(e) => {
+													const option = e.detail.option?.toString()
+													if (e.detail.type === 'add') {
+														option && table_to_track.columns_name?.push(option)
+													} else if (e.detail.type === 'remove') {
+														table_to_track.columns_name = table_to_track.columns_name?.filter(
+															(column) => column !== option
+														)
+													} else if (e.detail.type === 'removeAll') {
+														table_to_track.columns_name = []
+													} else {
+														console.error(
+															`Priority tags multiselect - unknown event type: '${e.detail.type}'`
+														)
+													}
+												}}
+											>
+												<svelte:fragment slot="remove-icon">
+													<div class="hover:text-primary p-0.5">
+														<X size={12} />
+													</div>
+												</svelte:fragment>
+											</MultiSelect>
+										</div>
+									</Label>
+									<Label label="Where Clause">
+										<svelte:fragment slot="header">
+											<Tooltip
+												documentationLink="https://www.windmill.dev/docs/core_concepts/postgres_triggers#filtering-rows-with-where-condition"
+												small
+											>
+												<p class="text-sm">
+													Use this field to define a row filter for the selected table. The <strong
+														>WHERE</strong
+													> clause allows only simple expressions and cannot include user-defined functions,
+													operators, types, collations, system column references, or non-immutable built-in
+													functions.
+												</p>
+												<p class="text-xs text-gray-500 mt-1">
+													<strong class="font-semibold">Note:</strong>
+													<br />- If your trigger contains <strong>UPDATE</strong> or
+													<strong>DELETE</strong>
+													transactions, the row filter WHERE clause must contain only columns covered
+													by the <strong>replica identity</strong> (see REPLICA IDENTITY).
+													<br />- If your trigger contains only <strong>INSERT</strong> transactions,
+													the row filter WHERE clause can use any column.
+												</p>
+											</Tooltip>
+										</svelte:fragment>
+										<input
+											type="text"
+											bind:value={table_to_track.where_clause}
+											class="!bg-surface mt-1"
+										/>
+									</Label>
+									<Button
+										variant="border"
+										wrapperClasses="absolute -top-3 -right-3"
+										btnClasses="hidden group-hover:block hover:bg-red-500 hover:text-white p-2 rounded-full hover:border-red-500 transition-all duration-300"
+										color="light"
+										size="xs"
+										on:click={() => {
+											v.table_to_track = v.table_to_track.filter((_, index) => index !== j)
+										}}
+										iconOnly
+										startIcon={{ icon: Trash }}
+									/>
+								</div>
+							{/each}
+							<AddPropertyFormV2
+								customName="Table"
+								on:add={({ detail }) => {
+									addTable(detail.name, i)
+								}}
+							>
+								<svelte:fragment slot="trigger">
+									<Button
+										wrapperClasses="w-full border border-dashed rounded-md"
+										color="light"
+										size="xs"
+										startIcon={{ icon: Plus }}
+										nonCaptureEvent
+									>
+										Add table
+									</Button>
+								</svelte:fragment>
+							</AddPropertyFormV2>
 						</div>
-
-						<Button
-							variant="border"
-							color="light"
-							size="xs"
-							btnClasses="bg-surface-secondary hover:bg-red-500 hover:text-white p-2 rounded-full"
-							aria-label="Clear"
-							on:click={() => {
-								relations = relations.filter((_, index) => index !== i)
-							}}
-						>
-							<Trash size={14} />
-						</Button>
 					</div>
-				{/each}
-			</div>
-		{/if}
+
+					<Button
+						variant="border"
+						color="light"
+						size="xs"
+						btnClasses="bg-surface-secondary hover:bg-red-500 hover:text-white p-2 rounded-full"
+						aria-label="Clear"
+						on:click={() => {
+							if (relations) {
+								relations = relations.filter((_, index) => index !== i)
+							}
+						}}
+					>
+						<Trash size={14} />
+					</Button>
+				</div>
+			{/each}
+		</div>
+	{/if}
+	{#if selected === 'specific'}
 		<div class="grow min-w-0 pr-10">
 			<AddPropertyFormV2
 				customName="Schema"

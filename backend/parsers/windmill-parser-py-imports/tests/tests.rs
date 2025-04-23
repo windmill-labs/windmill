@@ -19,7 +19,7 @@ def main():
 
 ";
         let mut already_visited = vec![];
-        let r = parse_python_imports(
+        let (r, ..) = parse_python_imports(
             code,
             "test-workspace",
             "f/foo/bar",
@@ -52,7 +52,7 @@ def main():
 
 ";
         let mut already_visited = vec![];
-        let r = parse_python_imports(
+        let (r, ..) = parse_python_imports(
             code,
             "test-workspace",
             "f/foo/bar",
@@ -83,7 +83,7 @@ def main():
 ";
         let mut already_visited = vec![];
 
-        let r = parse_python_imports(
+        let (r, ..) = parse_python_imports(
             code,
             "test-workspace",
             "f/foo/bar",

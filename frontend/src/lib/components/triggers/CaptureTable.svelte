@@ -1,6 +1,6 @@
 <script lang="ts">
 	import Label from '../Label.svelte'
-	import { DatabaseIcon, Info, Trash2 } from 'lucide-svelte'
+	import { DatabaseIcon, Info, Loader2, Trash2 } from 'lucide-svelte'
 	import ToggleButton from '../common/toggleButton-v2/ToggleButton.svelte'
 	import ToggleButtonGroup from '../common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import Button from '../common/button/Button.svelte'
@@ -18,6 +18,7 @@
 	import SchemaPickerRow from '$lib/components/schema/SchemaPickerRow.svelte'
 	import type { Capture } from '$lib/gen'
 	import { AwsIcon, MqttIcon } from '../icons'
+	import GoogleCloudIcon from '../icons/GoogleCloudIcon.svelte'
 
 	export let path: string
 	export let hasPreprocessor = false
@@ -30,6 +31,7 @@
 	export let fullHeight = true
 	export let limitPayloadSize = false
 	export let noBorder = false
+	export let captureActiveIndicator: boolean | undefined = undefined
 
 	let selected: number | undefined = undefined
 	let testKind: 'preprocessor' | 'main' = 'main'
@@ -171,7 +173,8 @@
 		kafka: KafkaIcon,
 		mqtt: MqttIcon,
 		sqs: AwsIcon,
-		postgres: DatabaseIcon
+		postgres: DatabaseIcon,
+		gcp: GoogleCloudIcon
 	}
 
 	function handleKeydown(event: KeyboardEvent) {
@@ -206,6 +209,9 @@
 			<div class="inline-block">
 				<CaptureButton small={true} on:openTriggers />
 			</div>
+		{/if}
+		{#if captureActiveIndicator}
+			<Loader2 class="animate-spin" size={16} />
 		{/if}
 	</svelte:fragment>
 	<svelte:fragment slot="action">
@@ -249,6 +255,7 @@
 			on:select={(e) => handleSelect(e.detail)}
 			bind:length={capturesLength}
 			{noBorder}
+			neverShowLoader={captureActiveIndicator !== undefined}
 		>
 			<svelte:fragment slot="columns">
 				<colgroup>

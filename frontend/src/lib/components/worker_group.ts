@@ -37,3 +37,32 @@ export type AutoscaleScript = {
 export type AutoscaleDryRun = {
     type: 'dryrun'
 }
+
+export const defaultTags = [
+    'deno',
+    'python3',
+    'go',
+    'bash',
+    'powershell',
+    'dependency',
+    'flow',
+    'other',
+    'bun',
+    'php',
+    'rust',
+    'ansible',
+    'csharp',
+    'nu',
+    'java'
+    // KJQXZ 
+]
+export const nativeTags = [
+    'nativets',
+    'postgresql',
+    'mysql',
+    'graphql',
+    'snowflake',
+    'mssql',
+    'bigquery',
+    'oracledb'
+]

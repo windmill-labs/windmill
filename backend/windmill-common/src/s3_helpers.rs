@@ -111,13 +111,15 @@ pub struct S3AwsOidcResource {
     pub audience: Option<String>,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
 pub struct S3Object {
     pub s3: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub storage: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub filename: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub presigned: Option<String>,
 }
 
 #[cfg(feature = "parquet")]
@@ -473,4 +475,8 @@ impl CredentialProvider for AwsCredentialAdapter {
 
 pub fn bundle(w_id: &str, hash: &str) -> String {
     format!("script_bundle/{}/{}", w_id, hash)
+}
+
+pub fn raw_app(w_id: &str, version: &i64) -> String {
+    format!("/home/rfiszel/raw_app/{}/{}", w_id, version)
 }

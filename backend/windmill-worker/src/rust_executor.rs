@@ -8,7 +8,7 @@ use tokio::{fs::File, io::AsyncReadExt, process::Command};
 use windmill_common::{
     error::{self, Error},
     utils::calculate_hash,
-    worker::{save_cache, write_file},
+    worker::{save_cache, write_file, Connection},
 };
 use windmill_queue::MiniPulledJob;
 use windmill_queue::{append_logs, CanceledBy};
@@ -127,7 +127,7 @@ pub async fn generate_cargo_lockfile(
     mem_peak: &mut i32,
     canceled_by: &mut Option<CanceledBy>,
     job_dir: &str,
-    db: &sqlx::Pool<sqlx::Postgres>,
+    conn: &Connection,
     worker_name: &str,
     w_id: &str,
     occupancy_metrics: &mut OccupancyMetrics,
@@ -153,7 +153,7 @@ pub async fn generate_cargo_lockfile(
     let gen_lockfile_process = start_child_process(gen_lockfile_cmd, CARGO_PATH.as_str()).await?;
     handle_child(
         job_id,
-        db,
+        conn,
         mem_peak,
         canceled_by,
         gen_lockfile_process,
@@ -180,7 +180,7 @@ pub async fn build_rust_crate(
     mem_peak: &mut i32,
     canceled_by: &mut Option<CanceledBy>,
     job_dir: &str,
-    db: &sqlx::Pool<sqlx::Postgres>,
+    conn: &Connection,
     worker_name: &str,
     w_id: &str,
     base_internal_url: &str,
@@ -216,7 +216,7 @@ pub async fn build_rust_crate(
     let build_rust_process = start_child_process(build_rust_cmd, CARGO_PATH.as_str()).await?;
     handle_child(
         job_id,
-        db,
+        conn,
         mem_peak,
         canceled_by,
         build_rust_process,
@@ -230,7 +230,7 @@ pub async fn build_rust_crate(
         None,
     )
     .await?;
-    append_logs(job_id, w_id, "\n\n", db).await;
+    append_logs(job_id, w_id, "\n\n", conn).await;
 
     tokio::fs::copy(
         &format!("{job_dir}/target/release/main"),
@@ -279,7 +279,7 @@ pub async fn handle_rust_job(
     mem_peak: &mut i32,
     canceled_by: &mut Option<CanceledBy>,
     job: &MiniPulledJob,
-    db: &sqlx::Pool<sqlx::Postgres>,
+    conn: &Connection,
     client: &AuthedClient,
     parent_runnable_path: Option<String>,
     inner_content: &str,
@@ -314,11 +314,11 @@ pub async fn handle_rust_job(
             ))
         })?;
 
-        create_args_and_out_file(client, job, job_dir, db).await?;
+        create_args_and_out_file(client, job, job_dir, conn).await?;
         cache_logs
     } else {
         let logs1 = format!("{cache_logs}\n\n--- CARGO BUILD ---\n");
-        append_logs(&job.id, &job.workspace_id, logs1, db).await;
+        append_logs(&job.id, &job.workspace_id, logs1, conn).await;
 
         gen_cargo_crate(inner_content, job_dir)?;
 
@@ -328,14 +328,14 @@ pub async fn handle_rust_job(
             }
         }
 
-        create_args_and_out_file(client, job, job_dir, db).await?;
+        create_args_and_out_file(client, job, job_dir, conn).await?;
 
         build_rust_crate(
             &job.id,
             mem_peak,
             canceled_by,
             job_dir,
-            db,
+            conn,
             worker_name,
             &job.workspace_id,
             base_internal_url,
@@ -346,10 +346,10 @@ pub async fn handle_rust_job(
     };
 
     let logs2 = format!("{cache_logs}\n\n--- RUST CODE EXECUTION ---\n");
-    append_logs(&job.id, &job.workspace_id, logs2, db).await;
+    append_logs(&job.id, &job.workspace_id, logs2, conn).await;
 
     let reserved_variables =
-        get_reserved_variables(job, &client.token, db, parent_runnable_path).await?;
+        get_reserved_variables(job, &client.token, conn, parent_runnable_path).await?;
 
     let child = if !*DISABLE_NSJAIL {
         let _ = write_file(
@@ -400,7 +400,7 @@ pub async fn handle_rust_job(
     };
     handle_child(
         &job.id,
-        db,
+        conn,
         mem_peak,
         canceled_by,
         child,

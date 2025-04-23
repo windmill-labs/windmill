@@ -9,7 +9,8 @@ import {
 	type OperatorSettings,
 	type TokenResponse,
 	type UserWorkspaceList,
-	type WorkspaceDefaultScripts
+	type WorkspaceDefaultScripts,
+	WorkspaceService
 } from './gen'
 import { getLocalSetting } from './utils'
 
@@ -202,3 +203,32 @@ export const dbSchemas = writable<DBSchemas>({})
 export const instanceSettingsSelectedTab = writable('Core')
 
 export const isCriticalAlertsUIOpen = writable(false)
+
+export const workspaceColor: Readable<string | null | undefined> = derived(
+	[workspaceStore, usersWorkspaceStore, superadmin],
+	([workspaceStore, usersWorkspaceStore, superadmin], set: (value: string | undefined) => void) => {
+		if (!workspaceStore) {
+			set(undefined)
+			return
+		}
+
+		// First try to get the color from usersWorkspaceStore
+		const color = usersWorkspaceStore?.workspaces.find((w) => w.id === workspaceStore)?.color
+
+		if (color) {
+			set(color)
+			return
+		}
+
+		// If not found and user is superadmin, try to get it from superadmin list
+		if (!superadmin) {
+			set(undefined)
+			return
+		}
+
+		WorkspaceService.listWorkspacesAsSuperAdmin().then((workspaces) => {
+			const superadminColor = workspaces.find((w) => w.id === workspaceStore)?.color
+			set(superadminColor)
+		})
+	}
+)

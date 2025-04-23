@@ -1,0 +1,65 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT \n            id, \n            created_at, \n            trigger_kind AS \"trigger_kind: _\", \n            payload AS \"payload!: _\", \n            trigger_extra AS \"trigger_extra: _\"\n        FROM \n            capture\n        WHERE \n            id = $1 \n            AND workspace_id = $2\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "created_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 2,
+        "name": "trigger_kind: _",
+        "type_info": {
+          "Custom": {
+            "name": "trigger_kind",
+            "kind": {
+              "Enum": [
+                "webhook",
+                "http",
+                "websocket",
+                "kafka",
+                "email",
+                "nats",
+                "postgres",
+                "sqs",
+                "mqtt",
+                "gcp"
+              ]
+            }
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "payload!: _",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 4,
+        "name": "trigger_extra: _",
+        "type_info": "Jsonb"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      true
+    ]
+  },
+  "hash": "6781ba76dfce321dca4634566496ea5d698ac09d8264e35dfaa4cd8edc9e8414"
+}
