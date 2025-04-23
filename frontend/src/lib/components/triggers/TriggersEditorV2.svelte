@@ -213,6 +213,7 @@
 											selectedTrigger={$selectedTrigger}
 											edit={editTrigger === $selectedTrigger}
 											{isDeployed}
+											isEditor={true}
 											on:toggle-edit-mode={({ detail }) => {
 												editTrigger = detail ? $selectedTrigger : undefined
 											}}

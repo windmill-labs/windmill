@@ -12,7 +12,7 @@
 
 {#if captureInfo}
 	<CaptureSection
-		captureType="http"
+		captureType="websocket"
 		disabled={isValid === false}
 		{captureInfo}
 		on:captureToggle
@@ -26,7 +26,9 @@
 	>
 		<svelte:fragment slot="description">
 			{#if captureInfo.active}
-				Send a POST request to the URL below to simulate a webhook event.
+				Listenning to websocket events...
+			{:else}
+				Start capturing to listen to websocket events.
 			{/if}
 		</svelte:fragment>
 	</CaptureSection>

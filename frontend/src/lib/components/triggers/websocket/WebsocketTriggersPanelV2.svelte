@@ -4,7 +4,7 @@
 	import { Alert } from '$lib/components/common'
 	import Description from '$lib/components/Description.svelte'
 
-	let { selectedTrigger, isFlow, path, edit, isDeployed = false } = $props()
+	let { selectedTrigger, isFlow, path, edit, isDeployed = false, isEditor } = $props()
 	let wsTriggerEditor: WebsocketTriggerEditorInner | undefined = $state(undefined)
 
 	async function openWebsocketTriggerEditor(isFlow: boolean, isDraft: boolean) {
@@ -34,6 +34,7 @@
 			preventSave={!isDeployed}
 			hideTooltips={!isDeployed}
 			useEditButton
+			{isEditor}
 			on:toggle-edit-mode
 			on:update-config
 			on:update

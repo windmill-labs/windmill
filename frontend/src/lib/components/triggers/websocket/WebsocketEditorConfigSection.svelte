@@ -12,6 +12,7 @@
 	import { FlowService, ScriptService, type Flow, type Script } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import TestTriggerConnection from '../TestTriggerConnection.svelte'
+	import TestingBadge from '$lib/components/triggers/testingBadge.svelte'
 
 	export let url: string | undefined
 	export let url_runnable_args: Record<string, unknown> | undefined
@@ -22,6 +23,7 @@
 	export let captureTable: CaptureTable | undefined = undefined
 	export let captureInfo: CaptureInfo | undefined = undefined
 	export let isValid: boolean = false
+	export let showTestingBadge: boolean = false
 
 	let areRunnableArgsValid: boolean = true
 
@@ -35,11 +37,11 @@
 						? await FlowService.getFlowByPath({
 								workspace: $workspaceStore!,
 								path: url.split(':')[1]
-						  })
+							})
 						: await ScriptService.getScriptByPath({
 								workspace: $workspaceStore!,
 								path: url.split(':')[1]
-						  })
+							})
 					urlRunnableSchema = scriptOrFlow.schema as Schema
 				} catch (err) {
 					sendUserToast(
@@ -95,6 +97,11 @@
 		/>
 	{/if}
 	<Section label="WebSocket" {headless}>
+		<svelte:fragment slot="header">
+			{#if showTestingBadge}
+				<TestingBadge />
+			{/if}
+		</svelte:fragment>
 		<div class="mb-2">
 			<ToggleButtonGroup
 				selected={url?.startsWith('$') ? 'runnable' : 'static'}

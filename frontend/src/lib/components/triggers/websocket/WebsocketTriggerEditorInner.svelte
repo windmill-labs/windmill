@@ -36,6 +36,7 @@
 		preventSave?: boolean
 		hideTooltips?: boolean
 		useEditButton?: boolean
+		isEditor?: boolean
 	}
 
 	let {
@@ -45,7 +46,8 @@
 		editMode = true,
 		preventSave = false,
 		hideTooltips = false,
-		useEditButton = false
+		useEditButton = false,
+		isEditor = false
 	}: Props = $props()
 
 	let drawer: Drawer | undefined = $state()
@@ -438,6 +440,7 @@
 				{dirtyUrl}
 				can_write={can_write && editMode}
 				bind:isValid
+				showTestingBadge={isEditor}
 			/>
 
 			<Section label="Initial messages">
