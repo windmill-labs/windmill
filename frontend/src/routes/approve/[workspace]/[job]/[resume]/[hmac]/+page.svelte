@@ -266,7 +266,7 @@
 				>
 			</div>
 		{/if}
-		{#if !completed && !alreadyResumed && job?.raw_flow?.modules?.[approvalStep]?.suspend?.user_auth_required && job?.raw_flow?.modules?.[approvalStep]?.suspend?.self_approval_disabled && $userStore && $userStore.email === job.email && $userStore.is_admin}
+		{#if !completed && !alreadyResumed && job?.raw_flow?.modules?.[approvalStep]?.suspend?.user_auth_required && job?.raw_flow?.modules?.[approvalStep]?.suspend?.self_approval_disabled && $userStore && $userStore.email === job.email && ($userStore.is_admin || $userStore.is_super_admin)}
 			<div class="mt-2">
 				<Alert type="warning" title="Warning">
 					As an administrator, by resuming or cancelling this stage of the flow, you bypass the
