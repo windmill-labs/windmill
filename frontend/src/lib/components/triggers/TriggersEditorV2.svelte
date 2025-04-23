@@ -198,6 +198,11 @@
 									{isFlow}
 									path={initialPath || fakeInitialPath}
 									selectedTrigger={$selectedTrigger}
+									edit={editTrigger === $selectedTrigger}
+									{isDeployed}
+									on:toggle-edit-mode={({ detail }) => {
+										editTrigger = detail ? $selectedTrigger : undefined
+									}}
 								/>
 							{:else if $selectedTrigger.isDraft}
 								<h3 class="text-sm font-medium">Configure new {$selectedTrigger.type} trigger</h3>

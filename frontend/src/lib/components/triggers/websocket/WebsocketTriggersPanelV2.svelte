@@ -1,11 +1,11 @@
 <script lang="ts">
-	import WebsocketTriggerEditor from './WebsocketTriggerEditor.svelte'
+	import WebsocketTriggerEditorInner from './WebsocketTriggerEditorInner.svelte'
 	import { isCloudHosted } from '$lib/cloud'
 	import { Alert } from '$lib/components/common'
 	import Description from '$lib/components/Description.svelte'
 
-	let { selectedTrigger, isFlow, path } = $props()
-	let wsTriggerEditor: WebsocketTriggerEditor | undefined = $state(undefined)
+	let { selectedTrigger, isFlow, path, edit, isDeployed = false } = $props()
+	let wsTriggerEditor: WebsocketTriggerEditorInner | undefined = $state(undefined)
 
 	async function openWebsocketTriggerEditor(isFlow: boolean, isDraft: boolean) {
 		if (isDraft) {
@@ -26,13 +26,28 @@
 	</Alert>
 {:else}
 	<div class="flex flex-col gap-4">
-		<WebsocketTriggerEditor bind:this={wsTriggerEditor} useDrawer={false} hideTarget>
+		<WebsocketTriggerEditorInner
+			bind:this={wsTriggerEditor}
+			useDrawer={false}
+			hideTarget
+			editMode={edit}
+			preventSave={!isDeployed}
+			hideTooltips={!isDeployed}
+			on:toggle-edit-mode
+		>
 			{#snippet description()}
 				<Description link="https://www.windmill.dev/docs/core_concepts/websocket_triggers">
 					WebSocket triggers allow real-time bidirectional communication between your scripts/flows
 					and external systems. Each trigger creates a unique WebSocket endpoint.
 				</Description>
+				{#if !isDeployed}
+					<Alert
+						title={`Deploy the ${isFlow ? 'flow' : 'script'} to save the websocket trigger`}
+						type="info"
+						size="xs"
+					/>
+				{/if}
 			{/snippet}
-		</WebsocketTriggerEditor>
+		</WebsocketTriggerEditorInner>
 	</div>
 {/if}

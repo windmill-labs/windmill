@@ -18,7 +18,7 @@
 	import { canWrite, emptySchema, emptyString, sendUserToast } from '$lib/utils'
 	import { createEventDispatcher } from 'svelte'
 	import Section from '$lib/components/Section.svelte'
-	import { Loader2, Save, X, Plus } from 'lucide-svelte'
+	import { Loader2, Save, X, Plus, Pen } from 'lucide-svelte'
 	import Label from '$lib/components/Label.svelte'
 	import { fade } from 'svelte/transition'
 	import type { Schema } from '$lib/common'
@@ -31,9 +31,19 @@
 		useDrawer?: boolean
 		description?: Snippet | undefined
 		hideTarget?: boolean
+		editMode?: boolean
+		preventSave?: boolean
+		hideTooltips?: boolean
 	}
 
-	let { useDrawer = true, description = undefined, hideTarget = false }: Props = $props()
+	let {
+		useDrawer = true,
+		description = undefined,
+		hideTarget = false,
+		editMode = true,
+		preventSave = false,
+		hideTooltips = false
+	}: Props = $props()
 
 	let drawer: Drawer | undefined = $state()
 	let is_flow: boolean = $state(false)
@@ -58,6 +68,7 @@
 	let dirtyPath = $state(false)
 	let can_write = $state(true)
 	let drawerLoading = $state(true)
+	let resetEditMode = $state<(() => void) | undefined>(undefined)
 
 	const dispatch = createEventDispatcher()
 
@@ -67,6 +78,7 @@
 
 	export async function openEdit(ePath: string, isFlow: boolean) {
 		drawerLoading = true
+		resetEditMode = () => openEdit(ePath, isFlow)
 		try {
 			drawer?.openDrawer()
 			initialPath = ePath
@@ -105,6 +117,7 @@
 			url_runnable_args = defaultValues?.url_runnable_args ?? {}
 			dirtyPath = false
 			can_return_message = false
+			toggleEditMode(true)
 		} finally {
 			drawerLoading = false
 		}
@@ -215,9 +228,14 @@
 		}
 		dispatch('update')
 		drawer?.closeDrawer()
+		toggleEditMode(false)
 	}
 
 	let isValid = $state(false)
+
+	function toggleEditMode(newEditMode: boolean) {
+		dispatch('toggle-edit-mode', newEditMode)
+	}
 </script>
 
 {#if useDrawer}
@@ -251,7 +269,7 @@
 			<div class="mr-8 center-center -mt-1">
 				<Toggle
 					{size}
-					disabled={!can_write}
+					disabled={!can_write || !editMode}
 					checked={enabled}
 					options={{ right: 'enable', left: 'disable' }}
 					on:change={async (e) => {
@@ -265,19 +283,43 @@
 				/>
 			</div>
 		{/if}
-		{#if can_write}
-			<Button
-				{size}
-				startIcon={{ icon: Save }}
-				disabled={pathError != '' ||
-					!isValid ||
-					invalidInitialMessages ||
-					emptyString(script_path) ||
-					!can_write}
-				on:click={updateTrigger}
-			>
-				Save
-			</Button>
+		{#if !preventSave}
+			{#if can_write && editMode}
+				<Button
+					{size}
+					startIcon={{ icon: Save }}
+					disabled={pathError != '' ||
+						!isValid ||
+						invalidInitialMessages ||
+						emptyString(script_path) ||
+						!can_write}
+					on:click={updateTrigger}
+				>
+					Save
+				</Button>
+			{/if}
+			{#if !editMode && can_write}
+				<Button
+					{size}
+					color="light"
+					startIcon={{ icon: Pen }}
+					on:click={() => toggleEditMode(true)}
+				>
+					Edit
+				</Button>
+			{:else if editMode && !!resetEditMode}
+				<Button
+					{size}
+					color="light"
+					startIcon={{ icon: X }}
+					on:click={() => {
+						toggleEditMode(false)
+						resetEditMode?.()
+					}}
+				>
+					Cancel
+				</Button>
+			{/if}
 		{/if}
 	{/if}
 {/snippet}
@@ -290,13 +332,15 @@
 			{#if description}
 				{@render description()}
 			{/if}
-			<Alert title="Info" type="info" size="xs">
-				{#if edit}
-					Changes can take up to 30 seconds to take effect.
-				{:else}
-					New WebSocket triggers can take up to 30 seconds to start listening.
-				{/if}
-			</Alert>
+			{#if !hideTooltips}
+				<Alert title="Info" type="info" size="xs">
+					{#if edit}
+						Changes can take up to 30 seconds to take effect.
+					{:else}
+						New WebSocket triggers can take up to 30 seconds to start listening.
+					{/if}
+				</Alert>
+			{/if}
 		</div>
 		<div class="flex flex-col gap-12 mt-6">
 			<div class="flex flex-col gap-4">
@@ -310,6 +354,7 @@
 						namePlaceholder="ws_trigger"
 						kind="websocket_trigger"
 						disabled={!can_write}
+						disableEditing={!editMode}
 					/>
 				</Label>
 			</div>
@@ -322,7 +367,7 @@
 						</p>
 						<div class="flex flex-row mb-2">
 							<ScriptPicker
-								disabled={fixedScriptPath != '' || !can_write}
+								disabled={fixedScriptPath != '' || !can_write || !editMode}
 								initialPath={fixedScriptPath || initialScriptPath}
 								kinds={['script']}
 								allowFlow={true}
@@ -337,8 +382,11 @@
 									color="dark"
 									size="xs"
 									href={itemKind === 'flow' ? '/flows/add?hub=64' : '/scripts/add?hub=hub%2F11636'}
-									target="_blank">Create from template</Button
+									target="_blank"
+									disabled={!editMode}
 								>
+									Create from template
+								</Button>
 							{/if}
 						</div>
 					</div>
@@ -353,6 +401,7 @@
 							rightTooltip:
 								'Whether the runnable result should be sent as a message to the websocket server when not null.'
 						}}
+						disabled={!editMode}
 					/>
 				</Section>
 			{/if}
@@ -361,7 +410,7 @@
 				bind:url
 				bind:url_runnable_args
 				{dirtyUrl}
-				{can_write}
+				can_write={can_write && editMode}
 				bind:isValid
 			/>
 
@@ -396,6 +445,7 @@
 												}
 											}}
 											value={'runnable_result' in v ? 'runnable_result' : 'raw_message'}
+											disabled={!editMode}
 										>
 											<option value="raw_message">Raw message</option>
 											<option value="runnable_result">Runnable result</option>
@@ -415,6 +465,7 @@
 												}
 											}}
 											code={v.raw_message}
+											disabled={!editMode}
 										/>
 									</div>
 								{:else if 'runnable_result' in v}
@@ -434,6 +485,7 @@
 													}
 												}
 											}}
+											disabled={!editMode}
 										/>
 
 										{#if v.runnable_result?.path}
@@ -453,6 +505,7 @@
 														bind:args={v.runnable_result.args}
 														shouldHideNoInputs
 														class="text-xs"
+														disabled={!editMode}
 													/>
 												{/await}
 												{#if schema && schema.properties && Object.keys(schema.properties).length === 0}
@@ -474,6 +527,7 @@
 								onclick={() => {
 									initial_messages = initial_messages.filter((_, index) => index !== i)
 								}}
+								disabled={!editMode}
 							>
 								<X size={14} />
 							</button>
@@ -494,6 +548,7 @@
 									raw_message: '""'
 								})
 							}}
+							disabled={!editMode}
 							startIcon={{ icon: Plus }}
 						>
 							Add item
@@ -526,6 +581,7 @@
 												}
 											}}
 											value={'json'}
+											disabled={!editMode}
 										>
 											<option value="json">JSON</option>
 										</select>
@@ -533,12 +589,16 @@
 								</div>
 								<label class="flex flex-col w-full">
 									<div class="text-secondary text-sm mb-2">Key</div>
-									<input type="text" bind:value={v.key} />
+									<input type="text" bind:value={v.key} disabled={!editMode} />
 								</label>
 								<!-- svelte-ignore a11y_label_has_associated_control -->
 								<label class="flex flex-col w-full">
 									<div class="text-secondary text-sm mb-2">Value</div>
-									<JsonEditor bind:value={v.value} code={JSON.stringify(v.value)} />
+									<JsonEditor
+										bind:value={v.value}
+										code={JSON.stringify(v.value)}
+										disabled={!editMode}
+									/>
 								</label>
 							</div>
 							<button
@@ -548,6 +608,7 @@
 								onclick={() => {
 									filters = filters.filter((_, index) => index !== i)
 								}}
+								disabled={!editMode}
 							>
 								<X size={14} />
 							</button>
@@ -569,6 +630,7 @@
 									value: ''
 								})
 							}}
+							disabled={!editMode}
 							startIcon={{ icon: Plus }}
 						>
 							Add item

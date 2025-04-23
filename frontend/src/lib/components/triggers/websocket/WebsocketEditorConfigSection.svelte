@@ -102,10 +102,12 @@
 					url = ev.detail === 'runnable' ? '$script:' : ''
 					url_runnable_args = {}
 				}}
+				disabled={!can_write}
 				let:item
+				let:disabled
 			>
-				<ToggleButton value="static" label="Static URL" {item} />
-				<ToggleButton value="runnable" label="Runnable result as URL" {item} />
+				<ToggleButton value="static" label="Static URL" {item} {disabled} />
+				<ToggleButton value="runnable" label="Runnable result as URL" {item} {disabled} />
 			</ToggleButtonGroup>
 		</div>
 		{#if url?.startsWith('$')}
@@ -126,6 +128,7 @@
 							const { path, itemKind } = ev.detail
 							url = `$${itemKind}:${path ?? ''}`
 						}}
+						disabled={!can_write}
 					/>
 					<div class="text-red-600 dark:text-red-400 text-2xs mt-1.5">
 						{dirtyUrl ? urlError : ''}
@@ -146,6 +149,7 @@
 								bind:isValid={areRunnableArgsValid}
 								shouldHideNoInputs
 								class="text-xs"
+								disabled={!can_write}
 							/>
 						{/key}
 					{/await}

@@ -420,7 +420,7 @@
 								}
 							}
 						}}
-						disabled={disableEditing}
+						disabled={disabled || disableEditing}
 						let:item
 					>
 						<ToggleButton
