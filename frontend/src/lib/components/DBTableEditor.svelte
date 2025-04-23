@@ -264,33 +264,45 @@
 									{#each foreignKey.columns as column, columnIndex}
 										<div class="flex">
 											<div class="flex items-center gap-1 w-60">
-												<Select
-													containerStyles="--height: 2rem;"
-													class={fkErrors?.nonExistingSourceColumns.includes(column.sourceColumn)
-														? 'border !border-red-600/60'
-														: ''}
-													placeholder=""
-													value={column.sourceColumn}
-													on:change={(e) => (column.sourceColumn = e.detail.value)}
-													items={values.columns.map((c) => c.name)}
-													clearable={false}
-												/>
+												<!-- Div wrappers with absolute select are to prevent the Select content
+												 		 from overflowing -->
+												<div class="grow h-[2rem] relative">
+													<Select
+														containerStyles="--height: 2rem;"
+														class={twMerge(
+															'!absolute inset-0',
+															fkErrors?.nonExistingSourceColumns.includes(column.sourceColumn)
+																? 'border !border-red-600/60'
+																: ''
+														)}
+														placeholder=""
+														value={column.sourceColumn}
+														on:change={(e) => (column.sourceColumn = e.detail.value)}
+														items={values.columns.map((c) => c.name)}
+														clearable={false}
+													/>
+												</div>
 												<ArrowRight size={16} class="h-fit shrink-0" />
-												<Select
-													containerStyles="--height: 2rem;"
-													class={fkErrors?.nonExistingTargetColumns.includes(column.targetColumn)
-														? 'border !border-red-600/60'
-														: ''}
-													placeholder=""
-													value={column.targetColumn}
-													on:change={(e) => (column.targetColumn = e.detail.value)}
-													items={Object.keys(
-														dbSchema?.schema?.[foreignKey.targetTable?.split('.')?.[0] ?? '']?.[
-															foreignKey.targetTable?.split('.')[1]
-														] ?? {}
-													)}
-													clearable={false}
-												/>
+												<div class="grow h-[2rem] relative">
+													<Select
+														containerStyles="--height: 2rem;"
+														class={twMerge(
+															'!absolute inset-0',
+															fkErrors?.nonExistingTargetColumns.includes(column.targetColumn)
+																? 'border !border-red-600/60'
+																: ''
+														)}
+														placeholder=""
+														value={column.targetColumn}
+														on:change={(e) => (column.targetColumn = e.detail.value)}
+														items={Object.keys(
+															dbSchema?.schema?.[foreignKey.targetTable?.split('.')?.[0] ?? '']?.[
+																foreignKey.targetTable?.split('.')[1]
+															] ?? {}
+														)}
+														clearable={false}
+													/>
+												</div>
 											</div>
 											<div class="ml-auto flex">
 												{#if columnIndex === 0}
