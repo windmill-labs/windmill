@@ -61,47 +61,36 @@
 	})
 
 	// --- Functions ---
-	async function createToken(): Promise<void> {
+	async function createToken(mcpMode: boolean = false): Promise<void> {
 		try {
 			let date: Date | undefined
 			if (newTokenExpiration) {
 				date = new Date(new Date().getTime() + newTokenExpiration * 1000)
 			}
 
-			newToken = await UserService.createToken({
+			let tokenScopes = mcpMode ? [`mcp:${newMcpScope}`] : scopes
+
+			const createdToken = await UserService.createToken({
 				requestBody: {
 					label: newTokenLabel,
 					expiration: date?.toISOString(),
-					scopes,
+					scopes: tokenScopes,
 					workspace_id: newTokenWorkspace || $workspaceStore
 				} as NewToken
 			})
 
+			if (mcpMode) {
+				newMcpToken = `${createdToken}`
+			} else {
+				newToken = `${createdToken}`
+			}
+
 			dispatch('tokenCreated', newToken)
 			onListTokens()
+			mcpCreationMode = false
 			displayCreateToken = false
 		} catch (err) {
 			console.error('Failed to create token:', err)
-		}
-	}
-
-	async function createMcpUrl(): Promise<void> {
-		const scope = `mcp:${newMcpScope}`
-		try {
-			const newToken = await UserService.createToken({
-				requestBody: {
-					label: 'MCP token',
-					expiration: undefined,
-					scopes: [scope],
-					workspace_id: $workspaceStore
-				} as NewToken
-			})
-			newMcpToken = `${newToken}`
-			mcpCreationMode = false
-			displayCreateToken = false
-			onListTokens()
-		} catch (err) {
-			console.error('Failed to create MCP URL:', err)
 		}
 	}
 
@@ -244,7 +233,7 @@
 				<div class="flex items-end">
 					<Button
 						btnClasses="!mt-2"
-						on:click={mcpCreationMode ? createMcpUrl : createToken}
+						on:click={() => createToken(mcpCreationMode)}
 						disabled={mcpCreationMode && newTokenWorkspace === undefined}
 					>
 						New token
