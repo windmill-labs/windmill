@@ -12,7 +12,7 @@ use rmcp::{
     service::{RequestContext, RoleServer},
     Error,
 };
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sql_builder::prelude::*;
 use sqlx::FromRow;
@@ -22,7 +22,6 @@ use windmill_common::db::UserDB;
 use windmill_common::worker::to_raw_value;
 use windmill_common::DB;
 
-use crate::ai::AIConfig;
 use crate::db::ApiAuthed;
 use crate::jobs::{
     run_wait_result_flow_by_path_internal, run_wait_result_script_by_path_internal, RunJobQuery,
@@ -31,6 +30,28 @@ use windmill_common::utils::StripPath;
 
 #[derive(Clone)]
 pub struct Runner {}
+
+#[derive(Serialize, Deserialize, Debug, Clone, Default)]
+struct Schema {
+    #[serde(default)]
+    properties: HashMap<String, SchemaProperty>,
+    #[serde(flatten)]
+    other: HashMap<String, Value>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, Default)]
+struct SchemaProperty {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    format: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    description: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    r#type: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    oneOf: Option<Vec<Value>>,
+    #[serde(flatten)]
+    other: HashMap<String, Value>,
+}
 
 #[derive(Serialize, FromRow)]
 struct ScriptInfo {
@@ -46,11 +67,6 @@ struct FlowInfo {
     summary: Option<String>,
     description: Option<String>,
     schema: Option<Value>,
-}
-
-#[derive(Serialize, FromRow, Debug)]
-struct WorkspaceSettings {
-    ai_config: Option<sqlx::types::Json<AIConfig>>,
 }
 
 #[derive(Serialize, FromRow, Debug)]
@@ -72,7 +88,6 @@ struct ResourceCache {
     resources: Vec<ResourceInfo>,
 }
 
-
 impl Runner {
     pub fn new() -> Self {
         Self {}
@@ -82,7 +97,7 @@ impl Runner {
         if type_str != "script" && type_str != "flow" {
             return Err(format!("Invalid type: {}", type_str));
         }
-        
+
         // Only apply special underscore escaping for paths starting with "f/"
         let transformed = if path.starts_with("f/") {
             let escaped_path = path.replace('_', "__");
@@ -90,25 +105,28 @@ impl Runner {
         } else {
             path.replace('/', "_")
         };
-        
+
         Ok(format!("{}-{}", type_str, transformed))
     }
-    
+
     fn reverse_transform(transformed_path: &str) -> Result<(&str, String), String> {
         let prefix = if transformed_path.starts_with("script-") {
             "script-"
         } else if transformed_path.starts_with("flow-") {
             "flow-"
         } else {
-            return Err(format!("Invalid prefix in transformed path: {}", transformed_path));
+            return Err(format!(
+                "Invalid prefix in transformed path: {}",
+                transformed_path
+            ));
         };
-    
+
         let type_str = &prefix[..prefix.len() - 1]; // "script" or "flow"
         let mangled_path = &transformed_path[prefix.len()..];
-        
+
         // Check if this path was previously transformed with special underscore handling
         let is_special_path = mangled_path.starts_with("f_");
-        
+
         let original_path = if is_special_path {
             const TEMP_PLACEHOLDER: &str = "@@UNDERSCORE@@";
             let path_with_placeholder = mangled_path.replace("__", TEMP_PLACEHOLDER);
@@ -117,7 +135,7 @@ impl Runner {
         } else {
             mangled_path.replacen('_', "/", 2)
         };
-    
+
         Ok((type_str, original_path))
     }
 
@@ -152,7 +170,7 @@ impl Runner {
             .map_err(|_e| Error::internal_error("failed to commit transaction", None))?;
         Ok(rows)
     }
-        
+
     async fn inner_get_resources(
         user_db: &UserDB,
         authed: &ApiAuthed,
@@ -266,64 +284,107 @@ impl Runner {
         Ok(rows)
     }
 
-    async fn transform_schema_for_resources(schema: &mut serde_json::Value, user_db: &UserDB, authed: &ApiAuthed, w_id: &str, resources_info: &mut HashMap<String, ResourceCache>) -> Result<(), Error> {
-        if let serde_json::Value::Object(schema_obj) = schema {
-            if let Some(serde_json::Value::Object(properties)) = schema_obj.get_mut("properties") {
-                for (_key, prop) in properties.iter_mut() {
-                    if let serde_json::Value::Object(prop_obj) = prop {
-                        if let Some(serde_json::Value::String(format)) = prop_obj.get("format") {
-                            if format.contains("resource") {
-                                let resource_type_key = format.split("-").last().unwrap_or_default().to_string();
+    async fn transform_schema_for_resources(
+        schema: &mut Schema,
+        user_db: &UserDB,
+        authed: &ApiAuthed,
+        w_id: &str,
+        resources_info: &mut HashMap<String, ResourceCache>,
+    ) -> Result<(), Error> {
+        for (_key, prop) in schema.properties.iter_mut() {
+            if let Some(format) = &prop.format {
+                if format.contains("resource") {
+                    let resource_type_key =
+                        format.split("-").last().unwrap_or_default().to_string();
 
-                                if !resources_info.contains_key(&resource_type_key) {
-                                    let fetch_result = async {
-                                        let resource_type_info_future = Runner::inner_get_resource_type_info(user_db, authed, &w_id, &resource_type_key);
-                                        let resources_data_future = Runner::inner_get_resources(user_db, authed, &w_id, &resource_type_key);
-                                        let (resource_type_info, resources_data) = try_join!(resource_type_info_future, resources_data_future)?;
-                                        Ok::<_, Error>(ResourceCache {
-                                            resource_type: resource_type_info,
-                                            resources: resources_data,
-                                        })
-                                    }.await;
+                    if !resources_info.contains_key(&resource_type_key) {
+                        let fetch_result = async {
+                            let resource_type_info_future = Runner::inner_get_resource_type_info(
+                                user_db,
+                                authed,
+                                &w_id,
+                                &resource_type_key,
+                            );
+                            let resources_data_future = Runner::inner_get_resources(
+                                user_db,
+                                authed,
+                                &w_id,
+                                &resource_type_key,
+                            );
+                            let (resource_type_info, resources_data) =
+                                try_join!(resource_type_info_future, resources_data_future)?;
+                            Ok::<_, Error>(ResourceCache {
+                                resource_type: resource_type_info,
+                                resources: resources_data,
+                            })
+                        }
+                        .await;
 
-                                    match fetch_result {
-                                        Ok(cache_data) => {
-                                            resources_info.insert(resource_type_key.clone(), cache_data);
-                                        }
-                                        Err(e) => {
-                                            tracing::error!("Failed to fetch resource cache data: {}", e);
-                                            return Err(e);
-                                        }
-                                    }
-                                }
-
-                                if let Some(resource_cache) = resources_info.get(&resource_type_key) {
-                                    let resources_count = resource_cache.resources.len();
-                                    prop_obj.insert(
-                                        "description".to_string(),
-                                        serde_json::Value::String(
-                                            format!(
-                                                "This is a resource named {} with the following description: {}.
-                                                The path of the resource should be used to specify the resource.
-                                                {}",
-                                                resource_cache.resource_type.name,
-                                                resource_cache.resource_type.description.as_deref().unwrap_or("No description"),
-                                                if resources_count == 0 {
-                                                    "This resource does not have any available instances, you should create one from your windmill workspace"
-                                                } else if resources_count > 1 {
-                                                    "This resource has multiple available instances, you should precisely select the one you want to use"
-                                                } else {
-                                                    "There is 1 resource available"
-                                                })));
-                                    if resources_count > 0 {
-                                        prop_obj.insert("oneOf".to_string(), serde_json::Value::Array(resource_cache.resources.iter().map(|resource| serde_json::Value::Object(serde_json::Map::from_iter([("const".to_string(), serde_json::Value::String(format!("$res:{}", resource.path.clone()))), ("title".to_string(), serde_json::Value::String(resource.description.as_deref().unwrap_or("No description").to_string()))].into_iter()))).collect()));
-                                    }
-                                    prop_obj.insert("type".to_string(), serde_json::Value::String("string".to_string()));
-                                } else {
-                                    tracing::error!("Resource cache entry unexpectedly missing for key: {}", resource_type_key);
-                                }
+                        match fetch_result {
+                            Ok(cache_data) => {
+                                resources_info.insert(resource_type_key.clone(), cache_data);
+                            }
+                            Err(e) => {
+                                tracing::error!("Failed to fetch resource cache data: {}", e);
+                                return Err(e);
                             }
                         }
+                    }
+
+                    if let Some(resource_cache) = resources_info.get(&resource_type_key) {
+                        let resources_count = resource_cache.resources.len();
+
+                        prop.r#type = Some("string".to_string());
+                        prop.description = Some(format!(
+                            "This is a resource named {} with the following description: {}.\n                        The path of the resource should be used to specify the resource.\n                        {}",
+                            resource_cache.resource_type.name,
+                            resource_cache.resource_type.description.as_deref().unwrap_or("No description"),
+                            if resources_count == 0 {
+                                "This resource does not have any available instances, you should create one from your windmill workspace"
+                            } else if resources_count > 1 {
+                                "This resource has multiple available instances, you should precisely select the one you want to use"
+                            } else {
+                                "There is 1 resource available"
+                            }
+                        ));
+
+                        if resources_count > 0 {
+                            prop.oneOf = Some(
+                                resource_cache
+                                    .resources
+                                    .iter()
+                                    .map(|resource| {
+                                        serde_json::Value::Object(serde_json::Map::from_iter(
+                                            [
+                                                (
+                                                    "const".to_string(),
+                                                    serde_json::Value::String(format!(
+                                                        "$res:{}",
+                                                        resource.path.clone()
+                                                    )),
+                                                ),
+                                                (
+                                                    "title".to_string(),
+                                                    serde_json::Value::String(
+                                                        resource
+                                                            .description
+                                                            .as_deref()
+                                                            .unwrap_or("No description")
+                                                            .to_string(),
+                                                    ),
+                                                ),
+                                            ]
+                                            .into_iter(),
+                                        ))
+                                    })
+                                    .collect(),
+                            );
+                        }
+                    } else {
+                        tracing::error!(
+                            "Resource cache entry unexpectedly missing for key: {}",
+                            resource_type_key
+                        );
                     }
                 }
             }
@@ -347,9 +408,18 @@ impl ServerHandler for Runner {
             })
         };
 
-        let authed = context.req_extensions.get::<ApiAuthed>().ok_or_else(|| Error::internal_error("ApiAuthed not found", None))?;
-        let db = context.req_extensions.get::<DB>().ok_or_else(|| Error::internal_error("DB not found", None))?;
-        let user_db = context.req_extensions.get::<UserDB>().ok_or_else(|| Error::internal_error("UserDB not found", None))?;
+        let authed = context
+            .req_extensions
+            .get::<ApiAuthed>()
+            .ok_or_else(|| Error::internal_error("ApiAuthed not found", None))?;
+        let db = context
+            .req_extensions
+            .get::<DB>()
+            .ok_or_else(|| Error::internal_error("DB not found", None))?;
+        let user_db = context
+            .req_extensions
+            .get::<UserDB>()
+            .ok_or_else(|| Error::internal_error("UserDB not found", None))?;
         let args = parse_args(request.arguments)?;
 
         let (tool_type, path) = Runner::reverse_transform(&request.name).unwrap_or_default();
@@ -429,7 +499,10 @@ impl ServerHandler for Runner {
             .req_extensions
             .get::<ApiAuthed>()
             .ok_or_else(|| Error::internal_error("ApiAuthed not found", None))?;
-        let scope = authed.scopes.as_ref().and_then(|scopes| scopes.iter().find(|scope| scope.starts_with("mcp:")));
+        let scope = authed
+            .scopes
+            .as_ref()
+            .and_then(|scopes| scopes.iter().find(|scope| scope.starts_with("mcp:")));
         let scope_type = scope.map_or("all", |scope| scope.split(":").last().unwrap_or("all"));
         let mut resources_info: HashMap<String, ResourceCache> = HashMap::new();
 
@@ -440,36 +513,68 @@ impl ServerHandler for Runner {
         let mut script_tools: Vec<Tool> = Vec::with_capacity(scripts.len());
         for script in scripts {
             let name = Runner::transform_path(&script.path, "script").unwrap_or_default();
-            let description = format!("This is a script named {} with the following description: {}.", script.summary.unwrap_or_default(), script.description.unwrap_or_default());
-            let mut schema = script.schema.unwrap_or_default();
-            Runner::transform_schema_for_resources(&mut schema, user_db, authed, &workspace_id, &mut resources_info).await?;
+            let description = format!(
+                "This is a script named {} with the following description: {}.",
+                script.summary.unwrap_or_default(),
+                script.description.unwrap_or_default()
+            );
+            let mut schema: Schema = script.schema.map_or_else(Schema::default, |v| {
+                serde_json::from_value(v).unwrap_or_default()
+            });
+            Runner::transform_schema_for_resources(
+                &mut schema,
+                user_db,
+                authed,
+                &workspace_id,
+                &mut resources_info,
+            )
+            .await?;
             script_tools.push(Tool {
                 name: Cow::Owned(name),
                 description: Some(Cow::Owned(description)),
-                input_schema: if let serde_json::Value::Object(map) = schema {
-                    Arc::new(map)
-                } else {
-                    Arc::new(serde_json::Map::new())
+                input_schema: {
+                    let value = serde_json::to_value(schema).unwrap_or_default();
+                    if let serde_json::Value::Object(map) = value {
+                        Arc::new(map)
+                    } else {
+                        Arc::new(serde_json::Map::new())
+                    }
                 },
-                annotations: None
+                annotations: None,
             });
         }
 
         let mut flow_tools: Vec<Tool> = Vec::with_capacity(flows.len());
         for flow in flows {
             let name = Runner::transform_path(&flow.path, "flow").unwrap_or_default();
-            let description = format!("This is a flow named {} with the following description: {}.", flow.summary.unwrap_or_default(), flow.description.unwrap_or_default());
-            let mut schema = flow.schema.unwrap_or_default();
-            Runner::transform_schema_for_resources(&mut schema, user_db, authed, &workspace_id, &mut resources_info).await?;
+            let description = format!(
+                "This is a flow named {} with the following description: {}.",
+                flow.summary.unwrap_or_default(),
+                flow.description.unwrap_or_default()
+            );
+            let mut schema: Schema = flow.schema.map_or_else(Schema::default, |v| {
+                serde_json::from_value(v).unwrap_or_default()
+            });
+            Runner::transform_schema_for_resources(
+                &mut schema,
+                user_db,
+                authed,
+                &workspace_id,
+                &mut resources_info,
+            )
+            .await?;
             flow_tools.push(Tool {
                 name: Cow::Owned(name),
                 description: Some(Cow::Owned(description)),
-                input_schema: if let serde_json::Value::Object(map) = schema {
-                    Arc::new(map)
-                } else {
-                    Arc::new(serde_json::Map::new())
+                input_schema: {
+                    let value = serde_json::to_value(schema).unwrap_or_default();
+                    if let serde_json::Value::Object(map) = value {
+                        Arc::new(map)
+                    } else {
+                        Arc::new(serde_json::Map::new())
+                    }
                 },
-                annotations: None
+                annotations: None,
             });
         }
 
