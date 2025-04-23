@@ -122,6 +122,16 @@
 		is_flow = itemKind === 'flow'
 	})
 
+	$effect(() => {
+		dispatch('update-config', {
+			postgres_resource_path,
+			publication: {
+				transaction_to_track,
+				table_to_track: relations
+			}
+		})
+	})
+
 	export async function openEdit(ePath: string, isFlow: boolean) {
 		let loadingTimeout = setTimeout(() => {
 			showLoading = true

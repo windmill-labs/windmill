@@ -13,12 +13,13 @@
 	import NatsTriggersConfigSection from './nats/NatsTriggersConfigSection.svelte'
 	import MqttEditorConfigSection from './mqtt/MqttEditorConfigSection.svelte'
 	import SqsTriggerEditorConfigSection from './sqs/SqsTriggerEditorConfigSection.svelte'
-	import PostgresEditorConfigSection from './postgres/PostgresEditorConfigSection.svelte'
+
 	import { invalidRelations } from './postgres/utils'
 	import { DEFAULT_V3_CONFIG, DEFAULT_V5_CONFIG } from './mqtt/constant'
 	import WebhooksCapture from './webhook/WebhooksCapture.svelte'
 	import EmailTriggerCaptures from '../details/EmailTriggerCaptures.svelte'
 	import WebsocketCapture from './websocket/WebsocketCapture.svelte'
+	import PostgresCapture from './postgres/PostgresCapture.svelte'
 
 	export let isFlow: boolean
 	export let path: string
@@ -213,14 +214,12 @@
 				on:testWithArgs
 			/>
 		{:else if captureType === 'postgres'}
-			<PostgresEditorConfigSection
-				bind:postgres_resource_path={args.postgres_resource_path}
-				bind:publication={args.publication}
-				{showCapture}
+			<PostgresCapture
 				{captureInfo}
-				can_write={true}
-				headless={true}
 				bind:captureTable
+				postgres_resource_path={args.postgres_resource_path}
+				{hasPreprocessor}
+				{isFlow}
 				on:applyArgs
 				on:updateSchema
 				on:addPreprocessor

@@ -264,6 +264,9 @@
 													$userStore
 												)
 											}}
+											on:update-config={({ detail }) => {
+												config = detail
+											}}
 										/>
 									{:else if $selectedTrigger.isDraft}
 										<h3 class="text-sm font-medium"
@@ -325,6 +328,20 @@
 											on:testWithArgs
 										/>
 									{:else if captureKind === 'websocket'}
+										<CaptureWrapper
+											path={initialPath || fakeInitialPath}
+											{isFlow}
+											captureType={captureKind}
+											{hasPreprocessor}
+											{canHavePreprocessor}
+											args={config}
+											data={{ args }}
+											on:applyArgs
+											on:updateSchema
+											on:addPreprocessor
+											on:testWithArgs
+										/>
+									{:else if captureKind === 'postgres'}
 										<CaptureWrapper
 											path={initialPath || fakeInitialPath}
 											{isFlow}
