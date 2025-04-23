@@ -245,7 +245,7 @@
 					<Button
 						btnClasses="!mt-2"
 						on:click={mcpCreationMode ? createMcpUrl : createToken}
-						disabled={mcpCreationMode && newTokenWorkspace == undefined}
+						disabled={mcpCreationMode && newTokenWorkspace === undefined}
 					>
 						New token
 					</Button>
