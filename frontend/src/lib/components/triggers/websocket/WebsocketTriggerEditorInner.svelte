@@ -80,7 +80,9 @@
 	})
 
 	export async function openEdit(ePath: string, isFlow: boolean) {
-		drawerLoading = true
+		let drawerTimeout = setTimeout(() => {
+			drawerLoading = true
+		}, 100) // Do not show loading spinner for the first 100ms
 		resetEditMode = () => openEdit(ePath, isFlow)
 		try {
 			drawer?.openDrawer()
@@ -93,6 +95,7 @@
 		} catch (err) {
 			sendUserToast(`Could not load websocket trigger: ${err}`, true)
 		} finally {
+			clearTimeout(drawerTimeout)
 			drawerLoading = false
 		}
 	}
@@ -102,7 +105,9 @@
 		fixedScriptPath_?: string,
 		defaultValues?: Record<string, any>
 	) {
-		drawerLoading = true
+		let drawerTimeout = setTimeout(() => {
+			drawerLoading = true
+		}, 100) // Do not show loading spinner for the first 100ms
 		try {
 			drawer?.openDrawer()
 			is_flow = nis_flow
@@ -122,6 +127,7 @@
 			can_return_message = false
 			toggleEditMode(true)
 		} finally {
+			clearTimeout(drawerTimeout)
 			drawerLoading = false
 		}
 	}
