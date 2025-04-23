@@ -203,6 +203,7 @@
 			</Alert>
 		{:else if captureType === 'websocket'}
 			<WebsocketCapture
+				isValid={args.isValid}
 				{captureInfo}
 				bind:captureTable
 				on:applyArgs

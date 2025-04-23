@@ -250,6 +250,14 @@
 	function toggleEditMode(newEditMode: boolean) {
 		dispatch('toggle-edit-mode', newEditMode)
 	}
+
+	$effect(() => {
+		dispatch('update-config', {
+			url,
+			url_runnable_args,
+			isValid
+		})
+	})
 </script>
 
 {#if useDrawer}

@@ -35,6 +35,7 @@
 			hideTooltips={!isDeployed}
 			useEditButton
 			on:toggle-edit-mode
+			on:update-config
 			on:update
 		>
 			{#snippet description()}

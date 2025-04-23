@@ -231,6 +231,9 @@
 													$userStore
 												)
 											}}
+											on:update-config={({ detail }) => {
+												config = detail
+											}}
 										/>
 									{:else if $selectedTrigger.isDraft}
 										<h3 class="text-sm font-medium"
