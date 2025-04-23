@@ -26,11 +26,13 @@
 	</Alert>
 {:else}
 	<div class="flex flex-col gap-4">
-		<Description link="https://www.windmill.dev/docs/core_concepts/websocket_triggers">
-			WebSocket triggers allow real-time bidirectional communication between your scripts/flows and
-			external systems. Each trigger creates a unique WebSocket endpoint.
-		</Description>
-
-		<WebsocketTriggerEditor bind:this={wsTriggerEditor} useDrawer={false} />
+		<WebsocketTriggerEditor bind:this={wsTriggerEditor} useDrawer={false}>
+			{#snippet description()}
+				<Description link="https://www.windmill.dev/docs/core_concepts/websocket_triggers">
+					WebSocket triggers allow real-time bidirectional communication between your scripts/flows
+					and external systems. Each trigger creates a unique WebSocket endpoint.
+				</Description>
+			{/snippet}
+		</WebsocketTriggerEditor>
 	</div>
 {/if}

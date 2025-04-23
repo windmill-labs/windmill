@@ -25,8 +25,14 @@
 	import JsonEditor from '$lib/components/JsonEditor.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import WebsocketEditorConfigSection from './WebsocketEditorConfigSection.svelte'
+	import type { Snippet } from 'svelte'
 
-	let { useDrawer = true } = $props()
+	interface Props {
+		useDrawer?: boolean
+		description?: Snippet | undefined
+	}
+
+	let { useDrawer = true, description = undefined }: Props = $props()
 
 	let drawer: Drawer | undefined = $state()
 	let is_flow: boolean = $state(false)
@@ -224,7 +230,7 @@
 			on:close={drawer.closeDrawer}
 		>
 			<svelte:fragment slot="actions">
-				{@render actionsButtons()}
+				{@render actionsButtons('sm')}
 			</svelte:fragment>
 			{@render config()}
 		</DrawerContent>
@@ -232,17 +238,18 @@
 {:else}
 	<Section label="WebSocket trigger">
 		<svelte:fragment slot="action">
-			{@render actionsButtons()}
+			{@render actionsButtons('xs')}
 		</svelte:fragment>
 		{@render config()}
 	</Section>
 {/if}
 
-{#snippet actionsButtons()}
+{#snippet actionsButtons(size: 'xs' | 'sm' = 'sm')}
 	{#if !drawerLoading}
 		{#if edit}
 			<div class="mr-8 center-center -mt-1">
 				<Toggle
+					{size}
 					disabled={!can_write}
 					checked={enabled}
 					options={{ right: 'enable', left: 'disable' }}
@@ -259,6 +266,7 @@
 		{/if}
 		{#if can_write}
 			<Button
+				{size}
 				startIcon={{ icon: Save }}
 				disabled={pathError != '' ||
 					!isValid ||
@@ -277,13 +285,18 @@
 	{#if drawerLoading}
 		<Loader2 class="animate-spin" />
 	{:else}
-		<Alert title="Info" type="info">
-			{#if edit}
-				Changes can take up to 30 seconds to take effect.
-			{:else}
-				New WebSocket triggers can take up to 30 seconds to start listening.
+		<div class="flex flex-col gap-4">
+			{#if description}
+				{@render description()}
 			{/if}
-		</Alert>
+			<Alert title="Info" type="info" size="xs">
+				{#if edit}
+					Changes can take up to 30 seconds to take effect.
+				{:else}
+					New WebSocket triggers can take up to 30 seconds to start listening.
+				{/if}
+			</Alert>
+		</div>
 		<div class="flex flex-col gap-12 mt-6">
 			<div class="flex flex-col gap-4">
 				<Label label="Path">
