@@ -78,10 +78,10 @@
 <FlowCard {noEditor} title="Triggers">
 	{#if !$simplifiedPoll}
 		<Splitpanes horizontal>
-			<Pane class="px-4">
+			<Pane>
 				<div class="flex flex-row h-full">
 					<!-- Left Pane - Triggers List -->
-					<div class="w-[350px] flex-shrink-0 overflow-auto pr-2">
+					<div class="w-[350px] flex-shrink-0 overflow-auto pr-2 pl-4">
 						<TriggersTable
 							selectedTrigger={$selectedTrigger}
 							on:select={handleSelectTrigger}
@@ -104,7 +104,7 @@
 					</div>
 
 					<!-- TODO: Update triggersWrapper here -->
-					<div class="flex-grow overflow-auto px-2 pb-4" style="scrollbar-gutter: stable">
+					<div class="flex-grow overflow-auto pl-2 pr-4 pb-4" style="scrollbar-gutter: stable">
 						{#if $selectedTrigger}
 							{#key $selectedTrigger}
 								<div in:fade={{ duration: 100, delay: 100 }} out:fade={{ duration: 100 }}>
@@ -240,56 +240,58 @@
 				</div>
 			</Pane>
 			{#if $selectedTrigger && $selectedTrigger.type !== 'schedule'}
-				<Pane class="px-4">
-					{#if $selectedTrigger && $selectedTrigger?.type && captureKind}
-						{#key captureKind}
-							<div in:fade={{ duration: 200 }} out:fade={{ duration: 150 }}>
-								{#if captureKind === 'webhook'}
-									<CaptureWrapper
-										path={initialPath || fakeInitialPath}
-										{isFlow}
-										captureType={captureKind}
-										{hasPreprocessor}
-										{canHavePreprocessor}
-										args={{}}
-										data={{ args, hash }}
-										on:applyArgs
-										on:updateSchema
-										on:addPreprocessor
-										on:testWithArgs
-									/>
-								{:else if captureKind === 'http'}
-									<CaptureWrapper
-										path={initialPath || fakeInitialPath}
-										{isFlow}
-										captureType={captureKind}
-										{hasPreprocessor}
-										{canHavePreprocessor}
-										args={config}
-										data={{ args }}
-										on:applyArgs
-										on:updateSchema
-										on:addPreprocessor
-										on:testWithArgs
-									/>
-								{:else if captureKind === 'email'}
-									<CaptureWrapper
-										path={initialPath || fakeInitialPath}
-										{isFlow}
-										captureType={captureKind}
-										{hasPreprocessor}
-										{canHavePreprocessor}
-										args={{}}
-										data={{ emailDomain: config.emailDomain }}
-										on:applyArgs
-										on:updateSchema
-										on:addPreprocessor
-										on:testWithArgs
-									/>
-								{/if}
-							</div>
-						{/key}
-					{/if}
+				<Pane>
+					<div class="h-full w-full overflow-auto px-4" style="scrollbar-gutter: stable">
+						{#if $selectedTrigger && $selectedTrigger?.type && captureKind}
+							{#key captureKind}
+								<div in:fade={{ duration: 100, delay: 100 }} out:fade={{ duration: 100 }}>
+									{#if captureKind === 'webhook'}
+										<CaptureWrapper
+											path={initialPath || fakeInitialPath}
+											{isFlow}
+											captureType={captureKind}
+											{hasPreprocessor}
+											{canHavePreprocessor}
+											args={{}}
+											data={{ args, hash }}
+											on:applyArgs
+											on:updateSchema
+											on:addPreprocessor
+											on:testWithArgs
+										/>
+									{:else if captureKind === 'http'}
+										<CaptureWrapper
+											path={initialPath || fakeInitialPath}
+											{isFlow}
+											captureType={captureKind}
+											{hasPreprocessor}
+											{canHavePreprocessor}
+											args={config}
+											data={{ args }}
+											on:applyArgs
+											on:updateSchema
+											on:addPreprocessor
+											on:testWithArgs
+										/>
+									{:else if captureKind === 'email'}
+										<CaptureWrapper
+											path={initialPath || fakeInitialPath}
+											{isFlow}
+											captureType={captureKind}
+											{hasPreprocessor}
+											{canHavePreprocessor}
+											args={{}}
+											data={{ emailDomain: config.emailDomain }}
+											on:applyArgs
+											on:updateSchema
+											on:addPreprocessor
+											on:testWithArgs
+										/>
+									{/if}
+								</div>
+							{/key}
+						{/if}
+					</div>
 				</Pane>
 			{/if}
 		</Splitpanes>
