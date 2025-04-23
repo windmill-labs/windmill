@@ -103,6 +103,7 @@
 			delivery_type = s.delivery_type
 			subscription_id = s.subscription_id
 			delivery_config = s.delivery_config
+			subscription_mode = s.subscription_mode
 			is_flow = s.is_flow
 			path = s.path
 			enabled = s.enabled
@@ -116,12 +117,12 @@
 	async function updateTrigger(): Promise<void> {
 		try {
 			is_loading = true
+			const base_endpoint = `${window.location.origin}${base}`
 			if (delivery_type === 'push') {
 				if (!delivery_config) {
 					sendUserToast('Must set route path when delivery type is push', true)
 					return
 				}
-				delivery_config.base_endpoint = `${window.location.origin}${base}`
 			} else {
 				delivery_config = undefined
 			}
@@ -131,13 +132,11 @@
 					path: initialPath,
 					requestBody: {
 						gcp_resource_path,
-						subscription_mode: {
-							subscription_mode,
-							subscription_id,
-							delivery_type,
-							delivery_config,
-							base_endpoint: `${window.location.origin}${base}`
-						},
+						subscription_mode,
+						subscription_id,
+						delivery_type,
+						delivery_config,
+						base_endpoint,
 						topic_id,
 						path,
 						script_path,
@@ -151,13 +150,11 @@
 					workspace: $workspaceStore!,
 					requestBody: {
 						gcp_resource_path,
-						subscription_mode: {
-							subscription_mode,
-							subscription_id,
-							delivery_type,
-							delivery_config: delivery_config,
-							base_endpoint: `${window.location.origin}${base}`
-						},
+						subscription_mode,
+						subscription_id,
+						delivery_type,
+						delivery_config,
+						base_endpoint,
 						topic_id,
 						path,
 						script_path,
@@ -281,7 +278,7 @@
 					bind:delivery_config
 					bind:topic_id
 					bind:subscription_mode
-					bind:path={path}
+					bind:path
 					cloud_subscription_id={subscription_id}
 					create_update_subscription_id={subscription_id}
 					{can_write}

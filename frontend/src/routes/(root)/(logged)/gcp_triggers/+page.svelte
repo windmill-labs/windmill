@@ -11,7 +11,8 @@
 		displayDate,
 		getLocalSetting,
 		sendUserToast,
-		storeLocalSetting
+		storeLocalSetting,
+		removeTriggerKindIfUnused
 	} from '$lib/utils'
 	import { base } from '$app/paths'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
@@ -21,7 +22,7 @@
 	import SharedBadge from '$lib/components/SharedBadge.svelte'
 	import ShareModal from '$lib/components/ShareModal.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
-	import { enterpriseLicense, userStore, workspaceStore } from '$lib/stores'
+	import { enterpriseLicense, usedTriggerKinds, userStore, workspaceStore } from '$lib/stores'
 	import { Code, Eye, Pen, Plus, Share, Trash, Circle, FileUp, ClipboardCopy } from 'lucide-svelte'
 	import { goto } from '$lib/navigation'
 	import SearchItems from '$lib/components/SearchItems.svelte'
@@ -64,6 +65,7 @@
 				return { canWrite: canWrite(x.path, x.extra_perms!, $userStore), ...x }
 			}
 		)
+		$usedTriggerKinds = removeTriggerKindIfUnused(triggers.length, 'gcp', $usedTriggerKinds)
 		loading = false
 	}
 

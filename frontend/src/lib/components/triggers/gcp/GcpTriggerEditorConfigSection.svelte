@@ -50,7 +50,6 @@
 	const DEFAULT_PUSH_CONFIG: PushConfig = {
 		audience: '',
 		authenticate: false,
-		base_endpoint
 	}
 
 	async function loadAllPubSubTopicsFromProject() {
@@ -87,7 +86,7 @@
 
 	function getBaseUrl(captureInfo: CaptureInfo | undefined) {
 		if (captureInfo) {
-			return `${location.origin}${base}/api/w/${$workspaceStore}/capture_u/gcp/${
+			return `${window.location.origin}${base}/api/w/${$workspaceStore}/capture_u/gcp/${
 				captureInfo.isFlow ? 'flow' : 'script'
 			}`
 		} else {
@@ -271,19 +270,6 @@
 												</Button>
 											</div>
 										</Subsection>
-										<Subsection
-											label="Audience"
-											tooltip="Provide the expected audience value for verifying OIDC tokens in push requests. If
-										left empty, the URL of the endpoint will be used as the default audience"
-										>
-											<input
-												type="text"
-												autocomplete="off"
-												placeholder="audience"
-												bind:value={delivery_config.audience}
-												disabled={!can_write}
-											/>
-										</Subsection>
 										<Subsection label="Authenticate">
 											<p class="text-xs mb-2 text-tertiary">
 												Enable Google Cloud authentication for push delivery using a verified token.<Required
@@ -292,6 +278,21 @@
 											</p>
 											<Toggle bind:checked={delivery_config.authenticate} />
 										</Subsection>
+										{#if delivery_config.authenticate}
+											<Subsection
+												label="Audience"
+												tooltip="Provide the expected audience value for verifying OIDC tokens in push requests. If
+										left empty, the URL of the endpoint will be used as the default audience"
+											>
+												<input
+													type="text"
+													autocomplete="off"
+													placeholder="audience"
+													bind:value={delivery_config.audience}
+													disabled={!can_write}
+												/>
+											</Subsection>
+										{/if}
 									</div>
 								{/if}
 							</div>

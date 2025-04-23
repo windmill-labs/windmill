@@ -9,7 +9,7 @@
 
 import { deepEqual } from 'fast-equals'
 import YAML from 'yaml'
-import type { UserExt } from './stores'
+import { type UserExt } from './stores'
 import { sendUserToast } from './toast'
 import type { Job, Script } from './gen'
 import type { EnumType, SchemaProperty } from './common'
@@ -17,6 +17,7 @@ import type { Schema } from './common'
 export { sendUserToast }
 import type { AnyMeltElement } from '@melt-ui/svelte'
 import type { RunsSelectionMode } from './components/runs/RunsBatchActionsDropdown.svelte'
+import type { TriggerKind } from './components/triggers'
 
 export function isJobCancelable(j: Job): boolean {
 	return j.type === 'QueuedJob' && !j.schedule_path && !j.canceled
@@ -139,6 +140,17 @@ export function msToSec(ms: number | undefined, maximumFractionDigits?: number):
 		maximumFractionDigits: maximumFractionDigits ?? 3,
 		minimumFractionDigits: maximumFractionDigits
 	})
+}
+
+export function removeTriggerKindIfUnused(
+	length: number,
+	triggerKind: TriggerKind,
+	usedTriggerKinds: string[]
+) {
+	if (length === 0 && usedTriggerKinds.includes(triggerKind)) {
+		return usedTriggerKinds.filter((kind) => kind != triggerKind)
+	}
+	return usedTriggerKinds
 }
 
 export function msToReadableTime(ms: number | undefined): string {
