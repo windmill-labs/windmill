@@ -226,7 +226,7 @@
 		if (!$usedTriggerKinds.includes('ws')) {
 			$usedTriggerKinds = [...$usedTriggerKinds, 'ws']
 		}
-		dispatch('update')
+		dispatch('update', path)
 		drawer?.closeDrawer()
 		toggleEditMode(false)
 	}

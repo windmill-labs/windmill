@@ -19,6 +19,7 @@
 	import {
 		fetchHttpTriggers as fetchHttpTriggersUtil,
 		fetchSchedules as fetchSchedulesUtil,
+		fetchWebsocketTriggers,
 		deleteDraft,
 		addDraftTrigger
 	} from './utils'
@@ -202,6 +203,15 @@
 									{isDeployed}
 									on:toggle-edit-mode={({ detail }) => {
 										editTrigger = detail ? $selectedTrigger : undefined
+									}}
+									on:update={({ detail }) => {
+										if ($selectedTrigger?.isDraft) {
+											$selectedTrigger.isDraft = false
+										}
+										if ($selectedTrigger) {
+											$selectedTrigger.path = detail
+										}
+										fetchWebsocketTriggers(triggers, $workspaceStore, currentPath, isFlow)
 									}}
 								/>
 							{:else if $selectedTrigger.isDraft}

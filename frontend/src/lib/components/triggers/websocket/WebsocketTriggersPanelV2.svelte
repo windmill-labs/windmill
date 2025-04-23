@@ -34,6 +34,7 @@
 			preventSave={!isDeployed}
 			hideTooltips={!isDeployed}
 			on:toggle-edit-mode
+			on:update
 		>
 			{#snippet description()}
 				<Description link="https://www.windmill.dev/docs/core_concepts/websocket_triggers">

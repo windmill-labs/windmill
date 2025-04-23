@@ -267,10 +267,11 @@ export async function fetchHttpTriggers(
  */
 export async function fetchWebsocketTriggers(
 	triggersStore: Writable<Trigger[]>,
-	workspaceId: string,
+	workspaceId: string | undefined,
 	path: string,
 	isFlow: boolean
 ): Promise<void> {
+	if (!workspaceId) return
 	try {
 		// Remove existing websocket triggers for this path
 		triggersStore.update((triggers) => triggers.filter((t) => !(t.type === 'websocket')))
