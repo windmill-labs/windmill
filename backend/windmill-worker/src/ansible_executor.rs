@@ -8,7 +8,7 @@ use anyhow::anyhow;
 use futures::future::try_join_all;
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
-use serde_json::{json, value::RawValue};
+use serde_json::value::RawValue;
 use tokio::process::Command;
 use uuid::Uuid;
 use windmill_common::{
@@ -44,7 +44,7 @@ lazy_static::lazy_static! {
 }
 
 const NSJAIL_CONFIG_RUN_ANSIBLE_CONTENT: &str = include_str!("../nsjail/run.ansible.config.proto");
-const WINDMILL_ANSIBLE_PASSWORD_FILENAME: &str = ".windmil.ansible_vault_password_file";
+const WINDMILL_ANSIBLE_PASSWORD_FILENAME: &str = ".windmill.ansible_vault_password_file";
 
 async fn clone_repo(
     repo: &GitRepo,

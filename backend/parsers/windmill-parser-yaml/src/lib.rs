@@ -692,7 +692,7 @@ pub fn add_versions_to_requirements_yaml(
     );
     logs.push_str(
         &update_versions("collections", doc, collection_versions)
-            .map_err(|e| anyhow!("Error updating role versions: {e}"))?,
+            .map_err(|e| anyhow!("Error updating collection versions: {e}"))?,
     );
 
     if !logs.is_empty() {
