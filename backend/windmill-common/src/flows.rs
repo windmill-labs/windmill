@@ -21,6 +21,7 @@ use crate::{
     cache,
     error::Error,
     more_serde::{default_empty_string, default_id, default_null, default_true, is_default},
+    utils::empty_string_as_none,
     scripts::{Schema, ScriptHash, ScriptLang},
     worker::{to_raw_value, Connection}, DB,
 };
@@ -135,10 +136,13 @@ pub struct FlowValue {
     pub concurrency_key: Option<String>,
 }
 
-#[derive(Deserialize, Serialize, Debug, Clone)]
+#[derive(Default, Deserialize, Serialize, Debug, Clone)]
 pub struct StopAfterIf {
     pub expr: String,
     pub skip_if_stopped: bool,
+    #[serde(default, deserialize_with = "empty_string_as_none")]
+    pub message: Option<String>,
+    pub raise_error_message: Option<bool>
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone, Default, PartialEq)]

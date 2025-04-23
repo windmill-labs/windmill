@@ -1345,7 +1345,7 @@ mod tests {
                     }),
                     stop_after_if: Some(StopAfterIf {
                         expr: "foo = 'bar'".to_string(),
-                        skip_if_stopped: false,
+                        ..Default::default()
                     }),
                     stop_after_all_iters_if: None,
                     summary: None,
@@ -1374,7 +1374,7 @@ mod tests {
                     }),
                     stop_after_if: Some(StopAfterIf {
                         expr: "previous.isEmpty()".to_string(),
-                        skip_if_stopped: false,
+                        ..Default::default()
                     }),
                     stop_after_all_iters_if: None,
                     summary: None,
@@ -1402,7 +1402,7 @@ mod tests {
                 .into(),
                 stop_after_if: Some(StopAfterIf {
                     expr: "previous.isEmpty()".to_string(),
-                    skip_if_stopped: false,
+                    ..Default::default()
                 }),
                 stop_after_all_iters_if: None,
                 summary: None,

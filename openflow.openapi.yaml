@@ -89,6 +89,20 @@ components:
               minimum: 0
               maximum: 100
 
+    StopAfterIf:
+      type: object
+      properties:
+        skip_if_stopped:
+          type: boolean
+        expr:
+          type: string
+        raise_error_message:
+          type: bool
+        message:
+          type: string
+      required:
+        - expr
+  
     FlowModule:
       type: object
       properties:
@@ -97,23 +111,9 @@ components:
         value:
           $ref: "#/components/schemas/FlowModuleValue"
         stop_after_if:
-          type: object
-          properties:
-            skip_if_stopped:
-              type: boolean
-            expr:
-              type: string
-          required:
-            - expr
+          $ref: "#/components/schemas/StopAfterIf"
         stop_after_all_iters_if:
-          type: object
-          properties:
-            skip_if_stopped:
-              type: boolean
-            expr:
-              type: string
-          required:
-            - expr
+          $ref: "#/components/schemas/StopAfterIf"
         skip_if:
           type: object
           properties:

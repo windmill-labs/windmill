@@ -71,7 +71,9 @@
 					} else {
 						flowModule.stop_after_if = {
 							expr: 'result == undefined',
-							skip_if_stopped: false
+							skip_if_stopped: false,
+							message: '',
+							raise_error_message: false
 						}
 					}
 				}}
@@ -80,12 +82,12 @@
 						? 'Break loop'
 						: parentLoopId
 							? 'Break parent loop module'
-							: 'Stop flow' + ' if condition met'
+							: 'Stop flow if condition met'
 				}}
 			/>
 
 			<div
-				class="w-full mt-1 border p-2 flex flex-col {flowModule.stop_after_if
+				class="w-full mt-2 border p-2 flex flex-col gap-2 {flowModule.stop_after_if
 					? ''
 					: 'bg-surface-secondary'}"
 			>
@@ -98,12 +100,28 @@
 								: undefined
 						: result}
 					{#if !parentLoopId && !isLoop}
-						<Toggle
-							size="xs"
-							bind:checked={flowModule.stop_after_if.skip_if_stopped}
-							options={{
-								right: 'Label flow as "skipped" if stopped'
-							}}
+						<div class="flex flex-col gap-2">
+							<Toggle
+								size="xs"
+								bind:checked={flowModule.stop_after_if.skip_if_stopped}
+								options={{
+									right: 'Label flow as "skipped" if stopped'
+								}}
+							/>
+							<Toggle
+								size="xs"
+								bind:checked={flowModule.stop_after_if.raise_error_message}
+								options={{
+									right: 'Raise an error message if stopped'
+								}}
+							/>
+						</div>
+					{/if}
+					{#if flowModule.stop_after_if.raise_error_message}
+						<input
+							type="text"
+							bind:value={flowModule.stop_after_if.message}
+							placeholder="Enter the error message to raise if the stop condition is met. If left empty, a default message will be used."
 						/>
 					{/if}
 					<span class="mt-2 text-xs font-bold">Stop condition expression</span>
@@ -132,13 +150,20 @@
 					</div>
 				{:else}
 					{#if !parentLoopId && !isLoop}
-						<Toggle
-							disabled
-							size="xs"
-							options={{
-								right: 'Label flow as "skipped" if stopped'
-							}}
-						/>
+						<div class="flex flex-col gap-2">
+							<Toggle
+								size="xs"
+								options={{
+									right: 'Label flow as "skipped" if stopped'
+								}}
+							/>
+							<Toggle
+								size="xs"
+								options={{
+									right: 'Raise an error message if stopped'
+								}}
+							/>
+						</div>
 					{/if}
 					<span class="mt-2 text-xs font-bold">Stop condition expression</span>
 					<textarea disabled rows="3" class="min-h-[80px]"></textarea>
@@ -170,7 +195,9 @@
 					} else {
 						flowModule.stop_after_all_iters_if = {
 							expr: 'result == undefined',
-							skip_if_stopped: false
+							skip_if_stopped: false,
+							raise_error_message: false,
+							message: ''
 						}
 					}
 				}}
@@ -180,18 +207,34 @@
 			/>
 
 			<div
-				class="w-full border mt-1 p-2 flex flex-col {flowModule.stop_after_all_iters_if
+				class="w-full border mt-2 p-2 flex flex-col gap-2 {flowModule.stop_after_all_iters_if
 					? ''
 					: 'bg-surface-secondary'}"
 			>
 				{#if flowModule.stop_after_all_iters_if}
 					{#if !parentLoopId}
-						<Toggle
-							size="xs"
-							bind:checked={flowModule.stop_after_all_iters_if.skip_if_stopped}
-							options={{
-								right: 'Label flow as "skipped" if stopped'
-							}}
+						<div class="flex flex-col gap-2">
+							<Toggle
+								size="xs"
+								bind:checked={flowModule.stop_after_all_iters_if.skip_if_stopped}
+								options={{
+									right: 'Label flow as "skipped" if stopped'
+								}}
+							/>
+							<Toggle
+								size="xs"
+								bind:checked={flowModule.stop_after_all_iters_if.raise_error_message}
+								options={{
+									right: 'Raise an error message if stopped'
+								}}
+							/>
+						</div>
+					{/if}
+					{#if flowModule.stop_after_all_iters_if.raise_error_message}
+						<input
+							type="text"
+							bind:value={flowModule.stop_after_all_iters_if.message}
+							placeholder="Enter the error message to raise if the stop condition is met. If left empty, a default message will be used."
 						/>
 					{/if}
 					<span class="mt-2 text-xs font-bold">Stop condition expression</span>
@@ -218,13 +261,22 @@
 					</div>
 				{:else}
 					{#if !parentLoopId}
-						<Toggle
-							disabled
-							size="xs"
-							options={{
-								right: 'Label flow as "skipped" if stopped'
-							}}
-						/>
+						<div class="flex flex-col gap-2">
+							<Toggle
+								disabled
+								size="xs"
+								options={{
+									right: 'Label flow as "skipped" if stopped'
+								}}
+							/>
+							<Toggle
+								disabled
+								size="xs"
+								options={{
+									right: 'Raise an error message if stopped'
+								}}
+							/>
+						</div>
 					{/if}
 					<span class="mt-2 text-xs font-bold">Stop condition expression</span>
 					<textarea disabled rows="3" class="min-h-[80px]"></textarea>
