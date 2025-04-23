@@ -28,34 +28,34 @@
 	import CheckPostgresRequirement from './CheckPostgresRequirement.svelte'
 	import { base } from '$lib/base'
 
-	let drawer: Drawer
-	let is_flow: boolean = false
-	let initialPath = ''
-	let edit = true
-	let itemKind: 'flow' | 'script' = 'script'
-	let script_path = ''
-	let initialScriptPath = ''
-	let fixedScriptPath = ''
-	let path: string = ''
-	let pathError = ''
-	let enabled = false
-	let dirtyPath = false
-	let can_write = true
-	let drawerLoading = true
-	let postgres_resource_path = ''
-	let publication_name: string = ''
-	let replication_slot_name: string = ''
-	let relations: Relations[] | undefined = []
-	let transaction_to_track: string[] = []
+	let drawer: Drawer | undefined = $state(undefined)
+	let is_flow: boolean = $state(false)
+	let initialPath = $state('')
+	let edit = $state(true)
+	let itemKind: 'flow' | 'script' = $state('script')
+	let script_path = $state('')
+	let initialScriptPath = $state('')
+	let fixedScriptPath = $state('')
+	let path: string = $state('')
+	let pathError = $state('')
+	let enabled = $state(false)
+	let dirtyPath = $state(false)
+	let can_write = $state(true)
+	let drawerLoading = $state(true)
+	let postgres_resource_path = $state('')
+	let publication_name: string = $state('')
+	let replication_slot_name: string = $state('')
+	let relations: Relations[] | undefined = $state([])
+	let transaction_to_track: string[] = $state([])
 	let language: Language = 'Typescript'
-	let loading = false
+	let loading = $state(false)
 	type actions = 'create' | 'get'
-	let selectedPublicationAction: actions
-	let selectedSlotAction: actions
-	let publicationItems: string[] = []
+	let selectedPublicationAction: actions | undefined = $state(undefined)
+	let selectedSlotAction: actions | undefined = $state(undefined)
+	let publicationItems: string[] = $state([])
 	let transactionType: string[] = ['Insert', 'Update', 'Delete']
-	let tab: 'advanced' | 'basic' = 'basic'
-	let isLoading = false
+	let tab: 'advanced' | 'basic' = $state('basic')
+	let isLoading = $state(false)
 	async function createPublication() {
 		try {
 			const message = await PostgresTriggerService.createPostgresPublication({
@@ -91,7 +91,9 @@
 
 	const dispatch = createEventDispatcher()
 
-	$: is_flow = itemKind === 'flow'
+	$effect(() => {
+		is_flow = itemKind === 'flow'
+	})
 
 	export async function openEdit(ePath: string, isFlow: boolean) {
 		drawerLoading = true
@@ -239,7 +241,7 @@
 				$usedTriggerKinds = [...$usedTriggerKinds, 'postgres']
 			}
 			dispatch('update')
-			drawer.closeDrawer()
+			drawer?.closeDrawer()
 		} catch (error) {
 			isLoading = false
 			sendUserToast(error.body || error.message, true)
@@ -396,7 +398,7 @@
 
 						{#if postgres_resource_path}
 							<Label label="Transactions">
-								<svelte:fragment slot="header">
+								{#snippet header()}
 									<Tooltip>
 										<p>
 											Choose the types of database transactions that should trigger a script or
@@ -405,7 +407,7 @@
 											the trigger should activate.
 										</p>
 									</Tooltip>
-								</svelte:fragment>
+								{/snippet}
 								<MultiSelect
 									noMatchingOptionsMsg=""
 									createOptionMsg={null}
@@ -420,6 +422,7 @@
 									--sms-options-margin="4px"
 									--sms-open-z-index="100"
 								>
+									<!-- @migration-task: migrate this slot by hand, `remove-icon` is an invalid identifier -->
 									<svelte:fragment slot="remove-icon">
 										<div class="hover:text-primary p-0.5">
 											<X size={12} />
@@ -428,7 +431,7 @@
 								</MultiSelect>
 							</Label>
 							<Label label="Table Tracking">
-								<svelte:fragment slot="header">
+								{#snippet header()}
 									<Tooltip
 										documentationLink="https://www.windmill.dev/docs/core_concepts/postgres_triggers#define-what-to-track"
 									>
@@ -441,7 +444,7 @@
 											<strong>filter</strong> to retrieve only rows that do not match the specified criteria.
 										</p>
 									</Tooltip>
-								</svelte:fragment>
+								{/snippet}
 								<Tabs bind:selected={tab}>
 									<Tab value="basic"
 										><div class="flex flex-row gap-1"
@@ -494,10 +497,11 @@
 																	replication_slot_name = ''
 																}}
 																disabled={!can_write}
-																let:item
 															>
-																<ToggleButton value="create" label="Create Slot" {item} />
-																<ToggleButton value="get" label="Get Slot" {item} />
+																{#snippet children({ item })}
+																	<ToggleButton value="create" label="Create Slot" {item} />
+																	<ToggleButton value="get" label="Get Slot" {item} />
+																{/snippet}
 															</ToggleButtonGroup>
 															{#if selectedSlotAction === 'create'}
 																<div class="flex gap-3">
@@ -546,10 +550,11 @@
 																	relations = []
 																	transaction_to_track = []
 																}}
-																let:item
 															>
-																<ToggleButton value="create" label="Create Publication" {item} />
-																<ToggleButton value="get" label="Get Publication" {item} />
+																{#snippet children({ item })}
+																	<ToggleButton value="create" label="Create Publication" {item} />
+																	<ToggleButton value="get" label="Get Publication" {item} />
+																{/snippet}
 															</ToggleButtonGroup>
 															{#if selectedPublicationAction === 'create'}
 																<div class="flex gap-3">
