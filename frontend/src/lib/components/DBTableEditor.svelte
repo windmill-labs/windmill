@@ -123,250 +123,241 @@
 			/>
 		</label>
 
-		<label>
-			Columns
-			<div>
-				<DataTable>
-					<Head>
+		<div class="flex flex-col">
+			<!-- svelte-ignore a11y_label_has_associated_control -->
+			<label>Columns</label>
+			<DataTable>
+				<Head>
+					<tr>
+						<Cell head first>Name</Cell>
+						<Cell head>Type</Cell>
+						<Cell head last>Primary</Cell>
+					</tr>
+				</Head>
+				<tbody class="divide-y bg-surface">
+					{#each values.columns as column, i}
 						<tr>
-							<Cell head first>Name</Cell>
-							<Cell head>Type</Cell>
-							<Cell head last>Primary</Cell>
-						</tr>
-					</Head>
-					<tbody class="divide-y bg-surface">
-						{#each values.columns as column, i}
-							<tr>
-								<Cell first>
-									<input
-										type="text"
-										class={'h-10 ' +
-											(errors?.columns?.includes(column.name) ? 'border !border-red-600/60' : '')}
-										style="height: 2rem;"
-										placeholder="column_name"
-										bind:value={column.name}
-									/>
-								</Cell>
-								<Cell>
-									<Select
-										containerStyles="--height: 2rem;"
-										class="!w-48"
-										value={column.datatype}
-										on:change={(e) => {
-											column.datatype = e.detail.value
-											if (datatypeHasLength(column.datatype)) {
-												column.datatype_length = datatypeDefaultLength(column.datatype)
-											} else {
-												column.datatype_length = undefined
-											}
-										}}
-										items={columnTypes}
-										clearable={false}
-									/>
-								</Cell>
-								<Cell last class="flex items-center mt-1.5">
-									<input type="checkbox" class="!w-4 !h-4" bind:checked={column.primaryKey} />
-									<Popover class="ml-8" contentClasses="py-3 px-5 flex flex-col gap-6">
-										{#snippet trigger()}
-											<Settings size={18} />
-										{/snippet}
-										{#snippet content()}
-											{#if datatypeHasLength(column.datatype)}
-												<label class="text-xs">
-													Length
-													<input
-														type="number"
-														placeholder="0"
-														bind:value={column.datatype_length}
-													/>
-												</label>
-											{/if}
+							<Cell first>
+								<input
+									type="text"
+									class={'h-10 ' +
+										(errors?.columns?.includes(column.name) ? 'border !border-red-600/60' : '')}
+									style="height: 2rem;"
+									placeholder="column_name"
+									bind:value={column.name}
+								/>
+							</Cell>
+							<Cell>
+								<Select
+									containerStyles="--height: 2rem;"
+									class="!w-48"
+									value={column.datatype}
+									on:change={(e) => {
+										column.datatype = e.detail.value
+										if (datatypeHasLength(column.datatype)) {
+											column.datatype_length = datatypeDefaultLength(column.datatype)
+										} else {
+											column.datatype_length = undefined
+										}
+									}}
+									items={columnTypes}
+									clearable={false}
+								/>
+							</Cell>
+							<Cell last class="flex items-center mt-1.5">
+								<input type="checkbox" class="!w-4 !h-4" bind:checked={column.primaryKey} />
+								<Popover class="ml-8" contentClasses="py-3 px-5 flex flex-col gap-6">
+									{#snippet trigger()}
+										<Settings size={18} />
+									{/snippet}
+									{#snippet content()}
+										{#if datatypeHasLength(column.datatype)}
 											<label class="text-xs">
-												<span class="flex gap-1 mb-1">
-													Default value
-													<Tooltip>
-														<Info size={14} />
-														{#snippet text()}
-															Surrender your expressions with curly brackets:
-															<code>
-																{'{NOW()}'}
-															</code>.
-															<br />
-															By default, it will be parsed as a literal
-														{/snippet}
-													</Tooltip>
-												</span>
-												<input type="text" placeholder="NULL" bind:value={column.defaultValue} />
+												Length
+												<input type="number" placeholder="0" bind:value={column.datatype_length} />
 											</label>
-											{#if !column.primaryKey}
-												<label class="flex gap-2 items-center text-xs">
-													<input type="checkbox" class="!w-4 !h-4" bind:checked={column.not_null} />
-													Not nullable
-												</label>
-											{/if}
-										{/snippet}
-									</Popover>
-									<Button
-										color="light"
-										startIcon={{ icon: X }}
-										wrapperClasses="w-fit ml-2"
-										btnClasses="p-0"
-										on:click={() => values.columns.splice(i, 1)}
-									/>
-								</Cell>
-							</tr>
-						{/each}
-						<tr class="w-full">
-							<td colspan={99} class="p-1">
+										{/if}
+										<label class="text-xs">
+											<span class="flex gap-1 mb-1">
+												Default value
+												<Tooltip>
+													<Info size={14} />
+													{#snippet text()}
+														Surrender your expressions with curly brackets:
+														<code>
+															{'{NOW()}'}
+														</code>.
+														<br />
+														By default, it will be parsed as a literal
+													{/snippet}
+												</Tooltip>
+											</span>
+											<input type="text" placeholder="NULL" bind:value={column.defaultValue} />
+										</label>
+										{#if !column.primaryKey}
+											<label class="flex gap-2 items-center text-xs">
+												<input type="checkbox" class="!w-4 !h-4" bind:checked={column.not_null} />
+												Not nullable
+											</label>
+										{/if}
+									{/snippet}
+								</Popover>
 								<Button
-									wrapperClasses="mx-auto"
-									startIcon={{ icon: Plus }}
 									color="light"
-									on:click={() => addColumn({ name: '' })}
-								>
-									Add
-								</Button>
-							</td>
+									startIcon={{ icon: X }}
+									wrapperClasses="w-fit ml-2"
+									btnClasses="p-0"
+									on:click={() => values.columns.splice(i, 1)}
+								/>
+							</Cell>
 						</tr>
-					</tbody>
-				</DataTable>
-			</div>
-		</label>
-		<label>
-			Foreign Keys
-			<div>
-				<DataTable>
-					<Head>
+					{/each}
+					<tr class="w-full">
+						<td colspan={99} class="p-1">
+							<Button
+								wrapperClasses="mx-auto"
+								startIcon={{ icon: Plus }}
+								color="light"
+								on:click={() => addColumn({ name: '' })}
+							>
+								Add
+							</Button>
+						</td>
+					</tr>
+				</tbody>
+			</DataTable>
+		</div>
+		<div class="flex flex-col">
+			<!-- svelte-ignore a11y_label_has_associated_control -->
+			<label>Foreign Keys</label>
+			<DataTable>
+				<Head>
+					<tr>
+						<Cell head first>Table</Cell>
+						<Cell head last>Columns</Cell>
+					</tr>
+				</Head>
+				<tbody class="divide-y bg-surface">
+					{#each values.foreignKeys as foreignKey, foreignKeyIndex}
+						{@const fkErrors = errors?.foreignKeys?.[foreignKeyIndex]}
 						<tr>
-							<Cell head first>Table</Cell>
-							<Cell head last>Columns</Cell>
-						</tr>
-					</Head>
-					<tbody class="divide-y bg-surface">
-						{#each values.foreignKeys as foreignKey, foreignKeyIndex}
-							{@const fkErrors = errors?.foreignKeys?.[foreignKeyIndex]}
-							<tr>
-								<Cell first class="flex">
-									<Select
-										containerStyles="--height: 2rem;"
-										class={twMerge(
-											'!w-48',
-											fkErrors?.emptyTarget ? 'border !border-red-600/60' : ''
-										)}
-										placeholder=""
-										value={foreignKey.targetTable}
-										on:change={(e) => (foreignKey.targetTable = e.detail.value)}
-										items={getFlatTableNamesFromSchema(dbSchema).map((o) => ({
-											value: o,
-											label:
-												(currentSchema && o.startsWith(currentSchema)) ||
-												!dbSupportsSchemas(resourceType)
-													? o.split('.')[1]
-													: o
-										}))}
-										clearable={false}
-									/>
-								</Cell>
-								<Cell>
-									<div class="flex flex-col gap-2">
-										{#each foreignKey.columns as column, columnIndex}
-											<div class="flex">
-												<div class="flex items-center gap-1 w-60">
-													<Select
-														containerStyles="--height: 2rem;"
-														class={fkErrors?.nonExistingSourceColumns.includes(column.sourceColumn)
-															? 'border !border-red-600/60'
-															: ''}
-														placeholder=""
-														value={column.sourceColumn}
-														on:change={(e) => (column.sourceColumn = e.detail.value)}
-														items={values.columns.map((c) => c.name)}
-														clearable={false}
-													/>
-													<ArrowRight size={16} class="h-fit shrink-0" />
-													<Select
-														containerStyles="--height: 2rem;"
-														class={fkErrors?.nonExistingTargetColumns.includes(column.targetColumn)
-															? 'border !border-red-600/60'
-															: ''}
-														placeholder=""
-														value={column.targetColumn}
-														on:change={(e) => (column.targetColumn = e.detail.value)}
-														items={Object.keys(
-															dbSchema?.schema?.[foreignKey.targetTable?.split('.')?.[0] ?? '']?.[
-																foreignKey.targetTable?.split('.')[1]
-															] ?? {}
-														)}
-														clearable={false}
-													/>
-												</div>
-												<div class="ml-auto flex">
-													{#if columnIndex === 0}
-														<Popover contentClasses="py-3 px-5 w-52 flex flex-col gap-6">
-															{#snippet trigger()}
-																<Settings size={18} />
-															{/snippet}
-															{#snippet content()}
-																<span>
-																	ON DELETE <select bind:value={foreignKey.onDelete}>
-																		<option value="NO ACTION" selected>NO ACTION</option>
-																		<option value="CASCADE" selected>CASCADE</option>
-																		<option value="SET NULL" selected>SET NULL</option>
-																	</select>
-																</span>
-																<span>
-																	ON UPDATE <select bind:value={foreignKey.onUpdate}>
-																		<option value="NO ACTION" selected>NO ACTION</option>
-																		<option value="CASCADE" selected>CASCADE</option>
-																		<option value="SET NULL" selected>SET NULL</option>
-																	</select>
-																</span>
-															{/snippet}
-														</Popover>
-													{/if}
-													<Button
-														color="light"
-														startIcon={{ icon: X }}
-														wrapperClasses="w-fit ml-2"
-														btnClasses="p-0"
-														on:click={foreignKey.columns.length > 1
-															? () => foreignKey.columns.splice(columnIndex, 1)
-															: () => values.foreignKeys.splice(foreignKeyIndex, 1)}
-													/>
-												</div>
+							<Cell first class="flex">
+								<Select
+									containerStyles="--height: 2rem;"
+									class={twMerge('!w-48', fkErrors?.emptyTarget ? 'border !border-red-600/60' : '')}
+									placeholder=""
+									value={foreignKey.targetTable}
+									on:change={(e) => (foreignKey.targetTable = e.detail.value)}
+									items={getFlatTableNamesFromSchema(dbSchema).map((o) => ({
+										value: o,
+										label:
+											(currentSchema && o.startsWith(currentSchema)) ||
+											!dbSupportsSchemas(resourceType)
+												? o.split('.')[1]
+												: o
+									}))}
+									clearable={false}
+								/>
+							</Cell>
+							<Cell>
+								<div class="flex flex-col gap-2">
+									{#each foreignKey.columns as column, columnIndex}
+										<div class="flex">
+											<div class="flex items-center gap-1 w-60">
+												<Select
+													containerStyles="--height: 2rem;"
+													class={fkErrors?.nonExistingSourceColumns.includes(column.sourceColumn)
+														? 'border !border-red-600/60'
+														: ''}
+													placeholder=""
+													value={column.sourceColumn}
+													on:change={(e) => (column.sourceColumn = e.detail.value)}
+													items={values.columns.map((c) => c.name)}
+													clearable={false}
+												/>
+												<ArrowRight size={16} class="h-fit shrink-0" />
+												<Select
+													containerStyles="--height: 2rem;"
+													class={fkErrors?.nonExistingTargetColumns.includes(column.targetColumn)
+														? 'border !border-red-600/60'
+														: ''}
+													placeholder=""
+													value={column.targetColumn}
+													on:change={(e) => (column.targetColumn = e.detail.value)}
+													items={Object.keys(
+														dbSchema?.schema?.[foreignKey.targetTable?.split('.')?.[0] ?? '']?.[
+															foreignKey.targetTable?.split('.')[1]
+														] ?? {}
+													)}
+													clearable={false}
+												/>
 											</div>
-										{/each}
-										<button
-											class="w-60 border-dashed border-2 rounded-md flex justify-center items-center py-1 gap-2 text-gray-500 font-normal"
-											onclick={() => foreignKey.columns.push({})}
-										>
-											<Plus class="h-fit" size={12} /> Add
-										</button>
-									</div></Cell
-								>
-							</tr>
-						{/each}
-						<tr class="w-full">
-							<td colspan={99} class="p-1">
-								<Button
-									wrapperClasses="mx-auto"
-									startIcon={{ icon: Plus }}
-									color="light"
-									on:click={() =>
-										values.foreignKeys.push({
-											columns: [{}],
-											onDelete: 'NO ACTION',
-											onUpdate: 'NO ACTION'
-										})}
-								>
-									Add
-								</Button>
-							</td>
+											<div class="ml-auto flex">
+												{#if columnIndex === 0}
+													<Popover contentClasses="py-3 px-5 w-52 flex flex-col gap-6">
+														{#snippet trigger()}
+															<Settings size={18} />
+														{/snippet}
+														{#snippet content()}
+															<span>
+																ON DELETE <select bind:value={foreignKey.onDelete}>
+																	<option value="NO ACTION" selected>NO ACTION</option>
+																	<option value="CASCADE" selected>CASCADE</option>
+																	<option value="SET NULL" selected>SET NULL</option>
+																</select>
+															</span>
+															<span>
+																ON UPDATE <select bind:value={foreignKey.onUpdate}>
+																	<option value="NO ACTION" selected>NO ACTION</option>
+																	<option value="CASCADE" selected>CASCADE</option>
+																	<option value="SET NULL" selected>SET NULL</option>
+																</select>
+															</span>
+														{/snippet}
+													</Popover>
+												{/if}
+												<Button
+													color="light"
+													startIcon={{ icon: X }}
+													wrapperClasses="w-fit ml-2"
+													btnClasses="p-0"
+													on:click={foreignKey.columns.length > 1
+														? () => foreignKey.columns.splice(columnIndex, 1)
+														: () => values.foreignKeys.splice(foreignKeyIndex, 1)}
+												/>
+											</div>
+										</div>
+									{/each}
+									<button
+										class="w-60 border-dashed border-2 rounded-md flex justify-center items-center py-1 gap-2 text-gray-500 font-normal"
+										onclick={() => foreignKey.columns.push({})}
+									>
+										<Plus class="h-fit" size={12} /> Add
+									</button>
+								</div></Cell
+							>
 						</tr>
-					</tbody>
-				</DataTable>
-			</div>
-		</label>
+					{/each}
+					<tr class="w-full">
+						<td colspan={99} class="p-1">
+							<Button
+								wrapperClasses="mx-auto"
+								startIcon={{ icon: Plus }}
+								color="light"
+								on:click={() =>
+									values.foreignKeys.push({
+										columns: [{}],
+										onDelete: 'NO ACTION',
+										onUpdate: 'NO ACTION'
+									})}
+							>
+								Add
+							</Button>
+						</td>
+					</tr>
+				</tbody>
+			</DataTable>
+		</div>
 	</div>
 	<Button
 		disabled={!!errors}
