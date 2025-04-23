@@ -71,6 +71,7 @@
 	let dirtyPath = $state(false)
 	let can_write = $state(true)
 	let drawerLoading = $state(true)
+	let showLoading = $state(false)
 	let resetEditMode = $state<(() => void) | undefined>(undefined)
 
 	const dispatch = createEventDispatcher()
@@ -80,9 +81,10 @@
 	})
 
 	export async function openEdit(ePath: string, isFlow: boolean) {
-		let drawerTimeout = setTimeout(() => {
-			drawerLoading = true
+		let loadingTimeout = setTimeout(() => {
+			showLoading = true
 		}, 100) // Do not show loading spinner for the first 100ms
+		drawerLoading = true
 		resetEditMode = () => openEdit(ePath, isFlow)
 		try {
 			drawer?.openDrawer()
@@ -95,8 +97,9 @@
 		} catch (err) {
 			sendUserToast(`Could not load websocket trigger: ${err}`, true)
 		} finally {
-			clearTimeout(drawerTimeout)
+			clearTimeout(loadingTimeout)
 			drawerLoading = false
+			showLoading = false
 		}
 	}
 
@@ -105,9 +108,10 @@
 		fixedScriptPath_?: string,
 		defaultValues?: Record<string, any>
 	) {
-		let drawerTimeout = setTimeout(() => {
-			drawerLoading = true
+		let loadingTimeout = setTimeout(() => {
+			showLoading = true
 		}, 100) // Do not show loading spinner for the first 100ms
+		drawerLoading = true
 		try {
 			drawer?.openDrawer()
 			is_flow = nis_flow
@@ -127,8 +131,9 @@
 			can_return_message = false
 			toggleEditMode(true)
 		} finally {
-			clearTimeout(drawerTimeout)
+			clearTimeout(loadingTimeout)
 			drawerLoading = false
+			showLoading = false
 		}
 	}
 
@@ -337,7 +342,9 @@
 
 {#snippet config()}
 	{#if drawerLoading}
-		<Loader2 class="animate-spin" />
+		{#if showLoading}
+			<Loader2 class="animate-spin" />
+		{/if}
 	{:else}
 		<div class="flex flex-col gap-4">
 			{#if description}

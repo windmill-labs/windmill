@@ -69,6 +69,7 @@
 	let raw_string = $state(false)
 	let wrap_body = $state(false)
 	let drawerLoading = $state(false)
+	let showLoader = $state(false)
 	let authentication_resource_path = $state('')
 	let variable_path = $state('')
 	let signature_options_type = $state<'custom_script' | 'custom_signature'>('custom_signature')
@@ -141,8 +142,9 @@
 
 	export async function openEdit(ePath: string, isFlow: boolean) {
 		resetEditMode = () => openEdit(ePath, isFlow)
+		drawerLoading = true
 		let loader = setTimeout(() => {
-			drawerLoading = true
+			showLoader = true
 		}, 100) // if loading takes less than 100ms, we don't show the loader
 		try {
 			drawer?.openDrawer()
@@ -158,6 +160,7 @@
 		} finally {
 			clearTimeout(loader)
 			drawerLoading = false
+			showLoader = false
 		}
 	}
 
@@ -167,8 +170,9 @@
 		defaultValues?: Record<string, any>
 	) {
 		resetEditMode = null
+		drawerLoading = true
 		let loader = setTimeout(() => {
-			drawerLoading = true
+			showLoader = true
 		}, 100) // if loading takes less than 100ms, we don't show the loader
 		try {
 			drawer?.openDrawer()
@@ -200,6 +204,7 @@
 		} finally {
 			clearTimeout(loader)
 			drawerLoading = false
+			showLoader = false
 		}
 	}
 
@@ -348,7 +353,9 @@
 
 {#snippet config()}
 	{#if drawerLoading}
-		<Loader2 class="animate-spin" />
+		{#if showLoader}
+			<Loader2 class="animate-spin" />
+		{/if}
 	{:else}
 		<div class="flex flex-col gap-12">
 			<Section label="Metadata">
