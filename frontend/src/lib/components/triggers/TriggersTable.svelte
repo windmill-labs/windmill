@@ -116,7 +116,7 @@
 								{/if}
 							</div>
 
-							{#if ['schedule', 'http'].includes(trigger.type)}
+							{#if ['schedule', 'http', 'websocket'].includes(trigger.type)}
 								{#if trigger.isDraft}
 									<Button
 										size="xs"

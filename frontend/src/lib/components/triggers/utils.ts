@@ -139,7 +139,7 @@ export async function fetchTriggers(
 	await Promise.all([
 		fetchSchedules(triggersStore, workspaceId, path, isFlow, primarySchedule),
 		fetchHttpTriggers(triggersStore, workspaceId, path, isFlow, user),
-		fetchWebsocketTriggers(triggersStore, workspaceId, path, isFlow),
+		fetchWebsocketTriggers(triggersStore, workspaceId, path, isFlow, user),
 		fetchPostgresTriggers(triggersStore, workspaceId, path, isFlow),
 		fetchKafkaTriggers(triggersStore, workspaceId, path, isFlow),
 		fetchNatsTriggers(triggersStore, workspaceId, path, isFlow),
@@ -269,7 +269,8 @@ export async function fetchWebsocketTriggers(
 	triggersStore: Writable<Trigger[]>,
 	workspaceId: string | undefined,
 	path: string,
-	isFlow: boolean
+	isFlow: boolean,
+	user: UserExt | undefined = undefined
 ): Promise<void> {
 	if (!workspaceId) return
 	try {
@@ -289,7 +290,8 @@ export async function fetchWebsocketTriggers(
 					type: 'websocket',
 					path: trigger.path,
 					isPrimary: false,
-					isDraft: false
+					isDraft: false,
+					canWrite: canWrite(trigger.path, trigger.extra_perms, user)
 				}
 			])
 		}

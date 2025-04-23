@@ -98,7 +98,9 @@
 							}}
 							on:edit={({ detail }) => {
 								editTrigger = detail
-								$selectedTrigger = detail
+								if (JSON.stringify(detail) !== JSON.stringify($selectedTrigger)) {
+									$selectedTrigger = detail
+								}
 							}}
 						/>
 					</div>
@@ -124,7 +126,13 @@
 												if ($selectedTrigger) {
 													$selectedTrigger.path = detail
 												}
-												fetchHttpTriggersUtil(triggers, $workspaceStore, currentPath, isFlow)
+												fetchHttpTriggersUtil(
+													triggers,
+													$workspaceStore,
+													currentPath,
+													isFlow,
+													$userStore
+												)
 											}}
 											on:toggle-edit-mode={({ detail }) => {
 												editTrigger = detail ? $selectedTrigger : undefined
@@ -215,7 +223,13 @@
 												if ($selectedTrigger) {
 													$selectedTrigger.path = detail
 												}
-												fetchWebsocketTriggers(triggers, $workspaceStore, currentPath, isFlow)
+												fetchWebsocketTriggers(
+													triggers,
+													$workspaceStore,
+													currentPath,
+													isFlow,
+													$userStore
+												)
 											}}
 										/>
 									{:else if $selectedTrigger.isDraft}
