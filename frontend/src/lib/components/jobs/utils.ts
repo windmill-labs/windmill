@@ -1,9 +1,11 @@
 import { JobService, type RunScriptPreviewData } from '$lib/gen'
 
-export async function runPreviewJobAndPollResult(data: RunScriptPreviewData): Promise<unknown> {
+export async function runPreviewJobAndPollResult(
+	data: RunScriptPreviewData,
+	{ maxRetries = 7 }: { maxRetries?: number } = {}
+): Promise<unknown> {
 	const uuid = await JobService.runScriptPreview(data)
 
-	const maxRetries = 7
 	let attempts = 0
 	while (attempts < maxRetries) {
 		try {

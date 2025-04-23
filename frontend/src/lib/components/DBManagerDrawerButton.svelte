@@ -10,7 +10,8 @@
 		getDbSchemas,
 		loadTableMetaData,
 		scripts,
-		type DbType
+		type DbType,
+		type TableMetadata
 	} from './apps/components/display/dbtable/utils'
 	import DbManager from './DBManager.svelte'
 	import { Alert } from './common'
@@ -108,6 +109,24 @@
 	openRepl()
 
 	let replResultData: undefined | Record<string, any>[] = $state(undefined)
+
+	let cachedColDefs: Record<string, TableMetadata> = {}
+	let cachedLastRefreshCount = 0
+	async function getColDefs(tableKey: string) {
+		if (cachedLastRefreshCount !== refreshCount) cachedColDefs = {}
+		cachedLastRefreshCount = refreshCount
+		if (cachedColDefs[tableKey]) {
+			return cachedColDefs[tableKey]
+		}
+		const result = await loadTableMetaData(
+			'$res:' + resourcePath,
+			$workspaceStore,
+			tableKey,
+			resourceType
+		)
+		if (result) cachedColDefs[tableKey] = result
+		return result ?? []
+	}
 </script>
 
 <svelte:window
@@ -184,13 +203,7 @@
 						<DbManager
 							dbSupportsSchemas={dbSupportsSchemas(resourceType)}
 							{dbSchema}
-							getColDefs={async (tableKey) =>
-								(await loadTableMetaData(
-									'$res:' + resourcePath,
-									$workspaceStore,
-									tableKey,
-									resourceType
-								)) ?? []}
+							{getColDefs}
 							dbTableOpsFactory={({ colDefs, tableKey }) =>
 								dbTableOpsWithPreviewScripts({
 									colDefs,

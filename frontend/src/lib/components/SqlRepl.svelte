@@ -59,7 +59,6 @@
 	let code = $state(DEFAULT_SQL)
 	$effect(() => {
 		const _code = untrack(() => code)
-		console.log('placeholderTableName', placeholderTableName)
 		if (placeholderTableName && _code === DEFAULT_SQL) {
 			code = _code.replace('_', placeholderTableName ?? 'table')
 		}
