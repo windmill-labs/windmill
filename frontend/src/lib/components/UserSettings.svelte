@@ -16,7 +16,6 @@
 	import DarkModeToggle from './sidebar/DarkModeToggle.svelte'
 	import Toggle from './Toggle.svelte'
 	import type { Writable } from 'svelte/store'
-	import McpTokensTable from './McpTokensTable.svelte'
 	import TokensTable from './TokensTable.svelte'
 	import { createEventDispatcher } from 'svelte'
 
@@ -30,7 +29,6 @@
 	let tokens: TruncatedToken[]
 	let login_type = 'none'
 	let drawer: Drawer
-	let mcpTokens: TruncatedToken[] = []
 	let tokenPage = 1
 
 	const dispatch = createEventDispatcher()
@@ -68,17 +66,11 @@
 	}
 
 	async function listTokens(): Promise<void> {
-		const allTokens = await UserService.listTokens({
+		tokens = await UserService.listTokens({
 			excludeEphemeral: true,
 			page: tokenPage,
 			perPage: 100
 		})
-		tokens = allTokens.filter(
-			(token) => !token.scopes || token.scopes.find((scope) => !scope.startsWith('mcp:'))
-		)
-		mcpTokens = allTokens.filter(
-			(token) => token.scopes && token.scopes.find((scope) => scope.startsWith('mcp:'))
-		)
 	}
 
 	async function deleteToken(tokenPrefix: string) {
@@ -224,8 +216,6 @@
 						</div>
 					</div>
 				{/if}
-
-				<McpTokensTable tokens={mcpTokens} onDeleteToken={deleteToken} onListTokens={listTokens} />
 
 				<TokensTable
 					{tokens}
