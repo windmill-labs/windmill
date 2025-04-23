@@ -1823,6 +1823,8 @@ async fn ansible_dep(
     token: &str,
     base_internal_url: &str,
 ) -> std::result::Result<String, Error> {
+    use windmill_parser_yaml::add_versions_to_requirements_yaml;
+
     use crate::{
         ansible_executor::{
             create_ansible_cfg, get_collection_locks, get_git_ssh_cmd, get_role_locks,
@@ -1876,7 +1878,7 @@ async fn ansible_dep(
 
     create_ansible_cfg(Some(&reqs), job_dir, false)?;
 
-    if let Some(collections) = reqs.collections.as_ref() {
+    if let Some(collections) = reqs.roles_and_collections.as_ref() {
         install_galaxy_collections(
             collections,
             job_dir,
@@ -1891,24 +1893,28 @@ async fn ansible_dep(
         )
         .await?;
 
-        let (collection_versions, logs) = get_collection_locks(job_dir).await?;
-        append_logs(job_id, w_id, logs, conn).await;
+        let (collection_versions, logs1) = get_collection_locks(job_dir).await?;
 
-        let (role_versions, logs) = get_role_locks(job_dir).await?;
-        append_logs(job_id, w_id, logs, conn).await;
+        let (role_versions, logs2) = get_role_locks(job_dir).await?;
+
+        let (reqs_yaml, logs3) = add_versions_to_requirements_yaml(&collections, &role_versions, &collection_versions)?;
+
+        let logs = format!("\n{logs1}\n{logs2}\n{logs3}\n");
+
+        append_logs(job_id, w_id, &logs, conn).await;
 
         ansible_lockfile = AnsibleDependencyLocks {
             python_lockfile,
             git_repos,
-            collection_versions,
-            role_versions,
+            collections_and_roles: reqs_yaml,
+            collections_and_roles_logs: logs,
         };
     } else {
         ansible_lockfile = AnsibleDependencyLocks {
             python_lockfile,
             git_repos,
-            collection_versions: HashMap::new(),
-            role_versions: HashMap::new(),
+            collections_and_roles: String::new(),
+            collections_and_roles_logs: String::new(),
         };
     }
 

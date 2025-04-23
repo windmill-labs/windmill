@@ -511,8 +511,10 @@ pub async fn install_galaxy_collections(
 pub struct AnsibleDependencyLocks {
     pub python_lockfile: String,
     pub git_repos: HashMap<String, String>, // URL to full commit hash
-    pub collection_versions: HashMap<String, String>, //
-    pub role_versions: HashMap<String, String>,
+    pub collections_and_roles: String,
+    pub collections_and_roles_logs: String,
+    // pub collection_versions: HashMap<String, String>, //
+    // pub role_versions: HashMap<String, String>,
 }
 
 pub async fn get_collection_locks(
@@ -574,7 +576,6 @@ pub async fn get_role_locks(job_dir: &str) -> anyhow::Result<(HashMap<String, St
 
     if !output.status.success() {
         let stderr = String::from_utf8(output.stderr)?;
-        // return Err(anyhow!("Error getting ansible role versions: {stderr}"));
         logs.push_str(&format!("Error getting ansible role versions: {stderr}"));
         return Ok((ret, logs));
     }
@@ -931,9 +932,20 @@ pub async fn handle_ansible_job(
             .await;
         }
 
-        if let Some(collections) = r.collections.as_ref() {
+        if let Some(collections) = r.roles_and_collections.as_ref() {
+            let empty = String::new();
+            let (lockfile, logs) =
+                req_lockfiles
+                .as_ref()
+                .map(|r| (&r.collections_and_roles, &r.collections_and_roles_logs))
+                .unwrap_or((collections, &empty));
+
+            if !logs.is_empty() {
+                append_logs(&job.id, &job.workspace_id, logs, conn).await;
+            }
+
             install_galaxy_collections(
-                collections,
+                lockfile,
                 job_dir,
                 &job.id,
                 worker_name,

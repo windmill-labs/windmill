@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use anyhow::anyhow;
 use serde_json::json;
 use windmill_parser::{Arg, MainArgSignature, ObjectProperty, Typ};
@@ -220,7 +222,7 @@ pub struct GitRepo {
 #[derive(Debug, Clone)]
 pub struct AnsibleRequirements {
     pub python_reqs: Vec<String>,
-    pub collections: Option<String>,
+    pub roles_and_collections: Option<String>,
     pub file_resources: Vec<FileResource>,
     pub inventories: Vec<AnsibleInventory>,
     pub vars: Vec<(String, String)>,
@@ -236,7 +238,7 @@ impl Default for AnsibleRequirements {
     fn default() -> Self {
         Self {
             python_reqs: vec![],
-            collections: None,
+            roles_and_collections: None,
             file_resources: vec![],
             inventories: vec![],
             vars: vec![],
@@ -325,7 +327,7 @@ pub fn parse_ansible_reqs(
                             let mut out_str = String::new();
                             let mut emitter = YamlEmitter::new(&mut out_str);
                             emitter.dump(galaxy_requirements)?;
-                            ret.collections = Some(out_str);
+                            ret.roles_and_collections = Some(out_str);
                         }
                         if let Some(Yaml::Array(py_reqs)) =
                             deps.get(&Yaml::String("python".to_string()))
@@ -631,4 +633,79 @@ fn yaml_to_json(yaml: &Yaml) -> serde_json::Value {
         Yaml::Null => serde_json::Value::Null,
         _ => serde_json::Value::Null,
     }
+}
+
+fn update_versions(
+    section: &str,
+    yaml: &mut Yaml,
+    versions: &HashMap<String, String>,
+) -> anyhow::Result<String> {
+    let mut logs = String::new();
+
+    let Yaml::Hash(ref mut m) = yaml else {
+        return Err(anyhow!("{section} dependency should be a map"));
+    };
+
+    if let Some(Yaml::Array(elements)) = m.get_mut(&Yaml::String(section.to_string())) {
+        for el in elements {
+            let Yaml::Hash(ref mut h) = el else {
+                return Err(anyhow!("{section} dependency element should be a map"));
+            };
+
+            if let Some(name) = h
+                .get(&Yaml::String("name".to_string()))
+                .and_then(|n| n.as_str())
+            {
+                if let Some(version) = versions.get(name) {
+                    h.insert(
+                        Yaml::String("version".to_string()),
+                        Yaml::String(version.to_string()),
+                    );
+                } else {
+                    logs.push_str(&format!("WARNING: {section} dependency `{name}` has no locked version, using the latest or system installed version.\n"));
+                }
+            } else {
+                return Err(anyhow!(
+                    "{section} dependency element: missing or invalid `name` field"
+                ));
+            }
+        }
+    }
+
+    Ok(logs)
+}
+
+pub fn add_versions_to_requirements_yaml(
+    input: &str,
+    role_versions: &HashMap<String, String>,
+    collection_versions: &HashMap<String, String>,
+) -> anyhow::Result<(String,String)> {
+    let mut docs =
+        YamlLoader::load_from_str(input).map_err(|e| anyhow!("YAML parse error: {}", e))?;
+    let doc = &mut docs[0];
+
+    let mut logs = String::new();
+
+    logs.push_str(
+        &update_versions("roles", doc, role_versions)
+            .map_err(|e| anyhow!("Error updating role versions: {e}"))?,
+    );
+    logs.push_str(
+        &update_versions("collections", doc, collection_versions)
+            .map_err(|e| anyhow!("Error updating role versions: {e}"))?,
+    );
+
+    if !logs.is_empty() {
+        logs.push_str("WARNING: You might want to try adding manual versions for these, otherwise there could be breaking changes on deployed scripts\n");
+    }
+
+    let mut out_str = String::new();
+    {
+        let mut emitter = YamlEmitter::new(&mut out_str);
+        emitter
+            .dump(doc)
+            .map_err(|e| anyhow!("YAML emit error: {}", e))?;
+    }
+
+    Ok((out_str, logs))
 }
