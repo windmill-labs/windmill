@@ -133,7 +133,9 @@
 										class="w-fit h-fit px-3"
 									>
 										<svelte:fragment slot="buttonReplacement">
-											<EllipsisVertical size={14} />
+											<div class="-m-2 w-4 h-6 flex items-center justify-end">
+												<EllipsisVertical size={14} />
+											</div>
 										</svelte:fragment>
 									</DropdownV2>
 								{/if}
