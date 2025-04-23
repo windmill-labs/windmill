@@ -895,24 +895,37 @@ async fn create_script_internal<'c>(
         .await?;
         Ok((hash, new_tx))
     } else {
-        if let Err(e) = process_relative_imports(
-            &db,
-            None,
-            None,
-            &w_id,
-            &ns.path,
-            p_path_opt.clone(),
-            ns.deployment_message.clone(),
-            &ns.content,
-            &Some(ns.language.clone()),
-            &authed.email,
-            &authed.username,
-            &permissioned_as,
-        )
-        .await
-        {
-            tracing::error!(%e, "error processing relative imports");
-        }
+        let db2 = db.clone();
+        let w_id2 = w_id.clone();
+        let authed2 = authed.clone();
+        let permissioned_as2 = permissioned_as.clone();
+        let script_path2 = script_path.clone();
+        let parent_path = p_path_opt.clone();
+        let deployment_message = ns.deployment_message.clone();
+        let content = ns.content.clone();
+        let language = ns.language.clone();
+        tokio::spawn(async move {
+            // wait for 10 seconds to make sure the script is deployed and that the CLI sync that pushed it (f one) is complete
+            tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+            if let Err(e) = process_relative_imports(
+                &db2,
+                None,
+                None,
+                &w_id2,
+                &script_path2,
+                parent_path,
+                deployment_message,
+                &content,
+                &Some(language),
+                &authed2.email,
+                &authed2.username,
+                &permissioned_as2,
+            )
+            .await
+            {
+                tracing::error!(%e, "error processing relative imports");
+            }
+        });
 
         handle_deployment_metadata(
             &authed.email,
