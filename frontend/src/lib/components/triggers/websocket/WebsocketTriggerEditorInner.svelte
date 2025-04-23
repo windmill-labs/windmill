@@ -26,33 +26,35 @@
 	import Toggle from '$lib/components/Toggle.svelte'
 	import WebsocketEditorConfigSection from './WebsocketEditorConfigSection.svelte'
 
-	let drawer: Drawer
-	let is_flow: boolean = false
-	let initialPath = ''
-	let edit = true
-	let itemKind: 'flow' | 'script' = 'script'
-	let script_path = ''
-	let initialScriptPath = ''
-	let fixedScriptPath = ''
-	let path: string = ''
-	let pathError = ''
-	let url = ''
-	let dirtyUrl = false
-	let enabled = false
+	let drawer: Drawer | undefined = $state()
+	let is_flow: boolean = $state(false)
+	let initialPath = $state('')
+	let edit = $state(true)
+	let itemKind: 'flow' | 'script' = $state('script')
+	let script_path = $state('')
+	let initialScriptPath = $state('')
+	let fixedScriptPath = $state('')
+	let path: string = $state('')
+	let pathError = $state('')
+	let url = $state('')
+	let dirtyUrl = $state(false)
+	let enabled = $state(false)
 	let filters: {
 		key: string
 		value: any
-	}[] = []
-	let initial_messages: WebsocketTriggerInitialMessage[] = []
-	let url_runnable_args: Record<string, any> | undefined = {}
-	let can_return_message = false
-	let dirtyPath = false
-	let can_write = true
-	let drawerLoading = true
+	}[] = $state([])
+	let initial_messages: WebsocketTriggerInitialMessage[] = $state([])
+	let url_runnable_args: Record<string, any> | undefined = $state({})
+	let can_return_message = $state(false)
+	let dirtyPath = $state(false)
+	let can_write = $state(true)
+	let drawerLoading = $state(true)
 
 	const dispatch = createEventDispatcher()
 
-	$: is_flow = itemKind === 'flow'
+	$effect(() => {
+		is_flow = itemKind === 'flow'
+	})
 
 	export async function openEdit(ePath: string, isFlow: boolean) {
 		drawerLoading = true
@@ -119,7 +121,7 @@
 		can_write = canWrite(s.path, s.extra_perms, $userStore)
 	}
 
-	let initialMessageRunnableSchemas: Record<string, Schema> = {}
+	let initialMessageRunnableSchemas: Record<string, Schema> = $state({})
 	async function loadInitialMessageRunnableSchemas(
 		initialMessageRunnables: {
 			path: string
@@ -147,17 +149,23 @@
 			}
 		}
 	}
-	$: initialMessageRunnables = initial_messages
-		.map((v) => ('runnable_result' in v ? v.runnable_result : undefined))
-		.filter((v): v is { path: string; is_flow: boolean; args: ScriptArgs } => !!v)
-	$: loadInitialMessageRunnableSchemas(initialMessageRunnables)
-
-	$: invalidInitialMessages = initial_messages.some((v) => {
-		if ('runnable_result' in v) {
-			return !v.runnable_result.path
-		}
-		return false
+	let initialMessageRunnables = $derived(
+		initial_messages
+			.map((v) => ('runnable_result' in v ? v.runnable_result : undefined))
+			.filter((v): v is { path: string; is_flow: boolean; args: ScriptArgs } => !!v)
+	)
+	$effect(() => {
+		loadInitialMessageRunnableSchemas(initialMessageRunnables)
 	})
+
+	let invalidInitialMessages = $derived(
+		initial_messages.some((v) => {
+			if ('runnable_result' in v) {
+				return !v.runnable_result.path
+			}
+			return false
+		})
+	)
 
 	async function updateTrigger(): Promise<void> {
 		if (edit) {
@@ -197,10 +205,10 @@
 			$usedTriggerKinds = [...$usedTriggerKinds, 'ws']
 		}
 		dispatch('update')
-		drawer.closeDrawer()
+		drawer?.closeDrawer()
 	}
 
-	let isValid = false
+	let isValid = $state(false)
 </script>
 
 <Drawer size="800px" bind:this={drawer}>
@@ -338,7 +346,7 @@
 											<div class="text-secondary text-sm mb-2">Type</div>
 											<select
 												class="w-20"
-												on:change={(e) => {
+												onchange={(e) => {
 													if (e.target?.['value'] === 'raw_message') {
 														initial_messages[i] = {
 															raw_message: '""'
@@ -368,7 +376,7 @@
 											<JsonEditor
 												on:change={(ev) => {
 													const { code } = ev.detail
-													v = {
+													initial_messages[i] = {
 														raw_message: code
 													}
 												}}
@@ -384,7 +392,7 @@
 												initialPath={v.runnable_result?.path ?? ''}
 												on:select={(ev) => {
 													const { path, itemKind } = ev.detail
-													v = {
+													initial_messages[i] = {
 														runnable_result: {
 															path: path ?? '',
 															args: {},
@@ -430,7 +438,7 @@
 									transition:fade|local={{ duration: 100 }}
 									class="rounded-full p-1 bg-surface-secondary duration-200 hover:bg-surface-hover"
 									aria-label="Clear"
-									on:click={() => {
+									onclick={() => {
 										initial_messages = initial_messages.filter((_, index) => index !== i)
 									}}
 								>
@@ -476,7 +484,7 @@
 											<div class="text-secondary text-sm mb-2">Type</div>
 											<select
 												class="w-20"
-												on:change={(e) => {
+												onchange={(e) => {
 													if (e.target?.['value']) {
 														filters[i] = {
 															key: '',
@@ -494,7 +502,7 @@
 										<div class="text-secondary text-sm mb-2">Key</div>
 										<input type="text" bind:value={v.key} />
 									</label>
-									<!-- svelte-ignore a11y-label-has-associated-control -->
+									<!-- svelte-ignore a11y_label_has_associated_control -->
 									<label class="flex flex-col w-full">
 										<div class="text-secondary text-sm mb-2">Value</div>
 										<JsonEditor bind:value={v.value} code={JSON.stringify(v.value)} />
@@ -504,7 +512,7 @@
 									transition:fade|local={{ duration: 100 }}
 									class="rounded-full p-1 bg-surface-secondary duration-200 hover:bg-surface-hover"
 									aria-label="Clear"
-									on:click={() => {
+									onclick={() => {
 										filters = filters.filter((_, index) => index !== i)
 									}}
 								>
