@@ -70,7 +70,7 @@
 				data.eventHandlers.delete(e, '')
 			}}
 			on:addDraftTrigger={(e) => {
-				const newTrigger = addDraftTrigger(triggers, e.detail, !!$primarySchedule)
+				const newTrigger = addDraftTrigger(triggers, e.detail)
 				data?.eventHandlers?.select('triggers')
 				$selectedTriggerV2 = newTrigger
 			}}
