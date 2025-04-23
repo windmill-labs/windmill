@@ -23,6 +23,7 @@
 		addDraftTrigger
 	} from './utils'
 	import { workspaceStore } from '$lib/stores'
+	import WebsocketTriggersPanel from './websocket/WebsocketTriggersPanelV2.svelte'
 
 	export let noEditor: boolean
 	export let newItem = false
@@ -191,6 +192,12 @@
 											$selectedTrigger.path = detail.path
 										}
 									}}
+								/>
+							{:else if $selectedTrigger.type === 'websocket'}
+								<WebsocketTriggersPanel
+									{isFlow}
+									path={initialPath || fakeInitialPath}
+									selectedTrigger={$selectedTrigger}
 								/>
 							{:else if $selectedTrigger.isDraft}
 								<h3 class="text-sm font-medium">Configure new {$selectedTrigger.type} trigger</h3>

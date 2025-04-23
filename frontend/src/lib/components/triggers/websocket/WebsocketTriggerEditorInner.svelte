@@ -26,6 +26,8 @@
 	import Toggle from '$lib/components/Toggle.svelte'
 	import WebsocketEditorConfigSection from './WebsocketEditorConfigSection.svelte'
 
+	let { useDrawer = true } = $props()
+
 	let drawer: Drawer | undefined = $state()
 	let is_flow: boolean = $state(false)
 	let initialPath = $state('')
@@ -211,339 +213,353 @@
 	let isValid = $state(false)
 </script>
 
-<Drawer size="800px" bind:this={drawer}>
-	<DrawerContent
-		title={edit
-			? can_write
-				? `Edit WebSocket trigger ${initialPath}`
-				: `WebSocket trigger ${initialPath}`
-			: 'New WebSocket trigger'}
-		on:close={drawer.closeDrawer}
-	>
-		<svelte:fragment slot="actions">
-			{#if !drawerLoading}
-				{#if edit}
-					<div class="mr-8 center-center -mt-1">
-						<Toggle
-							disabled={!can_write}
-							checked={enabled}
-							options={{ right: 'enable', left: 'disable' }}
-							on:change={async (e) => {
-								await WebsocketTriggerService.setWebsocketTriggerEnabled({
-									path: initialPath,
-									workspace: $workspaceStore ?? '',
-									requestBody: { enabled: e.detail }
-								})
-								sendUserToast(
-									`${e.detail ? 'enabled' : 'disabled'} websocket trigger ${initialPath}`
-								)
-							}}
-						/>
-					</div>
-				{/if}
-				{#if can_write}
-					<Button
-						startIcon={{ icon: Save }}
-						disabled={pathError != '' ||
-							!isValid ||
-							invalidInitialMessages ||
-							emptyString(script_path) ||
-							!can_write}
-						on:click={updateTrigger}
-					>
-						Save
-					</Button>
-				{/if}
-			{/if}
+{#if useDrawer}
+	<Drawer size="800px" bind:this={drawer}>
+		<DrawerContent
+			title={edit
+				? can_write
+					? `Edit WebSocket trigger ${initialPath}`
+					: `WebSocket trigger ${initialPath}`
+				: 'New WebSocket trigger'}
+			on:close={drawer.closeDrawer}
+		>
+			<svelte:fragment slot="actions">
+				{@render actionsButtons()}
+			</svelte:fragment>
+			{@render config()}
+		</DrawerContent>
+	</Drawer>
+{:else}
+	<Section label="WebSocket trigger">
+		<svelte:fragment slot="action">
+			{@render actionsButtons()}
 		</svelte:fragment>
-		{#if drawerLoading}
-			<Loader2 class="animate-spin" />
-		{:else}
-			<Alert title="Info" type="info">
-				{#if edit}
-					Changes can take up to 30 seconds to take effect.
-				{:else}
-					New WebSocket triggers can take up to 30 seconds to start listening.
-				{/if}
-			</Alert>
-			<div class="flex flex-col gap-12 mt-6">
-				<div class="flex flex-col gap-4">
-					<Label label="Path">
-						<Path
-							bind:dirty={dirtyPath}
-							bind:error={pathError}
-							bind:path
-							{initialPath}
-							checkInitialPathExistence={!edit}
-							namePlaceholder="ws_trigger"
-							kind="websocket_trigger"
-							disabled={!can_write}
-						/>
-					</Label>
-				</div>
+		{@render config()}
+	</Section>
+{/if}
 
-				<Section label="Runnable" class="flex flex-col gap-4">
-					<div>
-						<p class="text-xs mb-1 text-tertiary">
-							Pick a script or flow to be triggered<Required required={true} />
-						</p>
-						<div class="flex flex-row mb-2">
-							<ScriptPicker
-								disabled={fixedScriptPath != '' || !can_write}
-								initialPath={fixedScriptPath || initialScriptPath}
-								kinds={['script']}
-								allowFlow={true}
-								bind:itemKind
-								bind:scriptPath={script_path}
-								allowRefresh={can_write}
-								allowEdit={!$userStore?.operator}
-							/>
-							{#if emptyString(script_path)}
-								<Button
-									btnClasses="ml-4 mt-2"
-									color="dark"
-									size="xs"
-									href={itemKind === 'flow' ? '/flows/add?hub=64' : '/scripts/add?hub=hub%2F11636'}
-									target="_blank">Create from template</Button
-								>
-							{/if}
-						</div>
-					</div>
-
-					<Toggle
-						checked={can_return_message}
-						on:change={() => {
-							can_return_message = !can_return_message
-						}}
-						options={{
-							right: 'Send runnable result',
-							rightTooltip:
-								'Whether the runnable result should be sent as a message to the websocket server when not null.'
-						}}
-					/>
-				</Section>
-
-				<WebsocketEditorConfigSection
-					bind:url
-					bind:url_runnable_args
-					{dirtyUrl}
-					{can_write}
-					bind:isValid
+{#snippet actionsButtons()}
+	{#if !drawerLoading}
+		{#if edit}
+			<div class="mr-8 center-center -mt-1">
+				<Toggle
+					disabled={!can_write}
+					checked={enabled}
+					options={{ right: 'enable', left: 'disable' }}
+					on:change={async (e) => {
+						await WebsocketTriggerService.setWebsocketTriggerEnabled({
+							path: initialPath,
+							workspace: $workspaceStore ?? '',
+							requestBody: { enabled: e.detail }
+						})
+						sendUserToast(`${e.detail ? 'enabled' : 'disabled'} websocket trigger ${initialPath}`)
+					}}
 				/>
-
-				<Section label="Initial messages">
-					<p class="text-xs mb-1 text-tertiary">
-						Initial messages are sent at the beginning of the connection. They are sent in order.<br
-						/>
-						Raw messages and runnable results are supported.
-					</p>
-					<div class="flex flex-col gap-4 mt-1">
-						{#each initial_messages as v, i}
-							<div class="flex w-full gap-2 items-center">
-								<div class="w-full flex flex-col gap-2 border p-2 rounded-md">
-									<div class="flex flex-row gap-2 w-full">
-										<label class="flex flex-col w-full">
-											<div class="text-secondary text-sm mb-2">Type</div>
-											<select
-												class="w-20"
-												onchange={(e) => {
-													if (e.target?.['value'] === 'raw_message') {
-														initial_messages[i] = {
-															raw_message: '""'
-														}
-													} else {
-														initial_messages[i] = {
-															runnable_result: {
-																path: '',
-																args: {},
-																is_flow: false
-															}
-														}
-													}
-												}}
-												value={'runnable_result' in v ? 'runnable_result' : 'raw_message'}
-											>
-												<option value="raw_message">Raw message</option>
-												<option value="runnable_result">Runnable result</option>
-											</select>
-										</label>
-									</div>
-									{#if 'raw_message' in v}
-										<div class="flex flex-col w-full">
-											<div class="text-secondary text-sm mb-2">
-												Raw JSON message (if a string, wrapping quotes will be discarded)
-											</div>
-											<JsonEditor
-												on:change={(ev) => {
-													const { code } = ev.detail
-													initial_messages[i] = {
-														raw_message: code
-													}
-												}}
-												code={v.raw_message}
-											/>
-										</div>
-									{:else if 'runnable_result' in v}
-										<div class="flex flex-col w-full">
-											<div class="text-secondary text-sm">Runnable</div>
-											<ScriptPicker
-												allowFlow={true}
-												itemKind={v.runnable_result?.is_flow ? 'flow' : 'script'}
-												initialPath={v.runnable_result?.path ?? ''}
-												on:select={(ev) => {
-													const { path, itemKind } = ev.detail
-													initial_messages[i] = {
-														runnable_result: {
-															path: path ?? '',
-															args: {},
-															is_flow: itemKind === 'flow'
-														}
-													}
-												}}
-											/>
-
-											{#if v.runnable_result?.path}
-												{@const schema =
-													initialMessageRunnableSchemas[
-														v.runnable_result.is_flow
-															? 'flow/' + v.runnable_result.path
-															: v.runnable_result.path
-													]}
-												{#if schema}
-													<p class="font-semibold text-sm mt-4 mb-2">Arguments</p>
-													{#await import('$lib/components/SchemaForm.svelte')}
-														<Loader2 class="animate-spin mt-2" />
-													{:then Module}
-														<Module.default
-															{schema}
-															bind:args={v.runnable_result.args}
-															shouldHideNoInputs
-															class="text-xs"
-														/>
-													{/await}
-													{#if schema && schema.properties && Object.keys(schema.properties).length === 0}
-														<div class="text-xs texg-gray-700">This runnable takes no arguments</div
-														>
-													{/if}
-												{:else}
-													<Loader2 class="animate-spin mt-2" />
-												{/if}
-											{/if}
-										</div>
-									{:else}
-										Unknown type
-									{/if}
-								</div>
-								<button
-									transition:fade|local={{ duration: 100 }}
-									class="rounded-full p-1 bg-surface-secondary duration-200 hover:bg-surface-hover"
-									aria-label="Clear"
-									onclick={() => {
-										initial_messages = initial_messages.filter((_, index) => index !== i)
-									}}
-								>
-									<X size={14} />
-								</button>
-							</div>
-						{/each}
-
-						<div class="flex items-baseline">
-							<Button
-								variant="border"
-								color="light"
-								size="xs"
-								btnClasses="mt-1"
-								on:click={() => {
-									if (initial_messages == undefined || !Array.isArray(initial_messages)) {
-										initial_messages = []
-									}
-									initial_messages = initial_messages.concat({
-										raw_message: '""'
-									})
-								}}
-								startIcon={{ icon: Plus }}
-							>
-								Add item
-							</Button>
-						</div>
-					</div>
-				</Section>
-
-				<Section label="Filters">
-					<p class="text-xs mb-1 text-tertiary">
-						Filters will limit the execution of the trigger to only messages that match all
-						criteria.<br />
-						The JSON filter checks if the value at the key is equal or a superset of the filter value.
-					</p>
-					<div class="flex flex-col gap-4 mt-1">
-						{#each filters as v, i}
-							<div class="flex w-full gap-2 items-center">
-								<div class="w-full flex flex-col gap-2 border p-2 rounded-md">
-									<div class="flex flex-row gap-2 w-full">
-										<label class="flex flex-col w-full">
-											<div class="text-secondary text-sm mb-2">Type</div>
-											<select
-												class="w-20"
-												onchange={(e) => {
-													if (e.target?.['value']) {
-														filters[i] = {
-															key: '',
-															value: ''
-														}
-													}
-												}}
-												value={'json'}
-											>
-												<option value="json">JSON</option>
-											</select>
-										</label>
-									</div>
-									<label class="flex flex-col w-full">
-										<div class="text-secondary text-sm mb-2">Key</div>
-										<input type="text" bind:value={v.key} />
-									</label>
-									<!-- svelte-ignore a11y_label_has_associated_control -->
-									<label class="flex flex-col w-full">
-										<div class="text-secondary text-sm mb-2">Value</div>
-										<JsonEditor bind:value={v.value} code={JSON.stringify(v.value)} />
-									</label>
-								</div>
-								<button
-									transition:fade|local={{ duration: 100 }}
-									class="rounded-full p-1 bg-surface-secondary duration-200 hover:bg-surface-hover"
-									aria-label="Clear"
-									onclick={() => {
-										filters = filters.filter((_, index) => index !== i)
-									}}
-								>
-									<X size={14} />
-								</button>
-							</div>
-						{/each}
-
-						<div class="flex items-baseline">
-							<Button
-								variant="border"
-								color="light"
-								size="xs"
-								btnClasses="mt-1"
-								on:click={() => {
-									if (filters == undefined || !Array.isArray(filters)) {
-										filters = []
-									}
-									filters = filters.concat({
-										key: '',
-										value: ''
-									})
-								}}
-								startIcon={{ icon: Plus }}
-							>
-								Add item
-							</Button>
-						</div>
-					</div>
-				</Section>
 			</div>
 		{/if}
-	</DrawerContent>
-</Drawer>
+		{#if can_write}
+			<Button
+				startIcon={{ icon: Save }}
+				disabled={pathError != '' ||
+					!isValid ||
+					invalidInitialMessages ||
+					emptyString(script_path) ||
+					!can_write}
+				on:click={updateTrigger}
+			>
+				Save
+			</Button>
+		{/if}
+	{/if}
+{/snippet}
+
+{#snippet config()}
+	{#if drawerLoading}
+		<Loader2 class="animate-spin" />
+	{:else}
+		<Alert title="Info" type="info">
+			{#if edit}
+				Changes can take up to 30 seconds to take effect.
+			{:else}
+				New WebSocket triggers can take up to 30 seconds to start listening.
+			{/if}
+		</Alert>
+		<div class="flex flex-col gap-12 mt-6">
+			<div class="flex flex-col gap-4">
+				<Label label="Path">
+					<Path
+						bind:dirty={dirtyPath}
+						bind:error={pathError}
+						bind:path
+						{initialPath}
+						checkInitialPathExistence={!edit}
+						namePlaceholder="ws_trigger"
+						kind="websocket_trigger"
+						disabled={!can_write}
+					/>
+				</Label>
+			</div>
+
+			<Section label="Runnable" class="flex flex-col gap-4">
+				<div>
+					<p class="text-xs mb-1 text-tertiary">
+						Pick a script or flow to be triggered<Required required={true} />
+					</p>
+					<div class="flex flex-row mb-2">
+						<ScriptPicker
+							disabled={fixedScriptPath != '' || !can_write}
+							initialPath={fixedScriptPath || initialScriptPath}
+							kinds={['script']}
+							allowFlow={true}
+							bind:itemKind
+							bind:scriptPath={script_path}
+							allowRefresh={can_write}
+							allowEdit={!$userStore?.operator}
+						/>
+						{#if emptyString(script_path)}
+							<Button
+								btnClasses="ml-4 mt-2"
+								color="dark"
+								size="xs"
+								href={itemKind === 'flow' ? '/flows/add?hub=64' : '/scripts/add?hub=hub%2F11636'}
+								target="_blank">Create from template</Button
+							>
+						{/if}
+					</div>
+				</div>
+
+				<Toggle
+					checked={can_return_message}
+					on:change={() => {
+						can_return_message = !can_return_message
+					}}
+					options={{
+						right: 'Send runnable result',
+						rightTooltip:
+							'Whether the runnable result should be sent as a message to the websocket server when not null.'
+					}}
+				/>
+			</Section>
+
+			<WebsocketEditorConfigSection
+				bind:url
+				bind:url_runnable_args
+				{dirtyUrl}
+				{can_write}
+				bind:isValid
+			/>
+
+			<Section label="Initial messages">
+				<p class="text-xs mb-1 text-tertiary">
+					Initial messages are sent at the beginning of the connection. They are sent in order.<br
+					/>
+					Raw messages and runnable results are supported.
+				</p>
+				<div class="flex flex-col gap-4 mt-1">
+					{#each initial_messages as v, i}
+						<div class="flex w-full gap-2 items-center">
+							<div class="w-full flex flex-col gap-2 border p-2 rounded-md">
+								<div class="flex flex-row gap-2 w-full">
+									<label class="flex flex-col w-full">
+										<div class="text-secondary text-sm mb-2">Type</div>
+										<select
+											class="w-20"
+											onchange={(e) => {
+												if (e.target?.['value'] === 'raw_message') {
+													initial_messages[i] = {
+														raw_message: '""'
+													}
+												} else {
+													initial_messages[i] = {
+														runnable_result: {
+															path: '',
+															args: {},
+															is_flow: false
+														}
+													}
+												}
+											}}
+											value={'runnable_result' in v ? 'runnable_result' : 'raw_message'}
+										>
+											<option value="raw_message">Raw message</option>
+											<option value="runnable_result">Runnable result</option>
+										</select>
+									</label>
+								</div>
+								{#if 'raw_message' in v}
+									<div class="flex flex-col w-full">
+										<div class="text-secondary text-sm mb-2">
+											Raw JSON message (if a string, wrapping quotes will be discarded)
+										</div>
+										<JsonEditor
+											on:change={(ev) => {
+												const { code } = ev.detail
+												initial_messages[i] = {
+													raw_message: code
+												}
+											}}
+											code={v.raw_message}
+										/>
+									</div>
+								{:else if 'runnable_result' in v}
+									<div class="flex flex-col w-full">
+										<div class="text-secondary text-sm">Runnable</div>
+										<ScriptPicker
+											allowFlow={true}
+											itemKind={v.runnable_result?.is_flow ? 'flow' : 'script'}
+											initialPath={v.runnable_result?.path ?? ''}
+											on:select={(ev) => {
+												const { path, itemKind } = ev.detail
+												initial_messages[i] = {
+													runnable_result: {
+														path: path ?? '',
+														args: {},
+														is_flow: itemKind === 'flow'
+													}
+												}
+											}}
+										/>
+
+										{#if v.runnable_result?.path}
+											{@const schema =
+												initialMessageRunnableSchemas[
+													v.runnable_result.is_flow
+														? 'flow/' + v.runnable_result.path
+														: v.runnable_result.path
+												]}
+											{#if schema}
+												<p class="font-semibold text-sm mt-4 mb-2">Arguments</p>
+												{#await import('$lib/components/SchemaForm.svelte')}
+													<Loader2 class="animate-spin mt-2" />
+												{:then Module}
+													<Module.default
+														{schema}
+														bind:args={v.runnable_result.args}
+														shouldHideNoInputs
+														class="text-xs"
+													/>
+												{/await}
+												{#if schema && schema.properties && Object.keys(schema.properties).length === 0}
+													<div class="text-xs texg-gray-700">This runnable takes no arguments</div>
+												{/if}
+											{:else}
+												<Loader2 class="animate-spin mt-2" />
+											{/if}
+										{/if}
+									</div>
+								{:else}
+									Unknown type
+								{/if}
+							</div>
+							<button
+								transition:fade|local={{ duration: 100 }}
+								class="rounded-full p-1 bg-surface-secondary duration-200 hover:bg-surface-hover"
+								aria-label="Clear"
+								onclick={() => {
+									initial_messages = initial_messages.filter((_, index) => index !== i)
+								}}
+							>
+								<X size={14} />
+							</button>
+						</div>
+					{/each}
+
+					<div class="flex items-baseline">
+						<Button
+							variant="border"
+							color="light"
+							size="xs"
+							btnClasses="mt-1"
+							on:click={() => {
+								if (initial_messages == undefined || !Array.isArray(initial_messages)) {
+									initial_messages = []
+								}
+								initial_messages = initial_messages.concat({
+									raw_message: '""'
+								})
+							}}
+							startIcon={{ icon: Plus }}
+						>
+							Add item
+						</Button>
+					</div>
+				</div>
+			</Section>
+
+			<Section label="Filters">
+				<p class="text-xs mb-1 text-tertiary">
+					Filters will limit the execution of the trigger to only messages that match all criteria.<br
+					/>
+					The JSON filter checks if the value at the key is equal or a superset of the filter value.
+				</p>
+				<div class="flex flex-col gap-4 mt-1">
+					{#each filters as v, i}
+						<div class="flex w-full gap-2 items-center">
+							<div class="w-full flex flex-col gap-2 border p-2 rounded-md">
+								<div class="flex flex-row gap-2 w-full">
+									<label class="flex flex-col w-full">
+										<div class="text-secondary text-sm mb-2">Type</div>
+										<select
+											class="w-20"
+											onchange={(e) => {
+												if (e.target?.['value']) {
+													filters[i] = {
+														key: '',
+														value: ''
+													}
+												}
+											}}
+											value={'json'}
+										>
+											<option value="json">JSON</option>
+										</select>
+									</label>
+								</div>
+								<label class="flex flex-col w-full">
+									<div class="text-secondary text-sm mb-2">Key</div>
+									<input type="text" bind:value={v.key} />
+								</label>
+								<!-- svelte-ignore a11y_label_has_associated_control -->
+								<label class="flex flex-col w-full">
+									<div class="text-secondary text-sm mb-2">Value</div>
+									<JsonEditor bind:value={v.value} code={JSON.stringify(v.value)} />
+								</label>
+							</div>
+							<button
+								transition:fade|local={{ duration: 100 }}
+								class="rounded-full p-1 bg-surface-secondary duration-200 hover:bg-surface-hover"
+								aria-label="Clear"
+								onclick={() => {
+									filters = filters.filter((_, index) => index !== i)
+								}}
+							>
+								<X size={14} />
+							</button>
+						</div>
+					{/each}
+
+					<div class="flex items-baseline">
+						<Button
+							variant="border"
+							color="light"
+							size="xs"
+							btnClasses="mt-1"
+							on:click={() => {
+								if (filters == undefined || !Array.isArray(filters)) {
+									filters = []
+								}
+								filters = filters.concat({
+									key: '',
+									value: ''
+								})
+							}}
+							startIcon={{ icon: Plus }}
+						>
+							Add item
+						</Button>
+					</div>
+				</div>
+			</Section>
+		</div>
+	{/if}
+{/snippet}

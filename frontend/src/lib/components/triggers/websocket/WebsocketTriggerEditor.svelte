@@ -2,6 +2,8 @@
 	import { tick } from 'svelte'
 	import WebsocketTriggerEditorInner from './WebsocketTriggerEditorInner.svelte'
 
+	export let useDrawer: boolean = true
+
 	let open = false
 	export async function openEdit(ePath: string, isFlow: boolean) {
 		open = true
@@ -23,5 +25,5 @@
 </script>
 
 {#if open}
-	<WebsocketTriggerEditorInner on:update bind:this={drawer} />
+	<WebsocketTriggerEditorInner on:update bind:this={drawer} {useDrawer} />
 {/if}
