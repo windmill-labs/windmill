@@ -25,6 +25,7 @@
 	} from './utils'
 	import { workspaceStore } from '$lib/stores'
 	import WebsocketTriggersPanel from './websocket/WebsocketTriggersPanelV2.svelte'
+	import { fade } from 'svelte/transition'
 
 	export let noEditor: boolean
 	export let newItem = false
@@ -103,180 +104,191 @@
 					</div>
 
 					<!-- TODO: Update triggersWrapper here -->
-					{#if $selectedTrigger}
-						<div class="flex-grow overflow-auto px-2 pb-4 transition-all duration-200 ease-in-out">
-							{#if $selectedTrigger.type === 'http'}
-								{#key $selectedTrigger.path}
-									<RoutesPanel
-										selectedTrigger={$selectedTrigger}
-										{isFlow}
-										path={initialPath || fakeInitialPath}
-										edit={editTrigger === $selectedTrigger}
-										on:update-config={({ detail }) => {
-											config = detail
-										}}
-										on:update={({ detail }) => {
-											if ($selectedTrigger?.isDraft) {
-												$selectedTrigger.isDraft = false
-											}
-											if ($selectedTrigger) {
-												$selectedTrigger.path = detail
-											}
-											fetchHttpTriggersUtil(triggers, $workspaceStore, currentPath, isFlow)
-										}}
-										on:toggle-edit-mode={({ detail }) => {
-											editTrigger = detail ? $selectedTrigger : undefined
-										}}
-										{isDeployed}
-									/>
-								{/key}
-							{:else if $selectedTrigger.type === 'webhook'}
-								<WebhooksPanel
-									{isFlow}
-									path={initialPath || fakeInitialPath}
-									{hash}
-									token=""
-									{args}
-									scopes={isFlow ? [`run:flow/${currentPath}`] : [`run:script/${currentPath}`]}
-									{newItem}
-								/>
-							{:else if $selectedTrigger.type === 'email'}
-								<EmailTriggerPanel
-									token=""
-									scopes={isFlow ? [`run:flow/${currentPath}`] : [`run:script/${currentPath}`]}
-									path={initialPath || fakeInitialPath}
-									{isFlow}
-									on:emailDomain={({ detail }) => {
-										config.emailDomain = detail
-									}}
-								/>
-							{:else if $selectedTrigger.type === 'schedule' && $selectedTrigger.isPrimary}
-								<PrimarySchedulePanel
-									{schema}
-									{isFlow}
-									path={initialPath}
-									{newItem}
-									can_write={canWrite(currentPath, {}, $userStore)}
-									on:update={async ({ detail }) => {
-										await fetchSchedulesUtil(
-											triggers,
-											$workspaceStore,
-											currentPath,
-											isFlow,
-											$primarySchedule
-										)
-										if ((detail === 'save' || detail === 'delete') && $selectedTrigger?.isDraft) {
-											deleteDraft(triggers, $selectedTrigger)
-											if (detail === 'delete') {
-												$selectedTrigger = undefined
-											}
-										}
-									}}
-									isNewSchedule={$selectedTrigger.isDraft}
-									{isDeployed}
-								/>
-							{:else if $selectedTrigger.type === 'schedule'}
-								<SchedulePanel
-									selectedTrigger={$selectedTrigger}
-									{isFlow}
-									path={initialPath}
-									on:update={async ({ detail }) => {
-										if ($selectedTrigger && $selectedTrigger.isDraft && detail?.path) {
-											await fetchSchedulesUtil(
-												triggers,
-												$workspaceStore,
-												currentPath,
-												isFlow,
-												$primarySchedule
-											)
-											$selectedTrigger.isDraft = false
-											$selectedTrigger.path = detail.path
-										}
-									}}
-								/>
-							{:else if $selectedTrigger.type === 'websocket'}
-								<WebsocketTriggersPanel
-									{isFlow}
-									path={initialPath || fakeInitialPath}
-									selectedTrigger={$selectedTrigger}
-									edit={editTrigger === $selectedTrigger}
-									{isDeployed}
-									on:toggle-edit-mode={({ detail }) => {
-										editTrigger = detail ? $selectedTrigger : undefined
-									}}
-									on:update={({ detail }) => {
-										if ($selectedTrigger?.isDraft) {
-											$selectedTrigger.isDraft = false
-										}
-										if ($selectedTrigger) {
-											$selectedTrigger.path = detail
-										}
-										fetchWebsocketTriggers(triggers, $workspaceStore, currentPath, isFlow)
-									}}
-								/>
-							{:else if $selectedTrigger.isDraft}
-								<h3 class="text-sm font-medium">Configure new {$selectedTrigger.type} trigger</h3>
-								<!-- New trigger configuration component would go here -->
-							{:else}
-								<h3 class="text-sm font-medium"
-									>Configure trigger: {$selectedTrigger.path} ({$selectedTrigger.type})</h3
-								>
-								<!-- Existing trigger configuration component would go here -->
-							{/if}
-						</div>
-					{:else}
-						<span class="text-sm text-tertiary text-center mx-auto mt-2"
-							>Select a trigger from the table or add a new one</span
-						>
-					{/if}
+					<div class="flex-grow overflow-auto px-2 pb-4" style="scrollbar-gutter: stable">
+						{#if $selectedTrigger}
+							{#key $selectedTrigger}
+								<div in:fade={{ duration: 100, delay: 100 }} out:fade={{ duration: 100 }}>
+									{#if $selectedTrigger.type === 'http'}
+										<RoutesPanel
+											selectedTrigger={$selectedTrigger}
+											{isFlow}
+											path={initialPath || fakeInitialPath}
+											edit={editTrigger === $selectedTrigger}
+											on:update-config={({ detail }) => {
+												config = detail
+											}}
+											on:update={({ detail }) => {
+												if ($selectedTrigger?.isDraft) {
+													$selectedTrigger.isDraft = false
+												}
+												if ($selectedTrigger) {
+													$selectedTrigger.path = detail
+												}
+												fetchHttpTriggersUtil(triggers, $workspaceStore, currentPath, isFlow)
+											}}
+											on:toggle-edit-mode={({ detail }) => {
+												editTrigger = detail ? $selectedTrigger : undefined
+											}}
+											{isDeployed}
+										/>
+									{:else if $selectedTrigger.type === 'webhook'}
+										<WebhooksPanel
+											{isFlow}
+											path={initialPath || fakeInitialPath}
+											{hash}
+											token=""
+											{args}
+											scopes={isFlow ? [`run:flow/${currentPath}`] : [`run:script/${currentPath}`]}
+											{newItem}
+										/>
+									{:else if $selectedTrigger.type === 'email'}
+										<EmailTriggerPanel
+											token=""
+											scopes={isFlow ? [`run:flow/${currentPath}`] : [`run:script/${currentPath}`]}
+											path={initialPath || fakeInitialPath}
+											{isFlow}
+											on:emailDomain={({ detail }) => {
+												config.emailDomain = detail
+											}}
+										/>
+									{:else if $selectedTrigger.type === 'schedule' && $selectedTrigger.isPrimary}
+										<PrimarySchedulePanel
+											{schema}
+											{isFlow}
+											path={initialPath}
+											{newItem}
+											can_write={canWrite(currentPath, {}, $userStore)}
+											on:update={async ({ detail }) => {
+												await fetchSchedulesUtil(
+													triggers,
+													$workspaceStore,
+													currentPath,
+													isFlow,
+													$primarySchedule
+												)
+												if (
+													(detail === 'save' || detail === 'delete') &&
+													$selectedTrigger?.isDraft
+												) {
+													deleteDraft(triggers, $selectedTrigger)
+													if (detail === 'delete') {
+														$selectedTrigger = undefined
+													}
+												}
+											}}
+											isNewSchedule={$selectedTrigger.isDraft}
+											{isDeployed}
+										/>
+									{:else if $selectedTrigger.type === 'schedule'}
+										<SchedulePanel
+											selectedTrigger={$selectedTrigger}
+											{isFlow}
+											path={initialPath}
+											on:update={async ({ detail }) => {
+												if ($selectedTrigger && $selectedTrigger.isDraft && detail?.path) {
+													await fetchSchedulesUtil(
+														triggers,
+														$workspaceStore,
+														currentPath,
+														isFlow,
+														$primarySchedule
+													)
+													$selectedTrigger.isDraft = false
+													$selectedTrigger.path = detail.path
+												}
+											}}
+										/>
+									{:else if $selectedTrigger.type === 'websocket'}
+										<WebsocketTriggersPanel
+											{isFlow}
+											path={initialPath || fakeInitialPath}
+											selectedTrigger={$selectedTrigger}
+											edit={editTrigger === $selectedTrigger}
+											{isDeployed}
+											on:toggle-edit-mode={({ detail }) => {
+												editTrigger = detail ? $selectedTrigger : undefined
+											}}
+											on:update={({ detail }) => {
+												if ($selectedTrigger?.isDraft) {
+													$selectedTrigger.isDraft = false
+												}
+												if ($selectedTrigger) {
+													$selectedTrigger.path = detail
+												}
+												fetchWebsocketTriggers(triggers, $workspaceStore, currentPath, isFlow)
+											}}
+										/>
+									{:else if $selectedTrigger.isDraft}
+										<h3 class="text-sm font-medium"
+											>Configure new {$selectedTrigger.type} trigger</h3
+										>
+										<!-- New trigger configuration component would go here -->
+									{:else}
+										<h3 class="text-sm font-medium"
+											>Configure trigger: {$selectedTrigger.path} ({$selectedTrigger.type})</h3
+										>
+										<!-- Existing trigger configuration component would go here -->
+									{/if}
+								</div>
+							{/key}
+						{:else}
+							<span class="text-sm text-tertiary text-center mx-auto mt-2"
+								>Select a trigger from the table or add a new one</span
+							>
+						{/if}
+					</div>
 				</div>
 			</Pane>
 			{#if $selectedTrigger && $selectedTrigger.type !== 'schedule'}
 				<Pane class="px-4">
 					{#if $selectedTrigger && $selectedTrigger?.type && captureKind}
-						{#if captureKind === 'webhook'}
-							<CaptureWrapper
-								path={initialPath || fakeInitialPath}
-								{isFlow}
-								captureType={captureKind}
-								{hasPreprocessor}
-								{canHavePreprocessor}
-								args={{}}
-								data={{ args, hash }}
-								on:applyArgs
-								on:updateSchema
-								on:addPreprocessor
-								on:testWithArgs
-							/>
-						{:else if captureKind === 'http'}
-							<CaptureWrapper
-								path={initialPath || fakeInitialPath}
-								{isFlow}
-								captureType={captureKind}
-								{hasPreprocessor}
-								{canHavePreprocessor}
-								args={config}
-								data={{ args }}
-								on:applyArgs
-								on:updateSchema
-								on:addPreprocessor
-								on:testWithArgs
-							/>
-						{:else if captureKind === 'email'}
-							<CaptureWrapper
-								path={initialPath || fakeInitialPath}
-								{isFlow}
-								captureType={captureKind}
-								{hasPreprocessor}
-								{canHavePreprocessor}
-								args={{}}
-								data={{ emailDomain: config.emailDomain }}
-								on:applyArgs
-								on:updateSchema
-								on:addPreprocessor
-								on:testWithArgs
-							/>
-						{/if}
+						{#key captureKind}
+							<div in:fade={{ duration: 200 }} out:fade={{ duration: 150 }}>
+								{#if captureKind === 'webhook'}
+									<CaptureWrapper
+										path={initialPath || fakeInitialPath}
+										{isFlow}
+										captureType={captureKind}
+										{hasPreprocessor}
+										{canHavePreprocessor}
+										args={{}}
+										data={{ args, hash }}
+										on:applyArgs
+										on:updateSchema
+										on:addPreprocessor
+										on:testWithArgs
+									/>
+								{:else if captureKind === 'http'}
+									<CaptureWrapper
+										path={initialPath || fakeInitialPath}
+										{isFlow}
+										captureType={captureKind}
+										{hasPreprocessor}
+										{canHavePreprocessor}
+										args={config}
+										data={{ args }}
+										on:applyArgs
+										on:updateSchema
+										on:addPreprocessor
+										on:testWithArgs
+									/>
+								{:else if captureKind === 'email'}
+									<CaptureWrapper
+										path={initialPath || fakeInitialPath}
+										{isFlow}
+										captureType={captureKind}
+										{hasPreprocessor}
+										{canHavePreprocessor}
+										args={{}}
+										data={{ emailDomain: config.emailDomain }}
+										on:applyArgs
+										on:updateSchema
+										on:addPreprocessor
+										on:testWithArgs
+									/>
+								{/if}
+							</div>
+						{/key}
 					{/if}
 				</Pane>
 			{/if}
