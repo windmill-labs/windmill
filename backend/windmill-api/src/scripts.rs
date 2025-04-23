@@ -328,6 +328,7 @@ struct TopHubScriptsQuery {
     limit: Option<i64>,
     app: Option<String>,
     kind: Option<String>,
+    with_schema: Option<bool>,
 }
 
 async fn get_top_hub_scripts(
@@ -343,6 +344,9 @@ async fn get_top_hub_scripts(
     }
     if let Some(query_kind) = query.kind {
         query_params.push(("kind", query_kind.to_string().clone()));
+    }
+    if let Some(query_with_schema) = query.with_schema {
+        query_params.push(("with_schema", query_with_schema.to_string().clone()));
     }
 
     let (status_code, headers, response) = query_elems_from_hub(
