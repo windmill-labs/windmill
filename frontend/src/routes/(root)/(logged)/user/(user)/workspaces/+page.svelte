@@ -298,7 +298,12 @@
 				Superadmin settings
 			</Button>
 		{/if}
-		<Button variant="border" size="sm" on:click={userSettings.openDrawer} startIcon={{ icon: Cog }}>
+		<Button
+			variant="border"
+			size="sm"
+			on:click={() => userSettings.openDrawer()}
+			startIcon={{ icon: Cog }}
+		>
 			User settings
 		</Button>
 

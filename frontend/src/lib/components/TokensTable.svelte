@@ -5,7 +5,7 @@
 	import { UserService } from '$lib/gen'
 	import { Button } from '$lib/components/common'
 	import { Clipboard, Plus } from 'lucide-svelte'
-	import { workspaceStore } from '$lib/stores'
+	import { workspaceStore, userWorkspaces } from '$lib/stores'
 	import { createEventDispatcher } from 'svelte'
 	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
@@ -55,7 +55,7 @@
 	const dispatch = createEventDispatcher()
 
 	$effect(() => {
-		if (openWithMcpMode === true) {
+		if (openWithMcpMode) {
 			handleCreateClick('mcpUrl')
 		}
 	})
@@ -111,7 +111,7 @@
 		newMcpToken = undefined
 		newToken = undefined
 		newTokenExpiration = undefined
-		newTokenLabel = undefined
+		newTokenLabel = type === 'mcpUrl' ? 'MCP token' : undefined
 	}
 
 	function handleCreateTokenClick() {
@@ -191,6 +191,7 @@
 						if (e.detail) {
 							newTokenLabel = 'MCP token'
 							newTokenExpiration = undefined
+							newTokenWorkspace = $workspaceStore
 						}
 					}}
 					checked={mcpCreationMode}
@@ -211,6 +212,14 @@
 							<ToggleButton {item} value="favorites" label="Favorites Only" />
 							<ToggleButton {item} value="all" label="All Resources" />
 						</ToggleButtonGroup>
+					</div>
+					<div class="flex flex-col">
+						<label for="label">Workspace</label>
+						<select bind:value={newTokenWorkspace} disabled={$userWorkspaces.length === 1}>
+							{#each $userWorkspaces as workspace}
+								<option value={workspace.id}>{workspace.name}</option>
+							{/each}
+						</select>
 					</div>
 				{/if}
 				<div class="flex flex-col">
@@ -233,7 +242,11 @@
 					</select>
 				</div>
 				<div class="flex items-end">
-					<Button btnClasses="!mt-2" on:click={mcpCreationMode ? createMcpUrl : createToken}>
+					<Button
+						btnClasses="!mt-2"
+						on:click={mcpCreationMode ? createMcpUrl : createToken}
+						disabled={mcpCreationMode && newTokenWorkspace == undefined}
+					>
 						New token
 					</Button>
 				</div>
