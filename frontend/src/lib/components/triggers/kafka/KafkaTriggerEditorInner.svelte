@@ -162,95 +162,103 @@
 		on:close={drawer.closeDrawer}
 	>
 		<svelte:fragment slot="actions">
-			{#if !drawerLoading}
-				{#if edit}
-					<div class="mr-8 center-center -mt-1">
-						<Toggle
-							disabled={!can_write}
-							checked={enabled}
-							options={{ right: 'enable', left: 'disable' }}
-							on:change={async (e) => {
-								await KafkaTriggerService.setKafkaTriggerEnabled({
-									path: initialPath,
-									workspace: $workspaceStore ?? '',
-									requestBody: { enabled: e.detail }
-								})
-								sendUserToast(`${e.detail ? 'enabled' : 'disabled'} Kafka trigger ${initialPath}`)
-							}}
-						/>
-					</div>
-				{/if}
-				{#if can_write}
-					<Button
-						startIcon={{ icon: Save }}
-						disabled={pathError != '' || emptyString(script_path) || !can_write || !isValid}
-						on:click={updateTrigger}
-					>
-						Save
-					</Button>
-				{/if}
-			{/if}
+			{@render actions()}
 		</svelte:fragment>
-		{#if drawerLoading}
-			<Loader2 class="animate-spin" />
-		{:else}
-			<Alert title="Info" type="info">
-				{#if edit}
-					Changes can take up to 30 seconds to take effect.
-				{:else}
-					Kafka consumers can take up to 30 seconds to start.
-				{/if}
-			</Alert>
-			<div class="flex flex-col gap-12 mt-6">
-				<div class="flex flex-col gap-4">
-					<Label label="Path">
-						<Path
-							bind:dirty={dirtyPath}
-							bind:error={pathError}
-							bind:path
-							{initialPath}
-							checkInitialPathExistence={!edit}
-							namePlaceholder="kafka_trigger"
-							kind="kafka_trigger"
-							disabled={!can_write}
-						/>
-					</Label>
-				</div>
+		{@render content()}
+	</DrawerContent>
+</Drawer>
 
-				<Section label="Runnable">
-					<p class="text-xs mb-1 text-tertiary">
-						Pick a script or flow to be triggered<Required required={true} />
-					</p>
-					<div class="flex flex-row mb-2">
-						<ScriptPicker
-							disabled={fixedScriptPath != '' || !can_write}
-							initialPath={fixedScriptPath || initialScriptPath}
-							kinds={['script']}
-							allowFlow={true}
-							bind:itemKind
-							bind:scriptPath={script_path}
-							allowRefresh={can_write}
-							allowEdit={!$userStore?.operator}
-						/>
-						{#if emptyString(script_path)}
-							<Button
-								btnClasses="ml-4 mt-2"
-								color="dark"
-								size="xs"
-								href={itemKind === 'flow' ? '/flows/add?hub=65' : '/scripts/add?hub=hub%2F11635'}
-								target="_blank">Create from template</Button
-							>
-						{/if}
-					</div>
-				</Section>
-
-				<KafkaTriggersConfigSection
-					bind:args
-					bind:isValid
-					{path}
-					defaultValues={useDefaultValues() ? defaultValues : undefined}
+{#snippet actions()}
+	{#if !drawerLoading}
+		{#if edit}
+			<div class="mr-8 center-center -mt-1">
+				<Toggle
+					disabled={!can_write}
+					checked={enabled}
+					options={{ right: 'enable', left: 'disable' }}
+					on:change={async (e) => {
+						await KafkaTriggerService.setKafkaTriggerEnabled({
+							path: initialPath,
+							workspace: $workspaceStore ?? '',
+							requestBody: { enabled: e.detail }
+						})
+						sendUserToast(`${e.detail ? 'enabled' : 'disabled'} Kafka trigger ${initialPath}`)
+					}}
 				/>
 			</div>
 		{/if}
-	</DrawerContent>
-</Drawer>
+		{#if can_write}
+			<Button
+				startIcon={{ icon: Save }}
+				disabled={pathError != '' || emptyString(script_path) || !can_write || !isValid}
+				on:click={updateTrigger}
+			>
+				Save
+			</Button>
+		{/if}
+	{/if}
+{/snippet}
+
+{#snippet content()}
+	{#if drawerLoading}
+		<Loader2 class="animate-spin" />
+	{:else}
+		<Alert title="Info" type="info">
+			{#if edit}
+				Changes can take up to 30 seconds to take effect.
+			{:else}
+				Kafka consumers can take up to 30 seconds to start.
+			{/if}
+		</Alert>
+		<div class="flex flex-col gap-12 mt-6">
+			<div class="flex flex-col gap-4">
+				<Label label="Path">
+					<Path
+						bind:dirty={dirtyPath}
+						bind:error={pathError}
+						bind:path
+						{initialPath}
+						checkInitialPathExistence={!edit}
+						namePlaceholder="kafka_trigger"
+						kind="kafka_trigger"
+						disabled={!can_write}
+					/>
+				</Label>
+			</div>
+
+			<Section label="Runnable">
+				<p class="text-xs mb-1 text-tertiary">
+					Pick a script or flow to be triggered<Required required={true} />
+				</p>
+				<div class="flex flex-row mb-2">
+					<ScriptPicker
+						disabled={fixedScriptPath != '' || !can_write}
+						initialPath={fixedScriptPath || initialScriptPath}
+						kinds={['script']}
+						allowFlow={true}
+						bind:itemKind
+						bind:scriptPath={script_path}
+						allowRefresh={can_write}
+						allowEdit={!$userStore?.operator}
+					/>
+					{#if emptyString(script_path)}
+						<Button
+							btnClasses="ml-4 mt-2"
+							color="dark"
+							size="xs"
+							href={itemKind === 'flow' ? '/flows/add?hub=65' : '/scripts/add?hub=hub%2F11635'}
+							target="_blank">Create from template</Button
+						>
+					{/if}
+				</div>
+			</Section>
+
+			<KafkaTriggersConfigSection
+				bind:args
+				bind:isValid
+				{path}
+				defaultValues={useDefaultValues() ? defaultValues : undefined}
+			/>
+		</div>
+	{/if}
+{/snippet}
