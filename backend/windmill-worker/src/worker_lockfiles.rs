@@ -1874,7 +1874,7 @@ async fn ansible_dep(
 
     let ansible_lockfile;
 
-    create_ansible_cfg(Some(&reqs), job_dir)?;
+    create_ansible_cfg(Some(&reqs), job_dir, false)?;
 
     if let Some(collections) = reqs.collections.as_ref() {
         install_galaxy_collections(

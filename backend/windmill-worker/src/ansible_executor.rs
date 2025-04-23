@@ -44,6 +44,7 @@ lazy_static::lazy_static! {
 }
 
 const NSJAIL_CONFIG_RUN_ANSIBLE_CONTENT: &str = include_str!("../nsjail/run.ansible.config.proto");
+const WINDMILL_ANSIBLE_PASSWORD_FILENAME: &str = ".windmil.ansible_vault_password_file";
 
 async fn clone_repo(
     repo: &GitRepo,
@@ -685,10 +686,16 @@ pub async fn get_git_repos_lock(
     Ok(ret)
 }
 
-pub fn create_ansible_cfg(reqs: Option<&AnsibleRequirements>, job_dir: &str) -> error::Result<()> {
+pub fn create_ansible_cfg(
+    reqs: Option<&AnsibleRequirements>,
+    job_dir: &str,
+    vault_password_file_exists: bool,
+) -> error::Result<()> {
     let mut passwords_cfg = String::new();
-    if let Some(vault_password_file) = reqs.as_ref().and_then(|r| r.vault_password_file.as_ref()) {
-        passwords_cfg.push_str(&format!("vault_password_file = {vault_password_file}\n"));
+    if vault_password_file_exists {
+        passwords_cfg.push_str(&format!(
+            "vault_password_file = {WINDMILL_ANSIBLE_PASSWORD_FILENAME}\n"
+        ));
     }
     if let Some(vault_ids) = reqs.as_ref().map(|r| &r.vault_id) {
         if !vault_ids.is_empty() {
@@ -714,21 +721,21 @@ remote_tmp={job_dir}/.ansible/tmp
     Ok(())
 }
 
-pub async fn get_git_ssh_cmd(reqs: &AnsibleRequirements, job_dir: &str, client: &AuthedClient) -> error::Result<String> {
-    let ssh_id_files = try_join_all(reqs
-        .git_ssh_identity_files
-        .iter()
-        .enumerate()
-        .map(async |(i, var_path)| -> error::Result<String> {
+pub async fn get_git_ssh_cmd(
+    reqs: &AnsibleRequirements,
+    job_dir: &str,
+    client: &AuthedClient,
+) -> error::Result<String> {
+    let ssh_id_files = try_join_all(reqs.git_ssh_identity_files.iter().enumerate().map(
+        async |(i, var_path)| -> error::Result<String> {
             let id_file_name = format!(".ssh_id_priv_{}", i);
             let loc = is_allowed_file_location(job_dir, &id_file_name)?;
 
-            let content = client
-                .get_variable_value(var_path)
-                .await
-                .map_err(|e| {
-                    error::Error::NotFound(format!("Variable {var_path} not found for git ssh id file: {e:#}"))
-                })?;
+            let content = client.get_variable_value(var_path).await.map_err(|e| {
+                error::Error::NotFound(format!(
+                    "Variable {var_path} not found for git ssh identity: {e:#}"
+                ))
+            })?;
 
             let file = write_file(job_dir, &id_file_name, &content)?;
 
@@ -742,7 +749,9 @@ pub async fn get_git_ssh_cmd(reqs: &AnsibleRequirements, job_dir: &str, client: 
                 " -i '{}'",
                 loc.to_string_lossy().replace('\'', r"'\''")
             ))
-        })).await?;
+        },
+    ))
+    .await?;
 
     let git_ssh_cmd = format!("ssh -o StrictHostKeyChecking=no{}", ssh_id_files.join(""));
     Ok(git_ssh_cmd)
@@ -947,7 +956,16 @@ pub async fn handle_ansible_job(
     )
     .await;
 
-    create_ansible_cfg(reqs.as_ref(), job_dir)?;
+    let vault_password_file_exists = match reqs.as_ref().and_then(|x| x.vault_password.as_ref()) {
+        Some(var_path) => {
+            let password = client.get_variable_value(&var_path).await?;
+            write_file(job_dir, WINDMILL_ANSIBLE_PASSWORD_FILENAME, &password)?;
+            true
+        }
+        None => false,
+    };
+
+    create_ansible_cfg(reqs.as_ref(), job_dir, vault_password_file_exists)?;
 
     let mut reserved_variables =
         get_reserved_variables(job, &client.token, conn, parent_runnable_path).await?;

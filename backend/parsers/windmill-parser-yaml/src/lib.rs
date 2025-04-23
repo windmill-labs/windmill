@@ -226,7 +226,7 @@ pub struct AnsibleRequirements {
     pub vars: Vec<(String, String)>,
     pub resources: Vec<(String, String)>,
     pub options: AnsiblePlaybookOptions,
-    pub vault_password_file: Option<String>,
+    pub vault_password: Option<String>,
     pub vault_id: Vec<String>,
     pub git_repos: Vec<GitRepo>,
     pub git_ssh_identity_files: Vec<String>,
@@ -248,7 +248,7 @@ impl Default for AnsibleRequirements {
                 flush_cache: None,
                 force_handlers: None,
             },
-            vault_password_file: None,
+            vault_password: None,
             vault_id: vec![],
             git_repos: vec![],
             git_ssh_identity_files: vec![],
@@ -367,13 +367,13 @@ pub fn parse_ansible_reqs(
                 Yaml::String(key) if key == "inventory" => {
                     ret.inventories = parse_inventories(value)?;
                 }
-                Yaml::String(key) if key == "vault_password_file" => {
+                Yaml::String(key) if key == "vault_password" => {
                     let Yaml::String(filename) = value else {
                         return Err(anyhow!(
                             "Vault Password File expects a String containing the file name"
                         ));
                     };
-                    ret.vault_password_file = Some(filename.to_string());
+                    ret.vault_password = Some(filename.to_string());
                 }
                 Yaml::String(key) if key == "vault_id" => {
                     let Yaml::Array(filenames) = value else {
