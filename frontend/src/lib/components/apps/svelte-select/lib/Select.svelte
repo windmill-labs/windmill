@@ -678,6 +678,7 @@
 			bind:value={filterText}
 			placeholder={placeholderText}
 			style={inputStyles}
+			class="!pl-0"
 		/>
 	</div>
 
@@ -781,7 +782,7 @@
 		--spinnerHeight: var(--spinner-height);
 		--spinnerWidth: var(--spinner-width);
 
-		--internal-padding: 0 0 0 16px;
+		--internal-padding: 0 0 0 12px;
 
 		border: var(--border, 1px solid #d8dbdf);
 		border-radius: var(--border-radius, 6px);
