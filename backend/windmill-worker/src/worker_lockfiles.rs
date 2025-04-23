@@ -364,44 +364,21 @@ pub async fn handle_dependency_job(
                 tracing::error!(%e, "error handling deployment metadata");
             }
 
-            let relative_imports =
-                extract_relative_imports(&script_data.code, script_path, &job.script_lang);
-            if let Some(relative_imports) = relative_imports {
-                update_script_dependency_map(
-                    &job.id,
-                    db,
-                    w_id,
-                    &parent_path,
-                    script_path,
-                    relative_imports,
-                )
-                .await?;
-                let already_visited = job
-                    .args
-                    .as_ref()
-                    .map(|x| {
-                        x.get("already_visited")
-                            .map(|v| serde_json::from_str::<Vec<String>>(v.get()).ok())
-                            .flatten()
-                    })
-                    .flatten()
-                    .unwrap_or_default();
-                if let Err(e) = trigger_dependents_to_recompute_dependencies(
-                    w_id,
-                    script_path,
-                    deployment_message,
-                    parent_path,
-                    &job.permissioned_as_email,
-                    &job.created_by,
-                    &job.permissioned_as,
-                    db,
-                    already_visited,
-                )
-                .await
-                {
-                    tracing::error!(%e, "error triggering dependents to recompute dependencies");
-                }
-            }
+            process_relative_imports(
+                db,
+                Some(job.id),
+                job.args.as_ref(),
+                &job.workspace_id,
+                script_path,
+                parent_path,
+                deployment_message,
+                &script_data.code,
+                &job.script_lang,
+                &job.permissioned_as_email,
+                &job.created_by,
+                &job.permissioned_as,
+            )
+            .await?;
 
             Ok(to_raw_value_owned(
                 json!({ "status": "Successful lock file generation", "lock": content }),
@@ -437,6 +414,58 @@ fn remove_ansi_codes(s: &str) -> String {
         static ref ANSI_REGEX: regex::Regex = regex::Regex::new(r"\x1b\[[0-9;]*[a-zA-Z]").unwrap();
     }
     ANSI_REGEX.replace_all(s, "").to_string()
+}
+
+pub async fn process_relative_imports(
+    db: &sqlx::Pool<sqlx::Postgres>,
+    job_id: Option<Uuid>,
+    args: Option<&Json<HashMap<String, Box<RawValue>>>>,
+    w_id: &str,
+    script_path: &str,
+    parent_path: Option<String>,
+    deployment_message: Option<String>,
+    code: &str,
+    script_lang: &Option<ScriptLang>,
+    permissioned_as_email: &str,
+    created_by: &str,
+    permissioned_as: &str,
+) -> error::Result<()> {
+    let relative_imports = extract_relative_imports(&code, script_path, script_lang);
+    if let Some(relative_imports) = relative_imports {
+        update_script_dependency_map(
+            &job_id.unwrap_or_else(|| Uuid::nil()),
+            db,
+            w_id,
+            &parent_path,
+            script_path,
+            relative_imports,
+        )
+        .await?;
+        let already_visited = args
+            .map(|x| {
+                x.get("already_visited")
+                    .map(|v| serde_json::from_str::<Vec<String>>(v.get()).ok())
+                    .flatten()
+            })
+            .flatten()
+            .unwrap_or_default();
+        if let Err(e) = trigger_dependents_to_recompute_dependencies(
+            w_id,
+            script_path,
+            deployment_message,
+            parent_path,
+            permissioned_as_email,
+            created_by,
+            permissioned_as,
+            db,
+            already_visited,
+        )
+        .await
+        {
+            tracing::error!(%e, "error triggering dependents to recompute dependencies");
+        }
+    }
+    Ok(())
 }
 
 async fn trigger_dependents_to_recompute_dependencies(
