@@ -674,8 +674,8 @@ async fn list_selected_job_groups(
             'kind', jb.kind,
             'script_path', jb.runnable_path,
             'latest_schema', COALESCE(
-                (SELECT DISTINCT ON (s.path) s.schema FROM script s WHERE s.path = jb.runnable_path AND jb.kind = 'script' ORDER BY s.path, s.created_at DESC),
-                (SELECT flow_version.schema FROM flow LEFT JOIN flow_version ON flow_version.id = flow.versions[array_upper(flow.versions, 1)] WHERE flow.path = jb.runnable_path AND jb.kind = 'flow')
+                (SELECT DISTINCT ON (s.path) s.schema FROM script s WHERE s.workspace_id = $1 AND s.path = jb.runnable_path AND jb.kind = 'script' ORDER BY s.path, s.created_at DESC),
+                (SELECT flow_version.schema FROM flow LEFT JOIN flow_version ON flow_version.id = flow.versions[array_upper(flow.versions, 1)] WHERE flow.workspace_id = $1 AND flow.path = jb.runnable_path AND jb.kind = 'flow')
             ),
             'schemas', ARRAY(
                 SELECT jsonb_build_object(
