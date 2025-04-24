@@ -231,7 +231,7 @@ pub struct AnsibleRequirements {
     pub vault_password: Option<String>,
     pub vault_id: Vec<String>,
     pub git_repos: Vec<GitRepo>,
-    pub git_ssh_identity_files: Vec<String>,
+    pub git_ssh_identity: Vec<String>,
 }
 
 impl Default for AnsibleRequirements {
@@ -253,7 +253,7 @@ impl Default for AnsibleRequirements {
             vault_password: None,
             vault_id: vec![],
             git_repos: vec![],
-            git_ssh_identity_files: vec![],
+            git_ssh_identity: vec![],
         }
     }
 }
@@ -407,20 +407,20 @@ pub fn parse_ansible_reqs(
                     }
                 }
                 Yaml::String(key) if key == "git_ssh_identity" => {
-                    let Yaml::Array(indentity_files) = &value else {
+                    let Yaml::Array(indentities) = &value else {
                         return Err(anyhow!(
-                            "git_ssh_identity_files expects an array of windmill variables containing ssh IDs"
+                            "git_ssh_identity expects an array of windmill variables (or secrets) containing ssh IDs"
                         ));
                     };
 
-                    for r in indentity_files {
+                    for r in indentities {
                         let Yaml::String(file_name) = r else {
                             return Err(anyhow!(
-                                "Git ssh identity file must be a string path to a Windmill variable"
+                                "Git ssh identity file must be a string path to a Windmill variable/secret"
                             ));
                         };
 
-                        ret.git_ssh_identity_files.push(file_name.clone());
+                        ret.git_ssh_identity.push(file_name.clone());
                     }
                 }
                 Yaml::String(key) => logs.push_str(&format!("\nUnknown field `{}`. Ignoring", key)),

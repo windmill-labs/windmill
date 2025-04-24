@@ -727,16 +727,17 @@ pub async fn get_git_ssh_cmd(
     job_dir: &str,
     client: &AuthedClient,
 ) -> error::Result<String> {
-    let ssh_id_files = try_join_all(reqs.git_ssh_identity_files.iter().enumerate().map(
+    let ssh_id_files = try_join_all(reqs.git_ssh_identity.iter().enumerate().map(
         async |(i, var_path)| -> error::Result<String> {
             let id_file_name = format!(".ssh_id_priv_{}", i);
             let loc = is_allowed_file_location(job_dir, &id_file_name)?;
 
-            let content = client.get_variable_value(var_path).await.map_err(|e| {
+            let mut content = client.get_variable_value(var_path).await.map_err(|e| {
                 error::Error::NotFound(format!(
                     "Variable {var_path} not found for git ssh identity: {e:#}"
                 ))
             })?;
+            content.push_str("\n");
 
             let file = write_file(job_dir, &id_file_name, &content)?;
 
