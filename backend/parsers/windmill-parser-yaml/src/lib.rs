@@ -406,17 +406,17 @@ pub fn parse_ansible_reqs(
                         );
                     }
                 }
-                Yaml::String(key) if key == "git_ssh_identity_files" => {
+                Yaml::String(key) if key == "git_ssh_identity" => {
                     let Yaml::Array(indentity_files) = &value else {
                         return Err(anyhow!(
-                            "git_ssh_identity_files expects an array of identity file names"
+                            "git_ssh_identity_files expects an array of windmill variables containing ssh IDs"
                         ));
                     };
 
                     for r in indentity_files {
                         let Yaml::String(file_name) = r else {
                             return Err(anyhow!(
-                                "Git ssh identity file must be a string defining a file name"
+                                "Git ssh identity file must be a string path to a Windmill variable"
                             ));
                         };
 
