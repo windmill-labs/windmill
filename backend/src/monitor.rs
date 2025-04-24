@@ -2200,6 +2200,7 @@ pub async fn reload_critical_alerts_on_db_oversize(conn: &DB) -> error::Result<(
     let db_oversize = if let Some(q) = db_oversize_value {
         match serde_json::from_value::<DBOversize>(q.clone()) {
             Ok(DBOversize { enabled: true, value }) => Some(value),
+            Ok(_) => None,
             Err(q) => {
                 tracing::error!(
                     "Could not parse critical_alerts_on_db_oversize setting, found: {:#?}",
@@ -2207,7 +2208,6 @@ pub async fn reload_critical_alerts_on_db_oversize(conn: &DB) -> error::Result<(
                 );
                 None
             }
-            _ => None,
         }
     } else {
         None
