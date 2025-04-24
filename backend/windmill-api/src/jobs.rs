@@ -674,14 +674,14 @@ async fn list_selected_job_groups(
             'kind', jb.kind,
             'script_path', jb.runnable_path,
             'latest_schema', COALESCE(
-                (SELECT DISTINCT ON (s.path) s.schema FROM script s WHERE s.path = jb.runnable_path AND jb.kind = 'script' ORDER BY s.path, s.created_at DESC),
-                (SELECT flow_version.schema FROM flow LEFT JOIN flow_version ON flow_version.id = flow.versions[array_upper(flow.versions, 1)] WHERE flow.path = jb.runnable_path AND jb.kind = 'flow')
+                (SELECT DISTINCT ON (s.path) s.schema FROM script s WHERE s.workspace_id = $1 AND s.path = jb.runnable_path AND jb.kind = 'script' ORDER BY s.path, s.created_at DESC),
+                (SELECT flow_version.schema FROM flow LEFT JOIN flow_version ON flow_version.id = flow.versions[array_upper(flow.versions, 1)] WHERE flow.workspace_id = $1 AND flow.path = jb.runnable_path AND jb.kind = 'flow')
             ),
             'schemas', ARRAY(
                 SELECT jsonb_build_object(
                     'script_hash', LPAD(TO_HEX(COALESCE(s.hash, f.id)), 16, '0'),
                     'job_ids', ARRAY_AGG(DISTINCT j.id),
-                    'schema', ANY_VALUE(COALESCE(s.schema, f.schema))
+                    'schema', (ARRAY_AGG(COALESCE(s.schema, f.schema)))[1]
                 ) FROM v2_job j
                 LEFT JOIN script s ON s.hash = j.runnable_id AND j.kind = 'script'
                 LEFT JOIN flow_version f ON f.id = j.runnable_id AND j.kind = 'flow'
@@ -3441,7 +3441,11 @@ async fn batch_rerun_handle_job(
             }
             InputTransform::Javascript { expr } => {
                 #[cfg(not(feature = "deno_core"))]
-                tracing::error!("deno_core feature is not activated, cannot evaluate: {expr}");
+                Err(error::Error::ExecutionErr(
+                    format!("deno_core feature is not activated, cannot evaluate: {expr}")
+                        .to_string(),
+                ))?;
+
                 #[cfg(feature = "deno_core")]
                 args.insert(
                     property_name.clone(),
@@ -4618,7 +4622,6 @@ pub async fn run_wait_result_script_by_hash(
     check_license_key_valid().await?;
 
     let args = args.to_push_args_owned(&authed, &db, &w_id).await?;
-
     check_queue_too_long(&db, run_query.queue_limit).await?;
 
     let hash = script_hash.0;
@@ -5835,7 +5838,7 @@ pub fn filter_list_completed_query(
     if let Some(label) = &lq.label {
         if lq.allow_wildcards.unwrap_or(false) {
             let wh = format!(
-                "EXISTS (SELECT 1 FROM jsonb_array_elements_text(result->'wm_labels') label WHERE label LIKE '{}')",
+                "EXISTS (SELECT 1 FROM jsonb_array_elements_text(result->'wm_labels') label WHERE jsonb_typeof(result->'wm_labels') = 'array' AND label LIKE '{}')",
                 &label.replace("*", "%").replace("'", "''")
             );
             sqlb.and_where("result ? 'wm_labels'");

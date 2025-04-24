@@ -30,6 +30,10 @@ export async function onRequest(context) {
           ?.split("token")
           .pop() ?? ""
     );
+
+    newResponse.headers.set("Cross-Origin-Resource-Policy", "cross-origin");
+    newResponse.headers.set("Cross-Origin-Opener-Policy", "same-origin");
+    newResponse.headers.set("Cross-Origin-Embedder-Policy", "require-corp");
     return newResponse;
   } catch (e) {
     return new Response(e.message, { status: 500 });

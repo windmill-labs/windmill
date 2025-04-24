@@ -9,6 +9,7 @@
 	export let error = ''
 	export let editor: SimpleEditor | undefined = undefined
 	export let small = false
+	export let loadAsync = false
 
 	$: tooBig = code && code?.length > 1000000
 
@@ -38,6 +39,7 @@
 	<div class="flex flex-col w-full">
 		<div class="border w-full">
 			<SimpleEditor
+				{loadAsync}
 				{small}
 				on:focus
 				on:blur

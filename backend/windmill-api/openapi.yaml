@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.482.0
+  version: 1.483.2
   title: Windmill API
 
   contact:
@@ -5985,6 +5985,55 @@ paths:
               schema:
                 type: string
 
+  /w/{workspace}/apps/create_raw:
+    post:
+      summary: create app raw
+      operationId: createAppRaw
+      tags:
+        - app
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        description: new app
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                app:
+                  type: object
+                  properties:
+                    path:
+                      type: string
+                    value: {}
+                    summary:
+                      type: string
+                    policy:
+                      $ref: "#/components/schemas/Policy"
+                    draft_only:
+                      type: boolean
+                    deployment_message:
+                      type: string
+                    custom_path:
+                      type: string
+                  required:
+                    - path
+                    - value
+                    - summary
+                    - policy
+                js:
+                  type: string
+                css:
+                  type: string
+      responses:
+        "201":
+          description: app created
+          content:
+            text/plain:
+              schema:
+                type: string
+
   /w/{workspace}/apps/exists/{path}:
     get:
       summary: does an app exisst at path
@@ -6335,6 +6384,49 @@ paths:
                 deployment_message:
                   type: string
                 custom_path:
+                  type: string
+      responses:
+        "200":
+          description: app updated
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/apps/update_raw/{path}:
+    post:
+      summary: update app
+      operationId: updateAppRaw
+      tags:
+        - app
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/ScriptPath"
+      requestBody:
+        description: update app
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                app:
+                  type: object
+                  properties:
+                    path:
+                      type: string
+                    summary:
+                      type: string
+                    value: {}
+                    policy:
+                      $ref: "#/components/schemas/Policy"
+                    deployment_message:
+                      type: string
+                    custom_path:
+                      type: string
+                js:
+                  type: string
+                css:
                   type: string
       responses:
         "200":
@@ -9447,7 +9539,7 @@ paths:
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/NewGcpTrigger"
+              $ref: "#/components/schemas/GcpTriggerData"
       responses:
         "201":
           description: gcp trigger created
@@ -9471,7 +9563,7 @@ paths:
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/EditGcpTrigger"
+              $ref: "#/components/schemas/GcpTriggerData"
       responses:
         "200":
           description: gcp trigger updated
@@ -14953,8 +15045,6 @@ components:
           type: string
         authenticate:
           type: boolean
-        base_endpoint:
-          type: string
       required:
         - authenticate
         - base_endpoint
@@ -14976,6 +15066,8 @@ components:
           $ref: "#/components/schemas/DeliveryType"
         delivery_config:
           $ref: "#/components/schemas/PushConfig"
+        subscription_mode:
+          $ref: "#/components/schemas/SubscriptionMode"
         last_server_ping:
           type: string
           format: date-time
@@ -14989,6 +15081,8 @@ components:
         - subscription_id
         - enabled
         - delivery_type
+        - subscription_mode
+
   
     SubscriptionMode:
       type: string
@@ -14997,55 +15091,24 @@ components:
         - create_update
       description: "The mode of subscription. 'existing' means using an existing GCP subscription, while 'create_update' involves creating or updating a new subscription."
 
-    GcpExistingSubscription:
+
+    GcpTriggerData:
       type: object
       properties:
+        gcp_resource_path:
+          type: string
+        subscription_mode:
+          $ref: "#/components/schemas/SubscriptionMode"
+        topic_id:
+          type: string
         subscription_id:
           type: string
         base_endpoint:
-          type: string
-      required:
-        - subscription_id
-        - base_endpoint
-    
-    GcpCreateUpdateSubscription:
-      type: object
-      properties:
-        subscription_id:
           type: string
         delivery_type:
           $ref: "#/components/schemas/DeliveryType"
         delivery_config:
           $ref: "#/components/schemas/PushConfig"
-      required:
-        - delivery_type
-
-
-    GcpSubscriptionModeConfig:
-      type: object
-      properties:
-        subscription_mode:
-          $ref: "#/components/schemas/SubscriptionMode"
-      required:
-        - subscription_mode
-      allOf:
-        - oneOf:
-            - $ref: "#/components/schemas/GcpExistingSubscription"
-            - $ref: "#/components/schemas/GcpCreateUpdateSubscription"
-      description: |
-        "This is a union type representing the subscription mode. 
-         - 'existing': Represents an existing GCP subscription, and should be accompanied by an 'ExistingGcpSubscription' object.
-         - 'create_update': Represents a new or updated GCP subscription, and should be accompanied by a 'CreateUpdateConfig' object."
-  
-    NewGcpTrigger:
-      type: object
-      properties:
-        gcp_resource_path:
-          type: string
-        topic_id:
-          type: string
-        subscription_mode:
-          $ref: "#/components/schemas/GcpSubscriptionModeConfig"
         path:
           type: string
         script_path:
@@ -15059,34 +15122,6 @@ components:
         - script_path
         - is_flow
         - gcp_resource_path
-        - topic_id
-        - subscription_mode
-
-    EditGcpTrigger:
-      type: object
-      properties:
-        gcp_resource_path:
-          type: string
-        topic_id:
-          type: string
-        subscription_mode:
-          $ref: "#/components/schemas/GcpSubscriptionModeConfig"
-        path:
-          type: string
-        script_path:
-          type: string
-        is_flow:
-          type: boolean
-        enabled:
-          type: boolean
-      required:
-        - path
-        - script_path
-        - is_flow
-        - enabled
-        - mqtt_resource_path
-        - subscription_id
-        - delivery_type
         - topic_id
         - subscription_mode
 
@@ -15106,6 +15141,12 @@ components:
           type: string
       required:
         - subscription_id
+
+    AwsAuthResourceType:
+      type: string
+      enum:
+        - oidc
+        - credentials
   
     SqsTrigger:
       allOf:
@@ -15114,6 +15155,8 @@ components:
       properties:
         queue_url:
           type: string
+        aws_auth_resource_type:
+          $ref: "#/components/schemas/AwsAuthResourceType"
         aws_resource_path:
           type: string
         message_attributes:
@@ -15134,12 +15177,15 @@ components:
         - queue_url
         - aws_resource_path
         - enabled
+        - aws_auth_resource_type
 
     NewSqsTrigger:
       type: object
       properties:
         queue_url:
           type: string
+        aws_auth_resource_type:
+          $ref: "#/components/schemas/AwsAuthResourceType"
         aws_resource_path:
           type: string
         message_attributes:
@@ -15160,12 +15206,15 @@ components:
         - path
         - script_path
         - is_flow
+        - aws_auth_resource_type
 
     EditSqsTrigger:
       type: object
       properties:
         queue_url:
           type: string
+        aws_auth_resource_type:
+          $ref: "#/components/schemas/AwsAuthResourceType"
         aws_resource_path:
           type: string
         message_attributes:
@@ -15187,6 +15236,7 @@ components:
         - script_path
         - is_flow
         - enabled
+        - aws_auth_resource_type
 
     Slot:
       type: object
@@ -15906,6 +15956,8 @@ components:
         execution_mode:
           type: string
           enum: [viewer, publisher, anonymous]
+        raw_app:
+          type: boolean
       required:
         - id
         - workspace_id

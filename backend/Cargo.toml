@@ -1,6 +1,6 @@
 [package]
 name = "windmill"
-version = "1.482.0"
+version = "1.483.2"
 authors.workspace = true
 edition.workspace = true
 
@@ -32,7 +32,7 @@ members = [
 ]
 
 [workspace.package]
-version = "1.482.0"
+version = "1.483.2"
 authors = ["Ruben Fiszel <ruben@windmill.dev>"]
 edition = "2021"
 
@@ -72,8 +72,9 @@ dind = ["windmill-worker/dind"]
 websocket = ["windmill-api/websocket"]
 http_trigger = ["windmill-api/http_trigger"]
 postgres_trigger = ["windmill-api/postgres_trigger"]
+mcp = ["windmill-api/mcp"]
 mqtt_trigger = ["windmill-api/mqtt_trigger"]
-sqs_trigger = ["windmill-api/sqs_trigger"]
+sqs_trigger = ["windmill-api/sqs_trigger", "windmill-common/aws_auth", "windmill-api/openidconnect"]
 gcp_trigger = ["windmill-api/gcp_trigger"]
 smtp = ["windmill-api/smtp", "windmill-common/smtp"]
 license = ["windmill-api/license"]
@@ -305,6 +306,7 @@ postgres-native-tls = "^0"
 native-tls = "^0"
 # samael will break compilation on MacOS. Use this fork instead to make it work
 # samael = { git="https://github.com/njaremko/samael", rev="464d015e3ae393e4b5dd00b4d6baa1b617de0dd6", features = ["xmlsec"] }
+libxml = { version = "=0.3.3" }
 samael = { version="0.0.14", features = ["xmlsec"] }
 gcp_auth = "0.9.0"
 rust_decimal = { version = "^1", features = ["db-postgres", "serde-float"]}

@@ -535,7 +535,6 @@
 							dispatch('format')
 						}}
 						class="flex flex-1 h-full !overflow-visible"
-						lang={scriptLangToEditorLang(lang)}
 						scriptLang={lang}
 						automaticLayout={true}
 						{fixedOverflowWidgets}

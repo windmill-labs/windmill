@@ -361,7 +361,7 @@
 			<Module.default
 				disabled={!$enterpriseLicense || !isSlackHandler(handlerPath)}
 				schema={slackHandlerSchema}
-				schemaSkippedValues={['slack']}
+				hiddenArgs={['slack']}
 				schemaFieldTooltip={{
 					channel: 'Slack channel name without the "#" - example: "windmill-alerts"'
 				}}

@@ -2,7 +2,7 @@
 	let cssClassesLoaded = $state(false)
 	let tailwindClassesLoaded = $state(false)
 
-	import '@codingame/monaco-vscode-standalone-languages'
+	// import '@codingame/monaco-vscode-standalone-languages'
 	import '@codingame/monaco-vscode-standalone-json-language-features'
 	import '@codingame/monaco-vscode-standalone-css-language-features'
 	import '@codingame/monaco-vscode-standalone-typescript-language-features'
@@ -54,6 +54,7 @@
 		type IDisposable
 	} from 'monaco-editor'
 
+
 	import { allClasses } from './apps/editor/componentsPanel/cssUtils'
 
 	import { createEventDispatcher, onDestroy, onMount } from 'svelte'
@@ -65,6 +66,7 @@
 	import { vimMode } from '$lib/stores'
 	import { initVim } from './monaco_keybindings'
 	import { buildWorkerDefinition } from '$lib/monaco_workers/build_workers'
+	import FakeMonacoPlaceHolder from './FakeMonacoPlaceHolder.svelte'
 	// import { createConfiguredEditor } from 'vscode/monaco'
 	// import type { IStandaloneCodeEditor } from 'vscode/vscode/vs/editor/standalone/browser/standaloneCodeEditor'
 
@@ -99,7 +101,8 @@
 		autofocus = false,
 		allowVim = false,
 		tailwindClasses = [],
-		class: className = ''
+		class: className = '',
+		loadAsync = false
 	} = $props<{
 		lang: string
 		code?: string
@@ -121,6 +124,7 @@
 		allowVim?: boolean
 		tailwindClasses?: string[]
 		class?: string
+		loadAsync?: boolean
 	}>()
 
 	const dispatch = createEventDispatcher()
@@ -279,6 +283,8 @@
 		}
 	})
 
+	let fontSize = $derived(small ? 12 : 14)
+
 	async function loadMonaco() {
 		await initializeVscode()
 		initialized = true
@@ -327,7 +333,7 @@
 			model,
 			lineDecorationsWidth: 6,
 			lineNumbersMinChars: 2,
-			fontSize: small ? 12 : 14,
+			fontSize: fontSize,
 			quickSuggestions: disableSuggestions
 				? { other: false, comments: false, strings: false }
 				: { other: true, comments: true, strings: true },
@@ -511,12 +517,16 @@
 
 	onMount(async () => {
 		if (BROWSER) {
-			mounted = true
-			await loadMonaco()
-			if (autofocus) {
-				setTimeout(() => {
-					focus()
+			if (loadAsync) {
+				setTimeout(async () => {
+					await loadMonaco()
+					mounted = true
+					if (autofocus) setTimeout(() => focus(), 0)
 				}, 0)
+			} else {
+				await loadMonaco()
+				mounted = true
+				if (autofocus) setTimeout(() => focus(), 0)
 			}
 		}
 	})
@@ -556,9 +566,22 @@
 		{suggestion}
 	</div>
 {/if}
+
+{#if !editor}
+	<FakeMonacoPlaceHolder
+		{code}
+		autoheight
+		lineNumbersWidth={(23 * fontSize) / 14}
+		lineNumbersOffset={fontSize == 14 ? -8 : -11}
+		{fontSize}
+	/>
+{/if}
+
 <div
 	bind:this={divEl}
-	class="relative {className} editor simple-editor {!allowVim ? 'nonmain-editor' : ''}"
+	class="relative {className} {!editor ? 'hidden' : ''} editor simple-editor {!allowVim
+		? 'nonmain-editor'
+		: ''}"
 	bind:clientWidth={width}
 >
 	{#if placeholder}

@@ -45,7 +45,7 @@
 	let postgres_resource_path = ''
 	let publication_name: string = ''
 	let replication_slot_name: string = ''
-	let relations: Relations[] = []
+	let relations: Relations[] | undefined = []
 	let transaction_to_track: string[] = []
 	let language: Language = 'Typescript'
 	let loading = false
@@ -247,11 +247,10 @@
 	}
 
 	const getTemplateScript = async () => {
-		if (relations.length === 0 || emptyString(postgres_resource_path)) {
+		if (!relations || relations.length === 0 || emptyString(postgres_resource_path)) {
 			sendUserToast('You must pick a database resource and choose at least one schema', true)
 			return
 		}
-
 		try {
 			loading = true
 			let templateId = await PostgresTriggerService.createTemplateScript({
@@ -359,7 +358,7 @@
 							allowRefresh
 						/>
 
-						{#if script_path === undefined && is_flow === false}
+						{#if emptyStringTrimmed(script_path) && is_flow === false}
 							<div class="flex">
 								<Button
 									disabled={!can_write}

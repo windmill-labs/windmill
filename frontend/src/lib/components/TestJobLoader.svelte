@@ -142,7 +142,8 @@
 					args,
 					language: lang as Preview['language'],
 					tag,
-					lock
+					lock,
+					script_hash: hash
 				}
 			})
 		)

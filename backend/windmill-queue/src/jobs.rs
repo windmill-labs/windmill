@@ -4101,6 +4101,7 @@ pub async fn push<'c, 'd>(
             } else if job_kind == JobKind::Dependencies
                 || job_kind == JobKind::FlowDependencies
                 || job_kind == JobKind::DeploymentCallback
+                || job_kind == JobKind::AppDependencies
             {
                 // using the dependency tag for deployment callback for now. We can create a separate tag when we need
                 "dependency".to_string()

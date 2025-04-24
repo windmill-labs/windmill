@@ -2,7 +2,7 @@
 	import VirtualItem from '$lib/components/flows/map/VirtualItem.svelte'
 	import NodeWrapper from './NodeWrapper.svelte'
 	import type { FlowModule, FlowStatusModule } from '$lib/gen'
-	import { getStateColor } from '../../util'
+	import { getStateColor, getStateHoverColor } from '../../util'
 	import type { GraphModuleState } from '../../model'
 	import type { GraphEventHandlers } from '../../graphBuilder'
 	import { getContext } from 'svelte'
@@ -38,9 +38,11 @@
 		return {}
 	}
 
-	function computeStatus(state: GraphModuleState | undefined): FlowStatusModule["type"] | undefined {
+	function computeStatus(
+		state: GraphModuleState | undefined
+	): FlowStatusModule['type'] | undefined {
 		if (state?.type == 'InProgress' || state?.type == 'Success' || state?.type == 'Failure') {
-			let r = state?.flow_jobs_success?.[state?.selectedForloopIndex ?? 0] 
+			let r = state?.flow_jobs_success?.[state?.selectedForloopIndex ?? 0]
 			if (r == undefined) return 'InProgress'
 			return r ? 'Success' : 'InProgress'
 		}
@@ -77,9 +79,10 @@
 		id={data.id}
 		hideId
 		bgColor={getStateColor(undefined, darkMode)}
+		bgHoverColor={getStateHoverColor(undefined, darkMode)}
 		borderColor={getStateColor(computeStatus(data.flowModuleStates?.[data.id]), darkMode)}
 		on:select={(e) => {
-			data?.eventHandlers?.select(e.detail)
+			setTimeout(() => data?.eventHandlers?.select(e.detail))
 		}}
 		inputJson={filteredInput}
 		prefix="flow_input"

@@ -1,6 +1,7 @@
 use crate::db::DB;
 use axum::Router;
 use serde::{Deserialize, Serialize};
+use windmill_common::auth::aws::AwsAuthResourceType;
 
 
 pub fn workspaced_service() -> Router {
@@ -14,6 +15,7 @@ pub fn start_sqs(_db: DB, mut _killpill_rx: tokio::sync::broadcast::Receiver<()>
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct SqsTrigger {
     pub queue_url: String,
+    pub aws_auth_resource_type: AwsAuthResourceType,
     pub aws_resource_path: String,
     pub message_attributes: Option<Vec<String>>,
     pub path: String,
