@@ -381,11 +381,10 @@ fn normalize_path(path: &Path) -> PathBuf {
     }
     ret
 }
-pub fn write_file_at_user_defined_location(
+
+pub fn is_allowed_file_location(
     job_dir: &str,
     user_defined_path: &str,
-    content: &str,
-    mode: Option<u32>,
 ) -> error::Result<PathBuf> {
     let job_dir = Path::new(job_dir);
     let user_path = PathBuf::from(user_defined_path);
@@ -404,6 +403,17 @@ pub fn write_file_at_user_defined_location(
         )
         .into());
     }
+
+    Ok(normalized_full_path)
+}
+
+pub fn write_file_at_user_defined_location(
+    job_dir: &str,
+    user_defined_path: &str,
+    content: &str,
+    mode: Option<u32>,
+) -> error::Result<PathBuf> {
+    let normalized_full_path = is_allowed_file_location(job_dir, user_defined_path)?;
 
     let full_path = normalized_full_path.as_path();
     if let Some(parent_dir) = full_path.parent() {

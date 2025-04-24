@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use anyhow::anyhow;
 use serde_json::json;
 use windmill_parser::{Arg, MainArgSignature, ObjectProperty, Typ};
@@ -208,15 +210,52 @@ pub struct AnsibleInventory {
     resource_type: Option<String>,
     pub pinned_resource: Option<String>,
 }
+
+#[derive(Debug, Clone)]
+pub struct GitRepo {
+    pub url: String,
+    pub commit: Option<String>,
+    pub branch: Option<String>,
+    pub target_path: String,
+}
+
 #[derive(Debug, Clone)]
 pub struct AnsibleRequirements {
     pub python_reqs: Vec<String>,
-    pub collections: Option<String>,
+    pub roles_and_collections: Option<String>,
     pub file_resources: Vec<FileResource>,
     pub inventories: Vec<AnsibleInventory>,
     pub vars: Vec<(String, String)>,
     pub resources: Vec<(String, String)>,
     pub options: AnsiblePlaybookOptions,
+    pub vault_password: Option<String>,
+    pub vault_id: Vec<String>,
+    pub git_repos: Vec<GitRepo>,
+    pub git_ssh_identity: Vec<String>,
+}
+
+impl Default for AnsibleRequirements {
+    fn default() -> Self {
+        Self {
+            python_reqs: vec![],
+            roles_and_collections: None,
+            file_resources: vec![],
+            inventories: vec![],
+            vars: vec![],
+            resources: vec![],
+            options: AnsiblePlaybookOptions {
+                verbosity: None,
+                forks: None,
+                timeout: None,
+                flush_cache: None,
+                force_handlers: None,
+            },
+            vault_password: None,
+            vault_id: vec![],
+            git_repos: vec![],
+            git_ssh_identity: vec![],
+        }
+    }
 }
 
 fn parse_inventories(inventory_yaml: &Yaml) -> anyhow::Result<Vec<AnsibleInventory>> {
@@ -275,22 +314,7 @@ pub fn parse_ansible_reqs(
         return Ok((logs, None, inner_content.to_string()));
     }
 
-    let opts = AnsiblePlaybookOptions {
-        verbosity: None,
-        forks: None,
-        timeout: None,
-        flush_cache: None,
-        force_handlers: None,
-    };
-    let mut ret = AnsibleRequirements {
-        python_reqs: vec![],
-        collections: None,
-        file_resources: vec![],
-        inventories: vec![],
-        vars: vec![],
-        resources: vec![],
-        options: opts,
-    };
+    let mut ret = AnsibleRequirements::default();
 
     if let Yaml::Hash(doc) = &docs[0] {
         for (key, value) in doc {
@@ -303,7 +327,7 @@ pub fn parse_ansible_reqs(
                             let mut out_str = String::new();
                             let mut emitter = YamlEmitter::new(&mut out_str);
                             emitter.dump(galaxy_requirements)?;
-                            ret.collections = Some(out_str);
+                            ret.roles_and_collections = Some(out_str);
                         }
                         if let Some(Yaml::Array(py_reqs)) =
                             deps.get(&Yaml::String("python".to_string()))
@@ -345,9 +369,58 @@ pub fn parse_ansible_reqs(
                 Yaml::String(key) if key == "inventory" => {
                     ret.inventories = parse_inventories(value)?;
                 }
+                Yaml::String(key) if key == "vault_password" => {
+                    let Yaml::String(filename) = value else {
+                        return Err(anyhow!(
+                            "Vault Password File expects a String containing the file name"
+                        ));
+                    };
+                    ret.vault_password = Some(filename.to_string());
+                }
+                Yaml::String(key) if key == "vault_id" => {
+                    let Yaml::Array(filenames) = value else {
+                        return Err(anyhow!("Vault ID field expects an array of strings in the format: `label@filename`"));
+                    };
+
+                    for f in filenames {
+                        let Yaml::String(filename) = f else {
+                            return Err(anyhow!("The elements of the vault_id field should be strings in the format: `label@filename`"));
+                        };
+                        ret.vault_id.push(filename.to_string());
+                    }
+                }
                 Yaml::String(key) if key == "options" => {
                     if let Yaml::Array(opts) = &value {
                         ret.options = parse_ansible_options(opts);
+                    }
+                }
+                Yaml::String(key) if key == "git_repos" => {
+                    let Yaml::Array(repos) = &value else {
+                        return Err(anyhow!("git_repos field expects an array of repos"));
+                    };
+
+                    for r in repos {
+                        ret.git_repos.push(
+                            parse_git_repo(r)
+                                .map_err(|e| anyhow!("Failed to parse git repo: {e}"))?,
+                        );
+                    }
+                }
+                Yaml::String(key) if key == "git_ssh_identity" => {
+                    let Yaml::Array(indentities) = &value else {
+                        return Err(anyhow!(
+                            "git_ssh_identity expects an array of windmill variables (or secrets) containing ssh IDs"
+                        ));
+                    };
+
+                    for r in indentities {
+                        let Yaml::String(file_name) = r else {
+                            return Err(anyhow!(
+                                "Git ssh identity file must be a string path to a Windmill variable/secret"
+                            ));
+                        };
+
+                        ret.git_ssh_identity.push(file_name.clone());
                     }
                 }
                 Yaml::String(key) => logs.push_str(&format!("\nUnknown field `{}`. Ignoring", key)),
@@ -362,6 +435,38 @@ pub fn parse_ansible_reqs(
         emitter.dump(&docs[i])?;
     }
     Ok((logs, Some(ret), out_str))
+}
+
+fn parse_git_repo(r: &Yaml) -> anyhow::Result<GitRepo> {
+    let Yaml::Hash(repo) = r else {
+        return Err(anyhow!("Should be a Map"));
+    };
+
+    let url = repo
+        .get(&Yaml::String("url".to_string()))
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string())
+        .ok_or(anyhow!("Expected `url` field"))?;
+
+    let target_path = repo
+        .get(&Yaml::String("target".to_string()))
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string())
+        .ok_or(anyhow!(
+            "Expected `target` field (target directory for cloning the repo)"
+        ))?;
+
+    let branch = repo
+        .get(&Yaml::String("branch".to_string()))
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
+
+    let commit = repo
+        .get(&Yaml::String("commit".to_string()))
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
+
+    Ok(GitRepo { url, commit, branch, target_path })
 }
 
 fn parse_ansible_options(opts: &Vec<Yaml>) -> AnsiblePlaybookOptions {
@@ -528,4 +633,79 @@ fn yaml_to_json(yaml: &Yaml) -> serde_json::Value {
         Yaml::Null => serde_json::Value::Null,
         _ => serde_json::Value::Null,
     }
+}
+
+fn update_versions(
+    section: &str,
+    yaml: &mut Yaml,
+    versions: &HashMap<String, String>,
+) -> anyhow::Result<String> {
+    let mut logs = String::new();
+
+    let Yaml::Hash(ref mut m) = yaml else {
+        return Err(anyhow!("{section} dependency should be a map"));
+    };
+
+    if let Some(Yaml::Array(elements)) = m.get_mut(&Yaml::String(section.to_string())) {
+        for el in elements {
+            let Yaml::Hash(ref mut h) = el else {
+                return Err(anyhow!("{section} dependency element should be a map"));
+            };
+
+            if let Some(name) = h
+                .get(&Yaml::String("name".to_string()))
+                .and_then(|n| n.as_str())
+            {
+                if let Some(version) = versions.get(name) {
+                    h.insert(
+                        Yaml::String("version".to_string()),
+                        Yaml::String(version.to_string()),
+                    );
+                } else {
+                    logs.push_str(&format!("WARNING: {section} dependency `{name}` has no locked version, using the latest or system installed version.\n"));
+                }
+            } else {
+                return Err(anyhow!(
+                    "{section} dependency element: missing or invalid `name` field"
+                ));
+            }
+        }
+    }
+
+    Ok(logs)
+}
+
+pub fn add_versions_to_requirements_yaml(
+    input: &str,
+    role_versions: &HashMap<String, String>,
+    collection_versions: &HashMap<String, String>,
+) -> anyhow::Result<(String,String)> {
+    let mut docs =
+        YamlLoader::load_from_str(input).map_err(|e| anyhow!("YAML parse error: {}", e))?;
+    let doc = &mut docs[0];
+
+    let mut logs = String::new();
+
+    logs.push_str(
+        &update_versions("roles", doc, role_versions)
+            .map_err(|e| anyhow!("Error updating role versions: {e}"))?,
+    );
+    logs.push_str(
+        &update_versions("collections", doc, collection_versions)
+            .map_err(|e| anyhow!("Error updating collection versions: {e}"))?,
+    );
+
+    if !logs.is_empty() {
+        logs.push_str("WARNING: You might want to try adding manual versions for these, otherwise there could be breaking changes on deployed scripts\n");
+    }
+
+    let mut out_str = String::new();
+    {
+        let mut emitter = YamlEmitter::new(&mut out_str);
+        emitter
+            .dump(doc)
+            .map_err(|e| anyhow!("YAML emit error: {}", e))?;
+    }
+
+    Ok((out_str, logs))
 }

@@ -3,6 +3,8 @@ use std::collections::HashMap;
 use std::fs::{create_dir_all, remove_dir_all};
 use std::path::{Component, Path, PathBuf};
 
+#[cfg(feature = "python")]
+use crate::ansible_executor::{get_git_repos_lock, AnsibleDependencyLocks};
 use async_recursion::async_recursion;
 use serde_json::value::RawValue;
 use serde_json::{json, Value};
@@ -18,6 +20,8 @@ use windmill_common::scripts::ScriptHash;
 #[cfg(feature = "python")]
 use windmill_common::worker::PythonAnnotations;
 use windmill_common::worker::{to_raw_value, to_raw_value_owned, write_file, Connection};
+#[cfg(feature = "python")]
+use windmill_parser_yaml::AnsibleRequirements;
 
 use windmill_common::{
     apps::AppScriptId,
@@ -1917,6 +1921,123 @@ async fn python_dep(
     req
 }
 
+#[cfg(feature = "python")]
+async fn ansible_dep(
+    reqs: AnsibleRequirements,
+    job_id: &Uuid,
+    mem_peak: &mut i32,
+    canceled_by: &mut Option<CanceledBy>,
+    job_dir: &str,
+    db: &sqlx::Pool<sqlx::Postgres>,
+    worker_name: &str,
+    w_id: &str,
+    worker_dir: &str,
+    occupancy_metrics: &mut OccupancyMetrics,
+    token: &str,
+    base_internal_url: &str,
+) -> std::result::Result<String, Error> {
+    use windmill_parser_yaml::add_versions_to_requirements_yaml;
+
+    use crate::{
+        ansible_executor::{
+            create_ansible_cfg, get_collection_locks, get_git_ssh_cmd, get_role_locks,
+            install_galaxy_collections,
+        },
+        AuthedClient,
+    };
+
+    let python_lockfile = python_dep(
+        reqs.python_reqs.join("\n").to_string(),
+        job_id,
+        mem_peak,
+        canceled_by,
+        job_dir,
+        db,
+        worker_name,
+        w_id,
+        worker_dir,
+        &mut Some(occupancy_metrics),
+        None,
+        PythonAnnotations::default(),
+    )
+    .await?;
+
+    let conn = &Connection::Sql(db.clone());
+
+    let authed_client = AuthedClient {
+        base_internal_url: base_internal_url.to_string(),
+        token: token.to_string(),
+        workspace: w_id.to_string(),
+        force_client: None,
+    };
+
+    let git_ssh_cmd = get_git_ssh_cmd(&reqs, job_dir, &authed_client).await?;
+
+    let git_repos = get_git_repos_lock(
+        &reqs.git_repos,
+        job_dir,
+        job_id,
+        worker_name,
+        conn,
+        mem_peak,
+        canceled_by,
+        w_id,
+        occupancy_metrics,
+        &git_ssh_cmd,
+    )
+    .await?;
+
+    let ansible_lockfile;
+
+    create_ansible_cfg(Some(&reqs), job_dir, false)?;
+
+    if let Some(collections) = reqs.roles_and_collections.as_ref() {
+        install_galaxy_collections(
+            collections,
+            job_dir,
+            job_id,
+            worker_name,
+            w_id,
+            mem_peak,
+            canceled_by,
+            conn,
+            occupancy_metrics,
+            &git_ssh_cmd,
+        )
+        .await?;
+
+        let (collection_versions, logs1) = get_collection_locks(job_dir).await?;
+
+        let (role_versions, logs2) = if collections.contains("roles:") {
+            get_role_locks(job_dir).await?
+        } else {
+            (HashMap::new(), String::new())
+        };
+
+        let (reqs_yaml, logs3) = add_versions_to_requirements_yaml(&collections, &role_versions, &collection_versions)?;
+
+        let logs = format!("\n{logs1}\n{logs2}\n{logs3}\n");
+
+        append_logs(job_id, w_id, &logs, conn).await;
+
+        ansible_lockfile = AnsibleDependencyLocks {
+            python_lockfile,
+            git_repos,
+            collections_and_roles: reqs_yaml,
+            collections_and_roles_logs: logs,
+        };
+    } else {
+        ansible_lockfile = AnsibleDependencyLocks {
+            python_lockfile,
+            git_repos,
+            collections_and_roles: String::new(),
+            collections_and_roles_logs: String::new(),
+        };
+    }
+
+    serde_json::to_string(&ansible_lockfile).map_err(|e| e.into())
+}
+
 async fn capture_dependency_job(
     job_id: &Uuid,
     job_language: &ScriptLang,
@@ -2001,10 +2122,9 @@ async fn capture_dependency_job(
                     ));
                 }
                 let (_logs, reqs, _) = windmill_parser_yaml::parse_ansible_reqs(job_raw_code)?;
-                let reqs = reqs.map(|r| r.python_reqs.join("\n")).unwrap_or_default();
 
-                python_dep(
-                    reqs,
+                ansible_dep(
+                    reqs.unwrap_or_default(),
                     job_id,
                     mem_peak,
                     canceled_by,
@@ -2013,9 +2133,9 @@ async fn capture_dependency_job(
                     worker_name,
                     w_id,
                     worker_dir,
-                    &mut Some(occupancy_metrics),
-                    None,
-                    PythonAnnotations::default(),
+                    occupancy_metrics,
+                    token,
+                    base_internal_url,
                 )
                 .await
             }

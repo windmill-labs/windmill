@@ -94,6 +94,7 @@
             oracle-instantclient
             # LSP/Local dev
             svelte-language-server
+            ansible
             taplo
           ]);
           packages = [
@@ -158,6 +159,7 @@
           ];
 
           inherit PKG_CONFIG_PATH RUSTY_V8_ARCHIVE;
+          GIT_PATH = "${pkgs.git}/bin/git";
           NODE_ENV = "development";
           NODE_OPTIONS = "--max-old-space-size=16384";
           DATABASE_URL = "postgres://postgres:changeme@127.0.0.1:5432/";
@@ -172,12 +174,14 @@
           JAVA_PATH = "${pkgs.jdk21}/bin/java";
           JAVAC_PATH = "${pkgs.jdk21}/bin/javac";
           COURSIER_PATH = "${coursier}/coursier";
-          # for related places search: ADD_NEW_LANG 
+          # for related places search: ADD_NEW_LANG
           FLOCK_PATH = "${pkgs.flock}/bin/flock";
           CARGO_PATH = "${rust}/bin/cargo";
           DOTNET_PATH = "${pkgs.dotnet-sdk_9}/bin/dotnet";
           DOTNET_ROOT = "${pkgs.dotnet-sdk_9}/share/dotnet";
           ORACLE_LIB_DIR = "${pkgs.oracle-instantclient.lib}/lib";
+          ANSIBLE_PLAYBOOK_PATH = "${pkgs.ansible}/bin/ansible-playbook";
+          ANSIBLE_GALAXY_PATH = "${pkgs.ansible}/bin/ansible-galaxy";
           RUST_LOG = "debug";
         };
         packages.default = self.packages.${system}.windmill;

@@ -931,6 +931,12 @@ inventory:
   - resource_type: ansible_inventory
     # You can pin an inventory to this script by hardcoding the resource path:
     # resource: u/user/your_resource
+# - name: hcloud.yml
+#   resource_type: dynamic_inventory
+
+options:
+  - verbosity: vvv
+
 
 # File resources will be written in the relative \`target\` location before
 # running the playbook
@@ -946,11 +952,15 @@ extra_vars:
   world_qualifier:
     type: string
 
+# If using Ansible Vault:
+# vault_password: u/user/ansible_vault_password
+
 dependencies:
   galaxy:
     collections:
       - name: community.general
       - name: community.vmware
+    roles:
   python:
     - jmespath
 ---
