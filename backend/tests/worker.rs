@@ -1811,6 +1811,66 @@ fn main(world: String) -> Result<String, String> {
     assert_eq!(result, serde_json::json!("Hello Hyrule!"));
 }
 
+#[sqlx::test(fixtures("base"))]
+async fn test_ansible_job(db: Pool<Postgres>) {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await;
+    let port = server.addr.port();
+
+    let content = r#"---
+extra_vars:
+  world_qualifier:
+    type: string
+---
+- name: Echo
+  hosts: 127.0.0.1
+  connection: local
+  vars:
+    my_result:
+      a: 2
+      b: true
+      c: "Hello"
+
+  tasks:
+  - name: Print debug message
+    debug:
+      msg: "Hello, {{world_qualifier}} world!"
+  - name: Write variable my_result to result.json
+    delegate_to: localhost
+    copy:
+      content: "{{ my_result | to_json }}"
+      dest: result.json
+"#
+    .to_owned();
+
+    let result = RunJob::from(JobPayload::Code(RawCode {
+        hash: None,
+        content,
+        path: None,
+        lock: None,
+        language: ScriptLang::Ansible,
+        custom_concurrency_key: None,
+        concurrent_limit: None,
+        concurrency_time_window_s: None,
+        cache_ttl: None,
+        dedicated_worker: None,
+    }))
+    .arg("world_qualifier", json!("beautiful"))
+    .run_until_complete(&db, port)
+    .await
+    .json_result()
+    .unwrap();
+
+    assert_eq!(
+        result,
+        serde_json::json!({
+            "a": 2,
+            "b": true,
+            "c": "Hello"
+        })
+    );
+}
+
 // #[sqlx::test(fixtures("base"))]
 // async fn test_csharp_job(db: Pool<Postgres>) {
 //     initialize_tracing().await;
@@ -3977,7 +4037,6 @@ def main():
 }
 #[sqlx::test(fixtures("base", "lockfile_python"))]
 async fn test_extra_requirements_python2(db: Pool<Postgres>) {
-
     let content = r#"
 # py311
 # extra_requirements:
@@ -3993,14 +4052,9 @@ def main():
         &db,
         content,
         ScriptLang::Python3,
-        vec![
-            "# py311",
-            "simplejson==3.20.1",
-            "tiny==0.1.3"
-        ],
+        vec!["# py311", "simplejson==3.20.1", "tiny==0.1.3"],
     )
     .await;
-    
 }
 
 #[sqlx::test(fixtures("base", "lockfile_python"))]
@@ -4029,7 +4083,7 @@ def main():
             "bottle==0.13.0",
             "microdot==2.2.0",
             "simplejson==3.19.3",
-            "tiny==0.1.3"
+            "tiny==0.1.3",
         ],
     )
     .await;
