@@ -283,7 +283,9 @@ impl Runner {
                     if let serde_json::Value::Object(prop_map) = prop_value {
                         if let Some(format_value) = prop_map.get("format") {
                             if let serde_json::Value::String(format_str) = format_value {
-                                if format_str.contains("resource") {
+                                if format_str.starts_with("resource-")
+                                    && format_str != "resource-obj"
+                                {
                                     let resource_type_key = format_str
                                         .split("-")
                                         .last()
@@ -345,11 +347,11 @@ impl Runner {
                                             resource_cache.resource_type.name,
                                             resource_cache.resource_type.description.as_deref().unwrap_or("No description"),
                                             if resources_count == 0 {
-                                                "This resource does not have any available instances, you should create one from your windmill workspace"
+                                                "This resource does not have any available instances, you should create one from your windmill workspace."
                                             } else if resources_count > 1 {
-                                                "This resource has multiple available instances, you should precisely select the one you want to use"
+                                                "This resource has multiple available instances, you should precisely select the one you want to use."
                                             } else {
-                                                "There is 1 resource available"
+                                                "There is 1 resource available."
                                             }
                                         );
                                         prop_map.insert(
@@ -358,46 +360,30 @@ impl Runner {
                                         );
 
                                         if resources_count > 0 {
-                                            let one_of_values: Vec<Value> = resource_cache
+                                            let resources_description = resource_cache
                                                 .resources
                                                 .iter()
                                                 .map(|resource| {
-                                                    serde_json::Value::Object(
-                                                        serde_json::Map::from_iter(
-                                                            [
-                                                                (
-                                                                    "const".to_string(),
-                                                                    serde_json::Value::String(
-                                                                        format!(
-                                                                            "$res:{}",
-                                                                            resource.path
-                                                                        ),
-                                                                    ),
-                                                                ),
-                                                                (
-                                                                    "title".to_string(),
-                                                                    serde_json::Value::String(
-                                                                        resource
-                                                                            .description
-                                                                            .as_deref()
-                                                                            .unwrap_or(
-                                                                                "No description",
-                                                                            )
-                                                                            .to_string(),
-                                                                    ),
-                                                                ),
-                                                            ]
-                                                            .into_iter(),
-                                                        ),
+                                                    format!(
+                                                        "{}: $res:{}",
+                                                        resource
+                                                            .description
+                                                            .as_deref()
+                                                            .unwrap_or("No title"),
+                                                        resource.path
                                                     )
                                                 })
-                                                .collect();
+                                                .collect::<Vec<String>>()
+                                                .join("\n");
+
                                             prop_map.insert(
-                                                "oneOf".to_string(),
-                                                serde_json::Value::Array(one_of_values),
+                                                "description".to_string(),
+                                                serde_json::Value::String(format!(
+                                                    "{}\nHere are the available resources, in the format title:path. Title can be empty. Path should be used to specify the resource:\n{}",
+                                                    prop_map.get("description").unwrap_or(&serde_json::Value::String("No description".to_string())),
+                                                    resources_description
+                                                )),
                                             );
-                                        } else {
-                                            prop_map.remove("oneOf"); // Remove oneOf if it exists and count is 0
                                         }
                                     }
                                 }
