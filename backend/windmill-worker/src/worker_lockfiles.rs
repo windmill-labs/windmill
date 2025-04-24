@@ -2008,7 +2008,11 @@ async fn ansible_dep(
 
         let (collection_versions, logs1) = get_collection_locks(job_dir).await?;
 
-        let (role_versions, logs2) = get_role_locks(job_dir).await?;
+        let (role_versions, logs2) = if collections.contains("roles:") {
+            get_role_locks(job_dir).await?
+        } else {
+            (HashMap::new(), String::new())
+        };
 
         let (reqs_yaml, logs3) = add_versions_to_requirements_yaml(&collections, &role_versions, &collection_versions)?;
 
