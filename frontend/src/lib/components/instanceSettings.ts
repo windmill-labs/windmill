@@ -358,7 +358,7 @@ export const settings: Record<string, Setting[]> = {
 		{
 			label: 'Alert on DB oversize',
 			key: 'critical_alerts_on_db_oversize',
-			description: 'Alert if DB grow more then specified size',
+			description: 'Alert if DB grows more than specified size',
 			fieldType: 'critical_alerts_on_db_oversize',
 			placeholder: '100',
 			storage: 'setting',
