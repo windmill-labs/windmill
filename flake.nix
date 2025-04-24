@@ -17,6 +17,7 @@
           extensions = [
             "rust-src" # for rust-analyzer
             "rust-analyzer"
+            "rustfmt"
           ];
         };
         buildInputs = with pkgs; [
@@ -179,6 +180,7 @@
           DOTNET_ROOT = "${pkgs.dotnet-sdk_9}/share/dotnet";
           ORACLE_LIB_DIR = "${pkgs.oracle-instantclient.lib}/lib";
           RUST_LOG = "debug";
+          SQLX_OFFLINE = "true";
         };
         packages.default = self.packages.${system}.windmill;
         packages.windmill-client = pkgs.buildNpmPackage {

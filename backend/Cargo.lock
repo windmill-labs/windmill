@@ -6081,7 +6081,7 @@ dependencies = [
  "js-sys",
  "log",
  "wasm-bindgen",
- "windows-core 0.57.0",
+ "windows-core 0.58.0",
 ]
 
 [[package]]
@@ -6798,7 +6798,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fc2f4eb4bc735547cfed7c0a4922cbd04a4655978c09b54f1f7b228750664c34"
 dependencies = [
  "cfg-if",
- "windows-targets 0.48.5",
+ "windows-targets 0.52.6",
 ]
 
 [[package]]
@@ -10944,6 +10944,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "56199f7ddabf13fe5074ce809e7d3f42b42ae711800501b5b16ea82ad029c39d"
 
 [[package]]
+name = "size"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1b6709c7b6754dca1311b3c73e79fcce40dd414c782c66d88e8823030093b02b"
+
+[[package]]
 name = "sketches-ddsketch"
 version = "0.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -13819,7 +13825,7 @@ dependencies = [
  "log",
  "naga",
  "once_cell",
- "parking_lot 0.11.2",
+ "parking_lot 0.12.3",
  "profiling",
  "raw-window-handle",
  "ron",
@@ -13861,7 +13867,7 @@ dependencies = [
  "ndk-sys",
  "objc",
  "once_cell",
- "parking_lot 0.11.2",
+ "parking_lot 0.12.3",
  "profiling",
  "range-alloc",
  "raw-window-handle",
@@ -13985,6 +13991,7 @@ dependencies = [
  "serde_json",
  "sha1",
  "sha2 0.10.8",
+ "size",
  "sqlx",
  "systemstat",
  "tikv-jemalloc-ctl",
@@ -14095,7 +14102,7 @@ dependencies = [
  "tokio-tungstenite",
  "tokio-util",
  "tonic",
- "tower 0.4.13",
+ "tower 0.5.2",
  "tower-cookies",
  "tower-http",
  "tracing",
@@ -14206,7 +14213,9 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2 0.10.8",
+ "size",
  "sqlx",
+ "systemstat",
  "tar",
  "tempfile",
  "thiserror 2.0.12",

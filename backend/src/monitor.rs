@@ -1,15 +1,19 @@
 #[cfg(feature = "oauth2")]
 use std::collections::HashMap;
 use std::{
-    collections::HashSet, fmt::Display, ops::Mul, str::FromStr, sync::{
+    fmt::Display,
+    ops::Mul,
+    str::FromStr,
+    sync::{
         atomic::{AtomicU16, Ordering},
         Arc, Mutex,
-    }, time::Duration
+    },
+    time::Duration,
 };
 
 use chrono::{NaiveDateTime, Utc};
 use futures::{stream::FuturesUnordered, StreamExt};
-use serde::de::DeserializeOwned;
+use serde::{de::DeserializeOwned, Deserialize};
 use sqlx::{Pool, Postgres};
 use tokio::{
     join,
@@ -25,29 +29,52 @@ use windmill_api::{
 };
 
 #[cfg(feature = "enterprise")]
-use windmill_common::ee::{jobs_waiting_alerts, worker_groups_alerts};
+use windmill_common::ee::{jobs_waiting_alerts, low_disk_alerts, worker_groups_alerts};
 
 #[cfg(feature = "oauth2")]
 use windmill_common::global_settings::OAUTH_SETTING;
 use windmill_common::{
-    utils::empty_string_as_none,
-    agent_workers::DECODED_AGENT_TOKEN, auth::create_token_for_owner, ee::CriticalErrorChannel, error, flow_status::{FlowStatus, FlowStatusModule}, global_settings::{
-        BASE_URL_SETTING, BUNFIG_INSTALL_SCOPES_SETTING, CRITICAL_ALERT_MUTE_UI_SETTING,
-        CRITICAL_ERROR_CHANNELS_SETTING, DEFAULT_TAGS_PER_WORKSPACE_SETTING,
-        DEFAULT_TAGS_WORKSPACES_SETTING, EXPOSE_DEBUG_METRICS_SETTING, EXPOSE_METRICS_SETTING,
-        EXTRA_PIP_INDEX_URL_SETTING, HUB_BASE_URL_SETTING, INSTANCE_PYTHON_VERSION_SETTING,
-        JOB_DEFAULT_TIMEOUT_SECS_SETTING, JWT_SECRET_SETTING, KEEP_JOB_DIR_SETTING,
-        LICENSE_KEY_SETTING, MONITOR_LOGS_ON_OBJECT_STORE_SETTING, NPM_CONFIG_REGISTRY_SETTING,
-        NUGET_CONFIG_SETTING, OTEL_SETTING, PIP_INDEX_URL_SETTING, REQUEST_SIZE_LIMIT_SETTING,
+    agent_workers::DECODED_AGENT_TOKEN,
+    auth::create_token_for_owner,
+    ee::CriticalErrorChannel,
+    error,
+    flow_status::{FlowStatus, FlowStatusModule},
+    global_settings::{
+        BASE_URL_SETTING, BUNFIG_INSTALL_SCOPES_SETTING, CRITICAL_ALERTS_ON_DB_OVERSIZE_SETTING,
+        CRITICAL_ALERT_MUTE_UI_SETTING, CRITICAL_ERROR_CHANNELS_SETTING,
+        DEFAULT_TAGS_PER_WORKSPACE_SETTING, DEFAULT_TAGS_WORKSPACES_SETTING,
+        EXPOSE_DEBUG_METRICS_SETTING, EXPOSE_METRICS_SETTING, EXTRA_PIP_INDEX_URL_SETTING,
+        HUB_BASE_URL_SETTING, INSTANCE_PYTHON_VERSION_SETTING, JOB_DEFAULT_TIMEOUT_SECS_SETTING,
+        JWT_SECRET_SETTING, KEEP_JOB_DIR_SETTING, LICENSE_KEY_SETTING,
+        MONITOR_LOGS_ON_OBJECT_STORE_SETTING, NPM_CONFIG_REGISTRY_SETTING, NUGET_CONFIG_SETTING,
+        OTEL_SETTING, PIP_INDEX_URL_SETTING, REQUEST_SIZE_LIMIT_SETTING,
         REQUIRE_PREEXISTING_USER_FOR_OAUTH_SETTING, RETENTION_PERIOD_SECS_SETTING,
         SAML_METADATA_SETTING, SCIM_TOKEN_SETTING, TIMEOUT_WAIT_RESULT_SETTING,
-    }, indexer::load_indexer_config, jobs::QueuedJob, jwt::JWT_SECRET, oauth2::REQUIRE_PREEXISTING_USER_FOR_OAUTH, server::load_smtp_config, tracing_init::JSON_FMT, users::truncate_token, utils::{now_from_db, rd_string, report_critical_error, Mode}, worker::{
-        load_worker_config, reload_custom_tags_setting, store_pull_query, store_suspended_pull_query, update_min_version, Connection, DEFAULT_TAGS_PER_WORKSPACE, DEFAULT_TAGS_WORKSPACES, INDEXER_CONFIG, SCRIPT_TOKEN_EXPIRY, SMTP_CONFIG, TMP_DIR, WORKER_CONFIG, WORKER_GROUP
-    }, KillpillSender, BASE_URL, CRITICAL_ALERT_MUTE_UI_ENABLED, CRITICAL_ERROR_CHANNELS, DB, DEFAULT_HUB_BASE_URL, HUB_BASE_URL, JOB_RETENTION_SECS, METRICS_DEBUG_ENABLED, METRICS_ENABLED, MONITOR_LOGS_ON_OBJECT_STORE, OTEL_LOGS_ENABLED, OTEL_METRICS_ENABLED, OTEL_TRACING_ENABLED, SERVICE_LOG_RETENTION_SECS,
+    },
+    indexer::load_indexer_config,
+    jobs::QueuedJob,
+    jwt::JWT_SECRET,
+    oauth2::REQUIRE_PREEXISTING_USER_FOR_OAUTH,
+    server::load_smtp_config,
+    tracing_init::JSON_FMT,
+    users::truncate_token,
+    utils::{empty_string_as_none, now_from_db, rd_string, report_critical_error, Mode},
+    worker::{
+        load_worker_config, reload_custom_tags_setting, store_pull_query,
+        store_suspended_pull_query, update_min_version, Connection, DEFAULT_TAGS_PER_WORKSPACE,
+        DEFAULT_TAGS_WORKSPACES, INDEXER_CONFIG, SCRIPT_TOKEN_EXPIRY, SMTP_CONFIG, TMP_DIR,
+        WORKER_CONFIG, WORKER_GROUP,
+    },
+    KillpillSender, BASE_URL, CRITICAL_ALERTS_ON_DB_OVERSIZE, CRITICAL_ALERT_MUTE_UI_ENABLED,
+    CRITICAL_ERROR_CHANNELS, DB, DEFAULT_HUB_BASE_URL, HUB_BASE_URL, JOB_RETENTION_SECS,
+    METRICS_DEBUG_ENABLED, METRICS_ENABLED, MONITOR_LOGS_ON_OBJECT_STORE, OTEL_LOGS_ENABLED,
+    OTEL_METRICS_ENABLED, OTEL_TRACING_ENABLED, SERVICE_LOG_RETENTION_SECS,
 };
 use windmill_queue::{cancel_job, MiniPulledJob, SameWorkerPayload};
 use windmill_worker::{
-    handle_job_error, AuthedClient, JobCompletedSender,  SameWorkerSender, BUNFIG_INSTALL_SCOPES, INSTANCE_PYTHON_VERSION, JOB_DEFAULT_TIMEOUT, KEEP_JOB_DIR, MAVEN_REPOS, NO_DEFAULT_MAVEN, NPM_CONFIG_REGISTRY, NUGET_CONFIG, PIP_EXTRA_INDEX_URL, PIP_INDEX_URL
+    handle_job_error, AuthedClient, JobCompletedSender, SameWorkerSender, BUNFIG_INSTALL_SCOPES,
+    INSTANCE_PYTHON_VERSION, JOB_DEFAULT_TIMEOUT, KEEP_JOB_DIR, MAVEN_REPOS, NO_DEFAULT_MAVEN,
+    NPM_CONFIG_REGISTRY, NUGET_CONFIG, PIP_EXTRA_INDEX_URL, PIP_INDEX_URL,
 };
 
 #[cfg(feature = "parquet")]
@@ -131,7 +158,6 @@ pub async fn initial_load(
         }
     }
 
-    
     if let Err(e) = load_metrics_enabled(conn).await {
         tracing::error!("Error loading expose metrics: {e:#}");
     }
@@ -157,6 +183,12 @@ pub async fn initial_load(
     if server_mode {
         if let Some(db) = conn.as_sql() {
             load_require_preexisting_user(db).await;
+            if let Err(e) = reload_critical_alerts_on_db_oversize(db).await {
+                tracing::error!(
+                    "Error reloading critical alerts on db oversize setting: {:?}",
+                    e
+                )
+            }
         }
     }
 
@@ -186,7 +218,6 @@ pub async fn initial_load(
         if let Err(e) = reload_custom_tags_setting(db).await {
             tracing::error!("Error reloading custom tags: {:?}", e)
         }
-
     }
 
     #[cfg(feature = "parquet")]
@@ -1171,7 +1202,6 @@ pub async fn load_value_from_global_settings(
     Ok(r)
 }
 
-
 pub async fn load_value_from_global_settings_with_conn(
     conn: &Connection,
     setting_name: &str,
@@ -1302,7 +1332,7 @@ pub async fn monitor_db(
     conn: &Connection,
     base_internal_url: &str,
     server_mode: bool,
-    _worker_mode: bool,
+    worker_mode: bool,
     initial_load: bool,
     _killpill_tx: KillpillSender,
 ) {
@@ -1361,6 +1391,19 @@ pub async fn monitor_db(
         }
     };
 
+    let low_disk_alerts_f = async {
+        #[cfg(feature = "enterprise")]
+        if let Some(db) = conn.as_sql() {
+            low_disk_alerts(
+                &db,
+                server_mode,
+                worker_mode,
+                WORKERS_NAMES.read().await.clone(),
+            )
+            .await;
+        }
+    };
+
     let apply_autoscaling_f = async {
         #[cfg(feature = "enterprise")]
         if server_mode && !initial_load {
@@ -1383,6 +1426,7 @@ pub async fn monitor_db(
         verify_license_key_f,
         worker_groups_alerts_f,
         jobs_waiting_alerts_f,
+        low_disk_alerts_f,
         apply_autoscaling_f,
         update_min_worker_version_f,
     );
@@ -2069,95 +2113,12 @@ async fn cancel_zombie_flow_job(
     Ok(())
 }
 
-pub async fn monitor_disk_usage(conn: &Connection) {
-    use systemstat::*;
-    use windmill_common::worker::*;
-    lazy_static::lazy_static! {
-        static ref SYSTEM: System = System::new();
-        static ref DEF_MIN_SPACE: u64 = 15_000;
-        static ref MIN_FREE_DISK_SPACE_MB: u64 =
-        std::env::var("MIN_FREE_DISK_SPACE_MB").map(|v| v.parse::<u64>().unwrap_or(*DEF_MIN_SPACE)).unwrap_or(*DEF_MIN_SPACE);
-        static ref DEF_FREQ: u64 = 60;
-        static ref CHECK_FREQ: u64 =
-        std::env::var("DISK_SPACE_CHECK_FREQ").map(|v| v.parse::<u64>().unwrap_or(*DEF_FREQ)).unwrap_or(*DEF_FREQ);
-        static ref REPORTED_DISKS: RwLock<HashSet<String>> = RwLock::new(HashSet::new());
-        static ref REPORTED_CANNOT_READ: RwLock<bool> = RwLock::new(false);
-    }
-
-    let Some(db) = conn.as_sql() else {
-        return;
-    };
-
-    #[cfg(windows)]
-    let cwd = std::env::current_dir().unwrap_or("C:\\".into());
-    match SYSTEM.mounts() {
-        Ok(fss) => {
-            for Filesystem { avail, fs_mounted_on, .. } in fss
-                .into_iter()
-                .filter(|fs| {
-                    #[cfg(not(windows))]
-                    return matches!(
-                        fs.fs_mounted_on.as_str(),
-                        "/" | ROOT_CACHE_DIR | ROOT_CACHE_NOMOUNT_DIR | TMP_LOGS_DIR
-                    );
-
-                    #[cfg(windows)]
-                    // We don't actually need entire path to cwd
-                    // our point of interest is only drive letter
-                    return cwd.starts_with(fs.fs_mounted_on.as_str());
-                })
-                .collect::<Vec<Filesystem>>()
-            {
-                let tag = format!(
-                    "Disk mounted on `{}` is low, {} available. Worker(s): {}",
-                    &fs_mounted_on,
-                    avail,
-                    WORKERS_NAMES.read().await.join(" ")
-                );
-
-                {
-                    let mut reported_cannot_read = REPORTED_CANNOT_READ.write().await;
-                    *reported_cannot_read = false;
-                }
-
-                let is_reported = REPORTED_DISKS.read().await.contains(&fs_mounted_on);
-
-                if avail < ByteSize::mb(*MIN_FREE_DISK_SPACE_MB) {
-                    if !is_reported {
-                        windmill_common::utils::report_critical_error(
-                            tag,
-                            db.clone(),
-                            Some("admins"),
-                            None,
-                        )
-                        .await;
-                    }
-                    REPORTED_DISKS.write().await.insert(fs_mounted_on);
-                } else if is_reported {
-                    REPORTED_DISKS.write().await.remove(&fs_mounted_on);
-                }
-            }
-        }
-        Err(e) => {
-            if !*REPORTED_CANNOT_READ.read().await{
-                let tag = format!("Cannot read disk usage: {e}\n\nTracking of available disk space is not possible until issue is resolved.");
-                windmill_common::utils::report_critical_error(
-                    tag,
-                    db.clone(),
-                    Some("admins"),
-                    None,
-                )
-                .await;
-                let mut is_reported= REPORTED_CANNOT_READ.write().await;
-                *is_reported = true;
-            }
-        }
-    }
-}
-
-pub async fn reload_hub_base_url_setting(conn: &Connection, server_mode: bool) -> error::Result<()> {
-    let hub_base_url = load_value_from_global_settings_with_conn(conn, HUB_BASE_URL_SETTING, true).await?;
-
+pub async fn reload_hub_base_url_setting(
+    conn: &Connection,
+    server_mode: bool,
+) -> error::Result<()> {
+    let hub_base_url =
+        load_value_from_global_settings_with_conn(conn, HUB_BASE_URL_SETTING, true).await?;
 
     let base_url = if let Some(q) = hub_base_url {
         if let Ok(v) = serde_json::from_value::<String>(q.clone()) {
@@ -2220,6 +2181,39 @@ pub async fn reload_critical_error_channels_setting(conn: &DB) -> error::Result<
 
     let mut l = CRITICAL_ERROR_CHANNELS.write().await;
     *l = critical_error_channels;
+
+    Ok(())
+}
+
+pub async fn reload_critical_alerts_on_db_oversize(conn: &DB) -> error::Result<()> {
+    #[derive(Deserialize)]
+    struct DBOversize {
+        enabled: bool,
+        value: f32,
+    }
+    let db_oversize_value =
+        load_value_from_global_settings(conn, CRITICAL_ALERTS_ON_DB_OVERSIZE_SETTING).await?;
+
+    let db_oversize = if let Some(q) = db_oversize_value {
+        match serde_json::from_value::<DBOversize>(q.clone()) {
+            Ok(DBOversize { enabled, value }) if enabled => Some(value),
+            Err(q) => {
+                tracing::error!(
+                    "Could not parse critical_alerts_on_db_oversize setting, found: {:#?}",
+                    &q
+                );
+                None
+            }
+            _ => None,
+        }
+    } else {
+        None
+    };
+
+    dbg!(&db_oversize);
+
+    let mut l = CRITICAL_ALERTS_ON_DB_OVERSIZE.write().await;
+    *l = db_oversize;
 
     Ok(())
 }
