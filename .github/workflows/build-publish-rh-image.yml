@@ -64,7 +64,7 @@ jobs:
           platforms: linux/amd64
           push: true
           build-args: |
-            features=enterprise,enterprise_saml,stripe,embedding,parquet,prometheus,openidconnect,cloud,jemalloc,license,otel,http_trigger,zip,oauth2,kafka,sqs_trigger,nats,postgres_trigger,gcp_trigger,mqtt_trigger,websocket,smtp,static_frontend,all_languages,deno_core
+            features=enterprise,enterprise_saml,stripe,embedding,parquet,prometheus,openidconnect,cloud,jemalloc,license,otel,http_trigger,zip,oauth2,kafka,sqs_trigger,nats,postgres_trigger,gcp_trigger,mqtt_trigger,websocket,smtp,static_frontend,all_languages,deno_core,mcp
           secrets: |
             rh_username=${{ secrets.RH_USERNAME }}
             rh_password=${{ secrets.RH_PASSWORD }}
@@ -81,7 +81,7 @@ jobs:
           platforms: linux/arm64
           push: true
           build-args: |
-            features=enterprise,enterprise_saml,stripe,embedding,parquet,prometheus,openidconnect,cloud,jemalloc,license,otel,http_trigger,zip,oauth2,kafka,sqs_trigger,nats,postgres_trigger,gcp_trigger,mqtt_trigger,websocket,smtp,static_frontend,all_languages,deno_core
+            features=enterprise,enterprise_saml,stripe,embedding,parquet,prometheus,openidconnect,cloud,jemalloc,license,otel,http_trigger,zip,oauth2,kafka,sqs_trigger,nats,postgres_trigger,gcp_trigger,mqtt_trigger,websocket,smtp,static_frontend,all_languages,deno_core,mcp
           secrets: |
             rh_username=${{ secrets.RH_USERNAME }}
             rh_password=${{ secrets.RH_PASSWORD }}
