@@ -12,13 +12,14 @@ use rmcp::{
     service::{RequestContext, RoleServer},
     Error,
 };
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use serde_json::Value;
 use sql_builder::prelude::*;
 use sqlx::FromRow;
 use tokio::try_join;
 use tokio_util::sync::CancellationToken;
 use windmill_common::db::UserDB;
+use windmill_common::scripts::Schema;
 use windmill_common::worker::to_raw_value;
 use windmill_common::DB;
 
@@ -31,43 +32,20 @@ use windmill_common::utils::StripPath;
 #[derive(Clone)]
 pub struct Runner {}
 
-#[derive(Serialize, Deserialize, Debug, Clone, Default)]
-struct Schema {
-    #[serde(default)]
-    properties: HashMap<String, SchemaProperty>,
-    #[serde(flatten)]
-    other: HashMap<String, Value>,
-}
-
-#[derive(Serialize, Deserialize, Debug, Clone, Default)]
-struct SchemaProperty {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    format: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    description: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    r#type: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    #[allow(non_snake_case)]
-    oneOf: Option<Vec<Value>>,
-    #[serde(flatten)]
-    other: HashMap<String, Value>,
-}
-
 #[derive(Serialize, FromRow)]
 struct ScriptInfo {
     path: String,
-    summary: Option<String>,
-    description: Option<String>,
-    schema: Option<Value>,
+    summary: String,
+    description: String,
+    schema: Schema,
 }
 
 #[derive(Serialize, FromRow, Debug)]
 struct FlowInfo {
     path: String,
-    summary: Option<String>,
-    description: Option<String>,
-    schema: Option<Value>,
+    summary: String,
+    description: String,
+    schema: Schema,
 }
 
 #[derive(Serialize, FromRow, Debug)]
@@ -286,111 +264,162 @@ impl Runner {
     }
 
     async fn transform_schema_for_resources(
-        schema: &mut Schema,
+        schema: &Schema,
         user_db: &UserDB,
         authed: &ApiAuthed,
         w_id: &str,
         resources_info: &mut HashMap<String, ResourceCache>,
-    ) -> Result<(), Error> {
-        for (_key, prop) in schema.properties.iter_mut() {
-            if let Some(format) = &prop.format {
-                if format.contains("resource") {
-                    let resource_type_key =
-                        format.split("-").last().unwrap_or_default().to_string();
+    ) -> Result<serde_json::Value, Error> {
+        let mut schema_obj: serde_json::Value = match serde_json::from_str(schema.0.get()) {
+            Ok(val) => val,
+            Err(_) => serde_json::Value::Object(serde_json::Map::new()), // Default if JSON is empty/invalid
+        };
 
-                    if !resources_info.contains_key(&resource_type_key) {
-                        let fetch_result = async {
-                            let resource_type_info_future = Runner::inner_get_resource_type_info(
-                                user_db,
-                                authed,
-                                &w_id,
-                                &resource_type_key,
-                            );
-                            let resources_data_future = Runner::inner_get_resources(
-                                user_db,
-                                authed,
-                                &w_id,
-                                &resource_type_key,
-                            );
-                            let (resource_type_info, resources_data) =
-                                try_join!(resource_type_info_future, resources_data_future)?;
-                            Ok::<_, Error>(ResourceCache {
-                                resource_type: resource_type_info,
-                                resources: resources_data,
-                            })
-                        }
-                        .await;
+        if let serde_json::Value::Object(schema_map) = &mut schema_obj {
+            if let Some(serde_json::Value::Object(properties_map)) =
+                schema_map.get_mut("properties")
+            {
+                for (_key, prop_value) in properties_map.iter_mut() {
+                    if let serde_json::Value::Object(prop_map) = prop_value {
+                        if let Some(format_value) = prop_map.get("format") {
+                            if let serde_json::Value::String(format_str) = format_value {
+                                if format_str.contains("resource") {
+                                    let resource_type_key = format_str
+                                        .split("-")
+                                        .last()
+                                        .unwrap_or_default()
+                                        .to_string();
 
-                        match fetch_result {
-                            Ok(cache_data) => {
-                                resources_info.insert(resource_type_key.clone(), cache_data);
+                                    if !resources_info.contains_key(&resource_type_key) {
+                                        let fetch_result = async {
+                                            let resource_type_info_future =
+                                                Runner::inner_get_resource_type_info(
+                                                    user_db,
+                                                    authed,
+                                                    &w_id,
+                                                    &resource_type_key,
+                                                );
+                                            let resources_data_future = Runner::inner_get_resources(
+                                                user_db,
+                                                authed,
+                                                &w_id,
+                                                &resource_type_key,
+                                            );
+                                            let (resource_type_info, resources_data) = try_join!(
+                                                resource_type_info_future,
+                                                resources_data_future
+                                            )?;
+                                            Ok::<_, Error>(ResourceCache {
+                                                resource_type: resource_type_info,
+                                                resources: resources_data,
+                                            })
+                                        }
+                                        .await;
+
+                                        match fetch_result {
+                                            Ok(cache_data) => {
+                                                resources_info
+                                                    .insert(resource_type_key.clone(), cache_data);
+                                            }
+                                            Err(e) => {
+                                                tracing::error!(
+                                                    "Failed to fetch resource cache data: {}",
+                                                    e
+                                                );
+                                                continue; // Skip this property if fetching failed
+                                            }
+                                        }
+                                    }
+
+                                    if let Some(resource_cache) =
+                                        resources_info.get(&resource_type_key)
+                                    {
+                                        let resources_count = resource_cache.resources.len();
+
+                                        prop_map.insert(
+                                            "type".to_string(),
+                                            serde_json::Value::String("string".to_string()),
+                                        );
+                                        let description = format!(
+                                            "This is a resource named {} with the following description: {}.\nThe path of the resource should be used to specify the resource.\n{}",
+                                            resource_cache.resource_type.name,
+                                            resource_cache.resource_type.description.as_deref().unwrap_or("No description"),
+                                            if resources_count == 0 {
+                                                "This resource does not have any available instances, you should create one from your windmill workspace"
+                                            } else if resources_count > 1 {
+                                                "This resource has multiple available instances, you should precisely select the one you want to use"
+                                            } else {
+                                                "There is 1 resource available"
+                                            }
+                                        );
+                                        prop_map.insert(
+                                            "description".to_string(),
+                                            serde_json::Value::String(description),
+                                        );
+
+                                        if resources_count > 0 {
+                                            let one_of_values: Vec<Value> = resource_cache
+                                                .resources
+                                                .iter()
+                                                .map(|resource| {
+                                                    serde_json::Value::Object(
+                                                        serde_json::Map::from_iter(
+                                                            [
+                                                                (
+                                                                    "const".to_string(),
+                                                                    serde_json::Value::String(
+                                                                        format!(
+                                                                            "$res:{}",
+                                                                            resource.path
+                                                                        ),
+                                                                    ),
+                                                                ),
+                                                                (
+                                                                    "title".to_string(),
+                                                                    serde_json::Value::String(
+                                                                        resource
+                                                                            .description
+                                                                            .as_deref()
+                                                                            .unwrap_or(
+                                                                                "No description",
+                                                                            )
+                                                                            .to_string(),
+                                                                    ),
+                                                                ),
+                                                            ]
+                                                            .into_iter(),
+                                                        ),
+                                                    )
+                                                })
+                                                .collect();
+                                            prop_map.insert(
+                                                "oneOf".to_string(),
+                                                serde_json::Value::Array(one_of_values),
+                                            );
+                                        } else {
+                                            prop_map.remove("oneOf"); // Remove oneOf if it exists and count is 0
+                                        }
+                                    }
+                                }
                             }
-                            Err(e) => {
-                                tracing::error!("Failed to fetch resource cache data: {}", e);
-                                return Err(e);
-                            }
-                        }
-                    }
-
-                    if let Some(resource_cache) = resources_info.get(&resource_type_key) {
-                        let resources_count = resource_cache.resources.len();
-
-                        prop.r#type = Some("string".to_string());
-                        prop.description = Some(format!(
-                            "This is a resource named {} with the following description: {}.\nThe path of the resource should be used to specify the resource.\n{}",
-                            resource_cache.resource_type.name,
-                            resource_cache.resource_type.description.as_deref().unwrap_or("No description"),
-                            if resources_count == 0 {
-                                "This resource does not have any available instances, you should create one from your windmill workspace"
-                            } else if resources_count > 1 {
-                                "This resource has multiple available instances, you should precisely select the one you want to use"
-                            } else {
-                                "There is 1 resource available"
-                            }
-                        ));
-
-                        if resources_count > 0 {
-                            prop.oneOf = Some(
-                                resource_cache
-                                    .resources
-                                    .iter()
-                                    .map(|resource| {
-                                        serde_json::Value::Object(serde_json::Map::from_iter(
-                                            [
-                                                (
-                                                    "const".to_string(),
-                                                    serde_json::Value::String(format!(
-                                                        "$res:{}",
-                                                        resource.path.clone()
-                                                    )),
-                                                ),
-                                                (
-                                                    "title".to_string(),
-                                                    serde_json::Value::String(
-                                                        resource
-                                                            .description
-                                                            .as_deref()
-                                                            .unwrap_or("No description")
-                                                            .to_string(),
-                                                    ),
-                                                ),
-                                            ]
-                                            .into_iter(),
-                                        ))
-                                    })
-                                    .collect(),
-                            );
                         }
                     } else {
-                        tracing::error!(
-                            "Resource cache entry unexpectedly missing for key: {}",
-                            resource_type_key
+                        tracing::warn!(
+                            "Schema property value is not a JSON object: {:?}",
+                            prop_value
                         );
                     }
                 }
+            } else {
+                tracing::info!(
+                    "Schema does not contain a 'properties' object or it's not an object."
+                );
             }
+        } else {
+            tracing::warn!("Top-level schema value is not a JSON object.");
         }
-        Ok(())
+
+        Ok(schema_obj)
     }
 }
 
@@ -425,7 +454,6 @@ impl ServerHandler for Runner {
 
         let (tool_type, path) = Runner::reverse_transform(&request.name).unwrap_or_default();
 
-        // Convert Value to PushArgsOwned
         let push_args = if let Value::Object(map) = args.clone() {
             let mut args_hash = HashMap::new();
             for (k, v) in map {
@@ -468,7 +496,6 @@ impl ServerHandler for Runner {
 
         match result {
             Ok(response) => {
-                // Extract the response body as bytes, then convert to a string
                 let body_bytes = to_bytes(response.into_body(), usize::MAX)
                     .await
                     .map_err(|e| {
@@ -516,14 +543,11 @@ impl ServerHandler for Runner {
             let name = Runner::transform_path(&script.path, "script").unwrap_or_default();
             let description = format!(
                 "This is a script named {} with the following description: {}.",
-                script.summary.unwrap_or_default(),
-                script.description.unwrap_or_default()
+                script.summary, script.description
             );
-            let mut schema: Schema = script.schema.map_or_else(Schema::default, |v| {
-                serde_json::from_value(v).unwrap_or_default()
-            });
-            Runner::transform_schema_for_resources(
-                &mut schema,
+            let schema: Schema = script.schema;
+            let schema_obj = Runner::transform_schema_for_resources(
+                &schema,
                 user_db,
                 authed,
                 &workspace_id,
@@ -534,8 +558,7 @@ impl ServerHandler for Runner {
                 name: Cow::Owned(name),
                 description: Some(Cow::Owned(description)),
                 input_schema: {
-                    let value = serde_json::to_value(schema).unwrap_or_default();
-                    if let serde_json::Value::Object(map) = value {
+                    if let serde_json::Value::Object(map) = schema_obj {
                         Arc::new(map)
                     } else {
                         Arc::new(serde_json::Map::new())
@@ -550,14 +573,11 @@ impl ServerHandler for Runner {
             let name = Runner::transform_path(&flow.path, "flow").unwrap_or_default();
             let description = format!(
                 "This is a flow named {} with the following description: {}.",
-                flow.summary.unwrap_or_default(),
-                flow.description.unwrap_or_default()
+                flow.summary, flow.description
             );
-            let mut schema: Schema = flow.schema.map_or_else(Schema::default, |v| {
-                serde_json::from_value(v).unwrap_or_default()
-            });
-            Runner::transform_schema_for_resources(
-                &mut schema,
+            let schema: Schema = flow.schema;
+            let schema_obj = Runner::transform_schema_for_resources(
+                &schema,
                 user_db,
                 authed,
                 &workspace_id,
@@ -568,8 +588,7 @@ impl ServerHandler for Runner {
                 name: Cow::Owned(name),
                 description: Some(Cow::Owned(description)),
                 input_schema: {
-                    let value = serde_json::to_value(schema).unwrap_or_default();
-                    if let serde_json::Value::Object(map) = value {
+                    if let serde_json::Value::Object(map) = schema_obj {
                         Arc::new(map)
                     } else {
                         Arc::new(serde_json::Map::new())
