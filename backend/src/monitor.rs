@@ -1332,7 +1332,10 @@ pub async fn monitor_db(
     conn: &Connection,
     base_internal_url: &str,
     server_mode: bool,
+    #[cfg(feature = "enterprise")]
     worker_mode: bool,
+    #[cfg(not(feature = "enterprise"))]
+    _worker_mode: bool,
     initial_load: bool,
     _killpill_tx: KillpillSender,
 ) {
