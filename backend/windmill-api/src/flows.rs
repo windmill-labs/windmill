@@ -1452,7 +1452,9 @@ mod tests {
               },
               "stop_after_if": {
                   "expr": "foo = 'bar'",
-                  "skip_if_stopped": false
+                  "skip_if_stopped": false,
+                  "raise_error_message": null,
+                  "message": null
               }
             },
             {
@@ -1474,6 +1476,8 @@ mod tests {
               "stop_after_if": {
                   "expr": "previous.isEmpty()",
                   "skip_if_stopped": false,
+                  "raise_error_message": null,
+                  "message": null
               }
             }
           ],
@@ -1486,7 +1490,9 @@ mod tests {
             },
             "stop_after_if": {
                 "expr": "previous.isEmpty()",
-                "skip_if_stopped": false
+                "skip_if_stopped": false,
+                "raise_error_message": null,
+                "message": null
             }
           },
         });
