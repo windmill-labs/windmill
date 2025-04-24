@@ -112,7 +112,9 @@
 								size="xs"
 								bind:checked={flowModule.stop_after_if.raise_error_message}
 								options={{
-									right: 'Raise an error message if stopped'
+									right: 'Raise an error message if stopped',
+									rightTooltip:
+										'If enabled and the stop condition is met, an error message will be raised. A custom message can be provided; otherwise, a default message will be used.'
 								}}
 							/>
 						</div>
@@ -121,7 +123,7 @@
 						<input
 							type="text"
 							bind:value={flowModule.stop_after_if.message}
-							placeholder="Enter the error message to raise if the stop condition is met. If left empty, a default message will be used."
+							placeholder="Enter custom error message (optional)"
 						/>
 					{/if}
 					<span class="mt-2 text-xs font-bold">Stop condition expression</span>
@@ -225,7 +227,9 @@
 								size="xs"
 								bind:checked={flowModule.stop_after_all_iters_if.raise_error_message}
 								options={{
-									right: 'Raise an error message if stopped'
+									right: 'Raise an error message if stopped',
+									rightTooltip:
+										'If enabled and the stop condition is met, an error message will be raised. A custom message can be provided; otherwise, a default message will be used.'
 								}}
 							/>
 						</div>
@@ -234,7 +238,7 @@
 						<input
 							type="text"
 							bind:value={flowModule.stop_after_all_iters_if.message}
-							placeholder="Enter the error message to raise if the stop condition is met. If left empty, a default message will be used."
+							placeholder="Enter custom error message (optional)"
 						/>
 					{/if}
 					<span class="mt-2 text-xs font-bold">Stop condition expression</span>
