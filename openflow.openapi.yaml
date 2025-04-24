@@ -97,7 +97,7 @@ components:
         expr:
           type: string
         raise_error_message:
-          type: bool
+          type: boolean
         message:
           type: string
       required:
