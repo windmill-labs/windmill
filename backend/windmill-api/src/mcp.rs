@@ -336,7 +336,6 @@ impl Runner {
                                     {
                                         let resources_count = resource_cache.resources.len();
 
-                                        // Update the property map directly
                                         prop_map.insert(
                                             "type".to_string(),
                                             serde_json::Value::String("string".to_string()),
@@ -455,7 +454,6 @@ impl ServerHandler for Runner {
 
         let (tool_type, path) = Runner::reverse_transform(&request.name).unwrap_or_default();
 
-        // Convert Value to PushArgsOwned
         let push_args = if let Value::Object(map) = args.clone() {
             let mut args_hash = HashMap::new();
             for (k, v) in map {
@@ -498,7 +496,6 @@ impl ServerHandler for Runner {
 
         match result {
             Ok(response) => {
-                // Extract the response body as bytes, then convert to a string
                 let body_bytes = to_bytes(response.into_body(), usize::MAX)
                     .await
                     .map_err(|e| {
@@ -561,12 +558,10 @@ impl ServerHandler for Runner {
                 name: Cow::Owned(name),
                 description: Some(Cow::Owned(description)),
                 input_schema: {
-                    // Directly use the returned Value
                     if let serde_json::Value::Object(map) = schema_obj {
                         Arc::new(map)
                     } else {
-                         tracing::warn!("Schema for script {} was not a valid JSON object after transformation, using empty schema.", script.path);
-                         Arc::new(serde_json::Map::new())
+                        Arc::new(serde_json::Map::new())
                     }
                 },
                 annotations: None,
@@ -580,9 +575,9 @@ impl ServerHandler for Runner {
                 "This is a flow named {} with the following description: {}.",
                 flow.summary, flow.description
             );
-            let mut schema: Schema = flow.schema;
-            Runner::transform_schema_for_resources(
-                &mut schema,
+            let schema: Schema = flow.schema;
+            let schema_obj = Runner::transform_schema_for_resources(
+                &schema,
                 user_db,
                 authed,
                 &workspace_id,
@@ -593,8 +588,7 @@ impl ServerHandler for Runner {
                 name: Cow::Owned(name),
                 description: Some(Cow::Owned(description)),
                 input_schema: {
-                    let value = serde_json::to_value(schema).unwrap_or_default();
-                    if let serde_json::Value::Object(map) = value {
+                    if let serde_json::Value::Object(map) = schema_obj {
                         Arc::new(map)
                     } else {
                         Arc::new(serde_json::Map::new())
