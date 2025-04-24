@@ -190,7 +190,7 @@ fn get_stop_after_if_data(stop_after_if: Option<&StopAfterIf>) -> (bool, Option<
             .raise_error_message
             .unwrap_or(false)
             .then(|| {
-                let err_start_msg = format!("Stoping flow early reason: ");
+                let err_start_msg = format!("Stopping flow early reason: ");
                 stop_after_if
                     .message
                     .as_deref()
