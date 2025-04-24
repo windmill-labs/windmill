@@ -1146,7 +1146,7 @@ pub async fn update_flow_status_after_job_completion_internal(
                 )
                 .await?;
             } else {
-                let json_err = if stop_early && err_msg.is_some() {
+                let json_err = if success && stop_early && err_msg.is_some() {
                     Value::String(err_msg.unwrap())
                 } else {
                     serde_json::from_str::<Value>(nresult.get()).unwrap_or_else(
