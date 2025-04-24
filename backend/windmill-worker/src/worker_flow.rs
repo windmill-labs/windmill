@@ -35,7 +35,7 @@ use windmill_common::db::Authed;
 use windmill_common::flow_status::{
     ApprovalConditions, FlowStatusModuleWParent, Iterator as FlowIterator, JobResult,
 };
-use windmill_common::flows::{add_virtual_items_if_necessary, Branch, FlowNodeId};
+use windmill_common::flows::{add_virtual_items_if_necessary, Branch, FlowNodeId, StopAfterIf};
 use windmill_common::jobs::{
     script_hash_to_tag_and_limits, script_path_to_payload, JobKind, JobPayload, OnBehalfOf,
     RawCode, ENTRYPOINT_OVERRIDE,
@@ -85,7 +85,7 @@ pub async fn update_flow_status_after_job_completion(
 ) -> error::Result<Option<Arc<MiniPulledJob>>> {
     // this is manual tailrecursion because async_recursion blows up the stack
     potentially_crash_for_testing();
-
+    println!("In function");
     let mut rec = RecUpdateFlowStatusAfterJobCompletion {
         flow,
         job_id_for_status: job_id_for_status.clone(),
@@ -184,6 +184,28 @@ struct RecoveryObject {
     recover: Option<bool>,
 }
 
+fn get_stop_after_if_data(stop_after_if: Option<&StopAfterIf>) -> (bool, Option<String>) {
+    if let Some(stop_after_if) = stop_after_if {
+        let err_msg = stop_after_if
+            .raise_error_message
+            .unwrap_or(false)
+            .then(|| {
+                let err_start_msg = format!("Stoping flow early reason: ");
+                stop_after_if
+                    .message
+                    .as_deref()
+                    .map(|msg| format!("{}{}", &err_start_msg, msg))
+                    .or(Some(format!(
+                        "{}expr: {}",
+                        &err_start_msg, &stop_after_if.expr
+                    )))
+            })
+            .flatten();
+        return (stop_after_if.skip_if_stopped, err_msg);
+    }
+    return (false, None);
+}
+
 // #[instrument(level = "trace", skip_all)]
 pub async fn update_flow_status_after_job_completion_internal(
     db: &DB,
@@ -208,6 +230,7 @@ pub async fn update_flow_status_after_job_completion_internal(
         flow_job,
         flow_data,
         stop_early,
+        err_msg,
         skip_if_stop_early,
         nresult,
         is_failure_step,
@@ -299,7 +322,7 @@ pub async fn update_flow_status_after_job_completion_internal(
         let is_failure_step =
             old_status.step >= old_status.modules.len() as i32 && old_status.modules.len() > 0;
 
-        let (mut stop_early, mut skip_if_stop_early, continue_on_error) =
+        let (mut stop_early, mut err_msg, mut skip_if_stop_early, continue_on_error) =
             if let Some(se) = stop_early_override {
                 //do not stop early if module is a flow step
                 let step = match module_step {
@@ -315,7 +338,6 @@ pub async fn update_flow_status_after_job_completion_internal(
                     }
 
                     current_module
-                        .as_ref()
                         .map(|module| {
                             serde_json::from_str::<GetType>(module.value.get())
                                 .map(|v| v.r#type == "flow")
@@ -327,19 +349,19 @@ pub async fn update_flow_status_after_job_completion_internal(
                 };
 
                 if is_flow {
-                    (false, false, false)
+                    (false, None, false, false)
                 } else {
-                    (true, se, false)
+                    (true, None, se, false)
                 }
             } else if is_failure_step || matches!(module_step, Step::PreprocessorStep) {
-                (false, false, false)
-            } else if let Some(current_module) = current_module.as_ref() {
+                (false, None, false, false)
+            } else if let Some(current_module) = current_module {
                 let stop_early = success
                     && !is_branch_all
-                    && if let Some(ref expr) = current_module
+                    && if let Some(expr) = current_module
                         .stop_after_if
                         .as_ref()
-                        .map(|x| x.expr.clone())
+                        .map(|x| x.expr.as_str())
                     {
                         let all_iters =
                             match &module_status {
@@ -376,17 +398,16 @@ pub async fn update_flow_status_after_job_completion_internal(
                     } else {
                         false
                     };
+                let (skip_if_stopped, err_msg) =
+                    get_stop_after_if_data(current_module.stop_after_if.as_ref());
                 (
                     stop_early,
-                    current_module
-                        .stop_after_if
-                        .as_ref()
-                        .map(|x| x.skip_if_stopped)
-                        .unwrap_or(false),
+                    err_msg,
+                    skip_if_stopped,
                     current_module.continue_on_error.unwrap_or(false),
                 )
             } else {
-                (false, false, false)
+                (false, None, false, false)
             };
 
         let skip_branch_failure = match module_status {
@@ -940,15 +961,14 @@ pub async fn update_flow_status_after_job_completion_internal(
                     .await?;
 
                     if should_stop {
-                        stop_early = should_stop;
-                        skip_if_stop_early = current_module
-                            .as_ref()
-                            .and_then(|m| {
-                                m.stop_after_all_iters_if
-                                    .as_ref()
-                                    .map(|x| x.skip_if_stopped)
-                            })
-                            .unwrap_or(false);
+                        stop_early = true;
+                        if let Some(current_module) = current_module {
+                            let (skip_if_stopped, err_msg_internal) = get_stop_after_if_data(
+                                current_module.stop_after_all_iters_if.as_ref(),
+                            );
+                            skip_if_stop_early = skip_if_stopped;
+                            err_msg = err_msg_internal;
+                        }
                     }
                 }
             }
@@ -1029,6 +1049,7 @@ pub async fn update_flow_status_after_job_completion_internal(
             flow_job,
             flow_data,
             stop_early,
+            err_msg,
             skip_if_stop_early,
             nresult,
             is_failure_step,
@@ -1110,11 +1131,11 @@ pub async fn update_flow_status_after_job_completion_internal(
                 && !skip_error_handler;
 
             add_time!(bench, "flow status update 1");
-            if success {
+            if success && (!stop_early || err_msg.is_none()) {
                 add_completed_job(
                     db,
                     &flow_job,
-                    success,
+                    true,
                     stop_early && skip_if_stop_early,
                     Json(&nresult),
                     None,
@@ -1125,16 +1146,19 @@ pub async fn update_flow_status_after_job_completion_internal(
                 )
                 .await?;
             } else {
+                let json_err = if stop_early && err_msg.is_some() {
+                    Value::String(err_msg.unwrap())
+                } else {
+                    serde_json::from_str::<Value>(nresult.get()).unwrap_or_else(
+                        |e| json!({"error": format!("Impossible to serialize error: {e:#}")}),
+                    )
+                };
                 add_completed_job(
                     db,
                     &flow_job,
-                    success,
+                    false,
                     stop_early && skip_if_stop_early,
-                    Json(
-                        &serde_json::from_str::<Value>(nresult.get()).unwrap_or_else(
-                            |e| json!({"error": format!("Impossible to serialize error: {e:#}")}),
-                        ),
-                    ),
+                    Json(&json_err),
                     None,
                     0,
                     None,
@@ -1274,7 +1298,6 @@ async fn retrieve_flow_jobs_results(
                 .ok_or_else(|| Error::internal_err(format!("missing job result for {}", j)))
         })
         .collect::<Result<Vec<_>, _>>()?;
-
     tracing::debug!("Retrieved results for flow jobs {:?}", results);
     Ok(to_raw_value(&results))
 }
