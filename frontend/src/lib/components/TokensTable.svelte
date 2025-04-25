@@ -51,7 +51,7 @@
 	let newMcpScope = $state('favorites')
 	let newMcpToken = $state<string | undefined>(undefined)
 
-	const mcpBaseUrl = $derived(`${window.location.origin}/api/w/${$workspaceStore}/mcp/sse?token=`)
+	const mcpBaseUrl = $derived(`${window.location.origin}/api/mcp/w/${newTokenWorkspace}/sse?token=`)
 	const dispatch = createEventDispatcher()
 
 	$effect(() => {
