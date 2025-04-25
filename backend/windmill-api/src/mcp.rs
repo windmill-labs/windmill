@@ -486,62 +486,8 @@ impl ServerHandler for Runner {
         let push_args = if let Value::Object(map) = args.clone() {
             let mut args_hash = HashMap::new();
             for (k, v) in map {
-                // Transform string values back to objects if schema indicates it's an object type
-                let transformed_v = if let Some(schema) = &schema {
-                    let schema_obj: serde_json::Value = match serde_json::from_str(schema.0.get()) {
-                        Ok(val) => val,
-                        Err(_) => serde_json::Value::Object(serde_json::Map::new()),
-                    };
-
-                    if let serde_json::Value::Object(schema_map) = schema_obj {
-                        if let Some(serde_json::Value::Object(properties)) =
-                            schema_map.get("properties")
-                        {
-                            if let Some(property) = properties.get(&k) {
-                                // Check if property has object type in original schema
-                                let is_obj_type = if let serde_json::Value::Object(prop) = property
-                                {
-                                    if let Some(serde_json::Value::String(orig_type)) =
-                                        prop.get("originalType")
-                                    {
-                                        orig_type == "object"
-                                    } else if let Some(serde_json::Value::String(prop_type)) =
-                                        prop.get("type")
-                                    {
-                                        prop_type == "object"
-                                    } else {
-                                        false
-                                    }
-                                } else {
-                                    false
-                                };
-
-                                // If string value but should be object, parse it
-                                if is_obj_type && v.is_string() {
-                                    if let Some(str_val) = v.as_str() {
-                                        match serde_json::from_str::<serde_json::Value>(str_val) {
-                                            Ok(obj_val) => obj_val,
-                                            Err(_) => v, // Keep original if parsing fails
-                                        }
-                                    } else {
-                                        v
-                                    }
-                                } else {
-                                    v
-                                }
-                            } else {
-                                v
-                            }
-                        } else {
-                            v
-                        }
-                    } else {
-                        v
-                    }
-                } else {
-                    v
-                };
-
+                // object properties are transformed to string because some client does not support object, might change in the future
+                let transformed_v = transform_value_if_object(&k, &v, &schema);
                 args_hash.insert(k, to_raw_value(&transformed_v));
             }
             windmill_queue::PushArgsOwned { extra: None, args: args_hash }
@@ -705,7 +651,7 @@ impl ServerHandler for Runner {
                 .enable_tool_list_changed()
                 .build(),
             server_info: Implementation::from_build_env(),
-            instructions: Some("This server provides a runner tool that can run scripts. Use 'get_scripts' to get the list of scripts.".to_string()),
+            instructions: Some("This server provides a list of scripts and flows the user can run on Windmill. Each flow and script is a tool callable with their respective arguments.".to_string()),
         }
     }
 
@@ -740,6 +686,42 @@ impl ServerHandler for Runner {
     ) -> Result<ListResourceTemplatesResult, Error> {
         Ok(ListResourceTemplatesResult::default())
     }
+}
+
+fn transform_value_if_object(key: &str, value: &Value, schema: &Option<Schema>) -> Value {
+    let schema = match schema {
+        Some(s) => s,
+        None => return value.clone(),
+    };
+
+    // Parse schema
+    let schema_obj: serde_json::Value = match serde_json::from_str(schema.0.get()) {
+        Ok(val) => val,
+        Err(_) => return value.clone(),
+    };
+
+    // Check if property is defined in schema and is an object type
+    let is_obj_type = match schema_obj.get("properties") {
+        Some(properties) => match properties.get(key) {
+            Some(property) => {
+                let prop_type = property.get("type").and_then(|t| t.as_str());
+                prop_type == Some("object")
+            }
+            None => false,
+        },
+        None => false,
+    };
+
+    // If it's an object type and we received a string, try to parse it
+    if is_obj_type && value.is_string() {
+        if let Some(str_val) = value.as_str() {
+            if let Ok(obj_val) = serde_json::from_str::<serde_json::Value>(str_val) {
+                return obj_val;
+            }
+        }
+    }
+
+    value.clone()
 }
 
 pub fn setup_mcp_server(addr: SocketAddr, path: &str) -> anyhow::Result<(SseServer, Router)> {
