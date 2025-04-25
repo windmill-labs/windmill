@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n        DELETE\n        FROM parallel_monitor_lock\n        WHERE last_ping IS NOT NULL AND last_ping < NOW() - ($1 || ' seconds')::interval \n        RETURNING parent_flow_id, job_id, last_ping, (SELECT workspace_id FROM v2_job_queue q\n            WHERE q.id = parent_flow_id AND q.running = true AND q.canceled_by IS NULL\n        ) AS workspace_id\n        ",
+  "query": "\n        DELETE\n        FROM parallel_monitor_lock\n        WHERE last_ping IS NOT NULL AND last_ping < NOW() - ($1 || ' seconds')::interval\n        RETURNING parent_flow_id, job_id, last_ping, (SELECT workspace_id FROM v2_job_queue q\n            WHERE q.id = parent_flow_id AND q.running = true AND q.canceled_by IS NULL\n        ) AS workspace_id\n        ",
   "describe": {
     "columns": [
       {
@@ -36,5 +36,5 @@
       null
     ]
   },
-  "hash": "f822df86bf511fe0d3044b69525a6ff2524167877929886adca9b0fa3d3fee45"
+  "hash": "00c4a602aa6a50f2f922851ce63b5216e915c7649698687a00d47da55c70349f"
 }
