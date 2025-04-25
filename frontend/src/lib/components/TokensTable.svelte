@@ -184,7 +184,7 @@
 						} else {
 							newTokenLabel = undefined
 							newTokenExpiration = undefined
-							newTokenWorkspace = undefined
+							newTokenWorkspace = defaultNewTokenWorkspace
 						}
 					}}
 					checked={mcpCreationMode}
