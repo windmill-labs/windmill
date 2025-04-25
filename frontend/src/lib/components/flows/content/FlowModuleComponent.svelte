@@ -102,6 +102,7 @@
 
 	$: lastDeployedCode = onModulesChange(savedModule, flowModule)
 	function onModulesChange(savedModule: FlowModule | undefined, flowModule: FlowModule) {
+		// console.log('onModulesChange', savedModule, flowModule)
 		return savedModule?.value?.type === 'rawscript' &&
 			flowModule.value.type === 'rawscript' &&
 			savedModule.value.content !== flowModule.value.content
@@ -167,12 +168,16 @@
 					flowModule.value.type == 'script' ||
 					flowModule.value.type == 'flow'
 				) {
-					flowModule.value.input_transforms = input_transforms
+					if (!deepEqual(flowModule.value.input_transforms, input_transforms)) {
+						flowModule.value.input_transforms = input_transforms
+					}
 				}
 			}
 
 			if (flowModule.value.type == 'rawscript' && flowModule.value.lock != undefined) {
-				flowModule.value.lock = undefined
+				if (flowModule.value.lock != undefined) {
+					flowModule.value.lock = undefined
+				}
 			}
 			await tick()
 			if (!deepEqual(schema, $flowStateStore[flowModule.id]?.schema)) {
@@ -369,7 +374,7 @@
 											bind:websocketAlive
 											bind:this={editor}
 											class="h-full relative"
-											bind:code={flowModule.value.content}
+											code={flowModule.value.content}
 											lang={scriptLangToEditorLang(flowModule.value.language)}
 											scriptLang={flowModule.value.language}
 											automaticLayout={true}
@@ -384,10 +389,13 @@
 												}
 											}}
 											on:change={async (event) => {
+												const content = event.detail
 												if (flowModule.value.type === 'rawscript') {
-													flowModule.value.content = event.detail
+													if (flowModule.value.content !== content) {
+														flowModule.value.content = content
+													}
+													// await reload(flowModule)
 												}
-												await reload(flowModule)
 											}}
 											formatAction={() => {
 												reload(flowModule)
