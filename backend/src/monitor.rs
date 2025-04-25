@@ -29,7 +29,9 @@ use windmill_api::{
 };
 
 #[cfg(feature = "enterprise")]
-use windmill_common::ee::{jobs_waiting_alerts, low_disk_alerts, worker_groups_alerts};
+use windmill_common::ee::{jobs_waiting_alerts, worker_groups_alerts};
+
+use windmill_common::ee::low_disk_alerts;
 
 #[cfg(feature = "oauth2")]
 use windmill_common::global_settings::OAUTH_SETTING;
@@ -1332,10 +1334,7 @@ pub async fn monitor_db(
     conn: &Connection,
     base_internal_url: &str,
     server_mode: bool,
-    #[cfg(feature = "enterprise")]
     worker_mode: bool,
-    #[cfg(not(feature = "enterprise"))]
-    _worker_mode: bool,
     initial_load: bool,
     _killpill_tx: KillpillSender,
 ) {
@@ -1395,7 +1394,6 @@ pub async fn monitor_db(
     };
 
     let low_disk_alerts_f = async {
-        #[cfg(feature = "enterprise")]
         if let Some(db) = conn.as_sql() {
             low_disk_alerts(
                 &db,
