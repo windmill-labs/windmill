@@ -113,7 +113,6 @@ object_store = { workspace = true, optional = true}
 convert_case.workspace = true
 yaml-rust.workspace = true
 backon.workspace = true
-systemstat.workspace = true
 winapi = { workspace = true, optional = true }
 
 opentelemetry = { workspace = true, optional = true }
