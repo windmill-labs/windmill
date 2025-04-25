@@ -40,6 +40,11 @@ struct ScriptInfo {
     schema: Option<Schema>,
 }
 
+#[derive(Serialize, FromRow)]
+struct ItemSchema {
+    schema: Option<Schema>,
+}
+
 #[derive(Serialize, FromRow, Debug)]
 struct FlowInfo {
     path: String,
@@ -72,14 +77,19 @@ impl Runner {
         Self {}
     }
 
-    async fn get_script_schema(
+    async fn get_item_schema(
         path: &str,
         user_db: &UserDB,
         authed: &ApiAuthed,
-    ) -> Result<ScriptInfo, Error> {
-        let mut sqlb = SqlBuilder::select_from("script as o");
-        sqlb.fields(&["o.path", "o.summary", "o.description", "o.schema"]);
+        workspace_id: &str,
+        item_type: &str,
+    ) -> Result<ItemSchema, Error> {
+        let mut sqlb = SqlBuilder::select_from(&format!("{} as o", item_type));
+        sqlb.fields(&["o.schema"]);
         sqlb.and_where("o.path = ?".bind(&path));
+        sqlb.and_where("o.workspace_id = ?".bind(&workspace_id));
+        sqlb.and_where("o.archived = false");
+        sqlb.and_where("o.draft_only IS NOT TRUE");
         let sql = sqlb.sql().map_err(|_e| {
             tracing::error!("failed to build sql: {}", _e);
             Error::internal_error("failed to build sql", None)
@@ -89,12 +99,12 @@ impl Runner {
             .begin(authed)
             .await
             .map_err(|_e| Error::internal_error("failed to begin transaction", None))?;
-        let rows = sqlx::query_as::<_, ScriptInfo>(&sql)
+        let rows = sqlx::query_as::<_, ItemSchema>(&sql)
             .fetch_one(&mut *tx)
             .await
             .map_err(|_e| {
-                tracing::error!("Failed to fetch script info: {}", _e);
-                Error::internal_error("failed to fetch script info", None)
+                tracing::error!("failed to fetch item schema: {}", _e);
+                Error::internal_error("failed to fetch item schema", None)
             })?;
         tx.commit()
             .await
@@ -213,23 +223,31 @@ impl Runner {
         Ok(rows)
     }
 
-    async fn inner_get_flows(
+    async fn inner_get_items<T: for<'a> sqlx::FromRow<'a, sqlx::postgres::PgRow> + Send + Unpin>(
         user_db: &UserDB,
         authed: &ApiAuthed,
         workspace_id: &str,
         scope_type: &str,
-    ) -> Result<Vec<FlowInfo>, Error> {
-        let mut sqlb = SqlBuilder::select_from("flow as o");
+        item_type: &str,
+    ) -> Result<Vec<T>, Error> {
+        let mut sqlb = SqlBuilder::select_from(&format!("{} as o", item_type));
         sqlb.fields(&["o.path", "o.summary", "o.description", "o.schema"]);
         if scope_type == "favorites" {
             sqlb.join("favorite")
-                .on("favorite.favorite_kind = 'flow' AND favorite.workspace_id = o.workspace_id AND favorite.path = o.path AND favorite.usr = ?"
+                .on("favorite.favorite_kind = ? AND favorite.workspace_id = o.workspace_id AND favorite.path = o.path AND favorite.usr = ?".bind(&item_type)
                     .bind(&authed.username));
         }
         sqlb.and_where("o.workspace_id = ?".bind(&workspace_id))
             .and_where("o.archived = false")
             .and_where("o.draft_only IS NOT TRUE")
-            .order_by("o.edited_at", false)
+            .order_by(
+                if item_type == "flow" {
+                    "o.edited_at"
+                } else {
+                    "o.created_at"
+                },
+                false,
+            )
             .limit(100);
         let sql = sqlb.sql().map_err(|_e| {
             tracing::error!("failed to build sql: {}", _e);
@@ -240,12 +258,12 @@ impl Runner {
             .begin(authed)
             .await
             .map_err(|_e| Error::internal_error("failed to begin transaction", None))?;
-        let rows = sqlx::query_as::<_, FlowInfo>(&sql)
+        let rows = sqlx::query_as::<_, T>(&sql)
             .fetch_all(&mut *tx)
             .await
             .map_err(|_e| {
-                tracing::error!("Failed to fetch flows: {}", _e);
-                Error::internal_error("failed to fetch flows", None)
+                tracing::error!("Failed to fetch {}: {}", item_type, _e);
+                Error::internal_error(format!("failed to fetch {}", item_type), None)
             })?;
         tx.commit()
             .await
@@ -253,44 +271,44 @@ impl Runner {
         Ok(rows)
     }
 
-    async fn inner_get_scripts(
-        user_db: &UserDB,
-        authed: &ApiAuthed,
-        workspace_id: &str,
-        scope_type: &str,
-    ) -> Result<Vec<ScriptInfo>, Error> {
-        let mut sqlb = SqlBuilder::select_from("script as o");
-        sqlb.fields(&["o.path", "o.summary", "o.description", "o.schema"]);
-        if scope_type == "favorites" {
-            sqlb.join("favorite")
-                .on("favorite.favorite_kind = 'script' AND favorite.workspace_id = o.workspace_id AND favorite.path = o.path AND favorite.usr = ?"
-                    .bind(&authed.username));
+    fn transform_value_if_object(key: &str, value: &Value, schema: &Option<Schema>) -> Value {
+        if value.is_string() && value.as_str().unwrap().starts_with("$res:") {
+            return value.clone();
         }
-        sqlb.and_where("o.workspace_id = ?".bind(&workspace_id))
-            .and_where("o.archived = false")
-            .and_where("o.draft_only IS NOT TRUE")
-            .order_by("o.created_at", false)
-            .limit(100);
-        let sql = sqlb.sql().map_err(|_e| {
-            tracing::error!("failed to build sql: {}", _e);
-            Error::internal_error("failed to build sql", None)
-        })?;
-        let mut tx = user_db
-            .clone()
-            .begin(authed)
-            .await
-            .map_err(|_e| Error::internal_error("failed to begin transaction", None))?;
-        let rows = sqlx::query_as::<_, ScriptInfo>(&sql)
-            .fetch_all(&mut *tx)
-            .await
-            .map_err(|_e| {
-                tracing::error!("Failed to fetch scripts: {}", _e);
-                Error::internal_error("failed to fetch scripts", None)
-            })?;
-        tx.commit()
-            .await
-            .map_err(|_e| Error::internal_error("failed to commit transaction", None))?;
-        Ok(rows)
+
+        let schema = match schema {
+            Some(s) => s,
+            None => return value.clone(),
+        };
+
+        // Parse schema
+        let schema_obj: serde_json::Value = match serde_json::from_str(schema.0.get()) {
+            Ok(val) => val,
+            Err(_) => return value.clone(),
+        };
+
+        // Check if property is defined in schema and is an object type
+        let is_obj_type = match schema_obj.get("properties") {
+            Some(properties) => match properties.get(key) {
+                Some(property) => {
+                    let prop_type = property.get("type").and_then(|t| t.as_str());
+                    prop_type == Some("object")
+                }
+                None => false,
+            },
+            None => false,
+        };
+
+        // If it's an object type and we received a string, try to parse it
+        if is_obj_type && value.is_string() {
+            if let Some(str_val) = value.as_str() {
+                if let Ok(obj_val) = serde_json::from_str::<serde_json::Value>(str_val) {
+                    return obj_val;
+                }
+            }
+        }
+
+        value.clone()
     }
 
     async fn transform_schema_for_resources(
@@ -324,9 +342,8 @@ impl Runner {
                         }
                         if let Some(format_value) = prop_map.get("format") {
                             if let serde_json::Value::String(format_str) = format_value {
-                                if format_str.starts_with("resource-")
-                                    && format_str != "resource-obj"
-                                {
+                                // if property is a resource, fetch the resource type infos, and add each available resource to the description
+                                if format_str.starts_with("resource-") {
                                     let resource_type_key = format_str
                                         .split("-")
                                         .last()
@@ -481,13 +498,15 @@ impl ServerHandler for Runner {
 
         let (tool_type, path) = Runner::reverse_transform(&request.name).unwrap_or_default();
 
-        let script_info = Runner::get_script_schema(&path, user_db, authed).await?;
-        let schema = script_info.schema;
+        let item_info =
+            Runner::get_item_schema(&path, user_db, authed, &context.workspace_id, &tool_type)
+                .await?;
+        let schema = item_info.schema;
         let push_args = if let Value::Object(map) = args.clone() {
             let mut args_hash = HashMap::new();
             for (k, v) in map {
                 // object properties are transformed to string because some client does not support object, might change in the future
-                let transformed_v = transform_value_if_object(&k, &v, &schema);
+                let transformed_v = Runner::transform_value_if_object(&k, &v, &schema);
                 args_hash.insert(k, to_raw_value(&transformed_v));
             }
             windmill_queue::PushArgsOwned { extra: None, args: args_hash }
@@ -565,8 +584,15 @@ impl ServerHandler for Runner {
         let scope_type = scope.map_or("all", |scope| scope.split(":").last().unwrap_or("all"));
         let mut resources_info: HashMap<String, ResourceCache> = HashMap::new();
 
-        let scripts_fn = Runner::inner_get_scripts(user_db, authed, &workspace_id, scope_type);
-        let flows_fn = Runner::inner_get_flows(user_db, authed, &workspace_id, scope_type);
+        let scripts_fn = Runner::inner_get_items::<ScriptInfo>(
+            user_db,
+            authed,
+            &workspace_id,
+            scope_type,
+            "script",
+        );
+        let flows_fn =
+            Runner::inner_get_items::<FlowInfo>(user_db, authed, &workspace_id, scope_type, "flow");
         let (scripts, flows) = try_join!(scripts_fn, flows_fn)?;
 
         let mut script_tools: Vec<Tool> = Vec::with_capacity(scripts.len());
@@ -589,7 +615,6 @@ impl ServerHandler for Runner {
             } else {
                 serde_json::Value::Object(serde_json::Map::new())
             };
-            println!("schema_obj: {:#?}", schema_obj);
             script_tools.push(Tool {
                 name: Cow::Owned(name),
                 description: Some(Cow::Owned(description)),
@@ -624,7 +649,6 @@ impl ServerHandler for Runner {
             } else {
                 serde_json::Value::Object(serde_json::Map::new())
             };
-            println!("schema_obj: {:#?}", schema_obj);
             flow_tools.push(Tool {
                 name: Cow::Owned(name),
                 description: Some(Cow::Owned(description)),
@@ -686,42 +710,6 @@ impl ServerHandler for Runner {
     ) -> Result<ListResourceTemplatesResult, Error> {
         Ok(ListResourceTemplatesResult::default())
     }
-}
-
-fn transform_value_if_object(key: &str, value: &Value, schema: &Option<Schema>) -> Value {
-    let schema = match schema {
-        Some(s) => s,
-        None => return value.clone(),
-    };
-
-    // Parse schema
-    let schema_obj: serde_json::Value = match serde_json::from_str(schema.0.get()) {
-        Ok(val) => val,
-        Err(_) => return value.clone(),
-    };
-
-    // Check if property is defined in schema and is an object type
-    let is_obj_type = match schema_obj.get("properties") {
-        Some(properties) => match properties.get(key) {
-            Some(property) => {
-                let prop_type = property.get("type").and_then(|t| t.as_str());
-                prop_type == Some("object")
-            }
-            None => false,
-        },
-        None => false,
-    };
-
-    // If it's an object type and we received a string, try to parse it
-    if is_obj_type && value.is_string() {
-        if let Some(str_val) = value.as_str() {
-            if let Ok(obj_val) = serde_json::from_str::<serde_json::Value>(str_val) {
-                return obj_val;
-            }
-        }
-    }
-
-    value.clone()
 }
 
 pub fn setup_mcp_server(addr: SocketAddr, path: &str) -> anyhow::Result<(SseServer, Router)> {
