@@ -1,4 +1,3 @@
-#[cfg(feature = "enterprise")]
 use crate::db::DB;
 use crate::ee::LicensePlan::Community;
 #[cfg(feature = "enterprise")]
