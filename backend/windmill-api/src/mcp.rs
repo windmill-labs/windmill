@@ -72,6 +72,36 @@ impl Runner {
         Self {}
     }
 
+    async fn get_script_schema(
+        path: &str,
+        user_db: &UserDB,
+        authed: &ApiAuthed,
+    ) -> Result<ScriptInfo, Error> {
+        let mut sqlb = SqlBuilder::select_from("script as o");
+        sqlb.fields(&["o.path", "o.summary", "o.description", "o.schema"]);
+        sqlb.and_where("o.path = ?".bind(&path));
+        let sql = sqlb.sql().map_err(|_e| {
+            tracing::error!("failed to build sql: {}", _e);
+            Error::internal_error("failed to build sql", None)
+        })?;
+        let mut tx = user_db
+            .clone()
+            .begin(authed)
+            .await
+            .map_err(|_e| Error::internal_error("failed to begin transaction", None))?;
+        let rows = sqlx::query_as::<_, ScriptInfo>(&sql)
+            .fetch_one(&mut *tx)
+            .await
+            .map_err(|_e| {
+                tracing::error!("Failed to fetch script info: {}", _e);
+                Error::internal_error("failed to fetch script info", None)
+            })?;
+        tx.commit()
+            .await
+            .map_err(|_e| Error::internal_error("failed to commit transaction", None))?;
+        Ok(rows)
+    }
+
     fn transform_path(path: &str, type_str: &str) -> Result<String, String> {
         if type_str != "script" && type_str != "flow" {
             return Err(format!("Invalid type: {}", type_str));
@@ -280,7 +310,18 @@ impl Runner {
                 schema_map.get_mut("properties")
             {
                 for (_key, prop_value) in properties_map.iter_mut() {
+                    // transform object properties to string because some client does not support object, might change in the future
                     if let serde_json::Value::Object(prop_map) = prop_value {
+                        if let Some(type_value) = prop_map.get("type") {
+                            if let serde_json::Value::String(type_str) = type_value {
+                                if type_str == "object" {
+                                    prop_map.insert(
+                                        "type".to_string(),
+                                        serde_json::Value::String("string".to_string()),
+                                    );
+                                }
+                            }
+                        }
                         if let Some(format_value) = prop_map.get("format") {
                             if let serde_json::Value::String(format_str) = format_value {
                                 if format_str.starts_with("resource-")
@@ -440,10 +481,68 @@ impl ServerHandler for Runner {
 
         let (tool_type, path) = Runner::reverse_transform(&request.name).unwrap_or_default();
 
+        let script_info = Runner::get_script_schema(&path, user_db, authed).await?;
+        let schema = script_info.schema;
         let push_args = if let Value::Object(map) = args.clone() {
             let mut args_hash = HashMap::new();
             for (k, v) in map {
-                args_hash.insert(k, to_raw_value(&v));
+                // Transform string values back to objects if schema indicates it's an object type
+                let transformed_v = if let Some(schema) = &schema {
+                    let schema_obj: serde_json::Value = match serde_json::from_str(schema.0.get()) {
+                        Ok(val) => val,
+                        Err(_) => serde_json::Value::Object(serde_json::Map::new()),
+                    };
+
+                    if let serde_json::Value::Object(schema_map) = schema_obj {
+                        if let Some(serde_json::Value::Object(properties)) =
+                            schema_map.get("properties")
+                        {
+                            if let Some(property) = properties.get(&k) {
+                                // Check if property has object type in original schema
+                                let is_obj_type = if let serde_json::Value::Object(prop) = property
+                                {
+                                    if let Some(serde_json::Value::String(orig_type)) =
+                                        prop.get("originalType")
+                                    {
+                                        orig_type == "object"
+                                    } else if let Some(serde_json::Value::String(prop_type)) =
+                                        prop.get("type")
+                                    {
+                                        prop_type == "object"
+                                    } else {
+                                        false
+                                    }
+                                } else {
+                                    false
+                                };
+
+                                // If string value but should be object, parse it
+                                if is_obj_type && v.is_string() {
+                                    if let Some(str_val) = v.as_str() {
+                                        match serde_json::from_str::<serde_json::Value>(str_val) {
+                                            Ok(obj_val) => obj_val,
+                                            Err(_) => v, // Keep original if parsing fails
+                                        }
+                                    } else {
+                                        v
+                                    }
+                                } else {
+                                    v
+                                }
+                            } else {
+                                v
+                            }
+                        } else {
+                            v
+                        }
+                    } else {
+                        v
+                    }
+                } else {
+                    v
+                };
+
+                args_hash.insert(k, to_raw_value(&transformed_v));
             }
             windmill_queue::PushArgsOwned { extra: None, args: args_hash }
         } else {
@@ -544,6 +643,7 @@ impl ServerHandler for Runner {
             } else {
                 serde_json::Value::Object(serde_json::Map::new())
             };
+            println!("schema_obj: {:#?}", schema_obj);
             script_tools.push(Tool {
                 name: Cow::Owned(name),
                 description: Some(Cow::Owned(description)),
@@ -578,6 +678,7 @@ impl ServerHandler for Runner {
             } else {
                 serde_json::Value::Object(serde_json::Map::new())
             };
+            println!("schema_obj: {:#?}", schema_obj);
             flow_tools.push(Tool {
                 name: Cow::Owned(name),
                 description: Some(Cow::Owned(description)),
