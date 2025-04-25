@@ -134,7 +134,7 @@
 
 		// Remove empty or invalid teams_channel entries
 		$values.critical_error_channels = $values.critical_error_channels.filter((entry) => {
-			if ('teams_channel' in entry) {
+			if (entry && typeof entry == 'object' && 'teams_channel' in entry) {
 				return isValidTeamsChannel(entry.teams_channel)
 			}
 			return true
