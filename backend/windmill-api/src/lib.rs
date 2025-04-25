@@ -466,7 +466,7 @@ pub async fn run_server(
 
     // Setup MCP server
     #[cfg(feature = "mcp")]
-    let (mcp_sse_server, mcp_router) = setup_mcp_server(addr, "/api/w/:workspace_id/mcp")?;
+    let (mcp_sse_server, mcp_router) = setup_mcp_server(addr, "/api/mcp/w/:workspace_id")?;
     #[cfg(feature = "mcp")]
     let mcp_main_ct = mcp_sse_server.config.ct.clone(); // Token to signal shutdown *to* MCP
     #[cfg(feature = "mcp")]
@@ -482,7 +482,7 @@ pub async fn run_server(
     // used on mcp mode only
     #[cfg(feature = "mcp")]
     let mcp_app = Router::new()
-        .nest("/api/w/:workspace_id/mcp", mcp_router.clone())
+        .nest("/api/mcp/w/:workspace_id", mcp_router.clone())
         .layer(from_extractor::<OptAuthed>())
         .layer(middleware_stack.clone());
     #[cfg(not(feature = "mcp"))]
@@ -619,7 +619,7 @@ pub async fn run_server(
                         .layer(from_extractor::<OptAuthed>())
                         .layer(cors.clone()),
                 )
-                .nest("/w/:workspace_id/mcp", {
+                .nest("/mcp/w/:workspace_id", {
                     #[cfg(feature = "mcp")]
                     {
                         mcp_router
