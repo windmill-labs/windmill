@@ -511,6 +511,13 @@ where
             let path_vec: Vec<&str> = original_uri.path().split("/").collect();
             let workspace_id = if path_vec.len() >= 4 && path_vec[0] == "" && path_vec[2] == "w" {
                 Some(path_vec[3].to_owned())
+            } else if path_vec.len() >= 5
+                && path_vec[0] == ""
+                && path_vec[1] == "api"
+                && path_vec[2] == "mcp"
+                && path_vec[3] == "w"
+            {
+                Some(path_vec[4].to_string())
             } else {
                 if path_vec.len() >= 5
                     && path_vec[0] == ""

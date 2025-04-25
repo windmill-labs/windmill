@@ -225,6 +225,7 @@ pub async fn run_server(
     mut killpill_rx: tokio::sync::broadcast::Receiver<()>,
     port_tx: tokio::sync::oneshot::Sender<String>,
     server_mode: bool,
+    mcp_mode: bool,
     _base_internal_url: String,
 ) -> anyhow::Result<()> {
     let user_db = UserDB::new(db.clone());
@@ -465,7 +466,7 @@ pub async fn run_server(
 
     // Setup MCP server
     #[cfg(feature = "mcp")]
-    let (mcp_sse_server, mcp_router) = setup_mcp_server(addr, "/api/w/:workspace_id/mcp")?;
+    let (mcp_sse_server, mcp_router) = setup_mcp_server(addr, "/api/mcp/w/:workspace_id")?;
     #[cfg(feature = "mcp")]
     let mcp_main_ct = mcp_sse_server.config.ct.clone(); // Token to signal shutdown *to* MCP
     #[cfg(feature = "mcp")]
@@ -477,6 +478,15 @@ pub async fn run_server(
 
     #[cfg(feature = "agent_worker_server")]
     let agent_cache = Arc::new(AgentCache::new());
+
+    // used on mcp mode only
+    #[cfg(feature = "mcp")]
+    let mcp_app = Router::new()
+        .nest("/api/mcp/w/:workspace_id", mcp_router.clone())
+        .layer(from_extractor::<OptAuthed>())
+        .layer(middleware_stack.clone());
+    #[cfg(not(feature = "mcp"))]
+    let mcp_app = Router::new();
 
     // build our application with a route
     let app = Router::new()
@@ -609,7 +619,7 @@ pub async fn run_server(
                         .layer(from_extractor::<OptAuthed>())
                         .layer(cors.clone()),
                 )
-                .nest("/w/:workspace_id/mcp", {
+                .nest("/mcp/w/:workspace_id", {
                     #[cfg(feature = "mcp")]
                     {
                         mcp_router
@@ -729,7 +739,23 @@ pub async fn run_server(
         )
     };
 
-    let server = axum::serve(listener, app.into_make_service());
+    let mcp_app = if disable_response_logs {
+        mcp_app
+    } else {
+        mcp_app.layer(
+            TraceLayer::new_for_http()
+                .on_response(MyOnResponse {})
+                .make_span_with(MyMakeSpan {})
+                .on_request(())
+                .on_failure(MyOnFailure {}),
+        )
+    };
+
+    let server = if mcp_mode {
+        axum::serve(listener, mcp_app.into_make_service())
+    } else {
+        axum::serve(listener, app.into_make_service())
+    };
 
     tracing::info!(
         instance = %*INSTANCE_NAME,

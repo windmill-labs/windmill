@@ -35,17 +35,17 @@ pub struct Runner {}
 #[derive(Serialize, FromRow)]
 struct ScriptInfo {
     path: String,
-    summary: String,
-    description: String,
-    schema: Schema,
+    summary: Option<String>,
+    description: Option<String>,
+    schema: Option<Schema>,
 }
 
 #[derive(Serialize, FromRow, Debug)]
 struct FlowInfo {
     path: String,
-    summary: String,
-    description: String,
-    schema: Schema,
+    summary: Option<String>,
+    description: Option<String>,
+    schema: Option<Schema>,
 }
 
 #[derive(Serialize, FromRow, Debug)]
@@ -543,17 +543,21 @@ impl ServerHandler for Runner {
             let name = Runner::transform_path(&script.path, "script").unwrap_or_default();
             let description = format!(
                 "This is a script named {} with the following description: {}.",
-                script.summary, script.description
+                script.summary.as_deref().unwrap_or("No summary"),
+                script.description.as_deref().unwrap_or("No description")
             );
-            let schema: Schema = script.schema;
-            let schema_obj = Runner::transform_schema_for_resources(
-                &schema,
-                user_db,
-                authed,
-                &workspace_id,
-                &mut resources_info,
-            )
-            .await?;
+            let schema_obj = if let Some(schema) = script.schema {
+                Runner::transform_schema_for_resources(
+                    &schema,
+                    user_db,
+                    authed,
+                    &workspace_id,
+                    &mut resources_info,
+                )
+                .await?
+            } else {
+                serde_json::Value::Object(serde_json::Map::new())
+            };
             script_tools.push(Tool {
                 name: Cow::Owned(name),
                 description: Some(Cow::Owned(description)),
@@ -573,17 +577,21 @@ impl ServerHandler for Runner {
             let name = Runner::transform_path(&flow.path, "flow").unwrap_or_default();
             let description = format!(
                 "This is a flow named {} with the following description: {}.",
-                flow.summary, flow.description
+                flow.summary.as_deref().unwrap_or("No summary"),
+                flow.description.as_deref().unwrap_or("No description")
             );
-            let schema: Schema = flow.schema;
-            let schema_obj = Runner::transform_schema_for_resources(
-                &schema,
-                user_db,
-                authed,
-                &workspace_id,
-                &mut resources_info,
-            )
-            .await?;
+            let schema_obj = if let Some(schema) = flow.schema {
+                Runner::transform_schema_for_resources(
+                    &schema,
+                    user_db,
+                    authed,
+                    &workspace_id,
+                    &mut resources_info,
+                )
+                .await?
+            } else {
+                serde_json::Value::Object(serde_json::Map::new())
+            };
             flow_tools.push(Tool {
                 name: Cow::Owned(name),
                 description: Some(Cow::Owned(description)),
