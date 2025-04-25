@@ -30,6 +30,7 @@
 	import Label from './Label.svelte'
 	import DateTimeInput from './DateTimeInput.svelte'
 	import autosize from '$lib/autosize'
+	import { runScheduleNow } from './triggers/scheduled/utils'
 
 	let optionTabSelected: 'error_handler' | 'recovery_handler' | 'success_handler' | 'retries' =
 		'error_handler'
@@ -571,7 +572,7 @@
 		<svelte:fragment slot="actions">
 			{#if !drawerLoading}
 				{#if edit}
-					<div class="mr-8">
+					<div class="mr-8 flex flex-row gap-3">
 						<Button
 							size="sm"
 							variant="border"
@@ -580,6 +581,16 @@
 							href={`${base}/runs/${script_path}?show_schedules=true&show_future_jobs=true`}
 						>
 							View runs
+						</Button>
+						<Button
+							size="sm"
+							variant="border"
+							disabled={!allowSchedule || pathError != '' || emptyString(script_path)}
+							on:click={() => {
+								runScheduleNow(script_path, path, is_flow, $workspaceStore!)
+							}}
+						>
+							Run now
 						</Button>
 					</div>
 					{#if can_write}
