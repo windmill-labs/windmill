@@ -479,11 +479,14 @@ pub async fn run_server(
     #[cfg(feature = "agent_worker_server")]
     let agent_cache = Arc::new(AgentCache::new());
 
+    // used on mcp mode only
     #[cfg(feature = "mcp")]
     let mcp_app = Router::new()
         .nest("/api/w/:workspace_id/mcp", mcp_router.clone())
         .layer(from_extractor::<OptAuthed>())
         .layer(middleware_stack.clone());
+    #[cfg(not(feature = "mcp"))]
+    let mcp_app = Router::new();
 
     // build our application with a route
     let app = Router::new()
