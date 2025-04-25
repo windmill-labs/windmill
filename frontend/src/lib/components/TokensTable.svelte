@@ -181,6 +181,10 @@
 							newTokenLabel = 'MCP token'
 							newTokenExpiration = undefined
 							newTokenWorkspace = $workspaceStore
+						} else {
+							newTokenLabel = undefined
+							newTokenExpiration = undefined
+							newTokenWorkspace = undefined
 						}
 					}}
 					checked={mcpCreationMode}
