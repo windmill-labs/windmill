@@ -2,7 +2,7 @@
 	import { scimSamlSetting, settings, settingsKeys, type SettingStorage } from './instanceSettings'
 	import { Button, Tab, TabContent, Tabs } from '$lib/components/common'
 	import { SettingService, SettingsService } from '$lib/gen'
-	import type { TeamInfo } from '$lib/gen/types.gen'
+	import type { TeamInfo, TeamsChannel } from '$lib/gen/types.gen'
 
 	import { sendUserToast } from '$lib/toast'
 	import { deepEqual } from 'fast-equals'
@@ -132,6 +132,14 @@
 			setupSnowflakeUrls()
 		}
 
+		// Remove empty or invalid teams_channel entries
+		$values.critical_error_channels = $values.critical_error_channels.filter((entry) => {
+			if (entry && typeof entry == 'object' && 'teams_channel' in entry) {
+				return isValidTeamsChannel(entry.teams_channel)
+			}
+			return true
+		})
+
 		let shouldReloadPage = false
 		if ($values) {
 			const allSettings = [...Object.values(settings), scimSamlSetting].flatMap((x) =>
@@ -213,6 +221,21 @@
 	async function sendStats() {
 		await SettingService.sendStats()
 		sendUserToast('Usage sent')
+	}
+
+	function isValidTeamsChannel(value: any): value is TeamsChannel {
+		return (
+			typeof value === 'object' &&
+			value !== null &&
+			typeof value.team_id === 'string' &&
+			value.team_id.trim() !== '' &&
+			typeof value.team_name === 'string' &&
+			value.team_name.trim() !== '' &&
+			typeof value.channel_id === 'string' &&
+			value.channel_id.trim() !== '' &&
+			typeof value.channel_name === 'string' &&
+			value.channel_name.trim() !== ''
+		)
 	}
 </script>
 
