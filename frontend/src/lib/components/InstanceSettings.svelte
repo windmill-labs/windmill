@@ -223,7 +223,7 @@
 		sendUserToast('Usage sent')
 	}
 
-	function isValidTeamsChannel(value: unknown): value is TeamsChannel {
+	function isValidTeamsChannel(value: any): value is TeamsChannel {
 		return (
 			typeof value === 'object' &&
 			value !== null &&
