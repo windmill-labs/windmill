@@ -383,7 +383,7 @@ async fn windmill_main() -> anyhow::Result<()> {
         .is_some_and(|x| x == "1" || x == "true");
 
     if let Some(db) = conn.as_sql() {
-        if !is_agent && !indexer_mode {
+        if !is_agent && !indexer_mode && !mcp_mode {
             let skip_migration = std::env::var("SKIP_MIGRATION")
                 .map(|val| val == "true")
                 .unwrap_or(false);
