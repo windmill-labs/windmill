@@ -75,7 +75,7 @@
 					label: newTokenLabel,
 					expiration: date?.toISOString(),
 					scopes: tokenScopes,
-					workspace_id: mcpMode ? (newTokenWorkspace || $workspaceStore) : undefined
+					workspace_id: mcpMode ? (newTokenWorkspace || $workspaceStore) : newTokenWorkspace
 				} as NewToken
 			})
 
