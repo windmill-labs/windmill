@@ -19,6 +19,8 @@
 	import JsonInputs from './JsonInputs.svelte'
 	import FlowHistoryJobPicker from './FlowHistoryJobPicker.svelte'
 	import { NEVER_TESTED_THIS_FAR } from './flows/models'
+	import { writable, type Writable } from 'svelte/store'
+	import type { DurationStatus, GraphModuleState } from './graph'
 
 	export let previewMode: 'upTo' | 'whole'
 	export let open: boolean
@@ -36,6 +38,9 @@
 
 	export let branchOrIterationN: number = 0
 	export let scrollTop: number = 0
+
+	export let localModuleStates: Writable<Record<string, GraphModuleState>> = writable({})
+	export let localDurationStatuses: Writable<Record<string, DurationStatus>> = writable({})
 
 	let restartBranchNames: [number, string][] = []
 
@@ -507,6 +512,9 @@
 					</div>
 				{/if}
 				<FlowStatusViewer
+					bind:job
+					bind:localModuleStates
+					bind:localDurationStatuses
 					hideDownloadInGraph={customUi?.downloadLogs === false}
 					wideResults
 					{flowStateStore}
