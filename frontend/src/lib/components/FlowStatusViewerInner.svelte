@@ -84,6 +84,8 @@
 	export let rightColumnSelect: 'timeline' | 'node_status' | 'node_definition' | 'user_states' =
 		'timeline'
 
+	export let localModuleStates: Writable<Record<string, GraphModuleState>> = writable({})
+	export let localDurationStatuses: Writable<Record<string, DurationStatus>> = writable({})
 	let recursiveRefresh: Record<string, (clear, root) => Promise<void>> = {}
 
 	let jobResults: any[] =
@@ -92,8 +94,6 @@
 	let retry_selected = ''
 	let timeout: NodeJS.Timeout | undefined = undefined
 
-	let localModuleStates: Writable<Record<string, GraphModuleState>> = writable({})
-	let localDurationStatuses: Writable<Record<string, DurationStatus>> = writable({})
 	let expandedSubflows: Record<string, FlowModule[]> = {}
 
 	$: flowJobIds?.moduleId && onFlowModuleId()
@@ -495,6 +495,7 @@
 
 	async function updateJobId() {
 		if (jobId !== job?.id) {
+			console.log('updating job id', globalDurationStatuses.length)
 			$localModuleStates = {}
 			flowTimeline?.reset()
 			timeout && clearTimeout(timeout)

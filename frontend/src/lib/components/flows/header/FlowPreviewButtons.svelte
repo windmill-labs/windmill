@@ -10,6 +10,8 @@
 	import { getContext } from 'svelte'
 	import type { FlowEditorContext } from '../types'
 	import { Play } from 'lucide-svelte'
+	import { writable, type Writable } from 'svelte/store'
+	import type { DurationStatus, GraphModuleState } from '$lib/components/graph'
 
 	export let loading = false
 
@@ -40,6 +42,9 @@
 	let scrollTop: number = 0
 
 	let rightColumnSelect: 'timeline' | 'node_status' | 'node_definition' | 'user_states' = 'timeline'
+
+	let localModuleStates: Writable<Record<string, GraphModuleState>> = writable({})
+	let localDurationStatuses: Writable<Record<string, DurationStatus>> = writable({})
 
 	$: upToDisabled =
 		$selectedId == undefined ||
@@ -106,6 +111,8 @@
 	<Drawer bind:open={previewOpen} size="75%" {preventEscape}>
 		<FlowPreviewContent
 			bind:this={flowPreviewContent}
+			bind:localModuleStates
+			bind:localDurationStatuses
 			open={previewOpen}
 			bind:scrollTop
 			bind:previewMode
