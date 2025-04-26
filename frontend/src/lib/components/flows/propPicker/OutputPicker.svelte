@@ -77,7 +77,6 @@
 	allowFullScreen
 	contentClasses="overflow-hidden resize rounded-md"
 	contentStyle={`width: calc(${width}px); min-width: calc(${width}px); height: calc(${height}px); min-height: calc(${height}px);`}
-	fullScreenWidthOffset={2 * width}
 	extraProps={{ 'data-prop-picker': true }}
 	closeOnOtherPopoverOpen
 	class="outline-none"

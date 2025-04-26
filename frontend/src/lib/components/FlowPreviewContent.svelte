@@ -26,12 +26,18 @@
 
 	export let jobId: string | undefined = undefined
 	export let job: Job | undefined = undefined
-	let selectedJobStep: string | undefined = undefined
-	let branchOrIterationN: number = 0
-	let restartBranchNames: [number, string][] = []
+	export let initial: boolean = false
 
-	let selectedJobStepIsTopLevel: boolean | undefined = undefined
-	let selectedJobStepType: 'single' | 'forloop' | 'branchall' = 'single'
+	export let selectedJobStep: string | undefined = undefined
+	export let selectedJobStepIsTopLevel: boolean | undefined = undefined
+	export let selectedJobStepType: 'single' | 'forloop' | 'branchall' = 'single'
+	export let rightColumnSelect: 'timeline' | 'node_status' | 'node_definition' | 'user_states' =
+		'timeline'
+
+	export let branchOrIterationN: number = 0
+	export let scrollTop: number = 0
+
+	let restartBranchNames: [number, string][] = []
 
 	let isRunning: boolean = false
 	let jobProgressReset: () => void
@@ -59,7 +65,6 @@
 	const dispatch = createEventDispatcher()
 
 	let renderCount: number = 0
-	let initial: boolean = false
 	let schemaFormWithArgPicker: SchemaFormWithArgPicker | undefined = undefined
 	let currentJobId: string | undefined = undefined
 
@@ -209,6 +214,19 @@
 				}
 			}
 		})
+	}
+
+	let scrollableDiv: HTMLDivElement | undefined = undefined
+	function handleScroll() {
+		scrollTop = scrollableDiv?.scrollTop ?? 0
+	}
+
+	$: scrollableDiv && onScrollableDivChange()
+
+	function onScrollableDivChange() {
+		if (scrollTop != 0 && scrollableDiv) {
+			scrollableDiv.scrollTop = scrollTop
+		}
 	}
 </script>
 
@@ -375,7 +393,11 @@
 		<FlowProgressBar {job} bind:reset={jobProgressReset} />
 	</div>
 
-	<div class="overflow-y-auto grow flex flex-col pt-4">
+	<div
+		bind:this={scrollableDiv}
+		class="overflow-y-auto grow flex flex-col pt-4"
+		on:scroll={(e) => handleScroll()}
+	>
 		<div class="border-b">
 			<SchemaFormWithArgPicker
 				bind:this={schemaFormWithArgPicker}
@@ -448,6 +470,7 @@
 				class="absolute top-[22px] right-2 border p-1.5 hover:bg-surface-hover rounded-md center-center"
 			>
 				<FlowHistoryJobPicker
+					selectInitial={jobId == undefined}
 					on:nohistory={() => {
 						loadIndividualStepsStates()
 					}}
@@ -499,6 +522,7 @@
 						}
 					}}
 					bind:selectedJobStep
+					bind:rightColumnSelect
 				/>
 			{:else}
 				<div class="italic text-tertiary h-full grow"> Flow status will be displayed here </div>

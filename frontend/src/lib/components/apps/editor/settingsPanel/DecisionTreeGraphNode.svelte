@@ -70,7 +70,7 @@
 			<button
 				class={twMerge(
 					'absolute -top-[10px] -right-[10px] rounded-full h-[20px] w-[20px] trash center-center text-primary',
-					'border-[1.5px] border-gray-700 bg-surface duration-150 hover:bg-red-400 hover:text-white hover:border-red-700',
+					'border-[1.5px] border-gray-700 bg-surface duration-0 hover:bg-red-400 hover:text-white hover:border-red-700',
 					'group-hover:opacity-100 opacity-0'
 				)}
 				on:click|preventDefault|stopPropagation={() => {

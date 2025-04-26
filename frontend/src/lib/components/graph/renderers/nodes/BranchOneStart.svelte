@@ -45,7 +45,7 @@
 		<button
 			title="Delete branch"
 			class="z-50 absolute -top-[10px] -right-[10px] rounded-full h-[20px] w-[20px] center-center text-primary
-border-[1.5px] border-gray-700 bg-surface duration-150 hover:bg-red-400 hover:text-white
+border-[1.5px] border-gray-700 bg-surface duration-0 hover:bg-red-400 hover:text-white
 hover:border-red-700"
 			on:click|preventDefault|stopPropagation={() => {
 				data.eventHandlers.deleteBranch(

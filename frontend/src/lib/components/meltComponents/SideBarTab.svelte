@@ -57,7 +57,7 @@
 		>
 			{#each dropdownItems as item}
 				<button
-					class="hover:bg-surface-hover p-2 transition-colors duration-150 w-full {item.selected
+					class="hover:bg-surface-hover p-2 transition-colors duration-0 w-full {item.selected
 						? 'bg-surface-selected'
 						: 'text-secondary'}"
 					on:click={() => {

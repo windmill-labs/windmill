@@ -1,11 +1,11 @@
 <script lang="ts">
 	import { driver, type Driver, type DriveStep } from 'driver.js'
-	import 'driver.js/dist/driver.css'
 	import { createEventDispatcher, mount } from 'svelte'
 	import { updateProgress } from '$lib/tutorialUtils'
 	import { ignoredTutorials } from './ignoredTutorials'
 	import SkipTutorials from './SkipTutorials.svelte'
 	import TutorialControls from './TutorialControls.svelte'
+	import TutorialInner from './TutorialInner.svelte'
 
 	export let index: number = 0
 	export let name: string = 'action'
@@ -132,12 +132,6 @@
 	}
 </script>
 
-<style>
-	:global(.driver-popover) {
-		padding: 32px;
-	}
-	:global(.driver-popover-title) {
-		font-size: 1.2rem !important;
-		line-height: 2 !important;
-	}
-</style>
+{#if tutorial}
+	<TutorialInner />
+{/if}

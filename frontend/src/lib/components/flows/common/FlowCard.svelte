@@ -1,16 +1,16 @@
 <script lang="ts">
-	import type { FlowModule } from '$lib/gen'
-
+	import type { FlowModuleValue } from '$lib/gen'
 	import FlowCardHeader from './FlowCardHeader.svelte'
 	export let title: string | undefined = undefined
-	export let flowModule: FlowModule | undefined = undefined
+	export let summary: string | undefined = undefined
 	export let noEditor: boolean
+	export let flowModuleValue: FlowModuleValue | undefined = undefined
 </script>
 
 <div class="flex flex-col h-full">
 	{#if !noEditor}
 		<div>
-			<FlowCardHeader on:reload {title} bind:flowModule>
+			<FlowCardHeader on:setHash on:reload {title} bind:summary {flowModuleValue}>
 				<slot name="header" />
 			</FlowCardHeader>
 		</div>

@@ -49,7 +49,7 @@
 	{#if data.module.value.type == 'flow'}
 		<button
 			title="Expand subflow"
-			class="z-50 absolute -top-[10px] right-[25px] rounded-full h-[20px] w-[20px] center-center text-primary bg-surface duration-150 hover:bg-surface-hover"
+			class="z-50 absolute -top-[10px] right-[25px] rounded-full h-[20px] w-[20px] center-center text-primary bg-surface duration-0 hover:bg-surface-hover"
 			on:click|preventDefault|stopPropagation={() => {
 				if (data.module.value.type == 'flow') {
 					data.eventHandlers.expandSubflow(data.module.id, data.module.value.path)

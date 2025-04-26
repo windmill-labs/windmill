@@ -69,15 +69,15 @@ shouldUsePortal={true} -->
 				kind === 'failure'
 					? ' failure module '
 					: kind === 'preprocessor'
-					? 'preprocessor step'
-					: kind === 'trigger'
-					? 'trigger'
-					: 'step'
+						? 'preprocessor step'
+						: kind === 'trigger'
+							? 'trigger'
+							: 'step'
 			}`}
 			id={`flow-editor-add-step-${index}`}
 			type="button"
 			class={twMerge(
-				'w-[17.5px] h-[17.5px] flex items-center justify-center outline-[1px] outline dark:outline-gray-500 outline-gray-300 text-secondary bg-surface focus:outline-none hover:bg-surface-hover rounded',
+				'w-[17.5px] h-[17.5px] flex items-center justify-center !outline-[1px] outline dark:outline-gray-500 outline-gray-300 text-secondary bg-surface focus:outline-none hover:bg-surface-hover rounded',
 				$$props.class
 			)}
 			on:pointerdown|preventDefault|stopPropagation={() => {
