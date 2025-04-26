@@ -19,7 +19,8 @@
 	export let hideNodeDefinition = false
 	export let hideJobId = false
 	export let hideDownloadLogs = false
-
+	export let rightColumnSelect: 'timeline' | 'node_status' | 'node_definition' | 'user_states' =
+		'timeline'
 	export let isOwner = false
 	export let wideResults = false
 
@@ -77,4 +78,5 @@
 	{workspaceId}
 	{isOwner}
 	{wideResults}
+	bind:rightColumnSelect
 />

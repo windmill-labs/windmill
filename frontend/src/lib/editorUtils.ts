@@ -146,7 +146,7 @@ export function extToLang(ext: string) {
 			return 'nu'
 		case 'java':
 			return 'java'
-		// for related places search: ADD_NEW_LANG 
+		// for related places search: ADD_NEW_LANG
 		default:
 			return 'unknown'
 	}

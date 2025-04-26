@@ -13,7 +13,7 @@
 	import FlowPreviewStatus from './preview/FlowPreviewStatus.svelte'
 	import { createEventDispatcher, getContext, tick } from 'svelte'
 	import { onDestroy } from 'svelte'
-	import { Badge, Button, Tab } from './common'
+	import { Badge, Button, Skeleton, Tab } from './common'
 	import DisplayResult from './DisplayResult.svelte'
 	import Tabs from './common/tabs/Tabs.svelte'
 	import { type DurationStatus, type FlowStatusViewerContext, type GraphModuleState } from './graph'
@@ -81,6 +81,8 @@
 	export let isForloopSelected = false
 	export let parentRecursiveRefresh: Record<string, (clear, root) => Promise<void>> = {}
 	export let job: Job | undefined = undefined
+	export let rightColumnSelect: 'timeline' | 'node_status' | 'node_definition' | 'user_states' =
+		'timeline'
 
 	let recursiveRefresh: Record<string, (clear, root) => Promise<void>> = {}
 
@@ -95,6 +97,8 @@
 	let expandedSubflows: Record<string, FlowModule[]> = {}
 
 	$: flowJobIds?.moduleId && onFlowModuleId()
+
+	let selectedId: Writable<string | undefined> = writable(selectedNode)
 
 	function onFlowModuleId() {
 		if (globalRefreshes) {
@@ -793,8 +797,6 @@
 
 	let flowTimeline: FlowTimeline
 
-	let rightColumnSelect: 'timeline' | 'node_status' | 'node_definition' | 'user_states' = 'timeline'
-
 	function loadPreviousIters(lenToAdd: number) {
 		let r = $localDurationStatuses[flowJobIds?.moduleId ?? '']
 		if (r.iteration_from) {
@@ -1244,6 +1246,7 @@
 						</div>
 
 						<FlowGraphV2
+							{selectedId}
 							triggerNode={true}
 							download={!hideDownloadInGraph}
 							minHeight={wrapperHeight}
@@ -1455,7 +1458,7 @@
 		{/if}
 	{/if}
 {:else}
-	<Loader2 class="animate-spin" />
+	<Skeleton layout={[[15], 1, [70]]}></Skeleton>
 {/if}
 
 <style>

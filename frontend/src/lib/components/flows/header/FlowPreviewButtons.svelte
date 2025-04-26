@@ -32,6 +32,14 @@
 	let jobId: string | undefined = undefined
 	let job: Job | undefined = undefined
 	let preventEscape = false
+	let initial = false
+	let selectedJobStep: string | undefined = undefined
+	let selectedJobStepIsTopLevel: boolean | undefined = undefined
+	let selectedJobStepType: 'single' | 'forloop' | 'branchall' = 'single'
+	let branchOrIterationN: number = 0
+	let scrollTop: number = 0
+
+	let rightColumnSelect: 'timeline' | 'node_status' | 'node_definition' | 'user_states' = 'timeline'
 
 	$: upToDisabled =
 		$selectedId == undefined ||
@@ -99,9 +107,16 @@
 		<FlowPreviewContent
 			bind:this={flowPreviewContent}
 			open={previewOpen}
+			bind:scrollTop
 			bind:previewMode
 			bind:job
 			bind:jobId
+			bind:initial
+			bind:selectedJobStep
+			bind:selectedJobStepIsTopLevel
+			bind:selectedJobStepType
+			bind:branchOrIterationN
+			bind:rightColumnSelect
 			on:close={() => {
 				previewOpen = false
 			}}

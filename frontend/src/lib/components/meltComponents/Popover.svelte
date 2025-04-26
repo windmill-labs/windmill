@@ -30,7 +30,6 @@
 	export let portal: string | HTMLElement | null = 'body'
 	export let closeOnOtherPopoverOpen: boolean = false
 	export let allowFullScreen: boolean = false
-	export let fullScreenWidthOffset: number = 0
 	export let extraProps: Record<string, any> = {}
 	export let disabled: boolean = false
 	export let documentationLink: string | undefined = undefined
@@ -143,9 +142,7 @@
 		)}
 		data-popover
 		{...extraProps}
-		style={fullScreen
-			? `width: calc(90vw - ${fullScreenWidthOffset}px); height: 90vh;`
-			: contentStyle}
+		style={fullScreen ? `width: 90vw; max-width: 800px; height: 90vh;` : contentStyle}
 	>
 		{#if displayArrow}
 			<div use:melt={$arrow}></div>

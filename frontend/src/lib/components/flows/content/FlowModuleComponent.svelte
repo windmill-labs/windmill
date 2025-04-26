@@ -283,17 +283,31 @@
 {#if flowModule.value}
 	<div class="h-full" bind:clientWidth={width}>
 		<FlowCard
+			flowModuleValue={flowModule?.value}
 			on:reload={() => {
 				forceReload++
 				reload(flowModule)
 			}}
 			{noEditor}
-			bind:flowModule
+			on:setHash={(e) => {
+				if (flowModule.value.type == 'script') {
+					flowModule.value.hash = e.detail
+				}
+			}}
+			bind:summary={flowModule.summary}
 		>
 			<svelte:fragment slot="header">
 				<FlowModuleHeader
 					{tag}
-					bind:module={flowModule}
+					module={flowModule}
+					on:tagChange={(e) => {
+						console.log('tagChange', e.detail)
+						if (flowModule.value.type == 'script') {
+							flowModule.value.tag_override = e.detail
+						} else if (flowModule.value.type == 'rawscript') {
+							flowModule.value.tag = e.detail
+						}
+					}}
 					on:toggleSuspend={() => selectAdvanced('suspend')}
 					on:toggleSleep={() => selectAdvanced('sleep')}
 					on:toggleMock={() => selectAdvanced('mock')}
