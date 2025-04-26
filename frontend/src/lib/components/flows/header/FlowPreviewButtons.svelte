@@ -103,7 +103,7 @@
 </Button>
 
 {#if !loading}
-	<Drawer bind:open={previewOpen} alwaysOpen size="75%" {preventEscape}>
+	<Drawer bind:open={previewOpen} size="75%" {preventEscape}>
 		<FlowPreviewContent
 			bind:this={flowPreviewContent}
 			open={previewOpen}
