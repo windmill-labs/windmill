@@ -394,7 +394,7 @@
 													if (flowModule.value.content !== content) {
 														flowModule.value.content = content
 													}
-													// await reload(flowModule)
+													await reload(flowModule)
 												}
 											}}
 											formatAction={() => {
