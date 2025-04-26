@@ -522,8 +522,7 @@
 					on:done={() => {
 						$executionCount = $executionCount + 1
 					}}
-					on:jobsLoaded={({ detail }) => {
-						job = detail
+					on:jobsLoaded={() => {
 						if (initial) {
 							console.log('loading initial steps after initial job loaded')
 							loadIndividualStepsStates()
