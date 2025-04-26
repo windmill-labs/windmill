@@ -352,7 +352,7 @@
 
 			<div class="h-full flex flex-col">
 				{#if flowModule.value.type === 'rawscript' && !noEditor}
-					<div class="border-b-2 shadow-sm px-1">
+					<div class="shadow-sm px-1 border-b-1 border-gray-200 dark:border-gray-700">
 						<EditorBar
 							customUi={customUi?.editorBar}
 							{validCode}
