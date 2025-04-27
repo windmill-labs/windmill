@@ -35,7 +35,6 @@
 	export let documentationLink: string | undefined = undefined
 
 	let fullScreen = false
-
 	const dispatch = createEventDispatcher()
 
 	const {
@@ -69,11 +68,11 @@
 		}
 	})
 
-	$: $positioning = floatingConfig ?? {
+	$positioning = floatingConfig ?? {
 		placement,
-		strategy: fullScreen ? 'fixed' : 'absolute',
-		x: fullScreen ? 0 : undefined,
-		y: fullScreen ? 0 : undefined
+		strategy: 'absolute',
+		x: undefined,
+		y: undefined
 	}
 
 	export let isOpen = false
