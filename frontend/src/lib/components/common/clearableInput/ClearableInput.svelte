@@ -39,7 +39,7 @@
 			{value}
 			{placeholder}
 			rows="1"
-			class="resize-y duration-200 {inputClass}"
+			class="resize-y {inputClass}"
 			{...$$restProps}
 			on:input={handleInput}
 			on:keydown|stopPropagation
@@ -51,7 +51,7 @@
 			{type}
 			{value}
 			{placeholder}
-			class="duration-200 {(value ? '!pr-[26px] ' : '') + inputClass}"
+			class=" {(value ? '!pr-[26px] ' : '') + inputClass}"
 			{...$$restProps}
 			on:input={handleInput}
 			on:keydown|stopPropagation
@@ -63,7 +63,7 @@
 		<button
 			transition:fade|local={{ duration: 80 }}
 			class="absolute z-10 top-[9.5px] right-2 rounded-full p-0.5 text-primary bg-surface-secondary
-			duration-200 hover:bg-surface-hovr focus:bg-surface-hover {buttonClass}"
+			 hover:bg-surface-hover focus:bg-surface-hover {buttonClass}"
 			aria-label="Clear"
 			on:click|preventDefault|stopPropagation={clear}
 		>

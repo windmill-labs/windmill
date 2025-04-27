@@ -197,7 +197,7 @@
 </script>
 
 <div class="flex flex-col h-full rounded">
-	<div class="px-1 py-1">
+	<div class="px-1 pb-1">
 		<ClearableInput bind:value={search} placeholder="Search prop..." />
 	</div>
 	<!-- <div
