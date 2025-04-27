@@ -265,6 +265,8 @@ async fn windmill_main() -> anyhow::Result<()> {
 
     if mode == Mode::Standalone {
         println!("Running in standalone mode");
+    } else if mode == Mode::MCP {
+        println!("Running in MCP mode");
     }
 
     #[cfg(all(not(target_env = "msvc"), feature = "jemalloc"))]
@@ -297,7 +299,7 @@ async fn windmill_main() -> anyhow::Result<()> {
     }
 
     #[allow(unused_mut)]
-    let mut num_workers = if mode == Mode::Server || mode == Mode::Indexer {
+    let mut num_workers = if mode == Mode::Server || mode == Mode::Indexer || mode == Mode::MCP {
         0
     } else {
         std::env::var("NUM_WORKERS")
@@ -316,11 +318,12 @@ async fn windmill_main() -> anyhow::Result<()> {
         .ok()
         .and_then(|x| x.parse::<bool>().ok())
         .unwrap_or(false)
-        && (mode == Mode::Server || mode == Mode::Standalone);
+        && (mode == Mode::Server || mode == Mode::Standalone || mode == Mode::MCP);
 
     let indexer_mode = mode == Mode::Indexer;
+    let mcp_mode = mode == Mode::MCP;
 
-    let server_bind_address: IpAddr = if server_mode || indexer_mode {
+    let server_bind_address: IpAddr = if server_mode || indexer_mode || mcp_mode {
         std::env::var("SERVER_BIND_ADDR")
             .ok()
             .and_then(|x| x.parse().ok())
@@ -380,7 +383,7 @@ async fn windmill_main() -> anyhow::Result<()> {
         .is_some_and(|x| x == "1" || x == "true");
 
     if let Some(db) = conn.as_sql() {
-        if !is_agent && !indexer_mode {
+        if !is_agent && !indexer_mode && !mcp_mode {
             let skip_migration = std::env::var("SKIP_MIGRATION")
                 .map(|val| val == "true")
                 .unwrap_or(false);
@@ -647,6 +650,7 @@ Windmill Community Edition {GIT_VERSION}
                         server_killpill_rx,
                         base_internal_tx,
                         server_mode,
+                        mcp_mode,
                         base_internal_url.clone(),
                     )
                     .await?;
@@ -1049,15 +1053,19 @@ Windmill Community Edition {GIT_VERSION}
             }
         }
 
-        futures::try_join!(
-            shutdown_signal,
-            workers_f,
-            monitor_f,
-            server_f,
-            metrics_f,
-            indexer_f,
-            log_indexer_f
-        )?;
+        if mcp_mode {
+            futures::try_join!(shutdown_signal, workers_f, server_f)?;
+        } else {
+            futures::try_join!(
+                shutdown_signal,
+                workers_f,
+                monitor_f,
+                server_f,
+                metrics_f,
+                indexer_f,
+                log_indexer_f
+            )?;
+        }
     } else {
         tracing::info!("Nothing to do, exiting.");
     }

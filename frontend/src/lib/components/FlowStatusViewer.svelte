@@ -3,7 +3,7 @@
 	import FlowStatusViewerInner from './FlowStatusViewerInner.svelte'
 	import type { FlowState } from './flows/flowState'
 	import { createEventDispatcher, setContext } from 'svelte'
-	import type { FlowStatusViewerContext } from './graph'
+	import type { DurationStatus, FlowStatusViewerContext, GraphModuleState } from './graph'
 	import { isOwner as loadIsOwner } from '$lib/utils'
 	import { userStore, workspaceStore } from '$lib/stores'
 	import type { Job } from '$lib/gen'
@@ -19,9 +19,13 @@
 	export let hideNodeDefinition = false
 	export let hideJobId = false
 	export let hideDownloadLogs = false
-
+	export let rightColumnSelect: 'timeline' | 'node_status' | 'node_definition' | 'user_states' =
+		'timeline'
 	export let isOwner = false
 	export let wideResults = false
+	export let localModuleStates: Writable<Record<string, GraphModuleState>> = writable({})
+	export let localDurationStatuses: Writable<Record<string, DurationStatus>> = writable({})
+	export let job: Job | undefined = undefined
 
 	let lastJobId: string = jobId
 
@@ -67,14 +71,18 @@
 		}
 		dispatch('jobsLoaded', job)
 	}}
-	globalDurationStatuses={[]}
 	globalModuleStates={[]}
+	globalDurationStatuses={[]}
+	bind:localModuleStates
+	bind:localDurationStatuses
 	bind:selectedNode={selectedJobStep}
 	on:start
 	on:done
+	bind:job
 	{initialJob}
 	{jobId}
 	{workspaceId}
 	{isOwner}
 	{wideResults}
+	bind:rightColumnSelect
 />

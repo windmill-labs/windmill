@@ -51,7 +51,7 @@
 	let newMcpScope = $state('favorites')
 	let newMcpToken = $state<string | undefined>(undefined)
 
-	const mcpBaseUrl = $derived(`${window.location.origin}/api/w/${$workspaceStore}/mcp/sse?token=`)
+	const mcpBaseUrl = $derived(`${window.location.origin}/api/mcp/w/${newTokenWorkspace}/sse?token=`)
 	const dispatch = createEventDispatcher()
 
 	$effect(() => {
@@ -75,7 +75,7 @@
 					label: newTokenLabel,
 					expiration: date?.toISOString(),
 					scopes: tokenScopes,
-					workspace_id: newTokenWorkspace || $workspaceStore
+					workspace_id: mcpMode ? (newTokenWorkspace || $workspaceStore) : newTokenWorkspace
 				} as NewToken
 			})
 
@@ -181,6 +181,10 @@
 							newTokenLabel = 'MCP token'
 							newTokenExpiration = undefined
 							newTokenWorkspace = $workspaceStore
+						} else {
+							newTokenLabel = undefined
+							newTokenExpiration = undefined
+							newTokenWorkspace = defaultNewTokenWorkspace
 						}
 					}}
 					checked={mcpCreationMode}
