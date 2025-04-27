@@ -88,6 +88,7 @@
 
 	let loaded = false
 
+
 	async function setValues() {
 		value = Array.isArray(result)
 			? (result as any[]).map((x, i) => ({ ...x, __index: i.toString() + '-' + uid }))
