@@ -74,7 +74,7 @@ Only output the expression, do not explain or discuss.`
 			)
 		} catch (err) {
 			if (!abortController.signal.aborted) {
-				sendUserToast('Could not generate summary: ' + err, true)
+				sendUserToast('Could not generate iterator expression: ' + err, true)
 			}
 		} finally {
 			loading = false
