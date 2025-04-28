@@ -45,6 +45,7 @@
 		{ displayName: 'NATS', action: () => addDraftTrigger('nats'), icon: triggerIconMap.nats },
 		{ displayName: 'MQTT', action: () => addDraftTrigger('mqtt'), icon: triggerIconMap.mqtt },
 		{ displayName: 'SQS', action: () => addDraftTrigger('sqs'), icon: triggerIconMap.sqs },
+		{ displayName: 'GCP Pub/Sub', action: () => addDraftTrigger('gcp'), icon: triggerIconMap.gcp },
 		{
 			displayName: 'Scheduled Poll',
 			action: (e) => {
