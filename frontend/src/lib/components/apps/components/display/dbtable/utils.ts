@@ -61,123 +61,11 @@ export async function loadTableMetaData(
 	if (!resource || !table || !workspace) {
 		return undefined
 	}
-
-	let code: string = ''
-
-	if (resourceType === 'mysql') {
-		const resourceObj = (await ResourceService.getResourceValue({
-			workspace,
-			path: resource.split(':')[1]
-		})) as any
-		code = `
-	SELECT 
-			COLUMN_NAME as field,
-			COLUMN_TYPE as DataType,
-			COLUMN_DEFAULT as DefaultValue,
-			CASE WHEN COLUMN_KEY = 'PRI' THEN 'YES' ELSE 'NO' END as IsPrimaryKey,
-			CASE WHEN EXTRA like '%auto_increment%' THEN 'YES' ELSE 'NO' END as IsIdentity,
-			CASE WHEN IS_NULLABLE = 'YES' THEN 'YES' ELSE 'NO' END as IsNullable,
-			CASE WHEN DATA_TYPE = 'enum' THEN true ELSE false END as IsEnum
-	FROM 
-			INFORMATION_SCHEMA.COLUMNS
-	WHERE 
-			TABLE_NAME = '${table.split('.').reverse()[0]}' AND TABLE_SCHEMA = '${
-				table.split('.').reverse()[1] ?? resourceObj?.database ?? ''
-			}'
-	ORDER BY 
-			ORDINAL_POSITION;
-	`
-	} else if (resourceType === 'postgresql') {
-		code = `
-		SELECT 
-		a.attname as field,
-		pg_catalog.format_type(a.atttypid, a.atttypmod) as DataType,
-		(SELECT substring(pg_catalog.pg_get_expr(d.adbin, d.adrelid, true) for 128)
-		 FROM pg_catalog.pg_attrdef d
-		 WHERE d.adrelid = a.attrelid AND d.adnum = a.attnum AND a.atthasdef) as DefaultValue,
-		(SELECT CASE WHEN i.indisprimary THEN true ELSE 'NO' END
-		 FROM pg_catalog.pg_class tbl, pg_catalog.pg_class idx, pg_catalog.pg_index i, pg_catalog.pg_attribute att
-		 WHERE tbl.oid = a.attrelid AND idx.oid = i.indexrelid AND att.attrelid = tbl.oid
-								 AND i.indrelid = tbl.oid AND att.attnum = any(i.indkey) AND att.attname = a.attname LIMIT 1) as IsPrimaryKey,
-		CASE a.attidentity
-				WHEN 'd' THEN 'By Default'
-				WHEN 'a' THEN 'Always'
-				ELSE 'No'
-		END as IsIdentity,
-		CASE a.attnotnull
-				WHEN false THEN 'YES'
-				ELSE 'NO'
-		END as IsNullable,
-		(SELECT true
-		 FROM pg_catalog.pg_enum e
-		 WHERE e.enumtypid = a.atttypid FETCH FIRST ROW ONLY) as IsEnum
-	FROM pg_catalog.pg_attribute a
-	WHERE a.attrelid = (SELECT c.oid FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace ns ON c.relnamespace = ns.oid WHERE relname = '${
-		table.split('.').reverse()[0]
-	}' AND ns.nspname = '${table.split('.').reverse()[1] ?? 'public'}')
-		AND a.attnum > 0 AND NOT a.attisdropped
-	ORDER BY a.attnum;
-	
-	`
-	} else if (resourceType === 'ms_sql_server') {
-		code = `
-		SELECT 
-    COLUMN_NAME as field,
-    DATA_TYPE as DataType,
-    COLUMN_DEFAULT as DefaultValue,
-    CASE WHEN COLUMNPROPERTY(OBJECT_ID(TABLE_NAME), COLUMN_NAME, 'IsIdentity') = 1 THEN 'By Default' ELSE 'No' END as IsIdentity,
-    CASE WHEN COLUMNPROPERTY(OBJECT_ID(TABLE_NAME), COLUMN_NAME, 'IsIdentity') = 1 THEN 1 ELSE 0 END as IsPrimaryKey, -- This line still needs correction for primary key identification
-    CASE WHEN IS_NULLABLE = 'YES' THEN 'YES' ELSE 'NO' END as IsNullable,
-    CASE WHEN DATA_TYPE = 'enum' THEN 1 ELSE 0 END as IsEnum
-FROM    
-    INFORMATION_SCHEMA.COLUMNS
-WHERE   
-    TABLE_NAME = '${table}'
-ORDER BY
-    ORDINAL_POSITION;
-
-	`
-	} else if (resourceType === 'snowflake' || resourceType === 'snowflake_oauth') {
-		code = `
-		select COLUMN_NAME as field,
-		DATA_TYPE as DataType,
-		COLUMN_DEFAULT as DefaultValue,
-		CASE WHEN COLUMN_DEFAULT like 'AUTOINCREMENT%' THEN 'By Default' ELSE 'No' END as IsIdentity,
-		CASE WHEN COLUMN_DEFAULT like 'AUTOINCREMENT%' THEN 1 ELSE 0 END as IsPrimaryKey,
-		CASE WHEN IS_NULLABLE = 'YES' THEN 'YES' ELSE 'NO' END as IsNullable,
-		CASE WHEN DATA_TYPE = 'enum' THEN 1 ELSE 0 END as IsEnum
-	from information_schema.columns
-	where table_name = '${table.split('.').reverse()[0]}' and table_schema = '${
-		table.split('.').reverse()[1] ?? 'PUBLIC'
-	}'
-	order by ORDINAL_POSITION;
-	`
-	} else if (resourceType === 'bigquery') {
-		code = `SELECT 
-    c.COLUMN_NAME as field,
-    DATA_TYPE as DataType,
-    CASE WHEN COLUMN_DEFAULT = 'NULL' THEN '' ELSE COLUMN_DEFAULT END as DefaultValue,
-    CASE WHEN constraint_name is not null THEN true ELSE false END as IsPrimaryKey,
-    'No' as IsIdentity,
-    IS_NULLABLE as IsNullable,
-    false as IsEnum
-FROM
-    ${table.split('.')[0]}.INFORMATION_SCHEMA.COLUMNS c
-    LEFT JOIN
-    test_dataset.INFORMATION_SCHEMA.KEY_COLUMN_USAGE p
-    on c.table_name = p.table_name AND c.column_name = p.COLUMN_NAME
-WHERE   
-    c.TABLE_NAME = "${table.split('.')[1]}"
-order by c.ORDINAL_POSITION;`
-	} else {
-		throw new Error('Unsupported database type:' + resourceType)
-	}
-
 	const job = await JobService.runScriptPreview({
 		workspace: workspace,
 		requestBody: {
 			language: getLanguageByResourceType(resourceType),
-			content: code,
+			content: await makeLoadTableMetaDataQuery(resource, workspace, table, resourceType),
 			args: {
 				database: resource
 			}
@@ -213,6 +101,122 @@ order by c.ORDINAL_POSITION;`
 
 	console.error('Failed to load table metadata after maximum retries.')
 	return undefined
+}
+
+async function makeLoadTableMetaDataQuery(
+	resource: string,
+	workspace: string,
+	table: string,
+	resourceType: string
+): Promise<string> {
+	if (resourceType === 'mysql') {
+		const resourceObj = (await ResourceService.getResourceValue({
+			workspace,
+			path: resource.split(':')[1]
+		})) as any
+		return `
+	SELECT 
+			COLUMN_NAME as field,
+			COLUMN_TYPE as DataType,
+			COLUMN_DEFAULT as DefaultValue,
+			CASE WHEN COLUMN_KEY = 'PRI' THEN 'YES' ELSE 'NO' END as IsPrimaryKey,
+			CASE WHEN EXTRA like '%auto_increment%' THEN 'YES' ELSE 'NO' END as IsIdentity,
+			CASE WHEN IS_NULLABLE = 'YES' THEN 'YES' ELSE 'NO' END as IsNullable,
+			CASE WHEN DATA_TYPE = 'enum' THEN true ELSE false END as IsEnum
+	FROM 
+			INFORMATION_SCHEMA.COLUMNS
+	WHERE 
+			TABLE_NAME = '${table.split('.').reverse()[0]}' AND TABLE_SCHEMA = '${
+				table.split('.').reverse()[1] ?? resourceObj?.database ?? ''
+			}'
+	ORDER BY 
+			ORDINAL_POSITION;
+	`
+	} else if (resourceType === 'postgresql') {
+		return `
+		SELECT 
+		a.attname as field,
+		pg_catalog.format_type(a.atttypid, a.atttypmod) as DataType,
+		(SELECT substring(pg_catalog.pg_get_expr(d.adbin, d.adrelid, true) for 128)
+		 FROM pg_catalog.pg_attrdef d
+		 WHERE d.adrelid = a.attrelid AND d.adnum = a.attnum AND a.atthasdef) as DefaultValue,
+		(SELECT CASE WHEN i.indisprimary THEN true ELSE 'NO' END
+		 FROM pg_catalog.pg_class tbl, pg_catalog.pg_class idx, pg_catalog.pg_index i, pg_catalog.pg_attribute att
+		 WHERE tbl.oid = a.attrelid AND idx.oid = i.indexrelid AND att.attrelid = tbl.oid
+								 AND i.indrelid = tbl.oid AND att.attnum = any(i.indkey) AND att.attname = a.attname LIMIT 1) as IsPrimaryKey,
+		CASE a.attidentity
+				WHEN 'd' THEN 'By Default'
+				WHEN 'a' THEN 'Always'
+				ELSE 'No'
+		END as IsIdentity,
+		CASE a.attnotnull
+				WHEN false THEN 'YES'
+				ELSE 'NO'
+		END as IsNullable,
+		(SELECT true
+		 FROM pg_catalog.pg_enum e
+		 WHERE e.enumtypid = a.atttypid FETCH FIRST ROW ONLY) as IsEnum
+	FROM pg_catalog.pg_attribute a
+	WHERE a.attrelid = (SELECT c.oid FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace ns ON c.relnamespace = ns.oid WHERE relname = '${
+		table.split('.').reverse()[0]
+	}' AND ns.nspname = '${table.split('.').reverse()[1] ?? 'public'}')
+		AND a.attnum > 0 AND NOT a.attisdropped
+	ORDER BY a.attnum;
+	
+	`
+	} else if (resourceType === 'ms_sql_server') {
+		return `
+		SELECT 
+    COLUMN_NAME as field,
+    DATA_TYPE as DataType,
+    COLUMN_DEFAULT as DefaultValue,
+    CASE WHEN COLUMNPROPERTY(OBJECT_ID(TABLE_NAME), COLUMN_NAME, 'IsIdentity') = 1 THEN 'By Default' ELSE 'No' END as IsIdentity,
+    CASE WHEN COLUMNPROPERTY(OBJECT_ID(TABLE_NAME), COLUMN_NAME, 'IsIdentity') = 1 THEN 1 ELSE 0 END as IsPrimaryKey, -- This line still needs correction for primary key identification
+    CASE WHEN IS_NULLABLE = 'YES' THEN 'YES' ELSE 'NO' END as IsNullable,
+    CASE WHEN DATA_TYPE = 'enum' THEN 1 ELSE 0 END as IsEnum
+FROM    
+    INFORMATION_SCHEMA.COLUMNS
+WHERE   
+    TABLE_NAME = '${table}'
+ORDER BY
+    ORDINAL_POSITION;
+
+	`
+	} else if (resourceType === 'snowflake' || resourceType === 'snowflake_oauth') {
+		return `
+		select COLUMN_NAME as field,
+		DATA_TYPE as DataType,
+		COLUMN_DEFAULT as DefaultValue,
+		CASE WHEN COLUMN_DEFAULT like 'AUTOINCREMENT%' THEN 'By Default' ELSE 'No' END as IsIdentity,
+		CASE WHEN COLUMN_DEFAULT like 'AUTOINCREMENT%' THEN 1 ELSE 0 END as IsPrimaryKey,
+		CASE WHEN IS_NULLABLE = 'YES' THEN 'YES' ELSE 'NO' END as IsNullable,
+		CASE WHEN DATA_TYPE = 'enum' THEN 1 ELSE 0 END as IsEnum
+	from information_schema.columns
+	where table_name = '${table.split('.').reverse()[0]}' and table_schema = '${
+		table.split('.').reverse()[1] ?? 'PUBLIC'
+	}'
+	order by ORDINAL_POSITION;
+	`
+	} else if (resourceType === 'bigquery') {
+		return `SELECT 
+    c.COLUMN_NAME as field,
+    DATA_TYPE as DataType,
+    CASE WHEN COLUMN_DEFAULT = 'NULL' THEN '' ELSE COLUMN_DEFAULT END as DefaultValue,
+    CASE WHEN constraint_name is not null THEN true ELSE false END as IsPrimaryKey,
+    'No' as IsIdentity,
+    IS_NULLABLE as IsNullable,
+    false as IsEnum
+FROM
+    ${table.split('.')[0]}.INFORMATION_SCHEMA.COLUMNS c
+    LEFT JOIN
+    test_dataset.INFORMATION_SCHEMA.KEY_COLUMN_USAGE p
+    on c.table_name = p.table_name AND c.column_name = p.COLUMN_NAME
+WHERE   
+    c.TABLE_NAME = "${table.split('.')[1]}"
+order by c.ORDINAL_POSITION;`
+	} else {
+		throw new Error('Unsupported database type:' + resourceType)
+	}
 }
 
 export function resourceTypeToLang(rt: string) {
