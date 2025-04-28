@@ -21,9 +21,10 @@
 		isFlow: boolean
 		selected: boolean
 		showOnlyWithCount: boolean
-		triggersToDisplay: TriggerType[]
-		triggersGrouped: Record<TriggerType, Trigger[]>
-		extraTriggers: Trigger[]
+		triggers: Trigger[]
+		numberOfTriggers?: number
+		small?: boolean
+		allwaysUseDropdown?: boolean
 	}
 
 	let {
@@ -32,9 +33,10 @@
 		isFlow,
 		selected,
 		showOnlyWithCount,
-		triggersToDisplay,
-		triggersGrouped,
-		extraTriggers
+		triggers,
+		numberOfTriggers = $bindable(),
+		small = true,
+		allwaysUseDropdown = false
 	}: Props = $props()
 
 	let menuOpen = $state(false)
@@ -88,18 +90,53 @@
 	const itemClass = twMerge(
 		'text-secondary text-left font-normal w-full block px-4 py-2 text-2xs data-[highlighted]:bg-surface-hover data-[highlighted]:text-primary'
 	)
+
+	// Group triggers by their mapped type
+	let triggersGrouped = $derived(
+		triggers.reduce(
+			(acc, trigger) => {
+				const configType = trigger.type
+
+				if (!acc[configType]) {
+					acc[configType] = []
+				}
+				acc[configType].push(trigger)
+				return acc
+			},
+			{} as Record<TriggerType, Trigger[]>
+		)
+	)
+
+	// Extract unique trigger types for display, only keep the first 5
+	let allTriggerTypes = $derived(Object.keys(triggersGrouped) as TriggerType[])
+	let triggersToDisplay = $derived(allTriggerTypes.slice(0, 7))
+	let extraTriggers = $derived(
+		allTriggerTypes.length > 7
+			? allTriggerTypes.slice(8).flatMap((type) => triggersGrouped[type])
+			: []
+	)
+
+	$effect(() => {
+		if (allTriggerTypes) {
+			numberOfTriggers = allTriggerTypes?.length
+		}
+	})
 </script>
 
-<Menubar class="flex flex-row gap-1 items-center">
+<Menubar class={twMerge('flex flex-row gap-1 items-center', small ? '' : 'gap-2')}>
 	{#snippet children({ createMenu })}
 		{#each triggersToDisplay as type}
 			{@const isSelected = selected && $selectedTriggerV2 && $selectedTriggerV2.type === type}
+			{@const singleItem =
+				type === 'webhook' ||
+				type === 'email'! ||
+				(!allwaysUseDropdown && triggersGrouped[type] && triggersGrouped[type].length === 1)}
 			<Tooltip disablePopup={menuOpen} on:click={(e) => e.stopPropagation()}>
 				{#snippet text()}
 					{camelCaseToWords(type)}
 				{/snippet}
-				{#if triggersGrouped[type] && triggersGrouped[type].length === 1}
-					{@render triggerButton({ type, isSelected })}
+				{#if singleItem}
+					{@render triggerButton({ type, isSelected, singleItem })}
 				{:else}
 					<Menu
 						{createMenu}
@@ -158,17 +195,18 @@
 	{/snippet}
 </Menubar>
 
-{#snippet triggerButton({ type, isSelected, meltElement = undefined })}
+{#snippet triggerButton({ type, isSelected, meltElement = undefined, singleItem = false })}
 	{@const { icon: SvelteComponent, countKey } = triggerTypeConfig[type]}
 	{#if (!showOnlyWithCount || ((countKey && ($triggersCount?.[countKey] ?? 0)) || 0) > 0) && !triggerTypeConfig[type].disabled}
 		<MeltButton
 			class={twMerge(
-				'hover:bg-surface-hover rounded-md shadow-sm text-xs w-[23px] h-[23px] relative center-center cursor-pointer bg-surface',
+				'hover:bg-surface-hover rounded-md shadow-sm text-xs relative center-center cursor-pointer bg-surface',
 				'dark:outline outline-1 outline-offset-[-1px] outline-tertiary/20 group',
-				isSelected ? 'outline-tertiary outline' : ''
+				isSelected ? 'outline-tertiary outline' : '',
+				small ? 'w-[23px] h-[23px]' : 'p-2'
 			)}
 			on:click={() => {
-				if (triggersGrouped[type] && triggersGrouped[type].length > 0) {
+				if (singleItem) {
 					dispatch('select', triggersGrouped[type][0])
 				}
 			}}
@@ -180,7 +218,8 @@
 					<div
 						class={twMerge(
 							'absolute -right-1 -top-1 z-10 bg-surface-secondary-inverse bg-opacity-40 group-hover:bg-opacity-80 transition-all duration-100',
-							'rounded-sm shadow-lg h-3 w-3 flex center-center text-primary-inverse text-[8px] font-mono'
+							'rounded-sm shadow-lg flex center-center text-primary-inverse font-mono',
+							small ? 'h-3 w-3 text-[8px]' : 'h-4 w-4 text-xs'
 						)}
 					>
 						{#if count === undefined}
@@ -191,7 +230,7 @@
 					</div>
 				{/if}
 			{/if}
-			<SvelteComponent size={12} />
+			<SvelteComponent size={small ? 12 : 14} />
 		</MeltButton>
 	{/if}
 {/snippet}

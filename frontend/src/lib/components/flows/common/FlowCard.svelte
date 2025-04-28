@@ -5,9 +5,10 @@
 	export let title: string | undefined = undefined
 	export let flowModule: FlowModule | undefined = undefined
 	export let noEditor: boolean
+	export let width: number = 0
 </script>
 
-<div class="flex flex-col h-full">
+<div class="flex flex-col h-full" bind:clientWidth={width}>
 	{#if !noEditor}
 		<div>
 			<FlowCardHeader on:reload {title} bind:flowModule>

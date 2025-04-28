@@ -38,6 +38,11 @@
 	import { fetchMqttTriggers, fetchSqsTriggers } from './utils'
 	import GcpTriggerPanel from './gcp/GcpTriggerPanelV2.svelte'
 	import ScheduledPollPanel from './scheduled/ScheduledPollPanel.svelte'
+	import TriggersBadgeV2 from '../graph/renderers/triggers/TriggersBadgeV2.svelte'
+	import { twMerge } from 'tailwind-merge'
+	import AddTriggersButton from '$lib/components/triggers/AddTriggersButton.svelte'
+	import { Plus } from 'lucide-svelte'
+	import Button from '../common/button/Button.svelte'
 
 	export let noEditor: boolean
 	export let newItem = false
@@ -54,6 +59,8 @@
 
 	let config: Record<string, any> = {}
 	let editTrigger: Trigger | undefined = undefined
+	let useHorizontalTriggerBar = true
+	let width = 0
 
 	const {
 		simplifiedPoll,
@@ -85,40 +92,80 @@
 	}
 
 	$: updateEditTrigger($selectedTrigger)
+
+	$: useHorizontalTriggerBar = width < 800
 </script>
 
-<FlowCard {noEditor} title="Triggers">
+<FlowCard {noEditor} title="Triggers" bind:width>
+	<svelte:fragment slot="header">
+		{#if useHorizontalTriggerBar && !$simplifiedPoll}
+			<div class="w-full py-1">
+				<div class="w-fit p-1 rounded-md bg-surface-secondary flex gap-2">
+					<TriggersBadgeV2
+						showOnlyWithCount={false}
+						path={initialPath || fakeInitialPath}
+						{newItem}
+						isFlow
+						selected={true}
+						triggers={$triggers}
+						small={false}
+						on:select={({ detail }) => ($selectedTrigger = detail)}
+						allwaysUseDropdown
+					/>
+					<AddTriggersButton
+						on:addDraftTrigger={({ detail }) => {
+							const newTrigger = addDraftTrigger(triggers, detail)
+							$selectedTrigger = newTrigger
+						}}
+						class="w-fit h-fit"
+					>
+						<Button size="xs" nonCaptureEvent btnClasses="p-2 w-fit" wrapperClasses="p-0">
+							<Plus size="14" />
+						</Button>
+					</AddTriggersButton>
+				</div>
+			</div>
+		{/if}
+	</svelte:fragment>
 	{#if !$simplifiedPoll}
 		<Splitpanes horizontal>
 			<Pane>
 				<div class="flex flex-row h-full">
 					<!-- Left Pane - Triggers List -->
-					<div class="w-[350px] flex-shrink-0 overflow-auto pr-2 pl-4">
-						<TriggersTable
-							selectedTrigger={$selectedTrigger}
-							on:select={handleSelectTrigger}
-							triggers={$triggers}
-							on:addDraftTrigger={({ detail }) => {
-								const newTrigger = addDraftTrigger(triggers, detail)
-								$selectedTrigger = newTrigger
-							}}
-							on:deleteDraft={({ detail }) => {
-								deleteDraft(triggers, detail.trigger)
-								if ($triggers.length > 0) {
-									$selectedTrigger = $triggers[$triggers.length - 1]
-								}
-							}}
-							on:edit={({ detail }) => {
-								editTrigger = detail
-								if (JSON.stringify(detail) !== JSON.stringify($selectedTrigger)) {
-									$selectedTrigger = detail
-								}
-							}}
-						/>
-					</div>
+					{#if !useHorizontalTriggerBar}
+						<div class="w-[350px] flex-shrink-0 overflow-auto pr-2 pl-4">
+							<TriggersTable
+								selectedTrigger={$selectedTrigger}
+								on:select={handleSelectTrigger}
+								triggers={$triggers}
+								on:addDraftTrigger={({ detail }) => {
+									const newTrigger = addDraftTrigger(triggers, detail)
+									$selectedTrigger = newTrigger
+								}}
+								on:deleteDraft={({ detail }) => {
+									deleteDraft(triggers, detail.trigger)
+									if ($triggers.length > 0) {
+										$selectedTrigger = $triggers[$triggers.length - 1]
+									}
+								}}
+								on:edit={({ detail }) => {
+									editTrigger = detail
+									if (JSON.stringify(detail) !== JSON.stringify($selectedTrigger)) {
+										$selectedTrigger = detail
+									}
+								}}
+							/>
+						</div>
+					{/if}
 
 					<!-- TODO: Update triggersWrapper here -->
-					<div class="flex-grow overflow-auto pl-2 pr-4 pb-4" style="scrollbar-gutter: stable">
+					<div
+						class={twMerge(
+							'flex-grow overflow-auto pl-2 pr-4 pb-4',
+							useHorizontalTriggerBar ? 'pl-4' : ''
+						)}
+						style="scrollbar-gutter: stable"
+					>
 						{#if $selectedTrigger}
 							{#key $selectedTrigger}
 								<div in:fade={{ duration: 100, delay: 100 }} out:fade={{ duration: 100 }}>

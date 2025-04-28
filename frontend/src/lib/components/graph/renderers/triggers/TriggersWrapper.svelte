@@ -8,7 +8,6 @@
 	import { Plus } from 'lucide-svelte'
 	import InsertModuleInner from '$lib/components/flows/map/InsertModuleInner.svelte'
 	import AddTriggersButton from '$lib/components/triggers/AddTriggersButton.svelte'
-	import type { TriggerType } from '$lib/components/triggers/utils'
 	import { twMerge } from 'tailwind-merge'
 
 	interface Props {
@@ -36,30 +35,7 @@
 	}: Props = $props()
 
 	let showTriggerScriptPicker = $state(false)
-	// Group triggers by their mapped type
-	let triggersGrouped = $derived(
-		triggers.reduce(
-			(acc, trigger) => {
-				const configType = trigger.type
-
-				if (!acc[configType]) {
-					acc[configType] = []
-				}
-				acc[configType].push(trigger)
-				return acc
-			},
-			{} as Record<TriggerType, Trigger[]>
-		)
-	)
-
-	// Extract unique trigger types for display, only keep the first 5
-	let allTriggerTypes = $derived(Object.keys(triggersGrouped) as TriggerType[])
-	let triggersToDisplay = $derived(allTriggerTypes.slice(0, 7))
-	let extraTriggers = $derived(
-		allTriggerTypes.length > 7
-			? allTriggerTypes.slice(8).flatMap((type) => triggersGrouped[type])
-			: []
-	)
+	let numberOfTriggers = $state(0)
 
 	const dispatch = createEventDispatcher()
 
@@ -81,7 +57,7 @@
 		<div
 			class={twMerge(
 				'flex flex-row items-center text-2xs font-normal',
-				allTriggerTypes.length > 6 ? 'absolute left-0 -top-[20px]' : ''
+				numberOfTriggers > 6 ? 'absolute left-0 -top-[20px]' : ''
 			)}
 		>
 			Triggers
@@ -94,9 +70,8 @@
 				{newItem}
 				isFlow
 				{selected}
-				{triggersToDisplay}
-				{triggersGrouped}
-				{extraTriggers}
+				{triggers}
+				bind:numberOfTriggers
 				on:select
 			/>
 		{:else}
