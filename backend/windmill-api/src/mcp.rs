@@ -32,7 +32,7 @@ use windmill_common::utils::StripPath;
 #[derive(Clone)]
 pub struct Runner {}
 
-#[derive(Serialize, FromRow)]
+#[derive(Serialize, FromRow, Debug)]
 struct ScriptInfo {
     path: String,
     summary: Option<String>,
@@ -64,6 +64,16 @@ struct ResourceInfo {
 struct ResourceType {
     name: String,
     description: Option<String>,
+}
+
+fn default_openapi_schema() -> serde_json::Value {
+    let schema_json = r#"{
+        "type": "object",
+        "properties": {},
+        "required": []
+    }"#;
+
+    serde_json::from_str(schema_json).unwrap()
 }
 
 impl Runner {
@@ -664,7 +674,7 @@ impl ServerHandler for Runner {
                 )
                 .await?
             } else {
-                serde_json::Value::Object(serde_json::Map::new())
+                default_openapi_schema()
             };
             script_tools.push(Tool {
                 name: Cow::Owned(name),
@@ -699,7 +709,7 @@ impl ServerHandler for Runner {
                 )
                 .await?
             } else {
-                serde_json::Value::Object(serde_json::Map::new())
+                default_openapi_schema()
             };
             flow_tools.push(Tool {
                 name: Cow::Owned(name),
