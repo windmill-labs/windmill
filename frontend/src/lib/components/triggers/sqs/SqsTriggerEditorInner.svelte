@@ -15,28 +15,30 @@
 	import ScriptPicker from '$lib/components/ScriptPicker.svelte'
 	import Required from '$lib/components/Required.svelte'
 
-	let drawer: Drawer
-	let is_flow: boolean = false
-	let initialPath = ''
-	let edit = true
-	let itemKind: 'flow' | 'script' = 'script'
-	let script_path = ''
-	let initialScriptPath = ''
-	let fixedScriptPath = ''
-	let path: string = ''
-	let pathError = ''
-	let enabled = false
-	let dirtyPath = false
-	let can_write = true
-	let drawerLoading = true
-	let aws_resource_path: string = ''
-	let queue_url = ''
-	let message_attributes: string[] = []
-	let aws_auth_resource_type: AwsAuthResourceType = 'credentials'
-	let isValid = false
+	let drawer: Drawer | undefined = $state(undefined)
+	let is_flow: boolean = $state(false)
+	let initialPath = $state('')
+	let edit = $state(true)
+	let itemKind: 'flow' | 'script' = $state('script')
+	let script_path = $state('')
+	let initialScriptPath = $state('')
+	let fixedScriptPath = $state('')
+	let path: string = $state('')
+	let pathError = $state('')
+	let enabled = $state(false)
+	let dirtyPath = $state(false)
+	let can_write = $state(true)
+	let drawerLoading = $state(true)
+	let aws_resource_path: string = $state('')
+	let queue_url = $state('')
+	let message_attributes: string[] = $state([])
+	let aws_auth_resource_type: AwsAuthResourceType = $state('credentials')
+	let isValid = $state(false)
 	const dispatch = createEventDispatcher()
 
-	$: is_flow = itemKind === 'flow'
+	$effect(() => {
+		is_flow = itemKind === 'flow'
+	})
 
 	export async function openEdit(ePath: string, isFlow: boolean) {
 		drawerLoading = true
@@ -139,7 +141,7 @@
 			$usedTriggerKinds = [...$usedTriggerKinds, 'sqs']
 		}
 		dispatch('update')
-		drawer.closeDrawer()
+		drawer?.closeDrawer()
 	}
 </script>
 
