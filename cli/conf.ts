@@ -63,5 +63,5 @@ export async function mergeConfigWithConfigFile<T>(
   opts: T
 ): Promise<T & SyncOptions> {
   const configFile = await readConfigFile();
-  return Object.assign(configFile, opts);
+  return Object.assign(configFile ?? {}, opts);
 }
