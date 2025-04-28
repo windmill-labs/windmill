@@ -4603,6 +4603,8 @@ pub async fn run_wait_result_script_by_path_internal(
     .await?;
     tx.commit().await?;
 
+    println!("run_wait_result_script_by_path: {}", uuid);
+
     let wait_result = run_wait_result(&db, uuid, w_id, None, &authed.username).await;
     if delete_after_use.unwrap_or(false) {
         delete_job_metadata_after_use(&db, uuid).await?;

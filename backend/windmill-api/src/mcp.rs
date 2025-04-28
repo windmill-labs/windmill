@@ -22,7 +22,7 @@ use windmill_common::db::UserDB;
 use windmill_common::worker::to_raw_value;
 use windmill_common::{DB, HUB_BASE_URL};
 
-use windmill_common::scripts::Schema;
+use windmill_common::scripts::{get_full_hub_script_by_path, Schema};
 
 use crate::db::ApiAuthed;
 use crate::jobs::{
@@ -109,7 +109,7 @@ impl Runner {
         authed: &ApiAuthed,
         workspace_id: &str,
         item_type: &str,
-    ) -> Result<ItemSchema, Error> {
+    ) -> Result<Option<Schema>, Error> {
         let mut sqlb = SqlBuilder::select_from(&format!("{} as o", item_type));
         sqlb.fields(&["o.schema"]);
         sqlb.and_where("o.path = ?".bind(&path));
@@ -125,7 +125,7 @@ impl Runner {
             .begin(authed)
             .await
             .map_err(|_e| Error::internal_error("failed to begin transaction", None))?;
-        let rows = sqlx::query_as::<_, ItemSchema>(&sql)
+        let item = sqlx::query_as::<_, ItemSchema>(&sql)
             .fetch_one(&mut *tx)
             .await
             .map_err(|_e| {
@@ -135,7 +135,7 @@ impl Runner {
         tx.commit()
             .await
             .map_err(|_e| Error::internal_error("failed to commit transaction", None))?;
-        Ok(rows)
+        Ok(item.schema)
     }
 
     fn transform_path(path: &str, type_str: &str) -> Result<String, String> {
@@ -160,6 +160,8 @@ impl Runner {
             "script"
         } else if transformed_path.starts_with("f-") {
             "flow"
+        } else if transformed_path.starts_with("h-") {
+            "hub"
         } else {
             return Err(format!(
                 "Invalid prefix in transformed path: {}",
@@ -537,6 +539,24 @@ impl Runner {
 
         Ok(schema_obj)
     }
+
+    async fn get_hub_script_by_path(path: &str, db: &DB) -> Result<Option<Schema>, Error> {
+        println!("get_hub_script_by_path: {}", path);
+        let strip_path = StripPath(path.to_string());
+        let res = get_full_hub_script_by_path(strip_path, &HTTP_CLIENT, Some(db))
+            .await
+            .map_err(|e| {
+                tracing::error!("Failed to get hub script: {}", e);
+                Error::internal_error(format!("Failed to get hub script: {}", e), None)
+            })?;
+        match serde_json::from_str::<Schema>(res.schema.get()) {
+            Ok(schema) => Ok(Some(schema)),
+            Err(e) => {
+                tracing::warn!("Failed to convert schema: {}", e);
+                Ok(None)
+            }
+        }
+    }
 }
 
 impl ServerHandler for Runner {
@@ -570,12 +590,14 @@ impl ServerHandler for Runner {
 
         let (tool_type, path) = Runner::reverse_transform(&request.name).unwrap_or_default();
 
-        let item_info =
+        let item_schema = if tool_type == "hub" {
+            Runner::get_hub_script_by_path(&format!("hub/{}", path), db).await?
+        } else {
             Runner::get_item_schema(&path, user_db, authed, &context.workspace_id, &tool_type)
-                .await?;
+                .await?
+        };
 
-        let schema = item_info.schema;
-        let schema_obj = if let Some(ref s) = schema {
+        let schema_obj = if let Some(ref s) = item_schema {
             match serde_json::from_str::<SchemaType>(s.0.get()) {
                 Ok(val) => Some(val),
                 Err(e) => {
@@ -586,6 +608,7 @@ impl ServerHandler for Runner {
         } else {
             None
         };
+        println!("schema_obj: {:#?}", schema_obj);
 
         let push_args = if let Value::Object(map) = args.clone() {
             let mut args_hash = HashMap::new();
@@ -603,10 +626,14 @@ impl ServerHandler for Runner {
         };
 
         let w_id = context.workspace_id.clone();
-        let script_or_flow_path = StripPath(path);
+        let script_or_flow_path = if tool_type == "hub" {
+            StripPath(format!("hub/{}", path))
+        } else {
+            StripPath(path)
+        };
         let run_query = RunJobQuery::default();
 
-        let result = if tool_type == "script" {
+        let result = if tool_type == "script" || tool_type == "hub" {
             run_wait_result_script_by_path_internal(
                 db.clone(),
                 run_query,
@@ -685,8 +712,9 @@ impl ServerHandler for Runner {
         let flows_fn =
             Runner::inner_get_items::<FlowInfo>(user_db, authed, &workspace_id, scope_type, "flow");
         let resources_types_fn = Runner::inner_get_resources_types(user_db, authed, &workspace_id);
-        let (scripts, flows, resources_types) =
-            try_join!(scripts_fn, flows_fn, resources_types_fn)?;
+        let hub_scripts_fn = Runner::inner_get_scripts_from_hub(db);
+        let (scripts, flows, resources_types, hub_scripts) =
+            try_join!(scripts_fn, flows_fn, resources_types_fn, hub_scripts_fn)?;
 
         let mut resources_cache: HashMap<String, Vec<ResourceInfo>> = HashMap::new();
 
@@ -762,7 +790,34 @@ impl ServerHandler for Runner {
             });
         }
 
-        let tools = [script_tools, flow_tools].concat();
+        let mut hub_script_tools: Vec<Tool> = Vec::with_capacity(hub_scripts.len());
+        for hub_script in hub_scripts {
+            let name = format!("h-{}", hub_script.version_id);
+            let description = format!(
+                "This is a script named `{}` with the following description: `{}`.",
+                hub_script.summary.as_deref().unwrap_or("No summary"),
+                hub_script
+                    .description
+                    .as_deref()
+                    .unwrap_or("No description")
+            );
+            hub_script_tools.push(Tool {
+                name: Cow::Owned(name.to_string()),
+                description: Some(Cow::Owned(description)),
+                input_schema: {
+                    let default_schema = SchemaType::default();
+                    let value = serde_json::to_value(default_schema).unwrap_or_default();
+                    if let serde_json::Value::Object(map) = value {
+                        Arc::new(map)
+                    } else {
+                        Arc::new(serde_json::Map::new())
+                    }
+                },
+                annotations: None,
+            });
+        }
+
+        let tools = [script_tools, flow_tools, hub_script_tools].concat();
         Ok(ListToolsResult { tools, next_cursor: None })
     }
 
