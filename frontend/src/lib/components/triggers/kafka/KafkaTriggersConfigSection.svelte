@@ -10,6 +10,8 @@
 	import CaptureTable from '../CaptureTable.svelte'
 	import { workspaceStore } from '$lib/stores'
 	import TestTriggerConnection from '../TestTriggerConnection.svelte'
+	import TestingBadge from '../testingBadge.svelte'
+
 	export let path: string
 	export let defaultValues: Record<string, any> | undefined = undefined
 	export let headless: boolean = false
@@ -19,6 +21,8 @@
 	export let captureInfo: CaptureInfo | undefined = undefined
 	export let captureTable: CaptureTable | undefined = undefined
 	export let isValid: boolean = false
+	export let can_write: boolean = true
+	export let showTestingBadge: boolean = false
 
 	let selected: 'resource' | 'static' = staticInputDisabled ? 'resource' : 'static'
 
@@ -186,9 +190,9 @@
 		selected === 'resource'
 			? !!args.kafka_resource_path
 			: isStaticConnectionValid &&
-			  args.brokers &&
-			  args.brokers.length > 0 &&
-			  args.brokers.every((b) => b.length > 0)
+				args.brokers &&
+				args.brokers.length > 0 &&
+				args.brokers.every((b) => b.length > 0)
 
 	$: isValid =
 		isConnectionValid &&
@@ -223,6 +227,11 @@
 		/>
 	{/if}
 	<Section label="Kafka" {headless}>
+		<svelte:fragment slot="header">
+			{#if showTestingBadge}
+				<TestingBadge />
+			{/if}
+		</svelte:fragment>
 		<div class="flex flex-col w-full gap-4">
 			<div class="block grow w-full">
 				<Subsection label="Connection">
@@ -245,8 +254,21 @@
 								}}
 								let:item
 							>
-								<ToggleButton value="static" label="Static" small={true} {item} />
-								<ToggleButton value="resource" label="Resource" icon={Boxes} small={true} {item} />
+								<ToggleButton
+									value="static"
+									label="Static"
+									small={true}
+									{item}
+									disabled={!can_write}
+								/>
+								<ToggleButton
+									value="resource"
+									label="Resource"
+									icon={Boxes}
+									small={true}
+									{item}
+									disabled={!can_write}
+								/>
 							</ToggleButtonGroup>
 						{/if}
 					</svelte:fragment>
@@ -256,6 +278,7 @@
 							resourceType="kafka"
 							bind:value={args.kafka_resource_path}
 							{defaultValues}
+							disabled={!can_write}
 						/>
 					{:else}
 						<SchemaForm
@@ -263,6 +286,7 @@
 							bind:args
 							bind:isValid={isStaticConnectionValid}
 							lightHeader={true}
+							disabled={!can_write}
 						/>
 					{/if}
 					{#if isConnectionValid}
@@ -283,6 +307,7 @@
 						bind:args
 						bind:isValid={otherArgsValid}
 						lightHeader={true}
+						disabled={!can_write}
 					/>
 				</Subsection>
 			</div>
