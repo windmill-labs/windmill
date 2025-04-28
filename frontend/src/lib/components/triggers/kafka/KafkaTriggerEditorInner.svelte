@@ -196,7 +196,7 @@
 		dispatch('update-config', {
 			kafka_resource_path: args.kafka_resource_path,
 			group_id: args.group_id,
-			topics: args.topics,
+			topics: structuredClone(args.topics),
 			isValid
 		})
 	})

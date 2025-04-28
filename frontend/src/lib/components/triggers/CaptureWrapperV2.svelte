@@ -6,7 +6,6 @@
 	import { isCloudHosted } from '$lib/cloud'
 	import Alert from '../common/alert/Alert.svelte'
 	import RouteCapture from './http/RouteCapture.svelte'
-	import KafkaTriggersConfigSection from './kafka/KafkaTriggersConfigSection.svelte'
 	import type { ConnectionInfo } from '../common/alert/ConnectionIndicator.svelte'
 	import type { CaptureInfo } from './CaptureSection.svelte'
 	import CaptureTable from './CaptureTable.svelte'
@@ -20,6 +19,7 @@
 	import EmailTriggerCaptures from '../details/EmailTriggerCaptures.svelte'
 	import WebsocketCapture from './websocket/WebsocketCapture.svelte'
 	import PostgresCapture from './postgres/PostgresCapture.svelte'
+	import KafkaCapture from './kafka/KafkaCapture.svelte'
 
 	export let isFlow: boolean
 	export let path: string
@@ -271,14 +271,12 @@
 				on:testWithArgs
 			/>
 		{:else if captureType === 'kafka'}
-			<KafkaTriggersConfigSection
-				headless={true}
-				{path}
-				bind:args
-				staticInputDisabled={false}
-				{showCapture}
+			<KafkaCapture
+				isValid={args.isValid}
 				{captureInfo}
 				bind:captureTable
+				{hasPreprocessor}
+				{isFlow}
 				on:applyArgs
 				on:updateSchema
 				on:addPreprocessor
