@@ -123,7 +123,7 @@
 	})
 </script>
 
-<Menubar class={twMerge('flex flex-row gap-1 items-center', small ? '' : 'gap-2')}>
+<Menubar class={twMerge('flex flex-row gap-1 items-center', small ? '' : 'flex-col gap-2')}>
 	{#snippet children({ createMenu })}
 		{#each triggersToDisplay as type}
 			{@const isSelected = selected && $selectedTriggerV2 && $selectedTriggerV2.type === type}
@@ -141,7 +141,7 @@
 					<Menu
 						{createMenu}
 						usePointerDownOutside
-						placement="bottom"
+						placement={small ? 'bottom' : 'right-start'}
 						menuClass={'min-w-56 w-fit'}
 						class="h-fit"
 						bind:open={menuOpen}
@@ -203,7 +203,7 @@
 				'hover:bg-surface-hover rounded-md shadow-sm text-xs relative center-center cursor-pointer bg-surface',
 				'dark:outline outline-1 outline-offset-[-1px] outline-tertiary/20 group',
 				isSelected ? 'outline-tertiary outline' : '',
-				small ? 'w-[23px] h-[23px]' : 'p-2'
+				small ? 'w-[23px] h-[23px] ' : 'p-2'
 			)}
 			on:click={() => {
 				if (singleItem) {

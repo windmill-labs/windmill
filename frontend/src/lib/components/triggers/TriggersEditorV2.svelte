@@ -59,7 +59,7 @@
 
 	let config: Record<string, any> = {}
 	let editTrigger: Trigger | undefined = undefined
-	let useHorizontalTriggerBar = true
+	let useVerticalTriggerBar = true
 	let width = 0
 
 	const {
@@ -93,46 +93,16 @@
 
 	$: updateEditTrigger($selectedTrigger)
 
-	$: useHorizontalTriggerBar = width < 800
+	$: useVerticalTriggerBar = width < 800
 </script>
 
-<FlowCard {noEditor} title="Triggers" bind:width>
-	<svelte:fragment slot="header">
-		{#if useHorizontalTriggerBar && !$simplifiedPoll}
-			<div class="w-full py-1">
-				<div class="w-fit p-1 rounded-md bg-surface-secondary flex gap-2">
-					<TriggersBadgeV2
-						showOnlyWithCount={false}
-						path={initialPath || fakeInitialPath}
-						{newItem}
-						isFlow
-						selected={true}
-						triggers={$triggers}
-						small={false}
-						on:select={({ detail }) => ($selectedTrigger = detail)}
-						allwaysUseDropdown
-					/>
-					<AddTriggersButton
-						on:addDraftTrigger={({ detail }) => {
-							const newTrigger = addDraftTrigger(triggers, detail)
-							$selectedTrigger = newTrigger
-						}}
-						class="w-fit h-fit"
-					>
-						<Button size="xs" nonCaptureEvent btnClasses="p-2 w-fit" wrapperClasses="p-0">
-							<Plus size="14" />
-						</Button>
-					</AddTriggersButton>
-				</div>
-			</div>
-		{/if}
-	</svelte:fragment>
+<FlowCard {noEditor} title={'Triggers'} noHeader={useVerticalTriggerBar} bind:width>
 	{#if !$simplifiedPoll}
 		<Splitpanes horizontal>
 			<Pane>
 				<div class="flex flex-row h-full">
 					<!-- Left Pane - Triggers List -->
-					{#if !useHorizontalTriggerBar}
+					{#if !useVerticalTriggerBar}
 						<div class="w-[350px] flex-shrink-0 overflow-auto pr-2 pl-4">
 							<TriggersTable
 								selectedTrigger={$selectedTrigger}
@@ -156,13 +126,39 @@
 								}}
 							/>
 						</div>
+					{:else}
+						<div class="p-2 flex flex-col gap-2 bg-surface-secondary">
+							<AddTriggersButton
+								on:addDraftTrigger={({ detail }) => {
+									const newTrigger = addDraftTrigger(triggers, detail)
+									$selectedTrigger = newTrigger
+								}}
+								class="w-fit h-fit"
+								placement="right-start"
+							>
+								<Button size="xs" nonCaptureEvent btnClasses="p-2 w-fit" wrapperClasses="p-0">
+									<Plus size="14" />
+								</Button>
+							</AddTriggersButton>
+							<TriggersBadgeV2
+								showOnlyWithCount={false}
+								path={initialPath || fakeInitialPath}
+								{newItem}
+								isFlow
+								selected={true}
+								triggers={$triggers}
+								small={false}
+								on:select={({ detail }) => ($selectedTrigger = detail)}
+								allwaysUseDropdown
+							/>
+						</div>
 					{/if}
 
 					<!-- TODO: Update triggersWrapper here -->
 					<div
 						class={twMerge(
 							'flex-grow overflow-auto pl-2 pr-4 pb-4',
-							useHorizontalTriggerBar ? 'pl-4' : ''
+							useVerticalTriggerBar ? 'pl-4 pt-2' : ''
 						)}
 						style="scrollbar-gutter: stable"
 					>
@@ -197,7 +193,7 @@
 												editTrigger = detail ? $selectedTrigger : undefined
 											}}
 											{isDeployed}
-											small={useHorizontalTriggerBar}
+											small={useVerticalTriggerBar}
 										/>
 									{:else if $selectedTrigger.type === 'webhook'}
 										<WebhooksPanel

@@ -3,19 +3,22 @@
 	import DropdownV2 from '$lib/components/DropdownV2.svelte'
 	import { createEventDispatcher } from 'svelte'
 	import { SchedulePollIcon } from '$lib/components/icons'
+	import type { Placement } from '@floating-ui/core'
 
 	interface Props {
 		setDropdownWidthToButtonWidth?: boolean
 		children?: import('svelte').Snippet
 		triggerScriptPicker?: import('svelte').Snippet | undefined
 		class?: string
+		placement?: Placement
 	}
 
 	let {
 		setDropdownWidthToButtonWidth = false,
 		children,
 		class: className,
-		triggerScriptPicker
+		triggerScriptPicker,
+		placement = 'bottom'
 	}: Props = $props()
 
 	const dispatch = createEventDispatcher<{
@@ -66,7 +69,7 @@
 
 <DropdownV2
 	items={addTriggerItems}
-	placement="bottom"
+	{placement}
 	class={className}
 	customWidth={setDropdownWidthToButtonWidth ? triggersButtonWidth : undefined}
 	usePointerDownOutside

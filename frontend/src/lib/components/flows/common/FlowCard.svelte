@@ -6,10 +6,11 @@
 	export let flowModule: FlowModule | undefined = undefined
 	export let noEditor: boolean
 	export let width: number = 0
+	export let noHeader = false
 </script>
 
 <div class="flex flex-col h-full" bind:clientWidth={width}>
-	{#if !noEditor}
+	{#if !noEditor && !noHeader}
 		<div>
 			<FlowCardHeader on:reload {title} bind:flowModule>
 				<slot name="header" />
