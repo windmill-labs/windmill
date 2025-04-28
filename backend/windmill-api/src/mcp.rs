@@ -60,7 +60,7 @@ struct ResourceInfo {
     resource_type: String,
 }
 
-#[derive(Serialize, FromRow, Debug)]
+#[derive(Serialize, FromRow, Debug, Clone)]
 struct ResourceType {
     name: String,
     description: Option<String>,
@@ -413,16 +413,17 @@ impl Runner {
                                     let resource_type = resources_types
                                         .iter()
                                         .find(|rt| rt.name == resource_type_key);
-                                    let resource_type = match resource_type {
-                                        Some(resource_type) => resource_type,
-                                        None => {
+                                    let resource_type_obj =
+                                        resource_type.cloned().unwrap_or_else(|| {
                                             tracing::info!(
                                                 "Resource type not found: {}",
                                                 resource_type_key
                                             );
-                                            continue;
-                                        }
-                                    };
+                                            ResourceType {
+                                                name: resource_type_key.clone(),
+                                                description: None,
+                                            }
+                                        });
 
                                     if !resources_cache.contains_key(&resource_type_key) {
                                         let available_resources = Runner::inner_get_resources(
@@ -454,8 +455,8 @@ impl Runner {
                                         let resources_count = resource_cache.len();
                                         let description = format!(
                                             "This is a resource named \"{}\" with the following description: \"{}\".\nThe path of the resource should be used to specify the resource.\n{}",
-                                            resource_type.name,
-                                            resource_type.description.as_deref().unwrap_or("No description"),
+                                            resource_type_obj.name,
+                                            resource_type_obj.description.as_deref().unwrap_or("No description"),
                                             if resources_count == 0 {
                                                 "This resource does not have any available instances, you should create one from your windmill workspace."
                                             } else if resources_count > 1 {
