@@ -82,9 +82,3 @@
 		</div>
 	</div>
 </PanelSection>
-
-<style lang="postcss">
-	.panel-item {
-		@apply border flex gap-1 truncate font-normal justify-between w-full items-center py-1 px-2 rounded-sm duration-200;
-	}
-</style>
