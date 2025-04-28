@@ -46,6 +46,7 @@
 	import type { ScriptLang } from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
 	import { untrack } from 'svelte'
+	import { getLanguageByResourceType } from './apps/components/display/dbtable/utils'
 
 	type Props = {
 		resourceType: string
@@ -89,7 +90,7 @@
 			let result = (await runPreviewJobAndPollResult({
 				workspace: $workspaceStore,
 				requestBody: {
-					language: resourceType as ScriptLang,
+					language: getLanguageByResourceType(resourceType),
 					content: tranformedCode,
 					args: {
 						database: '$res:' + resourcePath

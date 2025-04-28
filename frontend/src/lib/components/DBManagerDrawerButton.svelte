@@ -8,6 +8,7 @@
 	import {
 		dbSupportsSchemas,
 		getDbSchemas,
+		getLanguageByResourceType,
 		loadTableMetaData,
 		scripts,
 		type DbType,
@@ -226,12 +227,16 @@
 								previewSql: (values) =>
 									makeCreateTableQuery(values, resourceType, selectedSchemaKey),
 								async onConfirm(values) {
+									console.log(
+										'onConfirm',
+										makeCreateTableQuery(values, resourceType, selectedSchemaKey)
+									)
 									await runPreviewJobAndPollResult({
 										workspace: $workspaceStore,
 										requestBody: {
 											args: { database: '$res:' + resourcePath },
 											content: makeCreateTableQuery(values, resourceType, selectedSchemaKey),
-											language: resourceType as ScriptLang
+											language: getLanguageByResourceType(resourceType)
 										}
 									})
 									refresh()
