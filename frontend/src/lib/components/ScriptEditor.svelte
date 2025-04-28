@@ -47,7 +47,6 @@
 
 	// Exported
 	export let schema: Schema | any = emptySchema()
-	$: console.log('schema', schema)
 	export let code: string
 	export let path: string | undefined
 	export let lang: Preview['language']
