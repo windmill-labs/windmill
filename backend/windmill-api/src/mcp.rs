@@ -40,6 +40,11 @@ struct ScriptInfo {
     schema: Option<Schema>,
 }
 
+#[derive(Serialize, FromRow)]
+struct ItemSchema {
+    schema: Option<Schema>,
+}
+
 #[derive(Serialize, FromRow, Debug)]
 struct FlowInfo {
     path: String,
@@ -61,15 +66,44 @@ struct ResourceType {
     description: Option<String>,
 }
 
-#[derive(Serialize, FromRow, Debug)]
-struct ResourceCache {
-    resource_type: ResourceType,
-    resources: Vec<ResourceInfo>,
-}
-
 impl Runner {
     pub fn new() -> Self {
         Self {}
+    }
+
+    async fn get_item_schema(
+        path: &str,
+        user_db: &UserDB,
+        authed: &ApiAuthed,
+        workspace_id: &str,
+        item_type: &str,
+    ) -> Result<ItemSchema, Error> {
+        let mut sqlb = SqlBuilder::select_from(&format!("{} as o", item_type));
+        sqlb.fields(&["o.schema"]);
+        sqlb.and_where("o.path = ?".bind(&path));
+        sqlb.and_where("o.workspace_id = ?".bind(&workspace_id));
+        sqlb.and_where("o.archived = false");
+        sqlb.and_where("o.draft_only IS NOT TRUE");
+        let sql = sqlb.sql().map_err(|_e| {
+            tracing::error!("failed to build sql: {}", _e);
+            Error::internal_error("failed to build sql", None)
+        })?;
+        let mut tx = user_db
+            .clone()
+            .begin(authed)
+            .await
+            .map_err(|_e| Error::internal_error("failed to begin transaction", None))?;
+        let rows = sqlx::query_as::<_, ItemSchema>(&sql)
+            .fetch_one(&mut *tx)
+            .await
+            .map_err(|_e| {
+                tracing::error!("failed to fetch item schema: {}", _e);
+                Error::internal_error("failed to fetch item schema", None)
+            })?;
+        tx.commit()
+            .await
+            .map_err(|_e| Error::internal_error("failed to commit transaction", None))?;
+        Ok(rows)
     }
 
     fn transform_path(path: &str, type_str: &str) -> Result<String, String> {
@@ -118,16 +152,14 @@ impl Runner {
         Ok((type_str, original_path))
     }
 
-    async fn inner_get_resource_type_info(
+    async fn inner_get_resources_types(
         user_db: &UserDB,
         authed: &ApiAuthed,
         workspace_id: &str,
-        resource_type: &str,
-    ) -> Result<ResourceType, Error> {
+    ) -> Result<Vec<ResourceType>, Error> {
         let mut sqlb = SqlBuilder::select_from("resource_type as o");
         sqlb.fields(&["o.name", "o.description"]);
         sqlb.and_where("o.workspace_id = ?".bind(&workspace_id));
-        sqlb.and_where("o.name = ?".bind(&resource_type));
         let sql = sqlb.sql().map_err(|_e| {
             tracing::error!("failed to build sql: {}", _e);
             Error::internal_error("failed to build sql", None)
@@ -138,11 +170,11 @@ impl Runner {
             .await
             .map_err(|_e| Error::internal_error("failed to begin transaction", None))?;
         let rows = sqlx::query_as::<_, ResourceType>(&sql)
-            .fetch_one(&mut *tx)
+            .fetch_all(&mut *tx)
             .await
             .map_err(|_e| {
-                tracing::error!("Failed to fetch resource info: {}", _e);
-                Error::internal_error("failed to fetch resource info", None)
+                tracing::error!("Failed to fetch resource types: {}", _e);
+                Error::internal_error("failed to fetch resource types", None)
             })?;
         tx.commit()
             .await
@@ -183,23 +215,31 @@ impl Runner {
         Ok(rows)
     }
 
-    async fn inner_get_flows(
+    async fn inner_get_items<T: for<'a> sqlx::FromRow<'a, sqlx::postgres::PgRow> + Send + Unpin>(
         user_db: &UserDB,
         authed: &ApiAuthed,
         workspace_id: &str,
         scope_type: &str,
-    ) -> Result<Vec<FlowInfo>, Error> {
-        let mut sqlb = SqlBuilder::select_from("flow as o");
+        item_type: &str,
+    ) -> Result<Vec<T>, Error> {
+        let mut sqlb = SqlBuilder::select_from(&format!("{} as o", item_type));
         sqlb.fields(&["o.path", "o.summary", "o.description", "o.schema"]);
         if scope_type == "favorites" {
             sqlb.join("favorite")
-                .on("favorite.favorite_kind = 'flow' AND favorite.workspace_id = o.workspace_id AND favorite.path = o.path AND favorite.usr = ?"
+                .on("favorite.favorite_kind = ? AND favorite.workspace_id = o.workspace_id AND favorite.path = o.path AND favorite.usr = ?".bind(&item_type)
                     .bind(&authed.username));
         }
         sqlb.and_where("o.workspace_id = ?".bind(&workspace_id))
             .and_where("o.archived = false")
             .and_where("o.draft_only IS NOT TRUE")
-            .order_by("o.edited_at", false)
+            .order_by(
+                if item_type == "flow" {
+                    "o.edited_at"
+                } else {
+                    "o.created_at"
+                },
+                false,
+            )
             .limit(100);
         let sql = sqlb.sql().map_err(|_e| {
             tracing::error!("failed to build sql: {}", _e);
@@ -210,12 +250,12 @@ impl Runner {
             .begin(authed)
             .await
             .map_err(|_e| Error::internal_error("failed to begin transaction", None))?;
-        let rows = sqlx::query_as::<_, FlowInfo>(&sql)
+        let rows = sqlx::query_as::<_, T>(&sql)
             .fetch_all(&mut *tx)
             .await
             .map_err(|_e| {
-                tracing::error!("Failed to fetch flows: {}", _e);
-                Error::internal_error("failed to fetch flows", None)
+                tracing::error!("Failed to fetch {}: {}", item_type, _e);
+                Error::internal_error(format!("failed to fetch {}", item_type), None)
             })?;
         tx.commit()
             .await
@@ -223,44 +263,44 @@ impl Runner {
         Ok(rows)
     }
 
-    async fn inner_get_scripts(
-        user_db: &UserDB,
-        authed: &ApiAuthed,
-        workspace_id: &str,
-        scope_type: &str,
-    ) -> Result<Vec<ScriptInfo>, Error> {
-        let mut sqlb = SqlBuilder::select_from("script as o");
-        sqlb.fields(&["o.path", "o.summary", "o.description", "o.schema"]);
-        if scope_type == "favorites" {
-            sqlb.join("favorite")
-                .on("favorite.favorite_kind = 'script' AND favorite.workspace_id = o.workspace_id AND favorite.path = o.path AND favorite.usr = ?"
-                    .bind(&authed.username));
+    fn transform_value_if_object(key: &str, value: &Value, schema: &Option<Schema>) -> Value {
+        if value.is_string() && value.as_str().unwrap().starts_with("$res:") {
+            return value.clone();
         }
-        sqlb.and_where("o.workspace_id = ?".bind(&workspace_id))
-            .and_where("o.archived = false")
-            .and_where("o.draft_only IS NOT TRUE")
-            .order_by("o.created_at", false)
-            .limit(100);
-        let sql = sqlb.sql().map_err(|_e| {
-            tracing::error!("failed to build sql: {}", _e);
-            Error::internal_error("failed to build sql", None)
-        })?;
-        let mut tx = user_db
-            .clone()
-            .begin(authed)
-            .await
-            .map_err(|_e| Error::internal_error("failed to begin transaction", None))?;
-        let rows = sqlx::query_as::<_, ScriptInfo>(&sql)
-            .fetch_all(&mut *tx)
-            .await
-            .map_err(|_e| {
-                tracing::error!("Failed to fetch scripts: {}", _e);
-                Error::internal_error("failed to fetch scripts", None)
-            })?;
-        tx.commit()
-            .await
-            .map_err(|_e| Error::internal_error("failed to commit transaction", None))?;
-        Ok(rows)
+
+        let schema = match schema {
+            Some(s) => s,
+            None => return value.clone(),
+        };
+
+        // Parse schema
+        let schema_obj: serde_json::Value = match serde_json::from_str(schema.0.get()) {
+            Ok(val) => val,
+            Err(_) => return value.clone(),
+        };
+
+        // Check if property is defined in schema and is an object type
+        let is_obj_type = match schema_obj.get("properties") {
+            Some(properties) => match properties.get(key) {
+                Some(property) => {
+                    let prop_type = property.get("type").and_then(|t| t.as_str());
+                    prop_type == Some("object")
+                }
+                None => false,
+            },
+            None => false,
+        };
+
+        // If it's an object type and we received a string, try to parse it
+        if is_obj_type && value.is_string() {
+            if let Some(str_val) = value.as_str() {
+                if let Ok(obj_val) = serde_json::from_str::<serde_json::Value>(str_val) {
+                    return obj_val;
+                }
+            }
+        }
+
+        value.clone()
     }
 
     async fn transform_schema_for_resources(
@@ -268,7 +308,8 @@ impl Runner {
         user_db: &UserDB,
         authed: &ApiAuthed,
         w_id: &str,
-        resources_info: &mut HashMap<String, ResourceCache>,
+        resources_cache: &mut HashMap<String, Vec<ResourceInfo>>,
+        resources_types: &Vec<ResourceType>,
     ) -> Result<serde_json::Value, Error> {
         let mut schema_obj: serde_json::Value = match serde_json::from_str(schema.0.get()) {
             Ok(val) => val,
@@ -280,45 +321,53 @@ impl Runner {
                 schema_map.get_mut("properties")
             {
                 for (_key, prop_value) in properties_map.iter_mut() {
+                    // transform object properties to string because some client does not support object, might change in the future
                     if let serde_json::Value::Object(prop_map) = prop_value {
+                        if let Some(type_value) = prop_map.get("type") {
+                            if let serde_json::Value::String(type_str) = type_value {
+                                if type_str == "object" {
+                                    prop_map.insert(
+                                        "type".to_string(),
+                                        serde_json::Value::String("string".to_string()),
+                                    );
+                                }
+                            }
+                        }
                         if let Some(format_value) = prop_map.get("format") {
                             if let serde_json::Value::String(format_str) = format_value {
-                                if format_str.contains("resource") {
+                                // if property is a resource, fetch the resource type infos, and add each available resource to the description
+                                if format_str.starts_with("resource-") {
                                     let resource_type_key = format_str
                                         .split("-")
                                         .last()
                                         .unwrap_or_default()
                                         .to_string();
-
-                                    if !resources_info.contains_key(&resource_type_key) {
-                                        let fetch_result = async {
-                                            let resource_type_info_future =
-                                                Runner::inner_get_resource_type_info(
-                                                    user_db,
-                                                    authed,
-                                                    &w_id,
-                                                    &resource_type_key,
-                                                );
-                                            let resources_data_future = Runner::inner_get_resources(
-                                                user_db,
-                                                authed,
-                                                &w_id,
-                                                &resource_type_key,
+                                    let resource_type = resources_types
+                                        .iter()
+                                        .find(|rt| rt.name == resource_type_key);
+                                    let resource_type = match resource_type {
+                                        Some(resource_type) => resource_type,
+                                        None => {
+                                            tracing::info!(
+                                                "Resource type not found: {}",
+                                                resource_type_key
                                             );
-                                            let (resource_type_info, resources_data) = try_join!(
-                                                resource_type_info_future,
-                                                resources_data_future
-                                            )?;
-                                            Ok::<_, Error>(ResourceCache {
-                                                resource_type: resource_type_info,
-                                                resources: resources_data,
-                                            })
+                                            continue;
                                         }
+                                    };
+
+                                    if !resources_cache.contains_key(&resource_type_key) {
+                                        let available_resources = Runner::inner_get_resources(
+                                            user_db,
+                                            authed,
+                                            &w_id,
+                                            &resource_type_key,
+                                        )
                                         .await;
 
-                                        match fetch_result {
+                                        match available_resources {
                                             Ok(cache_data) => {
-                                                resources_info
+                                                resources_cache
                                                     .insert(resource_type_key.clone(), cache_data);
                                             }
                                             Err(e) => {
@@ -332,72 +381,53 @@ impl Runner {
                                     }
 
                                     if let Some(resource_cache) =
-                                        resources_info.get(&resource_type_key)
+                                        resources_cache.get(&resource_type_key)
                                     {
-                                        let resources_count = resource_cache.resources.len();
-
+                                        let resources_count = resource_cache.len();
+                                        let description = format!(
+                                            "This is a resource named {} with the following description: {}.\nThe path of the resource should be used to specify the resource.\n{}",
+                                            resource_type.name,
+                                            resource_type.description.as_deref().unwrap_or("No description"),
+                                            if resources_count == 0 {
+                                                "This resource does not have any available instances, you should create one from your windmill workspace."
+                                            } else if resources_count > 1 {
+                                                "This resource has multiple available instances, you should precisely select the one you want to use."
+                                            } else {
+                                                "There is 1 resource available."
+                                            }
+                                        );
                                         prop_map.insert(
                                             "type".to_string(),
                                             serde_json::Value::String("string".to_string()),
-                                        );
-                                        let description = format!(
-                                            "This is a resource named {} with the following description: {}.\nThe path of the resource should be used to specify the resource.\n{}",
-                                            resource_cache.resource_type.name,
-                                            resource_cache.resource_type.description.as_deref().unwrap_or("No description"),
-                                            if resources_count == 0 {
-                                                "This resource does not have any available instances, you should create one from your windmill workspace"
-                                            } else if resources_count > 1 {
-                                                "This resource has multiple available instances, you should precisely select the one you want to use"
-                                            } else {
-                                                "There is 1 resource available"
-                                            }
                                         );
                                         prop_map.insert(
                                             "description".to_string(),
                                             serde_json::Value::String(description),
                                         );
-
                                         if resources_count > 0 {
-                                            let one_of_values: Vec<Value> = resource_cache
-                                                .resources
+                                            let resources_description = resource_cache
                                                 .iter()
                                                 .map(|resource| {
-                                                    serde_json::Value::Object(
-                                                        serde_json::Map::from_iter(
-                                                            [
-                                                                (
-                                                                    "const".to_string(),
-                                                                    serde_json::Value::String(
-                                                                        format!(
-                                                                            "$res:{}",
-                                                                            resource.path
-                                                                        ),
-                                                                    ),
-                                                                ),
-                                                                (
-                                                                    "title".to_string(),
-                                                                    serde_json::Value::String(
-                                                                        resource
-                                                                            .description
-                                                                            .as_deref()
-                                                                            .unwrap_or(
-                                                                                "No description",
-                                                                            )
-                                                                            .to_string(),
-                                                                    ),
-                                                                ),
-                                                            ]
-                                                            .into_iter(),
-                                                        ),
+                                                    format!(
+                                                        "{}: $res:{}",
+                                                        resource
+                                                            .description
+                                                            .as_deref()
+                                                            .unwrap_or("No title"),
+                                                        resource.path
                                                     )
                                                 })
-                                                .collect();
+                                                .collect::<Vec<String>>()
+                                                .join("\n");
+
                                             prop_map.insert(
-                                                "oneOf".to_string(),
-                                                serde_json::Value::Array(one_of_values),
+                                                "description".to_string(),
+                                                serde_json::Value::String(format!(
+                                                    "{}\nHere are the available resources, in the format title:path. Title can be empty. Path should be used to specify the resource:\n{}",
+                                                    prop_map.get("description").unwrap_or(&serde_json::Value::String("No description".to_string())),
+                                                    resources_description
+                                                )),
                                             );
-                                        } else {
-                                            prop_map.remove("oneOf"); // Remove oneOf if it exists and count is 0
                                         }
                                     }
                                 }
@@ -454,10 +484,16 @@ impl ServerHandler for Runner {
 
         let (tool_type, path) = Runner::reverse_transform(&request.name).unwrap_or_default();
 
+        let item_info =
+            Runner::get_item_schema(&path, user_db, authed, &context.workspace_id, &tool_type)
+                .await?;
+        let schema = item_info.schema;
         let push_args = if let Value::Object(map) = args.clone() {
             let mut args_hash = HashMap::new();
             for (k, v) in map {
-                args_hash.insert(k, to_raw_value(&v));
+                // object properties are transformed to string because some client does not support object, might change in the future
+                let transformed_v = Runner::transform_value_if_object(&k, &v, &schema);
+                args_hash.insert(k, to_raw_value(&transformed_v));
             }
             windmill_queue::PushArgsOwned { extra: None, args: args_hash }
         } else {
@@ -532,11 +568,21 @@ impl ServerHandler for Runner {
             .as_ref()
             .and_then(|scopes| scopes.iter().find(|scope| scope.starts_with("mcp:")));
         let scope_type = scope.map_or("all", |scope| scope.split(":").last().unwrap_or("all"));
-        let mut resources_info: HashMap<String, ResourceCache> = HashMap::new();
 
-        let scripts_fn = Runner::inner_get_scripts(user_db, authed, &workspace_id, scope_type);
-        let flows_fn = Runner::inner_get_flows(user_db, authed, &workspace_id, scope_type);
-        let (scripts, flows) = try_join!(scripts_fn, flows_fn)?;
+        let scripts_fn = Runner::inner_get_items::<ScriptInfo>(
+            user_db,
+            authed,
+            &workspace_id,
+            scope_type,
+            "script",
+        );
+        let flows_fn =
+            Runner::inner_get_items::<FlowInfo>(user_db, authed, &workspace_id, scope_type, "flow");
+        let resources_types_fn = Runner::inner_get_resources_types(user_db, authed, &workspace_id);
+        let (scripts, flows, resources_types) =
+            try_join!(scripts_fn, flows_fn, resources_types_fn)?;
+
+        let mut resources_cache: HashMap<String, Vec<ResourceInfo>> = HashMap::new();
 
         let mut script_tools: Vec<Tool> = Vec::with_capacity(scripts.len());
         for script in scripts {
@@ -552,7 +598,8 @@ impl ServerHandler for Runner {
                     user_db,
                     authed,
                     &workspace_id,
-                    &mut resources_info,
+                    &mut resources_cache,
+                    &resources_types,
                 )
                 .await?
             } else {
@@ -586,7 +633,8 @@ impl ServerHandler for Runner {
                     user_db,
                     authed,
                     &workspace_id,
-                    &mut resources_info,
+                    &mut resources_cache,
+                    &resources_types,
                 )
                 .await?
             } else {
@@ -618,7 +666,7 @@ impl ServerHandler for Runner {
                 .enable_tool_list_changed()
                 .build(),
             server_info: Implementation::from_build_env(),
-            instructions: Some("This server provides a runner tool that can run scripts. Use 'get_scripts' to get the list of scripts.".to_string()),
+            instructions: Some("This server provides a list of scripts and flows the user can run on Windmill. Each flow and script is a tool callable with their respective arguments.".to_string()),
         }
     }
 
