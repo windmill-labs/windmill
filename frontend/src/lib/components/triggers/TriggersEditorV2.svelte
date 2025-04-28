@@ -23,6 +23,7 @@
 		fetchPostgresTriggers,
 		fetchKafkaTriggers,
 		fetchNatsTriggers,
+		fetchGcpTriggers,
 		deleteDraft,
 		addDraftTrigger
 	} from './utils'
@@ -35,6 +36,7 @@
 	import MqttTriggerPanel from './mqtt/MqttTriggerPanelV2.svelte'
 	import SqsTriggerPanel from './sqs/SqsTriggerPanelV2.svelte'
 	import { fetchMqttTriggers, fetchSqsTriggers } from './utils'
+	import GcpTriggerPanel from './gcp/GcpTriggerPanelV2.svelte'
 
 	export let noEditor: boolean
 	export let newItem = false
@@ -377,6 +379,30 @@
 													$selectedTrigger.path = detail
 												}
 												fetchSqsTriggers(triggers, $workspaceStore, currentPath, isFlow, $userStore)
+											}}
+											on:update-config={({ detail }) => {
+												config = detail
+											}}
+										/>
+									{:else if $selectedTrigger.type === 'gcp'}
+										<GcpTriggerPanel
+											{isFlow}
+											path={initialPath || fakeInitialPath}
+											selectedTrigger={$selectedTrigger}
+											edit={editTrigger === $selectedTrigger}
+											{isDeployed}
+											isEditor={true}
+											on:toggle-edit-mode={({ detail }) => {
+												editTrigger = detail ? $selectedTrigger : undefined
+											}}
+											on:update={({ detail }) => {
+												if ($selectedTrigger?.isDraft) {
+													$selectedTrigger.isDraft = false
+												}
+												if ($selectedTrigger) {
+													$selectedTrigger.path = detail
+												}
+												fetchGcpTriggers(triggers, $workspaceStore, currentPath, isFlow, $userStore)
 											}}
 											on:update-config={({ detail }) => {
 												config = detail

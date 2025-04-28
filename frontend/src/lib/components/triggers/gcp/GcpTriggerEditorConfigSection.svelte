@@ -27,6 +27,7 @@
 	import { Button } from '$lib/components/common'
 	import { ClipboardCopy, RefreshCw } from 'lucide-svelte'
 	import Alert from '$lib/components/common/alert/Alert.svelte'
+	import TestingBadge from '../testingBadge.svelte'
 
 	export let can_write: boolean = false
 	export let headless: boolean = false
@@ -42,6 +43,7 @@
 	export let subscription_mode: SubscriptionMode = 'create_update'
 	export let base_endpoint: string = getBaseUrl(captureInfo)
 	export let path = captureInfo ? captureInfo.path : ''
+	export let showTestingBadge: boolean = false
 
 	let topic_items: string[] = []
 	let subscription_items: string[] = []
@@ -49,7 +51,7 @@
 
 	const DEFAULT_PUSH_CONFIG: PushConfig = {
 		audience: '',
-		authenticate: false,
+		authenticate: false
 	}
 
 	async function loadAllPubSubTopicsFromProject() {
@@ -121,6 +123,11 @@
 		</CaptureSection>
 	{/if}
 	<Section label="GCP Pub/Sub" {headless}>
+		<svelte:fragment slot="header">
+			{#if showTestingBadge}
+				<TestingBadge />
+			{/if}
+		</svelte:fragment>
 		<div class="flex flex-col w-full gap-4">
 			<Subsection label="Connection setup">
 				<div class="flex flex-col gap-1 mt-2">

@@ -6,7 +6,7 @@
 	import { usedTriggerKinds, userStore, workspaceStore } from '$lib/stores'
 	import { canWrite, emptyString, sendUserToast } from '$lib/utils'
 	import { createEventDispatcher } from 'svelte'
-	import { Loader2, Save } from 'lucide-svelte'
+	import { Loader2, Save, Pen, X } from 'lucide-svelte'
 	import Label from '$lib/components/Label.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import {
@@ -20,6 +20,8 @@
 	import Required from '$lib/components/Required.svelte'
 	import GcpTriggerEditorConfigSection from './GcpTriggerEditorConfigSection.svelte'
 	import { base } from '$app/paths'
+	import type { Snippet } from 'svelte'
+	import { twMerge } from 'tailwind-merge'
 
 	let is_loading = $state(false)
 	let drawer: Drawer | undefined = $state(undefined)
@@ -45,12 +47,44 @@
 	let subscription_mode: SubscriptionMode = $state('create_update')
 	const dispatch = createEventDispatcher()
 
+	let {
+		useDrawer = true,
+		description = undefined,
+		hideTarget = false,
+		editMode = true,
+		preventSave = false,
+		hideTooltips = false,
+		useEditButton = false,
+		isEditor = false
+	}: {
+		useDrawer?: boolean
+		description?: Snippet | undefined
+		hideTarget?: boolean
+		editMode?: boolean
+		preventSave?: boolean
+		hideTooltips?: boolean
+		useEditButton?: boolean
+		isEditor?: boolean
+	} = $props()
+
+	let resetEditMode = $state<(() => void) | undefined>(undefined)
+
 	$effect(() => {
 		is_flow = itemKind === 'flow'
+		dispatch('update-config', {
+			gcp_resource_path,
+			subscription_mode,
+			subscription_id,
+			delivery_type,
+			delivery_config,
+			topic_id,
+			isValid
+		})
 	})
 
 	export async function openEdit(ePath: string, isFlow: boolean) {
 		drawerLoading = true
+		resetEditMode = () => openEdit(ePath, isFlow)
 		try {
 			drawer?.openDrawer()
 			initialPath = ePath
@@ -178,50 +212,111 @@
 			sendUserToast(error.body, true)
 		}
 	}
+
+	function toggleEditMode(newEditMode: boolean) {
+		dispatch('toggle-edit-mode', newEditMode)
+	}
 </script>
 
-<Drawer size="800px" bind:this={drawer}>
-	<DrawerContent
-		title={edit
-			? can_write
-				? `Edit GCP Pub/Sub trigger ${initialPath}`
-				: `GCP Pub/Sub trigger ${initialPath}`
-			: 'New GCP Pub/Sub trigger'}
-		on:close={drawer.closeDrawer}
-	>
-		<svelte:fragment slot="actions">
-			{#if !drawerLoading && can_write}
-				{#if edit}
-					<div class="mr-8 center-center -mt-1">
-						<Toggle
-							disabled={!can_write}
-							checked={enabled}
-							options={{ right: 'enable', left: 'disable' }}
-							on:change={async (e) => {
-								sendUserToast(
-									`${e.detail ? 'enabled' : 'disabled'} GCP Pub/Sub trigger ${initialPath}`
-								)
-							}}
-						/>
-					</div>
-				{/if}
-				<Button
-					startIcon={{ icon: Save }}
-					disabled={pathError != '' || emptyString(script_path) || !isValid || !can_write}
-					on:click={updateTrigger}
-					loading={is_loading}
-				>
-					Save
-				</Button>
-			{/if}
+{#if useDrawer}
+	<Drawer size="800px" bind:this={drawer}>
+		<DrawerContent
+			title={edit
+				? can_write
+					? `Edit GCP Pub/Sub trigger ${initialPath}`
+					: `GCP Pub/Sub trigger ${initialPath}`
+				: 'New GCP Pub/Sub trigger'}
+			on:close={drawer?.closeDrawer}
+		>
+			<svelte:fragment slot="actions">
+				{@render actionsButtons('sm')}
+			</svelte:fragment>
+			{@render config()}
+		</DrawerContent>
+	</Drawer>
+{:else}
+	<Section label="GCP Pub/Sub trigger">
+		<svelte:fragment slot="action">
+			{@render actionsButtons('xs')}
 		</svelte:fragment>
-		{#if drawerLoading}
-			<div class="flex flex-col items-center justify-center h-full w-full">
-				<Loader2 size="50" class="animate-spin" />
-				<p>Loading...</p>
-			</div>
-		{:else}
-			<div class="flex flex-col gap-5">
+		{@render config()}
+	</Section>
+{/if}
+
+{#snippet actionsButtons(size: 'xs' | 'sm' = 'sm')}
+	{#if !drawerLoading && can_write}
+		<div class="flex flex-row gap-2 items-center">
+			{#if edit}
+				<div class={twMerge('center-center', size === 'sm' ? '-mt-1' : '')}>
+					<Toggle
+						{size}
+						disabled={!can_write || !editMode}
+						checked={enabled}
+						options={{ right: 'enable', left: 'disable' }}
+						on:change={async (e) => {
+							await GcpTriggerService.setGcpTriggerEnabled({
+								path: initialPath,
+								workspace: $workspaceStore ?? '',
+								requestBody: { enabled: e.detail }
+							})
+							sendUserToast(
+								`${e.detail ? 'enabled' : 'disabled'} GCP Pub/Sub trigger ${initialPath}`
+							)
+						}}
+					/>
+				</div>
+			{/if}
+			{#if !preventSave}
+				{#if can_write && editMode}
+					<Button
+						{size}
+						startIcon={{ icon: Save }}
+						disabled={pathError != '' || emptyString(script_path) || !isValid || !can_write}
+						on:click={updateTrigger}
+						loading={is_loading}
+					>
+						Save
+					</Button>
+				{/if}
+				{#if !editMode && useEditButton}
+					<Button
+						{size}
+						color="light"
+						startIcon={{ icon: Pen }}
+						on:click={() => toggleEditMode(true)}
+					>
+						Edit
+					</Button>
+				{:else if editMode && !!resetEditMode && useEditButton}
+					<Button
+						{size}
+						color="light"
+						startIcon={{ icon: X }}
+						on:click={() => {
+							toggleEditMode(false)
+							resetEditMode?.()
+						}}
+					>
+						Cancel
+					</Button>
+				{/if}
+			{/if}
+		</div>
+	{/if}
+{/snippet}
+
+{#snippet config()}
+	{#if drawerLoading}
+		<div class="flex flex-col items-center justify-center h-full w-full">
+			<Loader2 size="50" class="animate-spin" />
+			<p>Loading...</p>
+		</div>
+	{:else}
+		<div class="flex flex-col gap-5">
+			{#if description}
+				{@render description()}
+			{/if}
+			{#if !hideTooltips}
 				<Alert title="Info" type="info">
 					{#if edit}
 						Changes can take up to 30 seconds to take effect.
@@ -229,36 +324,40 @@
 						New GCP Pub/Sub trigger can take up to 30 seconds to start listening.
 					{/if}
 				</Alert>
+			{/if}
+		</div>
+		<div class="flex flex-col gap-12 mt-6">
+			<div class="flex flex-col gap-4">
+				<Label label="Path">
+					<Path
+						bind:dirty={dirtyPath}
+						bind:error={pathError}
+						bind:path
+						{initialPath}
+						checkInitialPathExistence={!edit}
+						namePlaceholder="gcp_trigger"
+						kind="gcp_trigger"
+						disabled={!can_write}
+						disableEditing={!editMode}
+					/>
+				</Label>
 			</div>
-			<div class="flex flex-col gap-12 mt-6">
-				<div class="flex flex-col gap-4">
-					<Label label="Path">
-						<Path
-							bind:dirty={dirtyPath}
-							bind:error={pathError}
-							bind:path
-							{initialPath}
-							checkInitialPathExistence={!edit}
-							namePlaceholder="gcp_trigger"
-							kind="gcp_trigger"
-							disabled={!can_write}
-						/>
-					</Label>
-				</div>
 
+			{#if !hideTarget}
 				<Section label="Runnable">
 					<p class="text-xs mb-1 text-tertiary">
 						Pick a script or flow to be triggered <Required required={true} />
 					</p>
 					<div class="flex flex-row mb-2">
 						<ScriptPicker
-							disabled={fixedScriptPath != '' || !can_write}
+							disabled={fixedScriptPath != '' || !can_write || !editMode}
 							initialPath={fixedScriptPath || initialScriptPath}
 							kinds={['script']}
 							allowFlow={true}
 							bind:itemKind
 							bind:scriptPath={script_path}
-							allowRefresh
+							allowRefresh={can_write}
+							allowEdit={!$userStore?.operator}
 						/>
 						{#if emptyString(script_path)}
 							<Button
@@ -266,27 +365,29 @@
 								color="dark"
 								size="xs"
 								href={itemKind === 'flow' ? '/flows/add?hub=68' : '/scripts/add?hub=hub%2F14251'}
-								target="_blank">Create from template</Button
+								target="_blank"
+								disabled={!editMode}>Create from template</Button
 							>
 						{/if}
 					</div>
 				</Section>
+			{/if}
 
-				<GcpTriggerEditorConfigSection
-					bind:isValid
-					bind:gcp_resource_path
-					bind:subscription_id
-					bind:delivery_type
-					bind:delivery_config
-					bind:topic_id
-					bind:subscription_mode
-					bind:path
-					cloud_subscription_id={subscription_id}
-					create_update_subscription_id={subscription_id}
-					{can_write}
-					headless={true}
-				/>
-			</div>
-		{/if}
-	</DrawerContent>
-</Drawer>
+			<GcpTriggerEditorConfigSection
+				bind:isValid
+				bind:gcp_resource_path
+				bind:subscription_id
+				bind:delivery_type
+				bind:delivery_config
+				bind:topic_id
+				bind:subscription_mode
+				bind:path
+				cloud_subscription_id={subscription_id}
+				create_update_subscription_id={subscription_id}
+				can_write={can_write && editMode}
+				headless={true}
+				showTestingBadge={isEditor}
+			/>
+		</div>
+	{/if}
+{/snippet}

@@ -20,6 +20,7 @@
 	import NatsCapture from './nats/NatsCapture.svelte'
 	import MqttCapture from './mqtt/MqttCapture.svelte'
 	import SqsCapture from './sqs/SqsCapture.svelte'
+	import GcpCapture from './gcp/GcpCapture.svelte'
 
 	export let isFlow: boolean
 	export let path: string
@@ -163,7 +164,7 @@
 
 	let config: CaptureConfig | undefined
 	$: config = captureConfigs[captureType]
-	const streamingCaptures = ['mqtt', 'sqs', 'websocket', 'postgres', 'kafka', 'nats']
+	const streamingCaptures = ['mqtt', 'sqs', 'websocket', 'postgres', 'kafka', 'nats', 'gcp']
 	let cloudDisabled = streamingCaptures.includes(captureType) && isCloudHosted()
 
 	function updateConnectionInfo(config: CaptureConfig | undefined, captureActive: boolean) {
@@ -311,6 +312,19 @@
 			/>
 		{:else if captureType === 'sqs'}
 			<SqsCapture
+				isValid={args.isValid}
+				{captureInfo}
+				bind:captureTable
+				{hasPreprocessor}
+				{isFlow}
+				on:applyArgs
+				on:updateSchema
+				on:addPreprocessor
+				on:captureToggle={handleCapture}
+				on:testWithArgs
+			/>
+		{:else if captureType === 'gcp'}
+			<GcpCapture
 				isValid={args.isValid}
 				{captureInfo}
 				bind:captureTable
