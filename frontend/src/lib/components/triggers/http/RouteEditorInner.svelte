@@ -40,7 +40,8 @@
 		useEditButton = false,
 		showCapture = false,
 		editMode = true,
-		preventSave = false
+		preventSave = false,
+		customLabel = undefined
 	} = $props()
 
 	// Form data state
@@ -770,7 +771,12 @@
 		</DrawerContent>
 	</Drawer>
 {:else}
-	<Section label={'HTTP Route'}>
+	<Section label={!customLabel ? 'HTTP Route' : ''}>
+		<svelte:fragment slot="header">
+			{#if customLabel}
+				{@render customLabel()}
+			{/if}
+		</svelte:fragment>
 		<svelte:fragment slot="action">
 			{@render saveButton('xs')}
 		</svelte:fragment>

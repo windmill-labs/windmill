@@ -197,6 +197,7 @@
 												editTrigger = detail ? $selectedTrigger : undefined
 											}}
 											{isDeployed}
+											small={useHorizontalTriggerBar}
 										/>
 									{:else if $selectedTrigger.type === 'webhook'}
 										<WebhooksPanel
