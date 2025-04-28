@@ -10,7 +10,7 @@
 	import CaptureSection, { type CaptureInfo } from '../CaptureSection.svelte'
 	import CaptureTable from '../CaptureTable.svelte'
 	import TestTriggerConnection from '../TestTriggerConnection.svelte'
-	import TestingBadge from '$lib/components/triggers/testingBadge.svelte'
+	import TestingBadge from '../testingBadge.svelte'
 	export let defaultValues: Record<string, any> | undefined = undefined
 	export let headless: boolean = false
 	export let args: Record<string, any> = {}
