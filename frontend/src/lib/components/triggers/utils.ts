@@ -417,11 +417,13 @@ export async function fetchNatsTriggers(
  */
 export async function fetchMqttTriggers(
 	triggersStore: Writable<Trigger[]>,
-	workspaceId: string,
+	workspaceId: string | undefined,
 	path: string,
-	isFlow: boolean
+	isFlow: boolean,
+	user: UserExt | undefined = undefined
 ): Promise<void> {
 	try {
+		if (!workspaceId) return
 		// Remove existing MQTT triggers for this path
 		triggersStore.update((triggers) => triggers.filter((t) => !(t.type === 'mqtt')))
 
@@ -438,7 +440,8 @@ export async function fetchMqttTriggers(
 					type: 'mqtt',
 					path: trigger.path,
 					isPrimary: false,
-					isDraft: false
+					isDraft: false,
+					canWrite: canWrite(trigger.path, trigger.extra_perms, user)
 				}
 			])
 		}

@@ -9,7 +9,6 @@
 	import type { ConnectionInfo } from '../common/alert/ConnectionIndicator.svelte'
 	import type { CaptureInfo } from './CaptureSection.svelte'
 	import CaptureTable from './CaptureTable.svelte'
-	import MqttEditorConfigSection from './mqtt/MqttEditorConfigSection.svelte'
 	import SqsTriggerEditorConfigSection from './sqs/SqsTriggerEditorConfigSection.svelte'
 
 	import { invalidRelations } from './postgres/utils'
@@ -20,6 +19,7 @@
 	import PostgresCapture from './postgres/PostgresCapture.svelte'
 	import KafkaCapture from './kafka/KafkaCapture.svelte'
 	import NatsCapture from './nats/NatsCapture.svelte'
+	import MqttCapture from './mqtt/MqttCapture.svelte'
 
 	export let isFlow: boolean
 	export let path: string
@@ -297,18 +297,12 @@
 				on:testWithArgs
 			/>
 		{:else if captureType === 'mqtt'}
-			<MqttEditorConfigSection
-				can_write={true}
-				headless={true}
-				{showCapture}
+			<MqttCapture
+				isValid={args.isValid}
 				{captureInfo}
-				bind:v3_config={args.v3_config}
-				bind:v5_config={args.v5_config}
-				bind:client_version={args.client_version}
-				bind:subscribe_topics={args.subscribe_topics}
-				bind:mqtt_resource_path={args.mqtt_resource_path}
-				bind:client_id={args.client_id}
 				bind:captureTable
+				{hasPreprocessor}
+				{isFlow}
 				on:applyArgs
 				on:updateSchema
 				on:addPreprocessor

@@ -30,6 +30,7 @@
 	export let client_version: MqttClientVersion = 'v5'
 	export let isValid: boolean = false
 	export let client_id: string = ''
+	export let showTestingBadge: boolean = false
 
 	const activateV5Options = {
 		topic_alias: Boolean(v5_config.topic_alias),
