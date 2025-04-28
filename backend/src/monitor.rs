@@ -34,8 +34,12 @@ use windmill_common::ee::{jobs_waiting_alerts, worker_groups_alerts};
 #[cfg(feature = "oauth2")]
 use windmill_common::global_settings::OAUTH_SETTING;
 use windmill_common::{
-    utils::empty_string_as_none,
-    agent_workers::DECODED_AGENT_TOKEN, auth::create_token_for_owner, ee::CriticalErrorChannel, error, flow_status::{FlowStatus, FlowStatusModule}, global_settings::{
+    agent_workers::DECODED_AGENT_TOKEN,
+    auth::create_token_for_owner,
+    ee::CriticalErrorChannel,
+    error,
+    flow_status::{FlowStatus, FlowStatusModule},
+    global_settings::{
         BASE_URL_SETTING, BUNFIG_INSTALL_SCOPES_SETTING, CRITICAL_ALERT_MUTE_UI_SETTING,
         CRITICAL_ERROR_CHANNELS_SETTING, DEFAULT_TAGS_PER_WORKSPACE_SETTING,
         DEFAULT_TAGS_WORKSPACES_SETTING, EXPOSE_DEBUG_METRICS_SETTING, EXPOSE_METRICS_SETTING,
@@ -45,13 +49,32 @@ use windmill_common::{
         NUGET_CONFIG_SETTING, OTEL_SETTING, PIP_INDEX_URL_SETTING, REQUEST_SIZE_LIMIT_SETTING,
         REQUIRE_PREEXISTING_USER_FOR_OAUTH_SETTING, RETENTION_PERIOD_SECS_SETTING,
         SAML_METADATA_SETTING, SCIM_TOKEN_SETTING, TIMEOUT_WAIT_RESULT_SETTING,
-    }, indexer::load_indexer_config, jobs::QueuedJob, jwt::JWT_SECRET, oauth2::REQUIRE_PREEXISTING_USER_FOR_OAUTH, server::load_smtp_config, tracing_init::JSON_FMT, users::truncate_token, utils::{now_from_db, rd_string, report_critical_error, Mode}, worker::{
-        load_worker_config, reload_custom_tags_setting, store_pull_query, store_suspended_pull_query, update_min_version, Connection, DEFAULT_TAGS_PER_WORKSPACE, DEFAULT_TAGS_WORKSPACES, INDEXER_CONFIG, SCRIPT_TOKEN_EXPIRY, SMTP_CONFIG, TMP_DIR, WORKER_CONFIG, WORKER_GROUP
-    }, KillpillSender, BASE_URL, CRITICAL_ALERT_MUTE_UI_ENABLED, CRITICAL_ERROR_CHANNELS, DB, DEFAULT_HUB_BASE_URL, HUB_BASE_URL, JOB_RETENTION_SECS, METRICS_DEBUG_ENABLED, METRICS_ENABLED, MONITOR_LOGS_ON_OBJECT_STORE, OTEL_LOGS_ENABLED, OTEL_METRICS_ENABLED, OTEL_TRACING_ENABLED, SERVICE_LOG_RETENTION_SECS,
+    },
+    indexer::load_indexer_config,
+    jobs::QueuedJob,
+    jwt::JWT_SECRET,
+    oauth2::REQUIRE_PREEXISTING_USER_FOR_OAUTH,
+    server::load_smtp_config,
+    tracing_init::JSON_FMT,
+    users::truncate_token,
+    utils::empty_string_as_none,
+    utils::{now_from_db, rd_string, report_critical_error, Mode},
+    worker::{
+        load_worker_config, reload_custom_tags_setting, store_pull_query,
+        store_suspended_pull_query, update_min_version, Connection, DEFAULT_TAGS_PER_WORKSPACE,
+        DEFAULT_TAGS_WORKSPACES, INDEXER_CONFIG, SCRIPT_TOKEN_EXPIRY, SMTP_CONFIG, TMP_DIR,
+        WORKER_CONFIG, WORKER_GROUP,
+    },
+    KillpillSender, BASE_URL, CRITICAL_ALERT_MUTE_UI_ENABLED, CRITICAL_ERROR_CHANNELS, DB,
+    DEFAULT_HUB_BASE_URL, HUB_BASE_URL, JOB_RETENTION_SECS, METRICS_DEBUG_ENABLED, METRICS_ENABLED,
+    MONITOR_LOGS_ON_OBJECT_STORE, OTEL_LOGS_ENABLED, OTEL_METRICS_ENABLED, OTEL_TRACING_ENABLED,
+    SERVICE_LOG_RETENTION_SECS,
 };
 use windmill_queue::{cancel_job, MiniPulledJob, SameWorkerPayload};
 use windmill_worker::{
-    handle_job_error, AuthedClient, JobCompletedSender,  SameWorkerSender, BUNFIG_INSTALL_SCOPES, INSTANCE_PYTHON_VERSION, JOB_DEFAULT_TIMEOUT, KEEP_JOB_DIR, MAVEN_REPOS, NO_DEFAULT_MAVEN, NPM_CONFIG_REGISTRY, NUGET_CONFIG, PIP_EXTRA_INDEX_URL, PIP_INDEX_URL
+    handle_job_error, AuthedClient, JobCompletedSender, SameWorkerSender, BUNFIG_INSTALL_SCOPES,
+    INSTANCE_PYTHON_VERSION, JOB_DEFAULT_TIMEOUT, KEEP_JOB_DIR, MAVEN_REPOS, NO_DEFAULT_MAVEN,
+    NPM_CONFIG_REGISTRY, NUGET_CONFIG, PIP_EXTRA_INDEX_URL, PIP_INDEX_URL,
 };
 
 #[cfg(feature = "parquet")]
@@ -135,7 +158,6 @@ pub async fn initial_load(
         }
     }
 
-
     if let Err(e) = load_metrics_enabled(conn).await {
         tracing::error!("Error loading expose metrics: {e:#}");
     }
@@ -172,11 +194,13 @@ pub async fn initial_load(
             }
             Connection::Http(_) => {
                 // TODO: reload worker config from http
-                WORKER_CONFIG.write().await.worker_tags = DECODED_AGENT_TOKEN.as_ref().map(|x| x.tags.clone()).unwrap_or_default();
+                WORKER_CONFIG.write().await.worker_tags = DECODED_AGENT_TOKEN
+                    .as_ref()
+                    .map(|x| x.tags.clone())
+                    .unwrap_or_default();
             }
         }
     }
-
 
     if let Err(e) = reload_hub_base_url_setting(conn, server_mode).await {
         tracing::error!("Error reloading hub base url: {:?}", e)
@@ -190,7 +214,6 @@ pub async fn initial_load(
         if let Err(e) = reload_custom_tags_setting(db).await {
             tracing::error!("Error reloading custom tags: {:?}", e)
         }
-
     }
 
     #[cfg(feature = "parquet")]
@@ -225,7 +248,8 @@ pub async fn initial_load(
 }
 
 pub async fn load_metrics_enabled(conn: &Connection) -> error::Result<()> {
-    let metrics_enabled = load_value_from_global_settings_with_conn(conn, EXPOSE_METRICS_SETTING, true).await;
+    let metrics_enabled =
+        load_value_from_global_settings_with_conn(conn, EXPOSE_METRICS_SETTING, true).await;
     match metrics_enabled {
         Ok(Some(serde_json::Value::Bool(t))) => METRICS_ENABLED.store(t, Ordering::Relaxed),
         _ => (),
@@ -345,13 +369,13 @@ pub async fn reload_critical_alert_mute_ui_setting(conn: &Connection) -> error::
         load_value_from_global_settings_with_conn(conn, CRITICAL_ALERT_MUTE_UI_SETTING, true).await
     {
         CRITICAL_ALERT_MUTE_UI_ENABLED.store(t, Ordering::Relaxed);
-
     }
     Ok(())
 }
 
 pub async fn load_metrics_debug_enabled(conn: &Connection) -> error::Result<()> {
-    let metrics_enabled = load_value_from_global_settings_with_conn(conn, EXPOSE_DEBUG_METRICS_SETTING, true).await;
+    let metrics_enabled =
+        load_value_from_global_settings_with_conn(conn, EXPOSE_DEBUG_METRICS_SETTING, true).await;
     match metrics_enabled {
         Ok(Some(serde_json::Value::Bool(t))) => {
             METRICS_DEBUG_ENABLED.store(t, Ordering::Relaxed);
@@ -575,7 +599,9 @@ async fn send_log_file_to_object_store(
         };
 
         let exists = LAST_LOG_FILE_SENT.lock().map(|last_log_file_sent| {
-            last_log_file_sent.map(|last_log_file_sent| last_log_file_sent >= ts).unwrap_or(false)
+            last_log_file_sent
+                .map(|last_log_file_sent| last_log_file_sent >= ts)
+                .unwrap_or(false)
         });
 
         if exists.unwrap_or(false) {
@@ -1002,11 +1028,21 @@ pub async fn reload_nuget_config_setting(conn: &Connection) {
     .await;
 }
 pub async fn reload_maven_repos_setting(conn: &Connection) {
-    reload_option_setting_with_tracing(conn, windmill_common::global_settings::MAVEN_REPOS_SETTING, "MAVEN_REPOS", MAVEN_REPOS.clone())
-        .await;
+    reload_option_setting_with_tracing(
+        conn,
+        windmill_common::global_settings::MAVEN_REPOS_SETTING,
+        "MAVEN_REPOS",
+        MAVEN_REPOS.clone(),
+    )
+    .await;
 }
 pub async fn reload_no_default_maven_setting(conn: &Connection) {
-    let value = load_value_from_global_settings_with_conn(conn, windmill_common::global_settings::NO_DEFAULT_MAVEN_SETTING, true).await;
+    let value = load_value_from_global_settings_with_conn(
+        conn,
+        windmill_common::global_settings::NO_DEFAULT_MAVEN_SETTING,
+        true,
+    )
+    .await;
     match value {
         Ok(Some(serde_json::Value::Bool(t))) => NO_DEFAULT_MAVEN.store(t, Ordering::Relaxed),
         Err(e) => {
@@ -1175,7 +1211,6 @@ pub async fn load_value_from_global_settings(
     Ok(r)
 }
 
-
 pub async fn load_value_from_global_settings_with_conn(
     conn: &Connection,
     setting_name: &str,
@@ -1185,14 +1220,18 @@ pub async fn load_value_from_global_settings_with_conn(
         Connection::Sql(db) => Ok(load_value_from_global_settings(db, setting_name).await?),
         Connection::Http(client) => {
             if load_from_http {
-                client.get::<Option<serde_json::Value>>(&format!("/api/agent_workers/get_global_setting/{}", setting_name)).await
-                .map_err(|e| anyhow::anyhow!("Error loading setting {}: {}", setting_name, e))
+                client
+                    .get::<Option<serde_json::Value>>(&format!(
+                        "/api/agent_workers/get_global_setting/{}",
+                        setting_name
+                    ))
+                    .await
+                    .map_err(|e| anyhow::anyhow!("Error loading setting {}: {}", setting_name, e))
             } else {
                 Ok(None)
             }
         }
     }
-
 }
 
 pub async fn reload_option_setting<T: FromStr + DeserializeOwned>(
@@ -1314,12 +1353,12 @@ pub async fn monitor_db(
     let zombie_jobs_f = async {
         if server_mode && !initial_load && !*DISABLE_ZOMBIE_JOBS_MONITORING {
             if let Some(db) = conn.as_sql() {
-            handle_zombie_jobs(db, base_internal_url, "server").await;
-            match handle_zombie_flows(db).await {
-                Err(err) => {
-                    tracing::error!("Error handling zombie flows: {:?}", err);
-                },
-                _ => {}
+                handle_zombie_jobs(db, base_internal_url, "server").await;
+                match handle_zombie_flows(db).await {
+                    Err(err) => {
+                        tracing::error!("Error handling zombie flows: {:?}", err);
+                    }
+                    _ => {}
                 }
             }
         }
@@ -1327,7 +1366,7 @@ pub async fn monitor_db(
     let expired_items_f = async {
         if server_mode && !initial_load {
             if let Some(db) = conn.as_sql() {
-            delete_expired_items(&db).await;
+                delete_expired_items(&db).await;
             }
         }
     };
@@ -1496,11 +1535,7 @@ pub async fn reload_indexer_config(db: &Pool<Postgres>) {
     }
 }
 
-pub async fn reload_worker_config(
-    db: &DB,
-    tx: KillpillSender,
-    kill_if_change: bool,
-) {
+pub async fn reload_worker_config(db: &DB, tx: KillpillSender, kill_if_change: bool) {
     let config = load_worker_config(db, tx.clone()).await;
     if let Err(e) = config {
         tracing::error!("Error reloading worker config: {:?}", e)
@@ -1543,7 +1578,8 @@ pub async fn reload_worker_config(
 }
 
 pub async fn load_base_url(conn: &Connection) -> error::Result<String> {
-    let q_base_url = load_value_from_global_settings_with_conn(conn, BASE_URL_SETTING, false).await?;
+    let q_base_url =
+        load_value_from_global_settings_with_conn(conn, BASE_URL_SETTING, false).await?;
 
     let std_base_url = std::env::var("BASE_URL")
         .ok()
@@ -1574,10 +1610,9 @@ pub async fn load_base_url(conn: &Connection) -> error::Result<String> {
 }
 
 pub async fn reload_base_url_setting(conn: &Connection) -> error::Result<()> {
-
     #[cfg(feature = "oauth2")]
     let oauths = if let Some(db) = conn.as_sql() {
-        let q_oauth = load_value_from_global_settings (db, OAUTH_SETTING).await?;
+        let q_oauth = load_value_from_global_settings(db, OAUTH_SETTING).await?;
 
         if let Some(q) = q_oauth {
             if let Ok(v) = serde_json::from_value::<
@@ -1863,7 +1898,8 @@ async fn handle_zombie_jobs(db: &Pool<Postgres>, base_internal_url: &str, worker
             mpsc::channel::<SameWorkerPayload>(1);
         let same_worker_tx_never_used =
             SameWorkerSender(same_worker_tx_never_used, Arc::new(AtomicU16::new(0)));
-        let (send_result_never_used, _send_result_rx_never_used) = JobCompletedSender::new_never_used();
+        let (send_result_never_used, _send_result_rx_never_used) =
+            JobCompletedSender::new_never_used();
 
         let label = if job.permissioned_as != format!("u/{}", job.created_by)
             && job.permissioned_as != job.created_by
@@ -2073,8 +2109,12 @@ async fn cancel_zombie_flow_job(
     Ok(())
 }
 
-pub async fn reload_hub_base_url_setting(conn: &Connection, server_mode: bool) -> error::Result<()> {
-    let hub_base_url = load_value_from_global_settings_with_conn(conn, HUB_BASE_URL_SETTING, true).await?;
+pub async fn reload_hub_base_url_setting(
+    conn: &Connection,
+    server_mode: bool,
+) -> error::Result<()> {
+    let hub_base_url =
+        load_value_from_global_settings_with_conn(conn, HUB_BASE_URL_SETTING, true).await?;
 
     let base_url = if let Some(q) = hub_base_url {
         if let Ok(v) = serde_json::from_value::<String>(q.clone()) {
