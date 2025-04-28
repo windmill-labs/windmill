@@ -9,7 +9,6 @@
 	import type { ConnectionInfo } from '../common/alert/ConnectionIndicator.svelte'
 	import type { CaptureInfo } from './CaptureSection.svelte'
 	import CaptureTable from './CaptureTable.svelte'
-	import NatsTriggersConfigSection from './nats/NatsTriggersConfigSection.svelte'
 	import MqttEditorConfigSection from './mqtt/MqttEditorConfigSection.svelte'
 	import SqsTriggerEditorConfigSection from './sqs/SqsTriggerEditorConfigSection.svelte'
 
@@ -20,6 +19,7 @@
 	import WebsocketCapture from './websocket/WebsocketCapture.svelte'
 	import PostgresCapture from './postgres/PostgresCapture.svelte'
 	import KafkaCapture from './kafka/KafkaCapture.svelte'
+	import NatsCapture from './nats/NatsCapture.svelte'
 
 	export let isFlow: boolean
 	export let path: string
@@ -284,18 +284,17 @@
 				on:testWithArgs
 			/>
 		{:else if captureType === 'nats'}
-			<NatsTriggersConfigSection
-				headless={true}
-				bind:args
-				{path}
-				staticInputDisabled={false}
-				{showCapture}
+			<NatsCapture
+				isValid={args.isValid}
 				{captureInfo}
 				bind:captureTable
+				{hasPreprocessor}
+				{isFlow}
 				on:applyArgs
 				on:updateSchema
 				on:addPreprocessor
 				on:captureToggle={handleCapture}
+				on:testWithArgs
 			/>
 		{:else if captureType === 'mqtt'}
 			<MqttEditorConfigSection
