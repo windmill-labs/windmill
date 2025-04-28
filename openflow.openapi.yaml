@@ -96,8 +96,6 @@ components:
           type: boolean
         expr:
           type: string
-        raise_error_message:
-          type: boolean
         message:
           type: string
       required:

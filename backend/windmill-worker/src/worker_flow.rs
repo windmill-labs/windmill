@@ -186,18 +186,17 @@ struct RecoveryObject {
 fn get_stop_after_if_data(stop_after_if: Option<&StopAfterIf>) -> (bool, Option<String>) {
     if let Some(stop_after_if) = stop_after_if {
         let err_msg = stop_after_if
-            .raise_error_message
-            .unwrap_or(false)
-            .then(|| {
-                let err_start_msg = format!("Stopping flow early reason: ");
-                stop_after_if
-                    .message
-                    .as_deref()
-                    .map(|msg| format!("{}{}", &err_start_msg, msg))
-                    .or(Some(format!(
-                        "{}expr: {}",
-                        &err_start_msg, &stop_after_if.expr
-                    )))
+            .message.as_ref().map(|message| {
+                let err_start_msg = "Flow early stop";
+                let s = if message.is_empty() {
+                    format!(
+                        "{}: {}",
+                        err_start_msg, &stop_after_if.expr
+                    )
+                } else {
+                    format!("{}: {}", err_start_msg, message)
+                };
+                Some(s)
             })
             .flatten();
         return (stop_after_if.skip_if_stopped, err_msg);

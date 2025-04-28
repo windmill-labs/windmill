@@ -37,7 +37,8 @@
 		}
 		return null
 	}
-
+	let raise_error_message_stop_after_all_if = false
+	let raise_error_message_stop_after_if = false
 	$: isLoop = flowModule.value.type === 'forloopflow' || flowModule.value.type === 'whileloopflow'
 	$: isBranchAll = flowModule.value.type === 'branchall'
 	$: isStopAfterIfEnabled = Boolean(flowModule.stop_after_if)
@@ -72,8 +73,7 @@
 						flowModule.stop_after_if = {
 							expr: 'result == undefined',
 							skip_if_stopped: false,
-							message: '',
-							raise_error_message: false
+							message: undefined
 						}
 					}
 				}}
@@ -110,7 +110,12 @@
 							/>
 							<Toggle
 								size="xs"
-								bind:checked={flowModule.stop_after_if.raise_error_message}
+								bind:checked={raise_error_message_stop_after_if}
+								on:change={(event) => {
+									if (flowModule.stop_after_if) {
+										flowModule.stop_after_if.message = event.detail === false ? undefined : ''
+									}
+								}}
 								options={{
 									right: 'Raise an error message if stopped',
 									rightTooltip:
@@ -119,7 +124,7 @@
 							/>
 						</div>
 					{/if}
-					{#if flowModule.stop_after_if.raise_error_message}
+					{#if raise_error_message_stop_after_if}
 						<input
 							type="text"
 							bind:value={flowModule.stop_after_if.message}
@@ -198,8 +203,7 @@
 						flowModule.stop_after_all_iters_if = {
 							expr: 'result == undefined',
 							skip_if_stopped: false,
-							raise_error_message: false,
-							message: ''
+							message: undefined
 						}
 					}
 				}}
@@ -225,7 +229,12 @@
 							/>
 							<Toggle
 								size="xs"
-								bind:checked={flowModule.stop_after_all_iters_if.raise_error_message}
+								bind:checked={raise_error_message_stop_after_all_if}
+								on:change={(event) => {
+									if (flowModule.stop_after_all_iters_if) {
+										flowModule.stop_after_all_iters_if.message = event.detail === false ? undefined : ''
+									}
+								}}
 								options={{
 									right: 'Raise an error message if stopped',
 									rightTooltip:
@@ -234,7 +243,7 @@
 							/>
 						</div>
 					{/if}
-					{#if flowModule.stop_after_all_iters_if.raise_error_message}
+					{#if raise_error_message_stop_after_all_if}
 						<input
 							type="text"
 							bind:value={flowModule.stop_after_all_iters_if.message}
