@@ -7,7 +7,7 @@
 	import { type TriggerContext } from '$lib/components/triggers'
 	import { FlowService, ScriptService } from '$lib/gen'
 	import { enterpriseLicense, workspaceStore } from '$lib/stores'
-	import { MqttIcon, NatsIcon, KafkaIcon, AwsIcon } from '$lib/components/icons'
+	import { MqttIcon, NatsIcon, KafkaIcon, AwsIcon, GoogleCloudIcon } from '$lib/components/icons'
 	import type { Trigger, TriggerType } from '$lib/components/triggers/utils'
 	import { Menu, Menubar, MeltButton, MenuItem, Tooltip } from '$lib/components/meltComponents'
 	import { twMerge } from 'tailwind-merge'
@@ -74,7 +74,8 @@
 		email: { icon: Mail, countKey: 'email_count' },
 		nats: { icon: NatsIcon, countKey: 'nats_count', disabled: !$enterpriseLicense },
 		mqtt: { icon: MqttIcon, countKey: 'mqtt_count', disabled: !$enterpriseLicense },
-		sqs: { icon: AwsIcon, countKey: 'sqs_count', disabled: !$enterpriseLicense }
+		sqs: { icon: AwsIcon, countKey: 'sqs_count', disabled: !$enterpriseLicense },
+		gcp: { icon: GoogleCloudIcon, countKey: 'gcp_count', disabled: !$enterpriseLicense }
 	}
 
 	function camelCaseToWords(s: string) {
@@ -157,7 +158,7 @@
 
 {#snippet triggerButton({ type, isSelected, meltElement = undefined })}
 	{@const { icon: SvelteComponent, countKey } = triggerTypeConfig[type]}
-	{#if (!showOnlyWithCount || ((countKey && $triggersCount?.[countKey]) || 0) > 0) && !triggerTypeConfig[type].disabled}
+	{#if (!showOnlyWithCount || ((countKey && ($triggersCount?.[countKey] ?? 0)) || 0) > 0) && !triggerTypeConfig[type].disabled}
 		<MeltButton
 			class={twMerge(
 				'hover:bg-surface-hover rounded-md shadow-sm text-xs w-[23px] h-[23px] relative center-center cursor-pointer bg-surface',
@@ -172,8 +173,8 @@
 			{meltElement}
 		>
 			{#if countKey}
-				{@const count = $triggersCount?.[countKey]}
-				{#if count && count > 0}
+				{@const count = $triggersCount?.[countKey] ?? 0}
+				{#if count > 0}
 					<div
 						class={twMerge(
 							'absolute -right-1 -top-1 z-10 bg-surface-secondary-inverse bg-opacity-40 group-hover:bg-opacity-80 transition-all duration-100',
