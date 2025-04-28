@@ -21,30 +21,32 @@
 	} from '$lib/gen'
 	import MqttEditorConfigSection from './MqttEditorConfigSection.svelte'
 
-	let mqtt_resource_path: string = ''
-	let drawer: Drawer
-	let is_flow: boolean = false
-	let initialPath = ''
-	let edit = true
-	let itemKind: 'flow' | 'script' = 'script'
-	let script_path = ''
-	let initialScriptPath = ''
-	let fixedScriptPath = ''
-	let path: string = ''
-	let pathError = ''
-	let enabled = false
-	let dirtyPath = false
-	let can_write = true
-	let drawerLoading = true
-	let subscribe_topics: MqttSubscribeTopic[] = []
-	let v3_config: MqttV3Config | undefined
-	let v5_config: MqttV5Config | undefined
-	let client_version: MqttClientVersion | undefined
-	let client_id: string
-	let isValid: boolean
+	let mqtt_resource_path: string = $state('')
+	let drawer: Drawer | undefined = $state(undefined)
+	let is_flow: boolean = $state(false)
+	let initialPath = $state('')
+	let edit = $state(true)
+	let itemKind: 'flow' | 'script' = $state('script')
+	let script_path = $state('')
+	let initialScriptPath = $state('')
+	let fixedScriptPath = $state('')
+	let path: string = $state('')
+	let pathError = $state('')
+	let enabled = $state(false)
+	let dirtyPath = $state(false)
+	let can_write = $state(true)
+	let drawerLoading = $state(true)
+	let subscribe_topics: MqttSubscribeTopic[] = $state([])
+	let v3_config: MqttV3Config | undefined = $state()
+	let v5_config: MqttV5Config | undefined = $state()
+	let client_version: MqttClientVersion | undefined = $state()
+	let client_id: string | undefined = $state(undefined)
+	let isValid: boolean | undefined = $state(undefined)
 	const dispatch = createEventDispatcher()
 
-	$: is_flow = itemKind === 'flow'
+	$effect(() => {
+		is_flow = itemKind === 'flow'
+	})
 
 	export async function openEdit(ePath: string, isFlow: boolean) {
 		drawerLoading = true
@@ -153,7 +155,7 @@
 			$usedTriggerKinds = [...$usedTriggerKinds, 'mqtt']
 		}
 		dispatch('update')
-		drawer.closeDrawer()
+		drawer?.closeDrawer()
 	}
 </script>
 
