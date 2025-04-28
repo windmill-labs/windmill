@@ -379,11 +379,13 @@ export async function fetchKafkaTriggers(
  */
 export async function fetchNatsTriggers(
 	triggersStore: Writable<Trigger[]>,
-	workspaceId: string,
+	workspaceId: string | undefined,
 	path: string,
-	isFlow: boolean
+	isFlow: boolean,
+	user: UserExt | undefined = undefined
 ): Promise<void> {
 	try {
+		if (!workspaceId) return
 		// Remove existing NATS triggers for this path
 		triggersStore.update((triggers) => triggers.filter((t) => !(t.type === 'nats')))
 
@@ -400,7 +402,8 @@ export async function fetchNatsTriggers(
 					type: 'nats',
 					path: trigger.path,
 					isPrimary: false,
-					isDraft: false
+					isDraft: false,
+					canWrite: canWrite(trigger.path, trigger.extra_perms, user)
 				}
 			])
 		}
