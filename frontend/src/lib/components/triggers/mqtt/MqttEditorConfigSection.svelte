@@ -17,6 +17,7 @@
 	import TestTriggerConnection from '../TestTriggerConnection.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
+	import TestingBadge from '../testingBadge.svelte'
 
 	export let can_write: boolean = false
 	export let headless: boolean = false
@@ -65,6 +66,11 @@
 		/>
 	{/if}
 	<Section label="MQTT" {headless}>
+		<svelte:fragment slot="header">
+			{#if showTestingBadge}
+				<TestingBadge />
+			{/if}
+		</svelte:fragment>
 		<div class="flex flex-col w-full gap-4">
 			<Subsection label="Connection setup">
 				<ResourcePicker resourceType="mqtt" disabled={!can_write} bind:value={mqtt_resource_path} />
