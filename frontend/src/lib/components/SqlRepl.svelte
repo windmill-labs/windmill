@@ -43,7 +43,6 @@
 	import Editor from './Editor.svelte'
 	import { runPreviewJobAndPollResult } from './jobs/utils'
 	import { workspaceStore } from '$lib/stores'
-	import type { ScriptLang } from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
 	import { untrack } from 'svelte'
 	import { getLanguageByResourceType } from './apps/components/display/dbtable/utils'

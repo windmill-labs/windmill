@@ -8,6 +8,7 @@ import {
 } from 'graphql'
 import { tryEvery } from '$lib/utils'
 import { stringifySchema } from '$lib/components/copilot/lib'
+import { runPreviewJobAndPollResult } from '$lib/components/jobs/utils'
 
 export enum ColumnIdentity {
 	ByDefault = 'By Default',
@@ -103,10 +104,41 @@ export async function loadTableMetaData(
 	return undefined
 }
 
+export async function loadAllTablesMetaData(
+	resource: string,
+	workspace: string | undefined,
+	resourceType: string
+): Promise<Record<string, TableMetadata> | undefined> {
+	if (!resource || !workspace) {
+		return undefined
+	}
+	const result = (await runPreviewJobAndPollResult({
+		workspace: workspace,
+		requestBody: {
+			language: getLanguageByResourceType(resourceType),
+			content: await makeLoadTableMetaDataQuery(resource, workspace, undefined, resourceType),
+			args: {
+				database: resource
+			}
+		}
+	})) as ({ table_name: string } & ColumnMetadata)[]
+
+	const map: Record<string, TableMetadata> = {}
+
+	for (const col of result) {
+		if (!(col.table_name in map)) {
+			map[col.table_name] = []
+		}
+		map[col.table_name].push(col)
+	}
+
+	return map
+}
+
 async function makeLoadTableMetaDataQuery(
 	resource: string,
 	workspace: string,
-	table: string,
+	table: string | undefined,
 	resourceType: string
 ): Promise<string> {
 	if (resourceType === 'mysql') {
@@ -122,14 +154,26 @@ async function makeLoadTableMetaDataQuery(
 			CASE WHEN COLUMN_KEY = 'PRI' THEN 'YES' ELSE 'NO' END as IsPrimaryKey,
 			CASE WHEN EXTRA like '%auto_increment%' THEN 'YES' ELSE 'NO' END as IsIdentity,
 			CASE WHEN IS_NULLABLE = 'YES' THEN 'YES' ELSE 'NO' END as IsNullable,
-			CASE WHEN DATA_TYPE = 'enum' THEN true ELSE false END as IsEnum
+			CASE WHEN DATA_TYPE = 'enum' THEN true ELSE false END as IsEnum${
+				table
+					? ''
+					: `,
+			TABLE_NAME as table_name`
+			}
 	FROM 
-			INFORMATION_SCHEMA.COLUMNS
-	WHERE 
+			INFORMATION_SCHEMA.COLUMNS${
+				table
+					? `
+	WHERE
 			TABLE_NAME = '${table.split('.').reverse()[0]}' AND TABLE_SCHEMA = '${
 				table.split('.').reverse()[1] ?? resourceObj?.database ?? ''
-			}'
-	ORDER BY 
+			}'`
+					: `
+	WHERE
+			TABLE_SCHEMA NOT IN ('mysql', 'performance_schema', 'information_schema', 'sys')`
+			}
+	ORDER BY
+			TABLE_NAME,
 			ORDINAL_POSITION;
 	`
 	} else if (resourceType === 'postgresql') {
@@ -156,11 +200,16 @@ async function makeLoadTableMetaDataQuery(
 		(SELECT true
 		 FROM pg_catalog.pg_enum e
 		 WHERE e.enumtypid = a.atttypid FETCH FIRST ROW ONLY) as IsEnum
-	FROM pg_catalog.pg_attribute a
+	FROM pg_catalog.pg_attribute a${
+		table
+			? `
 	WHERE a.attrelid = (SELECT c.oid FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace ns ON c.relnamespace = ns.oid WHERE relname = '${
 		table.split('.').reverse()[0]
 	}' AND ns.nspname = '${table.split('.').reverse()[1] ?? 'public'}')
 		AND a.attnum > 0 AND NOT a.attisdropped
+		`
+			: ''
+	}
 	ORDER BY a.attnum;
 	
 	`
@@ -175,12 +224,15 @@ async function makeLoadTableMetaDataQuery(
     CASE WHEN IS_NULLABLE = 'YES' THEN 'YES' ELSE 'NO' END as IsNullable,
     CASE WHEN DATA_TYPE = 'enum' THEN 1 ELSE 0 END as IsEnum
 FROM    
-    INFORMATION_SCHEMA.COLUMNS
+    INFORMATION_SCHEMA.COLUMNS${
+			table
+				? `
 WHERE   
-    TABLE_NAME = '${table}'
+    TABLE_NAME = '${table}'`
+				: ''
+		}
 ORDER BY
     ORDINAL_POSITION;
-
 	`
 	} else if (resourceType === 'snowflake' || resourceType === 'snowflake_oauth') {
 		return `
@@ -191,15 +243,21 @@ ORDER BY
 		CASE WHEN COLUMN_DEFAULT like 'AUTOINCREMENT%' THEN 1 ELSE 0 END as IsPrimaryKey,
 		CASE WHEN IS_NULLABLE = 'YES' THEN 'YES' ELSE 'NO' END as IsNullable,
 		CASE WHEN DATA_TYPE = 'enum' THEN 1 ELSE 0 END as IsEnum
-	from information_schema.columns
+	from information_schema.columns${
+		table
+			? `
 	where table_name = '${table.split('.').reverse()[0]}' and table_schema = '${
 		table.split('.').reverse()[1] ?? 'PUBLIC'
-	}'
+	}'`
+			: ''
+	}
 	order by ORDINAL_POSITION;
 	`
 	} else if (resourceType === 'bigquery') {
+		// TODO: find a solution for this (query uses hardcoded dataset name)
+		if (!table) throw new Error('Table name is required for BigQuery')
 		return `SELECT 
-    c.COLUMN_NAME as field,
+    p.COLUMN_NAME as field,
     DATA_TYPE as DataType,
     CASE WHEN COLUMN_DEFAULT = 'NULL' THEN '' ELSE COLUMN_DEFAULT END as DefaultValue,
     CASE WHEN constraint_name is not null THEN true ELSE false END as IsPrimaryKey,
@@ -207,9 +265,9 @@ ORDER BY
     IS_NULLABLE as IsNullable,
     false as IsEnum
 FROM
-    ${table.split('.')[0]}.INFORMATION_SCHEMA.COLUMNS c
-    LEFT JOIN
     test_dataset.INFORMATION_SCHEMA.KEY_COLUMN_USAGE p
+    RIGHT JOIN
+    ${table.split('.')[0]}.INFORMATION_SCHEMA.COLUMNS c
     on c.table_name = p.table_name AND c.column_name = p.COLUMN_NAME
 WHERE   
     c.TABLE_NAME = "${table.split('.')[1]}"

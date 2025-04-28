@@ -9,6 +9,7 @@
 		dbSupportsSchemas,
 		getDbSchemas,
 		getLanguageByResourceType,
+		loadAllTablesMetaData,
 		loadTableMetaData,
 		scripts,
 		type DbType,
@@ -20,7 +21,6 @@
 	import { dbDeleteTableActionWithPreviewScript, dbTableOpsWithPreviewScripts } from './dbOps'
 	import { makeCreateTableQuery } from './apps/components/display/dbtable/queries/createTable'
 	import { runPreviewJobAndPollResult } from './jobs/utils'
-	import { type ScriptLang } from '$lib/gen'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import HideButton from './apps/editor/settingsPanel/HideButton.svelte'
 	import SqlRepl from './SqlRepl.svelte'
@@ -113,6 +113,17 @@
 
 	let cachedColDefs: Record<string, TableMetadata> = {}
 	let cachedLastRefreshCount = 0
+	$effect(() => {
+		if (resourceType === 'mysql') {
+			loadAllTablesMetaData('$res:' + resourcePath, $workspaceStore, resourceType).then(
+				(result) => {
+					if (result) {
+						cachedColDefs = result
+					}
+				}
+			)
+		}
+	})
 	async function getColDefs(tableKey: string) {
 		if (cachedLastRefreshCount !== refreshCount) cachedColDefs = {}
 		cachedLastRefreshCount = refreshCount
