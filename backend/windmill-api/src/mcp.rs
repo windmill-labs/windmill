@@ -119,14 +119,15 @@ impl Runner {
             path.replace('/', "_")
         };
 
-        Ok(format!("{}-{}", type_str, transformed))
+        // first letter of type_str is used as prefix, only one letter to avoid reaching 60 char name limit
+        Ok(format!("{}-{}", &type_str[..1], transformed))
     }
 
     fn reverse_transform(transformed_path: &str) -> Result<(&str, String), String> {
-        let prefix = if transformed_path.starts_with("script-") {
-            "script-"
-        } else if transformed_path.starts_with("flow-") {
-            "flow-"
+        let type_str = if transformed_path.starts_with("s-") {
+            "script"
+        } else if transformed_path.starts_with("f-") {
+            "flow"
         } else {
             return Err(format!(
                 "Invalid prefix in transformed path: {}",
@@ -134,8 +135,7 @@ impl Runner {
             ));
         };
 
-        let type_str = &prefix[..prefix.len() - 1]; // "script" or "flow"
-        let mangled_path = &transformed_path[prefix.len()..];
+        let mangled_path = &transformed_path[2..];
 
         // Check if this path was previously transformed with special underscore handling
         let is_special_path = mangled_path.starts_with("f_");
@@ -303,6 +303,46 @@ impl Runner {
         value.clone()
     }
 
+    fn reverse_transform_key(transformed_key: &str, schema: &Option<Schema>) -> String {
+        let original_schema_json = match schema {
+            Some(s) => s.0.get(),
+            None => {
+                // No schema available, return the key as is (best guess)
+                return transformed_key.to_string();
+            }
+        };
+
+        let schema_value: Value = match serde_json::from_str(original_schema_json) {
+            Ok(val) => val,
+            Err(_) => {
+                // Failed to parse schema, return key as is
+                return transformed_key.to_string();
+            }
+        };
+
+        if let Some(properties) = schema_value.get("properties").and_then(|p| p.as_object()) {
+            for original_key_in_schema in properties.keys() {
+                // Apply the SAME forward transformation to the schema key
+                let potential_transformed_key =
+                    Runner::apply_key_transformation(original_key_in_schema);
+
+                // If it matches the key we received, we found the likely original
+                if potential_transformed_key == transformed_key {
+                    return original_key_in_schema.clone();
+                }
+            }
+        }
+
+        transformed_key.to_string()
+    }
+
+    fn apply_key_transformation(key: &str) -> String {
+        key.replace(' ', "_")
+            .chars()
+            .filter(|c| c.is_alphanumeric() || *c == '_')
+            .collect::<String>()
+    }
+
     async fn transform_schema_for_resources(
         schema: &Schema,
         user_db: &UserDB,
@@ -320,9 +360,27 @@ impl Runner {
             if let Some(serde_json::Value::Object(properties_map)) =
                 schema_map.get_mut("properties")
             {
+                // replace invalid char in property key with underscore
+                let replacements: Vec<(String, String, serde_json::Value)> = properties_map
+                    .iter()
+                    .filter_map(|(key, value)| {
+                        if key.chars().any(|c| !c.is_alphanumeric() && c != '_') {
+                            let new_key = Runner::apply_key_transformation(key);
+                            Some((key.clone(), new_key, value.clone()))
+                        } else {
+                            None
+                        }
+                    })
+                    .collect();
+
+                for (old_key, new_key, value) in replacements {
+                    properties_map.remove(&old_key);
+                    properties_map.insert(new_key, value);
+                }
+
                 for (_key, prop_value) in properties_map.iter_mut() {
-                    // transform object properties to string because some client does not support object, might change in the future
                     if let serde_json::Value::Object(prop_map) = prop_value {
+                        // transform object properties to string because some client does not support object, might change in the future
                         if let Some(type_value) = prop_map.get("type") {
                             if let serde_json::Value::String(type_str) = type_value {
                                 if type_str == "object" {
@@ -333,9 +391,9 @@ impl Runner {
                                 }
                             }
                         }
+                        // if property is a resource, fetch the resource type infos, and add each available resource to the description
                         if let Some(format_value) = prop_map.get("format") {
                             if let serde_json::Value::String(format_str) = format_value {
-                                // if property is a resource, fetch the resource type infos, and add each available resource to the description
                                 if format_str.starts_with("resource-") {
                                     let resource_type_key = format_str
                                         .split("-")
@@ -491,9 +549,12 @@ impl ServerHandler for Runner {
         let push_args = if let Value::Object(map) = args.clone() {
             let mut args_hash = HashMap::new();
             for (k, v) in map {
+                // need to transform back the key to the original key
+                let original_key = Runner::reverse_transform_key(&k, &schema);
+
                 // object properties are transformed to string because some client does not support object, might change in the future
                 let transformed_v = Runner::transform_value_if_object(&k, &v, &schema);
-                args_hash.insert(k, to_raw_value(&transformed_v));
+                args_hash.insert(original_key, to_raw_value(&transformed_v));
             }
             windmill_queue::PushArgsOwned { extra: None, args: args_hash }
         } else {
