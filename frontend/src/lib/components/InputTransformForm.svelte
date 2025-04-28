@@ -246,10 +246,12 @@
 		}
 	}
 
-	let prevArg = structuredClone(arg)
-	$: {
-		if (!deepEqual(arg, prevArg)) {
-			prevArg = structuredClone(arg)
+	let prevArg: any = undefined
+	$: inputCat && propertyType && arg && onArgChange()
+	function onArgChange() {
+		const newArg = { arg, propertyType, inputCat }
+		if (!deepEqual(newArg, prevArg)) {
+			prevArg = structuredClone(newArg)
 			updateStaticInput(inputCat, propertyType, arg)
 		}
 	}
