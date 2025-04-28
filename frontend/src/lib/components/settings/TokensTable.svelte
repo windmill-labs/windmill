@@ -5,7 +5,7 @@
 	import { UserService } from '$lib/gen'
 	import { Button } from '$lib/components/common'
 	import { Clipboard, Plus } from 'lucide-svelte'
-	import { workspaceStore, userWorkspaces } from '$lib/stores'
+	import { workspaceStore, userWorkspaces, type UserWorkspace } from '$lib/stores'
 	import { createEventDispatcher } from 'svelte'
 	import ToggleButtonGroup from '../common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '../common/toggleButton-v2/ToggleButton.svelte'
@@ -42,6 +42,21 @@
 	let newMcpScope = $state('favorites')
 	let newMcpToken = $state<string | undefined>(undefined)
 
+	function ensureCurrentWorkspaceIncluded(
+		workspacesList: UserWorkspace[],
+		currentWorkspace: string | undefined
+	) {
+		if (!currentWorkspace) {
+			return workspacesList
+		}
+		const hasCurrentWorkspace = workspacesList.some((w) => w.id === currentWorkspace)
+		if (hasCurrentWorkspace) {
+			return workspacesList
+		}
+		return [{ id: currentWorkspace, name: currentWorkspace }, ...workspacesList]
+	}
+
+	const workspaces = $derived(ensureCurrentWorkspaceIncluded($userWorkspaces, $workspaceStore))
 	const mcpBaseUrl = $derived(`${window.location.origin}/api/mcp/w/${newTokenWorkspace}/sse?token=`)
 	const dispatch = createEventDispatcher()
 
@@ -221,8 +236,8 @@
 					</div>
 					<div class="flex flex-col">
 						<label for="label">Workspace</label>
-						<select bind:value={newTokenWorkspace} disabled={$userWorkspaces.length === 1}>
-							{#each $userWorkspaces as workspace}
+						<select bind:value={newTokenWorkspace} disabled={workspaces.length === 1}>
+							{#each workspaces as workspace}
 								<option value={workspace.id}>{workspace.name}</option>
 							{/each}
 						</select>
