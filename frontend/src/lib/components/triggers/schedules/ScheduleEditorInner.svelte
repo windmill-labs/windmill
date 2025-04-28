@@ -17,7 +17,8 @@
 		ScriptService,
 		type Flow,
 		SettingService,
-		type Retry
+		type Retry,
+		type Schedule
 	} from '$lib/gen'
 	import { enterpriseLicense, userStore, workspaceStore } from '$lib/stores'
 	import { canWrite, emptyString, formatCron, sendUserToast, cronV1toV2 } from '$lib/utils'
@@ -25,12 +26,12 @@
 	import { createEventDispatcher } from 'svelte'
 	import Section from '$lib/components/Section.svelte'
 	import { List, Loader2, Save, AlertTriangle } from 'lucide-svelte'
-	import FlowRetries from './flows/content/FlowRetries.svelte'
-	import WorkerTagPicker from './WorkerTagPicker.svelte'
-	import Label from './Label.svelte'
-	import DateTimeInput from './DateTimeInput.svelte'
 	import autosize from '$lib/autosize'
-	import { runScheduleNow } from './triggers/scheduled/utils'
+	import DateTimeInput from '$lib/components/DateTimeInput.svelte'
+	import FlowRetries from '$lib/components/flows/content/FlowRetries.svelte'
+	import Label from '$lib/components/Label.svelte'
+	import WorkerTagPicker from '$lib/components/WorkerTagPicker.svelte'
+	import { runScheduleNow } from '../scheduled/utils'
 
 	let optionTabSelected: 'error_handler' | 'recovery_handler' | 'success_handler' | 'retries' =
 		'error_handler'
@@ -66,6 +67,7 @@
 	let failedTimes = 1
 	let failedExact = false
 	let recoveredTimes = 1
+	let duplicate = false
 	let retry: Retry | undefined = undefined
 
 	let script_path = ''
@@ -95,16 +97,48 @@
 		}
 	}
 
-	export async function openNew(nis_flow: boolean, initial_script_path?: string) {
+	export async function openNew(
+		nis_flow: boolean,
+		initial_script_path?: string,
+		schedule_path?: string
+	) {
 		drawerLoading = true
 		try {
+			let s: Schedule | undefined
+			if (schedule_path) {
+				s = await ScheduleService.getSchedule({
+					workspace: $workspaceStore!,
+					path: schedule_path
+				})
+				duplicate = true
+			}
 			drawer?.openDrawer()
-			args = {}
 			runnable = undefined
-			is_flow = nis_flow
-			schedule = '0 0 12 * *'
-			paused_until = undefined
-			showPauseUntil = false
+			is_flow = s?.is_flow ?? nis_flow
+			edit = false
+			itemKind = is_flow ? 'flow' : 'script'
+			initialScriptPath = initial_script_path ?? ''
+			path = duplicate === true ? '' : initialScriptPath
+
+			initialPath = path
+			cronVersion = s?.cron_version ?? 'v2'
+			initialCronVersion = cronVersion
+			isLatestCron = cronVersion == 'v2'
+			schedule = s?.schedule ?? '0 0 12 * *'
+			initialSchedule = schedule
+			timezone = s?.timezone ?? ''
+			paused_until = s?.paused_until
+			showPauseUntil = paused_until !== undefined
+			summary = s?.summary ?? ''
+			description = s?.description ?? ''
+			script_path = s?.script_path ?? initialScriptPath
+			args = s?.args ?? {}
+			tag = s?.tag
+			await loadScript(script_path)
+
+			no_flow_overlap = s?.no_flow_overlap ?? false
+			retry = s?.retry
+
 			let defaultErrorHandlerMaybe = undefined
 			let defaultRecoveryHandlerMaybe = undefined
 			let defaultSuccessHandlerMaybe = undefined
@@ -120,19 +154,9 @@
 				})) as any
 			}
 
-			edit = false
-			itemKind = nis_flow ? 'flow' : 'script'
-			initialScriptPath = initial_script_path ?? ''
-			summary = ''
-			description = ''
-			no_flow_overlap = false
-			path = initialScriptPath
-			initialPath = initialScriptPath
-			script_path = initialScriptPath
-			await loadScript(script_path)
-
 			if (defaultErrorHandlerMaybe !== undefined && defaultErrorHandlerMaybe !== null) {
-				wsErrorHandlerMuted = defaultErrorHandlerMaybe['wsErrorHandlerMuted']
+				wsErrorHandlerMuted =
+					s?.ws_error_handler_muted ?? defaultErrorHandlerMaybe['wsErrorHandlerMuted']
 				let splitted = (defaultErrorHandlerMaybe['errorHandlerPath'] as string).split('/')
 				errorHandleritemKind = splitted[0] as 'flow' | 'script'
 				errorHandlerPath = splitted.slice(1)?.join('/')
@@ -335,6 +359,10 @@
 			summary = s.summary ?? ''
 			description = s.description ?? ''
 			script_path = s.script_path ?? ''
+			args = s.args ?? {}
+			can_write = canWrite(s.path, s.extra_perms, $userStore)
+			tag = s.tag
+
 			await loadScript(script_path)
 
 			is_flow = s.is_flow
@@ -389,9 +417,6 @@
 				successHandlerSelected = 'slack'
 				successHandlerExtraArgs = {}
 			}
-			args = s.args ?? {}
-			can_write = canWrite(s.path, s.extra_perms, $userStore)
-			tag = s.tag
 		} catch (err) {
 			sendUserToast(`Could not load schedule: ${err}`, true)
 		}
@@ -760,7 +785,7 @@
 							Pick a script or flow to be triggered by the schedule<Required required={true} />
 						</p>
 						<ScriptPicker
-							disabled={initialScriptPath != '' || !can_write}
+							disabled={(initialScriptPath != '' && !duplicate) || !can_write}
 							initialPath={initialScriptPath}
 							kinds={['script']}
 							allowFlow={true}

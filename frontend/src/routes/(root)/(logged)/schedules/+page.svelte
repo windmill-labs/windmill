@@ -12,7 +12,6 @@
 	import Dropdown from '$lib/components/DropdownV2.svelte'
 	import PageHeader from '$lib/components/PageHeader.svelte'
 	import Popover from '$lib/components/Popover.svelte'
-	import ScheduleEditor from '$lib/components/ScheduleEditor.svelte'
 	import SharedBadge from '$lib/components/SharedBadge.svelte'
 	import ShareModal from '$lib/components/ShareModal.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
@@ -21,6 +20,7 @@
 		Calendar,
 		Circle,
 		Code,
+		Copy,
 		Eye,
 		FileUp,
 		List,
@@ -45,6 +45,7 @@
 	import DeployWorkspaceDrawer from '$lib/components/DeployWorkspaceDrawer.svelte'
 	import { ALL_DEPLOYABLE, isDeployable } from '$lib/utils_deployable'
 	import { runScheduleNow } from '$lib/components/triggers/scheduled/utils'
+	import ScheduleEditor from '$lib/components/triggers/schedules/ScheduleEditor.svelte'
 
 	type ScheduleW = ScheduleWJobs & { canWrite: boolean }
 
@@ -398,6 +399,13 @@
 												icon: Eye,
 												action: () => {
 													goto(href)
+												}
+											},
+											{
+												displayName: `Duplicate schedule`,
+												icon: Copy,
+												action: () => {
+													scheduleEditor?.openNew(is_flow, script_path, path)
 												}
 											},
 											{
