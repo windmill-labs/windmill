@@ -488,7 +488,7 @@ pub async fn run_server(
         if server_mode {
             agent_workers_ee::workspaced_service(db.clone(), _base_internal_url.clone())
         } else {
-            (Router::new(), None, None)
+            (Router::new(), vec![], None)
         };
 
     #[cfg(feature = "agent_worker_server")]
