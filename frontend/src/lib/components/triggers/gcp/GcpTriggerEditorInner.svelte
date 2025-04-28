@@ -21,31 +21,33 @@
 	import GcpTriggerEditorConfigSection from './GcpTriggerEditorConfigSection.svelte'
 	import { base } from '$app/paths'
 
-	let is_loading = false
-	let drawer: Drawer
-	let is_flow: boolean = false
-	let initialPath = ''
-	let edit = true
-	let delivery_type: DeliveryType = 'pull'
-	let itemKind: 'flow' | 'script' = 'script'
-	let script_path = ''
-	let initialScriptPath = ''
-	let fixedScriptPath = ''
-	let path: string = ''
-	let pathError = ''
-	let enabled = false
-	let dirtyPath = false
-	let can_write = true
-	let drawerLoading = true
-	let topic_id: string = ''
-	let gcp_resource_path: string = ''
-	let subscription_id: string = ''
-	let isValid = false
-	let delivery_config: PushConfig | undefined = undefined
-	let subscription_mode: SubscriptionMode = 'create_update'
+	let is_loading = $state(false)
+	let drawer: Drawer | undefined = $state(undefined)
+	let is_flow: boolean = $state(false)
+	let initialPath = $state('')
+	let edit = $state(true)
+	let delivery_type: DeliveryType = $state('pull')
+	let itemKind: 'flow' | 'script' = $state('script')
+	let script_path = $state('')
+	let initialScriptPath = $state('')
+	let fixedScriptPath = $state('')
+	let path: string = $state('')
+	let pathError = $state('')
+	let enabled = $state(false)
+	let dirtyPath = $state(false)
+	let can_write = $state(true)
+	let drawerLoading = $state(true)
+	let topic_id: string = $state('')
+	let gcp_resource_path: string = $state('')
+	let subscription_id: string = $state('')
+	let isValid = $state(false)
+	let delivery_config: PushConfig | undefined = $state(undefined)
+	let subscription_mode: SubscriptionMode = $state('create_update')
 	const dispatch = createEventDispatcher()
 
-	$: is_flow = itemKind === 'flow'
+	$effect(() => {
+		is_flow = itemKind === 'flow'
+	})
 
 	export async function openEdit(ePath: string, isFlow: boolean) {
 		drawerLoading = true
@@ -169,7 +171,7 @@
 				$usedTriggerKinds = [...$usedTriggerKinds, 'gcp']
 			}
 			dispatch('update')
-			drawer.closeDrawer()
+			drawer?.closeDrawer()
 			is_loading = false
 		} catch (error) {
 			is_loading = false
