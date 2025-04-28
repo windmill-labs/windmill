@@ -22,7 +22,7 @@ pub fn workspaced_service(
 ) -> (
     Router,
     Option<tokio::task::JoinHandle<()>>,
-    windmill_worker::JobCompletedSender,
+    Option<windmill_worker::JobCompletedSender>,
 ) {
     use windmill_common::worker::Connection;
     use windmill_worker::JobCompletedSender;
@@ -32,7 +32,7 @@ pub fn workspaced_service(
 
     let router = Router::new();
 
-    (router, None, job_completed_tx)
+    (router, None, Some(job_completed_tx))
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
