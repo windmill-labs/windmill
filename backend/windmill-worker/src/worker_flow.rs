@@ -389,20 +389,15 @@ pub async fn update_flow_status_after_job_completion_internal(
                 (false, false, false)
             };
 
-        let skip_branch_failure = match module_status {
+        let skip_seq_branch_failure = match module_status {
             FlowStatusModule::InProgress {
                 branchall: Some(BranchAllStatus { branch, .. }),
-                parallel,
+                parallel: false,
                 ..
-            } => compute_skip_branchall_failure(
-                job_id_for_status,
-                *branch,
-                *parallel,
-                db,
-                current_module,
-            )
-            .await?
-            .unwrap_or(false),
+            } => {
+                compute_skip_branchall_failure(branch.to_owned(), false, current_module, &None)
+                    .await?
+            }
             _ => false,
         };
 
@@ -696,7 +691,7 @@ pub async fn update_flow_status_after_job_completion_internal(
                 flow_jobs_success,
                 flow_jobs,
                 ..
-            } if branch.to_owned() < len - 1 && (success || skip_branch_failure) => {
+            } if branch.to_owned() < len - 1 && (success || skip_seq_branch_failure) => {
                 if let Some(jobs) = flow_jobs {
                     set_success_in_flow_job_success(
                         flow_jobs_success,
@@ -736,7 +731,9 @@ pub async fn update_flow_status_after_job_completion_internal(
                         }
                     }
                 }
-                if success || (flow_jobs.is_some() && (skip_loop_failures || skip_branch_failure)) {
+                if success
+                    || (flow_jobs.is_some() && (skip_loop_failures || skip_seq_branch_failure))
+                {
                     let is_skipped = if current_module.as_ref().is_some_and(|m| m.skip_if.is_some())
                     {
                         sqlx::query_scalar!(
@@ -793,6 +790,17 @@ pub async fn update_flow_status_after_job_completion_internal(
             }
         };
 
+        let skip_parallel_branchall_failure = match (module_status, new_status.as_ref()) {
+            (
+                FlowStatusModule::InProgress { branchall: Some(_), parallel: true, .. },
+                Some(FlowStatusModule::Success { flow_jobs_success, .. }),
+            ) => compute_skip_branchall_failure(0, true, current_module, flow_jobs_success).await?,
+            (
+                FlowStatusModule::InProgress { branchall: Some(_), parallel: true, .. },
+                Some(FlowStatusModule::Failure { flow_jobs_success, .. }),
+            ) => compute_skip_branchall_failure(0, true, current_module, flow_jobs_success).await?,
+            _ => false,
+        };
         let step_counter = if inc_step_counter {
             sqlx::query!(
                 "UPDATE v2_job_status
@@ -985,7 +993,12 @@ pub async fn update_flow_status_after_job_completion_internal(
             _ if flow_job.is_canceled() => false,
             true => !is_last_step,
             false if unrecoverable => false,
-            false if skip_branch_failure || skip_loop_failures || continue_on_error => {
+            false
+                if skip_seq_branch_failure
+                    || skip_parallel_branchall_failure
+                    || skip_loop_failures
+                    || continue_on_error =>
+            {
                 !is_last_step
             }
             false
@@ -1280,41 +1293,43 @@ async fn retrieve_flow_jobs_results(
 }
 
 async fn compute_skip_branchall_failure<'c>(
-    job: &Uuid,
     branch: usize,
     parallel: bool,
-    db: &DB,
     flow_module: Option<&FlowModule>,
-) -> Result<Option<bool>, Error> {
-    let branch = if parallel {
-        sqlx::query_scalar!("SELECT runnable_path FROM v2_job WHERE id = $1", job)
-            .fetch_one(db)
-            .await
-            .map_err(|e| {
-                Error::internal_err(format!("error during retrieval of branchall index: {e:#}"))
-            })?
-            .map(|p| {
-                BRANCHALL_INDEX_RE
-                    .captures(&p)
-                    .map(|x| x.get(1).unwrap().as_str().parse::<i32>().ok())
-                    .flatten()
-                    .ok_or(Error::internal_err(format!(
-                        "could not parse branchall index from path: {p}"
-                    )))
-            })
-            .ok_or_else(|| {
-                Error::internal_err(format!("no branchall script path found for job {job}"))
-            })??
-    } else {
-        branch as i32
-    };
-    Ok(flow_module
+    successes: &Option<Vec<Option<bool>>>,
+) -> windmill_common::error::Result<bool> {
+    let branches = flow_module
         .and_then(|x| x.get_branches_skip_failures().ok())
-        .and_then(|x| {
+        .map(|x| {
             x.branches
-                .get(branch as usize)
-                .map(|x| x.skip_failure.unwrap_or(false))
-        }))
+                .iter()
+                .map(|b| b.skip_failure.unwrap_or(false))
+                .collect::<Vec<_>>()
+        });
+    if parallel {
+        if let Some(successes) = successes {
+            for (i, success) in successes.iter().enumerate() {
+                if branches
+                    .as_ref()
+                    .and_then(|x| x.get(i))
+                    .unwrap_or(&false)
+                    .to_owned()
+                {
+                    continue;
+                }
+                if !(success.unwrap_or(false)) {
+                    return Ok(false);
+                }
+            }
+            Ok(true)
+        } else {
+            Ok(false)
+        }
+    } else {
+        Ok(branches
+            .and_then(|x| x.get(branch as usize).map(|b| b.to_owned()))
+            .unwrap_or(false))
+    }
 }
 
 // async fn retrieve_cleanup_module<'c>(flow_uuid: Uuid, db: &DB) -> Result<FlowCleanupModule, Error> {
