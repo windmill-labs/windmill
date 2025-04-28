@@ -280,20 +280,18 @@ impl Runner {
         Ok(rows)
     }
 
-    fn transform_value_if_object(key: &str, value: &Value, schema: &Option<Schema>) -> Value {
+    fn transform_value_if_object(
+        key: &str,
+        value: &Value,
+        schema_obj: &Option<SchemaType>,
+    ) -> Value {
         if value.is_string() && value.as_str().unwrap().starts_with("$res:") {
             return value.clone();
         }
 
-        let schema = match schema {
+        let schema_obj = match schema_obj {
             Some(s) => s,
             None => return value.clone(),
-        };
-
-        // Parse schema
-        let schema_obj: SchemaType = match serde_json::from_str(schema.0.get()) {
-            Ok(val) => val,
-            Err(_) => return value.clone(),
         };
 
         // Check if property is defined in schema and is an object type
@@ -317,24 +315,16 @@ impl Runner {
         value.clone()
     }
 
-    fn reverse_transform_key(transformed_key: &str, schema: &Option<Schema>) -> String {
-        let original_schema_json = match schema {
-            Some(s) => s.0.get(),
+    fn reverse_transform_key(transformed_key: &str, schema_obj: &Option<SchemaType>) -> String {
+        let schema_obj = match schema_obj {
+            Some(s) => s,
             None => {
                 // No schema available, return the key as is (best guess)
                 return transformed_key.to_string();
             }
         };
 
-        let schema_value: SchemaType = match serde_json::from_str(original_schema_json) {
-            Ok(val) => val,
-            Err(_) => {
-                // Failed to parse schema, return key as is
-                return transformed_key.to_string();
-            }
-        };
-
-        for original_key_in_schema in schema_value.properties.keys() {
+        for original_key_in_schema in schema_obj.properties.keys() {
             // Apply the SAME forward transformation to the schema key
             let potential_transformed_key =
                 Runner::apply_key_transformation(original_key_in_schema);
@@ -535,15 +525,25 @@ impl ServerHandler for Runner {
         let item_info =
             Runner::get_item_schema(&path, user_db, authed, &context.workspace_id, &tool_type)
                 .await?;
+
         let schema = item_info.schema;
+        let schema_obj = if let Some(ref s) = schema {
+            match serde_json::from_str::<SchemaType>(s.0.get()) {
+                Ok(val) => Some(val),
+                Err(_) => None,
+            }
+        } else {
+            None
+        };
+
         let push_args = if let Value::Object(map) = args.clone() {
             let mut args_hash = HashMap::new();
             for (k, v) in map {
                 // need to transform back the key to the original key
-                let original_key = Runner::reverse_transform_key(&k, &schema);
+                let original_key = Runner::reverse_transform_key(&k, &schema_obj);
 
                 // object properties are transformed to string because some client does not support object, might change in the future
-                let transformed_v = Runner::transform_value_if_object(&k, &v, &schema);
+                let transformed_v = Runner::transform_value_if_object(&k, &v, &schema_obj);
                 args_hash.insert(original_key, to_raw_value(&transformed_v));
             }
             windmill_queue::PushArgsOwned { extra: None, args: args_hash }
