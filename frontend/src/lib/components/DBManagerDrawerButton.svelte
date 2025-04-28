@@ -113,22 +113,20 @@
 
 	let cachedColDefs: Record<string, TableMetadata> = {}
 	let cachedLastRefreshCount = 0
-	$effect(() => {
-		if (resourceType === 'mysql') {
-			loadAllTablesMetaData('$res:' + resourcePath, $workspaceStore, resourceType).then(
-				(result) => {
-					if (result) {
-						cachedColDefs = result
-					}
-				}
-			)
-		}
-	})
+
 	async function getColDefs(tableKey: string) {
 		if (cachedLastRefreshCount !== refreshCount) cachedColDefs = {}
 		cachedLastRefreshCount = refreshCount
 		if (cachedColDefs[tableKey]) {
 			return cachedColDefs[tableKey]
+		}
+		if (resourceType === 'mysql' || resourceType === 'postgresql') {
+			cachedColDefs =
+				(await loadAllTablesMetaData('$res:' + resourcePath, $workspaceStore, resourceType)) ??
+				cachedColDefs
+			if (cachedColDefs[tableKey]) {
+				return cachedColDefs[tableKey]
+			}
 		}
 		const result = await loadTableMetaData(
 			'$res:' + resourcePath,
@@ -136,6 +134,7 @@
 			tableKey,
 			resourceType
 		)
+
 		if (result) cachedColDefs[tableKey] = result
 		return result ?? []
 	}

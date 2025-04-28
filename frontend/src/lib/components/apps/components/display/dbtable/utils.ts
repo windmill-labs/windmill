@@ -88,9 +88,9 @@ export async function loadTableMetaData(
 				attempts = maxRetries
 
 				if (resourceType === 'ms_sql_server') {
-					return lowercaseKeys(testResult.result[0])
+					return testResult.result[0].map(lowercaseKeys)
 				} else {
-					return lowercaseKeys(testResult.result)
+					return testResult.result.map(lowercaseKeys)
 				}
 			} else {
 				attempts++
@@ -121,15 +121,16 @@ export async function loadAllTablesMetaData(
 				database: resource
 			}
 		}
-	})) as ({ table_name: string } & ColumnMetadata)[]
+	})) as ({ table_name: string; schema_name?: string } & object)[]
 
 	const map: Record<string, TableMetadata> = {}
 
 	for (const col of result) {
-		if (!(col.table_name in map)) {
-			map[col.table_name] = []
+		const tableKey = col.schema_name ? `${col.schema_name}.${col.table_name}` : col.table_name
+		if (!(tableKey in map)) {
+			map[tableKey] = []
 		}
-		map[col.table_name].push(col)
+		map[tableKey].push(lowercaseKeys(col))
 	}
 
 	return map
@@ -178,7 +179,7 @@ async function makeLoadTableMetaDataQuery(
 	`
 	} else if (resourceType === 'postgresql') {
 		return `
-		SELECT 
+	SELECT 
 		a.attname as field,
 		pg_catalog.format_type(a.atttypid, a.atttypmod) as DataType,
 		(SELECT substring(pg_catalog.pg_get_expr(d.adbin, d.adrelid, true) for 128)
@@ -199,7 +200,13 @@ async function makeLoadTableMetaDataQuery(
 		END as IsNullable,
 		(SELECT true
 		 FROM pg_catalog.pg_enum e
-		 WHERE e.enumtypid = a.atttypid FETCH FIRST ROW ONLY) as IsEnum
+		 WHERE e.enumtypid = a.atttypid FETCH FIRST ROW ONLY) as IsEnum${
+				table
+					? ''
+					: `,
+    ns.nspname AS schema_name,
+    c.relname AS table_name`
+			}
 	FROM pg_catalog.pg_attribute a${
 		table
 			? `
@@ -208,9 +215,12 @@ async function makeLoadTableMetaDataQuery(
 	}' AND ns.nspname = '${table.split('.').reverse()[1] ?? 'public'}')
 		AND a.attnum > 0 AND NOT a.attisdropped
 		`
-			: ''
+			: `
+	JOIN pg_catalog.pg_class c ON a.attrelid = c.oid
+	JOIN pg_catalog.pg_namespace ns ON c.relnamespace = ns.oid
+	WHERE c.relkind = 'r' AND a.attnum > 0 AND NOT a.attisdropped`
 	}
-	ORDER BY a.attnum;
+	ORDER BY ns.nspname, c.relname, a.attnum;
 	
 	`
 	} else if (resourceType === 'ms_sql_server') {
@@ -285,14 +295,12 @@ export function resourceTypeToLang(rt: string) {
 	}
 }
 
-function lowercaseKeys(arr: Array<Record<string, any>>): Array<any> {
-	return arr.map((obj) => {
-		const newObj = {}
-		Object.keys(obj).forEach((key) => {
-			newObj[key.toLowerCase()] = obj[key]
-		})
-		return newObj
+function lowercaseKeys(obj: Record<string, any>): any {
+	const newObj = {}
+	Object.keys(obj).forEach((key) => {
+		newObj[key.toLowerCase()] = obj[key]
 	})
+	return newObj
 }
 
 const scripts: Record<
