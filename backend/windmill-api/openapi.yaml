@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.483.2
+  version: 1.484.0
   title: Windmill API
 
   contact:
@@ -9757,7 +9757,7 @@ paths:
                 type: array
                 items:
                   type: string
-  
+
   /w/{workspace}/gcp_triggers/subscriptions/list/{path}:
     post:
       summary: list all subscription of a give topic from google cloud service
@@ -14132,7 +14132,7 @@ components:
           csharp,
           nu,
           java
-          # for related places search: ADD_NEW_LANG 
+          # for related places search: ADD_NEW_LANG
         ]
 
     Preview:
@@ -15083,7 +15083,7 @@ components:
         - delivery_type
         - subscription_mode
 
-  
+
     SubscriptionMode:
       type: string
       enum:
@@ -15147,7 +15147,7 @@ components:
       enum:
         - oidc
         - credentials
-  
+
     SqsTrigger:
       allOf:
         - $ref: "#/components/schemas/TriggerExtraProperty"
@@ -16705,3 +16705,28 @@ components:
           type: string
       required:
         - s3
+
+    TeamsChannel:
+      type: object
+      required:
+        - team_id
+        - team_name
+        - channel_id
+        - channel_name
+      properties:
+        team_id:
+          type: string
+          description: Microsoft Teams team ID
+          minLength: 1
+        team_name:
+          type: string
+          description: Microsoft Teams team name
+          minLength: 1
+        channel_id:
+          type: string
+          description: Microsoft Teams channel ID
+          minLength: 1
+        channel_name:
+          type: string
+          description: Microsoft Teams channel name
+          minLength: 1
