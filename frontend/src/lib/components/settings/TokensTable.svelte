@@ -105,7 +105,7 @@
 
 	async function handleDeleteClick(tokenPrefix: string) {
 		await UserService.deleteToken({ tokenPrefix })
-		sendUserToast('Succesfully deleted token')
+		sendUserToast('Successfully deleted token')
 		listTokens()
 	}
 

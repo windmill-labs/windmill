@@ -25,7 +25,7 @@
 			})
 			sendUserToast('Your password was successfully updated')
 		} else {
-			sendUserToast('Specify a new password value to change your passord', true)
+			sendUserToast('Specify a new password value to change your password', true)
 		}
 	}
 </script>
@@ -64,7 +64,7 @@
 						<Button size="sm" btnClasses="mt-4 w-min" on:click={setPassword}>Set password</Button>
 					</label>
 				{:else if login_type == 'github'}
-					<span class="text-sm">Authentified through Github OAuth2. Cannot set a password.</span>
+					<span class="text-sm">Authenticated through Github OAuth2. Cannot set a password.</span>
 				{/if}
 			</div>
 		</div>
