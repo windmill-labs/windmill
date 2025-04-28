@@ -36,6 +36,7 @@
 	import type { PickableProperties } from './flows/previousResults'
 	import { twMerge } from 'tailwind-merge'
 	import FlowPlugConnect from './FlowPlugConnect.svelte'
+	import { deepEqual } from 'fast-equals'
 	export let schema: Schema | { properties?: Record<string, any>; required?: string[] }
 	export let arg: InputTransform | any
 	export let argName: string
@@ -245,7 +246,15 @@
 		}
 	}
 
-	$: updateStaticInput(inputCat, propertyType, arg)
+	let prevArg: any = undefined
+	$: inputCat && propertyType && arg && onArgChange()
+	function onArgChange() {
+		const newArg = { arg, propertyType, inputCat }
+		if (!deepEqual(newArg, prevArg)) {
+			prevArg = structuredClone(newArg)
+			updateStaticInput(inputCat, propertyType, arg)
+		}
+	}
 
 	function updateStaticInput(
 		inputCat: InputCat,
