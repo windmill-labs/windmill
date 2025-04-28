@@ -21,6 +21,7 @@
 		fetchSchedules as fetchSchedulesUtil,
 		fetchWebsocketTriggers,
 		fetchPostgresTriggers,
+		fetchKafkaTriggers,
 		deleteDraft,
 		addDraftTrigger
 	} from './utils'
@@ -28,6 +29,7 @@
 	import WebsocketTriggersPanel from './websocket/WebsocketTriggersPanelV2.svelte'
 	import { fade } from 'svelte/transition'
 	import PostgresTriggersPanel from './postgres/PostgresTriggersPanelV2.svelte'
+	import KafkaTriggerPanel from './kafka/KafkaTriggerPanelV2.svelte'
 
 	export let noEditor: boolean
 	export let newItem = false
@@ -238,6 +240,30 @@
 												config = detail
 											}}
 										/>
+									{:else if $selectedTrigger.type === 'kafka'}
+										<KafkaTriggerPanel
+											{isFlow}
+											path={initialPath || fakeInitialPath}
+											selectedTrigger={$selectedTrigger}
+											edit={editTrigger === $selectedTrigger}
+											{isDeployed}
+											isEditor={true}
+											on:toggle-edit-mode={({ detail }) => {
+												editTrigger = detail ? $selectedTrigger : undefined
+											}}
+											on:update={({ detail }) => {
+												if ($selectedTrigger?.isDraft) {
+													$selectedTrigger.isDraft = false
+												}
+												if ($selectedTrigger) {
+													$selectedTrigger.path = detail
+												}
+												fetchKafkaTriggers(triggers, $workspaceStore, currentPath, isFlow)
+											}}
+											on:update-config={({ detail }) => {
+												config = detail
+											}}
+										/>
 									{:else if $selectedTrigger.type === 'postgres'}
 										<PostgresTriggersPanel
 											{isFlow}
@@ -328,6 +354,20 @@
 											on:testWithArgs
 										/>
 									{:else if captureKind === 'websocket'}
+										<CaptureWrapper
+											path={initialPath || fakeInitialPath}
+											{isFlow}
+											captureType={captureKind}
+											{hasPreprocessor}
+											{canHavePreprocessor}
+											args={config}
+											data={{ args }}
+											on:applyArgs
+											on:updateSchema
+											on:addPreprocessor
+											on:testWithArgs
+										/>
+									{:else if captureKind === 'kafka'}
 										<CaptureWrapper
 											path={initialPath || fakeInitialPath}
 											{isFlow}

@@ -343,10 +343,11 @@ export async function fetchPostgresTriggers(
  */
 export async function fetchKafkaTriggers(
 	triggersStore: Writable<Trigger[]>,
-	workspaceId: string,
+	workspaceId: string | undefined,
 	path: string,
 	isFlow: boolean
 ): Promise<void> {
+	if (!workspaceId) return
 	try {
 		// Remove existing kafka triggers for this path
 		triggersStore.update((triggers) => triggers.filter((t) => !(t.type === 'kafka')))
