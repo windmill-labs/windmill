@@ -4,13 +4,14 @@
 	import LanguageIcon from '$lib/components/common/languageIcons/LanguageIcon.svelte'
 	import MetadataGen from '$lib/components/copilot/MetadataGen.svelte'
 	import IconedPath from '$lib/components/IconedPath.svelte'
-	import { ScriptService, type FlowModule, type PathScript } from '$lib/gen'
+	import { ScriptService, type FlowModuleValue, type PathScript } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { Lock, RefreshCw, Unlock } from 'lucide-svelte'
 	import { createEventDispatcher } from 'svelte'
 
-	export let flowModule: FlowModule | undefined = undefined
+	export let flowModuleValue: FlowModuleValue | undefined = undefined
 	export let title: string | undefined = undefined
+	export let summary: string | undefined = undefined
 
 	let latestHash: string | undefined = undefined
 	async function loadLatestHash(value: PathScript) {
@@ -24,45 +25,45 @@
 	const dispatch = createEventDispatcher()
 
 	$: $workspaceStore &&
-		flowModule?.value.type === 'script' &&
-		flowModule.value.path &&
-		!flowModule.value.path.startsWith('hub/') &&
-		loadLatestHash(flowModule.value)
+		flowModuleValue?.type === 'script' &&
+		flowModuleValue.path &&
+		!flowModuleValue.path.startsWith('hub/') &&
+		loadLatestHash(flowModuleValue)
 </script>
 
 <div
 	class="overflow-x-auto scrollbar-hidden flex items-center justify-between px-4 py-1 flex-nowrap"
 >
-	{#if flowModule}
+	{#if flowModuleValue}
 		<span class="text-sm w-full mr-4">
 			<div class="flex items-center space-x-2">
-				{#if flowModule.value.type === 'identity'}
+				{#if flowModuleValue.type === 'identity'}
 					<span class="font-bold text-xs">Identity (input copied to output)</span>
-				{:else if flowModule?.value.type === 'rawscript'}
+				{:else if flowModuleValue.type === 'rawscript'}
 					<div class="mx-0.5">
-						<LanguageIcon lang={flowModule.value.language} width={20} height={20} />
+						<LanguageIcon lang={flowModuleValue.language} width={20} height={20} />
 					</div>
 					<MetadataGen
-						bind:content={flowModule.summary}
+						bind:content={summary}
 						promptConfigName="summary"
-						code={flowModule.value.content}
+						code={flowModuleValue.content}
 						class="w-full"
 						elementProps={{
 							placeholder: 'Summary'
 						}}
 					/>
-				{:else if flowModule?.value.type === 'script' && 'path' in flowModule.value && flowModule.value.path}
-					<IconedPath path={flowModule.value.path} hash={flowModule.value.hash} class="grow" />
+				{:else if flowModuleValue.type === 'script' && 'path' in flowModuleValue && flowModuleValue.path}
+					<IconedPath path={flowModuleValue.path} hash={flowModuleValue.hash} class="grow" />
 
-					{#if flowModule.value.hash}
-						{#if latestHash != flowModule.value.hash}
+					{#if flowModuleValue.hash}
+						{#if latestHash != flowModuleValue.hash}
 							<Button
 								color="light"
 								size="xs"
 								variant="border"
 								on:click={() => {
-									if (flowModule?.value.type == 'script') {
-										flowModule.value.hash = latestHash
+									if (flowModuleValue.type == 'script') {
+										dispatch('setHash', latestHash)
 									}
 									dispatch('reload')
 								}}>Update to latest hash</Button
@@ -74,8 +75,8 @@
 							btnClasses="text-tertiary inline-flex gap-1 items-center"
 							color="light"
 							on:click={() => {
-								if (flowModule?.value.type == 'script') {
-									flowModule.value.hash = undefined
+								if (flowModuleValue.type == 'script') {
+									dispatch('setHash', undefined)
 								}
 							}}><Unlock size={12} />hash</Button
 						>
@@ -87,8 +88,8 @@
 								size="xs"
 								btnClasses="text-tertiary inline-flex gap-1 items-center"
 								on:click={() => {
-									if (flowModule?.value.type == 'script') {
-										flowModule.value.hash = latestHash
+									if (flowModuleValue.type == 'script') {
+										dispatch('setHash', latestHash)
 									}
 								}}><Lock size={12} />hash</Button
 							>
@@ -102,10 +103,10 @@
 							>
 						</div>
 					{/if}
-					<input bind:value={flowModule.summary} placeholder="Summary" class="w-full grow" />
-				{:else if flowModule?.value.type === 'flow'}
+					<input bind:value={summary} placeholder="Summary" class="w-full grow" />
+				{:else if flowModuleValue.type === 'flow'}
 					<Badge color="indigo" capitalize>flow</Badge>
-					<input bind:value={flowModule.summary} placeholder="Summary" class="w-full grow" />
+					<input bind:value={summary} placeholder="Summary" class="w-full grow" />
 				{/if}
 			</div>
 		</span>

@@ -10,7 +10,8 @@
 		displayDate,
 		getLocalSetting,
 		sendUserToast,
-		storeLocalSetting
+		storeLocalSetting,
+		removeTriggerKindIfUnused
 	} from '$lib/utils'
 	import { base } from '$app/paths'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
@@ -20,7 +21,7 @@
 	import SharedBadge from '$lib/components/SharedBadge.svelte'
 	import ShareModal from '$lib/components/ShareModal.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
-	import { enterpriseLicense, userStore, workspaceStore } from '$lib/stores'
+	import { enterpriseLicense, usedTriggerKinds, userStore, workspaceStore } from '$lib/stores'
 	import { Code, Eye, Pen, Plus, Share, Trash, Circle, FileUp } from 'lucide-svelte'
 	import { goto } from '$lib/navigation'
 	import SearchItems from '$lib/components/SearchItems.svelte'
@@ -61,6 +62,7 @@
 				return { canWrite: canWrite(x.path, x.extra_perms!, $userStore), ...x }
 			}
 		)
+		$usedTriggerKinds = removeTriggerKindIfUnused(triggers.length, 'sqs', $usedTriggerKinds)
 		loading = false
 	}
 
@@ -159,15 +161,15 @@
 						(x) =>
 							x.path.startsWith(ownerFilter + '/') &&
 							filterItemsPathsBaseOnUserFilters(x, selectedFilterKind, filterUserFolders)
-				  )
+					)
 				: triggers?.filter(
 						(x) =>
 							x.script_path.startsWith(ownerFilter + '/') &&
 							filterItemsPathsBaseOnUserFilters(x, selectedFilterKind, filterUserFolders)
-				  )
+					)
 			: triggers?.filter((x) =>
 					filterItemsPathsBaseOnUserFilters(x, selectedFilterKind, filterUserFolders)
-			  )
+				)
 
 	$: if ($workspaceStore) {
 		ownerFilter = undefined
@@ -177,10 +179,10 @@
 		selectedFilterKind === 'trigger'
 			? Array.from(
 					new Set(filteredItems?.map((x) => x.path.split('/').slice(0, 2).join('/')) ?? [])
-			  ).sort()
+				).sort()
 			: Array.from(
 					new Set(filteredItems?.map((x) => x.script_path.split('/').slice(0, 2).join('/')) ?? [])
-			  ).sort()
+				).sort()
 
 	$: items = filter !== '' ? filteredItems : preFilteredItems
 
@@ -357,7 +359,7 @@
 										? { icon: Pen }
 										: {
 												icon: Eye
-										  }}
+											}}
 									color="dark"
 								>
 									{canWrite ? 'Edit' : 'View'}
@@ -408,7 +410,7 @@
 															})
 														}
 													}
-											  ]
+												]
 											: []),
 										{
 											displayName: 'Audit logs',

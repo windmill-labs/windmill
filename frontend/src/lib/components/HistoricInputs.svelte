@@ -39,7 +39,7 @@
 	}
 
 	onDestroy(() => {
-		resetSelected(true)
+		resetSelected(false)
 	})
 
 	function handleKeydown(event: KeyboardEvent) {

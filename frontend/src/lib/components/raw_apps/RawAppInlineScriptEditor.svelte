@@ -109,7 +109,7 @@
 					<div
 						title={validCode ? 'Main function parsable' : 'Main function not parsable'}
 						class="rounded-full !w-2 !h-2 {validCode ? 'bg-green-300' : 'bg-red-300'}"
-					/>
+					></div>
 				</div>
 			{/if}
 			<div class="flex w-full flex-row gap-1 items-center justify-end">

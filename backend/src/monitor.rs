@@ -135,7 +135,7 @@ pub async fn initial_load(
         }
     }
 
-    
+
     if let Err(e) = load_metrics_enabled(conn).await {
         tracing::error!("Error loading expose metrics: {e:#}");
     }
@@ -176,7 +176,7 @@ pub async fn initial_load(
             }
         }
     }
-    
+
 
     if let Err(e) = reload_hub_base_url_setting(conn, server_mode).await {
         tracing::error!("Error reloading hub base url: {:?}", e)
@@ -612,7 +612,7 @@ async fn send_log_file_to_object_store(
         let (ok_lines, err_lines) = read_log_counters(ts_str);
 
         if let Some(db) = conn.as_sql() {
-            if let Err(e) = sqlx::query!("INSERT INTO log_file (hostname, mode, worker_group, log_ts, file_path, ok_lines, err_lines, json_fmt) VALUES ($1, $2::text::LOG_MODE, $3, $4, $5, $6, $7, $8)", 
+            if let Err(e) = sqlx::query!("INSERT INTO log_file (hostname, mode, worker_group, log_ts, file_path, ok_lines, err_lines, json_fmt) VALUES ($1, $2::text::LOG_MODE, $3, $4, $5, $6, $7, $8)",
                 hostname, mode.to_string(), worker_group.clone(), ts, highest_file, ok_lines as i64, err_lines as i64, *JSON_FMT)
                 .execute(db)
                 .await {
@@ -1652,7 +1652,7 @@ async fn handle_zombie_jobs(db: &Pool<Postgres>, base_internal_url: &str, worker
             increment_counter AS (
                 INSERT INTO zombie_job_counter (job_id, counter)
                 SELECT id, 1 FROM to_update WHERE counter < $2
-                ON CONFLICT (job_id) DO UPDATE 
+                ON CONFLICT (job_id) DO UPDATE
                 SET counter = zombie_job_counter.counter + 1
             ),
             update_concurrency AS (
@@ -1744,7 +1744,7 @@ async fn handle_zombie_jobs(db: &Pool<Postgres>, base_internal_url: &str, worker
 
     let same_worker_timeout_jobs = {
         let long_same_worker_jobs = sqlx::query!(
-            "SELECT worker, array_agg(v2_job_queue.id) as ids FROM v2_job_queue LEFT JOIN v2_job ON v2_job_queue.id = v2_job.id LEFT JOIN v2_job_runtime ON v2_job_queue.id = v2_job_runtime.id WHERE v2_job_queue.created_at < now() - ('60 seconds')::interval 
+            "SELECT worker, array_agg(v2_job_queue.id) as ids FROM v2_job_queue LEFT JOIN v2_job ON v2_job_queue.id = v2_job.id LEFT JOIN v2_job_runtime ON v2_job_queue.id = v2_job_runtime.id WHERE v2_job_queue.created_at < now() - ('60 seconds')::interval
     AND running = true AND ping IS NULL AND same_worker = true AND worker IS NOT NULL GROUP BY worker",
         )
         .fetch_all(db)
@@ -1758,9 +1758,9 @@ async fn handle_zombie_jobs(db: &Pool<Postgres>, base_internal_url: &str, worker
             .collect::<Vec<_>>();
 
         let long_dead_workers: std::collections::HashSet<String> = sqlx::query_scalar!(
-            "WITH worker_ids AS (SELECT unnest($1::text[]) as worker) 
-            SELECT worker_ids.worker FROM worker_ids 
-            LEFT JOIN worker_ping ON worker_ids.worker = worker_ping.worker 
+            "WITH worker_ids AS (SELECT unnest($1::text[]) as worker)
+            SELECT worker_ids.worker FROM worker_ids
+            LEFT JOIN worker_ping ON worker_ids.worker = worker_ping.worker
                 WHERE worker_ping.worker IS NULL OR worker_ping.ping_at < now() - ('60 seconds')::interval",
             &worker_ids[..]
         )
@@ -1804,7 +1804,7 @@ async fn handle_zombie_jobs(db: &Pool<Postgres>, base_internal_url: &str, worker
     let non_restartable_jobs = if *RESTART_ZOMBIE_JOBS {
         vec![]
     } else {
-        sqlx::query_as::<_, QueuedJob>("SELECT * FROM v2_as_queue WHERE last_ping < now() - ($1 || ' seconds')::interval 
+        sqlx::query_as::<_, QueuedJob>("SELECT * FROM v2_as_queue WHERE last_ping < now() - ($1 || ' seconds')::interval
     AND running = true  AND job_kind NOT IN ('flow', 'flowpreview', 'flownode', 'singlescriptflow') AND same_worker = false")
         .bind(ZOMBIE_JOB_TIMEOUT.as_str())
         .fetch_all(db)
@@ -2001,7 +2001,7 @@ async fn handle_zombie_flows(db: &DB) -> error::Result<()> {
                 }
             );
             report_critical_error(reason.clone(), db.clone(), Some(&flow.workspace_id), None).await;
-            cancel_zombie_flow_job(db, flow.id, &flow.workspace_id, 
+            cancel_zombie_flow_job(db, flow.id, &flow.workspace_id,
                 format!(r#"{reason}
 This would happen if a worker was interrupted, killed or crashed while doing a state transition at the end of a job which is always an unexpected behavior that should never happen.
 Please check your worker logs for more details and feel free to report it to the Windmill team on our Discord or support@windmill.dev (response for non EE customers will be best effort) with as much context as possible, ideally:
@@ -2018,7 +2018,7 @@ Please check your worker logs for more details and feel free to report it to the
         r#"
         DELETE
         FROM parallel_monitor_lock
-        WHERE last_ping IS NOT NULL AND last_ping < NOW() - ($1 || ' seconds')::interval 
+        WHERE last_ping IS NOT NULL AND last_ping < NOW() - ($1 || ' seconds')::interval
         RETURNING parent_flow_id, job_id, last_ping, (SELECT workspace_id FROM v2_job_queue q
             WHERE q.id = parent_flow_id AND q.running = true AND q.canceled_by IS NULL
         ) AS workspace_id
@@ -2126,7 +2126,7 @@ pub async fn reload_critical_error_channels_setting(conn: &DB) -> error::Result<
             v
         } else {
             tracing::error!(
-                "Could not parse critical_error_emails setting as an array of channels, found: {:#?}",
+                "Could not parse critical_error_channels setting as an array of channels, found: {:#?}",
                 &q
             );
             vec![]

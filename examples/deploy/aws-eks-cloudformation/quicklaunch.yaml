@@ -1,0 +1,688 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: Deploy Windmill on EKS with Helm
+
+Parameters:
+  NodeInstanceType:
+    Type: String
+    Default: t3.medium
+    AllowedValues:
+      - t3.small
+      - t3.medium
+      - t3.large
+      - t3.xlarge
+      - t3.2xlarge
+      - m5.large
+      - m5.xlarge
+      - m5.2xlarge
+      - m5.4xlarge
+      - c5.large
+      - c5.xlarge
+      - c5.2xlarge
+      - r5.large
+      - r5.xlarge
+      - r5.2xlarge
+    Description: EC2 instance type for the EKS worker nodes
+  NodeGroupSize:
+    Type: Number
+    Default: 2
+  RdsInstanceClass:
+    Type: String
+    Default: db.t3.small
+    AllowedValues:
+      - db.t3.micro
+      - db.t3.small
+      - db.t3.medium
+      - db.t3.large
+      - db.t3.xlarge
+      - db.m5.large
+      - db.m5.xlarge
+      - db.m5.2xlarge
+      - db.r5.large
+      - db.r5.xlarge
+      - db.r5.2xlarge
+    Description: RDS instance class for the PostgreSQL database
+  DBPassword:
+    Type: String
+    NoEcho: true
+  WorkerReplicas:
+    Type: Number
+    Default: 2
+  NativeWorkerReplicas:
+    Type: Number
+    Default: 1
+  Enterprise:
+    Type: String
+    Default: false
+    AllowedValues:
+      - true
+      - false
+    Description: Enable Windmill Enterprise features (requires license key)
+
+Mappings:
+  RegionMap:
+    us-east-1:
+      AMI: ami-0cff7528ff583bf9a
+    us-east-2:
+      AMI: ami-0cd3c7f72edd5b06d
+    us-west-1:
+      AMI: ami-0d9858aa3c6322f73
+    us-west-2:
+      AMI: ami-098e42ae54c764c35
+    ca-central-1:
+      AMI: ami-00f881f027a6d74a0
+    eu-west-1:
+      AMI: ami-04dd4500af104442f
+    eu-west-2:
+      AMI: ami-0eb260c4d5475b901
+    eu-west-3:
+      AMI: ami-05e8e20cef0eaa9d0
+    eu-central-1:
+      AMI: ami-0bad4a5e987bdebde
+    ap-northeast-1:
+      AMI: ami-0b7546e839d7ace12
+    ap-northeast-2:
+      AMI: ami-0fd0765afb77bcca7
+    ap-southeast-1:
+      AMI: ami-0c802847a7dd848c0
+    ap-southeast-2:
+      AMI: ami-07620139298af599e
+    ap-south-1:
+      AMI: ami-0851b76e8b1bce90b
+    sa-east-1:
+      AMI: ami-054a31f1b3bf90920
+
+Resources:
+  VPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.0.0.0/16
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags:
+        - Key: Name
+          Value: !Sub "${AWS::StackName}-vpc"
+        - Key: !Sub "kubernetes.io/cluster/${AWS::StackName}-cluster"
+          Value: shared
+
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+
+  AttachGateway:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref VPC
+      InternetGatewayId: !Ref InternetGateway
+
+  PublicSubnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: 10.0.1.0/24
+      AvailabilityZone: !Select [0, !GetAZs ""]
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: kubernetes.io/role/elb
+          Value: "1"
+        - Key: !Sub "kubernetes.io/cluster/${AWS::StackName}-cluster"
+          Value: shared
+        - Key: Name
+          Value: !Sub ${AWS::StackName}-public-subnet-1
+
+  PublicSubnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: 10.0.2.0/24
+      AvailabilityZone: !Select [1, !GetAZs ""]
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: kubernetes.io/role/elb
+          Value: "1"
+        - Key: !Sub "kubernetes.io/cluster/${AWS::StackName}-cluster"
+          Value: shared
+        - Key: Name
+          Value: !Sub ${AWS::StackName}-public-subnet-2
+
+  RouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+
+  PublicRoute:
+    Type: AWS::EC2::Route
+    DependsOn: AttachGateway
+    Properties:
+      RouteTableId: !Ref RouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+
+  SubnetRouteTableAssociation1:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    DependsOn: PublicRoute
+    Properties:
+      SubnetId: !Ref PublicSubnet1
+      RouteTableId: !Ref RouteTable
+
+  SubnetRouteTableAssociation2:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    DependsOn: PublicRoute
+    Properties:
+      SubnetId: !Ref PublicSubnet2
+      RouteTableId: !Ref RouteTable
+
+  EKSClusterRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - eks.amazonaws.com
+                - ec2.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonEKSClusterPolicy
+        - arn:aws:iam::aws:policy/AmazonEKSWorkerNodePolicy
+      Policies:
+        - PolicyName: EKSAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - eks:*
+                  - ec2:DescribeInstances
+                  - ec2:DescribeRouteTables
+                  - ec2:DescribeSecurityGroups
+                  - ec2:DescribeSubnets
+                  - ec2:DescribeVpcs
+                  - iam:GetRole
+                  - iam:ListRoles
+                Resource: "*"
+              - Effect: Allow
+                Action:
+                  - ssm:GetParameter
+                  - ssm:PutParameter
+                Resource: !Sub "arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/${AWS::StackName}/*"
+        - PolicyName: KubernetesAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - eks:DescribeCluster
+                  - eks:ListClusters
+                  - eks:AccessKubernetesApi
+                Resource: !Sub "arn:aws:eks:${AWS::Region}:${AWS::AccountId}:cluster/${AWS::StackName}-cluster"
+
+  EKSNodeRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - ec2.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonEKSWorkerNodePolicy
+        - arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly
+        - arn:aws:iam::aws:policy/AmazonEKS_CNI_Policy
+
+  EKSCluster:
+    Type: AWS::EKS::Cluster
+    Properties:
+      Name: !Sub "${AWS::StackName}-cluster"
+      RoleArn: !GetAtt EKSClusterRole.Arn
+      ResourcesVpcConfig:
+        SubnetIds:
+          - !Ref PublicSubnet1
+          - !Ref PublicSubnet2
+        EndpointPublicAccess: true
+      AccessConfig:
+        AuthenticationMode: API_AND_CONFIG_MAP
+        BootstrapClusterCreatorAdminPermissions: true
+    DependsOn:
+      - PublicRoute
+      - VPCCleanup
+
+  EKSClusterAccess:
+    Type: AWS::EKS::AccessEntry
+    Properties:
+      ClusterName: !Ref EKSCluster
+      PrincipalArn: !GetAtt EKSClusterRole.Arn
+      Type: STANDARD
+      Username: admin
+      AccessPolicies:
+        - PolicyArn: arn:aws:eks::aws:cluster-access-policy/AmazonEKSClusterAdminPolicy
+          AccessScope:
+            Type: cluster
+
+  EKSNodeGroup:
+    Type: AWS::EKS::Nodegroup
+    DependsOn:
+      - WindmillDB
+      - EKSCluster
+    Properties:
+      ClusterName: !Ref EKSCluster
+      NodeRole: !GetAtt EKSNodeRole.Arn
+      Subnets:
+        - !Ref PublicSubnet1
+        - !Ref PublicSubnet2
+      ScalingConfig:
+        MinSize: 1
+        DesiredSize: !Ref NodeGroupSize
+        MaxSize: 4
+      InstanceTypes:
+        - !Ref NodeInstanceType
+
+  WindmillDBSubnetGroup:
+    Type: AWS::RDS::DBSubnetGroup
+    Properties:
+      DBSubnetGroupDescription: Subnet group for RDS instance
+      SubnetIds:
+        - !Ref PublicSubnet1
+        - !Ref PublicSubnet2
+
+  WindmillDBSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Allow PostgreSQL access from EKS nodes
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 5432
+          ToPort: 5432
+          CidrIp: 10.0.0.0/16
+
+  WindmillDB:
+    Type: AWS::RDS::DBInstance
+    Properties:
+      DBInstanceIdentifier: !Sub "${AWS::StackName}-db"
+      AllocatedStorage: 20
+      DBInstanceClass: !Ref RdsInstanceClass
+      Engine: postgres
+      EngineVersion: 17.2
+      MasterUsername: postgres
+      MasterUserPassword: !Ref DBPassword
+      DBName: windmill
+      PubliclyAccessible: false
+      DBSubnetGroupName: !Ref WindmillDBSubnetGroup
+      VPCSecurityGroups:
+        - !Ref WindmillDBSecurityGroup
+    DependsOn:
+      - WindmillDBSubnetGroup
+
+  WindmillInstallerInstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Roles:
+        - !Ref EKSClusterRole
+
+  WindmillInstallerSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Security group for Windmill installer instance
+      VpcId: !Ref VPC
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          FromPort: -1
+          ToPort: -1
+          CidrIp: 0.0.0.0/0
+
+  WindmillInstaller:
+    Type: AWS::EC2::Instance
+    CreationPolicy:
+      ResourceSignal:
+        Timeout: PT30M # Gives 30 minutes for the installation to complete
+    DependsOn:
+      - EKSNodeGroup
+      - WindmillDB
+    Properties:
+      ImageId: !FindInMap [RegionMap, !Ref "AWS::Region", AMI]
+      InstanceType: t3.micro
+      IamInstanceProfile: !Ref WindmillInstallerInstanceProfile
+      SubnetId: !Ref PublicSubnet1
+      SecurityGroupIds:
+        - !Ref WindmillInstallerSecurityGroup
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          set -e  # Exit on any error
+
+          # Install required tools
+          yum update -y
+          yum install -y aws-cli jq postgresql15 aws-cfn-bootstrap
+
+          # Set up logging directory with correct permissions
+          mkdir -p /var/log/windmill-installer
+          touch /var/log/windmill-installer/install.log
+
+          # Create installation directory
+          mkdir -p /opt/windmill-installer
+
+          # Install kubectl
+          curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+          chmod +x kubectl
+          mv kubectl /usr/local/bin/
+
+          # Install helm
+          curl -fsSL -o get_helm.sh https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3
+          chmod +x get_helm.sh
+          ./get_helm.sh
+
+          # Create the installation script
+          cat << 'EOF' > /opt/windmill-installer/install.sh
+          #!/bin/bash
+          set -e
+
+          # Configure kubectl
+          aws sts get-caller-identity > /dev/null
+          export AWS_SDK_LOAD_CONFIG=1
+          export KUBECONFIG=/root/.kube/config
+          aws eks update-kubeconfig --name ${AWS::StackName}-cluster --region ${AWS::Region}
+
+          # Add debugging for each kubectl attempt
+          echo "HOME: $HOME"
+          echo "KUBECONFIG: $KUBECONFIG"
+          echo "User: $(whoami)"
+          echo "AWS Identity: $(aws sts get-caller-identity)"
+          echo "Trying kubectl command..."
+          kubectl get nodes || echo "Command failed with status $?"
+
+          echo "Waiting for EKS nodes to be ready..."
+          while true; do
+            # Force credential refresh on each attempt
+            aws sts get-caller-identity > /dev/null
+            aws eks update-kubeconfig --name ${AWS::StackName}-cluster --region ${AWS::Region}
+
+            if kubectl get nodes &>/dev/null; then
+              READY_NODES=$(kubectl get nodes -o json | jq -r '.items[] | select(.status.conditions[] | select(.type=="Ready" and .status=="True")) | .metadata.name' | wc -l)
+              DESIRED_NODES=${NodeGroupSize}
+              if [ "$READY_NODES" -eq "$DESIRED_NODES" ]; then
+                echo "All nodes are ready"
+                break
+              fi
+              echo "Found $READY_NODES ready nodes out of $DESIRED_NODES desired nodes"
+            else
+              echo "Waiting for cluster access..."
+            fi
+            sleep 30
+          done
+
+          echo "Installing AWS Load Balancer Controller..."
+          # Install AWS Load Balancer Controller
+          helm repo add eks https://aws.github.io/eks-charts
+          helm repo update
+
+          helm install aws-load-balancer-controller eks/aws-load-balancer-controller \
+            -n kube-system \
+            --set clusterName=${AWS::StackName}-cluster \
+            --set region=${AWS::Region} \
+            --set vpcId=${VPC}
+
+          echo "Waiting for AWS Load Balancer Controller to be ready..."
+          kubectl wait --namespace kube-system \
+            --for=condition=ready pod \
+            --selector=app.kubernetes.io/name=aws-load-balancer-controller \
+            --timeout=300s
+
+          echo "Waiting for RDS to be available..."
+          while true; do
+            if pg_isready -h ${WindmillDB.Endpoint.Address} -p 5432 -U postgres 2>/dev/null; then
+              echo "Database is ready"
+              break
+            fi
+            echo "Database not ready yet..."
+            sleep 30
+          done
+
+          echo "Creating namespace and installing Windmill..."
+          kubectl create namespace windmill
+
+          # Add helm repo and install Windmill
+          helm repo add windmill https://windmill-labs.github.io/windmill-helm-charts
+          helm repo update
+
+          helm install ${AWS::StackName} windmill/windmill \
+            --namespace windmill \
+            --set windmill.databaseUrl="postgres://postgres:${DBPassword}@${WindmillDB.Endpoint.Address}/windmill?sslmode=require" \
+            --set windmill.baseDomain=windmill.local \
+            --set windmill.baseProtocol=http \
+            --set windmill.appReplicas=${WorkerReplicas} \
+            --set windmill.lspReplicas=2 \
+            --set windmill.workerGroups[0].name=default \
+            --set windmill.workerGroups[0].mode=worker \
+            --set windmill.workerGroups[0].replicas=${WorkerReplicas} \
+            --set windmill.workerGroups[1].name=native \
+            --set windmill.workerGroups[1].mode=worker \
+            --set windmill.workerGroups[1].replicas=${NativeWorkerReplicas} \
+            --set windmill.app.service.spec.type=LoadBalancer \
+            --set windmill.app.service.spec.sessionAffinity=None \
+            --set windmill.app.service.port=8000 \
+            --set windmill.app.service.ports[0].port=8000 \
+            --set windmill.app.service.ports[0].targetPort=8000 \
+            --set windmill.app.service.ports[0].protocol=TCP \
+            --set postgresql.enabled=false \
+            --set enterprise.enabled=${Enterprise}
+
+          # Change service to LoadBalancer
+          echo "Changing service to LoadBalancer"
+          kubectl patch service windmill-app -n windmill -p '{"spec":{"type":"LoadBalancer","sessionAffinity":"None"}}'
+          kubectl patch service windmill-app -n windmill -p '{"spec":{"ports":[{"name":"api","port":8000,"targetPort":8000,"protocol":"TCP"},{"name":"http","port":80,"targetPort":8000,"protocol":"TCP"}]}}'
+
+          # Wait for LoadBalancer to get an address
+          echo "Waiting for LoadBalancer address..."
+          while true; do
+            LB_HOSTNAME=$(kubectl get svc -n windmill windmill-app -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null)
+            if [ ! -z "$LB_HOSTNAME" ]; then
+              break
+            fi
+            echo "Waiting for LoadBalancer hostname..."
+            sleep 30
+          done
+
+          # Store the LoadBalancer hostname in SSM
+          aws ssm put-parameter \
+            --region ${AWS::Region} \
+            --name "/${AWS::StackName}/loadbalancer-hostname" \
+            --value "$LB_HOSTNAME" \
+            --type "String" \
+            --overwrite
+
+          # Signal CloudFormation that installation is complete
+          echo "Signal CloudFormation that installation is complete"
+          /opt/aws/bin/cfn-signal -e $? \
+            --stack ${AWS::StackName} \
+            --resource WindmillInstaller \
+            --region ${AWS::Region}
+
+          # Self-terminate this instance
+          echo "Self-terminating instance"
+          aws ec2 terminate-instances --instance-ids $(curl -s http://169.254.169.254/latest/meta-data/instance-id) --region ${AWS::Region}
+          EOF
+
+          # Set permissions and run the installation script
+          chmod +x /opt/windmill-installer/install.sh
+
+          # Run the installation script directly (not as ec2-user)
+          cd /opt/windmill-installer && ./install.sh > /var/log/windmill-installer/install.log 2>&1
+
+  LoadBalancerHostnameLookup:
+    Type: Custom::SSMParameterLookup
+    DependsOn: WindmillInstaller
+    Properties:
+      ServiceToken: !GetAtt LookupSSMParameterFunction.Arn
+      ParameterName: !Sub "/${AWS::StackName}/loadbalancer-hostname"
+
+  LookupSSMParameterFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      Handler: index.handler
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Timeout: 300
+      Runtime: nodejs18.x
+      Code:
+        ZipFile: !Sub |
+          const { SSMClient, GetParameterCommand } = require('@aws-sdk/client-ssm');
+          const response = require('cfn-response');
+
+          exports.handler = async (event, context) => {
+            if (event.RequestType === 'Delete') {
+              return response.send(event, context, response.SUCCESS);
+            }
+
+            try {
+              const ssmClient = new SSMClient();
+
+              // Loop to check for the parameter until it's not "pending"
+              let tries = 0;
+              let paramValue = "pending";
+
+              while (paramValue === "pending" && tries < 20) {
+                const params = {
+                  Name: event.ResourceProperties.ParameterName,
+                  WithDecryption: false
+                };
+
+                const result = await ssmClient.send(new GetParameterCommand(params));
+                paramValue = result.Parameter.Value;
+
+                if (paramValue === "pending") {
+                  await new Promise(resolve => setTimeout(resolve, 15000)); // wait 15 seconds
+                  tries++;
+                }
+              }
+
+              return response.send(event, context, response.SUCCESS, {
+                HostnameValue: paramValue
+              });
+            } catch (error) {
+              console.error(error);
+              return response.send(event, context, response.FAILED, { error: error.message });
+            }
+          };
+
+  LambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: SSMParameterAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - ssm:GetParameter
+                Resource: !Sub "arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/${AWS::StackName}/*"
+
+  VPCCleanupFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      Handler: index.handler
+      Role: !GetAtt VPCCleanupRole.Arn
+      Timeout: 300
+      Runtime: nodejs18.x
+      Code:
+        ZipFile: |
+          const { ElasticLoadBalancingClient, DescribeLoadBalancersCommand,
+                  DeleteLoadBalancerCommand } = require('@aws-sdk/client-elastic-load-balancing');
+          const response = require('cfn-response');
+
+          exports.handler = async (event, context) => {
+            if (event.RequestType !== 'Delete') {
+              return response.send(event, context, response.SUCCESS);
+            }
+
+            try {
+              const elb = new ElasticLoadBalancingClient();
+              const vpcId = event.ResourceProperties.VpcId;
+
+              // Find and delete Classic Load Balancers in the VPC
+              const lbResponse = await elb.send(new DescribeLoadBalancersCommand({}));
+              let deleted = false;
+
+              for (const lb of lbResponse.LoadBalancerDescriptions || []) {
+                if (lb.VPCId === vpcId) {
+                  console.log(`Deleting Classic Load Balancer: ${lb.LoadBalancerName}`);
+                  await elb.send(new DeleteLoadBalancerCommand({
+                    LoadBalancerName: lb.LoadBalancerName
+                  }));
+                  deleted = true;
+                }
+              }
+
+              if (deleted) {
+                // Wait for deletion to complete
+                console.log('Waiting 30 seconds for load balancer deletion to complete...');
+                await new Promise(r => setTimeout(r, 30000));
+              }
+
+              return response.send(event, context, response.SUCCESS);
+            } catch (error) {
+              console.error('Error deleting load balancers:', error);
+              return response.send(event, context, response.FAILED, {error: error.message});
+            }
+          };
+
+  VPCCleanupRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: VPCCleanupPolicy
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - ec2:DescribeAddresses
+                  - ec2:DisassociateAddress
+                  - ec2:DescribeNetworkInterfaces
+                  - elasticloadbalancing:DescribeLoadBalancers
+                  - elasticloadbalancing:DeleteLoadBalancer
+                  - elasticloadbalancingv2:DescribeLoadBalancers
+                  - elasticloadbalancingv2:DeleteLoadBalancer
+                Resource: "*"
+
+  VPCCleanup:
+    Type: Custom::VPCCleanup
+    Properties:
+      ServiceToken: !GetAtt VPCCleanupFunction.Arn
+      VpcId: !Ref VPC
+
+Outputs:
+  ClusterName:
+    Description: EKS cluster name
+    Value: !Sub "${AWS::StackName}-cluster"
+
+  DatabaseEndpoint:
+    Description: RDS instance endpoint
+    Value: !GetAtt WindmillDB.Endpoint.Address
+
+  LoadBalancerHostname:
+    Description: Windmill LoadBalancer hostname
+    Value: !Sub "http://${LoadBalancerHostnameLookup.HostnameValue}"

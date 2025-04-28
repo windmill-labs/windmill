@@ -306,6 +306,7 @@ lazy_static::lazy_static! {
     pub static ref NSJAIL_PATH: String = std::env::var("NSJAIL_PATH").unwrap_or_else(|_| "nsjail".to_string());
     pub static ref PATH_ENV: String = std::env::var("PATH").unwrap_or_else(|_| String::new());
     pub static ref HOME_ENV: String = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
+    pub static ref GIT_PATH: String = std::env::var("GIT_PATH").unwrap_or_else(|_| "/usr/bin/git".to_string());
 
     pub static ref NODE_PATH: Option<String> = std::env::var("NODE_PATH").ok();
 
