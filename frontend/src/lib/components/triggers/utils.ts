@@ -455,10 +455,12 @@ export async function fetchMqttTriggers(
  */
 export async function fetchSqsTriggers(
 	triggersStore: Writable<Trigger[]>,
-	workspaceId: string,
+	workspaceId: string | undefined,
 	path: string,
-	isFlow: boolean
+	isFlow: boolean,
+	user: UserExt | undefined = undefined
 ): Promise<void> {
+	if (!workspaceId) return
 	try {
 		// Remove existing SQS triggers for this path
 		triggersStore.update((triggers) => triggers.filter((t) => !(t.type === 'sqs')))
@@ -476,7 +478,8 @@ export async function fetchSqsTriggers(
 					type: 'sqs',
 					path: trigger.path,
 					isPrimary: false,
-					isDraft: false
+					isDraft: false,
+					canWrite: canWrite(trigger.path, trigger.extra_perms, user)
 				}
 			])
 		}

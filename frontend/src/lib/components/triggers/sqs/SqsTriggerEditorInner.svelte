@@ -6,7 +6,7 @@
 	import { usedTriggerKinds, userStore, workspaceStore } from '$lib/stores'
 	import { canWrite, emptyString, sendUserToast } from '$lib/utils'
 	import { createEventDispatcher } from 'svelte'
-	import { Loader2, Save } from 'lucide-svelte'
+	import { Loader2, Save, X, Pen } from 'lucide-svelte'
 	import Label from '$lib/components/Label.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import { SqsTriggerService, type AwsAuthResourceType } from '$lib/gen'
@@ -14,6 +14,28 @@
 	import Section from '$lib/components/Section.svelte'
 	import ScriptPicker from '$lib/components/ScriptPicker.svelte'
 	import Required from '$lib/components/Required.svelte'
+	import { twMerge } from 'tailwind-merge'
+	import type { Snippet } from 'svelte'
+
+	interface Props {
+		useDrawer?: boolean
+		description?: Snippet | undefined
+		hideTarget?: boolean
+		editMode?: boolean
+		preventSave?: boolean
+		hideTooltips?: boolean
+		useEditButton?: boolean
+	}
+
+	let {
+		useDrawer = true,
+		description = undefined,
+		hideTarget = false,
+		editMode = true,
+		preventSave = false,
+		hideTooltips = false,
+		useEditButton = false
+	}: Props = $props()
 
 	let drawer: Drawer | undefined = $state(undefined)
 	let is_flow: boolean = $state(false)
@@ -29,11 +51,14 @@
 	let dirtyPath = $state(false)
 	let can_write = $state(true)
 	let drawerLoading = $state(true)
+	let showLoading = $state(false)
 	let aws_resource_path: string = $state('')
 	let queue_url = $state('')
 	let message_attributes: string[] = $state([])
 	let aws_auth_resource_type: AwsAuthResourceType = $state('credentials')
 	let isValid = $state(false)
+	let resetEditMode = $state<(() => void) | undefined>(undefined)
+
 	const dispatch = createEventDispatcher()
 
 	$effect(() => {
@@ -41,7 +66,11 @@
 	})
 
 	export async function openEdit(ePath: string, isFlow: boolean) {
+		let loadingTimeout = setTimeout(() => {
+			showLoading = true
+		}, 100) // Do not show loading spinner for the first 100ms
 		drawerLoading = true
+		resetEditMode = () => openEdit(ePath, isFlow)
 		try {
 			drawer?.openDrawer()
 			initialPath = ePath
@@ -52,7 +81,9 @@
 		} catch (err) {
 			sendUserToast(`Could not load sqs trigger: ${err.body}`, true)
 		} finally {
+			clearTimeout(loadingTimeout)
 			drawerLoading = false
+			showLoading = false
 		}
 	}
 
@@ -61,6 +92,9 @@
 		fixedScriptPath_?: string,
 		defaultValues?: Record<string, any>
 	) {
+		let loadingTimeout = setTimeout(() => {
+			showLoading = true
+		}, 100)
 		drawerLoading = true
 		try {
 			drawer?.openDrawer()
@@ -78,7 +112,9 @@
 			edit = false
 			dirtyPath = false
 		} finally {
+			clearTimeout(loadingTimeout)
 			drawerLoading = false
+			showLoading = false
 		}
 	}
 
@@ -140,87 +176,162 @@
 		if (!$usedTriggerKinds.includes('sqs')) {
 			$usedTriggerKinds = [...$usedTriggerKinds, 'sqs']
 		}
-		dispatch('update')
+		dispatch('update', path)
 		drawer?.closeDrawer()
+		toggleEditMode(false)
 	}
+
+	function toggleEditMode(newEditMode: boolean) {
+		dispatch('toggle-edit-mode', newEditMode)
+	}
+
+	$effect(() => {
+		dispatch('update-config', {
+			aws_resource_path,
+			queue_url,
+			message_attributes,
+			aws_auth_resource_type,
+			isValid
+		})
+	})
 </script>
 
-<Drawer size="800px" bind:this={drawer}>
-	<DrawerContent
-		title={edit
-			? can_write
-				? `Edit SQS trigger ${initialPath}`
-				: `SQS trigger ${initialPath}`
-			: 'New SQS trigger'}
-		on:close={drawer.closeDrawer}
-	>
-		<svelte:fragment slot="actions">
-			{#if !drawerLoading && can_write}
-				{#if edit}
-					<div class="mr-8 center-center -mt-1">
-						<Toggle
-							disabled={!can_write}
-							checked={enabled}
-							options={{ right: 'enable', left: 'disable' }}
-							on:change={async (e) => {
-								sendUserToast(`${e.detail ? 'enabled' : 'disabled'} sqs trigger ${initialPath}`)
-							}}
-						/>
-					</div>
-				{/if}
-				<Button
-					startIcon={{ icon: Save }}
-					disabled={pathError != '' || emptyString(script_path) || !isValid || !can_write}
-					on:click={updateTrigger}
-				>
-					Save
-				</Button>
-			{/if}
+{#if useDrawer}
+	<Drawer size="800px" bind:this={drawer}>
+		<DrawerContent
+			title={edit
+				? can_write
+					? `Edit SQS trigger ${initialPath}`
+					: `SQS trigger ${initialPath}`
+				: 'New SQS trigger'}
+			on:close={drawer.closeDrawer}
+		>
+			<svelte:fragment slot="actions">
+				{@render actionsButtons('sm')}
+			</svelte:fragment>
+			{@render config()}
+		</DrawerContent>
+	</Drawer>
+{:else}
+	<Section label="SQS trigger">
+		<svelte:fragment slot="action">
+			{@render actionsButtons('xs')}
 		</svelte:fragment>
-		{#if drawerLoading}
-			<div class="flex flex-col items-center justify-center h-full w-full">
-				<Loader2 size="50" class="animate-spin" />
-				<p>Loading...</p>
-			</div>
-		{:else}
-			<div class="flex flex-col gap-5">
-				<Alert title="Info" type="info">
+		{@render config()}
+	</Section>
+{/if}
+
+{#snippet actionsButtons(size: 'xs' | 'sm' = 'sm')}
+	{#if !drawerLoading}
+		<div class="flex flex-row gap-2 items-center">
+			{#if edit}
+				<div class={twMerge('center-center', size === 'sm' ? '-mt-1' : '')}>
+					<Toggle
+						{size}
+						disabled={!can_write || !editMode}
+						checked={enabled}
+						options={{ right: 'enable', left: 'disable' }}
+						on:change={async (e) => {
+							await SqsTriggerService.setSqsTriggerEnabled({
+								path: initialPath,
+								workspace: $workspaceStore ?? '',
+								requestBody: { enabled: e.detail }
+							})
+							sendUserToast(`${e.detail ? 'enabled' : 'disabled'} SQS trigger ${initialPath}`)
+						}}
+					/>
+				</div>
+			{/if}
+			{#if !preventSave}
+				{#if can_write && editMode}
+					<Button
+						{size}
+						startIcon={{ icon: Save }}
+						disabled={pathError != '' || emptyString(script_path) || !isValid || !can_write}
+						on:click={updateTrigger}
+					>
+						Save
+					</Button>
+				{/if}
+				{#if !editMode && useEditButton}
+					<Button
+						{size}
+						color="light"
+						startIcon={{ icon: Pen }}
+						on:click={() => toggleEditMode(true)}
+					>
+						Edit
+					</Button>
+				{:else if editMode && !!resetEditMode && useEditButton}
+					<Button
+						{size}
+						color="light"
+						startIcon={{ icon: X }}
+						on:click={() => {
+							toggleEditMode(false)
+							resetEditMode?.()
+						}}
+					>
+						Cancel
+					</Button>
+				{/if}
+			{/if}
+		</div>
+	{/if}
+{/snippet}
+
+{#snippet config()}
+	{#if drawerLoading}
+		{#if showLoading}
+			<Loader2 class="animate-spin" />
+		{/if}
+	{:else}
+		<div class="flex flex-col gap-4">
+			{#if description}
+				{@render description()}
+			{/if}
+			{#if !hideTooltips}
+				<Alert title="Info" type="info" size="xs">
 					{#if edit}
 						Changes can take up to 30 seconds to take effect.
 					{:else}
-						New postgres triggers can take up to 30 seconds to start listening.
+						New SQS triggers can take up to 30 seconds to start listening.
 					{/if}
 				</Alert>
+			{/if}
+		</div>
+		<div class="flex flex-col gap-12 mt-6">
+			<div class="flex flex-col gap-4">
+				<Label label="Path">
+					<Path
+						bind:dirty={dirtyPath}
+						bind:error={pathError}
+						bind:path
+						{initialPath}
+						checkInitialPathExistence={!edit}
+						namePlaceholder="sqs_trigger"
+						kind="sqs_trigger"
+						disabled={!can_write}
+						disableEditing={!editMode}
+					/>
+				</Label>
 			</div>
-			<div class="flex flex-col gap-12 mt-6">
-				<div class="flex flex-col gap-4">
-					<Label label="Path">
-						<Path
-							bind:dirty={dirtyPath}
-							bind:error={pathError}
-							bind:path
-							{initialPath}
-							checkInitialPathExistence={!edit}
-							namePlaceholder="sqs_trigger"
-							kind="sqs_trigger"
-							disabled={!can_write}
-						/>
-					</Label>
-				</div>
 
+			{#if !hideTarget}
 				<Section label="Runnable">
 					<p class="text-xs mb-1 text-tertiary">
 						Pick a script or flow to be triggered <Required required={true} />
 					</p>
 					<div class="flex flex-row mb-2">
 						<ScriptPicker
-							disabled={fixedScriptPath != '' || !can_write}
+							disabled={fixedScriptPath != '' || !can_write || !editMode}
 							initialPath={fixedScriptPath || initialScriptPath}
 							kinds={['script']}
 							allowFlow={true}
 							bind:itemKind
 							bind:scriptPath={script_path}
-							allowRefresh
+							allowRefresh={can_write}
+							allowEdit={!$userStore?.operator}
 						/>
 						{#if emptyString(script_path)}
 							<Button
@@ -228,22 +339,25 @@
 								color="dark"
 								size="xs"
 								href={itemKind === 'flow' ? '/flows/add?hub=59' : '/scripts/add?hub=hub%2F11637'}
-								target="_blank">Create from template</Button
+								target="_blank"
+								disabled={!editMode}
 							>
+								Create from template
+							</Button>
 						{/if}
 					</div>
 				</Section>
+			{/if}
 
-				<SqsTriggerEditorConfigSection
-					bind:isValid
-					bind:queue_url
-					bind:message_attributes
-					bind:aws_resource_path
-					bind:aws_auth_resource_type
-					{can_write}
-					headless={true}
-				/>
-			</div>
-		{/if}
-	</DrawerContent>
-</Drawer>
+			<SqsTriggerEditorConfigSection
+				bind:isValid
+				bind:queue_url
+				bind:message_attributes
+				bind:aws_resource_path
+				bind:aws_auth_resource_type
+				can_write={can_write && editMode}
+				headless={true}
+			/>
+		</div>
+	{/if}
+{/snippet}

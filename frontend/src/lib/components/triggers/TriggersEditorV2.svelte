@@ -33,7 +33,8 @@
 	import KafkaTriggerPanel from './kafka/KafkaTriggerPanelV2.svelte'
 	import NatsTriggerPanel from './nats/NatsTriggerPanelV2.svelte'
 	import MqttTriggerPanel from './mqtt/MqttTriggerPanelV2.svelte'
-	import { fetchMqttTriggers } from './utils'
+	import SqsTriggerPanel from './sqs/SqsTriggerPanelV2.svelte'
+	import { fetchMqttTriggers, fetchSqsTriggers } from './utils'
 
 	export let noEditor: boolean
 	export let newItem = false
@@ -358,6 +359,29 @@
 												config = detail
 											}}
 										/>
+									{:else if $selectedTrigger.type === 'sqs'}
+										<SqsTriggerPanel
+											{isFlow}
+											path={initialPath || fakeInitialPath}
+											selectedTrigger={$selectedTrigger}
+											edit={editTrigger === $selectedTrigger}
+											{isDeployed}
+											on:toggle-edit-mode={({ detail }) => {
+												editTrigger = detail ? $selectedTrigger : undefined
+											}}
+											on:update={({ detail }) => {
+												if ($selectedTrigger?.isDraft) {
+													$selectedTrigger.isDraft = false
+												}
+												if ($selectedTrigger) {
+													$selectedTrigger.path = detail
+												}
+												fetchSqsTriggers(triggers, $workspaceStore, currentPath, isFlow, $userStore)
+											}}
+											on:update-config={({ detail }) => {
+												config = detail
+											}}
+										/>
 									{:else if $selectedTrigger.isDraft}
 										<h3 class="text-sm font-medium"
 											>Configure new {$selectedTrigger.type} trigger</h3
@@ -488,6 +512,20 @@
 											on:testWithArgs
 										/>
 									{:else if captureKind === 'mqtt'}
+										<CaptureWrapper
+											path={initialPath || fakeInitialPath}
+											{isFlow}
+											captureType={captureKind}
+											{hasPreprocessor}
+											{canHavePreprocessor}
+											args={config}
+											data={{ args }}
+											on:applyArgs
+											on:updateSchema
+											on:addPreprocessor
+											on:testWithArgs
+										/>
+									{:else if captureKind === 'sqs'}
 										<CaptureWrapper
 											path={initialPath || fakeInitialPath}
 											{isFlow}
