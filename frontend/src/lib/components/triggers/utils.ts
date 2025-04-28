@@ -3,6 +3,7 @@ import KafkaIcon from '$lib/components/icons/KafkaIcon.svelte'
 import NatsIcon from '$lib/components/icons/NatsIcon.svelte'
 import MqttIcon from '$lib/components/icons/MqttIcon.svelte'
 import AwsIcon from '$lib/components/icons/AwsIcon.svelte'
+import GoogleCloudIcon from '$lib/components/icons/GoogleCloudIcon.svelte'
 import type { CaptureTriggerKind } from '$lib/gen/types.gen'
 import type { Writable } from 'svelte/store'
 import { get } from 'svelte/store'
@@ -15,10 +16,12 @@ import {
 	NatsTriggerService,
 	MqttTriggerService,
 	SqsTriggerService,
+	GcpTriggerService,
 	type Schedule,
 	type HttpTrigger,
 	type PostgresTrigger,
-	type KafkaTrigger
+	type KafkaTrigger,
+	type GcpTrigger
 } from '$lib/gen'
 import type { ScheduleTrigger } from '$lib/components/triggers'
 import { canWrite } from '$lib/utils'
@@ -35,6 +38,7 @@ export type TriggerType =
 	| 'nats'
 	| 'mqtt'
 	| 'sqs'
+	| 'gcp'
 
 export type Trigger = {
 	path: string
@@ -56,6 +60,7 @@ export const triggerIconMap = {
 	nats: NatsIcon,
 	mqtt: MqttIcon,
 	sqs: AwsIcon,
+	gcp: GoogleCloudIcon,
 	primary_schedule: Calendar
 }
 
@@ -144,7 +149,8 @@ export async function fetchTriggers(
 		fetchKafkaTriggers(triggersStore, workspaceId, path, isFlow),
 		fetchNatsTriggers(triggersStore, workspaceId, path, isFlow),
 		fetchMqttTriggers(triggersStore, workspaceId, path, isFlow),
-		fetchSqsTriggers(triggersStore, workspaceId, path, isFlow)
+		fetchSqsTriggers(triggersStore, workspaceId, path, isFlow),
+		fetchGcpTriggers(triggersStore, workspaceId, path, isFlow, user)
 	])
 
 	// Add back draft triggers
@@ -485,5 +491,43 @@ export async function fetchSqsTriggers(
 		}
 	} catch (error) {
 		console.error('Failed to fetch SQS triggers:', error)
+	}
+}
+
+/**
+ * Fetch GCP Pub/Sub triggers
+ */
+export async function fetchGcpTriggers(
+	triggersStore: Writable<Trigger[]>,
+	workspaceId: string | undefined,
+	path: string,
+	isFlow: boolean,
+	user: UserExt | undefined = undefined
+): Promise<void> {
+	if (!workspaceId) return
+	try {
+		// Remove existing GCP triggers for this path
+		triggersStore.update((triggers) => triggers.filter((t) => !(t.type === 'gcp')))
+
+		const gcpTriggers: GcpTrigger[] = await GcpTriggerService.listGcpTriggers({
+			workspace: workspaceId,
+			path,
+			isFlow
+		})
+
+		for (const trigger of gcpTriggers) {
+			triggersStore.update((triggers) => [
+				...triggers,
+				{
+					type: 'gcp',
+					path: trigger.path,
+					isPrimary: false,
+					isDraft: false,
+					canWrite: canWrite(trigger.path, trigger.extra_perms, user)
+				}
+			])
+		}
+	} catch (error) {
+		console.error('Failed to fetch GCP Pub/Sub triggers:', error)
 	}
 }
