@@ -565,6 +565,20 @@
 											on:addPreprocessor
 											on:testWithArgs
 										/>
+									{:else if captureKind === 'gcp'}
+										<CaptureWrapper
+											path={initialPath || fakeInitialPath}
+											{isFlow}
+											captureType={captureKind}
+											{hasPreprocessor}
+											{canHavePreprocessor}
+											args={config}
+											data={{ args }}
+											on:applyArgs
+											on:updateSchema
+											on:addPreprocessor
+											on:testWithArgs
+										/>
 									{/if}
 								</div>
 							{/key}
