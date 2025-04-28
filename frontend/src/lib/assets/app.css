@@ -105,6 +105,10 @@
 	@apply p-6 !bg-surface !max-w-2xl;
 }
 
+.panel-item {
+	@apply border dark:border-gray-600 border-gray-200 flex gap-1 truncate font-normal justify-between w-full items-center py-1 px-2 rounded-sm duration-200;
+}
+
 .splitpanes--vertical > .splitpanes__pane {
 	transition: none !important;
 }
