@@ -682,13 +682,15 @@ pub async fn handle_flow_dependency_job(
 
     tx = clear_dependency_parent_path(&parent_path, &job_path, &job.workspace_id, "flow", tx)
         .await?;
-    sqlx::query!(
+    if !skip_flow_update {
+        sqlx::query!(
         "DELETE FROM workspace_runnable_dependencies WHERE flow_path = $1 AND workspace_id = $2",
         job_path,
         job.workspace_id
     )
-    .execute(&mut *tx)
-    .await?;
+        .execute(&mut *tx)
+        .await?;
+    }
     let modified_ids;
     let errors;
     (flow.modules, tx, modified_ids, errors) = lock_modules(
@@ -706,6 +708,7 @@ pub async fn handle_flow_dependency_job(
         token,
         &nodes_to_relock,
         occupancy_metrics,
+        skip_flow_update,
     )
     .await?;
     if !errors.is_empty() {
@@ -874,6 +877,7 @@ async fn lock_modules<'c>(
     token: &str,
     locks_to_reload: &Option<Vec<String>>,
     occupancy_metrics: &mut OccupancyMetrics,
+    skip_flow_update: bool,
     // (modules to replace old seq (even unmmodified ones), new transaction, modified ids) )
 ) -> Result<(
     Vec<FlowModule>,
@@ -925,6 +929,7 @@ async fn lock_modules<'c>(
                         token,
                         locks_to_reload,
                         occupancy_metrics,
+                        skip_flow_update,
                     ))
                     .await?;
                     e.value = FlowModuleValue::ForloopFlow {
@@ -959,6 +964,7 @@ async fn lock_modules<'c>(
                             token,
                             locks_to_reload,
                             occupancy_metrics,
+                            skip_flow_update,
                         ))
                         .await?;
                         nmodified_ids.extend(inner_modified_ids);
@@ -985,6 +991,7 @@ async fn lock_modules<'c>(
                         token,
                         locks_to_reload,
                         occupancy_metrics,
+                        skip_flow_update,
                     ))
                     .await?;
                     e.value = FlowModuleValue::WhileloopFlow {
@@ -1016,6 +1023,7 @@ async fn lock_modules<'c>(
                             token,
                             locks_to_reload,
                             occupancy_metrics,
+                            skip_flow_update,
                         ))
                         .await?;
                         nmodified_ids.extend(inner_modified_ids);
@@ -1040,6 +1048,7 @@ async fn lock_modules<'c>(
                         token,
                         locks_to_reload,
                         occupancy_metrics,
+                        skip_flow_update,
                     ))
                     .await?;
                     errors.extend(ninner_errors);
@@ -1050,7 +1059,9 @@ async fn lock_modules<'c>(
                     }
                     .into();
                 }
-                FlowModuleValue::Script { path, hash, .. } if !path.starts_with("hub/") => {
+                FlowModuleValue::Script { path, hash, .. }
+                    if !path.starts_with("hub/") && !skip_flow_update =>
+                {
                     sqlx::query!(
                         "INSERT INTO workspace_runnable_dependencies (flow_path, runnable_path, script_hash, runnable_is_flow, workspace_id) VALUES ($1, $2, $3, FALSE, $4) ON CONFLICT DO NOTHING",
                         job_path,
@@ -1061,7 +1072,7 @@ async fn lock_modules<'c>(
                     .execute(&mut *tx)
                     .await?;
                 }
-                FlowModuleValue::Flow { path, .. } => {
+                FlowModuleValue::Flow { path, .. } if !skip_flow_update => {
                     sqlx::query!(
                         "INSERT INTO workspace_runnable_dependencies (flow_path, runnable_path, runnable_is_flow, workspace_id) VALUES ($1, $2, TRUE, $3) ON CONFLICT DO NOTHING",
                         job_path,
@@ -2014,7 +2025,8 @@ async fn ansible_dep(
             (HashMap::new(), String::new())
         };
 
-        let (reqs_yaml, logs3) = add_versions_to_requirements_yaml(&collections, &role_versions, &collection_versions)?;
+        let (reqs_yaml, logs3) =
+            add_versions_to_requirements_yaml(&collections, &role_versions, &collection_versions)?;
 
         let logs = format!("\n{logs1}\n{logs2}\n{logs3}\n");
 
