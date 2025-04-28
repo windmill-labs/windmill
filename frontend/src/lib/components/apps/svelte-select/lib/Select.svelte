@@ -678,7 +678,6 @@
 			bind:value={filterText}
 			placeholder={placeholderText}
 			style={inputStyles}
-			class="!pl-0"
 		/>
 	</div>
 

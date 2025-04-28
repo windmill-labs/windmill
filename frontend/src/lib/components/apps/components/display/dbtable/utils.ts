@@ -715,7 +715,7 @@ export async function getTablesByResource(
 }
 
 export function dbSupportsSchemas(dbType: DbType): boolean {
-	return dbType === 'postgresql' || dbType === 'snowflake' || dbType === 'ms_sql_server'
+	return dbType === 'postgresql' || dbType === 'snowflake'
 }
 
 export function datatypeHasLength(datatype: string): boolean {
