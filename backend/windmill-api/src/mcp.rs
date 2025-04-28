@@ -443,7 +443,7 @@ impl Runner {
                                     {
                                         let resources_count = resource_cache.len();
                                         let description = format!(
-                                            "This is a resource named {} with the following description: {}.\nThe path of the resource should be used to specify the resource.\n{}",
+                                            "This is a resource named \"{}\" with the following description: \"{}\".\nThe path of the resource should be used to specify the resource.\n{}",
                                             resource_type.name,
                                             resource_type.description.as_deref().unwrap_or("No description"),
                                             if resources_count == 0 {
@@ -649,7 +649,7 @@ impl ServerHandler for Runner {
         for script in scripts {
             let name = Runner::transform_path(&script.path, "script").unwrap_or_default();
             let description = format!(
-                "This is a script named {} with the following description: {}.",
+                "This is a script named \"{}\" with the following description: \"{}\".",
                 script.summary.as_deref().unwrap_or("No summary"),
                 script.description.as_deref().unwrap_or("No description")
             );
@@ -684,7 +684,7 @@ impl ServerHandler for Runner {
         for flow in flows {
             let name = Runner::transform_path(&flow.path, "flow").unwrap_or_default();
             let description = format!(
-                "This is a flow named {} with the following description: {}.",
+                "This is a flow named \"{}\" with the following description: \"{}\".",
                 flow.summary.as_deref().unwrap_or("No summary"),
                 flow.description.as_deref().unwrap_or("No description")
             );
