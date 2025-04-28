@@ -26,6 +26,7 @@ import {
 import type { ScheduleTrigger } from '$lib/components/triggers'
 import { canWrite } from '$lib/utils'
 import type { UserExt } from '$lib/stores'
+import SchedulePollIcon from '../icons/SchedulePollIcon.svelte'
 
 export type TriggerType =
 	| 'webhook'
@@ -39,6 +40,7 @@ export type TriggerType =
 	| 'mqtt'
 	| 'sqs'
 	| 'gcp'
+	| 'poll'
 
 export type Trigger = {
 	path: string
@@ -61,7 +63,8 @@ export const triggerIconMap = {
 	mqtt: MqttIcon,
 	sqs: AwsIcon,
 	gcp: GoogleCloudIcon,
-	primary_schedule: Calendar
+	primary_schedule: Calendar,
+	poll: SchedulePollIcon
 }
 
 /**

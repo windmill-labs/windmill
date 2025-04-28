@@ -11,6 +11,7 @@
 	import type { Trigger, TriggerType } from '$lib/components/triggers/utils'
 	import { Menu, Menubar, MeltButton, MenuItem, Tooltip } from '$lib/components/meltComponents'
 	import { twMerge } from 'tailwind-merge'
+	import SchedulePollIcon from '$lib/components/icons/SchedulePollIcon.svelte'
 
 	const { selectedTriggerV2, triggersCount } = getContext<TriggerContext>('TriggerContext')
 
@@ -75,7 +76,8 @@
 		nats: { icon: NatsIcon, countKey: 'nats_count', disabled: !$enterpriseLicense },
 		mqtt: { icon: MqttIcon, countKey: 'mqtt_count', disabled: !$enterpriseLicense },
 		sqs: { icon: AwsIcon, countKey: 'sqs_count', disabled: !$enterpriseLicense },
-		gcp: { icon: GoogleCloudIcon, countKey: 'gcp_count', disabled: !$enterpriseLicense }
+		gcp: { icon: GoogleCloudIcon, countKey: 'gcp_count', disabled: !$enterpriseLicense },
+		poll: { icon: SchedulePollIcon }
 	}
 
 	function camelCaseToWords(s: string) {

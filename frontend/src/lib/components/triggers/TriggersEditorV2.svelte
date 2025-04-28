@@ -37,6 +37,7 @@
 	import SqsTriggerPanel from './sqs/SqsTriggerPanelV2.svelte'
 	import { fetchMqttTriggers, fetchSqsTriggers } from './utils'
 	import GcpTriggerPanel from './gcp/GcpTriggerPanelV2.svelte'
+	import ScheduledPollPanel from './scheduled/ScheduledPollPanel.svelte'
 
 	export let noEditor: boolean
 	export let newItem = false
@@ -408,6 +409,8 @@
 												config = detail
 											}}
 										/>
+									{:else if $selectedTrigger.type === 'poll'}
+										<ScheduledPollPanel />
 									{:else if $selectedTrigger.isDraft}
 										<h3 class="text-sm font-medium"
 											>Configure new {$selectedTrigger.type} trigger</h3
@@ -429,7 +432,7 @@
 					</div>
 				</div>
 			</Pane>
-			{#if $selectedTrigger && $selectedTrigger.type !== 'schedule'}
+			{#if $selectedTrigger && $selectedTrigger.type !== 'schedule' && $selectedTrigger.type != 'poll'}
 				<Pane>
 					<div class="h-full w-full overflow-auto px-4" style="scrollbar-gutter: stable">
 						{#if $selectedTrigger && $selectedTrigger?.type && captureKind}

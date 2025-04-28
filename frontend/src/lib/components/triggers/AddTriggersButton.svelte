@@ -50,6 +50,7 @@
 			displayName: 'Scheduled Poll',
 			action: (e) => {
 				e.preventDefault()
+				addDraftTrigger('poll')
 				dispatch('addScheduledPoll')
 			},
 			icon: SchedulePollIcon
