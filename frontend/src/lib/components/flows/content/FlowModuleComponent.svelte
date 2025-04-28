@@ -146,7 +146,10 @@
 		}
 	}
 	let inputTransformSchemaForm: InputTransformSchemaForm | undefined = undefined
+
+	let reloadError: string | undefined = undefined
 	async function reload(flowModule: FlowModule) {
+		reloadError = undefined
 		try {
 			const { input_transforms, schema } = await loadSchemaFromModule(flowModule)
 			validCode = true
@@ -189,6 +192,7 @@
 			}
 		} catch (e) {
 			validCode = false
+			reloadError = e?.message
 		}
 	}
 
@@ -477,6 +481,12 @@
 													error={failureModule}
 													noPadding
 												>
+													{#if reloadError}
+														<div
+															title={reloadError}
+															class="absolute left-2 top-2 rounded-full w-2 h-2 bg-red-300"
+														></div>
+													{/if}
 													<InputTransformSchemaForm
 														class="px-1 xl:px-2"
 														bind:this={inputTransformSchemaForm}
