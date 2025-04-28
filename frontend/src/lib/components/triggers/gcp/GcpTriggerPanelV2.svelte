@@ -7,7 +7,7 @@
 	import GcpTriggerEditorInner from './GcpTriggerEditorInner.svelte'
 
 	let { selectedTrigger, isFlow, path, edit, isDeployed = false, isEditor } = $props()
-	let gcpTriggerEditor = $state(undefined)
+	let gcpTriggerEditor: GcpTriggerEditorInner | undefined = $state(undefined)
 
 	async function openGcpTriggerEditor(isFlow: boolean, isDraft: boolean) {
 		if (isDraft) {
