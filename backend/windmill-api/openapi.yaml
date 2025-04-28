@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.483.1
+  version: 1.483.2
   title: Windmill API
 
   contact:
@@ -9539,7 +9539,7 @@ paths:
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/NewGcpTrigger"
+              $ref: "#/components/schemas/GcpTriggerData"
       responses:
         "201":
           description: gcp trigger created
@@ -9563,7 +9563,7 @@ paths:
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/EditGcpTrigger"
+              $ref: "#/components/schemas/GcpTriggerData"
       responses:
         "200":
           description: gcp trigger updated
@@ -9757,7 +9757,7 @@ paths:
                 type: array
                 items:
                   type: string
-  
+
   /w/{workspace}/gcp_triggers/subscriptions/list/{path}:
     post:
       summary: list all subscription of a give topic from google cloud service
@@ -14132,7 +14132,7 @@ components:
           csharp,
           nu,
           java
-          # for related places search: ADD_NEW_LANG 
+          # for related places search: ADD_NEW_LANG
         ]
 
     Preview:
@@ -15045,8 +15045,6 @@ components:
           type: string
         authenticate:
           type: boolean
-        base_endpoint:
-          type: string
       required:
         - authenticate
         - base_endpoint
@@ -15068,6 +15066,8 @@ components:
           $ref: "#/components/schemas/DeliveryType"
         delivery_config:
           $ref: "#/components/schemas/PushConfig"
+        subscription_mode:
+          $ref: "#/components/schemas/SubscriptionMode"
         last_server_ping:
           type: string
           format: date-time
@@ -15081,7 +15081,9 @@ components:
         - subscription_id
         - enabled
         - delivery_type
-  
+        - subscription_mode
+
+
     SubscriptionMode:
       type: string
       enum:
@@ -15089,55 +15091,24 @@ components:
         - create_update
       description: "The mode of subscription. 'existing' means using an existing GCP subscription, while 'create_update' involves creating or updating a new subscription."
 
-    GcpExistingSubscription:
+
+    GcpTriggerData:
       type: object
       properties:
+        gcp_resource_path:
+          type: string
+        subscription_mode:
+          $ref: "#/components/schemas/SubscriptionMode"
+        topic_id:
+          type: string
         subscription_id:
           type: string
         base_endpoint:
-          type: string
-      required:
-        - subscription_id
-        - base_endpoint
-    
-    GcpCreateUpdateSubscription:
-      type: object
-      properties:
-        subscription_id:
           type: string
         delivery_type:
           $ref: "#/components/schemas/DeliveryType"
         delivery_config:
           $ref: "#/components/schemas/PushConfig"
-      required:
-        - delivery_type
-
-
-    GcpSubscriptionModeConfig:
-      type: object
-      properties:
-        subscription_mode:
-          $ref: "#/components/schemas/SubscriptionMode"
-      required:
-        - subscription_mode
-      allOf:
-        - oneOf:
-            - $ref: "#/components/schemas/GcpExistingSubscription"
-            - $ref: "#/components/schemas/GcpCreateUpdateSubscription"
-      description: |
-        "This is a union type representing the subscription mode. 
-         - 'existing': Represents an existing GCP subscription, and should be accompanied by an 'ExistingGcpSubscription' object.
-         - 'create_update': Represents a new or updated GCP subscription, and should be accompanied by a 'CreateUpdateConfig' object."
-  
-    NewGcpTrigger:
-      type: object
-      properties:
-        gcp_resource_path:
-          type: string
-        topic_id:
-          type: string
-        subscription_mode:
-          $ref: "#/components/schemas/GcpSubscriptionModeConfig"
         path:
           type: string
         script_path:
@@ -15151,34 +15122,6 @@ components:
         - script_path
         - is_flow
         - gcp_resource_path
-        - topic_id
-        - subscription_mode
-
-    EditGcpTrigger:
-      type: object
-      properties:
-        gcp_resource_path:
-          type: string
-        topic_id:
-          type: string
-        subscription_mode:
-          $ref: "#/components/schemas/GcpSubscriptionModeConfig"
-        path:
-          type: string
-        script_path:
-          type: string
-        is_flow:
-          type: boolean
-        enabled:
-          type: boolean
-      required:
-        - path
-        - script_path
-        - is_flow
-        - enabled
-        - mqtt_resource_path
-        - subscription_id
-        - delivery_type
         - topic_id
         - subscription_mode
 
@@ -15204,7 +15147,7 @@ components:
       enum:
         - oidc
         - credentials
-  
+
     SqsTrigger:
       allOf:
         - $ref: "#/components/schemas/TriggerExtraProperty"
@@ -16762,3 +16705,28 @@ components:
           type: string
       required:
         - s3
+
+    TeamsChannel:
+      type: object
+      required:
+        - team_id
+        - team_name
+        - channel_id
+        - channel_name
+      properties:
+        team_id:
+          type: string
+          description: Microsoft Teams team ID
+          minLength: 1
+        team_name:
+          type: string
+          description: Microsoft Teams team name
+          minLength: 1
+        channel_id:
+          type: string
+          description: Microsoft Teams channel ID
+          minLength: 1
+        channel_name:
+          type: string
+          description: Microsoft Teams channel name
+          minLength: 1
