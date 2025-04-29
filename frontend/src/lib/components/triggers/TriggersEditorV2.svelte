@@ -519,147 +519,19 @@
 									out:fade={{ duration: 100 }}
 									class="h-full w-full"
 								>
-									{#if captureKind === 'webhook'}
-										<CaptureWrapper
-											path={initialPath || fakeInitialPath}
-											{isFlow}
-											captureType={captureKind}
-											{hasPreprocessor}
-											{canHavePreprocessor}
-											args={{}}
-											data={{ args, hash }}
-											on:applyArgs
-											on:updateSchema
-											on:addPreprocessor
-											on:testWithArgs
-										/>
-									{:else if captureKind === 'http'}
-										<CaptureWrapper
-											path={initialPath || fakeInitialPath}
-											{isFlow}
-											captureType={captureKind}
-											{hasPreprocessor}
-											{canHavePreprocessor}
-											args={config}
-											data={{ args }}
-											on:applyArgs
-											on:updateSchema
-											on:addPreprocessor
-											on:testWithArgs
-										/>
-									{:else if captureKind === 'websocket'}
-										<CaptureWrapper
-											path={initialPath || fakeInitialPath}
-											{isFlow}
-											captureType={captureKind}
-											{hasPreprocessor}
-											{canHavePreprocessor}
-											args={config}
-											data={{ args }}
-											on:applyArgs
-											on:updateSchema
-											on:addPreprocessor
-											on:testWithArgs
-										/>
-									{:else if captureKind === 'kafka'}
-										<CaptureWrapper
-											path={initialPath || fakeInitialPath}
-											{isFlow}
-											captureType={captureKind}
-											{hasPreprocessor}
-											{canHavePreprocessor}
-											args={config}
-											data={{ args }}
-											on:applyArgs
-											on:updateSchema
-											on:addPreprocessor
-											on:testWithArgs
-										/>
-									{:else if captureKind === 'postgres'}
-										<CaptureWrapper
-											path={initialPath || fakeInitialPath}
-											{isFlow}
-											captureType={captureKind}
-											{hasPreprocessor}
-											{canHavePreprocessor}
-											args={config}
-											data={{ args }}
-											on:applyArgs
-											on:updateSchema
-											on:addPreprocessor
-											on:testWithArgs
-										/>
-									{:else if captureKind === 'nats'}
-										<CaptureWrapper
-											path={initialPath || fakeInitialPath}
-											{isFlow}
-											captureType={captureKind}
-											{hasPreprocessor}
-											{canHavePreprocessor}
-											args={config}
-											data={{ args }}
-											on:applyArgs
-											on:updateSchema
-											on:addPreprocessor
-											on:testWithArgs
-										/>
-									{:else if captureKind === 'email'}
-										<CaptureWrapper
-											path={initialPath || fakeInitialPath}
-											{isFlow}
-											captureType={captureKind}
-											{hasPreprocessor}
-											{canHavePreprocessor}
-											args={{}}
-											data={{ emailDomain: config.emailDomain }}
-											on:applyArgs
-											on:updateSchema
-											on:addPreprocessor
-											on:testWithArgs
-										/>
-									{:else if captureKind === 'mqtt'}
-										<CaptureWrapper
-											path={initialPath || fakeInitialPath}
-											{isFlow}
-											captureType={captureKind}
-											{hasPreprocessor}
-											{canHavePreprocessor}
-											args={config}
-											data={{ args }}
-											on:applyArgs
-											on:updateSchema
-											on:addPreprocessor
-											on:testWithArgs
-										/>
-									{:else if captureKind === 'sqs'}
-										<CaptureWrapper
-											path={initialPath || fakeInitialPath}
-											{isFlow}
-											captureType={captureKind}
-											{hasPreprocessor}
-											{canHavePreprocessor}
-											args={config}
-											data={{ args }}
-											on:applyArgs
-											on:updateSchema
-											on:addPreprocessor
-											on:testWithArgs
-										/>
-									{:else if captureKind === 'gcp'}
-										<CaptureWrapper
-											path={initialPath || fakeInitialPath}
-											{isFlow}
-											captureType={captureKind}
-											{hasPreprocessor}
-											{canHavePreprocessor}
-											args={config}
-											data={{ args }}
-											on:applyArgs
-											on:updateSchema
-											on:addPreprocessor
-											on:testWithArgs
-										/>
-									{/if}
+									<CaptureWrapper
+										path={initialPath || fakeInitialPath}
+										{isFlow}
+										captureType={captureKind}
+										{hasPreprocessor}
+										{canHavePreprocessor}
+										args={{}}
+										data={{ args, hash }}
+										on:applyArgs
+										on:updateSchema
+										on:addPreprocessor
+										on:testWithArgs
+									/>
 								</div>
 							{/key}
 						{/if}
