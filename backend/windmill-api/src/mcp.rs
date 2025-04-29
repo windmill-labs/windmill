@@ -35,8 +35,18 @@ use windmill_common::utils::{query_elems_from_hub, StripPath};
 pub struct Runner {}
 
 #[derive(Serialize, Deserialize, Debug)]
-struct HubResponse {
-    asks: Vec<HubScriptInfo>,
+#[serde(untagged)]
+enum HubResponse {
+    Scripts { asks: Vec<HubScriptInfo> },
+    Flows { flows: Vec<HubFlowInfo> },
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+struct HubFlowInfo {
+    flow_id: u64,
+    summary: Option<String>,
+    description: Option<String>,
+    schema: Option<Value>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -138,7 +148,7 @@ impl Runner {
         Ok(item.schema)
     }
 
-    fn transform_path(path: &str, type_str: &str) -> Result<String, String> {
+    fn transform_path(path: &str, type_str: &str, is_hub: bool) -> Result<String, String> {
         if type_str != "script" && type_str != "flow" {
             return Err(format!("Invalid type: {}", type_str));
         }
@@ -152,16 +162,21 @@ impl Runner {
         };
 
         // first letter of type_str is used as prefix, only one letter to avoid reaching 60 char name limit
-        Ok(format!("{}-{}", &type_str[..1], transformed))
+        Ok(format!(
+            "{}{}-{}",
+            if is_hub { "h" } else { "" },
+            &type_str[..1],
+            transformed
+        ))
     }
 
-    fn reverse_transform(transformed_path: &str) -> Result<(&str, String), String> {
+    fn reverse_transform(transformed_path: &str) -> Result<(&str, String, bool), String> {
+        let is_hub = transformed_path.starts_with("h");
+        let transformed_path = transformed_path.replace("h", "");
         let type_str = if transformed_path.starts_with("s-") {
             "script"
         } else if transformed_path.starts_with("f-") {
             "flow"
-        } else if transformed_path.starts_with("h-") {
-            "hub"
         } else {
             return Err(format!(
                 "Invalid prefix in transformed path: {}",
@@ -183,7 +198,7 @@ impl Runner {
             mangled_path.replacen('_', "/", 2)
         };
 
-        Ok((type_str, original_path))
+        Ok((type_str, original_path, is_hub))
     }
 
     async fn inner_get_resources_types(
@@ -297,22 +312,33 @@ impl Runner {
         Ok(rows)
     }
 
-    async fn inner_get_scripts_from_hub(db: &DB) -> Result<Vec<HubScriptInfo>, Error> {
-        let query_params = vec![
-            ("limit", "100".to_string()),
-            ("with_schema", "true".to_string()),
-        ];
-        let (_status_code, _headers, response) = query_elems_from_hub(
-            &HTTP_CLIENT,
-            &format!("{}/scripts/top", *HUB_BASE_URL.read().await),
-            Some(query_params),
-            &db,
-        )
-        .await
-        .map_err(|e| {
-            tracing::error!("Failed to get scripts from hub: {}", e);
-            Error::internal_error(format!("Failed to get scripts from hub: {}", e), None)
-        })?;
+    async fn inner_get_items_from_hub<T>(db: &DB, item_type: &str) -> Result<Vec<T>, Error>
+    where
+        T: for<'a> serde::Deserialize<'a>,
+    {
+        let query_params = match item_type {
+            "script" => Some(vec![
+                ("limit", "100".to_string()),
+                ("with_schema", "true".to_string()),
+            ]),
+            "flow" => None,
+            _ => return Err(Error::internal_error("Invalid item type", None)),
+        };
+        let url = match item_type {
+            "script" => format!("{}/scripts/top", *HUB_BASE_URL.read().await),
+            "flow" => format!(
+                "{}/searchFlowData?approved=true",
+                *HUB_BASE_URL.read().await
+            ),
+            _ => return Err(Error::internal_error("Invalid item type", None)),
+        };
+        let (_status_code, _headers, response) =
+            query_elems_from_hub(&HTTP_CLIENT, &url, query_params, &db)
+                .await
+                .map_err(|e| {
+                    tracing::error!("Failed to get items from hub: {}", e);
+                    Error::internal_error(format!("Failed to get items from hub: {}", e), None)
+                })?;
         let body_bytes = to_bytes(response, usize::MAX).await.map_err(|e| {
             tracing::error!("Failed to read response body: {}", e);
             Error::internal_error(format!("Failed to read response body: {}", e), None)
@@ -322,12 +348,34 @@ impl Runner {
             Error::internal_error(format!("Failed to decode response body: {}", e), None)
         })?;
         let hub_response: HubResponse = serde_json::from_str(&body_str).map_err(|e| {
-            tracing::error!("Failed to parse scripts: {}", e);
-            Error::internal_error(format!("Failed to parse scripts: {}", e), None)
+            tracing::error!("Failed to parse hub response for type {}: {}", item_type, e);
+            Error::internal_error(
+                format!("Failed to parse hub response for type {}: {}", item_type, e),
+                None,
+            )
         })?;
-        let scripts = hub_response.asks;
-        println!("scripts: {:#?}", scripts);
-        Ok(scripts)
+
+        println!("hub_response: {:#?}", hub_response);
+
+        // Extract the items and convert to a common JSON value
+        let items_json_value = match hub_response {
+            HubResponse::Scripts { asks } => serde_json::to_value(asks).map_err(|e| {
+                tracing::error!("Failed to serialize asks: {}", e);
+                Error::internal_error(format!("Failed to serialize asks: {}", e), None)
+            })?,
+            HubResponse::Flows { flows } => serde_json::to_value(flows).map_err(|e| {
+                tracing::error!("Failed to serialize flows: {}", e);
+                Error::internal_error(format!("Failed to serialize flows: {}", e), None)
+            })?,
+        };
+
+        // Convert the JSON value to the target type
+        let target_items: Vec<T> = serde_json::from_value(items_json_value).map_err(|e| {
+            tracing::error!("Failed to deserialize to target type: {}", e);
+            Error::internal_error(format!("Failed to deserialize to target type: {}", e), None)
+        })?;
+
+        Ok(target_items)
     }
 
     fn transform_value_if_object(
@@ -588,10 +636,16 @@ impl ServerHandler for Runner {
             .ok_or_else(|| Error::internal_error("UserDB not found", None))?;
         let args = parse_args(request.arguments)?;
 
-        let (tool_type, path) = Runner::reverse_transform(&request.name).unwrap_or_default();
+        let (tool_type, path, is_hub) =
+            Runner::reverse_transform(&request.name).unwrap_or_default();
 
-        let item_schema = if tool_type == "hub" {
-            Runner::get_hub_script_by_path(&format!("hub/{}", path), db).await?
+        let item_schema = if is_hub {
+            if tool_type == "script" {
+                Runner::get_hub_script_by_path(&format!("hub/{}", path), db).await?
+            } else {
+                // TODO: get hub flow by id
+                Runner::get_hub_script_by_path(&format!("hub/{}", path), db).await?
+            }
         } else {
             Runner::get_item_schema(&path, user_db, authed, &context.workspace_id, &tool_type)
                 .await?
@@ -613,7 +667,7 @@ impl ServerHandler for Runner {
         let push_args = if let Value::Object(map) = args.clone() {
             let mut args_hash = HashMap::new();
             for (k, v) in map {
-                // need to transform back the key to the original key
+                // need to transform back the key without invalid characters to the original key
                 let original_key = Runner::reverse_transform_key(&k, &schema_obj);
 
                 // object properties are transformed to string because some client does not support object, might change in the future
@@ -626,14 +680,14 @@ impl ServerHandler for Runner {
         };
 
         let w_id = context.workspace_id.clone();
-        let script_or_flow_path = if tool_type == "hub" {
+        let script_or_flow_path = if is_hub {
             StripPath(format!("hub/{}", path))
         } else {
             StripPath(path)
         };
         let run_query = RunJobQuery::default();
 
-        let result = if tool_type == "script" || tool_type == "hub" {
+        let result = if tool_type == "script" {
             run_wait_result_script_by_path_internal(
                 db.clone(),
                 run_query,
@@ -712,15 +766,21 @@ impl ServerHandler for Runner {
         let flows_fn =
             Runner::inner_get_items::<FlowInfo>(user_db, authed, &workspace_id, scope_type, "flow");
         let resources_types_fn = Runner::inner_get_resources_types(user_db, authed, &workspace_id);
-        let hub_scripts_fn = Runner::inner_get_scripts_from_hub(db);
-        let (scripts, flows, resources_types, hub_scripts) =
-            try_join!(scripts_fn, flows_fn, resources_types_fn, hub_scripts_fn)?;
+        let hub_scripts_fn = Runner::inner_get_items_from_hub::<HubScriptInfo>(db, "script");
+        let hub_flows_fn = Runner::inner_get_items_from_hub::<HubFlowInfo>(db, "flow");
+        let (scripts, flows, resources_types, hub_scripts, hub_flows) = try_join!(
+            scripts_fn,
+            flows_fn,
+            resources_types_fn,
+            hub_scripts_fn,
+            hub_flows_fn
+        )?;
 
         let mut resources_cache: HashMap<String, Vec<ResourceInfo>> = HashMap::new();
 
         let mut script_tools: Vec<Tool> = Vec::with_capacity(scripts.len());
         for script in scripts {
-            let name = Runner::transform_path(&script.path, "script").unwrap_or_default();
+            let name = Runner::transform_path(&script.path, "script", false).unwrap_or_default();
             let description = format!(
                 "This is a script named `{}` with the following description: `{}`.",
                 script.summary.as_deref().unwrap_or("No summary"),
@@ -756,7 +816,7 @@ impl ServerHandler for Runner {
 
         let mut flow_tools: Vec<Tool> = Vec::with_capacity(flows.len());
         for flow in flows {
-            let name = Runner::transform_path(&flow.path, "flow").unwrap_or_default();
+            let name = Runner::transform_path(&flow.path, "flow", false).unwrap_or_default();
             let description = format!(
                 "This is a flow named `{}` with the following description: `{}`.",
                 flow.summary.as_deref().unwrap_or("No summary"),
@@ -792,7 +852,8 @@ impl ServerHandler for Runner {
 
         let mut hub_script_tools: Vec<Tool> = Vec::with_capacity(hub_scripts.len());
         for hub_script in hub_scripts {
-            let name = format!("h-{}", hub_script.version_id);
+            let name = Runner::transform_path(&hub_script.version_id.to_string(), "script", true)
+                .unwrap_or_default();
             let description = format!(
                 "This is a script named `{}` with the following description: `{}`.",
                 hub_script.summary.as_deref().unwrap_or("No summary"),
@@ -817,7 +878,32 @@ impl ServerHandler for Runner {
             });
         }
 
-        let tools = [script_tools, flow_tools, hub_script_tools].concat();
+        let mut hub_flow_tools: Vec<Tool> = Vec::with_capacity(hub_flows.len());
+        for hub_flow in hub_flows {
+            let name = Runner::transform_path(&hub_flow.flow_id.to_string(), "flow", true)
+                .unwrap_or_default();
+            let description = format!(
+                "This is a flow named `{}` with the following description: `{}`.",
+                hub_flow.summary.as_deref().unwrap_or("No summary"),
+                hub_flow.description.as_deref().unwrap_or("No description")
+            );
+            hub_flow_tools.push(Tool {
+                name: Cow::Owned(name.to_string()),
+                description: Some(Cow::Owned(description)),
+                input_schema: {
+                    let default_schema = SchemaType::default();
+                    let value = serde_json::to_value(default_schema).unwrap_or_default();
+                    if let serde_json::Value::Object(map) = value {
+                        Arc::new(map)
+                    } else {
+                        Arc::new(serde_json::Map::new())
+                    }
+                },
+                annotations: None,
+            });
+        }
+
+        let tools = [script_tools, flow_tools, hub_script_tools, hub_flow_tools].concat();
         Ok(ListToolsResult { tools, next_cursor: None })
     }
 

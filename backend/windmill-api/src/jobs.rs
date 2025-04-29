@@ -4158,6 +4158,8 @@ pub async fn run_wait_result(
     let (result, success) =
         run_wait_result_internal(db, uuid, w_id, node_id_for_empty_return, username).await?;
 
+    println!("run_wait_result done");
+
     let composite_result = serde_json::from_str::<WindmillCompositeResult>(result.get());
     match composite_result {
         Ok(WindmillCompositeResult {
@@ -4174,6 +4176,7 @@ pub async fn run_wait_result(
                     if success {
                         StatusCode::OK
                     } else {
+                        println!("run_wait_result error: {}", success);
                         StatusCode::INTERNAL_SERVER_ERROR
                     },
                     Json(result),
