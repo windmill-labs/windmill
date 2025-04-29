@@ -115,6 +115,7 @@
 			initialPath = ''
 			dirtyPath = false
 			defaultValues = nDefaultValues
+			toggleEditMode(true)
 		} finally {
 			clearTimeout(loadingTimeout)
 			drawerLoading = false

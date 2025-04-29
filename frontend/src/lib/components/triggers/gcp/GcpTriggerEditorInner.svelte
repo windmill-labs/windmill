@@ -125,6 +125,7 @@
 			edit = false
 			isDraft = true
 			dirtyPath = false
+			toggleEditMode(true)
 		} finally {
 			drawerLoading = false
 		}

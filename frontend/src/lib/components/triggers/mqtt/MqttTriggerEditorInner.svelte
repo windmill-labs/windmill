@@ -124,6 +124,7 @@
 			dirtyPath = false
 			client_version = defaultValues?.client_version ?? 'v5'
 			client_id = defaultValues?.client_id ?? ''
+			toggleEditMode(true)
 		} finally {
 			clearTimeout(loadingTimeout)
 			drawerLoading = false
