@@ -164,7 +164,7 @@ pub async fn cancel_single_job<'c>(
         let username = username.to_string();
         let w_id = w_id.to_string();
         let db = db.clone();
-        tracing::info!("cancelling job {:?}", db);
+        tracing::info!("cancelling job {:?}", job_running.id);
         let job_running = job_running.clone();
         tokio::task::spawn(async move {
             let reason: String = reason
