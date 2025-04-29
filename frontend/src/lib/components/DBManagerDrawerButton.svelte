@@ -229,7 +229,6 @@
 								})
 							]}
 							{refresh}
-							{refreshCount}
 							dbTableEditorPropsFactory={({ selectedSchemaKey }) => ({
 								resourceType,
 								previewSql: (values) =>

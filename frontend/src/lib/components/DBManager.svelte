@@ -19,7 +19,6 @@
 		dbTableOpsFactory: (params: { colDefs: ColumnDef[]; tableKey: string }) => IDbTableOps
 		dbTableActionsFactory?: DbTableActionFactory[]
 		refresh?: () => void
-		refreshCount?: number
 		dbTableEditorPropsFactory?: (params: { selectedSchemaKey?: string }) => DBTableEditorProps
 	}
 	let {
@@ -29,8 +28,7 @@
 		dbTableActionsFactory,
 		refresh,
 		dbTableEditorPropsFactory,
-		dbSupportsSchemas,
-		refreshCount
+		dbSupportsSchemas
 	}: Props = $props()
 
 	let schemaKeys = $derived(Object.keys(dbSchema.schema))
