@@ -318,7 +318,7 @@ async fn windmill_main() -> anyhow::Result<()> {
         .ok()
         .and_then(|x| x.parse::<bool>().ok())
         .unwrap_or(false)
-        && (mode == Mode::Server || mode == Mode::Standalone || mode == Mode::MCP);
+        && (mode == Mode::Server || mode == Mode::Standalone);
 
     let indexer_mode = mode == Mode::Indexer;
     let mcp_mode = mode == Mode::MCP;
@@ -446,7 +446,7 @@ Windmill Community Edition {GIT_VERSION}
         if !valid_key && !server_mode {
             tracing::error!("Invalid license key, workers require a valid license key");
         }
-        if server_mode {
+        if server_mode || mcp_mode {
             if let Some(db) = conn.as_sql() {
                 // only force renewal if invalid but not empty (= expired)
                 let renewed_now = maybe_renew_license_key_on_start(
@@ -466,10 +466,10 @@ Windmill Community Edition {GIT_VERSION}
         }
     }
 
-    if server_mode || worker_mode || indexer_mode {
+    if server_mode || worker_mode || indexer_mode || mcp_mode {
         let port_var = std::env::var("PORT").ok().and_then(|x| x.parse().ok());
 
-        let port = if server_mode || indexer_mode {
+        let port = if server_mode || indexer_mode || mcp_mode {
             port_var.unwrap_or(DEFAULT_PORT as u16)
         } else {
             port_var.unwrap_or(0)
