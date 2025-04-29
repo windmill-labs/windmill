@@ -278,7 +278,7 @@ ORDER BY
 	where table_name = '${table.split('.').reverse()[0]}' and table_schema = '${
 		table.split('.').reverse()[1] ?? 'PUBLIC'
 	}'`
-			: ''
+			: "\nwhere table_schema <> 'INFORMATION_SCHEMA'\n"
 	}
 	order by ORDINAL_POSITION;
 	`
