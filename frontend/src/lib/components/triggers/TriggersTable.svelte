@@ -75,7 +75,7 @@
 					on:click={() => selectTrigger(trigger)}
 				>
 					<td class="w-12 text-center py-2 px-2">
-						<div class="flex justify-center items-center">
+						<div class="relative flex justify-center items-center">
 							<svelte:component
 								this={triggerIconMap[trigger.type]}
 								size={16}
