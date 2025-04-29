@@ -19,8 +19,6 @@
 			scheduleEditor &&
 			openScheduleEditor(isFlow, selectedTrigger.isDraft ?? false)
 	})
-
-	$inspect('dbg inspect', selectedTrigger?.isDraft)
 </script>
 
 <ScheduleEditor
