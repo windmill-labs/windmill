@@ -8,8 +8,8 @@
 	import type { CaptureInfo } from '../CaptureSectionV2.svelte'
 	import CaptureSection from '../CaptureSectionV2.svelte'
 	import CaptureTable from '../CaptureTable.svelte'
-	import ClipboardPanel from '../../details/ClipboardPanel.svelte'
 	import { isObject } from '$lib/utils'
+	import { Url } from '$lib/components/common'
 
 	export let route_path: string | undefined
 	export let http_method: 'get' | 'post' | 'put' | 'patch' | 'delete' | undefined
@@ -53,9 +53,8 @@
 				Start capturing to listen to HTTP requests on this test URL.
 			{/if}
 		</svelte:fragment>
-		<Label label="Test URL" disabled={!captureInfo.active}>
-			<ClipboardPanel content={captureURL} disabled={!captureInfo.active} />
-		</Label>
+
+		<Url url={captureURL} label="Test URL" />
 
 		<Label label="Example cURL" disabled={!captureInfo.active}>
 			<CopyableCodeBlock

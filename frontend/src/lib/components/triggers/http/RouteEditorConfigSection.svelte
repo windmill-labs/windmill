@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { Alert, Badge } from '$lib/components/common'
+	import { Alert, Url } from '$lib/components/common'
 	import Required from '$lib/components/Required.svelte'
 	import Section from '$lib/components/Section.svelte'
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
@@ -185,14 +185,8 @@
 				<ToggleButton label="DELETE" value="delete" {item} {disabled} />
 			</ToggleButtonGroup>
 			<div class="flex flex-col w-full">
-				<div class="flex justify-start w-full">
-					<Badge color="gray" class="rounded-r-none h-[27px]">Production URL</Badge>
+				<Url url={selectedRoute === 'full' ? fullRoute : captureURL} label="Production URL" />
 
-					<ClipboardPanel
-						content={selectedRoute === 'full' ? fullRoute : captureURL}
-						class="rounded-l-none bg-surface border-none outline outline-2 outline-surface-secondary outline-offset-[-2px]"
-					/>
-				</div>
 				<div class="text-red-600 dark:text-red-400 text-2xs mt-1.5"
 					>{dirtyRoutePath ? routeError : ''}</div
 				>
