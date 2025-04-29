@@ -27,7 +27,7 @@
 	import { Popover } from '$lib/components/meltComponents'
 	import { CaptureService } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
-	import { sendUserToast } from '$lib/utils'
+	import { isObject, sendUserToast } from '$lib/utils'
 	import CustomPopover from '$lib/components/CustomPopover.svelte'
 	import { triggerIconMap } from './utils'
 	import { formatDateShort } from '$lib/utils'
@@ -375,14 +375,18 @@
 							}
 						].filter((item) => !item.hidden)}
 						on:click={async () => {
-							if (!lastCapture) return
+							if (!selectedCapture) return
 							const payloadData = selectedCapture?.payload ?? {}
 							if (isFlow && testKind === 'main') {
 								dispatch('testWithArgs', payloadData)
 							} else {
+								const trigger_extra = isObject(selectedCapture.trigger_extra)
+									? selectedCapture.trigger_extra
+									: {}
+
 								dispatch('applyArgs', {
 									kind: testKind,
-									args: payloadData
+									args: { ...structuredClone(payloadData), ...trigger_extra }
 								})
 							}
 						}}
@@ -394,7 +398,7 @@
 								: 'Apply args to inputs'}
 						startIcon={isFlow && testKind === 'main' ? { icon: Play } : {}}
 					>
-						{isFlow && testKind === 'main' ? 'Test args' : 'Apply args'}
+						{isFlow && testKind === 'main' ? 'Test args' : 'Apply args to preprocessor'}
 					</Button>
 				{/if}
 			</div>
