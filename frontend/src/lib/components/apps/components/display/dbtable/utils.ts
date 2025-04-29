@@ -228,7 +228,7 @@ async function makeLoadTableMetaDataQuery(
 	WHERE c.relkind = 'r' AND a.attnum > 0 AND NOT a.attisdropped
 		AND ns.nspname != 'pg_catalog' AND ns.nspname != 'information_schema'`
 	}
-	ORDER BY ns.nspname, c.relname, a.attnum;
+	ORDER BY ${table ? 'a.attnum' : 'ns.nspname, c.relname, a.attnum'};
 	
 	`
 	} else if (resourceType === 'ms_sql_server') {
