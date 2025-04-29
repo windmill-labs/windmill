@@ -5,4 +5,4 @@ httpcore==1.0.2
 httpx==0.26.0
 idna==3.6
 sniffio==1.3.0
-docker=7.1.0
+docker==7.1.0
