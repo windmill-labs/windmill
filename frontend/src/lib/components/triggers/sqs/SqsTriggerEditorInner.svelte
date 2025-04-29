@@ -6,7 +6,7 @@
 	import { usedTriggerKinds, userStore, workspaceStore } from '$lib/stores'
 	import { canWrite, emptyString, sendUserToast } from '$lib/utils'
 	import { createEventDispatcher } from 'svelte'
-	import { Loader2, Save, X, Pen } from 'lucide-svelte'
+	import { Loader2, Save, X, Pen, Trash } from 'lucide-svelte'
 	import Label from '$lib/components/Label.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import { SqsTriggerService, type AwsAuthResourceType } from '$lib/gen'
@@ -58,6 +58,7 @@
 	let aws_auth_resource_type: AwsAuthResourceType = $state('credentials')
 	let isValid = $state(false)
 	let resetEditMode = $state<(() => void) | undefined>(undefined)
+	let isDraft = $state(false)
 
 	const dispatch = createEventDispatcher()
 
@@ -76,6 +77,7 @@
 			initialPath = ePath
 			itemKind = isFlow ? 'flow' : 'script'
 			edit = true
+			isDraft = false
 			dirtyPath = false
 			await loadTrigger()
 		} catch (err) {
@@ -110,6 +112,7 @@
 			aws_auth_resource_type = defaultValues?.aws_auth_resource_type ?? 'credentials'
 			initialPath = ''
 			edit = false
+			isDraft = true
 			dirtyPath = false
 		} finally {
 			clearTimeout(loadingTimeout)
@@ -222,9 +225,21 @@
 {/if}
 
 {#snippet actionsButtons(size: 'xs' | 'sm' = 'sm')}
-	{#if !drawerLoading}
+	{#if !drawerLoading && can_write}
 		<div class="flex flex-row gap-2 items-center">
-			{#if edit}
+			{#if isDraft}
+				<Button
+					{size}
+					startIcon={{ icon: Trash }}
+					iconOnly
+					color={'light'}
+					on:click={() => {
+						dispatch('delete')
+					}}
+					btnClasses="hover:bg-red-500 hover:text-white"
+				/>
+			{/if}
+			{#if !isDraft && edit}
 				<div class={twMerge('center-center', size === 'sm' ? '-mt-1' : '')}>
 					<Toggle
 						{size}

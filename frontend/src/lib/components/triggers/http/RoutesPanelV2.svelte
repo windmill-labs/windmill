@@ -33,6 +33,7 @@
 	showCapture
 	editMode={edit}
 	on:toggle-edit-mode
+	on:delete
 	preventSave={!isDeployed}
 	customLabel={small ? customLabel : undefined}
 >

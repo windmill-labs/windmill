@@ -91,6 +91,18 @@
 		}
 	}
 
+	function deleteDraftTrigger(trigger: Trigger | undefined) {
+		if (!trigger) {
+			return
+		}
+		deleteDraft(triggers, trigger)
+		if ($triggers.length > 0) {
+			$selectedTrigger = $triggers[$triggers.length - 1]
+		} else {
+			$selectedTrigger = undefined
+		}
+	}
+
 	$: updateEditTrigger($selectedTrigger)
 
 	$: useVerticalTriggerBar = width < 800
@@ -113,10 +125,7 @@
 									$selectedTrigger = newTrigger
 								}}
 								on:deleteDraft={({ detail }) => {
-									deleteDraft(triggers, detail.trigger)
-									if ($triggers.length > 0) {
-										$selectedTrigger = $triggers[$triggers.length - 1]
-									}
+									deleteDraftTrigger(detail.trigger)
 								}}
 								on:edit={({ detail }) => {
 									editTrigger = detail
@@ -188,6 +197,9 @@
 													isFlow,
 													$userStore
 												)
+											}}
+											on:delete={() => {
+												deleteDraftTrigger($selectedTrigger)
 											}}
 											on:toggle-edit-mode={({ detail }) => {
 												editTrigger = detail ? $selectedTrigger : undefined
@@ -288,6 +300,9 @@
 													$userStore
 												)
 											}}
+											on:delete={() => {
+												deleteDraftTrigger($selectedTrigger)
+											}}
 											on:update-config={({ detail }) => {
 												config = detail
 											}}
@@ -311,6 +326,9 @@
 													$selectedTrigger.path = detail
 												}
 												fetchKafkaTriggers(triggers, $workspaceStore, currentPath, isFlow)
+											}}
+											on:delete={() => {
+												deleteDraftTrigger($selectedTrigger)
 											}}
 											on:update-config={({ detail }) => {
 												config = detail
@@ -342,6 +360,9 @@
 													$userStore
 												)
 											}}
+											on:delete={() => {
+												deleteDraftTrigger($selectedTrigger)
+											}}
 											on:update-config={({ detail }) => {
 												config = detail
 											}}
@@ -371,6 +392,9 @@
 													isFlow,
 													$userStore
 												)
+											}}
+											on:delete={() => {
+												deleteDraftTrigger($selectedTrigger)
 											}}
 											on:update-config={({ detail }) => {
 												config = detail
@@ -402,6 +426,9 @@
 													$userStore
 												)
 											}}
+											on:delete={() => {
+												deleteDraftTrigger($selectedTrigger)
+											}}
 											on:update-config={({ detail }) => {
 												config = detail
 											}}
@@ -424,6 +451,9 @@
 													$selectedTrigger.path = detail
 												}
 												fetchSqsTriggers(triggers, $workspaceStore, currentPath, isFlow, $userStore)
+											}}
+											on:delete={() => {
+												deleteDraftTrigger($selectedTrigger)
 											}}
 											on:update-config={({ detail }) => {
 												config = detail
@@ -448,6 +478,9 @@
 													$selectedTrigger.path = detail
 												}
 												fetchGcpTriggers(triggers, $workspaceStore, currentPath, isFlow, $userStore)
+											}}
+											on:delete={() => {
+												deleteDraftTrigger($selectedTrigger)
 											}}
 											on:update-config={({ detail }) => {
 												config = detail

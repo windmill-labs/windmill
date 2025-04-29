@@ -38,6 +38,7 @@
 			on:toggle-edit-mode
 			on:update-config
 			on:update
+			on:delete
 		>
 			{#snippet description()}
 				<Description link="https://www.windmill.dev/docs/core_concepts/mqtt_triggers">

@@ -10,7 +10,7 @@
 	import { canWrite, emptyString, emptyStringTrimmed, sendUserToast } from '$lib/utils'
 	import { createEventDispatcher } from 'svelte'
 	import Section from '$lib/components/Section.svelte'
-	import { Loader2, Save, X, Pen } from 'lucide-svelte'
+	import { Loader2, Save, X, Pen, Trash } from 'lucide-svelte'
 	import Label from '$lib/components/Label.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import ResourcePicker from '$lib/components/ResourcePicker.svelte'
@@ -82,6 +82,7 @@
 	let transactionType: string[] = ['Insert', 'Update', 'Delete']
 	let tab: 'advanced' | 'basic' = $state('basic')
 	let isLoading = $state(false)
+	let isDraft = $state(false)
 
 	async function createPublication() {
 		try {
@@ -143,6 +144,7 @@
 			initialPath = ePath
 			itemKind = isFlow ? 'flow' : 'script'
 			edit = true
+			isDraft = false
 			dirtyPath = false
 			selectedPublicationAction = 'get'
 			selectedSlotAction = 'get'
@@ -185,6 +187,7 @@
 			initialPath = ''
 			postgres_resource_path = defaultValues?.postgres_resource_path ?? ''
 			edit = false
+			isDraft = true
 			dirtyPath = false
 			publication_name = `windmill_publication_${random_adj()}`
 			replication_slot_name = `windmill_replication_${random_adj()}`
@@ -352,7 +355,19 @@
 {#snippet actions(size: 'xs' | 'sm' = 'sm')}
 	{#if !drawerLoading}
 		<div class="flex flex-row gap-2 items-center">
-			{#if edit}
+			{#if isDraft}
+				<Button
+					{size}
+					startIcon={{ icon: Trash }}
+					iconOnly
+					color={'light'}
+					on:click={() => {
+						dispatch('delete')
+					}}
+					btnClasses="hover:bg-red-500 hover:text-white"
+				/>
+			{/if}
+			{#if !isDraft && edit}
 				<div class={twMerge('center-center', size === 'sm' ? '-mt-1' : '')}>
 					<Toggle
 						{size}

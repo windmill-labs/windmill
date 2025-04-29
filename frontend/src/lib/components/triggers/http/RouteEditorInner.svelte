@@ -10,7 +10,7 @@
 	import { canWrite, emptyString, sendUserToast } from '$lib/utils'
 	import { createEventDispatcher } from 'svelte'
 	import Section from '$lib/components/Section.svelte'
-	import { Loader2, Save, Pipette, Plus, Pen, X } from 'lucide-svelte'
+	import { Loader2, Save, Pipette, Plus, Pen, X, Trash } from 'lucide-svelte'
 	import Label from '$lib/components/Label.svelte'
 	import VariableEditor from '../../VariableEditor.svelte'
 	import { json } from 'svelte-highlight/languages'
@@ -221,6 +221,7 @@
 		update: string
 		focus: undefined
 		blur: undefined
+		delete: undefined
 	}>()
 
 	async function loadTrigger(): Promise<void> {
@@ -722,6 +723,18 @@
 
 {#snippet saveButton(size: 'xs' | 'sm' = 'xs')}
 	<div class="flex flex-row gap-2 items-center">
+		{#if isDraft}
+			<Button
+				{size}
+				startIcon={{ icon: Trash }}
+				iconOnly
+				color={'light'}
+				on:click={() => {
+					dispatch('delete')
+				}}
+				btnClasses="hover:bg-red-500 hover:text-white"
+			/>
+		{/if}
 		{#if !drawerLoading && can_write && (isAdmin || edit) && !preventSave}
 			{#if editMode}
 				<Button {size} startIcon={{ icon: Save }} disabled={saveDisabled} on:click={triggerScript}>

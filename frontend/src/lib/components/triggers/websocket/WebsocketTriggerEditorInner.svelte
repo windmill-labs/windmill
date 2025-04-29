@@ -18,7 +18,7 @@
 	import { canWrite, emptySchema, emptyString, sendUserToast } from '$lib/utils'
 	import { createEventDispatcher } from 'svelte'
 	import Section from '$lib/components/Section.svelte'
-	import { Loader2, Save, X, Plus, Pen } from 'lucide-svelte'
+	import { Loader2, Save, X, Plus, Pen, Trash } from 'lucide-svelte'
 	import Label from '$lib/components/Label.svelte'
 	import { fade } from 'svelte/transition'
 	import type { Schema } from '$lib/common'
@@ -75,6 +75,7 @@
 	let drawerLoading = $state(true)
 	let showLoading = $state(false)
 	let resetEditMode = $state<(() => void) | undefined>(undefined)
+	let isDraft = $state(false)
 
 	const dispatch = createEventDispatcher()
 
@@ -93,6 +94,7 @@
 			initialPath = ePath
 			itemKind = isFlow ? 'flow' : 'script'
 			edit = true
+			isDraft = false
 			dirtyPath = false
 			dirtyUrl = false
 			await loadTrigger()
@@ -118,6 +120,7 @@
 			drawer?.openDrawer()
 			is_flow = nis_flow
 			edit = false
+			isDraft = true
 			itemKind = nis_flow ? 'flow' : 'script'
 			url = defaultValues?.url ?? ''
 			dirtyUrl = false
@@ -288,9 +291,21 @@
 {/if}
 
 {#snippet actionsButtons(size: 'xs' | 'sm' = 'sm')}
-	{#if !drawerLoading}
+	{#if !drawerLoading && can_write}
 		<div class="flex flex-row gap-2 items-center">
-			{#if edit}
+			{#if isDraft}
+				<Button
+					{size}
+					startIcon={{ icon: Trash }}
+					iconOnly
+					color={'light'}
+					on:click={() => {
+						dispatch('delete')
+					}}
+					btnClasses="hover:bg-red-500 hover:text-white"
+				/>
+			{/if}
+			{#if !isDraft && edit}
 				<div class={twMerge('center-center', size === 'sm' ? '-mt-1' : '')}>
 					<Toggle
 						{size}

@@ -10,7 +10,7 @@
 	import { canWrite, emptyString, sendUserToast } from '$lib/utils'
 	import { createEventDispatcher } from 'svelte'
 	import Section from '$lib/components/Section.svelte'
-	import { Loader2, Save, X, Pen } from 'lucide-svelte'
+	import { Loader2, Save, X, Pen, Trash } from 'lucide-svelte'
 	import Label from '$lib/components/Label.svelte'
 	import NatsTriggersConfigSection from './NatsTriggersConfigSection.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
@@ -57,6 +57,7 @@
 	let defaultValues: Record<string, any> | undefined = $state(undefined)
 	let args: Record<string, any> = $state({})
 	let resetEditMode = $state<(() => void) | undefined>(undefined)
+	let isDraft = $state(false)
 
 	const dispatch = createEventDispatcher()
 
@@ -75,6 +76,7 @@
 			initialPath = ePath
 			itemKind = isFlow ? 'flow' : 'script'
 			edit = true
+			isDraft = false
 			dirtyPath = false
 			await loadTrigger()
 		} catch (err) {
@@ -99,6 +101,7 @@
 			drawer?.openDrawer()
 			is_flow = nis_flow
 			edit = false
+			isDraft = true
 			itemKind = nis_flow ? 'flow' : 'script'
 			args.nats_resource_path = nDefaultValues?.nats_resource_path ?? ''
 			args.subjects = nDefaultValues?.subjects ?? ['']
@@ -236,9 +239,21 @@
 {/if}
 
 {#snippet actionsButtons(size: 'xs' | 'sm' = 'sm')}
-	{#if !drawerLoading}
+	{#if !drawerLoading && can_write}
 		<div class="flex flex-row gap-2 items-center">
-			{#if edit}
+			{#if isDraft}
+				<Button
+					{size}
+					startIcon={{ icon: Trash }}
+					iconOnly
+					color={'light'}
+					on:click={() => {
+						dispatch('delete')
+					}}
+					btnClasses="hover:bg-red-500 hover:text-white"
+				/>
+			{/if}
+			{#if !isDraft && edit}
 				<div class={twMerge('center-center', size === 'sm' ? '-mt-1' : '')}>
 					<Toggle
 						{size}

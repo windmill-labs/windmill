@@ -6,7 +6,7 @@
 	import { usedTriggerKinds, userStore, workspaceStore } from '$lib/stores'
 	import { canWrite, emptyString, sendUserToast } from '$lib/utils'
 	import { createEventDispatcher } from 'svelte'
-	import { Loader2, Save, Pen, X } from 'lucide-svelte'
+	import { Loader2, Save, Pen, X, Trash } from 'lucide-svelte'
 	import Label from '$lib/components/Label.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import {
@@ -45,6 +45,7 @@
 	let isValid = $state(false)
 	let delivery_config: PushConfig | undefined = $state(undefined)
 	let subscription_mode: SubscriptionMode = $state('create_update')
+	let isDraft = $state(false)
 	const dispatch = createEventDispatcher()
 
 	let {
@@ -90,6 +91,7 @@
 			initialPath = ePath
 			itemKind = isFlow ? 'flow' : 'script'
 			edit = true
+			isDraft = false
 			dirtyPath = false
 			await loadTrigger()
 		} catch (err) {
@@ -121,6 +123,7 @@
 			path = ''
 			initialPath = ''
 			edit = false
+			isDraft = true
 			dirtyPath = false
 		} finally {
 			drawerLoading = false
@@ -246,7 +249,7 @@
 {#snippet actionsButtons(size: 'xs' | 'sm' = 'sm')}
 	{#if !drawerLoading && can_write}
 		<div class="flex flex-row gap-2 items-center">
-			{#if edit}
+			{#if !isDraft && edit}
 				<div class={twMerge('center-center', size === 'sm' ? '-mt-1' : '')}>
 					<Toggle
 						{size}
@@ -265,6 +268,18 @@
 						}}
 					/>
 				</div>
+			{/if}
+			{#if isDraft}
+				<Button
+					{size}
+					startIcon={{ icon: Trash }}
+					iconOnly
+					color={'light'}
+					on:click={() => {
+						dispatch('delete')
+					}}
+					btnClasses="hover:bg-red-500 hover:text-white"
+				/>
 			{/if}
 			{#if !preventSave}
 				{#if can_write && editMode}

@@ -46,6 +46,7 @@
 			on:toggle-edit-mode
 			on:update
 			on:update-config
+			on:delete
 		>
 			{#snippet description()}
 				<Description link="https://www.windmill.dev/docs/core_concepts/postgres_triggers">
