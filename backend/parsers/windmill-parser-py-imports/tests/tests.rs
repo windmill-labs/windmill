@@ -29,7 +29,15 @@ def main():
         )
         .await?;
         // println!("{}", serde_json::to_string(&r)?);
-        assert_eq!(r, vec!["matplotlib", "wmill", "zanzibar"]);
+        assert_eq!(
+            r,
+            vec![
+                "matplotlib # (mapped from matplotlib.pyplot)",
+                "wmill",
+                "zanzibar # (mapped from zanzibar.estonie)"
+            ]
+        );
+
         Ok(())
     }
 

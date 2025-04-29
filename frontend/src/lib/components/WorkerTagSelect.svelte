@@ -44,9 +44,10 @@
 	<Select
 		{disabled}
 		placeholder={nullTag ? `default: ${nullTag}` : 'lang default'}
-		containerStyles={'--height: 30px !important; --input-padding: 0px !important;' + darkMode
-			? SELECT_INPUT_DEFAULT_STYLE.containerStylesDark
-			: SELECT_INPUT_DEFAULT_STYLE.containerStyles}
+		containerStyles={'--height: 30px !important; --input-padding: 0px !important; ' +
+			(darkMode
+				? SELECT_INPUT_DEFAULT_STYLE.containerStylesDark
+				: SELECT_INPUT_DEFAULT_STYLE.containerStyles)}
 		{items}
 		value={tag ? { value: tag, label: tag } : undefined}
 		on:clear={() => {
