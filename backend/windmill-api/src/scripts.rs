@@ -329,7 +329,6 @@ struct TopHubScriptsQuery {
     limit: Option<i64>,
     app: Option<String>,
     kind: Option<String>,
-    with_schema: Option<bool>,
 }
 
 async fn get_top_hub_scripts(
