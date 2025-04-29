@@ -44,6 +44,7 @@ fn replace_full_import(x: &str) -> Option<String> {
 lazy_static! {
     static ref RE: Regex = Regex::new(r"^\#\s?(\S+)\s*$").unwrap();
     static ref PIN_RE: Regex = Regex::new(r"(?:\s*#\s*(pin|repin):\s*)(\S*)").unwrap();
+    static ref PKG_RE: Regex = Regex::new(r"^([^=<>]+)(?:[=<>]|$)").unwrap();
 }
 
 fn process_import(module: Option<String>, path: &str, level: usize) -> Vec<NImport> {
@@ -167,30 +168,28 @@ fn parse_code_for_imports(code: &str, path: &str) -> error::Result<Vec<NImport>>
             .take_while(|e| *e != '\n')
             .collect::<String>();
 
-        if hs.trim_start().is_empty(){
+        if hs.trim_start().is_empty() {
             return None;
         }
 
-        PIN_RE
-            .captures(&hs)
-            .and_then(|x| {
-                x.get(1).zip(x.get(2)).and_then(|(ty_m, pkg_m)| {
-                    let pkg = pkg_m.as_str().to_owned();
-                    if ty_m.as_str() == "pin" {
-                        Some(vec![NImport::Pin {
-                            pins: vec![ImportPin { pkg, path: path.to_owned() }],
-                            key,
-                        }])
-                    } else if ty_m.as_str() == "repin" {
-                        Some(vec![NImport::Repin {
-                            pin: ImportPin { pkg, path: path.to_owned() },
-                            key,
-                        }])
-                    } else {
-                        None
-                    }
-                })
+        PIN_RE.captures(&hs).and_then(|x| {
+            x.get(1).zip(x.get(2)).and_then(|(ty_m, pkg_m)| {
+                let pkg = pkg_m.as_str().to_owned();
+                if ty_m.as_str() == "pin" {
+                    Some(vec![NImport::Pin {
+                        pins: vec![ImportPin { pkg, path: path.to_owned() }],
+                        key,
+                    }])
+                } else if ty_m.as_str() == "repin" {
+                    Some(vec![NImport::Repin {
+                        pin: ImportPin { pkg, path: path.to_owned() },
+                        key,
+                    }])
+                } else {
+                    None
+                }
             })
+        })
     };
 
     let mut nimports: Vec<NImport> = ast
@@ -284,6 +283,13 @@ pub async fn parse_python_imports(
     Ok((imports, compile_error_hint))
 }
 
+fn extract_pkg_name(requirement: &str) -> String {
+    PKG_RE
+        .captures(requirement)
+        .map(|x| x.get(1).map(|m| m.as_str().to_string()).unwrap_or_default())
+        .unwrap_or_default()
+}
+
 #[async_recursion]
 async fn parse_python_imports_inner(
     code: &str,
@@ -346,8 +352,11 @@ async fn parse_python_imports_inner(
                         requirements.insert(
                             requirement.clone(),
                             NImportResolved::Repin {
-                                pin: ImportPin { pkg: requirement, path: Default::default() },
-                                key: Default::default(),
+                                pin: ImportPin {
+                                    pkg: requirement.clone(),
+                                    path: Default::default(),
+                                },
+                                key: extract_pkg_name(&requirement),
                             },
                         );
                     })
@@ -370,7 +379,10 @@ async fn parse_python_imports_inner(
                             let requirement = m.as_str().to_string();
                             imports.insert(
                                 requirement.clone(),
-                                NImportResolved::Auto { key: None, pkg: requirement },
+                                NImportResolved::Auto {
+                                    key: Some(extract_pkg_name(&requirement)),
+                                    pkg: requirement,
+                                },
                             );
                         })
                     })
