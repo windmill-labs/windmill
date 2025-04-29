@@ -605,6 +605,53 @@ impl Runner {
             }
         }
     }
+
+    //     async fn create_tool_from_item<T>(
+    //         item: &T,
+    //         user_db: &UserDB,
+    //         authed: &ApiAuthed,
+    //         workspace_id: &str,
+    //         resources_cache: &mut HashMap<String, Vec<ResourceInfo>>,
+    //         resources_types: &Vec<ResourceType>,
+    //     ) -> Result<Tool, Error> {
+    //         let is_hub = match item {
+    //             HubScriptInfo { .. } => true,
+    //             HubFlowInfo { .. } => true,
+    //             _ => false,
+    //         };
+    //         let name = Runner::transform_path(&item.path, "script", is_hub).unwrap_or_default();
+    //         let description = format!(
+    //             "This is a script named `{}` with the following description: `{}`.",
+    //             item.summary.as_deref().unwrap_or("No summary"),
+    //             item.description.as_deref().unwrap_or("No description")
+    //         );
+    //         let schema_obj = if let Some(schema) = item.schema {
+    //             Runner::transform_schema_for_resources(
+    //                 &schema,
+    //                 user_db,
+    //                 authed,
+    //                 &workspace_id,
+    //                 &mut resources_cache,
+    //                 &resources_types,
+    //             )
+    //             .await?
+    //         } else {
+    //             SchemaType::default()
+    //         };
+    //         Ok(Tool {
+    //             name: Cow::Owned(name),
+    //             description: Some(Cow::Owned(description)),
+    //             input_schema: {
+    //                 let value = serde_json::to_value(schema_obj).unwrap_or_default();
+    //                 if let serde_json::Value::Object(map) = value {
+    //                     Arc::new(map)
+    //                 } else {
+    //                     Arc::new(serde_json::Map::new())
+    //                 }
+    //             },
+    //             annotations: None,
+    //         })
+    //     }
 }
 
 impl ServerHandler for Runner {
@@ -862,12 +909,37 @@ impl ServerHandler for Runner {
                     .as_deref()
                     .unwrap_or("No description")
             );
+            let schema_obj = if let Some(schema_value) = hub_script.schema {
+                match serde_json::from_value::<sqlx::types::Json<Box<serde_json::value::RawValue>>>(
+                    schema_value.clone(),
+                ) {
+                    Ok(raw_schema) => {
+                        let schema = Schema(raw_schema); // Create Schema from the validated value
+                        Runner::transform_schema_for_resources(
+                            &schema, // Pass the reference to the created Schema
+                            user_db,
+                            authed,
+                            &workspace_id,
+                            &mut resources_cache,
+                            &resources_types,
+                        )
+                        .await?
+                    }
+                    Err(_) => {
+                        // If Value couldn't be converted to Schema's inner type, use default
+                        SchemaType::default()
+                    }
+                }
+            } else {
+                // If schema was None initially, use default
+                SchemaType::default()
+            };
+
             hub_script_tools.push(Tool {
                 name: Cow::Owned(name.to_string()),
                 description: Some(Cow::Owned(description)),
                 input_schema: {
-                    let default_schema = SchemaType::default();
-                    let value = serde_json::to_value(default_schema).unwrap_or_default();
+                    let value = serde_json::to_value(schema_obj).unwrap_or_default();
                     if let serde_json::Value::Object(map) = value {
                         Arc::new(map)
                     } else {
