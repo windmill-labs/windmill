@@ -99,6 +99,8 @@
 			oldValue: event.oldValue,
 			columnDef: event.colDef
 		})
+
+		resolvedConfig?.extraConfig?.['defaultColDef']?.['onCellValueChanged']?.(event)
 	}
 
 	let api: GridApi<any> | undefined = undefined
@@ -200,22 +202,13 @@
 					datasource,
 					columnDefs: transformedColumnDefs(),
 					pagination: false,
-					defaultColDef: {
-						flex: resolvedConfig.flex ? 1 : 0,
-						editable: resolvedConfig?.allEditable,
-						onCellValueChanged
-					},
 					infiniteInitialRowCount: 100,
 					cacheBlockSize: 100,
 					cacheOverflowSize: 10,
 					maxBlocksInCache: 20,
 					...(resolvedConfig?.wrapActions
-						? {
-								rowHeight: Math.max(44, actions.length * 48)
-							}
-						: {
-								rowHeight: 44
-							}),
+						? { rowHeight: Math.max(44, actions.length * 48) }
+						: { rowHeight: 44 }),
 					suppressColumnMoveAnimation: true,
 					suppressDragLeaveHidesColumns: true,
 					rowSelection: resolvedConfig?.multipleSelectable ? 'multiple' : 'single',
@@ -226,6 +219,12 @@
 					suppressRowDeselection: true,
 					enableCellTextSelection: true,
 					...(resolvedConfig?.extraConfig ?? {}),
+					defaultColDef: {
+						flex: resolvedConfig.flex ? 1 : 0,
+						editable: resolvedConfig?.allEditable,
+						onCellValueChanged,
+						...resolvedConfig?.extraConfig?.['defaultColDef']
+					},
 					onViewportChanged: (e) => {
 						firstRow = e.firstRow
 						lastRow = e.lastRow
@@ -304,12 +303,7 @@
 	function updateOptions() {
 		// console.debug('updateOptions', resolvedConfig, api)
 		api?.updateGridOptions({
-			columnDefs: transformedColumnDefs(),
-			defaultColDef: {
-				flex: resolvedConfig.flex ? 1 : 0,
-				editable: resolvedConfig?.allEditable,
-				onCellValueChanged
-			},
+			columnDefs: transformColumnDefs(resolvedConfig?.columnDefs),
 			suppressDragLeaveHidesColumns: true,
 			...(resolvedConfig?.wrapActions
 				? {
@@ -322,7 +316,13 @@
 			rowMultiSelectWithClick: resolvedConfig?.multipleSelectable
 				? resolvedConfig.rowMultiselectWithClick
 				: false,
-			...(resolvedConfig?.extraConfig ?? {})
+			...(resolvedConfig?.extraConfig ?? {}),
+			defaultColDef: {
+				flex: resolvedConfig.flex ? 1 : 0,
+				editable: resolvedConfig?.allEditable,
+				onCellValueChanged,
+				...resolvedConfig?.extraConfig?.['defaultColDef']
+			}
 		})
 	}
 </script>
