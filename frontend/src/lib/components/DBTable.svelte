@@ -14,10 +14,8 @@
 
 	type Props = {
 		dbTableOps: IDbTableOps
-		refreshCount?: number
-		refresh?: () => void
 	}
-	let { dbTableOps, refresh, refreshCount }: Props = $props()
+	let { dbTableOps }: Props = $props()
 
 	let [clientHeight, clientWidth, darkMode, firstRow, lastRow] = $state([0, 0, false, -1, -1])
 	let quicksearch = $state('')
@@ -42,6 +40,8 @@
 		}
 	}
 	let rowCount = $state(0)
+	let refreshCount = $state(0)
+	const refresh = () => (refreshCount += 1)
 
 	$effect(() => eGui && mountGrid())
 	function mountGrid() {
@@ -65,7 +65,6 @@
 								)
 								.then(() => {
 									sendUserToast('Value updated')
-									refresh?.()
 								})
 								.catch(() => {
 									sendUserToast('Error updating value', true)

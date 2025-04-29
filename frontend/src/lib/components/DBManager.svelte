@@ -170,7 +170,7 @@
 			{#await getColDefs(tableKey) then colDefs}
 				{#if colDefs && colDefs?.length}
 					{@const dbTableOps = dbTableOpsFactory({ colDefs, tableKey })}
-					<DBTable {dbTableOps} {refresh} {refreshCount} />
+					<DBTable {dbTableOps} />
 				{/if}
 			{/await}
 		{/if}
