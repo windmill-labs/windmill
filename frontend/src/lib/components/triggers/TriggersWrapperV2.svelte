@@ -1,90 +1,206 @@
 <script lang="ts">
-	import { type CaptureTriggerKind } from '$lib/gen'
-	import { capitalize } from '$lib/utils'
-	import Alert from '../common/alert/Alert.svelte'
-	import RouteEditorConfigSection from './http/RouteEditorConfigSection.svelte'
-	import WebsocketEditorConfigSection from './websocket/WebsocketEditorConfigSection.svelte'
-	import WebhooksConfigSection from './webhook/WebhooksConfigSection.svelte'
-	import EmailTriggerConfigSection from '../details/EmailTriggerConfigSectionV2.svelte'
-	import KafkaTriggersConfigSection from './kafka/KafkaTriggersConfigSection.svelte'
-	import NatsTriggersConfigSection from './nats/NatsTriggersConfigSection.svelte'
-	import MqttEditorConfigSection from './mqtt/MqttEditorConfigSection.svelte'
-	import SqsTriggerEditorConfigSection from './sqs/SqsTriggerEditorConfigSection.svelte'
-	import PostgresEditorConfigSection from './postgres/PostgresEditorConfigSection.svelte'
+	import RoutesPanel from './http/RoutesPanelV2.svelte'
+	import WebhooksPanel from './webhook/WebhooksPanelV2.svelte'
+	import EmailTriggerPanel from '../details/EmailTriggerPanelV2.svelte'
+	import SchedulePanel from '$lib/components/SchedulePanel.svelte'
+	import PostgresTriggersPanel from './postgres/PostgresTriggersPanelV2.svelte'
+	import KafkaTriggerPanel from './kafka/KafkaTriggerPanelV2.svelte'
+	import NatsTriggerPanel from './nats/NatsTriggerPanelV2.svelte'
+	import MqttTriggerPanel from './mqtt/MqttTriggerPanelV2.svelte'
+	import SqsTriggerPanel from './sqs/SqsTriggerPanelV2.svelte'
+	import GcpTriggerPanel from './gcp/GcpTriggerPanelV2.svelte'
+	import ScheduledPollPanel from './scheduled/ScheduledPollPanel.svelte'
+	import WebsocketTriggersPanel from './websocket/WebsocketTriggersPanelV2.svelte'
+	import { userStore } from '$lib/stores'
+	import { type Trigger } from './utils'
+	import { createEventDispatcher } from 'svelte'
+	import PrimarySchedulePanel from './PrimarySchedulePanel.svelte'
+	import { canWrite } from '$lib/utils'
 
-	export let triggerType: CaptureTriggerKind = 'webhook'
-	export let cloudDisabled: boolean = false
-	export let args: any
-	export let isFlow: boolean = false
-	export let path: string = ''
-	export let data: any = {}
+	const dispatch = createEventDispatcher()
+
+	interface Props {
+		selectedTrigger: Trigger
+		isFlow: boolean
+		initialPath: string
+		fakeInitialPath: string
+		currentPath: string
+		edit: boolean
+		hash?: string
+		isDeployed: boolean
+		small: boolean
+		args: Record<string, any>
+		newItem: boolean
+		schema: any
+	}
+
+	let {
+		selectedTrigger,
+		isFlow = false,
+		initialPath,
+		fakeInitialPath,
+		currentPath,
+		edit,
+		hash,
+		isDeployed,
+		small,
+		args,
+		newItem,
+		schema
+	}: Props = $props()
 </script>
 
-<div class="flex flex-col gap-4 w-full">
-	{#if cloudDisabled}
-		<Alert title="Not compatible with multi-tenant cloud" type="warning" size="xs">
-			{capitalize(triggerType)} triggers are disabled in the multi-tenant cloud.
-		</Alert>
-	{:else if triggerType === 'websocket'}
-		<WebsocketEditorConfigSection
-			can_write={true}
-			headless={true}
-			bind:url={args.url}
-			bind:url_runnable_args={args.url_runnable_args}
-			showCapture={false}
-		/>
-	{:else if triggerType === 'postgres'}
-		<PostgresEditorConfigSection
-			can_write={true}
-			headless={true}
-			showCapture={false}
-			bind:publication={args.publication}
-			bind:postgres_resource_path={args.postgres_resource_path}
-		/>
-	{:else if triggerType === 'webhook'}
-		<WebhooksConfigSection
-			{isFlow}
-			{path}
-			hash={data?.hash}
-			token={data?.token}
-			runnableArgs={data?.args}
-			scopes={data?.scopes}
-			showCapture={false}
-		/>
-	{:else if triggerType === 'http'}
-		<RouteEditorConfigSection
-			showCapture={false}
-			can_write={true}
-			bind:route_path={args.route_path}
-			bind:http_method={args.http_method}
-			bind:raw_string={args.raw_string}
-			bind:wrap_body={args.wrap_body}
-			capture_mode={true}
-			headless
-		/>
-	{:else if triggerType === 'email'}
-		<EmailTriggerConfigSection
-			hash={data?.hash}
-			token={data?.token}
-			{path}
-			{isFlow}
-			userSettings={data?.userSettings}
-			emailDomain={data?.emailDomain}
-		/>
-	{:else if triggerType === 'kafka'}
-		<KafkaTriggersConfigSection headless={true} bind:args staticInputDisabled={false} {path} />
-	{:else if triggerType === 'nats'}
-		<NatsTriggersConfigSection headless={true} bind:args staticInputDisabled={false} {path} />
-	{:else if triggerType === 'mqtt'}
-		<MqttEditorConfigSection showCapture={false} headless={true} can_write={true} />
-	{:else if triggerType === 'sqs'}
-		<SqsTriggerEditorConfigSection
-			bind:queue_url={args.queue_url}
-			bind:aws_resource_path={args.aws_resource_path}
-			bind:message_attributes={args.message_attributes}
-			headless={true}
-			can_write={true}
-			showCapture={false}
-		/>
-	{/if}
-</div>
+{#if selectedTrigger.type === 'http'}
+	<RoutesPanel
+		{selectedTrigger}
+		{isFlow}
+		path={initialPath || fakeInitialPath}
+		{edit}
+		on:update-config
+		on:update
+		on:delete
+		on:toggle-edit-mode
+		{isDeployed}
+		{small}
+	/>
+{:else if selectedTrigger.type === 'webhook'}
+	<WebhooksPanel
+		{isFlow}
+		path={initialPath || fakeInitialPath}
+		{hash}
+		token=""
+		{args}
+		scopes={isFlow ? [`run:flow/${currentPath}`] : [`run:script/${currentPath}`]}
+		{newItem}
+	/>
+{:else if selectedTrigger.type === 'email'}
+	<EmailTriggerPanel
+		token=""
+		scopes={isFlow ? [`run:flow/${currentPath}`] : [`run:script/${currentPath}`]}
+		path={initialPath || fakeInitialPath}
+		{isFlow}
+		on:emailDomain={({ detail }) => {
+			dispatch('update-config', { emailDomain: detail })
+		}}
+	/>
+{:else if selectedTrigger.type === 'schedule' && selectedTrigger.isPrimary}
+	<PrimarySchedulePanel
+		{schema}
+		{isFlow}
+		path={initialPath}
+		{newItem}
+		can_write={canWrite(currentPath, {}, $userStore)}
+		on:update={async ({ detail }) => {
+			if ((detail === 'save' || detail === 'delete') && selectedTrigger?.isDraft) {
+				dispatch('delete')
+			}
+			dispatch('update', initialPath)
+		}}
+		isNewSchedule={selectedTrigger.isDraft}
+		{isDeployed}
+	/>
+{:else if selectedTrigger.type === 'schedule'}
+	<SchedulePanel
+		{selectedTrigger}
+		{isFlow}
+		path={initialPath}
+		{isDeployed}
+		on:update={async ({ detail }) => {
+			if (selectedTrigger && selectedTrigger.isDraft && detail?.path) {
+				dispatch('update', detail.path)
+			}
+		}}
+	/>
+{:else if selectedTrigger.type === 'websocket'}
+	<WebsocketTriggersPanel
+		{isFlow}
+		path={initialPath || fakeInitialPath}
+		{selectedTrigger}
+		{edit}
+		{isDeployed}
+		isEditor={true}
+		on:toggle-edit-mode
+		on:update
+		on:delete
+		on:update-config
+	/>
+{:else if selectedTrigger.type === 'kafka'}
+	<KafkaTriggerPanel
+		{isFlow}
+		path={initialPath || fakeInitialPath}
+		{selectedTrigger}
+		{edit}
+		{isDeployed}
+		isEditor={true}
+		on:toggle-edit-mode
+		on:update
+		on:delete
+		on:update-config
+	/>
+{:else if selectedTrigger.type === 'postgres'}
+	<PostgresTriggersPanel
+		{isFlow}
+		path={initialPath || fakeInitialPath}
+		{selectedTrigger}
+		{edit}
+		{isDeployed}
+		isEditor={true}
+		on:toggle-edit-mode
+		on:update
+		on:delete
+		on:update-config
+	/>
+{:else if selectedTrigger.type === 'nats'}
+	<NatsTriggerPanel
+		{isFlow}
+		path={initialPath || fakeInitialPath}
+		{selectedTrigger}
+		{edit}
+		{isDeployed}
+		isEditor={true}
+		on:toggle-edit-mode
+		on:update
+		on:delete
+		on:update-config
+	/>
+{:else if selectedTrigger.type === 'mqtt'}
+	<MqttTriggerPanel
+		{isFlow}
+		path={initialPath || fakeInitialPath}
+		{selectedTrigger}
+		{edit}
+		{isDeployed}
+		isEditor={true}
+		on:toggle-edit-mode
+		on:update
+		on:delete
+		on:update-config
+	/>
+{:else if selectedTrigger.type === 'sqs'}
+	<SqsTriggerPanel
+		{isFlow}
+		path={initialPath || fakeInitialPath}
+		{selectedTrigger}
+		{edit}
+		{isDeployed}
+		on:toggle-edit-mode
+		on:update
+		on:delete
+		on:update-config
+	/>
+{:else if selectedTrigger.type === 'gcp'}
+	<GcpTriggerPanel
+		{isFlow}
+		path={initialPath || fakeInitialPath}
+		{selectedTrigger}
+		{edit}
+		{isDeployed}
+		isEditor={true}
+		on:toggle-edit-mode
+		on:update
+		on:delete
+		on:update-config
+	/>
+{:else if selectedTrigger.type === 'poll'}
+	<ScheduledPollPanel />
+{/if}

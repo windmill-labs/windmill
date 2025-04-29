@@ -1,46 +1,34 @@
 <script lang="ts">
 	import { canWrite } from '$lib/utils'
-	import { userStore } from '$lib/stores'
+	import { userStore, workspaceStore } from '$lib/stores'
 	import FlowCard from '../flows/common/FlowCard.svelte'
 	import { getContext, onDestroy, createEventDispatcher } from 'svelte'
 	import type { TriggerContext } from '$lib/components/triggers'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import TriggersTable from './TriggersTable.svelte'
-	import RoutesPanel from './http/RoutesPanelV2.svelte'
 	import CaptureWrapper from './CaptureWrapperV2.svelte'
 	import { type Trigger } from './utils'
-	import WebhooksPanel from './webhook/WebhooksPanelV2.svelte'
 	import { triggerTypeToCaptureKind } from './utils'
-	import EmailTriggerPanel from '../details/EmailTriggerPanelV2.svelte'
 	import PrimarySchedulePanel from './PrimarySchedulePanel.svelte'
-	import SchedulePanel from '$lib/components/SchedulePanel.svelte'
-	import {
-		fetchHttpTriggers as fetchHttpTriggersUtil,
-		fetchSchedules as fetchSchedulesUtil,
-		fetchWebsocketTriggers,
-		fetchPostgresTriggers,
-		fetchKafkaTriggers,
-		fetchNatsTriggers,
-		fetchGcpTriggers,
-		deleteDraft,
-		addDraftTrigger
-	} from './utils'
-	import { workspaceStore } from '$lib/stores'
-	import WebsocketTriggersPanel from './websocket/WebsocketTriggersPanelV2.svelte'
+	import { deleteDraft, addDraftTrigger } from './utils'
 	import { fade } from 'svelte/transition'
-	import PostgresTriggersPanel from './postgres/PostgresTriggersPanelV2.svelte'
-	import KafkaTriggerPanel from './kafka/KafkaTriggerPanelV2.svelte'
-	import NatsTriggerPanel from './nats/NatsTriggerPanelV2.svelte'
-	import MqttTriggerPanel from './mqtt/MqttTriggerPanelV2.svelte'
-	import SqsTriggerPanel from './sqs/SqsTriggerPanelV2.svelte'
-	import { fetchMqttTriggers, fetchSqsTriggers } from './utils'
-	import GcpTriggerPanel from './gcp/GcpTriggerPanelV2.svelte'
-	import ScheduledPollPanel from './scheduled/ScheduledPollPanel.svelte'
 	import TriggersBadgeV2 from '../graph/renderers/triggers/TriggersBadgeV2.svelte'
 	import { twMerge } from 'tailwind-merge'
 	import AddTriggersButton from '$lib/components/triggers/AddTriggersButton.svelte'
 	import { Plus } from 'lucide-svelte'
 	import Button from '../common/button/Button.svelte'
+	import TriggersWrapperV2 from './TriggersWrapperV2.svelte'
+	import {
+		fetchHttpTriggers,
+		fetchSchedules,
+		fetchWebsocketTriggers,
+		fetchPostgresTriggers,
+		fetchKafkaTriggers,
+		fetchNatsTriggers,
+		fetchGcpTriggers,
+		fetchSqsTriggers,
+		fetchMqttTriggers
+	} from './utils'
 
 	export let noEditor: boolean
 	export let newItem = false
@@ -95,8 +83,38 @@
 		}
 	}
 
-	$: updateEditTrigger($selectedTrigger)
+	function handleUpdate(trigger: Trigger | undefined, path: string) {
+		if (!trigger) {
+			return
+		}
+		if (trigger.isDraft) {
+			trigger.isDraft = false
+		}
+		if (trigger) {
+			trigger.path = path
+		}
+		if (trigger.type === 'schedule') {
+			fetchSchedules(triggers, $workspaceStore, currentPath, isFlow, $primarySchedule)
+		} else if (trigger.type === 'websocket') {
+			fetchWebsocketTriggers(triggers, $workspaceStore, currentPath, isFlow, $userStore)
+		} else if (trigger.type === 'postgres') {
+			fetchPostgresTriggers(triggers, $workspaceStore, currentPath, isFlow, $userStore)
+		} else if (trigger.type === 'kafka') {
+			fetchKafkaTriggers(triggers, $workspaceStore, currentPath, isFlow)
+		} else if (trigger.type === 'nats') {
+			fetchNatsTriggers(triggers, $workspaceStore, currentPath, isFlow, $userStore)
+		} else if (trigger.type === 'gcp') {
+			fetchGcpTriggers(triggers, $workspaceStore, currentPath, isFlow, $userStore)
+		} else if (trigger.type === 'sqs') {
+			fetchSqsTriggers(triggers, $workspaceStore, currentPath, isFlow, $userStore)
+		} else if (trigger.type === 'mqtt') {
+			fetchMqttTriggers(triggers, $workspaceStore, currentPath, isFlow, $userStore)
+		} else if (trigger.type === 'http') {
+			fetchHttpTriggers(triggers, $workspaceStore, currentPath, isFlow)
+		}
+	}
 
+	$: updateEditTrigger($selectedTrigger)
 	$: useVerticalTriggerBar = width < 800
 </script>
 
@@ -166,331 +184,32 @@
 						{#if $selectedTrigger}
 							{#key $selectedTrigger}
 								<div in:fade={{ duration: 100, delay: 100 }} out:fade={{ duration: 100 }}>
-									{#if $selectedTrigger.type === 'http'}
-										<RoutesPanel
-											selectedTrigger={$selectedTrigger}
-											{isFlow}
-											path={initialPath || fakeInitialPath}
-											edit={editTrigger === $selectedTrigger}
-											on:update-config={({ detail }) => {
-												config = detail
-											}}
-											on:update={({ detail }) => {
-												if ($selectedTrigger?.isDraft) {
-													$selectedTrigger.isDraft = false
-												}
-												if ($selectedTrigger) {
-													$selectedTrigger.path = detail
-												}
-												fetchHttpTriggersUtil(
-													triggers,
-													$workspaceStore,
-													currentPath,
-													isFlow,
-													$userStore
-												)
-											}}
-											on:delete={() => {
-												deleteDraftTrigger($selectedTrigger)
-											}}
-											on:toggle-edit-mode={({ detail }) => {
-												editTrigger = detail ? $selectedTrigger : undefined
-											}}
-											{isDeployed}
-											small={useVerticalTriggerBar}
-										/>
-									{:else if $selectedTrigger.type === 'webhook'}
-										<WebhooksPanel
-											{isFlow}
-											path={initialPath || fakeInitialPath}
-											{hash}
-											token=""
-											{args}
-											scopes={isFlow ? [`run:flow/${currentPath}`] : [`run:script/${currentPath}`]}
-											{newItem}
-										/>
-									{:else if $selectedTrigger.type === 'email'}
-										<EmailTriggerPanel
-											token=""
-											scopes={isFlow ? [`run:flow/${currentPath}`] : [`run:script/${currentPath}`]}
-											path={initialPath || fakeInitialPath}
-											{isFlow}
-											on:emailDomain={({ detail }) => {
-												config.emailDomain = detail
-											}}
-										/>
-									{:else if $selectedTrigger.type === 'schedule' && $selectedTrigger.isPrimary}
-										<PrimarySchedulePanel
-											{schema}
-											{isFlow}
-											path={initialPath}
-											{newItem}
-											can_write={canWrite(currentPath, {}, $userStore)}
-											on:update={async ({ detail }) => {
-												await fetchSchedulesUtil(
-													triggers,
-													$workspaceStore,
-													currentPath,
-													isFlow,
-													$primarySchedule
-												)
-												if (
-													(detail === 'save' || detail === 'delete') &&
-													$selectedTrigger?.isDraft
-												) {
-													deleteDraft(triggers, $selectedTrigger)
-													if (detail === 'delete') {
-														$selectedTrigger = undefined
-													}
-												}
-											}}
-											isNewSchedule={$selectedTrigger.isDraft}
-											{isDeployed}
-										/>
-									{:else if $selectedTrigger.type === 'schedule'}
-										<SchedulePanel
-											selectedTrigger={$selectedTrigger}
-											{isFlow}
-											path={initialPath}
-											on:update={async ({ detail }) => {
-												if ($selectedTrigger && $selectedTrigger.isDraft && detail?.path) {
-													await fetchSchedulesUtil(
-														triggers,
-														$workspaceStore,
-														currentPath,
-														isFlow,
-														$primarySchedule
-													)
-													$selectedTrigger.isDraft = false
-													$selectedTrigger.path = detail.path
-												}
-											}}
-										/>
-									{:else if $selectedTrigger.type === 'websocket'}
-										<WebsocketTriggersPanel
-											{isFlow}
-											path={initialPath || fakeInitialPath}
-											selectedTrigger={$selectedTrigger}
-											edit={editTrigger === $selectedTrigger}
-											{isDeployed}
-											isEditor={true}
-											on:toggle-edit-mode={({ detail }) => {
-												editTrigger = detail ? $selectedTrigger : undefined
-											}}
-											on:update={({ detail }) => {
-												if ($selectedTrigger?.isDraft) {
-													$selectedTrigger.isDraft = false
-												}
-												if ($selectedTrigger) {
-													$selectedTrigger.path = detail
-												}
-												fetchWebsocketTriggers(
-													triggers,
-													$workspaceStore,
-													currentPath,
-													isFlow,
-													$userStore
-												)
-											}}
-											on:delete={() => {
-												deleteDraftTrigger($selectedTrigger)
-											}}
-											on:update-config={({ detail }) => {
-												config = detail
-											}}
-										/>
-									{:else if $selectedTrigger.type === 'kafka'}
-										<KafkaTriggerPanel
-											{isFlow}
-											path={initialPath || fakeInitialPath}
-											selectedTrigger={$selectedTrigger}
-											edit={editTrigger === $selectedTrigger}
-											{isDeployed}
-											isEditor={true}
-											on:toggle-edit-mode={({ detail }) => {
-												editTrigger = detail ? $selectedTrigger : undefined
-											}}
-											on:update={({ detail }) => {
-												if ($selectedTrigger?.isDraft) {
-													$selectedTrigger.isDraft = false
-												}
-												if ($selectedTrigger) {
-													$selectedTrigger.path = detail
-												}
-												fetchKafkaTriggers(triggers, $workspaceStore, currentPath, isFlow)
-											}}
-											on:delete={() => {
-												deleteDraftTrigger($selectedTrigger)
-											}}
-											on:update-config={({ detail }) => {
-												config = detail
-											}}
-										/>
-									{:else if $selectedTrigger.type === 'postgres'}
-										<PostgresTriggersPanel
-											{isFlow}
-											path={initialPath || fakeInitialPath}
-											selectedTrigger={$selectedTrigger}
-											edit={editTrigger === $selectedTrigger}
-											{isDeployed}
-											isEditor={true}
-											on:toggle-edit-mode={({ detail }) => {
-												editTrigger = detail ? $selectedTrigger : undefined
-											}}
-											on:update={({ detail }) => {
-												if ($selectedTrigger?.isDraft) {
-													$selectedTrigger.isDraft = false
-												}
-												if ($selectedTrigger) {
-													$selectedTrigger.path = detail
-												}
-												fetchPostgresTriggers(
-													triggers,
-													$workspaceStore,
-													currentPath,
-													isFlow,
-													$userStore
-												)
-											}}
-											on:delete={() => {
-												deleteDraftTrigger($selectedTrigger)
-											}}
-											on:update-config={({ detail }) => {
-												config = detail
-											}}
-										/>
-									{:else if $selectedTrigger.type === 'nats'}
-										<NatsTriggerPanel
-											{isFlow}
-											path={initialPath || fakeInitialPath}
-											selectedTrigger={$selectedTrigger}
-											edit={editTrigger === $selectedTrigger}
-											{isDeployed}
-											isEditor={true}
-											on:toggle-edit-mode={({ detail }) => {
-												editTrigger = detail ? $selectedTrigger : undefined
-											}}
-											on:update={({ detail }) => {
-												if ($selectedTrigger?.isDraft) {
-													$selectedTrigger.isDraft = false
-												}
-												if ($selectedTrigger) {
-													$selectedTrigger.path = detail
-												}
-												fetchNatsTriggers(
-													triggers,
-													$workspaceStore,
-													currentPath,
-													isFlow,
-													$userStore
-												)
-											}}
-											on:delete={() => {
-												deleteDraftTrigger($selectedTrigger)
-											}}
-											on:update-config={({ detail }) => {
-												config = detail
-											}}
-										/>
-									{:else if $selectedTrigger.type === 'mqtt'}
-										<MqttTriggerPanel
-											{isFlow}
-											path={initialPath || fakeInitialPath}
-											selectedTrigger={$selectedTrigger}
-											edit={editTrigger === $selectedTrigger}
-											{isDeployed}
-											isEditor={true}
-											on:toggle-edit-mode={({ detail }) => {
-												editTrigger = detail ? $selectedTrigger : undefined
-											}}
-											on:update={({ detail }) => {
-												if ($selectedTrigger?.isDraft) {
-													$selectedTrigger.isDraft = false
-												}
-												if ($selectedTrigger) {
-													$selectedTrigger.path = detail
-												}
-												fetchMqttTriggers(
-													triggers,
-													$workspaceStore,
-													currentPath,
-													isFlow,
-													$userStore
-												)
-											}}
-											on:delete={() => {
-												deleteDraftTrigger($selectedTrigger)
-											}}
-											on:update-config={({ detail }) => {
-												config = detail
-											}}
-										/>
-									{:else if $selectedTrigger.type === 'sqs'}
-										<SqsTriggerPanel
-											{isFlow}
-											path={initialPath || fakeInitialPath}
-											selectedTrigger={$selectedTrigger}
-											edit={editTrigger === $selectedTrigger}
-											{isDeployed}
-											on:toggle-edit-mode={({ detail }) => {
-												editTrigger = detail ? $selectedTrigger : undefined
-											}}
-											on:update={({ detail }) => {
-												if ($selectedTrigger?.isDraft) {
-													$selectedTrigger.isDraft = false
-												}
-												if ($selectedTrigger) {
-													$selectedTrigger.path = detail
-												}
-												fetchSqsTriggers(triggers, $workspaceStore, currentPath, isFlow, $userStore)
-											}}
-											on:delete={() => {
-												deleteDraftTrigger($selectedTrigger)
-											}}
-											on:update-config={({ detail }) => {
-												config = detail
-											}}
-										/>
-									{:else if $selectedTrigger.type === 'gcp'}
-										<GcpTriggerPanel
-											{isFlow}
-											path={initialPath || fakeInitialPath}
-											selectedTrigger={$selectedTrigger}
-											edit={editTrigger === $selectedTrigger}
-											{isDeployed}
-											isEditor={true}
-											on:toggle-edit-mode={({ detail }) => {
-												editTrigger = detail ? $selectedTrigger : undefined
-											}}
-											on:update={({ detail }) => {
-												if ($selectedTrigger?.isDraft) {
-													$selectedTrigger.isDraft = false
-												}
-												if ($selectedTrigger) {
-													$selectedTrigger.path = detail
-												}
-												fetchGcpTriggers(triggers, $workspaceStore, currentPath, isFlow, $userStore)
-											}}
-											on:delete={() => {
-												deleteDraftTrigger($selectedTrigger)
-											}}
-											on:update-config={({ detail }) => {
-												config = detail
-											}}
-										/>
-									{:else if $selectedTrigger.type === 'poll'}
-										<ScheduledPollPanel />
-									{:else if $selectedTrigger.isDraft}
-										<h3 class="text-sm font-medium"
-											>Configure new {$selectedTrigger.type} trigger</h3
-										>
-										<!-- New trigger configuration component would go here -->
-									{:else}
-										<h3 class="text-sm font-medium"
-											>Configure trigger: {$selectedTrigger.path} ({$selectedTrigger.type})</h3
-										>
-										<!-- Existing trigger configuration component would go here -->
-									{/if}
+									<TriggersWrapperV2
+										selectedTrigger={$selectedTrigger}
+										{isFlow}
+										{initialPath}
+										{fakeInitialPath}
+										{currentPath}
+										edit={editTrigger === $selectedTrigger}
+										{hash}
+										{isDeployed}
+										small={useVerticalTriggerBar}
+										{args}
+										{newItem}
+										{schema}
+										on:update-config={({ detail }) => {
+											config = detail
+										}}
+										on:delete={() => {
+											deleteDraftTrigger($selectedTrigger)
+										}}
+										on:toggle-edit-mode={({ detail }) => {
+											editTrigger = detail ? $selectedTrigger : undefined
+										}}
+										on:update={({ detail }) => {
+											handleUpdate($selectedTrigger, detail)
+										}}
+									/>
 								</div>
 							{/key}
 						{:else}

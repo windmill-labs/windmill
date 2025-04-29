@@ -7,10 +7,10 @@
 	import { SettingService } from '$lib/gen'
 	import Skeleton from '../common/skeleton/Skeleton.svelte'
 	import TriggerTokens from '../triggers/TriggerTokens.svelte'
-	import TriggersWrapper from '../triggers/TriggersWrapperV2.svelte'
 	import Description from '../Description.svelte'
 	import Section from '../Section.svelte'
 	import { createEventDispatcher } from 'svelte'
+	import EmailTriggerConfigSection from './EmailTriggerConfigSection.svelte'
 
 	let userSettings: UserSettings
 
@@ -61,14 +61,7 @@
 		<Skeleton layout={[[18]]} />
 	{:else}
 		{#if emailDomain}
-			<TriggersWrapper
-				cloudDisabled={false}
-				triggerType="email"
-				{isFlow}
-				data={{ emailDomain, userSettings, token, hash, path }}
-				{path}
-				args={{}}
-			/>
+			<EmailTriggerConfigSection {hash} {token} {path} {isFlow} {userSettings} {emailDomain} />
 		{:else}
 			<div>
 				<Alert title="Email triggers are disabled" size="xs" type="warning">
