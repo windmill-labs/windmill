@@ -97,48 +97,58 @@
 		}
 	}
 
-	export async function openNew(
-		nis_flow: boolean,
-		initial_script_path?: string,
-		schedule_path?: string
-	) {
-		drawerLoading = true
-		try {
-			let s: Schedule | undefined
-			if (schedule_path) {
-				s = await ScheduleService.getSchedule({
-					workspace: $workspaceStore!,
-					path: schedule_path
-				})
-				duplicate = true
+	async function setScheduleHandler(s?: Schedule) {
+		if (s) {
+			if (s.on_failure) {
+				let splitted = s.on_failure.split('/')
+				errorHandleritemKind = splitted[0] as 'flow' | 'script'
+				errorHandlerPath = splitted.slice(1)?.join('/')
+				errorHandlerCustomInitialPath = errorHandlerPath
+				failedTimes = s.on_failure_times ?? 1
+				failedExact = s.on_failure_exact ?? false
+				errorHandlerExtraArgs = s.on_failure_extra_args ?? {}
+				errorHandlerSelected = getHandlerType('error', errorHandlerPath)
+			} else {
+				errorHandlerPath = undefined
+				errorHandleritemKind = 'script'
+				errorHandlerCustomInitialPath = undefined
+				errorHandlerExtraArgs = {}
+				failedExact = false
+				failedTimes = 1
+				errorHandlerSelected = 'slack'
 			}
-			drawer?.openDrawer()
-			runnable = undefined
-			is_flow = s?.is_flow ?? nis_flow
-			edit = false
-			itemKind = is_flow ? 'flow' : 'script'
-			initialScriptPath = initial_script_path ?? ''
-			path = duplicate === true ? '' : initialScriptPath
-
-			initialPath = path
-			cronVersion = s?.cron_version ?? 'v2'
-			initialCronVersion = cronVersion
-			isLatestCron = cronVersion == 'v2'
-			schedule = s?.schedule ?? '0 0 12 * *'
-			initialSchedule = schedule
-			timezone = s?.timezone ?? ''
-			paused_until = s?.paused_until
-			showPauseUntil = paused_until !== undefined
-			summary = s?.summary ?? ''
-			description = s?.description ?? ''
-			script_path = s?.script_path ?? initialScriptPath
-			args = s?.args ?? {}
-			tag = s?.tag
-			await loadScript(script_path)
-
-			no_flow_overlap = s?.no_flow_overlap ?? false
-			retry = s?.retry
-
+			if (s.on_recovery) {
+				let splitted = s.on_recovery.split('/')
+				recoveryHandlerItemKind = splitted[0] as 'flow' | 'script'
+				recoveryHandlerPath = splitted.slice(1)?.join('/')
+				recoveryHandlerCustomInitialPath = recoveryHandlerPath
+				recoveredTimes = s.on_recovery_times ?? 1
+				recoveryHandlerExtraArgs = s.on_recovery_extra_args ?? {}
+				recoveryHandlerSelected = getHandlerType('recovery', recoveryHandlerPath)
+			} else {
+				recoveryHandlerPath = undefined
+				recoveryHandlerItemKind = 'script'
+				recoveryHandlerCustomInitialPath = undefined
+				recoveredTimes = 1
+				recoveryHandlerSelected = 'slack'
+				recoveryHandlerExtraArgs = {}
+			}
+			if (s.on_success) {
+				let splitted = s.on_success.split('/')
+				successHandlerItemKind = splitted[0] as 'flow' | 'script'
+				successHandlerPath = splitted.slice(1)?.join('/')
+				successHandlerCustomInitialPath = successHandlerPath
+				successHandlerExtraArgs = s.on_success_extra_args ?? {}
+				successHandlerSelected = getHandlerType('success', successHandlerPath)
+			} else {
+				successHandlerPath = undefined
+				successHandlerItemKind = 'script'
+				successHandlerCustomInitialPath = undefined
+				successHandlerSelected = 'slack'
+				successHandlerExtraArgs = {}
+			}
+		}
+		else {
 			let defaultErrorHandlerMaybe = undefined
 			let defaultRecoveryHandlerMaybe = undefined
 			let defaultSuccessHandlerMaybe = undefined
@@ -155,8 +165,7 @@
 			}
 
 			if (defaultErrorHandlerMaybe !== undefined && defaultErrorHandlerMaybe !== null) {
-				wsErrorHandlerMuted =
-					s?.ws_error_handler_muted ?? defaultErrorHandlerMaybe['wsErrorHandlerMuted']
+				wsErrorHandlerMuted = defaultErrorHandlerMaybe['wsErrorHandlerMuted']
 				let splitted = (defaultErrorHandlerMaybe['errorHandlerPath'] as string).split('/')
 				errorHandleritemKind = splitted[0] as 'flow' | 'script'
 				errorHandlerPath = splitted.slice(1)?.join('/')
@@ -206,7 +215,54 @@
 				successHandlerCustomInitialPath = undefined
 				successHandlerSelected = 'slack'
 			}
-			timezone = Intl.DateTimeFormat().resolvedOptions().timeZone
+		}
+	}
+
+	export async function openNew(
+		nis_flow: boolean,
+		initial_script_path?: string,
+		schedule_path?: string
+	) {
+		drawerLoading = true
+		try {
+			let s: Schedule | undefined
+			if (schedule_path) {
+				s = await ScheduleService.getSchedule({
+					workspace: $workspaceStore!,
+					path: schedule_path
+				})
+				duplicate = true
+			}
+			drawer?.openDrawer()
+			runnable = undefined
+			is_flow = s?.is_flow ?? nis_flow
+			edit = false
+			itemKind = is_flow ? 'flow' : 'script'
+			initialScriptPath = initial_script_path ?? ''
+			path = duplicate === true ? '' : initialScriptPath
+
+			initialPath = path
+			cronVersion = s?.cron_version ?? 'v2'
+			initialCronVersion = cronVersion
+			isLatestCron = cronVersion == 'v2'
+			schedule = s?.schedule ?? '0 0 12 * *'
+			initialSchedule = schedule
+			timezone = s?.timezone ?? Intl.DateTimeFormat().resolvedOptions().timeZone
+			paused_until = s?.paused_until
+			showPauseUntil = paused_until !== undefined
+			summary = s?.summary ?? ''
+			description = s?.description ?? ''
+			script_path = s?.script_path ?? initialScriptPath
+			args = s?.args ?? {}
+			tag = s?.tag
+
+			await loadScript(script_path)
+
+			no_flow_overlap = s?.no_flow_overlap ?? false
+			wsErrorHandlerMuted = s?.ws_error_handler_muted ?? false
+			retry = s?.retry
+
+			setScheduleHandler(s)
 		} finally {
 			drawerLoading = false
 		}
@@ -347,6 +403,7 @@
 				workspace: $workspaceStore!,
 				path: initialPath
 			})
+			is_flow = s.is_flow
 			cronVersion = s.cron_version ?? 'v2'
 			initialCronVersion = cronVersion
 			isLatestCron = cronVersion == 'v2'
@@ -365,58 +422,10 @@
 
 			await loadScript(script_path)
 
-			is_flow = s.is_flow
 			no_flow_overlap = s.no_flow_overlap ?? false
 			wsErrorHandlerMuted = s.ws_error_handler_muted ?? false
 			retry = s.retry
-			if (s.on_failure) {
-				let splitted = s.on_failure.split('/')
-				errorHandleritemKind = splitted[0] as 'flow' | 'script'
-				errorHandlerPath = splitted.slice(1)?.join('/')
-				errorHandlerCustomInitialPath = errorHandlerPath
-				failedTimes = s.on_failure_times ?? 1
-				failedExact = s.on_failure_exact ?? false
-				errorHandlerExtraArgs = s.on_failure_extra_args ?? {}
-				errorHandlerSelected = getHandlerType('error', errorHandlerPath)
-			} else {
-				errorHandlerPath = undefined
-				errorHandleritemKind = 'script'
-				errorHandlerCustomInitialPath = undefined
-				errorHandlerExtraArgs = {}
-				failedExact = false
-				failedTimes = 1
-				errorHandlerSelected = 'slack'
-			}
-			if (s.on_recovery) {
-				let splitted = s.on_recovery.split('/')
-				recoveryHandlerItemKind = splitted[0] as 'flow' | 'script'
-				recoveryHandlerPath = splitted.slice(1)?.join('/')
-				recoveryHandlerCustomInitialPath = recoveryHandlerPath
-				recoveredTimes = s.on_recovery_times ?? 1
-				recoveryHandlerExtraArgs = s.on_recovery_extra_args ?? {}
-				recoveryHandlerSelected = getHandlerType('recovery', recoveryHandlerPath)
-			} else {
-				recoveryHandlerPath = undefined
-				recoveryHandlerItemKind = 'script'
-				recoveryHandlerCustomInitialPath = undefined
-				recoveredTimes = 1
-				recoveryHandlerSelected = 'slack'
-				recoveryHandlerExtraArgs = {}
-			}
-			if (s.on_success) {
-				let splitted = s.on_success.split('/')
-				successHandlerItemKind = splitted[0] as 'flow' | 'script'
-				successHandlerPath = splitted.slice(1)?.join('/')
-				successHandlerCustomInitialPath = successHandlerPath
-				successHandlerExtraArgs = s.on_success_extra_args ?? {}
-				successHandlerSelected = getHandlerType('success', successHandlerPath)
-			} else {
-				successHandlerPath = undefined
-				successHandlerItemKind = 'script'
-				successHandlerCustomInitialPath = undefined
-				successHandlerSelected = 'slack'
-				successHandlerExtraArgs = {}
-			}
+			setScheduleHandler(s)
 		} catch (err) {
 			sendUserToast(`Could not load schedule: ${err}`, true)
 		}
