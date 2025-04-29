@@ -163,6 +163,7 @@
 			<!-- svelte-ignore a11y_no_static_element_interactions -->
 			<div
 				bind:this={eGui}
+				class={api ? '' : 'opacity-0'}
 				style:height="100%"
 				onkeydown={(e) => {
 					if ((e.ctrlKey || e.metaKey) && e.key === 'c') {
