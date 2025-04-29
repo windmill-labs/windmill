@@ -44,7 +44,7 @@ fn replace_full_import(x: &str) -> Option<String> {
 lazy_static! {
     static ref RE: Regex = Regex::new(r"^\#\s?(\S+)\s*$").unwrap();
     static ref PIN_RE: Regex = Regex::new(r"(?:\s*#\s*(pin|repin):\s*)(\S*)").unwrap();
-    static ref PKG_RE: Regex = Regex::new(r"^([^=<>]+)(?:[=<>]|$)").unwrap();
+    static ref PKG_RE: Regex = Regex::new(r"^([^!=<>]+)(?:[!=<>]|$)").unwrap();
 }
 
 fn process_import(module: Option<String>, path: &str, level: usize) -> Vec<NImport> {
@@ -267,7 +267,14 @@ pub async fn parse_python_imports(
             Ok(p.pkg)
         }).collect_vec(),
         NImportResolved::Repin { pin: ImportPin { pkg, .. }, .. } => vec![Ok(pkg)],
-        NImportResolved::Auto { pkg, ..} => vec![Ok(pkg)],
+        NImportResolved::Auto { pkg, key } => vec![
+
+            if let Some(key) = key {
+               Ok(format!("{pkg} # (mapped from {key})"))
+            } else {
+               Ok(pkg)
+            }
+        ],
     })
     .flatten()
     .collect::<error::Result<Vec<String>>>()?
@@ -349,14 +356,15 @@ async fn parse_python_imports_inner(
                 RE.captures(x).and_then(|x| {
                     x.get(1).map(|m| {
                         let requirement = m.as_str().to_string();
+                        let key = extract_pkg_name(&requirement);
                         requirements.insert(
-                            requirement.clone(),
-                            NImportResolved::Repin {
-                                pin: ImportPin {
+                            key.clone(),
+                            NImportResolved::Pin {
+                                pins: vec![ImportPin {
                                     pkg: requirement.clone(),
                                     path: Default::default(),
-                                },
-                                key: extract_pkg_name(&requirement),
+                                }],
+                                key,
                             },
                         );
                     })
@@ -377,11 +385,15 @@ async fn parse_python_imports_inner(
                     RE.captures(x).and_then(|x| {
                         x.get(1).map(|m| {
                             let requirement = m.as_str().to_string();
+                            let key = extract_pkg_name(&requirement);
                             imports.insert(
-                                requirement.clone(),
-                                NImportResolved::Auto {
-                                    key: Some(extract_pkg_name(&requirement)),
-                                    pkg: requirement,
+                                key.clone(),
+                                NImportResolved::Pin {
+                                    pins: vec![ImportPin {
+                                        pkg: requirement,
+                                        path: Default::default(),
+                                    }],
+                                    key,
                                 },
                             );
                         })
