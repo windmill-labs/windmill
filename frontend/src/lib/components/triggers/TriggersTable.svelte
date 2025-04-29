@@ -93,7 +93,7 @@
 								<TriggerLabel {trigger} />
 							</div>
 
-							{#if ['schedule', 'http', 'websocket'].includes(trigger.type)}
+							{#if !['email', 'webhook'].includes(trigger.type)}
 								{#if trigger.isDraft}
 									<Button
 										size="xs"
