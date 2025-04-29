@@ -149,7 +149,7 @@
 							</Cell>
 							<Cell>
 								<Select
-									containerStyles="--height: 2rem; --font-size: 14px;"
+									containerStyles="--height: 2rem; --font-size: 14px; --padding: 0 0.5rem;"
 									class="!w-48"
 									value={column.datatype}
 									on:change={(e) => {
@@ -243,7 +243,7 @@
 						<tr>
 							<Cell first class="flex">
 								<Select
-									containerStyles="--height: 2rem; --font-size: 14px;"
+									containerStyles="--height: 2rem; --font-size: 14px; --padding: 0 0.5rem;"
 									class={twMerge('!w-48', fkErrors?.emptyTarget ? 'border !border-red-600/60' : '')}
 									placeholder=""
 									value={foreignKey.targetTable}
@@ -268,7 +268,7 @@
 												 		 from overflowing -->
 												<div class="grow h-[2rem] relative">
 													<Select
-														containerStyles="--height: 2rem; --font-size: 14px;"
+														containerStyles="--height: 2rem; --font-size: 14px; --padding: 0 0.5rem;"
 														class={twMerge(
 															'!absolute inset-0',
 															fkErrors?.nonExistingSourceColumns.includes(column.sourceColumn)
@@ -285,7 +285,7 @@
 												<ArrowRight size={16} class="h-fit shrink-0" />
 												<div class="grow h-[2rem] relative">
 													<Select
-														containerStyles="--height: 2rem; --font-size: 14px;"
+														containerStyles="--height: 2rem; --font-size: 14px; --padding: 0 0.5rem;"
 														class={twMerge(
 															'!absolute inset-0',
 															fkErrors?.nonExistingTargetColumns.includes(column.targetColumn)
