@@ -570,15 +570,18 @@ pub mod script {
         let fut = CACHE.get_or_insert_async(hash, async move {
             match conn {
                 Connection::Sql(db) => fetch_script_from_db(&db, hash, loc).await,
-                Connection::Http(_) => Err(error::Error::InternalErr(format!(
-                    "Cannot fetch script in HTTP mode"
-                ))),
+                Connection::Http(client) => {
+                    let r = client
+                        .get::<RawScriptApi>(&format!("/api/agent_workers/script/{}", hash.0))
+                        .await?;
+                    Ok(r.into())
+                }
             }
         });
         fut.map_ok(|ScriptFull { data, meta }| (data, meta))
     }
 
-    async fn fetch_script_from_db(
+    pub async fn fetch_script_from_db(
         db: &DB,
         hash: ScriptHash,
         loc: &'static Location<'_>,
