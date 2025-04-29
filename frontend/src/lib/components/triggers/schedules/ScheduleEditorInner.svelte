@@ -262,7 +262,7 @@
 			wsErrorHandlerMuted = s?.ws_error_handler_muted ?? false
 			retry = s?.retry
 
-			setScheduleHandler(s)
+			await setScheduleHandler(s)
 		} finally {
 			drawerLoading = false
 		}
@@ -425,7 +425,7 @@
 			no_flow_overlap = s.no_flow_overlap ?? false
 			wsErrorHandlerMuted = s.ws_error_handler_muted ?? false
 			retry = s.retry
-			setScheduleHandler(s)
+			await setScheduleHandler(s)
 		} catch (err) {
 			sendUserToast(`Could not load schedule: ${err}`, true)
 		}
