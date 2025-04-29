@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.485.2](https://github.com/windmill-labs/windmill/compare/v1.485.1...v1.485.2) (2025-04-29)
+
+
+### Bug Fixes
+
+* improve agent workers for deployed scripts ([60018aa](https://github.com/windmill-labs/windmill/commit/60018aadf62cecadf111e019d3600513a89810f1))
+* make `#(extra_)requirements:` work better with pins ([#5680](https://github.com/windmill-labs/windmill/issues/5680)) ([1ab4160](https://github.com/windmill-labs/windmill/commit/1ab41603f4fd1526d0c944396ef250b184aed1f4))
+* **python:** handle better relative imports with requirements or extra_requirements ([f662cf5](https://github.com/windmill-labs/windmill/commit/f662cf5d75beed8fd114ba171cbe0fa8e4b2773f))
+
 ## [1.485.1](https://github.com/windmill-labs/windmill/compare/v1.485.0...v1.485.1) (2025-04-28)
 
 
