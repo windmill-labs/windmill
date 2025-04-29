@@ -512,7 +512,7 @@
 							captureType={captureKind}
 							{hasPreprocessor}
 							{canHavePreprocessor}
-							args={{}}
+							args={config}
 							data={{ args, hash }}
 							on:applyArgs
 							on:updateSchema
