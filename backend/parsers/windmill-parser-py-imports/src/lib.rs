@@ -495,8 +495,6 @@ async fn parse_python_imports_inner(
                 //  repin:2
                 //  └── repin:1
                 //
-                println!("imp: {:?}", imp);
-                println!("imports: {:?}", imports);
                 match imp.clone() {
                     NImportResolved::Repin { .. } => {
                         if let Some(existing_import) = imports.get(&key) {
