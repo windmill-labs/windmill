@@ -10,15 +10,15 @@ export async function runPreviewJobAndPollResult(
 	while (attempts < maxRetries) {
 		try {
 			await new Promise((resolve) => setTimeout(resolve, 500 * (attempts || 0.75)))
-			const job = await JobService.getCompletedJob({
+			const job = await JobService.getCompletedJobResultMaybe({
 				id: uuid,
 				workspace: data.workspace
 			})
 			if (job.success) {
 				return job.result
-			} else {
+			} else if (job.completed) {
 				attempts = maxRetries
-				let errorMsg: string | undefined = (job.result as any).error.message
+				let errorMsg: string | undefined = (job?.result as any)?.error?.message
 				if (typeof errorMsg !== 'string') errorMsg = undefined
 				console.error('JOB FAILED', job.result)
 				throw new Error(errorMsg ?? 'Job failed')
