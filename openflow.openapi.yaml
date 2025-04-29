@@ -96,7 +96,7 @@ components:
           type: boolean
         expr:
           type: string
-        message:
+        error_message:
           type: string
       required:
         - expr

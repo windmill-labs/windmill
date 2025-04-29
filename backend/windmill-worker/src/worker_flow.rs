@@ -186,7 +186,7 @@ struct RecoveryObject {
 fn get_stop_after_if_data(stop_after_if: Option<&StopAfterIf>) -> (bool, Option<String>) {
     if let Some(stop_after_if) = stop_after_if {
         let err_msg = stop_after_if
-            .message.as_ref().map(|message| {
+            .error_message.as_ref().map(|message| {
                 let err_start_msg = "Flow early stop";
                 let s = if message.is_empty() {
                     format!(

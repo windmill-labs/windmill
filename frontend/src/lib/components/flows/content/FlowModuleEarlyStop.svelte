@@ -73,7 +73,7 @@
 						flowModule.stop_after_if = {
 							expr: 'result == undefined',
 							skip_if_stopped: false,
-							message: undefined
+							error_message: undefined
 						}
 					}
 				}}
@@ -113,7 +113,7 @@
 								bind:checked={raise_error_message_stop_after_if}
 								on:change={(event) => {
 									if (flowModule.stop_after_if) {
-										flowModule.stop_after_if.message = event.detail === false ? undefined : ''
+										flowModule.stop_after_if.error_message = event.detail === false ? undefined : ''
 									}
 								}}
 								options={{
@@ -127,7 +127,7 @@
 					{#if raise_error_message_stop_after_if}
 						<input
 							type="text"
-							bind:value={flowModule.stop_after_if.message}
+							bind:value={flowModule.stop_after_if.error_message}
 							placeholder="Enter custom error message (optional)"
 						/>
 					{/if}
@@ -203,7 +203,7 @@
 						flowModule.stop_after_all_iters_if = {
 							expr: 'result == undefined',
 							skip_if_stopped: false,
-							message: undefined
+							error_message: undefined
 						}
 					}
 				}}
@@ -232,7 +232,7 @@
 								bind:checked={raise_error_message_stop_after_all_if}
 								on:change={(event) => {
 									if (flowModule.stop_after_all_iters_if) {
-										flowModule.stop_after_all_iters_if.message = event.detail === false ? undefined : ''
+										flowModule.stop_after_all_iters_if.error_message = event.detail === false ? undefined : ''
 									}
 								}}
 								options={{
@@ -246,7 +246,7 @@
 					{#if raise_error_message_stop_after_all_if}
 						<input
 							type="text"
-							bind:value={flowModule.stop_after_all_iters_if.message}
+							bind:value={flowModule.stop_after_all_iters_if.error_message}
 							placeholder="Enter custom error message (optional)"
 						/>
 					{/if}

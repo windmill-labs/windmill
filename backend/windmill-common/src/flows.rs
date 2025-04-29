@@ -139,7 +139,7 @@ pub struct FlowValue {
 pub struct StopAfterIf {
     pub expr: String,
     pub skip_if_stopped: bool,
-    pub message: Option<String>,
+    pub error_message: Option<String>,
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone, Default, PartialEq)]

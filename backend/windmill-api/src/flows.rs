@@ -1453,7 +1453,7 @@ mod tests {
               "stop_after_if": {
                   "expr": "foo = 'bar'",
                   "skip_if_stopped": false,
-                  "message": null
+                  "error_message": null
               }
             },
             {
@@ -1475,7 +1475,7 @@ mod tests {
               "stop_after_if": {
                   "expr": "previous.isEmpty()",
                   "skip_if_stopped": false,
-                  "message": null
+                  "error_message": null
               }
             }
           ],
@@ -1489,7 +1489,7 @@ mod tests {
             "stop_after_if": {
                 "expr": "previous.isEmpty()",
                 "skip_if_stopped": false,
-                "message": null
+                "error_message": null
             }
           },
         });

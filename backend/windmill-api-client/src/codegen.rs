@@ -1824,6 +1824,8 @@ the execution of this script will be permissioned_as and by extension its DT_TOK
         pub expr: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pub skip_if_stopped: Option<bool>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub error_message: Option<String>
     }
     impl From<&FlowModuleStopAfterIf> for FlowModuleStopAfterIf {
         fn from(value: &FlowModuleStopAfterIf) -> Self {
