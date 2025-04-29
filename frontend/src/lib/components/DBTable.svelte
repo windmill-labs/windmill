@@ -89,7 +89,7 @@
 
 	let prevUpdateKey: any = undefined
 	$effect(() => {
-		if (!$workspaceStore) return
+		if (!$workspaceStore || !api) return
 		const key = { quicksearch, colDefs: dbTableOps.colDefs, refreshCount }
 		if (deepEqual(key, prevUpdateKey)) return
 		prevUpdateKey = key
