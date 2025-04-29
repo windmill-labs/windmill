@@ -112,7 +112,10 @@ export async function loadAllTablesMetaData(
 	if (!resource || !workspace) {
 		return undefined
 	}
-	const result = (await runPreviewJobAndPollResult({
+	if (resourceType !== 'mysql' && resourceType !== 'postgresql' && resourceType !== 'ms_sql_server')
+		throw new Error('Database ' + resourceType + ' cannot load all tables metadata at once')
+
+	let result = (await runPreviewJobAndPollResult({
 		workspace: workspace,
 		requestBody: {
 			language: getLanguageByResourceType(resourceType),
@@ -122,6 +125,9 @@ export async function loadAllTablesMetaData(
 			}
 		}
 	})) as ({ table_name: string; schema_name?: string } & object)[]
+	if (resourceType === 'ms_sql_server') {
+		result = (result as any)[0]
+	}
 
 	const map: Record<string, TableMetadata> = {}
 
@@ -232,7 +238,12 @@ async function makeLoadTableMetaDataQuery(
     CASE WHEN COLUMNPROPERTY(OBJECT_ID(TABLE_NAME), COLUMN_NAME, 'IsIdentity') = 1 THEN 'By Default' ELSE 'No' END as IsIdentity,
     CASE WHEN COLUMNPROPERTY(OBJECT_ID(TABLE_NAME), COLUMN_NAME, 'IsIdentity') = 1 THEN 1 ELSE 0 END as IsPrimaryKey, -- This line still needs correction for primary key identification
     CASE WHEN IS_NULLABLE = 'YES' THEN 'YES' ELSE 'NO' END as IsNullable,
-    CASE WHEN DATA_TYPE = 'enum' THEN 1 ELSE 0 END as IsEnum
+    CASE WHEN DATA_TYPE = 'enum' THEN 1 ELSE 0 END as IsEnum${
+			table
+				? ''
+				: `,
+		TABLE_NAME as table_name`
+		}
 FROM    
     INFORMATION_SCHEMA.COLUMNS${
 			table

@@ -120,23 +120,26 @@
 		if (cachedColDefs[tableKey]) {
 			return cachedColDefs[tableKey]
 		}
-		if (resourceType === 'mysql' || resourceType === 'postgresql') {
+		try {
 			cachedColDefs =
 				(await loadAllTablesMetaData('$res:' + resourcePath, $workspaceStore, resourceType)) ??
 				cachedColDefs
+			console.log('cachedColDefs', cachedColDefs)
 			if (cachedColDefs[tableKey]) {
 				return cachedColDefs[tableKey]
 			}
-		}
-		const result = await loadTableMetaData(
-			'$res:' + resourcePath,
-			$workspaceStore,
-			tableKey,
-			resourceType
-		)
+		} catch (e) {
+			const result = await loadTableMetaData(
+				'$res:' + resourcePath,
+				$workspaceStore,
+				tableKey,
+				resourceType
+			)
 
-		if (result) cachedColDefs[tableKey] = result
-		return result ?? []
+			if (result) cachedColDefs[tableKey] = result
+			return result ?? []
+		}
+		return [] // typechecker happy
 	}
 </script>
 
