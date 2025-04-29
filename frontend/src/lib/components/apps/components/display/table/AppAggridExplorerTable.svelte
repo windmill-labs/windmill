@@ -15,8 +15,9 @@
 	import type { Output } from '$lib/components/apps/rx'
 	import type { InitConfig } from '$lib/components/apps/editor/appUtils'
 	import { Button } from '$lib/components/common'
-	import { cellRendererFactory, transformColumnDefs } from './utils'
-	import { Download } from 'lucide-svelte'
+	import { cellRendererFactory, defaultCellRenderer } from './utils'
+	import { Download, Trash2 } from 'lucide-svelte'
+	import { ColumnIdentity, type ColumnDef } from '../dbtable/utils'
 	import AppAggridTableActions from './AppAggridTableActions.svelte'
 	import Popover from '$lib/components/Popover.svelte'
 	import { withProps } from '$lib/svelte5Utils.svelte'
@@ -177,20 +178,129 @@
 		}
 	})
 
+	function transformColumnDefs(columnDefs: any[] | undefined) {
+		if (!columnDefs) {
+			return []
+		}
+
+		const { isValid, errors } = validateColumnDefs(columnDefs)
+
+		if (!isValid) {
+			sendUserToast(`Invalid columnDefs: ${errors.join('\n')}`, true)
+			return []
+		}
+
+		let r = columnDefs?.filter((x) => x && !x.ignored) ?? []
+
+		if (allowDelete) {
+			r.push({
+				field: 'delete',
+				headerName: 'Delete',
+				cellRenderer: cellRendererFactory((c, p) => {
+					const btnComponent = mount(Button, {
+						target: c.eGui,
+						props: {
+							btnClasses: 'w-12',
+							wrapperClasses: 'flex justify-end items-center h-full',
+							color: 'light',
+							size: 'sm',
+							variant: 'contained',
+							iconOnly: true,
+							startIcon: { icon: Trash2 },
+							nonCaptureEvent: true
+						}
+					})
+					return {
+						destroy: () => {
+							unmount(btnComponent)
+						},
+						refresh(params) {
+							//
+						}
+					}
+				}),
+				cellRendererParams: {
+					onClick: (e) => {
+						dispatch('delete', e)
+					}
+				},
+				lockPosition: 'right',
+				editable: false,
+				flex: 0,
+				width: 100
+			})
+		}
+
+		if (actions && actions.length > 0) {
+			r.push({
+				headerName: resolvedConfig?.customActionsHeader
+					? resolvedConfig?.customActionsHeader
+					: 'Actions',
+				cellRenderer: tableActionsFactory,
+				autoHeight: true,
+				cellStyle: { textAlign: 'center' },
+				cellClass: 'grid-cell-centered',
+				lockPosition: 'right',
+
+				...(!resolvedConfig?.wrapActions ? { minWidth: 130 * actions?.length } : {})
+			})
+		}
+
+		return r.map((fields) => {
+			let cr = defaultCellRenderer(fields.cellRendererType)
+			return {
+				...fields,
+				...(cr ? { cellRenderer: cr } : {})
+			}
+		})
+	}
+
 	let firstRow: number = 0
 	let lastRow: number = 0
 
-	function transformedColumnDefs() {
-		return transformColumnDefs({
-			columnDefs: resolvedConfig?.columnDefs ?? [],
-			actions,
-			customActionsHeader: resolvedConfig?.customActionsHeader,
-			wrapActions: resolvedConfig?.wrapActions,
-			tableActionsFactory,
-			onDelete: allowDelete ? (e) => dispatch('delete', e) : undefined,
-			onInvalidColumnDefs: (errors) =>
-				sendUserToast(`Invalid columnDefs: ${errors.join('\n')}`, true)
+	function validateColumnDefs(columnDefs: ColumnDef[]): {
+		isValid: boolean
+		errors: string[]
+	} {
+		let isValid = true
+		const errors: string[] = []
+
+		if (!Array.isArray(columnDefs)) {
+			return { isValid: false, errors: ['Column definitions must be an array.'] }
+		}
+
+		// Validate each column definition
+		columnDefs.forEach((colDef, index) => {
+			let noField = !colDef.field || typeof colDef.field !== 'string' || colDef.field.trim() === ''
+
+			if (
+				(colDef.isidentity === ColumnIdentity.ByDefault ||
+					colDef.isidentity === ColumnIdentity.Always) &&
+				colDef.hideInsert == undefined
+			) {
+				colDef.hideInsert = true
+			}
+
+			// Check if 'field' property exists and is a non-empty string
+			if (noField && !(colDef.children && Array.isArray(colDef.children))) {
+				isValid = false
+				errors.push(
+					`Column at index ${index} is missing a valid 'field' property nor having any children.`
+				)
+			}
+
+			if (colDef.children && Array.isArray(colDef.children)) {
+				const { isValid: isChildrenValid, errors: childrenErrors } = validateColumnDefs(
+					colDef.children
+				)
+				if (!isChildrenValid) {
+					isValid = false
+					errors.push(...childrenErrors.map((err) => `Error in children at index ${index}: ${err}`))
+				}
+			}
 		})
+
+		return { isValid, errors }
 	}
 
 	function mountGrid() {
@@ -200,7 +310,7 @@
 				{
 					rowModelType: 'infinite',
 					datasource,
-					columnDefs: transformedColumnDefs(),
+					columnDefs: transformColumnDefs(resolvedConfig?.columnDefs),
 					pagination: false,
 					infiniteInitialRowCount: 100,
 					cacheBlockSize: 100,
@@ -350,9 +460,7 @@
 	>
 		<div
 			on:pointerdown|stopPropagation={() => {
-				if (id?.length) {
-					$selectedComponent = [id]
-				}
+				$selectedComponent = [id]
 			}}
 			style:height="{clientHeight}px"
 			style:width="{clientWidth}px"
