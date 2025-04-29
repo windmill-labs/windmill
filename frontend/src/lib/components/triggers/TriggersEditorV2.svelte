@@ -1,5 +1,4 @@
 <script lang="ts">
-	import RunPageSchedules from '$lib/components/RunPageSchedules.svelte'
 	import { canWrite } from '$lib/utils'
 	import { userStore } from '$lib/stores'
 	import FlowCard from '../flows/common/FlowCard.svelte'
@@ -525,12 +524,14 @@
 		</Splitpanes>
 	{:else}
 		<div class="px-4 pb-2">
-			<RunPageSchedules
+			<PrimarySchedulePanel
 				{schema}
 				{isFlow}
 				path={initialPath}
 				{newItem}
 				can_write={canWrite(currentPath, {}, $userStore)}
+				isNewSchedule={false}
+				{isDeployed}
 			/>
 		</div>
 	{/if}
