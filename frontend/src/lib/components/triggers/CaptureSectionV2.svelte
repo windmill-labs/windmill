@@ -14,7 +14,7 @@
 	import AnimatedButton from '../common/button/AnimatedButton.svelte'
 	import PulseButton from '../common/button/PulseButton.svelte'
 	import Button from '../common/button/Button.svelte'
-	import { CircleStop, History, AlertCircle, Info, Play } from 'lucide-svelte'
+	import { CircleStop, History, Info, Play, Loader2 } from 'lucide-svelte'
 	import ConnectionIndicator, {
 		type ConnectionInfo
 	} from '../common/alert/ConnectionIndicator.svelte'
@@ -89,9 +89,9 @@
 	let selectedCapture: Capture | undefined = undefined
 	function handleSelectCapture(e: any) {
 		if (e.detail) {
-			selectedCapture = e.detail
-		} else if (!e.detail && lastCapture) {
-			selectedCapture = lastCapture
+			selectCapture(e.detail)
+		} else if (lastCapture) {
+			selectCapture(lastCapture)
 		}
 	}
 
@@ -103,6 +103,13 @@
 	let lastCaptureId: number | undefined = undefined
 	let displayResult: DisplayResult | undefined = undefined
 	let toolbarLocation: 'internal' | 'external' | undefined = undefined
+
+	function selectCapture(capture: Capture) {
+		selectedCapture = capture
+		if (capture.payload === 'WINDMILL_TOO_BIG') {
+			loadBigPayload(capture)
+		}
+	}
 
 	// Function to fetch the last capture when component mounts
 	async function fetchLastCapture() {
@@ -122,7 +129,7 @@
 				lastCapture = captures[0]
 				lastCaptureId = lastCapture.id
 
-				selectedCapture = lastCapture
+				selectCapture(lastCapture)
 			}
 		} catch (error) {
 			console.error('Failed to fetch last capture:', error)
@@ -153,7 +160,7 @@
 					// Trigger animation for new capture
 					showNewCaptureAnimation()
 
-					selectedCapture = lastCapture
+					selectCapture(lastCapture)
 				}
 			} catch (error) {
 				console.error('Error polling for new captures:', error)
@@ -417,20 +424,8 @@
 			{/if}
 		</div>
 		<div class="grow min-h-0 rounded-md w-full pl-2 py-1 pb-2 overflow-auto">
-			{#if selectedCapture && selectedCapture.payload === 'WINDMILL_TOO_BIG'}
-				<div class="bg-surface flex flex-col items-center gap-2">
-					<div class="text-amber-500 flex items-center gap-2">
-						<AlertCircle size={20} />
-						<span>Large payload detected</span>
-					</div>
-					<Button
-						color="dark"
-						loading={isLoadingBigPayload}
-						on:click={() => loadBigPayload(selectedCapture)}
-					>
-						Load large payload
-					</Button>
-				</div>
+			{#if isLoadingBigPayload}
+				<Loader2 class="animate-spin" />
 			{:else if selectedCapture?.payload}
 				<div
 					class="bg-surface rounded-md text-sm overflow-auto max-h-[500px] grow"
