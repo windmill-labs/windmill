@@ -31,6 +31,127 @@ use crate::jobs::{
 use crate::HTTP_CLIENT;
 use windmill_common::utils::{query_elems_from_hub, StripPath};
 
+trait ToolableItem {
+    fn get_path_or_id(&self) -> String;
+    fn get_summary(&self) -> Option<&str>;
+    fn get_description(&self) -> Option<&str>;
+    fn get_schema(&self) -> Option<Schema>;
+    fn is_hub(&self) -> bool;
+    fn item_type(&self) -> &'static str;
+}
+
+impl ToolableItem for ScriptInfo {
+    fn get_path_or_id(&self) -> String {
+        self.path.clone()
+    }
+    fn get_summary(&self) -> Option<&str> {
+        self.summary.as_deref()
+    }
+    fn get_description(&self) -> Option<&str> {
+        self.description.as_deref()
+    }
+    fn get_schema(&self) -> Option<Schema> {
+        self.schema.clone()
+    }
+    fn is_hub(&self) -> bool {
+        false
+    }
+    fn item_type(&self) -> &'static str {
+        "script"
+    }
+}
+
+impl ToolableItem for FlowInfo {
+    fn get_path_or_id(&self) -> String {
+        self.path.clone()
+    }
+    fn get_summary(&self) -> Option<&str> {
+        self.summary.as_deref()
+    }
+    fn get_description(&self) -> Option<&str> {
+        self.description.as_deref()
+    }
+    fn get_schema(&self) -> Option<Schema> {
+        self.schema.clone()
+    }
+    fn is_hub(&self) -> bool {
+        false
+    }
+    fn item_type(&self) -> &'static str {
+        "flow"
+    }
+}
+
+impl ToolableItem for HubScriptInfo {
+    fn get_path_or_id(&self) -> String {
+        self.version_id.to_string()
+    }
+    fn get_summary(&self) -> Option<&str> {
+        self.summary.as_deref()
+    }
+    fn get_description(&self) -> Option<&str> {
+        self.description.as_deref()
+    }
+    fn get_schema(&self) -> Option<Schema> {
+        self.schema.as_ref().and_then(|value| {
+            match serde_json::from_value::<sqlx::types::Json<Box<serde_json::value::RawValue>>>(
+                value.clone(),
+            ) {
+                Ok(raw_schema) => Some(Schema(raw_schema)),
+                Err(e) => {
+                    tracing::warn!(
+                        "Failed to deserialize Hub script schema: {}. Value: {:?}",
+                        e,
+                        value
+                    );
+                    None
+                }
+            }
+        })
+    }
+    fn is_hub(&self) -> bool {
+        true
+    }
+    fn item_type(&self) -> &'static str {
+        "script"
+    }
+}
+
+impl ToolableItem for HubFlowInfo {
+    fn get_path_or_id(&self) -> String {
+        self.flow_id.to_string()
+    }
+    fn get_summary(&self) -> Option<&str> {
+        self.summary.as_deref()
+    }
+    fn get_description(&self) -> Option<&str> {
+        self.description.as_deref()
+    }
+    fn get_schema(&self) -> Option<Schema> {
+        self.schema.as_ref().and_then(|value| {
+            match serde_json::from_value::<sqlx::types::Json<Box<serde_json::value::RawValue>>>(
+                value.clone(),
+            ) {
+                Ok(raw_schema) => Some(Schema(raw_schema)),
+                Err(e) => {
+                    tracing::warn!(
+                        "Failed to deserialize Hub script schema: {}. Value: {:?}",
+                        e,
+                        value
+                    );
+                    None
+                }
+            }
+        })
+    }
+    fn is_hub(&self) -> bool {
+        true
+    }
+    fn item_type(&self) -> &'static str {
+        "flow"
+    }
+}
+
 #[derive(Clone)]
 pub struct Runner {}
 
@@ -606,52 +727,61 @@ impl Runner {
         }
     }
 
-    //     async fn create_tool_from_item<T>(
-    //         item: &T,
-    //         user_db: &UserDB,
-    //         authed: &ApiAuthed,
-    //         workspace_id: &str,
-    //         resources_cache: &mut HashMap<String, Vec<ResourceInfo>>,
-    //         resources_types: &Vec<ResourceType>,
-    //     ) -> Result<Tool, Error> {
-    //         let is_hub = match item {
-    //             HubScriptInfo { .. } => true,
-    //             HubFlowInfo { .. } => true,
-    //             _ => false,
-    //         };
-    //         let name = Runner::transform_path(&item.path, "script", is_hub).unwrap_or_default();
-    //         let description = format!(
-    //             "This is a script named `{}` with the following description: `{}`.",
-    //             item.summary.as_deref().unwrap_or("No summary"),
-    //             item.description.as_deref().unwrap_or("No description")
-    //         );
-    //         let schema_obj = if let Some(schema) = item.schema {
-    //             Runner::transform_schema_for_resources(
-    //                 &schema,
-    //                 user_db,
-    //                 authed,
-    //                 &workspace_id,
-    //                 &mut resources_cache,
-    //                 &resources_types,
-    //             )
-    //             .await?
-    //         } else {
-    //             SchemaType::default()
-    //         };
-    //         Ok(Tool {
-    //             name: Cow::Owned(name),
-    //             description: Some(Cow::Owned(description)),
-    //             input_schema: {
-    //                 let value = serde_json::to_value(schema_obj).unwrap_or_default();
-    //                 if let serde_json::Value::Object(map) = value {
-    //                     Arc::new(map)
-    //                 } else {
-    //                     Arc::new(serde_json::Map::new())
-    //                 }
-    //             },
-    //             annotations: None,
-    //         })
-    //     }
+    async fn create_tool_from_item<T: ToolableItem>(
+        item: &T,
+        user_db: &UserDB,
+        authed: &ApiAuthed,
+        workspace_id: &str,
+        resources_cache: &mut HashMap<String, Vec<ResourceInfo>>,
+        resources_types: &Vec<ResourceType>,
+    ) -> Result<Tool, Error> {
+        let is_hub = item.is_hub();
+        let path = item.get_path_or_id();
+        let item_type = item.item_type();
+        let name = Runner::transform_path(&path, item_type, is_hub).unwrap_or_default();
+        let summary = item.get_summary();
+        let description = item.get_description();
+        let description = format!(
+            "This is a script named `{}` with the following description: `{}`.",
+            summary.as_deref().unwrap_or("No summary"),
+            description.as_deref().unwrap_or("No description")
+        );
+        let schema = item.get_schema();
+        let schema_obj = if let Some(schema) = schema {
+            Runner::transform_schema_for_resources(
+                &schema,
+                user_db,
+                authed,
+                &workspace_id,
+                resources_cache,
+                &resources_types,
+            )
+            .await?
+        } else {
+            SchemaType::default()
+        };
+        let input_schema_map = match serde_json::to_value(schema_obj) {
+            Ok(Value::Object(map)) => map,
+            Ok(_) => {
+                tracing::warn!("Schema object for tool '{}' did not serialize to a JSON object, using empty schema.", name);
+                serde_json::Map::new()
+            }
+            Err(e) => {
+                tracing::error!(
+                    "Failed to serialize schema object for tool '{}': {}. Using empty schema.",
+                    name,
+                    e
+                );
+                serde_json::Map::new()
+            }
+        };
+        Ok(Tool {
+            name: Cow::Owned(name),
+            description: Some(Cow::Owned(description)),
+            input_schema: Arc::new(input_schema_map),
+            annotations: None,
+        })
+    }
 }
 
 impl ServerHandler for Runner {
@@ -824,158 +954,64 @@ impl ServerHandler for Runner {
         )?;
 
         let mut resources_cache: HashMap<String, Vec<ResourceInfo>> = HashMap::new();
+        let mut tools: Vec<Tool> = Vec::new();
 
-        let mut script_tools: Vec<Tool> = Vec::with_capacity(scripts.len());
         for script in scripts {
-            let name = Runner::transform_path(&script.path, "script", false).unwrap_or_default();
-            let description = format!(
-                "This is a script named `{}` with the following description: `{}`.",
-                script.summary.as_deref().unwrap_or("No summary"),
-                script.description.as_deref().unwrap_or("No description")
-            );
-            let schema_obj = if let Some(schema) = script.schema {
-                Runner::transform_schema_for_resources(
-                    &schema,
+            tools.push(
+                Runner::create_tool_from_item(
+                    &script,
                     user_db,
                     authed,
                     &workspace_id,
                     &mut resources_cache,
                     &resources_types,
                 )
-                .await?
-            } else {
-                SchemaType::default()
-            };
-            script_tools.push(Tool {
-                name: Cow::Owned(name),
-                description: Some(Cow::Owned(description)),
-                input_schema: {
-                    let value = serde_json::to_value(schema_obj).unwrap_or_default();
-                    if let serde_json::Value::Object(map) = value {
-                        Arc::new(map)
-                    } else {
-                        Arc::new(serde_json::Map::new())
-                    }
-                },
-                annotations: None,
-            });
+                .await?,
+            );
         }
 
-        let mut flow_tools: Vec<Tool> = Vec::with_capacity(flows.len());
         for flow in flows {
-            let name = Runner::transform_path(&flow.path, "flow", false).unwrap_or_default();
-            let description = format!(
-                "This is a flow named `{}` with the following description: `{}`.",
-                flow.summary.as_deref().unwrap_or("No summary"),
-                flow.description.as_deref().unwrap_or("No description")
-            );
-            let schema_obj = if let Some(schema) = flow.schema {
-                Runner::transform_schema_for_resources(
-                    &schema,
+            tools.push(
+                Runner::create_tool_from_item(
+                    &flow,
                     user_db,
                     authed,
                     &workspace_id,
                     &mut resources_cache,
                     &resources_types,
                 )
-                .await?
-            } else {
-                SchemaType::default()
-            };
-            flow_tools.push(Tool {
-                name: Cow::Owned(name),
-                description: Some(Cow::Owned(description)),
-                input_schema: {
-                    let value = serde_json::to_value(schema_obj).unwrap_or_default();
-                    if let serde_json::Value::Object(map) = value {
-                        Arc::new(map)
-                    } else {
-                        Arc::new(serde_json::Map::new())
-                    }
-                },
-                annotations: None,
-            });
+                .await?,
+            );
         }
 
-        let mut hub_script_tools: Vec<Tool> = Vec::with_capacity(hub_scripts.len());
         for hub_script in hub_scripts {
-            let name = Runner::transform_path(&hub_script.version_id.to_string(), "script", true)
-                .unwrap_or_default();
-            let description = format!(
-                "This is a script named `{}` with the following description: `{}`.",
-                hub_script.summary.as_deref().unwrap_or("No summary"),
-                hub_script
-                    .description
-                    .as_deref()
-                    .unwrap_or("No description")
+            tools.push(
+                Runner::create_tool_from_item(
+                    &hub_script,
+                    user_db,
+                    authed,
+                    &workspace_id,
+                    &mut resources_cache,
+                    &resources_types,
+                )
+                .await?,
             );
-            let schema_obj = if let Some(schema_value) = hub_script.schema {
-                match serde_json::from_value::<sqlx::types::Json<Box<serde_json::value::RawValue>>>(
-                    schema_value.clone(),
-                ) {
-                    Ok(raw_schema) => {
-                        let schema = Schema(raw_schema); // Create Schema from the validated value
-                        Runner::transform_schema_for_resources(
-                            &schema, // Pass the reference to the created Schema
-                            user_db,
-                            authed,
-                            &workspace_id,
-                            &mut resources_cache,
-                            &resources_types,
-                        )
-                        .await?
-                    }
-                    Err(_) => {
-                        // If Value couldn't be converted to Schema's inner type, use default
-                        SchemaType::default()
-                    }
-                }
-            } else {
-                // If schema was None initially, use default
-                SchemaType::default()
-            };
-
-            hub_script_tools.push(Tool {
-                name: Cow::Owned(name.to_string()),
-                description: Some(Cow::Owned(description)),
-                input_schema: {
-                    let value = serde_json::to_value(schema_obj).unwrap_or_default();
-                    if let serde_json::Value::Object(map) = value {
-                        Arc::new(map)
-                    } else {
-                        Arc::new(serde_json::Map::new())
-                    }
-                },
-                annotations: None,
-            });
         }
 
-        let mut hub_flow_tools: Vec<Tool> = Vec::with_capacity(hub_flows.len());
         for hub_flow in hub_flows {
-            let name = Runner::transform_path(&hub_flow.flow_id.to_string(), "flow", true)
-                .unwrap_or_default();
-            let description = format!(
-                "This is a flow named `{}` with the following description: `{}`.",
-                hub_flow.summary.as_deref().unwrap_or("No summary"),
-                hub_flow.description.as_deref().unwrap_or("No description")
+            tools.push(
+                Runner::create_tool_from_item(
+                    &hub_flow,
+                    user_db,
+                    authed,
+                    &workspace_id,
+                    &mut resources_cache,
+                    &resources_types,
+                )
+                .await?,
             );
-            hub_flow_tools.push(Tool {
-                name: Cow::Owned(name.to_string()),
-                description: Some(Cow::Owned(description)),
-                input_schema: {
-                    let default_schema = SchemaType::default();
-                    let value = serde_json::to_value(default_schema).unwrap_or_default();
-                    if let serde_json::Value::Object(map) = value {
-                        Arc::new(map)
-                    } else {
-                        Arc::new(serde_json::Map::new())
-                    }
-                },
-                annotations: None,
-            });
         }
 
-        let tools = [script_tools, flow_tools, hub_script_tools, hub_flow_tools].concat();
         Ok(ListToolsResult { tools, next_cursor: None })
     }
 
