@@ -1,11 +1,11 @@
 <script lang="ts">
 	import Label from '../../Label.svelte'
 	import bash from 'svelte-highlight/languages/bash'
-	import ClipboardPanel from '../../details/ClipboardPanel.svelte'
 	import { isObject } from '$lib/utils'
 	import CopyableCodeBlock from '../../details/CopyableCodeBlock.svelte'
 	import CaptureSection, { type CaptureInfo } from '../CaptureSectionV2.svelte'
 	import { workspaceStore } from '$lib/stores'
+	import { Url } from '$lib/components/common'
 
 	export let isFlow: boolean = false
 	export let path: string = ''
@@ -47,12 +47,10 @@
 			{#if captureInfo.active}
 				Send a POST request to the URL below to simulate a webhook event.
 			{:else}
-				Hit start capturing to listen to webhook events on this test URL.
+				Start capturing to listen to webhook events on this test URL.
 			{/if}
 		</svelte:fragment>
-		<Label label="Test URL" disabled={!captureInfo.active}>
-			<ClipboardPanel content={captureUrl} disabled={!captureInfo.active} />
-		</Label>
+		<Url label="Test URL" url={captureUrl} />
 
 		<Label label="Example cURL" disabled={!captureInfo.active}>
 			<CopyableCodeBlock code={captureCurlCode()} language={bash} disabled={!captureInfo.active} />
