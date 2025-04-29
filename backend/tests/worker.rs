@@ -4004,10 +4004,11 @@ async fn test_pins_python(db: Pool<Postgres>) {
 # py311
 # extra_requirements:
 # tiny==0.1.3
+# bottle==0.13.2
 
 import f.system.requirements
 import f.system.pins
-import tiny # repin: bottle==0.13.0
+import tiny # repin: tiny==0.1.3
 import simplejson
 
 def main():
@@ -4021,7 +4022,7 @@ def main():
         ScriptLang::Python3,
         vec![
             "# py311",
-            "bottle==0.13.0",
+            "bottle==0.13.2",
             "microdot==2.2.0",
             "simplejson==3.19.3",
             "tiny==0.1.3",
