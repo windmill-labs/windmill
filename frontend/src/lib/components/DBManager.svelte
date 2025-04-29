@@ -42,7 +42,10 @@
 
 	$effect(() => {
 		if (!selected.schemaKey && schemaKeys.length) {
-			selected = { schemaKey: schemaKeys[0] }
+			selected = {
+				schemaKey:
+					'public' in dbSchema.schema ? 'public' : 'dbo' in dbSchema.schema ? 'dbo' : schemaKeys[0]
+			}
 		}
 	})
 
