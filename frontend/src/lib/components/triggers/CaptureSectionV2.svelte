@@ -41,7 +41,6 @@
 	export let disabled: boolean | undefined = undefined
 	export let captureType: CaptureTriggerKind
 	export let captureInfo: CaptureInfo
-	export let captureTable: CaptureTable | undefined
 	export let hasPreprocessor = false
 	export let isFlow = false
 
@@ -315,7 +314,6 @@
 						<svelte:fragment slot="content">
 							<CaptureTable
 								{captureType}
-								bind:this={captureTable}
 								isFlow={captureInfo.isFlow}
 								path={captureInfo.path}
 								on:selectCapture={handleSelectCapture}

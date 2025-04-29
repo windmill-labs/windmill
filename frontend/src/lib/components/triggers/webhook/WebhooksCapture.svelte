@@ -5,13 +5,11 @@
 	import { isObject } from '$lib/utils'
 	import CopyableCodeBlock from '../../details/CopyableCodeBlock.svelte'
 	import CaptureSection, { type CaptureInfo } from '../CaptureSectionV2.svelte'
-	import CaptureTable from '../CaptureTable.svelte'
 	import { workspaceStore } from '$lib/stores'
 
 	export let isFlow: boolean = false
 	export let path: string = ''
 	export let runnableArgs: any
-	export let captureTable: CaptureTable | undefined = undefined
 	export let captureInfo: CaptureInfo | undefined = undefined
 	export let hasPreprocessor: boolean = false
 
@@ -38,7 +36,6 @@
 		disabled={false}
 		on:captureToggle
 		captureType="webhook"
-		bind:captureTable
 		on:applyArgs
 		on:updateSchema
 		on:addPreprocessor

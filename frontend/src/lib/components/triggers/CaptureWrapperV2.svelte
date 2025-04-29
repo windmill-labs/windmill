@@ -2,14 +2,10 @@
 	import { workspaceStore } from '$lib/stores'
 	import { CaptureService, type CaptureConfig, type CaptureTriggerKind } from '$lib/gen'
 	import { onDestroy } from 'svelte'
-	import { capitalize, isObject, sendUserToast, sleep } from '$lib/utils'
-	import { isCloudHosted } from '$lib/cloud'
-	import Alert from '../common/alert/Alert.svelte'
+	import { isObject, sendUserToast, sleep } from '$lib/utils'
 	import RouteCapture from './http/RouteCapture.svelte'
 	import type { ConnectionInfo } from '../common/alert/ConnectionIndicator.svelte'
 	import type { CaptureInfo } from './CaptureSection.svelte'
-	import CaptureTable from './CaptureTable.svelte'
-
 	import { invalidRelations } from './postgres/utils'
 	import { DEFAULT_V3_CONFIG, DEFAULT_V5_CONFIG } from './mqtt/constant'
 	import WebhooksCapture from './webhook/WebhooksCapture.svelte'
@@ -30,7 +26,6 @@
 	export let data: any = {}
 	export let connectionInfo: ConnectionInfo | undefined = undefined
 	export let args: Record<string, any> = {}
-	export let captureTable: CaptureTable | undefined = undefined
 
 	export async function setConfig(): Promise<boolean> {
 		if (captureType === 'postgres') {
@@ -111,7 +106,6 @@
 			}
 			i++
 			await sleep(1000)
-			captureTable?.loadCaptures(true)
 		}
 	}
 
@@ -164,7 +158,6 @@
 	let config: CaptureConfig | undefined
 	$: config = captureConfigs[captureType]
 	const streamingCaptures = ['mqtt', 'sqs', 'websocket', 'postgres', 'kafka', 'nats', 'gcp']
-	let cloudDisabled = streamingCaptures.includes(captureType) && isCloudHosted()
 
 	function updateConnectionInfo(config: CaptureConfig | undefined, captureActive: boolean) {
 		if (streamingCaptures.includes(captureType) && config && captureActive) {
@@ -198,15 +191,10 @@
 
 {#key ready}
 	<div class="flex flex-col gap-4 w-full h-full">
-		{#if cloudDisabled}
-			<Alert title="Not compatible with multi-tenant cloud" type="warning" size="xs">
-				{capitalize(captureType)} triggers are disabled in the multi-tenant cloud.
-			</Alert>
-		{:else if captureType === 'websocket'}
+		{#if captureType === 'websocket'}
 			<WebsocketCapture
 				isValid={args.isValid}
 				{captureInfo}
-				bind:captureTable
 				on:applyArgs
 				on:updateSchema
 				on:addPreprocessor
@@ -216,7 +204,6 @@
 		{:else if captureType === 'postgres'}
 			<PostgresCapture
 				{captureInfo}
-				bind:captureTable
 				postgres_resource_path={args.postgres_resource_path}
 				{hasPreprocessor}
 				{isFlow}
@@ -233,7 +220,6 @@
 				{path}
 				runnableArgs={data?.args}
 				{captureInfo}
-				bind:captureTable
 				on:applyArgs
 				on:updateSchema
 				on:addPreprocessor
@@ -249,7 +235,6 @@
 				{captureInfo}
 				{hasPreprocessor}
 				{isFlow}
-				bind:captureTable
 				on:applyArgs
 				on:updateSchema
 				on:addPreprocessor
@@ -263,7 +248,6 @@
 				emailDomain={data?.emailDomain}
 				{captureInfo}
 				{hasPreprocessor}
-				bind:captureTable
 				on:applyArgs
 				on:updateSchema
 				on:addPreprocessor
@@ -274,7 +258,6 @@
 			<KafkaCapture
 				isValid={args.isValid}
 				{captureInfo}
-				bind:captureTable
 				{hasPreprocessor}
 				{isFlow}
 				on:applyArgs
@@ -287,7 +270,6 @@
 			<NatsCapture
 				isValid={args.isValid}
 				{captureInfo}
-				bind:captureTable
 				{hasPreprocessor}
 				{isFlow}
 				on:applyArgs
@@ -300,7 +282,6 @@
 			<MqttCapture
 				isValid={args.isValid}
 				{captureInfo}
-				bind:captureTable
 				{hasPreprocessor}
 				{isFlow}
 				on:applyArgs
@@ -313,7 +294,6 @@
 			<SqsCapture
 				isValid={args.isValid}
 				{captureInfo}
-				bind:captureTable
 				{hasPreprocessor}
 				{isFlow}
 				on:applyArgs
@@ -326,7 +306,6 @@
 			<GcpCapture
 				isValid={args.isValid}
 				{captureInfo}
-				bind:captureTable
 				{hasPreprocessor}
 				{isFlow}
 				on:applyArgs

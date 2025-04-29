@@ -4,13 +4,11 @@
 	import { base32 } from 'rfc4648'
 	import ClipboardPanel from './ClipboardPanel.svelte'
 	import CaptureSection, { type CaptureInfo } from '../triggers/CaptureSectionV2.svelte'
-	import CaptureTable from '../triggers/CaptureTable.svelte'
 
 	export let isFlow: boolean = false
 	export let path: string
 	export let emailDomain: string | null = null
 	export let captureInfo: CaptureInfo | undefined = undefined
-	export let captureTable: CaptureTable | undefined = undefined
 	export let hasPreprocessor: boolean = false
 
 	function getCaptureEmail() {
@@ -29,7 +27,6 @@
 
 {#if captureInfo}
 	<CaptureSection
-		bind:captureTable
 		captureType="email"
 		disabled={false}
 		{captureInfo}

@@ -7,14 +7,12 @@
 	import { base } from '$lib/base'
 	import type { CaptureInfo } from '../CaptureSectionV2.svelte'
 	import CaptureSection from '../CaptureSectionV2.svelte'
-	import CaptureTable from '../CaptureTable.svelte'
 	import { isObject } from '$lib/utils'
 	import { Url } from '$lib/components/common'
 
 	export let route_path: string | undefined
 	export let http_method: 'get' | 'post' | 'put' | 'patch' | 'delete' | undefined
 	export let captureInfo: CaptureInfo | undefined = undefined
-	export let captureTable: CaptureTable | undefined = undefined
 	export let runnableArgs: any = {}
 	export let isValid: boolean | undefined = undefined
 	export let hasPreprocessor: boolean = false
@@ -42,7 +40,6 @@
 		on:updateSchema
 		on:addPreprocessor
 		on:testWithArgs
-		bind:captureTable
 		{hasPreprocessor}
 		{isFlow}
 	>
