@@ -134,7 +134,6 @@
 			if (result) cachedColDefs[tableKey] = result
 			return result ?? []
 		}
-		return [] // typechecker happy
 	}
 </script>
 

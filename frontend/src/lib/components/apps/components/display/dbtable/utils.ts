@@ -286,7 +286,7 @@ ORDER BY
 		// TODO: find a solution for this (query uses hardcoded dataset name)
 		if (!table) throw new Error('Table name is required for BigQuery')
 		return `SELECT 
-    p.COLUMN_NAME as field,
+    c.COLUMN_NAME as field,
     DATA_TYPE as DataType,
     CASE WHEN COLUMN_DEFAULT = 'NULL' THEN '' ELSE COLUMN_DEFAULT END as DefaultValue,
     CASE WHEN constraint_name is not null THEN true ELSE false END as IsPrimaryKey,
