@@ -39,8 +39,6 @@
 		resourcePath in $dbSchemas ? $dbSchemas[resourcePath] : undefined
 	)
 
-	console.log('dbSchemas', $dbSchemas)
-
 	let isDrawerOpen: boolean = $state(false)
 	let mode: 'db-manager' | 'schema-explorer' = $state('db-manager')
 
@@ -124,10 +122,7 @@
 			cachedColDefs =
 				(await loadAllTablesMetaData('$res:' + resourcePath, $workspaceStore, resourceType)) ??
 				cachedColDefs
-			console.log('cachedColDefs', cachedColDefs)
-			if (cachedColDefs[tableKey]) {
-				return cachedColDefs[tableKey]
-			}
+			return cachedColDefs[tableKey]
 		} catch (e) {
 			const result = await loadTableMetaData(
 				'$res:' + resourcePath,
@@ -240,10 +235,6 @@
 								previewSql: (values) =>
 									makeCreateTableQuery(values, resourceType, selectedSchemaKey),
 								async onConfirm(values) {
-									console.log(
-										'onConfirm',
-										makeCreateTableQuery(values, resourceType, selectedSchemaKey)
-									)
 									await runPreviewJobAndPollResult({
 										workspace: $workspaceStore,
 										requestBody: {

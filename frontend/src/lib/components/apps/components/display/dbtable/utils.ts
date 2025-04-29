@@ -112,34 +112,35 @@ export async function loadAllTablesMetaData(
 	if (!resource || !workspace) {
 		return undefined
 	}
-	if (resourceType !== 'mysql' && resourceType !== 'postgresql' && resourceType !== 'ms_sql_server')
-		throw new Error('Database ' + resourceType + ' cannot load all tables metadata at once')
 
-	let result = (await runPreviewJobAndPollResult({
-		workspace: workspace,
-		requestBody: {
-			language: getLanguageByResourceType(resourceType),
-			content: await makeLoadTableMetaDataQuery(resource, workspace, undefined, resourceType),
-			args: {
-				database: resource
+	try {
+		let result = (await runPreviewJobAndPollResult({
+			workspace: workspace,
+			requestBody: {
+				language: getLanguageByResourceType(resourceType),
+				content: await makeLoadTableMetaDataQuery(resource, workspace, undefined, resourceType),
+				args: {
+					database: resource
+				}
 			}
+		})) as ({ table_name: string; schema_name?: string } & object)[]
+		if (resourceType === 'ms_sql_server') {
+			result = (result as any)[0]
 		}
-	})) as ({ table_name: string; schema_name?: string } & object)[]
-	if (resourceType === 'ms_sql_server') {
-		result = (result as any)[0]
-	}
+		const map: Record<string, TableMetadata> = {}
 
-	const map: Record<string, TableMetadata> = {}
-
-	for (const col of result) {
-		const tableKey = col.schema_name ? `${col.schema_name}.${col.table_name}` : col.table_name
-		if (!(tableKey in map)) {
-			map[tableKey] = []
+		for (const _col of result) {
+			const col = lowercaseKeys(_col)
+			const tableKey = col.schema_name ? `${col.schema_name}.${col.table_name}` : col.table_name
+			if (!(tableKey in map)) {
+				map[tableKey] = []
+			}
+			map[tableKey].push(col)
 		}
-		map[tableKey].push(lowercaseKeys(col))
+		return map
+	} catch (e) {
+		throw new Error('Error loading all tables metadata: ' + e)
 	}
-
-	return map
 }
 
 async function makeLoadTableMetaDataQuery(
@@ -224,7 +225,8 @@ async function makeLoadTableMetaDataQuery(
 			: `
 	JOIN pg_catalog.pg_class c ON a.attrelid = c.oid
 	JOIN pg_catalog.pg_namespace ns ON c.relnamespace = ns.oid
-	WHERE c.relkind = 'r' AND a.attnum > 0 AND NOT a.attisdropped`
+	WHERE c.relkind = 'r' AND a.attnum > 0 AND NOT a.attisdropped
+		AND ns.nspname != 'pg_catalog' AND ns.nspname != 'information_schema'`
 	}
 	ORDER BY ns.nspname, c.relname, a.attnum;
 	
@@ -263,7 +265,13 @@ ORDER BY
 		CASE WHEN COLUMN_DEFAULT like 'AUTOINCREMENT%' THEN 'By Default' ELSE 'No' END as IsIdentity,
 		CASE WHEN COLUMN_DEFAULT like 'AUTOINCREMENT%' THEN 1 ELSE 0 END as IsPrimaryKey,
 		CASE WHEN IS_NULLABLE = 'YES' THEN 'YES' ELSE 'NO' END as IsNullable,
-		CASE WHEN DATA_TYPE = 'enum' THEN 1 ELSE 0 END as IsEnum
+		CASE WHEN DATA_TYPE = 'enum' THEN 1 ELSE 0 END as IsEnum${
+			table
+				? ''
+				: `,
+		table_name as table_name,
+		table_schema as schema_name`
+		}
 	from information_schema.columns${
 		table
 			? `
