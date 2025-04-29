@@ -4158,8 +4158,6 @@ pub async fn run_wait_result(
     let (result, success) =
         run_wait_result_internal(db, uuid, w_id, node_id_for_empty_return, username).await?;
 
-    println!("run_wait_result done");
-
     let composite_result = serde_json::from_str::<WindmillCompositeResult>(result.get());
     match composite_result {
         Ok(WindmillCompositeResult {
@@ -4605,8 +4603,6 @@ pub async fn run_wait_result_script_by_path_internal(
     )
     .await?;
     tx.commit().await?;
-
-    println!("run_wait_result_script_by_path: {}", uuid);
 
     let wait_result = run_wait_result(&db, uuid, w_id, None, &authed.username).await;
     if delete_after_use.unwrap_or(false) {
