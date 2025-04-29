@@ -100,7 +100,6 @@ export function dbTableOpsWithPreviewScripts({
 		},
 		onDelete: async ({ values }) => {
 			const deleteQuery = makeDeleteQuery(tableKey, colDefs, resourceType)
-			console.log(deleteQuery)
 
 			await runPreviewJobAndPollResult({
 				workspace,
