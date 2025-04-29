@@ -140,7 +140,7 @@ CASE WHEN :order_by = '${column.field}' AND :is_desc IS true THEN \`${column.fie
 
 			quicksearchCondition = `($3 = '' OR CONCAT(${filteredColumns.join(
 				', '
-			)}, ' ') ILIKE '%' || $3 || '%')`
+			)}) ILIKE '%' || $3 || '%')`
 
 			query += `SELECT ${filteredColumns
 				.map((column) => `${column}::text`)
@@ -155,7 +155,9 @@ CASE WHEN :order_by = '${column.field}' AND :is_desc IS true THEN \`${column.fie
 		case 'ms_sql_server':
 			// MSSQL uses CONCAT for string concatenation and supports OFFSET FETCH for pagination
 			// Note: MSSQL does not have a built-in ILIKE function, so we use LIKE with a case-insensitive collation if needed
-			// Note 2: CONCAT in mssql requires 2 to 254 arguments so we concatenate with a space in case there is only one column
+			//
+			// Note 2: CONCAT in mssql requires 2 to 254 arguments. But we can't change this query without breaking
+			// existing policies
 			const orderBy = columnDefs
 				.map((column) => {
 					return `
@@ -164,7 +166,7 @@ CASE WHEN :order_by = '${column.field}' AND :is_desc IS true THEN \`${column.fie
 				})
 				.join(',\n')
 
-			quicksearchCondition = ` (@p3 = '' OR CONCAT(${selectClause}, ' ') LIKE '%' + @p3 + '%')`
+			quicksearchCondition = ` (@p3 = '' OR CONCAT(${selectClause}) LIKE '%' + @p3 + '%')`
 
 			query += `SELECT ${selectClause} FROM ${table}`
 			query += ` WHERE ${whereClause ? `${whereClause} AND` : ''} ${quicksearchCondition}`
@@ -207,7 +209,7 @@ CASE WHEN :order_by = '${column.field}' AND :is_desc IS true THEN \`${column.fie
 					return `CAST(${col} AS STRING)`
 				})
 				.join(',')
-			quicksearchCondition = ` (@quicksearch = '' OR REGEXP_CONTAINS(CONCAT(${searchClause}, ' '), '(?i)' || @quicksearch))`
+			quicksearchCondition = ` (@quicksearch = '' OR REGEXP_CONTAINS(CONCAT(${searchClause}), '(?i)' || @quicksearch))`
 
 			query += `SELECT ${selectClause} FROM ${table}`
 			query += ` WHERE ${whereClause ? `${whereClause} AND` : ''} ${quicksearchCondition}`

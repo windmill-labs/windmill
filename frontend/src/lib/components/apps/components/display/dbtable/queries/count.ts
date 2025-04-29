@@ -49,7 +49,7 @@ export function makeCountQuery(
 			if (filteredColumns.length > 0) {
 				quicksearchCondition += `(@p1 = '' OR CONCAT(${filteredColumns.join(
 					', +'
-				)}, ' ') LIKE '%' + @p1 + '%')`
+				)}) LIKE '%' + @p1 + '%')`
 			} else {
 				quicksearchCondition += `(@p1 = '' OR 1 = 1)`
 			}
