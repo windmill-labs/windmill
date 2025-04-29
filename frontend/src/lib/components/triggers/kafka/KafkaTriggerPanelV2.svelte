@@ -5,12 +5,20 @@
 	import Description from '$lib/components/Description.svelte'
 	import { enterpriseLicense } from '$lib/stores'
 
-	let { selectedTrigger, isFlow, path, edit, isDeployed = false, isEditor } = $props()
+	let {
+		selectedTrigger,
+		isFlow,
+		path,
+		edit,
+		isDeployed = false,
+		isEditor,
+		defaultValues = undefined
+	} = $props()
 	let kafkaTriggerEditor: KafkaTriggerEditorInner | undefined = $state(undefined)
 
 	async function openKafkaTriggerEditor(isFlow: boolean, isDraft: boolean) {
 		if (isDraft) {
-			kafkaTriggerEditor?.openNew(isFlow, path)
+			kafkaTriggerEditor?.openNew(isFlow, path, defaultValues)
 		} else {
 			kafkaTriggerEditor?.openEdit(selectedTrigger.path, isFlow)
 		}

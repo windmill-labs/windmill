@@ -109,15 +109,19 @@
 		}
 	}
 
-	export async function openNew(nis_flow: boolean, initial_script_path?: string) {
+	export async function openNew(
+		nis_flow: boolean,
+		initial_script_path?: string,
+		defaultValues?: Record<string, any>
+	) {
 		drawerLoading = true
 		try {
 			drawer?.openDrawer()
-			args = {}
+			args = defaultValues?.args ?? {}
 			runnable = undefined
 			is_flow = nis_flow
-			schedule = '0 0 12 * *'
-			paused_until = undefined
+			schedule = defaultValues?.schedule ?? '0 0 12 * *'
+			paused_until = defaultValues?.paused_until ?? undefined
 			showPauseUntil = false
 			let defaultErrorHandlerMaybe = undefined
 			let defaultRecoveryHandlerMaybe = undefined
@@ -137,10 +141,10 @@
 			edit = false
 			itemKind = nis_flow ? 'flow' : 'script'
 			initialScriptPath = initial_script_path ?? ''
-			summary = ''
-			description = ''
-			no_flow_overlap = false
-			path = initialScriptPath
+			summary = defaultValues?.summary ?? ''
+			description = defaultValues?.description ?? ''
+			no_flow_overlap = defaultValues?.no_flow_overlap ?? false
+			path = defaultValues?.path ?? initialScriptPath
 			initialPath = initialScriptPath
 			script_path = initialScriptPath
 			await loadScript(script_path)
@@ -196,7 +200,7 @@
 				successHandlerCustomInitialPath = undefined
 				successHandlerSelected = 'slack'
 			}
-			timezone = Intl.DateTimeFormat().resolvedOptions().timeZone
+			timezone = defaultValues?.timezone ?? Intl.DateTimeFormat().resolvedOptions().timeZone
 		} finally {
 			drawerLoading = false
 		}
@@ -578,6 +582,19 @@
 			schedule = initialSchedule
 		}
 	}
+
+	$effect(() => {
+		dispatch('update-config', {
+			summary,
+			description,
+			no_flow_overlap,
+			path,
+			paused_until,
+			args,
+			schedule,
+			timezone
+		})
+	})
 </script>
 
 {#snippet saveButton(size: 'sm' | 'xs')}

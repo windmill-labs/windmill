@@ -109,7 +109,7 @@
 			initialScriptPath = ''
 			fixedScriptPath = fixedScriptPath_ ?? ''
 			script_path = fixedScriptPath
-			path = ''
+			path = nDefaultValues?.path ?? ''
 			initialPath = ''
 			dirtyPath = false
 			defaultValues = nDefaultValues
@@ -200,7 +200,8 @@
 			kafka_resource_path: $state.snapshot(args.kafka_resource_path),
 			group_id: $state.snapshot(args.group_id),
 			topics: structuredClone($state.snapshot(args.topics)),
-			isValid
+			isValid,
+			path
 		})
 	})
 

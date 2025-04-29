@@ -4,12 +4,20 @@
 	import { Alert } from '$lib/components/common'
 	import Description from '$lib/components/Description.svelte'
 
-	let { selectedTrigger, isFlow, path, edit, isDeployed = false, isEditor } = $props()
+	let {
+		selectedTrigger,
+		isFlow,
+		path,
+		edit,
+		isDeployed = false,
+		isEditor,
+		defaultValues = undefined
+	} = $props()
 	let natsTriggerEditor: NatsTriggerEditorInner | undefined = $state(undefined)
 
 	async function openNatsTriggerEditor(isFlow: boolean, isDraft: boolean) {
 		if (isDraft) {
-			natsTriggerEditor?.openNew(isFlow, path)
+			natsTriggerEditor?.openNew(isFlow, path, defaultValues)
 		} else {
 			natsTriggerEditor?.openEdit(selectedTrigger.path, isFlow)
 		}

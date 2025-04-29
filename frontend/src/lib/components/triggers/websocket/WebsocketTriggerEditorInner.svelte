@@ -127,7 +127,7 @@
 			initialScriptPath = ''
 			fixedScriptPath = fixedScriptPath_ ?? ''
 			script_path = fixedScriptPath
-			path = ''
+			path = defaultValues?.path ?? ''
 			initialPath = ''
 			filters = []
 			initial_messages = []
@@ -260,7 +260,8 @@
 		dispatch('update-config', {
 			url,
 			url_runnable_args,
-			isValid
+			isValid,
+			path
 		})
 	})
 </script>

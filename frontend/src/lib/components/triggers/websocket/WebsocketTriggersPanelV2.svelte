@@ -4,12 +4,20 @@
 	import { Alert } from '$lib/components/common'
 	import Description from '$lib/components/Description.svelte'
 
-	let { selectedTrigger, isFlow, path, edit, isDeployed = false, isEditor } = $props()
+	let {
+		selectedTrigger,
+		isFlow,
+		path,
+		edit,
+		isDeployed = false,
+		isEditor,
+		defaultValues = undefined
+	} = $props()
 	let wsTriggerEditor: WebsocketTriggerEditorInner | undefined = $state(undefined)
 
 	async function openWebsocketTriggerEditor(isFlow: boolean, isDraft: boolean) {
 		if (isDraft) {
-			wsTriggerEditor?.openNew(isFlow, path)
+			wsTriggerEditor?.openNew(isFlow, path, defaultValues)
 		} else {
 			wsTriggerEditor?.openEdit(selectedTrigger.path, isFlow)
 		}

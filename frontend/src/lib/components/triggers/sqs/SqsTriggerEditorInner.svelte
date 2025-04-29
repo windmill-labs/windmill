@@ -107,7 +107,7 @@
 			script_path = fixedScriptPath
 			aws_resource_path = defaultValues?.aws_resource_path ?? ''
 			queue_url = defaultValues?.queue_url ?? ''
-			path = ''
+			path = defaultValues?.path ?? ''
 			message_attributes = defaultValues?.message_attributes ?? []
 			aws_auth_resource_type = defaultValues?.aws_auth_resource_type ?? 'credentials'
 			initialPath = ''
@@ -195,7 +195,8 @@
 			queue_url,
 			message_attributes,
 			aws_auth_resource_type,
-			isValid
+			isValid,
+			path
 		})
 	})
 </script>

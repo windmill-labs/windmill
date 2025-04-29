@@ -1,14 +1,14 @@
 <script lang="ts">
-	import ScheduleEditor from './ScheduleEditor.svelte'
+	import ScheduleEditorInner from './ScheduleEditorInner.svelte'
 	import Description from '$lib/components/Description.svelte'
 	import { Alert } from '$lib/components/common'
 
-	let scheduleEditor = $state<ScheduleEditor | null>(null)
-	let { selectedTrigger, isFlow, path, isDeployed = false } = $props()
+	let scheduleEditor = $state<ScheduleEditorInner | null>(null)
+	let { selectedTrigger, isFlow, path, isDeployed = false, defaultValues = undefined } = $props()
 
 	function openScheduleEditor(isFlow: boolean, isDraft: boolean) {
 		if (isDraft) {
-			scheduleEditor?.openNew(isFlow, path)
+			scheduleEditor?.openNew(isFlow, path, defaultValues)
 		} else {
 			scheduleEditor?.openEdit(selectedTrigger.path, isFlow, false)
 		}
@@ -21,7 +21,7 @@
 	})
 </script>
 
-<ScheduleEditor
+<ScheduleEditorInner
 	useDrawer={false}
 	bind:this={scheduleEditor}
 	on:update-config
@@ -30,7 +30,7 @@
 	useEditButton
 	preventSave={!isDeployed}
 >
-	{#snippet description()}
+	{#snippet docDescription()}
 		<div class="flex flex-col gap-2 pb-4">
 			<Description link="https://www.windmill.dev/docs/core_concepts/scheduling">
 				Run scripts and flows automatically on a recurring basis using cron expressions.
@@ -45,7 +45,7 @@
 			{/if}
 		</div>
 	{/snippet}
-</ScheduleEditor>
+</ScheduleEditorInner>
 <!-- hideTarget
 	hidePath
     {header} -->

@@ -48,6 +48,8 @@ export type Trigger = {
 	isDraft?: boolean
 	isPrimary?: boolean
 	canWrite?: boolean
+	id?: string
+	config?: Record<string, any>
 }
 
 // Map of trigger kinds to icons
@@ -85,19 +87,26 @@ export function triggerTypeToCaptureKind(triggerType: TriggerType): CaptureTrigg
 }
 
 /**
+ * Generate a unique ID for a draft trigger
+ */
+function generateDraftId(): string {
+	return Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15)
+}
+
+/**
  * Add a draft trigger to the store
  */
 export function addDraftTrigger(triggersStore: Writable<Trigger[]>, type: TriggerType): Trigger {
-	// Remove any existing draft of the same type from the store
 	const currentTriggers = get(triggersStore)
-	triggersStore.set(currentTriggers.filter((t) => !(t.isDraft && t.type === type)))
 
 	const primaryScheduleExists = currentTriggers.some(
 		(t) => t.type === 'schedule' && t.isPrimary && !t.isDraft
 	)
 
 	// Create the new draft trigger
+	const draftId = generateDraftId()
 	const newTrigger = {
+		id: draftId,
 		type,
 		path: '',
 		isPrimary: type === 'schedule' && !primaryScheduleExists,
@@ -113,17 +122,24 @@ export function addDraftTrigger(triggersStore: Writable<Trigger[]>, type: Trigge
 /**
  * Delete a draft trigger from the store
  */
-export function deleteDraft(
-	triggersStore: Writable<Trigger[]>,
-	trigger: Trigger | undefined
-): void {
-	if (!trigger) return
+export function deleteDraft(triggersStore: Writable<Trigger[]>, draftId: string): void {
+	triggersStore.update((triggers) => triggers.filter((t) => t.id !== draftId))
+}
 
-	triggersStore.update((triggers) =>
-		triggers.filter(
-			(t) => !(t.type === trigger.type && t.isDraft && t.isPrimary === trigger.isPrimary)
-		)
-	)
+export function updateDraftTriggerConfig(
+	triggersStore: Writable<Trigger[]>,
+	draftId: string,
+	config: Record<string, any>
+): void {
+	triggersStore.update((triggers) => triggers.map((t) => (t.id === draftId ? { ...t, config } : t)))
+}
+
+export function updateDraftTriggerPath(
+	triggersStore: Writable<Trigger[]>,
+	draftId: string,
+	path: string
+): void {
+	triggersStore.update((triggers) => triggers.map((t) => (t.id === draftId ? { ...t, path } : t)))
 }
 
 /**
@@ -139,10 +155,6 @@ export async function fetchTriggers(
 ): Promise<void> {
 	if (!workspaceId) return
 
-	// Store existing draft triggers
-	const currentTriggers = get(triggersStore)
-	const draftTriggers = currentTriggers.filter((t) => t.isDraft)
-
 	// Fetch each type of trigger
 	await Promise.all([
 		fetchSchedules(triggersStore, workspaceId, path, isFlow, primarySchedule),
@@ -155,9 +167,6 @@ export async function fetchTriggers(
 		fetchSqsTriggers(triggersStore, workspaceId, path, isFlow),
 		fetchGcpTriggers(triggersStore, workspaceId, path, isFlow, user)
 	])
-
-	// Add back draft triggers
-	triggersStore.update((triggers) => [...triggers, ...draftTriggers])
 }
 
 /**
@@ -178,8 +187,10 @@ export async function fetchSchedules(
 			isFlow
 		})
 
-		// Remove existing schedules
-		triggersStore.update((triggers) => triggers.filter((t) => !(t.type === 'schedule')))
+		// Remove existing schedules except for draft schedules
+		triggersStore.update((triggers) =>
+			triggers.filter((t) => !(t.type === 'schedule' && !t.isDraft))
+		)
 
 		// Find primary schedule (matches the path exactly)
 		const deployedPrimarySchedule = allSchedules.find((s) => s.path === path)
@@ -245,8 +256,8 @@ export async function fetchHttpTriggers(
 ): Promise<void> {
 	if (!workspaceId) return
 	try {
-		// Remove existing HTTP triggers for this path
-		triggersStore.update((triggers) => triggers.filter((t) => !(t.type === 'http')))
+		// Remove existing HTTP triggers for this path except for draft triggers
+		triggersStore.update((triggers) => triggers.filter((t) => !(t.type === 'http' && !t.isDraft)))
 
 		const httpTriggers: HttpTrigger[] = await HttpTriggerService.listHttpTriggers({
 			workspace: workspaceId,
@@ -283,8 +294,10 @@ export async function fetchWebsocketTriggers(
 ): Promise<void> {
 	if (!workspaceId) return
 	try {
-		// Remove existing websocket triggers for this path
-		triggersStore.update((triggers) => triggers.filter((t) => !(t.type === 'websocket')))
+		// Remove existing websocket triggers for this path except for draft triggers
+		triggersStore.update((triggers) =>
+			triggers.filter((t) => !(t.type === 'websocket' && !t.isDraft))
+		)
 
 		const wsTriggers = await WebsocketTriggerService.listWebsocketTriggers({
 			workspace: workspaceId,
@@ -321,8 +334,10 @@ export async function fetchPostgresTriggers(
 ): Promise<void> {
 	if (!workspaceId) return
 	try {
-		// Remove existing postgres triggers for this path
-		triggersStore.update((triggers) => triggers.filter((t) => !(t.type === 'postgres')))
+		// Remove existing postgres triggers for this path except for draft triggers
+		triggersStore.update((triggers) =>
+			triggers.filter((t) => !(t.type === 'postgres' && !t.isDraft))
+		)
 
 		const pgTriggers: PostgresTrigger[] = await PostgresTriggerService.listPostgresTriggers({
 			workspace: workspaceId,
@@ -358,8 +373,8 @@ export async function fetchKafkaTriggers(
 ): Promise<void> {
 	if (!workspaceId) return
 	try {
-		// Remove existing kafka triggers for this path
-		triggersStore.update((triggers) => triggers.filter((t) => !(t.type === 'kafka')))
+		// Remove existing kafka triggers for this path except for draft triggers
+		triggersStore.update((triggers) => triggers.filter((t) => !(t.type === 'kafka' && !t.isDraft)))
 
 		const kafkaTriggers: KafkaTrigger[] = await KafkaTriggerService.listKafkaTriggers({
 			workspace: workspaceId,
@@ -395,8 +410,8 @@ export async function fetchNatsTriggers(
 ): Promise<void> {
 	try {
 		if (!workspaceId) return
-		// Remove existing NATS triggers for this path
-		triggersStore.update((triggers) => triggers.filter((t) => !(t.type === 'nats')))
+		// Remove existing NATS triggers for this path except for draft triggers
+		triggersStore.update((triggers) => triggers.filter((t) => !(t.type === 'nats' && !t.isDraft)))
 
 		const natsTriggers = await NatsTriggerService.listNatsTriggers({
 			workspace: workspaceId,
@@ -433,8 +448,8 @@ export async function fetchMqttTriggers(
 ): Promise<void> {
 	try {
 		if (!workspaceId) return
-		// Remove existing MQTT triggers for this path
-		triggersStore.update((triggers) => triggers.filter((t) => !(t.type === 'mqtt')))
+		// Remove existing MQTT triggers for this path except for draft triggers
+		triggersStore.update((triggers) => triggers.filter((t) => !(t.type === 'mqtt' && !t.isDraft)))
 
 		const mqttTriggers = await MqttTriggerService.listMqttTriggers({
 			workspace: workspaceId,
@@ -471,8 +486,8 @@ export async function fetchSqsTriggers(
 ): Promise<void> {
 	if (!workspaceId) return
 	try {
-		// Remove existing SQS triggers for this path
-		triggersStore.update((triggers) => triggers.filter((t) => !(t.type === 'sqs')))
+		// Remove existing SQS triggers for this path except for draft triggers
+		triggersStore.update((triggers) => triggers.filter((t) => !(t.type === 'sqs' && !t.isDraft)))
 
 		const sqsTriggers = await SqsTriggerService.listSqsTriggers({
 			workspace: workspaceId,
@@ -509,8 +524,8 @@ export async function fetchGcpTriggers(
 ): Promise<void> {
 	if (!workspaceId) return
 	try {
-		// Remove existing GCP triggers for this path
-		triggersStore.update((triggers) => triggers.filter((t) => !(t.type === 'gcp')))
+		// Remove existing GCP triggers for this path except for draft triggers
+		triggersStore.update((triggers) => triggers.filter((t) => !(t.type === 'gcp' && !t.isDraft)))
 
 		const gcpTriggers: GcpTrigger[] = await GcpTriggerService.listGcpTriggers({
 			workspace: workspaceId,

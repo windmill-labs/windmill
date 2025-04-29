@@ -109,7 +109,7 @@
 		}, 100)
 		drawerLoading = true
 		try {
-			mqtt_resource_path = ''
+			mqtt_resource_path = defaultValues?.mqtt_resource_path ?? ''
 			drawer?.openDrawer()
 			is_flow = nis_flow
 			itemKind = nis_flow ? 'flow' : 'script'
@@ -117,7 +117,7 @@
 			fixedScriptPath = fixedScriptPath_ ?? ''
 			script_path = fixedScriptPath
 			subscribe_topics = defaultValues?.topics ?? []
-			path = ''
+			path = defaultValues?.path ?? ''
 			initialPath = ''
 			edit = false
 			isDraft = true
@@ -213,7 +213,8 @@
 			v3_config,
 			v5_config,
 			client_id,
-			isValid
+			isValid,
+			path
 		})
 	})
 </script>

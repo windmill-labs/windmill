@@ -48,6 +48,11 @@
 		newItem,
 		schema
 	}: Props = $props()
+
+	// Forward config updates to parent
+	function updateConfig(config: Record<string, any>) {
+		dispatch('update-config', config)
+	}
 </script>
 
 {#if selectedTrigger.type === 'http'}
@@ -56,12 +61,13 @@
 		{isFlow}
 		path={initialPath || fakeInitialPath}
 		{edit}
-		on:update-config
+		on:update-config={({ detail }) => updateConfig(detail)}
 		on:update
 		on:delete
 		on:toggle-edit-mode
 		{isDeployed}
 		{small}
+		defaultValues={selectedTrigger.isDraft ? selectedTrigger.config : undefined}
 	/>
 {:else if selectedTrigger.type === 'webhook'}
 	<WebhooksPanel
@@ -70,6 +76,7 @@
 		{hash}
 		token=""
 		{args}
+		on:update-config={({ detail }) => updateConfig(detail)}
 		scopes={isFlow ? [`run:flow/${currentPath}`] : [`run:script/${currentPath}`]}
 		{newItem}
 	/>
@@ -79,8 +86,9 @@
 		scopes={isFlow ? [`run:flow/${currentPath}`] : [`run:script/${currentPath}`]}
 		path={initialPath || fakeInitialPath}
 		{isFlow}
+		on:update-config={({ detail }) => updateConfig(detail)}
 		on:emailDomain={({ detail }) => {
-			dispatch('update-config', { emailDomain: detail })
+			updateConfig({ emailDomain: detail })
 		}}
 	/>
 {:else if selectedTrigger.type === 'schedule' && selectedTrigger.isPrimary}
@@ -105,11 +113,13 @@
 		{isFlow}
 		path={initialPath}
 		{isDeployed}
+		on:update-config={({ detail }) => updateConfig(detail)}
 		on:update={async ({ detail }) => {
 			if (selectedTrigger && selectedTrigger.isDraft && detail?.path) {
 				dispatch('update', detail.path)
 			}
 		}}
+		defaultValues={selectedTrigger.isDraft ? selectedTrigger.config : undefined}
 	/>
 {:else if selectedTrigger.type === 'websocket'}
 	<WebsocketTriggersPanel
@@ -122,7 +132,8 @@
 		on:toggle-edit-mode
 		on:update
 		on:delete
-		on:update-config
+		on:update-config={({ detail }) => updateConfig(detail)}
+		defaultValues={selectedTrigger.isDraft ? selectedTrigger.config : undefined}
 	/>
 {:else if selectedTrigger.type === 'kafka'}
 	<KafkaTriggerPanel
@@ -135,7 +146,8 @@
 		on:toggle-edit-mode
 		on:update
 		on:delete
-		on:update-config
+		on:update-config={({ detail }) => updateConfig(detail)}
+		defaultValues={selectedTrigger.isDraft ? selectedTrigger.config : undefined}
 	/>
 {:else if selectedTrigger.type === 'postgres'}
 	<PostgresTriggersPanel
@@ -148,7 +160,8 @@
 		on:toggle-edit-mode
 		on:update
 		on:delete
-		on:update-config
+		on:update-config={({ detail }) => updateConfig(detail)}
+		defaultValues={selectedTrigger.isDraft ? selectedTrigger.config : undefined}
 	/>
 {:else if selectedTrigger.type === 'nats'}
 	<NatsTriggerPanel
@@ -161,7 +174,8 @@
 		on:toggle-edit-mode
 		on:update
 		on:delete
-		on:update-config
+		on:update-config={({ detail }) => updateConfig(detail)}
+		defaultValues={selectedTrigger.isDraft ? selectedTrigger.config : undefined}
 	/>
 {:else if selectedTrigger.type === 'mqtt'}
 	<MqttTriggerPanel
@@ -174,7 +188,8 @@
 		on:toggle-edit-mode
 		on:update
 		on:delete
-		on:update-config
+		on:update-config={({ detail }) => updateConfig(detail)}
+		defaultValues={selectedTrigger.isDraft ? selectedTrigger.config : undefined}
 	/>
 {:else if selectedTrigger.type === 'sqs'}
 	<SqsTriggerPanel
@@ -186,7 +201,8 @@
 		on:toggle-edit-mode
 		on:update
 		on:delete
-		on:update-config
+		on:update-config={({ detail }) => updateConfig(detail)}
+		defaultValues={selectedTrigger.isDraft ? selectedTrigger.config : undefined}
 	/>
 {:else if selectedTrigger.type === 'gcp'}
 	<GcpTriggerPanel
@@ -199,8 +215,9 @@
 		on:toggle-edit-mode
 		on:update
 		on:delete
-		on:update-config
+		on:update-config={({ detail }) => updateConfig(detail)}
+		defaultValues={selectedTrigger.isDraft ? selectedTrigger.config : undefined}
 	/>
 {:else if selectedTrigger.type === 'poll'}
-	<ScheduledPollPanel />
+	<ScheduledPollPanel on:update-config={({ detail }) => updateConfig(detail)} />
 {/if}

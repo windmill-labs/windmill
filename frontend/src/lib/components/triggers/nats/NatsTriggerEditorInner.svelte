@@ -111,7 +111,7 @@
 			initialScriptPath = ''
 			fixedScriptPath = fixedScriptPath_ ?? ''
 			script_path = fixedScriptPath
-			path = ''
+			path = nDefaultValues?.path ?? ''
 			initialPath = ''
 			dirtyPath = false
 			defaultValues = nDefaultValues
@@ -209,7 +209,8 @@
 		dispatch('update-config', {
 			nats_resource_path: args.nats_resource_path,
 			subjects: args.subjects,
-			isValid
+			isValid,
+			path
 		})
 	})
 </script>

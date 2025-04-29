@@ -10,7 +10,7 @@
 	import AddTriggersButton from './AddTriggersButton.svelte'
 	import TriggerLabel from './TriggerLabel.svelte'
 	// Props
-	export let selectedTrigger: { path: string; type: string; isDraft?: boolean } | null = null
+	export let selectedTrigger: Trigger | undefined = undefined
 	export let triggers: Trigger[] = []
 
 	// Component state
@@ -68,7 +68,8 @@
 						selectedTrigger &&
 							selectedTrigger.path === trigger.path &&
 							selectedTrigger.type === trigger.type &&
-							selectedTrigger.isDraft === trigger.isDraft
+							selectedTrigger.isDraft === trigger.isDraft &&
+							selectedTrigger.id === trigger.id
 							? 'bg-surface-hover '
 							: ''
 					)}

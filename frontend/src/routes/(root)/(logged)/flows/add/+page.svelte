@@ -16,6 +16,7 @@
 	import type { ScheduleTrigger } from '$lib/components/triggers'
 	import type { GetInitialAndModifiedValues } from '$lib/components/common/confirmationModal/unsavedTypes'
 	import { replaceScriptPlaceholderWithItsValues } from '$lib/hub'
+	import type { Trigger } from '$lib/components/triggers/utils'
 
 	let nodraft = $page.url.searchParams.get('nodraft')
 
@@ -57,6 +58,7 @@
 	const flowStateStore = writable<FlowState>({})
 
 	let savedPrimarySchedule: ScheduleTrigger | undefined = undefined
+	let savedDraftTriggers: Trigger[] = []
 	async function loadFlow() {
 		loading = true
 		let flow: Flow = {
@@ -102,6 +104,7 @@
 			flow = state.flow
 			pathStoreInit = state.path
 			savedPrimarySchedule = state.primarySchedule
+			savedDraftTriggers = state.draft_triggers
 			state?.selectedId && (selectedId = state?.selectedId)
 		} else {
 			if (templatePath) {
@@ -182,6 +185,7 @@
 	{selectedId}
 	{loading}
 	{savedPrimarySchedule}
+	{savedDraftTriggers}
 >
 	<UnsavedConfirmationModal {getInitialAndModifiedValues} />
 </FlowBuilder>

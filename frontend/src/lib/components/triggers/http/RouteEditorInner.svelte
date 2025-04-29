@@ -190,7 +190,7 @@
 			script_path = fixedScriptPath
 			static_asset_config = undefined
 			s3FileUploadRawMode = false
-			path = ''
+			path = defaultValues?.path ?? ''
 			initialPath = ''
 			dirtyPath = false
 			is_static_website = false
@@ -216,6 +216,7 @@
 			raw_string: boolean
 			wrap_body: boolean
 			isValid: boolean
+			path: string
 		}
 		'toggle-edit-mode': boolean
 		update: string
@@ -322,7 +323,8 @@
 			http_method,
 			raw_string,
 			wrap_body,
-			isValid
+			isValid,
+			path
 		})
 	})
 

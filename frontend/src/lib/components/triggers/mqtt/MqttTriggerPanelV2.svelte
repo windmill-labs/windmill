@@ -4,12 +4,20 @@
 	import { Alert } from '$lib/components/common'
 	import Description from '$lib/components/Description.svelte'
 
-	let { selectedTrigger, isFlow, path, edit, isDeployed = false, isEditor } = $props()
+	let {
+		selectedTrigger,
+		isFlow,
+		path,
+		edit,
+		isDeployed = false,
+		isEditor,
+		defaultValues = undefined
+	} = $props()
 	let mqttTriggerEditor: MqttTriggerEditorInner | undefined = $state(undefined)
 
 	async function openMqttTriggerEditor(isFlow: boolean, isDraft: boolean) {
 		if (isDraft) {
-			mqttTriggerEditor?.openNew(isFlow, path)
+			mqttTriggerEditor?.openNew(isFlow, path, defaultValues)
 		} else {
 			mqttTriggerEditor?.openEdit(selectedTrigger.path, isFlow)
 		}

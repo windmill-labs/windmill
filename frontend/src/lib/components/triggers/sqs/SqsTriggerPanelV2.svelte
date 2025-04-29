@@ -4,12 +4,19 @@
 	import { Alert } from '$lib/components/common'
 	import Description from '$lib/components/Description.svelte'
 
-	let { selectedTrigger, isFlow, path, edit, isDeployed = false } = $props()
+	let {
+		selectedTrigger,
+		isFlow,
+		path,
+		edit,
+		isDeployed = false,
+		defaultValues = undefined
+	} = $props()
 	let sqsTriggerEditor: SqsTriggerEditorInner | undefined = $state(undefined)
 
 	async function openSqsTriggerEditor(isFlow: boolean, isDraft: boolean) {
 		if (isDraft) {
-			sqsTriggerEditor?.openNew(isFlow, path)
+			sqsTriggerEditor?.openNew(isFlow, path, defaultValues)
 		} else {
 			sqsTriggerEditor?.openEdit(selectedTrigger.path, isFlow)
 		}

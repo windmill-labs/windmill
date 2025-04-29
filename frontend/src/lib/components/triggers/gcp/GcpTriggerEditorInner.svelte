@@ -79,7 +79,8 @@
 			delivery_type,
 			delivery_config,
 			topic_id,
-			isValid
+			isValid,
+			path
 		})
 	})
 
@@ -120,7 +121,7 @@
 			subscription_id = ''
 			topic_id = defaultValues?.topic_id
 			subscription_mode = defaultValues?.subscription_mode ?? 'create_update'
-			path = ''
+			path = defaultValues?.path ?? ''
 			initialPath = ''
 			edit = false
 			isDraft = true

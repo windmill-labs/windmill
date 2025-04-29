@@ -10,7 +10,6 @@
 	import { type Trigger } from './utils'
 	import { triggerTypeToCaptureKind } from './utils'
 	import PrimarySchedulePanel from './PrimarySchedulePanel.svelte'
-	import { deleteDraft, addDraftTrigger } from './utils'
 	import { fade } from 'svelte/transition'
 	import TriggersBadgeV2 from '../graph/renderers/triggers/TriggersBadgeV2.svelte'
 	import { twMerge } from 'tailwind-merge'
@@ -27,7 +26,10 @@
 		fetchNatsTriggers,
 		fetchGcpTriggers,
 		fetchSqsTriggers,
-		fetchMqttTriggers
+		fetchMqttTriggers,
+		addDraftTrigger,
+		deleteDraft,
+		updateDraftTriggerConfig
 	} from './utils'
 
 	export let noEditor: boolean
@@ -75,7 +77,12 @@
 		if (!trigger) {
 			return
 		}
-		deleteDraft(triggers, trigger)
+
+		if ('id' in trigger && trigger.id) {
+			deleteDraft(triggers, trigger.id)
+		}
+
+		// Select a new trigger if any exist
 		if ($triggers.length > 0) {
 			$selectedTrigger = $triggers[$triggers.length - 1]
 		} else {
@@ -112,6 +119,16 @@
 		} else if (trigger.type === 'http') {
 			fetchHttpTriggers(triggers, $workspaceStore, currentPath, isFlow)
 		}
+	}
+
+	function handleUpdateConfig(newConfig: Record<string, any>) {
+		// Update the config for the current trigger in our draft trigger store
+		if ($selectedTrigger && 'id' in $selectedTrigger && $selectedTrigger.isDraft) {
+			updateDraftTriggerConfig(triggers, $selectedTrigger.id as string, newConfig)
+		}
+
+		// Also maintain the config for the current component
+		config = newConfig
 	}
 
 	$: updateEditTrigger($selectedTrigger)
@@ -173,7 +190,6 @@
 						</div>
 					{/if}
 
-					<!-- TODO: Update triggersWrapper here -->
 					<div
 						class={twMerge(
 							'flex-grow overflow-auto pl-2 pr-4 pb-4',
@@ -198,7 +214,7 @@
 										{newItem}
 										{schema}
 										on:update-config={({ detail }) => {
-											config = detail
+											handleUpdateConfig(detail)
 										}}
 										on:delete={() => {
 											deleteDraftTrigger($selectedTrigger)

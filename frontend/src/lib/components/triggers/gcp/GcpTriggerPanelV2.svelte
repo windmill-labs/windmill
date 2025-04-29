@@ -6,12 +6,20 @@
 	// Use the same approach as other panels
 	import GcpTriggerEditorInner from './GcpTriggerEditorInner.svelte'
 
-	let { selectedTrigger, isFlow, path, edit, isDeployed = false, isEditor } = $props()
+	let {
+		selectedTrigger,
+		isFlow,
+		path,
+		edit,
+		isDeployed = false,
+		isEditor,
+		defaultValues = undefined
+	} = $props()
 	let gcpTriggerEditor: GcpTriggerEditorInner | undefined = $state(undefined)
 
 	async function openGcpTriggerEditor(isFlow: boolean, isDraft: boolean) {
 		if (isDraft) {
-			gcpTriggerEditor?.openNew(isFlow, path)
+			gcpTriggerEditor?.openNew(isFlow, path, defaultValues)
 		} else {
 			gcpTriggerEditor?.openEdit(selectedTrigger.path, isFlow)
 		}

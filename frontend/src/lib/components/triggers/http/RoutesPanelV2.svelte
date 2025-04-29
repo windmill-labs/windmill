@@ -6,11 +6,19 @@
 	import TriggerLabel from '../TriggerLabel.svelte'
 
 	let routeEditor = $state<RouteEditorInner | null>(null)
-	let { selectedTrigger, isFlow, path, edit = false, isDeployed = false, small = false } = $props()
+	let {
+		selectedTrigger,
+		isFlow,
+		path,
+		edit = false,
+		isDeployed = false,
+		small = false,
+		defaultValues = undefined
+	} = $props()
 
 	async function openRouteEditor(isFlow: boolean, isDraft: boolean) {
 		if (isDraft) {
-			routeEditor?.openNew(isFlow, path)
+			routeEditor?.openNew(isFlow, path, defaultValues)
 		} else {
 			routeEditor?.openEdit(selectedTrigger.path, isFlow)
 		}

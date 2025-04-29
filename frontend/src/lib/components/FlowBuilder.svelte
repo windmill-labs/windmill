@@ -99,6 +99,7 @@
 	export let savedPrimarySchedule: ScheduleTrigger | undefined = undefined
 	export let version: number | undefined = undefined
 	export let setSavedraftCb: ((cb: () => void) => void) | undefined = undefined
+	export let savedDraftTriggers: Trigger[] = []
 
 	let initialPathStore = writable(initialPath)
 	$: initialPathStore.set(initialPath)
@@ -159,7 +160,14 @@
 	const simplifiedPoll = writable(false)
 	export function setPrimarySchedule(schedule: ScheduleTrigger | undefined | false) {
 		primaryScheduleStore.set(schedule)
-		loadTriggers()
+	}
+
+	export function setDraftTriggers(triggers: Trigger[]) {
+		console.log('dbg setDraftTriggers', triggers)
+		$triggersStore = [
+			...$triggersStore.filter((t) => !t.isDraft), // Keep non-draft triggers
+			...triggers // Add the new draft triggers
+		]
 	}
 
 	async function createSchedule(path: string) {
@@ -261,7 +269,8 @@
 					value: {
 						...flow,
 						path: $pathStore,
-						primary_schedule: $primaryScheduleStore
+						primary_schedule: $primaryScheduleStore,
+						draft_triggers: $triggersStore.filter((t) => t.isDraft)
 					}
 				}
 			})
@@ -272,7 +281,7 @@
 							...structuredClone($flowStore),
 							path: $pathStore,
 							draft_only: true
-					  }
+						}
 					: savedFlow),
 				draft: {
 					...structuredClone($flowStore),
@@ -498,7 +507,8 @@
 						flow: $flowStore,
 						path: $pathStore,
 						selectedId: $selectedIdStore,
-						primarySchedule: $primaryScheduleStore
+						primarySchedule: $primaryScheduleStore,
+						draftTriggers: $triggersStore.filter((t) => t.isDraft)
 					})
 				)
 			} catch (err) {
@@ -582,7 +592,8 @@
 	// Add triggers context store
 	const triggersStore = writable<Trigger[]>([
 		{ type: 'webhook', path: '', isDraft: false },
-		{ type: 'email', path: '', isDraft: false }
+		{ type: 'email', path: '', isDraft: false },
+		...savedDraftTriggers
 	])
 
 	setContext<TriggerContext>('TriggerContext', {
@@ -597,7 +608,9 @@
 		triggers: triggersStore
 	})
 
-	async function loadTriggers() {
+	$: console.log('dbg savedDraftTriggers', savedDraftTriggers)
+
+	export async function loadTriggers() {
 		$triggersCount = await FlowService.getTriggersCountOfFlow({
 			workspace: $workspaceStore!,
 			path: initialPath
@@ -910,7 +923,7 @@
 						? {
 								expr: 'result == undefined || Array.isArray(result) && result.length == 0',
 								skip_if_stopped: true
-						  }
+							}
 						: undefined,
 				value: {
 					input_transforms: {},
@@ -994,7 +1007,7 @@
 					pastModule?.value.type === 'rawscript' || pastModule?.value.type === 'script'
 						? (pastModule as FlowModule & {
 								value: RawScript | PathScript
-						  })
+							})
 						: undefined,
 					isFirstInLoop,
 					abortController
@@ -1114,8 +1127,8 @@
 										? isFirstInLoop
 											? 'flow_input.iter.value'
 											: pastModule
-											? 'results.' + pastModule.id
-											: 'flow_input.' + snakeKey
+												? 'results.' + pastModule.id
+												: 'flow_input.' + snakeKey
 										: 'flow_input.' + snakeKey
 							}
 							$shouldUpdatePropertyType[key] = 'javascript'
@@ -1248,7 +1261,7 @@
 							},
 							disabled: newFlow
 						}
-				  ]
+					]
 				: []),
 			...(customUi?.topBar?.history != false
 				? [
@@ -1262,7 +1275,7 @@
 							icon: FileJson,
 							action: () => yamlEditorDrawer?.openDrawer()
 						}
-				  ]
+					]
 				: [])
 		]
 	}

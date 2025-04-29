@@ -1,23 +1,24 @@
 <script lang="ts">
-	import { getContext } from 'svelte'
 	import { isCloudHosted } from '$lib/cloud'
 	import { Alert } from '$lib/components/common'
-	import type { TriggerContext } from '$lib/components/triggers'
 	import PostgresTriggerEditorInner from './PostgresTriggerEditorInner.svelte'
 	import Description from '$lib/components/Description.svelte'
 
-	let { isFlow, path, selectedTrigger, edit, isDeployed = false, isEditor = false } = $props()
+	let {
+		isFlow,
+		path,
+		selectedTrigger,
+		edit,
+		isDeployed = false,
+		isEditor = false,
+		defaultValues = undefined
+	} = $props()
 
 	let postgresTriggerEditor: PostgresTriggerEditorInner | undefined = $state(undefined)
 
-	const { defaultValues } = getContext<TriggerContext>('TriggerContext')
-
 	async function openPostgresTriggerEditor(isFlow: boolean, isDraft: boolean) {
 		if (isDraft) {
-			postgresTriggerEditor?.openNew(isFlow, path, $defaultValues)
-			if ($defaultValues) {
-				defaultValues.set(undefined)
-			}
+			postgresTriggerEditor?.openNew(isFlow, path, defaultValues)
 		} else {
 			postgresTriggerEditor?.openEdit(selectedTrigger.path, isFlow)
 		}

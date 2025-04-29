@@ -15,6 +15,7 @@
 	import UnsavedConfirmationModal from '$lib/components/common/confirmationModal/UnsavedConfirmationModal.svelte'
 	import type { ScheduleTrigger } from '$lib/components/triggers'
 	import type { GetInitialAndModifiedValues } from '$lib/components/common/confirmationModal/unsavedTypes'
+	import type { Trigger } from '$lib/components/triggers/utils'
 
 	let version: undefined | number = undefined
 	let nodraft = $page.url.searchParams.get('nodraft')
@@ -60,6 +61,8 @@
 
 	let savedPrimarySchedule: ScheduleTrigger | undefined = stateLoadedFromUrl?.primarySchedule
 
+	let savedDraftTriggers: Trigger[] = []
+
 	let flowBuilder: FlowBuilder | undefined = undefined
 
 	async function loadFlow(): Promise<void> {
@@ -85,6 +88,7 @@
 			const urlScript = cleanValueProperties(stateLoadedFromUrl.flow)
 			flow = stateLoadedFromUrl.flow
 			savedPrimarySchedule = stateLoadedFromUrl.primarySchedule
+			savedDraftTriggers = stateLoadedFromUrl.draft_triggers
 			const reloadAction = () => {
 				stateLoadedFromUrl = undefined
 				goto(`/flows/edit/${statePath}`)
@@ -133,7 +137,7 @@
 					? {
 							...structuredClone(flowWithDraft.draft),
 							path: flowWithDraft.draft.path ?? flowWithDraft.path // backward compatibility for old drafts missing path
-					  }
+						}
 					: undefined
 			} as Flow & {
 				draft?: Flow
@@ -141,7 +145,11 @@
 			if (flowWithDraft.draft != undefined && !nobackenddraft) {
 				flow = flowWithDraft.draft
 				savedPrimarySchedule = flowWithDraft?.draft?.['primary_schedule']
+				savedDraftTriggers = flowWithDraft?.draft?.['draft_triggers']
+				console.log('dbg savedDraftTriggers from drafts', savedDraftTriggers)
 				flowBuilder?.setPrimarySchedule(savedPrimarySchedule)
+				flowBuilder?.setDraftTriggers(savedDraftTriggers)
+				flowBuilder?.loadTriggers()
 
 				if (!flowWithDraft.draft_only) {
 					const deployed = cleanValueProperties(flowWithDraft)
@@ -251,6 +259,7 @@
 	bind:savedFlow
 	{diffDrawer}
 	{savedPrimarySchedule}
+	{savedDraftTriggers}
 	bind:version
 	bind:getInitialAndModifiedValues
 >

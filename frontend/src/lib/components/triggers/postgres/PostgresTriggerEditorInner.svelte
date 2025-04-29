@@ -129,7 +129,8 @@
 			publication: {
 				transaction_to_track,
 				table_to_track: relations
-			}
+			},
+			path
 		})
 	})
 
@@ -183,7 +184,7 @@
 			initialScriptPath = ''
 			fixedScriptPath = fixedScriptPath_ ?? ''
 			script_path = fixedScriptPath
-			path = ''
+			path = defaultValues?.path ?? ''
 			initialPath = ''
 			postgres_resource_path = defaultValues?.postgres_resource_path ?? ''
 			edit = false
