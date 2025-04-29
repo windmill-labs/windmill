@@ -38,6 +38,7 @@ trait ToolableItem {
     fn get_schema(&self) -> Option<Schema>;
     fn is_hub(&self) -> bool;
     fn item_type(&self) -> &'static str;
+    fn get_integration_types(&self) -> Vec<String>;
 }
 
 impl ToolableItem for ScriptInfo {
@@ -59,6 +60,9 @@ impl ToolableItem for ScriptInfo {
     fn item_type(&self) -> &'static str {
         "script"
     }
+    fn get_integration_types(&self) -> Vec<String> {
+        vec![]
+    }
 }
 
 impl ToolableItem for FlowInfo {
@@ -79,6 +83,9 @@ impl ToolableItem for FlowInfo {
     }
     fn item_type(&self) -> &'static str {
         "flow"
+    }
+    fn get_integration_types(&self) -> Vec<String> {
+        vec![]
     }
 }
 
@@ -115,6 +122,12 @@ impl ToolableItem for HubScriptInfo {
     fn item_type(&self) -> &'static str {
         "script"
     }
+    fn get_integration_types(&self) -> Vec<String> {
+        self.app
+            .as_deref()
+            .map(|app| vec![app.to_string()])
+            .unwrap_or_default()
+    }
 }
 
 impl ToolableItem for HubFlowInfo {
@@ -150,6 +163,12 @@ impl ToolableItem for HubFlowInfo {
     fn item_type(&self) -> &'static str {
         "flow"
     }
+    fn get_integration_types(&self) -> Vec<String> {
+        self.apps
+            .as_deref()
+            .map(|apps| apps.iter().map(|s| s.to_string()).collect())
+            .unwrap_or_default()
+    }
 }
 
 #[derive(Clone)]
@@ -168,6 +187,7 @@ struct HubFlowInfo {
     summary: Option<String>,
     description: Option<String>,
     schema: Option<Value>,
+    apps: Option<Vec<String>>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -176,6 +196,7 @@ struct HubScriptInfo {
     summary: Option<String>,
     description: Option<String>,
     schema: Option<Value>,
+    app: Option<String>,
 }
 
 #[derive(Serialize, FromRow, Deserialize, Debug)]
@@ -476,8 +497,6 @@ impl Runner {
             )
         })?;
 
-        println!("hub_response: {:#?}", hub_response);
-
         // Extract the items and convert to a common JSON value
         let items_json_value = match hub_response {
             HubResponse::Scripts { asks } => serde_json::to_value(asks).map_err(|e| {
@@ -742,9 +761,18 @@ impl Runner {
         let summary = item.get_summary();
         let description = item.get_description();
         let description = format!(
-            "This is a script named `{}` with the following description: `{}`.",
+            "This is a {} named `{}` with the following description: `{}`.{}",
+            item_type,
             summary.as_deref().unwrap_or("No summary"),
-            description.as_deref().unwrap_or("No description")
+            description.as_deref().unwrap_or("No description"),
+            if is_hub {
+                format!(
+                    " It is a tool used for the following integrations: {}",
+                    item.get_integration_types().join(", ")
+                )
+            } else {
+                "".to_string()
+            }
         );
         let schema = item.get_schema();
         let schema_obj = if let Some(schema) = schema {
