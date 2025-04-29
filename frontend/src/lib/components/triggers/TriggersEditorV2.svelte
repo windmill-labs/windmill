@@ -12,7 +12,6 @@
 	import { type Trigger } from './utils'
 	import WebhooksPanel from './webhook/WebhooksPanelV2.svelte'
 	import { triggerTypeToCaptureKind } from './utils'
-	import { type CaptureTriggerKind } from '$lib/gen'
 	import EmailTriggerPanel from '../details/EmailTriggerPanelV2.svelte'
 	import PrimarySchedulePanel from './PrimarySchedulePanel.svelte'
 	import SchedulePanel from '$lib/components/SchedulePanel.svelte'
@@ -77,12 +76,6 @@
 	// Handle trigger selection
 	function handleSelectTrigger(event: CustomEvent<Trigger>) {
 		$selectedTrigger = event.detail
-	}
-
-	let captureKind: CaptureTriggerKind | undefined = undefined
-
-	$: if ($selectedTrigger) {
-		captureKind = triggerTypeToCaptureKind($selectedTrigger.type)
 	}
 
 	function updateEditTrigger(trigger: Trigger | undefined) {
@@ -509,34 +502,25 @@
 					</div>
 				</div>
 			</Pane>
-			{#if $selectedTrigger && $selectedTrigger.type !== 'schedule' && $selectedTrigger.type != 'poll'}
-				<Pane>
-					<div class="h-full w-full overflow-auto px-4" style="scrollbar-gutter: stable">
-						{#if $selectedTrigger && $selectedTrigger?.type && captureKind}
-							{#key captureKind}
-								<div
-									in:fade={{ duration: 100, delay: 100 }}
-									out:fade={{ duration: 100 }}
-									class="h-full w-full"
-								>
-									<CaptureWrapper
-										path={initialPath || fakeInitialPath}
-										{isFlow}
-										captureType={captureKind}
-										{hasPreprocessor}
-										{canHavePreprocessor}
-										args={{}}
-										data={{ args, hash }}
-										on:applyArgs
-										on:updateSchema
-										on:addPreprocessor
-										on:testWithArgs
-									/>
-								</div>
-							{/key}
-						{/if}
-					</div>
-				</Pane>
+			{#if $selectedTrigger && $selectedTrigger.type && $selectedTrigger.type !== 'schedule' && $selectedTrigger.type != 'poll'}
+				{@const captureKind = triggerTypeToCaptureKind($selectedTrigger.type)}
+				{#key captureKind}
+					<Pane>
+						<CaptureWrapper
+							path={initialPath || fakeInitialPath}
+							{isFlow}
+							captureType={captureKind}
+							{hasPreprocessor}
+							{canHavePreprocessor}
+							args={{}}
+							data={{ args, hash }}
+							on:applyArgs
+							on:updateSchema
+							on:addPreprocessor
+							on:testWithArgs
+						/>
+					</Pane>
+				{/key}
 			{/if}
 		</Splitpanes>
 	{:else}

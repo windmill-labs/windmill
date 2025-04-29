@@ -217,74 +217,79 @@
 </script>
 
 <Splitpanes>
-	<Pane class="flex flex-col gap-1 mb-4 pr-2 py-2" size={50}>
-		<div class="text-sm text-secondary flex items-center gap-1">
-			<FlaskConical size={16} />
-			Test trigger
-		</div>
-		<div class="flex flex-col gap-1 mb-4">
-			<div class="flex justify-center w-full">
-				<div class="relative h-fit">
-					<AnimatedButton
-						animate={captureInfo.active}
-						wrapperClasses={captureInfo.active ? 'm-[-2px]' : ''}
-						baseRadius="7px"
-					>
-						<Button
-							size="xs"
-							on:click={() => dispatch('captureToggle', {})}
-							{disabled}
-							color={captureInfo.active ? 'light' : 'dark'}
-							btnClasses={captureInfo.active ? 'text-blue-500' : ''}
-							startIcon={captureInfo.active
-								? { icon: CircleStop }
-								: { icon: CaptureIcon, props: { variant: 'redDot' } }}
+	<Pane size={50} minSize={30}>
+		<div
+			class="flex flex-col gap-1 px-4 py-2 h-full w-full overflow-auto"
+			style="scrollbar-gutter: stable"
+		>
+			<div class="text-sm text-secondary flex items-center gap-1">
+				<FlaskConical size={16} />
+				Test trigger
+			</div>
+			<div class="flex flex-col gap-1 mb-4">
+				<div class="flex justify-center w-full">
+					<div class="relative h-fit">
+						<AnimatedButton
+							animate={captureInfo.active}
+							wrapperClasses={captureInfo.active ? 'm-[-2px]' : ''}
+							baseRadius="7px"
 						>
-							{captureInfo.active ? 'Stop capturing' : 'Start capturing'}
-						</Button>
-					</AnimatedButton>
-
-					<div class="absolute top-1/2 -translate-y-1/2 -right-5">
-						{#if captureInfo.active}
-							<ConnectionIndicator connectionInfo={captureInfo.connectionInfo} />
-						{/if}
-					</div>
-				</div>
-			</div>
-
-			<div class="mt-4 mb-2">
-				<Description>
-					<div class="relative min-h-8">
-						{#key (captureInfo.active, disabled)}
-							<div
-								class={twMerge(
-									'absolute top-0 left-0 w-full text-center',
-									disabled === true ? 'text-red-600 dark:text-red-400' : ''
-								)}
-								in:fade={{ duration: 100, delay: 50 }}
-								out:fade={{ duration: 50 }}
+							<Button
+								size="xs"
+								on:click={() => dispatch('captureToggle', {})}
+								{disabled}
+								color={captureInfo.active ? 'light' : 'dark'}
+								btnClasses={captureInfo.active ? 'text-blue-500' : ''}
+								startIcon={captureInfo.active
+									? { icon: CircleStop }
+									: { icon: CaptureIcon, props: { variant: 'redDot' } }}
 							>
-								{#if disabled === true}
-									Enter a valid configuration to start capturing.
-								{:else}
-									<slot name="description" />
-								{/if}
-							</div>
-						{/key}
-					</div>
-				</Description>
-			</div>
+								{captureInfo.active ? 'Stop capturing' : 'Start capturing'}
+							</Button>
+						</AnimatedButton>
 
-			{#if $$slots.default}
-				<div class="grow min-h-0 flex flex-col gap-4">
-					<slot />
+						<div class="absolute top-1/2 -translate-y-1/2 -right-5">
+							{#if captureInfo.active}
+								<ConnectionIndicator connectionInfo={captureInfo.connectionInfo} />
+							{/if}
+						</div>
+					</div>
 				</div>
-			{/if}
+
+				<div class="mt-4 mb-2">
+					<Description>
+						<div class="relative min-h-8">
+							{#key (captureInfo.active, disabled)}
+								<div
+									class={twMerge(
+										'absolute top-0 left-0 w-full text-center',
+										disabled === true ? 'text-red-600 dark:text-red-400' : ''
+									)}
+									in:fade={{ duration: 100, delay: 50 }}
+									out:fade={{ duration: 50 }}
+								>
+									{#if disabled === true}
+										Enter a valid configuration to start capturing.
+									{:else}
+										<slot name="description" />
+									{/if}
+								</div>
+							{/key}
+						</div>
+					</Description>
+				</div>
+
+				{#if $$slots.default}
+					<div class="grow min-h-0 flex flex-col gap-4">
+						<slot />
+					</div>
+				{/if}
+			</div>
 		</div>
 	</Pane>
 
-	<Pane class="flex flex-col">
-		<div class="flex flex-row gap-1 justify-between min-h-[33.5px] pl-1">
+	<Pane minSize={30} class="flex flex-col">
+		<div class="flex flex-row gap-1 justify-between min-h-[33.5px] pl-1 pr-4">
 			<div class="flex flex-row gap-1 items-center">
 				{#if lastCapture}
 					<Popover
@@ -427,10 +432,7 @@
 			{#if isLoadingBigPayload}
 				<Loader2 class="animate-spin" />
 			{:else if selectedCapture?.payload}
-				<div
-					class="bg-surface rounded-md text-sm overflow-auto max-h-[500px] grow"
-					class:animate-highlight={newCaptureReceived}
-				>
+				<div class="bg-surface rounded-md text-sm" class:animate-highlight={newCaptureReceived}>
 					<DisplayResult
 						bind:this={displayResult}
 						workspaceId={undefined}
