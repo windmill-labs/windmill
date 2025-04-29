@@ -10,6 +10,7 @@
 	import DebouncedInput from './apps/components/helpers/DebouncedInput.svelte'
 	import InsertRowDrawerButton from './apps/components/display/InsertRowDrawerButton.svelte'
 	import type { IDbTableOps } from './dbOps'
+	import { deepEqual } from 'fast-equals'
 
 	type Props = {
 		dbTableOps: IDbTableOps
@@ -42,15 +43,9 @@
 	}
 	let rowCount = $state(0)
 
-	$effect(() => {
-		;[refreshCount]
-		if (!$workspaceStore) return
-		dbTableOps.getCount({ quicksearch }).then((result) => (rowCount = result))
-	})
-
 	$effect(() => eGui && mountGrid())
 	function mountGrid() {
-		if (eGui) {
+		if (eGui && !api) {
 			createGrid(eGui, {
 				rowModelType: 'infinite',
 				pagination: false,
@@ -92,11 +87,17 @@
 		}
 	}
 
+	let prevUpdateKey: any = undefined
 	$effect(() => {
-		;[quicksearch, dbTableOps.colDefs, refreshCount]
+		if (!$workspaceStore) return
+		const key = { quicksearch, colDefs: dbTableOps.colDefs, refreshCount }
+		if (deepEqual(key, prevUpdateKey)) return
+		prevUpdateKey = key
 		updateGrid()
 	})
 	function updateGrid() {
+		dbTableOps.getCount({ quicksearch }).then((result) => (rowCount = result))
+
 		api?.purgeInfiniteCache()
 		api?.updateGridOptions({
 			datasource,
@@ -107,7 +108,7 @@
 						if (!$workspaceStore) return
 						dbTableOps
 							.onDelete?.({ values })
-							.then((result) => {
+							.then(() => {
 								refresh?.()
 								sendUserToast('Row deleted')
 							})

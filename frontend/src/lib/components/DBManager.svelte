@@ -166,16 +166,14 @@
 		</Button>
 	</Pane>
 	<Pane class="p-3 pt-1">
-		{#key tableKey}
-			{#if tableKey}
-				{#await tableKey && getColDefs(tableKey) then colDefs}
-					{#if colDefs && colDefs?.length}
-						{@const dbTableOps = dbTableOpsFactory({ colDefs, tableKey })}
-						<DBTable {dbTableOps} {refresh} {refreshCount} />
-					{/if}
-				{/await}
-			{/if}
-		{/key}
+		{#if tableKey}
+			{#await getColDefs(tableKey) then colDefs}
+				{#if colDefs && colDefs?.length}
+					{@const dbTableOps = dbTableOpsFactory({ colDefs, tableKey })}
+					<DBTable {dbTableOps} {refresh} {refreshCount} />
+				{/if}
+			{/await}
+		{/if}
 	</Pane>
 </Splitpanes>
 
