@@ -74,9 +74,9 @@
 			// Transform all to JSON in case of select. This fixes the issue of
 			// custom postgres enum type failing to convert to a rust type in the backend.
 			// We don't always put the fix by default for row ordering concerns
-			let tranformedCode = code
+			let transformedCode = code
 			if (doPostgresRowToJsonFix) {
-				tranformedCode = statements
+				transformedCode = statements
 					.map((statement) => {
 						if (statement.trim().toUpperCase().startsWith('SELECT')) {
 							return `SELECT row_to_json(__t__) FROM (${statement}) __t__`
@@ -90,7 +90,7 @@
 				workspace: $workspaceStore,
 				requestBody: {
 					language: getLanguageByResourceType(resourceType),
-					content: tranformedCode,
+					content: transformedCode,
 					args: {
 						database: '$res:' + resourcePath
 					}

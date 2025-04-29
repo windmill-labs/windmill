@@ -183,7 +183,7 @@
 												<Tooltip>
 													<Info size={14} />
 													{#snippet text()}
-														Surrender your expressions with curly brackets:
+														Surround your expressions with curly brackets:
 														<code>
 															{'{NOW()}'}
 														</code>.
@@ -382,7 +382,7 @@
 						sendUserToast(values.name + ' created!')
 					} catch (e) {
 						let msg: string | undefined = (e as Error)?.message
-						if (typeof msg !== 'string') msg = e ? JSON.stringify(e) : 'An error occured'
+						if (typeof msg !== 'string') msg = e ? JSON.stringify(e) : 'An error occurred'
 						sendUserToast(msg, true)
 					}
 					askingForConfirmation = undefined

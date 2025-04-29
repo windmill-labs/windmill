@@ -56,7 +56,7 @@
 <DarkModeObserver bind:darkMode />
 
 <div
-	class={'flex flex-col flex- h-full component-wrapper divide-y wm-aggrid-container ' + className}
+	class={'flex flex-col h-full component-wrapper divide-y wm-aggrid-container ' + className}
 	bind:clientHeight
 	bind:clientWidth
 >
