@@ -570,26 +570,6 @@ pub async fn run_server(
                 .nest("/ai", ai::global_service())
                 .route_layer(from_extractor::<ApiAuthed>())
                 .route_layer(from_extractor::<users::Tokened>())
-                .nest("/agent_workers", {
-                    #[cfg(feature = "agent_worker_server")]
-                    {
-                        agent_workers_ee::global_service().layer(Extension(agent_cache.clone()))
-                    }
-                    #[cfg(not(feature = "agent_worker_server"))]
-                    {
-                        Router::new()
-                    }
-                })
-                .nest("/w/:workspace_id/agent_workers", {
-                    #[cfg(feature = "agent_worker_server")]
-                    {
-                        agent_workers_router.layer(Extension(agent_cache.clone()))
-                    }
-                    #[cfg(not(feature = "agent_worker_server"))]
-                    {
-                        Router::new()
-                    }
-                })
                 .nest("/jobs", jobs::global_root_service())
                 .nest(
                     "/srch/w/:workspace_id/index",
@@ -627,6 +607,26 @@ pub async fn run_server(
                 )
                 .nest("/mcp/w/:workspace_id", mcp_router)
                 .layer(from_extractor::<OptAuthed>())
+                .nest("/agent_workers", {
+                    #[cfg(feature = "agent_worker_server")]
+                    {
+                        agent_workers_ee::global_service().layer(Extension(agent_cache.clone()))
+                    }
+                    #[cfg(not(feature = "agent_worker_server"))]
+                    {
+                        Router::new()
+                    }
+                })
+                .nest("/w/:workspace_id/agent_workers", {
+                    #[cfg(feature = "agent_worker_server")]
+                    {
+                        agent_workers_router.layer(Extension(agent_cache.clone()))
+                    }
+                    #[cfg(not(feature = "agent_worker_server"))]
+                    {
+                        Router::new()
+                    }
+                })
                 .nest(
                     "/w/:workspace_id/jobs_u",
                     jobs::workspace_unauthed_service().layer(cors.clone()),
