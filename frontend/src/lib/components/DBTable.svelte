@@ -51,6 +51,8 @@
 				pagination: false,
 				...(dbTableOps.onUpdate && {
 					defaultColDef: {
+						flex: 1,
+						minWidth: 160,
 						editable: true,
 						onCellValueChanged: (e) => {
 							if (!$workspaceStore) return
@@ -81,8 +83,7 @@
 				suppressDragLeaveHidesColumns: true,
 				onGridReady: (e) => {
 					api = e.api
-				},
-				autoSizeStrategy: { type: 'fitCellContents' }
+				}
 			})
 		}
 	}
