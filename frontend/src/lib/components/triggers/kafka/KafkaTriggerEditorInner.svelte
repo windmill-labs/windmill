@@ -197,9 +197,9 @@
 
 	$effect(() => {
 		dispatch('update-config', {
-			kafka_resource_path: args.kafka_resource_path,
-			group_id: args.group_id,
-			topics: structuredClone(args.topics),
+			kafka_resource_path: $state.snapshot(args.kafka_resource_path),
+			group_id: $state.snapshot(args.group_id),
+			topics: structuredClone($state.snapshot(args.topics)),
 			isValid
 		})
 	})
