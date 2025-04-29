@@ -27,7 +27,6 @@
 	export let hasPreprocessor: boolean
 	export let canHavePreprocessor: boolean
 	export let captureType: CaptureTriggerKind = 'webhook'
-	export let showCapture = false
 	export let data: any = {}
 	export let connectionInfo: ConnectionInfo | undefined = undefined
 	export let args: Record<string, any> = {}

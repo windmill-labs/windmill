@@ -34,7 +34,8 @@
 		selected,
 		showOnlyWithCount,
 		triggers,
-		numberOfTriggers = $bindable(),
+		// @ts-ignore - This is an output-only prop used with bind:
+		numberOfTriggers = $bindable(0),
 		small = true,
 		allwaysUseDropdown = false
 	}: Props = $props()
