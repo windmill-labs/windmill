@@ -129,15 +129,9 @@ impl ToolableItem for FlowInfo {
 
 impl ToolableItem for HubScriptInfo {
     fn get_path_or_id(&self) -> String {
-        let app = self
-            .app
-            .as_deref()
-            .unwrap_or("No app")
-            .chars()
-            .filter(|c| c.is_alphanumeric())
-            .collect::<String>();
+        let id = self.version_id;
         let summary = self.summary.as_deref().unwrap_or("No summary");
-        format!("hs-{}-{}", app, summary.replace(" ", "_"))
+        format!("hs-{}-{}", id, summary.replace(" ", "_"))
     }
     fn get_summary(&self) -> &str {
         self.summary.as_deref().unwrap_or("No summary")
@@ -230,11 +224,6 @@ struct ResourceType {
     description: Option<String>,
 }
 
-#[derive(Deserialize)]
-struct HubQueryResultItem {
-    id: String,
-}
-
 impl Runner {
     pub fn new() -> Self {
         Self {}
@@ -311,7 +300,10 @@ impl Runner {
         // Check if this path was previously transformed with special underscore handling
         let is_special_path = mangled_path.starts_with("f_");
 
-        let original_path = if is_special_path {
+        let original_path = if is_hub {
+            let parts = mangled_path.split("-").collect::<Vec<&str>>();
+            parts[0].to_string()
+        } else if is_special_path {
             const TEMP_PLACEHOLDER: &str = "@@UNDERSCORE@@";
             let path_with_placeholder = mangled_path.replace("__", TEMP_PLACEHOLDER);
             let path_with_slashes = path_with_placeholder.replace('_', "/");
@@ -827,55 +819,6 @@ impl Runner {
             annotations: None,
         })
     }
-
-    /// Searches the Hub for a script ID matching the given name.
-    ///
-    /// - Constructs a query URL with the provided name.
-    /// - Sends a GET request to the Hub endpoint.
-    /// - Parses the response to find the first matching script ID.
-    /// - Returns the script ID if found, otherwise returns an error.
-    ///
-    /// # Parameters
-    /// - `name`: The name of the script to search for.
-    /// - `db`: The database connection.
-    ///
-    /// # Returns
-    /// - `Ok(String)`: The script ID if found.
-    /// - `Err(Error)`: If the request fails.
-    async fn search_hub_id_by_name(name: &str, db: &DB) -> Result<String, Error> {
-        let url = format!("{}/scripts/query", *HUB_BASE_URL.read().await);
-        let query_params = Some(vec![("text", name.to_string())]);
-        let (_status_code, _headers, response) =
-            query_elems_from_hub(&HTTP_CLIENT, &url, query_params, &db)
-                .await
-                .map_err(|e| {
-                    tracing::error!("Failed to query items from hub: {}", e);
-                    Error::internal_error(format!("Failed to query items from hub: {}", e), None)
-                })?;
-
-        let body_bytes = axum::body::to_bytes(response, usize::MAX)
-            .await
-            .map_err(|e| {
-                tracing::error!("Failed to read response body: {}", e);
-                Error::internal_error(format!("Failed to read response body: {}", e), None)
-            })?;
-
-        let hub_results: Vec<HubQueryResultItem> =
-            serde_json::from_slice(&body_bytes).map_err(|e| {
-                tracing::error!("Failed to parse hub query response: {}", e);
-                Error::internal_error(format!("Failed to parse hub query response: {}", e), None)
-            })?;
-
-        hub_results
-            .first()
-            .map(|item| item.id.clone())
-            .ok_or_else(|| {
-                Error::internal_error(
-                    format!("No matching hub script found for query: {}", name),
-                    None,
-                )
-            })
-    }
 }
 
 impl ServerHandler for Runner {
@@ -929,12 +872,6 @@ impl ServerHandler for Runner {
 
         let (tool_type, path, is_hub) =
             Runner::reverse_transform(&request.name).unwrap_or_default();
-
-        let path = if is_hub {
-            Runner::search_hub_id_by_name(&path, db).await?
-        } else {
-            path
-        };
 
         let item_schema = if is_hub {
             Runner::get_hub_script_schema(&format!("hub/{}", path), db).await?
