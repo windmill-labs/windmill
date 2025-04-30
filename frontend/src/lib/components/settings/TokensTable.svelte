@@ -5,7 +5,7 @@
 	import { IntegrationService, UserService } from '$lib/gen'
 	import { Button } from '$lib/components/common'
 	import { Clipboard, Plus } from 'lucide-svelte'
-	import { workspaceStore, userWorkspaces } from '$lib/stores'
+	import { workspaceStore, userWorkspaces, type UserWorkspace } from '$lib/stores'
 	import { createEventDispatcher } from 'svelte'
 	import ToggleButtonGroup from '../common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '../common/toggleButton-v2/ToggleButton.svelte'
@@ -46,6 +46,21 @@
 	let errorFetchApps = $state(false)
 	let allApps = $state<string[]>([])
 
+	function ensureCurrentWorkspaceIncluded(
+		workspacesList: UserWorkspace[],
+		currentWorkspace: string | undefined
+	) {
+		if (!currentWorkspace) {
+			return workspacesList
+		}
+		const hasCurrentWorkspace = workspacesList.some((w) => w.id === currentWorkspace)
+		if (hasCurrentWorkspace) {
+			return workspacesList
+		}
+		return [{ id: currentWorkspace, name: currentWorkspace }, ...workspacesList]
+	}
+
+	const workspaces = $derived(ensureCurrentWorkspaceIncluded($userWorkspaces, $workspaceStore))
 	const mcpBaseUrl = $derived(`${window.location.origin}/api/mcp/w/${newTokenWorkspace}/sse?token=`)
 	const dispatch = createEventDispatcher()
 

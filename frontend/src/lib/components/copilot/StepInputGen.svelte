@@ -130,7 +130,7 @@ Only return the expression without any wrapper.`
 			}
 		} catch (err) {
 			if (!abortController.signal.aborted) {
-				sendUserToast('Could not generate summary: ' + err, true)
+				sendUserToast('Could not generate step input: ' + err, true)
 			}
 		} finally {
 			loading = false
