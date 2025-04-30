@@ -15,6 +15,7 @@ use rmcp::{
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sql_builder::prelude::*;
+use sqlx::types::JsonRawValue;
 use sqlx::FromRow;
 use tokio::try_join;
 use tokio_util::sync::CancellationToken;
@@ -29,7 +30,7 @@ use crate::jobs::{
     run_wait_result_flow_by_path_internal, run_wait_result_script_by_path_internal, RunJobQuery,
 };
 use crate::HTTP_CLIENT;
-use windmill_common::utils::{query_elems_from_hub, StripPath};
+use windmill_common::utils::{http_get_from_hub, query_elems_from_hub, StripPath};
 
 trait ToolableItem {
     fn get_path_or_id(&self) -> String;
@@ -173,6 +174,16 @@ impl ToolableItem for HubFlowInfo {
 
 #[derive(Clone)]
 pub struct Runner {}
+
+#[derive(Serialize, Deserialize, Debug)]
+struct HubFlowResponseFlow {
+    schema: Option<Value>,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+struct HubFlowResponse {
+    flow: HubFlowResponseFlow,
+}
 
 #[derive(Serialize, Deserialize, Debug)]
 #[serde(untagged)]
@@ -498,6 +509,8 @@ impl Runner {
             )
         })?;
 
+        println!("hub_response: {:?}", hub_response);
+
         // Extract the items and convert to a common JSON value
         let items_json_value = match hub_response {
             HubResponse::Scripts { asks } => serde_json::to_value(asks).map_err(|e| {
@@ -747,6 +760,57 @@ impl Runner {
         }
     }
 
+    async fn get_hub_flow_by_id(id: &str, db: &DB) -> Result<Option<Schema>, Error> {
+        // convert id to u64
+        let id_num = id.parse::<i32>().map_err(|e| {
+            tracing::error!("Failed to convert id to i32: {}", e);
+            Error::internal_error(format!("Failed to convert id to i32: {}", e), None)
+        })?;
+        let response = http_get_from_hub(
+            &HTTP_CLIENT,
+            &format!("{}/flows/{}/json", *HUB_BASE_URL.read().await, id_num),
+            false,
+            None,
+            Some(&db),
+        )
+        .await
+        .map_err(|e| {
+            tracing::error!("Failed to get hub flow: {}", e);
+            Error::internal_error(format!("Failed to get hub flow: {}", e), None)
+        })?;
+
+        let hub_response = response.json::<HubFlowResponse>().await.map_err(|e| {
+            tracing::error!("Failed to parse hub flow response: {}", e);
+            Error::internal_error(format!("Failed to parse hub flow response: {}", e), None)
+        })?;
+
+        let flow = hub_response.flow;
+
+        if let Some(schema_value) = flow.schema {
+            // The Schema struct expects a RawValue, which is essentially a boxed JSON string.
+            // So, we need to serialize the received `serde_json::Value` back into a string.
+            let schema_string = serde_json::to_string(&schema_value).map_err(|e| {
+                tracing::error!("Failed to serialize schema value to string: {}", e);
+                Error::internal_error(
+                    format!("Failed to serialize schema value to string: {}", e),
+                    None,
+                )
+            })?;
+
+            let raw_schema = JsonRawValue::from_string(schema_string).map_err(|e| {
+                tracing::error!("Failed to create RawValue from schema string: {}", e);
+                Error::internal_error(
+                    format!("Failed to create RawValue from schema string: {}", e),
+                    None,
+                )
+            })?;
+
+            Ok(Some(Schema(sqlx::types::Json(raw_schema))))
+        } else {
+            Ok(None)
+        }
+    }
+
     async fn create_tool_from_item<T: ToolableItem>(
         item: &T,
         user_db: &UserDB,
@@ -849,8 +913,7 @@ impl ServerHandler for Runner {
             if tool_type == "script" {
                 Runner::get_hub_script_by_path(&format!("hub/{}", path), db).await?
             } else {
-                // TODO: get hub flow by id
-                Runner::get_hub_script_by_path(&format!("hub/{}", path), db).await?
+                Runner::get_hub_flow_by_id(&path, db).await?
             }
         } else {
             Runner::get_item_schema(&path, user_db, authed, &context.workspace_id, &tool_type)
