@@ -3,6 +3,7 @@
 	import { Alert } from '$lib/components/common'
 	import PostgresTriggerEditorInner from './PostgresTriggerEditorInner.svelte'
 	import Description from '$lib/components/Description.svelte'
+	import { onMount } from 'svelte'
 
 	let {
 		isFlow,
@@ -11,20 +12,21 @@
 		edit,
 		isDeployed = false,
 		isEditor = false,
-		defaultValues = undefined
+		defaultValues = undefined,
+		newDraft = false
 	} = $props()
 
 	let postgresTriggerEditor: PostgresTriggerEditorInner | undefined = $state(undefined)
 
 	async function openPostgresTriggerEditor(isFlow: boolean, isDraft: boolean) {
 		if (isDraft) {
-			postgresTriggerEditor?.openNew(isFlow, path, defaultValues)
+			postgresTriggerEditor?.openNew(isFlow, path, defaultValues, newDraft)
 		} else {
-			postgresTriggerEditor?.openEdit(selectedTrigger.path, isFlow)
+			postgresTriggerEditor?.openEdit(selectedTrigger.path, isFlow, selectedTrigger.draftConfig)
 		}
 	}
 
-	$effect(() => {
+	onMount(() => {
 		postgresTriggerEditor && openPostgresTriggerEditor(isFlow, selectedTrigger.isDraft ?? false)
 	})
 </script>
@@ -42,12 +44,15 @@
 			editMode={edit}
 			preventSave={!isDeployed}
 			hideTooltips={!isDeployed}
-			useEditButton
+			allowDraft={true}
+			hasDraft={!!selectedTrigger.draftConfig}
 			{isEditor}
 			on:toggle-edit-mode
 			on:update
 			on:update-config
 			on:delete
+			on:save-draft
+			on:reset
 		>
 			{#snippet description()}
 				<Description link="https://www.windmill.dev/docs/core_concepts/postgres_triggers">

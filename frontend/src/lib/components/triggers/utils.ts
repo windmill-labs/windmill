@@ -236,7 +236,7 @@ export async function fetchTriggers(
 		fetchSchedules(triggersStore, workspaceId, path, isFlow, primarySchedule),
 		fetchHttpTriggers(triggersStore, workspaceId, path, isFlow, user),
 		fetchWebsocketTriggers(triggersStore, workspaceId, path, isFlow, user),
-		fetchPostgresTriggers(triggersStore, workspaceId, path, isFlow),
+		fetchPostgresTriggers(triggersStore, workspaceId, path, isFlow, user),
 		fetchKafkaTriggers(triggersStore, workspaceId, path, isFlow, user),
 		fetchNatsTriggers(triggersStore, workspaceId, path, isFlow),
 		fetchMqttTriggers(triggersStore, workspaceId, path, isFlow),
@@ -415,29 +415,12 @@ export async function fetchPostgresTriggers(
 ): Promise<void> {
 	if (!workspaceId) return
 	try {
-		// Remove existing postgres triggers for this path except for draft triggers
-		triggersStore.update((triggers) =>
-			triggers.filter((t) => !(t.type === 'postgres' && !t.isDraft))
-		)
-
 		const pgTriggers: PostgresTrigger[] = await PostgresTriggerService.listPostgresTriggers({
 			workspace: workspaceId,
 			path,
 			isFlow
 		})
-
-		for (const trigger of pgTriggers) {
-			triggersStore.update((triggers) => [
-				...triggers,
-				{
-					type: 'postgres',
-					path: trigger.path,
-					isPrimary: false,
-					isDraft: false,
-					canWrite: canWrite(trigger.path, trigger.extra_perms, user)
-				}
-			])
-		}
+		updateTriggers(triggersStore, pgTriggers, 'postgres', user)
 	} catch (error) {
 		console.error('Failed to fetch Postgres triggers:', error)
 	}

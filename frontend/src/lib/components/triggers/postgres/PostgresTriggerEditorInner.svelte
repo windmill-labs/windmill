@@ -10,9 +10,8 @@
 	import { canWrite, emptyString, emptyStringTrimmed, sendUserToast } from '$lib/utils'
 	import { createEventDispatcher } from 'svelte'
 	import Section from '$lib/components/Section.svelte'
-	import { Loader2, Save, X, Pen, Trash } from 'lucide-svelte'
+	import { Loader2, Save, X } from 'lucide-svelte'
 	import Label from '$lib/components/Label.svelte'
-	import Toggle from '$lib/components/Toggle.svelte'
 	import ResourcePicker from '$lib/components/ResourcePicker.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
@@ -28,7 +27,7 @@
 	import CheckPostgresRequirement from './CheckPostgresRequirement.svelte'
 	import { base } from '$lib/base'
 	import type { Snippet } from 'svelte'
-	import { twMerge } from 'tailwind-merge'
+	import TriggerEditorToolbar from '../TriggerEditorToolbar.svelte'
 
 	interface Props {
 		useDrawer?: boolean
@@ -36,9 +35,10 @@
 		hideTarget?: boolean
 		editMode?: boolean
 		preventSave?: boolean
-		useEditButton?: boolean
 		isEditor?: boolean
 		hideTooltips?: boolean
+		allowDraft?: boolean
+		hasDraft?: boolean
 	}
 
 	let {
@@ -47,9 +47,10 @@
 		hideTarget = false,
 		editMode = true,
 		preventSave = false,
-		useEditButton = false,
 		isEditor = false,
-		hideTooltips = false
+		hideTooltips = false,
+		allowDraft = false,
+		hasDraft = false
 	}: Props = $props()
 
 	let drawer: Drawer | undefined = $state(undefined)
@@ -83,6 +84,7 @@
 	let tab: 'advanced' | 'basic' = $state('basic')
 	let isLoading = $state(false)
 	let isDraft = $state(false)
+	let initialConfig = $state<Record<string, any> | undefined>(undefined)
 
 	async function createPublication() {
 		try {
@@ -134,12 +136,16 @@
 		})
 	})
 
-	export async function openEdit(ePath: string, isFlow: boolean) {
+	export async function openEdit(
+		ePath: string,
+		isFlow: boolean,
+		defaultConfig?: Record<string, any>
+	) {
 		let loadingTimeout = setTimeout(() => {
 			showLoading = true
 		}, 100) // Do not show loading spinner for the first 100ms
 		drawerLoading = true
-		resetEditMode = () => openEdit(ePath, isFlow)
+		resetEditMode = () => openEdit(ePath, isFlow, defaultConfig ?? initialConfig)
 		try {
 			drawer?.openDrawer()
 			initialPath = ePath
@@ -154,7 +160,7 @@
 			relations = []
 			transaction_to_track = []
 			tab = 'basic'
-			await loadTrigger()
+			await loadTrigger(defaultConfig)
 		} catch (err) {
 			sendUserToast(`Could not load postgres trigger: ${err.body}`, true)
 		} finally {
@@ -167,8 +173,10 @@
 	export async function openNew(
 		nis_flow: boolean,
 		fixedScriptPath_?: string,
-		defaultValues?: Record<string, any>
+		defaultValues?: Record<string, any>,
+		newDraft?: boolean
 	) {
+		resetEditMode = () => openNew(nis_flow, fixedScriptPath_, defaultValues, newDraft)
 		let loadingTimeout = setTimeout(() => {
 			showLoading = true
 		}, 100) // Do not show loading spinner for the first 100ms
@@ -192,18 +200,20 @@
 			dirtyPath = false
 			publication_name = `windmill_publication_${random_adj()}`
 			replication_slot_name = `windmill_replication_${random_adj()}`
-			transaction_to_track = defaultValues?.publication.transaction_to_track || [
+			transaction_to_track = defaultValues?.publication?.transaction_to_track || [
 				'Insert',
 				'Update',
 				'Delete'
 			]
-			relations = defaultValues?.publication.table_to_track || [
+			relations = defaultValues?.publication?.table_to_track || [
 				{
 					schema_name: 'public',
 					table_to_track: []
 				}
 			]
-			toggleEditMode(true)
+			if (newDraft) {
+				toggleEditMode(true)
+			}
 		} finally {
 			clearTimeout(loadingTimeout)
 			drawerLoading = false
@@ -211,29 +221,66 @@
 		}
 	}
 
-	async function loadTrigger(): Promise<void> {
-		const s = await PostgresTriggerService.getPostgresTrigger({
-			workspace: $workspaceStore!,
-			path: initialPath
-		})
-		script_path = s.script_path
-		initialScriptPath = s.script_path
+	async function loadTriggerConfig(cfg?: Record<string, any>): Promise<void> {
+		script_path = cfg?.script_path
+		initialScriptPath = cfg?.script_path
+		is_flow = cfg?.is_flow
+		path = cfg?.path
+		enabled = cfg?.enabled
+		postgres_resource_path = cfg?.postgres_resource_path
+		publication_name = cfg?.publication_name
+		replication_slot_name = cfg?.replication_slot_name
+		can_write = canWrite(path, cfg?.extra_perms, $userStore)
+		transaction_to_track = [...cfg?.publication?.transaction_to_track]
+		relations = cfg?.publication?.table_to_track ?? []
+	}
 
-		is_flow = s.is_flow
-		path = s.path
-		enabled = s.enabled
-		postgres_resource_path = s.postgres_resource_path
-		publication_name = s.publication_name
-		replication_slot_name = s.replication_slot_name
+	async function loadTrigger(defaultConfig?: Record<string, any>): Promise<void> {
+		if (defaultConfig) {
+			loadTriggerConfig(defaultConfig)
+			if (defaultConfig?.publication) {
+				transaction_to_track = [...defaultConfig.publication.transaction_to_track]
+				relations = defaultConfig.publication.table_to_track ?? []
+			}
+			return
+		} else {
+			const s = await PostgresTriggerService.getPostgresTrigger({
+				workspace: $workspaceStore!,
+				path: initialPath
+			})
 
-		const publication_data = await PostgresTriggerService.getPostgresPublication({
-			path: postgres_resource_path,
-			workspace: $workspaceStore!,
-			publication: publication_name
+			const publication_data = await PostgresTriggerService.getPostgresPublication({
+				path: s.postgres_resource_path,
+				workspace: $workspaceStore!,
+				publication: s.publication_name
+			})
+
+			initialConfig = { ...s, publication: publication_data }
+			loadTriggerConfig(initialConfig)
+		}
+	}
+
+	function saveDraft() {
+		dispatch('save-draft', {
+			cfg: {
+				script_path,
+				initialScriptPath,
+				is_flow,
+				path,
+				postgres_resource_path,
+				publication_name,
+				replication_slot_name,
+				publication: {
+					transaction_to_track,
+					table_to_track: relations
+				},
+				tab
+			},
+			cb: () => {
+				updateTrigger()
+			}
 		})
-		transaction_to_track = [...publication_data.transaction_to_track]
-		relations = publication_data.table_to_track ?? []
-		can_write = canWrite(s.path, s.extra_perms, $userStore)
+		toggleEditMode(false)
 	}
 
 	async function updateTrigger(): Promise<void> {
@@ -355,80 +402,56 @@
 
 {#snippet actions(size: 'xs' | 'sm' = 'sm')}
 	{#if !drawerLoading}
-		<div class="flex flex-row gap-2 items-center">
-			{#if isDraft}
-				<Button
-					{size}
-					startIcon={{ icon: Trash }}
-					iconOnly
-					color={'light'}
-					on:click={() => {
-						dispatch('delete')
-					}}
-					btnClasses="hover:bg-red-500 hover:text-white"
-				/>
-			{/if}
-			{#if !isDraft && edit}
-				<div class={twMerge('center-center', size === 'sm' ? '-mt-1' : '')}>
-					<Toggle
-						{size}
-						disabled={!can_write || !editMode}
-						checked={enabled}
-						options={{ right: 'enable', left: 'disable' }}
-						on:change={async (e) => {
-							await PostgresTriggerService.setPostgresTriggerEnabled({
-								path: initialPath,
-								workspace: $workspaceStore ?? '',
-								requestBody: { enabled: e.detail }
-							})
-							sendUserToast(`${e.detail ? 'enabled' : 'disabled'} postgres trigger ${initialPath}`)
-						}}
-					/>
-				</div>
-			{/if}
-			{#if !preventSave}
-				{#if can_write && editMode}
-					<Button
-						{size}
-						startIcon={{ icon: Save }}
-						disabled={pathError != '' ||
-							emptyString(postgres_resource_path) ||
-							emptyString(script_path) ||
-							(tab === 'advanced' && emptyString(replication_slot_name)) ||
-							emptyString(publication_name) ||
-							(relations && tab === 'basic' && relations.length === 0) ||
-							transaction_to_track.length === 0 ||
-							!can_write}
-						on:click={updateTrigger}
-						loading={isLoading}
-					>
-						Save
-					</Button>
-				{/if}
-				{#if !editMode && useEditButton}
-					<Button
-						{size}
-						color="light"
-						startIcon={{ icon: Pen }}
-						on:click={() => toggleEditMode(true)}
-					>
-						Edit
-					</Button>
-				{:else if editMode && !!resetEditMode && useEditButton}
-					<Button
-						{size}
-						color="light"
-						startIcon={{ icon: X }}
-						on:click={() => {
-							toggleEditMode(false)
-							resetEditMode?.()
-						}}
-					>
-						Cancel
-					</Button>
-				{/if}
-			{/if}
-		</div>
+		{#if !allowDraft}
+			<Button
+				{size}
+				startIcon={{ icon: Save }}
+				disabled={pathError !== '' ||
+					emptyString(postgres_resource_path) ||
+					emptyString(script_path) ||
+					(tab === 'advanced' && emptyString(replication_slot_name)) ||
+					emptyString(publication_name) ||
+					(relations && tab === 'basic' && relations.length === 0) ||
+					transaction_to_track.length === 0 ||
+					drawerLoading ||
+					!can_write}
+				on:click={updateTrigger}
+				loading={isLoading}
+			>
+				Save
+			</Button>
+		{:else}
+			<TriggerEditorToolbar
+				isDraftOnly={isDraft}
+				{hasDraft}
+				canEdit={!drawerLoading && can_write && !preventSave}
+				{editMode}
+				saveDisabled={pathError !== '' ||
+					emptyString(postgres_resource_path) ||
+					emptyString(script_path) ||
+					(tab === 'advanced' && emptyString(replication_slot_name)) ||
+					emptyString(publication_name) ||
+					(relations && tab === 'basic' && relations.length === 0) ||
+					transaction_to_track.length === 0 ||
+					drawerLoading ||
+					!can_write}
+				on:save-draft={() => {
+					saveDraft()
+				}}
+				on:deploy={() => {
+					updateTrigger()
+				}}
+				on:reset
+				on:delete
+				on:edit={() => {
+					toggleEditMode(true)
+				}}
+				on:cancel={() => {
+					resetEditMode?.()
+					toggleEditMode(false)
+				}}
+			/>
+		{/if}
 	{/if}
 {/snippet}
 
