@@ -39,7 +39,7 @@
 	export let raw_string: boolean = false
 	export let wrap_body: boolean = false
 	export let capture_mode: boolean
-	export let isDraft: boolean = true
+	export let isDraftOnly: boolean = true
 
 	let validateTimeout: NodeJS.Timeout | undefined = undefined
 	let selectedRoute: 'test' | 'full' = 'full'
@@ -94,7 +94,7 @@
 	}/${captureInfo?.path.replaceAll('/', '.')}/${route_path}`
 
 	$: userIsAdmin = $userStore?.is_admin || $userStore?.is_super_admin
-	$: userCanEditConfig = userIsAdmin || isDraft // User can edit config if they are admin or if the trigger is a draft which will not be saved
+	$: userCanEditConfig = userIsAdmin || isDraftOnly // User can edit config if they are admin or if the trigger is a draft which will not be saved
 </script>
 
 <div>
@@ -139,7 +139,7 @@
 				<TestingBadge />
 			{/if}
 		</svelte:fragment>
-		{#if !userCanEditConfig && !isDraft}
+		{#if !userCanEditConfig && isDraftOnly}
 			<Alert type="info" title="Admin only" collapsible size="xs">
 				Route endpoints can only be edited by workspace admins
 			</Alert>

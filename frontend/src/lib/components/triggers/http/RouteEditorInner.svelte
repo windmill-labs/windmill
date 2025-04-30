@@ -10,7 +10,7 @@
 	import { canWrite, emptyString, sendUserToast } from '$lib/utils'
 	import { createEventDispatcher } from 'svelte'
 	import Section from '$lib/components/Section.svelte'
-	import { Loader2, Save, Pipette, Plus, Pen, X, Trash } from 'lucide-svelte'
+	import { Loader2, Save, Pipette, Plus } from 'lucide-svelte'
 	import Label from '$lib/components/Label.svelte'
 	import VariableEditor from '../../VariableEditor.svelte'
 	import { json } from 'svelte-highlight/languages'
@@ -31,17 +31,20 @@
 	import { HubFlow } from '$lib/hub'
 	import RouteBodyTransformerOption from './RouteBodyTransformerOption.svelte'
 	import TestingBadge from '../testingBadge.svelte'
+	import TriggerEditorToolbar from '../TriggerEditorToolbar.svelte'
 
 	let {
 		useDrawer = true,
 		hideTarget = false,
 		saveDisabled = false,
 		description = undefined,
-		useEditButton = false,
 		showCapture = false,
 		editMode = true,
 		preventSave = false,
-		customLabel = undefined
+		customLabel = undefined,
+		isDraftOnly = false,
+		allowDraft = false,
+		hasDraft = false
 	} = $props()
 
 	// Form data state
@@ -83,8 +86,8 @@
 	let variableEditor = $state<VariableEditor | null>(null)
 	let drawer = $state<Drawer | null>(null)
 	let resetEditMode = $state<(() => void) | null>(null)
-	let isDraft = $state(false)
 	let isAdmin = $derived($userStore?.is_admin || $userStore?.is_super_admin)
+	let initialConfig = $state<Record<string, any> | undefined>(undefined)
 
 	// Use $derived for computed values
 	$effect(() => {
@@ -141,8 +144,12 @@
 		}
 	]
 
-	export async function openEdit(ePath: string, isFlow: boolean) {
-		resetEditMode = () => openEdit(ePath, isFlow)
+	export async function openEdit(
+		ePath: string,
+		isFlow: boolean,
+		defaultConfig?: Record<string, any>
+	) {
+		resetEditMode = () => openEdit(ePath, isFlow, defaultConfig ?? initialConfig)
 		drawerLoading = true
 		let loader = setTimeout(() => {
 			showLoader = true
@@ -155,7 +162,7 @@
 			edit = true
 			dirtyPath = false
 			dirtyRoutePath = false
-			await loadTrigger()
+			await loadTrigger(defaultConfig)
 		} catch (err) {
 			sendUserToast(`Could not load route: ${err}`, true)
 		} finally {
@@ -171,7 +178,7 @@
 		defaultValues?: Record<string, any>,
 		newDraft?: boolean
 	) {
-		resetEditMode = null
+		resetEditMode = () => openNew(nis_flow, fixedScriptPath_, defaultValues, newDraft)
 		drawerLoading = true
 		let loader = setTimeout(() => {
 			showLoader = true
@@ -201,7 +208,6 @@
 			signature_options_type = 'custom_signature'
 			raw_string = defaultValues?.raw_string ?? false
 			wrap_body = defaultValues?.wrap_body ?? false
-			isDraft = true
 			if (newDraft) {
 				toggleEditMode(true)
 			}
@@ -213,53 +219,56 @@
 	}
 
 	const dispatch = createEventDispatcher<{
-		'update-config': {
-			route_path: string
-			http_method: string
-			raw_string: boolean
-			wrap_body: boolean
-			isValid: boolean
-			path: string
-		}
+		'update-config': Record<string, any>
 		'toggle-edit-mode': boolean
 		update: string
 		focus: undefined
 		blur: undefined
 		delete: undefined
-		'save-draft': () => void
+		'save-draft': { cfg: Record<string, any>; cb: () => void }
+		reset: undefined
 	}>()
 
-	async function loadTrigger(): Promise<void> {
-		const s = await HttpTriggerService.getHttpTrigger({
-			workspace: $workspaceStore!,
-			path: initialPath
-		})
-
-		script_path = s.script_path
-		initialScriptPath = s.script_path
-		is_flow = s.is_flow
-		path = s.path
-		route_path = s.route_path
-		http_method = s.http_method ?? 'post'
-		is_async = s.is_async
-		workspaced_route = s.workspaced_route
-		wrap_body = s.wrap_body
-		raw_string = s.raw_string
-		authentication_resource_path = s.authentication_resource_path ?? ''
-		if (s.authentication_method === 'custom_script') {
+	function loadTriggerConfig(cfg?: Record<string, any>): void {
+		script_path = cfg?.script_path
+		initialScriptPath = cfg?.script_path
+		is_flow = cfg?.is_flow
+		path = cfg?.path
+		route_path = cfg?.route_path
+		http_method = cfg?.http_method ?? 'post'
+		is_async = cfg?.is_async
+		workspaced_route = cfg?.workspaced_route
+		wrap_body = cfg?.wrap_body
+		raw_string = cfg?.raw_string
+		authentication_resource_path = cfg?.authentication_resource_path ?? ''
+		if (cfg?.authentication_method === 'custom_script') {
 			authentication_method = 'signature'
 			signature_options_type = 'custom_script'
 		} else {
-			authentication_method = s.authentication_method
+			authentication_method = cfg?.authentication_method
 			signature_options_type = 'custom_signature'
 		}
 		if (!isCloudHosted()) {
-			static_asset_config = s.static_asset_config
-			s3FileUploadRawMode = !!s.static_asset_config
-			is_static_website = s.is_static_website
+			static_asset_config = cfg?.static_asset_config
+			s3FileUploadRawMode = !!cfg?.static_asset_config
+			is_static_website = cfg?.is_static_website
 		}
 
-		can_write = canWrite(path, s.extra_perms, $userStore)
+		can_write = canWrite(path, cfg?.extra_perms, $userStore)
+	}
+
+	async function loadTrigger(defaultConfig?: Record<string, any>): Promise<void> {
+		if (defaultConfig) {
+			loadTriggerConfig(defaultConfig)
+			return
+		} else {
+			const s = await HttpTriggerService.getHttpTrigger({
+				workspace: $workspaceStore!,
+				path: initialPath
+			})
+			initialConfig = s
+			loadTriggerConfig(s)
+		}
 	}
 
 	async function triggerScript(): Promise<void> {
@@ -321,6 +330,7 @@
 		toggleEditMode(false)
 	}
 
+	// Update config for captures
 	$effect(() => {
 		dispatch('update-config', {
 			route_path,
@@ -344,6 +354,32 @@
 
 	function toggleEditMode(newValue: boolean) {
 		dispatch('toggle-edit-mode', newValue)
+	}
+
+	function saveDraft() {
+		dispatch('save-draft', {
+			cfg: {
+				script_path,
+				initialScriptPath,
+				is_flow,
+				path,
+				route_path,
+				http_method,
+				is_async,
+				workspaced_route,
+				wrap_body,
+				raw_string,
+				authentication_resource_path,
+				authentication_method,
+				static_asset_config,
+				is_static_website,
+				isValid
+			},
+			cb: () => {
+				triggerScript()
+			}
+		})
+		toggleEditMode(false)
 	}
 </script>
 
@@ -539,7 +575,7 @@
 				capture_mode={false}
 				bind:static_asset_config
 				{showCapture}
-				{isDraft}
+				{isDraftOnly}
 			/>
 
 			{#if !is_static_website}
@@ -727,64 +763,42 @@
 	{/if}
 {/snippet}
 
-{#snippet saveButton(size: 'xs' | 'sm' = 'xs')}
-	<div class="flex flex-row gap-2 items-center">
-		{#if isDraft}
-			<Button
-				{size}
-				startIcon={{ icon: Trash }}
-				iconOnly
-				color={'light'}
-				on:click={() => {
-					dispatch('delete')
-				}}
-				btnClasses="hover:bg-red-500 hover:text-white"
-			/>
-		{/if}
-		{#if !drawerLoading && can_write && (isAdmin || edit) && !preventSave}
-			{#if editMode}
-				<Button
-					{size}
-					startIcon={{ icon: Save }}
-					disabled={saveDisabled}
-					on:click={() => {
-						if (isDraft) {
-							dispatch('save-draft', () => {
-								triggerScript()
-							})
-							toggleEditMode(false)
-						} else {
-							triggerScript()
-						}
-					}}
-				>
-					{isDraft ? 'Save Draft' : 'Save'}
-				</Button>
-			{/if}
-			{#if useEditButton && !editMode}
-				<Button
-					{size}
-					color="light"
-					startIcon={{ icon: Pen }}
-					on:click={() => toggleEditMode(true)}
-				>
-					Edit
-				</Button>
-			{:else if useEditButton && editMode && !!resetEditMode}
-				<Button
-					{size}
-					color="light"
-					startIcon={{ icon: X }}
-					on:click={() => {
-						toggleEditMode(false)
-						resetEditMode?.()
-					}}
-				>
-					Cancel
-				</Button>
-			{/if}
-		{/if}
-	</div>
+{#snippet saveButton()}
+	{#if !allowDraft}
+		<Button
+			size="sm"
+			startIcon={{ icon: Save }}
+			disabled={saveDisabled}
+			on:click={() => {
+				triggerScript()
+			}}
+		>
+			Save
+		</Button>
+	{:else}
+		<TriggerEditorToolbar
+			{isDraftOnly}
+			{hasDraft}
+			canEdit={!drawerLoading && can_write && (isAdmin || edit) && !preventSave}
+			{editMode}
+			{saveDisabled}
+			on:save-draft={() => {
+				saveDraft()
+			}}
+			on:deploy={() => {
+				triggerScript()
+			}}
+			on:reset
+			on:delete
+			on:edit={() => {
+				toggleEditMode(true)
+			}}
+			on:cancel={() => {
+				resetEditMode?.()
+				toggleEditMode(false)
+			}}
+		/>
+	{/if}
 {/snippet}
 
 {#if useDrawer}
@@ -811,7 +825,7 @@
 			{/if}
 		</svelte:fragment>
 		<svelte:fragment slot="action">
-			{@render saveButton('xs')}
+			{@render saveButton()}
 		</svelte:fragment>
 		{#if description}
 			{@render description()}

@@ -3,7 +3,7 @@
 	import { createEventDispatcher } from 'svelte'
 	import DropdownV2 from '$lib/components/DropdownV2.svelte'
 	import Button from '$lib/components/common/button/Button.svelte'
-	import { Plus, Star, Loader2, Trash, Pen, EllipsisVertical } from 'lucide-svelte'
+	import { Plus, Star, Loader2, Trash, Pen, EllipsisVertical, RotateCcw } from 'lucide-svelte'
 	import { twMerge } from 'tailwind-merge'
 	import type { Item } from '$lib/utils'
 	import { isEqual, triggerIconMap, type Trigger } from './utils'
@@ -22,18 +22,28 @@
 		delete: Trigger
 		deleteDraft: { trigger: Trigger | undefined; keepSelection: boolean }
 		edit: Trigger
+		reset: Trigger
 	}>()
 
-	const editTriggerItems = (trigger: Trigger): Item[] => [
-		{
-			displayName: 'Edit',
-			action: () => {
-				dispatch('edit', trigger)
+	const editTriggerItems = (trigger: Trigger): Item[] =>
+		[
+			{
+				displayName: 'Edit',
+				action: () => {
+					dispatch('edit', trigger)
+				},
+				icon: Pen,
+				disabled: !trigger.canWrite
 			},
-			icon: Pen,
-			disabled: !trigger.canWrite
-		}
-	]
+			{
+				displayName: 'Reset to deployed version',
+				action: () => {
+					dispatch('reset', trigger)
+				},
+				icon: RotateCcw,
+				hidden: !trigger.draftConfig || trigger.isDraft
+			}
+		].filter((item) => item.hidden !== true)
 
 	// Select a trigger
 	function selectTrigger(trigger: Trigger) {

@@ -110,10 +110,10 @@
 	}
 
 	function setTriggerSaveCallback(trigger: Trigger | undefined, saveCb: () => void) {
-		if (!trigger || !trigger.id) {
+		if (!trigger) {
 			return
 		}
-		setSaveCallback(triggers, trigger.id as string, saveCb)
+		setSaveCallback(triggers, trigger, saveCb)
 	}
 
 	function handleUpdatePending(trigger: Trigger | undefined, path: string) {
@@ -187,6 +187,17 @@
 		}
 	}
 
+	function handleResetDraft(trigger: Trigger | undefined) {
+		if (!trigger) {
+			return
+		}
+		updateDraftConfig(triggers, trigger, undefined)
+		if ($selectedTrigger && isEqual(trigger, $selectedTrigger)) {
+			$selectedTrigger.saveCb = undefined
+			$selectedTrigger.draftConfig = undefined
+		}
+	}
+
 	onMount(() => {
 		// Handles redirection to the trigger panel
 		if ($selectedTriggerLegacy) {
@@ -226,6 +237,9 @@
 									if (JSON.stringify(detail) !== JSON.stringify($selectedTrigger)) {
 										$selectedTrigger = detail
 									}
+								}}
+								on:reset={({ detail }) => {
+									handleResetDraft(detail)
 								}}
 							/>
 						</div>
@@ -303,6 +317,9 @@
 										on:save-draft={({ detail }) => {
 											handleUpdateDraftConfig(detail.cfg)
 											setTriggerSaveCallback($selectedTrigger, detail.cb)
+										}}
+										on:reset={() => {
+											handleResetDraft($selectedTrigger)
 										}}
 									/>
 								</div>

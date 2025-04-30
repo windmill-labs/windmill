@@ -66,6 +66,7 @@
 		on:delete
 		on:toggle-edit-mode
 		on:save-draft
+		on:reset
 		{isDeployed}
 		{small}
 		defaultValues={selectedTrigger.draftConfig ?? selectedTrigger.captureConfig ?? undefined}

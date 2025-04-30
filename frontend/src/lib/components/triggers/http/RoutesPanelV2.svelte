@@ -4,6 +4,7 @@
 	import { userStore } from '$lib/stores'
 	import { Alert } from '$lib/components/common'
 	import TriggerLabel from '../TriggerLabel.svelte'
+	import { onMount } from 'svelte'
 
 	let routeEditor = $state<RouteEditorInner | null>(null)
 	let {
@@ -21,14 +22,14 @@
 		if (isDraft) {
 			routeEditor?.openNew(isFlow, path, defaultValues, newDraft)
 		} else {
-			routeEditor?.openEdit(selectedTrigger.path, isFlow)
+			routeEditor?.openEdit(selectedTrigger.path, isFlow, defaultValues)
 		}
 	}
 
-	$effect(() => {
-		selectedTrigger?.type === 'http' &&
-			routeEditor &&
+	onMount(() => {
+		if (routeEditor) {
 			openRouteEditor(isFlow, selectedTrigger.isDraft ?? false)
+		}
 	})
 </script>
 
@@ -36,7 +37,6 @@
 	useDrawer={false}
 	bind:this={routeEditor}
 	hideTarget
-	useEditButton
 	on:update-config
 	on:update
 	showCapture
@@ -45,6 +45,10 @@
 	on:delete
 	on:save-draft
 	customLabel={small ? customLabel : undefined}
+	isDraftOnly={selectedTrigger.isDraft}
+	allowDraft
+	on:reset
+	hasDraft={!!selectedTrigger.draftConfig}
 >
 	{#snippet description()}
 		<div class="flex flex-col gap-2 pb-4">
