@@ -12,6 +12,7 @@
 	import Toggle from '../Toggle.svelte'
 	import ClipboardPanel from '../details/ClipboardPanel.svelte'
 	import { sendUserToast } from '$lib/toast'
+	import MultiSelectWrapper from '../multiselect/MultiSelectWrapper.svelte'
 
 	// --- Props ---
 	interface Props {
@@ -37,7 +38,7 @@
 	let newToken = $state<string | undefined>(undefined)
 	let newTokenExpiration = $state<number | undefined>(undefined)
 	let newTokenWorkspace = $state<string | undefined>(defaultNewTokenWorkspace)
-	let newMcpApp = $state<string | undefined>(undefined)
+	let newMcpApps = $state<string[] | undefined>([])
 	let displayCreateToken = $state(scopes != undefined)
 	let mcpCreationMode = $state(false)
 	let newMcpScope = $state('favorites')
@@ -79,7 +80,9 @@
 				date = new Date(new Date().getTime() + newTokenExpiration * 1000)
 			}
 
-			let tokenScopes = mcpMode ? [`mcp:${newMcpScope}${newMcpApp ? `:${newMcpApp}` : ''}`] : scopes
+			let tokenScopes = mcpMode
+				? [`mcp:${newMcpScope}${newMcpApps ? `:${newMcpApps.join(',')}` : ''}`]
+				: scopes
 
 			const createdToken = await UserService.createToken({
 				requestBody: {
@@ -260,19 +263,19 @@
 							<ToggleButton
 								{item}
 								value="favorites"
-								label="Favorites Only"
+								label="Favorites only"
 								tooltip="Make only your favorite scripts and flows available as tools"
 							/>
 							<ToggleButton
 								{item}
 								value="all"
-								label="All Resources"
+								label="All resources"
 								tooltip="Make all your scripts and flows available as tools"
 							/>
 							<ToggleButton
 								{item}
 								value="hub"
-								label="Hub Scripts"
+								label="Hub scripts"
 								tooltip="Get all scripts from the Windmill Hub and make them available as tools"
 								onClick={getAllApps}
 							/>
@@ -287,11 +290,11 @@
 							{:else if errorFetchApps}
 								<div>Error fetching apps</div>
 							{:else}
-								<select bind:value={newMcpApp} class="w-full">
-									{#each allApps as app}
-										<option value={app}>{app}</option>
-									{/each}
-								</select>
+								<MultiSelectWrapper
+									items={allApps}
+									placeholder="Select an app"
+									bind:value={newMcpApps}
+								/>
 							{/if}
 						</div>
 					{/if}

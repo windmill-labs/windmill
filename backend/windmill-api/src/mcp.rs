@@ -413,12 +413,12 @@ impl Runner {
 
     async fn inner_get_scripts_from_hub(
         db: &DB,
-        scope_integration: Option<&str>,
+        scope_integrations: Option<&str>,
     ) -> Result<Vec<HubScriptInfo>, Error> {
         let query_params = Some(vec![
             ("limit", "100".to_string()),
             ("with_schema", "true".to_string()),
-            ("app", scope_integration.unwrap_or("").to_string()),
+            ("apps", scope_integrations.unwrap_or("").to_string()),
         ]);
         let url = format!("{}/scripts/top", *HUB_BASE_URL.read().await);
         let (_status_code, _headers, response) =
@@ -917,11 +917,11 @@ impl ServerHandler for Runner {
             .scopes
             .as_ref()
             .and_then(|scopes| scopes.iter().find(|scope| scope.starts_with("mcp:")));
-        let mut scope_integration = None;
+        let mut scope_integrations = None;
         let scope_type = scope.map_or("all", |scope| {
             let parts = scope.split(":").collect::<Vec<&str>>();
             if parts.len() == 3 && parts[1] == "hub" {
-                scope_integration = Some(parts[2]);
+                scope_integrations = Some(parts[2]);
                 "hub"
             } else {
                 parts[1]
@@ -938,7 +938,7 @@ impl ServerHandler for Runner {
         let flows_fn =
             Runner::inner_get_items::<FlowInfo>(user_db, authed, &workspace_id, scope_type, "flow");
         let resources_types_fn = Runner::inner_get_resources_types(user_db, authed, &workspace_id);
-        let hub_scripts_fn = Runner::inner_get_scripts_from_hub(db, scope_integration.as_deref());
+        let hub_scripts_fn = Runner::inner_get_scripts_from_hub(db, scope_integrations.as_deref());
         let (scripts, flows, resources_types, hub_scripts) = if scope_type == "hub" {
             let (resources_types, hub_scripts) = try_join!(resources_types_fn, hub_scripts_fn)?;
             (vec![], vec![], resources_types, hub_scripts)

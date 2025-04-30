@@ -11,7 +11,7 @@
 	export let items: any[]
 	let propValue: string[] | undefined = []
 	export { propValue as value }
-	$: value = structuredClone(propValue)
+	$: value = propValue || []
 	export let placeholder: string | undefined = undefined
 	export let target: string | HTMLElement | undefined = undefined
 	export let topPlacement = false
