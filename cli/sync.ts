@@ -609,11 +609,16 @@ export async function* readDirRecursiveWithIgnore(
 
   while (stack.length > 0) {
     const e = stack.pop()!;
+    // console.log(e.path);
     yield e;
     for await (const e2 of e.c()) {
-      if (e2.path.startsWith(".git" + SEP)) {
-        continue;
+      if (e2.isDirectory) {
+        const dirName = e2.path.split(SEP).pop();
+        if (dirName == "node_modules" || dirName?.startsWith(".")) {
+          continue;
+        }
       }
+      // console.log(e2.path);
       stack.push({
         path: e2.path,
         ignored: e.ignored || ignore(e2.path, e2.isDirectory),
