@@ -69,6 +69,10 @@ export const triggerIconMap = {
 	poll: SchedulePollIcon
 }
 
+export function isEqual(a: Trigger, b: Trigger): boolean {
+	return a.path === b.path && a.type === b.type && a.isDraft === b.isDraft && a.id === b.id
+}
+
 /**
  * Converts a TriggerType to a CaptureTriggerKind when a mapping exists
  * @param triggerType The trigger type to convert

@@ -98,12 +98,10 @@
 		path={initialPath}
 		{newItem}
 		can_write={canWrite(currentPath, {}, $userStore)}
-		on:update={async ({ detail }) => {
-			if ((detail === 'save' || detail === 'delete') && selectedTrigger?.isDraft) {
-				dispatch('delete')
-			}
-			dispatch('update', initialPath)
-		}}
+		on:update
+		on:delete
+		on:delete-pending
+		on:save-pending
 		isNewSchedule={selectedTrigger.isDraft}
 		{isDeployed}
 	/>

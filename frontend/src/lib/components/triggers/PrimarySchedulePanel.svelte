@@ -28,7 +28,10 @@
 
 	const { primarySchedule, triggersCount } = getContext<TriggerContext>('TriggerContext')
 	const dispatch = createEventDispatcher<{
-		update: 'save' | 'delete' | 'update'
+		update: string
+		delete: undefined
+		'update-pending': undefined
+		'delete-pending': undefined
 	}>()
 
 	let scheduleEditor: ScheduleEditor
@@ -67,6 +70,7 @@
 		editMode = false
 		await saveSchedule(path, newItem, $workspaceStore ?? '', primarySchedule, isFlow)
 		updateSchedules(true)
+		dispatch('update', path)
 	}
 
 	function saveDraft() {
@@ -79,15 +83,13 @@
 				schedule_count: ($triggersCount?.schedule_count ?? 0) + 1,
 				primary_schedule: { schedule: tmpPrimarySchedule?.cron }
 			}
-			dispatch('update', 'save')
-		} else {
-			dispatch('update', 'update')
 		}
+		dispatch('update-pending')
 		editMode = false
 	}
 
 	function deleteDraft() {
-		dispatch('update', 'delete')
+		dispatch('delete')
 	}
 
 	function deletePendingPrimarySchedule() {
@@ -97,7 +99,7 @@
 			schedule_count: ($triggersCount?.schedule_count ?? 1) - 1,
 			primary_schedule: undefined
 		}
-		dispatch('update', 'delete')
+		dispatch('delete-pending')
 	}
 
 	export function setNewSchedule() {
@@ -133,7 +135,7 @@
 			{#if can_write && !$scheduleIsDeployed}
 				<Button
 					on:click={() => {
-						if (isNewSchedule) {
+						if (!$primarySchedule) {
 							deleteDraft()
 						} else {
 							deletePendingPrimarySchedule()

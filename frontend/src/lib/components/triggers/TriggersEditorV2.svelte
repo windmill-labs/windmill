@@ -7,7 +7,7 @@
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import TriggersTable from './TriggersTable.svelte'
 	import CaptureWrapper from './CaptureWrapperV2.svelte'
-	import { type Trigger } from './utils'
+	import { isEqual, type Trigger } from './utils'
 	import { triggerTypeToCaptureKind } from './utils'
 	import PrimarySchedulePanel from './PrimarySchedulePanel.svelte'
 	import { fade } from 'svelte/transition'
@@ -87,6 +87,32 @@
 			$selectedTrigger = $triggers[$triggers.length - 1]
 		} else {
 			$selectedTrigger = undefined
+		}
+	}
+
+	function deletePendingTrigger(trigger: Trigger | undefined) {
+		if (!trigger) {
+			return
+		}
+		$triggers = $triggers.filter((t) => !isEqual(t, trigger))
+
+		// Select a new trigger if any exist
+		if ($triggers.length > 0) {
+			$selectedTrigger = $triggers[$triggers.length - 1]
+		} else {
+			$selectedTrigger = undefined
+		}
+	}
+
+	function handleUpdatePending(trigger: Trigger | undefined, path: string) {
+		if (!trigger) {
+			return
+		}
+		if (trigger.isDraft) {
+			trigger.isDraft = false
+		}
+		if (path) {
+			trigger.path = path
 		}
 	}
 
@@ -223,6 +249,12 @@
 										}}
 										on:update={({ detail }) => {
 											handleUpdate($selectedTrigger, detail)
+										}}
+										on:update-pending={({ detail }) => {
+											handleUpdatePending($selectedTrigger, detail)
+										}}
+										on:delete-pending={() => {
+											deletePendingTrigger($selectedTrigger)
 										}}
 									/>
 								</div>

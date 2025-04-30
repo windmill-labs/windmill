@@ -6,7 +6,7 @@
 	import { Plus, Star, Loader2, Trash, Pen, EllipsisVertical } from 'lucide-svelte'
 	import { twMerge } from 'tailwind-merge'
 	import type { Item } from '$lib/utils'
-	import { triggerIconMap, type Trigger } from './utils'
+	import { isEqual, triggerIconMap, type Trigger } from './utils'
 	import AddTriggersButton from './AddTriggersButton.svelte'
 	import TriggerLabel from './TriggerLabel.svelte'
 	// Props
@@ -65,13 +65,7 @@
 				<tr
 					class={twMerge(
 						'hover:bg-surface-hover cursor-pointer h-10',
-						selectedTrigger &&
-							selectedTrigger.path === trigger.path &&
-							selectedTrigger.type === trigger.type &&
-							selectedTrigger.isDraft === trigger.isDraft &&
-							selectedTrigger.id === trigger.id
-							? 'bg-surface-hover '
-							: ''
+						selectedTrigger && isEqual(selectedTrigger, trigger) ? 'bg-surface-hover ' : ''
 					)}
 					on:click={() => selectTrigger(trigger)}
 				>
