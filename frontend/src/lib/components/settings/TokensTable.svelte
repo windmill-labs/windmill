@@ -257,9 +257,25 @@
 					<div>
 						<span class="block mb-1">Scope</span>
 						<ToggleButtonGroup bind:selected={newMcpScope} allowEmpty={false} let:item>
-							<ToggleButton {item} value="favorites" label="Favorites Only" />
-							<ToggleButton {item} value="all" label="All Resources" />
-							<ToggleButton {item} value="hub" label="Hub Scripts" onClick={getAllApps} />
+							<ToggleButton
+								{item}
+								value="favorites"
+								label="Favorites Only"
+								tooltip="Make only your favorite scripts and flows available as tools"
+							/>
+							<ToggleButton
+								{item}
+								value="all"
+								label="All Resources"
+								tooltip="Make all your scripts and flows available as tools"
+							/>
+							<ToggleButton
+								{item}
+								value="hub"
+								label="Hub Scripts"
+								tooltip="Get all scripts from the Windmill Hub and make them available as tools"
+								onClick={getAllApps}
+							/>
 						</ToggleButtonGroup>
 					</div>
 
@@ -280,18 +296,20 @@
 						</div>
 					{/if}
 
-					<div>
-						<span class="block mb-1">Workspace</span>
-						<select
-							bind:value={newTokenWorkspace}
-							disabled={workspaces.length === 1}
-							class="w-full"
-						>
-							{#each workspaces as workspace}
-								<option value={workspace.id}>{workspace.name}</option>
-							{/each}
-						</select>
-					</div>
+					{#if newMcpScope !== 'hub'}
+						<div>
+							<span class="block mb-1">Workspace</span>
+							<select
+								bind:value={newTokenWorkspace}
+								disabled={workspaces.length === 1}
+								class="w-full"
+							>
+								{#each workspaces as workspace}
+									<option value={workspace.id}>{workspace.name}</option>
+								{/each}
+							</select>
+						</div>
+					{/if}
 				{/if}
 
 				<div>
