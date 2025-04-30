@@ -171,7 +171,9 @@
 									: 'transition-colors bg-transparent pointer-events-none select-none')}
 						>
 							{#if replResultData}
-								<SimpleAgTable data={replResultData} class="animate-zoom-in" />
+								{#key replResultData}
+									<SimpleAgTable data={replResultData} class="animate-zoom-in" />
+								{/key}
 							{/if}
 						</div>
 						<DbManager
