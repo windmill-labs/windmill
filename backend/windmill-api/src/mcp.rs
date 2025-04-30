@@ -376,7 +376,7 @@ impl Runner {
                 },
                 false,
             )
-            .limit(20);
+            .limit(100);
         let sql = sqlb.sql().map_err(|_e| {
             tracing::error!("failed to build sql: {}", _e);
             Error::internal_error("failed to build sql", None)
@@ -404,7 +404,7 @@ impl Runner {
         scope_integration: Option<&str>,
     ) -> Result<Vec<HubScriptInfo>, Error> {
         let query_params = Some(vec![
-            ("limit", "20".to_string()),
+            ("limit", "100".to_string()),
             ("with_schema", "true".to_string()),
             ("app", scope_integration.unwrap_or("").to_string()),
         ]);
