@@ -31,11 +31,7 @@ use crate::jobs::{
 use crate::HTTP_CLIENT;
 use windmill_common::utils::{query_elems_from_hub, StripPath};
 
-fn transform_path(path: &str, type_str: &str) -> Result<String, String> {
-    if type_str != "script" && type_str != "flow" {
-        return Err(format!("Invalid type: {}", type_str));
-    }
-
+fn transform_path(path: &str, type_str: &str) -> String {
     // Only apply special underscore escaping for paths starting with "f/"
     let transformed = if path.starts_with("f/") {
         let escaped_path = path.replace('_', "__");
@@ -45,14 +41,26 @@ fn transform_path(path: &str, type_str: &str) -> Result<String, String> {
     };
 
     // first letter of type_str is used as prefix, only one letter to avoid reaching 60 char name limit
-    Ok(format!("{}-{}", &type_str[..1], transformed))
+    format!("{}-{}", &type_str[..1], transformed)
+}
+
+fn convert_schema_to_schema_type(schema: Option<Schema>) -> SchemaType {
+    let schema_obj = if let Some(ref s) = schema {
+        match serde_json::from_str::<SchemaType>(s.0.get()) {
+            Ok(val) => val,
+            Err(_) => SchemaType::default(),
+        }
+    } else {
+        SchemaType::default()
+    };
+    schema_obj
 }
 
 trait ToolableItem {
     fn get_path_or_id(&self) -> String;
     fn get_summary(&self) -> &str;
     fn get_description(&self) -> &str;
-    fn get_schema(&self) -> Option<Schema>;
+    fn get_schema(&self) -> SchemaType;
     fn is_hub(&self) -> bool;
     fn item_type(&self) -> &'static str;
     fn get_integration_type(&self) -> Option<String>;
@@ -60,7 +68,7 @@ trait ToolableItem {
 
 impl ToolableItem for ScriptInfo {
     fn get_path_or_id(&self) -> String {
-        transform_path(&self.path, "script").unwrap()
+        transform_path(&self.path, "script")
     }
     fn get_summary(&self) -> &str {
         self.summary.as_deref().unwrap_or("No summary")
@@ -68,8 +76,8 @@ impl ToolableItem for ScriptInfo {
     fn get_description(&self) -> &str {
         self.description.as_deref().unwrap_or("No description")
     }
-    fn get_schema(&self) -> Option<Schema> {
-        self.schema.clone()
+    fn get_schema(&self) -> SchemaType {
+        convert_schema_to_schema_type(self.schema.clone())
     }
     fn is_hub(&self) -> bool {
         false
@@ -84,7 +92,7 @@ impl ToolableItem for ScriptInfo {
 
 impl ToolableItem for FlowInfo {
     fn get_path_or_id(&self) -> String {
-        transform_path(&self.path, "flow").unwrap()
+        transform_path(&self.path, "flow")
     }
     fn get_summary(&self) -> &str {
         self.summary.as_deref().unwrap_or("No summary")
@@ -92,8 +100,8 @@ impl ToolableItem for FlowInfo {
     fn get_description(&self) -> &str {
         self.description.as_deref().unwrap_or("No description")
     }
-    fn get_schema(&self) -> Option<Schema> {
-        self.schema.clone()
+    fn get_schema(&self) -> SchemaType {
+        convert_schema_to_schema_type(self.schema.clone())
     }
     fn is_hub(&self) -> bool {
         false
@@ -124,22 +132,11 @@ impl ToolableItem for HubScriptInfo {
     fn get_description(&self) -> &str {
         self.description.as_deref().unwrap_or("No description")
     }
-    fn get_schema(&self) -> Option<Schema> {
-        self.schema.as_ref().and_then(|value| {
-            match serde_json::from_value::<sqlx::types::Json<Box<serde_json::value::RawValue>>>(
-                value.clone(),
-            ) {
-                Ok(raw_schema) => Some(Schema(raw_schema)),
-                Err(e) => {
-                    tracing::warn!(
-                        "Failed to deserialize Hub script schema: {}. Value: {:?}",
-                        e,
-                        value
-                    );
-                    None
-                }
-            }
-        })
+    fn get_schema(&self) -> SchemaType {
+        match serde_json::from_value::<SchemaType>(self.schema.clone().unwrap_or_default()) {
+            Ok(schema_type) => schema_type,
+            Err(_) => SchemaType::default(),
+        }
     }
     fn is_hub(&self) -> bool {
         true
@@ -169,7 +166,7 @@ struct HubScriptInfo {
     app: Option<String>,
 }
 
-#[derive(Serialize, FromRow, Deserialize, Debug)]
+#[derive(Serialize, FromRow, Deserialize, Debug, Clone)]
 struct SchemaType {
     r#type: String,
     properties: std::collections::HashMap<String, serde_json::Value>,
@@ -510,17 +507,14 @@ impl Runner {
     }
 
     async fn transform_schema_for_resources(
-        schema: &Schema,
+        schema: &SchemaType,
         user_db: &UserDB,
         authed: &ApiAuthed,
         w_id: &str,
         resources_cache: &mut HashMap<String, Vec<ResourceInfo>>,
         resources_types: &Vec<ResourceType>,
     ) -> Result<SchemaType, Error> {
-        let mut schema_obj: SchemaType = match serde_json::from_str(schema.0.get()) {
-            Ok(val) => val,
-            Err(_) => SchemaType::default(),
-        };
+        let mut schema_obj: SchemaType = schema.clone();
 
         // replace invalid char in property key with underscore
         let replacements: Vec<(String, String, serde_json::Value)> = schema_obj
@@ -654,7 +648,7 @@ impl Runner {
         Ok(schema_obj)
     }
 
-    async fn get_hub_script_by_path(path: &str, db: &DB) -> Result<Option<Schema>, Error> {
+    async fn get_hub_script_schema(path: &str, db: &DB) -> Result<Option<Schema>, Error> {
         let strip_path = StripPath(path.to_string());
         let res = get_full_hub_script_by_path(strip_path, &HTTP_CLIENT, Some(db))
             .await
@@ -697,20 +691,15 @@ impl Runner {
                 "".to_string()
             }
         );
-        let schema = item.get_schema();
-        let schema_obj = if let Some(schema) = schema {
-            Runner::transform_schema_for_resources(
-                &schema,
-                user_db,
-                authed,
-                &workspace_id,
-                resources_cache,
-                &resources_types,
-            )
-            .await?
-        } else {
-            SchemaType::default()
-        };
+        let schema_obj = Runner::transform_schema_for_resources(
+            &item.get_schema(),
+            user_db,
+            authed,
+            &workspace_id,
+            resources_cache,
+            &resources_types,
+        )
+        .await?;
         let input_schema_map = match serde_json::to_value(schema_obj) {
             Ok(Value::Object(map)) => map,
             Ok(_) => {
@@ -809,7 +798,7 @@ impl ServerHandler for Runner {
         };
 
         let item_schema = if is_hub {
-            Runner::get_hub_script_by_path(&format!("hub/{}", path), db).await?
+            Runner::get_hub_script_schema(&format!("hub/{}", path), db).await?
         } else {
             Runner::get_item_schema(&path, user_db, authed, &context.workspace_id, &tool_type)
                 .await?
