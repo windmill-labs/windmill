@@ -465,7 +465,11 @@ impl Runner {
         Ok(rows)
     }
 
-    async fn inner_get_items_from_hub<T>(db: &DB, item_type: &str) -> Result<Vec<T>, Error>
+    async fn inner_get_items_from_hub<T>(
+        db: &DB,
+        item_type: &str,
+        scope_integration: Option<&str>,
+    ) -> Result<Vec<T>, Error>
     where
         T: for<'a> serde::Deserialize<'a>,
     {
@@ -473,11 +477,13 @@ impl Runner {
             "script" => Some(vec![
                 ("limit", "20".to_string()),
                 ("with_schema", "true".to_string()),
+                ("app", scope_integration.unwrap_or("").to_string()),
             ]),
             "flow" => Some(vec![
                 ("limit", "20".to_string()),
                 ("with_schema", "true".to_string()),
                 ("approved", "true".to_string()),
+                ("app", scope_integration.unwrap_or("").to_string()),
             ]),
             _ => return Err(Error::internal_error("Invalid item type", None)),
         };
@@ -1023,7 +1029,16 @@ impl ServerHandler for Runner {
             .scopes
             .as_ref()
             .and_then(|scopes| scopes.iter().find(|scope| scope.starts_with("mcp:")));
-        let scope_type = scope.map_or("all", |scope| scope.split(":").last().unwrap_or("all"));
+        let mut scope_integration = None;
+        let scope_type = scope.map_or("all", |scope| {
+            let parts = scope.split(":").collect::<Vec<&str>>();
+            if parts.len() == 3 && parts[1] == "hub" {
+                scope_integration = Some(parts[2]);
+                "hub"
+            } else {
+                parts[1]
+            }
+        });
 
         let scripts_fn = Runner::inner_get_items::<ScriptInfo>(
             user_db,
@@ -1035,15 +1050,25 @@ impl ServerHandler for Runner {
         let flows_fn =
             Runner::inner_get_items::<FlowInfo>(user_db, authed, &workspace_id, scope_type, "flow");
         let resources_types_fn = Runner::inner_get_resources_types(user_db, authed, &workspace_id);
-        let hub_scripts_fn = Runner::inner_get_items_from_hub::<HubScriptInfo>(db, "script");
-        let hub_flows_fn = Runner::inner_get_items_from_hub::<HubFlowInfo>(db, "flow");
-        let (scripts, flows, resources_types, hub_scripts, hub_flows) = try_join!(
-            scripts_fn,
-            flows_fn,
-            resources_types_fn,
-            hub_scripts_fn,
-            hub_flows_fn
-        )?;
+        let hub_scripts_fn = Runner::inner_get_items_from_hub::<HubScriptInfo>(
+            db,
+            "script",
+            scope_integration.as_deref(),
+        );
+        let hub_flows_fn = Runner::inner_get_items_from_hub::<HubFlowInfo>(
+            db,
+            "flow",
+            scope_integration.as_deref(),
+        );
+        let (scripts, flows, resources_types, hub_scripts, hub_flows) = if scope_type == "hub" {
+            let (resources_types, hub_scripts, hub_flows) =
+                try_join!(resources_types_fn, hub_scripts_fn, hub_flows_fn)?;
+            (vec![], vec![], resources_types, hub_scripts, hub_flows)
+        } else {
+            let (scripts, flows, resources_types) =
+                try_join!(scripts_fn, flows_fn, resources_types_fn)?;
+            (scripts, flows, resources_types, vec![], vec![])
+        };
 
         let mut resources_cache: HashMap<String, Vec<ResourceInfo>> = HashMap::new();
         let mut tools: Vec<Tool> = Vec::new();
