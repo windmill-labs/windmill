@@ -132,7 +132,7 @@
 	}
 
 	$: updateEditTrigger($selectedTrigger)
-	$: useVerticalTriggerBar = width < 800
+	$: useVerticalTriggerBar = width < 1000
 </script>
 
 <FlowCard {noEditor} noHeader bind:width>
