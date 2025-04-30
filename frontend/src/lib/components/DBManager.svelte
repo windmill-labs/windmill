@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { type DBSchema } from '$lib/stores'
-	import { MoreVertical, Table2 } from 'lucide-svelte'
+	import { MoreVertical, Plus, Table2 } from 'lucide-svelte'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import { ClearableInput, Drawer, DrawerContent } from './common'
 	import { sendUserToast } from '$lib/toast'
@@ -156,9 +156,10 @@
 			{/each}
 		</div>
 		<Button
-			color="light"
+			variant="border"
 			on:click={() => (dbTableEditorState = { open: true })}
-			wrapperClasses="mx-2 my-1"
+			wrapperClasses="mx-2 my-2 text-sm"
+			startIcon={{ icon: Plus }}
 		>
 			New table
 		</Button>

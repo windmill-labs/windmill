@@ -33,7 +33,7 @@
 
 <Button
 	startIcon={{ icon: Plus }}
-	color="dark"
+	variant="border"
 	size="xs2"
 	on:click={() => {
 		args = {}
