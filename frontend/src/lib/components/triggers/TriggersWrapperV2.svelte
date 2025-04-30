@@ -134,6 +134,8 @@
 		on:update
 		on:delete
 		on:update-config={({ detail }) => updateConfig(detail)}
+		on:save-draft
+		on:reset
 		defaultValues={selectedTrigger.isDraft ? selectedTrigger.draftConfig : undefined}
 	/>
 {:else if selectedTrigger.type === 'kafka'}
@@ -147,8 +149,11 @@
 		on:toggle-edit-mode
 		on:update
 		on:delete
-		on:update-config={({ detail }) => updateConfig(detail)}
-		defaultValues={selectedTrigger.isDraft ? selectedTrigger.draftConfig : undefined}
+		on:update-config
+		on:save-draft
+		on:reset
+		defaultValues={selectedTrigger.draftConfig ?? selectedTrigger.captureConfig ?? undefined}
+		newDraft={selectedTrigger.saveCb === undefined}
 	/>
 {:else if selectedTrigger.type === 'postgres'}
 	<PostgresTriggersPanel

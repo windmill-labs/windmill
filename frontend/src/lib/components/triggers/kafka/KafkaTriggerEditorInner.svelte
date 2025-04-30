@@ -10,12 +10,11 @@
 	import { canWrite, emptyString, sendUserToast } from '$lib/utils'
 	import { createEventDispatcher } from 'svelte'
 	import Section from '$lib/components/Section.svelte'
-	import { Loader2, Save, X, Pen, Trash } from 'lucide-svelte'
+	import { Loader2, Save } from 'lucide-svelte'
 	import Label from '$lib/components/Label.svelte'
-	import Toggle from '$lib/components/Toggle.svelte'
 	import KafkaTriggersConfigSection from './KafkaTriggersConfigSection.svelte'
 	import type { Snippet } from 'svelte'
-	import { twMerge } from 'tailwind-merge'
+	import TriggerEditorToolbar from '../TriggerEditorToolbar.svelte'
 
 	interface Props {
 		useDrawer?: boolean
@@ -24,8 +23,9 @@
 		editMode?: boolean
 		preventSave?: boolean
 		hideTooltips?: boolean
-		useEditButton?: boolean
 		isEditor?: boolean
+		allowDraft?: boolean
+		hasDraft?: boolean
 	}
 
 	let {
@@ -35,8 +35,9 @@
 		editMode = true,
 		preventSave = false,
 		hideTooltips = false,
-		useEditButton = false,
-		isEditor = false
+		isEditor = false,
+		allowDraft = false,
+		hasDraft = false
 	}: Props = $props()
 
 	let drawer: Drawer | undefined = $state()
@@ -58,6 +59,7 @@
 	let showLoading = $state(false)
 	let resetEditMode = $state<(() => void) | undefined>(undefined)
 	let isDraft = $state(false)
+	let initialConfig = $state<Record<string, any> | undefined>(undefined)
 
 	const dispatch = createEventDispatcher()
 
@@ -65,12 +67,16 @@
 		is_flow = itemKind === 'flow'
 	})
 
-	export async function openEdit(ePath: string, isFlow: boolean) {
+	export async function openEdit(
+		ePath: string,
+		isFlow: boolean,
+		defaultConfig?: Record<string, any>
+	) {
 		let loadingTimeout = setTimeout(() => {
 			showLoading = true
 		}, 100) // Do not show loading spinner for the first 100ms
 		drawerLoading = true
-		resetEditMode = () => openEdit(ePath, isFlow)
+		resetEditMode = () => openEdit(ePath, isFlow, defaultConfig ?? initialConfig)
 		try {
 			drawer?.openDrawer()
 			initialPath = ePath
@@ -78,7 +84,7 @@
 			edit = true
 			isDraft = false
 			dirtyPath = false
-			await loadTrigger()
+			await loadTrigger(defaultConfig)
 		} catch (err) {
 			sendUserToast(`Could not load Kafka trigger: ${err}`, true)
 		} finally {
@@ -91,8 +97,10 @@
 	export async function openNew(
 		nis_flow: boolean,
 		fixedScriptPath_?: string,
-		nDefaultValues?: Record<string, any>
+		nDefaultValues?: Record<string, any>,
+		newDraft?: boolean
 	) {
+		resetEditMode = () => openNew(nis_flow, fixedScriptPath_, nDefaultValues, newDraft)
 		let loadingTimeout = setTimeout(() => {
 			showLoading = true
 		}, 100) // Do not show loading spinner for the first 100ms
@@ -114,6 +122,9 @@
 			dirtyPath = false
 			defaultValues = nDefaultValues
 			toggleEditMode(true)
+			if (newDraft) {
+				toggleEditMode(true)
+			}
 		} finally {
 			clearTimeout(loadingTimeout)
 			drawerLoading = false
@@ -121,22 +132,31 @@
 		}
 	}
 
-	async function loadTrigger(): Promise<void> {
-		const s = await KafkaTriggerService.getKafkaTrigger({
-			workspace: $workspaceStore!,
-			path: initialPath
-		})
-		script_path = s.script_path
-		initialScriptPath = s.script_path
+	function loadTriggerConfig(cfg?: Record<string, any>): void {
+		script_path = cfg?.script_path
+		initialScriptPath = cfg?.script_path
+		is_flow = cfg?.is_flow
+		path = cfg?.path
+		args.kafka_resource_path = cfg?.kafka_resource_path
+		args.group_id = cfg?.group_id
+		args.topics = cfg?.topics
+		enabled = cfg?.enabled
 
-		is_flow = s.is_flow
-		path = s.path
-		args.kafka_resource_path = s.kafka_resource_path
-		args.group_id = s.group_id
-		args.topics = s.topics
-		enabled = s.enabled
+		can_write = canWrite(path, cfg?.extra_perms, $userStore)
+	}
 
-		can_write = canWrite(s.path, s.extra_perms, $userStore)
+	async function loadTrigger(defaultConfig?: Record<string, any>): Promise<void> {
+		if (defaultConfig) {
+			loadTriggerConfig(defaultConfig)
+			return
+		} else {
+			const s = await KafkaTriggerService.getKafkaTrigger({
+				workspace: $workspaceStore!,
+				path: initialPath
+			})
+			initialConfig = s
+			loadTriggerConfig(s)
+		}
 	}
 
 	async function updateTrigger(): Promise<void> {
@@ -206,6 +226,25 @@
 	})
 
 	let isValid = $state(false)
+
+	function saveDraft() {
+		dispatch('save-draft', {
+			cfg: {
+				script_path,
+				initialScriptPath,
+				is_flow,
+				path,
+				kafka_resource_path: args.kafka_resource_path,
+				group_id: args.group_id,
+				topics: args.topics,
+				isValid
+			},
+			cb: () => {
+				updateTrigger()
+			}
+		})
+		toggleEditMode(false)
+	}
 </script>
 
 {#if useDrawer}
@@ -234,73 +273,54 @@
 {/if}
 
 {#snippet actionsButtons(size: 'xs' | 'sm' = 'sm')}
-	{#if !drawerLoading && can_write}
-		<div class="flex flex-row gap-2 items-center">
-			{#if isDraft}
-				<Button
-					{size}
-					startIcon={{ icon: Trash }}
-					iconOnly
-					color={'light'}
-					on:click={() => {
-						dispatch('delete')
-					}}
-					btnClasses="hover:bg-red-500 hover:text-white"
-				/>
-			{/if}
-			{#if !isDraft && edit}
-				<div class={twMerge('center-center', size === 'sm' ? '-mt-1' : '')}>
-					<Toggle
-						{size}
-						disabled={!can_write || !editMode}
-						checked={enabled}
-						options={{ right: 'enable', left: 'disable' }}
-						on:change={async (e) => {
-							await KafkaTriggerService.setKafkaTriggerEnabled({
-								path: initialPath,
-								workspace: $workspaceStore ?? '',
-								requestBody: { enabled: e.detail }
-							})
-							sendUserToast(`${e.detail ? 'enabled' : 'disabled'} Kafka trigger ${initialPath}`)
-						}}
-					/>
-				</div>
-			{/if}
-			{#if !preventSave}
-				{#if can_write && editMode}
-					<Button
-						{size}
-						startIcon={{ icon: Save }}
-						disabled={pathError != '' || emptyString(script_path) || !can_write || !isValid}
-						on:click={updateTrigger}
-					>
-						Save
-					</Button>
-				{/if}
-				{#if !editMode && useEditButton}
-					<Button
-						{size}
-						color="light"
-						startIcon={{ icon: Pen }}
-						on:click={() => toggleEditMode(true)}
-					>
-						Edit
-					</Button>
-				{:else if editMode && !!resetEditMode && useEditButton}
-					<Button
-						{size}
-						color="light"
-						startIcon={{ icon: X }}
-						on:click={() => {
-							toggleEditMode(false)
-							resetEditMode?.()
-						}}
-					>
-						Cancel
-					</Button>
-				{/if}
-			{/if}
-		</div>
+	{#if !allowDraft}
+		<Button
+			{size}
+			startIcon={{ icon: Save }}
+			disabled={pathError !== '' ||
+				!isValid ||
+				drawerLoading ||
+				!can_write ||
+				emptyString(script_path) ||
+				emptyString(args.kafka_resource_path) ||
+				args.topics.length === 0 ||
+				args.topics.some((t) => emptyString(t))}
+			on:click={() => {
+				updateTrigger()
+			}}
+		>
+			Save
+		</Button>
+	{:else}
+		<TriggerEditorToolbar
+			isDraftOnly={isDraft}
+			{hasDraft}
+			canEdit={!drawerLoading && can_write && !preventSave}
+			{editMode}
+			saveDisabled={pathError !== '' ||
+				!isValid ||
+				drawerLoading ||
+				!can_write ||
+				emptyString(script_path) ||
+				emptyString(args.kafka_resource_path) ||
+				args.topics.length === 0 ||
+				args.topics.some((t) => emptyString(t))}
+			on:save-draft={() => {
+				saveDraft()
+			}}
+			on:deploy={() => {
+				updateTrigger()
+			}}
+			on:reset
+			on:delete
+			on:edit={() => {
+				toggleEditMode(true)
+			}}
+			on:cancel={() => {
+				resetEditMode?.()
+				toggleEditMode(false)
+			}}
+		/>
 	{/if}
 {/snippet}
 

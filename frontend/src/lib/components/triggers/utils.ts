@@ -237,7 +237,7 @@ export async function fetchTriggers(
 		fetchHttpTriggers(triggersStore, workspaceId, path, isFlow, user),
 		fetchWebsocketTriggers(triggersStore, workspaceId, path, isFlow, user),
 		fetchPostgresTriggers(triggersStore, workspaceId, path, isFlow),
-		fetchKafkaTriggers(triggersStore, workspaceId, path, isFlow),
+		fetchKafkaTriggers(triggersStore, workspaceId, path, isFlow, user),
 		fetchNatsTriggers(triggersStore, workspaceId, path, isFlow),
 		fetchMqttTriggers(triggersStore, workspaceId, path, isFlow),
 		fetchSqsTriggers(triggersStore, workspaceId, path, isFlow),
@@ -467,30 +467,17 @@ export async function fetchKafkaTriggers(
 	triggersStore: Writable<Trigger[]>,
 	workspaceId: string | undefined,
 	path: string,
-	isFlow: boolean
+	isFlow: boolean,
+	user: UserExt | undefined = undefined
 ): Promise<void> {
 	if (!workspaceId) return
 	try {
-		// Remove existing kafka triggers for this path except for draft triggers
-		triggersStore.update((triggers) => triggers.filter((t) => !(t.type === 'kafka' && !t.isDraft)))
-
 		const kafkaTriggers: KafkaTrigger[] = await KafkaTriggerService.listKafkaTriggers({
 			workspace: workspaceId,
 			path,
 			isFlow
 		})
-
-		for (const trigger of kafkaTriggers) {
-			triggersStore.update((triggers) => [
-				...triggers,
-				{
-					type: 'kafka',
-					path: trigger.path,
-					isPrimary: false,
-					isDraft: false
-				}
-			])
-		}
+		updateTriggers(triggersStore, kafkaTriggers, 'kafka', user)
 	} catch (error) {
 		console.error('Failed to fetch Kafka triggers:', error)
 	}

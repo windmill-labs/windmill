@@ -4,6 +4,7 @@
 	import { Alert } from '$lib/components/common'
 	import Description from '$lib/components/Description.svelte'
 	import { enterpriseLicense } from '$lib/stores'
+	import { onMount } from 'svelte'
 
 	let {
 		selectedTrigger,
@@ -12,20 +13,21 @@
 		edit,
 		isDeployed = false,
 		isEditor,
-		defaultValues = undefined
+		defaultValues = undefined,
+		newDraft = false
 	} = $props()
 	let kafkaTriggerEditor: KafkaTriggerEditorInner | undefined = $state(undefined)
 
 	async function openKafkaTriggerEditor(isFlow: boolean, isDraft: boolean) {
 		if (isDraft) {
-			kafkaTriggerEditor?.openNew(isFlow, path, defaultValues)
+			kafkaTriggerEditor?.openNew(isFlow, path, defaultValues, newDraft)
 		} else {
-			kafkaTriggerEditor?.openEdit(selectedTrigger.path, isFlow)
+			kafkaTriggerEditor?.openEdit(selectedTrigger.path, isFlow, defaultValues)
 		}
 	}
 
-	$effect(() => {
-		kafkaTriggerEditor && openKafkaTriggerEditor(isFlow, selectedTrigger.isDraft ?? false)
+	onMount(() => {
+		openKafkaTriggerEditor(isFlow, selectedTrigger.isDraft ?? false)
 	})
 </script>
 
@@ -46,12 +48,15 @@
 			editMode={edit}
 			preventSave={!isDeployed}
 			hideTooltips={!isDeployed}
-			useEditButton
+			allowDraft={true}
+			hasDraft={!!selectedTrigger.draftConfig}
 			{isEditor}
 			on:toggle-edit-mode
 			on:update-config
 			on:update
 			on:delete
+			on:save-draft
+			on:reset
 		>
 			{#snippet description()}
 				<Description link="https://www.windmill.dev/docs/core_concepts/kafka_triggers">
