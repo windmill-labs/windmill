@@ -6,7 +6,7 @@
 
 <span class={trigger.isDraft ? 'text-frost-400 italic' : 'font-normal'}>
 	{trigger.isDraft
-		? (trigger.config?.path ?? `New ${trigger.type.replace(/s$/, '')} trigger`)
+		? (trigger.config?.path ?? trigger.path ?? `New ${trigger.type.replace(/s$/, '')} trigger`)
 		: trigger.path === ''
 			? trigger.type === 'webhook'
 				? 'Webhooks'

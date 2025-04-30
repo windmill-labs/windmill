@@ -100,7 +100,11 @@ function generateDraftId(): string {
 /**
  * Add a draft trigger to the store
  */
-export function addDraftTrigger(triggersStore: Writable<Trigger[]>, type: TriggerType): Trigger {
+export function addDraftTrigger(
+	triggersStore: Writable<Trigger[]>,
+	type: TriggerType,
+	path?: string
+): Trigger {
 	const currentTriggers = get(triggersStore)
 
 	const primaryScheduleExists = currentTriggers.some((t) => t.type === 'schedule' && t.isPrimary)
@@ -110,7 +114,7 @@ export function addDraftTrigger(triggersStore: Writable<Trigger[]>, type: Trigge
 	const newTrigger = {
 		id: draftId,
 		type,
-		path: '',
+		path: path ?? '',
 		isPrimary: type === 'schedule' && !primaryScheduleExists,
 		isDraft: true
 	}
