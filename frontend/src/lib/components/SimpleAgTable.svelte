@@ -18,7 +18,8 @@
 				onGridReady: (e) => {
 					api = e.api
 				},
-				autoSizeStrategy: { type: 'fitCellContents' }
+				autoSizeStrategy: { type: 'fitCellContents' },
+				...updateGridOptions
 			})
 		}
 	}
@@ -36,17 +37,19 @@
 		return defs
 	})
 
+	let updateGridOptions = $derived({
+		rowData: data.map((row) => {
+			const newRow: Record<string, any> = {}
+			for (const key in row) {
+				newRow[key] = typeof row[key] === 'string' ? row[key].trim() : JSON.stringify(row[key])
+			}
+			return newRow
+		}),
+		columnDefs
+	})
+
 	$effect(() => {
-		api?.updateGridOptions({
-			rowData: data.map((row) => {
-				const newRow: Record<string, any> = {}
-				for (const key in row) {
-					newRow[key] = typeof row[key] === 'string' ? row[key].trim() : JSON.stringify(row[key])
-				}
-				return newRow
-			}),
-			columnDefs
-		})
+		api?.updateGridOptions(updateGridOptions)
 	})
 
 	let darkMode = $state(false)
@@ -56,7 +59,9 @@
 <DarkModeObserver bind:darkMode />
 
 <div
-	class={'flex flex-col h-full component-wrapper divide-y wm-aggrid-container ' + className}
+	class={'flex flex-col h-full component-wrapper divide-y wm-aggrid-container ' +
+		(api ? '' : 'opacity-0 ') +
+		className}
 	bind:clientHeight
 	bind:clientWidth
 >

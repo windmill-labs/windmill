@@ -167,7 +167,7 @@
 						<div
 							class={'absolute inset-0 z-10 p-12 ' +
 								(replResultData
-									? 'bg-white/90'
+									? 'bg-surface/90'
 									: 'transition-colors bg-transparent pointer-events-none select-none')}
 						>
 							{#if replResultData}
