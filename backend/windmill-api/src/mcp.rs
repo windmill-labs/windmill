@@ -15,7 +15,6 @@ use rmcp::{
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sql_builder::prelude::*;
-use sqlx::types::JsonRawValue;
 use sqlx::FromRow;
 use tokio::try_join;
 use tokio_util::sync::CancellationToken;
@@ -30,7 +29,7 @@ use crate::jobs::{
     run_wait_result_flow_by_path_internal, run_wait_result_script_by_path_internal, RunJobQuery,
 };
 use crate::HTTP_CLIENT;
-use windmill_common::utils::{http_get_from_hub, query_elems_from_hub, StripPath};
+use windmill_common::utils::{query_elems_from_hub, StripPath};
 
 trait ToolableItem {
     fn get_path_or_id(&self) -> String;
@@ -39,7 +38,7 @@ trait ToolableItem {
     fn get_schema(&self) -> Option<Schema>;
     fn is_hub(&self) -> bool;
     fn item_type(&self) -> &'static str;
-    fn get_integration_types(&self) -> Vec<String>;
+    fn get_integration_type(&self) -> Option<String>;
 }
 
 impl ToolableItem for ScriptInfo {
@@ -61,8 +60,8 @@ impl ToolableItem for ScriptInfo {
     fn item_type(&self) -> &'static str {
         "script"
     }
-    fn get_integration_types(&self) -> Vec<String> {
-        vec![]
+    fn get_integration_type(&self) -> Option<String> {
+        None
     }
 }
 
@@ -85,8 +84,8 @@ impl ToolableItem for FlowInfo {
     fn item_type(&self) -> &'static str {
         "flow"
     }
-    fn get_integration_types(&self) -> Vec<String> {
-        vec![]
+    fn get_integration_type(&self) -> Option<String> {
+        None
     }
 }
 
@@ -123,52 +122,8 @@ impl ToolableItem for HubScriptInfo {
     fn item_type(&self) -> &'static str {
         "script"
     }
-    fn get_integration_types(&self) -> Vec<String> {
-        self.app
-            .as_deref()
-            .map(|app| vec![app.to_string()])
-            .unwrap_or_default()
-    }
-}
-
-impl ToolableItem for HubFlowInfo {
-    fn get_path_or_id(&self) -> String {
-        self.flow_id.to_string()
-    }
-    fn get_summary(&self) -> Option<&str> {
-        self.summary.as_deref()
-    }
-    fn get_description(&self) -> Option<&str> {
-        self.description.as_deref()
-    }
-    fn get_schema(&self) -> Option<Schema> {
-        self.schema.as_ref().and_then(|value| {
-            match serde_json::from_value::<sqlx::types::Json<Box<serde_json::value::RawValue>>>(
-                value.clone(),
-            ) {
-                Ok(raw_schema) => Some(Schema(raw_schema)),
-                Err(e) => {
-                    tracing::warn!(
-                        "Failed to deserialize Hub script schema: {}. Value: {:?}",
-                        e,
-                        value
-                    );
-                    None
-                }
-            }
-        })
-    }
-    fn is_hub(&self) -> bool {
-        true
-    }
-    fn item_type(&self) -> &'static str {
-        "flow"
-    }
-    fn get_integration_types(&self) -> Vec<String> {
-        self.apps
-            .as_deref()
-            .map(|apps| apps.iter().map(|s| s.to_string()).collect())
-            .unwrap_or_default()
+    fn get_integration_type(&self) -> Option<String> {
+        self.app.clone()
     }
 }
 
@@ -176,29 +131,8 @@ impl ToolableItem for HubFlowInfo {
 pub struct Runner {}
 
 #[derive(Serialize, Deserialize, Debug)]
-struct HubFlowResponseFlow {
-    schema: Option<Value>,
-}
-
-#[derive(Serialize, Deserialize, Debug)]
-struct HubFlowResponse {
-    flow: HubFlowResponseFlow,
-}
-
-#[derive(Serialize, Deserialize, Debug)]
-#[serde(untagged)]
-enum HubResponse {
-    Scripts { asks: Vec<HubScriptInfo> },
-    Flows { flows: Vec<HubFlowInfo> },
-}
-
-#[derive(Serialize, Deserialize, Debug)]
-struct HubFlowInfo {
-    flow_id: u64,
-    summary: Option<String>,
-    description: Option<String>,
-    schema: Option<Value>,
-    apps: Option<Vec<String>>,
+struct HubResponse {
+    asks: Vec<HubScriptInfo>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -465,33 +399,16 @@ impl Runner {
         Ok(rows)
     }
 
-    async fn inner_get_items_from_hub<T>(
+    async fn inner_get_scripts_from_hub(
         db: &DB,
-        item_type: &str,
         scope_integration: Option<&str>,
-    ) -> Result<Vec<T>, Error>
-    where
-        T: for<'a> serde::Deserialize<'a>,
-    {
-        let query_params = match item_type {
-            "script" => Some(vec![
-                ("limit", "20".to_string()),
-                ("with_schema", "true".to_string()),
-                ("app", scope_integration.unwrap_or("").to_string()),
-            ]),
-            "flow" => Some(vec![
-                ("limit", "20".to_string()),
-                ("with_schema", "true".to_string()),
-                ("approved", "true".to_string()),
-                ("app", scope_integration.unwrap_or("").to_string()),
-            ]),
-            _ => return Err(Error::internal_error("Invalid item type", None)),
-        };
-        let url = match item_type {
-            "script" => format!("{}/scripts/top", *HUB_BASE_URL.read().await),
-            "flow" => format!("{}/searchFlowData", *HUB_BASE_URL.read().await),
-            _ => return Err(Error::internal_error("Invalid item type", None)),
-        };
+    ) -> Result<Vec<HubScriptInfo>, Error> {
+        let query_params = Some(vec![
+            ("limit", "20".to_string()),
+            ("with_schema", "true".to_string()),
+            ("app", scope_integration.unwrap_or("").to_string()),
+        ]);
+        let url = format!("{}/scripts/top", *HUB_BASE_URL.read().await);
         let (_status_code, _headers, response) =
             query_elems_from_hub(&HTTP_CLIENT, &url, query_params, &db)
                 .await
@@ -508,34 +425,11 @@ impl Runner {
             Error::internal_error(format!("Failed to decode response body: {}", e), None)
         })?;
         let hub_response: HubResponse = serde_json::from_str(&body_str).map_err(|e| {
-            tracing::error!("Failed to parse hub response for type {}: {}", item_type, e);
-            Error::internal_error(
-                format!("Failed to parse hub response for type {}: {}", item_type, e),
-                None,
-            )
+            tracing::error!("Failed to parse hub response: {}", e);
+            Error::internal_error(format!("Failed to parse hub response: {}", e), None)
         })?;
 
-        println!("hub_response: {:?}", hub_response);
-
-        // Extract the items and convert to a common JSON value
-        let items_json_value = match hub_response {
-            HubResponse::Scripts { asks } => serde_json::to_value(asks).map_err(|e| {
-                tracing::error!("Failed to serialize asks: {}", e);
-                Error::internal_error(format!("Failed to serialize asks: {}", e), None)
-            })?,
-            HubResponse::Flows { flows } => serde_json::to_value(flows).map_err(|e| {
-                tracing::error!("Failed to serialize flows: {}", e);
-                Error::internal_error(format!("Failed to serialize flows: {}", e), None)
-            })?,
-        };
-
-        // Convert the JSON value to the target type
-        let target_items: Vec<T> = serde_json::from_value(items_json_value).map_err(|e| {
-            tracing::error!("Failed to deserialize to target type: {}", e);
-            Error::internal_error(format!("Failed to deserialize to target type: {}", e), None)
-        })?;
-
-        Ok(target_items)
+        Ok(hub_response.asks)
     }
 
     fn transform_value_if_object(
@@ -766,57 +660,6 @@ impl Runner {
         }
     }
 
-    async fn get_hub_flow_by_id(id: &str, db: &DB) -> Result<Option<Schema>, Error> {
-        // convert id to u64
-        let id_num = id.parse::<i32>().map_err(|e| {
-            tracing::error!("Failed to convert id to i32: {}", e);
-            Error::internal_error(format!("Failed to convert id to i32: {}", e), None)
-        })?;
-        let response = http_get_from_hub(
-            &HTTP_CLIENT,
-            &format!("{}/flows/{}/json", *HUB_BASE_URL.read().await, id_num),
-            false,
-            None,
-            Some(&db),
-        )
-        .await
-        .map_err(|e| {
-            tracing::error!("Failed to get hub flow: {}", e);
-            Error::internal_error(format!("Failed to get hub flow: {}", e), None)
-        })?;
-
-        let hub_response = response.json::<HubFlowResponse>().await.map_err(|e| {
-            tracing::error!("Failed to parse hub flow response: {}", e);
-            Error::internal_error(format!("Failed to parse hub flow response: {}", e), None)
-        })?;
-
-        let flow = hub_response.flow;
-
-        if let Some(schema_value) = flow.schema {
-            // The Schema struct expects a RawValue, which is essentially a boxed JSON string.
-            // So, we need to serialize the received `serde_json::Value` back into a string.
-            let schema_string = serde_json::to_string(&schema_value).map_err(|e| {
-                tracing::error!("Failed to serialize schema value to string: {}", e);
-                Error::internal_error(
-                    format!("Failed to serialize schema value to string: {}", e),
-                    None,
-                )
-            })?;
-
-            let raw_schema = JsonRawValue::from_string(schema_string).map_err(|e| {
-                tracing::error!("Failed to create RawValue from schema string: {}", e);
-                Error::internal_error(
-                    format!("Failed to create RawValue from schema string: {}", e),
-                    None,
-                )
-            })?;
-
-            Ok(Some(Schema(sqlx::types::Json(raw_schema))))
-        } else {
-            Ok(None)
-        }
-    }
-
     async fn create_tool_from_item<T: ToolableItem>(
         item: &T,
         user_db: &UserDB,
@@ -838,8 +681,9 @@ impl Runner {
             description.as_deref().unwrap_or("No description"),
             if is_hub {
                 format!(
-                    " It is a tool used for the following integrations: {}",
-                    item.get_integration_types().join(", ")
+                    " It is a tool used for the following app: {}",
+                    item.get_integration_type()
+                        .unwrap_or("No integration type".to_string())
                 )
             } else {
                 "".to_string()
@@ -916,11 +760,7 @@ impl ServerHandler for Runner {
             Runner::reverse_transform(&request.name).unwrap_or_default();
 
         let item_schema = if is_hub {
-            if tool_type == "script" {
-                Runner::get_hub_script_by_path(&format!("hub/{}", path), db).await?
-            } else {
-                Runner::get_hub_flow_by_id(&path, db).await?
-            }
+            Runner::get_hub_script_by_path(&format!("hub/{}", path), db).await?
         } else {
             Runner::get_item_schema(&path, user_db, authed, &context.workspace_id, &tool_type)
                 .await?
@@ -1050,24 +890,14 @@ impl ServerHandler for Runner {
         let flows_fn =
             Runner::inner_get_items::<FlowInfo>(user_db, authed, &workspace_id, scope_type, "flow");
         let resources_types_fn = Runner::inner_get_resources_types(user_db, authed, &workspace_id);
-        let hub_scripts_fn = Runner::inner_get_items_from_hub::<HubScriptInfo>(
-            db,
-            "script",
-            scope_integration.as_deref(),
-        );
-        let hub_flows_fn = Runner::inner_get_items_from_hub::<HubFlowInfo>(
-            db,
-            "flow",
-            scope_integration.as_deref(),
-        );
-        let (scripts, flows, resources_types, hub_scripts, hub_flows) = if scope_type == "hub" {
-            let (resources_types, hub_scripts, hub_flows) =
-                try_join!(resources_types_fn, hub_scripts_fn, hub_flows_fn)?;
-            (vec![], vec![], resources_types, hub_scripts, hub_flows)
+        let hub_scripts_fn = Runner::inner_get_scripts_from_hub(db, scope_integration.as_deref());
+        let (scripts, flows, resources_types, hub_scripts) = if scope_type == "hub" {
+            let (resources_types, hub_scripts) = try_join!(resources_types_fn, hub_scripts_fn)?;
+            (vec![], vec![], resources_types, hub_scripts)
         } else {
             let (scripts, flows, resources_types) =
                 try_join!(scripts_fn, flows_fn, resources_types_fn)?;
-            (scripts, flows, resources_types, vec![], vec![])
+            (scripts, flows, resources_types, vec![])
         };
 
         let mut resources_cache: HashMap<String, Vec<ResourceInfo>> = HashMap::new();
@@ -1105,20 +935,6 @@ impl ServerHandler for Runner {
             tools.push(
                 Runner::create_tool_from_item(
                     &hub_script,
-                    user_db,
-                    authed,
-                    &workspace_id,
-                    &mut resources_cache,
-                    &resources_types,
-                )
-                .await?,
-            );
-        }
-
-        for hub_flow in hub_flows {
-            tools.push(
-                Runner::create_tool_from_item(
-                    &hub_flow,
                     user_db,
                     authed,
                     &workspace_id,
