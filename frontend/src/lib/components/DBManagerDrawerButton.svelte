@@ -228,7 +228,17 @@
 							onData={(data) => {
 								replResultData = data
 							}}
-							placeholderTableName={sortArray(Object.keys(Object.values(dbSchema?.schema)[0]))[0]}
+							placeholderTableName={sortArray(
+								Object.keys(
+									dbSchema?.schema[
+										'public' in dbSchema?.schema
+											? 'public'
+											: 'dbo' in dbSchema?.schema
+												? 'dbo'
+												: Object.keys(dbSchema?.schema)?.[0]
+									]
+								)
+							)?.[0]}
 						/>
 					</Pane>
 				</Splitpanes>
