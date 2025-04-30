@@ -431,7 +431,7 @@ impl Runner {
                 },
                 false,
             )
-            .limit(100);
+            .limit(20);
         let sql = sqlb.sql().map_err(|_e| {
             tracing::error!("failed to build sql: {}", _e);
             Error::internal_error("failed to build sql", None)
@@ -460,18 +460,19 @@ impl Runner {
     {
         let query_params = match item_type {
             "script" => Some(vec![
-                ("limit", "100".to_string()),
+                ("limit", "20".to_string()),
                 ("with_schema", "true".to_string()),
             ]),
-            "flow" => None,
+            "flow" => Some(vec![
+                ("limit", "20".to_string()),
+                ("with_schema", "true".to_string()),
+                ("approved", "true".to_string()),
+            ]),
             _ => return Err(Error::internal_error("Invalid item type", None)),
         };
         let url = match item_type {
             "script" => format!("{}/scripts/top", *HUB_BASE_URL.read().await),
-            "flow" => format!(
-                "{}/searchFlowData?approved=true",
-                *HUB_BASE_URL.read().await
-            ),
+            "flow" => format!("{}/searchFlowData", *HUB_BASE_URL.read().await),
             _ => return Err(Error::internal_error("Invalid item type", None)),
         };
         let (_status_code, _headers, response) =
