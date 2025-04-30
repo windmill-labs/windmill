@@ -284,7 +284,7 @@
 
 					{#if newMcpScope === 'hub'}
 						<div>
-							<span class="block mb-1">App</span>
+							<span class="block mb-1">Apps</span>
 							{#if loadingApps}
 								<div>Loading...</div>
 							{:else if errorFetchApps}
@@ -292,7 +292,7 @@
 							{:else}
 								<MultiSelectWrapper
 									items={allApps}
-									placeholder="Select an app"
+									placeholder="Select apps"
 									bind:value={newMcpApps}
 								/>
 							{/if}
