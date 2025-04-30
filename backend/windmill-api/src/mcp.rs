@@ -31,6 +31,19 @@ use crate::jobs::{
 use crate::HTTP_CLIENT;
 use windmill_common::utils::{query_elems_from_hub, StripPath};
 
+/// Transforms the path for workspace scripts/flows.
+///
+/// This function takes a path and a type string.
+/// It then formats the transformed path with the type prefix.
+/// This is used when listing, because we can't have names with slashes.
+/// Because we replace slashes with underscores, we also need to escape underscores.
+///
+/// # Parameters
+/// - `path`: The path to transform.
+/// - `type_str`: The type of the item (script or flow).
+///
+/// # Returns
+/// - `String`: The transformed path.
 fn transform_path(path: &str, type_str: &str) -> String {
     // Only apply special underscore escaping for paths starting with "f/"
     let transformed = if path.starts_with("f/") {
@@ -262,6 +275,19 @@ impl Runner {
         Ok(item.schema)
     }
 
+    /// Reverses the transformation of a path.
+    ///
+    /// This function takes a transformed path and reverses the transformation applied by `transform_path`.
+    /// It checks if the path starts with "h" (indicating a Hub script) and removes the prefix if present.
+    /// It then determines the type of the item (script or flow) based on the prefix.
+    /// This is used in call_tool to get the original path, and the type of the item.
+    ///
+    /// # Parameters
+    /// - `transformed_path`: The transformed path to reverse.
+    ///
+    /// # Returns
+    /// - `Result<(&str, String, bool), String>`: A tuple containing the original path, the type of the item, and a boolean indicating if it's a Hub script.
+    /// - `Err(String)`: If the path is invalid.
     fn reverse_transform(transformed_path: &str) -> Result<(&str, String, bool), String> {
         let is_hub = transformed_path.starts_with("h");
         let transformed_path = if is_hub {
@@ -441,6 +467,19 @@ impl Runner {
         Ok(hub_response.asks)
     }
 
+    /// Transforms a value if it's an object.
+    ///
+    /// This function takes a key and a value, and a schema object.
+    /// If the value is a string that starts with "$res:", it returns the value as is.
+    /// Otherwise, it checks if the key is defined in the schema and if it's an object type.
+    /// If it is, it transforms the value to a string. This is because some clients do not support object types.
+    /// # Parameters
+    /// - `key`: The key of the value to transform.
+    /// - `value`: The value to transform.
+    /// - `schema_obj`: The schema object.
+    ///
+    /// # Returns
+    /// - `Value`: The transformed value.
     fn transform_value_if_object(
         key: &str,
         value: &Value,
@@ -476,6 +515,16 @@ impl Runner {
         value.clone()
     }
 
+    /// Reverses the transformation of a key.
+    ///
+    /// This function takes a transformed key and a schema object.
+    /// It then reverses the transformation applied by `apply_key_transformation`. This can be subject to collisions, but it's unlikely and is ok for our use case.
+    /// # Parameters
+    /// - `transformed_key`: The transformed key to reverse.
+    /// - `schema_obj`: The schema object.
+    ///
+    /// # Returns
+    /// - `String`: The original key.
     fn reverse_transform_key(transformed_key: &str, schema_obj: &Option<SchemaType>) -> String {
         let schema_obj = match schema_obj {
             Some(s) => s,
@@ -499,6 +548,16 @@ impl Runner {
         transformed_key.to_string()
     }
 
+    /// Applies a key transformation to a key.
+    ///
+    /// This function takes a key and replaces spaces with underscores.
+    /// It also removes any characters that are not alphanumeric or underscores.
+    /// This is used when listing, because we can't have names with spaces or special characters in the schema properties.
+    /// # Parameters
+    /// - `key`: The key to transform.
+    ///
+    /// # Returns
+    /// - `String`: The transformed key.
     fn apply_key_transformation(key: &str) -> String {
         key.replace(' ', "_")
             .chars()
@@ -506,6 +565,23 @@ impl Runner {
             .collect::<String>()
     }
 
+    /// Transforms the schema for resources.
+    ///
+    /// This function takes a schema and a database connection, and attempts to transform the schema for resources.
+    /// It replaces invalid characters in property keys with underscores and converts object properties to strings.
+    /// It also fetches resource type information and adds it to the description of resource properties.
+    ///
+    /// # Parameters
+    /// - `schema`: The schema to transform.
+    /// - `user_db`: The database connection.
+    /// - `authed`: The authenticated user.
+    /// - `w_id`: The workspace ID.
+    /// - `resources_cache`: A mutable reference to the resources cache.
+    /// - `resources_types`: A reference to the resource types.
+    ///
+    /// # Returns
+    /// - `Result<SchemaType, Error>`: The transformed schema.
+    /// - `Err(Error)`: If the transformation fails.
     async fn transform_schema_for_resources(
         schema: &SchemaType,
         user_db: &UserDB,
@@ -648,6 +724,20 @@ impl Runner {
         Ok(schema_obj)
     }
 
+    /// Fetches the schema for a Hub script.
+    ///
+    /// This function takes a script path and a database connection, and attempts to fetch the schema for the script.
+    /// It strips the path to remove any leading slashes, and then attempts to retrieve the full script using `get_full_hub_script_by_path`.
+    /// If successful, it converts the schema string to a `Schema` object.
+    /// If the schema cannot be converted, it logs a warning and returns `None`.
+    ///
+    /// # Parameters
+    /// - `path`: The path of the script to fetch the schema for.
+    /// - `db`: The database connection.
+    ///
+    /// # Returns
+    /// - `Ok(Option<Schema>)`: The schema if found, otherwise `None`.
+    /// - `Err(Error)`: If the request fails.
     async fn get_hub_script_schema(path: &str, db: &DB) -> Result<Option<Schema>, Error> {
         let strip_path = StripPath(path.to_string());
         let res = get_full_hub_script_by_path(strip_path, &HTTP_CLIENT, Some(db))
@@ -665,6 +755,21 @@ impl Runner {
         }
     }
 
+    /// Creates a `Tool` from a `ToolableItem`.
+    ///
+    /// This function takes an item that implements the `ToolableItem` trait and converts it into an RMCP `Tool`.
+    /// It handles both workspace scripts/flows and Hub scripts differently, depending on the item type.
+    ///
+    /// # Parameters
+    /// - `item`: The item to convert to a `Tool`.
+    /// - `user_db`: The database connection.
+    /// - `authed`: The authenticated user.
+    /// - `workspace_id`: The workspace ID.
+    /// - `resources_cache`: A mutable reference to the resources cache.
+    /// - `resources_types`: A reference to the resource types.
+    ///
+    /// # Returns
+    /// - `Ok(Tool)`: The created `Tool`.
     async fn create_tool_from_item<T: ToolableItem>(
         item: &T,
         user_db: &UserDB,
@@ -723,6 +828,20 @@ impl Runner {
         })
     }
 
+    /// Searches the Hub for a script ID matching the given name.
+    ///
+    /// - Constructs a query URL with the provided name.
+    /// - Sends a GET request to the Hub endpoint.
+    /// - Parses the response to find the first matching script ID.
+    /// - Returns the script ID if found, otherwise returns an error.
+    ///
+    /// # Parameters
+    /// - `name`: The name of the script to search for.
+    /// - `db`: The database connection.
+    ///
+    /// # Returns
+    /// - `Ok(String)`: The script ID if found.
+    /// - `Err(Error)`: If the request fails.
     async fn search_hub_id_by_name(name: &str, db: &DB) -> Result<String, Error> {
         let url = format!("{}/scripts/query", *HUB_BASE_URL.read().await);
         let query_params = Some(vec![("text", name.to_string())]);
@@ -760,6 +879,26 @@ impl Runner {
 }
 
 impl ServerHandler for Runner {
+    /// Handles the `CallTool` request from the MCP client.
+    ///
+    /// This involves:
+    /// 1. Parsing arguments and extracting context (DB, Auth).
+    /// 2. Reversing the tool name (`request.name`) to get the original path and type using `reverse_transform`.
+    /// 3. Handling Hub scripts: If identified as a Hub script, searches the Hub for the actual script ID.
+    /// 4. Fetching the schema for the item (needed for argument transformation).
+    /// 5. Transforming incoming arguments:
+    ///    - Reversing key transformations (e.g., `user_input` back to `user input`).
+    ///    - Parsing stringified JSON objects back into JSON values based on schema type.
+    /// 6. Executing the corresponding script or flow using internal Windmill runners.
+    /// 7. Formatting the execution result into an RMCP `CallToolResult`.
+    ///
+    /// # Parameters
+    /// - `request`: The `CallToolRequestParam` containing the tool name and arguments.
+    /// - `context`: The `RequestContext` providing access to workspace ID, DB connections, auth info.
+    ///
+    /// # Returns
+    /// - `Ok(CallToolResult)`: On successful execution, containing the output.
+    /// - `Err(Error)`: If any step fails (parsing, DB access, execution, reversing transform, hub search).
     async fn call_tool(
         &self,
         request: CallToolRequestParam,
@@ -884,6 +1023,21 @@ impl ServerHandler for Runner {
         }
     }
 
+    /// Fetches available tools (scripts, flows, hub scripts) based on the user's scope.
+    ///
+    /// - Determines scope (all, favorites, hub-specific) from auth token.
+    /// - Fetches relevant items (workspace scripts/flows, hub scripts) concurrently.
+    /// - Fetches resource type information needed for schema enrichment.
+    /// - Transforms each item into an RMCP `Tool` definition, including schema adjustments
+    ///   (like resource description enrichment and object->string conversion).
+    ///
+    /// # Parameters
+    /// - `_request`: Optional pagination parameters (currently ignored).
+    /// - `_context`: The `RequestContext` providing workspace ID, DB, auth.
+    ///
+    /// # Returns
+    /// - `Ok(ListToolsResult)`: A list of `Tool` definitions. Pagination is not yet implemented.
+    /// - `Err(Error)`: If fetching data from DB or Hub fails.
     async fn list_tools(
         &self,
         _request: Option<PaginatedRequestParam>,
