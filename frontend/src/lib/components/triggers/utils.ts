@@ -44,13 +44,14 @@ export type TriggerType =
 	| 'poll'
 
 export type Trigger = {
-	path: string
 	type: TriggerType
+	path?: string
 	isDraft?: boolean
 	isPrimary?: boolean
 	canWrite?: boolean
 	id?: string
-	config?: Record<string, any>
+	draftConfig?: Record<string, any>
+	captureConfig?: Record<string, any>
 	saveCb?: () => void
 }
 
@@ -116,7 +117,7 @@ export function addDraftTrigger(
 	const newTrigger = {
 		id: draftId,
 		type,
-		path: path ?? '',
+		path,
 		isPrimary: type === 'schedule' && !primaryScheduleExists,
 		isDraft: true
 	}
@@ -127,6 +128,30 @@ export function addDraftTrigger(
 	return newTrigger
 }
 
+export function setDraftToDeployedTrigger(
+	triggersStore: Writable<Trigger[]>,
+	trigger: Trigger,
+	draftConfig: Record<string, any>
+): void {
+	let draftId = trigger.id
+	if (!draftId) {
+		draftId = generateDraftId()
+	}
+	if (trigger.isDraft) {
+		triggersStore.update((triggers) =>
+			triggers.map((t) =>
+				t.id === draftId ? { ...t, deployedPath: trigger.path, draftConfig, id: trigger.id } : t
+			)
+		)
+	} else {
+		triggersStore.update((triggers) =>
+			triggers.map((t) =>
+				t.path === trigger.path && t.type === trigger.type ? { ...t, draftConfig } : t
+			)
+		)
+	}
+}
+
 /**
  * Delete a draft trigger from the store
  */
@@ -134,12 +159,32 @@ export function deleteDraft(triggersStore: Writable<Trigger[]>, draftId: string)
 	triggersStore.update((triggers) => triggers.filter((t) => t.id !== draftId))
 }
 
-export function updateDraftTriggerConfig(
+export function updateDraftConfig(
+	triggersStore: Writable<Trigger[]>,
+	trigger: Trigger,
+	draftConfig: Record<string, any>
+): void {
+	if (trigger.isDraft) {
+		triggersStore.update((triggers) =>
+			triggers.map((t) => (t.id === trigger.id ? { ...t, draftConfig } : t))
+		)
+	} else {
+		triggersStore.update((triggers) =>
+			triggers.map((t) =>
+				t.path === trigger.path && t.type === trigger.type ? { ...t, draftConfig } : t
+			)
+		)
+	}
+}
+
+export function setCaptureConfig(
 	triggersStore: Writable<Trigger[]>,
 	draftId: string,
-	config: Record<string, any>
+	captureConfig: Record<string, any>
 ): void {
-	triggersStore.update((triggers) => triggers.map((t) => (t.id === draftId ? { ...t, config } : t)))
+	triggersStore.update((triggers) =>
+		triggers.map((t) => (t.id === draftId ? { ...t, captureConfig } : t))
+	)
 }
 
 export function setSaveCallback(
@@ -264,8 +309,12 @@ export async function fetchHttpTriggers(
 ): Promise<void> {
 	if (!workspaceId) return
 	try {
-		// Remove existing HTTP triggers for this path except for draft triggers
-		triggersStore.update((triggers) => triggers.filter((t) => !(t.type === 'http' && !t.isDraft)))
+		const currentTriggers = get(triggersStore)
+
+		// Identify triggers with draftConfig to preserve
+		const configuredTriggers = currentTriggers.filter(
+			(t) => t.type === 'http' && !t.isDraft && t.draftConfig
+		)
 
 		const httpTriggers: HttpTrigger[] = await HttpTriggerService.listHttpTriggers({
 			workspace: workspaceId,
@@ -273,18 +322,27 @@ export async function fetchHttpTriggers(
 			isFlow
 		})
 
-		for (const trigger of httpTriggers) {
-			triggersStore.update((triggers) => [
-				...triggers,
-				{
-					type: 'http',
-					path: trigger.path,
-					isPrimary: false,
-					isDraft: false,
-					canWrite: canWrite(trigger.path, trigger.extra_perms, user)
-				}
-			])
-		}
+		const configMap = new Map<string, Record<string, any>>()
+		configuredTriggers.forEach((t) => {
+			configMap.set(t.path ?? '', t.draftConfig!)
+		})
+
+		const backendTriggers = httpTriggers.map((trigger) => {
+			const draftConfig = configMap.get(trigger.path)
+			return {
+				type: 'http' as TriggerType,
+				path: trigger.path,
+				isPrimary: false,
+				isDraft: false,
+				canWrite: canWrite(trigger.path, trigger.extra_perms, user),
+				draftConfig: draftConfig
+			}
+		})
+
+		triggersStore.update((triggers) => {
+			const filteredTriggers = triggers.filter((t) => t.type !== 'http' || t.isDraft)
+			return [...filteredTriggers, ...backendTriggers]
+		})
 	} catch (error) {
 		console.error('Failed to fetch HTTP triggers:', error)
 	}

@@ -27,12 +27,13 @@
 		fetchMqttTriggers,
 		addDraftTrigger,
 		deleteDraft,
-		updateDraftTriggerConfig,
+		updateDraftConfig,
 		isEqual,
 		type Trigger,
 		triggerTypeToCaptureKind,
 		triggerKindToTriggerType,
-		setSaveCallback
+		setSaveCallback,
+		setCaptureConfig
 	} from './utils'
 
 	export let noEditor: boolean
@@ -158,14 +159,11 @@
 		}
 	}
 
-	function handleUpdateConfig(newConfig: Record<string, any>) {
+	function handleUpdateDraftConfig(newConfig: Record<string, any>) {
 		// Update the config for the current trigger in our draft trigger store
-		if ($selectedTrigger && 'id' in $selectedTrigger && $selectedTrigger.isDraft) {
-			updateDraftTriggerConfig(triggers, $selectedTrigger.id as string, newConfig)
+		if ($selectedTrigger && newConfig) {
+			updateDraftConfig(triggers, $selectedTrigger, newConfig)
 		}
-
-		// Also maintain the config for the current component
-		config = newConfig
 	}
 
 	function handleSelectTriggerLegacy(triggerKind: TriggerKind) {
@@ -282,7 +280,10 @@
 										{newItem}
 										{schema}
 										on:update-config={({ detail }) => {
-											handleUpdateConfig(detail)
+											config = detail
+											if ($selectedTrigger && $selectedTrigger.id) {
+												setCaptureConfig(triggers, $selectedTrigger.id, detail)
+											}
 										}}
 										on:delete={() => {
 											deleteDraftTrigger($selectedTrigger)
@@ -300,7 +301,8 @@
 											deletePendingTrigger($selectedTrigger)
 										}}
 										on:save-draft={({ detail }) => {
-											setTriggerSaveCallback($selectedTrigger, detail)
+											handleUpdateDraftConfig(detail.cfg)
+											setTriggerSaveCallback($selectedTrigger, detail.cb)
 										}}
 									/>
 								</div>

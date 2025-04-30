@@ -68,7 +68,7 @@
 		on:save-draft
 		{isDeployed}
 		{small}
-		defaultValues={selectedTrigger.isDraft ? selectedTrigger.config : undefined}
+		defaultValues={selectedTrigger.draftConfig ?? selectedTrigger.captureConfig ?? undefined}
 		newDraft={selectedTrigger.saveCb === undefined}
 	/>
 {:else if selectedTrigger.type === 'webhook'}
@@ -119,7 +119,7 @@
 				dispatch('update', detail.path)
 			}
 		}}
-		defaultValues={selectedTrigger.isDraft ? selectedTrigger.config : undefined}
+		defaultValues={selectedTrigger.isDraft ? selectedTrigger.draftConfig : undefined}
 	/>
 {:else if selectedTrigger.type === 'websocket'}
 	<WebsocketTriggersPanel
@@ -133,7 +133,7 @@
 		on:update
 		on:delete
 		on:update-config={({ detail }) => updateConfig(detail)}
-		defaultValues={selectedTrigger.isDraft ? selectedTrigger.config : undefined}
+		defaultValues={selectedTrigger.isDraft ? selectedTrigger.draftConfig : undefined}
 	/>
 {:else if selectedTrigger.type === 'kafka'}
 	<KafkaTriggerPanel
@@ -147,7 +147,7 @@
 		on:update
 		on:delete
 		on:update-config={({ detail }) => updateConfig(detail)}
-		defaultValues={selectedTrigger.isDraft ? selectedTrigger.config : undefined}
+		defaultValues={selectedTrigger.isDraft ? selectedTrigger.draftConfig : undefined}
 	/>
 {:else if selectedTrigger.type === 'postgres'}
 	<PostgresTriggersPanel
@@ -161,7 +161,7 @@
 		on:update
 		on:delete
 		on:update-config={({ detail }) => updateConfig(detail)}
-		defaultValues={selectedTrigger.isDraft ? selectedTrigger.config : undefined}
+		defaultValues={selectedTrigger.isDraft ? selectedTrigger.draftConfig : undefined}
 	/>
 {:else if selectedTrigger.type === 'nats'}
 	<NatsTriggerPanel
@@ -175,7 +175,7 @@
 		on:update
 		on:delete
 		on:update-config={({ detail }) => updateConfig(detail)}
-		defaultValues={selectedTrigger.isDraft ? selectedTrigger.config : undefined}
+		defaultValues={selectedTrigger.isDraft ? selectedTrigger.draftConfig : undefined}
 	/>
 {:else if selectedTrigger.type === 'mqtt'}
 	<MqttTriggerPanel
@@ -189,7 +189,7 @@
 		on:update
 		on:delete
 		on:update-config={({ detail }) => updateConfig(detail)}
-		defaultValues={selectedTrigger.isDraft ? selectedTrigger.config : undefined}
+		defaultValues={selectedTrigger.isDraft ? selectedTrigger.draftConfig : undefined}
 	/>
 {:else if selectedTrigger.type === 'sqs'}
 	<SqsTriggerPanel
@@ -202,7 +202,7 @@
 		on:update
 		on:delete
 		on:update-config={({ detail }) => updateConfig(detail)}
-		defaultValues={selectedTrigger.isDraft ? selectedTrigger.config : undefined}
+		defaultValues={selectedTrigger.isDraft ? selectedTrigger.draftConfig : undefined}
 	/>
 {:else if selectedTrigger.type === 'gcp'}
 	<GcpTriggerPanel
@@ -216,7 +216,7 @@
 		on:update
 		on:delete
 		on:update-config={({ detail }) => updateConfig(detail)}
-		defaultValues={selectedTrigger.isDraft ? selectedTrigger.config : undefined}
+		defaultValues={selectedTrigger.isDraft ? selectedTrigger.draftConfig : undefined}
 	/>
 {:else if selectedTrigger.type === 'poll'}
 	<ScheduledPollPanel on:update-config={({ detail }) => updateConfig(detail)} />

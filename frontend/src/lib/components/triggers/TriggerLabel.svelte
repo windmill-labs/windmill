@@ -5,13 +5,13 @@
 </script>
 
 <span class={trigger.isDraft ? 'text-frost-400 italic' : 'font-normal'}>
-	{trigger.isDraft
-		? (trigger.config?.path ?? trigger.path ?? `New ${trigger.type.replace(/s$/, '')} trigger`)
-		: trigger.path === ''
-			? trigger.type === 'webhook'
-				? 'Webhooks'
-				: 'Emails'
-			: trigger.path}
+	{trigger.type === 'webhook'
+		? 'Webhooks'
+		: trigger.type === 'email'
+			? 'Emails'
+			: (trigger.draftConfig?.path ??
+				trigger.path ??
+				`New ${trigger.type.replace(/s$/, '')} trigger`)}
 </span>
 
 {#if trigger.isPrimary}
@@ -26,6 +26,12 @@
 	<span
 		class="ml-2 text-2xs bg-frost-100 dark:bg-frost-900 text-frost-800 dark:text-frost-100 px-1.5 py-0.5 rounded"
 	>
-		Draft
+		Draft only
+	</span>
+{:else if trigger.draftConfig}
+	<span
+		class="ml-2 text-2xs bg-frost-100 dark:bg-frost-900 text-frost-800 dark:text-frost-100 px-1.5 py-0.5 rounded"
+	>
+		+Draft
 	</span>
 {/if}

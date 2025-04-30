@@ -281,7 +281,7 @@
 						...flow,
 						path: $pathStore,
 						primary_schedule: $primaryScheduleStore,
-						draft_triggers: $triggersStore.filter((t) => t.isDraft)
+						draft_triggers: $triggersStore.filter((t) => t.draftConfig)
 					}
 				}
 			})
@@ -386,7 +386,7 @@
 	async function saveFlow(deploymentMsg?: string, triggersToDeploy?: Trigger[]): Promise<void> {
 		if (!triggersToDeploy) {
 			// Check if there are draft triggers that need confirmation
-			const draftTriggers = $triggersStore.filter((trigger) => trigger.isDraft)
+			const draftTriggers = $triggersStore.filter((trigger) => trigger.draftConfig)
 			if (draftTriggers.length > 0) {
 				draftTriggersModalOpen = true
 				confirmDeploymentCallback = async (triggersToDeploy: Trigger[]) => {
@@ -547,7 +547,7 @@
 						path: $pathStore,
 						selectedId: $selectedIdStore,
 						primarySchedule: $primaryScheduleStore,
-						draftTriggers: $triggersStore.filter((t) => t.isDraft)
+						draftTriggers: $triggersStore.filter((t) => t.draftConfig)
 					})
 				)
 			} catch (err) {
@@ -1335,7 +1335,7 @@
 
 <DraftTriggersConfirmationModal
 	bind:open={draftTriggersModalOpen}
-	draftTriggers={$triggersStore.filter((t) => t.isDraft)}
+	draftTriggers={$triggersStore.filter((t) => t.draftConfig)}
 	on:canceled={() => {
 		draftTriggersModalOpen = false
 	}}
