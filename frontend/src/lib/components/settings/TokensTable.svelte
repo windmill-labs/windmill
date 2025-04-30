@@ -81,7 +81,9 @@
 			}
 
 			let tokenScopes = mcpMode
-				? [`mcp:${newMcpScope}${newMcpApps ? `:${newMcpApps.join(',')}` : ''}`]
+				? [
+						`mcp:${newMcpScope}${newMcpApps && newMcpApps.length > 0 ? `:${newMcpApps.join(',')}` : ''}`
+					]
 				: scopes
 
 			const createdToken = await UserService.createToken({
