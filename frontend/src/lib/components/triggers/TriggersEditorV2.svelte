@@ -7,8 +7,6 @@
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import TriggersTable from './TriggersTable.svelte'
 	import CaptureWrapper from './CaptureWrapperV2.svelte'
-	import { isEqual, type Trigger } from './utils'
-	import { triggerTypeToCaptureKind } from './utils'
 	import PrimarySchedulePanel from './PrimarySchedulePanel.svelte'
 	import { fade } from 'svelte/transition'
 	import TriggersBadgeV2 from '../graph/renderers/triggers/TriggersBadgeV2.svelte'
@@ -29,7 +27,10 @@
 		fetchMqttTriggers,
 		addDraftTrigger,
 		deleteDraft,
-		updateDraftTriggerConfig
+		updateDraftTriggerConfig,
+		isEqual,
+		type Trigger,
+		triggerTypeToCaptureKind
 	} from './utils'
 
 	export let noEditor: boolean
