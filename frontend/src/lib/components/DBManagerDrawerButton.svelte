@@ -163,11 +163,19 @@
 			{#if dbSchema && $workspaceStore}
 				<Splitpanes horizontal>
 					<Pane class="relative">
+						<!-- svelte-ignore a11y_click_events_have_key_events -->
+						<!-- svelte-ignore a11y_no_static_element_interactions -->
 						<div
 							class={'absolute inset-0 z-10 p-8 ' +
 								(replResultData
 									? 'bg-surface/90'
 									: 'transition-colors bg-transparent pointer-events-none select-none')}
+							onclick={(e) => {
+								// Only proceed if the click is directly on this div and not on the child elements
+								if (e.target === e.currentTarget) {
+									replResultData = undefined
+								}
+							}}
 						>
 							{#if replResultData}
 								{#key replResultData}
