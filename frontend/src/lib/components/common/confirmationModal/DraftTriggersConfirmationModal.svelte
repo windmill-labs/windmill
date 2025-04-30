@@ -25,7 +25,6 @@
 	}>()
 
 	function toggleTrigger(trigger: Trigger) {
-		console.log('dbg toggleTrigger', trigger)
 		if (isSelected(selectedTriggers, trigger)) {
 			selectedTriggers = selectedTriggers.filter((t) => t.id !== trigger.id)
 		} else {
