@@ -163,7 +163,6 @@
 	}
 
 	export function setDraftTriggers(triggers: Trigger[]) {
-		console.log('dbg setDraftTriggers', triggers)
 		$triggersStore = [
 			...$triggersStore.filter((t) => !t.isDraft), // Keep non-draft triggers
 			...triggers // Add the new draft triggers
@@ -607,8 +606,6 @@
 		showCaptureHint,
 		triggers: triggersStore
 	})
-
-	$: console.log('dbg savedDraftTriggers', savedDraftTriggers)
 
 	export async function loadTriggers() {
 		$triggersCount = await FlowService.getTriggersCountOfFlow({

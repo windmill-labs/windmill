@@ -146,7 +146,6 @@
 				flow = flowWithDraft.draft
 				savedPrimarySchedule = flowWithDraft?.draft?.['primary_schedule']
 				savedDraftTriggers = flowWithDraft?.draft?.['draft_triggers']
-				console.log('dbg savedDraftTriggers from drafts', savedDraftTriggers)
 				flowBuilder?.setPrimarySchedule(savedPrimarySchedule)
 				flowBuilder?.setDraftTriggers(savedDraftTriggers)
 				flowBuilder?.loadTriggers()
