@@ -16,7 +16,6 @@
 	} from './apps/components/display/dbtable/utils'
 	import DbManager from './DBManager.svelte'
 	import { Alert } from './common'
-	import DbSchemaExplorer from './DBSchemaExplorer.svelte'
 	import { dbDeleteTableActionWithPreviewScript, dbTableOpsWithPreviewScripts } from './dbOps'
 	import { makeCreateTableQuery } from './apps/components/display/dbtable/queries/createTable'
 	import { runPreviewJobAndPollResult } from './jobs/utils'
@@ -39,7 +38,6 @@
 	)
 
 	let isDrawerOpen: boolean = $state(false)
-	let mode: 'db-manager' | 'schema-explorer' = $state('db-manager')
 
 	let shouldDisplayError = $derived(
 		resourcePath && resourcePath in $dbSchemas && !$dbSchemas[resourcePath]
@@ -91,12 +89,6 @@
 
 	let replPanelSize = $state(0)
 
-	$effect(() => {
-		if (mode !== 'db-manager') {
-			replPanelSize = 0
-			replResultData = undefined
-		}
-	})
 	const openRepl = () => (replPanelSize = 32)
 	openRepl()
 
@@ -158,25 +150,9 @@
 	>
 		<Database size={18} /> Manager
 	</Button>
-	<Drawer
-		bind:open={isDrawerOpen}
-		size={(
-			{
-				'db-manager': expand ? `${windowWidth}px` : '1200px',
-				'schema-explorer': '500px'
-			} satisfies Record<typeof mode, `${number}px`>
-		)[mode]}
-		preventEscape
-	>
+	<Drawer bind:open={isDrawerOpen} size={expand ? `${windowWidth}px` : '1200px'} preventEscape>
 		<DrawerContent
-			title={replResultData
-				? 'Query Result'
-				: (
-						{
-							'db-manager': 'Database Manager',
-							'schema-explorer': 'Schema Explorer'
-						} satisfies Record<typeof mode, string>
-					)[mode]}
+			title={replResultData ? 'Query Result' : 'Database Manager'}
 			on:close={() => {
 				if (replResultData) {
 					replResultData = undefined
@@ -185,7 +161,7 @@
 				}
 			}}
 			CloseIcon={replResultData ? ArrowLeft : undefined}
-			noPadding={mode === 'db-manager'}
+			noPadding
 		>
 			{#if dbSchema && $workspaceStore}
 				<Splitpanes horizontal>
@@ -200,47 +176,43 @@
 								<SimpleAgTable data={replResultData} class="animate-zoom-in" />
 							{/if}
 						</div>
-						{#if mode === 'db-manager'}
-							<DbManager
-								dbSupportsSchemas={dbSupportsSchemas(resourceType)}
-								{dbSchema}
-								{getColDefs}
-								dbTableOpsFactory={({ colDefs, tableKey }) =>
-									dbTableOpsWithPreviewScripts({
-										colDefs,
-										tableKey,
-										resourcePath,
-										resourceType,
-										workspace: $workspaceStore
-									})}
-								dbTableActionsFactory={[
-									dbDeleteTableActionWithPreviewScript({
-										resourcePath,
-										resourceType,
-										workspace: $workspaceStore
-									})
-								]}
-								{refresh}
-								dbTableEditorPropsFactory={({ selectedSchemaKey }) => ({
+						<DbManager
+							dbSupportsSchemas={dbSupportsSchemas(resourceType)}
+							{dbSchema}
+							{getColDefs}
+							dbTableOpsFactory={({ colDefs, tableKey }) =>
+								dbTableOpsWithPreviewScripts({
+									colDefs,
+									tableKey,
+									resourcePath,
 									resourceType,
-									previewSql: (values) =>
-										makeCreateTableQuery(values, resourceType, selectedSchemaKey),
-									async onConfirm(values) {
-										await runPreviewJobAndPollResult({
-											workspace: $workspaceStore,
-											requestBody: {
-												args: { database: '$res:' + resourcePath },
-												content: makeCreateTableQuery(values, resourceType, selectedSchemaKey),
-												language: getLanguageByResourceType(resourceType)
-											}
-										})
-										refresh()
-									}
+									workspace: $workspaceStore
 								})}
-							/>
-						{:else if mode === 'schema-explorer'}
-							<DbSchemaExplorer {dbSchema} />
-						{/if}
+							dbTableActionsFactory={[
+								dbDeleteTableActionWithPreviewScript({
+									resourcePath,
+									resourceType,
+									workspace: $workspaceStore
+								})
+							]}
+							{refresh}
+							dbTableEditorPropsFactory={({ selectedSchemaKey }) => ({
+								resourceType,
+								previewSql: (values) =>
+									makeCreateTableQuery(values, resourceType, selectedSchemaKey),
+								async onConfirm(values) {
+									await runPreviewJobAndPollResult({
+										workspace: $workspaceStore,
+										requestBody: {
+											args: { database: '$res:' + resourcePath },
+											content: makeCreateTableQuery(values, resourceType, selectedSchemaKey),
+											language: getLanguageByResourceType(resourceType)
+										}
+									})
+									refresh()
+								}
+							})}
+						/>
 					</Pane>
 					<Pane bind:size={replPanelSize} class="relative">
 						<div class="absolute top-2 right-6 z-10">
@@ -269,7 +241,7 @@
 				</Splitpanes>
 			{/if}
 			<svelte:fragment slot="actions">
-				{#if !replPanelSize && mode === 'db-manager'}
+				{#if !replPanelSize}
 					<Button
 						btnClasses="!font-normal hover:text-primary text-primary/70"
 						size="xs"
@@ -279,14 +251,6 @@
 						SQL Repl
 					</Button>
 				{/if}
-				<Button
-					btnClasses="!font-normal hover:text-primary text-primary/70"
-					size="xs"
-					color="light"
-					on:click={() => (mode = mode === 'db-manager' ? 'schema-explorer' : 'db-manager')}
-				>
-					{mode === 'db-manager' ? 'Explore schema' : 'Manage database'}
-				</Button>
 
 				<Button
 					loading={refreshing}
@@ -298,14 +262,12 @@
 					Refresh
 				</Button>
 
-				{#if mode === 'db-manager'}
-					<Button
-						on:click={() => (expand = !expand)}
-						startIcon={{ icon: expand ? Minimize : Expand }}
-						size="xs"
-						color="light"
-					/>
-				{/if}
+				<Button
+					on:click={() => (expand = !expand)}
+					startIcon={{ icon: expand ? Minimize : Expand }}
+					size="xs"
+					color="light"
+				/>
 			</svelte:fragment>
 		</DrawerContent>
 	</Drawer>
