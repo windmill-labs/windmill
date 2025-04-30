@@ -20,7 +20,6 @@
 	import { makeCreateTableQuery } from './apps/components/display/dbtable/queries/createTable'
 	import { runPreviewJobAndPollResult } from './jobs/utils'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
-	import HideButton from './apps/editor/settingsPanel/HideButton.svelte'
 	import SqlRepl from './SqlRepl.svelte'
 	import SimpleAgTable from './SimpleAgTable.svelte'
 	import { untrack } from 'svelte'
@@ -215,14 +214,6 @@
 						/>
 					</Pane>
 					<Pane bind:size={replPanelSize} minSize={REPL_MIN_SIZE} class="relative">
-						<div class="absolute top-2 right-6 z-10">
-							<HideButton
-								btnClasses="!text-primary border border-gray-200 dark:border-gray-600 bg-surface"
-								direction="bottom"
-								variant="contained"
-								on:click={() => (replPanelSize = REPL_MIN_SIZE)}
-							/>
-						</div>
 						<SqlRepl
 							{resourcePath}
 							{resourceType}

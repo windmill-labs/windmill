@@ -46,6 +46,9 @@
 	import { sendUserToast } from '$lib/toast'
 	import { untrack } from 'svelte'
 	import { getLanguageByResourceType } from './apps/components/display/dbtable/utils'
+	import StepHistory, { type StepHistoryData } from './flows/propPicker/StepHistory.svelte'
+	import { Pane, Splitpanes } from 'svelte-splitpanes'
+	import { _ } from 'ag-grid-community'
 
 	type Props = {
 		resourceType: string
@@ -64,6 +67,8 @@
 		}
 	})
 	let isRunning = $state(false)
+
+	let runHistory: (StepHistoryData & { code: string; result: Record<string, any>[] })[] = $state([])
 
 	async function run({ doPostgresRowToJsonFix }: { doPostgresRowToJsonFix?: boolean } = {}) {
 		if (isRunning || !$workspaceStore) return
@@ -86,16 +91,19 @@
 					.join(';')
 			}
 
-			let result = (await runPreviewJobAndPollResult({
-				workspace: $workspaceStore,
-				requestBody: {
-					language: getLanguageByResourceType(resourceType),
-					content: transformedCode,
-					args: {
-						database: '$res:' + resourcePath
+			let { job, result } = (await runPreviewJobAndPollResult(
+				{
+					workspace: $workspaceStore,
+					requestBody: {
+						language: getLanguageByResourceType(resourceType),
+						content: transformedCode,
+						args: {
+							database: '$res:' + resourcePath
+						}
 					}
-				}
-			})) as any
+				},
+				{ withJobData: true }
+			)) as any
 			if (statements.length > 1) {
 				result = result[result.length - 1]
 			}
@@ -109,6 +117,14 @@
 			}
 
 			if (statements[statements.length - 1].toUpperCase().trim().startsWith('SELECT')) {
+				runHistory.push({
+					created_at: new Date().toISOString(),
+					created_by: '',
+					id: job.id,
+					success: true,
+					code,
+					result
+				})
 				onData(result)
 			}
 			if (doPostgresRowToJsonFix)
@@ -126,14 +142,36 @@
 			isRunning = false
 		}
 	}
+	let editor = $state<Editor | null>(null)
 </script>
 
-<Editor bind:code lang="sql" scriptLang="mysql" class="w-full h-full" cmdEnterAction={run} />
-<Button
-	wrapperClasses="absolute z-10 bottom-2 right-6"
-	color={isRunning ? 'red' : 'dark'}
-	shortCut={{ Icon: CornerDownLeft }}
-	on:click={() => run()}
->
-	{isRunning ? 'Running...' : 'Run'}
-</Button>
+<Splitpanes>
+	<Pane class="relative">
+		<Editor
+			bind:this={editor}
+			bind:code
+			lang="sql"
+			scriptLang="mysql"
+			class="w-full h-full"
+			cmdEnterAction={run}
+		/>
+		<Button
+			wrapperClasses="absolute z-10 bottom-2 right-6"
+			color={isRunning ? 'red' : 'dark'}
+			shortCut={{ Icon: CornerDownLeft }}
+			on:click={() => run()}
+		>
+			{isRunning ? 'Running...' : 'Run'}
+		</Button>
+	</Pane>
+	<Pane size={24}>
+		<StepHistory
+			staticInputs={runHistory}
+			on:select={(e) => {
+				const data = e.detail as (typeof runHistory)[number]
+				editor?.setCode(data.code)
+				onData(data.result)
+			}}
+		/>
+	</Pane>
+</Splitpanes>
