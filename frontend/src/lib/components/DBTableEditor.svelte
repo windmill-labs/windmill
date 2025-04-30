@@ -71,6 +71,8 @@
 	import { copyToClipboard } from '$lib/utils'
 	import { getFlatTableNamesFromSchema, type DBSchema } from '$lib/stores'
 	import { twMerge } from 'tailwind-merge'
+	import { SELECT_INPUT_DEFAULT_STYLE } from '$lib/defaults'
+	import DarkModeObserver from './DarkModeObserver.svelte'
 
 	const { onConfirm, resourceType, previewSql, dbSchema, currentSchema }: DBTableEditorProps =
 		$props()
@@ -109,7 +111,11 @@
 	let askingForConfirmation:
 		| (ConfirmationModal['$$prop_def'] & { onConfirm: () => void; codeContent?: string })
 		| undefined = $state()
+
+	let darkMode = $state(false)
 </script>
+
+<DarkModeObserver bind:darkMode />
 
 <div class="flex flex-col h-full">
 	<div class="flex-1 overflow-y-auto flex flex-col gap-6">
@@ -149,7 +155,10 @@
 							</Cell>
 							<Cell>
 								<Select
-									containerStyles="--height: 2rem; --font-size: 14px; --padding: 0 0.5rem;"
+									inputStyles={SELECT_INPUT_DEFAULT_STYLE.inputStyles}
+									containerStyles={darkMode
+										? SELECT_INPUT_DEFAULT_STYLE.containerStylesDark
+										: SELECT_INPUT_DEFAULT_STYLE.containerStyles}
 									class="!w-48"
 									value={column.datatype}
 									on:change={(e) => {
@@ -243,7 +252,10 @@
 						<tr>
 							<Cell first class="flex">
 								<Select
-									containerStyles="--height: 2rem; --font-size: 14px; --padding: 0 0.5rem;"
+									inputStyles={SELECT_INPUT_DEFAULT_STYLE.inputStyles}
+									containerStyles={darkMode
+										? SELECT_INPUT_DEFAULT_STYLE.containerStylesDark
+										: SELECT_INPUT_DEFAULT_STYLE.containerStyles}
 									class={twMerge('!w-48', fkErrors?.emptyTarget ? 'border !border-red-600/60' : '')}
 									placeholder=""
 									value={foreignKey.targetTable}
@@ -268,7 +280,10 @@
 												 		 from overflowing -->
 												<div class="grow h-[2rem] relative">
 													<Select
-														containerStyles="--height: 2rem; --font-size: 14px; --padding: 0 0.5rem;"
+														inputStyles={SELECT_INPUT_DEFAULT_STYLE.inputStyles}
+														containerStyles={darkMode
+															? SELECT_INPUT_DEFAULT_STYLE.containerStylesDark
+															: SELECT_INPUT_DEFAULT_STYLE.containerStyles}
 														class={twMerge(
 															'!absolute inset-0',
 															fkErrors?.nonExistingSourceColumns.includes(column.sourceColumn)
@@ -285,7 +300,10 @@
 												<ArrowRight size={16} class="h-fit shrink-0" />
 												<div class="grow h-[2rem] relative">
 													<Select
-														containerStyles="--height: 2rem; --font-size: 14px; --padding: 0 0.5rem;"
+														inputStyles={SELECT_INPUT_DEFAULT_STYLE.inputStyles}
+														containerStyles={darkMode
+															? SELECT_INPUT_DEFAULT_STYLE.containerStylesDark
+															: SELECT_INPUT_DEFAULT_STYLE.containerStyles}
 														class={twMerge(
 															'!absolute inset-0',
 															fkErrors?.nonExistingTargetColumns.includes(column.targetColumn)
@@ -341,7 +359,7 @@
 										</div>
 									{/each}
 									<button
-										class="w-60 border-dashed border-2 rounded-md flex justify-center items-center py-1 gap-2 text-gray-500 font-normal"
+										class="w-60 border-dashed dark:border-gray-600 border-2 rounded-md flex justify-center items-center py-1 gap-2 text-primary-500 font-normal"
 										onclick={() => foreignKey.columns.push({})}
 									>
 										<Plus class="h-fit" size={12} /> Add
