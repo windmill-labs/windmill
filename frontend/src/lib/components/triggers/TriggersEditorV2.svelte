@@ -31,7 +31,8 @@
 		isEqual,
 		type Trigger,
 		triggerTypeToCaptureKind,
-		triggerKindToTriggerType
+		triggerKindToTriggerType,
+		setSaveCallback
 	} from './utils'
 
 	export let noEditor: boolean
@@ -105,6 +106,13 @@
 		} else {
 			$selectedTrigger = undefined
 		}
+	}
+
+	function setTriggerSaveCallback(trigger: Trigger | undefined, saveCb: () => void) {
+		if (!trigger || !trigger.id) {
+			return
+		}
+		setSaveCallback(triggers, trigger.id as string, saveCb)
 	}
 
 	function handleUpdatePending(trigger: Trigger | undefined, path: string) {
@@ -290,6 +298,9 @@
 										}}
 										on:delete-pending={() => {
 											deletePendingTrigger($selectedTrigger)
+										}}
+										on:save-draft={({ detail }) => {
+											setTriggerSaveCallback($selectedTrigger, detail)
 										}}
 									/>
 								</div>

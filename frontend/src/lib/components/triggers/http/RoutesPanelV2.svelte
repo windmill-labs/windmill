@@ -13,12 +13,13 @@
 		edit = false,
 		isDeployed = false,
 		small = false,
-		defaultValues = undefined
+		defaultValues = undefined,
+		newDraft = false
 	} = $props()
 
 	async function openRouteEditor(isFlow: boolean, isDraft: boolean) {
 		if (isDraft) {
-			routeEditor?.openNew(isFlow, path, defaultValues)
+			routeEditor?.openNew(isFlow, path, defaultValues, newDraft)
 		} else {
 			routeEditor?.openEdit(selectedTrigger.path, isFlow)
 		}
@@ -42,7 +43,7 @@
 	editMode={edit}
 	on:toggle-edit-mode
 	on:delete
-	preventSave={!isDeployed}
+	on:save-draft
 	customLabel={small ? customLabel : undefined}
 >
 	{#snippet description()}
@@ -56,7 +57,7 @@
 				<Alert title="Only workspace admins can create routes" type="info" size="xs" />
 			{:else if !isDeployed}
 				<Alert
-					title={`Deploy the ${isFlow ? 'flow' : 'script'} to save the route`}
+					title={`Draft routes can be deployed with the ${isFlow ? 'flow' : 'script'}`}
 					type="info"
 					size="xs"
 				/>

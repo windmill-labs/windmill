@@ -168,7 +168,8 @@
 	export async function openNew(
 		nis_flow: boolean,
 		fixedScriptPath_?: string,
-		defaultValues?: Record<string, any>
+		defaultValues?: Record<string, any>,
+		newDraft?: boolean
 	) {
 		resetEditMode = null
 		drawerLoading = true
@@ -201,7 +202,9 @@
 			raw_string = defaultValues?.raw_string ?? false
 			wrap_body = defaultValues?.wrap_body ?? false
 			isDraft = true
-			toggleEditMode(true)
+			if (newDraft) {
+				toggleEditMode(true)
+			}
 		} finally {
 			clearTimeout(loader)
 			drawerLoading = false
@@ -223,6 +226,7 @@
 		focus: undefined
 		blur: undefined
 		delete: undefined
+		'save-draft': () => void
 	}>()
 
 	async function loadTrigger(): Promise<void> {
@@ -739,8 +743,22 @@
 		{/if}
 		{#if !drawerLoading && can_write && (isAdmin || edit) && !preventSave}
 			{#if editMode}
-				<Button {size} startIcon={{ icon: Save }} disabled={saveDisabled} on:click={triggerScript}>
-					Save
+				<Button
+					{size}
+					startIcon={{ icon: Save }}
+					disabled={saveDisabled}
+					on:click={() => {
+						if (isDraft) {
+							dispatch('save-draft', () => {
+								triggerScript()
+							})
+							toggleEditMode(false)
+						} else {
+							triggerScript()
+						}
+					}}
+				>
+					{isDraft ? 'Save Draft' : 'Save'}
 				</Button>
 			{/if}
 			{#if useEditButton && !editMode}

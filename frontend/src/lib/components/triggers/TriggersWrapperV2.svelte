@@ -65,9 +65,11 @@
 		on:update
 		on:delete
 		on:toggle-edit-mode
+		on:save-draft
 		{isDeployed}
 		{small}
 		defaultValues={selectedTrigger.isDraft ? selectedTrigger.config : undefined}
+		newDraft={selectedTrigger.saveCb === undefined}
 	/>
 {:else if selectedTrigger.type === 'webhook'}
 	<WebhooksPanel

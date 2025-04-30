@@ -122,19 +122,13 @@
 
 	// Draft triggers confirmation modal
 	let draftTriggersModalOpen = false
-	let confirmDeploymentCallback: () => void = () => {}
+	let confirmDeploymentCallback: (triggersToDeploy: Trigger[]) => void = () => {}
 
 	async function handleDraftTriggersConfirmed(event: CustomEvent<{ selectedTriggers: Trigger[] }>) {
 		const { selectedTriggers } = event.detail
-
-		// Remove unselected draft triggers from the flow
-		$triggersStore = $triggersStore.filter(
-			(trigger) => !trigger.isDraft || selectedTriggers.includes(trigger)
-		)
-
 		// Continue with saving the flow
 		draftTriggersModalOpen = false
-		confirmDeploymentCallback()
+		confirmDeploymentCallback(selectedTriggers)
 	}
 
 	$: setContext('customUi', customUi)
@@ -379,14 +373,24 @@
 		deployedBy = flow.edited_by
 	}
 
-	async function saveFlow(deploymentMsg?: string, confirmTriggers = false): Promise<void> {
-		if (!confirmTriggers) {
+	async function saveDraftTriggers(triggersToDeploy: Trigger[]) {
+		await Promise.all(
+			triggersToDeploy.map((t) => {
+				if (t.saveCb) {
+					t.saveCb()
+				}
+			})
+		)
+	}
+
+	async function saveFlow(deploymentMsg?: string, triggersToDeploy?: Trigger[]): Promise<void> {
+		if (!triggersToDeploy) {
 			// Check if there are draft triggers that need confirmation
 			const draftTriggers = $triggersStore.filter((trigger) => trigger.isDraft)
 			if (draftTriggers.length > 0) {
 				draftTriggersModalOpen = true
-				confirmDeploymentCallback = async () => {
-					await saveFlow(deploymentMsg, true)
+				confirmDeploymentCallback = async (triggersToDeploy: Trigger[]) => {
+					await saveFlow(deploymentMsg, triggersToDeploy)
 				}
 				return
 			}
@@ -432,6 +436,9 @@
 				})
 				if ($primaryScheduleStore && $primaryScheduleStore.enabled) {
 					await createSchedule($pathStore)
+				}
+				if (triggersToDeploy) {
+					await saveDraftTriggers(triggersToDeploy)
 				}
 			} else {
 				try {
@@ -485,6 +492,9 @@
 					}
 				} else if ($primaryScheduleStore && $primaryScheduleStore.enabled) {
 					await createSchedule(initialPath)
+				}
+				if (triggersToDeploy) {
+					await saveDraftTriggers(triggersToDeploy)
 				}
 
 				await FlowService.updateFlow({

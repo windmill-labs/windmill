@@ -51,6 +51,7 @@ export type Trigger = {
 	canWrite?: boolean
 	id?: string
 	config?: Record<string, any>
+	saveCb?: () => void
 }
 
 // Map of trigger kinds to icons
@@ -141,12 +142,12 @@ export function updateDraftTriggerConfig(
 	triggersStore.update((triggers) => triggers.map((t) => (t.id === draftId ? { ...t, config } : t)))
 }
 
-export function updateDraftTriggerPath(
+export function setSaveCallback(
 	triggersStore: Writable<Trigger[]>,
 	draftId: string,
-	path: string
-): void {
-	triggersStore.update((triggers) => triggers.map((t) => (t.id === draftId ? { ...t, path } : t)))
+	saveCb: () => void
+) {
+	triggersStore.update((triggers) => triggers.map((t) => (t.id === draftId ? { ...t, saveCb } : t)))
 }
 
 /**
