@@ -162,16 +162,30 @@ export function deleteDraft(triggersStore: Writable<Trigger[]>, draftId: string)
 export function updateDraftConfig(
 	triggersStore: Writable<Trigger[]>,
 	trigger: Trigger,
-	draftConfig: Record<string, any>
+	draftConfig: Record<string, any> | undefined
 ): void {
 	if (trigger.isDraft) {
 		triggersStore.update((triggers) =>
-			triggers.map((t) => (t.id === trigger.id ? { ...t, draftConfig } : t))
+			triggers.map((t) =>
+				t.id === trigger.id
+					? {
+							...t,
+							draftConfig,
+							...(draftConfig === undefined ? { saveCb: undefined } : {})
+						}
+					: t
+			)
 		)
 	} else {
 		triggersStore.update((triggers) =>
 			triggers.map((t) =>
-				t.path === trigger.path && t.type === trigger.type ? { ...t, draftConfig } : t
+				t.path === trigger.path && t.type === trigger.type
+					? {
+							...t,
+							draftConfig,
+							...(draftConfig === undefined ? { saveCb: undefined } : {})
+						}
+					: t
 			)
 		)
 	}
@@ -189,12 +203,21 @@ export function setCaptureConfig(
 
 export function setSaveCallback(
 	triggersStore: Writable<Trigger[]>,
-	draftId: string,
+	trigger: Trigger,
 	saveCb: () => void
 ) {
-	triggersStore.update((triggers) => triggers.map((t) => (t.id === draftId ? { ...t, saveCb } : t)))
+	if (trigger.isDraft) {
+		triggersStore.update((triggers) =>
+			triggers.map((t) => (t.id === trigger.id ? { ...t, saveCb } : t))
+		)
+	} else {
+		triggersStore.update((triggers) =>
+			triggers.map((t) =>
+				t.path === trigger.path && t.type === trigger.type ? { ...t, saveCb } : t
+			)
+		)
+	}
 }
-
 /**
  * Fetch all types of triggers
  */
@@ -220,6 +243,43 @@ export async function fetchTriggers(
 		fetchSqsTriggers(triggersStore, workspaceId, path, isFlow),
 		fetchGcpTriggers(triggersStore, workspaceId, path, isFlow, user)
 	])
+}
+
+function updateTriggers(
+	triggersStore: Writable<Trigger[]>,
+	remoteTriggers: any[],
+	type: TriggerType,
+	user: UserExt | undefined = undefined
+): void {
+	const currentTriggers = get(triggersStore)
+	// Identify triggers with draftConfig to preserve
+	const configuredTriggers = currentTriggers.filter(
+		(t) => t.type === type && !t.isDraft && t.draftConfig
+	)
+
+	const configMap = new Map<string, { draftConfig: Record<string, any>; saveCb: () => void }>()
+
+	configuredTriggers.forEach((t) => {
+		configMap.set(t.path ?? '', { draftConfig: t.draftConfig!, saveCb: t.saveCb! })
+	})
+
+	const backendTriggers = remoteTriggers.map((trigger) => {
+		const { draftConfig, saveCb } = configMap.get(trigger.path) ?? {}
+		return {
+			type: type as TriggerType,
+			path: trigger.path,
+			isPrimary: false,
+			isDraft: false,
+			canWrite: canWrite(trigger.path, trigger.extra_perms, user),
+			draftConfig: draftConfig,
+			saveCb: saveCb
+		}
+	})
+
+	triggersStore.update((triggers) => {
+		const filteredTriggers = triggers.filter((t) => t.type !== type || t.isDraft)
+		return [...filteredTriggers, ...backendTriggers]
+	})
 }
 
 /**
@@ -309,40 +369,12 @@ export async function fetchHttpTriggers(
 ): Promise<void> {
 	if (!workspaceId) return
 	try {
-		const currentTriggers = get(triggersStore)
-
-		// Identify triggers with draftConfig to preserve
-		const configuredTriggers = currentTriggers.filter(
-			(t) => t.type === 'http' && !t.isDraft && t.draftConfig
-		)
-
 		const httpTriggers: HttpTrigger[] = await HttpTriggerService.listHttpTriggers({
 			workspace: workspaceId,
 			path,
 			isFlow
 		})
-
-		const configMap = new Map<string, Record<string, any>>()
-		configuredTriggers.forEach((t) => {
-			configMap.set(t.path ?? '', t.draftConfig!)
-		})
-
-		const backendTriggers = httpTriggers.map((trigger) => {
-			const draftConfig = configMap.get(trigger.path)
-			return {
-				type: 'http' as TriggerType,
-				path: trigger.path,
-				isPrimary: false,
-				isDraft: false,
-				canWrite: canWrite(trigger.path, trigger.extra_perms, user),
-				draftConfig: draftConfig
-			}
-		})
-
-		triggersStore.update((triggers) => {
-			const filteredTriggers = triggers.filter((t) => t.type !== 'http' || t.isDraft)
-			return [...filteredTriggers, ...backendTriggers]
-		})
+		updateTriggers(triggersStore, httpTriggers, 'http', user)
 	} catch (error) {
 		console.error('Failed to fetch HTTP triggers:', error)
 	}
