@@ -643,7 +643,6 @@ impl Runner {
     }
 
     async fn get_hub_script_by_path(path: &str, db: &DB) -> Result<Option<Schema>, Error> {
-        println!("get_hub_script_by_path: {}", path);
         let strip_path = StripPath(path.to_string());
         let res = get_full_hub_script_by_path(strip_path, &HTTP_CLIENT, Some(db))
             .await
@@ -777,7 +776,6 @@ impl ServerHandler for Runner {
         } else {
             None
         };
-        println!("schema_obj: {:#?}", schema_obj);
 
         let push_args = if let Value::Object(map) = args.clone() {
             let mut args_hash = HashMap::new();

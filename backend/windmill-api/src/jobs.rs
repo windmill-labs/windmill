@@ -4174,7 +4174,6 @@ pub async fn run_wait_result(
                     if success {
                         StatusCode::OK
                     } else {
-                        println!("run_wait_result error: {}", success);
                         StatusCode::INTERNAL_SERVER_ERROR
                     },
                     Json(result),

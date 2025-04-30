@@ -2477,7 +2477,6 @@ async fn handle_code_execution_job(
             }
         }
         JobKind::Script_Hub => {
-            println!("job.runnable_path: {:?}", job.runnable_path);
             let ContentReqLangEnvs { content, lockfile, language, envs, codebase, schema } =
                 get_hub_script_content_and_requirements(job.runnable_path.as_ref(), conn.as_sql())
                     .await?;
