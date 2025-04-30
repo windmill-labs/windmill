@@ -325,6 +325,7 @@ pub static FULL_IMPORTS_MAP: PyMap = phf_map! {
     "azure.mgmt.nspkg" => "azure-mgmt-nspkg",
     "azure.keyvault.secrets" => "azure-keyvault-secrets",
     "azure.storage.blob" => "azure-storage-blob",
+    "azure.storage.filedatalake" => "azure-storage-file-datalake",
     // Add new entry here ^
 };
 
@@ -376,5 +377,6 @@ pub static SHORT_IMPORTS_MAP: PyMap = phf_map! {
     "socks" => "PySocks",
     "taiga" => "python-taiga",
     "docx" => "python-docx",
+    "vt" => "vt-py",
     // Add new entry here ^
 };
