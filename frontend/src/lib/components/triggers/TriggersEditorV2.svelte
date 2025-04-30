@@ -2,8 +2,8 @@
 	import { canWrite } from '$lib/utils'
 	import { userStore, workspaceStore } from '$lib/stores'
 	import FlowCard from '../flows/common/FlowCard.svelte'
-	import { getContext, onDestroy, createEventDispatcher } from 'svelte'
-	import type { TriggerContext } from '$lib/components/triggers'
+	import { getContext, onDestroy, createEventDispatcher, onMount } from 'svelte'
+	import type { TriggerContext, TriggerKind } from '$lib/components/triggers'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import TriggersTable from './TriggersTable.svelte'
 	import CaptureWrapper from './CaptureWrapperV2.svelte'
@@ -30,7 +30,8 @@
 		updateDraftTriggerConfig,
 		isEqual,
 		type Trigger,
-		triggerTypeToCaptureKind
+		triggerTypeToCaptureKind,
+		triggerKindToTriggerType
 	} from './utils'
 
 	export let noEditor: boolean
@@ -53,6 +54,7 @@
 
 	const {
 		simplifiedPoll,
+		selectedTrigger: selectedTriggerLegacy,
 		selectedTriggerV2: selectedTrigger,
 		triggers,
 		primarySchedule
@@ -157,6 +159,34 @@
 		// Also maintain the config for the current component
 		config = newConfig
 	}
+
+	function handleSelectTriggerLegacy(triggerKind: TriggerKind) {
+		const triggerType = triggerKindToTriggerType(triggerKind)
+
+		if (!triggerType) {
+			return
+		}
+
+		const existingTrigger = $triggers.find((trigger) => trigger.type === triggerType)
+
+		if (existingTrigger) {
+			$selectedTrigger = existingTrigger
+		} else {
+			const newTrigger = addDraftTrigger(
+				triggers,
+				triggerType,
+				triggerType === 'schedule' ? initialPath : undefined
+			)
+			$selectedTrigger = newTrigger
+		}
+	}
+
+	onMount(() => {
+		// Handles redirection to the trigger panel
+		if ($selectedTriggerLegacy) {
+			handleSelectTriggerLegacy($selectedTriggerLegacy)
+		}
+	})
 
 	$: updateEditTrigger($selectedTrigger)
 	$: useVerticalTriggerBar = width < 1000

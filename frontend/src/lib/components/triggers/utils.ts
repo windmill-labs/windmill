@@ -27,6 +27,7 @@ import type { ScheduleTrigger } from '$lib/components/triggers'
 import { canWrite } from '$lib/utils'
 import type { UserExt } from '$lib/stores'
 import SchedulePollIcon from '../icons/SchedulePollIcon.svelte'
+import { type TriggerKind } from '$lib/components/triggers'
 
 export type TriggerType =
 	| 'webhook'
@@ -553,5 +554,37 @@ export async function fetchGcpTriggers(
 		}
 	} catch (error) {
 		console.error('Failed to fetch GCP Pub/Sub triggers:', error)
+	}
+}
+
+// TODO: Remove this once we've migrated all the trigger kinds to the new TriggerType enum
+export function triggerKindToTriggerType(kind: TriggerKind): TriggerType | undefined {
+	switch (kind) {
+		case 'webhooks':
+			return 'webhook'
+		case 'emails':
+			return 'email'
+		case 'schedules':
+			return 'schedule'
+		case 'routes':
+			return 'http'
+		case 'websockets':
+			return 'websocket'
+		case 'postgres':
+			return 'postgres'
+		case 'kafka':
+			return 'kafka'
+		case 'nats':
+			return 'nats'
+		case 'mqtt':
+			return 'mqtt'
+		case 'sqs':
+			return 'sqs'
+		case 'gcp':
+			return 'gcp'
+		case 'scheduledPoll':
+			return 'poll'
+		default:
+			throw new Error(`Unknown TriggerKind: ${kind}`)
 	}
 }
