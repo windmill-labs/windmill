@@ -25,7 +25,6 @@
 		triggers: Trigger[]
 		numberOfTriggers?: number
 		small?: boolean
-		allwaysUseDropdown?: boolean
 	}
 
 	let {
@@ -37,8 +36,7 @@
 		triggers,
 		// @ts-ignore - This is an output-only prop used with bind:
 		numberOfTriggers = $bindable(0),
-		small = true,
-		allwaysUseDropdown = false
+		small = true
 	}: Props = $props()
 
 	let menuOpen = $state(false)
@@ -132,7 +130,7 @@
 			{@const singleItem =
 				type === 'webhook' ||
 				type === 'email'! ||
-				(!allwaysUseDropdown && triggersGrouped[type] && triggersGrouped[type].length === 1)}
+				(triggersGrouped[type] && triggersGrouped[type].length === 1)}
 			<Tooltip disablePopup={menuOpen} on:click={(e) => e.stopPropagation()}>
 				{#snippet text()}
 					{camelCaseToWords(type)}

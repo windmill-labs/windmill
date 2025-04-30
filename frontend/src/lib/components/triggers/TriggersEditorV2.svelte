@@ -185,7 +185,6 @@
 								triggers={$triggers}
 								small={false}
 								on:select={({ detail }) => ($selectedTrigger = detail)}
-								allwaysUseDropdown
 							/>
 						</div>
 					{/if}
