@@ -284,10 +284,10 @@
 						<span class="block mb-1">Workspace</span>
 						<select
 							bind:value={newTokenWorkspace}
-							disabled={$userWorkspaces.length === 1}
+							disabled={workspaces.length === 1}
 							class="w-full"
 						>
-							{#each $userWorkspaces as workspace}
+							{#each workspaces as workspace}
 								<option value={workspace.id}>{workspace.name}</option>
 							{/each}
 						</select>
