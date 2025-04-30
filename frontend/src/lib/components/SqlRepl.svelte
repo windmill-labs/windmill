@@ -164,7 +164,7 @@
 			{isRunning ? 'Running...' : 'Run'}
 		</Button>
 	</Pane>
-	<Pane size={24}>
+	<Pane size={24} minSize={16}>
 		<StepHistory
 			staticInputs={runHistory}
 			on:select={(e) => {

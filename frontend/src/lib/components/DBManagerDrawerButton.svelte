@@ -164,7 +164,7 @@
 				<Splitpanes horizontal>
 					<Pane class="relative">
 						<div
-							class={'absolute inset-0 z-10 p-12 ' +
+							class={'absolute inset-0 z-10 p-8 ' +
 								(replResultData
 									? 'bg-surface/90'
 									: 'transition-colors bg-transparent pointer-events-none select-none')}

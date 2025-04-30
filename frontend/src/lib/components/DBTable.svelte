@@ -11,6 +11,8 @@
 	import InsertRowDrawerButton from './apps/components/display/InsertRowDrawerButton.svelte'
 	import type { IDbTableOps } from './dbOps'
 	import { deepEqual } from 'fast-equals'
+	import 'ag-grid-community/styles/ag-grid.css'
+	import '$lib/components/apps/components/display/table/theme/windmill-theme.css'
 
 	type Props = {
 		dbTableOps: IDbTableOps
