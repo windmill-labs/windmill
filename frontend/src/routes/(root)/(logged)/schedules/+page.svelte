@@ -1,7 +1,6 @@
 <script lang="ts">
 	import {
 		ScheduleService,
-		JobService,
 		type ScheduleWJobs,
 		type WorkspaceDeployUISettings,
 		WorkspaceService
@@ -13,7 +12,6 @@
 	import Dropdown from '$lib/components/DropdownV2.svelte'
 	import PageHeader from '$lib/components/PageHeader.svelte'
 	import Popover from '$lib/components/Popover.svelte'
-	import ScheduleEditor from '$lib/components/ScheduleEditor.svelte'
 	import SharedBadge from '$lib/components/SharedBadge.svelte'
 	import ShareModal from '$lib/components/ShareModal.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
@@ -22,6 +20,7 @@
 		Calendar,
 		Circle,
 		Code,
+		Copy,
 		Eye,
 		FileUp,
 		List,
@@ -45,6 +44,8 @@
 	import { onMount } from 'svelte'
 	import DeployWorkspaceDrawer from '$lib/components/DeployWorkspaceDrawer.svelte'
 	import { ALL_DEPLOYABLE, isDeployable } from '$lib/utils_deployable'
+	import { runScheduleNow } from '$lib/components/triggers/scheduled/utils'
+	import ScheduleEditor from '$lib/components/triggers/schedules/ScheduleEditor.svelte'
 
 	type ScheduleW = ScheduleWJobs & { canWrite: boolean }
 
@@ -103,36 +104,6 @@
 		} catch (err) {
 			sendUserToast(`Cannot ` + (enabled ? 'enable' : 'disable') + ` schedule: ${err.body}`, true)
 			loadSchedules()
-		}
-	}
-
-	async function runScheduleNow(
-		path: string,
-		schedulePath: string,
-		isFlow: boolean
-	): Promise<void> {
-		try {
-			const runByPath = isFlow ? JobService.runFlowByPath : JobService.runScriptByPath
-			const args = (
-				await ScheduleService.getSchedule({
-					workspace: $workspaceStore!,
-					path: schedulePath
-				})
-			).args
-			const run = await runByPath({
-				path,
-				requestBody: args ?? {},
-				workspace: $workspaceStore!
-			})
-
-			sendUserToast(`Schedule ${path} will run now`, false, [
-				{
-					label: 'Go to the run page',
-					callback: () => goto('/run/' + run + '?workspace=' + $workspaceStore)
-				}
-			])
-		} catch (err) {
-			sendUserToast(`Cannot run schedule now: ${err.body}`, true)
 		}
 	}
 
@@ -200,18 +171,18 @@
 							x.path.startsWith(ownerFilter + '/') &&
 							filterItemsPathsBaseOnUserFilters(x, selectedFilterKind, filterUserFolders) &&
 							filterItemsBasedOnEnabledDisabled(x, filterEnabledDisabled)
-				  )
+					)
 				: schedules?.filter(
 						(x) =>
 							x.script_path.startsWith(ownerFilter + '/') &&
 							filterItemsPathsBaseOnUserFilters(x, selectedFilterKind, filterUserFolders) &&
 							filterItemsBasedOnEnabledDisabled(x, filterEnabledDisabled)
-				  )
+					)
 			: schedules?.filter(
 					(x) =>
 						filterItemsPathsBaseOnUserFilters(x, selectedFilterKind, filterUserFolders) &&
 						filterItemsBasedOnEnabledDisabled(x, filterEnabledDisabled)
-			  )
+				)
 
 	$: if ($workspaceStore) {
 		ownerFilter = undefined
@@ -221,10 +192,10 @@
 		selectedFilterKind === 'schedule'
 			? Array.from(
 					new Set(filteredItems?.map((x) => x.path.split('/').slice(0, 2).join('/')) ?? [])
-			  ).sort()
+				).sort()
 			: Array.from(
 					new Set(filteredItems?.map((x) => x.script_path.split('/').slice(0, 2).join('/')) ?? [])
-			  ).sort()
+				).sort()
 
 	$: items = filter !== '' ? filteredItems : preFilteredItems
 
@@ -431,6 +402,13 @@
 												}
 											},
 											{
+												displayName: `Duplicate schedule`,
+												icon: Copy,
+												action: () => {
+													scheduleEditor?.openNew(is_flow, script_path, path)
+												}
+											},
+											{
 												displayName: 'Delete',
 												type: 'delete',
 												icon: Trash,
@@ -463,7 +441,7 @@
 																})
 															}
 														}
-												  ]
+													]
 												: []),
 											{
 												displayName: 'View runs',
@@ -483,7 +461,7 @@
 												displayName: 'Run now',
 												icon: Play,
 												action: () => {
-													runScheduleNow(script_path, path, is_flow)
+													runScheduleNow(script_path, path, is_flow, $workspaceStore!)
 												}
 											},
 											{

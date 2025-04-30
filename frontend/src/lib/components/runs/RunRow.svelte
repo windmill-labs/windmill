@@ -12,7 +12,7 @@
 		isJobSelectable
 	} from '$lib/utils'
 	import { Badge, Button } from '../common'
-	import ScheduleEditor from '../ScheduleEditor.svelte'
+	import ScheduleEditor from '$lib/components/triggers/schedules/ScheduleEditor.svelte'
 	import BarsStaggered from '$lib/components/icons/BarsStaggered.svelte'
 
 	import {

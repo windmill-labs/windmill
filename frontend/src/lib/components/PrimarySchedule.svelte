@@ -6,7 +6,7 @@
 	import { ListOrdered, PenBox } from 'lucide-svelte'
 	import JobArgs from './JobArgs.svelte'
 	import Tooltip from './Tooltip.svelte'
-	import ScheduleEditor from './ScheduleEditor.svelte'
+	import ScheduleEditor from '$lib/components/triggers/schedules/ScheduleEditor.svelte'
 	import { type Schedule } from '$lib/gen'
 
 	export let schedule: any
