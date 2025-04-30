@@ -31,10 +31,27 @@ use crate::jobs::{
 use crate::HTTP_CLIENT;
 use windmill_common::utils::{query_elems_from_hub, StripPath};
 
+fn transform_path(path: &str, type_str: &str) -> Result<String, String> {
+    if type_str != "script" && type_str != "flow" {
+        return Err(format!("Invalid type: {}", type_str));
+    }
+
+    // Only apply special underscore escaping for paths starting with "f/"
+    let transformed = if path.starts_with("f/") {
+        let escaped_path = path.replace('_', "__");
+        escaped_path.replace('/', "_")
+    } else {
+        path.replace('/', "_")
+    };
+
+    // first letter of type_str is used as prefix, only one letter to avoid reaching 60 char name limit
+    Ok(format!("{}-{}", &type_str[..1], transformed))
+}
+
 trait ToolableItem {
     fn get_path_or_id(&self) -> String;
-    fn get_summary(&self) -> Option<&str>;
-    fn get_description(&self) -> Option<&str>;
+    fn get_summary(&self) -> &str;
+    fn get_description(&self) -> &str;
     fn get_schema(&self) -> Option<Schema>;
     fn is_hub(&self) -> bool;
     fn item_type(&self) -> &'static str;
@@ -43,13 +60,13 @@ trait ToolableItem {
 
 impl ToolableItem for ScriptInfo {
     fn get_path_or_id(&self) -> String {
-        self.path.clone()
+        transform_path(&self.path, "script").unwrap()
     }
-    fn get_summary(&self) -> Option<&str> {
-        self.summary.as_deref()
+    fn get_summary(&self) -> &str {
+        self.summary.as_deref().unwrap_or("No summary")
     }
-    fn get_description(&self) -> Option<&str> {
-        self.description.as_deref()
+    fn get_description(&self) -> &str {
+        self.description.as_deref().unwrap_or("No description")
     }
     fn get_schema(&self) -> Option<Schema> {
         self.schema.clone()
@@ -67,13 +84,13 @@ impl ToolableItem for ScriptInfo {
 
 impl ToolableItem for FlowInfo {
     fn get_path_or_id(&self) -> String {
-        self.path.clone()
+        transform_path(&self.path, "flow").unwrap()
     }
-    fn get_summary(&self) -> Option<&str> {
-        self.summary.as_deref()
+    fn get_summary(&self) -> &str {
+        self.summary.as_deref().unwrap_or("No summary")
     }
-    fn get_description(&self) -> Option<&str> {
-        self.description.as_deref()
+    fn get_description(&self) -> &str {
+        self.description.as_deref().unwrap_or("No description")
     }
     fn get_schema(&self) -> Option<Schema> {
         self.schema.clone()
@@ -91,13 +108,21 @@ impl ToolableItem for FlowInfo {
 
 impl ToolableItem for HubScriptInfo {
     fn get_path_or_id(&self) -> String {
-        self.version_id.to_string()
+        let app = self
+            .app
+            .as_deref()
+            .unwrap_or("No app")
+            .chars()
+            .filter(|c| c.is_alphanumeric())
+            .collect::<String>();
+        let summary = self.summary.as_deref().unwrap_or("No summary");
+        format!("hs-{}-{}", app, summary.replace(" ", "_"))
     }
-    fn get_summary(&self) -> Option<&str> {
-        self.summary.as_deref()
+    fn get_summary(&self) -> &str {
+        self.summary.as_deref().unwrap_or("No summary")
     }
-    fn get_description(&self) -> Option<&str> {
-        self.description.as_deref()
+    fn get_description(&self) -> &str {
+        self.description.as_deref().unwrap_or("No description")
     }
     fn get_schema(&self) -> Option<Schema> {
         self.schema.as_ref().and_then(|value| {
@@ -195,6 +220,11 @@ struct ResourceType {
     description: Option<String>,
 }
 
+#[derive(Deserialize)]
+struct HubQueryResultItem {
+    id: String,
+}
+
 impl Runner {
     pub fn new() -> Self {
         Self {}
@@ -235,31 +265,13 @@ impl Runner {
         Ok(item.schema)
     }
 
-    fn transform_path(path: &str, type_str: &str, is_hub: bool) -> Result<String, String> {
-        if type_str != "script" && type_str != "flow" {
-            return Err(format!("Invalid type: {}", type_str));
-        }
-
-        // Only apply special underscore escaping for paths starting with "f/"
-        let transformed = if path.starts_with("f/") {
-            let escaped_path = path.replace('_', "__");
-            escaped_path.replace('/', "_")
-        } else {
-            path.replace('/', "_")
-        };
-
-        // first letter of type_str is used as prefix, only one letter to avoid reaching 60 char name limit
-        Ok(format!(
-            "{}{}-{}",
-            if is_hub { "h" } else { "" },
-            &type_str[..1],
-            transformed
-        ))
-    }
-
     fn reverse_transform(transformed_path: &str) -> Result<(&str, String, bool), String> {
         let is_hub = transformed_path.starts_with("h");
-        let transformed_path = transformed_path.replace("h", "");
+        let transformed_path = if is_hub {
+            transformed_path[1..].to_string()
+        } else {
+            transformed_path.to_string()
+        };
         let type_str = if transformed_path.starts_with("s-") {
             "script"
         } else if transformed_path.starts_with("f-") {
@@ -670,14 +682,11 @@ impl Runner {
         let is_hub = item.is_hub();
         let path = item.get_path_or_id();
         let item_type = item.item_type();
-        let name = Runner::transform_path(&path, item_type, is_hub).unwrap_or_default();
-        let summary = item.get_summary();
-        let description = item.get_description();
         let description = format!(
             "This is a {} named `{}` with the following description: `{}`.{}",
             item_type,
-            summary.as_deref().unwrap_or("No summary"),
-            description.as_deref().unwrap_or("No description"),
+            item.get_summary(),
+            item.get_description(),
             if is_hub {
                 format!(
                     " It is a tool used for the following app: {}",
@@ -705,24 +714,59 @@ impl Runner {
         let input_schema_map = match serde_json::to_value(schema_obj) {
             Ok(Value::Object(map)) => map,
             Ok(_) => {
-                tracing::warn!("Schema object for tool '{}' did not serialize to a JSON object, using empty schema.", name);
+                tracing::warn!("Schema object for tool '{}' did not serialize to a JSON object, using empty schema.", path);
                 serde_json::Map::new()
             }
             Err(e) => {
                 tracing::error!(
                     "Failed to serialize schema object for tool '{}': {}. Using empty schema.",
-                    name,
+                    path,
                     e
                 );
                 serde_json::Map::new()
             }
         };
         Ok(Tool {
-            name: Cow::Owned(name),
+            name: Cow::Owned(path),
             description: Some(Cow::Owned(description)),
             input_schema: Arc::new(input_schema_map),
             annotations: None,
         })
+    }
+
+    async fn search_hub_id_by_name(name: &str, db: &DB) -> Result<String, Error> {
+        let url = format!("{}/scripts/query", *HUB_BASE_URL.read().await);
+        let query_params = Some(vec![("text", name.to_string())]);
+        let (_status_code, _headers, response) =
+            query_elems_from_hub(&HTTP_CLIENT, &url, query_params, &db)
+                .await
+                .map_err(|e| {
+                    tracing::error!("Failed to query items from hub: {}", e);
+                    Error::internal_error(format!("Failed to query items from hub: {}", e), None)
+                })?;
+
+        let body_bytes = axum::body::to_bytes(response, usize::MAX)
+            .await
+            .map_err(|e| {
+                tracing::error!("Failed to read response body: {}", e);
+                Error::internal_error(format!("Failed to read response body: {}", e), None)
+            })?;
+
+        let hub_results: Vec<HubQueryResultItem> =
+            serde_json::from_slice(&body_bytes).map_err(|e| {
+                tracing::error!("Failed to parse hub query response: {}", e);
+                Error::internal_error(format!("Failed to parse hub query response: {}", e), None)
+            })?;
+
+        hub_results
+            .first()
+            .map(|item| item.id.clone())
+            .ok_or_else(|| {
+                Error::internal_error(
+                    format!("No matching hub script found for query: {}", name),
+                    None,
+                )
+            })
     }
 }
 
@@ -757,6 +801,12 @@ impl ServerHandler for Runner {
 
         let (tool_type, path, is_hub) =
             Runner::reverse_transform(&request.name).unwrap_or_default();
+
+        let path = if is_hub {
+            Runner::search_hub_id_by_name(&path, db).await?
+        } else {
+            path
+        };
 
         let item_schema = if is_hub {
             Runner::get_hub_script_by_path(&format!("hub/{}", path), db).await?
