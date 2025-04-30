@@ -12,6 +12,7 @@
 		loading?: boolean
 		open?: boolean
 		type?: 'danger' | 'reload'
+		showIcon?: boolean
 	}
 
 	const {
@@ -20,7 +21,8 @@
 		keyListen = true,
 		loading = false,
 		open = false,
-		type: _type
+		type: _type,
+		showIcon = true
 	}: Props = $props()
 	const type = $derived(_type ?? 'danger')
 
@@ -92,11 +94,13 @@
 					)}
 				>
 					<div class="flex">
-						<div
-							class={`flex h-12 w-12 items-center justify-center rounded-full ${theme[type].classes.iconWrapper}`}
-						>
-							<Icon class={theme[type].classes.icon} />
-						</div>
+						{#if showIcon}
+							<div
+								class={`flex h-12 w-12 items-center justify-center rounded-full ${theme[type].classes.iconWrapper}`}
+							>
+								<Icon class={theme[type].classes.icon} />
+							</div>
+						{/if}
 						<div class="ml-4 text-left flex-1">
 							<h3 class="text-lg font-medium text-primary">
 								{title}

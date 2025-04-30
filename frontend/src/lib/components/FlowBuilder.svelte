@@ -78,6 +78,7 @@
 	import DeployButton from './DeployButton.svelte'
 	import type { Trigger } from './triggers/utils'
 	import { fetchTriggers } from './triggers/utils'
+	import DraftTriggersConfirmationModal from './common/confirmationModal/DraftTriggersConfirmationModal.svelte'
 
 	export let initialPath: string = ''
 	export let pathStoreInit: string | undefined = undefined
@@ -118,6 +119,23 @@
 	let deployedBy: string | undefined = undefined // Author
 	let confirmCallback: () => void = () => {} // What happens when user clicks `override` in warning
 	let open: boolean = false // Is confirmation modal open
+
+	// Draft triggers confirmation modal
+	let draftTriggersModalOpen = false
+	let confirmDeploymentCallback: () => void = () => {}
+
+	async function handleDraftTriggersConfirmed(event: CustomEvent<{ selectedTriggers: Trigger[] }>) {
+		const { selectedTriggers } = event.detail
+
+		// Remove unselected draft triggers from the flow
+		$triggersStore = $triggersStore.filter(
+			(trigger) => !trigger.isDraft || selectedTriggers.includes(trigger)
+		)
+
+		// Continue with saving the flow
+		draftTriggersModalOpen = false
+		confirmDeploymentCallback()
+	}
 
 	$: setContext('customUi', customUi)
 
@@ -361,7 +379,19 @@
 		deployedBy = flow.edited_by
 	}
 
-	async function saveFlow(deploymentMsg?: string): Promise<void> {
+	async function saveFlow(deploymentMsg?: string, confirmTriggers = false): Promise<void> {
+		if (!confirmTriggers) {
+			// Check if there are draft triggers that need confirmation
+			const draftTriggers = $triggersStore.filter((trigger) => trigger.isDraft)
+			if (draftTriggers.length > 0) {
+				draftTriggersModalOpen = true
+				confirmDeploymentCallback = async () => {
+					await saveFlow(deploymentMsg, true)
+				}
+				return
+			}
+		}
+
 		loadingSave = true
 		try {
 			const flow = cleanInputs($flowStore)
@@ -1291,6 +1321,15 @@
 	{diffDrawer}
 	bind:deployedValue
 	currentValue={$flowStore}
+/>
+
+<DraftTriggersConfirmationModal
+	bind:open={draftTriggersModalOpen}
+	draftTriggers={$triggersStore.filter((t) => t.isDraft)}
+	on:canceled={() => {
+		draftTriggersModalOpen = false
+	}}
+	on:confirmed={handleDraftTriggersConfirmed}
 />
 
 {#key renderCount}
