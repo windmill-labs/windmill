@@ -135,14 +135,14 @@
 	$: useVerticalTriggerBar = width < 800
 </script>
 
-<FlowCard {noEditor} title={'Triggers'} noHeader={useVerticalTriggerBar} bind:width>
+<FlowCard {noEditor} noHeader bind:width>
 	{#if !$simplifiedPoll}
 		<Splitpanes horizontal>
 			<Pane>
 				<div class="flex flex-row h-full">
 					<!-- Left Pane - Triggers List -->
 					{#if !useVerticalTriggerBar}
-						<div class="w-[350px] flex-shrink-0 overflow-auto pr-2 pl-4">
+						<div class="w-[350px] flex-shrink-0 overflow-auto pr-2 pl-4 pt-2">
 							<TriggersTable
 								selectedTrigger={$selectedTrigger}
 								on:select={handleSelectTrigger}
@@ -192,7 +192,7 @@
 
 					<div
 						class={twMerge(
-							'flex-grow overflow-auto pl-2 pr-4 pb-4',
+							'flex-grow overflow-auto pl-2 pr-4 pb-4 pt-2',
 							useVerticalTriggerBar ? 'pl-4 pt-2' : ''
 						)}
 						style="scrollbar-gutter: stable"
