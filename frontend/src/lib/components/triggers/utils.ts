@@ -99,9 +99,7 @@ function generateDraftId(): string {
 export function addDraftTrigger(triggersStore: Writable<Trigger[]>, type: TriggerType): Trigger {
 	const currentTriggers = get(triggersStore)
 
-	const primaryScheduleExists = currentTriggers.some(
-		(t) => t.type === 'schedule' && t.isPrimary && !t.isDraft
-	)
+	const primaryScheduleExists = currentTriggers.some((t) => t.type === 'schedule' && t.isPrimary)
 
 	// Create the new draft trigger
 	const draftId = generateDraftId()
