@@ -392,29 +392,12 @@ export async function fetchWebsocketTriggers(
 ): Promise<void> {
 	if (!workspaceId) return
 	try {
-		// Remove existing websocket triggers for this path except for draft triggers
-		triggersStore.update((triggers) =>
-			triggers.filter((t) => !(t.type === 'websocket' && !t.isDraft))
-		)
-
 		const wsTriggers = await WebsocketTriggerService.listWebsocketTriggers({
 			workspace: workspaceId,
 			path,
 			isFlow
 		})
-
-		for (const trigger of wsTriggers) {
-			triggersStore.update((triggers) => [
-				...triggers,
-				{
-					type: 'websocket',
-					path: trigger.path,
-					isPrimary: false,
-					isDraft: false,
-					canWrite: canWrite(trigger.path, trigger.extra_perms, user)
-				}
-			])
-		}
+		updateTriggers(triggersStore, wsTriggers, 'websocket', user)
 	} catch (error) {
 		console.error('Failed to fetch Websocket triggers:', error)
 	}

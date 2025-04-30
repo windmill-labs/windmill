@@ -136,7 +136,8 @@
 		on:update-config={({ detail }) => updateConfig(detail)}
 		on:save-draft
 		on:reset
-		defaultValues={selectedTrigger.isDraft ? selectedTrigger.draftConfig : undefined}
+		defaultValues={selectedTrigger.draftConfig ?? selectedTrigger.captureConfig ?? undefined}
+		newDraft={selectedTrigger.saveCb === undefined}
 	/>
 {:else if selectedTrigger.type === 'kafka'}
 	<KafkaTriggerPanel

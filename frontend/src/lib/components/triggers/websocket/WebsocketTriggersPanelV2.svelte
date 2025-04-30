@@ -3,6 +3,7 @@
 	import { isCloudHosted } from '$lib/cloud'
 	import { Alert } from '$lib/components/common'
 	import Description from '$lib/components/Description.svelte'
+	import { onMount } from 'svelte'
 
 	let {
 		selectedTrigger,
@@ -11,20 +12,21 @@
 		edit,
 		isDeployed = false,
 		isEditor,
-		defaultValues = undefined
+		defaultValues = undefined,
+		newDraft = false
 	} = $props()
 	let wsTriggerEditor: WebsocketTriggerEditorInner | undefined = $state(undefined)
 
 	async function openWebsocketTriggerEditor(isFlow: boolean, isDraft: boolean) {
 		if (isDraft) {
-			wsTriggerEditor?.openNew(isFlow, path, defaultValues)
+			wsTriggerEditor?.openNew(isFlow, path, defaultValues, newDraft)
 		} else {
-			wsTriggerEditor?.openEdit(selectedTrigger.path, isFlow)
+			wsTriggerEditor?.openEdit(selectedTrigger.path, isFlow, selectedTrigger.draftConfig)
 		}
 	}
 
-	$effect(() => {
-		wsTriggerEditor && openWebsocketTriggerEditor(isFlow, selectedTrigger.isDraft ?? false)
+	onMount(() => {
+		openWebsocketTriggerEditor(isFlow, selectedTrigger.isDraft ?? false)
 	})
 </script>
 
@@ -41,12 +43,15 @@
 			editMode={edit}
 			preventSave={!isDeployed}
 			hideTooltips={!isDeployed}
-			useEditButton
+			allowDraft={true}
+			hasDraft={!!selectedTrigger.draftConfig}
 			{isEditor}
 			on:toggle-edit-mode
 			on:update-config
 			on:update
 			on:delete
+			on:save-draft
+			on:reset
 		>
 			{#snippet description()}
 				<Description link="https://www.windmill.dev/docs/core_concepts/websocket_triggers">

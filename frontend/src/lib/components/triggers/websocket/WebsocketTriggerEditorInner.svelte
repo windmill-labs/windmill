@@ -18,7 +18,7 @@
 	import { canWrite, emptySchema, emptyString, sendUserToast } from '$lib/utils'
 	import { createEventDispatcher } from 'svelte'
 	import Section from '$lib/components/Section.svelte'
-	import { Loader2, Save, X, Plus, Pen, Trash } from 'lucide-svelte'
+	import { Loader2, Save, X, Plus } from 'lucide-svelte'
 	import Label from '$lib/components/Label.svelte'
 	import { fade } from 'svelte/transition'
 	import type { Schema } from '$lib/common'
@@ -26,7 +26,8 @@
 	import Toggle from '$lib/components/Toggle.svelte'
 	import WebsocketEditorConfigSection from './WebsocketEditorConfigSection.svelte'
 	import type { Snippet } from 'svelte'
-	import { twMerge } from 'tailwind-merge'
+
+	import TriggerEditorToolbar from '../TriggerEditorToolbar.svelte'
 
 	interface Props {
 		useDrawer?: boolean
@@ -37,6 +38,8 @@
 		hideTooltips?: boolean
 		useEditButton?: boolean
 		isEditor?: boolean
+		allowDraft?: boolean
+		hasDraft?: boolean
 	}
 
 	let {
@@ -46,8 +49,9 @@
 		editMode = true,
 		preventSave = false,
 		hideTooltips = false,
-		useEditButton = false,
-		isEditor = false
+		isEditor = false,
+		allowDraft = false,
+		hasDraft = false
 	}: Props = $props()
 
 	let drawer: Drawer | undefined = $state()
@@ -76,6 +80,7 @@
 	let showLoading = $state(false)
 	let resetEditMode = $state<(() => void) | undefined>(undefined)
 	let isDraft = $state(false)
+	let initialConfig = $state<Record<string, any> | undefined>(undefined)
 
 	const dispatch = createEventDispatcher()
 
@@ -83,12 +88,16 @@
 		is_flow = itemKind === 'flow'
 	})
 
-	export async function openEdit(ePath: string, isFlow: boolean) {
+	export async function openEdit(
+		ePath: string,
+		isFlow: boolean,
+		defaultConfig?: Record<string, any>
+	) {
 		let loadingTimeout = setTimeout(() => {
 			showLoading = true
 		}, 100) // Do not show loading spinner for the first 100ms
 		drawerLoading = true
-		resetEditMode = () => openEdit(ePath, isFlow)
+		resetEditMode = () => openEdit(ePath, isFlow, defaultConfig ?? initialConfig)
 		try {
 			drawer?.openDrawer()
 			initialPath = ePath
@@ -97,7 +106,7 @@
 			isDraft = false
 			dirtyPath = false
 			dirtyUrl = false
-			await loadTrigger()
+			await loadTrigger(defaultConfig)
 		} catch (err) {
 			sendUserToast(`Could not load websocket trigger: ${err}`, true)
 		} finally {
@@ -110,12 +119,14 @@
 	export async function openNew(
 		nis_flow: boolean,
 		fixedScriptPath_?: string,
-		defaultValues?: Record<string, any>
+		defaultValues?: Record<string, any>,
+		newDraft?: boolean
 	) {
 		let loadingTimeout = setTimeout(() => {
 			showLoading = true
 		}, 100) // Do not show loading spinner for the first 100ms
 		drawerLoading = true
+		resetEditMode = () => openNew(nis_flow, fixedScriptPath_, defaultValues, newDraft)
 		try {
 			drawer?.openDrawer()
 			is_flow = nis_flow
@@ -134,7 +145,9 @@
 			url_runnable_args = defaultValues?.url_runnable_args ?? {}
 			dirtyPath = false
 			can_return_message = false
-			toggleEditMode(true)
+			if (newDraft) {
+				toggleEditMode(true)
+			}
 		} finally {
 			clearTimeout(loadingTimeout)
 			drawerLoading = false
@@ -142,24 +155,33 @@
 		}
 	}
 
-	async function loadTrigger(): Promise<void> {
-		const s = await WebsocketTriggerService.getWebsocketTrigger({
-			workspace: $workspaceStore!,
-			path: initialPath
-		})
-		script_path = s.script_path
-		initialScriptPath = s.script_path
+	function loadTriggerConfig(cfg?: Record<string, any>): void {
+		script_path = cfg?.script_path
+		initialScriptPath = cfg?.script_path
+		is_flow = cfg?.is_flow
+		path = cfg?.path
+		url = cfg?.url
+		enabled = cfg?.enabled
+		filters = cfg?.filters
+		initial_messages = cfg?.initial_messages ?? []
+		url_runnable_args = cfg?.url_runnable_args
+		can_return_message = cfg?.can_return_message
 
-		is_flow = s.is_flow
-		path = s.path
-		url = s.url
-		enabled = s.enabled
-		filters = s.filters
-		initial_messages = s.initial_messages ?? []
-		url_runnable_args = s.url_runnable_args
-		can_return_message = s.can_return_message
+		can_write = canWrite(path, cfg?.extra_perms, $userStore)
+	}
 
-		can_write = canWrite(s.path, s.extra_perms, $userStore)
+	async function loadTrigger(defaultConfig?: Record<string, any>): Promise<void> {
+		if (defaultConfig) {
+			loadTriggerConfig(defaultConfig)
+			return
+		} else {
+			const s = await WebsocketTriggerService.getWebsocketTrigger({
+				workspace: $workspaceStore!,
+				path: initialPath
+			})
+			initialConfig = s
+			loadTriggerConfig(s)
+		}
 	}
 
 	let initialMessageRunnableSchemas: Record<string, Schema> = $state({})
@@ -264,6 +286,27 @@
 			path
 		})
 	})
+
+	function saveDraft() {
+		dispatch('save-draft', {
+			cfg: {
+				script_path,
+				initialScriptPath,
+				is_flow,
+				path,
+				url,
+				filters,
+				initial_messages,
+				url_runnable_args,
+				can_return_message,
+				isValid
+			},
+			cb: () => {
+				updateTrigger()
+			}
+		})
+		toggleEditMode(false)
+	}
 </script>
 
 {#if useDrawer}
@@ -292,77 +335,50 @@
 {/if}
 
 {#snippet actionsButtons(size: 'xs' | 'sm' = 'sm')}
-	{#if !drawerLoading && can_write}
-		<div class="flex flex-row gap-2 items-center">
-			{#if isDraft}
-				<Button
-					{size}
-					startIcon={{ icon: Trash }}
-					iconOnly
-					color={'light'}
-					on:click={() => {
-						dispatch('delete')
-					}}
-					btnClasses="hover:bg-red-500 hover:text-white"
-				/>
-			{/if}
-			{#if !isDraft && edit}
-				<div class={twMerge('center-center', size === 'sm' ? '-mt-1' : '')}>
-					<Toggle
-						{size}
-						disabled={!can_write || !editMode}
-						checked={enabled}
-						options={{ right: 'enable', left: 'disable' }}
-						on:change={async (e) => {
-							await WebsocketTriggerService.setWebsocketTriggerEnabled({
-								path: initialPath,
-								workspace: $workspaceStore ?? '',
-								requestBody: { enabled: e.detail }
-							})
-							sendUserToast(`${e.detail ? 'enabled' : 'disabled'} websocket trigger ${initialPath}`)
-						}}
-					/>
-				</div>
-			{/if}
-			{#if !preventSave}
-				{#if can_write && editMode}
-					<Button
-						{size}
-						startIcon={{ icon: Save }}
-						disabled={pathError != '' ||
-							!isValid ||
-							invalidInitialMessages ||
-							emptyString(script_path) ||
-							!can_write}
-						on:click={updateTrigger}
-					>
-						Save
-					</Button>
-				{/if}
-				{#if !editMode && useEditButton}
-					<Button
-						{size}
-						color="light"
-						startIcon={{ icon: Pen }}
-						on:click={() => toggleEditMode(true)}
-					>
-						Edit
-					</Button>
-				{:else if editMode && !!resetEditMode && useEditButton}
-					<Button
-						{size}
-						color="light"
-						startIcon={{ icon: X }}
-						on:click={() => {
-							toggleEditMode(false)
-							resetEditMode?.()
-						}}
-					>
-						Cancel
-					</Button>
-				{/if}
-			{/if}
-		</div>
+	{#if !allowDraft}
+		<Button
+			{size}
+			startIcon={{ icon: Save }}
+			disabled={pathError !== '' ||
+				!isValid ||
+				invalidInitialMessages ||
+				drawerLoading ||
+				!can_write ||
+				emptyString(script_path)}
+			on:click={() => {
+				updateTrigger()
+			}}
+		>
+			Save
+		</Button>
+	{:else}
+		<TriggerEditorToolbar
+			isDraftOnly={isDraft}
+			{hasDraft}
+			canEdit={!drawerLoading && can_write && !preventSave}
+			{editMode}
+			saveDisabled={pathError !== '' ||
+				!isValid ||
+				invalidInitialMessages ||
+				drawerLoading ||
+				!can_write ||
+				emptyString(script_path)}
+			on:save-draft={() => {
+				saveDraft()
+			}}
+			on:deploy={() => {
+				updateTrigger()
+			}}
+			on:reset
+			on:delete
+			on:edit={() => {
+				toggleEditMode(true)
+			}}
+			on:cancel={() => {
+				resetEditMode?.()
+				toggleEditMode(false)
+			}}
+		/>
 	{/if}
 {/snippet}
 
