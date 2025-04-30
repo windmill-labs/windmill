@@ -345,6 +345,7 @@ async fn get_top_hub_scripts(
     if let Some(query_kind) = query.kind {
         query_params.push(("kind", query_kind.to_string().clone()));
     }
+
     let (status_code, headers, response) = query_elems_from_hub(
         &HTTP_CLIENT,
         &format!("{}/scripts/top", *HUB_BASE_URL.read().await),
