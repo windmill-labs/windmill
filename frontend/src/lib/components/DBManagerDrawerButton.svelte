@@ -87,10 +87,8 @@
 
 	let windowWidth = $state(window.innerWidth)
 
-	let replPanelSize = $state(0)
-
-	const openRepl = () => (replPanelSize = 32)
-	openRepl()
+	let replPanelSize = $state(36)
+	const REPL_MIN_SIZE = 1.5
 
 	let replResultData: undefined | Record<string, any>[] = $state(undefined)
 
@@ -214,13 +212,13 @@
 							})}
 						/>
 					</Pane>
-					<Pane bind:size={replPanelSize} class="relative">
+					<Pane bind:size={replPanelSize} minSize={REPL_MIN_SIZE} class="relative">
 						<div class="absolute top-2 right-6 z-10">
 							<HideButton
 								btnClasses="!text-primary border border-gray-200 dark:border-gray-600 bg-surface"
 								direction="bottom"
 								variant="contained"
-								on:click={() => (replPanelSize = 0)}
+								on:click={() => (replPanelSize = REPL_MIN_SIZE)}
 							/>
 						</div>
 						<SqlRepl
@@ -241,17 +239,6 @@
 				</Splitpanes>
 			{/if}
 			<svelte:fragment slot="actions">
-				{#if !replPanelSize}
-					<Button
-						btnClasses="!font-normal hover:text-primary text-primary/70"
-						size="xs"
-						color="light"
-						on:click={openRepl}
-					>
-						SQL Repl
-					</Button>
-				{/if}
-
 				<Button
 					loading={refreshing}
 					on:click={() => refresh()}
