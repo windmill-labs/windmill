@@ -304,20 +304,18 @@
 						{/if}
 					</div>
 
-					{#if newMcpScope !== 'hub'}
-						<div>
-							<span class="block mb-1">Workspace</span>
-							<select
-								bind:value={newTokenWorkspace}
-								disabled={workspaces.length === 1}
-								class="w-full"
-							>
-								{#each workspaces as workspace}
-									<option value={workspace.id}>{workspace.name}</option>
-								{/each}
-							</select>
-						</div>
-					{/if}
+					<div>
+						<span class="block mb-1">Workspace</span>
+						<select
+							bind:value={newTokenWorkspace}
+							disabled={workspaces.length === 1}
+							class="w-full"
+						>
+							{#each workspaces as workspace}
+								<option value={workspace.id}>{workspace.name}</option>
+							{/each}
+						</select>
+					</div>
 				{/if}
 
 				<div>
