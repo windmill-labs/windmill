@@ -13430,6 +13430,8 @@ components:
           type: string
         raw_code:
           type: string
+        leaf_job:
+          $ref: "#/components/schemas/LeafJob"
         canceled:
           type: boolean
         canceled_by:
@@ -16730,3 +16732,29 @@ components:
           type: string
           description: Microsoft Teams channel name
           minLength: 1
+
+    LeafJob:
+      type: object
+      additionalProperties:
+        oneOf:
+          - type: object
+            properties:
+              SingleJob:
+                type: string
+                format: uuid
+                description: UUID of an individual job
+            required:
+              - SingleJob
+            additionalProperties: false
+          - type: object
+            properties:
+              ListJob:
+                type: array
+                items:
+                  type: string
+                  format: uuid
+                description: Array of UUIDs for multiple related jobs
+            required:
+              - ListJob
+            additionalProperties: false
+      description: Map of keys to JobResult, which can be either SingleJob (individual UUID) or ListJob (array of UUIDs)
