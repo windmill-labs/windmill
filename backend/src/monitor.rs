@@ -638,7 +638,9 @@ async fn send_log_file_to_object_store(
         let (ok_lines, err_lines) = read_log_counters(ts_str);
 
         if let Some(db) = conn.as_sql() {
-            if let Err(e) = sqlx::query!("INSERT INTO log_file (hostname, mode, worker_group, log_ts, file_path, ok_lines, err_lines, json_fmt) VALUES ($1, $2::text::LOG_MODE, $3, $4, $5, $6, $7, $8)",
+            if let Err(e) = sqlx::query!("INSERT INTO log_file (hostname, mode, worker_group, log_ts, file_path, ok_lines, err_lines, json_fmt)
+             VALUES ($1, $2::text::LOG_MODE, $3, $4, $5, $6, $7, $8)
+             ON CONFLICT (hostname, log_ts) DO UPDATE SET ok_lines = log_file.ok_lines + $6, err_lines = log_file.err_lines + $7",
                 hostname, mode.to_string(), worker_group.clone(), ts, highest_file, ok_lines as i64, err_lines as i64, *JSON_FMT)
                 .execute(db)
                 .await {
