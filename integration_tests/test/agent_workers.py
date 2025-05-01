@@ -163,6 +163,7 @@ class TestAgentWorkers(unittest.TestCase):
 
     def test_create_agent_token(self):
         token = self._agent_token
+        print(f"Agent token tests for token: {token}")
         self.assertIsNotNone(token)
 
         # JWT tokens have the format: jwt_agent_<prefix>_<token>

@@ -415,5 +415,5 @@ class WindmillClient:
             raise Exception(response.content.decode())
 
         token = response.content.decode().strip('"')
-        print(f"Created agent token: {token[:15]}...{token[-15:]}")
+        print(f"Created agent token: {token}")
         return token
