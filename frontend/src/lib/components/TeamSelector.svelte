@@ -5,7 +5,7 @@
 	import { createEventDispatcher, onMount } from 'svelte'
 	import DarkModeObserver from './DarkModeObserver.svelte'
 	import { RefreshCcw } from 'lucide-svelte'
-	import { WorkspaceService, TeamsService } from '$lib/gen'
+	import { WorkspaceService } from '$lib/gen'
 
 	interface TeamItem {
 		team_id: string;
@@ -18,17 +18,14 @@
 	export let containerClass = 'w-64'
 	export let showRefreshButton = true
 	export let teams: TeamItem[] | undefined = undefined
-	export let enableSync = false
 	export let minWidth = '160px'
 
 	let isFetching = false
-	let isSyncing = false
 	let darkMode: boolean = false
 
 	const dispatch = createEventDispatcher<{
 		change: TeamItem
 		error: Error
-		synced: TeamItem[]
 	}>()
 
 	function onThemeChange() {
@@ -42,32 +39,7 @@
 		}
 	})
 
-	async function syncTeams() {
-		if (isSyncing) return
-		isSyncing = true
-		isFetching = true
-
-		try {
-			const syncedTeams = await TeamsService.syncTeams()
-			if (teams) {
-				teams = syncedTeams;
-			}
-			dispatch('synced', syncedTeams)
-			isSyncing = false
-			isFetching = false
-			return syncedTeams
-		} catch (error) {
-			dispatch('error', error)
-			console.error('Error syncing teams:', error)
-			isSyncing = false
-			isFetching = false
-			return null
-		}
-	}
-
 	async function loadTeams() {
-		if (teams) return
-
 		isFetching = true
 		try {
 			const response = await WorkspaceService.listAvailableTeamsIds({
@@ -83,31 +55,6 @@
 			dispatch('error', error)
 			console.error('Error loading teams:', error)
 			return []
-		}
-	}
-
-	async function refreshTeams() {
-		isFetching = true;
-		try {
-			if (enableSync) {
-				const syncedTeams = await syncTeams();
-				if (syncedTeams) {
-					if (teams) {
-						teams = syncedTeams;
-						isFetching = false;
-						return syncedTeams;
-					}
-				}
-			}
-
-			if (!teams) {
-				return await loadTeams();
-			} else {
-				isFetching = false;
-			}
-		} catch (error) {
-			isFetching = false;
-			dispatch('error', error);
 		}
 	}
 
@@ -149,22 +96,16 @@
 				searchable={true}
 				loading={isFetching}
 				disabled={disabled || isFetching}
-				on:input={async (e) => {
-					const filterText = e.detail
-					if (!teams) {
-						await loadTeams()
-					}
-					return filterTeams(filterText)
-				}}
+				on:input={(e) => filterTeams(e.detail)}
 			/>
 		</div>
 
 		{#if showRefreshButton}
 			<button
-				on:click={refreshTeams}
+				on:click={loadTeams}
 				disabled={isFetching || disabled}
 				class="flex items-center justify-center p-1.5 rounded hover:bg-surface-hover focus:bg-surface-hover disabled:opacity-50"
-				title={enableSync ? "Sync and refresh teams list" : "Refresh teams list"}
+				title="Refresh teams from Microsoft"
 			>
 				<RefreshCcw size={16} class={isFetching ? 'animate-spin' : ''} />
 			</button>
@@ -174,7 +115,7 @@
 	{#if isFetching || ((!teams || teams.length === 0) && !isFetching)}
 		<div class="text-xs text-tertiary mt-1">
 			{#if isFetching}
-				{isSyncing ? 'Syncing and loading teams...' : 'Loading teams...'}
+				Fetching teams from Microsoft...
 			{:else}
 				No available teams found
 			{/if}

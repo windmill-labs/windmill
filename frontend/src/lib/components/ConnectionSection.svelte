@@ -108,8 +108,6 @@
 						bind:selectedTeam
 						minWidth="180px"
 						disabled={!$enterpriseLicense}
-						enableSync={true}
-						on:synced={() => sendUserToast('Teams synced from Microsoft successfully')}
 						on:error={(e) => sendUserToast('Failed to load teams: ' + e.detail.message, true)}
 					/>
 				{/if}
