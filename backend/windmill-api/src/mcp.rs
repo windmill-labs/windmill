@@ -993,18 +993,25 @@ impl ServerHandler for Runner {
             .req_extensions
             .get::<ApiAuthed>()
             .ok_or_else(|| Error::internal_error("ApiAuthed not found", None))?;
-        let scope = authed
+        let owned_scope = authed.scopes.as_ref().and_then(|scopes| {
+            scopes
+                .iter()
+                .find(|scope| scope.starts_with("mcp:") && !scope.contains("hub"))
+        });
+        let hub_scope = authed
             .scopes
             .as_ref()
-            .and_then(|scopes| scopes.iter().find(|scope| scope.starts_with("mcp:")));
-        let mut scope_integrations = None;
-        let scope_type = scope.map_or("all", |scope| {
+            .and_then(|scopes| scopes.iter().find(|scope| scope.starts_with("mcp:hub")));
+        let scope_type = owned_scope.map_or("all", |scope| {
             let parts = scope.split(":").collect::<Vec<&str>>();
-            if parts.len() == 3 && parts[1] == "hub" {
-                scope_integrations = Some(parts[2]);
-                "hub"
+            parts[1]
+        });
+        let scope_integrations = hub_scope.and_then(|scope| {
+            let parts = scope.split(":").collect::<Vec<&str>>();
+            if parts.len() == 3 {
+                Some(parts[2])
             } else {
-                parts[1]
+                None
             }
         });
 
@@ -1019,9 +1026,10 @@ impl ServerHandler for Runner {
             Runner::inner_get_items::<FlowInfo>(user_db, authed, &workspace_id, scope_type, "flow");
         let resources_types_fn = Runner::inner_get_resources_types(user_db, authed, &workspace_id);
         let hub_scripts_fn = Runner::inner_get_scripts_from_hub(db, scope_integrations.as_deref());
-        let (scripts, flows, resources_types, hub_scripts) = if scope_type == "hub" {
-            let (resources_types, hub_scripts) = try_join!(resources_types_fn, hub_scripts_fn)?;
-            (vec![], vec![], resources_types, hub_scripts)
+        let (scripts, flows, resources_types, hub_scripts) = if scope_integrations.is_some() {
+            let (scripts, flows, resources_types, hub_scripts) =
+                try_join!(scripts_fn, flows_fn, resources_types_fn, hub_scripts_fn)?;
+            (scripts, flows, resources_types, hub_scripts)
         } else {
             let (scripts, flows, resources_types) =
                 try_join!(scripts_fn, flows_fn, resources_types_fn)?;

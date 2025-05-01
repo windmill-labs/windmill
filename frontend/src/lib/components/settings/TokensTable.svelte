@@ -73,7 +73,9 @@
 	})
 
 	$effect(() => {
-		if (newMcpScope !== 'hub') {
+		if (mcpCreationMode) {
+			getAllApps()
+		} else {
 			newMcpApps = []
 		}
 	})
@@ -86,9 +88,13 @@
 				date = new Date(new Date().getTime() + newTokenExpiration * 1000)
 			}
 
-			let tokenScopes = mcpMode
-				? [`mcp:${newMcpScope}${newMcpApps.length > 0 ? `:${newMcpApps.join(',')}` : ''}`]
-				: scopes
+			let tokenScopes = scopes
+			if (mcpMode) {
+				tokenScopes = [`mcp:${newMcpScope}`]
+				if (newMcpApps.length > 0) {
+					tokenScopes.push(`mcp:hub:${newMcpApps.join(',')}`)
+				}
+			}
 
 			const createdToken = await UserService.createToken({
 				requestBody: {
@@ -277,35 +283,26 @@
 							<ToggleButton
 								{item}
 								value="all"
-								label="All resources"
+								label="All scripts/flows"
 								tooltip="Make all your scripts and flows available as tools"
-							/>
-							<ToggleButton
-								{item}
-								value="hub"
-								label="Hub scripts"
-								tooltip="Get all scripts from the Windmill Hub and make them available as tools"
-								onClick={getAllApps}
 							/>
 						</ToggleButtonGroup>
 					</div>
 
-					{#if newMcpScope === 'hub'}
-						<div>
-							<span class="block mb-1">Apps</span>
-							{#if loadingApps}
-								<div>Loading...</div>
-							{:else if errorFetchApps}
-								<div>Error fetching apps</div>
-							{:else}
-								<MultiSelectWrapper
-									items={allApps}
-									placeholder="Select apps"
-									bind:value={newMcpApps}
-								/>
-							{/if}
-						</div>
-					{/if}
+					<div>
+						<span class="block mb-1">Hub scripts (optional)</span>
+						{#if loadingApps}
+							<div>Loading...</div>
+						{:else if errorFetchApps}
+							<div>Error fetching apps</div>
+						{:else}
+							<MultiSelectWrapper
+								items={allApps}
+								placeholder="Select apps"
+								bind:value={newMcpApps}
+							/>
+						{/if}
+					</div>
 
 					{#if newMcpScope !== 'hub'}
 						<div>
@@ -357,7 +354,7 @@
 				</Button>
 				<Button
 					on:click={() => createToken(mcpCreationMode)}
-					disabled={mcpCreationMode && newMcpScope === 'hub' && newMcpApps.length === 0}
+					disabled={mcpCreationMode && newTokenWorkspace == undefined}
 				>
 					New token
 				</Button>

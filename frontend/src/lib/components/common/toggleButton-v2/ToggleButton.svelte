@@ -18,7 +18,6 @@
 	export let id: string | undefined = undefined
 	export let item: ToggleGroupElements['item']
 	export let value: ToggleGroupItemProps
-	export let onClick: () => void = () => {}
 </script>
 
 <Tooltip
@@ -40,7 +39,6 @@
 		)}
 		use:melt={$item(value)}
 		style={`--selected-color: ${selectedColor}`}
-		on:click={onClick}
 	>
 		{#if icon}
 			<svelte:component
