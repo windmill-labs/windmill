@@ -60,6 +60,8 @@
 	import EditableSchemaWrapper from '$lib/components/schema/EditableSchemaWrapper.svelte'
 	import ResourceEditorDrawer from '$lib/components/ResourceEditorDrawer.svelte'
 	import GfmMarkdown from '$lib/components/GfmMarkdown.svelte'
+	import DbManagerDrawerButton from '$lib/components/DBManagerDrawerButton.svelte'
+	import { isDbType } from '$lib/components/apps/components/display/dbtable/utils'
 
 	type ResourceW = ListableResource & { canWrite: boolean; marked?: string }
 	type ResourceTypeW = ResourceType & { canWrite: boolean }
@@ -136,23 +138,23 @@
 								x.resource_type !== 'state' &&
 								x.resource_type !== 'cache'
 						: tab === 'states'
-						? x.resource_type === 'state'
-						: tab === 'cache'
-						? x.resource_type === 'cache'
-						: tab === 'theme'
-						? x.resource_type === 'app_theme'
-						: true
-			  })
+							? x.resource_type === 'state'
+							: tab === 'cache'
+								? x.resource_type === 'cache'
+								: tab === 'theme'
+									? x.resource_type === 'app_theme'
+									: true
+				})
 			: preFilteredItemsOwners?.filter((x) => {
 					return (
 						x.resource_type === typeFilter &&
 						(tab === 'workspace'
 							? x.resource_type !== 'app_theme' &&
-							  x.resource_type !== 'state' &&
-							  x.resource_type !== 'cache'
+								x.resource_type !== 'state' &&
+								x.resource_type !== 'cache'
 							: true)
 					)
-			  })
+				})
 
 	async function loadResources(): Promise<void> {
 		resources = await loadResourceInternal(undefined, 'cache,state')
@@ -488,10 +490,7 @@
 			>
 			<label>
 				<div class="mb-1 font-semibold text-secondary">Description</div>
-				<textarea
-					use:autosize
-					autocomplete="off"
-					bind:value={editResourceType.description}
+				<textarea use:autosize autocomplete="off" bind:value={editResourceType.description}
 				></textarea></label
 			>
 			<div>
@@ -569,7 +568,8 @@
 			</label>
 			<label>
 				<div class="mb-1 font-semibold text-secondary">Description</div>
-				<textarea use:autosize autocomplete="off" bind:value={newResourceType.description}></textarea></label
+				<textarea use:autosize autocomplete="off" bind:value={newResourceType.description}
+				></textarea></label
 			>
 			<div>
 				<div class="flex justify-between w-full items-center">
@@ -603,422 +603,435 @@
 	f={(x) => x.path + ' ' + x.resource_type + ' ' + x.description + ' '}
 />
 
-{#if $userStore?.operator && $workspaceStore && !$userWorkspaces.find(_ => _.id === $workspaceStore)?.operator_settings?.resources}
-<div class="bg-red-100 border-l-4 border-red-600 text-orange-700 p-4 m-4 mt-12" role="alert">
-	<p class="font-bold">Unauthorized</p>
-	<p>Page not available for operators</p>
-</div>
-{:else}
-<CenteredPage>
-	<PageHeader
-		title="Resources"
-		tooltip="Save and permission rich objects (JSON) including credentials obtained through OAuth."
-		documentationLink="https://www.windmill.dev/docs/core_concepts/resources_and_types"
-	>
-		<div class="flex flex-row justify-end gap-4">
-			<Button variant="border" size="md" startIcon={{ icon: Plus }} on:click={startNewType}>
-				Add resource type
-			</Button>
-			<Button size="md" startIcon={{ icon: Link }} on:click={() => appConnect.open?.()}>
-				Add resource
-			</Button>
-		</div>
-	</PageHeader>
-	<div class="flex justify-between">
-		<Tabs
-			class="w-full"
-			bind:selected={tab}
-			on:selected={(e) => {
-				if (e.detail == 'cache') {
-					loading.resources = true
-					loadCache()
-				} else if (e.detail == 'states') {
-					loading.resources = true
-					loadState()
-				}
-			}}
-		>
-			<Tab size="md" value="workspace">
-				<div class="flex gap-2 items-center my-1">
-					<Building size={18} />
-					Workspace
-				</div>
-			</Tab>
-			<Tab size="md" value="types">
-				<div class="flex gap-2 items-center my-1">
-					Resource Types
-					<Tooltip
-						documentationLink="https://www.windmill.dev/docs/core_concepts/resources_and_types"
-					>
-						Every resource has a Resource Type attached to it which contains its schema and make it
-						easy in scripts and flows to accept only resources of a specific resource type.
-					</Tooltip>
-				</div>
-			</Tab>
-			<Tab size="md" value="states">
-				<div class="flex gap-2 items-center my-1">
-					States
-					<Tooltip>
-						States are actually resources (but excluded from the Workspace tab for clarity). States
-						are used by scripts to keep data persistent between runs of the same script by the same
-						trigger (schedule or user)
-					</Tooltip>
-				</div>
-			</Tab>
-			<Tab size="md" value="cache">
-				<div class="flex gap-2 items-center my-1">
-					Cache
-					<Tooltip>
-						Cached results are actually resources (but excluded from the Workspace tab for clarity).
-						Cache are used by flows's step to cache result to avoid recomputing unnecessarily
-					</Tooltip>
-				</div>
-			</Tab>
-			<Tab size="md" value="theme">
-				<div class="flex gap-2 items-center my-1">
-					Theme
-					<Tooltip>
-						Theme are actually resources (but excluded from the Workspace tab for clarity). Theme
-						are used by the apps to customize their look and feel.
-					</Tooltip>
-				</div>
-			</Tab>
-		</Tabs>
-		<div class="flex">
-			<Button
-				variant="border"
-				color="light"
-				on:click={reload}
-				startIcon={{
-					icon: RotateCw,
-					classes: loading.resources || loading.types ? 'animate-spin' : ''
-				}}
-			/>
-		</div>
+{#if $userStore?.operator && $workspaceStore && !$userWorkspaces.find((_) => _.id === $workspaceStore)?.operator_settings?.resources}
+	<div class="bg-red-100 border-l-4 border-red-600 text-orange-700 p-4 m-4 mt-12" role="alert">
+		<p class="font-bold">Unauthorized</p>
+		<p>Page not available for operators</p>
 	</div>
-	{#if tab == 'workspace' || tab == 'states' || tab == 'cache' || tab == 'theme'}
-		<div class="pt-2">
-			<input placeholder="Search Resource" bind:value={filter} class="input mt-1" />
-		</div>
-		<ListFilters bind:selectedFilter={ownerFilter} filters={owners} />
-		{#if tab != 'states' && tab != 'cache'}
-			<ListFilters
-				queryName="app_filter"
-				bind:selectedFilter={typeFilter}
-				filters={types}
-				resourceType
-			/>
-		{:else}
-			<div class="h-4"></div>
-		{/if}
-
-		<div class="overflow-x-auto pb-40 mt-4">
-			{#if loading.resources}
-				<Skeleton layout={[0.5, [2], 1]} />
-				{#each new Array(6) as _}
-					<Skeleton layout={[[4], 0.7]} />
-				{/each}
-			{:else if filteredItems?.length == 0}
-				<div class="flex flex-col items-center justify-center h-full">
-					<div class="text-md font-medium">No resources found</div>
-					<div class="text-sm text-secondary">
-						Try changing the filters or creating a new resource
+{:else}
+	<CenteredPage>
+		<PageHeader
+			title="Resources"
+			tooltip="Save and permission rich objects (JSON) including credentials obtained through OAuth."
+			documentationLink="https://www.windmill.dev/docs/core_concepts/resources_and_types"
+		>
+			<div class="flex flex-row justify-end gap-4">
+				<Button variant="border" size="md" startIcon={{ icon: Plus }} on:click={startNewType}>
+					Add resource type
+				</Button>
+				<Button size="md" startIcon={{ icon: Link }} on:click={() => appConnect.open?.()}>
+					Add resource
+				</Button>
+			</div>
+		</PageHeader>
+		<div class="flex justify-between">
+			<Tabs
+				class="w-full"
+				bind:selected={tab}
+				on:selected={(e) => {
+					if (e.detail == 'cache') {
+						loading.resources = true
+						loadCache()
+					} else if (e.detail == 'states') {
+						loading.resources = true
+						loadState()
+					}
+				}}
+			>
+				<Tab size="md" value="workspace">
+					<div class="flex gap-2 items-center my-1">
+						<Building size={18} />
+						Workspace
 					</div>
-				</div>
+				</Tab>
+				<Tab size="md" value="types">
+					<div class="flex gap-2 items-center my-1">
+						Resource Types
+						<Tooltip
+							documentationLink="https://www.windmill.dev/docs/core_concepts/resources_and_types"
+						>
+							Every resource has a Resource Type attached to it which contains its schema and make
+							it easy in scripts and flows to accept only resources of a specific resource type.
+						</Tooltip>
+					</div>
+				</Tab>
+				<Tab size="md" value="states">
+					<div class="flex gap-2 items-center my-1">
+						States
+						<Tooltip>
+							States are actually resources (but excluded from the Workspace tab for clarity).
+							States are used by scripts to keep data persistent between runs of the same script by
+							the same trigger (schedule or user)
+						</Tooltip>
+					</div>
+				</Tab>
+				<Tab size="md" value="cache">
+					<div class="flex gap-2 items-center my-1">
+						Cache
+						<Tooltip>
+							Cached results are actually resources (but excluded from the Workspace tab for
+							clarity). Cache are used by flows's step to cache result to avoid recomputing
+							unnecessarily
+						</Tooltip>
+					</div>
+				</Tab>
+				<Tab size="md" value="theme">
+					<div class="flex gap-2 items-center my-1">
+						Theme
+						<Tooltip>
+							Theme are actually resources (but excluded from the Workspace tab for clarity). Theme
+							are used by the apps to customize their look and feel.
+						</Tooltip>
+					</div>
+				</Tab>
+			</Tabs>
+			<div class="flex">
+				<Button
+					variant="border"
+					color="light"
+					on:click={reload}
+					startIcon={{
+						icon: RotateCw,
+						classes: loading.resources || loading.types ? 'animate-spin' : ''
+					}}
+				/>
+			</div>
+		</div>
+		{#if tab == 'workspace' || tab == 'states' || tab == 'cache' || tab == 'theme'}
+			<div class="pt-2">
+				<input placeholder="Search Resource" bind:value={filter} class="input mt-1" />
+			</div>
+			<ListFilters bind:selectedFilter={ownerFilter} filters={owners} />
+			{#if tab != 'states' && tab != 'cache'}
+				<ListFilters
+					queryName="app_filter"
+					bind:selectedFilter={typeFilter}
+					filters={types}
+					resourceType
+				/>
 			{:else}
-				<DataTable>
-					<Head>
-						<Row>
-							<Cell head first />
-							<Cell head>Path</Cell>
-							<Cell head>Resource type</Cell>
-							<Cell head>Description</Cell>
-							<Cell head />
-							<Cell head last />
-						</Row>
-					</Head>
-					<tbody class="divide-y bg-surface">
-						{#if filteredItems}
-							{#each filteredItems as { path, description, resource_type, extra_perms, canWrite, is_oauth, is_linked, account, refresh_error, is_expired, marked, is_refreshed }}
-								<Row>
-									<Cell first>
-										<SharedBadge {canWrite} extraPerms={extra_perms} />
-									</Cell>
-									<Cell>
-										<a
-											class="break-all"
-											href="#{path}"
-											on:click={() => resourceEditor?.initEdit?.(path)}
-											>{#if marked}{@html marked}{:else}{path}{/if}</a
-										>
-									</Cell>
-									<Cell>
-										<a
-											href="#{name}"
-											on:click={() => {
-												const linkedRt = resourceTypes?.find((rt) => rt.name === resource_type)
-												if (linkedRt) {
-													resourceTypeViewerObj = {
-														rt: linkedRt.name,
-														//@ts-ignore
-														schema: linkedRt.schema,
-														description: linkedRt.description ?? '',
-														formatExtension: linkedRt.format_extension
+				<div class="h-4"></div>
+			{/if}
+
+			<div class="overflow-x-auto pb-40 mt-4">
+				{#if loading.resources}
+					<Skeleton layout={[0.5, [2], 1]} />
+					{#each new Array(6) as _}
+						<Skeleton layout={[[4], 0.7]} />
+					{/each}
+				{:else if filteredItems?.length == 0}
+					<div class="flex flex-col items-center justify-center h-full">
+						<div class="text-md font-medium">No resources found</div>
+						<div class="text-sm text-secondary">
+							Try changing the filters or creating a new resource
+						</div>
+					</div>
+				{:else}
+					<DataTable>
+						<Head>
+							<Row>
+								<Cell head first />
+								<Cell head>Path</Cell>
+								<Cell head>Resource type</Cell>
+								<Cell head>Description</Cell>
+								<Cell head />
+								<Cell head last />
+							</Row>
+						</Head>
+						<tbody class="divide-y bg-surface">
+							{#if filteredItems}
+								{#each filteredItems as { path, description, resource_type, extra_perms, canWrite, is_oauth, is_linked, account, refresh_error, is_expired, marked, is_refreshed }}
+									<Row>
+										<Cell first>
+											<SharedBadge {canWrite} extraPerms={extra_perms} />
+										</Cell>
+										<Cell>
+											<a
+												class="break-all"
+												href="#{path}"
+												on:click={() => resourceEditor?.initEdit?.(path)}
+												>{#if marked}{@html marked}{:else}{path}{/if}</a
+											>
+										</Cell>
+										<Cell>
+											<a
+												href="#{name}"
+												on:click={() => {
+													const linkedRt = resourceTypes?.find((rt) => rt.name === resource_type)
+													if (linkedRt) {
+														resourceTypeViewerObj = {
+															rt: linkedRt.name,
+															//@ts-ignore
+															schema: linkedRt.schema,
+															description: linkedRt.description ?? '',
+															formatExtension: linkedRt.format_extension
+														}
+														resourceTypeViewer.openDrawer?.()
+													} else {
+														sendUserToast(
+															`Resource type ${resource_type} not found in workspace.`,
+															true
+														)
 													}
-													resourceTypeViewer.openDrawer?.()
-												} else {
-													sendUserToast(
-														`Resource type ${resource_type} not found in workspace.`,
-														true
-													)
-												}
-											}}
-										>
-											<IconedResourceType
-												name={resource_type}
-												after={true}
-												formatExtension={resourceNameToFileExt(resource_type)}
-											/>
-										</a>
-									</Cell>
-									<Cell>
-										<span class="text-tertiary text-xs">
-											{removeMarkdown(truncate(description ?? '', 30))}
-										</span>
-									</Cell>
-									<Cell>
-										<div class="flex flex-row text-center">
-											<div class="w-10">
-												{#if is_linked}
-													<Popover>
-														<Link />
-														<div slot="text">
-															This resource is linked with a variable of the same path. They are
-															deleted and renamed together.
-														</div>
-													</Popover>
-												{/if}
-											</div>
-											<div class="w-10">
-												{#if is_refreshed}
-													<Popover>
-														<RotateCw />
-														<div slot="text">
-															The OAuth token will be kept up-to-date in the background by Windmill
-															using its refresh token
-														</div>
-													</Popover>
-												{/if}
-											</div>
-
-											{#if is_oauth}
-												<div class="w-10 pt-1.5">
-													{#if refresh_error}
+												}}
+											>
+												<IconedResourceType
+													name={resource_type}
+													after={true}
+													formatExtension={resourceNameToFileExt(resource_type)}
+												/>
+											</a>
+										</Cell>
+										<Cell>
+											<span class="text-tertiary text-xs">
+												{removeMarkdown(truncate(description ?? '', 30))}
+											</span>
+										</Cell>
+										<Cell>
+											<div class="flex flex-row text-center">
+												<div class="w-10">
+													{#if is_linked}
 														<Popover>
-															<Circle
-																class="text-red-600 animate-[pulse_5s_linear_infinite] fill-current"
-																size={12}
-															/>
+															<Link />
 															<div slot="text">
-																Latest exchange of the refresh token did not succeed. Error: {refresh_error}
-															</div>
-														</Popover>
-													{:else if is_expired}
-														<Popover>
-															<Circle
-																class="text-yellow-600 animate-[pulse_5s_linear_infinite] fill-current"
-																size={12}
-															/>
-
-															<div slot="text">
-																The access_token is expired, it will get renewed the next time this
-																variable is fetched or you can request is to be refreshed in the
-																dropdown on the right.
-															</div>
-														</Popover>
-													{:else}
-														<Popover>
-															<Circle
-																class="text-green-600 animate-[pulse_5s_linear_infinite] fill-current"
-																size={12}
-															/>
-															<div slot="text">
-																The resource was connected through OAuth and the token is not
-																expired.
+																This resource is linked with a variable of the same path. They are
+																deleted and renamed together.
 															</div>
 														</Popover>
 													{/if}
 												</div>
+												<div class="w-10">
+													{#if is_refreshed}
+														<Popover>
+															<RotateCw />
+															<div slot="text">
+																The OAuth token will be kept up-to-date in the background by
+																Windmill using its refresh token
+															</div>
+														</Popover>
+													{/if}
+												</div>
+
+												{#if is_oauth}
+													<div class="w-10 pt-1.5">
+														{#if refresh_error}
+															<Popover>
+																<Circle
+																	class="text-red-600 animate-[pulse_5s_linear_infinite] fill-current"
+																	size={12}
+																/>
+																<div slot="text">
+																	Latest exchange of the refresh token did not succeed. Error: {refresh_error}
+																</div>
+															</Popover>
+														{:else if is_expired}
+															<Popover>
+																<Circle
+																	class="text-yellow-600 animate-[pulse_5s_linear_infinite] fill-current"
+																	size={12}
+																/>
+
+																<div slot="text">
+																	The access_token is expired, it will get renewed the next time
+																	this variable is fetched or you can request is to be refreshed in
+																	the dropdown on the right.
+																</div>
+															</Popover>
+														{:else}
+															<Popover>
+																<Circle
+																	class="text-green-600 animate-[pulse_5s_linear_infinite] fill-current"
+																	size={12}
+																/>
+																<div slot="text">
+																	The resource was connected through OAuth and the token is not
+																	expired.
+																</div>
+															</Popover>
+														{/if}
+													</div>
+												{/if}
+											</div>
+										</Cell>
+										<Cell class="flex justify-end">
+											{#if path && isDbType(resource_type)}
+												<DbManagerDrawerButton
+													resourcePath={path}
+													resourceType={resource_type}
+													class="mr-8"
+												/>
 											{/if}
-										</div>
-									</Cell>
-									<Cell>
-										<Dropdown
-											items={[
-												{
-													displayName: !canWrite ? 'View Permissions' : 'Share',
-													icon: Share,
-													action: () => {
-														shareModal.openDrawer?.(path, 'resource')
-													}
-												},
-												{
-													displayName: 'Edit',
-													icon: Pen,
-													disabled: !canWrite,
-													action: () => {
-														resourceEditor?.initEdit?.(path)
-													}
-												},
-												...(isDeployable('resource', path, deployUiSettings)
-													? [
-															{
-																displayName: 'Deploy to prod/staging',
-																icon: FileUp,
-																action: () => {
-																	deploymentDrawer.openDrawer(path, 'resource')
+											<Dropdown
+												class="w-fit"
+												items={[
+													{
+														displayName: !canWrite ? 'View Permissions' : 'Share',
+														icon: Share,
+														action: () => {
+															shareModal.openDrawer?.(path, 'resource')
+														}
+													},
+													{
+														displayName: 'Edit',
+														icon: Pen,
+														disabled: !canWrite,
+														action: () => {
+															resourceEditor?.initEdit?.(path)
+														}
+													},
+													...(isDeployable('resource', path, deployUiSettings)
+														? [
+																{
+																	displayName: 'Deploy to prod/staging',
+																	icon: FileUp,
+																	action: () => {
+																		deploymentDrawer.openDrawer(path, 'resource')
+																	}
 																}
-															}
-													  ]
-													: []),
-												{
-													displayName: 'Delete',
-													disabled: !canWrite,
-													icon: Trash,
-													type: 'delete',
-													action: (event) => {
-														// TODO
-														// @ts-ignore
-														if (event?.shiftKey) {
-															deleteResource(path, account)
-														} else {
-															deleteConfirmedCallback = () => {
+															]
+														: []),
+													{
+														displayName: 'Delete',
+														disabled: !canWrite,
+														icon: Trash,
+														type: 'delete',
+														action: (event) => {
+															// TODO
+															// @ts-ignore
+															if (event?.shiftKey) {
 																deleteResource(path, account)
+															} else {
+																deleteConfirmedCallback = () => {
+																	deleteResource(path, account)
+																}
 															}
 														}
-													}
-												},
-												...(account != undefined
-													? [
-															{
-																displayName: 'Refresh token',
-																icon: RotateCw,
-																action: async () => {
-																	await OauthService.refreshToken({
-																		workspace: $workspaceStore ?? '',
-																		id: account ?? 0,
-																		requestBody: {
-																			path
-																		}
-																	})
-																	sendUserToast('Token refreshed')
-																	loadResources()
+													},
+													...(account != undefined
+														? [
+																{
+																	displayName: 'Refresh token',
+																	icon: RotateCw,
+																	action: async () => {
+																		await OauthService.refreshToken({
+																			workspace: $workspaceStore ?? '',
+																			id: account ?? 0,
+																			requestBody: {
+																				path
+																			}
+																		})
+																		sendUserToast('Token refreshed')
+																		loadResources()
+																	}
 																}
-															}
-													  ]
-													: [])
-											]}
-										/>
-									</Cell>
-								</Row>
-							{/each}
-						{/if}
-					</tbody>
-				</DataTable>
-			{/if}
-		</div>
-	{:else if tab == 'types'}
-		{#if loading.types}
-			<Skeleton layout={[0.5, [2], 1]} />
-			{#each new Array(6) as _}
-				<Skeleton layout={[[4], 0.7]} />
-			{/each}
-		{:else}
-			<div class="overflow-auto mt-4">
-				<DataTable>
-					<Head>
-						<Row>
-							<Cell head first>Name</Cell>
-							<Cell head>Description</Cell>
-							<Cell head last />
-						</Row>
-					</Head>
-					<tbody class="divide-y bg-surface">
-						{#if resourceTypes}
-							{#each resourceTypes as { name, description, schema, canWrite, format_extension }}
-								<Row>
-									<Cell first>
-										<a
-											href="#{name}"
-											on:click={() => {
-												resourceTypeViewerObj = {
-													rt: name,
-													//@ts-ignore
-													schema: schema,
-													description: description ?? '',
-													formatExtension: format_extension
-												}
-
-												resourceTypeViewer.openDrawer?.()
-											}}
-										>
-											<IconedResourceType after={true} {name} formatExtension={format_extension} />
-										</a>
-									</Cell>
-									<Cell>
-										<span class="text-tertiary text-xs w-96 flex flex-wrap whitespace-pre-wrap">
-											{removeMarkdown(truncate(description ?? '', 200))}
-										</span>
-									</Cell>
-									<Cell last>
-										{#if !canWrite}
-											<Badge>
-												Shared globally
-												<Tooltip>
-													This resource type is from the 'admins' workspace shared with all
-													workspaces
-												</Tooltip>
-											</Badge>
-										{:else if $userStore?.is_admin || $userStore?.is_super_admin}
-											<div class="flex flex-row-reverse gap-2">
-												<Button
-													size="xs"
-													color="red"
-													variant="border"
-													btnClasses="border-0"
-													startIcon={{ icon: Trash }}
-													on:click={() => handleDeleteResourceType(name)}
-												>
-													Delete
-												</Button>
-												<Button
-													size="xs"
-													color="light"
-													startIcon={{ icon: Pen }}
-													on:click={() => startEditResourceType(name)}
-												>
-													Edit
-												</Button>
-											</div>
-										{:else}
-											<Badge>
-												Non Editable
-												<Tooltip>
-													Since resource types are shared with the whole workspace, only admins can
-													edit/delete them
-												</Tooltip>
-											</Badge>
-										{/if}
-									</Cell>
-								</Row>
-							{/each}
-						{/if}
-					</tbody>
-				</DataTable>
+															]
+														: [])
+												]}
+											/>
+										</Cell>
+									</Row>
+								{/each}
+							{/if}
+						</tbody>
+					</DataTable>
+				{/if}
 			</div>
+		{:else if tab == 'types'}
+			{#if loading.types}
+				<Skeleton layout={[0.5, [2], 1]} />
+				{#each new Array(6) as _}
+					<Skeleton layout={[[4], 0.7]} />
+				{/each}
+			{:else}
+				<div class="overflow-auto mt-4">
+					<DataTable>
+						<Head>
+							<Row>
+								<Cell head first>Name</Cell>
+								<Cell head>Description</Cell>
+								<Cell head last />
+							</Row>
+						</Head>
+						<tbody class="divide-y bg-surface">
+							{#if resourceTypes}
+								{#each resourceTypes as { name, description, schema, canWrite, format_extension }}
+									<Row>
+										<Cell first>
+											<a
+												href="#{name}"
+												on:click={() => {
+													resourceTypeViewerObj = {
+														rt: name,
+														//@ts-ignore
+														schema: schema,
+														description: description ?? '',
+														formatExtension: format_extension
+													}
+
+													resourceTypeViewer.openDrawer?.()
+												}}
+											>
+												<IconedResourceType
+													after={true}
+													{name}
+													formatExtension={format_extension}
+												/>
+											</a>
+										</Cell>
+										<Cell>
+											<span class="text-tertiary text-xs w-96 flex flex-wrap whitespace-pre-wrap">
+												{removeMarkdown(truncate(description ?? '', 200))}
+											</span>
+										</Cell>
+										<Cell last>
+											{#if !canWrite}
+												<Badge>
+													Shared globally
+													<Tooltip>
+														This resource type is from the 'admins' workspace shared with all
+														workspaces
+													</Tooltip>
+												</Badge>
+											{:else if $userStore?.is_admin || $userStore?.is_super_admin}
+												<div class="flex flex-row-reverse gap-2">
+													<Button
+														size="xs"
+														color="red"
+														variant="border"
+														btnClasses="border-0"
+														startIcon={{ icon: Trash }}
+														on:click={() => handleDeleteResourceType(name)}
+													>
+														Delete
+													</Button>
+													<Button
+														size="xs"
+														color="light"
+														startIcon={{ icon: Pen }}
+														on:click={() => startEditResourceType(name)}
+													>
+														Edit
+													</Button>
+												</div>
+											{:else}
+												<Badge>
+													Non Editable
+													<Tooltip>
+														Since resource types are shared with the whole workspace, only admins
+														can edit/delete them
+													</Tooltip>
+												</Badge>
+											{/if}
+										</Cell>
+									</Row>
+								{/each}
+							{/if}
+						</tbody>
+					</DataTable>
+				</div>
+			{/if}
 		{/if}
-	{/if}
-</CenteredPage>
+	</CenteredPage>
 {/if}
 
 <SupabaseConnect bind:this={supabaseConnect} on:refresh={loadResources} />

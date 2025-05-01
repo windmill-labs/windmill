@@ -12,27 +12,168 @@ use rmcp::{
     service::{RequestContext, RoleServer},
     Error,
 };
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sql_builder::prelude::*;
 use sqlx::FromRow;
 use tokio::try_join;
 use tokio_util::sync::CancellationToken;
 use windmill_common::db::UserDB;
-use windmill_common::scripts::Schema;
 use windmill_common::worker::to_raw_value;
-use windmill_common::DB;
+use windmill_common::{DB, HUB_BASE_URL};
+
+use windmill_common::scripts::{get_full_hub_script_by_path, Schema};
 
 use crate::db::ApiAuthed;
 use crate::jobs::{
     run_wait_result_flow_by_path_internal, run_wait_result_script_by_path_internal, RunJobQuery,
 };
-use windmill_common::utils::StripPath;
+use crate::HTTP_CLIENT;
+use windmill_common::utils::{query_elems_from_hub, StripPath};
+
+/// Transforms the path for workspace scripts/flows.
+///
+/// This function takes a path and a type string.
+/// It then formats the transformed path with the type prefix.
+/// This is used when listing, because we can't have names with slashes.
+/// Because we replace slashes with underscores, we also need to escape underscores.
+///
+/// # Parameters
+/// - `path`: The path to transform.
+/// - `type_str`: The type of the item (script or flow).
+///
+/// # Returns
+/// - `String`: The transformed path.
+fn transform_path(path: &str, type_str: &str) -> String {
+    // Only apply special underscore escaping for paths starting with "f/"
+    let transformed = if path.starts_with("f/") {
+        let escaped_path = path.replace('_', "__");
+        escaped_path.replace('/', "_")
+    } else {
+        path.replace('/', "_")
+    };
+
+    // first letter of type_str is used as prefix, only one letter to avoid reaching 60 char name limit
+    format!("{}-{}", &type_str[..1], transformed)
+}
+
+fn convert_schema_to_schema_type(schema: Option<Schema>) -> SchemaType {
+    let schema_obj = if let Some(ref s) = schema {
+        match serde_json::from_str::<SchemaType>(s.0.get()) {
+            Ok(val) => val,
+            Err(_) => SchemaType::default(),
+        }
+    } else {
+        SchemaType::default()
+    };
+    schema_obj
+}
+
+trait ToolableItem {
+    fn get_path_or_id(&self) -> String;
+    fn get_summary(&self) -> &str;
+    fn get_description(&self) -> &str;
+    fn get_schema(&self) -> SchemaType;
+    fn is_hub(&self) -> bool;
+    fn item_type(&self) -> &'static str;
+    fn get_integration_type(&self) -> Option<String>;
+}
+
+impl ToolableItem for ScriptInfo {
+    fn get_path_or_id(&self) -> String {
+        transform_path(&self.path, "script")
+    }
+    fn get_summary(&self) -> &str {
+        self.summary.as_deref().unwrap_or("No summary")
+    }
+    fn get_description(&self) -> &str {
+        self.description.as_deref().unwrap_or("No description")
+    }
+    fn get_schema(&self) -> SchemaType {
+        convert_schema_to_schema_type(self.schema.clone())
+    }
+    fn is_hub(&self) -> bool {
+        false
+    }
+    fn item_type(&self) -> &'static str {
+        "script"
+    }
+    fn get_integration_type(&self) -> Option<String> {
+        None
+    }
+}
+
+impl ToolableItem for FlowInfo {
+    fn get_path_or_id(&self) -> String {
+        transform_path(&self.path, "flow")
+    }
+    fn get_summary(&self) -> &str {
+        self.summary.as_deref().unwrap_or("No summary")
+    }
+    fn get_description(&self) -> &str {
+        self.description.as_deref().unwrap_or("No description")
+    }
+    fn get_schema(&self) -> SchemaType {
+        convert_schema_to_schema_type(self.schema.clone())
+    }
+    fn is_hub(&self) -> bool {
+        false
+    }
+    fn item_type(&self) -> &'static str {
+        "flow"
+    }
+    fn get_integration_type(&self) -> Option<String> {
+        None
+    }
+}
+
+impl ToolableItem for HubScriptInfo {
+    fn get_path_or_id(&self) -> String {
+        let id = self.version_id;
+        let summary = self.summary.as_deref().unwrap_or("No summary");
+        format!("hs-{}-{}", id, summary.replace(" ", "_"))
+    }
+    fn get_summary(&self) -> &str {
+        self.summary.as_deref().unwrap_or("No summary")
+    }
+    fn get_description(&self) -> &str {
+        self.description.as_deref().unwrap_or("No description")
+    }
+    fn get_schema(&self) -> SchemaType {
+        match serde_json::from_value::<SchemaType>(self.schema.clone().unwrap_or_default()) {
+            Ok(schema_type) => schema_type,
+            Err(_) => SchemaType::default(),
+        }
+    }
+    fn is_hub(&self) -> bool {
+        true
+    }
+    fn item_type(&self) -> &'static str {
+        "script"
+    }
+    fn get_integration_type(&self) -> Option<String> {
+        self.app.clone()
+    }
+}
 
 #[derive(Clone)]
 pub struct Runner {}
 
-#[derive(serde::Deserialize, serde::Serialize)]
+#[derive(Serialize, Deserialize, Debug)]
+struct HubResponse {
+    asks: Vec<HubScriptInfo>,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+struct HubScriptInfo {
+    version_id: u64,
+    summary: Option<String>,
+    description: Option<String>,
+    schema: Option<Value>,
+    app: Option<String>,
+}
+
+#[derive(Serialize, FromRow, Deserialize, Debug, Clone)]
 struct SchemaType {
     r#type: String,
     properties: std::collections::HashMap<String, serde_json::Value>,
@@ -94,7 +235,7 @@ impl Runner {
         authed: &ApiAuthed,
         workspace_id: &str,
         item_type: &str,
-    ) -> Result<ItemSchema, Error> {
+    ) -> Result<Option<Schema>, Error> {
         let mut sqlb = SqlBuilder::select_from(&format!("{} as o", item_type));
         sqlb.fields(&["o.schema"]);
         sqlb.and_where("o.path = ?".bind(&path));
@@ -110,7 +251,7 @@ impl Runner {
             .begin(authed)
             .await
             .map_err(|_e| Error::internal_error("failed to begin transaction", None))?;
-        let rows = sqlx::query_as::<_, ItemSchema>(&sql)
+        let item = sqlx::query_as::<_, ItemSchema>(&sql)
             .fetch_one(&mut *tx)
             .await
             .map_err(|_e| {
@@ -120,27 +261,29 @@ impl Runner {
         tx.commit()
             .await
             .map_err(|_e| Error::internal_error("failed to commit transaction", None))?;
-        Ok(rows)
+        Ok(item.schema)
     }
 
-    fn transform_path(path: &str, type_str: &str) -> Result<String, String> {
-        if type_str != "script" && type_str != "flow" {
-            return Err(format!("Invalid type: {}", type_str));
-        }
-
-        // Only apply special underscore escaping for paths starting with "f/"
-        let transformed = if path.starts_with("f/") {
-            let escaped_path = path.replace('_', "__");
-            escaped_path.replace('/', "_")
+    /// Reverses the transformation of a path.
+    ///
+    /// This function takes a transformed path and reverses the transformation applied by `transform_path`.
+    /// It checks if the path starts with "h" (indicating a Hub script) and removes the prefix if present.
+    /// It then determines the type of the item (script or flow) based on the prefix.
+    /// This is used in call_tool to get the original path, and the type of the item.
+    ///
+    /// # Parameters
+    /// - `transformed_path`: The transformed path to reverse.
+    ///
+    /// # Returns
+    /// - `Result<(&str, String, bool), String>`: A tuple containing the original path, the type of the item, and a boolean indicating if it's a Hub script.
+    /// - `Err(String)`: If the path is invalid.
+    fn reverse_transform(transformed_path: &str) -> Result<(&str, String, bool), String> {
+        let is_hub = transformed_path.starts_with("h");
+        let transformed_path = if is_hub {
+            transformed_path[1..].to_string()
         } else {
-            path.replace('/', "_")
+            transformed_path.to_string()
         };
-
-        // first letter of type_str is used as prefix, only one letter to avoid reaching 60 char name limit
-        Ok(format!("{}-{}", &type_str[..1], transformed))
-    }
-
-    fn reverse_transform(transformed_path: &str) -> Result<(&str, String), String> {
         let type_str = if transformed_path.starts_with("s-") {
             "script"
         } else if transformed_path.starts_with("f-") {
@@ -157,7 +300,10 @@ impl Runner {
         // Check if this path was previously transformed with special underscore handling
         let is_special_path = mangled_path.starts_with("f_");
 
-        let original_path = if is_special_path {
+        let original_path = if is_hub {
+            let parts = mangled_path.split("-").collect::<Vec<&str>>();
+            parts[0].to_string()
+        } else if is_special_path {
             const TEMP_PLACEHOLDER: &str = "@@UNDERSCORE@@";
             let path_with_placeholder = mangled_path.replace("__", TEMP_PLACEHOLDER);
             let path_with_slashes = path_with_placeholder.replace('_', "/");
@@ -166,7 +312,7 @@ impl Runner {
             mangled_path.replacen('_', "/", 2)
         };
 
-        Ok((type_str, original_path))
+        Ok((type_str, original_path, is_hub))
     }
 
     async fn inner_get_resources_types(
@@ -280,6 +426,52 @@ impl Runner {
         Ok(rows)
     }
 
+    async fn inner_get_scripts_from_hub(
+        db: &DB,
+        scope_integrations: Option<&str>,
+    ) -> Result<Vec<HubScriptInfo>, Error> {
+        let query_params = Some(vec![
+            ("limit", "100".to_string()),
+            ("with_schema", "true".to_string()),
+            ("apps", scope_integrations.unwrap_or("").to_string()),
+        ]);
+        let url = format!("{}/scripts/top", *HUB_BASE_URL.read().await);
+        let (_status_code, _headers, response) =
+            query_elems_from_hub(&HTTP_CLIENT, &url, query_params, &db)
+                .await
+                .map_err(|e| {
+                    tracing::error!("Failed to get items from hub: {}", e);
+                    Error::internal_error(format!("Failed to get items from hub: {}", e), None)
+                })?;
+        let body_bytes = to_bytes(response, usize::MAX).await.map_err(|e| {
+            tracing::error!("Failed to read response body: {}", e);
+            Error::internal_error(format!("Failed to read response body: {}", e), None)
+        })?;
+        let body_str = String::from_utf8(body_bytes.to_vec()).map_err(|e| {
+            tracing::error!("Failed to decode response body: {}", e);
+            Error::internal_error(format!("Failed to decode response body: {}", e), None)
+        })?;
+        let hub_response: HubResponse = serde_json::from_str(&body_str).map_err(|e| {
+            tracing::error!("Failed to parse hub response: {}", e);
+            Error::internal_error(format!("Failed to parse hub response: {}", e), None)
+        })?;
+
+        Ok(hub_response.asks)
+    }
+
+    /// Transforms a value if it's an object.
+    ///
+    /// This function takes a key and a value, and a schema object.
+    /// If the value is a string that starts with "$res:", it returns the value as is.
+    /// Otherwise, it checks if the key is defined in the schema and if it's an object type.
+    /// If it is, it transforms the value to a string. This is because some clients do not support object types.
+    /// # Parameters
+    /// - `key`: The key of the value to transform.
+    /// - `value`: The value to transform.
+    /// - `schema_obj`: The schema object.
+    ///
+    /// # Returns
+    /// - `Value`: The transformed value.
     fn transform_value_if_object(
         key: &str,
         value: &Value,
@@ -315,6 +507,16 @@ impl Runner {
         value.clone()
     }
 
+    /// Reverses the transformation of a key.
+    ///
+    /// This function takes a transformed key and a schema object.
+    /// It then reverses the transformation applied by `apply_key_transformation`. This can be subject to collisions, but it's unlikely and is ok for our use case.
+    /// # Parameters
+    /// - `transformed_key`: The transformed key to reverse.
+    /// - `schema_obj`: The schema object.
+    ///
+    /// # Returns
+    /// - `String`: The original key.
     fn reverse_transform_key(transformed_key: &str, schema_obj: &Option<SchemaType>) -> String {
         let schema_obj = match schema_obj {
             Some(s) => s,
@@ -338,6 +540,16 @@ impl Runner {
         transformed_key.to_string()
     }
 
+    /// Applies a key transformation to a key.
+    ///
+    /// This function takes a key and replaces spaces with underscores.
+    /// It also removes any characters that are not alphanumeric or underscores.
+    /// This is used when listing, because we can't have names with spaces or special characters in the schema properties.
+    /// # Parameters
+    /// - `key`: The key to transform.
+    ///
+    /// # Returns
+    /// - `String`: The transformed key.
     fn apply_key_transformation(key: &str) -> String {
         key.replace(' ', "_")
             .chars()
@@ -345,18 +557,32 @@ impl Runner {
             .collect::<String>()
     }
 
+    /// Transforms the schema for resources.
+    ///
+    /// This function takes a schema and a database connection, and attempts to transform the schema for resources.
+    /// It replaces invalid characters in property keys with underscores and converts object properties to strings.
+    /// It also fetches resource type information and adds it to the description of resource properties.
+    ///
+    /// # Parameters
+    /// - `schema`: The schema to transform.
+    /// - `user_db`: The database connection.
+    /// - `authed`: The authenticated user.
+    /// - `w_id`: The workspace ID.
+    /// - `resources_cache`: A mutable reference to the resources cache.
+    /// - `resources_types`: A reference to the resource types.
+    ///
+    /// # Returns
+    /// - `Result<SchemaType, Error>`: The transformed schema.
+    /// - `Err(Error)`: If the transformation fails.
     async fn transform_schema_for_resources(
-        schema: &Schema,
+        schema: &SchemaType,
         user_db: &UserDB,
         authed: &ApiAuthed,
         w_id: &str,
         resources_cache: &mut HashMap<String, Vec<ResourceInfo>>,
         resources_types: &Vec<ResourceType>,
     ) -> Result<SchemaType, Error> {
-        let mut schema_obj: SchemaType = match serde_json::from_str(schema.0.get()) {
-            Ok(val) => val,
-            Err(_) => SchemaType::default(),
-        };
+        let mut schema_obj: SchemaType = schema.clone();
 
         // replace invalid char in property key with underscore
         let replacements: Vec<(String, String, serde_json::Value)> = schema_obj
@@ -489,9 +715,133 @@ impl Runner {
 
         Ok(schema_obj)
     }
+
+    /// Fetches the schema for a Hub script.
+    ///
+    /// This function takes a script path and a database connection, and attempts to fetch the schema for the script.
+    /// It strips the path to remove any leading slashes, and then attempts to retrieve the full script using `get_full_hub_script_by_path`.
+    /// If successful, it converts the schema string to a `Schema` object.
+    /// If the schema cannot be converted, it logs a warning and returns `None`.
+    ///
+    /// # Parameters
+    /// - `path`: The path of the script to fetch the schema for.
+    /// - `db`: The database connection.
+    ///
+    /// # Returns
+    /// - `Ok(Option<Schema>)`: The schema if found, otherwise `None`.
+    /// - `Err(Error)`: If the request fails.
+    async fn get_hub_script_schema(path: &str, db: &DB) -> Result<Option<Schema>, Error> {
+        let strip_path = StripPath(path.to_string());
+        let res = get_full_hub_script_by_path(strip_path, &HTTP_CLIENT, Some(db))
+            .await
+            .map_err(|e| {
+                tracing::error!("Failed to get hub script: {}", e);
+                Error::internal_error(format!("Failed to get hub script: {}", e), None)
+            })?;
+        match serde_json::from_str::<Schema>(res.schema.get()) {
+            Ok(schema) => Ok(Some(schema)),
+            Err(e) => {
+                tracing::warn!("Failed to convert schema: {}", e);
+                Ok(None)
+            }
+        }
+    }
+
+    /// Creates a `Tool` from a `ToolableItem`.
+    ///
+    /// This function takes an item that implements the `ToolableItem` trait and converts it into an RMCP `Tool`.
+    /// It handles both workspace scripts/flows and Hub scripts differently, depending on the item type.
+    ///
+    /// # Parameters
+    /// - `item`: The item to convert to a `Tool`.
+    /// - `user_db`: The database connection.
+    /// - `authed`: The authenticated user.
+    /// - `workspace_id`: The workspace ID.
+    /// - `resources_cache`: A mutable reference to the resources cache.
+    /// - `resources_types`: A reference to the resource types.
+    ///
+    /// # Returns
+    /// - `Ok(Tool)`: The created `Tool`.
+    async fn create_tool_from_item<T: ToolableItem>(
+        item: &T,
+        user_db: &UserDB,
+        authed: &ApiAuthed,
+        workspace_id: &str,
+        resources_cache: &mut HashMap<String, Vec<ResourceInfo>>,
+        resources_types: &Vec<ResourceType>,
+    ) -> Result<Tool, Error> {
+        let is_hub = item.is_hub();
+        let path = item.get_path_or_id();
+        let item_type = item.item_type();
+        let description = format!(
+            "This is a {} named `{}` with the following description: `{}`.{}",
+            item_type,
+            item.get_summary(),
+            item.get_description(),
+            if is_hub {
+                format!(
+                    " It is a tool used for the following app: {}",
+                    item.get_integration_type()
+                        .unwrap_or("No integration type".to_string())
+                )
+            } else {
+                "".to_string()
+            }
+        );
+        let schema_obj = Runner::transform_schema_for_resources(
+            &item.get_schema(),
+            user_db,
+            authed,
+            &workspace_id,
+            resources_cache,
+            &resources_types,
+        )
+        .await?;
+        let input_schema_map = match serde_json::to_value(schema_obj) {
+            Ok(Value::Object(map)) => map,
+            Ok(_) => {
+                tracing::warn!("Schema object for tool '{}' did not serialize to a JSON object, using empty schema.", path);
+                serde_json::Map::new()
+            }
+            Err(e) => {
+                tracing::error!(
+                    "Failed to serialize schema object for tool '{}': {}. Using empty schema.",
+                    path,
+                    e
+                );
+                serde_json::Map::new()
+            }
+        };
+        Ok(Tool {
+            name: Cow::Owned(path),
+            description: Some(Cow::Owned(description)),
+            input_schema: Arc::new(input_schema_map),
+            annotations: None,
+        })
+    }
 }
 
 impl ServerHandler for Runner {
+    /// Handles the `CallTool` request from the MCP client.
+    ///
+    /// This involves:
+    /// 1. Parsing arguments and extracting context (DB, Auth).
+    /// 2. Reversing the tool name (`request.name`) to get the original path and type using `reverse_transform`.
+    /// 3. Handling Hub scripts: If identified as a Hub script, searches the Hub for the actual script ID.
+    /// 4. Fetching the schema for the item (needed for argument transformation).
+    /// 5. Transforming incoming arguments:
+    ///    - Reversing key transformations (e.g., `user_input` back to `user input`).
+    ///    - Parsing stringified JSON objects back into JSON values based on schema type.
+    /// 6. Executing the corresponding script or flow using internal Windmill runners.
+    /// 7. Formatting the execution result into an RMCP `CallToolResult`.
+    ///
+    /// # Parameters
+    /// - `request`: The `CallToolRequestParam` containing the tool name and arguments.
+    /// - `context`: The `RequestContext` providing access to workspace ID, DB connections, auth info.
+    ///
+    /// # Returns
+    /// - `Ok(CallToolResult)`: On successful execution, containing the output.
+    /// - `Err(Error)`: If any step fails (parsing, DB access, execution, reversing transform, hub search).
     async fn call_tool(
         &self,
         request: CallToolRequestParam,
@@ -520,14 +870,17 @@ impl ServerHandler for Runner {
             .ok_or_else(|| Error::internal_error("UserDB not found", None))?;
         let args = parse_args(request.arguments)?;
 
-        let (tool_type, path) = Runner::reverse_transform(&request.name).unwrap_or_default();
+        let (tool_type, path, is_hub) =
+            Runner::reverse_transform(&request.name).unwrap_or_default();
 
-        let item_info =
+        let item_schema = if is_hub {
+            Runner::get_hub_script_schema(&format!("hub/{}", path), db).await?
+        } else {
             Runner::get_item_schema(&path, user_db, authed, &context.workspace_id, &tool_type)
-                .await?;
+                .await?
+        };
 
-        let schema = item_info.schema;
-        let schema_obj = if let Some(ref s) = schema {
+        let schema_obj = if let Some(ref s) = item_schema {
             match serde_json::from_str::<SchemaType>(s.0.get()) {
                 Ok(val) => Some(val),
                 Err(e) => {
@@ -542,7 +895,7 @@ impl ServerHandler for Runner {
         let push_args = if let Value::Object(map) = args.clone() {
             let mut args_hash = HashMap::new();
             for (k, v) in map {
-                // need to transform back the key to the original key
+                // need to transform back the key without invalid characters to the original key
                 let original_key = Runner::reverse_transform_key(&k, &schema_obj);
 
                 // object properties are transformed to string because some client does not support object, might change in the future
@@ -555,7 +908,11 @@ impl ServerHandler for Runner {
         };
 
         let w_id = context.workspace_id.clone();
-        let script_or_flow_path = StripPath(path);
+        let script_or_flow_path = if is_hub {
+            StripPath(format!("hub/{}", path))
+        } else {
+            StripPath(path)
+        };
         let run_query = RunJobQuery::default();
 
         let result = if tool_type == "script" {
@@ -603,12 +960,31 @@ impl ServerHandler for Runner {
         }
     }
 
+    /// Fetches available tools (scripts, flows, hub scripts) based on the user's scope.
+    ///
+    /// - Determines scope (all, favorites, hub-specific) from auth token.
+    /// - Fetches relevant items (workspace scripts/flows, hub scripts) concurrently.
+    /// - Fetches resource type information needed for schema enrichment.
+    /// - Transforms each item into an RMCP `Tool` definition, including schema adjustments
+    ///   (like resource description enrichment and object->string conversion).
+    ///
+    /// # Parameters
+    /// - `_request`: Optional pagination parameters (currently ignored).
+    /// - `_context`: The `RequestContext` providing workspace ID, DB, auth.
+    ///
+    /// # Returns
+    /// - `Ok(ListToolsResult)`: A list of `Tool` definitions. Pagination is not yet implemented.
+    /// - `Err(Error)`: If fetching data from DB or Hub fails.
     async fn list_tools(
         &self,
         _request: Option<PaginatedRequestParam>,
         mut _context: RequestContext<RoleServer>,
     ) -> Result<ListToolsResult, Error> {
         let workspace_id = _context.workspace_id.clone();
+        let db = _context
+            .req_extensions
+            .get::<DB>()
+            .ok_or_else(|| Error::internal_error("DB not found", None))?;
         let user_db = _context
             .req_extensions
             .get::<UserDB>()
@@ -617,11 +993,27 @@ impl ServerHandler for Runner {
             .req_extensions
             .get::<ApiAuthed>()
             .ok_or_else(|| Error::internal_error("ApiAuthed not found", None))?;
-        let scope = authed
+        let owned_scope = authed.scopes.as_ref().and_then(|scopes| {
+            scopes
+                .iter()
+                .find(|scope| scope.starts_with("mcp:") && !scope.contains("hub"))
+        });
+        let hub_scope = authed
             .scopes
             .as_ref()
-            .and_then(|scopes| scopes.iter().find(|scope| scope.starts_with("mcp:")));
-        let scope_type = scope.map_or("all", |scope| scope.split(":").last().unwrap_or("all"));
+            .and_then(|scopes| scopes.iter().find(|scope| scope.starts_with("mcp:hub")));
+        let scope_type = owned_scope.map_or("all", |scope| {
+            let parts = scope.split(":").collect::<Vec<&str>>();
+            parts[1]
+        });
+        let scope_integrations = hub_scope.and_then(|scope| {
+            let parts = scope.split(":").collect::<Vec<&str>>();
+            if parts.len() == 3 {
+                Some(parts[2])
+            } else {
+                None
+            }
+        });
 
         let scripts_fn = Runner::inner_get_items::<ScriptInfo>(
             user_db,
@@ -633,84 +1025,62 @@ impl ServerHandler for Runner {
         let flows_fn =
             Runner::inner_get_items::<FlowInfo>(user_db, authed, &workspace_id, scope_type, "flow");
         let resources_types_fn = Runner::inner_get_resources_types(user_db, authed, &workspace_id);
-        let (scripts, flows, resources_types) =
-            try_join!(scripts_fn, flows_fn, resources_types_fn)?;
+        let hub_scripts_fn = Runner::inner_get_scripts_from_hub(db, scope_integrations.as_deref());
+        let (scripts, flows, resources_types, hub_scripts) = if scope_integrations.is_some() {
+            let (scripts, flows, resources_types, hub_scripts) =
+                try_join!(scripts_fn, flows_fn, resources_types_fn, hub_scripts_fn)?;
+            (scripts, flows, resources_types, hub_scripts)
+        } else {
+            let (scripts, flows, resources_types) =
+                try_join!(scripts_fn, flows_fn, resources_types_fn)?;
+            (scripts, flows, resources_types, vec![])
+        };
 
         let mut resources_cache: HashMap<String, Vec<ResourceInfo>> = HashMap::new();
+        let mut tools: Vec<Tool> = Vec::new();
 
-        let mut script_tools: Vec<Tool> = Vec::with_capacity(scripts.len());
         for script in scripts {
-            let name = Runner::transform_path(&script.path, "script").unwrap_or_default();
-            let description = format!(
-                "This is a script named `{}` with the following description: `{}`.",
-                script.summary.as_deref().unwrap_or("No summary"),
-                script.description.as_deref().unwrap_or("No description")
-            );
-            let schema_obj = if let Some(schema) = script.schema {
-                Runner::transform_schema_for_resources(
-                    &schema,
+            tools.push(
+                Runner::create_tool_from_item(
+                    &script,
                     user_db,
                     authed,
                     &workspace_id,
                     &mut resources_cache,
                     &resources_types,
                 )
-                .await?
-            } else {
-                SchemaType::default()
-            };
-            script_tools.push(Tool {
-                name: Cow::Owned(name),
-                description: Some(Cow::Owned(description)),
-                input_schema: {
-                    let value = serde_json::to_value(schema_obj).unwrap_or_default();
-                    if let serde_json::Value::Object(map) = value {
-                        Arc::new(map)
-                    } else {
-                        Arc::new(serde_json::Map::new())
-                    }
-                },
-                annotations: None,
-            });
+                .await?,
+            );
         }
 
-        let mut flow_tools: Vec<Tool> = Vec::with_capacity(flows.len());
         for flow in flows {
-            let name = Runner::transform_path(&flow.path, "flow").unwrap_or_default();
-            let description = format!(
-                "This is a flow named `{}` with the following description: `{}`.",
-                flow.summary.as_deref().unwrap_or("No summary"),
-                flow.description.as_deref().unwrap_or("No description")
-            );
-            let schema_obj = if let Some(schema) = flow.schema {
-                Runner::transform_schema_for_resources(
-                    &schema,
+            tools.push(
+                Runner::create_tool_from_item(
+                    &flow,
                     user_db,
                     authed,
                     &workspace_id,
                     &mut resources_cache,
                     &resources_types,
                 )
-                .await?
-            } else {
-                SchemaType::default()
-            };
-            flow_tools.push(Tool {
-                name: Cow::Owned(name),
-                description: Some(Cow::Owned(description)),
-                input_schema: {
-                    let value = serde_json::to_value(schema_obj).unwrap_or_default();
-                    if let serde_json::Value::Object(map) = value {
-                        Arc::new(map)
-                    } else {
-                        Arc::new(serde_json::Map::new())
-                    }
-                },
-                annotations: None,
-            });
+                .await?,
+            );
         }
 
-        let tools = [script_tools, flow_tools].concat();
+        for hub_script in hub_scripts {
+            tools.push(
+                Runner::create_tool_from_item(
+                    &hub_script,
+                    user_db,
+                    authed,
+                    &workspace_id,
+                    &mut resources_cache,
+                    &resources_types,
+                )
+                .await?,
+            );
+        }
+
         Ok(ListToolsResult { tools, next_cursor: None })
     }
 
