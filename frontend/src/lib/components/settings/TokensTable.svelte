@@ -120,6 +120,7 @@
 		newMcpToken = undefined
 		newToken = undefined
 		newTokenExpiration = undefined
+		newMcpApps = []
 		newTokenLabel = type === 'mcpUrl' ? 'MCP token' : undefined
 	}
 
