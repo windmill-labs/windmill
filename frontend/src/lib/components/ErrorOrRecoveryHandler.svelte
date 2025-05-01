@@ -454,12 +454,16 @@
 					minWidth="200px"
 					placeholder="Select Teams channel"
 					channels={teams_channels as any[]}
-					on:change={(e) => handlerExtraArgs['channel'] = e.detail.channel_id}
-					selectedChannel={handlerExtraArgs['channel'] ?
-						teams_channels.find(ch => ch.channel_id === handlerExtraArgs['channel']) as any : undefined}
+					on:change={(e) => (handlerExtraArgs['channel'] = e.detail.channel_id)}
+					selectedChannel={handlerExtraArgs['channel']
+						? (teams_channels.find((ch) => ch.channel_id === handlerExtraArgs['channel']) as any)
+						: undefined}
 				/>
 				<div class="flex-shrink-0">
-					<button on:click={loadTeamsResources} class="flex items-center gap-1 p-1.5 rounded hover:bg-surface-hover focus:bg-surface-hover">
+					<button
+						on:click={loadTeamsResources}
+						class="flex items-center gap-1 p-1.5 rounded hover:bg-surface-hover focus:bg-surface-hover"
+					>
 						<RefreshCcw size={16} class={isFetching ? 'animate-spin' : ''} />
 					</button>
 				</div>
@@ -467,7 +471,9 @@
 		</div>
 		<div class="flex flex-row gap-2 pb-4">
 			<p class="text-sm">
-				This workspace is connected to Team: <Badge color="blue" size="xs" class="mt-2">{teams_team_name}</Badge>
+				This workspace is connected to Team: <Badge color="blue" size="xs" class="mt-2"
+					>{teams_team_name}</Badge
+				>
 			</p>
 			<Tooltip text={teams_team_name}>
 				Each workspace can only be connected to one Microsoft Teams team. You can configure it under <a

@@ -11,8 +11,8 @@
 	import TeamSelector from './TeamSelector.svelte'
 
 	interface TeamItem {
-		team_id: string;
-		team_name: string;
+		team_id: string
+		team_name: string
 	}
 
 	export let platform: 'slack' | 'teams'

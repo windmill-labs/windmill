@@ -136,7 +136,7 @@
 		}
 	}
 
-	function handleTeamChange(teamItem: { team_id: string, team_name: string }, i: number) {
+	function handleTeamChange(teamItem: { team_id: string; team_name: string }, i: number) {
 		const team = $values['teams'].find((team) => team.team_id === teamItem.team_id) || null
 		$values['critical_error_channels'][i] = {
 			teams_channel: {
@@ -148,8 +148,8 @@
 		}
 	}
 
-	function handleChannelChange(channel: { channel_id: string, channel_name: string }, i: number) {
-		const team = $values['critical_error_channels'][i]?.teams_channel;
+	function handleChannelChange(channel: { channel_id: string; channel_name: string }, i: number) {
+		const team = $values['critical_error_channels'][i]?.teams_channel
 		if (team) {
 			$values['critical_error_channels'][i] = {
 				teams_channel: {
@@ -331,15 +331,15 @@
 												latestKeyRenewalAttempt.result === 'success'
 													? 'text-green-600'
 													: isTrial
-													? 'text-yellow-600'
-													: 'text-red-600'
+														? 'text-yellow-600'
+														: 'text-red-600'
 											)}
 										>
 											{latestKeyRenewalAttempt.result === 'success'
 												? 'Latest key renewal succeeded'
 												: isTrial
-												? 'Latest key renewal ignored because in trial'
-												: 'Latest key renewal failed'}
+													? 'Latest key renewal ignored because in trial'
+													: 'Latest key renewal failed'}
 											on {attemptedAt}
 										</span>
 									</div>
@@ -462,24 +462,37 @@
 													placeholder="Select team"
 													teams={$values['teams']}
 													on:change={(e) => handleTeamChange(e.detail, i)}
-													selectedTeam={$values['critical_error_channels'][i]?.teams_channel ?
-														{
-															team_id: $values['critical_error_channels'][i]?.teams_channel?.team_id,
-															team_name: $values['critical_error_channels'][i]?.teams_channel?.team_name
-														} : undefined}
+													selectedTeam={$values['critical_error_channels'][i]?.teams_channel
+														? {
+																team_id:
+																	$values['critical_error_channels'][i]?.teams_channel?.team_id,
+																team_name:
+																	$values['critical_error_channels'][i]?.teams_channel?.team_name
+															}
+														: undefined}
 												/>
 
 												{#if $values['critical_error_channels'][i]?.teams_channel?.team_id}
 													<ChannelSelector
 														containerClass=""
 														placeholder="Select channel"
-														channels={$values['teams'].find((team) => team.team_id === $values['critical_error_channels'][i]?.teams_channel?.team_id)?.channels ?? []}
+														channels={$values['teams'].find(
+															(team) =>
+																team.team_id ===
+																$values['critical_error_channels'][i]?.teams_channel?.team_id
+														)?.channels ?? []}
 														on:change={(e) => handleChannelChange(e.detail, i)}
-														selectedChannel={$values['critical_error_channels'][i]?.teams_channel?.channel_id ?
-															{
-																channel_id: $values['critical_error_channels'][i]?.teams_channel?.channel_id,
-																channel_name: $values['critical_error_channels'][i]?.teams_channel?.channel_name
-															} : undefined}
+														selectedChannel={$values['critical_error_channels'][i]?.teams_channel
+															?.channel_id
+															? {
+																	channel_id:
+																		$values['critical_error_channels'][i]?.teams_channel
+																			?.channel_id,
+																	channel_name:
+																		$values['critical_error_channels'][i]?.teams_channel
+																			?.channel_name
+																}
+															: undefined}
 													/>
 												{/if}
 												<div>

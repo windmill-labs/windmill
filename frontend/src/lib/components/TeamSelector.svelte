@@ -8,8 +8,8 @@
 	import { WorkspaceService } from '$lib/gen'
 
 	interface TeamItem {
-		team_id: string;
-		team_name: string;
+		team_id: string
+		team_name: string
 	}
 
 	export let disabled = false
@@ -42,9 +42,9 @@
 	async function loadTeams() {
 		isFetching = true
 		try {
-			const response = await WorkspaceService.listAvailableTeamsIds({
+			const response = (await WorkspaceService.listAvailableTeamsIds({
 				workspace: $workspaceStore!
-			}) as unknown as TeamItem[]
+			})) as unknown as TeamItem[]
 
 			teams = response || []
 			isFetching = false
@@ -68,11 +68,10 @@
 	function filterTeams(filterText: string | unknown) {
 		if (!teams) return teams
 
-		const searchText = typeof filterText === 'string' ? filterText : '';
+		const searchText = typeof filterText === 'string' ? filterText : ''
 
 		const filtered = searchText
-			? teams.filter(team =>
-				team.team_name.toLowerCase().includes(searchText.toLowerCase()))
+			? teams.filter((team) => team.team_name.toLowerCase().includes(searchText.toLowerCase()))
 			: teams
 
 		return filtered
@@ -84,7 +83,9 @@
 		<div class="flex-grow" style="min-width: {minWidth};">
 			<Select
 				inputStyles={SELECT_INPUT_DEFAULT_STYLE.inputStyles}
-				containerStyles={'border-color: lightgray; min-width: ' + minWidth + ';' +
+				containerStyles={'border-color: lightgray; min-width: ' +
+					minWidth +
+					';' +
 					(darkMode
 						? SELECT_INPUT_DEFAULT_STYLE.containerStylesDark
 						: SELECT_INPUT_DEFAULT_STYLE.containerStyles)}

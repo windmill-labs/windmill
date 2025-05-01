@@ -5,8 +5,8 @@
 	import DarkModeObserver from './DarkModeObserver.svelte'
 
 	interface ChannelItem {
-		channel_id: string;
-		channel_name: string;
+		channel_id: string
+		channel_name: string
 	}
 
 	export let disabled = false
@@ -40,11 +40,12 @@
 	function filterChannels(filterText: string | unknown) {
 		if (!channels) return channels
 
-		const searchText = typeof filterText === 'string' ? filterText : '';
+		const searchText = typeof filterText === 'string' ? filterText : ''
 
 		const filtered = searchText
-			? channels.filter(channel =>
-				channel.channel_name.toLowerCase().includes(searchText.toLowerCase()))
+			? channels.filter((channel) =>
+					channel.channel_name.toLowerCase().includes(searchText.toLowerCase())
+				)
 			: channels
 
 		return filtered
@@ -56,7 +57,9 @@
 		<div class="flex-grow" style="min-width: {minWidth};">
 			<Select
 				inputStyles={SELECT_INPUT_DEFAULT_STYLE.inputStyles}
-				containerStyles={'border-color: lightgray; min-width: ' + minWidth + ';' +
+				containerStyles={'border-color: lightgray; min-width: ' +
+					minWidth +
+					';' +
 					(darkMode
 						? SELECT_INPUT_DEFAULT_STYLE.containerStylesDark
 						: SELECT_INPUT_DEFAULT_STYLE.containerStyles)}
@@ -76,9 +79,7 @@
 	</div>
 
 	{#if channels.length === 0 && !disabled}
-		<div class="text-xs text-tertiary mt-1">
-			No channels available
-		</div>
+		<div class="text-xs text-tertiary mt-1"> No channels available </div>
 	{/if}
 </div>
 
