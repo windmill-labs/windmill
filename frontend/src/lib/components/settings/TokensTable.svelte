@@ -81,9 +81,7 @@
 			}
 
 			let tokenScopes = mcpMode
-				? [
-						`mcp:${newMcpScope}${newMcpApps && newMcpApps.length > 0 ? `:${newMcpApps.join(',')}` : ''}`
-					]
+				? [`mcp:${newMcpScope}${newMcpApps.length > 0 ? `:${newMcpApps.join(',')}` : ''}`]
 				: scopes
 
 			const createdToken = await UserService.createToken({
@@ -223,29 +221,30 @@
 			<h3 class="pb-3 font-semibold">Add a new token</h3>
 
 			{#if showMcpMode}
-				<Toggle
-					on:change={(e) => {
-						mcpCreationMode = e.detail
-						if (e.detail) {
-							newTokenLabel = 'MCP token'
-							newTokenExpiration = undefined
-							newTokenWorkspace = $workspaceStore
-						} else {
-							newTokenLabel = undefined
-							newTokenExpiration = undefined
-							newTokenWorkspace = defaultNewTokenWorkspace
-						}
-					}}
-					checked={mcpCreationMode}
-					options={{
-						right: 'Generate MCP URL',
-						rightTooltip:
-							'Generate a new MCP URL to make your scripts and flows available as tools through your LLM clients.',
-						rightDocumentationLink: 'https://www.windmill.dev/docs/core_concepts/mcp'
-					}}
-					class="mb-4"
-					size="xs"
-				/>
+				<div class="mb-4 flex flex-row flex-shrink-0">
+					<Toggle
+						on:change={(e) => {
+							mcpCreationMode = e.detail
+							if (e.detail) {
+								newTokenLabel = 'MCP token'
+								newTokenExpiration = undefined
+								newTokenWorkspace = $workspaceStore
+							} else {
+								newTokenLabel = undefined
+								newTokenExpiration = undefined
+								newTokenWorkspace = defaultNewTokenWorkspace
+							}
+						}}
+						checked={mcpCreationMode}
+						options={{
+							right: 'Generate MCP URL',
+							rightTooltip:
+								'Generate a new MCP URL to make your scripts and flows available as tools through your LLM clients.',
+							rightDocumentationLink: 'https://www.windmill.dev/docs/core_concepts/mcp'
+						}}
+						size="xs"
+					/>
+				</div>
 			{/if}
 
 			{#if scopes != undefined}
@@ -343,7 +342,7 @@
 			<div class="mt-4 flex justify-end">
 				<Button
 					on:click={() => createToken(mcpCreationMode)}
-					disabled={mcpCreationMode && newTokenWorkspace === undefined}
+					disabled={mcpCreationMode && newMcpScope === 'hub' && newMcpApps.length === 0}
 				>
 					New token
 				</Button>
