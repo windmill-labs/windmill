@@ -79,7 +79,7 @@ function makeSnowflakeSelectQuery(
 	return query
 }
 
-function makeSelectQuery(
+export function makeSelectQuery(
 	table: string,
 	columnDefs: ColumnDef[],
 	whereClause: string | undefined,
@@ -155,6 +155,9 @@ CASE WHEN :order_by = '${column.field}' AND :is_desc IS true THEN \`${column.fie
 		case 'ms_sql_server':
 			// MSSQL uses CONCAT for string concatenation and supports OFFSET FETCH for pagination
 			// Note: MSSQL does not have a built-in ILIKE function, so we use LIKE with a case-insensitive collation if needed
+			//
+			// Note 2: CONCAT in mssql requires 2 to 254 arguments. But we can't change this query without breaking
+			// existing policies
 			const orderBy = columnDefs
 				.map((column) => {
 					return `

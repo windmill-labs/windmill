@@ -9,10 +9,14 @@
 		drawer?.openEdit(ePath, isFlow)
 	}
 
-	export async function openNew(is_flow: boolean, initial_script_path?: string) {
+	export async function openNew(
+		is_flow: boolean,
+		initial_script_path?: string,
+		schedule_path?: string
+	) {
 		open = true
 		await tick()
-		drawer?.openNew(is_flow, initial_script_path)
+		drawer?.openNew(is_flow, initial_script_path, schedule_path)
 	}
 
 	let drawer: ScheduleEditorInner
