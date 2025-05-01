@@ -103,7 +103,9 @@
 			}}
 			disabled={!$enterpriseLicense || !$superadmin}
 		>
-			Save {#if !$superadmin} <span class="text-2xs text-tertiary">superadmin only</span> {/if}
+			Save {#if !$superadmin}
+				<span class="text-2xs text-tertiary">superadmin only</span>
+			{/if}
 		</Button>
 
 		<span class="text-2xs text-tertiary"

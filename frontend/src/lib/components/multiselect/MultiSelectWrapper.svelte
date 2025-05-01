@@ -1,30 +1,39 @@
 <script lang="ts">
-	// @ts-ignore
 	import Portal from '$lib/components/Portal.svelte'
-
 	import { createFloatingActions } from 'svelte-floating-ui'
 	import { tick } from 'svelte'
 	import { offset, flip, shift } from 'svelte-floating-ui/dom'
 	import MultiSelect from '$lib/components/multiselect/MultiSelect.svelte'
 	import DarkModeObserver from '../DarkModeObserver.svelte'
+	import { deepEqual } from 'fast-equals'
 
-	export let items: any[]
-	let propValue: string[] | undefined = []
-	export { propValue as value }
-	$: value = structuredClone(propValue)
-	export let placeholder: string | undefined = undefined
-	export let target: string | HTMLElement | undefined = undefined
-	export let topPlacement = false
-	export let allowUserOptions: boolean | 'append' | undefined = undefined
+	let {
+		items,
+		value = $bindable([]),
+		placeholder = undefined,
+		target = undefined,
+		topPlacement = false,
+		allowUserOptions = undefined
+	} = $props<{
+		items: any[]
+		value?: string[]
+		placeholder?: string
+		target?: string | HTMLElement
+		topPlacement?: boolean
+		allowUserOptions?: boolean | 'append'
+	}>()
+
 	const [floatingRef, floatingContent] = createFloatingActions({
 		strategy: 'absolute',
 		placement: topPlacement ? 'top-start' : 'bottom-start',
 		middleware: [offset(5), flip(), shift()]
 	})
 
-	let outerDiv: HTMLDivElement | undefined = undefined
-	let portalRef: HTMLDivElement | undefined = undefined
-
+	let outerDiv = $state<HTMLDivElement | undefined>(undefined)
+	let portalRef = $state<HTMLDivElement | undefined>(undefined)
+	let darkMode = $state(false)
+	let w = $state(0)
+	let open = $state(false)
 	function moveOptionsToPortal() {
 		// Find ul element with class 'options' within the outerDiv
 		const ul = outerDiv?.querySelector('.options')
@@ -34,17 +43,13 @@
 		}
 	}
 
-	$: if (portalRef && outerDiv && (allowUserOptions || items?.length > 0)) {
-		tick().then(() => {
-			moveOptionsToPortal()
-		})
-	}
-
-	// bg-indigo-100 text-indigo-800 dark:bg-indigo-200 dark:text-indigo-900
-	let darkMode: boolean = false
-
-	let w = 0
-	let open: boolean = false
+	$effect(() => {
+		if (portalRef && outerDiv && (allowUserOptions || items?.length > 0)) {
+			tick().then(() => {
+				moveOptionsToPortal()
+			})
+		}
+	})
 </script>
 
 <DarkModeObserver bind:darkMode />
@@ -62,10 +67,14 @@
 				--sms-focus-border={'none'}
 				--sms-selected-bg={darkMode ? '#c7d2fe' : '#e0e7ff'}
 				--sms-selected-text-color={darkMode ? '#312e81' : '#3730a3'}
-				bind:selected={value}
-				on:change={() => {
-					propValue = value
-				}}
+				bind:selected={
+					() => [...value],
+					(newVal) => {
+						if (!deepEqual(value, newVal)) {
+							value = newVal
+						}
+					}
+				}
 				{placeholder}
 				options={items}
 				on:close={() => {
@@ -77,15 +86,19 @@
 				let:option
 				disableRemoveAll
 			>
-				<!-- needed because portal doesn't work for mouseup event en mobile -->
-				<!-- svelte-ignore a11y-no-static-element-interactions -->
 				<div
 					class="w-full text-sm"
-					on:mouseup|stopPropagation
-					on:pointerdown|stopPropagation={(e) => {
+					role="option"
+					tabindex="0"
+					onmouseup={(e) => {
+						e.stopPropagation()
+					}}
+					onpointerdown={(e) => {
+						e.stopPropagation()
 						let newe = new MouseEvent('mouseup')
 						e.target?.['parentElement']?.dispatchEvent(newe)
 					}}
+					aria-selected={value?.includes(option)}
 				>
 					{option}
 				</div>
@@ -93,13 +106,17 @@
 		</div>
 		<Portal {target} name="multi-select">
 			<div use:floatingContent class="z5000" hidden={!open}>
-				<!-- svelte-ignore a11y-click-events-have-key-events -->
-				<!-- svelte-ignore a11y-no-static-element-interactions -->
+				<!-- svelte-ignore a11y_click_events_have_key_events -->
+				<!-- svelte-ignore a11y_no_static_element_interactions -->
 				<div
 					bind:this={portalRef}
 					class="multiselect"
 					style={`min-width: ${w}px;`}
-					on:click|stopPropagation
+					onclick={(e) => {
+						e.stopPropagation()
+					}}
+					role="listbox"
+					tabindex="0"
 				></div>
 			</div>
 		</Portal>
