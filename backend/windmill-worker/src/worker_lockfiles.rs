@@ -446,7 +446,7 @@ pub async fn process_relative_imports(
             || (script_lang.is_some_and(|v| v == ScriptLang::Python3)
                 && lock
                     .as_ref()
-                    .is_some_and(|v| v.starts_with("# from requirements.txt")))
+                    .is_some_and(|v| v.starts_with(LOCKFILE_GENERATED_FROM_REQUIREMENTS_TXT)))
         {
             // if the lock file is generated from a package.json/requirements.txt, we need to clear the dependency map
             // because we do not want to have dependencies be recomputed automatically. Empty relative imports passed
@@ -2076,6 +2076,8 @@ async fn ansible_dep(
     serde_json::to_string(&ansible_lockfile).map_err(|e| e.into())
 }
 
+pub const LOCKFILE_GENERATED_FROM_REQUIREMENTS_TXT: &str = "# from requirements.txt";
+
 async fn capture_dependency_job(
     job_id: &Uuid,
     job_language: &ScriptLang,
@@ -2146,7 +2148,7 @@ async fn capture_dependency_job(
                 .await
                 .map(|res| {
                     if raw_deps {
-                        format!("# from requirements.txt\n{}", res)
+                        format!("{}\n{}", LOCKFILE_GENERATED_FROM_REQUIREMENTS_TXT, res)
                     } else {
                         res
                     }
