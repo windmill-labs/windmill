@@ -1,18 +1,15 @@
 import type { AppInput, RunnableByName } from '$lib/components/apps/inputType'
 import { getLanguageByResourceType, type ColumnDef, buildParameters, type DbType } from '../utils'
 
-function updateWithAllValues(
+export function makeUpdateQuery(
 	table: string,
-	column: ColumnDef,
-	columns: ColumnDef[],
+	column: { datatype: string; field: string },
+	columns: { datatype: string; field: string }[],
 	dbType: DbType
 ) {
 	let query = buildParameters(
 		[
-			{
-				field: 'value_to_update',
-				datatype: column.datatype
-			},
+			{ field: 'value_to_update', datatype: column.datatype },
 			...(dbType === 'snowflake' ? columns.flatMap((c) => [c, c]) : columns)
 		],
 		dbType
@@ -85,7 +82,7 @@ export function getUpdateInput(
 		name: 'AppDbExplorer',
 		type: 'runnableByName',
 		inlineScript: {
-			content: updateWithAllValues(table, column, columns, dbType),
+			content: makeUpdateQuery(table, column, columns, dbType),
 			language: getLanguageByResourceType(dbType),
 			schema: {
 				$schema: 'https://json-schema.org/draft/2020-12/schema',

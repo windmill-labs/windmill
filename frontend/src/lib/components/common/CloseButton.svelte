@@ -6,12 +6,13 @@
 
 	export let noBg = false
 	export let small: boolean = false
+	export let Icon: any | undefined = undefined
 	const dispatch = createEventDispatcher()
 </script>
 
 <Button
 	on:click={() => dispatch('close')}
-	startIcon={{ icon: X }}
+	startIcon={{ icon: Icon ?? X }}
 	iconOnly
 	size="sm"
 	color="light"

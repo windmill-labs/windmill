@@ -1,3 +1,12 @@
+<script module lang="ts">
+	export type StepHistoryData = {
+		id: string
+		created_at: string
+		created_by: string
+		success: boolean
+	}
+</script>
+
 <script lang="ts">
 	import InfiniteList from '$lib/components/InfiniteList.svelte'
 	import { JobService } from '$lib/gen'
@@ -14,16 +23,20 @@
 	export let mockValue: any = undefined
 	export let mockEnabled: boolean = false
 	export let path: string = ''
+	export let staticInputs: undefined | StepHistoryData[] = undefined
 	export let noHistory: 'isLoop' | 'isInsideLoop' | undefined = undefined
 
-	const { pathStore } = getContext<FlowEditorContext>('FlowEditorContext')
+	const { pathStore } = getContext<FlowEditorContext>('FlowEditorContext') ?? {}
 	const dispatch = createEventDispatcher()
 
 	let infiniteList: InfiniteList | undefined = undefined
-	let loadInputsPageFn: ((page: number, perPage: number) => Promise<any>) | undefined = undefined
+	let loadInputsPageFn:
+		| ((page: number, perPage: number) => Promise<StepHistoryData[]>)
+		| undefined = undefined
 
 	function initLoadInputs() {
 		loadInputsPageFn = async (page: number, perPage: number) => {
+			if (staticInputs) return staticInputs
 			const previousJobs = await JobService.listCompletedJobs({
 				workspace: $workspaceStore!,
 				scriptPathExact: path === '' ? $pathStore + '/' + moduleId : path,
@@ -41,6 +54,8 @@
 		}
 		infiniteList?.setLoader(loadInputsPageFn)
 	}
+
+	$: staticInputs && infiniteList?.loadData('forceRefresh')
 
 	async function getJobResultAndLogs(jobId: string, noLogs: boolean) {
 		try {
