@@ -634,7 +634,7 @@ dependencies = [
  "serde",
  "serde-aux",
  "serde_json",
- "sha2 0.10.8",
+ "sha2 0.10.9",
  "thiserror 1.0.69",
  "url",
 ]
@@ -938,7 +938,7 @@ dependencies = [
  "http 0.2.12",
  "http 1.3.1",
  "percent-encoding",
- "sha2 0.10.8",
+ "sha2 0.10.9",
  "time",
  "tracing",
 ]
@@ -2727,7 +2727,7 @@ dependencies = [
  "md-5 0.10.6",
  "rand 0.8.5",
  "regex",
- "sha2 0.10.8",
+ "sha2 0.10.9",
  "unicode-segmentation",
  "uuid",
 ]
@@ -2966,7 +2966,7 @@ dependencies = [
  "deno_error",
  "rusqlite",
  "serde",
- "sha2 0.10.8",
+ "sha2 0.10.9",
  "thiserror 2.0.12",
  "tokio",
 ]
@@ -2994,7 +2994,7 @@ dependencies = [
  "parking_lot 0.12.3",
  "serde",
  "serde_json",
- "sha2 0.10.8",
+ "sha2 0.10.9",
  "sys_traits",
  "thiserror 1.0.69",
  "url",
@@ -3142,7 +3142,7 @@ dependencies = [
  "serde",
  "serde_bytes",
  "sha1",
- "sha2 0.10.8",
+ "sha2 0.10.9",
  "signature",
  "spki",
  "thiserror 2.0.12",
@@ -3511,7 +3511,7 @@ dependencies = [
  "sec1",
  "serde",
  "sha1",
- "sha2 0.10.8",
+ "sha2 0.10.9",
  "sha3",
  "signature",
  "simd-json",
@@ -4322,7 +4322,7 @@ dependencies = [
  "num-traits",
  "pkcs8",
  "rfc6979",
- "sha2 0.10.8",
+ "sha2 0.10.9",
  "signature",
  "zeroize",
 ]
@@ -4433,7 +4433,7 @@ dependencies = [
  "ed25519",
  "rand_core 0.6.4",
  "serde",
- "sha2 0.10.8",
+ "sha2 0.10.9",
  "signature",
  "subtle",
  "zeroize",
@@ -4689,7 +4689,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0ce92ff622d6dadf7349484f42c93271a0d49b7cc4d466a936405bacbe10aa78"
 dependencies = [
  "cfg-if",
- "rustix 1.0.5",
+ "rustix 1.0.7",
  "windows-sys 0.59.0",
 ]
 
@@ -5474,7 +5474,7 @@ checksum = "dcf29e94d6d243368b7a56caa16bc213e4f9f8ed38c4d9557069527b5d5281ca"
 dependencies = [
  "bitflags 2.9.0",
  "gpu-descriptor-types",
- "hashbrown 0.15.2",
+ "hashbrown 0.15.3",
 ]
 
 [[package]]
@@ -5589,9 +5589,9 @@ dependencies = [
 
 [[package]]
 name = "hashbrown"
-version = "0.15.2"
+version = "0.15.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bf151400ff0baff5465007dd2f3e717f3fe502074ca563069ce3a6629d07b289"
+checksum = "84b26c544d002229e640969970a2e74021aadf6e2f96372b9c58eff97de08eb3"
 dependencies = [
  "allocator-api2",
  "equivalent",
@@ -5624,7 +5624,7 @@ version = "0.10.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7382cf6263419f2d8df38c55d7da83da5c18aef87fc7a7fc1fb1e344edfe14c1"
 dependencies = [
- "hashbrown 0.15.2",
+ "hashbrown 0.15.3",
 ]
 
 [[package]]
@@ -5772,17 +5772,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "589533453244b0995c858700322199b2becb13b627df2851f64a2775d024abcf"
 dependencies = [
  "windows-sys 0.59.0",
-]
-
-[[package]]
-name = "hostname"
-version = "0.4.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a56f203cd1c76362b69e3863fd987520ac36cf70a8c92627449b2f64a8cf7d65"
-dependencies = [
- "cfg-if",
- "libc",
- "windows-link",
 ]
 
 [[package]]
@@ -6290,7 +6279,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cea70ddb795996207ad57735b50c5982d8844f38ba9ee5f1aedcfb708a2aa11e"
 dependencies = [
  "equivalent",
- "hashbrown 0.15.2",
+ "hashbrown 0.15.3",
  "serde",
 ]
 
@@ -6550,7 +6539,7 @@ dependencies = [
  "ecdsa",
  "elliptic-curve",
  "once_cell",
- "sha2 0.10.8",
+ "sha2 0.10.9",
  "signature",
 ]
 
@@ -6920,7 +6909,7 @@ version = "0.12.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "234cf4f4a04dc1f57e24b96cc0cd600cf2af460d4161ac5ecdd0af8e1f3b2a38"
 dependencies = [
- "hashbrown 0.15.2",
+ "hashbrown 0.15.3",
 ]
 
 [[package]]
@@ -6929,7 +6918,7 @@ version = "0.14.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9f8cc7106155f10bdf99a6f379688f543ad6596a415375b36a59a054ceda1198"
 dependencies = [
- "hashbrown 0.15.2",
+ "hashbrown 0.15.3",
 ]
 
 [[package]]
@@ -7477,7 +7466,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha1",
- "sha2 0.10.8",
+ "sha2 0.10.9",
  "thiserror 2.0.12",
  "uuid",
 ]
@@ -8009,7 +7998,7 @@ dependencies = [
  "serde",
  "serde_json",
  "serde_path_to_error",
- "sha2 0.10.8",
+ "sha2 0.10.9",
  "thiserror 1.0.69",
  "url",
 ]
@@ -8162,7 +8151,7 @@ dependencies = [
  "serde_path_to_error",
  "serde_plain",
  "serde_with",
- "sha2 0.10.8",
+ "sha2 0.10.9",
  "subtle",
  "thiserror 1.0.69",
  "url",
@@ -8211,9 +8200,9 @@ dependencies = [
 
 [[package]]
 name = "openssl-sys"
-version = "0.9.107"
+version = "0.9.108"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8288979acd84749c744a9014b4382d42b8f7b2592847b5afb2ed29e5d16ede07"
+checksum = "e145e1651e858e820e4860f7b9c5e169bc1d8ce1c86043be79fa7b7634821847"
 dependencies = [
  "cc",
  "libc",
@@ -8416,7 +8405,7 @@ dependencies = [
  "ecdsa",
  "elliptic-curve",
  "primeorder",
- "sha2 0.10.8",
+ "sha2 0.10.9",
 ]
 
 [[package]]
@@ -8428,7 +8417,7 @@ dependencies = [
  "ecdsa",
  "elliptic-curve",
  "primeorder",
- "sha2 0.10.8",
+ "sha2 0.10.9",
 ]
 
 [[package]]
@@ -8440,7 +8429,7 @@ dependencies = [
  "ecdsa",
  "elliptic-curve",
  "primeorder",
- "sha2 0.10.8",
+ "sha2 0.10.9",
 ]
 
 [[package]]
@@ -8454,7 +8443,7 @@ dependencies = [
  "elliptic-curve",
  "primeorder",
  "rand_core 0.6.4",
- "sha2 0.10.8",
+ "sha2 0.10.9",
 ]
 
 [[package]]
@@ -8776,7 +8765,7 @@ dependencies = [
  "der",
  "pbkdf2",
  "scrypt",
- "sha2 0.10.8",
+ "sha2 0.10.9",
  "spki",
 ]
 
@@ -8865,7 +8854,7 @@ dependencies = [
  "md-5 0.10.6",
  "memchr",
  "rand 0.8.5",
- "sha2 0.10.8",
+ "sha2 0.10.9",
  "stringprep",
 ]
 
@@ -8883,7 +8872,7 @@ dependencies = [
  "md-5 0.10.6",
  "memchr",
  "rand 0.9.0",
- "sha2 0.10.8",
+ "sha2 0.10.9",
  "stringprep",
 ]
 
@@ -9249,7 +9238,7 @@ checksum = "287e56aac5a2b4fb25a6fb050961d157635924c8696305a5c937a76f29841a0f"
 dependencies = [
  "ahash 0.8.11",
  "equivalent",
- "hashbrown 0.15.2",
+ "hashbrown 0.15.3",
  "parking_lot 0.12.3",
 ]
 
@@ -9295,9 +9284,9 @@ dependencies = [
 
 [[package]]
 name = "quinn-udp"
-version = "0.5.11"
+version = "0.5.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "541d0f57c6ec747a90738a52741d3221f7960e8ac2f0ff4b1a63680e033b4ab5"
+checksum = "ee4e529991f949c5e25755532370b8af5d114acae52326361d68d47af64aa842"
 dependencies = [
  "cfg_aliases 0.2.1",
  "libc",
@@ -9755,12 +9744,9 @@ dependencies = [
 
 [[package]]
 name = "resolv-conf"
-version = "0.7.1"
+version = "0.7.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "48375394603e3dd4b2d64371f7148fd8c7baa2680e28741f2cb8d23b59e3d4c4"
-dependencies = [
- "hostname",
-]
+checksum = "fc7c8f7f733062b66dc1c63f9db168ac0b97a9210e247fa90fdc9ad08f51b302"
 
 [[package]]
 name = "retry-policies"
@@ -9985,7 +9971,7 @@ version = "7.8.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9d38ff6bf570dc3bb7100fce9f7b60c33fa71d80e88da3f2580df4ff2bdded74"
 dependencies = [
- "sha2 0.10.8",
+ "sha2 0.10.9",
  "walkdir",
 ]
 
@@ -10076,9 +10062,9 @@ dependencies = [
 
 [[package]]
 name = "rustix"
-version = "1.0.5"
+version = "1.0.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d97817398dd4bb2e6da002002db259209759911da105da92bec29ccb12cf58bf"
+checksum = "c71e83d6afe7ff64890ec6b71d6a69bb8a610ab78ce364b3352876bb4c801266"
 dependencies = [
  "bitflags 2.9.0",
  "errno",
@@ -10460,7 +10446,7 @@ dependencies = [
  "password-hash",
  "pbkdf2",
  "salsa20",
- "sha2 0.10.8",
+ "sha2 0.10.9",
 ]
 
 [[package]]
@@ -10783,9 +10769,9 @@ dependencies = [
 
 [[package]]
 name = "sha2"
-version = "0.10.8"
+version = "0.10.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "793db75ad2bcafc3ffa7c68b215fee268f537982cd901d132f89c6343f3a3dc8"
+checksum = "a7507d819769d01a365ab707794a4084392c824f54a7a6a7862f8c3d0892b283"
 dependencies = [
  "cfg-if",
  "cpufeatures",
@@ -11178,7 +11164,7 @@ dependencies = [
  "futures-intrusive",
  "futures-io",
  "futures-util",
- "hashbrown 0.15.2",
+ "hashbrown 0.15.3",
  "hashlink 0.10.0",
  "indexmap 2.9.0",
  "log",
@@ -11188,7 +11174,7 @@ dependencies = [
  "rustls 0.23.26",
  "serde",
  "serde_json",
- "sha2 0.10.8",
+ "sha2 0.10.9",
  "smallvec",
  "thiserror 2.0.12",
  "tokio",
@@ -11227,7 +11213,7 @@ dependencies = [
  "quote",
  "serde",
  "serde_json",
- "sha2 0.10.8",
+ "sha2 0.10.9",
  "sqlx-core",
  "sqlx-mysql",
  "sqlx-postgres",
@@ -11273,7 +11259,7 @@ dependencies = [
  "rsa",
  "serde",
  "sha1",
- "sha2 0.10.8",
+ "sha2 0.10.9",
  "smallvec",
  "sqlx-core",
  "stringprep",
@@ -11314,7 +11300,7 @@ dependencies = [
  "rand 0.8.5",
  "serde",
  "serde_json",
- "sha2 0.10.8",
+ "sha2 0.10.9",
  "smallvec",
  "sqlx-core",
  "stringprep",
@@ -11914,9 +11900,9 @@ dependencies = [
 
 [[package]]
 name = "synstructure"
-version = "0.13.1"
+version = "0.13.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c8af7666ab7b6390ab78131fb5b0fce11d6b7a6951602017c35fa82800708971"
+checksum = "728a70f3dbaf5bab7f0c4b1ac8d7ae5ea60a4b5549c8a5914361c99147a709d2"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -12185,7 +12171,7 @@ dependencies = [
  "fastrand",
  "getrandom 0.3.2",
  "once_cell",
- "rustix 1.0.5",
+ "rustix 1.0.7",
  "windows-sys 0.59.0",
 ]
 
@@ -12204,7 +12190,7 @@ version = "0.4.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "45c6481c4829e4cc63825e62c49186a34538b7b2750b73b266581ffb612fb5ed"
 dependencies = [
- "rustix 1.0.5",
+ "rustix 1.0.7",
  "windows-sys 0.59.0",
 ]
 
@@ -12689,7 +12675,7 @@ dependencies = [
  "futures-io",
  "futures-sink",
  "futures-util",
- "hashbrown 0.15.2",
+ "hashbrown 0.15.3",
  "pin-project-lite",
  "slab",
  "tokio",
@@ -12758,7 +12744,7 @@ checksum = "310068873db2c5b3e7659d2cc35d21855dbafa50d1ce336397c666e3cb08137e"
 dependencies = [
  "indexmap 2.9.0",
  "toml_datetime",
- "winnow 0.7.7",
+ "winnow 0.7.8",
 ]
 
 [[package]]
@@ -13746,18 +13732,18 @@ dependencies = [
 
 [[package]]
 name = "webpki-root-certs"
-version = "0.26.9"
+version = "0.26.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "180d2741b6115c3d906577e6533ad89472d48d96df00270fccb78233073d77f7"
+checksum = "c99403924bc5f23afefc319b8ac67ed0e50669f6e52a413314cccb1fdbc93ba0"
 dependencies = [
  "rustls-pki-types",
 ]
 
 [[package]]
 name = "webpki-roots"
-version = "0.26.9"
+version = "0.26.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "29aad86cec885cafd03e8305fd727c418e970a521322c91688414d5b8efba16b"
+checksum = "37493cadf42a2a939ed404698ded7fb378bf301b5011f973361779a3a74f8c93"
 dependencies = [
  "rustls-pki-types",
 ]
@@ -13919,7 +13905,7 @@ checksum = "712e227841d057c1ee1cd2fb22fa7e5a5461ae8e48fa2ca79ec42cfc1931183f"
 
 [[package]]
 name = "windmill"
-version = "1.485.3"
+version = "1.486.0"
 dependencies = [
  "anyhow",
  "axum",
@@ -13943,7 +13929,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha1",
- "sha2 0.10.8",
+ "sha2 0.10.9",
  "sqlx",
  "tikv-jemalloc-ctl",
  "tikv-jemalloc-sys",
@@ -13966,7 +13952,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-api"
-version = "1.485.3"
+version = "1.486.0"
 dependencies = [
  "anyhow",
  "argon2",
@@ -14037,7 +14023,7 @@ dependencies = [
  "serde_json",
  "serde_urlencoded",
  "sha1",
- "sha2 0.10.8",
+ "sha2 0.10.9",
  "sql-builder",
  "sqlx",
  "tempfile",
@@ -14076,7 +14062,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-api-client"
-version = "1.485.3"
+version = "1.486.0"
 dependencies = [
  "base64 0.22.1",
  "chrono",
@@ -14091,7 +14077,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-audit"
-version = "1.485.3"
+version = "1.486.0"
 dependencies = [
  "chrono",
  "serde",
@@ -14104,7 +14090,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-autoscaling"
-version = "1.485.3"
+version = "1.486.0"
 dependencies = [
  "anyhow",
  "serde",
@@ -14118,7 +14104,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-common"
-version = "1.485.3"
+version = "1.486.0"
 dependencies = [
  "anyhow",
  "async-stream",
@@ -14163,7 +14149,7 @@ dependencies = [
  "semver 1.0.26",
  "serde",
  "serde_json",
- "sha2 0.10.8",
+ "sha2 0.10.9",
  "sqlx",
  "tar",
  "tempfile",
@@ -14182,7 +14168,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-git-sync"
-version = "1.485.3"
+version = "1.486.0"
 dependencies = [
  "regex",
  "serde",
@@ -14196,7 +14182,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-indexer"
-version = "1.485.3"
+version = "1.486.0"
 dependencies = [
  "anyhow",
  "bytes",
@@ -14219,7 +14205,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-macros"
-version = "1.485.3"
+version = "1.486.0"
 dependencies = [
  "itertools 0.14.0",
  "lazy_static",
@@ -14231,7 +14217,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser"
-version = "1.485.3"
+version = "1.486.0"
 dependencies = [
  "convert_case 0.6.0",
  "serde",
@@ -14240,7 +14226,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-bash"
-version = "1.485.3"
+version = "1.486.0"
 dependencies = [
  "anyhow",
  "lazy_static",
@@ -14252,7 +14238,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-csharp"
-version = "1.485.3"
+version = "1.486.0"
 dependencies = [
  "anyhow",
  "serde_json",
@@ -14264,7 +14250,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-go"
-version = "1.485.3"
+version = "1.486.0"
 dependencies = [
  "anyhow",
  "gosyn",
@@ -14276,7 +14262,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-graphql"
-version = "1.485.3"
+version = "1.486.0"
 dependencies = [
  "anyhow",
  "lazy_static",
@@ -14288,7 +14274,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-java"
-version = "1.485.3"
+version = "1.486.0"
 dependencies = [
  "anyhow",
  "serde_json",
@@ -14300,7 +14286,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-nu"
-version = "1.485.3"
+version = "1.486.0"
 dependencies = [
  "anyhow",
  "nu-parser",
@@ -14311,7 +14297,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-php"
-version = "1.485.3"
+version = "1.486.0"
 dependencies = [
  "anyhow",
  "itertools 0.14.0",
@@ -14322,7 +14308,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-py"
-version = "1.485.3"
+version = "1.486.0"
 dependencies = [
  "anyhow",
  "itertools 0.14.0",
@@ -14333,7 +14319,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-py-imports"
-version = "1.485.3"
+version = "1.486.0"
 dependencies = [
  "anyhow",
  "async-recursion",
@@ -14353,7 +14339,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-rust"
-version = "1.485.3"
+version = "1.486.0"
 dependencies = [
  "anyhow",
  "convert_case 0.6.0",
@@ -14370,7 +14356,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-sql"
-version = "1.485.3"
+version = "1.486.0"
 dependencies = [
  "anyhow",
  "lazy_static",
@@ -14382,7 +14368,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-ts"
-version = "1.485.3"
+version = "1.486.0"
 dependencies = [
  "anyhow",
  "lazy_static",
@@ -14400,7 +14386,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-wasm"
-version = "1.485.3"
+version = "1.486.0"
 dependencies = [
  "anyhow",
  "getrandom 0.2.16",
@@ -14424,7 +14410,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-yaml"
-version = "1.485.3"
+version = "1.486.0"
 dependencies = [
  "anyhow",
  "serde_json",
@@ -14434,7 +14420,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-queue"
-version = "1.485.3"
+version = "1.486.0"
 dependencies = [
  "anyhow",
  "async-recursion",
@@ -14467,7 +14453,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-sql-datatype-parser-wasm"
-version = "1.485.3"
+version = "1.486.0"
 dependencies = [
  "wasm-bindgen",
  "wasm-bindgen-test",
@@ -14477,7 +14463,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-worker"
-version = "1.485.3"
+version = "1.486.0"
 dependencies = [
  "anyhow",
  "async-recursion",
@@ -14531,7 +14517,7 @@ dependencies = [
  "rust_decimal",
  "serde",
  "serde_json",
- "sha2 0.10.8",
+ "sha2 0.10.9",
  "sqlx",
  "tar",
  "tiberius",
@@ -15037,9 +15023,9 @@ dependencies = [
 
 [[package]]
 name = "winnow"
-version = "0.7.7"
+version = "0.7.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6cb8234a863ea0e8cd7284fcdd4f145233eb00fee02bbdd9861aec44e6477bc5"
+checksum = "9e27d6ad3dac991091e4d35de9ba2d2d00647c5d0fc26c5496dee55984ae111b"
 dependencies = [
  "memchr",
 ]
@@ -15132,7 +15118,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0d65cbf2f12c15564212d48f4e3dfb87923d25d611f2aed18f4cb23f0413d89e"
 dependencies = [
  "libc",
- "rustix 1.0.5",
+ "rustix 1.0.7",
 ]
 
 [[package]]
@@ -15192,7 +15178,7 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.101",
- "synstructure 0.13.1",
+ "synstructure 0.13.2",
 ]
 
 [[package]]
@@ -15253,7 +15239,7 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.101",
- "synstructure 0.13.1",
+ "synstructure 0.13.2",
 ]
 
 [[package]]
