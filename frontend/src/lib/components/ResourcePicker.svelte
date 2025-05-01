@@ -8,10 +8,11 @@
 	import ResourceEditorDrawer from './ResourceEditorDrawer.svelte'
 
 	import { Button } from './common'
-	import DBSchemaExplorer from './DBSchemaExplorer.svelte'
+	import DBManagerDrawerButton from './DBManagerDrawerButton.svelte'
 	import DarkModeObserver from './DarkModeObserver.svelte'
 	import { Pen, Plus, RotateCw } from 'lucide-svelte'
 	import { sendUserToast } from '$lib/toast'
+	import { isDbType } from './apps/components/display/dbtable/utils'
 	import { createDispatcherIfMounted } from '$lib/createDispatcherIfMounted'
 
 	const dispatch = createEventDispatcher()
@@ -221,7 +222,7 @@
 			iconOnly
 		/>
 	</div>
-	{#if showSchemaExplorer}
-		<DBSchemaExplorer {resourceType} resourcePath={value} />
+	{#if showSchemaExplorer && isDbType(resourceType) && value}
+		<DBManagerDrawerButton {resourceType} resourcePath={value} />
 	{/if}
 </div>
