@@ -65,16 +65,16 @@ pub async fn update_script_dependency_map(
     relative_imports: Vec<String>,
 ) -> error::Result<()> {
     let importer_kind = "script";
+
+    let mut tx = db.begin().await?;
+    tx = clear_dependency_parent_path(parent_path, script_path, w_id, importer_kind, tx).await?;
+
+    tx = clear_dependency_map_for_item(script_path, w_id, importer_kind, tx, &None).await?;
+
     if !relative_imports.is_empty() {
         let mut logs = "".to_string();
         logs.push_str("\n--- RELATIVE IMPORTS ---\n\n");
         logs.push_str(&relative_imports.join("\n"));
-
-        let mut tx = db.begin().await?;
-        tx =
-            clear_dependency_parent_path(parent_path, script_path, w_id, importer_kind, tx).await?;
-
-        tx = clear_dependency_map_for_item(script_path, w_id, importer_kind, tx, &None).await?;
 
         tx = add_relative_imports_to_dependency_map(
             script_path,
@@ -86,9 +86,10 @@ pub async fn update_script_dependency_map(
             None,
         )
         .await?;
-        tx.commit().await?;
         append_logs(job_id, w_id, logs, &db.into()).await;
     }
+    tx.commit().await?;
+
     Ok(())
 }
 
@@ -381,6 +382,7 @@ pub async fn handle_dependency_job(
                 &job.permissioned_as_email,
                 &job.created_by,
                 &job.permissioned_as,
+                None,
             )
             .await?;
 
@@ -433,18 +435,42 @@ pub async fn process_relative_imports(
     permissioned_as_email: &str,
     created_by: &str,
     permissioned_as: &str,
+    lock: Option<String>,
 ) -> error::Result<()> {
     let relative_imports = extract_relative_imports(&code, script_path, script_lang);
     if let Some(relative_imports) = relative_imports {
-        update_script_dependency_map(
-            &job_id.unwrap_or_else(|| Uuid::nil()),
-            db,
-            w_id,
-            &parent_path,
-            script_path,
-            relative_imports,
-        )
-        .await?;
+        if (script_lang.is_some_and(|v| v == ScriptLang::Bun)
+            && lock
+                .as_ref()
+                .is_some_and(|v| v.contains("generatedFromPackageJson")))
+            || (script_lang.is_some_and(|v| v == ScriptLang::Python3)
+                && lock
+                    .as_ref()
+                    .is_some_and(|v| v.starts_with("# from requirements.txt")))
+        {
+            // if the lock file is generated from a package.json/requirements.txt, we need to clear the dependency map
+            // because we do not want to have dependencies be recomputed automatically. Empty relative imports passed
+            // to update_script_dependency_map will clear the dependency map.
+            update_script_dependency_map(
+                &job_id.unwrap_or_else(|| Uuid::nil()),
+                db,
+                w_id,
+                &parent_path,
+                script_path,
+                vec![],
+            )
+            .await?;
+        } else {
+            update_script_dependency_map(
+                &job_id.unwrap_or_else(|| Uuid::nil()),
+                db,
+                w_id,
+                &parent_path,
+                script_path,
+                relative_imports,
+            )
+            .await?;
+        }
         let already_visited = args
             .map(|x| {
                 x.get("already_visited")
