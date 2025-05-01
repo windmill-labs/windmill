@@ -579,7 +579,7 @@ export async function chatRequest(
 						tool_calls: toolCalls
 					})
 					for (const toolCall of toolCalls) {
-						processToolCall(toolCall, messages, lang)
+						await processToolCall(toolCall, messages, lang)
 					}
 				} else {
 					break
