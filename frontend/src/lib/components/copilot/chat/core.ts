@@ -496,7 +496,6 @@ async function processToolCall(
 		const args = JSON.parse(toolCall.function.arguments)
 		let result = ''
 		try {
-			throw new Error('Error while calling tool')
 			result = await callTool(toolCall.function.name, args, lang, get(workspaceStore) ?? '')
 		} catch (err) {
 			console.error(err)
