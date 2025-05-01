@@ -72,6 +72,12 @@
 		listTokens()
 	})
 
+	$effect(() => {
+		if (newMcpScope !== 'hub') {
+			newMcpApps = []
+		}
+	})
+
 	// --- Functions ---
 	async function createToken(mcpMode: boolean = false): Promise<void> {
 		try {
@@ -339,7 +345,15 @@
 				</div>
 			</div>
 
-			<div class="mt-4 flex justify-end">
+			<div class="mt-4 flex justify-end gap-2 flex-row">
+				<Button
+					on:click={() => {
+						mcpCreationMode = false
+						displayCreateToken = false
+					}}
+				>
+					Cancel
+				</Button>
 				<Button
 					on:click={() => createToken(mcpCreationMode)}
 					disabled={mcpCreationMode && newMcpScope === 'hub' && newMcpApps.length === 0}
