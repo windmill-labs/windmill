@@ -25,7 +25,7 @@
 	} from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
 	import { displayDate, groupBy, pluralize, truncate } from '$lib/utils'
-	import { AlertTriangle, LineChart, List, Plus, Search } from 'lucide-svelte'
+	import { AlertTriangle, LineChart, List, Plus, Search, Terminal, Unplug } from 'lucide-svelte'
 	import { getContext, onDestroy, onMount } from 'svelte'
 	import AutoComplete from 'simple-svelte-autocomplete'
 
@@ -561,7 +561,8 @@
 									<Cell head>Memory usage<br />(Windmill)</Cell>
 									<Cell head>Limits</Cell>
 									<Cell head>Version</Cell>
-									<Cell head last>Liveness</Cell>
+									<Cell head>Liveness</Cell>
+									<Cell head last>Live Shell</Cell>
 								</tr>
 							</Head>
 							<tbody class="divide-y">
@@ -652,7 +653,7 @@
 														{wm_version.split('-')[0]}<Tooltip>{wm_version}</Tooltip>
 													</div>
 												</Cell>
-												<Cell last>
+												<Cell>
 													<Badge
 														color={last_ping != undefined
 															? last_ping < 60
@@ -666,6 +667,22 @@
 																: 'Dead'
 															: 'Unknown'}
 													</Badge>
+												</Cell>
+												<Cell last>
+													<Button
+														size="xs"
+														color="light"
+														on:click={() => {}}
+														startIcon={{ icon: Terminal }}
+													>
+														Execute Command
+														<Tooltip>
+															<p class="text-sm">
+																Open a live shell to execute bash commands on the worker — useful
+																for quick access, inspection, and real-time debugging
+															</p>
+														</Tooltip>
+													</Button>
 												</Cell>
 											</tr>
 										{/each}
