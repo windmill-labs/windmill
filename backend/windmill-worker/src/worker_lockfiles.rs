@@ -2118,6 +2118,13 @@ async fn capture_dependency_job(
                     anns,
                 )
                 .await
+                .map(|res| {
+                    if raw_deps {
+                        format!("# from requirements.txt\n{}", res)
+                    } else {
+                        res
+                    }
+                })
             }
         }
         ScriptLang::Ansible => {

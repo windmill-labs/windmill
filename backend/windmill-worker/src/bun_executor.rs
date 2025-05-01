@@ -111,7 +111,7 @@ pub async fn gen_bun_lockfile(
 
     let mut empty_deps = false;
 
-    if let Some(raw_deps) = raw_deps {
+    if let Some(raw_deps) = raw_deps.as_ref() {
         gen_bunfig(job_dir).await?;
         write_file(job_dir, "package.json", raw_deps.as_str())?;
     } else {
@@ -201,10 +201,16 @@ pub async fn gen_bun_lockfile(
     }
 
     if export_pkg {
-        let mut content = "".to_string();
+        let mut content;
         {
             let mut file = File::open(format!("{job_dir}/package.json")).await?;
-            file.read_to_string(&mut content).await?;
+            let mut buf = String::default();
+            file.read_to_string(&mut buf).await?;
+            if raw_deps.is_some() {
+                content = buf;
+            } else {
+                content = 
+            }
         }
         if !npm_mode {
             #[cfg(any(target_os = "linux", target_os = "macos"))]
