@@ -1269,7 +1269,7 @@ pub async fn run_worker(
                         if job.is_err() && !same_worker_job.recoverable {
                             tracing::error!(
                                 worker = %worker_name, hostname = %hostname,
-                                "failed to fetch same_worker job on a non recoverable job, exiting"
+                                "failed to fetch same_worker job on a non recoverable job, exiting: {job:?}",
                             );
                             job_completed_tx
                                 .kill()

@@ -5,43 +5,34 @@
 	import { UserService } from '$lib/gen'
 	import { Button } from '$lib/components/common'
 	import { Clipboard, Plus } from 'lucide-svelte'
-	import { workspaceStore, userWorkspaces } from '$lib/stores'
+	import { workspaceStore, userWorkspaces, type UserWorkspace } from '$lib/stores'
 	import { createEventDispatcher } from 'svelte'
-	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
-	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
-	import Toggle from './Toggle.svelte'
-	import ClipboardPanel from './details/ClipboardPanel.svelte'
+	import ToggleButtonGroup from '../common/toggleButton-v2/ToggleButtonGroup.svelte'
+	import ToggleButton from '../common/toggleButton-v2/ToggleButton.svelte'
+	import Toggle from '../Toggle.svelte'
+	import ClipboardPanel from '../details/ClipboardPanel.svelte'
+	import { sendUserToast } from '$lib/toast'
 
 	// --- Props ---
 	interface Props {
-		tokens?: TruncatedToken[]
 		showMcpMode?: boolean
 		openWithMcpMode?: boolean
 		defaultNewTokenLabel?: string
 		defaultNewTokenWorkspace?: string
-		onDeleteToken: (tokenPrefix: string) => void
-		tokenPage?: number
-		onNextPage: () => void
-		onPreviousPage: () => void
-		onListTokens: () => void
 		scopes?: string[]
 	}
 
 	let {
-		tokens = [],
 		showMcpMode = false,
 		openWithMcpMode = false,
-		onDeleteToken,
 		defaultNewTokenLabel,
 		defaultNewTokenWorkspace,
-		tokenPage = 1,
-		onNextPage,
-		onPreviousPage,
-		onListTokens,
 		scopes
 	}: Props = $props()
 
 	// --- Local State ---
+	let tokens = $state<TruncatedToken[]>([])
+	let tokenPage = $state(1)
 	let newTokenLabel = $state<string | undefined>(defaultNewTokenLabel)
 	let newToken = $state<string | undefined>(undefined)
 	let newTokenExpiration = $state<number | undefined>(undefined)
@@ -51,6 +42,21 @@
 	let newMcpScope = $state('favorites')
 	let newMcpToken = $state<string | undefined>(undefined)
 
+	function ensureCurrentWorkspaceIncluded(
+		workspacesList: UserWorkspace[],
+		currentWorkspace: string | undefined
+	) {
+		if (!currentWorkspace) {
+			return workspacesList
+		}
+		const hasCurrentWorkspace = workspacesList.some((w) => w.id === currentWorkspace)
+		if (hasCurrentWorkspace) {
+			return workspacesList
+		}
+		return [{ id: currentWorkspace, name: currentWorkspace }, ...workspacesList]
+	}
+
+	const workspaces = $derived(ensureCurrentWorkspaceIncluded($userWorkspaces, $workspaceStore))
 	const mcpBaseUrl = $derived(`${window.location.origin}/api/mcp/w/${newTokenWorkspace}/sse?token=`)
 	const dispatch = createEventDispatcher()
 
@@ -58,6 +64,7 @@
 		if (openWithMcpMode) {
 			handleCreateClick('mcpUrl')
 		}
+		listTokens()
 	})
 
 	// --- Functions ---
@@ -75,7 +82,7 @@
 					label: newTokenLabel,
 					expiration: date?.toISOString(),
 					scopes: tokenScopes,
-					workspace_id: newTokenWorkspace || $workspaceStore
+					workspace_id: mcpMode ? (newTokenWorkspace || $workspaceStore) : newTokenWorkspace
 				} as NewToken
 			})
 
@@ -86,7 +93,7 @@
 			}
 
 			dispatch('tokenCreated', newToken ?? newMcpToken)
-			onListTokens()
+			listTokens()
 			mcpCreationMode = false
 			displayCreateToken = false
 		} catch (err) {
@@ -111,8 +118,28 @@
 		copyToClipboard(newToken ?? '')
 	}
 
-	function handleDeleteClick(tokenPrefix: string) {
-		onDeleteToken(tokenPrefix)
+	async function handleDeleteClick(tokenPrefix: string) {
+		await UserService.deleteToken({ tokenPrefix })
+		sendUserToast('Successfully deleted token')
+		listTokens()
+	}
+
+	async function listTokens(): Promise<void> {
+		tokens = await UserService.listTokens({
+			excludeEphemeral: true,
+			page: tokenPage,
+			perPage: 100
+		})
+	}
+
+	function handleNextPage() {
+		tokenPage += 1
+		listTokens()
+	}
+
+	function handlePreviousPage() {
+		tokenPage -= 1
+		listTokens()
 	}
 </script>
 
@@ -181,19 +208,24 @@
 							newTokenLabel = 'MCP token'
 							newTokenExpiration = undefined
 							newTokenWorkspace = $workspaceStore
+						} else {
+							newTokenLabel = undefined
+							newTokenExpiration = undefined
+							newTokenWorkspace = defaultNewTokenWorkspace
 						}
 					}}
 					checked={mcpCreationMode}
 					options={{
 						right: 'Generate MCP URL',
 						rightTooltip:
-							'Generate a new MCP URL to make your scripts and flows available as tools.'
+							'Generate a new MCP URL to make your scripts and flows available as tools through your LLM clients.',
+						rightDocumentationLink: 'https://www.windmill.dev/docs/core_concepts/mcp'
 					}}
 					class="mb-4"
 					size="xs"
 				/>
 			{/if}
-			<div class="flex flex-row flex-wrap gap-x-2 w-full justify-between">
+			<div class="flex flex-row flex-wrap gap-2 w-full justify-between">
 				{#if mcpCreationMode}
 					<div class="flex flex-col">
 						<label for="label">Scope</label>
@@ -204,8 +236,8 @@
 					</div>
 					<div class="flex flex-col">
 						<label for="label">Workspace</label>
-						<select bind:value={newTokenWorkspace} disabled={$userWorkspaces.length === 1}>
-							{#each $userWorkspaces as workspace}
+						<select bind:value={newTokenWorkspace} disabled={workspaces.length === 1}>
+							{#each workspaces as workspace}
 								<option value={workspace.id}>{workspace.name}</option>
 							{/each}
 						</select>
@@ -282,12 +314,15 @@
 	</TableCustom>
 	<div class="flex flex-row-reverse gap-2 w-full">
 		{#if tokens?.length == 100}
-			<button class="p-1 underline text-sm whitespace-nowrap text-center" onclick={onNextPage}>
+			<button class="p-1 underline text-sm whitespace-nowrap text-center" onclick={handleNextPage}>
 				Next
 			</button>
 		{/if}
 		{#if tokenPage > 1}
-			<button class="p-1 underline text-sm whitespace-nowrap text-center" onclick={onPreviousPage}>
+			<button
+				class="p-1 underline text-sm whitespace-nowrap text-center"
+				onclick={handlePreviousPage}
+			>
 				Previous
 			</button>
 		{/if}
