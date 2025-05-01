@@ -385,7 +385,7 @@ function getProviderAndCompletionConfig<K extends boolean>({
 				: {
 						model: modelProvider.model,
 						temperature: 0,
-						tools
+						...(tools && tools.length > 0 ? { tools } : {})
 					}),
 			max_tokens: getModelMaxTokens(modelProvider.model),
 			messages: processedMessages,
