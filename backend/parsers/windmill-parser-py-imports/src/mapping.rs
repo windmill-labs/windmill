@@ -142,6 +142,8 @@ pub static FULL_IMPORTS_MAP: PyMap = phf_map! {
     "google.cloud.dns" => "google-cloud-dns",
     "google.cloud.runtimeconfig" => "google-cloud-runtimeconfig",
     "google.cloud.iot" => "google-cloud-iot",
+    "google.generativeai" => "google-generativeai",
+    "google.genai" => "google-genai",
     // Azure
     "azure.mgmt.hybridkubernetes" => "azure-mgmt-hybridkubernetes",
     "azure.mgmt.sql" => "azure-mgmt-sql",
