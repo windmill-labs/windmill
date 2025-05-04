@@ -3,6 +3,7 @@
 	import DropdownV2 from '$lib/components/DropdownV2.svelte'
 	import { Trash, Save, Pen, X } from 'lucide-svelte'
 	import { createEventDispatcher } from 'svelte'
+	import Toggle from '$lib/components/Toggle.svelte'
 
 	const dispatch = createEventDispatcher<{
 		delete: undefined
@@ -11,6 +12,7 @@
 		'save-draft': undefined
 		edit: undefined
 		cancel: undefined
+		'toggle-enabled': boolean
 	}>()
 
 	export let isDraftOnly = false
@@ -18,9 +20,23 @@
 	export let canEdit = false
 	export let editMode = false
 	export let saveDisabled = false
+	export let enabled = false
 </script>
 
 <div class="flex flex-row gap-2 items-center">
+	{#if !isDraftOnly && !hasDraft}
+		<div class="center-center">
+			<Toggle
+				size="xs"
+				disabled={!canEdit}
+				checked={enabled}
+				options={{ left: 'enable' }}
+				on:change={(e) => {
+					dispatch('toggle-enabled', e.detail)
+				}}
+			/>
+		</div>
+	{/if}
 	{#if isDraftOnly}
 		<Button
 			size="xs"
