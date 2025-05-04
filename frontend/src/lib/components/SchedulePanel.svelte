@@ -16,7 +16,6 @@
 
 	function openScheduleEditor(isFlow: boolean, isDraft: boolean) {
 		if (isDraft) {
-			console.log('dbg openScheduleEditor', isFlow, path, defaultValues, newDraft)
 			scheduleEditor?.openNew(isFlow, path, defaultValues, newDraft)
 		} else {
 			scheduleEditor?.openEdit(selectedTrigger.path, isFlow, defaultValues)

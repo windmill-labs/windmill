@@ -19,7 +19,6 @@
 
 	async function openNatsTriggerEditor(isFlow: boolean, isDraft: boolean) {
 		if (isDraft) {
-			console.log('dbg openNew', defaultValues)
 			natsTriggerEditor?.openNew(isFlow, path, defaultValues, newDraft)
 		} else {
 			natsTriggerEditor?.openEdit(selectedTrigger.path, isFlow, selectedTrigger.draftConfig)
