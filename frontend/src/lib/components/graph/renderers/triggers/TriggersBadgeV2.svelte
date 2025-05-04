@@ -88,7 +88,7 @@
 	}
 
 	const itemClass = twMerge(
-		'text-secondary text-left font-normal w-full block px-4 py-2 text-2xs data-[highlighted]:bg-surface-hover data-[highlighted]:text-primary'
+		'text-secondary text-left font-normal max-w-full block px-4 py-2 text-2xs data-[highlighted]:bg-surface-hover data-[highlighted]:text-primary flex flex-row items-center flex-nowrap'
 	)
 
 	// Group triggers by their mapped type
@@ -142,7 +142,7 @@
 						{createMenu}
 						usePointerDownOutside
 						placement={small ? 'bottom' : 'right-start'}
-						menuClass={'min-w-56 w-fit'}
+						menuClass={'max-w-56'}
 						class="h-fit"
 						bind:open={menuOpen}
 					>
@@ -172,7 +172,7 @@
 				{createMenu}
 				usePointerDownOutside
 				placement="bottom"
-				menuClass={'min-w-56 w-fit'}
+				menuClass={'w-56'}
 				class="h-fit center-center mr-1"
 				bind:open={menuOpen}
 			>
