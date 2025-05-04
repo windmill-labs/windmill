@@ -94,7 +94,7 @@
 					</td>
 					<td class="py-2 px-2 text-xs">
 						<div class="flex items-center justify-between gap-2">
-							<div class="flex items-center">
+							<div class="flex items-center grow min-w-0">
 								<TriggerLabel {trigger} />
 							</div>
 
