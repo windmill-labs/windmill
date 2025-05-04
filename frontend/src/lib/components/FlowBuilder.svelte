@@ -1,7 +1,6 @@
 <script lang="ts">
 	import {
 		FlowService,
-		ScheduleService,
 		type Flow,
 		type FlowModule,
 		DraftService,
@@ -24,7 +23,6 @@
 	import {
 		cleanValueProperties,
 		encodeState,
-		formatCron,
 		generateRandomString,
 		orderedJsonStringify,
 		replaceFalseWithUndefined,
@@ -97,7 +95,7 @@
 	export let customUi: FlowBuilderWhitelabelCustomUi = {}
 	export let disableAi: boolean = false
 	export let disabledFlowInputs = false
-	export let savedPrimarySchedule: ScheduleTrigger | undefined = undefined
+	export let savedPrimarySchedule: ScheduleTrigger | undefined = undefined // used to set the primary schedule in the legacy primaryScheduleStore
 	export let version: number | undefined = undefined
 	export let setSavedraftCb: ((cb: () => void) => void) | undefined = undefined
 	export let savedDraftTriggers: Trigger[] = []
@@ -163,13 +161,11 @@
 
 	const dispatch = createEventDispatcher()
 
-	const primaryScheduleStore = writable<ScheduleTrigger | undefined | false>(savedPrimarySchedule)
-	const triggersCount = writable<TriggersCount | undefined>(
-		savedPrimarySchedule
-			? { schedule_count: 1, primary_schedule: { schedule: savedPrimarySchedule.cron } }
-			: undefined
-	)
+	const primaryScheduleStore = writable<ScheduleTrigger | undefined | false>(savedPrimarySchedule) // kept for legacy reasons
+	const triggersCount = writable<TriggersCount | undefined>(undefined) // trigger count only show deployed triggers
 	const simplifiedPoll = writable(false)
+
+	// used to set the primary schedule in the legacy primaryScheduleStore
 	export function setPrimarySchedule(schedule: ScheduleTrigger | undefined | false) {
 		primaryScheduleStore.set(schedule)
 	}
@@ -179,32 +175,6 @@
 			...$triggersStore.filter((t) => !t.isDraft), // Keep non-draft triggers
 			...triggers // Add the new draft triggers
 		]
-	}
-
-	async function createSchedule(path: string) {
-		if ($primaryScheduleStore) {
-			const { cron, timezone, args, enabled, summary } = $primaryScheduleStore
-
-			try {
-				await ScheduleService.createSchedule({
-					workspace: $workspaceStore!,
-					requestBody: {
-						path: path,
-						schedule: formatCron(cron),
-						timezone,
-						script_path: path,
-						is_flow: true,
-						args,
-						enabled,
-						summary
-					}
-				})
-			} catch (err) {
-				sendUserToast(`The primary schedule could not be created: ${err}`, true)
-			}
-		} else {
-			sendUserToast('The primary schedule could not be created: no schedule data', true)
-		}
 	}
 
 	let loadingSave = false
@@ -280,7 +250,6 @@
 					value: {
 						...flow,
 						path: $pathStore,
-						primary_schedule: $primaryScheduleStore,
 						draft_triggers: $triggersStore.filter((t) => t.draftConfig)
 					}
 				}
@@ -434,9 +403,6 @@
 					},
 					runnableKind: 'flow'
 				})
-				if ($primaryScheduleStore && $primaryScheduleStore.enabled) {
-					await createSchedule($pathStore)
-				}
 				if (triggersToDeploy) {
 					await saveDraftTriggers(triggersToDeploy)
 				}
@@ -447,52 +413,6 @@
 					console.error('error interacting with local storage', e)
 				}
 
-				const scheduleExists = await ScheduleService.existsSchedule({
-					workspace: $workspaceStore ?? '',
-					path: initialPath
-				})
-
-				if (scheduleExists) {
-					const schedule = await ScheduleService.getSchedule({
-						workspace: $workspaceStore ?? '',
-						path: initialPath
-					})
-					if ($primaryScheduleStore) {
-						const { cron, timezone, args, enabled, summary } = $primaryScheduleStore
-
-						if (
-							JSON.stringify(schedule.args) != JSON.stringify(args) ||
-							schedule.schedule != cron ||
-							schedule.timezone != timezone ||
-							schedule.summary != summary
-						) {
-							await ScheduleService.updateSchedule({
-								workspace: $workspaceStore ?? '',
-								path: initialPath,
-								requestBody: {
-									schedule: formatCron(cron),
-									timezone,
-									args,
-									summary
-								}
-							})
-						}
-						if (enabled != schedule.enabled) {
-							await ScheduleService.setScheduleEnabled({
-								workspace: $workspaceStore ?? '',
-								path: initialPath,
-								requestBody: { enabled }
-							})
-						}
-					} else if (scheduleExists && !$triggersCount?.primary_schedule) {
-						await ScheduleService.deleteSchedule({
-							workspace: $workspaceStore ?? '',
-							path: $pathStore
-						})
-					}
-				} else if ($primaryScheduleStore && $primaryScheduleStore.enabled) {
-					await createSchedule(initialPath)
-				}
 				if (triggersToDeploy) {
 					await saveDraftTriggers(triggersToDeploy)
 				}
@@ -546,7 +466,6 @@
 						flow: $flowStore,
 						path: $pathStore,
 						selectedId: $selectedIdStore,
-						primarySchedule: $primaryScheduleStore,
 						draftTriggers: $triggersStore.filter((t) => t.draftConfig)
 					})
 				)
@@ -652,15 +571,6 @@
 			workspace: $workspaceStore!,
 			path: initialPath
 		})
-		if ($primaryScheduleStore && $triggersCount.primary_schedule == undefined) {
-			$triggersCount = {
-				...($triggersCount ?? {}),
-				schedule_count: ($triggersCount.schedule_count ?? 0) + 1,
-				primary_schedule: {
-					schedule: $primaryScheduleStore.cron
-				}
-			}
-		}
 
 		// Initialize triggers using utility function
 		fetchTriggers(
@@ -938,16 +848,6 @@
 					properties: {},
 					required: [],
 					type: 'object'
-				}
-			}
-
-			if (module.type === 'trigger') {
-				$primaryScheduleStore = {
-					summary: 'Scheduled poll of flow',
-					args: {},
-					cron: '0 */15 * * *',
-					timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-					enabled: true
 				}
 			}
 

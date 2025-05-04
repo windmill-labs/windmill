@@ -43,6 +43,7 @@
 	hasDraft={!!selectedTrigger.draftConfig}
 	isDraftOnly={selectedTrigger.isDraft}
 	editMode={edit}
+	primary={selectedTrigger.isPrimary}
 >
 	{#snippet docDescription()}
 		<div class="flex flex-col gap-2 pb-4">

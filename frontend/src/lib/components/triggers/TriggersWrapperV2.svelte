@@ -11,11 +11,8 @@
 	import GcpTriggerPanel from './gcp/GcpTriggerPanelV2.svelte'
 	import ScheduledPollPanel from './scheduled/ScheduledPollPanel.svelte'
 	import WebsocketTriggersPanel from './websocket/WebsocketTriggersPanelV2.svelte'
-	import { userStore } from '$lib/stores'
 	import { type Trigger } from './utils'
 	import { createEventDispatcher } from 'svelte'
-	import PrimarySchedulePanel from './PrimarySchedulePanel.svelte'
-	import { canWrite } from '$lib/utils'
 
 	const dispatch = createEventDispatcher()
 
@@ -31,7 +28,6 @@
 		small: boolean
 		args: Record<string, any>
 		newItem: boolean
-		schema: any
 	}
 
 	let {
@@ -45,8 +41,7 @@
 		isDeployed,
 		small,
 		args,
-		newItem,
-		schema
+		newItem
 	}: Props = $props()
 
 	// Forward config updates to parent
@@ -93,20 +88,6 @@
 		on:emailDomain={({ detail }) => {
 			updateConfig({ emailDomain: detail })
 		}}
-	/>
-{:else if selectedTrigger.type === 'schedule' && selectedTrigger.isPrimary}
-	<PrimarySchedulePanel
-		{schema}
-		{isFlow}
-		path={initialPath}
-		{newItem}
-		can_write={canWrite(currentPath, {}, $userStore)}
-		on:update
-		on:delete
-		on:delete-pending
-		on:save-pending
-		isNewSchedule={selectedTrigger.isDraft}
-		{isDeployed}
 	/>
 {:else if selectedTrigger.type === 'schedule'}
 	<SchedulePanel

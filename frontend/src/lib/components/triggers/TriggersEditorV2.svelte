@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { canWrite } from '$lib/utils'
 	import { userStore, workspaceStore } from '$lib/stores'
 	import FlowCard from '../flows/common/FlowCard.svelte'
 	import { getContext, onDestroy, createEventDispatcher, onMount } from 'svelte'
@@ -7,7 +6,6 @@
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import TriggersTable from './TriggersTable.svelte'
 	import CaptureWrapper from './CaptureWrapperV2.svelte'
-	import PrimarySchedulePanel from './PrimarySchedulePanel.svelte'
 	import { fade } from 'svelte/transition'
 	import TriggersBadgeV2 from '../graph/renderers/triggers/TriggersBadgeV2.svelte'
 	import { twMerge } from 'tailwind-merge'
@@ -35,6 +33,7 @@
 		setSaveCallback,
 		setCaptureConfig
 	} from './utils'
+	import SchedulePanel from '../SchedulePanel.svelte'
 
 	export let noEditor: boolean
 	export let newItem = false
@@ -43,7 +42,6 @@
 	export let hash: string | undefined = undefined
 	export let args: Record<string, any> = {}
 	export let initialPath: string
-	export let schema: any
 	export let isFlow: boolean
 	export let canHavePreprocessor: boolean = false
 	export let hasPreprocessor: boolean = false
@@ -292,7 +290,6 @@
 										small={useVerticalTriggerBar}
 										{args}
 										{newItem}
-										{schema}
 										on:update-config={({ detail }) => {
 											config = detail
 											if ($selectedTrigger && $selectedTrigger.id) {
@@ -354,16 +351,25 @@
 			{/if}
 		</Splitpanes>
 	{:else}
+		{@const selected = $triggers.find((t) => t.isPrimary)}
 		<div class="px-4 pb-2">
-			<PrimarySchedulePanel
-				{schema}
-				{isFlow}
-				path={initialPath}
-				{newItem}
-				can_write={canWrite(currentPath, {}, $userStore)}
-				isNewSchedule={false}
-				{isDeployed}
-			/>
+			{#if selected}
+				<SchedulePanel
+					{isFlow}
+					path={initialPath || fakeInitialPath}
+					{selectedTrigger}
+					{isDeployed}
+					defaultValues={selected.draftConfig ?? selected.captureConfig ?? undefined}
+					newDraft={selected.saveCb === undefined}
+					edit={editTrigger === selected}
+					on:update-config
+					on:update
+					on:save-draft
+					on:reset
+					on:toggle-edit-mode
+					on:delete
+				/>
+			{/if}
 		</div>
 	{/if}
 </FlowCard>

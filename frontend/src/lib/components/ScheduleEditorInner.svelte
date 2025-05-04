@@ -40,7 +40,8 @@
 		allowDraft = false,
 		hasDraft = false,
 		editMode = true,
-		isDraftOnly = false
+		isDraftOnly = false,
+		primary = false
 	} = $props()
 
 	let optionTabSelected: 'error_handler' | 'recovery_handler' | 'success_handler' | 'retries' =
@@ -92,7 +93,7 @@
 			showLoading = true
 		}, 100) // Do not show loading spinner for the first 100ms
 		resetEditMode = () => {
-			openEdit(ePath, isFlow, defaultConfig ?? initialConfig) // This is more like a hack to reset the edit mode. Todo: have a temporary state to reset the edit mode and compare initial values to allow save.
+			openEdit(ePath, isFlow, defaultConfig ?? initialConfig)
 		}
 		drawerLoading = true
 		try {
@@ -759,7 +760,7 @@
 					</Label>
 				</div>
 				<Label label="Path">
-					{#if !edit}
+					{#if !edit && !primary}
 						<Path
 							bind:dirty={dirtyPath}
 							bind:this={pathC}
@@ -769,6 +770,7 @@
 							{initialPath}
 							namePlaceholder="schedule"
 							kind="schedule"
+							disableEditing={!editMode}
 						/>
 					{:else}
 						<div class="flex justify-start w-full">

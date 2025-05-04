@@ -124,7 +124,6 @@
 		currentPath={$pathStore}
 		initialPath={$initialPathStore}
 		{fakeInitialPath}
-		schema={$flowStore.schema}
 		{noEditor}
 		newItem={newFlow}
 		isFlow={true}

@@ -291,10 +291,10 @@ export async function fetchSchedules(
 	path: string,
 	isFlow: boolean,
 	primarySchedule: ScheduleTrigger | undefined | false = undefined
-): Promise<boolean> {
-	if (!workspaceId) return false
+): Promise<void> {
+	if (!workspaceId) return
 	try {
-		const allSchedules: Schedule[] = await ScheduleService.listSchedules({
+		const allDeployedSchedules: Schedule[] = await ScheduleService.listSchedules({
 			workspace: workspaceId,
 			path,
 			isFlow
@@ -306,8 +306,7 @@ export async function fetchSchedules(
 		)
 
 		// Find primary schedule (matches the path exactly)
-		const deployedPrimarySchedule = allSchedules.find((s) => s.path === path)
-		let primaryScheduleExists = false
+		const deployedPrimarySchedule = allDeployedSchedules.find((s) => s.path === path)
 
 		if (deployedPrimarySchedule) {
 			// Add primary schedule
@@ -320,10 +319,9 @@ export async function fetchSchedules(
 					isDraft: false
 				}
 			])
-			primaryScheduleExists = true
-		} else if (primarySchedule && primarySchedule) {
-			// Primary schedule in the store is not deployed, so we add it
-			primaryScheduleExists = true
+		} else if (primarySchedule) {
+			// if there is a primary schedule in the legacy primaryScheduleStore
+			// we need to add it to the new triggers store
 			triggersStore.update((triggers) => [
 				...triggers,
 				{
@@ -335,10 +333,10 @@ export async function fetchSchedules(
 			])
 		}
 
-		// Add other schedules
-		const otherSchedules = allSchedules.filter((s) => s.path !== path)
+		// Add deployed schedules
+		const otherDeployedSchedules = allDeployedSchedules.filter((s) => s.path !== path)
 
-		for (const schedule of otherSchedules) {
+		for (const schedule of otherDeployedSchedules) {
 			triggersStore.update((triggers) => [
 				...triggers,
 				{
@@ -350,10 +348,10 @@ export async function fetchSchedules(
 			])
 		}
 
-		return primaryScheduleExists
+		return
 	} catch (error) {
 		console.error('Failed to fetch schedules:', error)
-		return false
+		return
 	}
 }
 
