@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.486.1](https://github.com/windmill-labs/windmill/compare/v1.486.0...v1.486.1) (2025-05-04)
+
+
+### Bug Fixes
+
+* improve MultiSelectWrapper behavior ([36da8ae](https://github.com/windmill-labs/windmill/commit/36da8aec080742e13f23e1dee12b3954947f53dd))
+
 ## [1.486.0](https://github.com/windmill-labs/windmill/compare/v1.485.3...v1.486.0) (2025-05-01)
 
 
