@@ -10,12 +10,13 @@
 	import { canWrite, emptyString, sendUserToast } from '$lib/utils'
 	import { createEventDispatcher } from 'svelte'
 	import Section from '$lib/components/Section.svelte'
-	import { Loader2, Save, X, Pen, Trash } from 'lucide-svelte'
+	import { Loader2, Save } from 'lucide-svelte'
 	import Label from '$lib/components/Label.svelte'
 	import NatsTriggersConfigSection from './NatsTriggersConfigSection.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import { twMerge } from 'tailwind-merge'
 	import type { Snippet } from 'svelte'
+	import TriggerEditorToolbar from '../TriggerEditorToolbar.svelte'
 
 	interface Props {
 		useDrawer?: boolean
@@ -26,6 +27,8 @@
 		hideTooltips?: boolean
 		useEditButton?: boolean
 		isEditor?: boolean
+		allowDraft?: boolean
+		hasDraft?: boolean
 	}
 
 	let {
@@ -35,8 +38,9 @@
 		editMode = true,
 		preventSave = false,
 		hideTooltips = false,
-		useEditButton = false,
-		isEditor = false
+		isEditor = false,
+		allowDraft = false,
+		hasDraft = false
 	}: Props = $props()
 
 	let drawer: Drawer | undefined = $state(undefined)
@@ -58,6 +62,7 @@
 	let args: Record<string, any> = $state({})
 	let resetEditMode = $state<(() => void) | undefined>(undefined)
 	let isDraft = $state(false)
+	let initialConfig = $state<Record<string, any> | undefined>(undefined)
 
 	const dispatch = createEventDispatcher()
 
@@ -65,12 +70,16 @@
 		is_flow = itemKind === 'flow'
 	})
 
-	export async function openEdit(ePath: string, isFlow: boolean) {
+	export async function openEdit(
+		ePath: string,
+		isFlow: boolean,
+		defaultConfig?: Record<string, any>
+	) {
 		let loadingTimeout = setTimeout(() => {
 			showLoading = true
 		}, 100) // Do not show loading spinner for the first 100ms
 		drawerLoading = true
-		resetEditMode = () => openEdit(ePath, isFlow)
+		resetEditMode = () => openEdit(ePath, isFlow, defaultConfig ?? initialConfig)
 		try {
 			drawer?.openDrawer()
 			initialPath = ePath
@@ -78,7 +87,7 @@
 			edit = true
 			isDraft = false
 			dirtyPath = false
-			await loadTrigger()
+			await loadTrigger(defaultConfig)
 		} catch (err) {
 			sendUserToast(`Could not load nats trigger: ${err}`, true)
 		} finally {
@@ -91,12 +100,14 @@
 	export async function openNew(
 		nis_flow: boolean,
 		fixedScriptPath_?: string,
-		nDefaultValues?: Record<string, any>
+		nDefaultValues?: Record<string, any>,
+		newDraft?: boolean
 	) {
 		let loadingTimeout = setTimeout(() => {
 			showLoading = true
 		}, 100)
 		drawerLoading = true
+		resetEditMode = () => openNew(nis_flow, fixedScriptPath_, nDefaultValues, newDraft)
 		try {
 			drawer?.openDrawer()
 			is_flow = nis_flow
@@ -115,7 +126,10 @@
 			initialPath = ''
 			dirtyPath = false
 			defaultValues = nDefaultValues
-			toggleEditMode(true)
+			enabled = nDefaultValues?.enabled ?? false
+			if (newDraft) {
+				toggleEditMode(true)
+			}
 		} finally {
 			clearTimeout(loadingTimeout)
 			drawerLoading = false
@@ -123,24 +137,53 @@
 		}
 	}
 
-	async function loadTrigger(): Promise<void> {
-		const s = await NatsTriggerService.getNatsTrigger({
-			workspace: $workspaceStore!,
-			path: initialPath
+	async function loadTriggerConfig(cfg?: Record<string, any>): Promise<void> {
+		script_path = cfg?.script_path
+		initialScriptPath = cfg?.script_path
+		is_flow = cfg?.is_flow
+		path = cfg?.path
+		args.nats_resource_path = cfg?.nats_resource_path
+		args.stream_name = cfg?.stream_name
+		args.consumer_name = cfg?.consumer_name
+		args.subjects = cfg?.subjects || ['']
+		args.use_jetstream = cfg?.use_jetstream || false
+		enabled = cfg?.enabled
+		can_write = canWrite(cfg?.path, cfg?.extra_perms, $userStore)
+	}
+
+	async function loadTrigger(defaultConfig?: Record<string, any>): Promise<void> {
+		if (defaultConfig) {
+			loadTriggerConfig(defaultConfig)
+			return
+		} else {
+			const s = await NatsTriggerService.getNatsTrigger({
+				workspace: $workspaceStore!,
+				path: initialPath
+			})
+
+			initialConfig = s
+			loadTriggerConfig(initialConfig)
+		}
+	}
+
+	function saveDraft() {
+		dispatch('save-draft', {
+			cfg: {
+				script_path,
+				is_flow,
+				path,
+				nats_resource_path: args.nats_resource_path,
+				stream_name: args.stream_name,
+				consumer_name: args.consumer_name,
+				subjects: args.subjects,
+				use_jetstream: args.use_jetstream,
+				enabled: enabled
+			},
+			cb: () => {
+				updateTrigger()
+			}
 		})
-		script_path = s.script_path
-		initialScriptPath = s.script_path
-
-		is_flow = s.is_flow
-		path = s.path
-		args.nats_resource_path = s.nats_resource_path
-		args.stream_name = s.stream_name
-		args.consumer_name = s.consumer_name
-		args.subjects = s.subjects
-		args.use_jetstream = s.use_jetstream
-		enabled = s.enabled
-
-		can_write = canWrite(s.path, s.extra_perms, $userStore)
+		toggleEditMode(false)
 	}
 
 	async function updateTrigger(): Promise<void> {
@@ -205,6 +248,18 @@
 		dispatch('toggle-edit-mode', newEditMode)
 	}
 
+	async function handleToggleEnabled(e: CustomEvent<boolean>) {
+		enabled = e.detail
+		if (!isDraft && !hasDraft) {
+			await NatsTriggerService.setNatsTriggerEnabled({
+				path: initialPath,
+				workspace: $workspaceStore ?? '',
+				requestBody: { enabled: e.detail }
+			})
+			sendUserToast(`${e.detail ? 'enabled' : 'disabled'} NATS trigger ${initialPath}`)
+		}
+	}
+
 	$effect(() => {
 		dispatch('update-config', {
 			nats_resource_path: args.nats_resource_path,
@@ -226,7 +281,7 @@
 			on:close={drawer.closeDrawer}
 		>
 			<svelte:fragment slot="actions">
-				{@render actionsButtons('sm')}
+				{@render actions('sm')}
 			</svelte:fragment>
 			{@render config()}
 		</DrawerContent>
@@ -234,80 +289,62 @@
 {:else}
 	<Section label="NATS trigger">
 		<svelte:fragment slot="action">
-			{@render actionsButtons('xs')}
+			{@render actions('xs')}
 		</svelte:fragment>
 		{@render config()}
 	</Section>
 {/if}
 
-{#snippet actionsButtons(size: 'xs' | 'sm' = 'sm')}
-	{#if !drawerLoading && can_write}
-		<div class="flex flex-row gap-2 items-center">
-			{#if isDraft}
-				<Button
-					{size}
-					startIcon={{ icon: Trash }}
-					iconOnly
-					color={'light'}
-					on:click={() => {
-						dispatch('delete')
-					}}
-					btnClasses="hover:bg-red-500 hover:text-white"
-				/>
-			{/if}
-			{#if !isDraft && edit}
+{#snippet actions(size: 'xs' | 'sm' = 'sm')}
+	{#if !drawerLoading}
+		{#if !allowDraft}
+			{#if edit}
 				<div class={twMerge('center-center', size === 'sm' ? '-mt-1' : '')}>
 					<Toggle
 						{size}
 						disabled={!can_write || !editMode}
 						checked={enabled}
 						options={{ right: 'enable', left: 'disable' }}
-						on:change={async (e) => {
-							await NatsTriggerService.setNatsTriggerEnabled({
-								path: initialPath,
-								workspace: $workspaceStore ?? '',
-								requestBody: { enabled: e.detail }
-							})
-							sendUserToast(`${e.detail ? 'enabled' : 'disabled'} NATS trigger ${initialPath}`)
-						}}
+						on:change={handleToggleEnabled}
 					/>
 				</div>
 			{/if}
-			{#if !preventSave}
-				{#if can_write && editMode}
-					<Button
-						{size}
-						startIcon={{ icon: Save }}
-						disabled={pathError != '' || emptyString(script_path) || !can_write || !isValid}
-						on:click={updateTrigger}
-					>
-						Save
-					</Button>
-				{/if}
-				{#if !editMode && useEditButton}
-					<Button
-						{size}
-						color="light"
-						startIcon={{ icon: Pen }}
-						on:click={() => toggleEditMode(true)}
-					>
-						Edit
-					</Button>
-				{:else if editMode && !!resetEditMode && useEditButton}
-					<Button
-						{size}
-						color="light"
-						startIcon={{ icon: X }}
-						on:click={() => {
-							toggleEditMode(false)
-							resetEditMode?.()
-						}}
-					>
-						Cancel
-					</Button>
-				{/if}
+			{#if can_write && editMode}
+				<Button
+					{size}
+					startIcon={{ icon: Save }}
+					disabled={pathError != '' || emptyString(script_path) || !can_write || !isValid}
+					on:click={updateTrigger}
+				>
+					Save
+				</Button>
 			{/if}
-		</div>
+		{:else}
+			<TriggerEditorToolbar
+				isDraftOnly={isDraft}
+				{hasDraft}
+				canEdit={!drawerLoading && can_write && !preventSave}
+				{editMode}
+				saveDisabled={pathError != '' || emptyString(script_path) || !can_write || !isValid}
+				{enabled}
+				on:save-draft={() => {
+					saveDraft()
+				}}
+				on:deploy={() => {
+					updateTrigger()
+				}}
+				on:reset
+				on:delete
+				on:edit={() => {
+					toggleEditMode(true)
+				}}
+				on:cancel={() => {
+					resetEditMode?.()
+					toggleEditMode(false)
+				}}
+				on:toggle-enabled={handleToggleEnabled}
+			/>
+		{/if}
 	{/if}
 {/snippet}
 

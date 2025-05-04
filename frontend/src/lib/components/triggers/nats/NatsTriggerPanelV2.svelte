@@ -3,6 +3,7 @@
 	import { isCloudHosted } from '$lib/cloud'
 	import { Alert } from '$lib/components/common'
 	import Description from '$lib/components/Description.svelte'
+	import { onMount } from 'svelte'
 
 	let {
 		selectedTrigger,
@@ -11,19 +12,21 @@
 		edit,
 		isDeployed = false,
 		isEditor,
-		defaultValues = undefined
+		defaultValues = undefined,
+		newDraft = false
 	} = $props()
 	let natsTriggerEditor: NatsTriggerEditorInner | undefined = $state(undefined)
 
 	async function openNatsTriggerEditor(isFlow: boolean, isDraft: boolean) {
 		if (isDraft) {
-			natsTriggerEditor?.openNew(isFlow, path, defaultValues)
+			console.log('dbg openNew', defaultValues)
+			natsTriggerEditor?.openNew(isFlow, path, defaultValues, newDraft)
 		} else {
-			natsTriggerEditor?.openEdit(selectedTrigger.path, isFlow)
+			natsTriggerEditor?.openEdit(selectedTrigger.path, isFlow, selectedTrigger.draftConfig)
 		}
 	}
 
-	$effect(() => {
+	onMount(() => {
 		natsTriggerEditor && openNatsTriggerEditor(isFlow, selectedTrigger.isDraft ?? false)
 	})
 </script>
@@ -42,11 +45,15 @@
 			preventSave={!isDeployed}
 			hideTooltips={!isDeployed}
 			useEditButton
+			allowDraft={true}
+			hasDraft={!!selectedTrigger.draftConfig}
 			{isEditor}
 			on:toggle-edit-mode
 			on:update-config
 			on:update
 			on:delete
+			on:save-draft
+			on:reset
 		>
 			{#snippet description()}
 				<Description link="https://www.windmill.dev/docs/core_concepts/nats_triggers">
