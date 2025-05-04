@@ -39,6 +39,7 @@
 		hideTooltips?: boolean
 		allowDraft?: boolean
 		hasDraft?: boolean
+		isDraftOnly?: boolean
 	}
 
 	let {
@@ -50,7 +51,8 @@
 		isEditor = false,
 		hideTooltips = false,
 		allowDraft = false,
-		hasDraft = false
+		hasDraft = false,
+		isDraftOnly = false
 	}: Props = $props()
 
 	let drawer: Drawer | undefined = $state(undefined)
@@ -83,7 +85,6 @@
 	let transactionType: string[] = ['Insert', 'Update', 'Delete']
 	let tab: 'advanced' | 'basic' = $state('basic')
 	let isLoading = $state(false)
-	let isDraft = $state(false)
 	let initialConfig = $state<Record<string, any> | undefined>(undefined)
 	let neverSaved = $state(false)
 
@@ -152,7 +153,6 @@
 			initialPath = ePath
 			itemKind = isFlow ? 'flow' : 'script'
 			edit = true
-			isDraft = false
 			dirtyPath = false
 			selectedPublicationAction = 'get'
 			selectedSlotAction = 'get'
@@ -197,7 +197,6 @@
 			initialPath = ''
 			postgres_resource_path = defaultValues?.postgres_resource_path ?? ''
 			edit = false
-			isDraft = true
 			dirtyPath = false
 			publication_name = `windmill_publication_${random_adj()}`
 			replication_slot_name = `windmill_replication_${random_adj()}`
@@ -380,7 +379,7 @@
 
 	async function handleToggleEnabled(e: CustomEvent<boolean>) {
 		enabled = e.detail
-		if (!isDraft && !hasDraft) {
+		if (!isDraftOnly && !hasDraft) {
 			await PostgresTriggerService.setPostgresTriggerEnabled({
 				path: initialPath,
 				workspace: $workspaceStore ?? '',
@@ -417,7 +416,7 @@
 {#snippet actions()}
 	{#if !drawerLoading}
 		<TriggerEditorToolbar
-			isDraftOnly={isDraft}
+			{isDraftOnly}
 			{hasDraft}
 			canEdit={!drawerLoading && can_write && !preventSave}
 			{editMode}

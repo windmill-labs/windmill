@@ -52,6 +52,7 @@
 			{isEditor}
 			allowDraft={true}
 			hasDraft={!!selectedTrigger.draftConfig}
+			isDraftOnly={selectedTrigger.isDraft}
 			on:toggle-edit-mode
 			on:update-config
 			on:update

@@ -27,6 +27,7 @@
 		isEditor?: boolean
 		allowDraft?: boolean
 		hasDraft?: boolean
+		isDraftOnly?: boolean
 	}
 
 	let {
@@ -38,7 +39,8 @@
 		hideTooltips = false,
 		isEditor = false,
 		allowDraft = false,
-		hasDraft = false
+		hasDraft = false,
+		isDraftOnly = false
 	}: Props = $props()
 
 	let drawer: Drawer | undefined = $state(undefined)
@@ -59,7 +61,6 @@
 	let defaultValues: Record<string, any> | undefined = $state(undefined)
 	let args: Record<string, any> = $state({})
 	let resetEditMode = $state<(() => void) | undefined>(undefined)
-	let isDraft = $state(false)
 	let initialConfig = $state<Record<string, any> | undefined>(undefined)
 	let neverSaved = $state(false)
 
@@ -84,7 +85,6 @@
 			initialPath = ePath
 			itemKind = isFlow ? 'flow' : 'script'
 			edit = true
-			isDraft = false
 			dirtyPath = false
 			await loadTrigger(defaultConfig)
 		} catch (err) {
@@ -111,7 +111,6 @@
 			drawer?.openDrawer()
 			is_flow = nis_flow
 			edit = false
-			isDraft = true
 			itemKind = nis_flow ? 'flow' : 'script'
 			args.nats_resource_path = nDefaultValues?.nats_resource_path ?? ''
 			args.subjects = nDefaultValues?.subjects ?? ['']
@@ -250,7 +249,7 @@
 
 	async function handleToggleEnabled(e: CustomEvent<boolean>) {
 		enabled = e.detail
-		if (!isDraft && !hasDraft) {
+		if (!isDraftOnly && !hasDraft) {
 			await NatsTriggerService.setNatsTriggerEnabled({
 				path: initialPath,
 				workspace: $workspaceStore ?? '',
@@ -298,7 +297,7 @@
 {#snippet actions()}
 	{#if !drawerLoading}
 		<TriggerEditorToolbar
-			isDraftOnly={isDraft}
+			{isDraftOnly}
 			{hasDraft}
 			canEdit={!drawerLoading && can_write && !preventSave}
 			{editMode}

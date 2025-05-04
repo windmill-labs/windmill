@@ -26,6 +26,7 @@
 		isEditor?: boolean
 		allowDraft?: boolean
 		hasDraft?: boolean
+		isDraftOnly?: boolean
 	}
 
 	let {
@@ -37,7 +38,8 @@
 		hideTooltips = false,
 		isEditor = false,
 		allowDraft = false,
-		hasDraft = false
+		hasDraft = false,
+		isDraftOnly = false
 	}: Props = $props()
 
 	let drawer: Drawer | undefined = $state()
@@ -58,7 +60,6 @@
 	let args: Record<string, any> = $state({})
 	let showLoading = $state(false)
 	let resetEditMode = $state<(() => void) | undefined>(undefined)
-	let isDraft = $state(false)
 	let initialConfig = $state<Record<string, any> | undefined>(undefined)
 	let neverSaved = $state(false)
 
@@ -83,7 +84,6 @@
 			initialPath = ePath
 			itemKind = isFlow ? 'flow' : 'script'
 			edit = true
-			isDraft = false
 			dirtyPath = false
 			await loadTrigger(defaultConfig)
 		} catch (err) {
@@ -110,7 +110,6 @@
 			drawer?.openDrawer()
 			is_flow = nis_flow
 			edit = false
-			isDraft = true
 			itemKind = nis_flow ? 'flow' : 'script'
 			args.kafka_resource_path = nDefaultValues?.kafka_resource_path ?? ''
 			args.group_id = nDefaultValues?.group_id ?? ''
@@ -303,7 +302,7 @@
 		</Button>
 	{:else}
 		<TriggerEditorToolbar
-			isDraftOnly={isDraft}
+			{isDraftOnly}
 			{hasDraft}
 			canEdit={!drawerLoading && can_write && !preventSave}
 			{editMode}

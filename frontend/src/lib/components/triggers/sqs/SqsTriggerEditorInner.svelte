@@ -25,6 +25,7 @@
 		hideTooltips?: boolean
 		allowDraft?: boolean
 		hasDraft?: boolean
+		isDraftOnly?: boolean
 	}
 
 	let {
@@ -35,7 +36,8 @@
 		preventSave = false,
 		hideTooltips = false,
 		allowDraft = false,
-		hasDraft = false
+		hasDraft = false,
+		isDraftOnly = false
 	}: Props = $props()
 
 	let drawer: Drawer | undefined = $state(undefined)
@@ -59,7 +61,6 @@
 	let aws_auth_resource_type: AwsAuthResourceType = $state('credentials')
 	let isValid = $state(false)
 	let resetEditMode = $state<(() => void) | undefined>(undefined)
-	let isDraft = $state(false)
 	let initialConfig = $state<Record<string, any> | undefined>(undefined)
 	let neverSaved = $state(false)
 
@@ -84,7 +85,6 @@
 			initialPath = ePath
 			itemKind = isFlow ? 'flow' : 'script'
 			edit = true
-			isDraft = false
 			dirtyPath = false
 			await loadTrigger(defaultConfig)
 		} catch (err) {
@@ -121,7 +121,6 @@
 			aws_auth_resource_type = defaultValues?.aws_auth_resource_type ?? 'credentials'
 			initialPath = ''
 			edit = false
-			isDraft = true
 			dirtyPath = false
 			enabled = defaultValues?.enabled ?? false
 			if (newDraft) {
@@ -192,7 +191,7 @@
 
 	async function handleToggleEnabled(e: CustomEvent<boolean>) {
 		enabled = e.detail
-		if (!isDraft && !hasDraft) {
+		if (!isDraftOnly && !hasDraft) {
 			await SqsTriggerService.setSqsTriggerEnabled({
 				path: initialPath,
 				workspace: $workspaceStore ?? '',
@@ -288,7 +287,7 @@
 {#snippet actions()}
 	{#if !drawerLoading}
 		<TriggerEditorToolbar
-			isDraftOnly={isDraft}
+			{isDraftOnly}
 			{hasDraft}
 			canEdit={!drawerLoading && can_write && !preventSave}
 			{editMode}

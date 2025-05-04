@@ -32,6 +32,7 @@
 		isEditor?: boolean
 		allowDraft?: boolean
 		hasDraft?: boolean
+		isDraftOnly?: boolean
 	}
 
 	let {
@@ -43,7 +44,8 @@
 		hideTooltips = false,
 		isEditor = false,
 		allowDraft = false,
-		hasDraft = false
+		hasDraft = false,
+		isDraftOnly = false
 	}: Props = $props()
 
 	let mqtt_resource_path: string = $state('')
@@ -69,7 +71,6 @@
 	let client_id: string | undefined = $state(undefined)
 	let isValid: boolean | undefined = $state(undefined)
 	let resetEditMode = $state<(() => void) | undefined>(undefined)
-	let isDraft = $state(false)
 	let initialConfig = $state<Record<string, any> | undefined>(undefined)
 	let neverSaved = $state(false)
 
@@ -94,7 +95,6 @@
 			initialPath = ePath
 			itemKind = isFlow ? 'flow' : 'script'
 			edit = true
-			isDraft = false
 			dirtyPath = false
 			await loadTrigger(defaultConfig)
 		} catch (err) {
@@ -129,7 +129,6 @@
 			path = defaultValues?.path ?? ''
 			initialPath = ''
 			edit = false
-			isDraft = true
 			dirtyPath = false
 			client_version = defaultValues?.client_version ?? 'v5'
 			client_id = defaultValues?.client_id ?? ''
@@ -257,7 +256,7 @@
 
 	async function handleToggleEnabled(e: CustomEvent<boolean>) {
 		enabled = e.detail
-		if (!isDraft && !hasDraft) {
+		if (!isDraftOnly && !hasDraft) {
 			await MqttTriggerService.setMqttTriggerEnabled({
 				path: initialPath,
 				workspace: $workspaceStore ?? '',
@@ -309,7 +308,7 @@
 {#snippet actions()}
 	{#if !drawerLoading}
 		<TriggerEditorToolbar
-			isDraftOnly={isDraft}
+			{isDraftOnly}
 			{hasDraft}
 			canEdit={!drawerLoading && can_write && !preventSave}
 			{editMode}

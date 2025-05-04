@@ -44,7 +44,6 @@
 	let isValid = $state(false)
 	let delivery_config: PushConfig | undefined = $state(undefined)
 	let subscription_mode: SubscriptionMode = $state('create_update')
-	let isDraft = $state(false)
 	let neverSaved = $state(false)
 
 	const dispatch = createEventDispatcher()
@@ -58,7 +57,8 @@
 		hideTooltips = false,
 		isEditor = false,
 		allowDraft = false,
-		hasDraft = false
+		hasDraft = false,
+		isDraftOnly = false
 	}: {
 		useDrawer?: boolean
 		description?: Snippet | undefined
@@ -70,6 +70,7 @@
 		isEditor?: boolean
 		allowDraft?: boolean
 		hasDraft?: boolean
+		isDraftOnly?: boolean
 	} = $props()
 
 	let resetEditMode = $state<(() => void) | undefined>(undefined)
@@ -96,7 +97,6 @@
 			initialPath = ePath
 			itemKind = isFlow ? 'flow' : 'script'
 			edit = true
-			isDraft = false
 			dirtyPath = false
 			await loadTrigger()
 		} catch (err) {
@@ -130,7 +130,6 @@
 			path = defaultValues?.path ?? ''
 			initialPath = ''
 			edit = false
-			isDraft = true
 			dirtyPath = false
 			enabled = defaultValues?.enabled ?? false
 			if (newDraft) {
@@ -266,7 +265,7 @@
 
 	async function handleToggleEnabled(e: CustomEvent<boolean>) {
 		enabled = e.detail
-		if (!isDraft && !hasDraft) {
+		if (!isDraftOnly && !hasDraft) {
 			await GcpTriggerService.setGcpTriggerEnabled({
 				path: initialPath,
 				workspace: $workspaceStore ?? '',
@@ -305,7 +304,7 @@
 {#snippet actionsButtons()}
 	{#if !drawerLoading && can_write}
 		<TriggerEditorToolbar
-			isDraftOnly={isDraft}
+			{isDraftOnly}
 			{hasDraft}
 			canEdit={!drawerLoading && can_write && !preventSave}
 			{editMode}

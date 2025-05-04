@@ -40,6 +40,7 @@
 		isEditor?: boolean
 		allowDraft?: boolean
 		hasDraft?: boolean
+		isDraftOnly?: boolean
 	}
 
 	let {
@@ -51,7 +52,8 @@
 		hideTooltips = false,
 		isEditor = false,
 		allowDraft = false,
-		hasDraft = false
+		hasDraft = false,
+		isDraftOnly = false
 	}: Props = $props()
 
 	let drawer: Drawer | undefined = $state()
@@ -79,7 +81,6 @@
 	let drawerLoading = $state(true)
 	let showLoading = $state(false)
 	let resetEditMode = $state<(() => void) | undefined>(undefined)
-	let isDraft = $state(false)
 	let initialConfig = $state<Record<string, any> | undefined>(undefined)
 	let neverSaved = $state(false)
 
@@ -104,7 +105,6 @@
 			initialPath = ePath
 			itemKind = isFlow ? 'flow' : 'script'
 			edit = true
-			isDraft = false
 			dirtyPath = false
 			dirtyUrl = false
 			await loadTrigger(defaultConfig)
@@ -132,7 +132,6 @@
 			drawer?.openDrawer()
 			is_flow = nis_flow
 			edit = false
-			isDraft = true
 			itemKind = nis_flow ? 'flow' : 'script'
 			url = defaultValues?.url ?? ''
 			dirtyUrl = false
@@ -291,7 +290,7 @@
 
 	async function handleToggleEnabled(e: CustomEvent<boolean>) {
 		enabled = e.detail
-		if (!isDraft && !hasDraft) {
+		if (!isDraftOnly && !hasDraft) {
 			await WebsocketTriggerService.setWebsocketTriggerEnabled({
 				path: initialPath,
 				workspace: $workspaceStore!,
@@ -350,7 +349,7 @@
 
 {#snippet actionsButtons()}
 	<TriggerEditorToolbar
-		isDraftOnly={isDraft}
+		{isDraftOnly}
 		{hasDraft}
 		canEdit={!drawerLoading && can_write && !preventSave}
 		{editMode}

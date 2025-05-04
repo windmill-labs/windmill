@@ -46,6 +46,7 @@
 			hideTooltips={!isDeployed}
 			allowDraft={true}
 			hasDraft={!!selectedTrigger.draftConfig}
+			isDraftOnly={selectedTrigger.isDraft}
 			{isEditor}
 			on:toggle-edit-mode
 			on:update
