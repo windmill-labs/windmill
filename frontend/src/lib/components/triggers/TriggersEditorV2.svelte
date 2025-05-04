@@ -94,37 +94,11 @@
 		}
 	}
 
-	function deletePendingTrigger(trigger: Trigger | undefined) {
-		if (!trigger) {
-			return
-		}
-		$triggers = $triggers.filter((t) => !isEqual(t, trigger))
-
-		// Select a new trigger if any exist
-		if ($triggers.length > 0) {
-			$selectedTrigger = $triggers[$triggers.length - 1]
-		} else {
-			$selectedTrigger = undefined
-		}
-	}
-
 	function setTriggerSaveCallback(trigger: Trigger | undefined, saveCb: () => void) {
 		if (!trigger) {
 			return
 		}
 		setSaveCallback(triggers, trigger, saveCb)
-	}
-
-	function handleUpdatePending(trigger: Trigger | undefined, path: string) {
-		if (!trigger) {
-			return
-		}
-		if (trigger.isDraft) {
-			trigger.isDraft = false
-		}
-		if (path) {
-			trigger.path = path
-		}
 	}
 
 	function handleUpdate(trigger: Trigger | undefined, path: string) {
@@ -306,12 +280,6 @@
 										}}
 										on:update={({ detail }) => {
 											handleUpdate($selectedTrigger, detail)
-										}}
-										on:update-pending={({ detail }) => {
-											handleUpdatePending($selectedTrigger, detail)
-										}}
-										on:delete-pending={() => {
-											deletePendingTrigger($selectedTrigger)
 										}}
 										on:save-draft={({ detail }) => {
 											handleUpdateDraftConfig(detail.cfg)
