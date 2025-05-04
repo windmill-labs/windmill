@@ -3,6 +3,7 @@
 	import { isCloudHosted } from '$lib/cloud'
 	import { Alert } from '$lib/components/common'
 	import Description from '$lib/components/Description.svelte'
+	import { onMount } from 'svelte'
 
 	let {
 		selectedTrigger,
@@ -10,19 +11,20 @@
 		path,
 		edit,
 		isDeployed = false,
-		defaultValues = undefined
+		defaultValues = undefined,
+		newDraft = false
 	} = $props()
 	let sqsTriggerEditor: SqsTriggerEditorInner | undefined = $state(undefined)
 
 	async function openSqsTriggerEditor(isFlow: boolean, isDraft: boolean) {
 		if (isDraft) {
-			sqsTriggerEditor?.openNew(isFlow, path, defaultValues)
+			sqsTriggerEditor?.openNew(isFlow, path, defaultValues, newDraft)
 		} else {
-			sqsTriggerEditor?.openEdit(selectedTrigger.path, isFlow)
+			sqsTriggerEditor?.openEdit(selectedTrigger.path, isFlow, selectedTrigger.draftConfig)
 		}
 	}
 
-	$effect(() => {
+	onMount(() => {
 		sqsTriggerEditor && openSqsTriggerEditor(isFlow, selectedTrigger.isDraft ?? false)
 	})
 </script>
@@ -40,11 +42,14 @@
 			editMode={edit}
 			preventSave={!isDeployed}
 			hideTooltips={!isDeployed}
-			useEditButton
+			allowDraft={true}
+			hasDraft={!!selectedTrigger.draftConfig}
 			on:toggle-edit-mode
 			on:update-config
 			on:update
 			on:delete
+			on:save-draft
+			on:reset
 		>
 			{#snippet description()}
 				<Description link="https://www.windmill.dev/docs/core_concepts/sqs_triggers">

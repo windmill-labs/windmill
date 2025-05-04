@@ -238,9 +238,9 @@ export async function fetchTriggers(
 		fetchWebsocketTriggers(triggersStore, workspaceId, path, isFlow, user),
 		fetchPostgresTriggers(triggersStore, workspaceId, path, isFlow, user),
 		fetchKafkaTriggers(triggersStore, workspaceId, path, isFlow, user),
-		fetchNatsTriggers(triggersStore, workspaceId, path, isFlow),
-		fetchMqttTriggers(triggersStore, workspaceId, path, isFlow),
-		fetchSqsTriggers(triggersStore, workspaceId, path, isFlow),
+		fetchNatsTriggers(triggersStore, workspaceId, path, isFlow, user),
+		fetchMqttTriggers(triggersStore, workspaceId, path, isFlow, user),
+		fetchSqsTriggers(triggersStore, workspaceId, path, isFlow, user),
 		fetchGcpTriggers(triggersStore, workspaceId, path, isFlow, user)
 	])
 }
@@ -459,29 +459,14 @@ export async function fetchNatsTriggers(
 	isFlow: boolean,
 	user: UserExt | undefined = undefined
 ): Promise<void> {
+	if (!workspaceId) return
 	try {
-		if (!workspaceId) return
-		// Remove existing NATS triggers for this path except for draft triggers
-		triggersStore.update((triggers) => triggers.filter((t) => !(t.type === 'nats' && !t.isDraft)))
-
 		const natsTriggers = await NatsTriggerService.listNatsTriggers({
 			workspace: workspaceId,
 			path,
 			isFlow
 		})
-
-		for (const trigger of natsTriggers) {
-			triggersStore.update((triggers) => [
-				...triggers,
-				{
-					type: 'nats',
-					path: trigger.path,
-					isPrimary: false,
-					isDraft: false,
-					canWrite: canWrite(trigger.path, trigger.extra_perms, user)
-				}
-			])
-		}
+		updateTriggers(triggersStore, natsTriggers, 'nats', user)
 	} catch (error) {
 		console.error('Failed to fetch NATS triggers:', error)
 	}
@@ -522,27 +507,12 @@ export async function fetchSqsTriggers(
 ): Promise<void> {
 	if (!workspaceId) return
 	try {
-		// Remove existing SQS triggers for this path except for draft triggers
-		triggersStore.update((triggers) => triggers.filter((t) => !(t.type === 'sqs' && !t.isDraft)))
-
 		const sqsTriggers = await SqsTriggerService.listSqsTriggers({
 			workspace: workspaceId,
 			path,
 			isFlow
 		})
-
-		for (const trigger of sqsTriggers) {
-			triggersStore.update((triggers) => [
-				...triggers,
-				{
-					type: 'sqs',
-					path: trigger.path,
-					isPrimary: false,
-					isDraft: false,
-					canWrite: canWrite(trigger.path, trigger.extra_perms, user)
-				}
-			])
-		}
+		updateTriggers(triggersStore, sqsTriggers, 'sqs', user)
 	} catch (error) {
 		console.error('Failed to fetch SQS triggers:', error)
 	}

@@ -6,16 +6,17 @@
 	import { usedTriggerKinds, userStore, workspaceStore } from '$lib/stores'
 	import { canWrite, emptyString, sendUserToast } from '$lib/utils'
 	import { createEventDispatcher } from 'svelte'
-	import { Loader2, Save, X, Pen, Trash } from 'lucide-svelte'
+	import { Loader2, Save } from 'lucide-svelte'
 	import Label from '$lib/components/Label.svelte'
-	import Toggle from '$lib/components/Toggle.svelte'
 	import { SqsTriggerService, type AwsAuthResourceType } from '$lib/gen'
 	import SqsTriggerEditorConfigSection from './SqsTriggerEditorConfigSection.svelte'
 	import Section from '$lib/components/Section.svelte'
 	import ScriptPicker from '$lib/components/ScriptPicker.svelte'
 	import Required from '$lib/components/Required.svelte'
-	import { twMerge } from 'tailwind-merge'
 	import type { Snippet } from 'svelte'
+	import TriggerEditorToolbar from '../TriggerEditorToolbar.svelte'
+	import Toggle from '$lib/components/Toggle.svelte'
+	import { twMerge } from 'tailwind-merge'
 
 	interface Props {
 		useDrawer?: boolean
@@ -24,7 +25,8 @@
 		editMode?: boolean
 		preventSave?: boolean
 		hideTooltips?: boolean
-		useEditButton?: boolean
+		allowDraft?: boolean
+		hasDraft?: boolean
 	}
 
 	let {
@@ -34,7 +36,8 @@
 		editMode = true,
 		preventSave = false,
 		hideTooltips = false,
-		useEditButton = false
+		allowDraft = false,
+		hasDraft = false
 	}: Props = $props()
 
 	let drawer: Drawer | undefined = $state(undefined)
@@ -59,6 +62,7 @@
 	let isValid = $state(false)
 	let resetEditMode = $state<(() => void) | undefined>(undefined)
 	let isDraft = $state(false)
+	let initialConfig = $state<Record<string, any> | undefined>(undefined)
 
 	const dispatch = createEventDispatcher()
 
@@ -66,12 +70,16 @@
 		is_flow = itemKind === 'flow'
 	})
 
-	export async function openEdit(ePath: string, isFlow: boolean) {
+	export async function openEdit(
+		ePath: string,
+		isFlow: boolean,
+		defaultConfig?: Record<string, any>
+	) {
 		let loadingTimeout = setTimeout(() => {
 			showLoading = true
 		}, 100) // Do not show loading spinner for the first 100ms
 		drawerLoading = true
-		resetEditMode = () => openEdit(ePath, isFlow)
+		resetEditMode = () => openEdit(ePath, isFlow, defaultConfig ?? initialConfig)
 		try {
 			drawer?.openDrawer()
 			initialPath = ePath
@@ -79,7 +87,7 @@
 			edit = true
 			isDraft = false
 			dirtyPath = false
-			await loadTrigger()
+			await loadTrigger(defaultConfig)
 		} catch (err) {
 			sendUserToast(`Could not load sqs trigger: ${err.body}`, true)
 		} finally {
@@ -92,12 +100,14 @@
 	export async function openNew(
 		nis_flow: boolean,
 		fixedScriptPath_?: string,
-		defaultValues?: Record<string, any>
+		defaultValues?: Record<string, any>,
+		newDraft?: boolean
 	) {
 		let loadingTimeout = setTimeout(() => {
 			showLoading = true
 		}, 100)
 		drawerLoading = true
+		resetEditMode = () => openNew(nis_flow, fixedScriptPath_, defaultValues, newDraft)
 		try {
 			drawer?.openDrawer()
 			is_flow = nis_flow
@@ -114,7 +124,10 @@
 			edit = false
 			isDraft = true
 			dirtyPath = false
-			toggleEditMode(true)
+			enabled = defaultValues?.enabled ?? false
+			if (newDraft) {
+				toggleEditMode(true)
+			}
 		} finally {
 			clearTimeout(loadingTimeout)
 			drawerLoading = false
@@ -122,24 +135,70 @@
 		}
 	}
 
-	async function loadTrigger(): Promise<void> {
+	async function loadTriggerConfig(cfg?: Record<string, any>): Promise<void> {
 		try {
-			const s = await SqsTriggerService.getSqsTrigger({
-				workspace: $workspaceStore!,
-				path: initialPath
-			})
-			script_path = s.script_path
-			initialScriptPath = s.script_path
-			aws_resource_path = s.aws_resource_path
-			queue_url = s.queue_url
-			is_flow = s.is_flow
-			message_attributes = s.message_attributes ?? []
-			path = s.path
-			enabled = s.enabled
-			aws_auth_resource_type = s.aws_auth_resource_type
-			can_write = canWrite(s.path, s.extra_perms, $userStore)
+			script_path = cfg?.script_path
+			initialScriptPath = cfg?.script_path
+			aws_resource_path = cfg?.aws_resource_path
+			queue_url = cfg?.queue_url
+			is_flow = cfg?.is_flow
+			message_attributes = cfg?.message_attributes ?? []
+			path = cfg?.path
+			enabled = cfg?.enabled
+			aws_auth_resource_type = cfg?.aws_auth_resource_type
+			can_write = canWrite(cfg?.path, cfg?.extra_perms, $userStore)
+		} catch (error) {
+			sendUserToast(`Could not load SQS trigger config: ${error.body}`, true)
+		}
+	}
+
+	async function loadTrigger(defaultConfig?: Record<string, any>): Promise<void> {
+		try {
+			if (defaultConfig) {
+				loadTriggerConfig(defaultConfig)
+				return
+			} else {
+				const s = await SqsTriggerService.getSqsTrigger({
+					workspace: $workspaceStore!,
+					path: initialPath
+				})
+				initialConfig = s
+				loadTriggerConfig(s)
+			}
 		} catch (error) {
 			sendUserToast(`Could not load SQS trigger: ${error.body}`, true)
+		}
+	}
+
+	function saveDraft() {
+		dispatch('save-draft', {
+			cfg: {
+				script_path,
+				is_flow,
+				path,
+				aws_resource_path,
+				queue_url,
+				message_attributes,
+				aws_auth_resource_type,
+				isValid,
+				enabled
+			},
+			cb: () => {
+				updateTrigger()
+			}
+		})
+		toggleEditMode(false)
+	}
+
+	async function handleToggleEnabled(e: CustomEvent<boolean>) {
+		enabled = e.detail
+		if (!isDraft && !hasDraft) {
+			await SqsTriggerService.setSqsTriggerEnabled({
+				path: initialPath,
+				workspace: $workspaceStore ?? '',
+				requestBody: { enabled: e.detail }
+			})
+			sendUserToast(`${e.detail ? 'enabled' : 'disabled'} SQS trigger ${initialPath}`)
 		}
 	}
 
@@ -212,7 +271,7 @@
 			on:close={drawer.closeDrawer}
 		>
 			<svelte:fragment slot="actions">
-				{@render actionsButtons('sm')}
+				{@render actions('sm')}
 			</svelte:fragment>
 			{@render config()}
 		</DrawerContent>
@@ -220,46 +279,25 @@
 {:else}
 	<Section label="SQS trigger">
 		<svelte:fragment slot="action">
-			{@render actionsButtons('xs')}
+			{@render actions('xs')}
 		</svelte:fragment>
 		{@render config()}
 	</Section>
 {/if}
 
-{#snippet actionsButtons(size: 'xs' | 'sm' = 'sm')}
-	{#if !drawerLoading && can_write}
-		<div class="flex flex-row gap-2 items-center">
-			{#if isDraft}
-				<Button
-					{size}
-					startIcon={{ icon: Trash }}
-					iconOnly
-					color={'light'}
-					on:click={() => {
-						dispatch('delete')
-					}}
-					btnClasses="hover:bg-red-500 hover:text-white"
-				/>
-			{/if}
-			{#if !isDraft && edit}
+{#snippet actions(size: 'xs' | 'sm' = 'sm')}
+	{#if !drawerLoading}
+		{#if !allowDraft}
+			{#if edit}
 				<div class={twMerge('center-center', size === 'sm' ? '-mt-1' : '')}>
 					<Toggle
 						{size}
 						disabled={!can_write || !editMode}
 						checked={enabled}
 						options={{ right: 'enable', left: 'disable' }}
-						on:change={async (e) => {
-							await SqsTriggerService.setSqsTriggerEnabled({
-								path: initialPath,
-								workspace: $workspaceStore ?? '',
-								requestBody: { enabled: e.detail }
-							})
-							sendUserToast(`${e.detail ? 'enabled' : 'disabled'} SQS trigger ${initialPath}`)
-						}}
+						on:change={handleToggleEnabled}
 					/>
 				</div>
-			{/if}
-			{#if !preventSave}
 				{#if can_write && editMode}
 					<Button
 						{size}
@@ -270,30 +308,33 @@
 						Save
 					</Button>
 				{/if}
-				{#if !editMode && useEditButton}
-					<Button
-						{size}
-						color="light"
-						startIcon={{ icon: Pen }}
-						on:click={() => toggleEditMode(true)}
-					>
-						Edit
-					</Button>
-				{:else if editMode && !!resetEditMode && useEditButton}
-					<Button
-						{size}
-						color="light"
-						startIcon={{ icon: X }}
-						on:click={() => {
-							toggleEditMode(false)
-							resetEditMode?.()
-						}}
-					>
-						Cancel
-					</Button>
-				{/if}
 			{/if}
-		</div>
+		{:else}
+			<TriggerEditorToolbar
+				isDraftOnly={isDraft}
+				{hasDraft}
+				canEdit={!drawerLoading && can_write && !preventSave}
+				{editMode}
+				saveDisabled={pathError != '' || emptyString(script_path) || !isValid || !can_write}
+				{enabled}
+				on:save-draft={() => {
+					saveDraft()
+				}}
+				on:deploy={() => {
+					updateTrigger()
+				}}
+				on:reset
+				on:delete
+				on:edit={() => {
+					toggleEditMode(true)
+				}}
+				on:cancel={() => {
+					resetEditMode?.()
+					toggleEditMode(false)
+				}}
+				on:toggle-enabled={handleToggleEnabled}
+			/>
+		{/if}
 	{/if}
 {/snippet}
 
