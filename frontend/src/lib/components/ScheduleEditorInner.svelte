@@ -107,7 +107,7 @@
 				loadSchedule(defaultCfg)
 			} else {
 				defaultConfig = defaultCfg
-				path = ePath
+				path = defaultCfg?.path ?? ePath
 			}
 			edit = true
 		} finally {
@@ -633,6 +633,7 @@
 	function saveDraft() {
 		dispatch('save-draft', {
 			cfg: {
+				path: path,
 				schedule: schedule,
 				timezone: timezone,
 				args: args,
