@@ -497,29 +497,14 @@ export async function fetchMqttTriggers(
 	isFlow: boolean,
 	user: UserExt | undefined = undefined
 ): Promise<void> {
+	if (!workspaceId) return
 	try {
-		if (!workspaceId) return
-		// Remove existing MQTT triggers for this path except for draft triggers
-		triggersStore.update((triggers) => triggers.filter((t) => !(t.type === 'mqtt' && !t.isDraft)))
-
 		const mqttTriggers = await MqttTriggerService.listMqttTriggers({
 			workspace: workspaceId,
 			path,
 			isFlow
 		})
-
-		for (const trigger of mqttTriggers) {
-			triggersStore.update((triggers) => [
-				...triggers,
-				{
-					type: 'mqtt',
-					path: trigger.path,
-					isPrimary: false,
-					isDraft: false,
-					canWrite: canWrite(trigger.path, trigger.extra_perms, user)
-				}
-			])
-		}
+		updateTriggers(triggersStore, mqttTriggers, 'mqtt', user)
 	} catch (error) {
 		console.error('Failed to fetch MQTT triggers:', error)
 	}

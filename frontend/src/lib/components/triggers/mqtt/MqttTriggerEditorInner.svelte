@@ -9,9 +9,10 @@
 	import { canWrite, emptyString, sendUserToast } from '$lib/utils'
 	import { createEventDispatcher } from 'svelte'
 	import Section from '$lib/components/Section.svelte'
-	import { Loader2, Save, X, Pen, Trash } from 'lucide-svelte'
+	import { Loader2, Save } from 'lucide-svelte'
 	import Label from '$lib/components/Label.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
+	import { twMerge } from 'tailwind-merge'
 	import {
 		MqttTriggerService,
 		type MqttClientVersion,
@@ -20,8 +21,8 @@
 		type MqttSubscribeTopic
 	} from '$lib/gen'
 	import MqttEditorConfigSection from './MqttEditorConfigSection.svelte'
-	import { twMerge } from 'tailwind-merge'
 	import type { Snippet } from 'svelte'
+	import TriggerEditorToolbar from '../TriggerEditorToolbar.svelte'
 
 	interface Props {
 		useDrawer?: boolean
@@ -30,8 +31,9 @@
 		editMode?: boolean
 		preventSave?: boolean
 		hideTooltips?: boolean
-		useEditButton?: boolean
 		isEditor?: boolean
+		allowDraft?: boolean
+		hasDraft?: boolean
 	}
 
 	let {
@@ -41,8 +43,9 @@
 		editMode = true,
 		preventSave = false,
 		hideTooltips = false,
-		useEditButton = false,
-		isEditor = false
+		isEditor = false,
+		allowDraft = false,
+		hasDraft = false
 	}: Props = $props()
 
 	let mqtt_resource_path: string = $state('')
@@ -69,6 +72,7 @@
 	let isValid: boolean | undefined = $state(undefined)
 	let resetEditMode = $state<(() => void) | undefined>(undefined)
 	let isDraft = $state(false)
+	let initialConfig = $state<Record<string, any> | undefined>(undefined)
 
 	const dispatch = createEventDispatcher()
 
@@ -76,12 +80,16 @@
 		is_flow = itemKind === 'flow'
 	})
 
-	export async function openEdit(ePath: string, isFlow: boolean) {
+	export async function openEdit(
+		ePath: string,
+		isFlow: boolean,
+		defaultConfig?: Record<string, any>
+	) {
 		let loadingTimeout = setTimeout(() => {
 			showLoading = true
 		}, 100) // Do not show loading spinner for the first 100ms
 		drawerLoading = true
-		resetEditMode = () => openEdit(ePath, isFlow)
+		resetEditMode = () => openEdit(ePath, isFlow, defaultConfig ?? initialConfig)
 		try {
 			drawer?.openDrawer()
 			initialPath = ePath
@@ -89,7 +97,7 @@
 			edit = true
 			isDraft = false
 			dirtyPath = false
-			await loadTrigger()
+			await loadTrigger(defaultConfig)
 		} catch (err) {
 			sendUserToast(`Could not load mqtt trigger: ${err.body}`, true)
 		} finally {
@@ -102,12 +110,14 @@
 	export async function openNew(
 		nis_flow: boolean,
 		fixedScriptPath_?: string,
-		defaultValues?: Record<string, any>
+		defaultValues?: Record<string, any>,
+		newDraft?: boolean
 	) {
 		let loadingTimeout = setTimeout(() => {
 			showLoading = true
 		}, 100)
 		drawerLoading = true
+		resetEditMode = () => openNew(nis_flow, fixedScriptPath_, defaultValues, newDraft)
 		try {
 			mqtt_resource_path = defaultValues?.mqtt_resource_path ?? ''
 			drawer?.openDrawer()
@@ -124,7 +134,10 @@
 			dirtyPath = false
 			client_version = defaultValues?.client_version ?? 'v5'
 			client_id = defaultValues?.client_id ?? ''
-			toggleEditMode(true)
+			enabled = defaultValues?.enabled ?? false
+			if (newDraft) {
+				toggleEditMode(true)
+			}
 		} finally {
 			clearTimeout(loadingTimeout)
 			drawerLoading = false
@@ -132,27 +145,64 @@
 		}
 	}
 
-	async function loadTrigger(): Promise<void> {
+	async function loadTriggerConfig(cfg?: Record<string, any>): Promise<void> {
 		try {
-			const s = await MqttTriggerService.getMqttTrigger({
-				workspace: $workspaceStore!,
-				path: initialPath
-			})
-			mqtt_resource_path = s.mqtt_resource_path
-			subscribe_topics = s.subscribe_topics
-			script_path = s.script_path
-			initialScriptPath = s.script_path
-			is_flow = s.is_flow
-			path = s.path
-			enabled = s.enabled
-			client_version = s.client_version
-			v3_config = s.v3_config
-			v5_config = s.v5_config
-			client_id = s.client_id ?? ''
-			can_write = canWrite(s.path, s.extra_perms, $userStore)
+			mqtt_resource_path = cfg?.mqtt_resource_path
+			subscribe_topics = cfg?.subscribe_topics
+			script_path = cfg?.script_path
+			initialScriptPath = cfg?.script_path
+			is_flow = cfg?.is_flow
+			path = cfg?.path
+			enabled = cfg?.enabled
+			client_version = cfg?.client_version
+			v3_config = cfg?.v3_config
+			v5_config = cfg?.v5_config
+			client_id = cfg?.client_id ?? ''
+			can_write = canWrite(cfg?.path, cfg?.extra_perms, $userStore)
+		} catch (error) {
+			sendUserToast(`Could not load mqtt trigger config: ${error.body}`, true)
+		}
+	}
+
+	async function loadTrigger(defaultConfig?: Record<string, any>): Promise<void> {
+		try {
+			if (defaultConfig) {
+				loadTriggerConfig(defaultConfig)
+				return
+			} else {
+				const s = await MqttTriggerService.getMqttTrigger({
+					workspace: $workspaceStore!,
+					path: initialPath
+				})
+				initialConfig = s
+				loadTriggerConfig(s)
+			}
 		} catch (error) {
 			sendUserToast(`Could not load mqtt trigger: ${error.body}`, true)
 		}
+	}
+
+	function saveDraft() {
+		dispatch('save-draft', {
+			cfg: {
+				script_path,
+				initialScriptPath,
+				is_flow,
+				path,
+				mqtt_resource_path,
+				subscribe_topics,
+				client_version,
+				v3_config,
+				v5_config,
+				client_id,
+				isValid,
+				enabled
+			},
+			cb: () => {
+				updateTrigger()
+			}
+		})
+		toggleEditMode(false)
 	}
 
 	async function updateTrigger(): Promise<void> {
@@ -205,6 +255,18 @@
 		dispatch('toggle-edit-mode', newEditMode)
 	}
 
+	async function handleToggleEnabled(e: CustomEvent<boolean>) {
+		enabled = e.detail
+		if (!isDraft && !hasDraft) {
+			await MqttTriggerService.setMqttTriggerEnabled({
+				path: initialPath,
+				workspace: $workspaceStore ?? '',
+				requestBody: { enabled: e.detail }
+			})
+			sendUserToast(`${e.detail ? 'enabled' : 'disabled'} MQTT trigger ${initialPath}`)
+		}
+	}
+
 	$effect(() => {
 		dispatch('update-config', {
 			mqtt_resource_path,
@@ -230,7 +292,7 @@
 			on:close={drawer.closeDrawer}
 		>
 			<svelte:fragment slot="actions">
-				{@render actionsButtons('sm')}
+				{@render actions('sm')}
 			</svelte:fragment>
 			{@render config()}
 		</DrawerContent>
@@ -238,80 +300,62 @@
 {:else}
 	<Section label="MQTT trigger">
 		<svelte:fragment slot="action">
-			{@render actionsButtons('xs')}
+			{@render actions('xs')}
 		</svelte:fragment>
 		{@render config()}
 	</Section>
 {/if}
 
-{#snippet actionsButtons(size: 'xs' | 'sm' = 'sm')}
-	{#if !drawerLoading && can_write}
-		<div class="flex flex-row gap-2 items-center">
-			{#if isDraft}
-				<Button
-					{size}
-					startIcon={{ icon: Trash }}
-					iconOnly
-					color={'light'}
-					on:click={() => {
-						dispatch('delete')
-					}}
-					btnClasses="hover:bg-red-500 hover:text-white"
-				/>
-			{/if}
-			{#if !isDraft && edit}
+{#snippet actions(size: 'xs' | 'sm' = 'sm')}
+	{#if !drawerLoading}
+		{#if !allowDraft}
+			{#if edit}
 				<div class={twMerge('center-center', size === 'sm' ? '-mt-1' : '')}>
 					<Toggle
 						{size}
 						disabled={!can_write || !editMode}
 						checked={enabled}
 						options={{ right: 'enable', left: 'disable' }}
-						on:change={async (e) => {
-							await MqttTriggerService.setMqttTriggerEnabled({
-								path: initialPath,
-								workspace: $workspaceStore ?? '',
-								requestBody: { enabled: e.detail }
-							})
-							sendUserToast(`${e.detail ? 'enabled' : 'disabled'} MQTT trigger ${initialPath}`)
-						}}
+						on:change={handleToggleEnabled}
 					/>
 				</div>
 			{/if}
-			{#if !preventSave}
-				{#if can_write && editMode}
-					<Button
-						{size}
-						startIcon={{ icon: Save }}
-						disabled={pathError != '' || emptyString(script_path) || !can_write || !isValid}
-						on:click={updateTrigger}
-					>
-						Save
-					</Button>
-				{/if}
-				{#if !editMode && useEditButton}
-					<Button
-						{size}
-						color="light"
-						startIcon={{ icon: Pen }}
-						on:click={() => toggleEditMode(true)}
-					>
-						Edit
-					</Button>
-				{:else if editMode && !!resetEditMode && useEditButton}
-					<Button
-						{size}
-						color="light"
-						startIcon={{ icon: X }}
-						on:click={() => {
-							toggleEditMode(false)
-							resetEditMode?.()
-						}}
-					>
-						Cancel
-					</Button>
-				{/if}
+			{#if can_write && editMode}
+				<Button
+					{size}
+					startIcon={{ icon: Save }}
+					disabled={pathError != '' || emptyString(script_path) || !can_write || !isValid}
+					on:click={updateTrigger}
+				>
+					Save
+				</Button>
 			{/if}
-		</div>
+		{:else}
+			<TriggerEditorToolbar
+				isDraftOnly={isDraft}
+				{hasDraft}
+				canEdit={!drawerLoading && can_write && !preventSave}
+				{editMode}
+				saveDisabled={pathError != '' || emptyString(script_path) || !can_write || !isValid}
+				{enabled}
+				on:save-draft={() => {
+					saveDraft()
+				}}
+				on:deploy={() => {
+					updateTrigger()
+				}}
+				on:reset
+				on:delete
+				on:edit={() => {
+					toggleEditMode(true)
+				}}
+				on:cancel={() => {
+					resetEditMode?.()
+					toggleEditMode(false)
+				}}
+				on:toggle-enabled={handleToggleEnabled}
+			/>
+		{/if}
 	{/if}
 {/snippet}
 
