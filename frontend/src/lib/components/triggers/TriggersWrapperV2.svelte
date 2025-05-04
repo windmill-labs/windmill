@@ -28,6 +28,7 @@
 		small: boolean
 		args: Record<string, any>
 		newItem: boolean
+		schema: Record<string, any> | undefined
 	}
 
 	let {
@@ -41,7 +42,8 @@
 		isDeployed,
 		small,
 		args,
-		newItem
+		newItem,
+		schema
 	}: Props = $props()
 
 	// Forward config updates to parent
@@ -98,6 +100,7 @@
 		defaultValues={selectedTrigger.draftConfig ?? selectedTrigger.captureConfig ?? undefined}
 		newDraft={selectedTrigger.saveCb === undefined}
 		{edit}
+		{schema}
 		on:update-config={({ detail }) => updateConfig(detail)}
 		on:update
 		on:save-draft

@@ -41,7 +41,8 @@
 		hasDraft = false,
 		editMode = true,
 		isDraftOnly = false,
-		primary = false
+		primary = false,
+		draftSchema = undefined
 	} = $props()
 
 	let optionTabSelected: 'error_handler' | 'recovery_handler' | 'success_handler' | 'retries' =
@@ -87,13 +88,14 @@
 	let neverSaved = $state(false)
 	let showLoading = $state(false)
 	let initialConfig = $state<Record<string, any> | undefined>(undefined)
+	let defaultConfig = $state<Record<string, any> | undefined>(undefined)
 
-	export function openEdit(ePath: string, isFlow: boolean, defaultConfig?: Record<string, any>) {
+	export function openEdit(ePath: string, isFlow: boolean, defaultCfg?: Record<string, any>) {
 		let loadingTimeout = setTimeout(() => {
 			showLoading = true
 		}, 100) // Do not show loading spinner for the first 100ms
 		resetEditMode = () => {
-			openEdit(ePath, isFlow, defaultConfig ?? initialConfig)
+			openEdit(ePath, isFlow, defaultCfg ?? initialConfig)
 		}
 		drawerLoading = true
 		try {
@@ -102,8 +104,9 @@
 			initialPath = ePath
 			itemKind = is_flow ? 'flow' : 'script'
 			if (path == ePath) {
-				loadSchedule()
+				loadSchedule(defaultCfg)
 			} else {
+				defaultConfig = defaultCfg
 				path = ePath
 			}
 			edit = true
@@ -247,11 +250,12 @@
 
 	// set isValid to true when a script/flow without any properties is selected
 	$effect(() => {
-		runnable?.schema &&
-			runnable.schema.properties &&
-			Object.keys(runnable.schema.properties).length === 0 &&
-			(isValid = true)
+		setDefaultValid(draftSchema ?? runnable?.schema)
 	})
+
+	function setDefaultValid(schema: Record<string, any>) {
+		isValid = schema.properties && Object.keys(schema.properties).length === 0
+	}
 
 	const dispatch = createEventDispatcher()
 
@@ -353,8 +357,8 @@
 		}
 	}
 
-	async function loadSchedule(defaultConfig?: Record<string, any>): Promise<void> {
-		if (!defaultConfig) {
+	async function loadSchedule(defaultCfg?: Record<string, any>): Promise<void> {
+		if (!defaultCfg) {
 			try {
 				const s = await ScheduleService.getSchedule({
 					workspace: $workspaceStore!,
@@ -365,7 +369,7 @@
 				sendUserToast(`Could not load schedule: ${err}`, true)
 			}
 		} else {
-			loadScheduleCfg(defaultConfig)
+			loadScheduleCfg(defaultCfg)
 		}
 	}
 
@@ -579,7 +583,7 @@
 	$effect(() => {
 		if ($workspaceStore) {
 			if (edit && path != '') {
-				loadSchedule()
+				loadSchedule(defaultConfig)
 			}
 		}
 	})
@@ -629,9 +633,9 @@
 	function saveDraft() {
 		dispatch('save-draft', {
 			cfg: {
-				schedule,
-				timezone,
-				args,
+				schedule: schedule,
+				timezone: timezone,
+				args: args,
 				on_failure: errorHandlerPath ? `${errorHandleritemKind}/${errorHandlerPath}` : undefined,
 				on_failure_times: failedTimes,
 				on_failure_exact: failedExact,
@@ -859,8 +863,8 @@
 				{/if}
 			</Section>
 
-			{#if !hideTarget}
-				<Section label="Runnable">
+			<Section label="Runnable">
+				{#if !hideTarget}
 					{#if !edit}
 						<p class="text-xs mb-1 text-tertiary">
 							Pick a script or flow to be triggered by the schedule<Required required={true} />
@@ -908,42 +912,46 @@
 							>
 						</div>
 					{/if}
-					<div class="mt-6">
-						{#if !loading}
-							{#if runnable}
-								{#if runnable?.schema && runnable.schema.properties && Object.keys(runnable.schema.properties).length > 0}
-									{#await import('$lib/components/SchemaForm.svelte')}
-										<Loader2 class="animate-spin" />
-									{:then Module}
-										<Module.default
-											showReset
-											disabled={!can_write}
-											schema={runnable.schema}
-											bind:isValid
-											bind:args
-										/>
-									{/await}
-								{:else}
-									<div class="text-xs texg-gray-700">
-										This {is_flow ? 'flow' : 'script'} takes no argument
-									</div>
-								{/if}
-							{:else if script_path != ''}
-								<div class="text-xs texg-gray-700 my-2">
-									You cannot see the the {is_flow ? 'flow' : 'script'} input form as you do not have
-									access to it.
-								</div>
+				{/if}
+				<div class={!hideTarget ? 'mt-6' : ''}>
+					{#if !loading}
+						{#if runnable || draftSchema}
+							{@const schema =
+								editMode || hasDraft || isDraftOnly
+									? (draftSchema ?? runnable?.schema)
+									: runnable?.schema}
+							{#if schema && schema.properties && Object.keys(schema.properties).length > 0}
+								{#await import('$lib/components/SchemaForm.svelte')}
+									<Loader2 class="animate-spin" />
+								{:then Module}
+									<Module.default
+										showReset
+										disabled={!can_write || !editMode}
+										{schema}
+										bind:isValid
+										bind:args
+									/>
+								{/await}
 							{:else}
-								<div class="text-xs texg-gray-700 my-2">
-									Pick a {is_flow ? 'flow' : 'script'} and fill its argument here
+								<div class="text-xs texg-gray-700">
+									This {is_flow ? 'flow' : 'script'} takes no argument
 								</div>
 							{/if}
+						{:else if script_path != ''}
+							<div class="text-xs texg-gray-700 my-2">
+								You cannot see the the {is_flow ? 'flow' : 'script'} input form as you do not have access
+								to it.
+							</div>
 						{:else}
-							<Loader2 class="animate-spin" />
+							<div class="text-xs texg-gray-700 my-2">
+								Pick a {is_flow ? 'flow' : 'script'} and fill its argument here
+							</div>
 						{/if}
-					</div>
-				</Section>
-			{/if}
+					{:else}
+						<Loader2 class="animate-spin" />
+					{/if}
+				</div>
+			</Section>
 
 			<Section label="Advanced" collapsable>
 				{@render errorHandler()}

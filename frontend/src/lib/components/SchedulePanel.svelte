@@ -2,7 +2,7 @@
 	import ScheduleEditorInner from './ScheduleEditorInner.svelte'
 	import Description from '$lib/components/Description.svelte'
 	import { Alert } from '$lib/components/common'
-
+	import { onMount } from 'svelte'
 	let scheduleEditor = $state<ScheduleEditorInner | null>(null)
 	let {
 		selectedTrigger,
@@ -11,7 +11,8 @@
 		isDeployed = false,
 		defaultValues = undefined,
 		newDraft = false,
-		edit = false
+		edit = false,
+		schema
 	} = $props()
 
 	function openScheduleEditor(isFlow: boolean, isDraft: boolean) {
@@ -22,7 +23,7 @@
 		}
 	}
 
-	$effect(() => {
+	onMount(() => {
 		selectedTrigger?.type === 'schedule' &&
 			scheduleEditor &&
 			openScheduleEditor(isFlow, selectedTrigger.isDraft ?? false)
@@ -44,6 +45,7 @@
 	isDraftOnly={selectedTrigger.isDraft}
 	editMode={edit}
 	primary={selectedTrigger.isPrimary}
+	draftSchema={schema}
 >
 	{#snippet docDescription()}
 		<div class="flex flex-col gap-2 pb-4">

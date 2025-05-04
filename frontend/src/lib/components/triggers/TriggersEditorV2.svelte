@@ -46,6 +46,7 @@
 	export let canHavePreprocessor: boolean = false
 	export let hasPreprocessor: boolean = false
 	export let isDeployed: boolean = false
+	export let schema: Record<string, any> | undefined = undefined
 
 	let config: Record<string, any> = {}
 	let editTrigger: Trigger | undefined = undefined
@@ -290,6 +291,7 @@
 										small={useVerticalTriggerBar}
 										{args}
 										{newItem}
+										{schema}
 										on:update-config={({ detail }) => {
 											config = detail
 											if ($selectedTrigger && $selectedTrigger.id) {
@@ -362,6 +364,7 @@
 					defaultValues={selected.draftConfig ?? selected.captureConfig ?? undefined}
 					newDraft={selected.saveCb === undefined}
 					edit={editTrigger === selected}
+					{schema}
 					on:update-config
 					on:update
 					on:save-draft
