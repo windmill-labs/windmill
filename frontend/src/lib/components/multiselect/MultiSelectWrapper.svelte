@@ -9,7 +9,7 @@
 
 	let {
 		items,
-		value = $bindable([]),
+		value = $bindable(),
 		placeholder = undefined,
 		target = undefined,
 		topPlacement = false,
@@ -22,6 +22,8 @@
 		topPlacement?: boolean
 		allowUserOptions?: boolean | 'append'
 	}>()
+
+	$effect.pre(() => {  if (value === undefined) value = []  })
 
 	const [floatingRef, floatingContent] = createFloatingActions({
 		strategy: 'absolute',

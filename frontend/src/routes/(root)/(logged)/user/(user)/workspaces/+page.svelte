@@ -133,7 +133,7 @@
 				} else {
 					await goto(rd ?? '/')
 				}
-				console.log('Workspace selected, going to', rd)
+				console.log('Workspace selected going to ' + (rd ? `rd: ${rd}` : 'home')) 
 			} catch (e) {
 				console.error('Error going to', rd, e)
 				window.location.reload()
