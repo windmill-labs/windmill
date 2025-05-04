@@ -6,7 +6,7 @@
 	import { usedTriggerKinds, userStore, workspaceStore } from '$lib/stores'
 	import { canWrite, emptyString, sendUserToast } from '$lib/utils'
 	import { createEventDispatcher } from 'svelte'
-	import { Loader2, Save } from 'lucide-svelte'
+	import { Loader2 } from 'lucide-svelte'
 	import Label from '$lib/components/Label.svelte'
 	import { SqsTriggerService, type AwsAuthResourceType } from '$lib/gen'
 	import SqsTriggerEditorConfigSection from './SqsTriggerEditorConfigSection.svelte'
@@ -15,8 +15,6 @@
 	import Required from '$lib/components/Required.svelte'
 	import type { Snippet } from 'svelte'
 	import TriggerEditorToolbar from '../TriggerEditorToolbar.svelte'
-	import Toggle from '$lib/components/Toggle.svelte'
-	import { twMerge } from 'tailwind-merge'
 
 	interface Props {
 		useDrawer?: boolean
@@ -63,6 +61,7 @@
 	let resetEditMode = $state<(() => void) | undefined>(undefined)
 	let isDraft = $state(false)
 	let initialConfig = $state<Record<string, any> | undefined>(undefined)
+	let neverSaved = $state(false)
 
 	const dispatch = createEventDispatcher()
 
@@ -126,6 +125,7 @@
 			dirtyPath = false
 			enabled = defaultValues?.enabled ?? false
 			if (newDraft) {
+				neverSaved = true
 				toggleEditMode(true)
 			}
 		} finally {
@@ -271,7 +271,7 @@
 			on:close={drawer.closeDrawer}
 		>
 			<svelte:fragment slot="actions">
-				{@render actions('sm')}
+				{@render actions()}
 			</svelte:fragment>
 			{@render config()}
 		</DrawerContent>
@@ -279,62 +279,43 @@
 {:else}
 	<Section label="SQS trigger">
 		<svelte:fragment slot="action">
-			{@render actions('xs')}
+			{@render actions()}
 		</svelte:fragment>
 		{@render config()}
 	</Section>
 {/if}
 
-{#snippet actions(size: 'xs' | 'sm' = 'sm')}
+{#snippet actions()}
 	{#if !drawerLoading}
-		{#if !allowDraft}
-			{#if edit}
-				<div class={twMerge('center-center', size === 'sm' ? '-mt-1' : '')}>
-					<Toggle
-						{size}
-						disabled={!can_write || !editMode}
-						checked={enabled}
-						options={{ right: 'enable', left: 'disable' }}
-						on:change={handleToggleEnabled}
-					/>
-				</div>
-				{#if can_write && editMode}
-					<Button
-						{size}
-						startIcon={{ icon: Save }}
-						disabled={pathError != '' || emptyString(script_path) || !isValid || !can_write}
-						on:click={updateTrigger}
-					>
-						Save
-					</Button>
-				{/if}
-			{/if}
-		{:else}
-			<TriggerEditorToolbar
-				isDraftOnly={isDraft}
-				{hasDraft}
-				canEdit={!drawerLoading && can_write && !preventSave}
-				{editMode}
-				saveDisabled={pathError != '' || emptyString(script_path) || !isValid || !can_write}
-				{enabled}
-				on:save-draft={() => {
-					saveDraft()
-				}}
-				on:deploy={() => {
-					updateTrigger()
-				}}
-				on:reset
-				on:delete
-				on:edit={() => {
-					toggleEditMode(true)
-				}}
-				on:cancel={() => {
-					resetEditMode?.()
-					toggleEditMode(false)
-				}}
-				on:toggle-enabled={handleToggleEnabled}
-			/>
-		{/if}
+		<TriggerEditorToolbar
+			isDraftOnly={isDraft}
+			{hasDraft}
+			canEdit={!drawerLoading && can_write && !preventSave}
+			{editMode}
+			saveDisabled={pathError != '' || emptyString(script_path) || !isValid || !can_write}
+			{enabled}
+			{allowDraft}
+			{edit}
+			{can_write}
+			isLoading={false}
+			{neverSaved}
+			on:save-draft={() => {
+				saveDraft()
+			}}
+			on:deploy={() => {
+				updateTrigger()
+			}}
+			on:reset
+			on:delete
+			on:edit={() => {
+				toggleEditMode(true)
+			}}
+			on:cancel={() => {
+				resetEditMode?.()
+				toggleEditMode(false)
+			}}
+			on:toggle-enabled={handleToggleEnabled}
+		/>
 	{/if}
 {/snippet}
 

@@ -24,24 +24,27 @@
 	import { base } from '$lib/base'
 	import { createEventDispatcher } from 'svelte'
 	import Section from '$lib/components/Section.svelte'
-	import { List, Loader2, Save, AlertTriangle, Pen, X } from 'lucide-svelte'
+	import { List, Loader2, Save, AlertTriangle } from 'lucide-svelte'
 	import FlowRetries from './flows/content/FlowRetries.svelte'
 	import WorkerTagPicker from './WorkerTagPicker.svelte'
 	import Label from './Label.svelte'
 	import DateTimeInput from './DateTimeInput.svelte'
 	import autosize from '$lib/autosize'
+	import TriggerEditorToolbar from './triggers/TriggerEditorToolbar.svelte'
 
 	let {
 		useDrawer = true,
 		hideTarget = false,
-		useEditButton = false,
 		docDescription = undefined,
-		preventSave = false
+		preventSave = false,
+		allowDraft = false,
+		hasDraft = false,
+		editMode = true,
+		isDraftOnly = false
 	} = $props()
 
 	let optionTabSelected: 'error_handler' | 'recovery_handler' | 'success_handler' | 'retries' =
 		$state('error_handler')
-
 	let is_flow: boolean = $state(false)
 	let initialPath = $state('')
 	let edit = $state(true)
@@ -52,7 +55,6 @@
 	let initialSchedule: string
 	let timezone: string = $state(Intl.DateTimeFormat().resolvedOptions().timeZone)
 	let paused_until: string | undefined = $state(undefined)
-
 	let itemKind: 'flow' | 'script' = $state('script')
 	let errorHandleritemKind: 'flow' | 'script' = $state('script')
 	let wsErrorHandlerMuted: boolean = $state(false)
@@ -74,22 +76,23 @@
 	let failedExact = $state(false)
 	let recoveredTimes = $state(1)
 	let retry: Retry | undefined = $state(undefined)
-
 	let script_path = $state('')
 	let initialScriptPath = $state('')
-
 	let runnable: Script | Flow | undefined = $state()
 	let args: Record<string, any> = $state({})
-
 	let loading = $state(false)
-
 	let drawerLoading = $state(true)
-	let editMode = $state(true) //Edit mode allow editing, if false, it's a view only mode
 	let resetEditMode = $state(() => {})
+	let neverSaved = $state(false)
+	let showLoading = $state(false)
+	let initialConfig = $state<Record<string, any> | undefined>(undefined)
 
-	export function openEdit(ePath: string, isFlow: boolean, editing: boolean = true) {
+	export function openEdit(ePath: string, isFlow: boolean, defaultConfig?: Record<string, any>) {
+		let loadingTimeout = setTimeout(() => {
+			showLoading = true
+		}, 100) // Do not show loading spinner for the first 100ms
 		resetEditMode = () => {
-			openEdit(ePath, isFlow, editing) // This is more like a hack to reset the edit mode. Todo: have a temporary state to reset the edit mode and compare initial values to allow save.
+			openEdit(ePath, isFlow, defaultConfig ?? initialConfig) // This is more like a hack to reset the edit mode. Todo: have a temporary state to reset the edit mode and compare initial values to allow save.
 		}
 		drawerLoading = true
 		try {
@@ -103,17 +106,22 @@
 				path = ePath
 			}
 			edit = true
-			editMode = editing
 		} finally {
+			clearTimeout(loadingTimeout)
 			drawerLoading = false
+			showLoading = false
 		}
 	}
 
 	export async function openNew(
 		nis_flow: boolean,
 		initial_script_path?: string,
-		defaultValues?: Record<string, any>
+		defaultValues?: Record<string, any>,
+		newDraft?: boolean
 	) {
+		let loadingTimeout = setTimeout(() => {
+			showLoading = true
+		}, 100) // Do not show loading spinner for the first 100ms
 		drawerLoading = true
 		try {
 			drawer?.openDrawer()
@@ -201,8 +209,15 @@
 				successHandlerSelected = 'slack'
 			}
 			timezone = defaultValues?.timezone ?? Intl.DateTimeFormat().resolvedOptions().timeZone
+
+			if (newDraft) {
+				neverSaved = true
+				toggleEditMode(true)
+			}
 		} finally {
+			clearTimeout(loadingTimeout)
 			drawerLoading = false
+			showLoading = false
 		}
 	}
 
@@ -337,86 +352,96 @@
 		}
 	}
 
-	let can_write = $state(true)
-	async function loadSchedule(): Promise<void> {
-		loading = true
-		try {
-			const s = await ScheduleService.getSchedule({
-				workspace: $workspaceStore!,
-				path: initialPath
-			})
-			cronVersion = s.cron_version ?? 'v2'
-			initialCronVersion = cronVersion
-			isLatestCron = cronVersion == 'v2'
-			enabled = s.enabled
-			schedule = s.schedule
-			initialSchedule = schedule
-			timezone = s.timezone
-			paused_until = s.paused_until
-			showPauseUntil = paused_until !== undefined
-			summary = s.summary ?? ''
-			description = s.description ?? ''
-			script_path = s.script_path ?? ''
-			await loadScript(script_path)
-
-			is_flow = s.is_flow
-			no_flow_overlap = s.no_flow_overlap ?? false
-			wsErrorHandlerMuted = s.ws_error_handler_muted ?? false
-			retry = s.retry
-			if (s.on_failure) {
-				let splitted = s.on_failure.split('/')
-				errorHandleritemKind = splitted[0] as 'flow' | 'script'
-				errorHandlerPath = splitted.slice(1)?.join('/')
-				errorHandlerCustomInitialPath = errorHandlerPath
-				failedTimes = s.on_failure_times ?? 1
-				failedExact = s.on_failure_exact ?? false
-				errorHandlerExtraArgs = s.on_failure_extra_args ?? {}
-				errorHandlerSelected = getHandlerType('error', errorHandlerPath)
-			} else {
-				errorHandlerPath = undefined
-				errorHandleritemKind = 'script'
-				errorHandlerCustomInitialPath = undefined
-				errorHandlerExtraArgs = {}
-				failedExact = false
-				failedTimes = 1
-				errorHandlerSelected = 'slack'
+	async function loadSchedule(defaultConfig?: Record<string, any>): Promise<void> {
+		if (!defaultConfig) {
+			try {
+				const s = await ScheduleService.getSchedule({
+					workspace: $workspaceStore!,
+					path: initialPath
+				})
+				loadScheduleCfg(s)
+			} catch (err) {
+				sendUserToast(`Could not load schedule: ${err}`, true)
 			}
-			if (s.on_recovery) {
-				let splitted = s.on_recovery.split('/')
-				recoveryHandlerItemKind = splitted[0] as 'flow' | 'script'
-				recoveryHandlerPath = splitted.slice(1)?.join('/')
-				recoveryHandlerCustomInitialPath = recoveryHandlerPath
-				recoveredTimes = s.on_recovery_times ?? 1
-				recoveryHandlerExtraArgs = s.on_recovery_extra_args ?? {}
-				recoveryHandlerSelected = getHandlerType('recovery', recoveryHandlerPath)
-			} else {
-				recoveryHandlerPath = undefined
-				recoveryHandlerItemKind = 'script'
-				recoveryHandlerCustomInitialPath = undefined
-				recoveredTimes = 1
-				recoveryHandlerSelected = 'slack'
-				recoveryHandlerExtraArgs = {}
-			}
-			if (s.on_success) {
-				let splitted = s.on_success.split('/')
-				successHandlerItemKind = splitted[0] as 'flow' | 'script'
-				successHandlerPath = splitted.slice(1)?.join('/')
-				successHandlerCustomInitialPath = successHandlerPath
-				successHandlerExtraArgs = s.on_success_extra_args ?? {}
-				successHandlerSelected = getHandlerType('success', successHandlerPath)
-			} else {
-				successHandlerPath = undefined
-				successHandlerItemKind = 'script'
-				successHandlerCustomInitialPath = undefined
-				successHandlerSelected = 'slack'
-				successHandlerExtraArgs = {}
-			}
-			args = s.args ?? {}
-			can_write = canWrite(s.path, s.extra_perms, $userStore)
-			tag = s.tag
-		} catch (err) {
-			sendUserToast(`Could not load schedule: ${err}`, true)
+		} else {
+			loadScheduleCfg(defaultConfig)
 		}
+	}
+
+	let can_write = $state(true)
+	async function loadScheduleCfg(cfg: Record<string, any>): Promise<void> {
+		loading = true
+
+		cronVersion = cfg.cron_version ?? 'v2'
+		initialCronVersion = cronVersion
+		isLatestCron = cronVersion == 'v2'
+		enabled = cfg.enabled
+		schedule = cfg.schedule
+		initialSchedule = schedule
+		timezone = cfg.timezone
+		paused_until = cfg.paused_until
+		showPauseUntil = paused_until !== undefined
+		summary = cfg.summary ?? ''
+		description = cfg.description ?? ''
+		script_path = cfg.script_path ?? ''
+		await loadScript(script_path)
+
+		is_flow = cfg.is_flow
+		no_flow_overlap = cfg.no_flow_overlap ?? false
+		wsErrorHandlerMuted = cfg.ws_error_handler_muted ?? false
+		retry = cfg.retry
+		if (cfg.on_failure) {
+			let splitted = cfg.on_failure.split('/')
+			errorHandleritemKind = splitted[0] as 'flow' | 'script'
+			errorHandlerPath = splitted.slice(1)?.join('/')
+			errorHandlerCustomInitialPath = errorHandlerPath
+			failedTimes = cfg.on_failure_times ?? 1
+			failedExact = cfg.on_failure_exact ?? false
+			errorHandlerExtraArgs = cfg.on_failure_extra_args ?? {}
+			errorHandlerSelected = getHandlerType('error', errorHandlerPath ?? '')
+		} else {
+			errorHandlerPath = undefined
+			errorHandleritemKind = 'script'
+			errorHandlerCustomInitialPath = undefined
+			errorHandlerExtraArgs = {}
+			failedExact = false
+			failedTimes = 1
+			errorHandlerSelected = 'slack'
+		}
+		if (cfg.on_recovery) {
+			let splitted = cfg.on_recovery.split('/')
+			recoveryHandlerItemKind = splitted[0] as 'flow' | 'script'
+			recoveryHandlerPath = splitted.slice(1)?.join('/')
+			recoveryHandlerCustomInitialPath = recoveryHandlerPath
+			recoveredTimes = cfg.on_recovery_times ?? 1
+			recoveryHandlerExtraArgs = cfg.on_recovery_extra_args ?? {}
+			recoveryHandlerSelected = getHandlerType('recovery', recoveryHandlerPath ?? '')
+		} else {
+			recoveryHandlerPath = undefined
+			recoveryHandlerItemKind = 'script'
+			recoveryHandlerCustomInitialPath = undefined
+			recoveredTimes = 1
+			recoveryHandlerSelected = 'slack'
+			recoveryHandlerExtraArgs = {}
+		}
+		if (cfg.on_success) {
+			let splitted = cfg.on_success.split('/')
+			successHandlerItemKind = splitted[0] as 'flow' | 'script'
+			successHandlerPath = splitted.slice(1)?.join('/')
+			successHandlerCustomInitialPath = successHandlerPath
+			successHandlerExtraArgs = cfg.on_success_extra_args ?? {}
+			successHandlerSelected = getHandlerType('success', successHandlerPath ?? '')
+		} else {
+			successHandlerPath = undefined
+			successHandlerItemKind = 'script'
+			successHandlerCustomInitialPath = undefined
+			successHandlerSelected = 'slack'
+			successHandlerExtraArgs = {}
+		}
+		args = cfg.args ?? {}
+		can_write = canWrite(cfg.path, cfg.extra_perms, $userStore)
+		tag = cfg.tag
+
 		loading = false
 	}
 
@@ -583,6 +608,10 @@
 		}
 	}
 
+	function toggleEditMode(newEditMode: boolean) {
+		dispatch('toggle-edit-mode', newEditMode)
+	}
+
 	$effect(() => {
 		dispatch('update-config', {
 			summary,
@@ -595,6 +624,54 @@
 			timezone
 		})
 	})
+
+	function saveDraft() {
+		dispatch('save-draft', {
+			cfg: {
+				schedule,
+				timezone,
+				args,
+				on_failure: errorHandlerPath ? `${errorHandleritemKind}/${errorHandlerPath}` : undefined,
+				on_failure_times: failedTimes,
+				on_failure_exact: failedExact,
+				on_failure_extra_args: errorHandlerPath ? errorHandlerExtraArgs : undefined,
+				on_recovery: recoveryHandlerPath
+					? `${recoveryHandlerItemKind}/${recoveryHandlerPath}`
+					: undefined,
+				on_recovery_times: recoveredTimes,
+				on_recovery_extra_args: recoveryHandlerPath ? recoveryHandlerExtraArgs : {},
+				on_success: successHandlerPath
+					? `${successHandlerItemKind}/${successHandlerPath}`
+					: undefined,
+				on_success_extra_args: successHandlerPath ? successHandlerExtraArgs : {},
+				ws_error_handler_muted: wsErrorHandlerMuted,
+				retry: retry,
+				summary: summary != '' ? summary : undefined,
+				description: description,
+				no_flow_overlap: no_flow_overlap,
+				tag: tag,
+				paused_until: paused_until,
+				cron_version: cronVersion
+			},
+			cb: () => {
+				scheduleScript()
+			}
+		})
+		toggleEditMode(false)
+	}
+
+	async function handleToggleEnabled(e: CustomEvent<boolean>) {
+		enabled = e.detail
+		if (!isDraftOnly && !hasDraft) {
+			await ScheduleService.setScheduleEnabled({
+				path: initialPath,
+				workspace: $workspaceStore ?? '',
+				requestBody: { enabled: e.detail }
+			})
+			dispatch('update')
+			sendUserToast(`${e.detail ? 'enabled' : 'disabled'} schedule ${initialPath}`)
+		}
+	}
 </script>
 
 {#snippet saveButton(size: 'sm' | 'xs')}
@@ -608,68 +685,51 @@
 		>
 			View runs
 		</Button>
-		{#if can_write}
-			<Toggle
-				disabled={!can_write}
-				checked={enabled}
-				options={{ right: 'Enabled' }}
-				{size}
-				on:change={async (e) => {
-					await ScheduleService.setScheduleEnabled({
-						path: initialPath,
-						workspace: $workspaceStore ?? '',
-						requestBody: { enabled: e.detail }
-					})
-					dispatch('update')
-					sendUserToast(`${e.detail ? 'enabled' : 'disabled'} schedule ${initialPath}`)
-				}}
-			/>
-		{/if}
 	{/if}
-	{#if !preventSave}
-		{#if editMode}
-			<Button
-				startIcon={{ icon: Save }}
-				disabled={!allowSchedule ||
-					pathError != '' ||
-					emptyString(script_path) ||
-					(errorHandlerSelected == 'slack' &&
-						!emptyString(errorHandlerPath) &&
-						emptyString(errorHandlerExtraArgs['channel'])) ||
-					!can_write ||
-					!editMode}
-				on:click={() => {
-					scheduleScript()
-					if (editMode && useEditButton) {
-						editMode = false
-					}
-				}}
-				{size}
-			>
-				{edit ? 'Save' : 'Schedule'}
-			</Button>
-		{/if}
-		{#if useEditButton && !editMode}
-			<Button {size} color="light" on:click={() => (editMode = true)} startIcon={{ icon: Pen }}
-				>Edit</Button
-			>
-		{:else if useEditButton && editMode}
-			<Button
-				{size}
-				on:click={() => {
-					editMode = false
-					resetEditMode()
-				}}
-				startIcon={{ icon: X }}
-				color="light">Cancel</Button
-			>
-		{/if}
-	{/if}
+	<TriggerEditorToolbar
+		{isDraftOnly}
+		{hasDraft}
+		canEdit={!drawerLoading && can_write && !preventSave}
+		{editMode}
+		saveDisabled={!allowSchedule ||
+			pathError != '' ||
+			emptyString(script_path) ||
+			(errorHandlerSelected == 'slack' &&
+				!emptyString(errorHandlerPath) &&
+				emptyString(errorHandlerExtraArgs['channel'])) ||
+			!can_write ||
+			!editMode}
+		{enabled}
+		{allowDraft}
+		{edit}
+		{can_write}
+		isLoading={false}
+		{neverSaved}
+		on:save-draft={() => {
+			saveDraft()
+		}}
+		on:deploy={() => {
+			scheduleScript()
+			toggleEditMode(false)
+		}}
+		on:reset
+		on:delete
+		on:edit={() => {
+			toggleEditMode(true)
+		}}
+		on:cancel={() => {
+			resetEditMode()
+			toggleEditMode(false)
+		}}
+		on:toggle-enabled={handleToggleEnabled}
+	/>
 {/snippet}
 
 {#snippet content()}
 	{#if drawerLoading}
-		<Loader2 class="animate-spin" />
+		{#if showLoading}
+			<Loader2 class="animate-spin" />
+		{/if}
 	{:else}
 		<div class="flex flex-col gap-12">
 			<div class="flex flex-col gap-4">

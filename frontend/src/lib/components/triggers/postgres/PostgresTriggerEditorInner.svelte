@@ -10,7 +10,7 @@
 	import { canWrite, emptyString, emptyStringTrimmed, sendUserToast } from '$lib/utils'
 	import { createEventDispatcher } from 'svelte'
 	import Section from '$lib/components/Section.svelte'
-	import { Loader2, Save, X } from 'lucide-svelte'
+	import { Loader2, X } from 'lucide-svelte'
 	import Label from '$lib/components/Label.svelte'
 	import ResourcePicker from '$lib/components/ResourcePicker.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
@@ -85,6 +85,7 @@
 	let isLoading = $state(false)
 	let isDraft = $state(false)
 	let initialConfig = $state<Record<string, any> | undefined>(undefined)
+	let neverSaved = $state(false)
 
 	async function createPublication() {
 		try {
@@ -212,6 +213,7 @@
 				}
 			]
 			if (newDraft) {
+				neverSaved = true
 				toggleEditMode(true)
 			}
 		} finally {
@@ -375,6 +377,18 @@
 			sendUserToast(error.body, true)
 		}
 	}
+
+	async function handleToggleEnabled(e: CustomEvent<boolean>) {
+		enabled = e.detail
+		if (!isDraft && !hasDraft) {
+			await PostgresTriggerService.setPostgresTriggerEnabled({
+				path: initialPath,
+				workspace: $workspaceStore ?? '',
+				requestBody: { enabled: e.detail }
+			})
+			sendUserToast(`${e.detail ? 'enabled' : 'disabled'} postgres trigger ${initialPath}`)
+		}
+	}
 </script>
 
 {#if useDrawer}
@@ -387,71 +401,58 @@
 				: 'New Postgres trigger'}
 			on:close={drawer.closeDrawer}
 		>
-			<svelte:fragment slot="actions">{@render actions('sm')}</svelte:fragment>
+			<svelte:fragment slot="actions">{@render actions()}</svelte:fragment>
 			{@render content()}
 		</DrawerContent>
 	</Drawer>
 {:else}
 	<Section label="Postgres trigger">
 		<svelte:fragment slot="action">
-			{@render actions('xs')}
+			{@render actions()}
 		</svelte:fragment>
 		{@render content()}
 	</Section>
 {/if}
 
-{#snippet actions(size: 'xs' | 'sm' = 'sm')}
+{#snippet actions()}
 	{#if !drawerLoading}
-		{#if !allowDraft}
-			<Button
-				{size}
-				startIcon={{ icon: Save }}
-				disabled={pathError !== '' ||
-					emptyString(postgres_resource_path) ||
-					emptyString(script_path) ||
-					(tab === 'advanced' && emptyString(replication_slot_name)) ||
-					emptyString(publication_name) ||
-					(relations && tab === 'basic' && relations.length === 0) ||
-					transaction_to_track.length === 0 ||
-					drawerLoading ||
-					!can_write}
-				on:click={updateTrigger}
-				loading={isLoading}
-			>
-				Save
-			</Button>
-		{:else}
-			<TriggerEditorToolbar
-				isDraftOnly={isDraft}
-				{hasDraft}
-				canEdit={!drawerLoading && can_write && !preventSave}
-				{editMode}
-				saveDisabled={pathError !== '' ||
-					emptyString(postgres_resource_path) ||
-					emptyString(script_path) ||
-					(tab === 'advanced' && emptyString(replication_slot_name)) ||
-					emptyString(publication_name) ||
-					(relations && tab === 'basic' && relations.length === 0) ||
-					transaction_to_track.length === 0 ||
-					drawerLoading ||
-					!can_write}
-				on:save-draft={() => {
-					saveDraft()
-				}}
-				on:deploy={() => {
-					updateTrigger()
-				}}
-				on:reset
-				on:delete
-				on:edit={() => {
-					toggleEditMode(true)
-				}}
-				on:cancel={() => {
-					resetEditMode?.()
-					toggleEditMode(false)
-				}}
-			/>
-		{/if}
+		<TriggerEditorToolbar
+			isDraftOnly={isDraft}
+			{hasDraft}
+			canEdit={!drawerLoading && can_write && !preventSave}
+			{editMode}
+			saveDisabled={pathError !== '' ||
+				emptyString(postgres_resource_path) ||
+				emptyString(script_path) ||
+				(tab === 'advanced' && emptyString(replication_slot_name)) ||
+				emptyString(publication_name) ||
+				(relations && tab === 'basic' && relations.length === 0) ||
+				transaction_to_track.length === 0 ||
+				drawerLoading ||
+				!can_write}
+			{allowDraft}
+			{edit}
+			{can_write}
+			isLoading={false}
+			{neverSaved}
+			{enabled}
+			on:save-draft={() => {
+				saveDraft()
+			}}
+			on:deploy={() => {
+				updateTrigger()
+			}}
+			on:reset
+			on:delete
+			on:edit={() => {
+				toggleEditMode(true)
+			}}
+			on:cancel={() => {
+				resetEditMode?.()
+				toggleEditMode(false)
+			}}
+			on:toggle-enabled={handleToggleEnabled}
+		/>
 	{/if}
 {/snippet}
 

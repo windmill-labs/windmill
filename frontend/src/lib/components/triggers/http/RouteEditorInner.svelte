@@ -10,7 +10,7 @@
 	import { canWrite, emptyString, sendUserToast } from '$lib/utils'
 	import { createEventDispatcher } from 'svelte'
 	import Section from '$lib/components/Section.svelte'
-	import { Loader2, Save, Pipette, Plus } from 'lucide-svelte'
+	import { Loader2, Pipette, Plus } from 'lucide-svelte'
 	import Label from '$lib/components/Label.svelte'
 	import VariableEditor from '../../VariableEditor.svelte'
 	import { json } from 'svelte-highlight/languages'
@@ -44,7 +44,8 @@
 		customLabel = undefined,
 		isDraftOnly = false,
 		allowDraft = false,
-		hasDraft = false
+		hasDraft = false,
+		neverSaved = false
 	} = $props()
 
 	// Form data state
@@ -209,6 +210,7 @@
 			raw_string = defaultValues?.raw_string ?? false
 			wrap_body = defaultValues?.wrap_body ?? false
 			if (newDraft) {
+				neverSaved = true
 				toggleEditMode(true)
 			}
 		} finally {
@@ -764,41 +766,34 @@
 {/snippet}
 
 {#snippet saveButton()}
-	{#if !allowDraft}
-		<Button
-			size="sm"
-			startIcon={{ icon: Save }}
-			disabled={saveDisabled}
-			on:click={() => {
-				triggerScript()
-			}}
-		>
-			Save
-		</Button>
-	{:else}
-		<TriggerEditorToolbar
-			{isDraftOnly}
-			{hasDraft}
-			canEdit={!drawerLoading && can_write && (isAdmin || edit) && !preventSave}
-			{editMode}
-			{saveDisabled}
-			on:save-draft={() => {
-				saveDraft()
-			}}
-			on:deploy={() => {
-				triggerScript()
-			}}
-			on:reset
-			on:delete
-			on:edit={() => {
-				toggleEditMode(true)
-			}}
-			on:cancel={() => {
-				resetEditMode?.()
-				toggleEditMode(false)
-			}}
-		/>
-	{/if}
+	<TriggerEditorToolbar
+		{isDraftOnly}
+		{hasDraft}
+		canEdit={!drawerLoading && can_write && (isAdmin || edit) && !preventSave}
+		{editMode}
+		{saveDisabled}
+		{neverSaved}
+		enabled={undefined}
+		{allowDraft}
+		{edit}
+		{can_write}
+		isLoading={false}
+		on:save-draft={() => {
+			saveDraft()
+		}}
+		on:deploy={() => {
+			triggerScript()
+		}}
+		on:reset
+		on:delete
+		on:edit={() => {
+			toggleEditMode(true)
+		}}
+		on:cancel={() => {
+			resetEditMode?.()
+			toggleEditMode(false)
+		}}
+	/>
 {/snippet}
 
 {#if useDrawer}

@@ -110,17 +110,19 @@
 	/>
 {:else if selectedTrigger.type === 'schedule'}
 	<SchedulePanel
-		{selectedTrigger}
 		{isFlow}
-		path={initialPath}
+		path={initialPath || fakeInitialPath}
+		{selectedTrigger}
 		{isDeployed}
+		defaultValues={selectedTrigger.draftConfig ?? selectedTrigger.captureConfig ?? undefined}
+		newDraft={selectedTrigger.saveCb === undefined}
+		{edit}
 		on:update-config={({ detail }) => updateConfig(detail)}
-		on:update={async ({ detail }) => {
-			if (selectedTrigger && selectedTrigger.isDraft && detail?.path) {
-				dispatch('update', detail.path)
-			}
-		}}
-		defaultValues={selectedTrigger.isDraft ? selectedTrigger.draftConfig : undefined}
+		on:update
+		on:save-draft
+		on:reset
+		on:toggle-edit-mode
+		on:delete
 	/>
 {:else if selectedTrigger.type === 'websocket'}
 	<WebsocketTriggersPanel

@@ -60,6 +60,7 @@
 	let resetEditMode = $state<(() => void) | undefined>(undefined)
 	let isDraft = $state(false)
 	let initialConfig = $state<Record<string, any> | undefined>(undefined)
+	let neverSaved = $state(false)
 
 	const dispatch = createEventDispatcher()
 
@@ -121,8 +122,8 @@
 			initialPath = ''
 			dirtyPath = false
 			defaultValues = nDefaultValues
-			toggleEditMode(true)
 			if (newDraft) {
+				neverSaved = true
 				toggleEditMode(true)
 			}
 		} finally {
@@ -245,6 +246,15 @@
 		})
 		toggleEditMode(false)
 	}
+
+	async function handleToggleEnabled(e: CustomEvent<boolean>) {
+		await KafkaTriggerService.setKafkaTriggerEnabled({
+			path: initialPath,
+			workspace: $workspaceStore ?? '',
+			requestBody: { enabled: e.detail }
+		})
+		sendUserToast(`${e.detail ? 'enabled' : 'disabled'} Kafka trigger ${initialPath}`)
+	}
 </script>
 
 {#if useDrawer}
@@ -297,6 +307,12 @@
 			{hasDraft}
 			canEdit={!drawerLoading && can_write && !preventSave}
 			{editMode}
+			{enabled}
+			{allowDraft}
+			{edit}
+			{can_write}
+			isLoading={false}
+			{neverSaved}
 			saveDisabled={pathError !== '' ||
 				!isValid ||
 				drawerLoading ||
@@ -320,6 +336,7 @@
 				resetEditMode?.()
 				toggleEditMode(false)
 			}}
+			on:toggle-enabled={handleToggleEnabled}
 		/>
 	{/if}
 {/snippet}

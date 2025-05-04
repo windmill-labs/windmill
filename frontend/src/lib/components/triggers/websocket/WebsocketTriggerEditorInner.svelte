@@ -18,7 +18,7 @@
 	import { canWrite, emptySchema, emptyString, sendUserToast } from '$lib/utils'
 	import { createEventDispatcher } from 'svelte'
 	import Section from '$lib/components/Section.svelte'
-	import { Loader2, Save, X, Plus } from 'lucide-svelte'
+	import { Loader2, X, Plus } from 'lucide-svelte'
 	import Label from '$lib/components/Label.svelte'
 	import { fade } from 'svelte/transition'
 	import type { Schema } from '$lib/common'
@@ -81,6 +81,7 @@
 	let resetEditMode = $state<(() => void) | undefined>(undefined)
 	let isDraft = $state(false)
 	let initialConfig = $state<Record<string, any> | undefined>(undefined)
+	let neverSaved = $state(false)
 
 	const dispatch = createEventDispatcher()
 
@@ -146,6 +147,7 @@
 			dirtyPath = false
 			can_return_message = false
 			if (newDraft) {
+				neverSaved = true
 				toggleEditMode(true)
 			}
 		} finally {
@@ -287,6 +289,18 @@
 		})
 	})
 
+	async function handleToggleEnabled(e: CustomEvent<boolean>) {
+		enabled = e.detail
+		if (!isDraft && !hasDraft) {
+			await WebsocketTriggerService.setWebsocketTriggerEnabled({
+				path: initialPath,
+				workspace: $workspaceStore!,
+				requestBody: { enabled: e.detail }
+			})
+			sendUserToast(`${e.detail ? 'enabled' : 'disabled'} websocket trigger ${initialPath}`)
+		}
+	}
+
 	function saveDraft() {
 		dispatch('save-draft', {
 			cfg: {
@@ -320,7 +334,7 @@
 			on:close={drawer.closeDrawer}
 		>
 			<svelte:fragment slot="actions">
-				{@render actionsButtons('sm')}
+				{@render actionsButtons()}
 			</svelte:fragment>
 			{@render config()}
 		</DrawerContent>
@@ -328,58 +342,47 @@
 {:else}
 	<Section label="WebSocket trigger">
 		<svelte:fragment slot="action">
-			{@render actionsButtons('xs')}
+			{@render actionsButtons()}
 		</svelte:fragment>
 		{@render config()}
 	</Section>
 {/if}
 
-{#snippet actionsButtons(size: 'xs' | 'sm' = 'sm')}
-	{#if !allowDraft}
-		<Button
-			{size}
-			startIcon={{ icon: Save }}
-			disabled={pathError !== '' ||
-				!isValid ||
-				invalidInitialMessages ||
-				drawerLoading ||
-				!can_write ||
-				emptyString(script_path)}
-			on:click={() => {
-				updateTrigger()
-			}}
-		>
-			Save
-		</Button>
-	{:else}
-		<TriggerEditorToolbar
-			isDraftOnly={isDraft}
-			{hasDraft}
-			canEdit={!drawerLoading && can_write && !preventSave}
-			{editMode}
-			saveDisabled={pathError !== '' ||
-				!isValid ||
-				invalidInitialMessages ||
-				drawerLoading ||
-				!can_write ||
-				emptyString(script_path)}
-			on:save-draft={() => {
-				saveDraft()
-			}}
-			on:deploy={() => {
-				updateTrigger()
-			}}
-			on:reset
-			on:delete
-			on:edit={() => {
-				toggleEditMode(true)
-			}}
-			on:cancel={() => {
-				resetEditMode?.()
-				toggleEditMode(false)
-			}}
-		/>
-	{/if}
+{#snippet actionsButtons()}
+	<TriggerEditorToolbar
+		isDraftOnly={isDraft}
+		{hasDraft}
+		canEdit={!drawerLoading && can_write && !preventSave}
+		{editMode}
+		{enabled}
+		{allowDraft}
+		{edit}
+		{can_write}
+		isLoading={false}
+		{neverSaved}
+		saveDisabled={pathError !== '' ||
+			!isValid ||
+			invalidInitialMessages ||
+			drawerLoading ||
+			!can_write ||
+			emptyString(script_path)}
+		on:save-draft={() => {
+			saveDraft()
+		}}
+		on:deploy={() => {
+			updateTrigger()
+		}}
+		on:reset
+		on:delete
+		on:edit={() => {
+			toggleEditMode(true)
+		}}
+		on:cancel={() => {
+			resetEditMode?.()
+			toggleEditMode(false)
+		}}
+		on:toggle-enabled={handleToggleEnabled}
+	/>
 {/snippet}
 
 {#snippet config()}

@@ -15,97 +15,131 @@
 		'toggle-enabled': boolean
 	}>()
 
-	export let isDraftOnly = false
-	export let hasDraft = false
-	export let canEdit = false
-	export let editMode = false
-	export let saveDisabled = false
-	export let enabled = false
+	export let isDraftOnly
+	export let hasDraft
+	export let canEdit
+	export let editMode
+	export let saveDisabled
+	export let enabled: boolean | undefined
+	export let allowDraft
+	export let edit
+	export let can_write
+	export let isLoading
+	export let neverSaved
 </script>
 
-<div class="flex flex-row gap-2 items-center">
-	{#if !isDraftOnly && !hasDraft}
-		<div class="center-center">
+{#if !allowDraft}
+	{#if edit && enabled !== undefined}
+		<div class="-mt-1">
 			<Toggle
-				size="xs"
-				disabled={!canEdit}
+				size="sm"
+				disabled={!can_write || !editMode}
 				checked={enabled}
-				options={{ left: 'enable' }}
-				on:change={(e) => {
-					dispatch('toggle-enabled', e.detail)
+				options={{ right: 'enable', left: 'disable' }}
+				on:change={({ detail }) => {
+					dispatch('toggle-enabled', detail)
 				}}
 			/>
 		</div>
 	{/if}
-	{#if isDraftOnly}
+	{#if can_write && editMode}
 		<Button
-			size="xs"
-			startIcon={{ icon: Trash }}
-			iconOnly
-			color={'light'}
+			size="sm"
+			startIcon={{ icon: Save }}
+			disabled={saveDisabled}
 			on:click={() => {
-				dispatch('delete')
+				dispatch('deploy')
 			}}
-			btnClasses="hover:bg-red-500 hover:text-white"
-		/>
-	{:else if hasDraft}
-		<DropdownV2
-			items={[
-				{
-					displayName: 'Reset to deployed version',
-					action: () => {
-						dispatch('reset')
-					}
-				}
-			]}
-		/>
+			loading={isLoading}
+		>
+			Save
+		</Button>
 	{/if}
-	{#if canEdit}
-		{#if editMode}
-			{@const dropdownItems = !isDraftOnly
-				? [
-						{
-							label: 'Deploy changes now',
-							onClick: () => {
-								dispatch('deploy')
-							}
+{:else}
+	<div class="flex flex-row gap-2 items-center">
+		{#if !isDraftOnly && !hasDraft}
+			<div class="center-center">
+				<Toggle
+					size="xs"
+					disabled={!canEdit}
+					checked={enabled}
+					options={{ left: 'enable' }}
+					on:change={(e) => {
+						dispatch('toggle-enabled', e.detail)
+					}}
+				/>
+			</div>
+		{/if}
+		{#if isDraftOnly}
+			<Button
+				size="xs"
+				startIcon={{ icon: Trash }}
+				iconOnly
+				color={'light'}
+				on:click={() => {
+					dispatch('delete')
+				}}
+				btnClasses="hover:bg-red-500 hover:text-white"
+			/>
+		{:else if hasDraft}
+			<DropdownV2
+				items={[
+					{
+						displayName: 'Reset to deployed version',
+						action: () => {
+							dispatch('reset')
 						}
-					]
-				: undefined}
-			<Button
-				size="xs"
-				startIcon={{ icon: Save }}
-				disabled={saveDisabled}
-				on:click={() => {
-					dispatch('save-draft')
-				}}
-				{dropdownItems}
-			>
-				{'Save draft'}
-			</Button>
+					}
+				]}
+			/>
 		{/if}
-		{#if !editMode}
-			<Button
-				size="xs"
-				color="light"
-				startIcon={{ icon: Pen }}
-				on:click={() => {
-					dispatch('edit')
-				}}
-			>
-				Edit
-			</Button>
-		{:else if editMode}
-			<Button
-				size="xs"
-				color="light"
-				startIcon={{ icon: X }}
-				on:click={() => {
-					dispatch('cancel')
-				}}
-			>
-				Cancel
-			</Button>
+		{#if canEdit}
+			{#if editMode}
+				{@const dropdownItems = !isDraftOnly
+					? [
+							{
+								label: 'Deploy changes now',
+								onClick: () => {
+									dispatch('deploy')
+								}
+							}
+						]
+					: undefined}
+				<Button
+					size="xs"
+					startIcon={{ icon: Save }}
+					disabled={saveDisabled}
+					on:click={() => {
+						dispatch('save-draft')
+					}}
+					{dropdownItems}
+				>
+					{'Save draft'}
+				</Button>
+			{/if}
+			{#if !editMode}
+				<Button
+					size="xs"
+					color="light"
+					startIcon={{ icon: Pen }}
+					on:click={() => {
+						dispatch('edit')
+					}}
+				>
+					Edit
+				</Button>
+			{:else if editMode && !neverSaved}
+				<Button
+					size="xs"
+					color="light"
+					startIcon={{ icon: X }}
+					on:click={() => {
+						dispatch('cancel')
+					}}
+				>
+					Cancel
+				</Button>
+			{/if}
 		{/if}
-	{/if}
-</div>
+	</div>
+{/if}

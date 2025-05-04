@@ -4,13 +4,22 @@
 	import { Alert } from '$lib/components/common'
 
 	let scheduleEditor = $state<ScheduleEditorInner | null>(null)
-	let { selectedTrigger, isFlow, path, isDeployed = false, defaultValues = undefined } = $props()
+	let {
+		selectedTrigger,
+		isFlow,
+		path,
+		isDeployed = false,
+		defaultValues = undefined,
+		newDraft = false,
+		edit = false
+	} = $props()
 
 	function openScheduleEditor(isFlow: boolean, isDraft: boolean) {
 		if (isDraft) {
-			scheduleEditor?.openNew(isFlow, path, defaultValues)
+			console.log('dbg openScheduleEditor', isFlow, path, defaultValues, newDraft)
+			scheduleEditor?.openNew(isFlow, path, defaultValues, newDraft)
 		} else {
-			scheduleEditor?.openEdit(selectedTrigger.path, isFlow, false)
+			scheduleEditor?.openEdit(selectedTrigger.path, isFlow, defaultValues)
 		}
 	}
 
@@ -26,9 +35,15 @@
 	bind:this={scheduleEditor}
 	on:update-config
 	on:update
+	on:save-draft
+	on:reset
+	on:toggle-edit-mode
+	on:delete
 	hideTarget
-	useEditButton
-	preventSave={!isDeployed}
+	allowDraft
+	hasDraft={!!selectedTrigger.draftConfig}
+	isDraftOnly={selectedTrigger.isDraft}
+	editMode={edit}
 >
 	{#snippet docDescription()}
 		<div class="flex flex-col gap-2 pb-4">
