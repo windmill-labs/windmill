@@ -63,7 +63,7 @@ export {
 //   }
 // });
 
-export const VERSION = "1.486.0";
+export const VERSION = "1.486.1";
 
 const command = new Command()
   .name("wmill")
