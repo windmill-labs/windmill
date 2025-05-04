@@ -12,11 +12,12 @@
 	export async function openNew(
 		is_flow: boolean,
 		initial_script_path?: string,
-		defaultValues?: Record<string, any>
+		defaultValues?: Record<string, any>,
+		newDraft?: boolean
 	) {
 		open = true
 		await tick()
-		drawer?.openNew(is_flow, initial_script_path, defaultValues)
+		drawer?.openNew(is_flow, initial_script_path, defaultValues, newDraft)
 	}
 
 	let drawer: GcpTriggerEditorInner

@@ -6,7 +6,7 @@
 	import { usedTriggerKinds, userStore, workspaceStore } from '$lib/stores'
 	import { canWrite, emptyString, sendUserToast } from '$lib/utils'
 	import { createEventDispatcher } from 'svelte'
-	import { Loader2, Save, Pen, X, Trash } from 'lucide-svelte'
+	import { Loader2, Save } from 'lucide-svelte'
 	import Label from '$lib/components/Label.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import {
@@ -22,6 +22,7 @@
 	import { base } from '$app/paths'
 	import type { Snippet } from 'svelte'
 	import { twMerge } from 'tailwind-merge'
+	import TriggerEditorToolbar from '../TriggerEditorToolbar.svelte'
 
 	let is_loading = $state(false)
 	let drawer: Drawer | undefined = $state(undefined)
@@ -55,8 +56,9 @@
 		editMode = true,
 		preventSave = false,
 		hideTooltips = false,
-		useEditButton = false,
-		isEditor = false
+		isEditor = false,
+		allowDraft = false,
+		hasDraft = false
 	}: {
 		useDrawer?: boolean
 		description?: Snippet | undefined
@@ -66,6 +68,8 @@
 		hideTooltips?: boolean
 		useEditButton?: boolean
 		isEditor?: boolean
+		allowDraft?: boolean
+		hasDraft?: boolean
 	} = $props()
 
 	let resetEditMode = $state<(() => void) | undefined>(undefined)
@@ -105,9 +109,11 @@
 	export async function openNew(
 		nis_flow: boolean,
 		fixedScriptPath_?: string,
-		defaultValues?: Record<string, any>
+		defaultValues?: Record<string, any>,
+		newDraft?: boolean
 	) {
 		drawerLoading = true
+		resetEditMode = () => openNew(nis_flow, fixedScriptPath_, defaultValues, newDraft)
 		try {
 			drawer?.openDrawer()
 			is_flow = nis_flow
@@ -126,33 +132,45 @@
 			edit = false
 			isDraft = true
 			dirtyPath = false
-			toggleEditMode(true)
+			enabled = defaultValues?.enabled ?? false
+			if (newDraft) {
+				toggleEditMode(true)
+			}
 		} finally {
 			drawerLoading = false
 		}
 	}
 
-	async function loadTrigger(): Promise<void> {
-		try {
-			const s = await GcpTriggerService.getGcpTrigger({
-				workspace: $workspaceStore!,
-				path: initialPath
-			})
-			script_path = s.script_path
-			initialScriptPath = s.script_path
-			gcp_resource_path = s.gcp_resource_path
-			delivery_type = s.delivery_type
-			subscription_id = s.subscription_id
-			delivery_config = s.delivery_config
-			subscription_mode = s.subscription_mode
-			is_flow = s.is_flow
-			path = s.path
-			enabled = s.enabled
-			topic_id = s.topic_id
-			can_write = canWrite(s.path, s.extra_perms, $userStore)
-		} catch (error) {
-			sendUserToast(`Could not load GCP Pub/Sub trigger: ${error.body}`, true)
+	async function loadTrigger(defaultConfig?: Record<string, any>): Promise<void> {
+		if (defaultConfig) {
+			loadTriggerConfig(defaultConfig)
+			return
+		} else {
+			try {
+				const s = await GcpTriggerService.getGcpTrigger({
+					workspace: $workspaceStore!,
+					path: initialPath
+				})
+				loadTriggerConfig(s)
+			} catch (error) {
+				sendUserToast(`Could not load GCP Pub/Sub trigger: ${error.body}`, true)
+			}
 		}
+	}
+
+	async function loadTriggerConfig(cfg?: Record<string, any>): Promise<void> {
+		script_path = cfg?.script_path
+		initialScriptPath = cfg?.script_path
+		gcp_resource_path = cfg?.gcp_resource_path
+		delivery_type = cfg?.delivery_type
+		subscription_id = cfg?.subscription_id
+		delivery_config = cfg?.delivery_config
+		subscription_mode = cfg?.subscription_mode
+		is_flow = cfg?.is_flow
+		path = cfg?.path
+		enabled = cfg?.enabled
+		topic_id = cfg?.topic_id
+		can_write = canWrite(cfg?.path, cfg?.extra_perms, $userStore)
 	}
 
 	async function updateTrigger(): Promise<void> {
@@ -221,6 +239,41 @@
 	function toggleEditMode(newEditMode: boolean) {
 		dispatch('toggle-edit-mode', newEditMode)
 	}
+
+	function saveDraft() {
+		dispatch('save-draft', {
+			cfg: {
+				script_path,
+				initialScriptPath: script_path,
+				is_flow,
+				path,
+				gcp_resource_path,
+				subscription_mode,
+				subscription_id,
+				delivery_type,
+				delivery_config,
+				topic_id,
+				isValid,
+				enabled
+			},
+			cb: () => {
+				updateTrigger()
+			}
+		})
+		toggleEditMode(false)
+	}
+
+	async function handleToggleEnabled(e: CustomEvent<boolean>) {
+		enabled = e.detail
+		if (!isDraft && !hasDraft) {
+			await GcpTriggerService.setGcpTriggerEnabled({
+				path: initialPath,
+				workspace: $workspaceStore ?? '',
+				requestBody: { enabled: e.detail }
+			})
+			sendUserToast(`${e.detail ? 'enabled' : 'disabled'} GCP Pub/Sub trigger ${initialPath}`)
+		}
+	}
 </script>
 
 {#if useDrawer}
@@ -250,75 +303,55 @@
 
 {#snippet actionsButtons(size: 'xs' | 'sm' = 'sm')}
 	{#if !drawerLoading && can_write}
-		<div class="flex flex-row gap-2 items-center">
-			{#if !isDraft && edit}
+		{#if !allowDraft}
+			{#if edit}
 				<div class={twMerge('center-center', size === 'sm' ? '-mt-1' : '')}>
 					<Toggle
 						{size}
 						disabled={!can_write || !editMode}
 						checked={enabled}
 						options={{ right: 'enable', left: 'disable' }}
-						on:change={async (e) => {
-							await GcpTriggerService.setGcpTriggerEnabled({
-								path: initialPath,
-								workspace: $workspaceStore ?? '',
-								requestBody: { enabled: e.detail }
-							})
-							sendUserToast(
-								`${e.detail ? 'enabled' : 'disabled'} GCP Pub/Sub trigger ${initialPath}`
-							)
-						}}
+						on:change={handleToggleEnabled}
 					/>
 				</div>
 			{/if}
-			{#if isDraft}
+			{#if can_write && editMode}
 				<Button
 					{size}
-					startIcon={{ icon: Trash }}
-					iconOnly
-					color={'light'}
-					on:click={() => {
-						dispatch('delete')
-					}}
-					btnClasses="hover:bg-red-500 hover:text-white"
-				/>
+					startIcon={{ icon: Save }}
+					disabled={pathError != '' || emptyString(script_path) || !isValid || !can_write}
+					on:click={updateTrigger}
+					loading={is_loading}
+				>
+					Save
+				</Button>
 			{/if}
-			{#if !preventSave}
-				{#if can_write && editMode}
-					<Button
-						{size}
-						startIcon={{ icon: Save }}
-						disabled={pathError != '' || emptyString(script_path) || !isValid || !can_write}
-						on:click={updateTrigger}
-						loading={is_loading}
-					>
-						Save
-					</Button>
-				{/if}
-				{#if !editMode && useEditButton}
-					<Button
-						{size}
-						color="light"
-						startIcon={{ icon: Pen }}
-						on:click={() => toggleEditMode(true)}
-					>
-						Edit
-					</Button>
-				{:else if editMode && !!resetEditMode && useEditButton}
-					<Button
-						{size}
-						color="light"
-						startIcon={{ icon: X }}
-						on:click={() => {
-							toggleEditMode(false)
-							resetEditMode?.()
-						}}
-					>
-						Cancel
-					</Button>
-				{/if}
-			{/if}
-		</div>
+		{:else}
+			<TriggerEditorToolbar
+				isDraftOnly={isDraft}
+				{hasDraft}
+				canEdit={!drawerLoading && can_write && !preventSave}
+				{editMode}
+				saveDisabled={pathError != '' || emptyString(script_path) || !isValid || !can_write}
+				{enabled}
+				on:save-draft={() => {
+					saveDraft()
+				}}
+				on:deploy={() => {
+					updateTrigger()
+				}}
+				on:reset
+				on:delete
+				on:edit={() => {
+					toggleEditMode(true)
+				}}
+				on:cancel={() => {
+					resetEditMode?.()
+					toggleEditMode(false)
+				}}
+				on:toggle-enabled={handleToggleEnabled}
+			/>
+		{/if}
 	{/if}
 {/snippet}
 
