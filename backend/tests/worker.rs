@@ -23,9 +23,9 @@ use windmill_api_client::types::{EditSchedule, NewSchedule, ScriptArgs};
 use windmill_api_client::types::{NewScript, ScriptLang as NewScriptLanguage};
 
 use serde::Serialize;
-use windmill_common::worker::WORKER_CONFIG;
 #[cfg(feature = "deno_core")]
 use windmill_common::flows::InputTransform;
+use windmill_common::worker::WORKER_CONFIG;
 
 use windmill_common::{
     flow_status::{FlowStatus, FlowStatusModule, RestartedFrom},
@@ -145,7 +145,7 @@ impl ApiServer {
             format!("http://localhost:{}", addr.port()),
         ));
 
-        _port_rx.await.unwrap();
+        _port_rx.await.expect("failed to receive port");
 
         // clear the cache between tests
         windmill_common::cache::clear();
@@ -171,7 +171,7 @@ impl ApiServer {
 //     Ok(())
 // }
 
-#[cfg(feature="python")]
+#[cfg(feature = "python")]
 fn get_module(cjob: &CompletedJob, id: &str) -> Option<FlowStatusModule> {
     cjob.flow_status.clone().and_then(|fs| {
         find_module_in_vec(
@@ -181,7 +181,7 @@ fn get_module(cjob: &CompletedJob, id: &str) -> Option<FlowStatusModule> {
     })
 }
 
-#[cfg(feature="python")]
+#[cfg(feature = "python")]
 fn find_module_in_vec(modules: Vec<FlowStatusModule>, id: &str) -> Option<FlowStatusModule> {
     modules.into_iter().find(|s| s.id() == id)
 }
