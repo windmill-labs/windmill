@@ -28,6 +28,7 @@ import { canWrite } from '$lib/utils'
 import type { UserExt } from '$lib/stores'
 import SchedulePollIcon from '../icons/SchedulePollIcon.svelte'
 import { type TriggerKind } from '$lib/components/triggers'
+import { saveScheduleFromCfg } from '$lib/components/flows/scheduleUtils'
 
 export type TriggerType =
 	| 'webhook'
@@ -584,4 +585,16 @@ export function triggerKindToTriggerType(kind: TriggerKind): TriggerType | undef
 		default:
 			throw new Error(`Unknown TriggerKind: ${kind}`)
 	}
+}
+
+export async function deployTriggers(triggersToDeploy: Trigger[], workspaceId: string | undefined) {
+	console.log('dbg deployTriggers', triggersToDeploy, workspaceId)
+	if (!workspaceId) return
+	await Promise.all(
+		triggersToDeploy.map((t) => {
+			if (t.type === 'schedule') {
+				saveScheduleFromCfg(t.draftConfig ?? {}, !t.isDraft, workspaceId)
+			}
+		})
+	)
 }

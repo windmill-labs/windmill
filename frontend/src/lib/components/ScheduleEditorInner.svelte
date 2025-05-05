@@ -31,6 +31,7 @@
 	import DateTimeInput from './DateTimeInput.svelte'
 	import autosize from '$lib/autosize'
 	import TriggerEditorToolbar from './triggers/TriggerEditorToolbar.svelte'
+	import { saveScheduleFromCfg } from './flows/scheduleUtils'
 
 	let {
 		useDrawer = true,
@@ -254,8 +255,8 @@
 		setDefaultValid(draftSchema ?? runnable?.schema)
 	})
 
-	function setDefaultValid(schema: Record<string, any>) {
-		isValid = schema.properties && Object.keys(schema.properties).length === 0
+	function setDefaultValid(schema: Record<string, any> | undefined) {
+		isValid = schema?.properties && Object.keys(schema.properties).length === 0
 	}
 
 	const dispatch = createEventDispatcher()
@@ -453,90 +454,9 @@
 	}
 
 	async function scheduleScript(): Promise<void> {
-		if (errorHandlerPath !== undefined && isSlackHandler('error', errorHandlerPath)) {
-			errorHandlerExtraArgs['slack'] = '$res:f/slack_bot/bot_token'
-		} else {
-			errorHandlerExtraArgs['slack'] = undefined
-		}
-		if (recoveryHandlerPath !== undefined && isSlackHandler('recovery', recoveryHandlerPath)) {
-			recoveryHandlerExtraArgs['slack'] = '$res:f/slack_bot/bot_token'
-		} else {
-			recoveryHandlerExtraArgs['slack'] = undefined
-		}
-		if (successHandlerPath !== undefined && isSlackHandler('success', successHandlerPath)) {
-			successHandlerExtraArgs['slack'] = '$res:f/slack_bot/bot_token'
-		} else {
-			successHandlerExtraArgs['slack'] = undefined
-		}
-		if (edit) {
-			await ScheduleService.updateSchedule({
-				workspace: $workspaceStore!,
-				path: initialPath,
-				requestBody: {
-					schedule: formatCron(schedule),
-					timezone,
-					args,
-					on_failure: errorHandlerPath ? `${errorHandleritemKind}/${errorHandlerPath}` : undefined,
-					on_failure_times: failedTimes,
-					on_failure_exact: failedExact,
-					on_failure_extra_args: errorHandlerPath ? errorHandlerExtraArgs : undefined,
-					on_recovery: recoveryHandlerPath
-						? `${recoveryHandlerItemKind}/${recoveryHandlerPath}`
-						: undefined,
-					on_recovery_times: recoveredTimes,
-					on_recovery_extra_args: recoveryHandlerPath ? recoveryHandlerExtraArgs : {},
-					on_success: successHandlerPath
-						? `${successHandlerItemKind}/${successHandlerPath}`
-						: undefined,
-					on_success_extra_args: successHandlerPath ? successHandlerExtraArgs : {},
-					ws_error_handler_muted: wsErrorHandlerMuted,
-					retry: retry,
-					summary: summary != '' ? summary : undefined,
-					description: description,
-					no_flow_overlap: no_flow_overlap,
-					tag: tag,
-					paused_until: paused_until,
-					cron_version: cronVersion
-				}
-			})
-			sendUserToast(`Schedule ${path} updated`)
-		} else {
-			await ScheduleService.createSchedule({
-				workspace: $workspaceStore!,
-				requestBody: {
-					path,
-					schedule: formatCron(schedule),
-					timezone,
-					script_path,
-					is_flow,
-					args,
-					enabled: true,
-					on_failure: errorHandlerPath ? `${errorHandleritemKind}/${errorHandlerPath}` : undefined,
-					on_failure_times: failedTimes,
-					on_failure_exact: failedExact,
-					on_failure_extra_args: errorHandlerPath ? errorHandlerExtraArgs : undefined,
-					on_recovery: recoveryHandlerPath
-						? `${recoveryHandlerItemKind}/${recoveryHandlerPath}`
-						: undefined,
-					on_recovery_times: recoveredTimes,
-					on_recovery_extra_args: recoveryHandlerPath ? recoveryHandlerExtraArgs : {},
-					on_success: successHandlerPath
-						? `${successHandlerItemKind}/${successHandlerPath}`
-						: undefined,
-					on_success_extra_args: successHandlerPath ? successHandlerExtraArgs : {},
-					ws_error_handler_muted: wsErrorHandlerMuted,
-					retry: retry,
-					summary: summary != '' ? summary : undefined,
-					description: description,
-					no_flow_overlap: no_flow_overlap,
-					tag: tag,
-					paused_until: paused_until,
-					cron_version: cronVersion
-				}
-			})
-			sendUserToast(`Schedule ${path} created`)
-		}
-		dispatch('update', { path })
+		const scheduleCfg = getScheduleCfg()
+		await saveScheduleFromCfg(scheduleCfg, edit, $workspaceStore!)
+		dispatch('update', { path: scheduleCfg.path })
 		drawer?.closeDrawer()
 	}
 
@@ -632,40 +552,58 @@
 		})
 	})
 
+	function getScheduleCfg(): Record<string, any> {
+		if (errorHandlerPath !== undefined && isSlackHandler('error', errorHandlerPath)) {
+			errorHandlerExtraArgs['slack'] = '$res:f/slack_bot/bot_token'
+		} else {
+			errorHandlerExtraArgs['slack'] = undefined
+		}
+		if (recoveryHandlerPath !== undefined && isSlackHandler('recovery', recoveryHandlerPath)) {
+			recoveryHandlerExtraArgs['slack'] = '$res:f/slack_bot/bot_token'
+		} else {
+			recoveryHandlerExtraArgs['slack'] = undefined
+		}
+		if (successHandlerPath !== undefined && isSlackHandler('success', successHandlerPath)) {
+			successHandlerExtraArgs['slack'] = '$res:f/slack_bot/bot_token'
+		} else {
+			successHandlerExtraArgs['slack'] = undefined
+		}
+		return {
+			path: path,
+			schedule: formatCron(schedule),
+			timezone: timezone,
+			script_path: script_path,
+			is_flow: is_flow,
+			args: args,
+			enabled: enabled,
+			on_failure: errorHandlerPath ? `${errorHandleritemKind}/${errorHandlerPath}` : undefined,
+			on_failure_times: failedTimes,
+			on_failure_exact: failedExact,
+			on_failure_extra_args: errorHandlerPath ? errorHandlerExtraArgs : undefined,
+			on_recovery: recoveryHandlerPath
+				? `${recoveryHandlerItemKind}/${recoveryHandlerPath}`
+				: undefined,
+			on_recovery_times: recoveredTimes,
+			on_recovery_extra_args: recoveryHandlerPath ? recoveryHandlerExtraArgs : {},
+			on_success: successHandlerPath
+				? `${successHandlerItemKind}/${successHandlerPath}`
+				: undefined,
+			on_success_extra_args: successHandlerPath ? successHandlerExtraArgs : {},
+			ws_error_handler_muted: wsErrorHandlerMuted,
+			retry: retry,
+			summary: summary != '' ? summary : undefined,
+			description: description,
+			no_flow_overlap: no_flow_overlap,
+			tag: tag,
+			paused_until: paused_until,
+			cron_version: cronVersion,
+			extra_perms: extraPerms
+		}
+	}
+
 	function saveDraft() {
-		dispatch('save-draft', {
-			cfg: {
-				path: path,
-				schedule: schedule,
-				cron_version: cronVersion,
-				timezone: timezone,
-				args: args,
-				on_failure: errorHandlerPath ? `${errorHandleritemKind}/${errorHandlerPath}` : undefined,
-				on_failure_times: failedTimes,
-				on_failure_exact: failedExact,
-				on_failure_extra_args: errorHandlerPath ? errorHandlerExtraArgs : undefined,
-				on_recovery: recoveryHandlerPath
-					? `${recoveryHandlerItemKind}/${recoveryHandlerPath}`
-					: undefined,
-				on_recovery_times: recoveredTimes,
-				on_recovery_extra_args: recoveryHandlerPath ? recoveryHandlerExtraArgs : {},
-				on_success: successHandlerPath
-					? `${successHandlerItemKind}/${successHandlerPath}`
-					: undefined,
-				on_success_extra_args: successHandlerPath ? successHandlerExtraArgs : {},
-				ws_error_handler_muted: wsErrorHandlerMuted,
-				retry: retry,
-				summary: summary != '' ? summary : undefined,
-				description: description,
-				no_flow_overlap: no_flow_overlap,
-				tag: tag,
-				paused_until: paused_until,
-				extra_perms: extraPerms,
-				script_path: script_path,
-				is_flow: is_flow,
-				enabled: enabled
-			}
-		})
+		const cfg = getScheduleCfg()
+		dispatch('save-draft', { cfg, savingArgs: { initialPath, edit, workspace: $workspaceStore } })
 		toggleEditMode(false)
 	}
 

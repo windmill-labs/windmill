@@ -75,7 +75,7 @@
 	import type { SavedAndModifiedValue } from './common/confirmationModal/unsavedTypes'
 	import DeployButton from './DeployButton.svelte'
 	import type { Trigger } from './triggers/utils'
-	import { fetchTriggers } from './triggers/utils'
+	import { deployTriggers, fetchTriggers } from './triggers/utils'
 	import DraftTriggersConfirmationModal from './common/confirmationModal/DraftTriggersConfirmationModal.svelte'
 
 	export let initialPath: string = ''
@@ -342,16 +342,6 @@
 		deployedBy = flow.edited_by
 	}
 
-	async function saveDraftTriggers(triggersToDeploy: Trigger[]) {
-		await Promise.all(
-			triggersToDeploy.map((t) => {
-				if (t.saveCb) {
-					t.saveCb()
-				}
-			})
-		)
-	}
-
 	async function saveFlow(deploymentMsg?: string, triggersToDeploy?: Trigger[]): Promise<void> {
 		if (!triggersToDeploy) {
 			// Check if there are draft triggers that need confirmation
@@ -404,7 +394,7 @@
 					runnableKind: 'flow'
 				})
 				if (triggersToDeploy) {
-					await saveDraftTriggers(triggersToDeploy)
+					await deployTriggers(triggersToDeploy, $workspaceStore)
 				}
 			} else {
 				try {
@@ -414,7 +404,7 @@
 				}
 
 				if (triggersToDeploy) {
-					await saveDraftTriggers(triggersToDeploy)
+					await deployTriggers(triggersToDeploy, $workspaceStore)
 				}
 
 				await FlowService.updateFlow({

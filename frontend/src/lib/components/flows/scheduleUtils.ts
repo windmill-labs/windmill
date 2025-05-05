@@ -142,3 +142,52 @@ export async function saveSchedule(
 		}
 	}
 }
+
+export async function saveScheduleFromCfg(
+	scheduleCfg: Record<string, any>,
+	edit: boolean,
+	workspace: string
+): Promise<void> {
+	const requestBody = {
+		schedule: scheduleCfg.schedule,
+		timezone: scheduleCfg.timezone,
+		args: scheduleCfg.args,
+		on_failure: scheduleCfg.on_failure,
+		on_failure_times: scheduleCfg.on_failure_times,
+		on_failure_exact: scheduleCfg.on_failure_exact,
+		on_failure_extra_args: scheduleCfg.on_failure_extra_args,
+		on_recovery: scheduleCfg.on_recovery,
+		on_recovery_times: scheduleCfg.on_recovery_times,
+		on_recovery_extra_args: scheduleCfg.on_recovery_extra_args,
+		on_success: scheduleCfg.on_success,
+		on_success_extra_args: scheduleCfg.on_success_extra_args,
+		ws_error_handler_muted: scheduleCfg.ws_error_handler_muted,
+		retry: scheduleCfg.retry,
+		summary: scheduleCfg.summary,
+		description: scheduleCfg.description,
+		no_flow_overlap: scheduleCfg.no_flow_overlap,
+		tag: scheduleCfg.tag,
+		paused_until: scheduleCfg.paused_until,
+		cron_version: scheduleCfg.cron_version
+	}
+	if (edit) {
+		await ScheduleService.updateSchedule({
+			workspace,
+			path: scheduleCfg.path,
+			requestBody: requestBody
+		})
+		sendUserToast(`Schedule ${scheduleCfg.path} updated`)
+	} else {
+		console.log('dbg saveScheduleFromCfg', scheduleCfg)
+		await ScheduleService.createSchedule({
+			workspace,
+			requestBody: {
+				path: scheduleCfg.path,
+				script_path: scheduleCfg.script_path,
+				is_flow: scheduleCfg.is_flow,
+				...requestBody
+			}
+		})
+		sendUserToast(`Schedule ${scheduleCfg.path} created`)
+	}
+}
