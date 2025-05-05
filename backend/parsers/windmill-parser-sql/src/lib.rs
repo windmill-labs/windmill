@@ -120,6 +120,17 @@ pub fn parse_db_resource(code: &str) -> Option<String> {
     cap.map(|x| x.get(1).map(|x| x.as_str().to_string()).unwrap())
 }
 
+pub struct S3ModeArgs {
+    pub object_key: String,
+    pub storage: Option<String>,
+}
+pub fn parse_s3_mode(code: &str) -> Option<S3ModeArgs> {
+    let cap = RE_S3_MODE.captures(code)?;
+    let arg1 = cap.get(1).map(|x| x.as_str().to_string())?;
+    let arg2 = cap.get(2).map(|x| x.as_str().to_string());
+    Some(S3ModeArgs { object_key: arg1, storage: arg2 })
+}
+
 pub fn parse_sql_blocks(code: &str) -> Vec<&str> {
     let mut blocks = vec![];
     let mut last_idx = 0;
@@ -147,6 +158,7 @@ lazy_static::lazy_static! {
     static ref RE_NONEMPTY_SQL_BLOCK: Regex = Regex::new(r#"(?m)^\s*[^\s](?:[^-]|$)"#).unwrap();
 
     static ref RE_DB: Regex = Regex::new(r#"(?m)^-- database (\S+) *(?:\r|\n|$)"#).unwrap();
+    static ref RE_S3_MODE: Regex = Regex::new(r#"(?m)^-- s3 (\S+)( +(\S+))? *(?:\r|\n|$)"#).unwrap();
 
     // -- $1 name (type) = default
     static ref RE_ARG_MYSQL: Regex = Regex::new(r#"(?m)^-- \? (\w+) \((\w+)\)(?: ?\= ?(.+))? *(?:\r|\n|$)"#).unwrap();
