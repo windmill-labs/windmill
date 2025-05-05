@@ -76,6 +76,8 @@ quick_cache.workspace = true
 pin-project-lite.workspace = true
 futures.workspace = true
 tempfile.workspace = true
+systemstat.workspace = true
+size.workspace = true
 
 opentelemetry-semantic-conventions = { workspace = true, optional = true }
 opentelemetry-otlp = { workspace = true, optional = true }

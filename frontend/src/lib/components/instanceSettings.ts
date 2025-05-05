@@ -26,6 +26,7 @@ export interface Setting {
 		| 'license_key'
 		| 'object_store_config'
 		| 'critical_error_channels'
+		| 'critical_alerts_on_db_oversize'
 		| 'slack_connect'
 		| 'smtp_connect'
 		| 'indexer_rates'
@@ -351,6 +352,15 @@ export const settings: Record<string, Setting[]> = {
 			label: 'SMTP',
 			key: 'smtp_settings',
 			fieldType: 'smtp_connect',
+			storage: 'setting',
+			ee_only: ''
+		},
+		{
+			label: 'Alert on DB oversize',
+			key: 'critical_alerts_on_db_oversize',
+			description: 'Alert if DB grows more than specified size',
+			fieldType: 'critical_alerts_on_db_oversize',
+			placeholder: '100',
 			storage: 'setting',
 			ee_only: ''
 		}

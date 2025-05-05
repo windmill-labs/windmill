@@ -363,6 +363,7 @@ you to have it being synced automatically everyday.
 | DENO_AUTH_TOKENS                    | None                   | Custom DENO_AUTH_TOKENS to pass to worker to allow the use of private modules                                                                                                                      | Worker                |
 | DISABLE_RESPONSE_LOGS               | false                  | Disable response logs                                                                                                                                                                              | Server                |
 | CREATE_WORKSPACE_REQUIRE_SUPERADMIN | true                   | If true, only superadmins can create new workspaces                                                                                                                                                | Server                |
+| MIN_FREE_DISK_SPACE_MB              | 15000                  | Minimum amount of free space on worker. Sends critical alert if worker has less free space.                                                                                                        | Worker                |
 
 ## Run a local dev setup
 

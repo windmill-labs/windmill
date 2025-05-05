@@ -8,11 +8,12 @@
 
 use anyhow::Context;
 use monitor::{
-    load_base_url, load_otel, reload_delete_logs_periodically_setting, reload_indexer_config,
+    load_base_url, load_otel, reload_critical_alerts_on_db_oversize,
+    reload_delete_logs_periodically_setting, reload_indexer_config,
     reload_instance_python_version_setting, reload_maven_repos_setting,
     reload_no_default_maven_setting, reload_nuget_config_setting,
     reload_timeout_wait_result_setting, send_current_log_file_to_object_store,
-    send_logs_to_object_store,
+    send_logs_to_object_store, WORKERS_NAMES,
 };
 use rand::Rng;
 use sqlx::postgres::PgListener;
@@ -33,15 +34,16 @@ use windmill_common::{
     agent_workers::build_agent_http_client,
     get_database_url,
     global_settings::{
-        BASE_URL_SETTING, BUNFIG_INSTALL_SCOPES_SETTING, CRITICAL_ALERT_MUTE_UI_SETTING,
-        CRITICAL_ERROR_CHANNELS_SETTING, CUSTOM_TAGS_SETTING, DEFAULT_TAGS_PER_WORKSPACE_SETTING,
-        DEFAULT_TAGS_WORKSPACES_SETTING, EMAIL_DOMAIN_SETTING, ENV_SETTINGS,
-        EXPOSE_DEBUG_METRICS_SETTING, EXPOSE_METRICS_SETTING, EXTRA_PIP_INDEX_URL_SETTING,
-        HUB_BASE_URL_SETTING, INDEXER_SETTING, INSTANCE_PYTHON_VERSION_SETTING,
-        JOB_DEFAULT_TIMEOUT_SECS_SETTING, JWT_SECRET_SETTING, KEEP_JOB_DIR_SETTING,
-        LICENSE_KEY_SETTING, MAVEN_REPOS_SETTING, MONITOR_LOGS_ON_OBJECT_STORE_SETTING,
-        NO_DEFAULT_MAVEN_SETTING, NPM_CONFIG_REGISTRY_SETTING, NUGET_CONFIG_SETTING, OAUTH_SETTING,
-        OTEL_SETTING, PIP_INDEX_URL_SETTING, REQUEST_SIZE_LIMIT_SETTING,
+        BASE_URL_SETTING, BUNFIG_INSTALL_SCOPES_SETTING, CRITICAL_ALERTS_ON_DB_OVERSIZE_SETTING,
+        CRITICAL_ALERT_MUTE_UI_SETTING, CRITICAL_ERROR_CHANNELS_SETTING, CUSTOM_TAGS_SETTING,
+        DEFAULT_TAGS_PER_WORKSPACE_SETTING, DEFAULT_TAGS_WORKSPACES_SETTING, EMAIL_DOMAIN_SETTING,
+        ENV_SETTINGS, EXPOSE_DEBUG_METRICS_SETTING, EXPOSE_METRICS_SETTING,
+        EXTRA_PIP_INDEX_URL_SETTING, HUB_BASE_URL_SETTING, INDEXER_SETTING,
+        INSTANCE_PYTHON_VERSION_SETTING, JOB_DEFAULT_TIMEOUT_SECS_SETTING, JWT_SECRET_SETTING,
+        KEEP_JOB_DIR_SETTING, LICENSE_KEY_SETTING, MAVEN_REPOS_SETTING,
+        MONITOR_LOGS_ON_OBJECT_STORE_SETTING, NO_DEFAULT_MAVEN_SETTING,
+        NPM_CONFIG_REGISTRY_SETTING, NUGET_CONFIG_SETTING, OAUTH_SETTING, OTEL_SETTING,
+        PIP_INDEX_URL_SETTING, REQUEST_SIZE_LIMIT_SETTING,
         REQUIRE_PREEXISTING_USER_FOR_OAUTH_SETTING, RETENTION_PERIOD_SECS_SETTING,
         SAML_METADATA_SETTING, SCIM_TOKEN_SETTING, SMTP_SETTING, TEAMS_SETTING,
         TIMEOUT_WAIT_RESULT_SETTING,
@@ -917,6 +919,12 @@ Windmill Community Edition {GIT_VERSION}
                                                                 tracing::error!(error = %e, "Could not reload critical error emails setting");
                                                             }
                                                         },
+                                                        CRITICAL_ALERTS_ON_DB_OVERSIZE_SETTING => {
+                                                            if let Err(e) = reload_critical_alerts_on_db_oversize(&db).await {
+                                                                tracing::error!(error = %e, "Could not reload critical alerts on db oversize setting");
+                                                            }
+
+                                                        },
                                                         JWT_SECRET_SETTING => {
                                                             if let Err(e) = reload_jwt_secret_setting(&db).await {
                                                                 tracing::error!(error = %e, "Could not reload jwt secret setting");
@@ -1214,10 +1222,12 @@ pub async fn run_workers(
         "Starting {num_workers} workers and SLEEP_QUEUE={}ms",
         *windmill_worker::SLEEP_QUEUE
     );
+
     for i in 1..(num_workers + 1) {
         let wk_conf = &workers[i as usize - 1];
         let conn1 = wk_conf.conn.clone();
         let worker_name = wk_conf.worker_name.clone();
+        WORKERS_NAMES.write().await.push(worker_name.clone());
         let ip = ip.clone();
         let rx = killpill_rxs.pop().unwrap();
         let tx = tx.clone();

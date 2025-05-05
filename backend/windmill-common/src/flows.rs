@@ -22,7 +22,8 @@ use crate::{
     error::Error,
     more_serde::{default_empty_string, default_id, default_null, default_true, is_default},
     scripts::{Schema, ScriptHash, ScriptLang},
-    worker::{to_raw_value, Connection}, DB,
+    worker::{to_raw_value, Connection},
+    DB,
 };
 
 #[derive(Serialize, Deserialize, sqlx::FromRow)]
