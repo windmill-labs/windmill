@@ -1,109 +1,161 @@
 <script lang="ts">
-	import { CornerDownLeft } from 'lucide-svelte'
-	import Button from './common/button/Button.svelte'
-	import Editor from './Editor.svelte'
+	import { onMount } from 'svelte'
+	import { Terminal } from 'xterm'
+	import 'xterm/css/xterm.css'
 	import { runPreviewJobAndPollResult } from './jobs/utils'
-	import { Pane, Splitpanes } from 'svelte-splitpanes'
-	import { sendUserToast } from '$lib/utils'
 	import { workspaceStore } from '$lib/stores'
+	import type { ScriptLang } from '$lib/gen'
+	import { Splitpanes, Pane } from 'svelte-splitpanes'
+	import { twMerge } from 'tailwind-merge'
+	import { Plus } from 'lucide-svelte'
+	import PanelSection from './apps/editor/settingsPanel/common/PanelSection.svelte'
+	import { Button } from './common'
 	import StepHistory, { type StepHistoryData } from './flows/propPicker/StepHistory.svelte'
 
+	let container: HTMLDivElement
+	let term: Terminal
+	let input = ''
 	type Props = {
-		resourceType: string
-		resourcePath: string
-		onData: (data: Record<string, any>[]) => void
-		placeholderTableName?: string
+		language?: ScriptLang
+		tag?: string
+		width?: number
 	}
-	let output = $state<string>('') // New: capture output
-	let { resourcePath, onData }: Props = $props()
+	const prompt = '$ '
+	let { language = 'bash', tag, width }: Props = $props()
+	let runHistory: (StepHistoryData & { command: string; result: Record<string, any>[] })[] = $state(
+		[]
+	)
 
-	let code = $state('# Replace with your Bash command')
-	let isRunning = $state(false)
-
-	let runHistory: (StepHistoryData & { code: string; result: Record<string, any>[] })[] = $state([])
-
-	let editor = $state<Editor | null>(null)
-
-	async function run({ doPostgresRowToJsonFix }: { doPostgresRowToJsonFix?: boolean } = {}) {
-		if (isRunning || !$workspaceStore) return
-		isRunning = true
-		output = ''
+	async function handleCommand(command: string) {
+		term.writeln('')
 		try {
-			const { job, result } = (await runPreviewJobAndPollResult(
+			let { job, result } = (await runPreviewJobAndPollResult(
 				{
-					workspace: $workspaceStore,
+					workspace: $workspaceStore!,
 					requestBody: {
-						language: 'bash',
-						content: code,
-						args: {
-							database: '$res:' + resourcePath
-						}
+						language,
+						content: command,
+						tag,
+						args: {}
 					}
 				},
 				{ withJobData: true }
 			)) as any
-
-			console.log({ result, job })
-			output = result
-				.map((line: any) => (typeof line === 'string' ? line : JSON.stringify(line, null, 2)))
-				.join('\n')
-			sendUserToast('Command executed')
+			runHistory.push({
+				created_at: new Date().toISOString(),
+				created_by: '',
+				id: job.id,
+				success: true,
+				command,
+				result
+			})
+			console.log({result})
+			term.write(result)
 		} catch (e) {
-			const message = 'Error running command: ' + (e.message ?? e.error?.message)
-			output = message
-			sendUserToast(message, true)
+			term.writeln(`Error: ${e}`)
 		} finally {
-			isRunning = false
+			printPrompt()
 		}
 	}
+
+	function printPrompt() {
+		term.write(`\r\n${prompt}`)
+		input = ''
+	}
+
+	onMount(() => {
+		term = new Terminal({
+			cursorBlink: true,
+			fontSize: 14,
+			theme: {
+				background: '#1e1e1e',
+				foreground: '#ffffff'
+			}	
+		})
+		term.open(container)
+		printPrompt()
+
+		term.onData((char) => {
+			switch (char) {
+				case '\r':
+					if (input === 'clear') {
+						term.reset()
+						term.write(`\r\n${prompt}`)
+						input = ''
+						break
+					}
+					handleCommand(input)
+					break
+				case '\u007f':
+					if (input.length > 0) {
+						input = input.slice(0, -1)
+						term.write('\b \b')
+					}
+					break
+					
+				default:
+					if (char >= String.fromCharCode(0x20)) {
+						input += char
+						term.write(char)
+					}
+			}
+		})
+	})
 </script>
 
-<Splitpanes class="h-full">
-	<Pane class="relative">
-		<Editor
-			bind:this={editor}
-			bind:code
-			scriptLang="bash"
-			class="w-full h-full"
-			cmdEnterAction={run}
-		/>
-		<Button
-			wrapperClasses="absolute z-10 bottom-2 right-6"
-			color={isRunning ? 'red' : undefined}
-			variant="border"
-			shortCut={{ Icon: CornerDownLeft }}
-			on:click={() => run()}
-		>
-			{isRunning ? 'Running...' : 'Run'}
-		</Button>
+<Splitpanes
+	class={twMerge('!overflow-visible')}
+	style={width !== undefined ? `width:${width}px;` : 'width: 100%;'}
+>
+	<Pane size={25}>
+		<PanelSection title="History" id="app-editor-runnable-panel">
+			<div class="w-full flex flex-col gap-6 py-1">
+				<div>
+					<StepHistory
+						staticInputs={runHistory}
+						on:select={(e) => {
+							const data = e.detail as (typeof runHistory)[number]
+							if (data) {
+								term.reset()
+								term.write(`\r\n${prompt}${data.command}`)
+								input = data.command
+							}
+						}}
+					/>
+				</div>
+				<div>
+					<div class="w-full flex justify-between items-center mb-1">
+						<div class="text-xs text-secondary font-semibold truncate"> Bash scripts </div>
+						<Button
+							size="xs"
+							color="light"
+							variant="border"
+							btnClasses="!rounded-full !p-1"
+							title="Create a new background runnable"
+							aria-label="Create a new background runnable"
+							on:click={() => {}}
+							id="create-bash-script"
+						>
+							<Plus size={14} class="!text-primary" />
+						</Button>
+					</div>
+					<div class="flex flex-col gap-1 w-full">
+						<div class="text-xs text-tertiary">No bash scripts </div>
+					</div>
+				</div>
+			</div>
+		</PanelSection>
 	</Pane>
-
-	<Pane size={24} minSize={16}>
-		<StepHistory
-			staticInputs={runHistory}
-			on:select={(e) => {
-				const data = e.detail
-				editor?.setCode(data.code)
-				onData(data.result)
-				output = data.result
-					.map((r: any) => (typeof r === 'string' ? r : JSON.stringify(r, null, 2)))
-					.join('\n')
-			}}
-		/>
-	</Pane>
-
-	<Pane size={35} minSize={20}>
-		<div
-			class="p-4 font-mono text-sm whitespace-pre-wrap bg-black text-green-400 h-full overflow-auto"
-		>
-			{#if isRunning}
-				<span class="text-yellow-400">Running...</span>
-			{:else if output}
-				<hr class="my-2 border-gray-600" />
-				<pre>{output}</pre>
-			{:else}
-				<span class="text-gray-500">No output yet</span>
-			{/if}
-		</div>
+	<Pane size={75}>
+		<!-- svelte-ignore element_invalid_self_closing_tag -->
+		<div bind:this={container} class="terminal"></div>
 	</Pane>
 </Splitpanes>
+
+<style>
+	.terminal {
+		width: 100%;
+		height: 100%;
+		background-color: #1e1e1e;
+	}
+</style>

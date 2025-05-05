@@ -307,7 +307,7 @@ pub async fn store_suspended_pull_query(wc: &WorkerConfig) {
 }
 
 pub fn make_pull_query(tags: &[String]) -> String {
-    format_pull_query(format!(
+    let query = format_pull_query(format!(
         "SELECT id
         FROM v2_job_queue
         WHERE running = false AND tag IN ({}) AND scheduled_for <= now()
@@ -315,7 +315,8 @@ pub fn make_pull_query(tags: &[String]) -> String {
         FOR UPDATE SKIP LOCKED
         LIMIT 1",
         tags.iter().map(|x| format!("'{x}'")).join(", ")
-    ))
+    ));
+    query
 }
 
 pub async fn store_pull_query(wc: &WorkerConfig) {
@@ -382,10 +383,7 @@ fn normalize_path(path: &Path) -> PathBuf {
     ret
 }
 
-pub fn is_allowed_file_location(
-    job_dir: &str,
-    user_defined_path: &str,
-) -> error::Result<PathBuf> {
+pub fn is_allowed_file_location(job_dir: &str, user_defined_path: &str) -> error::Result<PathBuf> {
     let job_dir = Path::new(job_dir);
     let user_path = PathBuf::from(user_defined_path);
 

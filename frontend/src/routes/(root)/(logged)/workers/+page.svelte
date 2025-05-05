@@ -33,6 +33,7 @@
 	import { DEFAULT_TAGS_WORKSPACES_SETTING } from '$lib/consts'
 	import AutoscalingEvents from '$lib/components/AutoscalingEvents.svelte'
 	import HttpAgentWorkerDrawer from '$lib/components/HttpAgentWorkerDrawer.svelte'
+	import Repl from '$lib/components/Repl.svelte'
 
 	let workers: WorkerPing[] | undefined = undefined
 	let workerGroups: Record<string, any> | undefined = undefined
@@ -70,7 +71,6 @@
 		return grouped
 	}
 	let timeSinceLastPing = 0
-
 	async function loadWorkers(): Promise<void> {
 		try {
 			workers = await WorkerService.listWorkers({ perPage: 1000, pingSince: 300 })
@@ -145,7 +145,7 @@
 
 	let importConfigDrawer: Drawer | undefined = undefined
 	let importConfigCode = ''
-
+	let tag: string | undefined = undefined
 	async function importSingleWorkerConfig(c: any) {
 		if (typeof c === 'object' && c !== null) {
 			if (!c.name || typeof c.name !== 'string') {
@@ -257,8 +257,8 @@
 
 		return Math.ceil(occupancy_rate * 100) + '%'
 	}
-
 	let newHttpAgentWorkerDrawer: Drawer | undefined = undefined
+	let replForWorkerDrawer: Drawer | undefined = undefined
 </script>
 
 {#if $superadmin}
@@ -289,6 +289,12 @@
 	>
 		<HttpAgentWorkerDrawer {customTags} />
 	</DrawerContent>
+</Drawer>
+
+<Drawer bind:this={replForWorkerDrawer} size="1000px">
+	<DrawerContent title="Repl" on:close={() => replForWorkerDrawer?.toggleDrawer?.()}>
+		<Repl {tag} /></DrawerContent
+	>
 </Drawer>
 
 {#if $userStore?.operator && $workspaceStore && !$userWorkspaces.find((_) => _.id === $workspaceStore)?.operator_settings?.workers}
@@ -562,7 +568,14 @@
 									<Cell head>Limits</Cell>
 									<Cell head>Version</Cell>
 									<Cell head>Liveness</Cell>
-									<Cell head last>Live Shell</Cell>
+									<Cell head last
+										>Live Shell <Tooltip>
+											<p class="text-sm">
+												Open a live shell to execute bash commands on the worker — useful for quick
+												access, inspection, and real-time debugging
+											</p>
+										</Tooltip></Cell
+									>
 								</tr>
 							</Head>
 							<tbody class="divide-y">
@@ -672,16 +685,19 @@
 													<Button
 														size="xs"
 														color="light"
-														on:click={() => {}}
+														on:click={() => {
+															const active =
+																last_ping != undefined ? (last_ping < 60 ? true : false) : true
+															if (!active) {
+																sendUserToast('Cannot connect to dead worker', true)
+																return
+															}
+															tag = worker
+															replForWorkerDrawer?.toggleDrawer?.()
+														}}
 														startIcon={{ icon: Terminal }}
 													>
-														Execute Command
-														<Tooltip>
-															<p class="text-sm">
-																Open a live shell to execute bash commands on the worker — useful
-																for quick access, inspection, and real-time debugging
-															</p>
-														</Tooltip>
+														Command
 													</Button>
 												</Cell>
 											</tr>

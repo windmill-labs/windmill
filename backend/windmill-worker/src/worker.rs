@@ -112,7 +112,9 @@ use crate::{
     job_logger::NO_LOGS_AT_ALL,
     js_eval::{eval_fetch_timeout, transpile_ts},
     pg_executor::do_postgresql,
-    result_processor::{process_result, start_background_processor},
+    result_processor::{
+        process_result, start_background_processor, start_interactive_worker_shell,
+    },
     schema::schema_validator_from_main_arg_sig,
     worker_flow::handle_flow,
     worker_lockfiles::{
@@ -367,6 +369,31 @@ lazy_static::lazy_static! {
 lazy_static::lazy_static! {
     pub static ref SYSTEM_ROOT: String = std::env::var("SystemRoot").unwrap_or_else(|_| "C:\\Windows".to_string());
     pub static ref USERPROFILE_ENV: String = std::env::var("USERPROFILE").unwrap_or_else(|_| "/tmp".to_string());
+}
+
+#[derive(Debug)]
+pub enum NextJob {
+    Sql(PulledJob),
+    Http(JobAndPerms),
+}
+
+impl NextJob {
+    pub fn job(self) -> MiniPulledJob {
+        match self {
+            NextJob::Sql(job) => job.job,
+            NextJob::Http(job) => job.job,
+        }
+    }
+}
+
+impl std::ops::Deref for NextJob {
+    type Target = MiniPulledJob;
+    fn deref(&self) -> &Self::Target {
+        match self {
+            NextJob::Sql(job) => &job.job,
+            NextJob::Http(job) => &job.job,
+        }
+    }
 }
 
 //only matter if CLOUD_HOSTED
@@ -1024,6 +1051,17 @@ pub async fn run_worker(
     let job_completed_processor_is_done =
         Arc::new(AtomicBool::new(matches!(conn, Connection::Http(_))));
 
+    start_interactive_worker_shell(
+        conn.clone(),
+        hostname.to_owned(),
+        worker_name.clone(),
+        killpill_tx.clone(),
+        killpill_rx.resubscribe(),
+        base_internal_url.to_owned(),
+        worker_dir.clone(),
+        is_dedicated_worker
+    );
+
     let send_result = match (conn, job_completed_rx) {
         (Connection::Sql(db), Some((job_completed_rx, bg_killpill_rx))) => {
             Some(start_background_processor(
@@ -1153,7 +1191,7 @@ pub async fn run_worker(
             if !valid_key {
                 tracing::error!(
                     worker = %worker_name, hostname = %hostname,
-                    "Invalid license key, workers require a valid license key, sleeping for 30s waiting for valid key to be set"
+                    "Invalid license key, workers require a valid license key, sleeping for 10s waiting for valid key to be set"
                 );
                 tokio::time::sleep(Duration::from_secs(10)).await;
                 continue;
@@ -1222,29 +1260,6 @@ pub async fn run_worker(
             break;
         } else {
             tracing::info!("benchmark not finished, still pulling jobs {}", infos.iters);
-        }
-        enum NextJob {
-            Sql(PulledJob),
-            Http(JobAndPerms),
-        }
-
-        impl NextJob {
-            pub fn job(self) -> MiniPulledJob {
-                match self {
-                    NextJob::Sql(job) => job.job,
-                    NextJob::Http(job) => job.job,
-                }
-            }
-        }
-
-        impl std::ops::Deref for NextJob {
-            type Target = MiniPulledJob;
-            fn deref(&self) -> &Self::Target {
-                match self {
-                    NextJob::Sql(job) => &job.job,
-                    NextJob::Http(job) => &job.job,
-                }
-            }
         }
 
         let next_job = {
@@ -1911,7 +1926,7 @@ pub struct PreviousResult<'a> {
     pub previous_result: Option<&'a RawValue>,
 }
 
-async fn handle_queued_job(
+pub async fn handle_queued_job(
     job: Arc<MiniPulledJob>,
     raw_code: Option<String>,
     raw_lock: Option<String>,
@@ -2237,7 +2252,6 @@ async fn handle_queued_job(
         {
             return Ok(false);
         }
-
         process_result(
             job,
             result.map(|x| Arc::new(x)),

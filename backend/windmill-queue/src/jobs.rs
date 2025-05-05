@@ -2155,13 +2155,13 @@ pub struct PulledJob {
     pub permissioned_as_folders: Option<Vec<serde_json::Value>>,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub enum PrecomputedAgentInfo {
     Bun { local: String, remote: String },
     Python { py_version: Option<u32>, requirements: Option<String> },
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct JobAndPerms {
     pub job: MiniPulledJob,
     pub raw_code: Option<String>,
@@ -2313,11 +2313,11 @@ pub async fn pull(
     db: &Pool<Postgres>,
     suspend_first: bool,
     worker_name: &str,
-    query_o: Option<(String, String)>,
+    query_o: Option<&(String, String)>,
     #[cfg(feature = "benchmark")] bench: &mut BenchmarkIter,
 ) -> windmill_common::error::Result<PulledJobResult> {
     loop {
-        if let Some((query_suspended, query_no_suspend)) = query_o.as_ref() {
+        if let Some((query_suspended, query_no_suspend)) = query_o {
             let njob = {
                 let job = sqlx::query_as::<_, PulledJob>(query_suspended)
                     .bind(worker_name)
@@ -2572,7 +2572,6 @@ async fn pull_single_job_and_mark_as_running_no_concurrency_limit<'c>(
             tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
             return Ok((None, false));
         }
-
         let r = if suspend_first {
             // tracing::info!("Pulling job with query: {}", query);
             sqlx::query_as::<_, PulledJob>(&query)
