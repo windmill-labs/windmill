@@ -296,7 +296,7 @@
 			{#if $selectedTrigger && $selectedTrigger.type && $selectedTrigger.type !== 'schedule' && $selectedTrigger.type != 'poll'}
 				{@const captureKind = triggerTypeToCaptureKind($selectedTrigger.type)}
 				{#key captureKind}
-					<Pane>
+					<Pane minSize={20} size={40}>
 						<CaptureWrapper
 							path={initialPath || fakeInitialPath}
 							{isFlow}
