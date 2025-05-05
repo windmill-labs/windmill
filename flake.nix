@@ -17,6 +17,7 @@
           extensions = [
             "rust-src" # for rust-analyzer
             "rust-analyzer"
+            "rustfmt"
           ];
         };
         buildInputs = with pkgs; [
@@ -183,6 +184,7 @@
           ANSIBLE_PLAYBOOK_PATH = "${pkgs.ansible}/bin/ansible-playbook";
           ANSIBLE_GALAXY_PATH = "${pkgs.ansible}/bin/ansible-galaxy";
           RUST_LOG = "debug";
+          SQLX_OFFLINE = "true";
         };
         packages.default = self.packages.${system}.windmill;
         packages.windmill-client = pkgs.buildNpmPackage {
