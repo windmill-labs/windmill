@@ -6,8 +6,10 @@
 	import { twMerge } from 'tailwind-merge'
 	import TriggerLabel from '$lib/components/triggers/TriggerLabel.svelte'
 	import { triggerIconMap } from '$lib/components/triggers/utils'
-	import { Star, Check } from 'lucide-svelte'
+	import { Star } from 'lucide-svelte'
 	import { onMount } from 'svelte'
+	import ToggleButtonGroup from '../toggleButton-v2/ToggleButtonGroup.svelte'
+	import ToggleButton from '../toggleButton-v2/ToggleButton.svelte'
 
 	interface Props {
 		open?: boolean
@@ -18,33 +20,22 @@
 
 	let selectedTriggers: Trigger[] = $state([])
 	let tableHeight = $state(0)
-	let selectAll = $derived(
-		selectedTriggers.length === draftTriggers.length && draftTriggers.length > 0
-	)
 
 	const dispatch = createEventDispatcher<{
 		canceled: void
 		confirmed: { selectedTriggers: Trigger[] }
 	}>()
 
-	function toggleTrigger(trigger: Trigger) {
-		if (isSelected(selectedTriggers, trigger)) {
+	function toggleTrigger(trigger: Trigger, selected: 'discard' | 'deploy') {
+		if (selected === 'discard') {
 			selectedTriggers = selectedTriggers.filter((t) => t.id !== trigger.id)
-		} else {
+		} else if (!isSelected(selectedTriggers, trigger)) {
 			selectedTriggers = [...selectedTriggers, trigger]
 		}
 	}
 
 	function isSelected(triggers: Trigger[], trigger: Trigger): boolean {
 		return triggers.some((t) => t.id === trigger.id)
-	}
-
-	function handleSelectAll() {
-		if (!selectAll) {
-			selectedTriggers = []
-		} else {
-			selectedTriggers = [...draftTriggers]
-		}
 	}
 
 	onMount(() => {
@@ -72,44 +63,21 @@
 				<thead>
 					<tr class="bg-gray-50 dark:bg-gray-800 text-secondary dark:text-gray-300 text-xs">
 						<th class="text-left py-2 px-4">Trigger to deploy</th>
-						<th class="w-16 text-center py-2 px-1">
-							<div class="center-center">
-								<div
-									class={twMerge(
-										'h-4 w-4 rounded border center-center cursor-pointer transition-colors',
-										selectAll
-											? 'border-blue-500 bg-blue-500 text-white'
-											: 'border-gray-300 dark:border-gray-600'
-									)}
-									onclick={() => {
-										selectAll = !selectAll
-										handleSelectAll()
-									}}
-									onkeydown={(e) => e.key === 'Enter' && handleSelectAll()}
-									tabindex="0"
-									role="checkbox"
-									aria-checked={selectAll}
-									id="select-all-triggers"
-								>
-									{#if selectAll}
-										<Check size={12} />
-									{/if}
-								</div>
-							</div>
-						</th>
+						<th class="w-32 text-center py-2 px-1 justify-center"> </th>
 					</tr>
 				</thead>
 				<tbody>
 					{#each draftTriggers as trigger}
 						{@const SvelteComponent = triggerIconMap[trigger.type]}
 						<tr
-							class={twMerge(
-								'hover:bg-surface-hover transition-colors h-12 border-t border-gray-200 dark:border-gray-700 cursor-pointer whitespace-nowrap',
-								isSelected(selectedTriggers, trigger) ? '' : ''
-							)}
-							onclick={() => toggleTrigger(trigger)}
+							class="hover:bg-surface-hover transition-colors h-12 border-t border-gray-200 dark:border-gray-700 cursor-pointer whitespace-nowrap"
 						>
-							<td class="text-center py-1 px-4">
+							<td
+								class={twMerge(
+									'text-center py-1 px-4',
+									isSelected(selectedTriggers, trigger) ? '' : 'opacity-50'
+								)}
+							>
 								<div class="flex flex-row items-center gap-2">
 									<div class="relative flex justify-center items-center">
 										<SvelteComponent
@@ -122,32 +90,35 @@
 											<Star size={8} class="absolute -mt-3 ml-3 text-blue-400" />
 										{/if}
 									</div>
-									<!-- svelte-ignore a11y_click_events_have_key_events -->
-									<!-- svelte-ignore a11y_no_static_element_interactions -->
 									<div class="grow min-w-0 items-center text-left">
-										<TriggerLabel {trigger} discard={!isSelected(selectedTriggers, trigger)} />
+										<TriggerLabel {trigger} />
 									</div>
 								</div>
 							</td>
 
 							<td class="text-center py-1">
 								<div class="flex justify-center">
-									<div
-										class={twMerge(
-											'h-4 w-4 rounded border center-center cursor-pointer transition-colors',
-											isSelected(selectedTriggers, trigger)
-												? 'border-blue-500 bg-blue-500 text-white'
-												: 'border-gray-300 dark:border-gray-600'
-										)}
-										onkeydown={(e) => e.key === 'Enter' && toggleTrigger(trigger)}
-										tabindex="0"
-										role="checkbox"
-										aria-checked={isSelected(selectedTriggers, trigger)}
+									<ToggleButtonGroup
+										let:item
+										class="w-fit h-fit"
+										selected={isSelected(selectedTriggers, trigger) ? 'deploy' : 'discard'}
+										on:selected={(e) => toggleTrigger(trigger, e.detail)}
 									>
-										{#if isSelected(selectedTriggers, trigger)}
-											<Check size={12} />
-										{/if}
-									</div>
+										<ToggleButton
+											label="Discard"
+											value={'discard'}
+											{item}
+											small
+											class="data-[state=on]:text-red-500"
+										/>
+										<ToggleButton
+											label="Deploy"
+											value={'deploy'}
+											{item}
+											small
+											class="data-[state=on]:text-blue-500"
+										/>
+									</ToggleButtonGroup>
 								</div>
 							</td>
 						</tr>
