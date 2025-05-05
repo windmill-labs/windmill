@@ -172,10 +172,7 @@
 	}
 
 	export function setDraftTriggers(triggers: Trigger[]) {
-		$triggersStore = [
-			...$triggersStore.filter((t) => !t.isDraft), // Keep non-draft triggers
-			...triggers // Add the new draft triggers
-		]
+		$triggersStore = [...triggers]
 	}
 
 	let loadingSave = false

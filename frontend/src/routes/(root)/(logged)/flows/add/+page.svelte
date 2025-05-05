@@ -104,7 +104,7 @@
 			flow = state.flow
 			pathStoreInit = state.path
 			savedPrimarySchedule = state.primarySchedule
-			savedDraftTriggers = state.draft_triggers
+			savedDraftTriggers = state.draftTriggers
 			state?.selectedId && (selectedId = state?.selectedId)
 		} else {
 			if (templatePath) {
