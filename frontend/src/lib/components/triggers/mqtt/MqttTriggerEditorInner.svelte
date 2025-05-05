@@ -21,6 +21,7 @@
 	import MqttEditorConfigSection from './MqttEditorConfigSection.svelte'
 	import type { Snippet } from 'svelte'
 	import TriggerEditorToolbar from '../TriggerEditorToolbar.svelte'
+	import { saveMqttTriggerFromCfg } from './utils'
 
 	interface Props {
 		useDrawer?: boolean
@@ -181,70 +182,30 @@
 		}
 	}
 
+	function getSaveCfg(): Record<string, any> {
+		return {
+			client_id,
+			client_version,
+			v3_config,
+			v5_config,
+			mqtt_resource_path,
+			subscribe_topics,
+			path,
+			script_path,
+			enabled,
+			is_flow
+		}
+	}
+
 	function saveDraft() {
-		dispatch('save-draft', {
-			cfg: {
-				script_path,
-				initialScriptPath,
-				is_flow,
-				path,
-				mqtt_resource_path,
-				subscribe_topics,
-				client_version,
-				v3_config,
-				v5_config,
-				client_id,
-				isValid,
-				enabled
-			},
-			cb: () => {
-				updateTrigger()
-			}
-		})
+		const cfg = getSaveCfg()
+		dispatch('save-draft', { cfg })
 		toggleEditMode(false)
 	}
 
 	async function updateTrigger(): Promise<void> {
-		if (edit) {
-			await MqttTriggerService.updateMqttTrigger({
-				workspace: $workspaceStore!,
-				path: initialPath,
-				requestBody: {
-					client_id,
-					client_version,
-					v3_config,
-					v5_config,
-					mqtt_resource_path,
-					subscribe_topics,
-					path,
-					script_path,
-					enabled,
-					is_flow
-				}
-			})
-			sendUserToast(`MQTT trigger ${path} updated`)
-		} else {
-			await MqttTriggerService.createMqttTrigger({
-				workspace: $workspaceStore!,
-				requestBody: {
-					client_id,
-					client_version,
-					v3_config,
-					v5_config,
-					mqtt_resource_path,
-					subscribe_topics,
-					enabled: true,
-					path,
-					script_path,
-					is_flow
-				}
-			})
-			sendUserToast(`MQTT trigger ${path} created`)
-		}
-
-		if (!$usedTriggerKinds.includes('mqtt')) {
-			$usedTriggerKinds = [...$usedTriggerKinds, 'mqtt']
-		}
+		const cfg = getSaveCfg()
+		await saveMqttTriggerFromCfg(initialPath, cfg, edit, $workspaceStore!, usedTriggerKinds)
 		dispatch('update', path)
 		drawer?.closeDrawer()
 		toggleEditMode(false)

@@ -35,6 +35,7 @@ import { savePostgresTriggerFromCfg } from './postgres/utils'
 import { saveKafkaTriggerFromCfg } from './kafka/utils'
 import { saveSqsTriggerFromCfg } from './sqs/utils'
 import { saveNatsTriggerFromCfg } from './nats/utils'
+import { saveMqttTriggerFromCfg } from './mqtt/utils'
 
 export type TriggerType =
 	| 'webhook'
@@ -648,6 +649,14 @@ export async function deployTriggers(
 				)
 			} else if (t.type === 'nats') {
 				saveNatsTriggerFromCfg(
+					t.path ?? t.draftConfig?.path ?? '',
+					t.draftConfig ?? {},
+					!t.isDraft,
+					workspaceId,
+					usedTriggerKinds
+				)
+			} else if (t.type === 'mqtt') {
+				saveMqttTriggerFromCfg(
 					t.path ?? t.draftConfig?.path ?? '',
 					t.draftConfig ?? {},
 					!t.isDraft,
