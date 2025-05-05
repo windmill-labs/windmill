@@ -9,7 +9,8 @@ import {
 	type OperatorSettings,
 	type TokenResponse,
 	type UserWorkspaceList,
-	type WorkspaceDefaultScripts
+	type WorkspaceDefaultScripts,
+	WorkspaceService
 } from './gen'
 import { getLocalSetting } from './utils'
 
@@ -25,6 +26,14 @@ export interface UserExt {
 	pgroups: string[]
 	folders: string[]
 	folders_owners: string[]
+}
+
+export interface UserWorkspace {
+	id: string
+	name: string
+	username: string
+	color: string | null
+	operator_settings?: OperatorSettings
 }
 
 const persistedWorkspace = BROWSER && getWorkspace()
@@ -59,31 +68,26 @@ export const superadmin = writable<string | false | undefined>(undefined)
 export const devopsRole = writable<string | false | undefined>(undefined)
 export const lspTokenStore = writable<string | undefined>(undefined)
 export const hubBaseUrlStore = writable<string>('https://hub.windmill.dev')
-export const userWorkspaces: Readable<
-	Array<{
-		id: string
-		name: string
-		username: string
-		color: string | null
-		operator_settings?: OperatorSettings
-	}>
-> = derived([usersWorkspaceStore, superadmin], ([store, superadmin]) => {
-	const originalWorkspaces = store?.workspaces ?? []
-	if (superadmin) {
-		return [
-			...originalWorkspaces.filter((x) => x.id != 'admins'),
-			{
-				id: 'admins',
-				name: 'Admins',
-				username: 'superadmin',
-				color: null,
-				operator_settings: null
-			}
-		]
-	} else {
-		return originalWorkspaces
+export const userWorkspaces: Readable<Array<UserWorkspace>> = derived(
+	[usersWorkspaceStore, superadmin],
+	([store, superadmin]) => {
+		const originalWorkspaces = store?.workspaces ?? []
+		if (superadmin) {
+			return [
+				...originalWorkspaces.filter((x) => x.id != 'admins'),
+				{
+					id: 'admins',
+					name: 'Admins',
+					username: 'superadmin',
+					color: null,
+					operator_settings: null
+				}
+			]
+		} else {
+			return originalWorkspaces
+		}
 	}
-})
+)
 export const copilotInfo = writable<{
 	enabled: boolean
 	codeCompletionModel?: AIProviderModel
@@ -202,3 +206,45 @@ export const dbSchemas = writable<DBSchemas>({})
 export const instanceSettingsSelectedTab = writable('Core')
 
 export const isCriticalAlertsUIOpen = writable(false)
+
+export const workspaceColor: Readable<string | null | undefined> = derived(
+	[workspaceStore, usersWorkspaceStore, superadmin],
+	([workspaceStore, usersWorkspaceStore, superadmin], set: (value: string | undefined) => void) => {
+		if (!workspaceStore) {
+			set(undefined)
+			return
+		}
+
+		// First try to get the color from usersWorkspaceStore
+		const color = usersWorkspaceStore?.workspaces.find((w) => w.id === workspaceStore)?.color
+
+		if (color) {
+			set(color)
+			return
+		}
+
+		// If not found and user is superadmin, try to get it from superadmin list
+		if (!superadmin) {
+			set(undefined)
+			return
+		}
+
+		WorkspaceService.listWorkspacesAsSuperAdmin().then((workspaces) => {
+			const superadminColor = workspaces.find((w) => w.id === workspaceStore)?.color
+			set(superadminColor)
+		})
+	}
+)
+
+export function getFlatTableNamesFromSchema(dbSchema: DBSchema | undefined): string[] {
+	const schema = dbSchema?.schema ?? {}
+	const tableNames: string[] = []
+
+	for (const schemaKey in schema) {
+		for (const tableKey in schema[schemaKey]) {
+			tableNames.push(`${schemaKey}.${tableKey}`)
+		}
+	}
+
+	return tableNames
+}

@@ -40,6 +40,7 @@ use std::{
 };
 use windmill_audit::audit_ee::audit_log;
 use windmill_audit::ActionKind;
+use windmill_worker::process_relative_imports;
 
 use windmill_common::error::to_anyhow;
 
@@ -649,8 +650,13 @@ async fn create_script_internal<'c>(
     ) {
         Some(String::new())
     } else {
-        ns.lock
-            .and_then(|e| if e.is_empty() { None } else { Some(e) })
+        ns.lock.as_ref().and_then(|e| {
+            if e.is_empty() {
+                None
+            } else {
+                Some(e.to_string())
+            }
+        })
     };
 
     let needs_lock_gen = lock.is_none() && codebase.is_none();
@@ -894,6 +900,40 @@ async fn create_script_internal<'c>(
         .await?;
         Ok((hash, new_tx))
     } else {
+        let db2 = db.clone();
+        let w_id2 = w_id.clone();
+        let authed2 = authed.clone();
+        let permissioned_as2 = permissioned_as.clone();
+        let script_path2 = script_path.clone();
+        let parent_path = p_path_opt.clone();
+        let lock = ns.lock.clone();
+        let deployment_message = ns.deployment_message.clone();
+        let content = ns.content.clone();
+        let language = ns.language.clone();
+        tokio::spawn(async move {
+            // wait for 10 seconds to make sure the script is deployed and that the CLI sync that pushed it (f one) is complete
+            tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+            if let Err(e) = process_relative_imports(
+                &db2,
+                None,
+                None,
+                &w_id2,
+                &script_path2,
+                parent_path,
+                deployment_message,
+                &content,
+                &Some(language),
+                &authed2.email,
+                &authed2.username,
+                &permissioned_as2,
+                lock,
+            )
+            .await
+            {
+                tracing::error!(%e, "error processing relative imports");
+            }
+        });
+
         handle_deployment_metadata(
             &authed.email,
             &authed.username,

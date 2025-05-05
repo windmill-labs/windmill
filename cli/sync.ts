@@ -41,6 +41,7 @@ import { SyncCodebase, listSyncCodebases } from "./codebase.ts";
 import {
   generateFlowLockInternal,
   generateScriptMetadataInternal,
+  readLockfile,
 } from "./metadata.ts";
 import { FlowModule, OpenFlow, RawScript } from "./gen/types.gen.ts";
 import { pushResource } from "./resource.ts";
@@ -343,7 +344,7 @@ export function newPathAssigner(defaultTs: "bun" | "deno"): PathAssigner {
     else if (language == "nu") ext = "nu";
     else if (language == "ansible") ext = "playbook.yml";
     else if (language == "java") ext = "java";
-  	// for related places search: ADD_NEW_LANG 
+    // for related places search: ADD_NEW_LANG
     else ext = "no_ext";
 
     return [`${name}.inline_script.`, ext];
@@ -608,11 +609,16 @@ export async function* readDirRecursiveWithIgnore(
 
   while (stack.length > 0) {
     const e = stack.pop()!;
+    // console.log(e.path);
     yield e;
     for await (const e2 of e.c()) {
-      if (e2.path.startsWith(".git" + SEP)) {
-        continue;
+      if (e2.isDirectory) {
+        const dirName = e2.path.split(SEP).pop();
+        if (dirName == "node_modules" || dirName?.startsWith(".")) {
+          continue;
+        }
       }
+      // console.log(e2.path);
       stack.push({
         path: e2.path,
         ignored: e.ignored || ignore(e2.path, e2.isDirectory),
@@ -659,9 +665,8 @@ export async function elementsToMap(
         path.endsWith(".nats_trigger" + ext) ||
         path.endsWith(".postgres_trigger" + ext) ||
         path.endsWith(".mqtt_trigger" + ext) ||
-        path.endsWith(".sqs_trigger" + ext) || 
-        path.endsWith(".gcp_trigger" + ext)
-      )
+        path.endsWith(".sqs_trigger" + ext) ||
+        path.endsWith(".gcp_trigger" + ext))
     )
       continue;
     if (!skips.includeUsers && path.endsWith(".user" + ext)) continue;
@@ -695,7 +700,7 @@ export async function elementsToMap(
         "yml",
         "nu",
         "java",
-        // for related places search: ADD_NEW_LANG 
+        // for related places search: ADD_NEW_LANG
       ].includes(path.split(".").pop() ?? "") &&
       !isFileResource(path)
     )
@@ -1273,7 +1278,7 @@ export async function pull(opts: GlobalOptions & SyncOptions) {
       }
     }
     log.info("All local changes pulled, now updating wmill-lock.yaml");
-
+    await readLockfile(); // ensure wmill-lock.yaml exists
     const globalDeps = await findGlobalDeps();
 
     const tracker: ChangeTracker = await buildTracker(changes);

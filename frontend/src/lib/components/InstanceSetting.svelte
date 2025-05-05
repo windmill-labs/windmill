@@ -334,15 +334,15 @@
 												latestKeyRenewalAttempt.result === 'success'
 													? 'text-green-600'
 													: isTrial
-													? 'text-yellow-600'
-													: 'text-red-600'
+														? 'text-yellow-600'
+														: 'text-red-600'
 											)}
 										>
 											{latestKeyRenewalAttempt.result === 'success'
 												? 'Latest key renewal succeeded'
 												: isTrial
-												? 'Latest key renewal ignored because in trial'
-												: 'Latest key renewal failed'}
+													? 'Latest key renewal ignored because in trial'
+													: 'Latest key renewal failed'}
 											on {attemptedAt}
 										</span>
 									</div>
@@ -928,6 +928,30 @@
 				{:else if setting.fieldType == 'object_store_config'}
 					<ObjectStoreConfigSettings bind:bucket_config={$values[setting.key]} />
 					<div class="mb-6"></div>
+				{:else if setting.fieldType == 'critical_alerts_on_db_oversize'}
+					{#if $values[setting.key]}
+						<div class="flex flex-row flex-wrap gap-2 p-0 items-center">
+							<div class="p-1">
+								<Toggle
+									disabled={!$enterpriseLicense}
+									bind:checked={$values[setting.key].enabled}
+								/>
+							</div>
+							{#if $values[setting.key].enabled}
+								<label class="block shrink min-w-0">
+									<input
+										type="number"
+										placeholder={setting.placeholder}
+										bind:value={$values[setting.key].value}
+									/>
+								</label>
+								<label class="block">
+									<span class="text-primary font-semibold text-sm">GB</span>
+								</label>
+							{/if}
+						</div>
+						<div class="mb-6"></div>
+					{/if}
 				{:else if setting.fieldType == 'number'}
 					<input
 						type="number"

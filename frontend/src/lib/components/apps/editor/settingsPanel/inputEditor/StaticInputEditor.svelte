@@ -34,12 +34,11 @@
 	export let format: string | undefined = undefined
 	export let id: string | undefined
 
-	const { onchange } = getContext<AppViewerContext>('AppViewerContext')
+	const appContext = getContext<AppViewerContext>('AppViewerContext')
 
+	$: componentInput && appContext?.onchange?.()
 	let s3FileUploadRawMode = false
 	let s3FilePicker: S3FilePicker | undefined = undefined
-
-	$: componentInput && onchange?.()
 </script>
 
 {#key subFieldType}
@@ -200,11 +199,13 @@
 					bind:this={s3FilePicker}
 					readOnlyMode={false}
 					on:close={(e) => {
-						if (componentInput?.value?.s3) {
+						if (e.detail) {
+							if (componentInput) {
+								componentInput.value = e.detail
+							}
 							s3FileUploadRawMode = true
 						}
 					}}
-					bind:selectedFileKey={componentInput.value}
 				/>
 			{:else if format?.startsWith('resource-') && (componentInput.value == undefined || typeof componentInput.value == 'string')}
 				<ResourcePicker
@@ -233,6 +234,7 @@
 			{:else}
 				<div class="flex w-full flex-col">
 					<JsonEditor
+						loadAsync
 						small
 						bind:value={componentInput.value}
 						code={JSON.stringify(componentInput.value, null, 2)}

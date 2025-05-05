@@ -67,7 +67,7 @@ jobs:
           platforms: linux/amd64,linux/arm64
           push: true
           build-args: |
-            features=embedding,parquet,openidconnect,license,http_trigger,zip,oauth2,postgres_trigger,mqtt_trigger,websocket,smtp,static_frontend,all_languages
+            features=embedding,parquet,openidconnect,license,http_trigger,zip,oauth2,postgres_trigger,mqtt_trigger,websocket,smtp,static_frontend,all_languages,deno_core,mcp
           tags: |
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:dev
             ${{ steps.meta-public.outputs.tags }}

@@ -93,7 +93,7 @@ export const SUPPORTED_CHAT_SCRIPT_LANGUAGES = [
 ]
 
 export function getLangContext(
-	lang: ScriptLang | 'bunnative',
+	lang: ScriptLang | 'bunnative' | 'jsx' | 'tsx' | 'json',
 	{ allowResourcesFetch = false }: { allowResourcesFetch?: boolean } = {}
 ) {
 	const tsContext =
@@ -487,6 +487,31 @@ async function callTool(
 	}
 }
 
+async function processToolCall(
+	toolCall: ChatCompletionMessageToolCall,
+	messages: ChatCompletionMessageParam[],
+	lang: ScriptLang | 'bunnative'
+) {
+	try {
+		const args = JSON.parse(toolCall.function.arguments)
+		let result = ''
+		try {
+			result = await callTool(toolCall.function.name, args, lang, get(workspaceStore) ?? '')
+		} catch (err) {
+			console.error(err)
+			result =
+				'Error while calling tool, MUST tell the user to check the browser console for more details, and then respond as much as possible to the original request'
+		}
+		messages.push({
+			role: 'tool',
+			tool_call_id: toolCall.id,
+			content: result
+		})
+	} catch (err) {
+		console.error(err)
+	}
+}
+
 export async function chatRequest(
 	messages: ChatCompletionMessageParam[],
 	abortController: AbortController,
@@ -554,23 +579,7 @@ export async function chatRequest(
 						tool_calls: toolCalls
 					})
 					for (const toolCall of toolCalls) {
-						try {
-							const args = JSON.parse(toolCall.function.arguments)
-							const result = await callTool(
-								toolCall.function.name,
-								args,
-								lang,
-								get(workspaceStore) ?? ''
-							)
-							messages.push({
-								role: 'tool',
-								tool_call_id: toolCall.id,
-								content: result
-							})
-						} catch (err) {
-							console.error(err)
-							throw new Error('Error while calling tool')
-						}
+						await processToolCall(toolCall, messages, lang)
 					}
 				} else {
 					break

@@ -33,7 +33,7 @@
 		SkipForward
 	} from 'lucide-svelte'
 	import { twMerge } from 'tailwind-merge'
-	import { initCss } from '$lib/components/apps/utils'
+	import { deepCloneWithFunctions, initCss } from '$lib/components/apps/utils'
 	import ResolveStyle from '../../helpers/ResolveStyle.svelte'
 
 	import AppAggridTableActions from './AppAggridTableActions.svelte'
@@ -87,6 +87,7 @@
 		: [{ error: 'input was not an array' }]
 
 	let loaded = false
+
 
 	async function setValues() {
 		value = Array.isArray(result)
@@ -190,10 +191,11 @@
 
 			let data = { ...result[event.node.rowIndex] }
 			outputs?.selectedRow?.set(data)
+			resolvedConfig?.extraConfig?.['defaultColDef']?.['onCellValueChanged']?.(event)
 		}
 	}
 
-	let extraConfig = resolvedConfig.extraConfig
+	let extraConfig = deepCloneWithFunctions(resolvedConfig.extraConfig)
 	let api: GridApi<any> | undefined = undefined
 	let eGui: HTMLDivElement
 	let state: any = undefined
@@ -302,7 +304,9 @@
 			? (data?.[resolvedConfig?.rowIdCol] ?? data['__index'])
 			: data['__index']
 	}
+
 	function mountGrid() {
+		// console.log(resolvedConfig?.extraConfig)
 		if (eGui) {
 			try {
 				let columnDefs =
@@ -338,11 +342,6 @@
 						pagination: resolvedConfig?.pagination,
 						paginationAutoPageSize: resolvedConfig?.pagination,
 						suppressPaginationPanel: true,
-						defaultColDef: {
-							flex: resolvedConfig.flex ? 1 : 0,
-							editable: resolvedConfig?.allEditable,
-							onCellValueChanged
-						},
 						rowHeight: resolvedConfig.compactness
 							? rowHeights[resolvedConfig.compactness]
 							: rowHeights['normal'],
@@ -358,7 +357,13 @@
 						suppressRowDeselection: true,
 						suppressDragLeaveHidesColumns: true,
 						enableCellTextSelection: true,
-						...(resolvedConfig?.extraConfig ?? {}),
+						...deepCloneWithFunctions(resolvedConfig?.extraConfig ?? {}),
+						defaultColDef: {
+							flex: resolvedConfig.flex ? 1 : 0,
+							editable: resolvedConfig?.allEditable,
+							onCellValueChanged,
+							...resolvedConfig?.extraConfig?.['defaultColDef']
+						},
 						onStateUpdated: (e) => {
 							state = e?.api?.getState()
 							resolvedConfig?.extraConfig?.['onStateUpdated']?.(e)
@@ -422,7 +427,7 @@
 	$: value && updateValue()
 
 	$: if (!deepEqual(extraConfig, resolvedConfig.extraConfig)) {
-		extraConfig = resolvedConfig.extraConfig
+		extraConfig = deepCloneWithFunctions(resolvedConfig.extraConfig)
 		if (extraConfig) {
 			api?.updateGridOptions(extraConfig)
 		}
@@ -489,11 +494,6 @@
 				paginationAutoPageSize: resolvedConfig?.pagination,
 				suppressPaginationPanel: true,
 				suppressDragLeaveHidesColumns: true,
-				defaultColDef: {
-					flex: resolvedConfig.flex ? 1 : 0,
-					editable: resolvedConfig?.allEditable,
-					onCellValueChanged
-				},
 				rowSelection: resolvedConfig?.multipleSelectable ? 'multiple' : 'single',
 				rowMultiSelectWithClick: resolvedConfig?.multipleSelectable
 					? resolvedConfig.rowMultiselectWithClick
@@ -501,7 +501,13 @@
 				rowHeight: resolvedConfig.compactness
 					? rowHeights[resolvedConfig.compactness]
 					: rowHeights['normal'],
-				...(resolvedConfig?.extraConfig ?? {})
+				...deepCloneWithFunctions(resolvedConfig?.extraConfig ?? {}),
+				defaultColDef: {
+					flex: resolvedConfig.flex ? 1 : 0,
+					editable: resolvedConfig?.allEditable,
+					onCellValueChanged,
+					...resolvedConfig?.extraConfig?.['defaultColDef']
+				}
 			})
 		} catch (e) {
 			console.error(e)

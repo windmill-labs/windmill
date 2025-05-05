@@ -52,7 +52,7 @@
 							'rounded-full center-center h-[18px] w-[18px]',
 							isConnecting
 								? 'bg-surface text-blue-500'
-								: 'outline-[1px] outline dark:outline-gray-500 outline-gray-300 duration-150 bg-blue-500 hover:bg-blue-700 text-white'
+								: 'outline-[1px] outline dark:outline-gray-500 outline-gray-300 duration-0 bg-blue-500 hover:bg-blue-700 text-white'
 						)}
 					>
 						<Plug size={12} strokeWidth={2} />

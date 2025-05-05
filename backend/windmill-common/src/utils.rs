@@ -19,8 +19,7 @@ use git_version::git_version;
 
 use chrono::Utc;
 use croner::Cron;
-use rand::distr::Alphanumeric;
-use rand::{rng, Rng};
+use rand::{distr::Alphanumeric, rng, Rng};
 use reqwest::Client;
 use semver::Version;
 use serde::{Deserialize, Deserializer, Serialize};
@@ -98,8 +97,10 @@ lazy_static::lazy_static! {
                 search_addon = true;
                     println!("Binary is in 'standalone' mode with search enabled");
                     Mode::Standalone
-            }
-            else {
+            } else if &x == "mcp" {
+                println!("Binary is in 'mcp' mode");
+                Mode::MCP
+            } else {
                 if &x != "standalone" {
                     eprintln!("mode not recognized, defaulting to standalone: {x}");
                 } else {
@@ -347,6 +348,7 @@ pub enum Mode {
     Server,
     Standalone,
     Indexer,
+    MCP,
 }
 
 impl std::fmt::Display for Mode {
@@ -357,6 +359,7 @@ impl std::fmt::Display for Mode {
             Mode::Server => write!(f, "server"),
             Mode::Standalone => write!(f, "standalone"),
             Mode::Indexer => write!(f, "indexer"),
+            Mode::MCP => write!(f, "mcp"),
         }
     }
 }

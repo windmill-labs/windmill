@@ -2,7 +2,7 @@
 	import { BROWSER } from 'esm-env'
 	import { createEventDispatcher, onMount } from 'svelte'
 
-	import '@codingame/monaco-vscode-standalone-languages'
+	// import '@codingame/monaco-vscode-standalone-languages'
 	import '@codingame/monaco-vscode-standalone-json-language-features'
 	import '@codingame/monaco-vscode-standalone-typescript-language-features'
 	import { editor as meditor } from 'monaco-editor'

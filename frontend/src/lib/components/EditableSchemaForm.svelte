@@ -27,7 +27,7 @@
 	import { createDispatcherIfMounted } from '$lib/createDispatcherIfMounted'
 
 	export let schema: Schema | any
-	export let schemaSkippedValues: string[] = []
+	export let hiddenArgs: string[] = []
 	export let args: Record<string, any> = {}
 	export let shouldHideNoInputs: boolean = false
 	export let noVariablePicker = false
@@ -439,7 +439,7 @@
 										</div>
 										{#if opened === argName}
 											<div class="p-4 border-t">
-												{#if !schemaSkippedValues.includes(argName) && Object.keys(schema?.properties ?? {}).includes(argName)}
+												{#if !hiddenArgs.includes(argName) && Object.keys(schema?.properties ?? {}).includes(argName)}
 													{#if typeof args == 'object' && schema?.properties[argName]}
 														<PropertyEditor
 															bind:description={schema.properties[argName].description}

@@ -164,7 +164,7 @@ pub async fn cancel_single_job<'c>(
         let username = username.to_string();
         let w_id = w_id.to_string();
         let db = db.clone();
-        tracing::info!("cancelling job {:?}", db);
+        tracing::info!("cancelling job {:?}", job_running.id);
         let job_running = job_running.clone();
         tokio::task::spawn(async move {
             let reason: String = reason
@@ -2587,6 +2587,7 @@ async fn pull_single_job_and_mark_as_running_no_concurrency_limit<'c>(
 
         if query.is_empty() {
             tracing::warn!("No suspended pull queries available");
+            tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
             return Ok((None, false));
         }
 
@@ -2608,6 +2609,7 @@ async fn pull_single_job_and_mark_as_running_no_concurrency_limit<'c>(
 
             if queries.is_empty() {
                 tracing::warn!("No pull queries available");
+                tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
                 return Ok((None, false));
             }
 
@@ -4105,6 +4107,7 @@ pub async fn push<'c, 'd>(
             } else if job_kind == JobKind::Dependencies
                 || job_kind == JobKind::FlowDependencies
                 || job_kind == JobKind::DeploymentCallback
+                || job_kind == JobKind::AppDependencies
             {
                 // using the dependency tag for deployment callback for now. We can create a separate tag when we need
                 "dependency".to_string()

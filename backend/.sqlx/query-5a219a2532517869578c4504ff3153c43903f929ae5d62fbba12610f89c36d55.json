@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "WITH worker_ids AS (SELECT unnest($1::text[]) as worker)\n            SELECT worker_ids.worker FROM worker_ids\n            LEFT JOIN worker_ping ON worker_ids.worker = worker_ping.worker\n                WHERE worker_ping.worker IS NULL OR worker_ping.ping_at < now() - ('60 seconds')::interval",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "worker",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "TextArray"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "5a219a2532517869578c4504ff3153c43903f929ae5d62fbba12610f89c36d55"
+}

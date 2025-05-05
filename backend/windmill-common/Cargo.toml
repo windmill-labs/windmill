@@ -13,6 +13,7 @@ prometheus = ["dep:prometheus"]
 loki = ["dep:tracing-loki"]
 benchmark = []
 parquet = ["dep:object_store", "dep:aws-config", "dep:aws-sdk-sts"]
+aws_auth = ["dep:aws-sdk-sts", "dep:aws-config"]
 otel = ["dep:opentelemetry-semantic-conventions", "dep:opentelemetry-otlp", "dep:opentelemetry_sdk", 
     "dep:opentelemetry", "dep:tracing-opentelemetry", "dep:opentelemetry-appender-tracing", "dep:tonic"]
 smtp = ["dep:mail-send"]
@@ -75,6 +76,8 @@ quick_cache.workspace = true
 pin-project-lite.workspace = true
 futures.workspace = true
 tempfile.workspace = true
+systemstat.workspace = true
+size.workspace = true
 
 opentelemetry-semantic-conventions = { workspace = true, optional = true }
 opentelemetry-otlp = { workspace = true, optional = true }

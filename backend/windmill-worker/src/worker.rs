@@ -284,6 +284,8 @@ lazy_static::lazy_static! {
         let mut proxy_env = Vec::new();
         if let Some(no_proxy) = NO_PROXY.as_ref() {
             proxy_env.push(("NO_PROXY", no_proxy.to_string()));
+        } else if HTTPS_PROXY.is_some() || HTTP_PROXY.is_some() {
+            proxy_env.push(("NO_PROXY", "localhost,127.0.0.1".to_string()));
         }
         if let Some(http_proxy) = HTTP_PROXY.as_ref() {
             proxy_env.push(("HTTP_PROXY", http_proxy.to_string()));
@@ -304,6 +306,7 @@ lazy_static::lazy_static! {
     pub static ref NSJAIL_PATH: String = std::env::var("NSJAIL_PATH").unwrap_or_else(|_| "nsjail".to_string());
     pub static ref PATH_ENV: String = std::env::var("PATH").unwrap_or_else(|_| String::new());
     pub static ref HOME_ENV: String = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
+    pub static ref GIT_PATH: String = std::env::var("GIT_PATH").unwrap_or_else(|_| "/usr/bin/git".to_string());
 
     pub static ref NODE_PATH: Option<String> = std::env::var("NODE_PATH").ok();
 
@@ -1266,7 +1269,7 @@ pub async fn run_worker(
                         if job.is_err() && !same_worker_job.recoverable {
                             tracing::error!(
                                 worker = %worker_name, hostname = %hostname,
-                                "failed to fetch same_worker job on a non recoverable job, exiting"
+                                "failed to fetch same_worker job on a non recoverable job, exiting: {job:?}",
                             );
                             job_completed_tx
                                 .kill()
@@ -2456,16 +2459,22 @@ async fn handle_code_execution_job(
                 _ => None,
             };
 
-            arc_data =
-                preview.ok_or_else(|| Error::internal_err("expected preview".to_string()))?;
-            metadata = ScriptMetadata {
-                language: job.script_lang,
-                codebase,
-                envs: None,
-                schema: None,
-                schema_validator: None,
-            };
-            (arc_data.as_ref(), &metadata)
+            if codebase.is_none() && job.runnable_id.is_some() {
+                (arc_data, arc_metadata) =
+                    cache::script::fetch(conn, job.runnable_id.unwrap()).await?;
+                (arc_data.as_ref(), arc_metadata.as_ref())
+            } else {
+                arc_data =
+                    preview.ok_or_else(|| Error::internal_err("expected preview".to_string()))?;
+                metadata = ScriptMetadata {
+                    language: job.script_lang,
+                    codebase,
+                    envs: None,
+                    schema: None,
+                    schema_validator: None,
+                };
+                (arc_data.as_ref(), &metadata)
+            }
         }
         JobKind::Script_Hub => {
             let ContentReqLangEnvs { content, lockfile, language, envs, codebase, schema } =

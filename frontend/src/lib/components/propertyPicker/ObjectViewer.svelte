@@ -2,11 +2,11 @@
 	import { copyToClipboard, truncate } from '$lib/utils'
 
 	import { createEventDispatcher } from 'svelte'
-	import { computeKey } from './utils'
+	import { computeKey, keepByKeyOrValue } from './utils'
 	import { NEVER_TESTED_THIS_FAR } from '../flows/models'
 	import Portal from '$lib/components/Portal.svelte'
 	import { Button } from '$lib/components/common'
-	import { Download, PanelRightOpen, TriangleAlertIcon } from 'lucide-svelte'
+	import { Download, PanelRightOpen, Search, TriangleAlertIcon, X } from 'lucide-svelte'
 	import S3FilePicker from '../S3FilePicker.svelte'
 	import { workspaceStore } from '$lib/stores'
 	import AnimatedButton from '$lib/components/common/button/AnimatedButton.svelte'
@@ -25,12 +25,37 @@
 	export let expandedEvenOnLevel0: string | undefined = undefined
 	export let connecting = false
 
+	let jsonFiltered = json
+
+	$: jsonFiltered = onJsonChange(json)
+
+	let search = ''
+	let searchOpen = false
+
+	function onJsonChange(json: any) {
+		return searchOpen && search ? keepByKeyOrValue(json, search) : json
+	}
+
+	$: search != undefined && searchOpen && onSearch()
+
+	let searchTimeout: NodeJS.Timeout | undefined = undefined
+	function onSearch() {
+		if (searchTimeout) {
+			clearTimeout(searchTimeout)
+		}
+		searchTimeout = setTimeout(() => {
+			jsonFiltered = search ? keepByKeyOrValue(json, search) : json
+		}, 100)
+	}
+
 	let s3FileViewer: S3FilePicker
 	let hoveredKey: string | null = null
 
 	const collapsedSymbol = '...'
-	$: keys = ['object', 's3object'].includes(getTypeAsString(json)) ? Object.keys(json) : []
-	$: isArray = Array.isArray(json)
+	$: keys = ['object', 's3object'].includes(getTypeAsString(jsonFiltered))
+		? Object.keys(jsonFiltered)
+		: []
+	$: isArray = Array.isArray(jsonFiltered)
 	$: openBracket = isArray ? '[' : '{'
 	$: closeBracket = isArray ? ']' : '}'
 
@@ -77,11 +102,51 @@
 	$: keyLimit = isArray ? 5 : 100
 
 	$: fullyCollapsed = keys.length > 1 && collapsed
+
+	function clearSearch() {
+		searchOpen = false
+		jsonFiltered = json
+		search = ''
+	}
 </script>
 
 <Portal name="object-viewer">
 	<S3FilePicker bind:this={s3FileViewer} readOnlyMode={true} />
 </Portal>
+{#if level == 0}
+	<div class="float-right">
+		{#if searchOpen}
+			<div class="px-1 relative">
+				<input
+					on:keydown|stopPropagation={(event) => {
+						if (event?.key === 'Escape') {
+							clearSearch()
+						}
+					}}
+					type="text"
+					class="!h-6 !text-2xs mt-0.5"
+					bind:value={search}
+					placeholder="Search..."
+				/>
+				<button
+					class="absolute right-2 top-1 rounded-full hover:bg-surface-hover focus:bg-surface-hover text-secondary p-0.5"
+					on:click={() => {
+						clearSearch()
+					}}><X size={12} /></button
+				>
+			</div>
+		{:else}
+			<Button
+				color="light"
+				size="xs3"
+				iconOnly
+				btnClasses="text-tertiary hover:text-primary"
+				startIcon={{ icon: Search }}
+				on:click={() => (searchOpen = true)}
+			></Button>
+		{/if}
+	</div>
+{/if}
 {#if keys.length > 0}
 	{#if !fullyCollapsed}
 		<span>
@@ -132,10 +197,10 @@
 						</AnimatedButton>
 						<span class="text-2xs -ml-0.5 text-tertiary">:</span>
 
-						{#if getTypeAsString(json[key]) === 'object'}
+						{#if getTypeAsString(jsonFiltered[key]) === 'object'}
 							<svelte:self
 								{connecting}
-								json={json[key]}
+								json={jsonFiltered[key]}
 								level={level + 1}
 								currentPath={computeFullKey(key, rawKey)}
 								{pureViewer}
@@ -152,25 +217,25 @@
 							<span
 								class="val inline text-left {pureViewer
 									? 'cursor-auto'
-									: ''} rounded pl-0.5 {getTypeAsString(json[key])}"
+									: ''} rounded pl-0.5 {getTypeAsString(jsonFiltered[key])}"
 								on:click={() => {
-									selectProp(key, json[key], true)
+									selectProp(key, jsonFiltered[key], true)
 								}}
-								title={JSON.stringify(json[key])}
+								title={JSON.stringify(jsonFiltered[key])}
 							>
-								{#if json[key] === NEVER_TESTED_THIS_FAR}
+								{#if jsonFiltered[key] === NEVER_TESTED_THIS_FAR}
 									<span class="text-2xs text-tertiary font-normal">
 										Test the flow to see a value
 									</span>
-								{:else if json[key] == undefined}
+								{:else if jsonFiltered[key] == undefined}
 									<span class="text-2xs">undefined</span>
-								{:else if json[key] == null}
+								{:else if jsonFiltered[key] == null}
 									<span class="text-2xs">null</span>
-								{:else if typeof json[key] == 'string'}
-									<span class="text-2xs">"{truncate(json[key], 200)}"</span>
-								{:else if typeof json[key] == 'number' && Number.isInteger(json[key]) && !Number.isSafeInteger(json[key])}
+								{:else if typeof jsonFiltered[key] == 'string'}
+									<span class="text-2xs">"{truncate(jsonFiltered[key], 200)}"</span>
+								{:else if typeof jsonFiltered[key] == 'number' && Number.isInteger(jsonFiltered[key]) && !Number.isSafeInteger(jsonFiltered[key])}
 									<span class="inline-flex flex-row gap-1 items-center text-2xs">
-										{truncate(JSON.stringify(json[key]), 200)}
+										{truncate(JSON.stringify(jsonFiltered[key]), 200)}
 										<Popover>
 											<TriangleAlertIcon size={14} class="text-yellow-500 mb-0.5" />
 											<svelte:fragment slot="text">
@@ -181,7 +246,7 @@
 									</span>
 								{:else}
 									<span class="text-2xs">
-										{truncate(JSON.stringify(json[key]), 200)}
+										{truncate(JSON.stringify(jsonFiltered[key]), 200)}
 									</span>
 								{/if}
 							</span>
@@ -198,20 +263,20 @@
 			{#if level == 0 && topBrackets}
 				<div class="flex">
 					<span class="text-tertiary">{closeBracket}</span>
-					{#if getTypeAsString(json) === 's3object'}
+					{#if getTypeAsString(jsonFiltered) === 's3object'}
 						<a
 							class="text-secondary underline font-semibold text-2xs whitespace-nowrap ml-1 w-fit"
 							href={`/api/w/${$workspaceStore}/job_helpers/download_s3_file?file_key=${encodeURIComponent(
-								json?.s3 ?? ''
-							)}${json?.storage ? `&storage=${json.storage}` : ''}`}
-							download={json?.s3.split('/').pop() ?? 'unnamed_download.file'}
+								jsonFiltered?.s3 ?? ''
+							)}${jsonFiltered?.storage ? `&storage=${jsonFiltered.storage}` : ''}`}
+							download={jsonFiltered?.s3.split('/').pop() ?? 'unnamed_download.file'}
 						>
 							<span class="flex items-center gap-1"><Download size={12} />download</span>
 						</a>
 						<button
 							class="text-secondary underline text-2xs whitespace-nowrap ml-1"
 							on:click={() => {
-								s3FileViewer?.open?.(json)
+								s3FileViewer?.open?.(jsonFiltered)
 							}}
 							><span class="flex items-center gap-1"><PanelRightOpen size={12} />open preview</span>
 						</button>
@@ -240,7 +305,7 @@
 	{/if}
 {:else if topBrackets}
 	<span class="text-primary">{openBracket}{closeBracket}</span>
-{:else if json == undefined}
+{:else if jsonFiltered == undefined}
 	<span class="text-tertiary text-2xs ml-2">undefined</span>
 {:else}
 	<span class="text-tertiary text-2xs ml-2">No items</span>

@@ -55,11 +55,12 @@ pub struct ExistingGcpSubscription {
     pub base_endpoint: String,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
-#[serde(tag = "subscription_mode", rename_all = "snake_case")]
+#[derive(Debug, Deserialize, Serialize, sqlx::Type)]
+#[serde(rename_all = "snake_case")]
+#[sqlx(type_name = "GCP_SUBSCRIPTION_MODE", rename_all = "snake_case")]
 pub enum SubscriptionMode {
-    Existing(ExistingGcpSubscription),
-    CreateUpdate(CreateUpdateConfig),
+    Existing,
+    CreateUpdate,
 }
 
 pub fn workspaced_service() -> Router {
@@ -80,7 +81,11 @@ pub async fn manage_google_subscription(
     _gcp_resource_path: &str,
     _path: &str,
     _topic_id: &str,
+    _subscription_id: &mut Option<String>,
+    _base_endpoint: &mut Option<String>,
     _subscription_mode: SubscriptionMode,
+    _create_update_config: Option<CreateUpdateConfig>,
+    _trigger_mode: bool,
 ) -> WindmillResult<CreateUpdateConfig> {
     Ok(CreateUpdateConfig::default())
 }
@@ -114,6 +119,7 @@ pub struct GcpTrigger {
     pub subscription_id: String,
     pub delivery_type: DeliveryType,
     pub delivery_config: Option<SqlxJson<PushConfig>>,
+    pub subscription_mode: SubscriptionMode,
     pub topic_id: String,
     pub path: String,
     pub script_path: String,
