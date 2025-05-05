@@ -23,7 +23,7 @@
 	import Tabs from '$lib/components/common/tabs/Tabs.svelte'
 	import Tab from '$lib/components/common/tabs/Tab.svelte'
 	import RelationPicker from './RelationPicker.svelte'
-	import { invalidRelations } from './utils'
+	import { invalidRelations, savePostgresTriggerFromCfg } from './utils'
 	import CheckPostgresRequirement from './CheckPostgresRequirement.svelte'
 	import { base } from '$lib/base'
 	import type { Snippet } from 'svelte'
@@ -87,6 +87,26 @@
 	let isLoading = $state(false)
 	let initialConfig = $state<Record<string, any> | undefined>(undefined)
 	let neverSaved = $state(false)
+
+	function isAdvancedTab(t: 'advanced' | 'basic'): boolean {
+		return t === 'advanced'
+	}
+
+	function isBasicTab(t: 'advanced' | 'basic'): boolean {
+		return t === 'basic'
+	}
+
+	let saveDisabled = $derived(
+		pathError !== '' ||
+			emptyString(postgres_resource_path) ||
+			emptyString(script_path) ||
+			(isAdvancedTab(tab) && emptyString(replication_slot_name)) ||
+			emptyString(publication_name) ||
+			(relations && isBasicTab(tab) && relations.length === 0) ||
+			transaction_to_track.length === 0 ||
+			drawerLoading ||
+			!can_write
+	)
 
 	async function createPublication() {
 		try {
@@ -190,7 +210,7 @@
 			drawer?.openDrawer()
 			is_flow = nis_flow
 			itemKind = nis_flow ? 'flow' : 'script'
-			initialScriptPath = ''
+			initialScriptPath = defaultValues?.script_path ?? ''
 			fixedScriptPath = fixedScriptPath_ ?? ''
 			script_path = fixedScriptPath
 			path = defaultValues?.path ?? ''
@@ -198,8 +218,9 @@
 			postgres_resource_path = defaultValues?.postgres_resource_path ?? ''
 			edit = false
 			dirtyPath = false
-			publication_name = `windmill_publication_${random_adj()}`
-			replication_slot_name = `windmill_replication_${random_adj()}`
+			publication_name = defaultValues?.publication_name ?? `windmill_publication_${random_adj()}`
+			replication_slot_name =
+				defaultValues?.replication_slot_name ?? `windmill_replication_${random_adj()}`
 			transaction_to_track = defaultValues?.publication?.transaction_to_track || [
 				'Insert',
 				'Update',
@@ -220,6 +241,32 @@
 			drawerLoading = false
 			showLoading = false
 		}
+	}
+
+	function getSaveCfg(): Record<string, any> | undefined {
+		if (
+			relations &&
+			invalidRelations(relations, {
+				showError: true,
+				trackSchemaTableError: true
+			}) === true
+		) {
+			return undefined
+		}
+		const cfg = {
+			script_path,
+			initialScriptPath,
+			is_flow,
+			path,
+			postgres_resource_path,
+			publication_name,
+			replication_slot_name,
+			publication: {
+				transaction_to_track,
+				table_to_track: relations
+			}
+		}
+		return cfg
 	}
 
 	async function loadTriggerConfig(cfg?: Record<string, any>): Promise<void> {
@@ -262,6 +309,10 @@
 	}
 
 	function saveDraft() {
+		const cfg = getSaveCfg()
+		if (!cfg) {
+			return
+		}
 		dispatch('save-draft', {
 			cfg: {
 				script_path,
@@ -269,13 +320,16 @@
 				is_flow,
 				path,
 				postgres_resource_path,
-				publication_name,
-				replication_slot_name,
-				publication: {
-					transaction_to_track,
-					table_to_track: relations
-				},
-				tab
+				publication_name: !edit && tab === 'basic' ? undefined : publication_name,
+				replication_slot_name: !edit && tab === 'basic' ? undefined : replication_slot_name,
+				publication:
+					(edit && tab === 'basic') || !edit
+						? {
+								transaction_to_track,
+								table_to_track: relations
+							}
+						: undefined,
+				enabled
 			},
 			cb: () => {
 				updateTrigger()
@@ -285,69 +339,16 @@
 	}
 
 	async function updateTrigger(): Promise<void> {
-		if (
-			relations &&
-			invalidRelations(relations, {
-				showError: true,
-				trackSchemaTableError: true
-			}) === true
-		) {
+		const cfg = getSaveCfg()
+		if (!cfg) {
 			return
 		}
 		isLoading = true
-		try {
-			if (edit) {
-				await PostgresTriggerService.updatePostgresTrigger({
-					workspace: $workspaceStore!,
-					path: initialPath,
-					requestBody: {
-						path,
-						script_path,
-						is_flow,
-						postgres_resource_path,
-						enabled,
-						replication_slot_name,
-						publication_name,
-						publication:
-							tab === 'basic'
-								? {
-										transaction_to_track,
-										table_to_track: relations
-									}
-								: undefined
-					}
-				})
-				sendUserToast(`PostgresTrigger ${path} updated`)
-			} else {
-				await PostgresTriggerService.createPostgresTrigger({
-					workspace: $workspaceStore!,
-					requestBody: {
-						path,
-						script_path,
-						is_flow,
-						enabled: true,
-						postgres_resource_path,
-						replication_slot_name: tab === 'basic' ? undefined : replication_slot_name,
-						publication_name: tab === 'basic' ? undefined : publication_name,
-						publication: {
-							transaction_to_track,
-							table_to_track: relations
-						}
-					}
-				})
-				sendUserToast(`PostgresTrigger ${path} created`)
-			}
-			isLoading = false
-			if (!$usedTriggerKinds.includes('postgres')) {
-				$usedTriggerKinds = [...$usedTriggerKinds, 'postgres']
-			}
-			dispatch('update', path)
-			drawer?.closeDrawer()
-			toggleEditMode(false)
-		} catch (error) {
-			isLoading = false
-			sendUserToast(error.body || error.message, true)
-		}
+		await savePostgresTriggerFromCfg(initialPath, cfg, edit, $workspaceStore!, usedTriggerKinds)
+		dispatch('update', path)
+		drawer?.closeDrawer()
+		toggleEditMode(false)
+		isLoading = false
 	}
 
 	function toggleEditMode(newEditMode: boolean) {
@@ -420,15 +421,7 @@
 			{hasDraft}
 			canEdit={!drawerLoading && can_write && !preventSave}
 			{editMode}
-			saveDisabled={pathError !== '' ||
-				emptyString(postgres_resource_path) ||
-				emptyString(script_path) ||
-				(tab === 'advanced' && emptyString(replication_slot_name)) ||
-				emptyString(publication_name) ||
-				(relations && tab === 'basic' && relations.length === 0) ||
-				transaction_to_track.length === 0 ||
-				drawerLoading ||
-				!can_write}
+			{saveDisabled}
 			{allowDraft}
 			{edit}
 			{can_write}

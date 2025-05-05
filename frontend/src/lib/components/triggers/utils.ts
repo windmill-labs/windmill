@@ -31,6 +31,7 @@ import { type TriggerKind } from '$lib/components/triggers'
 import { saveScheduleFromCfg } from '$lib/components/flows/scheduleUtils'
 import { saveHttpRouteFromCfg } from './http/utils'
 import { saveWebsocketTriggerFromCfg } from './websocket/utils'
+import { savePostgresTriggerFromCfg } from './postgres/utils'
 
 export type TriggerType =
 	| 'webhook'
@@ -612,6 +613,14 @@ export async function deployTriggers(
 				)
 			} else if (t.type === 'websocket') {
 				saveWebsocketTriggerFromCfg(
+					t.path ?? t.draftConfig?.path ?? '',
+					t.draftConfig ?? {},
+					!t.isDraft,
+					workspaceId,
+					usedTriggerKinds
+				)
+			} else if (t.type === 'postgres') {
+				savePostgresTriggerFromCfg(
 					t.path ?? t.draftConfig?.path ?? '',
 					t.draftConfig ?? {},
 					!t.isDraft,
