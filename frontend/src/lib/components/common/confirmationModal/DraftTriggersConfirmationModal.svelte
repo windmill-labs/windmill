@@ -7,6 +7,7 @@
 	import TriggerLabel from '$lib/components/triggers/TriggerLabel.svelte'
 	import { triggerIconMap } from '$lib/components/triggers/utils'
 	import { Star, Check } from 'lucide-svelte'
+	import { onMount } from 'svelte'
 
 	interface Props {
 		open?: boolean
@@ -16,8 +17,10 @@
 	let { open = $bindable(false), draftTriggers = [] }: Props = $props()
 
 	let selectedTriggers: Trigger[] = $state([])
-	let selectAll = $state(false)
 	let tableHeight = $state(0)
+	let selectAll = $derived(
+		selectedTriggers.length === draftTriggers.length && draftTriggers.length > 0
+	)
 
 	const dispatch = createEventDispatcher<{
 		canceled: void
@@ -44,9 +47,8 @@
 		}
 	}
 
-	// Update selectAll based on selectedTriggers
-	$effect(() => {
-		selectAll = selectedTriggers.length === draftTriggers.length && draftTriggers.length > 0
+	onMount(() => {
+		selectedTriggers = [...draftTriggers]
 	})
 </script>
 
@@ -102,8 +104,8 @@
 						{@const SvelteComponent = triggerIconMap[trigger.type]}
 						<tr
 							class={twMerge(
-								'hover:bg-surface-hover transition-colors h-12 border-t border-gray-200 dark:border-gray-700 cursor-pointer',
-								isSelected(selectedTriggers, trigger) ? 'bg-blue-50 dark:bg-blue-900/20' : ''
+								'hover:bg-surface-hover transition-colors h-12 border-t border-gray-200 dark:border-gray-700 cursor-pointer whitespace-nowrap',
+								isSelected(selectedTriggers, trigger) ? '' : ''
 							)}
 							onclick={() => toggleTrigger(trigger)}
 						>
@@ -123,7 +125,7 @@
 									<!-- svelte-ignore a11y_click_events_have_key_events -->
 									<!-- svelte-ignore a11y_no_static_element_interactions -->
 									<div class="grow min-w-0 items-center text-left">
-										<TriggerLabel {trigger} />
+										<TriggerLabel {trigger} discard={!isSelected(selectedTriggers, trigger)} />
 									</div>
 								</div>
 							</td>
