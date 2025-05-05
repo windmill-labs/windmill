@@ -89,6 +89,7 @@
 	let showLoading = $state(false)
 	let initialConfig = $state<Record<string, any> | undefined>(undefined)
 	let defaultConfig = $state<Record<string, any> | undefined>(undefined)
+	let extraPerms: Record<string, boolean> = $state({})
 
 	export function openEdit(ePath: string, isFlow: boolean, defaultCfg?: Record<string, any>) {
 		let loadingTimeout = setTimeout(() => {
@@ -444,6 +445,7 @@
 			successHandlerExtraArgs = {}
 		}
 		args = cfg.args ?? {}
+		extraPerms = cfg.extra_perms ?? {}
 		can_write = canWrite(cfg.path, cfg.extra_perms, $userStore)
 		tag = cfg.tag
 
@@ -635,6 +637,7 @@
 			cfg: {
 				path: path,
 				schedule: schedule,
+				cron_version: cronVersion,
 				timezone: timezone,
 				args: args,
 				on_failure: errorHandlerPath ? `${errorHandleritemKind}/${errorHandlerPath}` : undefined,
@@ -657,10 +660,10 @@
 				no_flow_overlap: no_flow_overlap,
 				tag: tag,
 				paused_until: paused_until,
-				cron_version: cronVersion
-			},
-			cb: () => {
-				scheduleScript()
+				extra_perms: extraPerms,
+				script_path: script_path,
+				is_flow: is_flow,
+				enabled: enabled
 			}
 		})
 		toggleEditMode(false)
