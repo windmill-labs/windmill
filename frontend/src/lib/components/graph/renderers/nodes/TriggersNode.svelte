@@ -10,6 +10,7 @@
 	import { setScheduledPollSchedule, type TriggerContext } from '$lib/components/triggers'
 	import VirtualItemWrapper from '$lib/components/flows/map/VirtualItemWrapper.svelte'
 	import { addDraftTrigger } from '$lib/components/triggers/utils'
+	import { tick } from 'svelte'
 
 	export let data: {
 		path: string
@@ -60,8 +61,9 @@
 			on:openScheduledPoll={(e) => {
 				$selectedTrigger = 'scheduledPoll'
 			}}
-			on:select={(e) => {
+			on:select={async (e) => {
 				data?.eventHandlers?.select('triggers')
+				await tick()
 				if (e.detail) {
 					$selectedTriggerV2 = e.detail
 				}

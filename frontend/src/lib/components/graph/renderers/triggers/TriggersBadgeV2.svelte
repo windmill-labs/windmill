@@ -88,7 +88,7 @@
 	}
 
 	const itemClass = twMerge(
-		'text-secondary text-left font-normal max-w-full block px-4 py-2 text-2xs data-[highlighted]:bg-surface-hover data-[highlighted]:text-primary flex flex-row items-center flex-nowrap'
+		'text-secondary text-left font-normal w-full block px-4 py-2 text-2xs data-[highlighted]:bg-surface-hover data-[highlighted]:text-primary flex flex-row items-center flex-nowrap'
 	)
 
 	// Group triggers by their mapped type
@@ -112,7 +112,7 @@
 	let triggersToDisplay = $derived(allTriggerTypes.slice(0, 7))
 	let extraTriggers = $derived(
 		allTriggerTypes.length > 7
-			? allTriggerTypes.slice(8).flatMap((type) => triggersGrouped[type])
+			? allTriggerTypes.slice(7).flatMap((type) => triggersGrouped[type])
 			: []
 	)
 
@@ -205,7 +205,9 @@
 				isSelected ? 'outline-tertiary outline' : '',
 				small ? 'w-[23px] h-[23px] ' : 'p-2'
 			)}
-			on:click={() => {
+			on:click={(e) => {
+				e.stopPropagation()
+				e.preventDefault()
 				if (singleItem) {
 					dispatch('select', triggersGrouped[type][0])
 				}
@@ -239,7 +241,7 @@
 	<MenuItem
 		{item}
 		class={itemClass}
-		on:click={() => {
+		on:click={(e) => {
 			dispatch('select', trigger)
 		}}
 	>
