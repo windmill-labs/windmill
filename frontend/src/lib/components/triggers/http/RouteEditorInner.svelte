@@ -284,7 +284,7 @@
 			!!$userStore?.is_admin || !!$userStore?.is_super_admin,
 			usedTriggerKinds
 		)
-		dispatch('update', path)
+		dispatch('update', saveCfg.path)
 		drawer?.closeDrawer()
 		toggleEditMode(false)
 	}

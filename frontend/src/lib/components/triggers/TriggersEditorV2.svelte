@@ -31,7 +31,8 @@
 		triggerTypeToCaptureKind,
 		triggerKindToTriggerType,
 		setSaveCallback,
-		setCaptureConfig
+		setCaptureConfig,
+		deleteTrigger
 	} from './utils'
 	import SchedulePanel from '../SchedulePanel.svelte'
 
@@ -101,7 +102,7 @@
 		setSaveCallback(triggers, trigger, saveCb)
 	}
 
-	function handleUpdate(trigger: Trigger | undefined, path: string) {
+	async function handleUpdate(trigger: Trigger | undefined, path: string) {
 		if (!trigger) {
 			return
 		}
@@ -111,25 +112,28 @@
 		if (trigger) {
 			trigger.path = path
 		}
+		//delete the trigger from the store
+		deleteTrigger(triggers, trigger)
 		if (trigger.type === 'schedule') {
-			fetchSchedules(triggers, $workspaceStore, currentPath, isFlow, $primarySchedule)
+			await fetchSchedules(triggers, $workspaceStore, currentPath, isFlow, $primarySchedule)
 		} else if (trigger.type === 'websocket') {
-			fetchWebsocketTriggers(triggers, $workspaceStore, currentPath, isFlow, $userStore)
+			await fetchWebsocketTriggers(triggers, $workspaceStore, currentPath, isFlow, $userStore)
 		} else if (trigger.type === 'postgres') {
-			fetchPostgresTriggers(triggers, $workspaceStore, currentPath, isFlow, $userStore)
+			await fetchPostgresTriggers(triggers, $workspaceStore, currentPath, isFlow, $userStore)
 		} else if (trigger.type === 'kafka') {
-			fetchKafkaTriggers(triggers, $workspaceStore, currentPath, isFlow)
+			await fetchKafkaTriggers(triggers, $workspaceStore, currentPath, isFlow)
 		} else if (trigger.type === 'nats') {
-			fetchNatsTriggers(triggers, $workspaceStore, currentPath, isFlow, $userStore)
+			await fetchNatsTriggers(triggers, $workspaceStore, currentPath, isFlow, $userStore)
 		} else if (trigger.type === 'gcp') {
-			fetchGcpTriggers(triggers, $workspaceStore, currentPath, isFlow, $userStore)
+			await fetchGcpTriggers(triggers, $workspaceStore, currentPath, isFlow, $userStore)
 		} else if (trigger.type === 'sqs') {
-			fetchSqsTriggers(triggers, $workspaceStore, currentPath, isFlow, $userStore)
+			await fetchSqsTriggers(triggers, $workspaceStore, currentPath, isFlow, $userStore)
 		} else if (trigger.type === 'mqtt') {
-			fetchMqttTriggers(triggers, $workspaceStore, currentPath, isFlow, $userStore)
+			await fetchMqttTriggers(triggers, $workspaceStore, currentPath, isFlow, $userStore)
 		} else if (trigger.type === 'http') {
-			fetchHttpTriggers(triggers, $workspaceStore, currentPath, isFlow)
+			await fetchHttpTriggers(triggers, $workspaceStore, currentPath, isFlow)
 		}
+		$selectedTrigger = trigger
 	}
 
 	function handleUpdateDraftConfig(newConfig: Record<string, any>) {
@@ -180,6 +184,8 @@
 
 	$: updateEditTrigger($selectedTrigger)
 	$: useVerticalTriggerBar = width < 1000
+
+	$: console.log('dbg selectedTrigger', $selectedTrigger)
 </script>
 
 <FlowCard {noEditor} noHeader bind:width>

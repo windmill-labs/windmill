@@ -313,28 +313,7 @@
 		if (!cfg) {
 			return
 		}
-		dispatch('save-draft', {
-			cfg: {
-				script_path,
-				initialScriptPath,
-				is_flow,
-				path,
-				postgres_resource_path,
-				publication_name: !edit && tab === 'basic' ? undefined : publication_name,
-				replication_slot_name: !edit && tab === 'basic' ? undefined : replication_slot_name,
-				publication:
-					(edit && tab === 'basic') || !edit
-						? {
-								transaction_to_track,
-								table_to_track: relations
-							}
-						: undefined,
-				enabled
-			},
-			cb: () => {
-				updateTrigger()
-			}
-		})
+		dispatch('save-draft', cfg)
 		toggleEditMode(false)
 	}
 

@@ -255,7 +255,7 @@
 			$workspaceStore!,
 			usedTriggerKinds
 		)
-		dispatch('update', path)
+		dispatch('update', saveCfg.path)
 		drawer?.closeDrawer()
 		toggleEditMode(false)
 	}

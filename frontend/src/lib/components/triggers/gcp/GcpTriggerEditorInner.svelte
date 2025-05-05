@@ -181,7 +181,7 @@
 			return
 		}
 		saveGcpTriggerFromCfg(initialPath, cfg, edit, $workspaceStore!, usedTriggerKinds)
-		dispatch('update', { path: initialPath })
+		dispatch('update', cfg.path)
 		drawer?.closeDrawer()
 		is_loading = false
 	}

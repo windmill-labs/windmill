@@ -189,7 +189,7 @@
 	async function updateTrigger(): Promise<void> {
 		const cfg = getSaveCfg()
 		await saveNatsTriggerFromCfg(initialPath, cfg, edit, $workspaceStore!, usedTriggerKinds)
-		dispatch('update', path)
+		dispatch('update', cfg.path)
 		drawer?.closeDrawer()
 		toggleEditMode(false)
 	}

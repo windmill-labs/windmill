@@ -456,7 +456,7 @@
 	async function scheduleScript(): Promise<void> {
 		const scheduleCfg = getScheduleCfg()
 		await saveScheduleFromCfg(scheduleCfg, edit, $workspaceStore!)
-		dispatch('update', { path: scheduleCfg.path })
+		dispatch('update', scheduleCfg.path)
 		drawer?.closeDrawer()
 	}
 

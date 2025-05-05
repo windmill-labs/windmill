@@ -161,7 +161,7 @@
 		}
 	}
 
-	async function getSaveCfg(): Promise<Record<string, any> | undefined> {
+	function getSaveCfg(): Record<string, any> {
 		return {
 			path,
 			script_path,
@@ -177,7 +177,7 @@
 	async function updateTrigger(): Promise<void> {
 		const cfg = getSaveCfg()
 		await saveKafkaTriggerFromCfg(initialPath, cfg, edit, $workspaceStore!, usedTriggerKinds)
-		dispatch('update', path)
+		dispatch('update', cfg.path)
 		drawer?.closeDrawer()
 		toggleEditMode(false)
 	}

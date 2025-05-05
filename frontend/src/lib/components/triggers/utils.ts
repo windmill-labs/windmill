@@ -82,7 +82,11 @@ export const triggerIconMap = {
 }
 
 export function isEqual(a: Trigger, b: Trigger): boolean {
-	return a.path === b.path && a.type === b.type && a.isDraft === b.isDraft && a.id === b.id
+	if (a.isDraft) {
+		return a.id === b.id
+	} else {
+		return a.path === b.path && a.type === b.type
+	}
 }
 
 /**
@@ -166,6 +170,19 @@ export function setDraftToDeployedTrigger(
  */
 export function deleteDraft(triggersStore: Writable<Trigger[]>, draftId: string): void {
 	triggersStore.update((triggers) => triggers.filter((t) => t.id !== draftId))
+}
+
+/**
+ * Delete a trigger from the store
+ */
+export function deleteTrigger(triggersStore: Writable<Trigger[]>, trigger: Trigger): void {
+	if (trigger.isDraft && trigger.id) {
+		deleteDraft(triggersStore, trigger.id)
+	} else {
+		triggersStore.update((triggers) =>
+			triggers.filter((t) => t.path !== trigger.path || t.type !== trigger.type)
+		)
+	}
 }
 
 export function updateDraftConfig(
