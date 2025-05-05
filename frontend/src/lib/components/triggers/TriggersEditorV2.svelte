@@ -189,7 +189,7 @@
 				<div class="flex flex-row h-full">
 					<!-- Left Pane - Triggers List -->
 					{#if !useVerticalTriggerBar}
-						<div class="w-[350px] flex-shrink-0 overflow-auto pr-2 pl-4 pt-2">
+						<div class="w-[350px] flex-shrink-0 overflow-auto pr-2 pl-4 pt-2 pb-2">
 							<TriggersTable
 								selectedTrigger={$selectedTrigger}
 								on:select={handleSelectTrigger}
