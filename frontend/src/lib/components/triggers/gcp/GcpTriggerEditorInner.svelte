@@ -21,6 +21,7 @@
 	import { base } from '$app/paths'
 	import type { Snippet } from 'svelte'
 	import TriggerEditorToolbar from '../TriggerEditorToolbar.svelte'
+	import { saveGcpTriggerFromCfg } from './utils'
 
 	let is_loading = $state(false)
 	let drawer: Drawer | undefined = $state(undefined)
@@ -174,91 +175,53 @@
 	}
 
 	async function updateTrigger(): Promise<void> {
-		try {
-			is_loading = true
-			const base_endpoint = `${window.location.origin}${base}`
-			if (delivery_type === 'push') {
-				if (!delivery_config) {
-					sendUserToast('Must set route path when delivery type is push', true)
-					return
-				}
-			} else {
-				delivery_config = undefined
-			}
-			if (edit) {
-				await GcpTriggerService.updateGcpTrigger({
-					workspace: $workspaceStore!,
-					path: initialPath,
-					requestBody: {
-						gcp_resource_path,
-						subscription_mode,
-						subscription_id,
-						delivery_type,
-						delivery_config,
-						base_endpoint,
-						topic_id,
-						path,
-						script_path,
-						enabled,
-						is_flow
-					}
-				})
-				sendUserToast(`GCP Pub/Sub trigger ${path} updated`)
-			} else {
-				await GcpTriggerService.createGcpTrigger({
-					workspace: $workspaceStore!,
-					requestBody: {
-						gcp_resource_path,
-						subscription_mode,
-						subscription_id,
-						delivery_type,
-						delivery_config,
-						base_endpoint,
-						topic_id,
-						path,
-						script_path,
-						enabled: true,
-						is_flow
-					}
-				})
-				sendUserToast(`GCP Pub/Sub trigger ${path} created`)
-			}
-
-			if (!$usedTriggerKinds.includes('gcp')) {
-				$usedTriggerKinds = [...$usedTriggerKinds, 'gcp']
-			}
-			dispatch('update')
-			drawer?.closeDrawer()
-			is_loading = false
-		} catch (error) {
-			is_loading = false
-			sendUserToast(error.body, true)
+		is_loading = true
+		const cfg = getSaveCfg()
+		if (!cfg) {
+			return
 		}
+		saveGcpTriggerFromCfg(initialPath, cfg, edit, $workspaceStore!, usedTriggerKinds)
+		dispatch('update', { path: initialPath })
+		drawer?.closeDrawer()
+		is_loading = false
 	}
 
 	function toggleEditMode(newEditMode: boolean) {
 		dispatch('toggle-edit-mode', newEditMode)
 	}
 
-	function saveDraft() {
-		dispatch('save-draft', {
-			cfg: {
-				script_path,
-				initialScriptPath: script_path,
-				is_flow,
-				path,
-				gcp_resource_path,
-				subscription_mode,
-				subscription_id,
-				delivery_type,
-				delivery_config,
-				topic_id,
-				isValid,
-				enabled
-			},
-			cb: () => {
-				updateTrigger()
+	function getSaveCfg(): Record<string, any> | undefined {
+		const base_endpoint = `${window.location.origin}${base}`
+		if (delivery_type === 'push') {
+			if (!delivery_config) {
+				sendUserToast('Must set route path when delivery type is push', true)
+				return
 			}
+		} else {
+			delivery_config = undefined
+		}
+		return {
+			gcp_resource_path,
+			subscription_mode,
+			subscription_id,
+			delivery_type,
+			delivery_config,
+			base_endpoint,
+			topic_id,
+			path,
+			script_path,
+			enabled,
+			is_flow
+		}
+	}
+
+	function saveDraft() {
+		const cfg = getSaveCfg()
+		if (!cfg) {
+			return
+		}
+		dispatch('save-draft', {
+			cfg
 		})
 		toggleEditMode(false)
 	}
