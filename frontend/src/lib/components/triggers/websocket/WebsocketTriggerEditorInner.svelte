@@ -28,6 +28,7 @@
 	import type { Snippet } from 'svelte'
 
 	import TriggerEditorToolbar from '../TriggerEditorToolbar.svelte'
+	import { saveWebsocketTriggerFromCfg } from './utils'
 
 	interface Props {
 		useDrawer?: boolean
@@ -167,8 +168,22 @@
 		initial_messages = cfg?.initial_messages ?? []
 		url_runnable_args = cfg?.url_runnable_args
 		can_return_message = cfg?.can_return_message
-
 		can_write = canWrite(path, cfg?.extra_perms, $userStore)
+	}
+
+	function getSaveCfg() {
+		return {
+			script_path,
+			initialScriptPath,
+			is_flow,
+			path,
+			url,
+			filters,
+			initial_messages,
+			url_runnable_args,
+			can_return_message,
+			enabled
+		}
 	}
 
 	async function loadTrigger(defaultConfig?: Record<string, any>): Promise<void> {
@@ -232,42 +247,14 @@
 	)
 
 	async function updateTrigger(): Promise<void> {
-		if (edit) {
-			await WebsocketTriggerService.updateWebsocketTrigger({
-				workspace: $workspaceStore!,
-				path: initialPath,
-				requestBody: {
-					path,
-					script_path,
-					is_flow,
-					url,
-					filters,
-					initial_messages,
-					url_runnable_args,
-					can_return_message
-				}
-			})
-			sendUserToast(`Websocket trigger ${path} updated`)
-		} else {
-			await WebsocketTriggerService.createWebsocketTrigger({
-				workspace: $workspaceStore!,
-				requestBody: {
-					path,
-					script_path,
-					is_flow,
-					url,
-					enabled: true,
-					filters,
-					initial_messages,
-					url_runnable_args,
-					can_return_message
-				}
-			})
-			sendUserToast(`Websocket trigger ${path} created`)
-		}
-		if (!$usedTriggerKinds.includes('ws')) {
-			$usedTriggerKinds = [...$usedTriggerKinds, 'ws']
-		}
+		const saveCfg = getSaveCfg()
+		await saveWebsocketTriggerFromCfg(
+			initialPath,
+			saveCfg,
+			edit,
+			$workspaceStore!,
+			usedTriggerKinds
+		)
 		dispatch('update', path)
 		drawer?.closeDrawer()
 		toggleEditMode(false)
@@ -301,22 +288,9 @@
 	}
 
 	function saveDraft() {
+		const saveCfg = getSaveCfg()
 		dispatch('save-draft', {
-			cfg: {
-				script_path,
-				initialScriptPath,
-				is_flow,
-				path,
-				url,
-				filters,
-				initial_messages,
-				url_runnable_args,
-				can_return_message,
-				isValid
-			},
-			cb: () => {
-				updateTrigger()
-			}
+			cfg: saveCfg
 		})
 		toggleEditMode(false)
 	}

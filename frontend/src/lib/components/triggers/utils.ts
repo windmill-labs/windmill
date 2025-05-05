@@ -30,6 +30,7 @@ import SchedulePollIcon from '../icons/SchedulePollIcon.svelte'
 import { type TriggerKind } from '$lib/components/triggers'
 import { saveScheduleFromCfg } from '$lib/components/flows/scheduleUtils'
 import { saveHttpRouteFromCfg } from './http/utils'
+import { saveWebsocketTriggerFromCfg } from './websocket/utils'
 
 export type TriggerType =
 	| 'webhook'
@@ -607,6 +608,14 @@ export async function deployTriggers(
 					!t.isDraft,
 					workspaceId,
 					isAdmin,
+					usedTriggerKinds
+				)
+			} else if (t.type === 'websocket') {
+				saveWebsocketTriggerFromCfg(
+					t.path ?? t.draftConfig?.path ?? '',
+					t.draftConfig ?? {},
+					!t.isDraft,
+					workspaceId,
 					usedTriggerKinds
 				)
 			}
