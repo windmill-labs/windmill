@@ -28,14 +28,24 @@
 
 	function toggleTrigger(trigger: Trigger, selected: 'discard' | 'deploy') {
 		if (selected === 'discard') {
-			selectedTriggers = selectedTriggers.filter((t) => t.id !== trigger.id)
+			if (trigger.isDraft) {
+				selectedTriggers = selectedTriggers.filter((t) => t.id !== trigger.id)
+			} else {
+				selectedTriggers = selectedTriggers.filter(
+					(t) => t.path !== trigger.path && t.type !== trigger.type
+				)
+			}
 		} else if (!isSelected(selectedTriggers, trigger)) {
 			selectedTriggers = [...selectedTriggers, trigger]
 		}
 	}
 
 	function isSelected(triggers: Trigger[], trigger: Trigger): boolean {
-		return triggers.some((t) => t.id === trigger.id)
+		if (trigger.isDraft) {
+			return triggers.some((t) => t.id === trigger.id)
+		} else {
+			return triggers.some((t) => t.path === trigger.path && t.type === trigger.type)
+		}
 	}
 
 	onMount(() => {
