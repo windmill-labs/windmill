@@ -93,7 +93,7 @@
 						</div>
 					</td>
 					<td class="py-2 px-2 text-xs">
-						<div class="flex items-center justify-between gap-2">
+						<div class="flex items-center justify-between gap-1">
 							<div class="flex items-center grow min-w-0">
 								<TriggerLabel {trigger} />
 							</div>
@@ -103,7 +103,7 @@
 									<Button
 										size="xs"
 										color="light"
-										btnClasses="hover:bg-red-500 hover:text-white bg-transparent"
+										btnClasses="hover:bg-red-500 hover:text-white bg-transparent px-1"
 										startIcon={{ icon: Trash }}
 										iconOnly
 										on:click={() => deleteDraft(trigger)}
