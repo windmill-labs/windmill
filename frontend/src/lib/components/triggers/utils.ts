@@ -29,6 +29,7 @@ import type { UserExt } from '$lib/stores'
 import SchedulePollIcon from '../icons/SchedulePollIcon.svelte'
 import { type TriggerKind } from '$lib/components/triggers'
 import { saveScheduleFromCfg } from '$lib/components/flows/scheduleUtils'
+import { saveHttpRouteFromCfg } from './http/utils'
 
 export type TriggerType =
 	| 'webhook'
@@ -587,13 +588,27 @@ export function triggerKindToTriggerType(kind: TriggerKind): TriggerType | undef
 	}
 }
 
-export async function deployTriggers(triggersToDeploy: Trigger[], workspaceId: string | undefined) {
-	console.log('dbg deployTriggers', triggersToDeploy, workspaceId)
+export async function deployTriggers(
+	triggersToDeploy: Trigger[],
+	workspaceId: string | undefined,
+	isAdmin: boolean,
+	usedTriggerKinds: Writable<string[]>
+) {
+	console.log('dbg deployTriggers 2', triggersToDeploy, workspaceId)
 	if (!workspaceId) return
 	await Promise.all(
 		triggersToDeploy.map((t) => {
 			if (t.type === 'schedule') {
 				saveScheduleFromCfg(t.draftConfig ?? {}, !t.isDraft, workspaceId)
+			} else if (t.type === 'http') {
+				saveHttpRouteFromCfg(
+					t.path ?? t.draftConfig?.path ?? '',
+					t.draftConfig ?? {},
+					!t.isDraft,
+					workspaceId,
+					isAdmin,
+					usedTriggerKinds
+				)
 			}
 		})
 	)

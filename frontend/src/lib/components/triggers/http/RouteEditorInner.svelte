@@ -27,7 +27,7 @@
 	import ResourcePicker from '$lib/components/ResourcePicker.svelte'
 	import ItemPicker from '../../ItemPicker.svelte'
 	import { Popover } from '$lib/components/meltComponents'
-	import { HUB_SCRIPT_ID, SECRET_KEY_PATH } from './utils'
+	import { HUB_SCRIPT_ID, saveHttpRouteFromCfg, SECRET_KEY_PATH } from './utils'
 	import { HubFlow } from '$lib/hub'
 	import RouteBodyTransformerOption from './RouteBodyTransformerOption.svelte'
 	import TestingBadge from '../testingBadge.svelte'
@@ -79,6 +79,7 @@
 	let variable_path = $state('')
 	let signature_options_type = $state<'custom_script' | 'custom_signature'>('custom_signature')
 	let can_write = $state(true)
+	let extraPerms = $state<Record<string, string> | undefined>(undefined)
 
 	// Component references
 	let s3FilePicker = $state<S3FilePicker | null>(null)
@@ -227,7 +228,7 @@
 		focus: undefined
 		blur: undefined
 		delete: undefined
-		'save-draft': { cfg: Record<string, any>; cb: () => void }
+		'save-draft': { cfg: Record<string, any> }
 		reset: undefined
 	}>()
 
@@ -255,7 +256,7 @@
 			s3FileUploadRawMode = !!cfg?.static_asset_config
 			is_static_website = cfg?.is_static_website
 		}
-
+		extraPerms = cfg?.extra_perms
 		can_write = canWrite(path, cfg?.extra_perms, $userStore)
 	}
 
@@ -274,6 +275,21 @@
 	}
 
 	async function triggerScript(): Promise<void> {
+		const saveCfg = getSaveCfg()
+		await saveHttpRouteFromCfg(
+			initialPath,
+			saveCfg,
+			edit,
+			$workspaceStore!,
+			!!$userStore?.is_admin || !!$userStore?.is_super_admin,
+			usedTriggerKinds
+		)
+		dispatch('update', path)
+		drawer?.closeDrawer()
+		toggleEditMode(false)
+	}
+
+	function getSaveCfg() {
 		// If the user selects "signature" with the "custom_script" option,
 		// we explicitly set the authentication method to "custom_script"
 		// (which is a valid enum on its own in the backend)
@@ -281,55 +297,22 @@
 			authentication_method === 'signature' && signature_options_type === 'custom_script'
 				? 'custom_script'
 				: authentication_method
-
-		if (edit) {
-			await HttpTriggerService.updateHttpTrigger({
-				workspace: $workspaceStore!,
-				path: initialPath,
-				requestBody: {
-					path: path,
-					script_path: script_path,
-					is_flow: is_flow,
-					is_async: is_async,
-					authentication_method: auth_method,
-					route_path: isAdmin ? route_path : undefined,
-					http_method: http_method,
-					static_asset_config: static_asset_config,
-					is_static_website: is_static_website,
-					workspaced_route: workspaced_route,
-					authentication_resource_path: authentication_resource_path,
-					wrap_body: wrap_body,
-					raw_string: raw_string
-				}
-			})
-			sendUserToast(`Route ${path} updated`)
-		} else {
-			await HttpTriggerService.createHttpTrigger({
-				workspace: $workspaceStore!,
-				requestBody: {
-					path: path,
-					script_path: script_path,
-					is_flow: is_flow,
-					is_async: is_async,
-					authentication_method: auth_method,
-					route_path: route_path,
-					http_method: http_method,
-					static_asset_config: static_asset_config,
-					is_static_website: is_static_website,
-					workspaced_route: workspaced_route,
-					authentication_resource_path: authentication_resource_path,
-					wrap_body: wrap_body,
-					raw_string: raw_string
-				}
-			})
-			sendUserToast(`Route ${path} created`)
+		return {
+			script_path,
+			is_flow,
+			path,
+			route_path,
+			http_method,
+			is_async,
+			workspaced_route,
+			wrap_body,
+			raw_string,
+			authentication_resource_path,
+			authentication_method: auth_method,
+			static_asset_config,
+			is_static_website,
+			extra_perms: extraPerms
 		}
-		if (!$usedTriggerKinds.includes('http')) {
-			$usedTriggerKinds = [...$usedTriggerKinds, 'http']
-		}
-		dispatch('update', path)
-		drawer?.closeDrawer()
-		toggleEditMode(false)
 	}
 
 	// Update config for captures
@@ -359,28 +342,8 @@
 	}
 
 	function saveDraft() {
-		dispatch('save-draft', {
-			cfg: {
-				script_path,
-				initialScriptPath,
-				is_flow,
-				path,
-				route_path,
-				http_method,
-				is_async,
-				workspaced_route,
-				wrap_body,
-				raw_string,
-				authentication_resource_path,
-				authentication_method,
-				static_asset_config,
-				is_static_website,
-				isValid
-			},
-			cb: () => {
-				triggerScript()
-			}
-		})
+		const cfg = getSaveCfg()
+		dispatch('save-draft', { cfg })
 		toggleEditMode(false)
 	}
 </script>

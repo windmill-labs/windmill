@@ -18,7 +18,8 @@
 		enterpriseLicense,
 		tutorialsToDo,
 		userStore,
-		workspaceStore
+		workspaceStore,
+		usedTriggerKinds
 	} from '$lib/stores'
 	import {
 		cleanValueProperties,
@@ -394,7 +395,12 @@
 					runnableKind: 'flow'
 				})
 				if (triggersToDeploy) {
-					await deployTriggers(triggersToDeploy, $workspaceStore)
+					await deployTriggers(
+						triggersToDeploy,
+						$workspaceStore,
+						!!$userStore?.is_admin || !!$userStore?.is_super_admin,
+						usedTriggerKinds
+					)
 				}
 			} else {
 				try {
@@ -404,7 +410,12 @@
 				}
 
 				if (triggersToDeploy) {
-					await deployTriggers(triggersToDeploy, $workspaceStore)
+					await deployTriggers(
+						triggersToDeploy,
+						$workspaceStore,
+						!!$userStore?.is_admin || !!$userStore?.is_super_admin,
+						usedTriggerKinds
+					)
 				}
 
 				await FlowService.updateFlow({
