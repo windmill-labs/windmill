@@ -117,24 +117,29 @@ fn do_postgresql_inner<'a>(
                 .await
                 .map_err(to_anyhow)?;
         } else if let Some(ref s3) = s3 {
-            let rows = client
+            let rows_stream = client
                 .query_raw(&query, query_params)
                 .await?
                 .map_err(to_anyhow)
-                .map(|row_result| {
+                .enumerate()
+                .map(|(i, row_result)| {
                     row_result.and_then(|row| {
                         postgres_row_to_json_value(row)
                             .map_err(to_anyhow)
                             .and_then(|ref v| serde_json::to_string(v).map_err(to_anyhow))
+                            .map(|s| if i == 0 { s } else { format!(",\n{}", s) })
                     })
                 });
+            let start_bracket = futures::stream::once(async { Ok("{ rows: [\n".to_string()) });
+            let end_bracket = futures::stream::once(async { Ok("\n]}".to_string()) });
+            let rows_stream = start_bracket.chain(rows_stream).chain(end_bracket);
 
             s3.client
                 .upload_s3_file(
                     s3.workspace_id.as_str(),
                     s3.object_key.clone(),
                     s3.storage.clone(),
-                    rows,
+                    rows_stream,
                 )
                 .await?;
 
