@@ -30,7 +30,6 @@
 		type Trigger,
 		triggerTypeToCaptureKind,
 		triggerKindToTriggerType,
-		setSaveCallback,
 		setCaptureConfig,
 		deleteTrigger
 	} from './utils'
@@ -93,13 +92,6 @@
 		} else {
 			$selectedTrigger = undefined
 		}
-	}
-
-	function setTriggerSaveCallback(trigger: Trigger | undefined, saveCb: () => void) {
-		if (!trigger) {
-			return
-		}
-		setSaveCallback(triggers, trigger, saveCb)
 	}
 
 	async function handleUpdate(trigger: Trigger | undefined, path: string) {
@@ -170,7 +162,6 @@
 		}
 		updateDraftConfig(triggers, trigger, undefined)
 		if ($selectedTrigger && isEqual(trigger, $selectedTrigger)) {
-			$selectedTrigger.saveCb = undefined
 			$selectedTrigger.draftConfig = undefined
 		}
 	}
@@ -289,7 +280,6 @@
 										}}
 										on:save-draft={({ detail }) => {
 											handleUpdateDraftConfig(detail.cfg)
-											setTriggerSaveCallback($selectedTrigger, detail.cb)
 										}}
 										on:reset={() => {
 											handleResetDraft($selectedTrigger)
@@ -336,7 +326,7 @@
 					{selectedTrigger}
 					{isDeployed}
 					defaultValues={selected.draftConfig ?? selected.captureConfig ?? undefined}
-					newDraft={selected.saveCb === undefined}
+					newDraft={selected.draftConfig === undefined}
 					edit={editTrigger === selected}
 					{schema}
 					on:update-config

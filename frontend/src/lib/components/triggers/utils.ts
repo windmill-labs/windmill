@@ -61,7 +61,6 @@ export type Trigger = {
 	id?: string
 	draftConfig?: Record<string, any>
 	captureConfig?: Record<string, any>
-	saveCb?: () => void
 }
 
 // Map of trigger kinds to icons
@@ -283,22 +282,21 @@ function updateTriggers(
 		(t) => t.type === type && !t.isDraft && t.draftConfig
 	)
 
-	const configMap = new Map<string, { draftConfig: Record<string, any>; saveCb: () => void }>()
+	const configMap = new Map<string, { draftConfig: Record<string, any> }>()
 
 	configuredTriggers.forEach((t) => {
-		configMap.set(t.path ?? '', { draftConfig: t.draftConfig!, saveCb: t.saveCb! })
+		configMap.set(t.path ?? '', { draftConfig: t.draftConfig! })
 	})
 
 	const backendTriggers = remoteTriggers.map((trigger) => {
-		const { draftConfig, saveCb } = configMap.get(trigger.path) ?? {}
+		const { draftConfig } = configMap.get(trigger.path) ?? {}
 		return {
 			type: type as TriggerType,
 			path: trigger.path,
 			isPrimary: false,
 			isDraft: false,
 			canWrite: canWrite(trigger.path, trigger.extra_perms, user),
-			draftConfig: draftConfig,
-			saveCb: saveCb
+			draftConfig: draftConfig
 		}
 	})
 

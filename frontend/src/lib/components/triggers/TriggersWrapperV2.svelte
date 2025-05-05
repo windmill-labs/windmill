@@ -67,7 +67,7 @@
 		{isDeployed}
 		{small}
 		defaultValues={selectedTrigger.draftConfig ?? selectedTrigger.captureConfig ?? undefined}
-		newDraft={selectedTrigger.saveCb === undefined}
+		newDraft={selectedTrigger.draftConfig === undefined}
 	/>
 {:else if selectedTrigger.type === 'webhook'}
 	<WebhooksPanel
@@ -98,7 +98,7 @@
 		{selectedTrigger}
 		{isDeployed}
 		defaultValues={selectedTrigger.draftConfig ?? selectedTrigger.captureConfig ?? undefined}
-		newDraft={selectedTrigger.saveCb === undefined}
+		newDraft={selectedTrigger.draftConfig === undefined}
 		{edit}
 		{schema}
 		on:update-config={({ detail }) => updateConfig(detail)}
@@ -123,7 +123,7 @@
 		on:save-draft
 		on:reset
 		defaultValues={selectedTrigger.draftConfig ?? selectedTrigger.captureConfig ?? undefined}
-		newDraft={selectedTrigger.saveCb === undefined}
+		newDraft={selectedTrigger.draftConfig === undefined}
 	/>
 {:else if selectedTrigger.type === 'kafka'}
 	<KafkaTriggerPanel
@@ -140,7 +140,7 @@
 		on:save-draft
 		on:reset
 		defaultValues={selectedTrigger.draftConfig ?? selectedTrigger.captureConfig ?? undefined}
-		newDraft={selectedTrigger.saveCb === undefined}
+		newDraft={selectedTrigger.draftConfig === undefined}
 	/>
 {:else if selectedTrigger.type === 'postgres'}
 	<PostgresTriggersPanel
@@ -157,7 +157,7 @@
 		on:save-draft
 		on:reset
 		defaultValues={selectedTrigger.draftConfig ?? selectedTrigger.captureConfig ?? undefined}
-		newDraft={selectedTrigger.saveCb === undefined}
+		newDraft={selectedTrigger.draftConfig === undefined}
 	/>
 {:else if selectedTrigger.type === 'nats'}
 	<NatsTriggerPanel
@@ -174,7 +174,7 @@
 		on:save-draft
 		on:reset
 		defaultValues={selectedTrigger.draftConfig ?? selectedTrigger.captureConfig ?? undefined}
-		newDraft={selectedTrigger.saveCb === undefined}
+		newDraft={selectedTrigger.draftConfig === undefined}
 	/>
 {:else if selectedTrigger.type === 'mqtt'}
 	<MqttTriggerPanel
@@ -191,7 +191,7 @@
 		on:save-draft
 		on:reset
 		defaultValues={selectedTrigger.draftConfig ?? selectedTrigger.captureConfig ?? undefined}
-		newDraft={selectedTrigger.saveCb === undefined}
+		newDraft={selectedTrigger.draftConfig === undefined}
 	/>
 {:else if selectedTrigger.type === 'sqs'}
 	<SqsTriggerPanel
@@ -207,7 +207,7 @@
 		on:save-draft
 		on:reset
 		defaultValues={selectedTrigger.draftConfig ?? selectedTrigger.captureConfig ?? undefined}
-		newDraft={selectedTrigger.saveCb === undefined}
+		newDraft={selectedTrigger.draftConfig === undefined}
 	/>
 {:else if selectedTrigger.type === 'gcp'}
 	<GcpTriggerPanel
@@ -224,7 +224,7 @@
 		on:save-draft
 		on:reset
 		defaultValues={selectedTrigger.draftConfig ?? selectedTrigger.captureConfig ?? undefined}
-		newDraft={selectedTrigger.saveCb === undefined}
+		newDraft={selectedTrigger.draftConfig === undefined}
 	/>
 {:else if selectedTrigger.type === 'poll'}
 	<ScheduledPollPanel on:update-config={({ detail }) => updateConfig(detail)} />
