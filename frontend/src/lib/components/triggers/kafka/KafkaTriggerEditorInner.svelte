@@ -15,6 +15,7 @@
 	import KafkaTriggersConfigSection from './KafkaTriggersConfigSection.svelte'
 	import type { Snippet } from 'svelte'
 	import TriggerEditorToolbar from '../TriggerEditorToolbar.svelte'
+	import { saveKafkaTriggerFromCfg } from './utils'
 
 	interface Props {
 		useDrawer?: boolean
@@ -62,6 +63,7 @@
 	let resetEditMode = $state<(() => void) | undefined>(undefined)
 	let initialConfig = $state<Record<string, any> | undefined>(undefined)
 	let neverSaved = $state(false)
+	let extra_perms = $state<Record<string, any> | undefined>(undefined)
 
 	const dispatch = createEventDispatcher()
 
@@ -141,7 +143,7 @@
 		args.group_id = cfg?.group_id
 		args.topics = cfg?.topics
 		enabled = cfg?.enabled
-
+		extra_perms = cfg?.extra_perms
 		can_write = canWrite(path, cfg?.extra_perms, $userStore)
 	}
 
@@ -159,39 +161,22 @@
 		}
 	}
 
+	async function getSaveCfg(): Promise<Record<string, any> | undefined> {
+		return {
+			path,
+			script_path,
+			is_flow,
+			kafka_resource_path: args.kafka_resource_path,
+			group_id: args.group_id,
+			topics: args.topics,
+			enabled,
+			extra_perms: extra_perms
+		}
+	}
+
 	async function updateTrigger(): Promise<void> {
-		if (edit) {
-			await KafkaTriggerService.updateKafkaTrigger({
-				workspace: $workspaceStore!,
-				path: initialPath,
-				requestBody: {
-					path,
-					script_path,
-					is_flow,
-					kafka_resource_path: args.kafka_resource_path,
-					group_id: args.group_id,
-					topics: args.topics
-				}
-			})
-			sendUserToast(`Kafka trigger ${path} updated`)
-		} else {
-			await KafkaTriggerService.createKafkaTrigger({
-				workspace: $workspaceStore!,
-				requestBody: {
-					path,
-					script_path,
-					is_flow,
-					enabled: true,
-					kafka_resource_path: args.kafka_resource_path,
-					group_id: args.group_id,
-					topics: args.topics
-				}
-			})
-			sendUserToast(`Kafka trigger ${path} created`)
-		}
-		if (!$usedTriggerKinds.includes('kafka')) {
-			$usedTriggerKinds = [...$usedTriggerKinds, 'kafka']
-		}
+		const cfg = getSaveCfg()
+		await saveKafkaTriggerFromCfg(initialPath, cfg, edit, $workspaceStore!, usedTriggerKinds)
 		dispatch('update', path)
 		drawer?.closeDrawer()
 		toggleEditMode(false)
@@ -228,20 +213,9 @@
 	let isValid = $state(false)
 
 	function saveDraft() {
+		const cfg = getSaveCfg()
 		dispatch('save-draft', {
-			cfg: {
-				script_path,
-				initialScriptPath,
-				is_flow,
-				path,
-				kafka_resource_path: args.kafka_resource_path,
-				group_id: args.group_id,
-				topics: args.topics,
-				isValid
-			},
-			cb: () => {
-				updateTrigger()
-			}
+			cfg: cfg
 		})
 		toggleEditMode(false)
 	}

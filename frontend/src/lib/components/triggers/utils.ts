@@ -32,6 +32,7 @@ import { saveScheduleFromCfg } from '$lib/components/flows/scheduleUtils'
 import { saveHttpRouteFromCfg } from './http/utils'
 import { saveWebsocketTriggerFromCfg } from './websocket/utils'
 import { savePostgresTriggerFromCfg } from './postgres/utils'
+import { saveKafkaTriggerFromCfg } from './kafka/utils'
 
 export type TriggerType =
 	| 'webhook'
@@ -621,6 +622,14 @@ export async function deployTriggers(
 				)
 			} else if (t.type === 'postgres') {
 				savePostgresTriggerFromCfg(
+					t.path ?? t.draftConfig?.path ?? '',
+					t.draftConfig ?? {},
+					!t.isDraft,
+					workspaceId,
+					usedTriggerKinds
+				)
+			} else if (t.type === 'kafka') {
+				saveKafkaTriggerFromCfg(
 					t.path ?? t.draftConfig?.path ?? '',
 					t.draftConfig ?? {},
 					!t.isDraft,
