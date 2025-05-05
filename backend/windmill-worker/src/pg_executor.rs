@@ -8,7 +8,7 @@ use anyhow::Context;
 use base64::{engine, Engine as _};
 use chrono::Utc;
 use futures::future::BoxFuture;
-use futures::{FutureExt, TryStreamExt};
+use futures::{FutureExt, StreamExt, TryStreamExt};
 use itertools::Itertools;
 use native_tls::{Certificate, TlsConnector};
 use postgres_native_tls::MakeTlsConnector;
@@ -30,7 +30,8 @@ use windmill_common::error::{self, Error};
 use windmill_common::worker::{to_raw_value, Connection, CLOUD_HOSTED};
 use windmill_parser::{Arg, Typ};
 use windmill_parser_sql::{
-    parse_db_resource, parse_pg_statement_arg_indices, parse_pgsql_sig, parse_sql_blocks,
+    parse_db_resource, parse_pg_statement_arg_indices, parse_pgsql_sig, parse_s3_mode,
+    parse_sql_blocks,
 };
 use windmill_queue::{CanceledBy, MiniPulledJob};
 
@@ -53,6 +54,14 @@ struct PgDatabase {
     root_certificate_pem: Option<String>,
 }
 
+#[derive(Clone)]
+struct S3Mode {
+    client: AuthedClient,
+    object_key: String,
+    storage: Option<String>,
+    workspace_id: String,
+}
+
 lazy_static! {
     pub static ref CONNECTION_CACHE: Arc<Mutex<Option<(String, tokio_postgres::Client)>>> =
         Arc::new(Mutex::new(None));
@@ -68,6 +77,7 @@ fn do_postgresql_inner<'a>(
     column_order: Option<&'a mut Option<Vec<String>>>,
     siz: &'a AtomicUsize,
     skip_collect: bool,
+    s3: Option<S3Mode>,
 ) -> error::Result<BoxFuture<'a, anyhow::Result<Box<RawValue>>>> {
     let mut query_params = vec![];
 
@@ -106,6 +116,29 @@ fn do_postgresql_inner<'a>(
                 .execute_raw(&query, query_params)
                 .await
                 .map_err(to_anyhow)?;
+        } else if let Some(ref s3) = s3 {
+            let rows = client
+                .query_raw(&query, query_params)
+                .await?
+                .map_err(to_anyhow)
+                .map(|row_result| {
+                    row_result.and_then(|row| {
+                        postgres_row_to_json_value(row)
+                            .map_err(to_anyhow)
+                            .and_then(|ref v| serde_json::to_string(v).map_err(to_anyhow))
+                    })
+                });
+
+            s3.client
+                .upload_s3_file(
+                    s3.workspace_id.as_str(),
+                    s3.object_key.clone(),
+                    s3.storage.clone(),
+                    rows,
+                )
+                .await?;
+
+            return Ok(serde_json::value::to_raw_value(&s3.object_key)?);
         } else {
             let rows = client
                 .query_raw(&query, query_params)
@@ -171,6 +204,12 @@ pub async fn do_postgresql(
     let pg_args = build_args_values(job, client, conn).await?;
 
     let inline_db_res_path = parse_db_resource(&query);
+    let s3 = parse_s3_mode(&query).map(|s3_mode| S3Mode {
+        client: client.clone(),
+        storage: s3_mode.storage,
+        object_key: format!("{}/{}.txt", s3_mode.folder_key, job.id),
+        workspace_id: job.workspace_id.clone(),
+    });
 
     let db_arg = if let Some(inline_db_res_path) = inline_db_res_path {
         Some(
@@ -321,6 +360,7 @@ pub async fn do_postgresql(
                     None,
                     &size,
                     annotations.return_last_result && i < queries.len() - 1,
+                    s3.clone(),
                 )
             })
             .collect::<error::Result<Vec<_>>>()?;
@@ -347,6 +387,7 @@ pub async fn do_postgresql(
             Some(column_order),
             &size,
             false,
+            s3,
         )?
     };
 
