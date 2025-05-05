@@ -175,8 +175,6 @@
 
 	$: updateEditTrigger($selectedTrigger)
 	$: useVerticalTriggerBar = width < 1000
-
-	$: console.log('dbg selectedTrigger', $selectedTrigger)
 </script>
 
 <FlowCard {noEditor} noHeader bind:width>
