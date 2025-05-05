@@ -71,7 +71,7 @@
 	import Summary from './Summary.svelte'
 	import type { ScriptBuilderWhitelabelCustomUi } from './custom_ui'
 	import DeployOverrideConfirmationModal from '$lib/components/common/confirmationModal/DeployOverrideConfirmationModal.svelte'
-	import TriggersEditor from './triggers/TriggersEditorV2.svelte'
+	import TriggersEditor from './triggers/TriggersEditor.svelte'
 	import type { ScheduleTrigger, TriggerContext, TriggerKind } from './triggers'
 	import {
 		TS_PREPROCESSOR_MODULE_CODE,

@@ -12,7 +12,7 @@
 	import FlowPreprocessorModule from './FlowPreprocessorModule.svelte'
 	import type { TriggerContext } from '$lib/components/triggers'
 	import { insertNewPreprocessorModule } from '../flowStateUtils'
-	import TriggersEditor from '../../triggers/TriggersEditorV2.svelte'
+	import TriggersEditor from '../../triggers/TriggersEditor.svelte'
 
 	export let noEditor = false
 	export let enableAi = false
