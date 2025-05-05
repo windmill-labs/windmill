@@ -3,8 +3,8 @@
 	import { Alert } from '$lib/components/common'
 	import Description from '$lib/components/Description.svelte'
 	import { enterpriseLicense } from '$lib/stores'
-	// Use the same approach as other panels
 	import GcpTriggerEditorInner from './GcpTriggerEditorInner.svelte'
+	import { onMount } from 'svelte'
 
 	let {
 		selectedTrigger,
@@ -26,7 +26,7 @@
 		}
 	}
 
-	$effect(() => {
+	onMount(() => {
 		gcpTriggerEditor && openGcpTriggerEditor(isFlow, selectedTrigger.isDraft ?? false)
 	})
 </script>
