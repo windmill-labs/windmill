@@ -432,7 +432,7 @@
 			{allowDraft}
 			{edit}
 			{can_write}
-			isLoading={false}
+			{isLoading}
 			{neverSaved}
 			{enabled}
 			on:save-draft={() => {

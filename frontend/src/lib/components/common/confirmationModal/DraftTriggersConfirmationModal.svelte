@@ -19,7 +19,6 @@
 	let { open = $bindable(false), draftTriggers = [] }: Props = $props()
 
 	let selectedTriggers: Trigger[] = $state([])
-	let tableHeight = $state(0)
 
 	const dispatch = createEventDispatcher<{
 		canceled: void
@@ -68,7 +67,7 @@
 			draft triggers will be permanently deleted.
 		</div>
 
-		<div bind:clientHeight={tableHeight} class={draftTriggers.length > 5 ? 'h-[300px]' : ''}>
+		<div class={draftTriggers.length > 5 ? 'h-[300px]' : ''}>
 			<DataTable size="sm" tableFixed={true}>
 				<thead>
 					<tr class="bg-gray-50 dark:bg-gray-800 text-secondary dark:text-gray-300 text-xs">
