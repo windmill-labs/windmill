@@ -253,7 +253,7 @@ impl ModelInstance {
             let token_ids = Tensor::new(&tokens[..], &Device::Cpu)?.unsqueeze(0)?;
             let token_type_ids = token_ids.zeros_like()?;
 
-            let embedding = self.model.forward(&token_ids, &token_type_ids)?;
+            let embedding = self.model.forward(&token_ids, &token_type_ids, None)?;
             let embedding = (embedding.sum(1)? / embedding.dim(1)? as f64)?;
             let embedding = normalize_l2(&embedding)?;
 

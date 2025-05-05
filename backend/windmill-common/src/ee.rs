@@ -1,3 +1,4 @@
+#[cfg(feature = "enterprise")]
 use crate::db::DB;
 use crate::ee::LicensePlan::Community;
 #[cfg(feature = "enterprise")]
@@ -98,4 +99,8 @@ pub async fn worker_groups_alerts(_db: &DB) {}
 #[cfg(feature = "enterprise")]
 pub async fn jobs_waiting_alerts(_db: &DB) {}
 
-pub async fn low_disk_alerts(_db: &DB, _: bool, _: bool, _: Vec<String>) {}
+#[cfg(feature = "enterprise")]
+pub async fn low_disk_alerts(_db: &DB, _server_mode: bool, _worker_mode: bool, _workers: Vec<String>) {
+    // Implementation is not open source
+}
+
