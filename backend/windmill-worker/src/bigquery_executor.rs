@@ -66,10 +66,12 @@ struct BigqueryError {
     message: String,
 }
 
-struct S3Mode<'a> {
-    client: &'a AuthedClient,
+#[derive(Clone)]
+struct S3Mode {
+    client: AuthedClient,
     object_key: String,
     storage: Option<String>,
+    workspace_id: String,
 }
 
 fn do_bigquery_inner<'a>(
@@ -81,7 +83,7 @@ fn do_bigquery_inner<'a>(
     column_order: Option<&'a mut Option<Vec<String>>>,
     skip_collect: bool,
     http_client: &'a Client,
-    s3: &Option<S3Mode>,
+    s3: Option<S3Mode>,
 ) -> windmill_common::error::Result<BoxFuture<'a, windmill_common::error::Result<Box<RawValue>>>> {
     let param_names = parse_sql_statement_named_params(query, '@');
 
@@ -122,7 +124,16 @@ fn do_bigquery_inner<'a>(
                 if skip_collect {
                     return Ok(to_raw_value(&Value::Array(vec![])));
                 } else if let Some(ref s3) = s3 {
-                    // s3.client.get("", query)
+                    s3.client
+                        .upload_s3_file(
+                            s3.workspace_id.as_str(),
+                            s3.object_key.clone(),
+                            s3.storage.clone(),
+                            response.bytes_stream(),
+                        )
+                        .await?;
+
+                    Ok(serde_json::value::to_raw_value(&s3.object_key)?)
                 } else {
                     let result = response.json::<BigqueryResponse>().await.map_err(|e| {
                         Error::ExecutionErr(format!(
@@ -231,9 +242,10 @@ pub async fn do_bigquery(
 
     let inline_db_res_path = parse_db_resource(&query);
     let s3 = parse_s3_mode(&query).map(|s3_mode| S3Mode {
-        client: &client,
+        client: client.clone(),
         storage: s3_mode.storage,
-        object_key: s3_mode.object_key,
+        object_key: format!("{}/{}.txt", s3_mode.folder_key, job.id),
+        workspace_id: job.workspace_id.clone(),
     });
 
     let db_arg = if let Some(inline_db_res_path) = inline_db_res_path {
@@ -347,7 +359,7 @@ pub async fn do_bigquery(
                     None,
                     annotations.return_last_result && i < queries.len() - 1,
                     &http_client,
-                    &s3,
+                    s3.clone(),
                 )
             })
             .collect::<windmill_common::error::Result<Vec<_>>>()?;
@@ -377,7 +389,7 @@ pub async fn do_bigquery(
             Some(column_order),
             false,
             &http_client,
-            &s3,
+            s3,
         )?
     };
 

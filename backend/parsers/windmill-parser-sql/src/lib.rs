@@ -121,14 +121,14 @@ pub fn parse_db_resource(code: &str) -> Option<String> {
 }
 
 pub struct S3ModeArgs {
-    pub object_key: String,
+    pub folder_key: String,
     pub storage: Option<String>,
 }
 pub fn parse_s3_mode(code: &str) -> Option<S3ModeArgs> {
     let cap = RE_S3_MODE.captures(code)?;
     let arg1 = cap.get(1).map(|x| x.as_str().to_string())?;
     let arg2 = cap.get(2).map(|x| x.as_str().to_string());
-    Some(S3ModeArgs { object_key: arg1, storage: arg2 })
+    Some(S3ModeArgs { folder_key: arg1, storage: arg2 })
 }
 
 pub fn parse_sql_blocks(code: &str) -> Vec<&str> {
