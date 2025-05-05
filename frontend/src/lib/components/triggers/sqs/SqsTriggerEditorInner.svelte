@@ -15,6 +15,7 @@
 	import Required from '$lib/components/Required.svelte'
 	import type { Snippet } from 'svelte'
 	import TriggerEditorToolbar from '../TriggerEditorToolbar.svelte'
+	import { saveSqsTriggerFromCfg } from './utils'
 
 	interface Props {
 		useDrawer?: boolean
@@ -169,23 +170,22 @@
 		}
 	}
 
+	function getSaveCfg(): Record<string, any> {
+		return {
+			script_path,
+			is_flow,
+			path,
+			aws_resource_path,
+			queue_url,
+			message_attributes,
+			aws_auth_resource_type,
+			enabled
+		}
+	}
+
 	function saveDraft() {
-		dispatch('save-draft', {
-			cfg: {
-				script_path,
-				is_flow,
-				path,
-				aws_resource_path,
-				queue_url,
-				message_attributes,
-				aws_auth_resource_type,
-				isValid,
-				enabled
-			},
-			cb: () => {
-				updateTrigger()
-			}
-		})
+		const cfg = getSaveCfg()
+		dispatch('save-draft', { cfg })
 		toggleEditMode(false)
 	}
 
@@ -202,42 +202,8 @@
 	}
 
 	async function updateTrigger(): Promise<void> {
-		if (edit) {
-			await SqsTriggerService.updateSqsTrigger({
-				workspace: $workspaceStore!,
-				path: initialPath,
-				requestBody: {
-					path,
-					script_path,
-					aws_auth_resource_type,
-					enabled,
-					is_flow,
-					queue_url,
-					aws_resource_path,
-					message_attributes
-				}
-			})
-			sendUserToast(`SQS trigger ${path} updated`)
-		} else {
-			await SqsTriggerService.createSqsTrigger({
-				workspace: $workspaceStore!,
-				requestBody: {
-					enabled: true,
-					aws_resource_path,
-					queue_url,
-					aws_auth_resource_type,
-					path,
-					script_path,
-					is_flow,
-					message_attributes
-				}
-			})
-			sendUserToast(`SQS trigger ${path} created`)
-		}
-
-		if (!$usedTriggerKinds.includes('sqs')) {
-			$usedTriggerKinds = [...$usedTriggerKinds, 'sqs']
-		}
+		const cfg = getSaveCfg()
+		await saveSqsTriggerFromCfg(initialPath, cfg, edit, $workspaceStore!, usedTriggerKinds)
 		dispatch('update', path)
 		drawer?.closeDrawer()
 		toggleEditMode(false)

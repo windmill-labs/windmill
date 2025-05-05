@@ -33,6 +33,7 @@ import { saveHttpRouteFromCfg } from './http/utils'
 import { saveWebsocketTriggerFromCfg } from './websocket/utils'
 import { savePostgresTriggerFromCfg } from './postgres/utils'
 import { saveKafkaTriggerFromCfg } from './kafka/utils'
+import { saveSqsTriggerFromCfg } from './sqs/utils'
 
 export type TriggerType =
 	| 'webhook'
@@ -630,6 +631,14 @@ export async function deployTriggers(
 				)
 			} else if (t.type === 'kafka') {
 				saveKafkaTriggerFromCfg(
+					t.path ?? t.draftConfig?.path ?? '',
+					t.draftConfig ?? {},
+					!t.isDraft,
+					workspaceId,
+					usedTriggerKinds
+				)
+			} else if (t.type === 'sqs') {
+				saveSqsTriggerFromCfg(
 					t.path ?? t.draftConfig?.path ?? '',
 					t.draftConfig ?? {},
 					!t.isDraft,
