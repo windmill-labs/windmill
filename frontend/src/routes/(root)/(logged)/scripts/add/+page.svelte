@@ -12,6 +12,7 @@
 	import type { ScheduleTrigger } from '$lib/components/triggers'
 	import type { GetInitialAndModifiedValues } from '$lib/components/common/confirmationModal/unsavedTypes'
 	import { replaceScriptPlaceholderWithItsValues } from '$lib/hub'
+	import type { Trigger } from '$lib/components/triggers/utils'
 
 	// Default
 	let schema: Schema = emptySchema()
@@ -33,11 +34,13 @@
 
 	let scriptBuilder: ScriptBuilder | undefined = undefined
 	let savedPrimarySchedule: ScheduleTrigger | undefined = undefined
+	let savedDraftTriggers: Trigger[] = []
 
 	function decodeStateAndHandleError(state) {
 		try {
 			const decoded = decodeState(state)
 			savedPrimarySchedule = decoded.primarySchedule
+			savedDraftTriggers = decoded.draftTriggers
 			return decoded
 		} catch (e) {
 			console.error('Error decoding state', e)
@@ -123,6 +126,7 @@
 	{script}
 	{showMeta}
 	{savedPrimarySchedule}
+	{savedDraftTriggers}
 	replaceStateFn={(path) => replaceState(path, $page.state)}
 >
 	<UnsavedConfirmationModal {getInitialAndModifiedValues} />

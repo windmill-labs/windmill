@@ -4,7 +4,6 @@
 		type NewScript,
 		ScriptService,
 		type NewScriptWithDraft,
-		ScheduleService,
 		type Script,
 		type TriggersCount,
 		PostgresTriggerService,
@@ -12,13 +11,18 @@
 	} from '$lib/gen'
 	import { inferArgs } from '$lib/infer'
 	import { initialCode } from '$lib/script_helpers'
-	import { defaultScripts, enterpriseLicense, userStore, workspaceStore } from '$lib/stores'
+	import {
+		defaultScripts,
+		enterpriseLicense,
+		usedTriggerKinds,
+		userStore,
+		workspaceStore
+	} from '$lib/stores'
 	import {
 		cleanValueProperties,
 		emptySchema,
 		emptyString,
 		encodeState,
-		formatCron,
 		generateRandomString,
 		orderedJsonStringify,
 		replaceFalseWithUndefined,
@@ -67,7 +71,7 @@
 	import Summary from './Summary.svelte'
 	import type { ScriptBuilderWhitelabelCustomUi } from './custom_ui'
 	import DeployOverrideConfirmationModal from '$lib/components/common/confirmationModal/DeployOverrideConfirmationModal.svelte'
-	import TriggersEditor from './triggers/TriggersEditor.svelte'
+	import TriggersEditor from './triggers/TriggersEditorV2.svelte'
 	import type { ScheduleTrigger, TriggerContext, TriggerKind } from './triggers'
 	import {
 		TS_PREPROCESSOR_MODULE_CODE,
@@ -79,6 +83,8 @@
 	import type { SavedAndModifiedValue } from './common/confirmationModal/unsavedTypes'
 	import type { ScriptBuilderFunctionExports } from './scriptBuilder'
 	import DeployButton from './DeployButton.svelte'
+	import { fetchTriggers, type Trigger, deployTriggers } from './triggers/utils'
+	import DraftTriggersConfirmationModal from './common/confirmationModal/DraftTriggersConfirmationModal.svelte'
 
 	export let script: NewScript
 	export let fullyLoaded: boolean = true
@@ -98,6 +104,7 @@
 	export let savedPrimarySchedule: ScheduleTrigger | undefined = undefined
 	export let functionExports: ((exports: ScriptBuilderFunctionExports) => void) | undefined =
 		undefined
+	export let savedDraftTriggers: Trigger[] = []
 
 	export function getInitialAndModifiedValues(): SavedAndModifiedValue {
 		return {
@@ -134,7 +141,18 @@
 	let scriptEditor: ScriptEditor | undefined = undefined
 	let captureTable: CaptureTable | undefined = undefined
 
-	const primaryScheduleStore = writable<ScheduleTrigger | undefined | false>(savedPrimarySchedule)
+	// Draft triggers confirmation modal
+	let draftTriggersModalOpen = false
+	let confirmDeploymentCallback: (triggersToDeploy: Trigger[]) => void = () => {}
+
+	async function handleDraftTriggersConfirmed(event: CustomEvent<{ selectedTriggers: Trigger[] }>) {
+		const { selectedTriggers } = event.detail
+		// Continue with saving the flow
+		draftTriggersModalOpen = false
+		confirmDeploymentCallback(selectedTriggers)
+	}
+
+	const primaryScheduleStore = writable<ScheduleTrigger | undefined | false>(savedPrimarySchedule) // keep for legacy
 	const triggersCount = writable<TriggersCount | undefined>(
 		savedPrimarySchedule
 			? { schedule_count: 1, primary_schedule: { schedule: savedPrimarySchedule.cron } }
@@ -146,6 +164,10 @@
 	export function setPrimarySchedule(schedule: ScheduleTrigger | undefined | false) {
 		primaryScheduleStore.set(schedule)
 		loadTriggers()
+	}
+
+	export function setDraftTriggers(triggers: Trigger[]) {
+		$triggersStore = [...triggers]
 	}
 
 	const dispatch = createEventDispatcher()
@@ -176,18 +198,24 @@
 			workspace: $workspaceStore!,
 			path: initialPath
 		})
-		if ($primaryScheduleStore && $triggersCount.primary_schedule == undefined) {
-			$triggersCount = {
-				...($triggersCount ?? {}),
-				schedule_count: ($triggersCount.schedule_count ?? 0) + 1,
-				primary_schedule: {
-					schedule: $primaryScheduleStore.cron
-				}
-			}
-		}
+
+		fetchTriggers(
+			triggersStore,
+			$workspaceStore,
+			initialPath,
+			false,
+			$primaryScheduleStore,
+			$userStore
+		)
 	}
 
 	const triggerDefaultValuesStore = writable<Record<string, any> | undefined>(undefined)
+	// Add triggers context store
+	const triggersStore = writable<Trigger[]>([
+		{ type: 'webhook', path: '', isDraft: false },
+		{ type: 'email', path: '', isDraft: false },
+		...savedDraftTriggers
+	])
 
 	const captureOn = writable<boolean | undefined>(undefined)
 	const showCaptureHint = writable<boolean | undefined>(undefined)
@@ -200,7 +228,7 @@
 		defaultValues: triggerDefaultValuesStore,
 		captureOn: captureOn,
 		showCaptureHint: showCaptureHint,
-		triggers: writable([])
+		triggers: triggersStore
 	})
 
 	const enterpriseLangs = ['bigquery', 'snowflake', 'mssql', 'oracledb']
@@ -277,7 +305,13 @@
 	}
 
 	$: !disableHistoryChange &&
-		replaceStateFn('#' + encodeState({ ...script, primarySchedule: $primaryScheduleStore }))
+		replaceStateFn(
+			'#' +
+				encodeState({
+					...script,
+					draftTriggers: $triggersStore.filter((t) => t.draftConfig)
+				})
+		)
 	if (script.content == '') {
 		initContent(script.language, script.kind, template)
 	}
@@ -316,31 +350,6 @@
 		scriptEditor?.inferSchema(script.content, language, true)
 		if (script.content != editor?.getCode()) {
 			setCode(script.content)
-		}
-	}
-
-	async function createSchedule(path: string) {
-		if (!$primaryScheduleStore) {
-			return
-		}
-		const { cron, timezone, args, enabled, summary } = $primaryScheduleStore
-
-		try {
-			await ScheduleService.createSchedule({
-				workspace: $workspaceStore!,
-				requestBody: {
-					path: path,
-					schedule: formatCron(cron),
-					timezone,
-					script_path: path,
-					is_flow: false,
-					args,
-					enabled,
-					summary
-				}
-			})
-		} catch (err) {
-			sendUserToast(`The primary schedule could not be created: ${err}`, true)
 		}
 	}
 
@@ -421,8 +430,21 @@
 	async function editScript(
 		stay: boolean,
 		parentHash: string,
-		deploymentMsg?: string
+		deploymentMsg?: string,
+		triggersToDeploy?: Trigger[]
 	): Promise<void> {
+		if (!triggersToDeploy) {
+			// Check if there are draft triggers that need confirmation
+			const draftTriggers = $triggersStore.filter((trigger) => trigger.draftConfig)
+			if (draftTriggers.length > 0) {
+				draftTriggersModalOpen = true
+				confirmDeploymentCallback = async (triggersToDeploy: Trigger[]) => {
+					await editScript(stay, parentHash, deploymentMsg, triggersToDeploy)
+				}
+				return
+			}
+		}
+
 		loadingSave = true
 		try {
 			try {
@@ -482,52 +504,13 @@
 				})
 			}
 
-			const scheduleExists =
-				initialPath != '' &&
-				(await ScheduleService.existsSchedule({
-					workspace: $workspaceStore ?? '',
-					path: script.path
-				}))
-			if ($primaryScheduleStore) {
-				const { enabled, timezone, args, cron, summary } = $primaryScheduleStore
-
-				if (scheduleExists) {
-					const schedule = await ScheduleService.getSchedule({
-						workspace: $workspaceStore ?? '',
-						path: script.path
-					})
-					if (
-						JSON.stringify(schedule.args) != JSON.stringify(args) ||
-						schedule.schedule != cron ||
-						schedule.timezone != timezone ||
-						schedule.summary != summary
-					) {
-						await ScheduleService.updateSchedule({
-							workspace: $workspaceStore ?? '',
-							path: script.path,
-							requestBody: {
-								schedule: formatCron(cron),
-								timezone,
-								args,
-								summary
-							}
-						})
-					}
-					if (enabled != schedule.enabled) {
-						await ScheduleService.setScheduleEnabled({
-							workspace: $workspaceStore ?? '',
-							path: script.path,
-							requestBody: { enabled }
-						})
-					}
-				} else if (enabled) {
-					await createSchedule(script.path)
-				}
-			} else if (scheduleExists && !$triggersCount?.primary_schedule) {
-				await ScheduleService.deleteSchedule({
-					workspace: $workspaceStore ?? '',
-					path: script.path
-				})
+			if (triggersToDeploy) {
+				await deployTriggers(
+					triggersToDeploy,
+					$workspaceStore,
+					!!$userStore?.is_admin || !!$userStore?.is_super_admin,
+					usedTriggerKinds
+				)
 			}
 
 			savedScript = structuredClone(script) as NewScriptWithDraft
@@ -639,7 +622,10 @@
 				requestBody: {
 					path: initialPath == '' || savedScript?.draft_only ? script.path : initialPath,
 					typ: 'script',
-					value: { ...script, primary_schedule: $primaryScheduleStore }
+					value: {
+						...script,
+						draft_triggers: $triggersStore
+					}
 				}
 			})
 
@@ -818,11 +804,21 @@
 	bind:deployedValue
 	currentValue={script}
 />
+
+<DraftTriggersConfirmationModal
+	bind:open={draftTriggersModalOpen}
+	draftTriggers={$triggersStore.filter((t) => t.draftConfig)}
+	on:canceled={() => {
+		draftTriggersModalOpen = false
+	}}
+	on:confirmed={handleDraftTriggersConfirmed}
+/>
+
 {#if !$userStore?.operator}
 	<Drawer
 		placement="right"
 		bind:open={metadataOpen}
-		size={selectedTab === 'ui' ? '1200px' : '800px'}
+		size={selectedTab === 'ui' || selectedTab === 'triggers' ? '1200px' : '800px'}
 	>
 		<DrawerContent noPadding title="Settings" on:close={() => (metadataOpen = false)}>
 			<!-- svelte-ignore a11y-autofocus -->
@@ -1440,27 +1436,29 @@
 									customUi={customUi?.settingsPanel?.metadata?.editableSchemaForm}
 								/>
 							</TabContent>
-							<TabContent value="triggers">
+							<TabContent value="triggers" class="h-full">
 								<TriggersEditor
-									on:applyArgs={applyArgs}
+									on:applyArgs
 									on:addPreprocessor={addPreprocessor}
 									on:exitTriggers={() => {
 										captureTable?.loadCaptures(true)
 									}}
-									args={hasPreprocessor && selectedInputTab !== 'preprocessor' ? {} : args}
+									currentPath={script.path}
 									{initialPath}
 									{fakeInitialPath}
-									schema={script.schema}
 									noEditor={true}
-									isFlow={false}
-									currentPath={script.path}
-									hash={script.parent_hash}
 									newItem={initialPath == ''}
+									isFlow={false}
+									{hasPreprocessor}
 									canHavePreprocessor={script.language === 'bun' ||
 										script.language === 'deno' ||
 										script.language === 'python3'}
-									{hasPreprocessor}
+									args={hasPreprocessor && selectedInputTab !== 'preprocessor' ? {} : args}
+									isDeployed={false}
+									schema={script.schema}
+									hash={script.parent_hash}
 								/>
+
 								<!-- <ScriptSchedules {initialPath} schema={script.schema} schedule={scheduleStore} /> -->
 							</TabContent>
 						</div>
