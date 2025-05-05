@@ -30,7 +30,6 @@ use windmill_api::{
 
 #[cfg(feature = "enterprise")]
 use windmill_common::ee::{jobs_waiting_alerts, worker_groups_alerts};
-#[cfg(feature = "enterprise")]
 use windmill_common::ee::low_disk_alerts;
 
 #[cfg(feature = "oauth2")]
