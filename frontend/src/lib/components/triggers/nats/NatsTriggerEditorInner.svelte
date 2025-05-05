@@ -15,6 +15,7 @@
 	import NatsTriggersConfigSection from './NatsTriggersConfigSection.svelte'
 	import type { Snippet } from 'svelte'
 	import TriggerEditorToolbar from '../TriggerEditorToolbar.svelte'
+	import { saveNatsTriggerFromCfg } from './utils'
 
 	interface Props {
 		useDrawer?: boolean
@@ -166,62 +167,28 @@
 	}
 
 	function saveDraft() {
-		dispatch('save-draft', {
-			cfg: {
-				script_path,
-				is_flow,
-				path,
-				nats_resource_path: args.nats_resource_path,
-				stream_name: args.stream_name,
-				consumer_name: args.consumer_name,
-				subjects: args.subjects,
-				use_jetstream: args.use_jetstream,
-				enabled: enabled
-			},
-			cb: () => {
-				updateTrigger()
-			}
-		})
+		const cfg = getSaveCfg()
+		dispatch('save-draft', { cfg })
 		toggleEditMode(false)
 	}
 
+	function getSaveCfg(): Record<string, any> {
+		return {
+			path,
+			script_path,
+			is_flow,
+			enabled,
+			nats_resource_path: args.nats_resource_path,
+			stream_name: args.stream_name,
+			consumer_name: args.consumer_name,
+			subjects: args.subjects,
+			use_jetstream: args.use_jetstream
+		}
+	}
+
 	async function updateTrigger(): Promise<void> {
-		if (edit) {
-			await NatsTriggerService.updateNatsTrigger({
-				workspace: $workspaceStore!,
-				path: initialPath,
-				requestBody: {
-					path,
-					script_path,
-					is_flow,
-					nats_resource_path: args.nats_resource_path,
-					stream_name: args.stream_name,
-					consumer_name: args.consumer_name,
-					subjects: args.subjects,
-					use_jetstream: args.use_jetstream
-				}
-			})
-			sendUserToast(`Nats trigger ${path} updated`)
-		} else {
-			await NatsTriggerService.createNatsTrigger({
-				workspace: $workspaceStore!,
-				requestBody: {
-					path,
-					script_path,
-					is_flow,
-					enabled: true,
-					nats_resource_path: args.nats_resource_path,
-					stream_name: args.stream_name,
-					consumer_name: args.consumer_name,
-					subjects: args.subjects,
-					use_jetstream: args.use_jetstream
-				}
-			})
-			sendUserToast(`Nats trigger ${path} created`)
-		}
-		if (!$usedTriggerKinds.includes('nats')) {
-			$usedTriggerKinds = [...$usedTriggerKinds, 'nats']
-		}
+		const cfg = getSaveCfg()
+		await saveNatsTriggerFromCfg(initialPath, cfg, edit, $workspaceStore!, usedTriggerKinds)
 		dispatch('update', path)
 		drawer?.closeDrawer()
 		toggleEditMode(false)
