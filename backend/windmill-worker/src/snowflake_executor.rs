@@ -12,7 +12,9 @@ use windmill_common::error::to_anyhow;
 use windmill_common::worker::Connection;
 
 use windmill_common::{error::Error, worker::to_raw_value};
-use windmill_parser_sql::{parse_db_resource, parse_snowflake_sig, parse_sql_blocks};
+use windmill_parser_sql::{
+    parse_db_resource, parse_s3_mode, parse_snowflake_sig, parse_sql_blocks,
+};
 use windmill_queue::{CanceledBy, MiniPulledJob, HTTP_CLIENT};
 
 use serde::{Deserialize, Serialize};
@@ -114,6 +116,14 @@ impl SnowflakeResponseExt for Result<Response, reqwest::Error> {
     }
 }
 
+#[derive(Clone)]
+struct S3Mode {
+    client: AuthedClient,
+    object_key: String,
+    storage: Option<String>,
+    workspace_id: String,
+}
+
 fn do_snowflake_inner<'a>(
     query: &'a str,
     job_args: &HashMap<String, Value>,
@@ -124,6 +134,7 @@ fn do_snowflake_inner<'a>(
     column_order: Option<&'a mut Option<Vec<String>>>,
     skip_collect: bool,
     http_client: &'a Client,
+    s3: Option<S3Mode>,
 ) -> windmill_common::error::Result<BoxFuture<'a, windmill_common::error::Result<Box<RawValue>>>> {
     let sig = parse_snowflake_sig(&query)
         .map_err(|x| Error::ExecutionErr(x.to_string()))?
@@ -170,6 +181,22 @@ fn do_snowflake_inner<'a>(
         if skip_collect {
             handle_snowflake_result(result).await?;
             Ok(to_raw_value(&Value::Array(vec![])))
+        } else if let Some(ref s3) = s3 {
+            // do not do parse_snowflake_response as it will call .json() and
+            // load the entire response into memory
+            let result = result.map_err(|e| {
+                Error::ExecutionErr(format!("Could not send request to Snowflake: {:?}", e))
+            })?;
+            s3.client
+                .upload_s3_file(
+                    s3.workspace_id.as_str(),
+                    s3.object_key.clone(),
+                    s3.storage.clone(),
+                    result.bytes_stream(),
+                )
+                .await?;
+
+            Ok(serde_json::value::to_raw_value(&s3.object_key)?)
         } else {
             let response = result
                 .parse_snowflake_response::<SnowflakeResponse>()
@@ -260,6 +287,12 @@ pub async fn do_snowflake(
     let snowflake_args = build_args_values(job, client, conn).await?;
 
     let inline_db_res_path = parse_db_resource(&query);
+    let s3 = parse_s3_mode(&query).map(|s3_mode| S3Mode {
+        client: client.clone(),
+        storage: s3_mode.storage,
+        object_key: format!("{}/{}.txt", s3_mode.folder_key, job.id),
+        workspace_id: job.workspace_id.clone(),
+    });
 
     let db_arg = if let Some(inline_db_res_path) = inline_db_res_path {
         Some(
@@ -391,6 +424,7 @@ pub async fn do_snowflake(
                     None,
                     annotations.return_last_result && i < queries.len() - 1,
                     &http_client,
+                    s3.clone(),
                 )
             })
             .collect::<windmill_common::error::Result<Vec<_>>>()?;
@@ -420,6 +454,7 @@ pub async fn do_snowflake(
             Some(column_order),
             false,
             &http_client,
+            s3.clone(),
         )?
     };
     let r = run_future_with_polling_update_job_poller(
