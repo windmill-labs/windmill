@@ -650,8 +650,13 @@ async fn create_script_internal<'c>(
     ) {
         Some(String::new())
     } else {
-        ns.lock
-            .and_then(|e| if e.is_empty() { None } else { Some(e) })
+        ns.lock.as_ref().and_then(|e| {
+            if e.is_empty() {
+                None
+            } else {
+                Some(e.to_string())
+            }
+        })
     };
 
     let needs_lock_gen = lock.is_none() && codebase.is_none();
@@ -901,6 +906,7 @@ async fn create_script_internal<'c>(
         let permissioned_as2 = permissioned_as.clone();
         let script_path2 = script_path.clone();
         let parent_path = p_path_opt.clone();
+        let lock = ns.lock.clone();
         let deployment_message = ns.deployment_message.clone();
         let content = ns.content.clone();
         let language = ns.language.clone();
@@ -920,6 +926,7 @@ async fn create_script_internal<'c>(
                 &authed2.email,
                 &authed2.username,
                 &permissioned_as2,
+                lock,
             )
             .await
             {
