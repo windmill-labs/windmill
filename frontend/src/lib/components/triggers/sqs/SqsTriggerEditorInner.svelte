@@ -364,6 +364,7 @@
 				bind:aws_auth_resource_type
 				can_write={can_write && editMode}
 				headless={true}
+				showTestingBadge={isEditor}
 			/>
 		</div>
 	{/if}

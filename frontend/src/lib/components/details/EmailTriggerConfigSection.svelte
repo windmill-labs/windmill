@@ -10,8 +10,6 @@
 	import ClipboardPanel from './ClipboardPanel.svelte'
 	import Alert from '$lib/components/common/alert/Alert.svelte'
 	import { base32 } from 'rfc4648'
-	import CaptureSection, { type CaptureInfo } from '../triggers/CaptureSection.svelte'
-	import CaptureTable from '../triggers/CaptureTable.svelte'
 
 	export let token: string = ''
 	export let isFlow: boolean = false
@@ -19,24 +17,8 @@
 	export let path: string
 	export let userSettings: any
 	export let emailDomain: string | null = null
-	export let showCapture: boolean = false
-	export let captureInfo: CaptureInfo | undefined = undefined
-	export let captureTable: CaptureTable | undefined = undefined
 
 	let requestType: 'hash' | 'path' = 'path'
-
-	function getCaptureEmail() {
-		const cleanedPath = path.replaceAll('/', '.')
-		const plainPrefix = `capture+${$workspaceStore}+${(isFlow ? 'flow.' : '') + cleanedPath}`
-		const encodedPrefix = base32
-			.stringify(new TextEncoder().encode(plainPrefix), {
-				pad: false
-			})
-			.toLowerCase()
-		return `${encodedPrefix}@${emailDomain}`
-	}
-
-	$: captureEmail = getCaptureEmail()
 
 	function emailAddress(
 		requestType: 'hash' | 'path',
@@ -63,23 +45,6 @@
 </script>
 
 <div>
-	{#if showCapture && captureInfo}
-		<CaptureSection
-			bind:captureTable
-			captureType="email"
-			disabled={false}
-			{captureInfo}
-			on:captureToggle
-			on:applyArgs
-			on:updateSchema
-			on:addPreprocessor
-			on:testWithArgs
-		>
-			<Label label="Email address">
-				<ClipboardPanel content={captureEmail} disabled={!captureInfo.active} />
-			</Label>
-		</CaptureSection>
-	{/if}
 	<div class="flex flex-col gap-4">
 		{#if SCRIPT_VIEW_SHOW_CREATE_TOKEN_BUTTON}
 			<Label label="Token">

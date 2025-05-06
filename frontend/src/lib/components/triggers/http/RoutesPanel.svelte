@@ -15,7 +15,8 @@
 		isDeployed = false,
 		small = false,
 		defaultValues = undefined,
-		newDraft = false
+		newDraft = false,
+		isEditor = false
 	} = $props()
 
 	async function openRouteEditor(isFlow: boolean, isDraft: boolean) {
@@ -39,7 +40,7 @@
 	hideTarget
 	on:update-config
 	on:update
-	showCapture
+	{isEditor}
 	editMode={edit}
 	on:toggle-edit-mode
 	on:delete

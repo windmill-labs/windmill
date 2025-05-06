@@ -72,6 +72,7 @@
 		{small}
 		defaultValues={selectedTrigger.draftConfig ?? selectedTrigger.captureConfig ?? undefined}
 		newDraft={selectedTrigger.draftConfig === undefined}
+		{isEditor}
 	/>
 {:else if selectedTrigger.type === 'webhook'}
 	<WebhooksPanel

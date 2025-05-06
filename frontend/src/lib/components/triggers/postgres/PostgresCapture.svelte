@@ -1,6 +1,6 @@
 <script lang="ts">
-	import type { CaptureInfo } from '../CaptureSectionV2.svelte'
-	import CaptureSection from '../CaptureSectionV2.svelte'
+	import type { CaptureInfo } from '../CaptureSection.svelte'
+	import CaptureSection from '../CaptureSection.svelte'
 
 	export let captureInfo: CaptureInfo | undefined = undefined
 	export let postgres_resource_path: string = ''

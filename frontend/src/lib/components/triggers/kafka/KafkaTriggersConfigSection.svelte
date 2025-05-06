@@ -6,8 +6,6 @@
 	import ToggleButton from '../../common/toggleButton-v2/ToggleButton.svelte'
 	import ToggleButtonGroup from '../../common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import SchemaForm from '../../SchemaForm.svelte'
-	import CaptureSection, { type CaptureInfo } from '../CaptureSection.svelte'
-	import CaptureTable from '../CaptureTable.svelte'
 	import { workspaceStore } from '$lib/stores'
 	import TestTriggerConnection from '../TestTriggerConnection.svelte'
 	import TestingBadge from '../testingBadge.svelte'
@@ -17,9 +15,6 @@
 	export let headless: boolean = false
 	export let args: Record<string, any> = {}
 	export let staticInputDisabled: boolean = true
-	export let showCapture: boolean = false
-	export let captureInfo: CaptureInfo | undefined = undefined
-	export let captureTable: CaptureTable | undefined = undefined
 	export let isValid: boolean = false
 	export let can_write: boolean = true
 	export let showTestingBadge: boolean = false
@@ -213,19 +208,6 @@
 </script>
 
 <div>
-	{#if showCapture && captureInfo}
-		<CaptureSection
-			captureType="kafka"
-			disabled={!isValid}
-			{captureInfo}
-			on:captureToggle
-			on:applyArgs
-			on:updateSchema
-			on:addPreprocessor
-			on:testWithArgs
-			bind:captureTable
-		/>
-	{/if}
 	<Section label="Kafka" {headless}>
 		<svelte:fragment slot="header">
 			{#if showTestingBadge}

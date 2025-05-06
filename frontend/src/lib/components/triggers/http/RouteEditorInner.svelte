@@ -38,7 +38,7 @@
 		hideTarget = false,
 		saveDisabled = false,
 		description = undefined,
-		showCapture = false,
+		isEditor = false,
 		editMode = true,
 		preventSave = false,
 		customLabel = undefined,
@@ -537,9 +537,8 @@
 				bind:http_method
 				bind:workspaced_route
 				can_write={can_write && editMode}
-				capture_mode={false}
 				bind:static_asset_config
-				{showCapture}
+				showTestingBadge={isEditor}
 				{isDraftOnly}
 			/>
 
@@ -723,7 +722,7 @@
 {/snippet}
 
 {#snippet testingBadge()}
-	{#if showCapture}
+	{#if isEditor}
 		<TestingBadge />
 	{/if}
 {/snippet}
@@ -741,6 +740,7 @@
 		{edit}
 		{can_write}
 		isLoading={false}
+		{isEditor}
 		on:save-draft={() => {
 			saveDraft()
 		}}

@@ -7,17 +7,12 @@
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ResourcePicker from '$lib/components/ResourcePicker.svelte'
 	import SchemaForm from '$lib/components/SchemaForm.svelte'
-	import CaptureSection, { type CaptureInfo } from '../CaptureSection.svelte'
-	import CaptureTable from '../CaptureTable.svelte'
 	import TestTriggerConnection from '../TestTriggerConnection.svelte'
 	import TestingBadge from '../testingBadge.svelte'
 	export let defaultValues: Record<string, any> | undefined = undefined
 	export let headless: boolean = false
 	export let args: Record<string, any> = {}
 	export let staticInputDisabled: boolean = true
-	export let showCapture: boolean = false
-	export let captureInfo: CaptureInfo | undefined = undefined
-	export let captureTable: CaptureTable | undefined = undefined
 	export let isValid: boolean = false
 	export let path: string
 	export let can_write: boolean = true
@@ -219,18 +214,6 @@
 </script>
 
 <div>
-	{#if showCapture && captureInfo}
-		<CaptureSection
-			captureType="nats"
-			disabled={!isValid}
-			{captureInfo}
-			on:captureToggle
-			on:applyArgs
-			on:updateSchema
-			on:addPreprocessor
-			bind:captureTable
-		/>
-	{/if}
 	<Section label="NATS" {headless}>
 		<svelte:fragment slot="badge">
 			{#if showTestingBadge}

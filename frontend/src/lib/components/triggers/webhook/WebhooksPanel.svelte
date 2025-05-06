@@ -2,7 +2,7 @@
 	import { Alert } from '$lib/components/common'
 	import Description from '$lib/components/Description.svelte'
 	import HighlightTheme from '$lib/components/HighlightTheme.svelte'
-	import WebhooksConfigSection from './WebhooksConfigSectionV2.svelte'
+	import WebhooksConfigSection from './WebhooksConfigSection.svelte'
 	import { Section } from '$lib/components/common'
 
 	export let token: string

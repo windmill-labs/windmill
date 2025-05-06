@@ -28,6 +28,7 @@
 	import { base } from '$lib/base'
 	import type { Snippet } from 'svelte'
 	import TriggerEditorToolbar from '../TriggerEditorToolbar.svelte'
+	import TestingBadge from '../testingBadge.svelte'
 
 	interface Props {
 		useDrawer?: boolean
@@ -407,6 +408,7 @@
 			{isLoading}
 			{neverSaved}
 			{enabled}
+			{isEditor}
 			on:save-draft={() => {
 				saveDraft()
 			}}
@@ -502,7 +504,12 @@
 					</div>
 				</Section>
 			{/if}
-			<Section label="Database" showTestingBadge={isEditor}>
+			<Section label="Database">
+				<svelte:fragment slot="badge">
+					{#if isEditor}
+						<TestingBadge />
+					{/if}
+				</svelte:fragment>
 				<p class="text-xs text-tertiary mb-2">
 					Pick a database to connect to <Required required={true} />
 				</p>

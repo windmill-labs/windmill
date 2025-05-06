@@ -3,7 +3,7 @@
 	import bash from 'svelte-highlight/languages/bash'
 	import { isObject } from '$lib/utils'
 	import CopyableCodeBlock from '../../details/CopyableCodeBlock.svelte'
-	import CaptureSection, { type CaptureInfo } from '../CaptureSectionV2.svelte'
+	import CaptureSection, { type CaptureInfo } from '../CaptureSection.svelte'
 	import { workspaceStore } from '$lib/stores'
 	import { Url } from '$lib/components/common'
 

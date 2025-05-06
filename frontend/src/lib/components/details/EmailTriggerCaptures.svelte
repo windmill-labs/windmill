@@ -3,7 +3,7 @@
 	import { workspaceStore } from '$lib/stores'
 	import { base32 } from 'rfc4648'
 	import ClipboardPanel from './ClipboardPanel.svelte'
-	import CaptureSection, { type CaptureInfo } from '../triggers/CaptureSectionV2.svelte'
+	import CaptureSection, { type CaptureInfo } from '../triggers/CaptureSection.svelte'
 
 	export let isFlow: boolean = false
 	export let path: string

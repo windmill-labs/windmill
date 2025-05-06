@@ -5,19 +5,9 @@
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import { userStore, workspaceStore } from '$lib/stores'
-	import Label from '$lib/components/Label.svelte'
-	import CopyableCodeBlock from '$lib/components/details/CopyableCodeBlock.svelte'
-	import { bash } from 'svelte-highlight/languages'
 	import { HttpTriggerService } from '$lib/gen'
 	// import { page } from '$app/stores'
-	import { base } from '$lib/base'
-	import type { CaptureInfo } from '../CaptureSection.svelte'
-	import CaptureSection from '../CaptureSection.svelte'
-	import CaptureTable from '../CaptureTable.svelte'
-	import ClipboardPanel from '../../details/ClipboardPanel.svelte'
-	import { isObject } from '$lib/utils'
 	import { getHttpRoute } from './utils'
-	import RouteBodyTransformerOption from './RouteBodyTransformerOption.svelte'
 	import { isCloudHosted } from '$lib/cloud'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import TestingBadge from '../testingBadge.svelte'
@@ -29,20 +19,13 @@
 	export let can_write: boolean = false
 	export let static_asset_config: { s3: string; storage?: string; filename?: string } | undefined =
 		undefined
-	export let showCapture = false
 	export let headless: boolean = false
-	export let captureInfo: CaptureInfo | undefined = undefined
-	export let captureTable: CaptureTable | undefined = undefined
 	export let workspaced_route: boolean = false
 	export let isValid = false
-	export let runnableArgs: any = {}
-	export let raw_string: boolean = false
-	export let wrap_body: boolean = false
-	export let capture_mode: boolean
 	export let isDraftOnly: boolean = true
+	export let showTestingBadge: boolean = false
 
 	let validateTimeout: NodeJS.Timeout | undefined = undefined
-	let selectedRoute: 'test' | 'full' = 'full'
 
 	let routeError: string = ''
 	async function validateRoute(
@@ -89,53 +72,14 @@
 	$: !http_method && (http_method = 'post')
 	$: route_path === undefined && (route_path = '')
 
-	$: captureURL = `${location.origin}${base}/api/w/${$workspaceStore}/capture_u/http/${
-		captureInfo?.isFlow ? 'flow' : 'script'
-	}/${captureInfo?.path.replaceAll('/', '.')}/${route_path}`
-
 	$: userIsAdmin = $userStore?.is_admin || $userStore?.is_super_admin
 	$: userCanEditConfig = userIsAdmin || isDraftOnly // User can edit config if they are admin or if the trigger is a draft which will not be saved
 </script>
 
 <div>
-	{#if showCapture && captureInfo}
-		{@const captureURL = `${location.origin}${base}/api/w/${$workspaceStore}/capture_u/http/${
-			captureInfo.isFlow ? 'flow' : 'script'
-		}/${captureInfo.path.replaceAll('/', '.')}/${route_path}`}
-		{@const cleanedRunnableArgs =
-			isObject(runnableArgs) && 'wm_trigger' in runnableArgs
-				? Object.fromEntries(Object.entries(runnableArgs).filter(([key]) => key !== 'wm_trigger'))
-				: runnableArgs}
-		<CaptureSection
-			captureType="http"
-			disabled={!isValid}
-			{captureInfo}
-			on:captureToggle
-			on:applyArgs
-			on:updateSchema
-			on:addPreprocessor
-			on:testWithArgs
-			bind:captureTable
-		>
-			<Label label="URL">
-				<ClipboardPanel content={captureURL} disabled={!captureInfo.active} />
-			</Label>
-
-			<Label label="Example cUrl">
-				<CopyableCodeBlock
-					disabled={!captureInfo.active}
-					code={`curl \\
--X ${(http_method ?? 'post').toUpperCase()} ${captureURL} \\
--H 'Content-Type: application/json' \\
--d '${JSON.stringify(cleanedRunnableArgs ?? {}, null, 2)}'`}
-					language={bash}
-				/>
-			</Label>
-		</CaptureSection>
-	{/if}
 	<Section label="HTTP" {headless}>
 		<svelte:fragment slot="header">
-			{#if showCapture}
+			{#if showTestingBadge}
 				<TestingBadge />
 			{/if}
 		</svelte:fragment>
@@ -185,7 +129,7 @@
 				<ToggleButton label="DELETE" value="delete" {item} {disabled} />
 			</ToggleButtonGroup>
 			<div class="flex flex-col w-full">
-				<Url url={selectedRoute === 'full' ? fullRoute : captureURL} label="Production URL" />
+				<Url url={fullRoute} label="Production URL" />
 
 				<div class="text-red-600 dark:text-red-400 text-2xs mt-1.5"
 					>{dirtyRoutePath ? routeError : ''}</div
@@ -211,9 +155,6 @@
 					</div>
 				{/if}
 			</div>
-			{#if capture_mode}
-				<RouteBodyTransformerOption bind:raw_string bind:wrap_body />
-			{/if}
 		</div>
 	</Section>
 </div>

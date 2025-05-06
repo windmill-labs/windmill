@@ -5,8 +5,8 @@
 	import { bash } from 'svelte-highlight/languages'
 	// import { page } from '$app/stores'
 	import { base } from '$lib/base'
-	import type { CaptureInfo } from '../CaptureSectionV2.svelte'
-	import CaptureSection from '../CaptureSectionV2.svelte'
+	import type { CaptureInfo } from '../CaptureSection.svelte'
+	import CaptureSection from '../CaptureSection.svelte'
 	import { isObject } from '$lib/utils'
 	import { Url } from '$lib/components/common'
 

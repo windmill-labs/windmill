@@ -5,8 +5,6 @@
 	import ScriptPicker from '$lib/components/ScriptPicker.svelte'
 	import Required from '$lib/components/Required.svelte'
 	import { Loader2 } from 'lucide-svelte'
-	import CaptureSection, { type CaptureInfo } from '../CaptureSection.svelte'
-	import CaptureTable from '../CaptureTable.svelte'
 	import { sendUserToast } from '$lib/utils'
 	import type { Schema } from '$lib/common'
 	import { FlowService, ScriptService, type Flow, type Script } from '$lib/gen'
@@ -19,9 +17,6 @@
 	export let dirtyUrl: boolean = false
 	export let can_write: boolean = false
 	export let headless: boolean = false
-	export let showCapture: boolean = false
-	export let captureTable: CaptureTable | undefined = undefined
-	export let captureInfo: CaptureInfo | undefined = undefined
 	export let isValid: boolean = false
 	export let showTestingBadge: boolean = false
 
@@ -83,19 +78,6 @@
 </script>
 
 <div>
-	{#if showCapture && captureInfo}
-		<CaptureSection
-			disabled={!isValid}
-			on:captureToggle
-			captureType="websocket"
-			{captureInfo}
-			on:applyArgs
-			on:updateSchema
-			on:addPreprocessor
-			on:testWithArgs
-			bind:captureTable
-		/>
-	{/if}
 	<Section label="WebSocket" {headless}>
 		<svelte:fragment slot="header">
 			{#if showTestingBadge}
