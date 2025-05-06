@@ -74,6 +74,8 @@
 	export let lastSavedCode: string | undefined = undefined
 	export let lastDeployedCode: string | undefined = undefined
 
+	$: console.log('schema', schema)
+
 	let showHistoryDrawer = false
 
 	let jobProgressReset: () => void
@@ -165,7 +167,7 @@
 
 	export async function inferSchema(code: string, nlang?: SupportedLanguage, resetArgs = false) {
 		let nschema = schema ?? emptySchema()
-
+		console.log('nschema', nschema)
 		try {
 			const result = await inferArgs(
 				nlang ?? lang,

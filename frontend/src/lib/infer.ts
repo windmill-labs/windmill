@@ -86,6 +86,7 @@ export async function inferArgs(
 	no_main_func: boolean | null
 	has_preprocessor: boolean | null
 } | null> {
+	console.log('inferArgs', language, code, schema, mainOverride)
 	const lastRun = get(loadSchemaLastRun)
 	let inferedSchema: MainArgSignature
 	if (lastRun && code == lastRun[0] && lastRun[1] && lastRun[2] == mainOverride) {
@@ -96,7 +97,9 @@ export async function inferArgs(
 		}
 
 		let inlineDBResource: string | undefined = undefined
-		if (['postgresql', 'mysql', 'bigquery', 'snowflake', 'mssql', 'oracledb'].includes(language ?? '')) {
+		if (
+			['postgresql', 'mysql', 'bigquery', 'snowflake', 'mssql', 'oracledb'].includes(language ?? '')
+		) {
 			await initWasmRegex()
 			inlineDBResource = parse_db_resource(code)
 		}
@@ -194,7 +197,7 @@ export async function inferArgs(
 		} else if (language == 'java') {
 			await initWasmJava()
 			inferedSchema = JSON.parse(parse_java(code))
-			// for related places search: ADD_NEW_LANG 
+			// for related places search: ADD_NEW_LANG
 		} else {
 			return null
 		}
@@ -207,6 +210,7 @@ export async function inferArgs(
 	schema.required = []
 	const oldProperties = JSON.parse(JSON.stringify(schema.properties))
 	schema.properties = {}
+	console.log('schema', schema.properties)
 	for (const arg of inferedSchema.args) {
 		if (!(arg.name in oldProperties)) {
 			schema.properties[arg.name] = { description: '', type: '' }
@@ -224,6 +228,7 @@ export async function inferArgs(
 		}
 	}
 	await tick()
+	console.log('schema', schema.properties)
 
 	return {
 		no_main_func: inferedSchema.no_main_func,
@@ -232,6 +237,7 @@ export async function inferArgs(
 }
 
 export async function loadSchemaFromPath(path: string, hash?: string): Promise<Schema> {
+	console.log('loadSchemaFromPath', path, hash)
 	if (path.startsWith('hub/')) {
 		const { content, language, schema } = await ScriptService.getHubScriptByPath({ path })
 
@@ -259,6 +265,7 @@ export async function loadSchemaFromPath(path: string, hash?: string): Promise<S
 }
 
 async function inferSchemaIfNecessary(script: Script) {
+	console.log('inferSchemaIfNecessary', script)
 	if (script.schema) {
 		return script.schema as any
 	} else {
@@ -273,6 +280,7 @@ export async function loadSchema(
 	path: string,
 	runType: 'script' | 'flow' | 'hubscript'
 ): Promise<{ schema: Schema; summary: string | undefined }> {
+	console.log('loadSchema', workspace, path, runType)
 	if (runType === 'script') {
 		const script = await ScriptService.getScriptByPath({
 			workspace,

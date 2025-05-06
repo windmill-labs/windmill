@@ -1,0 +1,36 @@
+{
+  "name": "windmill-infer-args",
+  "version": "1.0.0",
+  "main": "dist/index.js",
+  "module": "dist/index.mjs",
+  "types": "dist/index.d.ts",
+  "type": "module",
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "",
+  "license": "ISC",
+  "description": "Windmill argument inference utilities",
+  "devDependencies": {
+    "@types/node": "^22.15.12",
+    "tslib": "^2.6.1",
+    "tsup": "^8.0.2",
+    "typescript": "^5.5.0"
+  },
+  "dependencies": {
+    "windmill-parser-wasm-csharp": "^1.437.1",
+    "windmill-parser-wasm-go": "^1.429.0",
+    "windmill-parser-wasm-java": "^1.478.1",
+    "windmill-parser-wasm-nu": "^1.474.1",
+    "windmill-parser-wasm-php": "^1.429.0",
+    "windmill-parser-wasm-py": "^1.477.1",
+    "windmill-parser-wasm-regex": "^1.481.0",
+    "windmill-parser-wasm-rust": "^1.429.0",
+    "windmill-parser-wasm-ts": "^1.438.2",
+    "windmill-parser-wasm-yaml": "^1.429.0"
+  }
+}

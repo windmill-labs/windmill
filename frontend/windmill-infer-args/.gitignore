@@ -1,0 +1,15 @@
+# Dependency directories
+node_modules/
+
+# TypeScript build output
+dist/
+
+# IDE and editor files
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db 
