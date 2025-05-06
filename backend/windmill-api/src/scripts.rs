@@ -1295,7 +1295,7 @@ async fn raw_script_by_path_internal(
 
     if content_o.is_none() {
         let exists = sqlx::query_scalar!(
-            "SELECT EXISTS(SELECT 1 FROM script WHERE path = $1 AND workspace_id = $2 ORDER BY created_at DESC LIMIT 1)",
+            "SELECT EXISTS(SELECT 1 FROM script WHERE path = $1 AND workspace_id = $2 AND archived = false ORDER BY created_at DESC LIMIT 1)",
             path,
             w_id
         )
