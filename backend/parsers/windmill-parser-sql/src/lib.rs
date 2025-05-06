@@ -120,15 +120,39 @@ pub fn parse_db_resource(code: &str) -> Option<String> {
     cap.map(|x| x.get(1).map(|x| x.as_str().to_string()).unwrap())
 }
 
+pub enum S3ModeFormat {
+    Json,
+}
 pub struct S3ModeArgs {
     pub folder_key: String,
     pub storage: Option<String>,
+    pub format: Option<S3ModeFormat>,
 }
 pub fn parse_s3_mode(code: &str) -> Option<S3ModeArgs> {
     let cap = RE_S3_MODE.captures(code)?;
-    let arg1 = cap.get(1).map(|x| x.as_str().to_string())?;
-    let arg2 = cap.get(2).map(|x| x.as_str().to_string());
-    Some(S3ModeArgs { folder_key: arg1, storage: arg2 })
+    let args_str = cap.get(1).map(|x| x.as_str().to_string())?;
+
+    let mut folder_key = None;
+    let mut storage = None;
+    let mut format = Some(S3ModeFormat::Json);
+
+    for kv in args_str.split(' ') {
+        let mut it = kv.trim().split('=');
+        let (Some(key), Some(value)) = (it.next(), it.next()) else {
+            continue;
+        };
+        match (key.trim(), value.trim()) {
+            ("folder", _) => folder_key = Some(value.to_string()),
+            ("storage", _) => storage = Some(value.to_string()),
+            ("format", "json") => format = Some(S3ModeFormat::Json),
+            _ => {}
+        }
+    }
+    let Some(folder_key) = folder_key else {
+        return None;
+    };
+
+    Some(S3ModeArgs { folder_key, storage, format })
 }
 
 pub fn parse_sql_blocks(code: &str) -> Vec<&str> {
@@ -158,7 +182,7 @@ lazy_static::lazy_static! {
     static ref RE_NONEMPTY_SQL_BLOCK: Regex = Regex::new(r#"(?m)^\s*[^\s](?:[^-]|$)"#).unwrap();
 
     static ref RE_DB: Regex = Regex::new(r#"(?m)^-- database (\S+) *(?:\r|\n|$)"#).unwrap();
-    static ref RE_S3_MODE: Regex = Regex::new(r#"(?m)^-- s3 (\S+)( +(\S+))? *(?:\r|\n|$)"#).unwrap();
+    static ref RE_S3_MODE: Regex = Regex::new(r#"(?m)^-- s3 (.*)(?:\r|\n|$)"#).unwrap();
 
     // -- $1 name (type) = default
     static ref RE_ARG_MYSQL: Regex = Regex::new(r#"(?m)^-- \? (\w+) \((\w+)\)(?: ?\= ?(.+))? *(?:\r|\n|$)"#).unwrap();
