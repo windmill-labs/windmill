@@ -1,5 +1,6 @@
 use base64::{engine::general_purpose, Engine as _};
 use chrono::{DateTime, NaiveDate, NaiveDateTime, NaiveTime, Utc};
+use futures::StreamExt;
 use regex::Regex;
 use serde::Deserialize;
 use serde_json::value::RawValue;
@@ -13,7 +14,7 @@ use windmill_common::{
     utils::empty_string_as_none,
     worker::{to_raw_value, Connection},
 };
-use windmill_parser_sql::{parse_db_resource, parse_mssql_sig};
+use windmill_parser_sql::{parse_db_resource, parse_mssql_sig, parse_s3_mode};
 use windmill_queue::MiniPulledJob;
 use windmill_queue::{append_logs, CanceledBy};
 
@@ -49,6 +50,14 @@ lazy_static::lazy_static! {
     static ref RE_MSSQL_READONLY_INTENT: Regex = Regex::new(r#"(?mi)^-- ApplicationIntent=ReadOnly *(?:\r|\n|$)"#).unwrap();
 }
 
+#[derive(Clone)]
+struct S3Mode {
+    client: AuthedClient,
+    object_key: String,
+    storage: Option<String>,
+    workspace_id: String,
+}
+
 pub async fn do_mssql(
     job: &MiniPulledJob,
     client: &AuthedClient,
@@ -63,6 +72,12 @@ pub async fn do_mssql(
     let mssql_args = build_args_values(job, client, conn).await?;
 
     let inline_db_res_path = parse_db_resource(&query);
+    let s3 = parse_s3_mode(&query).map(|s3_mode| S3Mode {
+        client: client.clone(),
+        storage: s3_mode.storage,
+        object_key: format!("{}/{}.json", s3_mode.folder_key, job.id),
+        workspace_id: job.workspace_id.clone(),
+    });
 
     let db_arg = if let Some(inline_db_res_path) = inline_db_res_path {
         Some(
@@ -197,27 +212,61 @@ pub async fn do_mssql(
         // A response to a query is a stream of data, that must be
         // polled to the end before querying again. Using streams allows
         // fetching data in an asynchronous manner, if needed.
-        let stream = prepared_query.query(&mut client).await.map_err(to_anyhow)?;
 
-        let results = stream.into_results().await.map_err(to_anyhow)?;
-        let len = results.len();
-        let mut json_results = vec![];
-        for (i, statement_result) in results.into_iter().enumerate() {
-            if annotations.return_last_result && i < len - 1 {
-                continue;
-            }
-            let mut json_rows = vec![];
-            for row in statement_result {
-                let row = row_to_json(row)?;
-                json_rows.push(row);
-            }
-            json_results.push(json_rows);
-        }
+        if let Some(s3) = s3 {
+            let rows_stream = async_stream::stream! {
+                let mut stream = prepared_query.query(&mut client).await.map_err(to_anyhow)?.into_row_stream().map(|row| {
+                    serde_json::to_string(
+                        &row_to_json(row.map_err(to_anyhow)?).map_err(to_anyhow)?,
+                    )
+                    .map_err(to_anyhow)
+                });
+                while let Some(row) = stream.next().await {
+                    yield row;
+                }
+            };
+            let rows_stream = rows_stream.enumerate().map(|(i, row)| {
+                if i == 0 {
+                    row
+                } else {
+                    Ok(format!(",\n{}", row?))
+                }
+            });
+            let start_bracket = futures::stream::once(async { Ok("{ rows: [\n".to_string()) });
+            let end_bracket = futures::stream::once(async { Ok("\n]}".to_string()) });
+            let rows_stream = start_bracket.chain(rows_stream).chain(end_bracket);
 
-        if annotations.return_last_result && json_results.len() > 0 {
-            Ok(to_raw_value(&json_results.pop().unwrap()))
+            s3.client
+                .upload_s3_file(
+                    s3.workspace_id.as_str(),
+                    s3.object_key.clone(),
+                    s3.storage.clone(),
+                    rows_stream,
+                )
+                .await?;
+
+            Ok(serde_json::value::to_raw_value(&s3.object_key)?)
         } else {
-            Ok(to_raw_value(&json_results))
+            let stream = prepared_query.query(&mut client).await.map_err(to_anyhow)?;
+            let results = stream.into_results().await.map_err(to_anyhow)?;
+            let len = results.len();
+            let mut json_results = vec![];
+            for (i, statement_result) in results.into_iter().enumerate() {
+                if annotations.return_last_result && i < len - 1 {
+                    continue;
+                }
+                let mut json_rows = vec![];
+                for row in statement_result {
+                    let row = row_to_json(row)?;
+                    json_rows.push(row);
+                }
+                json_results.push(json_rows);
+            }
+            if annotations.return_last_result && json_results.len() > 0 {
+                Ok(to_raw_value(&json_results.pop().unwrap()))
+            } else {
+                Ok(to_raw_value(&json_results))
+            }
         }
     };
 
