@@ -143,30 +143,6 @@ export function addDraftTrigger(
 	return newTrigger
 }
 
-export function setDraftToDeployedTrigger(
-	triggersStore: Writable<Trigger[]>,
-	trigger: Trigger,
-	draftConfig: Record<string, any>
-): void {
-	let draftId = trigger.id
-	if (!draftId) {
-		draftId = generateDraftId()
-	}
-	if (trigger.isDraft) {
-		triggersStore.update((triggers) =>
-			triggers.map((t) =>
-				t.id === draftId ? { ...t, deployedPath: trigger.path, draftConfig, id: trigger.id } : t
-			)
-		)
-	} else {
-		triggersStore.update((triggers) =>
-			triggers.map((t) =>
-				t.path === trigger.path && t.type === trigger.type ? { ...t, draftConfig } : t
-			)
-		)
-	}
-}
-
 /**
  * Delete a draft trigger from the store
  */
