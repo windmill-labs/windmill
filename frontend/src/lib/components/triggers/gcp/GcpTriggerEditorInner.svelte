@@ -54,7 +54,6 @@
 		description = undefined,
 		hideTarget = false,
 		editMode = true,
-		preventSave = false,
 		hideTooltips = false,
 		isEditor = false,
 		allowDraft = false,
@@ -269,12 +268,11 @@
 		<TriggerEditorToolbar
 			{isDraftOnly}
 			{hasDraft}
-			canEdit={!drawerLoading && can_write && !preventSave}
+			permissions={drawerLoading || !can_write ? 'none' : 'create'}
 			{editMode}
 			saveDisabled={pathError != '' || emptyString(script_path) || !isValid || !can_write}
 			{enabled}
 			isLoading={is_loading}
-			{can_write}
 			{edit}
 			{allowDraft}
 			{neverSaved}

@@ -40,7 +40,6 @@
 		description = undefined,
 		isEditor = false,
 		editMode = true,
-		preventSave = false,
 		customLabel = undefined,
 		isDraftOnly = false,
 		allowDraft = false,
@@ -731,14 +730,13 @@
 	<TriggerEditorToolbar
 		{isDraftOnly}
 		{hasDraft}
-		canEdit={!drawerLoading && can_write && (isAdmin || edit) && !preventSave}
+		permissions={drawerLoading || !can_write ? 'none' : can_write && isAdmin ? 'create' : 'write'}
 		{editMode}
 		{saveDisabled}
 		{neverSaved}
 		enabled={undefined}
 		{allowDraft}
 		{edit}
-		{can_write}
 		isLoading={false}
 		{isEditor}
 		on:save-draft={() => {

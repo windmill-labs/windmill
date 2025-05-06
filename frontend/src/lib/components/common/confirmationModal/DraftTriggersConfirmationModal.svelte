@@ -9,6 +9,7 @@
 	import { Star } from 'lucide-svelte'
 	import ToggleButtonGroup from '../toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '../toggleButton-v2/ToggleButton.svelte'
+	import { userStore } from '$lib/stores'
 
 	interface Props {
 		open?: boolean
@@ -46,8 +47,18 @@
 		}
 	}
 
+	function checkSavePermissions(trigger: Trigger) {
+		// Creating http trigger is forbidden for non-admin users
+		return (
+			trigger.type !== 'http' ||
+			$userStore?.is_admin ||
+			$userStore?.is_super_admin ||
+			!trigger.isDraft
+		)
+	}
+
 	$effect(() => {
-		open && (selectedTriggers = [...draftTriggers])
+		open && (selectedTriggers = [...draftTriggers].filter(checkSavePermissions))
 	})
 </script>
 
@@ -77,8 +88,12 @@
 				<tbody>
 					{#each draftTriggers as trigger}
 						{@const SvelteComponent = triggerIconMap[trigger.type]}
+						{@const canSave = checkSavePermissions(trigger)}
 						<tr
-							class="hover:bg-surface-hover transition-colors h-12 border-t border-gray-200 dark:border-gray-700 cursor-pointer whitespace-nowrap"
+							class={twMerge(
+								'transition-colors h-12 border-t border-gray-200 dark:border-gray-700 whitespace-nowrap',
+								!canSave ? '' : 'hover:bg-surface-hover '
+							)}
 						>
 							<td
 								class={twMerge(
@@ -105,29 +120,38 @@
 							</td>
 
 							<td class="text-center py-1">
-								<div class="flex justify-center">
-									<ToggleButtonGroup
-										let:item
-										class="w-fit h-fit"
-										selected={isSelected(selectedTriggers, trigger) ? 'deploy' : 'discard'}
-										on:selected={(e) => toggleTrigger(trigger, e.detail)}
+								{#if canSave}
+									<div class="flex justify-center">
+										<ToggleButtonGroup
+											let:item
+											class="w-fit h-fit"
+											selected={isSelected(selectedTriggers, trigger) ? 'deploy' : 'discard'}
+											on:selected={(e) => toggleTrigger(trigger, e.detail)}
+										>
+											<ToggleButton
+												label="Discard"
+												value={'discard'}
+												{item}
+												small
+												class="data-[state=on]:text-red-500"
+											/>
+											<ToggleButton
+												label="Deploy"
+												value={'deploy'}
+												{item}
+												small
+												class="data-[state=on]:text-blue-500"
+											/>
+										</ToggleButtonGroup>
+									</div>
+								{:else}
+									<span
+										class="text-2xs px-1.5 py-1.5 bg-yellow-50 dark:bg-yellow-900/40 text-yellow-800 dark:text-yellow-100/90 rounded whitespace-nowrap"
+										title="Only admins can deploy http triggers"
 									>
-										<ToggleButton
-											label="Discard"
-											value={'discard'}
-											{item}
-											small
-											class="data-[state=on]:text-red-500"
-										/>
-										<ToggleButton
-											label="Deploy"
-											value={'deploy'}
-											{item}
-											small
-											class="data-[state=on]:text-blue-500"
-										/>
-									</ToggleButtonGroup>
-								</div>
+										Admin only
+									</span>
+								{/if}
 							</td>
 						</tr>
 					{/each}

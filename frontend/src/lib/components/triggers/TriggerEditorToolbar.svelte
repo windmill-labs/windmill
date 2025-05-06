@@ -17,16 +17,15 @@
 
 	export let isDraftOnly
 	export let hasDraft
-	export let canEdit
 	export let editMode
 	export let saveDisabled
 	export let enabled: boolean | undefined
 	export let allowDraft
 	export let edit
-	export let can_write
 	export let isLoading
 	export let neverSaved
 	export let isEditor
+	export let permissions: 'write' | 'create' | 'none'
 </script>
 
 {#if !allowDraft}
@@ -34,7 +33,7 @@
 		<div class="-mt-1">
 			<Toggle
 				size="sm"
-				disabled={!can_write || !editMode}
+				disabled={permissions === 'none' || !editMode}
 				checked={enabled}
 				options={{ right: 'enable', left: 'disable' }}
 				on:change={({ detail }) => {
@@ -43,7 +42,7 @@
 			/>
 		</div>
 	{/if}
-	{#if can_write && editMode}
+	{#if (permissions === 'write' && edit) || (permissions === 'create' && editMode)}
 		<Button
 			size="sm"
 			startIcon={{ icon: Save }}
@@ -62,7 +61,7 @@
 			<div class="center-center">
 				<Toggle
 					size="xs"
-					disabled={!canEdit}
+					disabled={permissions === 'none'}
 					checked={enabled}
 					options={{ left: 'enable' }}
 					on:change={(e) => {
@@ -94,7 +93,7 @@
 				]}
 			/>
 		{/if}
-		{#if canEdit}
+		{#if (permissions === 'write' && isEditor) || permissions === 'create'}
 			{#if editMode}
 				{@const dropdownItems =
 					!isDraftOnly && isEditor
@@ -114,7 +113,7 @@
 					on:click={() => {
 						if (isEditor) {
 							dispatch('save-draft')
-						} else {
+						} else if ((permissions === 'write' && edit) || permissions === 'create') {
 							dispatch('deploy')
 						}
 					}}

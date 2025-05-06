@@ -37,7 +37,6 @@
 		useDrawer = true,
 		hideTarget = false,
 		docDescription = undefined,
-		preventSave = false,
 		allowDraft = false,
 		hasDraft = false,
 		editMode = true,
@@ -637,7 +636,7 @@
 	<TriggerEditorToolbar
 		{isDraftOnly}
 		{hasDraft}
-		canEdit={!drawerLoading && can_write && !preventSave}
+		permissions={drawerLoading || !can_write ? 'none' : 'create'}
 		{editMode}
 		saveDisabled={!allowSchedule ||
 			pathError != '' ||
@@ -650,7 +649,6 @@
 		{enabled}
 		{allowDraft}
 		{edit}
-		{can_write}
 		isLoading={false}
 		{neverSaved}
 		{isEditor}

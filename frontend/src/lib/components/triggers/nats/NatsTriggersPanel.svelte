@@ -41,7 +41,6 @@
 			useDrawer={false}
 			hideTarget
 			editMode={edit}
-			preventSave={!isDeployed}
 			hideTooltips={!isDeployed}
 			useEditButton
 			allowDraft={true}

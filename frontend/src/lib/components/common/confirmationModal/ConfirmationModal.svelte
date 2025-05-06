@@ -4,6 +4,7 @@
 	import { fade } from 'svelte/transition'
 	import Button from '../button/Button.svelte'
 	import { AlertTriangle, CornerDownLeft, Loader2, RefreshCcw } from 'lucide-svelte'
+	import { twMerge } from 'tailwind-merge'
 
 	type Props = {
 		title: string
@@ -22,7 +23,7 @@
 		loading = false,
 		open = false,
 		type: _type,
-		showIcon = true
+		showIcon
 	}: Props = $props()
 	const type = $derived(_type ?? 'danger')
 
@@ -101,7 +102,7 @@
 								<Icon class={theme[type].classes.icon} />
 							</div>
 						{/if}
-						<div class="ml-4 text-left flex-1">
+						<div class={twMerge('ml-0 text-left flex-1 ', showIcon ? 'ml-4' : '')}>
 							<h3 class="text-lg font-medium text-primary">
 								{title}
 							</h3>

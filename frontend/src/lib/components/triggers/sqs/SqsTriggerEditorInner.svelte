@@ -22,7 +22,6 @@
 		description?: Snippet | undefined
 		hideTarget?: boolean
 		editMode?: boolean
-		preventSave?: boolean
 		hideTooltips?: boolean
 		allowDraft?: boolean
 		hasDraft?: boolean
@@ -35,7 +34,6 @@
 		description = undefined,
 		hideTarget = false,
 		editMode = true,
-		preventSave = false,
 		hideTooltips = false,
 		allowDraft = false,
 		hasDraft = false,
@@ -257,13 +255,12 @@
 		<TriggerEditorToolbar
 			{isDraftOnly}
 			{hasDraft}
-			canEdit={!drawerLoading && can_write && !preventSave}
+			permissions={drawerLoading || !can_write ? 'none' : 'create'}
 			{editMode}
 			saveDisabled={pathError != '' || emptyString(script_path) || !isValid || !can_write}
 			{enabled}
 			{allowDraft}
 			{edit}
-			{can_write}
 			isLoading={false}
 			{neverSaved}
 			{isEditor}
