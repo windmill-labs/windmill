@@ -5,7 +5,6 @@ export default defineConfig({
 	format: ['cjs', 'esm'],
 	dts: true,
 	clean: true,
-	treeshake: false,
 	outExtension({ format }) {
 		return {
 			js: format === 'cjs' ? '.js' : '.mjs'

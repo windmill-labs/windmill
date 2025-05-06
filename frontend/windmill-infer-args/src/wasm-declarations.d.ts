@@ -1,5 +1,5 @@
 // Declaration for wasm imports
-declare module '*.wasm' {
+declare module '*.wasm?url' {
 	const content: string
 	export default content
 }

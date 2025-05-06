@@ -41,7 +41,12 @@ export type SchemaOneOf = {
 }
 
 export type Schema = {
-	properties: Record<string, SchemaProperty>
+	$schema: string | undefined
+	type: string
+	properties: {
+		[name: string]: SchemaProperty
+	}
+	order?: string[]
 	required: string[]
 }
 
