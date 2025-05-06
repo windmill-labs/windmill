@@ -321,12 +321,12 @@
 		</Splitpanes>
 	{:else}
 		{@const selected = $triggers.find((t) => t.isPrimary)}
-		<div class="px-4 pb-2">
+		<div class="px-4 py-2">
 			{#if selected}
 				<SchedulePanel
 					{isFlow}
 					path={initialPath || fakeInitialPath}
-					{selectedTrigger}
+					selectedTrigger={selected}
 					{isDeployed}
 					defaultValues={selected.draftConfig ?? selected.captureConfig ?? undefined}
 					newDraft={selected.draftConfig === undefined}
