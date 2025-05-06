@@ -292,7 +292,7 @@ pub async fn do_snowflake(
         storage: s3_mode.storage,
         object_key: format!(
             "{}/{}.json",
-            s3_mode.folder_key.unwrap_or_else(|| format!(
+            s3_mode.prefix.unwrap_or_else(|| format!(
                 "wmill_datalake/{}",
                 job.runnable_path
                     .as_ref()

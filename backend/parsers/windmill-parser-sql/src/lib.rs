@@ -124,7 +124,7 @@ pub enum S3ModeFormat {
     Json,
 }
 pub struct S3ModeArgs {
-    pub folder_key: Option<String>,
+    pub prefix: Option<String>,
     pub storage: Option<String>,
     pub format: Option<S3ModeFormat>,
 }
@@ -135,7 +135,7 @@ pub fn parse_s3_mode(code: &str) -> Option<S3ModeArgs> {
         .map(|x| x.as_str().to_string())
         .unwrap_or_default();
 
-    let mut folder_key = None;
+    let mut prefix = None;
     let mut storage = None;
     let mut format = Some(S3ModeFormat::Json);
 
@@ -145,14 +145,14 @@ pub fn parse_s3_mode(code: &str) -> Option<S3ModeArgs> {
             continue;
         };
         match (key.trim(), value.trim()) {
-            ("folder", _) => folder_key = Some(value.to_string()),
+            ("prefix", _) => prefix = Some(value.to_string()),
             ("storage", _) => storage = Some(value.to_string()),
             ("format", "json") => format = Some(S3ModeFormat::Json),
             _ => {}
         }
     }
 
-    Some(S3ModeArgs { folder_key, storage, format })
+    Some(S3ModeArgs { prefix, storage, format })
 }
 
 pub fn parse_sql_blocks(code: &str) -> Vec<&str> {
