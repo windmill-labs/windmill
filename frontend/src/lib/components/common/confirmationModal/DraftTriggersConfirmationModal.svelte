@@ -7,7 +7,6 @@
 	import TriggerLabel from '$lib/components/triggers/TriggerLabel.svelte'
 	import { triggerIconMap } from '$lib/components/triggers/utils'
 	import { Star } from 'lucide-svelte'
-	import { onMount } from 'svelte'
 	import ToggleButtonGroup from '../toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '../toggleButton-v2/ToggleButton.svelte'
 
@@ -18,7 +17,7 @@
 
 	let { open = $bindable(false), draftTriggers = [] }: Props = $props()
 
-	let selectedTriggers: Trigger[] = $state([])
+	let selectedTriggers: Trigger[] = $state(draftTriggers)
 
 	const dispatch = createEventDispatcher<{
 		canceled: void
@@ -47,8 +46,8 @@
 		}
 	}
 
-	onMount(() => {
-		selectedTriggers = [...draftTriggers]
+	$effect(() => {
+		open && (selectedTriggers = [...draftTriggers])
 	})
 </script>
 
