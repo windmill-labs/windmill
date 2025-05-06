@@ -1209,6 +1209,7 @@ async fn toggle_workspace_error_handler(
 
 async fn get_tokened_raw_script_by_path(
     Extension(user_db): Extension<UserDB>,
+    Extension(db): Extension<DB>,
     Path((w_id, token, path)): Path<(String, String, StripPath)>,
     Extension(cache): Extension<Arc<AuthCache>>,
 ) -> Result<String> {
@@ -1216,7 +1217,13 @@ async fn get_tokened_raw_script_by_path(
         .get_authed(Some(w_id.clone()), &token)
         .await
         .ok_or_else(|| Error::NotAuthorized("Invalid token".to_string()))?;
-    return raw_script_by_path(authed, Extension(user_db), Path((w_id, path))).await;
+    return raw_script_by_path(
+        authed,
+        Extension(user_db),
+        Extension(db),
+        Path((w_id, path)),
+    )
+    .await;
 }
 
 async fn get_empty_ts_script_by_path() -> String {
@@ -1226,22 +1233,25 @@ async fn get_empty_ts_script_by_path() -> String {
 async fn raw_script_by_path(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
+    Extension(db): Extension<DB>,
     Path((w_id, path)): Path<(String, StripPath)>,
 ) -> Result<String> {
-    raw_script_by_path_internal(path, user_db, authed, w_id, false).await
+    raw_script_by_path_internal(path, user_db, db, authed, w_id, false).await
 }
 
 async fn raw_script_by_path_unpinned(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
+    Extension(db): Extension<DB>,
     Path((w_id, path)): Path<(String, StripPath)>,
 ) -> Result<String> {
-    raw_script_by_path_internal(path, user_db, authed, w_id, true).await
+    raw_script_by_path_internal(path, user_db, db, authed, w_id, true).await
 }
 
 async fn raw_script_by_path_internal(
     path: StripPath,
     user_db: UserDB,
+    db: DB,
     authed: ApiAuthed,
     w_id: String,
     unpin: bool,
@@ -1278,6 +1288,41 @@ async fn raw_script_by_path_internal(
     .await?;
     tx.commit().await?;
 
+    if content_o.is_none() {
+        let exists = sqlx::query_scalar!(
+            "SELECT EXISTS(SELECT 1 FROM script WHERE path = $1 AND workspace_id = $2 \
+            AND
+            created_at = (SELECT max(created_at) FROM script WHERE path = $1 AND archived = false AND \
+            workspace_id = $2))",
+            path,
+            w_id
+        )
+        .fetch_one(&db)
+        .await?
+        .unwrap_or(false);
+
+        if exists {
+            return Err(Error::NotFound(format!(
+                "Script {path} exists but {} does not have permissions to access it",
+                authed.username
+            )));
+        } else {
+            let exists_but_archived = sqlx::query_scalar!(
+                "SELECT EXISTS(SELECT 1 FROM script WHERE path = $1 AND workspace_id = $2)",
+                path,
+                w_id
+            )
+            .fetch_one(&db)
+            .await?
+            .unwrap_or(false);
+
+            if exists_but_archived {
+                return Err(Error::NotFound(format!(
+                    "Script {path} exists but is archived",
+                )));
+            }
+        }
+    }
     let content = not_found_if_none(content_o, "Script", path)?;
 
     if unpin {
