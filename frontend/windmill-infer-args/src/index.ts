@@ -1,9 +1,7 @@
 import { Schema, SchemaProperty, SupportedLanguage, MainArgSignature, ArgType } from './types'
 
-// Re-export types for consumers
 export * from './types'
 
-// Import parsers
 import initTsParser, { parse_deno } from 'windmill-parser-wasm-ts'
 import initRegexParsers, {
 	parse_sql,
@@ -82,7 +80,6 @@ async function initWasmJava(): Promise<void> {
 	await initJavaParser(wasmUrlJava)
 }
 
-// Helper function to convert arg signature to JSON Schema type
 export function argSigToJsonSchemaType(t: ArgType, oldS: SchemaProperty): void {
 	const newS: SchemaProperty = { type: '' }
 	if (t === 'int') {
@@ -250,7 +247,6 @@ export function argSigToJsonSchemaType(t: ArgType, oldS: SchemaProperty): void {
 	}
 }
 
-// Helper function to sort object properties
 function sortObject<T extends Record<string, any>>(obj: T): T {
 	return Object.keys(obj)
 		.sort()
@@ -260,7 +256,6 @@ function sortObject<T extends Record<string, any>>(obj: T): T {
 		}, {}) as T
 }
 
-// Main export - Making this a named export to ensure it's properly exported
 export async function inferArgs(
 	language: SupportedLanguage | 'bunnative' | undefined,
 	code: string,
