@@ -41,6 +41,7 @@
 		allowDraft?: boolean
 		hasDraft?: boolean
 		isDraftOnly?: boolean
+		customLabel?: Snippet
 	}
 
 	let {
@@ -52,7 +53,8 @@
 		isEditor = false,
 		allowDraft = false,
 		hasDraft = false,
-		isDraftOnly = false
+		isDraftOnly = false,
+		customLabel = undefined
 	}: Props = $props()
 
 	let drawer: Drawer | undefined = $state()
@@ -311,7 +313,12 @@
 		</DrawerContent>
 	</Drawer>
 {:else}
-	<Section label="WebSocket trigger">
+	<Section label={!customLabel ? 'WebSocket trigger' : ''} headerClass="grow min-w-0">
+		<svelte:fragment slot="header">
+			{#if customLabel}
+				{@render customLabel()}
+			{/if}
+		</svelte:fragment>
 		<svelte:fragment slot="action">
 			{@render actionsButtons()}
 		</svelte:fragment>

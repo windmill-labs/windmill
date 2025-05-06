@@ -21,7 +21,7 @@
 	class={twMerge(
 		trigger.isDraft ? 'text-frost-400 italic' : 'font-normal',
 		discard ? 'text-gray-500 dark:text-gray-400' : '',
-		'truncate'
+		'truncate pr-1'
 	)}
 	title={label}
 >

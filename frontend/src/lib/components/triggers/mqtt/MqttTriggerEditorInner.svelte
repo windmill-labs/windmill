@@ -33,6 +33,7 @@
 		allowDraft?: boolean
 		hasDraft?: boolean
 		isDraftOnly?: boolean
+		customLabel?: Snippet
 	}
 
 	let {
@@ -44,7 +45,8 @@
 		isEditor = false,
 		allowDraft = false,
 		hasDraft = false,
-		isDraftOnly = false
+		isDraftOnly = false,
+		customLabel
 	}: Props = $props()
 
 	let mqtt_resource_path: string = $state('')
@@ -256,7 +258,12 @@
 		</DrawerContent>
 	</Drawer>
 {:else}
-	<Section label="MQTT trigger">
+	<Section label={!customLabel ? 'MQTT trigger' : ''} headerClass="grow min-w-0">
+		<svelte:fragment slot="header">
+			{#if customLabel}
+				{@render customLabel()}
+			{/if}
+		</svelte:fragment>
 		<svelte:fragment slot="action">
 			{@render actions()}
 		</svelte:fragment>

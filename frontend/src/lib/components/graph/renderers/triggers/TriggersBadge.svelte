@@ -141,7 +141,11 @@
 				type === 'webhook' ||
 				type === 'email'! ||
 				(triggersGrouped[type] && triggersGrouped[type].length === 1)}
-			<Tooltip disablePopup={menuOpen} on:click={(e) => e.stopPropagation()}>
+			<Tooltip
+				disablePopup={menuOpen}
+				placement={vertical ? 'right' : 'bottom'}
+				on:click={(e) => e.stopPropagation()}
+			>
 				{#snippet text()}
 					{camelCaseToWords(type)}
 				{/snippet}

@@ -43,7 +43,8 @@
 		isDraftOnly = false,
 		primary = false,
 		draftSchema = undefined,
-		isEditor = false
+		isEditor = false,
+		customLabel = undefined
 	} = $props()
 
 	let optionTabSelected: 'error_handler' | 'recovery_handler' | 'success_handler' | 'retries' =
@@ -1220,7 +1221,12 @@
 		</DrawerContent>
 	</Drawer>
 {:else}
-	<Section label="Schedule">
+	<Section label={!customLabel ? 'Schedule' : ''} headerClass="grow min-w-0">
+		<svelte:fragment slot="header">
+			{#if customLabel}
+				{@render customLabel()}
+			{/if}
+		</svelte:fragment>
 		<svelte:fragment slot="action">
 			<div class="flex flex-row gap-2 items-center">
 				{@render saveButton('xs')}

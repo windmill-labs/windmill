@@ -11,10 +11,12 @@
 	import GcpTriggerPanel from './gcp/GcpTriggerPanel.svelte'
 	import ScheduledPollPanel from './scheduled/ScheduledPollPanel.svelte'
 	import WebsocketTriggersPanel from './websocket/WebsocketTriggersPanel.svelte'
-	import { type Trigger } from './utils'
+	import { triggerIconMap, type Trigger } from './utils'
 	import { createEventDispatcher } from 'svelte'
 	import ClipboardPanel from '../details/ClipboardPanel.svelte'
 	import CliHelpBox from '../CliHelpBox.svelte'
+	import TriggerLabel from './TriggerLabel.svelte'
+	import { twMerge } from 'tailwind-merge'
 
 	const dispatch = createEventDispatcher()
 
@@ -69,10 +71,10 @@
 		on:save-draft
 		on:reset
 		{isDeployed}
-		{small}
 		defaultValues={selectedTrigger.draftConfig ?? selectedTrigger.captureConfig ?? undefined}
 		newDraft={selectedTrigger.draftConfig === undefined}
 		{isEditor}
+		customLabel={small ? customLabel : undefined}
 	/>
 {:else if selectedTrigger.type === 'webhook'}
 	<WebhooksPanel
@@ -113,6 +115,7 @@
 		on:reset
 		on:toggle-edit-mode
 		on:delete
+		customLabel={small ? customLabel : undefined}
 	/>
 {:else if selectedTrigger.type === 'websocket'}
 	<WebsocketTriggersPanel
@@ -130,6 +133,7 @@
 		on:reset
 		defaultValues={selectedTrigger.draftConfig ?? selectedTrigger.captureConfig ?? undefined}
 		newDraft={selectedTrigger.draftConfig === undefined}
+		customLabel={small ? customLabel : undefined}
 	/>
 {:else if selectedTrigger.type === 'kafka'}
 	<KafkaTriggerPanel
@@ -147,6 +151,7 @@
 		on:reset
 		defaultValues={selectedTrigger.draftConfig ?? selectedTrigger.captureConfig ?? undefined}
 		newDraft={selectedTrigger.draftConfig === undefined}
+		customLabel={small ? customLabel : undefined}
 	/>
 {:else if selectedTrigger.type === 'postgres'}
 	<PostgresTriggersPanel
@@ -164,6 +169,7 @@
 		on:reset
 		defaultValues={selectedTrigger.draftConfig ?? selectedTrigger.captureConfig ?? undefined}
 		newDraft={selectedTrigger.draftConfig === undefined}
+		customLabel={small ? customLabel : undefined}
 	/>
 {:else if selectedTrigger.type === 'nats'}
 	<NatsTriggerPanel
@@ -181,6 +187,7 @@
 		on:reset
 		defaultValues={selectedTrigger.draftConfig ?? selectedTrigger.captureConfig ?? undefined}
 		newDraft={selectedTrigger.draftConfig === undefined}
+		customLabel={small ? customLabel : undefined}
 	/>
 {:else if selectedTrigger.type === 'mqtt'}
 	<MqttTriggerPanel
@@ -198,6 +205,7 @@
 		on:reset
 		defaultValues={selectedTrigger.draftConfig ?? selectedTrigger.captureConfig ?? undefined}
 		newDraft={selectedTrigger.draftConfig === undefined}
+		customLabel={small ? customLabel : undefined}
 	/>
 {:else if selectedTrigger.type === 'sqs'}
 	<SqsTriggerPanel
@@ -214,6 +222,7 @@
 		on:reset
 		defaultValues={selectedTrigger.draftConfig ?? selectedTrigger.captureConfig ?? undefined}
 		newDraft={selectedTrigger.draftConfig === undefined}
+		customLabel={small ? customLabel : undefined}
 	/>
 {:else if selectedTrigger.type === 'gcp'}
 	<GcpTriggerPanel
@@ -231,6 +240,7 @@
 		on:reset
 		defaultValues={selectedTrigger.draftConfig ?? selectedTrigger.captureConfig ?? undefined}
 		newDraft={selectedTrigger.draftConfig === undefined}
+		customLabel={small ? customLabel : undefined}
 	/>
 {:else if selectedTrigger.type === 'poll'}
 	<ScheduledPollPanel on:update-config={({ detail }) => updateConfig(detail)} />
@@ -240,3 +250,14 @@
 		<CliHelpBox />
 	</div>
 {/if}
+
+{#snippet customLabel()}
+	{@const IconComponent = triggerIconMap[selectedTrigger.type]}
+	<div class="flex flex-row gap-2 items-center grow min-w-0">
+		<IconComponent
+			size={16}
+			class={twMerge(selectedTrigger.isDraft ? 'text-frost-400' : '', 'shrink-0')}
+		/>
+		<TriggerLabel trigger={selectedTrigger} />
+	</div>
+{/snippet}

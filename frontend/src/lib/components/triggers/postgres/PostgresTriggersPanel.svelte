@@ -13,7 +13,8 @@
 		isDeployed = false,
 		isEditor = false,
 		defaultValues = undefined,
-		newDraft = false
+		newDraft = false,
+		customLabel = undefined
 	} = $props()
 
 	let postgresTriggerEditor: PostgresTriggerEditorInner | undefined = $state(undefined)
@@ -47,6 +48,7 @@
 			hasDraft={!!selectedTrigger.draftConfig}
 			isDraftOnly={selectedTrigger.isDraft}
 			{isEditor}
+			{customLabel}
 			on:toggle-edit-mode
 			on:update
 			on:update-config

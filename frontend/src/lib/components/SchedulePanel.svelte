@@ -13,7 +13,8 @@
 		newDraft = false,
 		edit = false,
 		schema,
-		isEditor = false
+		isEditor = false,
+		customLabel = undefined
 	} = $props()
 
 	function openScheduleEditor(isFlow: boolean, isDraft: boolean) {
@@ -48,6 +49,7 @@
 	primary={selectedTrigger.isPrimary}
 	draftSchema={schema}
 	{isEditor}
+	{customLabel}
 >
 	{#snippet docDescription()}
 		<div class="flex flex-col gap-2 pb-4">

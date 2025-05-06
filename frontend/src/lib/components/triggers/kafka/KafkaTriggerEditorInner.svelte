@@ -27,6 +27,7 @@
 		allowDraft?: boolean
 		hasDraft?: boolean
 		isDraftOnly?: boolean
+		customLabel?: Snippet
 	}
 
 	let {
@@ -38,7 +39,8 @@
 		isEditor = false,
 		allowDraft = false,
 		hasDraft = false,
-		isDraftOnly = false
+		isDraftOnly = false,
+		customLabel
 	}: Props = $props()
 
 	let drawer: Drawer | undefined = $state()
@@ -245,7 +247,12 @@
 		</DrawerContent>
 	</Drawer>
 {:else}
-	<Section label="Kafka trigger">
+	<Section label={!customLabel ? 'Kafka trigger' : ''} headerClass="grow min-w-0">
+		<svelte:fragment slot="header">
+			{#if customLabel}
+				{@render customLabel()}
+			{/if}
+		</svelte:fragment>
 		<svelte:fragment slot="action">
 			{@render actionsButtons('xs')}
 		</svelte:fragment>

@@ -3,7 +3,6 @@
 	import Description from '$lib/components/Description.svelte'
 	import { userStore } from '$lib/stores'
 	import { Alert } from '$lib/components/common'
-	import TriggerLabel from '../TriggerLabel.svelte'
 	import { onMount } from 'svelte'
 
 	let routeEditor = $state<RouteEditorInner | null>(null)
@@ -13,10 +12,10 @@
 		path,
 		edit = false,
 		isDeployed = false,
-		small = false,
 		defaultValues = undefined,
 		newDraft = false,
-		isEditor = false
+		isEditor = false,
+		customLabel = undefined
 	} = $props()
 
 	async function openRouteEditor(isFlow: boolean, isDraft: boolean) {
@@ -45,7 +44,7 @@
 	on:toggle-edit-mode
 	on:delete
 	on:save-draft
-	customLabel={small ? customLabel : undefined}
+	{customLabel}
 	isDraftOnly={selectedTrigger.isDraft}
 	allowDraft
 	on:reset
@@ -70,7 +69,3 @@
 		</div>
 	{/snippet}
 </RouteEditorInner>
-
-{#snippet customLabel()}
-	<TriggerLabel trigger={selectedTrigger} />
-{/snippet}

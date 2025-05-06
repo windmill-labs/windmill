@@ -14,7 +14,8 @@
 		isDeployed = false,
 		isEditor,
 		defaultValues = undefined,
-		newDraft = false
+		newDraft = false,
+		customLabel = undefined
 	} = $props()
 	let gcpTriggerEditor: GcpTriggerEditorInner | undefined = $state(undefined)
 
@@ -52,6 +53,7 @@
 			allowDraft={true}
 			hasDraft={!!selectedTrigger.draftConfig}
 			isDraftOnly={selectedTrigger.isDraft}
+			{customLabel}
 			on:toggle-edit-mode
 			on:update-config
 			on:update

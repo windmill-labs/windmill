@@ -14,7 +14,8 @@
 		isDeployed = false,
 		isEditor,
 		defaultValues = undefined,
-		newDraft = false
+		newDraft = false,
+		customLabel = undefined
 	} = $props()
 	let kafkaTriggerEditor: KafkaTriggerEditorInner | undefined = $state(undefined)
 
@@ -51,6 +52,7 @@
 			hasDraft={!!selectedTrigger.draftConfig}
 			isDraftOnly={selectedTrigger.isDraft}
 			{isEditor}
+			{customLabel}
 			on:toggle-edit-mode
 			on:update-config
 			on:update

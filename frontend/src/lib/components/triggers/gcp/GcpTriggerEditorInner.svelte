@@ -58,7 +58,8 @@
 		isEditor = false,
 		allowDraft = false,
 		hasDraft = false,
-		isDraftOnly = false
+		isDraftOnly = false,
+		customLabel = undefined
 	}: {
 		useDrawer?: boolean
 		description?: Snippet | undefined
@@ -71,6 +72,7 @@
 		allowDraft?: boolean
 		hasDraft?: boolean
 		isDraftOnly?: boolean
+		customLabel?: Snippet
 	} = $props()
 
 	let resetEditMode = $state<(() => void) | undefined>(undefined)
@@ -255,7 +257,12 @@
 		</DrawerContent>
 	</Drawer>
 {:else}
-	<Section label="GCP Pub/Sub trigger">
+	<Section label={!customLabel ? 'GCP Pub/Sub trigger' : ''} headerClass="grow min-w-0">
+		<svelte:fragment slot="header">
+			{#if customLabel}
+				{@render customLabel()}
+			{/if}
+		</svelte:fragment>
 		<svelte:fragment slot="action">
 			{@render actionsButtons()}
 		</svelte:fragment>

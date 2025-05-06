@@ -13,7 +13,8 @@
 		isDeployed = false,
 		isEditor,
 		defaultValues = undefined,
-		newDraft = false
+		newDraft = false,
+		customLabel = undefined
 	} = $props()
 	let mqttTriggerEditor: MqttTriggerEditorInner | undefined = $state(undefined)
 
@@ -52,6 +53,7 @@
 			on:delete
 			on:save-draft
 			on:reset
+			{customLabel}
 		>
 			{#snippet description()}
 				<Description link="https://www.windmill.dev/docs/core_concepts/mqtt_triggers">

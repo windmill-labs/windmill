@@ -27,6 +27,7 @@
 		hasDraft?: boolean
 		isDraftOnly?: boolean
 		isEditor?: boolean
+		customLabel?: Snippet
 	}
 
 	let {
@@ -38,7 +39,8 @@
 		allowDraft = false,
 		hasDraft = false,
 		isDraftOnly = false,
-		isEditor = false
+		isEditor = false,
+		customLabel
 	}: Props = $props()
 
 	let drawer: Drawer | undefined = $state(undefined)
@@ -242,7 +244,12 @@
 		</DrawerContent>
 	</Drawer>
 {:else}
-	<Section label="SQS trigger">
+	<Section label={!customLabel ? 'SQS trigger' : ''} headerClass="grow min-w-0">
+		<svelte:fragment slot="header">
+			{#if customLabel}
+				{@render customLabel()}
+			{/if}
+		</svelte:fragment>
 		<svelte:fragment slot="action">
 			{@render actions()}
 		</svelte:fragment>
