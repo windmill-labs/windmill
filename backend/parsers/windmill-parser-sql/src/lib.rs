@@ -124,13 +124,16 @@ pub enum S3ModeFormat {
     Json,
 }
 pub struct S3ModeArgs {
-    pub folder_key: String,
+    pub folder_key: Option<String>,
     pub storage: Option<String>,
     pub format: Option<S3ModeFormat>,
 }
 pub fn parse_s3_mode(code: &str) -> Option<S3ModeArgs> {
     let cap = RE_S3_MODE.captures(code)?;
-    let args_str = cap.get(1).map(|x| x.as_str().to_string())?;
+    let args_str = cap
+        .get(1)
+        .map(|x| x.as_str().to_string())
+        .unwrap_or_default();
 
     let mut folder_key = None;
     let mut storage = None;
@@ -148,9 +151,6 @@ pub fn parse_s3_mode(code: &str) -> Option<S3ModeArgs> {
             _ => {}
         }
     }
-    let Some(folder_key) = folder_key else {
-        return None;
-    };
 
     Some(S3ModeArgs { folder_key, storage, format })
 }
@@ -182,7 +182,7 @@ lazy_static::lazy_static! {
     static ref RE_NONEMPTY_SQL_BLOCK: Regex = Regex::new(r#"(?m)^\s*[^\s](?:[^-]|$)"#).unwrap();
 
     static ref RE_DB: Regex = Regex::new(r#"(?m)^-- database (\S+) *(?:\r|\n|$)"#).unwrap();
-    static ref RE_S3_MODE: Regex = Regex::new(r#"(?m)^-- s3 (.*)(?:\r|\n|$)"#).unwrap();
+    static ref RE_S3_MODE: Regex = Regex::new(r#"(?m)^-- s3( .*)?(?:\r|\n|$)"#).unwrap();
 
     // -- $1 name (type) = default
     static ref RE_ARG_MYSQL: Regex = Regex::new(r#"(?m)^-- \? (\w+) \((\w+)\)(?: ?\= ?(.+))? *(?:\r|\n|$)"#).unwrap();

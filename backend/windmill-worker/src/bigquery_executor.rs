@@ -244,7 +244,17 @@ pub async fn do_bigquery(
     let s3 = parse_s3_mode(&query).map(|s3_mode| S3Mode {
         client: client.clone(),
         storage: s3_mode.storage,
-        object_key: format!("{}/{}.txt", s3_mode.folder_key, job.id),
+        object_key: format!(
+            "{}/{}.json",
+            s3_mode.folder_key.unwrap_or_else(|| format!(
+                "wmill_datalake/{}",
+                job.runnable_path
+                    .as_ref()
+                    .map(|s| s.as_str())
+                    .unwrap_or("unknown_script")
+            )),
+            job.id
+        ),
         workspace_id: job.workspace_id.clone(),
     });
 
