@@ -685,12 +685,32 @@ async fn create_script_internal<'c>(
 
     let (no_main_func, has_preprocessor) = match lang {
         ScriptLang::Bun | ScriptLang::Bunnative | ScriptLang::Deno | ScriptLang::Nativets => {
-            let args = windmill_parser_ts::parse_deno_signature(&ns.content, true, true, None)?;
-            (args.no_main_func, args.has_preprocessor)
+            let args = windmill_parser_ts::parse_deno_signature(&ns.content, true, true, None);
+            match args {
+                Ok(args) => (args.no_main_func, args.has_preprocessor),
+                Err(e) => {
+                    tracing::warn!(
+                        "Error parsing deno signature when deploying script {}: {:?}",
+                        ns.path,
+                        e
+                    );
+                    (None, None)
+                }
+            }
         }
         ScriptLang::Python3 => {
-            let args = windmill_parser_py::parse_python_signature(&ns.content, None, true)?;
-            (args.no_main_func, args.has_preprocessor)
+            let args = windmill_parser_py::parse_python_signature(&ns.content, None, true);
+            match args {
+                Ok(args) => (args.no_main_func, args.has_preprocessor),
+                Err(e) => {
+                    tracing::warn!(
+                        "Error parsing python signature when deploying script {}: {:?}",
+                        ns.path,
+                        e
+                    );
+                    (None, None)
+                }
+            }
         }
         _ => (ns.no_main_func, ns.has_preprocessor),
     };
