@@ -7,7 +7,7 @@
 	import TriggersTable from './TriggersTable.svelte'
 	import CaptureWrapper from './CaptureWrapperV2.svelte'
 	import { fade } from 'svelte/transition'
-	import TriggersBadgeV2 from '../graph/renderers/triggers/TriggersBadgeV2.svelte'
+	import TriggersBadge from '../graph/renderers/triggers/TriggersBadge.svelte'
 	import { twMerge } from 'tailwind-merge'
 	import AddTriggersButton from '$lib/components/triggers/AddTriggersButton.svelte'
 	import { Plus } from 'lucide-svelte'
@@ -38,7 +38,7 @@
 	export let noEditor: boolean
 	export let newItem = false
 	export let currentPath: string
-	export let fakeInitialPath: string
+	export let fakeInitialPath: string = ''
 	export let hash: string | undefined = undefined
 	export let args: Record<string, any> = {}
 	export let initialPath: string
@@ -47,6 +47,8 @@
 	export let hasPreprocessor: boolean = false
 	export let isDeployed: boolean = false
 	export let schema: Record<string, any> | undefined = undefined
+	export let noCapture: boolean = false
+	export let isEditor: boolean = true
 
 	let config: Record<string, any> = {}
 	let editTrigger: Trigger | undefined = undefined
@@ -189,6 +191,7 @@
 								selectedTrigger={$selectedTrigger}
 								on:select={handleSelectTrigger}
 								triggers={$triggers}
+								{isEditor}
 								on:addDraftTrigger={({ detail }) => {
 									const newTrigger = addDraftTrigger(
 										triggers,
@@ -225,7 +228,7 @@
 									<Plus size="14" />
 								</Button>
 							</AddTriggersButton>
-							<TriggersBadgeV2
+							<TriggersBadge
 								showOnlyWithCount={false}
 								path={initialPath || fakeInitialPath}
 								{newItem}
@@ -261,6 +264,7 @@
 										{args}
 										{newItem}
 										{schema}
+										{isEditor}
 										on:update-config={({ detail }) => {
 											config = detail
 											if ($selectedTrigger && $selectedTrigger.id) {
@@ -293,7 +297,7 @@
 					</div>
 				</div>
 			</Pane>
-			{#if $selectedTrigger && $selectedTrigger.type && $selectedTrigger.type !== 'schedule' && $selectedTrigger.type != 'poll'}
+			{#if $selectedTrigger && $selectedTrigger.type && $selectedTrigger.type !== 'schedule' && $selectedTrigger.type != 'poll' && !noCapture}
 				{@const captureKind = triggerTypeToCaptureKind($selectedTrigger.type)}
 				{#key captureKind}
 					<Pane minSize={20} size={40}>

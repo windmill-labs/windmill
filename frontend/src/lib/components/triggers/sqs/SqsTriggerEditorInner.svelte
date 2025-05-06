@@ -27,6 +27,7 @@
 		allowDraft?: boolean
 		hasDraft?: boolean
 		isDraftOnly?: boolean
+		isEditor?: boolean
 	}
 
 	let {
@@ -38,7 +39,8 @@
 		hideTooltips = false,
 		allowDraft = false,
 		hasDraft = false,
-		isDraftOnly = false
+		isDraftOnly = false,
+		isEditor = false
 	}: Props = $props()
 
 	let drawer: Drawer | undefined = $state(undefined)
@@ -264,6 +266,7 @@
 			{can_write}
 			isLoading={false}
 			{neverSaved}
+			{isEditor}
 			on:save-draft={() => {
 				saveDraft()
 			}}

@@ -280,6 +280,7 @@
 			{can_write}
 			isLoading={false}
 			{neverSaved}
+			{isEditor}
 			on:save-draft={() => {
 				saveDraft()
 			}}

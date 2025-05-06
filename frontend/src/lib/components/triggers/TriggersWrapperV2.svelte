@@ -13,6 +13,8 @@
 	import WebsocketTriggersPanel from './websocket/WebsocketTriggersPanelV2.svelte'
 	import { type Trigger } from './utils'
 	import { createEventDispatcher } from 'svelte'
+	import ClipboardPanel from '../details/ClipboardPanel.svelte'
+	import CliHelpBox from '../CliHelpBox.svelte'
 
 	const dispatch = createEventDispatcher()
 
@@ -29,6 +31,7 @@
 		args: Record<string, any>
 		newItem: boolean
 		schema: Record<string, any> | undefined
+		isEditor?: boolean
 	}
 
 	let {
@@ -43,7 +46,8 @@
 		small,
 		args,
 		newItem,
-		schema
+		schema,
+		isEditor = false
 	}: Props = $props()
 
 	// Forward config updates to parent
@@ -101,6 +105,7 @@
 		newDraft={selectedTrigger.draftConfig === undefined}
 		{edit}
 		{schema}
+		{isEditor}
 		on:update-config={({ detail }) => updateConfig(detail)}
 		on:update
 		on:save-draft
@@ -115,7 +120,7 @@
 		{selectedTrigger}
 		{edit}
 		{isDeployed}
-		isEditor={true}
+		{isEditor}
 		on:toggle-edit-mode
 		on:update
 		on:delete
@@ -132,7 +137,7 @@
 		{selectedTrigger}
 		{edit}
 		{isDeployed}
-		isEditor={true}
+		{isEditor}
 		on:toggle-edit-mode
 		on:update
 		on:delete
@@ -149,7 +154,7 @@
 		{selectedTrigger}
 		{edit}
 		{isDeployed}
-		isEditor={true}
+		{isEditor}
 		on:toggle-edit-mode
 		on:update
 		on:delete
@@ -166,7 +171,7 @@
 		{selectedTrigger}
 		{edit}
 		{isDeployed}
-		isEditor={true}
+		{isEditor}
 		on:toggle-edit-mode
 		on:update
 		on:delete
@@ -183,7 +188,7 @@
 		{selectedTrigger}
 		{edit}
 		{isDeployed}
-		isEditor={true}
+		{isEditor}
 		on:toggle-edit-mode
 		on:update
 		on:delete
@@ -216,7 +221,7 @@
 		{selectedTrigger}
 		{edit}
 		{isDeployed}
-		isEditor={true}
+		{isEditor}
 		on:toggle-edit-mode
 		on:update
 		on:delete
@@ -228,4 +233,9 @@
 	/>
 {:else if selectedTrigger.type === 'poll'}
 	<ScheduledPollPanel on:update-config={({ detail }) => updateConfig(detail)} />
+{:else if selectedTrigger.type === 'cli'}
+	<div class="p-2 flex flex-col gap-4">
+		<ClipboardPanel content={selectedTrigger.extra?.cliCommand ?? ''} />
+		<CliHelpBox />
+	</div>
 {/if}

@@ -43,7 +43,8 @@
 		editMode = true,
 		isDraftOnly = false,
 		primary = false,
-		draftSchema = undefined
+		draftSchema = undefined,
+		isEditor = false
 	} = $props()
 
 	let optionTabSelected: 'error_handler' | 'recovery_handler' | 'success_handler' | 'retries' =
@@ -652,6 +653,7 @@
 		{can_write}
 		isLoading={false}
 		{neverSaved}
+		{isEditor}
 		on:save-draft={() => {
 			saveDraft()
 		}}

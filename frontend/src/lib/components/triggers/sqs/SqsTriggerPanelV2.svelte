@@ -12,7 +12,8 @@
 		edit,
 		isDeployed = false,
 		defaultValues = undefined,
-		newDraft = false
+		newDraft = false,
+		isEditor = false
 	} = $props()
 	let sqsTriggerEditor: SqsTriggerEditorInner | undefined = $state(undefined)
 
@@ -45,6 +46,7 @@
 			allowDraft={true}
 			hasDraft={!!selectedTrigger.draftConfig}
 			isDraftOnly={selectedTrigger.isDraft}
+			{isEditor}
 			on:toggle-edit-mode
 			on:update-config
 			on:update

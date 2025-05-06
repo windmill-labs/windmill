@@ -339,6 +339,7 @@
 			drawerLoading ||
 			!can_write ||
 			emptyString(script_path)}
+		{isEditor}
 		on:save-draft={() => {
 			saveDraft()
 		}}

@@ -12,6 +12,7 @@
 	// Props
 	export let selectedTrigger: Trigger | undefined = undefined
 	export let triggers: Trigger[] = []
+	export let isEditor: boolean = false
 
 	// Component state
 	let loading = false
@@ -57,7 +58,7 @@
 
 <div class="flex flex-col space-y-2 w-full">
 	<div class="w-full">
-		<AddTriggersButton on:addDraftTrigger setDropdownWidthToButtonWidth class="w-full">
+		<AddTriggersButton on:addDraftTrigger setDropdownWidthToButtonWidth class="w-full" {isEditor}>
 			<Button
 				size="xs"
 				color="blue"
@@ -98,7 +99,7 @@
 								<TriggerLabel {trigger} />
 							</div>
 
-							{#if !['email', 'webhook'].includes(trigger.type)}
+							{#if !['email', 'webhook', 'cli'].includes(trigger.type)}
 								{#if trigger.isDraft}
 									<Button
 										size="xs"

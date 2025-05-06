@@ -3,7 +3,6 @@
 	import { createEventDispatcher } from 'svelte'
 	import type { Trigger } from '$lib/components/triggers/utils'
 	import TriggersBadge from './TriggersBadge.svelte'
-	import TriggersBadgeV2 from './TriggersBadgeV2.svelte'
 	import type { FlowModule } from '$lib/gen'
 	import { Plus } from 'lucide-svelte'
 	import InsertModuleInner from '$lib/components/flows/map/InsertModuleInner.svelte'
@@ -63,20 +62,17 @@
 			Triggers
 		</div>
 
-		{#if isEditor}
-			<TriggersBadgeV2
-				showOnlyWithCount={false}
-				{path}
-				{newItem}
-				isFlow
-				{selected}
-				{triggers}
-				bind:numberOfTriggers
-				on:select
-			/>
-		{:else}
-			<TriggersBadge showOnlyWithCount={false} {path} {newItem} isFlow {selected} on:select />
-		{/if}
+		<TriggersBadge
+			showOnlyWithCount={false}
+			{path}
+			{newItem}
+			isFlow
+			{selected}
+			{triggers}
+			bind:numberOfTriggers
+			on:select
+		/>
+
 		{#if isEditor}
 			<AddTriggersButton
 				on:addDraftTrigger

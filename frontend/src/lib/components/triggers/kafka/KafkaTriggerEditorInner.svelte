@@ -286,6 +286,7 @@
 			{can_write}
 			isLoading={false}
 			{neverSaved}
+			{isEditor}
 			saveDisabled={pathError !== '' ||
 				!isValid ||
 				drawerLoading ||

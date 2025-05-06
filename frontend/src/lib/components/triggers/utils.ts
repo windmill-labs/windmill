@@ -1,4 +1,4 @@
-import { Webhook, Mail, Calendar, Route, Unplug, Database } from 'lucide-svelte'
+import { Webhook, Mail, Calendar, Route, Unplug, Database, Terminal } from 'lucide-svelte'
 import KafkaIcon from '$lib/components/icons/KafkaIcon.svelte'
 import NatsIcon from '$lib/components/icons/NatsIcon.svelte'
 import MqttIcon from '$lib/components/icons/MqttIcon.svelte'
@@ -51,6 +51,7 @@ export type TriggerType =
 	| 'sqs'
 	| 'gcp'
 	| 'poll'
+	| 'cli'
 
 export type Trigger = {
 	type: TriggerType
@@ -61,6 +62,7 @@ export type Trigger = {
 	id?: string
 	draftConfig?: Record<string, any>
 	captureConfig?: Record<string, any>
+	extra?: Record<string, any>
 }
 
 // Map of trigger kinds to icons
@@ -77,7 +79,8 @@ export const triggerIconMap = {
 	sqs: AwsIcon,
 	gcp: GoogleCloudIcon,
 	primary_schedule: Calendar,
-	poll: SchedulePollIcon
+	poll: SchedulePollIcon,
+	cli: Terminal
 }
 
 export function isEqual(a: Trigger, b: Trigger): boolean {

@@ -278,6 +278,7 @@
 			{edit}
 			{allowDraft}
 			{neverSaved}
+			{isEditor}
 			on:save-draft={() => {
 				saveDraft()
 			}}

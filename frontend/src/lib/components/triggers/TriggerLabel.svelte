@@ -9,9 +9,11 @@
 			? 'Webhooks'
 			: trigger.type === 'email'
 				? 'Emails'
-				: (trigger.draftConfig?.path ??
-					trigger.path ??
-					`New ${trigger.type.replace(/s$/, '')} trigger`)
+				: trigger.type === 'cli'
+					? 'CLI'
+					: (trigger.draftConfig?.path ??
+						trigger.path ??
+						`New ${trigger.type.replace(/s$/, '')} trigger`)
 	)
 </script>
 

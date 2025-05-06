@@ -11,6 +11,7 @@
 		triggerScriptPicker?: import('svelte').Snippet | undefined
 		class?: string
 		placement?: Placement
+		isEditor?: boolean
 	}
 
 	let {
@@ -18,7 +19,8 @@
 		children,
 		class: className,
 		triggerScriptPicker,
-		placement = 'bottom'
+		placement = 'bottom',
+		isEditor = false
 	}: Props = $props()
 
 	const dispatch = createEventDispatcher<{
@@ -56,9 +58,10 @@
 				addDraftTrigger('poll')
 				dispatch('addScheduledPoll')
 			},
-			icon: SchedulePollIcon
+			icon: SchedulePollIcon,
+			hidden: !isEditor
 		}
-	]
+	].filter((item) => !item.hidden)
 
 	let triggersButtonWidth = $state(0)
 

@@ -26,6 +26,7 @@
 	export let can_write
 	export let isLoading
 	export let neverSaved
+	export let isEditor
 </script>
 
 {#if !allowDraft}
@@ -81,7 +82,7 @@
 				}}
 				btnClasses="hover:bg-red-500 hover:text-white"
 			/>
-		{:else if hasDraft}
+		{:else if hasDraft && isEditor}
 			<DropdownV2
 				items={[
 					{
@@ -95,26 +96,31 @@
 		{/if}
 		{#if canEdit}
 			{#if editMode}
-				{@const dropdownItems = !isDraftOnly
-					? [
-							{
-								label: 'Deploy changes now',
-								onClick: () => {
-									dispatch('deploy')
+				{@const dropdownItems =
+					!isDraftOnly && isEditor
+						? [
+								{
+									label: 'Deploy changes now',
+									onClick: () => {
+										dispatch('deploy')
+									}
 								}
-							}
-						]
-					: undefined}
+							]
+						: undefined}
 				<Button
 					size="xs"
 					startIcon={{ icon: Save }}
 					disabled={saveDisabled}
 					on:click={() => {
-						dispatch('save-draft')
+						if (isEditor) {
+							dispatch('save-draft')
+						} else {
+							dispatch('deploy')
+						}
 					}}
 					{dropdownItems}
 				>
-					{'Save draft'}
+					{isEditor ? 'Save draft' : 'Save'}
 				</Button>
 			{/if}
 			{#if !editMode}
