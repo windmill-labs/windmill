@@ -1,6 +1,6 @@
 [package]
 name = "windmill"
-version = "1.485.3"
+version = "1.486.1"
 authors.workspace = true
 edition.workspace = true
 
@@ -32,7 +32,7 @@ members = [
 ]
 
 [workspace.package]
-version = "1.485.3"
+version = "1.486.1"
 authors = ["Ruben Fiszel <ruben@windmill.dev>"]
 edition = "2021"
 
@@ -132,6 +132,8 @@ quote.workspace = true
 memchr.workspace = true
 v8 = { workspace = true, optional = true }
 rustls.workspace = true
+systemstat.workspace = true
+size.workspace = true
 
 [target.'cfg(not(target_env = "msvc"))'.dependencies]
 tikv-jemallocator = { optional = true, workspace = true }
@@ -192,7 +194,7 @@ serde_json = { version = "^1", features = ["preserve_order", "raw_value"] }
 uuid = { version = "^1", features = ["serde", "v4"] }
 thiserror = "^2"
 anyhow = "^1"
-chrono = { version = "=0.4.39", features = ["serde"] }
+chrono = { version = "^0.4", features = ["serde"] }
 chrono-tz = "^0.10.1"
 tracing = "^0"
 tracing-subscriber = { version = "^0", features = ["env-filter", "json"] }
@@ -315,9 +317,9 @@ nix = { version = "0.27.1", features = ["process", "signal"] }
 tinyvector = { git = "https://github.com/windmill-labs/tinyvector", rev = "20823b94c20f2b9093f318badd24026cf54dcc85" }
 hf-hub = "0.3.2"
 tokenizers = "0.14.1"
-candle-core = "0.3.0"
-candle-transformers = "0.3.0"
-candle-nn = "0.3.0"
+candle-core = "0.9.1"
+candle-transformers = "0.9.1"
+candle-nn = "0.9.1"
 tiberius = { version = "0.12.3", default-features = false, features = ["rustls", "tds73", "chrono", "sql-browser-tokio"]}
 pin-project = "1"
 indexmap = { version = "2.2.5", features = ["serde"]}
@@ -331,8 +333,8 @@ async-nats = "0.38.0"
 nkeys = "0.4.4"
 nu-parser = { version = "0.101.0", default-features = false }
 
-datafusion = "39.0.0"
-object_store = { version = "0.10.0", features = ["aws", "azure"] }
+datafusion = "47.0.0"
+object_store = { version = "0.12.0", features = ["aws", "azure"] }
 openidconnect = { version = "4.0.0-rc.1" }
 aws-config = "^1"
 aws-sdk-sqs = "1.57.0"
@@ -355,9 +357,6 @@ bollard = "0.18.1"
 tonic = { version = "=0.12.3", features = ["tls-native-roots"] }
 byteorder = "1.5.0"
 
-# todo remove
-half = "=2.4.1"
-
 tikv-jemallocator = { version = "0.5" }
 tikv-jemalloc-sys  = { version = "^0.5" }
 tikv-jemalloc-ctl = { version = "^0.5" }
@@ -368,6 +367,8 @@ pin-project-lite = "^0"
 tantivy = "0.22.0"
 
 backon = "1.3.0"
+systemstat = "0.2.4"
+size = "0.5.0"
 
 flume = { version = "0.11.1", features = ["async"] }
 
