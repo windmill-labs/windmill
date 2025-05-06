@@ -1,0 +1,195 @@
+---
+description: 
+globs: frontend/src/**/*.svelte
+alwaysApply: false
+---
+# Svelte 5 Best Practices
+
+This guide outlines best practices for developing with Svelte 5, incorporating the new Runes API and other modern Svelte features. They should be applied on every new files created, but not on exising svelte 4 files unless specifically asked to.
+
+## Reactivity with Runes
+
+Svelte 5 introduces Runes for more explicit and flexible reactivity.
+
+1.  **Embrace Runes for State Management**:
+    *   Use `$state` for reactive local component state.
+        ```svelte
+        <script>
+          let count = $state(0);
+
+          function increment() {
+            count += 1;
+          }
+        </script>
+
+        <button onclick={increment}>
+          Clicked {count} {count === 1 ? 'time' : 'times'}
+        </button>
+        ```
+    *   Use `$derived` for computed values based on other reactive state.
+        ```svelte
+        <script>
+          let count = $state(0);
+          const doubled = $derived(count * 2);
+        </script>
+
+        <p>{count} * 2 = {doubled}</p>
+        ```
+    *   Use `$effect` for side effects that need to run when reactive values change (e.g., logging, manual DOM manipulation, data fetching). Remember `$effect` does not run on the server.
+        ```svelte
+        <script>
+          let count = $state(0);
+
+          $effect(() => {
+            console.log('The count is now', count);
+            if (count > 5) {
+              alert('Count is too high!');
+            }
+          });
+        </script>
+        ```
+
+2.  **Props with `$props`**:
+    *   Declare component props using `$props()`. This offers better clarity and flexibility compared to `export let`.
+        ```svelte
+        <script>
+          // ChildComponent.svelte
+          let { name, age = $state(30) } = $props();
+        </script>
+
+        <p>Name: {name}</p>
+        <p>Age: {age}</p>
+        ```
+    *   For bindable props, use `$bindable`.
+        ```svelte
+        <script>
+          // MyInput.svelte
+          let { value = $bindable() } = $props();
+        </script>
+
+        <input bind:value />
+        ```
+
+## Event Handling
+
+*   **Use direct event attributes**: Svelte 5 moves away from `on:` directives for DOM events.
+    *   **Do**: `<button onclick={handleClick}>...</button>`
+    *   **Don't**: `<button on:click={handleClick}>...</button>`
+*   **For component events, prefer callback props**: Instead of `createEventDispatcher`, pass functions as props.
+    ```svelte
+    <!-- Parent.svelte -->
+    <script>
+      import Child from './Child.svelte';
+      let message = $state('');
+      function handleChildEvent(detail) {
+        message = detail;
+      }
+    </script>
+    <Child onCustomEvent={handleChildEvent} />
+    <p>Message from child: {message}</p>
+
+    <!-- Child.svelte -->
+    <script>
+      let { onCustomEvent } = $props();
+      function emitEvent() {
+        onCustomEvent('Hello from child!');
+      }
+    </script>
+    <button onclick={emitEvent}>Send Event</button>
+    ```
+
+## Snippets for Content Projection
+
+*   **Use `{#snippet ...}` and `{@render ...}` instead of slots**: Snippets are more powerful and flexible.
+    ```svelte
+    <!-- Parent.svelte -->
+    <script>
+      import Card from './Card.svelte';
+    </script>
+
+    <Card>
+      {#snippet title()}
+        My Awesome Title
+      {/snippet}
+      {#snippet content()}
+        <p>Some interesting content here.</p>
+      {/snippet}
+    </Card>
+
+    <!-- Card.svelte -->
+    <script>
+      let { title, content } = $props();
+    </script>
+
+    <article>
+      <header>{@render title()}</header>
+      <div>{@render content()}</div>
+    </article>
+    ```
+*   Default content is passed via the `children` prop (which is a snippet).
+    ```svelte
+    <!-- Wrapper.svelte -->
+    <script>
+      let { children } = $props();
+    </script>
+    <div>
+      {@render children?.()}
+    </div>
+    ```
+
+## Component Design
+
+1.  **Create Small, Reusable Components**: Break down complex UIs into smaller, focused components. Each component should have a single responsibility.
+2.  **Descriptive Naming**: Use clear and descriptive names for variables, functions, and components.
+3.  **Minimize Logic in Components**: Move complex business logic to utility functions or services. Keep components focused on presentation and interaction.
+
+## State Management (Stores)
+
+1.  **Segment Stores**: Avoid a single global store. Create multiple stores, each responsible for a specific piece of global state (e.g., `userStore.js`, `themeStore.js`).
+2.  **Use Custom Stores for Complex Logic**: For stores with related methods, create custom stores.
+    ```javascript
+    // counterStore.js
+    import { writable } from 'svelte/store';
+
+    function createCounter() {
+      const { subscribe, set, update } = writable(0);
+
+      return {
+        subscribe,
+        increment: () => update(n => n + 1),
+        decrement: () => update(n => n - 1),
+        reset: () => set(0)
+      };
+    }
+    export const counter = createCounter();
+    ```
+3.  **Use Context API for Localized State**: For state shared within a component subtree, consider Svelte's context API (`setContext`, `getContext`) instead of stores.
+
+## General Clean Code Practices
+
+1.  **Organized File Structure**: Group related files together. A common structure:
+    ```
+    /src
+    |-- /routes      // Page components (if using a router like SvelteKit)
+    |-- /lib         // Utility functions, services, constants (SvelteKit often uses this)
+    |   |-- /stores
+    |   |-- /utils
+    |   |-- /services
+    |   |-- /components  // Reusable UI components
+    |-- App.svelte
+    |-- main.js (or main.ts)
+    ```
+2.  **Scoped Styles**: Keep CSS scoped to components to avoid unintended side effects. Avoid `:global` where possible.
+3.  **Immutability**: When updating objects or arrays in reactive state, prefer creating new instances rather than mutating existing ones, especially if not using `$state` which handles this more directly. `<svelte:options immutable={true} />` can be used in Svelte 4 style components. With Svelte 5 and `$state`, direct assignments are generally fine as Svelte's reactivity system handles updates.
+4.  **Use `class:` and `style:` directives**: For dynamic classes and styles, use Svelte's built-in directives for cleaner templates.
+    ```svelte
+    <script>
+      let isActive = $state(true);
+      let color = $state('blue');
+    </script>
+
+    <div class:active={isActive} style:color={color}>
+      Hello
+    </div>
+    ```
+5.  **Stay Updated**: Keep Svelte and its related packages up to date to benefit from the latest features, performance improvements, and security fixes.

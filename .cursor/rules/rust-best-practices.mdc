@@ -1,0 +1,82 @@
+---
+description: 
+globs: backend/**/*.rs
+alwaysApply: false
+---
+---
+description: Rust best practices for the Windmill backend, covering code organization, error handling, and common patterns to follow when adding new code.
+globs: **/*.rs
+---
+# Windmill Backend - Rust Best Practices
+
+## Project Structure
+
+Windmill uses a workspace-based architecture with multiple crates:
+
+- **windmill-api**: API server functionality
+- **windmill-worker**: Job execution
+- **windmill-common**: Shared code used by all crates
+- **windmill-queue**: Job & flow queuing
+- **windmill-audit**: Audit logging
+- Other specialized crates (git-sync, autoscaling, etc.)
+
+## Adding New Code
+
+### Module Organization
+
+- Place new code in the appropriate crate based on functionality
+- For API endpoints, create or modify files in `windmill-api/src/` organized by domain
+- For shared functionality, use `windmill-common/src/`
+- Use the `_ee.rs` suffix for enterprise-only modules
+- Follow existing patterns for file structure and organization
+
+### Error Handling
+
+- Use the custom `Error` enum from `windmill-common::error`
+- Return `Result<T, Error>` or `JsonResult<T>` for functions that can fail
+- Use the `?` operator for error propagation
+- Add location tracking to errors using `#[track_caller]`
+
+### Database Operations
+
+- Use `sqlx` for database operations with prepared statements
+- Leverage existing database helper functions in `db.rs` modules
+- Use transactions for multi-step operations
+- Handle database errors properly
+
+### API Endpoints
+
+- Follow existing patterns in the `windmill-api` crate
+- Use axum's routing system and extractors
+- Group related routes together
+- Use consistent response formats (JSON)
+- Follow proper authentication and authorization patterns
+
+### Enterprise Features
+
+- Use feature flags for enterprise functionality
+- Conditionally compile with `#[cfg(feature = "enterprise")]`
+- Isolate enterprise code in separate modules
+
+## Code Style
+
+- Group imports by external and internal crates
+- Place struct/enum definitions before implementations
+- Group similar functionality together
+- Use descriptive naming consistent with the codebase
+- Follow existing patterns for async code using tokio
+
+## Testing
+
+- Write unit tests for core functionality
+- Use the `#[cfg(test)]` module for test code
+- For database tests, use the existing test utilities
+
+## Common Crates Used
+
+- **tokio**: For async runtime
+- **axum**: For web server and routing
+- **sqlx**: For database operations
+- **serde**: For serialization/deserialization
+- **tracing**: For logging and diagnostics
+- **reqwest**: For HTTP client functionality
