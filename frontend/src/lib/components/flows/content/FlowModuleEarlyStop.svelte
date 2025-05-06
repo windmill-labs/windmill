@@ -37,8 +37,8 @@
 		}
 		return null
 	}
-	let raise_error_message_stop_after_all_if = false
-	let raise_error_message_stop_after_if = false
+	let raise_error_message_stop_after_all_if = flowModule.stop_after_all_iters_if?.error_message !== undefined
+	let raise_error_message_stop_after_if = flowModule.stop_after_if?.error_message !== undefined
 	$: isLoop = flowModule.value.type === 'forloopflow' || flowModule.value.type === 'whileloopflow'
 	$: isBranchAll = flowModule.value.type === 'branchall'
 	$: isStopAfterIfEnabled = Boolean(flowModule.stop_after_if)
