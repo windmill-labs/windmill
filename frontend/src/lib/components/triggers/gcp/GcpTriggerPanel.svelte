@@ -54,6 +54,7 @@
 			hasDraft={!!selectedTrigger.draftConfig}
 			isDraftOnly={selectedTrigger.isDraft}
 			{customLabel}
+			{isDeployed}
 			on:toggle-edit-mode
 			on:update-config
 			on:update

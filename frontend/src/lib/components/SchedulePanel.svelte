@@ -50,6 +50,7 @@
 	draftSchema={schema}
 	{isEditor}
 	{customLabel}
+	{isDeployed}
 >
 	{#snippet docDescription()}
 		<div class="flex flex-col gap-2 pb-4">

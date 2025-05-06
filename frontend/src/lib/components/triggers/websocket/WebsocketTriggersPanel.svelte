@@ -54,6 +54,7 @@
 			on:save-draft
 			on:reset
 			{customLabel}
+			{isDeployed}
 		>
 			{#snippet description()}
 				<Description link="https://www.windmill.dev/docs/core_concepts/websocket_triggers">

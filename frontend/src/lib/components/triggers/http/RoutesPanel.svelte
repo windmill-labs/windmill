@@ -49,6 +49,7 @@
 	allowDraft
 	on:reset
 	hasDraft={!!selectedTrigger.draftConfig}
+	{isDeployed}
 >
 	{#snippet description()}
 		<div class="flex flex-col gap-2 pb-4">

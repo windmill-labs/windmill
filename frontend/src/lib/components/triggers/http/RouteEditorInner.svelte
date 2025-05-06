@@ -44,7 +44,8 @@
 		isDraftOnly = false,
 		allowDraft = false,
 		hasDraft = false,
-		neverSaved = false
+		neverSaved = false,
+		isDeployed = false
 	} = $props()
 
 	// Form data state
@@ -739,6 +740,7 @@
 		{edit}
 		isLoading={false}
 		{isEditor}
+		{isDeployed}
 		on:save-draft={() => {
 			saveDraft()
 		}}

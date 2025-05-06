@@ -100,14 +100,16 @@
 		if (!trigger) {
 			return
 		}
+		//delete the trigger from the store
+		deleteTrigger(triggers, trigger)
+
 		if (trigger.isDraft) {
 			trigger.isDraft = false
 		}
 		if (trigger) {
 			trigger.path = path
 		}
-		//delete the trigger from the store
-		deleteTrigger(triggers, trigger)
+
 		if (trigger.type === 'schedule') {
 			await fetchSchedules(triggers, $workspaceStore, currentPath, isFlow, $primarySchedule)
 		} else if (trigger.type === 'websocket') {

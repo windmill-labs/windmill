@@ -59,7 +59,8 @@
 		allowDraft = false,
 		hasDraft = false,
 		isDraftOnly = false,
-		customLabel = undefined
+		customLabel = undefined,
+		isDeployed = false
 	}: {
 		useDrawer?: boolean
 		description?: Snippet | undefined
@@ -73,6 +74,7 @@
 		hasDraft?: boolean
 		isDraftOnly?: boolean
 		customLabel?: Snippet
+		isDeployed?: boolean
 	} = $props()
 
 	let resetEditMode = $state<(() => void) | undefined>(undefined)
@@ -284,6 +286,7 @@
 			{allowDraft}
 			{neverSaved}
 			{isEditor}
+			{isDeployed}
 			on:save-draft={() => {
 				saveDraft()
 			}}

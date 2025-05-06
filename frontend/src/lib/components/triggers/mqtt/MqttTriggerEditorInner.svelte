@@ -34,6 +34,7 @@
 		hasDraft?: boolean
 		isDraftOnly?: boolean
 		customLabel?: Snippet
+		isDeployed?: boolean
 	}
 
 	let {
@@ -46,7 +47,8 @@
 		allowDraft = false,
 		hasDraft = false,
 		isDraftOnly = false,
-		customLabel
+		customLabel = undefined,
+		isDeployed = false
 	}: Props = $props()
 
 	let mqtt_resource_path: string = $state('')
@@ -285,6 +287,7 @@
 			isLoading={false}
 			{neverSaved}
 			{isEditor}
+			{isDeployed}
 			on:save-draft={() => {
 				saveDraft()
 			}}

@@ -28,6 +28,7 @@
 		hasDraft?: boolean
 		isDraftOnly?: boolean
 		customLabel?: Snippet
+		isDeployed?: boolean
 	}
 
 	let {
@@ -40,7 +41,8 @@
 		allowDraft = false,
 		hasDraft = false,
 		isDraftOnly = false,
-		customLabel
+		customLabel,
+		isDeployed = false
 	}: Props = $props()
 
 	let drawer: Drawer | undefined = $state()
@@ -291,6 +293,7 @@
 			isLoading={false}
 			{neverSaved}
 			{isEditor}
+			{isDeployed}
 			saveDisabled={pathError !== '' ||
 				!isValid ||
 				drawerLoading ||

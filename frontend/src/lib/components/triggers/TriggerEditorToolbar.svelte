@@ -26,6 +26,7 @@
 	export let neverSaved
 	export let isEditor
 	export let permissions: 'write' | 'create' | 'none'
+	export let isDeployed: boolean
 </script>
 
 {#if !allowDraft}
@@ -96,7 +97,7 @@
 		{#if (permissions === 'write' && isEditor) || permissions === 'create'}
 			{#if editMode}
 				{@const dropdownItems =
-					!isDraftOnly && isEditor
+					(!isDraftOnly || isDeployed) && isEditor
 						? [
 								{
 									label: 'Deploy changes now',

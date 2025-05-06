@@ -41,6 +41,7 @@
 		hasDraft?: boolean
 		isDraftOnly?: boolean
 		customLabel?: Snippet
+		isDeployed?: boolean
 	}
 
 	let {
@@ -53,7 +54,8 @@
 		allowDraft = false,
 		hasDraft = false,
 		isDraftOnly = false,
-		customLabel
+		customLabel = undefined,
+		isDeployed = false
 	}: Props = $props()
 
 	let drawer: Drawer | undefined = $state(undefined)
@@ -413,6 +415,7 @@
 			{neverSaved}
 			{enabled}
 			{isEditor}
+			{isDeployed}
 			on:save-draft={() => {
 				saveDraft()
 			}}

@@ -44,7 +44,8 @@
 		primary = false,
 		draftSchema = undefined,
 		isEditor = false,
-		customLabel = undefined
+		customLabel = undefined,
+		isDeployed = false
 	} = $props()
 
 	let optionTabSelected: 'error_handler' | 'recovery_handler' | 'success_handler' | 'retries' =
@@ -650,6 +651,7 @@
 		{enabled}
 		{allowDraft}
 		{edit}
+		{isDeployed}
 		isLoading={false}
 		{neverSaved}
 		{isEditor}
