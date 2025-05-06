@@ -461,6 +461,7 @@
 								$selectedTriggerStore = detail
 							}
 						}}
+						small={false}
 					/>
 				</svelte:fragment>
 				{#if $workspaceStore}

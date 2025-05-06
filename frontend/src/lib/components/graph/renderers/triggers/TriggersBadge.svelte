@@ -25,6 +25,8 @@
 		triggers: Trigger[]
 		numberOfTriggers?: number
 		small?: boolean
+		vertical?: boolean
+		limit?: number
 	}
 
 	let {
@@ -36,7 +38,9 @@
 		triggers,
 		// @ts-ignore - This is an output-only prop used with bind:
 		numberOfTriggers = $bindable(0),
-		small = true
+		small = true,
+		vertical = false,
+		limit
 	}: Props = $props()
 
 	let menuOpen = $state(false)
@@ -110,10 +114,10 @@
 
 	// Extract unique trigger types for display, only keep the first 5
 	let allTriggerTypes = $derived(Object.keys(triggersGrouped) as TriggerType[])
-	let triggersToDisplay = $derived(allTriggerTypes.slice(0, 7))
+	let triggersToDisplay = $derived(limit ? allTriggerTypes.slice(0, limit) : allTriggerTypes)
 	let extraTriggers = $derived(
-		allTriggerTypes.length > 7
-			? allTriggerTypes.slice(7).flatMap((type) => triggersGrouped[type])
+		limit && allTriggerTypes.length > limit
+			? allTriggerTypes.slice(limit).flatMap((type) => triggersGrouped[type])
 			: []
 	)
 
@@ -124,7 +128,12 @@
 	})
 </script>
 
-<Menubar class={twMerge('flex flex-row gap-1 items-center', small ? '' : 'flex-col gap-2')}>
+<Menubar
+	class={twMerge(
+		'items-center justify-center',
+		vertical ? 'flex flex-col gap-2' : 'flex flex-row gap-1'
+	)}
+>
 	{#snippet children({ createMenu })}
 		{#each triggersToDisplay as type}
 			{@const isSelected = selected && $selectedTriggerV2 && $selectedTriggerV2.type === type}
@@ -142,7 +151,7 @@
 					<Menu
 						{createMenu}
 						usePointerDownOutside
-						placement={small ? 'bottom' : 'right-start'}
+						placement={vertical ? 'right-start' : 'bottom'}
 						menuClass={'max-w-56'}
 						class="h-fit"
 						bind:open={menuOpen}
@@ -220,15 +229,21 @@
 				{#if count > 0}
 					<div
 						class={twMerge(
-							'absolute -right-1 -top-1 z-10 bg-surface-secondary-inverse bg-opacity-40 group-hover:bg-opacity-80 transition-all duration-100',
-							'rounded-sm shadow-lg flex center-center text-primary-inverse font-mono',
-							small ? 'h-3 w-3 text-[8px]' : 'h-4 w-4 text-xs'
+							'absolute z-10 bg-gray-400 transition-all duration-100',
+							'rounded-full shadow-sm flex center-center text-primary-inverse font-mono',
+							'group-hover:bg-gray-800 group-hover:scale-110',
+							small
+								? '-right-0.5 -top-0.5 h-[10px] w-[10px] group-hover:h-3 group-hover:w-3 group-hover:text-[8px]'
+								: '-right-1 -top-1 h-3 w-3 group-hover:h-4 group-hover:w-4 group-hover:text-xs',
+							'overflow-hidden'
 						)}
 					>
 						{#if count === undefined}
 							<Loader2 class="animate-spin text-2xs" />
 						{:else}
-							{count}
+							<span class="opacity-0 group-hover:opacity-100 transition-opacity duration-100"
+								>{count}</span
+							>
 						{/if}
 					</div>
 				{/if}

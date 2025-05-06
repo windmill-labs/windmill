@@ -236,6 +236,7 @@
 								selected={true}
 								triggers={$triggers}
 								small={false}
+								vertical
 								on:select={({ detail }) => ($selectedTrigger = detail)}
 							/>
 						</div>
