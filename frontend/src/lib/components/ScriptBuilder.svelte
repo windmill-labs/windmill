@@ -167,7 +167,8 @@
 	}
 
 	export function setDraftTriggers(triggers: Trigger[]) {
-		$triggersStore = [...triggers]
+		$triggersStore = [...triggers, ...$triggersStore.filter((t) => !t.draftConfig)]
+		loadTriggers()
 	}
 
 	const dispatch = createEventDispatcher()
