@@ -2,7 +2,8 @@
 	import { Alert } from '$lib/components/common'
 	import Description from '$lib/components/Description.svelte'
 	import HighlightTheme from '$lib/components/HighlightTheme.svelte'
-	import TriggersEditorSection from '../TriggersEditorSection.svelte'
+	import WebhooksConfigSection from './WebhooksConfigSectionV2.svelte'
+	import { Section } from '$lib/components/common'
 
 	export let token: string
 	export let args: Record<string, any> = {}
@@ -11,9 +12,6 @@
 	export let hash: string | undefined = undefined
 	export let path: string
 	export let newItem: boolean = false
-	export let isEditor: boolean = false
-	export let canHavePreprocessor: boolean = false
-	export let hasPreprocessor: boolean = false
 
 	$: data = {
 		hash,
@@ -25,7 +23,7 @@
 
 <HighlightTheme />
 
-<div class="flex flex-col w-full gap-4">
+<Section label="Webhooks" class="flex flex-col gap-4">
 	<Description link="https://www.windmill.dev/docs/core_concepts/webhooks">
 		Webhooks trigger scripts or flows via HTTP requests. Each webhook can be configured to run
 		synchronously or asynchronously. You can secure webhooks using tokens with specific permissions.
@@ -37,22 +35,12 @@
 		</Alert>
 	{/if}
 
-	<TriggersEditorSection
-		on:applyArgs
-		on:addPreprocessor
-		on:refreshCaptures
-		on:updateSchema
-		on:testWithArgs
-		cloudDisabled={false}
-		triggerType="webhook"
+	<WebhooksConfigSection
 		{isFlow}
-		{data}
-		noSave
 		{path}
-		{isEditor}
-		{canHavePreprocessor}
-		{hasPreprocessor}
-		{newItem}
-		alwaysOpened={true}
+		hash={data?.hash}
+		token={data?.token}
+		runnableArgs={data?.args}
+		scopes={data?.scopes}
 	/>
-</div>
+</Section>

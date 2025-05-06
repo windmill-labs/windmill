@@ -1,69 +1,34 @@
 <script lang="ts">
-	import { userStore, workspaceStore } from '$lib/stores'
-
-	import { canWrite } from '$lib/utils'
-	import { getContext, onMount } from 'svelte'
+	import MqttTriggerEditorInner from './MqttTriggerEditorInner.svelte'
 	import { isCloudHosted } from '$lib/cloud'
-	import Section from '$lib/components/Section.svelte'
 	import { Alert } from '$lib/components/common'
 	import Description from '$lib/components/Description.svelte'
-	import type { TriggerContext } from '$lib/components/triggers'
-	import TriggersEditorSection from '../TriggersEditorSection.svelte'
-	import MqttTriggerEditor from './MqttTriggerEditor.svelte'
-	import { MqttTriggerService, type MqttTrigger } from '$lib/gen'
-	export let isFlow: boolean
-	export let path: string
-	export let newItem: boolean = false
-	export let isEditor: boolean = false
-	export let canHavePreprocessor: boolean = false
-	export let hasPreprocessor: boolean = false
+	import { onMount } from 'svelte'
 
-	let mqttTriggerEditor: MqttTriggerEditor
-	let openForm = true
-	let dontCloseOnLoad = false
+	let {
+		selectedTrigger,
+		isFlow,
+		path,
+		edit,
+		isDeployed = false,
+		isEditor,
+		defaultValues = undefined,
+		newDraft = false
+	} = $props()
+	let mqttTriggerEditor: MqttTriggerEditorInner | undefined = $state(undefined)
 
-	$: path && loadTriggers()
-
-	const { triggersCount, selectedTrigger, defaultValues } =
-		getContext<TriggerContext>('TriggerContext')
-
-	onMount(() => {
-		if (
-			defaultValues &&
-			$selectedTrigger === 'mqtt' &&
-			Object.keys($defaultValues ?? {}).length > 0
-		) {
-			mqttTriggerEditor.openNew(isFlow, path, $defaultValues)
-			defaultValues.set(undefined)
-		}
-	})
-
-	let mqttTriggers: (MqttTrigger & { canWrite: boolean })[] | undefined = undefined
-	export async function loadTriggers() {
-		try {
-			mqttTriggers = (
-				await MqttTriggerService.listMqttTriggers({
-					workspace: $workspaceStore ?? '',
-					path,
-					isFlow
-				})
-			).map((x) => {
-				return { canWrite: canWrite(x.path, x.extra_perms!, $userStore), ...x }
-			})
-			$triggersCount = { ...($triggersCount ?? {}), mqtt_count: mqttTriggers?.length }
-			openForm = mqttTriggers?.length === 0 || dontCloseOnLoad
-		} catch (e) {
-			console.error('impossible to load mqtt triggers', e)
+	async function openMqttTriggerEditor(isFlow: boolean, isDraft: boolean) {
+		if (isDraft) {
+			mqttTriggerEditor?.openNew(isFlow, path, defaultValues, newDraft)
+		} else {
+			mqttTriggerEditor?.openEdit(selectedTrigger.path, isFlow, selectedTrigger.draftConfig)
 		}
 	}
-</script>
 
-<MqttTriggerEditor
-	on:update={() => {
-		loadTriggers()
-	}}
-	bind:this={mqttTriggerEditor}
-/>
+	onMount(() => {
+		mqttTriggerEditor && openMqttTriggerEditor(isFlow, selectedTrigger.isDraft ?? false)
+	})
+</script>
 
 {#if isCloudHosted()}
 	<Alert title="Not compatible with multi-tenant cloud" type="warning" size="xs">
@@ -71,56 +36,37 @@
 	</Alert>
 {:else}
 	<div class="flex flex-col gap-4">
-		<Description link="https://mqtt.org/">
-			Windmill can connect to an MQTT broker and subscribes to specific topics thus allowing the
-			execution of script/flows based on the event triggered by those subscribed topics
-		</Description>
-
-		{#if !newItem && mqttTriggers && mqttTriggers.length > 0}
-			<Section label="MQTT">
-				<div class="flex flex-col gap-4">
-					<div class="flex flex-col divide-y pt-2">
-						{#each mqttTriggers as mqttTriggers (mqttTriggers.path)}
-							<div class="grid grid-cols-5 text-2xs items-center py-2">
-								<div class="col-span-2 truncate">{mqttTriggers.path}</div>
-
-								<div class="flex justify-end">
-									<button
-										on:click={() => mqttTriggerEditor?.openEdit(mqttTriggers.path, isFlow)}
-										class="px-2"
-									>
-										{#if mqttTriggers.canWrite}
-											Edit
-										{:else}
-											View
-										{/if}
-									</button>
-								</div>
-							</div>
-						{/each}
-					</div>
-				</div>
-			</Section>
-		{/if}
-
-		<TriggersEditorSection
-			on:applyArgs
-			on:saveTrigger={(e) => {
-				mqttTriggerEditor?.openNew(isFlow, path, e.detail.config)
-			}}
-			on:addPreprocessor
-			on:updateSchema
-			on:testWithArgs
-			cloudDisabled={false}
-			triggerType="mqtt"
-			{isFlow}
-			{path}
+		<MqttTriggerEditorInner
+			bind:this={mqttTriggerEditor}
+			useDrawer={false}
+			hideTarget
+			editMode={edit}
+			preventSave={!isDeployed}
+			hideTooltips={!isDeployed}
+			allowDraft={true}
+			hasDraft={!!selectedTrigger.draftConfig}
 			{isEditor}
-			{canHavePreprocessor}
-			{hasPreprocessor}
-			{newItem}
-			{openForm}
-			bind:showCapture={dontCloseOnLoad}
-		/>
+			isDraftOnly={selectedTrigger.isDraft}
+			on:toggle-edit-mode
+			on:update-config
+			on:update
+			on:delete
+			on:save-draft
+			on:reset
+		>
+			{#snippet description()}
+				<Description link="https://www.windmill.dev/docs/core_concepts/mqtt_triggers">
+					MQTT triggers allow you to execute scripts and flows in response to MQTT messages. They
+					can be configured to subscribe to specific topics with different QoS levels.
+				</Description>
+				{#if !isDeployed}
+					<Alert
+						title={`Deploy the ${isFlow ? 'flow' : 'script'} to save the MQTT trigger`}
+						type="info"
+						size="xs"
+					/>
+				{/if}
+			{/snippet}
+		</MqttTriggerEditorInner>
 	</div>
 {/if}

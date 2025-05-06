@@ -5,14 +5,14 @@
 	import type { TriggerContext, TriggerKind } from '$lib/components/triggers'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import TriggersTable from './TriggersTable.svelte'
-	import CaptureWrapper from './CaptureWrapperV2.svelte'
+	import CaptureWrapper from './CaptureWrapper.svelte'
 	import { fade } from 'svelte/transition'
 	import TriggersBadge from '../graph/renderers/triggers/TriggersBadge.svelte'
 	import { twMerge } from 'tailwind-merge'
 	import AddTriggersButton from '$lib/components/triggers/AddTriggersButton.svelte'
 	import { Plus } from 'lucide-svelte'
 	import Button from '../common/button/Button.svelte'
-	import TriggersWrapperV2 from './TriggersWrapperV2.svelte'
+	import TriggersWrapperV2 from './TriggersWrapper.svelte'
 	import {
 		fetchHttpTriggers,
 		fetchSchedules,
