@@ -31,11 +31,10 @@ use crate::{
     },
     handle_child::handle_child,
     python_executor::{create_dependencies_dir, handle_python_reqs, uv_pip_compile, PyVersion},
-    DISABLE_NSJAIL, DISABLE_NUSER, GIT_PATH, HOME_ENV, NSJAIL_PATH, PATH_ENV,
-    PROXY_ENVS, PY_INSTALL_DIR, TZ_ENV,
+    DISABLE_NSJAIL, DISABLE_NUSER, GIT_PATH, HOME_ENV, NSJAIL_PATH, PATH_ENV, PROXY_ENVS,
+    PY_INSTALL_DIR, TZ_ENV,
 };
 use windmill_common::client::AuthedClient;
-
 
 lazy_static::lazy_static! {
     static ref ANSIBLE_PLAYBOOK_PATH: String =
@@ -860,18 +859,16 @@ pub async fn handle_ansible_job(
 
     let mut nsjail_extra_mounts = vec![];
     if let Some(r) = reqs.as_ref() {
-        if let Some(db) = conn.as_sql() {
-            nsjail_extra_mounts = create_file_resources(
-                &job.id,
-                &job.workspace_id,
-                job_dir,
-                interpolated_args.as_ref(),
-                &r,
-                &client,
-                db,
-            )
-            .await?;
-        }
+        nsjail_extra_mounts = create_file_resources(
+            &job.id,
+            &job.workspace_id,
+            job_dir,
+            interpolated_args.as_ref(),
+            &r,
+            &client,
+            conn,
+        )
+        .await?;
 
         for repo in &r.git_repos {
             append_logs(
@@ -937,8 +934,7 @@ pub async fn handle_ansible_job(
 
         if let Some(collections) = r.roles_and_collections.as_ref() {
             let empty = String::new();
-            let (lockfile, logs) =
-                req_lockfiles
+            let (lockfile, logs) = req_lockfiles
                 .as_ref()
                 .map(|r| (&r.collections_and_roles, &r.collections_and_roles_logs))
                 .unwrap_or((collections, &empty));
@@ -1163,8 +1159,8 @@ async fn create_file_resources(
     job_dir: &str,
     args: Option<&HashMap<String, Box<RawValue>>>,
     r: &AnsibleRequirements,
-    client: &AuthedClient,
-    db: &sqlx::Pool<sqlx::Postgres>,
+    client: &crate::AuthedClient,
+    conn: &Connection,
 ) -> error::Result<Vec<String>> {
     let mut logs = String::new();
     let mut nsjail_mounts: Vec<String> = vec![];
@@ -1234,7 +1230,7 @@ async fn create_file_resources(
             file_res.target_path, file_res.resource_path
         ));
     }
-    append_logs(job_id, w_id, logs, &Connection::Sql(db.clone())).await;
+    append_logs(job_id, w_id, logs, conn).await;
 
     Ok(nsjail_mounts)
 }

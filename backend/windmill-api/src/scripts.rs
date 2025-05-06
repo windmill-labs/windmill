@@ -265,9 +265,12 @@ async fn list_scripts(
 
     if lq.show_archived.unwrap_or(false) {
         sqlb.and_where_eq(
-            "o.created_at",
-            "(select max(created_at) from script where o.path = path 
-            AND workspace_id = ?)"
+            "o.ctid",
+            "(SELECT ctid FROM script 
+              WHERE path = o.path 
+                AND workspace_id = ? 
+              ORDER BY created_at DESC 
+              LIMIT 1)"
                 .bind(&w_id),
         );
         sqlb.and_where_eq("archived", true);
@@ -989,7 +992,7 @@ async fn get_script_by_path(
                 AND favorite.usr = $3
             WHERE s.path = $1
                 AND s.workspace_id = $2
-                AND s.created_at = (SELECT max(created_at) FROM script WHERE path = $1 AND workspace_id = $2)",
+            ORDER BY s.created_at DESC LIMIT 1",
         )
         .bind(path)
         .bind(w_id)
@@ -998,9 +1001,7 @@ async fn get_script_by_path(
         .await?
     } else {
         sqlx::query_as::<_, ScriptWithStarred>(
-            "SELECT *, NULL as starred FROM script WHERE path = $1 AND workspace_id = $2 \
-             AND created_at = (SELECT max(created_at) FROM script WHERE path = $1 AND \
-             workspace_id = $2)",
+            "SELECT *, NULL as starred FROM script WHERE path = $1 AND workspace_id = $2 ORDER BY created_at DESC LIMIT 1",
         )
         .bind(path)
         .bind(w_id)
@@ -1040,9 +1041,8 @@ async fn get_script_by_path_w_draft(
     let script_o = sqlx::query_as::<_, ScriptWDraft>(
         "SELECT hash, script.path, summary, description, content, language, kind, tag, schema, draft_only, envs, concurrent_limit, concurrency_time_window_s, cache_ttl, ws_error_handler_muted, draft.value as draft, dedicated_worker, priority, restart_unless_cancelled, delete_after_use, timeout, concurrency_key, visible_to_runner_only, no_main_func, has_preprocessor, on_behalf_of_email FROM script LEFT JOIN draft ON 
          script.path = draft.path AND script.workspace_id = draft.workspace_id AND draft.typ = 'script'
-         WHERE script.path = $1 AND script.workspace_id = $2 \
-         AND script.created_at = (SELECT max(created_at) FROM script WHERE path = $1 AND \
-         workspace_id = $2)",
+         WHERE script.path = $1 AND script.workspace_id = $2
+         ORDER BY script.created_at DESC LIMIT 1",
     )
     .bind(path)
     .bind(w_id)
@@ -1064,7 +1064,7 @@ async fn get_script_history(
         "SELECT s.hash as hash, dm.deployment_msg as deployment_msg 
         FROM script s LEFT JOIN deployment_metadata dm ON s.hash = dm.script_hash
         WHERE s.workspace_id = $1 AND s.path = $2
-        ORDER by created_at DESC",
+        ORDER by s.created_at DESC",
         w_id,
         path.to_path(),
     )
@@ -1092,7 +1092,7 @@ async fn get_latest_version(
         "SELECT s.hash as hash, dm.deployment_msg as deployment_msg 
         FROM script s LEFT JOIN deployment_metadata dm ON s.hash = dm.script_hash
         WHERE s.workspace_id = $1 AND s.path = $2
-        ORDER by created_at DESC",
+        ORDER by s.created_at DESC LIMIT 1",
         w_id,
         path.to_path(),
     )
@@ -1188,7 +1188,15 @@ async fn toggle_workspace_error_handler(
     match error_handler_maybe {
         Some(_) => {
             sqlx::query_scalar!(
-                "UPDATE script SET ws_error_handler_muted = $3 WHERE workspace_id = $2 AND path = $1 AND created_at = (SELECT max(created_at) FROM script WHERE path = $1 AND workspace_id = $2)",
+                "UPDATE script 
+                SET ws_error_handler_muted = $3 
+                WHERE ctid = (
+                    SELECT ctid FROM script
+                    WHERE path = $1 AND workspace_id = $2
+                    ORDER BY created_at DESC
+                    LIMIT 1
+                )
+",
                 path.to_path(),
                 w_id,
                 req.muted,
@@ -1277,10 +1285,7 @@ async fn raw_script_by_path_internal(
     let mut tx = user_db.begin(&authed).await?;
 
     let content_o = sqlx::query_scalar!(
-        "SELECT content FROM script WHERE path = $1 AND workspace_id = $2 \
-         AND
-         created_at = (SELECT max(created_at) FROM script WHERE path = $1 AND archived = false AND \
-         workspace_id = $2)",
+        "SELECT content FROM script WHERE path = $1 AND workspace_id = $2 AND archived = false ORDER BY created_at DESC LIMIT 1",
         path,
         w_id
     )
@@ -1290,10 +1295,7 @@ async fn raw_script_by_path_internal(
 
     if content_o.is_none() {
         let exists = sqlx::query_scalar!(
-            "SELECT EXISTS(SELECT 1 FROM script WHERE path = $1 AND workspace_id = $2 \
-            AND
-            created_at = (SELECT max(created_at) FROM script WHERE path = $1 AND archived = false AND \
-            workspace_id = $2))",
+            "SELECT EXISTS(SELECT 1 FROM script WHERE path = $1 AND workspace_id = $2 AND archived = false ORDER BY created_at DESC LIMIT 1)",
             path,
             w_id
         )
@@ -1306,23 +1308,9 @@ async fn raw_script_by_path_internal(
                 "Script {path} exists but {} does not have permissions to access it",
                 authed.username
             )));
-        } else {
-            let exists_but_archived = sqlx::query_scalar!(
-                "SELECT EXISTS(SELECT 1 FROM script WHERE path = $1 AND workspace_id = $2)",
-                path,
-                w_id
-            )
-            .fetch_one(&db)
-            .await?
-            .unwrap_or(false);
-
-            if exists_but_archived {
-                return Err(Error::NotFound(format!(
-                    "Script {path} exists but is archived",
-                )));
-            }
         }
     }
+
     let content = not_found_if_none(content_o, "Script", path)?;
 
     if unpin {
@@ -1339,8 +1327,7 @@ async fn exists_script_by_path(
     let path = path.to_path();
 
     let exists = sqlx::query_scalar!(
-        "SELECT EXISTS(SELECT 1 FROM script WHERE path = $1 AND workspace_id = $2 AND
-         created_at = (SELECT max(created_at) FROM script WHERE path = $1 AND workspace_id = $2))",
+        "SELECT EXISTS(SELECT 1 FROM script WHERE path = $1 AND workspace_id = $2 ORDER BY created_at DESC LIMIT 1)",
         path,
         w_id
     )
@@ -1457,9 +1444,7 @@ pub async fn require_is_writer(authed: &ApiAuthed, path: &str, w_id: &str, db: D
         path,
         w_id,
         db,
-        "SELECT extra_perms FROM script WHERE path = $1 AND workspace_id = $2 \
-             AND created_at = (SELECT max(created_at) FROM script WHERE path = $1 AND \
-             workspace_id = $2)",
+        "SELECT extra_perms FROM script WHERE path = $1 AND workspace_id = $2 ORDER BY created_at DESC LIMIT 1",
         "script",
     )
     .await;
