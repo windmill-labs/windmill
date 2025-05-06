@@ -14491,6 +14491,7 @@ version = "1.486.1"
 dependencies = [
  "anyhow",
  "async-recursion",
+ "async-stream",
  "backon",
  "base64 0.22.1",
  "bit-vec 0.6.3",
