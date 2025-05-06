@@ -14610,6 +14610,7 @@ dependencies = [
  "magic-crypt",
  "mail-send",
  "object_store",
+ "openidconnect",
  "opentelemetry",
  "opentelemetry-appender-tracing",
  "opentelemetry-otlp",

@@ -17,10 +17,7 @@ use serde::Deserialize;
 use crate::common::{build_http_client, OccupancyMetrics};
 use crate::handle_child::run_future_with_polling_update_job_poller;
 use crate::sanitized_sql_params::sanitize_and_interpolate_unsafe_sql_args;
-use crate::{
-    common::{build_args_values, resolve_job_timeout},
-    AuthedClient,
-};
+use crate::common::{build_args_values, resolve_job_timeout};
 
 use gcp_auth::{AuthenticationManager, CustomServiceAccount};
 

@@ -1975,13 +1975,12 @@ async fn ansible_dep(
 ) -> std::result::Result<String, Error> {
     use windmill_parser_yaml::add_versions_to_requirements_yaml;
 
-    use crate::{
-        ansible_executor::{
+    use crate::ansible_executor::{
             create_ansible_cfg, get_collection_locks, get_git_ssh_cmd, get_role_locks,
             install_galaxy_collections,
-        },
-        AuthedClient,
-    };
+        };
+    use windmill_common::client::AuthedClient;
+
 
     let python_lockfile = python_dep(
         reqs.python_reqs.join("\n").to_string(),

@@ -22,9 +22,9 @@ use windmill_queue::CanceledBy;
 use crate::{
     common::{build_args_values, check_executor_binary_exists, OccupancyMetrics},
     handle_child::run_future_with_polling_update_job_poller,
-    sanitized_sql_params::sanitize_and_interpolate_unsafe_sql_args,
-    AuthedClient,
+    sanitized_sql_params::sanitize_and_interpolate_unsafe_sql_args
 };
+use windmill_common::client::AuthedClient;
 
 #[derive(Deserialize)]
 struct OracleDatabase {

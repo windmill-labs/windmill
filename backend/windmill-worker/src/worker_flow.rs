@@ -14,8 +14,9 @@ use std::time::Duration;
 use crate::common::{cached_result_path, save_in_cache};
 use crate::js_eval::{eval_timeout, IdContext};
 use crate::{
-    AuthedClient, JobCompletedSender, PreviousResult, SameWorkerSender, SendResult, KEEP_JOB_DIR,
+    JobCompletedSender, PreviousResult, SameWorkerSender, SendResult, KEEP_JOB_DIR,
 };
+use windmill_common::client::AuthedClient;
 use anyhow::Context;
 use futures::TryFutureExt;
 use mappable_rc::Marc;

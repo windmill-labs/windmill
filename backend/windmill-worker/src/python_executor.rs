@@ -79,9 +79,10 @@ use crate::{
     handle_child::handle_child,
     worker_lockfiles::LOCKFILE_GENERATED_FROM_REQUIREMENTS_TXT,
     worker_utils::ping_job_status,
-    AuthedClient, DISABLE_NSJAIL, DISABLE_NUSER, HOME_ENV, INSTANCE_PYTHON_VERSION, NSJAIL_PATH,
+    DISABLE_NSJAIL, DISABLE_NUSER, HOME_ENV, INSTANCE_PYTHON_VERSION, NSJAIL_PATH,
     PATH_ENV, PIP_EXTRA_INDEX_URL, PIP_INDEX_URL, PROXY_ENVS, PY_INSTALL_DIR, TZ_ENV, UV_CACHE_DIR,
 };
+use windmill_common::client::AuthedClient;
 
 // To change latest stable version:
 // 1. Change placeholder in instanceSettings.ts

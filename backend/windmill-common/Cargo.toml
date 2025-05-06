@@ -19,7 +19,7 @@ otel = ["dep:opentelemetry-semantic-conventions", "dep:opentelemetry-otlp", "dep
 smtp = ["dep:mail-send"]
 scoped_cache = []
 cloud = []
-
+openidconnect = ["dep:openidconnect"]
 [lib]
 name = "windmill_common"
 path = "src/lib.rs"
@@ -69,6 +69,7 @@ crc.workspace = true
 windmill-macros.workspace = true
 jsonwebtoken.workspace = true
 backon.workspace = true
+openidconnect = { workspace = true, optional = true }
 
 semver.workspace = true
 croner = "2.0.6"

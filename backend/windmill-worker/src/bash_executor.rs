@@ -43,9 +43,11 @@ use crate::{
         OccupancyMetrics,
     },
     handle_child::handle_child,
-    AuthedClient, DISABLE_NSJAIL, DISABLE_NUSER, HOME_ENV, NSJAIL_PATH, PATH_ENV,
+    DISABLE_NSJAIL, DISABLE_NUSER, HOME_ENV, NSJAIL_PATH, PATH_ENV,
     POWERSHELL_CACHE_DIR, POWERSHELL_PATH, PROXY_ENVS, TZ_ENV,
 };
+use windmill_common::client::AuthedClient;
+
 
 #[cfg(windows)]
 use crate::SYSTEM_ROOT;

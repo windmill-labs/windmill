@@ -31,9 +31,11 @@ use crate::{
     },
     handle_child::handle_child,
     python_executor::{create_dependencies_dir, handle_python_reqs, uv_pip_compile, PyVersion},
-    AuthedClient, DISABLE_NSJAIL, DISABLE_NUSER, GIT_PATH, HOME_ENV, NSJAIL_PATH, PATH_ENV,
+    DISABLE_NSJAIL, DISABLE_NUSER, GIT_PATH, HOME_ENV, NSJAIL_PATH, PATH_ENV,
     PROXY_ENVS, PY_INSTALL_DIR, TZ_ENV,
 };
+use windmill_common::client::AuthedClient;
+
 
 lazy_static::lazy_static! {
     static ref ANSIBLE_PLAYBOOK_PATH: String =
@@ -1161,7 +1163,7 @@ async fn create_file_resources(
     job_dir: &str,
     args: Option<&HashMap<String, Box<RawValue>>>,
     r: &AnsibleRequirements,
-    client: &crate::AuthedClient,
+    client: &AuthedClient,
     db: &sqlx::Pool<sqlx::Postgres>,
 ) -> error::Result<Vec<String>> {
     let mut logs = String::new();

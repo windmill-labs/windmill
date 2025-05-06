@@ -19,9 +19,10 @@ use crate::{
         read_result, start_child_process, OccupancyMetrics,
     },
     handle_child::handle_child,
-    AuthedClient, DISABLE_NSJAIL, DISABLE_NUSER, HOME_ENV, NSJAIL_PATH, PATH_ENV, PROXY_ENVS,
+    DISABLE_NSJAIL, DISABLE_NUSER, HOME_ENV, NSJAIL_PATH, PATH_ENV, PROXY_ENVS,
     RUST_CACHE_DIR, TZ_ENV,
 };
+use windmill_common::client::AuthedClient;
 
 #[cfg(windows)]
 use crate::SYSTEM_ROOT;

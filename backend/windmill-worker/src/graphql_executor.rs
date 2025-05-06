@@ -13,7 +13,8 @@ use serde::Deserialize;
 
 use crate::common::{build_http_client, resolve_job_timeout, OccupancyMetrics};
 use crate::handle_child::run_future_with_polling_update_job_poller;
-use crate::{common::build_args_map, AuthedClient};
+use crate::common::build_args_map;
+use windmill_common::client::AuthedClient;
 
 #[derive(Deserialize)]
 struct GraphqlApi {

@@ -48,7 +48,8 @@ use windmill_common::worker::{write_file, TMP_DIR};
 use windmill_common::flow_status::JobResult;
 use windmill_queue::CanceledBy;
 
-use crate::{common::OccupancyMetrics, AuthedClient};
+use crate::common::OccupancyMetrics;
+use windmill_common::client::AuthedClient;
 
 #[cfg(feature = "deno_core")]
 use crate::{common::unsafe_raw, handle_child::run_future_with_polling_update_job_poller};

@@ -43,8 +43,9 @@ use crate::{
     common::{error_to_value, read_result, save_in_cache},
     otel_ee::add_root_flow_job_to_otlp,
     worker_flow::update_flow_status_after_job_completion,
-    AuthedClient, JobCompletedSender, SameWorkerSender, SendResult, INIT_SCRIPT_TAG,
+    JobCompletedSender, SameWorkerSender, SendResult, INIT_SCRIPT_TAG,
 };
+use windmill_common::client::AuthedClient;
 
 async fn process_jc(
     jc: JobCompleted,

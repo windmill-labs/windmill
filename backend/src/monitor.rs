@@ -75,10 +75,12 @@ use windmill_common::{
 };
 use windmill_queue::{cancel_job, MiniPulledJob, SameWorkerPayload};
 use windmill_worker::{
-    handle_job_error, AuthedClient, JobCompletedSender, SameWorkerSender, BUNFIG_INSTALL_SCOPES,
+    handle_job_error, JobCompletedSender, SameWorkerSender, BUNFIG_INSTALL_SCOPES,
     INSTANCE_PYTHON_VERSION, JOB_DEFAULT_TIMEOUT, KEEP_JOB_DIR, MAVEN_REPOS, NO_DEFAULT_MAVEN,
     NPM_CONFIG_REGISTRY, NUGET_CONFIG, PIP_EXTRA_INDEX_URL, PIP_INDEX_URL,
 };
+use windmill_common::client::AuthedClient;
+
 
 #[cfg(feature = "parquet")]
 use windmill_common::s3_helpers::{

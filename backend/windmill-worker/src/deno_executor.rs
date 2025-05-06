@@ -11,9 +11,11 @@ use crate::{
         start_child_process, OccupancyMetrics,
     },
     handle_child::handle_child,
-    AuthedClient, DENO_CACHE_DIR, DENO_PATH, DISABLE_NSJAIL, HOME_ENV, NPM_CONFIG_REGISTRY,
+    DENO_CACHE_DIR, DENO_PATH, DISABLE_NSJAIL, HOME_ENV, NPM_CONFIG_REGISTRY,
     PATH_ENV, TZ_ENV,
 };
+use windmill_common::client::AuthedClient;
+
 use tokio::{fs::File, io::AsyncReadExt, process::Command};
 use windmill_common::{error::Result, worker::write_file, BASE_URL};
 use windmill_common::{

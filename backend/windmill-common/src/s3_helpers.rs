@@ -387,6 +387,8 @@ pub enum ObjectStoreSettings {
 pub enum ObjectSettings {
     S3(S3Settings),
     Azure(AzureBlobResource),
+    S3AwsOidc(S3AwsOidcResource),
+    AzureWorkloadIdentity(AzureBlobResource),
 }
 
 #[cfg(feature = "parquet")]
@@ -397,6 +399,14 @@ pub async fn build_object_store_from_settings(
         ObjectSettings::S3(s3_settings) => build_s3_client_from_settings(s3_settings).await,
         ObjectSettings::Azure(azure_settings) => {
             let azure_blob_resource = azure_settings;
+            build_azure_blob_client(&azure_blob_resource)
+        }
+        ObjectSettings::S3AwsOidc(s3_aws_oidc_settings) => {
+            let s3_aws_oidc_resource = s3_aws_oidc_settings;
+            build_s3_client_from_settings(todo!()).await
+        }
+        ObjectSettings::AzureWorkloadIdentity(azure_workload_identity_settings) => {
+            let azure_blob_resource = azure_workload_identity_settings;
             build_azure_blob_client(&azure_blob_resource)
         }
     }
