@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT s.hash as hash, dm.deployment_msg as deployment_msg \n        FROM script s LEFT JOIN deployment_metadata dm ON s.hash = dm.script_hash\n        WHERE s.workspace_id = $1 AND s.path = $2\n        ORDER by created_at DESC",
+  "query": "SELECT s.hash as hash, dm.deployment_msg as deployment_msg \n        FROM script s LEFT JOIN deployment_metadata dm ON s.hash = dm.script_hash\n        WHERE s.workspace_id = $1 AND s.path = $2\n        ORDER by s.created_at DESC",
   "describe": {
     "columns": [
       {
@@ -25,5 +25,5 @@
       true
     ]
   },
-  "hash": "362419eb262c83d6a98a0200b116e831ada60399fe5f55a56d930cc69aff2675"
+  "hash": "726e956cfcd3ac7c07abeecdf92cf0996efe7fa7b671ac2b3b000ead0ea307de"
 }
