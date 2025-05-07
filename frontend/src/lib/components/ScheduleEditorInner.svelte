@@ -617,7 +617,6 @@
 				workspace: $workspaceStore ?? '',
 				requestBody: { enabled: e.detail }
 			})
-			dispatch('update')
 			sendUserToast(`${e.detail ? 'enabled' : 'disabled'} schedule ${initialPath}`)
 		}
 	}
