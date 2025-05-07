@@ -339,7 +339,7 @@ openidconnect = { version = "4.0.0-rc.1" }
 aws-config = "^1"
 aws-sdk-sqs = "1.57.0"
 aws-sdk-sts = "^1"
-
+aws-smithy-types-convert = { version = "^0", features = ["convert-chrono"] }
 crc = "^3"
 tar = "^0"
 http = "^1"

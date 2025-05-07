@@ -28,10 +28,16 @@ impl AdditionalClaims for JobClaim {}
 #[cfg(feature = "openidconnect")]
 impl AdditionalClaims for WorkspaceClaim {}
 
+#[cfg(feature = "openidconnect")]
+impl AdditionalClaims for InstanceClaim {}
+
 #[derive(Clone, Debug, Default, Deserialize, PartialEq, Eq, Serialize)]
 pub struct WorkspaceClaim {
     pub(crate) workspace: String,
 }
+
+#[derive(Clone, Debug, Default, Deserialize, PartialEq, Eq, Serialize)]
+pub struct InstanceClaim {}
 
 #[derive(Clone, Debug, Default, Deserialize, PartialEq, Eq, Serialize)]
 pub struct JobClaim {

@@ -48,6 +48,7 @@ use windmill_common::{
         SAML_METADATA_SETTING, SCIM_TOKEN_SETTING, SMTP_SETTING, TEAMS_SETTING,
         TIMEOUT_WAIT_RESULT_SETTING,
     },
+    s3_helpers::reload_s3_cache_setting,
     scripts::ScriptLang,
     stats_ee::schedule_stats,
     utils::{hostname, rd_string, Mode, GIT_VERSION, MODE_AND_ADDONS},

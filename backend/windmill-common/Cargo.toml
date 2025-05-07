@@ -12,7 +12,7 @@ tantivy = []
 prometheus = ["dep:prometheus"]
 loki = ["dep:tracing-loki"]
 benchmark = []
-parquet = ["dep:object_store", "dep:aws-config", "dep:aws-sdk-sts"]
+parquet = ["dep:object_store", "dep:aws-config", "dep:aws-sdk-sts", "dep:aws-smithy-types-convert"]
 aws_auth = ["dep:aws-sdk-sts", "dep:aws-config"]
 otel = ["dep:opentelemetry-semantic-conventions", "dep:opentelemetry-otlp", "dep:opentelemetry_sdk", 
     "dep:opentelemetry", "dep:tracing-opentelemetry", "dep:opentelemetry-appender-tracing", "dep:tonic"]
@@ -59,6 +59,7 @@ object_store = { workspace = true, optional = true }
 prometheus = { workspace = true, optional = true }
 aws-config = { workspace = true, optional = true }
 aws-sdk-sts = { workspace = true, optional = true }
+aws-smithy-types-convert = { workspace = true, optional = true }
 indexmap.workspace = true
 bytes.workspace = true
 mail-send = { workspace = true, optional = true }

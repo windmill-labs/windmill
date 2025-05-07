@@ -4,6 +4,7 @@ use crate::error;
 use aws_sdk_sts::config::ProvideCredentials;
 #[cfg(feature = "parquet")]
 use axum::async_trait;
+use chrono::{DateTime, Utc};
 #[cfg(feature = "parquet")]
 use object_store::aws::AwsCredential;
 #[cfg(feature = "parquet")]
@@ -22,8 +23,63 @@ use tokio::sync::RwLock;
 
 #[cfg(feature = "parquet")]
 lazy_static::lazy_static! {
+    pub static ref OBJECT_STORE_CACHE_SETTINGS: Arc<RwLock<Option<(Arc<dyn ObjectStore>, Option<DateTime<Utc>>)>>> = Arc::new(RwLock::new(None));
+}
 
-    pub static ref OBJECT_STORE_CACHE_SETTINGS: Arc<RwLock<Option<Arc<dyn ObjectStore>>>> = Arc::new(RwLock::new(None));
+#[cfg(feature = "parquet")]
+pub async fn reload_s3_cache_setting(db: &crate::DB) {
+    use crate::{
+        ee::{get_license_plan, LicensePlan},
+        global_settings::{load_value_from_global_settings, OBJECT_STORE_CACHE_CONFIG_SETTING},
+        s3_helpers::ObjectSettings,
+    };
+
+    let s3_config = load_value_from_global_settings(db, OBJECT_STORE_CACHE_CONFIG_SETTING).await;
+    if let Err(e) = s3_config {
+        tracing::error!("Error reloading s3 cache config: {:?}", e)
+    } else {
+        if let Some(v) = s3_config.unwrap() {
+            if matches!(get_license_plan().await, LicensePlan::Pro) {
+                tracing::error!("S3 cache is not available for pro plan");
+                return;
+            }
+            let mut s3_cache_settings = OBJECT_STORE_CACHE_SETTINGS.write().await;
+            let setting = serde_json::from_value::<ObjectSettings>(v);
+            if let Err(e) = setting {
+                tracing::error!("Error parsing s3 cache config: {:?}", e)
+            } else {
+                let s3_client = build_object_store_from_settings(setting.unwrap(), db).await;
+                if let Err(e) = s3_client {
+                    tracing::error!("Error building s3 client from settings: {:?}", e)
+                } else {
+                    *s3_cache_settings = Some(s3_client.unwrap());
+                }
+            }
+        } else {
+            let mut s3_cache_settings = OBJECT_STORE_CACHE_SETTINGS.write().await;
+            if std::env::var("S3_CACHE_BUCKET").is_ok() {
+                if matches!(get_license_plan().await, LicensePlan::Pro) {
+                    tracing::error!("S3 cache is not available for pro plan");
+                    return;
+                }
+                *s3_cache_settings = build_s3_client_from_settings(S3Settings {
+                    bucket: None,
+                    region: None,
+                    access_key: None,
+                    secret_key: None,
+                    endpoint: None,
+                    store_logs: None,
+                    path_style: None,
+                    allow_http: None,
+                    port: None,
+                })
+                .await
+                .ok();
+            } else {
+                *s3_cache_settings = None;
+            }
+        }
+    }
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -79,6 +135,8 @@ pub struct S3Resource {
     #[serde(rename = "pathStyle")]
     pub path_style: Option<bool>,
     pub token: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub expiration: Option<DateTime<Utc>>,
     pub port: Option<u16>,
 }
 
@@ -101,7 +159,7 @@ pub struct AzureBlobResource {
     pub federated_token_file: Option<String>,
 }
 
-#[derive(Debug, Deserialize, Serialize, Clone)]
+#[derive(Debug, Deserialize, Serialize, Clone, Hash)]
 pub struct S3AwsOidcResource {
     #[serde(rename = "bucket")]
     pub bucket: String,
@@ -388,26 +446,30 @@ pub enum ObjectSettings {
     S3(S3Settings),
     Azure(AzureBlobResource),
     S3AwsOidc(S3AwsOidcResource),
-    AzureWorkloadIdentity(AzureBlobResource),
 }
 
 #[cfg(feature = "parquet")]
 pub async fn build_object_store_from_settings(
     settings: ObjectSettings,
-) -> error::Result<Arc<dyn ObjectStore>> {
+    db: &crate::DB,
+) -> error::Result<(Arc<dyn ObjectStore>, Option<DateTime<Utc>>)> {
     match settings {
-        ObjectSettings::S3(s3_settings) => build_s3_client_from_settings(s3_settings).await,
+        ObjectSettings::S3(s3_settings) => build_s3_client_from_settings(s3_settings)
+            .await
+            .map(|x| (x, None)),
         ObjectSettings::Azure(azure_settings) => {
             let azure_blob_resource = azure_settings;
-            build_azure_blob_client(&azure_blob_resource)
+            build_azure_blob_client(&azure_blob_resource).map(|x| (x, None))
         }
         ObjectSettings::S3AwsOidc(s3_aws_oidc_settings) => {
-            let s3_aws_oidc_resource = s3_aws_oidc_settings;
-            build_s3_client_from_settings(todo!()).await
-        }
-        ObjectSettings::AzureWorkloadIdentity(azure_workload_identity_settings) => {
-            let azure_blob_resource = azure_workload_identity_settings;
-            build_azure_blob_client(&azure_blob_resource)
+            let token_generator = crate::job_s3_helpers_ee::TokenGenerator::AsServerInstance(db);
+            let res = crate::job_s3_helpers_ee::generate_s3_aws_oidc_resource(
+                s3_aws_oidc_settings,
+                token_generator,
+            )
+            .await?;
+            // let expiration = res.
+            build_object_store_client(&res).await
         }
     }
 }
