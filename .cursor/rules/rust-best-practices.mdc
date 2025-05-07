@@ -4,7 +4,7 @@ globs: backend/**/*.rs
 alwaysApply: false
 ---
 ---
-description: Rust best practices for the Windmill backend, covering code organization, error handling, and common patterns to follow when adding new code.
+description: Rust best practices for the Windmill backend, covering code organization, error handling, performance optimizations, and common patterns to follow when adding new code.
 globs: **/*.rs
 ---
 # Windmill Backend - Rust Best Practices
@@ -52,31 +52,62 @@ Windmill uses a workspace-based architecture with multiple crates:
 - Use consistent response formats (JSON)
 - Follow proper authentication and authorization patterns
 
-### Enterprise Features
+## Performance Optimizations
 
-- Use feature flags for enterprise functionality
-- Conditionally compile with `#[cfg(feature = "enterprise")]`
-- Isolate enterprise code in separate modules
+When generating code, especially involving `serde`, `sqlx`, and `tokio`, prioritize performance by applying the following principles:
+
+### Serde Optimizations (Serialization & Deserialization)
+
+-   **Specify Structure Explicitly:** When defining structs for Serde (`#[derive(Serialize, Deserialize)]`), use `#[serde(...` attributes extensively. This includes:
+    *   `#[serde(rename = "...")]` or `#[serde(alias = "...")]` to map external names precisely, avoiding dynamic lookups.
+    *   `#[serde(default)]` for optional fields with default values, reducing parsing complexity.
+    *   `#[serde(skip_serializing_if = "...")]` to avoid writing fields that meet a certain condition (e.g., `Option::is_none()`, `Vec::is_empty()`, or a custom function), reducing output size and serialization work.
+    *   `#[serde(skip_serializing)]` or `#[serde(skip_deserializing)]` for fields that should *not* be included.
+-   **Prefer Borrowing:** Where possible and safe (data lifetime allows), use `Cow<'a, str>` or `&'a str` (with `#[serde(borrow)]`) instead of `String` for string fields during deserialization. This avoids allocating new strings, enabling zero-copy reading from the input buffer. Apply this principle to byte slices (`&'a [u8]` / `Cow<'a, [u8]>`) and potentially borrowed vectors as well.
+-   **Avoid Intermediate `Value`:** Unless the data structure is truly dynamic or unknown at compile time, deserialize directly into a well-defined struct or enum rather than into `serde_json::Value` (or equivalent for other formats). This avoids unnecessary heap allocations and type switching.
+
+### SQLx Optimizations (Database Interaction)
+
+-   **Select Only Necessary Columns:** In `SELECT` queries, list specific column names rather than using `SELECT *`. This reduces data transferred from the database and the work needed for hydration/deserialization.
+-   **Batch Operations:** For multiple `INSERT`, `UPDATE`, or `DELETE` statements, prefer executing them in a single query if the database and driver support it efficiently (e.g., `INSERT INTO ... VALUES (...), (...), ...`). This minimizes round trips to the database.
+-   **Avoid N+1 Queries:** Do not loop through results of one query and execute a separate query for each item (e.g., fetching users, then querying for each user's profile in a loop). Instead, use JOINs or a single query with an `IN` clause to fetch related data efficiently.
+-   **Deserialize Directly:** Use `#[derive(FromRow)]` on structs and ensure the struct fields match the selected columns in the query. This allows SQLx to hydrate objects directly, avoiding intermediate data structures.
+-   **Parameterize Queries:** Always use SQLx's query methods (`.bind(...)`) to pass values as parameters rather than string formatting. This prevents SQL injection and allows the database to cache query plans, improving performance on repeated executions.
+
+### Tokio Optimizations (Asynchronous Runtime)
+
+-   **Avoid Blocking Operations:** **Crucially**, never perform blocking operations (synchronous file I/O, `std::thread::sleep`, CPU-bound loops, `std::sync::Mutex::lock`, blocking network calls without `tokio::net`) directly within an `async fn` or a standard `tokio::spawn` task. Blocking pauses the entire worker thread, potentially starving other tasks. Use `tokio::task::spawn_blocking` for CPU-intensive work or blocking I/O.
+-   **Use Tokio's Async Primitives:** Prefer `tokio::sync` (channels, mutexes, semaphores), `tokio::io`, `tokio::net`, and `tokio::time` over their `std` counterparts in asynchronous contexts. These are designed to yield control back to the scheduler.
+-   **Manage Concurrency:** Be mindful of how many tasks are spawned. Creating a new task for every tiny piece of work can introduce overhead. Group related asynchronous operations where appropriate.
+-   **Handle Shared State Efficiently:** Use `Arc` for shared ownership in concurrent tasks. When shared state needs mutation, prefer `tokio::sync::Mutex` over `std::sync::Mutex` in `async` code. Consider `tokio::sync::RwLock` if reads significantly outnumber writes. Minimize the duration for which locks are held.
+-   **Understand `.await`:** Place `.await` strategically to allow the runtime to switch to other ready tasks. Ensure that `.await` points to genuinely asynchronous operations.
+-   **Backpressure:** If dealing with data streams or queues between tasks, implement backpressure mechanisms (e.g., bounded channels like `tokio::sync::mpsc::channel`) to prevent one component from overwhelming another or critical resources like the database.
+
+## Enterprise Features
+
+-   Use feature flags for enterprise functionality
+-   Conditionally compile with `#[cfg(feature = "enterprise")]`
+-   Isolate enterprise code in separate modules
 
 ## Code Style
 
-- Group imports by external and internal crates
-- Place struct/enum definitions before implementations
-- Group similar functionality together
-- Use descriptive naming consistent with the codebase
-- Follow existing patterns for async code using tokio
+-   Group imports by external and internal crates
+-   Place struct/enum definitions before implementations
+-   Group similar functionality together
+-   Use descriptive naming consistent with the codebase
+-   Follow existing patterns for async code using tokio
 
 ## Testing
 
-- Write unit tests for core functionality
-- Use the `#[cfg(test)]` module for test code
-- For database tests, use the existing test utilities
+-   Write unit tests for core functionality
+-   Use the `#[cfg(test)]` module for test code
+-   For database tests, use the existing test utilities
 
 ## Common Crates Used
 
-- **tokio**: For async runtime
-- **axum**: For web server and routing
-- **sqlx**: For database operations
-- **serde**: For serialization/deserialization
-- **tracing**: For logging and diagnostics
-- **reqwest**: For HTTP client functionality
+-   **tokio**: For async runtime
+-   **axum**: For web server and routing
+-   **sqlx**: For database operations
+-   **serde**: For serialization/deserialization
+-   **tracing**: For logging and diagnostics
+-   **reqwest**: For HTTP client functionality
