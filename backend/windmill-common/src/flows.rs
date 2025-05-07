@@ -136,10 +136,11 @@ pub struct FlowValue {
     pub concurrency_key: Option<String>,
 }
 
-#[derive(Deserialize, Serialize, Debug, Clone)]
+#[derive(Default, Deserialize, Serialize, Debug, Clone)]
 pub struct StopAfterIf {
     pub expr: String,
     pub skip_if_stopped: bool,
+    pub error_message: Option<String>,
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone, Default, PartialEq)]
