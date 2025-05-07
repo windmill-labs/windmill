@@ -13,7 +13,7 @@ use std::{
 
 use chrono::{NaiveDateTime, Utc};
 use futures::{stream::FuturesUnordered, StreamExt};
-use serde::de::DeserializeOwned;
+use serde::{de::DeserializeOwned, Deserialize};
 use sqlx::{Pool, Postgres};
 use tokio::{
     join,
@@ -30,6 +30,8 @@ use windmill_api::{
 
 #[cfg(feature = "enterprise")]
 use windmill_common::ee::{jobs_waiting_alerts, worker_groups_alerts};
+#[cfg(feature = "enterprise")]
+use windmill_common::ee::low_disk_alerts;
 
 #[cfg(feature = "oauth2")]
 use windmill_common::global_settings::OAUTH_SETTING;
@@ -40,13 +42,14 @@ use windmill_common::{
     error,
     flow_status::{FlowStatus, FlowStatusModule},
     global_settings::{
-        BASE_URL_SETTING, BUNFIG_INSTALL_SCOPES_SETTING, CRITICAL_ALERT_MUTE_UI_SETTING,
-        CRITICAL_ERROR_CHANNELS_SETTING, DEFAULT_TAGS_PER_WORKSPACE_SETTING,
-        DEFAULT_TAGS_WORKSPACES_SETTING, EXPOSE_DEBUG_METRICS_SETTING, EXPOSE_METRICS_SETTING,
-        EXTRA_PIP_INDEX_URL_SETTING, HUB_BASE_URL_SETTING, INSTANCE_PYTHON_VERSION_SETTING,
-        JOB_DEFAULT_TIMEOUT_SECS_SETTING, JWT_SECRET_SETTING, KEEP_JOB_DIR_SETTING,
-        LICENSE_KEY_SETTING, MONITOR_LOGS_ON_OBJECT_STORE_SETTING, NPM_CONFIG_REGISTRY_SETTING,
-        NUGET_CONFIG_SETTING, OTEL_SETTING, PIP_INDEX_URL_SETTING, REQUEST_SIZE_LIMIT_SETTING,
+        BASE_URL_SETTING, BUNFIG_INSTALL_SCOPES_SETTING, CRITICAL_ALERTS_ON_DB_OVERSIZE_SETTING,
+        CRITICAL_ALERT_MUTE_UI_SETTING, CRITICAL_ERROR_CHANNELS_SETTING,
+        DEFAULT_TAGS_PER_WORKSPACE_SETTING, DEFAULT_TAGS_WORKSPACES_SETTING,
+        EXPOSE_DEBUG_METRICS_SETTING, EXPOSE_METRICS_SETTING, EXTRA_PIP_INDEX_URL_SETTING,
+        HUB_BASE_URL_SETTING, INSTANCE_PYTHON_VERSION_SETTING, JOB_DEFAULT_TIMEOUT_SECS_SETTING,
+        JWT_SECRET_SETTING, KEEP_JOB_DIR_SETTING, LICENSE_KEY_SETTING,
+        MONITOR_LOGS_ON_OBJECT_STORE_SETTING, NPM_CONFIG_REGISTRY_SETTING, NUGET_CONFIG_SETTING,
+        OTEL_SETTING, PIP_INDEX_URL_SETTING, REQUEST_SIZE_LIMIT_SETTING,
         REQUIRE_PREEXISTING_USER_FOR_OAUTH_SETTING, RETENTION_PERIOD_SECS_SETTING,
         SAML_METADATA_SETTING, SCIM_TOKEN_SETTING, TIMEOUT_WAIT_RESULT_SETTING,
     },
@@ -65,10 +68,10 @@ use windmill_common::{
         DEFAULT_TAGS_WORKSPACES, INDEXER_CONFIG, SCRIPT_TOKEN_EXPIRY, SMTP_CONFIG, TMP_DIR,
         WORKER_CONFIG, WORKER_GROUP,
     },
-    KillpillSender, BASE_URL, CRITICAL_ALERT_MUTE_UI_ENABLED, CRITICAL_ERROR_CHANNELS, DB,
-    DEFAULT_HUB_BASE_URL, HUB_BASE_URL, JOB_RETENTION_SECS, METRICS_DEBUG_ENABLED, METRICS_ENABLED,
-    MONITOR_LOGS_ON_OBJECT_STORE, OTEL_LOGS_ENABLED, OTEL_METRICS_ENABLED, OTEL_TRACING_ENABLED,
-    SERVICE_LOG_RETENTION_SECS,
+    KillpillSender, BASE_URL, CRITICAL_ALERTS_ON_DB_OVERSIZE, CRITICAL_ALERT_MUTE_UI_ENABLED,
+    CRITICAL_ERROR_CHANNELS, DB, DEFAULT_HUB_BASE_URL, HUB_BASE_URL, JOB_RETENTION_SECS,
+    METRICS_DEBUG_ENABLED, METRICS_ENABLED, MONITOR_LOGS_ON_OBJECT_STORE, OTEL_LOGS_ENABLED,
+    OTEL_METRICS_ENABLED, OTEL_TRACING_ENABLED, SERVICE_LOG_RETENTION_SECS,
 };
 use windmill_queue::{cancel_job, MiniPulledJob, SameWorkerPayload};
 use windmill_worker::{
@@ -134,7 +137,7 @@ lazy_static::lazy_static! {
     .and_then(|x| x.parse::<bool>().ok())
     .unwrap_or(false);
 
-
+    pub static ref WORKERS_NAMES: Arc<RwLock<Vec<String>>> = Arc::new(RwLock::new(Vec::new()));
 
     static ref QUEUE_COUNT_TAGS: Arc<RwLock<Vec<String>>> = Arc::new(RwLock::new(Vec::new()));
     static ref DISABLE_CONCURRENCY_LIMIT: bool = std::env::var("DISABLE_CONCURRENCY_LIMIT").is_ok_and(|s| s == "true");
@@ -183,6 +186,12 @@ pub async fn initial_load(
     if server_mode {
         if let Some(db) = conn.as_sql() {
             load_require_preexisting_user(db).await;
+            if let Err(e) = reload_critical_alerts_on_db_oversize(db).await {
+                tracing::error!(
+                    "Error reloading critical alerts on db oversize setting: {:?}",
+                    e
+                )
+            }
         }
     }
 
@@ -638,7 +647,9 @@ async fn send_log_file_to_object_store(
         let (ok_lines, err_lines) = read_log_counters(ts_str);
 
         if let Some(db) = conn.as_sql() {
-            if let Err(e) = sqlx::query!("INSERT INTO log_file (hostname, mode, worker_group, log_ts, file_path, ok_lines, err_lines, json_fmt) VALUES ($1, $2::text::LOG_MODE, $3, $4, $5, $6, $7, $8)",
+            if let Err(e) = sqlx::query!("INSERT INTO log_file (hostname, mode, worker_group, log_ts, file_path, ok_lines, err_lines, json_fmt)
+             VALUES ($1, $2::text::LOG_MODE, $3, $4, $5, $6, $7, $8)
+             ON CONFLICT (hostname, log_ts) DO UPDATE SET ok_lines = log_file.ok_lines + $6, err_lines = log_file.err_lines + $7",
                 hostname, mode.to_string(), worker_group.clone(), ts, highest_file, ok_lines as i64, err_lines as i64, *JSON_FMT)
                 .execute(db)
                 .await {
@@ -1404,6 +1415,23 @@ pub async fn monitor_db(
         }
     };
 
+    let low_disk_alerts_f = async {
+        #[cfg(feature = "enterprise")]
+        if let Some(db) = conn.as_sql() {
+            low_disk_alerts(
+                &db,
+                server_mode,
+                _worker_mode,
+                WORKERS_NAMES.read().await.clone(),
+            )
+            .await;
+        }
+        #[cfg(not(feature = "enterprise"))]
+        {
+            ()
+        }
+    };
+
     let apply_autoscaling_f = async {
         #[cfg(feature = "enterprise")]
         if server_mode && !initial_load {
@@ -1426,6 +1454,7 @@ pub async fn monitor_db(
         verify_license_key_f,
         worker_groups_alerts_f,
         jobs_waiting_alerts_f,
+        low_disk_alerts_f,
         apply_autoscaling_f,
         update_min_worker_version_f,
     );
@@ -2177,6 +2206,37 @@ pub async fn reload_critical_error_channels_setting(conn: &DB) -> error::Result<
 
     let mut l = CRITICAL_ERROR_CHANNELS.write().await;
     *l = critical_error_channels;
+
+    Ok(())
+}
+
+pub async fn reload_critical_alerts_on_db_oversize(conn: &DB) -> error::Result<()> {
+    #[derive(Deserialize)]
+    struct DBOversize {
+        enabled: bool,
+        value: f32,
+    }
+    let db_oversize_value =
+        load_value_from_global_settings(conn, CRITICAL_ALERTS_ON_DB_OVERSIZE_SETTING).await?;
+
+    let db_oversize = if let Some(q) = db_oversize_value {
+        match serde_json::from_value::<DBOversize>(q.clone()) {
+            Ok(DBOversize { enabled: true, value }) => Some(value),
+            Ok(_) => None,
+            Err(q) => {
+                tracing::error!(
+                    "Could not parse critical_alerts_on_db_oversize setting, found: {:#?}",
+                    &q
+                );
+                None
+            }
+        }
+    } else {
+        None
+    };
+
+    let mut l = CRITICAL_ALERTS_ON_DB_OVERSIZE.write().await;
+    *l = db_oversize;
 
     Ok(())
 }

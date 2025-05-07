@@ -265,7 +265,7 @@ pub struct ScriptHistoryUpdate {
     pub deployment_msg: Option<String>,
 }
 
-#[derive(Serialize, Deserialize, Debug, sqlx::Type)]
+#[derive(Serialize, Deserialize, Debug, sqlx::Type, Clone)]
 #[sqlx(transparent)]
 #[serde(transparent)]
 pub struct Schema(pub sqlx::types::Json<Box<serde_json::value::RawValue>>);

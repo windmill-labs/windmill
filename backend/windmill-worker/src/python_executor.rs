@@ -77,6 +77,7 @@ use crate::{
         start_child_process, OccupancyMetrics,
     },
     handle_child::handle_child,
+    worker_lockfiles::LOCKFILE_GENERATED_FROM_REQUIREMENTS_TXT,
     worker_utils::ping_job_status,
     AuthedClient, DISABLE_NSJAIL, DISABLE_NUSER, HOME_ENV, INSTANCE_PYTHON_VERSION, NSJAIL_PATH,
     PATH_ENV, PIP_EXTRA_INDEX_URL, PIP_INDEX_URL, PROXY_ENVS, PY_INSTALL_DIR, TZ_ENV, UV_CACHE_DIR,
@@ -2303,8 +2304,16 @@ fn split_requirements(requirements: &str) -> Vec<&str> {
 /// Check requirements/lockfile to figure out python version assigned to it.
 fn get_pyv_from_requirements_lines(requirements_lines: &[&str]) -> PyVersion {
     // If script is deployed we can try to parse first line to get assigned version
+
+    let index = if requirements_lines.get(0).map_or(false, |line| {
+        line.starts_with(LOCKFILE_GENERATED_FROM_REQUIREMENTS_TXT)
+    }) {
+        1
+    } else {
+        0
+    };
     if let Some(v) = requirements_lines
-        .get(0)
+        .get(index)
         .and_then(|line| PyVersion::parse_version(*line))
     {
         // We have valid assigned version, we use it
