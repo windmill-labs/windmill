@@ -2,7 +2,7 @@
 	import Button from '$lib/components/common/button/Button.svelte'
 	import DropdownV2 from '$lib/components/DropdownV2.svelte'
 	import { Trash, Save, Pen, X } from 'lucide-svelte'
-	import { createEventDispatcher } from 'svelte'
+	import { createEventDispatcher, type Snippet } from 'svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
 
 	const dispatch = createEventDispatcher<{
@@ -15,33 +15,50 @@
 		'toggle-enabled': boolean
 	}>()
 
-	export let isDraftOnly
-	export let hasDraft
-	export let editMode
-	export let saveDisabled
-	export let enabled: boolean | undefined
-	export let allowDraft
-	export let edit
-	export let isLoading
-	export let neverSaved
-	export let isEditor
-	export let permissions: 'write' | 'create' | 'none'
-	export let isDeployed: boolean
+	interface Props {
+		isDraftOnly: any
+		hasDraft: any
+		editMode: any
+		saveDisabled: any
+		enabled: boolean | undefined
+		allowDraft: any
+		edit: any
+		isLoading: any
+		neverSaved: any
+		isEditor: any
+		permissions: 'write' | 'create' | 'none'
+		isDeployed: boolean
+		extra?: Snippet
+	}
+
+	let {
+		isDraftOnly,
+		hasDraft,
+		editMode,
+		saveDisabled,
+		enabled,
+		allowDraft,
+		edit,
+		isLoading,
+		neverSaved,
+		isEditor,
+		permissions,
+		isDeployed,
+		extra
+	}: Props = $props()
 </script>
 
 {#if !allowDraft}
 	{#if edit && enabled !== undefined}
-		<div class="-mt-1">
-			<Toggle
-				size="sm"
-				disabled={permissions === 'none' || !editMode}
-				checked={enabled}
-				options={{ right: 'enable', left: 'disable' }}
-				on:change={({ detail }) => {
-					dispatch('toggle-enabled', detail)
-				}}
-			/>
-		</div>
+		<Toggle
+			size="sm"
+			disabled={permissions === 'none' || !editMode}
+			checked={enabled}
+			options={{ right: 'enable', left: 'disable' }}
+			on:change={({ detail }) => {
+				dispatch('toggle-enabled', detail)
+			}}
+		/>
 	{/if}
 	{#if (permissions === 'write' && edit) || (permissions === 'create' && editMode)}
 		<Button
@@ -56,6 +73,7 @@
 			Save
 		</Button>
 	{/if}
+	{@render extra?.()}
 {:else}
 	<div class="flex flex-row gap-2 items-center">
 		{#if !isDraftOnly && !hasDraft}
