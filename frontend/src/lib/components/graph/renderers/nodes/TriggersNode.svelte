@@ -71,9 +71,10 @@
 			on:delete={(e) => {
 				data.eventHandlers.delete(e, '')
 			}}
-			on:addDraftTrigger={(e) => {
+			on:addDraftTrigger={async (e) => {
 				const newTrigger = addDraftTrigger(triggers, e.detail)
 				data?.eventHandlers?.select('triggers')
+				await tick()
 				$selectedTriggerV2 = newTrigger
 			}}
 			selected={$selectedId == 'triggers'}
