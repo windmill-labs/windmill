@@ -193,7 +193,15 @@
 	}
 
 	async function loadTriggers(path: string): Promise<void> {
-		await fetchTriggers(triggersStore, $workspaceStore, path, false, undefined, $userStore)
+		await fetchTriggers(
+			triggersStore,
+			triggersCount,
+			$workspaceStore,
+			path,
+			false,
+			undefined,
+			$userStore
+		)
 	}
 
 	async function loadScript(hash: string): Promise<void> {

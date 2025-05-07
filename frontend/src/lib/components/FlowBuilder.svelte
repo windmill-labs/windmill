@@ -551,6 +551,7 @@
 		// Initialize triggers using utility function
 		fetchTriggers(
 			triggersStore,
+			triggersCount,
 			$workspaceStore,
 			initialPath,
 			true,

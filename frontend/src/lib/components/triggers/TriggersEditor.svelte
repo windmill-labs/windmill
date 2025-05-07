@@ -83,7 +83,7 @@
 		}
 
 		if ('id' in trigger && trigger.id) {
-			deleteDraft(triggers, trigger.id)
+			deleteDraft(triggers, triggersCount, trigger.type, trigger.id, trigger.isPrimary)
 		}
 
 		// Select a new trigger if any exist
@@ -99,7 +99,7 @@
 			return
 		}
 		//delete the trigger from the store
-		deleteTrigger(triggers, trigger)
+		deleteTrigger(triggers, triggersCount, trigger)
 
 		if (trigger.isDraft) {
 			trigger.isDraft = false
@@ -109,23 +109,80 @@
 		}
 
 		if (trigger.type === 'schedule') {
-			await fetchSchedules(triggers, $workspaceStore, currentPath, isFlow)
+			await fetchSchedules(
+				triggers,
+				triggersCount,
+				$workspaceStore,
+				currentPath,
+				isFlow,
+				undefined,
+				$userStore
+			)
 		} else if (trigger.type === 'websocket') {
-			await fetchWebsocketTriggers(triggers, $workspaceStore, currentPath, isFlow, $userStore)
+			await fetchWebsocketTriggers(
+				triggers,
+				triggersCount,
+				$workspaceStore,
+				currentPath,
+				isFlow,
+				$userStore
+			)
 		} else if (trigger.type === 'postgres') {
-			await fetchPostgresTriggers(triggers, $workspaceStore, currentPath, isFlow, $userStore)
+			await fetchPostgresTriggers(
+				triggers,
+				triggersCount,
+				$workspaceStore,
+				currentPath,
+				isFlow,
+				$userStore
+			)
 		} else if (trigger.type === 'kafka') {
-			await fetchKafkaTriggers(triggers, $workspaceStore, currentPath, isFlow)
+			await fetchKafkaTriggers(triggers, triggersCount, $workspaceStore, currentPath, isFlow)
 		} else if (trigger.type === 'nats') {
-			await fetchNatsTriggers(triggers, $workspaceStore, currentPath, isFlow, $userStore)
+			await fetchNatsTriggers(
+				triggers,
+				triggersCount,
+				$workspaceStore,
+				currentPath,
+				isFlow,
+				$userStore
+			)
 		} else if (trigger.type === 'gcp') {
-			await fetchGcpTriggers(triggers, $workspaceStore, currentPath, isFlow, $userStore)
+			await fetchGcpTriggers(
+				triggers,
+				triggersCount,
+				$workspaceStore,
+				currentPath,
+				isFlow,
+				$userStore
+			)
 		} else if (trigger.type === 'sqs') {
-			await fetchSqsTriggers(triggers, $workspaceStore, currentPath, isFlow, $userStore)
+			await fetchSqsTriggers(
+				triggers,
+				triggersCount,
+				$workspaceStore,
+				currentPath,
+				isFlow,
+				$userStore
+			)
 		} else if (trigger.type === 'mqtt') {
-			await fetchMqttTriggers(triggers, $workspaceStore, currentPath, isFlow, $userStore)
+			await fetchMqttTriggers(
+				triggers,
+				triggersCount,
+				$workspaceStore,
+				currentPath,
+				isFlow,
+				$userStore
+			)
 		} else if (trigger.type === 'http') {
-			await fetchHttpTriggers(triggers, $workspaceStore, currentPath, isFlow)
+			await fetchHttpTriggers(
+				triggers,
+				triggersCount,
+				$workspaceStore,
+				currentPath,
+				isFlow,
+				$userStore
+			)
 		}
 		$selectedTrigger = trigger
 	}

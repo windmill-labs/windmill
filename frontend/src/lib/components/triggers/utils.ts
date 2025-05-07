@@ -24,7 +24,7 @@ import {
 	type GcpTrigger
 } from '$lib/gen'
 import type { ScheduleTrigger } from '$lib/components/triggers'
-import { canWrite } from '$lib/utils'
+import { canWrite, formatCron } from '$lib/utils'
 import type { UserExt } from '$lib/stores'
 import SchedulePollIcon from '../icons/SchedulePollIcon.svelte'
 import { type TriggerKind } from '$lib/components/triggers'
@@ -145,43 +145,181 @@ export function addDraftTrigger(
 	// Add new draft to the store
 	triggersStore.update((triggers) => [...triggers, newTrigger])
 
+	updateTriggersCount(triggersCountStore, type, 'add', newTrigger.draftConfig)
+
+	return newTrigger
+}
+
+function updateTriggersCount(
+	triggersCountStore: Writable<TriggersCount | undefined>,
+	type: TriggerType,
+	action: 'add' | 'remove',
+	primaryCfg?: Record<string, any>,
+	isPrimary?: boolean
+) {
+	// Update the triggers count store
 	if (type === 'schedule') {
 		triggersCountStore.update((triggersCount) => {
-			if (isPrimary) {
-				return {
-					...(triggersCount ?? {}),
-					schedule_count: (triggersCount?.schedule_count ?? 0) + 1,
-					primary_schedule: draftCfg?.cron ? { schedule: draftCfg?.cron } : undefined
+			if (action === 'add') {
+				if (primaryCfg) {
+					return {
+						...(triggersCount ?? {}),
+						schedule_count: (triggersCount?.schedule_count ?? 0) + 1,
+						primary_schedule: primaryCfg?.schedule
+					}
 				}
 			} else {
 				return {
 					...(triggersCount ?? {}),
-					schedule_count: (triggersCount?.schedule_count ?? 0) + 1
+					schedule_count: (triggersCount?.schedule_count ?? 1) - 1,
+					primary_schedule: isPrimary ? undefined : triggersCount?.primary_schedule
+				}
+			}
+		})
+	} else if (type === 'postgres') {
+		triggersCountStore.update((triggersCount) => {
+			if (action === 'add') {
+				return {
+					...(triggersCount ?? {}),
+					postgres_count: (triggersCount?.postgres_count ?? 0) + 1
+				}
+			} else {
+				return {
+					...(triggersCount ?? {}),
+					postgres_count: (triggersCount?.postgres_count ?? 1) - 1
+				}
+			}
+		})
+	} else if (type === 'kafka') {
+		triggersCountStore.update((triggersCount) => {
+			if (action === 'add') {
+				return {
+					...(triggersCount ?? {}),
+					kafka_count: (triggersCount?.kafka_count ?? 0) + 1
+				}
+			} else {
+				return {
+					...(triggersCount ?? {}),
+					kafka_count: (triggersCount?.kafka_count ?? 1) - 1
+				}
+			}
+		})
+	} else if (type === 'nats') {
+		triggersCountStore.update((triggersCount) => {
+			if (action === 'add') {
+				return {
+					...(triggersCount ?? {}),
+					nats_count: (triggersCount?.nats_count ?? 0) + 1
+				}
+			} else {
+				return {
+					...(triggersCount ?? {}),
+					nats_count: (triggersCount?.nats_count ?? 1) - 1
+				}
+			}
+		})
+	} else if (type === 'mqtt') {
+		triggersCountStore.update((triggersCount) => {
+			if (action === 'add') {
+				return {
+					...(triggersCount ?? {}),
+					mqtt_count: (triggersCount?.mqtt_count ?? 0) + 1
+				}
+			} else {
+				return {
+					...(triggersCount ?? {}),
+					mqtt_count: (triggersCount?.mqtt_count ?? 1) - 1
+				}
+			}
+		})
+	} else if (type === 'sqs') {
+		triggersCountStore.update((triggersCount) => {
+			if (action === 'add') {
+				return {
+					...(triggersCount ?? {}),
+					sqs_count: (triggersCount?.sqs_count ?? 0) + 1
+				}
+			} else {
+				return {
+					...(triggersCount ?? {}),
+					sqs_count: (triggersCount?.sqs_count ?? 1) - 1
+				}
+			}
+		})
+	} else if (type === 'gcp') {
+		triggersCountStore.update((triggersCount) => {
+			if (action === 'add') {
+				return {
+					...(triggersCount ?? {}),
+					gcp_count: (triggersCount?.gcp_count ?? 0) + 1
+				}
+			} else {
+				return {
+					...(triggersCount ?? {}),
+					gcp_count: (triggersCount?.gcp_count ?? 1) - 1
+				}
+			}
+		})
+	} else if (type === 'websocket') {
+		triggersCountStore.update((triggersCount) => {
+			if (action === 'add') {
+				return {
+					...(triggersCount ?? {}),
+					websocket_count: (triggersCount?.websocket_count ?? 0) + 1
+				}
+			} else {
+				return {
+					...(triggersCount ?? {}),
+					websocket_count: (triggersCount?.websocket_count ?? 1) - 1
+				}
+			}
+		})
+	} else if (type === 'http') {
+		triggersCountStore.update((triggersCount) => {
+			if (action === 'add') {
+				return {
+					...(triggersCount ?? {}),
+					http_routes_count: (triggersCount?.http_routes_count ?? 0) + 1
+				}
+			} else {
+				return {
+					...(triggersCount ?? {}),
+					http_routes_count: (triggersCount?.http_routes_count ?? 1) - 1
 				}
 			}
 		})
 	}
-
-	return newTrigger
 }
 
 /**
  * Delete a draft trigger from the store
  */
-export function deleteDraft(triggersStore: Writable<Trigger[]>, draftId: string): void {
+export function deleteDraft(
+	triggersStore: Writable<Trigger[]>,
+	triggersCountStore: Writable<TriggersCount | undefined>,
+	type: TriggerType,
+	draftId: string,
+	isPrimary?: boolean
+): void {
 	triggersStore.update((triggers) => triggers.filter((t) => t.id !== draftId))
+	updateTriggersCount(triggersCountStore, type, 'remove', undefined, isPrimary)
 }
 
 /**
  * Delete a trigger from the store
  */
-export function deleteTrigger(triggersStore: Writable<Trigger[]>, trigger: Trigger): void {
+export function deleteTrigger(
+	triggersStore: Writable<Trigger[]>,
+	triggersCountStore: Writable<TriggersCount | undefined>,
+	trigger: Trigger
+): void {
 	if (trigger.isDraft && trigger.id) {
-		deleteDraft(triggersStore, trigger.id)
+		deleteDraft(triggersStore, triggersCountStore, trigger.type, trigger.id)
 	} else {
 		triggersStore.update((triggers) =>
 			triggers.filter((t) => t.path !== trigger.path || t.type !== trigger.type)
 		)
+		updateTriggersCount(triggersCountStore, trigger.type, 'remove')
 	}
 }
 
@@ -232,6 +370,7 @@ export function setCaptureConfig(
  */
 export async function fetchTriggers(
 	triggersStore: Writable<Trigger[]>,
+	triggersCountStore: Writable<TriggersCount | undefined>,
 	workspaceId: string | undefined,
 	path: string,
 	isFlow: boolean,
@@ -242,15 +381,15 @@ export async function fetchTriggers(
 
 	// Fetch each type of trigger
 	await Promise.all([
-		fetchSchedules(triggersStore, workspaceId, path, isFlow, primarySchedule),
-		fetchHttpTriggers(triggersStore, workspaceId, path, isFlow, user),
-		fetchWebsocketTriggers(triggersStore, workspaceId, path, isFlow, user),
-		fetchPostgresTriggers(triggersStore, workspaceId, path, isFlow, user),
-		fetchKafkaTriggers(triggersStore, workspaceId, path, isFlow, user),
-		fetchNatsTriggers(triggersStore, workspaceId, path, isFlow, user),
-		fetchMqttTriggers(triggersStore, workspaceId, path, isFlow, user),
-		fetchSqsTriggers(triggersStore, workspaceId, path, isFlow, user),
-		fetchGcpTriggers(triggersStore, workspaceId, path, isFlow, user)
+		fetchSchedules(triggersStore, triggersCountStore, workspaceId, path, isFlow, primarySchedule),
+		fetchHttpTriggers(triggersStore, triggersCountStore, workspaceId, path, isFlow, user),
+		fetchWebsocketTriggers(triggersStore, triggersCountStore, workspaceId, path, isFlow, user),
+		fetchPostgresTriggers(triggersStore, triggersCountStore, workspaceId, path, isFlow, user),
+		fetchKafkaTriggers(triggersStore, triggersCountStore, workspaceId, path, isFlow, user),
+		fetchNatsTriggers(triggersStore, triggersCountStore, workspaceId, path, isFlow, user),
+		fetchMqttTriggers(triggersStore, triggersCountStore, workspaceId, path, isFlow, user),
+		fetchSqsTriggers(triggersStore, triggersCountStore, workspaceId, path, isFlow, user),
+		fetchGcpTriggers(triggersStore, triggersCountStore, workspaceId, path, isFlow, user)
 	])
 }
 
@@ -259,7 +398,7 @@ function updateTriggers(
 	remoteTriggers: any[],
 	type: TriggerType,
 	user: UserExt | undefined = undefined
-): void {
+): number {
 	const currentTriggers = get(triggersStore)
 	// Identify triggers with draftConfig to preserve
 	const configuredTriggers = currentTriggers.filter(
@@ -277,17 +416,20 @@ function updateTriggers(
 		return {
 			type: type as TriggerType,
 			path: trigger.path,
-			isPrimary: false,
+			isPrimary: type === 'schedule' && trigger.path === trigger.script_path,
 			isDraft: false,
 			canWrite: canWrite(trigger.path, trigger.extra_perms, user),
-			draftConfig: draftConfig
+			draftConfig: draftConfig,
+			lightConfig:
+				type === 'schedule' ? { schedule: trigger.schedule, enable: trigger.enable } : undefined
 		}
 	})
 
-	triggersStore.update((triggers) => {
-		const filteredTriggers = triggers.filter((t) => t.type !== type || t.isDraft)
-		return [...filteredTriggers, ...backendTriggers]
-	})
+	const filteredTriggers = currentTriggers.filter((t) => t.type !== type || t.isDraft)
+	const newTriggers = [...filteredTriggers, ...backendTriggers]
+	triggersStore.set(newTriggers)
+
+	return newTriggers.filter((t) => t.type === type).length
 }
 
 /**
@@ -295,70 +437,48 @@ function updateTriggers(
  */
 export async function fetchSchedules(
 	triggersStore: Writable<Trigger[]>,
+	triggersCountStore: Writable<TriggersCount | undefined>,
 	workspaceId: string | undefined,
 	path: string,
 	isFlow: boolean,
-	primarySchedule?: ScheduleTrigger | undefined | false
+	primarySchedule?: ScheduleTrigger | undefined | false,
+	user: UserExt | undefined = undefined
 ): Promise<void> {
 	if (!workspaceId) return
 	try {
+		//First update the store with legacy primary schedule
+		if (primarySchedule && !get(triggersStore).some((s) => s.isPrimary)) {
+			const primary = {
+				type: 'schedule' as TriggerType,
+				path,
+				isPrimary: true,
+				isDraft: false,
+				draftConfig: {
+					schedule: primarySchedule.cron ? formatCron(primarySchedule.cron) : undefined,
+					args: primarySchedule.args,
+					timezone: primarySchedule.timezone,
+					summary: primarySchedule.summary,
+					description: primarySchedule.description,
+					enabled: primarySchedule.enabled
+				}
+			}
+			triggersStore.update((triggers) => [...triggers, primary])
+		}
+
 		const allDeployedSchedules: Schedule[] = await ScheduleService.listSchedules({
 			workspace: workspaceId,
 			path,
 			isFlow
 		})
 
-		// Remove existing schedules except for draft schedules
-		triggersStore.update((triggers) =>
-			triggers.filter((t) => !(t.type === 'schedule' && !t.isDraft))
-		)
-
-		// Find primary schedule (matches the path exactly)
-		const deployedPrimarySchedule = allDeployedSchedules.find((s) => s.path === path)
-
-		if (deployedPrimarySchedule) {
-			// Add primary schedule
-			triggersStore.update((triggers) => [
-				...triggers,
-				{
-					type: 'schedule',
-					path: deployedPrimarySchedule.path,
-					isPrimary: true,
-					isDraft: false,
-					lightConfig: {
-						enabled: deployedPrimarySchedule.enabled,
-						schedule: deployedPrimarySchedule.schedule
-					}
-				}
-			])
-		} else if (primarySchedule) {
-			// if there is a primary schedule in the legacy primaryScheduleStore
-			// we need to add it to the new triggers store
-			triggersStore.update((triggers) => [
-				...triggers,
-				{
-					type: 'schedule',
-					path: path,
-					isPrimary: true,
-					isDraft: false
-				}
-			])
-		}
-
-		// Add deployed schedules
-		const otherDeployedSchedules = allDeployedSchedules.filter((s) => s.path !== path)
-
-		for (const schedule of otherDeployedSchedules) {
-			triggersStore.update((triggers) => [
-				...triggers,
-				{
-					type: 'schedule',
-					path: schedule.path,
-					isPrimary: false,
-					isDraft: false
-				}
-			])
-		}
+		const scheduleCount = updateTriggers(triggersStore, allDeployedSchedules, 'schedule', user)
+		console.log('dbg fetchSchedules 2', scheduleCount)
+		triggersCountStore.update((triggersCount) => {
+			return {
+				...(triggersCount ?? {}),
+				schedule_count: scheduleCount
+			}
+		})
 
 		return
 	} catch (error) {
@@ -372,6 +492,7 @@ export async function fetchSchedules(
  */
 export async function fetchHttpTriggers(
 	triggersStore: Writable<Trigger[]>,
+	triggersCountStore: Writable<TriggersCount | undefined>,
 	workspaceId: string | undefined,
 	path: string,
 	isFlow: boolean,
@@ -384,7 +505,13 @@ export async function fetchHttpTriggers(
 			path,
 			isFlow
 		})
-		updateTriggers(triggersStore, httpTriggers, 'http', user)
+		const httpCount = updateTriggers(triggersStore, httpTriggers, 'http', user)
+		triggersCountStore.update((triggersCount) => {
+			return {
+				...(triggersCount ?? {}),
+				http_routes_count: httpCount
+			}
+		})
 	} catch (error) {
 		console.error('Failed to fetch HTTP triggers:', error)
 	}
@@ -395,19 +522,27 @@ export async function fetchHttpTriggers(
  */
 export async function fetchWebsocketTriggers(
 	triggersStore: Writable<Trigger[]>,
+	triggersCountStore: Writable<TriggersCount | undefined>,
 	workspaceId: string | undefined,
 	path: string,
 	isFlow: boolean,
 	user: UserExt | undefined = undefined
 ): Promise<void> {
 	if (!workspaceId) return
+	console.log('dbg fetchWebsocketTriggers 2', path)
 	try {
 		const wsTriggers = await WebsocketTriggerService.listWebsocketTriggers({
 			workspace: workspaceId,
 			path,
 			isFlow
 		})
-		updateTriggers(triggersStore, wsTriggers, 'websocket', user)
+		const wsCount = updateTriggers(triggersStore, wsTriggers, 'websocket', user)
+		triggersCountStore.update((triggersCount) => {
+			return {
+				...(triggersCount ?? {}),
+				websocket_count: wsCount
+			}
+		})
 	} catch (error) {
 		console.error('Failed to fetch Websocket triggers:', error)
 	}
@@ -418,6 +553,7 @@ export async function fetchWebsocketTriggers(
  */
 export async function fetchPostgresTriggers(
 	triggersStore: Writable<Trigger[]>,
+	triggersCountStore: Writable<TriggersCount | undefined>,
 	workspaceId: string | undefined,
 	path: string,
 	isFlow: boolean,
@@ -430,7 +566,13 @@ export async function fetchPostgresTriggers(
 			path,
 			isFlow
 		})
-		updateTriggers(triggersStore, pgTriggers, 'postgres', user)
+		const pgCount = updateTriggers(triggersStore, pgTriggers, 'postgres', user)
+		triggersCountStore.update((triggersCount) => {
+			return {
+				...(triggersCount ?? {}),
+				postgres_count: pgCount
+			}
+		})
 	} catch (error) {
 		console.error('Failed to fetch Postgres triggers:', error)
 	}
@@ -441,6 +583,7 @@ export async function fetchPostgresTriggers(
  */
 export async function fetchKafkaTriggers(
 	triggersStore: Writable<Trigger[]>,
+	triggersCountStore: Writable<TriggersCount | undefined>,
 	workspaceId: string | undefined,
 	path: string,
 	isFlow: boolean,
@@ -453,7 +596,13 @@ export async function fetchKafkaTriggers(
 			path,
 			isFlow
 		})
-		updateTriggers(triggersStore, kafkaTriggers, 'kafka', user)
+		const kafkaCount = updateTriggers(triggersStore, kafkaTriggers, 'kafka', user)
+		triggersCountStore.update((triggersCount) => {
+			return {
+				...(triggersCount ?? {}),
+				kafka_count: kafkaCount
+			}
+		})
 	} catch (error) {
 		console.error('Failed to fetch Kafka triggers:', error)
 	}
@@ -464,6 +613,7 @@ export async function fetchKafkaTriggers(
  */
 export async function fetchNatsTriggers(
 	triggersStore: Writable<Trigger[]>,
+	triggersCountStore: Writable<TriggersCount | undefined>,
 	workspaceId: string | undefined,
 	path: string,
 	isFlow: boolean,
@@ -476,7 +626,13 @@ export async function fetchNatsTriggers(
 			path,
 			isFlow
 		})
-		updateTriggers(triggersStore, natsTriggers, 'nats', user)
+		const natsCount = updateTriggers(triggersStore, natsTriggers, 'nats', user)
+		triggersCountStore.update((triggersCount) => {
+			return {
+				...(triggersCount ?? {}),
+				nats_count: natsCount
+			}
+		})
 	} catch (error) {
 		console.error('Failed to fetch NATS triggers:', error)
 	}
@@ -487,6 +643,7 @@ export async function fetchNatsTriggers(
  */
 export async function fetchMqttTriggers(
 	triggersStore: Writable<Trigger[]>,
+	triggersCountStore: Writable<TriggersCount | undefined>,
 	workspaceId: string | undefined,
 	path: string,
 	isFlow: boolean,
@@ -499,7 +656,13 @@ export async function fetchMqttTriggers(
 			path,
 			isFlow
 		})
-		updateTriggers(triggersStore, mqttTriggers, 'mqtt', user)
+		const mqttCount = updateTriggers(triggersStore, mqttTriggers, 'mqtt', user)
+		triggersCountStore.update((triggersCount) => {
+			return {
+				...(triggersCount ?? {}),
+				mqtt_count: mqttCount
+			}
+		})
 	} catch (error) {
 		console.error('Failed to fetch MQTT triggers:', error)
 	}
@@ -510,6 +673,7 @@ export async function fetchMqttTriggers(
  */
 export async function fetchSqsTriggers(
 	triggersStore: Writable<Trigger[]>,
+	triggersCountStore: Writable<TriggersCount | undefined>,
 	workspaceId: string | undefined,
 	path: string,
 	isFlow: boolean,
@@ -522,7 +686,13 @@ export async function fetchSqsTriggers(
 			path,
 			isFlow
 		})
-		updateTriggers(triggersStore, sqsTriggers, 'sqs', user)
+		const sqsCount = updateTriggers(triggersStore, sqsTriggers, 'sqs', user)
+		triggersCountStore.update((triggersCount) => {
+			return {
+				...(triggersCount ?? {}),
+				sqs_count: sqsCount
+			}
+		})
 	} catch (error) {
 		console.error('Failed to fetch SQS triggers:', error)
 	}
@@ -533,6 +703,7 @@ export async function fetchSqsTriggers(
  */
 export async function fetchGcpTriggers(
 	triggersStore: Writable<Trigger[]>,
+	triggersCountStore: Writable<TriggersCount | undefined>,
 	workspaceId: string | undefined,
 	path: string,
 	isFlow: boolean,
@@ -548,19 +719,13 @@ export async function fetchGcpTriggers(
 			path,
 			isFlow
 		})
-
-		for (const trigger of gcpTriggers) {
-			triggersStore.update((triggers) => [
-				...triggers,
-				{
-					type: 'gcp',
-					path: trigger.path,
-					isPrimary: false,
-					isDraft: false,
-					canWrite: canWrite(trigger.path, trigger.extra_perms, user)
-				}
-			])
-		}
+		const gcpCount = updateTriggers(triggersStore, gcpTriggers, 'gcp', user)
+		triggersCountStore.update((triggersCount) => {
+			return {
+				...(triggersCount ?? {}),
+				gcp_count: gcpCount
+			}
+		})
 	} catch (error) {
 		console.error('Failed to fetch GCP Pub/Sub triggers:', error)
 	}

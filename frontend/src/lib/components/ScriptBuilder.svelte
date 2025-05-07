@@ -201,6 +201,7 @@
 
 		fetchTriggers(
 			triggersStore,
+			triggersCount,
 			$workspaceStore,
 			initialPath,
 			false,

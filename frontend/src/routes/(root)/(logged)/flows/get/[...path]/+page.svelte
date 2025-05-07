@@ -145,7 +145,15 @@
 	}
 
 	async function loadTriggers(): Promise<void> {
-		await fetchTriggers(triggersStore, $workspaceStore, path, true, undefined, $userStore)
+		await fetchTriggers(
+			triggersStore,
+			triggersCount,
+			$workspaceStore,
+			path,
+			true,
+			undefined,
+			$userStore
+		)
 	}
 
 	async function loadFlow(): Promise<void> {

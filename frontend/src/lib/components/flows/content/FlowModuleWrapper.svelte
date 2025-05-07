@@ -59,8 +59,8 @@
 			//If there is a primary schedule draft update it
 			const newCfg = { ...primary.draftConfig }
 			let updated = false
-			if (!newCfg.cron) {
-				newCfg.cron = '0 */15 * * *'
+			if (!newCfg.schedule) {
+				newCfg.schedule = formatCron('0 */15 * * *')
 				updated = true
 			}
 			if (!newCfg.enabled) {
