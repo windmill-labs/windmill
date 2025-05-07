@@ -96,6 +96,9 @@ java = ["windmill-worker/java"]
 all_languages = [ "python", "deno_core", "rust", "mysql", "oracledb", "mssql", "bigquery", "csharp", "nu", "php", "java"]
 
 
+[patch.crates-io]
+object_store = { git = "https://github.com/apache/arrow-rs-object-store", rev = "36752c975d4f29e20b57c91f81a10872dcd48ae7" } 
+
 [dependencies]
 anyhow.workspace = true
 tokio.workspace = true
@@ -334,7 +337,7 @@ nkeys = "0.4.4"
 nu-parser = { version = "0.101.0", default-features = false }
 
 datafusion = "47.0.0"
-object_store = { version = "0.12.0", features = ["aws", "azure"] }
+object_store = { git = "https://github.com/apache/arrow-rs-object-store", rev = "36752c975d4f29e20b57c91f81a10872dcd48ae7", features = ["aws", "azure"] } 
 openidconnect = { version = "4.0.0-rc.1" }
 aws-config = "^1"
 aws-sdk-sqs = "1.57.0"
