@@ -472,7 +472,6 @@ export async function fetchSchedules(
 		})
 
 		const scheduleCount = updateTriggers(triggersStore, allDeployedSchedules, 'schedule', user)
-		console.log('dbg fetchSchedules 2', scheduleCount)
 		triggersCountStore.update((triggersCount) => {
 			return {
 				...(triggersCount ?? {}),
@@ -529,7 +528,6 @@ export async function fetchWebsocketTriggers(
 	user: UserExt | undefined = undefined
 ): Promise<void> {
 	if (!workspaceId) return
-	console.log('dbg fetchWebsocketTriggers 2', path)
 	try {
 		const wsTriggers = await WebsocketTriggerService.listWebsocketTriggers({
 			workspace: workspaceId,
