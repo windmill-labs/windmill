@@ -266,92 +266,66 @@ done`
 		</Label>
 	{/if}
 
-	<div class="flex flex-col gap-8">
-		{#if SCRIPT_VIEW_SHOW_CREATE_TOKEN_BUTTON}
-			<Label label="Token">
-				<div class="flex flex-row justify-between gap-2">
-					<input
-						bind:value={token}
-						placeholder="paste your token here once created to alter examples below"
-						class="!text-xs !font-normal"
-					/>
-					<Button
-						size="xs"
-						color="light"
-						variant="border"
-						on:click={() => userSettings.openDrawer()}
-					>
-						Create a Webhook-specific Token
-						<Tooltip light>
-							The token will have a scope such that it can only be used to trigger this script. It
-							is safe to share as it cannot be used to impersonate you.
-						</Tooltip>
-					</Button>
-				</div>
-			</Label>
-		{/if}
-
-		<div class="flex flex-col gap-2">
-			<div class="flex flex-row justify-between">
-				<div class="text-sm font-normal text-secondary flex flex-row items-center">Request type</div
-				>
-				<ToggleButtonGroup class="h-[30px] w-auto" bind:selected={webhookType} let:item>
+	<div class="flex flex-col gap-2">
+		<div class="flex flex-row justify-between">
+			<div class="text-sm font-normal text-secondary flex flex-row items-center">Request type</div>
+			<ToggleButtonGroup class="h-[30px] w-auto" bind:selected={webhookType} let:item>
+				<ToggleButton
+					label="Async"
+					value="async"
+					tooltip="The returning value is the uuid of the job assigned to execute the job."
+					{item}
+				/>
+				<ToggleButton
+					label="Sync"
+					value="sync"
+					tooltip="Triggers the execution, wait for the job to complete and return it as a response."
+					{item}
+				/>
+			</ToggleButtonGroup>
+		</div>
+		<div class="flex flex-row justify-between">
+			<div class="text-sm font-normal text-secondary flex flex-row items-center">Call method</div>
+			<ToggleButtonGroup class="h-[30px] w-auto" bind:selected={requestType} let:item>
+				<ToggleButton
+					label="POST by path"
+					value="path"
+					icon={ArrowUpRight}
+					{item}
+					selectedColor="#fb923c"
+				/>
+				{#if !isFlow}
 					<ToggleButton
-						label="Async"
-						value="async"
-						tooltip="The returning value is the uuid of the job assigned to execute the job."
-						{item}
-					/>
-					<ToggleButton
-						label="Sync"
-						value="sync"
-						tooltip="Triggers the execution, wait for the job to complete and return it as a response."
-						{item}
-					/>
-				</ToggleButtonGroup>
-			</div>
-			<div class="flex flex-row justify-between">
-				<div class="text-sm font-normal text-secondary flex flex-row items-center">Call method</div>
-				<ToggleButtonGroup class="h-[30px] w-auto" bind:selected={requestType} let:item>
-					<ToggleButton
-						label="POST by path"
-						value="path"
+						label="POST by hash"
+						value="hash"
 						icon={ArrowUpRight}
-						{item}
 						selectedColor="#fb923c"
-					/>
-					{#if !isFlow}
-						<ToggleButton
-							label="POST by hash"
-							value="hash"
-							icon={ArrowUpRight}
-							selectedColor="#fb923c"
-							disabled={!hash}
-							{item}
-						/>
-					{/if}
-
-					<ToggleButton
-						label="GET by path"
-						value="get_path"
-						icon={ArrowDownRight}
-						disabled={webhookType !== 'sync'}
+						disabled={!hash}
 						{item}
-						selectedColor="#14b8a6"
 					/>
-				</ToggleButtonGroup>
-			</div>
-			<div class="flex flex-row justify-between">
-				<div class="text-sm font-normal text-secondary flex flex-row items-center"
-					>Token configuration</div
-				>
-				<ToggleButtonGroup class="h-[30px] w-auto" bind:selected={tokenType} let:item>
-					<ToggleButton label="Token in Headers" value="headers" {item} />
-					<ToggleButton label="Token in Query" value="query" {item} />
-				</ToggleButtonGroup>
-			</div>
+				{/if}
+
+				<ToggleButton
+					label="GET by path"
+					value="get_path"
+					icon={ArrowDownRight}
+					disabled={webhookType !== 'sync'}
+					{item}
+					selectedColor="#14b8a6"
+				/>
+			</ToggleButtonGroup>
+		</div>
+		<div class="flex flex-row justify-between">
+			<div class="text-sm font-normal text-secondary flex flex-row items-center"
+				>Token configuration</div
+			>
+			<ToggleButtonGroup class="h-[30px] w-auto" bind:selected={tokenType} let:item>
+				<ToggleButton label="Token in Headers" value="headers" {item} />
+				<ToggleButton label="Token in Query" value="query" {item} />
+			</ToggleButtonGroup>
 		</div>
 	</div>
+
 	<!-- svelte-ignore a11y-click-events-have-key-events -->
 	<!-- svelte-ignore a11y-no-static-element-interactions -->
 	<div>

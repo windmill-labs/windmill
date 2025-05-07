@@ -1,5 +1,5 @@
 <script lang="ts">
-	import ScheduleEditorInner from './ScheduleEditorInner.svelte'
+	import ScheduleEditorInner from '$lib/components/triggers/schedules/ScheduleEditorInner.svelte'
 	import Description from '$lib/components/Description.svelte'
 	import { onMount } from 'svelte'
 	let scheduleEditor = $state<ScheduleEditorInner | null>(null)
