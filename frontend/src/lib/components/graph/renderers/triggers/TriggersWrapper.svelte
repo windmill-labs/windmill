@@ -44,7 +44,7 @@
 <div style={`width: ${NODE.width}px;`}>
 	<button
 		style="background-color: {hover && bgHoverColor ? bgHoverColor : bgColor};"
-		class="relative flex w-full flex-row gap-1.5 px-2 p-1 items-center rounded-sm {selected
+		class="relative flex w-full flex-row gap-1.5 px-2 p-1 items-center justify-center rounded-sm {selected
 			? 'outline  outline-2  outline-gray-600 dark:bg-white/5 dark:outline-gray-400'
 			: ''}"
 		onclick={() => {
