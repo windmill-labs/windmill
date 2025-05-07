@@ -142,6 +142,8 @@ pub static FULL_IMPORTS_MAP: PyMap = phf_map! {
     "google.cloud.dns" => "google-cloud-dns",
     "google.cloud.runtimeconfig" => "google-cloud-runtimeconfig",
     "google.cloud.iot" => "google-cloud-iot",
+    "google.generativeai" => "google-generativeai",
+    "google.genai" => "google-genai",
     // Azure
     "azure.mgmt.hybridkubernetes" => "azure-mgmt-hybridkubernetes",
     "azure.mgmt.sql" => "azure-mgmt-sql",
@@ -325,6 +327,7 @@ pub static FULL_IMPORTS_MAP: PyMap = phf_map! {
     "azure.mgmt.nspkg" => "azure-mgmt-nspkg",
     "azure.keyvault.secrets" => "azure-keyvault-secrets",
     "azure.storage.blob" => "azure-storage-blob",
+    "azure.storage.filedatalake" => "azure-storage-file-datalake",
     // Add new entry here ^
 };
 
@@ -376,5 +379,6 @@ pub static SHORT_IMPORTS_MAP: PyMap = phf_map! {
     "socks" => "PySocks",
     "taiga" => "python-taiga",
     "docx" => "python-docx",
+    "vt" => "vt-py",
     // Add new entry here ^
 };

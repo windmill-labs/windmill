@@ -126,15 +126,15 @@ async function triggerJob() {
 					cleanedRunnableArgs ?? {},
 					null,
 					2
-			  ).replaceAll('\n', '\n\t')});`
+				).replaceAll('\n', '\n\t')});`
 	}
   const endpoint = \`${url}\`;
 
   return await fetch(endpoint, {
     method: '${requestType === 'get_path' ? 'GET' : 'POST'}',
     headers: ${JSON.stringify(headers(), null, 2).replaceAll('\n', '\n\t\t')}${
-				requestType === 'get_path' ? '' : `,\n\t\tbody`
-			}
+			requestType === 'get_path' ? '' : `,\n\t\tbody`
+		}
   });
 }`
 		}
@@ -244,12 +244,12 @@ done`
 					requestType === 'get_path'
 						? `&payload=${encodeURIComponent(btoa(JSON.stringify(cleanedRunnableArgs ?? {})))}`
 						: ''
-			  }`
+				}`
 			: `${
 					requestType === 'get_path'
 						? `?payload=${encodeURIComponent(btoa(JSON.stringify(cleanedRunnableArgs ?? {})))}`
 						: ''
-			  }`)
+				}`)
 </script>
 
 <UserSettings
@@ -299,7 +299,12 @@ done`
 						placeholder="paste your token here once created to alter examples below"
 						class="!text-xs !font-normal"
 					/>
-					<Button size="xs" color="light" variant="border" on:click={userSettings.openDrawer}>
+					<Button
+						size="xs"
+						color="light"
+						variant="border"
+						on:click={() => userSettings.openDrawer()}
+					>
 						Create a Webhook-specific Token
 						<Tooltip light>
 							The token will have a scope such that it can only be used to trigger this script. It

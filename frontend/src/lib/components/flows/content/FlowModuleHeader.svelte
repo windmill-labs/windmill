@@ -29,13 +29,11 @@
 
 	const dispatch = createEventDispatcher()
 	let customUi: undefined | FlowBuilderWhitelabelCustomUi = getContext('customUi')
-
-	$: moduleRetry = module.retry?.constant || module.retry?.exponential
 </script>
 
 <div class="flex flex-row space-x-1">
 	{#if module.value.type === 'script' || module.value.type === 'rawscript' || module.value.type == 'flow'}
-		{#if moduleRetry}
+		{#if module.retry?.constant || module.retry?.exponential}
 			<Popover
 				placement="bottom"
 				class="center-center rounded p-2 bg-blue-100 text-blue-800 border border-blue-300 hover:bg-blue-200 dark:bg-frost-700 dark:text-frost-100 dark:border-frost-600"
@@ -133,7 +131,11 @@
 			</Button>
 		{/if}
 		{#if customUi?.tagEdit != false}
-			<FlowModuleWorkerTagSelect nullTag={tag} bind:tag={module.value.tag_override} />
+			<FlowModuleWorkerTagSelect
+				nullTag={tag}
+				tag={module.value.tag_override}
+				on:change={(e) => dispatch('tagChange', e.detail)}
+			/>
 		{/if}
 		{#if customUi?.scriptFork != false}
 			<Button
@@ -146,8 +148,7 @@
 				Fork
 			</Button>
 		{/if}
-	{/if}
-	{#if module.value.type === 'flow'}
+	{:else if module.value.type === 'flow'}
 		<Button
 			size="xs"
 			color="light"
@@ -175,7 +176,10 @@
 	{/if}
 	<div class="px-0.5"></div>
 	{#if module.value.type === 'rawscript'}
-		<FlowModuleWorkerTagSelect bind:tag={module.value.tag} />
+		<FlowModuleWorkerTagSelect
+			tag={module.value.tag}
+			on:change={(e) => dispatch('tagChange', e.detail)}
+		/>
 		<Button
 			size="xs"
 			color="light"

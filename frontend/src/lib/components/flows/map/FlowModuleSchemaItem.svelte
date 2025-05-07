@@ -351,7 +351,7 @@
 	{#if deletable}
 		<button
 			class="absolute -top-[10px] -right-[10px] rounded-full h-[20px] w-[20px] trash center-center text-secondary
-	outline-[1px] outline dark:outline-gray-500 outline-gray-300 bg-surface duration-150 hover:bg-red-400 hover:text-white
+	outline-[1px] outline dark:outline-gray-500 outline-gray-300 bg-surface duration-0 hover:bg-red-400 hover:text-white
 	 {hover || selected ? '' : '!hidden'}"
 			title="Delete"
 			on:click|preventDefault|stopPropagation={(event) =>
@@ -363,7 +363,7 @@
 		{#if id !== 'preprocessor'}
 			<button
 				class="absolute -top-[10px] right-[60px] rounded-full h-[20px] w-[20px] trash center-center text-secondary
-outline-[1px] outline dark:outline-gray-500 outline-gray-300 bg-surface duration-150 hover:bg-blue-400 hover:text-white
+outline-[1px] outline dark:outline-gray-500 outline-gray-300 bg-surface duration-0 hover:bg-blue-400 hover:text-white
  {hover ? '' : '!hidden'}"
 				on:click|preventDefault|stopPropagation={(event) => dispatch('move')}
 				title="Move"
@@ -388,7 +388,7 @@ outline-[1px] outline dark:outline-gray-500 outline-gray-300 bg-surface duration
 					</svelte:fragment>
 					<div
 						class={twMerge(
-							'flex items-center justify-center h-full w-full rounded-md p-0.5 border  duration-150 ',
+							'flex items-center justify-center h-full w-full rounded-md p-0.5 border  duration-0 ',
 							id &&
 								Object.values($flowInputsStore?.[id]?.flowStepWarnings || {})?.some(
 									(x) => x.type === 'error'
