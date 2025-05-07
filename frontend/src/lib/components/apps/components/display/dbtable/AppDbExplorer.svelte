@@ -21,11 +21,7 @@
 	import { getContext, tick } from 'svelte'
 	import UpdateCell from './UpdateCell.svelte'
 	import { workspaceStore, type DBSchemas } from '$lib/stores'
-	import Button from '$lib/components/common/button/Button.svelte'
-	import { Plus } from 'lucide-svelte'
-	import { Drawer, DrawerContent } from '$lib/components/common'
-	import InsertRow from './InsertRow.svelte'
-	import Portal from '$lib/components/Portal.svelte'
+	import { Drawer } from '$lib/components/common'
 
 	import { sendUserToast } from '$lib/toast'
 	import type { AppInput, StaticInput } from '$lib/components/apps/inputType'
@@ -41,6 +37,7 @@
 	import { CancelablePromise } from '$lib/gen'
 	import RefreshButton from '$lib/components/apps/components/helpers/RefreshButton.svelte'
 	import RunnableWrapper from '../../helpers/RunnableWrapper.svelte'
+	import InsertRowDrawerButton from '../InsertRowDrawerButton.svelte'
 
 	export let id: string
 	export let configuration: RichConfigurations
@@ -173,8 +170,6 @@
 		)
 	}
 
-	let args: Record<string, any> = {}
-
 	let outputs = initOutput($worldStore, id, {
 		selectedRowIndex: 0,
 		selectedRow: {},
@@ -189,7 +184,7 @@
 
 	let lastResource: string | undefined = undefined
 
-	function updateOneOfConfiguration<T, U extends string, V>(
+	function updateOneOfConfiguration<U extends string, V>(
 		oneOfConfiguration: OneOfConfiguration,
 		resolvedConfig: {
 			configuration: Record<U, V>
@@ -249,7 +244,7 @@
 				resolvedConfig.type.configuration[resolvedConfig?.type?.selected].resource.split(':')[1],
 				$workspaceStore,
 				dbSchemas,
-				(message: string) => {}
+				() => {}
 			)
 
 			updateOneOfConfiguration(
@@ -263,7 +258,7 @@
 									resolvedConfig?.type?.selected,
 									resource.split(':')[1],
 									$workspaceStore!
-							  )
+								)
 							: [],
 						loading: false
 					}
@@ -479,8 +474,6 @@
 		}, 1500)
 	}
 
-	let isInsertable: boolean = false
-
 	$: $worldStore && render && connectToComponents()
 
 	function connectToComponents() {
@@ -521,7 +514,7 @@
 		}
 	}
 
-	async function insert() {
+	async function insert(args: object) {
 		try {
 			const selected = resolvedConfig.type.selected
 
@@ -539,8 +532,6 @@
 		} catch (e) {
 			sendUserToast(e.message, true)
 		}
-
-		args = {}
 	}
 
 	let runnableComponent: RunnableComponent
@@ -651,17 +642,11 @@
 				<div class="flex flex-row gap-2">
 					<RefreshButton {id} {loading} />
 					{#if hideInsert !== true}
-						<Button
-							startIcon={{ icon: Plus }}
-							color="dark"
-							size="xs2"
-							on:click={() => {
-								args = {}
-								insertDrawer?.openDrawer()
-							}}
-						>
-							Insert
-						</Button>
+						<InsertRowDrawerButton
+							columnDefs={resolvedConfig.columnDefs}
+							dbType={resolvedConfig.type.selected}
+							onInsert={(args) => insert(args)}
+						/>
 					{/if}
 				</div>
 			</div>
@@ -696,7 +681,7 @@
 	</div>
 </RunnableWrapper>
 
-<Portal name="db-explorer">
+<!-- <Portal name="db-explorer">
 	<Drawer bind:this={insertDrawer} size="800px">
 		<DrawerContent title="Insert row" on:close={insertDrawer.closeDrawer}>
 			<svelte:fragment slot="actions">
@@ -710,4 +695,4 @@
 			/>
 		</DrawerContent>
 	</Drawer>
-</Portal>
+</Portal> -->

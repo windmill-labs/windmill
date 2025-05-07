@@ -48,10 +48,10 @@
 	$: runnableType = scriptHash
 		? 'ScriptHash'
 		: scriptPath
-		? 'ScriptPath'
-		: flowPath
-		? 'FlowPath'
-		: undefined
+			? 'ScriptPath'
+			: flowPath
+				? 'FlowPath'
+				: undefined
 
 	let hasAlreadyFailed = false
 	async function loadInputHistory() {
@@ -379,7 +379,8 @@
 									class="w-full h-full items-center text-xs font-normal grid grid-cols-8 gap-4 min-w-0"
 								>
 									<div class="">
-										<div class="rounded-full w-2 h-2 {i.success ? 'bg-green-400' : 'bg-red-400'}"></div>
+										<div class="rounded-full w-2 h-2 {i.success ? 'bg-green-400' : 'bg-red-400'}"
+										></div>
 									</div>
 									<div class="col-span-2 truncate" title={i.created_by}>
 										{i.created_by}

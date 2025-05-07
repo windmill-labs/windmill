@@ -90,7 +90,6 @@
 				savedFlow?.path,
 				ev.detail.kind
 			)
-
 			showCaptureHint.set(true)
 		}}
 		on:applyArgs

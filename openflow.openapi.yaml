@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.483.1
+  version: 1.488.0
   title: OpenFlow Spec
   contact:
     name: Ruben Fiszel
@@ -89,6 +89,18 @@ components:
               minimum: 0
               maximum: 100
 
+    StopAfterIf:
+      type: object
+      properties:
+        skip_if_stopped:
+          type: boolean
+        expr:
+          type: string
+        error_message:
+          type: string
+      required:
+        - expr
+  
     FlowModule:
       type: object
       properties:
@@ -97,23 +109,9 @@ components:
         value:
           $ref: "#/components/schemas/FlowModuleValue"
         stop_after_if:
-          type: object
-          properties:
-            skip_if_stopped:
-              type: boolean
-            expr:
-              type: string
-          required:
-            - expr
+          $ref: "#/components/schemas/StopAfterIf"
         stop_after_all_iters_if:
-          type: object
-          properties:
-            skip_if_stopped:
-              type: boolean
-            expr:
-              type: string
-          required:
-            - expr
+          $ref: "#/components/schemas/StopAfterIf"
         skip_if:
           type: object
           properties:

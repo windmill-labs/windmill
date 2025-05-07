@@ -692,6 +692,12 @@ export function sortObject<T>(o: T & object): T {
 		}, {}) as T
 }
 
+export function sortArray<T>(array: T[], compareFn?: (a: T, b: T) => number): T[] {
+	const arr = [...array]
+	arr.sort(compareFn)
+	return arr
+}
+
 export function generateRandomString(len: number = 24): string {
 	let chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789'
 	let result = ''
@@ -1267,4 +1273,11 @@ export function getOS() {
 	}
 
 	return 'Unknown OS' as const
+}
+
+import { type ClassValue, clsx } from 'clsx'
+import { twMerge } from 'tailwind-merge'
+
+export function cn(...inputs: ClassValue[]) {
+	return twMerge(clsx(inputs))
 }

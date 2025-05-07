@@ -28,6 +28,14 @@ export interface UserExt {
 	folders_owners: string[]
 }
 
+export interface UserWorkspace {
+	id: string
+	name: string
+	username: string
+	color: string | null
+	operator_settings?: OperatorSettings
+}
+
 const persistedWorkspace = BROWSER && getWorkspace()
 
 function getWorkspace(): string | undefined {
@@ -60,31 +68,26 @@ export const superadmin = writable<string | false | undefined>(undefined)
 export const devopsRole = writable<string | false | undefined>(undefined)
 export const lspTokenStore = writable<string | undefined>(undefined)
 export const hubBaseUrlStore = writable<string>('https://hub.windmill.dev')
-export const userWorkspaces: Readable<
-	Array<{
-		id: string
-		name: string
-		username: string
-		color: string | null
-		operator_settings?: OperatorSettings
-	}>
-> = derived([usersWorkspaceStore, superadmin], ([store, superadmin]) => {
-	const originalWorkspaces = store?.workspaces ?? []
-	if (superadmin) {
-		return [
-			...originalWorkspaces.filter((x) => x.id != 'admins'),
-			{
-				id: 'admins',
-				name: 'Admins',
-				username: 'superadmin',
-				color: null,
-				operator_settings: null
-			}
-		]
-	} else {
-		return originalWorkspaces
+export const userWorkspaces: Readable<Array<UserWorkspace>> = derived(
+	[usersWorkspaceStore, superadmin],
+	([store, superadmin]) => {
+		const originalWorkspaces = store?.workspaces ?? []
+		if (superadmin) {
+			return [
+				...originalWorkspaces.filter((x) => x.id != 'admins'),
+				{
+					id: 'admins',
+					name: 'Admins',
+					username: 'superadmin',
+					color: null,
+					operator_settings: null
+				}
+			]
+		} else {
+			return originalWorkspaces
+		}
 	}
-})
+)
 export const copilotInfo = writable<{
 	enabled: boolean
 	codeCompletionModel?: AIProviderModel
@@ -232,3 +235,16 @@ export const workspaceColor: Readable<string | null | undefined> = derived(
 		})
 	}
 )
+
+export function getFlatTableNamesFromSchema(dbSchema: DBSchema | undefined): string[] {
+	const schema = dbSchema?.schema ?? {}
+	const tableNames: string[] = []
+
+	for (const schemaKey in schema) {
+		for (const tableKey in schema[schemaKey]) {
+			tableNames.push(`${schemaKey}.${tableKey}`)
+		}
+	}
+
+	return tableNames
+}

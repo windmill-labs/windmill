@@ -15,7 +15,7 @@ stripe = []
 agent_worker_server = []
 enterprise_saml = ["dep:samael", "dep:libxml"]
 benchmark = []
-embedding = ["dep:tinyvector", "dep:hf-hub", "dep:tokenizers", "dep:candle-core", "dep:candle-transformers", "dep:candle-nn", "dep:half"]
+embedding = ["dep:tinyvector", "dep:hf-hub", "dep:tokenizers", "dep:candle-core", "dep:candle-transformers", "dep:candle-nn"]
 parquet = ["dep:datafusion", "dep:object_store", "dep:url", "windmill-common/parquet", "windmill-worker/parquet"]
 prometheus = ["windmill-common/prometheus", "windmill-queue/prometheus", "dep:prometheus", "windmill-worker/prometheus"]
 openidconnect = ["dep:openidconnect"]
@@ -35,8 +35,10 @@ sqs_trigger = ["dep:aws-sdk-sqs", "dep:thiserror", "dep:aws-config"]
 deno_core = ["dep:deno_core", "dep:deno_error"]
 gcp_trigger = ["dep:thiserror", "dep:google-cloud-pubsub", "dep:google-cloud-googleapis", "dep:tonic"]
 cloud = ["windmill-common/cloud"]
+mcp = ["dep:rmcp"]
 
 [dependencies]
+rmcp = { git = "https://github.com/windmill-labs/rust-sdk", features = ["transport-sse-server"], optional = true }
 windmill-queue.workspace = true
 windmill-common = { workspace = true, default-features = false }
 windmill-audit.workspace = true
@@ -52,7 +54,6 @@ tokio-stream.workspace = true
 anyhow.workspace = true
 argon2.workspace = true
 axum.workspace = true
-half = { workspace = true, optional = true}
 futures.workspace = true
 git-version.workspace = true
 tower.workspace = true

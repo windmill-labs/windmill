@@ -18,6 +18,8 @@ use crate::oauth2_ee::SlackVerifier;
 #[cfg(feature = "smtp")]
 use crate::smtp_server_ee::SmtpServer;
 
+#[cfg(feature = "mcp")]
+use crate::mcp::{setup_mcp_server, Runner as McpRunner};
 use crate::tracing_init::MyOnFailure;
 use crate::{
     tracing_init::{MyMakeSpan, MyOnResponse},
@@ -27,6 +29,7 @@ use crate::{
 
 #[cfg(feature = "agent_worker_server")]
 use agent_workers_ee::AgentCache;
+
 use anyhow::Context;
 use argon2::Argon2;
 use axum::extract::DefaultBodyLimit;
@@ -139,6 +142,9 @@ mod workspaces_ee;
 mod workspaces_export;
 mod workspaces_extra;
 
+#[cfg(feature = "mcp")]
+mod mcp;
+
 pub const DEFAULT_BODY_LIMIT: usize = 2097152 * 100; // 200MB
 
 lazy_static::lazy_static! {
@@ -219,6 +225,7 @@ pub async fn run_server(
     mut killpill_rx: tokio::sync::broadcast::Receiver<()>,
     port_tx: tokio::sync::oneshot::Sender<String>,
     server_mode: bool,
+    mcp_mode: bool,
     _base_internal_url: String,
 ) -> anyhow::Result<()> {
     let user_db = UserDB::new(db.clone());
@@ -404,7 +411,7 @@ pub async fn run_server(
         Router::new()
     };
 
-    if !*CLOUD_HOSTED && server_mode {
+    if !*CLOUD_HOSTED && server_mode && !mcp_mode {
         #[cfg(feature = "websocket")]
         {
             let ws_killpill_rx = killpill_rx.resubscribe();
@@ -448,9 +455,41 @@ pub async fn run_server(
         }
     }
 
+    let listener = tokio::net::TcpListener::bind(addr)
+        .await
+        .context("binding main windmill server")?;
+    let port = listener.local_addr().map(|x| x.port()).unwrap_or(8000);
+    let ip = listener
+        .local_addr()
+        .map(|x| x.ip().to_string())
+        .unwrap_or("localhost".to_string());
+
+    // Setup MCP server
+    #[allow(unused_variables)]
+    let (mcp_router, mcp_main_ct, mcp_service_ct) = {
+        #[cfg(feature = "mcp")]
+        if server_mode || mcp_mode {
+            let (mcp_sse_server, mcp_router) = setup_mcp_server(addr, "/api/mcp/w/:workspace_id")?;
+            #[cfg(feature = "mcp")]
+            let mcp_main_ct = mcp_sse_server.config.ct.clone(); // Token to signal shutdown *to* MCP
+            #[cfg(feature = "mcp")]
+            let mcp_service_ct = mcp_sse_server.with_service(McpRunner::new); // Token to wait for MCP *service* shutdown
+            (mcp_router, Some(mcp_main_ct), Some(mcp_service_ct))
+        } else {
+            (Router::new(), None, None)
+        }
+
+        #[cfg(not(feature = "mcp"))]
+        (Router::new(), None::<()>, None::<()>)
+    };
+
     #[cfg(feature = "agent_worker_server")]
     let (agent_workers_router, agent_workers_bg_processor, agent_workers_killpill_tx) =
-        agent_workers_ee::workspaced_service(db.clone(), _base_internal_url.clone());
+        if server_mode {
+            agent_workers_ee::workspaced_service(db.clone(), _base_internal_url.clone())
+        } else {
+            (Router::new(), vec![], None)
+        };
 
     #[cfg(feature = "agent_worker_server")]
     let agent_cache = Arc::new(AgentCache::new());
@@ -531,26 +570,6 @@ pub async fn run_server(
                 .nest("/ai", ai::global_service())
                 .route_layer(from_extractor::<ApiAuthed>())
                 .route_layer(from_extractor::<users::Tokened>())
-                .nest("/agent_workers", {
-                    #[cfg(feature = "agent_worker_server")]
-                    {
-                        agent_workers_ee::global_service().layer(Extension(agent_cache.clone()))
-                    }
-                    #[cfg(not(feature = "agent_worker_server"))]
-                    {
-                        Router::new()
-                    }
-                })
-                .nest("/w/:workspace_id/agent_workers", {
-                    #[cfg(feature = "agent_worker_server")]
-                    {
-                        agent_workers_router.layer(Extension(agent_cache.clone()))
-                    }
-                    #[cfg(not(feature = "agent_worker_server"))]
-                    {
-                        Router::new()
-                    }
-                })
                 .nest("/jobs", jobs::global_root_service())
                 .nest(
                     "/srch/w/:workspace_id/index",
@@ -586,6 +605,28 @@ pub async fn run_server(
                         .layer(from_extractor::<OptAuthed>())
                         .layer(cors.clone()),
                 )
+                .nest("/mcp/w/:workspace_id", mcp_router)
+                .layer(from_extractor::<OptAuthed>())
+                .nest("/agent_workers", {
+                    #[cfg(feature = "agent_worker_server")]
+                    {
+                        agent_workers_ee::global_service().layer(Extension(agent_cache.clone()))
+                    }
+                    #[cfg(not(feature = "agent_worker_server"))]
+                    {
+                        Router::new()
+                    }
+                })
+                .nest("/w/:workspace_id/agent_workers", {
+                    #[cfg(feature = "agent_worker_server")]
+                    {
+                        agent_workers_router.layer(Extension(agent_cache.clone()))
+                    }
+                    #[cfg(not(feature = "agent_worker_server"))]
+                    {
+                        Router::new()
+                    }
+                })
                 .nest(
                     "/w/:workspace_id/jobs_u",
                     jobs::workspace_unauthed_service().layer(cors.clone()),
@@ -694,14 +735,6 @@ pub async fn run_server(
                 .on_failure(MyOnFailure {}),
         )
     };
-    let listener = tokio::net::TcpListener::bind(addr)
-        .await
-        .context("binding main windmill server")?;
-    let port = listener.local_addr().map(|x| x.port()).unwrap_or(8000);
-    let ip = listener
-        .local_addr()
-        .map(|x| x.ip().to_string())
-        .unwrap_or("localhost".to_string());
 
     let server = axum::serve(listener, app.into_make_service());
 
@@ -719,14 +752,28 @@ pub async fn run_server(
     let server = server.with_graceful_shutdown(async move {
         killpill_rx.recv().await.ok();
         #[cfg(feature = "agent_worker_server")]
-        if let Err(e) = agent_workers_killpill_tx.kill().await {
-            tracing::error!("Error killing agent workers: {e:#}");
+        if let Some(agent_workers_killpill_tx) = agent_workers_killpill_tx {
+            if let Err(e) = agent_workers_killpill_tx.kill().await {
+                tracing::error!("Error killing agent workers: {e:#}");
+            }
         }
         tracing::info!("Graceful shutdown of server");
+
+        #[cfg(feature = "mcp")]
+        {
+            if let Some(mcp_main_ct) = mcp_main_ct {
+                tracing::info!("Received shutdown signal, cancelling MCP server...");
+                mcp_main_ct.cancel();
+            }
+            if let Some(mcp_service_ct) = mcp_service_ct {
+                tracing::info!("Waiting for MCP service cancellation...");
+                mcp_service_ct.cancelled().await;
+                tracing::info!("MCP service cancelled.");
+            }
+        }
     });
 
     server.await?;
-
     #[cfg(feature = "agent_worker_server")]
     for (i, bg_processor) in agent_workers_bg_processor.into_iter().enumerate() {
         tracing::info!("server off. shutting down agent worker bg processor {i}");
