@@ -253,7 +253,7 @@
 
 {#snippet customLabel()}
 	{@const IconComponent = triggerIconMap[selectedTrigger.type]}
-	<div class="flex flex-row gap-2 items-center grow min-w-0">
+	<div class="flex flex-row gap-2 items-center grow min-w-0 pr-2">
 		<IconComponent
 			size={16}
 			class={twMerge(selectedTrigger.isDraft ? 'text-frost-400' : '', 'shrink-0')}
