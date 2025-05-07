@@ -872,7 +872,7 @@
 									<Module.default
 										showReset
 										disabled={!can_write || !editMode}
-										{schema}
+										schema={$state.snapshot(schema)}
 										bind:isValid
 										bind:args
 									/>
