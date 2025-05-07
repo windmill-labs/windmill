@@ -87,6 +87,22 @@
 		cli: { icon: Terminal }
 	}
 
+	const allTypes = [
+		'webhook',
+		'schedule',
+		'http',
+		'websocket',
+		'postgres',
+		'kafka',
+		'email',
+		'nats',
+		'mqtt',
+		'sqs',
+		'gcp',
+		'poll',
+		'cli'
+	]
+
 	function camelCaseToWords(s: string) {
 		const result = s.replace(/([A-Z])/g, ' $1')
 		return result.charAt(0).toUpperCase() + result.slice(1).toLowerCase()
@@ -112,14 +128,32 @@
 		)
 	)
 
-	// Extract unique trigger types for display, only keep the first 5
-	let allTriggerTypes = $derived(Object.keys(triggersGrouped) as TriggerType[])
+	let noTriggers = $derived(triggers.length === 0)
+
+	// Extract unique trigger types for display, only keep the first
+	let allTriggerTypes = $derived.by(() => {
+		const types = !noTriggers ? (Object.keys(triggersGrouped) as TriggerType[]) : allTypes
+		//filter out types if showOnlyTriggersWithCount is true and there are no triggers for that type
+		return types.filter(
+			(type) =>
+				(!showOnlyTriggersWithCount ||
+					((triggerTypeConfig[type].countKey &&
+						($triggersCount?.[triggerTypeConfig[type].countKey] ?? 0)) ||
+						0) > 0) &&
+				!triggerTypeConfig[type].disabled
+		)
+	})
 	let triggersToDisplay = $derived(limit ? allTriggerTypes.slice(0, limit) : allTriggerTypes)
 	let extraTriggers = $derived(
 		limit && allTriggerTypes.length > limit
 			? allTriggerTypes.slice(limit).flatMap((type) => triggersGrouped[type])
 			: []
 	)
+	// Fallback for when there are no triggers in the store but we have the types
+	let extraTriggersType = $derived(
+		limit && allTriggerTypes.length > limit ? allTriggerTypes.slice(limit) : []
+	)
+	let showOnlyTriggersWithCount = $derived(showOnlyWithCount || triggers.length === 0)
 
 	$effect(() => {
 		if (allTriggerTypes) {
@@ -159,6 +193,7 @@
 						menuClass={'max-w-56'}
 						class="h-fit"
 						bind:open={menuOpen}
+						disabled={!triggersGrouped[type]}
 					>
 						{#snippet trigger({ trigger })}
 							{@render triggerButton({
@@ -200,9 +235,15 @@
 				{/snippet}
 
 				{#snippet children({ item })}
-					{#each extraTriggers as trigger}
-						{@render triggerItem({ trigger, item })}
-					{/each}
+					{#if extraTriggers.length > 0}
+						{#each extraTriggers as trigger}
+							{@render triggerItem({ trigger, item })}
+						{/each}
+					{:else if extraTriggersType.length > 0}
+						{#each extraTriggersType as type}
+							{@render simpleTriggerItem({ item, type })}
+						{/each}
+					{/if}
 				{/snippet}
 			</Menu>
 		{/if}
@@ -211,50 +252,57 @@
 
 {#snippet triggerButton({ type, isSelected, meltElement = undefined, singleItem = false })}
 	{@const { icon: SvelteComponent, countKey } = triggerTypeConfig[type]}
-	{#if (!showOnlyWithCount || ((countKey && ($triggersCount?.[countKey] ?? 0)) || 0) > 0) && !triggerTypeConfig[type].disabled}
-		<MeltButton
-			class={twMerge(
-				'hover:bg-surface-hover rounded-md shadow-sm text-xs relative center-center cursor-pointer bg-surface',
-				'dark:outline outline-1 outline-offset-[-1px] outline-tertiary/20 group',
-				isSelected ? 'outline-tertiary outline' : '',
-				small ? 'w-[23px] h-[23px] ' : 'p-2'
-			)}
-			on:click={(e) => {
-				e.stopPropagation()
-				e.preventDefault()
-				if (singleItem) {
-					dispatch('select', triggersGrouped[type][0])
-				}
-			}}
-			{meltElement}
-		>
-			{#if countKey}
-				{@const count = $triggersCount?.[countKey] ?? 0}
-				{#if count > 0}
-					<div
-						class={twMerge(
-							'absolute z-10 bg-gray-400 transition-all duration-100',
-							'rounded-full shadow-sm flex center-center text-primary-inverse font-mono',
-							'group-hover:bg-gray-800 group-hover:scale-110',
-							small
-								? '-right-0.5 -top-0.5 h-[10px] w-[10px] group-hover:h-3 group-hover:w-3 group-hover:text-[8px]'
-								: '-right-1 -top-1 h-3 w-3 group-hover:h-4 group-hover:w-4 group-hover:text-xs',
-							'overflow-hidden'
-						)}
-					>
-						{#if count === undefined}
-							<Loader2 class="animate-spin text-2xs" />
-						{:else}
-							<span class="opacity-0 group-hover:opacity-100 transition-opacity duration-100"
-								>{count}</span
-							>
-						{/if}
-					</div>
-				{/if}
+
+	<MeltButton
+		class={twMerge(
+			'hover:bg-surface-hover rounded-md shadow-sm text-xs relative center-center cursor-pointer bg-surface',
+			'dark:outline outline-1 outline-offset-[-1px] outline-tertiary/20 group',
+			isSelected ? 'outline-tertiary outline' : '',
+			small ? 'w-[23px] h-[23px] ' : 'p-2'
+		)}
+		on:click={(e) => {
+			e.stopPropagation()
+			e.preventDefault()
+			if (singleItem) {
+				dispatch('select', triggersGrouped[type][0])
+			}
+		}}
+		{meltElement}
+	>
+		{#if countKey}
+			{@const count = $triggersCount?.[countKey] ?? 0}
+			{#if count > 0}
+				<div
+					class={twMerge(
+						'absolute z-10 bg-gray-400 transition-all duration-100',
+						'rounded-full shadow-sm flex center-center text-primary-inverse font-mono',
+						'group-hover:bg-gray-800 group-hover:scale-110',
+						small
+							? '-right-0.5 -top-0.5 h-[10px] w-[10px] group-hover:h-3 group-hover:w-3 group-hover:text-[8px]'
+							: '-right-1 -top-1 h-3 w-3 group-hover:h-4 group-hover:w-4 group-hover:text-xs',
+						noTriggers
+							? small
+								? 'h-3 w-3 text-[8px] hover:bg-gray-800 scale-110'
+								: 'h-4 w-4 text-xs'
+							: '',
+						'overflow-hidden'
+					)}
+				>
+					{#if count === undefined}
+						<Loader2 class="animate-spin text-2xs" />
+					{:else}
+						<span
+							class={twMerge(
+								'opacity-0 group-hover:opacity-100 transition-opacity duration-100',
+								noTriggers ? 'opacity-100' : ''
+							)}>{count}</span
+						>
+					{/if}
+				</div>
 			{/if}
-			<SvelteComponent size={small ? 12 : 14} />
-		</MeltButton>
-	{/if}
+		{/if}
+		<SvelteComponent size={small ? 12 : 14} />
+	</MeltButton>
 {/snippet}
 
 {#snippet triggerItem({ trigger, item })}
@@ -266,5 +314,20 @@
 		}}
 	>
 		<TriggerLabel {trigger} />
+	</MenuItem>
+{/snippet}
+
+{#snippet simpleTriggerItem({ item, type })}
+	{@const { icon: SvelteComponent, countKey } = triggerTypeConfig[type]}
+	<MenuItem {item} class={itemClass}>
+		<div class="flex flex-row items-center gap-2">
+			<SvelteComponent size={14} />
+			{camelCaseToWords(type)}
+			{#if countKey}
+				<div class="text-xs text-gray-400">
+					{$triggersCount?.[countKey] ?? 0}
+				</div>
+			{/if}
+		</div>
 	</MenuItem>
 {/snippet}
