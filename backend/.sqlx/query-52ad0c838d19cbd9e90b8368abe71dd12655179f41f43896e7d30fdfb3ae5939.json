@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "WITH job_result AS (\n                 SELECT result \n                 FROM v2_job_completed \n                 WHERE id = $1\n             )\n             UPDATE v2_job \n             SET args = COALESCE(\n                     CASE \n                         WHEN job_result.result IS NULL THEN NULL\n                         WHEN jsonb_typeof(job_result.result) = 'object' \n                         THEN job_result.result\n                         WHEN jsonb_typeof(job_result.result) = 'null'\n                         THEN NULL\n                         ELSE jsonb_build_object('value', job_result.result)\n                     END, \n                     '{}'::jsonb\n                 ),\n                 preprocessed = TRUE\n             FROM job_result\n             WHERE v2_job.id = $2;\n             ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "52ad0c838d19cbd9e90b8368abe71dd12655179f41f43896e7d30fdfb3ae5939"
+}

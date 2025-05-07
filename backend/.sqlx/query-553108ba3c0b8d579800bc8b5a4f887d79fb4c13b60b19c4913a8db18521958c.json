@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE v2_job_queue q SET suspend = 0\n                             FROM v2_job j, v2_job_status f\n                             WHERE parent_job = $1\n                                 AND f.id = j.id AND q.id = j.id\n                                 AND suspend = $2 AND (f.flow_status->'step')::int = 0",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Int4"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "553108ba3c0b8d579800bc8b5a4f887d79fb4c13b60b19c4913a8db18521958c"
+}
