@@ -8463,8 +8463,7 @@ dependencies = [
 [[package]]
 name = "object_store"
 version = "0.12.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e9ce831b09395f933addbc56d894d889e4b226eba304d4e7adbab591e26daf1e"
+source = "git+https://github.com/apache/arrow-rs-object-store?rev=36752c975d4f29e20b57c91f81a10872dcd48ae7#36752c975d4f29e20b57c91f81a10872dcd48ae7"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
@@ -8482,7 +8481,7 @@ dependencies = [
  "parking_lot 0.12.3",
  "percent-encoding",
  "quick-xml 0.37.5",
- "rand 0.8.5",
+ "rand 0.9.0",
  "reqwest 0.12.15",
  "ring 0.17.14",
  "serde",
@@ -8493,6 +8492,8 @@ dependencies = [
  "tracing",
  "url",
  "walkdir",
+ "wasm-bindgen-futures",
+ "web-time",
 ]
 
 [[package]]
