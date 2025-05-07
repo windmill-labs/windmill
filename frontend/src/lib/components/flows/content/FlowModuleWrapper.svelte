@@ -21,6 +21,8 @@
 	import { initFlowStepWarnings } from '../utils'
 	import { dfs } from '../dfs'
 	import type { TriggerContext } from '$lib/components/triggers'
+	import { addDraftTrigger, updateDraftConfig } from '$lib/components/triggers/utils'
+	import { formatCron } from '$lib/utils'
 
 	export let flowModule: FlowModule
 	export let noEditor: boolean = false
@@ -30,7 +32,7 @@
 	const { selectedId, flowStateStore, flowInputsStore, flowStore } =
 		getContext<FlowEditorContext>('FlowEditorContext')
 
-	const { primarySchedule } = getContext<TriggerContext>('TriggerContext')
+	const { triggers, triggersCount } = getContext<TriggerContext>('TriggerContext')
 
 	let scriptKind: 'script' | 'trigger' | 'approval' = 'script'
 	let scriptTemplate: 'pgsql' | 'mysql' | 'script' | 'docker' | 'powershell' = 'script'
@@ -42,19 +44,33 @@
 	export let previousModule: FlowModule | undefined = undefined
 
 	function initializePrimaryScheduleForTriggerScript(module: FlowModule) {
-		if (!$primarySchedule) {
-			$primarySchedule = {
+		const primary = $triggers.find((t) => t.isPrimary)
+		if (!primary) {
+			const primaryCfg = {
 				summary: 'Scheduled poll of flow',
 				args: {},
-				cron: '0 */15 * * *',
+				schedule: formatCron('0 */15 * * *'),
 				timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-				enabled: true
+				enabled: true,
+				is_flow: true
+			}
+			addDraftTrigger(triggers, triggersCount, 'schedule', undefined, primaryCfg)
+		} else if (primary.draftConfig) {
+			//If there is a primary schedule draft update it
+			const newCfg = { ...primary.draftConfig }
+			let updated = false
+			if (!newCfg.cron) {
+				newCfg.cron = '0 */15 * * *'
+				updated = true
+			}
+			if (!newCfg.enabled) {
+				newCfg.enabled = true
+				updated = true
+			}
+			if (updated) {
+				updateDraftConfig(triggers, primary, newCfg)
 			}
 		}
-		if (!$primarySchedule.cron) {
-			$primarySchedule.cron = '0 */15 * * *'
-		}
-		$primarySchedule.enabled = true
 
 		module.stop_after_if = {
 			expr: 'result == undefined || Array.isArray(result) && result.length == 0',

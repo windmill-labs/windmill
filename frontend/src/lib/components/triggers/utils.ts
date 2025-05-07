@@ -4,7 +4,7 @@ import NatsIcon from '$lib/components/icons/NatsIcon.svelte'
 import MqttIcon from '$lib/components/icons/MqttIcon.svelte'
 import AwsIcon from '$lib/components/icons/AwsIcon.svelte'
 import GoogleCloudIcon from '$lib/components/icons/GoogleCloudIcon.svelte'
-import type { CaptureTriggerKind } from '$lib/gen/types.gen'
+import type { CaptureTriggerKind, TriggersCount } from '$lib/gen/types.gen'
 import type { Writable } from 'svelte/store'
 import { get } from 'svelte/store'
 import {
@@ -63,6 +63,7 @@ export type Trigger = {
 	draftConfig?: Record<string, any>
 	captureConfig?: Record<string, any>
 	extra?: Record<string, any>
+	lightConfig?: Record<string, any>
 }
 
 // Map of trigger kinds to icons
@@ -120,8 +121,10 @@ function generateDraftId(): string {
  */
 export function addDraftTrigger(
 	triggersStore: Writable<Trigger[]>,
+	triggersCountStore: Writable<TriggersCount | undefined>,
 	type: TriggerType,
-	path?: string
+	path?: string,
+	draftCfg?: Record<string, any>
 ): Trigger {
 	const currentTriggers = get(triggersStore)
 
@@ -129,16 +132,35 @@ export function addDraftTrigger(
 
 	// Create the new draft trigger
 	const draftId = generateDraftId()
+	const isPrimary = type === 'schedule' && !primaryScheduleExists
 	const newTrigger = {
 		id: draftId,
 		type,
 		path,
-		isPrimary: type === 'schedule' && !primaryScheduleExists,
-		isDraft: true
+		isPrimary,
+		isDraft: true,
+		draftConfig: draftCfg
 	}
 
 	// Add new draft to the store
 	triggersStore.update((triggers) => [...triggers, newTrigger])
+
+	if (type === 'schedule') {
+		triggersCountStore.update((triggersCount) => {
+			if (isPrimary) {
+				return {
+					...(triggersCount ?? {}),
+					schedule_count: (triggersCount?.schedule_count ?? 0) + 1,
+					primary_schedule: draftCfg?.cron ? { schedule: draftCfg?.cron } : undefined
+				}
+			} else {
+				return {
+					...(triggersCount ?? {}),
+					schedule_count: (triggersCount?.schedule_count ?? 0) + 1
+				}
+			}
+		})
+	}
 
 	return newTrigger
 }
@@ -276,7 +298,7 @@ export async function fetchSchedules(
 	workspaceId: string | undefined,
 	path: string,
 	isFlow: boolean,
-	primarySchedule: ScheduleTrigger | undefined | false = undefined
+	primarySchedule?: ScheduleTrigger | undefined | false
 ): Promise<void> {
 	if (!workspaceId) return
 	try {
@@ -302,7 +324,11 @@ export async function fetchSchedules(
 					type: 'schedule',
 					path: deployedPrimarySchedule.path,
 					isPrimary: true,
-					isDraft: false
+					isDraft: false,
+					lightConfig: {
+						enabled: deployedPrimarySchedule.enabled,
+						schedule: deployedPrimarySchedule.schedule
+					}
 				}
 			])
 		} else if (primarySchedule) {
@@ -576,13 +602,20 @@ export async function deployTriggers(
 	triggersToDeploy: Trigger[],
 	workspaceId: string | undefined,
 	isAdmin: boolean,
-	usedTriggerKinds: Writable<string[]>
+	usedTriggerKinds: Writable<string[]>,
+	initialPath?: string
 ) {
-	console.log('dbg deployTriggers 2', triggersToDeploy, workspaceId)
 	if (!workspaceId) return
 	await Promise.all(
 		triggersToDeploy.map((t) => {
 			if (t.type === 'schedule') {
+				if (t.isPrimary && initialPath) {
+					t.draftConfig = {
+						...t.draftConfig,
+						path: initialPath,
+						script_path: initialPath
+					}
+				}
 				saveScheduleFromCfg(t.draftConfig ?? {}, !t.isDraft, workspaceId)
 			} else if (t.type === 'http') {
 				saveHttpRouteFromCfg(
@@ -656,6 +689,7 @@ export async function deployTriggers(
 
 export function handleSelectTriggerFromKind(
 	triggersStore: Writable<Trigger[]>,
+	triggersCountStore: Writable<TriggersCount | undefined>,
 	selectedTriggerStore: Writable<Trigger | undefined>,
 	initialPath: string | undefined,
 	triggerKind: TriggerKind
@@ -673,6 +707,7 @@ export function handleSelectTriggerFromKind(
 	} else {
 		const newTrigger = addDraftTrigger(
 			triggersStore,
+			triggersCountStore,
 			triggerType,
 			triggerType === 'schedule' ? initialPath : undefined
 		)

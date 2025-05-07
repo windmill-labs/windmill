@@ -20,7 +20,7 @@
 	import { userStore, workspaceStore } from '$lib/stores'
 	import { getUserExt } from '$lib/user'
 	import DarkModeToggle from '$lib/components/sidebar/DarkModeToggle.svelte'
-	import type { ScheduleTrigger, TriggerContext } from '$lib/components/triggers'
+	import type { TriggerContext } from '$lib/components/triggers'
 	import type { FlowPropPickerConfig, PropPickerContext } from '$lib/components/prop_picker'
 	import type { PickableProperties } from '$lib/components/flows/previousResults'
 	import type { Trigger } from '$lib/components/triggers/utils'
@@ -78,11 +78,9 @@
 
 	const testStepStore = writable<Record<string, any>>({})
 	const selectedIdStore = writable('settings-metadata')
-	const primaryScheduleStore = writable<ScheduleTrigger | undefined | false>(undefined)
 	const triggersCount = writable<TriggersCount | undefined>(undefined)
 	const selectedTriggerStore = writable<Trigger | undefined>(undefined)
 	setContext<TriggerContext>('TriggerContext', {
-		primarySchedule: primaryScheduleStore,
 		selectedTrigger: selectedTriggerStore,
 		triggersCount: triggersCount,
 		simplifiedPoll: writable(false),

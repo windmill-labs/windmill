@@ -397,7 +397,8 @@
 						triggersToDeploy,
 						$workspaceStore,
 						!!$userStore?.is_admin || !!$userStore?.is_super_admin,
-						usedTriggerKinds
+						usedTriggerKinds,
+						$pathStore
 					)
 				}
 			} else {
@@ -412,7 +413,8 @@
 						triggersToDeploy,
 						$workspaceStore,
 						!!$userStore?.is_admin || !!$userStore?.is_super_admin,
-						usedTriggerKinds
+						usedTriggerKinds,
+						initialPath
 					)
 				}
 
@@ -532,7 +534,6 @@
 	const selectedTriggerStore = writable<Trigger | undefined>(undefined)
 	setContext<TriggerContext>('TriggerContext', {
 		selectedTrigger: selectedTriggerStore,
-		primarySchedule: primaryScheduleStore,
 		triggersCount,
 		simplifiedPoll,
 		defaultValues: writable(undefined),
@@ -1398,6 +1399,7 @@
 							select('triggers')
 							handleSelectTriggerFromKind(
 								triggersStore,
+								triggersCount,
 								selectedTriggerStore,
 								initialPath,
 								e.detail.kind

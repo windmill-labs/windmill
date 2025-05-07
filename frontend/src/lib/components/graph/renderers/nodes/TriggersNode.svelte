@@ -28,8 +28,7 @@
 		selectedId: Writable<string | undefined>
 	}>('FlowGraphContext')
 
-	const { primarySchedule, triggersCount, selectedTrigger, triggers } =
-		getContext<TriggerContext>('TriggerContext')
+	const { triggersCount, selectedTrigger, triggers } = getContext<TriggerContext>('TriggerContext')
 </script>
 
 <NodeWrapper wrapperClass="shadow-md rounded-sm" let:darkMode>
@@ -73,7 +72,7 @@
 				data.eventHandlers.delete(e, '')
 			}}
 			on:addDraftTrigger={async (e) => {
-				const newTrigger = addDraftTrigger(triggers, e.detail)
+				const newTrigger = addDraftTrigger(triggers, triggersCount, e.detail)
 				data?.eventHandlers?.select('triggers')
 				await tick()
 				$selectedTrigger = newTrigger
@@ -94,22 +93,26 @@
 				data?.eventHandlers?.select(e.detail)
 			}}
 		>
-			{#if $primarySchedule || ($primarySchedule == undefined && $triggersCount?.primary_schedule?.schedule)}
+			{#if $triggers.some((t) => t.isPrimary)}
+				{@const primary = $triggers.find((t) => t.isPrimary)}
+				{@const { enabled, schedule } = primary?.draftConfig
+					? {
+							enabled: primary?.draftConfig?.enabled,
+							schedule: primary?.draftConfig?.schedule
+						}
+					: { enabled: primary?.lightConfig?.enabled, schedule: primary?.lightConfig?.schedule }}
 				<div class="text-2xs text-primary p-2 flex gap-2 items-center">
 					<Calendar size={12} />
 					<div>
-						Schedule every {$primarySchedule?.cron ?? $triggersCount?.primary_schedule?.schedule}
-						{$primarySchedule?.enabled ||
-						($primarySchedule == undefined && $triggersCount?.primary_schedule?.schedule)
-							? ''
-							: ' (disabled)'}
+						Schedule every {schedule}
+						{enabled ? '' : ' (disabled)'}
 					</div>
 				</div>
 			{:else}
 				<button
 					class="px-2 py-1 hover:bg-surface-inverse w-full hover:text-primary-inverse"
 					on:click={() => {
-						setScheduledPollSchedule(primarySchedule, triggersCount)
+						setScheduledPollSchedule(triggers, triggersCount)
 					}}
 				>
 					Set primary schedule

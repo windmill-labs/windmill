@@ -58,7 +58,7 @@
 		simplifiedPoll,
 		selectedTrigger: selectedTrigger,
 		triggers,
-		primarySchedule
+		triggersCount
 	} = getContext<TriggerContext>('TriggerContext')
 
 	const dispatch = createEventDispatcher()
@@ -109,7 +109,7 @@
 		}
 
 		if (trigger.type === 'schedule') {
-			await fetchSchedules(triggers, $workspaceStore, currentPath, isFlow, $primarySchedule)
+			await fetchSchedules(triggers, $workspaceStore, currentPath, isFlow)
 		} else if (trigger.type === 'websocket') {
 			await fetchWebsocketTriggers(triggers, $workspaceStore, currentPath, isFlow, $userStore)
 		} else if (trigger.type === 'postgres') {
@@ -167,6 +167,7 @@
 								on:addDraftTrigger={({ detail }) => {
 									const newTrigger = addDraftTrigger(
 										triggers,
+										triggersCount,
 										detail,
 										detail === 'schedule' ? initialPath : undefined
 									)
@@ -190,7 +191,7 @@
 						<div class="p-2 flex flex-col gap-2 bg-surface-secondary">
 							<AddTriggersButton
 								on:addDraftTrigger={({ detail }) => {
-									const newTrigger = addDraftTrigger(triggers, detail)
+									const newTrigger = addDraftTrigger(triggers, triggersCount, detail)
 									$selectedTrigger = newTrigger
 								}}
 								class="w-fit h-fit"

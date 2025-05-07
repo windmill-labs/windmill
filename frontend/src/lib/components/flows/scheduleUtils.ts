@@ -178,7 +178,6 @@ export async function saveScheduleFromCfg(
 		})
 		sendUserToast(`Schedule ${scheduleCfg.path} updated`)
 	} else {
-		console.log('dbg saveScheduleFromCfg', scheduleCfg)
 		await ScheduleService.createSchedule({
 			workspace,
 			requestBody: {

@@ -222,7 +222,6 @@
 	const selectedTriggerStore = writable<Trigger | undefined>(undefined)
 	setContext<TriggerContext>('TriggerContext', {
 		selectedTrigger: selectedTriggerStore,
-		primarySchedule: primaryScheduleStore,
 		triggersCount,
 		simplifiedPoll,
 		defaultValues: triggerDefaultValuesStore,
@@ -509,7 +508,8 @@
 					triggersToDeploy,
 					$workspaceStore,
 					!!$userStore?.is_admin || !!$userStore?.is_super_admin,
-					usedTriggerKinds
+					usedTriggerKinds,
+					script.path
 				)
 			}
 

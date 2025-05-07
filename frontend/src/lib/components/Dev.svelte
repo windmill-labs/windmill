@@ -47,7 +47,7 @@
 		parseTypescriptDeps
 	} from '$lib/relative_imports'
 	import Tooltip from './Tooltip.svelte'
-	import type { ScheduleTrigger, TriggerContext } from './triggers'
+	import type { TriggerContext } from './triggers'
 	import { workspaceAIClients } from './copilot/lib'
 	import type { FlowPropPickerConfig, PropPickerContext } from './prop_picker'
 	import type { PickableProperties } from './flows/previousResults'
@@ -496,10 +496,8 @@
 	const selectedIdStore = writable('settings-metadata')
 	const selectedTriggerStore = writable<Trigger | undefined>(undefined)
 
-	const primaryScheduleStore = writable<ScheduleTrigger | undefined | false>(undefined)
 	const triggersCount = writable<TriggersCount | undefined>(undefined)
 	setContext<TriggerContext>('TriggerContext', {
-		primarySchedule: primaryScheduleStore,
 		selectedTrigger: selectedTriggerStore,
 		triggersCount: triggersCount,
 		simplifiedPoll: writable(false),
