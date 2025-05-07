@@ -76,7 +76,7 @@
 	{@render extra?.()}
 {:else}
 	<div class="flex flex-row gap-2 items-center">
-		{#if !isDraftOnly && !hasDraft}
+		{#if !isDraftOnly && !hasDraft && enabled !== undefined}
 			<div class="center-center">
 				<Toggle
 					size="xs"
