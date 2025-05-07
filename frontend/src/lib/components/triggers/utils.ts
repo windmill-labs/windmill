@@ -205,23 +205,6 @@ export function setCaptureConfig(
 	)
 }
 
-export function setSaveCallback(
-	triggersStore: Writable<Trigger[]>,
-	trigger: Trigger,
-	saveCb: () => void
-) {
-	if (trigger.isDraft) {
-		triggersStore.update((triggers) =>
-			triggers.map((t) => (t.id === trigger.id ? { ...t, saveCb } : t))
-		)
-	} else {
-		triggersStore.update((triggers) =>
-			triggers.map((t) =>
-				t.path === trigger.path && t.type === trigger.type ? { ...t, saveCb } : t
-			)
-		)
-	}
-}
 /**
  * Fetch all types of triggers
  */
