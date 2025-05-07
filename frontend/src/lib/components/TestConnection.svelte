@@ -90,6 +90,34 @@ export async function main(s3: S3) {
 			lang: 'bun',
 			argName: 's3'
 		},
+		azure_blob: {
+			code: `
+import * as wmill from "windmill-client"
+
+type S3 = object
+
+export async function main(s3: S3) {
+	return fetch(process.env["BASE_URL"] + '/api/settings/test_object_storage_config', {
+		method: 'POST',
+		headers: {
+			'Content-Type': 'application/json',
+			Authorization: 'Bearer ' + process.env["WM_TOKEN"],
+		},
+		body: JSON.stringify({
+			type: "Azure",
+			...s3
+		}),
+	}).then(async (res) => {
+		if (!res.ok) {
+			throw new Error(await res.text())
+		}
+		return res.text()
+	})
+}
+`,
+			lang: 'bun',
+			argName: 's3'
+		},
 		graphql: {
 			code: '{ __typename }',
 			lang: 'graphql',
