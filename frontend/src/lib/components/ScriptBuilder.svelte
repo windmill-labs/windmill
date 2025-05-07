@@ -225,7 +225,6 @@
 		selectedTrigger: selectedTriggerStore,
 		triggersCount,
 		simplifiedPoll,
-		captureOn: captureOn,
 		showCaptureHint: showCaptureHint,
 		triggers: triggersStore
 	})

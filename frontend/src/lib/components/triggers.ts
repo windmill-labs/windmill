@@ -16,7 +16,6 @@ export type TriggerContext = {
 	selectedTrigger: Writable<Trigger | undefined>
 	triggersCount: Writable<TriggersCount | undefined>
 	simplifiedPoll: Writable<boolean | undefined>
-	captureOn: Writable<boolean | undefined>
 	showCaptureHint: Writable<boolean | undefined>
 	triggers: Writable<Trigger[]>
 }
