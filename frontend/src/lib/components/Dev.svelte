@@ -501,7 +501,6 @@
 		selectedTrigger: selectedTriggerStore,
 		triggersCount: triggersCount,
 		simplifiedPoll: writable(false),
-		defaultValues: writable(undefined),
 		captureOn: writable(undefined),
 		showCaptureHint: writable(undefined),
 		triggers: writable([])

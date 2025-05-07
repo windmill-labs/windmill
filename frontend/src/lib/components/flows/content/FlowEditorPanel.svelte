@@ -37,7 +37,7 @@
 		flowInputEditorState
 	} = getContext<FlowEditorContext>('FlowEditorContext')
 
-	const { selectedTrigger, defaultValues, captureOn, showCaptureHint, triggers, triggersCount } =
+	const { selectedTrigger, captureOn, showCaptureHint, triggers, triggersCount } =
 		getContext<TriggerContext>('TriggerContext')
 	function checkDup(modules: FlowModule[]): string | undefined {
 		let seenModules: string[] = []
@@ -90,7 +90,7 @@
 				savedFlow?.path,
 				ev.detail.kind
 			)
-			defaultValues.set(ev.detail.config)
+
 			captureOn.set(true)
 			showCaptureHint.set(true)
 		}}

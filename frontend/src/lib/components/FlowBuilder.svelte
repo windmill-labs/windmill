@@ -536,7 +536,6 @@
 		selectedTrigger: selectedTriggerStore,
 		triggersCount,
 		simplifiedPoll,
-		defaultValues: writable(undefined),
 		captureOn,
 		showCaptureHint,
 		triggers: triggersStore
