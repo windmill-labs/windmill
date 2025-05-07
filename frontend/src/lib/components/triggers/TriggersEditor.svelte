@@ -362,12 +362,22 @@
 					newDraft={selected.draftConfig === undefined}
 					edit={editTrigger === selected}
 					{schema}
-					on:update-config
-					on:update
-					on:save-draft
-					on:reset
-					on:toggle-edit-mode
-					on:delete
+					{isEditor}
+					on:delete={() => {
+						deleteDraftTrigger(selected)
+					}}
+					on:toggle-edit-mode={({ detail }) => {
+						editTrigger = detail ? selected : undefined
+					}}
+					on:update={({ detail }) => {
+						handleUpdate(selected, detail)
+					}}
+					on:save-draft={({ detail }) => {
+						handleUpdateDraftConfig(detail.cfg)
+					}}
+					on:reset={() => {
+						handleResetDraft(selected)
+					}}
 				/>
 			{/if}
 		</div>
