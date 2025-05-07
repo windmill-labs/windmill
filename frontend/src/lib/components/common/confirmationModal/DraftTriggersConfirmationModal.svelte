@@ -129,14 +129,14 @@
 												value={'discard'}
 												{item}
 												small
-												class="data-[state=on]:dark:text-red-400 data-[state=on]:text-red-500"
+												class="data-[state=on]:text-white data-[state=on]:bg-red-400"
 											/>
 											<ToggleButton
 												label="Deploy"
 												value={'deploy'}
 												{item}
 												small
-												class="data-[state=on]:dark:text-blue-400 data-[state=on]:text-blue-500"
+												class="data-[state=on]:bg-marine-400 data-[state=on]:text-white data-[state=on]:dark:bg-marine-50 data-[state=on]:dark:text-primary-inverse"
 											/>
 										</ToggleButtonGroup>
 									</div>
