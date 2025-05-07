@@ -14141,6 +14141,7 @@ dependencies = [
  "crc",
  "cron",
  "croner",
+ "datafusion",
  "futures",
  "futures-core",
  "gethostname",
@@ -14181,6 +14182,7 @@ dependencies = [
  "tikv-jemalloc-ctl",
  "tokio",
  "tokio-stream",
+ "tokio-util",
  "tonic",
  "tracing",
  "tracing-appender",
@@ -14189,6 +14191,7 @@ dependencies = [
  "tracing-subscriber",
  "uuid",
  "windmill-macros",
+ "windmill-parser-sql",
 ]
 
 [[package]]

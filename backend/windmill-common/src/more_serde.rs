@@ -9,6 +9,7 @@
 //! helpers for serde + serde derive attributes
 
 use crate::{error::to_anyhow, utils::rd_string};
+use futures::TryStreamExt;
 use serde::{Deserialize, Deserializer};
 use serde_json::value::RawValue;
 use std::{fmt::Display, str::FromStr};
@@ -111,16 +112,17 @@ impl<'de, 'a> serde::de::DeserializeSeed<'de> for SerdeArrMpscDeserializer<'a> {
     }
 }
 
+// Takes in a stream of a json array and returns a stream of each value in the array.
+//
 // Main reason for this is that we need to tranform a huge json (from bigquery)
 // into csv or parquet format. But this requires parsing the json, which may
-// be too big to fit in memory. So we need to parse the json in chunks.
-pub async fn json_stream_arr_values<S>(
+// be too big to fit in memory.
+pub async fn json_stream_arr_values<S, T, E: Display>(
     mut stream: S,
-    tmp_filename: &str,
 ) -> anyhow::Result<impl StreamExt<Item = serde_json::Value>>
 where
-    S: futures::stream::TryStreamExt + Send + Unpin + 'static,
-    bytes::Bytes: From<S::Ok>,
+    S: TryStreamExt<Item = Result<T, E>> + Send + Unpin + 'static,
+    bytes::Bytes: From<T>,
 {
     const MAX_MPSC_SIZE: usize = 1000;
 
@@ -129,20 +131,27 @@ where
     use std::path::PathBuf;
     use tokio::io::AsyncWriteExt;
 
+    let tmp_filename = format!("tmp_json_stream_{}", rd_string(8));
+
     // Start by writing the async stream (from network) to a file.
     let mut path = PathBuf::from(std::env::temp_dir());
     path.push(tmp_filename);
-    let mut file = tokio::fs::File::create(&path).await.map_err(to_anyhow)?;
-    while let Ok(Some(chunk)) = stream.try_next().await {
+    let mut file: tokio::fs::File = tokio::fs::File::create(&path).await.map_err(to_anyhow)?;
+    while let Some(chunk) = stream.next().await {
+        let chunk = match chunk {
+            Ok(chunk) => chunk,
+            Err(e) => {
+                std::fs::remove_file(&path)?;
+                return Err(anyhow::anyhow!("Error reading stream: {}", e));
+            }
+        };
         let b: Bytes = chunk.into();
         file.write_all(&b).await?;
     }
 
     let (tx, rx) = tokio::sync::mpsc::channel(MAX_MPSC_SIZE);
-    let stream = tokio_stream::wrappers::ReceiverStream::new(rx);
 
-    // Then we can process the file in one go.
-    // This will be blocking so we spawn a dedicated blocking task
+    // Then we read the file and pipe each element to the channel in a blocking task.
     let _: JoinHandle<anyhow::Result<()>> = task::spawn_blocking(move || {
         let sync_file = std::fs::File::open(&path).map_err(to_anyhow)?;
         let mut buf_reader = std::io::BufReader::new(sync_file);
@@ -155,5 +164,7 @@ where
         std::fs::remove_file(&path)?;
         Ok(())
     });
+
+    let stream = tokio_stream::wrappers::ReceiverStream::new(rx);
     Ok(stream)
 }

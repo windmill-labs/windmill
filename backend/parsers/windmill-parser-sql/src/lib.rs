@@ -120,13 +120,23 @@ pub fn parse_db_resource(code: &str) -> Option<String> {
     cap.map(|x| x.get(1).map(|x| x.as_str().to_string()).unwrap())
 }
 
+#[derive(Clone, Copy, Debug)]
 pub enum S3ModeFormat {
     Json,
+    Csv,
+    Parquet,
+}
+pub fn s3_mode_extension(format: S3ModeFormat) -> &'static str {
+    match format {
+        S3ModeFormat::Json => "json",
+        S3ModeFormat::Csv => "csv",
+        S3ModeFormat::Parquet => "parquet",
+    }
 }
 pub struct S3ModeArgs {
     pub prefix: Option<String>,
     pub storage: Option<String>,
-    pub format: Option<S3ModeFormat>,
+    pub format: S3ModeFormat,
 }
 pub fn parse_s3_mode(code: &str) -> Option<S3ModeArgs> {
     let cap = RE_S3_MODE.captures(code)?;
@@ -137,7 +147,7 @@ pub fn parse_s3_mode(code: &str) -> Option<S3ModeArgs> {
 
     let mut prefix = None;
     let mut storage = None;
-    let mut format = Some(S3ModeFormat::Json);
+    let mut format = S3ModeFormat::Json;
 
     for kv in args_str.split(' ') {
         let mut it = kv.trim().split('=');
@@ -147,8 +157,10 @@ pub fn parse_s3_mode(code: &str) -> Option<S3ModeArgs> {
         match (key.trim(), value.trim()) {
             ("prefix", _) => prefix = Some(value.to_string()),
             ("storage", _) => storage = Some(value.to_string()),
-            ("format", "json") => format = Some(S3ModeFormat::Json),
-            _ => {}
+            ("format", "ndjson") => format = S3ModeFormat::Json,
+            ("format", "parquet") => format = S3ModeFormat::Parquet,
+            ("format", "csv") => format = S3ModeFormat::Csv,
+            _ => return None, // TODO transform to Err
         }
     }
 

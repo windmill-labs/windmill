@@ -12,7 +12,7 @@ tantivy = []
 prometheus = ["dep:prometheus"]
 loki = ["dep:tracing-loki"]
 benchmark = []
-parquet = ["dep:object_store", "dep:aws-config", "dep:aws-sdk-sts"]
+parquet = ["dep:object_store", "dep:aws-config", "dep:aws-sdk-sts", "dep:datafusion"]
 aws_auth = ["dep:aws-sdk-sts", "dep:aws-config"]
 otel = ["dep:opentelemetry-semantic-conventions", "dep:opentelemetry-otlp", "dep:opentelemetry_sdk", 
     "dep:opentelemetry", "dep:tracing-opentelemetry", "dep:opentelemetry-appender-tracing", "dep:tonic"]
@@ -45,6 +45,8 @@ axum = { workspace = true }
 hyper = { workspace = true }
 tokio = { workspace = true }
 tokio-stream.workspace = true
+tokio-util.workspace = true
+datafusion = { workspace = true, optional = true}
 reqwest = { workspace = true }
 tracing-subscriber = { workspace = true }
 lazy_static.workspace = true
@@ -68,6 +70,7 @@ async-stream.workspace = true
 const_format.workspace = true
 crc.workspace = true
 windmill-macros.workspace = true
+windmill-parser-sql.workspace = true
 jsonwebtoken.workspace = true
 backon.workspace = true
 

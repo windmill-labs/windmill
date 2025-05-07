@@ -1,9 +1,12 @@
 #[cfg(feature = "parquet")]
 use crate::error;
+use crate::error::to_anyhow;
+use crate::utils::rd_string;
 #[cfg(feature = "parquet")]
 use aws_sdk_sts::config::ProvideCredentials;
 #[cfg(feature = "parquet")]
 use axum::async_trait;
+use futures::TryStreamExt;
 #[cfg(feature = "parquet")]
 use object_store::aws::AwsCredential;
 #[cfg(feature = "parquet")]
@@ -17,8 +20,10 @@ use reqwest::header::HeaderMap;
 use serde::{Deserialize, Serialize};
 #[cfg(feature = "parquet")]
 use std::sync::Arc;
+use tokio::fs::File;
 #[cfg(feature = "parquet")]
 use tokio::sync::RwLock;
+use windmill_parser_sql::S3ModeFormat;
 
 #[cfg(feature = "parquet")]
 lazy_static::lazy_static! {
@@ -479,4 +484,88 @@ pub fn bundle(w_id: &str, hash: &str) -> String {
 
 pub fn raw_app(w_id: &str, version: &i64) -> String {
     format!("/home/rfiszel/raw_app/{}/{}", w_id, version)
+}
+
+pub async fn convert_ndjson<E: Into<anyhow::Error>>(
+    mut stream: impl futures::stream::TryStreamExt<Item = Result<serde_json::Value, E>> + Unpin,
+    output_format: S3ModeFormat,
+) -> anyhow::Result<impl TryStreamExt<Item = Result<bytes::Bytes, anyhow::Error>>> {
+    use datafusion::{
+        dataframe::DataFrameWriteOptions, execution::context::SessionContext,
+        prelude::NdJsonReadOptions,
+    };
+    use futures::StreamExt;
+    use std::path::PathBuf;
+    use tokio::io::AsyncWriteExt;
+    use tokio_util::io::ReaderStream;
+
+    // if matches!(output_format, S3ModeFormat::Json) {
+    //     return Ok(
+    //         stream.map(|row| Ok(serde_json::to_string(&row.map_err(|e| anyhow!(e))?)?.into()))
+    //     );
+    // }
+
+    let mut path = PathBuf::from(std::env::temp_dir());
+    path.push(format!("tmp_ndjson{}", rd_string(8)));
+    let path_str = path
+        .to_str()
+        .ok_or_else(|| anyhow::anyhow!("Invalid path"))?;
+    let mut converted_path = PathBuf::from(std::env::temp_dir());
+    converted_path.push(format!("tmp_ndjson{}", rd_string(8)));
+    let converted_path_str = converted_path
+        .to_str()
+        .ok_or_else(|| anyhow::anyhow!("Invalid path"))?;
+
+    // Write the stream to a temporary file
+    let mut file: tokio::fs::File = tokio::fs::File::create(&path).await.map_err(to_anyhow)?;
+    while let Some(chunk) = stream.next().await {
+        match chunk {
+            Ok(chunk) => {
+                // Convert the chunk to bytes and write it to the file
+                let b: bytes::Bytes = serde_json::to_string(&chunk)?.into();
+                file.write_all(&b).await?;
+                file.write(b"\n").await?;
+            }
+            Err(e) => {
+                std::fs::remove_file(&path)?;
+                return Err(e.into());
+            }
+        }
+    }
+
+    let ctx = SessionContext::new();
+    ctx.register_json(
+        "my_table",
+        path_str,
+        NdJsonReadOptions { ..Default::default() },
+    )
+    .await
+    .map_err(to_anyhow)?;
+
+    let df = ctx.sql("SELECT * FROM my_table").await.map_err(to_anyhow)?;
+    match output_format {
+        S3ModeFormat::Csv => {
+            df.write_csv(converted_path_str, DataFrameWriteOptions::default(), None)
+                .await?;
+        }
+        S3ModeFormat::Parquet => {
+            df.write_parquet(converted_path_str, DataFrameWriteOptions::default(), None)
+                .await?;
+        }
+        S3ModeFormat::Json => {
+            df.write_json(converted_path_str, DataFrameWriteOptions::default(), None)
+                .await?;
+        }
+    }
+    drop(ctx);
+    std::fs::remove_file(&path)?;
+
+    let file = File::open(&path).await?;
+    let stream = ReaderStream::new(file)
+        .map_ok(|chunk| chunk)
+        .map_err(to_anyhow);
+
+    // TODO : delete the file on stream completion
+
+    Ok(stream)
 }
