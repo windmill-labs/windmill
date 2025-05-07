@@ -30,6 +30,8 @@
 	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
 	import SimpleEditor from './SimpleEditor.svelte'
+	import TeamSelector from './TeamSelector.svelte'
+	import ChannelSelector from './ChannelSelector.svelte'
 
 	export let setting: Setting
 	export let version: string
@@ -134,9 +136,8 @@
 		}
 	}
 
-	function handleTeamChange(event: Event, i: number) {
-		const teamId = (event.target as HTMLSelectElement).value
-		const team = $values['teams'].find((team) => team.team_id === teamId) || null
+	function handleTeamChange(teamItem: { team_id: string; team_name: string }, i: number) {
+		const team = $values['teams'].find((team) => team.team_id === teamItem.team_id) || null
 		$values['critical_error_channels'][i] = {
 			teams_channel: {
 				team_id: team?.team_id,
@@ -147,13 +148,9 @@
 		}
 	}
 
-	function handleChannelChange(event: Event, setting: Setting, i: number) {
-		const channelId = (event.target as HTMLSelectElement).value
-		const team = $values['teams'].find(
-			(team) => team.team_id === $values['critical_error_channels'][i]?.teams_channel?.team_id
-		)
-		const channel = team?.channels.find((channel) => channel.channel_id === channelId) || null
-		if (channelId) {
+	function handleChannelChange(channel: { channel_id: string; channel_name: string }, i: number) {
+		const team = $values['critical_error_channels'][i]?.teams_channel
+		if (team) {
 			$values['critical_error_channels'][i] = {
 				teams_channel: {
 					team_id: team?.team_id,
@@ -458,46 +455,45 @@
 											/>
 										{:else if v && 'teams_channel' in v}
 											<div class="flex flex-row gap-2 w-full">
-												<select on:change={(e) => handleTeamChange(e, i)}>
-													<option
-														value=""
-														disabled
-														selected={!$values['critical_error_channels'][i]?.teams_channel
-															?.team_id}>Select team</option
-													>
-													{#if $values['teams']}
-														{#each $values['teams'] as team}
-															<option
-																value={team.team_id}
-																selected={$values['critical_error_channels'][i]?.teams_channel
-																	?.team_id === team.team_id}
-															>
-																{team.team_name}
-															</option>
-														{/each}
-													{/if}
-												</select>
+												<TeamSelector
+													containerClass="w-44"
+													minWidth="140px"
+													showRefreshButton={false}
+													placeholder="Select team"
+													teams={$values['teams']}
+													on:change={(e) => handleTeamChange(e.detail, i)}
+													selectedTeam={$values['critical_error_channels'][i]?.teams_channel
+														? {
+																team_id:
+																	$values['critical_error_channels'][i]?.teams_channel?.team_id,
+																team_name:
+																	$values['critical_error_channels'][i]?.teams_channel?.team_name
+															}
+														: undefined}
+												/>
+
 												{#if $values['critical_error_channels'][i]?.teams_channel?.team_id}
-													<select
-														id="channel-select"
-														on:change={(e) => handleChannelChange(e, setting, i)}
-													>
-														<option
-															value=""
-															disabled
-															selected={!$values['critical_error_channels'][i]?.teams_channel
-																?.channel_id}>Select channel</option
-														>
-														{#each $values['teams'].find((team) => team.team_id === $values['critical_error_channels'][i]?.teams_channel?.team_id)?.channels ?? [] as channel}
-															<option
-																value={channel.channel_id}
-																selected={$values['critical_error_channels'][i]?.teams_channel
-																	?.channel_id === channel.channel_id}
-															>
-																{channel.channel_name}
-															</option>
-														{/each}
-													</select>
+													<ChannelSelector
+														containerClass=""
+														placeholder="Select channel"
+														channels={$values['teams'].find(
+															(team) =>
+																team.team_id ===
+																$values['critical_error_channels'][i]?.teams_channel?.team_id
+														)?.channels ?? []}
+														on:change={(e) => handleChannelChange(e.detail, i)}
+														selectedChannel={$values['critical_error_channels'][i]?.teams_channel
+															?.channel_id
+															? {
+																	channel_id:
+																		$values['critical_error_channels'][i]?.teams_channel
+																			?.channel_id,
+																	channel_name:
+																		$values['critical_error_channels'][i]?.teams_channel
+																			?.channel_name
+																}
+															: undefined}
+													/>
 												{/if}
 												<div>
 													<button on:click={fetchTeams} class="flex items-center gap-1 mt-2">
