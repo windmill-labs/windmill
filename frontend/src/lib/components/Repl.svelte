@@ -34,7 +34,7 @@
 					workspace: $workspaceStore!,
 					requestBody: {
 						language,
-						content: command,
+						content: `${command} > result.out`,
 						tag,
 						args: {}
 					}
@@ -49,7 +49,7 @@
 				command,
 				result
 			})
-			console.log({result})
+
 			term.write(result)
 		} catch (e) {
 			term.writeln(`Error: ${e}`)
@@ -70,7 +70,8 @@
 			theme: {
 				background: '#1e1e1e',
 				foreground: '#ffffff'
-			}	
+			},
+			convertEol: true
 		})
 		term.open(container)
 		printPrompt()
@@ -92,7 +93,7 @@
 						term.write('\b \b')
 					}
 					break
-					
+
 				default:
 					if (char >= String.fromCharCode(0x20)) {
 						input += char
