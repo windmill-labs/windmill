@@ -3839,19 +3839,8 @@ pub async fn push<'c, 'd>(
                 priority,
             )
         }
-        JobPayload::Flow { path, dedicated_worker, apply_preprocessor } => {
+        JobPayload::Flow { path, dedicated_worker, apply_preprocessor, version } => {
             let mut ntx = tx.into_tx().await?;
-            // Fetch the latest version of the flow.
-            let version = sqlx::query_scalar!(
-                "SELECT flow.versions[array_upper(flow.versions, 1)] AS \"version!: i64\"
-                FROM flow WHERE path = $1 AND workspace_id = $2",
-                &path,
-                &workspace_id
-            )
-            .fetch_optional(&mut *ntx)
-            .await?
-            .ok_or_else(|| Error::internal_err(format!("not found flow at path {:?}", path)))?;
-
             // Do not use the lite version unless all workers are updated.
             let data = if *DISABLE_FLOW_SCRIPT
                 || (!*MIN_VERSION_IS_AT_LEAST_1_432.read().await && !*CLOUD_HOSTED)

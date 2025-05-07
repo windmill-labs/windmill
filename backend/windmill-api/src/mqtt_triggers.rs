@@ -87,7 +87,7 @@ async fn run_job(
     trigger: &MqttTrigger,
 ) -> anyhow::Result<()> {
     let args = MqttTrigger::build_job_args(
-        &trigger.path,
+        &trigger.script_path,
         trigger.is_flow,
         &trigger.workspace_id,
         db,

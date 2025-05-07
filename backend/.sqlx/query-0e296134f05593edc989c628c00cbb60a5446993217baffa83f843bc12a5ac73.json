@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT\n                value->'preprocessor_module' IS NOT NULL as has_preprocessor,\n                value->'preprocessor_module'->'value'->'input_transforms'->'wm_trigger' IS NOT NULL as is_v1_preprocessor,\n                schema as \"schema: _\"\n            FROM flow \n            WHERE workspace_id = $1 \n                AND path = $2",
+  "query": "SELECT\n                    value->'preprocessor_module' IS NOT NULL as has_preprocessor,\n                    value->'preprocessor_module'->'value'->'input_transforms'->'wm_trigger' IS NOT NULL as is_v1_preprocessor,\n                    schema as \"schema: _\"\n                FROM flow \n                WHERE workspace_id = $1 \n                    AND path = $2",
   "describe": {
     "columns": [
       {
@@ -31,5 +31,5 @@
       true
     ]
   },
-  "hash": "6509b4603f4ec5549175a1338a039c5fa879f2480b7f3a561248200372254738"
+  "hash": "0e296134f05593edc989c628c00cbb60a5446993217baffa83f843bc12a5ac73"
 }

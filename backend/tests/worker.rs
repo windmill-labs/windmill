@@ -23,9 +23,9 @@ use windmill_api_client::types::{EditSchedule, NewSchedule, ScriptArgs};
 use windmill_api_client::types::{NewScript, ScriptLang as NewScriptLanguage};
 
 use serde::Serialize;
-use windmill_common::worker::WORKER_CONFIG;
 #[cfg(feature = "deno_core")]
 use windmill_common::flows::InputTransform;
+use windmill_common::worker::WORKER_CONFIG;
 
 use windmill_common::{
     flow_status::{FlowStatus, FlowStatusModule, RestartedFrom},
@@ -171,7 +171,7 @@ impl ApiServer {
 //     Ok(())
 // }
 
-#[cfg(feature="python")]
+#[cfg(feature = "python")]
 fn get_module(cjob: &CompletedJob, id: &str) -> Option<FlowStatusModule> {
     cjob.flow_status.clone().and_then(|fs| {
         find_module_in_vec(
@@ -181,7 +181,7 @@ fn get_module(cjob: &CompletedJob, id: &str) -> Option<FlowStatusModule> {
     })
 }
 
-#[cfg(feature="python")]
+#[cfg(feature = "python")]
 fn find_module_in_vec(modules: Vec<FlowStatusModule>, id: &str) -> Option<FlowStatusModule> {
     modules.into_iter().find(|s| s.id() == id)
 }
@@ -4687,6 +4687,7 @@ mod job_payload {
                 path: "f/system/hello_with_nodes_flow".to_string(),
                 dedicated_worker: None,
                 apply_preprocessor: false,
+                version: 1443253234253454,
             })
             .run_until_complete(&db, port)
             .await
@@ -4731,6 +4732,7 @@ mod job_payload {
                 path: "f/system/hello_with_preprocessor".to_string(),
                 dedicated_worker: None,
                 apply_preprocessor: true,
+                version: 1443253234253456,
             })
             .run_until_complete_with(db, port, |id| async move {
                 let job = sqlx::query!("SELECT preprocessed FROM v2_job WHERE id = $1", id)
@@ -4798,6 +4800,7 @@ mod job_payload {
                 path: "f/system/hello_with_nodes_flow".to_string(),
                 dedicated_worker: None,
                 apply_preprocessor: true,
+                version: 1443253234253454,
             })
             .run_until_complete(&db, port)
             .await
