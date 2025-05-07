@@ -23,6 +23,7 @@
 	import type { ScheduleTrigger, TriggerContext } from '$lib/components/triggers'
 	import type { FlowPropPickerConfig, PropPickerContext } from '$lib/components/prop_picker'
 	import type { PickableProperties } from '$lib/components/flows/previousResults'
+	import type { Trigger } from '$lib/components/triggers/utils'
 
 	let token = $page.url.searchParams.get('wm_token') ?? undefined
 	let workspace = $page.url.searchParams.get('workspace') ?? undefined
@@ -79,13 +80,10 @@
 	const selectedIdStore = writable('settings-metadata')
 	const primaryScheduleStore = writable<ScheduleTrigger | undefined | false>(undefined)
 	const triggersCount = writable<TriggersCount | undefined>(undefined)
-	const selectedTriggerStore = writable<
-		'webhooks' | 'emails' | 'schedules' | 'cli' | 'routes' | 'websockets' | 'scheduledPoll'
-	>('webhooks')
+	const selectedTriggerStore = writable<Trigger | undefined>(undefined)
 	setContext<TriggerContext>('TriggerContext', {
 		primarySchedule: primaryScheduleStore,
 		selectedTrigger: selectedTriggerStore,
-		selectedTriggerV2: writable(undefined),
 		triggersCount: triggersCount,
 		simplifiedPoll: writable(false),
 		defaultValues: writable(undefined),

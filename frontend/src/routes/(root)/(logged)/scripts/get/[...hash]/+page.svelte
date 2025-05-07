@@ -130,8 +130,7 @@
 		{ type: 'cli', path: '', isDraft: false }
 	])
 	setContext<TriggerContext>('TriggerContext', {
-		selectedTrigger: writable(undefined),
-		selectedTriggerV2: selectedTriggerStore,
+		selectedTrigger: selectedTriggerStore,
 		primarySchedule: writable(undefined),
 		triggersCount,
 		simplifiedPoll: writable(false),
@@ -195,7 +194,7 @@
 	}
 
 	async function loadTriggers(path: string): Promise<void> {
-		await fetchTriggers(triggersStore, $workspaceStore, path, true, undefined, $userStore)
+		await fetchTriggers(triggersStore, $workspaceStore, path, false, undefined, $userStore)
 	}
 
 	async function loadScript(hash: string): Promise<void> {
@@ -567,6 +566,9 @@
 					errorHandlerKind="script"
 					scriptOrFlowPath={script.path}
 					tag={script.tag}
+					on:seeTriggers={() => {
+						rightPaneSelected = 'triggers'
+					}}
 				>
 					<svelte:fragment slot="trigger-badges">
 						<TriggersBadge

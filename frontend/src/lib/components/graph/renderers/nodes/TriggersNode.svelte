@@ -28,7 +28,7 @@
 		selectedId: Writable<string | undefined>
 	}>('FlowGraphContext')
 
-	const { primarySchedule, triggersCount, selectedTrigger, selectedTriggerV2, triggers } =
+	const { primarySchedule, triggersCount, selectedTrigger, triggers } =
 		getContext<TriggerContext>('TriggerContext')
 </script>
 
@@ -59,13 +59,14 @@
 				data?.eventHandlers?.simplifyFlow(true)
 			}}
 			on:openScheduledPoll={(e) => {
-				$selectedTrigger = 'scheduledPoll'
+				const primarySchedule = $triggers.find((t) => t.isPrimary && !t.isDraft)
+				$selectedTrigger = primarySchedule
 			}}
 			on:select={async (e) => {
 				data?.eventHandlers?.select('triggers')
 				await tick()
 				if (e.detail) {
-					$selectedTriggerV2 = e.detail
+					$selectedTrigger = e.detail
 				}
 			}}
 			on:delete={(e) => {
@@ -75,7 +76,7 @@
 				const newTrigger = addDraftTrigger(triggers, e.detail)
 				data?.eventHandlers?.select('triggers')
 				await tick()
-				$selectedTriggerV2 = newTrigger
+				$selectedTrigger = newTrigger
 			}}
 			selected={$selectedId == 'triggers'}
 			newItem={data.newFlow}

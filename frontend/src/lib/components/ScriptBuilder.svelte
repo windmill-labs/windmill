@@ -72,7 +72,7 @@
 	import type { ScriptBuilderWhitelabelCustomUi } from './custom_ui'
 	import DeployOverrideConfirmationModal from '$lib/components/common/confirmationModal/DeployOverrideConfirmationModal.svelte'
 	import TriggersEditor from './triggers/TriggersEditor.svelte'
-	import type { ScheduleTrigger, TriggerContext, TriggerKind } from './triggers'
+	import type { ScheduleTrigger, TriggerContext } from './triggers'
 	import {
 		TS_PREPROCESSOR_MODULE_CODE,
 		TS_PREPROCESSOR_SCRIPT_INTRO,
@@ -159,7 +159,6 @@
 			: undefined
 	)
 	const simplifiedPoll = writable(false)
-	const selectedTriggerStore = writable<TriggerKind>('webhooks')
 
 	export function setPrimarySchedule(schedule: ScheduleTrigger | undefined | false) {
 		primaryScheduleStore.set(schedule)
@@ -220,9 +219,9 @@
 
 	const captureOn = writable<boolean | undefined>(undefined)
 	const showCaptureHint = writable<boolean | undefined>(undefined)
+	const selectedTriggerStore = writable<Trigger | undefined>(undefined)
 	setContext<TriggerContext>('TriggerContext', {
 		selectedTrigger: selectedTriggerStore,
-		selectedTriggerV2: writable(undefined),
 		primarySchedule: primaryScheduleStore,
 		triggersCount,
 		simplifiedPoll,
@@ -1490,7 +1489,10 @@
 				</div>
 
 				<div class="gap-4 flex">
-					{#if $primaryScheduleStore != undefined ? $primaryScheduleStore && $primaryScheduleStore?.enabled : $triggersCount?.primary_schedule}
+					{#if $triggersStore?.some((t) => t.type === 'schedule' && !t.isDraft)}
+						{@const primarySchedule = $triggersStore.find((t) => t.isPrimary && !t.isDraft)}
+						{@const schedule = $triggersStore.find((t) => t.type === 'schedule' && !t.isDraft)}
+
 						<Button
 							btnClasses="hidden lg:inline-flex"
 							startIcon={{ icon: Calendar }}
@@ -1500,7 +1502,7 @@
 							on:click={async () => {
 								metadataOpen = true
 								selectedTab = 'triggers'
-								$selectedTriggerStore = 'schedules'
+								$selectedTriggerStore = primarySchedule ?? schedule
 							}}
 						>
 							{$primaryScheduleStore != undefined

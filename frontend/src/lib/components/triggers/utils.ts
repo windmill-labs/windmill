@@ -670,3 +670,29 @@ export async function deployTriggers(
 		})
 	)
 }
+
+export function handleSelectTriggerFromKind(
+	triggersStore: Writable<Trigger[]>,
+	selectedTriggerStore: Writable<Trigger | undefined>,
+	initialPath: string | undefined,
+	triggerKind: TriggerKind
+) {
+	const triggerType = triggerKindToTriggerType(triggerKind)
+
+	if (!triggerType) {
+		return
+	}
+
+	const existingTrigger = get(triggersStore).find((trigger) => trigger.type === triggerType)
+
+	if (existingTrigger) {
+		selectedTriggerStore.set(existingTrigger)
+	} else {
+		const newTrigger = addDraftTrigger(
+			triggersStore,
+			triggerType,
+			triggerType === 'schedule' ? initialPath : undefined
+		)
+		selectedTriggerStore.set(newTrigger)
+	}
+}

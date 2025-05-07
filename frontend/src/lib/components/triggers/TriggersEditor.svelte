@@ -1,8 +1,8 @@
 <script lang="ts">
 	import { userStore, workspaceStore } from '$lib/stores'
 	import FlowCard from '../flows/common/FlowCard.svelte'
-	import { getContext, onDestroy, createEventDispatcher, onMount } from 'svelte'
-	import type { TriggerContext, TriggerKind } from '$lib/components/triggers'
+	import { getContext, onDestroy, createEventDispatcher } from 'svelte'
+	import type { TriggerContext } from '$lib/components/triggers'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import TriggersTable from './TriggersTable.svelte'
 	import CaptureWrapper from './CaptureWrapper.svelte'
@@ -29,7 +29,6 @@
 		isEqual,
 		type Trigger,
 		triggerTypeToCaptureKind,
-		triggerKindToTriggerType,
 		setCaptureConfig,
 		deleteTrigger
 	} from './utils'
@@ -57,8 +56,7 @@
 
 	const {
 		simplifiedPoll,
-		selectedTrigger: selectedTriggerLegacy,
-		selectedTriggerV2: selectedTrigger,
+		selectedTrigger: selectedTrigger,
 		triggers,
 		primarySchedule
 	} = getContext<TriggerContext>('TriggerContext')
@@ -139,27 +137,6 @@
 		}
 	}
 
-	function handleSelectTriggerLegacy(triggerKind: TriggerKind) {
-		const triggerType = triggerKindToTriggerType(triggerKind)
-
-		if (!triggerType) {
-			return
-		}
-
-		const existingTrigger = $triggers.find((trigger) => trigger.type === triggerType)
-
-		if (existingTrigger) {
-			$selectedTrigger = existingTrigger
-		} else {
-			const newTrigger = addDraftTrigger(
-				triggers,
-				triggerType,
-				triggerType === 'schedule' ? initialPath : undefined
-			)
-			$selectedTrigger = newTrigger
-		}
-	}
-
 	function handleResetDraft(trigger: Trigger | undefined) {
 		if (!trigger) {
 			return
@@ -169,13 +146,6 @@
 			$selectedTrigger.draftConfig = undefined
 		}
 	}
-
-	onMount(() => {
-		// Handles redirection to the trigger panel
-		if ($selectedTriggerLegacy) {
-			handleSelectTriggerLegacy($selectedTriggerLegacy)
-		}
-	})
 
 	$: updateEditTrigger($selectedTrigger)
 	$: useVerticalTriggerBar = width < 1000

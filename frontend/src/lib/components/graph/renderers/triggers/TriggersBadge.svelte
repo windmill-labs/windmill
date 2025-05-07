@@ -14,7 +14,7 @@
 	import SchedulePollIcon from '$lib/components/icons/SchedulePollIcon.svelte'
 	import TriggerLabel from '$lib/components/triggers/TriggerLabel.svelte'
 
-	const { selectedTriggerV2, triggersCount } = getContext<TriggerContext>('TriggerContext')
+	const { selectedTrigger, triggersCount } = getContext<TriggerContext>('TriggerContext')
 
 	interface Props {
 		path: string
@@ -170,7 +170,7 @@
 >
 	{#snippet children({ createMenu })}
 		{#each triggersToDisplay as type}
-			{@const isSelected = selected && $selectedTriggerV2 && $selectedTriggerV2.type === type}
+			{@const isSelected = selected && $selectedTrigger && $selectedTrigger.type === type}
 			{@const singleItem =
 				type === 'webhook' ||
 				type === 'email'! ||

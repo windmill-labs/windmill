@@ -76,7 +76,7 @@
 	import type { SavedAndModifiedValue } from './common/confirmationModal/unsavedTypes'
 	import DeployButton from './DeployButton.svelte'
 	import type { Trigger } from './triggers/utils'
-	import { deployTriggers, fetchTriggers } from './triggers/utils'
+	import { deployTriggers, fetchTriggers, handleSelectTriggerFromKind } from './triggers/utils'
 	import DraftTriggersConfirmationModal from './common/confirmationModal/DraftTriggersConfirmationModal.svelte'
 
 	export let initialPath: string = ''
@@ -475,16 +475,6 @@
 	}
 
 	const selectedIdStore = writable<string>(selectedId ?? 'settings-metadata')
-	const selectedTriggerStore = writable<
-		| 'webhooks'
-		| 'emails'
-		| 'schedules'
-		| 'cli'
-		| 'routes'
-		| 'websockets'
-		| 'postgres'
-		| 'scheduledPoll'
-	>('webhooks')
 
 	export function getSelectedId() {
 		return $selectedIdStore
@@ -508,20 +498,6 @@
 
 	function select(selectedId: string) {
 		selectedIdStore.set(selectedId)
-	}
-
-	function selectTrigger(
-		selectedTrigger:
-			| 'webhooks'
-			| 'emails'
-			| 'schedules'
-			| 'cli'
-			| 'routes'
-			| 'websockets'
-			| 'postgres'
-			| 'scheduledPoll'
-	) {
-		selectedTriggerStore.set(selectedTrigger)
 	}
 
 	let insertButtonOpen = writable<boolean>(false)
@@ -553,9 +529,9 @@
 		...savedDraftTriggers
 	])
 
+	const selectedTriggerStore = writable<Trigger | undefined>(undefined)
 	setContext<TriggerContext>('TriggerContext', {
 		selectedTrigger: selectedTriggerStore,
-		selectedTriggerV2: writable(undefined),
 		primarySchedule: primaryScheduleStore,
 		triggersCount,
 		simplifiedPoll,
@@ -1310,7 +1286,9 @@
 				</div>
 
 				<div class="gap-4 flex-row hidden md:flex w-full max-w-md">
-					{#if $primaryScheduleStore != undefined ? $primaryScheduleStore && $primaryScheduleStore?.enabled : $triggersCount?.primary_schedule}
+					{#if $triggersStore?.some((t) => t.type === 'schedule' && !t.isDraft)}
+						{@const primarySchedule = $triggersStore.find((t) => t.isPrimary && !t.isDraft)}
+						{@const schedule = $triggersStore.find((t) => t.type === 'schedule' && !t.isDraft)}
 						<Button
 							btnClasses="hidden lg:inline-flex"
 							startIcon={{ icon: Calendar }}
@@ -1319,7 +1297,10 @@
 							size="xs"
 							on:click={async () => {
 								select('triggers')
-								selectTrigger('schedules')
+								const selected = primarySchedule ?? schedule
+								if (selected) {
+									$selectedTriggerStore = selected
+								}
 							}}
 						>
 							{$primaryScheduleStore != undefined
@@ -1415,7 +1396,12 @@
 					<FlowPreviewButtons
 						on:openTriggers={(e) => {
 							select('triggers')
-							selectTrigger(e.detail.kind)
+							handleSelectTriggerFromKind(
+								triggersStore,
+								selectedTriggerStore,
+								initialPath,
+								e.detail.kind
+							)
 							captureOn.set(true)
 							showCaptureHint.set(true)
 						}}

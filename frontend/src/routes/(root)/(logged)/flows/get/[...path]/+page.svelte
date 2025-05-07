@@ -99,8 +99,7 @@
 		{ type: 'cli', path: '', isDraft: false }
 	])
 	setContext<TriggerContext>('TriggerContext', {
-		selectedTrigger: writable(undefined),
-		selectedTriggerV2: selectedTriggerStore,
+		selectedTrigger: selectedTriggerStore,
 		primarySchedule: writable(undefined),
 		triggersCount,
 		simplifiedPoll: writable(false),

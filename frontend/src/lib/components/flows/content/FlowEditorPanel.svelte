@@ -13,6 +13,7 @@
 	import type { TriggerContext } from '$lib/components/triggers'
 	import { insertNewPreprocessorModule } from '../flowStateUtils'
 	import TriggersEditor from '../../triggers/TriggersEditor.svelte'
+	import { handleSelectTriggerFromKind } from '$lib/components/triggers/utils'
 
 	export let noEditor = false
 	export let enableAi = false
@@ -36,7 +37,7 @@
 		flowInputEditorState
 	} = getContext<FlowEditorContext>('FlowEditorContext')
 
-	const { selectedTrigger, defaultValues, captureOn, showCaptureHint } =
+	const { selectedTrigger, defaultValues, captureOn, showCaptureHint, triggers } =
 		getContext<TriggerContext>('TriggerContext')
 	function checkDup(modules: FlowModule[]): string | undefined {
 		let seenModules: string[] = []
@@ -82,7 +83,7 @@
 		disabled={disabledFlowInputs}
 		on:openTriggers={(ev) => {
 			$selectedId = 'triggers'
-			selectedTrigger.set(ev.detail.kind)
+			handleSelectTriggerFromKind(triggers, selectedTrigger, savedFlow?.path, ev.detail.kind)
 			defaultValues.set(ev.detail.config)
 			captureOn.set(true)
 			showCaptureHint.set(true)
