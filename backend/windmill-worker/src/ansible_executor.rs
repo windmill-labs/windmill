@@ -28,7 +28,7 @@ use crate::{
     },
     handle_child::handle_child,
     python_executor::{
-        create_dependencies_dir, handle_python_reqs, split_requirements, uv_pip_compile, PyVersion,
+        create_dependencies_dir, handle_python_reqs, split_requirements, uv_pip_compile,
     },
     AuthedClient, DISABLE_NSJAIL, DISABLE_NUSER, HOME_ENV, NSJAIL_PATH, PATH_ENV, PROXY_ENVS,
     PY_INSTALL_DIR, TZ_ENV,

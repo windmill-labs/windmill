@@ -134,7 +134,7 @@ use crate::java_executor::{handle_java_job, JobHandlerInput as JobHandlerInputJa
 use crate::php_executor::handle_php_job;
 
 #[cfg(feature = "python")]
-use crate::python_executor::{handle_python_job, PyVersion};
+use crate::python_executor::{handle_python_job, PyV, PyVAlias};
 
 #[cfg(feature = "python")]
 use crate::ansible_executor::handle_ansible_job;
@@ -760,7 +760,7 @@ pub async fn run_worker(
             worker_dir.clone(),
         );
         tokio::spawn(async move {
-            if let Err(e) = PyVersion::from_instance_version(&Uuid::nil(), "", &conn)
+            if let Err(e) = PyV::gravitational_version(&Uuid::nil(), "", Some(conn.clone()))
                 .await
                 .get_python(&Uuid::nil(), &mut 0, &conn, &worker_name, "", &mut None)
                 .await
@@ -772,7 +772,7 @@ pub async fn run_worker(
                     "Cannot preinstall or find Instance Python version to worker: {e}"//
                 );
             }
-            if let Err(e) = PyVersion::Py311
+            if let Err(e) = PyV::from(PyVAlias::Py311)
                 .get_python(&Uuid::nil(), &mut 0, &conn, &worker_name, "", &mut None)
                 .await
             {

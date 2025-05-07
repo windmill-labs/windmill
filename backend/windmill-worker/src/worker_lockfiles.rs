@@ -43,9 +43,7 @@ use crate::java_executor::resolve;
 use crate::php_executor::{composer_install, parse_php_imports};
 use crate::python_executor::PyV;
 #[cfg(feature = "python")]
-use crate::python_executor::{
-    create_dependencies_dir, handle_python_reqs, uv_pip_compile, PyVersion,
-};
+use crate::python_executor::{create_dependencies_dir, handle_python_reqs, uv_pip_compile};
 #[cfg(feature = "rust")]
 use crate::rust_executor::generate_cargo_lockfile;
 use crate::{
