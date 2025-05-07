@@ -41,6 +41,7 @@ use crate::java_executor::resolve;
 
 #[cfg(feature = "php")]
 use crate::php_executor::{composer_install, parse_php_imports};
+use crate::python_executor::PyV;
 #[cfg(feature = "python")]
 use crate::python_executor::{
     create_dependencies_dir, handle_python_reqs, uv_pip_compile, PyVersion,
@@ -1827,9 +1828,11 @@ async fn python_dep(
     w_id: &str,
     worker_dir: &str,
     occupancy_metrics: &mut Option<&mut OccupancyMetrics>,
-    annotated_pyv_numeric: Option<u32>,
+    py_version: crate::python_executor::PyV,
     annotations: PythonAnnotations,
 ) -> std::result::Result<String, Error> {
+    use crate::python_executor::{split_requirements, PyVAlias};
+
     create_dependencies_dir(job_dir).await;
 
     /*
@@ -1843,9 +1846,9 @@ async fn python_dep(
             3. Latest Stable
     */
 
-    let final_version = annotated_pyv_numeric
-        .and_then(|pyv| PyVersion::from_numeric(pyv))
-        .unwrap_or(PyVersion::from_instance_version(job_id, w_id, &db.into()).await);
+    // let final_version = annotated_pyv_numeric
+    //     .and_then(|pyv| PyVersion::from_numeric(pyv))
+    //     .unwrap_or(PyVersion::from_instance_version(job_id, w_id, &db.into()).await);
 
     let req: std::result::Result<String, Error> = uv_pip_compile(
         job_id,
@@ -1857,14 +1860,15 @@ async fn python_dep(
         worker_name,
         w_id,
         occupancy_metrics,
-        final_version,
+        py_version,
         annotations.no_cache,
     )
     .await;
     // install the dependencies to pre-fill the cache
     if let Ok(req) = req.as_ref() {
         let r = handle_python_reqs(
-            req.split("\n").filter(|x| !x.starts_with("--")).collect(),
+            split_requirements(req),
+            // req.split("\n").filter(|x| !x.starts_with("--")).collect(),
             job_id,
             w_id,
             mem_peak,
@@ -1874,7 +1878,8 @@ async fn python_dep(
             job_dir,
             worker_dir,
             occupancy_metrics,
-            final_version,
+            // final_version,
+            PyVAlias::default().into(),
         )
         .await;
 
@@ -1915,31 +1920,40 @@ async fn capture_dependency_job(
             #[cfg(feature = "python")]
             {
                 let anns = PythonAnnotations::parse(job_raw_code);
-                let mut annotated_pyv_numeric = None;
+
+                let mut version_specifiers = vec![];
 
                 let reqs = if raw_deps {
                     // `wmill script generate-metadata`
                     // should also respect annotated pyversion
                     // can be annotated in script itself
                     // or in requirements.txt if present
-                    annotated_pyv_numeric =
-                        PyVersion::from_py_annotations(anns).map(|v| v.to_numeric());
-                    job_raw_code.to_string()
+                    // annotated_pyv_numeric =
+                    //     PyVersion::from_py_annotations(anns).map(|v| v.to_numeric());
+                    // job_raw_code.to_string()
+                    todo!()
                 } else {
-                    let mut already_visited = vec![];
-
                     windmill_parser_py_imports::parse_python_imports(
                         job_raw_code,
                         &w_id,
                         script_path,
                         &db,
-                        &mut already_visited,
-                        &mut annotated_pyv_numeric,
+                        &mut version_specifiers,
                     )
                     .await?
                     .0
                     .join("\n")
                 };
+
+                let py_version = PyV::resolve(
+                    version_specifiers,
+                    job_id,
+                    w_id,
+                    Some(db.clone().into()),
+                    None,
+                    None,
+                )
+                .await?;
 
                 python_dep(
                     reqs,
@@ -1952,7 +1966,7 @@ async fn capture_dependency_job(
                     w_id,
                     worker_dir,
                     &mut Some(occupancy_metrics),
-                    annotated_pyv_numeric,
+                    py_version,
                     anns,
                 )
                 .await
@@ -1985,7 +1999,7 @@ async fn capture_dependency_job(
                     w_id,
                     worker_dir,
                     &mut Some(occupancy_metrics),
-                    None,
+                    PyV::gravitational_version(job_id, w_id, Some(db.clone().into())).await,
                     PythonAnnotations::default(),
                 )
                 .await

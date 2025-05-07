@@ -8,10 +8,12 @@
 
 mod mapping;
 
+use anyhow::anyhow;
 use async_recursion::async_recursion;
 use itertools::Itertools;
 use lazy_static::lazy_static;
-use std::collections::HashMap;
+use pep440_rs::{Version, VersionSpecifier};
+use std::{collections::HashMap, str::FromStr};
 
 use mapping::{FULL_IMPORTS_MAP, SHORT_IMPORTS_MAP};
 #[cfg(not(target_arch = "wasm32"))]
@@ -25,7 +27,10 @@ use rustpython_parser::{
     Parse,
 };
 use sqlx::{Pool, Postgres};
-use windmill_common::{error, worker::PythonAnnotations};
+use windmill_common::{
+    error::{self, to_anyhow},
+    worker::PythonAnnotations,
+};
 
 const DEF_MAIN: &str = "def main(";
 

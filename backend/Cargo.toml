@@ -131,6 +131,7 @@ quote.workspace = true
 memchr.workspace = true
 v8 = { workspace = true, optional = true }
 rustls.workspace = true
+pep440_rs.workspace = true
 
 [target.'cfg(not(target_env = "msvc"))'.dependencies]
 tikv-jemallocator = { optional = true, workspace = true }
@@ -212,6 +213,7 @@ git-version = "^0"
 malachite = "=0.4.18"
 malachite-bigint = "=0.2.0"
 rustpython-parser = "^0"
+pep440_rs = "0.7.3"
 php-parser-rs = { git = "https://github.com/php-rust-tools/parser", rev = "ec4cb411dec09450946ef57920b7ffced7f6495d" }
 cron = "^0"
 mail-send = { version = "0.4.0", features = ["builder"], default-features=false }
