@@ -61,13 +61,6 @@
 					WebSocket triggers allow real-time bidirectional communication between your scripts/flows
 					and external systems. Each trigger creates a unique WebSocket endpoint.
 				</Description>
-				{#if !isDeployed}
-					<Alert
-						title={`Deploy the ${isFlow ? 'flow' : 'script'} to save the websocket trigger`}
-						type="info"
-						size="xs"
-					/>
-				{/if}
 			{/snippet}
 		</WebsocketTriggerEditorInner>
 	</div>

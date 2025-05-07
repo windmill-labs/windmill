@@ -60,13 +60,6 @@
 					MQTT triggers allow you to execute scripts and flows in response to MQTT messages. They
 					can be configured to subscribe to specific topics with different QoS levels.
 				</Description>
-				{#if !isDeployed}
-					<Alert
-						title={`Deploy the ${isFlow ? 'flow' : 'script'} to save the MQTT trigger`}
-						type="info"
-						size="xs"
-					/>
-				{/if}
 			{/snippet}
 		</MqttTriggerEditorInner>
 	</div>

@@ -63,13 +63,6 @@
 					or the entire database. Listening is done using Postgres's logical replication streaming
 					protocol, ensuring efficient and low-latency triggering.
 				</Description>
-				{#if !isDeployed}
-					<Alert
-						title={`Deploy the ${isFlow ? 'flow' : 'script'} to save the postgres trigger`}
-						type="info"
-						size="xs"
-					/>
-				{/if}
 			{/snippet}
 		</PostgresTriggerEditorInner>
 	</div>

@@ -65,13 +65,6 @@
 					Kafka triggers execute scripts and flows in response to messages published to Kafka
 					topics.
 				</Description>
-				{#if !isDeployed}
-					<Alert
-						title={`Deploy the ${isFlow ? 'flow' : 'script'} to save the kafka trigger`}
-						type="info"
-						size="xs"
-					/>
-				{/if}
 			{/snippet}
 		</KafkaTriggerEditorInner>
 	</div>

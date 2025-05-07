@@ -61,13 +61,6 @@
 					NATS triggers allow you to execute scripts and flows in response to NATS messages. They
 					can be configured to listen to specific subjects and to use JetStream or not.
 				</Description>
-				{#if !isDeployed}
-					<Alert
-						title={`Deploy the ${isFlow ? 'flow' : 'script'} to save the NATS trigger`}
-						type="info"
-						size="xs"
-					/>
-				{/if}
 			{/snippet}
 		</NatsTriggerEditorInner>
 	</div>

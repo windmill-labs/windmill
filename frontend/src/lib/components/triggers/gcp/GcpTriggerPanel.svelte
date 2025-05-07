@@ -67,13 +67,6 @@
 					GCP Pub/Sub triggers execute scripts and flows in response to messages published to Google
 					Cloud Pub/Sub topics.
 				</Description>
-				{#if !isDeployed}
-					<Alert
-						title={`Deploy the ${isFlow ? 'flow' : 'script'} to save the GCP Pub/Sub trigger`}
-						type="info"
-						size="xs"
-					/>
-				{/if}
 			{/snippet}
 		</GcpTriggerEditorInner>
 	</div>

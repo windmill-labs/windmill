@@ -60,13 +60,6 @@
 					SQS triggers allow you to execute scripts and flows in response to messages in an AWS SQS
 					queue. They can be configured to filter messages based on message attributes.
 				</Description>
-				{#if !isDeployed}
-					<Alert
-						title={`Deploy the ${isFlow ? 'flow' : 'script'} to save the SQS trigger`}
-						type="info"
-						size="xs"
-					/>
-				{/if}
 			{/snippet}
 		</SqsTriggerEditorInner>
 	</div>

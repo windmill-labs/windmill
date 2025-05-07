@@ -60,12 +60,6 @@
 
 			{#if !$userStore?.is_admin && !$userStore?.is_super_admin && selectedTrigger.isDraft}
 				<Alert title="Only workspace admins can create routes" type="info" size="xs" />
-			{:else if !isDeployed}
-				<Alert
-					title={`Draft routes can be deployed with the ${isFlow ? 'flow' : 'script'}`}
-					type="info"
-					size="xs"
-				/>
 			{/if}
 		</div>
 	{/snippet}

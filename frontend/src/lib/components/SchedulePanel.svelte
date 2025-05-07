@@ -1,7 +1,6 @@
 <script lang="ts">
 	import ScheduleEditorInner from './ScheduleEditorInner.svelte'
 	import Description from '$lib/components/Description.svelte'
-	import { Alert } from '$lib/components/common'
 	import { onMount } from 'svelte'
 	let scheduleEditor = $state<ScheduleEditorInner | null>(null)
 	let {
@@ -57,14 +56,6 @@
 			<Description link="https://www.windmill.dev/docs/core_concepts/scheduling">
 				Run scripts and flows automatically on a recurring basis using cron expressions.
 			</Description>
-
-			{#if !isDeployed}
-				<Alert
-					title={`Deploy the ${isFlow ? 'flow' : 'script'} to save the schedule`}
-					type="info"
-					size="xs"
-				/>
-			{/if}
 		</div>
 	{/snippet}
 </ScheduleEditorInner>
