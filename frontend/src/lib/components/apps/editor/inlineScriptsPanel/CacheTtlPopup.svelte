@@ -1,13 +1,14 @@
 <script lang="ts">
 	import Toggle from '$lib/components/Toggle.svelte'
-	import { Button, Popup, SecondsInput } from '$lib/components/common'
-	import { autoPlacement } from '@floating-ui/core'
+	import { Button, SecondsInput } from '$lib/components/common'
 	import { Database } from 'lucide-svelte'
+	import Popover from '$lib/components/meltComponents/Popover.svelte'
+	import { autoPlacement } from '@floating-ui/core'
 
 	export let cache_ttl: number | undefined
 </script>
 
-<Popup
+<Popover
 	floatingConfig={{
 		middleware: [
 			autoPlacement({
@@ -15,8 +16,10 @@
 			})
 		]
 	}}
+	closeButton
+	contentClasses="block text-primary p-4"
 >
-	<svelte:fragment slot="button">
+	<svelte:fragment slot="trigger">
 		<Button
 			nonCaptureEvent={true}
 			btnClasses={Boolean(cache_ttl)
@@ -30,7 +33,7 @@
 			title="Cache settings"
 		/>
 	</svelte:fragment>
-	<div class="block text-primary">
+	<svelte:fragment slot="content">
 		<Toggle
 			checked={Boolean(cache_ttl)}
 			on:change={() => {
@@ -53,5 +56,5 @@
 				<SecondsInput disabled />
 			{/if}
 		</div>
-	</div>
-</Popup>
+	</svelte:fragment>
+</Popover>

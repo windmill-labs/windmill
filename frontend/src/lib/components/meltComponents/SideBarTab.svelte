@@ -10,7 +10,7 @@
 
 	export let fullMenu: boolean = false
 	export let noTrigger: boolean = false
-	export let expandRight = false
+	export const expandRight: boolean = false
 
 	let open = false
 	let timeout: NodeJS.Timeout | null = null
@@ -42,7 +42,7 @@
 	{#if hasCloseButton}
 		<slot name="close button" />
 	{:else}
-		<div class="w-[31px]" />
+		<div class="w-[31px]"></div>
 	{/if}
 
 	{#if fullMenu}
@@ -57,7 +57,7 @@
 		>
 			{#each dropdownItems as item}
 				<button
-					class="hover:bg-surface-hover p-2 transition-colors duration-150 w-full {item.selected
+					class="hover:bg-surface-hover p-2 transition-colors duration-0 w-full {item.selected
 						? 'bg-surface-selected'
 						: 'text-secondary'}"
 					on:click={() => {

@@ -89,75 +89,79 @@
 		configuration={configuration[key]}
 	/>
 {/each}
-<AlwaysMountedModal {css} title={resolvedConfig.modalTitle ?? ''} bind:this={modal}>
-	<div class="flex flex-col gap-2 px-4 w-full pt-2">
-		<RunnableWrapper
-			bind:this={runnableWrapper}
-			bind:loading
-			{recomputeIds}
-			{render}
-			bind:runnableComponent
-			{componentInput}
-			{id}
-			{extraQueryParams}
-			autoRefresh={false}
-			forceSchemaDisplay={true}
-			runnableClass="!block"
-			{outputs}
-			doOnSuccess={resolvedConfig.onSuccess}
-			doOnError={resolvedConfig.onError}
-			{errorHandledByComponent}
-		>
-			{#if noInputs}
-				<div class="text-secondary italic text-sm my-4">
-					Run forms are associated with a runnable that has user inputs.
-					<br />
-					Once a script or flow is chosen, set some <strong>Runnable Inputs</strong> to
-					<strong>
-						User Input
-						<User size={20} class="rounded-sm bg-gray-200 p-1 ml-0.5" />
-					</strong>
+{#if render}
+	<AlwaysMountedModal {css} title={resolvedConfig.modalTitle ?? ''} bind:this={modal}>
+		<div class="flex flex-col gap-2 px-4 w-full pt-2">
+			<RunnableWrapper
+				bind:this={runnableWrapper}
+				bind:loading
+				{recomputeIds}
+				{render}
+				bind:runnableComponent
+				{componentInput}
+				{id}
+				{extraQueryParams}
+				autoRefresh={false}
+				forceSchemaDisplay={true}
+				runnableClass="!block"
+				{outputs}
+				doOnSuccess={resolvedConfig.onSuccess}
+				doOnError={resolvedConfig.onError}
+				{errorHandledByComponent}
+			>
+				{#if noInputs}
+					<div class="text-secondary italic text-sm my-4">
+						Run forms are associated with a runnable that has user inputs.
+						<br />
+						Once a script or flow is chosen, set some <strong>Runnable Inputs</strong> to
+						<strong>
+							User Input
+							<User size={20} class="rounded-sm bg-gray-200 p-1 ml-0.5" />
+						</strong>
+					</div>
+				{/if}
+				<div class="flex justify-end gap-3 p-2">
+					<Button
+						{loading}
+						btnClasses="my-1"
+						on:pointerdown={(e) => {
+							e?.stopPropagation()
+						}}
+						on:click={async () => {
+							if (!runnableComponent) {
+								runnableWrapper?.handleSideEffect(true)
+							} else {
+								await runnableComponent?.runComponent()
+							}
+							modal?.close()
+						}}
+						size="xs"
+						color="dark"
+					>
+						Submit
+					</Button>
 				</div>
-			{/if}
-			<div class="flex justify-end gap-3 p-2">
-				<Button
-					{loading}
-					btnClasses="my-1"
-					on:pointerdown={(e) => {
-						e?.stopPropagation()
-					}}
-					on:click={async () => {
-						if (!runnableComponent) {
-							runnableWrapper?.handleSideEffect(true)
-						} else {
-							await runnableComponent?.runComponent()
-						}
-						modal?.close()
-					}}
-					size="xs"
-					color="dark"
-				>
-					Submit
-				</Button>
-			</div>
-		</RunnableWrapper>
-	</div>
-</AlwaysMountedModal>
+			</RunnableWrapper>
+		</div>
+	</AlwaysMountedModal>
 
-<AlignWrapper {render} {horizontalAlignment} {verticalAlignment}>
-	{#if errorsMessage}
-		<div class="text-red-500 text-xs">{errorsMessage}</div>
-	{/if}
-	<Button
-		disabled={resolvedConfig.disabled ?? false}
-		size={resolvedConfig.size ?? 'md'}
-		color={resolvedConfig.color}
-		btnClasses={twMerge(css?.button?.class, 'wm-button', 'wm-modal-form-button')}
-		style={css?.button?.style ?? ''}
-		on:click={(e) => {
-			modal?.open()
-		}}
-	>
-		{resolvedConfig.label}
-	</Button>
-</AlignWrapper>
+	<AlignWrapper {render} {horizontalAlignment} {verticalAlignment}>
+		{#if errorsMessage}
+			<div class="text-red-500 text-xs">{errorsMessage}</div>
+		{/if}
+		<Button
+			disabled={resolvedConfig.disabled ?? false}
+			size={resolvedConfig.size ?? 'md'}
+			color={resolvedConfig.color}
+			btnClasses={twMerge(css?.button?.class, 'wm-button', 'wm-modal-form-button')}
+			style={css?.button?.style ?? ''}
+			on:click={(e) => {
+				modal?.open()
+			}}
+		>
+			{resolvedConfig.label}
+		</Button>
+	</AlignWrapper>
+{:else}
+	<RunnableWrapper {outputs} {render} {componentInput} {id} />
+{/if}

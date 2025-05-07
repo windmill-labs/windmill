@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { GridApi, createGrid } from 'ag-grid-community'
 	import { isObject, sendUserToast } from '$lib/utils'
-	import { getContext, onDestroy } from 'svelte'
+	import { getContext, mount, onDestroy, unmount } from 'svelte'
 	import type { AppInput } from '../../../inputType'
 	import type {
 		AppViewerContext,
@@ -33,7 +33,7 @@
 		SkipForward
 	} from 'lucide-svelte'
 	import { twMerge } from 'tailwind-merge'
-	import { initCss } from '$lib/components/apps/utils'
+	import { deepCloneWithFunctions, initCss } from '$lib/components/apps/utils'
 	import ResolveStyle from '../../helpers/ResolveStyle.svelte'
 
 	import AppAggridTableActions from './AppAggridTableActions.svelte'
@@ -41,6 +41,7 @@
 	import Popover from '$lib/components/Popover.svelte'
 	import { Button } from '$lib/components/common'
 	import InputValue from '../../helpers/InputValue.svelte'
+	import { withProps } from '$lib/svelte5Utils.svelte'
 
 	// import 'ag-grid-community/dist/styles/ag-theme-alpine-dark.css'
 
@@ -86,6 +87,7 @@
 		: [{ error: 'input was not an array' }]
 
 	let loaded = false
+
 
 	async function setValues() {
 		value = Array.isArray(result)
@@ -189,10 +191,11 @@
 
 			let data = { ...result[event.node.rowIndex] }
 			outputs?.selectedRow?.set(data)
+			resolvedConfig?.extraConfig?.['defaultColDef']?.['onCellValueChanged']?.(event)
 		}
 	}
 
-	let extraConfig = resolvedConfig.extraConfig
+	let extraConfig = deepCloneWithFunctions(resolvedConfig.extraConfig)
 	let api: GridApi<any> | undefined = undefined
 	let eGui: HTMLDivElement
 	let state: any = undefined
@@ -201,8 +204,7 @@
 
 	function refreshActions(actions: TableAction[]) {
 		if (!deepEqual(actions, lastActions)) {
-			lastActions = [...actions]
-
+			lastActions = structuredClone(actions)
 			updateOptions()
 		}
 	}
@@ -247,61 +249,64 @@
 					.filter(Boolean) as TableAction[])
 			: actions
 
-		let ta = new AppAggridTableActions({
-			target: c.eGui,
-			props: {
-				p,
-				id: id,
-				actions: sortedActions,
-				rowIndex,
-				row,
-				render,
-				wrapActions: resolvedConfig.wrapActions,
-				selectRow: (p) => {
-					toggleRow(p)
-					p.node.setSelected(true)
-				},
-				onSet: (id, value, rowIndex) => {
-					if (!inputs[id]) {
-						inputs[id] = { [rowIndex]: value }
-					} else {
-						inputs[id] = { ...inputs[id], [rowIndex]: value }
-					}
-
-					outputs?.inputs.set(inputs, true)
-				},
-				onRemove: (id, rowIndex) => {
-					if (inputs?.[id] == undefined) {
-						return
-					}
-					delete inputs[id][rowIndex]
-					inputs[id] = { ...inputs[id] }
-					if (Object.keys(inputs?.[id] ?? {}).length == 0) {
-						delete inputs[id]
-						inputs = { ...inputs }
-					}
-					outputs?.inputs.set(inputs, true)
-				}
+		const taComponent = withProps(AppAggridTableActions, {
+			p,
+			id: id,
+			actions: sortedActions,
+			rowIndex,
+			row,
+			render,
+			wrapActions: resolvedConfig.wrapActions,
+			selectRow: (p) => {
+				toggleRow(p)
+				p.node.setSelected(true)
 			},
+			onSet: (id, value, rowIndex) => {
+				if (!inputs[id]) {
+					inputs[id] = { [rowIndex]: value }
+				} else {
+					inputs[id] = { ...inputs[id], [rowIndex]: value }
+				}
+
+				outputs?.inputs.set(inputs, true)
+			},
+			onRemove: (id, rowIndex) => {
+				if (inputs?.[id] == undefined) {
+					return
+				}
+				delete inputs[id][rowIndex]
+				inputs[id] = { ...inputs[id] }
+				if (Object.keys(inputs?.[id] ?? {}).length == 0) {
+					delete inputs[id]
+					inputs = { ...inputs }
+				}
+				outputs?.inputs.set(inputs, true)
+			}
+		})
+		let ta = mount(taComponent.component, {
+			target: c.eGui,
+			props: taComponent.props,
 			context: componentContext
 		})
 
 		return {
-			destroy: () => {
-				ta.$destroy()
-			},
+			destroy: () => unmount(ta),
 			refresh(params) {
-				ta.$set({ rowIndex: params.node.rowIndex ?? 0, row: params.data, p: params })
+				taComponent.props.rowIndex = params.node.rowIndex ?? 0
+				taComponent.props.row = params.data
+				taComponent.props.p = params
 			}
 		}
 	})
 
 	function getIdFromData(data: any): string {
 		return resolvedConfig?.rowIdCol && resolvedConfig?.rowIdCol != ''
-			? data?.[resolvedConfig?.rowIdCol] ?? data['__index']
+			? (data?.[resolvedConfig?.rowIdCol] ?? data['__index'])
 			: data['__index']
 	}
+
 	function mountGrid() {
+		// console.log(resolvedConfig?.extraConfig)
 		if (eGui) {
 			try {
 				let columnDefs =
@@ -337,11 +342,6 @@
 						pagination: resolvedConfig?.pagination,
 						paginationAutoPageSize: resolvedConfig?.pagination,
 						suppressPaginationPanel: true,
-						defaultColDef: {
-							flex: resolvedConfig.flex ? 1 : 0,
-							editable: resolvedConfig?.allEditable,
-							onCellValueChanged
-						},
 						rowHeight: resolvedConfig.compactness
 							? rowHeights[resolvedConfig.compactness]
 							: rowHeights['normal'],
@@ -357,7 +357,13 @@
 						suppressRowDeselection: true,
 						suppressDragLeaveHidesColumns: true,
 						enableCellTextSelection: true,
-						...(resolvedConfig?.extraConfig ?? {}),
+						...deepCloneWithFunctions(resolvedConfig?.extraConfig ?? {}),
+						defaultColDef: {
+							flex: resolvedConfig.flex ? 1 : 0,
+							editable: resolvedConfig?.allEditable,
+							onCellValueChanged,
+							...resolvedConfig?.extraConfig?.['defaultColDef']
+						},
 						onStateUpdated: (e) => {
 							state = e?.api?.getState()
 							resolvedConfig?.extraConfig?.['onStateUpdated']?.(e)
@@ -383,6 +389,11 @@
 										outputs?.selectedRowIndex.set(0)
 									} else {
 										e.api.getRowNode(index.toString())?.setSelected(true)
+									}
+								},
+								setValue(nvalue) {
+									if (Array.isArray(nvalue)) {
+										value = nvalue
 									}
 								}
 							}
@@ -416,7 +427,7 @@
 	$: value && updateValue()
 
 	$: if (!deepEqual(extraConfig, resolvedConfig.extraConfig)) {
-		extraConfig = resolvedConfig.extraConfig
+		extraConfig = deepCloneWithFunctions(resolvedConfig.extraConfig)
 		if (extraConfig) {
 			api?.updateGridOptions(extraConfig)
 		}
@@ -483,11 +494,6 @@
 				paginationAutoPageSize: resolvedConfig?.pagination,
 				suppressPaginationPanel: true,
 				suppressDragLeaveHidesColumns: true,
-				defaultColDef: {
-					flex: resolvedConfig.flex ? 1 : 0,
-					editable: resolvedConfig?.allEditable,
-					onCellValueChanged
-				},
 				rowSelection: resolvedConfig?.multipleSelectable ? 'multiple' : 'single',
 				rowMultiSelectWithClick: resolvedConfig?.multipleSelectable
 					? resolvedConfig.rowMultiselectWithClick
@@ -495,7 +501,13 @@
 				rowHeight: resolvedConfig.compactness
 					? rowHeights[resolvedConfig.compactness]
 					: rowHeights['normal'],
-				...(resolvedConfig?.extraConfig ?? {})
+				...deepCloneWithFunctions(resolvedConfig?.extraConfig ?? {}),
+				defaultColDef: {
+					flex: resolvedConfig.flex ? 1 : 0,
+					editable: resolvedConfig?.allEditable,
+					onCellValueChanged,
+					...resolvedConfig?.extraConfig?.['defaultColDef']
+				}
 			})
 		} catch (e) {
 			console.error(e)
@@ -588,7 +600,7 @@
 									}
 								}
 							}}
-						/>
+						></div>
 					{:else}
 						<Loader2 class="animate-spin" />
 					{/if}

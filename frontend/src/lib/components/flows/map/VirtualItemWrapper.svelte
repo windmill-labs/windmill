@@ -9,6 +9,7 @@
 	export let id: string | undefined
 	export let onTop: boolean = false
 	export let bgColor: string
+	export let bgHoverColor: string = ''
 
 	const dispatch = createEventDispatcher<{
 		insert: {
@@ -19,6 +20,8 @@
 		}
 		select: string
 	}>()
+
+	let hover: boolean = false
 </script>
 
 <!-- svelte-ignore a11y-click-events-have-key-events -->
@@ -26,20 +29,25 @@
 <div
 	class={classNames(
 		'w-full flex relative rounded-sm',
-		selectable ? 'cursor-pointer' : '',
-		selected ? 'outline outline-offset-1 outline-2  outline-gray-600 dark:outline-gray-400' : '',
-		onTop ? 'z-[901]' : ''
+		selectable ? 'cursor-pointer active:outline active:outline-2' : '',
+		selected ? 'outline outline-2' : '',
+		onTop ? 'z-[901]' : '',
+		'outline-offset-1 outline-gray-600 dark:outline-gray-400'
 	)}
-	style="width: 275px; max-height: 34px; background-color: {bgColor} !important;"
-	on:click={() => {
+	style="width: 275px; max-height: 38px; background-color: {hover && bgHoverColor && selectable
+		? bgHoverColor
+		: bgColor};"
+	on:pointerdown={() => {
 		if (selectable) {
-			if (id) {
-				dispatch('select', id)
-			} else {
-				dispatch('select', label || label || '')
-			}
+			dispatch('select', id || label || '')
 		}
 	}}
+	on:mouseenter={() => {
+		hover = true
+	}}
+	on:mouseleave={() => {
+		hover = false
+	}}
 	title={label ? label + ' ' : ''}
-	id={`flow-editor-virtual-${encodeURIComponent(label || label || '')}`}><slot /></div
+	id={`flow-editor-virtual-${encodeURIComponent(label || label || '')}`}><slot {hover} /></div
 >

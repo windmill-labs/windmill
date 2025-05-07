@@ -110,8 +110,8 @@ You can build your entire infra on top of Windmill!
 
 ```typescript
 //import any dependency  from npm
-import * as wmill from "windmill-client"
-import * as cowsay from 'cowsay@1.5.0';
+import * as wmill from "windmill-client";
+import * as cowsay from "cowsay@1.5.0";
 
 // fill the type, or use the +Resource type to get a type-safe reference to a resource
 type Postgresql = {
@@ -146,7 +146,9 @@ export async function main(
 
 ## CLI
 
-We have a powerful CLI to interact with the windmill platform and sync your scripts from local files, GitHub repos and to run scripts and flows on the instance from local commands. See
+We have a powerful CLI to interact with the windmill platform and sync your
+scripts from local files, GitHub repos and to run scripts and flows on the
+instance from local commands. See
 [more details](https://www.windmill.dev/docs/advanced/cli).
 
 ![CLI Screencast](./cli/vhs/output/setup.gif)
@@ -168,7 +170,8 @@ Code extension: <https://www.windmill.dev/docs/cli_local_dev/vscode-extension>.
   Architecture:
   - Stateless API backend.
   - Workers that pull jobs from a queue in Postgres (and later, Kafka or Redis.
-    Upvote [#173](#https://github.com/windmill-labs/windmill/issues/173) if interested).
+    Upvote [#173](#https://github.com/windmill-labs/windmill/issues/173) if
+    interested).
 - Frontend in Svelte.
 - Scripts executions are sandboxed using Google's
   [nsjail](https://github.com/google/nsjail).
@@ -284,22 +287,37 @@ edition.
 
 ### Commercial license
 
-To self-host Windmill, you must respect the terms of the
-[AGPLv3 license](https://www.gnu.org/licenses/agpl-3.0.en.html) which you do not
-need to worry about for personal uses. For business uses, you should be fine if
-you do not re-expose Windmill in any way to your users and are comfortable with
-AGPLv3.
+See the [LICENSE](https://github.com/windmill-labs/windmill/blob/main/LICENSE)
+file for the full license text.
+
+The "Community Edition" of Windmill available in the docker images hosted under
+ghcr.io/windmill-labs/windmill and the github binary releases contains the files
+under the AGPLv3 and Apache 2 sources but also includes proprietary and
+non-public code and features which are not open source and under the following
+terms: Windmill Labs, Inc. grants a right to use all the features of the
+"Community Edition" for free without restrictions other than the limits and
+quotas set in the software and a right to distribute the community edition as is
+but not to sell, resell, serve Windmill as a managed service, modify or wrap
+under any form without an explicit agreement.
+
+The binary compilable from source code in this repository without the
+"enterprise" feature flag is open-source under the
+[LICENSE-AGPLv3](https://github.com/windmill-labs/windmill/blob/main/LICENSE-AGPL)
+License terms and conditions.
 
 To
-[re-expose any Windmill parts to your users](https://www.windmill.dev/docs/misc/white_labelling)
-as a feature of your product, or to build a feature on top of Windmill, to
-comply with AGPLv3 your product must be AGPLv3 or you must get a commercial
-license. Contact us at <ruben@windmill.dev> if you have any doubts.
+[re-expose directly any Windmill parts to your users](https://www.windmill.dev/docs/misc/white_labelling)
+as a feature of your product, with the exception of iframed public Windmill
+"apps", or to build a feature on top of "Windmill Community Edition" that you
+sell commercially or embed in a distributable product or binary, you must get a
+commercial license. Contact us at <sales@windmill.dev> if you have any
+questions. To do the same from the binary compiled from the source code in this
+repository without the "enterprise" feature flag, you must comply with the
+AGPLv3 license terms and conditions or get a commercial license from Windmill
+Labs, Inc.
 
-In addition, a commercial license grants you a dedicated engineer to transition
-your current infrastructure to Windmill, support with tight SLA, and our global
-cache sync for high-performance/no dependency cache miss of cluster from 10+
-nodes to 200+ nodes.
+To use Windmill "Community Edition" as is internally in your organization, or to
+use its APIs as is, you do NOT need a commercial license.
 
 ### Integrations
 
@@ -314,70 +332,77 @@ you to have it being synced automatically everyday.
 
 ## Environment Variables
 
-| Environment Variable name | Default                | Description                                                                                                                                                                                        | Api Server/Worker/All |
-| ------------------------- | ---------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------- |
-| DATABASE_URL              |                        | The Postgres database url.                                                                                                                                                                         | All                   |
-| WORKER_GROUP              | default                | The worker group the worker belongs to and get its configuration pulled from                                                                                                                       | Worker                |
-| MODE                      | standalone             | The mode if the binary. Possible values: standalone, worker, server, agent                                                                                                                                | All                   |
-| METRICS_ADDR              | None                   | (ee only) The socket addr at which to expose Prometheus metrics at the /metrics path. Set to "true" to expose it on port 8001                                                                      | All                   |
-| JSON_FMT                  | false                  | Output the logs in json format instead of logfmt                                                                                                                                                   | All                   |
-| BASE_URL                  | http://localhost:8000  | The base url that is exposed publicly to access your instance. Is overriden by the instance settings if any.                                                                                       | Server                |
-| ZOMBIE_JOB_TIMEOUT        | 30                     | The timeout after which a job is considered to be zombie if the worker did not send pings about processing the job (every server check for zombie jobs every 30s)                                  | Server                |
-| RESTART_ZOMBIE_JOBS       | true                   | If true then a zombie job is restarted (in-place with the same uuid and some logs), if false the zombie job is failed                                                                              | Server                |
-| SLEEP_QUEUE               | 50                     | The number of ms to sleep in between the last check for new jobs in the DB. It is multiplied by NUM_WORKERS such that in average, for one worker instance, there is one pull every SLEEP_QUEUE ms. | Worker                |
-| KEEP_JOB_DIR              | false                  | Keep the job directory after the job is done. Useful for debugging.                                                                                                                                | Worker                |
-| LICENSE_KEY (EE only)     | None                   | License key checked at startup for the Enterprise Edition of Windmill                                                                                                                              | Worker                |
-| SLACK_SIGNING_SECRET      | None                   | The signing secret of your Slack app. See [Slack documentation](https://api.slack.com/authentication/verifying-requests-from-slack)                                                                | Server                |
-| COOKIE_DOMAIN             | None                   | The domain of the cookie. If not set, the cookie will be set by the browser based on the full origin                                                                                               | Server                |
-| DENO_PATH                 | /usr/bin/deno          | The path to the deno binary.                                                                                                                                                                       | Worker                |
-| PYTHON_PATH               | /usr/local/bin/python3 | The path to the python binary.                                                                                                                                                                     | Worker                |
-| GO_PATH                   | /usr/bin/go            | The path to the go binary.                                                                                                                                                                         | Worker                |
-| GOPRIVATE                 |                        | The GOPRIVATE env variable to use private go modules                                                                                                                                               | Worker                |
-| GOPROXY                   |                        | The GOPROXY env variable to use                                                                                                                                                                    | Worker                |
-| NETRC                     |                        | The netrc content to use a private go registry                                                                                                                                                     | Worker                |                                                                                                                                                                  | Worker                |
-| PY_CONCURRENT_DOWNLOADS   | 20                     | Sets the maximum number of in-flight concurrent python downloads that windmill will perform at any given time.                                                                                     | Worker                |
-| PATH                      | None                   | The path environment variable, usually inherited                                                                                                                                                   | Worker                |
-| HOME                      | None                   | The home directory to use for Go and Bash , usually inherited                                                                                                                                      | Worker                |
-| DATABASE_CONNECTIONS      | 50 (Server)/3 (Worker) | The max number of connections in the database connection pool                                                                                                                                      | All                   |
-| SUPERADMIN_SECRET         | None                   | A token that would let the caller act as a virtual superadmin superadmin@windmill.dev                                                                                                              | Server                |
-| TIMEOUT_WAIT_RESULT       | 20                     | The number of seconds to wait before timeout on the 'run_wait_result' endpoint                                                                                                                     | Worker                |
-| QUEUE_LIMIT_WAIT_RESULT   | None                   | The number of max jobs in the queue before rejecting immediately the request in 'run_wait_result' endpoint. Takes precedence on the query arg. If none is specified, there are no limit.           | Worker                |
-| DENO_AUTH_TOKENS          | None                   | Custom DENO_AUTH_TOKENS to pass to worker to allow the use of private modules                                                                                                                      | Worker                |
-| DISABLE_RESPONSE_LOGS          | false                   | Disable response logs                                                   | Server                |
-| CREATE_WORKSPACE_REQUIRE_SUPERADMIN | true | If true, only superadmins can create new workspaces | Server |
+| Environment Variable name           | Default                | Description                                                                                                                                                                                        | Api Server/Worker/All |
+| ----------------------------------- | ---------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------- |
+| DATABASE_URL                        |                        | The Postgres database url.                                                                                                                                                                         | All                   |
+| WORKER_GROUP                        | default                | The worker group the worker belongs to and get its configuration pulled from                                                                                                                       | Worker                |
+| MODE                                | standalone             | The mode if the binary. Possible values: standalone, worker, server, agent                                                                                                                         | All                   |
+| METRICS_ADDR                        | None                   | (ee only) The socket addr at which to expose Prometheus metrics at the /metrics path. Set to "true" to expose it on port 8001                                                                      | All                   |
+| JSON_FMT                            | false                  | Output the logs in json format instead of logfmt                                                                                                                                                   | All                   |
+| BASE_URL                            | http://localhost:8000  | The base url that is exposed publicly to access your instance. Is overriden by the instance settings if any.                                                                                       | Server                |
+| ZOMBIE_JOB_TIMEOUT                  | 30                     | The timeout after which a job is considered to be zombie if the worker did not send pings about processing the job (every server check for zombie jobs every 30s)                                  | Server                |
+| RESTART_ZOMBIE_JOBS                 | true                   | If true then a zombie job is restarted (in-place with the same uuid and some logs), if false the zombie job is failed                                                                              | Server                |
+| SLEEP_QUEUE                         | 50                     | The number of ms to sleep in between the last check for new jobs in the DB. It is multiplied by NUM_WORKERS such that in average, for one worker instance, there is one pull every SLEEP_QUEUE ms. | Worker                |
+| KEEP_JOB_DIR                        | false                  | Keep the job directory after the job is done. Useful for debugging.                                                                                                                                | Worker                |
+| LICENSE_KEY (EE only)               | None                   | License key checked at startup for the Enterprise Edition of Windmill                                                                                                                              | Worker                |
+| SLACK_SIGNING_SECRET                | None                   | The signing secret of your Slack app. See [Slack documentation](https://api.slack.com/authentication/verifying-requests-from-slack)                                                                | Server                |
+| COOKIE_DOMAIN                       | None                   | The domain of the cookie. If not set, the cookie will be set by the browser based on the full origin                                                                                               | Server                |
+| DENO_PATH                           | /usr/bin/deno          | The path to the deno binary.                                                                                                                                                                       | Worker                |
+| PYTHON_PATH                         |                        | The path to the python binary if wanting to not have it managed by uv.                                                                                                                             | Worker                |
+| GO_PATH                             | /usr/bin/go            | The path to the go binary.                                                                                                                                                                         | Worker                |
+| GOPRIVATE                           |                        | The GOPRIVATE env variable to use private go modules                                                                                                                                               | Worker                |
+| GOPROXY                             |                        | The GOPROXY env variable to use                                                                                                                                                                    | Worker                |
+| NETRC                               |                        | The netrc content to use a private go registry                                                                                                                                                     | Worker                |
+| PY_CONCURRENT_DOWNLOADS             | 20                     | Sets the maximum number of in-flight concurrent python downloads that windmill will perform at any given time.                                                                                     | Worker                |
+| PATH                                | None                   | The path environment variable, usually inherited                                                                                                                                                   | Worker                |
+| HOME                                | None                   | The home directory to use for Go and Bash , usually inherited                                                                                                                                      | Worker                |
+| DATABASE_CONNECTIONS                | 50 (Server)/3 (Worker) | The max number of connections in the database connection pool                                                                                                                                      | All                   |
+| SUPERADMIN_SECRET                   | None                   | A token that would let the caller act as a virtual superadmin superadmin@windmill.dev                                                                                                              | Server                |
+| TIMEOUT_WAIT_RESULT                 | 20                     | The number of seconds to wait before timeout on the 'run_wait_result' endpoint                                                                                                                     | Worker                |
+| QUEUE_LIMIT_WAIT_RESULT             | None                   | The number of max jobs in the queue before rejecting immediately the request in 'run_wait_result' endpoint. Takes precedence on the query arg. If none is specified, there are no limit.           | Worker                |
+| DENO_AUTH_TOKENS                    | None                   | Custom DENO_AUTH_TOKENS to pass to worker to allow the use of private modules                                                                                                                      | Worker                |
+| DISABLE_RESPONSE_LOGS               | false                  | Disable response logs                                                                                                                                                                              | Server                |
+| CREATE_WORKSPACE_REQUIRE_SUPERADMIN | true                   | If true, only superadmins can create new workspaces                                                                                                                                                | Server                |
+| MIN_FREE_DISK_SPACE_MB              | 15000                  | Minimum amount of free space on worker. Sends critical alert if worker has less free space.                                                                                                        | Worker                |
 
 ## Run a local dev setup
+
 See the [./frontend/README_DEV.md](./frontend/README_DEV.md) file for all
 running options.
 
 Using [Nix](./frontend/README_DEV.md#nix).
 
 ### only Frontend
+
 This will use the backend of <https://app.windmill.dev> but your own frontend
-with hot-code reloading. Note that you will need to use a username / password login due to CSRF checks using a different auth provider.
+with hot-code reloading. Note that you will need to use a username / password
+login due to CSRF checks using a different auth provider.
 
 In the `frontend/` directory:
 
 1. install the dependencies with `npm install` (or `pnpm install` or `yarn`)
 2. generate the windmill client:
-  ```
-  npm run generate-backend-client
-  ## on mac use
-  npm run generate-backend-client-mac
-  ```
+
+```
+npm run generate-backend-client
+## on mac use
+npm run generate-backend-client-mac
+```
+
 3. Run your dev server with `npm run dev`
 4. Et voilà, windmill should be available at `http://localhost/`
 
 ### Backend + Frontend
+
 See the [./frontend/README_DEV.md](./frontend/README_DEV.md) file for all
 running options.
+
 1. Create a Postgres Database for Windmill and create an admin role inside your
-   Postgres setup.
-   The easiest way to get a working db is to run
-	```
+   Postgres setup. The easiest way to get a working db is to run
+   ```
    cargo install sqlx-cli
    env DATABASE_URL=<YOUR_DATABASE_URL> sqlx migrate run
-	```
+   ```
    This will also avoid compile time issue with sqlx's `query!` macro
 2. Install [nsjail](https://github.com/google/nsjail) and have it accessible in
    your PATH
@@ -387,14 +412,14 @@ running options.
 5. Install the [lld linker](https://lld.llvm.org/)
 6. Go to `frontend/`:
    1. `npm install`, `npm run generate-backend-client` then `npm run dev`
-   2. You might need to set some extra heap space for the node runtime `export NODE_OPTIONS="--max-old-space-size=4096"`
-   3. In another shell `npm run build` otherwise the backend will not find the `frontend/build` folder and will not compile.
+   2. You might need to set some extra heap space for the node runtime
+      `export NODE_OPTIONS="--max-old-space-size=4096"`
+   3. In another shell `npm run build` otherwise the backend will not find the
+      `frontend/build` folder and will not compile.
    4. In another shell `sudo caddy run --config Caddyfile`
 7. Go to `backend/`:
    `env DATABASE_URL=<DATABASE_URL_TO_YOUR_WINDMILL_DB> RUST_LOG=info cargo run`
 8. Et voilà, windmill should be available at `http://localhost/`
-
-
 
 ## Contributors
 

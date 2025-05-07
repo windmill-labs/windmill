@@ -394,19 +394,22 @@
 	<div class="p-2">
 		<ToggleButtonGroup
 			bind:selected
-			on:selected={() => {
-				handleSelected(selected)
+			on:selected={({ detail }) => {
+				handleSelected(detail)
 			}}
+			let:item
 		>
 			<ToggleButton
 				value="ui-editor"
 				label="UI Editor"
 				tooltip="Use the UI editor to quickly create a plotly chart."
+				{item}
 			/>
 			<ToggleButton
 				value="json"
 				label="JSON"
 				tooltip="Switch to JSON mode for complete customization of Plotly settings."
+				{item}
 			/>
 		</ToggleButtonGroup>
 	</div>

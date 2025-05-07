@@ -4,8 +4,8 @@
 
 	import Button from '$lib/components/common/button/Button.svelte'
 	import { sendUserToast } from '$lib/toast'
-	import { userStore, workspaceStore } from '$lib/stores'
-	import { HelpersService } from '$lib/gen'
+	import { workspaceStore } from '$lib/stores'
+	import { AppService, HelpersService } from '$lib/gen'
 	import { writable, type Writable } from 'svelte/store'
 	import { Ban, CheckCheck, FileWarning, Files, RefreshCcw, Trash } from 'lucide-svelte'
 	import { twMerge } from 'tailwind-merge'
@@ -14,12 +14,13 @@
 
 	export let acceptedFileTypes: string[] | undefined = ['*']
 	export let allowMultiple: boolean = true
+	export let allowDelete = true
 	export let folderOnly = false
 	export let containerText: string = folderOnly
 		? 'Drag and drop a folder here or click to browse'
 		: allowMultiple
-		? 'Drag and drop files here or click to browse'
-		: 'Drag and drop a file here or click to browse'
+			? 'Drag and drop files here or click to browse'
+			: 'Drag and drop a file here or click to browse'
 	export let customResourcePath: string | undefined = undefined
 	export let customResourceType: 's3' | 'azure_blob' | undefined = undefined // when customResourcePath is provided, this should be provided as well. Will default to S3 if not
 	export let customClass: string = ''
@@ -32,6 +33,32 @@
 	export let fileUploads: Writable<FileUploadData[]> = writable([])
 	export let appPath: string | undefined = undefined
 	export let disabled = false
+	export let iconSize: number | undefined = undefined
+	export let initialValue:
+		| {
+				s3: string
+				filename: string
+		  }
+		| undefined = undefined
+
+	init()
+
+	function init() {
+		if (initialValue?.s3) {
+			if (!$fileUploads.find((fileUpload) => fileUpload.path === initialValue?.s3)) {
+				$fileUploads = [
+					...$fileUploads,
+					{
+						name: initialValue.filename,
+						size: 0,
+						progress: 100,
+						path: initialValue?.s3
+					}
+				]
+			}
+		}
+	}
+
 	export let computeForceViewerPolicies:
 		| (() =>
 				| {
@@ -43,7 +70,10 @@
 				| undefined)
 		| undefined = undefined
 
-	const dispatch = createEventDispatcher()
+	const dispatch = createEventDispatcher<{
+		addition: { path?: string; filename?: string }
+		deletion: { path: string }
+	}>()
 
 	type FileUploadData = {
 		name: string
@@ -53,6 +83,7 @@
 		errorMessage?: string
 		path?: string
 		file?: File
+		deleteToken?: string
 	}
 
 	async function handleChange(files: File[] | undefined) {
@@ -118,9 +149,9 @@
 		} else {
 			path =
 				typeof pathTransformer == 'function'
-					? (await pathTransformer?.({
+					? ((await pathTransformer?.({
 							file: fileToUpload
-					  })) ?? fileToUploadKey
+						})) ?? fileToUploadKey)
 					: fileToUploadKey
 		}
 		const uploadData: FileUploadData = {
@@ -129,7 +160,8 @@
 			progress: 1, // We set it to 1 so that the progress bar is visible
 			cancelled: false,
 			path: path,
-			file: fileToUpload
+			file: fileToUpload,
+			deleteToken: undefined
 		}
 
 		$fileUploads = [...$fileUploads, uploadData]
@@ -240,10 +272,10 @@
 					appPath
 						? `/api/w/${
 								workspace ?? $workspaceStore
-						  }/apps_u/upload_s3_file/${appPath}?${params.toString()}`
+							}/apps_u/upload_s3_file/${appPath}?${params.toString()}`
 						: `/api/w/${
 								workspace ?? $workspaceStore
-						  }/job_helpers/upload_s3_file?${params.toString()}`,
+							}/job_helpers/upload_s3_file?${params.toString()}`,
 					true
 				)
 				xhr?.setRequestHeader('Content-Type', 'application/octet-stream')
@@ -251,6 +283,9 @@
 			})) as any
 
 			uploadData.path = response.file_key
+			if (appPath && 'delete_token' in response) {
+				uploadData.deleteToken = response.delete_token
+			}
 		} catch (e) {
 			console.error(e)
 			sendUserToast(e, true)
@@ -278,13 +313,25 @@
 		return
 	}
 
-	async function deleteFile(fileKey: string) {
-		await HelpersService.deleteS3File({
-			workspace: workspace ?? $workspaceStore!,
-			fileKey: fileKey
-		})
-		dispatch('deletion', { path: fileKey })
-		sendUserToast('File deleted!')
+	async function deleteFile(fileKey: string, deleteToken?: string) {
+		try {
+			if (deleteToken) {
+				await AppService.deleteS3FileFromApp({
+					workspace: workspace ?? $workspaceStore!,
+					deleteToken: deleteToken
+				})
+			} else {
+				await HelpersService.deleteS3File({
+					workspace: workspace ?? $workspaceStore!,
+					fileKey: fileKey
+				})
+			}
+			dispatch('deletion', { path: fileKey })
+			sendUserToast('File deleted!')
+		} catch (err) {
+			console.error(err)
+			sendUserToast('Could not delete file', true)
+		}
 	}
 
 	function clearRequests() {
@@ -313,10 +360,12 @@
 					<div class="w-full flex flex-col gap-1 p-2">
 						<div class="flex flex-row items-center justify-between">
 							<div class="flex flex-col gap-1">
-								<span class="text-xs font-bold">{fileUpload.name}</span>
-								<span class="text-xs"
-									>{`${Math.round((fileUpload.size / 1024 / 1024) * 100) / 100} MB`}</span
-								>
+								<span class="text-xs font-bold">{fileUpload.name ?? ''}</span>
+								{#if fileUpload.size}
+									<span class="text-xs"
+										>{`${Math.round((fileUpload.size / 1024 / 1024) * 100) / 100} MB`}</span
+									>
+								{/if}
 							</div>
 							<div class="flex flex-row gap-1 items-center">
 								{#if fileUpload.errorMessage}
@@ -394,7 +443,7 @@
 									</Button>
 								{/if}
 
-								{#if fileUpload.progress === 100 && !fileUpload.cancelled && $userStore}
+								{#if fileUpload.progress === 100 && !fileUpload.cancelled && allowDelete && (!appPath || fileUpload.deleteToken != undefined)}
 									<Button
 										size="xs2"
 										color="red"
@@ -405,7 +454,7 @@
 											)
 
 											if (fileUpload.path) {
-												deleteFile(fileUpload.path)
+												deleteFile(fileUpload.path, fileUpload.deleteToken)
 											}
 											abortUpload(fileUpload.name)
 										}}
@@ -423,10 +472,10 @@
 							color={fileUpload.errorMessage
 								? '#ef4444'
 								: fileUpload.cancelled
-								? '#eab308'
-								: fileUpload.progress === 100
-								? '#22c55e'
-								: '#3b82f6'}
+									? '#eab308'
+									: fileUpload.progress === 100
+										? '#22c55e'
+										: '#3b82f6'}
 							ended={fileUpload.cancelled || fileUpload.errorMessage !== undefined}
 						>
 							{#if fileUpload.errorMessage}
@@ -493,6 +542,7 @@
 			accept={acceptedFileTypes?.join(',')}
 			multiple={allowMultiple}
 			returnFileNames
+			{iconSize}
 			on:change={({ detail }) => {
 				forceDisplayUploads = false
 				handleChange(detail)
@@ -503,5 +553,12 @@
 		>
 			{containerText}{#if disabled}<br />(Disabled){/if}
 		</FileInput>
+	{/if}
+	{#if initialValue?.s3 && $fileUploads.length == 0}
+		<div class="flex flex-row gap-1 items-center p-1">
+			<span class="text-sm">
+				File currently selected: {initialValue?.s3}
+			</span>
+		</div>
 	{/if}
 </div>

@@ -70,7 +70,7 @@
 	}
 
 	async function onGenerate() {
-		if (!selectedCompletion && !$copilotInfo.exists_ai_resource) {
+		if (!selectedCompletion && !$copilotInfo.enabled) {
 			sendUserToast(
 				'Windmill AI is not enabled, you can activate it in the workspace settings',
 				true

@@ -41,7 +41,7 @@
 			<SecondsInput disabled />
 		{/if}
 
-		<div class="mt-4" />
+		<div class="mt-4"></div>
 
 		<Alert title="Only used when testing the full flow" type="info">
 			<p class="text-sm"> The timeout will be ignored when running "Test this step" </p>

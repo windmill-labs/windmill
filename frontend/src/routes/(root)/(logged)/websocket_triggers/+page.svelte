@@ -1,11 +1,17 @@
 <script lang="ts">
-	import { WebsocketTriggerService, type WebsocketTrigger } from '$lib/gen'
+	import {
+		WebsocketTriggerService,
+		WorkspaceService,
+		type WebsocketTrigger,
+		type WorkspaceDeployUISettings
+	} from '$lib/gen'
 	import {
 		canWrite,
 		displayDate,
 		getLocalSetting,
 		sendUserToast,
-		storeLocalSetting
+		storeLocalSetting,
+		removeTriggerKindIfUnused
 	} from '$lib/utils'
 	import { base } from '$app/paths'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
@@ -15,8 +21,8 @@
 	import SharedBadge from '$lib/components/SharedBadge.svelte'
 	import ShareModal from '$lib/components/ShareModal.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
-	import { userStore, workspaceStore } from '$lib/stores'
-	import { Unplug, Code, Eye, Pen, Plus, Share, Trash, Circle } from 'lucide-svelte'
+	import { enterpriseLicense, usedTriggerKinds, userStore, workspaceStore } from '$lib/stores'
+	import { Unplug, Code, Eye, Pen, Plus, Share, Trash, Circle, FileUp } from 'lucide-svelte'
 	import { goto } from '$lib/navigation'
 	import SearchItems from '$lib/components/SearchItems.svelte'
 	import NoItemFound from '$lib/components/home/NoItemFound.svelte'
@@ -29,19 +35,33 @@
 	import Popover from '$lib/components/Popover.svelte'
 	import { isCloudHosted } from '$lib/cloud'
 	import WebsocketTriggerEditor from '$lib/components/triggers/websocket/WebsocketTriggerEditor.svelte'
+	import DeployWorkspaceDrawer from '$lib/components/DeployWorkspaceDrawer.svelte'
+	import { ALL_DEPLOYABLE, isDeployable } from '$lib/utils_deployable'
 
 	type TriggerW = WebsocketTrigger & { canWrite: boolean }
 
 	let triggers: TriggerW[] = []
 	let shareModal: ShareModal
 	let loading = true
+	let deploymentDrawer: DeployWorkspaceDrawer
+	let deployUiSettings: WorkspaceDeployUISettings | undefined = undefined
 
+	async function getDeployUiSettings() {
+		if (!$enterpriseLicense) {
+			deployUiSettings = ALL_DEPLOYABLE
+			return
+		}
+		let settings = await WorkspaceService.getSettings({ workspace: $workspaceStore! })
+		deployUiSettings = settings.deploy_ui ?? ALL_DEPLOYABLE
+	}
+	getDeployUiSettings()
 	async function loadTriggers(): Promise<void> {
 		triggers = (
 			await WebsocketTriggerService.listWebsocketTriggers({ workspace: $workspaceStore! })
 		).map((x) => {
 			return { canWrite: canWrite(x.path, x.extra_perms!, $userStore), ...x }
 		})
+		$usedTriggerKinds = removeTriggerKindIfUnused(triggers.length, 'websockets', $usedTriggerKinds)
 		loading = false
 	}
 
@@ -140,15 +160,15 @@
 						(x) =>
 							x.path.startsWith(ownerFilter + '/') &&
 							filterItemsPathsBaseOnUserFilters(x, selectedFilterKind, filterUserFolders)
-				  )
+					)
 				: triggers?.filter(
 						(x) =>
 							x.script_path.startsWith(ownerFilter + '/') &&
 							filterItemsPathsBaseOnUserFilters(x, selectedFilterKind, filterUserFolders)
-				  )
+					)
 			: triggers?.filter((x) =>
 					filterItemsPathsBaseOnUserFilters(x, selectedFilterKind, filterUserFolders)
-			  )
+				)
 
 	$: if ($workspaceStore) {
 		ownerFilter = undefined
@@ -158,10 +178,10 @@
 		selectedFilterKind === 'trigger'
 			? Array.from(
 					new Set(filteredItems?.map((x) => x.path.split('/').slice(0, 2).join('/')) ?? [])
-			  ).sort()
+				).sort()
 			: Array.from(
 					new Set(filteredItems?.map((x) => x.script_path.split('/').slice(0, 2).join('/')) ?? [])
-			  ).sort()
+				).sort()
 
 	$: items = filter !== '' ? filteredItems : preFilteredItems
 
@@ -198,6 +218,7 @@
 	$: updateQueryFilters(selectedFilterKind, filterUserFolders)
 </script>
 
+<DeployWorkspaceDrawer bind:this={deploymentDrawer} />
 <WebsocketTriggerEditor on:update={loadTriggers} bind:this={websocketTriggerEditor} />
 
 <SearchItems
@@ -225,16 +246,16 @@
 		<Alert title="Not compatible with multi-tenant cloud" type="warning">
 			WebSocket triggers are disabled in the multi-tenant cloud.
 		</Alert>
-		<div class="py-4" />
+		<div class="py-4"></div>
 	{/if}
 	<div class="w-full h-full flex flex-col">
 		<div class="w-full pb-4 pt-6">
 			<input type="text" placeholder="Search WS triggers" bind:value={filter} class="search-item" />
 			<div class="flex flex-row items-center gap-2 mt-6">
 				<div class="text-sm shrink-0"> Filter by path of </div>
-				<ToggleButtonGroup bind:selected={selectedFilterKind}>
-					<ToggleButton small value="trigger" label="WS trigger" icon={Unplug} />
-					<ToggleButton small value="script_flow" label="Script/Flow" icon={Code} />
+				<ToggleButtonGroup bind:selected={selectedFilterKind} let:item>
+					<ToggleButton small value="trigger" label="WS trigger" icon={Unplug} {item} />
+					<ToggleButton small value="script_flow" label="Script/Flow" icon={Code} {item} />
 				</ToggleButtonGroup>
 			</div>
 			<ListFilters syncQuery bind:selectedFilter={ownerFilter} filters={owners} />
@@ -285,8 +306,8 @@
 										{url.startsWith('$script:')
 											? 'URL: ' + url.replace('$script:', 'result of script ')
 											: url.startsWith('$flow:')
-											? 'URL: ' + url.replace('$flow:', 'result of flow ')
-											: url}
+												? 'URL: ' + url.replace('$flow:', 'result of flow ')
+												: url}
 									{/if}
 								</div>
 								<div class="text-secondary text-xs truncate text-left font-light">
@@ -351,7 +372,7 @@
 										? { icon: Pen }
 										: {
 												icon: Eye
-										  }}
+											}}
 									color="dark"
 								>
 									{canWrite ? 'Edit' : 'View'}
@@ -385,6 +406,21 @@
 												websocketTriggerEditor?.openEdit(path, is_flow)
 											}
 										},
+										...(isDeployable('trigger', path, deployUiSettings)
+											? [
+													{
+														displayName: 'Deploy to prod/staging',
+														icon: FileUp,
+														action: () => {
+															deploymentDrawer.openDrawer(path, 'trigger', {
+																triggers: {
+																	kind: 'websockets'
+																}
+															})
+														}
+													}
+												]
+											: []),
 										{
 											displayName: 'Audit logs',
 											icon: Eye,

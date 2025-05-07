@@ -97,10 +97,6 @@
 		hoveredComponent: undefined
 	})
 
-	summaryStore.subscribe((s) => {
-		$worldStore?.outputsById['ctx'].summary.set(s)
-	})
-
 	const cssEditorOpen = writable<boolean>(false)
 
 	const history = initHistory(app)
@@ -136,8 +132,16 @@
 
 	const worldStore = buildWorld(context)
 	const previewTheme: Writable<string | undefined> = writable(undefined)
-	const initialized = writable({ initialized: false, initializedComponents: [] })
+	const initialized = writable({
+		initialized: false,
+		initializedComponents: [],
+		runnableInitialized: {}
+	})
 	const panzoomActive = writable(false)
+
+	summaryStore.subscribe((s) => {
+		$worldStore?.outputsById['ctx'].summary.set(s)
+	})
 
 	$secondaryMenuRightStore.isOpen = false
 	$secondaryMenuLeftStore.isOpen = false
@@ -225,7 +229,7 @@
 			try {
 				localStorage.setItem(path != '' ? `app-${path}` : 'app', encodeState($appStore))
 			} catch (err) {
-				console.error(err)
+				console.error('Error storing frontend draft in localStorage', err)
 			}
 		}, 500)
 	}
@@ -820,7 +824,21 @@
 			on:hideRightPanel={() => hideRightPanel()}
 			on:hideBottomPanel={() => hideBottomPanel()}
 			on:showBottomPanel={() => showBottomPanel()}
-		/>
+		>
+			<svelte:fragment
+				slot="unsavedConfirmationModal"
+				let:diffDrawer
+				let:additionalExitAction
+				let:getInitialAndModifiedValues
+			>
+				<slot
+					name="unsavedConfirmationModal"
+					{diffDrawer}
+					{additionalExitAction}
+					{getInitialAndModifiedValues}
+				/>
+			</svelte:fragment>
+		</AppEditorHeader>
 		{#if $mode === 'preview'}
 			<SplitPanesWrapper>
 				<div
@@ -1005,10 +1023,10 @@
 										</div>
 									</div>
 
-									<div id="app-editor-top-level-drawer" />
+									<div id="app-editor-top-level-drawer"></div>
 									<div
 										class="absolute pointer-events-none inset-0 h-full w-full surface-secondary bg-[radial-gradient(#dbdbdb_1px,transparent_1px)] dark:bg-[radial-gradient(#666666_1px,transparent_1px)] [background-size:16px_16px]"
-									/>
+									></div>
 
 									<!-- svelte-ignore a11y-no-static-element-interactions -->
 									<div
@@ -1103,7 +1121,7 @@
 						</Splitpanes>
 					</Pane>
 					{#if rightPanelSize === 0}
-						<div class="relative flex flex-col h-full" />
+						<div class="relative flex flex-col h-full"></div>
 					{:else}
 						<Pane bind:size={rightPanelSize} minSize={15} maxSize={33}>
 							<div bind:clientWidth={$runnableJob.width} class="relative flex flex-col h-full">

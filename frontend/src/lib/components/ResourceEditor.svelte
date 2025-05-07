@@ -18,6 +18,7 @@
 	import autosize from '$lib/autosize'
 	import GfmMarkdown from './GfmMarkdown.svelte'
 	import TestTriggerConnection from './triggers/TestTriggerConnection.svelte'
+	import { createDispatcherIfMounted } from '$lib/createDispatcherIfMounted'
 
 	export let canSave = true
 	export let resource_type: string | undefined = undefined
@@ -52,8 +53,9 @@
 	let viewJsonSchema = false
 
 	const dispatch = createEventDispatcher()
+	const dispatchIfMounted = createDispatcherIfMounted(dispatch)
 
-	$: watchChanges && dispatch('change', { path, args, description })
+	$: watchChanges && dispatchIfMounted('change', { path, args, description })
 
 	let rawCode: string | undefined = undefined
 
@@ -116,6 +118,8 @@
 				resourceTypeInfo = resourceType
 				if (resourceType.schema) {
 					resourceSchema = resourceType.schema as Schema
+					resourceSchema.order =
+						resourceSchema.order ?? Object.keys(resourceSchema.properties).sort()
 				}
 				if (resourceTypeInfo?.format_extension) {
 					textFileContent = args.content
@@ -212,17 +216,17 @@
 					use:autosize
 					bind:value={description}
 					placeholder={DESCRIPTION_PLACEHOLDER}
-				/>
+				></textarea>
 			</div>
 		{:else if description == undefined || description == ''}
 			<div class="text-sm text-tertiary">No description provided</div>
 		{:else}
-			<div class="mt-2" />
+			<div class="mt-2"></div>
 
 			<GfmMarkdown md={description} />
 		{/if}
 		<div class="flex w-full justify-between items-center mt-4">
-			<div />
+			<div></div>
 			{#if resourceToEdit?.resource_type === 'nats' || resourceToEdit?.resource_type === 'kafka'}
 				<TestTriggerConnection kind={resourceToEdit?.resource_type} args={{ connection: args }} />
 			{:else}
@@ -235,7 +239,7 @@
 				}}
 			/>
 		</div>
-		<div class="text-sm">
+		<div>
 			{#if loadingSchema}
 				<Skeleton layout={[[4]]} />
 			{:else if !viewJsonSchema && resourceSchema && resourceSchema?.properties}
@@ -275,7 +279,7 @@
 
 				{#if !emptyString(jsonError)}<span class="text-red-400 text-xs mb-1 flex flex-row-reverse"
 						>{jsonError}</span
-					>{:else}<div class="py-2" />{/if}
+					>{:else}<div class="py-2"></div>{/if}
 				<div class="h-full w-full border p-1 rounded">
 					<SimpleEditor
 						autoHeight

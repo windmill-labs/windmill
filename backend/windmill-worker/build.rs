@@ -32,9 +32,10 @@ impl FetchPermissions for PermissionsContainer {
     #[inline(always)]
     fn check_read<'a>(
         &mut self,
+        _resolved: bool,
         _p: &'a std::path::Path,
         _api_name: &str,
-    ) -> Result<Cow<'a, Path>, deno_permissions::PermissionCheckError> {
+    ) -> Result<Cow<'a, std::path::Path>, deno_io::fs::FsError> {
         unreachable!("snapshotting")
     }
 }
@@ -95,7 +96,7 @@ fn main() {
     println!("cargo:rustc-env=PROFILE={}", env::var("PROFILE").unwrap());
 
     let exts = vec![
-        // deno_telemetry::deno_telemetry::init_ops_and_esm(),
+        deno_telemetry::deno_telemetry::init_ops_and_esm(),
         deno_webidl::deno_webidl::init_ops_and_esm(),
         deno_url::deno_url::init_ops_and_esm(),
         deno_console::deno_console::init_ops_and_esm(),
@@ -117,7 +118,9 @@ fn main() {
         deno_core::snapshot::CreateSnapshotOptions {
             cargo_manifest_dir: env!("CARGO_MANIFEST_DIR"),
             startup_snapshot: None,
-            extension_transpiler: None,
+            extension_transpiler: Some(std::rc::Rc::new(|specifier, source| {
+                deno_runtime::transpile::maybe_transpile_source(specifier, source)
+            })),
             extensions: exts,
             with_runtime_cb: None,
             skip_op_registration: false,

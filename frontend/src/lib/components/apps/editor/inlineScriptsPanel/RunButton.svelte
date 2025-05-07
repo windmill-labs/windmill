@@ -44,13 +44,13 @@
 			size="xs"
 			color="red"
 			variant="border"
-			btnClasses="!px-2 !py-1.5"
+			btnClasses="!px-2 !py-1 !ml-[3px]"
 			on:click={async () => {
 				cancelable?.forEach((f) => f.cancel())
 				runLoading = false
 			}}
 		>
-			<Loader2 size={14} class="animate-spin mr-2" />
+			<Loader2 size={12} class="animate-spin mr-2" />
 			Cancel
 		</Button>
 	{/if}

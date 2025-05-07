@@ -9,6 +9,7 @@
 	import { sendUserToast, type ToastAction } from '$lib/toast'
 	import DiffDrawer from '$lib/components/DiffDrawer.svelte'
 	import type { App } from '$lib/components/apps/types'
+	import UnsavedConfirmationModal from '$lib/components/common/confirmationModal/UnsavedConfirmationModal.svelte'
 
 	let app = undefined as (AppWithLastVersion & { draft_only?: boolean; value: any }) | undefined
 	let savedApp:
@@ -35,7 +36,8 @@
 		}
 	})
 	const initialState = nodraft ? undefined : localStorage.getItem(`app-${$page.params.path}`)
-	let stateLoadedFromUrl = initialState != undefined ? decodeState(initialState) : undefined
+	let stateLoadedFromLocalStorage =
+		initialState != undefined ? decodeState(initialState) : undefined
 
 	async function loadApp(): Promise<void> {
 		const app_w_draft = await AppService.getAppByPathWithDraft({
@@ -64,14 +66,14 @@
 			custom_path: app_w_draft_.custom_path
 		}
 
-		if (stateLoadedFromUrl) {
+		if (stateLoadedFromLocalStorage) {
 			const reloadAction = async () => {
-				stateLoadedFromUrl = undefined
+				stateLoadedFromLocalStorage = undefined
 				await loadApp()
 				redraw++
 			}
 			const actions: ToastAction[] = []
-			if (stateLoadedFromUrl) {
+			if (stateLoadedFromLocalStorage) {
 				actions.push({
 					label: 'Discard browser autosave and reload',
 					callback: reloadAction
@@ -80,7 +82,7 @@
 				const draftOrDeployed = cleanValueProperties(savedApp.draft || savedApp)
 				const urlScript = {
 					...draftOrDeployed,
-					value: stateLoadedFromUrl
+					value: stateLoadedFromLocalStorage
 				}
 				actions.push({
 					label: 'Show diff',
@@ -98,7 +100,7 @@
 			}
 
 			sendUserToast('App restored from browser storage', false, actions)
-			app_w_draft.value = stateLoadedFromUrl
+			app_w_draft.value = stateLoadedFromLocalStorage
 			app = app_w_draft
 		} else if (app_w_draft.draft) {
 			if (app_w_draft.summary !== undefined) {
@@ -116,7 +118,7 @@
 
 			if (!app_w_draft.draft_only) {
 				const reloadAction = () => {
-					stateLoadedFromUrl = undefined
+					stateLoadedFromLocalStorage = undefined
 					app = app_w_draft
 					redraw++
 				}
@@ -224,7 +226,20 @@
 				newApp={false}
 				replaceStateFn={(path) => replaceState(path, $page.state)}
 				gotoFn={(path, opt) => goto(path, opt)}
-			/>
+			>
+				<svelte:fragment
+					slot="unsavedConfirmationModal"
+					let:diffDrawer
+					let:additionalExitAction
+					let:getInitialAndModifiedValues
+				>
+					<UnsavedConfirmationModal
+						{diffDrawer}
+						{additionalExitAction}
+						{getInitialAndModifiedValues}
+					/>
+				</svelte:fragment>
+			</AppEditor>
 		</div>
 	{/if}
 {/key}

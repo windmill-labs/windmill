@@ -103,15 +103,19 @@
 	/>
 {/each}
 
-<div class="w-full h-full" bind:clientHeight={h} bind:clientWidth={w}>
-	<RunnableWrapper {outputs} {render} {componentInput} {id} bind:initializing bind:result>
-		{#if error != ''}
-			<div class="flex flex-col h-full w-full overflow-auto">
-				<Alert title="Plotly error" type="error" size="xs" class="h-full w-full ">
-					<pre class="w-full bg-surface p-2 rounded-md whitespace-pre-wrap">{error}</pre>
-				</Alert>
-			</div>
-		{/if}
-		<div on:pointerdown bind:this={divEl} />
-	</RunnableWrapper>
-</div>
+{#if render}
+	<div class="w-full h-full" bind:clientHeight={h} bind:clientWidth={w}>
+		<RunnableWrapper {outputs} {render} {componentInput} {id} bind:initializing bind:result>
+			{#if error != ''}
+				<div class="flex flex-col h-full w-full overflow-auto">
+					<Alert title="Plotly error" type="error" size="xs" class="h-full w-full ">
+						<pre class="w-full bg-surface p-2 rounded-md whitespace-pre-wrap">{error}</pre>
+					</Alert>
+				</div>
+			{/if}
+			<div on:pointerdown bind:this={divEl}></div>
+		</RunnableWrapper>
+	</div>
+{:else}
+	<RunnableWrapper {outputs} {render} {componentInput} {id} />
+{/if}

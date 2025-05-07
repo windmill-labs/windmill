@@ -9,17 +9,18 @@ use serde_json::{json, value::RawValue, Value};
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use windmill_common::error::to_anyhow;
+use windmill_common::worker::Connection;
 
-use windmill_common::jobs::QueuedJob;
 use windmill_common::{error::Error, worker::to_raw_value};
 use windmill_parser_sql::{parse_db_resource, parse_snowflake_sig, parse_sql_blocks};
-use windmill_queue::{CanceledBy, HTTP_CLIENT};
+use windmill_queue::{CanceledBy, MiniPulledJob, HTTP_CLIENT};
 
 use serde::{Deserialize, Serialize};
 
 use crate::common::{build_http_client, resolve_job_timeout, OccupancyMetrics};
 use crate::handle_child::run_future_with_polling_update_job_poller;
-use crate::{common::build_args_values, AuthedClientBackgroundTask};
+use crate::sanitized_sql_params::sanitize_and_interpolate_unsafe_sql_args;
+use crate::{common::build_args_values, AuthedClient};
 
 #[derive(Serialize)]
 struct Claims {
@@ -124,15 +125,21 @@ fn do_snowflake_inner<'a>(
     skip_collect: bool,
     http_client: &'a Client,
 ) -> windmill_common::error::Result<BoxFuture<'a, windmill_common::error::Result<Box<RawValue>>>> {
-    body.insert("statement".to_string(), json!(query));
-
-    let mut bindings = serde_json::Map::new();
     let sig = parse_snowflake_sig(&query)
         .map_err(|x| Error::ExecutionErr(x.to_string()))?
         .args;
 
+    let (query, args_to_skip) = &sanitize_and_interpolate_unsafe_sql_args(query, &sig, &job_args)?;
+
+    body.insert("statement".to_string(), json!(query));
+
+    let mut bindings = serde_json::Map::new();
+
     let mut i = 1;
     for arg in &sig {
+        if args_to_skip.contains(&arg.name) {
+            continue;
+        }
         let arg_t = arg.otyp.clone().unwrap_or_else(|| "string".to_string());
         let arg_v = job_args.get(&arg.name).cloned().unwrap_or(json!(""));
         let snowflake_v = convert_typ_val(arg_t, arg_v);
@@ -240,25 +247,23 @@ fn do_snowflake_inner<'a>(
 }
 
 pub async fn do_snowflake(
-    job: &QueuedJob,
-    client: &AuthedClientBackgroundTask,
+    job: &MiniPulledJob,
+    client: &AuthedClient,
     query: &str,
-    db: &sqlx::Pool<sqlx::Postgres>,
+    conn: &Connection,
     mem_peak: &mut i32,
     canceled_by: &mut Option<CanceledBy>,
     worker_name: &str,
     column_order: &mut Option<Vec<String>>,
     occupancy_metrics: &mut OccupancyMetrics,
 ) -> windmill_common::error::Result<Box<RawValue>> {
-    let snowflake_args = build_args_values(job, client, db).await?;
+    let snowflake_args = build_args_values(job, client, conn).await?;
 
     let inline_db_res_path = parse_db_resource(&query);
 
     let db_arg = if let Some(inline_db_res_path) = inline_db_res_path {
         Some(
             client
-                .get_authed()
-                .await
                 .get_resource_value_interpolated::<serde_json::Value>(
                     &inline_db_res_path,
                     Some(job.id.to_string()),
@@ -358,7 +363,7 @@ pub async fn do_snowflake(
             json!(database.database.unwrap().to_uppercase()),
         );
     }
-    let timeout = resolve_job_timeout(&db, &job.workspace_id, job.id, job.timeout)
+    let timeout = resolve_job_timeout(&conn, &job.workspace_id, job.id, job.timeout)
         .await
         .0
         .as_secs();
@@ -367,7 +372,7 @@ pub async fn do_snowflake(
     let queries = parse_sql_blocks(query);
 
     let (timeout_duration, _, _) =
-        resolve_job_timeout(&db, &job.workspace_id, job.id, job.timeout).await;
+        resolve_job_timeout(&conn, &job.workspace_id, job.id, job.timeout).await;
 
     let http_client = build_http_client(timeout_duration)?;
 
@@ -420,7 +425,7 @@ pub async fn do_snowflake(
     let r = run_future_with_polling_update_job_poller(
         job.id,
         job.timeout,
-        db,
+        conn,
         mem_peak,
         canceled_by,
         result_f.map_err(to_anyhow),

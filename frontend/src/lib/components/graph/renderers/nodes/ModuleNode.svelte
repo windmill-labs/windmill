@@ -5,7 +5,7 @@
 	import NodeWrapper from './NodeWrapper.svelte'
 	import type { GraphEventHandlers } from '../../graphBuilder'
 	import type { GraphModuleState } from '../../model'
-	import { getStateColor } from '../../util'
+	import { getStateColor, getStateHoverColor } from '../../util'
 
 	export let data: {
 		offset: number
@@ -26,6 +26,7 @@
 		eventHandlers: GraphEventHandlers
 		flowModuleStates: Record<string, GraphModuleState> | undefined
 		selected: boolean
+		editMode: boolean
 	}
 
 	$: type = data.flowModuleStates?.[data.module.id]?.type
@@ -40,18 +41,15 @@
 				selected: state?.selectedForloopIndex ?? 0,
 				selectedManually: state?.selectedForLoopSetManually,
 				flowJobsSuccess: state?.flow_jobs_success
-		  }
+			}
 		: (undefined as any)
-
 </script>
-
-
 
 <NodeWrapper offset={data.offset} let:darkMode>
 	{#if data.module.value.type == 'flow'}
 		<button
-			title="Unexpand subflow"
-			class="z-50 absolute -top-[10px] right-[25px] rounded-full h-[20px] w-[20px] center-center text-primary bg-surface duration-150 hover:bg-surface-hover"
+			title="Expand subflow"
+			class="z-50 absolute -top-[10px] right-[25px] rounded-full h-[20px] w-[20px] center-center text-primary bg-surface duration-0 hover:bg-surface-hover"
 			on:click|preventDefault|stopPropagation={() => {
 				if (data.module.value.type == 'flow') {
 					data.eventHandlers.expandSubflow(data.module.id, data.module.value.path)
@@ -64,14 +62,18 @@
 	<MapItem
 		mod={data.module}
 		insertable={data.insertable}
+		editMode={data.editMode}
 		annotation={flowJobs &&
 		(data.module.value.type === 'forloopflow' || data.module.value.type === 'whileloopflow')
 			? 'Iteration: ' +
-			  ((state?.selectedForloopIndex ?? 0) >= 0 ? (state?.selectedForloopIndex ?? 0) + 1 : state?.flow_jobs?.length) +
-			  '/' +
-			  (state?.iteration_total ?? '?')
+				((state?.selectedForloopIndex ?? 0) >= 0
+					? (state?.selectedForloopIndex ?? 0) + 1
+					: state?.flow_jobs?.length) +
+				'/' +
+				(state?.iteration_total ?? '?')
 			: ''}
 		bgColor={getStateColor(type, darkMode, true, state?.skipped)}
+		bgHoverColor={getStateHoverColor(type, darkMode, true, state?.skipped)}
 		moving={data.moving}
 		duration_ms={state?.duration_ms}
 		retries={data.retries}
@@ -92,10 +94,13 @@
 			data.eventHandlers.newBranch(data.module)
 		}}
 		on:select={(e) => {
-			data.eventHandlers.select(e.detail)
+			setTimeout(() => data.eventHandlers.select(e.detail))
 		}}
 		on:selectedIteration={(e) => {
 			data.eventHandlers.selectedIteration(e.detail, data.module.id)
+		}}
+		on:updateMock={() => {
+			data.eventHandlers.updateMock()
 		}}
 	/>
 

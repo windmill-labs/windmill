@@ -11,18 +11,18 @@
 </script>
 
 {#if type == 'WaitingForEvents'}
-	<span class="italic text-waiting">
-		<Hourglass />
+	<span class="italic text-violet-700 dark:text-violet-400">
+		<Hourglass class="inline" />
 		Waiting to be resumed by resume events such as approvals
 	</span>
 {:else if type == 'WaitingForPriorSteps'}
 	<span class="italic text-tertiary">
-		<Hourglass />
+		<Hourglass class="inline" />
 		Waiting for prior steps to complete
 	</span>
 {:else if type == 'WaitingForExecutor'}
 	<span class="italic text-tertiary">
-		<Hourglass />
+		<Hourglass class="inline" />
 		{#if scheduled_for && forLater(scheduled_for.toString())}
 			Job is scheduled to be executed at {displayDate(scheduled_for, true)}
 		{:else}
@@ -36,9 +36,3 @@
 {:else if type == 'Failure'}
 	<Badge color="red">Failure</Badge>
 {/if}
-
-<style>
-	.text-waiting {
-		color: #c76bf2;
-	}
-</style>

@@ -8,14 +8,15 @@
 	import Popover from '../Popover.svelte'
 	import { workspaceStore } from '$lib/stores'
 	import { twMerge } from 'tailwind-merge'
-	import { isJobCancelable } from '$lib/utils'
+	import { isJobSelectable } from '$lib/utils'
+	import type { RunsSelectionMode } from './RunsBatchActionsDropdown.svelte'
 	//import InfiniteLoading from 'svelte-infinite-loading'
 
 	export let jobs: Job[] | undefined = undefined
 	export let externalJobs: Job[] = []
 	export let omittedObscuredJobs: boolean
 	export let showExternalJobs: boolean = false
-	export let isSelectingJobsToCancel: boolean = false
+	export let selectionMode: RunsSelectionMode | false = false
 	export let selectedIds: string[] = []
 	export let selectedWorkspace: string | undefined = undefined
 	export let activeLabel: string | null = null
@@ -143,17 +144,20 @@
 	let allSelected: boolean = false
 
 	function selectAll() {
+		if (!selectionMode) return
 		if (allSelected) {
 			allSelected = false
 			selectedIds = []
 		} else {
 			allSelected = true
-			selectedIds = jobs?.filter(isJobCancelable).map((j) => j.id) ?? []
+			selectedIds = jobs?.filter(isJobSelectable(selectionMode)).map((j) => j.id) ?? []
 		}
 	}
-	let cancelableJobCount: number = 0
-	$: isSelectingJobsToCancel && (allSelected = selectedIds.length === cancelableJobCount)
-	$: isSelectingJobsToCancel && (cancelableJobCount = jobs?.filter(isJobCancelable).length ?? 0)
+	$: selectionMode && (allSelected = selectedIds.length === selectableJobCount)
+
+	let selectableJobCount: number = 0
+	$: selectionMode &&
+		(selectableJobCount = jobs?.filter(isJobSelectable(selectionMode)).length ?? 0)
 
 	function jobCountString(jobCount: number | undefined, lastFetchWentToEnd: boolean): string {
 		if (jobCount === undefined) {
@@ -195,7 +199,7 @@
 	bind:clientWidth={containerWidth}
 >
 	<div bind:clientHeight={header}>
-		{#if isSelectingJobsToCancel && cancelableJobCount != 0}
+		{#if selectionMode && selectableJobCount}
 			<!-- svelte-ignore a11y-click-events-have-key-events -->
 			<!-- svelte-ignore a11y-no-static-element-interactions -->
 			<div
@@ -237,7 +241,7 @@
 					>{jobs ? jobCountString(jobs.length, lastFetchWentToEnd) : ''}</div
 				>
 			{/if}
-			<div class="w-4/12 text-xs font-semibold" />
+			<div class="w-4/12 text-xs font-semibold"></div>
 			<div class="w-4/12 text-xs font-semibold">Path</div>
 			{#if containsLabel}
 				<div class="w-3/12 text-xs font-semibold">Label</div>
@@ -246,11 +250,7 @@
 		</div>
 	</div>
 	{#if jobs?.length == 0 && (!showExternalJobs || externalJobs?.length == 0)}
-		<tr>
-			<td colspan="4" class="text-center p-8">
-				<div class="text-xs text-secondary"> No jobs found for the selected filters. </div>
-			</td>
-		</tr>
+		<div class="text-xs text-secondary p-8"> No jobs found for the selected filters. </div>
 	{:else}
 		<VirtualList
 			width="100%"
@@ -278,10 +278,10 @@
 									{containsLabel}
 									job={jobOrDate.job}
 									selected={jobOrDate.job.id !== '-' && selectedIds.includes(jobOrDate.job.id)}
-									{isSelectingJobsToCancel}
+									{selectionMode}
 									on:select={() => {
 										const jobId = jobOrDate.job.id
-										if (isSelectingJobsToCancel) {
+										if (selectionMode) {
 											if (selectedIds.includes(jobOrDate.job.id)) {
 												selectedIds = selectedIds.filter((id) => id != jobId)
 											} else {
@@ -301,6 +301,7 @@
 									on:filterByFolder
 									on:filterByConcurrencyKey
 									on:filterBySchedule
+									on:filterByWorker
 									{containerWidth}
 								/>
 							</div>

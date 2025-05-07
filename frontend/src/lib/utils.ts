@@ -9,15 +9,29 @@
 
 import { deepEqual } from 'fast-equals'
 import YAML from 'yaml'
-import type { UserExt } from './stores'
+import { type UserExt } from './stores'
 import { sendUserToast } from './toast'
 import type { Job, Script } from './gen'
 import type { EnumType, SchemaProperty } from './common'
 import type { Schema } from './common'
 export { sendUserToast }
+import type { AnyMeltElement } from '@melt-ui/svelte'
+import type { RunsSelectionMode } from './components/runs/RunsBatchActionsDropdown.svelte'
+import type { TriggerKind } from './components/triggers'
 
 export function isJobCancelable(j: Job): boolean {
 	return j.type === 'QueuedJob' && !j.schedule_path && !j.canceled
+}
+export function isJobReRunnable(j: Job): boolean {
+	return (j.job_kind === 'script' || j.job_kind === 'flow') && j.parent_job === undefined
+}
+
+export function isJobSelectable(selectionType: RunsSelectionMode) {
+	const f: (j: Job) => boolean = {
+		cancel: isJobCancelable,
+		're-run': isJobReRunnable
+	}[selectionType]
+	return f
 }
 
 export function validateUsername(username: string): string {
@@ -84,7 +98,7 @@ export function displayDate(
 			? {
 					day: 'numeric',
 					month: 'numeric'
-			  }
+				}
 			: {}
 		return date.toLocaleString(undefined, {
 			...timeChoices,
@@ -126,6 +140,17 @@ export function msToSec(ms: number | undefined, maximumFractionDigits?: number):
 		maximumFractionDigits: maximumFractionDigits ?? 3,
 		minimumFractionDigits: maximumFractionDigits
 	})
+}
+
+export function removeTriggerKindIfUnused(
+	length: number,
+	triggerKind: TriggerKind,
+	usedTriggerKinds: string[]
+) {
+	if (length === 0 && usedTriggerKinds.includes(triggerKind)) {
+		return usedTriggerKinds.filter((kind) => kind != triggerKind)
+	}
+	return usedTriggerKinds
 }
 
 export function msToReadableTime(ms: number | undefined): string {
@@ -228,7 +253,7 @@ export function clickOutside(
 		}
 	}
 
-	const capture = typeof options === 'boolean' ? options : options?.capture ?? true
+	const capture = typeof options === 'boolean' ? options : (options?.capture ?? true)
 	document.addEventListener('click', handleClick, capture ?? true)
 
 	return {
@@ -246,6 +271,8 @@ export function pointerDownOutside(
 	options?: ClickOutsideOptions
 ): { destroy(): void; update(newOptions: ClickOutsideOptions): void } {
 	const handlePointerDown = async (event: PointerEvent) => {
+		if (!event.isTrusted) return
+
 		if (options?.customEventName) {
 			node.dispatchEvent(
 				new CustomEvent<PointerEvent>(options.customEventName, {
@@ -351,13 +378,12 @@ export function removeItemAll<T>(arr: T[], value: T) {
 }
 
 export function emptyString(str: string | undefined | null): boolean {
-	return str === undefined || str === null || str === '' 
+	return str === undefined || str === null || str === ''
 }
 
 export function emptyStringTrimmed(str: string | undefined | null): boolean {
 	return str === undefined || str === null || str === '' || str.trim().length === 0
 }
-
 
 export function defaultIfEmptyString(str: string | undefined, dflt: string): string {
 	return emptyString(str) ? dflt : str!
@@ -603,6 +629,10 @@ export function pluralize(quantity: number, word: string, customPlural?: string)
 	}
 }
 
+export function addDeterminant(word: string): string {
+	return (/^[aeiou]/i.test(word) ? 'an ' : 'a ') + word
+}
+
 export function capitalize(word: string): string {
 	return word ? word.charAt(0).toUpperCase() + word.slice(1) : ''
 }
@@ -662,6 +692,12 @@ export function sortObject<T>(o: T & object): T {
 		}, {}) as T
 }
 
+export function sortArray<T>(array: T[], compareFn?: (a: T, b: T) => number): T[] {
+	const arr = [...array]
+	arr.sort(compareFn)
+	return arr
+}
+
 export function generateRandomString(len: number = 24): string {
 	let chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789'
 	let result = ''
@@ -705,7 +741,7 @@ export function canWrite(
 	if (user?.is_admin || user?.is_super_admin) {
 		return true
 	}
-	let keys = Object.keys(extra_perms)
+	let keys = Object.keys(extra_perms ?? {})
 	if (!user) {
 		return false
 	}
@@ -713,10 +749,10 @@ export function canWrite(
 		return true
 	}
 	let userOwner = `u/${user.username}`
-	if (keys.includes(userOwner) && extra_perms[userOwner]) {
+	if (keys.includes(userOwner) && extra_perms?.[userOwner]) {
 		return true
 	}
-	if (user.pgroups.findIndex((x) => keys.includes(x) && extra_perms[x]) != -1) {
+	if (user.pgroups.findIndex((x) => keys.includes(x) && extra_perms?.[x]) != -1) {
 		return true
 	}
 	if (user.folders.findIndex((x) => path.startsWith('f/' + x + '/') && user.folders[x]) != -1) {
@@ -1099,8 +1135,140 @@ export function isFlowPreview(job_kind: Job['job_kind'] | undefined) {
 	return !!job_kind && (job_kind === 'flowpreview' || job_kind === 'flownode')
 }
 
+export function isNotFlow(job_kind: Job['job_kind'] | undefined) {
+	return job_kind !== 'flow' && job_kind !== 'singlescriptflow' && !isFlowPreview(job_kind)
+}
+
 export function isScriptPreview(job_kind: Job['job_kind'] | undefined) {
 	return (
 		!!job_kind && (job_kind === 'preview' || job_kind === 'flowscript' || job_kind === 'appscript')
 	)
+}
+
+export function conditionalMelt(node: HTMLElement, meltItem: AnyMeltElement | undefined) {
+	if (meltItem) {
+		return meltItem(node)
+	}
+	return { destroy: () => {} }
+}
+
+export type Item = {
+	displayName: string
+	action?: (e: MouseEvent) => void
+	icon?: any
+	iconColor?: string
+	href?: string
+	disabled?: boolean
+	type?: 'action' | 'delete'
+	hide?: boolean | undefined
+}
+
+export function isObjectTooBig(obj: any): boolean {
+	const MAX_DEPTH = 10
+	const MAX_ITEMS = 50
+
+	function analyze(obj: any, currentDepth: number = 0): { totalItems: number; maxDepth: number } {
+		if (currentDepth > MAX_DEPTH) {
+			return { totalItems: 1, maxDepth: currentDepth }
+		}
+
+		if (typeof obj !== 'object' || obj === null) {
+			return { totalItems: 1, maxDepth: currentDepth }
+		}
+
+		let totalItems = 1
+		let maxDepth = currentDepth
+
+		for (const key in obj) {
+			const result = analyze(obj[key], currentDepth + 1)
+
+			if (result.maxDepth > MAX_DEPTH) {
+				return result
+			}
+			totalItems += result.totalItems
+			if (result.maxDepth > maxDepth) {
+				maxDepth = result.maxDepth
+			}
+		}
+
+		return { totalItems, maxDepth }
+	}
+
+	const { totalItems, maxDepth } = analyze(obj)
+	return maxDepth > MAX_DEPTH || totalItems > MAX_ITEMS
+}
+
+export function localeConcatAnd(items: string[]) {
+	if (!items.length) return ''
+	if (items.length === 1) return items[0]
+	return items.slice(0, -1).join(', ') + ' and ' + items[items.length - 1]
+}
+
+export function formatDate(dateString: string | undefined): string {
+	if (!dateString) return ''
+	const date = new Date(dateString)
+	return new Intl.DateTimeFormat('en-US', {
+		year: 'numeric',
+		month: 'short',
+		day: 'numeric',
+		hour: '2-digit',
+		minute: '2-digit'
+	}).format(date)
+}
+
+export function formatDateShort(dateString: string | undefined): string {
+	if (!dateString) return ''
+	const date = new Date(dateString)
+	const now = new Date()
+
+	// If date is today, only show time
+	if (date.toDateString() === now.toDateString()) {
+		return new Intl.DateTimeFormat('en-US', {
+			hour: '2-digit',
+			minute: '2-digit'
+		}).format(date)
+	}
+
+	// If date is this year, show only month and day
+	if (date.getFullYear() === now.getFullYear()) {
+		return new Intl.DateTimeFormat('en-US', {
+			month: 'short',
+			day: 'numeric'
+		}).format(date)
+	}
+
+	// If date is from another year, only show the date with year
+	return new Intl.DateTimeFormat('en-US', {
+		year: 'numeric',
+		month: 'short',
+		day: 'numeric'
+	}).format(date)
+}
+
+export function getOS() {
+	const userAgent = window.navigator.userAgent
+	const platform = window.navigator.platform
+	const macosPlatforms = ['Macintosh', 'MacIntel', 'MacPPC', 'Mac68K']
+	const windowsPlatforms = ['Win32', 'Win64', 'Windows', 'WinCE']
+	const iosPlatforms = ['iPhone', 'iPad', 'iPod']
+	if (macosPlatforms.includes(platform)) {
+		return 'macOS' as const
+	} else if (iosPlatforms.includes(platform)) {
+		return 'iOS' as const
+	} else if (windowsPlatforms.includes(platform)) {
+		return 'Windows' as const
+	} else if (/Android/.test(userAgent)) {
+		return 'Android' as const
+	} else if (/Linux/.test(platform)) {
+		return 'Linux' as const
+	}
+
+	return 'Unknown OS' as const
+}
+
+import { type ClassValue, clsx } from 'clsx'
+import { twMerge } from 'tailwind-merge'
+
+export function cn(...inputs: ClassValue[]) {
+	return twMerge(clsx(inputs))
 }

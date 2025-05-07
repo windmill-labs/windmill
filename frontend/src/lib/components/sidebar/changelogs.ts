@@ -6,6 +6,26 @@ export type Changelog = {
 
 const changelogs: Changelog[] = [
 	{
+		label: 'MQTT triggers',
+		href: 'https://www.windmill.dev/changelog/mqtt-triggers',
+		date: '2025-03-11'
+	},
+	{
+		label: 'SQS triggers',
+		href: 'https://www.windmill.dev/changelog/sqs-triggers',
+		date: '2025-02-18'
+	},
+	{
+		label: 'Teams workspace integration',
+		href: 'https://www.windmill.dev/changelog/teams-workspace-integration',
+		date: '2025-02-13'
+	},
+	{
+		label: 'Mocked API files',
+		href: 'https://www.windmill.dev/changelog/mocked-api-files',
+		date: '2025-01-27'
+	},
+	{
 		label: 'Select Python version',
 		href: 'https://www.windmill.dev/changelog/select-python-version',
 		date: '2025-01-24'

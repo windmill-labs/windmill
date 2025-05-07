@@ -9,18 +9,30 @@
 	import ResolveConfig from '../helpers/ResolveConfig.svelte'
 	import InitializeComponent from '../helpers/InitializeComponent.svelte'
 	import ResolveStyle from '../helpers/ResolveStyle.svelte'
+	import { defaultIfEmptyString } from '$lib/utils'
+	import { userStore } from '$lib/stores'
+	import { computeS3ImageViewerPolicy, isPartialS3Object } from '../../editor/appUtilsS3'
 
 	export let id: string
 	export let configuration: RichConfigurations
 	export let customCss: ComponentCustomCSS<'imagecomponent'> | undefined = undefined
 	export let render: boolean
 
+	function computeForceViewerPolicies() {
+		if (!isEditor) {
+			return undefined
+		}
+		const policy = computeS3ImageViewerPolicy(configuration)
+		return policy
+	}
+
 	const resolvedConfig = initConfig(
 		components['imagecomponent'].initialData.configuration,
 		configuration
 	)
 
-	const { app, worldStore } = getContext<AppViewerContext>('AppViewerContext')
+	const { app, appPath, worldStore, workspace, isEditor } =
+		getContext<AppViewerContext>('AppViewerContext')
 	const fit: Record<string, string> = {
 		cover: 'object-cover',
 		contain: 'object-contain',
@@ -31,6 +43,55 @@
 	initOutput($worldStore, id, {})
 
 	let css = initCss($app.css?.imagecomponent, customCss)
+
+	let imageUrl: string | undefined = undefined
+
+	async function getS3Image(source: string | undefined, storage?: string, presigned?: string) {
+		if (!source) return ''
+		const appPathOrUser = defaultIfEmptyString(
+			$appPath,
+			`u/${$userStore?.username ?? 'unknown'}/newapp`
+		)
+		const params = new URLSearchParams()
+		params.append('s3', source)
+		if (storage) {
+			params.append('storage', storage)
+		}
+
+		const forceViewerPolicies = computeForceViewerPolicies()
+		if (forceViewerPolicies) {
+			params.append('force_viewer_allowed_s3_keys', JSON.stringify([forceViewerPolicies]))
+		}
+
+		return `/api/w/${workspace}/apps_u/download_s3_file/${appPathOrUser}?${params.toString()}${presigned ? `&${presigned}` : ''}`
+	}
+
+	async function loadImage() {
+		if (isPartialS3Object(resolvedConfig.source)) {
+			imageUrl = await getS3Image(
+				resolvedConfig.source.s3,
+				resolvedConfig.source.storage,
+				resolvedConfig.source.presigned
+			)
+		} else if (resolvedConfig.source && typeof resolvedConfig.source !== 'string') {
+			throw new Error('Invalid image object' + typeof resolvedConfig.source)
+		} else if (
+			resolvedConfig.sourceKind === 's3 (workspace storage)' ||
+			resolvedConfig.source?.startsWith('s3://')
+		) {
+			imageUrl = await getS3Image(resolvedConfig.source?.replace('s3://', ''))
+		} else if (resolvedConfig.sourceKind === 'png encoded as base64') {
+			imageUrl = 'data:image/png;base64,' + resolvedConfig.source
+		} else if (resolvedConfig.sourceKind === 'jpeg encoded as base64') {
+			imageUrl = 'data:image/jpeg;base64,' + resolvedConfig.source
+		} else if (resolvedConfig.sourceKind === 'svg encoded as base64') {
+			imageUrl = 'data:image/svg+xml;base64,' + resolvedConfig.source
+		} else {
+			imageUrl = resolvedConfig.source
+		}
+	}
+
+	$: resolvedConfig && loadImage()
 </script>
 
 <InitializeComponent {id} />
@@ -55,23 +116,19 @@
 {/each}
 
 {#if render}
-	<Loader loading={resolvedConfig.source == undefined}>
-		<img
-			on:pointerdown|preventDefault
-			src={resolvedConfig.sourceKind == 'png encoded as base64'
-				? 'data:image/png;base64,' + resolvedConfig.source
-				: resolvedConfig.sourceKind == 'jpeg encoded as base64'
-				? 'data:image/jpeg;base64,' + resolvedConfig.source
-				: resolvedConfig.sourceKind == 'svg encoded as base64'
-				? 'data:image/svg+xml;base64,' + resolvedConfig.source
-				: resolvedConfig.source}
-			alt={resolvedConfig.altText}
-			style={css?.image?.style ?? ''}
-			class={twMerge(
-				`w-full h-full ${fit[resolvedConfig.imageFit || 'cover']}`,
-				css?.image?.class,
-				'wm-image'
-			)}
-		/>
+	<Loader loading={imageUrl === undefined}>
+		{#if imageUrl}
+			<img
+				on:pointerdown|preventDefault
+				src={imageUrl}
+				alt={resolvedConfig.altText}
+				style={css?.image?.style ?? ''}
+				class={twMerge(
+					`w-full h-full ${fit[resolvedConfig.imageFit || 'cover']}`,
+					css?.image?.class,
+					'wm-image'
+				)}
+			/>
+		{/if}
 	</Loader>
 {/if}

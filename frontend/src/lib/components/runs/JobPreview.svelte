@@ -106,7 +106,7 @@
 			{#if concurrencyKey}
 				<Popover notClickable>
 					<svelte:fragment slot="text">
-						This jobs has concurrency limits enabled with the key:
+						This job has concurrency limits enabled with the key:
 						<Button
 							class="inline-text"
 							size="xs2"
@@ -120,6 +120,25 @@
 						</Button>
 					</svelte:fragment>
 					<Badge large>Concurrency: {truncateRev(concurrencyKey, 20)}</Badge>
+				</Popover>
+			{/if}
+			{#if job?.worker}
+				<Popover notClickable>
+					<svelte:fragment slot="text">
+						This job was run on worker:
+						<Button
+							class="inline-text"
+							size="xs2"
+							color="light"
+							on:click={() => {
+								dispatch('filterByWorker', job?.worker)
+							}}
+						>
+							{job.worker}
+							<ListFilter class="inline-block" size={10} />
+						</Button>
+					</svelte:fragment>
+					<Badge large>Worker: {truncateRev(job.worker, 20)}</Badge>
 				</Popover>
 			{/if}
 		</div>
@@ -207,6 +226,7 @@
 									jobId={job?.id}
 									{result}
 									disableExpand
+									language={job?.language}
 								/>
 							{:else if job}
 								No output is available yet

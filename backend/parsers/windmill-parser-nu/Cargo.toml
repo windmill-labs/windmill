@@ -1,0 +1,16 @@
+[package]
+name = "windmill-parser-nu"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+
+[lib]
+name = "windmill_parser_nu"
+path = "./src/lib.rs"
+
+[dependencies]
+windmill-parser.workspace = true
+anyhow.workspace = true
+nu-parser.workspace = true
+wasm-bindgen.workspace = true
+serde_json.workspace = true

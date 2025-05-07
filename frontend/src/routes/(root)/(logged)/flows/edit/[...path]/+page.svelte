@@ -14,8 +14,9 @@
 	import DiffDrawer from '$lib/components/DiffDrawer.svelte'
 	import UnsavedConfirmationModal from '$lib/components/common/confirmationModal/UnsavedConfirmationModal.svelte'
 	import type { ScheduleTrigger } from '$lib/components/triggers'
+	import type { GetInitialAndModifiedValues } from '$lib/components/common/confirmationModal/unsavedTypes'
 
-	let version: undefined | number = undefined;
+	let version: undefined | number = undefined
 	let nodraft = $page.url.searchParams.get('nodraft')
 	const initialState = nodraft ? undefined : localStorage.getItem(`flow-${$page.params.path}`)
 	let stateLoadedFromUrl = initialState != undefined ? decodeState(initialState) : undefined
@@ -68,10 +69,12 @@
 		if (stateLoadedFromUrl != undefined && statePath == $page.params.path) {
 			// Currently there is no way to get version of flow with flow.
 			// So we have to request it here
-			version = (await FlowService.getFlowLatestVersion({
-				workspace: $workspaceStore!,
-				path: statePath
-			})).id;
+			version = (
+				await FlowService.getFlowLatestVersion({
+					workspace: $workspaceStore!,
+					path: statePath
+				})
+			).id
 
 			savedFlow = await FlowService.getFlowByPathWithDraft({
 				workspace: $workspaceStore!,
@@ -113,10 +116,12 @@
 		} else {
 			// Currently there is no way to get version of flow with flow.
 			// So we have to request it here
-			version = (await FlowService.getFlowLatestVersion({
-				workspace: $workspaceStore!,
-				path: $page.params.path
-			})).id;
+			version = (
+				await FlowService.getFlowLatestVersion({
+					workspace: $workspaceStore!,
+					path: $page.params.path
+				})
+			).id
 
 			const flowWithDraft = await FlowService.getFlowByPathWithDraft({
 				workspace: $workspaceStore!,
@@ -129,7 +134,7 @@
 							...structuredClone(flowWithDraft.draft),
 							path: flowWithDraft.draft.path ?? flowWithDraft.path // backward compatibility for old drafts missing path
 					  }
-					: undefined		
+					: undefined
 			} as Flow & {
 				draft?: Flow
 			}
@@ -215,6 +220,7 @@
 		goto(`/flows/edit/${savedFlow.path}`)
 		loadFlow()
 	}
+	let getInitialAndModifiedValues: GetInitialAndModifiedValues | undefined = undefined
 </script>
 
 <!-- <div id="monaco-widgets-root" class="monaco-editor" style="z-index: 1200;" /> -->
@@ -246,6 +252,7 @@
 	{diffDrawer}
 	{savedPrimarySchedule}
 	bind:version
+	bind:getInitialAndModifiedValues
 >
-	<UnsavedConfirmationModal {diffDrawer} savedValue={savedFlow} modifiedValue={$flowStore} />
+	<UnsavedConfirmationModal {diffDrawer} {getInitialAndModifiedValues} />
 </FlowBuilder>

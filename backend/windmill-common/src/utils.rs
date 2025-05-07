@@ -19,11 +19,10 @@ use git_version::git_version;
 
 use chrono::Utc;
 use croner::Cron;
-use rand::distr::Alphanumeric;
-use rand::{rng, Rng};
+use rand::{distr::Alphanumeric, rng, Rng};
 use reqwest::Client;
 use semver::Version;
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 use sha2::{Digest, Sha256};
 use sqlx::{Pool, Postgres};
 use std::str::FromStr;
@@ -47,9 +46,84 @@ lazy_static::lazy_static! {
         .connect_timeout(std::time::Duration::from_secs(10))
         .build().unwrap();
     pub static ref GIT_SEM_VERSION: Version = Version::parse(
-        // skip first `v` character.
-        GIT_VERSION.split_at(1).1
+        if GIT_VERSION.starts_with('v') {
+            &GIT_VERSION[1..]
+        } else {
+            GIT_VERSION
+        }
     ).unwrap_or(Version::new(0, 1, 0));
+
+
+    pub static ref MODE_AND_ADDONS: ModeAndAddons = {
+        let mut search_addon = false;
+        let mode = std::env::var("MODE")
+        .map(|x| x.to_lowercase())
+        .map(|x| {
+            if &x == "server" {
+                println!("Binary is in 'server' mode");
+                Mode::Server
+            } else if &x == "worker" {
+                tracing::info!("Binary is in 'worker' mode");
+                #[cfg(windows)]
+                {
+                    println!("It is highly recommended to use the agent mode instead on windows (MODE=agent) and to pass a BASE_INTERNAL_URL");
+                }
+                Mode::Worker
+            } else if &x == "agent" {
+                println!("Binary is in 'agent' mode");
+                if std::env::var("BASE_INTERNAL_URL").is_err() {
+                    panic!("BASE_INTERNAL_URL is required in agent mode")
+                }
+                if std::env::var("AGENT_TOKEN").is_err() {
+                    println!("AGENT_TOKEN is not passed. This is required for the agent to work and contains the JWT to authenticate with the server.")
+                }
+
+                #[cfg(not(feature = "enterprise"))]
+                {
+                    panic!("Agent mode is only available in the EE, ignoring...");
+                }
+                #[cfg(feature = "enterprise")]
+                Mode::Agent
+            } else if &x == "indexer" {
+                tracing::info!("Binary is in 'indexer' mode");
+                #[cfg(not(feature = "tantivy"))]
+                {
+                    eprintln!("Cannot start the indexer because tantivy is not included in this binary/image. Make sure you are using the EE image if you want to access the full text search features.");
+                    panic!("Indexer mode requires compiling with the tantivy feature flag.");
+                }
+                #[cfg(feature = "tantivy")]
+                Mode::Indexer
+            } else if &x == "standalone+search"{
+                search_addon = true;
+                    println!("Binary is in 'standalone' mode with search enabled");
+                    Mode::Standalone
+            } else if &x == "mcp" {
+                println!("Binary is in 'mcp' mode");
+                Mode::MCP
+            } else {
+                if &x != "standalone" {
+                    eprintln!("mode not recognized, defaulting to standalone: {x}");
+                } else {
+                    println!("Binary is in 'standalone' mode");
+                }
+                Mode::Standalone
+            }
+        })
+        .unwrap_or_else(|_| {
+            tracing::info!("Mode not specified, defaulting to standalone");
+            Mode::Standalone
+        });
+        ModeAndAddons {
+            indexer: search_addon,
+            mode,
+        }
+    };
+}
+
+#[derive(Clone)]
+pub struct ModeAndAddons {
+    pub indexer: bool,
+    pub mode: Mode,
 }
 
 #[derive(Deserialize, Clone)]
@@ -100,6 +174,28 @@ pub fn hostname() -> String {
             .map(|x| x.to_string())
             .unwrap_or_else(|| rd_string(5))
     })
+}
+
+fn instance_name(hostname: &str) -> String {
+    hostname
+        .replace(" ", "")
+        .split("-")
+        .last()
+        .unwrap()
+        .to_ascii_lowercase()
+        .to_string()
+}
+
+pub fn worker_suffix(hostname: &str, rd_string: &str) -> String {
+    format!("{}-{}", instance_name(hostname), rd_string)
+}
+
+pub fn worker_name_with_suffix(is_agent: bool, worker_group: &str, suffix: &str) -> String {
+    if is_agent {
+        format!("ag-{}-{}", worker_group, suffix)
+    } else {
+        format!("wk-{}-{}", worker_group, suffix)
+    }
 }
 
 pub fn paginate(pagination: Pagination) -> (usize, usize) {
@@ -252,6 +348,7 @@ pub enum Mode {
     Server,
     Standalone,
     Indexer,
+    MCP,
 }
 
 impl std::fmt::Display for Mode {
@@ -262,6 +359,7 @@ impl std::fmt::Display for Mode {
             Mode::Server => write!(f, "server"),
             Mode::Standalone => write!(f, "standalone"),
             Mode::Indexer => write!(f, "indexer"),
+            Mode::MCP => write!(f, "mcp"),
         }
     }
 }
@@ -373,6 +471,16 @@ pub async fn report_recovered_critical_error(
     }
 }
 
+pub fn empty_string_as_none<'de, D>(
+    deserializer: D,
+) -> std::result::Result<Option<String>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let option = <Option<String> as serde::Deserialize>::deserialize(deserializer)?;
+    Ok(option.filter(|s| !s.is_empty()))
+}
+
 pub async fn fetch_mute_workspace(_db: &DB, workspace_id: &str) -> Result<bool> {
     match sqlx::query!(
         "SELECT mute_critical_alerts FROM workspace_settings WHERE workspace_id = $1",
@@ -421,7 +529,11 @@ impl ScheduleType {
         }
     }
 
-    pub fn from_str(schedule_str: &str, version: Option<&str>) -> Result<ScheduleType> {
+    pub fn from_str(
+        schedule_str: &str,
+        version: Option<&str>,
+        seconds_required: bool,
+    ) -> Result<ScheduleType> {
         tracing::debug!(
             "Attempting to parse schedule string: {}, with version: {:?}",
             schedule_str,
@@ -445,7 +557,13 @@ impl ScheduleType {
             Some("v2") | Some(_) => {
                 // Use Croner for v2
                 let schedule_type_result = panic::catch_unwind(AssertUnwindSafe(|| {
-                    Cron::new(schedule_str).with_seconds_optional().parse()
+                    let mut croner = Cron::new(schedule_str);
+                    if seconds_required {
+                        croner.with_seconds_required();
+                    } else {
+                        croner.with_seconds_optional();
+                    };
+                    croner.parse()
                 }))
                 .map_err(|_| {
                     tracing::error!(

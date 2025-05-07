@@ -47,10 +47,16 @@
 		)}
 		on:hover={(e) => (hovering = e.detail ? true : false)}
 	>
-		<SchemaPickerRow {payloadData} date={job.created_at} {selected} {hovering}>
+		<SchemaPickerRow {payloadData} date={job.created_at} {hovering}>
 			<svelte:fragment slot="start">
 				<div class="center-center">
-					<div class="rounded-full w-2 h-2 bg-orange-400 animate-pulse" title="Running" />
+					<div
+						class={twMerge(
+							'rounded-full w-2 h-2 animate-pulse',
+							job.suspend ? 'bg-violet-400' : 'bg-orange-400'
+						)}
+						title="Running"
+					></div>
 				</div>
 			</svelte:fragment>
 			<svelte:fragment slot="extra">

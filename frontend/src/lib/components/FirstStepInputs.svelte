@@ -3,13 +3,13 @@
 	import { getFirstStepSchema } from '$lib/components/flows/flowStore'
 	import type { FlowEditorContext } from '$lib/components/flows/types'
 	import { twMerge } from 'tailwind-merge'
-	import { clickOutside } from '$lib/utils'
 	import { Alert } from '$lib/components/common'
 	import FlowModuleSchemaItemViewer from '$lib/components/flows/map/FlowModuleSchemaItemViewer.svelte'
 	import LanguageIcon from '$lib/components/common/languageIcons/LanguageIcon.svelte'
 	import { prettyLanguage } from '$lib/common'
 	import IconedResourceType from '$lib/components/IconedResourceType.svelte'
 	import { Building } from 'lucide-svelte'
+
 	const { flowStore, flowStateStore } = getContext<FlowEditorContext>('FlowEditorContext')
 
 	const dispatch = createEventDispatcher()
@@ -41,12 +41,6 @@
 
 	let selected: boolean = false
 
-	async function getPropPickerElements(): Promise<HTMLElement[]> {
-		return Array.from(
-			document.querySelectorAll('[data-schema-picker], [data-schema-picker] *')
-		) as HTMLElement[]
-	}
-
 	function handleKeydown(event: KeyboardEvent) {
 		if (event.key === 'Escape' && selected) {
 			selected = false
@@ -64,6 +58,13 @@
 			dispatch('select', schema)
 		}, 200)
 	}
+
+	export function resetSelected(dispatchEvent?: boolean) {
+		selected = false
+		if (dispatchEvent) {
+			dispatch('select', undefined)
+		}
+	}
 </script>
 
 <svelte:window on:keydown={handleKeydown} />
@@ -77,13 +78,6 @@
 			)}
 			disabled={!schema}
 			on:click={handleClick}
-			use:clickOutside={{ capture: false, exclude: getPropPickerElements }}
-			on:click_outside={() => {
-				if (selected) {
-					selected = false
-					dispatch('select', undefined)
-				}
-			}}
 		>
 			<FlowModuleSchemaItemViewer
 				on:click={handleClick}

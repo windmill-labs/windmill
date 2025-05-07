@@ -8,6 +8,7 @@
 
 	export let path: string
 	export let selected: string | undefined = undefined
+	export let selectInitial: boolean = false
 	const dispatch = createEventDispatcher()
 
 	async function loadInitial() {
@@ -19,7 +20,11 @@
 			perPage: 1
 		})
 		if (jobs.length > 0) {
-			dispatch('select', { jobId: jobs[0].id, initial: true })
+			if (selectInitial) {
+				dispatch('select', { jobId: jobs[0].id, initial: true })
+			}
+		} else {
+			dispatch('nohistory')
 		}
 	}
 

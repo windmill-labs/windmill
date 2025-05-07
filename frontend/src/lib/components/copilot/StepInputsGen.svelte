@@ -13,7 +13,7 @@
 	import type { FlowCopilotContext } from './flow'
 	import { Check, ExternalLink, Loader2, Wand2 } from 'lucide-svelte'
 	import { copilotInfo, stepInputCompletionEnabled } from '$lib/stores'
-	import { Popup } from '../common'
+	import Popover from '$lib/components/meltComponents/Popover.svelte'
 	import type { SchemaProperty, Schema } from '$lib/common'
 	import FlowCopilotInputsModal from './FlowCopilotInputsModal.svelte'
 	import type { Flow } from '$lib/gen'
@@ -83,7 +83,6 @@ Your answer has to be in the following format (one line per input):
 input_name1: expression1
 input_name2: expression2
 ...`
-			const aiProvider = $copilotInfo.ai_provider
 			generatedContent = await getNonStreamingCompletion(
 				[
 					{
@@ -91,8 +90,7 @@ input_name2: expression2
 						content: user
 					}
 				],
-				abortController,
-				aiProvider
+				abortController
 			)
 
 			parsedInputs = generatedContent.split('\n').map((x) => x.split(': '))
@@ -115,7 +113,7 @@ input_name2: expression2
 			generatedExprs?.set(exprs)
 		} catch (err) {
 			if (!abortController.signal.aborted) {
-				sendUserToast('Could not generate summary: ' + err, true)
+				sendUserToast('Could not generate step inputs: ' + err, true)
 			}
 		} finally {
 			loading = false
@@ -169,7 +167,7 @@ input_name2: expression2
 </script>
 
 <div class="flex flex-row justify-end">
-	{#if $copilotInfo.exists_ai_resource && $stepInputCompletionEnabled}
+	{#if $copilotInfo.enabled && $stepInputCompletionEnabled}
 		<FlowCopilotInputsModal
 			on:confirmed={async () => {
 				createFlowInputs()
@@ -217,13 +215,12 @@ input_name2: expression2
 			{/if}
 		</Button>
 	{:else}
-		<Popup
+		<Popover
 			floatingConfig={{
 				placement: 'top-end'
 			}}
-			let:close
 		>
-			<svelte:fragment slot="button">
+			<svelte:fragment slot="trigger">
 				<Button
 					size="xs"
 					color="light"
@@ -236,29 +233,33 @@ input_name2: expression2
 					Fill inputs
 				</Button>
 			</svelte:fragment>
-			<p class="text-sm">
-				{#if !$copilotInfo.exists_ai_resource}
-					Enable Windmill AI in the{' '}
-					<a
-						href="{base}/workspace_settings?tab=ai"
-						target="_blank"
-						class="inline-flex flex-row items-center gap-1"
-					>
-						workspace settings <ExternalLink size={16} />
-					</a>
-				{:else}
-					Enable step input completion in the{' '}
-					<a
-						href="#user-settings"
-						class="inline-flex flex-row items-center gap-1"
-						on:click={() => {
-							close(null)
-						}}
-					>
-						user settings
-					</a>
-				{/if}
-			</p>
-		</Popup>
+			<svelte:fragment slot="content" let:close>
+				<div class="p-4">
+					<p class="text-sm">
+						{#if !$copilotInfo.enabled}
+							Enable Windmill AI in the{' '}
+							<a
+								href="{base}/workspace_settings?tab=ai"
+								target="_blank"
+								class="inline-flex flex-row items-center gap-1"
+							>
+								workspace settings <ExternalLink size={16} />
+							</a>
+						{:else}
+							Enable step input completion in the{' '}
+							<a
+								href="#user-settings"
+								class="inline-flex flex-row items-center gap-1"
+								on:click={() => {
+									close()
+								}}
+							>
+								user settings
+							</a>
+						{/if}
+					</p>
+				</div>
+			</svelte:fragment>
+		</Popover>
 	{/if}
 </div>

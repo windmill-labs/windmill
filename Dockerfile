@@ -1,6 +1,5 @@
 ARG DEBIAN_IMAGE=debian:bookworm-slim
-ARG RUST_IMAGE=rust:1.83-slim-bookworm
-ARG PYTHON_IMAGE=python:3.11.10-slim-bookworm
+ARG RUST_IMAGE=rust:1.85-slim-bookworm
 
 FROM ${RUST_IMAGE} AS rust_base
 
@@ -26,6 +25,7 @@ FROM node:20-alpine as frontend
 # install dependencies
 WORKDIR /frontend
 COPY ./frontend/package.json ./frontend/package-lock.json ./
+COPY ./frontend/scripts/ ./scripts/
 RUN npm ci
 
 # Copy all local files into the image.
@@ -42,6 +42,8 @@ COPY /typescript-client/docs/ /frontend/static/tsdocs/
 RUN npm run generate-backend-client
 ENV NODE_OPTIONS "--max-old-space-size=8192"
 ARG VITE_BASE_URL ""
+# Read more about macro in docker/dev.nu
+# -- MACRO-SPREAD-WASM-PARSER-DEV-ONLY -- # 
 RUN npm run build
 
 
@@ -81,11 +83,11 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
     CARGO_NET_GIT_FETCH_WITH_CLI=true cargo build --release --features "$features"
 
 
-FROM ${PYTHON_IMAGE}
+FROM ${DEBIAN_IMAGE}
 
 ARG TARGETPLATFORM
-ARG POWERSHELL_VERSION=7.3.5
-ARG POWERSHELL_DEB_VERSION=7.3.5-1
+ARG POWERSHELL_VERSION=7.5.0
+ARG POWERSHELL_DEB_VERSION=7.5.0-1
 ARG KUBECTL_VERSION=1.28.7
 ARG HELM_VERSION=3.14.3
 ARG GO_VERSION=1.22.5
@@ -102,11 +104,13 @@ ARG WITH_GIT=true
 ARG LATEST_STABLE_PY=3.11.10
 ENV UV_PYTHON_INSTALL_DIR=/tmp/windmill/cache/py_runtime
 ENV UV_PYTHON_PREFERENCE=only-managed
+ENV UV_TOOL_BIN_DIR=/usr/local/bin
 
-RUN pip install --upgrade pip==24.2
+ENV PATH /usr/local/bin:/root/.local/bin:$PATH
+
 
 RUN apt-get update \
-    && apt-get install -y ca-certificates wget curl jq unzip build-essential unixodbc xmlsec1  software-properties-common \
+    && apt-get install -y --no-install-recommends netbase tzdata ca-certificates wget curl jq unzip build-essential unixodbc xmlsec1  software-properties-common \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
@@ -167,11 +171,14 @@ ENV PATH="${PATH}:/usr/local/go/bin"
 ENV GO_PATH=/usr/local/go/bin/go
 
 # Install UV
-RUN curl --proto '=https' --tlsv1.2 -LsSf https://github.com/astral-sh/uv/releases/download/0.5.15/uv-installer.sh | sh && mv /root/.local/bin/uv /usr/local/bin/uv
+RUN curl --proto '=https' --tlsv1.2 -LsSf https://github.com/astral-sh/uv/releases/download/0.6.2/uv-installer.sh | sh && mv /root/.local/bin/uv /usr/local/bin/uv
 
 # Preinstall python runtimes
-RUN uv python install 3.11.10
+RUN uv python install 3.11
 RUN uv python install $LATEST_STABLE_PY
+
+RUN uv venv
+
 
 RUN curl -sL https://deb.nodesource.com/setup_20.x | bash - 
 RUN apt-get -y update && apt-get install -y curl procps nodejs awscli && apt-get clean \
@@ -182,14 +189,12 @@ RUN mkdir -p /tmp/gobuildwarm && cd /tmp/gobuildwarm && go mod init gobuildwarm 
 
 ENV TZ=Etc/UTC
 
-RUN /usr/local/bin/python3 -m pip install pip-tools
-
 COPY --from=builder /frontend/build /static_frontend
 COPY --from=builder /windmill/target/release/windmill ${APP}/windmill
 
-COPY --from=denoland/deno:2.1.2 --chmod=755 /usr/bin/deno /usr/bin/deno
+COPY --from=denoland/deno:2.2.1 --chmod=755 /usr/bin/deno /usr/bin/deno
 
-COPY --from=oven/bun:1.1.43 /usr/local/bin/bun /usr/bin/bun
+COPY --from=oven/bun:1.2.4 /usr/local/bin/bun /usr/bin/bun
 
 COPY --from=php:8.3.7-cli /usr/local/bin/php /usr/bin/php
 COPY --from=composer:2.7.6 /usr/bin/composer /usr/bin/composer
@@ -217,9 +222,10 @@ RUN cp -r /root/.cache /home/windmill/.cache
 RUN mkdir -p /tmp/windmill/logs && \
     mkdir -p /tmp/windmill/search
 
-RUN chown -R windmill:windmill ${APP} && \
-     chown -R windmill:windmill /tmp/windmill && \
-     chown -R windmill:windmill /home/windmill/.cache
+# Make directories world-readable and writable
+RUN chmod -R 777 ${APP} && \
+     chmod -R 777 /tmp/windmill && \
+     chmod -R 777 /home/windmill/.cache
 
 USER root
 

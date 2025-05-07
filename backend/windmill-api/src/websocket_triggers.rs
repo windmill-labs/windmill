@@ -30,8 +30,10 @@ use windmill_common::{
 };
 use windmill_queue::PushArgsOwned;
 
+use windmill_queue::TriggerKind;
+
 use crate::{
-    capture::{insert_capture_payload, TriggerKind, WebsocketTriggerConfig},
+    capture::{insert_capture_payload, WebsocketTriggerConfig},
     db::{ApiAuthed, DB},
     jobs::{
         run_flow_by_path_inner, run_script_by_path_inner, run_wait_result_internal, RunJobQuery,
@@ -88,23 +90,27 @@ enum InitialMessage {
 
 #[derive(FromRow, Serialize, Clone)]
 pub struct WebsocketTrigger {
-    workspace_id: String,
-    path: String,
-    url: String,
-    script_path: String,
-    is_flow: bool,
-    edited_by: String,
-    email: String,
-    edited_at: chrono::DateTime<chrono::Utc>,
-    server_id: Option<String>,
-    last_server_ping: Option<chrono::DateTime<chrono::Utc>>,
-    extra_perms: serde_json::Value,
-    error: Option<String>,
-    enabled: bool,
-    filters: Vec<SqlxJson<Box<RawValue>>>,
-    initial_messages: Option<Vec<SqlxJson<Box<RawValue>>>>,
-    url_runnable_args: Option<SqlxJson<Box<RawValue>>>,
-    can_return_message: bool,
+    pub workspace_id: String,
+    pub path: String,
+    pub url: String,
+    pub script_path: String,
+    pub is_flow: bool,
+    pub edited_by: String,
+    pub email: String,
+    pub edited_at: chrono::DateTime<chrono::Utc>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub server_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_server_ping: Option<chrono::DateTime<chrono::Utc>>,
+    pub extra_perms: serde_json::Value,
+    pub error: Option<String>,
+    pub enabled: bool,
+    pub filters: Vec<SqlxJson<Box<RawValue>>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub initial_messages: Option<Vec<SqlxJson<Box<RawValue>>>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub url_runnable_args: Option<SqlxJson<Box<RawValue>>>,
+    pub can_return_message: bool,
 }
 
 #[derive(Deserialize)]

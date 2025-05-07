@@ -22,7 +22,12 @@
 	export let showOnDemandOnlyToggle = false
 	export let securedContext = false
 
-	const { onchange, worldStore, state, app } = getContext<AppViewerContext>('AppViewerContext')
+	const {
+		onchange,
+		worldStore,
+		state: stateStore,
+		app
+	} = getContext<AppViewerContext>('AppViewerContext')
 	const { evalPreview } = getContext<AppEditorContext>('AppEditorContext')
 
 	let editor: SimpleEditor
@@ -32,7 +37,7 @@
 
 	$: extraLib =
 		componentInput?.expr && $worldStore
-			? buildExtraLib($worldStore?.outputsById ?? {}, acceptSelf ? '' : id, $state, false)
+			? buildExtraLib($worldStore?.outputsById ?? {}, acceptSelf ? '' : id, $stateStore, false)
 			: undefined
 
 	if (
@@ -68,10 +73,11 @@
 			<Splitpanes horizontal class="h-full">
 				<Pane size={50}>
 					<SimpleEditor
+						loadAsync
 						class="h-full w-full"
 						bind:this={editor}
 						lang="javascript"
-						bind:code={componentInput.expr}
+						bind:code={() => componentInput.expr ?? '', (e) => (componentInput.expr = e)}
 						shouldBindKey={false}
 						fixedOverflowWidgets={false}
 						{extraLib}
@@ -100,10 +106,11 @@
 	<div class="border relative">
 		{#if !fullscreen}
 			<SimpleEditor
+				loadAsync
 				small
 				bind:this={editor}
 				lang="javascript"
-				bind:code={componentInput.expr}
+				bind:code={() => componentInput.expr ?? '', (e) => (componentInput.expr = e)}
 				shouldBindKey={false}
 				{extraLib}
 				autoHeight

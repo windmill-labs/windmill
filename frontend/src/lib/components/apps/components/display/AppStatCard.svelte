@@ -88,7 +88,7 @@
 			{#if isIcon}
 				{#if resolvedConfig?.media}
 					{#key resolvedConfig.media}
-						<div class="min-w-4 text-primary" bind:this={iconComponent} />
+						<div class="min-w-4 text-primary" bind:this={iconComponent}></div>
 					{/key}
 				{/if}
 			{:else}

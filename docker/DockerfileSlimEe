@@ -19,7 +19,7 @@ RUN /usr/local/bin/python3 -m pip install pip-tools
 # Install UV
 RUN curl --proto '=https' --tlsv1.2 -LsSf https://github.com/astral-sh/uv/releases/download/0.5.15/uv-installer.sh | sh && mv /root/.local/bin/uv /usr/local/bin/uv
 
-COPY --from=oven/bun:1.1.43 /usr/local/bin/bun /usr/bin/bun
+COPY --from=oven/bun:1.2.4 /usr/local/bin/bun /usr/bin/bun
 
 # add the docker client to call docker from a worker if enabled
 COPY --from=docker:dind /usr/local/bin/docker /usr/local/bin/

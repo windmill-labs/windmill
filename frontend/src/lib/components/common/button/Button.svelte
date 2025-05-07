@@ -2,10 +2,13 @@
 	import { createEventDispatcher } from 'svelte'
 	import { ButtonType } from './model'
 	import { twMerge } from 'tailwind-merge'
-	import ButtonDropdown from './ButtonDropdown.svelte'
-	import { MenuItem } from '@rgossiaux/svelte-headlessui'
-	import { classNames, getModifierKey } from '$lib/utils'
-	import { Loader2 } from 'lucide-svelte'
+	import Dropdown from '$lib/components/DropdownV2.svelte'
+	import { getModifierKey, type Item } from '$lib/utils'
+	import { Loader2, ChevronDown } from 'lucide-svelte'
+	import { createTooltip } from '@melt-ui/svelte'
+	import type { Placement } from '@floating-ui/core'
+	import { conditionalMelt } from '$lib/utils'
+	import { createDispatcherIfMounted } from '$lib/createDispatcherIfMounted'
 
 	export let size: ButtonType.Size = 'md'
 	export let spacingSize: ButtonType.Size = size
@@ -30,11 +33,18 @@
 	export let title: string | undefined = undefined
 	export let style: string = ''
 	export let download: string | undefined = undefined
-	export let portalTarget: string | undefined = undefined
 	export let startIcon: ButtonType.Icon | undefined = undefined
 	export let endIcon: ButtonType.Icon | undefined = undefined
 	export let shortCut:
 		| { key?: string; hide?: boolean; Icon?: any; withoutModifier?: boolean }
+		| undefined = undefined
+	export let tooltipPopover:
+		| {
+				placement?: Placement
+				openDelay?: number
+				closeDelay?: number
+				portal?: string
+		  }
 		| undefined = undefined
 
 	type MenuItem = {
@@ -42,15 +52,20 @@
 		onClick?: (e?: Event) => void
 		href?: string
 		icon?: any
+		disabled?: boolean
 	}
 	export let dropdownItems: MenuItem[] | (() => MenuItem[]) | undefined = undefined
+	export let hideDropdown: boolean = false
 
-	function computeDropdowns(): MenuItem[] | undefined {
-		if (typeof dropdownItems === 'function') {
-			return dropdownItems()
-		} else {
-			return dropdownItems
-		}
+	function computeDropdowns(menuItems: MenuItem[] | (() => MenuItem[])): Item[] {
+		const items = typeof menuItems === 'function' ? menuItems() : menuItems
+		return items.map((item) => ({
+			displayName: item.label,
+			action: item.onClick ? (e) => item.onClick?.(e) : undefined,
+			icon: item.icon,
+			disabled: item.disabled ?? false,
+			href: item.href
+		}))
 	}
 
 	export function focus() {
@@ -58,6 +73,7 @@
 	}
 
 	const dispatch = createEventDispatcher()
+	const dispatchIfMounted = createDispatcherIfMounted(dispatch)
 	// Order of classes: border, border modifier, bg, bg modifier, text, text modifier, everything else
 
 	async function onClick(event: MouseEvent) {
@@ -115,6 +131,28 @@
 	}
 
 	$: lucideIconSize = (iconMap[size] ?? 12) * 1
+
+	const {
+		elements: { trigger, content },
+		states: { open },
+		options: { openDelay }
+	} = tooltipPopover
+		? createTooltip({
+				positioning: {
+					placement: tooltipPopover?.placement
+				},
+				closeDelay: tooltipPopover?.closeDelay,
+				group: true,
+				portal: tooltipPopover?.portal
+			})
+		: {
+				elements: { trigger: undefined, content: undefined },
+				states: { open: undefined },
+				options: { openDelay: undefined }
+			}
+	$: tooltipPopover && openDelay !== undefined && ($openDelay = tooltipPopover?.openDelay) //This option is reactive
+
+	$: $open !== undefined && dispatchIfMounted('tooltipOpen', $open)
 </script>
 
 <div
@@ -127,8 +165,9 @@
 		disabled ? 'divide-text-disabled' : ''
 	)}
 	style={wrapperStyle}
+	data-interactive
 >
-	{#if href}
+	{#if href && !disabled}
 		<a
 			bind:this={element}
 			on:pointerdown
@@ -197,6 +236,8 @@
 			{...$$restProps}
 			disabled={disabled || (loading && !clickableWhileLoading)}
 			{style}
+			use:conditionalMelt={trigger}
+			{...$trigger}
 		>
 			{#if loading}
 				<Loader2 class={twMerge('animate-spin', iconOnlyPadding[size])} size={lucideIconSize} />
@@ -227,35 +268,34 @@
 				</div>
 			{/if}
 		</button>
+		{#if tooltipPopover && $open}
+			<div use:conditionalMelt={content} {...$content} class="z-[20000]">
+				<slot name="tooltip" />
+			</div>
+		{/if}
 	{/if}
 
 	{#if dropdownItems && dropdownItems.length > 0}
-		<div
-			class={twMerge(
-				buttonClass,
-				'rounded-md m-0 p-0 h-auto !w-10',
-				variant === 'border' ? 'border-0 border-r border-y ' : 'border-0',
-				'rounded-r-md !rounded-l-none'
-			)}
+		<Dropdown
+			items={computeDropdowns(dropdownItems)}
+			class="h-auto w-fit"
+			hidePopup={hideDropdown}
+			usePointerDownOutside
+			on:open={() => dispatch('dropdownOpen', true)}
+			on:close={() => dispatch('dropdownOpen', false)}
 		>
-			<ButtonDropdown target={portalTarget}>
-				<svelte:fragment slot="items">
-					{#each computeDropdowns() ?? [] as item}
-						<MenuItem on:click={item.onClick} href={item.href}>
-							<div
-								class={classNames(
-									'!text-secondary text-left px-4 py-2 gap-2 cursor-pointer hover:bg-surface-hover !text-xs font-semibold'
-								)}
-							>
-								{#if item.icon}
-									<svelte:component this={item.icon} class="w-4 h-4" size={lucideIconSize} />
-								{/if}
-								{item.label}
-							</div>
-						</MenuItem>
-					{/each}
-				</svelte:fragment>
-			</ButtonDropdown>
-		</div>
+			<svelte:fragment slot="buttonReplacement">
+				<div
+					class={twMerge(
+						buttonClass,
+						'rounded-md m-0 p-0 !w-10 center-center h-full',
+						variant === 'border' ? 'border-0 border-r border-y ' : 'border-0',
+						'rounded-r-md !rounded-l-none'
+					)}
+				>
+					<ChevronDown class="w-5 h-5" />
+				</div>
+			</svelte:fragment>
+		</Dropdown>
 	{/if}
 </div>

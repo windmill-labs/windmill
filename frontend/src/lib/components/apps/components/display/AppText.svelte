@@ -202,7 +202,7 @@
 					{rows}
 					on:input={onInput}
 					value={editableValue}
-				/>
+				></textarea>
 			</AlignWrapper>
 		{:else}
 			<AlignWrapper {verticalAlignment}>
@@ -217,7 +217,7 @@
 				{:else}
 					<!-- svelte-ignore a11y-click-events-have-key-events -->
 					<div
-						class="flex flex-wrap gap-2 pb-0.5 w-full {$mode === 'dnd' &&
+						class="flex flex-wrap gap-0.5 pb-0.5 w-full {$mode === 'dnd' &&
 						(componentInput?.type == 'template' || componentInput?.type == 'templatev2')
 							? 'cursor-text'
 							: 'overflow-auto'}"
@@ -225,7 +225,7 @@
 						<svelte:element
 							this={component}
 							class={twMerge(
-								'whitespace-pre-wrap w-full',
+								'whitespace-pre-wrap grow',
 
 								css?.text?.class,
 								classes,
@@ -244,7 +244,7 @@
 						</svelte:element>
 
 						{#if resolvedConfig.copyButton && result}
-							<div class="flex">
+							<div class="flex items-center">
 								<Button
 									title="Copy to clipboard"
 									variant="border"
@@ -263,3 +263,9 @@
 		{/if}
 	</div>
 </RunnableWrapper>
+
+<style>
+	h1 {
+		font-size: 29px;
+	}
+</style>

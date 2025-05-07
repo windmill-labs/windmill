@@ -23,6 +23,8 @@ import initPhpParser, { parse_php } from 'windmill-parser-wasm-php'
 import initRustParser, { parse_rust } from 'windmill-parser-wasm-rust'
 import initYamlParser, { parse_ansible } from 'windmill-parser-wasm-yaml'
 import initCSharpParser, { parse_csharp } from 'windmill-parser-wasm-csharp'
+import initNuParser, { parse_nu } from 'windmill-parser-wasm-nu'
+import initJavaParser, { parse_java } from 'windmill-parser-wasm-java'
 
 import wasmUrlTs from 'windmill-parser-wasm-ts/windmill_parser_wasm_bg.wasm?url'
 import wasmUrlRegex from 'windmill-parser-wasm-regex/windmill_parser_wasm_bg.wasm?url'
@@ -32,6 +34,8 @@ import wasmUrlPhp from 'windmill-parser-wasm-php/windmill_parser_wasm_bg.wasm?ur
 import wasmUrlRust from 'windmill-parser-wasm-rust/windmill_parser_wasm_bg.wasm?url'
 import wasmUrlYaml from 'windmill-parser-wasm-yaml/windmill_parser_wasm_bg.wasm?url'
 import wasmUrlCSharp from 'windmill-parser-wasm-csharp/windmill_parser_wasm_bg.wasm?url'
+import wasmUrlNu from 'windmill-parser-wasm-nu/windmill_parser_wasm_bg.wasm?url'
+import wasmUrlJava from 'windmill-parser-wasm-java/windmill_parser_wasm_bg.wasm?url'
 import { workspaceStore } from './stores.js'
 import { argSigToJsonSchemaType } from './inferArgSig.js'
 
@@ -65,6 +69,12 @@ async function initWasmYaml() {
 }
 async function initWasmCSharp() {
 	await initCSharpParser(wasmUrlCSharp)
+}
+async function initWasmNu() {
+	await initNuParser(wasmUrlNu)
+}
+async function initWasmJava() {
+	await initJavaParser(wasmUrlJava)
 }
 
 export async function inferArgs(
@@ -178,6 +188,13 @@ export async function inferArgs(
 		} else if (language == 'csharp') {
 			await initWasmCSharp()
 			inferedSchema = JSON.parse(parse_csharp(code))
+		} else if (language == 'nu') {
+			await initWasmNu()
+			inferedSchema = JSON.parse(parse_nu(code))
+		} else if (language == 'java') {
+			await initWasmJava()
+			inferedSchema = JSON.parse(parse_java(code))
+			// for related places search: ADD_NEW_LANG 
 		} else {
 			return null
 		}

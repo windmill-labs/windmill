@@ -8,21 +8,22 @@ use itertools::Itertools;
 use oracle::sql_type::{InnerValue, OracleType, ToSql};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, value::RawValue, Value};
-use sqlx::types::Json;
 use windmill_common::{
     error::{to_anyhow, Error},
-    jobs::QueuedJob,
-    worker::to_raw_value,
+    worker::{to_raw_value, Connection},
 };
+use windmill_queue::MiniPulledJob;
+
 use windmill_parser_sql::{
     parse_db_resource, parse_oracledb_sig, parse_sql_blocks, parse_sql_statement_named_params,
 };
 use windmill_queue::CanceledBy;
 
 use crate::{
-    common::{build_args_map, check_executor_binary_exists, OccupancyMetrics},
+    common::{build_args_values, check_executor_binary_exists, OccupancyMetrics},
     handle_child::run_future_with_polling_update_job_poller,
-    AuthedClientBackgroundTask,
+    sanitized_sql_params::sanitize_and_interpolate_unsafe_sql_args,
+    AuthedClient,
 };
 
 #[derive(Deserialize)]
@@ -220,24 +221,24 @@ fn convert_oracledb_value_to_json(v: &oracle::SqlValue, c: &OracleType) -> serde
 
 fn get_statement_values(
     sig: Vec<Arg>,
-    job_args: Option<&Json<HashMap<String, Box<RawValue>>>>,
+    job_args: &HashMap<String, Value>,
+    args_to_skip: &Vec<String>,
 ) -> (Vec<(String, Box<dyn ToSql + Send + Sync>)>, Vec<String>) {
     let mut statement_values = vec![];
     let mut errors = vec![];
 
     for arg in &sig {
+        if args_to_skip.contains(&arg.name) {
+            continue;
+        }
         let arg_t = arg.otyp.clone().unwrap_or_else(|| "text".to_string());
         let arg_n = arg.name.clone();
         let oracle_v: Box<dyn ToSql + Send + Sync> = match job_args
-            .and_then(|x| {
-                x.get(arg.name.as_str())
-                    .map(|x| serde_json::from_str::<serde_json::Value>(x.get()).ok())
-            })
-            .flatten()
-            .unwrap_or_else(|| json!(null))
+            .get(arg.name.as_str())
+            .unwrap_or_else(|| &json!(null))
         {
             // Value::Null => todo!(),
-            Value::Bool(b) => Box::new(b),
+            Value::Bool(b) => Box::new(*b),
             Value::String(s)
                 if arg_t == "timestamp"
                     || arg_t == "datetime"
@@ -247,10 +248,10 @@ fn get_statement_values(
                 if let Ok(d) = chrono::DateTime::<Utc>::from_str(s.as_str()) {
                     Box::new(d)
                 } else {
-                    Box::new(s)
+                    Box::new(s.clone())
                 }
             }
-            Value::String(s) => Box::new(s),
+            Value::String(s) => Box::new(s.clone()),
             Value::Number(n)
                 if n.is_i64()
                     && (arg_t == "int"
@@ -292,10 +293,10 @@ fn get_statement_values(
 }
 
 pub async fn do_oracledb(
-    job: &QueuedJob,
-    client: &AuthedClientBackgroundTask,
+    job: &MiniPulledJob,
+    client: &AuthedClient,
     query: &str,
-    db: &sqlx::Pool<sqlx::Postgres>,
+    conn: &Connection,
     mem_peak: &mut i32,
     canceled_by: &mut Option<CanceledBy>,
     worker_name: &str,
@@ -308,36 +309,25 @@ pub async fn do_oracledb(
         "Oracle Database",
     )?;
 
-    let args = build_args_map(job, client, db).await?.map(Json);
-    let job_args = if args.is_some() {
-        args.as_ref()
-    } else {
-        job.args.as_ref()
-    };
+    let job_args = build_args_values(job, client, conn).await?;
 
     let inline_db_res_path = parse_db_resource(&query);
 
     let db_arg = if let Some(inline_db_res_path) = inline_db_res_path {
-        let val = client
-            .get_authed()
-            .await
-            .get_resource_value_interpolated::<serde_json::Value>(
-                &inline_db_res_path,
-                Some(job.id.to_string()),
-            )
-            .await?;
-
-        let as_raw = serde_json::from_value(val).map_err(|e| {
-            Error::internal_err(format!("Error while parsing inline resource: {e:#}"))
-        })?;
-
-        Some(as_raw)
+        Some(
+            client
+                .get_resource_value_interpolated::<serde_json::Value>(
+                    &inline_db_res_path,
+                    Some(job.id.to_string()),
+                )
+                .await?,
+        )
     } else {
-        job_args.and_then(|x| x.get("database").cloned())
+        job_args.get("database").cloned()
     };
 
     let database = if let Some(db) = db_arg {
-        serde_json::from_str::<OracleDatabase>(db.get())
+        serde_json::from_value::<OracleDatabase>(db)
             .map_err(|e| Error::ExecutionErr(e.to_string()))?
     } else {
         return Err(Error::BadRequest("Missing database argument".to_string()));
@@ -349,7 +339,9 @@ pub async fn do_oracledb(
         .map_err(|x| Error::ExecutionErr(x.to_string()))?
         .args;
 
-    let (statement_values, errors) = get_statement_values(sig.clone(), job_args);
+    let (query, args_to_skip) = sanitize_and_interpolate_unsafe_sql_args(query, &sig, &job_args)?;
+
+    let (statement_values, errors) = get_statement_values(sig.clone(), &job_args, &args_to_skip);
 
     if !errors.is_empty() {
         return Err(Error::ExecutionErr(errors.join("\n")));
@@ -362,22 +354,22 @@ pub async fn do_oracledb(
             .init();
     }
 
-    let conn = tokio::task::spawn_blocking(|| {
+    let oracle_conn = tokio::task::spawn_blocking(|| {
         oracle::Connection::connect(database.user, database.password, database.database)
             .map_err(|e| Error::ExecutionErr(e.to_string()))
     })
     .await
     .map_err(to_anyhow)??;
 
-    let conn_a = Arc::new(std::sync::Mutex::new(conn));
+    let conn_a = Arc::new(std::sync::Mutex::new(oracle_conn));
 
-    let queries = parse_sql_blocks(query);
+    let queries = parse_sql_blocks(&query);
 
     let result_f = if queries.len() > 1 {
         let f = async {
             let mut res: Vec<Box<RawValue>> = vec![];
             for (i, q) in queries.iter().enumerate() {
-                let (vals, _) = get_statement_values(sig.clone(), job_args);
+                let (vals, _) = get_statement_values(sig.clone(), &job_args, &args_to_skip);
                 let r = do_oracledb_inner(
                     q,
                     vals,
@@ -398,13 +390,13 @@ pub async fn do_oracledb(
 
         f.boxed()
     } else {
-        do_oracledb_inner(query, statement_values, conn_a, Some(column_order), false)?
+        do_oracledb_inner(&query, statement_values, conn_a, Some(column_order), false)?
     };
 
     let result = run_future_with_polling_update_job_poller(
         job.id,
         job.timeout,
-        db,
+        conn,
         mem_peak,
         canceled_by,
         result_f,

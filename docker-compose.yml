@@ -1,5 +1,12 @@
 version: "3.7"
 
+x-logging: &default-logging
+  driver: "json-file"
+  options:
+    max-size: "${LOG_MAX_SIZE:-20m}"
+    max-file: "${LOG_MAX_FILE:-10}"
+    compress: "true"
+
 services:
   db:
     deploy:
@@ -22,6 +29,7 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+    logging: *default-logging
 
   windmill_server:
     image: ${WM_IMAGE}
@@ -40,6 +48,7 @@ services:
         condition: service_healthy
     volumes:
       - worker_logs:/tmp/windmill/logs
+    logging: *default-logging
 
   windmill_worker:
     image: ${WM_IMAGE}
@@ -65,6 +74,7 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
       - worker_dependency_cache:/tmp/windmill/cache
       - worker_logs:/tmp/windmill/logs
+    logging: *default-logging
 
   ## This worker is specialized for "native" jobs. Native jobs run in-process and thus are much more lightweight than other jobs
   windmill_worker_native:
@@ -90,6 +100,7 @@ services:
         condition: service_healthy
     volumes:
       - worker_logs:/tmp/windmill/logs
+    logging: *default-logging
   # This worker is specialized for reports or scraping jobs. It is assigned the "reports" worker group which has an init script that installs chromium and can be targeted by using the "chromium" worker tag.
   # windmill_worker_reports:
   #   image: ${WM_IMAGE}
@@ -124,9 +135,9 @@ services:
       replicas: 0 # set to 1 to enable full-text job and log search
     restart: unless-stopped
     expose:
-      - 8001
+      - 8002
     environment:
-      - PORT=8001
+      - PORT=8002
       - DATABASE_URL=${DATABASE_URL}
       - MODE=indexer
     depends_on:
@@ -135,6 +146,7 @@ services:
     volumes:
       - windmill_index:/tmp/windmill/search
       - worker_logs:/tmp/windmill/logs
+    logging: *default-logging
 
   lsp:
     image: ghcr.io/windmill-labs/windmill-lsp:latest
@@ -144,6 +156,7 @@ services:
       - 3001
     volumes:
       - lsp_cache:/pyls/.cache
+    logging: *default-logging
 
   multiplayer:
     image: ghcr.io/windmill-labs/windmill-multiplayer:latest
@@ -152,6 +165,7 @@ services:
     restart: unless-stopped
     expose:
       - 3002
+    logging: *default-logging
 
   caddy:
     image: ghcr.io/windmill-labs/caddy-l4:latest
@@ -170,6 +184,7 @@ services:
       - BASE_URL=":80"
       # - BASE_URL=":443" # uncomment and comment line above to enable HTTPS via custom certificate and key files
       # - BASE_URL=mydomain.com # Uncomment and comment line above to enable HTTPS handling by Caddy
+    logging: *default-logging
 
 volumes:
   db_data: null

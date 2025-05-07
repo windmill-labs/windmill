@@ -18,7 +18,7 @@
 	import { getUserExt } from '$lib/user'
 	import { setLicense } from '$lib/enterpriseUtils'
 	import DisplayResult from '$lib/components/DisplayResult.svelte'
-	import ScheduleEditor from '$lib/components/ScheduleEditor.svelte'
+	import ScheduleEditor from '$lib/components/triggers/schedules/ScheduleEditor.svelte'
 	import FlowGraphV2 from '$lib/components/graph/FlowGraphV2.svelte'
 
 	$workspaceStore = $page.params.workspace
@@ -254,7 +254,7 @@
 						disabled={completed || alreadyResumed}>Deny</Button
 					>
 				{:else}
-					<div />
+					<div></div>
 				{/if}
 
 				<Button
@@ -266,7 +266,7 @@
 				>
 			</div>
 		{/if}
-		{#if !completed && !alreadyResumed && job?.raw_flow?.modules?.[approvalStep]?.suspend?.user_auth_required && job?.raw_flow?.modules?.[approvalStep]?.suspend?.self_approval_disabled && $userStore && $userStore.email === job.email && $userStore.is_admin}
+		{#if !completed && !alreadyResumed && job?.raw_flow?.modules?.[approvalStep]?.suspend?.user_auth_required && job?.raw_flow?.modules?.[approvalStep]?.suspend?.self_approval_disabled && $userStore && $userStore.email === job.email && ($userStore.is_admin || $userStore.is_super_admin)}
 			<div class="mt-2">
 				<Alert type="warning" title="Warning">
 					As an administrator, by resuming or cancelling this stage of the flow, you bypass the

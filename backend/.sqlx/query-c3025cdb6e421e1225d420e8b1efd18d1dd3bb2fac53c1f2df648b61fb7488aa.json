@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE worker_ping SET \nping_at = now(), \njobs_executed = 1, \ncurrent_job_id = $1, \ncurrent_job_workspace_id = 'admins' \nWHERE worker = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "c3025cdb6e421e1225d420e8b1efd18d1dd3bb2fac53c1f2df648b61fb7488aa"
+}

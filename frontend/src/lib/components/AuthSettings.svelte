@@ -4,6 +4,7 @@
 
 	import OAuthSetting from '$lib/components/OAuthSetting.svelte'
 	import OktaSetting from './OktaSetting.svelte'
+	import Auth0Setting from './Auth0Setting.svelte'
 	import CloseButton from './common/CloseButton.svelte'
 	import KeycloakSetting from './KeycloakSetting.svelte'
 	import CustomSso from './CustomSso.svelte'
@@ -15,12 +16,14 @@
 	import { capitalize } from '$lib/utils'
 	import Toggle from './Toggle.svelte'
 	import { ExternalLink, Plus } from 'lucide-svelte'
+	import AzureOauthSettings from './AzureOauthSettings.svelte'
 
 	export let snowflakeAccountIdentifier = ''
 	export let oauths: Record<string, any> = {}
 	export let requirePreexistingUserForOauth: boolean = false
 
 	const windmillBuiltins = [
+		'azure_oauth',
 		'github',
 		'gitlab',
 		'bitbucket',
@@ -66,7 +69,7 @@
 			</Alert>
 		{/if}
 
-		<div class="py-1" />
+		<div class="py-1"></div>
 		<div class="mb-2">
 			<span class="text-primary text-sm"
 				>When at least one of the below options is set, users will be able to login to Windmill via
@@ -81,6 +84,7 @@
 			<OAuthSetting name="google" bind:value={oauths['google']} />
 			<OAuthSetting name="microsoft" bind:value={oauths['microsoft']} />
 			<OktaSetting bind:value={oauths['okta']} />
+			<Auth0Setting bind:value={oauths['auth0']} />
 			<OAuthSetting name="github" bind:value={oauths['github']} />
 			<OAuthSetting name="gitlab" bind:value={oauths['gitlab']} />
 			<OAuthSetting name="jumpcloud" bind:value={oauths['jumpcloud']} />
@@ -90,7 +94,7 @@
 			<KanidmSetting bind:value={oauths['kanidm']} />
 			<ZitadelSetting bind:value={oauths['zitadel']} />
 			{#each Object.keys(oauths) as k}
-				{#if !['authelia', 'authentik', 'google', 'microsoft', 'github', 'gitlab', 'jumpcloud', 'okta', 'keycloak', 'slack', 'kanidm', 'zitadel'].includes(k) && 'login_config' in oauths[k]}
+				{#if !['authelia', 'authentik', 'google', 'microsoft', 'github', 'gitlab', 'jumpcloud', 'okta', 'auth0', 'keycloak', 'slack', 'kanidm', 'zitadel'].includes(k) && 'login_config' in oauths[k]}
 					{#if oauths[k]}
 						<div class="flex flex-col gap-2 pb-4">
 							<div class="flex flex-row items-center gap-2">
@@ -167,11 +171,11 @@
 				></span
 			>
 		</div>
-		<div class="py-1" />
+		<div class="py-1"></div>
 		<OAuthSetting login={false} name="slack" bind:value={oauths['slack']} />
-		<div class="py-1" />
+		<div class="py-1"></div>
 		<OAuthSetting login={false} name="teams" eeOnly={true} bind:value={oauths['teams']} />
-		<div class="py-1" />
+		<div class="py-1"></div>
 
 		{#each Object.keys(oauths) as k}
 			{#if oauths[k] && !('login_config' in oauths[k])}
@@ -196,7 +200,9 @@
 								<span class="text-primary font-semibold text-sm">Client Secret</span>
 								<input type="text" placeholder="Client Secret" bind:value={oauths[k]['secret']} />
 							</label>
-							{#if !windmillBuiltins.includes(k) && k != 'slack'}
+							{#if k === 'azure_oauth'}
+								<AzureOauthSettings bind:connect_config={oauths[k]['connect_config']} />
+							{:else if !windmillBuiltins.includes(k) && k != 'slack'}
 								<CustomOauth bind:connect_config={oauths[k]['connect_config']} />
 							{/if}
 							{#if k == 'snowflake_oauth'}

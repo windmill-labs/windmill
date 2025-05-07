@@ -10,11 +10,10 @@
 	import { canWrite, emptyString, emptyStringTrimmed, sendUserToast } from '$lib/utils'
 	import { createEventDispatcher } from 'svelte'
 	import Section from '$lib/components/Section.svelte'
-	import { Loader2, Save } from 'lucide-svelte'
+	import { Loader2, Save, X } from 'lucide-svelte'
 	import Label from '$lib/components/Label.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import ResourcePicker from '$lib/components/ResourcePicker.svelte'
-	import { base } from '$app/paths'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
@@ -25,6 +24,9 @@
 	import Tabs from '$lib/components/common/tabs/Tabs.svelte'
 	import Tab from '$lib/components/common/tabs/Tab.svelte'
 	import RelationPicker from './RelationPicker.svelte'
+	import { invalidRelations } from './utils'
+	import CheckPostgresRequirement from './CheckPostgresRequirement.svelte'
+	import { base } from '$lib/base'
 
 	let drawer: Drawer
 	let is_flow: boolean = false
@@ -43,7 +45,7 @@
 	let postgres_resource_path = ''
 	let publication_name: string = ''
 	let replication_slot_name: string = ''
-	let relations: Relations[] = []
+	let relations: Relations[] | undefined = []
 	let transaction_to_track: string[] = []
 	let language: Language = 'Typescript'
 	let loading = false
@@ -52,14 +54,8 @@
 	let selectedSlotAction: actions
 	let publicationItems: string[] = []
 	let transactionType: string[] = ['Insert', 'Update', 'Delete']
-	let selectedTable: 'all' | 'specific' = 'specific'
-	let tab: 'advanced' | 'basic'
-	let config: { isLogical: boolean; show: boolean } = { isLogical: false, show: false }
-	let loadingConfiguration = false
-	$: table_to_track = selectedTable === 'all' ? [] : relations
-	$: if (postgres_resource_path === undefined) {
-		config.show = false
-	}
+	let tab: 'advanced' | 'basic' = 'basic'
+	let isLoading = false
 	async function createPublication() {
 		try {
 			const message = await PostgresTriggerService.createPostgresPublication({
@@ -68,7 +64,7 @@
 				workspace: $workspaceStore!,
 				requestBody: {
 					transaction_to_track: transaction_to_track,
-					table_to_track
+					table_to_track: relations
 				}
 			})
 
@@ -107,7 +103,6 @@
 			dirtyPath = false
 			selectedPublicationAction = 'get'
 			selectedSlotAction = 'get'
-			config.show = false
 			selectedPublicationAction = selectedPublicationAction
 			selectedSlotAction = selectedSlotAction
 			relations = []
@@ -121,12 +116,15 @@
 		}
 	}
 
-	export async function openNew(nis_flow: boolean, fixedScriptPath_?: string) {
+	export async function openNew(
+		nis_flow: boolean,
+		fixedScriptPath_?: string,
+		defaultValues?: Record<string, any>
+	) {
 		drawerLoading = true
 		try {
 			selectedPublicationAction = 'create'
 			selectedSlotAction = 'create'
-			selectedTable = 'specific'
 			tab = 'basic'
 
 			drawer?.openDrawer()
@@ -137,16 +135,17 @@
 			script_path = fixedScriptPath
 			path = ''
 			initialPath = ''
-			replication_slot_name = ''
-			publication_name = ''
-			postgres_resource_path = ''
+			postgres_resource_path = defaultValues?.postgres_resource_path ?? ''
 			edit = false
 			dirtyPath = false
-			config.show = false
 			publication_name = `windmill_publication_${random_adj()}`
 			replication_slot_name = `windmill_replication_${random_adj()}`
-			transaction_to_track = ['Insert', 'Update', 'Delete']
-			relations = [
+			transaction_to_track = defaultValues?.publication.transaction_to_track || [
+				'Insert',
+				'Update',
+				'Delete'
+			]
+			relations = defaultValues?.publication.table_to_track || [
 				{
 					schema_name: 'public',
 					table_to_track: []
@@ -179,66 +178,79 @@
 		})
 		transaction_to_track = [...publication_data.transaction_to_track]
 		relations = publication_data.table_to_track ?? []
-		selectedTable = relations.length === 0 ? 'all' : 'specific'
 		can_write = canWrite(s.path, s.extra_perms, $userStore)
 	}
 
 	async function updateTrigger(): Promise<void> {
-		if (edit) {
-			await PostgresTriggerService.updatePostgresTrigger({
-				workspace: $workspaceStore!,
-				path: initialPath,
-				requestBody: {
-					path,
-					script_path,
-					is_flow,
-					postgres_resource_path,
-					enabled,
-					replication_slot_name,
-					publication_name,
-					publication:
-						tab === 'basic'
-							? {
-									transaction_to_track,
-									table_to_track
-							  }
-							: undefined
-				}
-			})
-			sendUserToast(`PostgresTrigger ${path} updated`)
-		} else {
-			await PostgresTriggerService.createPostgresTrigger({
-				workspace: $workspaceStore!,
-				requestBody: {
-					path,
-					script_path,
-					is_flow,
-					enabled: true,
-					postgres_resource_path,
-					replication_slot_name: tab === 'basic' ? undefined : replication_slot_name,
-					publication_name: tab === 'basic' ? undefined : publication_name,
-					publication: {
-						transaction_to_track,
-						table_to_track
+		if (
+			relations &&
+			invalidRelations(relations, {
+				showError: true,
+				trackSchemaTableError: true
+			}) === true
+		) {
+			return
+		}
+		isLoading = true
+		try {
+			if (edit) {
+				await PostgresTriggerService.updatePostgresTrigger({
+					workspace: $workspaceStore!,
+					path: initialPath,
+					requestBody: {
+						path,
+						script_path,
+						is_flow,
+						postgres_resource_path,
+						enabled,
+						replication_slot_name,
+						publication_name,
+						publication:
+							tab === 'basic'
+								? {
+										transaction_to_track,
+										table_to_track: relations
+									}
+								: undefined
 					}
-				}
-			})
-			sendUserToast(`PostgresTrigger ${path} created`)
+				})
+				sendUserToast(`PostgresTrigger ${path} updated`)
+			} else {
+				await PostgresTriggerService.createPostgresTrigger({
+					workspace: $workspaceStore!,
+					requestBody: {
+						path,
+						script_path,
+						is_flow,
+						enabled: true,
+						postgres_resource_path,
+						replication_slot_name: tab === 'basic' ? undefined : replication_slot_name,
+						publication_name: tab === 'basic' ? undefined : publication_name,
+						publication: {
+							transaction_to_track,
+							table_to_track: relations
+						}
+					}
+				})
+				sendUserToast(`PostgresTrigger ${path} created`)
+			}
+			isLoading = false
+			if (!$usedTriggerKinds.includes('postgres')) {
+				$usedTriggerKinds = [...$usedTriggerKinds, 'postgres']
+			}
+			dispatch('update')
+			drawer.closeDrawer()
+		} catch (error) {
+			isLoading = false
+			sendUserToast(error.body || error.message, true)
 		}
-
-		if (!$usedTriggerKinds.includes('postgres')) {
-			$usedTriggerKinds = [...$usedTriggerKinds, 'postgres']
-		}
-		dispatch('update')
-		drawer.closeDrawer()
 	}
 
 	const getTemplateScript = async () => {
-		if (relations.length === 0 || emptyString(postgres_resource_path)) {
+		if (!relations || relations.length === 0 || emptyString(postgres_resource_path)) {
 			sendUserToast('You must pick a database resource and choose at least one schema', true)
 			return
 		}
-
 		try {
 			loading = true
 			let templateId = await PostgresTriggerService.createTemplateScript({
@@ -255,24 +267,6 @@
 			loading = false
 			sendUserToast(error.body, true)
 		}
-	}
-
-	const checkDatabaseConfiguration = async () => {
-		if (emptyString(postgres_resource_path)) {
-			sendUserToast('You must first pick a database resource', true)
-			return
-		}
-		try {
-			loadingConfiguration = true
-			config.isLogical = await PostgresTriggerService.isValidPostgresConfiguration({
-				workspace: $workspaceStore!,
-				path: postgres_resource_path
-			})
-			config.show = true
-		} catch (error) {
-			sendUserToast(error.body, true)
-		}
-		loadingConfiguration = false
 	}
 </script>
 
@@ -311,11 +305,13 @@
 					disabled={pathError != '' ||
 						emptyString(postgres_resource_path) ||
 						emptyString(script_path) ||
-						((emptyString(replication_slot_name) || emptyString(publication_name)) &&
-							tab === 'advanced') ||
-						(relations.length === 0 && tab === 'basic') ||
+						(tab === 'advanced' && emptyString(replication_slot_name)) ||
+						emptyString(publication_name) ||
+						(relations && tab === 'basic' && relations.length === 0) ||
+						transaction_to_track.length === 0 ||
 						!can_write}
 					on:click={updateTrigger}
+					loading={isLoading}
 				>
 					Save
 				</Button>
@@ -327,74 +323,28 @@
 				<p>Loading...</p>
 			</div>
 		{:else}
-			<div class="flex flex-col gap-5">
-				<Alert title="Info" type="info">
-					{#if edit}
-						Changes can take up to 30 seconds to take effect.
-					{:else}
-						New postgres triggers can take up to 30 seconds to start listening.
-					{/if}
-				</Alert>
-			</div>
+			<Alert title="Info" type="info">
+				{#if edit}
+					Changes can take up to 30 seconds to take effect.
+				{:else}
+					New postgres triggers can take up to 30 seconds to start listening.
+				{/if}
+			</Alert>
 			<div class="flex flex-col gap-12 mt-6">
-				<div class="flex flex-col gap-4">
-					<Label label="Path">
-						<Path
-							bind:dirty={dirtyPath}
-							bind:error={pathError}
-							bind:path
-							{initialPath}
-							checkInitialPathExistence={!edit}
-							namePlaceholder="postgres_trigger"
-							kind="postgres_trigger"
-							disabled={!can_write}
-						/>
-					</Label>
-				</div>
-
-				<Section label="Database">
-					<p class="text-xs mb-1 text-tertiary">
-						Pick a database to connect to <Required required={true} />
-					</p>
-					<div class="flex flex-col mb-2 gap-3">
-						<ResourcePicker bind:value={postgres_resource_path} resourceType={'postgresql'} />
-						{#if postgres_resource_path}
-							<Button
-								loading={loadingConfiguration}
-								on:click={checkDatabaseConfiguration}
-								color="gray"
-								size="sm"
-								>Check Database Configuration
-								<Tooltip>
-									<p class="text-sm">
-										Verifies whether the database is configured with the required <strong
-											>settings</strong
-										>.<br /> The <strong>logical wal_level</strong> setting is essential for the streaming
-										feature to works. If it is not set, the trigger feature will not work, and the database
-										configuration must be updated.
-									</p>
-								</Tooltip>
-							</Button>
-							{#if config.show}
-								<Alert
-									title="Postgres configuration"
-									type={config.isLogical === true ? 'success' : 'error'}
-								>
-									{#if config.isLogical}
-										Your database is correctly configured with logical replication enabled. You can
-										proceed with using the streaming feature
-									{:else}
-										Logical replication is not enabled on your database. To use this feature, your
-										Postgres database must have <code>wal_level</code> configured as 'logical' in your
-										database configuration.
-									{/if}
-								</Alert>
-							{/if}
-						{/if}
-					</div>
-				</Section>
+				<Label label="Path">
+					<Path
+						bind:dirty={dirtyPath}
+						bind:error={pathError}
+						bind:path
+						{initialPath}
+						checkInitialPathExistence={!edit}
+						namePlaceholder="postgres_trigger"
+						kind="postgres_trigger"
+						disabled={!can_write}
+					/>
+				</Label>
 				<Section label="Runnable">
-					<p class="text-xs mb-1 text-tertiary">
+					<p class="text-xs text-tertiary">
 						Pick a script or flow to be triggered <Required required={true} />
 					</p>
 					<div class="flex flex-row mb-2">
@@ -408,9 +358,10 @@
 							allowRefresh
 						/>
 
-						{#if script_path === undefined && is_flow === false}
+						{#if emptyStringTrimmed(script_path) && is_flow === false}
 							<div class="flex">
 								<Button
+									disabled={!can_write}
 									btnClasses="ml-4 mt-2"
 									color="dark"
 									size="xs"
@@ -429,42 +380,68 @@
 						{/if}
 					</div>
 				</Section>
-				{#if postgres_resource_path}
-					<Section label="Configuration">
-						<div class="flex flex-col gap-5">
-							<p class="text-xs mb-3 text-tertiary">
-								Choose which table of your database to track as well as what kind of transaction
-								should fire the script.<br />
-								You must pick a database resource first to make the configuration of your trigger
-								<Required required={true} />
-							</p>
-							<Section label="Transactions">
-								<p class="text-xs mb-3 text-tertiary">
-									Choose the types of database transactions that should trigger a script or flow.
-									You can select from <strong>Insert</strong>, <strong>Update</strong>,
-									<strong>Delete</strong>, or any combination of these operations to define when the
-									trigger should activate.
-								</p>
+				<Section label="Database">
+					<p class="text-xs text-tertiary mb-2">
+						Pick a database to connect to <Required required={true} />
+					</p>
+					<div class="flex flex-col gap-8">
+						<div class="flex flex-col gap-2">
+							<ResourcePicker
+								disabled={!can_write}
+								bind:value={postgres_resource_path}
+								resourceType={'postgresql'}
+							/>
+							<CheckPostgresRequirement bind:postgres_resource_path bind:can_write />
+						</div>
+
+						{#if postgres_resource_path}
+							<Label label="Transactions">
+								<svelte:fragment slot="header">
+									<Tooltip>
+										<p>
+											Choose the types of database transactions that should trigger a script or
+											flow. You can select from <strong>Insert</strong>, <strong>Update</strong>,
+											<strong>Delete</strong>, or any combination of these operations to define when
+											the trigger should activate.
+										</p>
+									</Tooltip>
+								</svelte:fragment>
 								<MultiSelect
-									ulOptionsClass={'!bg-surface-secondary'}
 									noMatchingOptionsMsg=""
 									createOptionMsg={null}
 									duplicates={false}
-									bind:value={transaction_to_track}
 									options={transactionType}
 									allowUserOptions="append"
 									bind:selected={transaction_to_track}
-								/>
-							</Section>
-							<Section label="Table Tracking">
-								<p class="text-xs mb-3 text-tertiary">
-									Select the tables to track. You can choose to track
-									<strong>all tables in your database</strong>,
-									<strong>all tables within a specific schema</strong>,
-									<strong>specific tables in a schema</strong>, or even
-									<strong>specific columns of a table</strong>. Additionally, you can apply a
-									<strong>filter</strong> to retrieve only rows that do not match the specified criteria.
-								</p>
+									ulOptionsClass={'!bg-surface !text-sm'}
+									ulSelectedClass="!text-sm"
+									outerDivClass="!bg-surface !min-h-[38px] !border-[#d1d5db]"
+									placeholder="Select transactions"
+									--sms-options-margin="4px"
+									--sms-open-z-index="100"
+								>
+									<svelte:fragment slot="remove-icon">
+										<div class="hover:text-primary p-0.5">
+											<X size={12} />
+										</div>
+									</svelte:fragment>
+								</MultiSelect>
+							</Label>
+							<Label label="Table Tracking">
+								<svelte:fragment slot="header">
+									<Tooltip
+										documentationLink="https://www.windmill.dev/docs/core_concepts/postgres_triggers#define-what-to-track"
+									>
+										<p>
+											Select the tables to track. You can choose to track
+											<strong>all tables in your database</strong>,
+											<strong>all tables within a specific schema</strong>,
+											<strong>specific tables in a schema</strong>, or even
+											<strong>specific columns of a table</strong>. Additionally, you can apply a
+											<strong>filter</strong> to retrieve only rows that do not match the specified criteria.
+										</p>
+									</Tooltip>
+								</svelte:fragment>
 								<Tabs bind:selected={tab}>
 									<Tab value="basic"
 										><div class="flex flex-row gap-1"
@@ -500,12 +477,13 @@
 									<svelte:fragment slot="content">
 										<div class="mt-5 overflow-hidden bg-surface">
 											<TabContent value="basic">
-												<RelationPicker bind:selectedTable bind:relations />
+												<RelationPicker {can_write} bind:relations />
 											</TabContent>
 											<TabContent value="advanced">
 												<div class="flex flex-col gap-6"
 													><Section
-														label="Replication slot management"
+														small
+														label="Replication slot"
 														tooltip="Choose and manage the slots for your trigger. You can create or delete slots. Both non-active slots and the currently used slot by the trigger (if any) will be retrieved from your database for management."
 														documentationLink="https://www.windmill.dev/docs/core_concepts/postgres_triggers#managing-postgres-replication-slots"
 													>
@@ -515,9 +493,11 @@
 																on:selected={() => {
 																	replication_slot_name = ''
 																}}
+																disabled={!can_write}
+																let:item
 															>
-																<ToggleButton value="create" label="Create Slot" />
-																<ToggleButton value="get" label="Get Slot" />
+																<ToggleButton value="create" label="Create Slot" {item} />
+																<ToggleButton value="get" label="Get Slot" {item} />
 															</ToggleButtonGroup>
 															{#if selectedSlotAction === 'create'}
 																<div class="flex gap-3">
@@ -545,16 +525,18 @@
 													</Section>
 
 													<Section
-														label="Publication management"
+														small
+														label="Publication"
 														tooltip="Select and manage the publications for tracking data. You can create, update, or delete publications. Only existing publications in your database will be available for selection, giving you full control over what data is tracked."
 														documentationLink="https://www.windmill.dev/docs/core_concepts/postgres_triggers#managing-postgres-publications"
 													>
 														<div class="flex flex-col gap-3">
 															<ToggleButtonGroup
-																bind:selected={selectedPublicationAction}
-																on:selected={() => {
+																selected={selectedPublicationAction}
+																disabled={!can_write}
+																on:selected={({ detail }) => {
+																	selectedPublicationAction = detail
 																	if (selectedPublicationAction === 'create') {
-																		selectedTable = 'specific'
 																		publication_name = `windmill_publication_${random_adj()}`
 																		relations = [{ schema_name: 'public', table_to_track: [] }]
 																		return
@@ -564,13 +546,15 @@
 																	relations = []
 																	transaction_to_track = []
 																}}
+																let:item
 															>
-																<ToggleButton value="create" label="Create Publication" />
-																<ToggleButton value="get" label="Get Publication" />
+																<ToggleButton value="create" label="Create Publication" {item} />
+																<ToggleButton value="get" label="Get Publication" {item} />
 															</ToggleButtonGroup>
 															{#if selectedPublicationAction === 'create'}
 																<div class="flex gap-3">
 																	<input
+																		disabled={!can_write}
 																		type="text"
 																		bind:value={publication_name}
 																		placeholder={'Publication Name'}
@@ -580,22 +564,22 @@
 																		size="xs"
 																		variant="border"
 																		disabled={emptyStringTrimmed(publication_name) ||
-																			(selectedTable != 'all' && relations.length === 0)}
+																			(relations && relations.length === 0) ||
+																			!can_write}
 																		on:click={createPublication}>Create</Button
 																	>
 																</div>
 															{:else}
 																<PublicationPicker
+																	{can_write}
 																	{postgres_resource_path}
 																	bind:transaction_to_track
-																	bind:table_to_track
 																	bind:relations
 																	bind:items={publicationItems}
 																	bind:publication_name
-																	bind:selectedTable
 																/>
 															{/if}
-															<RelationPicker bind:selectedTable bind:relations />
+															<RelationPicker {can_write} bind:relations />
 														</div>
 													</Section></div
 												>
@@ -603,10 +587,10 @@
 										</div>
 									</svelte:fragment>
 								</Tabs>
-							</Section>
-						</div>
-					</Section>
-				{/if}
+							</Label>
+						{/if}
+					</div>
+				</Section>
 			</div>
 		{/if}
 	</DrawerContent>

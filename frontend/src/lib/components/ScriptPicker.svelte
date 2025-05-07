@@ -50,7 +50,7 @@
 			items = (
 				await ScriptService.listScripts({
 					workspace: $workspaceStore!,
-					kinds: kinds.join(','),
+					kinds: kinds.join(',')
 				})
 			).map((script) => ({
 				value: script.path,
@@ -85,9 +85,9 @@
 <div class="flex flex-row items-center gap-4 w-full mt-2">
 	{#if options.length > 1}
 		<div>
-			<ToggleButtonGroup bind:selected={itemKind}>
+			<ToggleButtonGroup bind:selected={itemKind} let:item>
 				{#each options as [label, value, icon, selectedColor]}
-					<ToggleButton {icon} {disabled} {value} {label} {selectedColor} />
+					<ToggleButton {icon} {disabled} {value} {label} {selectedColor} {item} />
 				{/each}
 			</ToggleButtonGroup>
 		</div>

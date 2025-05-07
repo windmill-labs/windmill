@@ -53,7 +53,8 @@ import {
 	PanelTop,
 	RefreshCw,
 	ListCollapse,
-	GalleryThumbnails
+	GalleryThumbnails,
+	Code
 } from 'lucide-svelte'
 import type {
 	Aligned,
@@ -90,20 +91,51 @@ export type CustomComponentConfig = {
 		reactVersion?: string
 	}
 }
-export type TextComponent = BaseComponent<'textcomponent'>
-export type TextInputComponent = BaseComponent<'textinputcomponent'>
-export type QuillComponent = BaseComponent<'quillcomponent'>
-export type TextareaInputComponent = BaseComponent<'textareainputcomponent'>
-export type PasswordInputComponent = BaseComponent<'passwordinputcomponent'>
-export type EmailInputComponent = BaseComponent<'emailinputcomponent'>
-export type DateInputComponent = BaseComponent<'dateinputcomponent'>
-export type TimeInputComponent = BaseComponent<'timeinputcomponent'>
-export type DateTimeInputComponent = BaseComponent<'datetimeinputcomponent'>
-export type NumberInputComponent = BaseComponent<'numberinputcomponent'>
-export type CurrencyComponent = BaseComponent<'currencycomponent'>
-export type SliderComponent = BaseComponent<'slidercomponent'>
-export type DateSliderComponent = BaseComponent<'dateslidercomponent'>
-export type RangeComponent = BaseComponent<'rangecomponent'>
+export type TextComponent = BaseComponent<'textcomponent'> & {
+	onChange?: string[]
+}
+export type TextInputComponent = BaseComponent<'textinputcomponent'> & {
+	onChange?: string[]
+}
+export type QuillComponent = BaseComponent<'quillcomponent'> & {
+	onChange?: string[]
+}
+export type CodeInputComponent = BaseComponent<'codeinputcomponent'> & {
+	onChange?: string[]
+}
+export type TextareaInputComponent = BaseComponent<'textareainputcomponent'> & {
+	onChange?: string[]
+}
+export type PasswordInputComponent = BaseComponent<'passwordinputcomponent'> & {
+	onChange?: string[]
+}
+export type EmailInputComponent = BaseComponent<'emailinputcomponent'> & {
+	onChange?: string[]
+}
+export type DateInputComponent = BaseComponent<'dateinputcomponent'> & {
+	onChange?: string[]
+}
+export type TimeInputComponent = BaseComponent<'timeinputcomponent'> & {
+	onChange?: string[]
+}
+export type DateTimeInputComponent = BaseComponent<'datetimeinputcomponent'> & {
+	onChange?: string[]
+}
+export type NumberInputComponent = BaseComponent<'numberinputcomponent'> & {
+	onChange?: string[]
+}
+export type CurrencyComponent = BaseComponent<'currencycomponent'> & {
+	onChange?: string[]
+}
+export type SliderComponent = BaseComponent<'slidercomponent'> & {
+	onChange?: string[]
+}
+export type DateSliderComponent = BaseComponent<'dateslidercomponent'> & {
+	onChange?: string[]
+}
+export type RangeComponent = BaseComponent<'rangecomponent'> & {
+	onChange?: string[]
+}
 export type HtmlComponent = BaseComponent<'htmlcomponent'>
 export type CustomComponent = BaseComponent<'customcomponent'> & {
 	customComponent: CustomComponentConfig
@@ -291,7 +323,9 @@ export type NavBarComponent = BaseComponent<'navbarcomponent'> & {
 	navbarItems: NavbarItem[]
 }
 
-export type DateSelectComponent = BaseComponent<'dateselectcomponent'>
+export type DateSelectComponent = BaseComponent<'dateselectcomponent'> & {
+	onChange?: string[]
+}
 
 export type RecomputeAllComponent = BaseComponent<'recomputeallcomponent'>
 
@@ -304,6 +338,7 @@ export type TypedComponent =
 	| JobIdFlowStatusComponent
 	| TextInputComponent
 	| QuillComponent
+	| CodeInputComponent
 	| TextareaInputComponent
 	| PasswordInputComponent
 	| EmailInputComponent
@@ -451,7 +486,7 @@ const buttonColorOptions = [...BUTTON_COLORS]
 export const selectOptions = {
 	buttonColorOptions,
 	tabsKindOptions: ['tabs', 'sidebar', 'accordion', 'invisibleOnView'],
-	buttonSizeOptions: ['xs', 'sm', 'md', 'lg', 'xl'],
+	buttonSizeOptions: ['xs2', 'xs', 'sm', 'md', 'lg', 'xl'],
 	tableSearchOptions: ['By Component', 'By Runnable', 'Disabled'],
 	chartThemeOptions: ['theme1', 'theme2', 'theme3'],
 	textStyleOptions: ['Title', 'Subtitle', 'Body', 'Label', 'Caption'],
@@ -485,6 +520,13 @@ export const selectOptions = {
 	prose: ['sm', 'Default', 'lg', 'xl', '2xl'],
 	imageSourceKind: [
 		'url',
+		'png encoded as base64',
+		'jpeg encoded as base64',
+		'svg encoded as base64'
+	],
+	imageSourceKindWithS3: [
+		'url',
+		's3 (workspace storage)',
 		'png encoded as base64',
 		'jpeg encoded as base64',
 		'svg encoded as base64'
@@ -962,6 +1004,12 @@ export const components = {
 					value: false,
 					tooltip:
 						'Hide the details section: the object keys, the clipboard button and the maximise button'
+				},
+				forceJson: {
+					type: 'static',
+					fieldType: 'boolean',
+					value: false,
+					tooltip: 'Force the result to be displayed as JSON'
 				}
 			}
 		}
@@ -1187,6 +1235,65 @@ export const components = {
 					value: false,
 					fieldType: 'boolean',
 					tooltip: 'Remove the "No text" placeholder'
+				}
+			}
+		}
+	},
+	codeinputcomponent: {
+		name: 'Code Input',
+		icon: Code,
+		dims: '2:1-4:4' as AppComponentDimensions,
+		documentationLink: `${documentationBaseUrl}/code`,
+		customCss: {
+			text: { class: '', style: '' },
+			container: { class: '', style: '' }
+		},
+		initialData: {
+			componentInput: undefined,
+			configuration: {
+				placeholder: {
+					type: 'static',
+					value: 'Type...',
+					fieldType: 'text'
+				},
+				defaultValue: {
+					type: 'static',
+					value: undefined,
+					fieldType: 'text'
+				},
+				lang: {
+					type: 'static',
+					fieldType: 'select',
+					value: 'javascript',
+					selectOptions: [
+						'javascript',
+						'typescript',
+						'python',
+						'sql',
+						'json',
+						'html',
+						'css',
+						'markdown',
+						'yaml'
+					]
+				},
+				disableSuggestions: {
+					type: 'static',
+					fieldType: 'boolean',
+					value: false,
+					tooltip: 'Disable code completion suggestions'
+				},
+				disableLinting: {
+					type: 'static',
+					fieldType: 'boolean',
+					value: false,
+					tooltip: 'Disable code validation/linting (keeps only syntax highlighting)'
+				},
+				hideLineNumbers: {
+					type: 'static',
+					fieldType: 'boolean',
+					value: false,
+					tooltip: 'Hide line numbers in the editor'
 				}
 			}
 		}
@@ -1643,9 +1750,9 @@ Hello \${ctx.username}
 				type: 'templatev2',
 				fieldType: 'template',
 				eval: `# This is a header
-## This is a subheader				
+## This is a subheader
 This is a paragraph.
-				
+
 * This is a list
 * With two items`,
 				connections: [] as InputConnectionEval[]
@@ -2679,7 +2786,7 @@ This is a paragraph.
 					type: 'static',
 					value: 'yyyy-MM-dd',
 					fieldType: 'text',
-					markdownTooltip: `### Output format				
+					markdownTooltip: `### Output format
 See date-fns format for more information. By default, it is 'yyyy-MM-dd'
 
 | Format      | Result | Description |
@@ -2694,6 +2801,11 @@ See date-fns format for more information. By default, it is 'yyyy-MM-dd'
 
 					documentationLink: 'https://date-fns.org/v2.30.0/docs/format',
 					placeholder: 'yyyy-MM-dd'
+				},
+				disabled: {
+					type: 'static',
+					value: false,
+					fieldType: 'boolean'
 				}
 			}
 		}
@@ -2736,7 +2848,7 @@ See date-fns format for more information. By default, it is 'yyyy-MM-dd'
 					fieldType: 'text',
 					documentationLink: 'https://date-fns.org/v2.30.0/docs/format',
 					placeholder: 'dd.MM.yyyy HH:mm',
-					markdownTooltip: `### Output format				
+					markdownTooltip: `### Output format
 See date-fns format for more information. By default, it is 'dd.MM.yyyy HH:mm'
 
 | Format      | Result | Description |
@@ -2896,7 +3008,11 @@ See date-fns format for more information. By default, it is 'dd.MM.yyyy HH:mm'
 				type: 'static',
 				fieldType: 'array',
 				subFieldType: 'object',
-				value: [{ header: 'First', foo: 1 }, { header: 'Second', foo: 2 }, { header: 'Third', foo: 3 }] as object[]
+				value: [
+					{ header: 'First', foo: 1 },
+					{ header: 'Second', foo: 2 },
+					{ header: 'Third', foo: 3 }
+				] as object[]
 			},
 			numberOfSubgrids: 1
 		}
@@ -3073,13 +3189,17 @@ See date-fns format for more information. By default, it is 'dd.MM.yyyy HH:mm'
 					fileUpload: {
 						accept: 'image/*',
 						convertTo: 'base64'
+					},
+					fileUploadS3: {
+						accept: 'image/*',
+						convertTo: 'base64'
 					}
 				},
 				sourceKind: {
 					fieldType: 'select',
 					type: 'static',
-					selectOptions: selectOptions.imageSourceKind,
-					value: 'url' as (typeof selectOptions.imageSourceKind)[number]
+					selectOptions: selectOptions.imageSourceKindWithS3,
+					value: 'url' as (typeof selectOptions.imageSourceKindWithS3)[number]
 				},
 				imageFit: {
 					fieldType: 'select',
@@ -3688,6 +3808,12 @@ See date-fns format for more information. By default, it is 'dd.MM.yyyy HH:mm'
 								fieldType: 'boolean',
 								tooltip: 'If allowed, the user will be able to select more than one file'
 							},
+							allowDelete: {
+								type: 'static',
+								value: false,
+								fieldType: 'boolean',
+								tooltip: 'If allowed, the user will be able to delete files'
+							},
 							text: {
 								type: 'static',
 								value: 'Drag and drop files or click to select them',
@@ -4142,6 +4268,12 @@ See date-fns format for more information. By default, it is 'dd.MM.yyyy HH:mm'
 					value: false,
 					tooltip:
 						'Hide the details section: the object keys, the clipboard button and the maximise button'
+				},
+				forceJson: {
+					type: 'static',
+					fieldType: 'boolean',
+					value: false,
+					tooltip: 'Force the result to be displayed as JSON'
 				}
 			}
 		}
@@ -4157,7 +4289,22 @@ See date-fns format for more information. By default, it is 'dd.MM.yyyy HH:mm'
 		initialData: {
 			...defaultAlignement,
 			componentInput: undefined,
-			configuration: {},
+			configuration: {
+				defaultRefreshInterval: {
+					fieldType: 'select',
+					type: 'static',
+					selectOptions: [
+						{ value: '0', label: 'Once' },
+						{ value: '5', label: 'Every 5 seconds' },
+						{ value: '10', label: 'Every 10 seconds' },
+						{ value: '15', label: 'Every 15 seconds' },
+						{ value: '20', label: 'Every 20 seconds' },
+						{ value: '25', label: 'Every 25 seconds' },
+						{ value: '30', label: 'Every 30 seconds' }
+					],
+					value: '0'
+				}
+			},
 			menuItems: true
 		}
 	}

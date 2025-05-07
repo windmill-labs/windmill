@@ -5,6 +5,7 @@
 	import Google from '$lib/components/icons/brands/Google.svelte'
 	import Microsoft from '$lib/components/icons/brands/Microsoft.svelte'
 	import Okta from '$lib/components/icons/brands/Okta.svelte'
+	import Auth0 from '$lib/components/icons/brands/Auth0.svelte'
 
 	import { OauthService, UserService, WorkspaceService } from '$lib/gen'
 	import { usersWorkspaceStore, workspaceStore, userStore } from '$lib/stores'
@@ -49,6 +50,11 @@
 			type: 'okta',
 			name: 'Okta',
 			icon: Okta
+		},
+		{
+			type: 'auth0',
+			name: 'Auth0',
+			icon: Auth0
 		}
 	] as const
 
@@ -271,7 +277,7 @@
 				<Button
 					color="dark"
 					variant="border"
-					btnClasses="mt-2 w-full !border-gray-300"
+					btnClasses="mt-2 w-full"
 					on:click={() => storeRedirect(login.type)}
 				>
 					{login.displayName}
@@ -282,7 +288,7 @@
 			<Button
 				color="dark"
 				variant="border"
-				btnClasses="mt-2 w-full !border-gray-300"
+				btnClasses="mt-2 w-full"
 				on:click={() => {
 					if (saml) {
 						window.location.href = saml

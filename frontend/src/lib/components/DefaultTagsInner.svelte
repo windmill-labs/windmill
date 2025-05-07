@@ -62,7 +62,7 @@
 				</div>
 			{/each}
 		</div>
-		<div class="py-4 flex flex-col gap-2">
+		<div id="default-tags-settings" class="py-4 flex flex-col gap-2">
 			<Toggle
 				bind:checked={defaultTagPerWorkspace}
 				options={{ right: 'workspace specific default tags' }}
@@ -70,7 +70,11 @@
 			{#if defaultTagPerWorkspace}
 				<Toggle bind:checked={limitToWorkspaces} options={{ right: 'only for some workspaces' }} />
 				{#if limitToWorkspaces}
-					<MultiSelectWrapper items={workspaces} bind:value={defaultTagWorkspaces} />
+					<MultiSelectWrapper
+						target="#default-tags-settings"
+						items={workspaces}
+						bind:value={defaultTagWorkspaces}
+					/>
 				{/if}
 			{/if}
 		</div>
@@ -99,7 +103,9 @@
 			}}
 			disabled={!$enterpriseLicense || !$superadmin}
 		>
-			Save {#if !$superadmin} <span class="text-2xs text-tertiary">superadmin only</span> {/if}
+			Save {#if !$superadmin}
+				<span class="text-2xs text-tertiary">superadmin only</span>
+			{/if}
 		</Button>
 
 		<span class="text-2xs text-tertiary"

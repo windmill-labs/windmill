@@ -26,10 +26,11 @@
 				noWFull
 				on:selected={() => ($app = $app)}
 				bind:selected={component.horizontalAlignment}
+				let:item
 			>
-				<ToggleButton value="left" icon={AlignStartVertical} />
-				<ToggleButton value="center" icon={AlignCenterVertical} />
-				<ToggleButton value="right" icon={AlignEndVertical} />
+				<ToggleButton value="left" icon={AlignStartVertical} {item} />
+				<ToggleButton value="center" icon={AlignCenterVertical} {item} />
+				<ToggleButton value="right" icon={AlignEndVertical} {item} />
 			</ToggleButtonGroup>
 		{/if}
 		{#if component.type !== 'formcomponent' && component.verticalAlignment}
@@ -37,10 +38,11 @@
 				noWFull
 				on:selected={() => ($app = $app)}
 				bind:selected={component.verticalAlignment}
+				let:item
 			>
-				<ToggleButton value="top" icon={AlignStartHorizontal} />
-				<ToggleButton value="center" icon={AlignCenterHorizontal} />
-				<ToggleButton value="bottom" icon={AlignEndHorizontal} />
+				<ToggleButton value="top" icon={AlignStartHorizontal} {item} />
+				<ToggleButton value="center" icon={AlignCenterHorizontal} {item} />
+				<ToggleButton value="bottom" icon={AlignEndHorizontal} {item} />
 			</ToggleButtonGroup>
 		{/if}
 	</div>

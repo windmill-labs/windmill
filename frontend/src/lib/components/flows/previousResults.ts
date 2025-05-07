@@ -88,7 +88,7 @@ function getFlowInput(
 			}
 		} else {
 			let parentFlowInput = getFlowInput(parentModules, flowState, args, schema)
-			if (parentModule.value.type === 'forloopflow') {
+			if (parentModule.value.type === 'forloopflow' || parentModule.value.type === 'whileloopflow') {
 				let parentFlowInputIter = { ...parentFlowInput }
 				if (parentFlowInputIter.hasOwnProperty('iter')) {
 					parentFlowInputIter['iter_parent'] = parentFlowInputIter['iter']
@@ -199,7 +199,17 @@ export function getStepPropPicker(
 	const previousIds = getPreviousIds(id, flow, include_node)
 
 	let priorIds = Object.fromEntries(
-		previousIds.map((id) => [id, flowState[id]?.previewResult ?? {}]).reverse()
+		previousIds
+			.map((id) => {
+				const module = flow.value.modules.find((m) => m.id === id)
+				return [
+					id,
+					module?.mock?.enabled
+						? module.mock.return_value ?? {}
+						: flowState[id]?.previewResult ?? {}
+				]
+			})
+			.reverse()
 	)
 
 	const pickableProperties = {
@@ -263,9 +273,8 @@ declare const results = ${JSON.stringify(results)};
  */
 declare const previous_result: ${previousId ? JSON.stringify(results[previousId]) : 'any'};
 
-${
-	resume
-		? `
+${resume
+			? `
 /**
  * resume payload
  */
@@ -276,8 +285,8 @@ declare const resume: any
  */
 declare const approvers: string
 `
-		: ''
-}
+			: ''
+		}
 `
 }
 

@@ -71,7 +71,11 @@
 			disabled={eeOnly && !$enterpriseLicense}
 			on:change={(e) => {
 				if (e.detail) {
-					value = { id: '', secret: '' }
+					if (name === 'teams' || name === 'microsoft') {
+						value = { id: '', secret: '', tenant: '' }
+					} else {
+						value = { id: '', secret: '' }
+					}
 				} else {
 					value = undefined
 				}
@@ -106,12 +110,12 @@
 				<label class="block pb-2">
 					<span class="text-primary font-semibold text-sm">Allowed domains</span>
 					<div class="flex flex-col gap-1">
-						{#each value?.['allowed_domains'] ?? [] as domain}
+						{#each value?.['allowed_domains'] ?? [] as domain, idx}
 							<div class="flex gap-2">
 								<input
 									class="max-w-96 w-full"
 									type="text"
-									bind:value={domain}
+									bind:value={value['allowed_domains'][idx]}
 									on:keyup={(e) => {
 										if (domain == '') {
 											value['allowed_domains'] = value['allowed_domains']?.filter(

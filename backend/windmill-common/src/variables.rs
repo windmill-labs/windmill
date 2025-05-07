@@ -7,9 +7,11 @@
  */
 
 use crate::error;
+use crate::worker::Connection;
 use crate::{worker::WORKER_GROUP, BASE_URL, DB};
 use chrono::{SecondsFormat, Utc};
 use magic_crypt::{MagicCrypt256, MagicCryptError, MagicCryptTrait};
+use quick_cache::sync::Cache;
 use serde::{Deserialize, Serialize};
 
 lazy_static::lazy_static! {
@@ -160,8 +162,12 @@ pub fn decrypt(mc: &MagicCrypt256, value: String) -> error::Result<String> {
 
 pub const WM_SCHEDULED_FOR: &str = "WM_SCHEDULED_FOR";
 
+lazy_static::lazy_static! {
+    pub static ref CUSTOM_ENVS_CACHE: Cache<String, (i64, Vec<(String, String)>)> = Cache::new(100);
+}
+
 pub async fn get_reserved_variables(
-    db: &DB,
+    conn: &Connection,
     w_id: &str,
     token: &str,
     email: &str,
@@ -201,6 +207,8 @@ pub async fn get_reserved_variables(
         }
     };
 
+    let custom_envs = get_cached_workspace_envs(conn, w_id).await;
+
     let joined_schedule_path = schedule_path
         .clone()
         .unwrap_or("manual".to_string())
@@ -223,132 +231,160 @@ pub async fn get_reserved_variables(
     };
 
     vec![
-        ContextualVariable {
-            name: "WM_WORKSPACE".to_string(),
-            value: w_id.to_string(),
-            description: "Workspace id of the current script".to_string(),
+    ContextualVariable {
+        name: "WM_WORKSPACE".to_string(),
+        value: w_id.to_string(),
+        description: "Workspace id of the current script".to_string(),
+        is_custom: false,
+    },
+    ContextualVariable {
+        name: "WM_TOKEN".to_string(),
+        value: token.to_string(),
+        description: "Token ephemeral to the current script with equal permission to the \
+                      permission of the run (Usable as a bearer token)"
+            .to_string(),
             is_custom: false,
-        },
-        ContextualVariable {
-            name: "WM_TOKEN".to_string(),
-            value: token.to_string(),
-            description: "Token ephemeral to the current script with equal permission to the \
-                          permission of the run (Usable as a bearer token)"
-                .to_string(),
-                is_custom: false,
-        },
-        ContextualVariable {
-            name: "WM_EMAIL".to_string(),
-            value: email.to_string(),
-            description: "Email of the user that executed the current script".to_string(),
-            is_custom: false,
-        },
-        ContextualVariable {
-            name: "WM_USERNAME".to_string(),
-            value: username.to_string(),
-            description: "Username of the user that executed the current script".to_string(),
-            is_custom: false,
-        },
-        ContextualVariable {
-            name: "WM_BASE_URL".to_string(),
-            value: BASE_URL.read().await.clone(),
-            description: "base url of this instance".to_string(),
-            is_custom: false,
-        },
-        ContextualVariable {
-            name: "WM_JOB_ID".to_string(),
-            value: job_id.to_string(),
-            description: "Job id of the current script".to_string(),
-            is_custom: false,
-        },
-        ContextualVariable {
-            name: WM_SCHEDULED_FOR.to_string(),
-            value: scheduled_for
-                .map(|ts| ts.to_rfc3339_opts(SecondsFormat::Secs, true))
-                .unwrap_or_else(|| "".to_string()),
-            description: "date-time in UTC (e.g: 2014-11-28T12:45:59.324310806Z) of when the job was scheduled".to_string(),
-            is_custom: false,
-        },
-        ContextualVariable {
-            name: "WM_JOB_PATH".to_string(),
-            value: path.unwrap_or_else(|| "".to_string()),
-            description: "Path of the script or flow being run if any".to_string(),
-            is_custom: false,
-        },
-        ContextualVariable {
-            name: "WM_FLOW_JOB_ID".to_string(),
-            value: flow_id.unwrap_or_else(|| "".to_string()),
-            description: "Job id of the encapsulating flow if the job is a flow step".to_string(),
-            is_custom: false,
-        },
-        ContextualVariable {
-            name: "WM_ROOT_FLOW_JOB_ID".to_string(),
-            value: root_flow_id.unwrap_or_else(|| "".to_string()),
-            description: "Job id of the root flow if the job is a flow step".to_string(),
-            is_custom: false,
-        },
-        ContextualVariable {
-            name: "WM_FLOW_PATH".to_string(),
-            value: flow_path.unwrap_or_else(|| "".to_string()),
-            description: "Path of the encapsulating flow if the job is a flow step".to_string(),
-            is_custom: false,
-        },
+    },
+    ContextualVariable {
+        name: "WM_EMAIL".to_string(),
+        value: email.to_string(),
+        description: "Email of the user that executed the current script".to_string(),
+        is_custom: false,
+    },
+    ContextualVariable {
+        name: "WM_USERNAME".to_string(),
+        value: username.to_string(),
+        description: "Username of the user that executed the current script".to_string(),
+        is_custom: false,
+    },
+    ContextualVariable {
+        name: "WM_BASE_URL".to_string(),
+        value: BASE_URL.read().await.clone(),
+        description: "base url of this instance".to_string(),
+        is_custom: false,
+    },
+    ContextualVariable {
+        name: "WM_JOB_ID".to_string(),
+        value: job_id.to_string(),
+        description: "Job id of the current script".to_string(),
+        is_custom: false,
+    },
+    ContextualVariable {
+        name: WM_SCHEDULED_FOR.to_string(),
+        value: scheduled_for
+            .map(|ts| ts.to_rfc3339_opts(SecondsFormat::Secs, true))
+            .unwrap_or_else(|| "".to_string()),
+        description: "date-time in UTC (e.g: 2014-11-28T12:45:59.324310806Z) of when the job was scheduled".to_string(),
+        is_custom: false,
+    },
+    ContextualVariable {
+        name: "WM_JOB_PATH".to_string(),
+        value: path.unwrap_or_else(|| "".to_string()),
+        description: "Path of the script or flow being run if any".to_string(),
+        is_custom: false,
+    },
+    ContextualVariable {
+        name: "WM_FLOW_JOB_ID".to_string(),
+        value: flow_id.unwrap_or_else(|| "".to_string()),
+        description: "Job id of the encapsulating flow if the job is a flow step".to_string(),
+        is_custom: false,
+    },
+    ContextualVariable {
+        name: "WM_ROOT_FLOW_JOB_ID".to_string(),
+        value: root_flow_id.unwrap_or_else(|| "".to_string()),
+        description: "Job id of the root flow if the job is a flow step".to_string(),
+        is_custom: false,
+    },
+    ContextualVariable {
+        name: "WM_FLOW_PATH".to_string(),
+        value: flow_path.unwrap_or_else(|| "".to_string()),
+        description: "Path of the encapsulating flow if the job is a flow step".to_string(),
+        is_custom: false,
+    },
 
-        ContextualVariable {
-            name: "WM_SCHEDULE_PATH".to_string(),
-            value: schedule_path.unwrap_or_else(|| "".to_string()),
-            description: "Path of the schedule if the job of the step or encapsulating step has \
-                          been triggered by a schedule"
-                .to_string(),
-                is_custom: false,
-        },
-        ContextualVariable {
-            name: "WM_PERMISSIONED_AS".to_string(),
-            value: permissioned_as.to_string(),
-            description: "Fully Qualified (u/g) owner name of executor of the job".to_string(),
+    ContextualVariable {
+        name: "WM_SCHEDULE_PATH".to_string(),
+        value: schedule_path.unwrap_or_else(|| "".to_string()),
+        description: "Path of the schedule if the job of the step or encapsulating step has \
+                      been triggered by a schedule"
+            .to_string(),
             is_custom: false,
-        },
-        ContextualVariable {
-            name: "WM_STATE_PATH".to_string(),
-            value: state_path.clone(),
-            description: "State resource path unique to a script and its trigger".to_string(),
-            is_custom: false,
-        },
-        ContextualVariable {
-            name: "WM_FLOW_STEP_ID".to_string(),
-            value: step_id.unwrap_or_else(|| "".to_string()),
-            description: "The node id in a flow (like 'a', 'b', or 'f')".to_string(),
-            is_custom: false,
-        },
-        ContextualVariable {
-            name: "WM_OBJECT_PATH".to_string(),
-            value: object_path,
-            description: "Script or flow step execution unique path, useful for storing results in an external service".to_string(),
-            is_custom: false,
-        },
-        ContextualVariable {
-            name: "WM_OIDC_JWT".to_string(),
-            value: jwt_token.unwrap_or_else(|| "".to_string()),
-            description: "OIDC JWT token (EE only)".to_string(),
-            is_custom: false,
-        },
-        ContextualVariable {
-            name: "WM_WORKER_GROUP".to_string(),
-            value: WORKER_GROUP.clone(),
-            description: "name of the worker group the job is running on".to_string(),
-            is_custom: false,
-        },
-    ].into_iter().chain( sqlx::query_as::<_, (String, String)>(
-        "SELECT name, value FROM workspace_env WHERE workspace_id = $1",
-    )
-    .bind(w_id)
-    .fetch_all(db)
-    .await
-    .unwrap_or_default()
-    .into_iter().map(|(name, value)| ContextualVariable {
-        name,
-        value,
-        description: "Custom workspace environment variable".to_string(),
-        is_custom: true,
-    })).collect()
+    },
+    ContextualVariable {
+        name: "WM_PERMISSIONED_AS".to_string(),
+        value: permissioned_as.to_string(),
+        description: "Fully Qualified (u/g) owner name of executor of the job".to_string(),
+        is_custom: false,
+    },
+    ContextualVariable {
+        name: "WM_STATE_PATH".to_string(),
+        value: state_path.clone(),
+        description: "State resource path unique to a script and its trigger".to_string(),
+        is_custom: false,
+    },
+    ContextualVariable {
+        name: "WM_FLOW_STEP_ID".to_string(),
+        value: step_id.unwrap_or_else(|| "".to_string()),
+        description: "The node id in a flow (like 'a', 'b', or 'f')".to_string(),
+        is_custom: false,
+    },
+    ContextualVariable {
+        name: "WM_OBJECT_PATH".to_string(),
+        value: object_path,
+        description: "Script or flow step execution unique path, useful for storing results in an external service".to_string(),
+        is_custom: false,
+    },
+    ContextualVariable {
+        name: "WM_OIDC_JWT".to_string(),
+        value: jwt_token.unwrap_or_else(|| "".to_string()),
+        description: "OIDC JWT token (EE only)".to_string(),
+        is_custom: false,
+    },
+    ContextualVariable {
+        name: "WM_WORKER_GROUP".to_string(),
+        value: WORKER_GROUP.clone(),
+        description: "name of the worker group the job is running on".to_string(),
+        is_custom: false,
+    },
+].into_iter().chain(custom_envs.into_iter().map(|(name, value)| ContextualVariable {
+    name,
+    value,
+    description: "Custom workspace environment variable".to_string(),
+    is_custom: true,
+})
+).collect()
+}
+
+async fn get_cached_workspace_envs(conn: &Connection, w_id: &str) -> Vec<(String, String)> {
+    let cached_envs_o = CUSTOM_ENVS_CACHE.get(w_id).and_then(|(ts, envs)| {
+        if ts > chrono::Utc::now().timestamp() - (60 * 15) {
+            Some(envs)
+        } else {
+            None
+        }
+    });
+
+    let custom_envs = if let Some(cached_envs) = cached_envs_o {
+        cached_envs
+    } else {
+        let custom_envs = match conn {
+            Connection::Sql(db) => sqlx::query_as::<_, (String, String)>(
+                "SELECT name, value FROM workspace_env WHERE workspace_id = $1",
+            )
+            .bind(w_id)
+            .fetch_all(db)
+            .await
+            .unwrap_or_default(),
+            Connection::Http(client) => client
+                .get(&format!("/api/w/{w_id}/agent_workers/custom_envs"))
+                .await
+                .unwrap_or_default(),
+        };
+        CUSTOM_ENVS_CACHE.insert(
+            w_id.to_string(),
+            (chrono::Utc::now().timestamp(), custom_envs.clone()),
+        );
+        custom_envs
+    };
+    custom_envs
 }

@@ -3,7 +3,7 @@
 	import { base } from '$lib/base'
 	import Dropdown from '$lib/components/DropdownV2.svelte'
 	import type MoveDrawer from '$lib/components/MoveDrawer.svelte'
-	import ScheduleEditor from '$lib/components/ScheduleEditor.svelte'
+	import ScheduleEditor from '$lib/components/triggers/schedules/ScheduleEditor.svelte'
 	import SharedBadge from '$lib/components/SharedBadge.svelte'
 	import type ShareModal from '$lib/components/ShareModal.svelte'
 
@@ -79,7 +79,7 @@
 	async function deleteScript(path: string): Promise<void> {
 		await ScriptService.deleteScriptByPath({ workspace: $workspaceStore!, path })
 		dispatch('change')
-		sendUserToast(`Delete script ${path}`)
+		sendUserToast(`Deleted script ${path}`)
 	}
 	let scheduleEditor: ScheduleEditor
 

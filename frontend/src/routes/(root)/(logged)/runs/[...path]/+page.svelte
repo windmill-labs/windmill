@@ -7,12 +7,13 @@
 		FolderService,
 		ScriptService,
 		FlowService,
-		type ExtendedJobs
+		type ExtendedJobs,
+		OpenAPI
 	} from '$lib/gen'
 
 	import { page } from '$app/stores'
 	import { sendUserToast } from '$lib/toast'
-	import { superadmin, userStore, workspaceStore, userWorkspaces } from '$lib/stores'
+	import { userStore, workspaceStore, userWorkspaces } from '$lib/stores'
 	import { Button, Drawer, DrawerContent, Skeleton } from '$lib/components/common'
 	import RunChart from '$lib/components/RunChart.svelte'
 
@@ -31,25 +32,36 @@
 	import { twMerge } from 'tailwind-merge'
 	import ManuelDatePicker from '$lib/components/runs/ManuelDatePicker.svelte'
 	import JobLoader from '$lib/components/runs/JobLoader.svelte'
-	import { AlertTriangle, Calendar, Check, ChevronDown, Clock, X } from 'lucide-svelte'
+	import { AlertTriangle, Calendar, ChevronDown, Clock } from 'lucide-svelte'
 	import ConcurrentJobsChart from '$lib/components/ConcurrentJobsChart.svelte'
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 	import DropdownV2 from '$lib/components/DropdownV2.svelte'
 	import { goto } from '$app/navigation'
 	import { base } from '$app/paths'
-	import { isJobCancelable } from '$lib/utils'
+	import type { RunsSelectionMode } from '$lib/components/runs/RunsBatchActionsDropdown.svelte'
+	import RunsBatchActionsDropdown from '$lib/components/runs/RunsBatchActionsDropdown.svelte'
+	import { isJobSelectable } from '$lib/utils'
+	import BatchReRunOptionsPane, {
+		type BatchReRunOptions
+	} from '$lib/components/runs/BatchReRunOptionsPane.svelte'
 
 	let jobs: Job[] | undefined
 	let selectedIds: string[] = []
+	let loadingSelectedIds = false
+	$: loadingSelectedIds && selectedIds.length && setTimeout(() => (loadingSelectedIds = false), 250)
 	let selectedWorkspace: string | undefined = undefined
+
+	let batchReRunOptions: BatchReRunOptions = { flow: {}, script: {} }
 
 	// All Filters
 	// Filter by
 	let path: string | null = $page.params.path
+	let worker: string | null = $page.url.searchParams.get('worker')
 	let user: string | null = $page.url.searchParams.get('user')
 	let folder: string | null = $page.url.searchParams.get('folder')
 	let label: string | null = $page.url.searchParams.get('label')
+	let allowWildcards: boolean = $page.url.searchParams.get('allow_wildcards') == 'true'
 	let concurrencyKey: string | null = $page.url.searchParams.get('concurrency_key')
 	let tag: string | null = $page.url.searchParams.get('tag')
 	// Rest of filters handled by RunsFilter
@@ -68,14 +80,14 @@
 		$page.url.searchParams.get('show_schedules') != undefined
 			? $page.url.searchParams.get('show_schedules') == 'true'
 			: localStorage.getItem('show_schedules_in_run') == 'false'
-			? false
-			: true
+				? false
+				: true
 	let showFutureJobs: boolean =
 		$page.url.searchParams.get('show_future_jobs') != undefined
 			? $page.url.searchParams.get('show_future_jobs') == 'true'
 			: localStorage.getItem('show_future_jobs') == 'false'
-			? false
-			: true
+				? false
+				: true
 
 	let argFilter: any = $page.url.searchParams.get('arg')
 		? JSON.parse(decodeURIComponent($page.url.searchParams.get('arg') ?? '{}'))
@@ -89,7 +101,7 @@
 	let maxTs = $page.url.searchParams.get('max_ts') ?? undefined
 	let schedulePath = $page.url.searchParams.get('schedule_path') ?? undefined
 	let jobKindsCat = $page.url.searchParams.get('job_kinds') ?? 'runs'
-	let allWorkspaces = $page.url.searchParams.get('all_workspaces') == 'true' ?? false
+	let allWorkspaces = $page.url.searchParams.get('all_workspaces') == 'true'
 	let lastFetchWentToEnd = false
 
 	function loadFromQuery() {
@@ -99,6 +111,8 @@
 		label = $page.url.searchParams.get('label')
 		concurrencyKey = $page.url.searchParams.get('concurrency_key')
 		tag = $page.url.searchParams.get('tag')
+		worker = $page.url.searchParams.get('worker')
+		allowWildcards = $page.url.searchParams.get('allow_wildcards') == 'true'
 		// Rest of filters handled by RunsFilter
 		success = ($page.url.searchParams.get('success') ?? undefined) as
 			| 'running'
@@ -114,14 +128,14 @@
 			$page.url.searchParams.get('show_schedules') != undefined
 				? $page.url.searchParams.get('show_schedules') == 'true'
 				: localStorage.getItem('show_schedules_in_run') == 'false'
-				? false
-				: true
+					? false
+					: true
 		showFutureJobs =
 			$page.url.searchParams.get('show_future_jobs') != undefined
 				? $page.url.searchParams.get('show_future_jobs') == 'true'
 				: localStorage.getItem('show_future_jobs') == 'false'
-				? false
-				: true
+					? false
+					: true
 
 		argFilter = $page.url.searchParams.get('arg')
 			? JSON.parse(decodeURIComponent($page.url.searchParams.get('arg') ?? '{}'))
@@ -135,7 +149,7 @@
 		maxTs = $page.url.searchParams.get('max_ts') ?? undefined
 		schedulePath = $page.url.searchParams.get('schedule_path') ?? undefined
 		jobKindsCat = $page.url.searchParams.get('job_kinds') ?? 'runs'
-		allWorkspaces = $page.url.searchParams.get('all_workspaces') == 'true' ?? false
+		allWorkspaces = $page.url.searchParams.get('all_workspaces') == 'true'
 	}
 
 	let queue_count: Tweened<number> | undefined = undefined
@@ -152,11 +166,28 @@
 	let resultError = ''
 	let filterTimeout: NodeJS.Timeout | undefined = undefined
 	let selectedManualDate = 0
-	let autoRefresh: boolean = true
+	let autoRefresh: boolean = getAutoRefresh()
 	let runDrawer: Drawer
-	let isCancelingVisibleJobs = false
-	let isCancelingFilteredJobs = false
 	let lookback: number = 1
+	let askingForConfirmation:
+		| undefined
+		| {
+				title: string
+				confirmBtnText: string
+				loading?: boolean
+				preContent?: string
+				onConfirm?: () => void
+				type?: ConfirmationModal['$$prop_def']['type']
+		  } = undefined
+
+	function getAutoRefresh() {
+		try {
+			return localStorage.getItem('auto_refresh_in_runs') != 'false'
+		} catch (e) {
+			console.error('Error getting auto refresh', e)
+			return true
+		}
+	}
 
 	let innerWidth = window.innerWidth
 	let jobLoader: JobLoader | undefined = undefined
@@ -170,6 +201,7 @@
 	let runsTable: RunsTable
 
 	$: (user ||
+		worker ||
 		label ||
 		folder ||
 		path ||
@@ -185,11 +217,14 @@
 		tag ||
 		graph ||
 		maxTs ||
+		minTs ||
 		allWorkspaces ||
+		allowWildcards ||
 		$workspaceStore) &&
 		setQuery(false)
 
 	$: minTs || setQuery(true)
+	$: maxTs || setQuery(true)
 
 	function setQuery(replaceState: boolean) {
 		let searchParams = new URLSearchParams()
@@ -198,6 +233,12 @@
 			searchParams.set('user', user)
 		} else {
 			searchParams.delete('user')
+		}
+
+		if (worker) {
+			searchParams.set('worker', worker)
+		} else {
+			searchParams.delete('worker')
 		}
 
 		if (folder) {
@@ -289,6 +330,12 @@
 			searchParams.delete('label')
 		}
 
+		if (allowWildcards) {
+			searchParams.set('allow_wildcards', allowWildcards.toString())
+		} else {
+			searchParams.delete('allow_wildcards')
+		}
+
 		if (graph != 'RunChart') {
 			searchParams.set('graph', graph)
 		} else {
@@ -303,7 +350,7 @@
 			$page.url.pathname != newUrl.split('?')[0]
 		) {
 			// replaceState(newUrl.toString(), $page.state)
-			goto(newUrl.toString(), { replaceState: replaceState })
+			goto(newUrl.toString(), { replaceState: replaceState, keepFocus: true })
 		}
 	}
 
@@ -324,8 +371,8 @@
 		lastFetchWentToEnd = false
 		selectedManualDate = 0
 		selectedIds = []
-		jobIdsToCancel = []
-		isSelectingJobsToCancel = false
+		batchReRunOptions = { flow: {}, script: {} }
+		selectionMode = false
 		selectedWorkspace = undefined
 		jobLoader?.loadJobs(minTs, maxTs, true)
 	}
@@ -360,6 +407,7 @@
 		concurrencyKey = null
 		tag = null
 		schedulePath = undefined
+		worker = null
 	}
 
 	function filterByUser(e: CustomEvent<string>) {
@@ -380,6 +428,7 @@
 		concurrencyKey = null
 		tag = null
 		schedulePath = undefined
+		worker = null
 	}
 
 	function filterByLabel(e: CustomEvent<string>) {
@@ -390,6 +439,8 @@
 		concurrencyKey = null
 		tag = null
 		schedulePath = undefined
+		worker = null
+		allowWildcards = false
 	}
 
 	function filterByConcurrencyKey(e: CustomEvent<string>) {
@@ -400,6 +451,7 @@
 		concurrencyKey = e.detail
 		tag = null
 		schedulePath = undefined
+		worker = null
 	}
 
 	function filterByTag(e: CustomEvent<string>) {
@@ -410,6 +462,8 @@
 		concurrencyKey = null
 		tag = e.detail
 		schedulePath = undefined
+		worker = null
+		allowWildcards = false
 	}
 
 	function filterBySchedule(e: CustomEvent<string>) {
@@ -420,6 +474,19 @@
 		concurrencyKey = null
 		tag = null
 		schedulePath = e.detail
+		worker = null
+	}
+
+	function filterByWorker(e: CustomEvent<string>) {
+		path = null
+		user = null
+		folder = null
+		label = null
+		concurrencyKey = null
+		tag = null
+		schedulePath = undefined
+		worker = e.detail
+		allowWildcards = false
 	}
 
 	let calendarChangeTimeout: NodeJS.Timeout | undefined = undefined
@@ -435,22 +502,29 @@
 		}
 	}
 
-	let jobIdsToCancel: string[] = []
-	let isSelectingJobsToCancel = false
-	let fetchingFilteredJobs = false
-	let selectedFiltersString: string | undefined = undefined
+	let selectionMode: RunsSelectionMode | false = false
 
-	async function cancelVisibleJobs() {
-		isSelectingJobsToCancel = true
-		selectedIds = jobs?.filter(isJobCancelable).map((j) => j.id) ?? []
-		if (selectedIds.length === 0) {
-			sendUserToast('There are no visible jobs that can be canceled', true)
+	async function onSetSelectionMode(mode: RunsSelectionMode | false) {
+		selectionMode = mode
+		if (!mode) {
+			selectedIds = []
+			batchReRunOptions = { flow: {}, script: {} }
+			return
+		}
+		const selectableIds = jobs?.filter(isJobSelectable(mode)).map((j) => j.id) ?? []
+		selectedIds = []
+
+		if (!selectableIds?.length) {
+			sendUserToast(
+				'There are no visible jobs that can be ' +
+					{ cancel: 'cancelled', 're-run': 're-ran' }[mode],
+				true
+			)
 		}
 	}
-	async function cancelFilteredJobs() {
-		isCancelingFilteredJobs = true
-		fetchingFilteredJobs = true
-		const selectedFilters = {
+
+	function getSelectedFilters() {
+		return {
 			workspace: $workspaceStore ?? '',
 			startedBefore: maxTs,
 			startedAfter: minTs,
@@ -464,8 +538,8 @@
 				success == 'running' || success == 'suspended'
 					? true
 					: success == 'waiting'
-					? false
-					: undefined,
+						? false
+						: undefined,
 			isSkipped: isSkipped ? undefined : false,
 			// isFlowStep: jobKindsCat != 'all' ? false : undefined,
 			hasNullParent:
@@ -484,21 +558,151 @@
 				resultFilter && resultFilter != '{}' && resultFilter != '' && resultError == ''
 					? resultFilter
 					: undefined,
-			allWorkspaces: allWorkspaces ? true : undefined
+			allWorkspaces: allWorkspaces ? true : undefined,
+			allowWildcards: allowWildcards ? true : undefined
+		}
+	}
+
+	async function cancelJobs(uuidsToCancel: string[]) {
+		const uuids = await JobService.cancelSelection({
+			workspace: $workspaceStore ?? '',
+			requestBody: uuidsToCancel
+		})
+		selectedIds = []
+		jobLoader?.loadJobs(minTs, maxTs, true, true)
+		sendUserToast(`Canceled ${uuids.length} jobs`)
+		selectionMode = false
+	}
+
+	async function onCancelFilteredJobs() {
+		askingForConfirmation = {
+			title: 'Confirm cancelling all jobs corresponding to the selected filters',
+			confirmBtnText: 'Loading...',
+			loading: true
 		}
 
-		selectedFiltersString = JSON.stringify(selectedFilters, null, 4)
-		jobIdsToCancel = await JobService.listFilteredUuids(selectedFilters)
-		fetchingFilteredJobs = false
+		const selectedFilters = getSelectedFilters()
+		const selectedFiltersString = JSON.stringify(selectedFilters, null, 4)
+		const jobIdsToCancel = await JobService.listFilteredQueueUuids(selectedFilters)
+
+		askingForConfirmation = {
+			title: `Confirm cancelling all jobs corresponding to the selected filters (${jobIdsToCancel.length} jobs)`,
+			confirmBtnText: `Cancel ${jobIdsToCancel.length} jobs that matched the filters`,
+			preContent: selectedFiltersString,
+			onConfirm: () => {
+				cancelJobs(jobIdsToCancel)
+			}
+		}
 	}
 
-	async function cancelSelectedJobs() {
-		jobIdsToCancel = selectedIds
-		isCancelingVisibleJobs = true
+	async function onCancelSelectedJobs() {
+		askingForConfirmation = {
+			confirmBtnText: `Cancel ${selectedIds.length} jobs`,
+			title: 'Confirm cancelling the selected jobs',
+			onConfirm: () => {
+				cancelJobs(selectedIds)
+			}
+		}
 	}
 
-	function jobCountString(count: number) {
-		return `${count} ${count == 1 ? 'job' : 'jobs'}`
+	async function reRunJobs(jobIdsToReRun: string[]) {
+		if (!$workspaceStore) return
+
+		if (askingForConfirmation) {
+			askingForConfirmation.loading = true
+		}
+
+		const body: Parameters<typeof JobService.batchReRunJobs>[0]['requestBody'] = {
+			job_ids: jobIdsToReRun,
+			script_options_by_path: batchReRunOptions.script,
+			flow_options_by_path: batchReRunOptions.flow
+		}
+
+		// workaround because EventSource does not support POST requests
+		// https://medium.com/@david.richards.tech/sse-server-sent-events-using-a-post-request-without-eventsource-1c0bd6f14425
+		const response = await fetch(`${OpenAPI.BASE}/w/${$workspaceStore}/jobs/run/batch_rerun_jobs`, {
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify(body)
+		})
+		await new Promise(async (resolve) => {
+			const reader = response?.body?.pipeThrough(new TextDecoderStream()).getReader()
+			let reRanUuids: string[] = []
+			if (reader) {
+				while (true) {
+					const { value, done } = await reader.read()
+					if (value) {
+						// It is possible get multiple values at once in case of buffering
+						const receivedUuids: string[] = []
+						for (const line of value.split('\n')) {
+							if (!line) continue
+							else if (line.startsWith('Error:')) {
+								console.error(line)
+							} else {
+								receivedUuids.push(line)
+							}
+						}
+						if (receivedUuids.length) {
+							reRanUuids.push(...receivedUuids)
+							if (askingForConfirmation) {
+								askingForConfirmation.confirmBtnText = `${reRanUuids.length}/${jobIdsToReRun.length}`
+							}
+						}
+					}
+
+					if (done || !value) {
+						if (reRanUuids.length) {
+							sendUserToast(`Re-ran ${reRanUuids.length}/${jobIdsToReRun.length} jobs`)
+						}
+						if (reRanUuids.length !== jobIdsToReRun.length) {
+							sendUserToast(
+								`Failed to re-run ${jobIdsToReRun.length - reRanUuids.length} jobs. Check console for details`,
+								true
+							)
+							// We do not get explicit error from backend if the job script don't exist
+							for (const jobId of jobIdsToReRun) {
+								if (reRanUuids.includes(jobId)) continue
+								console.error('Could not re-run job ' + jobId)
+							}
+						}
+						break
+					}
+				}
+			}
+			resolve(undefined)
+		})
+
+		selectedIds = []
+		batchReRunOptions = { flow: {}, script: {} }
+		jobLoader?.loadJobs(minTs, maxTs, true, true)
+		selectionMode = false
+	}
+
+	async function onReRunFilteredJobs() {
+		const selectedFilters = getSelectedFilters()
+		selectedIds = []
+		loadingSelectedIds = true
+
+		if (jobKindsCat !== 'runs') {
+			sendUserToast('Batch re-run is only supported for scripts and flows', true)
+		}
+		selectedIds = await JobService.listFilteredJobsUuids({
+			...selectedFilters,
+			jobKinds: 'script,flow'
+		})
+		selectionMode = 're-run'
+	}
+
+	async function onReRunSelectedJobs() {
+		const jobIdsToReRun = selectedIds
+		askingForConfirmation = {
+			title: `Confirm re-running the selected jobs`,
+			confirmBtnText: `Re-run ${jobIdsToReRun.length} jobs`,
+			type: 'reload',
+			onConfirm: async () => {
+				await reRunJobs(jobIdsToReRun)
+			}
+		}
 	}
 
 	function setLookback(lookbackInDays: number) {
@@ -529,6 +733,7 @@
 		schedulePath = undefined
 		path = null
 		tag = null
+		worker = null
 		if (success == f) {
 			success = undefined
 		} else {
@@ -541,11 +746,13 @@
 </script>
 
 <JobLoader
+	{allowWildcards}
 	{allWorkspaces}
 	bind:jobs
 	{user}
 	{folder}
 	{path}
+	{worker}
 	{label}
 	{success}
 	{isSkipped}
@@ -575,49 +782,24 @@
 />
 
 <ConfirmationModal
-	title={`Confirm cancelling all jobs correspoding to the selected filters (${jobIdsToCancel.length} jobs)`}
-	confirmationText={`Cancel ${jobIdsToCancel.length} jobs that matched the filters`}
-	open={isCancelingFilteredJobs}
+	title={askingForConfirmation?.title ?? ''}
+	confirmationText={askingForConfirmation?.confirmBtnText ?? ''}
+	open={!!askingForConfirmation}
 	on:confirmed={async () => {
-		isCancelingFilteredJobs = false
-		let uuids = await JobService.cancelSelection({
-			workspace: $workspaceStore ?? '',
-			requestBody: jobIdsToCancel
-		})
-		jobIdsToCancel = []
-		selectedIds = []
-		jobLoader?.loadJobs(minTs, maxTs, true, true)
-		sendUserToast(`Canceled ${uuids.length} jobs`)
-		isSelectingJobsToCancel = false
+		const func = askingForConfirmation?.onConfirm
+		await func?.()
+		askingForConfirmation = undefined
 	}}
-	loading={fetchingFilteredJobs}
+	type={askingForConfirmation?.type}
+	loading={askingForConfirmation?.loading}
 	on:canceled={() => {
-		isCancelingFilteredJobs = false
+		askingForConfirmation = undefined
 	}}
 >
-	<pre>{selectedFiltersString}</pre>
+	{#if askingForConfirmation?.preContent}
+		<pre>{askingForConfirmation.preContent}</pre>
+	{/if}
 </ConfirmationModal>
-
-<ConfirmationModal
-	title={`Confirm cancelling the selected jobs`}
-	confirmationText={`Cancel ${jobIdsToCancel.length} jobs`}
-	open={isCancelingVisibleJobs}
-	on:confirmed={async () => {
-		isCancelingVisibleJobs = false
-		let uuids = await JobService.cancelSelection({
-			workspace: $workspaceStore ?? '',
-			requestBody: jobIdsToCancel
-		})
-		jobIdsToCancel = []
-		selectedIds = []
-		jobLoader?.loadJobs(minTs, maxTs, true, true)
-		sendUserToast(`Canceled ${uuids.length} jobs`)
-		isSelectingJobsToCancel = false
-	}}
-	on:canceled={() => {
-		isCancelingVisibleJobs = false
-	}}
-/>
 
 <Drawer bind:this={runDrawer}>
 	<DrawerContent title="Run details" on:close={runDrawer.closeDrawer}>
@@ -639,13 +821,12 @@
 	}}
 />
 
-{#if $userStore?.operator && $workspaceStore && !$userWorkspaces.find(_ => _.id === $workspaceStore)?.operator_settings?.runs}
-<div class="bg-red-100 border-l-4 border-red-600 text-orange-700 p-4 m-4 mt-12" role="alert">
-	<p class="font-bold">Unauthorized</p>
-	<p>Page not available for operators</p>
-</div>
-{:else}
-{#if innerWidth > 900}
+{#if $userStore?.operator && $workspaceStore && !$userWorkspaces.find((_) => _.id === $workspaceStore)?.operator_settings?.runs}
+	<div class="bg-red-100 border-l-4 border-red-600 text-orange-700 p-4 m-4 mt-12" role="alert">
+		<p class="font-bold">Unauthorized</p>
+		<p>Page not available for operators</p>
+	</div>
+{:else if innerWidth > 900}
 	<div class="w-full h-screen">
 		<div class="px-2">
 			<div class="flex items-center space-x-2 flex-row justify-between">
@@ -669,12 +850,14 @@
 					</div>
 				</div>
 				<RunsFilter
+					bind:allowWildcards
 					bind:isSkipped
 					bind:user
 					bind:folder
 					bind:label
 					bind:concurrencyKey
 					bind:tag
+					bind:worker
 					bind:path
 					bind:success
 					bind:argFilter
@@ -702,13 +885,16 @@
 				<div class="absolute right-0 -mt-6">
 					<div class="flex flex-row justify-between items-center">
 						<ToggleButtonGroup
-							bind:selected={graph}
-							on:selected={() => {
+							selected={graph}
+							on:selected={({ detail }) => {
+								graph = detail
 								graphIsRunsChart = graph === 'RunChart'
 							}}
+							let:item
 						>
-							<ToggleButton value="RunChart" label="Duration" />
+							<ToggleButton value="RunChart" label="Duration" {item} />
 							<ToggleButton
+								{item}
 								value="ConcurrencyChart"
 								label="Concurrency"
 								icon={warnJobLimit ? AlertTriangle : undefined}
@@ -758,7 +944,7 @@
 				<RunChart
 					{lastFetchWentToEnd}
 					bind:selectedIds
-					canSelect={!isSelectingJobsToCancel}
+					canSelect={!selectionMode}
 					minTimeSet={minTs}
 					maxTimeSet={maxTs}
 					maxIsNow={maxTs == undefined}
@@ -801,69 +987,16 @@
 						jobsFilter('suspended')
 					}}
 				/>
-				<div class="flex flex-row">
-					{#if isSelectingJobsToCancel}
-						<div class="mt-1 p-2 h-8 flex flex-row items-center gap-1">
-							<Button
-								startIcon={{ icon: X }}
-								size="xs"
-								color="gray"
-								variant="contained"
-								on:click={() => {
-									isSelectingJobsToCancel = false
-									selectedIds = []
-								}}
-							/>
-							<Button
-								disabled={selectedIds.length == 0}
-								startIcon={{ icon: Check }}
-								size="xs"
-								color="red"
-								variant="contained"
-								on:click={cancelSelectedJobs}
-							>
-								Cancel {jobCountString(selectedIds.length)}
-							</Button>
-						</div>
-					{:else if !$userStore?.is_admin && !$superadmin}
-						<DropdownV2
-							items={[
-								{
-									displayName: 'Select jobs to cancel',
-									action: cancelVisibleJobs
-								}
-							]}
-						>
-							<svelte:fragment slot="buttonReplacement">
-								<div
-									class="mt-1 p-2 h-8 flex flex-row items-center hover:bg-surface-hover cursor-pointer rounded-md"
-								>
-									<span class="text-xs min-w-[5rem]">Cancel jobs</span>
-									<ChevronDown class="w-5 h-5" />
-								</div>
-							</svelte:fragment>
-						</DropdownV2>
-					{:else}
-						<DropdownV2
-							items={[
-								{
-									displayName: 'Select jobs to cancel',
-									action: cancelVisibleJobs
-								},
-								{ displayName: 'Cancel all jobs matching filters', action: cancelFilteredJobs }
-							]}
-						>
-							<svelte:fragment slot="buttonReplacement">
-								<div
-									class="mt-1 p-2 h-8 flex flex-row items-center hover:bg-surface-hover cursor-pointer rounded-md"
-								>
-									<span class="text-xs min-w-[5rem]">Cancel jobs</span>
-									<ChevronDown class="w-5 h-5" />
-								</div>
-							</svelte:fragment>
-						</DropdownV2>
-					{/if}
-				</div>
+				<RunsBatchActionsDropdown
+					isLoading={loadingSelectedIds}
+					{selectionMode}
+					selectionCount={selectedIds.length}
+					{onSetSelectionMode}
+					{onCancelFilteredJobs}
+					{onCancelSelectedJobs}
+					{onReRunFilteredJobs}
+					{onReRunSelectedJobs}
+				/>
 			</div>
 			<div class="relative flex gap-2 items-center pr-8 w-40" bind:clientWidth={schedulesWidth}>
 				<Toggle
@@ -969,6 +1102,9 @@
 				<Toggle
 					size="xs"
 					bind:checked={autoRefresh}
+					on:change={() => {
+						localStorage.setItem('auto_refresh_in_runs', autoRefresh ? 'true' : 'false')
+					}}
 					options={{ right: 'Auto-refresh' }}
 					textClass="whitespace-nowrap"
 				/>
@@ -985,7 +1121,7 @@
 							omittedObscuredJobs={extendedJobs?.omitted_obscured_jobs ?? false}
 							showExternalJobs={!graphIsRunsChart}
 							activeLabel={label}
-							{isSelectingJobsToCancel}
+							{selectionMode}
 							bind:selectedIds
 							bind:selectedWorkspace
 							bind:lastFetchWentToEnd
@@ -997,6 +1133,7 @@
 							on:filterByConcurrencyKey={filterByConcurrencyKey}
 							on:filterByTag={filterByTag}
 							on:filterBySchedule={filterBySchedule}
+							on:filterByWorker={filterByWorker}
 							bind:this={runsTable}
 						/>
 					{:else}
@@ -1007,13 +1144,16 @@
 						</div>
 					{/if}
 				</Pane>
-				<Pane size={40} minSize={15} class="border-t">
-					{#if selectedIds.length === 1}
+				<Pane size={40} minSize={15} class="border-t flex flex-col">
+					{#if selectionMode === 're-run'}
+						<BatchReRunOptionsPane {selectedIds} bind:options={batchReRunOptions} />
+					{:else if selectedIds.length === 1}
 						{#if selectedIds[0] === '-'}
 							<div class="p-4">There is no information available for this job</div>
 						{:else}
 							<JobPreview
 								on:filterByConcurrencyKey={filterByConcurrencyKey}
+								on:filterByWorker={filterByWorker}
 								id={selectedIds[0]}
 								workspace={selectedWorkspace}
 							/>
@@ -1047,6 +1187,7 @@
 					</Tooltip>
 				</div>
 				<RunsFilter
+					bind:allowWildcards
 					bind:isSkipped
 					{paths}
 					{usernames}
@@ -1056,6 +1197,7 @@
 					bind:path
 					bind:user
 					bind:label
+					bind:worker
 					bind:concurrencyKey
 					bind:tag
 					bind:success
@@ -1079,13 +1221,15 @@
 			<div class="relative z-10">
 				<div class="absolute right-2">
 					<ToggleButtonGroup
-						bind:selected={graph}
-						on:selected={() => {
+						selected={graph}
+						on:selected={({ detail }) => {
+							graph = detail
 							graphIsRunsChart = graph == 'RunChart'
 						}}
+						let:item
 					>
-						<ToggleButton value="RunChart" label="Duration" />
-						<ToggleButton value="ConcurrencyChart" label="Concurrency" />
+						<ToggleButton value="RunChart" label="Duration" {item} />
+						<ToggleButton value="ConcurrencyChart" label="Concurrency" {item} />
 					</ToggleButtonGroup>
 					{#if !graphIsRunsChart}
 						<DropdownV2
@@ -1129,7 +1273,7 @@
 				<RunChart
 					{lastFetchWentToEnd}
 					bind:selectedIds
-					canSelect={!isSelectingJobsToCancel}
+					canSelect={!selectionMode}
 					minTimeSet={minTs}
 					maxTimeSet={maxTs}
 					maxIsNow={maxTs == undefined}
@@ -1175,67 +1319,15 @@
 					/>
 				{/if}
 				<div class="flex flex-row">
-					{#if isSelectingJobsToCancel}
-						<div class="mt-1 p-2 h-8 flex flex-row items-center gap-1">
-							<Button
-								startIcon={{ icon: X }}
-								size="xs"
-								color="gray"
-								variant="contained"
-								on:click={() => {
-									isSelectingJobsToCancel = false
-									selectedIds = []
-								}}
-							/>
-							<Button
-								disabled={selectedIds.length == 0}
-								startIcon={{ icon: Check }}
-								size="xs"
-								color="red"
-								variant="contained"
-								on:click={cancelSelectedJobs}
-							>
-								Cancel {jobCountString(selectedIds.length)}
-							</Button>
-						</div>
-					{:else if !$userStore?.is_admin && !$superadmin}
-						<DropdownV2
-							items={[
-								{
-									displayName: 'Select jobs to cancel',
-									action: cancelVisibleJobs
-								}
-							]}
-						>
-							<svelte:fragment slot="buttonReplacement">
-								<div
-									class="mt-1 p-2 h-8 flex flex-row items-center hover:bg-surface-hover cursor-pointer rounded-md"
-								>
-									<span class="text-xs min-w-[5rem]">Cancel jobs</span>
-									<ChevronDown class="w-5 h-5" />
-								</div>
-							</svelte:fragment>
-						</DropdownV2>
-					{:else}
-						<DropdownV2
-							items={[
-								{
-									displayName: 'Select jobs to cancel',
-									action: cancelVisibleJobs
-								},
-								{ displayName: 'Cancel all jobs matching filters', action: cancelFilteredJobs }
-							]}
-						>
-							<svelte:fragment slot="buttonReplacement">
-								<div
-									class="mt-1 p-2 h-8 flex flex-row items-center hover:bg-surface-hover cursor-pointer rounded-md"
-								>
-									<span class="text-xs min-w-[5rem]">Cancel jobs</span>
-									<ChevronDown class="w-5 h-5" />
-								</div>
-							</svelte:fragment>
-						</DropdownV2>
-					{/if}
+					<RunsBatchActionsDropdown
+						{selectionMode}
+						selectionCount={selectedIds.length}
+						{onSetSelectionMode}
+						{onCancelFilteredJobs}
+						{onCancelSelectedJobs}
+						{onReRunFilteredJobs}
+						{onReRunSelectedJobs}
+					/>
 				</div>
 			</div>
 			<div class="flex gap-2 py-1">
@@ -1346,6 +1438,9 @@
 				<Toggle
 					size="xs"
 					bind:checked={autoRefresh}
+					on:change={() => {
+						localStorage.setItem('auto_refresh_in_runs', autoRefresh ? 'true' : 'false')
+					}}
 					options={{ right: 'Auto-refresh' }}
 					textClass="whitespace-nowrap"
 				/>
@@ -1358,23 +1453,23 @@
 				externalJobs={externalJobs ?? []}
 				omittedObscuredJobs={extendedJobs?.omitted_obscured_jobs ?? false}
 				showExternalJobs={!graphIsRunsChart}
-				{isSelectingJobsToCancel}
+				{selectionMode}
 				bind:selectedIds
 				bind:selectedWorkspace
 				bind:lastFetchWentToEnd
 				on:loadExtra={loadExtra}
 				on:select={() => {
-					if (!isSelectingJobsToCancel) runDrawer.openDrawer()
+					if (!selectionMode) runDrawer.openDrawer()
 				}}
 				on:filterByPath={filterByPath}
 				on:filterByUser={filterByUser}
 				on:filterByFolder={filterByFolder}
 				on:filterByLabel={filterByLabel}
 				on:filterByConcurrencyKey={filterByConcurrencyKey}
+				on:filterByWorker={filterByWorker}
 				on:filterByTag={filterByTag}
 				bind:this={runsTable}
 			/>
 		</div>
 	</div>
-{/if}
 {/if}

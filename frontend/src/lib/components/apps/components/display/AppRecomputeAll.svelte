@@ -21,7 +21,8 @@
 	export let render: boolean
 	export let horizontalAlignment: 'left' | 'center' | 'right' | undefined = undefined
 
-	const { app, worldStore, policy } = getContext<AppViewerContext>('AppViewerContext')
+	const { app, worldStore, policy, recomputeAllContext } =
+		getContext<AppViewerContext>('AppViewerContext')
 
 	let resolvedConfig = initConfig(
 		components['recomputeallcomponent'].initialData.configuration,
@@ -35,6 +36,21 @@
 	initializing = false
 
 	let css = initCss($app.css?.recomputeallcomponent, customCss)
+
+	$: resolvedConfig.defaultRefreshInterval && handleRefreshInterval()
+
+	function handleRefreshInterval() {
+		if (resolvedConfig.defaultRefreshInterval !== undefined) {
+			const newInterval =
+				typeof resolvedConfig.defaultRefreshInterval === 'number'
+					? resolvedConfig.defaultRefreshInterval * 1000
+					: parseInt(resolvedConfig.defaultRefreshInterval) * 1000
+
+			if (newInterval !== $recomputeAllContext.interval && newInterval) {
+				$recomputeAllContext.setInter?.(newInterval)
+			}
+		}
+	}
 </script>
 
 {#each Object.keys(components['recomputeallcomponent'].initialData.configuration) as key (key)}

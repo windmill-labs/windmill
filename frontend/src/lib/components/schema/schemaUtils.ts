@@ -90,6 +90,9 @@ export function computeDiff(
 					} else if (previewProp.format || currentProp.format) {
 						//TODO: handle s3 object compatibility
 						diff[key] = { diff: 'modified', fullSchema: previewProp, oldSchema: currentProp }
+					} else if (!previewProp.properties || !currentProp.properties) {
+						// Handle case where one of the object does not have properties
+						diff[key] = { diff: 'modified', fullSchema: previewProp, oldSchema: currentProp }
 					} else {
 						const diffProp = computeDiff(previewProp, currentProp)
 						const checkIfSame = isCompatible(diffProp)

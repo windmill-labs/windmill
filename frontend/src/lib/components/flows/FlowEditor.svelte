@@ -12,6 +12,7 @@
 	import { writable } from 'svelte/store'
 	import type { PropPickerContext, FlowPropPickerConfig } from '$lib/components/prop_picker'
 	import type { PickableProperties } from '$lib/components/flows/previousResults'
+	import type { Flow } from '$lib/gen'
 	const { flowStore } = getContext<FlowEditorContext>('FlowEditorContext')
 
 	export let loading: boolean
@@ -22,7 +23,11 @@
 	export let disabledFlowInputs = false
 	export let smallErrorHandler = false
 	export let newFlow: boolean = false
-
+	export let savedFlow:
+		| (Flow & {
+				draft?: Flow | undefined
+		  })
+		| undefined = undefined
 	let size = 50
 
 	const { currentStepStore: copilotCurrentStepStore } =
@@ -75,6 +80,7 @@
 				<FlowEditorPanel
 					{disabledFlowInputs}
 					{newFlow}
+					{savedFlow}
 					enableAi={!disableAi}
 					on:applyArgs
 					on:testWithArgs

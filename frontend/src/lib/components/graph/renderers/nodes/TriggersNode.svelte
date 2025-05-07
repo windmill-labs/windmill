@@ -6,7 +6,7 @@
 	import { getContext } from 'svelte'
 	import type { Writable } from 'svelte/store'
 	import { Maximize2, Minimize2, Calendar } from 'lucide-svelte'
-	import { getStateColor } from '../../util'
+	import { getStateColor, getStateHoverColor } from '../../util'
 	import { setScheduledPollSchedule, type TriggerContext } from '$lib/components/triggers'
 	import VirtualItemWrapper from '$lib/components/flows/map/VirtualItemWrapper.svelte'
 
@@ -37,6 +37,7 @@
 			isEditor={data.isEditor}
 			path={data.path}
 			bgColor={getStateColor(undefined, darkMode)}
+			bgHoverColor={getStateHoverColor(undefined, darkMode)}
 			on:new={(e) => {
 				data?.eventHandlers.insert({
 					modules: data.modules,
@@ -105,7 +106,7 @@
 	{#if data.simplifiableFlow != undefined}
 		<button
 			class="absolute -top-[10px] -right-[10px] rounded-full h-[20px] w-[20px] trash center-center text-secondary
-outline-[1px] outline dark:outline-gray-500 outline-gray-300 bg-surface duration-150 hover:bg-nord-950 hover:text-white"
+outline-[1px] outline dark:outline-gray-500 outline-gray-300 bg-surface duration-0 hover:bg-nord-950 hover:text-white"
 			on:click|preventDefault|stopPropagation={() =>
 				data?.eventHandlers?.simplifyFlow(!data.simplifiableFlow?.simplifiedFlow)}
 			title={data.simplifiableFlow?.simplifiedFlow

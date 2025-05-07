@@ -52,9 +52,15 @@
 			<label class="block pb-2">
 				<div class="flex gap-2 items-end">
 					<div>
-						<ToggleButtonGroup bind:selected={value['custom']}>
-							<ToggleButton value={false} label={'Org'} />
-							<ToggleButton value={true} label="Custom" />
+						<ToggleButtonGroup
+							selected={value['custom'] ? 'custom' : 'org'}
+							on:selected={({ detail }) => {
+								value['custom'] = detail === 'custom'
+							}}
+							let:item
+						>
+							<ToggleButton value="org" label={'Org'} {item} />
+							<ToggleButton value="custom" label="Custom" {item} />
 						</ToggleButtonGroup>
 					</div>
 					<div class="grow">

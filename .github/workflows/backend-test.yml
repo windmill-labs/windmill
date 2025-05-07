@@ -42,9 +42,6 @@ jobs:
       - uses: actions/setup-go@v2
         with:
           go-version: 1.21.5
-      - uses: actions/setup-python@v2
-        with:
-          python-version: 3.11
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: 1.1.43
@@ -54,7 +51,7 @@ jobs:
       - uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
           cache-workspaces: backend
-          toolchain: 1.83.0
+          toolchain: 1.85.0
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: backend
@@ -64,7 +61,7 @@ jobs:
           deno --version && bun -v && go version && python3 --version &&
           SQLX_OFFLINE=true
           DATABASE_URL=postgres://postgres:changeme@localhost:5432/windmill
-          DISABLE_EMBEDDING=true RUST_LOG=info PYTHON_PATH=$(which python)
+          DISABLE_EMBEDDING=true RUST_LOG=info
           DENO_PATH=$(which deno) BUN_PATH=$(which bun) GO_PATH=$(which go)
           UV_PATH=$(which uv) cargo test --features
           enterprise,deno_core,license,python,rust,scoped_cache --all --

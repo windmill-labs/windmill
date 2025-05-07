@@ -72,7 +72,7 @@
 				}
 
 				if (!isStillRunning) {
-					if (v.started_at && v.duration_ms) {
+					if (v.started_at && v.duration_ms != undefined) {
 						let lmax = v.started_at + v.duration_ms
 						if (!nmax) {
 							nmax = lmax
@@ -123,7 +123,7 @@
 {#if items}
 	<div class="divide-y border-b">
 		<div class="px-2 py-2 grid grid-cols-12 w-full"
-			><div />
+			><div></div>
 			<div class="col-span-11 pt-1 px-2 flex text-2xs text-secondary justify-between"
 				><div>{min ? displayDate(new Date(min), true) : ''}</div>{#if max && min}<div
 						class="hidden lg:block">{msToSec(max - min)}s</div
@@ -139,12 +139,12 @@
 			<div class="flex gap-4 items-center text-2xs">
 				<div class="flex gap-2 items-center">
 					<div>Waiting for executor/Suspend</div>
-					<div class="h-4 w-4 bg-gray-500" />
+					<div class="h-4 w-4 bg-gray-500"></div>
 				</div>
 
 				<div class="flex gap-2 items-center">
 					<div>Execution</div>
-					<div class="h-4 w-4 bg-blue-500/90" />
+					<div class="h-4 w-4 bg-blue-500/90"></div>
 				</div>
 			</div>
 		</div>

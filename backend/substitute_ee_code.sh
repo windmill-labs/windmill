@@ -68,7 +68,7 @@ fi
 
 if [ "$REVERT" == "YES" ]; then
   for ee_file in $(find ${EE_CODE_DIR} -name "*ee.rs"); do
-    ce_file="${ee_file/${EE_CODE_DIR}/.}"
+    ce_file="${ee_file/${EE_CODE_DIR}/}"
     ce_file="${root_dirpath}/backend/${ce_file}"
     if [ "$REVERT_PREVIOUS" == "YES" ]; then
       git checkout HEAD@{3} ${ce_file} || true
@@ -80,7 +80,7 @@ if [ "$REVERT" == "YES" ]; then
 else
   # This replaces all files in current repo with alternative EE files in windmill-ee-private
   for ee_file in $(find "${EE_CODE_DIR}" -name "*ee.rs"); do
-    ce_file="${ee_file/${EE_CODE_DIR}/.}"
+    ce_file="${ee_file/${EE_CODE_DIR}/}"
     ce_file="${root_dirpath}/backend/${ce_file}"
     if [[ -f "${ce_file}" ]]; then
       rm "${ce_file}"

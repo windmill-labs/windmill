@@ -42,7 +42,7 @@
 	import DrawerContent from '../common/drawer/DrawerContent.svelte'
 	import Item from './Item.svelte'
 	import TreeViewRoot from './TreeViewRoot.svelte'
-	import { Popup } from '../common'
+	import Popover from '$lib/components/meltComponents/Popover.svelte'
 	import { getContext } from 'svelte'
 
 	type TableItem<T, U extends 'script' | 'flow' | 'app' | 'raw_app'> = T & {
@@ -168,9 +168,9 @@
 						type: 'raw_app' as 'raw_app',
 						time: new Date(x.edited_at).getTime()
 					}))
-			  ].sort((a, b) =>
+				].sort((a, b) =>
 					a.starred != b.starred ? (a.starred ? -1 : 1) : a.time - b.time > 0 ? -1 : 1
-			  )
+				)
 
 	function filterItemsPathsBaseOnUserFilters(
 		item: TableScript | TableFlow | TableApp | TableRawApp,
@@ -187,15 +187,15 @@
 		ownerFilter != undefined
 			? combinedItems?.filter(
 					(x) =>
-						x.path.startsWith(ownerFilter + '/' ?? '') &&
+						x.path.startsWith(ownerFilter + '/') &&
 						(x.type == itemKind || itemKind == 'all') &&
 						filterItemsPathsBaseOnUserFilters(x, filterUserFolders)
-			  )
+				)
 			: combinedItems?.filter(
 					(x) =>
 						(x.type == itemKind || itemKind == 'all') &&
 						filterItemsPathsBaseOnUserFilters(x, filterUserFolders)
-			  )
+				)
 
 	let ownerFilter: string | undefined = undefined
 
@@ -289,7 +289,9 @@
 	$: storeLocalSetting(FILTER_USER_FOLDER_SETTING_NAME, filterUserFolders ? 'true' : undefined)
 	$: storeLocalSetting(INCLUDE_WITHOUT_MAIN_SETTING_NAME, includeWithoutMain ? 'true' : undefined)
 
-	const openSearchWithPrefilledText: (t?: string) => void = getContext("openSearchWithPrefilledText")
+	const openSearchWithPrefilledText: (t?: string) => void = getContext(
+		'openSearchWithPrefilledText'
+	)
 
 	let viewCodeDrawer: Drawer
 	let viewCodeTitle: string | undefined
@@ -344,9 +346,16 @@
 					setQuery($page.url, 'kind', itemKind)
 				}}
 				class="h-10"
+				let:item
 			>
-				<ToggleButton value="all" label="All" class="text-sm px-4 py-2" />
-				<ToggleButton value="script" icon={Code2} label="Scripts" class="text-sm px-4 py-2" />
+				<ToggleButton value="all" label="All" class="text-sm px-4 py-2" {item} />
+				<ToggleButton
+					value="script"
+					icon={Code2}
+					label="Scripts"
+					class="text-sm px-4 py-2"
+					{item}
+				/>
 				{#if HOME_SEARCH_SHOW_FLOW}
 					<ToggleButton
 						value="flow"
@@ -354,6 +363,7 @@
 						icon={FlowIcon}
 						class="text-sm px-4 py-2"
 						selectedColor="#14b8a6"
+						{item}
 					/>
 				{/if}
 				<ToggleButton
@@ -362,6 +372,7 @@
 					icon={LayoutDashboard}
 					class="text-sm px-4 py-2"
 					selectedColor="#fb923c"
+					{item}
 				/>
 			</ToggleButtonGroup>
 		</div>
@@ -374,7 +385,7 @@
 				bind:value={filter}
 				class="bg-surface !h-10 !px-4 !pr-10 !rounded-lg text-sm focus:outline-none"
 			/>
-			<button type="submit" class="absolute right-0 top-0 mt-3 mr-4">
+			<button aria-label="Search" type="submit" class="absolute right-0 top-0 mt-3 mr-4">
 				<svg
 					class="h-4 w-4 fill-current"
 					xmlns="http://www.w3.org/2000/svg"
@@ -396,7 +407,7 @@
 			</button>
 		</div>
 		<Button
-			on:click={() => openSearchWithPrefilledText("#")}
+			on:click={() => openSearchWithPrefilledText('#')}
 			variant="border"
 			size="sm"
 			spacingSize="lg"
@@ -417,15 +428,12 @@
 			bottomMargin={false}
 		/>
 		{#if filteredItems?.length == 0}
-			<div class="mt-10" />
+			<div class="mt-10"></div>
 		{/if}
 		{#if !loading}
 			<div class="flex w-full flex-row-reverse gap-2 mt-4 mb-1 items-center h-6">
-				<Popup
-					floatingConfig={{ placement: 'bottom-end' }}
-					containerClasses="border rounded-lg shadow-lg p-4 bg-surface"
-				>
-					<svelte:fragment slot="button">
+				<Popover floatingConfig={{ placement: 'bottom-end' }}>
+					<svelte:fragment slot="trigger">
 						<Button
 							startIcon={{
 								icon: SlidersHorizontal
@@ -438,20 +446,22 @@
 							spacingSize="xs2"
 						/>
 					</svelte:fragment>
-					<div>
-						<span class="text-sm font-semibold">Filters</span>
-						<div class="flex flex-col gap-2 mt-2">
-							<Toggle size="xs" bind:checked={archived} options={{ right: 'Only archived' }} />
-							{#if $userStore && !$userStore.operator}
-								<Toggle
-									size="xs"
-									bind:checked={includeWithoutMain}
-									options={{ right: 'Include without main function' }}
-								/>
-							{/if}
+					<svelte:fragment slot="content">
+						<div class="p-4">
+							<span class="text-sm font-semibold">Filters</span>
+							<div class="flex flex-col gap-2 mt-2">
+								<Toggle size="xs" bind:checked={archived} options={{ right: 'Only archived' }} />
+								{#if $userStore && !$userStore.operator}
+									<Toggle
+										size="xs"
+										bind:checked={includeWithoutMain}
+										options={{ right: 'Include without main function' }}
+									/>
+								{/if}
+							</div>
 						</div>
-					</div>
-				</Popup>
+					</svelte:fragment>
+				</Popover>
 				{#if $userStore?.is_super_admin && $userStore.username.includes('@')}
 					<Toggle size="xs" bind:checked={filterUserFolders} options={{ right: 'Only f/*' }} />
 				{:else if $userStore?.is_admin || $userStore?.is_super_admin}
@@ -485,7 +495,7 @@
 	</div>
 	<div>
 		{#if filteredItems == undefined}
-			<div class="mt-4" />
+			<div class="mt-4"></div>
 			<Skeleton layout={[[2], 1]} />
 			{#each new Array(6) as _}
 				<Skeleton layout={[[4], 0.5]} />

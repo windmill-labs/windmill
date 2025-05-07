@@ -1,50 +1,47 @@
-use std::{
-    collections::{
-        hash_map::Entry::{Occupied, Vacant},
-        HashMap,
-    },
-    str::FromStr,
+use std::collections::{
+    hash_map::Entry::{Occupied, Vacant},
+    HashMap,
 };
 
 use crate::{
     db::{ApiAuthed, DB},
     postgres_triggers::mapper::{Mapper, MappingInfo},
+    resources::try_get_resource_from_db_as,
 };
 use axum::{
     extract::{Path, Query},
     Extension, Json,
 };
-use chrono::Utc;
 use http::StatusCode;
 use itertools::Itertools;
 use pg_escape::{quote_identifier, quote_literal};
 use quick_cache::sync::Cache;
-use rand::Rng;
 use rust_postgres::types::Type;
 use serde::{Deserialize, Deserializer, Serialize};
 use sql_builder::{bind::Bind, SqlBuilder};
-use sqlx::{
-    postgres::{types::Oid, PgConnectOptions, PgSslMode},
-    Connection, FromRow, PgConnection, QueryBuilder,
-};
+use sqlx::{postgres::types::Oid, FromRow, PgConnection};
 use windmill_audit::{audit_ee::audit_log, ActionKind};
 use windmill_common::error::Error;
 use windmill_common::{
     db::UserDB,
-    error::{self, JsonResult},
+    error::{self, JsonResult, Result},
     utils::{not_found_if_none, paginate, Pagination, StripPath},
     worker::CLOUD_HOSTED,
 };
 
-use super::get_database_resource;
+use super::{
+    create_logical_replication_slot_query, create_publication_query, drop_publication_query,
+    generate_random_string, get_database_connection, get_raw_postgres_connection,
+    ERROR_PUBLICATION_NAME_NOT_EXISTS, ERROR_REPLICATION_SLOT_NOT_EXISTS,
+};
 use lazy_static::lazy_static;
 
 #[derive(FromRow, Serialize, Deserialize, Debug)]
-pub struct Database {
+pub struct Postgres {
     pub user: String,
     pub password: String,
     pub host: String,
-    pub port: u16,
+    pub port: Option<u16>,
     pub dbname: String,
     #[serde(default)]
     pub sslmode: String,
@@ -88,7 +85,7 @@ impl Relations {
     }
 }
 
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
 pub struct EditPostgresTrigger {
     replication_slot_name: String,
     publication_name: String,
@@ -112,48 +109,38 @@ pub struct NewPostgresTrigger {
     publication: Option<PublicationData>,
 }
 
-pub async fn get_database_connection(
-    authed: ApiAuthed,
-    user_db: Option<UserDB>,
-    db: &DB,
-    postgres_resource_path: &str,
-    w_id: &str,
-) -> Result<PgConnection, windmill_common::error::Error> {
-    let database = get_database_resource(authed, user_db, db, postgres_resource_path, w_id).await?;
-
-    Ok(get_raw_postgres_connection(&database).await?)
+#[derive(Serialize, Deserialize)]
+pub struct TestPostgres {
+    pub postgres_resource_path: String,
 }
 
-pub async fn get_raw_postgres_connection(db: &Database) -> Result<PgConnection, Error> {
-    let options = {
-        let sslmode = if !db.sslmode.is_empty() {
-            PgSslMode::from_str(&db.sslmode)?
-        } else {
-            PgSslMode::Prefer
-        };
-        let options = PgConnectOptions::new()
-            .host(&db.host)
-            .database(&db.dbname)
-            .port(db.port)
-            .ssl_mode(sslmode)
-            .username(&db.user);
-
-        let options = if !db.root_certificate_pem.is_empty() {
-            options.ssl_root_cert_from_pem(db.root_certificate_pem.as_bytes().to_vec())
-        } else {
-            options
-        };
-
-        if !db.password.is_empty() {
-            options.password(&db.password)
-        } else {
-            options
-        }
-    };
-
-    PgConnection::connect_with(&options)
+pub async fn test_postgres_connection(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Extension(user_db): Extension<UserDB>,
+    Path(workspace_id): Path<String>,
+    Json(test_postgres): Json<TestPostgres>,
+) -> Result<()> {
+    let connect_f = async {
+        get_database_connection(
+            authed,
+            Some(user_db),
+            &db,
+            &test_postgres.postgres_resource_path,
+            &workspace_id,
+        )
         .await
-        .map_err(|e| e.into())
+        .map_err(|err| {
+            error::Error::BadConfig(format!("Error connecting to postgres: {}", err.to_string()))
+        })
+    };
+    tokio::time::timeout(tokio::time::Duration::from_secs(30), connect_f)
+        .await
+        .map_err(|_| {
+            error::Error::BadConfig(format!("Timeout connecting to postgres after 30 seconds"))
+        })??;
+
+    Ok(())
 }
 
 #[derive(Deserialize, Debug)]
@@ -165,19 +152,20 @@ pub enum Language {
 #[derive(Debug, Deserialize)]
 pub struct TemplateScript {
     postgres_resource_path: String,
-    #[serde(deserialize_with = "check_if_not_duplication_relation")]
+    #[serde(deserialize_with = "check_if_valid_relation")]
     relations: Option<Vec<Relations>>,
     language: Language,
 }
 
-fn check_if_not_duplication_relation<'de, D>(
+fn check_if_valid_relation<'de, D>(
     relations: D,
 ) -> std::result::Result<Option<Vec<Relations>>, D::Error>
 where
     D: Deserializer<'de>,
 {
     let relations: Option<Vec<Relations>> = Option::deserialize(relations)?;
-
+    let mut track_all_table_in_schema = false;
+    let mut track_specific_columns_in_table = false;
     match relations {
         Some(relations) => {
             for relation in relations.iter() {
@@ -187,12 +175,25 @@ where
                     ));
                 }
 
+                if !track_all_table_in_schema && relation.table_to_track.is_empty() {
+                    track_all_table_in_schema = true;
+                    continue;
+                }
+
                 for table_to_track in relation.table_to_track.iter() {
                     if table_to_track.table_name.trim().is_empty() {
                         return Err(serde::de::Error::custom(
                             "Table name must not be empty".to_string(),
                         ));
                     }
+
+                    if !track_specific_columns_in_table && !table_to_track.columns_name.is_empty() {
+                        track_specific_columns_in_table = true;
+                    }
+                }
+
+                if track_all_table_in_schema && track_specific_columns_in_table {
+                    return Err(serde::de::Error::custom("Incompatible tracking options. Schema-level tracking and specific table tracking with column selection cannot be used together. Refer to the documentation for valid configurations."));
                 }
             }
 
@@ -221,12 +222,16 @@ pub struct PostgresTrigger {
     pub edited_by: String,
     pub email: String,
     pub edited_at: chrono::DateTime<chrono::Utc>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub extra_perms: Option<serde_json::Value>,
     pub postgres_resource_path: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub server_id: Option<String>,
     pub replication_slot_name: String,
     pub publication_name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub last_server_ping: Option<chrono::DateTime<chrono::Utc>>,
     pub enabled: bool,
 }
@@ -245,13 +250,105 @@ pub struct SetEnabled {
     pub enabled: bool,
 }
 
+#[derive(Serialize, Deserialize)]
+pub struct PostgresPublicationReplication {
+    publication_name: String,
+    replication_slot_name: String,
+}
+
+impl PostgresPublicationReplication {
+    pub fn new(
+        publication_name: String,
+        replication_slot_name: String,
+    ) -> PostgresPublicationReplication {
+        PostgresPublicationReplication { publication_name, replication_slot_name }
+    }
+}
+
+async fn check_if_publication_exist(
+    connection: &mut PgConnection,
+    publication_name: &str,
+) -> Result<()> {
+    sqlx::query!(
+        "SELECT pubname FROM pg_publication WHERE pubname = $1",
+        publication_name
+    )
+    .fetch_one(connection)
+    .await
+    .map_err(|err| match err {
+        sqlx::Error::RowNotFound => {
+            Error::BadRequest(ERROR_PUBLICATION_NAME_NOT_EXISTS.to_string())
+        }
+        err => Error::SqlErr { error: err, location: "pg_trigger".to_string() },
+    })?;
+    Ok(())
+}
+
+async fn check_if_logical_replication_slot_exist(
+    connection: &mut PgConnection,
+    replication_slot_name: &str,
+) -> Result<()> {
+    sqlx::query!(
+        "SELECT slot_name FROM pg_replication_slots where slot_name = $1",
+        &replication_slot_name
+    )
+    .fetch_one(connection)
+    .await
+    .map_err(|err| match err {
+        _ => Error::BadRequest(ERROR_REPLICATION_SLOT_NOT_EXISTS.to_string()),
+    })?;
+    Ok(())
+}
+
+async fn create_custom_slot_and_publication_inner(
+    authed: ApiAuthed,
+    user_db: UserDB,
+    db: &DB,
+    postgres_resource_path: &str,
+    w_id: &str,
+    publication: &PublicationData,
+) -> Result<PostgresPublicationReplication> {
+    let publication_name = format!("windmill_trigger_{}", generate_random_string());
+    let replication_slot_name = publication_name.clone();
+
+    let query = create_publication_query(
+        &publication_name,
+        publication.table_to_track.as_deref(),
+        &publication
+            .transaction_to_track
+            .iter()
+            .map(AsRef::as_ref)
+            .collect_vec(),
+    );
+
+    let mut connection = get_database_connection(
+        authed.clone(),
+        Some(user_db.clone()),
+        &db,
+        &postgres_resource_path,
+        &w_id,
+    )
+    .await?;
+
+    sqlx::query(&query).execute(&mut connection).await?;
+
+    let query = create_logical_replication_slot_query(&replication_slot_name);
+
+    sqlx::query(&query).execute(&mut connection).await?;
+
+    Ok(PostgresPublicationReplication::new(
+        publication_name,
+        replication_slot_name,
+    ))
+}
+
 pub async fn create_postgres_trigger(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
     Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
     Json(new_postgres_trigger): Json<NewPostgresTrigger>,
-) -> error::Result<(StatusCode, String)> {
+) -> Result<(StatusCode, String)> {
     if *CLOUD_HOSTED {
         return Err(error::Error::BadRequest(
             "Postgres triggers are not supported on multi-tenant cloud, use dedicated cloud or self-host".to_string(),
@@ -274,59 +371,32 @@ pub async fn create_postgres_trigger(
             "Publication data is missing".to_string(),
         ));
     }
+    let (pub_name, slot_name) = if publication_name.is_none() && replication_slot_name.is_none() {
+        if publication.is_none() {
+            return Err(Error::BadRequest("publication must be set".to_string()));
+        }
+        let PostgresPublicationReplication { publication_name, replication_slot_name } =
+            create_custom_slot_and_publication_inner(
+                authed.clone(),
+                user_db.clone(),
+                &db,
+                &postgres_resource_path,
+                &w_id,
+                &publication.unwrap(),
+            )
+            .await?;
 
-    let create_slot = replication_slot_name.is_none();
-    let create_publication = publication_name.is_none();
-
-    let name;
-    let mut pub_name = publication_name.as_deref().unwrap_or_default();
-    let mut slot_name = replication_slot_name.as_deref().unwrap_or_default();
-    if create_publication || create_slot {
-        let generate_random_string = move || {
-            let timestamp = Utc::now().timestamp_millis().to_string();
-            let mut rng = rand::rng();
-            let charset = "abcdefghijklmnopqrstuvwxyz0123456789";
-
-            let random_part = (0..10)
-                .map(|_| {
-                    charset
-                        .chars()
-                        .nth(rng.random_range(0..charset.len()))
-                        .unwrap()
-                })
-                .collect::<String>();
-
-            format!("{}_{}", timestamp, random_part)
-        };
-
-        name = format!("windmill_{}", generate_random_string());
-        pub_name = &name;
-        slot_name = &name;
-        let publication = publication.unwrap();
-
-        let mut connection = get_database_connection(
-            authed.clone(),
-            Some(user_db.clone()),
-            &db,
-            &postgres_resource_path,
-            &w_id,
-        )
-        .await?;
-
-        new_publication(
-            &mut connection,
-            pub_name,
-            publication.table_to_track.as_deref(),
-            &publication
-                .transaction_to_track
-                .iter()
-                .map(AsRef::as_ref)
-                .collect_vec(),
-        )
-        .await?;
-
-        new_slot(&mut connection, slot_name).await?;
-    }
+        (publication_name, replication_slot_name)
+    } else {
+        if publication_name.is_none() {
+            return Err(Error::BadRequest("Missing publication name".to_string()));
+        } else if replication_slot_name.is_none() {
+            return Err(Error::BadRequest(
+                "Missing replication slot name".to_string(),
+            ));
+        }
+        (publication_name.unwrap(), replication_slot_name.unwrap())
+    };
 
     let mut tx = user_db.begin(&authed).await?;
 
@@ -446,10 +516,10 @@ pub async fn list_postgres_triggers(
 
 #[derive(Deserialize, Serialize, Debug)]
 pub struct PublicationData {
-    #[serde(default, deserialize_with = "check_if_not_duplication_relation")]
-    table_to_track: Option<Vec<Relations>>,
+    #[serde(default, deserialize_with = "check_if_valid_relation")]
+    pub table_to_track: Option<Vec<Relations>>,
     #[serde(deserialize_with = "check_if_valid_transaction_type")]
-    transaction_to_track: Vec<String>,
+    pub transaction_to_track: Vec<String>,
 }
 
 fn check_if_valid_transaction_type<'de, D>(
@@ -505,7 +575,7 @@ pub async fn list_slot_name(
     Extension(user_db): Extension<UserDB>,
     Extension(db): Extension<DB>,
     Path((w_id, postgres_resource_path)): Path<(String, String)>,
-) -> error::Result<Json<Vec<SlotList>>> {
+) -> Result<Json<Vec<SlotList>>> {
     let mut connection = get_database_connection(
         authed.clone(),
         Some(user_db.clone()),
@@ -539,28 +609,13 @@ pub struct Slot {
     name: String,
 }
 
-async fn new_slot(connection: &mut PgConnection, name: &str) -> error::Result<()> {
-    let query = format!(
-        r#"
-        SELECT 
-                *
-        FROM
-            pg_create_logical_replication_slot({}, 'pgoutput');"#,
-        quote_literal(&name)
-    );
-
-    sqlx::query(&query).execute(connection).await?;
-
-    Ok(())
-}
-
 pub async fn create_slot(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
     Extension(db): Extension<DB>,
     Path((w_id, postgres_resource_path)): Path<(String, String)>,
     Json(Slot { name }): Json<Slot>,
-) -> error::Result<String> {
+) -> Result<String> {
     let mut connection = get_database_connection(
         authed.clone(),
         Some(user_db.clone()),
@@ -570,9 +625,11 @@ pub async fn create_slot(
     )
     .await?;
 
-    new_slot(&mut connection, &name).await?;
+    let query = create_logical_replication_slot_query(&name);
 
-    Ok(format!("Slot {} created!", name))
+    sqlx::query(&query).execute(&mut connection).await?;
+
+    Ok(format!("Replication slot {} created!", name))
 }
 
 pub async fn drop_slot_name(
@@ -581,20 +638,44 @@ pub async fn drop_slot_name(
     Extension(db): Extension<DB>,
     Path((w_id, postgres_resource_path)): Path<(String, String)>,
     Json(Slot { name }): Json<Slot>,
-) -> error::Result<String> {
-    let mut connection = get_database_connection(
-        authed.clone(),
-        Some(user_db.clone()),
+) -> Result<String> {
+    let database = try_get_resource_from_db_as::<Postgres>(
+        authed,
+        Some(user_db),
         &db,
         &postgres_resource_path,
         &w_id,
     )
     .await?;
 
-    let query = format!("SELECT pg_drop_replication_slot({});", quote_literal(&name));
-    sqlx::query(&query).execute(&mut connection).await?;
+    let mut connection = get_raw_postgres_connection(&database).await?;
 
-    Ok(format!("Slot name {} deleted!", name))
+    let active_pid = sqlx::query_scalar!(
+        r#"SELECT 
+            active_pid 
+        FROM 
+            pg_replication_slots 
+        WHERE 
+            slot_name = $1
+        "#,
+        &name
+    )
+    .fetch_optional(&mut connection)
+    .await?
+    .flatten();
+
+    if let Some(pid) = active_pid {
+        sqlx::query("SELECT pg_terminate_backend($1)")
+            .bind(pid)
+            .execute(&mut connection)
+            .await?;
+    }
+    sqlx::query("SELECT pg_drop_replication_slot($1)")
+        .bind(&name)
+        .execute(&mut connection)
+        .await?;
+
+    Ok(format!("Replication slot {} deleted!", name))
 }
 #[derive(Debug, Serialize)]
 struct PublicationName {
@@ -606,7 +687,7 @@ pub async fn list_database_publication(
     Extension(user_db): Extension<UserDB>,
     Extension(db): Extension<DB>,
     Path((w_id, postgres_resource_path)): Path<(String, String)>,
-) -> error::Result<Json<Vec<String>>> {
+) -> Result<Json<Vec<String>>> {
     let mut connection = get_database_connection(
         authed.clone(),
         Some(user_db.clone()),
@@ -636,7 +717,7 @@ pub async fn get_publication_info(
     Extension(user_db): Extension<UserDB>,
     Extension(db): Extension<DB>,
     Path((w_id, publication_name, postgres_resource_path)): Path<(String, String, String)>,
-) -> error::Result<Json<PublicationData>> {
+) -> Result<Json<PublicationData>> {
     let mut connection = get_database_connection(
         authed.clone(),
         Some(user_db.clone()),
@@ -647,13 +728,13 @@ pub async fn get_publication_info(
     .await?;
 
     let publication_data =
-        get_publication_scope_and_transaction(&publication_name, &mut connection).await;
+        get_publication_scope_and_transaction(&mut connection, &publication_name).await;
 
     let (all_table, transaction_to_track) = match publication_data {
         Ok(pub_data) => pub_data,
         Err(Error::SqlErr { error: sqlx::Error::RowNotFound, .. }) => {
             return Err(Error::NotFound(
-                "Publication was not found, please create a new publication".to_string(),
+                ERROR_PUBLICATION_NAME_NOT_EXISTS.to_string(),
             ))
         }
         Err(e) => return Err(e),
@@ -670,82 +751,13 @@ pub async fn get_publication_info(
     )))
 }
 
-async fn new_publication(
-    connection: &mut PgConnection,
-    publication_name: &str,
-    table_to_track: Option<&[Relations]>,
-    transaction_to_track: &[&str],
-) -> Result<(), Error> {
-    let mut query = QueryBuilder::new("CREATE PUBLICATION ");
-
-    query.push(quote_identifier(publication_name));
-
-    match table_to_track {
-        Some(database_component) if !database_component.is_empty() => {
-            query.push(" FOR");
-            for (i, schema) in database_component.iter().enumerate() {
-                if schema.table_to_track.is_empty() {
-                    query.push(" TABLES IN SCHEMA ");
-                    query.push(quote_identifier(&schema.schema_name));
-                } else {
-                    query.push(" TABLE ONLY ");
-                    for (j, table) in schema.table_to_track.iter().enumerate() {
-                        let table_name = quote_identifier(&table.table_name);
-                        let schema_name = quote_identifier(&schema.schema_name);
-                        let full_name = format!("{}.{}", &schema_name, &table_name);
-                        query.push(full_name);
-                        if !table.columns_name.is_empty() {
-                            query.push(" (");
-                            let columns = table
-                                .columns_name
-                                .iter()
-                                .map(|column| quote_identifier(column))
-                                .join(", ");
-                            query.push(&columns);
-                            query.push(")");
-                        }
-
-                        if let Some(where_clause) = &table.where_clause {
-                            query.push(" WHERE (");
-                            query.push(where_clause);
-                            query.push(')');
-                        }
-
-                        if j + 1 != schema.table_to_track.len() {
-                            query.push(", ");
-                        }
-                    }
-                }
-                if i < database_component.len() - 1 {
-                    query.push(", ");
-                }
-            }
-        }
-        _ => {
-            query.push(" FOR ALL TABLES ");
-        }
-    };
-
-    if !transaction_to_track.is_empty() {
-        let transactions = || transaction_to_track.iter().join(", ");
-        query.push(" WITH (publish = '");
-        query.push(transactions());
-        query.push("');");
-    }
-
-    let query = query.build();
-    query.execute(&mut *connection).await?;
-
-    Ok(())
-}
-
 pub async fn create_publication(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
     Extension(db): Extension<DB>,
     Path((w_id, publication_name, postgres_resource_path)): Path<(String, String, String)>,
     Json(publication_data): Json<PublicationData>,
-) -> error::Result<String> {
+) -> Result<String> {
     let PublicationData { table_to_track, transaction_to_track } = publication_data;
 
     let mut connection = get_database_connection(
@@ -757,13 +769,13 @@ pub async fn create_publication(
     )
     .await?;
 
-    new_publication(
-        &mut connection,
+    let query = create_publication_query(
         &publication_name,
         table_to_track.as_deref(),
         &transaction_to_track.iter().map(AsRef::as_ref).collect_vec(),
-    )
-    .await?;
+    );
+
+    sqlx::query(&query).execute(&mut connection).await?;
 
     Ok(format!(
         "Publication {} successfully created!",
@@ -771,24 +783,12 @@ pub async fn create_publication(
     ))
 }
 
-async fn drop_publication(
-    publication_name: &str,
-    connection: &mut PgConnection,
-) -> Result<(), Error> {
-    let mut query = QueryBuilder::new("DROP PUBLICATION IF EXISTS ");
-    let quoted_publication_name = quote_identifier(publication_name);
-    query.push(quoted_publication_name);
-    query.push(";");
-    query.build().execute(&mut *connection).await?;
-    Ok(())
-}
-
 pub async fn delete_publication(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
     Extension(db): Extension<DB>,
     Path((w_id, publication_name, postgres_resource_path)): Path<(String, String, String)>,
-) -> error::Result<String> {
+) -> Result<String> {
     let mut connection = get_database_connection(
         authed.clone(),
         Some(user_db.clone()),
@@ -798,7 +798,9 @@ pub async fn delete_publication(
     )
     .await?;
 
-    drop_publication(&publication_name, &mut connection).await?;
+    let query = drop_publication_query(&publication_name);
+
+    sqlx::query(&query).execute(&mut connection).await?;
 
     Ok(format!(
         "Publication {} successfully deleted!",
@@ -806,65 +808,61 @@ pub async fn delete_publication(
     ))
 }
 
-async fn update_publication(
-    connection: &mut PgConnection,
+pub fn get_update_publication_query(
     publication_name: &str,
     PublicationData { table_to_track, transaction_to_track }: PublicationData,
-) -> error::Result<String> {
-    let (all_table, _) =
-        get_publication_scope_and_transaction(&publication_name, connection).await?;
-
-    let mut query = QueryBuilder::new("");
+    all_table: bool,
+) -> Vec<String> {
     let quoted_publication_name = quote_identifier(&publication_name);
 
     let transaction_to_track_as_str = transaction_to_track.iter().join(",");
-
+    let mut queries = Vec::with_capacity(2);
     match table_to_track {
         Some(ref relations) if !relations.is_empty() => {
             if all_table {
-                drop_publication(&publication_name, connection).await?;
-                new_publication(
-                    connection,
+                queries.push(drop_publication_query(&publication_name));
+                queries.push(create_publication_query(
                     &publication_name,
                     table_to_track.as_deref(),
                     &transaction_to_track.iter().map(AsRef::as_ref).collect_vec(),
-                )
-                .await?;
+                ));
             } else {
-                query.push("ALTER PUBLICATION ");
-                query.push(&quoted_publication_name);
-                query.push(" SET");
+                let mut query = String::from("");
+
+                query.push_str("ALTER PUBLICATION ");
+                query.push_str(&quoted_publication_name);
+                query.push_str(" SET");
                 for (i, schema) in relations.iter().enumerate() {
                     if schema.table_to_track.is_empty() {
-                        query.push(" TABLES IN SCHEMA ");
+                        query.push_str(" TABLES IN SCHEMA ");
                         let quoted_schema = quote_identifier(&schema.schema_name);
-                        query.push(&quoted_schema);
+                        query.push_str(&quoted_schema);
                     } else {
-                        query.push(" TABLE ONLY ");
+                        query.push_str(" TABLE ONLY ");
                         for (j, table) in schema.table_to_track.iter().enumerate() {
                             let table_name = quote_identifier(&table.table_name);
                             let schema_name = quote_identifier(&schema.schema_name);
                             let full_name = format!("{}.{}", &schema_name, &table_name);
-                            query.push(&full_name);
+                            query.push_str(&full_name);
                             if !table.columns_name.is_empty() {
-                                query.push(" (");
+                                query.push_str(" (");
                                 let columns = table
                                     .columns_name
                                     .iter()
                                     .map(|column| quote_identifier(column))
                                     .join(", ");
-                                query.push(&columns);
-                                query.push(") ");
+                                query.push_str(&columns);
+                                query.push_str(") ");
                             }
 
                             if let Some(where_clause) = &table.where_clause {
-                                query.push(" WHERE (");
-                                query.push(where_clause);
+                                query.push_str(" WHERE (");
+                                query.push_str(where_clause);
                                 query.push(')');
                             }
 
                             if j + 1 != schema.table_to_track.len() {
-                                query.push(", ");
+                                query.push_str(", ");
                             }
                         }
                     }
@@ -872,36 +870,35 @@ async fn update_publication(
                         query.push(',');
                     }
                 }
-                query.push(";");
-                query.build().execute(&mut *connection).await?;
-                query.reset();
-                query.push("ALTER PUBLICATION ");
-                query.push(&quoted_publication_name);
-                query.push(format!(
+                query.push(';');
+
+                queries.push(query);
+
+                let mut query = String::new();
+
+                query.push_str("ALTER PUBLICATION ");
+                query.push_str(&quoted_publication_name);
+                query.push_str(&format!(
                     " SET (publish = '{}');",
                     transaction_to_track_as_str
                 ));
+                queries.push(query);
             }
         }
         _ => {
-            drop_publication(&publication_name, connection).await?;
+            queries.push(drop_publication_query(&publication_name));
             let to_execute = format!(
                 r#"
                 CREATE
-                    PUBLICATION {} FOR ALL TABLES WITH (publish = '{}')
+                    PUBLICATION {} FOR ALL TABLES WITH (publish = '{}');
                 "#,
                 quoted_publication_name, transaction_to_track_as_str
             );
-            query.push(&to_execute);
+            queries.push(to_execute);
         }
     };
 
-    query.build().execute(&mut *connection).await?;
-
-    Ok(format!(
-        "Publication {} successfully updated!",
-        publication_name
-    ))
+    queries
 }
 
 pub async fn alter_publication(
@@ -910,7 +907,7 @@ pub async fn alter_publication(
     Extension(db): Extension<DB>,
     Path((w_id, publication_name, postgres_resource_path)): Path<(String, String, String)>,
     Json(publication_data): Json<PublicationData>,
-) -> error::Result<String> {
+) -> Result<String> {
     let mut connection = get_database_connection(
         authed.clone(),
         Some(user_db.clone()),
@@ -919,15 +916,28 @@ pub async fn alter_publication(
         &w_id,
     )
     .await?;
-    let message = update_publication(&mut connection, &publication_name, publication_data).await?;
 
-    Ok(message)
+    check_if_publication_exist(&mut connection, &publication_name).await?;
+
+    let (all_table, _) =
+        get_publication_scope_and_transaction(&mut connection, &publication_name).await?;
+
+    let queries = get_update_publication_query(&publication_name, publication_data, all_table);
+
+    for query in queries {
+        sqlx::query(&query).execute(&mut connection).await?;
+    }
+
+    Ok(format!(
+        "Publication {} updated with success",
+        publication_name
+    ))
 }
 
 async fn get_publication_scope_and_transaction(
-    publication_name: &str,
     connection: &mut PgConnection,
-) -> Result<(bool, Vec<String>), Error> {
+    publication_name: &str,
+) -> std::result::Result<(bool, Vec<String>), Error> {
     #[derive(Debug, Deserialize, FromRow)]
     struct PublicationTransaction {
         all_table: bool,
@@ -972,7 +982,7 @@ async fn get_publication_scope_and_transaction(
 async fn get_tracked_relations(
     connection: &mut PgConnection,
     publication_name: &str,
-) -> error::Result<Vec<Relations>> {
+) -> Result<Vec<Relations>> {
     #[derive(Debug, Deserialize, FromRow)]
     struct PublicationData {
         schema_name: Option<String>,
@@ -985,14 +995,18 @@ async fn get_tracked_relations(
         PublicationData,
         r#"
             SELECT
-                schemaname AS schema_name,
-                tablename AS table_name,
-                attnames AS columns,
-                rowfilter AS where_clause
+            schemaname AS schema_name,
+            tablename AS table_name,
+            CASE
+                WHEN array_length(attnames, 1) = (SELECT COUNT(*) FROM information_schema.columns WHERE table_schema = pg_publication_tables.schemaname AND table_name = pg_publication_tables.tablename)
+                THEN NULL
+                ELSE attnames
+            END AS columns,
+            rowfilter AS where_clause
             FROM
                 pg_publication_tables
             WHERE
-                pubname = $1
+                pubname = $1;
             "#,
         publication_name
     )
@@ -1007,7 +1021,7 @@ async fn get_tracked_relations(
         let table_to_track = TableToTrack::new(
             publication.table_name.unwrap(),
             publication.where_clause,
-            publication.columns.unwrap(),
+            publication.columns.unwrap_or_default(),
         );
         match entry {
             Occupied(mut occuped) => {
@@ -1071,8 +1085,9 @@ pub async fn update_postgres_trigger(
     Extension(db): Extension<DB>,
     Path((w_id, path)): Path<(String, StripPath)>,
     Json(postgres_trigger): Json<EditPostgresTrigger>,
-) -> error::Result<String> {
+) -> Result<String> {
     let workspace_path = path.to_path();
+
     let EditPostgresTrigger {
         replication_slot_name,
         publication_name,
@@ -1083,16 +1098,26 @@ pub async fn update_postgres_trigger(
         publication,
     } = postgres_trigger;
 
+    let mut connection = get_database_connection(
+        authed.clone(),
+        Some(user_db.clone()),
+        &db,
+        &postgres_resource_path,
+        &w_id,
+    )
+    .await?;
+
+    check_if_logical_replication_slot_exist(&mut connection, &replication_slot_name).await?;
+
     if let Some(publication) = publication {
-        let mut connection = get_database_connection(
-            authed.clone(),
-            Some(user_db.clone()),
-            &db,
-            &postgres_resource_path,
-            &w_id,
-        )
-        .await?;
-        update_publication(&mut connection, &publication_name, publication).await?;
+        check_if_publication_exist(&mut connection, &publication_name).await?;
+        let (all_table, _) =
+            get_publication_scope_and_transaction(&mut connection, &publication_name).await?;
+
+        let queries = get_update_publication_query(&publication_name, publication, all_table);
+        for query in queries {
+            sqlx::query(&query).execute(&mut connection).await?;
+        }
     }
     let mut tx = user_db.begin(&authed).await?;
 
@@ -1149,7 +1174,7 @@ pub async fn delete_postgres_trigger(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
     Path((w_id, path)): Path<(String, StripPath)>,
-) -> error::Result<String> {
+) -> Result<String> {
     let path = path.to_path();
     let mut tx = user_db.begin(&authed).await?;
     sqlx::query!(
@@ -1209,7 +1234,7 @@ pub async fn set_enabled(
     Extension(user_db): Extension<UserDB>,
     Path((w_id, path)): Path<(String, StripPath)>,
     Json(payload): Json<SetEnabled>,
-) -> error::Result<String> {
+) -> Result<String> {
     let mut tx = user_db.begin(&authed).await?;
     let path = path.to_path();
 
@@ -1260,7 +1285,7 @@ pub async fn set_enabled(
     ))
 }
 
-pub async fn get_template_script(Path((_, id)): Path<(String, String)>) -> error::Result<String> {
+pub async fn get_template_script(Path((_, id)): Path<(String, String)>) -> Result<String> {
     let template = if let Some((_, template)) = TEMPLATE.remove(&id) {
         template
     } else {
@@ -1275,7 +1300,7 @@ pub async fn create_template_script(
     Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
     Json(template_script): Json<TemplateScript>,
-) -> error::Result<String> {
+) -> Result<String> {
     let TemplateScript { postgres_resource_path, relations, language } = template_script;
     if relations.is_none() {
         return Err(Error::BadRequest(

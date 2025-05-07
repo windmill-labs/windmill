@@ -7,9 +7,7 @@
 	import { workspaceStore } from '$lib/stores'
 	import { Button } from '../common'
 	import Tooltip from '../Tooltip.svelte'
-	import { ExternalLink, Loader2, Pen, X } from 'lucide-svelte'
-	import { twMerge } from 'tailwind-merge'
-	import Toggle from '../Toggle.svelte'
+	import { ExternalLink, Pen, X } from 'lucide-svelte'
 	import Section from '../Section.svelte'
 	import Range from '../Range.svelte'
 	import Label from '../Label.svelte'
@@ -25,13 +23,12 @@
 		| {
 				premium: boolean
 				usage: number
-				seats: number
+				status?: string
 				developerNb: number
 				operatorNb: number
 				seatsFromUsers: number
 				seatsFromExtraComps: number
 				usedSeats: number
-				automatic_billing: boolean
 				owner: string
 		  }
 		| undefined = undefined
@@ -78,32 +75,12 @@
 		premiumInfo = {
 			...info,
 			usage: info.usage ?? 0,
-			seats: info.seats ?? 1,
 			owner: info.owner,
 			developerNb,
 			operatorNb,
 			seatsFromUsers,
 			seatsFromExtraComps,
 			usedSeats
-		}
-	}
-
-	let billingModeLoading = false
-	async function setAutomaticBilling(ev) {
-		try {
-			billingModeLoading = true
-			await WorkspaceService.setAutomaticBilling({
-				workspace: $workspaceStore!,
-				requestBody: {
-					automatic_billing: ev.detail,
-					seats: premiumInfo?.usedSeats
-				}
-			})
-		} catch (err) {
-			sendUserToast("Couldn't update billing mode: " + err, true)
-		} finally {
-			await loadPremiumInfo()
-			billingModeLoading = false
 		}
 	}
 
@@ -173,15 +150,17 @@
 	<div class="flex flex-col gap-1">
 		<div class=" text-primary text-lg font-semibold">
 			{#if premiumInfo?.premium && plan}
-				Plan: {capitalize(plan)} plan{plan === 'team' && premiumInfo.automatic_billing
-					? ' (usage-based)'
-					: plan === 'team'
-					? ` (${premiumInfo.seats} seat${premiumInfo.seats > 1 ? 's' : ''})`
-					: ''}
+				Plan: {capitalize(plan)} plan{plan === 'team' ? ' (usage-based)' : ''}
 			{:else}
 				Plan: Free plan
 			{/if}
 		</div>
+		{#if premiumInfo?.status === 'past_due'}
+			<p class="text-red-500 text-base">
+				Your last invoice is unpaid. Please update your payment method in the customer portal to
+				prevent account downgrade and the interruption of your job executions.
+			</p>
+		{/if}
 	</div>
 </div>
 {#if customer_id}
@@ -201,79 +180,52 @@
 	{#if premiumInfo?.premium}
 		<div class="flex flex-col gap-8 my-8">
 			{#if plan}
-				{#if plan === 'team' && !premiumInfo?.automatic_billing}
-					<div class="flex flex-row items-center gap-2">
-						<Toggle
-							checked={premiumInfo?.automatic_billing}
-							options={{
-								left: 'Static number of seats',
-								leftTooltip:
-									'You will be billed for a fixed number of seats, you have to manually adapt the number of seats in the customer portal based on your usage.',
-								right: 'Automatic billing based on usage',
-								rightTooltip:
-									'You will be billed for the maximum number of seats used in a given billing period.'
+				<div class="flex flex-col gap-1.5">
+					<p class="font-semibold text-sm">Billing threshold email alert</p>
+					<div class="flex flex-row gap-0.5 items-center">
+						<p class="text-base text-secondary mr-0.5"
+							>{thresholdAlert?.threshold_alert_amount
+								? thresholdAlert?.threshold_alert_amount + '$'
+								: 'Not set'}</p
+						>
+						<Button
+							on:click={() => {
+								newThresholdAlertAmount = thresholdAlert?.threshold_alert_amount ?? 10
+								thresholdAlertOpen = true
 							}}
-							on:change={setAutomaticBilling}
-							disabled={billingModeLoading}
+							size="xs"
+							spacingSize="xs2"
+							variant="border"
+							color="light"
+							iconOnly
+							startIcon={{
+								icon: Pen
+							}}
 						/>
-						{#if billingModeLoading}
-							<Loader2 class="animate-spin" />
-						{/if}
-					</div>
-				{/if}
-			{:else}
-				<div class="inline text-lg font-bold">Current plan: Free plan</div>
-			{/if}
-
-			{#if plan}
-				{#if premiumInfo?.automatic_billing}
-					<div class="flex flex-col gap-1.5">
-						<p class="font-semibold text-sm">Billing threshold email alert</p>
-						<div class="flex flex-row gap-0.5 items-center">
-							<p class="text-base text-secondary mr-0.5"
-								>{thresholdAlert?.threshold_alert_amount
-									? thresholdAlert?.threshold_alert_amount + '$'
-									: 'Not set'}</p
-							>
+						{#if thresholdAlert?.threshold_alert_amount}
 							<Button
 								on:click={() => {
-									newThresholdAlertAmount = thresholdAlert?.threshold_alert_amount ?? 10
-									thresholdAlertOpen = true
+									if (thresholdAlert) {
+										newThresholdAlertAmount = undefined
+										setThresholdAlert()
+									}
 								}}
+								variant="border"
 								size="xs"
 								spacingSize="xs2"
-								variant="border"
 								color="light"
 								iconOnly
 								startIcon={{
-									icon: Pen
+									icon: X
 								}}
 							/>
-							{#if thresholdAlert?.threshold_alert_amount}
-								<Button
-									on:click={() => {
-										if (thresholdAlert) {
-											newThresholdAlertAmount = undefined
-											setThresholdAlert()
-										}
-									}}
-									variant="border"
-									size="xs"
-									spacingSize="xs2"
-									color="light"
-									iconOnly
-									startIcon={{
-										icon: X
-									}}
-								/>
-							{/if}
-						</div>
-						<p class="italic text-xs">
-							An email notification will be sent to {premiumInfo.owner} if the specified threshold amount
-							is exceeded during a given month.
-						</p>
+						{/if}
 					</div>
-				{/if}
+					<p class="italic text-xs">
+						An email notification will be sent to {premiumInfo.owner} if the specified threshold amount
+						is exceeded during a given month.
+					</p>
+				</div>
 				<div class="w-full">
 					<DataTable>
 						<tbody class="divide-y">
@@ -342,52 +294,20 @@
 							</tr>
 							<tr>
 								<Cell first
-									><div
-										class={twMerge(
-											'font-semibold',
-											plan === 'team' &&
-												premiumInfo.usedSeats > premiumInfo.seats &&
-												!premiumInfo.automatic_billing
-												? 'text-red-500'
-												: ''
-										)}
+									><div class="font-semibold"
 										>Used seats <Tooltip
 											>Highest between seats from developers + operators and seats from computations
-										</Tooltip>{plan === 'team' &&
-										premiumInfo.usedSeats > premiumInfo.seats &&
-										!premiumInfo.automatic_billing
-											? ' > Paid seats'
-											: ''}</div
+										</Tooltip></div
 									></Cell
 								>
 								<Cell last numeric>
-									<div
-										class={twMerge(
-											'text-base font-bold',
-											plan === 'team' &&
-												premiumInfo.usedSeats > premiumInfo.seats &&
-												!premiumInfo.automatic_billing
-												? 'text-red-500'
-												: ''
-										)}
-									>
-										u + c = {premiumInfo.usedSeats}{plan === 'team' &&
-										premiumInfo.usedSeats > premiumInfo.seats &&
-										!premiumInfo.automatic_billing
-											? ` > ${premiumInfo.seats}`
-											: ''}
+									<div class="text-base font-bold">
+										u + c = {premiumInfo.usedSeats}
 									</div>
 								</Cell>
 							</tr>
 						</tbody>
 					</DataTable>
-
-					{#if plan === 'team' && premiumInfo.usedSeats > premiumInfo.seats && !premiumInfo.automatic_billing}
-						<p class="text-red-500 mt-2 text-right text-base"
-							>You have exceeded your allowed number of seats, please update your plan in the
-							customer portal.
-						</p>
-					{/if}
 				</div>
 			{/if}
 		</div>
@@ -488,7 +408,7 @@
 				{/each}
 			</ul>
 
-			<div class="grow" />
+			<div class="grow"></div>
 			{#if planTitle == 'Team'}
 				{#if plan != 'team'}
 					<div class="mt-4 mx-auto">

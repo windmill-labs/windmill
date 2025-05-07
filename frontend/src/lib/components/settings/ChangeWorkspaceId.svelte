@@ -30,19 +30,27 @@
 		checking = false
 	}
 
+	let loading = false
 	async function renameWorkspace() {
-		open = false
-		await WorkspaceService.changeWorkspaceId({
-			workspace: $workspaceStore!,
-			requestBody: {
-				new_name: newName,
-				new_id: newId
-			}
-		})
+		try {
+			loading = true
+			await WorkspaceService.changeWorkspaceId({
+				workspace: $workspaceStore!,
+				requestBody: {
+					new_name: newName,
+					new_id: newId
+				}
+			})
+			open = false
 
-		sendUserToast(`Renamed workspace to ${newName}. Reloading...`)
-		await new Promise((resolve) => setTimeout(resolve, 1000))
-		window.location.href = '/workspace_settings?tab=general&workspace=' + newId
+			sendUserToast(`Renamed workspace to ${newName}. Reloading...`)
+			await new Promise((resolve) => setTimeout(resolve, 1000))
+			window.location.href = '/workspace_settings?tab=general&workspace=' + newId
+		} catch (err) {
+			sendUserToast(`Error renaming workspace: ${err}`, true)
+		} finally {
+			loading = false
+		}
 	}
 
 	export let open = false
@@ -73,7 +81,8 @@
 <Modal bind:open title="Change workspace ID">
 	<div class="flex flex-col gap-4">
 		<Alert type="warning" title="Warning">
-			You will have to update your webhook calls and your CLI sync configuration.
+			Renaming the workspace may take a few minutes to complete. Once finished, please update your
+			webhook calls and adjust your CLI sync configuration accordingly.
 		</Alert>
 		<p class="text-secondary text-sm"
 			>Current ID <br /> <span class="font-bold">{$workspaceStore ?? ''}</span></p
@@ -95,6 +104,7 @@
 		<Button
 			size="sm"
 			disabled={checking || errorId.length > 0 || !newName || !newId}
+			{loading}
 			on:click={() => {
 				renameWorkspace()
 			}}

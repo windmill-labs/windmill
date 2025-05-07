@@ -17,6 +17,7 @@ import variable from "./variable.ts";
 import hub from "./hub.ts";
 import folder from "./folder.ts";
 import schedule from "./schedule.ts";
+import trigger from "./trigger.ts";
 import sync from "./sync.ts";
 import instance from "./instance.ts";
 import workerGroups from "./worker_groups.ts";
@@ -32,6 +33,7 @@ import { pull, push } from "./sync.ts";
 import { add as workspaceAdd } from "./workspace.ts";
 import workers from "./workers.ts";
 import queues from "./queues.ts";
+import { readLockfile } from "./metadata.ts";
 
 export {
   flow,
@@ -44,6 +46,7 @@ export {
   hub,
   folder,
   schedule,
+  trigger,
   sync,
   instance,
   dev,
@@ -60,7 +63,7 @@ export {
 //   }
 // });
 
-export const VERSION = "1.458.1";
+export const VERSION = "1.488.0";
 
 const command = new Command()
   .name("wmill")
@@ -94,23 +97,25 @@ const command = new Command()
   .command("init", "Bootstrap a windmill project with a wmill.yaml file")
   .action(async () => {
     if (await Deno.stat("wmill.yaml").catch(() => null)) {
-      log.error(colors.red("wmill.yaml already exists"));
-      return;
+      log.error(colors.green("wmill.yaml already exists"));
+    } else {
+      await Deno.writeTextFile(
+        "wmill.yaml",
+        yamlStringify({
+          defaultTs: "bun",
+          includes: ["f/**"],
+          excludes: [],
+          codebases: [],
+          skipVariables: true,
+          skipResources: true,
+          skipSecrets: true,
+          includeSchedules: false,
+          includeTriggers: false,
+        })
+      );
+      log.info(colors.green("wmill.yaml created"));
     }
-    await Deno.writeTextFile(
-      "wmill.yaml",
-      yamlStringify({
-        defaultTs: "bun",
-        includes: ["f/**"],
-        excludes: [],
-        codebases: [],
-        skipVariables: true,
-        skipResources: true,
-        skipSecrets: true,
-        includeSchedules: false,
-      })
-    );
-    log.info(colors.green("wmill.yaml created"));
+    await readLockfile();
   })
   .command("app", app)
   .command("flow", flow)
@@ -122,6 +127,7 @@ const command = new Command()
   .command("hub", hub)
   .command("folder", folder)
   .command("schedule", schedule)
+  .command("trigger", trigger)
   .command("dev", dev)
   .command("sync", sync)
   .command("instance", instance)

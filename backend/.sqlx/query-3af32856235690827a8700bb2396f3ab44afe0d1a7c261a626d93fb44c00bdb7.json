@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE v2_job_status\n                     SET flow_status = flow_status - 'approval_conditions'\n                     WHERE id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "3af32856235690827a8700bb2396f3ab44afe0d1a7c261a626d93fb44c00bdb7"
+}

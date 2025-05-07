@@ -13,10 +13,12 @@
 	<div class="flex flex-row justify-between items-center w-full">
 		{#if !headless}
 			<div class="flex flex-row items-center gap-2">
-				<span class="{primary ? 'text-primary' : 'text-secondary'} text-sm leading-6">{label}</span>
-				{#if required}
-					<Required required={true} />
-				{/if}
+				<span class="{primary ? 'text-primary' : 'text-secondary'} text-sm leading-6"
+					>{label}
+					{#if required}
+						<Required required={true} />
+					{/if}
+				</span>
 				<slot name="header" />
 			</div>
 		{/if}

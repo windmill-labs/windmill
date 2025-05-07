@@ -569,6 +569,19 @@ export const customisationByComponent: Customisation[] = [
 		variables: []
 	},
 	{
+		components: ['codeinputcomponent'],
+		selectors: [
+			{ selector: '.wm-code-editor', comment: 'Code editor wrapper', customCssKey: 'container' },
+			{ selector: '.wm-code-editor .monaco-editor-background', comment: 'Editor background' },
+			{ selector: '.wm-code-editor .monaco-editor .line-numbers', comment: 'Line numbers' },
+			{
+				selector: '.wm-code-editor .monaco-editor .current-line',
+				comment: 'Current line highlight'
+			}
+		],
+		variables: []
+	},
+	{
 		components: ['chartjscomponent'],
 		selectors: [{ selector: '.wm-chartjs', comment: 'ChartJS', customCssKey: 'container' }],
 		variables: []

@@ -89,7 +89,7 @@ export async function createInlineScriptModule(
 			content: code,
 			language,
 			input_transforms: {},
-			is_trigger: kind === 'trigger'
+			...(kind === 'trigger' ? { is_trigger: true } : {})
 		}
 	}
 

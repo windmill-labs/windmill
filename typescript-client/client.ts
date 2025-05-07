@@ -3,10 +3,11 @@ import {
   VariableService,
   JobService,
   HelpersService,
+  AppService,
   MetricsService,
   OidcService,
   UserService,
-  TeamsService
+  TeamsService,
 } from "./index";
 import { OpenAPI } from "./index";
 // import type { DenoS3LightClientSettings } from "./index";
@@ -455,8 +456,8 @@ export async function getProgress(jobId?: any): Promise<number | null> {
 }
 
 /**
- * Set a flow user state 
- * @param key key of the state 
+ * Set a flow user state
+ * @param key key of the state
  * @param value value of the state
 
  */
@@ -768,6 +769,33 @@ export async function writeS3File(
   return {
     s3: response.file_key,
   };
+}
+
+/**
+ * Sign S3 objects to be used by anonymous users in public apps
+ * @param s3objects s3 objects to sign
+ * @returns signed s3 objects
+ */
+export async function signS3Objects(
+  s3objects: S3Object[]
+): Promise<S3Object[]> {
+  const signedKeys = await AppService.signS3Objects({
+    workspace: getWorkspace(),
+    requestBody: {
+      s3_objects: s3objects,
+    },
+  });
+  return signedKeys;
+}
+
+/**
+ * Sign S3 object to be used by anonymous users in public apps
+ * @param s3object s3 object to sign
+ * @returns signed s3 object
+ */
+export async function signS3Object(s3object: S3Object): Promise<S3Object> {
+  const [signedObject] = await signS3Objects([s3object]);
+  return signedObject;
 }
 
 /**

@@ -34,8 +34,8 @@ use windmill_common::{
     email_ee::send_email,
     error::{self, JsonResult, Result},
     global_settings::{
-        AUTOMATE_USERNAME_CREATION_SETTING, EMAIL_DOMAIN_SETTING, ENV_SETTINGS,
-        HUB_ACCESSIBLE_URL_SETTING, HUB_BASE_URL_SETTING,
+        AUTOMATE_USERNAME_CREATION_SETTING, CRITICAL_ALERT_MUTE_UI_SETTING, EMAIL_DOMAIN_SETTING,
+        ENV_SETTINGS, HUB_ACCESSIBLE_URL_SETTING, HUB_BASE_URL_SETTING,
     },
     server::Smtp,
 };
@@ -237,6 +237,13 @@ pub async fn set_global_setting_internal(
                             err
                         ))
                     })?;
+            }
+        }
+        CRITICAL_ALERT_MUTE_UI_SETTING => {
+            if value.clone().as_bool().unwrap_or(false) {
+                sqlx::query!("UPDATE alerts SET acknowledged = true")
+                    .execute(db)
+                    .await?;
             }
         }
         _ => {}

@@ -14,5 +14,5 @@ cp "${script_dirpath}/s3Types.ts" "${script_dirpath}/src/"
 echo "" >> "${script_dirpath}/src/index.ts"
 echo 'export type { S3Object, DenoS3LightClientSettings } from "./s3Types";' >> "${script_dirpath}/src/index.ts"
 echo "" >> "${script_dirpath}/src/index.ts"
-echo 'export { type Base64, setClient, getVariable, setVariable, getResource, setResource, getResumeUrls, setState, getState, getIdToken, denoS3LightClientSettings, loadS3FileStream, loadS3File, writeS3File, task, runScript, runScriptAsync, runFlow, runFlowAsync, waitJob, getRootJobId, setFlowUserState, getFlowUserState, usernameToEmail, requestInteractiveSlackApproval, requestInteractiveTeamsApproval} from "./client";' >> "${script_dirpath}/src/index.ts"
+echo 'export { type Base64, setClient, getVariable, setVariable, getResource, setResource, getResumeUrls, setState, getState, getIdToken, denoS3LightClientSettings, loadS3FileStream, loadS3File, writeS3File, signS3Objects, signS3Object, task, runScript, runScriptAsync, runFlow, runFlowAsync, waitJob, getRootJobId, setFlowUserState, getFlowUserState, usernameToEmail, requestInteractiveSlackApproval, Sql, requestInteractiveTeamsApproval, } from "./client";' >> "${script_dirpath}/src/index.ts"
 

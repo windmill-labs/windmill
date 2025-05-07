@@ -21,7 +21,8 @@ use std::sync::{
 use tokio::sync::RwLock;
 
 use windmill_common::{
-    auth::{get_folders_for_user, get_groups_for_user, JWTAuthClaims, JWT_SECRET},
+    auth::{get_folders_for_user, get_groups_for_user, JWTAuthClaims},
+    jwt,
     users::{COOKIE_NAME, SUPERADMIN_SECRET_EMAIL},
 };
 
@@ -99,55 +100,44 @@ impl AuthCache {
                 }
             }
             _ if token.starts_with("jwt_") => {
-                let jwt_secret = JWT_SECRET.read().await;
-                if !jwt_secret.is_empty() {
-                    let jwt_token = token.trim_start_matches("jwt_");
+                let jwt_token = token.trim_start_matches("jwt_");
 
-                    let jwt_result = jsonwebtoken::decode::<JWTAuthClaims>(
-                        jwt_token,
-                        &jsonwebtoken::DecodingKey::from_secret(jwt_secret.as_bytes()),
-                        &jsonwebtoken::Validation::new(jsonwebtoken::Algorithm::HS256),
-                    );
+                let jwt_result = jwt::decode_with_internal_secret::<JWTAuthClaims>(jwt_token).await;
 
-                    match jwt_result {
-                        Ok(payload) => {
-                            if w_id.is_some_and(|w_id| w_id != payload.claims.workspace_id) {
-                                tracing::error!("JWT auth error: workspace_id mismatch");
-                                return None;
-                            }
-
-                            let username_override =
-                                username_override_from_label(payload.claims.label);
-                            let authed = crate::db::ApiAuthed {
-                                email: payload.claims.email,
-                                username: payload.claims.username,
-                                is_admin: payload.claims.is_admin,
-                                is_operator: payload.claims.is_operator,
-                                groups: payload.claims.groups,
-                                folders: payload.claims.folders,
-                                scopes: None,
-                                username_override,
-                            };
-
-                            self.cache.insert(
-                                key,
-                                ExpiringAuthCache {
-                                    authed: authed.clone(),
-                                    expiry: chrono::Utc
-                                        .timestamp_nanos(payload.claims.exp as i64 * 1_000_000_000),
-                                },
-                            );
-
-                            Some(authed)
+                match jwt_result {
+                    Ok(claims) => {
+                        if w_id.is_some_and(|w_id| w_id != claims.workspace_id) {
+                            tracing::error!("JWT auth error: workspace_id mismatch");
+                            return None;
                         }
-                        Err(err) => {
-                            tracing::error!("JWT auth error: {:?}", err);
-                            None
-                        }
+
+                        let username_override = username_override_from_label(claims.label);
+                        let authed = crate::db::ApiAuthed {
+                            email: claims.email,
+                            username: claims.username,
+                            is_admin: claims.is_admin,
+                            is_operator: claims.is_operator,
+                            groups: claims.groups,
+                            folders: claims.folders,
+                            scopes: None,
+                            username_override,
+                        };
+
+                        self.cache.insert(
+                            key,
+                            ExpiringAuthCache {
+                                authed: authed.clone(),
+                                expiry: chrono::Utc
+                                    .timestamp_nanos(claims.exp as i64 * 1_000_000_000),
+                            },
+                        );
+
+                        Some(authed)
                     }
-                } else {
-                    tracing::error!("JWT auth error: no jwt secret set");
-                    None
+                    Err(err) => {
+                        tracing::error!("JWT auth error: {:?}", err);
+                        None
+                    }
                 }
             }
             _ => {
@@ -519,9 +509,15 @@ where
                 .map(|x| x.0)
                 .unwrap_or_default();
             let path_vec: Vec<&str> = original_uri.path().split("/").collect();
-
             let workspace_id = if path_vec.len() >= 4 && path_vec[0] == "" && path_vec[2] == "w" {
                 Some(path_vec[3].to_owned())
+            } else if path_vec.len() >= 5
+                && path_vec[0] == ""
+                && path_vec[1] == "api"
+                && path_vec[2] == "mcp"
+                && path_vec[3] == "w"
+            {
+                Some(path_vec[4].to_string())
             } else {
                 if path_vec.len() >= 5
                     && path_vec[0] == ""

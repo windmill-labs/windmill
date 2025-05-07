@@ -53,7 +53,7 @@
 		} catch (e) {
 			sendUserToast(
 				'Component creation failed. Is the file uploaded, did you give it a name ? Do you have write privilege on folder app_custom: ' +
-					e.body ?? e,
+					(e.body ?? e),
 				true
 			)
 		}
@@ -68,8 +68,6 @@
 
 	getCustomComponents()
 </script>
-
-<div id="cc_portal" />
 
 <div class="p-2 flex flex-col items-start w-auto gap-2 relative">
 	<div class="w-full flex flex-col gap-y-2 pb-8">
@@ -124,7 +122,7 @@
 							{/key}
 						{/each}
 					{:else}
-						<tr>Loading...</tr>
+						<!-- <tr>Loading...</tr> -->
 					{/if}
 				</tbody>
 			</DataTable>

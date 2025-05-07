@@ -1,5 +1,6 @@
 <script lang="ts">
-	import { classNames } from '$lib/utils'
+	import { classNames, conditionalMelt } from '$lib/utils'
+	import type { MenubarMenuElements } from '@melt-ui/svelte'
 	import { navigating, page } from '$app/stores'
 	import Popover from '../Popover.svelte'
 	import { base } from '$app/paths'
@@ -10,6 +11,7 @@
 	export let isCollapsed: boolean
 	export let disabled: boolean = false
 	export let lightMode: boolean = false
+	export let item: MenubarMenuElements['item'] | undefined = undefined
 
 	let isSelected = false
 
@@ -30,17 +32,19 @@
 				'group flex items-center px-2 py-2 text-sm font-light rounded-md h-8 gap-3',
 				isSelected
 					? lightMode
-						? 'bg-surface-selected hover:bg-surface-hover rounded-none'
-						: 'bg-frost-700 hover:bg-[#30404e]'
+						? 'bg-surface-selected hover:bg-surface-hover rounded-none data-[highlighted]:bg-surface-hover'
+						: 'bg-frost-700 hover:bg-[#30404e] data-[highlighted]:bg-[#30404e]'
 					: lightMode
-					? 'hover:bg-surface-hover rounded-none'
-					: 'hover:bg-[#2A3648]',
+					? 'hover:bg-surface-hover rounded-none data-[highlighted]:bg-surface-hover'
+					: 'hover:bg-[#2A3648] data-[highlighted]:bg-[#2A3648]',
 
 				'hover:transition-all',
 				$$props.class
 			)}
 			target={href.includes('http') ? '_blank' : null}
 			title={isCollapsed ? undefined : label}
+			use:conditionalMelt={item}
+			{...$item}
 		>
 			{#if icon}
 				<svelte:component

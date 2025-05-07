@@ -3,7 +3,7 @@ use std::{collections::HashMap, process::Stdio};
 use itertools::Itertools;
 use serde_json::value::RawValue;
 use uuid::Uuid;
-use windmill_queue::{append_logs, CanceledBy};
+use windmill_queue::{append_logs, CanceledBy, MiniPulledJob};
 
 use crate::{
     common::{
@@ -11,14 +11,14 @@ use crate::{
         start_child_process, OccupancyMetrics,
     },
     handle_child::handle_child,
-    AuthedClientBackgroundTask, DENO_CACHE_DIR, DENO_PATH, DISABLE_NSJAIL, HOME_ENV,
-    NPM_CONFIG_REGISTRY, PATH_ENV, TZ_ENV,
+    AuthedClient, DENO_CACHE_DIR, DENO_PATH, DISABLE_NSJAIL, HOME_ENV, NPM_CONFIG_REGISTRY,
+    PATH_ENV, TZ_ENV,
 };
 use tokio::{fs::File, io::AsyncReadExt, process::Command};
 use windmill_common::{error::Result, worker::write_file, BASE_URL};
 use windmill_common::{
     error::{self},
-    jobs::QueuedJob,
+    worker::Connection,
 };
 use windmill_parser::Typ;
 
@@ -100,7 +100,7 @@ pub async fn generate_deno_lock(
     mem_peak: &mut i32,
     canceled_by: &mut Option<CanceledBy>,
     job_dir: &str,
-    db: Option<&sqlx::Pool<sqlx::Postgres>>,
+    db: Option<&Connection>,
     w_id: &str,
     worker_name: &str,
     base_internal_url: &str,
@@ -159,6 +159,7 @@ pub async fn generate_deno_lock(
             None,
             false,
             occupancy_metrics,
+            None,
         )
         .await?;
     } else {
@@ -180,9 +181,10 @@ pub async fn handle_deno_job(
     requirements_o: Option<&String>,
     mem_peak: &mut i32,
     canceled_by: &mut Option<CanceledBy>,
-    job: &QueuedJob,
-    db: &sqlx::Pool<sqlx::Postgres>,
-    client: &AuthedClientBackgroundTask,
+    job: &MiniPulledJob,
+    conn: &Connection,
+    client: &AuthedClient,
+    parent_runnable_path: Option<String>,
     job_dir: &str,
     inner_content: &String,
     base_internal_url: &str,
@@ -193,10 +195,10 @@ pub async fn handle_deno_job(
 ) -> error::Result<Box<RawValue>> {
     // let mut start = Instant::now();
     let logs1 = "\n\n--- DENO CODE EXECUTION ---\n".to_string();
-    append_logs(&job.id, &job.workspace_id, logs1, db).await;
+    append_logs(&job.id, &job.workspace_id, logs1, conn).await;
 
     let main_override = job.script_entrypoint_override.as_deref();
-    let apply_preprocessor = !job.is_flow_step && job.preprocessed == Some(false);
+    let apply_preprocessor = !job.is_flow_step() && job.preprocessed == Some(false);
 
     write_file(job_dir, "main.ts", inner_content)?;
 
@@ -205,6 +207,7 @@ pub async fn handle_deno_job(
         let args = windmill_parser_ts::parse_deno_signature(
             inner_content,
             true,
+            false,
             main_override.map(ToString::to_string),
         )?
         .args;
@@ -214,6 +217,7 @@ pub async fn handle_deno_job(
                 windmill_parser_ts::parse_deno_signature(
                     inner_content,
                     true,
+                    false,
                     Some("preprocessor".to_string()),
                 )?
                 .args,
@@ -308,32 +312,33 @@ try {{
 
     let write_import_map_f = build_import_map(
         &job.workspace_id,
-        job.script_path(),
+        job.runnable_path(),
         base_internal_url,
         job_dir,
     );
 
     let reserved_variables_args_out_f = async {
         let args_and_out_f = async {
-            create_args_and_out_file(&client, job, job_dir, db).await?;
+            create_args_and_out_file(&client, job, job_dir, conn).await?;
             Ok(()) as Result<()>
         };
         let reserved_variables_f = async {
-            let client = client.get_authed().await;
-            let vars = get_reserved_variables(job, &client.token, db).await?;
-            Ok((vars, client.token)) as Result<(HashMap<String, String>, String)>
+            let vars =
+                get_reserved_variables(job, &client.token, conn, parent_runnable_path).await?;
+            Ok(vars) as Result<HashMap<String, String>>
         };
         let (_, reserved_variables) = tokio::try_join!(args_and_out_f, reserved_variables_f)?;
-        Ok(reserved_variables) as error::Result<(HashMap<String, String>, String)>
+        Ok(reserved_variables) as error::Result<HashMap<String, String>>
     };
 
-    let ((reserved_variables, token), _, _) = tokio::try_join!(
+    let (reserved_variables, _, _) = tokio::try_join!(
         reserved_variables_args_out_f,
         write_wrapper_f,
         write_import_map_f
     )?;
 
-    let mut common_deno_proc_envs = get_common_deno_proc_envs(&token, base_internal_url).await;
+    let mut common_deno_proc_envs =
+        get_common_deno_proc_envs(&client.token, base_internal_url).await;
     if !*DISABLE_NSJAIL {
         common_deno_proc_envs.insert("HOME".to_string(), job_dir.to_string());
     }
@@ -403,7 +408,7 @@ try {{
     // start = Instant::now();
     handle_child(
         &job.id,
-        db,
+        conn,
         mem_peak,
         canceled_by,
         child,
@@ -414,6 +419,7 @@ try {{
         job.timeout,
         false,
         &mut Some(occupancy_metrics),
+        None,
     )
     .await?;
     // logs.push_str(format!("execute: {:?}\n", start.elapsed().as_millis()).as_str());
@@ -500,7 +506,7 @@ pub async fn start_worker(
     script_path: &str,
     token: &str,
     job_completed_tx: JobCompletedSender,
-    jobs_rx: Receiver<std::sync::Arc<QueuedJob>>,
+    jobs_rx: Receiver<std::sync::Arc<MiniPulledJob>>,
     killpill_rx: tokio::sync::broadcast::Receiver<()>,
     db: &sqlx::Pool<sqlx::Postgres>,
 ) -> Result<()> {
@@ -512,7 +518,7 @@ pub async fn start_worker(
     let common_deno_proc_envs = get_common_deno_proc_envs(&token, base_internal_url).await;
 
     let context = variables::get_reserved_variables(
-        db,
+        &db.into(),
         w_id,
         &token,
         "dedicated_worker@windmill.dev",
@@ -533,7 +539,7 @@ pub async fn start_worker(
 
     {
         // let mut start = Instant::now();
-        let args = windmill_parser_ts::parse_deno_signature(inner_content, true, None)?.args;
+        let args = windmill_parser_ts::parse_deno_signature(inner_content, true, false, None)?.args;
         let dates = args
             .iter()
             .filter_map(|x| {

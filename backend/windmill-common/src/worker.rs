@@ -1,28 +1,57 @@
 use anyhow::anyhow;
+use bytes::Bytes;
 use const_format::concatcp;
 use itertools::Itertools;
 use regex::Regex;
+use reqwest_middleware::ClientWithMiddleware;
 use semver::Version;
-use serde::{Deserialize, Serialize};
+use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use serde_json::value::RawValue;
+use sqlx::{types::Json, Pool, Postgres};
 use std::{
     cmp::Reverse,
     collections::{HashMap, HashSet},
-    fs::File,
+    fs::{self, File},
     io::Write,
+    panic::Location,
     path::{Component, Path, PathBuf},
     str::FromStr,
     sync::{atomic::AtomicBool, Arc},
 };
 use tokio::sync::RwLock;
+use uuid::Uuid;
 use windmill_macros::annotations;
 
 use crate::{
-    error, global_settings::CUSTOM_TAGS_SETTING, indexer::TantivyIndexerSettings, server::Smtp, DB,
+    agent_workers::{PingJobStatusResponse, BASE_INTERNAL_URL},
+    cache::{unwrap_or_error, RawNode, RawScript},
+    error::{self, to_anyhow},
+    global_settings::CUSTOM_TAGS_SETTING,
+    indexer::TantivyIndexerSettings,
+    server::Smtp,
+    KillpillSender, DB,
 };
 
+pub const DEFAULT_CLOUD_TIMEOUT: u64 = 900;
+pub const DEFAULT_SELFHOSTED_TIMEOUT: u64 = 604800; // 7 days
+
 lazy_static::lazy_static! {
-    pub static ref WORKER_GROUP: String = std::env::var("WORKER_GROUP").unwrap_or_else(|_| "default".to_string());
+    pub static ref WORKER_GROUP: String = std::env::var("WORKER_GROUP").unwrap_or_else(|_| {
+        #[cfg(not(feature = "enterprise"))]
+        {
+            "default".to_string()
+        }
+
+        #[cfg(feature = "enterprise")]
+        {
+            if let Some(token) = crate::agent_workers::DECODED_AGENT_TOKEN.as_ref() {
+                token.worker_group.clone()
+            } else {
+                "default".to_string()
+            }
+        }
+    });
+
     pub static ref NO_LOGS: bool = std::env::var("NO_LOGS").ok().is_some_and(|x| x == "1" || x == "true");
 
     pub static ref CGROUP_V2_PATH_RE: Regex = Regex::new(r#"(?m)^0::(/.*)$"#).unwrap();
@@ -48,6 +77,9 @@ lazy_static::lazy_static! {
         "rust".to_string(),
         "ansible".to_string(),
         "csharp".to_string(),
+        "nu".to_string(),
+        "java".to_string(),
+        // for related places search: ADD_NEW_LANG
         "dependency".to_string(),
         "flow".to_string(),
         "other".to_string()
@@ -56,6 +88,15 @@ lazy_static::lazy_static! {
     pub static ref DEFAULT_TAGS_PER_WORKSPACE: AtomicBool = AtomicBool::new(false);
     pub static ref DEFAULT_TAGS_WORKSPACES: Arc<RwLock<Option<Vec<String>>>> = Arc::new(RwLock::new(None));
 
+    pub static ref MAX_TIMEOUT: u64 = std::env::var("TIMEOUT")
+    .ok()
+    .and_then(|x| x.parse::<u64>().ok())
+    .unwrap_or_else(|| if *CLOUD_HOSTED { DEFAULT_CLOUD_TIMEOUT } else { DEFAULT_SELFHOSTED_TIMEOUT });
+
+    pub static ref SCRIPT_TOKEN_EXPIRY: u64 = std::env::var("SCRIPT_TOKEN_EXPIRY")
+        .ok()
+        .and_then(|x| x.parse::<u64>().ok())
+        .unwrap_or(*MAX_TIMEOUT);
 
     pub static ref WORKER_CONFIG: Arc<RwLock<WorkerConfig>> = Arc::new(RwLock::new(WorkerConfig {
         worker_tags: Default::default(),
@@ -95,93 +136,196 @@ lazy_static::lazy_static! {
     .unwrap_or(false);
 
     pub static ref MIN_VERSION: Arc<RwLock<Version>> = Arc::new(RwLock::new(Version::new(0, 0, 0)));
+    pub static ref MIN_VERSION_IS_AT_LEAST_1_461: Arc<RwLock<bool>> = Arc::new(RwLock::new(false));
     pub static ref MIN_VERSION_IS_AT_LEAST_1_427: Arc<RwLock<bool>> = Arc::new(RwLock::new(false));
     pub static ref MIN_VERSION_IS_AT_LEAST_1_432: Arc<RwLock<bool>> = Arc::new(RwLock::new(false));
     pub static ref MIN_VERSION_IS_AT_LEAST_1_440: Arc<RwLock<bool>> = Arc::new(RwLock::new(false));
 
     // Features flags:
     pub static ref DISABLE_FLOW_SCRIPT: bool = std::env::var("DISABLE_FLOW_SCRIPT").ok().is_some_and(|x| x == "1" || x == "true");
+
+    pub static ref ROOT_STANDALONE_BUNDLE_DIR: String = format!("{}/.windmill/standalone_bundle/", std::env::var("HOME").unwrap_or_else(|_| "/root".to_string()));
+}
+
+pub const ROOT_CACHE_NOMOUNT_DIR: &str = concatcp!(TMP_DIR, "/cache_nomount/");
+
+pub static MIN_VERSION_IS_LATEST: AtomicBool = AtomicBool::new(false);
+
+#[derive(Clone)]
+pub struct HttpClient(pub ClientWithMiddleware);
+
+impl HttpClient {
+    pub async fn post<T: Serialize, R: DeserializeOwned>(
+        &self,
+        url: &str,
+        body: &T,
+    ) -> anyhow::Result<R> {
+        let response = self
+            .0
+            .post(format!("{}{}", *BASE_INTERNAL_URL, url))
+            .json(body)
+            .send()
+            .await
+            .map_err(|e| anyhow::anyhow!(e))?;
+        let status = response.status();
+        if status.is_success() {
+            Ok(response.json().await?)
+        } else {
+            Err(anyhow::anyhow!(format!(
+                "HTTP agent request POST {} failed {}",
+                url,
+                response.status()
+            )))
+        }
+    }
+
+    pub async fn get<R: DeserializeOwned>(&self, url: &str) -> anyhow::Result<R> {
+        let response = self
+            .0
+            .get(format!("{}{}", *BASE_INTERNAL_URL, url))
+            .send()
+            .await
+            .map_err(|e| anyhow::anyhow!(e))?;
+        let status = response.status();
+        if status.is_success() {
+            Ok(response.json().await?)
+        } else {
+            Err(anyhow::anyhow!(format!(
+                "HTTP agent request GET {} failed {}",
+                url,
+                response.status()
+            )))
+        }
+    }
+}
+
+#[derive(Clone)]
+pub enum Connection {
+    Sql(Pool<Postgres>),
+    Http(HttpClient),
+}
+
+impl std::fmt::Debug for Connection {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Connection::Sql(_) => write!(f, "Sql"),
+            Connection::Http(_) => write!(f, "Http"),
+        }
+    }
+}
+
+impl Connection {
+    pub fn as_sql(&self) -> Option<&Pool<Postgres>> {
+        match self {
+            Connection::Sql(db) => Some(db),
+            Connection::Http(_) => None,
+        }
+    }
+}
+
+impl From<Pool<Postgres>> for Connection {
+    fn from(value: Pool<Postgres>) -> Self {
+        Connection::Sql(value)
+    }
+}
+
+impl From<&Pool<Postgres>> for Connection {
+    fn from(value: &Pool<Postgres>) -> Self {
+        Connection::Sql(value.clone())
+    }
 }
 
 fn format_pull_query(peek: String) -> String {
-    format!(
+    let r = format!(
         "WITH peek AS (
             {}
-        ), q AS (
+        ), q AS NOT MATERIALIZED (
             UPDATE v2_job_queue SET
                 running = true,
                 started_at = coalesce(started_at, now()),
-                suspend_until = null
+                suspend_until = null,
+                worker = $1
             WHERE id = (SELECT id FROM peek)
             RETURNING
-                started_at, scheduled_for, running,
-                canceled_by, canceled_reason, canceled_by IS NOT NULL AS canceled,
-                suspend, suspend_until
-        ), r AS (
+                started_at, scheduled_for,
+                canceled_by, canceled_reason, worker
+        ), r AS NOT MATERIALIZED (
             UPDATE v2_job_runtime SET
                 ping = now()
             WHERE id = (SELECT id FROM peek)
-            RETURNING ping AS last_ping, memory_peak AS mem_peak
-        ), j AS (
+        ), j AS NOT MATERIALIZED (
             SELECT
-                id, workspace_id, parent_job, created_by, created_at, runnable_id AS script_hash,
-                runnable_path AS script_path, args, kind AS job_kind,
-                CASE WHEN trigger_kind = 'schedule' THEN trigger END AS schedule_path,
-                permissioned_as, permissioned_as_email AS email, script_lang AS language,
-                flow_innermost_root_job AS root_job, flow_step_id, flow_step_id IS NOT NULL AS is_flow_step,
+                id, workspace_id, parent_job, created_by, created_at, runnable_id,
+                runnable_path, args, kind, trigger, trigger_kind,
+                permissioned_as, permissioned_as_email, script_lang,
+                flow_innermost_root_job, flow_step_id, 
                 same_worker, pre_run_error, visible_to_owner, tag, concurrent_limit,
                 concurrency_time_window_s, timeout, cache_ttl, priority, raw_code, raw_lock,
                 raw_flow, script_entrypoint_override, preprocessed
             FROM v2_job
             WHERE id = (SELECT id FROM peek)
-        ) SELECT id, workspace_id, parent_job, created_by, created_at, started_at, scheduled_for,
-            running, script_hash, script_path, args, null as logs, canceled, canceled_by,
-            canceled_reason, last_ping, job_kind, schedule_path, permissioned_as,
-            flow_status, is_flow_step, language, suspend,  suspend_until,
-            same_worker, pre_run_error, email,  visible_to_owner, mem_peak,
-            root_job, flow_leaf_jobs as leaf_jobs, tag, concurrent_limit, concurrency_time_window_s,
-            timeout, flow_step_id, cache_ttl, priority, raw_code, raw_lock, raw_flow,
-            script_entrypoint_override, preprocessed
-        FROM q, r, j
-            LEFT JOIN v2_job_status f USING (id)",
+        ) SELECT j.id, j.workspace_id, j.parent_job, j.created_by, started_at, scheduled_for,
+            j.runnable_id, j.runnable_path, j.args, canceled_by,
+            canceled_reason, j.kind, j.trigger, j.trigger_kind, j.permissioned_as, 
+            flow_status, j.script_lang,
+            j.same_worker, j.pre_run_error, j.visible_to_owner, 
+            j.tag, j.concurrent_limit, j.concurrency_time_window_s, j.flow_innermost_root_job,
+            j.timeout, j.flow_step_id, j.cache_ttl, j.priority, j.raw_code, j.raw_lock, j.raw_flow,
+            j.script_entrypoint_override, j.preprocessed, pj.runnable_path as parent_runnable_path,
+            COALESCE(p.email, j.permissioned_as_email) as permissioned_as_email, p.username as permissioned_as_username, p.is_admin as permissioned_as_is_admin, 
+            p.is_operator as permissioned_as_is_operator, p.groups as permissioned_as_groups, p.folders as permissioned_as_folders
+        FROM q, j
+            LEFT JOIN v2_job_status f USING (id)
+            LEFT JOIN job_perms p ON p.job_id = j.id
+            LEFT JOIN v2_job pj ON j.parent_job = pj.id",
         peek
-    )
+    );
+    tracing::debug!("pull query: {}", r);
+    r
 }
 
-pub async fn make_suspended_pull_query(wc: &WorkerConfig) {
-    if wc.worker_tags.len() == 0 {
-        tracing::error!("Empty tags in worker tags, skipping");
-        return;
-    }
-    let query = format_pull_query(format!(
+pub fn make_suspended_pull_query(tags: &[String]) -> String {
+    format_pull_query(format!(
         "SELECT id
         FROM v2_job_queue
         WHERE suspend_until IS NOT NULL AND (suspend <= 0 OR suspend_until <= now()) AND tag IN ({})
         ORDER BY priority DESC NULLS LAST, created_at
         FOR UPDATE SKIP LOCKED
         LIMIT 1",
-        wc.worker_tags.iter().map(|x| format!("'{x}'")).join(", ")
-    ));
+        tags.iter().map(|x| format!("'{x}'")).join(", ")
+    ))
+}
+// pub async fn make_suspended
+pub async fn store_suspended_pull_query(wc: &WorkerConfig) {
+    if wc.worker_tags.len() == 0 {
+        tracing::error!("Empty tags in worker tags, skipping");
+        return;
+    }
+    let query = make_suspended_pull_query(&wc.worker_tags);
     let mut l = WORKER_SUSPENDED_PULL_QUERY.write().await;
     *l = query;
 }
 
-pub async fn make_pull_query(wc: &WorkerConfig) {
+pub fn make_pull_query(tags: &[String]) -> String {
+    format_pull_query(format!(
+        "SELECT id
+        FROM v2_job_queue
+        WHERE running = false AND tag IN ({}) AND scheduled_for <= now()
+        ORDER BY priority DESC NULLS LAST, scheduled_for
+        FOR UPDATE SKIP LOCKED
+        LIMIT 1",
+        tags.iter().map(|x| format!("'{x}'")).join(", ")
+    ))
+}
+
+pub async fn store_pull_query(wc: &WorkerConfig) {
     let mut queries = vec![];
     for tags in wc.priority_tags_sorted.iter() {
         if tags.tags.len() == 0 {
             tracing::error!("Empty tags in priority tags, skipping");
             continue;
         }
-        let query = format_pull_query(format!(
-            "SELECT id
-            FROM v2_job_queue
-            WHERE running = false AND tag IN ({}) AND scheduled_for <= now()
-            ORDER BY priority DESC NULLS LAST, scheduled_for
-            FOR UPDATE SKIP LOCKED
-            LIMIT 1",
-            tags.tags.iter().map(|x| format!("'{x}'")).join(", ")
-        ));
+        let query = make_pull_query(&tags.tags);
         queries.push(query);
     }
     let mut l = WORKER_PULL_QUERIES.write().await;
@@ -203,6 +347,13 @@ pub fn write_file(dir: &str, path: &str, content: &str) -> error::Result<File> {
     Ok(file)
 }
 
+pub fn write_file_bytes(dir: &str, path: &str, content: &Bytes) -> error::Result<File> {
+    let path = format!("{}/{}", dir, path);
+    let mut file = File::create(&path)?;
+    file.write_all(content)?;
+    file.flush()?;
+    Ok(file)
+}
 /// from : https://github.com/rust-lang/cargo/blob/fede83ccf973457de319ba6fa0e36ead454d2e20/src/cargo/util/paths.rs#L61
 fn normalize_path(path: &Path) -> PathBuf {
     let mut components = path.components().peekable();
@@ -230,11 +381,10 @@ fn normalize_path(path: &Path) -> PathBuf {
     }
     ret
 }
-pub fn write_file_at_user_defined_location(
+
+pub fn is_allowed_file_location(
     job_dir: &str,
     user_defined_path: &str,
-    content: &str,
-    mode: Option<u32>,
 ) -> error::Result<PathBuf> {
     let job_dir = Path::new(job_dir);
     let user_path = PathBuf::from(user_defined_path);
@@ -253,6 +403,17 @@ pub fn write_file_at_user_defined_location(
         )
         .into());
     }
+
+    Ok(normalized_full_path)
+}
+
+pub fn write_file_at_user_defined_location(
+    job_dir: &str,
+    user_defined_path: &str,
+    content: &str,
+    mode: Option<u32>,
+) -> error::Result<PathBuf> {
+    let normalized_full_path = is_allowed_file_location(job_dir, user_defined_path)?;
 
     let full_path = normalized_full_path.as_path();
     if let Some(parent_dir) = full_path.parent() {
@@ -357,9 +518,6 @@ fn parse_file<T: FromStr>(path: &str) -> Option<T> {
 #[annotations("#")]
 pub struct PythonAnnotations {
     pub no_cache: bool,
-    pub no_uv: bool,
-    pub no_uv_install: bool,
-    pub no_uv_compile: bool,
     pub no_postinstall: bool,
     pub py310: bool,
     pub py311: bool,
@@ -384,8 +542,43 @@ pub struct SqlAnnotations {
 pub struct BashAnnotations {
     pub docker: bool,
 }
+/// length = 5
+/// value  = "foo"
+/// output = "foo  "
+///           12345
+pub fn pad_string(value: &str, total_length: usize) -> String {
+    if value.len() >= total_length {
+        value.to_string() // Return the original string if it's already long enough
+    } else {
+        let padding_needed = total_length - value.len();
+        format!("{value}{}", " ".repeat(padding_needed)) // Pad with spaces
+    }
+}
+pub fn copy_dir_recursively(src: &Path, dst: &Path) -> error::Result<()> {
+    if !dst.exists() {
+        fs::create_dir_all(dst)?;
+    }
 
-pub async fn load_cache(bin_path: &str, _remote_path: &str) -> (bool, String) {
+    tracing::debug!("Copying recursively from {:?} to {:?}", src, dst);
+
+    for entry in fs::read_dir(src)? {
+        let entry = entry?;
+        let src_path = entry.path();
+        let dst_path = dst.join(entry.file_name());
+
+        if src_path.is_dir() && !src_path.is_symlink() {
+            copy_dir_recursively(&src_path, &dst_path)?;
+        } else {
+            fs::copy(&src_path, &dst_path)?;
+        }
+    }
+
+    tracing::debug!("Finished copying recursively from {:?} to {:?}", src, dst);
+
+    Ok(())
+}
+
+pub async fn load_cache(bin_path: &str, _remote_path: &str, is_dir: bool) -> (bool, String) {
     if tokio::fs::metadata(&bin_path).await.is_ok() {
         (true, format!("loaded from local cache: {}\n", bin_path))
     } else {
@@ -399,12 +592,22 @@ pub async fn load_cache(bin_path: &str, _remote_path: &str) -> (bool, String) {
             use crate::s3_helpers::attempt_fetch_bytes;
 
             if let Ok(mut x) = attempt_fetch_bytes(os, _remote_path).await {
-                if let Err(e) = write_binary_file(bin_path, &mut x) {
-                    tracing::error!("could not write bundle/bin file locally: {e:?}");
-                    return (
-                        false,
-                        "error writing bundle/bin file from object store".to_string(),
-                    );
+                if is_dir {
+                    if let Err(e) = extract_tar(x, bin_path).await {
+                        tracing::error!("could not write tar archive locally: {e:?}");
+                        return (
+                            false,
+                            "error writing tar archive from object store".to_string(),
+                        );
+                    }
+                } else {
+                    if let Err(e) = write_binary_file(bin_path, &mut x) {
+                        tracing::error!("could not write bundle/bin file locally: {e:?}");
+                        return (
+                            false,
+                            "error writing bundle/bin file from object store".to_string(),
+                        );
+                    }
                 }
                 tracing::info!("loaded from object store {}", bin_path);
                 return (
@@ -417,6 +620,7 @@ pub async fn load_cache(bin_path: &str, _remote_path: &str) -> (bool, String) {
                 );
             }
         }
+        let _ = is_dir;
         (false, "".to_string())
     }
 }
@@ -444,6 +648,7 @@ pub async fn save_cache(
     local_cache_path: &str,
     _remote_cache_path: &str,
     origin: &str,
+    is_dir: bool,
 ) -> crate::error::Result<String> {
     let mut _cached_to_s3 = false;
     #[cfg(all(feature = "enterprise", feature = "parquet"))]
@@ -453,11 +658,33 @@ pub async fn save_cache(
         .clone()
     {
         use object_store::path::Path;
+        let file_to_cache = if is_dir {
+            let tar_path = format!(
+                "{ROOT_CACHE_DIR}/tar/{}_tar.tar",
+                local_cache_path
+                    .split("/")
+                    .last()
+                    .unwrap_or(&uuid::Uuid::new_v4().to_string())
+            );
+            let tar_file = std::fs::File::create(&tar_path)?;
+            let mut tar = tar::Builder::new(tar_file);
+            tar.append_dir_all(".", &origin)?;
+            let tar_metadata = tokio::fs::metadata(&tar_path).await;
+            if tar_metadata.is_err() || tar_metadata.as_ref().unwrap().len() == 0 {
+                tracing::info!("Failed to tar cache: {origin}");
+                return Err(error::Error::ExecutionErr(format!(
+                    "Failed to tar cache: {origin}"
+                )));
+            }
+            tar_path
+        } else {
+            origin.to_owned()
+        };
 
         if let Err(e) = os
             .put(
                 &Path::from(_remote_cache_path),
-                std::fs::read(origin)?.into(),
+                std::fs::read(&file_to_cache)?.into(),
             )
             .await
         {
@@ -467,12 +694,19 @@ pub async fn save_cache(
             );
         } else {
             _cached_to_s3 = true;
+            if is_dir {
+                tokio::fs::remove_dir_all(&file_to_cache).await?;
+            }
         }
     }
 
     // if !*CLOUD_HOSTED {
     if true {
-        std::fs::copy(origin, local_cache_path)?;
+        if is_dir {
+            copy_dir_recursively(&PathBuf::from(origin), &PathBuf::from(local_cache_path))?;
+        } else {
+            std::fs::copy(origin, local_cache_path)?;
+        }
         Ok(format!(
             "\nwrote cached binary: {} (backed by EE distributed object store: {_cached_to_s3})\n",
             local_cache_path
@@ -487,6 +721,31 @@ pub async fn save_cache(
     }
 }
 
+#[cfg(all(feature = "enterprise", feature = "parquet"))]
+pub async fn extract_tar(tar: bytes::Bytes, folder: &str) -> error::Result<()> {
+    use std::time::Instant;
+
+    use bytes::Buf;
+    use tokio::fs::{self};
+
+    let start: Instant = Instant::now();
+    fs::create_dir_all(&folder).await?;
+
+    let mut ar = tar::Archive::new(tar.reader());
+
+    if let Err(e) = ar.unpack(folder) {
+        tracing::info!("Failed to untar to {folder}. Error: {:?}", e);
+        fs::remove_dir_all(&folder).await?;
+        return Err(error::Error::ExecutionErr(format!(
+            "Failed to untar tar {folder}"
+        )));
+    }
+    tracing::info!(
+        "Finished extracting tar to {folder}. Took {}ms",
+        start.elapsed().as_millis(),
+    );
+    Ok(())
+}
 #[cfg(all(feature = "enterprise", feature = "parquet"))]
 fn write_binary_file(main_path: &str, byts: &mut bytes::Bytes) -> error::Result<()> {
     use std::fs::{File, Permissions};
@@ -637,29 +896,39 @@ pub fn get_windmill_memory_usage() -> Option<i64> {
     }
 }
 
-pub async fn update_min_version<'c, E: sqlx::Executor<'c, Database = sqlx::Postgres>>(
-    executor: E,
-) -> bool {
+pub async fn update_min_version(conn: &Connection) -> bool {
     use crate::utils::{GIT_SEM_VERSION, GIT_VERSION};
 
-    // fetch all pings with a different version than self from the last 5 minutes.
-    let pings = sqlx::query_scalar!(
-        "SELECT wm_version FROM worker_ping WHERE wm_version != $1 AND ping_at > now() - interval '5 minutes'",
-        GIT_VERSION
-    ).fetch_all(executor).await.unwrap_or_default();
-
     let cur_version = GIT_SEM_VERSION.clone();
-    let min_version = pings
-        .iter()
-        .filter(|x| !x.is_empty())
-        .filter_map(|x| semver::Version::parse(x.split_at(1).1).ok())
-        .min()
-        .unwrap_or_else(|| cur_version.clone());
+
+    let min_version = match conn {
+        Connection::Sql(pool) => {
+            // fetch all pings with a different version than self from the last 5 minutes.
+            let pings = sqlx::query_scalar!(
+                "SELECT wm_version FROM worker_ping WHERE wm_version != $1 AND ping_at > now() - interval '5 minutes'",
+                GIT_VERSION
+            ).fetch_all(pool).await.unwrap_or_default();
+
+            pings
+                .iter()
+                .filter(|x| !x.is_empty())
+                .filter_map(|x| {
+                    semver::Version::parse(if x.starts_with('v') { &x[1..] } else { x }).ok()
+                })
+                .min()
+                .unwrap_or_else(|| cur_version.clone())
+        }
+        Connection::Http(_) => {
+            // TODO: get min version from server, for now we use the current version. Min version should be of no interest for http mode workers
+            cur_version.clone()
+        }
+    };
 
     if min_version != cur_version {
         tracing::info!("Minimal worker version: {min_version}");
     }
 
+    *MIN_VERSION_IS_AT_LEAST_1_461.write().await = min_version >= Version::new(1, 461, 0);
     *MIN_VERSION_IS_AT_LEAST_1_427.write().await = min_version >= Version::new(1, 427, 0);
     *MIN_VERSION_IS_AT_LEAST_1_432.write().await = min_version >= Version::new(1, 432, 0);
     *MIN_VERSION_IS_AT_LEAST_1_440.write().await = min_version >= Version::new(1, 440, 0);
@@ -668,40 +937,333 @@ pub async fn update_min_version<'c, E: sqlx::Executor<'c, Database = sqlx::Postg
     min_version >= cur_version
 }
 
-pub async fn update_ping(worker_instance: &str, worker_name: &str, ip: &str, db: &DB) {
-    let (tags, dw) = {
-        let wc = WORKER_CONFIG.read().await.clone();
-        (
-            wc.worker_tags,
-            wc.dedicated_worker
-                .as_ref()
-                .map(|x| format!("{}:{}", x.workspace_id, x.path)),
-        )
-    };
+#[derive(Serialize, Deserialize)]
+pub enum PingType {
+    Initial,
+    MainLoop,
+    Job,
+    InitScript,
+}
+#[derive(Serialize, Deserialize)]
+pub struct Ping {
+    pub last_job_executed: Option<Uuid>,
+    pub last_job_workspace_id: Option<String>,
+    pub worker_instance: Option<String>,
+    pub ip: Option<String>,
+    pub tags: Option<Vec<String>>,
+    pub dw: Option<String>,
+    pub version: Option<String>,
+    pub vcpus: Option<i64>,
+    pub memory: Option<i64>,
+    pub memory_usage: Option<i64>,
+    pub wm_memory_usage: Option<i64>,
+    pub jobs_executed: Option<i32>,
+    pub occupancy_rate: Option<f32>,
+    pub occupancy_rate_15s: Option<f32>,
+    pub occupancy_rate_5m: Option<f32>,
+    pub occupancy_rate_30m: Option<f32>,
+    pub ping_type: PingType,
+}
+pub async fn update_ping_http(
+    insert_ping: Ping,
+    worker_name: &str,
+    worker_group: &str,
+    db: &DB,
+) -> anyhow::Result<()> {
+    // tracing::info!("update ping: {}", insert_ping.tags.join(","));
+    match insert_ping.ping_type {
+        PingType::MainLoop => {
+            update_worker_ping_main_loop_query(
+                worker_name,
+                insert_ping.tags.unwrap_or_default().as_slice(),
+                insert_ping.vcpus,
+                insert_ping.memory,
+                insert_ping.jobs_executed,
+                insert_ping.occupancy_rate,
+                insert_ping.memory_usage,
+                insert_ping.wm_memory_usage,
+                insert_ping.occupancy_rate_15s,
+                insert_ping.occupancy_rate_5m,
+                insert_ping.occupancy_rate_30m,
+                db,
+            )
+            .await?
+        }
+        PingType::Initial => {
+            if insert_ping.worker_instance.is_none()
+                || insert_ping.version.is_none()
+                || insert_ping.ip.is_none()
+            {
+                return Err(anyhow::anyhow!(
+                    "Worker instance, version and ip are required"
+                ));
+            }
 
-    let vcpus = get_vcpus();
-    let memory = get_memory();
+            insert_ping_query(
+                &insert_ping.worker_instance.unwrap(),
+                &worker_name,
+                worker_group,
+                &insert_ping.ip.unwrap(),
+                insert_ping.tags.unwrap_or_default().as_slice(),
+                insert_ping.dw,
+                &insert_ping.version.unwrap(),
+                insert_ping.vcpus,
+                insert_ping.memory,
+                db,
+            )
+            .await?;
+        }
+        PingType::Job => {
+            update_worker_ping_from_job_query(
+                &insert_ping.last_job_executed.unwrap_or_default(),
+                &insert_ping.last_job_workspace_id.unwrap_or_default(),
+                worker_name,
+                insert_ping.memory_usage,
+                insert_ping.wm_memory_usage,
+                insert_ping.occupancy_rate,
+                insert_ping.occupancy_rate_15s,
+                insert_ping.occupancy_rate_5m,
+                insert_ping.occupancy_rate_30m,
+                db,
+            )
+            .await?;
+        }
+        PingType::InitScript => {
+            update_ping_for_failed_init_script_query(
+                worker_name,
+                insert_ping.last_job_executed.unwrap_or_default(),
+                db,
+            )
+            .await?
+        }
+    }
+    Ok(())
+}
 
+#[derive(Serialize, Deserialize)]
+pub struct JobCancelled {
+    pub canceled_by: String,
+    pub reason: String,
+}
+
+pub async fn set_job_cancelled_query(
+    job_id: Uuid,
+    db: &DB,
+    canceled_by: &str,
+    reason: &str,
+) -> anyhow::Result<()> {
+    sqlx::query!(
+        "UPDATE v2_job_queue
+    SET canceled_by = $1
+      , canceled_reason = $2
+WHERE id = $3",
+        canceled_by,
+        reason,
+        job_id
+    )
+    .execute(db)
+    .await?;
+    Ok(())
+}
+
+pub async fn update_ping_for_failed_init_script_query(
+    worker_name: &str,
+    last_job_id: Uuid,
+    db: &DB,
+) -> anyhow::Result<()> {
+    sqlx::query!(
+        "UPDATE worker_ping SET 
+ping_at = now(), 
+jobs_executed = 1, 
+current_job_id = $1, 
+current_job_workspace_id = 'admins' 
+WHERE worker = $2",
+        last_job_id,
+        worker_name
+    )
+    .execute(db)
+    .await?;
+    Ok(())
+}
+
+pub async fn fetch_flow_node_query(
+    db: &DB,
+    id: i64,
+    loc: &'static Location<'_>,
+) -> error::Result<RawNode> {
+    let r = sqlx::query!(
+        "SELECT \
+            code AS \"raw_code: String\", \
+            lock AS \"raw_lock: String\", \
+            flow AS \"raw_flow: Json<Box<RawValue>>\" \
+        FROM flow_node WHERE id = $1 LIMIT 1",
+        id,
+    )
+    .fetch_optional(db)
+    .await
+    .map_err(Into::into)
+    .and_then(unwrap_or_error(loc, "Flow node", id))
+    .map(|r| RawNode {
+        raw_code: r.raw_code,
+        raw_lock: r.raw_lock,
+        raw_flow: r.raw_flow.map(|Json(raw_flow)| raw_flow),
+    })?;
+    Ok(r)
+}
+
+pub async fn fetch_raw_script_from_app_query(
+    db: &DB,
+    id: i64,
+    loc: &'static Location<'_>,
+) -> error::Result<RawScript> {
+    sqlx::query!(
+        "SELECT lock, code FROM app_script WHERE id = $1 LIMIT 1",
+        id,
+    )
+    .fetch_optional(db)
+    .await
+    .map_err(Into::into)
+    .and_then(unwrap_or_error(&loc, "Application script", id))
+    .map(|r| RawScript { content: r.code, lock: r.lock, meta: None })
+}
+
+pub async fn insert_ping_query(
+    worker_instance: &str,
+    worker_name: &str,
+    worker_group: &str,
+    ip: &str,
+    tags: &[String],
+    dw: Option<String>,
+    version: &str,
+    vcpus: Option<i64>,
+    memory: Option<i64>,
+    db: &DB,
+) -> anyhow::Result<()> {
     sqlx::query!(
         "INSERT INTO worker_ping (worker_instance, worker, ip, custom_tags, worker_group, dedicated_worker, wm_version, vcpus, memory) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) ON CONFLICT (worker) DO UPDATE set ip = $3, custom_tags = $4, worker_group = $5",
         worker_instance,
         worker_name,
         ip,
-        tags.as_slice(),
-        *WORKER_GROUP,
+        tags,
+        worker_group,
         dw,
-        crate::utils::GIT_VERSION,
+        version,
         vcpus,
         memory
+        )
+        .execute(db)
+        .await?;
+    Ok(())
+}
+
+pub async fn update_worker_ping_from_job_query(
+    job_id: &Uuid,
+    w_id: &str,
+    worker_name: &str,
+    memory_usage: Option<i64>,
+    wm_memory_usage: Option<i64>,
+    occupancy_rate: Option<f32>,
+    occupancy_rate_15s: Option<f32>,
+    occupancy_rate_5m: Option<f32>,
+    occupancy_rate_30m: Option<f32>,
+    db: &DB,
+) -> anyhow::Result<()> {
+    sqlx::query!(
+        "UPDATE worker_ping SET ping_at = now(), current_job_id = $1, current_job_workspace_id = $2, memory_usage = $3, wm_memory_usage = $4,
+        occupancy_rate = $6, occupancy_rate_15s = $7, occupancy_rate_5m = $8, occupancy_rate_30m = $9 WHERE worker = $5",
+            job_id,
+        w_id,
+        memory_usage,
+        wm_memory_usage,
+        worker_name,
+        occupancy_rate,
+        occupancy_rate_15s,
+        occupancy_rate_5m,
+        occupancy_rate_30m,
     )
     .execute(db)
-    .await
-    .expect("insert worker_ping initial value");
+    .await?;
+    Ok(())
 }
+
+pub async fn update_job_ping_query(
+    job_id: &Uuid,
+    db: &DB,
+    mem_peak: Option<i32>,
+) -> anyhow::Result<PingJobStatusResponse> {
+    let ro = sqlx::query!(
+        "UPDATE v2_job_runtime r SET
+        memory_peak = $1,
+        ping = now()
+    FROM v2_job_queue q
+    WHERE r.id = $2 AND q.id = r.id
+    RETURNING canceled_by, canceled_reason",
+        mem_peak,
+        job_id
+    )
+    .map(|x| PingJobStatusResponse {
+        canceled_by: x.canceled_by,
+        canceled_reason: x.canceled_reason,
+        already_completed: false,
+    })
+    .fetch_optional(db)
+    .await;
+
+    // TODO: add memory metrics to memory time series
+
+    if let Ok(r) = ro {
+        if let Some(i) = r {
+            Ok(i)
+        } else {
+            Err(anyhow::anyhow!("Job not found"))
+        }
+    } else {
+        Err(to_anyhow(ro.unwrap_err()))
+    }
+}
+
+pub async fn update_worker_ping_main_loop_query(
+    worker_name: &str,
+    tags: &[String],
+    vcpus: Option<i64>,
+    memory: Option<i64>,
+    jobs_executed: Option<i32>,
+    occupancy_rate: Option<f32>,
+    memory_usage: Option<i64>,
+    wm_memory_usage: Option<i64>,
+    occupancy_rate_15s: Option<f32>,
+    occupancy_rate_5m: Option<f32>,
+    occupancy_rate_30m: Option<f32>,
+    db: &DB,
+) -> anyhow::Result<()> {
+    sqlx::query!(
+        "UPDATE worker_ping SET ping_at = now(), jobs_executed = $1, custom_tags = $2,
+         occupancy_rate = $3, memory_usage = $4, wm_memory_usage = $5, vcpus = COALESCE($7, vcpus),
+         memory = COALESCE($8, memory), occupancy_rate_15s = $9, occupancy_rate_5m = $10, occupancy_rate_30m = $11 WHERE worker = $6",
+        jobs_executed,
+        tags,
+        occupancy_rate,
+        memory_usage,
+        wm_memory_usage,
+        worker_name,
+        vcpus,
+        memory,
+        occupancy_rate_15s,
+        occupancy_rate_5m,
+        occupancy_rate_30m,
+    )
+    .execute(db)
+    .await?;
+    Ok(())
+}
+
+// "UPDATE worker_ping SET ping_at = now(), jobs_executed = $1, custom_tags = $2,
+// occupancy_rate = $3, memory_usage = $4, wm_memory_usage = $5, vcpus = COALESCE($7, vcpus),
+// memory = COALESCE($8, memory), occupancy_rate_15s = $9, occupancy_rate_5m = $10, occupancy_rate_30m = $11 WHERE worker = $6",
 
 pub async fn load_worker_config(
     db: &DB,
-    killpill_tx: tokio::sync::broadcast::Sender<()>,
+    killpill_tx: KillpillSender,
 ) -> error::Result<WorkerConfig> {
     tracing::info!("Loading config from WORKER_GROUP: {}", *WORKER_GROUP);
     let mut config: WorkerConfigOpt = sqlx::query_scalar!(
@@ -735,7 +1297,7 @@ pub async fn load_worker_config(
         .map(|x| {
             let splitted = x.split(':').to_owned().collect_vec();
             if splitted.len() != 2 {
-                killpill_tx.send(()).expect("send");
+                killpill_tx.send();
                 return Err(anyhow::anyhow!(
                     "Invalid dedicated_worker format. Got {x}, expects <workspace_id>:<path>"
                 ));
@@ -896,7 +1458,7 @@ pub struct WorkspacedPath {
     pub path: String,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Debug)]
 pub struct WorkerConfigOpt {
     pub worker_tags: Option<Vec<String>>,
     pub priority_tags: Option<HashMap<String, u8>>,

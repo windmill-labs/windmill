@@ -49,7 +49,7 @@
 					</tr>
 				{/each}
 			{:else}
-				<tr>Loading...</tr>
+				<tr><td>Loading...</td></tr>
 			{/if}
 		</tbody>
 	</DataTable>

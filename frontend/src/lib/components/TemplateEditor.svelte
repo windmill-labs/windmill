@@ -13,12 +13,13 @@
 	import { createEventDispatcher, getContext, onDestroy, onMount } from 'svelte'
 	import type { AppViewerContext } from './apps/types'
 	import { writable } from 'svelte/store'
-	import '@codingame/monaco-vscode-standalone-languages'
+	// import '@codingame/monaco-vscode-standalone-languages'
 	import '@codingame/monaco-vscode-standalone-typescript-language-features'
 
 	import { initializeVscode } from './vscode'
 	import EditorTheme from './EditorTheme.svelte'
 	import { buildWorkerDefinition } from '$lib/monaco_workers/build_workers'
+	import FakeMonacoPlaceHolder from './FakeMonacoPlaceHolder.svelte'
 
 	export const conf = {
 		wordPattern:
@@ -374,6 +375,7 @@
 	export let autoHeight = true
 	export let fixedOverflowWidgets = true
 	export let fontSize = 16
+	export let loadAsync = false
 
 	if (typeof code != 'string') {
 		code = ''
@@ -594,8 +596,15 @@
 	let mounted = false
 	onMount(async () => {
 		if (BROWSER) {
-			await loadMonaco()
-			mounted = true
+			if (loadAsync) {
+				setTimeout(async () => {
+					await loadMonaco()
+					mounted = true
+				}, 0)
+			} else {
+				await loadMonaco()
+				mounted = true
+			}
 		}
 	})
 
@@ -626,12 +635,24 @@
 
 <EditorTheme />
 
+{#if !editor}
+	<FakeMonacoPlaceHolder
+		autoheight
+		{code}
+		lineNumbersWidth={23}
+		lineNumbersOffset={-8}
+		class="border template nonmain-editor rounded min-h-4 mx-0.5 overflow-clip"
+	/>
+{/if}
 <div
 	bind:this={divEl}
 	style="height: 18px;"
-	class="{$$props.class ?? ''} border template nonmain-editor rounded min-h-4 mx-0.5 overflow-clip"
+	class="{$$props.class ??
+		''} border template nonmain-editor rounded min-h-4 mx-0.5 overflow-clip {!editor
+		? 'hidden'
+		: ''}"
 	bind:clientWidth={width}
-/>
+></div>
 
 <style>
 	:global(.template .mtk20) {

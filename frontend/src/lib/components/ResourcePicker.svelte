@@ -8,12 +8,15 @@
 	import ResourceEditorDrawer from './ResourceEditorDrawer.svelte'
 
 	import { Button } from './common'
-	import DBSchemaExplorer from './DBSchemaExplorer.svelte'
+	import DBManagerDrawerButton from './DBManagerDrawerButton.svelte'
 	import DarkModeObserver from './DarkModeObserver.svelte'
 	import { Pen, Plus, RotateCw } from 'lucide-svelte'
 	import { sendUserToast } from '$lib/toast'
+	import { isDbType } from './apps/components/display/dbtable/utils'
+	import { createDispatcherIfMounted } from '$lib/createDispatcherIfMounted'
 
 	const dispatch = createEventDispatcher()
+	const dispatchIfMounted = createDispatcherIfMounted(dispatch)
 
 	export let initialValue: string | undefined = undefined
 	export let value: string | undefined = initialValue
@@ -41,7 +44,7 @@
 					value: value ?? initialValue,
 					label: value ?? initialValue,
 					type: valueType
-			  }
+				}
 			: undefined
 
 	$: if (value === undefined && initialValue) {
@@ -97,7 +100,7 @@
 
 	$: $workspaceStore && loadResources(resourceType)
 
-	$: dispatch('change', value)
+	$: dispatchIfMounted('change', value)
 
 	let appConnect: AppConnect
 	let resourceEditor: ResourceEditorDrawer
@@ -133,7 +136,7 @@
 	}}
 />
 
-<div class="flex flex-col w-full items-start">
+<div class="flex flex-col w-full items-start min-h-9">
 	<div class="flex flex-row w-full items-center">
 		{#if collection?.length > 0}
 			<Select
@@ -164,7 +167,7 @@
 			<div class="text-2xs text-tertiary mr-2">0 found</div>
 		{/if}
 		{#if !loading}
-			<div class="mx-0.5" />
+			<div class="mx-0.5"></div>
 			{#if value && value != ''}
 				<Button
 					{disabled}
@@ -203,7 +206,7 @@
 						Add a {resourceType} resource
 					{/if}</Button
 				>
-				<div class="mx-0.5" />
+				<div class="mx-0.5"></div>
 			{/if}
 		{/if}
 
@@ -219,7 +222,7 @@
 			iconOnly
 		/>
 	</div>
-	{#if showSchemaExplorer}
-		<DBSchemaExplorer {resourceType} resourcePath={value} />
+	{#if showSchemaExplorer && isDbType(resourceType) && value}
+		<DBManagerDrawerButton {resourceType} resourcePath={value} />
 	{/if}
 </div>

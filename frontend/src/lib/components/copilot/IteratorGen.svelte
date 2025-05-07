@@ -14,6 +14,7 @@
 	import { yamlStringifyExceptKeys } from './utils'
 	import { copilotInfo, stepInputCompletionEnabled } from '$lib/stores'
 	import { twMerge } from 'tailwind-merge'
+	import { createDispatcherIfMounted } from '$lib/createDispatcherIfMounted'
 
 	let generatedContent = ''
 	let loading = false
@@ -62,7 +63,6 @@ ${YAML.stringify(availableData)}</available>
 Reply with the most probable answer, do not explain or discuss.
 Use javascript object dot notation to access the properties.
 Only output the expression, do not explain or discuss.`
-			const aiProvider = $copilotInfo.ai_provider
 			generatedContent = await getNonStreamingCompletion(
 				[
 					{
@@ -70,12 +70,11 @@ Only output the expression, do not explain or discuss.`
 						content: user
 					}
 				],
-				abortController,
-				aiProvider
+				abortController
 			)
 		} catch (err) {
 			if (!abortController.signal.aborted) {
-				sendUserToast('Could not generate summary: ' + err, true)
+				sendUserToast('Could not generate iterator expression: ' + err, true)
 			}
 		} finally {
 			loading = false
@@ -83,7 +82,7 @@ Only output the expression, do not explain or discuss.`
 	}
 
 	export function onKeyUp(event: KeyboardEvent) {
-		if (!$copilotInfo.exists_ai_resource || !$stepInputCompletionEnabled) {
+		if (!$copilotInfo.enabled || !$stepInputCompletionEnabled) {
 			return
 		}
 		if (event.key === 'Tab') {
@@ -98,6 +97,7 @@ Only output the expression, do not explain or discuss.`
 	}
 
 	const dispatch = createEventDispatcher()
+	const dispatchIfMounted = createDispatcherIfMounted(dispatch)
 
 	function automaticGeneration() {
 		if (empty) {
@@ -118,7 +118,7 @@ Only output the expression, do not explain or discuss.`
 		cancelOnOutOfFocus()
 	}
 
-	$: if ($copilotInfo.exists_ai_resource && $stepInputCompletionEnabled && focused) {
+	$: if ($copilotInfo.enabled && $stepInputCompletionEnabled && focused) {
 		automaticGeneration()
 	}
 
@@ -127,12 +127,12 @@ Only output the expression, do not explain or discuss.`
 		generatedContent = ''
 	}
 
-	$: dispatch('showExpr', generatedContent)
+	$: dispatchIfMounted('showExpr', generatedContent)
 
 	let out = true // hack to prevent regenerating answer when accepting the answer due to mouseenter on new icon
 </script>
 
-{#if $copilotInfo.exists_ai_resource && $stepInputCompletionEnabled}
+{#if $copilotInfo.enabled && $stepInputCompletionEnabled}
 	<ManualPopover showTooltip={!empty && generatedContent.length > 0} placement="bottom" class="p-2">
 		<Button
 			size="xs"

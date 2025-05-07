@@ -71,32 +71,24 @@ class LanguageServerWebSocketHandler(websocket.WebSocketHandler):
     def check_origin(self, origin):
         return True
 
-
 class PyrightLS(LanguageServerWebSocketHandler):
     procargs = ["pipenv", "run", "pyright-langserver", "--stdio"]
-
 
 class DiagnosticLS(LanguageServerWebSocketHandler):
     procargs = ["diagnostic-languageserver", "--stdio", "--log-level", "4"]
 
-
 class RuffLS(LanguageServerWebSocketHandler):
     procargs = ["ruff-lsp"]
-
 
 class DenoLS(LanguageServerWebSocketHandler):
     procargs = ["deno", "lsp"]
 
-
-
 class GoLS(LanguageServerWebSocketHandler):
     procargs = ["gopls", "serve"]
-
 
 class MainHandler(web.RequestHandler):
     def get(self):
         self.write("ok")
-
 
 if __name__ == "__main__":
     monaco_path = "/tmp/monaco"

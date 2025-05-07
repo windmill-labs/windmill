@@ -61,6 +61,8 @@
 	let renewing = false
 	let opening = false
 
+	let to: string = ''
+
 	async function reloadKeyrenewalAttemptInfo() {
 		latestKeyRenewalAttempt = await SettingService.getLatestKeyRenewalAttempt()
 	}
@@ -183,12 +185,13 @@
 					</span>
 				{/if}
 			</label>
-			<ToggleButtonGroup bind:selected={$values[setting.key]}>
+			<ToggleButtonGroup bind:selected={$values[setting.key]} let:item={toggleButton}>
 				{#each setting.select_items ?? [] as item}
 					<ToggleButton
 						value={item.value ?? item.label}
 						label={item.label}
 						tooltip={item.tooltip}
+						item={toggleButton}
 					/>
 				{/each}
 			</ToggleButtonGroup>
@@ -239,17 +242,20 @@
 						rows="2"
 						placeholder={setting.placeholder}
 						bind:value={$values[setting.key]}
-					/>
+					></textarea>
 					{#if setting.key == 'saml_metadata'}
 						<div class="flex mt-2">
 							<Button
 								disabled={!$enterpriseLicense}
 								on:click={async (e) => {
-									const res = await SettingService.testMetadata({
-										requestBody: $values[setting.key]
-									})
-									sendUserToast(`Metadata valid, see console for full content`)
-									console.log(`Metadata content:`, res)
+									try {
+										const res = await SettingService.testMetadata({
+											requestBody: $values[setting.key]
+										})
+										sendUserToast(`Metadata valid: ${res}`)
+									} catch (error) {
+										sendUserToast(`Invalid metadata`, true, error.message)
+									}
 								}}>Test content/url</Button
 							>
 						</div>
@@ -328,15 +334,15 @@
 												latestKeyRenewalAttempt.result === 'success'
 													? 'text-green-600'
 													: isTrial
-													? 'text-yellow-600'
-													: 'text-red-600'
+														? 'text-yellow-600'
+														: 'text-red-600'
 											)}
 										>
 											{latestKeyRenewalAttempt.result === 'success'
 												? 'Latest key renewal succeeded'
 												: isTrial
-												? 'Latest key renewal ignored because in trial'
-												: 'Latest key renewal failed'}
+													? 'Latest key renewal ignored because in trial'
+													: 'Latest key renewal failed'}
 											on {attemptedAt}
 										</span>
 									</div>
@@ -422,6 +428,9 @@
 														[e.target['value']]: ''
 													}
 												}
+												if (e.target?.['value'] === 'teams_channel') {
+													fetchTeams()
+												}
 											}}
 											value={(() => {
 												if (!v) return 'email'
@@ -456,15 +465,17 @@
 														selected={!$values['critical_error_channels'][i]?.teams_channel
 															?.team_id}>Select team</option
 													>
-													{#each $values['teams'] as team}
-														<option
-															value={team.team_id}
-															selected={$values['critical_error_channels'][i]?.teams_channel
-																?.team_id === team.team_id}
-														>
-															{team.team_name}
-														</option>
-													{/each}
+													{#if $values['teams']}
+														{#each $values['teams'] as team}
+															<option
+																value={team.team_id}
+																selected={$values['critical_error_channels'][i]?.teams_channel
+																	?.team_id === team.team_id}
+															>
+																{team.team_name}
+															</option>
+														{/each}
+													{/if}
 												</select>
 												{#if $values['critical_error_channels'][i]?.teams_channel?.team_id}
 													<select
@@ -742,6 +753,30 @@
 				{:else if setting.fieldType == 'smtp_connect'}
 					<div class="flex flex-col gap-4 border rounded p-4">
 						{#if $values[setting.key]}
+							<div class="flex gap-4"
+								><input type="email" bind:value={to} placeholder="contact@windmill.dev" />
+								<Button
+									disabled={to == ''}
+									on:click={async () => {
+										let smtp = $values[setting.key]
+										await SettingService.testSmtp({
+											requestBody: {
+												to,
+												smtp: {
+													host: smtp['smtp_host'],
+													username: smtp['smtp_username'],
+													password: smtp['smtp_password'],
+													port: smtp['smtp_port'],
+													from: smtp['smtp_from'],
+													tls_implicit: smtp['smtp_tls_implicit'],
+													disable_tls: smtp['smtp_disable_tls']
+												}
+											}
+										})
+										sendUserToast('Test email sent')
+									}}>Test SMTP settings</Button
+								></div
+							>
 							<div>
 								<label for="smtp_host" class="block text-sm font-medium">Host</label>
 								<input
@@ -892,7 +927,31 @@
 					</div>
 				{:else if setting.fieldType == 'object_store_config'}
 					<ObjectStoreConfigSettings bind:bucket_config={$values[setting.key]} />
-					<div class="mb-6" />
+					<div class="mb-6"></div>
+				{:else if setting.fieldType == 'critical_alerts_on_db_oversize'}
+					{#if $values[setting.key]}
+						<div class="flex flex-row flex-wrap gap-2 p-0 items-center">
+							<div class="p-1">
+								<Toggle
+									disabled={!$enterpriseLicense}
+									bind:checked={$values[setting.key].enabled}
+								/>
+							</div>
+							{#if $values[setting.key].enabled}
+								<label class="block shrink min-w-0">
+									<input
+										type="number"
+										placeholder={setting.placeholder}
+										bind:value={$values[setting.key].value}
+									/>
+								</label>
+								<label class="block">
+									<span class="text-primary font-semibold text-sm">GB</span>
+								</label>
+							{/if}
+						</div>
+						<div class="mb-6"></div>
+					{/if}
 				{:else if setting.fieldType == 'number'}
 					<input
 						type="number"

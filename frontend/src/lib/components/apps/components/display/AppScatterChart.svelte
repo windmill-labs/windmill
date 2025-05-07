@@ -22,7 +22,7 @@
 	import { initOutput } from '../../editor/appUtils'
 	import { twMerge } from 'tailwind-merge'
 	import ResolveStyle from '../helpers/ResolveStyle.svelte'
-	import { Scatter } from 'svelte-chartjs'
+	import { Scatter } from '$lib/components/chartjs-wrappers/chartJs'
 
 	export let id: string
 	export let componentInput: AppInput | undefined

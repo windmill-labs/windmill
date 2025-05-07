@@ -70,7 +70,7 @@
 			/>
 		</div>
 	{:else}
-		<div class="w-9" />
+		<div class="w-9"></div>
 	{/if}
 
 	<div class="flex gap-1 items-center justify-end pr-2">

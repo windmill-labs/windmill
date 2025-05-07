@@ -16,8 +16,9 @@
 	import ToggleButton from '../common/toggleButton-v2/ToggleButton.svelte'
 	import Button from '../common/button/Button.svelte'
 	import { Pen, Plus, Trash2 } from 'lucide-svelte'
-	import Popup from '../common/popup/Popup.svelte'
+	import Popover from '$lib/components/meltComponents/Popover.svelte'
 	import { deepEqual } from 'fast-equals'
+	import { createDispatcherIfMounted } from '$lib/createDispatcherIfMounted'
 
 	export let format: string | undefined = undefined
 	export let contentEncoding: 'base64' | 'binary' | undefined = undefined
@@ -92,6 +93,7 @@
 	$: orderUpdate(order)
 
 	const dispatch = createEventDispatcher()
+	const dispatchIfMounted = createDispatcherIfMounted(dispatch)
 
 	function getResourceTypesFromFormat(format: string | undefined): string[] {
 		if (format?.startsWith('resource-')) {
@@ -132,7 +134,7 @@
 					}
 				}
 			})
-			dispatch('schemaChange', { properties, order, requiredProperty, oneOf })
+			dispatchIfMounted('schemaChange', { properties, order, requiredProperty, oneOf })
 		}
 	}
 
@@ -180,30 +182,31 @@
 
 <div class="flex flex-col gap-2">
 	{#if type === 'object' && schema.oneOf && schema.oneOf.length >= 2}
-		<div class="flex flex-row gap-2 items-center justify-start">
-			<ToggleButtonGroup bind:selected={oneOfSelected} class="w-auto">
+		<div class="flex flex-row gap-1 items-center justify-start">
+			<ToggleButtonGroup
+				bind:selected={oneOfSelected}
+				class="h-auto w-auto"
+				tabListClass="flex-wrap"
+				let:item
+			>
 				{#each schema.oneOf as obj}
-					<ToggleButton value={obj.title} label={obj.title} />
+					<ToggleButton value={obj.title ?? ''} label={obj.title} {item} />
 				{/each}
 			</ToggleButtonGroup>
 
-			<Popup
-				floatingConfig={{ strategy: 'absolute', placement: 'bottom-end' }}
-				containerClasses="border rounded-lg shadow-lg p-4 bg-surface"
-				let:close
-			>
-				<svelte:fragment slot="button">
+			<Popover placement="bottom-end" closeButton>
+				<svelte:fragment slot="trigger">
 					<Button size="xs2" color="light" nonCaptureEvent startIcon={{ icon: Plus }} />
 				</svelte:fragment>
-				<Label label="Label">
-					<div class="flex flex-col gap-2">
+				<svelte:fragment slot="content" let:close>
+					<Label label="Label" class="p-2 flex flex-col gap-2">
 						<input
 							type="text"
 							class="w-full !bg-surface"
 							on:keydown={(event) => {
 								if (event.key === 'Enter') {
 									createVariant(variantName)
-									close(null)
+									close()
 								}
 							}}
 							bind:value={variantName}
@@ -214,25 +217,25 @@
 							size="xs"
 							on:click={() => {
 								createVariant(variantName)
-								close(null)
+								close()
 							}}
-							disabled={!variantName}
+							disabled={variantName.length === 0}
 						>
 							Add
 						</Button>
-					</div>
-				</Label>
-			</Popup>
+					</Label>
+				</svelte:fragment>
+			</Popover>
 		</div>
 		<div class="flex flex-row gap-2 items-center">
 			<span class="font-semibold text-sm">{oneOfSelected}</span>
 
-			<Popup
+			<Popover
 				floatingConfig={{ strategy: 'absolute', placement: 'bottom-end' }}
 				containerClasses="border rounded-lg shadow-lg p-4 bg-surface"
-				let:close
+				closeButton
 			>
-				<svelte:fragment slot="button">
+				<svelte:fragment slot="trigger">
 					<Button
 						size="xs2"
 						color="light"
@@ -246,8 +249,8 @@
 						}}
 					/>
 				</svelte:fragment>
-				<Label label="Label">
-					<div class="flex flex-col gap-2">
+				<svelte:fragment slot="content" let:close>
+					<Label label="Label" class="p-2 flex flex-col gap-2">
 						<input
 							type="text"
 							class="w-full !bg-surface"
@@ -255,7 +258,7 @@
 								if (event.key === 'Enter') {
 									if (oneOfSelected) {
 										renameVariant(variantName, oneOfSelected)
-										close(null)
+										close()
 									}
 								}
 							}}
@@ -268,16 +271,16 @@
 							on:click={() => {
 								if (oneOfSelected) {
 									renameVariant(variantName, oneOfSelected)
-									close(null)
+									close()
 								}
 							}}
-							disabled={!variantName}
+							disabled={variantName.length === 0}
 						>
 							Rename
 						</Button>
-					</div>
-				</Label>
-			</Popup>
+					</Label>
+				</svelte:fragment>
+			</Popover>
 			<Button
 				size="xs2"
 				color="red"
@@ -304,7 +307,7 @@
 		{/if}
 	{:else if type === 'object' && format !== 'resource-s3_object'}
 		<Tabs
-			selected={initialObjectSelected}
+			bind:selected={initialObjectSelected}
 			on:selected={(e) => {
 				if (e.detail === 'custom-object') {
 					format = ''
@@ -327,7 +330,7 @@
 		</Tabs>
 	{/if}
 
-	{#if !(type === 'object' && oneOf && oneOf.length >= 2)}
+	{#if !(type === 'object' && oneOf && oneOf.length >= 2) && !(type == 'object' && initialObjectSelected == 'custom-object')}
 		<Label label="Default">
 			<ArgInput
 				noDefaultOnSelectFirst

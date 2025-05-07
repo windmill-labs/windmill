@@ -6,6 +6,7 @@
 	import type { DispatchEvents, MultiSelectEvents, Option as T } from './types'
 	import { get_label, get_style, scroll_into_view_if_needed_polyfill } from './utils'
 	import { ChevronsUpDown, X } from 'lucide-svelte'
+	import type { FullAutoFill } from 'svelte/elements'
 
 	type Option = $$Generic<T>
 
@@ -13,7 +14,7 @@
 	export let activeOption: Option | null = null
 	export let createOptionMsg: string | null = `Create this option...`
 	export let allowUserOptions: boolean | 'append' = false
-	export let autocomplete: string = `off`
+	export let autocomplete: FullAutoFill = `off`
 	export let autoScroll: boolean = true
 	export let breakpoint: number = 800 // any screen with more horizontal pixels is considered desktop, below is mobile
 	export let defaultDisabledTitle: string = `This option is disabled`
@@ -81,7 +82,7 @@
 	export let disableRemoveAll: boolean = false
 
 	const selected_to_value = (selected: Option[]) => {
-		value = maxSelect === 1 ? selected[0] ?? null : selected
+		value = maxSelect === 1 ? (selected[0] ?? null) : selected
 	}
 	const value_to_selected = (value: Option | Option[] | null) => {
 		if (maxSelect === 1) selected = value ? [value as Option] : []
@@ -372,7 +373,7 @@
 		}
 	) {
 		// @ts-ignore
-		if (!highlightMatches || typeof CSS == `undefined` || !CSS.highlights) return // abort if CSS highlight API not supported
+		if (!highlightMatches || !ul_options || typeof CSS == `undefined` || !CSS.highlights) return // abort if CSS highlight API not supported
 
 		// clear previous ranges from HighlightRegistry
 		// @ts-ignore
@@ -571,7 +572,7 @@
 		{/if}
 	{/if}
 	<!-- only render options dropdown if options or searchText is not empty (needed to avoid briefly flashing empty dropdown) -->
-	{#if (searchText && noMatchingOptionsMsg) || options?.length > 0}
+	{#if allowUserOptions || (searchText && noMatchingOptionsMsg) || options?.length > 0}
 		<div class="options bg-surface shadow-md rounded-component">
 			<VirtualList
 				width="100%"
@@ -620,7 +621,7 @@
 						</slot>
 					</div>
 				</div>
-				<div slot="footer" class="h-0" />
+				<div slot="footer" class="h-0"></div>
 			</VirtualList>
 			{#if searchText}
 				{@const text_input_is_duplicate = selected.map(get_label).includes(searchText)}
@@ -821,9 +822,6 @@
 		color: var(--sms-li-disabled-text, #b8b8b8);
 	}
 
-	:where(span.max-select-msg) {
-		padding: 0 3pt;
-	}
 	::highlight(sms-search-matches) {
 		color: mediumaquamarine;
 	}

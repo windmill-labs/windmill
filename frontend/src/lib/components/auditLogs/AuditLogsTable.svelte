@@ -13,6 +13,7 @@
 	export let logs: AuditLog[] = []
 	export let pageIndex: number | undefined = 1
 	export let perPage: number | undefined = 100
+	export let hasMore: boolean = true
 	export let actionKind: string | undefined = undefined
 	export let operation: string | undefined = undefined
 	export let selectedId: number | undefined = undefined
@@ -69,8 +70,8 @@
 	paginated
 	rounded={false}
 	size="sm"
+	{hasMore}
 	bind:perPage
-	shouldHidePagination={logs?.length === 0}
 >
 	<Head>
 		<Cell first head>ID</Cell>

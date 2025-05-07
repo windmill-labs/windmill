@@ -30,6 +30,12 @@ jobs:
           token: ${{ secrets.WINDMILL_EE_PRIVATE_ACCESS }}
           fetch-depth: 0
 
+      - name: Setup Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: 1.85.0
+          override: true
+
       - name: Substitute EE code
         shell: bash
         run: |
@@ -45,8 +51,7 @@ jobs:
           $env:OPENSSL_DIR="${Env:VCPKG_INSTALLATION_ROOT}\installed\x64-windows-static"
           mkdir frontend/build && cd backend
           New-Item -Path . -Name "windmill-api/openapi-deref.yaml" -ItemType "File" -Force
-          cargo build --release --features=enterprise,stripe,embedding,parquet,prometheus,openidconnect,cloud,jemalloc,tantivy,deno_core,license,http_trigger,zip,oauth2,kafka,nats,php,mysql,mssql,bigquery,oracledb,postgres_trigger,websocket,python,smtp,csharp,static_frontend,rust
-
+          cargo build --release --features=enterprise,stripe,embedding,parquet,prometheus,openidconnect,cloud,jemalloc,tantivy,license,http_trigger,zip,oauth2,kafka,nats,sqs_trigger,postgres_trigger,gcp_trigger,mqtt_trigger,websocket,smtp,static_frontend,all_languages,mcp
       - name: Rename binary with corresponding architecture
         run: |
           Rename-Item -Path ".\backend\target\release\windmill.exe" -NewName "windmill-ee.exe"

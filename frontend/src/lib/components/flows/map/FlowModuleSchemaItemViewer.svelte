@@ -53,7 +53,7 @@
 			>
 			{#if deletable}
 				<button
-					class="absolute -left-[28px] z-10 h-[20px] rounded-l rounded-t rounded-s w-[20px] trash center-center text-secondary bg-surface duration-150 hover:bg-blue-400 {editId
+					class="absolute -left-[28px] z-10 h-[20px] rounded-l rounded-t rounded-s w-[20px] trash center-center text-secondary bg-surface duration-0 hover:bg-blue-400 {editId
 						? '!bg-blue-400'
 						: ''} hover:text-white
 hover:border-blue-700 hover:!visible {hover ? '' : '!hidden'}"

@@ -116,7 +116,7 @@
 			<AnimatedButton
 				animate={$propPickerConfig?.insertionMode == 'connect'}
 				baseRadius="4px"
-				wrapperClasses="h-full w-full pt-2 !bg-surface "
+				wrapperClasses="prop-picker-inputs h-full w-full pt-1 !bg-surface "
 				marginWidth="3px"
 				ringColor={$propPickerConfig?.insertionMode == 'insert' ||
 				$propPickerConfig?.insertionMode == 'append'
@@ -146,6 +146,7 @@
 						{pickableProperties}
 						allowCopy={!notSelectable && !$propPickerConfig}
 						on:select={({ detail }) => {
+							// console.log('selecting', detail)
 							dispatch('select', detail)
 							if ($propPickerConfig?.onSelect(detail)) {
 								$propPickerConfig?.clearFocus()

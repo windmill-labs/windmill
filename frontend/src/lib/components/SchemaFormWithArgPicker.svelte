@@ -12,6 +12,7 @@
 	import RefreshButton from './common/button/RefreshButton.svelte'
 
 	export let runnableId: string = ''
+	export let stablePathForCaptures: string = ''
 	export let runnableType: any
 	export let previewArgs: any
 	export let isValid: boolean = true
@@ -146,7 +147,7 @@
 							</svelete:fragment>
 							<div class="h-full">
 								<CaptureTable
-									path={runnableId}
+									path={stablePathForCaptures}
 									on:select={(e) => {
 										dispatch('select', { payload: e.detail, type: 'captures' })
 									}}

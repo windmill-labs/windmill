@@ -30,6 +30,9 @@
 		| 'scheduledPoll'
 		| 'kafka'
 		| 'nats'
+		| 'mqtt'
+		| 'sqs'
+		| 'gcp'
 	>('webhooks')
 
 	const simplifiedPoll = writable(false)
@@ -64,9 +67,12 @@
 							<slot slot="webhooks" name="webhooks" />
 							<slot slot="routes" name="routes" />
 							<slot slot="websockets" name="websockets" />
-							<slot slot="kafka" name="kafka" />
 							<slot slot="postgres" name="postgres" />
+							<slot slot="kafka" name="kafka" />
 							<slot slot="nats" name="nats" />
+							<slot slot="mqtt" name="mqtt" />
+							<slot slot="sqs" name="sqs" />
+							<slot slot="gcp" name="gcp" />
 							<slot slot="emails" name="emails" />
 							<slot slot="schedules" name="schedules" />
 							<slot slot="cli" name="cli" />
@@ -83,7 +89,7 @@
 			<slot name="header" />
 			<Tabs bind:selected={mobileTab}>
 				<Tab value="form">Run form</Tab>
-				<Tab value="saved_inputs">Saved Inputs</Tab>
+				<Tab value="saved_inputs">Inputs</Tab>
 				{#if !isOperator}
 					<Tab value="triggers">Triggers</Tab>
 				{/if}
@@ -111,9 +117,12 @@
 								<slot slot="routes" name="routes" />
 								<slot slot="script" name="script" />
 								<slot slot="websockets" name="websockets" />
-								<slot slot="kafka" name="kafka" />
 								<slot slot="postgres" name="postgres" />
+								<slot slot="kafka" name="kafka" />
 								<slot slot="nats" name="nats" />
+								<slot slot="mqtt" name="mqtt" />
+								<slot slot="sqs" name="sqs" />
+								<slot slot="gcp" name="gcp" />
 								<slot slot="emails" name="emails" />
 								<slot slot="schedules" name="schedules" />
 								<slot slot="cli" name="cli" />

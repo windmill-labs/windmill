@@ -414,6 +414,52 @@ class Script
 }
 `
 
+const NU_INIT_CODE = `use std assert
+
+# Nushell
+# A new type of shell
+def main [
+    no_default: string,
+    name = "Nicolas Bourbaki",
+    age: int = 42,
+    date_of_birth?: datetime,
+    obj: record = {"records": "included"},
+    l: list<string> = ["or", "lists!"],
+    tables?: table,
+    enable_kill_mode?: bool = true,
+] {
+    # Test
+    # https://www.nushell.sh/book/testing.html
+		assert ($age == 42)
+
+    print $"Hello World and a warm welcome especially to ($name)"
+    print "and its acolytes.." $age $obj $l
+    print $tables
+
+    let secret = try { 
+      get_variable f/examples/secret
+    } catch { 
+      'No secret yet at f/examples/secret !' 
+    };
+
+    print $"The variable at \`f/examples/secret\`: ($secret)"
+    # fetch context variables
+    let user = $env.WM_USERNAME
+
+    # Nu pipelines
+    ls | where size > 1kb | sort-by modified | print "ls:" $in
+
+    # Nu works with existing data
+    # Nu speaks JSON, YAML, SQLite, Excel, and more out of the box. 
+    # It's easy to bring data into a Nu pipeline whether it's in a file, a database, or a web API:
+    let nu_license = http get https://api.github.com/repos/nushell/nushell | get license
+
+    return { splitted: ($name | split words), user: $user, nu_license: $nu_license}
+    # Interested in learning more?
+    # https://www.nushell.sh/book/getting_started.html
+}
+`
+
 const FETCH_INIT_CODE = `export async function main(
 	url: string | undefined,
 	method: 'GET' | 'POST' | 'PUT' | 'DELETE' | 'PATCH' | 'OPTIONS' = 'GET',
@@ -577,77 +623,124 @@ export async function main(approver?: string) {
 // add a form in Advanced - Suspend
 // all on approval steps: https://www.windmill.dev/docs/flows/flow_approval`
 
-export const BUN_PREPROCESSOR_MODULE_CODE = `
-export async function preprocessor(
-	wm_trigger: {
-		kind: 'http' | 'email' | 'webhook' | 'websocket' | 'kafka' | 'nats' | 'postgres',
-		http?: {
-			route: string // The route path, e.g. "/users/:id"
-			path: string // The actual path called, e.g. "/users/123"
-			method: string
-			params: Record<string, string> // path parameters
-			query: Record<string, string> // query parameters
-			headers: Record<string, string>
-		},
-		websocket?: {
-			url: string // The websocket url
-		},
-		kafka?: {
-			brokers: string[]
-			topic: string
-			group_id: string
-		},
-		nats?: {
-			servers: string[]
-			subject: string
-			headers?: Record<string, string[]>
-			status?: number
-			description?: string
-			length: number
-		}
-	},
-	/* your other args */ 
-) {
-	return {
-		// return the args to be passed to the runnable
-	}
-}
-`
+export const TS_PREPROCESSOR_SCRIPT_INTRO = `/**
+ * Trigger preprocessor
+ *
+ * ⚠️ This function runs BEFORE the main function.
+ *
+ * It processes raw trigger data from various sources (webhook, custom HTTP route, SQS, WebSocket, Kafka, NATS, MQTT, Postgres, or email)
+ * before passing it to \`main\`. This separates the trigger logic from the main logic and keeps the auto-generated runnable UI clean.
+ *
+ * The preprocessor receives trigger metadata (\`wm_trigger\`) along with the main trigger arguments. 
+ * The structure of \`wm_trigger\` and the main trigger arguments are specific to each trigger type:
+ * - Webhook/HTTP: \`(wm_trigger: { kind: 'http' | 'webhook', http?: { ... } }, body_key_1: any, body_key_2: any, ...)\`
+ * - Postgres: \`(wm_trigger: { kind: 'postgres' }, transaction_type: string, schema_name: string, table_name: string, old_row?: any, row: any)\`
+ * - WebSocket/Kafka/NATS/SQS: \`(wm_trigger: { kind: 'websocket' | 'kafka' | 'nats' | 'sqs', [kind]: { ... } }, msg: string)\`
+ * - MQTT: \`(wm_trigger: { kind: 'mqtt', [kind]: { ... } }, payload: Array<number>)\`
+ * - GCP: \`(wm_trigger: { kind: 'gcp', [kind]: { ... } }, payload: string)\`
+ * - Email: \`(wm_trigger: { kind: 'email' }, raw_email: string, parsed_email: { ... })\`
+ *
+ * The returned object defines the parameter values passed to \`main()\`.
+ * e.g., { b: 1, a: 2 } → Calls \`main(2, 1)\`, assuming \`main\` is defined as \`main(a: number, b: number)\`.
+ * Ensure that the parameter names in \`main\` match the keys in the returned object.
+ * 
+ * Learn more: https://www.windmill.dev/docs/core_concepts/preprocessors
+ */\n`
 
-const DENO_PREPROCESSOR_MODULE_CODE = `
-export async function preprocessor(
-	wm_trigger: {
-		kind: 'http' | 'email' | 'webhook' | 'websocket' | 'kafka' | 'nats' | 'postgres',
-		http?: {
-			route: string // The route path, e.g. "/users/:id"
-			path: string // The actual path called, e.g. "/users/123"
-			method: string
-			params: Record<string, string> // path parameters
-			query: Record<string, string> // query parameters
-			headers: Record<string, string>
-		},
-		websocket?: {
-			url: string // The websocket url
-		},
-		kafka?: {
-			brokers: string[]
-			topic: string
-			group_id: string
-		},
-		nats?: {
-			servers: string[]
-			subject: string
-			headers?: Record<string, string[]>
-			status?: number
-			description?: string
-			length: number
-		}
-	},
-	/* your other args */ 
+export const TS_PREPROCESSOR_FLOW_INTRO = `/**
+ * Trigger preprocessor
+ *
+ * It processes raw trigger data from various sources (webhook, custom HTTP route, SQS, WebSocket, Kafka, NATS, MQTT, Postgres, or email) 
+ * before passing it to the flow. This separates the trigger logic from the flow logic and keeps the auto-generated UI clean.
+ *
+ * The preprocessor receives trigger metadata (\`wm_trigger\`) along with the main trigger arguments. 
+ * The structure of \`wm_trigger\` and the main trigger arguments are specific to each trigger type:
+ * - Webhook/HTTP: \`(wm_trigger: { kind: 'http' | 'webhook', http?: { ... } }, body_key_1: any, body_key_2: any, ...)\`
+ * - Postgres: \`(wm_trigger: { kind: 'postgres' }, transaction_type: string, schema_name: string, table_name: string, old_row?: any, row: any)\`
+ * - WebSocket/Kafka/NATS/SQS: \`(wm_trigger: { kind: 'websocket' | 'kafka' | 'nats' | 'sqs', [kind]: { ... } }, msg: string)\`
+ * - MQTT: \`(wm_trigger: { kind: 'mqtt', [kind]: { ... } }, payload: Array<number>)\`
+ * - GCP: \`(wm_trigger: { kind: 'gcp', [kind]: { ... } }, payload: string)\`*
+ * - Email: \`(wm_trigger: { kind: 'email' }, raw_email: string, parsed_email: { ... })\`
+ * 
+ * The returned object determines the parameter values passed to the flow.
+ * e.g., \`{ b: 1, a: 2 }\` → Calls the flow with \`a = 2\` and \`b = 1\`, assuming the flow has two inputs called \`a\` and \`b\`.
+ * Ensure that the input names of the flow match the keys in the returned object.
+ * 
+ * Learn more: https://www.windmill.dev/docs/core_concepts/preprocessors
+ */\n`
+
+export const TS_PREPROCESSOR_MODULE_CODE = `export async function preprocessor(
+  /*
+  * Replace this comment with the parameters received from the trigger.
+  * Examples: \`bodyKey1\`, \`bodyKey2\` for Webhook/HTTP, \`msg\` for WebSocket, etc.
+  */
+
+  // The trigger metadata
+  wm_trigger: {
+    kind: 'http' | 'email' | 'webhook' | 'websocket' | 'kafka' | 'nats' | 'postgres' | 'sqs' | 'mqtt' | 'gcp',
+    http?: {
+      route: string // The route path, e.g. "/users/:id"
+      path: string  // The actual path called, e.g. "/users/123"
+      method: string
+      params: Record<string, string> // path parameters
+      query: Record<string, string>  // query parameters
+      headers: Record<string, string>
+    },
+    websocket?: {
+      url: string // The websocket url
+    },
+    kafka?: {
+      brokers: string[]
+      topic: string
+      group_id: string
+    },
+    nats?: {
+      servers: string[]
+      subject: string
+      headers?: Record<string, string[]>
+      status?: number
+      description?: string
+      length: number
+    },
+    sqs?: {
+      queue_url: string,
+      message_id?: string,
+      receipt_handle?: string,
+      attributes: Record<string, string>,
+      message_attributes?: Record<string, {
+        string_value?: string,
+        data_type: string
+      }>
+    },
+    mqtt?: {
+      topic: string,
+      retain: boolean,
+      pkid: number,
+      qos: number,
+      v5?: {
+        payload_format_indicator?: number,
+        topic_alias?: number,
+        response_topic?: string,
+        correlation_data?: Array<number>,
+        user_properties?:  Array<[string, string]>,
+        subscription_identifiers?: Array<number>,
+        content_type?: string
+      }
+    },
+    gcp?: {
+      message_id: string,
+      subscription: string,
+      ordering_key?: string,
+      attributes?: Record<string, string>,
+      delivery_type: "push" | "pull",
+      headers?: Record<string, string>,
+      publish_time?: string,
+    }
+  }
 ) {
-	return {
-		// return the args to be passed to the runnable
-	}
+  return {
+    // return the args to be passed to the runnable
+  }
 }
 `
 
@@ -678,46 +771,130 @@ def main():
 # add a form in Advanced - Suspend
 # all on approval steps: https://www.windmill.dev/docs/flows/flow_approval`
 
-export const PYTHON_PREPROCESSOR_MODULE_CODE = `from typing import TypedDict, Literal
+export const PYTHON_PREPROCESSOR_SCRIPT_INTRO = `# Trigger preprocessor
+#
+# ⚠️ This function runs BEFORE the main function.
+#
+# It processes raw trigger data from various sources (webhook, custom HTTP route, SQS, WebSocket, Kafka, NATS, MQTT, Postgres, or email) 
+# before passing it to \`main\`. This separates the trigger logic from the main logic and keeps the auto-generated UI clean.
+#
+# The preprocessor receives trigger metadata (\`wm_trigger\`) along with the main trigger arguments. 
+# The structure of \`wm_trigger\` and the main trigger arguments are specific to each trigger type:
+# - Webhook/HTTP: \`(wm_trigger: { kind: 'http' | 'webhook', http?: { ... } }, body_key_1: any, body_key_2: any, ...)\`
+# - Postgres: \`(wm_trigger: { kind: 'postgres' }, transaction_type: string, schema_name: string, table_name: string, old_row?: any, row: any)\`
+# - WebSocket/Kafka/NATS/SQS: \`(wm_trigger: { kind: 'websocket' | 'kafka' | 'nats' | 'sqs', [kind]: { ... } }, msg: string)\`
+# - MQTT: \`(wm_trigger: { kind: 'mqtt', [kind]: { ... } }, payload: Array<number>)\`
+# - GCP: \`(wm_trigger: { kind: 'gcp', [kind]: { ... } }, payload: string)\`
+# - Email: \`(wm_trigger: { kind: 'email' }, raw_email: string, parsed_email: { ... })\`
+#
+# The returned object defines the parameter values passed to \`main()\`.
+# e.g., { b: 1, a: 2 } → Calls \`main(2, 1)\`, assuming \`main\` is defined as \`main(a: int, b: int)\`.
+# Ensure that the parameter names in \`main\` match the keys in the returned object.
+#
+# Learn more: https://www.windmill.dev/docs/core_concepts/preprocessors\n\n`
 
+export const PYTHON_PREPROCESSOR_FLOW_INTRO = `# Trigger preprocessor
+#
+# It processes raw trigger data from various sources (webhook, custom HTTP route, SQS, WebSocket, Kafka, NATS, MQTT, Postgres, or email) 
+# before passing it to the flow. This separates the trigger logic from the flow logic and keeps the auto-generated UI clean.
+#
+# The preprocessor receives the same data the flow would if no preprocessor was used,
+# plus trigger metadata in the \`wm_trigger\` object:
+# - Webhook/HTTP: \`(wm_trigger: { kind: 'http' | 'webhook', http?: { ... } }, body_key_1: any, body_key_2: any, ...)\`
+# - Postgres: \`(wm_trigger: { kind: 'postgres' }, transaction_type: string, schema_name: string, table_name: string, old_row?:any, row: any)\`
+# - WebSocket/Kafka/NATS/SQS: \`(wm_trigger: { kind: 'websocket' | 'kafka' | 'nats' | 'sqs', [kind]: { ... } }, msg: string)\`
+# - MQTT: \`(wm_trigger: { kind: 'mqtt', [kind]: { ... } }, payload: Array<number>)\`
+# - GCP: \`(wm_trigger: { kind: 'gcp', [kind]: { ... } }, payload: string)\`
+# - Email: \`(wm_trigger: { kind: 'email' }, raw_email: string, parsed_email: { ... })\`
+# 
+# The returned object determines the parameter values passed to the flow.
+# e.g., \`{ b: 1, a: 2 }\` → Calls the flow with \`a = 2\` and \`b = 1\`, assuming the flow has two inputs called \`a\` and \`b\`.
+# Ensure that the input names of the flow match the keys in the returned object.
+#
+# Learn more: https://www.windmill.dev/docs/core_concepts/preprocessors\n\n`
+
+export const PYTHON_PREPROCESSOR_MODULE_CODE = `from typing import TypedDict, Literal
 class Http(TypedDict):
-	route: str # The route path, e.g. "/users/:id"
-	path: str # The actual path called, e.g. "/users/123"
-	method: str
-	params: dict[str, str]
-	query: dict[str, str]
-	headers: dict[str, str]
+    route: str # The route path, e.g. "/users/:id"
+    path: str  # The actual path called, e.g. "/users/123"
+    method: str
+    params: dict[str, str]
+    query: dict[str, str]
+    headers: dict[str, str]
 
 class Websocket(TypedDict):
-	url: str # The websocket url
+    url: str # The websocket url
 
 class Kafka(TypedDict):
-	topic: str
-	brokers: list[str]
-	group_id: str
+    topic: str
+    brokers: list[str]
+    group_id: str
 
 class Nats(TypedDict):
-	servers: list[str]
-	subject: str
-	headers: dict[str, list[str]] | None
-	status: int | None
-	description: str | None
-	length: int
+    servers: list[str]
+    subject: str
+    headers: dict[str, list[str]] | None
+    status: int | None
+    description: str | None
+    length: int
 
+class MessageAttribute(TypedDict):
+    string_value: str | None
+    data_type: str
+
+class Sqs(TypedDict):
+    queue_url: str
+    message_id: str | None
+    receipt_handle: str | None
+    attributes: dict[str, str]
+    message_attributes: dict[str, MessageAttribute] | None
+
+class MqttV5Properties:
+    payload_format_indicator: int | None
+    topic_alias: int | None
+    response_topic: str | None
+    correlation_data: list[int] | None
+    user_properties: list[tuple[str, str]] | None
+    subscription_identifiers: list[int] | None
+    content_type: str | None
+
+class Mqtt(TypedDict):
+    topic: str
+    retain: bool
+    pkid: int
+    qos: int
+    v5: MqttV5Properties | None
+
+class Gcp(TypedDict):
+    message_id: str
+    subscription: str
+    ordering_key: str | None
+    attributes: dict[str, str] | None
+    delivery_type: Literal["push", "pull"]
+    headers: dict[str, str] | None
+    publish_time: str | None
+  
+    
 class WmTrigger(TypedDict):
-	kind: Literal["http", "email", "webhook", "websocket", "kafka", "nats"]
-	http: Http | None
-	websocket: Websocket | None
-	kafka: Kafka | None
-	nats: Nats | None
+    kind: Literal["http", "email", "webhook", "websocket", "kafka", "nats", "postgres", "sqs", "mqtt", "gcp"]
+    http: Http | None
+    websocket: Websocket | None
+    kafka: Kafka | None
+    nats: Nats | None
+    sqs: Sqs | None
+    mqtt: Mqtt | None
+    gcp: Gcp | None
 
 def preprocessor(
-	wm_trigger: WmTrigger,
-	# your other args
+    # Replace this comment with the parameters received from the trigger.  
+    # Examples: \`bodyKey1\`, \`bodyKey2\` for Webhook/HTTP, \`msg\` for WebSocket, etc.  
+
+    # Trigger metadata
+    wm_trigger: WmTrigger,
 ):
-	return {
-		# return the args to be passed to the runnable
-	}
+    return {
+        # return the args to be passed to the runnable
+    }
 `
 
 const DOCKER_INIT_CODE = `# shellcheck shell=bash
@@ -754,6 +931,12 @@ inventory:
   - resource_type: ansible_inventory
     # You can pin an inventory to this script by hardcoding the resource path:
     # resource: u/user/your_resource
+# - name: hcloud.yml
+#   resource_type: dynamic_inventory
+
+options:
+  - verbosity: vvv
+
 
 # File resources will be written in the relative \`target\` location before
 # running the playbook
@@ -769,11 +952,15 @@ extra_vars:
   world_qualifier:
     type: string
 
+# If using Ansible Vault:
+# vault_password: u/user/ansible_vault_password
+
 dependencies:
   galaxy:
     collections:
       - name: community.general
       - name: community.vmware
+    roles:
   python:
     - jmespath
 ---
@@ -796,6 +983,61 @@ dependencies:
       content: "{{ my_result | to_json }}"
       dest: result.json
 `
+const JAVA_INIT_CODE = `//requirements:
+//com.google.code.gson:gson:2.8.9
+//com.github.ricksbrown:cowsay:1.1.0
+
+import com.google.gson.Gson;
+import com.google.gson.GsonBuilder;
+import com.github.ricksbrown.cowsay.Cowsay;
+import com.github.ricksbrown.cowsay.plugin.CowExecutor;
+
+public class Main {
+  public static class Person {
+    private String name;
+    private int age;
+
+    // Constructor
+    public Person(String name, int age) {
+        this.name = name;
+        this.age = age;
+    }
+  }
+
+  public static Object main(
+    // Primitive
+    int a,
+    float b,
+    // Objects
+    Integer age,
+    Float d,
+    Object e,
+    String name,
+    // Lists
+    String[] f
+    // No trailing commas!
+    ){
+    Gson gson = new Gson();
+
+    // Get resources
+    var theme = Wmill.getResource("f/app_themes/theme_0");
+    System.out.println("Theme: " + theme);
+    
+    // Create a Person object
+    Person person = new Person( (name == "") ? "Alice" : name, (age == null) ? 30 : age);
+
+    // Serialize the Person object to JSON
+    String json = gson.toJson(person);
+    System.out.println("Serialized JSON: " + json);
+
+    // Use cowsay
+    String[] args = new String[]{"-f", "dragon", json };
+    String result = Cowsay.say(args);
+    return result;
+  }
+}
+`
+// for related places search: ADD_NEW_LANG 
 export const INITIAL_CODE = {
 	bun: {
 		scriptInitCodeBlock: BUN_INIT_BLOCK,
@@ -803,7 +1045,7 @@ export const INITIAL_CODE = {
 		trigger: BUN_INIT_CODE_TRIGGER,
 		approval: BUN_INIT_CODE_APPROVAL,
 		failure: BUN_FAILURE_MODULE_CODE,
-		preprocessor: BUN_PREPROCESSOR_MODULE_CODE,
+		preprocessor: TS_PREPROCESSOR_FLOW_INTRO + TS_PREPROCESSOR_MODULE_CODE,
 		clear: BUN_INIT_CODE_CLEAR
 	},
 	python3: {
@@ -811,7 +1053,7 @@ export const INITIAL_CODE = {
 		trigger: PYTHON_INIT_CODE_TRIGGER,
 		approval: PYTHON_INIT_CODE_APPROVAL,
 		failure: PYTHON_FAILURE_MODULE_CODE,
-		preprocessor: PYTHON_PREPROCESSOR_MODULE_CODE,
+		preprocessor: PYTHON_PREPROCESSOR_FLOW_INTRO + PYTHON_PREPROCESSOR_MODULE_CODE,
 		clear: PYTHON_INIT_CODE_CLEAR
 	},
 	deno: {
@@ -820,7 +1062,7 @@ export const INITIAL_CODE = {
 		trigger: DENO_INIT_CODE_TRIGGER,
 		approval: DENO_INIT_CODE_APPROVAL,
 		failure: DENO_FAILURE_MODULE_CODE,
-		preprocessor: DENO_PREPROCESSOR_MODULE_CODE,
+		preprocessor: TS_PREPROCESSOR_FLOW_INTRO + TS_PREPROCESSOR_MODULE_CODE,
 		fetch: FETCH_INIT_CODE,
 		clear: DENO_INIT_CODE_CLEAR
 	},
@@ -871,23 +1113,29 @@ export const INITIAL_CODE = {
 	csharp: {
 		script: CSHARP_INIT_CODE
 	},
+	nu: {
+		script: NU_INIT_CODE
+	},
 	docker: {
 		script: DOCKER_INIT_CODE
 	},
 	bunnative: {
 		script: BUNNATIVE_INIT_CODE
-	}
+	},
+	java: {
+		script: JAVA_INIT_CODE
+	},
+	// for related places search: ADD_NEW_LANG 
 }
 
 export function isInitialCode(content: string): boolean {
-	Object.values(INITIAL_CODE).forEach((lang) => {
-		Object.values(lang).forEach((code) => {
+	for (const lang of Object.values(INITIAL_CODE)) {
+		for (const code of Object.values(lang)) {
 			if (content === code) {
 				return true
 			}
-		})
-	})
-
+		}
+	}
 	return false
 }
 
@@ -979,6 +1227,11 @@ export function initialCode(
 		return INITIAL_CODE.ansible.script
 	} else if (language == 'csharp') {
 		return INITIAL_CODE.csharp.script
+	} else if (language == 'nu') {
+		return INITIAL_CODE.nu.script
+	} else if (language == 'java') {
+		return INITIAL_CODE.java.script
+		// for related places search: ADD_NEW_LANG 
 	} else if (language == 'bun' || language == 'bunnative') {
 		if (kind == 'trigger') {
 			return INITIAL_CODE.bun.trigger

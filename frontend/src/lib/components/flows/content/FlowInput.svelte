@@ -42,12 +42,19 @@
 	} from '$lib/components/schema/schemaUtils'
 	import SideBarTab from '$lib/components/meltComponents/SideBarTab.svelte'
 	import CaptureTable from '$lib/components/triggers/CaptureTable.svelte'
+	import { isObjectTooBig } from '$lib/utils'
 
 	export let noEditor: boolean
 	export let disabled: boolean
 
-	const { flowStore, previewArgs, pathStore, initialPath, flowInputEditorState } =
-		getContext<FlowEditorContext>('FlowEditorContext')
+	const {
+		flowStore,
+		previewArgs,
+		pathStore,
+		initialPathStore,
+		fakeInitialPath,
+		flowInputEditorState
+	} = getContext<FlowEditorContext>('FlowEditorContext')
 
 	let addProperty: AddPropertyV2 | undefined = undefined
 	let previewSchema: Record<string, any> | undefined = undefined
@@ -195,6 +202,10 @@
 	}
 
 	function updatePreviewSchemaAndArgs(payload: any) {
+		if (isObjectTooBig(payload)) {
+			sendUserToast('Payload too big to be used as input', true)
+			return
+		}
 		if (!payload) {
 			payloadData = undefined
 			selectedSchema = undefined
@@ -304,11 +315,24 @@
 
 	function resetArgs() {
 		if (!previewSchema) {
-			previewArguments = undefined
+			// previewArguments = undefined
 			savedPreviewArgs = undefined
 		}
 	}
+
 	let historicInputs: HistoricInputs | undefined = undefined
+	let captureTable: CaptureTable | undefined = undefined
+	let savedInputsPicker: SavedInputsPicker | undefined = undefined
+	let jsonInputs: JsonInputs | undefined = undefined
+	let firstStepInputs: FirstStepInputs | undefined = undefined
+
+	function resetSelected() {
+		historicInputs?.resetSelected(true)
+		captureTable?.resetSelected(true)
+		savedInputsPicker?.resetSelected(true)
+		jsonInputs?.resetSelected(true)
+		firstStepInputs?.resetSelected(true)
+	}
 </script>
 
 <!-- Add svelte:window to listen for keyboard events -->
@@ -425,7 +449,7 @@
 								startIcon={{ icon: X }}
 								shortCut={{ key: 'esc', withoutModifier: true }}
 								on:click={() => {
-									historicInputs?.resetSelected(true)
+									resetSelected()
 								}}
 							/>
 						</div>
@@ -448,6 +472,7 @@
 							<svelte:fragment slot="trigger">
 								<div
 									class="w-full py-2 flex justify-center items-center border border-dashed rounded-md hover:bg-surface-hover"
+									id="add-flow-input-btn"
 								>
 									<Plus size={14} />
 								</div>
@@ -465,11 +490,12 @@
 						>
 							<HistoricInputs
 								bind:this={historicInputs}
-								runnableId={initialPath ?? undefined}
+								runnableId={$initialPathStore ?? undefined}
 								runnableType={$pathStore ? 'FlowPath' : undefined}
 								on:select={(e) => {
 									updatePreviewSchemaAndArgs(e.detail?.args ?? undefined)
 								}}
+								limitPayloadSize
 							/>
 						</FlowInputEditor>
 					{:else if $flowInputEditorState?.selectedTab === 'captures'}
@@ -486,13 +512,15 @@
 							</svelete:fragment>
 							<div class="h-full">
 								<CaptureTable
-									path={$pathStore}
+									path={$initialPathStore || fakeInitialPath}
 									on:select={(e) => {
 										updatePreviewSchemaAndArgs(e.detail ?? undefined)
 									}}
 									isFlow={true}
 									headless={true}
 									addButton={false}
+									bind:this={captureTable}
+									limitPayloadSize
 								/>
 							</div>
 						</FlowInputEditor>
@@ -504,7 +532,7 @@
 							title="Saved inputs"
 						>
 							<SavedInputsPicker
-								runnableId={initialPath ?? undefined}
+								runnableId={$initialPathStore ?? undefined}
 								runnableType={$pathStore ? 'FlowPath' : undefined}
 								on:select={(e) => {
 									updatePreviewSchemaAndArgs(e.detail ?? undefined)
@@ -514,6 +542,8 @@
 								}}
 								previewArgs={previewArguments}
 								{isValid}
+								limitPayloadSize
+								bind:this={savedInputsPicker}
 							/>
 						</FlowInputEditor>
 					{:else if $flowInputEditorState?.selectedTab === 'json'}
@@ -533,6 +563,8 @@
 								on:select={(e) => {
 									updatePreviewSchemaAndArgs(e.detail ?? undefined)
 								}}
+								selected={!!previewArguments}
+								bind:this={jsonInputs}
 							/>
 						</FlowInputEditor>
 					{:else if $flowInputEditorState?.selectedTab === 'firstStepInputs'}
@@ -544,6 +576,7 @@
 							title="First step's inputs"
 						>
 							<FirstStepInputs
+								bind:this={firstStepInputs}
 								on:connectFirstNode={({ detail }) => {
 									connectFirstNode = detail.connectFirstNode
 								}}

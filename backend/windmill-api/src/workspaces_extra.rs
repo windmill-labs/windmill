@@ -1,6 +1,6 @@
 use crate::db::ApiAuthed;
 
-use crate::workspaces::CREATE_WORKSPACE_REQUIRE_SUPERADMIN;
+use crate::workspaces::{check_w_id_conflict, CREATE_WORKSPACE_REQUIRE_SUPERADMIN};
 use crate::{db::DB, utils::require_super_admin};
 
 use axum::{
@@ -46,20 +46,7 @@ pub(crate) async fn change_workspace_id(
 
     let mut tx = db.begin().await?;
 
-    let workspace_conflict = sqlx::query_scalar!(
-        "SELECT EXISTS(SELECT 1 FROM workspace WHERE id = $1)",
-        &rw.new_id,
-    )
-    .fetch_one(&mut *tx)
-    .await?
-    .unwrap_or(false);
-
-    if workspace_conflict {
-        return Err(Error::BadRequest(format!(
-            "workspace id {} already used",
-            &rw.new_id
-        )));
-    }
+    check_w_id_conflict(&mut tx, &rw.new_id).await?;
 
     // duplicate workspace with new id name
     sqlx::query!(
@@ -196,6 +183,14 @@ pub(crate) async fn change_workspace_id(
 
     sqlx::query!(
         "UPDATE flow_version SET workspace_id = $1 WHERE workspace_id = $2",
+        &rw.new_id,
+        &old_id
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    sqlx::query!(
+        "UPDATE workspace_runnable_dependencies SET workspace_id = $1 WHERE workspace_id = $2",
         &rw.new_id,
         &old_id
     )

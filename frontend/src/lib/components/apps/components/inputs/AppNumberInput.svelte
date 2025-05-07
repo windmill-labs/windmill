@@ -21,8 +21,8 @@
 	export let verticalAlignment: 'top' | 'center' | 'bottom' | undefined = undefined
 	export let customCss: ComponentCustomCSS<'numberinputcomponent'> | undefined = undefined
 	export let render: boolean
-
-	const { app, worldStore, selectedComponent, componentControl } =
+	export let onChange: string[] | undefined = undefined
+	const { app, worldStore, selectedComponent, componentControl, runnableComponents } =
 		getContext<AppViewerContext>('AppViewerContext')
 	const iterContext = getContext<ListContext>('ListWrapperContext')
 	const listInputs: ListInputs | undefined = getContext<ListInputs>('ListInputs')
@@ -32,14 +32,6 @@
 		configuration
 	)
 
-	let value: number | undefined = resolvedConfig.defaultValue
-
-	$componentControl[id] = {
-		setValue(nvalue: number | undefined) {
-			value = nvalue
-		}
-	}
-
 	onDestroy(() => {
 		listInputs?.remove(id)
 	})
@@ -48,16 +40,43 @@
 		result: undefined as number | undefined
 	})
 
+	let initValue = outputs?.result.peak()
+	let value: number | undefined =
+		!iterContext && initValue != undefined ? initValue : resolvedConfig.defaultValue
+
+	$componentControl[id] = {
+		setValue(nvalue: number | undefined) {
+			value = nvalue
+			outputs?.result.set(value)
+		}
+	}
+	let initialHandleDefault = true
+
 	$: handleDefault(resolvedConfig.defaultValue)
 
-	$: {
-		outputs?.result.set(value)
+	$: value, onChangeValue()
+
+	function onChangeValue() {
+		outputs?.result.set(value ?? undefined)
 		if (iterContext && listInputs) {
-			listInputs.set(id, value)
+			listInputs.set(id, value ?? undefined)
+		}
+		fireOnChange()
+	}
+
+	function fireOnChange() {
+		if (onChange) {
+			onChange.forEach((id) => $runnableComponents?.[id]?.cb?.forEach((cb) => cb()))
 		}
 	}
 
 	function handleDefault(defaultValue: number | undefined) {
+		if (initialHandleDefault) {
+			initialHandleDefault = false
+			if (value != undefined) {
+				return
+			}
+		}
 		value = defaultValue
 	}
 

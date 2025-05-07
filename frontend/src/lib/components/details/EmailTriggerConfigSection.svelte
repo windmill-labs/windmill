@@ -89,7 +89,12 @@
 						placeholder="paste your token here once created to alter examples below"
 						class="!text-xs"
 					/>
-					<Button size="xs" color="light" variant="border" on:click={userSettings.openDrawer}>
+					<Button
+						size="xs"
+						color="light"
+						variant="border"
+						on:click={() => userSettings.openDrawer()}
+					>
 						Create an Email-specific Token
 						<Tooltip light>
 							The token will have a scope such that it can only be used to trigger this script. It
@@ -110,9 +115,9 @@
 			<div class="flex flex-col gap-2">
 				<div class="flex flex-row justify-between">
 					<div class="text-xs font-semibold flex flex-row items-center">Call method</div>
-					<ToggleButtonGroup class="h-[30px] w-auto" bind:selected={requestType}>
-						<ToggleButton label="By path" value="path" />
-						<ToggleButton label="By hash" value="hash" />
+					<ToggleButtonGroup class="h-[30px] w-auto" bind:selected={requestType} let:item>
+						<ToggleButton label="By path" value="path" {item} />
+						<ToggleButton label="By hash" value="hash" {item} />
 					</ToggleButtonGroup>
 				</div>
 			</div>

@@ -8,6 +8,9 @@ export type FlowModuleState = {
 	schema?: Schema
 	previewResult?: any
 	previewArgs?: any
+	previewJobId?: string
+	previewWorkspaceId?: string
+	previewSuccess?: boolean
 }
 
 export type FlowState = Record<string, FlowModuleState>

@@ -23,8 +23,7 @@
 		Pen,
 		Share,
 		Trash,
-		Clipboard,
-		Loader2
+		Clipboard
 	} from 'lucide-svelte'
 	import { goto as gotoUrl } from '$app/navigation'
 	import { page } from '$app/stores'
@@ -55,16 +54,14 @@
 </script>
 
 {#if menuOpen}
-	{#await import('$lib/components/apps/editor/AppJsonEditor.svelte')}
-		<Loader2 class="animate-spin" />
-	{:then Module}
+	{#await import('$lib/components/apps/editor/AppJsonEditor.svelte') then Module}
 		<Module.default on:change bind:this={appExport} />
 	{/await}
 	<AppDeploymentHistory bind:this={appDeploymentHistory} appPath={app.path} />
 {/if}
 
 <Row
-	href={`${base}/apps/get/${app.path}`}
+	href="{base}/apps{app.raw_app ? '_raw' : ''}/get/{app.path}"
 	kind="app"
 	{marked}
 	path={app.path}
@@ -84,9 +81,17 @@
 				</div></Badge
 			>
 		{/if}
+		{#if app.raw_app}
+			<Badge small>
+				<div class="flex gap-1 items-center">
+					<FileJson size={14} />
+					Raw
+				</div></Badge
+			>
+		{/if}
 		<SharedBadge canWrite={app.canWrite} extraPerms={app.extra_perms} />
 		<DraftBadge has_draft={app.has_draft} draft_only={app.draft_only} />
-		<div class="w-8 center-center" />
+		<div class="w-8 center-center"></div>
 	</svelte:fragment>
 	<svelte:fragment slot="actions">
 		<span class="hidden md:inline-flex gap-x-1">
@@ -98,7 +103,7 @@
 							size="xs"
 							variant="border"
 							startIcon={{ icon: Pen }}
-							href="{base}/apps/edit/{app.path}?nodraft=true"
+							href="{base}/apps{app.raw_app ? '_raw' : ''}/edit/{app.path}?nodraft=true"
 						>
 							Edit
 						</Button>
@@ -110,7 +115,7 @@
 							size="xs"
 							variant="border"
 							startIcon={{ icon: GitFork }}
-							href="{base}/apps/add?template={app.path}"
+							href="{base}/apps{app.raw_app ? '_raw' : ''}/add?template={app.path}"
 						>
 							Fork
 						</Button>
@@ -157,7 +162,7 @@
 					{
 						displayName: 'Duplicate/Fork',
 						icon: GitFork,
-						href: `${base}/apps/add?template=${path}`,
+						href: `${base}/apps${app.raw_app ? '_raw' : ''}/add?template=${path}`,
 						hide: $userStore?.operator
 					},
 					{

@@ -18,12 +18,17 @@ use crate::oauth2_ee::SlackVerifier;
 #[cfg(feature = "smtp")]
 use crate::smtp_server_ee::SmtpServer;
 
+#[cfg(feature = "mcp")]
+use crate::mcp::{setup_mcp_server, Runner as McpRunner};
 use crate::tracing_init::MyOnFailure;
 use crate::{
     tracing_init::{MyMakeSpan, MyOnResponse},
     users::OptAuthed,
     webhook_util::WebhookShared,
 };
+
+#[cfg(feature = "agent_worker_server")]
+use agent_workers_ee::AgentCache;
 
 use anyhow::Context;
 use argon2::Argon2;
@@ -34,6 +39,7 @@ use http::HeaderValue;
 use reqwest::Client;
 #[cfg(feature = "oauth2")]
 use std::collections::HashMap;
+use tokio::task::JoinHandle;
 use windmill_common::global_settings::load_value_from_global_settings;
 use windmill_common::global_settings::EMAIL_DOMAIN_SETTING;
 use windmill_common::worker::HUB_CACHE_DIR;
@@ -57,9 +63,11 @@ use windmill_common::error::AppError;
 
 use crate::teams_approvals::request_teams_approval;
 
+#[cfg(feature = "agent_worker_server")]
+mod agent_workers_ee;
 mod ai;
 mod apps;
-mod args;
+pub mod args;
 mod audit;
 mod auth;
 mod capture;
@@ -75,6 +83,8 @@ mod folders;
 mod granular_acls;
 mod groups;
 #[cfg(feature = "http_trigger")]
+mod http_trigger_auth;
+#[cfg(feature = "http_trigger")]
 mod http_triggers;
 mod indexer_ee;
 mod inputs;
@@ -84,12 +94,18 @@ mod postgres_triggers;
 
 #[cfg(feature = "enterprise")]
 mod apps_ee;
+#[cfg(all(feature = "enterprise", feature = "gcp_trigger"))]
+mod gcp_triggers_ee;
+#[cfg(feature = "enterprise")]
+mod git_sync_ee;
 #[cfg(feature = "parquet")]
 mod job_helpers_ee;
 pub mod job_metrics;
 pub mod jobs;
 #[cfg(all(feature = "enterprise", feature = "kafka"))]
 mod kafka_triggers_ee;
+#[cfg(feature = "mqtt_trigger")]
+mod mqtt_triggers;
 #[cfg(all(feature = "enterprise", feature = "nats"))]
 mod nats_triggers_ee;
 #[cfg(feature = "oauth2")]
@@ -108,7 +124,11 @@ mod slack_approvals;
 mod teams_approvals;
 #[cfg(feature = "smtp")]
 mod smtp_server_ee;
+#[cfg(all(feature = "enterprise", feature = "sqs_trigger"))]
+mod sqs_triggers_ee;
+
 mod static_assets;
+#[cfg(all(feature = "stripe", feature = "enterprise"))]
 mod stripe_ee;
 mod teams_ee;
 mod tracing_init;
@@ -117,7 +137,7 @@ mod users;
 mod users_ee;
 mod utils;
 mod variables;
-mod webhook_util;
+pub mod webhook_util;
 #[cfg(feature = "websocket")]
 mod websocket_triggers;
 mod workers;
@@ -125,6 +145,9 @@ mod workspaces;
 mod workspaces_ee;
 mod workspaces_export;
 mod workspaces_extra;
+
+#[cfg(feature = "mcp")]
+mod mcp;
 
 pub const DEFAULT_BODY_LIMIT: usize = 2097152 * 100; // 200MB
 
@@ -203,10 +226,11 @@ pub async fn run_server(
     job_index_reader: Option<IndexReader>,
     log_index_reader: Option<ServiceLogIndexReader>,
     addr: SocketAddr,
-    mut rx: tokio::sync::broadcast::Receiver<()>,
+    mut killpill_rx: tokio::sync::broadcast::Receiver<()>,
     port_tx: tokio::sync::oneshot::Sender<String>,
     server_mode: bool,
-    #[cfg(feature = "smtp")] base_internal_url: String,
+    mcp_mode: bool,
+    _base_internal_url: String,
 ) -> anyhow::Result<()> {
     let user_db = UserDB::new(db.clone());
 
@@ -240,7 +264,10 @@ pub async fn run_server(
         .layer(Extension(log_index_reader))
         // .layer(Extension(index_writer))
         .layer(CookieManagerLayer::new())
-        .layer(Extension(WebhookShared::new(rx.resubscribe(), db.clone())))
+        .layer(Extension(WebhookShared::new(
+            killpill_rx.resubscribe(),
+            db.clone(),
+        )))
         .layer(DefaultBodyLimit::max(
             REQUEST_SIZE_LIMIT.read().await.clone(),
         ));
@@ -273,7 +300,7 @@ pub async fn run_server(
                     db: db.clone(),
                     user_db: user_db,
                     auth_cache: auth_cache.clone(),
-                    base_internal_url: base_internal_url.clone(),
+                    base_internal_url: _base_internal_url.clone(),
                 });
                 if let Err(err) = smtp_server.start_listener_thread(addr).await {
                     tracing::error!("Error starting SMTP server: {err:#}");
@@ -322,30 +349,154 @@ pub async fn run_server(
         }
     };
 
-    if !*CLOUD_HOSTED {
+    let mqtt_triggers_service = {
+        #[cfg(all(feature = "mqtt_trigger"))]
+        {
+            mqtt_triggers::workspaced_service()
+        }
+
+        #[cfg(not(feature = "mqtt_trigger"))]
+        {
+            Router::new()
+        }
+    };
+
+    let gcp_triggers_service = {
+        #[cfg(all(feature = "enterprise", feature = "gcp_trigger"))]
+        {
+            gcp_triggers_ee::workspaced_service()
+        }
+
+        #[cfg(not(all(feature = "enterprise", feature = "gcp_trigger")))]
+        {
+            Router::new()
+        }
+    };
+
+    let sqs_triggers_service = {
+        #[cfg(all(feature = "enterprise", feature = "sqs_trigger"))]
+        {
+            sqs_triggers_ee::workspaced_service()
+        }
+
+        #[cfg(not(all(feature = "enterprise", feature = "sqs_trigger")))]
+        {
+            Router::new()
+        }
+    };
+
+    let websocket_triggers_service = {
         #[cfg(feature = "websocket")]
         {
-            let ws_killpill_rx = rx.resubscribe();
+            websocket_triggers::workspaced_service()
+        }
+
+        #[cfg(not(feature = "websocket"))]
+        Router::new()
+    };
+
+    let http_triggers_service = {
+        #[cfg(feature = "http_trigger")]
+        {
+            http_triggers::workspaced_service()
+        }
+
+        #[cfg(not(feature = "http_trigger"))]
+        Router::new()
+    };
+
+    let postgres_triggers_service = {
+        #[cfg(feature = "postgres_trigger")]
+        {
+            postgres_triggers::workspaced_service()
+        }
+
+        #[cfg(not(feature = "postgres_trigger"))]
+        Router::new()
+    };
+
+    if !*CLOUD_HOSTED && server_mode && !mcp_mode {
+        #[cfg(feature = "websocket")]
+        {
+            let ws_killpill_rx = killpill_rx.resubscribe();
             websocket_triggers::start_websockets(db.clone(), ws_killpill_rx);
         }
 
         #[cfg(all(feature = "enterprise", feature = "kafka"))]
         {
-            let kafka_killpill_rx = rx.resubscribe();
+            let kafka_killpill_rx = killpill_rx.resubscribe();
             kafka_triggers_ee::start_kafka_consumers(db.clone(), kafka_killpill_rx);
         }
 
         #[cfg(all(feature = "enterprise", feature = "nats"))]
         {
-            let nats_killpill_rx = rx.resubscribe();
+            let nats_killpill_rx = killpill_rx.resubscribe();
             nats_triggers_ee::start_nats_consumers(db.clone(), nats_killpill_rx);
         }
+
         #[cfg(feature = "postgres_trigger")]
         {
-            let db_killpill_rx = rx.resubscribe();
+            let db_killpill_rx = killpill_rx.resubscribe();
             postgres_triggers::start_database(db.clone(), db_killpill_rx);
         }
+
+        #[cfg(feature = "mqtt_trigger")]
+        {
+            let mqtt_killpill_rx = killpill_rx.resubscribe();
+            mqtt_triggers::start_mqtt_consumer(db.clone(), mqtt_killpill_rx);
+        }
+
+        #[cfg(all(feature = "enterprise", feature = "sqs_trigger"))]
+        {
+            let sqs_killpill_rx = killpill_rx.resubscribe();
+            sqs_triggers_ee::start_sqs(db.clone(), sqs_killpill_rx);
+        }
+
+        #[cfg(all(feature = "enterprise", feature = "gcp_trigger"))]
+        {
+            let gcp_killpill_rx = killpill_rx.resubscribe();
+            gcp_triggers_ee::start_consuming_gcp_pubsub_event(db.clone(), gcp_killpill_rx);
+        }
     }
+
+    let listener = tokio::net::TcpListener::bind(addr)
+        .await
+        .context("binding main windmill server")?;
+    let port = listener.local_addr().map(|x| x.port()).unwrap_or(8000);
+    let ip = listener
+        .local_addr()
+        .map(|x| x.ip().to_string())
+        .unwrap_or("localhost".to_string());
+
+    // Setup MCP server
+    #[allow(unused_variables)]
+    let (mcp_router, mcp_main_ct, mcp_service_ct) = {
+        #[cfg(feature = "mcp")]
+        if server_mode || mcp_mode {
+            let (mcp_sse_server, mcp_router) = setup_mcp_server(addr, "/api/mcp/w/:workspace_id")?;
+            #[cfg(feature = "mcp")]
+            let mcp_main_ct = mcp_sse_server.config.ct.clone(); // Token to signal shutdown *to* MCP
+            #[cfg(feature = "mcp")]
+            let mcp_service_ct = mcp_sse_server.with_service(McpRunner::new); // Token to wait for MCP *service* shutdown
+            (mcp_router, Some(mcp_main_ct), Some(mcp_service_ct))
+        } else {
+            (Router::new(), None, None)
+        }
+
+        #[cfg(not(feature = "mcp"))]
+        (Router::new(), None::<()>, None::<()>)
+    };
+
+    #[cfg(feature = "agent_worker_server")]
+    let (agent_workers_router, agent_workers_bg_processor, agent_workers_killpill_tx) =
+        if server_mode {
+            agent_workers_ee::workspaced_service(db.clone(), _base_internal_url.clone())
+        } else {
+            (Router::new(), vec![], None)
+        };
+
+    #[cfg(feature = "agent_worker_server")]
+    let agent_cache = Arc::new(AgentCache::new());
 
     // build our application with a route
     let app = Router::new()
@@ -395,35 +546,14 @@ pub async fn run_server(
                         .nest("/variables", variables::workspaced_service())
                         .nest("/workspaces", workspaces::workspaced_service())
                         .nest("/oidc", oidc_ee::workspaced_service())
-                        .nest("/http_triggers", {
-                            #[cfg(feature = "http_trigger")]
-                            {
-                                http_triggers::workspaced_service()
-                            }
-
-                            #[cfg(not(feature = "http_trigger"))]
-                            Router::new()
-                        })
-                        .nest("/websocket_triggers", {
-                            #[cfg(feature = "websocket")]
-                            {
-                                websocket_triggers::workspaced_service()
-                            }
-
-                            #[cfg(not(feature = "websocket"))]
-                            Router::new()
-                        })
+                        .nest("/http_triggers", http_triggers_service)
+                        .nest("/websocket_triggers", websocket_triggers_service)
                         .nest("/kafka_triggers", kafka_triggers_service)
                         .nest("/nats_triggers", nats_triggers_service)
-                        .nest("/postgres_triggers", {
-                            #[cfg(feature = "postgres_trigger")]
-                            {
-                                postgres_triggers::workspaced_service()
-                            }
-
-                            #[cfg(not(feature = "postgres_trigger"))]
-                            Router::new()
-                        }),
+                        .nest("/mqtt_triggers", mqtt_triggers_service)
+                        .nest("/sqs_triggers", sqs_triggers_service)
+                        .nest("/gcp_triggers", gcp_triggers_service)
+                        .nest("/postgres_triggers", postgres_triggers_service),
                 )
                 .nest("/workspaces", workspaces::global_service())
                 .nest(
@@ -441,6 +571,7 @@ pub async fn run_server(
                 .nest("/apps", apps::global_service().layer(cors.clone()))
                 .nest("/schedules", schedule::global_service())
                 .nest("/embeddings", embeddings::global_service())
+                .nest("/ai", ai::global_service())
                 .route_layer(from_extractor::<ApiAuthed>())
                 .route_layer(from_extractor::<users::Tokened>())
                 .nest("/jobs", jobs::global_root_service())
@@ -478,6 +609,28 @@ pub async fn run_server(
                         .layer(from_extractor::<OptAuthed>())
                         .layer(cors.clone()),
                 )
+                .nest("/mcp/w/:workspace_id", mcp_router)
+                .layer(from_extractor::<OptAuthed>())
+                .nest("/agent_workers", {
+                    #[cfg(feature = "agent_worker_server")]
+                    {
+                        agent_workers_ee::global_service().layer(Extension(agent_cache.clone()))
+                    }
+                    #[cfg(not(feature = "agent_worker_server"))]
+                    {
+                        Router::new()
+                    }
+                })
+                .nest("/w/:workspace_id/agent_workers", {
+                    #[cfg(feature = "agent_worker_server")]
+                    {
+                        agent_workers_router.layer(Extension(agent_cache.clone()))
+                    }
+                    #[cfg(not(feature = "agent_worker_server"))]
+                    {
+                        Router::new()
+                    }
+                })
                 .nest(
                     "/w/:workspace_id/jobs_u",
                     jobs::workspace_unauthed_service().layer(cors.clone()),
@@ -502,6 +655,24 @@ pub async fn run_server(
                     "/w/:workspace_id/jobs/teams_approval/:job_id",
                     get(request_teams_approval),
                 )
+                .nest("/w/:workspace_id/github_app", {
+                    #[cfg(feature = "enterprise")]
+                    {
+                        git_sync_ee::workspaced_service()
+                    }
+
+                    #[cfg(not(feature = "enterprise"))]
+                    Router::new()
+                })
+                .nest("/github_app", {
+                    #[cfg(feature = "enterprise")]
+                    {
+                        git_sync_ee::global_service()
+                    }
+
+                    #[cfg(not(feature = "enterprise"))]
+                    Router::new()
+                })
                 .nest(
                     "/w/:workspace_id/resources_u",
                     resources::public_service().layer(cors.clone()),
@@ -538,6 +709,20 @@ pub async fn run_server(
                     }
                     .layer(from_extractor::<OptAuthed>()),
                 )
+                .nest(
+                    "/gcp/w/:workspace_id",
+                    {
+                        #[cfg(all(feature = "enterprise", feature = "gcp_trigger"))]
+                        {
+                            gcp_triggers_ee::gcp_push_route_handler()
+                        }
+                        #[cfg(not(all(feature = "enterprise", feature = "gcp_trigger")))]
+                        {
+                            Router::new()
+                        }
+                    }
+                    .layer(from_extractor::<OptAuthed>()),
+                )
                 .route("/version", get(git_v))
                 .route("/uptodate", get(is_up_to_date))
                 .route("/ee_license", get(ee_license))
@@ -559,13 +744,6 @@ pub async fn run_server(
         )
     };
 
-    let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
-    let port = listener.local_addr().map(|x| x.port()).unwrap_or(8000);
-    let ip = listener
-        .local_addr()
-        .map(|x| x.ip().to_string())
-        .unwrap_or("localhost".to_string());
-
     let server = axum::serve(listener, app.into_make_service());
 
     tracing::info!(
@@ -580,11 +758,36 @@ pub async fn run_server(
         .expect("Failed to send port");
 
     let server = server.with_graceful_shutdown(async move {
-        rx.recv().await.ok();
+        killpill_rx.recv().await.ok();
+        #[cfg(feature = "agent_worker_server")]
+        if let Some(agent_workers_killpill_tx) = agent_workers_killpill_tx {
+            if let Err(e) = agent_workers_killpill_tx.kill().await {
+                tracing::error!("Error killing agent workers: {e:#}");
+            }
+        }
         tracing::info!("Graceful shutdown of server");
+
+        #[cfg(feature = "mcp")]
+        {
+            if let Some(mcp_main_ct) = mcp_main_ct {
+                tracing::info!("Received shutdown signal, cancelling MCP server...");
+                mcp_main_ct.cancel();
+            }
+            if let Some(mcp_service_ct) = mcp_service_ct {
+                tracing::info!("Waiting for MCP service cancellation...");
+                mcp_service_ct.cancelled().await;
+                tracing::info!("MCP service cancelled.");
+            }
+        }
     });
 
     server.await?;
+    #[cfg(feature = "agent_worker_server")]
+    for (i, bg_processor) in agent_workers_bg_processor.into_iter().enumerate() {
+        tracing::info!("server off. shutting down agent worker bg processor {i}");
+        bg_processor.await?;
+        tracing::info!("agent worker bg processor {i} shut down");
+    }
     Ok(())
 }
 
@@ -649,7 +852,8 @@ async fn openapi_json() -> &'static str {
     include_str!("../openapi-deref.json")
 }
 
-pub async fn migrate_db(db: &DB) -> anyhow::Result<()> {
-    db::migrate(db).await?;
-    Ok(())
+pub async fn migrate_db(db: &DB) -> anyhow::Result<Option<JoinHandle<()>>> {
+    db::migrate(db)
+        .await
+        .map_err(|e| anyhow::anyhow!("Error migrating db: {e:#}"))
 }

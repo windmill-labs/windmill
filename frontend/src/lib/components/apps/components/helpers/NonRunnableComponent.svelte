@@ -84,6 +84,4 @@
 			<RefreshIndicator {loading} />
 		</div>
 	</div>
-{:else}
-	<div class="w-full h-full" />
 {/if}

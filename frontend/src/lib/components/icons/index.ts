@@ -68,6 +68,7 @@ import GraphqlIcon from './GraphqlIcon.svelte'
 import NocoDbIcon from './NocoDbIcon.svelte'
 import AzureIcon from './AzureIcon.svelte'
 import OktaIcon from './OktaIcon.svelte'
+import Auth0Icon from './Auth0Icon.svelte'
 import MsSqlServerIcon from './MSSqlServerIcon.svelte'
 import AuthentikIcon from './AuthentikIcon.svelte'
 import AutheliaIcon from './AutheliaIcon.svelte'
@@ -97,6 +98,7 @@ import SpotifyIcon from './SpotifyIcon.svelte'
 import XeroIcon from './XeroIcon.svelte'
 import KafkaIcon from './KafkaIcon.svelte'
 import NatsIcon from './NatsIcon.svelte'
+import MqttIcon from './MqttIcon.svelte'
 export const APP_TO_ICON_COMPONENT = {
 	postgresql: PostgresIcon,
 	mysql: Mysql,
@@ -170,6 +172,7 @@ export const APP_TO_ICON_COMPONENT = {
 	nocodb: NocoDbIcon,
 	azure: AzureIcon,
 	okta: OktaIcon,
+	auth0: Auth0Icon,
 	authentik: AuthentikIcon,
 	authelia: AutheliaIcon,
 	kanidm: KanidmIcon,
@@ -198,7 +201,8 @@ export const APP_TO_ICON_COMPONENT = {
 	spotify: SpotifyIcon,
 	xero: XeroIcon,
 	kafka: KafkaIcon,
-	nats: NatsIcon
+	nats: NatsIcon,
+	mqtt: MqttIcon,
 } as const
 
 export {
@@ -268,6 +272,7 @@ export {
 	AzureIcon,
 	MicrosoftIcon,
 	OktaIcon,
+	Auth0Icon,
 	AuthentikIcon,
 	AutheliaIcon,
 	KanidmIcon,
@@ -294,5 +299,6 @@ export {
 	ZitadelIcon,
 	XeroIcon,
 	KafkaIcon,
-	NatsIcon
+	NatsIcon,
+	MqttIcon
 }

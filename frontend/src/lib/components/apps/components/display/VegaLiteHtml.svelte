@@ -67,8 +67,12 @@
 
 <InputValue key={'canvas'} {id} input={configuration.canvas} bind:value={canvas} />
 
-<div class="w-full h-full" bind:clientHeight={h} bind:clientWidth={w}>
-	<RunnableWrapper {outputs} {render} {componentInput} {id} bind:initializing bind:result>
-		<div on:pointerdown bind:this={divEl} />
-	</RunnableWrapper>
-</div>
+{#if render}
+	<div class="w-full h-full" bind:clientHeight={h} bind:clientWidth={w}>
+		<RunnableWrapper {outputs} {render} {componentInput} {id} bind:initializing bind:result>
+			<div on:pointerdown bind:this={divEl}></div>
+		</RunnableWrapper>
+	</div>
+{:else}
+	<RunnableWrapper {outputs} {render} {componentInput} {id} />
+{/if}

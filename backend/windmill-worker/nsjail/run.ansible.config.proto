@@ -16,6 +16,7 @@ clone_newuser: {CLONE_NEWUSER}
 
 keep_caps: false
 keep_env: true
+mount_proc: true
 
 mount {
     src: "/bin"
@@ -35,6 +36,12 @@ mount {
     dst: "/lib64"
     is_bind: true
     mandatory: false
+}
+
+mount {
+    src: "/root/.local/share/uv/tools/ansible"
+    dst: "/root/.local/share/uv/tools/ansible"
+    is_bind: true
 }
 
 mount {
@@ -125,6 +132,13 @@ mount {
     dst: "/dev/urandom"
     is_bind: true
 }
+
+mount {
+    src: "{PY_INSTALL_DIR}"
+    dst: "{PY_INSTALL_DIR}"
+    is_bind: true
+}
+
 
 {SHARED_MOUNT}
 

@@ -76,6 +76,21 @@ export type UploadInput = {
 	value: string
 }
 
+export type UploadS3Input = {
+	type: 'uploadS3'
+	value: any
+}
+
+export type FileUploadData = {
+	name: string
+	size: number
+	progress: number
+	cancelled?: boolean
+	errorMessage?: string
+	path?: string
+	file?: File
+}
+
 export type EvalInput = {
 	type: 'eval'
 	expr: string
@@ -127,6 +142,8 @@ export type RunnableByName = {
 
 export type Runnable = RunnableByPath | RunnableByName | undefined
 
+export type RunnableWithFields = Runnable & { fields?: Record<string, StaticAppInput> }
+
 // Runnable input, set by the developer in the component panel
 export type ResultInput = {
 	runnable: Runnable
@@ -149,6 +166,7 @@ export type AppInputSpec<T extends InputType, U, V extends InputType = never> = 
 	| EvalInput
 	| EvalInputV2
 	| UploadInput
+	| UploadS3Input
 	| ResultInput
 	| TemplateInput
 	| TemplateV2Input
@@ -173,6 +191,10 @@ type InputConfiguration<T extends InputType, V extends InputType> = {
 		 * @default false
 		 */
 		convertTo?: ReadFileAs
+	}
+	fileUploadS3?: {
+		accept: string
+		multiple?: boolean
 	}
 	noStatic?: boolean
 	onDemandOnly?: boolean
@@ -243,6 +265,7 @@ export type StaticAppInputOnDemand = Extract<StaticAppInput, { onDemandOnly: tru
 export type TemplateV2AppInput = Extract<AppInput, { type: 'templatev2' }>
 
 export type UploadAppInput = Extract<AppInput, { type: 'upload' }>
+export type UploadS3AppInput = Extract<AppInput, { type: 'uploadS3' }>
 
 export type RichAppInput =
 	| AppInput

@@ -8,6 +8,7 @@
 	import { generateRandomString } from '$lib/utils'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import WorkspaceMenu from '$lib/components/sidebar/WorkspaceMenu.svelte'
+	import { Menubar } from '$lib/components/meltComponents'
 
 	let itemPath: string | undefined = undefined
 	let itemKind: 'script' | 'flow' | 'app' = 'script'
@@ -95,7 +96,9 @@
 			<div class="flex flex-col items-center gap-3 w-full">
 				<div class="flex flex-row items-center justify-center w-full">
 					<span class="flex justify-end w-full items-right"> Selected Workspace: </span>
-					<WorkspaceMenu strictWorkspaceSelect />
+					<Menubar let:createMenu>
+						<WorkspaceMenu strictWorkspaceSelect {createMenu} />
+					</Menubar>
 				</div>
 				<ScriptPicker
 					allowEdit={false}
@@ -145,7 +148,7 @@
 						size="md"
 						btnClasses="whitespace-normal break-words flex flex-wrap"
 						disabled={itemPath == undefined}
-						on:click={userSettings.openDrawer}
+						on:click={() => userSettings.openDrawer()}
 					>
 						Generate webhook-specific Token
 					</Button>

@@ -20,6 +20,7 @@
 		emptyString,
 		encodeState,
 		isFlowPreview,
+		isNotFlow,
 		isScriptPreview,
 		truncateHash,
 		truncateRev
@@ -59,27 +60,18 @@
 	import HighlightCode from '$lib/components/HighlightCode.svelte'
 	import TestJobLoader from '$lib/components/TestJobLoader.svelte'
 	import LogViewer from '$lib/components/LogViewer.svelte'
-	import {
-		ActionRow,
-		Button,
-		Popup,
-		Skeleton,
-		Tab,
-		Alert,
-		MenuItem,
-		DrawerContent
-	} from '$lib/components/common'
+	import { ActionRow, Button, Skeleton, Tab, Alert, DrawerContent } from '$lib/components/common'
+	import Popover from '$lib/components/meltComponents/Popover.svelte'
 	import FlowMetadata from '$lib/components/FlowMetadata.svelte'
 	import JobArgs from '$lib/components/JobArgs.svelte'
 	import FlowProgressBar from '$lib/components/flows/FlowProgressBar.svelte'
 	import JobProgressBar from '$lib/components/jobs/JobProgressBar.svelte'
 	import Tabs from '$lib/components/common/tabs/Tabs.svelte'
 	import Badge from '$lib/components/common/badge/Badge.svelte'
-	import Tooltip from '$lib/components/Tooltip.svelte'
 	import { goto } from '$lib/navigation'
 	import { sendUserToast } from '$lib/toast'
 	import { forLater } from '$lib/forLater'
-	import ButtonDropdown from '$lib/components/common/button/ButtonDropdown.svelte'
+	import Dropdown from '$lib/components/DropdownV2.svelte'
 	import PersistentScriptDrawer from '$lib/components/PersistentScriptDrawer.svelte'
 	import Portal from '$lib/components/Portal.svelte'
 
@@ -89,13 +81,13 @@
 	import { json } from 'svelte-highlight/languages'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import WorkflowTimeline from '$lib/components/WorkflowTimeline.svelte'
-	import ScheduleEditor from '$lib/components/ScheduleEditor.svelte'
-	import Popover from '$lib/components/Popover.svelte'
+	import Tooltip from '$lib/components/meltComponents/Tooltip.svelte'
 	import HighlightTheme from '$lib/components/HighlightTheme.svelte'
 	import PreprocessedArgsDisplay from '$lib/components/runs/PreprocessedArgsDisplay.svelte'
 	import ExecutionDuration from '$lib/components/ExecutionDuration.svelte'
 	import CustomPopover from '$lib/components/CustomPopover.svelte'
 	import { isWindmillTooBigObject } from '$lib/components/job_args'
+	import ScheduleEditor from '$lib/components/triggers/schedules/ScheduleEditor.svelte'
 
 	let job: Job | undefined
 	let jobUpdateLastFetch: Date | undefined
@@ -119,7 +111,7 @@
 
 	let showExplicitProgressTip: boolean =
 		(localStorage.getItem('hideExplicitProgressTip') ?? 'false') == 'false'
-	$: job?.logs == undefined && job && viewTab == 'logs' && getLogs?.()
+	$: job?.logs == undefined && job && viewTab == 'logs' && isNotFlow(job?.job_kind) && getLogs?.()
 
 	let lastJobId: string | undefined = undefined
 	let concurrencyKey: string | undefined = undefined
@@ -222,24 +214,33 @@
 			})
 		}
 
-		if (job === undefined || job.job_kind !== 'script' || job.script_hash === undefined) {
-			return
-		}
-		const script = await ScriptService.getScriptByHash({
-			workspace: $workspaceStore!,
-			hash: job.script_hash
-		})
-		if (script.restart_unless_cancelled ?? false) {
-			persistentScriptDefinition = script
+		if (
+			job &&
+			job.job_kind === 'script' &&
+			job.script_hash &&
+			persistentScriptDefinition === undefined
+		) {
+			const script = await ScriptService.getScriptByHash({
+				workspace: $workspaceStore!,
+				hash: job.script_hash
+			})
+			if (script.restart_unless_cancelled ?? false) {
+				persistentScriptDefinition = script
+			}
 		}
 	}
 
-	$: {
-		if ($workspaceStore && $page.params.run && testJobLoader) {
-			forceCancel = false
-			getJob()
-		}
+	function onRunsPageChangeWithLoader() {
+		forceCancel = false
+		getJob()
 	}
+
+	function onRunsPageChange() {
+		job = undefined
+		persistentScriptDefinition = undefined
+	}
+	$: $workspaceStore && $page.params.run && onRunsPageChange()
+	$: $workspaceStore && $page.params.run && testJobLoader && onRunsPageChangeWithLoader()
 
 	$: selectedJobStep !== undefined && onSelectedJobStepChange()
 	$: job && onJobLoaded()
@@ -388,19 +389,20 @@
 		</DrawerContent>
 	</Drawer>
 {/if}
-
-<TestJobLoader
-	lazyLogs
-	bind:scriptProgress
-	on:done={() => job?.['result'] != undefined && (viewTab = 'result')}
-	bind:this={testJobLoader}
-	bind:getLogs
-	bind:isLoading={testIsLoading}
-	bind:job
-	bind:jobUpdateLastFetch
-	workspaceOverride={$workspaceStore}
-	bind:notfound
-/>
+{#if !job || (job?.job_kind != 'flow' && job?.job_kind != 'flownode' && job?.job_kind != 'flowpreview')}
+	<TestJobLoader
+		lazyLogs
+		bind:scriptProgress
+		on:done={() => job?.['result'] != undefined && (viewTab = 'result')}
+		bind:this={testJobLoader}
+		bind:getLogs
+		bind:isLoading={testIsLoading}
+		bind:job
+		bind:jobUpdateLastFetch
+		workspaceOverride={$workspaceStore}
+		bind:notfound
+	/>
+{/if}
 
 <Portal name="persistent-run">
 	<PersistentScriptDrawer bind:this={persistentScriptDrawer} />
@@ -442,20 +444,21 @@
 			{@const runsHref = `/runs/${job?.script_path}${!isScript ? '?jobKind=flow' : ''}`}
 			<div class="flex gap-2 items-center">
 				{#if job && 'deleted' in job && !job?.deleted && ($superadmin || ($userStore?.is_admin ?? false))}
-					<ButtonDropdown target="body" hasPadding={false}>
+					<Dropdown
+						items={[
+							{
+								displayName: 'Delete result, logs and args (admin only)',
+								action: () => {
+									job?.id && deleteCompletedJob(job.id)
+								},
+								type: 'delete'
+							}
+						]}
+					>
 						<svelte:fragment slot="buttonReplacement">
 							<Button nonCaptureEvent variant="border" size="sm" startIcon={{ icon: Trash }} />
 						</svelte:fragment>
-						<svelte:fragment slot="items">
-							<MenuItem
-								on:click={() => {
-									job?.id && deleteCompletedJob(job.id)
-								}}
-							>
-								<span class="text-red-600"> Delete result, logs and args (admin only) </span>
-							</MenuItem>
-						</svelte:fragment>
-					</ButtonDropdown>
+					</Dropdown>
 					{#if job?.job_kind === 'script' || job?.job_kind === 'flow'}
 						<Button
 							href={runsHref}
@@ -476,7 +479,17 @@
 			{@const viewHref = `${stem}/get/${isScript ? job?.script_hash : job?.script_path}`}
 			{#if (job?.job_kind == 'flow' || isFlowPreview(job?.job_kind)) && job?.['running'] && job?.parent_job == undefined}
 				<div class="inline">
-					<ButtonDropdown hasPadding={false}>
+					<Dropdown
+						items={[
+							{
+								displayName: 'Show Flow Debug Info',
+								action: () => {
+									debugInfo()
+								}
+							}
+						]}
+						class="h-auto"
+					>
 						<svelte:fragment slot="buttonReplacement">
 							<Button nonCaptureEvent size="xs" color="light">
 								<div class="flex flex-row items-center">
@@ -484,10 +497,7 @@
 								</div>
 							</Button>
 						</svelte:fragment>
-						<svelte:fragment slot="items">
-							<MenuItem on:click={debugInfo}>Show Flow Debug Info</MenuItem>
-						</svelte:fragment>
-					</ButtonDropdown>
+					</Dropdown>
 				</div>
 			{/if}
 			{#if isFlowPreview(job?.job_kind) || isScriptPreview(job?.job_kind)}
@@ -577,8 +587,11 @@
 						</Badge>
 					</Button>
 				{:else}
-					<Popup floatingConfig={{ strategy: 'absolute', placement: 'bottom-start' }}>
-						<svelte:fragment slot="button">
+					<Popover
+						floatingConfig={{ strategy: 'absolute', placement: 'bottom-start' }}
+						contentClasses="p-4"
+					>
+						<svelte:fragment slot="trigger">
 							<Button
 								title={`Re-start this flow from step ${selectedJobStep} (included). ${
 									!$enterpriseLicense
@@ -597,46 +610,48 @@
 								</Badge>
 							</Button>
 						</svelte:fragment>
-						<label class="block text-primary">
-							<div class="pb-1 text-sm text-secondary"
-								>{selectedJobStepType == 'forloop' ? 'From iteration #:' : 'From branch:'}</div
-							>
-							<div class="flex w-full">
-								{#if selectedJobStepType === 'forloop'}
-									<input
-										type="number"
-										min="0"
-										bind:value={branchOrIterationN}
-										class="!w-32 grow"
-										on:click|stopPropagation={() => {}}
-									/>
-								{:else}
-									<select
-										bind:value={branchOrIterationN}
-										class="!w-32 grow"
-										on:click|stopPropagation={() => {}}
-									>
-										{#each restartBranchNames as [branchIdx, branchName]}
-											<option value={branchIdx}>{branchName}</option>
-										{/each}
-									</select>
-								{/if}
-
-								<Button
-									size="xs"
-									color="blue"
-									buttonType="button"
-									btnClasses="!p-1 !w-[34px] !ml-1"
-									aria-label="Restart flow"
-									on:click|once={() => {
-										restartFlow(job?.id, selectedJobStep, branchOrIterationN)
-									}}
+						<svelte:fragment slot="content">
+							<label class="block text-primary">
+								<div class="pb-1 text-sm text-secondary"
+									>{selectedJobStepType == 'forloop' ? 'From iteration #:' : 'From branch:'}</div
 								>
-									<ArrowRight size={18} />
-								</Button>
-							</div>
-						</label>
-					</Popup>
+								<div class="flex w-full">
+									{#if selectedJobStepType === 'forloop'}
+										<input
+											type="number"
+											min="0"
+											bind:value={branchOrIterationN}
+											class="!w-32 grow"
+											on:click|stopPropagation={() => {}}
+										/>
+									{:else}
+										<select
+											bind:value={branchOrIterationN}
+											class="!w-32 grow"
+											on:click|stopPropagation={() => {}}
+										>
+											{#each restartBranchNames as [branchIdx, branchName]}
+												<option value={branchIdx}>{branchName}</option>
+											{/each}
+										</select>
+									{/if}
+
+									<Button
+										size="xs"
+										color="blue"
+										buttonType="button"
+										btnClasses="!p-1 !w-[34px] !ml-1"
+										aria-label="Restart flow"
+										on:click|once={() => {
+											restartFlow(job?.id, selectedJobStep, branchOrIterationN)
+										}}
+									>
+										<ArrowRight size={18} />
+									</Button>
+								</div>
+							</label>
+						</svelte:fragment>
+					</Popover>
 				{/if}
 			{/if}
 			{#if job?.job_kind === 'script' || job?.job_kind === 'flow'}
@@ -700,6 +715,8 @@
 						{/if}
 					{:else if job && 'success' in job}
 						<XCircle class="text-red-700" size={14} />
+					{:else if job && 'running' in job && job.running && job.suspend}
+						<Hourglass class="text-violet-500" size={14} />
 					{:else if job && 'running' in job && job.running}
 						<Circle class="text-yellow-500 fill-current" size={14} />
 					{:else if job && 'running' in job && job.scheduled_for && forLater(job.scheduled_for)}
@@ -738,19 +755,24 @@
 								<Badge color="blue">priority: {job.priority}</Badge>
 							</div>
 						{/if}
-						{#if job.tag && !['deno', 'python3', 'flow', 'other', 'go', 'postgresql', 'mysql', 'bigquery', 'snowflake', 'mssql', 'graphql', 'oracledb', 'nativets', 'bash', 'powershell', 'php', 'rust', 'other', 'ansible', 'csharp', 'dependency'].includes(job.tag)}
+						{#if job.tag && !['deno', 'python3', 'flow', 'other', 'go', 'postgresql', 'mysql', 'bigquery', 'snowflake', 'mssql', 'graphql', 'oracledb', 'nativets', 'bash', 'powershell', 'php', 'rust', 'other', 'ansible', 'csharp', 'nu', 'java', 'dependency'].includes(job.tag)}
+							<!-- for related places search: ADD_NEW_LANG -->
 							<div>
 								<Badge color="indigo">Tag: {job.tag}</Badge>
 							</div>
 						{/if}
 						{#if !job.visible_to_owner}
-							<div
-								><Badge color="red"
-									>only visible to you <Tooltip
-										>The option to hide this run from the owner of this script or flow was activated</Tooltip
-									>
-								</Badge></div
-							>
+							<div>
+								<Badge color="red">
+									only visible to you
+									<Tooltip>
+										<svelte:fragment slot="text">
+											The option to hide this run from the owner of this script or flow was
+											activated
+										</svelte:fragment>
+									</Tooltip>
+								</Badge>
+							</div>
 						{/if}
 						{#if job?.['labels'] && Array.isArray(job?.['labels']) && job?.['labels'].length > 0}
 							{#each job?.['labels'] as label}
@@ -761,7 +783,7 @@
 						{/if}
 						{#if concurrencyKey}
 							<div>
-								<Popover notClickable>
+								<Tooltip notClickable>
 									<svelte:fragment slot="text">
 										This job has concurrency limits enabled with the key
 										<a
@@ -775,7 +797,22 @@
 									>
 										<Badge>Concurrency: {truncateRev(concurrencyKey, 20)}</Badge></a
 									>
-								</Popover>
+								</Tooltip>
+							</div>
+						{/if}
+						{#if job?.worker}
+							<div>
+								<Tooltip notClickable>
+									<svelte:fragment slot="text">
+										Executed on worker
+										<a href={`${base}/runs/?job_kinds=all&worker=${job?.worker}`}>
+											{job.worker}
+										</a>
+									</svelte:fragment>
+									<a href={`${base}/runs/?job_kinds=all&worker=${job?.worker}`}>
+										<Badge>Worker: {truncateRev(job?.worker, 20)}</Badge></a
+									>
+								</Tooltip>
 							</div>
 						{/if}
 					</div>
@@ -788,7 +825,7 @@
 					The content of this run was deleted (by an admin, no less)
 				</Alert>
 			</div>
-			<div class="my-4" />
+			<div class="my-4"></div>
 		{/if}
 
 		<!-- Arguments and actions -->
@@ -841,13 +878,13 @@
 				<h2 class="mt-10">Scheduled to be executed later: {displayDate(job?.['scheduled_for'])}</h2>
 			</div>
 		{/if}
-		{#if job?.job_kind !== 'flow' && job?.job_kind !== 'singlescriptflow' && !isFlowPreview(job?.job_kind)}
+		{#if isNotFlow(job?.job_kind)}
 			{#if ['python3', 'bun', 'deno'].includes(job?.language ?? '') && (job?.job_kind == 'script' || isScriptPreview(job?.job_kind))}
 				<ExecutionDuration bind:job bind:longRunning={currentJobIsLongRunning} />
 			{/if}
 			<div class="max-w-7xl mx-auto w-full px-4 mb-10">
 				{#if job?.flow_status && typeof job.flow_status == 'object' && !('_metadata' in job.flow_status)}
-					<div class="mt-10" />
+					<div class="mt-10"></div>
 					<WorkflowTimeline
 						flow_status={asWorkflowStatus(job.flow_status)}
 						flowDone={job.type == 'CompletedJob'}
@@ -900,7 +937,8 @@
 									workspaceId={job?.workspace_id}
 									jobId={job?.id}
 									result={job.result}
-									language={job.language}
+									language={job?.language}
+									isTest={false}
 								/>
 							{:else if job}
 								No output is available yet
@@ -910,22 +948,29 @@
 				</div>
 			</div>
 		{:else if !job?.['deleted']}
-			<div class="mt-10" />
+			<div class="mt-10"></div>
 			<FlowProgressBar
 				{job}
 				bind:currentSubJobProgress={scriptProgress}
 				class="py-4 max-w-7xl mx-auto px-4"
 			/>
 			<div class="w-full mt-10">
-				<FlowStatusViewer
-					jobId={job?.id ?? ''}
-					on:jobsLoaded={({ detail }) => {
-						job = detail
-					}}
-					initialJob={job}
-					workspaceId={$workspaceStore}
-					bind:selectedJobStep
-				/>
+				{#if job?.id}
+					<FlowStatusViewer
+						jobId={job?.id ?? ''}
+						on:jobsLoaded={({ detail }) => {
+							job = detail
+						}}
+						on:done={(e) => {
+							job = e.detail
+						}}
+						initialJob={job}
+						workspaceId={$workspaceStore}
+						bind:selectedJobStep
+					/>
+				{:else}
+					<Skeleton layout={[[5]]} />
+				{/if}
 			</div>
 		{/if}
 	</div>

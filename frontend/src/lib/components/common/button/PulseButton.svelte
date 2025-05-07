@@ -27,7 +27,7 @@
 			class:deactivate={isPulsing}
 			style={`--pulse-duration: ${pulseDuration}s; --i:${i}; --scale:${scale}; --number-of-pulses:${numberOfPulses}; --pulse-count:${pulseCount};`}
 		>
-			<div class="pulse" class:active={isPulsing} />
+			<div class="pulse" class:active={isPulsing}></div>
 		</div>
 	{/each}
 </div>

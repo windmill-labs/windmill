@@ -3,7 +3,7 @@
 	import { base } from '$lib/base'
 	import Dropdown from '$lib/components/DropdownV2.svelte'
 	import type MoveDrawer from '$lib/components/MoveDrawer.svelte'
-	import ScheduleEditor from '$lib/components/ScheduleEditor.svelte'
+	import ScheduleEditor from '$lib/components/triggers/schedules/ScheduleEditor.svelte'
 	import SharedBadge from '$lib/components/SharedBadge.svelte'
 	import type ShareModal from '$lib/components/ShareModal.svelte'
 	import { FlowService, type Flow, DraftService } from '$lib/gen'
@@ -101,7 +101,7 @@
 		{/if}
 		<SharedBadge canWrite={flow.canWrite} extraPerms={flow.extra_perms} />
 		<DraftBadge has_draft={flow.has_draft} draft_only={flow.draft_only} />
-		<div class="w-8 center-center" />
+		<div class="w-8 center-center"></div>
 	</svelte:fragment>
 	<svelte:fragment slot="actions">
 		<span class="hidden md:inline-flex gap-x-1">
@@ -204,7 +204,7 @@
 									disabled: archived,
 									hide: $userStore?.operator
 								}
-						  ]
+							]
 						: []),
 					{
 						displayName: 'Deployments',
@@ -258,7 +258,7 @@
 									disabled: !owner,
 									hide: $userStore?.operator
 								}
-						  ]
+							]
 						: []),
 					{
 						displayName: 'Delete',

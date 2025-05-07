@@ -16,8 +16,11 @@ use crate::db::{ApiAuthed, DB};
 use crate::jobs::{cancel_suspended_job, resume_suspended_job, QueryOrBody, ResumeUrls};
 
 use windmill_common::{
-    error::Error,
-    variables::{build_crypt, decrypt},
+    cache,
+    error::{self, Error},
+    jobs::JobKind,
+    scripts::ScriptHash,
+    variables::get_secret_value_as_admin,
 };
 
 use crate::approvals::{
@@ -801,26 +804,9 @@ fn process_non_datetime_inputs(
 }
 
 async fn get_slack_token(db: &DB, slack_resource_path: &str, w_id: &str) -> anyhow::Result<String> {
-    let slack_token = match sqlx::query!(
-        "SELECT value, is_secret FROM variable WHERE path = $1",
-        slack_resource_path
-    )
-    .fetch_optional(db)
-    .await?
-    {
-        Some(row) => row,
-        None => {
-            return Err(anyhow::anyhow!("No slack token found"));
-        }
-    };
-
-    if slack_token.is_secret {
-        let mc = build_crypt(&db, w_id).await?;
-        let bot_token = decrypt(&mc, slack_token.value)?;
-        Ok(bot_token)
-    } else {
-        Ok(slack_token.value)
-    }
+    get_secret_value_as_admin(db, w_id, slack_resource_path)
+        .await
+        .map_err(|e| anyhow::anyhow!(e.to_string()))
 }
 
 // Sends a Slack message with a button that opens a modal

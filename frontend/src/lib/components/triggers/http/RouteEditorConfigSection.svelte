@@ -15,7 +15,11 @@
 	import CaptureSection from '../CaptureSection.svelte'
 	import CaptureTable from '../CaptureTable.svelte'
 	import ClipboardPanel from '../../details/ClipboardPanel.svelte'
+	import { isObject } from '$lib/utils'
+	import { getHttpRoute } from './utils'
+	import RouteBodyTransformerOption from './RouteBodyTransformerOption.svelte'
 	import { isCloudHosted } from '$lib/cloud'
+	import Toggle from '$lib/components/Toggle.svelte'
 
 	export let initialTriggerPath: string | undefined = undefined
 	export let dirtyRoutePath: boolean = false
@@ -28,14 +32,19 @@
 	export let headless: boolean = false
 	export let captureInfo: CaptureInfo | undefined = undefined
 	export let captureTable: CaptureTable | undefined = undefined
+	export let workspaced_route: boolean = false
 	export let isValid = false
 	export let runnableArgs: any = {}
+	export let raw_string: boolean = false
+	export let wrap_body: boolean = false
+	export let capture_mode: boolean
 	let validateTimeout: NodeJS.Timeout | undefined = undefined
 
 	let routeError: string = ''
 	async function validateRoute(
 		routePath: string | undefined,
-		method: typeof http_method
+		method: typeof http_method,
+		workspaced_route: boolean
 	): Promise<void> {
 		if (validateTimeout) {
 			clearTimeout(validateTimeout)
@@ -43,7 +52,7 @@
 		validateTimeout = setTimeout(async () => {
 			if (!routePath || !method || !/^:?[-\w]+(\/:?[-\w]+)*$/.test(routePath)) {
 				routeError = 'Endpoint not valid'
-			} else if (await routeExists(routePath, method)) {
+			} else if (await routeExists(routePath, method, workspaced_route)) {
 				routeError = 'Endpoint already taken'
 			} else {
 				routeError = ''
@@ -51,29 +60,27 @@
 			validateTimeout = undefined
 		}, 500)
 	}
-
-	async function routeExists(route_path: string, method: Exclude<typeof http_method, undefined>) {
+	async function routeExists(
+		route_path: string,
+		method: Exclude<typeof http_method, undefined>,
+		workspaced_route: boolean
+	) {
 		return await HttpTriggerService.existsRoute({
 			workspace: $workspaceStore!,
 			requestBody: {
 				route_path,
 				http_method: method,
-				trigger_path: initialTriggerPath
+				trigger_path: initialTriggerPath,
+				workspaced_route: workspaced_route
 			}
 		})
 	}
 
-	$: validateRoute(route_path, http_method)
+	$: validateRoute(route_path, http_method, workspaced_route)
 
 	$: isValid = routeError === ''
 
-	function getHttpRoute(route_path: string | undefined) {
-		return `${location.origin}${base}/api/r/${isCloudHosted() ? $workspaceStore + '/' : ''}${
-			route_path ?? ''
-		}`
-	}
-
-	$: fullRoute = getHttpRoute(route_path)
+	$: fullRoute = getHttpRoute('r', route_path, workspaced_route, $workspaceStore ?? '')
 
 	$: !http_method && (http_method = 'post')
 	$: route_path === undefined && (route_path = '')
@@ -84,6 +91,10 @@
 		{@const captureURL = `${location.origin}${base}/api/w/${$workspaceStore}/capture_u/http/${
 			captureInfo.isFlow ? 'flow' : 'script'
 		}/${captureInfo.path.replaceAll('/', '.')}/${route_path}`}
+		{@const cleanedRunnableArgs =
+			isObject(runnableArgs) && 'wm_trigger' in runnableArgs
+				? Object.fromEntries(Object.entries(runnableArgs).filter(([key]) => key !== 'wm_trigger'))
+				: runnableArgs}
 		<CaptureSection
 			captureType="http"
 			disabled={!isValid}
@@ -105,7 +116,7 @@
 					code={`curl \\
 -X ${(http_method ?? 'post').toUpperCase()} ${captureURL} \\
 -H 'Content-Type: application/json' \\
--d '${JSON.stringify(runnableArgs ?? {}, null, 2)}'`}
+-d '${JSON.stringify(cleanedRunnableArgs ?? {}, null, 2)}'`}
 					language={bash}
 				/>
 			</Label>
@@ -116,30 +127,32 @@
 			<Alert type="info" title="Admin only" collapsible>
 				Route endpoints can only be edited by workspace admins
 			</Alert>
-			<div class="my-2" />
+			<div class="my-2"></div>
 		{/if}
 		<div class="flex flex-col w-full gap-4">
 			<label class="block grow w-full">
-				<div class="text-secondary text-sm flex items-center gap-1 w-full justify-between">
-					<div>
-						Path
-						<Required required={true} />
+				<div class="flex flex-col gap-1">
+					<div class="text-secondary text-sm flex items-center gap-1 w-full justify-between">
+						<div>
+							Path
+							<Required required={true} />
+						</div>
+						<div class="text-2xs text-tertiary"> ':myparam' for path params </div>
 					</div>
-					<div class="text-2xs text-tertiary"> ':myparam' for path params </div>
+					<!-- svelte-ignore a11y-autofocus -->
+					<input
+						type="text"
+						autocomplete="off"
+						bind:value={route_path}
+						disabled={!($userStore?.is_admin || $userStore?.is_super_admin) || !can_write}
+						class={routeError === ''
+							? ''
+							: 'border border-red-700 bg-red-100 border-opacity-30 focus:border-red-700 focus:border-opacity-30 focus-visible:ring-red-700 focus-visible:ring-opacity-25 focus-visible:border-red-700'}
+						on:input={() => {
+							dirtyRoutePath = true
+						}}
+					/>
 				</div>
-				<!-- svelte-ignore a11y-autofocus -->
-				<input
-					type="text"
-					autocomplete="off"
-					bind:value={route_path}
-					disabled={!($userStore?.is_admin || $userStore?.is_super_admin) || !can_write}
-					class={routeError === ''
-						? ''
-						: 'border border-red-700 bg-red-100 border-opacity-30 focus:border-red-700 focus:border-opacity-30 focus-visible:ring-red-700 focus-visible:ring-opacity-25 focus-visible:border-red-700'}
-					on:input={() => {
-						dirtyRoutePath = true
-					}}
-				/>
 			</label>
 
 			<ToggleButtonGroup
@@ -148,12 +161,13 @@
 				disabled={!($userStore?.is_admin || $userStore?.is_super_admin) ||
 					!can_write ||
 					!!static_asset_config}
+				let:item
 			>
-				<ToggleButton label="GET" value="get" />
-				<ToggleButton label="POST" value="post" />
-				<ToggleButton label="PUT" value="put" />
-				<ToggleButton label="PATCH" value="patch" />
-				<ToggleButton label="DELETE" value="delete" />
+				<ToggleButton label="GET" value="get" {item} />
+				<ToggleButton label="POST" value="post" {item} />
+				<ToggleButton label="PUT" value="put" {item} />
+				<ToggleButton label="PATCH" value="patch" {item} />
+				<ToggleButton label="DELETE" value="delete" {item} />
 			</ToggleButtonGroup>
 			<div class="flex flex-col w-full mt-2">
 				<div class="flex justify-start w-full">
@@ -174,11 +188,32 @@
 						}}
 					/>
 				</div>
-
 				<div class="text-red-600 dark:text-red-400 text-2xs mt-1.5"
 					>{dirtyRoutePath ? routeError : ''}</div
 				>
+				{#if !capture_mode && !isCloudHosted()}
+					<div class="mt-1">
+						<Toggle
+							size="sm"
+							checked={workspaced_route}
+							on:change={() => {
+								workspaced_route = !workspaced_route
+								dirtyRoutePath = true
+							}}
+							options={{
+								right: 'Prefix with workspace',
+								rightTooltip:
+									'Prefixes the route with the workspace ID (e.g., {base_url}/api/r/{workspace_id}/{route}). Note: deploying the HTTP trigger to another workspace updates the route workspace prefix accordingly.',
+								rightDocumentationLink:
+									'https://www.windmill.dev/docs/core_concepts/http_routing#workspace-prefix'
+							}}
+						/>
+					</div>
+				{/if}
 			</div>
+			{#if capture_mode}
+				<RouteBodyTransformerOption bind:raw_string bind:wrap_body />
+			{/if}
 		</div>
 	</Section>
 </div>

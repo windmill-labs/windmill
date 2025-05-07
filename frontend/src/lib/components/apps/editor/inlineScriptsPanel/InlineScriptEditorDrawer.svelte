@@ -6,9 +6,11 @@
 	import { Save } from 'lucide-svelte'
 
 	let scriptEditorDrawer: Drawer
+	export let appPath: string
 	export let inlineScript: InlineScript
 	export let editor: Editor | undefined = undefined
 	export let isOpen: boolean | undefined = undefined
+	export let id: string
 
 	export function openDrawer() {
 		scriptEditorDrawer.openDrawer?.()
@@ -27,10 +29,11 @@
 	>
 		{#if inlineScript && inlineScript.language != 'frontend'}
 			<ScriptEditor
+				showCaptures={false}
 				noHistory
 				noSyncFromGithub
 				lang={inlineScript.language}
-				path={inlineScript.path ? inlineScript.path + '_fullscreen' : undefined}
+				path={appPath + '/' + id + '_fullscreen'}
 				fixedOverflowWidgets={false}
 				bind:code={inlineScript.content}
 				bind:schema={inlineScript.schema}

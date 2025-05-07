@@ -90,7 +90,7 @@
 			</li>
 			{#if index !== (tabs ?? []).length - 1}
 				<li class="flex items-center">
-					<div class="h-0.5 w-4 bg-blue-200" />
+					<div class="h-0.5 w-4 bg-blue-200"></div>
 				</li>
 			{/if}
 		{/each}

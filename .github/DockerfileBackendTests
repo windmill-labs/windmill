@@ -27,31 +27,38 @@ RUN wget https://golang.org/dl/go1.21.5.linux-amd64.tar.gz && tar -C /usr/local 
 ENV PATH="${PATH}:/usr/local/go/bin"
 ENV GO_PATH=/usr/local/go/bin/go
 
-# Install UV
+# UV
 RUN curl --proto '=https' --tlsv1.2 -LsSf https://github.com/astral-sh/uv/releases/download/0.4.18/uv-installer.sh | sh && mv /usr/local/cargo/bin/uv /usr/local/bin/uv
 
 ENV TZ=Etc/UTC
 
 ENV PYTHON_VERSION 3.11.4
 
+# Python
 RUN wget https://www.python.org/ftp/python/${PYTHON_VERSION}/Python-${PYTHON_VERSION}.tgz \
     && tar -xf Python-${PYTHON_VERSION}.tgz && cd Python-${PYTHON_VERSION}/ && ./configure --enable-optimizations \
     && make -j 4 && make install
 
 RUN /usr/local/bin/python3 -m pip install pip-tools
 
-COPY --from=oven/bun:1.1.31 /usr/local/bin/bun /usr/bin/bun
+# Bun
+COPY --from=oven/bun:1.2.4 /usr/local/bin/bun /usr/bin/bun
 
 ARG TARGETPLATFORM
 
+# Deno
 RUN curl -Lsf https://github.com/denoland/deno/releases/download/v2.0.2/deno-x86_64-unknown-linux-gnu.zip -o deno.zip 
 # RUN [ "$TARGETPLATFORM" == "linux/arm64" ] && curl -Lsf https://github.com/denoland/deno/releases/download/v2.0.0/deno-aarch64-unknown-linux-gnu.zip -o deno.zip || true
-
 RUN unzip deno.zip && rm deno.zip && mv deno /usr/bin/deno
 
 RUN apt-get update \
     && apt-get install -y postgresql-client --allow-unauthenticated
 
 RUN rustup component add rustfmt
+
+# C#
 COPY --from=bitnami/dotnet-sdk:9.0.101-debian-12-r0 /opt/bitnami/dotnet-sdk /opt/dotnet-sdk
 RUN ln -s /opt/dotnet-sdk/bin/dotnet /usr/bin/dotnet
+
+# Nushell
+COPY --from=ghcr.io/nushell/nushell:0.101.0-bookworm /usr/bin/nu /usr/bin/nu

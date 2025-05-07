@@ -222,14 +222,6 @@
 						/>
 					</Label>
 				</div>
-
-				<NatsTriggersConfigSection
-					{path}
-					bind:args
-					bind:isValid
-					defaultValues={useDefaultValues() ? defaultValues : undefined}
-				/>
-
 				<Section label="Runnable">
 					<p class="text-xs mb-1 text-tertiary">
 						Pick a script or flow to be triggered<Required required={true} />
@@ -245,8 +237,24 @@
 							allowRefresh={can_write}
 							allowEdit={!$userStore?.operator}
 						/>
+						{#if emptyString(script_path)}
+							<Button
+								btnClasses="ml-4 mt-2"
+								color="dark"
+								size="xs"
+								href={itemKind === 'flow' ? '/flows/add?hub=66' : '/scripts/add?hub=hub%2F11634'}
+								target="_blank">Create from template</Button
+							>
+						{/if}
 					</div>
 				</Section>
+
+				<NatsTriggersConfigSection
+					{path}
+					bind:args
+					bind:isValid
+					defaultValues={useDefaultValues() ? defaultValues : undefined}
+				/>
 			</div>
 		{/if}
 	</DrawerContent>

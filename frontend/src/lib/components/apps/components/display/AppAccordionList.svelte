@@ -18,16 +18,20 @@
 	export let initializing: boolean | undefined
 	export let componentContainerHeight: number
 
-	type AccordionListValue = { header: string; [key: string]: any };
+	type AccordionListValue = { header: string; [key: string]: any }
 
 	type InternalAccordionListInput = AppInput & {
-		value: AccordionListValue[];
-	};
+		value: AccordionListValue[]
+	}
 
-	$: accordionInput = componentInput as InternalAccordionListInput;
+	$: accordionInput = componentInput as InternalAccordionListInput
 
 	const { app, focusedGrid, selectedComponent, worldStore, connectingInput } =
 		getContext<AppViewerContext>('AppViewerContext')
+
+	let everRender = render
+
+	$: render && !everRender && (everRender = true)
 
 	let activeIndex: number = 0
 
@@ -61,7 +65,6 @@
 		activeIndex = activeIndex === index ? -1 : index
 		outputs.activeIndex.set(activeIndex)
 	}
-
 </script>
 
 {#each Object.keys(css ?? {}) as key (key)}
@@ -85,27 +88,27 @@
 	bind:initializing
 	bind:result
 >
-	<div class="w-full flex flex-col overflow-auto max-h-full">
-		{#if $app.subgrids?.[`${id}-0`]}
-			{#if Array.isArray(result) && result.length > 0}
-				{#each result ?? [] as value, index}
-					<div class="border-b">
-						<button
-							on:pointerdown|stopPropagation
-							on:click={() => toggleAccordion(index)}
-							class={twMerge(
-								'w-full text-left bg-surface !truncate text-sm hover:text-primary px-1 py-2',
-								'wm-tabs-alltabs',
-								activeIndex === index
-									? twMerge('bg-surface text-primary ', 'wm-tabs-selectedTab')
-									: 'text-secondary'
-							)}
-						>
-							<span class="mr-2 w-8 font-mono">{activeIndex === index ? '-' : '+'}</span>
-							{accordionInput?.value[index]?.header || `Header ${index}`}
-						</button>
-						{#if activeIndex === index}
-							<div class="p-2 overflow-auto w-full">
+	{#if everRender}
+		<div class="w-full flex flex-col overflow-auto max-h-full">
+			{#if $app.subgrids?.[`${id}-0`]}
+				{#if Array.isArray(result) && result.length > 0}
+					{#each result ?? [] as value, index}
+						<div class="border-b">
+							<button
+								on:pointerdown|stopPropagation
+								on:click={() => toggleAccordion(index)}
+								class={twMerge(
+									'w-full text-left bg-surface !truncate text-sm hover:text-primary px-1 py-2',
+									'wm-tabs-alltabs',
+									activeIndex === index
+										? twMerge('bg-surface text-primary ', 'wm-tabs-selectedTab')
+										: 'text-secondary'
+								)}
+							>
+								<span class="mr-2 w-8 font-mono">{activeIndex === index ? '-' : '+'}</span>
+								{result[index]?.header || `Header ${index}`}
+							</button>
+							<div class="overflow-auto w-full">
 								<ListWrapper
 									onSet={(id, value) => {
 										if (!inputs[id]) {
@@ -133,8 +136,8 @@
 								>
 									<SubGridEditor
 										{id}
-										visible={render}
-										class={twMerge(css?.container?.class, 'wm-accordion')}
+										visible={render && index === activeIndex}
+										class={twMerge(css?.container?.class, 'wm-accordion p-2')}
 										style={css?.container?.style}
 										subGridId={`${id}-0`}
 										containerHeight={componentContainerHeight -
@@ -148,17 +151,21 @@
 									/>
 								</ListWrapper>
 							</div>
-						{/if}
-					</div>
-				{/each}
-			{:else}
-				<ListWrapper disabled value={undefined} index={0}>
-					<SubGridEditor visible={false} {id} subGridId={`${id}-0`} />
-				</ListWrapper>
-				{#if !Array.isArray(result)}
-					<div class="text-center text-tertiary">Input data is not an array</div>
+						</div>
+					{/each}
+				{:else}
+					<ListWrapper disabled value={undefined} index={0}>
+						<SubGridEditor visible={false} {id} subGridId={`${id}-0`} />
+					</ListWrapper>
+					{#if !Array.isArray(result)}
+						<div class="text-center text-tertiary">Input data is not an array</div>
+					{/if}
 				{/if}
 			{/if}
-		{/if}
-	</div>
+		</div>
+	{:else if $app.subgrids}
+		<ListWrapper disabled value={undefined} index={0}>
+			<SubGridEditor visible={false} {id} subGridId={`${id}-0`} />
+		</ListWrapper>
+	{/if}
 </RunnableWrapper>

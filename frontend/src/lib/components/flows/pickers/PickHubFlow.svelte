@@ -75,7 +75,7 @@
 		</ul>
 	{/if}
 {:else}
-	<div class="my-2" />
+	<div class="my-2"></div>
 
 	{#each Array(10).fill(0) as _}
 		<Skeleton layout={[[4], 0.5]} />

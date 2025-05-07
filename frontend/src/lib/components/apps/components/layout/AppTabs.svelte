@@ -29,6 +29,8 @@
 		components['tabscomponent'].initialData.configuration,
 		configuration
 	)
+	let everRender = render
+	$: render && !everRender && (everRender = true)
 
 	const {
 		app,
@@ -117,128 +119,134 @@
 	/>
 {/each}
 
-<div class={resolvedConfig.tabsKind == 'sidebar' ? 'flex gap-4 w-full h-full' : 'w-full'}>
-	{#if !resolvedConfig.tabsKind || resolvedConfig.tabsKind == 'tabs' || (resolvedConfig.tabsKind == 'invisibleOnView' && $mode == 'dnd')}
-		<div bind:clientHeight={tabHeight}>
-			<Tabs
-				bind:selected
-				class={twMerge(css?.tabRow?.class, 'wm-tabs-tabRow')}
+{#if everRender}
+	<div class={resolvedConfig.tabsKind == 'sidebar' ? 'flex gap-4 w-full h-full' : 'w-full'}>
+		{#if !resolvedConfig.tabsKind || resolvedConfig.tabsKind == 'tabs' || (resolvedConfig.tabsKind == 'invisibleOnView' && $mode == 'dnd')}
+			<div bind:clientHeight={tabHeight}>
+				<Tabs
+					bind:selected
+					class={twMerge(css?.tabRow?.class, 'wm-tabs-tabRow')}
+					style={css?.tabRow?.style}
+				>
+					{#each tabs ?? [] as res, index}
+						<Tab
+							value={res}
+							class={twMerge(css?.allTabs?.class, 'wm-tabs-alltabs')}
+							style={css?.allTabs?.style}
+							selectedClass={twMerge(css?.selectedTab?.class, 'wm-tabs-selectedTab')}
+							selectedStyle={css?.selectedTab?.style}
+							disabled={resolvedDisabledTabs[index]}
+						>
+							<span class="font-semibold">{res}</span>
+						</Tab>
+					{/each}
+				</Tabs>
+			</div>
+		{:else if resolvedConfig.tabsKind == 'sidebar'}
+			<div
+				class={twMerge(
+					'flex gap-y-2 flex-col w-1/6 max-w-[160px] bg-surface text-secondary opacity-80 px-4 pt-4 border-r ',
+					css?.tabRow?.class,
+					'wm-tabs-tabRow'
+				)}
 				style={css?.tabRow?.style}
 			>
-				{#each tabs ?? [] as res, index}
-					<Tab
-						value={res}
-						class={twMerge(css?.allTabs?.class, 'wm-tabs-alltabs')}
-						style={css?.allTabs?.style}
-						selectedClass={twMerge(css?.selectedTab?.class, 'wm-tabs-selectedTab')}
-						selectedStyle={css?.selectedTab?.style}
-						disabled={resolvedDisabledTabs[index]}
-					>
-						<span class="font-semibold">{res}</span>
-					</Tab>
-				{/each}
-			</Tabs>
-		</div>
-	{:else if resolvedConfig.tabsKind == 'sidebar'}
-		<div
-			class={twMerge(
-				'flex gap-y-2 flex-col w-1/6 max-w-[160px] bg-surface text-secondary opacity-80 px-4 pt-4 border-r ',
-				css?.tabRow?.class,
-				'wm-tabs-tabRow'
-			)}
-			style={css?.tabRow?.style}
-		>
-			{#each tabs ?? [] as res}
-				<button
-					on:pointerdown|stopPropagation
-					on:click={() => (selected = res)}
-					class={twMerge(
-						'rounded-sm !truncate text-sm  hover:text-primary px-1 py-2',
-						css?.allTabs?.class,
-						'wm-tabs-alltabs',
-						selected == res
-							? twMerge(
-									'border-r  border-primary border-l bg-surface text-primary',
-									css?.selectedTab?.class,
-									'wm-tabs-selectedTab'
-							  )
-							: ''
-					)}
-					style={selected == res
-						? [css?.allTabs?.style, css?.selectedTab?.style].filter(Boolean).join(';')
-						: css?.allTabs?.style}
-				>
-					{res}
-				</button>
-			{/each}
-		</div>
-	{/if}
-	{#if resolvedConfig.tabsKind == 'accordion'}
-		<div class="flex flex-col w-full">
-			{#each tabs ?? [] as res, index}
-				<div class="border-b">
+				{#each tabs ?? [] as res}
 					<button
 						on:pointerdown|stopPropagation
 						on:click={() => (selected = res)}
 						class={twMerge(
-							'w-full text-left bg-surface !truncate text-sm hover:text-primary px-1 py-2',
+							'rounded-sm !truncate text-sm  hover:text-primary px-1 py-2',
 							css?.allTabs?.class,
 							'wm-tabs-alltabs',
 							selected == res
 								? twMerge(
-										'bg-surface text-primary ',
+										'border-r  border-primary border-l bg-surface text-primary',
 										css?.selectedTab?.class,
 										'wm-tabs-selectedTab'
-								  )
-								: 'text-secondary'
+									)
+								: ''
 						)}
+						style={selected == res
+							? [css?.allTabs?.style, css?.selectedTab?.style].filter(Boolean).join(';')
+							: css?.allTabs?.style}
 					>
-						<span class="mr-2 w-8 font-mono">{selected == res ? '-' : '+'}</span>
 						{res}
 					</button>
-					{#if selected == res}
-						<div class="p-2 border-t">
-							<SubGridEditor
-								{id}
-								visible={render && index === selectedIndex}
-								subGridId={`${id}-${index}`}
-								class={twMerge(css?.container?.class, 'wm-tabs-container')}
-								style={css?.container?.style}
-								containerHeight={componentContainerHeight - (titleBarHeight * tabs.length + 40)}
-								on:focus={() => {
-									if (!$connectingInput.opened) {
-										$selectedComponent = [id]
-										handleTabSelection()
-									}
-								}}
-							/>
-						</div>
-					{/if}
-				</div>
-			{/each}
-		</div>
-	{:else}
-		<div class="w-full">
-			{#if $app.subgrids}
-				{#each tabs ?? [] as _res, i}
-					<SubGridEditor
-						{id}
-						visible={render && i === selectedIndex}
-						subGridId={`${id}-${i}`}
-						class={twMerge(css?.container?.class, 'wm-tabs-container')}
-						style={css?.container?.style}
-						containerHeight={resolvedConfig.tabsKind !== 'sidebar' && $mode !== 'preview'
-							? componentContainerHeight - tabHeight
-							: componentContainerHeight}
-						on:focus={() => {
-							if (!$connectingInput.opened) {
-								$selectedComponent = [id]
-								handleTabSelection()
-							}
-						}}
-					/>
 				{/each}
-			{/if}
-		</div>
-	{/if}
-</div>
+			</div>
+		{/if}
+		{#if resolvedConfig.tabsKind == 'accordion'}
+			<div class="flex flex-col w-full">
+				{#each tabs ?? [] as res, index}
+					<div class="border-b">
+						<button
+							on:pointerdown|stopPropagation
+							on:click={() => (selected = res)}
+							class={twMerge(
+								'w-full text-left bg-surface !truncate text-sm hover:text-primary px-1 py-2',
+								css?.allTabs?.class,
+								'wm-tabs-alltabs',
+								selected == res
+									? twMerge(
+											'bg-surface text-primary ',
+											css?.selectedTab?.class,
+											'wm-tabs-selectedTab'
+										)
+									: 'text-secondary'
+							)}
+						>
+							<span class="mr-2 w-8 font-mono">{selected == res ? '-' : '+'}</span>
+							{res}
+						</button>
+						{#if selected == res}
+							<div class="border-t">
+								<SubGridEditor
+									{id}
+									visible={render && index === selectedIndex}
+									subGridId={`${id}-${index}`}
+									class={twMerge(css?.container?.class, 'wm-tabs-container')}
+									style={css?.container?.style}
+									containerHeight={componentContainerHeight - (titleBarHeight * tabs.length + 40)}
+									on:focus={() => {
+										if (!$connectingInput.opened) {
+											$selectedComponent = [id]
+											handleTabSelection()
+										}
+									}}
+								/>
+							</div>
+						{/if}
+					</div>
+				{/each}
+			</div>
+		{:else}
+			<div class="w-full">
+				{#if $app.subgrids}
+					{#each tabs ?? [] as _res, i}
+						<SubGridEditor
+							{id}
+							visible={render && i === selectedIndex}
+							subGridId={`${id}-${i}`}
+							class={twMerge(css?.container?.class, 'wm-tabs-container')}
+							style={css?.container?.style}
+							containerHeight={resolvedConfig.tabsKind !== 'sidebar' && $mode !== 'preview'
+								? componentContainerHeight - tabHeight
+								: componentContainerHeight}
+							on:focus={() => {
+								if (!$connectingInput.opened) {
+									$selectedComponent = [id]
+									handleTabSelection()
+								}
+							}}
+						/>
+					{/each}
+				{/if}
+			</div>
+		{/if}
+	</div>
+{:else if $app.subgrids}
+	{#each tabs ?? [] as _res, i}
+		<SubGridEditor {id} visible={false} subGridId={`${id}-${i}`} />
+	{/each}
+{/if}

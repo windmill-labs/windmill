@@ -9,7 +9,7 @@
 use crate::push;
 use crate::PushIsolationLevel;
 use anyhow::Context;
-use sqlx::{query_scalar, PgExecutor, Postgres, Transaction};
+use sqlx::{PgExecutor, Postgres, Transaction};
 use std::collections::HashMap;
 use std::str::FromStr;
 use windmill_common::db::Authed;
@@ -38,7 +38,8 @@ pub async fn push_scheduled_job<'c>(
         ));
     }
 
-    let sched = ScheduleType::from_str(&schedule.schedule, schedule.cron_version.as_deref())?;
+    let sched =
+        ScheduleType::from_str(&schedule.schedule, schedule.cron_version.as_deref(), false)?;
 
     let tz = chrono_tz::Tz::from_str(&schedule.timezone)
         .map_err(|e| error::Error::BadRequest(e.to_string()))?;
@@ -63,18 +64,27 @@ pub async fn push_scheduled_job<'c>(
     };
 
     let next = sched.find_next(&starting_from);
-
     // println!("next event ({:?}): {}", tz, next);
     // println!("next event(UTC): {}", next.with_timezone(&chrono::Utc));
 
     // Scheduled events must be stored in the database in UTC
     let next = next.with_timezone(&chrono::Utc);
-
-    let already_exists: bool = query_scalar!(
-        "SELECT EXISTS (SELECT 1 FROM v2_as_queue WHERE workspace_id = $1 AND schedule_path = $2 AND scheduled_for = $3)",
+    // panic!("next: {}", next);
+    let already_exists: bool = sqlx::query_scalar!(
+        // Query plan:
+        // - use of the `ix_v2_job_root_by_path` index; hence the `parent_job IS NULL` clause.
+        // - select from `v2_job` first, then join with `v2_job_queue` to avoid a full table scan
+        //   on `scheduled_for = $3`.
+        "SELECT EXISTS (
+            SELECT 1 FROM v2_job j JOIN v2_job_queue USING (id)
+            WHERE j.workspace_id = $1 AND trigger_kind = 'schedule' AND trigger = $2 AND runnable_path = $4
+                AND parent_job IS NULL
+                AND scheduled_for = $3
+        )",
         &schedule.workspace_id,
         &schedule.path,
-        next
+        next,
+        &schedule.script_path
     )
     .fetch_one(&mut *tx)
     .await?

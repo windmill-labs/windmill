@@ -22,6 +22,13 @@ mount {
 }
 
 mount {
+  src: "/proc/self/fd"
+  dst: "/dev/fd"
+  is_symlink: true
+  mandatory: false
+}
+
+mount {
     src: "/opt/microsoft"
     dst: "/opt/microsoft"
 	is_bind: true

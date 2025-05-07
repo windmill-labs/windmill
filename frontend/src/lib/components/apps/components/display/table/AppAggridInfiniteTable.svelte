@@ -180,6 +180,10 @@
 	bind:result
 	bind:loading
 	bind:runnableComponent
+	on:recompute={() => {
+		console.log('recompute')
+		clear()
+	}}
 	{render}
 	autoRefresh={true}
 	allowConcurentRequests

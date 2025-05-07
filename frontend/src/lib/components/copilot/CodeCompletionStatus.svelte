@@ -2,17 +2,17 @@
 	import {
 		codeCompletionSessionEnabled,
 		copilotInfo,
-		FORMAT_ON_SAVE_SETTING_NAME
+		CODE_COMPLETION_SETTING_NAME
 	} from '$lib/stores'
 	import { storeLocalSetting } from '$lib/utils'
 	import Toggle from '../Toggle.svelte'
 
 	function storeSetting() {
-		storeLocalSetting(FORMAT_ON_SAVE_SETTING_NAME, $codeCompletionSessionEnabled.toString())
+		storeLocalSetting(CODE_COMPLETION_SETTING_NAME, $codeCompletionSessionEnabled.toString())
 	}
 </script>
 
-{#if $copilotInfo.exists_ai_resource && $copilotInfo.code_completion_model}
+{#if $copilotInfo.enabled && $copilotInfo.codeCompletionModel}
 	<Toggle
 		size="xs"
 		bind:checked={$codeCompletionSessionEnabled}

@@ -41,8 +41,8 @@ impl BenchmarkInfo {
         self.total_duration = Some(total_duration as u64);
 
         println!(
-            "Writing benchmark {path}, duration of benchmark: {total_duration}s and RPS: {}",
-            self.iters as f64 / total_duration as f64
+            "Writing benchmark {path}, duration of benchmark: {total_duration}ms and RPS: {}",
+            self.iters as f64 / total_duration as f64 * 1000.0
         );
         write_file(TMP_DIR, path, &serde_json::to_string(&self).unwrap()).expect("write profiling");
         Ok(())

@@ -71,6 +71,7 @@
 					selectOptions={meta?.['selectOptions']}
 					tooltip={meta?.['tooltip']}
 					fileUpload={meta?.['fileUpload']}
+					fileUploadS3={meta?.['fileUploadS3']}
 					placeholder={meta?.['placeholder']}
 					customTitle={meta?.['customTitle']}
 					loading={meta?.['loading']}

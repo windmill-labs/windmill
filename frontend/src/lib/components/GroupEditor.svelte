@@ -139,8 +139,8 @@
 		<TableCustom>
 			<tr slot="header-row">
 				<th>user</th>
-				<th />
-				<th />
+				<th></th>
+				<th></th>
 			</tr>
 			<tbody slot="body">
 				{#each members as { member_name, role }}<tr>
@@ -150,6 +150,7 @@
 								<div>
 									<ToggleButtonGroup
 										selected={role}
+										let:item
 										on:selected={async (e) => {
 											const role = e.detail
 											// const wasInGroup = (group?.members ?? []).includes(group)
@@ -215,6 +216,7 @@
 											size="xs"
 											label="Member"
 											tooltip="A Member of a group can see everything the group can see, write to everything the group can write, and generally act on behalf of the group"
+											{item}
 										/>
 										<ToggleButton
 											position="right"
@@ -222,6 +224,7 @@
 											size="xs"
 											label="Admin"
 											tooltip="An admin of a group is a member of a group that can also add and remove members to the group, or make them admin."
+											{item}
 										/>
 										{#if role === 'manager'}
 											<ToggleButton
@@ -230,6 +233,7 @@
 												label="Manager"
 												tooltip="A manager of a group can manage the group, adding and removing users and
 												change their roles. Being a manager does not make you a member"
+												{item}
 											/>
 										{/if}
 									</ToggleButtonGroup>

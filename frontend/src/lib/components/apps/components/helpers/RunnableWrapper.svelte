@@ -2,7 +2,7 @@
 	import { getContext, onMount } from 'svelte'
 	import type { AppInput } from '../../inputType'
 	import type { Output } from '../../rx'
-	import type { AppViewerContext } from '../../types'
+	import type { AppViewerContext, ListContext } from '../../types'
 	import { isScriptByNameDefined, isScriptByPathDefined } from '../../utils'
 	import NonRunnableComponent from './NonRunnableComponent.svelte'
 	import RunnableComponent from './RunnableComponent.svelte'
@@ -67,7 +67,7 @@
 
 	export let id: string
 	export let result: any = undefined
-	export let initializing: boolean = true
+	export let initializing: boolean | undefined = true
 	export let loading: boolean = false
 	export let extraQueryParams: Record<string, any> = {}
 	export let autoRefresh: boolean = true
@@ -96,8 +96,10 @@
 		runnableComponent?.setArgs(value)
 	}
 
-	const { staticExporter, noBackend, componentControl, runnableComponents } =
+	const { staticExporter, initialized, noBackend, componentControl, runnableComponents } =
 		getContext<AppViewerContext>('AppViewerContext')
+	const iterContext = getContext<ListContext>('ListWrapperContext')
+	const rowContext = getContext<ListContext>('RowWrapperContext')
 
 	if (noBackend && componentInput?.type == 'runnable') {
 		result = componentInput?.['value']
@@ -113,8 +115,25 @@
 		}
 	})
 
+	const fullId = id + (extraKey ?? '')
 	if (!(initializing && componentInput?.type === 'runnable' && isRunnableDefined(componentInput))) {
 		initializing = false
+	} else {
+		if (
+			(initializing == undefined || initializing == true) &&
+			Object.keys($initialized?.runnableInitialized ?? {}).includes(fullId)
+		) {
+			initializing = false
+		}
+
+		if (
+			result == undefined &&
+			!initializing &&
+			iterContext == undefined &&
+			rowContext == undefined
+		) {
+			result = $initialized.runnableInitialized?.[fullId]
+		}
 	}
 
 	// We need to make sure that old apps have correct values. Triggerable (button, form, etc) have both autoRefresh and recomputeOnInputChanged set to false
@@ -245,7 +264,9 @@
 	{#if !noInitialize}
 		<InitializeComponent {id} />
 	{/if}
-	<slot />
+	{#if render}
+		<slot />
+	{/if}
 {:else if componentInput.type === 'runnable' && isRunnableDefined(componentInput)}
 	<RunnableComponent
 		{noInitialize}
@@ -277,8 +298,20 @@
 		on:done
 		on:doneError
 		on:cancel
+		on:recompute
 		on:argsChanged
-		on:resultSet={() => (initializing = false)}
+		on:resultSet={(e) => {
+			const res = e.detail
+			if ($initialized?.runnableInitialized?.[fullId] === undefined) {
+				console.log('resultSet', id)
+				$initialized.runnableInitialized = {
+					...($initialized.runnableInitialized ?? {}),
+					[fullId]: res
+				}
+			}
+
+			initializing = false
+		}}
 		on:success={(e) => {
 			onSuccess(e.detail)
 			handleSideEffect(true)

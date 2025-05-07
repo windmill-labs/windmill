@@ -15,17 +15,13 @@ use tokio::process::Command;
 use uuid::Uuid;
 use windmill_common::{
     error::Error,
-    jobs::QueuedJob,
-    worker::{to_raw_value, write_file},
+    worker::{to_raw_value, write_file, Connection},
 };
-
-#[cfg(feature = "dind")]
-use windmill_common::DB;
 
 #[cfg(feature = "dind")]
 use windmill_common::error::to_anyhow;
 
-use windmill_queue::{append_logs, CanceledBy};
+use windmill_queue::{append_logs, CanceledBy, MiniPulledJob};
 
 lazy_static::lazy_static! {
     pub static ref BIN_BASH: String = std::env::var("BASH_PATH").unwrap_or_else(|_| "/bin/bash".to_string());
@@ -47,7 +43,7 @@ use crate::{
         OccupancyMetrics,
     },
     handle_child::handle_child,
-    AuthedClientBackgroundTask, DISABLE_NSJAIL, DISABLE_NUSER, HOME_ENV, NSJAIL_PATH, PATH_ENV,
+    AuthedClient, DISABLE_NSJAIL, DISABLE_NUSER, HOME_ENV, NSJAIL_PATH, PATH_ENV,
     POWERSHELL_CACHE_DIR, POWERSHELL_PATH, PROXY_ENVS, TZ_ENV,
 };
 
@@ -63,9 +59,10 @@ lazy_static::lazy_static! {
 pub async fn handle_bash_job(
     mem_peak: &mut i32,
     canceled_by: &mut Option<CanceledBy>,
-    job: &QueuedJob,
-    db: &sqlx::Pool<sqlx::Postgres>,
-    client: &AuthedClientBackgroundTask,
+    job: &MiniPulledJob,
+    conn: &Connection,
+    client: &AuthedClient,
+    parent_runnable_path: Option<String>,
     content: &str,
     job_dir: &str,
     shared_mount: &str,
@@ -81,7 +78,7 @@ pub async fn handle_bash_job(
     if annotation.docker {
         logs1.push_str("docker mode\n");
     }
-    append_logs(&job.id, &job.workspace_id, logs1, db).await;
+    append_logs(&job.id, &job.workspace_id, logs1, &conn).await;
 
     write_file(job_dir, "main.sh", &format!("set -e\n{content}"))?;
     let script = format!(
@@ -96,8 +93,10 @@ cleanup() {{
     # Ignore SIGTERM and SIGINT
     trap '' SIGTERM SIGINT
 
+    rm -f bp 2>/dev/null
+
     # Kill the process group of the script (negative PID value)
-    pkill -P $$
+    pkill -P $$ 2>/dev/null || true
     exit
 }}
 
@@ -110,15 +109,18 @@ mkfifo bp
 
 # Start background processes
 cat bp | tail -1 >> ./result2.out &
+tail_pid=$!
 
 # Run main.sh in the same process group
 {bash} ./main.sh "$@" 2>&1 | tee bp &
-
 pid=$!
 
 # Wait for main.sh to finish and capture its exit status
 wait $pid
 exit_status=$?
+
+# Ensure tail has finished before cleanup
+wait $tail_pid 2>/dev/null || true
 
 # Clean up the named pipe and background processes
 rm -f bp
@@ -131,11 +133,11 @@ exit $exit_status
     );
     write_file(job_dir, "wrapper.sh", &script)?;
 
-    let token = client.get_token().await;
-    let mut reserved_variables = get_reserved_variables(job, &token, db).await?;
+    let mut reserved_variables =
+        get_reserved_variables(job, &client.token, conn, parent_runnable_path).await?;
     reserved_variables.insert("RUST_LOG".to_string(), "info".to_string());
 
-    let args = build_args_map(job, client, db).await?.map(Json);
+    let args = build_args_map(job, client, conn).await?.map(Json);
     let job_args = if args.is_some() {
         args.as_ref()
     } else {
@@ -156,7 +158,13 @@ exit $exit_status
     let _ = write_file(job_dir, "result.out", "")?;
     let _ = write_file(job_dir, "result2.out", "")?;
 
-    let child = if !*DISABLE_NSJAIL {
+    let nsjail = !*DISABLE_NSJAIL
+        && job
+            .runnable_path
+            .as_ref()
+            .map(|x| !x.starts_with("init_script_"))
+            .unwrap_or(true);
+    let child = if nsjail {
         let _ = write_file(
             job_dir,
             "run.config.proto",
@@ -204,17 +212,18 @@ exit $exit_status
     };
     handle_child(
         &job.id,
-        db,
+        conn,
         mem_peak,
         canceled_by,
         child,
-        !*DISABLE_NSJAIL,
+        nsjail,
         worker_name,
         &job.workspace_id,
         "bash run",
         job.timeout,
         true,
         &mut Some(occupancy_metrics),
+        None,
     )
     .await?;
 
@@ -223,7 +232,7 @@ exit $exit_status
         return handle_docker_job(
             job.id,
             &job.workspace_id,
-            db,
+            conn,
             job.timeout,
             mem_peak,
             canceled_by,
@@ -268,7 +277,7 @@ exit $exit_status
 async fn handle_docker_job(
     job_id: Uuid,
     workspace_id: &str,
-    db: &DB,
+    conn: &Connection,
     job_timeout: Option<i32>,
     mem_peak: &mut i32,
     canceled_by: &mut Option<CanceledBy>,
@@ -303,7 +312,7 @@ async fn handle_docker_job(
     let ncontainer_id = container_id.to_string();
     let w_id = workspace_id.to_string();
     let j_id = job_id.clone();
-    let db2 = db.clone();
+    let conn2 = conn.clone();
     let (tx, mut rx) = tokio::sync::broadcast::channel::<()>(1);
 
     let mut killpill_rx = killpill_rx.resubscribe();
@@ -325,13 +334,13 @@ async fn handle_docker_job(
                     log = log_stream.next() => {
                         match log {
                             Some(Ok(log)) => {
-                                append_logs(&j_id, w_id.clone(), log.to_string(), db2.clone()).await;
+                                append_logs(&j_id, w_id.clone(), log.to_string(), &conn2).await;
                             }
                             Some(Err(e)) => {
                                 tracing::error!("Error getting logs: {:?}", e);
                             }
                             _ => {
-                                tracing::error!("End of stream");
+                                tracing::info!("End of docker logs stream");
                                 return
                             }
                         };
@@ -359,7 +368,7 @@ async fn handle_docker_job(
     let result = run_future_with_polling_update_job_poller(
         job_id,
         job_timeout,
-        db,
+        conn,
         mem_peak,
         canceled_by,
         wait_f,
@@ -459,9 +468,10 @@ fn raw_to_string(x: &str) -> String {
 pub async fn handle_powershell_job(
     mem_peak: &mut i32,
     canceled_by: &mut Option<CanceledBy>,
-    job: &QueuedJob,
-    db: &sqlx::Pool<sqlx::Postgres>,
-    client: &AuthedClientBackgroundTask,
+    job: &MiniPulledJob,
+    db: &Connection,
+    client: &AuthedClient,
+    parent_runnable_path: Option<String>,
     content: &str,
     job_dir: &str,
     shared_mount: &str,
@@ -471,7 +481,7 @@ pub async fn handle_powershell_job(
     occupancy_metrics: &mut OccupancyMetrics,
 ) -> Result<Box<RawValue>, Error> {
     let pwsh_args = {
-        let args = build_args_map(job, client, db).await?.map(Json);
+        let args = build_args_map(job, client, &db).await?.map(Json);
         let job_args = if args.is_some() {
             args.as_ref()
         } else {
@@ -557,6 +567,7 @@ pub async fn handle_powershell_job(
             job.timeout,
             false,
             &mut Some(occupancy_metrics),
+            None,
         )
         .await?;
     }
@@ -643,8 +654,8 @@ $env:PSModulePath = \"{};$PSModulePathBackup\"",
         ),
     )?;
 
-    let token = client.get_token().await;
-    let mut reserved_variables = get_reserved_variables(job, &token, db).await?;
+    let mut reserved_variables =
+        get_reserved_variables(job, &client.token, db, parent_runnable_path).await?;
     reserved_variables.insert("RUST_LOG".to_string(), "info".to_string());
 
     let _ = write_file(job_dir, "result.json", "")?;
@@ -768,6 +779,7 @@ $env:PSModulePath = \"{};$PSModulePathBackup\"",
         job.timeout,
         false,
         &mut Some(occupancy_metrics),
+        None,
     )
     .await?;
 

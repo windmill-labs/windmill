@@ -1,7 +1,7 @@
 import type { AppInput, EvalInputV2 } from '../inputType'
-import type { App } from '../types'
+import type { App, RichConfigurations } from '../types'
 import { collectOneOfFields } from './appUtils'
-
+import { z } from 'zod'
 function filenameExprToRegex(template: string) {
 	const filenameEscaped = template.replaceAll('${file.name}', '<file_name>') // replace filename with placeholder
 	const escapedTemplate = filenameEscaped
@@ -51,12 +51,12 @@ export function computeS3FileInputPolicy(s3Config: any, app: App) {
 			? resourceInput.value
 				? [removeResourcePrefix(resourceInput.value)]
 				: []
-			: collectOneOfFields(
+			: (collectOneOfFields(
 					{
 						s3_resource: resourceInput
 					},
 					app
-			  ).s3_resource?.map((s) => removeResourcePrefix(s)) ?? []
+				).s3_resource?.map((s) => removeResourcePrefix(s)) ?? [])
 		: []
 
 	const allow_user_resources =
@@ -78,5 +78,37 @@ export function computeS3FileInputPolicy(s3Config: any, app: App) {
 		allowed_resources,
 		allow_user_resources,
 		file_key_regex
+	}
+}
+
+const partialS3ObjectSchema = z.object({
+	s3: z.string(),
+	storage: z.string().optional(),
+	presigned: z.string().optional()
+})
+
+export function isPartialS3Object(input: unknown): input is z.infer<typeof partialS3ObjectSchema> {
+	return partialS3ObjectSchema.safeParse(input).success
+}
+
+export function computeS3ImageViewerPolicy(config: RichConfigurations) {
+	if (config.source.type === 'uploadS3' && isPartialS3Object(config.source.value)) {
+		return {
+			s3_path: config.source.value.s3,
+			storage: config.source.value.storage
+		}
+	} else if (
+		config.source.type === 'static' &&
+		typeof config.source.value === 'string' &&
+		((config.sourceKind.type === 'static' &&
+			config.sourceKind.value === 's3 (workspace storage)') ||
+			config.source.value.startsWith('s3://'))
+	) {
+		return {
+			s3_path: config.source.value.replace('s3://', ''),
+			storage: undefined
+		}
+	} else {
+		return undefined
 	}
 }

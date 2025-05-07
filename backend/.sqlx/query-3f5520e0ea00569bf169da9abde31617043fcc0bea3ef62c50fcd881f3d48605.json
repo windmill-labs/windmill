@@ -1,0 +1,35 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        INSERT INTO gcp_trigger (\n            gcp_resource_path,\n            subscription_id,\n            topic_id,\n            delivery_type,\n            delivery_config,\n            workspace_id, \n            path, \n            script_path, \n            is_flow, \n            email, \n            enabled, \n            edited_by\n        ) \n        VALUES (\n            $1, \n            $2, \n            $3, \n            $4,\n            $5,\n            $6, \n            $7, \n            $8, \n            $9,\n            $10,\n            $11,\n            $12\n        )",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Varchar",
+        "Varchar",
+        {
+          "Custom": {
+            "name": "delivery_mode",
+            "kind": {
+              "Enum": [
+                "push",
+                "pull"
+              ]
+            }
+          }
+        },
+        "Jsonb",
+        "Varchar",
+        "Varchar",
+        "Varchar",
+        "Bool",
+        "Varchar",
+        "Bool",
+        "Varchar"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "3f5520e0ea00569bf169da9abde31617043fcc0bea3ef62c50fcd881f3d48605"
+}

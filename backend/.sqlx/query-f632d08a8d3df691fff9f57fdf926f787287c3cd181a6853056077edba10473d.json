@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                SELECT EXISTS(\n                    SELECT 1 \n                    FROM \n                        http_trigger \n                    WHERE \n                        workspace_id = $1 AND \n                        path = $2\n                )\n                ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "exists",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "f632d08a8d3df691fff9f57fdf926f787287c3cd181a6853056077edba10473d"
+}

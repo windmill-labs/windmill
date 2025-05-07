@@ -515,7 +515,9 @@ pub async fn transform_json_value<'c>(
         Value::String(y) if y.starts_with("$res:") => {
             let path = y.strip_prefix("$res:").unwrap();
             if path.split("/").count() < 2 {
-                return Err(Error::internal_err(format!("Invalid resource path: {path}")));
+                return Err(Error::internal_err(format!(
+                    "Invalid resource path: {path}"
+                )));
             }
             let mut tx: Transaction<'_, Postgres> =
                 authed_transaction_or_default(authed, user_db.clone(), db).await?;
@@ -568,7 +570,7 @@ pub async fn transform_json_value<'c>(
             };
 
             let variables = variables::get_reserved_variables(
-                db,
+                &db.into(),
                 workspace,
                 token,
                 &job.email,
@@ -597,11 +599,10 @@ pub async fn transform_json_value<'c>(
         }
         Value::Object(mut m) => {
             for (a, b) in m.clone().into_iter() {
-                m.insert(
-                    a.clone(),
+                let v =
                     transform_json_value(authed, user_db.clone(), db, workspace, b, job_id, token)
-                        .await?,
-                );
+                        .await?;
+                m.insert(a.clone(), v);
             }
             Ok(Value::Object(m))
         }
@@ -1204,4 +1205,50 @@ async fn update_resource_type(
     );
 
     Ok(format!("resource_type {} updated", name))
+}
+
+#[cfg(any(
+    feature = "http_trigger",
+    feature = "postgres_trigger",
+    feature = "mqtt_trigger",
+    all(
+        feature = "enterprise",
+        any(feature = "sqs_trigger", feature = "gcp_trigger")
+    )
+))]
+pub async fn try_get_resource_from_db_as<T>(
+    authed: ApiAuthed,
+    user_db: Option<UserDB>,
+    db: &DB,
+    resource_path: &str,
+    w_id: &str,
+) -> Result<T>
+where
+    T: serde::de::DeserializeOwned,
+{
+    let resource = get_resource_value_interpolated_internal(
+        &authed,
+        user_db,
+        &db,
+        &w_id,
+        &resource_path,
+        None,
+        "",
+    )
+    .await?;
+
+    let resource = match resource {
+        Some(resource) => serde_json::from_value::<T>(resource)
+            .map_err(|e| Error::SerdeJson { error: e, location: "resources.rs".to_string() })?,
+        None => {
+            return {
+                Err(Error::NotFound(format!(
+                    "resource at path :{} do not exist",
+                    &resource_path
+                )))
+            }
+        }
+    };
+
+    Ok(resource)
 }

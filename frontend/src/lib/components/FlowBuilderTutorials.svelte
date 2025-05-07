@@ -1,21 +1,47 @@
 <script lang="ts">
-	import { BookOpen } from 'lucide-svelte'
-	import ButtonDropdown from './common/button/ButtonDropdown.svelte'
+	import { BookOpen, CheckCircle, Circle, RefreshCw, CheckCheck } from 'lucide-svelte'
+	import Dropdown from '$lib/components/DropdownV2.svelte'
 	import Button from './common/button/Button.svelte'
-
-	import MenuItem from './common/menu/MenuItem.svelte'
-	import { classNames } from '$lib/utils'
 	import { resetAllTodos, skipAllTodos } from '$lib/tutorialUtils'
 	import ConfirmationModal from './common/confirmationModal/ConfirmationModal.svelte'
-	import TutorialItem from './tutorials/TutorialItem.svelte'
 	import FlowTutorials from './FlowTutorials.svelte'
+	import { tutorialsToDo } from '$lib/stores'
 
 	let targetTutorial: string | undefined = undefined
 	let flowTutorials: FlowTutorials | undefined = undefined
+
+	async function getTutorialItems() {
+		const tutorials = [
+			{ displayName: 'Simple flow tutorials', id: 'action' },
+			{ displayName: 'For loops tutorial', id: 'forloop' },
+			{ displayName: 'Branch one tutorial', id: 'branchone' },
+			{ displayName: 'Branch all tutorial', id: 'branchall' },
+			{ displayName: 'Error handler', id: 'error-handler' }
+		]
+
+		return [
+			...tutorials.map((tutorial, index) => ({
+				displayName: tutorial.displayName,
+				action: () => flowTutorials?.runTutorialById(tutorial.id),
+				icon: $tutorialsToDo.includes(index) ? Circle : CheckCircle,
+				iconColor: $tutorialsToDo.includes(index) ? undefined : 'green'
+			})),
+			{
+				displayName: 'Skip tutorials',
+				action: () => skipAllTodos(),
+				icon: CheckCheck
+			},
+			{
+				displayName: 'Reset tutorials',
+				action: () => resetAllTodos(),
+				icon: RefreshCw
+			}
+		]
+	}
 </script>
 
-<button on:pointerdown|stopPropagation>
-	<ButtonDropdown hasPadding={false}>
+{#key $tutorialsToDo}
+	<Dropdown items={getTutorialItems} class="w-fit">
 		<svelte:fragment slot="buttonReplacement">
 			<Button
 				nonCaptureEvent
@@ -26,63 +52,8 @@
 				startIcon={{ icon: BookOpen }}
 			/>
 		</svelte:fragment>
-		<svelte:fragment slot="items">
-			<TutorialItem
-				on:click={() => flowTutorials?.runTutorialById('action')}
-				label="Simple flow tutorial"
-				index={0}
-			/>
-
-			<TutorialItem
-				on:click={() => flowTutorials?.runTutorialById('forloop')}
-				label="For loops tutorial"
-				index={1}
-			/>
-
-			<TutorialItem
-				on:click={() => flowTutorials?.runTutorialById('branchone')}
-				label="Branch one tutorial"
-				index={2}
-			/>
-
-			<TutorialItem
-				on:click={() => flowTutorials?.runTutorialById('branchall')}
-				label="Branch all tutorial"
-				index={3}
-			/>
-
-			<TutorialItem
-				on:click={() => flowTutorials?.runTutorialById('error-handler')}
-				label="Error handler"
-				index={4}
-			/>
-
-			<div class="border-t border-surface-hover" />
-			<MenuItem
-				on:click={() => {
-					resetAllTodos()
-				}}
-			>
-				<div
-					class={classNames(
-						'text-primary flex flex-row items-center text-left gap-2 cursor-pointer hover:bg-surface-hover !text-xs font-semibold'
-					)}
-				>
-					Reset tutorials
-				</div>
-			</MenuItem>
-			<MenuItem on:click={() => skipAllTodos()}>
-				<div
-					class={classNames(
-						'text-primary flex flex-row items-center text-left gap-2 cursor-pointer hover:bg-surface-hover !text-xs font-semibold'
-					)}
-				>
-					Skip tutorials
-				</div>
-			</MenuItem>
-		</svelte:fragment>
-	</ButtonDropdown>
-</button>
+	</Dropdown>
+{/key}
 
 <FlowTutorials
 	bind:this={flowTutorials}
@@ -110,17 +81,3 @@
 		<span> You need to create a new flow before starting the tutorial.</span>
 	</div>
 </ConfirmationModal>
-
-<style global>
-	.driver-popover-title {
-		@apply leading-6 text-primary text-base;
-	}
-
-	.driver-popover-description {
-		@apply text-secondary text-sm;
-	}
-
-	.driver-popover {
-		@apply p-6 bg-surface max-w-2xl;
-	}
-</style>

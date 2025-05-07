@@ -1,0 +1,29 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                SELECT COUNT(*) as count,\n                       MIN(scheduled_for) as oldest_job\n                FROM v2_job_queue\n                WHERE tag = $1\n                  AND scheduled_for <= NOW() - $2::interval\n                  AND running = false\n                ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "count",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "oldest_job",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Interval"
+      ]
+    },
+    "nullable": [
+      null,
+      null
+    ]
+  },
+  "hash": "c67b5ad3869bbeb53cc06ca7fb2f1000d512c95f3b74ba9aafee684670aff5f4"
+}

@@ -59,7 +59,7 @@
 		worldStore,
 		focusedGrid,
 		stateId,
-		state,
+		state: stateStore,
 		errorByComponent,
 		componentControl
 	} = getContext<AppViewerContext>('AppViewerContext')
@@ -115,9 +115,9 @@
 			? buildExtraLib(
 					$worldStore?.outputsById ?? {},
 					componentSettings?.item?.data?.id,
-					$state,
+					$stateStore,
 					false
-			  )
+				)
 			: undefined
 
 	// 	`
@@ -140,8 +140,6 @@
 		? ccomponents[componentSettings?.item?.data?.type]?.initialData?.componentInput
 		: undefined
 
-	$: componentSettings?.item?.data && ($app = $app)
-
 	const hasInteraction = componentSettings?.item.data.type
 		? isTriggerable(componentSettings?.item.data.type)
 		: false
@@ -158,7 +156,6 @@
 					type: 'runnableByName',
 					name: `Eval of ${id}`,
 					inlineScript: {
-						path: `${id}_eval`,
 						content: `return ${componentSettings?.item.data.componentInput?.['expr']}`,
 						language: 'frontend',
 						refreshOn: componentSettings?.item.data.componentInput?.['connections']?.map((c) => {
@@ -235,10 +232,10 @@
 					title={componentSettings?.item.data.type == 'steppercomponent'
 						? 'Validations'
 						: componentSettings?.item.data.type == 's3fileinputcomponent'
-						? 'Path template'
-						: hasInteraction
-						? 'Event handler'
-						: 'Data source'}
+							? 'Path template'
+							: hasInteraction
+								? 'Event handler'
+								: 'Data source'}
 					id={'component-input'}
 				>
 					<svelte:fragment slot="action">
@@ -469,7 +466,7 @@
 
 		<EventHandlers bind:item={componentSettings.item} ownId={component.id} />
 
-		<div class="grow shrink" />
+		<div class="grow shrink"></div>
 
 		{#if Object.keys(ccomponents[component.type]?.customCss ?? {}).length > 0}
 			<PanelSection title="Styling">

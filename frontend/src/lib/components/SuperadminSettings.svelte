@@ -138,7 +138,7 @@
 						<Tab value={category}>{category}</Tab>
 					{/each}
 					<svelte:fragment slot="content">
-						<div class="pt-4" />
+						<div class="pt-4"></div>
 						<TabContent value="users">
 							<div class="h-full">
 								{#if !automateUsernameCreation && !isCloudHosted()}
@@ -196,7 +196,7 @@
 										}}
 									/>
 								</div>
-								<div class="pb-1" />
+								<div class="pb-1"></div>
 								<div>
 									<input placeholder="Search users" bind:value={filter} class="input mt-1" />
 								</div>
@@ -212,8 +212,8 @@
 											{#if activeOnly}
 												<th>kind</th>
 											{/if}
-											<th />
-											<th />
+											<th></th>
+											<th></th>
 										</tr>
 										<tbody slot="body" class="overflow-y-auto w-full h-full max-h-full">
 											{#if filteredUsers && users}
@@ -292,15 +292,22 @@
 																	sendUserToast('User updated')
 																	listUsers(activeOnly)
 																}}
+																let:item
 															>
-																<ToggleButton value={'user'} size="xs" label="User" />
+																<ToggleButton value={'user'} size="xs" label="User" {item} />
 																<ToggleButton
 																	value={'devops'}
 																	size="xs"
 																	label="Devops"
 																	tooltip="Devops is a role that grants visibilty similar to that of a super admin, but without giving all rights. For example devops users can see service logs and crtical alerts. You can think of it as a 'readonly' super admin"
+																	{item}
 																/>
-																<ToggleButton value={'super_admin'} size="xs" label="Superadmin" />
+																<ToggleButton
+																	value={'super_admin'}
+																	size="xs"
+																	label="Superadmin"
+																	{item}
+																/>
 															</ToggleButtonGroup>
 														</td>
 														<td>

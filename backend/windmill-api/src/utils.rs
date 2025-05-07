@@ -8,7 +8,7 @@
 
 use axum::{body::Body, response::Response};
 use regex::Regex;
-use serde::Deserialize;
+use serde::{Deserialize, Deserializer};
 use sqlx::{Postgres, Transaction};
 #[cfg(feature = "enterprise")]
 use windmill_common::worker::CLOUD_HOSTED;
@@ -27,6 +27,13 @@ use axum::Json;
 #[derive(Deserialize)]
 pub struct WithStarredInfoQuery {
     pub with_starred_info: Option<bool>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum RunnableKind {
+    Script,
+    Flow,
 }
 
 pub async fn require_super_admin(db: &DB, email: &str) -> error::Result<()> {
@@ -181,6 +188,15 @@ pub fn content_plain(body: Body) -> Response {
         .header(header::CONTENT_TYPE, "text/plain")
         .body(body)
         .unwrap()
+}
+
+#[allow(unused)]
+pub fn non_empty_str<'de, D>(deserializer: D) -> Result<Option<String>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let o: Option<String> = Option::deserialize(deserializer)?;
+    Ok(o.filter(|s| !s.trim().is_empty()))
 }
 
 use serde::Serialize;

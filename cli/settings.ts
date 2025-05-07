@@ -1,7 +1,7 @@
 import process from "node:process";
 import { colors, Confirm, log, yamlParseFile, yamlStringify } from "./deps.ts";
 import * as wmill from "./gen/services.gen.ts";
-import { AIResource, Config, GlobalSetting } from "./gen/types.gen.ts";
+import { AIConfig, Config, GlobalSetting } from "./gen/types.gen.ts";
 import { compareInstanceObjects, InstanceSyncOptions } from "./instance.ts";
 import { isSuperset } from "./types.ts";
 import { deepEqual } from "./utils.ts";
@@ -20,14 +20,15 @@ export interface SimplifiedSettings {
   error_handler?: string;
   error_handler_extra_args?: any;
   error_handler_muted_on_cancel?: boolean;
-  ai_resource?: AIResource;
-  code_completion_model?: string;
-  ai_models: string[];
+  ai_config?: AIConfig;
   large_file_storage?: any;
   git_sync?: any;
   default_app?: string;
   default_scripts?: any;
   name: string;
+  mute_critical_alerts?: boolean;
+  color?: string;
+  operator_settings?: any;
 }
 
 const INSTANCE_SETTINGS_PATH = "instance_settings.yaml";
@@ -77,14 +78,15 @@ export async function pushWorkspaceSettings(
       error_handler_extra_args: remoteSettings.error_handler_extra_args,
       error_handler_muted_on_cancel:
         remoteSettings.error_handler_muted_on_cancel,
-      ai_resource: remoteSettings.ai_resource,
-      code_completion_model: remoteSettings.code_completion_model,
-      ai_models: remoteSettings.ai_models,
+      ai_config: remoteSettings.ai_config,
       large_file_storage: remoteSettings.large_file_storage,
       git_sync: remoteSettings.git_sync,
       default_app: remoteSettings.default_app,
       default_scripts: remoteSettings.default_scripts,
       name: workspaceName,
+      mute_critical_alerts: remoteSettings.mute_critical_alerts,
+      color: remoteSettings.color,
+      operator_settings: remoteSettings.operator_settings,
     };
   } catch (err) {
     throw new Error(`Failed to get workspace settings: ${err}`);
@@ -150,28 +152,20 @@ export async function pushWorkspaceSettings(
       });
     }
   }
-  if (
-    localSettings.ai_resource != settings.ai_resource ||
-    localSettings.code_completion_model != settings.code_completion_model ||
-    !deepEqual(localSettings.ai_models, settings.ai_models)
-  ) {
+  if (!deepEqual(localSettings.ai_config, settings.ai_config)) {
     log.debug(`Updating copilot settings...`);
     await wmill.editCopilotConfig({
       workspace,
-      requestBody: {
-        ai_resource: localSettings.ai_resource,
-        code_completion_model: localSettings.code_completion_model,
-        ai_models: localSettings.ai_models,
-      },
+      requestBody: localSettings.ai_config ?? {},
     });
   }
   if (
-    localSettings.error_handler !== settings.error_handler ||
+    localSettings.error_handler != settings.error_handler ||
     !deepEqual(
       localSettings.error_handler_extra_args,
       settings.error_handler_extra_args
     ) ||
-    localSettings.error_handler_muted_on_cancel !==
+    localSettings.error_handler_muted_on_cancel !=
       settings.error_handler_muted_on_cancel
   ) {
     log.debug(`Updating error handler...`);
@@ -185,7 +179,7 @@ export async function pushWorkspaceSettings(
       },
     });
   }
-  if (localSettings.deploy_to !== settings.deploy_to) {
+  if (localSettings.deploy_to != settings.deploy_to) {
     log.debug(`Updating deploy to...`);
     await wmill.editDeployTo({
       workspace,
@@ -221,7 +215,7 @@ export async function pushWorkspaceSettings(
       requestBody: localSettings.default_scripts,
     });
   }
-  if (localSettings.default_app !== settings.default_app) {
+  if (localSettings.default_app != settings.default_app) {
     log.debug(`Updating default app...`);
     await wmill.editWorkspaceDefaultApp({
       workspace,
@@ -231,13 +225,41 @@ export async function pushWorkspaceSettings(
     });
   }
 
-  if (localSettings.name !== settings.name) {
+  if (localSettings.name != settings.name) {
     log.debug(`Updating workspace name...`);
     await wmill.changeWorkspaceName({
       workspace,
       requestBody: {
         new_name: localSettings.name,
       },
+    });
+  }
+
+  if (localSettings.mute_critical_alerts != settings.mute_critical_alerts) {
+    log.debug(`Updating mute critical alerts...`);
+    await wmill.workspaceMuteCriticalAlertsUi({
+      workspace,
+      requestBody: {
+        mute_critical_alerts: localSettings.mute_critical_alerts,
+      },
+    });
+  }
+
+  if (localSettings.color != settings.color) {
+    log.debug(`Updating workspace color...`);
+    await wmill.changeWorkspaceColor({
+      workspace,
+      requestBody: {
+        color: localSettings.color,
+      },
+    });
+  }
+
+  if (localSettings.operator_settings != settings.operator_settings) {
+    log.debug(`Updating operator settings...`);
+    await wmill.updateOperatorSettings({
+      workspace,
+      requestBody: localSettings.operator_settings,
     });
   }
 }

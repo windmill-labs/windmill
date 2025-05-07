@@ -1,6 +1,6 @@
 <script lang="ts">
 	import Label from '../Label.svelte'
-	import { Info, Trash2 } from 'lucide-svelte'
+	import { DatabaseIcon, Info, Loader2, Trash2 } from 'lucide-svelte'
 	import ToggleButton from '../common/toggleButton-v2/ToggleButton.svelte'
 	import ToggleButtonGroup from '../common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import Button from '../common/button/Button.svelte'
@@ -16,8 +16,9 @@
 	import InfiniteList from '../InfiniteList.svelte'
 	import { isObject, sendUserToast } from '$lib/utils'
 	import SchemaPickerRow from '$lib/components/schema/SchemaPickerRow.svelte'
-	import { clickOutside } from '$lib/utils'
 	import type { Capture } from '$lib/gen'
+	import { AwsIcon, MqttIcon } from '../icons'
+	import GoogleCloudIcon from '../icons/GoogleCloudIcon.svelte'
 
 	export let path: string
 	export let hasPreprocessor = false
@@ -28,13 +29,16 @@
 	export let addButton = false
 	export let canEdit = false
 	export let fullHeight = true
+	export let limitPayloadSize = false
+	export let captureActiveIndicator: boolean | undefined = undefined
 
 	let selected: number | undefined = undefined
 	let testKind: 'preprocessor' | 'main' = 'main'
 	let isEmpty: boolean = true
 	let infiniteList: InfiniteList | null = null
-	let firstClick = true
 	let capturesLength = 0
+	let openStates: Record<string, boolean> = {}
+	let viewerOpen = false
 
 	$: hasPreprocessor && (testKind = 'preprocessor')
 
@@ -58,7 +62,7 @@
 	}>()
 
 	interface CaptureWithPayload extends Capture {
-		getFullCapture?: () => Promise<any>
+		getFullCapture?: () => Promise<Capture>
 		payloadData?: any
 	}
 
@@ -66,7 +70,7 @@
 		await infiniteList?.loadData(refresh ? 'refresh' : 'loadMore')
 	}
 
-	function initLoadCaptures(testKind: 'preprocessor' | 'main' = 'main') {
+	function initLoadCaptures(kind: 'preprocessor' | 'main' = testKind) {
 		const loadInputsPageFn = async (page: number, perPage: number) => {
 			const captures = await CaptureService.listCaptures({
 				workspace: $workspaceStore!,
@@ -91,18 +95,18 @@
 				}
 				const trigger_extra = isObject(capture.trigger_extra) ? capture.trigger_extra : {}
 				newCapture.payloadData =
-					testKind === 'preprocessor'
+					kind === 'preprocessor'
 						? capture.payload === 'WINDMILL_TOO_BIG'
 							? {
 									payload: capture.payload,
 									...trigger_extra
-							  }
+								}
 							: typeof capture.payload === 'object'
-							? {
-									...capture.payload,
-									...trigger_extra
-							  }
-							: trigger_extra
+								? {
+										...capture.payload,
+										...trigger_extra
+									}
+								: trigger_extra
 						: capture.payload
 
 				return newCapture
@@ -120,9 +124,9 @@
 		infiniteList?.setDeleteItemFn(deleteInputFn)
 	}
 
-	async function handleSelect(capture: any) {
+	async function handleSelect(capture: Capture) {
 		if (selected === capture.id) {
-			deselect()
+			resetSelected()
 		} else {
 			const payloadData = await getPayload(capture)
 			selected = capture.id
@@ -130,8 +134,8 @@
 		}
 	}
 
-	async function getPayload(capture: any) {
-		let payloadData = {}
+	async function getPayload(capture: CaptureWithPayload) {
+		let payloadData: any = {}
 		if (capture.getFullCapture) {
 			const fullCapture = await capture.getFullCapture()
 			payloadData =
@@ -139,7 +143,7 @@
 					? {
 							...(typeof fullCapture.payload === 'object' ? fullCapture.payload : {}),
 							...(typeof fullCapture.trigger_extra === 'object' ? fullCapture.trigger_extra : {})
-					  }
+						}
 					: fullCapture.payload
 		} else {
 			payloadData = structuredClone(capture.payloadData)
@@ -147,13 +151,15 @@
 		return payloadData
 	}
 
-	function deselect() {
+	export function resetSelected(dispatchEvent: boolean = true) {
 		selected = undefined
-		dispatch('select', undefined)
+		if (dispatchEvent) {
+			dispatch('select', undefined)
+		}
 	}
 
 	onDestroy(() => {
-		deselect()
+		resetSelected()
 	})
 
 	const captureKindToIcon: Record<string, any> = {
@@ -161,18 +167,16 @@
 		http: Route,
 		email: Mail,
 		websocket: Unplug,
-		kafka: KafkaIcon
-	}
-
-	async function getPropPickerElements(): Promise<HTMLElement[]> {
-		return Array.from(
-			document.querySelectorAll('[data-schema-picker], [data-schema-picker] *')
-		) as HTMLElement[]
+		kafka: KafkaIcon,
+		mqtt: MqttIcon,
+		sqs: AwsIcon,
+		postgres: DatabaseIcon,
+		gcp: GoogleCloudIcon
 	}
 
 	function handleKeydown(event: KeyboardEvent) {
 		if (event.key === 'Escape' && selected) {
-			deselect()
+			resetSelected()
 			event.stopPropagation()
 			event.preventDefault()
 		}
@@ -184,6 +188,11 @@
 		} else if (error.type === 'load') {
 			sendUserToast(`Failed to load captures: ${error.error}`, true)
 		}
+	}
+
+	function updateViewerOpenState(itemId: string, isOpen: boolean) {
+		openStates[itemId] = isOpen
+		viewerOpen = Object.values(openStates).some((state) => state)
 	}
 
 	$: path && infiniteList && initLoadCaptures()
@@ -198,6 +207,9 @@
 				<CaptureButton small={true} on:openTriggers />
 			</div>
 		{/if}
+		{#if captureActiveIndicator}
+			<Loader2 class="animate-spin" size={16} />
+		{/if}
 	</svelte:fragment>
 	<svelte:fragment slot="action">
 		{#if canHavePreprocessor && !isEmpty}
@@ -208,13 +220,15 @@
 					on:selected={(e) => {
 						initLoadCaptures(e.detail)
 					}}
+					let:item
 				>
-					<ToggleButton value="main" label={isFlow ? 'Flow' : 'Main'} small />
+					<ToggleButton value="main" label={isFlow ? 'Flow' : 'Main'} small {item} />
 					<ToggleButton
 						value="preprocessor"
 						label="Preprocessor"
 						small
 						tooltip="When the runnable has a preprocessor, it receives additional information about the request"
+						{item}
 					/>
 				</ToggleButtonGroup>
 			</div>
@@ -227,16 +241,8 @@
 				? 'h-full'
 				: 'min-h-0 grow'
 			: capturesLength > 7
-			? 'h-[300px]'
-			: 'h-fit'}
-		use:clickOutside={{ capture: false, exclude: getPropPickerElements }}
-		on:click_outside={() => {
-			if (firstClick) {
-				firstClick = false
-				return
-			}
-			deselect()
-		}}
+				? 'h-[300px]'
+				: 'h-fit'}
 	>
 		<InfiniteList
 			bind:this={infiniteList}
@@ -245,6 +251,7 @@
 			on:error={(e) => handleError(e.detail)}
 			on:select={(e) => handleSelect(e.detail)}
 			bind:length={capturesLength}
+			neverShowLoader={captureActiveIndicator !== undefined}
 		>
 			<svelte:fragment slot="columns">
 				<colgroup>
@@ -258,8 +265,12 @@
 				<SchemaPickerRow
 					date={item.created_at}
 					payloadData={item.payloadData}
-					selected={selected === item.id}
 					hovering={hover}
+					on:openChange={({ detail }) => {
+						updateViewerOpenState(item.id, detail)
+					}}
+					{viewerOpen}
+					{limitPayloadSize}
 				>
 					<svelte:fragment slot="start">
 						<div class="center-center">
@@ -267,7 +278,7 @@
 						</div>
 					</svelte:fragment>
 
-					<svelte:fragment slot="extra">
+					<svelte:fragment slot="extra" let:isTooBig>
 						{#if canEdit}
 							<div class="flex flex-row items-center gap-2 px-2">
 								{#if testKind === 'preprocessor' && !hasPreprocessor}
@@ -313,9 +324,10 @@
 														args: true
 													})
 												},
-												disabled: !isFlow || testKind !== 'main'
+												disabled: isTooBig,
+												hidden: !isFlow || testKind !== 'main'
 											}
-										].filter((item) => !item.disabled)}
+										].filter((item) => !item.hidden)}
 										on:click={async () => {
 											const payloadData = await getPayload(item)
 											if (isFlow && testKind === 'main') {
@@ -331,8 +343,8 @@
 										title={isFlow && testKind === 'main'
 											? 'Test flow with args'
 											: testKind === 'preprocessor'
-											? 'Apply args to preprocessor'
-											: 'Apply args to inputs'}
+												? 'Apply args to preprocessor'
+												: 'Apply args to inputs'}
 										startIcon={isFlow && testKind === 'main' ? { icon: Play } : {}}
 									>
 										{isFlow && testKind === 'main' ? 'Test' : 'Apply args'}
@@ -356,7 +368,7 @@
 				</SchemaPickerRow>
 			</svelte:fragment>
 			<svelte:fragment slot="empty">
-				<div class="text-center text-xs text-tertiary">No captures yet</div>
+				<div class="text-center text-xs text-tertiary my-2">No captures yet</div>
 			</svelte:fragment>
 		</InfiniteList>
 	</div>

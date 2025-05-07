@@ -11,7 +11,7 @@
 	import { dfs } from '../flows/dfs'
 	import { yamlStringifyExceptKeys } from './utils'
 	import { copilotInfo, stepInputCompletionEnabled } from '$lib/stores'
-	import Popup from '../common/popup/Popup.svelte'
+	import Popover from '$lib/components/meltComponents/Popover.svelte'
 	import type { Flow } from '$lib/gen'
 
 	let loading = false
@@ -59,7 +59,6 @@ Here's a summary of the available data:
 ${YAML.stringify(availableData)}</available>
 If the branching is made inside a for-loop, the iterator value is accessible as flow_input.iter.value
 Only return the expression without any wrapper. Do not explain or discuss.`
-			const aiProvider = $copilotInfo.ai_provider
 			const result = await getNonStreamingCompletion(
 				[
 					{
@@ -67,15 +66,14 @@ Only return the expression without any wrapper. Do not explain or discuss.`
 						content: user
 					}
 				],
-				abortController,
-				aiProvider
+				abortController
 			)
 
 			dispatch('setExpr', result)
 			dispatch('updateSummary', instructions)
 		} catch (err) {
 			if (!abortController.signal.aborted) {
-				sendUserToast('Could not generate summary: ' + err, true)
+				sendUserToast('Could not generate predicate: ' + err, true)
 			}
 		} finally {
 			loading = false
@@ -83,13 +81,12 @@ Only return the expression without any wrapper. Do not explain or discuss.`
 	}
 </script>
 
-{#if $copilotInfo.exists_ai_resource && $stepInputCompletionEnabled}
-	<Popup
+{#if $copilotInfo.enabled && $stepInputCompletionEnabled}
+	<Popover
 		floatingConfig={{ strategy: 'absolute', placement: 'bottom-end' }}
-		containerClasses="border rounded-lg shadow-lg p-4 bg-surface"
-		let:close
+		contentClasses="p-4 flex w-96"
 	>
-		<svelte:fragment slot="button">
+		<svelte:fragment slot="trigger">
 			<Button
 				color={loading ? 'red' : 'light'}
 				size="xs"
@@ -100,10 +97,10 @@ Only return the expression without any wrapper. Do not explain or discuss.`
 				btnClasses="min-h-[30px] text-violet-800 dark:text-violet-400 bg-violet-100 dark:bg-gray-700"
 				{loading}
 				clickableWhileLoading
-				on:click={loading ? () => abortController?.abort() : undefined}
+				on:click={loading ? () => abortController?.abort() : () => {}}
 			/>
 		</svelte:fragment>
-		<div class="flex w-96">
+		<svelte:fragment slot="content" let:close>
 			<input
 				bind:this={instructionsField}
 				type="text"
@@ -111,7 +108,7 @@ Only return the expression without any wrapper. Do not explain or discuss.`
 				bind:value={instructions}
 				on:keypress={({ key }) => {
 					if (key === 'Enter' && instructions.length > 0) {
-						close(instructionsField || null)
+						close()
 						generatePredicate()
 					}
 				}}
@@ -126,12 +123,12 @@ Only return the expression without any wrapper. Do not explain or discuss.`
 				aria-label="Generate"
 				iconOnly
 				on:click={() => {
-					close(instructionsField || null)
+					close()
 					generatePredicate()
 				}}
 				disabled={instructions.length == 0}
 				startIcon={{ icon: Wand2 }}
 			/>
-		</div>
-	</Popup>
+		</svelte:fragment>
+	</Popover>
 {/if}

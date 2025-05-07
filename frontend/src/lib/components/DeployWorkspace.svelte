@@ -22,22 +22,21 @@
 	import { Loader2 } from 'lucide-svelte'
 	import Badge from './common/badge/Badge.svelte'
 	import DiffDrawer from './DiffDrawer.svelte'
+	import {
+		existsTrigger,
+		getTriggerDependency,
+		getTriggersDeployData,
+		getTriggerValue,
+		type AdditionalInformation,
+		type Kind
+	} from '$lib/utils_deployable'
+	import type { TriggerKind } from './triggers'
 
 	const dispatch = createEventDispatcher()
 
-	type Kind =
-		| 'script'
-		| 'resource'
-		| 'schedule'
-		| 'variable'
-		| 'flow'
-		| 'app'
-		| 'raw_app'
-		| 'resource_type'
-		| 'folder'
-
 	export let kind: Kind
 	export let initialPath: string = ''
+	export let additionalInformation: AdditionalInformation | undefined = undefined
 	export let workspaceToDeployTo: string | undefined = undefined
 	export let hideButton: boolean = false
 
@@ -148,6 +147,11 @@
 				}
 
 				return [...recObj(res.value), { kind: 'resource_type', path: res.resource_type }]
+			} else if (kind == 'trigger') {
+				if (additionalInformation?.triggers) {
+					return getTriggerDependency(additionalInformation.triggers.kind, path, $workspaceStore!)
+				}
+				throw new Error('Missing trigger information')
 			}
 			return []
 		}
@@ -171,60 +175,83 @@
 	}
 
 	async function checkAlreadyExists(kind: Kind, path: string): Promise<boolean> {
+		let exists: boolean
 		if (kind == 'flow') {
-			return await FlowService.existsFlowByPath({
+			exists = await FlowService.existsFlowByPath({
 				workspace: workspaceToDeployTo!,
 				path: path
 			})
 		} else if (kind == 'script') {
-			return await ScriptService.existsScriptByPath({
+			exists = await ScriptService.existsScriptByPath({
 				workspace: workspaceToDeployTo!,
 				path: path
 			})
 		} else if (kind == 'app') {
-			return await AppService.existsApp({
+			exists = await AppService.existsApp({
 				workspace: workspaceToDeployTo!,
 				path: path
 			})
 		} else if (kind == 'raw_app') {
-			return await RawAppService.existsRawApp({
+			exists = await RawAppService.existsRawApp({
 				workspace: workspaceToDeployTo!,
 				path: path
 			})
 		} else if (kind == 'variable') {
-			return await VariableService.existsVariable({
+			exists = await VariableService.existsVariable({
 				workspace: workspaceToDeployTo!,
 				path: path
 			})
 		} else if (kind == 'resource') {
-			return await ResourceService.existsResource({
+			exists = await ResourceService.existsResource({
 				workspace: workspaceToDeployTo!,
 				path: path
 			})
 		} else if (kind == 'schedule') {
-			return await ScheduleService.existsSchedule({
+			exists = await ScheduleService.existsSchedule({
 				workspace: workspaceToDeployTo!,
 				path: path
 			})
 		} else if (kind == 'resource_type') {
-			return await ResourceService.existsResourceType({
+			exists = await ResourceService.existsResourceType({
 				workspace: workspaceToDeployTo!,
 				path: path
 			})
 		} else if (kind == 'folder') {
-			let exists = true
-			try {
-				await FolderService.getFolder({
-					workspace: workspaceToDeployTo!,
-					name: path
-				})
-			} catch (e) {
-				exists = false
+			exists = await FolderService.existsFolder({
+				workspace: workspaceToDeployTo!,
+				name: path
+			})
+		} else if (kind === 'trigger') {
+			const triggersKind: TriggerKind[] = [
+				'kafka',
+				'mqtt',
+				'nats',
+				'postgres',
+				'routes',
+				'schedules',
+				'sqs',
+				'websockets',
+				'gcp'
+			]
+			if (
+				additionalInformation?.triggers &&
+				triggersKind.includes(additionalInformation.triggers.kind)
+			) {
+				exists = await existsTrigger(
+					{ workspace: workspaceToDeployTo!, path },
+					additionalInformation.triggers.kind
+				)
+			} else {
+				throw new Error(
+					`Unexpected triggers kind, expected one of: '${triggersKind.join(', ')}' got: ${
+						additionalInformation?.triggers?.kind
+					}`
+				)
 			}
-			return exists
 		} else {
 			throw new Error(`Unknown kind ${kind}`)
 		}
+		return exists
 	}
 
 	const deploymentStatus: Record<
@@ -405,6 +432,28 @@
 						name: path
 					}
 				})
+			} else if (kind === 'trigger') {
+				if (additionalInformation?.triggers) {
+					const { data, createFn, updateFn } = await getTriggersDeployData(
+						additionalInformation.triggers.kind,
+						path,
+						$workspaceStore!
+					)
+					if (alreadyExists) {
+						await updateFn({
+							path,
+							workspace: workspaceToDeployTo!,
+							requestBody: data
+						} as any)
+					} else {
+						await createFn({
+							workspace: workspaceToDeployTo!,
+							requestBody: data
+						} as any)
+					}
+				} else {
+					throw new Error('Missing triggers kind')
+				}
 			} else {
 				throw new Error(`Unknown kind ${kind}`)
 			}
@@ -502,6 +551,12 @@
 				return {
 					name: folder.name
 				}
+			} else if (kind == 'trigger') {
+				if (additionalInformation?.triggers) {
+					return await getTriggerValue(additionalInformation.triggers.kind, path, workspace)
+				} else {
+					throw new Error(`Missing trigger information`)
+				}
 			} else {
 				throw new Error(`Unknown kind ${kind}`)
 			}
@@ -525,7 +580,7 @@
 	}
 </script>
 
-<div class="mt-6" />
+<div class="mt-6"></div>
 
 {#if !$enterpriseLicense}
 	<Alert type="error" title="Enterprise license required"
@@ -549,7 +604,7 @@
 	<input class="max-w-xs" type="text" disabled value={workspaceToDeployTo} />
 
 	{#if seeTarget == undefined}
-		<div class="mt-6" />
+		<div class="mt-6"></div>
 		<Loader2 class="animate-spin" />
 	{:else if seeTarget == true}
 		<h3 class="mb-6 mt-16">All related deployable items</h3>
@@ -619,7 +674,7 @@
 			>
 		{/if}
 	{:else}
-		<div class="my-2" />
+		<div class="my-2"></div>
 		<Alert type="error" title="User not allowed to deploy to this workspace"
 			>Ask a permissioned user to deploy this item using the shareable link or get the proper
 			permissions on the target workspace</Alert

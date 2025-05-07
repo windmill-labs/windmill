@@ -1,12 +1,8 @@
 <script lang="ts">
 	import Button from '$lib/components/common/button/Button.svelte'
 	import AppTutorials from '../../AppTutorials.svelte'
-	import { BookOpen } from 'lucide-svelte'
-
-	import ButtonDropdown from '$lib/components/common/button/ButtonDropdown.svelte'
-	import TutorialItem from '$lib/components/tutorials/TutorialItem.svelte'
-	import MenuItem from '$lib/components/common/menu/MenuItem.svelte'
-	import { classNames } from '$lib/utils'
+	import { BookOpen, CheckCircle, Circle, RefreshCw, CheckCheck } from 'lucide-svelte'
+	import Dropdown from '$lib/components/DropdownV2.svelte'
 	import { resetAllTodos, skipAllTodos } from '$lib/tutorialUtils'
 	import { getContext, onMount } from 'svelte'
 	import type { AppViewerContext } from '../types'
@@ -45,63 +41,60 @@
 			appTutorials?.runTutorialById('simpleapptutorial')
 		}
 	}
+
+	async function getTutorialItems() {
+		return [
+			{
+				displayName: 'App tutorial',
+				action: () => appTutorials?.runTutorialById('simpleapptutorial'),
+				index: 7,
+				icon: $tutorialsToDo.includes(7) ? Circle : CheckCircle,
+				iconColor: $tutorialsToDo.includes(7) ? undefined : 'green'
+			},
+			{
+				displayName: 'Background runnables',
+				action: () => appTutorials?.runTutorialById('backgroundrunnables'),
+				index: 5,
+				icon: $tutorialsToDo.includes(5) ? Circle : CheckCircle,
+				iconColor: $tutorialsToDo.includes(5) ? undefined : 'green'
+			},
+			{
+				displayName: 'Connection',
+				action: () => appTutorials?.runTutorialById('connection'),
+				index: 6,
+				icon: $tutorialsToDo.includes(6) ? Circle : CheckCircle,
+				iconColor: $tutorialsToDo.includes(6) ? undefined : 'green'
+			},
+			{
+				displayName: 'Reset tutorials',
+				action: () => resetAllTodos(),
+				icon: RefreshCw
+			},
+			{
+				displayName: 'Skip tutorials',
+				action: () => skipAllTodos(),
+				icon: CheckCheck
+			}
+		]
+	}
 </script>
 
-<ButtonDropdown hasPadding={false}>
-	<svelte:fragment slot="buttonReplacement">
-		<Button
-			nonCaptureEvent
-			size="xs"
-			color="light"
-			variant="border"
-			iconOnly
-			startIcon={{
-				icon: BookOpen
-			}}
-		/>
-	</svelte:fragment>
-	<svelte:fragment slot="items">
-		<TutorialItem
-			on:click={() => appTutorials?.runTutorialById('simpleapptutorial')}
-			label="App tutorial"
-			index={7}
-		/>
-		<TutorialItem
-			on:click={() => appTutorials?.runTutorialById('backgroundrunnables')}
-			label="Background runnables"
-			index={5}
-		/>
-		<TutorialItem
-			on:click={() => appTutorials?.runTutorialById('connection')}
-			label="Connection"
-			index={6}
-		/>
-
-		<div class="border-t border-surface-hover" />
-		<MenuItem
-			on:click={() => {
-				resetAllTodos()
-			}}
-		>
-			<div
-				class={classNames(
-					'text-primary flex flex-row items-center text-left gap-2 cursor-pointer hover:bg-surface-hover !text-xs font-semibold'
-				)}
-			>
-				Reset tutorials
-			</div>
-		</MenuItem>
-		<MenuItem on:click={() => skipAllTodos()}>
-			<div
-				class={classNames(
-					'text-primary flex flex-row items-center text-left gap-2 cursor-pointer hover:bg-surface-hover !text-xs font-semibold'
-				)}
-			>
-				Skip tutorials
-			</div>
-		</MenuItem>
-	</svelte:fragment>
-</ButtonDropdown>
+{#key $tutorialsToDo}
+	<Dropdown items={getTutorialItems}>
+		<svelte:fragment slot="buttonReplacement">
+			<Button
+				nonCaptureEvent
+				size="xs"
+				color="light"
+				variant="border"
+				iconOnly
+				startIcon={{
+					icon: BookOpen
+				}}
+			/>
+		</svelte:fragment>
+	</Dropdown>
+{/key}
 
 <AppTutorials
 	bind:this={appTutorials}
@@ -126,17 +119,3 @@
 		<span> This tutorial can only be run on a new app.</span>
 	</div>
 </ConfirmationModal>
-
-<style global>
-	.driver-popover-title {
-		@apply leading-6 text-primary text-base;
-	}
-
-	.driver-popover-description {
-		@apply text-secondary text-sm;
-	}
-
-	.driver-popover {
-		@apply p-6 bg-surface max-w-2xl;
-	}
-</style>

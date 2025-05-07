@@ -11,8 +11,10 @@
 	import { writable, type Writable } from 'svelte/store'
 	import { createEventDispatcher } from 'svelte'
 	import { twMerge } from 'tailwind-merge'
+	import { createDispatcherIfMounted } from '$lib/createDispatcherIfMounted'
 
 	const dispatch = createEventDispatcher()
+	const dispatchIfMounted = createDispatcherIfMounted(dispatch)
 
 	export let selected: string
 	export let hideTabs = false
@@ -28,7 +30,7 @@
 
 	const selectedStore = writable(selected)
 
-	$: $selectedStore && dispatch('selected', $selectedStore)
+	$: $selectedStore && dispatchIfMounted('selected', $selectedStore)
 
 	$: hashValues = values ? values.map((x) => '#' + x) : undefined
 	setContext<TabsContext>('Tabs', {

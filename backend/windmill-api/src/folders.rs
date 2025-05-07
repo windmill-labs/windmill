@@ -42,6 +42,7 @@ pub fn workspaced_service() -> Router {
         .route("/listnames", get(list_foldernames))
         .route("/create", post(create_folder))
         .route("/get/:name", get(get_folder))
+        .route("/exists/:name", get(exists_folder))
         .route("/update/:name", post(update_folder))
         .route("/getusage/:name", get(get_folder_usage))
         .route("/delete/:name", delete(delete_folder))
@@ -424,6 +425,22 @@ async fn get_folder(
 
     tx.commit().await?;
     Ok(Json(folder))
+}
+
+async fn exists_folder(
+    Extension(db): Extension<DB>,
+    Path((w_id, name)): Path<(String, String)>,
+) -> JsonResult<bool> {
+    let exists = sqlx::query_scalar!(
+        "SELECT EXISTS(SELECT 1 FROM folder WHERE name = $1 AND workspace_id = $2)",
+        name,
+        w_id
+    )
+    .fetch_one(&db)
+    .await?
+    .unwrap_or(false);
+
+    Ok(Json(exists))
 }
 
 #[derive(Serialize)]

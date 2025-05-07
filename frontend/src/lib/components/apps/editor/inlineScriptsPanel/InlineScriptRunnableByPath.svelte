@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { Button, Drawer, DrawerContent, Popup } from '$lib/components/common'
+	import { Button, Drawer, DrawerContent } from '$lib/components/common'
 	import { base } from '$lib/base'
 	import FlowModuleScript from '$lib/components/flows/content/FlowModuleScript.svelte'
 	import FlowPathViewer from '$lib/components/flows/content/FlowPathViewer.svelte'
@@ -18,17 +18,26 @@
 	import { deepEqual } from 'fast-equals'
 	import { computeFields } from './utils'
 	import { inferArgs, loadSchema } from '$lib/infer'
-	import RunButton from './RunButton.svelte'
+	import AppRunButton from './AppRunButton.svelte'
 	import { getScriptByPath } from '$lib/scripts'
 	import { sendUserToast } from '$lib/toast'
 	import { autoPlacement } from '@floating-ui/core'
 	import { ExternalLink, Eye, GitFork, Pen, RefreshCw, Trash } from 'lucide-svelte'
+	import { get } from 'svelte/store'
+	import RunButton from '$lib/components/RunButton.svelte'
+	import Popover from '$lib/components/meltComponents/Popover.svelte'
 
 	export let runnable: RunnableByPath
-	export let fields: Record<string, StaticAppInput | ConnectedAppInput | RowAppInput | UserAppInput>
+	export let fields:
+		| Record<string, StaticAppInput | ConnectedAppInput | RowAppInput | UserAppInput>
+		| undefined
 	export let id: string
+	export let rawApps = false
+	export let isLoading = false
+	export let onRun = async () => {}
+	export let onCancel = async () => {}
 
-	const { stateId } = getContext<AppViewerContext>('AppViewerContext')
+	const viewerContext = getContext<AppViewerContext>('AppViewerContext')
 
 	let drawerFlowViewer: Drawer
 	let flowPath: string = ''
@@ -36,15 +45,16 @@
 
 	const dispatch = createEventDispatcher()
 
-	async function refreshScript(x: RunnableByPath) {
+	async function refreshScript(runnable: RunnableByPath) {
 		try {
-			let { schema } = await getScriptByPath(x.path)
-			if (!deepEqual(x.schema, schema)) {
-				x.schema = schema
-				if (!x.schema.order) {
-					x.schema.order = Object.keys(x.schema.properties ?? {})
+			let { schema } = await getScriptByPath(runnable.path)
+			console.log('schema1', schema)
+			if (!deepEqual(runnable.schema, schema)) {
+				runnable.schema = schema
+				if (!runnable.schema.order) {
+					runnable.schema.order = Object.keys(runnable.schema.properties ?? {})
 				}
-				fields = computeFields(schema, false, fields)
+				fields = computeFields(schema, false, fields ?? {})
 			}
 		} catch (e) {
 			notFound = true
@@ -52,15 +62,16 @@
 		}
 	}
 
-	async function refreshFlow(x: RunnableByPath) {
+	async function refreshFlow(runnable: RunnableByPath) {
 		try {
-			const { schema } = (await loadSchema($workspaceStore ?? '', x.path, 'flow')) ?? emptySchema()
-			if (!deepEqual(x.schema, schema)) {
-				x.schema = schema
-				if (!x.schema.order) {
-					x.schema.order = Object.keys(x.schema.properties ?? {})
+			const { schema } =
+				(await loadSchema($workspaceStore ?? '', runnable.path, 'flow')) ?? emptySchema()
+			if (!deepEqual(runnable.schema, schema)) {
+				runnable.schema = schema
+				if (!runnable.schema.order) {
+					runnable.schema.order = Object.keys(runnable.schema.properties ?? {})
 				}
-				fields = computeFields(schema, false, fields)
+				fields = computeFields(schema, false, fields ?? {})
 			}
 		} catch (e) {
 			notFound = true
@@ -91,6 +102,7 @@
 		if (deepEqual(runnable, lastRunnable)) {
 			return
 		}
+		console.log('runnable', runnable)
 		notFound = false
 		if (runnable.runType == 'script') {
 			refreshScript(runnable)
@@ -110,7 +122,11 @@
 
 <div class="p-2 h-full flex flex-col gap-2">
 	<div class="flex flex-row-reverse w-full gap-2">
-		<RunButton hideShortcut {id} />
+		{#if !rawApps}
+			<AppRunButton hideShortcut {id} />
+		{:else}
+			<RunButton {isLoading} {onRun} {onCancel} />
+		{/if}
 
 		<Button
 			variant="border"
@@ -120,7 +136,9 @@
 			on:click={async () => {
 				sendUserToast('Refreshing inputs')
 				refresh(runnable)
-				$stateId = $stateId + 1
+				if (viewerContext) {
+					viewerContext.stateId.update((x) => x + 1)
+				}
 				await tick()
 			}}
 		/>
@@ -180,7 +198,7 @@
 				Fork
 			</Button>
 		{/if}
-		<Popup
+		<Popover
 			floatingConfig={{
 				middleware: [
 					autoPlacement({
@@ -195,8 +213,10 @@
 					})
 				]
 			}}
+			closeButton
+			contentClasses="block text-primary text-xs p-4 w-[20vh]"
 		>
-			<svelte:fragment slot="button">
+			<svelte:fragment slot="trigger">
 				<Button
 					nonCaptureEvent={true}
 					btnClasses={'bg-surface text-primay hover:bg-hover'}
@@ -205,11 +225,12 @@
 					size="xs">Cache</Button
 				>
 			</svelte:fragment>
-			<div class="block text-primary">
+			<svelte:fragment slot="content">
 				Since this is a reference to a workspace {runnable.runType}, set the cache in the {runnable.runType}
-				settings directly by editing it. The cache will be shared by any app or flow that uses this {runnable.runType}.
-			</div>
-		</Popup>
+				settings directly by editing it. The cache will be shared by any app or flow that uses this
+				{runnable.runType}.
+			</svelte:fragment>
+		</Popover>
 
 		<input
 			on:keydown|stopPropagation
@@ -219,7 +240,7 @@
 		/>
 	</div>
 	<div class="w-full grow overflow-y-auto">
-		{#key $stateId}
+		{#key viewerContext?.stateId ? get(viewerContext.stateId) : 0}
 			{#if notFound}
 				<div class="text-red-400"
 					>{runnable.runType} not found at {runnable.path} in workspace {$workspaceStore}</div

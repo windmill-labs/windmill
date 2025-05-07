@@ -12,7 +12,7 @@
 		Repeat,
 		Square,
 		SkipForward,
-		Voicemail,
+		Pin,
 		X
 	} from 'lucide-svelte'
 	import { createEventDispatcher, getContext } from 'svelte'
@@ -27,8 +27,12 @@
 	import { getDependeeAndDependentComponents } from '../flowExplorer'
 	import { replaceId } from '../flowStore'
 	import FlowModuleSchemaItemViewer from './FlowModuleSchemaItemViewer.svelte'
-	import FlowPropPicker from '$lib/components/flows/propPicker/FlowPropPicker.svelte'
 	import type { PropPickerContext } from '$lib/components/prop_picker'
+	import OutputPicker from '$lib/components/flows/propPicker/OutputPicker.svelte'
+	import OutputPickerInner from '$lib/components/flows/propPicker/OutputPickerInner.svelte'
+	import { useSvelteFlow } from '@xyflow/svelte'
+	import type { FlowState } from '$lib/components/flows/flowState'
+
 	export let selected: boolean = false
 	export let deletable: boolean = false
 	export let retry: boolean = false
@@ -37,17 +41,29 @@
 	export let skip: boolean = false
 	export let suspend: boolean = false
 	export let sleep: boolean = false
-	export let mock: boolean = false
+	export let mock:
+		| {
+				enabled?: boolean
+				return_value?: unknown
+		  }
+		| undefined = { enabled: false }
 	export let bold: boolean = false
 	export let id: string | undefined = undefined
 	export let label: string
 	export let path: string = ''
 	export let modType: string | undefined = undefined
 	export let bgColor: string = ''
+	export let bgHoverColor: string = ''
 	export let concurrency: boolean = false
 	export let retries: number | undefined = undefined
 	export let warningMessage: string | undefined = undefined
 	export let isTrigger: boolean = false
+	export let editMode: boolean = false
+	export let alwaysShowOutputPicker: boolean = false
+	export let loopStatus:
+		| { type: 'inside' | 'self'; flow: 'forloopflow' | 'whileloopflow' }
+		| undefined = undefined
+
 	let pickableIds: Record<string, any> | undefined = undefined
 
 	const { flowInputsStore } = getContext<{ flowInputsStore: Writable<FlowInput | undefined> }>(
@@ -72,6 +88,50 @@
 	let newId: string = id ?? ''
 
 	let hover = false
+	let outputPickerInner: OutputPickerInner | undefined = undefined
+	let connectingData: any | undefined = undefined
+	let lastJob: any | undefined = undefined
+	let outputPicker: OutputPicker | undefined = undefined
+	let historyOpen = false
+
+	const { viewport } = useSvelteFlow()
+
+	$: flowStateStore = flowEditorContext?.flowStateStore
+
+	function updateConnectingData(
+		id: string | undefined,
+		pickableIds: Record<string, any> | undefined,
+		flowPropPickerConfig: any | undefined,
+		flowStateStore: FlowState | undefined
+	) {
+		if (!id) return
+		connectingData =
+			flowPropPickerConfig && pickableIds && Object.keys(pickableIds).includes(id)
+				? pickableIds[id]
+				: (flowStateStore?.[id]?.previewResult ?? {})
+	}
+	$: updateConnectingData(id, pickableIds, $flowPropPickerConfig, $flowStateStore)
+
+	function updateLastJob(flowStateStore: any | undefined) {
+		if (!flowStateStore || !id || flowStateStore[id]?.previewResult === 'never tested this far') {
+			return
+		}
+		lastJob = {
+			id: flowStateStore[id]?.previewJobId ?? '',
+			result: flowStateStore[id]?.previewResult,
+			type: 'CompletedJob' as const,
+			workspace_id: flowStateStore[id]?.previewWorkspaceId ?? '',
+			success: flowStateStore[id]?.previewSuccess ?? undefined
+		}
+	}
+
+	$: flowStateStore && updateLastJob($flowStateStore)
+	$: outputPickerInner &&
+		typeof outputPickerInner.setLastJob === 'function' &&
+		outputPickerInner.setLastJob(lastJob)
+
+	$: isConnectingCandidate =
+		!!id && !!$flowPropPickerConfig && !!pickableIds && Object.keys(pickableIds).includes(id)
 </script>
 
 {#if deletable && id && editId}
@@ -136,15 +196,17 @@
 <!-- svelte-ignore a11y-no-static-element-interactions -->
 <div
 	class={classNames(
-		'w-full module flex rounded-sm cursor-pointer max-w-full',
-		selected ? 'outline outline-offset-0  outline-2  outline-slate-500 dark:outline-gray-400' : '',
+		'w-full module flex rounded-sm cursor-pointer max-w-full outline-offset-0 outline-slate-500 dark:outline-gray-400',
+		selected ? 'outline outline-2' : 'active:outline active:outline-2',
 		'flex relative',
 		$copilotCurrentStepStore === id ? 'z-[901]' : ''
 	)}
-	style="width: 275px; height: 34px; background-color: {bgColor};"
+	style="width: 275px; height: 38px; background-color: {hover && bgHoverColor
+		? bgHoverColor
+		: bgColor};"
 	on:mouseenter={() => (hover = true)}
 	on:mouseleave={() => (hover = false)}
-	on:click|preventDefault|stopPropagation
+	on:pointerdown|preventDefault|stopPropagation={() => dispatch('pointerdown')}
 >
 	<div class="absolute text-sm right-12 -bottom-3 flex flex-row gap-1 z-10">
 		{#if retry}
@@ -230,40 +292,66 @@
 				<svelte:fragment slot="text">Sleep</svelte:fragment>
 			</Popover>
 		{/if}
-		{#if mock}
+		{#if mock?.enabled}
 			<Popover notClickable>
-				<div
+				<button
 					transition:fade|local={{ duration: 200 }}
 					class="center-center bg-surface rounded border border-gray-400 text-secondary px-1 py-0.5"
+					on:click={() => {
+						outputPicker?.toggleOpen()
+					}}
+					data-popover
 				>
-					<Voicemail size={12} />
-				</div>
-				<svelte:fragment slot="text">Mocked</svelte:fragment>
+					<Pin size={12} />
+				</button>
+				<svelte:fragment slot="text">Pinned</svelte:fragment>
 			</Popover>
 		{/if}
 	</div>
 
-	<FlowModuleSchemaItemViewer {label} {path} {id} {deletable} {bold} bind:editId {hover}>
-		<svelte:fragment slot="icon">
-			<slot name="icon" />
-		</svelte:fragment>
-	</FlowModuleSchemaItemViewer>
+	<div class="flex flex-col w-full">
+		<FlowModuleSchemaItemViewer {label} {path} {id} {deletable} {bold} bind:editId {hover}>
+			<svelte:fragment slot="icon">
+				<slot name="icon" />
+			</svelte:fragment>
+		</FlowModuleSchemaItemViewer>
 
-	{#if id && $flowPropPickerConfig && pickableIds && Object.keys(pickableIds).includes(id)}
-		<div class="absolute -bottom-[14px] right-[21px] translate-x-[50%] center-center">
-			<FlowPropPicker
-				json={{
-					[id]: pickableIds[id]
-				}}
-				prefix={'results'}
-			/>
-		</div>
-	{/if}
+		{#if editMode && (isConnectingCandidate || alwaysShowOutputPicker)}
+			<OutputPicker
+				bind:this={outputPicker}
+				zoom={$viewport?.zoom ?? 1}
+				{selected}
+				{hover}
+				let:allowCopy
+				{isConnectingCandidate}
+				let:isConnecting
+				let:selectConnection
+				{historyOpen}
+			>
+				<OutputPickerInner
+					bind:this={outputPickerInner}
+					{allowCopy}
+					prefix={'results'}
+					connectingData={isConnecting ? connectingData : undefined}
+					{mock}
+					on:select={selectConnection}
+					moduleId={id}
+					on:updateMock
+					{path}
+					{loopStatus}
+					rightMargin
+					bind:derivedHistoryOpen={historyOpen}
+					historyOffset={{ mainAxis: 12, crossAxis: -9 }}
+					class="p-1"
+				/>
+			</OutputPicker>
+		{/if}
+	</div>
 
 	{#if deletable}
 		<button
 			class="absolute -top-[10px] -right-[10px] rounded-full h-[20px] w-[20px] trash center-center text-secondary
-	outline-[1px] outline dark:outline-gray-500 outline-gray-300 bg-surface duration-150 hover:bg-red-400 hover:text-white
+	outline-[1px] outline dark:outline-gray-500 outline-gray-300 bg-surface duration-0 hover:bg-red-400 hover:text-white
 	 {hover || selected ? '' : '!hidden'}"
 			title="Delete"
 			on:click|preventDefault|stopPropagation={(event) =>
@@ -275,7 +363,7 @@
 		{#if id !== 'preprocessor'}
 			<button
 				class="absolute -top-[10px] right-[60px] rounded-full h-[20px] w-[20px] trash center-center text-secondary
-outline-[1px] outline dark:outline-gray-500 outline-gray-300 bg-surface duration-150 hover:bg-blue-400 hover:text-white
+outline-[1px] outline dark:outline-gray-500 outline-gray-300 bg-surface duration-0 hover:bg-blue-400 hover:text-white
  {hover ? '' : '!hidden'}"
 				on:click|preventDefault|stopPropagation={(event) => dispatch('move')}
 				title="Move"
@@ -300,7 +388,7 @@ outline-[1px] outline dark:outline-gray-500 outline-gray-300 bg-surface duration
 					</svelte:fragment>
 					<div
 						class={twMerge(
-							'flex items-center justify-center h-full w-full rounded-md p-0.5 border  duration-150 ',
+							'flex items-center justify-center h-full w-full rounded-md p-0.5 border  duration-0 ',
 							id &&
 								Object.values($flowInputsStore?.[id]?.flowStepWarnings || {})?.some(
 									(x) => x.type === 'error'

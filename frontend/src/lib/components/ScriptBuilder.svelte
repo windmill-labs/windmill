@@ -7,11 +7,11 @@
 		ScheduleService,
 		type Script,
 		type TriggersCount,
-		PostgresTriggerService
+		PostgresTriggerService,
+		CaptureService
 	} from '$lib/gen'
 	import { inferArgs } from '$lib/infer'
 	import { initialCode } from '$lib/script_helpers'
-	import { page } from '$app/stores'
 	import { defaultScripts, enterpriseLicense, userStore, workspaceStore } from '$lib/stores'
 	import {
 		cleanValueProperties,
@@ -19,6 +19,7 @@
 		emptyString,
 		encodeState,
 		formatCron,
+		generateRandomString,
 		orderedJsonStringify,
 		replaceFalseWithUndefined,
 		type Value
@@ -38,8 +39,6 @@
 		Calendar,
 		CheckCircle,
 		Code,
-		CornerDownLeft,
-		DiffIcon,
 		Pen,
 		Plus,
 		Rocket,
@@ -64,18 +63,22 @@
 	import { writable } from 'svelte/store'
 	import { defaultScriptLanguages, processLangs } from '$lib/scripts'
 	import DefaultScripts from './DefaultScripts.svelte'
-	import { createEventDispatcher, setContext } from 'svelte'
-	import CustomPopover from './CustomPopover.svelte'
+	import { createEventDispatcher, onMount, setContext } from 'svelte'
 	import Summary from './Summary.svelte'
 	import type { ScriptBuilderWhitelabelCustomUi } from './custom_ui'
 	import DeployOverrideConfirmationModal from '$lib/components/common/confirmationModal/DeployOverrideConfirmationModal.svelte'
 	import TriggersEditor from './triggers/TriggersEditor.svelte'
 	import type { ScheduleTrigger, TriggerContext, TriggerKind } from './triggers'
 	import {
-		BUN_PREPROCESSOR_MODULE_CODE,
-		PYTHON_PREPROCESSOR_MODULE_CODE
+		TS_PREPROCESSOR_MODULE_CODE,
+		TS_PREPROCESSOR_SCRIPT_INTRO,
+		PYTHON_PREPROCESSOR_MODULE_CODE,
+		PYTHON_PREPROCESSOR_SCRIPT_INTRO
 	} from '$lib/script_helpers'
 	import CaptureTable from './triggers/CaptureTable.svelte'
+	import type { SavedAndModifiedValue } from './common/confirmationModal/unsavedTypes'
+	import type { ScriptBuilderFunctionExports } from './scriptBuilder'
+	import DeployButton from './DeployButton.svelte'
 
 	export let script: NewScript
 	export let fullyLoaded: boolean = true
@@ -93,6 +96,24 @@
 		window.history.replaceState(null, '', url)
 	export let customUi: ScriptBuilderWhitelabelCustomUi = {}
 	export let savedPrimarySchedule: ScheduleTrigger | undefined = undefined
+	export let functionExports: ((exports: ScriptBuilderFunctionExports) => void) | undefined =
+		undefined
+
+	export function getInitialAndModifiedValues(): SavedAndModifiedValue {
+		return {
+			savedValue: savedScript,
+			modifiedValue: script
+		}
+	}
+
+	// used for new scripts for captures
+	const fakeInitialPath =
+		'u/' +
+		($userStore!.username?.includes('@')
+			? $userStore!.username.split('@')[0].replace(/[^a-zA-Z0-9_]/g, '')
+			: $userStore!.username!) +
+		'/' +
+		generateRandomString(12)
 
 	let deployedValue: Value | undefined = undefined // Value to diff against
 	let deployedBy: string | undefined = undefined // Author
@@ -130,6 +151,25 @@
 	const dispatch = createEventDispatcher()
 
 	$: initialPath != '' && loadTriggers()
+
+	onMount(() => {
+		if (functionExports) {
+			console.log('functionExports set')
+			functionExports({
+				setPreviewArgs: (args: Record<string, any>) => {
+					scriptEditor?.setArgs(args)
+				},
+				runPreview: async () => await scriptEditor?.runTest(),
+				setCode: (code: string, language?: Script['language']) => {
+					if (language) {
+						script.language = language
+					}
+					editor?.setCode(code)
+				},
+				getCode: () => editor?.getCode() ?? ''
+			})
+		}
+	})
 
 	async function loadTriggers() {
 		$triggersCount = await ScriptService.getTriggersCountOfScript({
@@ -172,9 +212,13 @@
 		$defaultScripts?.order ?? Object.keys(defaultScriptLanguages)
 	)
 		.map((l) => [defaultScriptLanguages[l], l])
-		.filter(
-			(x) => $defaultScripts?.hidden == undefined || !$defaultScripts.hidden.includes(x[1])
-		) as [string, SupportedLanguage | 'docker' | 'bunnative'][]
+		.filter((x) => $defaultScripts?.hidden == undefined || !$defaultScripts.hidden.includes(x[1]))
+		.filter((x) => {
+			if (customUi?.settingsPanel?.metadata?.languages === undefined) {
+				return true
+			}
+			return customUi.settingsPanel.metadata.languages.includes(x[1] as SupportedLanguage)
+		}) as [string, SupportedLanguage | 'docker' | 'bunnative'][]
 
 	const scriptKindOptions: {
 		value: Script['kind']
@@ -237,16 +281,17 @@
 	}
 
 	async function isTemplateScript() {
-		let getInitBlockTemplate = $page.url.searchParams.get('id')
-		if (getInitBlockTemplate === null) {
+		const params = new URLSearchParams(window.location.search)
+		const templateId = params.get('id')
+		if (templateId === null) {
 			return undefined
 		}
 		try {
-			getInitBlockTemplate = await PostgresTriggerService.getTemplateScript({
+			const templateScript = await PostgresTriggerService.getTemplateScript({
 				workspace: $workspaceStore!,
-				id: getInitBlockTemplate as string
+				id: templateId
 			})
-			return getInitBlockTemplate
+			return templateScript
 		} catch (error) {
 			sendUserToast(
 				'An error occured when trying to load your template script, please try again later',
@@ -424,6 +469,17 @@
 				}
 			})
 
+			if (!initialPath) {
+				await CaptureService.moveCapturesAndConfigs({
+					workspace: $workspaceStore!,
+					path: fakeInitialPath,
+					requestBody: {
+						new_path: script.path
+					},
+					runnableKind: 'script'
+				})
+			}
+
 			const scheduleExists =
 				initialPath != '' &&
 				(await ScheduleService.existsSchedule({
@@ -529,9 +585,20 @@
 				if (savedScript?.draft_only) {
 					await ScriptService.deleteScriptByPath({
 						workspace: $workspaceStore!,
-						path: initialPath
+						path: initialPath,
+						keepCaptures: true
 					})
 					script.parent_hash = undefined
+				}
+				if (!initialPath || script.path != initialPath) {
+					await CaptureService.moveCapturesAndConfigs({
+						workspace: $workspaceStore!,
+						path: initialPath || fakeInitialPath,
+						requestBody: {
+							new_path: script.path
+						},
+						runnableKind: 'script'
+					})
 				}
 				await ScriptService.createScript({
 					workspace: $workspaceStore!,
@@ -600,7 +667,11 @@
 		loadingDraft = false
 	}
 
-	function computeDropdownItems(initialPath: string) {
+	function computeDropdownItems(
+		initialPath: string,
+		savedScript: NewScriptWithDraft | undefined,
+		diffDrawer: DiffDrawer | undefined
+	) {
 		let dropdownItems: { label: string; onClick: () => void }[] =
 			initialPath != '' && customUi?.topBar?.extraDeployOptions != false
 				? [
@@ -616,6 +687,27 @@
 								window.open(`/scripts/add?template=${initialPath}`)
 							}
 						},
+						...(customUi?.topBar?.diff !== false && savedScript && diffDrawer
+							? [
+									{
+										label: 'Show diff',
+										onClick: async () => {
+											if (!savedScript) {
+												return
+											}
+											await syncWithDeployed()
+
+											diffDrawer?.openDrawer()
+											diffDrawer?.setDiff({
+												mode: 'normal',
+												deployed: deployedValue ?? savedScript,
+												draft: savedScript['draft'],
+												current: script
+											})
+										}
+									}
+								]
+							: []),
 						...(!script.draft_only
 							? [
 									{
@@ -624,9 +716,9 @@
 											dispatch('seeDetails', initialPath)
 										}
 									}
-							  ]
+								]
 							: [])
-				  ]
+					]
 				: []
 
 		return dropdownItems.length > 0 ? dropdownItems : undefined
@@ -646,10 +738,24 @@
 	let path: Path | undefined = undefined
 	let dirtyPath = false
 
-	let selectedTab: 'metadata' | 'runtime' | 'ui' | 'triggers' = 'metadata'
+	let selectedTab: 'metadata' | 'runtime' | 'ui' | 'triggers' = (() => {
+		if (customUi?.settingsPanel?.disableMetadata !== true) {
+			// first option: either no custom UI or metadata is enabled
+			return 'metadata'
+		}
+		if (customUi?.settingsPanel?.disableRuntime !== true) {
+			return 'runtime'
+		}
+		if (customUi?.settingsPanel?.disableGeneratedUi !== true) {
+			return 'ui'
+		}
+		if (customUi?.settingsPanel?.disableTriggers !== true) {
+			return 'triggers'
+		}
+		return 'metadata'
+	})()
 
-	let deploymentMsg = ''
-	let msgInput: HTMLInputElement | undefined = undefined
+	setContext('disableTooltips', customUi?.disableTooltips === true)
 
 	function langToLanguage(lang: SupportedLanguage | 'docker' | 'bunnative'): SupportedLanguage {
 		if (lang == 'docker') {
@@ -682,8 +788,8 @@
 		if (code) {
 			const preprocessorCode =
 				script.language === 'python3'
-					? PYTHON_PREPROCESSOR_MODULE_CODE
-					: BUN_PREPROCESSOR_MODULE_CODE
+					? PYTHON_PREPROCESSOR_SCRIPT_INTRO + PYTHON_PREPROCESSOR_MODULE_CODE
+					: TS_PREPROCESSOR_SCRIPT_INTRO + TS_PREPROCESSOR_MODULE_CODE
 			const mainIndex = code.indexOf(
 				script.language === 'python3' ? 'def main' : 'export async function main'
 			)
@@ -720,23 +826,31 @@
 			<!-- svelte-ignore a11y-autofocus -->
 			<div class="flex flex-col h-full">
 				<Tabs bind:selected={selectedTab} wrapperClass="flex-none w-full">
-					<Tab value="metadata">Metadata</Tab>
-					<Tab value="runtime">Runtime</Tab>
-					<Tab value="ui">
-						Generated UI
-						<Tooltip
-							documentationLink="https://www.windmill.dev/docs/core_concepts/json_schema_and_parsing"
-						>
-							The arguments are synced with the main signature but you may refine the parts that
-							cannot be inferred from the type directly.
-						</Tooltip>
-					</Tab>
-					<Tab value="triggers">
-						Triggers
-						<Tooltip documentationLink="https://www.windmill.dev/docs/getting_started/triggers">
-							Configure how this script will be triggered.
-						</Tooltip>
-					</Tab>
+					{#if customUi?.settingsPanel?.disableMetadata !== true}
+						<Tab value="metadata">Metadata</Tab>
+					{/if}
+					{#if customUi?.settingsPanel?.disableRuntime !== true}
+						<Tab value="runtime">Runtime</Tab>
+					{/if}
+					{#if customUi?.settingsPanel?.disableGeneratedUi !== true}
+						<Tab value="ui">
+							Generated UI
+							<Tooltip
+								documentationLink="https://www.windmill.dev/docs/core_concepts/json_schema_and_parsing"
+							>
+								The arguments are synced with the main signature but you may refine the parts that
+								cannot be inferred from the type directly.
+							</Tooltip>
+						</Tab>
+					{/if}
+					{#if customUi?.settingsPanel?.disableTriggers !== true}
+						<Tab value="triggers">
+							Triggers
+							<Tooltip documentationLink="https://www.windmill.dev/docs/getting_started/triggers">
+								Configure how this script will be triggered.
+							</Tooltip>
+						</Tab>
+					{/if}
 
 					<svelte:fragment slot="content">
 						<div class="min-h-0 grow overflow-y-auto">
@@ -744,14 +858,16 @@
 								<div class="flex flex-col gap-8 px-4 py-2">
 									<Section label="Metadata">
 										<svelte:fragment slot="action">
-											<div class="flex flex-row items-center gap-2">
-												<ErrorHandlerToggleButton
-													kind="script"
-													scriptOrFlowPath={script.path}
-													bind:errorHandlerMuted={script.ws_error_handler_muted}
-													iconOnly={false}
-												/>
-											</div>
+											{#if customUi?.settingsPanel?.metadata?.disableMute !== true}
+												<div class="flex flex-row items-center gap-2">
+													<ErrorHandlerToggleButton
+														kind="script"
+														scriptOrFlowPath={script.path}
+														bind:errorHandlerMuted={script.ws_error_handler_muted}
+														iconOnly={false}
+													/>
+												</div>
+											{/if}
 										</svelte:fragment>
 										<div class="flex flex-col gap-4">
 											<Label label="Summary">
@@ -873,7 +989,7 @@
 													>
 														<LanguageIcon {lang} />
 														<span class="ml-2 py-2 truncate">{label}</span>
-														{#if lang === 'ansible'}
+														{#if lang === 'ansible' || lang === 'nu'}
 															<span class="text-tertiary !text-xs"> BETA </span>
 														{/if}
 													</Button>
@@ -885,36 +1001,40 @@
 										</div>
 									</Section>
 
-									<Section label="Script kind">
-										<svelte:fragment slot="header">
-											<Tooltip
-												documentationLink="https://www.windmill.dev/docs/script_editor/script_kinds"
+									{#if customUi?.settingsPanel?.metadata?.disableScriptKind !== true}
+										<Section label="Script kind">
+											<svelte:fragment slot="header">
+												<Tooltip
+													documentationLink="https://www.windmill.dev/docs/script_editor/script_kinds"
+												>
+													Tag this script's purpose within flows such that it is available as the
+													corresponding action.
+												</Tooltip>
+											</svelte:fragment>
+											<ToggleButtonGroup
+												class="h-10"
+												selected={script.kind}
+												on:selected={({ detail }) => {
+													template = 'script'
+													script.kind = detail
+													initContent(script.language, detail, template)
+												}}
+												let:item
 											>
-												Tag this script's purpose within flows such that it is available as the
-												corresponding action.
-											</Tooltip>
-										</svelte:fragment>
-										<ToggleButtonGroup
-											class="h-10"
-											selected={script.kind}
-											on:selected={({ detail }) => {
-												template = 'script'
-												script.kind = detail
-												initContent(script.language, detail, template)
-											}}
-										>
-											{#each scriptKindOptions as { value, title, desc, documentationLink, Icon }}
-												<ToggleButton
-													label={title}
-													{value}
-													tooltip={desc}
-													{documentationLink}
-													icon={Icon}
-													showTooltipIcon={Boolean(desc)}
-												/>
-											{/each}
-										</ToggleButtonGroup>
-									</Section>
+												{#each scriptKindOptions as { value, title, desc, documentationLink, Icon }}
+													<ToggleButton
+														label={title}
+														{value}
+														tooltip={desc}
+														{documentationLink}
+														icon={Icon}
+														showTooltipIcon={Boolean(desc)}
+														{item}
+													/>
+												{/each}
+											</ToggleButtonGroup>
+										</Section>
+									{/if}
 								</div>
 							</TabContent>
 							<TabContent value="runtime">
@@ -1313,7 +1433,10 @@
 								</div>
 							</TabContent>
 							<TabContent value="ui" class="h-full p-4">
-								<ScriptSchema bind:schema={script.schema} />
+								<ScriptSchema
+									bind:schema={script.schema}
+									customUi={customUi?.settingsPanel?.metadata?.editableSchemaForm}
+								/>
 							</TabContent>
 							<TabContent value="triggers">
 								<TriggersEditor
@@ -1322,8 +1445,9 @@
 									on:exitTriggers={() => {
 										captureTable?.loadCaptures(true)
 									}}
-									{args}
+									args={hasPreprocessor && selectedInputTab !== 'preprocessor' ? {} : args}
 									{initialPath}
+									{fakeInitialPath}
 									schema={script.schema}
 									noEditor={true}
 									isFlow={false}
@@ -1388,18 +1512,20 @@
 					{#if customUi?.topBar?.path != false}
 						<div class="flex justify-start w-full border rounded-md overflow-hidden">
 							<div>
-								<button
-									on:click={async () => {
-										metadataOpen = true
-									}}
-								>
-									<Badge
-										color="gray"
-										class="center-center !bg-surface-secondary !text-tertiary !h-[28px]  !w-[70px] rounded-none hover:!bg-surface-hover transition-all"
+								{#if customUi?.topBar?.editablePath != false}
+									<button
+										on:click={async () => {
+											metadataOpen = true
+										}}
 									>
-										<Pen size={12} class="mr-2" /> Path
-									</Badge>
-								</button>
+										<Badge
+											color="gray"
+											class="center-center !bg-surface-secondary !text-tertiary !h-[28px]  !w-[70px] rounded-none hover:!bg-surface-hover transition-all"
+										>
+											<Pen size={12} class="mr-2" /> Path
+										</Badge>
+									</button>
+								{/if}
 							</div>
 							<input
 								type="text"
@@ -1420,33 +1546,6 @@
 				{/if}
 
 				<div class="flex flex-row gap-x-1 lg:gap-x-2">
-					{#if customUi?.topBar?.diff != false}
-						<Button
-							color="light"
-							variant="border"
-							size="xs"
-							on:click={async () => {
-								if (!savedScript) {
-									return
-								}
-								await syncWithDeployed()
-
-								diffDrawer?.openDrawer()
-								diffDrawer?.setDiff({
-									mode: 'normal',
-									deployed: deployedValue ?? savedScript,
-									draft: savedScript['draft'],
-									current: script
-								})
-							}}
-							disabled={!savedScript || !diffDrawer}
-						>
-							<div class="flex flex-row gap-2 items-center">
-								<DiffIcon size={14} />
-								<span class="hidden lg:flex"> Diff </span>
-							</div>
-						</Button>
-					{/if}
 					{#if customUi?.topBar?.settings != false}
 						<Button
 							color="light"
@@ -1473,41 +1572,13 @@
 						<span class="hidden lg:flex"> Draft </span>
 					</Button>
 
-					<CustomPopover appearTimeout={0} focusEl={msgInput}>
-						<Button
-							loading={loadingSave}
-							size="xs"
-							disabled={!fullyLoaded}
-							startIcon={{ icon: Save }}
-							on:click={() => handleEditScript(false)}
-							dropdownItems={computeDropdownItems(initialPath)}
-						>
-							Deploy
-						</Button>
-						<svelte:fragment slot="overlay">
-							<div class="flex flex-row gap-2 min-w-72">
-								<input
-									type="text"
-									placeholder="Deployment message"
-									bind:value={deploymentMsg}
-									bind:this={msgInput}
-									on:keydown={(e) => {
-										if (e.key === 'Enter') {
-											handleEditScript(false, deploymentMsg)
-										}
-									}}
-								/>
-								<Button
-									size="xs"
-									on:click={() => handleEditScript(false, deploymentMsg)}
-									endIcon={{ icon: CornerDownLeft }}
-									loading={loadingSave}
-								>
-									Deploy
-								</Button>
-							</div>
-						</svelte:fragment>
-					</CustomPopover>
+					<DeployButton
+						loading={!fullyLoaded}
+						{loadingSave}
+						newFlow={false}
+						dropdownItems={computeDropdownItems(initialPath, savedScript, diffDrawer)}
+						on:save={({ detail }) => handleEditScript(false, detail)}
+					/>
 				</div>
 			</div>
 		</div>
@@ -1530,12 +1601,15 @@
 			bind:this={scriptEditor}
 			bind:schema={script.schema}
 			path={script.path}
+			stablePathForCaptures={initialPath || fakeInitialPath}
 			bind:code={script.content}
 			lang={script.language}
 			{initialArgs}
 			kind={script.kind}
 			{template}
 			tag={script.tag}
+			lastSavedCode={savedScript?.draft?.content}
+			lastDeployedCode={savedScript?.draft_only ? undefined : savedScript?.content}
 			bind:args
 			bind:hasPreprocessor
 			bind:captureTable

@@ -1,6 +1,18 @@
 <script lang="ts">
-	import { HttpTriggerService, type HttpTrigger } from '$lib/gen'
-	import { canWrite, displayDate, getLocalSetting, storeLocalSetting } from '$lib/utils'
+	import {
+		HttpTriggerService,
+		WorkspaceService,
+		type HttpTrigger,
+		type WorkspaceDeployUISettings
+	} from '$lib/gen'
+	import {
+		canWrite,
+		copyToClipboard,
+		displayDate,
+		getLocalSetting,
+		storeLocalSetting,
+		removeTriggerKindIfUnused
+	} from '$lib/utils'
 	import { base } from '$app/paths'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
 	import { Button, Skeleton } from '$lib/components/common'
@@ -9,8 +21,14 @@
 	import SharedBadge from '$lib/components/SharedBadge.svelte'
 	import ShareModal from '$lib/components/ShareModal.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
-	import { userStore, workspaceStore, userWorkspaces } from '$lib/stores'
-	import { Route, Code, Eye, Pen, Plus, Share, Trash } from 'lucide-svelte'
+	import {
+		userStore,
+		workspaceStore,
+		userWorkspaces,
+		enterpriseLicense,
+		usedTriggerKinds
+	} from '$lib/stores'
+	import { Route, Code, Eye, Pen, Plus, Share, Trash, FileUp, ClipboardCopy } from 'lucide-svelte'
 	import { goto } from '$lib/navigation'
 	import SearchItems from '$lib/components/SearchItems.svelte'
 	import NoItemFound from '$lib/components/home/NoItemFound.svelte'
@@ -21,19 +39,35 @@
 	import { setQuery } from '$lib/navigation'
 	import { onMount } from 'svelte'
 	import RouteEditor from '$lib/components/triggers/http/RouteEditor.svelte'
+	import DeployWorkspaceDrawer from '$lib/components/DeployWorkspaceDrawer.svelte'
+	import { ALL_DEPLOYABLE, isDeployable } from '$lib/utils_deployable'
+	import { isCloudHosted } from '$lib/cloud'
+	import { getHttpRoute } from '$lib/components/triggers/http/utils'
 
 	type TriggerW = HttpTrigger & { canWrite: boolean }
 
 	let triggers: TriggerW[] = []
 	let shareModal: ShareModal
 	let loading = true
+	let deploymentDrawer: DeployWorkspaceDrawer
+	let deployUiSettings: WorkspaceDeployUISettings | undefined = undefined
 
+	async function getDeployUiSettings() {
+		if (!$enterpriseLicense) {
+			deployUiSettings = ALL_DEPLOYABLE
+			return
+		}
+		let settings = await WorkspaceService.getSettings({ workspace: $workspaceStore! })
+		deployUiSettings = settings.deploy_ui ?? ALL_DEPLOYABLE
+	}
+	getDeployUiSettings()
 	async function loadTriggers(): Promise<void> {
 		triggers = (await HttpTriggerService.listHttpTriggers({ workspace: $workspaceStore! })).map(
 			(x) => {
 				return { canWrite: canWrite(x.path, x.extra_perms!, $userStore), ...x }
 			}
 		)
+		$usedTriggerKinds = removeTriggerKindIfUnused(triggers.length, 'routes', $usedTriggerKinds)
 		loading = false
 	}
 
@@ -89,15 +123,15 @@
 						(x) =>
 							x.path.startsWith(ownerFilter + '/') &&
 							filterItemsPathsBaseOnUserFilters(x, selectedFilterKind, filterUserFolders)
-				  )
+					)
 				: triggers?.filter(
 						(x) =>
 							x.script_path.startsWith(ownerFilter + '/') &&
 							filterItemsPathsBaseOnUserFilters(x, selectedFilterKind, filterUserFolders)
-				  )
+					)
 			: triggers?.filter((x) =>
 					filterItemsPathsBaseOnUserFilters(x, selectedFilterKind, filterUserFolders)
-			  )
+				)
 
 	$: if ($workspaceStore) {
 		ownerFilter = undefined
@@ -107,14 +141,14 @@
 		selectedFilterKind === 'trigger'
 			? Array.from(
 					new Set(filteredItems?.map((x) => x.path.split('/').slice(0, 2).join('/')) ?? [])
-			  ).sort()
+				).sort()
 			: Array.from(
 					new Set(
 						filteredItems
 							?.filter((x) => x.script_path)
 							.map((x) => x.script_path.split('/').slice(0, 2).join('/')) ?? []
 					)
-			  ).sort()
+				).sort()
 
 	$: items = filter !== '' ? filteredItems : preFilteredItems
 
@@ -151,6 +185,7 @@
 	$: updateQueryFilters(selectedFilterKind, filterUserFolders)
 </script>
 
+<DeployWorkspaceDrawer bind:this={deploymentDrawer} />
 <RouteEditor on:update={loadTriggers} bind:this={routeEditor} />
 
 <SearchItems
@@ -183,9 +218,9 @@
 				<input type="text" placeholder="Search routes" bind:value={filter} class="search-item" />
 				<div class="flex flex-row items-center gap-2 mt-6">
 					<div class="text-sm shrink-0"> Filter by path of </div>
-					<ToggleButtonGroup bind:selected={selectedFilterKind}>
-						<ToggleButton small value="trigger" label="Route" icon={Route} />
-						<ToggleButton small value="script_flow" label="Script/Flow" icon={Code} />
+					<ToggleButtonGroup bind:selected={selectedFilterKind} let:item>
+						<ToggleButton small value="trigger" label="Route" icon={Route} {item} />
+						<ToggleButton small value="script_flow" label="Script/Flow" icon={Code} {item} />
 					</ToggleButtonGroup>
 				</div>
 				<ListFilters syncQuery bind:selectedFilter={ownerFilter} filters={owners} />
@@ -210,7 +245,7 @@
 				<div class="text-center text-sm text-tertiary mt-2"> No routes </div>
 			{:else if items?.length}
 				<div class="border rounded-md divide-y">
-					{#each items.slice(0, nbDisplayed) as { path, edited_by, edited_at, script_path, route_path, is_flow, extra_perms, canWrite, marked, http_method, static_asset_config } (path)}
+					{#each items.slice(0, nbDisplayed) as { workspace_id, workspaced_route, path, edited_by, edited_at, script_path, route_path, is_flow, extra_perms, canWrite, marked, http_method, static_asset_config } (path)}
 						{@const href = `${is_flow ? '/flows/get' : '/scripts/get'}/${script_path}`}
 
 						<div
@@ -231,7 +266,10 @@
 												{@html marked}
 											</span>
 										{:else}
-											{http_method.toUpperCase()} /{route_path}
+											{http_method.toUpperCase()}
+											{isCloudHosted() || workspaced_route
+												? workspace_id + '/' + route_path
+												: route_path}
 										{/if}
 									</div>
 									<div class="text-secondary text-xs truncate text-left font-light">
@@ -252,13 +290,24 @@
 
 								<div class="flex gap-2 items-center justify-end">
 									<Button
+										on:click={() =>
+											copyToClipboard(
+												getHttpRoute('r', route_path, workspaced_route ?? false, workspace_id)
+											)}
+										color="dark"
+										size="xs"
+										startIcon={{ icon: ClipboardCopy }}
+									>
+										Copy URL
+									</Button>
+									<Button
 										on:click={() => routeEditor?.openEdit(path, is_flow)}
 										size="xs"
 										startIcon={canWrite
 											? { icon: Pen }
 											: {
 													icon: Eye
-											  }}
+												}}
 										color="dark"
 									>
 										{canWrite ? 'Edit' : 'View'}
@@ -293,6 +342,21 @@
 													routeEditor?.openEdit(path, is_flow)
 												}
 											},
+											...(isDeployable('trigger', path, deployUiSettings)
+												? [
+														{
+															displayName: 'Deploy to prod/staging',
+															icon: FileUp,
+															action: () => {
+																deploymentDrawer.openDrawer(path, 'trigger', {
+																	triggers: {
+																		kind: 'routes'
+																	}
+																})
+															}
+														}
+													]
+												: []),
 											{
 												displayName: 'Audit logs',
 												icon: Eye,

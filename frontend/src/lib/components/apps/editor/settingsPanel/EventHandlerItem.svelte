@@ -4,12 +4,15 @@
 	import MultiSelect from '$lib/components/multiselect/MultiSelectWrapper.svelte'
 	import { twMerge } from 'tailwind-merge'
 
-	export let items: string[]
-	export let value: string[] | undefined = undefined
-	export let title: string
-	export let tooltip: string
 
-	$: width = 0
+	let { items, value = $bindable(), title, tooltip } = $props<{
+		items: string[]
+		value: string[] | undefined
+		title: string
+		tooltip: string
+	}>()
+
+	let width = $state(0)
 	const inputWidth = 280
 </script>
 

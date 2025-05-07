@@ -1,5 +1,9 @@
 name: Backend check
 on:
+  workflow_run:
+    workflows: ["Change versions"]
+    types:
+      - completed
   push:
     paths:
       - "backend/**"
@@ -16,7 +20,7 @@ jobs:
       - uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
           cache-workspaces: backend
-          toolchain: 1.83.0
+          toolchain: 1.85.0
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: backend
@@ -40,7 +44,7 @@ jobs:
       - uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
           cache-workspaces: backend
-          toolchain: 1.83.0
+          toolchain: 1.85.0
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: backend
@@ -77,7 +81,7 @@ jobs:
       - uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
           cache-workspaces: backend
-          toolchain: 1.83.0
+          toolchain: 1.85.0
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: backend
@@ -117,7 +121,7 @@ jobs:
       - uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
           cache-workspaces: backend
-          toolchain: 1.83.0
+          toolchain: 1.85.0
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: backend

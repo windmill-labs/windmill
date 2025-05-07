@@ -4,6 +4,7 @@
 	import Button from '../button/Button.svelte'
 	import Badge from '../badge/Badge.svelte'
 	import { twMerge } from 'tailwind-merge'
+	import CloseButton from '../CloseButton.svelte'
 
 	export let title: string
 	export let open: boolean = false
@@ -11,6 +12,7 @@
 	export { c as class }
 	export let style = ''
 	export let cancelText: string | undefined = undefined
+	export let kind: 'button' | 'X' = 'button'
 
 	const dispatch = createEventDispatcher()
 
@@ -46,13 +48,14 @@
 		transition:fadeFast|local
 		class={'absolute top-0 bottom-0 left-0 right-0 z-[9999]'}
 		role="dialog"
+		tabindex="-1"
 	>
 		<div
 			class={twMerge(
 				'fixed inset-0 bg-gray-500 bg-opacity-75 transition-opacity',
 				open ? 'ease-out duration-300 opacity-100' : 'ease-in duration-200 opacity-0'
 			)}
-		/>
+		></div>
 
 		<div class="fixed inset-0 z-10 overflow-y-auto">
 			<div class="flex min-h-full items-center justify-center p-4">
@@ -68,6 +71,10 @@
 					)}
 					{style}
 				>
+					{#if kind == 'X'}
+						<div class="absolute top-4 right-4"><CloseButton on:close={() => (open = false)} /></div
+						>
+					{/if}
 					<div class="flex">
 						<div class="ml-4 text-left flex-1">
 							<div class="flex flex-row items-center justify-between">
@@ -80,21 +87,23 @@
 							</div>
 						</div>
 					</div>
-					<div class="flex items-center space-x-2 flex-row-reverse space-x-reverse mt-4">
-						<slot name="actions" />
-						<Button
-							on:click={() => {
-								dispatch('canceled')
-								open = false
-							}}
-							color="light"
-							size="sm"
-						>
-							<span class="inline-flex gap-2"
-								>{cancelText ?? 'Cancel'}<Badge color="dark-gray">Escape</Badge></span
+					{#if kind == 'button'}
+						<div class="flex items-center space-x-2 flex-row-reverse space-x-reverse mt-4">
+							<slot name="actions" />
+							<Button
+								on:click={() => {
+									dispatch('canceled')
+									open = false
+								}}
+								color="light"
+								size="sm"
 							>
-						</Button>
-					</div>
+								<span class="inline-flex gap-2"
+									>{cancelText ?? 'Cancel'}<Badge color="dark-gray">Escape</Badge></span
+								>
+							</Button>
+						</div>
+					{/if}
 				</div>
 			</div>
 		</div>

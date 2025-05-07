@@ -94,6 +94,11 @@ function main() {
     }
 }
   `,
+  nu: `
+def main [] {
+  print "Hello World"
+}
+  `,
 
   rust: `fn main() -> Result<(), String> {
   println!("Hello World");
@@ -114,4 +119,12 @@ inventory:
     debug:
       msg: "Hello, world!"
 `,
+  java: `
+public class Main {
+  public static void main() {
+    System.out.println("Hello World");
+  }
+}
+`,
+// for related places search: ADD_NEW_LANG 
 };

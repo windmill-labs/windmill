@@ -18,7 +18,7 @@
 	import type { ComponentCustomCSS } from './apps/types'
 
 	export let schema: Schema | any
-	export let schemaSkippedValues: string[] = []
+	export let hiddenArgs: string[] = []
 	export let schemaFieldTooltip: Record<string, string> = {}
 	export let args: Record<string, any> = {}
 	export let disabledArgs: string[] = []
@@ -90,9 +90,8 @@
 		args = nargs
 	}
 
-	let keys: string[] = Array.isArray(schema?.order)
-		? schema?.order
-		: Object.keys(schema?.properties ?? {})
+	let keys: string[]
+	$: keys = Array.isArray(schema?.order) ? schema?.order : Object.keys(schema?.properties ?? {})
 
 	function removeExtraKey() {
 		const nargs = {}
@@ -205,7 +204,7 @@
 					: ''}
 			>
 				<!-- svelte-ignore a11y-click-events-have-key-events -->
-				{#if !schemaSkippedValues.includes(argName) && keys.includes(argName)}
+				{#if !hiddenArgs.includes(argName) && keys.includes(argName)}
 					{#if typeof diff[argName] === 'object' && diff[argName].oldSchema}
 						{@const formerProperty = diff[argName].oldSchema}
 						<div class="px-2">
@@ -265,7 +264,10 @@
 							dispatch('click', argName)
 						}}
 					>
-						{#if typeof args == 'object' && schema?.properties[argName]}
+						{#if args && typeof args == 'object' && schema?.properties[argName]}
+							<!-- {argName}
+							{args == undefined}
+							{JSON.stringify(args?.[argName])} -->
 							{#if !hidden[argName]}
 								<ArgInput
 									on:change={() => {
@@ -276,6 +278,7 @@
 									}}
 									on:acceptChange={(e) => dispatch('acceptChange', e.detail)}
 									on:rejectChange={(e) => dispatch('rejectChange', e.detail)}
+									on:keydownCmdEnter={() => dispatch('keydownCmdEnter')}
 									{disablePortal}
 									{resourceTypes}
 									{prettifyHeader}
@@ -332,27 +335,30 @@
 										{#if linkedSecretCandidates?.includes(argName)}
 											<div>
 												<ToggleButtonGroup
-													selected={linkedSecret == argName}
+													selected={linkedSecret == argName ? 'secret' : 'inlined'}
 													on:selected={(e) => {
-														if (e.detail) {
+														if (e.detail === 'secret') {
 															linkedSecret = argName
 														} else if (linkedSecret == argName) {
 															linkedSecret = undefined
 														}
 													}}
+													let:item
 												>
 													<ToggleButton
-														value={false}
+														value="inlined"
 														size="sm"
 														label="Inlined"
 														tooltip="The value is inlined in the resource and thus has no special treatment."
+														{item}
 													/>
 													<ToggleButton
 														position="right"
-														value={true}
+														value="secret"
 														size="sm"
 														label="Secret"
 														tooltip="The value will be stored in a newly created linked secret variable at the same path. That variable can be permissioned differently, will be treated as a secret the UI, operators will not be able to load it and every access will generate a corresponding audit log."
+														{item}
 													/>
 												</ToggleButtonGroup>
 											</div>{/if}</svelte:fragment

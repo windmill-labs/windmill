@@ -19,7 +19,6 @@ use windmill_common::{
 };
 
 use windmill_common::error::{self, Error};
-use windmill_common::jobs::QueuedJob;
 #[cfg(feature = "csharp")]
 use windmill_queue::append_logs;
 
@@ -37,7 +36,7 @@ use crate::{
 };
 
 use crate::common::OccupancyMetrics;
-use crate::AuthedClientBackgroundTask;
+use crate::AuthedClient;
 
 #[cfg(windows)]
 use crate::SYSTEM_ROOT;
@@ -68,7 +67,7 @@ pub async fn generate_nuget_lockfile(
     mem_peak: &mut i32,
     canceled_by: &mut Option<CanceledBy>,
     job_dir: &str,
-    db: &sqlx::Pool<sqlx::Postgres>,
+    conn: &Connection,
     worker_name: &str,
     w_id: &str,
     occupancy_metrics: &mut OccupancyMetrics,
@@ -116,7 +115,7 @@ pub async fn generate_nuget_lockfile(
     let gen_lockfile_process = start_child_process(gen_lockfile_cmd, DOTNET_PATH.as_str()).await?;
     handle_child(
         job_id,
-        db,
+        conn,
         mem_peak,
         canceled_by,
         gen_lockfile_process,
@@ -127,6 +126,7 @@ pub async fn generate_nuget_lockfile(
         None,
         false,
         &mut Some(occupancy_metrics),
+        None,
     )
     .await?;
 
@@ -150,7 +150,7 @@ pub async fn generate_nuget_lockfile(
     _mem_peak: &mut i32,
     _canceled_by: &mut Option<CanceledBy>,
     _job_dir: &str,
-    _db: &sqlx::Pool<sqlx::Postgres>,
+    _conn: &Connection,
     _worker_name: &str,
     _w_id: &str,
     _occupancy_metrics: &mut OccupancyMetrics,
@@ -311,7 +311,7 @@ async fn build_cs_proj(
     mem_peak: &mut i32,
     canceled_by: &mut Option<CanceledBy>,
     job_dir: &str,
-    db: &sqlx::Pool<sqlx::Postgres>,
+    conn: &Connection,
     worker_name: &str,
     w_id: &str,
     base_internal_url: &str,
@@ -371,7 +371,7 @@ async fn build_cs_proj(
     let build_cs_process = start_child_process(build_cs_cmd, DOTNET_PATH.as_str()).await?;
     handle_child(
         job_id,
-        db,
+        conn,
         mem_peak,
         canceled_by,
         build_cs_process,
@@ -382,9 +382,10 @@ async fn build_cs_proj(
         None,
         false,
         &mut Some(occupancy_metrics),
+        None,
     )
     .await?;
-    append_logs(job_id, w_id, "\n\n", db).await;
+    append_logs(job_id, w_id, "\n\n", conn).await;
     if let Err(e) = std::fs::remove_file(Path::new(job_dir).join("nuget.config")) {
         if e.kind() != io::ErrorKind::NotFound {
             Err(anyhow!("Error erasing nuget.config: {}", e))?;
@@ -401,6 +402,7 @@ async fn build_cs_proj(
         &bin_path,
         &format!("{CSHARP_OBJECT_STORE_PREFIX}{hash}"),
         &target,
+        false,
     )
     .await
     {
@@ -426,13 +428,17 @@ fn remove_lines_from_text(contents: &str, indices_to_remove: Vec<usize>) -> Stri
     result.join("\n")
 }
 
+use windmill_common::worker::Connection;
+use windmill_queue::MiniPulledJob;
+
 #[cfg(not(feature = "csharp"))]
 pub async fn handle_csharp_job(
     _mem_peak: &mut i32,
     _canceled_by: &mut Option<CanceledBy>,
-    _job: &QueuedJob,
-    _db: &sqlx::Pool<sqlx::Postgres>,
-    _client: &AuthedClientBackgroundTask,
+    _job: &MiniPulledJob,
+    _conn: &Connection,
+    _client: &AuthedClient,
+    _parent_runnable_path: Option<String>,
     _inner_content: &str,
     _job_dir: &str,
     _requirements_o: Option<&String>,
@@ -444,14 +450,14 @@ pub async fn handle_csharp_job(
 ) -> Result<Box<RawValue>, Error> {
     Err(anyhow!("C# is not available because the feature is not enabled").into())
 }
-
 #[cfg(feature = "csharp")]
 pub async fn handle_csharp_job(
     mem_peak: &mut i32,
     canceled_by: &mut Option<CanceledBy>,
-    job: &QueuedJob,
-    db: &sqlx::Pool<sqlx::Postgres>,
-    client: &AuthedClientBackgroundTask,
+    job: &MiniPulledJob,
+    conn: &Connection,
+    client: &AuthedClient,
+    parent_runnable_path: Option<String>,
     inner_content: &str,
     job_dir: &str,
     requirements_o: Option<&String>,
@@ -471,7 +477,8 @@ pub async fn handle_csharp_job(
     let bin_path = format!("{}/{hash}", CSHARP_CACHE_DIR);
     let remote_path = format!("{CSHARP_OBJECT_STORE_PREFIX}{hash}");
 
-    let (cache, cache_logs) = windmill_common::worker::load_cache(&bin_path, &remote_path).await;
+    let (cache, cache_logs) =
+        windmill_common::worker::load_cache(&bin_path, &remote_path, false).await;
 
     let cache_logs = if cache {
         #[cfg(unix)]
@@ -488,7 +495,7 @@ pub async fn handle_csharp_job(
         cache_logs
     } else {
         let logs1 = format!("{cache_logs}\n\n--- DOTNET BUILD ---\n");
-        append_logs(&job.id, &job.workspace_id, logs1, db).await;
+        append_logs(&job.id, &job.workspace_id, logs1, conn).await;
 
         let (reqs, lines_to_remove) = parse_csharp_reqs(inner_content);
         for req in &reqs {
@@ -500,7 +507,7 @@ pub async fn handle_csharp_job(
                     req.0,
                     req.1.as_ref().unwrap_or(&"".to_string())
                 ),
-                db,
+                conn,
             )
             .await;
         }
@@ -518,7 +525,7 @@ pub async fn handle_csharp_job(
             mem_peak,
             canceled_by,
             job_dir,
-            db,
+            conn,
             worker_name,
             &job.workspace_id,
             base_internal_url,
@@ -528,13 +535,13 @@ pub async fn handle_csharp_job(
         .await?
     };
 
-    create_args_and_out_file(client, job, job_dir, db).await?;
+    create_args_and_out_file(client, job, job_dir, conn).await?;
 
     let logs2 = format!("{cache_logs}\n\n--- C# CODE EXECUTION ---\n");
-    append_logs(&job.id, &job.workspace_id, format!("{}\n", logs2), db).await;
+    append_logs(&job.id, &job.workspace_id, format!("{}\n", logs2), conn).await;
 
-    let client = &client.get_authed().await;
-    let reserved_variables = get_reserved_variables(job, &client.token, db).await?;
+    let reserved_variables =
+        get_reserved_variables(job, &client.token, conn, parent_runnable_path).await?;
 
     let child = if !*DISABLE_NSJAIL {
         write_file(
@@ -543,6 +550,7 @@ pub async fn handle_csharp_job(
             &NSJAIL_CONFIG_RUN_CSHARP_CONTENT
                 .replace("{JOB_DIR}", job_dir)
                 .replace("{CACHE_DIR}", CSHARP_CACHE_DIR)
+                .replace("{CACHE_HASH}", &hash)
                 .replace("{CLONE_NEWUSER}", &(!*DISABLE_NUSER).to_string())
                 .replace("{SHARED_MOUNT}", shared_mount),
         )?;
@@ -619,7 +627,7 @@ pub async fn handle_csharp_job(
 
     handle_child(
         &job.id,
-        db,
+        conn,
         mem_peak,
         canceled_by,
         child,
@@ -630,6 +638,7 @@ pub async fn handle_csharp_job(
         job.timeout,
         false,
         &mut Some(occupancy_metrics),
+        None,
     )
     .await?;
     read_result(job_dir).await
