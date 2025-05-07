@@ -280,7 +280,7 @@
 						small
 							? '-right-0.5 -top-0.5 h-[10px] w-[10px] group-hover:h-3 group-hover:w-3 group-hover:text-[8px]'
 							: '-right-1 -top-1 h-3 w-3 group-hover:h-4 group-hover:w-4 group-hover:text-xs',
-						noTriggers ? (small ? 'h-3 w-3 text-[8px]  scale-110' : 'h-4 w-4 text-xs') : '',
+						noTriggers ? (small ? 'h-3 w-3 text-[8px] scale-110' : 'h-4 w-4 text-xs') : '',
 						'overflow-hidden'
 					)}
 				>

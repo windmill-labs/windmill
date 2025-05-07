@@ -19,7 +19,7 @@
 
 <span
 	class={twMerge(
-		trigger.isDraft ? 'text-frost-400 italic' : 'font-normal',
+		trigger.isDraft ? 'text-frost-400 italic dark:text-frost-200' : 'font-normal',
 		discard ? 'text-gray-500 dark:text-gray-400' : '',
 		'truncate pr-1'
 	)}

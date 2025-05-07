@@ -2,14 +2,14 @@
 	import NodeWrapper from './NodeWrapper.svelte'
 	import TriggersWrapper from '../triggers/TriggersWrapper.svelte'
 	import { type GraphEventHandlers, type SimplifiableFlow } from '../../graphBuilder'
-	import type { FlowModule } from '$lib/gen'
+	import type { FlowModule, TriggersCount } from '$lib/gen'
 	import { getContext } from 'svelte'
 	import type { Writable } from 'svelte/store'
 	import { Maximize2, Minimize2, Calendar } from 'lucide-svelte'
 	import { getStateColor, getStateHoverColor } from '../../util'
 	import { setScheduledPollSchedule, type TriggerContext } from '$lib/components/triggers'
 	import VirtualItemWrapper from '$lib/components/flows/map/VirtualItemWrapper.svelte'
-	import { addDraftTrigger } from '$lib/components/triggers/utils'
+	import { addDraftTrigger, type Trigger } from '$lib/components/triggers/utils'
 	import { tick } from 'svelte'
 
 	export let data: {
@@ -29,6 +29,20 @@
 	}>('FlowGraphContext')
 
 	const { triggersCount, selectedTrigger, triggers } = getContext<TriggerContext>('TriggerContext')
+
+	function getScheduleCfg(primary: Trigger | undefined, triggersCount: TriggersCount | undefined) {
+		return primary?.draftConfig
+			? {
+					enabled: primary?.draftConfig?.enabled,
+					schedule: primary?.draftConfig?.schedule
+				}
+			: primary?.lightConfig
+				? { enabled: primary?.lightConfig?.enabled, schedule: primary?.lightConfig?.schedule }
+				: {
+						enabled: !!triggersCount?.primary_schedule,
+						schedule: triggersCount?.primary_schedule?.schedule
+					}
+	}
 </script>
 
 <NodeWrapper wrapperClass="shadow-md rounded-sm" let:darkMode>
@@ -93,14 +107,11 @@
 				data?.eventHandlers?.select(e.detail)
 			}}
 		>
-			{#if $triggers.some((t) => t.isPrimary)}
-				{@const primary = $triggers.find((t) => t.isPrimary)}
-				{@const { enabled, schedule } = primary?.draftConfig
-					? {
-							enabled: primary?.draftConfig?.enabled,
-							schedule: primary?.draftConfig?.schedule
-						}
-					: { enabled: primary?.lightConfig?.enabled, schedule: primary?.lightConfig?.schedule }}
+			{#if $triggers.some((t) => t.isPrimary) || $triggersCount?.primary_schedule}
+				{@const { enabled, schedule } = getScheduleCfg(
+					$triggers.find((t) => t.isPrimary),
+					$triggersCount
+				)}
 				<div class="text-2xs text-primary p-2 flex gap-2 items-center">
 					<Calendar size={12} />
 					<div>

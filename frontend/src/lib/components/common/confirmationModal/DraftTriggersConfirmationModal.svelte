@@ -80,7 +80,7 @@
 		<div class={draftTriggers.length > 5 ? 'h-[300px]' : ''}>
 			<DataTable size="sm" tableFixed={true}>
 				<thead>
-					<tr class="bg-gray-50 dark:bg-gray-800 text-secondary dark:text-gray-300 text-xs">
+					<tr class="bg-gray-50 dark:bg-gray-700 text-secondary dark:text-gray-300 text-xs">
 						<th class="text-left py-2 px-4">Trigger to deploy</th>
 						<th class="w-32 text-center py-2 px-1 justify-center"> </th>
 					</tr>
@@ -89,23 +89,19 @@
 					{#each draftTriggers as trigger}
 						{@const SvelteComponent = triggerIconMap[trigger.type]}
 						{@const canSave = checkSavePermissions(trigger)}
+						{@const isSelectedTrigger = isSelected(selectedTriggers, trigger)}
 						<tr
 							class={twMerge(
 								'transition-colors h-12 border-t border-gray-200 dark:border-gray-700 whitespace-nowrap',
 								!canSave ? '' : 'hover:bg-surface-hover '
 							)}
 						>
-							<td
-								class={twMerge(
-									'text-center py-1 px-4',
-									isSelected(selectedTriggers, trigger) ? '' : 'opacity-50'
-								)}
-							>
+							<td class={twMerge('text-center py-1 px-4', isSelectedTrigger ? '' : 'opacity-50')}>
 								<div class="flex flex-row items-center gap-2">
 									<div class="relative flex justify-center items-center">
 										<SvelteComponent
 											size={14}
-											class={isSelected(selectedTriggers, trigger)
+											class={isSelectedTrigger
 												? 'text-blue-500'
 												: 'text-gray-500 dark:text-gray-400'}
 										/>
@@ -125,7 +121,7 @@
 										<ToggleButtonGroup
 											let:item
 											class="w-fit h-fit"
-											selected={isSelected(selectedTriggers, trigger) ? 'deploy' : 'discard'}
+											selected={isSelectedTrigger ? 'deploy' : 'discard'}
 											on:selected={(e) => toggleTrigger(trigger, e.detail)}
 										>
 											<ToggleButton
@@ -133,14 +129,14 @@
 												value={'discard'}
 												{item}
 												small
-												class="data-[state=on]:text-red-500"
+												class="data-[state=on]:dark:text-red-400 data-[state=on]:text-red-500"
 											/>
 											<ToggleButton
 												label="Deploy"
 												value={'deploy'}
 												{item}
 												small
-												class="data-[state=on]:text-blue-500"
+												class="data-[state=on]:dark:text-blue-400 data-[state=on]:text-blue-500"
 											/>
 										</ToggleButtonGroup>
 									</div>
