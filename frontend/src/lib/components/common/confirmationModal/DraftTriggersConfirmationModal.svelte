@@ -113,7 +113,7 @@
 											<Star size={8} class="absolute -mt-3 ml-3 text-blue-400" />
 										{/if}
 									</div>
-									<div class="grow min-w-0 items-center text-left">
+									<div class="flex grow min-w-0 items-center text-left">
 										<TriggerLabel {trigger} />
 									</div>
 								</div>

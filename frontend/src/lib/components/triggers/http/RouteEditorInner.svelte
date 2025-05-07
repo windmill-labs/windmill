@@ -776,7 +776,7 @@
 		</DrawerContent>
 	</Drawer>
 {:else}
-	<Section label={!customLabel ? 'HTTP Route' : ''}>
+	<Section label={!customLabel ? 'HTTP Route' : ''} headerClass="grow min-w-0">
 		<svelte:fragment slot="header">
 			{#if customLabel}
 				{@render customLabel()}
