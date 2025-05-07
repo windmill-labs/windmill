@@ -12,6 +12,7 @@ use axum::{
     Json, Router,
 };
 
+use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
 use windmill_audit::audit_ee::audit_log;
@@ -32,6 +33,10 @@ pub fn global_service() -> Router {
         .route(
             "/list_autoscaling_events/:worker_group",
             get(list_autoscaling_events),
+        )
+        .route(
+            "/list_available_python_versions",
+            get(list_available_python_versions),
         )
 }
 
@@ -203,6 +208,16 @@ async fn list_autoscaling_events(
     .fetch_all(&db)
     .await?;
     Ok(Json(events))
+}
+
+async fn list_available_python_versions() -> error::JsonResult<Vec<String>> {
+    Ok(Json(
+        windmill_worker::PyV::list_available_python_versions()
+            .await?
+            .iter()
+            .map(|v| v.to_string())
+            .collect_vec(),
+    ))
 }
 
 #[cfg(feature = "enterprise")]
