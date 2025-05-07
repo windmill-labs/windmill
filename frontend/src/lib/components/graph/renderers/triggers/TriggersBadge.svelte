@@ -255,7 +255,7 @@
 
 	<MeltButton
 		class={twMerge(
-			'hover:bg-surface-hover rounded-md shadow-sm text-xs relative center-center cursor-pointer bg-surface',
+			'hover:bg-surface-hover rounded-md shadow-sm text-xs relative center-center cursor-pointer bg-slate-100 dark:bg-slate-700',
 			'dark:outline outline-1 outline-offset-[-1px] outline-tertiary/20 group',
 			isSelected ? 'outline-tertiary outline' : '',
 			small ? 'w-[23px] h-[23px] ' : 'p-2'
@@ -271,7 +271,7 @@
 	>
 		{#if countKey}
 			{@const count = $triggersCount?.[countKey] ?? 0}
-			{#if count > 0}
+			{#if count > 1}
 				<div
 					class={twMerge(
 						'absolute z-10 bg-gray-400 transition-all duration-100',

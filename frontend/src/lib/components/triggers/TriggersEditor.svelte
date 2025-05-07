@@ -245,7 +245,7 @@
 							/>
 						</div>
 					{:else}
-						<div class="p-2 flex flex-col gap-2 bg-surface-secondary">
+						<div class="p-2 flex flex-col gap-2 border-r">
 							<AddTriggersButton
 								on:addDraftTrigger={({ detail }) => {
 									const newTrigger = addDraftTrigger(triggers, triggersCount, detail)
