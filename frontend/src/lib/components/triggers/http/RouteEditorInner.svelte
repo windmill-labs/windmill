@@ -543,7 +543,7 @@
 			/>
 
 			{#if !is_static_website}
-				<Section label="Advanced">
+				<Section label="Advanced" collapsable>
 					<div class="flex flex-col gap-4">
 						{#if !static_asset_config}
 							<div class="flex flex-row justify-between">
