@@ -83,16 +83,17 @@
 					}))
 				}
 			}, 2000)
-
-			page = Math.ceil(items.length / perPage)
-			hasMore = items.length === perPage * page
-			if (hasMore) {
-				const potentialNewItems = await loadInputs(page + 1, perPage)
-				hasMore = potentialNewItems.length > 0
+			if (items) {
+				page = Math.ceil(items.length / perPage)
+				hasMore = items.length === perPage * page
+				if (hasMore) {
+					const potentialNewItems = await loadInputs(page + 1, perPage)
+					hasMore = potentialNewItems.length > 0
+				}
+				initLoad = true
+				isEmpty = items.length === 0
+				length = items.length
 			}
-			initLoad = true
-			isEmpty = items.length === 0
-			length = items.length
 		} catch (err) {
 			console.error(err)
 			if (hasAlreadyFailed) return
