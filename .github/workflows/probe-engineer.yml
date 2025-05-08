@@ -54,38 +54,46 @@ jobs:
 
           echo "::debug::Sending payload: $JSON_PAYLOAD"
 
-          # Make the API call
-          # Timeout values (e.g., --max-time 60) are good practice for external calls.
-          API_RESPONSE_WITH_CODE=$(curl -s -w "\n%{http_code}" -X POST "https://app.windmill.dev/api/r/test1245/issue-trigger" \
-            -H "Content-Type: application/json" \
-            -H "Accept: application/json" \
-            --data-binary "$JSON_PAYLOAD" \
-            --max-time 90)
+          # Only if the isse body contains an image, process with api call
+          if [[ "$ISSUE_BODY_CONTENT" =~ "!\[.*\]\((.*)\)" ]]; then
+            echo "Issue body contains an image, processing with API call"
+            # Make the API call
+            # Timeout values (e.g., --max-time 60) are good practice for external calls.
+            API_RESPONSE_WITH_CODE=$(curl -s -w "\n%{http_code}" -X POST "https://app.windmill.dev/api/r/test1245/issue-trigger" \
+              -H "Content-Type: application/json" \
+              -H "Accept: application/json" \
+              --data-binary "$JSON_PAYLOAD" \
+              --max-time 90)
 
-          HTTP_CODE=$(echo "$API_RESPONSE_WITH_CODE" | tail -n1)
-          API_RESPONSE_BODY=$(echo "$API_RESPONSE_WITH_CODE" | sed '$d')
+            HTTP_CODE=$(echo "$API_RESPONSE_WITH_CODE" | tail -n1)
+            API_RESPONSE_BODY=$(echo "$API_RESPONSE_WITH_CODE" | sed '$d')
 
-          echo "API call completed. HTTP Status: $HTTP_CODE"
-          echo "::debug::API Response Body: $API_RESPONSE_BODY"
+            echo "API call completed. HTTP Status: $HTTP_CODE"
+            echo "::debug::API Response Body: $API_RESPONSE_BODY"
 
-          EFFECTIVE_PROMPT=""
-          if [[ "$HTTP_CODE" -eq 200 ]]; then
-            # Assuming your API returns JSON with a field like "processed_prompt" or "effective_body"
-            # Adjust the jq query based on your API's actual response structure.
-            PROCESSED_CONTENT=$(echo "$API_RESPONSE_BODY" | jq -r '.processed_prompt // .effective_body // .message // .')
-            if [[ -n "$PROCESSED_CONTENT" && "$PROCESSED_CONTENT" != "null" ]]; then
-              EFFECTIVE_PROMPT="$PROCESSED_CONTENT"
-              echo "Successfully processed prompt from API."
+            EFFECTIVE_PROMPT=""
+            if [[ "$HTTP_CODE" -eq 200 ]]; then
+              # Assuming your API returns JSON with a field like "processed_prompt" or "effective_body"
+              # Adjust the jq query based on your API's actual response structure.
+              PROCESSED_CONTENT=$(echo "$API_RESPONSE_BODY" | jq -r '.processed_prompt // .effective_body // .message // .')
+              if [[ -n "$PROCESSED_CONTENT" && "$PROCESSED_CONTENT" != "null" ]]; then
+                EFFECTIVE_PROMPT="$PROCESSED_CONTENT"
+                echo "Successfully processed prompt from API."
+              else
+                echo "::warning::API returned success code but processed content was empty or null. Falling back."
+                EFFECTIVE_PROMPT="API processing error or empty response. Original Issue Title: $ISSUE_TITLE. Original Issue Body: ${ISSUE_BODY_CONTENT:0:1000}..."
+              fi
             else
-              echo "::warning::API returned success code but processed content was empty or null. Falling back."
-              EFFECTIVE_PROMPT="API processing error or empty response. Original Issue Title: $ISSUE_TITLE. Original Issue Body: ${ISSUE_BODY_CONTENT:0:1000}..."
+              echo "::error::External API call failed with HTTP status $HTTP_CODE."
+              echo "::error::API Response: $API_RESPONSE_BODY"
+              # Fallback to a message indicating failure, including original content truncated
+              EFFECTIVE_PROMPT="Failed to process issue via external API (Status: $HTTP_CODE). Original Issue Title: $ISSUE_TITLE. Original Issue Body: ${ISSUE_BODY_CONTENT:0:1000}..."
             fi
-          else
-            echo "::error::External API call failed with HTTP status $HTTP_CODE."
-            echo "::error::API Response: $API_RESPONSE_BODY"
-            # Fallback to a message indicating failure, including original content truncated
-            EFFECTIVE_PROMPT="Failed to process issue via external API (Status: $HTTP_CODE). Original Issue Title: $ISSUE_TITLE. Original Issue Body: ${ISSUE_BODY_CONTENT:0:1000}..."
-          fi
+
+            else
+              echo "Issue body does not contain an image, skipping API call"
+              EFFECTIVE_PROMPT="$ISSUE_BODY_CONTENT"
+            fi
 
           echo "Final effective prompt (first 200 chars): ${EFFECTIVE_PROMPT:0:200}..."
 
