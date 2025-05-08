@@ -1286,9 +1286,9 @@
 				</div>
 
 				<div class="gap-4 flex-row hidden md:flex w-full max-w-md">
-					{#if $triggersStore?.some((t) => t.type === 'schedule' && !t.isDraft)}
-						{@const primarySchedule = $triggersStore.find((t) => t.isPrimary && !t.isDraft)}
-						{@const schedule = $triggersStore.find((t) => t.type === 'schedule' && !t.isDraft)}
+					{#if $triggersStore?.some((t) => t.type === 'schedule')}
+						{@const primarySchedule = $triggersStore.find((t) => t.isPrimary)}
+						{@const schedule = $triggersStore.find((t) => t.type === 'schedule')}
 						<Button
 							btnClasses="hidden lg:inline-flex"
 							startIcon={{ icon: Calendar }}
@@ -1303,11 +1303,9 @@
 								}
 							}}
 						>
-							{$primaryScheduleStore != undefined
-								? $primaryScheduleStore
-									? $primaryScheduleStore?.cron
-									: ''
-								: $triggersCount?.primary_schedule?.schedule}
+							{primarySchedule?.draftConfig?.schedule ??
+								primarySchedule?.lightConfig?.schedule ??
+								''}
 						</Button>
 					{/if}
 
