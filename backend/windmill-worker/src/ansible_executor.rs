@@ -373,8 +373,7 @@ async fn handle_ansible_python_deps(
                     worker_name,
                     w_id,
                     &mut Some(occupancy_metrics),
-                    // PyVersion::Py311,
-                    todo!(),
+                    crate::python_executor::PyVAlias::Py311.into(),
                     false,
                 )
                 .await

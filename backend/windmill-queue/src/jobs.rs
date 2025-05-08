@@ -2155,10 +2155,19 @@ pub struct PulledJob {
     pub permissioned_as_folders: Option<Vec<serde_json::Value>>,
 }
 
+
+// NOTE:
+// Precomputed by the server
+// Used to offload work from agent workers to server
 #[derive(Serialize, Deserialize)]
 pub enum PrecomputedAgentInfo {
     Bun { local: String, remote: String },
-    Python { py_version: Option<u32>, requirements: Option<String> },
+    Python {
+        // V1, not used anymore. Exists for compat.
+        // TODO: Needs to be removed eventually
+        py_version: Option<u32>,
+        py_version_v2: Option<String>,
+        requirements: Option<String> },
 }
 
 #[derive(Serialize, Deserialize)]

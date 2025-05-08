@@ -2120,7 +2120,6 @@ async fn capture_dependency_job(
                         PyV::parse_from_requirements(&split_requirements(job_raw_code)),
                     )
                 } else {
-                    // assigned_py_version = None;
                     let mut version_specifiers = vec![];
                     (
                         windmill_parser_py_imports::parse_python_imports(

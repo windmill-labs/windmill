@@ -60,4 +60,4 @@ pub use bun_executor::{
     prebundle_bun_script, prepare_job_dir,
 };
 pub use deno_executor::generate_deno_lock;
-pub use python_executor::PyV;
+pub use python_executor::{PyV, PyVAlias};

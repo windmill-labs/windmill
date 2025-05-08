@@ -1107,12 +1107,6 @@ async fn handle_python_deps(
         .unwrap_or_else(|| vec![])
         .clone();
 
-    // PyV::list_python_versions().await?;
-    // let mut annotated_pyv = None;
-    // let mut annotated_pyv_numeric = None;
-    // let mut annotated_version_specifiers = vec![];
-    let is_deployed = requirements_o.is_some();
-    // let instance_pyv = PyVersion::from_instance_version(job_id, w_id, conn).await;
     let annotations = windmill_common::worker::PythonAnnotations::parse(inner_content);
     let (pyv, resolved_lines) = match requirements_o {
         // Deployed
@@ -1125,7 +1119,7 @@ async fn handle_python_deps(
         None => {
             let mut version_specifiers = vec![];
 
-            let (requirements_lines, error_hint) = match conn {
+            let (v, requirements_lines, error_hint) = match conn {
                 Connection::Sql(db) => {
                     let (r, h) = windmill_parser_py_imports::parse_python_imports(
                         inner_content,
@@ -1136,31 +1130,73 @@ async fn handle_python_deps(
                     )
                     .await?;
 
-                    (r, h)
+                    let v = PyV::resolve(
+                        version_specifiers,
+                        job_id,
+                        w_id,
+                        Some(conn.clone()),
+                        None,
+                        None,
+                    )
+                    .await?;
+
+                    (v, r, h)
                 }
                 Connection::Http(_) => match precomputed_agent_info {
-                    Some(PrecomputedAgentInfo::Python { py_version, requirements }) => {
-                        todo!();
-                        // annotated_pyv_numeric = py_version;
-                        (split_requirements(requirements.unwrap_or_default()), None)
+                    Some(PrecomputedAgentInfo::Python {
+                        py_version,
+                        requirements,
+                        py_version_v2,
+                    }) => {
+                        // Debug
+                        //                         tracing::warn!(
+                        //                             workspace_id = %w_id,
+                        //                             "
+                        // Failed to get precomputed python version from server. Fallback to Default ({})
+                        // Returned from server: py_version - {:?}, py_version_v2 - {:?}
+                        //                                         ",
+                        //                             *PyV::default(),
+                        //                             &py_version,
+                        //                             &py_version_v2
+                        //                         );
+                        // TODO: V1 compat
+                        let v = {
+                            let v_v2 = py_version_v2
+                                .clone()
+                                .and_then(|s| Version::from_str(&s).ok().map(PyV::from));
+                            let v_v1 = py_version.and_then(PyVAlias::try_from_v1).map(PyV::from);
+
+                            match v_v2.or(v_v1) {
+                                Some(v) => v,
+                                None => {
+                                    tracing::warn!(
+                                        workspace_id = %w_id,
+                                        "
+Failed to get precomputed python version from server. Fallback to Default ({})
+Returned from server: py_version - {:?}, py_version_v2 - {:?}
+                                        ",
+                                        *PyV::default(),
+                                        py_version,
+                                        py_version_v2
+                                    );
+                                    Default::default()
+                                }
+                            }
+                        };
+
+                        dbg!(&v);
+
+                        let r = split_requirements(requirements.unwrap_or_default());
+                        let h = None;
+
+                        (v, r, h)
                     }
                     _ => Default::default(),
                 },
             };
 
-            let resolved = PyV::resolve(
-                version_specifiers,
-                job_id,
-                w_id,
-                Some(conn.clone()),
-                None,
-                None,
-            )
-            .await?;
-
-            dbg!(&resolved);
             (
-                resolved.clone(),
+                v.clone(),
                 if !requirements_lines.is_empty() {
                     uv_pip_compile(
                         job_id,
@@ -1173,7 +1209,7 @@ async fn handle_python_deps(
                         w_id,
                         occupancy_metrics,
                         // annotated_pyv.unwrap_or(instance_pyv),
-                        resolved,
+                        v,
                         annotations.no_cache,
                     )
                     .await
@@ -2171,10 +2207,10 @@ for line in sys.stdin:
     proc_envs.insert("BASE_URL".to_string(), base_internal_url.to_string());
 
     let py_version = if let Some(requirements) = requirements_o {
-        get_pyv_from_requirements_lines(&split_requirements(requirements.as_str()))
+        PyV::parse_from_requirements(&split_requirements(requirements.as_str()))
     } else {
         tracing::warn!(workspace_id = %w_id, "lockfile is empty for dedicated worker, thus python version cannot be inferred. Fallback to 3.11");
-        PyVersion::Py311
+        PyVAlias::Py311.into()
     };
 
     let python_path = get_python_path(
@@ -2219,17 +2255,47 @@ pub enum PyVAlias {
 
 impl Into<pep440_rs::Version> for PyVAlias {
     fn into(self) -> pep440_rs::Version {
-        pep440_rs::Version::new([3, self as u64])
+        pep440_rs::Version::new([self.major() as u64, self as u64])
+    }
+}
+
+// TODO: Refactor, python 4.0 can exist
+impl Into<u32> for PyVAlias {
+    fn into(self) -> u32 {
+        self.major() * 100 + self as u32
+    }
+}
+
+impl From<PyV> for PyVAlias {
+    fn from(value: PyV) -> Self {
+        match value.release() {
+            [major, minor, ..] => {
+                if let Some(alias) = Self::try_from_v1(format!("{}{}", *major, *minor)) {
+                    return alias;
+                }
+            }
+            _ => (),
+        }
+
+        tracing::warn!(
+            "Failed to convert Python Full Version to Alias. Fallback to default ({})",
+            *PyV::default()
+        );
+        Self::default()
     }
 }
 impl PyVAlias {
-    fn to_string(&self) -> String {
-        format!("3.{}", *self as u64)
+    fn major(&self) -> u32 {
+        // NOTE: When python 4.0 is out, this function needs to be modified
+        3
     }
 
-    fn try_from_v1(numeric: &str) -> Option<Self> {
+    /// Converts numeric format to alias
+    /// Example:
+    /// 310u32 (in) -> PyVAlias::Py310 (out)
+    fn try_from_v1<T: ToString>(numeric: T) -> Option<Self> {
         use PyVAlias::*;
-        match numeric {
+        match numeric.to_string().as_str() {
             "310" => Some(Py310),
             "311" => Some(Py311),
             "312" => Some(Py312),
@@ -2258,6 +2324,12 @@ impl From<PyVAlias> for PyV {
     }
 }
 
+impl Default for PyV {
+    fn default() -> Self {
+        PyVAlias::default().into()
+    }
+}
+
 impl Deref for PyV {
     type Target = Version;
 
@@ -2272,7 +2344,7 @@ impl DerefMut for PyV {
 }
 
 impl PyV {
-    pub(crate) async fn resolve(
+    pub async fn resolve(
         version_specifiers: Vec<VersionSpecifier>,
         job_id: &Uuid,
         w_id: &str,
@@ -2509,8 +2581,19 @@ impl PyV {
 
     /// Parse lockfile for assigned python version.
     /// If not found returns 3.11
-    fn parse_from_requirements(requirements_lines: &[String]) -> Self {
-        let parse_version = |s: &String| -> Option<PyV> {
+    pub fn parse_from_requirements<S: AsRef<str>>(requirements_lines: &[S]) -> Self {
+        Self::try_parse_from_requirements(requirements_lines).unwrap_or(
+            // If there is no assigned version in lockfile we automatically fallback to 3.11
+            // In this case we have dependencies, but no associated python version
+            // This is the case for old deployed scripts
+            PyVAlias::Py311.into(),
+        )
+    }
+
+    /// Parse lockfile for assigned python version.
+    /// If not found returns None
+    pub fn try_parse_from_requirements<S: AsRef<str>>(requirements_lines: &[S]) -> Option<Self> {
+        let parse_version = |s: &str| -> Option<PyV> {
             // Possible inputs:
             // V2:
             // # py: 3.11.0 or #py:3.11.0 or #py: 3.11.0
@@ -2542,22 +2625,17 @@ impl PyV {
                 .or(Version::from_str(&version_unparsed).ok().map(Version::into))
         };
         let index = if requirements_lines.get(0).map_or(false, |line| {
-            line.starts_with(LOCKFILE_GENERATED_FROM_REQUIREMENTS_TXT)
+            line.as_ref()
+                .starts_with(LOCKFILE_GENERATED_FROM_REQUIREMENTS_TXT)
         }) {
             1
         } else {
             0
         };
-        // If script is deployed we can try to parse first line to get assigned version
-        if let Some(v) = requirements_lines.get(index).and_then(parse_version) {
-            // We have valid assigned version, we use it
-            v.into()
-        } else {
-            // If there is no assigned version in lockfile we automatically fallback to 3.11
-            // In this case we have dependencies, but no associated python version
-            // This is the case for old deployed scripts
-            PyVAlias::Py311.into()
-        }
+        requirements_lines
+            .get(index)
+            .map(S::as_ref)
+            .and_then(parse_version)
     }
 
     pub async fn get_python(
