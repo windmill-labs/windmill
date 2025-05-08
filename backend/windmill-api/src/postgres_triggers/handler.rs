@@ -21,11 +21,10 @@ use serde::{Deserialize, Deserializer, Serialize};
 use sql_builder::{bind::Bind, SqlBuilder};
 use sqlx::{postgres::types::Oid, FromRow, PgConnection};
 use windmill_audit::{audit_ee::audit_log, ActionKind};
-use windmill_common::error::Error;
 use windmill_common::{
     db::UserDB,
-    error::{self, JsonResult, Result},
-    utils::{not_found_if_none, paginate, Pagination, StripPath},
+    error::{self, Error, JsonResult, Result},
+    utils::{empty_string_as_none, not_found_if_none, paginate, Pagination, StripPath},
     worker::CLOUD_HOSTED,
 };
 
@@ -51,6 +50,7 @@ pub struct Postgres {
 #[derive(Debug, Clone, FromRow, Serialize, Deserialize)]
 pub struct TableToTrack {
     pub table_name: String,
+    #[serde(default, deserialize_with = "empty_string_as_none")]
     pub where_clause: Option<String>,
     pub columns_name: Vec<String>,
 }
@@ -97,7 +97,6 @@ pub struct EditPostgresTrigger {
 }
 
 #[derive(Deserialize, Serialize, Debug)]
-
 pub struct NewPostgresTrigger {
     path: String,
     script_path: String,
@@ -269,18 +268,16 @@ async fn check_if_publication_exist(
     connection: &mut PgConnection,
     publication_name: &str,
 ) -> Result<()> {
-    sqlx::query!(
-        "SELECT pubname FROM pg_publication WHERE pubname = $1",
-        publication_name
-    )
-    .fetch_one(connection)
-    .await
-    .map_err(|err| match err {
-        sqlx::Error::RowNotFound => {
-            Error::BadRequest(ERROR_PUBLICATION_NAME_NOT_EXISTS.to_string())
-        }
-        err => Error::SqlErr { error: err, location: "pg_trigger".to_string() },
-    })?;
+    sqlx::query("SELECT pubname FROM pg_publication WHERE pubname = $1")
+        .bind(publication_name)
+        .fetch_one(connection)
+        .await
+        .map_err(|err| match err {
+            sqlx::Error::RowNotFound => {
+                Error::BadRequest(ERROR_PUBLICATION_NAME_NOT_EXISTS.to_string())
+            }
+            err => Error::SqlErr { error: err, location: "pg_trigger".to_string() },
+        })?;
     Ok(())
 }
 
@@ -288,15 +285,13 @@ async fn check_if_logical_replication_slot_exist(
     connection: &mut PgConnection,
     replication_slot_name: &str,
 ) -> Result<()> {
-    sqlx::query!(
-        "SELECT slot_name FROM pg_replication_slots where slot_name = $1",
-        &replication_slot_name
-    )
-    .fetch_one(connection)
-    .await
-    .map_err(|err| match err {
-        _ => Error::BadRequest(ERROR_REPLICATION_SLOT_NOT_EXISTS.to_string()),
-    })?;
+    sqlx::query("SELECT slot_name FROM pg_replication_slots where slot_name = $1")
+        .bind(&replication_slot_name)
+        .fetch_one(connection)
+        .await
+        .map_err(|err| match err {
+            _ => Error::BadRequest(ERROR_REPLICATION_SLOT_NOT_EXISTS.to_string()),
+        })?;
     Ok(())
 }
 
@@ -564,7 +559,7 @@ impl PublicationData {
     }
 }
 
-#[derive(Debug, Serialize)]
+#[derive(FromRow, Debug, Serialize)]
 pub struct SlotList {
     slot_name: Option<String>,
     active: Option<bool>,
@@ -585,8 +580,7 @@ pub async fn list_slot_name(
     )
     .await?;
 
-    let slots = sqlx::query_as!(
-        SlotList,
+    let slots: Vec<SlotList> = sqlx::query_as(
         r#"
         SELECT 
             slot_name,
@@ -596,7 +590,7 @@ pub async fn list_slot_name(
         WHERE 
             plugin = 'pgoutput' AND
             slot_type = 'logical';
-        "#
+        "#,
     )
     .fetch_all(&mut connection)
     .await?;
@@ -650,7 +644,7 @@ pub async fn drop_slot_name(
 
     let mut connection = get_raw_postgres_connection(&database).await?;
 
-    let active_pid = sqlx::query_scalar!(
+    let active_pid: Option<i32> = sqlx::query_scalar(
         r#"SELECT 
             active_pid 
         FROM 
@@ -658,8 +652,8 @@ pub async fn drop_slot_name(
         WHERE 
             slot_name = $1
         "#,
-        &name
     )
+    .bind(&name)
     .fetch_optional(&mut connection)
     .await?
     .flatten();
@@ -677,7 +671,7 @@ pub async fn drop_slot_name(
 
     Ok(format!("Replication slot {} deleted!", name))
 }
-#[derive(Debug, Serialize)]
+#[derive(FromRow, Debug, Serialize)]
 struct PublicationName {
     publication_name: String,
 }
@@ -697,12 +691,10 @@ pub async fn list_database_publication(
     )
     .await?;
 
-    let publication_names = sqlx::query_as!(
-        PublicationName,
-        "SELECT pubname AS publication_name FROM pg_publication;"
-    )
-    .fetch_all(&mut connection)
-    .await?;
+    let publication_names: Vec<PublicationName> =
+        sqlx::query_as("SELECT pubname AS publication_name FROM pg_publication;")
+            .fetch_all(&mut connection)
+            .await?;
 
     let publications = publication_names
         .iter()
@@ -946,8 +938,7 @@ async fn get_publication_scope_and_transaction(
         delete: bool,
     }
 
-    let transaction = sqlx::query_as!(
-        PublicationTransaction,
+    let transaction: PublicationTransaction = sqlx::query_as(
         r#"
         SELECT
             puballtables AS all_table,
@@ -959,8 +950,8 @@ async fn get_publication_scope_and_transaction(
         WHERE
             pubname = $1
         "#,
-        publication_name
     )
+    .bind(publication_name)
     .fetch_one(&mut *connection)
     .await?;
 
@@ -991,25 +982,20 @@ async fn get_tracked_relations(
         where_clause: Option<String>,
     }
 
-    let publications = sqlx::query_as!(
-        PublicationData,
+    let publications: Vec<PublicationData> = sqlx::query_as(
         r#"
             SELECT
             schemaname AS schema_name,
             tablename AS table_name,
-            CASE
-                WHEN array_length(attnames, 1) = (SELECT COUNT(*) FROM information_schema.columns WHERE table_schema = pg_publication_tables.schemaname AND table_name = pg_publication_tables.tablename)
-                THEN NULL
-                ELSE attnames
-            END AS columns,
+            attnames AS columns,
             rowfilter AS where_clause
             FROM
                 pg_publication_tables
             WHERE
                 pubname = $1;
             "#,
-        publication_name
     )
+    .bind(publication_name)
     .fetch_all(&mut *connection)
     .await?;
 
@@ -1470,7 +1456,7 @@ pub async fn is_database_in_logical_level(
     )
     .await?;
 
-    let wal_level = sqlx::query_scalar!("SHOW WAL_LEVEL;")
+    let wal_level: Option<String> = sqlx::query_scalar("SHOW WAL_LEVEL;")
         .fetch_optional(&mut connection)
         .await?
         .flatten();
