@@ -256,9 +256,9 @@
 	<MeltButton
 		class={twMerge(
 			'hover:bg-surface-hover rounded-md shadow-sm text-xs relative center-center cursor-pointer bg-slate-100 dark:bg-slate-700',
-			'dark:outline outline-1 outline-offset-[-1px] outline-tertiary/20 group',
+			'dark:outline outline-tertiary/20 group',
 			isSelected ? 'outline-tertiary outline' : '',
-			small ? 'w-[23px] h-[23px] ' : 'p-2'
+			small ? 'w-[23px] h-[23px] outline-[1.5px]' : 'p-2 outline-[2px]'
 		)}
 		on:click={(e) => {
 			e.stopPropagation()
@@ -274,14 +274,22 @@
 			{#if count > 0}
 				<div
 					class={twMerge(
-						'absolute z-10 bg-gray-400 transition-all duration-100',
-						'rounded-full shadow-sm flex center-center text-primary-inverse font-mono',
-						'group-hover:bg-gray-800 dark:group-hover:bg-gray-200 group-hover:scale-110',
+						// Base styles that apply in all cases
+						'absolute z-10 rounded-full shadow-sm overflow-hidden',
+						'flex center-center text-primary-inverse font-mono',
+						'bg-secondary transition-all duration-100',
+
+						// Hover effects
+						'group-hover:scale-110',
+
+						// Size variants based on small prop
 						small
-							? '-right-0.5 -top-0.5 h-[10px] w-[10px] group-hover:h-3 group-hover:w-3 group-hover:text-[8px]'
-							: '-right-1 -top-1 h-3 w-3 group-hover:h-4 group-hover:w-4 group-hover:text-xs',
-						noTriggers ? (small ? 'h-3 w-3 text-[8px] scale-110' : 'h-4 w-4 text-xs') : '',
-						'overflow-hidden'
+							? '-right-[-2px] -top-[-2px] h-[4px] w-[4px] group-hover:-right-0.5 group-hover:-top-0.5 group-hover:h-3 group-hover:w-3 group-hover:text-[8px]'
+							: '-right-[-2px] -top-[-2px] h-[6px] w-[6px] group-hover:-right-1 group-hover:-top-1 group-hover:h-4 group-hover:w-4 group-hover:text-xs',
+
+						// Special case for no triggers
+						noTriggers && small ? 'h-3 w-3 text-[8px] scale-110' : '',
+						noTriggers && !small ? 'h-4 w-4 text-xs' : ''
 					)}
 				>
 					{#if count === undefined}
