@@ -29,6 +29,15 @@ pub async fn get_license_plan() -> LicensePlan {
 pub enum CriticalErrorChannel {
     Email { email: String },
     Slack { slack_channel: String },
+    Teams { teams_channel: TeamsChannel },
+}
+
+#[derive(Deserialize)]
+pub struct TeamsChannel {
+    pub team_id: String,
+    pub team_name: String,
+    pub channel_id: String,
+    pub channel_name: String,
 }
 
 pub enum CriticalAlertKind {
@@ -89,3 +98,9 @@ pub async fn worker_groups_alerts(_db: &DB) {}
 
 #[cfg(feature = "enterprise")]
 pub async fn jobs_waiting_alerts(_db: &DB) {}
+
+#[cfg(feature = "enterprise")]
+pub async fn low_disk_alerts(_db: &DB, _server_mode: bool, _worker_mode: bool, _workers: Vec<String>) {
+    // Implementation is not open source
+}
+

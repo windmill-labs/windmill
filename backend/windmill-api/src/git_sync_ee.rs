@@ -1,1 +1,9 @@
-/home/alex/windmill/windmill/../windmill-ee-private/windmill-api/src/git_sync_ee.rs
+use axum::routing::Router;
+
+pub fn workspaced_service() -> Router {
+    Router::new()
+}
+
+pub fn global_service() -> Router {
+    Router::new()
+}
