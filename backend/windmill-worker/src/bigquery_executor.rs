@@ -1,15 +1,18 @@
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
+use std::convert::Infallible;
 
 use futures::future::BoxFuture;
-use futures::{FutureExt, TryFutureExt};
+use futures::{FutureExt, StreamExt, TryFutureExt};
 use reqwest::Client;
 use serde_json::{json, value::RawValue, Value};
 use windmill_common::error::to_anyhow;
+use windmill_common::more_serde::json_stream_values;
+use windmill_common::s3_helpers::convert_json_line_stream;
 use windmill_common::worker::Connection;
 use windmill_common::{error::Error, worker::to_raw_value};
 use windmill_parser_sql::{
     parse_bigquery_sig, parse_db_resource, parse_s3_mode, parse_sql_blocks,
-    parse_sql_statement_named_params,
+    parse_sql_statement_named_params, s3_mode_extension, S3ModeFormat,
 };
 use windmill_queue::CanceledBy;
 
@@ -70,6 +73,7 @@ struct BigqueryError {
 struct S3Mode {
     client: AuthedClient,
     object_key: String,
+    format: S3ModeFormat,
     storage: Option<String>,
     workspace_id: String,
 }
@@ -124,12 +128,22 @@ fn do_bigquery_inner<'a>(
                 if skip_collect {
                     return Ok(to_raw_value(&Value::Array(vec![])));
                 } else if let Some(ref s3) = s3 {
+                    let rows_stream = json_stream_values(response.bytes_stream(), |sender| {
+                        RootMpscDeserializer { sender }
+                    })
+                    .await?
+                    .map(|chunk| Ok::<_, Infallible>(chunk));
+
+                    let stream = convert_json_line_stream(rows_stream.boxed(), s3.format)
+                        .await?
+                        .map(|chunk| Ok::<_, Infallible>(chunk));
+
                     s3.client
                         .upload_s3_file(
                             s3.workspace_id.as_str(),
                             s3.object_key.clone(),
                             s3.storage.clone(),
-                            response.bytes_stream(),
+                            stream,
                         )
                         .await?;
 
@@ -245,7 +259,7 @@ pub async fn do_bigquery(
         client: client.clone(),
         storage: s3_mode.storage,
         object_key: format!(
-            "{}/{}.json",
+            "{}/{}.{}",
             s3_mode.prefix.unwrap_or_else(|| format!(
                 "wmill_datalake/{}",
                 job.runnable_path
@@ -253,8 +267,10 @@ pub async fn do_bigquery(
                     .map(|s| s.as_str())
                     .unwrap_or("unknown_script")
             )),
-            job.id
+            job.id,
+            s3_mode_extension(s3_mode.format)
         ),
+        format: s3_mode.format,
         workspace_id: job.workspace_id.clone(),
     });
 
@@ -510,5 +526,105 @@ fn parse_val(value: &Value, typ: &str, schema: &BigqueryResponseSchemaField) -> 
         "int64" | "integer" | "timestamp" => json!(str_value.parse::<i64>().ok().unwrap_or(0)),
         "json" => serde_json::from_str(&str_value).ok().unwrap_or(json!({})),
         _ => value.clone(),
+    }
+}
+
+// This deserializer takes a bigquery response as a stream and sends each row to an mpsc
+// channel as a json record without storing the full input json in memory.
+struct RootMpscDeserializer {
+    sender: tokio::sync::mpsc::Sender<serde_json::Value>,
+}
+
+impl<'de> serde::de::DeserializeSeed<'de> for RootMpscDeserializer {
+    type Value = ();
+    fn deserialize<D>(self, deserializer: D) -> Result<Self::Value, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        struct RootVisitor<'a> {
+            sender: &'a tokio::sync::mpsc::Sender<serde_json::Value>,
+            col_defs: Vec<String>,
+        }
+
+        impl<'de, 'a> serde::de::Visitor<'de> for RootVisitor<'a> {
+            type Value = ();
+            fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+                formatter.write_str("bigquery response json object")
+            }
+            fn visit_map<A>(mut self, mut map: A) -> Result<(), A::Error>
+            where
+                A: serde::de::MapAccess<'de>,
+            {
+                while let Some(key) = map.next_key::<String>()? {
+                    // We assume schema always comes before rows
+                    if key == "schema" {
+                        let schema: BigqueryResponseSchema = map.next_value()?;
+                        for field in schema.fields {
+                            self.col_defs.push(field.name);
+                        }
+                    } else if key == "rows" {
+                        let () = map.next_value_seed(RowsMpscDeserializer {
+                            sender: self.sender,
+                            col_defs: &self.col_defs,
+                        })?;
+                    } else {
+                        // Ignore other keys
+                        let _: serde::de::IgnoredAny = map.next_value()?;
+                    }
+                }
+                Ok(())
+            }
+        }
+
+        deserializer.deserialize_map(RootVisitor { sender: &self.sender, col_defs: vec![] })
+    }
+}
+
+struct RowsMpscDeserializer<'a> {
+    sender: &'a tokio::sync::mpsc::Sender<serde_json::Value>,
+    col_defs: &'a Vec<String>,
+}
+
+impl<'de, 'a> serde::de::DeserializeSeed<'de> for RowsMpscDeserializer<'a> {
+    type Value = ();
+    fn deserialize<D>(self, deserializer: D) -> Result<Self::Value, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        struct RowsVisitor<'a> {
+            sender: &'a tokio::sync::mpsc::Sender<serde_json::Value>,
+            col_defs: &'a Vec<String>,
+        }
+
+        impl<'de, 'a> serde::de::Visitor<'de> for RowsVisitor<'a> {
+            type Value = ();
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+                formatter.write_str("a sequence of rows")
+            }
+
+            fn visit_seq<A>(self, mut seq: A) -> Result<(), A::Error>
+            where
+                A: serde::de::SeqAccess<'de>,
+            {
+                while let Some(elem) = seq.next_element::<BigqueryResponseRow>()? {
+                    let mut row = BTreeMap::<&str, Value>::new();
+                    for (i, field) in elem.f.iter().enumerate() {
+                        let col_name = self.col_defs.get(i).map(|s| s.as_str()).unwrap_or("");
+                        row.insert(col_name, field.v.clone());
+                    }
+                    let row = serde_json::to_value(row).map_err(|err| {
+                        serde::de::Error::custom(format!("Map parse failed: {err}"))
+                    })?;
+                    self.sender.blocking_send(row).map_err(|err| {
+                        serde::de::Error::custom(format!("Queue send failed: {err}"))
+                    })?;
+                }
+
+                Ok(())
+            }
+        }
+
+        deserializer.deserialize_seq(RowsVisitor { sender: &self.sender, col_defs: &self.col_defs })
     }
 }

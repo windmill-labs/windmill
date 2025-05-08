@@ -152,7 +152,7 @@ pub fn parse_s3_mode(code: &str) -> Option<S3ModeArgs> {
     for kv in args_str.split(' ') {
         let mut it = kv.trim().split('=');
         let (Some(key), Some(value)) = (it.next(), it.next()) else {
-            continue;
+            return None; // TODO transform to Err
         };
         match (key.trim(), value.trim()) {
             ("prefix", _) => prefix = Some(value.to_string()),

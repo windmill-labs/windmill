@@ -9,11 +9,15 @@
 //! helpers for serde + serde derive attributes
 
 use crate::{error::to_anyhow, utils::rd_string};
+use bytes::Bytes;
 use futures::TryStreamExt;
-use serde::{Deserialize, Deserializer};
-use serde_json::value::RawValue;
+use serde::{de::DeserializeSeed, Deserialize, Deserializer};
+use serde_json::{value::RawValue, Value};
 use std::{fmt::Display, str::FromStr};
-use tokio::task::{self, JoinHandle};
+use tokio::{
+    sync::mpsc::Sender,
+    task::{self},
+};
 use tokio_stream::StreamExt;
 
 pub fn default_true() -> bool {
@@ -69,65 +73,19 @@ where
     }
 }
 
-struct SerdeArrMpscDeserializer<'a> {
-    sender: &'a tokio::sync::mpsc::Sender<serde_json::Value>,
-}
-
-// This visitor takes a JSON array and sends each element to a channel.
-// It doesn't hold the entire array in memory at once but rather
-// sends each element to the channel as it is deserialized.
-impl<'de, 'a> serde::de::DeserializeSeed<'de> for SerdeArrMpscDeserializer<'a> {
-    type Value = ();
-    fn deserialize<D>(self, deserializer: D) -> Result<Self::Value, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        struct SeqVisitor<'a> {
-            sender: &'a tokio::sync::mpsc::Sender<serde_json::Value>,
-        }
-
-        impl<'de, 'a> serde::de::Visitor<'de> for SeqVisitor<'a> {
-            type Value = ();
-
-            fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
-                formatter.write_str("a sequence of rows")
-            }
-
-            fn visit_seq<A>(self, mut seq: A) -> Result<(), A::Error>
-            where
-                A: serde::de::SeqAccess<'de>,
-            {
-                while let Some(elem) = seq.next_element::<serde_json::Value>()? {
-                    // Push each item into the queue
-                    self.sender.blocking_send(elem).map_err(|e| {
-                        serde::de::Error::custom(format!("Queue send failed: {}", e))
-                    })?;
-                }
-
-                Ok(())
-            }
-        }
-
-        deserializer.deserialize_seq(SeqVisitor { sender: &self.sender })
-    }
-}
-
-// Takes in a stream of a json array and returns a stream of each value in the array.
-//
-// Main reason for this is that we need to tranform a huge json (from bigquery)
-// into csv or parquet format. But this requires parsing the json, which may
-// be too big to fit in memory.
-pub async fn json_stream_arr_values<S, T, E: Display>(
-    mut stream: S,
-) -> anyhow::Result<impl StreamExt<Item = serde_json::Value>>
-where
-    S: TryStreamExt<Item = Result<T, E>> + Send + Unpin + 'static,
-    bytes::Bytes: From<T>,
-{
+// Takes a json stream and returns a stream of json values, without loading the
+// entire input into memory.
+pub async fn json_stream_values<
+    'a,
+    D: DeserializeSeed<'a> + 'static + Send,
+    F: FnOnce(Sender<Value>) -> D,
+    E: Display,
+>(
+    mut stream: impl TryStreamExt<Item = Result<Bytes, E>> + Send + Unpin + 'static,
+    mpsc_deserializer_factory: F,
+) -> anyhow::Result<impl StreamExt<Item = serde_json::Value>> {
     const MAX_MPSC_SIZE: usize = 1000;
 
-    use bytes::Bytes;
-    use serde::de::DeserializeSeed;
     use std::path::PathBuf;
     use tokio::io::AsyncWriteExt;
 
@@ -138,31 +96,32 @@ where
     path.push(tmp_filename);
     let mut file: tokio::fs::File = tokio::fs::File::create(&path).await.map_err(to_anyhow)?;
     while let Some(chunk) = stream.next().await {
-        let chunk = match chunk {
+        let chunk: Bytes = match chunk {
             Ok(chunk) => chunk,
             Err(e) => {
                 std::fs::remove_file(&path)?;
                 return Err(anyhow::anyhow!("Error reading stream: {}", e));
             }
         };
-        let b: Bytes = chunk.into();
-        file.write_all(&b).await?;
+        file.write_all(&chunk).await?;
     }
 
     let (tx, rx) = tokio::sync::mpsc::channel(MAX_MPSC_SIZE);
+    // Takes ownership of tx
+    let mpsc_deserializer = mpsc_deserializer_factory(tx);
 
-    // Then we read the file and pipe each element to the channel in a blocking task.
-    let _: JoinHandle<anyhow::Result<()>> = task::spawn_blocking(move || {
+    // We read the file and pipe each element to the channel in a blocking task.
+    let _ = task::spawn_blocking::<_, anyhow::Result<()>>(move || {
         let sync_file = std::fs::File::open(&path).map_err(to_anyhow)?;
         let mut buf_reader = std::io::BufReader::new(sync_file);
 
         let mut deserializer = serde_json::Deserializer::from_reader(&mut buf_reader);
         // This deserializer will read the file and send each row to the channel
-        let () = SerdeArrMpscDeserializer { sender: &tx }.deserialize(&mut deserializer)?;
+        let _ = mpsc_deserializer.deserialize(&mut deserializer)?;
 
-        drop(tx); // Drops out of scope anyway but important to signal the end of the stream
         std::fs::remove_file(&path)?;
         Ok(())
+        // tx drops with mpsc_deserializer so the stream ends
     });
 
     let stream = tokio_stream::wrappers::ReceiverStream::new(rx);
