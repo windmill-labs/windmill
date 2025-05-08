@@ -1591,7 +1591,7 @@ pub struct S3ModeWorkerData {
 }
 
 impl S3ModeWorkerData {
-    pub async fn upload<S>(&self, stream: S) -> anyhow::Result<reqwest::Response>
+    pub async fn upload<S>(&self, stream: S) -> error::Result<reqwest::Response>
     where
         S: futures::stream::TryStream + Send + 'static,
         S::Error: Into<Box<dyn std::error::Error + Send + Sync>>,

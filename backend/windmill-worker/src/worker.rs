@@ -527,7 +527,7 @@ impl AuthedClient {
         object_key: String,
         storage: Option<String>,
         body: S,
-    ) -> anyhow::Result<Response>
+    ) -> error::Result<Response>
     where
         S: futures::stream::TryStream + Send + 'static,
         S::Error: Into<Box<dyn std::error::Error + Send + Sync>>,
@@ -551,12 +551,14 @@ impl AuthedClient {
             )
             .header(
                 reqwest::header::AUTHORIZATION,
-                reqwest::header::HeaderValue::from_str(&format!("Bearer {}", self.token))?,
+                reqwest::header::HeaderValue::from_str(&format!("Bearer {}", self.token))
+                    .map_err(|e| error::Error::BadConfig(e.to_string()))?,
             )
             .body(Body::wrap_stream(body))
             .send()
             .await
             .context(format!("Sent upload_s3_file request",))
+            .map_err(error::Error::from)
     }
 }
 

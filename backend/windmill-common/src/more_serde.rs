@@ -8,7 +8,10 @@
 
 //! helpers for serde + serde derive attributes
 
-use crate::{error::to_anyhow, utils::rd_string};
+use crate::{
+    error::{self, to_anyhow},
+    utils::rd_string,
+};
 use bytes::Bytes;
 use futures::TryStreamExt;
 use serde::{de::DeserializeSeed, Deserialize, Deserializer};
@@ -83,7 +86,7 @@ pub async fn json_stream_values<
 >(
     mut stream: impl TryStreamExt<Item = Result<Bytes, E>> + Send + Unpin + 'static,
     mpsc_deserializer_factory: F,
-) -> anyhow::Result<impl StreamExt<Item = serde_json::Value>> {
+) -> error::Result<impl StreamExt<Item = serde_json::Value>> {
     const MAX_MPSC_SIZE: usize = 1000;
 
     use std::path::PathBuf;
@@ -100,7 +103,10 @@ pub async fn json_stream_values<
             Ok(chunk) => chunk,
             Err(e) => {
                 std::fs::remove_file(&path)?;
-                return Err(anyhow::anyhow!("Error reading stream: {}", e));
+                return Err(error::Error::ExecutionErr(format!(
+                    "Error reading stream: {}",
+                    e
+                )));
             }
         };
         file.write_all(&chunk).await?;
