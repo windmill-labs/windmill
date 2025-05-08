@@ -6,7 +6,12 @@ use crate::utils::rd_string;
 use aws_sdk_sts::config::ProvideCredentials;
 #[cfg(feature = "parquet")]
 use axum::async_trait;
-use futures::TryStreamExt;
+use bytes::Bytes;
+use datafusion::arrow::array::{RecordBatch, RecordBatchWriter};
+use datafusion::arrow::json::writer::JsonArray;
+use datafusion::arrow::{csv, json};
+use datafusion::parquet::arrow::ArrowWriter;
+use futures::{StreamExt, TryStreamExt};
 #[cfg(feature = "parquet")]
 use object_store::aws::AwsCredential;
 #[cfg(feature = "parquet")]
@@ -18,11 +23,13 @@ use object_store::{aws::AmazonS3Builder, ClientOptions};
 #[cfg(feature = "parquet")]
 use reqwest::header::HeaderMap;
 use serde::{Deserialize, Serialize};
+use std::io::Write;
 #[cfg(feature = "parquet")]
 use std::sync::Arc;
-use tokio::fs::File;
+use std::sync::Mutex;
 #[cfg(feature = "parquet")]
 use tokio::sync::RwLock;
+use tokio::task;
 use windmill_parser_sql::S3ModeFormat;
 
 #[cfg(feature = "parquet")]
@@ -487,51 +494,43 @@ pub fn raw_app(w_id: &str, version: &i64) -> String {
 }
 
 pub async fn convert_ndjson<E: Into<anyhow::Error>>(
-    mut stream: impl futures::stream::TryStreamExt<Item = Result<serde_json::Value, E>> + Unpin,
+    mut stream: impl TryStreamExt<Item = Result<serde_json::Value, E>> + Unpin,
     output_format: S3ModeFormat,
-) -> anyhow::Result<impl TryStreamExt<Item = Result<bytes::Bytes, anyhow::Error>>> {
-    use datafusion::{
-        dataframe::DataFrameWriteOptions, execution::context::SessionContext,
-        prelude::NdJsonReadOptions,
-    };
+) -> anyhow::Result<impl StreamExt<Item = bytes::Bytes>> {
+    const MAX_MPSC_SIZE: usize = 1000;
+
+    use datafusion::{execution::context::SessionContext, prelude::NdJsonReadOptions};
     use futures::StreamExt;
     use std::path::PathBuf;
     use tokio::io::AsyncWriteExt;
-    use tokio_util::io::ReaderStream;
-
-    // if matches!(output_format, S3ModeFormat::Json) {
-    //     return Ok(
-    //         stream.map(|row| Ok(serde_json::to_string(&row.map_err(|e| anyhow!(e))?)?.into()))
-    //     );
-    // }
 
     let mut path = PathBuf::from(std::env::temp_dir());
-    path.push(format!("tmp_ndjson{}", rd_string(8)));
+    path.push(format!("{}.json", rd_string(8)));
     let path_str = path
-        .to_str()
-        .ok_or_else(|| anyhow::anyhow!("Invalid path"))?;
-    let mut converted_path = PathBuf::from(std::env::temp_dir());
-    converted_path.push(format!("tmp_ndjson{}", rd_string(8)));
-    let converted_path_str = converted_path
         .to_str()
         .ok_or_else(|| anyhow::anyhow!("Invalid path"))?;
 
     // Write the stream to a temporary file
     let mut file: tokio::fs::File = tokio::fs::File::create(&path).await.map_err(to_anyhow)?;
+
     while let Some(chunk) = stream.next().await {
         match chunk {
             Ok(chunk) => {
                 // Convert the chunk to bytes and write it to the file
                 let b: bytes::Bytes = serde_json::to_string(&chunk)?.into();
                 file.write_all(&b).await?;
-                file.write(b"\n").await?;
+                file.write_all(b"\n").await?;
             }
             Err(e) => {
-                std::fs::remove_file(&path)?;
+                tokio::fs::remove_file(&path).await?;
                 return Err(e.into());
             }
         }
     }
+
+    file.flush().await?;
+    file.sync_all().await?;
+    drop(file);
 
     let ctx = SessionContext::new();
     ctx.register_json(
@@ -543,29 +542,57 @@ pub async fn convert_ndjson<E: Into<anyhow::Error>>(
     .map_err(to_anyhow)?;
 
     let df = ctx.sql("SELECT * FROM my_table").await.map_err(to_anyhow)?;
-    match output_format {
-        S3ModeFormat::Csv => {
-            df.write_csv(converted_path_str, DataFrameWriteOptions::default(), None)
-                .await?;
+    let schema = df.schema().clone().into();
+    let mut datafusion_stream = df.execute_stream().await.map_err(to_anyhow)?;
+
+    let (tx, rx) = tokio::sync::mpsc::channel(MAX_MPSC_SIZE);
+    let writer: Arc<Mutex<dyn RecordBatchWriter + Send>> = match output_format {
+        S3ModeFormat::Parquet => Arc::new(Mutex::new(
+            ArrowWriter::try_new(ChannelWriter { sender: tx }, Arc::new(schema), None)
+                .map_err(to_anyhow)?,
+        )),
+        S3ModeFormat::Csv => Arc::new(Mutex::new(csv::Writer::new(ChannelWriter { sender: tx }))),
+        S3ModeFormat::Json => Arc::new(Mutex::new(json::Writer::<_, JsonArray>::new(
+            ChannelWriter { sender: tx },
+        ))),
+    };
+
+    // This spawn is so that the data is sent in the background. Else the function would deadlock
+    // when hitting the mpsc channel limit
+    task::spawn(async move {
+        while let Some(batch_result) = datafusion_stream.next().await {
+            let batch: RecordBatch = batch_result.map_err(to_anyhow)?;
+            let writer = writer.clone();
+            // Writer calls blocking_send which would crash if called from the async context
+            task::spawn_blocking(move || writer.lock().unwrap().write(&batch)).await??;
         }
-        S3ModeFormat::Parquet => {
-            df.write_parquet(converted_path_str, DataFrameWriteOptions::default(), None)
-                .await?;
-        }
-        S3ModeFormat::Json => {
-            df.write_json(converted_path_str, DataFrameWriteOptions::default(), None)
-                .await?;
-        }
+        drop(ctx);
+        drop(writer);
+        tokio::fs::remove_file(&path).await?;
+        Ok::<_, anyhow::Error>(())
+    });
+
+    Ok(tokio_stream::wrappers::ReceiverStream::new(rx))
+}
+
+struct ChannelWriter {
+    sender: tokio::sync::mpsc::Sender<Bytes>,
+}
+
+impl Write for ChannelWriter {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        let data = buf.to_vec().into();
+        self.sender.blocking_send(data).map_err(|e| {
+            std::io::Error::new(
+                std::io::ErrorKind::BrokenPipe,
+                format!("Channel send error: {}", e),
+            )
+        })?;
+        Ok(buf.len())
     }
-    drop(ctx);
-    std::fs::remove_file(&path)?;
 
-    let file = File::open(&path).await?;
-    let stream = ReaderStream::new(file)
-        .map_ok(|chunk| chunk)
-        .map_err(to_anyhow);
-
-    // TODO : delete the file on stream completion
-
-    Ok(stream)
+    fn flush(&mut self) -> std::io::Result<()> {
+        // No-op in this context
+        Ok(())
+    }
 }

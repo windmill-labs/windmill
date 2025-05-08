@@ -1,4 +1,4 @@
-use std::{collections::HashMap, sync::Arc};
+use std::{collections::HashMap, convert::Infallible, sync::Arc};
 
 use anyhow::anyhow;
 use base64::Engine;
@@ -14,11 +14,12 @@ use std::str::FromStr;
 use tokio::sync::Mutex;
 use windmill_common::{
     error::{to_anyhow, Error},
+    s3_helpers::convert_ndjson,
     worker::{to_raw_value, Connection},
 };
 use windmill_parser_sql::{
     parse_db_resource, parse_mysql_sig, parse_s3_mode, parse_sql_blocks,
-    parse_sql_statement_named_params, RE_ARG_MYSQL_NAMED,
+    parse_sql_statement_named_params, s3_mode_extension, S3ModeFormat, RE_ARG_MYSQL_NAMED,
 };
 use windmill_queue::CanceledBy;
 use windmill_queue::MiniPulledJob;
@@ -44,6 +45,7 @@ struct MysqlDatabase {
 struct S3Mode {
     client: AuthedClient,
     object_key: String,
+    format: S3ModeFormat,
     storage: Option<String>,
     workspace_id: String,
 }
@@ -88,8 +90,7 @@ fn do_mysql_inner<'a>(
                 match conn.exec_iter(query, statement_values).await.map_err(to_anyhow) {
                     Ok(mut result) => {
                         while let Some(row) = result.next().await? {
-                            let json = serde_json::to_string(&convert_row_to_value(row)).map_err(to_anyhow)?;
-                            yield Ok(json);
+                            yield Ok(convert_row_to_value(row));
                         }
                     },
                     Err(e) => {
@@ -97,23 +98,16 @@ fn do_mysql_inner<'a>(
                     }
                 };
             };
-            let rows_stream = rows_stream.enumerate().map(|(i, row)| {
-                if i == 0 {
-                    row
-                } else {
-                    Ok(format!(",\n{}", row?))
-                }
-            });
-            let start_bracket = futures::stream::once(async { Ok("{ rows: [\n".to_string()) });
-            let end_bracket = futures::stream::once(async { Ok("\n]}".to_string()) });
-            let rows_stream = start_bracket.chain(rows_stream).chain(end_bracket);
 
+            let stream = convert_ndjson(rows_stream.boxed(), s3.format)
+                .await?
+                .map(|chunk| Ok::<_, Infallible>(chunk));
             s3.client
                 .upload_s3_file(
                     s3.workspace_id.as_str(),
                     s3.object_key.clone(),
                     s3.storage.clone(),
-                    rows_stream,
+                    stream,
                 )
                 .await?;
 
@@ -168,8 +162,9 @@ pub async fn do_mysql(
     let s3 = parse_s3_mode(&query).map(|s3_mode| S3Mode {
         client: client.clone(),
         storage: s3_mode.storage,
+        format: s3_mode.format,
         object_key: format!(
-            "{}/{}.json",
+            "{}/{}.{}",
             s3_mode.prefix.unwrap_or_else(|| format!(
                 "wmill_datalake/{}",
                 job.runnable_path
@@ -177,7 +172,8 @@ pub async fn do_mysql(
                     .map(|s| s.as_str())
                     .unwrap_or("unknown_script")
             )),
-            job.id
+            job.id,
+            s3_mode_extension(s3_mode.format)
         ),
         workspace_id: job.workspace_id.clone(),
     });

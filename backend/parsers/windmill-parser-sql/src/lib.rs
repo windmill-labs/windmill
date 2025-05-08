@@ -157,10 +157,11 @@ pub fn parse_s3_mode(code: &str) -> Option<S3ModeArgs> {
         match (key.trim(), value.trim()) {
             ("prefix", _) => prefix = Some(value.to_string()),
             ("storage", _) => storage = Some(value.to_string()),
-            ("format", "ndjson") => format = S3ModeFormat::Json,
+            ("format", "json") => format = S3ModeFormat::Json,
             ("format", "parquet") => format = S3ModeFormat::Parquet,
             ("format", "csv") => format = S3ModeFormat::Csv,
-            _ => return None, // TODO transform to Err
+            ("format", _) => return None, // TODO transform to Err
+            (_, _) => return None,        // TODO transform to Err
         }
     }
 
