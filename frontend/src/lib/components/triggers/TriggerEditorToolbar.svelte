@@ -121,7 +121,8 @@
 									label: 'Deploy changes now',
 									onClick: () => {
 										dispatch('deploy')
-									}
+									},
+									disabled: saveDisabled
 								}
 							]
 						: undefined}
