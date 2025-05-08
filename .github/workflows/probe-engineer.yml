@@ -153,7 +153,8 @@ jobs:
       issue_number_override: ${{ github.event.issue.number }}
 
     secrets:
-      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-      GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
-      FORCE_PROVIDER: ${{ secrets.FORCE_PROVIDER }}
-      MODEL_NAME: ${{ secrets.MODEL_NAME }}
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      # ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      # GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
+      # FORCE_PROVIDER: ${{ secrets.FORCE_PROVIDER }}
+      # MODEL_NAME: ${{ secrets.MODEL_NAME }}
