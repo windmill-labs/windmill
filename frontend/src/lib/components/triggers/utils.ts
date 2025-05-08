@@ -381,7 +381,15 @@ export async function fetchTriggers(
 
 	// Fetch each type of trigger
 	await Promise.all([
-		fetchSchedules(triggersStore, triggersCountStore, workspaceId, path, isFlow, primarySchedule),
+		fetchSchedules(
+			triggersStore,
+			triggersCountStore,
+			workspaceId,
+			path,
+			isFlow,
+			primarySchedule,
+			user
+		),
 		fetchHttpTriggers(triggersStore, triggersCountStore, workspaceId, path, isFlow, user),
 		fetchWebsocketTriggers(triggersStore, triggersCountStore, workspaceId, path, isFlow, user),
 		fetchPostgresTriggers(triggersStore, triggersCountStore, workspaceId, path, isFlow, user),
