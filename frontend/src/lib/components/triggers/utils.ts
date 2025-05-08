@@ -98,15 +98,26 @@ export function isEqual(a: Trigger, b: Trigger): boolean {
  * @returns The corresponding CaptureTriggerKind or undefined if no mapping exists
  */
 export function triggerTypeToCaptureKind(triggerType: TriggerType): CaptureTriggerKind | undefined {
-	// The types that don't map to CaptureTriggerKind
-	const nonCaptureTriggerTypes = ['schedule', 'primary_schedule']
+	// Define types that can be mapped to CaptureTriggerKind
+	const capturableTriggerTypes: TriggerType[] = [
+		'webhook',
+		'email',
+		'http',
+		'websocket',
+		'postgres',
+		'kafka',
+		'nats',
+		'mqtt',
+		'sqs',
+		'gcp',
+		'cli'
+	]
 
-	if (nonCaptureTriggerTypes.includes(triggerType)) {
-		return undefined
+	if (capturableTriggerTypes.includes(triggerType)) {
+		return triggerType as CaptureTriggerKind
 	}
 
-	// Since we've filtered out non-capturable types, we can safely assert this as CaptureTriggerKind
-	return triggerType as CaptureTriggerKind
+	return undefined
 }
 
 /**
@@ -157,138 +168,58 @@ function updateTriggersCount(
 	primaryCfg?: Record<string, any>,
 	isPrimary?: boolean
 ) {
-	// Update the triggers count store
-	if (type === 'schedule') {
-		triggersCountStore.update((triggersCount) => {
-			if (action === 'add') {
-				if (primaryCfg) {
-					return {
-						...(triggersCount ?? {}),
-						schedule_count: (triggersCount?.schedule_count ?? 0) + 1,
-						primary_schedule: primaryCfg?.schedule
-					}
+	// Map trigger types to their corresponding count property names
+	const countPropertyMap: Record<TriggerType, string | undefined> = {
+		webhook: undefined,
+		email: undefined,
+		schedule: 'schedule_count',
+		http: 'http_routes_count',
+		websocket: 'websocket_count',
+		postgres: 'postgres_count',
+		kafka: 'kafka_count',
+		nats: 'nats_count',
+		mqtt: 'mqtt_count',
+		sqs: 'sqs_count',
+		gcp: 'gcp_count',
+		poll: undefined,
+		cli: undefined
+	}
+
+	const countProperty = countPropertyMap[type]
+
+	triggersCountStore.update((triggersCount) => {
+		// Handle special case for schedule
+		if (type === 'schedule') {
+			if (action === 'add' && primaryCfg) {
+				return {
+					...(triggersCount ?? {}),
+					schedule_count: (triggersCount?.schedule_count ?? 0) + 1,
+					primary_schedule: primaryCfg?.schedule
 				}
-			} else {
+			} else if (action === 'remove') {
 				return {
 					...(triggersCount ?? {}),
 					schedule_count: (triggersCount?.schedule_count ?? 1) - 1,
 					primary_schedule: isPrimary ? undefined : triggersCount?.primary_schedule
 				}
 			}
-		})
-	} else if (type === 'postgres') {
-		triggersCountStore.update((triggersCount) => {
-			if (action === 'add') {
-				return {
-					...(triggersCount ?? {}),
-					postgres_count: (triggersCount?.postgres_count ?? 0) + 1
-				}
-			} else {
-				return {
-					...(triggersCount ?? {}),
-					postgres_count: (triggersCount?.postgres_count ?? 1) - 1
-				}
+		}
+
+		// Handle standard count updates
+		if (countProperty && action === 'add') {
+			return {
+				...(triggersCount ?? {}),
+				[countProperty]: (triggersCount?.[countProperty] ?? 0) + 1
 			}
-		})
-	} else if (type === 'kafka') {
-		triggersCountStore.update((triggersCount) => {
-			if (action === 'add') {
-				return {
-					...(triggersCount ?? {}),
-					kafka_count: (triggersCount?.kafka_count ?? 0) + 1
-				}
-			} else {
-				return {
-					...(triggersCount ?? {}),
-					kafka_count: (triggersCount?.kafka_count ?? 1) - 1
-				}
+		} else if (countProperty && action === 'remove') {
+			return {
+				...(triggersCount ?? {}),
+				[countProperty]: (triggersCount?.[countProperty] ?? 1) - 1
 			}
-		})
-	} else if (type === 'nats') {
-		triggersCountStore.update((triggersCount) => {
-			if (action === 'add') {
-				return {
-					...(triggersCount ?? {}),
-					nats_count: (triggersCount?.nats_count ?? 0) + 1
-				}
-			} else {
-				return {
-					...(triggersCount ?? {}),
-					nats_count: (triggersCount?.nats_count ?? 1) - 1
-				}
-			}
-		})
-	} else if (type === 'mqtt') {
-		triggersCountStore.update((triggersCount) => {
-			if (action === 'add') {
-				return {
-					...(triggersCount ?? {}),
-					mqtt_count: (triggersCount?.mqtt_count ?? 0) + 1
-				}
-			} else {
-				return {
-					...(triggersCount ?? {}),
-					mqtt_count: (triggersCount?.mqtt_count ?? 1) - 1
-				}
-			}
-		})
-	} else if (type === 'sqs') {
-		triggersCountStore.update((triggersCount) => {
-			if (action === 'add') {
-				return {
-					...(triggersCount ?? {}),
-					sqs_count: (triggersCount?.sqs_count ?? 0) + 1
-				}
-			} else {
-				return {
-					...(triggersCount ?? {}),
-					sqs_count: (triggersCount?.sqs_count ?? 1) - 1
-				}
-			}
-		})
-	} else if (type === 'gcp') {
-		triggersCountStore.update((triggersCount) => {
-			if (action === 'add') {
-				return {
-					...(triggersCount ?? {}),
-					gcp_count: (triggersCount?.gcp_count ?? 0) + 1
-				}
-			} else {
-				return {
-					...(triggersCount ?? {}),
-					gcp_count: (triggersCount?.gcp_count ?? 1) - 1
-				}
-			}
-		})
-	} else if (type === 'websocket') {
-		triggersCountStore.update((triggersCount) => {
-			if (action === 'add') {
-				return {
-					...(triggersCount ?? {}),
-					websocket_count: (triggersCount?.websocket_count ?? 0) + 1
-				}
-			} else {
-				return {
-					...(triggersCount ?? {}),
-					websocket_count: (triggersCount?.websocket_count ?? 1) - 1
-				}
-			}
-		})
-	} else if (type === 'http') {
-		triggersCountStore.update((triggersCount) => {
-			if (action === 'add') {
-				return {
-					...(triggersCount ?? {}),
-					http_routes_count: (triggersCount?.http_routes_count ?? 0) + 1
-				}
-			} else {
-				return {
-					...(triggersCount ?? {}),
-					http_routes_count: (triggersCount?.http_routes_count ?? 1) - 1
-				}
-			}
-		})
-	}
+		}
+
+		return triggersCount
+	})
 }
 
 /**
@@ -777,82 +708,97 @@ export async function deployTriggers(
 	initialPath?: string
 ) {
 	if (!workspaceId) return
-	await Promise.all(
-		triggersToDeploy.map((t) => {
-			if (t.type === 'schedule') {
-				if (t.isPrimary && initialPath) {
-					t.draftConfig = {
-						...t.draftConfig,
-						path: initialPath,
-						script_path: initialPath
-					}
+
+	// Map of trigger types to their save functions
+	const triggerSaveFunctions: Record<TriggerType, Function | undefined> = {
+		webhook: undefined,
+		email: undefined,
+		schedule: (trigger: Trigger) => {
+			if (trigger.isPrimary && initialPath) {
+				trigger.draftConfig = {
+					...trigger.draftConfig,
+					path: initialPath,
+					script_path: initialPath
 				}
-				saveScheduleFromCfg(t.draftConfig ?? {}, !t.isDraft, workspaceId)
-			} else if (t.type === 'http') {
-				saveHttpRouteFromCfg(
-					t.path ?? t.draftConfig?.path ?? '',
-					t.draftConfig ?? {},
-					!t.isDraft,
-					workspaceId,
-					isAdmin,
-					usedTriggerKinds
-				)
-			} else if (t.type === 'websocket') {
-				saveWebsocketTriggerFromCfg(
-					t.path ?? t.draftConfig?.path ?? '',
-					t.draftConfig ?? {},
-					!t.isDraft,
-					workspaceId,
-					usedTriggerKinds
-				)
-			} else if (t.type === 'postgres') {
-				savePostgresTriggerFromCfg(
-					t.path ?? t.draftConfig?.path ?? '',
-					t.draftConfig ?? {},
-					!t.isDraft,
-					workspaceId,
-					usedTriggerKinds
-				)
-			} else if (t.type === 'kafka') {
-				saveKafkaTriggerFromCfg(
-					t.path ?? t.draftConfig?.path ?? '',
-					t.draftConfig ?? {},
-					!t.isDraft,
-					workspaceId,
-					usedTriggerKinds
-				)
-			} else if (t.type === 'sqs') {
-				saveSqsTriggerFromCfg(
-					t.path ?? t.draftConfig?.path ?? '',
-					t.draftConfig ?? {},
-					!t.isDraft,
-					workspaceId,
-					usedTriggerKinds
-				)
-			} else if (t.type === 'nats') {
-				saveNatsTriggerFromCfg(
-					t.path ?? t.draftConfig?.path ?? '',
-					t.draftConfig ?? {},
-					!t.isDraft,
-					workspaceId,
-					usedTriggerKinds
-				)
-			} else if (t.type === 'mqtt') {
-				saveMqttTriggerFromCfg(
-					t.path ?? t.draftConfig?.path ?? '',
-					t.draftConfig ?? {},
-					!t.isDraft,
-					workspaceId,
-					usedTriggerKinds
-				)
-			} else if (t.type === 'gcp') {
-				saveGcpTriggerFromCfg(
-					t.path ?? t.draftConfig?.path ?? '',
-					t.draftConfig ?? {},
-					!t.isDraft,
-					workspaceId,
-					usedTriggerKinds
-				)
+			}
+			return saveScheduleFromCfg(trigger.draftConfig ?? {}, !trigger.isDraft, workspaceId)
+		},
+		http: (trigger: Trigger) =>
+			saveHttpRouteFromCfg(
+				trigger.path ?? trigger.draftConfig?.path ?? '',
+				trigger.draftConfig ?? {},
+				!trigger.isDraft,
+				workspaceId,
+				isAdmin,
+				usedTriggerKinds
+			),
+		websocket: (trigger: Trigger) =>
+			saveWebsocketTriggerFromCfg(
+				trigger.path ?? trigger.draftConfig?.path ?? '',
+				trigger.draftConfig ?? {},
+				!trigger.isDraft,
+				workspaceId,
+				usedTriggerKinds
+			),
+		postgres: (trigger: Trigger) =>
+			savePostgresTriggerFromCfg(
+				trigger.path ?? trigger.draftConfig?.path ?? '',
+				trigger.draftConfig ?? {},
+				!trigger.isDraft,
+				workspaceId,
+				usedTriggerKinds
+			),
+		kafka: (trigger: Trigger) =>
+			saveKafkaTriggerFromCfg(
+				trigger.path ?? trigger.draftConfig?.path ?? '',
+				trigger.draftConfig ?? {},
+				!trigger.isDraft,
+				workspaceId,
+				usedTriggerKinds
+			),
+		nats: (trigger: Trigger) =>
+			saveNatsTriggerFromCfg(
+				trigger.path ?? trigger.draftConfig?.path ?? '',
+				trigger.draftConfig ?? {},
+				!trigger.isDraft,
+				workspaceId,
+				usedTriggerKinds
+			),
+		mqtt: (trigger: Trigger) =>
+			saveMqttTriggerFromCfg(
+				trigger.path ?? trigger.draftConfig?.path ?? '',
+				trigger.draftConfig ?? {},
+				!trigger.isDraft,
+				workspaceId,
+				usedTriggerKinds
+			),
+		sqs: (trigger: Trigger) =>
+			saveSqsTriggerFromCfg(
+				trigger.path ?? trigger.draftConfig?.path ?? '',
+				trigger.draftConfig ?? {},
+				!trigger.isDraft,
+				workspaceId,
+				usedTriggerKinds
+			),
+		gcp: (trigger: Trigger) =>
+			saveGcpTriggerFromCfg(
+				trigger.path ?? trigger.draftConfig?.path ?? '',
+				trigger.draftConfig ?? {},
+				!trigger.isDraft,
+				workspaceId,
+				usedTriggerKinds
+			),
+		poll: undefined,
+		cli: undefined
+	}
+
+	await Promise.all(
+		triggersToDeploy.map(async (trigger) => {
+			const saveFunction = triggerSaveFunctions[trigger.type]
+			if (saveFunction) {
+				await saveFunction(trigger)
+			} else {
+				console.warn(`No save function defined for trigger type: ${trigger.type}`)
 			}
 		})
 	)
