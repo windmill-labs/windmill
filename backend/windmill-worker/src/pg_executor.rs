@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::convert::Infallible;
 use std::net::IpAddr;
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::Arc;
@@ -27,11 +28,12 @@ use tokio_postgres::{
 use uuid::Uuid;
 use windmill_common::error::to_anyhow;
 use windmill_common::error::{self, Error};
+use windmill_common::s3_helpers::convert_json_line_stream;
 use windmill_common::worker::{to_raw_value, Connection, CLOUD_HOSTED};
 use windmill_parser::{Arg, Typ};
 use windmill_parser_sql::{
     parse_db_resource, parse_pg_statement_arg_indices, parse_pgsql_sig, parse_s3_mode,
-    parse_sql_blocks,
+    parse_sql_blocks, S3ModeFormat,
 };
 use windmill_queue::{CanceledBy, MiniPulledJob};
 
@@ -58,6 +60,7 @@ struct PgDatabase {
 struct S3Mode {
     client: AuthedClient,
     object_key: String,
+    format: S3ModeFormat,
     storage: Option<String>,
     workspace_id: String,
 }
@@ -121,25 +124,20 @@ fn do_postgresql_inner<'a>(
                 .query_raw(&query, query_params)
                 .await?
                 .map_err(to_anyhow)
-                .enumerate()
-                .map(|(i, row_result)| {
-                    row_result.and_then(|row| {
-                        postgres_row_to_json_value(row)
-                            .map_err(to_anyhow)
-                            .and_then(|ref v| serde_json::to_string(v).map_err(to_anyhow))
-                            .map(|s| if i == 0 { s } else { format!(",\n{}", s) })
-                    })
+                .map(|row_result| {
+                    row_result.and_then(|row| postgres_row_to_json_value(row).map_err(to_anyhow))
                 });
-            let start_bracket = futures::stream::once(async { Ok("{ rows: [\n".to_string()) });
-            let end_bracket = futures::stream::once(async { Ok("\n]}".to_string()) });
-            let rows_stream = start_bracket.chain(rows_stream).chain(end_bracket);
+
+            let stream = convert_json_line_stream(rows_stream.boxed(), s3.format)
+                .await?
+                .map(|chunk| Ok::<_, Infallible>(chunk));
 
             s3.client
                 .upload_s3_file(
                     s3.workspace_id.as_str(),
                     s3.object_key.clone(),
                     s3.storage.clone(),
-                    rows_stream,
+                    stream,
                 )
                 .await?;
 
@@ -223,6 +221,7 @@ pub async fn do_postgresql(
             )),
             job.id
         ),
+        format: s3_mode.format,
         workspace_id: job.workspace_id.clone(),
     });
 

@@ -14,7 +14,7 @@ use std::str::FromStr;
 use tokio::sync::Mutex;
 use windmill_common::{
     error::{to_anyhow, Error},
-    s3_helpers::convert_ndjson,
+    s3_helpers::convert_json_line_stream,
     worker::{to_raw_value, Connection},
 };
 use windmill_parser_sql::{
@@ -99,7 +99,7 @@ fn do_mysql_inner<'a>(
                 };
             };
 
-            let stream = convert_ndjson(rows_stream.boxed(), s3.format)
+            let stream = convert_json_line_stream(rows_stream.boxed(), s3.format)
                 .await?
                 .map(|chunk| Ok::<_, Infallible>(chunk));
             s3.client

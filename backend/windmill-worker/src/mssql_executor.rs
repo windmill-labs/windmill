@@ -1,3 +1,5 @@
+use std::convert::Infallible;
+
 use base64::{engine::general_purpose, Engine as _};
 use chrono::{DateTime, NaiveDate, NaiveDateTime, NaiveTime, Utc};
 use futures::StreamExt;
@@ -9,12 +11,13 @@ use tiberius::{AuthMethod, Client, ColumnData, Config, FromSqlOwned, Query, Row,
 use tokio::net::TcpStream;
 use tokio_util::compat::TokioAsyncWriteCompatExt;
 use uuid::Uuid;
+use windmill_common::s3_helpers::convert_json_line_stream;
 use windmill_common::{
     error::{self, to_anyhow, Error},
     utils::empty_string_as_none,
     worker::{to_raw_value, Connection},
 };
-use windmill_parser_sql::{parse_db_resource, parse_mssql_sig, parse_s3_mode};
+use windmill_parser_sql::{parse_db_resource, parse_mssql_sig, parse_s3_mode, S3ModeFormat};
 use windmill_queue::MiniPulledJob;
 use windmill_queue::{append_logs, CanceledBy};
 
@@ -54,6 +57,7 @@ lazy_static::lazy_static! {
 struct S3Mode {
     client: AuthedClient,
     object_key: String,
+    format: S3ModeFormat,
     storage: Option<String>,
     workspace_id: String,
 }
@@ -86,6 +90,7 @@ pub async fn do_mssql(
             )),
             job.id
         ),
+        format: s3_mode.format,
         workspace_id: job.workspace_id.clone(),
     });
 
@@ -226,32 +231,23 @@ pub async fn do_mssql(
         if let Some(s3) = s3 {
             let rows_stream = async_stream::stream! {
                 let mut stream = prepared_query.query(&mut client).await.map_err(to_anyhow)?.into_row_stream().map(|row| {
-                    serde_json::to_string(
-                        &row_to_json(row.map_err(to_anyhow)?).map_err(to_anyhow)?,
-                    )
-                    .map_err(to_anyhow)
+                    row_to_json(row.map_err(to_anyhow)?).map_err(to_anyhow)
                 });
                 while let Some(row) = stream.next().await {
                     yield row;
                 }
             };
-            let rows_stream = rows_stream.enumerate().map(|(i, row)| {
-                if i == 0 {
-                    row
-                } else {
-                    Ok(format!(",\n{}", row?))
-                }
-            });
-            let start_bracket = futures::stream::once(async { Ok("{ rows: [\n".to_string()) });
-            let end_bracket = futures::stream::once(async { Ok("\n]}".to_string()) });
-            let rows_stream = start_bracket.chain(rows_stream).chain(end_bracket);
+
+            let stream = convert_json_line_stream(rows_stream.boxed(), s3.format)
+                .await?
+                .map(|chunk| Ok::<_, Infallible>(chunk));
 
             s3.client
                 .upload_s3_file(
                     s3.workspace_id.as_str(),
                     s3.object_key.clone(),
                     s3.storage.clone(),
-                    rows_stream,
+                    stream,
                 )
                 .await?;
 

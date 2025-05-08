@@ -520,7 +520,7 @@ impl RecordBatchWriter for RecordBatchWriterEnum {
     }
 }
 
-pub async fn convert_ndjson<E: Into<anyhow::Error>>(
+pub async fn convert_json_line_stream<E: Into<anyhow::Error>>(
     mut stream: impl TryStreamExt<Item = Result<serde_json::Value, E>> + Unpin,
     output_format: S3ModeFormat,
 ) -> anyhow::Result<impl StreamExt<Item = bytes::Bytes>> {
