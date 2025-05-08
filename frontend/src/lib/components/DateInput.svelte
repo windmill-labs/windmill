@@ -10,12 +10,13 @@
 	export let dateFormat: string | undefined = 'dd-MM-yyyy'
 	export let disabled: boolean = false
 
+	const defaultDateFormat = 'dd-MM-yyyy'
+	const defaultHtmlDateFormat = 'yyyy-MM-dd'
+
 	let date: string | undefined = computeDate(value)
 
 	const dispatch = createEventDispatcher()
 
-	const defaultDateFormat = 'dd-MM-yyyy'
-	const defaultHtmlDateFormat = 'yyyy-MM-dd'
 	function computeDate(value: string | undefined) {
 		if (dateFormat === undefined) {
 			dateFormat = defaultDateFormat
