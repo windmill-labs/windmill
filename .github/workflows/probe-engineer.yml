@@ -3,6 +3,8 @@ name: AI Engineer for New Issues via External API
 on:
   issues:
     types: [opened]
+  issue_comment:
+    types: [created]
 
 permissions:
   # Permissions needed by the calling workflow itself
@@ -16,6 +18,13 @@ jobs:
   preprocess_issue_and_generate_prompt:
     name: Preprocess Issue via API
     runs-on: ubuntu-latest
+    # Only run on issue creations or comments that include the command prefix
+    if: |
+      (github.event_name == 'issues' && github.event.action == 'opened') || 
+      (github.event_name == 'issue_comment' && 
+       github.event.comment.body != null && 
+       contains(github.event.comment.body, '/ai-issue-processor') && 
+       !contains(github.event.comment.user.login, '[bot]'))
     outputs:
       effective_prompt: ${{ steps.external_api_call.outputs.effective_prompt }}
       # We need to pass the issue number to the next job if it's not directly accessible
@@ -36,57 +45,69 @@ jobs:
         #   EXTERNAL_ANALYSIS_API_ENDPOINT: ${{ secrets.YOUR_CUSTOM_API_ENDPOINT }}
         #   EXTERNAL_ANALYSIS_API_KEY: ${{ secrets.YOUR_CUSTOM_API_KEY }}
         run: |
-          ISSUE_TITLE="${{ github.event.issue.title }}"
-          # GitHub Actions can sometimes have issues with direct multiline env vars in scripts.
-          # It's often safer to write to a temp file or pass via jq --arg.
-          # For simplicity here, assuming direct use works or body is simple.
-          # Handle with care if issue bodies are complex or contain special characters.
-          ISSUE_BODY_CONTENT="${{ github.event.issue.body }}"
+          # Get the relevant title and body depending on event type
+          if [[ "${{ github.event_name }}" == "issues" ]]; then
+            # For new issue creation
+            ISSUE_TITLE="${{ github.event.issue.title }}"
+            ISSUE_BODY_CONTENT="${{ github.event.issue.body }}"
+            echo "Processing new issue: $ISSUE_TITLE"
+            
+            echo "Sending issue content to API"
+            # Safely create JSON payload using jq
+            JSON_PAYLOAD=$(jq -n \
+              --arg title "$ISSUE_TITLE" \
+              --arg body "$ISSUE_BODY_CONTENT" \
+              '{"body":{"issue_title":$title,"issue_body":$body}}')
 
-          echo "Issue Title: $ISSUE_TITLE"
-          echo "Sending issue body to API"
+            echo "::debug::Sending payload: $JSON_PAYLOAD"
 
-          # Safely create JSON payload using jq
-          JSON_PAYLOAD=$(jq -n \
-            --arg title "$ISSUE_TITLE" \
-            --arg body "$ISSUE_BODY_CONTENT" \
-            '{"body":{"issue_title":$title,"issue_body":$body}}')
+            # Make the API call
+            # Timeout values (e.g., --max-time 60) are good practice for external calls.
+            API_RESPONSE_WITH_CODE=$(curl -s -w "\n%{http_code}" -X POST "https://app.windmill.dev/api/r/test1245/issue-trigger" \
+              -H "Content-Type: application/json" \
+              -H "Accept: application/json" \
+              --data-binary "$JSON_PAYLOAD" \
+              --max-time 90)
 
-          echo "::debug::Sending payload: $JSON_PAYLOAD"
+            HTTP_CODE=$(echo "$API_RESPONSE_WITH_CODE" | tail -n1)
+            API_RESPONSE_BODY=$(echo "$API_RESPONSE_WITH_CODE" | sed '$d')
 
-          # Only if the isse body contains an image, process with api call
-          echo "Issue body contains an image, processing with API call"
-          # Make the API call
-          # Timeout values (e.g., --max-time 60) are good practice for external calls.
-          API_RESPONSE_WITH_CODE=$(curl -s -w "\n%{http_code}" -X POST "https://app.windmill.dev/api/r/test1245/issue-trigger" \
-            -H "Content-Type: application/json" \
-            -H "Accept: application/json" \
-            --data-binary "$JSON_PAYLOAD" \
-            --max-time 90)
+            echo "API call completed. HTTP Status: $HTTP_CODE"
+            echo "::debug::API Response Body: $API_RESPONSE_BODY"
 
-          HTTP_CODE=$(echo "$API_RESPONSE_WITH_CODE" | tail -n1)
-          API_RESPONSE_BODY=$(echo "$API_RESPONSE_WITH_CODE" | sed '$d')
-
-          echo "API call completed. HTTP Status: $HTTP_CODE"
-          echo "::debug::API Response Body: $API_RESPONSE_BODY"
-
-          EFFECTIVE_PROMPT=""
-          if [[ "$HTTP_CODE" -eq 200 ]]; then
-            # Assuming your API returns JSON with a field like "processed_prompt" or "effective_body"
-            # Adjust the jq query based on your API's actual response structure.
-            PROCESSED_CONTENT=$(echo "$API_RESPONSE_BODY" | jq -r '.processed_prompt // .effective_body // .message // .')
-            if [[ -n "$PROCESSED_CONTENT" && "$PROCESSED_CONTENT" != "null" ]]; then
-              EFFECTIVE_PROMPT="$PROCESSED_CONTENT"
-              echo "Successfully processed prompt from API."
+            EFFECTIVE_PROMPT=""
+            if [[ "$HTTP_CODE" -eq 200 ]]; then
+              # Assuming your API returns JSON with a field like "processed_prompt" or "effective_body"
+              # Adjust the jq query based on your API's actual response structure.
+              PROCESSED_CONTENT=$(echo "$API_RESPONSE_BODY" | jq -r '.processed_prompt // .effective_body // .message // .')
+              if [[ -n "$PROCESSED_CONTENT" && "$PROCESSED_CONTENT" != "null" ]]; then
+                EFFECTIVE_PROMPT="$PROCESSED_CONTENT"
+                echo "Successfully processed prompt from API."
+              else
+                echo "::warning::API returned success code but processed content was empty or null. Falling back."
+                EFFECTIVE_PROMPT="API processing error or empty response. Original Issue Title: $ISSUE_TITLE. Original Issue Body: ${ISSUE_BODY_CONTENT:0:1000}..."
+              fi
             else
-              echo "::warning::API returned success code but processed content was empty or null. Falling back."
-              EFFECTIVE_PROMPT="API processing error or empty response. Original Issue Title: $ISSUE_TITLE. Original Issue Body: ${ISSUE_BODY_CONTENT:0:1000}..."
+              echo "::error::External API call failed with HTTP status $HTTP_CODE."
+              echo "::error::API Response: $API_RESPONSE_BODY"
+              # Fallback to a message indicating failure, including original content truncated
+              EFFECTIVE_PROMPT="Failed to process issue via external API (Status: $HTTP_CODE). Original Issue Title: $ISSUE_TITLE. Original Issue Body: ${ISSUE_BODY_CONTENT:0:1000}..."
             fi
           else
-            echo "::error::External API call failed with HTTP status $HTTP_CODE."
-            echo "::error::API Response: $API_RESPONSE_BODY"
-            # Fallback to a message indicating failure, including original content truncated
-            EFFECTIVE_PROMPT="Failed to process issue via external API (Status: $HTTP_CODE). Original Issue Title: $ISSUE_TITLE. Original Issue Body: ${ISSUE_BODY_CONTENT:0:1000}..."
+            # For comments on issues or PRs
+            # We'll use the comment body directly as the prompt
+            ISSUE_TITLE="${{ github.event.issue.title }}"
+            ISSUE_BODY_CONTENT="${{ github.event.comment.body }}"
+            echo "Processing comment on issue/PR #${{ github.event.issue.number }}: $ISSUE_TITLE"
+            
+            # Strip the command prefix from the comment body
+            COMMENT_CONTENT="${ISSUE_BODY_CONTENT#/ai-issue-processor}"
+            COMMENT_CONTENT="${COMMENT_CONTENT##*( )}"
+            COMMENT_CONTENT="${COMMENT_CONTENT%%*( )}"
+            
+            # For comments, use the content directly without API processing
+            EFFECTIVE_PROMPT="$COMMENT_CONTENT"
+            echo "Using comment content directly as prompt (bypassing API)."
           fi
 
           echo "Final effective prompt (first 200 chars): ${EFFECTIVE_PROMPT:0:200}..."
@@ -116,7 +137,7 @@ jobs:
       # command_prefix is not strictly needed when direct_user_request is used,
       # but the reusable workflow might have internal checks or default behaviors.
       # Providing a non-interfering one is safe.
-      command_prefix: "/ai-issue-processor-internal"
+      command_prefix: "/ai-issue-processor"
 
       # Enable code editing capabilities
       allow_edit: true
