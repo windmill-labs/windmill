@@ -2213,7 +2213,9 @@ pub async fn reload_critical_error_channels_setting(conn: &DB) -> error::Result<
 pub async fn reload_critical_alerts_on_db_oversize(conn: &DB) -> error::Result<()> {
     #[derive(Deserialize)]
     struct DBOversize {
+        #[serde(default)]
         enabled: bool,
+        #[serde(default)]
         value: f32,
     }
     let db_oversize_value =
