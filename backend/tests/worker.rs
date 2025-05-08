@@ -145,7 +145,7 @@ impl ApiServer {
             format!("http://localhost:{}", addr.port()),
         ));
 
-        _port_rx.await.unwrap();
+        _port_rx.await.expect("failed to receive port");
 
         // clear the cache between tests
         windmill_common::cache::clear();
