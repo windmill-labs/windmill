@@ -12,7 +12,7 @@ use datafusion::arrow::error::ArrowError;
 use datafusion::arrow::json::writer::JsonArray;
 use datafusion::arrow::{csv, json};
 use datafusion::parquet::arrow::ArrowWriter;
-use futures::{StreamExt, TryStreamExt};
+use futures::TryStreamExt;
 #[cfg(feature = "parquet")]
 use object_store::aws::AwsCredential;
 #[cfg(feature = "parquet")]
@@ -523,7 +523,7 @@ impl RecordBatchWriter for RecordBatchWriterEnum {
 pub async fn convert_json_line_stream<E: Into<anyhow::Error>>(
     mut stream: impl TryStreamExt<Item = Result<serde_json::Value, E>> + Unpin,
     output_format: S3ModeFormat,
-) -> anyhow::Result<impl StreamExt<Item = bytes::Bytes>> {
+) -> anyhow::Result<impl TryStreamExt<Item = anyhow::Result<bytes::Bytes>>> {
     const MAX_MPSC_SIZE: usize = 1000;
 
     use datafusion::{execution::context::SessionContext, prelude::NdJsonReadOptions};
@@ -576,16 +576,16 @@ pub async fn convert_json_line_stream<E: Into<anyhow::Error>>(
     let writer: Arc<Mutex<Option<RecordBatchWriterEnum>>> =
         Arc::new(Mutex::new(Some(match output_format {
             S3ModeFormat::Parquet => RecordBatchWriterEnum::Parquet(
-                ArrowWriter::try_new(ChannelWriter { sender: tx }, Arc::new(schema), None)
+                ArrowWriter::try_new(ChannelWriter { sender: tx.clone() }, Arc::new(schema), None)
                     .map_err(to_anyhow)?,
             ),
 
             S3ModeFormat::Csv => {
-                RecordBatchWriterEnum::Csv(csv::Writer::new(ChannelWriter { sender: tx }))
+                RecordBatchWriterEnum::Csv(csv::Writer::new(ChannelWriter { sender: tx.clone() }))
             }
             S3ModeFormat::Json => {
                 RecordBatchWriterEnum::Json(json::Writer::<_, JsonArray>::new(ChannelWriter {
-                    sender: tx,
+                    sender: tx.clone(),
                 }))
             }
         })));
@@ -594,15 +594,36 @@ pub async fn convert_json_line_stream<E: Into<anyhow::Error>>(
     // when hitting the mpsc channel limit
     task::spawn(async move {
         while let Some(batch_result) = datafusion_stream.next().await {
-            let batch: RecordBatch = batch_result.map_err(to_anyhow)?;
+            let batch: RecordBatch = match batch_result {
+                Ok(batch) => batch,
+                Err(e) => {
+                    tracing::error!("Error in datafusion stream: {:?}", &e);
+                    match tx.send(Err(e.into())).await {
+                        Ok(_) => {}
+                        Err(e) => tracing::error!("Failed to write error to channel: {:?}", &e),
+                    }
+                    break;
+                }
+            };
             let writer = writer.clone();
             // Writer calls blocking_send which would crash if called from the async context
-            task::spawn_blocking(move || {
+            let write_result = task::spawn_blocking(move || {
                 // SAFETY: We await so the code is actually sequential, lock unwrap cannot panic
                 // Second unwrap is ok because we initialized the option with Some
                 writer.lock().unwrap().as_mut().unwrap().write(&batch)
             })
-            .await??;
+            .await;
+            match write_result {
+                Ok(Ok(_)) => {}
+                Ok(Err(e)) => {
+                    tracing::error!("Error writing batch: {:?}", &e);
+                    match tx.send(Err(e.into())).await {
+                        Ok(_) => {}
+                        Err(e) => tracing::error!("Failed to write error to channel: {:?}", &e),
+                    }
+                }
+                Err(e) => tracing::error!("Error in blocking task: {:?}", &e),
+            };
         }
         task::spawn_blocking(move || {
             writer.lock().unwrap().take().unwrap().close()?;
@@ -619,13 +640,13 @@ pub async fn convert_json_line_stream<E: Into<anyhow::Error>>(
 }
 
 struct ChannelWriter {
-    sender: tokio::sync::mpsc::Sender<Bytes>,
+    sender: tokio::sync::mpsc::Sender<anyhow::Result<Bytes>>,
 }
 
 impl Write for ChannelWriter {
     fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
-        let data = buf.to_vec().into();
-        self.sender.blocking_send(data).map_err(|e| {
+        let data: Bytes = buf.to_vec().into();
+        self.sender.blocking_send(Ok(data)).map_err(|e| {
             std::io::Error::new(
                 std::io::ErrorKind::BrokenPipe,
                 format!("Channel send error: {}", e),

@@ -193,10 +193,8 @@ fn do_snowflake_inner<'a>(
             .boxed()
             .map(|chunk| Ok::<_, Infallible>(chunk));
 
-            let stream = convert_json_line_stream(rows_stream, s3.format)
-                .await?
-                .map(|chunk| Ok::<_, Infallible>(chunk));
-            s3.upload(stream).await?;
+            let stream = convert_json_line_stream(rows_stream, s3.format).await?;
+            s3.upload(stream.boxed()).await?;
 
             Ok(serde_json::value::to_raw_value(&s3.object_key)?)
         } else {

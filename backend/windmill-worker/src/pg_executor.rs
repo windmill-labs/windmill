@@ -1,5 +1,4 @@
 use std::collections::HashMap;
-use std::convert::Infallible;
 use std::net::IpAddr;
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::Arc;
@@ -121,10 +120,8 @@ fn do_postgresql_inner<'a>(
                     row_result.and_then(|row| postgres_row_to_json_value(row).map_err(to_anyhow))
                 });
 
-            let stream = convert_json_line_stream(rows_stream.boxed(), s3.format)
-                .await?
-                .map(|chunk| Ok::<_, Infallible>(chunk));
-            s3.upload(stream).await?;
+            let stream = convert_json_line_stream(rows_stream.boxed(), s3.format).await?;
+            s3.upload(stream.boxed()).await?;
 
             return Ok(serde_json::value::to_raw_value(&s3.object_key)?);
         } else {
