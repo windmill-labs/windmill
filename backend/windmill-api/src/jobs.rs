@@ -81,8 +81,6 @@ use windmill_common::{
     },
 };
 
-use crate::approvals::QueryApprover;
-
 #[cfg(all(feature = "enterprise", feature = "parquet"))]
 use windmill_common::s3_helpers::OBJECT_STORE_CACHE_SETTINGS;
 #[cfg(feature = "prometheus")]
@@ -2379,6 +2377,11 @@ pub async fn cancel_suspended_job(
 pub struct SuspendedJobFlow {
     pub job: Job,
     pub approvers: Vec<Approval>,
+}
+
+#[derive(Deserialize, Debug)]
+pub struct QueryApprover {
+    pub approver: Option<String>,
 }
 
 pub async fn get_suspended_job_flow(

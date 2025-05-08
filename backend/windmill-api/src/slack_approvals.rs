@@ -4,7 +4,7 @@ use axum::{
 };
 use hyper::StatusCode;
 use serde::{Deserialize, Serialize};
-use serde_json::value::Value;
+use serde_json::value::{RawValue, Value};
 
 use sqlx::types::Uuid;
 use std::{collections::HashMap, str::FromStr};
@@ -13,7 +13,10 @@ use regex::Regex;
 use reqwest::Client;
 
 use crate::db::{ApiAuthed, DB};
-use crate::jobs::{cancel_suspended_job, resume_suspended_job, QueryOrBody, ResumeUrls};
+use crate::jobs::{
+    cancel_suspended_job, get_resume_urls_internal, resume_suspended_job, QueryApprover,
+    QueryOrBody, ResumeUrls,
+};
 
 use windmill_common::{
     cache,
@@ -21,11 +24,6 @@ use windmill_common::{
     jobs::JobKind,
     scripts::ScriptHash,
     variables::get_secret_value_as_admin,
-};
-
-use crate::approvals::{
-    get_approval_form, ApprovalFormDetails, QueryApprover, QueryChannelId, QueryDefaultArgsJson,
-    QueryDynamicEnumJson, QueryFlowStepId, QueryMessage, QueryResourcePath,
 };
 
 #[derive(Deserialize, Debug)]
@@ -98,6 +96,12 @@ struct ResumeSchema {
     schema: Schema,
 }
 
+#[derive(Debug, Deserialize)]
+struct ResumeFormRow {
+    resume_form: Option<serde_json::Value>,
+    hide_cancel: Option<bool>,
+}
+
 #[derive(Debug, Deserialize, Serialize)]
 struct Schema {
     order: Vec<String>,
@@ -127,6 +131,36 @@ struct ResumeFormField {
     #[serde(rename = "enumLabels")]
     enum_labels: Option<HashMap<String, String>>,
     nullable: Option<bool>,
+}
+
+#[derive(Deserialize)]
+pub struct QueryMessage {
+    message: Option<String>,
+}
+
+#[derive(Deserialize)]
+pub struct QueryResourcePath {
+    slack_resource_path: String,
+}
+
+#[derive(Deserialize)]
+pub struct QueryChannelId {
+    channel_id: String,
+}
+
+#[derive(Deserialize)]
+pub struct QueryFlowStepId {
+    flow_step_id: String,
+}
+
+#[derive(Deserialize, Debug)]
+pub struct QueryDefaultArgsJson {
+    default_args_json: Option<serde_json::Value>,
+}
+
+#[derive(Deserialize, Debug)]
+pub struct QueryDynamicEnumJson {
+    dynamic_enums_json: Option<serde_json::Value>,
 }
 
 #[derive(Deserialize, Debug)]
@@ -913,17 +947,92 @@ async fn get_modal_blocks(
     default_args_json: Option<&serde_json::Value>,
     dynamic_enums_json: Option<&serde_json::Value>,
 ) -> Result<axum::Json<serde_json::Value>, Error> {
-    let approval_details =
-        get_approval_form(db, w_id, job_id, flow_step_id, resume_id, approver, message).await?;
+    let res = get_resume_urls_internal(
+        axum::Extension(db.clone()),
+        Path((w_id.to_string(), job_id, resume_id)),
+        Query(QueryApprover { approver: approver.map(|a| a.to_string()) }),
+    )
+    .await?;
 
-    let ApprovalFormDetails { mut message_str, urls, schema } = approval_details;
+    let urls = res.0;
 
-    // tracing::debug!("Approval Details: {:?}", approval_details);
+    tracing::debug!("Job ID: {:?}", job_id);
+
+    let (job_kind, script_hash, raw_flow, parent_job_id, created_at, created_by, script_path, args) = sqlx::query!(
+        "SELECT
+            v2_as_queue.job_kind AS \"job_kind!: JobKind\",
+            v2_as_queue.script_hash AS \"script_hash: ScriptHash\",
+            v2_as_queue.raw_flow AS \"raw_flow: sqlx::types::Json<Box<RawValue>>\",
+            v2_as_completed_job.parent_job AS \"parent_job: Uuid\",
+            v2_as_completed_job.created_at AS \"created_at!: chrono::NaiveDateTime\",
+            v2_as_completed_job.created_by AS \"created_by!\",
+            v2_as_queue.script_path,
+            v2_as_queue.args AS \"args: sqlx::types::Json<Box<RawValue>>\"
+        FROM v2_as_queue
+        JOIN v2_as_completed_job ON v2_as_completed_job.parent_job = v2_as_queue.id
+        WHERE v2_as_completed_job.id = $1 AND v2_as_completed_job.workspace_id = $2
+        LIMIT 1",
+        job_id,
+        &w_id
+    )
+    .fetch_optional(&db)
+    .await
+    .map_err(|e| error::Error::BadRequest(e.to_string()))?
+    .ok_or_else(|| error::Error::BadRequest("This workflow is no longer running and has either already timed out or been cancelled or completed.".to_string()))
+    .map(|r| (r.job_kind, r.script_hash, r.raw_flow, r.parent_job, r.created_at, r.created_by, r.script_path, r.args))?;
+
+    let flow_data = match cache::job::fetch_flow(&db, job_kind, script_hash).await {
+        Ok(data) => data,
+        Err(_) => {
+            if let Some(parent_job_id) = parent_job_id.as_ref() {
+                cache::job::fetch_preview_flow(&db, parent_job_id, raw_flow).await?
+            } else {
+                return Err(error::Error::BadRequest(
+                    "This workflow is no longer running and has either already timed out or been cancelled or completed.".to_string(),
+                ));
+            }
+        }
+    };
+
+    let flow_value = &flow_data.flow;
+    let flow_step_id = flow_step_id.unwrap_or("");
+    let module = flow_value.modules.iter().find(|m| m.id == flow_step_id);
+
+    tracing::debug!("Module: {:#?}", module);
+
+    let schema = module.and_then(|module| {
+        module.suspend.as_ref().map(|suspend| ResumeFormRow {
+            resume_form: suspend.resume_form.clone(),
+            hide_cancel: suspend.hide_cancel,
+        })
+    });
+
+    let args_str = args.map_or("None".to_string(), |a| a.get().to_string());
+    let parent_job_id_str = parent_job_id.map_or("None".to_string(), |id| id.to_string());
+    let script_path_str = script_path.as_deref().unwrap_or("None");
+
+    let created_at_formatted = created_at.format("%Y-%m-%d %H:%M:%S").to_string();
+
+    let mut message_str = format!(
+        "A workflow has been suspended and is waiting for approval:\n\n\
+        *Created by*: {created_by}\n\
+        *Created at*: {created_at_formatted}\n\
+        *Script path*: {script_path_str}\n\
+        *Args*: {args_str}\n\
+        *Flow ID*: {parent_job_id_str}\n\n"
+    );
+
+    // Append custom message if provided
+    if let Some(msg) = message {
+        message_str.push_str(msg);
+    }
+
+    tracing::debug!("Schema: {:#?}", schema);
 
     if let Some(resume_schema) = schema {
         let hide_cancel = resume_schema.hide_cancel.unwrap_or(false);
 
-        // If hide_cancel is false, add a note to the message
+        // if hide cancel is false add note to message
         if !hide_cancel {
             message_str.push_str("\n\n*NOTE*: closing this modal will cancel the workflow.\n\n");
         }

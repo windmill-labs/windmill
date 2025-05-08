@@ -7,7 +7,7 @@ use windmill_common::error::Error;
 
 use axum::extract::{Path, Query};
 
-use crate::jobs::{get_resume_urls_internal, ResumeUrls};
+use crate::jobs::{get_resume_urls_internal, ResumeUrls, QueryApprover};
 use windmill_common::{
     error::{self},
     jobs::JobKind,
@@ -18,11 +18,6 @@ use windmill_common::{
 pub struct ResumeFormRow {
     pub resume_form: Option<serde_json::Value>,
     pub hide_cancel: Option<bool>,
-}
-
-#[derive(Deserialize)]
-pub struct QueryApprover {
-    pub approver: Option<String>,
 }
 
 #[derive(Deserialize)]
