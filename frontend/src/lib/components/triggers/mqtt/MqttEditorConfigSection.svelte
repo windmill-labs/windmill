@@ -144,7 +144,7 @@
 									</div>
 									<input
 										type="text"
-										bind:value={v.topic}
+										bind:value={subscribe_topics[i].topic}
 										disabled={!can_write}
 										placeholder="topic"
 										autocomplete="off"
