@@ -1,7 +1,13 @@
 <script lang="ts">
-	import { getContext } from 'svelte'
+	import { getContext, onDestroy } from 'svelte'
 	import { initConfig, initOutput } from '../../editor/appUtils'
-	import type { AppViewerContext, ComponentCustomCSS, RichConfigurations } from '../../types'
+	import type {
+		AppViewerContext,
+		ComponentCustomCSS,
+		ListContext,
+		ListInputs,
+		RichConfigurations
+	} from '../../types'
 	import { initCss } from '../../utils'
 	import AlignWrapper from '../helpers/AlignWrapper.svelte'
 	import InitializeComponent from '../helpers/InitializeComponent.svelte'
@@ -23,6 +29,9 @@
 	export let customCss: ComponentCustomCSS<'multiselectcomponent'> | undefined = undefined
 	export let render: boolean
 	export let verticalAlignment: 'top' | 'center' | 'bottom' | undefined = undefined
+
+	const iterContext = getContext<ListContext>('ListWrapperContext')
+	const listInputs: ListInputs | undefined = getContext<ListInputs>('ListInputs')
 
 	const [floatingRef, floatingContent] = createFloatingActions({
 		strategy: 'absolute',
@@ -47,7 +56,7 @@
 	] as (number | string | { value: string; label: any })[]
 
 	function setResultsFromSelectedItems() {
-		outputs?.result.set([
+		const value = [
 			...(selectedItems?.map((item) => {
 				if (typeof item == 'number') {
 					return item.toString()
@@ -61,7 +70,9 @@
 					return 'NOT_STRING'
 				}
 			}) ?? [])
-		])
+		]
+		outputs?.result.set(value)
+		setContextValue(value)
 	}
 
 	$componentControl[id] = {
@@ -71,6 +82,16 @@
 			} else {
 				console.error('Invalid value for multiselect component, expected array', nvalue)
 			}
+		}
+	}
+
+	onDestroy(() => {
+		listInputs?.remove(id)
+	})
+
+	function setContextValue(value: any) {
+		if (iterContext && listInputs) {
+			listInputs.set(id, value)
 		}
 	}
 
@@ -199,6 +220,7 @@
 				on:change={(event) => {
 					if (event?.detail?.type === 'removeAll') {
 						outputs?.result.set([])
+						setContextValue([])
 					} else {
 						setResultsFromSelectedItems()
 					}
