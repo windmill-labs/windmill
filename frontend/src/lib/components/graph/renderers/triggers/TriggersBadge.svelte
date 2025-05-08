@@ -271,7 +271,7 @@
 	>
 		{#if countKey}
 			{@const count = $triggersCount?.[countKey] ?? 0}
-			{#if count > 1}
+			{#if count > 0}
 				<div
 					class={twMerge(
 						'absolute z-10 bg-gray-400 transition-all duration-100',
