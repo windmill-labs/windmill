@@ -2,18 +2,22 @@ use base64::{engine, Engine as _};
 use chrono::Datelike;
 use core::fmt::Write;
 use futures::future::BoxFuture;
-use futures::{FutureExt, TryFutureExt};
+use futures::{FutureExt, StreamExt, TryFutureExt};
 use jsonwebtoken::{encode, Algorithm, EncodingKey, Header};
 use reqwest::{Client, Response};
 use serde_json::{json, value::RawValue, Value};
 use sha2::{Digest, Sha256};
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
+use std::convert::Infallible;
 use windmill_common::error::to_anyhow;
+use windmill_common::more_serde::json_stream_values;
+use windmill_common::s3_helpers::convert_json_line_stream;
 use windmill_common::worker::Connection;
 
 use windmill_common::{error::Error, worker::to_raw_value};
 use windmill_parser_sql::{
-    parse_db_resource, parse_s3_mode, parse_snowflake_sig, parse_sql_blocks,
+    parse_db_resource, parse_s3_mode, parse_snowflake_sig, parse_sql_blocks, s3_mode_extension,
+    S3ModeFormat,
 };
 use windmill_queue::{CanceledBy, MiniPulledJob, HTTP_CLIENT};
 
@@ -120,6 +124,7 @@ impl SnowflakeResponseExt for Result<Response, reqwest::Error> {
 struct S3Mode {
     client: AuthedClient,
     object_key: String,
+    format: S3ModeFormat,
     storage: Option<String>,
     workspace_id: String,
 }
@@ -187,12 +192,24 @@ fn do_snowflake_inner<'a>(
             let result = result.map_err(|e| {
                 Error::ExecutionErr(format!("Could not send request to Snowflake: {:?}", e))
             })?;
+
+            let rows_stream = json_stream_values(result.bytes_stream(), |sender| {
+                RootMpscDeserializer { sender }
+            })
+            .await?
+            .boxed()
+            .map(|chunk| Ok::<_, Infallible>(chunk));
+
+            let stream = convert_json_line_stream(rows_stream, s3.format)
+                .await?
+                .map(|chunk| Ok::<_, Infallible>(chunk));
+
             s3.client
                 .upload_s3_file(
                     s3.workspace_id.as_str(),
                     s3.object_key.clone(),
                     s3.storage.clone(),
-                    result.bytes_stream(),
+                    stream,
                 )
                 .await?;
 
@@ -291,7 +308,7 @@ pub async fn do_snowflake(
         client: client.clone(),
         storage: s3_mode.storage,
         object_key: format!(
-            "{}/{}.json",
+            "{}/{}.{}",
             s3_mode.prefix.unwrap_or_else(|| format!(
                 "wmill_datalake/{}",
                 job.runnable_path
@@ -299,8 +316,10 @@ pub async fn do_snowflake(
                     .map(|s| s.as_str())
                     .unwrap_or("unknown_script")
             )),
-            job.id
+            job.id,
+            s3_mode_extension(s3_mode.format)
         ),
+        format: s3_mode.format,
         workspace_id: job.workspace_id.clone(),
     });
 
@@ -600,5 +619,105 @@ fn parse_val(value: &Value, typ: &str) -> Value {
             "ERR: Could not parse {} argument with value {}",
             typ, str_value
         ))
+    }
+}
+
+// This deserializer takes a snowflake response as a stream and sends each row to an mpsc
+// channel as a json record without storing the full input json in memory.
+struct RootMpscDeserializer {
+    sender: tokio::sync::mpsc::Sender<serde_json::Value>,
+}
+
+impl<'de> serde::de::DeserializeSeed<'de> for RootMpscDeserializer {
+    type Value = ();
+    fn deserialize<D>(self, deserializer: D) -> Result<Self::Value, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        struct RootVisitor<'a> {
+            sender: &'a tokio::sync::mpsc::Sender<serde_json::Value>,
+            col_defs: Vec<String>,
+        }
+
+        impl<'de, 'a> serde::de::Visitor<'de> for RootVisitor<'a> {
+            type Value = ();
+            fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+                formatter.write_str("data field from snowflake response")
+            }
+            fn visit_map<A>(mut self, mut map: A) -> Result<(), A::Error>
+            where
+                A: serde::de::MapAccess<'de>,
+            {
+                while let Some(key) = map.next_key::<String>()? {
+                    if key == "resultSetMetaData" {
+                        let result_set_metadata: SnowflakeResultSetMetaData = map.next_value()?;
+                        self.col_defs = result_set_metadata
+                            .rowType
+                            .iter()
+                            .map(|x| x.name.clone())
+                            .collect::<Vec<String>>();
+                    } else if key == "data" {
+                        let () = map.next_value_seed(RowsMpscDeserializer {
+                            sender: self.sender,
+                            col_defs: &self.col_defs,
+                        })?;
+                    } else {
+                        let _: serde::de::IgnoredAny = map.next_value()?;
+                    }
+                }
+                Ok(())
+            }
+        }
+
+        deserializer.deserialize_map(RootVisitor { sender: &self.sender, col_defs: vec![] })
+    }
+}
+
+struct RowsMpscDeserializer<'a> {
+    sender: &'a tokio::sync::mpsc::Sender<serde_json::Value>,
+    col_defs: &'a Vec<String>,
+}
+
+impl<'de, 'a> serde::de::DeserializeSeed<'de> for RowsMpscDeserializer<'a> {
+    type Value = ();
+    fn deserialize<D>(self, deserializer: D) -> Result<Self::Value, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        struct RowsVisitor<'a> {
+            sender: &'a tokio::sync::mpsc::Sender<serde_json::Value>,
+            col_defs: &'a Vec<String>,
+        }
+
+        impl<'de, 'a> serde::de::Visitor<'de> for RowsVisitor<'a> {
+            type Value = ();
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+                formatter.write_str("a sequence of rows")
+            }
+
+            fn visit_seq<A>(self, mut seq: A) -> Result<(), A::Error>
+            where
+                A: serde::de::SeqAccess<'de>,
+            {
+                while let Some(elem) = seq.next_element::<Vec<Value>>()? {
+                    let mut row = BTreeMap::<&str, Value>::new();
+                    for (i, field) in elem.iter().enumerate() {
+                        let col_name = self.col_defs.get(i).map(|s| s.as_str()).unwrap_or("");
+                        row.insert(col_name, field.clone());
+                    }
+                    let row = serde_json::to_value(row).map_err(|err| {
+                        serde::de::Error::custom(format!("Map parse failed: {err}"))
+                    })?;
+                    self.sender.blocking_send(row).map_err(|err| {
+                        serde::de::Error::custom(format!("Queue send failed: {err}"))
+                    })?;
+                }
+
+                Ok(())
+            }
+        }
+
+        deserializer.deserialize_seq(RowsVisitor { sender: &self.sender, col_defs: &self.col_defs })
     }
 }
