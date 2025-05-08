@@ -138,8 +138,11 @@ pub struct S3ModeArgs {
     pub storage: Option<String>,
     pub format: S3ModeFormat,
 }
-pub fn parse_s3_mode(code: &str) -> Option<S3ModeArgs> {
-    let cap = RE_S3_MODE.captures(code)?;
+pub fn parse_s3_mode(code: &str) -> anyhow::Result<Option<S3ModeArgs>> {
+    let cap = match RE_S3_MODE.captures(code) {
+        Some(x) => x,
+        None => return Ok(None),
+    };
     let args_str = cap
         .get(1)
         .map(|x| x.as_str().to_string())
@@ -155,7 +158,7 @@ pub fn parse_s3_mode(code: &str) -> Option<S3ModeArgs> {
         }
         let mut it = kv.split('=');
         let (Some(key), Some(value)) = (it.next(), it.next()) else {
-            return None; // TODO transform to Err
+            return Err(anyhow!("Invalid S3 mode argument: {}", kv));
         };
         match (key.trim(), value.trim()) {
             ("prefix", _) => prefix = Some(value.to_string()),
@@ -163,12 +166,12 @@ pub fn parse_s3_mode(code: &str) -> Option<S3ModeArgs> {
             ("format", "json") => format = S3ModeFormat::Json,
             ("format", "parquet") => format = S3ModeFormat::Parquet,
             ("format", "csv") => format = S3ModeFormat::Csv,
-            ("format", _) => return None, // TODO transform to Err
-            (_, _) => return None,        // TODO transform to Err
+            ("format", format) => return Err(anyhow!("Invalid S3 mode format: {}", format)),
+            (_, _) => return Err(anyhow!("Invalid S3 mode argument: {}", kv)),
         }
     }
 
-    Some(S3ModeArgs { prefix, storage, format })
+    Ok(Some(S3ModeArgs { prefix, storage, format }))
 }
 
 pub fn parse_sql_blocks(code: &str) -> Vec<&str> {

@@ -143,7 +143,7 @@ pub async fn do_mysql(
     let job_args = build_args_values(job, client, conn).await?;
 
     let inline_db_res_path = parse_db_resource(&query);
-    let s3 = parse_s3_mode(&query).map(|s3| s3_mode_args_to_worker_data(s3, client.clone(), job));
+    let s3 = parse_s3_mode(&query)?.map(|s3| s3_mode_args_to_worker_data(s3, client.clone(), job));
 
     let db_arg = if let Some(inline_db_res_path) = inline_db_res_path {
         Some(
