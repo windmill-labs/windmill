@@ -153,6 +153,7 @@ jobs:
       issue_number_override: ${{ github.event.issue.number }}
 
     secrets:
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
       GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
-      FORCE_PROVIDER: google
-      MODEL_NAME: gemini-2.5-pro-preview-05-06
+      FORCE_PROVIDER: ${{ secrets.FORCE_PROVIDER }}
+      MODEL_NAME: ${{ secrets.MODEL_NAME }}
