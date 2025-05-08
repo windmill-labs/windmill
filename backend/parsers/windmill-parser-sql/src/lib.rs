@@ -149,8 +149,11 @@ pub fn parse_s3_mode(code: &str) -> Option<S3ModeArgs> {
     let mut storage = None;
     let mut format = S3ModeFormat::Json;
 
-    for kv in args_str.split(' ') {
-        let mut it = kv.trim().split('=');
+    for kv in args_str.split(' ').map(|kv| kv.trim()) {
+        if kv.is_empty() {
+            continue;
+        }
+        let mut it = kv.split('=');
         let (Some(key), Some(value)) = (it.next(), it.next()) else {
             return None; // TODO transform to Err
         };
@@ -195,7 +198,7 @@ lazy_static::lazy_static! {
     static ref RE_NONEMPTY_SQL_BLOCK: Regex = Regex::new(r#"(?m)^\s*[^\s](?:[^-]|$)"#).unwrap();
 
     static ref RE_DB: Regex = Regex::new(r#"(?m)^-- database (\S+) *(?:\r|\n|$)"#).unwrap();
-    static ref RE_S3_MODE: Regex = Regex::new(r#"(?m)^-- s3( .*)?(?:\r|\n|$)"#).unwrap();
+    static ref RE_S3_MODE: Regex = Regex::new(r#"(?m)^-- s3( (.+))?*(?:\r|\n|$)"#).unwrap();
 
     // -- $1 name (type) = default
     static ref RE_ARG_MYSQL: Regex = Regex::new(r#"(?m)^-- \? (\w+) \((\w+)\)(?: ?\= ?(.+))? *(?:\r|\n|$)"#).unwrap();
