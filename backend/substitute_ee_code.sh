@@ -71,7 +71,7 @@ if [ "$REVERT" == "YES" ]; then
     ce_file="${ee_file/${EE_CODE_DIR}/}"
     ce_file="${root_dirpath}/backend/${ce_file}"
     if [ "$REVERT_PREVIOUS" == "YES" ]; then
-      git checkout HEAD@{3} ${ce_file} || true
+      git checkout HEAD@{7} ${ce_file} || true
     else
       git restore --staged ${ce_file} || true
       git restore ${ce_file} || true
