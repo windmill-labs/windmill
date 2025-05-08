@@ -95,7 +95,8 @@
 	let initialConfig = $state<Record<string, any> | undefined>(undefined)
 	let defaultConfig = $state<Record<string, any> | undefined>(undefined)
 	let extraPerms: Record<string, boolean> = $state({})
-	let duplicate = $state(false)
+	let can_write = $state(true)
+	let useDefaultValuesForSchedule = $state(false)
 
 	export function openEdit(ePath: string, isFlow: boolean, defaultCfg?: Record<string, any>) {
 		let loadingTimeout = setTimeout(() => {
@@ -262,7 +263,7 @@
 					workspace: $workspaceStore!,
 					path: schedule_path
 				})
-				duplicate = true
+				useDefaultValuesForSchedule = true
 			} else if (defaultValues) {
 				s = defaultValues
 			}
@@ -272,7 +273,7 @@
 			edit = false
 			itemKind = is_flow ? 'flow' : 'script'
 			initialScriptPath = initial_script_path ?? ''
-			path = duplicate === true ? '' : initialScriptPath
+			path = useDefaultValuesForSchedule === true ? '' : initialScriptPath
 
 			initialPath = path
 			cronVersion = s?.cron_version ?? 'v2'
@@ -456,7 +457,6 @@
 		}
 	}
 
-	let can_write = $state(true)
 	async function loadScheduleCfg(cfg: Record<string, any>): Promise<void> {
 		loading = true
 
@@ -926,7 +926,7 @@
 							Pick a script or flow to be triggered by the schedule<Required required={true} />
 						</p>
 						<ScriptPicker
-							disabled={(initialScriptPath != '' && !duplicate) || !can_write}
+							disabled={(initialScriptPath != '' && !useDefaultValuesForSchedule) || !can_write}
 							initialPath={initialScriptPath}
 							kinds={['script']}
 							allowFlow={true}
