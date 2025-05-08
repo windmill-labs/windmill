@@ -8,6 +8,7 @@ use aws_sdk_sts::config::ProvideCredentials;
 use axum::async_trait;
 use bytes::Bytes;
 use datafusion::arrow::array::{RecordBatch, RecordBatchWriter};
+use datafusion::arrow::error::ArrowError;
 use datafusion::arrow::json::writer::JsonArray;
 use datafusion::arrow::{csv, json};
 use datafusion::parquet::arrow::ArrowWriter;
@@ -493,6 +494,32 @@ pub fn raw_app(w_id: &str, version: &i64) -> String {
     format!("/home/rfiszel/raw_app/{}/{}", w_id, version)
 }
 
+// Originally used a Arc<Mutex<dyn RecordBatchWriter + Send>>
+// But cannot call .close() on it because it moves the value and the object is not Sized
+enum RecordBatchWriterEnum {
+    Parquet(ArrowWriter<ChannelWriter>),
+    Csv(csv::Writer<ChannelWriter>),
+    Json(json::Writer<ChannelWriter, JsonArray>),
+}
+
+impl RecordBatchWriter for RecordBatchWriterEnum {
+    fn write(&mut self, batch: &RecordBatch) -> Result<(), ArrowError> {
+        match self {
+            RecordBatchWriterEnum::Parquet(w) => w.write(batch).map_err(|e| e.into()),
+            RecordBatchWriterEnum::Csv(w) => w.write(batch),
+            RecordBatchWriterEnum::Json(w) => w.write(batch),
+        }
+    }
+
+    fn close(self) -> Result<(), ArrowError> {
+        match self {
+            RecordBatchWriterEnum::Parquet(w) => w.close().map_err(|e| e.into()).map(drop),
+            RecordBatchWriterEnum::Csv(w) => w.close(),
+            RecordBatchWriterEnum::Json(w) => w.close(),
+        }
+    }
+}
+
 pub async fn convert_ndjson<E: Into<anyhow::Error>>(
     mut stream: impl TryStreamExt<Item = Result<serde_json::Value, E>> + Unpin,
     output_format: S3ModeFormat,
@@ -546,16 +573,22 @@ pub async fn convert_ndjson<E: Into<anyhow::Error>>(
     let mut datafusion_stream = df.execute_stream().await.map_err(to_anyhow)?;
 
     let (tx, rx) = tokio::sync::mpsc::channel(MAX_MPSC_SIZE);
-    let writer: Arc<Mutex<dyn RecordBatchWriter + Send>> = match output_format {
-        S3ModeFormat::Parquet => Arc::new(Mutex::new(
-            ArrowWriter::try_new(ChannelWriter { sender: tx }, Arc::new(schema), None)
-                .map_err(to_anyhow)?,
-        )),
-        S3ModeFormat::Csv => Arc::new(Mutex::new(csv::Writer::new(ChannelWriter { sender: tx }))),
-        S3ModeFormat::Json => Arc::new(Mutex::new(json::Writer::<_, JsonArray>::new(
-            ChannelWriter { sender: tx },
-        ))),
-    };
+    let writer: Arc<Mutex<Option<RecordBatchWriterEnum>>> =
+        Arc::new(Mutex::new(Some(match output_format {
+            S3ModeFormat::Parquet => RecordBatchWriterEnum::Parquet(
+                ArrowWriter::try_new(ChannelWriter { sender: tx }, Arc::new(schema), None)
+                    .map_err(to_anyhow)?,
+            ),
+
+            S3ModeFormat::Csv => {
+                RecordBatchWriterEnum::Csv(csv::Writer::new(ChannelWriter { sender: tx }))
+            }
+            S3ModeFormat::Json => {
+                RecordBatchWriterEnum::Json(json::Writer::<_, JsonArray>::new(ChannelWriter {
+                    sender: tx,
+                }))
+            }
+        })));
 
     // This spawn is so that the data is sent in the background. Else the function would deadlock
     // when hitting the mpsc channel limit
@@ -564,10 +597,20 @@ pub async fn convert_ndjson<E: Into<anyhow::Error>>(
             let batch: RecordBatch = batch_result.map_err(to_anyhow)?;
             let writer = writer.clone();
             // Writer calls blocking_send which would crash if called from the async context
-            task::spawn_blocking(move || writer.lock().unwrap().write(&batch)).await??;
+            task::spawn_blocking(move || {
+                // SAFETY: We await so the code is actually sequential, lock unwrap cannot panic
+                // Second unwrap is ok because we initialized the option with Some
+                writer.lock().unwrap().as_mut().unwrap().write(&batch)
+            })
+            .await??;
         }
+        task::spawn_blocking(move || {
+            writer.lock().unwrap().take().unwrap().close()?;
+            drop(writer);
+            Ok::<_, anyhow::Error>(())
+        })
+        .await??;
         drop(ctx);
-        drop(writer);
         tokio::fs::remove_file(&path).await?;
         Ok::<_, anyhow::Error>(())
     });
@@ -592,7 +635,6 @@ impl Write for ChannelWriter {
     }
 
     fn flush(&mut self) -> std::io::Result<()> {
-        // No-op in this context
         Ok(())
     }
 }
