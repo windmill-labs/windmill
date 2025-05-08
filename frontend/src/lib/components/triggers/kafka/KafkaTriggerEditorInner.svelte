@@ -10,7 +10,7 @@
 	import { canWrite, emptyString, sendUserToast } from '$lib/utils'
 	import { createEventDispatcher } from 'svelte'
 	import Section from '$lib/components/Section.svelte'
-	import { Loader2, Save } from 'lucide-svelte'
+	import { Loader2 } from 'lucide-svelte'
 	import Label from '$lib/components/Label.svelte'
 	import KafkaTriggersConfigSection from './KafkaTriggersConfigSection.svelte'
 	import type { Snippet } from 'svelte'
@@ -59,13 +59,33 @@
 	let dirtyPath = $state(false)
 	let can_write = $state(true)
 	let drawerLoading = $state(true)
-	let defaultValues: Record<string, any> | undefined = $state(undefined)
-	let args: Record<string, any> = $state({})
 	let showLoading = $state(false)
 	let resetEditMode = $state<(() => void) | undefined>(undefined)
 	let initialConfig = $state<Record<string, any> | undefined>(undefined)
 	let neverSaved = $state(false)
 	let extra_perms = $state<Record<string, any> | undefined>(undefined)
+	let kafkaCfgValid = $state(false)
+	let kafkaResourcePath = $state('')
+	let kafkaCfg: Record<string, any> = $state({})
+
+	let isValid = $derived(
+		!!kafkaResourcePath &&
+			kafkaCfgValid &&
+			kafkaCfg.topics &&
+			kafkaCfg.topics.length > 0 &&
+			kafkaCfg.topics.every((b) => /^[a-zA-Z0-9-_.]+$/.test(b))
+	)
+
+	let saveDisabled = $derived(
+		pathError !== '' ||
+			!isValid ||
+			drawerLoading ||
+			!can_write ||
+			emptyString(script_path) ||
+			emptyString(kafkaResourcePath) ||
+			kafkaCfg.topics.length === 0 ||
+			kafkaCfg.topics.some((t) => emptyString(t))
+	)
 
 	const dispatch = createEventDispatcher()
 
@@ -115,16 +135,17 @@
 			is_flow = nis_flow
 			edit = false
 			itemKind = nis_flow ? 'flow' : 'script'
-			args.kafka_resource_path = nDefaultValues?.kafka_resource_path ?? ''
-			args.group_id = nDefaultValues?.group_id ?? ''
-			args.topics = nDefaultValues?.topics ?? ['']
+			kafkaResourcePath = nDefaultValues?.kafka_resource_path ?? ''
+			kafkaCfg = {
+				group_id: nDefaultValues?.group_id ?? '',
+				topics: nDefaultValues?.topics ?? ['']
+			}
 			initialScriptPath = ''
 			fixedScriptPath = fixedScriptPath_ ?? ''
 			script_path = fixedScriptPath
 			path = nDefaultValues?.path ?? ''
 			initialPath = ''
 			dirtyPath = false
-			defaultValues = nDefaultValues
 			if (newDraft) {
 				neverSaved = true
 				toggleEditMode(true)
@@ -141,9 +162,11 @@
 		initialScriptPath = cfg?.script_path
 		is_flow = cfg?.is_flow
 		path = cfg?.path
-		args.kafka_resource_path = cfg?.kafka_resource_path
-		args.group_id = cfg?.group_id
-		args.topics = cfg?.topics
+		kafkaResourcePath = cfg?.kafka_resource_path
+		kafkaCfg = {
+			group_id: cfg?.group_id,
+			topics: cfg?.topics
+		}
 		enabled = cfg?.enabled
 		extra_perms = cfg?.extra_perms
 		can_write = canWrite(path, cfg?.extra_perms, $userStore)
@@ -168,9 +191,9 @@
 			path,
 			script_path,
 			is_flow,
-			kafka_resource_path: args.kafka_resource_path,
-			group_id: args.group_id,
-			topics: args.topics,
+			kafka_resource_path: kafkaResourcePath,
+			group_id: kafkaCfg.group_id,
+			topics: kafkaCfg.topics,
 			enabled,
 			extra_perms: extra_perms
 		}
@@ -184,35 +207,19 @@
 		toggleEditMode(false)
 	}
 
-	function useDefaultValues() {
-		if (args.kafka_resource_path && args.kafka_resource_path != '') {
-			return false
-		}
-		if (!defaultValues) {
-			return false
-		}
-		return (
-			defaultValues.brokers &&
-			defaultValues.brokers.length > 0 &&
-			defaultValues.brokers.some((broker: string) => broker.trim() !== '')
-		)
-	}
-
 	function toggleEditMode(newEditMode: boolean) {
 		dispatch('toggle-edit-mode', newEditMode)
 	}
 
 	$effect(() => {
 		dispatch('update-config', {
-			kafka_resource_path: $state.snapshot(args.kafka_resource_path),
-			group_id: $state.snapshot(args.group_id),
-			topics: structuredClone($state.snapshot(args.topics)),
+			kafka_resource_path: kafkaResourcePath,
+			group_id: kafkaCfg.group_id,
+			topics: structuredClone($state.snapshot(kafkaCfg.topics)),
 			isValid,
 			path
 		})
 	})
-
-	let isValid = $state(false)
 
 	function saveDraft() {
 		const cfg = getSaveCfg()
@@ -263,63 +270,36 @@
 {/if}
 
 {#snippet actionsButtons(size: 'xs' | 'sm' = 'sm')}
-	{#if !allowDraft}
-		<Button
-			{size}
-			startIcon={{ icon: Save }}
-			disabled={pathError !== '' ||
-				!isValid ||
-				drawerLoading ||
-				!can_write ||
-				emptyString(script_path) ||
-				emptyString(args.kafka_resource_path) ||
-				args.topics.length === 0 ||
-				args.topics.some((t) => emptyString(t))}
-			on:click={() => {
-				updateTrigger()
-			}}
-		>
-			Save
-		</Button>
-	{:else}
-		<TriggerEditorToolbar
-			{isDraftOnly}
-			{hasDraft}
-			permissions={drawerLoading || !can_write ? 'none' : 'create'}
-			{editMode}
-			{enabled}
-			{allowDraft}
-			{edit}
-			isLoading={false}
-			{neverSaved}
-			{isEditor}
-			{isDeployed}
-			saveDisabled={pathError !== '' ||
-				!isValid ||
-				drawerLoading ||
-				!can_write ||
-				emptyString(script_path) ||
-				emptyString(args.kafka_resource_path) ||
-				args.topics.length === 0 ||
-				args.topics.some((t) => emptyString(t))}
-			on:save-draft={() => {
-				saveDraft()
-			}}
-			on:deploy={() => {
-				updateTrigger()
-			}}
-			on:reset
-			on:delete
-			on:edit={() => {
-				toggleEditMode(true)
-			}}
-			on:cancel={() => {
-				resetEditMode?.()
-				toggleEditMode(false)
-			}}
-			on:toggle-enabled={handleToggleEnabled}
-		/>
-	{/if}
+	<TriggerEditorToolbar
+		{isDraftOnly}
+		{hasDraft}
+		permissions={drawerLoading || !can_write ? 'none' : 'create'}
+		{editMode}
+		{enabled}
+		{allowDraft}
+		{edit}
+		isLoading={false}
+		{neverSaved}
+		{isEditor}
+		{isDeployed}
+		{saveDisabled}
+		on:save-draft={() => {
+			saveDraft()
+		}}
+		on:deploy={() => {
+			updateTrigger()
+		}}
+		on:reset
+		on:delete
+		on:edit={() => {
+			toggleEditMode(true)
+		}}
+		on:cancel={() => {
+			resetEditMode?.()
+			toggleEditMode(false)
+		}}
+		on:toggle-enabled={handleToggleEnabled}
+	/>
 {/snippet}
 
 {#snippet config()}
@@ -390,11 +370,11 @@
 			{/if}
 
 			<KafkaTriggersConfigSection
-				bind:args
-				bind:isValid
+				bind:kafkaCfgValid
+				bind:kafkaResourcePath
+				bind:kafkaCfg
 				{path}
 				can_write={can_write && editMode}
-				defaultValues={useDefaultValues() ? defaultValues : undefined}
 				showTestingBadge={isEditor}
 			/>
 		</div>
