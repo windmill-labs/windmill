@@ -256,7 +256,7 @@
 	<MeltButton
 		class={twMerge(
 			'hover:bg-surface-hover rounded-md shadow-sm text-xs relative center-center cursor-pointer bg-slate-100 dark:bg-slate-700',
-			'dark:outline outline-tertiary/20 group',
+			'dark:outline dark:outline-1 outline-tertiary/20 group',
 			isSelected ? 'outline-tertiary outline' : '',
 			small ? 'w-[23px] h-[23px] outline-[1.5px]' : 'p-2 outline-[2px]'
 		)}
@@ -275,9 +275,9 @@
 				<div
 					class={twMerge(
 						// Base styles that apply in all cases
-						'absolute z-10 rounded-full shadow-sm overflow-hidden',
-						'flex center-center text-primary-inverse font-mono',
-						'bg-secondary transition-all duration-100',
+						'absolute z-10 rounded-full overflow-hidden',
+						'flex center-center group-hover:text-primary-inverse font-mono text-transparent',
+						'bg-tertiary group-hover:bg-primary transition-all duration-[100ms]',
 
 						// Hover effects
 						'group-hover:scale-110',
@@ -297,7 +297,7 @@
 					{:else}
 						<span
 							class={twMerge(
-								'opacity-0 group-hover:opacity-100 transition-opacity duration-100',
+								'opacity-0 group-hover:opacity-100 transition-opacity duration-[50ms] delay-[100ms]',
 								noTriggers ? 'opacity-100' : ''
 							)}>{count}</span
 						>
