@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.489.0](https://github.com/windmill-labs/windmill/compare/v1.488.0...v1.489.0) (2025-05-08)
+
+
+### Features
+
+* raise error if end early in flow ([#5653](https://github.com/windmill-labs/windmill/issues/5653)) ([242a565](https://github.com/windmill-labs/windmill/commit/242a5654285b0a3bf222c80e82f6861ffafed838))
+
 ## [1.488.0](https://github.com/windmill-labs/windmill/compare/v1.487.0...v1.488.0) (2025-05-07)
 
 
