@@ -2,7 +2,7 @@
 	import TableCustom from '$lib/components/TableCustom.svelte'
 	import { displayDate, copyToClipboard } from '$lib/utils'
 	import type { TruncatedToken, NewToken } from '$lib/gen'
-	import { UserService } from '$lib/gen'
+	import { IntegrationService, UserService } from '$lib/gen'
 	import { Button } from '$lib/components/common'
 	import { Clipboard, Plus } from 'lucide-svelte'
 	import { workspaceStore, userWorkspaces, type UserWorkspace } from '$lib/stores'
@@ -12,6 +12,7 @@
 	import Toggle from '../Toggle.svelte'
 	import ClipboardPanel from '../details/ClipboardPanel.svelte'
 	import { sendUserToast } from '$lib/toast'
+	import MultiSelectWrapper from '../multiselect/MultiSelectWrapper.svelte'
 
 	// --- Props ---
 	interface Props {
@@ -37,10 +38,14 @@
 	let newToken = $state<string | undefined>(undefined)
 	let newTokenExpiration = $state<number | undefined>(undefined)
 	let newTokenWorkspace = $state<string | undefined>(defaultNewTokenWorkspace)
+	let newMcpApps = $state<string[]>([])
 	let displayCreateToken = $state(scopes != undefined)
 	let mcpCreationMode = $state(false)
 	let newMcpScope = $state('favorites')
 	let newMcpToken = $state<string | undefined>(undefined)
+	let loadingApps = $state(false)
+	let errorFetchApps = $state(false)
+	let allApps = $state<string[]>([])
 
 	function ensureCurrentWorkspaceIncluded(
 		workspacesList: UserWorkspace[],
@@ -67,6 +72,14 @@
 		listTokens()
 	})
 
+	$effect(() => {
+		if (mcpCreationMode) {
+			getAllApps()
+		} else {
+			newMcpApps = []
+		}
+	})
+
 	// --- Functions ---
 	async function createToken(mcpMode: boolean = false): Promise<void> {
 		try {
@@ -75,7 +88,13 @@
 				date = new Date(new Date().getTime() + newTokenExpiration * 1000)
 			}
 
-			let tokenScopes = mcpMode ? [`mcp:${newMcpScope}`] : scopes
+			let tokenScopes = scopes
+			if (mcpMode) {
+				tokenScopes = [`mcp:${newMcpScope}`]
+				if (newMcpApps.length > 0) {
+					tokenScopes.push(`mcp:hub:${newMcpApps.join(',')}`)
+				}
+			}
 
 			const createdToken = await UserService.createToken({
 				requestBody: {
@@ -107,6 +126,7 @@
 		newMcpToken = undefined
 		newToken = undefined
 		newTokenExpiration = undefined
+		newMcpApps = []
 		newTokenLabel = type === 'mcpUrl' ? 'MCP token' : undefined
 	}
 
@@ -140,6 +160,26 @@
 	function handlePreviousPage() {
 		tokenPage -= 1
 		listTokens()
+	}
+
+	async function getAllApps() {
+		if (allApps.length > 0) {
+			return
+		}
+		try {
+			loadingApps = true
+			allApps = (
+				await IntegrationService.listHubIntegrations({
+					kind: 'script'
+				})
+			).map((x) => x.name)
+		} catch (err) {
+			console.error('Hub is not available')
+			allApps = []
+			errorFetchApps = true
+		} finally {
+			loadingApps = false
+		}
 	}
 </script>
 
@@ -192,66 +232,103 @@
 	{#if displayCreateToken}
 		<div class="py-3 px-3 border rounded-md mb-6 bg-surface-secondary min-w-min">
 			<h3 class="pb-3 font-semibold">Add a new token</h3>
-			{#if scopes != undefined}
-				{#each scopes as scope}
-					<div class="flex flex-col mb-4">
-						<label for="label">Scope</label>
-						<input disabled type="text" value={scope} />
-					</div>
-				{/each}
-			{/if}
+
 			{#if showMcpMode}
-				<Toggle
-					on:change={(e) => {
-						mcpCreationMode = e.detail
-						if (e.detail) {
-							newTokenLabel = 'MCP token'
-							newTokenExpiration = undefined
-							newTokenWorkspace = $workspaceStore
-						} else {
-							newTokenLabel = undefined
-							newTokenExpiration = undefined
-							newTokenWorkspace = defaultNewTokenWorkspace
-						}
-					}}
-					checked={mcpCreationMode}
-					options={{
-						right: 'Generate MCP URL',
-						rightTooltip:
-							'Generate a new MCP URL to make your scripts and flows available as tools through your LLM clients.',
-						rightDocumentationLink: 'https://www.windmill.dev/docs/core_concepts/mcp'
-					}}
-					class="mb-4"
-					size="xs"
-				/>
+				<div class="mb-4 flex flex-row flex-shrink-0">
+					<Toggle
+						on:change={(e) => {
+							mcpCreationMode = e.detail
+							if (e.detail) {
+								newTokenLabel = 'MCP token'
+								newTokenExpiration = undefined
+								newTokenWorkspace = $workspaceStore
+							} else {
+								newTokenLabel = undefined
+								newTokenExpiration = undefined
+								newTokenWorkspace = defaultNewTokenWorkspace
+							}
+						}}
+						checked={mcpCreationMode}
+						options={{
+							right: 'Generate MCP URL',
+							rightTooltip:
+								'Generate a new MCP URL to make your scripts and flows available as tools through your LLM clients.',
+							rightDocumentationLink: 'https://www.windmill.dev/docs/core_concepts/mcp'
+						}}
+						size="xs"
+					/>
+				</div>
 			{/if}
-			<div class="flex flex-row flex-wrap gap-2 w-full justify-between">
+
+			{#if scopes != undefined}
+				<div class="mb-4">
+					<span class="block mb-1">Scope</span>
+					{#each scopes as scope}
+						<input disabled type="text" value={scope} class="mb-2 w-full" />
+					{/each}
+				</div>
+			{/if}
+
+			<div class="grid grid-cols-1 md:grid-cols-2 gap-4">
 				{#if mcpCreationMode}
-					<div class="flex flex-col">
-						<label for="label">Scope</label>
+					<div>
+						<span class="block mb-1">Scope</span>
 						<ToggleButtonGroup bind:selected={newMcpScope} allowEmpty={false} let:item>
-							<ToggleButton {item} value="favorites" label="Favorites Only" />
-							<ToggleButton {item} value="all" label="All Resources" />
+							<ToggleButton
+								{item}
+								value="favorites"
+								label="Favorites only"
+								tooltip="Make only your favorite scripts and flows available as tools"
+							/>
+							<ToggleButton
+								{item}
+								value="all"
+								label="All scripts/flows"
+								tooltip="Make all your scripts and flows available as tools"
+							/>
 						</ToggleButtonGroup>
 					</div>
-					<div class="flex flex-col">
-						<label for="label">Workspace</label>
-						<select bind:value={newTokenWorkspace} disabled={workspaces.length === 1}>
+
+					<div>
+						<span class="block mb-1">Hub scripts (optional)</span>
+						{#if loadingApps}
+							<div>Loading...</div>
+						{:else if errorFetchApps}
+							<div>Error fetching apps</div>
+						{:else}
+							<MultiSelectWrapper
+								items={allApps}
+								placeholder="Select apps"
+								bind:value={newMcpApps}
+							/>
+						{/if}
+					</div>
+
+					<div>
+						<span class="block mb-1">Workspace</span>
+						<select
+							bind:value={newTokenWorkspace}
+							disabled={workspaces.length === 1}
+							class="w-full"
+						>
 							{#each workspaces as workspace}
 								<option value={workspace.id}>{workspace.name}</option>
 							{/each}
 						</select>
 					</div>
 				{/if}
-				<div class="flex flex-col">
-					<label for="label">Label <span class="text-xs text-tertiary">(optional)</span></label>
-					<input type="text" bind:value={newTokenLabel} />
+
+				<div>
+					<span class="block mb-1">Label <span class="text-xs text-tertiary">(optional)</span></span
+					>
+					<input type="text" bind:value={newTokenLabel} class="w-full" />
 				</div>
-				<div class="flex flex-col">
-					<label for="expires"
-						>Expires In &nbsp;<span class="text-xs text-tertiary">(optional)</span>
-					</label>
-					<select bind:value={newTokenExpiration} disabled={mcpCreationMode}>
+
+				<div>
+					<span class="block mb-1"
+						>Expires In <span class="text-xs text-tertiary">(optional)</span></span
+					>
+					<select bind:value={newTokenExpiration} disabled={mcpCreationMode} class="w-full">
 						<option value={undefined}>No expiration</option>
 						<option value={15 * 60}>15m</option>
 						<option value={30 * 60}>30m</option>
@@ -262,15 +339,23 @@
 						<option value={90 * 24 * 60 * 60}>90d</option>
 					</select>
 				</div>
-				<div class="flex items-end">
-					<Button
-						btnClasses="!mt-2"
-						on:click={() => createToken(mcpCreationMode)}
-						disabled={mcpCreationMode && newTokenWorkspace === undefined}
-					>
-						New token
-					</Button>
-				</div>
+			</div>
+
+			<div class="mt-4 flex justify-end gap-2 flex-row">
+				<Button
+					on:click={() => {
+						mcpCreationMode = false
+						displayCreateToken = false
+					}}
+				>
+					Cancel
+				</Button>
+				<Button
+					on:click={() => createToken(mcpCreationMode)}
+					disabled={mcpCreationMode && newTokenWorkspace == undefined}
+				>
+					New token
+				</Button>
 			</div>
 		</div>
 	{/if}

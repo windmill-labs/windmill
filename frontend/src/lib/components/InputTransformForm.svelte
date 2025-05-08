@@ -63,11 +63,11 @@
 	const dispatch = createEventDispatcher()
 
 	$: inputCat = computeInputCat(
-		schema?.properties?.[argName].type,
-		schema?.properties?.[argName].format,
-		schema?.properties?.[argName].items?.type,
-		schema?.properties?.[argName].enum,
-		schema?.properties?.[argName].contentEncoding
+		schema?.properties?.[argName]?.type,
+		schema?.properties?.[argName]?.format,
+		schema?.properties?.[argName]?.items?.type,
+		schema?.properties?.[argName]?.enum,
+		schema?.properties?.[argName]?.contentEncoding
 	)
 
 	let propertyType = getPropertyType(arg)
@@ -275,7 +275,7 @@
 
 	function setDefaultCode() {
 		if (!arg?.value) {
-			monacoTemplate?.setCode(schema.properties?.[argName].default)
+			monacoTemplate?.setCode(schema.properties?.[argName]?.default)
 		}
 	}
 
@@ -287,7 +287,7 @@
 	}
 	$: updateFocused(focused)
 
-	$: schema?.properties?.[argName].default && setDefaultCode()
+	$: schema?.properties?.[argName]?.default && setDefaultCode()
 
 	let resourceTypes: string[] | undefined = undefined
 
@@ -321,10 +321,10 @@
 					simpleTooltip={headerTooltip}
 					simpleTooltipIconClass={headerTooltipIconClass}
 					SimpleTooltipIcon={HeaderTooltipIcon}
-					format={schema?.properties?.[argName].format}
-					contentEncoding={schema?.properties?.[argName].contentEncoding}
+					format={schema?.properties?.[argName]?.format}
+					contentEncoding={schema?.properties?.[argName]?.contentEncoding}
 					required={schema.required?.includes(argName)}
-					type={schema.properties?.[argName].type}
+					type={schema.properties?.[argName]?.type}
 				/>
 
 				{#if isStaticTemplate(inputCat)}
