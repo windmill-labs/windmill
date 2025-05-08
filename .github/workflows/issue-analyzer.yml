@@ -1,0 +1,111 @@
+name: Call External Issue Analyzer
+
+# Workflow is disabled
+#on:
+#  issues:
+#    types: [opened]
+
+permissions:
+  issues: write # To post the comment back to the issue
+
+jobs:
+  trigger_external_analysis:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Harden Runner
+        uses: step-security/harden-runner@v2
+        with:
+          egress-policy: audit # TODO: Lock down to ONLY your API endpoint URL
+
+      - name: Extract Issue Data
+        id: issue_data
+        run: |
+          # Basic check for sensitive info (optional but good practice)
+          # You might want more robust checks or redaction if issue bodies contain secrets
+          SENSITIVE_KEYWORDS=("password" "secret" "token" "key") # Add more as needed
+          ISSUE_BODY_LOWER=$(echo "${{ github.event.issue.body }}" | tr '[:upper:]' '[:lower:]')
+          CONTAINS_SENSITIVE=false
+          for keyword in "${SENSITIVE_KEYWORDS[@]}"; do
+            if [[ "$ISSUE_BODY_LOWER" == *"$keyword"* ]]; then
+              CONTAINS_SENSITIVE=true
+              echo "::warning::Issue body might contain sensitive keyword: $keyword. Proceeding with caution."
+              # Potentially add logic here to skip or redact if needed
+              break
+            fi
+          done
+
+          # Prepare JSON payload - ensure proper escaping for multiline body/title
+          JSON_PAYLOAD=$(jq -n \
+            --arg repo "${{ github.repository }}" \
+            --argjson num "${{ github.event.issue.number }}" \
+            --arg title "${{ github.event.issue.title }}" \
+            --arg body "${{ github.event.issue.body }}" \
+            --arg actor "${{ github.triggering_actor }}" \
+            '{repository: $repo, issue_number: $num, issue_title: $title, issue_body: $body, triggering_actor: $actor}')
+
+          echo "Payload prepared."
+          # Output payload to a file for the next step
+          echo "$JSON_PAYLOAD" > payload.json
+          echo "payload_path=payload.json" >> $GITHUB_OUTPUT
+
+      - name: Call External Analysis API
+        id: call_api
+        env:
+          # IMPORTANT: Store your API endpoint URL and Auth Token securely
+          ANALYZER_API_ENDPOINT: ${{ secrets.ANALYZER_API_ENDPOINT }} # e.g., https://your-api.com/analyze-issue
+          ANALYZER_API_KEY: ${{ secrets.ANALYZER_API_KEY }} # Your secret key/token for API auth
+        run: |
+          echo "Sending request to $ANALYZER_API_ENDPOINT..."
+
+          # Use curl to send the POST request with JSON payload and Auth header
+          API_RESPONSE=$(curl -s -w "\n%{http_code}" -X POST "$ANALYZER_API_ENDPOINT" \
+            -H "Authorization: Bearer $ANALYZER_API_KEY" \
+            -H "Content-Type: application/json" \
+            -H "Accept: application/json" \
+            --data-binary "@${{ steps.issue_data.outputs.payload_path }}" \
+            --connect-timeout 10 \
+            --max-time 120) # Adjust timeouts as needed
+
+          # Extract HTTP status code and response body
+          HTTP_CODE=$(echo "$API_RESPONSE" | tail -n1)
+          RESPONSE_BODY=$(echo "$API_RESPONSE" | sed '$d')
+
+          echo "API responded with HTTP Status Code: $HTTP_CODE"
+
+          if [[ "$HTTP_CODE" -ne 200 ]]; then
+            echo "::error::API call failed with status $HTTP_CODE. Response:"
+            echo "$RESPONSE_BODY"
+            # Decide how to handle failure - exit, or post a generic error message
+            echo "comment_body=🤖 Error: Failed to analyze the issue via external service (Status: $HTTP_CODE)." > api_response.txt
+            echo "api_success=false" >> $GITHUB_OUTPUT
+          else
+            echo "API call successful."
+            # Assuming the API returns JSON like: {"status": "success", "comment": "Markdown body..."}
+            # Extract the comment body using jq
+            COMMENT=$(echo "$RESPONSE_BODY" | jq -r '.comment // "🤖 Error: Invalid response format from analysis service."')
+            echo "$COMMENT" > api_response.txt
+            echo "api_success=true" >> $GITHUB_OUTPUT
+          fi
+          echo "response_path=api_response.txt" >> $GITHUB_OUTPUT
+
+      - name: Post Analysis Result Comment
+        # Only post if the API call was successful or if you want to post errors too
+        # if: steps.call_api.outputs.api_success == 'true'
+        uses: peter-evans/create-or-update-comment@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          repository: ${{ github.repository }}
+          issue-number: ${{ github.event.issue.number }}
+          body-path: ${{ steps.call_api.outputs.response_path }}
+          reactions: ${{ steps.call_api.outputs.api_success == 'true' && '+1' || '-1' }} # Add reaction based on success
+
+      - name: Upload Artifacts (for debugging)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: external-analyzer-artifacts
+          path: |
+            ${{ steps.issue_data.outputs.payload_path }}
+            ${{ steps.call_api.outputs.response_path }}
+          if-no-files-found: ignore
+          retention-days: 7
