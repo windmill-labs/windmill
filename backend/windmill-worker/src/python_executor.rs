@@ -1996,31 +1996,6 @@ pub fn split_requirements<T: AsRef<str>>(requirements: T) -> Vec<String> {
         .map(String::from)
         .collect()
 }
-// TODO: TODO: TODO: (pyra)
-/// Check requirements/lockfile to figure out python version assigned to it.
-fn get_pyv_from_requirements_lines(requirements_lines: &[&str]) -> PyVersion {
-    // If script is deployed we can try to parse first line to get assigned version
-
-    let index = if requirements_lines.get(0).map_or(false, |line| {
-        line.starts_with(LOCKFILE_GENERATED_FROM_REQUIREMENTS_TXT)
-    }) {
-        1
-    } else {
-        0
-    };
-    if let Some(v) = requirements_lines
-        .get(index)
-        .and_then(|line| PyVersion::parse_version(*line))
-    {
-        // We have valid assigned version, we use it
-        v
-    } else {
-        // If there is no assigned version in lockfile we automatically fallback to 3.11
-        // In this case we have dependencies, but no associated python version
-        // This is the case for old deployed scripts
-        PyVersion::Py311
-    }
-}
 
 #[cfg(feature = "enterprise")]
 use crate::JobCompletedSender;
@@ -2566,8 +2541,15 @@ impl PyV {
                 .map(PyVAlias::into)
                 .or(Version::from_str(&version_unparsed).ok().map(Version::into))
         };
+        let index = if requirements_lines.get(0).map_or(false, |line| {
+            line.starts_with(LOCKFILE_GENERATED_FROM_REQUIREMENTS_TXT)
+        }) {
+            1
+        } else {
+            0
+        };
         // If script is deployed we can try to parse first line to get assigned version
-        if let Some(v) = requirements_lines.get(0).and_then(parse_version) {
+        if let Some(v) = requirements_lines.get(index).and_then(parse_version) {
             // We have valid assigned version, we use it
             v.into()
         } else {

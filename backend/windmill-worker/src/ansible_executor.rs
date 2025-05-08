@@ -30,7 +30,7 @@ use crate::{
         start_child_process, transform_json, OccupancyMetrics,
     },
     handle_child::handle_child,
-    python_executor::{create_dependencies_dir, handle_python_reqs, uv_pip_compile, PyVersion},
+    python_executor::{create_dependencies_dir, handle_python_reqs, uv_pip_compile, PyV},
     AuthedClient, DISABLE_NSJAIL, DISABLE_NUSER, GIT_PATH, HOME_ENV, NSJAIL_PATH, PATH_ENV,
     PROXY_ENVS, PY_INSTALL_DIR, TZ_ENV,
 };
@@ -388,7 +388,7 @@ async fn handle_ansible_python_deps(
 
     if requirements.len() > 0 {
         let mut venv_path = handle_python_reqs(
-            split_requirements(requirements),
+            crate::python_executor::split_requirements(requirements),
             job_id,
             w_id,
             mem_peak,

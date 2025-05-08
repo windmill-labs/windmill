@@ -394,6 +394,7 @@ async fn parse_python_imports_inner(
                 .inspect(|list| {
                     for dependency_v in list.into_iter() {
                         let requirement = dependency_v.as_str().unwrap_or("ERROR").to_owned();
+                        let key = extract_pkg_name(&requirement);
                         requirements.insert(
                             key.clone(),
                             NImportResolved::Pin {
@@ -413,11 +414,15 @@ async fn parse_python_imports_inner(
                     RE.captures(x).and_then(|x| {
                         x.get(1).map(|m| {
                             let requirement = m.as_str().to_string();
+                            let key = extract_pkg_name(&requirement);
                             requirements.insert(
-                                requirement.clone(),
-                                NImportResolved::Repin {
-                                    pin: ImportPin { pkg: requirement, path: Default::default() },
-                                    key: Default::default(),
+                                key.clone(),
+                                NImportResolved::Pin {
+                                    pins: vec![ImportPin {
+                                        pkg: requirement.clone(),
+                                        path: Default::default(),
+                                    }],
+                                    key,
                                 },
                             );
                         })

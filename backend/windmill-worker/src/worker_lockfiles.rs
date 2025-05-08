@@ -1997,7 +1997,7 @@ async fn ansible_dep(
         w_id,
         worker_dir,
         &mut Some(occupancy_metrics),
-        None,
+        PyV::gravitational_version(job_id, w_id, Some(db.clone().into())).await,
         PythonAnnotations::default(),
     )
     .await?;
@@ -2192,9 +2192,9 @@ async fn capture_dependency_job(
                     worker_name,
                     w_id,
                     worker_dir,
-                    &mut Some(occupancy_metrics),
-                    PyV::gravitational_version(job_id, w_id, Some(db.clone().into())).await,
-                    PythonAnnotations::default(),
+                    occupancy_metrics,
+                    token,
+                    base_internal_url,
                 )
                 .await
             }
