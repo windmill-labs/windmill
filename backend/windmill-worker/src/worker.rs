@@ -535,7 +535,7 @@ impl AuthedClient {
     {
         let mut query = vec![("file_key", object_key)];
         if let Some(storage) = storage {
-            query.push(("storage", storage.clone()));
+            query.push(("storage", storage));
         }
         self.force_client
             .as_ref()

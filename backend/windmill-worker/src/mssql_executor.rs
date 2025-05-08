@@ -17,13 +17,11 @@ use windmill_common::{
     utils::empty_string_as_none,
     worker::{to_raw_value, Connection},
 };
-use windmill_parser_sql::{
-    parse_db_resource, parse_mssql_sig, parse_s3_mode, s3_mode_extension, S3ModeFormat,
-};
+use windmill_parser_sql::{parse_db_resource, parse_mssql_sig, parse_s3_mode};
 use windmill_queue::MiniPulledJob;
 use windmill_queue::{append_logs, CanceledBy};
 
-use crate::common::{build_args_values, OccupancyMetrics};
+use crate::common::{build_args_values, s3_mode_args_to_worker_data, OccupancyMetrics};
 use crate::handle_child::run_future_with_polling_update_job_poller;
 use crate::sanitized_sql_params::sanitize_and_interpolate_unsafe_sql_args;
 use crate::AuthedClient;
@@ -55,15 +53,6 @@ lazy_static::lazy_static! {
     static ref RE_MSSQL_READONLY_INTENT: Regex = Regex::new(r#"(?mi)^-- ApplicationIntent=ReadOnly *(?:\r|\n|$)"#).unwrap();
 }
 
-#[derive(Clone)]
-struct S3Mode {
-    client: AuthedClient,
-    object_key: String,
-    format: S3ModeFormat,
-    storage: Option<String>,
-    workspace_id: String,
-}
-
 pub async fn do_mssql(
     job: &MiniPulledJob,
     client: &AuthedClient,
@@ -78,24 +67,7 @@ pub async fn do_mssql(
     let mssql_args = build_args_values(job, client, conn).await?;
 
     let inline_db_res_path = parse_db_resource(&query);
-    let s3 = parse_s3_mode(&query).map(|s3_mode| S3Mode {
-        client: client.clone(),
-        storage: s3_mode.storage,
-        object_key: format!(
-            "{}/{}.{}",
-            s3_mode.prefix.unwrap_or_else(|| format!(
-                "wmill_datalake/{}",
-                job.runnable_path
-                    .as_ref()
-                    .map(|s| s.as_str())
-                    .unwrap_or("unknown_script")
-            )),
-            job.id,
-            s3_mode_extension(s3_mode.format)
-        ),
-        format: s3_mode.format,
-        workspace_id: job.workspace_id.clone(),
-    });
+    let s3 = parse_s3_mode(&query).map(|s3| s3_mode_args_to_worker_data(s3, client.clone(), job));
 
     let db_arg = if let Some(inline_db_res_path) = inline_db_res_path {
         Some(
@@ -244,15 +216,7 @@ pub async fn do_mssql(
             let stream = convert_json_line_stream(rows_stream.boxed(), s3.format)
                 .await?
                 .map(|chunk| Ok::<_, Infallible>(chunk));
-
-            s3.client
-                .upload_s3_file(
-                    s3.workspace_id.as_str(),
-                    s3.object_key.clone(),
-                    s3.storage.clone(),
-                    stream,
-                )
-                .await?;
+            s3.upload(stream).await?;
 
             Ok(serde_json::value::to_raw_value(&s3.object_key)?)
         } else {

@@ -33,11 +33,13 @@ use windmill_common::worker::{to_raw_value, Connection, CLOUD_HOSTED};
 use windmill_parser::{Arg, Typ};
 use windmill_parser_sql::{
     parse_db_resource, parse_pg_statement_arg_indices, parse_pgsql_sig, parse_s3_mode,
-    parse_sql_blocks, s3_mode_extension, S3ModeFormat,
+    parse_sql_blocks,
 };
 use windmill_queue::{CanceledBy, MiniPulledJob};
 
-use crate::common::{build_args_values, sizeof_val, OccupancyMetrics};
+use crate::common::{
+    build_args_values, s3_mode_args_to_worker_data, sizeof_val, OccupancyMetrics, S3ModeWorkerData,
+};
 use crate::handle_child::run_future_with_polling_update_job_poller;
 use crate::sanitized_sql_params::sanitize_and_interpolate_unsafe_sql_args;
 use crate::{AuthedClient, MAX_RESULT_SIZE};
@@ -56,15 +58,6 @@ struct PgDatabase {
     root_certificate_pem: Option<String>,
 }
 
-#[derive(Clone)]
-struct S3Mode {
-    client: AuthedClient,
-    object_key: String,
-    format: S3ModeFormat,
-    storage: Option<String>,
-    workspace_id: String,
-}
-
 lazy_static! {
     pub static ref CONNECTION_CACHE: Arc<Mutex<Option<(String, tokio_postgres::Client)>>> =
         Arc::new(Mutex::new(None));
@@ -80,7 +73,7 @@ fn do_postgresql_inner<'a>(
     column_order: Option<&'a mut Option<Vec<String>>>,
     siz: &'a AtomicUsize,
     skip_collect: bool,
-    s3: Option<S3Mode>,
+    s3: Option<S3ModeWorkerData>,
 ) -> error::Result<BoxFuture<'a, anyhow::Result<Box<RawValue>>>> {
     let mut query_params = vec![];
 
@@ -131,15 +124,7 @@ fn do_postgresql_inner<'a>(
             let stream = convert_json_line_stream(rows_stream.boxed(), s3.format)
                 .await?
                 .map(|chunk| Ok::<_, Infallible>(chunk));
-
-            s3.client
-                .upload_s3_file(
-                    s3.workspace_id.as_str(),
-                    s3.object_key.clone(),
-                    s3.storage.clone(),
-                    stream,
-                )
-                .await?;
+            s3.upload(stream).await?;
 
             return Ok(serde_json::value::to_raw_value(&s3.object_key)?);
         } else {
@@ -207,24 +192,8 @@ pub async fn do_postgresql(
     let pg_args = build_args_values(job, client, conn).await?;
 
     let inline_db_res_path = parse_db_resource(&query);
-    let s3 = parse_s3_mode(&query).map(|s3_mode| S3Mode {
-        client: client.clone(),
-        storage: s3_mode.storage,
-        object_key: format!(
-            "{}/{}.{}",
-            s3_mode.prefix.unwrap_or_else(|| format!(
-                "wmill_datalake/{}",
-                job.runnable_path
-                    .as_ref()
-                    .map(|s| s.as_str())
-                    .unwrap_or("unknown_script")
-            )),
-            job.id,
-            s3_mode_extension(s3_mode.format)
-        ),
-        format: s3_mode.format,
-        workspace_id: job.workspace_id.clone(),
-    });
+
+    let s3 = parse_s3_mode(&query).map(|s3| s3_mode_args_to_worker_data(s3, client.clone(), job));
 
     let db_arg = if let Some(inline_db_res_path) = inline_db_res_path {
         Some(

@@ -16,14 +16,16 @@ use windmill_common::worker::Connection;
 
 use windmill_common::{error::Error, worker::to_raw_value};
 use windmill_parser_sql::{
-    parse_db_resource, parse_s3_mode, parse_snowflake_sig, parse_sql_blocks, s3_mode_extension,
-    S3ModeFormat,
+    parse_db_resource, parse_s3_mode, parse_snowflake_sig, parse_sql_blocks,
 };
 use windmill_queue::{CanceledBy, MiniPulledJob, HTTP_CLIENT};
 
 use serde::{Deserialize, Serialize};
 
-use crate::common::{build_http_client, resolve_job_timeout, OccupancyMetrics};
+use crate::common::{
+    build_http_client, resolve_job_timeout, s3_mode_args_to_worker_data, OccupancyMetrics,
+    S3ModeWorkerData,
+};
 use crate::handle_child::run_future_with_polling_update_job_poller;
 use crate::sanitized_sql_params::sanitize_and_interpolate_unsafe_sql_args;
 use crate::{common::build_args_values, AuthedClient};
@@ -120,15 +122,6 @@ impl SnowflakeResponseExt for Result<Response, reqwest::Error> {
     }
 }
 
-#[derive(Clone)]
-struct S3Mode {
-    client: AuthedClient,
-    object_key: String,
-    format: S3ModeFormat,
-    storage: Option<String>,
-    workspace_id: String,
-}
-
 fn do_snowflake_inner<'a>(
     query: &'a str,
     job_args: &HashMap<String, Value>,
@@ -139,7 +132,7 @@ fn do_snowflake_inner<'a>(
     column_order: Option<&'a mut Option<Vec<String>>>,
     skip_collect: bool,
     http_client: &'a Client,
-    s3: Option<S3Mode>,
+    s3: Option<S3ModeWorkerData>,
 ) -> windmill_common::error::Result<BoxFuture<'a, windmill_common::error::Result<Box<RawValue>>>> {
     let sig = parse_snowflake_sig(&query)
         .map_err(|x| Error::ExecutionErr(x.to_string()))?
@@ -203,15 +196,7 @@ fn do_snowflake_inner<'a>(
             let stream = convert_json_line_stream(rows_stream, s3.format)
                 .await?
                 .map(|chunk| Ok::<_, Infallible>(chunk));
-
-            s3.client
-                .upload_s3_file(
-                    s3.workspace_id.as_str(),
-                    s3.object_key.clone(),
-                    s3.storage.clone(),
-                    stream,
-                )
-                .await?;
+            s3.upload(stream).await?;
 
             Ok(serde_json::value::to_raw_value(&s3.object_key)?)
         } else {
@@ -304,24 +289,7 @@ pub async fn do_snowflake(
     let snowflake_args = build_args_values(job, client, conn).await?;
 
     let inline_db_res_path = parse_db_resource(&query);
-    let s3 = parse_s3_mode(&query).map(|s3_mode| S3Mode {
-        client: client.clone(),
-        storage: s3_mode.storage,
-        object_key: format!(
-            "{}/{}.{}",
-            s3_mode.prefix.unwrap_or_else(|| format!(
-                "wmill_datalake/{}",
-                job.runnable_path
-                    .as_ref()
-                    .map(|s| s.as_str())
-                    .unwrap_or("unknown_script")
-            )),
-            job.id,
-            s3_mode_extension(s3_mode.format)
-        ),
-        format: s3_mode.format,
-        workspace_id: job.workspace_id.clone(),
-    });
+    let s3 = parse_s3_mode(&query).map(|s3| s3_mode_args_to_worker_data(s3, client.clone(), job));
 
     let db_arg = if let Some(inline_db_res_path) = inline_db_res_path {
         Some(
