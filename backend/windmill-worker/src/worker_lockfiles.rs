@@ -45,9 +45,9 @@ use crate::java_executor::resolve;
 
 #[cfg(feature = "php")]
 use crate::php_executor::{composer_install, parse_php_imports};
-use crate::python_executor::PyV;
 #[cfg(feature = "python")]
 use crate::python_executor::{create_dependencies_dir, handle_python_reqs, uv_pip_compile};
+use crate::python_executor::{split_requirements, PyV};
 #[cfg(feature = "rust")]
 use crate::rust_executor::generate_cargo_lockfile;
 use crate::{
@@ -2107,41 +2107,43 @@ async fn capture_dependency_job(
             ));
             #[cfg(feature = "python")]
             {
-                let anns = PythonAnnotations::parse(job_raw_code);
-
-                let mut version_specifiers = vec![];
-
-                let reqs = if raw_deps {
+                // Manually assigned version from requirements.txt
+                // let assigned_py_version;
+                let (reqs, py_version) = if raw_deps {
                     // `wmill script generate-metadata`
                     // should also respect annotated pyversion
                     // can be annotated in script itself
                     // or in requirements.txt if present
-                    // annotated_pyv_numeric =
-                    //     PyVersion::from_py_annotations(anns).map(|v| v.to_numeric());
-                    // job_raw_code.to_string()
-                    todo!()
-                } else {
-                    windmill_parser_py_imports::parse_python_imports(
-                        job_raw_code,
-                        &w_id,
-                        script_path,
-                        &db,
-                        &mut version_specifiers,
-                    )
-                    .await?
-                    .0
-                    .join("\n")
-                };
 
-                let py_version = PyV::resolve(
-                    version_specifiers,
-                    job_id,
-                    w_id,
-                    Some(db.clone().into()),
-                    None,
-                    None,
-                )
-                .await?;
+                    (
+                        job_raw_code.to_owned(),
+                        PyV::parse_from_requirements(&split_requirements(job_raw_code)),
+                    )
+                } else {
+                    // assigned_py_version = None;
+                    let mut version_specifiers = vec![];
+                    (
+                        windmill_parser_py_imports::parse_python_imports(
+                            job_raw_code,
+                            &w_id,
+                            script_path,
+                            &db,
+                            &mut version_specifiers,
+                        )
+                        .await?
+                        .0
+                        .join("\n"),
+                        PyV::resolve(
+                            version_specifiers,
+                            job_id,
+                            w_id,
+                            Some(db.clone().into()),
+                            None,
+                            None,
+                        )
+                        .await?,
+                    )
+                };
 
                 python_dep(
                     reqs,
@@ -2155,7 +2157,7 @@ async fn capture_dependency_job(
                     worker_dir,
                     &mut Some(occupancy_metrics),
                     py_version,
-                    anns,
+                    PythonAnnotations::parse(job_raw_code),
                 )
                 .await
                 .map(|res| {
