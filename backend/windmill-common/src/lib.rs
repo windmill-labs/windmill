@@ -41,6 +41,7 @@ pub mod indexer;
 pub mod job_metrics;
 #[cfg(feature = "parquet")]
 pub mod job_s3_helpers_ee;
+
 #[cfg(all(feature = "enterprise", feature = "openidconnect"))]
 pub mod oidc_ee;
 
