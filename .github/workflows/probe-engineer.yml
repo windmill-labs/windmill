@@ -154,3 +154,5 @@ jobs:
 
     secrets:
       OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }} # If you use OpenAI in Probe
+      GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
+      FORCE_PROVIDER: ${{ secrets.FORCE_PROVIDER }}
