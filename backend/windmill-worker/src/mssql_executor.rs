@@ -17,7 +17,9 @@ use windmill_common::{
     utils::empty_string_as_none,
     worker::{to_raw_value, Connection},
 };
-use windmill_parser_sql::{parse_db_resource, parse_mssql_sig, parse_s3_mode, S3ModeFormat};
+use windmill_parser_sql::{
+    parse_db_resource, parse_mssql_sig, parse_s3_mode, s3_mode_extension, S3ModeFormat,
+};
 use windmill_queue::MiniPulledJob;
 use windmill_queue::{append_logs, CanceledBy};
 
@@ -80,7 +82,7 @@ pub async fn do_mssql(
         client: client.clone(),
         storage: s3_mode.storage,
         object_key: format!(
-            "{}/{}.json",
+            "{}/{}.{}",
             s3_mode.prefix.unwrap_or_else(|| format!(
                 "wmill_datalake/{}",
                 job.runnable_path
@@ -88,7 +90,8 @@ pub async fn do_mssql(
                     .map(|s| s.as_str())
                     .unwrap_or("unknown_script")
             )),
-            job.id
+            job.id,
+            s3_mode_extension(s3_mode.format)
         ),
         format: s3_mode.format,
         workspace_id: job.workspace_id.clone(),

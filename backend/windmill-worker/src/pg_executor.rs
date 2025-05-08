@@ -33,7 +33,7 @@ use windmill_common::worker::{to_raw_value, Connection, CLOUD_HOSTED};
 use windmill_parser::{Arg, Typ};
 use windmill_parser_sql::{
     parse_db_resource, parse_pg_statement_arg_indices, parse_pgsql_sig, parse_s3_mode,
-    parse_sql_blocks, S3ModeFormat,
+    parse_sql_blocks, s3_mode_extension, S3ModeFormat,
 };
 use windmill_queue::{CanceledBy, MiniPulledJob};
 
@@ -211,7 +211,7 @@ pub async fn do_postgresql(
         client: client.clone(),
         storage: s3_mode.storage,
         object_key: format!(
-            "{}/{}.json",
+            "{}/{}.{}",
             s3_mode.prefix.unwrap_or_else(|| format!(
                 "wmill_datalake/{}",
                 job.runnable_path
@@ -219,7 +219,8 @@ pub async fn do_postgresql(
                     .map(|s| s.as_str())
                     .unwrap_or("unknown_script")
             )),
-            job.id
+            job.id,
+            s3_mode_extension(s3_mode.format)
         ),
         format: s3_mode.format,
         workspace_id: job.workspace_id.clone(),
