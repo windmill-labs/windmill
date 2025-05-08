@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.489.0
+  version: 1.488.0
   title: Windmill API
 
   contact:
@@ -2245,6 +2245,40 @@ paths:
                   job_uuid:
                     type: string
 
+  /w/{workspace}/workspaces/run_teams_message_test_job:
+    post:
+      summary: run a job that sends a message to Teams
+      operationId: runTeamsMessageTestJob
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        description: path to hub script to run and its corresponding args
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                hub_script_path:
+                  type: string
+                channel:
+                  type: string
+                test_msg:
+                  type: string
+
+      responses:
+        "200":
+          description: status
+          content:
+            text/json:
+              schema:
+                type: object
+                properties:
+                  job_uuid:
+                    type: string
+
   /w/{workspace}/workspaces/edit_deploy_to:
     post:
       summary: edit deploy to
@@ -3579,6 +3613,41 @@ paths:
 
       responses:
         "200":
+          description: Activity processed successfully
+
+  /teams/activities:
+    post:
+      summary: send update to Microsoft Teams activity
+      description: Respond to a Microsoft Teams activity after a workspace command is run
+      operationId: sendMessageToConversation
+      tags:
+        - teams
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - conversation_id
+                - text
+              properties:
+                conversation_id:
+                  type: string
+                  description: The ID of the Teams conversation/activity
+                success:
+                  type: boolean
+                  description: Used for styling the card conditionally
+                  default: true
+                text:
+                  type: string
+                  description: The message text to be sent in the Teams card
+                card_block:
+                  type: object
+                  description: The card block to be sent in the Teams card
+
+      responses:
+        '200':
           description: Activity processed successfully
 
   /w/{workspace}/resources/create:
@@ -7876,6 +7945,52 @@ paths:
           schema:
             type: string
         - name: channel_id
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: flow_step_id
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: default_args_json
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: dynamic_enums_json
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Interactive slack approval message sent successfully
+
+  /w/{workspace}/jobs/teams_approval/{id}:
+    get:
+      summary: generate interactive teams approval for suspended job
+      operationId: getTeamsApprovalPayload
+      tags:
+        - job
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/JobId"
+        - name: approver
+          in: query
+          schema:
+            type: string
+        - name: message
+          in: query
+          schema:
+            type: string
+        - name: team_name
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: channel_name
           in: query
           required: true
           schema:
