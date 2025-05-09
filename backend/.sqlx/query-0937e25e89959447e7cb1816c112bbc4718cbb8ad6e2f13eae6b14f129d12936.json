@@ -1,35 +1,40 @@
 {
   "db_name": "PostgreSQL",
-  "query": "select tag, concurrency_key, concurrent_limit, concurrency_time_window_s, cache_ttl, language as \"language: ScriptLang\", dedicated_worker, priority, delete_after_use, timeout, on_behalf_of_email, created_by from script where hash = $1 AND workspace_id = $2",
+  "query": "select hash, tag, concurrency_key, concurrent_limit, concurrency_time_window_s, cache_ttl, language as \"language: ScriptLang\", dedicated_worker, priority, delete_after_use, timeout, has_preprocessor, on_behalf_of_email, created_by, path from script where hash = $1 AND workspace_id = $2",
   "describe": {
     "columns": [
       {
         "ordinal": 0,
+        "name": "hash",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
         "name": "tag",
         "type_info": "Varchar"
       },
       {
-        "ordinal": 1,
+        "ordinal": 2,
         "name": "concurrency_key",
         "type_info": "Varchar"
       },
       {
-        "ordinal": 2,
+        "ordinal": 3,
         "name": "concurrent_limit",
         "type_info": "Int4"
       },
       {
-        "ordinal": 3,
+        "ordinal": 4,
         "name": "concurrency_time_window_s",
         "type_info": "Int4"
       },
       {
-        "ordinal": 4,
+        "ordinal": 5,
         "name": "cache_ttl",
         "type_info": "Int4"
       },
       {
-        "ordinal": 5,
+        "ordinal": 6,
         "name": "language: ScriptLang",
         "type_info": {
           "Custom": {
@@ -63,33 +68,43 @@
         }
       },
       {
-        "ordinal": 6,
+        "ordinal": 7,
         "name": "dedicated_worker",
         "type_info": "Bool"
       },
       {
-        "ordinal": 7,
+        "ordinal": 8,
         "name": "priority",
         "type_info": "Int2"
       },
       {
-        "ordinal": 8,
+        "ordinal": 9,
         "name": "delete_after_use",
         "type_info": "Bool"
       },
       {
-        "ordinal": 9,
+        "ordinal": 10,
         "name": "timeout",
         "type_info": "Int4"
       },
       {
-        "ordinal": 10,
+        "ordinal": 11,
+        "name": "has_preprocessor",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 12,
         "name": "on_behalf_of_email",
         "type_info": "Text"
       },
       {
-        "ordinal": 11,
+        "ordinal": 13,
         "name": "created_by",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 14,
+        "name": "path",
         "type_info": "Varchar"
       }
     ],
@@ -100,6 +115,7 @@
       ]
     },
     "nullable": [
+      false,
       true,
       true,
       true,
@@ -111,8 +127,10 @@
       true,
       true,
       true,
+      true,
+      false,
       false
     ]
   },
-  "hash": "ec7836df5f9056ec70015800b7f4feaeb1b671120f5f8c98fca8c89c6587fc35"
+  "hash": "0937e25e89959447e7cb1816c112bbc4718cbb8ad6e2f13eae6b14f129d12936"
 }
