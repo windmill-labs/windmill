@@ -355,7 +355,7 @@ where
         let uri = request.uri();
         let request_query = Query::<RequestQuery>::try_from_uri(uri).unwrap().0;
         let headers = build_headers(&headers_map, request_query.include_header, is_http_trigger);
-        let query_decode = DecodeQueries::from_uri(uri);
+        let query_decode = DecodeQueries::from_uri(uri, is_http_trigger);
         let mut query = HashMap::new();
         if let Some(DecodeQueries(queries)) = query_decode {
             query.extend(queries);
@@ -500,37 +500,49 @@ where
     type Rejection = Response;
 
     async fn from_request_parts(parts: &mut Parts, _state: &S) -> Result<Self, Self::Rejection> {
-        Ok(DecodeQueries::from_uri(&parts.uri).unwrap_or_else(|| DecodeQueries(HashMap::new())))
+        Ok(DecodeQueries::from_uri(&parts.uri, false)
+            .unwrap_or_else(|| DecodeQueries(HashMap::new())))
     }
 }
 
 impl DecodeQueries {
-    pub fn from_uri(uri: &Uri) -> Option<Self> {
+    pub fn from_uri(uri: &Uri, is_http_trigger: bool) -> Option<Self> {
         let query = uri.query();
         if query.is_none() {
             return None;
         }
         let query = query.unwrap();
-        let include_query = serde_urlencoded::from_str::<IncludeQuery>(query)
-            .map(|x| x.include_query)
-            .ok()
-            .flatten()
-            .unwrap_or_default();
-        let parse_query_args = include_query
-            .split(",")
-            .map(|s| s.to_string())
-            .collect::<Vec<_>>();
-        let mut args = HashMap::new();
-        if !parse_query_args.is_empty() {
+        if is_http_trigger {
             let queries =
                 serde_urlencoded::from_str::<HashMap<String, String>>(query).unwrap_or_default();
-            parse_query_args.iter().for_each(|h| {
-                if let Some(v) = queries.get(h) {
-                    args.insert(h.to_string(), to_raw_value(v));
-                }
-            });
+            Some(DecodeQueries(
+                queries
+                    .into_iter()
+                    .map(|(k, v)| (k, to_raw_value(&v)))
+                    .collect(),
+            ))
+        } else {
+            let include_query = serde_urlencoded::from_str::<IncludeQuery>(query)
+                .map(|x| x.include_query)
+                .ok()
+                .flatten()
+                .unwrap_or_default();
+            let parse_query_args = include_query
+                .split(",")
+                .map(|s| s.to_string())
+                .collect::<Vec<_>>();
+            let mut args = HashMap::new();
+            if !parse_query_args.is_empty() {
+                let queries = serde_urlencoded::from_str::<HashMap<String, String>>(query)
+                    .unwrap_or_default();
+                parse_query_args.iter().for_each(|h| {
+                    if let Some(v) = queries.get(h) {
+                        args.insert(h.to_string(), to_raw_value(v));
+                    }
+                });
+            }
+            Some(DecodeQueries(args))
         }
-        Some(DecodeQueries(args))
     }
 }
 
