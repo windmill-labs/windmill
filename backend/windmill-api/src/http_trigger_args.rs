@@ -158,9 +158,10 @@ impl HttpTriggerArgs {
         wrap_body: bool,
     ) -> Result<PushArgsOwned, Error> {
         let mut extra = HashMap::new();
-
-        extra.insert(
-            "wm_trigger".to_string(),
+        let mut wm_trigger = HashMap::new();
+        wm_trigger.insert("kind".to_string(), to_raw_value(&"http".to_string()));
+        wm_trigger.insert(
+            "http".to_string(),
             to_raw_value(&HttpTriggerWmTrigger {
                 route: route_path,
                 path: called_path,
@@ -170,6 +171,7 @@ impl HttpTriggerArgs {
                 headers: &self.0.metadata.headers,
             }),
         );
+        extra.insert("wm_trigger".to_string(), to_raw_value(&wm_trigger));
 
         let mut args = self.to_main_args(wrap_body)?;
 
