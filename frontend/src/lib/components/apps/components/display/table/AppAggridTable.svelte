@@ -88,7 +88,6 @@
 
 	let loaded = false
 
-
 	async function setValues() {
 		value = Array.isArray(result)
 			? (result as any[]).map((x, i) => ({ ...x, __index: i.toString() + '-' + uid }))
@@ -159,13 +158,16 @@
 			outputs?.selectedRows.set([])
 		}
 		toggleRow(rows[0])
-		outputs?.selectedRows.set(
-			rows.map((x) => {
-				let data = { ...x.data }
-				delete data['__index']
-				return data
-			})
-		)
+		const selectedRows = rows.map((x) => {
+			let data = { ...x.data }
+			delete data['__index']
+			return data
+		})
+		outputs?.selectedRows.set(selectedRows)
+
+		if (iterContext && listInputs) {
+			listInputs.set(id, { selectedRows })
+		}
 	}
 
 	$: outputs?.result?.set(result ?? [])
