@@ -4,7 +4,7 @@
 	import CaptureTable from '../CaptureTable.svelte'
 	import Required from '$lib/components/Required.svelte'
 	import ResourcePicker from '$lib/components/ResourcePicker.svelte'
-	import { copyToClipboard, emptyStringTrimmed } from '$lib/utils'
+	import { copyToClipboard, emptyStringTrimmed, sendUserToast } from '$lib/utils'
 	import TestTriggerConnection from '../TestTriggerConnection.svelte'
 	import Subsection from '$lib/components/Subsection.svelte'
 	import {
@@ -46,30 +46,44 @@
 	let topic_items: string[] = []
 	let subscription_items: string[] = []
 	let darkMode = false
+	let loadingTopic = false
+	let loadingSubscription = false
 
 	const DEFAULT_PUSH_CONFIG: PushConfig = {
 		audience: '',
-		authenticate: false,
+		authenticate: false
 	}
 
 	async function loadAllPubSubTopicsFromProject() {
 		if (!emptyStringTrimmed(gcp_resource_path)) {
-			topic_items = await GcpTriggerService.listGoogleTopics({
-				workspace: $workspaceStore!,
-				path: gcp_resource_path
-			})
+			try {
+				loadingTopic = true
+				topic_items = await GcpTriggerService.listGoogleTopics({
+					workspace: $workspaceStore!,
+					path: gcp_resource_path
+				})
+			} catch (error) {
+				sendUserToast(error.body, true)
+			}
+			loadingTopic = false
 		}
 	}
 
 	async function loadAllSubscriptionFromGooglePubSubTopic() {
 		if (!emptyStringTrimmed(gcp_resource_path) && !emptyStringTrimmed(topic_id)) {
-			subscription_items = await GcpTriggerService.listAllTgoogleTopicSubscriptions({
-				workspace: $workspaceStore!,
-				path: gcp_resource_path,
-				requestBody: {
-					topic_id
-				}
-			})
+			try {
+				loadingSubscription = true
+				subscription_items = await GcpTriggerService.listAllTgoogleTopicSubscriptions({
+					workspace: $workspaceStore!,
+					path: gcp_resource_path,
+					requestBody: {
+						topic_id
+					}
+				})
+			} catch (error) {
+				sendUserToast(error.body, true)
+			}
+			loadingSubscription = false
 		}
 	}
 
@@ -137,42 +151,45 @@
 				</div>
 			</Subsection>
 
-			<div class="flex flex-col gap-1">
-				<Subsection
-					label="Topic"
-					tooltip="Select the Pub/Sub topic that this subscription will be attached to. Messages published to this topic will be delivered to your subscription."
-				>
-					<div class="flex gap-1 mt-2">
-						<Select
-							class="grow shrink max-w-full"
-							on:change={(e) => {
-								topic_id = e.detail.value
-								loadAllSubscriptionFromGooglePubSubTopic()
-							}}
-							on:clear={() => {
-								topic_id = ''
-							}}
-							value={topic_id}
-							items={topic_items}
-							placeholder="Choose a topic"
-							inputStyles={SELECT_INPUT_DEFAULT_STYLE.inputStyles}
-							containerStyles={darkMode
-								? SELECT_INPUT_DEFAULT_STYLE.containerStylesDark
-								: SELECT_INPUT_DEFAULT_STYLE.containerStyles}
-							portal={false}
-						/>
-						<Button
-							disabled={!can_write}
-							variant="border"
-							color="light"
-							wrapperClasses="self-stretch"
-							on:click={loadAllPubSubTopicsFromProject}
-							startIcon={{ icon: RefreshCw }}
-							iconOnly
-						/>
-					</div>
-				</Subsection>
-			</div>
+			{#if gcp_resource_path}
+				<div class="flex flex-col gap-1">
+					<Subsection
+						label="Topic"
+						tooltip="Select the Pub/Sub topic that this subscription will be attached to. Messages published to this topic will be delivered to your subscription."
+					>
+						<div class="flex flex-row gap-1 mt-2">
+							<Select
+								loading={loadingTopic}
+								class="grow shrink max-w-full"
+								on:change={(e) => {
+									topic_id = e.detail.value
+									loadAllSubscriptionFromGooglePubSubTopic()
+								}}
+								on:clear={() => {
+									topic_id = ''
+								}}
+								value={topic_id}
+								items={topic_items}
+								placeholder="Choose a topic"
+								inputStyles={SELECT_INPUT_DEFAULT_STYLE.inputStyles}
+								containerStyles={darkMode
+									? SELECT_INPUT_DEFAULT_STYLE.containerStylesDark
+									: SELECT_INPUT_DEFAULT_STYLE.containerStyles}
+								portal={false}
+							/>
+							<Button
+								disabled={!can_write}
+								variant="border"
+								color="light"
+								wrapperClasses="self-stretch"
+								on:click={loadAllPubSubTopicsFromProject}
+								startIcon={{ icon: RefreshCw }}
+								iconOnly
+							/>
+						</div>
+					</Subsection>
+				</div>
+			{/if}
 			{#if !emptyStringTrimmed(gcp_resource_path) && !emptyStringTrimmed(topic_id)}
 				<Section
 					label="Subscription"
@@ -300,6 +317,7 @@
 							<div class="flex flex-col gap-3">
 								<div class="flex gap-1">
 									<Select
+										loading={loadingSubscription}
 										class="grow shrink max-w-full"
 										on:change={(e) => {
 											subscription_id = e.detail.value

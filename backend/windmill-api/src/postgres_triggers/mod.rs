@@ -25,12 +25,17 @@ pub use handler::PostgresTrigger;
 use handler::{
     alter_publication, create_postgres_trigger, create_publication, create_slot,
     create_template_script, delete_postgres_trigger, delete_publication, drop_slot_name,
-    exists_postgres_trigger, get_postgres_trigger, get_postgres_version, get_publication_info,
-    get_template_script, is_database_in_logical_level, list_database_publication,
-    list_postgres_triggers, list_slot_name, set_enabled, test_postgres_connection,
-    update_postgres_trigger, Postgres, Relations,
+    exists_postgres_trigger, get_postgres_trigger, get_postgres_version,
+    get_postgres_version_internal, get_publication_info, get_template_script,
+    is_database_in_logical_level, list_database_publication, list_postgres_triggers,
+    list_slot_name, set_enabled, test_postgres_connection, update_postgres_trigger, Postgres,
+    Relations,
 };
-use windmill_common::{db::UserDB, error::Error, utils::StripPath};
+use windmill_common::{
+    db::UserDB,
+    error::{Error, Result},
+    utils::StripPath,
+};
 mod bool;
 mod converter;
 mod handler;
@@ -53,7 +58,7 @@ pub async fn get_pg_connection(
     db: &DB,
     postgres_resource_path: &str,
     w_id: &str,
-) -> std::result::Result<PgConnection, windmill_common::error::Error> {
+) -> Result<PgConnection> {
     let database =
         try_get_resource_from_db_as::<Postgres>(authed, user_db, db, postgres_resource_path, w_id)
             .await?;
@@ -61,9 +66,7 @@ pub async fn get_pg_connection(
     Ok(get_raw_postgres_connection(&database).await?)
 }
 
-pub async fn get_raw_postgres_connection(
-    db: &Postgres,
-) -> std::result::Result<PgConnection, Error> {
+pub async fn get_raw_postgres_connection(db: &Postgres) -> Result<PgConnection> {
     let options = {
         let sslmode = if !db.sslmode.is_empty() {
             PgSslMode::from_str(&db.sslmode)?
@@ -100,7 +103,10 @@ pub async fn get_raw_postgres_connection(
     Ok(PgConnection::connect_with(&options).await?)
 }
 
-pub fn create_logical_replication_slot_query(name: &str) -> String {
+pub async fn create_logical_replication_slot(
+    pg_connection: &mut PgConnection,
+    name: &str,
+) -> Result<()> {
     let query = format!(
         r#"
         SELECT 
@@ -110,14 +116,53 @@ pub fn create_logical_replication_slot_query(name: &str) -> String {
         quote_literal(&name)
     );
 
-    query
+    sqlx::query(&query).execute(pg_connection).await?;
+
+    Ok(())
 }
 
-pub fn create_publication_query(
+async fn check_if_valid_publication_for_postgres_version(
+    pg_connection: &mut PgConnection,
+    table_to_track: Option<&[Relations]>,
+) -> Result<bool> {
+    let postgres_version = get_postgres_version_internal(pg_connection).await?;
+
+    let pg_14 = postgres_version.starts_with("14");
+    if pg_14 {
+        let unsupported_publication = table_to_track
+            .and_then(|relations| {
+                relations.iter().find(|relation| {
+                    let invalid_relation = relation.table_to_track.iter().find(|table_to_track| {
+                        table_to_track.where_clause.is_some()
+                            || table_to_track.columns_name.is_some()
+                    });
+
+                    relation.table_to_track.is_empty() || invalid_relation.is_some()
+                })
+            })
+            .is_some();
+
+        if unsupported_publication {
+            return Err(Error::BadRequest(
+                    "Your PostgreSQL database is running version 14, which does not support the following publication features: \
+                    - WHERE clause filtering, \
+                    - selective column tracking, and \
+                    - tracking all tables within a schema.\n\
+                    These features are only available in PostgreSQL 15 and above.".to_string(),
+                ));
+        }
+    }
+    Ok(pg_14)
+}
+
+pub async fn create_pg_publication(
+    pg_connection: &mut PgConnection,
     publication_name: &str,
     table_to_track: Option<&[Relations]>,
-    transaction_to_track: &[&str],
-) -> String {
+    transaction_to_track: &[String],
+) -> Result<()> {
+    let pg_14 =
+        check_if_valid_publication_for_postgres_version(pg_connection, table_to_track).await?;
     let mut query = String::from("CREATE PUBLICATION ");
 
     query.push_str(&quote_identifier(publication_name));
@@ -125,12 +170,18 @@ pub fn create_publication_query(
     match table_to_track {
         Some(database_component) if !database_component.is_empty() => {
             query.push_str(" FOR");
+            let mut first = true;
             for (i, schema) in database_component.iter().enumerate() {
                 if schema.table_to_track.is_empty() {
                     query.push_str(" TABLES IN SCHEMA ");
                     query.push_str(&quote_identifier(&schema.schema_name));
                 } else {
-                    query.push_str(" TABLE ONLY ");
+                    if pg_14 && first {
+                        query.push_str(" TABLE ONLY ");
+                        first = false
+                    } else if !pg_14 {
+                        query.push_str(" TABLE ONLY ");
+                    }
                     for (j, table) in schema.table_to_track.iter().enumerate() {
                         let table_name = quote_identifier(&table.table_name);
                         let schema_name = quote_identifier(&schema.schema_name);
@@ -174,22 +225,35 @@ pub fn create_publication_query(
         query.push_str("');");
     }
 
-    query
+    sqlx::query(&query).execute(pg_connection).await?;
+
+    Ok(())
 }
 
-pub fn drop_publication_query(publication_name: &str) -> String {
+pub async fn drop_publication(
+    pg_connection: &mut PgConnection,
+    publication_name: &str,
+) -> Result<()> {
     let mut query = String::from("DROP PUBLICATION IF EXISTS ");
     let quoted_publication_name = quote_identifier(publication_name);
     query.push_str(&quoted_publication_name);
-    query.push_str(";");
-    query
+
+    sqlx::query(&query).execute(pg_connection).await?;
+
+    Ok(())
 }
 
-pub fn drop_logical_replication_slot_query(replication_slot_name: &str) -> String {
-    format!(
+pub async fn drop_logical_replication_slot(
+    pg_connection: &mut PgConnection,
+    replication_slot_name: &str,
+) -> Result<()> {
+    let query = format!(
         "SELECT pg_drop_replication_slot({});",
         quote_literal(&replication_slot_name)
-    )
+    );
+    sqlx::query(&query).execute(pg_connection).await?;
+
+    Ok(())
 }
 
 pub fn generate_random_string() -> String {

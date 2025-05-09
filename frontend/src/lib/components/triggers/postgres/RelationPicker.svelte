@@ -25,15 +25,19 @@
 
 	$effect(() => {
 		if (pg14 && relations) {
-			relations.forEach((relation) => {
-				relation.table_to_track.forEach((table_to_track) => {
-					if (table_to_track.columns_name && table_to_track.columns_name.length > 0) {
-						table_to_track.columns_name = undefined
-					}
-					if (!emptyStringTrimmed(table_to_track.where_clause)) {
-						table_to_track.where_clause = undefined
-					}
-				})
+			relations.forEach((relation, index) => {
+				if (index == 0 && relation.table_to_track.length === 0) {
+					relation.table_to_track.push({ table_name: '' })
+				} else {
+					relation.table_to_track.forEach((table_to_track) => {
+						if (table_to_track.columns_name && table_to_track.columns_name.length > 0) {
+							table_to_track.columns_name = undefined
+						}
+						if (!emptyStringTrimmed(table_to_track.where_clause)) {
+							table_to_track.where_clause = undefined
+						}
+					})
+				}
 			})
 		}
 	})
@@ -43,7 +47,7 @@
 			relations = [
 				{
 					schema_name: 'public',
-					table_to_track: []
+					table_to_track: pg14 ? [{ table_name: '' }] : []
 				}
 			]
 		}
@@ -233,7 +237,11 @@
 										color="light"
 										size="xs"
 										on:click={() => {
-											v.table_to_track = v.table_to_track.filter((_, index) => index !== j)
+											if (pg14 && v.table_to_track.length > 1) {
+												v.table_to_track = v.table_to_track.filter((_, index) => index !== j)
+											} else if (!pg14) {
+												v.table_to_track = v.table_to_track.filter((_, index) => index !== j)
+											}
 										}}
 										iconOnly
 										startIcon={{ icon: Trash }}
@@ -293,17 +301,16 @@
 					} else if (emptyStringTrimmed(detail.name)) {
 						sendUserToast('Schema name must not be empty', true)
 					} else {
-						const appendedRelations = relations.concat({
-							schema_name: detail.name,
-							table_to_track: []
-						})
 						if (
-							invalidRelations(appendedRelations, {
+							invalidRelations(relations, {
 								showError: true,
 								trackSchemaTableError: false
 							}) === false
 						) {
-							relations = appendedRelations
+							relations.push({
+								schema_name: detail.name,
+								table_to_track: pg14 ? [{ table_name: '' }] : []
+							})
 						}
 					}
 				}}

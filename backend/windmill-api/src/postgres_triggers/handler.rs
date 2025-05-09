@@ -29,9 +29,10 @@ use windmill_common::{
 };
 
 use super::{
-    create_logical_replication_slot_query, create_publication_query, drop_publication_query,
-    generate_random_string, get_pg_connection, get_raw_postgres_connection,
-    ERROR_PUBLICATION_NAME_NOT_EXISTS, ERROR_REPLICATION_SLOT_NOT_EXISTS,
+    check_if_valid_publication_for_postgres_version, create_logical_replication_slot,
+    create_pg_publication, drop_publication, generate_random_string, get_pg_connection,
+    get_raw_postgres_connection, ERROR_PUBLICATION_NAME_NOT_EXISTS,
+    ERROR_REPLICATION_SLOT_NOT_EXISTS,
 };
 use lazy_static::lazy_static;
 
@@ -52,6 +53,7 @@ pub struct TableToTrack {
     pub table_name: String,
     #[serde(default, deserialize_with = "empty_as_none")]
     pub where_clause: Option<String>,
+    #[serde(default, deserialize_with = "empty_as_none")]
     pub columns_name: Option<Vec<String>>,
 }
 
@@ -295,37 +297,6 @@ async fn check_if_logical_replication_slot_exist(
     Ok(())
 }
 
-async fn check_if_valid_publication_for_postgres_version(
-    pg_connection: &mut PgConnection,
-    publication: &PublicationData,
-) -> Result<()> {
-    let postgres_version = get_postgres_version_internal(pg_connection).await?;
-
-    if postgres_version.starts_with("14") {
-        let unsupported_publication = publication
-            .table_to_track
-            .as_ref()
-            .and_then(|relations| {
-                relations.iter().find(|relation| {
-                    let invalid_relation = relation.table_to_track.iter().find(|table_to_track| {
-                        table_to_track.where_clause.is_some()
-                            || table_to_track.columns_name.is_some()
-                    });
-
-                    invalid_relation.is_some()
-                })
-            })
-            .is_some();
-
-        if unsupported_publication {
-            return Err(Error::BadRequest(
-                    "Your PostgreSQL database is running version 14, which does not support WHERE clauses or selective column tracking. These features are only available in PostgreSQL 15 and above.".to_string(),
-                ));
-        }
-    }
-    Ok(())
-}
-
 async fn create_custom_slot_and_publication_inner(
     authed: ApiAuthed,
     user_db: UserDB,
@@ -346,23 +317,15 @@ async fn create_custom_slot_and_publication_inner(
     )
     .await?;
 
-    check_if_valid_publication_for_postgres_version(&mut pg_connection, publication).await?;
-
-    let query = create_publication_query(
+    create_pg_publication(
+        &mut pg_connection,
         &publication_name,
         publication.table_to_track.as_deref(),
-        &publication
-            .transaction_to_track
-            .iter()
-            .map(AsRef::as_ref)
-            .collect_vec(),
-    );
+        &publication.transaction_to_track,
+    )
+    .await?;
 
-    sqlx::query(&query).execute(&mut pg_connection).await?;
-
-    let query = create_logical_replication_slot_query(&replication_slot_name);
-
-    sqlx::query(&query).execute(&mut pg_connection).await?;
+    create_logical_replication_slot(&mut pg_connection, &replication_slot_name).await?;
 
     Ok(PostgresPublicationReplication::new(
         publication_name,
@@ -370,7 +333,7 @@ async fn create_custom_slot_and_publication_inner(
     ))
 }
 
-async fn get_postgres_version_internal(pg_connection: &mut PgConnection) -> Result<String> {
+pub async fn get_postgres_version_internal(pg_connection: &mut PgConnection) -> Result<String> {
     let postgres_version: String = sqlx::query_scalar("SHOW server_version;")
         .fetch_one(&mut *pg_connection)
         .await
@@ -685,9 +648,7 @@ pub async fn create_slot(
     )
     .await?;
 
-    let query = create_logical_replication_slot_query(&name);
-
-    sqlx::query(&query).execute(&mut pg_connection).await?;
+    create_logical_replication_slot(&mut pg_connection, &name).await?;
 
     Ok(format!("Replication slot {} created!", name))
 }
@@ -825,17 +786,15 @@ pub async fn create_publication(
     )
     .await?;
 
-    check_if_valid_publication_for_postgres_version(&mut pg_connection, &publication_data).await?;
-
     let PublicationData { table_to_track, transaction_to_track } = publication_data;
 
-    let query = create_publication_query(
+    create_pg_publication(
+        &mut pg_connection,
         &publication_name,
         table_to_track.as_deref(),
-        &transaction_to_track.iter().map(AsRef::as_ref).collect_vec(),
-    );
-
-    sqlx::query(&query).execute(&mut pg_connection).await?;
+        &transaction_to_track,
+    )
+    .await?;
 
     Ok(format!(
         "Publication {} successfully created!",
@@ -858,9 +817,7 @@ pub async fn delete_publication(
     )
     .await?;
 
-    let query = drop_publication_query(&publication_name);
-
-    sqlx::query(&query).execute(&mut pg_connection).await?;
+    drop_publication(&mut pg_connection, &publication_name).await?;
 
     Ok(format!(
         "Publication {} successfully deleted!",
@@ -868,27 +825,35 @@ pub async fn delete_publication(
     ))
 }
 
-pub fn get_update_publication_query(
+pub async fn get_update_publication(
+    pg_connection: &mut PgConnection,
     publication_name: &str,
     PublicationData { table_to_track, transaction_to_track }: PublicationData,
     all_table: bool,
-) -> Vec<String> {
+) -> Result<()> {
     let quoted_publication_name = quote_identifier(&publication_name);
 
     let transaction_to_track_as_str = transaction_to_track.iter().join(",");
-    let mut queries = Vec::with_capacity(2);
     match table_to_track {
         Some(ref relations) if !relations.is_empty() => {
             if all_table {
-                queries.push(drop_publication_query(&publication_name));
-                queries.push(create_publication_query(
+                drop_publication(pg_connection, &publication_name).await?;
+                create_pg_publication(
+                    pg_connection,
                     &publication_name,
                     table_to_track.as_deref(),
-                    &transaction_to_track.iter().map(AsRef::as_ref).collect_vec(),
-                ));
+                    &transaction_to_track,
+                )
+                .await?;
             } else {
-                let mut query = String::from("");
+                let pg_14 = check_if_valid_publication_for_postgres_version(
+                    pg_connection,
+                    table_to_track.as_deref(),
+                )
+                .await?;
 
+                let mut query = String::from("");
+                let mut first = true;
                 query.push_str("ALTER PUBLICATION ");
                 query.push_str(&quoted_publication_name);
                 query.push_str(" SET");
@@ -898,7 +863,12 @@ pub fn get_update_publication_query(
                         let quoted_schema = quote_identifier(&schema.schema_name);
                         query.push_str(&quoted_schema);
                     } else {
-                        query.push_str(" TABLE ONLY ");
+                        if pg_14 && first {
+                            query.push_str(" TABLE ONLY ");
+                            first = false
+                        } else if !pg_14 {
+                            query.push_str(" TABLE ONLY ");
+                        }
                         for (j, table) in schema.table_to_track.iter().enumerate() {
                             let table_name = quote_identifier(&table.table_name);
                             let schema_name = quote_identifier(&schema.schema_name);
@@ -929,9 +899,8 @@ pub fn get_update_publication_query(
                         query.push(',');
                     }
                 }
-                query.push(';');
 
-                queries.push(query);
+                sqlx::query(&query).execute(&mut *pg_connection).await?;
 
                 let mut query = String::new();
 
@@ -941,23 +910,26 @@ pub fn get_update_publication_query(
                     " SET (publish = '{}');",
                     transaction_to_track_as_str
                 ));
-                queries.push(query);
+
+                sqlx::query(&query).execute(pg_connection).await?;
             }
         }
         _ => {
-            queries.push(drop_publication_query(&publication_name));
-            let to_execute = format!(
+            drop_publication(pg_connection, &publication_name).await?;
+            let query_to_execute = format!(
                 r#"
                 CREATE
                     PUBLICATION {} FOR ALL TABLES WITH (publish = '{}');
                 "#,
                 quoted_publication_name, transaction_to_track_as_str
             );
-            queries.push(to_execute);
+            sqlx::query(&query_to_execute)
+                .execute(pg_connection)
+                .await?;
         }
     };
 
-    queries
+    Ok(())
 }
 
 pub async fn alter_publication(
@@ -976,18 +948,18 @@ pub async fn alter_publication(
     )
     .await?;
 
-    check_if_valid_publication_for_postgres_version(&mut pg_connection, &publication_data).await?;
-
     check_if_publication_exist(&mut pg_connection, &publication_name).await?;
 
     let (all_table, _) =
         get_publication_scope_and_transaction(&mut pg_connection, &publication_name).await?;
 
-    let queries = get_update_publication_query(&publication_name, publication_data, all_table);
-
-    for query in queries {
-        sqlx::query(&query).execute(&mut pg_connection).await?;
-    }
+    get_update_publication(
+        &mut pg_connection,
+        &publication_name,
+        publication_data,
+        all_table,
+    )
+    .await?;
 
     Ok(format!(
         "Publication {} updated with success",
@@ -1195,15 +1167,17 @@ pub async fn update_postgres_trigger(
     check_if_logical_replication_slot_exist(&mut pg_connection, &replication_slot_name).await?;
 
     if let Some(publication) = publication {
-        check_if_valid_publication_for_postgres_version(&mut pg_connection, &publication).await?;
         check_if_publication_exist(&mut pg_connection, &publication_name).await?;
         let (all_table, _) =
             get_publication_scope_and_transaction(&mut pg_connection, &publication_name).await?;
 
-        let queries = get_update_publication_query(&publication_name, publication, all_table);
-        for query in queries {
-            sqlx::query(&query).execute(&mut pg_connection).await?;
-        }
+        get_update_publication(
+            &mut pg_connection,
+            &publication_name,
+            publication,
+            all_table,
+        )
+        .await?;
     }
     let mut tx = user_db.begin(&authed).await?;
 

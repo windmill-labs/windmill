@@ -287,6 +287,8 @@
 					loadingPostgres = false
 				})
 		}
+	})
+	$effect(() => {
 		is_flow = itemKind === 'flow'
 	})
 </script>

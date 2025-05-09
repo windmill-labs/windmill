@@ -34,7 +34,7 @@ use windmill_common::{
 };
 
 use super::{
-    drop_logical_replication_slot_query, drop_publication_query, get_pg_connection,
+    drop_logical_replication_slot, drop_publication, get_pg_connection,
     handler::{Postgres, PostgresTrigger},
     replication_message::PrimaryKeepAliveBody,
     ERROR_PUBLICATION_NAME_NOT_EXISTS, ERROR_REPLICATION_SLOT_NOT_EXISTS,
@@ -539,7 +539,7 @@ impl PostgresConfig {
 
                 let user_db = UserDB::new(db.clone());
 
-                let mut connection = get_pg_connection(
+                let mut pg_connection = get_pg_connection(
                     authed.clone(),
                     Some(user_db.clone()),
                     &db,
@@ -548,13 +548,9 @@ impl PostgresConfig {
                 )
                 .await?;
 
-                let query = drop_logical_replication_slot_query(replication_slot_name);
+                drop_logical_replication_slot(&mut pg_connection, replication_slot_name).await?;
 
-                let _ = sqlx::query(&query).execute(&mut connection).await;
-
-                let query = drop_publication_query(publication_name);
-
-                let _ = sqlx::query(&query).execute(&mut connection).await;
+                drop_publication(&mut pg_connection, publication_name).await?;
 
                 Ok(())
             }
