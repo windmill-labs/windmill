@@ -89,34 +89,35 @@
 	let args: Record<string, any> = $state({})
 	let loading = $state(false)
 	let drawerLoading = $state(true)
-	let resetEditMode = $state(() => {})
 	let neverSaved = $state(false)
 	let showLoading = $state(false)
 	let initialConfig = $state<Record<string, any> | undefined>(undefined)
-	let defaultConfig = $state<Record<string, any> | undefined>(undefined)
 	let extraPerms: Record<string, boolean> = $state({})
 	let can_write = $state(true)
-	let useDefaultValuesForSchedule = $state(false)
+	let initNewPath = $state(false)
+	let path: string = $state('')
+	let enabled: boolean = $state(false)
+	let pathError = $state('')
+	let summary = $state('')
+	let description = $state('')
+	let no_flow_overlap = $state(false)
+	let tag: string | undefined = $state(undefined)
+	let validCRON = $state(true)
+	let isValid = $state(true)
+	let allowSchedule = $derived(isValid && validCRON && script_path != '')
 
 	export function openEdit(ePath: string, isFlow: boolean, defaultCfg?: Record<string, any>) {
 		let loadingTimeout = setTimeout(() => {
 			showLoading = true
 		}, 100) // Do not show loading spinner for the first 100ms
-		resetEditMode = () => {
-			openEdit(ePath, isFlow, defaultCfg ?? initialConfig)
-		}
 		drawerLoading = true
 		try {
 			drawer?.openDrawer()
 			is_flow = isFlow
 			initialPath = ePath
 			itemKind = is_flow ? 'flow' : 'script'
-			if (path == ePath) {
-				loadSchedule(defaultCfg)
-			} else {
-				defaultConfig = defaultCfg
-				path = defaultCfg?.path ?? ePath
-			}
+			path = defaultCfg?.path ?? ePath
+			loadSchedule(defaultCfg)
 			edit = true
 		} finally {
 			clearTimeout(loadingTimeout)
@@ -263,7 +264,7 @@
 					workspace: $workspaceStore!,
 					path: schedule_path
 				})
-				useDefaultValuesForSchedule = true
+				initNewPath = true
 			} else if (defaultValues) {
 				s = defaultValues
 			}
@@ -273,7 +274,7 @@
 			edit = false
 			itemKind = is_flow ? 'flow' : 'script'
 			initialScriptPath = initial_script_path ?? ''
-			path = useDefaultValuesForSchedule === true ? '' : initialScriptPath
+			path = initNewPath ? '' : (defaultValues?.path ?? initialScriptPath)
 
 			initialPath = path
 			cronVersion = s?.cron_version ?? 'v2'
@@ -318,19 +319,6 @@
 	$effect(() => {
 		;(is_flow = itemKind == 'flow') && resetRetries()
 	})
-
-	let isValid = $state(true)
-
-	let path: string = $state('')
-	let enabled: boolean = $state(false)
-	let pathError = $state('')
-	let summary = $state('')
-	let description = $state('')
-	let no_flow_overlap = $state(false)
-	let tag: string | undefined = $state(undefined)
-
-	let validCRON = $state(true)
-	let allowSchedule = $derived(isValid && validCRON && script_path != '')
 
 	// set isValid to true when a script/flow without any properties is selected
 	$effect(() => {
@@ -583,14 +571,6 @@
 		}
 	}
 
-	$effect(() => {
-		if ($workspaceStore) {
-			if (edit && path != '') {
-				loadSchedule(defaultConfig)
-			}
-		}
-	})
-
 	let drawer: Drawer | undefined = $state()
 
 	let pathC: Path | undefined = $state()
@@ -683,6 +663,9 @@
 	}
 
 	function saveDraft() {
+		if (!isDraftOnly && !hasDraft) {
+			hasDraft = true
+		}
 		const cfg = getScheduleCfg()
 		dispatch('save-draft', { cfg, savingArgs: { initialPath, edit, workspace: $workspaceStore } })
 		toggleEditMode(false)
@@ -732,10 +715,11 @@
 		on:reset
 		on:delete
 		on:edit={() => {
+			initialConfig = getScheduleCfg()
 			toggleEditMode(true)
 		}}
 		on:cancel={() => {
-			resetEditMode()
+			loadSchedule(initialConfig)
 			toggleEditMode(false)
 		}}
 		on:toggle-enabled={handleToggleEnabled}
@@ -926,7 +910,7 @@
 							Pick a script or flow to be triggered by the schedule<Required required={true} />
 						</p>
 						<ScriptPicker
-							disabled={(initialScriptPath != '' && !useDefaultValuesForSchedule) || !can_write}
+							disabled={(initialScriptPath != '' && !initNewPath) || !can_write}
 							initialPath={initialScriptPath}
 							kinds={['script']}
 							allowFlow={true}
