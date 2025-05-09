@@ -1,18 +1,9 @@
 #[cfg(feature = "parquet")]
 use crate::error;
-use crate::error::to_anyhow;
-use crate::utils::rd_string;
 #[cfg(feature = "parquet")]
 use aws_sdk_sts::config::ProvideCredentials;
 #[cfg(feature = "parquet")]
 use axum::async_trait;
-use bytes::Bytes;
-use datafusion::arrow::array::{RecordBatch, RecordBatchWriter};
-use datafusion::arrow::error::ArrowError;
-use datafusion::arrow::json::writer::JsonArray;
-use datafusion::arrow::{csv, json};
-use datafusion::parquet::arrow::ArrowWriter;
-use futures::TryStreamExt;
 #[cfg(feature = "parquet")]
 use object_store::aws::AwsCredential;
 #[cfg(feature = "parquet")]
@@ -24,13 +15,34 @@ use object_store::{aws::AmazonS3Builder, ClientOptions};
 #[cfg(feature = "parquet")]
 use reqwest::header::HeaderMap;
 use serde::{Deserialize, Serialize};
-use std::io::Write;
 #[cfg(feature = "parquet")]
-use std::sync::Arc;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 #[cfg(feature = "parquet")]
 use tokio::sync::RwLock;
+
+#[cfg(feature = "parquet")]
+use crate::error::to_anyhow;
+#[cfg(feature = "parquet")]
+use crate::utils::rd_string;
+#[cfg(feature = "parquet")]
+use bytes::Bytes;
+#[cfg(feature = "parquet")]
+use datafusion::arrow::array::{RecordBatch, RecordBatchWriter};
+#[cfg(feature = "parquet")]
+use datafusion::arrow::error::ArrowError;
+#[cfg(feature = "parquet")]
+use datafusion::arrow::json::writer::JsonArray;
+#[cfg(feature = "parquet")]
+use datafusion::arrow::{csv, json};
+#[cfg(feature = "parquet")]
+use datafusion::parquet::arrow::ArrowWriter;
+#[cfg(feature = "parquet")]
+use futures::TryStreamExt;
+#[cfg(feature = "parquet")]
+use std::io::Write;
+#[cfg(feature = "parquet")]
 use tokio::task;
+#[cfg(feature = "parquet")]
 use windmill_parser_sql::S3ModeFormat;
 
 #[cfg(feature = "parquet")]
@@ -496,12 +508,14 @@ pub fn raw_app(w_id: &str, version: &i64) -> String {
 
 // Originally used a Arc<Mutex<dyn RecordBatchWriter + Send>>
 // But cannot call .close() on it because it moves the value and the object is not Sized
+#[cfg(feature = "parquet")]
 enum RecordBatchWriterEnum {
     Parquet(ArrowWriter<ChannelWriter>),
     Csv(csv::Writer<ChannelWriter>),
     Json(json::Writer<ChannelWriter, JsonArray>),
 }
 
+#[cfg(feature = "parquet")]
 impl RecordBatchWriter for RecordBatchWriterEnum {
     fn write(&mut self, batch: &RecordBatch) -> Result<(), ArrowError> {
         match self {
@@ -520,6 +534,40 @@ impl RecordBatchWriter for RecordBatchWriterEnum {
     }
 }
 
+#[cfg(feature = "parquet")]
+struct ChannelWriter {
+    sender: tokio::sync::mpsc::Sender<anyhow::Result<Bytes>>,
+}
+
+#[cfg(feature = "parquet")]
+impl Write for ChannelWriter {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        let data: Bytes = buf.to_vec().into();
+        self.sender.blocking_send(Ok(data)).map_err(|e| {
+            std::io::Error::new(
+                std::io::ErrorKind::BrokenPipe,
+                format!("Channel send error: {}", e),
+            )
+        })?;
+        Ok(buf.len())
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
+#[cfg(not(feature = "parquet"))]
+pub async fn convert_json_line_stream<E: Into<anyhow::Error>>(
+    mut _stream: impl futures::TryStreamExt<Item = Result<serde_json::Value, E>> + Unpin,
+    _output_format: windmill_parser_sql::S3ModeFormat,
+) -> anyhow::Result<impl futures::TryStreamExt<Item = anyhow::Result<bytes::Bytes>>> {
+    Ok(async_stream::stream! {
+        yield Err(anyhow::anyhow!("Parquet feature is not enabled. Cannot convert JSON line stream."));
+    })
+}
+
+#[cfg(feature = "parquet")]
 pub async fn convert_json_line_stream<E: Into<anyhow::Error>>(
     mut stream: impl TryStreamExt<Item = Result<serde_json::Value, E>> + Unpin,
     output_format: S3ModeFormat,
@@ -637,25 +685,4 @@ pub async fn convert_json_line_stream<E: Into<anyhow::Error>>(
     });
 
     Ok(tokio_stream::wrappers::ReceiverStream::new(rx))
-}
-
-struct ChannelWriter {
-    sender: tokio::sync::mpsc::Sender<anyhow::Result<Bytes>>,
-}
-
-impl Write for ChannelWriter {
-    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
-        let data: Bytes = buf.to_vec().into();
-        self.sender.blocking_send(Ok(data)).map_err(|e| {
-            std::io::Error::new(
-                std::io::ErrorKind::BrokenPipe,
-                format!("Channel send error: {}", e),
-            )
-        })?;
-        Ok(buf.len())
-    }
-
-    fn flush(&mut self) -> std::io::Result<()> {
-        Ok(())
-    }
 }
