@@ -1,12 +1,10 @@
-use std::collections::{BTreeMap, HashMap};
-use std::convert::Infallible;
+use std::collections::HashMap;
 
 use futures::future::BoxFuture;
 use futures::{FutureExt, StreamExt, TryFutureExt};
 use reqwest::Client;
 use serde_json::{json, value::RawValue, Value};
 use windmill_common::error::to_anyhow;
-use windmill_common::more_serde::json_stream_values;
 use windmill_common::s3_helpers::convert_json_line_stream;
 use windmill_common::worker::Connection;
 use windmill_common::{error::Error, worker::to_raw_value};
@@ -37,6 +35,16 @@ struct BigqueryResponse {
     totalRows: Option<Value>,
     schema: Option<BigqueryResponseSchema>,
     jobComplete: bool,
+    pageToken: Option<String>,
+    jobReference: Option<BigQueryResponseJobReference>,
+}
+
+#[allow(non_snake_case)]
+#[derive(Deserialize, Clone)]
+struct BigQueryResponseJobReference {
+    jobId: String,
+    projectId: String,
+    location: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -120,17 +128,6 @@ fn do_bigquery_inner<'a>(
             Ok(_) => {
                 if skip_collect {
                     return Ok(to_raw_value(&Value::Array(vec![])));
-                } else if let Some(ref s3) = s3 {
-                    let rows_stream = json_stream_values(response.bytes_stream(), |sender| {
-                        RootMpscDeserializer { sender }
-                    })
-                    .await?
-                    .map(|chunk| Ok::<_, Infallible>(chunk));
-
-                    let stream = convert_json_line_stream(rows_stream.boxed(), s3.format).await?;
-                    s3.upload(stream.boxed()).await?;
-
-                    Ok(serde_json::value::to_raw_value(&s3.object_key)?)
                 } else {
                     let result = response.json::<BigqueryResponse>().await.map_err(|e| {
                         Error::ExecutionErr(format!(
@@ -138,68 +135,79 @@ fn do_bigquery_inner<'a>(
                             e.to_string()
                         ))
                     })?;
+                    let rows = handle_bigquery_response(&result, &s3, column_order).await?;
 
-                    if !result.jobComplete {
-                        return Err(Error::ExecutionErr(
-                            "BigQuery API did not answer query in time".to_string(),
-                        ));
+                    if let Some(s3) = s3 {
+                        let cloned_s3 = s3.clone();
+                        let cloned_http_client = http_client.clone();
+                        let cloned_token = token.to_string();
+                        let rows_stream = async_stream::stream! {
+                            for row in rows.iter() {
+                                yield Ok::<_, windmill_common::error::Error>(row.clone());
+                            }
+                            let mut next_page_token = result.pageToken;
+                            let Some(job_reference) = result.jobReference.clone() else {
+                                return;
+                            };
+                            while let Some(ref next_page_token_value) = next_page_token {
+                                let response2 = cloned_http_client
+                                    .get(
+                                        format!("https://bigquery.googleapis.com/bigquery/v2/projects/{}/queries/{}", job_reference.projectId, job_reference.jobId),
+                                    )
+                                    .bearer_auth(cloned_token.as_str())
+                                    .query(&[
+                                        ("pageToken", next_page_token_value.as_str()),
+                                        ("maxResults", "10000"),
+                                        ("timeoutMs", timeout_ms.to_string().as_str()),
+                                        ("location", job_reference.location.as_ref().unwrap_or(&"US".to_string()).as_str()),
+                                    ])
+                                    .send()
+                                    .await
+                                    .map_err(|e| {
+                                        Error::ExecutionErr(format!("Could not send query to BigQuery API: {}", e))
+                                    })?;
+
+                                if let Err(e) = response2.error_for_status_ref() {
+                                    match response2.json::<BigqueryErrorResponse>().await {
+                                        Ok(bq_err) => {
+                                            yield Err(Error::ExecutionErr(format!(
+                                                "Error from BigQuery API: {}",
+                                                bq_err.error.message
+                                            )))
+                                            .map_err(to_anyhow)?;
+                                            return;
+                                    },
+                                        Err(_) => {
+                                            yield Err(Error::ExecutionErr(format!(
+                                                "Error from BigQuery API could not be parsed: {}",
+                                                e.to_string()
+                                            )))
+                                            .map_err(to_anyhow)?;
+                                            return;
+                                        },
+                                    }
+                                }
+
+                                let result2 = response2.json::<BigqueryResponse>().await.map_err(|e| {
+                                    Error::ExecutionErr(format!(
+                                        "BigQuery API response could not be parsed: {}",
+                                        e.to_string()
+                                    ))
+                                })?;
+                                let rows = handle_bigquery_response(&result2, &Some(cloned_s3.clone()), None).await?;
+                                for row in rows.into_iter() {
+                                    yield Ok::<_, windmill_common::error::Error>(row);
+                                }
+                                next_page_token = result2.pageToken;
+                            }
+                        };
+
+                        let stream =
+                            convert_json_line_stream(rows_stream.boxed(), s3.format).await?;
+                        s3.upload(stream.boxed()).await?;
+
+                        return Ok(to_raw_value(&s3.object_key));
                     }
-
-                    if result.rows.is_none() || result.rows.as_ref().unwrap().len() == 0 {
-                        return Ok(serde_json::from_str("[]").unwrap());
-                    }
-
-                    if result.schema.is_none() {
-                        return Err(Error::ExecutionErr(
-                            "Incomplete response from BigQuery API".to_string(),
-                        ));
-                    }
-
-                    if result
-                        .totalRows
-                        .unwrap_or(json!(""))
-                        .as_str()
-                        .unwrap_or("")
-                        .parse::<i64>()
-                        .unwrap_or(0)
-                        > 10000
-                    {
-                        return Err(Error::ExecutionErr(
-                        "More than 10000 rows were requested, use LIMIT 10000 to limit the number of rows".to_string(),
-                    ));
-                    }
-
-                    if let Some(column_order) = column_order {
-                        *column_order = Some(
-                            result
-                                .schema
-                                .as_ref()
-                                .unwrap()
-                                .fields
-                                .iter()
-                                .map(|x| x.name.clone())
-                                .collect::<Vec<String>>(),
-                        );
-                    }
-
-                    let rows = result
-                        .rows
-                        .unwrap()
-                        .iter()
-                        .map(|row| {
-                            let mut row_map = serde_json::Map::new();
-                            row.f
-                                .iter()
-                                .zip(result.schema.as_ref().unwrap().fields.iter())
-                                .for_each(|(field, schema)| {
-                                    row_map.insert(
-                                        schema.name.clone(),
-                                        parse_val(&field.v, &schema.r#type, &schema),
-                                    );
-                                });
-                            Value::from(row_map)
-                        })
-                        .collect::<Vec<_>>();
 
                     Ok(to_raw_value(&rows))
                 }
@@ -220,6 +228,79 @@ fn do_bigquery_inner<'a>(
     };
 
     Ok(result_f.boxed())
+}
+
+async fn handle_bigquery_response<'a>(
+    result: &BigqueryResponse,
+    s3: &Option<S3ModeWorkerData>,
+    column_order: Option<&'a mut Option<Vec<String>>>,
+) -> windmill_common::error::Result<Vec<Value>> {
+    if !result.jobComplete {
+        return Err(Error::ExecutionErr(
+            "BigQuery API did not answer query in time".to_string(),
+        ));
+    }
+
+    if result.rows.is_none() || result.rows.as_ref().unwrap().len() == 0 {
+        return Ok(serde_json::from_str("[]").unwrap());
+    }
+
+    if result.schema.is_none() {
+        return Err(Error::ExecutionErr(
+            "Incomplete response from BigQuery API".to_string(),
+        ));
+    }
+
+    if s3.is_none()
+        && result
+            .totalRows
+            .as_ref()
+            .unwrap_or(&json!(""))
+            .as_str()
+            .unwrap_or("")
+            .parse::<i64>()
+            .unwrap_or(0)
+            > 10000
+    {
+        return Err(Error::ExecutionErr(
+            "More than 10000 rows were requested, use LIMIT 10000 to limit the number of rows"
+                .to_string(),
+        ));
+    }
+
+    if let Some(column_order) = column_order {
+        *column_order = Some(
+            result
+                .schema
+                .as_ref()
+                .unwrap()
+                .fields
+                .iter()
+                .map(|x| x.name.clone())
+                .collect::<Vec<String>>(),
+        );
+    }
+
+    let rows = result
+        .rows
+        .as_ref()
+        .unwrap()
+        .iter()
+        .map(|row| {
+            let mut row_map = serde_json::Map::new();
+            row.f
+                .iter()
+                .zip(result.schema.as_ref().unwrap().fields.iter())
+                .for_each(|(field, schema)| {
+                    row_map.insert(
+                        schema.name.clone(),
+                        parse_val(&field.v, &schema.r#type, &schema),
+                    );
+                });
+            Value::from(row_map)
+        })
+        .collect::<Vec<_>>();
+    Ok(rows)
 }
 
 use windmill_queue::MiniPulledJob;
@@ -492,105 +573,5 @@ fn parse_val(value: &Value, typ: &str, schema: &BigqueryResponseSchemaField) -> 
         "int64" | "integer" | "timestamp" => json!(str_value.parse::<i64>().ok().unwrap_or(0)),
         "json" => serde_json::from_str(&str_value).ok().unwrap_or(json!({})),
         _ => value.clone(),
-    }
-}
-
-// This deserializer takes a bigquery response as a stream and sends each row to an mpsc
-// channel as a json record without storing the full input json in memory.
-struct RootMpscDeserializer {
-    sender: tokio::sync::mpsc::Sender<serde_json::Value>,
-}
-
-impl<'de> serde::de::DeserializeSeed<'de> for RootMpscDeserializer {
-    type Value = ();
-    fn deserialize<D>(self, deserializer: D) -> Result<Self::Value, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        struct RootVisitor<'a> {
-            sender: &'a tokio::sync::mpsc::Sender<serde_json::Value>,
-            col_defs: Vec<String>,
-        }
-
-        impl<'de, 'a> serde::de::Visitor<'de> for RootVisitor<'a> {
-            type Value = ();
-            fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
-                formatter.write_str("bigquery response json object")
-            }
-            fn visit_map<A>(mut self, mut map: A) -> Result<(), A::Error>
-            where
-                A: serde::de::MapAccess<'de>,
-            {
-                while let Some(key) = map.next_key::<String>()? {
-                    // We assume schema always comes before rows
-                    if key == "schema" {
-                        let schema: BigqueryResponseSchema = map.next_value()?;
-                        for field in schema.fields {
-                            self.col_defs.push(field.name);
-                        }
-                    } else if key == "rows" {
-                        let () = map.next_value_seed(RowsMpscDeserializer {
-                            sender: self.sender,
-                            col_defs: &self.col_defs,
-                        })?;
-                    } else {
-                        // Ignore other keys
-                        let _: serde::de::IgnoredAny = map.next_value()?;
-                    }
-                }
-                Ok(())
-            }
-        }
-
-        deserializer.deserialize_map(RootVisitor { sender: &self.sender, col_defs: vec![] })
-    }
-}
-
-struct RowsMpscDeserializer<'a> {
-    sender: &'a tokio::sync::mpsc::Sender<serde_json::Value>,
-    col_defs: &'a Vec<String>,
-}
-
-impl<'de, 'a> serde::de::DeserializeSeed<'de> for RowsMpscDeserializer<'a> {
-    type Value = ();
-    fn deserialize<D>(self, deserializer: D) -> Result<Self::Value, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        struct RowsVisitor<'a> {
-            sender: &'a tokio::sync::mpsc::Sender<serde_json::Value>,
-            col_defs: &'a Vec<String>,
-        }
-
-        impl<'de, 'a> serde::de::Visitor<'de> for RowsVisitor<'a> {
-            type Value = ();
-
-            fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
-                formatter.write_str("a sequence of rows")
-            }
-
-            fn visit_seq<A>(self, mut seq: A) -> Result<(), A::Error>
-            where
-                A: serde::de::SeqAccess<'de>,
-            {
-                while let Some(elem) = seq.next_element::<BigqueryResponseRow>()? {
-                    let mut row = BTreeMap::<&str, Value>::new();
-                    for (i, field) in elem.f.iter().enumerate() {
-                        let col_name = self.col_defs.get(i).map(|s| s.as_str()).unwrap_or("");
-                        row.insert(col_name, field.v.clone());
-                    }
-                    let row = serde_json::to_value(row).map_err(|err| {
-                        serde::de::Error::custom(format!("Map parse failed: {err}"))
-                    })?;
-                    self.sender.blocking_send(row).map_err(|err| {
-                        serde::de::Error::custom(format!("Queue send failed: {err}"))
-                    })?;
-                }
-
-                Ok(())
-            }
-        }
-
-        deserializer.deserialize_seq(RowsVisitor { sender: &self.sender, col_defs: &self.col_defs })
     }
 }
