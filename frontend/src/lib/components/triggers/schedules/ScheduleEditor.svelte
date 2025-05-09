@@ -16,7 +16,7 @@
 	) {
 		open = true
 		await tick()
-		drawer?.openNew(is_flow, initial_script_path, schedule_path)
+		drawer?.openNew(is_flow, initial_script_path, undefined, undefined, schedule_path)
 	}
 
 	let drawer: ScheduleEditorInner

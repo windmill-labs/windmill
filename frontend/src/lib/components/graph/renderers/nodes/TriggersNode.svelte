@@ -2,13 +2,15 @@
 	import NodeWrapper from './NodeWrapper.svelte'
 	import TriggersWrapper from '../triggers/TriggersWrapper.svelte'
 	import { type GraphEventHandlers, type SimplifiableFlow } from '../../graphBuilder'
-	import type { FlowModule } from '$lib/gen'
+	import type { FlowModule, TriggersCount } from '$lib/gen'
 	import { getContext } from 'svelte'
 	import type { Writable } from 'svelte/store'
 	import { Maximize2, Minimize2, Calendar } from 'lucide-svelte'
 	import { getStateColor, getStateHoverColor } from '../../util'
 	import { setScheduledPollSchedule, type TriggerContext } from '$lib/components/triggers'
 	import VirtualItemWrapper from '$lib/components/flows/map/VirtualItemWrapper.svelte'
+	import { addDraftTrigger, type Trigger } from '$lib/components/triggers/utils'
+	import { tick } from 'svelte'
 
 	export let data: {
 		path: string
@@ -26,11 +28,24 @@
 		selectedId: Writable<string | undefined>
 	}>('FlowGraphContext')
 
-	const { primarySchedule, triggersCount, selectedTrigger } =
-		getContext<TriggerContext>('TriggerContext')
+	const { triggersCount, selectedTrigger, triggers } = getContext<TriggerContext>('TriggerContext')
+
+	function getScheduleCfg(primary: Trigger | undefined, triggersCount: TriggersCount | undefined) {
+		return primary?.draftConfig
+			? {
+					enabled: primary?.draftConfig?.enabled,
+					schedule: primary?.draftConfig?.schedule
+				}
+			: primary?.lightConfig
+				? { enabled: primary?.lightConfig?.enabled, schedule: primary?.lightConfig?.schedule }
+				: {
+						enabled: !!triggersCount?.primary_schedule,
+						schedule: triggersCount?.primary_schedule?.schedule
+					}
+	}
 </script>
 
-<NodeWrapper wrapperClass="shadow-md" let:darkMode>
+<NodeWrapper wrapperClass="shadow-md rounded-sm" let:darkMode>
 	{#if data.simplifiableFlow?.simplifiedFlow != true}
 		<TriggersWrapper
 			disableAi={data.disableAi}
@@ -57,17 +72,29 @@
 				data?.eventHandlers?.simplifyFlow(true)
 			}}
 			on:openScheduledPoll={(e) => {
-				$selectedTrigger = 'scheduledPoll'
+				const primarySchedule = $triggers.find((t) => t.isPrimary && !t.isDraft)
+				$selectedTrigger = primarySchedule
 			}}
-			on:select={(e) => {
+			on:select={async (e) => {
 				data?.eventHandlers?.select('triggers')
+				await tick()
+				if (e.detail) {
+					$selectedTrigger = e.detail
+				}
 			}}
 			on:delete={(e) => {
 				data.eventHandlers.delete(e, '')
 			}}
+			on:addDraftTrigger={async (e) => {
+				const newTrigger = addDraftTrigger(triggers, triggersCount, e.detail)
+				data?.eventHandlers?.select('triggers')
+				await tick()
+				$selectedTrigger = newTrigger
+			}}
 			selected={$selectedId == 'triggers'}
 			newItem={data.newFlow}
 			modules={data.modules}
+			triggers={$triggers}
 		/>
 	{:else}
 		<VirtualItemWrapper
@@ -80,22 +107,23 @@
 				data?.eventHandlers?.select(e.detail)
 			}}
 		>
-			{#if $primarySchedule || ($primarySchedule == undefined && $triggersCount?.primary_schedule?.schedule)}
+			{#if $triggers.some((t) => t.isPrimary) || $triggersCount?.primary_schedule}
+				{@const { enabled, schedule } = getScheduleCfg(
+					$triggers.find((t) => t.isPrimary),
+					$triggersCount
+				)}
 				<div class="text-2xs text-primary p-2 flex gap-2 items-center">
 					<Calendar size={12} />
 					<div>
-						Schedule every {$primarySchedule?.cron ?? $triggersCount?.primary_schedule?.schedule}
-						{$primarySchedule?.enabled ||
-						($primarySchedule == undefined && $triggersCount?.primary_schedule?.schedule)
-							? ''
-							: ' (disabled)'}
+						Schedule every {schedule}
+						{enabled ? '' : ' (disabled)'}
 					</div>
 				</div>
 			{:else}
 				<button
 					class="px-2 py-1 hover:bg-surface-inverse w-full hover:text-primary-inverse"
 					on:click={() => {
-						setScheduledPollSchedule(primarySchedule, triggersCount)
+						setScheduledPollSchedule(triggers, triggersCount)
 					}}
 				>
 					Set primary schedule

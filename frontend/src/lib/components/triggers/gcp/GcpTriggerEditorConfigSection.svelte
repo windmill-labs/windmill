@@ -1,7 +1,5 @@
 <script lang="ts">
 	import Section from '$lib/components/Section.svelte'
-	import CaptureSection, { type CaptureInfo } from '../CaptureSection.svelte'
-	import CaptureTable from '../CaptureTable.svelte'
 	import Required from '$lib/components/Required.svelte'
 	import ResourcePicker from '$lib/components/ResourcePicker.svelte'
 	import { copyToClipboard, emptyStringTrimmed } from '$lib/utils'
@@ -15,8 +13,6 @@
 	} from '$lib/gen'
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
-	import Label from '$lib/components/Label.svelte'
-	import ClipboardPanel from '$lib/components/details/ClipboardPanel.svelte'
 	import { base } from '$lib/base'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import { SELECT_INPUT_DEFAULT_STYLE } from '$lib/defaults'
@@ -27,12 +23,10 @@
 	import { Button } from '$lib/components/common'
 	import { ClipboardCopy, RefreshCw } from 'lucide-svelte'
 	import Alert from '$lib/components/common/alert/Alert.svelte'
+	import TestingBadge from '../testingBadge.svelte'
 
 	export let can_write: boolean = false
 	export let headless: boolean = false
-	export let showCapture: boolean = false
-	export let captureTable: CaptureTable | undefined = undefined
-	export let captureInfo: CaptureInfo | undefined = undefined
 	export let isValid: boolean = false
 	export let gcp_resource_path = ''
 	export let subscription_id = ''
@@ -40,8 +34,9 @@
 	export let delivery_type: DeliveryType | undefined = 'pull'
 	export let delivery_config: PushConfig | undefined
 	export let subscription_mode: SubscriptionMode = 'create_update'
-	export let base_endpoint: string = getBaseUrl(captureInfo)
-	export let path = captureInfo ? captureInfo.path : ''
+	export let base_endpoint: string = getBaseUrl()
+	export let path = ''
+	export let showTestingBadge: boolean = false
 
 	let topic_items: string[] = []
 	let subscription_items: string[] = []
@@ -49,7 +44,7 @@
 
 	const DEFAULT_PUSH_CONFIG: PushConfig = {
 		audience: '',
-		authenticate: false,
+		authenticate: false
 	}
 
 	async function loadAllPubSubTopicsFromProject() {
@@ -84,43 +79,22 @@
 		delivery_config = DEFAULT_PUSH_CONFIG
 	}
 
-	function getBaseUrl(captureInfo: CaptureInfo | undefined) {
-		if (captureInfo) {
-			return `${window.location.origin}${base}/api/w/${$workspaceStore}/capture_u/gcp/${
-				captureInfo.isFlow ? 'flow' : 'script'
-			}`
-		} else {
-			return `${window.location.origin}${base}/api/gcp/w/${$workspaceStore!}`
-		}
+	function getBaseUrl() {
+		return `${window.location.origin}${base}/api/gcp/w/${$workspaceStore!}`
 	}
 
-	$: !base_endpoint && (base_endpoint = getBaseUrl(captureInfo))
+	$: !base_endpoint && (base_endpoint = getBaseUrl())
 </script>
 
 <DarkModeObserver bind:darkMode />
 
 <div>
-	{#if showCapture && captureInfo}
-		{@const captureURL = `${base_endpoint}/${path}`}
-		<CaptureSection
-			captureType="gcp"
-			disabled={!isValid}
-			{captureInfo}
-			on:captureToggle
-			on:applyArgs
-			on:updateSchema
-			on:addPreprocessor
-			on:testWithArgs
-			bind:captureTable
-		>
-			{#if delivery_type === 'push'}
-				<Label label="URL">
-					<ClipboardPanel content={captureURL} disabled={!captureInfo.active} />
-				</Label>
-			{/if}
-		</CaptureSection>
-	{/if}
 	<Section label="GCP Pub/Sub" {headless}>
+		<svelte:fragment slot="header">
+			{#if showTestingBadge}
+				<TestingBadge />
+			{/if}
+		</svelte:fragment>
 		<div class="flex flex-col w-full gap-4">
 			<Subsection label="Connection setup">
 				<div class="flex flex-col gap-1 mt-2">

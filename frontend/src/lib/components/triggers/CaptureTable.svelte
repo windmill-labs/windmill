@@ -30,6 +30,7 @@
 	export let canEdit = false
 	export let fullHeight = true
 	export let limitPayloadSize = false
+	export let noBorder = false
 	export let captureActiveIndicator: boolean | undefined = undefined
 
 	let selected: number | undefined = undefined
@@ -59,6 +60,7 @@
 		}
 		select: any
 		testWithArgs: any
+		selectCapture: Capture | undefined
 	}>()
 
 	interface CaptureWithPayload extends Capture {
@@ -131,6 +133,7 @@
 			const payloadData = await getPayload(capture)
 			selected = capture.id
 			dispatch('select', structuredClone(payloadData))
+			dispatch('selectCapture', capture)
 		}
 	}
 
@@ -251,6 +254,7 @@
 			on:error={(e) => handleError(e.detail)}
 			on:select={(e) => handleSelect(e.detail)}
 			bind:length={capturesLength}
+			{noBorder}
 			neverShowLoader={captureActiveIndicator !== undefined}
 		>
 			<svelte:fragment slot="columns">
@@ -368,7 +372,7 @@
 				</SchemaPickerRow>
 			</svelte:fragment>
 			<svelte:fragment slot="empty">
-				<div class="text-center text-xs text-tertiary my-2">No captures yet</div>
+				<div class="text-center text-xs text-tertiary py-2">No captures yet</div>
 			</svelte:fragment>
 		</InfiniteList>
 	</div>

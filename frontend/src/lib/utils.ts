@@ -1245,6 +1245,15 @@ export function formatDateShort(dateString: string | undefined): string {
 	}).format(date)
 }
 
+export function toJsonStr(result: any) {
+	try {
+		// console.log(result)
+		return JSON.stringify(result ?? null, null, 4) ?? 'null'
+	} catch (e) {
+		return 'error stringifying object: ' + e.toString()
+	}
+}
+
 export function getOS() {
 	const userAgent = window.navigator.userAgent
 	const platform = window.navigator.platform

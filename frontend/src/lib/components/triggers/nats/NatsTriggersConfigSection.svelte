@@ -7,18 +7,16 @@
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ResourcePicker from '$lib/components/ResourcePicker.svelte'
 	import SchemaForm from '$lib/components/SchemaForm.svelte'
-	import CaptureSection, { type CaptureInfo } from '../CaptureSection.svelte'
-	import CaptureTable from '../CaptureTable.svelte'
 	import TestTriggerConnection from '../TestTriggerConnection.svelte'
+	import TestingBadge from '../testingBadge.svelte'
 	export let defaultValues: Record<string, any> | undefined = undefined
 	export let headless: boolean = false
 	export let args: Record<string, any> = {}
 	export let staticInputDisabled: boolean = true
-	export let showCapture: boolean = false
-	export let captureInfo: CaptureInfo | undefined = undefined
-	export let captureTable: CaptureTable | undefined = undefined
 	export let isValid: boolean = false
 	export let path: string
+	export let can_write: boolean = true
+	export let showTestingBadge: boolean = false
 	let selected: 'resource' | 'static' = staticInputDisabled ? 'resource' : 'static'
 
 	const connnectionSchema = {
@@ -186,11 +184,11 @@
 		selected === 'resource'
 			? !!args.nats_resource_path
 			: isStaticConnectionValid &&
-			  args.servers &&
-			  args.servers.length > 0 &&
-			  args.servers.every((b) => b.length > 0) &&
-			  args.require_tls !== undefined &&
-			  args.require_tls !== null
+				args.servers &&
+				args.servers.length > 0 &&
+				args.servers.every((b) => b.length > 0) &&
+				args.require_tls !== undefined &&
+				args.require_tls !== null
 
 	$: isValid =
 		isConnectionValid &&
@@ -216,19 +214,12 @@
 </script>
 
 <div>
-	{#if showCapture && captureInfo}
-		<CaptureSection
-			captureType="nats"
-			disabled={!isValid}
-			{captureInfo}
-			on:captureToggle
-			on:applyArgs
-			on:updateSchema
-			on:addPreprocessor
-			bind:captureTable
-		/>
-	{/if}
 	<Section label="NATS" {headless}>
+		<svelte:fragment slot="badge">
+			{#if showTestingBadge}
+				<TestingBadge />
+			{/if}
+		</svelte:fragment>
 		<div class="flex flex-col w-full gap-4">
 			<div class="block grow w-full">
 				<Subsection label="Connection">
@@ -237,6 +228,7 @@
 							<ToggleButtonGroup
 								bind:selected
 								class="h-full"
+								disabled={!can_write}
 								on:selected={(ev) => {
 									if (ev.detail === 'static') {
 										delete args.nats_resource_path
@@ -253,8 +245,21 @@
 								}}
 								let:item
 							>
-								<ToggleButton value="static" label="Static" small={true} {item} />
-								<ToggleButton value="resource" label="Resource" icon={Boxes} small={true} {item} />
+								<ToggleButton
+									value="static"
+									label="Static"
+									small={true}
+									{item}
+									disabled={!can_write}
+								/>
+								<ToggleButton
+									value="resource"
+									label="Resource"
+									icon={Boxes}
+									small={true}
+									{item}
+									disabled={!can_write}
+								/>
 							</ToggleButtonGroup>
 						{/if}
 					</svelte:fragment>
@@ -264,6 +269,7 @@
 							resourceType="nats"
 							bind:value={args.nats_resource_path}
 							{defaultValues}
+							disabled={!can_write}
 						/>
 					{:else}
 						<SchemaForm
@@ -271,6 +277,7 @@
 							bind:args
 							bind:isValid={isStaticConnectionValid}
 							lightHeader={true}
+							disabled={!can_write}
 						/>
 					{/if}
 					{#if isConnectionValid}
@@ -286,6 +293,7 @@
 						bind:args
 						bind:isValid={otherArgsValid}
 						lightHeader={true}
+						disabled={!can_write}
 					/>
 				</Subsection>
 				<span class="text-xs text-red-500">{globalError}</span>

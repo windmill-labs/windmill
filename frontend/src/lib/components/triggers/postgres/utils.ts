@@ -1,6 +1,8 @@
-import type { Relations } from '$lib/gen'
+import { PostgresTriggerService, type Relations } from '$lib/gen'
 import { sendUserToast } from '$lib/toast'
 import { emptyString } from '$lib/utils'
+import type { Writable } from 'svelte/store'
+import { get } from 'svelte/store'
 
 type RelationError = {
 	schemaIndex: number
@@ -99,4 +101,48 @@ export function invalidRelations(
 	}
 
 	return errorFound
+}
+
+export async function savePostgresTriggerFromCfg(
+	initialPath: string,
+	config: Record<string, any>,
+	edit: boolean,
+	workspace: string,
+	usedTriggerKinds: Writable<string[]>
+) {
+	try {
+		const requestBody = {
+			path: config.path,
+			script_path: config.script_path,
+			is_flow: config.is_flow,
+			postgres_resource_path: config.postgres_resource_path,
+			replication_slot_name: config.replication_slot_name,
+			publication_name: config.publication_name,
+			publication: config.publication,
+			enabled: config.enabled
+		}
+		if (edit) {
+			await PostgresTriggerService.updatePostgresTrigger({
+				workspace: workspace,
+				path: initialPath,
+				requestBody
+			})
+			sendUserToast(`PostgresTrigger ${config.path} updated`)
+		} else {
+			await PostgresTriggerService.createPostgresTrigger({
+				workspace: workspace,
+				requestBody: {
+					...requestBody,
+					enabled: true
+				}
+			})
+			sendUserToast(`PostgresTrigger ${config.path} created`)
+		}
+
+		if (!get(usedTriggerKinds).includes('postgres')) {
+			usedTriggerKinds.update((t) => [...t, 'postgres'])
+		}
+	} catch (error) {
+		sendUserToast(error.body || error.message, true)
+	}
 }
