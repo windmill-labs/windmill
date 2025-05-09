@@ -186,7 +186,7 @@
 					{#if edit}
 						Changes can take up to 30 seconds to take effect.
 					{:else}
-						New postgres triggers can take up to 30 seconds to start listening.
+						New sqs triggers can take up to 30 seconds to start listening.
 					{/if}
 				</Alert>
 			</div>

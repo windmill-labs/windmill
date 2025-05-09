@@ -33,7 +33,7 @@ use {
     axum::extract::Request,
     http::HeaderMap,
     serde::de::DeserializeOwned,
-    windmill_common::{error::Error, utils::empty_string_as_none},
+    windmill_common::{error::Error, utils::empty_as_none},
 };
 
 #[cfg(all(feature = "enterprise", feature = "kafka"))]
@@ -49,7 +49,7 @@ use crate::nats_triggers_ee::NatsTriggerConfigConnection;
 use {
     crate::postgres_triggers::{
         create_logical_replication_slot_query, create_publication_query, drop_publication_query,
-        generate_random_string, get_database_connection, PublicationData,
+        generate_random_string, get_pg_connection, PublicationData,
     },
     itertools::Itertools,
     pg_escape::quote_literal,
@@ -164,9 +164,9 @@ pub struct SqsTriggerConfig {
 pub struct GcpTriggerConfig {
     pub gcp_resource_path: String,
     pub subscription_mode: SubscriptionMode,
-    #[serde(default, deserialize_with = "empty_string_as_none")]
+    #[serde(default, deserialize_with = "empty_as_none")]
     pub subscription_id: Option<String>,
-    #[serde(default, deserialize_with = "empty_string_as_none")]
+    #[serde(default, deserialize_with = "empty_as_none")]
     pub base_endpoint: Option<String>,
     #[serde(flatten)]
     pub create_update: Option<CreateUpdateConfig>,
@@ -298,7 +298,7 @@ async fn set_postgres_trigger_config(
         ));
     };
 
-    let mut connection = get_database_connection(
+    let mut connection = get_pg_connection(
         authed,
         Some(user_db),
         &db,

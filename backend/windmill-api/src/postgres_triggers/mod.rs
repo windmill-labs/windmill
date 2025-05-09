@@ -24,10 +24,10 @@ pub use handler::PostgresTrigger;
 use handler::{
     alter_publication, create_postgres_trigger, create_publication, create_slot,
     create_template_script, delete_postgres_trigger, delete_publication, drop_slot_name,
-    exists_postgres_trigger, get_postgres_trigger, get_publication_info, get_template_script,
-    is_database_in_logical_level, list_database_publication, list_postgres_triggers,
-    list_slot_name, set_enabled, test_postgres_connection, update_postgres_trigger, Postgres,
-    Relations,
+    exists_postgres_trigger, get_postgres_trigger, get_postgres_version, get_publication_info,
+    get_template_script, is_database_in_logical_level, list_database_publication,
+    list_postgres_triggers, list_slot_name, set_enabled, test_postgres_connection,
+    update_postgres_trigger, Postgres, Relations,
 };
 use windmill_common::{db::UserDB, error::Error, utils::StripPath};
 use windmill_queue::PushArgsOwned;
@@ -47,7 +47,7 @@ const ERROR_REPLICATION_SLOT_NOT_EXISTS: &str = r#"The replication slot associat
 
 const ERROR_PUBLICATION_NAME_NOT_EXISTS: &str = r#"The publication associated with this trigger no longer exists. Recreate a new publication or select an existing one in the advanced tab, or delete and recreate a new trigger"#;
 
-pub async fn get_database_connection(
+pub async fn get_pg_connection(
     authed: ApiAuthed,
     user_db: Option<UserDB>,
     db: &DB,
@@ -136,10 +136,9 @@ pub fn create_publication_query(
                         let schema_name = quote_identifier(&schema.schema_name);
                         let full_name = format!("{}.{}", &schema_name, &table_name);
                         query.push_str(&full_name);
-                        if !table.columns_name.is_empty() {
+                        if let Some(columns) = table.columns_name.as_ref() {
                             query.push_str(" (");
-                            let columns = table
-                                .columns_name
+                            let columns = columns
                                 .iter()
                                 .map(|column| quote_identifier(column))
                                 .join(", ");
@@ -229,6 +228,10 @@ fn slot_service() -> Router {
         .route("/delete/*path", delete(drop_slot_name))
 }
 
+fn postgres_service() -> Router {
+    Router::new().route("/version/*path", get(get_postgres_version))
+}
+
 pub fn workspaced_service() -> Router {
     Router::new()
         .route("/test", post(test_postgres_connection))
@@ -247,6 +250,7 @@ pub fn workspaced_service() -> Router {
         )
         .nest("/publication", publication_service())
         .nest("/slot", slot_service())
+        .nest("/postgres", postgres_service())
 }
 
 async fn run_job(

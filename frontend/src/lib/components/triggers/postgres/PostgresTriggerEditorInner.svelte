@@ -28,34 +28,36 @@
 	import CheckPostgresRequirement from './CheckPostgresRequirement.svelte'
 	import { base } from '$lib/base'
 
-	let drawer: Drawer
-	let is_flow: boolean = false
-	let initialPath = ''
-	let edit = true
-	let itemKind: 'flow' | 'script' = 'script'
-	let script_path = ''
-	let initialScriptPath = ''
-	let fixedScriptPath = ''
-	let path: string = ''
-	let pathError = ''
-	let enabled = false
-	let dirtyPath = false
-	let can_write = true
-	let drawerLoading = true
-	let postgres_resource_path = ''
-	let publication_name: string = ''
-	let replication_slot_name: string = ''
-	let relations: Relations[] | undefined = []
-	let transaction_to_track: string[] = []
+	let drawer: Drawer | undefined = $state()
+	let is_flow: boolean = $state(false)
+	let initialPath = $state('')
+	let edit = $state(true)
+	let itemKind: 'flow' | 'script' = $state('script')
+	let script_path = $state('')
+	let initialScriptPath = $state('')
+	let fixedScriptPath = $state('')
+	let path: string = $state('')
+	let pathError = $state('')
+	let enabled = $state(false)
+	let dirtyPath = $state(false)
+	let can_write = $state(true)
+	let drawerLoading = $state(true)
+	let postgres_resource_path = $state('')
+	let publication_name: string = $state('')
+	let replication_slot_name: string = $state('')
+	let relations: Relations[] | undefined = $state([])
+	let transaction_to_track: string[] = $state([])
 	let language: Language = 'Typescript'
-	let loading = false
+	let loading = $state(false)
+	let publicationItems: string[] = $state([])
+	let transactionType: string[] = $state(['Insert', 'Update', 'Delete'])
+	let tab: 'advanced' | 'basic' = $state('basic')
+	let isLoading = $state(false)
+	let postgresVersion = $state('')
 	type actions = 'create' | 'get'
-	let selectedPublicationAction: actions
-	let selectedSlotAction: actions
-	let publicationItems: string[] = []
-	let transactionType: string[] = ['Insert', 'Update', 'Delete']
-	let tab: 'advanced' | 'basic' = 'basic'
-	let isLoading = false
+	let selectedPublicationAction: actions = $state('create')
+	let selectedSlotAction: actions = $state('create')
+	let loadingPostgres = $state(false)
 	async function createPublication() {
 		try {
 			const message = await PostgresTriggerService.createPostgresPublication({
@@ -90,8 +92,6 @@
 	}
 
 	const dispatch = createEventDispatcher()
-
-	$: is_flow = itemKind === 'flow'
 
 	export async function openEdit(ePath: string, isFlow: boolean) {
 		drawerLoading = true
@@ -239,7 +239,7 @@
 				$usedTriggerKinds = [...$usedTriggerKinds, 'postgres']
 			}
 			dispatch('update')
-			drawer.closeDrawer()
+			drawer?.closeDrawer()
 		} catch (error) {
 			isLoading = false
 			sendUserToast(error.body || error.message, true)
@@ -268,6 +268,27 @@
 			sendUserToast(error.body, true)
 		}
 	}
+
+	$effect(() => {
+		const dependencies = { workspace: $workspaceStore!, path: postgres_resource_path }
+		if (postgres_resource_path) {
+			loadingPostgres = true
+			PostgresTriggerService.getPostgresVersion({
+				workspace: dependencies.workspace,
+				path: dependencies.path
+			})
+				.then((version: string) => {
+					postgresVersion = version
+				})
+				.catch((error: any) => {
+					sendUserToast(error.body, true)
+				})
+				.finally(() => {
+					loadingPostgres = false
+				})
+		}
+		is_flow = itemKind === 'flow'
+	})
 </script>
 
 <Drawer size="800px" bind:this={drawer}>
@@ -394,7 +415,12 @@
 							<CheckPostgresRequirement bind:postgres_resource_path bind:can_write />
 						</div>
 
-						{#if postgres_resource_path}
+						{#if loadingPostgres}
+							<div class="flex flex-col items-center justify-center h-full w-full">
+								<Loader2 size="50" class="animate-spin" />
+								<p>Loading...</p>
+							</div>
+						{:else if postgres_resource_path}
 							<Label label="Transactions">
 								<svelte:fragment slot="header">
 									<Tooltip>
@@ -477,7 +503,7 @@
 									<svelte:fragment slot="content">
 										<div class="mt-5 overflow-hidden bg-surface">
 											<TabContent value="basic">
-												<RelationPicker {can_write} bind:relations />
+												<RelationPicker {can_write} bind:relations bind:postgresVersion />
 											</TabContent>
 											<TabContent value="advanced">
 												<div class="flex flex-col gap-6"
@@ -579,7 +605,7 @@
 																	bind:publication_name
 																/>
 															{/if}
-															<RelationPicker {can_write} bind:relations />
+															<RelationPicker {can_write} bind:relations bind:postgresVersion />
 														</div>
 													</Section></div
 												>
