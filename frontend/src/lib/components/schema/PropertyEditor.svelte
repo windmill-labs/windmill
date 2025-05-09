@@ -55,7 +55,9 @@
 			oneOfSchemas = oneOf.map((obj) => {
 				return {
 					properties: obj.properties
-						? Object.fromEntries(Object.entries(obj.properties).filter(([k, v]) => k !== 'label'))
+						? Object.fromEntries(
+								Object.entries(obj.properties).filter(([k, v]) => k !== 'label' && k !== 'kind')
+							)
 						: {},
 					order: obj.order
 				}

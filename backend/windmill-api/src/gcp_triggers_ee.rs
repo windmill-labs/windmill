@@ -1,4 +1,5 @@
 use crate::db::{ApiAuthed, DB};
+use crate::trigger_helpers::TriggerJobArgs;
 use axum::{extract::Request, Router};
 use http::HeaderMap;
 use serde::{Deserialize, Serialize};
@@ -7,10 +8,12 @@ use sqlx::prelude::FromRow;
 use sqlx::types::Json as SqlxJson;
 use std::collections::HashMap;
 use windmill_common::db::UserDB;
+use windmill_common::worker::to_raw_value;
 use windmill_common::{
     error::{Error as WindmillError, Result as WindmillResult},
     utils::empty_string_as_none,
 };
+use windmill_queue::TriggerKind;
 
 #[derive(sqlx::Type, Debug, Deserialize, Serialize)]
 #[serde(rename_all(serialize = "lowercase", deserialize = "lowercase"))]
@@ -90,14 +93,8 @@ pub async fn manage_google_subscription(
 pub async fn process_google_push_request(
     _headers: HeaderMap,
     _request: Request,
-) -> Result<
-    (
-        HashMap<String, Box<RawValue>>,
-        Option<HashMap<String, Box<RawValue>>>,
-    ),
-    WindmillError,
-> {
-    Ok((HashMap::new(), None))
+) -> Result<(String, HashMap<String, Box<RawValue>>), WindmillError> {
+    Ok((String::new(), HashMap::new()))
 }
 
 pub async fn validate_jwt_token(
@@ -136,4 +133,14 @@ pub struct GcpTrigger {
     pub server_id: Option<String>,
     pub last_server_ping: Option<chrono::DateTime<chrono::Utc>>,
     pub enabled: bool,
+}
+
+impl TriggerJobArgs<String> for GcpTrigger {
+    fn v1_payload_fn(payload: String) -> HashMap<String, Box<RawValue>> {
+        HashMap::from([("payload".to_string(), to_raw_value(&payload))])
+    }
+
+    fn trigger_kind() -> TriggerKind {
+        TriggerKind::Gcp
+    }
 }

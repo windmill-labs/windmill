@@ -1,5 +1,37 @@
 # Changelog
 
+## [1.489.0](https://github.com/windmill-labs/windmill/compare/v1.488.0...v1.489.0) (2025-05-08)
+
+
+### Features
+
+* raise error if end early in flow ([#5653](https://github.com/windmill-labs/windmill/issues/5653)) ([242a565](https://github.com/windmill-labs/windmill/commit/242a5654285b0a3bf222c80e82f6861ffafed838))
+
+## [1.488.0](https://github.com/windmill-labs/windmill/compare/v1.487.0...v1.488.0) (2025-05-07)
+
+
+### Features
+
+* handle . in interpolated args ([0ac8e47](https://github.com/windmill-labs/windmill/commit/0ac8e477d6fb7c5a7699a198fce9d18a08aff68c))
+
+
+### Bug Fixes
+
+* fix azure object storage regression due to object_store regression ([df9f827](https://github.com/windmill-labs/windmill/commit/df9f827d103def27166a767044373bd0754285e2))
+* performance and stability improvement to fetch last deployed script ([75d9924](https://github.com/windmill-labs/windmill/commit/75d992449c845fd11c9a317d401c405e7d78e1ec))
+
+## [1.487.0](https://github.com/windmill-labs/windmill/compare/v1.486.1...v1.487.0) (2025-05-06)
+
+
+### Features
+
+* critical alert if disk near full ([#5549](https://github.com/windmill-labs/windmill/issues/5549)) ([4fd0561](https://github.com/windmill-labs/windmill/commit/4fd056123907337efb5f5669975b337973a124cc))
+
+
+### Bug Fixes
+
+* ansible in agent mode can use inventory.ini ([9bdd301](https://github.com/windmill-labs/windmill/commit/9bdd301f5296fbfb631df9ff9100e92e0984ff64))
+
 ## [1.486.1](https://github.com/windmill-labs/windmill/compare/v1.486.0...v1.486.1) (2025-05-04)
 
 

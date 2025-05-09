@@ -1943,7 +1943,7 @@ async fn handle_successful_schedule<'a, 'c, T: Serialize + Send + Sync>(
     Ok(())
 }
 
-#[derive(sqlx::Type, Serialize, Deserialize, Debug, Clone)]
+#[derive(sqlx::Type, Serialize, Deserialize, Debug, Clone, Eq, PartialEq, Hash)]
 #[sqlx(type_name = "TRIGGER_KIND", rename_all = "lowercase")]
 #[serde(rename_all = "lowercase")]
 pub enum TriggerKind {
@@ -1957,6 +1957,24 @@ pub enum TriggerKind {
     Sqs,
     Postgres,
     Gcp
+}
+
+
+impl TriggerKind {
+    pub fn to_key(&self) -> String {
+        match self {
+            TriggerKind::Webhook => "webhook".to_string(),
+            TriggerKind::Http => "http".to_string(),
+            TriggerKind::Websocket => "websocket".to_string(),
+            TriggerKind::Kafka => "kafka".to_string(),
+            TriggerKind::Email => "email".to_string(),
+            TriggerKind::Nats => "nats".to_string(),
+            TriggerKind::Mqtt => "mqtt".to_string(),
+            TriggerKind::Sqs => "sqs".to_string(),
+            TriggerKind::Postgres => "postgres".to_string(),
+            TriggerKind::Gcp => "gcp".to_string(),
+        }
+    }
 }
 
 #[derive(sqlx::Type, Serialize, Deserialize, Debug, Clone)]
@@ -2653,13 +2671,38 @@ fn interpolate_args(x: String, args: &PushArgs, workspace_id: &str) -> String {
         let mut interpolated = workspaced.clone();
         for cap in RE_ARG_TAG.captures_iter(&workspaced) {
             let arg_name = cap.get(1).unwrap().as_str();
-            let arg_value = args
-                .args
-                .get(arg_name)
-                .or(args.extra.as_ref().and_then(|x| x.get(arg_name)))
-                .map(|x| x.get())
-                .unwrap_or_default()
-                .trim_matches('"');
+            let arg_value = if arg_name.contains('.') {
+                let parts: Vec<&str> = arg_name.split('.').collect();
+                let root = parts[0];
+                let mut value = args
+                    .args
+                    .get(root)
+                    .or(args.extra.as_ref().and_then(|x| x.get(root)))
+                    .map(|x| x.get())
+                    .unwrap_or_default().to_string();
+                
+                for part in parts.iter().skip(1) {
+                    if let Ok(obj) = serde_json::from_str::<serde_json::Value>(&value) {
+                        value = obj.get(part)
+                            .and_then(|v| Some(v.to_string()))
+                            .unwrap_or_default()
+                            .as_str().to_string();
+                    } else {
+                        value = "".to_string(); // Invalid JSON or missing field
+                        break;
+                    }
+                }
+                value.trim_matches('"').to_string()
+            } else {
+                args.args
+                    .get(arg_name)
+                    .or(args.extra.as_ref().and_then(|x| x.get(arg_name)))
+                    .map(|x| x.get())
+                    .unwrap_or_default()
+                    .trim_matches('"')
+                    .to_string()
+            };
+            tracing::error!("arg_value: {}", arg_value);
             interpolated =
                 interpolated.replace(format!("$args[{}]", arg_name).as_str(), &arg_value);
         }
@@ -3227,7 +3270,7 @@ pub fn empty_result() -> Box<RawValue> {
 // }
 
 lazy_static::lazy_static! {
-    pub static ref RE_ARG_TAG: Regex = Regex::new(r#"\$args\[(\w+)\]"#).unwrap();
+    pub static ref RE_ARG_TAG: Regex = Regex::new(r#"\$args\[((?:\w+\.)*\w+)\]"#).unwrap();
 }
 
 // #[instrument(level = "trace", skip_all)]
@@ -3236,7 +3279,7 @@ pub async fn push<'c, 'd>(
     mut tx: PushIsolationLevel<'c>,
     workspace_id: &str,
     job_payload: JobPayload,
-    mut args: PushArgs<'d>,
+    args: PushArgs<'d>,
     user: &str,
     mut email: &str,
     mut permissioned_as: String,
@@ -3452,17 +3495,10 @@ pub async fn push<'c, 'd>(
             priority,
             apply_preprocessor,
         } => {
-            let extra = args.extra.get_or_insert_with(HashMap::new);
             if apply_preprocessor {
                 preprocessed = Some(false);
-                extra.entry("wm_trigger".to_string()).or_insert_with(|| {
-                    to_raw_value(&serde_json::json!({
-                        "kind": "webhook",
-                    }))
-                });
-            } else {
-                extra.remove("wm_trigger");
-            }
+            } 
+
             (
                 Some(hash.0),
                 Some(path),
@@ -3828,19 +3864,8 @@ pub async fn push<'c, 'd>(
                 priority,
             )
         }
-        JobPayload::Flow { path, dedicated_worker, apply_preprocessor } => {
+        JobPayload::Flow { path, dedicated_worker, apply_preprocessor, version } => {
             let mut ntx = tx.into_tx().await?;
-            // Fetch the latest version of the flow.
-            let version = sqlx::query_scalar!(
-                "SELECT flow.versions[array_upper(flow.versions, 1)] AS \"version!: i64\"
-                FROM flow WHERE path = $1 AND workspace_id = $2",
-                &path,
-                &workspace_id
-            )
-            .fetch_optional(&mut *ntx)
-            .await?
-            .ok_or_else(|| Error::internal_err(format!("not found flow at path {:?}", path)))?;
-
             // Do not use the lite version unless all workers are updated.
             let data = if *DISABLE_FLOW_SCRIPT
                 || (!*MIN_VERSION_IS_AT_LEAST_1_432.read().await && !*CLOUD_HOSTED)
@@ -3864,17 +3889,10 @@ pub async fn push<'c, 'd>(
             let concurrency_time_window_s = value.concurrency_time_window_s;
             let concurrent_limit = value.concurrent_limit;
 
-            let extra = args.extra.get_or_insert_with(HashMap::new);
             if !apply_preprocessor {
                 value.preprocessor_module = None;
-                extra.remove("wm_trigger");
             } else {
                 preprocessed = Some(false);
-                extra.entry("wm_trigger".to_string()).or_insert_with(|| {
-                    to_raw_value(&serde_json::json!({
-                        "kind": "webhook",
-                    }))
-                });
             }
 
             // this is a new flow being pushed, status is set to `value`.
