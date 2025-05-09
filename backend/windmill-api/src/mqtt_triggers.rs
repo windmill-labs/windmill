@@ -3,6 +3,7 @@ use crate::{
     db::{ApiAuthed, DB},
     jobs::{run_flow_by_path_inner, run_script_by_path_inner, RunJobQuery},
     resources::try_get_resource_from_db_as,
+    trigger_helpers::TriggerJobArgs,
     users::fetch_api_authed,
 };
 use windmill_queue::TriggerKind;
@@ -16,7 +17,7 @@ use axum::{
     routing::{delete, get, post},
     Router,
 };
-use base64::prelude::*;
+use base64::{engine, prelude::*};
 use bytes::Bytes;
 use http::StatusCode;
 use itertools::Itertools;
@@ -51,8 +52,6 @@ use rand::seq::SliceRandom;
 use serde_json::value::RawValue;
 use sqlx::types::Json as SqlxJson;
 
-use windmill_queue::PushArgsOwned;
-
 pub fn workspaced_service() -> Router {
     Router::new()
         .route("/create", post(create_mqtt_trigger))
@@ -82,12 +81,20 @@ enum Error {
 }
 
 async fn run_job(
-    args: Option<HashMap<String, Box<RawValue>>>,
-    extra: Option<HashMap<String, Box<RawValue>>>,
+    payload: &[u8],
+    trigger_info: HashMap<String, Box<RawValue>>,
     db: &DB,
     trigger: &MqttTrigger,
 ) -> anyhow::Result<()> {
-    let args = PushArgsOwned { args: args.unwrap_or_default(), extra };
+    let args = MqttTrigger::build_job_args(
+        &trigger.script_path,
+        trigger.is_flow,
+        &trigger.workspace_id,
+        db,
+        payload,
+        trigger_info,
+    )
+    .await?;
 
     let authed = fetch_api_authed(
         trigger.edited_by.clone(),
@@ -111,7 +118,6 @@ async fn run_job(
             StripPath(trigger.script_path.to_owned()),
             run_query,
             args,
-            None,
         )
         .await?;
     } else {
@@ -123,7 +129,6 @@ async fn run_job(
             StripPath(trigger.script_path.to_owned()),
             run_query,
             args,
-            None,
         )
         .await?;
     }
@@ -1090,31 +1095,27 @@ impl EventLoop for V3EventLoop {
 }
 
 async fn handle_publish_packet(db: &DB, mqtt: &MqttConfig, payload: Bytes, publish: PublishData) {
-    let args = HashMap::from([("payload".to_string(), to_raw_value(&payload.as_ref()))]);
-    let extra = Some(HashMap::from([(
-        "wm_trigger".to_string(),
-        to_raw_value(&serde_json::json!({
-            "kind": "mqtt",
-            "mqtt": {
-                "topic": publish.topic,
-                "retain": publish.retain,
-                "pkid": publish.pkid,
-                "qos": publish.qos,
-                "v5": publish.v5.map(|properties| {
-                    serde_json::json!({
-                        "payload_format_indicator": properties.payload_format_indicator,
-                        "topic_alias": properties.topic_alias,
-                        "response_topic": properties.response_topic,
-                        "correlation_data": properties.correlation_data.as_deref(),
-                        "user_properties": properties.user_properties,
-                        "subscription_identifiers": properties.subscription_identifiers,
-                        "content_type": properties.content_type,
-                    })
+    let trigger_info = HashMap::from([
+        ("topic".to_string(), to_raw_value(&publish.topic)),
+        ("retain".to_string(), to_raw_value(&publish.retain)),
+        ("pkid".to_string(), to_raw_value(&publish.pkid)),
+        ("qos".to_string(), to_raw_value(&publish.qos)),
+        (
+            "v5".to_string(),
+            to_raw_value(&publish.v5.map(|properties| {
+                serde_json::json!({
+                    "payload_format_indicator": properties.payload_format_indicator,
+                    "topic_alias": properties.topic_alias,
+                    "response_topic": properties.response_topic,
+                    "correlation_data": properties.correlation_data.as_deref(),
+                    "user_properties": properties.user_properties,
+                    "subscription_identifiers": properties.subscription_identifiers,
+                    "content_type": properties.content_type,
                 })
-            }
-        })),
-    )]));
-    mqtt.handle(&db, Some(args), extra).await;
+            })),
+        ),
+    ]);
+    mqtt.handle(&db, payload.as_ref(), trigger_info).await;
 }
 
 async fn handle_event<E, H>(db: &DB, mqtt: &MqttConfig, handler: H, mut event_loop: E) -> ()
@@ -1225,12 +1226,12 @@ impl MqttConfig {
     async fn handle(
         &self,
         db: &DB,
-        args: Option<HashMap<String, Box<RawValue>>>,
-        extra: Option<HashMap<String, Box<RawValue>>>,
+        payload: &[u8],
+        trigger_info: HashMap<String, Box<RawValue>>,
     ) -> () {
         match self {
-            MqttConfig::Trigger(trigger) => trigger.handle(&db, args, extra).await,
-            MqttConfig::Capture(capture) => capture.handle(&db, args, extra).await,
+            MqttConfig::Trigger(trigger) => trigger.handle(&db, payload, trigger_info).await,
+            MqttConfig::Capture(capture) => capture.handle(&db, payload, trigger_info).await,
         }
     }
 }
@@ -1406,10 +1407,10 @@ impl MqttTrigger {
     async fn handle(
         &self,
         db: &DB,
-        args: Option<HashMap<String, Box<RawValue>>>,
-        extra: Option<HashMap<String, Box<RawValue>>>,
+        payload: &[u8],
+        trigger_info: HashMap<String, Box<RawValue>>,
     ) -> () {
-        if let Err(err) = run_job(args, extra, db, self).await {
+        if let Err(err) = run_job(payload, trigger_info, db, self).await {
             report_critical_error(
                 format!("Failed to trigger job from mqtt {}: {:?}", self.path, err),
                 db.clone(),
@@ -1418,6 +1419,21 @@ impl MqttTrigger {
             )
             .await;
         };
+    }
+}
+
+impl TriggerJobArgs<&[u8]> for MqttTrigger {
+    fn v1_payload_fn(payload: &[u8]) -> HashMap<String, Box<RawValue>> {
+        HashMap::from([("payload".to_string(), to_raw_value(&payload))])
+    }
+
+    fn v2_payload_fn(payload: &[u8]) -> HashMap<String, Box<RawValue>> {
+        let base64_payload = engine::general_purpose::STANDARD.encode(payload);
+        HashMap::from([("payload".to_string(), to_raw_value(&base64_payload))])
+    }
+
+    fn trigger_kind() -> TriggerKind {
+        TriggerKind::Mqtt
     }
 }
 
@@ -1675,19 +1691,19 @@ impl CaptureConfigForMqttTrigger {
     async fn handle(
         &self,
         db: &DB,
-        args: Option<HashMap<String, Box<RawValue>>>,
-        extra: Option<HashMap<String, Box<RawValue>>>,
+        payload: &[u8],
+        trigger_info: HashMap<String, Box<RawValue>>,
     ) -> () {
-        let args = PushArgsOwned { args: args.unwrap_or_default(), extra: None };
-        let extra = extra.as_ref().map(to_raw_value);
+        let (main_args, preprocessor_args) =
+            MqttTrigger::build_capture_payloads(payload, trigger_info);
         if let Err(err) = insert_capture_payload(
             db,
             &self.workspace_id,
             &self.path,
             self.is_flow,
             &TriggerKind::Mqtt,
-            args,
-            extra,
+            main_args,
+            preprocessor_args,
             &self.owner,
         )
         .await

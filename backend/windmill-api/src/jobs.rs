@@ -7,6 +7,7 @@
  */
 
 use axum::body::Body;
+use axum::extract::Request;
 use axum::http::HeaderValue;
 #[cfg(feature = "deno_core")]
 use deno_core::{op2, serde_v8, v8, JsRuntime, OpState};
@@ -37,10 +38,11 @@ use crate::add_webhook_allowed_origin;
 use crate::concurrency_groups::join_concurrency_key;
 use crate::db::ApiAuthed;
 
+use crate::trigger_helpers::RunnableId;
 use crate::users::get_scope_tags;
 use crate::utils::content_plain;
 use crate::{
-    args::{DecodeQueries, WebhookArgs},
+    args::{DecodeQueries, RawWebhookArgs},
     db::DB,
     users::{check_scopes, require_owner_of_path, OptAuthed},
     utils::require_super_admin,
@@ -55,7 +57,7 @@ use axum::{
 use base64::Engine;
 use chrono::Utc;
 use hmac::Mac;
-use hyper::{Request, StatusCode};
+use hyper::StatusCode;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use sql_builder::prelude::*;
 use sqlx::types::JsonRawValue;
@@ -86,7 +88,10 @@ use windmill_common::s3_helpers::OBJECT_STORE_CACHE_SETTINGS;
 #[cfg(feature = "prometheus")]
 use windmill_common::{METRICS_DEBUG_ENABLED, METRICS_ENABLED};
 
-use windmill_common::{get_latest_deployed_hash_for_path, BASE_URL};
+use windmill_common::{
+    get_latest_deployed_hash_for_path, get_latest_flow_version_info_for_path,
+    get_script_info_for_hash, FlowVersionInfo, ScriptHashInfo, BASE_URL,
+};
 use windmill_queue::{
     cancel_job, get_result_and_success_by_id_from_flow, job_is_complete, push, PushArgs,
     PushArgsOwned, PushIsolationLevel,
@@ -543,58 +548,6 @@ async fn force_cancel(
             )));
         }
     }
-}
-
-pub async fn get_path_tag_limits_cache_for_hash(
-    mut tx: Transaction<'_, Postgres>,
-    w_id: &str,
-    hash: i64,
-) -> error::Result<(
-    String,
-    Option<String>,
-    Option<String>,
-    Option<i32>,
-    Option<i32>,
-    Option<i32>,
-    ScriptLang,
-    Option<bool>,
-    Option<i16>,
-    Option<bool>,
-    Option<i32>,
-    Option<bool>,
-    Option<String>,
-    String,
-)> {
-    let script = sqlx::query!(
-        "select path, tag, concurrency_key, concurrent_limit, concurrency_time_window_s, cache_ttl, language as \"language: ScriptLang\", dedicated_worker, priority, delete_after_use, timeout, has_preprocessor, on_behalf_of_email, created_by from script where hash = $1 AND workspace_id = $2",
-        hash,
-        w_id
-    )
-    .fetch_optional(&mut *tx)
-    .await
-    .map_err(|e| {
-        Error::internal_err(format!(
-            "querying getting path for hash {hash} in {w_id}: {e:#}"
-        ))
-    })?.ok_or_else(|| Error::NotFound(format!(
-        "deployed script not found at hash {hash} in workspace {w_id}"
-    )))?;
-    Ok((
-        script.path,
-        script.tag,
-        script.concurrency_key,
-        script.concurrent_limit,
-        script.concurrency_time_window_s,
-        script.cache_ttl,
-        script.language,
-        script.dedicated_worker,
-        script.priority,
-        script.delete_after_use,
-        script.timeout,
-        script.has_preprocessor,
-        script.on_behalf_of_email,
-        script.created_by,
-    ))
 }
 
 async fn get_flow_job_debug_info(
@@ -3466,7 +3419,6 @@ async fn batch_rerun_handle_job(
                 StripPath(job.script_path.clone()),
                 RunJobQuery { ..Default::default() },
                 PushArgsOwned { extra: None, args },
-                None,
             )
             .await;
             if let Ok((_, uuid)) = result {
@@ -3483,7 +3435,6 @@ async fn batch_rerun_handle_job(
                     StripPath(job.script_path.clone()),
                     RunJobQuery { ..Default::default() },
                     PushArgsOwned { extra: None, args },
-                    None,
                 )
                 .await
             } else {
@@ -3495,7 +3446,6 @@ async fn batch_rerun_handle_job(
                     job.script_hash,
                     RunJobQuery { ..Default::default() },
                     PushArgsOwned { extra: None, args },
-                    None,
                 )
                 .await
             };
@@ -3516,11 +3466,19 @@ pub async fn run_flow_by_path(
     Extension(user_db): Extension<UserDB>,
     Path((w_id, flow_path)): Path<(String, StripPath)>,
     Query(run_query): Query<RunJobQuery>,
-    args: WebhookArgs,
+    args: RawWebhookArgs,
 ) -> error::Result<(StatusCode, String)> {
-    let args = args.to_push_args_owned(&authed, &db, &w_id).await?;
+    let args = args
+        .to_args_from_runnable(
+            &authed,
+            &db,
+            &w_id,
+            RunnableId::from_flow_path(&flow_path.0),
+            run_query.skip_preprocessor,
+        )
+        .await?;
 
-    run_flow_by_path_inner(authed, db, user_db, w_id, flow_path, run_query, args, None).await
+    run_flow_by_path_inner(authed, db, user_db, w_id, flow_path, run_query, args).await
 }
 
 pub async fn run_flow_by_path_inner(
@@ -3531,7 +3489,6 @@ pub async fn run_flow_by_path_inner(
     flow_path: StripPath,
     run_query: RunJobQuery,
     args: PushArgsOwned,
-    label_prefix: Option<String>,
 ) -> error::Result<(StatusCode, String)> {
     #[cfg(feature = "enterprise")]
     check_license_key_valid().await?;
@@ -3539,23 +3496,17 @@ pub async fn run_flow_by_path_inner(
     check_scopes(&authed, || format!("run:flow/{flow_path}"))?;
 
     let mut tx = user_db.clone().begin(&authed).await?;
-    let (tag, dedicated_worker, has_preprocessor, on_behalf_of_email, edited_by) = sqlx::query!(
-        "SELECT tag, dedicated_worker, flow_version.value->>'preprocessor_module' IS NOT NULL as has_preprocessor, on_behalf_of_email, edited_by
-        FROM flow 
-        LEFT JOIN flow_version
-            ON flow_version.id = flow.versions[array_upper(flow.versions, 1)]
-        WHERE flow.path = $1 and flow.workspace_id = $2",
-        flow_path,
-        w_id
-    )
-    .fetch_optional(&mut *tx)
-    .await?
-    .map(|x| (x.tag, x.dedicated_worker, x.has_preprocessor, x.on_behalf_of_email, x.edited_by))
-    .ok_or_else(|| {
-        Error::NotFound(format!(
-            "flow not found at path {flow_path} in workspace {w_id}"
-        ))
-    })?;
+
+    let FlowVersionInfo {
+        version,
+        tag,
+        dedicated_worker,
+        has_preprocessor,
+        on_behalf_of_email,
+        edited_by,
+        ..
+    } = get_latest_flow_version_info_for_path(&mut *tx, &w_id, &flow_path, true).await?;
+
     drop(tx);
 
     let tag = run_query.tag.clone().or(tag);
@@ -3587,13 +3538,12 @@ pub async fn run_flow_by_path_inner(
         JobPayload::Flow {
             path: flow_path.to_string(),
             dedicated_worker,
+            version,
             apply_preprocessor: !run_query.skip_preprocessor.unwrap_or(false)
                 && has_preprocessor.unwrap_or(false),
         },
         PushArgs { args: &args.args, extra: args.extra },
-        &label_prefix
-            .map(|x| x + authed.display_username())
-            .unwrap_or_else(|| authed.display_username().to_string()),
+        authed.display_username(),
         email,
         permissioned_as,
         scheduled_for,
@@ -3715,20 +3665,19 @@ pub async fn run_script_by_path(
     Extension(user_db): Extension<UserDB>,
     Path((w_id, script_path)): Path<(String, StripPath)>,
     Query(run_query): Query<RunJobQuery>,
-    args: WebhookArgs,
+    args: RawWebhookArgs,
 ) -> error::Result<(StatusCode, String)> {
-    let args = args.to_push_args_owned(&authed, &db, &w_id).await?;
-    run_script_by_path_inner(
-        authed,
-        db,
-        user_db,
-        w_id,
-        script_path,
-        run_query,
-        args,
-        None,
-    )
-    .await
+    let args = args
+        .to_args_from_runnable(
+            &authed,
+            &db,
+            &w_id,
+            RunnableId::from_script_path(&script_path.0),
+            run_query.skip_preprocessor,
+        )
+        .await?;
+
+    run_script_by_path_inner(authed, db, user_db, w_id, script_path, run_query, args).await
 }
 
 pub async fn run_script_by_path_inner(
@@ -3739,7 +3688,6 @@ pub async fn run_script_by_path_inner(
     script_path: StripPath,
     run_query: RunJobQuery,
     args: PushArgsOwned,
-    label_prefix: Option<String>,
 ) -> error::Result<(StatusCode, String)> {
     #[cfg(feature = "enterprise")]
     check_license_key_valid().await?;
@@ -3780,9 +3728,7 @@ pub async fn run_script_by_path_inner(
         &w_id,
         job_payload,
         PushArgs { args: &args.args, extra: args.extra },
-        &label_prefix
-            .map(|x| x + authed.display_username())
-            .unwrap_or_else(|| authed.display_username().to_string()),
+        authed.display_username(),
         email,
         permissioned_as,
         scheduled_for,
@@ -4504,10 +4450,8 @@ pub async fn run_wait_result_flow_by_path_get(
 
     let args = PushArgsOwned { extra: Some(payload_args), args: HashMap::new() };
 
-    run_wait_result_flow_by_path_internal(
-        db, run_query, flow_path, authed, user_db, args, w_id, None,
-    )
-    .await
+    run_wait_result_flow_by_path_internal(db, run_query, flow_path, authed, user_db, args, w_id)
+        .await
 }
 
 pub async fn run_wait_result_script_by_path(
@@ -4516,24 +4460,23 @@ pub async fn run_wait_result_script_by_path(
     Extension(db): Extension<DB>,
     Path((w_id, script_path)): Path<(String, StripPath)>,
     Query(run_query): Query<RunJobQuery>,
-    args: WebhookArgs,
+    args: RawWebhookArgs,
 ) -> error::Result<Response> {
     #[cfg(feature = "enterprise")]
     check_license_key_valid().await?;
 
-    let args = args.to_push_args_owned(&authed, &db, &w_id).await?;
+    let args = args
+        .to_args_from_runnable(
+            &authed,
+            &db,
+            &w_id,
+            RunnableId::from_script_path(&script_path.0),
+            run_query.skip_preprocessor,
+        )
+        .await?;
 
-    run_wait_result_script_by_path_internal(
-        db,
-        run_query,
-        script_path,
-        authed,
-        user_db,
-        w_id,
-        args,
-        None,
-    )
-    .await
+    run_wait_result_script_by_path_internal(db, run_query, script_path, authed, user_db, w_id, args)
+        .await
 }
 
 pub async fn run_wait_result_script_by_path_internal(
@@ -4544,7 +4487,6 @@ pub async fn run_wait_result_script_by_path_internal(
     user_db: UserDB,
     w_id: String,
     args: PushArgsOwned,
-    label_prefix: Option<String>,
 ) -> error::Result<Response> {
     check_queue_too_long(&db, QUEUE_LIMIT_WAIT_RESULT.or(run_query.queue_limit)).await?;
     let script_path = script_path.to_path();
@@ -4580,9 +4522,7 @@ pub async fn run_wait_result_script_by_path_internal(
         &w_id,
         job_payload,
         PushArgs { args: &args.args, extra: args.extra },
-        &label_prefix
-            .map(|x| x + authed.display_username())
-            .unwrap_or_else(|| authed.display_username().to_string()),
+        authed.display_username(),
         email,
         permissioned_as,
         None,
@@ -4616,19 +4556,29 @@ pub async fn run_wait_result_script_by_hash(
     Extension(db): Extension<DB>,
     Path((w_id, script_hash)): Path<(String, ScriptHash)>,
     Query(run_query): Query<RunJobQuery>,
-    args: WebhookArgs,
+    args: RawWebhookArgs,
 ) -> error::Result<Response> {
     #[cfg(feature = "enterprise")]
     check_license_key_valid().await?;
 
-    let args = args.to_push_args_owned(&authed, &db, &w_id).await?;
+    let args = args
+        .to_args_from_runnable(
+            &authed,
+            &db,
+            &w_id,
+            RunnableId::from_script_hash(script_hash),
+            run_query.skip_preprocessor,
+        )
+        .await?;
+
     check_queue_too_long(&db, run_query.queue_limit).await?;
 
     let hash = script_hash.0;
-    let (
+    let mut tx = user_db.clone().begin(&authed).await?;
+    let ScriptHashInfo {
         path,
         tag,
-        custom_concurrency_key,
+        concurrency_key,
         concurrent_limit,
         concurrency_time_window_s,
         mut cache_ttl,
@@ -4640,8 +4590,8 @@ pub async fn run_wait_result_script_by_hash(
         has_preprocessor,
         on_behalf_of_email,
         created_by,
-    ) = get_path_tag_limits_cache_for_hash(user_db.clone().begin(&authed).await?, &w_id, hash)
-        .await?;
+        ..
+    } = get_script_info_for_hash(&mut *tx, &w_id, hash).await?;
     if let Some(run_query_cache_ttl) = run_query.cache_ttl {
         cache_ttl = Some(run_query_cache_ttl);
     }
@@ -4674,7 +4624,7 @@ pub async fn run_wait_result_script_by_hash(
         JobPayload::ScriptHash {
             hash: ScriptHash(hash),
             path: path,
-            custom_concurrency_key,
+            custom_concurrency_key: concurrency_key,
             concurrent_limit: concurrent_limit,
             concurrency_time_window_s: concurrency_time_window_s,
             cache_ttl,
@@ -4719,17 +4669,23 @@ pub async fn run_wait_result_flow_by_path(
     Extension(db): Extension<DB>,
     Path((w_id, flow_path)): Path<(String, StripPath)>,
     Query(run_query): Query<RunJobQuery>,
-    args: WebhookArgs,
+    args: RawWebhookArgs,
 ) -> error::Result<Response> {
     #[cfg(feature = "enterprise")]
     check_license_key_valid().await?;
 
-    let args = args.to_push_args_owned(&authed, &db, &w_id).await?;
+    let args = args
+        .to_args_from_runnable(
+            &authed,
+            &db,
+            &w_id,
+            RunnableId::from_flow_path(&flow_path.0),
+            run_query.skip_preprocessor,
+        )
+        .await?;
 
-    run_wait_result_flow_by_path_internal(
-        db, run_query, flow_path, authed, user_db, args, w_id, None,
-    )
-    .await
+    run_wait_result_flow_by_path_internal(db, run_query, flow_path, authed, user_db, args, w_id)
+        .await
 }
 
 pub async fn run_wait_result_flow_by_path_internal(
@@ -4740,7 +4696,6 @@ pub async fn run_wait_result_flow_by_path_internal(
     user_db: UserDB,
     args: PushArgsOwned,
     w_id: String,
-    label_prefix: Option<String>,
 ) -> error::Result<Response> {
     check_queue_too_long(&db, run_query.queue_limit).await?;
 
@@ -4750,23 +4705,16 @@ pub async fn run_wait_result_flow_by_path_internal(
     let scheduled_for = run_query.get_scheduled_for(&db).await?;
 
     let mut tx = user_db.clone().begin(&authed).await?;
-    let (tag, dedicated_worker, early_return, has_preprocessor, on_behalf_of_email, edited_by) = sqlx::query!(
-        "SELECT tag, dedicated_worker, flow_version.value->>'early_return' as early_return, flow_version.value->>'preprocessor_module' IS NOT NULL as has_preprocessor, on_behalf_of_email, edited_by
-        FROM flow 
-        LEFT JOIN flow_version
-            ON flow_version.id = flow.versions[array_upper(flow.versions, 1)]
-        WHERE flow.path = $1 and flow.workspace_id = $2",
-        flow_path,
-        w_id
-    )
-    .fetch_optional(&mut *tx)
-    .await?
-    .map(|x| (x.tag, x.dedicated_worker, x.early_return, x.has_preprocessor, x.on_behalf_of_email, x.edited_by))
-    .ok_or_else(|| {
-        Error::NotFound(format!(
-            "flow not found at path {flow_path} in workspace {w_id}"
-        ))
-    })?;
+
+    let FlowVersionInfo {
+        tag,
+        dedicated_worker,
+        early_return,
+        has_preprocessor,
+        on_behalf_of_email,
+        edited_by,
+        version,
+    } = get_latest_flow_version_info_for_path(&mut *tx, &w_id, &flow_path, true).await?;
 
     let tag = run_query.tag.clone().or(tag);
     check_tag_available_for_workspace(&w_id, &tag, &authed).await?;
@@ -4795,13 +4743,12 @@ pub async fn run_wait_result_flow_by_path_internal(
         JobPayload::Flow {
             path: flow_path.to_string(),
             dedicated_worker,
+            version,
             apply_preprocessor: !run_query.skip_preprocessor.unwrap_or(false)
                 && has_preprocessor.unwrap_or(false),
         },
         PushArgs { args: &args.args, extra: args.extra },
-        &label_prefix
-            .map(|x| x + authed.display_username())
-            .unwrap_or_else(|| authed.display_username().to_string()),
+        authed.display_username(),
         email,
         permissioned_as,
         scheduled_for,
@@ -5255,29 +5202,23 @@ async fn add_batch_jobs(
         "script" => {
             if let Some(path) = batch_info.path {
                 let mut tx = user_db.clone().begin(&authed).await?;
-                let (
-                    script_hash,
-                    _tag,
-                    custom_concurrency_key,
+                let ScriptHashInfo {
+                    hash: script_hash,
+                    concurrency_key,
                     concurrent_limit,
                     concurrency_time_window_s,
-                    _cache_ttl,
                     language,
                     dedicated_worker,
-                    _priority,
-                    _delete_after_use,
                     timeout,
-                    _,
-                    _, // TODO: consider on_behalf_of_email and created_by for batch jobs
-                    _, // ------------------------------------------
-                ) = get_latest_deployed_hash_for_path(&mut *tx, &w_id, &path).await?;
+                    .. // TODO: consider on_behalf_of_email and created_by for batch jobs
+                 } = get_latest_deployed_hash_for_path(&mut *tx, &w_id, &path).await?;
                 (
                     Some(script_hash),
                     Some(path),
                     JobKind::Script,
                     Some(language),
                     dedicated_worker,
-                    custom_concurrency_key,
+                    concurrency_key,
                     concurrent_limit,
                     concurrency_time_window_s,
                     timeout,
@@ -5417,7 +5358,7 @@ async fn add_batch_jobs(
         raw_lock,
         raw_flow.map(sqlx::types::Json) as Option<sqlx::types::Json<FlowValue>>,
         tag,
-        hash.map(|h| h.0),
+        hash,
         path,
         job_kind.clone() as JobKind,
         language as ScriptLang,
@@ -5562,20 +5503,19 @@ pub async fn run_job_by_hash(
     Extension(user_db): Extension<UserDB>,
     Path((w_id, script_hash)): Path<(String, ScriptHash)>,
     Query(run_query): Query<RunJobQuery>,
-    args: WebhookArgs,
+    args: RawWebhookArgs,
 ) -> error::Result<(StatusCode, String)> {
-    let args = args.to_push_args_owned(&authed, &db, &w_id).await?;
-    run_job_by_hash_inner(
-        authed,
-        db,
-        user_db,
-        w_id,
-        script_hash,
-        run_query,
-        args,
-        None,
-    )
-    .await
+    let args = args
+        .to_args_from_runnable(
+            &authed,
+            &db,
+            &w_id,
+            RunnableId::from_script_hash(script_hash),
+            run_query.skip_preprocessor,
+        )
+        .await?;
+
+    run_job_by_hash_inner(authed, db, user_db, w_id, script_hash, run_query, args).await
 }
 
 pub async fn run_job_by_hash_inner(
@@ -5586,29 +5526,28 @@ pub async fn run_job_by_hash_inner(
     script_hash: ScriptHash,
     run_query: RunJobQuery,
     args: PushArgsOwned,
-    label_prefix: Option<String>,
 ) -> error::Result<(StatusCode, String)> {
     #[cfg(feature = "enterprise")]
     check_license_key_valid().await?;
 
     let hash = script_hash.0;
-    let (
+    let mut tx = user_db.clone().begin(&authed).await?;
+    let ScriptHashInfo {
         path,
         tag,
-        custom_concurrency_key,
+        concurrency_key,
         concurrent_limit,
         concurrency_time_window_s,
         mut cache_ttl,
         language,
         dedicated_worker,
         priority,
-        _delete_after_use, // not taken into account in async endpoints
         timeout,
         has_preprocessor,
         on_behalf_of_email,
         created_by,
-    ) = get_path_tag_limits_cache_for_hash(user_db.clone().begin(&authed).await?, &w_id, hash)
-        .await?;
+        .. // delete_after_use not taken into account in async endpoints
+    } = get_script_info_for_hash(&mut *tx, &w_id, hash).await?;
     check_scopes(&authed, || format!("run:script/{path}"))?;
     if let Some(run_query_cache_ttl) = run_query.cache_ttl {
         cache_ttl = Some(run_query_cache_ttl);
@@ -5642,7 +5581,7 @@ pub async fn run_job_by_hash_inner(
         JobPayload::ScriptHash {
             hash: ScriptHash(hash),
             path: path,
-            custom_concurrency_key,
+            custom_concurrency_key: concurrency_key,
             concurrent_limit: concurrent_limit,
             concurrency_time_window_s: concurrency_time_window_s,
             cache_ttl,
@@ -5653,9 +5592,7 @@ pub async fn run_job_by_hash_inner(
                 && has_preprocessor.unwrap_or(false),
         },
         PushArgs { args: &args.args, extra: args.extra },
-        &label_prefix
-            .map(|x| x + authed.display_username())
-            .unwrap_or_else(|| authed.display_username().to_string()),
+        authed.display_username(),
         email,
         permissioned_as,
         scheduled_for,

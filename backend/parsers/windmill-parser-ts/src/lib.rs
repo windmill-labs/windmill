@@ -506,7 +506,7 @@ fn one_of_label(members: &Vec<TsTypeElement>) -> Option<String> {
         let Expr::Ident(Ident { sym, .. }) = &**key else {
             return None;
         };
-        if sym != "label" {
+        if sym != "label" && sym != "kind" {
             return None;
         }
 

@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n        SELECT \n            id, \n            created_at, \n            trigger_kind AS \"trigger_kind: _\", \n            payload AS \"payload!: _\", \n            trigger_extra AS \"trigger_extra: _\"\n        FROM \n            capture\n        WHERE \n            id = $1 \n            AND workspace_id = $2\n        ",
+  "query": "\n        SELECT \n            id, \n            created_at, \n            trigger_kind AS \"trigger_kind: _\", \n            main_args AS \"main_args!: _\", \n            preprocessor_args AS \"preprocessor_args: _\"\n        FROM \n            capture\n        WHERE \n            id = $1 \n            AND workspace_id = $2\n        ",
   "describe": {
     "columns": [
       {
@@ -38,12 +38,12 @@
       },
       {
         "ordinal": 3,
-        "name": "payload!: _",
+        "name": "main_args!: _",
         "type_info": "Jsonb"
       },
       {
         "ordinal": 4,
-        "name": "trigger_extra: _",
+        "name": "preprocessor_args: _",
         "type_info": "Jsonb"
       }
     ],
@@ -61,5 +61,5 @@
       true
     ]
   },
-  "hash": "6781ba76dfce321dca4634566496ea5d698ac09d8264e35dfaa4cd8edc9e8414"
+  "hash": "9c50e3a136a8ee3ec56e083f26d3a960b89e02ec40b292f3b5198baf2a1d3dbf"
 }

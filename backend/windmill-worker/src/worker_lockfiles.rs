@@ -544,9 +544,9 @@ async fn trigger_dependents_to_recompute_dependencies(
             match r {
                 Ok(r) => JobPayload::Dependencies {
                     path: s.importer_path.clone(),
-                    hash: r.0,
-                    language: r.6,
-                    dedicated_worker: r.7,
+                    hash: ScriptHash(r.hash),
+                    language: r.language,
+                    dedicated_worker: r.dedicated_worker,
                 },
                 Err(err) => {
                     tracing::error!(

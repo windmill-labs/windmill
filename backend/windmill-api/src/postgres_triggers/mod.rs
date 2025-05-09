@@ -2,6 +2,7 @@ use crate::{
     db::{ApiAuthed, DB},
     jobs::{run_flow_by_path_inner, run_script_by_path_inner, RunJobQuery},
     resources::try_get_resource_from_db_as,
+    trigger_helpers::TriggerJobArgs,
     users::fetch_api_authed,
 };
 use chrono::Utc;
@@ -30,7 +31,6 @@ use handler::{
     Relations,
 };
 use windmill_common::{db::UserDB, error::Error, utils::StripPath};
-use windmill_queue::PushArgsOwned;
 mod bool;
 mod converter;
 mod handler;
@@ -250,12 +250,19 @@ pub fn workspaced_service() -> Router {
 }
 
 async fn run_job(
-    args: Option<HashMap<String, Box<RawValue>>>,
-    extra: Option<HashMap<String, Box<RawValue>>>,
+    payload: HashMap<String, Box<RawValue>>,
     db: &DB,
     trigger: &PostgresTrigger,
 ) -> anyhow::Result<()> {
-    let args = PushArgsOwned { args: args.unwrap_or_default(), extra };
+    let args = PostgresTrigger::build_job_args(
+        &trigger.script_path,
+        trigger.is_flow,
+        &trigger.workspace_id,
+        db,
+        payload,
+        HashMap::new(),
+    )
+    .await?;
 
     let authed = fetch_api_authed(
         trigger.edited_by.clone(),
@@ -279,7 +286,6 @@ async fn run_job(
             StripPath(trigger.script_path.to_owned()),
             run_query,
             args,
-            None,
         )
         .await?;
     } else {
@@ -291,7 +297,6 @@ async fn run_job(
             StripPath(trigger.script_path.to_owned()),
             run_query,
             args,
-            None,
         )
         .await?;
     }

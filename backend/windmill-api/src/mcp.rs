@@ -924,7 +924,6 @@ impl ServerHandler for Runner {
                 user_db.clone(),
                 w_id.clone(),
                 push_args,
-                None,
             )
             .await
         } else {
@@ -936,7 +935,6 @@ impl ServerHandler for Runner {
                 user_db.clone(),
                 push_args,
                 w_id.clone(),
-                None,
             )
             .await
         };

@@ -30,8 +30,10 @@
 	<svelte:fragment slot="header">
 		<Tooltip
 			documentationLink="https://www.windmill.dev/docs/core_concepts/http_routing#body-processing-options"
-			>Wraps the payload in an object under the 'body' key, useful for handling unknown payloads.</Tooltip
 		>
+			Wraps the payload in an object under the 'body' key, useful for handling unknown payloads.
+			Note that this will have no effect when using a preprocessor.
+		</Tooltip>
 	</svelte:fragment>
 	<svelte:fragment slot="action">
 		<Toggle
