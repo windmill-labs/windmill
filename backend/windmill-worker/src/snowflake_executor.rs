@@ -9,6 +9,7 @@ use serde_json::{json, value::RawValue, Value};
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use windmill_common::error::to_anyhow;
+use windmill_common::s3_helpers::convert_json_line_stream;
 use windmill_common::worker::Connection;
 
 use windmill_common::{error::Error, worker::to_raw_value};
@@ -198,6 +199,13 @@ fn do_snowflake_inner<'a>(
                 );
             }
 
+            // Clones are because, in s3 mode, reqwest::Body::wrap_stream requires the stream to be
+            // 'static even though it doesn't make sense to be in our case since the request is
+            // awaited and the stream is fully read before the function returns.
+            // Turns out it is a real pain to trick the compiler, even using unsafe
+            let cloned_account_identifier: String = account_identifier.to_string();
+            let cloned_token = token.to_string();
+
             let rows_stream = async_stream::stream! {
                 for row in response.data {
                     yield Ok::<Vec<Value>, windmill_common::error::Error>(row);
@@ -207,12 +215,12 @@ fn do_snowflake_inner<'a>(
                     for idx in 1..response.resultSetMetaData.partitionInfo.len() {
                         let url = format!(
                             "https://{}.snowflakecomputing.com/api/v2/statements/{}",
-                            account_identifier.to_uppercase(),
+                            cloned_account_identifier.to_uppercase(),
                             response.statementHandle
                         );
                         let mut request = HTTP_CLIENT
                             .get(url)
-                            .bearer_auth(token)
+                            .bearer_auth(cloned_token.as_str())
                             .query(&[("partition", idx.to_string())]);
 
                         if token_is_keypair {
@@ -233,7 +241,7 @@ fn do_snowflake_inner<'a>(
                 }
             };
 
-            let rows_stream = rows_stream.map_ok(|row| {
+            let rows_stream = rows_stream.map_ok(move |row| {
                 let mut row_map = serde_json::Map::new();
                 row.iter()
                     .zip(response.resultSetMetaData.rowType.iter())
@@ -244,11 +252,10 @@ fn do_snowflake_inner<'a>(
             });
 
             if let Some(s3) = s3 {
-                // let rows_stream =
-                //     rows_stream.map(|r| serde_json::value::to_value(&r?).map_err(to_anyhow));
-                // let stream = convert_json_line_stream(rows_stream.boxed(), s3.format).await?;
-                // TODO fix this
-                // s3.upload(stream.boxed()).await?;
+                let rows_stream =
+                    rows_stream.map(|r| serde_json::value::to_value(&r?).map_err(to_anyhow));
+                let stream = convert_json_line_stream(rows_stream.boxed(), s3.format).await?;
+                s3.upload(stream.boxed()).await?;
                 Ok(to_raw_value(&s3.object_key))
             } else {
                 let rows = rows_stream
