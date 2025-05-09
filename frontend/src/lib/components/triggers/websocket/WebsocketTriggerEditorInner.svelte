@@ -83,7 +83,6 @@
 	let can_write = $state(true)
 	let drawerLoading = $state(true)
 	let showLoading = $state(false)
-	let resetEditMode = $state<(() => void) | undefined>(undefined)
 	let initialConfig = $state<Record<string, any> | undefined>(undefined)
 	let neverSaved = $state(false)
 
@@ -102,7 +101,6 @@
 			showLoading = true
 		}, 100) // Do not show loading spinner for the first 100ms
 		drawerLoading = true
-		resetEditMode = () => openEdit(ePath, isFlow, defaultConfig ?? initialConfig)
 		try {
 			drawer?.openDrawer()
 			initialPath = ePath
@@ -130,7 +128,6 @@
 			showLoading = true
 		}, 100) // Do not show loading spinner for the first 100ms
 		drawerLoading = true
-		resetEditMode = () => openNew(nis_flow, fixedScriptPath_, defaultValues, newDraft)
 		try {
 			drawer?.openDrawer()
 			is_flow = nis_flow
@@ -329,41 +326,44 @@
 {/if}
 
 {#snippet actionsButtons()}
-	<TriggerEditorToolbar
-		{isDraftOnly}
-		{hasDraft}
-		permissions={!drawerLoading && can_write ? 'create' : 'none'}
-		{editMode}
-		{enabled}
-		{allowDraft}
-		{edit}
-		isLoading={false}
-		{neverSaved}
-		saveDisabled={pathError !== '' ||
-			!isValid ||
-			invalidInitialMessages ||
-			drawerLoading ||
-			!can_write ||
-			emptyString(script_path)}
-		{isEditor}
-		{isDeployed}
-		on:save-draft={() => {
-			saveDraft()
-		}}
-		on:deploy={() => {
-			updateTrigger()
-		}}
-		on:reset
-		on:delete
-		on:edit={() => {
-			toggleEditMode(true)
-		}}
-		on:cancel={() => {
-			resetEditMode?.()
-			toggleEditMode(false)
-		}}
-		on:toggle-enabled={handleToggleEnabled}
-	/>
+	{#if !drawerLoading}
+		<TriggerEditorToolbar
+			{isDraftOnly}
+			{hasDraft}
+			permissions={!drawerLoading && can_write ? 'create' : 'none'}
+			{editMode}
+			{enabled}
+			{allowDraft}
+			{edit}
+			isLoading={false}
+			{neverSaved}
+			saveDisabled={pathError !== '' ||
+				!isValid ||
+				invalidInitialMessages ||
+				drawerLoading ||
+				!can_write ||
+				emptyString(script_path)}
+			{isEditor}
+			{isDeployed}
+			on:save-draft={() => {
+				saveDraft()
+			}}
+			on:deploy={() => {
+				updateTrigger()
+			}}
+			on:reset
+			on:delete
+			on:edit={() => {
+				initialConfig = getSaveCfg()
+				toggleEditMode(true)
+			}}
+			on:cancel={() => {
+				loadTrigger(initialConfig)
+				toggleEditMode(false)
+			}}
+			on:toggle-enabled={handleToggleEnabled}
+		/>
+	{/if}
 {/snippet}
 
 {#snippet config()}

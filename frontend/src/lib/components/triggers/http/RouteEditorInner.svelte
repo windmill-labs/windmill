@@ -87,7 +87,6 @@
 	let variablePicker = $state<ItemPicker | null>(null)
 	let variableEditor = $state<VariableEditor | null>(null)
 	let drawer = $state<Drawer | null>(null)
-	let resetEditMode = $state<(() => void) | null>(null)
 	let isAdmin = $derived($userStore?.is_admin || $userStore?.is_super_admin)
 	let initialConfig = $state<Record<string, any> | undefined>(undefined)
 
@@ -151,7 +150,6 @@
 		isFlow: boolean,
 		defaultConfig?: Record<string, any>
 	) {
-		resetEditMode = () => openEdit(ePath, isFlow, defaultConfig ?? initialConfig)
 		drawerLoading = true
 		let loader = setTimeout(() => {
 			showLoader = true
@@ -180,7 +178,6 @@
 		defaultValues?: Record<string, any>,
 		newDraft?: boolean
 	) {
-		resetEditMode = () => openNew(nis_flow, fixedScriptPath_, defaultValues, newDraft)
 		drawerLoading = true
 		let loader = setTimeout(() => {
 			showLoader = true
@@ -728,35 +725,38 @@
 {/snippet}
 
 {#snippet saveButton()}
-	<TriggerEditorToolbar
-		{isDraftOnly}
-		{hasDraft}
-		permissions={drawerLoading || !can_write ? 'none' : can_write && isAdmin ? 'create' : 'write'}
-		{editMode}
-		{saveDisabled}
-		{neverSaved}
-		enabled={undefined}
-		{allowDraft}
-		{edit}
-		isLoading={false}
-		{isEditor}
-		{isDeployed}
-		on:save-draft={() => {
-			saveDraft()
-		}}
-		on:deploy={() => {
-			triggerScript()
-		}}
-		on:reset
-		on:delete
-		on:edit={() => {
-			toggleEditMode(true)
-		}}
-		on:cancel={() => {
-			resetEditMode?.()
-			toggleEditMode(false)
-		}}
-	/>
+	{#if !drawerLoading}
+		<TriggerEditorToolbar
+			{isDraftOnly}
+			{hasDraft}
+			permissions={drawerLoading || !can_write ? 'none' : can_write && isAdmin ? 'create' : 'write'}
+			{editMode}
+			{saveDisabled}
+			{neverSaved}
+			enabled={undefined}
+			{allowDraft}
+			{edit}
+			isLoading={false}
+			{isEditor}
+			{isDeployed}
+			on:save-draft={() => {
+				saveDraft()
+			}}
+			on:deploy={() => {
+				triggerScript()
+			}}
+			on:reset
+			on:delete
+			on:edit={() => {
+				initialConfig = getSaveCfg()
+				toggleEditMode(true)
+			}}
+			on:cancel={() => {
+				loadTrigger(initialConfig)
+				toggleEditMode(false)
+			}}
+		/>
+	{/if}
 {/snippet}
 
 {#if useDrawer}

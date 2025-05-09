@@ -46,6 +46,7 @@
 	let delivery_config: PushConfig | undefined = $state(undefined)
 	let subscription_mode: SubscriptionMode = $state('create_update')
 	let neverSaved = $state(false)
+	let initialConfig = $state<Record<string, any> | undefined>(undefined)
 
 	const dispatch = createEventDispatcher()
 
@@ -77,8 +78,6 @@
 		isDeployed?: boolean
 	} = $props()
 
-	let resetEditMode = $state<(() => void) | undefined>(undefined)
-
 	$effect(() => {
 		is_flow = itemKind === 'flow'
 		dispatch('update-config', {
@@ -95,7 +94,6 @@
 
 	export async function openEdit(ePath: string, isFlow: boolean) {
 		drawerLoading = true
-		resetEditMode = () => openEdit(ePath, isFlow)
 		try {
 			drawer?.openDrawer()
 			initialPath = ePath
@@ -117,7 +115,6 @@
 		newDraft?: boolean
 	) {
 		drawerLoading = true
-		resetEditMode = () => openNew(nis_flow, fixedScriptPath_, defaultValues, newDraft)
 		try {
 			drawer?.openDrawer()
 			is_flow = nis_flow
@@ -296,10 +293,11 @@
 			on:reset
 			on:delete
 			on:edit={() => {
+				initialConfig = getSaveCfg()
 				toggleEditMode(true)
 			}}
 			on:cancel={() => {
-				resetEditMode?.()
+				loadTrigger(initialConfig)
 				toggleEditMode(false)
 			}}
 			on:toggle-enabled={handleToggleEnabled}

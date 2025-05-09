@@ -60,7 +60,6 @@
 	let can_write = $state(true)
 	let drawerLoading = $state(true)
 	let showLoading = $state(false)
-	let resetEditMode = $state<(() => void) | undefined>(undefined)
 	let initialConfig = $state<Record<string, any> | undefined>(undefined)
 	let neverSaved = $state(false)
 	let extra_perms = $state<Record<string, any> | undefined>(undefined)
@@ -102,7 +101,6 @@
 			showLoading = true
 		}, 100) // Do not show loading spinner for the first 100ms
 		drawerLoading = true
-		resetEditMode = () => openEdit(ePath, isFlow, defaultConfig ?? initialConfig)
 		try {
 			drawer?.openDrawer()
 			initialPath = ePath
@@ -125,7 +123,6 @@
 		nDefaultValues?: Record<string, any>,
 		newDraft?: boolean
 	) {
-		resetEditMode = () => openNew(nis_flow, fixedScriptPath_, nDefaultValues, newDraft)
 		let loadingTimeout = setTimeout(() => {
 			showLoading = true
 		}, 100) // Do not show loading spinner for the first 100ms
@@ -270,36 +267,39 @@
 {/if}
 
 {#snippet actionsButtons(size: 'xs' | 'sm' = 'sm')}
-	<TriggerEditorToolbar
-		{isDraftOnly}
-		{hasDraft}
-		permissions={drawerLoading || !can_write ? 'none' : 'create'}
-		{editMode}
-		{enabled}
-		{allowDraft}
-		{edit}
-		isLoading={false}
-		{neverSaved}
-		{isEditor}
-		{isDeployed}
-		{saveDisabled}
-		on:save-draft={() => {
-			saveDraft()
-		}}
-		on:deploy={() => {
-			updateTrigger()
-		}}
-		on:reset
-		on:delete
-		on:edit={() => {
-			toggleEditMode(true)
-		}}
-		on:cancel={() => {
-			resetEditMode?.()
-			toggleEditMode(false)
-		}}
-		on:toggle-enabled={handleToggleEnabled}
-	/>
+	{#if !drawerLoading}
+		<TriggerEditorToolbar
+			{isDraftOnly}
+			{hasDraft}
+			permissions={drawerLoading || !can_write ? 'none' : 'create'}
+			{editMode}
+			{enabled}
+			{allowDraft}
+			{edit}
+			isLoading={false}
+			{neverSaved}
+			{isEditor}
+			{isDeployed}
+			{saveDisabled}
+			on:save-draft={() => {
+				saveDraft()
+			}}
+			on:deploy={() => {
+				updateTrigger()
+			}}
+			on:reset
+			on:delete
+			on:edit={() => {
+				initialConfig = getSaveCfg()
+				toggleEditMode(true)
+			}}
+			on:cancel={() => {
+				loadTrigger(initialConfig)
+				toggleEditMode(false)
+			}}
+			on:toggle-enabled={handleToggleEnabled}
+		/>
+	{/if}
 {/snippet}
 
 {#snippet config()}

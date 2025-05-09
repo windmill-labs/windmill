@@ -685,89 +685,91 @@
 </script>
 
 {#snippet saveButton(size: 'sm' | 'xs')}
-	<TriggerEditorToolbar
-		{isDraftOnly}
-		{hasDraft}
-		permissions={drawerLoading || !can_write ? 'none' : 'create'}
-		{editMode}
-		saveDisabled={!allowSchedule ||
-			pathError != '' ||
-			emptyString(script_path) ||
-			(errorHandlerSelected == 'slack' &&
-				!emptyString(errorHandlerPath) &&
-				emptyString(errorHandlerExtraArgs['channel'])) ||
-			!can_write ||
-			!editMode}
-		{enabled}
-		{allowDraft}
-		{edit}
-		{isDeployed}
-		isLoading={false}
-		{neverSaved}
-		{isEditor}
-		on:save-draft={() => {
-			saveDraft()
-		}}
-		on:deploy={() => {
-			scheduleScript()
-			toggleEditMode(false)
-		}}
-		on:reset
-		on:delete
-		on:edit={() => {
-			initialConfig = getScheduleCfg()
-			toggleEditMode(true)
-		}}
-		on:cancel={() => {
-			loadSchedule(initialConfig)
-			toggleEditMode(false)
-		}}
-		on:toggle-enabled={handleToggleEnabled}
-	>
-		{#snippet extra()}
-			{#if !drawerLoading && edit}
-				<div class="mr-8 flex flex-row gap-3">
-					<Button
-						size="sm"
-						variant="border"
-						startIcon={{ icon: List }}
-						disabled={!allowSchedule || pathError != '' || emptyString(script_path)}
-						href={`${base}/runs/${script_path}?show_schedules=true&show_future_jobs=true`}
-					>
-						View runs
-					</Button>
-					<Button
-						size="sm"
-						variant="border"
-						disabled={!allowSchedule || pathError != '' || emptyString(script_path)}
-						on:click={() => {
-							runScheduleNow(script_path, path, is_flow, $workspaceStore!)
-						}}
-					>
-						Run now
-					</Button>
-				</div>
-				{#if can_write}
-					<div class="mr-8 center-center -mt-1">
-						<Toggle
-							disabled={!can_write}
-							checked={enabled}
-							options={{ right: 'Enabled' }}
-							on:change={async (e) => {
-								await ScheduleService.setScheduleEnabled({
-									path: initialPath,
-									workspace: $workspaceStore ?? '',
-									requestBody: { enabled: e.detail }
-								})
-								dispatch('update')
-								sendUserToast(`${e.detail ? 'enabled' : 'disabled'} schedule ${initialPath}`)
+	{#if !drawerLoading}
+		<TriggerEditorToolbar
+			{isDraftOnly}
+			{hasDraft}
+			permissions={drawerLoading || !can_write ? 'none' : 'create'}
+			{editMode}
+			saveDisabled={!allowSchedule ||
+				pathError != '' ||
+				emptyString(script_path) ||
+				(errorHandlerSelected == 'slack' &&
+					!emptyString(errorHandlerPath) &&
+					emptyString(errorHandlerExtraArgs['channel'])) ||
+				!can_write ||
+				!editMode}
+			{enabled}
+			{allowDraft}
+			{edit}
+			{isDeployed}
+			isLoading={false}
+			{neverSaved}
+			{isEditor}
+			on:save-draft={() => {
+				saveDraft()
+			}}
+			on:deploy={() => {
+				scheduleScript()
+				toggleEditMode(false)
+			}}
+			on:reset
+			on:delete
+			on:edit={() => {
+				initialConfig = getScheduleCfg()
+				toggleEditMode(true)
+			}}
+			on:cancel={() => {
+				loadSchedule(initialConfig)
+				toggleEditMode(false)
+			}}
+			on:toggle-enabled={handleToggleEnabled}
+		>
+			{#snippet extra()}
+				{#if !drawerLoading && edit}
+					<div class="mr-8 flex flex-row gap-3">
+						<Button
+							size="sm"
+							variant="border"
+							startIcon={{ icon: List }}
+							disabled={!allowSchedule || pathError != '' || emptyString(script_path)}
+							href={`${base}/runs/${script_path}?show_schedules=true&show_future_jobs=true`}
+						>
+							View runs
+						</Button>
+						<Button
+							size="sm"
+							variant="border"
+							disabled={!allowSchedule || pathError != '' || emptyString(script_path)}
+							on:click={() => {
+								runScheduleNow(script_path, path, is_flow, $workspaceStore!)
 							}}
-						/>
+						>
+							Run now
+						</Button>
 					</div>
+					{#if can_write}
+						<div class="mr-8 center-center -mt-1">
+							<Toggle
+								disabled={!can_write}
+								checked={enabled}
+								options={{ right: 'Enabled' }}
+								on:change={async (e) => {
+									await ScheduleService.setScheduleEnabled({
+										path: initialPath,
+										workspace: $workspaceStore ?? '',
+										requestBody: { enabled: e.detail }
+									})
+									dispatch('update')
+									sendUserToast(`${e.detail ? 'enabled' : 'disabled'} schedule ${initialPath}`)
+								}}
+							/>
+						</div>
+					{/if}
 				{/if}
-			{/if}
-		{/snippet}
-	</TriggerEditorToolbar>
+			{/snippet}
+		</TriggerEditorToolbar>
+	{/if}
 {/snippet}
 
 {#snippet content()}

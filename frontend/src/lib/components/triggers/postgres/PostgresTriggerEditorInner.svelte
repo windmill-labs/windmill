@@ -73,7 +73,6 @@
 	let can_write = $state(true)
 	let drawerLoading = $state(true)
 	let showLoading = $state(false)
-	let resetEditMode = $state<(() => void) | undefined>(undefined)
 	let postgres_resource_path = $state('')
 	let publication_name: string = $state('')
 	let replication_slot_name: string = $state('')
@@ -170,7 +169,6 @@
 			showLoading = true
 		}, 100) // Do not show loading spinner for the first 100ms
 		drawerLoading = true
-		resetEditMode = () => openEdit(ePath, isFlow, defaultConfig ?? initialConfig)
 		try {
 			drawer?.openDrawer()
 			initialPath = ePath
@@ -200,7 +198,6 @@
 		defaultValues?: Record<string, any>,
 		newDraft?: boolean
 	) {
-		resetEditMode = () => openNew(nis_flow, fixedScriptPath_, defaultValues, newDraft)
 		let loadingTimeout = setTimeout(() => {
 			showLoading = true
 		}, 100) // Do not show loading spinner for the first 100ms
@@ -425,10 +422,11 @@
 			on:reset
 			on:delete
 			on:edit={() => {
+				initialConfig = getSaveCfg()
 				toggleEditMode(true)
 			}}
 			on:cancel={() => {
-				resetEditMode?.()
+				loadTrigger(initialConfig)
 				toggleEditMode(false)
 			}}
 			on:toggle-enabled={handleToggleEnabled}

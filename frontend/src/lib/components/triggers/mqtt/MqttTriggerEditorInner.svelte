@@ -73,7 +73,6 @@
 	let client_version: MqttClientVersion | undefined = $state()
 	let client_id: string | undefined = $state(undefined)
 	let isValid: boolean | undefined = $state(undefined)
-	let resetEditMode = $state<(() => void) | undefined>(undefined)
 	let initialConfig = $state<Record<string, any> | undefined>(undefined)
 	let neverSaved = $state(false)
 
@@ -92,7 +91,6 @@
 			showLoading = true
 		}, 100) // Do not show loading spinner for the first 100ms
 		drawerLoading = true
-		resetEditMode = () => openEdit(ePath, isFlow, defaultConfig ?? initialConfig)
 		try {
 			drawer?.openDrawer()
 			initialPath = ePath
@@ -119,7 +117,6 @@
 			showLoading = true
 		}, 100)
 		drawerLoading = true
-		resetEditMode = () => openNew(nis_flow, fixedScriptPath_, defaultValues, newDraft)
 		try {
 			mqtt_resource_path = defaultValues?.mqtt_resource_path ?? ''
 			drawer?.openDrawer()
@@ -297,10 +294,11 @@
 			on:reset
 			on:delete
 			on:edit={() => {
+				initialConfig = getSaveCfg()
 				toggleEditMode(true)
 			}}
 			on:cancel={() => {
-				resetEditMode?.()
+				loadTrigger(initialConfig)
 				toggleEditMode(false)
 			}}
 			on:toggle-enabled={handleToggleEnabled}
