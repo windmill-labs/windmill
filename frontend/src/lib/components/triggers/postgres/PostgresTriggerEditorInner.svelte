@@ -177,7 +177,7 @@
 			publication: publication_name
 		})
 		transaction_to_track = [...publication_data.transaction_to_track]
-		relations = publication_data.table_to_track ?? []
+		relations = publication_data.table_to_track
 		can_write = canWrite(s.path, s.extra_perms, $userStore)
 	}
 
