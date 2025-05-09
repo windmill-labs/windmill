@@ -14616,6 +14616,7 @@ dependencies = [
  "crc",
  "cron",
  "croner",
+ "datafusion",
  "futures",
  "futures-core",
  "gethostname",
@@ -14655,6 +14656,8 @@ dependencies = [
  "thiserror 2.0.12",
  "tikv-jemalloc-ctl",
  "tokio",
+ "tokio-stream",
+ "tokio-util",
  "tonic",
  "tracing",
  "tracing-appender",
@@ -14663,6 +14666,7 @@ dependencies = [
  "tracing-subscriber",
  "uuid",
  "windmill-macros",
+ "windmill-parser-sql",
 ]
 
 [[package]]
@@ -14966,6 +14970,7 @@ version = "1.489.0"
 dependencies = [
  "anyhow",
  "async-recursion",
+ "async-stream",
  "backon",
  "base64 0.22.1",
  "bit-vec 0.6.3",
