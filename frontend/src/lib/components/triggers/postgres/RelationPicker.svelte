@@ -25,17 +25,15 @@
 
 	$effect(() => {
 		if (pg14 && relations) {
-			relations = relations.map((relation) => {
-				relation.table_to_track = relation.table_to_track.map((table_to_track) => {
+			relations.forEach((relation) => {
+				relation.table_to_track.forEach((table_to_track) => {
 					if (table_to_track.columns_name && table_to_track.columns_name.length > 0) {
 						table_to_track.columns_name = undefined
 					}
 					if (!emptyStringTrimmed(table_to_track.where_clause)) {
 						table_to_track.where_clause = undefined
 					}
-					return table_to_track
 				})
-				return relation
 			})
 		}
 	})
