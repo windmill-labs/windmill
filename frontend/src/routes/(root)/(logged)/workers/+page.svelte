@@ -25,7 +25,7 @@
 	} from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
 	import { displayDate, groupBy, pluralize, truncate } from '$lib/utils'
-	import { AlertTriangle, LineChart, List, Plus, Search } from 'lucide-svelte'
+	import { AlertTriangle, LineChart, List, Plus, Search, Terminal } from 'lucide-svelte'
 	import { getContext, onDestroy, onMount } from 'svelte'
 	import AutoComplete from 'simple-svelte-autocomplete'
 
@@ -33,6 +33,7 @@
 	import { DEFAULT_TAGS_WORKSPACES_SETTING } from '$lib/consts'
 	import AutoscalingEvents from '$lib/components/AutoscalingEvents.svelte'
 	import HttpAgentWorkerDrawer from '$lib/components/HttpAgentWorkerDrawer.svelte'
+	import Repl from '$lib/components/Repl.svelte'
 
 	let workers: WorkerPing[] | undefined = undefined
 	let workerGroups: Record<string, any> | undefined = undefined
@@ -70,7 +71,6 @@
 		return grouped
 	}
 	let timeSinceLastPing = 0
-
 	async function loadWorkers(): Promise<void> {
 		try {
 			workers = await WorkerService.listWorkers({ perPage: 1000, pingSince: 300 })
@@ -145,7 +145,7 @@
 
 	let importConfigDrawer: Drawer | undefined = undefined
 	let importConfigCode = ''
-
+	let tag: string | undefined = undefined
 	async function importSingleWorkerConfig(c: any) {
 		if (typeof c === 'object' && c !== null) {
 			if (!c.name || typeof c.name !== 'string') {
@@ -257,8 +257,8 @@
 
 		return Math.ceil(occupancy_rate * 100) + '%'
 	}
-
 	let newHttpAgentWorkerDrawer: Drawer | undefined = undefined
+	let replForWorkerDrawer: Drawer | undefined = undefined
 </script>
 
 {#if $superadmin}
@@ -289,6 +289,12 @@
 	>
 		<HttpAgentWorkerDrawer {customTags} />
 	</DrawerContent>
+</Drawer>
+
+<Drawer bind:this={replForWorkerDrawer} size="1000px">
+	<DrawerContent title="Repl" on:close={() => replForWorkerDrawer?.toggleDrawer?.()}>
+		<Repl {tag} /></DrawerContent
+	>
 </Drawer>
 
 {#if $userStore?.operator && $workspaceStore && !$userWorkspaces.find((_) => _.id === $workspaceStore)?.operator_settings?.workers}
@@ -561,7 +567,15 @@
 									<Cell head>Memory usage<br />(Windmill)</Cell>
 									<Cell head>Limits</Cell>
 									<Cell head>Version</Cell>
-									<Cell head last>Liveness</Cell>
+									<Cell head>Liveness</Cell>
+									<Cell head last
+										>Live Shell <Tooltip>
+											<p class="text-sm">
+												Open a live shell to execute bash commands on the worker — useful for quick
+												access, inspection, and real-time debugging
+											</p>
+										</Tooltip></Cell
+									>
 								</tr>
 							</Head>
 							<tbody class="divide-y">
@@ -652,7 +666,7 @@
 														{wm_version.split('-')[0]}<Tooltip>{wm_version}</Tooltip>
 													</div>
 												</Cell>
-												<Cell last>
+												<Cell>
 													<Badge
 														color={last_ping != undefined
 															? last_ping < 60
@@ -666,6 +680,25 @@
 																: 'Dead'
 															: 'Unknown'}
 													</Badge>
+												</Cell>
+												<Cell last>
+													<Button
+														size="xs"
+														color="light"
+														on:click={() => {
+															const active =
+																last_ping != undefined ? (last_ping < 60 ? true : false) : true
+															if (!active) {
+																sendUserToast('Cannot connect to dead worker', true)
+																return
+															}
+															tag = worker
+															replForWorkerDrawer?.toggleDrawer?.()
+														}}
+														startIcon={{ icon: Terminal }}
+													>
+														Command
+													</Button>
 												</Cell>
 											</tr>
 										{/each}
