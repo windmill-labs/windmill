@@ -67,12 +67,16 @@
 						cached = relations
 						relations = undefined
 					} else {
-						relations = cached ?? [
-							{
-								schema_name: 'public',
-								table_to_track: []
-							}
-						]
+						if (!cached || cached.length === 0) {
+							relations = [
+								{
+									schema_name: 'public',
+									table_to_track: []
+								}
+							]
+						} else {
+							relations = cached
+						}
 					}
 				}}
 				bind:selected
@@ -293,11 +297,12 @@
 				customName="Schema"
 				on:add={({ detail }) => {
 					if (relations == undefined || !Array.isArray(relations)) {
-						relations = []
-						relations = relations.concat({
-							schema_name: 'public',
-							table_to_track: []
-						})
+						relations = [
+							{
+								schema_name: 'public',
+								table_to_track: []
+							}
+						]
 					} else if (emptyStringTrimmed(detail.name)) {
 						sendUserToast('Schema name must not be empty', true)
 					} else {
