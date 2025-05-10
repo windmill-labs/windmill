@@ -11,17 +11,43 @@
 	import Label from '$lib/components/Label.svelte'
 	import { emptyStringTrimmed, sendUserToast } from '$lib/utils'
 
-	export let relations: Relations[] | undefined = undefined
-	export let can_write: boolean = true
-	let selected: 'all' | 'specific' = relations && relations.length > 0 ? 'specific' : 'all'
+	let {
+		relations = $bindable(undefined),
+		can_write = true,
+		postgresVersion = $bindable()
+	}: { relations: Relations[] | undefined; can_write: boolean; postgresVersion: string } = $props()
+
+	let pg14 = $derived(postgresVersion.startsWith('14'))
+
+	let selected: 'all' | 'specific' = $state(relations && relations.length > 0 ? 'specific' : 'all')
+
 	let cached: Relations[] | undefined = relations
+
+	$effect(() => {
+		if (pg14 && relations) {
+			relations.forEach((relation, index) => {
+				if (index == 0 && relation.table_to_track.length === 0) {
+					relation.table_to_track.push({ table_name: '' })
+				} else {
+					relation.table_to_track.forEach((table_to_track) => {
+						if (table_to_track.columns_name && table_to_track.columns_name.length > 0) {
+							table_to_track.columns_name = undefined
+						}
+						if (!emptyStringTrimmed(table_to_track.where_clause)) {
+							table_to_track.where_clause = undefined
+						}
+					})
+				}
+			})
+		}
+	})
 
 	function addTable(name: string, index: number) {
 		if (!relations || !Array.isArray(relations)) {
 			relations = [
 				{
 					schema_name: 'public',
-					table_to_track: []
+					table_to_track: pg14 ? [{ table_name: '' }] : []
 				}
 			]
 		}
@@ -41,12 +67,16 @@
 						cached = relations
 						relations = undefined
 					} else {
-						relations = cached ?? [
-							{
-								schema_name: 'public',
-								table_to_track: []
-							}
-						]
+						if (!cached || cached.length === 0) {
+							relations = [
+								{
+									schema_name: 'public',
+									table_to_track: []
+								}
+							]
+						} else {
+							relations = cached
+						}
 					}
 				}}
 				bind:selected
@@ -92,7 +122,6 @@
 											class="!bg-surface mt-1"
 										/>
 									</Label>
-									<!-- svelte-ignore a11y-label-has-associated-control -->
 									<Label label="Columns">
 										<svelte:fragment slot="header">
 											<Tooltip
@@ -106,12 +135,22 @@
 												</p>
 												<p class="text-xs text-gray-500 mt-1">
 													<strong class="font-semibold">Note:</strong>
-													<br />- If your trigger contains <strong>UPDATE</strong> or
+													<br />
+													-
+													<strong
+														>Column-specific tracking is only supported in PostgreSQL 15 and above.</strong
+													>
+													<br />
+													- In PostgreSQL 14, all columns will be tracked automatically and selective
+													tracking will be disabled.
+													<br />
+													- If your trigger contains <strong>UPDATE</strong> or
 													<strong>DELETE</strong>
 													transactions, the row filter WHERE clause must contain only columns covered
 													by the <strong>replica identity</strong> (see REPLICA IDENTITY).
-													<br />- If your trigger contains only <strong>INSERT</strong> transactions,
-													the row filter WHERE clause can use any column.
+													<br />
+													- If your trigger contains only <strong>INSERT</strong> transactions, the row
+													filter WHERE clause can use any column.
 												</p>
 											</Tooltip>
 										</svelte:fragment>
@@ -124,6 +163,7 @@
 												outerDivClass="!bg-surface !min-h-[38px] !border-[#d1d5db]"
 												noMatchingOptionsMsg=""
 												createOptionMsg={null}
+												disabled={pg14}
 												duplicates={false}
 												selected={table_to_track.columns_name ?? []}
 												placeholder="Select columns"
@@ -168,16 +208,27 @@
 												</p>
 												<p class="text-xs text-gray-500 mt-1">
 													<strong class="font-semibold">Note:</strong>
-													<br />- If your trigger contains <strong>UPDATE</strong> or
+													<br />
+													-
+													<strong
+														>Row filtering with WHERE clauses is only supported in PostgreSQL 15 and
+														above.</strong
+													>
+													<br />
+													- In PostgreSQL 14, row filtering is not available and this field is disabled.
+													<br />
+													- If your trigger contains <strong>UPDATE</strong> or
 													<strong>DELETE</strong>
 													transactions, the row filter WHERE clause must contain only columns covered
 													by the <strong>replica identity</strong> (see REPLICA IDENTITY).
-													<br />- If your trigger contains only <strong>INSERT</strong> transactions,
-													the row filter WHERE clause can use any column.
+													<br />
+													- If your trigger contains only <strong>INSERT</strong> transactions, the row
+													filter WHERE clause can use any column.
 												</p>
 											</Tooltip>
 										</svelte:fragment>
 										<input
+											disabled={pg14}
 											type="text"
 											bind:value={table_to_track.where_clause}
 											class="!bg-surface mt-1"
@@ -190,7 +241,11 @@
 										color="light"
 										size="xs"
 										on:click={() => {
-											v.table_to_track = v.table_to_track.filter((_, index) => index !== j)
+											if (pg14 && v.table_to_track.length > 1) {
+												v.table_to_track = v.table_to_track.filter((_, index) => index !== j)
+											} else if (!pg14) {
+												v.table_to_track = v.table_to_track.filter((_, index) => index !== j)
+											}
 										}}
 										iconOnly
 										startIcon={{ icon: Trash }}
@@ -242,25 +297,25 @@
 				customName="Schema"
 				on:add={({ detail }) => {
 					if (relations == undefined || !Array.isArray(relations)) {
-						relations = []
-						relations = relations.concat({
-							schema_name: 'public',
-							table_to_track: []
-						})
+						relations = [
+							{
+								schema_name: 'public',
+								table_to_track: []
+							}
+						]
 					} else if (emptyStringTrimmed(detail.name)) {
 						sendUserToast('Schema name must not be empty', true)
 					} else {
-						const appendedRelations = relations.concat({
-							schema_name: detail.name,
-							table_to_track: []
-						})
 						if (
-							invalidRelations(appendedRelations, {
+							invalidRelations(relations, {
 								showError: true,
 								trackSchemaTableError: false
 							}) === false
 						) {
-							relations = appendedRelations
+							relations.push({
+								schema_name: detail.name,
+								table_to_track: pg14 ? [{ table_name: '' }] : []
+							})
 						}
 					}
 				}}

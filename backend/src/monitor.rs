@@ -60,7 +60,7 @@ use windmill_common::{
     server::load_smtp_config,
     tracing_init::JSON_FMT,
     users::truncate_token,
-    utils::empty_string_as_none,
+    utils::empty_as_none,
     utils::{now_from_db, rd_string, report_critical_error, Mode},
     worker::{
         load_worker_config, reload_custom_tags_setting, store_pull_query,
@@ -271,13 +271,13 @@ struct OtelSetting {
     metrics_enabled: Option<bool>,
     logs_enabled: Option<bool>,
     tracing_enabled: Option<bool>,
-    #[serde(default, deserialize_with = "empty_string_as_none")]
+    #[serde(default, deserialize_with = "empty_as_none")]
     otel_exporter_otlp_endpoint: Option<String>,
-    #[serde(default, deserialize_with = "empty_string_as_none")]
+    #[serde(default, deserialize_with = "empty_as_none")]
     otel_exporter_otlp_headers: Option<String>,
-    #[serde(default, deserialize_with = "empty_string_as_none")]
+    #[serde(default, deserialize_with = "empty_as_none")]
     otel_exporter_otlp_protocol: Option<String>,
-    #[serde(default, deserialize_with = "empty_string_as_none")]
+    #[serde(default, deserialize_with = "empty_as_none")]
     otel_exporter_otlp_compression: Option<String>,
 }
 

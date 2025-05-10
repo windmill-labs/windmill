@@ -30,7 +30,7 @@ use {
     axum::extract::Request,
     http::HeaderMap,
     serde::de::DeserializeOwned,
-    windmill_common::{error::Error, utils::empty_string_as_none},
+    windmill_common::{error::Error, utils::empty_as_none},
 };
 
 #[cfg(all(feature = "enterprise", feature = "kafka"))]
@@ -45,10 +45,9 @@ use crate::nats_triggers_ee::NatsTriggerConfigConnection;
 #[cfg(feature = "postgres_trigger")]
 use {
     crate::postgres_triggers::{
-        create_logical_replication_slot_query, create_publication_query, drop_publication_query,
-        generate_random_string, get_database_connection, PublicationData,
+        create_logical_replication_slot, create_pg_publication, drop_publication,
+        generate_random_string, get_pg_connection, PublicationData,
     },
-    itertools::Itertools,
     pg_escape::quote_literal,
 };
 
@@ -162,9 +161,9 @@ pub struct SqsTriggerConfig {
 pub struct GcpTriggerConfig {
     pub gcp_resource_path: String,
     pub subscription_mode: SubscriptionMode,
-    #[serde(default, deserialize_with = "empty_string_as_none")]
+    #[serde(default, deserialize_with = "empty_as_none")]
     pub subscription_id: Option<String>,
-    #[serde(default, deserialize_with = "empty_string_as_none")]
+    #[serde(default, deserialize_with = "empty_as_none")]
     pub base_endpoint: Option<String>,
     #[serde(flatten)]
     pub create_update: Option<CreateUpdateConfig>,
@@ -296,7 +295,7 @@ async fn set_postgres_trigger_config(
         ));
     };
 
-    let mut connection = get_database_connection(
+    let mut pg_connection = get_pg_connection(
         authed,
         Some(user_db),
         &db,
@@ -312,33 +311,27 @@ async fn set_postgres_trigger_config(
         .replication_slot_name
         .get_or_insert(publication_name.clone());
 
-    let query = drop_publication_query(&publication_name);
+    drop_publication(&mut pg_connection, &publication_name).await?;
 
-    sqlx::query(&query).execute(&mut connection).await?;
-
-    let query = create_publication_query(
+    create_pg_publication(
+        &mut pg_connection,
         &publication_name,
         postgres_config.publication.table_to_track.as_deref(),
-        &postgres_config
-            .publication
-            .transaction_to_track
-            .iter()
-            .map(AsRef::as_ref)
-            .collect_vec(),
-    );
-
-    sqlx::query(&query).execute(&mut connection).await?;
+        &postgres_config.publication.transaction_to_track,
+    )
+    .await?;
 
     let query = format!(
         "SELECT 1 from pg_replication_slots WHERE slot_name = {}",
         quote_literal(replication_slot_name)
     );
 
-    let row = sqlx::query(&query).fetch_optional(&mut connection).await?;
+    let row = sqlx::query(&query)
+        .fetch_optional(&mut pg_connection)
+        .await?;
 
     if row.is_none() {
-        let query = create_logical_replication_slot_query(&replication_slot_name);
-        sqlx::query(&query).execute(&mut connection).await?;
+        create_logical_replication_slot(&mut pg_connection, &replication_slot_name).await?;
     }
     capture_config.trigger_config = Some(TriggerConfig::Postgres(postgres_config));
     Ok(capture_config)

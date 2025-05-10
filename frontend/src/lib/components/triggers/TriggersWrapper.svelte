@@ -39,8 +39,11 @@
 			can_write={true}
 			headless={true}
 			showCapture={false}
-			bind:publication={args.publication}
 			bind:postgres_resource_path={args.postgres_resource_path}
+			bind:relations={args.relations}
+			bind:publication_name={args.publication_name}
+			bind:transaction_to_track={args.transaction_to_track}
+			bind:replication_slot_name={args.replication_slot_name}
 		/>
 	{:else if triggerType === 'webhook'}
 		<WebhooksConfigSection

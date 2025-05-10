@@ -317,7 +317,7 @@ pub mod aws {
     use crate::error::to_anyhow;
 
     use super::*;
-    use crate::utils::empty_string_as_none;
+    use crate::utils::empty_as_none;
     use aws_config::{BehaviorVersion, Region};
     use aws_sdk_sts::{
         config::Credentials as AwsCredentials,
@@ -363,7 +363,7 @@ pub mod aws {
 
     #[derive(Debug, Deserialize)]
     pub struct CredentialsAuth {
-        #[serde(deserialize_with = "empty_string_as_none")]
+        #[serde(deserialize_with = "empty_as_none")]
         pub region: Option<String>,
         #[serde(rename = "awsAccessKeyId")]
         pub aws_access_key_id: String,
@@ -374,7 +374,7 @@ pub mod aws {
     #[derive(Clone, Debug, Deserialize)]
     #[serde(rename_all = "snake_case")]
     pub struct OidcAuth {
-        #[serde(deserialize_with = "empty_string_as_none")]
+        #[serde(deserialize_with = "empty_as_none")]
         pub region: Option<String>,
         #[serde(rename = "roleArn")]
         pub role_arn: String,
