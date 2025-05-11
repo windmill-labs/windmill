@@ -43,7 +43,7 @@ pub fn do_oracledb_inner<'a>(
     conn: Arc<std::sync::Mutex<oracle::Connection>>,
     column_order: Option<&'a mut Option<Vec<String>>>,
     skip_collect: bool,
-) -> windmill_common::error::Result<BoxFuture<'a, anyhow::Result<Box<RawValue>>>> {
+) -> windmill_common::error::Result<BoxFuture<'a, windmill_common::error::Result<Box<RawValue>>>> {
     let qw = query.trim_end_matches(';').to_string();
 
     let result_f = async move {
