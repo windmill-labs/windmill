@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use futures::future::BoxFuture;
-use futures::{FutureExt, TryFutureExt};
+use futures::FutureExt;
 use reqwest::Client;
 use serde_json::{json, value::RawValue, Value};
 use windmill_common::error::to_anyhow;
@@ -370,7 +370,7 @@ pub async fn do_bigquery(
         conn,
         mem_peak,
         canceled_by,
-        result_f.map_err(to_anyhow),
+        result_f,
         worker_name,
         &job.workspace_id,
         &mut Some(occupancy_metrics),
