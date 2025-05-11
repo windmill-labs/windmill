@@ -11,7 +11,7 @@ use windmill_common::db::UserDB;
 use windmill_common::worker::to_raw_value;
 use windmill_common::{
     error::{Error as WindmillError, Result as WindmillResult},
-    utils::empty_string_as_none,
+    utils::empty_as_none,
 };
 use windmill_queue::TriggerKind;
 
@@ -33,9 +33,9 @@ impl Default for DeliveryType {
 #[derive(FromRow, Deserialize, Serialize, Debug)]
 #[allow(unused)]
 pub struct PushConfig {
-    #[serde(deserialize_with = "empty_string_as_none")]
+    #[serde(deserialize_with = "empty_as_none")]
     route_path: Option<String>,
-    #[serde(deserialize_with = "empty_string_as_none")]
+    #[serde(deserialize_with = "empty_as_none")]
     audience: Option<String>,
     authenticate: bool,
     base_endpoint: String,
@@ -44,7 +44,7 @@ pub struct PushConfig {
 #[allow(unused)]
 pub struct CreateUpdateConfig {
     pub delivery_type: DeliveryType,
-    #[serde(default, deserialize_with = "empty_string_as_none")]
+    #[serde(default, deserialize_with = "empty_as_none")]
     pub subscription_id: Option<String>,
     pub delivery_config: Option<SqlxJson<PushConfig>>,
 }
