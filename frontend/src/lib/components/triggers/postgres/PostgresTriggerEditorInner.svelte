@@ -19,33 +19,33 @@
 	import { base } from '$lib/base'
 	import PostgresEditorConfigSection from './PostgresEditorConfigSection.svelte'
 
-	let drawer: Drawer | undefined = $state()
-	let is_flow: boolean = $state(false)
-	let initialPath = $state('')
-	let edit = $state(true)
-	let itemKind: 'flow' | 'script' = $state('script')
-	let script_path = $state('')
-	let initialScriptPath = $state('')
-	let fixedScriptPath = $state('')
-	let path: string = $state('')
-	let pathError = $state('')
-	let enabled = $state(false)
-	let dirtyPath = $state(false)
-	let can_write = $state(true)
-	let drawerLoading = $state(true)
-	let postgres_resource_path = $state('')
-	let publication_name: string = $state('')
-	let replication_slot_name: string = $state('')
-	let relations: Relations[] | undefined = $state([])
-	let transaction_to_track: string[] = $state([])
+	let drawer: Drawer | undefined
+	let is_flow: boolean = false
+	let initialPath = ''
+	let edit = true
+	let itemKind: 'flow' | 'script' = 'script'
+	let script_path = ''
+	let initialScriptPath = ''
+	let fixedScriptPath = ''
+	let path: string = ''
+	let pathError = ''
+	let enabled = false
+	let dirtyPath = false
+	let can_write = true
+	let drawerLoading = true
+	let postgres_resource_path = ''
+	let publication_name: string = ''
+	let replication_slot_name: string = ''
+	let relations: Relations[] | undefined = []
+	let transaction_to_track: string[] = []
 	let language: Language = 'Typescript'
-	let loading = $state(false)
-	let tab: 'advanced' | 'basic' = $state('basic')
-	let isLoading = $state(false)
+	let loading = false
+	let tab: 'advanced' | 'basic' = 'basic'
+	let isLoading = false
 	type actions = 'create' | 'get'
-	let selectedPublicationAction: actions = $state('create')
-	let selectedSlotAction: actions = $state('create')
-	let isValid: boolean = $state(false)
+	let selectedPublicationAction: actions = 'create'
+	let selectedSlotAction: actions = 'create'
+	let isValid: boolean = false
 	const dispatch = createEventDispatcher()
 
 	export async function openEdit(ePath: string, isFlow: boolean) {
@@ -60,8 +60,6 @@
 			selectedSlotAction = 'get'
 			selectedPublicationAction = selectedPublicationAction
 			selectedSlotAction = selectedSlotAction
-			relations = []
-			transaction_to_track = []
 			tab = 'basic'
 			await loadTrigger()
 		} catch (err) {
@@ -224,9 +222,7 @@
 		}
 	}
 
-	$effect(() => {
-		is_flow = itemKind === 'flow'
-	})
+	$: is_flow = itemKind === 'flow'
 </script>
 
 <Drawer size="800px" bind:this={drawer}>

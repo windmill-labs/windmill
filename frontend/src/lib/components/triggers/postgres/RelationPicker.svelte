@@ -6,57 +6,56 @@
 	import type { Relations } from '$lib/gen'
 	import { Plus, Trash, X } from 'lucide-svelte'
 	import MultiSelect from 'svelte-multiselect'
-	import { invalidRelations } from './utils'
+	import { getDefaultTableToTrack, invalidRelations } from './utils'
 	import AddPropertyFormV2 from '$lib/components/schema/AddPropertyFormV2.svelte'
 	import Label from '$lib/components/Label.svelte'
 	import { emptyStringTrimmed, sendUserToast } from '$lib/utils'
 
-	let {
-		relations = $bindable(undefined),
-		can_write = true,
-		postgresVersion = $bindable()
-	}: { relations: Relations[] | undefined; can_write: boolean; postgresVersion: string } = $props()
+	export let relations: Relations[] | undefined = undefined
+	export let can_write: boolean = true
+	export let postgresVersion: string = ''
 
-	let pg14 = $derived(postgresVersion.startsWith('14'))
+	$: pg14 = postgresVersion?.startsWith('14')
 
-	let selected: 'all' | 'specific' = $derived(
-		relations && relations.length > 0 ? 'specific' : 'all'
-	)
+	$: selected = relations && relations.length > 0 ? 'specific' : 'all'
 
 	let cached: Relations[] | undefined = relations
 
-	$effect(() => {
-		if (pg14 && relations) {
-			relations.forEach((relation, index) => {
-				if (index == 0 && relation.table_to_track.length === 0) {
-					relation.table_to_track.push({ table_name: '' })
-				} else {
-					relation.table_to_track.forEach((table_to_track) => {
-						if (table_to_track.columns_name && table_to_track.columns_name.length > 0) {
-							table_to_track.columns_name = undefined
-						}
-						if (!emptyStringTrimmed(table_to_track.where_clause)) {
-							table_to_track.where_clause = undefined
-						}
-					})
-				}
-			})
-		}
-	})
+	$: if (pg14 && relations) {
+		relations.forEach((relation, index) => {
+			if (index === 0 && relation.table_to_track.length === 0) {
+				relation.table_to_track.push({ table_name: '' })
+			} else {
+				relation.table_to_track.forEach((table_to_track) => {
+					if (table_to_track.columns_name && table_to_track.columns_name.length > 0) {
+						table_to_track.columns_name = undefined
+					}
+					if (!emptyStringTrimmed(table_to_track.where_clause)) {
+						table_to_track.where_clause = undefined
+					}
+				})
+			}
+		})
+	}
 
 	function addTable(name: string, index: number) {
-		if (!relations || !Array.isArray(relations)) {
-			relations = [
-				{
-					schema_name: 'public',
-					table_to_track: pg14 ? [{ table_name: '' }] : []
-				}
-			]
+		if (relations) {
+			relations[index].table_to_track = relations[index].table_to_track.concat({
+				table_name: name,
+				columns_name: []
+			})
 		}
-		relations[index].table_to_track = relations[index].table_to_track.concat({
-			table_name: name,
-			columns_name: []
-		})
+	}
+
+	function updateRelationsFor(i: number, updateFn: (r: Relations) => Relations) {
+		if (relations) {
+			relations = relations.map((r, index) => {
+				if (i === index) {
+					r = updateFn(r)
+				}
+				return r
+			})
+		}
 	}
 </script>
 
@@ -71,12 +70,7 @@
 					} else {
 						if (!cached || cached.length === 0) {
 							if (!relations || relations.length == 0) {
-								relations = [
-									{
-										schema_name: 'public',
-										table_to_track: []
-									}
-								]
+								relations = getDefaultTableToTrack(pg14)
 								cached = relations
 							} else {
 								cached = relations
@@ -177,19 +171,35 @@
 												--sms-options-margin="4px"
 												on:change={(e) => {
 													const option = e.detail.option?.toString()
-													if (e.detail.type === 'add') {
-														option && table_to_track.columns_name?.push(option)
-													} else if (e.detail.type === 'remove') {
-														table_to_track.columns_name = table_to_track.columns_name?.filter(
-															(column) => column !== option
-														)
-													} else if (e.detail.type === 'removeAll') {
-														table_to_track.columns_name = []
-													} else {
-														console.error(
-															`Priority tags multiselect - unknown event type: '${e.detail.type}'`
-														)
-													}
+													updateRelationsFor(i, (rel) => {
+														const updatedTables = rel.table_to_track.map((t, idx) => {
+															if (idx !== j) return t
+
+															let updatedColumns = t.columns_name ?? []
+
+															if (e.detail.type === 'add' && option) {
+																updatedColumns = [...updatedColumns, option]
+															} else if (e.detail.type === 'remove') {
+																updatedColumns = updatedColumns.filter((col) => col !== option)
+															} else if (e.detail.type === 'removeAll') {
+																updatedColumns = []
+															} else {
+																console.error(
+																	`Priority tags multiselect - unknown event type: '${e.detail.type}'`
+																)
+															}
+
+															return {
+																...t,
+																columns_name: updatedColumns
+															}
+														})
+
+														return {
+															...rel,
+															table_to_track: updatedTables
+														}
+													})
 												}}
 											>
 												<svelte:fragment slot="remove-icon">
@@ -249,9 +259,15 @@
 										size="xs"
 										on:click={() => {
 											if (pg14 && v.table_to_track.length > 1) {
-												v.table_to_track = v.table_to_track.filter((_, index) => index !== j)
+												updateRelationsFor(i, (r) => ({
+													...r,
+													table_to_track: r.table_to_track.filter((_, idx) => idx !== j)
+												}))
 											} else if (!pg14) {
-												v.table_to_track = v.table_to_track.filter((_, index) => index !== j)
+												updateRelationsFor(i, (r) => ({
+													...r,
+													table_to_track: r.table_to_track.filter((_, idx) => idx !== j)
+												}))
 											}
 										}}
 										iconOnly
@@ -304,12 +320,7 @@
 				customName="Schema"
 				on:add={({ detail }) => {
 					if (relations == undefined || !Array.isArray(relations)) {
-						relations = [
-							{
-								schema_name: 'public',
-								table_to_track: []
-							}
-						]
+						relations = getDefaultTableToTrack(pg14)
 					} else if (emptyStringTrimmed(detail.name)) {
 						sendUserToast('Schema name must not be empty', true)
 					} else {
@@ -319,7 +330,7 @@
 								trackSchemaTableError: false
 							}) === false
 						) {
-							relations.push({
+							relations = relations.concat({
 								schema_name: detail.name,
 								table_to_track: pg14 ? [{ table_name: '' }] : []
 							})

@@ -30,7 +30,7 @@ use windmill_common::{
 use super::{
     check_if_valid_publication_for_postgres_version, create_logical_replication_slot,
     create_pg_publication, drop_publication, generate_random_string, get_pg_connection,
-    ERROR_PUBLICATION_NAME_NOT_EXISTS, ERROR_REPLICATION_SLOT_NOT_EXISTS,
+    ERROR_PUBLICATION_NAME_NOT_EXISTS,
 };
 use lazy_static::lazy_static;
 
@@ -264,35 +264,16 @@ impl PostgresPublicationReplication {
     }
 }
 
-async fn check_if_publication_exist(
-    pg_connection: &mut PgConnection,
-    publication_name: &str,
-) -> Result<()> {
-    sqlx::query("SELECT pubname FROM pg_publication WHERE pubname = $1")
-        .bind(publication_name)
-        .fetch_one(pg_connection)
-        .await
-        .map_err(|err| match err {
-            sqlx::Error::RowNotFound => {
-                Error::BadRequest(ERROR_PUBLICATION_NAME_NOT_EXISTS.to_string())
-            }
-            err => Error::SqlErr { error: err, location: "pg_trigger".to_string() },
-        })?;
-    Ok(())
-}
-
 async fn check_if_logical_replication_slot_exist(
     pg_connection: &mut PgConnection,
     replication_slot_name: &str,
-) -> Result<()> {
-    sqlx::query("SELECT slot_name FROM pg_replication_slots where slot_name = $1")
+) -> Result<bool> {
+    let exists = sqlx::query("SELECT slot_name FROM pg_replication_slots where slot_name = $1")
         .bind(&replication_slot_name)
-        .fetch_one(pg_connection)
-        .await
-        .map_err(|err| match err {
-            _ => Error::BadRequest(ERROR_REPLICATION_SLOT_NOT_EXISTS.to_string()),
-        })?;
-    Ok(())
+        .fetch_optional(pg_connection)
+        .await?
+        .is_some();
+    Ok(exists)
 }
 
 async fn create_custom_slot_and_publication_inner(
@@ -748,8 +729,8 @@ pub async fn get_publication_info(
         get_publication_scope_and_transaction(&mut pg_connection, &publication_name).await;
 
     let (all_table, transaction_to_track) = match publication_data {
-        Ok(pub_data) => pub_data,
-        Err(Error::SqlErr { error: sqlx::Error::RowNotFound, .. }) => {
+        Ok(Some(pub_data)) => pub_data,
+        Ok(None) => {
             return Err(Error::NotFound(
                 ERROR_PUBLICATION_NAME_NOT_EXISTS.to_string(),
             ))
@@ -827,15 +808,18 @@ pub async fn get_update_publication(
     pg_connection: &mut PgConnection,
     publication_name: &str,
     PublicationData { table_to_track, transaction_to_track }: PublicationData,
-    all_table: bool,
+    all_table: Option<bool>,
 ) -> Result<()> {
     let quoted_publication_name = quote_identifier(&publication_name);
 
     let transaction_to_track_as_str = transaction_to_track.iter().join(",");
     match table_to_track {
         Some(ref relations) if !relations.is_empty() => {
-            if all_table {
-                drop_publication(pg_connection, &publication_name).await?;
+            //if all table is none it means that the publication do not exist in the database
+            if all_table.unwrap_or(true) {
+                if all_table.is_some() {
+                    drop_publication(pg_connection, &publication_name).await?;
+                }
                 create_pg_publication(
                     pg_connection,
                     &publication_name,
@@ -946,16 +930,14 @@ pub async fn alter_publication(
     )
     .await?;
 
-    check_if_publication_exist(&mut pg_connection, &publication_name).await?;
-
-    let (all_table, _) =
+    let publication =
         get_publication_scope_and_transaction(&mut pg_connection, &publication_name).await?;
 
     get_update_publication(
         &mut pg_connection,
         &publication_name,
         publication_data,
-        all_table,
+        publication.map(|publication| publication.0),
     )
     .await?;
 
@@ -968,7 +950,7 @@ pub async fn alter_publication(
 async fn get_publication_scope_and_transaction(
     pg_connection: &mut PgConnection,
     publication_name: &str,
-) -> std::result::Result<(bool, Vec<String>), Error> {
+) -> Result<Option<(bool, Vec<String>)>> {
     #[derive(Debug, Deserialize, FromRow)]
     struct PublicationTransaction {
         all_table: bool,
@@ -977,7 +959,7 @@ async fn get_publication_scope_and_transaction(
         delete: bool,
     }
 
-    let transaction: PublicationTransaction = sqlx::query_as(
+    let publication: Option<PublicationTransaction> = sqlx::query_as(
         r#"
         SELECT
             puballtables AS all_table,
@@ -991,22 +973,27 @@ async fn get_publication_scope_and_transaction(
         "#,
     )
     .bind(publication_name)
-    .fetch_one(&mut *pg_connection)
+    .fetch_optional(&mut *pg_connection)
     .await?;
+
+    if publication.is_none() {
+        return Ok(None);
+    }
 
     let mut transaction_to_track = Vec::with_capacity(3);
 
-    if transaction.insert {
+    let publication = publication.unwrap();
+    if publication.insert {
         transaction_to_track.push("insert".to_string());
     }
-    if transaction.update {
+    if publication.update {
         transaction_to_track.push("update".to_string());
     }
-    if transaction.delete {
+    if publication.delete {
         transaction_to_track.push("delete".to_string());
     }
 
-    Ok((transaction.all_table, transaction_to_track))
+    Ok(Some((publication.all_table, transaction_to_track)))
 }
 
 async fn get_tracked_relations(
@@ -1162,18 +1149,26 @@ pub async fn update_postgres_trigger(
     )
     .await?;
 
-    check_if_logical_replication_slot_exist(&mut pg_connection, &replication_slot_name).await?;
+    let exists =
+        check_if_logical_replication_slot_exist(&mut pg_connection, &replication_slot_name).await?;
+
+    if !exists {
+        tracing::debug!(
+            "Logical replication slot named: {} does not exists creating it...",
+            &replication_slot_name
+        );
+        create_logical_replication_slot(&mut pg_connection, &replication_slot_name).await?;
+    }
 
     if let Some(publication) = publication {
-        check_if_publication_exist(&mut pg_connection, &publication_name).await?;
-        let (all_table, _) =
+        let publication_data =
             get_publication_scope_and_transaction(&mut pg_connection, &publication_name).await?;
 
         get_update_publication(
             &mut pg_connection,
             &publication_name,
             publication,
-            all_table,
+            publication_data.map(|publication| publication.0),
         )
         .await?;
     }
