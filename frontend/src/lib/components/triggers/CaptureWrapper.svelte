@@ -35,12 +35,9 @@
 
 	export async function setConfig(): Promise<boolean> {
 		if (captureType === 'postgres') {
-			if (!args?.publication?.table_to_track) {
-				sendUserToast('Table to track must be set', true)
-				return false
-			}
 			if (
-				invalidRelations(args.publication.table_to_track, {
+				args.table_to_track &&
+				invalidRelations(args.table_to_track, {
 					showError: true,
 					trackSchemaTableError: true
 				}) === true
@@ -232,10 +229,11 @@
 		{:else if captureType === 'postgres'}
 			<PostgresEditorConfigSection
 				bind:postgres_resource_path={args.postgres_resource_path}
-				bind:relations={args.relations}
+				bind:relations={args.table_to_track}
 				bind:publication_name={args.publication_name}
 				bind:transaction_to_track={args.transaction_to_track}
 				bind:replication_slot_name={args.replication_slot_name}
+				bind:basic_mode={args.basic_mode}
 				{showCapture}
 				{captureInfo}
 				can_write={true}

@@ -6,7 +6,6 @@ use std::collections::{
 use crate::{
     db::{ApiAuthed, DB},
     postgres_triggers::mapper::{Mapper, MappingInfo},
-    resources::try_get_resource_from_db_as,
 };
 use axum::{
     extract::{Path, Query},
@@ -31,8 +30,7 @@ use windmill_common::{
 use super::{
     check_if_valid_publication_for_postgres_version, create_logical_replication_slot,
     create_pg_publication, drop_publication, generate_random_string, get_pg_connection,
-    get_raw_postgres_connection, ERROR_PUBLICATION_NAME_NOT_EXISTS,
-    ERROR_REPLICATION_SLOT_NOT_EXISTS,
+    ERROR_PUBLICATION_NAME_NOT_EXISTS, ERROR_REPLICATION_SLOT_NOT_EXISTS,
 };
 use lazy_static::lazy_static;
 
@@ -653,24 +651,10 @@ pub async fn create_slot(
     Ok(format!("Replication slot {} created!", name))
 }
 
-pub async fn drop_slot_name(
-    authed: ApiAuthed,
-    Extension(user_db): Extension<UserDB>,
-    Extension(db): Extension<DB>,
-    Path((w_id, postgres_resource_path)): Path<(String, String)>,
-    Json(Slot { name }): Json<Slot>,
-) -> Result<String> {
-    let database = try_get_resource_from_db_as::<Postgres>(
-        authed,
-        Some(user_db),
-        &db,
-        &postgres_resource_path,
-        &w_id,
-    )
-    .await?;
-
-    let mut pg_connection = get_raw_postgres_connection(&database).await?;
-
+pub async fn drop_logical_replication_slot(
+    pg_connection: &mut PgConnection,
+    slot_name: &str,
+) -> Result<()> {
     let active_pid: Option<i32> = sqlx::query_scalar(
         r#"SELECT 
             active_pid 
@@ -680,21 +664,35 @@ pub async fn drop_slot_name(
             slot_name = $1
         "#,
     )
-    .bind(&name)
-    .fetch_optional(&mut pg_connection)
+    .bind(&slot_name)
+    .fetch_optional(&mut *pg_connection)
     .await?
     .flatten();
 
     if let Some(pid) = active_pid {
         sqlx::query("SELECT pg_terminate_backend($1)")
             .bind(pid)
-            .execute(&mut pg_connection)
+            .execute(&mut *pg_connection)
             .await?;
     }
     sqlx::query("SELECT pg_drop_replication_slot($1)")
-        .bind(&name)
-        .execute(&mut pg_connection)
+        .bind(&slot_name)
+        .execute(pg_connection)
         .await?;
+    Ok(())
+}
+
+pub async fn drop_slot_name(
+    authed: ApiAuthed,
+    Extension(user_db): Extension<UserDB>,
+    Extension(db): Extension<DB>,
+    Path((w_id, postgres_resource_path)): Path<(String, String)>,
+    Json(Slot { name }): Json<Slot>,
+) -> Result<String> {
+    let mut pg_connection =
+        get_pg_connection(authed, Some(user_db), &db, &postgres_resource_path, &w_id).await?;
+
+    drop_logical_replication_slot(&mut pg_connection, &name).await?;
 
     Ok(format!("Replication slot {} deleted!", name))
 }

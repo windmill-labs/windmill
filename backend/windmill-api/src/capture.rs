@@ -26,12 +26,14 @@ use windmill_common::auth::aws::AwsAuthResourceType;
     feature = "http_trigger",
     all(feature = "enterprise", feature = "gcp_trigger")
 ))]
-use {
-    axum::extract::Request,
-    http::HeaderMap,
-    serde::de::DeserializeOwned,
-    windmill_common::{error::Error, utils::empty_as_none},
-};
+use {axum::extract::Request, http::HeaderMap, serde::de::DeserializeOwned};
+
+#[cfg(any(
+    feature = "postgres_trigger",
+    feature = "http_trigger",
+    all(feature = "enterprise", feature = "gcp_trigger")
+))]
+use windmill_common::{error::Error, utils::empty_as_none};
 
 #[cfg(all(feature = "enterprise", feature = "kafka"))]
 use crate::kafka_triggers_ee::KafkaTriggerConfigConnection;
@@ -43,12 +45,9 @@ use crate::mqtt_triggers::{MqttClientVersion, MqttV3Config, MqttV5Config, Subscr
 use crate::nats_triggers_ee::NatsTriggerConfigConnection;
 
 #[cfg(feature = "postgres_trigger")]
-use {
-    crate::postgres_triggers::{
-        create_logical_replication_slot, create_pg_publication, drop_publication,
-        generate_random_string, get_pg_connection, PublicationData,
-    },
-    pg_escape::quote_literal,
+use crate::postgres_triggers::{
+    create_logical_replication_slot, create_pg_publication, generate_random_string,
+    get_pg_connection, PublicationData,
 };
 
 use crate::{
@@ -197,9 +196,13 @@ pub struct MqttTriggerConfig {
 #[derive(Serialize, Deserialize, Debug)]
 pub struct PostgresTriggerConfig {
     pub postgres_resource_path: String,
+    #[serde(default, deserialize_with = "empty_as_none")]
     pub publication_name: Option<String>,
+    #[serde(default, deserialize_with = "empty_as_none")]
     pub replication_slot_name: Option<String>,
+    #[serde(flatten)]
     pub publication: PublicationData,
+    pub basic_mode: Option<bool>,
 }
 
 #[cfg(feature = "websocket")]
@@ -289,10 +292,11 @@ async fn set_postgres_trigger_config(
     user_db: UserDB,
     mut capture_config: NewCaptureConfig,
 ) -> Result<NewCaptureConfig> {
-    let Some(TriggerConfig::Postgres(mut postgres_config)) = capture_config.trigger_config else {
-        return Err(windmill_common::error::Error::BadRequest(
-            "Invalid postgres config".to_string(),
-        ));
+    use crate::postgres_triggers::drop_publication;
+
+    let Some(TriggerConfig::Postgres(postgres_config)) = capture_config.trigger_config.as_mut()
+    else {
+        return Err(Error::BadRequest("Invalid postgres config".to_string()));
     };
 
     let mut pg_connection = get_pg_connection(
@@ -304,36 +308,37 @@ async fn set_postgres_trigger_config(
     )
     .await?;
 
-    let publication_name = postgres_config
-        .publication_name
-        .get_or_insert(format!("windmill_capture_{}", generate_random_string()));
-    let replication_slot_name = postgres_config
-        .replication_slot_name
-        .get_or_insert(publication_name.clone());
+    if postgres_config.basic_mode.unwrap_or(false) {
+        let publication_name = format!("windmill_capture_{}", generate_random_string());
+        let replication_slot_name = publication_name.clone();
 
-    drop_publication(&mut pg_connection, &publication_name).await?;
-
-    create_pg_publication(
-        &mut pg_connection,
-        &publication_name,
-        postgres_config.publication.table_to_track.as_deref(),
-        &postgres_config.publication.transaction_to_track,
-    )
-    .await?;
-
-    let query = format!(
-        "SELECT 1 from pg_replication_slots WHERE slot_name = {}",
-        quote_literal(replication_slot_name)
-    );
-
-    let row = sqlx::query(&query)
-        .fetch_optional(&mut pg_connection)
+        create_pg_publication(
+            &mut pg_connection,
+            &publication_name,
+            postgres_config.publication.table_to_track.as_deref(),
+            &postgres_config.publication.transaction_to_track,
+        )
         .await?;
 
-    if row.is_none() {
-        create_logical_replication_slot(&mut pg_connection, &replication_slot_name).await?;
+        let result =
+            create_logical_replication_slot(&mut pg_connection, &replication_slot_name).await;
+
+        if result.is_err() {
+            let _ = drop_publication(&mut pg_connection, &publication_name).await;
+            return Err(result.unwrap_err());
+        }
+
+        postgres_config.publication_name = Some(publication_name);
+        postgres_config.replication_slot_name = Some(replication_slot_name);
+    } else {
+        if postgres_config.publication_name.is_none()
+            || postgres_config.replication_slot_name.is_none()
+        {
+            return Err(Error::BadRequest(
+                "Publication name and slot name required in advanced mode".to_string(),
+            ));
+        }
     }
-    capture_config.trigger_config = Some(TriggerConfig::Postgres(postgres_config));
     Ok(capture_config)
 }
 

@@ -243,19 +243,6 @@ pub async fn drop_publication(
     Ok(())
 }
 
-pub async fn drop_logical_replication_slot(
-    pg_connection: &mut PgConnection,
-    replication_slot_name: &str,
-) -> Result<()> {
-    let query = format!(
-        "SELECT pg_drop_replication_slot({});",
-        quote_literal(&replication_slot_name)
-    );
-    sqlx::query(&query).execute(pg_connection).await?;
-
-    Ok(())
-}
-
 pub fn generate_random_string() -> String {
     let timestamp = Utc::now().timestamp_millis().to_string();
     let mut rng = rand::rng();

@@ -22,12 +22,15 @@
 	import { random_adj } from '$lib/components/random_positive_adjetive'
 
 	let transactionType: string[] = ['Insert', 'Update', 'Delete']
-	let isValid: boolean = false
+	export let isValid: boolean = false
 	let publicationItems: string[] = []
 
 	let loadingPostgres = false
 	let postgresVersion = ''
 	let tab: 'advanced' | 'basic' = 'basic'
+
+	let creatingSlot: boolean = false
+	let creatingPublication: boolean = false
 
 	type actions = 'create' | 'get'
 	let selectedPublicationAction: actions = 'create'
@@ -44,9 +47,11 @@
 	export let showCapture: boolean = false
 	export let captureTable: CaptureTable | undefined = undefined
 	export let captureInfo: CaptureInfo | undefined = undefined
+	export let basic_mode: boolean = false
 
 	async function createPublication() {
 		try {
+			creatingPublication = true
 			const message = await PostgresTriggerService.createPostgresPublication({
 				path: postgres_resource_path,
 				publication: publication_name as string,
@@ -60,11 +65,14 @@
 			sendUserToast(message)
 		} catch (error) {
 			sendUserToast(error.body, true)
+		} finally {
+			creatingPublication = false
 		}
 	}
 
 	async function createSlot() {
 		try {
+			creatingSlot = true
 			const message = await PostgresTriggerService.createPostgresReplicationSlot({
 				path: postgres_resource_path,
 				workspace: $workspaceStore!,
@@ -75,6 +83,8 @@
 			sendUserToast(message)
 		} catch (error) {
 			sendUserToast(error.body, true)
+		} finally {
+			creatingSlot = false
 		}
 	}
 
@@ -98,9 +108,15 @@
 	}
 
 	$: {
-		isValid = !emptyString(postgres_resource_path) && transaction_to_track.length > 0
+		isValid =
+			!emptyString(postgres_resource_path) &&
+			transaction_to_track.length > 0 &&
+			((tab === 'advanced' &&
+				!emptyString(replication_slot_name) &&
+				!emptyString(publication_name)) ||
+				(tab === 'basic' && (!relations || relations.length > 0)))
 	}
-
+	$: basic_mode = tab === 'basic'
 	let testTriggerConnection: TestTriggerConnection | undefined = undefined
 </script>
 
@@ -254,6 +270,7 @@
 															placeholder={'Choose a slot name'}
 														/>
 														<Button
+															loading={creatingSlot}
 															color="light"
 															size="xs"
 															variant="border"
@@ -303,6 +320,7 @@
 															placeholder={'Publication Name'}
 														/>
 														<Button
+															loading={creatingPublication}
 															color="light"
 															size="xs"
 															variant="border"

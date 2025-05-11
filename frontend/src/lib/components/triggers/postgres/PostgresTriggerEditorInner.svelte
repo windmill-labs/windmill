@@ -45,7 +45,7 @@
 	type actions = 'create' | 'get'
 	let selectedPublicationAction: actions = $state('create')
 	let selectedSlotAction: actions = $state('create')
-
+	let isValid: boolean = $state(false)
 	const dispatch = createEventDispatcher()
 
 	export async function openEdit(ePath: string, isFlow: boolean) {
@@ -261,14 +261,7 @@
 				{/if}
 				<Button
 					startIcon={{ icon: Save }}
-					disabled={pathError != '' ||
-						emptyString(postgres_resource_path) ||
-						emptyString(script_path) ||
-						(tab === 'advanced' && emptyString(replication_slot_name)) ||
-						emptyString(publication_name) ||
-						(relations && tab === 'basic' && relations.length === 0) ||
-						transaction_to_track.length === 0 ||
-						!can_write}
+					disabled={!isValid || pathError != '' || emptyString(script_path) || !can_write}
 					on:click={updateTrigger}
 					loading={isLoading}
 				>
@@ -345,6 +338,7 @@
 					bind:relations
 					bind:transaction_to_track
 					bind:postgres_resource_path
+					bind:isValid
 					{edit}
 					{can_write}
 				/>

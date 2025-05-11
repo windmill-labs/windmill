@@ -34,8 +34,8 @@ use windmill_common::{
 };
 
 use super::{
-    drop_logical_replication_slot, drop_publication, get_pg_connection,
-    handler::{Postgres, PostgresTrigger},
+    drop_publication, get_pg_connection,
+    handler::{drop_logical_replication_slot, Postgres, PostgresTrigger},
     replication_message::PrimaryKeepAliveBody,
     ERROR_PUBLICATION_NAME_NOT_EXISTS, ERROR_REPLICATION_SLOT_NOT_EXISTS,
 };
@@ -548,9 +548,12 @@ impl PostgresConfig {
                 )
                 .await?;
 
-                drop_logical_replication_slot(&mut pg_connection, replication_slot_name).await?;
+                if capture.trigger_config.basic_mode.unwrap_or(false) {
+                    drop_logical_replication_slot(&mut pg_connection, replication_slot_name)
+                        .await?;
 
-                drop_publication(&mut pg_connection, publication_name).await?;
+                    drop_publication(&mut pg_connection, publication_name).await?;
+                }
 
                 Ok(())
             }
