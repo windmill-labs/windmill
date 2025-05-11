@@ -35,7 +35,7 @@
 
 	export let edit: boolean = false
 	export let transaction_to_track: string[] = ['Insert', 'Update', 'Delete']
-	export let relations: Relations[]
+	export let relations: Relations[] | undefined
 	export let postgres_resource_path: string = ''
 	export let publication_name: string = ''
 	export let replication_slot_name: string = ''

@@ -84,7 +84,6 @@
 	listDatabasePublication()
 
 	let darkMode = false
-
 </script>
 
 <DarkModeObserver bind:darkMode />
@@ -95,7 +94,7 @@
 		class="grow shrink max-w-full"
 		on:select={async (e) => {
 			publication_name = e.detail.value
-		    await getAllRelations();
+			await getAllRelations()
 		}}
 		on:clear={() => {
 			publication_name = ''

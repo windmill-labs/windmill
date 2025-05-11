@@ -19,7 +19,9 @@
 
 	let pg14 = $derived(postgresVersion.startsWith('14'))
 
-	let selected: 'all' | 'specific' = $state(relations && relations.length > 0 ? 'specific' : 'all')
+	let selected: 'all' | 'specific' = $derived(
+		relations && relations.length > 0 ? 'specific' : 'all'
+	)
 
 	let cached: Relations[] | undefined = relations
 
@@ -68,12 +70,17 @@
 						relations = undefined
 					} else {
 						if (!cached || cached.length === 0) {
-							relations = [
-								{
-									schema_name: 'public',
-									table_to_track: []
-								}
-							]
+							if (!relations || relations.length == 0) {
+								relations = [
+									{
+										schema_name: 'public',
+										table_to_track: []
+									}
+								]
+								cached = relations
+							} else {
+								cached = relations
+							}
 						} else {
 							relations = cached
 						}
