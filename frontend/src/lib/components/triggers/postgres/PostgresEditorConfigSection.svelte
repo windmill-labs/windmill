@@ -22,42 +22,28 @@
 	import { random_adj } from '$lib/components/random_positive_adjetive'
 
 	let transactionType: string[] = ['Insert', 'Update', 'Delete']
-	let isValid: boolean = $state(false)
-	let publicationItems: string[] = $state([])
+	let isValid: boolean = false
+	let publicationItems: string[] = []
 
-	let loadingPostgres = $state(false)
-	let postgresVersion = $state('')
-	let tab: 'advanced' | 'basic' = $state('basic')
+	let loadingPostgres = false
+	let postgresVersion = ''
+	let tab: 'advanced' | 'basic' = 'basic'
 
 	type actions = 'create' | 'get'
-	let selectedPublicationAction: actions = $state('create')
-	let selectedSlotAction: actions = $state('create')
+	let selectedPublicationAction: actions = 'create'
+	let selectedSlotAction: actions = 'create'
 
-	let {
-		headless = false,
-		can_write = false,
-		showCapture = $bindable(false),
-		captureTable = $bindable(undefined),
-		captureInfo = $bindable(undefined),
-		postgres_resource_path = $bindable(''),
-		publication_name = $bindable(''),
-		replication_slot_name = $bindable(''),
-		transaction_to_track = $bindable([]),
-		relations = $bindable([]),
-		edit = false
-	}: {
-		edit?: boolean
-		transaction_to_track: string[]
-		relations: Relations[] | undefined
-		publication_name: string
-		replication_slot_name: string
-		headless?: boolean
-		can_write: boolean
-		showCapture?: boolean
-		captureTable?: CaptureTable | undefined
-		captureInfo?: CaptureInfo | undefined
-		postgres_resource_path: string
-	} = $props()
+	export let edit: boolean = false
+	export let transaction_to_track: string[] = ['Insert', 'Update', 'Delete']
+	export let relations: Relations[]
+	export let postgres_resource_path: string = ''
+	export let publication_name: string = ''
+	export let replication_slot_name: string = ''
+	export let headless: boolean = false
+	export let can_write: boolean = false
+	export let showCapture: boolean = false
+	export let captureTable: CaptureTable | undefined = undefined
+	export let captureInfo: CaptureInfo | undefined = undefined
 
 	async function createPublication() {
 		try {
@@ -92,13 +78,12 @@
 		}
 	}
 
-	$effect(() => {
-		const dependencies = { workspace: $workspaceStore!, path: postgres_resource_path }
+	$: {
 		if (postgres_resource_path) {
 			loadingPostgres = true
 			PostgresTriggerService.getPostgresVersion({
-				workspace: dependencies.workspace,
-				path: dependencies.path
+				workspace: $workspaceStore!,
+				path: postgres_resource_path
 			})
 				.then((version: string) => {
 					postgresVersion = version
@@ -110,11 +95,11 @@
 					loadingPostgres = false
 				})
 		}
-	})
+	}
 
-	$effect(() => {
+	$: {
 		isValid = !emptyString(postgres_resource_path) && transaction_to_track.length > 0
-	})
+	}
 
 	let testTriggerConnection: TestTriggerConnection | undefined = undefined
 </script>
