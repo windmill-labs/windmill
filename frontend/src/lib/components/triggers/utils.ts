@@ -411,10 +411,16 @@ export async function fetchSchedules(
 		})
 
 		const scheduleCount = updateTriggers(triggersStore, allDeployedSchedules, 'schedule', user)
+		const updatedPrimarySchedule = get(triggersStore).find((s) => s.isPrimary)
 		triggersCountStore.update((triggersCount) => {
 			return {
 				...(triggersCount ?? {}),
-				schedule_count: scheduleCount
+				schedule_count: scheduleCount,
+				primary_schedule: {
+					schedule:
+						updatedPrimarySchedule?.draftConfig?.schedule ??
+						updatedPrimarySchedule?.lightConfig?.schedule
+				}
 			}
 		})
 

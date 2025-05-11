@@ -183,13 +183,6 @@
 	}
 	let starred: boolean | undefined = undefined
 
-	async function loadTriggersCount(path: string) {
-		$triggersCount = await ScriptService.getTriggersCountOfScript({
-			workspace: $workspaceStore!,
-			path: path
-		})
-	}
-
 	async function loadTriggers(path: string): Promise<void> {
 		await fetchTriggers(
 			triggersStore,
@@ -222,7 +215,6 @@
 		can_write =
 			script.workspace_id == $workspaceStore &&
 			canWrite(script.path, script.extra_perms!, $userStore)
-		loadTriggersCount(script.path)
 		loadTriggers(script.path)
 
 		if (script.path && script.archived) {
@@ -581,10 +573,12 @@
 							path={script.path}
 							newItem={false}
 							isFlow={false}
-							selected={rightPaneSelected == 'triggers'}
+							selected={rightPaneSelected === 'triggers'}
 							triggers={$triggersStore}
 							on:select={async ({ detail }) => {
-								rightPaneSelected = 'triggers'
+								if (rightPaneSelected !== 'triggers') {
+									rightPaneSelected = 'triggers'
+								}
 								await tick()
 								if (detail) {
 									$selectedTriggerStore = detail

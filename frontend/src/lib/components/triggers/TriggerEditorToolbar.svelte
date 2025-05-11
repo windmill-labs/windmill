@@ -49,6 +49,7 @@
 </script>
 
 {#if !allowDraft}
+	{@render extra?.()}
 	{#if edit && enabled !== undefined}
 		<Toggle
 			size="sm"
@@ -73,7 +74,6 @@
 			Save
 		</Button>
 	{/if}
-	{@render extra?.()}
 {:else}
 	<div class="flex flex-row gap-2 items-center">
 		{#if !isDraftOnly && !hasDraft && enabled !== undefined}

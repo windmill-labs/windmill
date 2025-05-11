@@ -1,12 +1,11 @@
 <script lang="ts">
 	import { Calendar, Mail, Webhook, Unplug, Database, Terminal } from 'lucide-svelte'
 	import { Loader2 } from 'lucide-svelte'
-	import { createEventDispatcher, onMount, type ComponentType } from 'svelte'
+	import { createEventDispatcher, type ComponentType } from 'svelte'
 	import { Route } from 'lucide-svelte'
 	import { getContext } from 'svelte'
 	import { type TriggerContext } from '$lib/components/triggers'
-	import { FlowService, ScriptService } from '$lib/gen'
-	import { enterpriseLicense, workspaceStore } from '$lib/stores'
+	import { enterpriseLicense } from '$lib/stores'
 	import { MqttIcon, NatsIcon, KafkaIcon, AwsIcon, GoogleCloudIcon } from '$lib/components/icons'
 	import type { Trigger, TriggerType } from '$lib/components/triggers/utils'
 	import { Menu, Menubar, MeltButton, MenuItem, Tooltip } from '$lib/components/meltComponents'
@@ -30,9 +29,6 @@
 	}
 
 	let {
-		path,
-		newItem,
-		isFlow,
 		selected,
 		showOnlyWithCount,
 		triggers,
@@ -48,26 +44,6 @@
 	const dispatch = createEventDispatcher<{
 		select: Trigger | undefined
 	}>()
-
-	onMount(() => {
-		if (!newItem) {
-			loadCount()
-		}
-	})
-
-	async function loadCount() {
-		if (isFlow) {
-			$triggersCount = await FlowService.getTriggersCountOfFlow({
-				workspace: $workspaceStore!,
-				path
-			})
-		} else {
-			$triggersCount = await ScriptService.getTriggersCountOfScript({
-				workspace: $workspaceStore!,
-				path
-			})
-		}
-	}
 
 	const triggerTypeConfig: {
 		[key in TriggerType]: { icon: ComponentType; countKey?: string; disabled?: boolean }
@@ -278,6 +254,7 @@
 						'absolute z-10 rounded-full overflow-hidden',
 						'flex center-center group-hover:text-primary-inverse font-mono text-transparent',
 						'bg-tertiary group-hover:bg-primary transition-all duration-[100ms]',
+						noTriggers ? 'bg-primary text-primary-inverse scale-100' : '',
 
 						// Hover effects
 						'group-hover:scale-110',
@@ -288,8 +265,8 @@
 							: '-right-[-2px] -top-[-2px] h-[6px] w-[6px] group-hover:-right-1 group-hover:-top-1 group-hover:h-4 group-hover:w-4 group-hover:text-xs',
 
 						// Special case for no triggers
-						noTriggers && small ? 'h-3 w-3 text-[8px] scale-110' : '',
-						noTriggers && !small ? 'h-4 w-4 text-xs' : ''
+						noTriggers && small ? 'h-3 w-3 text-[8px] -right-0.5 -top-0.5' : '',
+						noTriggers && !small ? 'h-4 w-4 text-xs -right-1 -top-1' : ''
 					)}
 				>
 					{#if count === undefined}

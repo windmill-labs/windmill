@@ -748,24 +748,6 @@
 							Run now
 						</Button>
 					</div>
-					{#if can_write}
-						<div class="mr-8 center-center -mt-1">
-							<Toggle
-								disabled={!can_write}
-								checked={enabled}
-								options={{ right: 'Enabled' }}
-								on:change={async (e) => {
-									await ScheduleService.setScheduleEnabled({
-										path: initialPath,
-										workspace: $workspaceStore ?? '',
-										requestBody: { enabled: e.detail }
-									})
-									dispatch('update')
-									sendUserToast(`${e.detail ? 'enabled' : 'disabled'} schedule ${initialPath}`)
-								}}
-							/>
-						</div>
-					{/if}
 				{/if}
 			{/snippet}
 		</TriggerEditorToolbar>
