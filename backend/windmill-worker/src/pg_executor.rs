@@ -68,7 +68,7 @@ fn do_postgresql_inner<'a>(
     column_order: Option<&'a mut Option<Vec<String>>>,
     siz: &'a AtomicUsize,
     skip_collect: bool,
-) -> error::Result<BoxFuture<'a, anyhow::Result<Box<RawValue>>>> {
+) -> error::Result<BoxFuture<'a, error::Result<Box<RawValue>>>> {
     let mut query_params = vec![];
 
     let arg_indices = parse_pg_statement_arg_indices(&query);
@@ -136,17 +136,17 @@ fn do_postgresql_inner<'a>(
                 if *CLOUD_HOSTED {
                     let siz = siz.load(Ordering::Relaxed);
                     if siz > MAX_RESULT_SIZE * 4 {
-                        return Err(anyhow::anyhow!(
+                        return Err(Error::ExecutionErr(format!(
                             "Query result too large for cloud (size = {} > {})",
                             siz,
-                            MAX_RESULT_SIZE & 4
-                        ));
+                            MAX_RESULT_SIZE & 4,
+                        )));
                     }
                 }
                 if let Ok(v) = r {
                     res.push(v);
                 } else {
-                    return Err(to_anyhow(r.err().unwrap()));
+                    return Err(to_anyhow(r.err().unwrap()).into());
                 }
             }
         }

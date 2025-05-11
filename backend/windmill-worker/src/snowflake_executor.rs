@@ -2,13 +2,12 @@ use base64::{engine, Engine as _};
 use chrono::Datelike;
 use core::fmt::Write;
 use futures::future::BoxFuture;
-use futures::{FutureExt, TryFutureExt};
+use futures::FutureExt;
 use jsonwebtoken::{encode, Algorithm, EncodingKey, Header};
 use reqwest::{Client, Response};
 use serde_json::{json, value::RawValue, Value};
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
-use windmill_common::error::to_anyhow;
 use windmill_common::worker::Connection;
 
 use windmill_common::{error::Error, worker::to_raw_value};
@@ -428,7 +427,7 @@ pub async fn do_snowflake(
         conn,
         mem_peak,
         canceled_by,
-        result_f.map_err(to_anyhow),
+        result_f,
         worker_name,
         &job.workspace_id,
         &mut Some(occupancy_metrics),

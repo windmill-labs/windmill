@@ -526,7 +526,7 @@ pub async fn run_future_with_polling_update_job_poller<Fut, T, S>(
     get_mem: S,
 ) -> error::Result<T>
 where
-    Fut: Future<Output = anyhow::Result<T>>,
+    Fut: Future<Output = windmill_common::error::Result<T>>,
     S: stream::Stream<Item = i32> + Unpin,
 {
     let (tx, rx) = broadcast::channel::<()>(3);
