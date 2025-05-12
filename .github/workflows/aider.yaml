@@ -162,7 +162,7 @@ jobs:
           PROMPT_ESCAPED=$(jq -Rs . <<< "$PROMPT_CONTENT")
 
           MESSAGE_FOR_PROBE=$(jq -n --arg prompt_escaped "$PROMPT_ESCAPED" \
-            '{ "message": "I'\''m giving you a request that needs to be implemented. Your role is to give me the files that are relevant to the request. The request is prepended with the word REQUEST.\\nREQUEST: \($prompt_escaped). Give me all the files relevant to this request. Your output MUST be a single json array that can be parsed with programatic json parsing, with the relevant files. DO NOT INCLUDE ANY OTHER TEXT IN YOUR OUTPUT. ONLY THE JSON ARRAY. Example of output: [\"file1.py\", \"file2.py\"]" }' | jq -r .message)
+            '{ "message": "I'\''m giving you a request that needs to be implemented. Your role is to give me the files that are relevant to the request. The request is prepended with the word REQUEST.\\nREQUEST: \($prompt_escaped). Give me all the files relevant to this request. Your output MUST be a single json array that can be parsed with programatic json parsing, with the relevant files. Files can be rust or typescript or javascript files. DO NOT INCLUDE ANY OTHER TEXT IN YOUR OUTPUT. ONLY THE JSON ARRAY. Example of output: [\"file1.py\", \"file2.py\"]" }' | jq -r .message)
 
           set -o pipefail
           PROBE_OUTPUT=$(npx --yes @buger/probe-chat@latest --model-name gemini-2.5-pro-preview-05-06 --message "$MESSAGE_FOR_PROBE" 2>&1) || {
