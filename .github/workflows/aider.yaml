@@ -178,7 +178,7 @@ jobs:
           echo "Extracted JSON block:"
           echo "$JSON_FILES"
 
-          FILES_LIST=$(echo "$JSON_FILES" | jq -e -r '[.[] | select(type == "string" and . != "" and . != null)] | map(@sh) | join(" ")' || echo "")
+          FILES_LIST=$(echo "$JSON_FILES" | jq -e -r '[.[] | select(type == "string" and . != "" and . != null and (endswith("/") | not))] | map(@sh) | join(" ")' || echo "")
 
           if [[ -z "$FILES_LIST" ]]; then
              echo "::warning::probe-chat did not identify any relevant files."
