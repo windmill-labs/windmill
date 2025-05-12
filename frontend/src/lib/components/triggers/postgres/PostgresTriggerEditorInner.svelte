@@ -36,7 +36,7 @@
 	let postgres_resource_path = ''
 	let publication_name: string = ''
 	let replication_slot_name: string = ''
-	let relations: Relations[] | undefined = []
+	let relations: Relations[] | undefined = undefined
 	let transaction_to_track: string[] = []
 	let language: Language = 'Typescript'
 	let loading = false
@@ -123,15 +123,20 @@
 		postgres_resource_path = s.postgres_resource_path
 		publication_name = s.publication_name
 		replication_slot_name = s.replication_slot_name
-
-		const publication_data = await PostgresTriggerService.getPostgresPublication({
-			path: postgres_resource_path,
-			workspace: $workspaceStore!,
-			publication: publication_name
-		})
-		transaction_to_track = [...publication_data.transaction_to_track]
-		relations = publication_data.table_to_track
 		can_write = canWrite(s.path, s.extra_perms, $userStore)
+		try {
+			const publication_data = await PostgresTriggerService.getPostgresPublication({
+				path: postgres_resource_path,
+				workspace: $workspaceStore!,
+				publication: publication_name
+			})
+			transaction_to_track = [...publication_data.transaction_to_track]
+			relations = publication_data.table_to_track
+		} catch (error) {
+			sendUserToast(error.body, true)
+			transaction_to_track = []
+			relations = undefined
+		}
 	}
 
 	async function updateTrigger(): Promise<void> {
