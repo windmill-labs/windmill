@@ -47,8 +47,8 @@ use crate::nats_triggers_ee::NatsTriggerConfigConnection;
 #[cfg(feature = "postgres_trigger")]
 use {
     crate::postgres_triggers::{
-        create_logical_replication_slot, create_pg_publication, drop_publication,
-        generate_random_string, get_pg_connection, PublicationData,
+        create_logical_replication_slot, create_pg_publication, generate_random_string,
+        get_pg_connection, PublicationData,
     },
     sqlx::Connection,
 };
