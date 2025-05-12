@@ -13,8 +13,8 @@ use regex::Regex;
 use reqwest::Client;
 
 use crate::approvals::{
-    QueryDefaultArgsJson, QueryDynamicEnumJson, QueryFlowStepId, QueryMessage, ResumeFormRow,
-    ResumeSchema, ResumeFormField, FieldType,
+    FieldType, QueryDefaultArgsJson, QueryDynamicEnumJson, QueryFlowStepId, QueryMessage,
+    ResumeFormField, ResumeFormRow, ResumeSchema,
 };
 use crate::db::{ApiAuthed, DB};
 use crate::jobs::{
