@@ -7,7 +7,6 @@
 	import type { ConnectionInfo } from '../common/alert/ConnectionIndicator.svelte'
 	import type { CaptureInfo } from './CaptureSection.svelte'
 	import { invalidRelations } from './postgres/utils'
-	import { DEFAULT_V3_CONFIG, DEFAULT_V5_CONFIG } from './mqtt/constant'
 	import WebhooksCapture from './webhook/WebhooksCapture.svelte'
 	import EmailTriggerCaptures from '../details/EmailTriggerCaptures.svelte'
 	import WebsocketCapture from './websocket/WebsocketCapture.svelte'
@@ -115,19 +114,7 @@
 			const triggerConfig = captureConfigs[captureType].trigger_config
 			args = isObject(triggerConfig) ? triggerConfig : {}
 		} else {
-			switch (captureType) {
-				case 'mqtt':
-					//define these field so any reactive statement that may use them will not crash trying to access their property
-					args = {
-						v3_config: DEFAULT_V3_CONFIG,
-						v5_config: DEFAULT_V5_CONFIG,
-						client_version: 'v5',
-						subscribe_topics: []
-					}
-					break
-				default:
-					args = {}
-			}
+			args = {}
 		}
 		ready = true
 	}
@@ -309,6 +296,7 @@
 				{hasPreprocessor}
 				{isFlow}
 				deliveryType={args.delivery_type}
+				baseEndpoint={args.base_endpoint}
 				on:applyArgs
 				on:updateSchema
 				on:addPreprocessor
