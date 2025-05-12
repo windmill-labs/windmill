@@ -5,20 +5,32 @@
 	import WebhooksConfigSection from './WebhooksConfigSection.svelte'
 	import { Section } from '$lib/components/common'
 
-	export let token: string
-	export let args: Record<string, any> = {}
-	export let scopes: string[] = []
-	export let isFlow: boolean = false
-	export let hash: string | undefined = undefined
-	export let path: string
-	export let newItem: boolean = false
+	interface Props {
+		token: string
+		args?: Record<string, any>
+		scopes?: string[]
+		isFlow?: boolean
+		hash?: string | undefined
+		path: string
+		newItem?: boolean
+	}
 
-	$: data = {
+	let {
+		token,
+		args = {},
+		scopes = [],
+		isFlow = false,
+		hash = undefined,
+		path,
+		newItem = false
+	}: Props = $props()
+
+	let data = $derived({
 		hash,
 		token,
 		scopes,
 		args
-	}
+	})
 </script>
 
 <HighlightTheme />
