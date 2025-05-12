@@ -7,20 +7,16 @@ use serde::{Deserialize, Serialize};
 use serde_json::value::{RawValue, Value};
 
 use sqlx::types::Uuid;
-use std::{collections::HashMap, str::FromStr};
+use std::collections::HashMap;
 
-use regex::Regex;
 use reqwest::Client;
 
 use crate::approvals::{
     FieldType, QueryDefaultArgsJson, QueryDynamicEnumJson, QueryFlowStepId, QueryMessage,
-    ResumeFormField, ResumeFormRow, ResumeSchema,
+    ResumeFormField, ResumeFormRow, ResumeSchema, handle_resume_action, extract_w_id_from_resume_url,
 };
 use crate::db::{ApiAuthed, DB};
-use crate::jobs::{
-    cancel_suspended_job, get_resume_urls_internal, resume_suspended_job, QueryApprover,
-    QueryOrBody, ResumeUrls,
-};
+use crate::jobs::{get_resume_urls_internal, QueryApprover, ResumeUrls};
 
 use windmill_common::{
     cache,
@@ -304,63 +300,11 @@ async fn handle_submission(
         return Ok(());
     }
 
-    // Use regex to extract information from private_metadata
-    let re = Regex::new(r"/api/w/(?P<w_id>[^/]+)/jobs_u/(?P<action>resume|cancel)/(?P<job_id>[^/]+)/(?P<resume_id>[^/]+)/(?P<secret>[a-fA-F0-9]+)(?:\?approver=(?P<approver>[^&]+))?").unwrap();
-    let captures = re.captures(resume_url.as_str()).ok_or_else(|| {
-        tracing::error!("Resume URL does not match the pattern.");
-        Error::BadRequest("Invalid URL format.".to_string())
-    })?;
+    // Use the common handler to process the resume/cancel action
+    handle_resume_action(authed, db.clone(), &resume_url, state_json, action).await?;
 
-    let (w_id, job_id, resume_id, secret, approver) = (
-        captures.name("w_id").map_or("", |m| m.as_str()),
-        captures.name("job_id").map_or("", |m| m.as_str()),
-        captures.name("resume_id").map_or("", |m| m.as_str()),
-        captures.name("secret").map_or("", |m| m.as_str()),
-        captures.name("approver").map(|m| m.as_str().to_string()),
-    );
-
-    let approver = QueryApprover { approver: approver };
-
-    // Convert job_id and resume_id to appropriate types
-    let job_uuid = Uuid::from_str(job_id)
-        .map_err(|_| Error::BadRequest("Invalid job ID format.".to_string()))?;
-
-    let resume_id_parsed = resume_id
-        .parse::<u32>()
-        .map_err(|_| Error::BadRequest("Invalid resume ID format.".to_string()))?;
-
-    // Call the appropriate function based on the action
-    let res = if action == "resume" {
-        resume_suspended_job(
-            authed,
-            Extension(db.clone()),
-            Path((
-                w_id.to_string(),
-                job_uuid,
-                resume_id_parsed,
-                secret.to_string(),
-            )),
-            Query(approver),
-            QueryOrBody(Some(state_json)),
-        )
-        .await
-    } else {
-        cancel_suspended_job(
-            authed,
-            Extension(db.clone()),
-            Path((
-                w_id.to_string(),
-                job_uuid,
-                resume_id_parsed,
-                secret.to_string(),
-            )),
-            Query(approver),
-            QueryOrBody(Some(state_json)),
-        )
-        .await
-    };
-    tracing::debug!("Resume job action result: {:#?}", res);
-    let slack_token = get_slack_token(&db, &resource_path, &w_id).await?;
+    let w_id = extract_w_id_from_resume_url(&resume_url)?;
+    let slack_token = get_slack_token(&db, &resource_path, w_id).await?;
     update_original_slack_message(action, slack_token, container).await?;
     Ok(())
 }
