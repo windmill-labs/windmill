@@ -157,6 +157,8 @@
 					transaction_to_track,
 					table_to_track: relations
 				},
+				publication_name,
+				replication_slot_name,
 				path
 			})
 	})

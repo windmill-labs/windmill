@@ -42,7 +42,6 @@
 		stream_name: streamName,
 		consumer_name: consumerName
 	})
-	let natsConnectionCfg: Record<string, any> = $state({})
 	let otherArgsValid = $state(false)
 	let globalError = $derived(
 		!useJetstream && subjects && subjects.length > 1
@@ -146,7 +145,14 @@
 						disabled={!can_write}
 					/>
 					{#if isConnectionValid}
-						<TestTriggerConnection kind="nats" args={{ connection: natsConnectionCfg }} />
+						<TestTriggerConnection
+							kind="nats"
+							args={{
+								connection: {
+									nats_resource_path: natsResourcePath
+								}
+							}}
+						/>
 					{/if}
 				</Subsection>
 			</div>

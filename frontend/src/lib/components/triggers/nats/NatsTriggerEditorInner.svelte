@@ -245,6 +245,9 @@
 			dispatch('update-config', {
 				nats_resource_path: natsResourcePath,
 				subjects,
+				stream_name: streamName,
+				consumer_name: consumerName,
+				use_jetstream: useJetstream,
 				isValid,
 				path
 			})
