@@ -180,7 +180,7 @@
 		if (!cfg) {
 			return
 		}
-		saveGcpTriggerFromCfg(initialPath, cfg, edit, $workspaceStore!, usedTriggerKinds)
+		await saveGcpTriggerFromCfg(initialPath, cfg, edit, $workspaceStore!, usedTriggerKinds)
 		dispatch('update', cfg.path)
 		drawer?.closeDrawer()
 		is_loading = false
