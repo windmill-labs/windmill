@@ -134,7 +134,8 @@ jobs:
               exit 1
             else
               echo "Using comment content as prompt."
-              echo "$COMMENT_CONTENT" > "$PROMPT_FILE_PATH"
+              COMMENT_CONTENT_ESCAPED=$(printf '%q' "$COMMENT_CONTENT")
+              printf "%s" "$COMMENT_CONTENT" > "$PROMPT_FILE_PATH"
             fi
           else
             echo "::error::Unhandled event type: ${{ github.event_name }}"
@@ -244,16 +245,18 @@ jobs:
 
       - name: Create Pull Request
         if: success() && github.event_name == 'issues' && steps.commit_and_push.outputs.PR_BRANCH_NAME != ''
-        uses: peter-evans/create-pull-request@v6
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-          commit-message: "[Aider PR] Add fixes for issue #${{ github.event.issue.number }}"
-          branch: ${{ steps.commit_and_push.outputs.PR_BRANCH_NAME }}
-          base: main
-          body: |
-            This PR was created automatically by Aider to fix issue #${{ github.event.issue.number }}.
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_BRANCH: ${{ steps.commit_and_push.outputs.PR_BRANCH_NAME }}
+          ISSUE_NUM: ${{ github.event.issue.number }}
+        run: |
+          gh pr create \
+            --title "[Aider PR] Add fixes for issue #${ISSUE_NUM}" \
+            --body "This PR was created automatically by Aider to fix issue #${ISSUE_NUM}.
 
             ## Aider Output
-            ```
-            ${{ steps.prepare_aider_output.outputs.AIDER_OUTPUT }}
-            ```
+            \`\`\`
+            $(cat .github/aider/aider-output.txt || echo "No output available")
+            \`\`\`" \
+            --head "$PR_BRANCH" \
+            --base main
