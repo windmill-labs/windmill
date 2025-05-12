@@ -78,16 +78,28 @@ fn do_mysql_inner<'a>(
             let query = query.to_string();
             let rows_stream = async_stream::stream! {
                 let mut conn = conn.lock().await;
-                match conn.exec_iter(query, statement_values).await.map_err(to_anyhow) {
-                    Ok(mut result) => {
-                        while let Some(row) = result.next().await? {
-                            yield Ok(convert_row_to_value(row));
-                        }
-                    },
+                let mut result = match conn.exec_iter(query, statement_values).await.map_err(to_anyhow) {
+                    Ok(result) => result,
                     Err(e) => {
                         yield Err(anyhow!("Error executing query: {:?}", e));
+                        return;
                     }
                 };
+                loop {
+                    let row = result.next().await;
+                    match row {
+                        Ok(Some(row)) => {
+                            yield Ok(convert_row_to_value(row));
+                        }
+                        Ok(None) => {
+                            break;
+                        }
+                        Err(e) => {
+                            yield Err(anyhow!("Error fetching row: {:?}", e));
+                            return;
+                        }
+                    }
+                }
             };
 
             let stream = convert_json_line_stream(rows_stream.boxed(), s3.format).await?;
