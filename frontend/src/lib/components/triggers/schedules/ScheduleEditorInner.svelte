@@ -105,6 +105,7 @@
 	let validCRON = $state(true)
 	let isValid = $state(true)
 	let allowSchedule = $derived(isValid && validCRON && script_path != '')
+	let deploymentLoading = $state(false)
 
 	export function openEdit(ePath: string, isFlow: boolean, defaultCfg?: Record<string, any>) {
 		let loadingTimeout = setTimeout(() => {
@@ -524,9 +525,11 @@
 
 	async function scheduleScript(): Promise<void> {
 		const scheduleCfg = getScheduleCfg()
+		deploymentLoading = true
 		await saveScheduleFromCfg(scheduleCfg, edit, $workspaceStore!)
 		dispatch('update', scheduleCfg.path)
 		drawer?.closeDrawer()
+		deploymentLoading = false
 	}
 
 	function getHandlerType(
@@ -704,7 +707,7 @@
 			{allowDraft}
 			{edit}
 			{isDeployed}
-			isLoading={false}
+			isLoading={deploymentLoading}
 			{neverSaved}
 			{isEditor}
 			on:save-draft={() => {

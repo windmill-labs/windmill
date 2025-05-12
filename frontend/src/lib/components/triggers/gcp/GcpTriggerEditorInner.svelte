@@ -23,7 +23,6 @@
 	import TriggerEditorToolbar from '../TriggerEditorToolbar.svelte'
 	import { saveGcpTriggerFromCfg } from './utils'
 
-	let is_loading = $state(false)
 	let drawer: Drawer | undefined = $state(undefined)
 	let is_flow: boolean = $state(false)
 	let initialPath = $state('')
@@ -47,6 +46,7 @@
 	let subscription_mode: SubscriptionMode = $state('create_update')
 	let neverSaved = $state(false)
 	let initialConfig = $state<Record<string, any> | undefined>(undefined)
+	let deploymentLoading = $state(false)
 
 	const dispatch = createEventDispatcher()
 
@@ -175,7 +175,7 @@
 	}
 
 	async function updateTrigger(): Promise<void> {
-		is_loading = true
+		deploymentLoading = true
 		const cfg = getSaveCfg()
 		if (!cfg) {
 			return
@@ -183,7 +183,7 @@
 		await saveGcpTriggerFromCfg(initialPath, cfg, edit, $workspaceStore!, usedTriggerKinds)
 		dispatch('update', cfg.path)
 		drawer?.closeDrawer()
-		is_loading = false
+		deploymentLoading = false
 	}
 
 	function toggleEditMode(newEditMode: boolean) {
@@ -278,7 +278,7 @@
 			{editMode}
 			saveDisabled={pathError != '' || emptyString(script_path) || !isValid || !can_write}
 			{enabled}
-			isLoading={is_loading}
+			isLoading={deploymentLoading}
 			{edit}
 			{allowDraft}
 			{neverSaved}

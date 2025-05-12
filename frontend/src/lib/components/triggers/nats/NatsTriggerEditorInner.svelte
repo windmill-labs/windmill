@@ -69,6 +69,7 @@
 	let consumerName = $state('')
 	let initialConfig = $state<Record<string, any> | undefined>(undefined)
 	let neverSaved = $state(false)
+	let deploymentLoading = $state(false)
 
 	const dispatch = createEventDispatcher()
 
@@ -190,11 +191,13 @@
 	}
 
 	async function updateTrigger(): Promise<void> {
+		deploymentLoading = true
 		const cfg = getSaveCfg()
 		await saveNatsTriggerFromCfg(initialPath, cfg, edit, $workspaceStore!, usedTriggerKinds)
 		dispatch('update', cfg.path)
 		drawer?.closeDrawer()
 		toggleEditMode(false)
+		deploymentLoading = false
 	}
 
 	function useDefaultValues() {
@@ -281,7 +284,7 @@
 			{enabled}
 			{allowDraft}
 			{edit}
-			isLoading={false}
+			isLoading={deploymentLoading}
 			{neverSaved}
 			{isEditor}
 			{isDeployed}
