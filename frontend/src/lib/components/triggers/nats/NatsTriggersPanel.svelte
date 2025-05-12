@@ -4,6 +4,7 @@
 	import { Alert } from '$lib/components/common'
 	import Description from '$lib/components/Description.svelte'
 	import { onMount } from 'svelte'
+	import { enterpriseLicense } from '$lib/stores'
 
 	let {
 		selectedTrigger,
@@ -31,7 +32,11 @@
 	})
 </script>
 
-{#if isCloudHosted()}
+{#if !$enterpriseLicense}
+	<Alert title="EE Only" type="warning" size="xs">
+		NATS triggers are an enterprise only feature.
+	</Alert>
+{:else if isCloudHosted()}
 	<Alert title="Not compatible with multi-tenant cloud" type="warning" size="xs">
 		NATS triggers are disabled in the multi-tenant cloud.
 	</Alert>
