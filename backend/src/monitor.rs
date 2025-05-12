@@ -60,7 +60,7 @@ use windmill_common::{
     server::load_smtp_config,
     tracing_init::JSON_FMT,
     users::truncate_token,
-    utils::{empty_string_as_none, now_from_db, rd_string, report_critical_error, Mode},
+    utils::{empty_as_none, now_from_db, rd_string, report_critical_error, Mode},
     worker::{
         load_env_vars, load_init_bash_from_env, load_whitelist_env_vars_from_env, load_worker_config, reload_custom_tags_setting, store_pull_query, store_suspended_pull_query, update_min_version, Connection, WorkerConfig, DEFAULT_TAGS_PER_WORKSPACE, DEFAULT_TAGS_WORKSPACES, INDEXER_CONFIG, SCRIPT_TOKEN_EXPIRY, SMTP_CONFIG, TMP_DIR, WORKER_CONFIG, WORKER_GROUP
     },
@@ -280,13 +280,13 @@ struct OtelSetting {
     metrics_enabled: Option<bool>,
     logs_enabled: Option<bool>,
     tracing_enabled: Option<bool>,
-    #[serde(default, deserialize_with = "empty_string_as_none")]
+    #[serde(default, deserialize_with = "empty_as_none")]
     otel_exporter_otlp_endpoint: Option<String>,
-    #[serde(default, deserialize_with = "empty_string_as_none")]
+    #[serde(default, deserialize_with = "empty_as_none")]
     otel_exporter_otlp_headers: Option<String>,
-    #[serde(default, deserialize_with = "empty_string_as_none")]
+    #[serde(default, deserialize_with = "empty_as_none")]
     otel_exporter_otlp_protocol: Option<String>,
-    #[serde(default, deserialize_with = "empty_string_as_none")]
+    #[serde(default, deserialize_with = "empty_as_none")]
     otel_exporter_otlp_compression: Option<String>,
 }
 

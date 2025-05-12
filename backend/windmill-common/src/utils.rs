@@ -471,14 +471,29 @@ pub async fn report_recovered_critical_error(
     }
 }
 
-pub fn empty_string_as_none<'de, D>(
-    deserializer: D,
-) -> std::result::Result<Option<String>, D::Error>
+pub trait IsEmpty {
+    fn is_empty(&self) -> bool;
+}
+
+impl IsEmpty for String {
+    fn is_empty(&self) -> bool {
+        self.is_empty()
+    }
+}
+
+impl<T> IsEmpty for Vec<T> {
+    fn is_empty(&self) -> bool {
+        self.is_empty()
+    }
+}
+
+pub fn empty_as_none<'de, D, T>(deserializer: D) -> std::result::Result<Option<T>, D::Error>
 where
     D: Deserializer<'de>,
+    T: Deserialize<'de> + IsEmpty,
 {
-    let option = <Option<String> as serde::Deserialize>::deserialize(deserializer)?;
-    Ok(option.filter(|s| !s.is_empty()))
+    let option = Option::<T>::deserialize(deserializer)?;
+    Ok(option.filter(|v| !v.is_empty()))
 }
 
 pub async fn fetch_mute_workspace(_db: &DB, workspace_id: &str) -> Result<bool> {
