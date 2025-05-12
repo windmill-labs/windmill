@@ -1211,6 +1211,7 @@
 <DraftTriggersConfirmationModal
 	bind:open={draftTriggersModalOpen}
 	draftTriggers={$triggersStore.filter((t) => t.draftConfig)}
+	isFlow={true}
 	on:canceled={() => {
 		draftTriggersModalOpen = false
 	}}

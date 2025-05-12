@@ -14,9 +14,10 @@
 	interface Props {
 		open?: boolean
 		draftTriggers?: Trigger[]
+		isFlow?: boolean
 	}
 
-	let { open = $bindable(false), draftTriggers = [] }: Props = $props()
+	let { open = $bindable(false), draftTriggers = [], isFlow = false }: Props = $props()
 
 	let selectedTriggers: Trigger[] = $state(draftTriggers)
 
@@ -65,7 +66,7 @@
 <ConfirmationModal
 	{open}
 	title="Draft triggers detected !"
-	confirmationText="Deploy Flow"
+	confirmationText={isFlow ? 'Deploy Flow' : 'Deploy Script'}
 	type="reload"
 	showIcon={false}
 	on:canceled={() => dispatch('canceled')}
@@ -73,8 +74,8 @@
 >
 	<div class="flex flex-col w-full gap-8 pb-4">
 		<div class="text-secondary text-sm">
-			Your flow has draft triggers. Select which draft triggers to deploy with your flow. Undeployed
-			draft triggers will be permanently deleted.
+			{`${isFlow ? 'Your flow' : 'Your script'} has draft triggers. Select which draft triggers to deploy with the ${isFlow ? 'flow' : 'script'}. Undeployed
+			draft triggers will be permanently deleted.`}
 		</div>
 
 		<div class={draftTriggers.length > 5 ? 'h-[300px]' : ''}>
