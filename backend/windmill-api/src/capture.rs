@@ -315,6 +315,8 @@ async fn set_postgres_trigger_config(
         let publication_name = format!("windmill_capture_{}", generate_random_string());
         let replication_slot_name = publication_name.clone();
 
+        create_logical_replication_slot(&mut tx, &replication_slot_name).await?;
+
         create_pg_publication(
             &mut tx,
             &publication_name,
@@ -322,13 +324,6 @@ async fn set_postgres_trigger_config(
             &postgres_config.publication.transaction_to_track,
         )
         .await?;
-
-        let result = create_logical_replication_slot(&mut tx, &replication_slot_name).await;
-
-        if result.is_err() {
-            let _ = drop_publication(&mut tx, &publication_name).await;
-            return Err(result.unwrap_err());
-        }
 
         tx.commit().await?;
         postgres_config.publication_name = Some(publication_name);
