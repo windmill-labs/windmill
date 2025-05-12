@@ -45,7 +45,7 @@ pub fn do_mysql_inner<'a>(
     conn: Arc<Mutex<mysql_async::Conn>>,
     column_order: Option<&'a mut Option<Vec<String>>>,
     skip_collect: bool,
-) -> windmill_common::error::Result<BoxFuture<'a, anyhow::Result<Box<RawValue>>>> {
+) -> windmill_common::error::Result<BoxFuture<'a, windmill_common::error::Result<Box<RawValue>>>> {
     let param_names = parse_sql_statement_named_params(query, ':')
         .into_iter()
         .map(|x| x.into_bytes())

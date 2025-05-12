@@ -46,8 +46,10 @@
 	{#snippet header()}
 		<Tooltip
 			documentationLink="https://www.windmill.dev/docs/core_concepts/http_routing#body-processing-options"
-			>Wraps the payload in an object under the 'body' key, useful for handling unknown payloads.</Tooltip
 		>
+			Wraps the body in a JSON object with the key 'body'. Useful for compatibility with existing
+			code that expects a JSON object.
+		</Tooltip>
 		{#if testingBadge}
 			{@render testingBadge()}
 		{/if}

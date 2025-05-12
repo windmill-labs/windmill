@@ -6,7 +6,7 @@ import type { Writable } from 'svelte/store'
 import { get } from 'svelte/store'
 
 export const SECRET_KEY_PATH = 'secret_key_path'
-export const HUB_SCRIPT_ID = 11663
+export const HUB_SCRIPT_ID = 19661
 export const SIGNATURE_TEMPLATE_SCRIPT_HUB_PATH: string = `hub/${HUB_SCRIPT_ID}`
 export const SIGNATURE_TEMPLATE_FLOW_HUB_ID = '67'
 

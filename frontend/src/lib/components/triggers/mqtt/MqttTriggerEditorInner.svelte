@@ -376,9 +376,9 @@
 								btnClasses="ml-4 mt-2"
 								color="dark"
 								size="xs"
-								href={itemKind === 'flow' ? '/flows/add?hub=61' : '/scripts/add?hub=hub%2F11619'}
-								target="_blank"
 								disabled={!editMode}
+								href={itemKind === 'flow' ? '/flows/add?hub=61' : '/scripts/add?hub=hub%2F19655'}
+								target="_blank"
 							>
 								Create from template
 							</Button>

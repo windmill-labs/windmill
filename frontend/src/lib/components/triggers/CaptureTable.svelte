@@ -85,31 +85,41 @@
 
 			let capturesWithPayload: CaptureWithPayload[] = captures.map((capture) => {
 				let newCapture: CaptureWithPayload = { ...capture }
-				if (capture.payload === 'WINDMILL_TOO_BIG') {
+
+				const isLarge =
+					capture.main_args === 'WINDMILL_TOO_BIG' ||
+					capture.preprocessor_args === 'WINDMILL_TOO_BIG'
+				if (isLarge) {
 					newCapture = {
 						...capture,
+						payloadData: 'Too big to display here, select to view',
 						getFullCapture: () =>
 							CaptureService.getCapture({
 								workspace: $workspaceStore!,
 								id: capture.id
 							})
 					}
+					return newCapture
 				}
-				const trigger_extra = isObject(capture.trigger_extra) ? capture.trigger_extra : {}
-				newCapture.payloadData =
-					kind === 'preprocessor'
-						? capture.payload === 'WINDMILL_TOO_BIG'
-							? {
-									payload: capture.payload,
-									...trigger_extra
-								}
-							: typeof capture.payload === 'object'
+				const preprocessor_args = isObject(capture.preprocessor_args)
+					? capture.preprocessor_args
+					: {}
+
+				if ('wm_trigger' in preprocessor_args) {
+					// v1
+					newCapture.payloadData =
+						kind === 'preprocessor'
+							? typeof capture.main_args === 'object'
 								? {
-										...capture.payload,
-										...trigger_extra
+										...capture.main_args,
+										...preprocessor_args
 									}
-								: trigger_extra
-						: capture.payload
+								: preprocessor_args
+							: capture.main_args
+				} else {
+					// v2
+					newCapture.payloadData = kind === 'preprocessor' ? preprocessor_args : capture.main_args
+				}
 
 				return newCapture
 			})
@@ -141,13 +151,23 @@
 		let payloadData: any = {}
 		if (capture.getFullCapture) {
 			const fullCapture = await capture.getFullCapture()
-			payloadData =
-				testKind === 'preprocessor'
-					? {
-							...(typeof fullCapture.payload === 'object' ? fullCapture.payload : {}),
-							...(typeof fullCapture.trigger_extra === 'object' ? fullCapture.trigger_extra : {})
-						}
-					: fullCapture.payload
+			const preprocessor_args = isObject(fullCapture.preprocessor_args)
+				? fullCapture.preprocessor_args
+				: {}
+			if ('wm_trigger' in preprocessor_args) {
+				// v1
+				payloadData =
+					testKind === 'preprocessor'
+						? {
+								...(typeof fullCapture.main_args === 'object' ? fullCapture.main_args : {}),
+								...preprocessor_args
+							}
+						: fullCapture.main_args
+			} else {
+				// v2
+				payloadData =
+					testKind === 'preprocessor' ? fullCapture.preprocessor_args : fullCapture.main_args
+			}
 		} else {
 			payloadData = structuredClone(capture.payloadData)
 		}

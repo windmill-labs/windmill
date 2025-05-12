@@ -5,7 +5,7 @@ use futures_core::Stream;
 use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
-use sqlx::{types::Json, Pool, Postgres, Transaction};
+use sqlx::{types::Json, Pool, Postgres};
 use tokio::io::AsyncReadExt;
 use uuid::Uuid;
 
@@ -17,10 +17,11 @@ use crate::{
     error::{self, to_anyhow, Error},
     flow_status::{FlowStatus, RestartedFrom},
     flows::{FlowNodeId, FlowValue, Retry},
-    get_latest_deployed_hash_for_path,
+    get_latest_deployed_hash_for_path, get_latest_flow_version_info_for_path,
     scripts::{ScriptHash, ScriptLang},
     users::username_to_permissioned_as,
     worker::{to_raw_value, TMP_DIR},
+    FlowVersionInfo, ScriptHashInfo,
 };
 
 #[derive(sqlx::Type, Serialize, Deserialize, Debug, PartialEq, Copy, Clone)]
@@ -331,6 +332,7 @@ pub enum JobPayload {
         path: String,
         dedicated_worker: Option<bool>,
         apply_preprocessor: bool,
+        version: i64,
     },
     RestartedFlow {
         completed_job_id: Uuid,
@@ -385,9 +387,9 @@ pub struct OnBehalfOf {
     pub permissioned_as: String,
 }
 
-pub async fn script_path_to_payload<'e, E: sqlx::Executor<'e, Database = Postgres>>(
+pub async fn script_path_to_payload<'e, A: sqlx::Acquire<'e, Database = Postgres> + Send>(
     script_path: &str,
-    db: E,
+    db: A,
     w_id: &str,
     skip_preprocessor: Option<bool>,
 ) -> error::Result<(
@@ -407,10 +409,10 @@ pub async fn script_path_to_payload<'e, E: sqlx::Executor<'e, Database = Postgre
                 None,
             )
         } else {
-            let (
-                script_hash,
+            let ScriptHashInfo {
+                hash,
                 tag,
-                custom_concurrency_key,
+                concurrency_key,
                 concurrent_limit,
                 concurrency_time_window_s,
                 cache_ttl,
@@ -418,11 +420,12 @@ pub async fn script_path_to_payload<'e, E: sqlx::Executor<'e, Database = Postgre
                 dedicated_worker,
                 priority,
                 delete_after_use,
-                script_timeout,
+                timeout,
                 has_preprocessor,
                 on_behalf_of_email,
                 created_by,
-            ) = get_latest_deployed_hash_for_path(db, w_id, script_path).await?;
+                ..
+            } = get_latest_deployed_hash_for_path(db, w_id, script_path).await?;
 
             let on_behalf_of = if let Some(email) = on_behalf_of_email {
                 Some(OnBehalfOf {
@@ -435,9 +438,9 @@ pub async fn script_path_to_payload<'e, E: sqlx::Executor<'e, Database = Postgre
 
             (
                 JobPayload::ScriptHash {
-                    hash: script_hash,
+                    hash: ScriptHash(hash),
                     path: script_path.to_owned(),
-                    custom_concurrency_key,
+                    custom_concurrency_key: concurrency_key,
                     concurrent_limit,
                     concurrency_time_window_s,
                     cache_ttl: cache_ttl,
@@ -449,7 +452,7 @@ pub async fn script_path_to_payload<'e, E: sqlx::Executor<'e, Database = Postgre
                 },
                 tag,
                 delete_after_use,
-                script_timeout,
+                timeout,
                 on_behalf_of,
             )
         };
@@ -462,52 +465,6 @@ pub async fn script_path_to_payload<'e, E: sqlx::Executor<'e, Database = Postgre
     ))
 }
 
-pub async fn script_hash_to_tag_and_limits<'c>(
-    script_hash: &ScriptHash,
-    db: &mut Transaction<'c, Postgres>,
-    w_id: &String,
-) -> error::Result<(
-    Option<Tag>,
-    Option<String>,
-    Option<i32>,
-    Option<i32>,
-    Option<i32>,
-    ScriptLang,
-    Option<bool>,
-    Option<i16>,
-    Option<bool>,
-    Option<i32>,
-    Option<String>,
-    String,
-)> {
-    let script = sqlx::query!(
-        "select tag, concurrency_key, concurrent_limit, concurrency_time_window_s, cache_ttl, language as \"language: ScriptLang\", dedicated_worker, priority, delete_after_use, timeout, on_behalf_of_email, created_by from script where hash = $1 AND workspace_id = $2",
-        script_hash.0,
-        w_id
-    )
-    .fetch_one(&mut **db)
-    .await
-    .map_err(|e| {
-        Error::internal_err(format!(
-            "querying getting tag for hash {script_hash}: {e:#}"
-        ))
-    })?;
-    Ok((
-        script.tag,
-        script.concurrency_key,
-        script.concurrent_limit,
-        script.concurrency_time_window_s,
-        script.cache_ttl,
-        script.language,
-        script.dedicated_worker,
-        script.priority,
-        script.delete_after_use,
-        script.timeout,
-        script.on_behalf_of_email,
-        script.created_by,
-    ))
-}
-
 pub async fn get_payload_tag_from_prefixed_path(
     path: &str,
     db: &DB,
@@ -517,18 +474,10 @@ pub async fn get_payload_tag_from_prefixed_path(
         script_path_to_payload(path.strip_prefix("script/").unwrap(), db, w_id, Some(true)).await?
     } else if path.starts_with("flow/") {
         let path = path.strip_prefix("flow/").unwrap().to_string();
-        let r = sqlx::query!(
-            "SELECT tag, dedicated_worker from flow WHERE path = $1 and workspace_id = $2",
-            &path,
-            &w_id,
-        )
-        .fetch_optional(db)
-        .await?;
-        let (tag, dedicated_worker) = r
-            .map(|x| (x.tag, x.dedicated_worker))
-            .unwrap_or_else(|| (None, None));
+        let FlowVersionInfo { dedicated_worker, tag, version, .. } =
+            get_latest_flow_version_info_for_path(db, w_id, &path, true).await?;
         (
-            JobPayload::Flow { path, dedicated_worker, apply_preprocessor: false },
+            JobPayload::Flow { path, dedicated_worker, apply_preprocessor: false, version },
             tag,
             None,
             None,
