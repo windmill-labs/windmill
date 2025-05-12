@@ -23,7 +23,7 @@
 		loading = false,
 		open = false,
 		type: _type,
-		showIcon
+		showIcon = true
 	}: Props = $props()
 	const type = $derived(_type ?? 'danger')
 
