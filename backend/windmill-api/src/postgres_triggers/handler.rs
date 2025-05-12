@@ -296,7 +296,9 @@ async fn create_custom_slot_and_publication_inner(
     let mut tx = pg_connection.begin().await?;
     let publication_name = format!("windmill_trigger_{}", generate_random_string());
     let replication_slot_name = publication_name.clone();
-
+    
+    create_logical_replication_slot(&mut tx, &replication_slot_name).await?;
+    
     create_pg_publication(
         &mut tx,
         &publication_name,
@@ -305,9 +307,8 @@ async fn create_custom_slot_and_publication_inner(
     )
     .await?;
 
-    create_logical_replication_slot(&mut tx, &replication_slot_name).await?;
-
     tx.commit().await?;
+
     Ok(PostgresPublicationReplication::new(
         publication_name,
         replication_slot_name,
@@ -810,7 +811,7 @@ pub async fn delete_publication(
     ))
 }
 
-pub async fn get_update_publication(
+pub async fn update_pg_publication(
     pg_connection: &mut PgConnection,
     publication_name: &str,
     PublicationData { table_to_track, transaction_to_track }: PublicationData,
@@ -938,7 +939,7 @@ pub async fn alter_publication(
     
     let publication = get_publication_scope_and_transaction(&mut tx, &publication_name).await?;
 
-    get_update_publication(
+    update_pg_publication(
         &mut tx,
         &publication_name,
         publication_data,
@@ -1173,7 +1174,7 @@ pub async fn update_postgres_trigger(
         let publication_data =
             get_publication_scope_and_transaction(&mut tx, &publication_name).await?;
 
-        get_update_publication(
+        update_pg_publication(
             &mut tx,
             &publication_name,
             publication,
