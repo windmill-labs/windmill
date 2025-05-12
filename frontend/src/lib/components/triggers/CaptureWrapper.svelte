@@ -296,7 +296,6 @@
 				{hasPreprocessor}
 				{isFlow}
 				deliveryType={args.delivery_type}
-				baseEndpoint={args.base_endpoint}
 				on:applyArgs
 				on:updateSchema
 				on:addPreprocessor
