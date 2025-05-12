@@ -210,7 +210,6 @@ jobs:
         if: ${{ success() }}
         run: |
           if [[ "${{ github.event_name }}" == "issues" ]]; then
-          if [[ "${{ github.event_name }}" == "issues" ]]; then
             BRANCH_NAME="aider-fix-issue-${{ github.event.issue.number }}"
             git checkout -b $BRANCH_NAME
             echo "Created branch $BRANCH_NAME for issue #${{ github.event.issue.number }}"
