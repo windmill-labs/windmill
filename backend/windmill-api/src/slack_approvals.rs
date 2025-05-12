@@ -4,27 +4,20 @@ use axum::{
 };
 use hyper::StatusCode;
 use serde::{Deserialize, Serialize};
-use serde_json::value::{RawValue, Value};
-
+use serde_json::Value;
 use sqlx::types::Uuid;
 use std::collections::HashMap;
-
+use windmill_common::error::Error;
+use windmill_common::variables::get_secret_value_as_admin;
 use reqwest::Client;
 
 use crate::approvals::{
-    FieldType, QueryDefaultArgsJson, QueryDynamicEnumJson, QueryFlowStepId, QueryMessage,
-    ResumeFormField, ResumeFormRow, ResumeSchema, handle_resume_action, extract_w_id_from_resume_url,
+    extract_w_id_from_resume_url, handle_resume_action, ApprovalFormDetails, FieldType,
+    QueryDefaultArgsJson, QueryDynamicEnumJson, QueryFlowStepId, QueryMessage, ResumeFormField,
+    ResumeSchema,
 };
 use crate::db::{ApiAuthed, DB};
-use crate::jobs::{get_resume_urls_internal, QueryApprover, ResumeUrls};
-
-use windmill_common::{
-    cache,
-    error::{self, Error},
-    jobs::JobKind,
-    scripts::ScriptHash,
-    variables::get_secret_value_as_admin,
-};
+use crate::jobs::{QueryApprover, ResumeUrls};
 
 #[derive(Deserialize, Debug)]
 pub struct SlackFormData {
@@ -311,10 +304,10 @@ async fn handle_submission(
 
 async fn transform_schemas(
     text: &str,
-    properties: Option<&HashMap<String, ResumeFormField>>,
+    properties: Option<HashMap<String, ResumeFormField>>,
     urls: &ResumeUrls,
-    order: Option<&Vec<String>>,
-    required: Option<&Vec<String>>,
+    order: Option<Vec<String>>,
+    required: Option<Vec<String>>,
     default_args_json: Option<&serde_json::Value>,
     dynamic_enums_json: Option<&serde_json::Value>,
 ) -> Result<serde_json::Value, Error> {
@@ -329,16 +322,16 @@ async fn transform_schemas(
     })];
 
     if let Some(properties) = properties {
-        for key in order.unwrap() {
-            if let Some(schema) = properties.get(key) {
-                let is_required = required.unwrap().contains(key);
+        for key in order.unwrap_or_default() {
+            if let Some(schema) = properties.get(&key) {
+                let is_required = required.as_ref().map_or(false, |r| r.contains(&key));
 
-                let default_value = default_args_json.and_then(|json| json.get(key).cloned());
+                let default_value = default_args_json.and_then(|json| json.get(&key).cloned());
                 let dynamic_enums_value =
-                    dynamic_enums_json.and_then(|json| json.get(key).cloned());
+                    dynamic_enums_json.and_then(|json| json.get(&key).cloned());
 
                 let input_block = create_input_block(
-                    key,
+                    &key,
                     schema,
                     is_required,
                     default_value,
@@ -833,155 +826,58 @@ async fn get_modal_blocks(
     default_args_json: Option<&serde_json::Value>,
     dynamic_enums_json: Option<&serde_json::Value>,
 ) -> Result<axum::Json<serde_json::Value>, Error> {
-    let res = get_resume_urls_internal(
-        axum::Extension(db.clone()),
-        Path((w_id.to_string(), job_id, resume_id)),
-        Query(QueryApprover { approver: approver.map(|a| a.to_string()) }),
+    let approval_details = crate::approvals::get_approval_form_details(
+        db,
+        w_id,
+        job_id,
+        flow_step_id,
+        resume_id,
+        approver,
+        message,
     )
     .await?;
 
-    let urls = res.0;
+    let ApprovalFormDetails { message_str, urls, schema } = approval_details;
 
-    tracing::debug!("Job ID: {:?}", job_id);
-
-    let (job_kind, script_hash, raw_flow, parent_job_id, created_at, created_by, script_path, args) = sqlx::query!(
-        "SELECT
-            v2_as_queue.job_kind AS \"job_kind!: JobKind\",
-            v2_as_queue.script_hash AS \"script_hash: ScriptHash\",
-            v2_as_queue.raw_flow AS \"raw_flow: sqlx::types::Json<Box<RawValue>>\",
-            v2_as_completed_job.parent_job AS \"parent_job: Uuid\",
-            v2_as_completed_job.created_at AS \"created_at!: chrono::NaiveDateTime\",
-            v2_as_completed_job.created_by AS \"created_by!\",
-            v2_as_queue.script_path,
-            v2_as_queue.args AS \"args: sqlx::types::Json<Box<RawValue>>\"
-        FROM v2_as_queue
-        JOIN v2_as_completed_job ON v2_as_completed_job.parent_job = v2_as_queue.id
-        WHERE v2_as_completed_job.id = $1 AND v2_as_completed_job.workspace_id = $2
-        LIMIT 1",
-        job_id,
-        &w_id
+    // Get the card content
+    let card_content = transform_schemas(
+        &message_str,
+        schema
+            .as_ref()
+            .and_then(|s| s.resume_form.as_ref())
+            .map(|f| {
+                let inner_schema: ResumeSchema = serde_json::from_value(f.clone()).unwrap();
+                inner_schema.schema.properties
+            }),
+        &urls,
+        schema
+            .as_ref()
+            .and_then(|s| s.resume_form.as_ref())
+            .map(|f| {
+                let inner_schema: ResumeSchema = serde_json::from_value(f.clone()).unwrap();
+                inner_schema.schema.order
+            }),
+        schema
+            .as_ref()
+            .and_then(|s| s.resume_form.as_ref())
+            .map(|f| {
+                let inner_schema: ResumeSchema = serde_json::from_value(f.clone()).unwrap();
+                inner_schema.schema.required
+            }),
+        default_args_json,
+        dynamic_enums_json,
     )
-    .fetch_optional(&db)
-    .await
-    .map_err(|e| error::Error::BadRequest(e.to_string()))?
-    .ok_or_else(|| error::Error::BadRequest("This workflow is no longer running and has either already timed out or been cancelled or completed.".to_string()))
-    .map(|r| (r.job_kind, r.script_hash, r.raw_flow, r.parent_job, r.created_at, r.created_by, r.script_path, r.args))?;
+    .await?;
 
-    let flow_data = match cache::job::fetch_flow(&db, job_kind, script_hash).await {
-        Ok(data) => data,
-        Err(_) => {
-            if let Some(parent_job_id) = parent_job_id.as_ref() {
-                cache::job::fetch_preview_flow(&db, parent_job_id, raw_flow).await?
-            } else {
-                return Err(error::Error::BadRequest(
-                    "This workflow is no longer running and has either already timed out or been cancelled or completed.".to_string(),
-                ));
-            }
-        }
-    };
-
-    let flow_value = &flow_data.flow;
-    let flow_step_id = flow_step_id.unwrap_or("");
-    let module = flow_value.modules.iter().find(|m| m.id == flow_step_id);
-
-    tracing::debug!("Module: {:#?}", module);
-
-    let schema = module.and_then(|module| {
-        module.suspend.as_ref().map(|suspend| ResumeFormRow {
-            resume_form: suspend.resume_form.clone(),
-            hide_cancel: suspend.hide_cancel,
-        })
-    });
-
-    let args_str = args.map_or("None".to_string(), |a| a.get().to_string());
-    let parent_job_id_str = parent_job_id.map_or("None".to_string(), |id| id.to_string());
-    let script_path_str = script_path.as_deref().unwrap_or("None");
-
-    let created_at_formatted = created_at.format("%Y-%m-%d %H:%M:%S").to_string();
-
-    let mut message_str = format!(
-        "A workflow has been suspended and is waiting for approval:\n\n\
-        *Created by*: {created_by}\n\
-        *Created at*: {created_at_formatted}\n\
-        *Script path*: {script_path_str}\n\
-        *Args*: {args_str}\n\
-        *Flow ID*: {parent_job_id_str}\n\n"
-    );
-
-    // Append custom message if provided
-    if let Some(msg) = message {
-        message_str.push_str(msg);
-    }
-
-    tracing::debug!("Schema: {:#?}", schema);
-
-    if let Some(resume_schema) = schema {
-        let hide_cancel = resume_schema.hide_cancel.unwrap_or(false);
-
-        // if hide cancel is false add note to message
-        if !hide_cancel {
-            message_str.push_str("\n\n*NOTE*: closing this modal will cancel the workflow.\n\n");
-        }
-
-        // Convert message_str back to &str when needed
-        let message_str_ref: &str = &message_str;
-
-        if let Some(schema_obj) = resume_schema.resume_form {
-            let inner_schema: ResumeSchema =
-                serde_json::from_value(schema_obj.clone()).map_err(|e| {
-                    tracing::error!("Failed to deserialize form schema: {:?}", e);
-                    Error::BadRequest(
-                        "Failed to deserialize resume form schema! Unsupported form field used."
-                            .to_string(),
-                    )
-                })?;
-
-            let blocks = transform_schemas(
-                message_str_ref,
-                Some(&inner_schema.schema.properties),
-                &urls,
-                Some(&inner_schema.schema.order),
-                Some(&inner_schema.schema.required),
-                default_args_json,
-                dynamic_enums_json,
-            )
-            .await?;
-
-            tracing::debug!("Slack Blocks: {:#?}", blocks);
-            return Ok(axum::Json(construct_payload(
-                blocks,
-                hide_cancel,
-                trigger_id,
-                &urls.resume,
-                resource_path,
-                container,
-            )));
-        } else {
-            tracing::debug!("No suspend form found!");
-            let blocks = transform_schemas(
-                message_str_ref,
-                None,
-                &urls,
-                None,
-                None,
-                default_args_json,
-                dynamic_enums_json,
-            )
-            .await?;
-            return Ok(axum::Json(construct_payload(
-                blocks,
-                hide_cancel,
-                trigger_id,
-                &urls.resume,
-                resource_path,
-                container,
-            )));
-        }
-    } else {
-        Err(Error::BadRequest(
-            "No approval form schema found.".to_string(),
-        ))
-    }
+    tracing::debug!("Slack Blocks: {:#?}", card_content);
+    Ok(axum::Json(construct_payload(
+        card_content,
+        schema.as_ref().and_then(|s| s.hide_cancel).unwrap_or(false),
+        trigger_id,
+        &urls.resume,
+        resource_path,
+        container,
+    )))
 }
 
 fn construct_payload(
