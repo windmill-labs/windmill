@@ -30,7 +30,7 @@ use {
     axum::extract::Request,
     http::HeaderMap,
     serde::de::DeserializeOwned,
-    windmill_common::{error::Error, utils::empty_string_as_none},
+    windmill_common::{error::Error, utils::empty_as_none},
 };
 
 #[cfg(all(feature = "enterprise", feature = "kafka"))]
@@ -162,9 +162,9 @@ pub struct SqsTriggerConfig {
 pub struct GcpTriggerConfig {
     pub gcp_resource_path: String,
     pub subscription_mode: SubscriptionMode,
-    #[serde(default, deserialize_with = "empty_string_as_none")]
+    #[serde(default, deserialize_with = "empty_as_none")]
     pub subscription_id: Option<String>,
-    #[serde(default, deserialize_with = "empty_string_as_none")]
+    #[serde(default, deserialize_with = "empty_as_none")]
     pub base_endpoint: Option<String>,
     #[serde(flatten)]
     pub create_update: Option<CreateUpdateConfig>,
