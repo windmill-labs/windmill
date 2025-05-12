@@ -23,9 +23,9 @@
 	>
 		<svelte:fragment slot="description">
 			{#if captureInfo.active}
-				Listening to Postgres database events...
+				Listening to Postgres database transactions...
 			{:else}
-				Start capturing to listen to Postgres database events.
+				Start capturing to listen to Postgres database transactions.
 			{/if}
 		</svelte:fragment>
 	</CaptureSection>
