@@ -54,14 +54,14 @@ jobs:
             # Alternative approach: Using a heredoc to create the JSON payload
             # This avoids shell interpretation of the content
             JSON_PAYLOAD=$(cat <<EOF
-{
-  "body": {
-    "issue_title": $(jq -n --arg x "$ISSUE_TITLE" '$x'),
-    "issue_body": $(jq -n --arg x "$ISSUE_BODY_CONTENT" '$x')
-  }
-}
-EOF
-)
+            {
+              "body": {
+                "issue_title": $(jq -n --arg x "$ISSUE_TITLE" '$x'),
+                "issue_body": $(jq -n --arg x "$ISSUE_BODY_CONTENT" '$x')
+              }
+            }
+            EOF
+            )
 
             # Make the API call
             # Timeout values (e.g., --max-time 60) are good practice for external calls.
