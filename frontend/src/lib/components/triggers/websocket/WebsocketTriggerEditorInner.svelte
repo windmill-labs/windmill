@@ -85,6 +85,7 @@
 	let showLoading = $state(false)
 	let initialConfig = $state<Record<string, any> | undefined>(undefined)
 	let neverSaved = $state(false)
+	let deploymentLoading = $state(false)
 
 	const dispatch = createEventDispatcher()
 
@@ -246,6 +247,7 @@
 	)
 
 	async function updateTrigger(): Promise<void> {
+		deploymentLoading = true
 		const saveCfg = getSaveCfg()
 		await saveWebsocketTriggerFromCfg(
 			initialPath,
@@ -257,6 +259,7 @@
 		dispatch('update', saveCfg.path)
 		drawer?.closeDrawer()
 		toggleEditMode(false)
+		deploymentLoading = false
 	}
 
 	let isValid = $state(false)
@@ -336,7 +339,7 @@
 			{enabled}
 			{allowDraft}
 			{edit}
-			isLoading={false}
+			isLoading={deploymentLoading}
 			{neverSaved}
 			saveDisabled={pathError !== '' ||
 				!isValid ||

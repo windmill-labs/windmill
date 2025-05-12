@@ -66,6 +66,7 @@
 	let kafkaCfgValid = $state(false)
 	let kafkaResourcePath = $state('')
 	let kafkaCfg: Record<string, any> = $state({})
+	let deploymentLoading = $state(false)
 
 	let isValid = $derived(
 		!!kafkaResourcePath &&
@@ -197,11 +198,13 @@
 	}
 
 	async function updateTrigger(): Promise<void> {
+		deploymentLoading = true
 		const cfg = getSaveCfg()
 		await saveKafkaTriggerFromCfg(initialPath, cfg, edit, $workspaceStore!, usedTriggerKinds)
 		dispatch('update', cfg.path)
 		drawer?.closeDrawer()
 		toggleEditMode(false)
+		deploymentLoading = false
 	}
 
 	function toggleEditMode(newEditMode: boolean) {
@@ -277,7 +280,7 @@
 			{enabled}
 			{allowDraft}
 			{edit}
-			isLoading={false}
+			isLoading={deploymentLoading}
 			{neverSaved}
 			{isEditor}
 			{isDeployed}

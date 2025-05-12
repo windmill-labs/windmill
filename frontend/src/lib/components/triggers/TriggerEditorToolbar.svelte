@@ -138,6 +138,7 @@
 						}
 					}}
 					{dropdownItems}
+					loading={isLoading}
 				>
 					{isEditor ? 'Save draft' : 'Save'}
 				</Button>

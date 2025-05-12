@@ -86,9 +86,9 @@
 	let publicationItems: string[] = $state([])
 	let transactionType: string[] = ['Insert', 'Update', 'Delete']
 	let tab: 'advanced' | 'basic' = $state('basic')
-	let isLoading = $state(false)
 	let initialConfig = $state<Record<string, any> | undefined>(undefined)
 	let neverSaved = $state(false)
+	let deploymentLoading = $state(false)
 
 	function isAdvancedTab(t: 'advanced' | 'basic'): boolean {
 		return t === 'advanced'
@@ -326,12 +326,12 @@
 		if (!cfg) {
 			return
 		}
-		isLoading = true
+		deploymentLoading = true
 		await savePostgresTriggerFromCfg(initialPath, cfg, edit, $workspaceStore!, usedTriggerKinds)
 		dispatch('update', path)
 		drawer?.closeDrawer()
 		toggleEditMode(false)
-		isLoading = false
+		deploymentLoading = false
 	}
 
 	function toggleEditMode(newEditMode: boolean) {
@@ -412,7 +412,7 @@
 			{saveDisabled}
 			{allowDraft}
 			{edit}
-			{isLoading}
+			isLoading={deploymentLoading}
 			{neverSaved}
 			{enabled}
 			{isEditor}

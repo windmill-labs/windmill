@@ -89,6 +89,7 @@
 	let drawer = $state<Drawer | null>(null)
 	let isAdmin = $derived($userStore?.is_admin || $userStore?.is_super_admin)
 	let initialConfig = $state<Record<string, any> | undefined>(undefined)
+	let deploymentLoading = $state(false)
 
 	$effect(() => {
 		is_flow = itemKind === 'flow'
@@ -271,6 +272,7 @@
 	}
 
 	async function triggerScript(): Promise<void> {
+		deploymentLoading = true
 		const saveCfg = getSaveCfg()
 		await saveHttpRouteFromCfg(
 			initialPath,
@@ -283,6 +285,7 @@
 		dispatch('update', saveCfg.path)
 		drawer?.closeDrawer()
 		toggleEditMode(false)
+		deploymentLoading = false
 	}
 
 	function getSaveCfg() {
@@ -736,7 +739,7 @@
 			enabled={undefined}
 			{allowDraft}
 			{edit}
-			isLoading={false}
+			isLoading={deploymentLoading}
 			{isEditor}
 			{isDeployed}
 			on:save-draft={() => {
