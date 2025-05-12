@@ -3,10 +3,6 @@ description:
 globs: backend/**/*.rs
 alwaysApply: false
 ---
----
-description: Rust best practices for the Windmill backend, covering code organization, error handling, performance optimizations, and common patterns to follow when adding new code.
-globs: **/*.rs
----
 # Windmill Backend - Rust Best Practices
 
 ## Project Structure
