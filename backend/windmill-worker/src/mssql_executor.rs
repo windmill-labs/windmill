@@ -12,7 +12,7 @@ use uuid::Uuid;
 use windmill_common::s3_helpers::convert_json_line_stream;
 use windmill_common::{
     error::{self, to_anyhow, Error},
-    utils::empty_string_as_none,
+    utils::empty_as_none,
     worker::{to_raw_value, Connection},
 };
 use windmill_parser_sql::{parse_db_resource, parse_mssql_sig, parse_s3_mode};
@@ -37,13 +37,13 @@ struct MssqlDatabase {
     #[serde(default, deserialize_with = "deserialize_aad_token")]
     aad_token: Option<AadToken>,
     trust_cert: Option<bool>,
-    #[serde(default, deserialize_with = "empty_string_as_none")]
+    #[serde(default, deserialize_with = "empty_as_none")]
     ca_cert: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
 struct AadToken {
-    #[serde(default, deserialize_with = "empty_string_as_none")]
+    #[serde(default, deserialize_with = "empty_as_none")]
     token: Option<String>,
 }
 
