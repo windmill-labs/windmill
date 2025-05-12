@@ -846,9 +846,8 @@ jobs:
           printf '%s' "${{ needs.process_event.outputs.response_body_b64 }}" | base64 -d > /tmp/artifacts/comment_body.md
           echo "body_path=/tmp/artifacts/comment_body.md" >> $GITHUB_OUTPUT
       - name: Post Response Comment
-        # This posts to the issue number determined by process_event,
-        # which is now flexible enough for issue creation or comments.
-        if: needs.process_event.outputs.issue_number != ''
+        # Skip posting comment if this is a new issue creation event
+        if: needs.process_event.outputs.issue_number != '' && (github.event_name != 'issues' || github.event.action != 'opened')
         uses: peter-evans/create-or-update-comment@v4
         with:
           token: ${{ env.WORKFLOW_TOKEN_POST }}
