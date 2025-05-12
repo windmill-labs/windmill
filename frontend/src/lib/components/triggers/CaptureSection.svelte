@@ -106,7 +106,10 @@
 
 	function selectCapture(capture: Capture) {
 		selectedCapture = capture
-		if (capture.main_args === 'WINDMILL_TOO_BIG') {
+		if (
+			capture.main_args === 'WINDMILL_TOO_BIG' ||
+			capture.preprocessor_args === 'WINDMILL_TOO_BIG'
+		) {
 			loadBigPayload(capture)
 		}
 	}
@@ -196,11 +199,31 @@
 			})
 
 			capture.main_args = fullCapture.main_args
+			capture.preprocessor_args = fullCapture.preprocessor_args
 			isLoadingBigPayload = false
 		} catch (error) {
 			sendUserToast('Failed to load large payload', true)
 			isLoadingBigPayload = false
 		}
+	}
+
+	function getCapturePayload(capture: Capture) {
+		let payloadData: any = {}
+		const preprocessor_args = isObject(capture.preprocessor_args) ? capture.preprocessor_args : {}
+		if ('wm_trigger' in preprocessor_args) {
+			// v1
+			payloadData =
+				testKind === 'preprocessor'
+					? {
+							...(typeof capture.main_args === 'object' ? capture.main_args : {}),
+							...preprocessor_args
+						}
+					: capture.main_args
+		} else {
+			// v2
+			payloadData = testKind === 'preprocessor' ? capture.preprocessor_args : capture.main_args
+		}
+		return payloadData
 	}
 
 	// Start or stop capture listening based on active state
@@ -412,16 +435,12 @@
 			{#if isLoadingBigPayload}
 				<Loader2 class="animate-spin" />
 			{:else if selectedCapture?.main_args}
-				{@const trigger_extra =
-					testKind === 'preprocessor' && isObject(selectedCapture.preprocessor_args)
-						? selectedCapture.preprocessor_args
-						: {}}
 				<div class="bg-surface rounded-md text-sm" class:animate-highlight={newCaptureReceived}>
 					<DisplayResult
 						bind:this={displayResult}
 						workspaceId={undefined}
 						jobId={undefined}
-						result={{ ...selectedCapture.main_args, ...trigger_extra }}
+						result={getCapturePayload(selectedCapture)}
 						externalToolbarAvailable
 						on:toolbar-location-changed={({ detail }) => {
 							toolbarLocation = detail
