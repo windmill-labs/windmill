@@ -35,6 +35,7 @@
 	type actions = 'create' | 'get'
 	let selectedPublicationAction: actions = 'create'
 	let selectedSlotAction: actions = 'create'
+	let testTriggerConnection: TestTriggerConnection | undefined = undefined
 
 	export let edit: boolean = false
 	export let transaction_to_track: string[] = ['Insert', 'Update', 'Delete']
@@ -117,7 +118,6 @@
 				(tab === 'basic' && (!relations || relations.length > 0)))
 	}
 	$: basic_mode = tab === 'basic'
-	let testTriggerConnection: TestTriggerConnection | undefined = undefined
 </script>
 
 <div class="h-full">
@@ -145,10 +145,16 @@
 					bind:value={postgres_resource_path}
 					resourceType={'postgresql'}
 				/>
+				<TestTriggerConnection
+					kind="postgres"
+					args={{ postgres_resource_path }}
+					noButton
+					bind:this={testTriggerConnection}
+				/>
 				<CheckPostgresRequirement
-					checkConnection={testTriggerConnection}
 					bind:postgres_resource_path
 					bind:can_write
+					checkConnection={testTriggerConnection?.testTriggerConnection}
 				/>
 			</div>
 
