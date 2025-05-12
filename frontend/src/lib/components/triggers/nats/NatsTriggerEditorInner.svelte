@@ -62,7 +62,11 @@
 	let drawerLoading = $state(true)
 	let showLoading = $state(false)
 	let defaultValues: Record<string, any> | undefined = $state(undefined)
-	let args: Record<string, any> = $state({})
+	let natsResourcePath = $state('')
+	let subjects = $state([''])
+	let useJetstream = $state(false)
+	let streamName = $state('')
+	let consumerName = $state('')
 	let initialConfig = $state<Record<string, any> | undefined>(undefined)
 	let neverSaved = $state(false)
 
@@ -112,11 +116,11 @@
 			is_flow = nis_flow
 			edit = false
 			itemKind = nis_flow ? 'flow' : 'script'
-			args.nats_resource_path = nDefaultValues?.nats_resource_path ?? ''
-			args.subjects = nDefaultValues?.subjects ?? ['']
-			args.use_jetstream = nDefaultValues?.use_jetstream ?? false
-			args.stream_name = args.use_jetstream ? (nDefaultValues?.stream_name ?? '') : undefined
-			args.consumer_name = args.use_jetstream ? (nDefaultValues?.consumer_name ?? '') : undefined
+			natsResourcePath = nDefaultValues?.nats_resource_path ?? ''
+			subjects = nDefaultValues?.subjects ?? ['']
+			useJetstream = nDefaultValues?.use_jetstream ?? false
+			streamName = useJetstream ? (nDefaultValues?.stream_name ?? '') : undefined
+			consumerName = useJetstream ? (nDefaultValues?.consumer_name ?? '') : undefined
 			initialScriptPath = ''
 			fixedScriptPath = fixedScriptPath_ ?? ''
 			script_path = fixedScriptPath
@@ -141,11 +145,11 @@
 		initialScriptPath = cfg?.script_path
 		is_flow = cfg?.is_flow
 		path = cfg?.path
-		args.nats_resource_path = cfg?.nats_resource_path
-		args.stream_name = cfg?.stream_name
-		args.consumer_name = cfg?.consumer_name
-		args.subjects = cfg?.subjects || ['']
-		args.use_jetstream = cfg?.use_jetstream || false
+		natsResourcePath = cfg?.nats_resource_path
+		streamName = cfg?.stream_name
+		consumerName = cfg?.consumer_name
+		subjects = cfg?.subjects || ['']
+		useJetstream = cfg?.use_jetstream || false
 		enabled = cfg?.enabled
 		can_write = canWrite(cfg?.path, cfg?.extra_perms, $userStore)
 	}
@@ -177,11 +181,11 @@
 			script_path,
 			is_flow,
 			enabled,
-			nats_resource_path: args.nats_resource_path,
-			stream_name: args.stream_name,
-			consumer_name: args.consumer_name,
-			subjects: args.subjects,
-			use_jetstream: args.use_jetstream
+			nats_resource_path: natsResourcePath,
+			stream_name: streamName,
+			consumer_name: consumerName,
+			subjects,
+			use_jetstream: useJetstream
 		}
 	}
 
@@ -194,7 +198,7 @@
 	}
 
 	function useDefaultValues() {
-		if (args.nats_resource_path && args.nats_resource_path != '') {
+		if (natsResourcePath && natsResourcePath != '') {
 			return false
 		}
 		if (!defaultValues) {
@@ -228,8 +232,8 @@
 	$effect(() => {
 		isEditor &&
 			dispatch('update-config', {
-				nats_resource_path: args.nats_resource_path,
-				subjects: args.subjects,
+				nats_resource_path: natsResourcePath,
+				subjects,
 				isValid,
 				path
 			})
@@ -372,8 +376,14 @@
 
 			<NatsTriggersConfigSection
 				{path}
-				bind:args
-				bind:isValid
+				bind:natsResourcePath
+				bind:subjects
+				bind:useJetstream
+				bind:streamName
+				bind:consumerName
+				on:valid-config={({ detail }) => {
+					isValid = detail
+				}}
 				defaultValues={useDefaultValues() ? defaultValues : undefined}
 				can_write={can_write && editMode}
 				showTestingBadge={isEditor}
