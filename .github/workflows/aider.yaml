@@ -1,94 +1,189 @@
-name: Aider Auto-fix issues via external prompt
+name: Aider Auto-fix issues and PR comments via external prompt
 
 on:
   issues:
     types: [opened, edited]
+  issue_comment:
+    types: [created]
 
 jobs:
   auto-fix:
     runs-on: ubuntu-latest
+    if: |
+      (
+        github.event_name == 'issues' &&
+        (github.event.action == 'opened' || github.event.action == 'edited')
+      ) || (
+        github.event_name == 'issue_comment' &&
+        github.event.issue.pull_request && # Ensure it's a comment on a PR
+        contains(github.event.comment.body, '/aider') &&
+        !contains(github.event.comment.user.login, '[bot]')
+      )
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
     env:
       # default model; can be overridden per-run if you like
-      AIDER_MODEL: gemini
       GEMINI_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
       GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
+      # Set Github Token for GH CLI and Git operations requiring auth
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
     steps:
+      - name: Harden Runner # Recommended for security
+        uses: step-security/harden-runner@v2
+        with:
+          egress-policy: audit # Audit egress traffic
+
       - name: Check out code
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # Required for checking out PR branches
+
+      - name: Configure Git User
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Checkout PR Branch (if issue_comment)
+        if: github.event_name == 'issue_comment'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "Issue comment trigger: Checking out PR branch..."
+          PR_NUMBER=${{ github.event.issue.number }}
+          PR_HEAD_REF=$(gh pr view $PR_NUMBER --json headRefName -q .headRefName --repo $GITHUB_REPOSITORY)
+          if [[ -z "$PR_HEAD_REF" || "$PR_HEAD_REF" == "null" ]]; then
+             echo "::error::Could not determine PR head branch for PR #$PR_NUMBER via gh CLI."
+             exit 1
+          fi
+          echo "Checking out PR head branch: $PR_HEAD_REF for PR #$PR_NUMBER"
+          git fetch origin "refs/heads/${PR_HEAD_REF}:refs/remotes/origin/${PR_HEAD_REF}" --no-tags
+          git checkout "$PR_HEAD_REF"
+          echo "Successfully checked out branch $(git rev-parse --abbrev-ref HEAD)"
 
       - name: Set up Python
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5 # Use v5
         with:
           python-version: "3.12"
 
-      - name: Install Aider
+      - name: Install Aider and Dependencies
         run: |
-          python -m pip install aider-install; aider-install
           pip install -U google-generativeai
+          # Ensure jq is installed for JSON processing
+          sudo apt-get update && sudo apt-get install -y jq
 
-      - name: Build prompt via external API
+      - name: Determine Prompt for Aider
+        id: determine_prompt # Added ID
         shell: bash
         run: |
-          # Use printf %q to safely quote title and body for shell evaluation
-          ISSUE_TITLE_Q=$(printf '%q' "${{ github.event.issue.title }}")
-          ISSUE_BODY_Q=$(printf '%q' "${{ github.event.issue.body }}")
+          PROMPT_FILE_PATH=".github/aider/issue-prompt.txt"
+          mkdir -p .github/aider # Ensure directory exists
 
-          echo "Sending issue content to external API…"
+          if [[ "${{ github.event_name }}" == "issues" ]]; then
+            echo "Event Type: Issues. Using existing logic to build prompt."
+            # Use printf %q to safely quote title and body for shell evaluation
+            ISSUE_TITLE_Q=$(printf '%q' "${{ github.event.issue.title }}")
+            ISSUE_BODY_Q=$(printf '%q' "${{ github.event.issue.body }}")
 
-          # Build JSON using jq --arg. Safely construct the command using the quoted variables.
-          # We avoid direct eval by building the command parts.
-          JSON_PAYLOAD=$(jq -n \
-            --arg title "$ISSUE_TITLE_Q" \
-            --arg body "$ISSUE_BODY_Q" \
-            '{"body":{"issue_title":$title,"issue_body":$body}}')
+            echo "Sending issue content to external API…"
 
-          # Call your API
-          # Use --data-binary to send the payload exactly as is
-          API_RESULT=$(curl -s -w "\n%{http_code}" \
-            -X POST "https://app.windmill.dev/api/r/test1245/issue-trigger" \
-            -H "Content-Type: application/json" \
-            --data-binary "$JSON_PAYLOAD" \
-            --max-time 90)
+            JSON_PAYLOAD=$(jq -n \
+              --arg title "$ISSUE_TITLE_Q" \
+              --arg body "$ISSUE_BODY_Q" \
+              '{"body":{"issue_title":$title,"issue_body":$body}}')
 
-          HTTP_CODE=$(echo "$API_RESULT" | tail -n1)
-          BODY=$(echo "$API_RESULT" | sed '$d')
+            API_RESULT=$(curl -s -w "\n%{http_code}" \
+              -X POST "https://app.windmill.dev/api/r/test1245/issue-trigger" \
+              -H "Content-Type: application/json" \
+              --data-binary "$JSON_PAYLOAD" \
+              --max-time 90)
 
-          # Save API response safely
-          echo "$BODY" > /tmp/api_response.txt
+            HTTP_CODE=$(echo "$API_RESULT" | tail -n1)
+            BODY=$(echo "$API_RESULT" | sed '$d')
 
-          if [[ "$HTTP_CODE" -eq 200 ]]; then
-            # Extract prompt safely with jq
-            PROMPT=$(jq -r '.processed_prompt // .effective_body // .message // empty' /tmp/api_response.txt)
-            if [[ -z "$PROMPT" ]]; then
-              echo "::warning::API returned no prompt; falling back to raw issue."
-              # Create fallback prompt safely using printf %s (quoting not needed for output)
+            echo "$BODY" > /tmp/api_response.txt
+
+            if [[ "$HTTP_CODE" -eq 200 ]]; then
+              PROMPT=$(jq -r '.processed_prompt // .effective_body // .message // empty' /tmp/api_response.txt)
+              if [[ -z "$PROMPT" || "$PROMPT" == "null" ]]; then # Added null check
+                echo "::warning::API returned 200 but no prompt; falling back to raw issue."
+                printf "Please fix the issue described below:\n\nTitle: %s\n\nBody:\n%s" \
+                  "${{ github.event.issue.title }}" \
+                  "${{ github.event.issue.body }}" > "$PROMPT_FILE_PATH"
+              else
+                echo "$PROMPT" > "$PROMPT_FILE_PATH"
+              fi
+            else
+              echo "::warning::API call failed (HTTP $HTTP_CODE). Falling back to raw issue."
               printf "Please fix the issue described below:\n\nTitle: %s\n\nBody:\n%s" \
                 "${{ github.event.issue.title }}" \
-                "${{ github.event.issue.body }}" > /tmp/prompt.txt
+                "${{ github.event.issue.body }}" > "$PROMPT_FILE_PATH"
+            fi
+            rm -f /tmp/api_response.txt # Clean up temp file
+
+          elif [[ "${{ github.event_name }}" == "issue_comment" ]]; then
+            echo "Event Type: Issue Comment on PR #${{ github.event.issue.number }}"
+            RAW_COMMENT_BODY="${{ github.event.comment.body }}"
+            # Extract content after '/aider ', strip leading/trailing spaces
+            COMMENT_CONTENT="${RAW_COMMENT_BODY#*/aider}"
+            COMMENT_CONTENT="${COMMENT_CONTENT#"${COMMENT_CONTENT%%[![:space:]]*}"}" # Trim leading
+            COMMENT_CONTENT="${COMMENT_CONTENT%"${COMMENT_CONTENT##*[![:space:]]}"}" # Trim trailing
+
+            if [[ -z "$COMMENT_CONTENT" ]]; then
+              echo "::error::Comment with /aider provided, but no instruction found after it. Cannot proceed."
+              # Create an error prompt or handle as needed, here we exit
+              printf "Error: /aider command found but no instruction followed." > "$PROMPT_FILE_PATH"
+              exit 1
             else
-              echo "$PROMPT" > /tmp/prompt.txt
+              echo "Using comment content as prompt."
+              echo "$COMMENT_CONTENT" > "$PROMPT_FILE_PATH"
             fi
           else
-            echo "::error::API call failed (HTTP $HTTP_CODE). Falling back."
-            # Create fallback prompt safely using printf %s
-            printf "Please fix the issue described below:\n\nTitle: %s\n\nBody:\n%s" \
-              "${{ github.event.issue.title }}" \
-              "${{ github.event.issue.body }}" > /tmp/prompt.txt
+            echo "::error::Unhandled event type: ${{ github.event_name }}"
+            exit 1
           fi
-
-          # write the final prompt
-          mkdir -p .github/aider
-          cat /tmp/prompt.txt > .github/aider/issue-prompt.txt
+          echo "Prompt determined and written to $PROMPT_FILE_PATH"
+          echo "PROMPT_FILE_PATH=$PROMPT_FILE_PATH" >> $GITHUB_OUTPUT
 
       - name: Probe Chat for Relevant Files
         id: probe_files
+        env:
+          # Use the output from the previous step for the prompt file path
+          PROMPT_CONTENT_FILE: ${{ steps.determine_prompt.outputs.PROMPT_FILE_PATH }}
         run: |
           echo "Running probe-chat to find relevant files..."
-          PROMPT_CONTENT=$(cat /tmp/prompt.txt)
+          if [[ ! -f "$PROMPT_CONTENT_FILE" ]]; then
+            echo "::error::Prompt file $PROMPT_CONTENT_FILE not found!"
+            exit 1
+          fi
+          PROMPT_CONTENT=$(cat "$PROMPT_CONTENT_FILE")
+          if [ -z "$PROMPT_CONTENT" ]; then
+             echo "::error::Prompt content is empty!"
+             exit 1
+          fi
+
+          # Safely escape prompt content for embedding in the message JSON/string
+          # Using jq to create a JSON string literal is safest
+          PROMPT_ESCAPED=$(jq -Rs . <<< "$PROMPT_CONTENT")
+
+          # Construct the probe-chat prompt using the actual prompt content
+          # Use jq to build the message to avoid escaping issues
+          MESSAGE_FOR_PROBE=$(jq -n --arg prompt_escaped "$PROMPT_ESCAPED" \
+            '{ "message": "I'\''m giving you a request that needs to be implemented. Your role is to give me the files that are relevant to the request. The request is prepended with the word REQUEST.\\nREQUEST: \($prompt_escaped). Give me all the files relevant to this request. Your output should be a single json array that can be parsed with programatic json parsing, with the relevant files. Example of output: [\"file1.py\", \"file2.py\"]" }' | jq -r .message)
+
           # Run probe-chat, redirect stderr to stdout to capture potential errors too
-          PROMPT_WITH_PREFIX="I'm giving you an issue that needs to be fixed. Your role is to give me the files that are relevant to the issue. The issue is prepended with the word ISSUE.\\nISSUE: $PROMPT_CONTENT. Give me all the files relevant to this issue. Your output should be a single json array that can be parsed with programatic json parsing, with the relevant files. Example of output: [\\"file1.py\\", \\"file2.py\\"]"
-          PROBE_OUTPUT=$(npx -y @buger/probe-chat@latest --message "$PROMPT_WITH_PREFIX" 2>&1)
+          # Use npx with --yes to avoid prompts if @buger/probe-chat isn't cached
+          # Use set -o pipefail to catch errors in the pipeline
+          set -o pipefail
+          PROBE_OUTPUT=$(npx --yes @buger/probe-chat@latest --message "$MESSAGE_FOR_PROBE" 2>&1) || {
+            echo "::error::probe-chat command failed. Output:"
+            echo "$PROBE_OUTPUT"
+            exit 1
+          }
+          set +o pipefail
           echo "Probe-chat raw output:"
           echo "$PROBE_OUTPUT"
 
@@ -100,9 +195,15 @@ jobs:
 
           # Parse JSON, filter for non-empty strings, quote each for shell, join with spaces.
           # Default to empty string on any error (e.g., invalid JSON)
-          FILES_LIST=$(echo "$JSON_FILES" | jq -e -r '. | map(select(type == "string" and . != "")) | map(@sh) | join(" ")' || echo "")
-          echo "Formatted files list for aider: $FILES_LIST"
+          FILES_LIST=$(echo "$JSON_FILES" | jq -e -r '[.[] | select(type == "string" and . != "" and . != null)] | map(@sh) | join(" ")' || echo "")
 
+          if [[ -z "$FILES_LIST" ]]; then
+             echo "::warning::probe-chat did not identify any relevant files."
+             # Decide whether to continue or fail. Let's continue but Aider might not do anything.
+             exit 1
+          fi
+
+          echo "Formatted files list for aider: $FILES_LIST"
           echo "FILES_TO_EDIT=$FILES_LIST" >> $GITHUB_ENV
 
       - name: Run Aider with external prompt
@@ -120,34 +221,62 @@ jobs:
 
       - name: Clean up prompt file
         if: always() # Run this even if aider fails, to clean up
-        run: rm -f .github/aider/issue-prompt.txt
+        run: rm -f .github/aider/issue-prompt.txt # Path is now consistent
 
-      - name: Commit & push fixes
+      - name: Commit and Push Changes
+        id: commit_and_push # Added ID for outputs
         if: ${{ success() }}
         run: |
-          BRANCH_NAME="aider-fix-issue-${{ github.event.issue.number }}"
-          git checkout -b $BRANCH_NAME
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git push origin $BRANCH_NAME
+          # Git user is configured globally by a previous step.
+          # Aider's --auto-commits flag should handle the commits.
+
+          if [[ "${{ github.event_name }}" == "issues" ]]; then
+            # Original logic for issues:
+            BRANCH_NAME="aider-fix-issue-${{ github.event.issue.number }}"
+            # Aider has (presumably) committed on the default branch.
+            # Create new branch from current HEAD (which includes Aider's commit if any).
+            git checkout -b $BRANCH_NAME
+            echo "Created branch $BRANCH_NAME for issue #${{ github.event.issue.number }}"
+            git push origin $BRANCH_NAME
+            echo "Pushed to new branch $BRANCH_NAME"
+            echo "PR_BRANCH_NAME=$BRANCH_NAME" >> $GITHUB_OUTPUT
+            echo "CHANGES_APPLIED_MESSAGE=Aider changes pushed to new branch $BRANCH_NAME." >> $GITHUB_OUTPUT
+          elif [[ "${{ github.event_name }}" == "issue_comment" ]]; then
+            # For PR comments, Aider should have committed to the PR's head branch.
+            # We are already on the PR's head branch due to the 'Checkout PR Branch' step.
+            CURRENT_BRANCH_NAME=$(git rev-parse --abbrev-ref HEAD)
+            echo "Attempting to push changes to PR branch $CURRENT_BRANCH_NAME for PR #${{ github.event.issue.number }}"
+            # The push will be a no-op if Aider made no new commits.
+            if git push origin $CURRENT_BRANCH_NAME; then
+              echo "Push to $CURRENT_BRANCH_NAME successful (or no new changes to push)."
+              echo "CHANGES_APPLIED_MESSAGE=Aider changes (if any) pushed to PR branch $CURRENT_BRANCH_NAME." >> $GITHUB_OUTPUT
+            else
+              # This case should ideally not happen if credentials are correct and branch exists
+              echo "::warning::Push to PR branch $CURRENT_BRANCH_NAME failed."
+              echo "CHANGES_APPLIED_MESSAGE=Aider ran, but failed to push changes to PR branch $CURRENT_BRANCH_NAME." >> $GITHUB_OUTPUT
+            fi
+          fi
 
       - name: Create Pull Request
+        # Conditioned to run only for 'issues' event and if the commit step produced a branch name
+        if: success() && github.event_name == 'issues' && steps.commit_and_push.outputs.PR_BRANCH_NAME != ''
         uses: peter-evans/create-pull-request@v6
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           commit-message: "[Aider PR] Add fixes for issue #${{ github.event.issue.number }}"
-          branch: aider-fix-issue-${{ github.event.issue.number }}
+          branch: ${{ steps.commit_and_push.outputs.PR_BRANCH_NAME }} # Use the branch name from output
+          base: main # Explicitly set the base branch to main
           delete-branch: true # Optional: delete the branch after merging the PR
-          title: "[Aider] Fixes for Issue #${{ github.event.issue.number }}"
-          body: |
-            Addresses issue #${{ github.event.issue.number }}
-
-            This PR was automatically created by the Aider workflow.
 
       - name: Comment on issue
-        uses: peter-evans/create-or-update-comment@v3
+        uses: peter-evans/create-or-update-comment@v4 # Changed to v4 for consistency
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           issue-number: ${{ github.event.issue.number }}
           body: |
-            ✅ Aider (via Gemini) has applied fixes based on the processed prompt.
+            ✅ Aider (via Gemini using `${{ env.AIDER_MODEL }}`) has processed your request triggered by a `${{ github.event_name }}` event.
+
+            ${{ steps.commit_and_push.outputs.CHANGES_APPLIED_MESSAGE || 'Aider processing complete.' }}
+
+            ${{ github.event_name == 'issues' && steps.create_pull_request.outputs.pull-request-url && format('Pull Request created: {0}', steps.create_pull_request.outputs.pull-request-url) || '' }}
+            ${{ github.event_name == 'issues' && steps.commit_and_push.outputs.PR_BRANCH_NAME != '' && !steps.create_pull_request.outputs.pull-request-url && 'PR creation may have been skipped or failed for the pushed branch.' || '' }}
