@@ -2,7 +2,7 @@ use base64::{engine, Engine as _};
 use chrono::Datelike;
 use core::fmt::Write;
 use futures::future::BoxFuture;
-use futures::{FutureExt, StreamExt, TryFutureExt, TryStreamExt};
+use futures::{FutureExt, StreamExt, TryStreamExt};
 use jsonwebtoken::{encode, Algorithm, EncodingKey, Header};
 use reqwest::{Client, Response};
 use serde_json::{json, value::RawValue, Value};

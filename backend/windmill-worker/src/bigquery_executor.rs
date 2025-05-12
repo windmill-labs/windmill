@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use futures::future::BoxFuture;
-use futures::{FutureExt, StreamExt, TryFutureExt};
+use futures::{FutureExt, StreamExt};
 use reqwest::Client;
 use serde_json::{json, value::RawValue, Value};
 use windmill_common::error::to_anyhow;
