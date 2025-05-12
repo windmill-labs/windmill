@@ -22,7 +22,9 @@ jobs:
           python-version: "3.12"
 
       - name: Install Aider
-        run: python -m pip install aider-install; aider-install
+        run: |
+          python -m pip install aider-install; aider-install
+          pip install -U google-generativeai
 
       - name: Build prompt via external API
         shell: bash
@@ -90,14 +92,20 @@ jobs:
             --no-analytics \
             --no-stream
 
+      - name: Clean up prompt file
+        if: always() # Run this even if aider fails, to clean up
+        run: rm -f .github/aider/issue-prompt.txt
+
       - name: Commit & push fixes
         if: ${{ success() }}
         run: |
+          BRANCH_NAME="aider-fix-issue-${{ github.event.issue.number }}"
+          git checkout -b $BRANCH_NAME
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add .
           git commit -m "[Aider] Apply fixes for issue #${{ github.event.issue.number }}" || echo "No changes to commit."
-          git push
+          git push origin $BRANCH_NAME
 
       - name: Comment on issue
         uses: peter-evans/create-or-update-comment@v3
