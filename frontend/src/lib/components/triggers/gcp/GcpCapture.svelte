@@ -1,7 +1,6 @@
 <script lang="ts">
 	import type { CaptureInfo } from '../CaptureSection.svelte'
 	import CaptureSection from '../CaptureSection.svelte'
-	import { base } from '$lib/base'
 	import { workspaceStore } from '$lib/stores'
 	import { Url } from '$lib/components/common'
 
@@ -10,12 +9,13 @@
 	export let hasPreprocessor: boolean = false
 	export let isFlow: boolean = false
 	export let deliveryType: 'push' | 'pull' = 'pull'
+	export let baseEndpoint: string = ''
 
 	function getCaptureUrl(captureInfo: CaptureInfo | undefined) {
 		if (!captureInfo) {
 			return
 		}
-		return `${window.location.origin}${base}/api/w/${$workspaceStore}/capture_u/gcp/${
+		return `${baseEndpoint}/api/w/${$workspaceStore}/capture_u/gcp/${
 			captureInfo?.isFlow ? 'flow' : 'script'
 		}${captureInfo?.path} `
 	}
