@@ -45,9 +45,12 @@ use crate::mqtt_triggers::{MqttClientVersion, MqttV3Config, MqttV5Config, Subscr
 use crate::nats_triggers_ee::NatsTriggerConfigConnection;
 
 #[cfg(feature = "postgres_trigger")]
-use crate::postgres_triggers::{
-    create_logical_replication_slot, create_pg_publication, generate_random_string,
-    get_pg_connection, PublicationData,
+use {
+    crate::postgres_triggers::{
+        create_logical_replication_slot, create_pg_publication, drop_publication,
+        generate_random_string, get_pg_connection, PublicationData,
+    },
+    sqlx::Connection,
 };
 
 use crate::{
@@ -292,42 +295,42 @@ async fn set_postgres_trigger_config(
     user_db: UserDB,
     mut capture_config: NewCaptureConfig,
 ) -> Result<NewCaptureConfig> {
-    use crate::postgres_triggers::drop_publication;
-
     let Some(TriggerConfig::Postgres(postgres_config)) = capture_config.trigger_config.as_mut()
     else {
         return Err(Error::BadRequest("Invalid postgres config".to_string()));
     };
 
-    let mut pg_connection = get_pg_connection(
-        authed,
-        Some(user_db),
-        &db,
-        &postgres_config.postgres_resource_path,
-        &w_id,
-    )
-    .await?;
-
     if postgres_config.basic_mode.unwrap_or(false) {
+        let mut pg_connection = get_pg_connection(
+            authed,
+            Some(user_db),
+            &db,
+            &postgres_config.postgres_resource_path,
+            &w_id,
+        )
+        .await?;
+
+        let mut tx = pg_connection.begin().await?;
+
         let publication_name = format!("windmill_capture_{}", generate_random_string());
         let replication_slot_name = publication_name.clone();
 
         create_pg_publication(
-            &mut pg_connection,
+            &mut tx,
             &publication_name,
             postgres_config.publication.table_to_track.as_deref(),
             &postgres_config.publication.transaction_to_track,
         )
         .await?;
 
-        let result =
-            create_logical_replication_slot(&mut pg_connection, &replication_slot_name).await;
+        let result = create_logical_replication_slot(&mut tx, &replication_slot_name).await;
 
         if result.is_err() {
-            let _ = drop_publication(&mut pg_connection, &publication_name).await;
+            let _ = drop_publication(&mut tx, &publication_name).await;
             return Err(result.unwrap_err());
         }
 
+        tx.commit().await?;
         postgres_config.publication_name = Some(publication_name);
         postgres_config.replication_slot_name = Some(replication_slot_name);
     } else {
@@ -339,6 +342,7 @@ async fn set_postgres_trigger_config(
             ));
         }
     }
+
     Ok(capture_config)
 }
 

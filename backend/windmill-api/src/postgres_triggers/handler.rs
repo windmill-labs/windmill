@@ -18,7 +18,7 @@ use quick_cache::sync::Cache;
 use rust_postgres::types::Type;
 use serde::{Deserialize, Deserializer, Serialize};
 use sql_builder::{bind::Bind, SqlBuilder};
-use sqlx::{postgres::types::Oid, FromRow, PgConnection};
+use sqlx::{postgres::types::Oid, Connection, FromRow, PgConnection};
 use windmill_audit::{audit_ee::audit_log, ActionKind};
 use windmill_common::{
     db::UserDB,
@@ -284,9 +284,6 @@ async fn create_custom_slot_and_publication_inner(
     w_id: &str,
     publication: &PublicationData,
 ) -> Result<PostgresPublicationReplication> {
-    let publication_name = format!("windmill_trigger_{}", generate_random_string());
-    let replication_slot_name = publication_name.clone();
-
     let mut pg_connection = get_pg_connection(
         authed.clone(),
         Some(user_db),
@@ -296,16 +293,21 @@ async fn create_custom_slot_and_publication_inner(
     )
     .await?;
 
+    let mut tx = pg_connection.begin().await?;
+    let publication_name = format!("windmill_trigger_{}", generate_random_string());
+    let replication_slot_name = publication_name.clone();
+
     create_pg_publication(
-        &mut pg_connection,
+        &mut tx,
         &publication_name,
         publication.table_to_track.as_deref(),
         &publication.transaction_to_track,
     )
     .await?;
 
-    create_logical_replication_slot(&mut pg_connection, &replication_slot_name).await?;
+    create_logical_replication_slot(&mut tx, &replication_slot_name).await?;
 
+    tx.commit().await?;
     Ok(PostgresPublicationReplication::new(
         publication_name,
         replication_slot_name,
@@ -767,13 +769,17 @@ pub async fn create_publication(
 
     let PublicationData { table_to_track, transaction_to_track } = publication_data;
 
+    let mut tx = pg_connection.begin().await?;
+
     create_pg_publication(
-        &mut pg_connection,
+        &mut tx,
         &publication_name,
         table_to_track.as_deref(),
         &transaction_to_track,
     )
     .await?;
+
+    tx.commit().await?;
 
     Ok(format!(
         "Publication {} successfully created!",
@@ -811,7 +817,6 @@ pub async fn get_update_publication(
     all_table: Option<bool>,
 ) -> Result<()> {
     let quoted_publication_name = quote_identifier(&publication_name);
-
     let transaction_to_track_as_str = transaction_to_track.iter().join(",");
     match table_to_track {
         Some(ref relations) if !relations.is_empty() => {
@@ -910,7 +915,6 @@ pub async fn get_update_publication(
                 .await?;
         }
     };
-
     Ok(())
 }
 
@@ -930,16 +934,19 @@ pub async fn alter_publication(
     )
     .await?;
 
-    let publication =
-        get_publication_scope_and_transaction(&mut pg_connection, &publication_name).await?;
+    let mut tx = pg_connection.begin().await?;
+    
+    let publication = get_publication_scope_and_transaction(&mut tx, &publication_name).await?;
 
     get_update_publication(
-        &mut pg_connection,
+        &mut tx,
         &publication_name,
         publication_data,
         publication.map(|publication| publication.0),
     )
     .await?;
+
+    tx.commit().await?;
 
     Ok(format!(
         "Publication {} updated with success",
@@ -1152,26 +1159,30 @@ pub async fn update_postgres_trigger(
     let exists =
         check_if_logical_replication_slot_exist(&mut pg_connection, &replication_slot_name).await?;
 
+    let mut tx = pg_connection.begin().await?;
+
     if !exists {
         tracing::debug!(
             "Logical replication slot named: {} does not exists creating it...",
             &replication_slot_name
         );
-        create_logical_replication_slot(&mut pg_connection, &replication_slot_name).await?;
+        create_logical_replication_slot(&mut tx, &replication_slot_name).await?;
     }
 
     if let Some(publication) = publication {
         let publication_data =
-            get_publication_scope_and_transaction(&mut pg_connection, &publication_name).await?;
+            get_publication_scope_and_transaction(&mut tx, &publication_name).await?;
 
         get_update_publication(
-            &mut pg_connection,
+            &mut tx,
             &publication_name,
             publication,
             publication_data.map(|publication| publication.0),
         )
         .await?;
     }
+    tx.commit().await?;
+
     let mut tx = user_db.begin(&authed).await?;
 
     sqlx::query!(
