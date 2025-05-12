@@ -129,9 +129,20 @@ jobs:
           git checkout -b $BRANCH_NAME
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add .
-          git commit -m "[Aider] Apply fixes for issue #${{ github.event.issue.number }}" || echo "No changes to commit."
           git push origin $BRANCH_NAME
+
+      - name: Create Pull Request
+        uses: peter-evans/create-pull-request@v6
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          commit-message: "[Aider PR] Add fixes for issue #${{ github.event.issue.number }}"
+          branch: aider-fix-issue-${{ github.event.issue.number }}
+          delete-branch: true # Optional: delete the branch after merging the PR
+          title: "[Aider] Fixes for Issue #${{ github.event.issue.number }}"
+          body: |
+            Addresses issue #${{ github.event.issue.number }}
+
+            This PR was automatically created by the Aider workflow.
 
       - name: Comment on issue
         uses: peter-evans/create-or-update-comment@v3
