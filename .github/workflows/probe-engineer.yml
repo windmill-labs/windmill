@@ -51,17 +51,15 @@ jobs:
             
             echo "Sending issue content to API"
             
-            # Alternative approach: Using a heredoc to create the JSON payload
-            # This avoids shell interpretation of the content
-            JSON_PAYLOAD=$(cat <<EOF
-            {
-              "body": {
-                "issue_title": $(jq -n --arg x "$ISSUE_TITLE" '$x'),
-                "issue_body": $(jq -n --arg x "$ISSUE_BODY_CONTENT" '$x')
-              }
-            }
-            EOF
-            )
+            # Write the issue content to temporary files to avoid any shell interpretation issues
+            echo "$ISSUE_TITLE" > /tmp/issue_title.txt
+            echo "$ISSUE_BODY_CONTENT" > /tmp/issue_body.txt
+            
+            # Create JSON payload using files as input to jq
+            JSON_PAYLOAD=$(jq -n \
+              --rawfile title /tmp/issue_title.txt \
+              --rawfile body /tmp/issue_body.txt \
+              '{"body":{"issue_title":$title,"issue_body":$body}}')
 
             # Make the API call
             # Timeout values (e.g., --max-time 60) are good practice for external calls.
@@ -107,10 +105,12 @@ jobs:
             COMMENT_CONTENT="${COMMENT_CONTENT##*( )}"
             COMMENT_CONTENT="${COMMENT_CONTENT%%*( )}"
             
-            # Using jq to properly encode the content as a JSON string
-            # This handles special characters, including backticks
-            EFFECTIVE_PROMPT=$(jq -n --arg content "$COMMENT_CONTENT" '$content')
-            echo "Using properly JSON-encoded comment content as prompt."
+            # Write the comment content to a temporary file
+            echo "$COMMENT_CONTENT" > /tmp/comment_content.txt
+            
+            # Use rawfile to read it back safely
+            EFFECTIVE_PROMPT=$(jq -n --rawfile content /tmp/comment_content.txt '$content')
+            echo "Using file-based approach to handle comment content safely."
           fi
 
           echo "Final effective prompt (first 200 chars): ${EFFECTIVE_PROMPT:0:200}..."
