@@ -308,6 +308,7 @@
 				{captureInfo}
 				{hasPreprocessor}
 				{isFlow}
+				deliveryType={args.delivery_type}
 				on:applyArgs
 				on:updateSchema
 				on:addPreprocessor
