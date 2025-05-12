@@ -1862,26 +1862,14 @@ async fn queue_init_bash_maybe<'c>(
     same_worker_tx: SameWorkerSender,
     worker_name: &str,
 ) -> anyhow::Result<bool> {
-    let uuid_content = match conn {
-        Connection::Sql(db) => {
-            if let Some(content) = WORKER_CONFIG.read().await.init_bash.clone() {
-                Some((
-                    push_init_job(db, content.clone(), worker_name).await?,
-                    content,
-                ))
-            } else {
-                None
-            }
-        }
-        Connection::Http(client) => {
-            let init_script = std::env::var("INIT_SCRIPT");
-            if init_script.is_ok() {
-                let content = init_script.unwrap();
-                Some((queue_init_job(client, &content).await?, content))
-            } else {
-                None
-            }
-        }
+    let uuid_content = if let Some(content) = WORKER_CONFIG.read().await.init_bash.clone() {
+        let uuid = match conn {
+            Connection::Sql(db) => push_init_job(db, content.clone(), worker_name).await?,
+            Connection::Http(client) => queue_init_job(client, &content).await?,
+        };
+        Some((uuid, content))
+    } else {
+        None
     };
     if let Some((uuid, content)) = uuid_content {
         same_worker_tx

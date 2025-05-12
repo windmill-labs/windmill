@@ -8,7 +8,7 @@ use anyhow::Context;
 use base64::{engine, Engine as _};
 use chrono::Utc;
 use futures::future::BoxFuture;
-use futures::{FutureExt, StreamExt, TryStreamExt};
+use futures::{FutureExt, StreamExt, TryFutureExt, TryStreamExt};
 use itertools::Itertools;
 use native_tls::{Certificate, TlsConnector};
 use postgres_native_tls::MakeTlsConnector;
@@ -73,7 +73,7 @@ fn do_postgresql_inner<'a>(
     siz: &'a AtomicUsize,
     skip_collect: bool,
     s3: Option<S3ModeWorkerData>,
-) -> error::Result<BoxFuture<'a, anyhow::Result<Box<RawValue>>>> {
+) -> error::Result<BoxFuture<'a, error::Result<Box<RawValue>>>> {
     let mut query_params = vec![];
 
     let arg_indices = parse_pg_statement_arg_indices(&query);
@@ -114,6 +114,7 @@ fn do_postgresql_inner<'a>(
         } else if let Some(ref s3) = s3 {
             let rows_stream = client
                 .query_raw(&query, query_params)
+                .map_err(to_anyhow)
                 .await?
                 .map_err(to_anyhow)
                 .map(|row_result| {
@@ -154,17 +155,17 @@ fn do_postgresql_inner<'a>(
                 if *CLOUD_HOSTED {
                     let siz = siz.load(Ordering::Relaxed);
                     if siz > MAX_RESULT_SIZE * 4 {
-                        return Err(anyhow::anyhow!(
+                        return Err(Error::ExecutionErr(format!(
                             "Query result too large for cloud (size = {} > {})",
                             siz,
-                            MAX_RESULT_SIZE & 4
-                        ));
+                            MAX_RESULT_SIZE & 4,
+                        )));
                     }
                 }
                 if let Ok(v) = r {
                     res.push(v);
                 } else {
-                    return Err(to_anyhow(r.err().unwrap()));
+                    return Err(to_anyhow(r.err().unwrap()).into());
                 }
             }
         }

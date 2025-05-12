@@ -472,7 +472,7 @@ pub async fn do_bigquery(
         conn,
         mem_peak,
         canceled_by,
-        result_f.map_err(to_anyhow),
+        result_f,
         worker_name,
         &job.workspace_id,
         &mut Some(occupancy_metrics),
