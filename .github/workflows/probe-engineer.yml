@@ -1,8 +1,6 @@
 name: AI Engineer for New Issues via External API
 
 on:
-  issues:
-    types: [opened]
   issue_comment:
     types: [created]
 
@@ -20,10 +18,9 @@ jobs:
     runs-on: ubuntu-latest
     # Only run on issue creations or comments that include the command prefix
     if: |
-      (github.event_name == 'issues' && github.event.action == 'opened') || 
       (github.event_name == 'issue_comment' && 
        github.event.comment.body != null && 
-       contains(github.event.comment.body, '/ai-issue-processor') && 
+       contains(github.event.comment.body, '/engineer') && 
        !contains(github.event.comment.user.login, '[bot]'))
     outputs:
       effective_prompt: ${{ steps.external_api_call.outputs.effective_prompt }}
@@ -53,11 +50,18 @@ jobs:
             echo "Processing new issue: $ISSUE_TITLE"
             
             echo "Sending issue content to API"
-            # Safely create JSON payload using jq
-            JSON_PAYLOAD=$(jq -n \
-              --arg title "$ISSUE_TITLE" \
-              --arg body "$ISSUE_BODY_CONTENT" \
-              '{"body":{"issue_title":$title,"issue_body":$body}}')
+            
+            # Alternative approach: Using a heredoc to create the JSON payload
+            # This avoids shell interpretation of the content
+            JSON_PAYLOAD=$(cat <<EOF
+{
+  "body": {
+    "issue_title": $(jq -n --arg x "$ISSUE_TITLE" '$x'),
+    "issue_body": $(jq -n --arg x "$ISSUE_BODY_CONTENT" '$x')
+  }
+}
+EOF
+)
 
             # Make the API call
             # Timeout values (e.g., --max-time 60) are good practice for external calls.
@@ -99,13 +103,14 @@ jobs:
             echo "Processing comment on issue/PR #${{ github.event.issue.number }}: $ISSUE_TITLE"
             
             # Strip the command prefix from the comment body
-            COMMENT_CONTENT="${ISSUE_BODY_CONTENT#/ai-issue-processor}"
+            COMMENT_CONTENT="${ISSUE_BODY_CONTENT#/engineer}"
             COMMENT_CONTENT="${COMMENT_CONTENT##*( )}"
             COMMENT_CONTENT="${COMMENT_CONTENT%%*( )}"
             
-            # For comments, use the content directly without API processing
-            EFFECTIVE_PROMPT="$COMMENT_CONTENT"
-            echo "Using comment content directly as prompt (bypassing API)."
+            # Using jq to properly encode the content as a JSON string
+            # This handles special characters, including backticks
+            EFFECTIVE_PROMPT=$(jq -n --arg content "$COMMENT_CONTENT" '$content')
+            echo "Using properly JSON-encoded comment content as prompt."
           fi
 
           echo "Final effective prompt (first 200 chars): ${EFFECTIVE_PROMPT:0:200}..."
@@ -135,7 +140,7 @@ jobs:
       # command_prefix is not strictly needed when direct_user_request is used,
       # but the reusable workflow might have internal checks or default behaviors.
       # Providing a non-interfering one is safe.
-      command_prefix: "/ai-issue-processor"
+      command_prefix: "/engineer"
 
       # Enable code editing capabilities
       allow_edit: true
