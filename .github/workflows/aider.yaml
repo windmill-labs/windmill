@@ -25,27 +25,27 @@ jobs:
         run: python -m pip install aider-install; aider-install
 
       - name: Build prompt via external API
-        # Pass title and body as environment variables
-        env:
-          ISSUE_TITLE: ${{ github.event.issue.title }}
-          ISSUE_BODY: ${{ github.event.issue.body }}
         shell: bash
         run: |
+          # Use printf %q to safely quote title and body for shell evaluation
+          ISSUE_TITLE_Q=$(printf '%q' "${{ github.event.issue.title }}")
+          ISSUE_BODY_Q=$(printf '%q' "${{ github.event.issue.body }}")
+
           echo "Sending issue content to external API…"
 
-          # Build JSON payload directly with jq using environment variables
-          # Use --argjson to correctly handle potential JSON structure in body/title if needed,
-          # otherwise use --arg for plain strings. Assuming plain strings for now.
-          JSON_PAYLOAD=$(jq -n \\
-            --arg title "$ISSUE_TITLE" \\
-            --arg body "$ISSUE_BODY" \\
-            '{body:{issue_title:$title, issue_body:$body}}')
+          # Build JSON using jq --arg. Safely construct the command using the quoted variables.
+          # We avoid direct eval by building the command parts.
+          JSON_PAYLOAD=$(jq -n \
+            --arg title "$ISSUE_TITLE_Q" \
+            --arg body "$ISSUE_BODY_Q" \
+            '{"body":{"issue_title":$title,"issue_body":$body}}')
 
           # Call your API
-          API_RESULT=$(curl -s -w "\\n%{http_code}" \\
-            -X POST "https://app.windmill.dev/api/r/test1245/issue-trigger" \\
-            -H "Content-Type: application/json" \\
-            --data-binary "$JSON_PAYLOAD" \\
+          # Use --data-binary to send the payload exactly as is
+          API_RESULT=$(curl -s -w "\n%{http_code}" \
+            -X POST "https://app.windmill.dev/api/r/test1245/issue-trigger" \
+            -H "Content-Type: application/json" \
+            --data-binary "$JSON_PAYLOAD" \
             --max-time 90)
 
           HTTP_CODE=$(echo "$API_RESULT" | tail -n1)
@@ -59,18 +59,22 @@ jobs:
             PROMPT=$(jq -r '.processed_prompt // .effective_body // .message // empty' /tmp/api_response.txt)
             if [[ -z "$PROMPT" ]]; then
               echo "::warning::API returned no prompt; falling back to raw issue."
-              # Create fallback prompt safely using environment variables
-              printf "Please fix the issue described below:\\n\\nTitle: %s\\n\\nBody:\\n%s" "$ISSUE_TITLE" "$ISSUE_BODY" > /tmp/prompt.txt
+              # Create fallback prompt safely using printf %s (quoting not needed for output)
+              printf "Please fix the issue described below:\n\nTitle: %s\n\nBody:\n%s" \
+                "${{ github.event.issue.title }}" \
+                "${{ github.event.issue.body }}" > /tmp/prompt.txt
             else
               echo "$PROMPT" > /tmp/prompt.txt
             fi
           else
             echo "::error::API call failed (HTTP $HTTP_CODE). Falling back."
-            # Create fallback prompt safely using environment variables
-            printf "Please fix the issue described below:\\n\\nTitle: %s\\n\\nBody:\\n%s" "$ISSUE_TITLE" "$ISSUE_BODY" > /tmp/prompt.txt
+            # Create fallback prompt safely using printf %s
+            printf "Please fix the issue described below:\n\nTitle: %s\n\nBody:\n%s" \
+              "${{ github.event.issue.title }}" \
+              "${{ github.event.issue.body }}" > /tmp/prompt.txt
           fi
 
-          # Write the final prompt
+          # write the final prompt
           mkdir -p .github/aider
           cat /tmp/prompt.txt > .github/aider/issue-prompt.txt
 
