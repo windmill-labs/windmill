@@ -163,7 +163,7 @@
 	const dispatch = createEventDispatcher()
 
 	const primaryScheduleStore = writable<ScheduleTrigger | undefined | false>(savedPrimarySchedule) // kept for legacy reasons
-	const triggersCount = writable<TriggersCount | undefined>(undefined) // trigger count only show deployed triggers
+	const triggersCount = writable<TriggersCount | undefined>(undefined)
 	const simplifiedPoll = writable(false)
 
 	// used to set the primary schedule in the legacy primaryScheduleStore

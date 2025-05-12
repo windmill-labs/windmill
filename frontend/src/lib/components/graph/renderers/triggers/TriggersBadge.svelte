@@ -26,6 +26,7 @@
 		small?: boolean
 		vertical?: boolean
 		limit?: number
+		showDraft?: boolean
 	}
 
 	let {
@@ -36,7 +37,8 @@
 		numberOfTriggers = $bindable(0),
 		small = true,
 		vertical = false,
-		limit
+		limit,
+		showDraft = true
 	}: Props = $props()
 
 	let menuOpen = $state(false)
@@ -89,8 +91,9 @@
 	)
 
 	// Group triggers by their mapped type
-	let triggersGrouped = $derived(
-		triggers.reduce(
+	let triggersGrouped = $derived.by(() => {
+		const triggersFiltered = showDraft ? triggers : triggers.filter((trigger) => !trigger.isDraft)
+		return triggersFiltered.reduce(
 			(acc, trigger) => {
 				const configType = trigger.type
 
@@ -102,7 +105,7 @@
 			},
 			{} as Record<TriggerType, Trigger[]>
 		)
-	)
+	})
 
 	let noTriggers = $derived(triggers.length === 0)
 

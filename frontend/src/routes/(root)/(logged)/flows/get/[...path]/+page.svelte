@@ -453,6 +453,7 @@
 				<svelte:fragment slot="trigger-badges">
 					<TriggersBadge
 						showOnlyWithCount={true}
+						showDraft={false}
 						{path}
 						newItem={false}
 						isFlow

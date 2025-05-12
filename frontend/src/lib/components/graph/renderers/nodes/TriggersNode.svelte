@@ -53,6 +53,7 @@
 			path={data.path}
 			bgColor={getStateColor(undefined, darkMode)}
 			bgHoverColor={getStateHoverColor(undefined, darkMode)}
+			showDraft={data.isEditor ?? false}
 			on:new={(e) => {
 				data?.eventHandlers.insert({
 					modules: data.modules,

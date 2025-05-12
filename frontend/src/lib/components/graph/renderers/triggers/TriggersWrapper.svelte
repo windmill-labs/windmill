@@ -19,6 +19,7 @@
 		bgColor: string
 		triggers?: Trigger[]
 		bgHoverColor?: string
+		showDraft?: boolean
 	}
 
 	let {
@@ -30,7 +31,8 @@
 		modules = [],
 		bgColor,
 		triggers = [],
-		bgHoverColor = ''
+		bgHoverColor = '',
+		showDraft
 	}: Props = $props()
 
 	let showTriggerScriptPicker = $state(false)
@@ -64,6 +66,7 @@
 
 		<TriggersBadge
 			showOnlyWithCount={false}
+			{showDraft}
 			{path}
 			{newItem}
 			isFlow
