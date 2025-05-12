@@ -1,4 +1,4 @@
-name: “Aider: Auto-fix issues via external prompt”
+name: “Aider Auto-fix issues via external prompt”
 
 on:
   issues:
