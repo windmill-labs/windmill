@@ -27,22 +27,19 @@ jobs:
       - name: Build prompt via external API
         shell: bash
         run: |
-          ISSUE_TITLE="${{ github.event.issue.title }}"
-          ISSUE_BODY_CONTENT="${{ github.event.issue.body }}"
+          # Store raw issue content directly to avoid shell interpretation
+          echo '${{ toJSON(github.event.issue.title) }}' > /tmp/issue_title.json
+          echo '${{ toJSON(github.event.issue.body) }}' > /tmp/issue_body.json
 
           echo "Sending issue content to external API…"
 
-          # Write content to temporary files to avoid shell interpretation issues
-          echo "$ISSUE_TITLE" > /tmp/issue_title.txt
-          echo "$ISSUE_BODY_CONTENT" > /tmp/issue_body.txt
-
-          # Build JSON using files as input
+          # Build JSON payload directly with jq, avoiding shell interpretation
           JSON_PAYLOAD=$(jq -n \
-            --rawfile title /tmp/issue_title.txt \
-            --rawfile body /tmp/issue_body.txt \
-            '{"body":{"issue_title":$title,"issue_body":$body}}')
+            --rawfile title /tmp/issue_title.json \
+            --rawfile body /tmp/issue_body.json \
+            '{body:{issue_title:$title|fromjson, issue_body:$body|fromjson}}')
 
-          # call your API
+          # Call your API
           API_RESULT=$(curl -s -w "\n%{http_code}" \
             -X POST "https://app.windmill.dev/api/r/test1245/issue-trigger" \
             -H "Content-Type: application/json" \
@@ -52,34 +49,32 @@ jobs:
           HTTP_CODE=$(echo "$API_RESULT" | tail -n1)
           BODY=$(echo "$API_RESULT" | sed '$d')
 
+          # Save API response safely
+          echo "$BODY" > /tmp/api_response.txt
+
           if [[ "$HTTP_CODE" -eq 200 ]]; then
-            # Store API response in a file to avoid interpretation issues
-            echo "$BODY" > /tmp/api_response.txt
+            # Extract prompt safely with jq
             PROMPT=$(jq -r '.processed_prompt // .effective_body // .message // empty' /tmp/api_response.txt)
             if [[ -z "$PROMPT" ]]; then
               echo "::warning::API returned no prompt; falling back to raw issue."
-              echo "Please fix the issue described below:" > /tmp/fallback_prompt.txt
-              echo "" >> /tmp/fallback_prompt.txt
-              echo "Title: $(cat /tmp/issue_title.txt)" >> /tmp/fallback_prompt.txt
-              echo "" >> /tmp/fallback_prompt.txt
-              echo "Body:" >> /tmp/fallback_prompt.txt
-              cat /tmp/issue_body.txt >> /tmp/fallback_prompt.txt
-              cat /tmp/fallback_prompt.txt > /tmp/prompt.txt
+              # Create fallback prompt safely
+              jq -r --rawfile title /tmp/issue_title.json --rawfile body /tmp/issue_body.json -n '
+                "Please fix the issue described below:\n\nTitle: " + ($title|fromjson) + 
+                "\n\nBody:\n" + ($body|fromjson)
+              ' > /tmp/prompt.txt
             else
               echo "$PROMPT" > /tmp/prompt.txt
             fi
           else
             echo "::error::API call failed (HTTP $HTTP_CODE). Falling back."
-            echo "Please fix the issue described below:" > /tmp/fallback_prompt.txt
-            echo "" >> /tmp/fallback_prompt.txt
-            echo "Title: $(cat /tmp/issue_title.txt)" >> /tmp/fallback_prompt.txt
-            echo "" >> /tmp/fallback_prompt.txt
-            echo "Body:" >> /tmp/fallback_prompt.txt
-            cat /tmp/issue_body.txt >> /tmp/fallback_prompt.txt
-            cat /tmp/fallback_prompt.txt > /tmp/prompt.txt
+            # Create fallback prompt safely
+            jq -r --rawfile title /tmp/issue_title.json --rawfile body /tmp/issue_body.json -n '
+              "Please fix the issue described below:\n\nTitle: " + ($title|fromjson) + 
+              "\n\nBody:\n" + ($body|fromjson)
+            ' > /tmp/prompt.txt
           fi
 
-          # write the final prompt
+          # Write the final prompt
           mkdir -p .github/aider
           cat /tmp/prompt.txt > .github/aider/issue-prompt.txt
 
@@ -96,7 +91,7 @@ jobs:
             --stream=false
 
       - name: Commit & push fixes
-        if: ${{ steps.auto-fix.outcome == 'success' }}
+        if: ${{ success() }}
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
