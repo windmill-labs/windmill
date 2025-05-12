@@ -274,7 +274,7 @@
 	async function triggerScript(): Promise<void> {
 		deploymentLoading = true
 		const saveCfg = getSaveCfg()
-		await saveHttpRouteFromCfg(
+		const isSaved = await saveHttpRouteFromCfg(
 			initialPath,
 			saveCfg,
 			edit,
@@ -282,9 +282,11 @@
 			!!$userStore?.is_admin || !!$userStore?.is_super_admin,
 			usedTriggerKinds
 		)
-		dispatch('update', saveCfg.path)
-		drawer?.closeDrawer()
-		toggleEditMode(false)
+		if (isSaved) {
+			dispatch('update', saveCfg.path)
+			drawer?.closeDrawer()
+			toggleEditMode(false)
+		}
 		deploymentLoading = false
 	}
 

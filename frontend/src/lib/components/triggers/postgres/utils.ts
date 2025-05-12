@@ -109,7 +109,7 @@ export async function savePostgresTriggerFromCfg(
 	edit: boolean,
 	workspace: string,
 	usedTriggerKinds: Writable<string[]>
-) {
+): Promise<boolean> {
 	try {
 		const requestBody = {
 			path: config.path,
@@ -142,7 +142,9 @@ export async function savePostgresTriggerFromCfg(
 		if (!get(usedTriggerKinds).includes('postgres')) {
 			usedTriggerKinds.update((t) => [...t, 'postgres'])
 		}
+		return true
 	} catch (error) {
 		sendUserToast(error.body || error.message, true)
+		return false
 	}
 }

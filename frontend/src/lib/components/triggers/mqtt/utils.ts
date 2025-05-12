@@ -8,7 +8,7 @@ export async function saveMqttTriggerFromCfg(
 	edit: boolean,
 	workspace: string,
 	usedTriggerKinds: Writable<string[]>
-) {
+): Promise<boolean> {
 	const requestBody = {
 		client_id: cfg.client_id,
 		client_version: cfg.client_version,
@@ -21,22 +21,28 @@ export async function saveMqttTriggerFromCfg(
 		enabled: cfg.enabled,
 		is_flow: cfg.is_flow
 	}
-	if (edit) {
-		await MqttTriggerService.updateMqttTrigger({
-			workspace,
-			path: initialPath,
-			requestBody
-		})
-		sendUserToast(`MQTT trigger ${cfg.path} updated`)
-	} else {
-		await MqttTriggerService.createMqttTrigger({
-			workspace,
-			requestBody: { ...requestBody, enabled: true }
-		})
-		sendUserToast(`MQTT trigger ${cfg.path} created`)
-	}
+	try {
+		if (edit) {
+			await MqttTriggerService.updateMqttTrigger({
+				workspace,
+				path: initialPath,
+				requestBody
+			})
+			sendUserToast(`MQTT trigger ${cfg.path} updated`)
+		} else {
+			await MqttTriggerService.createMqttTrigger({
+				workspace,
+				requestBody: { ...requestBody, enabled: true }
+			})
+			sendUserToast(`MQTT trigger ${cfg.path} created`)
+		}
 
-	if (!get(usedTriggerKinds).includes('mqtt')) {
-		usedTriggerKinds.update((t) => [...t, 'mqtt'])
+		if (!get(usedTriggerKinds).includes('mqtt')) {
+			usedTriggerKinds.update((t) => [...t, 'mqtt'])
+		}
+		return true
+	} catch (error) {
+		sendUserToast(error.body || error.message, true)
+		return false
 	}
 }

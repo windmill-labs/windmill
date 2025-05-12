@@ -249,16 +249,18 @@
 	async function updateTrigger(): Promise<void> {
 		deploymentLoading = true
 		const saveCfg = getSaveCfg()
-		await saveWebsocketTriggerFromCfg(
+		const isSaved = await saveWebsocketTriggerFromCfg(
 			initialPath,
 			saveCfg,
 			edit,
 			$workspaceStore!,
 			usedTriggerKinds
 		)
-		dispatch('update', saveCfg.path)
-		drawer?.closeDrawer()
-		toggleEditMode(false)
+		if (isSaved) {
+			dispatch('update', saveCfg.path)
+			drawer?.closeDrawer()
+			toggleEditMode(false)
+		}
 		deploymentLoading = false
 	}
 

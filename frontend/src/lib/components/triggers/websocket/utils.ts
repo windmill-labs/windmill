@@ -9,7 +9,7 @@ export async function saveWebsocketTriggerFromCfg(
 	edit: boolean,
 	workspace: string,
 	usedTriggerKinds: Writable<string[]>
-) {
+): Promise<boolean> {
 	const requestBody = {
 		path: triggerCfg.path,
 		script_path: triggerCfg.script_path,
@@ -20,21 +20,27 @@ export async function saveWebsocketTriggerFromCfg(
 		url_runnable_args: triggerCfg.url_runnable_args,
 		can_return_message: triggerCfg.can_return_message
 	}
-	if (edit) {
-		await WebsocketTriggerService.updateWebsocketTrigger({
-			workspace: workspace,
-			path: initialPath,
-			requestBody: requestBody
-		})
-		sendUserToast(`Websocket trigger ${triggerCfg.path} updated`)
-	} else {
-		await WebsocketTriggerService.createWebsocketTrigger({
-			workspace: workspace,
-			requestBody: { ...requestBody, enabled: true }
-		})
-		sendUserToast(`Websocket trigger ${triggerCfg.path} created`)
-	}
-	if (!get(usedTriggerKinds).includes('ws')) {
-		usedTriggerKinds.update((t) => [...t, 'ws'])
+	try {
+		if (edit) {
+			await WebsocketTriggerService.updateWebsocketTrigger({
+				workspace: workspace,
+				path: initialPath,
+				requestBody: requestBody
+			})
+			sendUserToast(`Websocket trigger ${triggerCfg.path} updated`)
+		} else {
+			await WebsocketTriggerService.createWebsocketTrigger({
+				workspace: workspace,
+				requestBody: { ...requestBody, enabled: true }
+			})
+			sendUserToast(`Websocket trigger ${triggerCfg.path} created`)
+		}
+		if (!get(usedTriggerKinds).includes('ws')) {
+			usedTriggerKinds.update((t) => [...t, 'ws'])
+		}
+		return true
+	} catch (error) {
+		sendUserToast(error.body || error.message, true)
+		return false
 	}
 }

@@ -37,7 +37,7 @@ export async function saveHttpRouteFromCfg(
 	workspace: string,
 	isAdmin: boolean,
 	usedTriggerKinds: Writable<string[]>
-) {
+): Promise<boolean> {
 	const requestBody = {
 		path: routeCfg.path,
 		script_path: routeCfg.script_path,
@@ -52,21 +52,27 @@ export async function saveHttpRouteFromCfg(
 		wrap_body: routeCfg.wrap_body,
 		raw_string: routeCfg.raw_string
 	}
-	if (edit) {
-		await HttpTriggerService.updateHttpTrigger({
-			workspace: workspace,
-			path: initialPath,
-			requestBody: requestBody
-		})
-		sendUserToast(`Route ${routeCfg.path} updated`)
-	} else {
-		await HttpTriggerService.createHttpTrigger({
-			workspace: workspace,
-			requestBody: requestBody
-		})
-		sendUserToast(`Route ${routeCfg.path} created`)
-	}
-	if (!get(usedTriggerKinds).includes('http')) {
-		usedTriggerKinds.update((t) => [...t, 'http'])
+	try {
+		if (edit) {
+			await HttpTriggerService.updateHttpTrigger({
+				workspace: workspace,
+				path: initialPath,
+				requestBody: requestBody
+			})
+			sendUserToast(`Route ${routeCfg.path} updated`)
+		} else {
+			await HttpTriggerService.createHttpTrigger({
+				workspace: workspace,
+				requestBody: requestBody
+			})
+			sendUserToast(`Route ${routeCfg.path} created`)
+		}
+		if (!get(usedTriggerKinds).includes('http')) {
+			usedTriggerKinds.update((t) => [...t, 'http'])
+		}
+		return true
+	} catch (error) {
+		sendUserToast(error.body || error.message, true)
+		return false
 	}
 }

@@ -183,9 +183,17 @@
 		if (!cfg) {
 			return
 		}
-		await saveGcpTriggerFromCfg(initialPath, cfg, edit, $workspaceStore!, usedTriggerKinds)
-		dispatch('update', cfg.path)
-		drawer?.closeDrawer()
+		const isSaved = await saveGcpTriggerFromCfg(
+			initialPath,
+			cfg,
+			edit,
+			$workspaceStore!,
+			usedTriggerKinds
+		)
+		if (isSaved) {
+			dispatch('update', cfg.path)
+			drawer?.closeDrawer()
+		}
 		deploymentLoading = false
 	}
 

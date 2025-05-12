@@ -8,7 +8,7 @@ export async function saveNatsTriggerFromCfg(
 	edit: boolean,
 	workspace: string,
 	usedTriggerKinds: Writable<string[]>
-) {
+): Promise<boolean> {
 	const requestBody = {
 		path: cfg.path,
 		script_path: cfg.script_path,
@@ -19,24 +19,30 @@ export async function saveNatsTriggerFromCfg(
 		subjects: cfg.subjects,
 		use_jetstream: cfg.use_jetstream
 	}
-	if (edit) {
-		await NatsTriggerService.updateNatsTrigger({
-			workspace,
-			path: initialPath,
-			requestBody
-		})
-		sendUserToast(`Nats trigger ${cfg.path} updated`)
-	} else {
-		await NatsTriggerService.createNatsTrigger({
-			workspace,
-			requestBody: {
-				...requestBody,
-				enabled: true
-			}
-		})
-		sendUserToast(`Nats trigger ${cfg.path} created`)
-	}
-	if (!get(usedTriggerKinds).includes('nats')) {
-		usedTriggerKinds.update((t) => [...t, 'nats'])
+	try {
+		if (edit) {
+			await NatsTriggerService.updateNatsTrigger({
+				workspace,
+				path: initialPath,
+				requestBody
+			})
+			sendUserToast(`Nats trigger ${cfg.path} updated`)
+		} else {
+			await NatsTriggerService.createNatsTrigger({
+				workspace,
+				requestBody: {
+					...requestBody,
+					enabled: true
+				}
+			})
+			sendUserToast(`Nats trigger ${cfg.path} created`)
+		}
+		if (!get(usedTriggerKinds).includes('nats')) {
+			usedTriggerKinds.update((t) => [...t, 'nats'])
+		}
+		return true
+	} catch (error) {
+		sendUserToast(error.body || error.message, true)
+		return false
 	}
 }

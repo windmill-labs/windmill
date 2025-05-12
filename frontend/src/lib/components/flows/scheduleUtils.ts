@@ -147,7 +147,7 @@ export async function saveScheduleFromCfg(
 	scheduleCfg: Record<string, any>,
 	edit: boolean,
 	workspace: string
-): Promise<void> {
+): Promise<boolean> {
 	const requestBody = {
 		schedule: scheduleCfg.schedule,
 		timezone: scheduleCfg.timezone,
@@ -170,23 +170,29 @@ export async function saveScheduleFromCfg(
 		paused_until: scheduleCfg.paused_until,
 		cron_version: scheduleCfg.cron_version
 	}
-	if (edit) {
-		await ScheduleService.updateSchedule({
-			workspace,
-			path: scheduleCfg.path,
-			requestBody: requestBody
-		})
-		sendUserToast(`Schedule ${scheduleCfg.path} updated`)
-	} else {
-		await ScheduleService.createSchedule({
-			workspace,
-			requestBody: {
+	try {
+		if (edit) {
+			await ScheduleService.updateSchedule({
+				workspace,
 				path: scheduleCfg.path,
-				script_path: scheduleCfg.script_path,
-				is_flow: scheduleCfg.is_flow,
-				...requestBody
-			}
-		})
-		sendUserToast(`Schedule ${scheduleCfg.path} created`)
+				requestBody: requestBody
+			})
+			sendUserToast(`Schedule ${scheduleCfg.path} updated`)
+		} else {
+			await ScheduleService.createSchedule({
+				workspace,
+				requestBody: {
+					path: scheduleCfg.path,
+					script_path: scheduleCfg.script_path,
+					is_flow: scheduleCfg.is_flow,
+					...requestBody
+				}
+			})
+			sendUserToast(`Schedule ${scheduleCfg.path} created`)
+		}
+		return true
+	} catch (error) {
+		sendUserToast(error.body || error.message, true)
+		return false
 	}
 }

@@ -526,9 +526,11 @@
 	async function scheduleScript(): Promise<void> {
 		const scheduleCfg = getScheduleCfg()
 		deploymentLoading = true
-		await saveScheduleFromCfg(scheduleCfg, edit, $workspaceStore!)
-		dispatch('update', scheduleCfg.path)
-		drawer?.closeDrawer()
+		const isSaved = await saveScheduleFromCfg(scheduleCfg, edit, $workspaceStore!)
+		if (isSaved) {
+			dispatch('update', scheduleCfg.path)
+			drawer?.closeDrawer()
+		}
 		deploymentLoading = false
 	}
 

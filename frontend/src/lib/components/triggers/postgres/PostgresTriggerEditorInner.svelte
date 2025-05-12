@@ -327,10 +327,18 @@
 			return
 		}
 		deploymentLoading = true
-		await savePostgresTriggerFromCfg(initialPath, cfg, edit, $workspaceStore!, usedTriggerKinds)
-		dispatch('update', path)
-		drawer?.closeDrawer()
-		toggleEditMode(false)
+		const isSaved = await savePostgresTriggerFromCfg(
+			initialPath,
+			cfg,
+			edit,
+			$workspaceStore!,
+			usedTriggerKinds
+		)
+		if (isSaved) {
+			dispatch('update', path)
+			drawer?.closeDrawer()
+			toggleEditMode(false)
+		}
 		deploymentLoading = false
 	}
 

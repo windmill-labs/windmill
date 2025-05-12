@@ -206,10 +206,18 @@
 	async function updateTrigger(): Promise<void> {
 		deploymentLoading = true
 		const cfg = getSaveCfg()
-		await saveSqsTriggerFromCfg(initialPath, cfg, edit, $workspaceStore!, usedTriggerKinds)
-		dispatch('update', cfg.path)
-		drawer?.closeDrawer()
-		toggleEditMode(false)
+		const isSaved = await saveSqsTriggerFromCfg(
+			initialPath,
+			cfg,
+			edit,
+			$workspaceStore!,
+			usedTriggerKinds
+		)
+		if (isSaved) {
+			dispatch('update', cfg.path)
+			drawer?.closeDrawer()
+			toggleEditMode(false)
+		}
 		deploymentLoading = false
 	}
 

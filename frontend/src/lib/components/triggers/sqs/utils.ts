@@ -8,7 +8,7 @@ export async function saveSqsTriggerFromCfg(
 	edit: boolean,
 	workspace: string,
 	usedTriggerKinds: Writable<string[]>
-) {
+): Promise<boolean> {
 	const requestBody = {
 		path: cfg.path,
 		script_path: cfg.script_path,
@@ -19,22 +19,28 @@ export async function saveSqsTriggerFromCfg(
 		aws_auth_resource_type: cfg.aws_auth_resource_type,
 		enabled: cfg.enabled
 	}
-	if (edit) {
-		await SqsTriggerService.updateSqsTrigger({
-			workspace,
-			path: initialPath,
-			requestBody
-		})
-		sendUserToast(`SQS trigger ${cfg.path} updated`)
-	} else {
-		await SqsTriggerService.createSqsTrigger({
-			workspace,
-			requestBody: { ...requestBody, enabled: true }
-		})
-		sendUserToast(`SQS trigger ${cfg.path} created`)
-	}
+	try {
+		if (edit) {
+			await SqsTriggerService.updateSqsTrigger({
+				workspace,
+				path: initialPath,
+				requestBody
+			})
+			sendUserToast(`SQS trigger ${cfg.path} updated`)
+		} else {
+			await SqsTriggerService.createSqsTrigger({
+				workspace,
+				requestBody: { ...requestBody, enabled: true }
+			})
+			sendUserToast(`SQS trigger ${cfg.path} created`)
+		}
 
-	if (!get(usedTriggerKinds).includes('sqs')) {
-		usedTriggerKinds.update((t) => [...t, 'sqs'])
+		if (!get(usedTriggerKinds).includes('sqs')) {
+			usedTriggerKinds.update((t) => [...t, 'sqs'])
+		}
+		return true
+	} catch (error) {
+		sendUserToast(error.body || error.message, true)
+		return false
 	}
 }

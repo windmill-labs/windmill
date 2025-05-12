@@ -8,7 +8,7 @@ export async function saveGcpTriggerFromCfg(
 	edit: boolean,
 	workspace: string,
 	usedTriggerKinds: Writable<string[]>
-) {
+): Promise<boolean> {
 	try {
 		const requestBody = {
 			gcp_resource_path: cfg.gcp_resource_path,
@@ -44,7 +44,9 @@ export async function saveGcpTriggerFromCfg(
 		if (!get(usedTriggerKinds).includes('gcp')) {
 			usedTriggerKinds.update((t) => [...t, 'gcp'])
 		}
+		return true
 	} catch (error) {
 		sendUserToast(error.body || error.message, true)
+		return false
 	}
 }
