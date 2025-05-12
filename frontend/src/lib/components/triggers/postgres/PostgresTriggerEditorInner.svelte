@@ -255,17 +255,20 @@
 			return undefined
 		}
 		const cfg = {
-			script_path,
-			initialScriptPath,
-			is_flow,
-			path,
-			postgres_resource_path,
-			publication_name,
-			replication_slot_name,
-			publication: {
-				transaction_to_track,
-				table_to_track: relations
-			}
+			script_path: script_path,
+			initialScriptPath: initialScriptPath,
+			is_flow: is_flow,
+			path: path,
+			postgres_resource_path: postgres_resource_path,
+			publication_name: edit || tab === 'advanced' ? publication_name : undefined,
+			replication_slot_name: edit || tab === 'advanced' ? replication_slot_name : undefined,
+			publication:
+				!edit || tab === 'basic'
+					? {
+							transaction_to_track: transaction_to_track,
+							table_to_track: relations
+						}
+					: undefined
 		}
 		return cfg
 	}
