@@ -6,6 +6,7 @@
 	import CaptureSection, { type CaptureInfo } from '../CaptureSection.svelte'
 	import { workspaceStore } from '$lib/stores'
 	import { Url } from '$lib/components/common'
+	import { fade } from 'svelte/transition'
 
 	export let isFlow: boolean = false
 	export let path: string = ''
@@ -45,9 +46,13 @@
 	>
 		<svelte:fragment slot="description">
 			{#if captureInfo.active}
-				Send a POST request to the URL below to simulate a webhook event.
+				<p in:fade={{ duration: 100, delay: 50 }} out:fade={{ duration: 50 }}>
+					Send a POST request to the URL below to simulate a webhook event.
+				</p>
 			{:else}
-				Start capturing to listen to webhook events on this test URL.
+				<p in:fade={{ duration: 100, delay: 50 }} out:fade={{ duration: 50 }}>
+					Start capturing to listen to webhook events on this test URL.
+				</p>
 			{/if}
 		</svelte:fragment>
 		<Url label="Test URL" url={captureUrl} />

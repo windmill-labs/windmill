@@ -3,6 +3,7 @@
 	import CaptureSection from '../CaptureSection.svelte'
 	import { workspaceStore } from '$lib/stores'
 	import { Url } from '$lib/components/common'
+	import { fade } from 'svelte/transition'
 
 	export let captureInfo: CaptureInfo | undefined = undefined
 	export let isValid: boolean | undefined = undefined
@@ -36,9 +37,13 @@
 	>
 		<svelte:fragment slot="description">
 			{#if captureInfo.active}
-				Listening to GCP Pub/Sub events...
+				<p in:fade={{ duration: 100, delay: 50 }} out:fade={{ duration: 50 }}>
+					Listening to GCP Pub/Sub events...
+				</p>
 			{:else}
-				Start capturing to listen to GCP Pub/Sub events.
+				<p in:fade={{ duration: 100, delay: 50 }} out:fade={{ duration: 50 }}>
+					Start capturing to listen to GCP Pub/Sub events.
+				</p>
 			{/if}
 		</svelte:fragment>
 

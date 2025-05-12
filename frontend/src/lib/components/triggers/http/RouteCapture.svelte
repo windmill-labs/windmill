@@ -9,6 +9,7 @@
 	import CaptureSection from '../CaptureSection.svelte'
 	import { isObject } from '$lib/utils'
 	import { Url } from '$lib/components/common'
+	import { fade } from 'svelte/transition'
 
 	export let route_path: string | undefined
 	export let http_method: 'get' | 'post' | 'put' | 'patch' | 'delete' | undefined
@@ -45,9 +46,13 @@
 	>
 		<svelte:fragment slot="description">
 			{#if captureInfo.active}
-				Send a POST request to the URL below to simulate a http event.
+				<p in:fade={{ duration: 100, delay: 50 }} out:fade={{ duration: 50 }}>
+					Send a POST request to the URL below to simulate a http event.
+				</p>
 			{:else}
-				Start capturing to listen to HTTP requests on this test URL.
+				<p in:fade={{ duration: 100, delay: 50 }} out:fade={{ duration: 50 }}>
+					Start capturing to listen to HTTP requests on this test URL.
+				</p>
 			{/if}
 		</svelte:fragment>
 

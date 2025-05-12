@@ -1,11 +1,21 @@
 <script lang="ts">
+	import { fade } from 'svelte/transition'
 	import type { CaptureInfo } from '../CaptureSection.svelte'
 	import CaptureSection from '../CaptureSection.svelte'
 
-	export let captureInfo: CaptureInfo | undefined = undefined
-	export let isValid: boolean | undefined = undefined
-	export let hasPreprocessor: boolean = false
-	export let isFlow: boolean = false
+	interface Props {
+		captureInfo?: CaptureInfo | undefined
+		isValid?: boolean | undefined
+		hasPreprocessor?: boolean
+		isFlow?: boolean
+	}
+
+	let {
+		captureInfo = undefined,
+		isValid = undefined,
+		hasPreprocessor = false,
+		isFlow = false
+	}: Props = $props()
 </script>
 
 {#if captureInfo}
@@ -23,9 +33,13 @@
 	>
 		<svelte:fragment slot="description">
 			{#if captureInfo.active}
-				Listenning to websocket events...
+				<p in:fade={{ duration: 100, delay: 50 }} out:fade={{ duration: 50 }}>
+					Listenning to websocket events...
+				</p>
 			{:else}
-				Start capturing to listen to websocket events.
+				<p in:fade={{ duration: 100, delay: 50 }} out:fade={{ duration: 50 }}>
+					Start capturing to listen to websocket events.
+				</p>
 			{/if}
 		</svelte:fragment>
 	</CaptureSection>

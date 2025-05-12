@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { fade } from 'svelte/transition'
 	import type { CaptureInfo } from '../CaptureSection.svelte'
 	import CaptureSection from '../CaptureSection.svelte'
 
@@ -23,9 +24,13 @@
 	>
 		<svelte:fragment slot="description">
 			{#if captureInfo.active}
-				Listening to SQS messages...
+				<p in:fade={{ duration: 100, delay: 50 }} out:fade={{ duration: 50 }}>
+					Listening to SQS messages...
+				</p>
 			{:else}
-				Start capturing to listen to SQS messages.
+				<p in:fade={{ duration: 100, delay: 50 }} out:fade={{ duration: 50 }}>
+					Start capturing to listen to SQS messages.
+				</p>
 			{/if}
 		</svelte:fragment>
 	</CaptureSection>
