@@ -2,9 +2,13 @@
 	import { Badge } from '$lib/components/common'
 	import ClipboardPanel from '$lib/components/details/ClipboardPanel.svelte'
 
-	export let url = ''
-	export let disabled = false
-	export let label = ''
+	interface Props {
+		url?: string
+		disabled?: boolean
+		label?: string
+	}
+
+	let { url = '', disabled = false, label = '' }: Props = $props()
 </script>
 
 <div class="flex justify-start w-full">
