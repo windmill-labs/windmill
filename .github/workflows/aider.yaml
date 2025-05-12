@@ -22,7 +22,7 @@ jobs:
           python-version: "3.12"
 
       - name: Install Aider
-        run: python -m pip install -U --upgrade-strategy only-if-needed aider-chat
+        run: python -m pip install aider-install; aider-install
 
       - name: Build prompt via external API
         shell: bash
@@ -32,10 +32,14 @@ jobs:
 
           echo "Sending issue content to external API…"
 
-          # build JSON
+          # Write content to temporary files to avoid shell interpretation issues
+          echo "$ISSUE_TITLE" > /tmp/issue_title.txt
+          echo "$ISSUE_BODY_CONTENT" > /tmp/issue_body.txt
+
+          # Build JSON using files as input
           JSON_PAYLOAD=$(jq -n \
-            --arg title "$ISSUE_TITLE" \
-            --arg body  "$ISSUE_BODY_CONTENT" \
+            --rawfile title /tmp/issue_title.txt \
+            --rawfile body /tmp/issue_body.txt \
             '{"body":{"issue_title":$title,"issue_body":$body}}')
 
           # call your API
@@ -49,19 +53,35 @@ jobs:
           BODY=$(echo "$API_RESULT" | sed '$d')
 
           if [[ "$HTTP_CODE" -eq 200 ]]; then
-            PROMPT=$(echo "$BODY" | jq -r '.processed_prompt // .effective_body // .message // empty')
+            # Store API response in a file to avoid interpretation issues
+            echo "$BODY" > /tmp/api_response.txt
+            PROMPT=$(jq -r '.processed_prompt // .effective_body // .message // empty' /tmp/api_response.txt)
             if [[ -z "$PROMPT" ]]; then
               echo "::warning::API returned no prompt; falling back to raw issue."
-              PROMPT="Please fix the issue described below:\n\nTitle: $ISSUE_TITLE\n\nBody:\n$ISSUE_BODY_CONTENT"
+              echo "Please fix the issue described below:" > /tmp/fallback_prompt.txt
+              echo "" >> /tmp/fallback_prompt.txt
+              echo "Title: $(cat /tmp/issue_title.txt)" >> /tmp/fallback_prompt.txt
+              echo "" >> /tmp/fallback_prompt.txt
+              echo "Body:" >> /tmp/fallback_prompt.txt
+              cat /tmp/issue_body.txt >> /tmp/fallback_prompt.txt
+              cat /tmp/fallback_prompt.txt > /tmp/prompt.txt
+            else
+              echo "$PROMPT" > /tmp/prompt.txt
             fi
           else
             echo "::error::API call failed (HTTP $HTTP_CODE). Falling back."
-            PROMPT="Please fix the issue described below:\n\nTitle: $ISSUE_TITLE\n\nBody:\n$ISSUE_BODY_CONTENT"
+            echo "Please fix the issue described below:" > /tmp/fallback_prompt.txt
+            echo "" >> /tmp/fallback_prompt.txt
+            echo "Title: $(cat /tmp/issue_title.txt)" >> /tmp/fallback_prompt.txt
+            echo "" >> /tmp/fallback_prompt.txt
+            echo "Body:" >> /tmp/fallback_prompt.txt
+            cat /tmp/issue_body.txt >> /tmp/fallback_prompt.txt
+            cat /tmp/fallback_prompt.txt > /tmp/prompt.txt
           fi
 
           # write the final prompt
           mkdir -p .github/aider
-          printf "%s" "$PROMPT" > .github/aider/issue-prompt.txt
+          cat /tmp/prompt.txt > .github/aider/issue-prompt.txt
 
       - name: Run Aider with external prompt
         run: |
@@ -70,7 +90,9 @@ jobs:
             --model gemini-2.5-pro-preview-05-06 \
             --message-file .github/aider/issue-prompt.txt \
             --yes \
+            --no-check-update \
             --auto-commits \
+            --no-analytics \
             --stream=false
 
       - name: Commit & push fixes
