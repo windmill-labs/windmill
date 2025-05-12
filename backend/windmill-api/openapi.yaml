@@ -2245,40 +2245,6 @@ paths:
                   job_uuid:
                     type: string
 
-  /w/{workspace}/workspaces/run_teams_message_test_job:
-    post:
-      summary: run a job that sends a message to Teams
-      operationId: runTeamsMessageTestJob
-      tags:
-        - workspace
-      parameters:
-        - $ref: "#/components/parameters/WorkspaceId"
-      requestBody:
-        description: path to hub script to run and its corresponding args
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                hub_script_path:
-                  type: string
-                channel:
-                  type: string
-                test_msg:
-                  type: string
-
-      responses:
-        "200":
-          description: status
-          content:
-            text/json:
-              schema:
-                type: object
-                properties:
-                  job_uuid:
-                    type: string
-
   /w/{workspace}/workspaces/edit_deploy_to:
     post:
       summary: edit deploy to
@@ -3613,41 +3579,6 @@ paths:
 
       responses:
         "200":
-          description: Activity processed successfully
-
-  /teams/activities:
-    post:
-      summary: send update to Microsoft Teams activity
-      description: Respond to a Microsoft Teams activity after a workspace command is run
-      operationId: sendMessageToConversation
-      tags:
-        - teams
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required:
-                - conversation_id
-                - text
-              properties:
-                conversation_id:
-                  type: string
-                  description: The ID of the Teams conversation/activity
-                success:
-                  type: boolean
-                  description: Used for styling the card conditionally
-                  default: true
-                text:
-                  type: string
-                  description: The message text to be sent in the Teams card
-                card_block:
-                  type: object
-                  description: The card block to be sent in the Teams card
-
-      responses:
-        '200':
           description: Activity processed successfully
 
   /w/{workspace}/resources/create:

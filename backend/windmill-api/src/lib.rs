@@ -61,6 +61,8 @@ use windmill_common::{utils::GIT_VERSION, BASE_URL, INSTANCE_NAME};
 use crate::scim_ee::has_scim_token;
 use windmill_common::error::AppError;
 
+use crate::teams_approvals::request_teams_approval;
+
 #[cfg(feature = "agent_worker_server")]
 mod agent_workers_ee;
 mod ai;
@@ -118,6 +120,8 @@ mod scripts;
 mod service_logs;
 mod settings;
 mod slack_approvals;
+mod approvals;
+mod teams_approvals;
 #[cfg(feature = "smtp")]
 mod smtp_server_ee;
 #[cfg(all(feature = "enterprise", feature = "sqs_trigger"))]
@@ -646,6 +650,10 @@ pub async fn run_server(
                 .route(
                     "/w/:workspace_id/jobs/slack_approval/:job_id",
                     get(slack_approvals::request_slack_approval),
+                )
+                .route(
+                    "/w/:workspace_id/jobs/teams_approval/:job_id",
+                    get(request_teams_approval),
                 )
                 .nest("/w/:workspace_id/github_app", {
                     #[cfg(feature = "enterprise")]

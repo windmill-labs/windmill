@@ -79,17 +79,17 @@ pub async fn get_approval_form(
 
     let (job_kind, script_hash, raw_flow, parent_job_id, created_at, created_by, script_path, args) = sqlx::query!(
         "SELECT
-            v2_as_queue.job_kind AS \"job_kind!: JobKind\",
-            v2_as_queue.script_hash AS \"script_hash: ScriptHash\",
-            v2_as_queue.raw_flow AS \"raw_flow: sqlx::types::Json<Box<RawValue>>\",
-            v2_as_completed_job.parent_job AS \"parent_job: Uuid\",
-            v2_as_completed_job.created_at AS \"created_at!: chrono::NaiveDateTime\",
-            v2_as_completed_job.created_by AS \"created_by!\",
-            v2_as_queue.script_path,
-            v2_as_queue.args AS \"args: sqlx::types::Json<Box<RawValue>>\"
-        FROM v2_as_queue
-        JOIN v2_as_completed_job ON v2_as_completed_job.parent_job = v2_as_queue.id
-        WHERE v2_as_completed_job.id = $1 AND v2_as_completed_job.workspace_id = $2
+            parent.job_kind AS \"job_kind!: JobKind\",
+            parent.script_hash AS \"script_hash: ScriptHash\",
+            parent.raw_flow AS \"raw_flow: sqlx::types::Json<Box<RawValue>>\",
+            child.parent_job AS \"parent_job: Uuid\",
+            parent.created_at AS \"created_at!: chrono::NaiveDateTime\",
+            parent.created_by AS \"created_by!\",
+            parent.script_path,
+            parent.args AS \"args: sqlx::types::Json<Box<RawValue>>\"
+        FROM v2_as_queue child
+        JOIN v2_as_queue parent ON parent.id = child.parent_job
+        WHERE child.id = $1 AND child.workspace_id = $2
         LIMIT 1",
         job_id,
         &w_id
@@ -134,11 +134,11 @@ pub async fn get_approval_form(
 
     let mut message_str = format!(
         "A workflow has been suspended and is waiting for approval:\n\n\
-        *Created by*: {created_by}\n\
-        *Created at*: {created_at_formatted}\n\
-        *Script path*: {script_path_str}\n\
-        *Args*: {args_str}\n\
-        *Flow ID*: {parent_job_id_str}\n\n"
+        **Created by**: {created_by}\n\n\
+        **Created at**: {created_at_formatted}\n\n\
+        **Script path**: {script_path_str}\n\n\
+        **Args**: {args_str}\n\n\
+        **Flow ID**: {parent_job_id_str}\n\n"
     );
 
     // Append custom message if provided
