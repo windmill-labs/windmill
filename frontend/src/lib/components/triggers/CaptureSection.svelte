@@ -106,7 +106,7 @@
 
 	function selectCapture(capture: Capture) {
 		selectedCapture = capture
-		if (capture.payload === 'WINDMILL_TOO_BIG') {
+		if (capture.main_args === 'WINDMILL_TOO_BIG') {
 			loadBigPayload(capture)
 		}
 	}
@@ -195,7 +195,7 @@
 				id: capture.id
 			})
 
-			capture.payload = fullCapture.payload
+			capture.main_args = fullCapture.main_args
 			isLoadingBigPayload = false
 		} catch (error) {
 			sendUserToast('Failed to load large payload', true)
@@ -359,7 +359,7 @@
 								label: 'Use as input schema',
 								onClick: async () => {
 									if (!lastCapture) return
-									const payloadData = selectedCapture?.payload
+									const payloadData = selectedCapture?.main_args
 									dispatch('updateSchema', {
 										payloadData: payloadData ?? {},
 										redirect: true,
@@ -372,12 +372,12 @@
 						].filter((item) => !item.hidden)}
 						on:click={async () => {
 							if (!selectedCapture) return
-							const payloadData = selectedCapture?.payload ?? {}
+							const payloadData = selectedCapture?.main_args ?? {}
 							if (isFlow && testKind === 'main') {
 								dispatch('testWithArgs', payloadData)
 							} else {
-								const trigger_extra = isObject(selectedCapture.trigger_extra)
-									? selectedCapture.trigger_extra
+								const trigger_extra = isObject(selectedCapture.preprocessor_args)
+									? selectedCapture.preprocessor_args
 									: {}
 
 								dispatch('applyArgs', {
@@ -398,7 +398,7 @@
 			{#if displayResult && toolbarLocation === 'external'}
 				<DisplayResultControlBar
 					{base}
-					result={selectedCapture?.payload}
+					result={selectedCapture?.main_args}
 					disableTooltips={false}
 					on:open-drawer={() => {
 						if (displayResult && typeof displayResult.openDrawer === 'function') {
@@ -411,17 +411,17 @@
 		<div class="grow min-h-0 rounded-md w-full pl-2 py-1 pb-2 overflow-auto">
 			{#if isLoadingBigPayload}
 				<Loader2 class="animate-spin" />
-			{:else if selectedCapture?.payload}
+			{:else if selectedCapture?.main_args}
 				{@const trigger_extra =
-					testKind === 'preprocessor' && isObject(selectedCapture.trigger_extra)
-						? selectedCapture.trigger_extra
+					testKind === 'preprocessor' && isObject(selectedCapture.preprocessor_args)
+						? selectedCapture.preprocessor_args
 						: {}}
 				<div class="bg-surface rounded-md text-sm" class:animate-highlight={newCaptureReceived}>
 					<DisplayResult
 						bind:this={displayResult}
 						workspaceId={undefined}
 						jobId={undefined}
-						result={{ ...selectedCapture.payload, ...trigger_extra }}
+						result={{ ...selectedCapture.main_args, ...trigger_extra }}
 						externalToolbarAvailable
 						on:toolbar-location-changed={({ detail }) => {
 							toolbarLocation = detail
