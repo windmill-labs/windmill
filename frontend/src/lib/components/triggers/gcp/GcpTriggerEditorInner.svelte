@@ -79,17 +79,20 @@
 	} = $props()
 
 	$effect(() => {
-		isEditor &&
+		if (isEditor) {
+			const base_endpoint = `${window.location.origin}${base}`
 			dispatch('update-config', {
 				gcp_resource_path,
 				subscription_mode,
 				subscription_id,
 				delivery_type,
 				delivery_config,
+				base_endpoint,
 				topic_id,
 				isValid,
 				path
 			})
+		}
 	})
 
 	export async function openEdit(ePath: string, isFlow: boolean) {
