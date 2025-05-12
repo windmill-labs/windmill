@@ -210,7 +210,6 @@ jobs:
         if: ${{ success() }}
         run: |
           if [[ "${{ github.event_name }}" == "issues" ]]; then
-            git push origin main
             BRANCH_NAME="aider-fix-issue-${{ github.event.issue.number }}"
             git checkout -b $BRANCH_NAME
             echo "Created branch $BRANCH_NAME for issue #${{ github.event.issue.number }}"
@@ -230,25 +229,25 @@ jobs:
             fi
           fi
 
-      - name: Create Pull Request
-        if: success() && github.event_name == 'issues' && steps.commit_and_push.outputs.PR_BRANCH_NAME != ''
-        uses: peter-evans/create-pull-request@v6
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-          commit-message: "[Aider PR] Add fixes for issue #${{ github.event.issue.number }}"
-          branch: ${{ steps.commit_and_push.outputs.PR_BRANCH_NAME }}
-          base: main
-          delete-branch: true
+      # - name: Create Pull Request
+      #   if: success() && github.event_name == 'issues' && steps.commit_and_push.outputs.PR_BRANCH_NAME != ''
+      #   uses: peter-evans/create-pull-request@v6
+      #   with:
+      #     token: ${{ secrets.GITHUB_TOKEN }}
+      #     commit-message: "[Aider PR] Add fixes for issue #${{ github.event.issue.number }}"
+      #     branch: ${{ steps.commit_and_push.outputs.PR_BRANCH_NAME }}
+      #     base: main
+      #     delete-branch: true
 
-      - name: Comment on issue
-        uses: peter-evans/create-or-update-comment@v4
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-          issue-number: ${{ github.event.issue.number }}
-          body: |
-            ✅ Aider (via Gemini using `${{ env.AIDER_MODEL }}`) has processed your request triggered by a `${{ github.event_name }}` event.
+      # - name: Comment on issue
+      #   uses: peter-evans/create-or-update-comment@v4
+      #   with:
+      #     token: ${{ secrets.GITHUB_TOKEN }}
+      #     issue-number: ${{ github.event.issue.number }}
+      #     body: |
+      #       ✅ Aider (via Gemini using `${{ env.AIDER_MODEL }}`) has processed your request triggered by a `${{ github.event_name }}` event.
 
-            ${{ steps.commit_and_push.outputs.CHANGES_APPLIED_MESSAGE || 'Aider processing complete.' }}
+      #       ${{ steps.commit_and_push.outputs.CHANGES_APPLIED_MESSAGE || 'Aider processing complete.' }}
 
-            ${{ github.event_name == 'issues' && steps.create_pull_request.outputs.pull-request-url && format('Pull Request created: {0}', steps.create_pull_request.outputs.pull-request-url) || '' }}
-            ${{ github.event_name == 'issues' && steps.commit_and_push.outputs.PR_BRANCH_NAME != '' && !steps.create_pull_request.outputs.pull-request-url && 'PR creation may have been skipped or failed for the pushed branch.' || '' }}
+      #       ${{ github.event_name == 'issues' && steps.create_pull_request.outputs.pull-request-url && format('Pull Request created: {0}', steps.create_pull_request.outputs.pull-request-url) || '' }}
+      #       ${{ github.event_name == 'issues' && steps.commit_and_push.outputs.PR_BRANCH_NAME != '' && !steps.create_pull_request.outputs.pull-request-url && 'PR creation may have been skipped or failed for the pushed branch.' || '' }}
