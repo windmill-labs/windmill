@@ -12,6 +12,10 @@ use std::{collections::HashMap, str::FromStr};
 use regex::Regex;
 use reqwest::Client;
 
+use crate::approvals::{
+    QueryDefaultArgsJson, QueryDynamicEnumJson, QueryFlowStepId, QueryMessage, ResumeFormRow,
+    ResumeSchema, ResumeFormField, FieldType,
+};
 use crate::db::{ApiAuthed, DB};
 use crate::jobs::{
     cancel_suspended_job, get_resume_urls_internal, resume_suspended_job, QueryApprover,
@@ -91,53 +95,6 @@ struct SelectedOption {
     value: String,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
-struct ResumeSchema {
-    schema: Schema,
-}
-
-#[derive(Debug, Deserialize)]
-struct ResumeFormRow {
-    resume_form: Option<serde_json::Value>,
-    hide_cancel: Option<bool>,
-}
-
-#[derive(Debug, Deserialize, Serialize)]
-struct Schema {
-    order: Vec<String>,
-    required: Vec<String>,
-    properties: HashMap<String, ResumeFormField>,
-}
-
-#[derive(Debug, Deserialize, Serialize)]
-#[serde(rename_all = "lowercase")]
-enum FieldType {
-    Boolean,
-    String,
-    Number,
-    Integer,
-    #[serde(other)]
-    Unknown,
-}
-
-#[derive(Debug, Deserialize, Serialize)]
-struct ResumeFormField {
-    r#type: FieldType,
-    format: Option<String>,
-    default: Option<serde_json::Value>,
-    description: Option<String>,
-    title: Option<String>,
-    r#enum: Option<Vec<String>>,
-    #[serde(rename = "enumLabels")]
-    enum_labels: Option<HashMap<String, String>>,
-    nullable: Option<bool>,
-}
-
-#[derive(Deserialize)]
-pub struct QueryMessage {
-    message: Option<String>,
-}
-
 #[derive(Deserialize)]
 pub struct QueryResourcePath {
     slack_resource_path: String,
@@ -146,21 +103,6 @@ pub struct QueryResourcePath {
 #[derive(Deserialize)]
 pub struct QueryChannelId {
     channel_id: String,
-}
-
-#[derive(Deserialize)]
-pub struct QueryFlowStepId {
-    flow_step_id: String,
-}
-
-#[derive(Deserialize, Debug)]
-pub struct QueryDefaultArgsJson {
-    default_args_json: Option<serde_json::Value>,
-}
-
-#[derive(Deserialize, Debug)]
-pub struct QueryDynamicEnumJson {
-    dynamic_enums_json: Option<serde_json::Value>,
 }
 
 #[derive(Deserialize, Debug)]
