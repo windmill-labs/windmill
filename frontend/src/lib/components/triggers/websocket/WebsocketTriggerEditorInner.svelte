@@ -266,12 +266,13 @@
 	}
 
 	$effect(() => {
-		dispatch('update-config', {
-			url,
-			url_runnable_args,
-			isValid,
-			path
-		})
+		isEditor &&
+			dispatch('update-config', {
+				url,
+				url_runnable_args,
+				isValid,
+				path
+			})
 	})
 
 	async function handleToggleEnabled(e: CustomEvent<boolean>) {

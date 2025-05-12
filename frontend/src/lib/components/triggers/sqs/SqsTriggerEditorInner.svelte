@@ -215,14 +215,15 @@
 	}
 
 	$effect(() => {
-		dispatch('update-config', {
-			aws_resource_path,
-			queue_url,
-			message_attributes,
-			aws_auth_resource_type,
-			isValid,
-			path
-		})
+		isEditor &&
+			dispatch('update-config', {
+				aws_resource_path,
+				queue_url,
+				message_attributes,
+				aws_auth_resource_type,
+				isValid,
+				path
+			})
 	})
 </script>
 

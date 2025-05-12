@@ -209,13 +209,14 @@
 	}
 
 	$effect(() => {
-		dispatch('update-config', {
-			kafka_resource_path: kafkaResourcePath,
-			group_id: kafkaCfg.group_id,
-			topics: structuredClone($state.snapshot(kafkaCfg.topics)),
-			isValid,
-			path
-		})
+		isEditor &&
+			dispatch('update-config', {
+				kafka_resource_path: kafkaResourcePath,
+				group_id: kafkaCfg.group_id,
+				topics: structuredClone($state.snapshot(kafkaCfg.topics)),
+				isValid,
+				path
+			})
 	})
 
 	function saveDraft() {

@@ -150,14 +150,15 @@
 	})
 
 	$effect(() => {
-		dispatch('update-config', {
-			postgres_resource_path,
-			publication: {
-				transaction_to_track,
-				table_to_track: relations
-			},
-			path
-		})
+		isEditor &&
+			dispatch('update-config', {
+				postgres_resource_path,
+				publication: {
+					transaction_to_track,
+					table_to_track: relations
+				},
+				path
+			})
 	})
 
 	export async function openEdit(

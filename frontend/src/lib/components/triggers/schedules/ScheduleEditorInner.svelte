@@ -601,16 +601,17 @@
 	}
 
 	$effect(() => {
-		dispatch('update-config', {
-			summary,
-			description,
-			no_flow_overlap,
-			path,
-			paused_until,
-			args,
-			schedule,
-			timezone
-		})
+		isEditor &&
+			dispatch('update-config', {
+				summary,
+				description,
+				no_flow_overlap,
+				path,
+				paused_until,
+				args,
+				schedule,
+				timezone
+			})
 	})
 
 	function getScheduleCfg(): Record<string, any> {

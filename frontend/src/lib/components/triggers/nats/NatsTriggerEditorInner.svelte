@@ -226,12 +226,13 @@
 	}
 
 	$effect(() => {
-		dispatch('update-config', {
-			nats_resource_path: args.nats_resource_path,
-			subjects: args.subjects,
-			isValid,
-			path
-		})
+		isEditor &&
+			dispatch('update-config', {
+				nats_resource_path: args.nats_resource_path,
+				subjects: args.subjects,
+				isValid,
+				path
+			})
 	})
 </script>
 

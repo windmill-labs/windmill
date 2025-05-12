@@ -79,17 +79,17 @@
 	} = $props()
 
 	$effect(() => {
-		is_flow = itemKind === 'flow'
-		dispatch('update-config', {
-			gcp_resource_path,
-			subscription_mode,
-			subscription_id,
-			delivery_type,
-			delivery_config,
-			topic_id,
-			isValid,
-			path
-		})
+		isEditor &&
+			dispatch('update-config', {
+				gcp_resource_path,
+				subscription_mode,
+				subscription_id,
+				delivery_type,
+				delivery_config,
+				topic_id,
+				isValid,
+				path
+			})
 	})
 
 	export async function openEdit(ePath: string, isFlow: boolean) {

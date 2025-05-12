@@ -227,16 +227,17 @@
 	}
 
 	$effect(() => {
-		dispatch('update-config', {
-			mqtt_resource_path,
-			subscribe_topics,
-			client_version,
-			v3_config,
-			v5_config,
-			client_id,
-			isValid,
-			path
-		})
+		isEditor &&
+			dispatch('update-config', {
+				mqtt_resource_path,
+				subscribe_topics,
+				client_version,
+				v3_config,
+				v5_config,
+				client_id,
+				isValid,
+				path
+			})
 	})
 </script>
 

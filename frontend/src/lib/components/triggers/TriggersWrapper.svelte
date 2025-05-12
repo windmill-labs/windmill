@@ -83,7 +83,6 @@
 		{hash}
 		token=""
 		{args}
-		on:update-config={({ detail }) => updateConfig(detail)}
 		scopes={isFlow ? [`run:flow/${currentPath}`] : [`run:script/${currentPath}`]}
 		{newItem}
 	/>

@@ -90,7 +90,6 @@
 	let isAdmin = $derived($userStore?.is_admin || $userStore?.is_super_admin)
 	let initialConfig = $state<Record<string, any> | undefined>(undefined)
 
-	// Use $derived for computed values
 	$effect(() => {
 		is_flow = itemKind === 'flow'
 	})
@@ -314,14 +313,15 @@
 
 	// Update config for captures
 	$effect(() => {
-		dispatch('update-config', {
-			route_path,
-			http_method,
-			raw_string,
-			wrap_body,
-			isValid,
-			path
-		})
+		isEditor &&
+			dispatch('update-config', {
+				route_path,
+				http_method,
+				raw_string,
+				wrap_body,
+				isValid,
+				path
+			})
 	})
 
 	$effect(() => {
