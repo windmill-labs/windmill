@@ -684,34 +684,28 @@ jobs:
           if [ $EXIT_CODE -ne 0 ]; then echo "::error::probe-chat failed (Code: $EXIT_CODE)." >&2; if [ ! -s "$RESPONSE_FILE" ]; then echo "🤖 Error: AI command failed (Code: $EXIT_CODE)." > "$RESPONSE_FILE"; fi; fi
           if [ $EXIT_CODE -eq 0 ] && [ ! -s "$RESPONSE_FILE" ]; then echo "::warning::probe-chat empty response."; echo "🤖 AI generated no response." > "$RESPONSE_FILE"; fi
 
-      - name: Publish Response Debug Comment
+      - name: Debug - Show Response Content
         if: always()
-        env:
-          GH_TOKEN: ${{ env.WORKFLOW_TOKEN }}
-          ISSUE_NUMBER: ${{ env.ISSUE_OR_PR_NUMBER }}
         run: |
-          COMMENT_BODY="## Debugging Information\n\n"
-
+          echo "::group::AI Response Content"
           if [ -f "response.txt" ]; then
-            RESPONSE_CONTENT=$(cat response.txt)
-            COMMENT_BODY+="### AI Response Content:\n\n\`\`\`\n${RESPONSE_CONTENT}\n\`\`\`\n\n"
+            echo "First 500 characters of response.txt:"
+            head -c 500 response.txt
+            echo -e "\n\n------ Full Response ------"
+            cat response.txt
           else
-            COMMENT_BODY+="### AI Response: Not Found\n\n"
+            echo "response.txt file not found"
           fi
+          echo "::endgroup::"
 
+          echo "::group::Error Log Content"
           if [ -f "error.log" ]; then
-            ERROR_CONTENT=$(cat error.log | head -c 2000)
-            COMMENT_BODY+="### Error Log (first 2000 chars):\n\n\`\`\`\n${ERROR_CONTENT}\n\`\`\`\n\n"
+            echo "First 500 characters of error.log:"
+            head -c 500 error.log
+          else
+            echo "error.log file not found"
           fi
-
-          COMMENT_BODY+="### Git Status Information:\n\n\`\`\`\n$(git status --porcelain)\n\`\`\`\n\n"
-          COMMENT_BODY+="_This is a debug comment to help diagnose workflow issues._"
-
-          # Create a temporary file with the comment body
-          echo -e "$COMMENT_BODY" > debug_comment.md
-
-          # Post the comment to the issue
-          gh issue comment "$ISSUE_NUMBER" --body-file debug_comment.md
+          echo "::endgroup::"
 
       - name: Upload Debug Files as Artifacts
         if: always()
