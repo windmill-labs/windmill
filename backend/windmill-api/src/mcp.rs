@@ -402,8 +402,7 @@ impl Runner {
                     "o.created_at"
                 },
                 false,
-            )
-            .limit(100);
+            );
         let sql = sqlb.sql().map_err(|_e| {
             tracing::error!("failed to build sql: {}", _e);
             Error::internal_error("failed to build sql", None)
