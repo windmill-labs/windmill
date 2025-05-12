@@ -8,13 +8,15 @@
 		isValid?: boolean | undefined
 		hasPreprocessor?: boolean
 		isFlow?: boolean
+		captureLoading?: boolean
 	}
 
 	let {
 		captureInfo = undefined,
 		isValid = undefined,
 		hasPreprocessor = false,
-		isFlow = false
+		isFlow = false,
+		captureLoading = false
 	}: Props = $props()
 </script>
 
@@ -30,6 +32,7 @@
 		on:testWithArgs
 		{hasPreprocessor}
 		{isFlow}
+		{captureLoading}
 	>
 		<svelte:fragment slot="description">
 			{#if captureInfo.active}

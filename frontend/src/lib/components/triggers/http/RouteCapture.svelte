@@ -18,6 +18,7 @@
 	export let isValid: boolean | undefined = undefined
 	export let hasPreprocessor: boolean = false
 	export let isFlow: boolean = false
+	export let captureLoading: boolean = false
 
 	$: captureURL = `${location.origin}${base}/api/w/${$workspaceStore}/capture_u/http/${
 		captureInfo?.isFlow ? 'flow' : 'script'
@@ -36,6 +37,7 @@
 		captureType="http"
 		disabled={isValid === false}
 		{captureInfo}
+		{captureLoading}
 		on:captureToggle
 		on:applyArgs
 		on:updateSchema

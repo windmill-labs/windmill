@@ -11,6 +11,7 @@
 	export let emailDomain: string | null = null
 	export let captureInfo: CaptureInfo | undefined = undefined
 	export let hasPreprocessor: boolean = false
+	export let captureLoading: boolean = false
 
 	function getCaptureEmail() {
 		const cleanedPath = path.replaceAll('/', '.')
@@ -31,6 +32,7 @@
 		captureType="email"
 		disabled={false}
 		{captureInfo}
+		{captureLoading}
 		on:captureToggle
 		on:applyArgs
 		on:updateSchema

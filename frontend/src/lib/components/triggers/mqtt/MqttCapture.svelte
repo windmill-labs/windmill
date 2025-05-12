@@ -7,6 +7,7 @@
 	export let isValid: boolean | undefined = undefined
 	export let hasPreprocessor: boolean = false
 	export let isFlow: boolean = false
+	export let captureLoading: boolean = false
 </script>
 
 {#if captureInfo}
@@ -21,6 +22,7 @@
 		on:testWithArgs
 		{hasPreprocessor}
 		{isFlow}
+		{captureLoading}
 	>
 		<svelte:fragment slot="description">
 			{#if captureInfo.active}

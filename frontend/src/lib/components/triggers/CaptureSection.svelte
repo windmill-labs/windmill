@@ -42,8 +42,10 @@
 	export let captureInfo: CaptureInfo
 	export let hasPreprocessor = false
 	export let isFlow = false
+	export let captureLoading = false
 
 	let testKind: 'preprocessor' | 'main' = 'main'
+
 	$: hasPreprocessor && (testKind = 'preprocessor')
 
 	const dispatch = createEventDispatcher<{
@@ -241,8 +243,13 @@
 								startIcon={captureInfo.active
 									? { icon: CircleStop }
 									: { icon: CaptureIcon, props: { variant: 'redDot' } }}
+								loading={captureLoading}
 							>
-								{captureInfo.active ? 'Stop capturing' : 'Start capturing'}
+								{#if captureInfo.active}
+									<p class="w-24" transition:fade={{ duration: 300 }}>Stop capturing</p>
+								{:else}
+									<p class="w-24" transition:fade={{ duration: 300 }}>Start capturing</p>
+								{/if}
 							</Button>
 						</AnimatedButton>
 

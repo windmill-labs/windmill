@@ -13,6 +13,7 @@
 	export let runnableArgs: any
 	export let captureInfo: CaptureInfo | undefined = undefined
 	export let hasPreprocessor: boolean = false
+	export let captureLoading: boolean = false
 
 	$: cleanedRunnableArgs =
 		isObject(runnableArgs) && 'wm_trigger' in runnableArgs
@@ -37,6 +38,7 @@
 		disabled={false}
 		on:captureToggle
 		captureType="webhook"
+		{captureLoading}
 		on:applyArgs
 		on:updateSchema
 		on:addPreprocessor

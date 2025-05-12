@@ -26,6 +26,8 @@
 	export let connectionInfo: ConnectionInfo | undefined = undefined
 	export let args: Record<string, any> = {}
 
+	let captureLoading = false
+
 	export async function setConfig(): Promise<boolean> {
 		if (captureType === 'postgres') {
 			if (!args?.publication?.table_to_track) {
@@ -134,10 +136,15 @@
 		if (captureActive || e.detail.disableOnly) {
 			captureActive = false
 		} else {
-			const configSet = await setConfig()
+			try {
+				captureLoading = true
+				const configSet = await setConfig()
 
-			if (configSet) {
-				capture()
+				if (configSet) {
+					capture()
+				}
+			} finally {
+				captureLoading = false
 			}
 		}
 	}
@@ -182,6 +189,7 @@
 			<WebsocketCapture
 				isValid={args.isValid}
 				{captureInfo}
+				{captureLoading}
 				on:applyArgs
 				on:updateSchema
 				on:addPreprocessor
@@ -191,6 +199,7 @@
 		{:else if captureType === 'postgres'}
 			<PostgresCapture
 				{captureInfo}
+				{captureLoading}
 				postgres_resource_path={args.postgres_resource_path}
 				{hasPreprocessor}
 				{isFlow}
@@ -207,6 +216,7 @@
 				{path}
 				runnableArgs={data?.args}
 				{captureInfo}
+				{captureLoading}
 				on:applyArgs
 				on:updateSchema
 				on:addPreprocessor
@@ -222,6 +232,7 @@
 				{captureInfo}
 				{hasPreprocessor}
 				{isFlow}
+				{captureLoading}
 				on:applyArgs
 				on:updateSchema
 				on:addPreprocessor
@@ -235,6 +246,7 @@
 				emailDomain={data?.emailDomain}
 				{captureInfo}
 				{hasPreprocessor}
+				{captureLoading}
 				on:applyArgs
 				on:updateSchema
 				on:addPreprocessor
@@ -247,6 +259,7 @@
 				{captureInfo}
 				{hasPreprocessor}
 				{isFlow}
+				{captureLoading}
 				on:applyArgs
 				on:updateSchema
 				on:addPreprocessor
@@ -259,6 +272,7 @@
 				{captureInfo}
 				{hasPreprocessor}
 				{isFlow}
+				{captureLoading}
 				on:applyArgs
 				on:updateSchema
 				on:addPreprocessor
@@ -271,6 +285,7 @@
 				{captureInfo}
 				{hasPreprocessor}
 				{isFlow}
+				{captureLoading}
 				on:applyArgs
 				on:updateSchema
 				on:addPreprocessor
@@ -283,6 +298,7 @@
 				{captureInfo}
 				{hasPreprocessor}
 				{isFlow}
+				{captureLoading}
 				on:applyArgs
 				on:updateSchema
 				on:addPreprocessor
@@ -296,6 +312,7 @@
 				{hasPreprocessor}
 				{isFlow}
 				deliveryType={args.delivery_type}
+				{captureLoading}
 				on:applyArgs
 				on:updateSchema
 				on:addPreprocessor

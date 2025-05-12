@@ -7,6 +7,7 @@
 	export let isValid: boolean | undefined = undefined
 	export let hasPreprocessor: boolean = false
 	export let isFlow: boolean = false
+	export let captureLoading: boolean = false
 </script>
 
 {#if captureInfo}
@@ -14,6 +15,7 @@
 		captureType="kafka"
 		disabled={isValid === false}
 		{captureInfo}
+		{captureLoading}
 		on:captureToggle
 		on:applyArgs
 		on:updateSchema

@@ -11,6 +11,7 @@
 	export let isFlow: boolean = false
 	export let deliveryType: 'push' | 'pull' = 'pull'
 	export let baseEndpoint: string = ''
+	export let captureLoading: boolean = false
 
 	function getCaptureUrl(captureInfo: CaptureInfo | undefined) {
 		if (!captureInfo) {
@@ -34,6 +35,7 @@
 		on:testWithArgs
 		{hasPreprocessor}
 		{isFlow}
+		{captureLoading}
 	>
 		<svelte:fragment slot="description">
 			{#if captureInfo.active}
