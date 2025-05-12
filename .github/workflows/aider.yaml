@@ -123,10 +123,12 @@ jobs:
 
           elif [[ "${{ github.event_name }}" == "issue_comment" ]]; then
             echo "Event Type: Issue Comment on PR #${{ github.event.issue.number }}"
-            RAW_COMMENT_BODY="${{ github.event.comment.body }}"
-            COMMENT_CONTENT="${RAW_COMMENT_BODY#*/aider}"
-            COMMENT_CONTENT="${COMMENT_CONTENT#"${COMMENT_CONTENT%%[![:space:]]*}"}"
-            COMMENT_CONTENT="${COMMENT_CONTENT%"${COMMENT_CONTENT##*[![:space:]]}"}"
+            # Store raw comment body in a file first to avoid shell interpretation issues
+            echo '${{ github.event.comment.body }}' > /tmp/raw_comment.txt
+            # Extract the command part safely
+            RAW_COMMENT_BODY=$(cat /tmp/raw_comment.txt)
+            # Remove the /aider prefix and trim whitespace
+            COMMENT_CONTENT=$(echo "$RAW_COMMENT_BODY" | sed 's|^/aider||' | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
 
             if [[ -z "$COMMENT_CONTENT" ]]; then
               echo "::error::Comment with /aider provided, but no instruction found after it. Cannot proceed."
@@ -134,8 +136,8 @@ jobs:
               exit 1
             else
               echo "Using comment content as prompt."
-              COMMENT_CONTENT_ESCAPED=$(printf '%q' "$COMMENT_CONTENT")
-              printf "%s" "$COMMENT_CONTENT" > "$PROMPT_FILE_PATH"
+              # Write directly to file without shell interpretation
+              printf '%s' "$COMMENT_CONTENT" > "$PROMPT_FILE_PATH"
             fi
           else
             echo "::error::Unhandled event type: ${{ github.event_name }}"
