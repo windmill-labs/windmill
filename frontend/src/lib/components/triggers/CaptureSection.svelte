@@ -14,7 +14,7 @@
 	import AnimatedButton from '../common/button/AnimatedButton.svelte'
 	import PulseButton from '../common/button/PulseButton.svelte'
 	import Button from '../common/button/Button.svelte'
-	import { CircleStop, History, Info, Play, Loader2 } from 'lucide-svelte'
+	import { CircleStop, History, Play, Loader2 } from 'lucide-svelte'
 	import ConnectionIndicator, {
 		type ConnectionInfo
 	} from '../common/alert/ConnectionIndicator.svelte'
@@ -28,7 +28,6 @@
 	import { CaptureService } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { isObject, sendUserToast } from '$lib/utils'
-	import CustomPopover from '$lib/components/CustomPopover.svelte'
 	import { triggerIconMap } from './utils'
 	import { formatDateShort } from '$lib/utils'
 	import DisplayResult from '$lib/components/DisplayResult.svelte'
@@ -335,35 +334,14 @@
 						</span>
 					</div>
 				{/if}
-				{#if testKind === 'preprocessor' && !hasPreprocessor}
-					<CustomPopover noPadding>
-						<Button
-							size="xs2"
-							color="dark"
-							disabled
-							endIcon={{
-								icon: Info
-							}}
-							wrapperClasses="h-full"
-						>
-							Apply args
-						</Button>
-						<svelte:fragment slot="overlay">
-							<div class="text-sm p-2 flex flex-col gap-1 items-start">
-								<p> You need to add a preprocessor to use preprocessor captures as args </p>
-								<Button
-									size="xs2"
-									color="dark"
-									on:click={() => {
-										dispatch('addPreprocessor')
-									}}
-								>
-									Add preprocessor
-								</Button>
-							</div>
-						</svelte:fragment>
-					</CustomPopover>
-				{:else if selectedCapture}
+
+				{#if selectedCapture}
+					{@const label =
+						isFlow && testKind === 'main'
+							? 'Test flow using captured data'
+							: testKind === 'preprocessor'
+								? 'Apply args to preprocessor'
+								: 'Apply args to inputs'}
 					<Button
 						size="xs2"
 						color="dark"
@@ -401,14 +379,10 @@
 							}
 						}}
 						disabled={testKind === 'preprocessor' && !hasPreprocessor}
-						title={isFlow && testKind === 'main'
-							? 'Test flow using captured data'
-							: testKind === 'preprocessor'
-								? 'Apply args to preprocessor'
-								: 'Apply args to inputs'}
+						title={label}
 						startIcon={isFlow && testKind === 'main' ? { icon: Play } : {}}
 					>
-						{isFlow && testKind === 'main' ? 'Test args' : 'Apply args to preprocessor'}
+						{label}
 					</Button>
 				{/if}
 			</div>

@@ -1437,7 +1437,7 @@
 							</TabContent>
 							<TabContent value="triggers" class="h-full">
 								<TriggersEditor
-									on:applyArgs
+									on:applyArgs={applyArgs}
 									on:addPreprocessor={addPreprocessor}
 									on:exitTriggers={() => {
 										captureTable?.loadCaptures(true)
