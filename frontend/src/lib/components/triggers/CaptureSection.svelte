@@ -336,7 +336,8 @@
 				{/if}
 
 				{#if selectedCapture}
-					{@const label =
+					{@const label = isFlow && testKind === 'main' ? 'Test flow with args' : 'Apply args'}
+					{@const title =
 						isFlow && testKind === 'main'
 							? 'Test flow using captured data'
 							: testKind === 'preprocessor'
@@ -379,7 +380,7 @@
 							}
 						}}
 						disabled={testKind === 'preprocessor' && !hasPreprocessor}
-						title={label}
+						{title}
 						startIcon={isFlow && testKind === 'main' ? { icon: Play } : {}}
 					>
 						{label}
@@ -404,12 +405,16 @@
 			{#if isLoadingBigPayload}
 				<Loader2 class="animate-spin" />
 			{:else if selectedCapture?.payload}
+				{@const trigger_extra =
+					testKind === 'preprocessor' && isObject(selectedCapture.trigger_extra)
+						? selectedCapture.trigger_extra
+						: {}}
 				<div class="bg-surface rounded-md text-sm" class:animate-highlight={newCaptureReceived}>
 					<DisplayResult
 						bind:this={displayResult}
 						workspaceId={undefined}
 						jobId={undefined}
-						result={selectedCapture.payload}
+						result={{ ...selectedCapture.payload, ...trigger_extra }}
 						externalToolbarAvailable
 						on:toolbar-location-changed={({ detail }) => {
 							toolbarLocation = detail
