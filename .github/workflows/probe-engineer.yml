@@ -1,8 +1,8 @@
 name: AI Engineer for New Issues via External API
 
-on:
-  issue_comment:
-    types: [created]
+# on:
+#   issue_comment:
+#     types: [created]
 
 permissions:
   # Permissions needed by the calling workflow itself

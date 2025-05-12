@@ -1,0 +1,91 @@
+name: “Aider: Auto-fix issues via external prompt”
+
+on:
+  issues:
+    types: [opened, edited]
+
+jobs:
+  auto-fix:
+    runs-on: ubuntu-latest
+    env:
+      # default model; can be overridden per-run if you like
+      AIDER_MODEL: gemini
+      GEMINI_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
+
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.12"
+
+      - name: Install Aider
+        run: python -m pip install -U --upgrade-strategy only-if-needed aider-chat
+
+      - name: Build prompt via external API
+        shell: bash
+        run: |
+          ISSUE_TITLE="${{ github.event.issue.title }}"
+          ISSUE_BODY_CONTENT="${{ github.event.issue.body }}"
+
+          echo "Sending issue content to external API…"
+
+          # build JSON
+          JSON_PAYLOAD=$(jq -n \
+            --arg title "$ISSUE_TITLE" \
+            --arg body  "$ISSUE_BODY_CONTENT" \
+            '{"body":{"issue_title":$title,"issue_body":$body}}')
+
+          # call your API
+          API_RESULT=$(curl -s -w "\n%{http_code}" \
+            -X POST "https://app.windmill.dev/api/r/test1245/issue-trigger" \
+            -H "Content-Type: application/json" \
+            --data-binary "$JSON_PAYLOAD" \
+            --max-time 90)
+
+          HTTP_CODE=$(echo "$API_RESULT" | tail -n1)
+          BODY=$(echo "$API_RESULT" | sed '$d')
+
+          if [[ "$HTTP_CODE" -eq 200 ]]; then
+            PROMPT=$(echo "$BODY" | jq -r '.processed_prompt // .effective_body // .message // empty')
+            if [[ -z "$PROMPT" ]]; then
+              echo "::warning::API returned no prompt; falling back to raw issue."
+              PROMPT="Please fix the issue described below:\n\nTitle: $ISSUE_TITLE\n\nBody:\n$ISSUE_BODY_CONTENT"
+            fi
+          else
+            echo "::error::API call failed (HTTP $HTTP_CODE). Falling back."
+            PROMPT="Please fix the issue described below:\n\nTitle: $ISSUE_TITLE\n\nBody:\n$ISSUE_BODY_CONTENT"
+          fi
+
+          # write the final prompt
+          mkdir -p .github/aider
+          printf "%s" "$PROMPT" > .github/aider/issue-prompt.txt
+
+      - name: Run Aider with external prompt
+        run: |
+          AIDER_MODEL=gemini \
+          aider \
+            --model gemini-2.5-pro-preview-05-06 \
+            --message-file .github/aider/issue-prompt.txt \
+            --yes \
+            --auto-commits \
+            --stream=false
+
+      - name: Commit & push fixes
+        if: ${{ steps.auto-fix.outcome == 'success' }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add .
+          git commit -m "[Aider] Apply fixes for issue #${{ github.event.issue.number }}" || echo "No changes to commit."
+          git push
+
+      - name: Comment on issue
+        uses: peter-evans/create-or-update-comment@v3
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          issue-number: ${{ github.event.issue.number }}
+          body: |
+            ✅ Aider (via Gemini) has applied fixes based on the processed prompt.
