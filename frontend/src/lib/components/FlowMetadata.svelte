@@ -3,7 +3,7 @@
 	import { base } from '$lib/base'
 	import JobStatus from '$lib/components/JobStatus.svelte'
 	import { displayDate, truncateRev } from '$lib/utils'
-	import ScheduleEditor from './ScheduleEditor.svelte'
+	import ScheduleEditor from '$lib/components/triggers/schedules/ScheduleEditor.svelte'
 	import TimeAgo from './TimeAgo.svelte'
 	import { workspaceStore } from '$lib/stores'
 	import Tooltip from './Tooltip.svelte'

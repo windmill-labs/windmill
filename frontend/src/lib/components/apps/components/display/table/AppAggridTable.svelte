@@ -158,13 +158,16 @@
 			outputs?.selectedRows.set([])
 		}
 		toggleRow(rows[0])
-		outputs?.selectedRows.set(
-			rows.map((x) => {
-				let data = { ...x.data }
-				delete data['__index']
-				return data
-			})
-		)
+		const selectedRows = rows.map((x) => {
+			let data = { ...x.data }
+			delete data['__index']
+			return data
+		})
+		outputs?.selectedRows.set(selectedRows)
+
+		if (iterContext && listInputs) {
+			listInputs.set(id, { selectedRows })
+		}
 	}
 
 	$: outputs?.result?.set(result ?? [])
@@ -190,6 +193,7 @@
 
 			let data = { ...result[event.node.rowIndex] }
 			outputs?.selectedRow?.set(data)
+			resolvedConfig?.extraConfig?.['defaultColDef']?.['onCellValueChanged']?.(event)
 		}
 	}
 
@@ -340,11 +344,6 @@
 						pagination: resolvedConfig?.pagination,
 						paginationAutoPageSize: resolvedConfig?.pagination,
 						suppressPaginationPanel: true,
-						defaultColDef: {
-							flex: resolvedConfig.flex ? 1 : 0,
-							editable: resolvedConfig?.allEditable,
-							onCellValueChanged
-						},
 						rowHeight: resolvedConfig.compactness
 							? rowHeights[resolvedConfig.compactness]
 							: rowHeights['normal'],
@@ -361,6 +360,12 @@
 						suppressDragLeaveHidesColumns: true,
 						enableCellTextSelection: true,
 						...deepCloneWithFunctions(resolvedConfig?.extraConfig ?? {}),
+						defaultColDef: {
+							flex: resolvedConfig.flex ? 1 : 0,
+							editable: resolvedConfig?.allEditable,
+							onCellValueChanged,
+							...resolvedConfig?.extraConfig?.['defaultColDef']
+						},
 						onStateUpdated: (e) => {
 							state = e?.api?.getState()
 							resolvedConfig?.extraConfig?.['onStateUpdated']?.(e)
@@ -491,11 +496,6 @@
 				paginationAutoPageSize: resolvedConfig?.pagination,
 				suppressPaginationPanel: true,
 				suppressDragLeaveHidesColumns: true,
-				defaultColDef: {
-					flex: resolvedConfig.flex ? 1 : 0,
-					editable: resolvedConfig?.allEditable,
-					onCellValueChanged
-				},
 				rowSelection: resolvedConfig?.multipleSelectable ? 'multiple' : 'single',
 				rowMultiSelectWithClick: resolvedConfig?.multipleSelectable
 					? resolvedConfig.rowMultiselectWithClick
@@ -503,7 +503,13 @@
 				rowHeight: resolvedConfig.compactness
 					? rowHeights[resolvedConfig.compactness]
 					: rowHeights['normal'],
-				...deepCloneWithFunctions(resolvedConfig?.extraConfig ?? {})
+				...deepCloneWithFunctions(resolvedConfig?.extraConfig ?? {}),
+				defaultColDef: {
+					flex: resolvedConfig.flex ? 1 : 0,
+					editable: resolvedConfig?.allEditable,
+					onCellValueChanged,
+					...resolvedConfig?.extraConfig?.['defaultColDef']
+				}
 			})
 		} catch (e) {
 			console.error(e)

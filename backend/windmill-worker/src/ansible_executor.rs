@@ -5,19 +5,22 @@ use std::{collections::HashMap, os::unix::fs::PermissionsExt, path::PathBuf, pro
 use std::{collections::HashMap, path::PathBuf, process::Stdio};
 
 use anyhow::anyhow;
+use futures::future::try_join_all;
 use itertools::Itertools;
+use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
 use tokio::process::Command;
 use uuid::Uuid;
 use windmill_common::{
     error,
     worker::{
-        to_raw_value, write_file, write_file_at_user_defined_location, Connection, WORKER_CONFIG,
+        is_allowed_file_location, to_raw_value, write_file, write_file_at_user_defined_location,
+        Connection, WORKER_CONFIG,
     },
 };
 use windmill_queue::MiniPulledJob;
 
-use windmill_parser_yaml::{AnsibleRequirements, ResourceOrVariablePath};
+use windmill_parser_yaml::{AnsibleRequirements, GitRepo, ResourceOrVariablePath};
 use windmill_queue::{append_logs, CanceledBy};
 
 use crate::{
@@ -28,8 +31,8 @@ use crate::{
     },
     handle_child::handle_child,
     python_executor::{create_dependencies_dir, handle_python_reqs, uv_pip_compile, PyVersion},
-    AuthedClient, DISABLE_NSJAIL, DISABLE_NUSER, HOME_ENV, NSJAIL_PATH, PATH_ENV, PROXY_ENVS,
-    PY_INSTALL_DIR, TZ_ENV,
+    AuthedClient, DISABLE_NSJAIL, DISABLE_NUSER, GIT_PATH, HOME_ENV, NSJAIL_PATH, PATH_ENV,
+    PROXY_ENVS, PY_INSTALL_DIR, TZ_ENV,
 };
 
 lazy_static::lazy_static! {
@@ -41,7 +44,294 @@ lazy_static::lazy_static! {
 }
 
 const NSJAIL_CONFIG_RUN_ANSIBLE_CONTENT: &str = include_str!("../nsjail/run.ansible.config.proto");
+const WINDMILL_ANSIBLE_PASSWORD_FILENAME: &str = ".windmill.ansible_vault_password_file";
 
+async fn clone_repo(
+    repo: &GitRepo,
+    job_dir: &str,
+    job_id: &Uuid,
+    worker_name: &str,
+    conn: &Connection,
+    mem_peak: &mut i32,
+    canceled_by: &mut Option<CanceledBy>,
+    w_id: &str,
+    occupancy_metrics: &mut OccupancyMetrics,
+    git_ssh_cmd: &str,
+) -> error::Result<String> {
+    let target_path = is_allowed_file_location(job_dir, &repo.target_path)?;
+
+    let mut clone_cmd = Command::new(GIT_PATH.as_str());
+    clone_cmd
+        .current_dir(job_dir)
+        .env_clear()
+        .envs(PROXY_ENVS.clone())
+        .env("PATH", PATH_ENV.as_str())
+        .env("TZ", TZ_ENV.as_str())
+        .env("GIT_SSH_COMMAND", git_ssh_cmd)
+        .args(["clone", "--quiet"])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    if let Some(branch) = &repo.branch {
+        clone_cmd.args(["--branch", branch]);
+    }
+    clone_cmd.arg(&repo.url);
+    clone_cmd.arg(&target_path);
+
+    let clone_cmd_child = start_child_process(clone_cmd, GIT_PATH.as_str()).await?;
+    handle_child(
+        job_id,
+        conn,
+        mem_peak,
+        canceled_by,
+        clone_cmd_child,
+        false,
+        worker_name,
+        w_id,
+        "git clone",
+        None,
+        false,
+        &mut Some(occupancy_metrics),
+        None,
+    )
+    .await?;
+
+    // Checkout specific commit if provided
+    if let Some(commit) = &repo.commit {
+        let mut checkout_cmd = Command::new(GIT_PATH.as_str());
+        checkout_cmd
+            .current_dir(job_dir)
+            .env_clear()
+            .envs(PROXY_ENVS.clone())
+            .env("PATH", PATH_ENV.as_str())
+            .env("TZ", TZ_ENV.as_str())
+            .env("GIT_SSH_COMMAND", git_ssh_cmd)
+            .arg("-C")
+            .arg(&target_path)
+            .args(["checkout", "--quiet", commit])
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
+
+        let checkout_cmd_child = start_child_process(checkout_cmd, GIT_PATH.as_str()).await?;
+        handle_child(
+            job_id,
+            conn,
+            mem_peak,
+            canceled_by,
+            checkout_cmd_child,
+            false,
+            worker_name,
+            w_id,
+            "git checkout",
+            None,
+            false,
+            &mut Some(occupancy_metrics),
+            None,
+        )
+        .await?;
+    }
+
+    let mut rev_parse_cmd = Command::new(GIT_PATH.as_str());
+
+    let commit_hash_output = rev_parse_cmd
+        .current_dir(job_dir)
+        .env_clear()
+        .envs(PROXY_ENVS.clone())
+        .env("PATH", PATH_ENV.as_str())
+        .env("TZ", TZ_ENV.as_str())
+        .env("GIT_SSH_COMMAND", git_ssh_cmd)
+        .arg("-C")
+        .arg(&target_path)
+        .args(["rev-parse", "HEAD"])
+        .stderr(Stdio::piped())
+        .output()
+        .await?;
+
+    if !commit_hash_output.status.success() {
+        let stderr = String::from_utf8(commit_hash_output.stderr)?;
+        return Err(anyhow!("Error getting git repo commit hash: {stderr}").into());
+    }
+
+    let commit_hash = String::from_utf8(commit_hash_output.stdout)?
+        .trim()
+        .to_string();
+
+    Ok(commit_hash)
+}
+
+pub fn create_empty_dir(path: &PathBuf) -> std::io::Result<()> {
+    if path.exists() {
+        if path.is_dir() {
+            let mut entries = std::fs::read_dir(&path)?;
+            if entries.next().is_some() {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::AlreadyExists,
+                    format!(
+                        "Directory '{}' already exists and is not empty",
+                        path.display()
+                    ),
+                ));
+            }
+            Ok(())
+        } else {
+            Err(std::io::Error::new(
+                std::io::ErrorKind::AlreadyExists,
+                format!("Path '{}' exists and is not a directory", path.display()),
+            ))
+        }
+    } else {
+        std::fs::create_dir_all(path)
+    }
+}
+
+async fn clone_repo_without_history(
+    repo: &GitRepo,
+    full_commit: &str,
+    job_dir: &str,
+    job_id: &Uuid,
+    worker_name: &str,
+    conn: &Connection,
+    mem_peak: &mut i32,
+    canceled_by: &mut Option<CanceledBy>,
+    w_id: &str,
+    occupancy_metrics: &mut OccupancyMetrics,
+    git_ssh_cmd: &str,
+) -> error::Result<()> {
+    let target_path = is_allowed_file_location(job_dir, &repo.target_path)?;
+
+    create_empty_dir(&target_path)?;
+
+    let mut init_cmd = Command::new(GIT_PATH.as_str());
+    init_cmd
+        .current_dir(job_dir)
+        .env_clear()
+        .envs(PROXY_ENVS.clone())
+        .env("PATH", PATH_ENV.as_str())
+        .env("TZ", TZ_ENV.as_str())
+        .arg("-C")
+        .arg(&target_path)
+        .args(["init", "--quiet"])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    if let Some(branch) = &repo.branch {
+        init_cmd.args(["--initial-branch", branch]);
+    }
+
+    let init_cmd_child = start_child_process(init_cmd, GIT_PATH.as_str()).await?;
+    handle_child(
+        job_id,
+        conn,
+        mem_peak,
+        canceled_by,
+        init_cmd_child,
+        false,
+        worker_name,
+        w_id,
+        "git init",
+        None,
+        false,
+        &mut Some(occupancy_metrics),
+        None,
+    )
+    .await?;
+
+    let mut add_remote_cmd = Command::new(GIT_PATH.as_str());
+    add_remote_cmd
+        .current_dir(job_dir)
+        .env_clear()
+        .envs(PROXY_ENVS.clone())
+        .env("PATH", PATH_ENV.as_str())
+        .env("TZ", TZ_ENV.as_str())
+        .env("GIT_SSH_COMMAND", git_ssh_cmd)
+        .arg("-C")
+        .arg(&target_path)
+        .args(vec!["remote", "add", "origin", &repo.url])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+
+    let add_remote_cmd_child = start_child_process(add_remote_cmd, GIT_PATH.as_str()).await?;
+    handle_child(
+        job_id,
+        conn,
+        mem_peak,
+        canceled_by,
+        add_remote_cmd_child,
+        false,
+        worker_name,
+        w_id,
+        "git add remote",
+        None,
+        false,
+        &mut Some(occupancy_metrics),
+        None,
+    )
+    .await?;
+
+    let mut fetch_cmd = Command::new(GIT_PATH.as_str());
+    fetch_cmd
+        .current_dir(job_dir)
+        .env_clear()
+        .envs(PROXY_ENVS.clone())
+        .env("PATH", PATH_ENV.as_str())
+        .env("TZ", TZ_ENV.as_str())
+        .env("GIT_SSH_COMMAND", git_ssh_cmd)
+        .arg("-C")
+        .arg(&target_path)
+        .args(vec!["fetch", "--depth=1", "--quiet", "origin", full_commit])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+
+    let fetch_cmd_child = start_child_process(fetch_cmd, GIT_PATH.as_str()).await?;
+    handle_child(
+        job_id,
+        conn,
+        mem_peak,
+        canceled_by,
+        fetch_cmd_child,
+        false,
+        worker_name,
+        w_id,
+        "git fetch",
+        None,
+        false,
+        &mut Some(occupancy_metrics),
+        None,
+    )
+    .await?;
+
+    let mut checkout_cmd = Command::new(GIT_PATH.as_str());
+    checkout_cmd
+        .current_dir(job_dir)
+        .env_clear()
+        .envs(PROXY_ENVS.clone())
+        .env("PATH", PATH_ENV.as_str())
+        .env("TZ", TZ_ENV.as_str())
+        .env("GIT_SSH_COMMAND", git_ssh_cmd)
+        .arg("-C")
+        .arg(&target_path)
+        .args(["checkout", "--quiet", "FETCH_HEAD"])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+
+    let checkout_cmd_child = start_child_process(checkout_cmd, GIT_PATH.as_str()).await?;
+    handle_child(
+        job_id,
+        conn,
+        mem_peak,
+        canceled_by,
+        checkout_cmd_child,
+        false,
+        worker_name,
+        w_id,
+        "git checkout",
+        None,
+        false,
+        &mut Some(occupancy_metrics),
+        None,
+    )
+    .await?;
+
+    Ok(())
+}
 async fn handle_ansible_python_deps(
     job_dir: &str,
     requirements_o: Option<&String>,
@@ -118,7 +408,7 @@ async fn handle_ansible_python_deps(
     Ok(additional_python_paths)
 }
 
-async fn install_galaxy_collections(
+pub async fn install_galaxy_collections(
     collections_yml: &str,
     job_dir: &str,
     job_id: &Uuid,
@@ -128,6 +418,7 @@ async fn install_galaxy_collections(
     canceled_by: &mut Option<CanceledBy>,
     conn: &Connection,
     occupancy_metrics: &mut OccupancyMetrics,
+    git_ssh_cmd: &str,
 ) -> anyhow::Result<()> {
     write_file(job_dir, "requirements.yml", collections_yml)?;
 
@@ -138,15 +429,52 @@ async fn install_galaxy_collections(
         conn,
     )
     .await;
-    let mut galaxy_command = Command::new(ANSIBLE_GALAXY_PATH.as_str());
-    galaxy_command
+
+    let mut galaxy_roles_cmd = Command::new(ANSIBLE_GALAXY_PATH.as_str());
+    galaxy_roles_cmd
         .current_dir(job_dir)
         .env_clear()
         .envs(PROXY_ENVS.clone())
         .env("PATH", PATH_ENV.as_str())
         .env("TZ", TZ_ENV.as_str())
-        // .env("BASE_INTERNAL_URL", base_internal_url)
-        // .env("HOME", HOME_ENV.as_str())
+        .env("GIT_SSH_COMMAND", git_ssh_cmd)
+        .args(vec![
+            "role",
+            "install",
+            "-r",
+            "requirements.yml",
+            "-p",
+            "./roles",
+        ])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+
+    let child = start_child_process(galaxy_roles_cmd, ANSIBLE_GALAXY_PATH.as_str()).await?;
+    handle_child(
+        job_id,
+        conn,
+        mem_peak,
+        canceled_by,
+        child,
+        !*DISABLE_NSJAIL,
+        worker_name,
+        w_id,
+        "ansible-galaxy role install",
+        None,
+        false,
+        &mut Some(occupancy_metrics),
+        None,
+    )
+    .await?;
+
+    let mut galaxy_collections_cmd = Command::new(ANSIBLE_GALAXY_PATH.as_str());
+    galaxy_collections_cmd
+        .current_dir(job_dir)
+        .env_clear()
+        .envs(PROXY_ENVS.clone())
+        .env("PATH", PATH_ENV.as_str())
+        .env("TZ", TZ_ENV.as_str())
+        .env("GIT_SSH_COMMAND", git_ssh_cmd)
         .args(vec![
             "collection",
             "install",
@@ -158,7 +486,7 @@ async fn install_galaxy_collections(
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
 
-    let child = start_child_process(galaxy_command, ANSIBLE_GALAXY_PATH.as_str()).await?;
+    let child = start_child_process(galaxy_collections_cmd, ANSIBLE_GALAXY_PATH.as_str()).await?;
     handle_child(
         job_id,
         conn,
@@ -168,7 +496,7 @@ async fn install_galaxy_collections(
         !*DISABLE_NSJAIL,
         worker_name,
         w_id,
-        "ansible galaxy install",
+        "ansible-galaxy collection install",
         None,
         false,
         &mut Some(occupancy_metrics),
@@ -177,6 +505,258 @@ async fn install_galaxy_collections(
     .await?;
 
     Ok(())
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct AnsibleDependencyLocks {
+    pub python_lockfile: String,
+    pub git_repos: HashMap<String, String>, // URL to full commit hash
+    pub collections_and_roles: String,
+    pub collections_and_roles_logs: String,
+    // pub collection_versions: HashMap<String, String>, //
+    // pub role_versions: HashMap<String, String>,
+}
+
+pub async fn get_collection_locks(
+    job_dir: &str,
+) -> anyhow::Result<(HashMap<String, String>, String)> {
+    let mut ansible_cmd = Command::new(ANSIBLE_GALAXY_PATH.as_str());
+
+    ansible_cmd
+        .current_dir(job_dir)
+        .args(["collection", "list", "--format", "json", "-p", "./"]);
+
+    let output = ansible_cmd.output().await?;
+
+    let mut ret = HashMap::new();
+    let mut logs = String::new();
+
+    if !output.status.success() {
+        let stderr = String::from_utf8(output.stderr)?;
+        return Err(anyhow!(
+            "Error getting ansible collection versions: {stderr}"
+        ));
+    }
+
+    let stdout = String::from_utf8(output.stdout)?;
+
+    let val: serde_json::Value = serde_json::from_str(&stdout)?;
+
+    let Some(own_collections) = val.get(format!("{}/ansible_collections", job_dir)) else {
+        return Ok((ret, logs));
+    };
+
+    let collections = own_collections.as_object().ok_or(anyhow!(
+        "Expected an object (map) for the `ansible-galaxy collection list` command output and got {}",
+        own_collections
+    ))?;
+
+    for (c_name, c) in collections.iter() {
+        if let Some(v) = c.get("version").and_then(|v| v.as_str()) {
+            // TODO: Check if version is not something like `(undefined)`
+            ret.insert(c_name.clone(), v.to_string());
+        } else {
+            logs.push_str(&format!("Failed to get version for collection `{}`. Expected an object with a string in the `version` field but received {}\n", c_name, c));
+        }
+    }
+
+    Ok((ret, logs))
+}
+
+pub async fn get_role_locks(job_dir: &str) -> anyhow::Result<(HashMap<String, String>, String)> {
+    let mut ansible_cmd = Command::new(ANSIBLE_GALAXY_PATH.as_str());
+
+    ansible_cmd
+        .current_dir(job_dir)
+        .args(["role", "list", "-p", "./roles"]);
+
+    let output = ansible_cmd.output().await?;
+    let mut ret = HashMap::new();
+    let mut logs = String::new();
+
+    if !output.status.success() {
+        let stderr = String::from_utf8(output.stderr)?;
+        logs.push_str(&format!("Error getting ansible role versions: {stderr}"));
+        return Ok((ret, logs));
+    }
+
+    let stdout = String::from_utf8(output.stdout)?;
+
+    let mut lines = stdout.lines();
+
+    while let Some(line) = lines.next() {
+        if line == format!("# {}/roles", job_dir) {
+            break;
+        }
+    }
+
+    for line in lines {
+        let line = line.strip_prefix("-").unwrap_or(line);
+        let mut cols = line.split(",");
+
+        if let Some(name) = cols.next().map(|n| n.trim()) {
+            if let Some(version) = cols.next().map(|v| v.trim()) {
+                // TODO: Check if version is not something like `(undefined)`
+                ret.insert(name.to_string(), version.to_string());
+            } else {
+                logs.push_str(&format!("Failed to get version for role `{}`.", name));
+            }
+        }
+    }
+
+    Ok((ret, logs))
+}
+
+pub async fn get_git_repo_full_head_commit_hash(
+    repo: &GitRepo,
+    git_ssh_cmd: &str,
+) -> anyhow::Result<String> {
+    let mut git_cmd = Command::new(GIT_PATH.as_str());
+
+    git_cmd
+        .env("GIT_SSH_COMMAND", git_ssh_cmd)
+        .args(["ls-remote", &repo.url, "HEAD"]);
+
+    let output = git_cmd.stderr(Stdio::piped()).output().await?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8(output.stderr)?;
+        return Err(anyhow!("Error getting git repo commit hash: {stderr}"));
+    }
+
+    let stdout = String::from_utf8(output.stdout)?;
+
+    let lines: Vec<&str> = stdout.lines().collect();
+
+    if lines.len() != 1 {
+        return Err(anyhow!("Unexpected output format for git ls-remote",));
+    }
+
+    Ok(lines
+        .first()
+        .ok_or(anyhow!(
+            "The HEAD commit hash was not found for repo `{}`",
+            &repo.url
+        ))?
+        .split_whitespace()
+        .next()
+        .map(|s| s.to_string())
+        .ok_or(anyhow!("Unexpected output format for git ls-remote"))?)
+}
+
+pub async fn get_git_repos_lock(
+    repos: &Vec<GitRepo>,
+    job_dir: &str,
+    job_id: &Uuid,
+    worker_name: &str,
+    conn: &Connection,
+    mem_peak: &mut i32,
+    canceled_by: &mut Option<CanceledBy>,
+    w_id: &str,
+    occupancy_metrics: &mut OccupancyMetrics,
+    git_ssh_cmd: &str,
+) -> anyhow::Result<HashMap<String, String>> {
+    let mut ret = HashMap::new();
+
+    for repo in repos {
+        if repo.commit.is_some() {
+            ret.insert(
+                repo.url.to_string(),
+                clone_repo(
+                    repo,
+                    job_dir,
+                    job_id,
+                    worker_name,
+                    conn,
+                    mem_peak,
+                    canceled_by,
+                    w_id,
+                    occupancy_metrics,
+                    git_ssh_cmd,
+                )
+                .await?,
+            );
+        } else {
+            ret.insert(
+                repo.url.to_string(),
+                get_git_repo_full_head_commit_hash(repo, git_ssh_cmd).await?,
+            );
+        }
+    }
+
+    Ok(ret)
+}
+
+pub fn create_ansible_cfg(
+    reqs: Option<&AnsibleRequirements>,
+    job_dir: &str,
+    vault_password_file_exists: bool,
+) -> error::Result<()> {
+    let mut passwords_cfg = String::new();
+    if vault_password_file_exists {
+        passwords_cfg.push_str(&format!(
+            "vault_password_file = {WINDMILL_ANSIBLE_PASSWORD_FILENAME}\n"
+        ));
+    }
+    if let Some(vault_ids) = reqs.as_ref().map(|r| &r.vault_id) {
+        if !vault_ids.is_empty() {
+            let password_files = vault_ids.join(",");
+
+            passwords_cfg.push_str(&format!("vault_identity_list = {password_files}\n"));
+        }
+    }
+    let ansible_cfg_content = format!(
+        r#"
+[defaults]
+collections_path = ./
+roles_path = ./roles
+home={job_dir}/.ansible
+local_tmp={job_dir}/.ansible/tmp
+remote_tmp={job_dir}/.ansible/tmp
+{passwords_cfg}
+"#
+    );
+
+    write_file(job_dir, "ansible.cfg", &ansible_cfg_content)?;
+
+    Ok(())
+}
+
+pub async fn get_git_ssh_cmd(
+    reqs: &AnsibleRequirements,
+    job_dir: &str,
+    client: &AuthedClient,
+) -> error::Result<String> {
+    let ssh_id_files = try_join_all(reqs.git_ssh_identity.iter().enumerate().map(
+        async |(i, var_path)| -> error::Result<String> {
+            let id_file_name = format!(".ssh_id_priv_{}", i);
+            let loc = is_allowed_file_location(job_dir, &id_file_name)?;
+
+            let mut content = client.get_variable_value(var_path).await.map_err(|e| {
+                error::Error::NotFound(format!(
+                    "Variable {var_path} not found for git ssh identity: {e:#}"
+                ))
+            })?;
+            content.push_str("\n");
+
+            let file = write_file(job_dir, &id_file_name, &content)?;
+
+            #[cfg(unix)]
+            {
+                let perm = std::os::unix::fs::PermissionsExt::from_mode(0o600);
+                file.set_permissions(perm)?;
+            }
+
+            Ok(format!(
+                " -i '{}'",
+                loc.to_string_lossy().replace('\'', r"'\''")
+            ))
+        },
+    ))
+    .await?;
+
+    let git_ssh_cmd = format!("ssh -o StrictHostKeyChecking=no{}", ssh_id_files.join(""));
+    Ok(git_ssh_cmd)
 }
 
 pub async fn handle_ansible_job(
@@ -202,13 +782,30 @@ pub async fn handle_ansible_job(
         "ansible",
     )?;
 
+    let req_lockfiles: Option<AnsibleDependencyLocks> = if let Some(s) = requirements_o {
+        if let Ok(lockfile) = serde_json::from_str(s) {
+            Some(lockfile)
+        } else {
+            append_logs(
+                &job.id,
+                &job.workspace_id,
+                format!("WARN: lockfile could not be parsed: `{s}`"),
+                conn,
+            )
+            .await;
+            None
+        }
+    } else {
+        None
+    };
+
     let (logs, reqs, playbook) = windmill_parser_yaml::parse_ansible_reqs(inner_content)?;
     append_logs(&job.id, &job.workspace_id, logs, conn).await;
     write_file(job_dir, "main.yml", &playbook)?;
 
     let additional_python_paths = handle_ansible_python_deps(
         job_dir,
-        requirements_o,
+        req_lockfiles.as_ref().map(|r| &r.python_lockfile),
         reqs.as_ref(),
         &job.workspace_id,
         &job.id,
@@ -220,6 +817,11 @@ pub async fn handle_ansible_job(
         occupancy_metrics,
     )
     .await?;
+
+    let git_ssh_cmd = &match &reqs {
+        Some(r) => get_git_ssh_cmd(r, job_dir, client).await?,
+        None => "ssh".to_string(),
+    };
 
     let interpolated_args;
     if let Some(args) = &job.args {
@@ -268,23 +870,93 @@ pub async fn handle_ansible_job(
         .unwrap_or_else(|| vec![]);
 
     let mut nsjail_extra_mounts = vec![];
-    if let Some(r) = reqs {
-        if let Some(db) = conn.as_sql() {
-            nsjail_extra_mounts = create_file_resources(
+    if let Some(r) = reqs.as_ref() {
+        nsjail_extra_mounts = create_file_resources(
+            &job.id,
+            &job.workspace_id,
+            job_dir,
+            interpolated_args.as_ref(),
+            &r,
+            &client,
+            conn,
+        )
+        .await?;
+
+        for repo in &r.git_repos {
+            append_logs(
                 &job.id,
                 &job.workspace_id,
-                job_dir,
-                interpolated_args.as_ref(),
-                &r,
-                &client,
-                db,
+                format!("\nCloning {}...\n", &repo.url),
+                conn,
             )
-            .await?;
+            .await;
+            if let Some(full_commit_hash) = req_lockfiles
+                .as_ref()
+                .and_then(|r| r.git_repos.get(&repo.url))
+            {
+                clone_repo_without_history(
+                    repo,
+                    full_commit_hash,
+                    job_dir,
+                    &job.id,
+                    worker_name,
+                    conn,
+                    mem_peak,
+                    canceled_by,
+                    &job.workspace_id,
+                    occupancy_metrics,
+                    git_ssh_cmd,
+                )
+                .await
+                .map_err(|e| anyhow!("Failed to clone git repo `{}`: {e}", repo.url))?;
+            } else {
+                if req_lockfiles.is_some() {
+                    append_logs(
+                        &job.id,
+                        &job.workspace_id,
+                        format!("Warning: `{}` is using latest commit because the lockfile didn't store a commit hash for this repo. Updates to the repo could break the deployed playbook.\n", &repo.url),
+                        conn,
+                    )
+                    .await;
+                }
+                clone_repo(
+                    repo,
+                    job_dir,
+                    &job.id,
+                    worker_name,
+                    conn,
+                    mem_peak,
+                    canceled_by,
+                    &job.workspace_id,
+                    occupancy_metrics,
+                    git_ssh_cmd,
+                )
+                .await
+                .map_err(|e| anyhow!("Failed to clone git repo `{}`: {e}", repo.url))?;
+            }
+
+            append_logs(
+                &job.id,
+                &job.workspace_id,
+                format!("Cloned {} into {}\n", &repo.url, &repo.target_path),
+                conn,
+            )
+            .await;
         }
 
-        if let Some(collections) = r.collections {
+        if let Some(collections) = r.roles_and_collections.as_ref() {
+            let empty = String::new();
+            let (lockfile, logs) = req_lockfiles
+                .as_ref()
+                .map(|r| (&r.collections_and_roles, &r.collections_and_roles_logs))
+                .unwrap_or((collections, &empty));
+
+            if !logs.is_empty() {
+                append_logs(&job.id, &job.workspace_id, logs, conn).await;
+            }
+
             install_galaxy_collections(
-                collections.as_str(),
+                lockfile,
                 job_dir,
                 &job.id,
                 worker_name,
@@ -293,10 +965,12 @@ pub async fn handle_ansible_job(
                 canceled_by,
                 conn,
                 occupancy_metrics,
+                git_ssh_cmd,
             )
             .await?;
         }
     }
+
     append_logs(
         &job.id,
         &job.workspace_id,
@@ -304,17 +978,17 @@ pub async fn handle_ansible_job(
         conn,
     )
     .await;
-    let ansible_cfg_content = format!(
-        r#"
-[defaults]
-collections_path = ./
-roles_path = ./roles
-home={job_dir}/.ansible
-local_tmp={job_dir}/.ansible/tmp
-remote_tmp={job_dir}/.ansible/tmp
-"#
-    );
-    write_file(job_dir, "ansible.cfg", &ansible_cfg_content)?;
+
+    let vault_password_file_exists = match reqs.as_ref().and_then(|x| x.vault_password.as_ref()) {
+        Some(var_path) => {
+            let password = client.get_variable_value(&var_path).await?;
+            write_file(job_dir, WINDMILL_ANSIBLE_PASSWORD_FILENAME, &password)?;
+            true
+        }
+        None => false,
+    };
+
+    create_ansible_cfg(reqs.as_ref(), job_dir, vault_password_file_exists)?;
 
     let mut reserved_variables =
         get_reserved_variables(job, &client.token, conn, parent_runnable_path).await?;
@@ -498,7 +1172,7 @@ async fn create_file_resources(
     args: Option<&HashMap<String, Box<RawValue>>>,
     r: &AnsibleRequirements,
     client: &crate::AuthedClient,
-    db: &sqlx::Pool<sqlx::Postgres>,
+    conn: &Connection,
 ) -> error::Result<Vec<String>> {
     let mut logs = String::new();
     let mut nsjail_mounts: Vec<String> = vec![];
@@ -568,7 +1242,7 @@ async fn create_file_resources(
             file_res.target_path, file_res.resource_path
         ));
     }
-    append_logs(job_id, w_id, logs, &Connection::Sql(db.clone())).await;
+    append_logs(job_id, w_id, logs, conn).await;
 
     Ok(nsjail_mounts)
 }

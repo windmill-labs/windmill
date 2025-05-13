@@ -97,8 +97,10 @@ lazy_static::lazy_static! {
                 search_addon = true;
                     println!("Binary is in 'standalone' mode with search enabled");
                     Mode::Standalone
-            }
-            else {
+            } else if &x == "mcp" {
+                println!("Binary is in 'mcp' mode");
+                Mode::MCP
+            } else {
                 if &x != "standalone" {
                     eprintln!("mode not recognized, defaulting to standalone: {x}");
                 } else {
@@ -346,6 +348,7 @@ pub enum Mode {
     Server,
     Standalone,
     Indexer,
+    MCP,
 }
 
 impl std::fmt::Display for Mode {
@@ -356,6 +359,7 @@ impl std::fmt::Display for Mode {
             Mode::Server => write!(f, "server"),
             Mode::Standalone => write!(f, "standalone"),
             Mode::Indexer => write!(f, "indexer"),
+            Mode::MCP => write!(f, "mcp"),
         }
     }
 }
@@ -467,13 +471,28 @@ pub async fn report_recovered_critical_error(
     }
 }
 
-pub fn empty_string_as_none<'de, D>(
-    deserializer: D,
-) -> std::result::Result<Option<String>, D::Error>
+pub trait IsEmpty {
+    fn is_empty(&self) -> bool;
+}
+
+impl IsEmpty for String {
+    fn is_empty(&self) -> bool {
+        self.is_empty()
+    }
+}
+
+impl<T> IsEmpty for Vec<T> {
+    fn is_empty(&self) -> bool {
+        self.is_empty()
+    }
+}
+
+pub fn empty_as_none<'de, D, T>(deserializer: D) -> std::result::Result<Option<T>, D::Error>
 where
     D: Deserializer<'de>,
+    T: Deserialize<'de> + IsEmpty,
 {
-    let option = <Option<String> as serde::Deserialize>::deserialize(deserializer)?;
+    let option = <Option<T> as serde::Deserialize>::deserialize(deserializer)?;
     Ok(option.filter(|s| !s.is_empty()))
 }
 

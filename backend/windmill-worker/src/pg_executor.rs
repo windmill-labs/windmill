@@ -8,7 +8,7 @@ use anyhow::Context;
 use base64::{engine, Engine as _};
 use chrono::Utc;
 use futures::future::BoxFuture;
-use futures::{FutureExt, TryStreamExt};
+use futures::{FutureExt, StreamExt, TryFutureExt, TryStreamExt};
 use itertools::Itertools;
 use native_tls::{Certificate, TlsConnector};
 use postgres_native_tls::MakeTlsConnector;
@@ -27,14 +27,18 @@ use tokio_postgres::{
 use uuid::Uuid;
 use windmill_common::error::to_anyhow;
 use windmill_common::error::{self, Error};
+use windmill_common::s3_helpers::convert_json_line_stream;
 use windmill_common::worker::{to_raw_value, Connection, CLOUD_HOSTED};
 use windmill_parser::{Arg, Typ};
 use windmill_parser_sql::{
-    parse_db_resource, parse_pg_statement_arg_indices, parse_pgsql_sig, parse_sql_blocks,
+    parse_db_resource, parse_pg_statement_arg_indices, parse_pgsql_sig, parse_s3_mode,
+    parse_sql_blocks,
 };
 use windmill_queue::{CanceledBy, MiniPulledJob};
 
-use crate::common::{build_args_values, sizeof_val, OccupancyMetrics};
+use crate::common::{
+    build_args_values, s3_mode_args_to_worker_data, sizeof_val, OccupancyMetrics, S3ModeWorkerData,
+};
 use crate::handle_child::run_future_with_polling_update_job_poller;
 use crate::sanitized_sql_params::sanitize_and_interpolate_unsafe_sql_args;
 use crate::{AuthedClient, MAX_RESULT_SIZE};
@@ -68,7 +72,8 @@ fn do_postgresql_inner<'a>(
     column_order: Option<&'a mut Option<Vec<String>>>,
     siz: &'a AtomicUsize,
     skip_collect: bool,
-) -> error::Result<BoxFuture<'a, anyhow::Result<Box<RawValue>>>> {
+    s3: Option<S3ModeWorkerData>,
+) -> error::Result<BoxFuture<'a, error::Result<Box<RawValue>>>> {
     let mut query_params = vec![];
 
     let arg_indices = parse_pg_statement_arg_indices(&query);
@@ -106,6 +111,20 @@ fn do_postgresql_inner<'a>(
                 .execute_raw(&query, query_params)
                 .await
                 .map_err(to_anyhow)?;
+        } else if let Some(ref s3) = s3 {
+            let rows_stream = client
+                .query_raw(&query, query_params)
+                .map_err(to_anyhow)
+                .await?
+                .map_err(to_anyhow)
+                .map(|row_result| {
+                    row_result.and_then(|row| postgres_row_to_json_value(row).map_err(to_anyhow))
+                });
+
+            let stream = convert_json_line_stream(rows_stream.boxed(), s3.format).await?;
+            s3.upload(stream.boxed()).await?;
+
+            return Ok(serde_json::value::to_raw_value(&s3.object_key)?);
         } else {
             let rows = client
                 .query_raw(&query, query_params)
@@ -136,17 +155,17 @@ fn do_postgresql_inner<'a>(
                 if *CLOUD_HOSTED {
                     let siz = siz.load(Ordering::Relaxed);
                     if siz > MAX_RESULT_SIZE * 4 {
-                        return Err(anyhow::anyhow!(
+                        return Err(Error::ExecutionErr(format!(
                             "Query result too large for cloud (size = {} > {})",
                             siz,
-                            MAX_RESULT_SIZE & 4
-                        ));
+                            MAX_RESULT_SIZE & 4,
+                        )));
                     }
                 }
                 if let Ok(v) = r {
                     res.push(v);
                 } else {
-                    return Err(to_anyhow(r.err().unwrap()));
+                    return Err(to_anyhow(r.err().unwrap()).into());
                 }
             }
         }
@@ -171,6 +190,8 @@ pub async fn do_postgresql(
     let pg_args = build_args_values(job, client, conn).await?;
 
     let inline_db_res_path = parse_db_resource(&query);
+
+    let s3 = parse_s3_mode(&query)?.map(|s3| s3_mode_args_to_worker_data(s3, client.clone(), job));
 
     let db_arg = if let Some(inline_db_res_path) = inline_db_res_path {
         Some(
@@ -321,6 +342,7 @@ pub async fn do_postgresql(
                     None,
                     &size,
                     annotations.return_last_result && i < queries.len() - 1,
+                    s3.clone(),
                 )
             })
             .collect::<error::Result<Vec<_>>>()?;
@@ -347,6 +369,7 @@ pub async fn do_postgresql(
             Some(column_order),
             &size,
             false,
+            s3,
         )?
     };
 

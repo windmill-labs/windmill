@@ -15,8 +15,10 @@ use std::str::FromStr;
 use windmill_common::db::Authed;
 use windmill_common::ee::LICENSE_KEY_VALID;
 use windmill_common::flows::Retry;
+use windmill_common::get_latest_flow_version_info_for_path;
 use windmill_common::jobs::JobPayload;
 use windmill_common::schedule::schedule_to_user;
+use windmill_common::FlowVersionInfo;
 use windmill_common::DB;
 use windmill_common::{
     error::{self, Result},
@@ -114,21 +116,21 @@ pub async fn push_scheduled_job<'c>(
     }
 
     let (payload, tag, timeout, on_behalf_of_email, created_by) = if schedule.is_flow {
-        let r = sqlx::query!(
-            "SELECT tag, dedicated_worker, on_behalf_of_email, edited_by from flow WHERE path = $1 and workspace_id = $2",
-            &schedule.script_path,
+        let FlowVersionInfo {
+            version, tag, dedicated_worker, on_behalf_of_email, edited_by, ..
+        } = get_latest_flow_version_info_for_path(
+            &mut *tx,
             &schedule.workspace_id,
+            &schedule.script_path,
+            false,
         )
-        .fetch_optional(&mut *tx)
         .await?;
-        let (tag, dedicated_worker, on_behalf_of_email, edited_by) = r
-            .map(|x| (x.tag, x.dedicated_worker, x.on_behalf_of_email, x.edited_by))
-            .unwrap_or_else(|| (None, None, None, "".to_string()));
         (
             JobPayload::Flow {
                 path: schedule.script_path.clone(),
                 dedicated_worker,
                 apply_preprocessor: false,
+                version,
             },
             tag,
             None,

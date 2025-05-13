@@ -241,7 +241,7 @@
 												{/if}
 											</Splitpanes>
 										{:else}
-											<div class="mt-10" />
+											<div class="mt-10"></div>
 											<FlowProgressBar {job} class="py-4" />
 											<div class="w-full mt-10 mb-20">
 												{#if job?.id}

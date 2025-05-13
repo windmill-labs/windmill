@@ -91,21 +91,51 @@ export type CustomComponentConfig = {
 		reactVersion?: string
 	}
 }
-export type TextComponent = BaseComponent<'textcomponent'>
-export type TextInputComponent = BaseComponent<'textinputcomponent'>
-export type QuillComponent = BaseComponent<'quillcomponent'>
-export type CodeInputComponent = BaseComponent<'codeinputcomponent'>
-export type TextareaInputComponent = BaseComponent<'textareainputcomponent'>
-export type PasswordInputComponent = BaseComponent<'passwordinputcomponent'>
-export type EmailInputComponent = BaseComponent<'emailinputcomponent'>
-export type DateInputComponent = BaseComponent<'dateinputcomponent'>
-export type TimeInputComponent = BaseComponent<'timeinputcomponent'>
-export type DateTimeInputComponent = BaseComponent<'datetimeinputcomponent'>
-export type NumberInputComponent = BaseComponent<'numberinputcomponent'>
-export type CurrencyComponent = BaseComponent<'currencycomponent'>
-export type SliderComponent = BaseComponent<'slidercomponent'>
-export type DateSliderComponent = BaseComponent<'dateslidercomponent'>
-export type RangeComponent = BaseComponent<'rangecomponent'>
+export type TextComponent = BaseComponent<'textcomponent'> & {
+	onChange?: string[]
+}
+export type TextInputComponent = BaseComponent<'textinputcomponent'> & {
+	onChange?: string[]
+}
+export type QuillComponent = BaseComponent<'quillcomponent'> & {
+	onChange?: string[]
+}
+export type CodeInputComponent = BaseComponent<'codeinputcomponent'> & {
+	onChange?: string[]
+}
+export type TextareaInputComponent = BaseComponent<'textareainputcomponent'> & {
+	onChange?: string[]
+}
+export type PasswordInputComponent = BaseComponent<'passwordinputcomponent'> & {
+	onChange?: string[]
+}
+export type EmailInputComponent = BaseComponent<'emailinputcomponent'> & {
+	onChange?: string[]
+}
+export type DateInputComponent = BaseComponent<'dateinputcomponent'> & {
+	onChange?: string[]
+}
+export type TimeInputComponent = BaseComponent<'timeinputcomponent'> & {
+	onChange?: string[]
+}
+export type DateTimeInputComponent = BaseComponent<'datetimeinputcomponent'> & {
+	onChange?: string[]
+}
+export type NumberInputComponent = BaseComponent<'numberinputcomponent'> & {
+	onChange?: string[]
+}
+export type CurrencyComponent = BaseComponent<'currencycomponent'> & {
+	onChange?: string[]
+}
+export type SliderComponent = BaseComponent<'slidercomponent'> & {
+	onChange?: string[]
+}
+export type DateSliderComponent = BaseComponent<'dateslidercomponent'> & {
+	onChange?: string[]
+}
+export type RangeComponent = BaseComponent<'rangecomponent'> & {
+	onChange?: string[]
+}
 export type HtmlComponent = BaseComponent<'htmlcomponent'>
 export type CustomComponent = BaseComponent<'customcomponent'> & {
 	customComponent: CustomComponentConfig
@@ -293,7 +323,9 @@ export type NavBarComponent = BaseComponent<'navbarcomponent'> & {
 	navbarItems: NavbarItem[]
 }
 
-export type DateSelectComponent = BaseComponent<'dateselectcomponent'>
+export type DateSelectComponent = BaseComponent<'dateselectcomponent'> & {
+	onChange?: string[]
+}
 
 export type RecomputeAllComponent = BaseComponent<'recomputeallcomponent'>
 
@@ -2769,6 +2801,11 @@ See date-fns format for more information. By default, it is 'yyyy-MM-dd'
 
 					documentationLink: 'https://date-fns.org/v2.30.0/docs/format',
 					placeholder: 'yyyy-MM-dd'
+				},
+				disabled: {
+					type: 'static',
+					value: false,
+					fieldType: 'boolean'
 				}
 			}
 		}

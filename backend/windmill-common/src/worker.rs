@@ -381,12 +381,8 @@ fn normalize_path(path: &Path) -> PathBuf {
     }
     ret
 }
-pub fn write_file_at_user_defined_location(
-    job_dir: &str,
-    user_defined_path: &str,
-    content: &str,
-    mode: Option<u32>,
-) -> error::Result<PathBuf> {
+
+pub fn is_allowed_file_location(job_dir: &str, user_defined_path: &str) -> error::Result<PathBuf> {
     let job_dir = Path::new(job_dir);
     let user_path = PathBuf::from(user_defined_path);
 
@@ -404,6 +400,17 @@ pub fn write_file_at_user_defined_location(
         )
         .into());
     }
+
+    Ok(normalized_full_path)
+}
+
+pub fn write_file_at_user_defined_location(
+    job_dir: &str,
+    user_defined_path: &str,
+    content: &str,
+    mode: Option<u32>,
+) -> error::Result<PathBuf> {
+    let normalized_full_path = is_allowed_file_location(job_dir, user_defined_path)?;
 
     let full_path = normalized_full_path.as_path();
     if let Some(parent_dir) = full_path.parent() {
@@ -1388,18 +1395,66 @@ pub async fn load_worker_config(
     tracing::debug!("Custom tags priority set: {:?}", priority_tags_sorted);
 
     let env_vars_static = config.env_vars_static.unwrap_or_default().clone();
-    let resolved_env_vars: HashMap<String, String> = env_vars_static
-        .keys()
-        .map(|x| x.to_string())
-        .chain(config.env_vars_allowlist.unwrap_or_default())
-        .chain(
-            std::env::var("WHITELIST_ENVS")
-                .ok()
-                .map(|x| x.split(',').map(|x| x.to_string()).collect_vec())
-                .unwrap_or_default()
-                .into_iter(),
-        )
-        .sorted()
+    let resolved_env_vars: HashMap<String, String> = load_env_vars(
+        config
+            .env_vars_allowlist
+            .unwrap_or_default()
+            .into_iter()
+            .chain(load_whitelist_env_vars_from_env())
+            .chain(env_vars_static.keys().map(|x| x.to_string())),
+        &env_vars_static,
+    );
+
+    Ok(WorkerConfig {
+        worker_tags,
+        priority_tags_sorted,
+        dedicated_worker,
+        init_bash: config
+            .init_bash
+            .or_else(|| load_init_bash_from_env())
+            .and_then(|x| if x.is_empty() { None } else { Some(x) }),
+        cache_clear: config.cache_clear,
+        pip_local_dependencies: config
+            .pip_local_dependencies
+            .or_else(|| load_pip_local_dependencies_from_env()),
+        additional_python_paths: config
+            .additional_python_paths
+            .or_else(|| load_additional_python_paths_from_env()),
+        env_vars: resolved_env_vars,
+    })
+}
+
+pub fn load_init_bash_from_env() -> Option<String> {
+    std::env::var("INIT_SCRIPT")
+        .ok()
+        .and_then(|x| if x.is_empty() { None } else { Some(x) })
+}
+
+pub fn load_pip_local_dependencies_from_env() -> Option<Vec<String>> {
+    std::env::var("PIP_LOCAL_DEPENDENCIES")
+        .ok()
+        .map(|x| x.split(',').map(|x| x.to_string()).collect_vec())
+}
+
+pub fn load_additional_python_paths_from_env() -> Option<Vec<String>> {
+    std::env::var("ADDITIONAL_PYTHON_PATHS")
+        .ok()
+        .map(|x| x.split(':').map(|x| x.to_string()).collect_vec())
+}
+
+pub fn load_whitelist_env_vars_from_env() -> std::vec::IntoIter<String> {
+    std::env::var("WHITELIST_ENVS")
+        .ok()
+        .map(|x| x.split(',').map(|x| x.to_string()).collect_vec())
+        .unwrap_or_default()
+        .into_iter()
+}
+
+pub fn load_env_vars(
+    iter: impl Iterator<Item = String>,
+    env_vars_static: &HashMap<String, String>,
+) -> HashMap<String, String> {
+    iter.sorted()
         .unique()
         .map(|envvar_name| {
             (
@@ -1412,34 +1467,7 @@ pub async fn load_worker_config(
                     }),
             )
         })
-        .collect();
-
-    Ok(WorkerConfig {
-        worker_tags,
-        priority_tags_sorted,
-        dedicated_worker,
-        init_bash: config
-            .init_bash
-            .or_else(|| std::env::var("INIT_SCRIPT").ok())
-            .and_then(|x| if x.is_empty() { None } else { Some(x) }),
-        cache_clear: config.cache_clear,
-        pip_local_dependencies: config.pip_local_dependencies.or_else(|| {
-            let pip_local_dependencies = std::env::var("PIP_LOCAL_DEPENDENCIES")
-                .ok()
-                .map(|x| x.split(',').map(|x| x.to_string()).collect());
-            if pip_local_dependencies == Some(vec!["".to_string()]) {
-                None
-            } else {
-                pip_local_dependencies
-            }
-        }),
-        additional_python_paths: config.additional_python_paths.or_else(|| {
-            std::env::var("ADDITIONAL_PYTHON_PATHS")
-                .ok()
-                .map(|x| x.split(':').map(|x| x.to_string()).collect())
-        }),
-        env_vars: resolved_env_vars,
-    })
+        .collect()
 }
 
 #[derive(Clone, PartialEq, Debug)]

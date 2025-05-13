@@ -113,7 +113,7 @@ input_name2: expression2
 			generatedExprs?.set(exprs)
 		} catch (err) {
 			if (!abortController.signal.aborted) {
-				sendUserToast('Could not generate summary: ' + err, true)
+				sendUserToast('Could not generate step inputs: ' + err, true)
 			}
 		} finally {
 			loading = false
