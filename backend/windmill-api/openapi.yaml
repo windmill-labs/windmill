@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.489.0
+  version: 1.490.0
   title: Windmill API
 
   contact:
@@ -16585,8 +16585,8 @@ components:
       properties:
         trigger_kind:
           $ref: "#/components/schemas/CaptureTriggerKind"
-        payload: {}
-        trigger_extra: {}
+        main_args: {}
+        preprocessor_args: {}
         id:
           type: integer
         created_at:
@@ -16594,7 +16594,8 @@ components:
           format: date-time
       required:
         - trigger_kind
-        - payload
+        - main_args
+        - preprocessor_args
         - id
         - created_at
     CaptureConfig:

@@ -38,6 +38,7 @@ use crate::{
     jobs::{
         run_flow_by_path_inner, run_script_by_path_inner, run_wait_result_internal, RunJobQuery,
     },
+    trigger_helpers::TriggerJobArgs,
     users::fetch_api_authed,
 };
 
@@ -608,7 +609,6 @@ async fn wait_runnable_result(
             StripPath(path.clone()),
             RunJobQuery::default(),
             args,
-            None,
         )
         .await?;
 
@@ -635,7 +635,6 @@ async fn wait_runnable_result(
             StripPath(path.clone()),
             RunJobQuery::default(),
             args,
-            None,
         )
         .await?;
 
@@ -890,10 +889,11 @@ impl WebsocketTrigger {
     async fn handle(
         &self,
         db: &DB,
-        args: PushArgsOwned,
+        msg: &str,
+        trigger_info: HashMap<String, Box<RawValue>>,
         return_message_channels: Option<ReturnMessageChannels>,
     ) -> () {
-        if let Err(err) = run_job(db, self, args, return_message_channels).await {
+        if let Err(err) = run_job(db, self, &msg, trigger_info, return_message_channels).await {
             report_critical_error(
                 format!(
                     "Failed to trigger job from WebSocket {}: {:?}",
@@ -916,6 +916,16 @@ impl WebsocketTrigger {
             Some(format!("ws-{}", self.path)),
         )
         .await
+    }
+}
+
+impl TriggerJobArgs<&str> for WebsocketTrigger {
+    fn v1_payload_fn(payload: &str) -> HashMap<String, Box<RawValue>> {
+        HashMap::from([("msg".to_string(), to_raw_value(&payload))])
+    }
+
+    fn trigger_kind() -> TriggerKind {
+        TriggerKind::Websocket
     }
 }
 
@@ -985,15 +995,18 @@ impl CaptureConfigForWebsocket {
         Some(())
     }
 
-    async fn handle(&self, db: &DB, args: PushArgsOwned) -> () {
+    async fn handle(&self, db: &DB, msg: &str, trigger_info: HashMap<String, Box<RawValue>>) -> () {
+        let (main_args, preprocessor_args) =
+            WebsocketTrigger::build_capture_payloads(&msg, trigger_info);
+
         if let Err(err) = insert_capture_payload(
             db,
             &self.workspace_id,
             &self.path,
             self.is_flow,
             &TriggerKind::Websocket,
-            PushArgsOwned { args: args.args, extra: None },
-            args.extra.as_ref().map(to_raw_value),
+            main_args,
+            preprocessor_args,
             &self.owner,
         )
         .await
@@ -1259,20 +1272,15 @@ async fn listen_to_websocket(
                                                         }
                                                     }
                                                     if should_handle {
-
-                                                        let args = HashMap::from([("msg".to_string(), to_raw_value(&text))]);
-                                                        let extra = Some(HashMap::from([(
-                                                            "wm_trigger".to_string(),
-                                                            to_raw_value(&serde_json::json!({"kind": "websocket", "websocket": { "url": url }})),
-                                                        )]));
-
-                                                        let args = PushArgsOwned { args, extra };
+                                                        let trigger_info = HashMap::from([
+                                                            ("url".to_string(), to_raw_value(&url)),
+                                                        ]);
                                                         match &ws {
                                                             WebsocketEnum::Trigger(ws_trigger) => {
-                                                                ws_trigger.handle(&db, args, return_message_channels.clone()).await;
+                                                                ws_trigger.handle(&db, &text, trigger_info, return_message_channels.clone()).await;
                                                             },
                                                             WebsocketEnum::Capture(capture) => {
-                                                                capture.handle(&db, args).await;
+                                                                capture.handle(&db, &text, trigger_info).await;
                                                             },
                                                         }
                                                     }
@@ -1311,9 +1319,20 @@ async fn listen_to_websocket(
 async fn run_job(
     db: &DB,
     trigger: &WebsocketTrigger,
-    args: PushArgsOwned,
+    msg: &str,
+    trigger_info: HashMap<String, Box<RawValue>>,
     return_message_channels: Option<ReturnMessageChannels>,
 ) -> anyhow::Result<()> {
+    let args = WebsocketTrigger::build_job_args(
+        &trigger.script_path,
+        trigger.is_flow,
+        &trigger.workspace_id,
+        db,
+        msg,
+        trigger_info,
+    )
+    .await?;
+
     let authed = fetch_api_authed(
         trigger.edited_by.clone(),
         trigger.email.clone(),
@@ -1374,7 +1393,6 @@ async fn run_job(
                 runnable_path,
                 run_query,
                 args,
-                None,
             )
             .await?;
         } else {
@@ -1386,7 +1404,6 @@ async fn run_job(
                 runnable_path,
                 run_query,
                 args,
-                None,
             )
             .await?;
         }
