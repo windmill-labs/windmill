@@ -334,6 +334,7 @@ async fn handle_docker_job(
                     log = log_stream.next() => {
                         match log {
                             Some(Ok(log)) => {
+
                                 append_logs(&j_id, w_id.clone(), log.to_string(), &conn2).await;
                             }
                             Some(Err(e)) => {
