@@ -315,7 +315,7 @@ async fn parse_python_imports_inner(
 ) -> error::Result<HashMap<String, NImportResolved>> {
     let PythonAnnotations { py310, py311, py312, py313, .. } = PythonAnnotations::parse(&code);
 
-    let mut push = |perform, unparsed: String| -> error::Result<()> {
+    let mut push_version_specifiers = |perform, unparsed: String| -> error::Result<()> {
         if perform {
             pep440_rs::VersionSpecifiers::from_str(unparsed.as_str())
                 .ok()
@@ -323,14 +323,14 @@ async fn parse_python_imports_inner(
         }
         Ok(())
     };
-    push(py310, "==3.10.*".to_owned())?;
-    push(py311, "==3.11.*".to_owned())?;
-    push(py312, "==3.12.*".to_owned())?;
-    push(py313, "==3.13.*".to_owned())?;
+    push_version_specifiers(py310, "==3.10.*".to_owned())?;
+    push_version_specifiers(py311, "==3.11.*".to_owned())?;
+    push_version_specifiers(py312, "==3.12.*".to_owned())?;
+    push_version_specifiers(py313, "==3.13.*".to_owned())?;
 
     for x in code.lines() {
         if x.starts_with("# py:") || x.starts_with("#py:") {
-            push(
+            push_version_specifiers(
                 true,
                 x.replace('#', "").replace("py:", "").trim().to_owned(),
             )?;
@@ -384,7 +384,7 @@ async fn parse_python_imports_inner(
 
             {
                 if let Some(v) = metadata.get("requires-python").and_then(|v| v.as_str()) {
-                    push(true, v.to_owned())?;
+                    push_version_specifiers(true, v.to_owned())?;
                 }
             };
 
