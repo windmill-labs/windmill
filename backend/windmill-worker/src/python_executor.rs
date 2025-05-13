@@ -1709,6 +1709,7 @@ pub async fn handle_python_reqs(
         let py_path = py_path.clone();
         let pids = pids.clone();
         let worker_dir = worker_dir.clone();
+        let py_version = py_version.clone();
         handles.push(task::spawn(async move {
             // permit will be dropped anyway if this thread exits at any point
             // so we dont have to drop it manually
