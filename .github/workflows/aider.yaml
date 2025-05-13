@@ -251,7 +251,7 @@ jobs:
             '{ "message": "I'\''m giving you a request that needs to be implemented. Your role is to give me the files that are relevant to the request. The request is prepended with the word REQUEST.\\nREQUEST: \($prompt_escaped). Give me all the files relevant to this request. Your output MUST be a single json array that can be parsed with programatic json parsing, with the relevant files. Files can be rust or typescript or javascript files. DO NOT INCLUDE ANY OTHER TEXT IN YOUR OUTPUT. ONLY THE JSON ARRAY. Example of output: [\"file1.py\", \"file2.py\"]" }' | jq -r .message)
 
           set -o pipefail
-          PROBE_OUTPUT=$(npx --yes @buger/probe-chat@latest --model-name gemini-2.5-pro-preview-05-06 --message "$MESSAGE_FOR_PROBE" 2>&1) || {
+          PROBE_OUTPUT=$(npx --yes @buger/probe-chat@latest --max-iterations 50 --model-name gemini-2.5-pro-preview-05-06 --message "$MESSAGE_FOR_PROBE" 2>&1) || {
             echo "::error::probe-chat command failed. Output:"
             echo "$PROBE_OUTPUT"
             exit 1
@@ -315,18 +315,6 @@ jobs:
               echo "::warning::Push to PR branch $CURRENT_BRANCH_NAME failed."
               echo "CHANGES_APPLIED_MESSAGE=Aider ran, but failed to push changes to PR branch $CURRENT_BRANCH_NAME." >> $GITHUB_OUTPUT
             fi
-          fi
-
-      - name: Prepare Aider Output for PR Body
-        id: prepare_aider_output
-        if: success() && github.event_name == 'issues'
-        run: |
-          if [ -f ".github/aider/aider-output.txt" ]; then
-            echo "AIDER_OUTPUT<<EOF" >> $GITHUB_OUTPUT
-            cat .github/aider/aider-output.txt >> $GITHUB_OUTPUT
-            echo "EOF" >> $GITHUB_OUTPUT
-          else
-            echo "AIDER_OUTPUT=No Aider output available" >> $GITHUB_OUTPUT
           fi
 
       - name: Create Pull Request
