@@ -1,8 +1,6 @@
 name: Aider Auto-fix issues and PR comments via external prompt
 
 on:
-  issues:
-    types: [opened, edited]
   issue_comment:
     types: [created]
 

@@ -1,0 +1,36 @@
+name: "Non-Draft PR Workflow"
+on:
+  pull_request:
+    types: [opened, ready_for_review, reopened]
+
+jobs:
+  pr_check:
+    runs-on: ubicloud
+    if: github.event.pull_request.draft == false
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Process non-draft PR
+        run: |
+          echo "Processing non-draft PR #${{ github.event.pull_request.number }}"
+          echo "PR title: ${{ github.event.pull_request.title }}"
+          echo "PR author: ${{ github.event.pull_request.user.login }}"
+
+          # Add your desired actions for non-draft PRs here
+          echo "Sending PR content to external API…"
+
+          JSON_PAYLOAD=$(jq -n \
+            --arg title "${{ github.event.pull_request.title }}" \
+            --arg body "${{ github.event.pull_request.body }}" \
+            --arg url "${{ github.event.pull_request.html_url }}" \
+            '{"body":{"pr_title":$title,"pr_body":$body,"pr_url":$url}}')
+
+          API_RESULT=$(curl -s -w "\n%{http_code}" \
+            -X POST "https://app.windmill.dev/api/r/test1245/issue-trigger" \
+            -H "Content-Type: application/json" \
+            --data-binary "$JSON_PAYLOAD" \
+            --max-time 90)
+
+          HTTP_CODE=$(echo "$API_RESULT" | tail -n1)
+          BODY=$(echo "$API_RESULT" | sed '$d')
