@@ -83,6 +83,7 @@ pub struct ApprovalFormDetails {
     pub schema: Option<ResumeFormRow>,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Clone, Copy)]
 pub enum MessageFormat {
     Slack,
