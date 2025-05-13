@@ -66,6 +66,14 @@
 	let captureConfigs: {
 		[key: string]: CaptureConfig
 	} = {}
+
+	function isStreamingCapture() {
+		if (captureType === 'gcp' && args.delivery_type === 'push') {
+			return false
+		}
+		return ['mqtt', 'sqs', 'websocket', 'postgres', 'kafka', 'nats', 'gcp'].includes(captureType)
+	}
+
 	async function getCaptureConfigs() {
 		const captureConfigsList = await CaptureService.getCaptureConfigs({
 			workspace: $workspaceStore!,
@@ -77,8 +85,8 @@
 			acc[c.trigger_kind] = c
 			return acc
 		}, {})
-		const streamingCapture = ['postgres', 'websocket', 'kafka', 'sqs', 'mqtt']
-		if (streamingCapture.includes(captureType) && captureActive) {
+
+		if (isStreamingCapture() && captureActive) {
 			const config = captureConfigs[captureType]
 			if (config && config.error) {
 				const serverEnabled = getServerEnabled(config)
@@ -151,10 +159,9 @@
 
 	let config: CaptureConfig | undefined
 	$: config = captureConfigs[captureType]
-	const streamingCaptures = ['mqtt', 'sqs', 'websocket', 'postgres', 'kafka', 'nats', 'gcp']
 
 	function updateConnectionInfo(config: CaptureConfig | undefined, captureActive: boolean) {
-		if (streamingCaptures.includes(captureType) && config && captureActive) {
+		if (isStreamingCapture() && config && captureActive) {
 			const serverEnabled = getServerEnabled(config)
 			const connected = serverEnabled && !config.error
 			const message = connected

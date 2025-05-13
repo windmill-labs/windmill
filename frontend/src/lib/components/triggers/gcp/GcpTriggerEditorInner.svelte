@@ -203,14 +203,6 @@
 
 	function getSaveCfg(): Record<string, any> | undefined {
 		const base_endpoint = `${window.location.origin}${base}`
-		if (delivery_type === 'push') {
-			if (!delivery_config) {
-				sendUserToast('Must set route path when delivery type is push', true)
-				return
-			}
-		} else {
-			delivery_config = undefined
-		}
 		return {
 			gcp_resource_path,
 			subscription_mode,

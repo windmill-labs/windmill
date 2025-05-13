@@ -4,22 +4,22 @@
 	import { workspaceStore } from '$lib/stores'
 	import { Url } from '$lib/components/common'
 	import { fade } from 'svelte/transition'
+	import { base } from '$lib/base'
 
 	export let captureInfo: CaptureInfo | undefined = undefined
 	export let isValid: boolean | undefined = undefined
 	export let hasPreprocessor: boolean = false
 	export let isFlow: boolean = false
 	export let deliveryType: 'push' | 'pull' = 'pull'
-	export let baseEndpoint: string = ''
 	export let captureLoading: boolean = false
 
 	function getCaptureUrl(captureInfo: CaptureInfo | undefined) {
 		if (!captureInfo) {
 			return
 		}
-		return `${baseEndpoint}/api/w/${$workspaceStore}/capture_u/gcp/${
-			captureInfo?.isFlow ? 'flow' : 'script'
-		}${captureInfo?.path} `
+		return `${window.location.origin}${base}/api/w/${$workspaceStore}/capture_u/gcp/${
+			captureInfo.isFlow ? 'flow' : 'script'
+		}/${captureInfo.path}`
 	}
 </script>
 
