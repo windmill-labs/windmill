@@ -1,0 +1,34 @@
+name: "Notify Discord on New PR (with Thread)"
+
+on:
+  pull_request:
+    types:
+      - opened
+      - ready_for_review
+
+jobs:
+  discord_notification:
+    # still guard out any drafts (just in case)
+    if: github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+    steps:
+      - name: Send Discord notification and start a thread
+        env:
+          WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
+        run: |
+          payload=$(jq -n \
+            --arg content "**New PR opened or ready for review**\n> [${PR_TITLE}](${PR_URL}) by \`${PR_AUTHOR}\`" \
+            --arg thread "$PR_TITLE" \
+            '{
+              content: $content,
+              thread_name: $thread,
+              auto_archive_duration: 10080
+            }'
+          )
+          curl -H "Content-Type: application/json" \
+               -X POST \
+               --data "$payload" \
+               "$WEBHOOK_URL"
