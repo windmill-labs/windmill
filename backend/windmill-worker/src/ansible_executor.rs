@@ -782,9 +782,22 @@ pub async fn handle_ansible_job(
         "ansible",
     )?;
 
-    let req_lockfiles: Option<AnsibleDependencyLocks> = requirements_o
-        .map(|s| serde_json::from_str(s))
-        .transpose()?;
+    let req_lockfiles: Option<AnsibleDependencyLocks> = if let Some(s) = requirements_o {
+        if let Ok(lockfile) = serde_json::from_str(s) {
+            Some(lockfile)
+        } else {
+            append_logs(
+                &job.id,
+                &job.workspace_id,
+                format!("WARN: lockfile could not be parsed: `{s}`"),
+                conn,
+            )
+            .await;
+            None
+        }
+    } else {
+        None
+    };
 
     let (logs, reqs, playbook) = windmill_parser_yaml::parse_ansible_reqs(inner_content)?;
     append_logs(&job.id, &job.workspace_id, logs, conn).await;

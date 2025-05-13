@@ -39,7 +39,7 @@ use windmill_common::METRICS_DEBUG_ENABLED;
 #[cfg(feature = "prometheus")]
 use windmill_common::METRICS_ENABLED;
 
-use reqwest::Response;
+use reqwest::{Body, Response};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use sqlx::types::Json;
 use std::{
@@ -546,6 +546,46 @@ impl AuthedClient {
                 .context("decoding result by id as json")?),
             _ => Err(anyhow::anyhow!(response.text().await.unwrap_or_default())),
         }
+    }
+
+    pub async fn upload_s3_file<S>(
+        &self,
+        workspace_id: &str,
+        object_key: String,
+        storage: Option<String>,
+        body: S,
+    ) -> error::Result<Response>
+    where
+        S: futures::stream::TryStream + Send + 'static,
+        S::Error: Into<Box<dyn std::error::Error + Send + Sync>>,
+        bytes::Bytes: From<S::Ok>,
+    {
+        let mut query = vec![("file_key", object_key)];
+        if let Some(storage) = storage {
+            query.push(("storage", storage));
+        }
+        self.force_client
+            .as_ref()
+            .unwrap_or(&HTTP_CLIENT)
+            .post(format!(
+                "{}/api/w/{}/job_helpers/upload_s3_file",
+                self.base_internal_url, workspace_id
+            ))
+            .query(&query)
+            .header(
+                reqwest::header::ACCEPT,
+                reqwest::header::HeaderValue::from_static("application/json"),
+            )
+            .header(
+                reqwest::header::AUTHORIZATION,
+                reqwest::header::HeaderValue::from_str(&format!("Bearer {}", self.token))
+                    .map_err(|e| error::Error::BadConfig(e.to_string()))?,
+            )
+            .body(Body::wrap_stream(body))
+            .send()
+            .await
+            .context(format!("Sent upload_s3_file request",))
+            .map_err(error::Error::from)
     }
 }
 
@@ -1837,26 +1877,14 @@ async fn queue_init_bash_maybe<'c>(
     same_worker_tx: SameWorkerSender,
     worker_name: &str,
 ) -> anyhow::Result<bool> {
-    let uuid_content = match conn {
-        Connection::Sql(db) => {
-            if let Some(content) = WORKER_CONFIG.read().await.init_bash.clone() {
-                Some((
-                    push_init_job(db, content.clone(), worker_name).await?,
-                    content,
-                ))
-            } else {
-                None
-            }
-        }
-        Connection::Http(client) => {
-            let init_script = std::env::var("INIT_SCRIPT");
-            if init_script.is_ok() {
-                let content = init_script.unwrap();
-                Some((queue_init_job(client, &content).await?, content))
-            } else {
-                None
-            }
-        }
+    let uuid_content = if let Some(content) = WORKER_CONFIG.read().await.init_bash.clone() {
+        let uuid = match conn {
+            Connection::Sql(db) => push_init_job(db, content.clone(), worker_name).await?,
+            Connection::Http(client) => queue_init_job(client, &content).await?,
+        };
+        Some((uuid, content))
+    } else {
+        None
     };
     if let Some((uuid, content)) = uuid_content {
         same_worker_tx

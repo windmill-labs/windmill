@@ -672,6 +672,7 @@ pub async fn process_result(
                         }
                     }
                 }
+                Error::ExecutionRawError(e) => to_raw_value(&e),
                 err @ _ => to_raw_value(&SerializedError {
                     message: format!("execution error:\n{err:#}",),
                     name: "ExecutionErr".to_string(),
