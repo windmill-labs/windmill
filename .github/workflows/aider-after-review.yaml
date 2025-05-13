@@ -115,21 +115,12 @@ jobs:
         run: |
           CURRENT_BRANCH_NAME=$(git rev-parse --abbrev-ref HEAD)
           echo "Attempting to push changes to PR branch $CURRENT_BRANCH_NAME for PR #${{ github.event.pull_request.number }}"
-
-          if git diff --quiet && git diff --staged --quiet; then
-            echo "No changes detected to commit and push."
-            echo "CHANGES_APPLIED=false" >> $GITHUB_OUTPUT
+          if git push origin $CURRENT_BRANCH_NAME; then
+            echo "Push to $CURRENT_BRANCH_NAME successful."
+            echo "CHANGES_APPLIED=true" >> $GITHUB_OUTPUT
           else
-            git add .
-            git commit -m "Auto-fix: Address review comments via Aider [skip ci]"
-            
-            if git push origin $CURRENT_BRANCH_NAME; then
-              echo "Push to $CURRENT_BRANCH_NAME successful."
-              echo "CHANGES_APPLIED=true" >> $GITHUB_OUTPUT
-            else
-              echo "::warning::Push to PR branch $CURRENT_BRANCH_NAME failed."
-              echo "CHANGES_APPLIED=false" >> $GITHUB_OUTPUT
-            fi
+            echo "::warning::Push to PR branch $CURRENT_BRANCH_NAME failed."
+            echo "CHANGES_APPLIED=false" >> $GITHUB_OUTPUT
           fi
 
       - name: Comment on PR
