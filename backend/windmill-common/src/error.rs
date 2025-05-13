@@ -66,6 +66,8 @@ pub enum Error {
     DatabaseMigration(#[from] MigrateError),
     #[error("Non-zero exit status for {0}: {1}")]
     ExitStatus(String, i32),
+    #[error("ExecutionRawError: {0}")]
+    ExecutionRawError(Box<serde_json::value::RawValue>),
     #[error("Error: {error:#} @{location:#}")]
     Anyhow { error: anyhow::Error, location: String },
     #[error("Error: {0:#?}")]

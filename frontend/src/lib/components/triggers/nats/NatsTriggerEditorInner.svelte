@@ -66,8 +66,8 @@
 			args.nats_resource_path = nDefaultValues?.nats_resource_path ?? ''
 			args.subjects = nDefaultValues?.subjects ?? ['']
 			args.use_jetstream = nDefaultValues?.use_jetstream ?? false
-			args.stream_name = args.use_jetstream ? nDefaultValues?.stream_name ?? '' : undefined
-			args.consumer_name = args.use_jetstream ? nDefaultValues?.consumer_name ?? '' : undefined
+			args.stream_name = args.use_jetstream ? (nDefaultValues?.stream_name ?? '') : undefined
+			args.consumer_name = args.use_jetstream ? (nDefaultValues?.consumer_name ?? '') : undefined
 			initialScriptPath = ''
 			fixedScriptPath = fixedScriptPath_ ?? ''
 			script_path = fixedScriptPath
@@ -242,7 +242,7 @@
 								btnClasses="ml-4 mt-2"
 								color="dark"
 								size="xs"
-								href={itemKind === 'flow' ? '/flows/add?hub=66' : '/scripts/add?hub=hub%2F11634'}
+								href={itemKind === 'flow' ? '/flows/add?hub=66' : '/scripts/add?hub=hub%2F19663'}
 								target="_blank">Create from template</Button
 							>
 						{/if}
