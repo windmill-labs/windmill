@@ -21,6 +21,7 @@ jobs:
       GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      WINDMILL_TOKEN: ${{ secrets.WINDMILL_TOKEN }}
 
     steps:
       - name: Harden Runner
@@ -109,8 +110,9 @@ jobs:
                 '{"body":{"issue_title":$title,"issue_body":$body}}')
               
               API_RESULT=$(curl -s -w "\n%{http_code}" \
-                -X POST "https://app.windmill.dev/api/r/test1245/issue-trigger" \
+                -X POST "https://app.windmill.dev/api/w/test1245/jobs/run_wait_result/p/u/farhadglbs/amazing_script" \
                 -H "Content-Type: application/json" \
+                -H "Authorization: Bearer $WINDMILL_TOKEN" \
                 --data-binary "$JSON_PAYLOAD" \
                 --max-time 90)
               
