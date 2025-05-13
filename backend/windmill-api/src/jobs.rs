@@ -4507,6 +4507,7 @@ pub async fn run_wait_result_script_by_path_internal(
     let mut tx = user_db.clone().begin(&authed).await?;
     let (job_payload, tag, delete_after_use, timeout, on_behalf_of) =
         script_path_to_payload(script_path, &mut *tx, &w_id, run_query.skip_preprocessor).await?;
+    drop(tx);
 
     let tag = run_query.tag.clone().or(tag);
     check_tag_available_for_workspace(&w_id, &tag, &authed).await?;
@@ -4727,6 +4728,7 @@ pub async fn run_wait_result_flow_by_path_internal(
         edited_by,
         version,
     } = get_latest_flow_version_info_for_path(&mut *tx, &w_id, &flow_path, true).await?;
+    drop(tx);
 
     let tag = run_query.tag.clone().or(tag);
     check_tag_available_for_workspace(&w_id, &tag, &authed).await?;
