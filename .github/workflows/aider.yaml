@@ -350,6 +350,7 @@ jobs:
             if git push origin $CURRENT_BRANCH_NAME; then
               echo "Push to $CURRENT_BRANCH_NAME successful (or no new changes to push)."
               echo "CHANGES_APPLIED_MESSAGE=Aider changes (if any) pushed to PR branch $CURRENT_BRANCH_NAME." >> $GITHUB_OUTPUT
+              echo "PR_BRANCH_NAME=$CURRENT_BRANCH_NAME" >> $GITHUB_OUTPUT
             else
               echo "::warning::Push to PR branch $CURRENT_BRANCH_NAME failed."
               echo "CHANGES_APPLIED_MESSAGE=Aider ran, but failed to push changes to PR branch $CURRENT_BRANCH_NAME." >> $GITHUB_OUTPUT
@@ -369,7 +370,7 @@ jobs:
           fi
 
       - name: Create Pull Request
-        if: success() && github.event_name == 'issues' && steps.commit_and_push.outputs.PR_BRANCH_NAME != ''
+        if: success() && github.event_name == 'issue_comment' && !github.event.issue.pull_request && steps.commit_and_push.outputs.PR_BRANCH_NAME != ''
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PR_BRANCH: ${{ steps.commit_and_push.outputs.PR_BRANCH_NAME }}
