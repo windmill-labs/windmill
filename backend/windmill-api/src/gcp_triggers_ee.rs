@@ -86,6 +86,7 @@ pub async fn manage_google_subscription(
     _subscription_mode: SubscriptionMode,
     _create_update_config: Option<CreateUpdateConfig>,
     _trigger_mode: bool,
+    _is_flow: bool
 ) -> WindmillResult<CreateUpdateConfig> {
     Ok(CreateUpdateConfig::default())
 }
