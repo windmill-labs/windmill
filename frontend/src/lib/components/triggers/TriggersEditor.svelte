@@ -1,269 +1,390 @@
 <script lang="ts">
-	import Tab from '$lib/components/common/tabs/Tab.svelte'
-	import { Tabs } from '$lib/components/common'
-	import WebhooksPanel from '$lib/components/triggers/webhook/WebhooksPanel.svelte'
-	import EmailTriggerPanel from '$lib/components/details/EmailTriggerPanel.svelte'
-	import RoutesPanel from '$lib/components/triggers/http/RoutesPanel.svelte'
-	import RunPageSchedules from '$lib/components/RunPageSchedules.svelte'
-	import { canWrite } from '$lib/utils'
-	import { userStore } from '$lib/stores'
+	import { userStore, workspaceStore } from '$lib/stores'
 	import FlowCard from '../flows/common/FlowCard.svelte'
 	import { getContext, onDestroy, createEventDispatcher } from 'svelte'
 	import type { TriggerContext } from '$lib/components/triggers'
-	import ScheduledPollPanel from './scheduled/ScheduledPollPanel.svelte'
-	import WebsocketTriggersPanel from './websocket/WebsocketTriggersPanel.svelte'
-	import PostgresTriggersPanel from './postgres/PostgresTriggersPanel.svelte'
-	import ToggleButtonGroup from '../common/toggleButton-v2/ToggleButtonGroup.svelte'
-	import ToggleButton from '../common/toggleButton-v2/ToggleButton.svelte'
-	import { KafkaIcon, MqttIcon, NatsIcon, AwsIcon, GoogleCloudIcon } from '../icons'
-	import KafkaTriggersPanel from './kafka/KafkaTriggersPanel.svelte'
-	import NatsTriggersPanel from './nats/NatsTriggersPanel.svelte'
-	import MqttTriggersPanel from './mqtt/MqttTriggersPanel.svelte'
-	import SqsTriggerPanel from './sqs/SqsTriggerPanel.svelte'
-	import GcpTriggerPanel from './gcp/GcpTriggerPanel.svelte'
+	import { Pane, Splitpanes } from 'svelte-splitpanes'
+	import TriggersTable from './TriggersTable.svelte'
+	import CaptureWrapper from './CaptureWrapper.svelte'
+	import { fade } from 'svelte/transition'
+	import TriggersBadge from '../graph/renderers/triggers/TriggersBadge.svelte'
+	import { twMerge } from 'tailwind-merge'
+	import AddTriggersButton from '$lib/components/triggers/AddTriggersButton.svelte'
+	import { Plus } from 'lucide-svelte'
+	import Button from '../common/button/Button.svelte'
+	import TriggersWrapperV2 from './TriggersWrapper.svelte'
+	import {
+		fetchHttpTriggers,
+		fetchSchedules,
+		fetchWebsocketTriggers,
+		fetchPostgresTriggers,
+		fetchKafkaTriggers,
+		fetchNatsTriggers,
+		fetchGcpTriggers,
+		fetchSqsTriggers,
+		fetchMqttTriggers,
+		addDraftTrigger,
+		deleteDraft,
+		updateDraftConfig,
+		isEqual,
+		type Trigger,
+		triggerTypeToCaptureKind,
+		setCaptureConfig,
+		deleteTrigger
+	} from './utils'
+	import SchedulePanel from '../SchedulePanel.svelte'
 
 	export let noEditor: boolean
 	export let newItem = false
 	export let currentPath: string
-	export let fakeInitialPath: string
+	export let fakeInitialPath: string = ''
 	export let hash: string | undefined = undefined
+	export let args: Record<string, any> = {}
 	export let initialPath: string
-	export let schema: any
 	export let isFlow: boolean
 	export let canHavePreprocessor: boolean = false
 	export let hasPreprocessor: boolean = false
-	export let args: Record<string, any> = {}
-	let eventStreamType: 'kafka' | 'nats' | 'sqs' | 'mqtt' | 'gcp' = 'kafka'
+	export let isDeployed: boolean = false
+	export let schema: Record<string, any> | undefined = undefined
+	export let noCapture: boolean = false
+	export let isEditor: boolean = true
 
-	$: {
-		if (
-			$selectedTrigger === 'kafka' ||
-			$selectedTrigger === 'nats' ||
-			$selectedTrigger === 'sqs' ||
-			$selectedTrigger === 'mqtt' ||
-			$selectedTrigger === 'gcp'
-		) {
-			eventStreamType = $selectedTrigger
-		}
-	}
+	let config: Record<string, any> = {}
+	let editTrigger: Trigger | undefined = undefined
+	let useVerticalTriggerBar = true
+	let width = 0
+	let emailDomain: string | undefined = undefined
 
-	const { selectedTrigger, simplifiedPoll } = getContext<TriggerContext>('TriggerContext')
+	const {
+		simplifiedPoll,
+		selectedTrigger: selectedTrigger,
+		triggers,
+		triggersCount
+	} = getContext<TriggerContext>('TriggerContext')
 
 	const dispatch = createEventDispatcher()
 	onDestroy(() => {
 		dispatch('exitTriggers')
 	})
+
+	// Handle trigger selection
+	function handleSelectTrigger(event: CustomEvent<Trigger>) {
+		$selectedTrigger = event.detail
+	}
+
+	function updateEditTrigger(trigger: Trigger | undefined) {
+		if (editTrigger !== trigger) {
+			editTrigger = undefined
+		}
+	}
+
+	function deleteDraftTrigger(trigger: Trigger | undefined) {
+		if (!trigger) {
+			return
+		}
+
+		if ('id' in trigger && trigger.id) {
+			deleteDraft(triggers, triggersCount, trigger.type, trigger.id, trigger.isPrimary)
+		}
+
+		// Select a new trigger if any exist
+		if ($triggers.length > 0) {
+			$selectedTrigger = $triggers[$triggers.length - 1]
+		} else {
+			$selectedTrigger = undefined
+		}
+	}
+
+	async function handleUpdate(trigger: Trigger | undefined, path: string) {
+		if (!trigger) {
+			return
+		}
+		//delete the trigger from the store
+		deleteTrigger(triggers, triggersCount, trigger)
+
+		if (trigger.isDraft) {
+			trigger.isDraft = false
+		}
+		if (trigger) {
+			trigger.path = path
+		}
+
+		if (trigger.type === 'schedule') {
+			await fetchSchedules(
+				triggers,
+				triggersCount,
+				$workspaceStore,
+				currentPath,
+				isFlow,
+				undefined,
+				$userStore
+			)
+		} else if (trigger.type === 'websocket') {
+			await fetchWebsocketTriggers(
+				triggers,
+				triggersCount,
+				$workspaceStore,
+				currentPath,
+				isFlow,
+				$userStore
+			)
+		} else if (trigger.type === 'postgres') {
+			await fetchPostgresTriggers(
+				triggers,
+				triggersCount,
+				$workspaceStore,
+				currentPath,
+				isFlow,
+				$userStore
+			)
+		} else if (trigger.type === 'kafka') {
+			await fetchKafkaTriggers(triggers, triggersCount, $workspaceStore, currentPath, isFlow)
+		} else if (trigger.type === 'nats') {
+			await fetchNatsTriggers(
+				triggers,
+				triggersCount,
+				$workspaceStore,
+				currentPath,
+				isFlow,
+				$userStore
+			)
+		} else if (trigger.type === 'gcp') {
+			await fetchGcpTriggers(
+				triggers,
+				triggersCount,
+				$workspaceStore,
+				currentPath,
+				isFlow,
+				$userStore
+			)
+		} else if (trigger.type === 'sqs') {
+			await fetchSqsTriggers(
+				triggers,
+				triggersCount,
+				$workspaceStore,
+				currentPath,
+				isFlow,
+				$userStore
+			)
+		} else if (trigger.type === 'mqtt') {
+			await fetchMqttTriggers(
+				triggers,
+				triggersCount,
+				$workspaceStore,
+				currentPath,
+				isFlow,
+				$userStore
+			)
+		} else if (trigger.type === 'http') {
+			await fetchHttpTriggers(
+				triggers,
+				triggersCount,
+				$workspaceStore,
+				currentPath,
+				isFlow,
+				$userStore
+			)
+		}
+		$selectedTrigger = trigger
+	}
+
+	function handleUpdateDraftConfig(newConfig: Record<string, any>) {
+		// Update the config for the current trigger in our draft trigger store
+		if ($selectedTrigger && newConfig) {
+			updateDraftConfig(triggers, $selectedTrigger, newConfig)
+		}
+	}
+
+	function handleResetDraft(trigger: Trigger | undefined) {
+		if (!trigger) {
+			return
+		}
+		updateDraftConfig(triggers, trigger, undefined)
+		if ($selectedTrigger && isEqual(trigger, $selectedTrigger)) {
+			$selectedTrigger.draftConfig = undefined
+		}
+	}
+
+	$: updateEditTrigger($selectedTrigger)
+	$: useVerticalTriggerBar = width < 1000
 </script>
 
-<FlowCard {noEditor} title="Triggers">
+<FlowCard {noEditor} noHeader bind:width>
 	{#if !$simplifiedPoll}
-		<div class="h-full flex flex-col">
-			<Tabs bind:selected={$selectedTrigger} wrapperClass="overflow-hidden shrink-0">
-				<Tab value="webhooks" selectedClass="text-primary font-semibold">Webhooks</Tab>
-				<Tab value="schedules" selectedClass="text-primary text-sm font-semibold">Schedules</Tab>
-				<Tab value="routes" selectedClass="text-primary text-sm font-semibold">HTTP</Tab>
-				<Tab value="websockets" selectedClass="text-primary text-sm font-semibold">WebSockets</Tab>
-				<Tab value="postgres" selectedClass="text-primary text-sm font-semibold">Postgres</Tab>
-				<Tab
-					value="kafka"
-					otherValues={['nats', 'sqs', 'mqtt', 'gcp']}
-					selectedClass="text-primary text-sm font-semibold"
-				>
-					Event streams
-				</Tab>
-				<Tab value="emails" selectedClass="text-primary text-sm font-semibold">Email</Tab>
-				{#if isFlow}
-					<Tab value="scheduledPoll" selectedClass="text-primary text-sm font-semibold"
-						>Scheduled Poll</Tab
-					>
-				{/if}
+		<Splitpanes horizontal>
+			<Pane>
+				<div class="flex flex-row h-full">
+					<!-- Left Pane - Triggers List -->
+					{#if !useVerticalTriggerBar}
+						<div class="w-[350px] flex-shrink-0 overflow-auto pr-2 pl-4 pt-2 pb-2">
+							<TriggersTable
+								selectedTrigger={$selectedTrigger}
+								on:select={handleSelectTrigger}
+								triggers={$triggers}
+								{isEditor}
+								on:addDraftTrigger={({ detail }) => {
+									const newTrigger = addDraftTrigger(
+										triggers,
+										triggersCount,
+										detail,
+										detail === 'schedule' ? initialPath : undefined
+									)
+									$selectedTrigger = newTrigger
+								}}
+								on:deleteDraft={({ detail }) => {
+									deleteDraftTrigger(detail.trigger)
+								}}
+								on:edit={({ detail }) => {
+									editTrigger = detail
+									if (JSON.stringify(detail) !== JSON.stringify($selectedTrigger)) {
+										$selectedTrigger = detail
+									}
+								}}
+								on:reset={({ detail }) => {
+									handleResetDraft(detail)
+								}}
+							/>
+						</div>
+					{:else}
+						<div class="p-2 flex flex-col gap-2 border-r">
+							<AddTriggersButton
+								on:addDraftTrigger={({ detail }) => {
+									const newTrigger = addDraftTrigger(triggers, triggersCount, detail)
+									$selectedTrigger = newTrigger
+								}}
+								class="w-fit h-fit"
+								placement="right-start"
+							>
+								<Button size="xs" nonCaptureEvent btnClasses="p-2 w-fit" wrapperClasses="p-0">
+									<Plus size="14" />
+								</Button>
+							</AddTriggersButton>
+							<TriggersBadge
+								showOnlyWithCount={false}
+								path={initialPath || fakeInitialPath}
+								{newItem}
+								isFlow
+								selected={true}
+								triggers={$triggers}
+								small={false}
+								vertical
+								on:select={({ detail }) => ($selectedTrigger = detail)}
+							/>
+						</div>
+					{/if}
 
-				<svelte:fragment slot="content">
-					<div class="min-h-0 grow overflow-y-auto">
-						{#if $selectedTrigger === 'webhooks'}
-							<div class="p-4">
-								<WebhooksPanel
-									on:applyArgs
-									on:addPreprocessor
-									on:updateSchema
-									on:testWithArgs
-									scopes={isFlow ? [`run:flow/${currentPath}`] : [`run:script/${currentPath}`]}
-									path={initialPath || fakeInitialPath}
-									{hash}
-									{isFlow}
-									{args}
-									token=""
-									{newItem}
-									isEditor={true}
-									{canHavePreprocessor}
-									{hasPreprocessor}
-								/>
-							</div>
-						{:else if $selectedTrigger === 'emails'}
-							<div class="p-4">
-								<EmailTriggerPanel
-									on:applyArgs
-									on:addPreprocessor
-									on:updateSchema
-									on:testWithArgs
-									token=""
-									scopes={isFlow ? [`run:flow/${currentPath}`] : [`run:script/${currentPath}`]}
-									path={initialPath || fakeInitialPath}
-									{isFlow}
-									isEditor={true}
-									{canHavePreprocessor}
-									{hasPreprocessor}
-									{newItem}
-								/>
-							</div>
-						{:else if $selectedTrigger === 'routes'}
-							<div class="p-4">
-								<RoutesPanel
-									on:applyArgs
-									on:addPreprocessor
-									on:updateSchema
-									on:testWithArgs
-									{newItem}
-									{args}
-									path={initialPath || fakeInitialPath}
-									{isFlow}
-									isEditor={true}
-									{canHavePreprocessor}
-									{hasPreprocessor}
-								/>
-							</div>
-						{:else if $selectedTrigger === 'websockets'}
-							<div class="p-4">
-								<WebsocketTriggersPanel
-									on:applyArgs
-									on:addPreprocessor
-									on:updateSchema
-									on:testWithArgs
-									{newItem}
-									path={initialPath || fakeInitialPath}
-									{isFlow}
-									isEditor={true}
-									{canHavePreprocessor}
-									{hasPreprocessor}
-								/>
-							</div>
-						{:else if $selectedTrigger === 'postgres'}
-							<div class="p-4">
-								<PostgresTriggersPanel
-									on:applyArgs
-									on:addPreprocessor
-									on:updateSchema
-									on:testWithArgs
-									{newItem}
-									path={initialPath || fakeInitialPath}
-									{isFlow}
-									{canHavePreprocessor}
-									{hasPreprocessor}
-									isEditor={true}
-								/>
-							</div>
-						{:else if $selectedTrigger === 'kafka' || $selectedTrigger === 'nats' || $selectedTrigger === 'sqs' || $selectedTrigger === 'mqtt' || $selectedTrigger === 'gcp'}
-							<div class="p-4 flex flex-col gap-2">
-								<ToggleButtonGroup bind:selected={eventStreamType} let:item>
-									<ToggleButton value="kafka" label="Kafka" icon={KafkaIcon} {item} />
-									<ToggleButton value="nats" label="NATS" icon={NatsIcon} {item} />
-									<ToggleButton value="mqtt" label="MQTT" icon={MqttIcon} {item} />
-									<ToggleButton value="sqs" label="SQS" icon={AwsIcon} {item} />
-									<ToggleButton value="gcp" label="GCP" icon={GoogleCloudIcon} {item} />
-								</ToggleButtonGroup>
-								{#if eventStreamType === 'kafka'}
-									<KafkaTriggersPanel
-										on:applyArgs
-										on:addPreprocessor
-										on:updateSchema
-										on:testWithArgs
-										{newItem}
-										path={initialPath || fakeInitialPath}
+					<div
+						class={twMerge(
+							'flex-grow overflow-auto pl-2 pr-4 pb-4 pt-2',
+							useVerticalTriggerBar ? 'pl-4 pt-2' : ''
+						)}
+						style="scrollbar-gutter: stable"
+					>
+						{#if $selectedTrigger}
+							{#key $selectedTrigger}
+								<div in:fade={{ duration: 100, delay: 100 }} out:fade={{ duration: 100 }}>
+									<TriggersWrapperV2
+										selectedTrigger={$selectedTrigger}
 										{isFlow}
-										isEditor={true}
-										{canHavePreprocessor}
-										{hasPreprocessor}
-									/>
-								{:else if eventStreamType === 'nats'}
-									<NatsTriggersPanel
-										on:applyArgs
-										on:addPreprocessor
+										{initialPath}
+										{fakeInitialPath}
+										{currentPath}
+										edit={editTrigger === $selectedTrigger}
+										{hash}
+										{isDeployed}
+										small={useVerticalTriggerBar}
+										{args}
 										{newItem}
-										path={initialPath || fakeInitialPath}
-										{isFlow}
-										isEditor={true}
-										{canHavePreprocessor}
-										{hasPreprocessor}
+										{schema}
+										{isEditor}
+										on:update-config={({ detail }) => {
+											config = detail
+											if ($selectedTrigger && $selectedTrigger.id) {
+												setCaptureConfig(triggers, $selectedTrigger.id, detail)
+											}
+										}}
+										on:delete={() => {
+											deleteDraftTrigger($selectedTrigger)
+										}}
+										on:toggle-edit-mode={({ detail }) => {
+											editTrigger = detail ? $selectedTrigger : undefined
+										}}
+										on:update={({ detail }) => {
+											handleUpdate($selectedTrigger, detail)
+										}}
+										on:save-draft={({ detail }) => {
+											handleUpdateDraftConfig(detail.cfg)
+										}}
+										on:reset={() => {
+											handleResetDraft($selectedTrigger)
+										}}
+										on:email-domain={({ detail }) => {
+											console.log('dbg emailDomain', detail)
+											emailDomain = detail
+										}}
 									/>
-								{:else if eventStreamType === 'sqs'}
-									<SqsTriggerPanel
-										on:applyArgs
-										on:addPreprocessor
-										on:updateSchema
-										on:testWithArgs
-										{newItem}
-										path={initialPath || fakeInitialPath}
-										{isFlow}
-										isEditor={true}
-										{canHavePreprocessor}
-										{hasPreprocessor}
-									/>
-								{:else if eventStreamType === 'mqtt'}
-									<MqttTriggersPanel
-										on:applyArgs
-										on:addPreprocessor
-										on:updateSchema
-										on:testWithArgs
-										{newItem}
-										path={initialPath || fakeInitialPath}
-										{isFlow}
-										isEditor={true}
-										{canHavePreprocessor}
-										{hasPreprocessor}
-									/>
-								{:else if eventStreamType === 'gcp'}
-									<GcpTriggerPanel
-										on:applyArgs
-										on:addPreprocessor
-										on:updateSchema
-										on:testWithArgs
-										{newItem}
-										path={initialPath || fakeInitialPath}
-										{isFlow}
-										isEditor={true}
-										{canHavePreprocessor}
-										{hasPreprocessor}
-									/>
-								{/if}
-							</div>
-						{:else if $selectedTrigger === 'schedules'}
-							<div class="p-4">
-								<RunPageSchedules
-									{schema}
-									{isFlow}
-									path={initialPath}
-									{newItem}
-									can_write={canWrite(currentPath, {}, $userStore)}
-								/>
-							</div>
-						{:else if $selectedTrigger === 'scheduledPoll'}
-							<div class="p-4">
-								<ScheduledPollPanel />
-							</div>
+								</div>
+							{/key}
+						{:else}
+							<span class="text-sm text-tertiary text-center mx-auto mt-2"
+								>{`Select a trigger from the ${useVerticalTriggerBar ? 'left toolbar' : 'table'} or a create a new one`}</span
+							>
 						{/if}
 					</div>
-				</svelte:fragment>
-			</Tabs>
-		</div>
+				</div>
+			</Pane>
+			{#if $selectedTrigger && $selectedTrigger.type && $selectedTrigger.type !== 'schedule' && $selectedTrigger.type != 'poll' && !noCapture}
+				{@const captureKind = triggerTypeToCaptureKind($selectedTrigger.type)}
+				{#key captureKind}
+					<Pane minSize={20} size={40}>
+						<CaptureWrapper
+							path={initialPath || fakeInitialPath}
+							{isFlow}
+							captureType={captureKind}
+							{hasPreprocessor}
+							{canHavePreprocessor}
+							args={config}
+							data={{ args, hash, emailDomain }}
+							on:applyArgs
+							on:updateSchema
+							on:addPreprocessor
+							on:testWithArgs
+						/>
+					</Pane>
+				{/key}
+			{/if}
+		</Splitpanes>
 	{:else}
-		<div class="px-4 pb-2">
-			<RunPageSchedules
-				{schema}
-				{isFlow}
-				path={initialPath}
-				{newItem}
-				can_write={canWrite(currentPath, {}, $userStore)}
-			/>
+		{@const selected = $triggers.find((t) => t.isPrimary)}
+		<div class="px-4 py-2">
+			{#if selected}
+				<SchedulePanel
+					{isFlow}
+					path={initialPath || fakeInitialPath}
+					selectedTrigger={selected}
+					{isDeployed}
+					defaultValues={selected.draftConfig ?? selected.captureConfig ?? undefined}
+					newDraft={selected.draftConfig === undefined}
+					edit={editTrigger === selected}
+					{schema}
+					{isEditor}
+					on:delete={() => {
+						deleteDraftTrigger(selected)
+					}}
+					on:toggle-edit-mode={({ detail }) => {
+						editTrigger = detail ? selected : undefined
+					}}
+					on:update={({ detail }) => {
+						handleUpdate(selected, detail)
+					}}
+					on:save-draft={({ detail }) => {
+						handleUpdateDraftConfig(detail.cfg)
+					}}
+					on:reset={() => {
+						handleResetDraft(selected)
+					}}
+				/>
+			{/if}
 		</div>
 	{/if}
 </FlowCard>

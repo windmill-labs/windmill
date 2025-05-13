@@ -12,6 +12,7 @@
 	import UnsavedConfirmationModal from '$lib/components/common/confirmationModal/UnsavedConfirmationModal.svelte'
 	import type { ScheduleTrigger } from '$lib/components/triggers'
 	import type { GetInitialAndModifiedValues } from '$lib/components/common/confirmationModal/unsavedTypes'
+	import type { Trigger } from '$lib/components/triggers/utils'
 
 	let initialState = window.location.hash != '' ? window.location.hash.slice(1) : undefined
 	let initialArgs = {}
@@ -38,6 +39,8 @@
 	let fullyLoaded = false
 
 	let savedPrimarySchedule: ScheduleTrigger | undefined = scriptLoadedFromUrl?.primarySchedule
+
+	let savedDraftTriggers: Trigger[] = []
 
 	async function loadScript(): Promise<void> {
 		fullyLoaded = false
@@ -101,6 +104,10 @@
 					if (script['primary_schedule']) {
 						savedPrimarySchedule = script['primary_schedule']
 						scriptBuilder?.setPrimarySchedule(savedPrimarySchedule)
+					}
+					if (script['draft_triggers']) {
+						savedDraftTriggers = script['draft_triggers']
+						scriptBuilder?.setDraftTriggers(savedDraftTriggers)
 					}
 					if (!scriptWithDraft.draft_only) {
 						reloadAction = async () => {
@@ -210,6 +217,7 @@
 		{initialArgs}
 		{diffDrawer}
 		{savedPrimarySchedule}
+		{savedDraftTriggers}
 		searchParams={$page.url.searchParams}
 		on:deploy={(e) => {
 			let newHash = e.detail

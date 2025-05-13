@@ -1,7 +1,8 @@
 <script lang="ts">
 	import Skeleton from '$lib/components/common/skeleton/Skeleton.svelte'
 	import FlowGraphViewer from '$lib/components/FlowGraphViewer.svelte'
-	import type { ScheduleTrigger, TriggerContext } from '$lib/components/triggers'
+	import type { TriggerContext } from '$lib/components/triggers'
+	import type { Trigger } from '$lib/components/triggers/utils'
 	import { FlowService, type Flow, type TriggersCount } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { setContext } from 'svelte'
@@ -12,19 +13,14 @@
 
 	let flow: Flow | undefined = undefined
 
-	const selectedTriggerStore = writable<
-		'webhooks' | 'emails' | 'schedules' | 'cli' | 'routes' | 'scheduledPoll'
-	>('webhooks')
-	const primaryScheduleStore = writable<ScheduleTrigger | undefined | false>(undefined)
+	const selectedTriggerStore = writable<Trigger | undefined>(undefined)
 	const triggersCount = writable<TriggersCount | undefined>(undefined)
 	setContext<TriggerContext>('TriggerContext', {
-		primarySchedule: primaryScheduleStore,
 		selectedTrigger: selectedTriggerStore,
 		triggersCount: triggersCount,
 		simplifiedPoll: writable(false),
-		defaultValues: writable(undefined),
-		captureOn: writable(undefined),
-		showCaptureHint: writable(undefined)
+		showCaptureHint: writable(undefined),
+		triggers: writable([])
 	})
 
 	async function loadFlow(path: string) {
