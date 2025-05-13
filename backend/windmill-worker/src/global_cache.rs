@@ -22,6 +22,7 @@ pub async fn build_tar_and_push(
     platform_agnostic: bool,
 ) -> error::Result<()> {
     use object_store::path::Path;
+    use tokio::fs::create_dir_all;
 
     use crate::TAR_PYBASE_CACHE_DIR;
 
@@ -36,7 +37,9 @@ pub async fn build_tar_and_push(
     };
 
     let prefix = &format!("{TAR_PYBASE_CACHE_DIR}/{}", lang);
-    let tar_path = format!("{prefix}/{folder_name}_tar.tar",);
+    let tar_path = format!("{prefix}/{folder_name}_tar.tar");
+
+    create_dir_all(prefix).await?;
 
     let tar_file = std::fs::File::create(&tar_path)?;
     let mut tar = tar::Builder::new(tar_file);
