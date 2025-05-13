@@ -381,6 +381,7 @@ async fn set_gcp_trigger_config(
         gcp_config.subscription_mode,
         gcp_config.create_update,
         false,
+        capture_config.is_flow
     )
     .await?;
     gcp_config.create_update = Some(config);
