@@ -73,158 +73,142 @@ jobs:
           PROMPT_FILE_PATH=".github/aider/issue-prompt.txt"
           mkdir -p .github/aider
 
-          if [[ "${{ github.event_name }}" == "issue_comment" ]]; then
-            echo "Event Type: Issue Comment on #${{ github.event.issue.number }}"
+          # Determine if this is a PR comment or regular issue comment
+          if [[ ! -z "${{ github.event.issue.pull_request }}" ]]; then
+            echo "This is a comment on a Pull Request"
+            PR_NUMBER="${{ github.event.issue.number }}"
             
-            # Determine if this is a PR comment or regular issue comment
-            if [[ ! -z "${{ github.event.issue.pull_request }}" ]]; then
-              echo "This is a comment on a Pull Request"
-              PR_NUMBER="${{ github.event.issue.number }}"
+            # Get PR description to check for issue references
+            PR_BODY=$(gh pr view $PR_NUMBER --json body -q .body --repo $GITHUB_REPOSITORY)
+            
+            # Extract issue number from PR description (looking for #123 or "fixes #123" patterns)
+            REFERENCED_ISSUE=$(echo "$PR_BODY" | grep -oE "#[0-9]+" | grep -oE "[0-9]+" | head -1)
+            
+            if [[ ! -z "$REFERENCED_ISSUE" ]]; then
+              echo "Found referenced issue #$REFERENCED_ISSUE in PR description"
               
-              # Get PR description to check for issue references
-              PR_BODY=$(gh pr view $PR_NUMBER --json body -q .body --repo $GITHUB_REPOSITORY)
-              
-              # Extract issue number from PR description (looking for #123 or "fixes #123" patterns)
-              REFERENCED_ISSUE=$(echo "$PR_BODY" | grep -oE "(fix(es|ed)?|close(s|d)?|resolve(s|d)?):? *#[0-9]+" | grep -oE "[0-9]+" | head -1)
-              
-              if [[ -z "$REFERENCED_ISSUE" ]]; then
-                # Simpler pattern match for just #123
-                REFERENCED_ISSUE=$(echo "$PR_BODY" | grep -oE "#[0-9]+" | grep -oE "[0-9]+" | head -1)
-              fi
-              
-              if [[ ! -z "$REFERENCED_ISSUE" ]]; then
-                echo "Found referenced issue #$REFERENCED_ISSUE in PR description"
-                
-                # Fetch the referenced issue details
-                ISSUE_DETAILS=$(gh issue view $REFERENCED_ISSUE --json title,body --repo $GITHUB_REPOSITORY)
-                ISSUE_TITLE=$(echo "$ISSUE_DETAILS" | jq -r .title)
-                ISSUE_BODY=$(echo "$ISSUE_DETAILS" | jq -r .body)
-                
-                # Store raw comment body in a file first to avoid shell interpretation issues
-                echo '${{ github.event.comment.body }}' > /tmp/raw_comment.txt
-                RAW_COMMENT_BODY=$(cat /tmp/raw_comment.txt)
-                # Remove the /aider prefix and trim whitespace
-                COMMENT_CONTENT=$(echo "$RAW_COMMENT_BODY" | sed 's|^/aider||' | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
-                
-                echo "Sending issue content and PR comment to external API…"
-                
-                ISSUE_TITLE_Q=$(printf '%q' "$ISSUE_TITLE")
-                ISSUE_BODY_Q=$(printf '%q' "$ISSUE_BODY")
-                COMMENT_CONTENT_Q=$(printf '%q' "$COMMENT_CONTENT")
-                
-                JSON_PAYLOAD=$(jq -n \
-                  --arg title "$ISSUE_TITLE_Q" \
-                  --arg body "$ISSUE_BODY_Q" \
-                  --arg comment "$COMMENT_CONTENT_Q" \
-                  '{"body":{"issue_title":$title,"issue_body":$body,"pr_comment":$comment}}')
-                
-                API_RESULT=$(curl -s -w "\n%{http_code}" \
-                  -X POST "https://app.windmill.dev/api/r/test1245/issue-trigger" \
-                  -H "Content-Type: application/json" \
-                  --data-binary "$JSON_PAYLOAD" \
-                  --max-time 90)
-                
-                HTTP_CODE=$(echo "$API_RESULT" | tail -n1)
-                BODY=$(echo "$API_RESULT" | sed '$d')
-                
-                echo "$BODY" > /tmp/api_response.txt
-                
-                if [[ "$HTTP_CODE" -eq 200 ]]; then
-                  PROMPT=$(jq -r '.processed_prompt // .effective_body // .message // empty' /tmp/api_response.txt)
-                  if [[ -z "$PROMPT" || "$PROMPT" == "null" ]]; then
-                    echo "::warning::API returned 200 but no prompt; using PR comment with issue context."
-                    printf "Please address the following based on issue #%s:\n\nIssue Title: %s\n\nIssue Body:\n%s\n\nPR Comment Instruction:\n%s" \
-                      "$REFERENCED_ISSUE" "$ISSUE_TITLE" "$ISSUE_BODY" "$COMMENT_CONTENT" > "$PROMPT_FILE_PATH"
-                  else
-                    echo "$PROMPT" > "$PROMPT_FILE_PATH"
-                  fi
-                else
-                  echo "::warning::API call failed (HTTP $HTTP_CODE). Using PR comment with issue context."
-                  printf "Please address the following based on issue #%s:\n\nIssue Title: %s\n\nIssue Body:\n%s\n\nPR Comment Instruction:\n%s" \
-                    "$REFERENCED_ISSUE" "$ISSUE_TITLE" "$ISSUE_BODY" "$COMMENT_CONTENT" > "$PROMPT_FILE_PATH"
-                fi
-                rm -f /tmp/api_response.txt
-              else
-                echo "No referenced issue found in PR description, using comment content only"
-                # Use comment content directly as with regular issue comments
-                echo '${{ github.event.comment.body }}' > /tmp/raw_comment.txt
-                RAW_COMMENT_BODY=$(cat /tmp/raw_comment.txt)
-                COMMENT_CONTENT=$(echo "$RAW_COMMENT_BODY" | sed 's|^/aider||' | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
-                
-                if [[ -z "$COMMENT_CONTENT" ]]; then
-                  echo "::error::Comment with /aider provided, but no instruction found after it. Cannot proceed."
-                  printf "Error: /aider command found but no instruction followed." > "$PROMPT_FILE_PATH"
-                  exit 1
-                else
-                  echo "Using comment content as prompt."
-                  printf '%s' "$COMMENT_CONTENT" > "$PROMPT_FILE_PATH"
-                fi
-              fi
-            else
-              echo "This is a comment on a regular issue"
-              
-              # Fetch the issue details
-              ISSUE_NUMBER="${{ github.event.issue.number }}"
-              ISSUE_DETAILS=$(gh issue view $ISSUE_NUMBER --json title,body --repo $GITHUB_REPOSITORY)
+              # Fetch the referenced issue details
+              ISSUE_DETAILS=$(gh issue view $REFERENCED_ISSUE --json title,body --repo $GITHUB_REPOSITORY)
               ISSUE_TITLE=$(echo "$ISSUE_DETAILS" | jq -r .title)
               ISSUE_BODY=$(echo "$ISSUE_DETAILS" | jq -r .body)
               
               # Store raw comment body in a file first to avoid shell interpretation issues
               echo '${{ github.event.comment.body }}' > /tmp/raw_comment.txt
-              # Extract the command part safely
               RAW_COMMENT_BODY=$(cat /tmp/raw_comment.txt)
               # Remove the /aider prefix and trim whitespace
               COMMENT_CONTENT=$(echo "$RAW_COMMENT_BODY" | sed 's|^/aider||' | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
+              
+              echo "Sending issue content and PR comment to external API…"
+              
+              ISSUE_TITLE_Q=$(printf '%q' "$ISSUE_TITLE")
+              ISSUE_BODY_Q=$(printf '%q' "$ISSUE_BODY")
+              
+              JSON_PAYLOAD=$(jq -n \
+                --arg title "$ISSUE_TITLE_Q" \
+                --arg body "$ISSUE_BODY_Q" \
+                '{"body":{"issue_title":$title,"issue_body":$body}}')
+              
+              API_RESULT=$(curl -s -w "\n%{http_code}" \
+                -X POST "https://app.windmill.dev/api/r/test1245/issue-trigger" \
+                -H "Content-Type: application/json" \
+                --data-binary "$JSON_PAYLOAD" \
+                --max-time 90)
+              
+              HTTP_CODE=$(echo "$API_RESULT" | tail -n1)
+              BODY=$(echo "$API_RESULT" | sed '$d')
+              
+              echo "$BODY" > /tmp/api_response.txt
 
+              BASE_PROMPT="Try to fix the following issue based on the instruction given by the user. The issue is prepended with the word ISSUE. The instruction is prepended with the word INSTRUCTION. The issue and instruction are separated by a blank line."
+              if [[ "$HTTP_CODE" -eq 200 ]]; then
+                PROCESSED_ISSUE_PROMPT=$(jq -r '.effective_body // empty' /tmp/api_response.txt)
+                if [[ -z "$PROCESSED_ISSUE_PROMPT" || "$PROCESSED_ISSUE_PROMPT" == "null" ]]; then
+                  PROCESSED_ISSUE_PROMPT=""
+                fi
+                printf "%s\nISSUE:\n%s\nINSTRUCTION:\n%s" \
+                  "$BASE_PROMPT" "$PROCESSED_ISSUE_PROMPT" "$COMMENT_CONTENT" > "$PROMPT_FILE_PATH"
+              else
+                echo "::warning::API call failed (HTTP $HTTP_CODE). Using PR comment with issue context."
+                printf "%s\nISSUE:\n%s\nINSTRUCTION:\n%s" \
+                  "$BASE_PROMPT" "$ISSUE_BODY_Q" "$COMMENT_CONTENT" > "$PROMPT_FILE_PATH"
+              fi
+              rm -f /tmp/api_response.txt
+            else
+              echo "No referenced issue found in PR description, using comment content only"
+              # Use comment content directly as with regular issue comments
+              echo '${{ github.event.comment.body }}' > /tmp/raw_comment.txt
+              RAW_COMMENT_BODY=$(cat /tmp/raw_comment.txt)
+              COMMENT_CONTENT=$(echo "$RAW_COMMENT_BODY" | sed 's|^/aider||' | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
+              
               if [[ -z "$COMMENT_CONTENT" ]]; then
                 echo "::error::Comment with /aider provided, but no instruction found after it. Cannot proceed."
                 printf "Error: /aider command found but no instruction followed." > "$PROMPT_FILE_PATH"
                 exit 1
               else
-                echo "Sending issue content and issue comment to external API…"
-                
-                ISSUE_TITLE_Q=$(printf '%q' "$ISSUE_TITLE")
-                ISSUE_BODY_Q=$(printf '%q' "$ISSUE_BODY")
-                COMMENT_CONTENT_Q=$(printf '%q' "$COMMENT_CONTENT")
-                
-                JSON_PAYLOAD=$(jq -n \
-                  --arg title "$ISSUE_TITLE_Q" \
-                  --arg body "$ISSUE_BODY_Q" \
-                  --arg comment "$COMMENT_CONTENT_Q" \
-                  '{"body":{"issue_title":$title,"issue_body":$body,"issue_comment":$comment}}')
-                
-                API_RESULT=$(curl -s -w "\n%{http_code}" \
-                  -X POST "https://app.windmill.dev/api/r/test1245/issue-trigger" \
-                  -H "Content-Type: application/json" \
-                  --data-binary "$JSON_PAYLOAD" \
-                  --max-time 90)
-                
-                HTTP_CODE=$(echo "$API_RESULT" | tail -n1)
-                BODY=$(echo "$API_RESULT" | sed '$d')
-                
-                echo "$BODY" > /tmp/api_response.txt
-                
-                if [[ "$HTTP_CODE" -eq 200 ]]; then
-                  PROMPT=$(jq -r '.processed_prompt // .effective_body // .message // empty' /tmp/api_response.txt)
-                  if [[ -z "$PROMPT" || "$PROMPT" == "null" ]]; then
-                    echo "::warning::API returned 200 but no prompt; using issue comment with issue context."
-                    printf "Please address the following for issue #%s:\n\nIssue Title: %s\n\nIssue Body:\n%s\n\nComment Instruction:\n%s" \
-                      "$ISSUE_NUMBER" "$ISSUE_TITLE" "$ISSUE_BODY" "$COMMENT_CONTENT" > "$PROMPT_FILE_PATH"
-                  else
-                    echo "$PROMPT" > "$PROMPT_FILE_PATH"
-                    echo $PROMPT
-                  fi
-                else
-                  echo "::warning::API call failed (HTTP $HTTP_CODE). Using issue comment with issue context."
-                  printf "Please address the following for issue #%s:\n\nIssue Title: %s\n\nIssue Body:\n%s\n\nComment Instruction:\n%s" \
-                    "$ISSUE_NUMBER" "$ISSUE_TITLE" "$ISSUE_BODY" "$COMMENT_CONTENT" > "$PROMPT_FILE_PATH"
-                fi
-                rm -f /tmp/api_response.txt
+                echo "Using comment content as prompt."
+                printf '%s' "$COMMENT_CONTENT" > "$PROMPT_FILE_PATH"
               fi
             fi
           else
-            echo "::error::Unhandled event type: ${{ github.event_name }}"
-            exit 1
+            echo "This is a comment on a regular issue"
+            
+            # Fetch the issue details
+            ISSUE_NUMBER="${{ github.event.issue.number }}"
+            ISSUE_DETAILS=$(gh issue view $ISSUE_NUMBER --json title,body --repo $GITHUB_REPOSITORY)
+            ISSUE_TITLE=$(echo "$ISSUE_DETAILS" | jq -r .title)
+            ISSUE_BODY=$(echo "$ISSUE_DETAILS" | jq -r .body)
+            
+            # Store raw comment body in a file first to avoid shell interpretation issues
+            echo '${{ github.event.comment.body }}' > /tmp/raw_comment.txt
+            # Extract the command part safely
+            RAW_COMMENT_BODY=$(cat /tmp/raw_comment.txt)
+            # Remove the /aider prefix and trim whitespace
+            COMMENT_CONTENT=$(echo "$RAW_COMMENT_BODY" | sed 's|^/aider||' | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
+
+            if [[ -z "$COMMENT_CONTENT" ]]; then
+              echo "::error::Comment with /aider provided, but no instruction found after it. Cannot proceed."
+              printf "Error: /aider command found but no instruction followed." > "$PROMPT_FILE_PATH"
+              exit 1
+            else
+              echo "Sending issue content and issue comment to external API…"
+              
+              ISSUE_TITLE_Q=$(printf '%q' "$ISSUE_TITLE")
+              ISSUE_BODY_Q=$(printf '%q' "$ISSUE_BODY")
+              COMMENT_CONTENT_Q=$(printf '%q' "$COMMENT_CONTENT")
+              
+              JSON_PAYLOAD=$(jq -n \
+                --arg title "$ISSUE_TITLE_Q" \
+                --arg body "$ISSUE_BODY_Q" \
+                --arg comment "$COMMENT_CONTENT_Q" \
+                '{"body":{"issue_title":$title,"issue_body":$body,"issue_comment":$comment}}')
+              
+              API_RESULT=$(curl -s -w "\n%{http_code}" \
+                -X POST "https://app.windmill.dev/api/r/test1245/issue-trigger" \
+                -H "Content-Type: application/json" \
+                --data-binary "$JSON_PAYLOAD" \
+                --max-time 90)
+              
+              HTTP_CODE=$(echo "$API_RESULT" | tail -n1)
+              BODY=$(echo "$API_RESULT" | sed '$d')
+              
+              echo "$BODY" > /tmp/api_response.txt
+              
+              BASE_PROMPT="Try to fix the following issue based on the instruction given by the user. The issue is prepended with the word ISSUE. The instruction is prepended with the word INSTRUCTION. The issue and instruction are separated by a blank line."
+              if [[ "$HTTP_CODE" -eq 200 ]]; then
+                PROCESSED_ISSUE_PROMPT=$(jq -r '.effective_body // empty' /tmp/api_response.txt)
+                if [[ -z "$PROCESSED_ISSUE_PROMPT" || "$PROCESSED_ISSUE_PROMPT" == "null" ]]; then
+                  PROCESSED_ISSUE_PROMPT=""
+                fi
+                printf "%s\nISSUE:\n%s\nINSTRUCTION:\n%s" \
+                  "$BASE_PROMPT" "$PROCESSED_ISSUE_PROMPT" "$COMMENT_CONTENT" > "$PROMPT_FILE_PATH"
+              else
+                echo "::warning::API call failed (HTTP $HTTP_CODE). Using PR comment with issue context."
+                printf "%s\nISSUE:\n%s\nINSTRUCTION:\n%s" \
+                  "$BASE_PROMPT" "$ISSUE_BODY_Q" "$COMMENT_CONTENT" > "$PROMPT_FILE_PATH"
+              fi
+
+              rm -f /tmp/api_response.txt
+            fi
           fi
           echo "Prompt determined and written to $PROMPT_FILE_PATH"
           echo "PROMPT_FILE_PATH=$PROMPT_FILE_PATH" >> $GITHUB_OUTPUT
@@ -248,7 +232,7 @@ jobs:
           PROMPT_ESCAPED=$(jq -Rs . <<< "$PROMPT_CONTENT")
 
           MESSAGE_FOR_PROBE=$(jq -n --arg prompt_escaped "$PROMPT_ESCAPED" \
-            '{ "message": "I'\''m giving you a request that needs to be implemented. Your role is to give me the files that are relevant to the request. The request is prepended with the word REQUEST.\\nREQUEST: \($prompt_escaped). Give me all the files relevant to this request. Your output MUST be a single json array that can be parsed with programatic json parsing, with the relevant files. Files can be rust or typescript or javascript files. DO NOT INCLUDE ANY OTHER TEXT IN YOUR OUTPUT. ONLY THE JSON ARRAY. Example of output: [\"file1.py\", \"file2.py\"]" }' | jq -r .message)
+            '{ "message": "I'\''m giving you a request that needs to be implemented. Your role is ONLY to give me the files that are relevant to the request and nothing else. The request is prepended with the word REQUEST.\\nREQUEST: \($prompt_escaped). Give me all the files relevant to this request. Your output MUST be a single json array that can be parsed with programatic json parsing, with the relevant files. Files can be rust or typescript or javascript files. DO NOT INCLUDE ANY OTHER TEXT IN YOUR OUTPUT. ONLY THE JSON ARRAY. Example of output: [\"file1.py\", \"file2.py\"]" }' | jq -r .message)
 
           set -o pipefail
           PROBE_OUTPUT=$(npx --yes @buger/probe-chat@latest --max-iterations 50 --model-name gemini-2.5-pro-preview-05-06 --message "$MESSAGE_FOR_PROBE" 2>&1) || {
