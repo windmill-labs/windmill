@@ -252,6 +252,7 @@ jobs:
                       "$ISSUE_NUMBER" "$ISSUE_TITLE" "$ISSUE_BODY" "$COMMENT_CONTENT" > "$PROMPT_FILE_PATH"
                   else
                     echo "$PROMPT" > "$PROMPT_FILE_PATH"
+                    echo $PROMPT
                   fi
                 else
                   echo "::warning::API call failed (HTTP $HTTP_CODE). Using issue comment with issue context."
@@ -335,7 +336,7 @@ jobs:
         id: commit_and_push
         if: ${{ success() }}
         run: |
-          if [[ "${{ github.event_name }}" == "issues" ]]; then
+          if [[ -z "${{ github.event.issue.pull_request }}" ]]; then
             BRANCH_NAME="aider-fix-issue-${{ github.event.issue.number }}"
             git checkout -b $BRANCH_NAME
             echo "Created branch $BRANCH_NAME for issue #${{ github.event.issue.number }}"
@@ -343,7 +344,7 @@ jobs:
             echo "Pushed to new branch $BRANCH_NAME"
             echo "PR_BRANCH_NAME=$BRANCH_NAME" >> $GITHUB_OUTPUT
             echo "CHANGES_APPLIED_MESSAGE=Aider changes pushed to new branch $BRANCH_NAME." >> $GITHUB_OUTPUT
-          elif [[ "${{ github.event_name }}" == "issue_comment" ]]; then
+          else
             CURRENT_BRANCH_NAME=$(git rev-parse --abbrev-ref HEAD)
             echo "Attempting to push changes to PR branch $CURRENT_BRANCH_NAME for PR #${{ github.event.issue.number }}"
             if git push origin $CURRENT_BRANCH_NAME; then
