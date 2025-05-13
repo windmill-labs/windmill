@@ -202,6 +202,13 @@ jobs:
               fi
             else
               echo "This is a comment on a regular issue"
+              
+              # Fetch the issue details
+              ISSUE_NUMBER="${{ github.event.issue.number }}"
+              ISSUE_DETAILS=$(gh issue view $ISSUE_NUMBER --json title,body --repo $GITHUB_REPOSITORY)
+              ISSUE_TITLE=$(echo "$ISSUE_DETAILS" | jq -r .title)
+              ISSUE_BODY=$(echo "$ISSUE_DETAILS" | jq -r .body)
+              
               # Store raw comment body in a file first to avoid shell interpretation issues
               echo '${{ github.event.comment.body }}' > /tmp/raw_comment.txt
               # Extract the command part safely
@@ -214,9 +221,44 @@ jobs:
                 printf "Error: /aider command found but no instruction followed." > "$PROMPT_FILE_PATH"
                 exit 1
               else
-                echo "Using comment content as prompt."
-                # Write directly to file without shell interpretation
-                printf '%s' "$COMMENT_CONTENT" > "$PROMPT_FILE_PATH"
+                echo "Sending issue content and issue comment to external API…"
+                
+                ISSUE_TITLE_Q=$(printf '%q' "$ISSUE_TITLE")
+                ISSUE_BODY_Q=$(printf '%q' "$ISSUE_BODY")
+                COMMENT_CONTENT_Q=$(printf '%q' "$COMMENT_CONTENT")
+                
+                JSON_PAYLOAD=$(jq -n \
+                  --arg title "$ISSUE_TITLE_Q" \
+                  --arg body "$ISSUE_BODY_Q" \
+                  --arg comment "$COMMENT_CONTENT_Q" \
+                  '{"body":{"issue_title":$title,"issue_body":$body,"issue_comment":$comment}}')
+                
+                API_RESULT=$(curl -s -w "\n%{http_code}" \
+                  -X POST "https://app.windmill.dev/api/r/test1245/issue-trigger" \
+                  -H "Content-Type: application/json" \
+                  --data-binary "$JSON_PAYLOAD" \
+                  --max-time 90)
+                
+                HTTP_CODE=$(echo "$API_RESULT" | tail -n1)
+                BODY=$(echo "$API_RESULT" | sed '$d')
+                
+                echo "$BODY" > /tmp/api_response.txt
+                
+                if [[ "$HTTP_CODE" -eq 200 ]]; then
+                  PROMPT=$(jq -r '.processed_prompt // .effective_body // .message // empty' /tmp/api_response.txt)
+                  if [[ -z "$PROMPT" || "$PROMPT" == "null" ]]; then
+                    echo "::warning::API returned 200 but no prompt; using issue comment with issue context."
+                    printf "Please address the following for issue #%s:\n\nIssue Title: %s\n\nIssue Body:\n%s\n\nComment Instruction:\n%s" \
+                      "$ISSUE_NUMBER" "$ISSUE_TITLE" "$ISSUE_BODY" "$COMMENT_CONTENT" > "$PROMPT_FILE_PATH"
+                  else
+                    echo "$PROMPT" > "$PROMPT_FILE_PATH"
+                  fi
+                else
+                  echo "::warning::API call failed (HTTP $HTTP_CODE). Using issue comment with issue context."
+                  printf "Please address the following for issue #%s:\n\nIssue Title: %s\n\nIssue Body:\n%s\n\nComment Instruction:\n%s" \
+                    "$ISSUE_NUMBER" "$ISSUE_TITLE" "$ISSUE_BODY" "$COMMENT_CONTENT" > "$PROMPT_FILE_PATH"
+                fi
+                rm -f /tmp/api_response.txt
               fi
             fi
           else
