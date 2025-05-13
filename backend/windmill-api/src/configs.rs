@@ -12,7 +12,6 @@ use axum::{
     Json, Router,
 };
 
-use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
 use windmill_audit::audit_ee::audit_log;
@@ -211,13 +210,21 @@ async fn list_autoscaling_events(
 }
 
 async fn list_available_python_versions() -> error::JsonResult<Vec<String>> {
-    Ok(Json(
+    #[cfg(not(feature = "python"))]
+    return Err(error::Error::BadRequest(
+        "Python listing available only with 'python' feature enabled".to_string(),
+    ));
+
+    #[cfg(feature = "python")]
+    use itertools::Itertools;
+    #[cfg(feature = "python")]
+    return Ok(Json(
         windmill_worker::PyV::list_available_python_versions()
             .await?
             .iter()
             .map(|v| v.to_string())
             .collect_vec(),
-    ))
+    ));
 }
 
 #[cfg(feature = "enterprise")]

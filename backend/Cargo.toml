@@ -83,7 +83,7 @@ zip = ["windmill-api/zip"]
 static_frontend = ["windmill-api/static_frontend"]
 scoped_cache = ["windmill-common/scoped_cache"]
 # Languages
-python = ["windmill-worker/python"]
+python = ["windmill-worker/python", "windmill-api/python"]
 rust = ["windmill-worker/rust"]
 mysql = ["windmill-worker/mysql"]
 oracledb = ["windmill-worker/oracledb"]
