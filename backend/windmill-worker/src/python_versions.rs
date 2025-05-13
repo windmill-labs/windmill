@@ -21,7 +21,7 @@ use windmill_queue::append_logs;
 use crate::{
     common::{start_child_process, OccupancyMetrics},
     handle_child::handle_child,
-    python_executor::UV_PATH,
+    python_executor::{PYTHON_PATH, UV_PATH},
     worker_lockfiles::LOCKFILE_GENERATED_FROM_REQUIREMENTS_TXT,
     HOME_ENV, INSTANCE_PYTHON_VERSION, PATH_ENV, PROXY_ENVS, PY_INSTALL_DIR, WIN_ENVS,
 };
@@ -434,6 +434,37 @@ impl PyV {
     }
 
     pub async fn get_python(
+        &self,
+        worker_name: &str,
+        job_id: &Uuid,
+        w_id: &str,
+        mem_peak: &mut i32,
+        conn: &Connection,
+        occupancy_metrics: &mut Option<&mut OccupancyMetrics>,
+    ) -> windmill_common::error::Result<String> {
+        let python_path = if let Some(python_path) = PYTHON_PATH.clone() {
+            python_path
+        } else if let Some(python_path) = self
+            .try_get_python(
+                &job_id,
+                mem_peak,
+                conn,
+                worker_name,
+                w_id,
+                occupancy_metrics,
+            )
+            .await?
+        {
+            python_path
+        } else {
+            return Err(Error::ExecutionErr(format!(
+                "uv could not manage python path. Please manage it manually by setting PYTHON_PATH environment variable to your python binary path"
+            )));
+        };
+        Ok(python_path)
+    }
+
+    pub async fn try_get_python(
         &self,
         job_id: &Uuid,
         mem_peak: &mut i32,

@@ -39,7 +39,7 @@ use std::env::var;
 use windmill_queue::{append_logs, CanceledBy, PrecomputedAgentInfo};
 
 lazy_static::lazy_static! {
-    static ref PYTHON_PATH: Option<String> = var("PYTHON_PATH").ok().map(|v| {
+    pub(crate) static ref PYTHON_PATH: Option<String> = var("PYTHON_PATH").ok().map(|v| {
         tracing::warn!("PYTHON_PATH is set to {} and thus python will not be managed by uv and stay static regardless of annotation and instance settings. NOT RECOMMENDED", v);
         v
     });
@@ -204,7 +204,7 @@ pub async fn uv_pip_compile(
     {
         // Make sure we have python runtime installed
         py_version
-            .get_python(job_id, mem_peak, conn, worker_name, w_id, occupancy_metrics)
+            .try_get_python(job_id, mem_peak, conn, worker_name, w_id, occupancy_metrics)
             .await?;
 
         let mut args = vec![
@@ -449,37 +449,6 @@ async fn postinstall(
     Ok(())
 }
 
-async fn get_python_path(
-    py_version: PyV,
-    worker_name: &str,
-    job_id: &Uuid,
-    w_id: &str,
-    mem_peak: &mut i32,
-    conn: &Connection,
-    occupancy_metrics: &mut Option<&mut OccupancyMetrics>,
-) -> windmill_common::error::Result<String> {
-    let python_path = if let Some(python_path) = PYTHON_PATH.clone() {
-        python_path
-    } else if let Some(python_path) = py_version
-        .get_python(
-            &job_id,
-            mem_peak,
-            conn,
-            worker_name,
-            w_id,
-            occupancy_metrics,
-        )
-        .await?
-    {
-        python_path
-    } else {
-        return Err(Error::ExecutionErr(format!(
-            "uv could not manage python path. Please manage it manually by setting PYTHON_PATH environment variable to your python binary path"
-        )));
-    };
-    Ok(python_path)
-}
-
 #[tracing::instrument(level = "trace", skip_all)]
 pub async fn handle_python_job(
     requirements_o: Option<&String>,
@@ -521,16 +490,16 @@ pub async fn handle_python_job(
 
     let PythonAnnotations { no_postinstall, .. } = PythonAnnotations::parse(inner_content);
     tracing::debug!("Finished handling python dependencies");
-    let python_path = get_python_path(
-        py_version.clone(),
-        worker_name,
-        &job.id,
-        &job.workspace_id,
-        mem_peak,
-        conn,
-        &mut Some(occupancy_metrics),
-    )
-    .await?;
+    let python_path = py_version
+        .get_python(
+            worker_name,
+            &job.id,
+            &job.workspace_id,
+            mem_peak,
+            conn,
+            &mut Some(occupancy_metrics),
+        )
+        .await?;
 
     if !no_postinstall {
         if let Err(e) = postinstall(&mut additional_python_paths, job_dir, job, conn).await {
@@ -1734,7 +1703,7 @@ pub async fn handle_python_reqs(
 
     let total_time = std::time::Instant::now();
     let py_path = py_version
-        .get_python(
+        .try_get_python(
             job_id,
             mem_peak,
             conn,
@@ -2208,16 +2177,16 @@ for line in sys.stdin:
         PyVAlias::Py311.into()
     };
 
-    let python_path = get_python_path(
-        py_version,
-        worker_name,
-        &Uuid::nil(),
-        w_id,
-        &mut mem_peak,
-        &Connection::Sql(db.clone()),
-        &mut None,
-    )
-    .await?;
+    let python_path = py_version
+        .get_python(
+            worker_name,
+            &Uuid::nil(),
+            w_id,
+            &mut mem_peak,
+            &Connection::Sql(db.clone()),
+            &mut None,
+        )
+        .await?;
     handle_dedicated_process(
         &python_path,
         job_dir,

@@ -766,7 +766,7 @@ pub async fn run_worker(
         tokio::spawn(async move {
             if let Err(e) = PyV::gravitational_version(&Uuid::nil(), "", Some(conn.clone()))
                 .await
-                .get_python(&Uuid::nil(), &mut 0, &conn, &worker_name, "", &mut None)
+                .try_get_python(&Uuid::nil(), &mut 0, &conn, &worker_name, "", &mut None)
                 .await
             {
                 tracing::error!(
@@ -777,7 +777,7 @@ pub async fn run_worker(
                 );
             }
             if let Err(e) = PyV::from(PyVAlias::Py311)
-                .get_python(&Uuid::nil(), &mut 0, &conn, &worker_name, "", &mut None)
+                .try_get_python(&Uuid::nil(), &mut 0, &conn, &worker_name, "", &mut None)
                 .await
             {
                 tracing::error!(
