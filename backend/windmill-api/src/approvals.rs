@@ -83,6 +83,12 @@ pub struct ApprovalFormDetails {
     pub schema: Option<ResumeFormRow>,
 }
 
+#[derive(Debug, Clone, Copy)]
+pub enum MessageFormat {
+    Slack,
+    Teams,
+}
+
 pub fn extract_w_id_from_resume_url(resume_url: &str) -> Result<&str, Error> {
     let re = Regex::new(r"/api/w/(?P<w_id>[^/]+)/jobs_u/(?P<action>resume|cancel)/(?P<job_id>[^/]+)/(?P<resume_id>[^/]+)/(?P<secret>[a-fA-F0-9]+)(?:\?approver=(?P<approver>[^&]+))?").unwrap();
     let captures = re.captures(resume_url).ok_or_else(|| {
@@ -169,6 +175,7 @@ pub async fn get_approval_form_details(
     resume_id: u32,
     approver: Option<&str>,
     message: Option<&str>,
+    format: MessageFormat,
 ) -> Result<ApprovalFormDetails, Error> {
     let res = get_resume_urls_internal(
         axum::Extension(db.clone()),
@@ -254,13 +261,23 @@ pub async fn get_approval_form_details(
 
     let created_at_formatted = created_at.format("%Y-%m-%d %H:%M:%S").to_string();
 
+    let bold_format = match format {
+        MessageFormat::Slack => "*{}*",
+        MessageFormat::Teams => "**{}**",
+    };
+
     let mut message_str = format!(
         "A workflow has been suspended and is waiting for approval:\n\n\
-        **Created by**: {created_by}\n\n\
-        **Created at**: {created_at_formatted}\n\n\
-        **Script path**: {script_path_str}\n\n\
-        **Args**: {args_str}\n\n\
-        **Flow ID**: {parent_job_id_str}\n\n"
+        {}: {created_by}\n\n\
+        {}: {created_at_formatted}\n\n\
+        {}: {script_path_str}\n\n\
+        {}: {args_str}\n\n\
+        {}: {parent_job_id_str}\n\n",
+        bold_format.replace("{}", "Created by"),
+        bold_format.replace("{}", "Created at"),
+        bold_format.replace("{}", "Script path"),
+        bold_format.replace("{}", "Args"),
+        bold_format.replace("{}", "Flow ID")
     );
 
     // Append custom message if provided

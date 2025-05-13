@@ -3,18 +3,18 @@ use axum::{
     Extension,
 };
 use hyper::StatusCode;
+use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sqlx::types::Uuid;
 use std::collections::HashMap;
 use windmill_common::error::Error;
 use windmill_common::variables::get_secret_value_as_admin;
-use reqwest::Client;
 
 use crate::approvals::{
     extract_w_id_from_resume_url, handle_resume_action, ApprovalFormDetails, FieldType,
-    QueryDefaultArgsJson, QueryDynamicEnumJson, QueryFlowStepId, QueryMessage, ResumeFormField,
-    ResumeSchema,
+    MessageFormat, QueryDefaultArgsJson, QueryDynamicEnumJson, QueryFlowStepId, QueryMessage,
+    ResumeFormField, ResumeSchema,
 };
 use crate::db::{ApiAuthed, DB};
 use crate::jobs::{QueryApprover, ResumeUrls};
@@ -834,6 +834,7 @@ async fn get_modal_blocks(
         resume_id,
         approver,
         message,
+        MessageFormat::Slack,
     )
     .await?;
 
