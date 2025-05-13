@@ -786,14 +786,30 @@ pub async fn handle_ansible_job(
         if let Ok(lockfile) = serde_json::from_str(s) {
             Some(lockfile)
         } else {
-            append_logs(
-                &job.id,
-                &job.workspace_id,
-                format!("WARN: lockfile could not be parsed: `{s}`"),
-                conn,
-            )
-            .await;
-            None
+            if !s.trim_start().starts_with('{') {
+                append_logs(
+                    &job.id,
+                    &job.workspace_id,
+                    format!("WARN: lockfile seems to be in an older version, roles and collections are therefore using the latest version and not the one locked at deployment. Redeploy the script to correct this"),
+                    conn,
+                )
+                .await;
+                Some(AnsibleDependencyLocks {
+                    python_lockfile: s.to_string(),
+                    git_repos: HashMap::new(),
+                    collections_and_roles: String::new(),
+                    collections_and_roles_logs: String::new(),
+                })
+            } else {
+                append_logs(
+                    &job.id,
+                    &job.workspace_id,
+                    format!("WARN: lockfile could not be parsed: {s}"),
+                    conn,
+                )
+                .await;
+                None
+            }
         }
     } else {
         None
@@ -948,7 +964,13 @@ pub async fn handle_ansible_job(
             let empty = String::new();
             let (lockfile, logs) = req_lockfiles
                 .as_ref()
-                .map(|r| (&r.collections_and_roles, &r.collections_and_roles_logs))
+                .and_then(|r| {
+                    if r.collections_and_roles.is_empty() {
+                        None
+                    } else {
+                        Some((&r.collections_and_roles, &r.collections_and_roles_logs))
+                    }
+                })
                 .unwrap_or((collections, &empty));
 
             if !logs.is_empty() {

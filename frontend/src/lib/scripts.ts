@@ -136,7 +136,7 @@ const scriptLanguagesArray: [SupportedLanguage | 'docker' | 'bunnative', string]
 	['powershell', 'PowerShell'],
 	['php', 'PHP'],
 	['rust', 'Rust'],
-	['ansible', 'Ansible Playbook'],
+	['ansible', 'Ansible'],
 	['csharp', 'C#'],
 	['docker', 'Docker'],
 	['nu', 'Nu'],
