@@ -4078,6 +4078,39 @@ def main():
     )
     .await;
 }
+#[cfg(feature = "python")]
+#[sqlx::test(fixtures("base", "multipython"))]
+async fn test_multipython_python(db: Pool<Postgres>) {
+    let content = r#"# py: <=3.12.2, >=3.12.0
+import f.multipython.script1
+import f.multipython.aliases
+"#
+    .to_string();
+
+    assert_lockfile(&db, content, ScriptLang::Python3, vec!["# py: 3.12.1\n"]).await;
+}
+
+#[cfg(feature = "python")]
+#[sqlx::test(fixtures("base", "multipython"))]
+async fn test_inline_script_metadata_python(db: Pool<Postgres>) {
+    let content = r#"# py_select_latest
+# /// script
+# requires-python = ">3.11,<3.12.3,!=3.12.2"
+# dependencies = [
+#   "tiny==0.1.3",
+# ]
+# ///
+"#
+    .to_string();
+
+    assert_lockfile(
+        &db,
+        content,
+        ScriptLang::Python3,
+        vec!["# py: 3.12.1", "tiny==0.1.3"],
+    )
+    .await;
+}
 #[sqlx::test(fixtures("base", "result_format"))]
 async fn test_result_format(db: Pool<Postgres>) {
     let ordered_result_job_id = "1eecb96a-c8b0-4a3d-b1b6-087878c55e41";
