@@ -81,7 +81,11 @@ jobs:
           REVIEW_BODY_Q=$(printf '%q' "$REVIEW_BODY")
 
           # Update query to get review comments from all review types, not just "CHANGES_REQUESTED"
-          ALL_REVIEW_COMMENTS=$(gh pr view $PR_NUMBER --json reviews -q '.reviews[].body' --repo $GITHUB_REPOSITORY)
+          ALL_REVIEW_COMMENTS=$(gh api \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            /repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER/comments \
+            | jq '[.[] | {diff_hunk: .diff_hunk, path: .path, body: .body}]')
 
           BASE_PROMPT="Fix the following issues in the PR based on the review feedback. The review body is prepended with REVIEW. The review comments are prepended with REVIEW_COMMENTS. The review body and comments are separated by a blank line."
           printf "%s\nREVIEW:\n%s\nREVIEW_COMMENTS:\n%s" \
@@ -91,7 +95,7 @@ jobs:
       - name: Run Aider with review prompt
         run: |
           aider \
-            --read .aider/conventions.md \
+            --read $GITHUB_WORKSPACE/.aider/conventions.md \
             --model gemini/gemini-2.5-pro-preview-05-06 \
             --message-file .github/aider/review-prompt.txt \
             --yes \
