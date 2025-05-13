@@ -1,8 +1,10 @@
 use regex::Regex;
 
 pub use windmill_common::jobs::LARGE_LOG_THRESHOLD_SIZE;
+use windmill_common::utils::WarnAfterExt;
 use windmill_common::worker::{Connection, CLOUD_HOSTED};
 
+use windmill_common::DB;
 use windmill_queue::append_logs;
 
 use std::sync::atomic::AtomicU32;
@@ -26,23 +28,23 @@ pub enum CompactLogs {
 }
 
 pub async fn append_job_logs(
-    job_id: Uuid,
-    w_id: String,
-    logs: String,
-    conn: Connection,
+    job_id: &Uuid,
+    w_id: &str,
+    logs: &str,
+    conn: &Connection,
     must_compact_logs: bool,
     total_size: Arc<AtomicU32>,
-    worker_name: String,
+    worker_name: &str,
 ) -> () {
     match conn {
         Connection::Sql(db) if must_compact_logs => {
             #[cfg(all(feature = "enterprise", feature = "parquet"))]
-            s3_storage(job_id, &w_id, &db, logs, total_size, &worker_name).await;
+            s3_storage(&job_id, &w_id, &db, logs, total_size, worker_name).await;
 
             #[cfg(not(all(feature = "enterprise", feature = "parquet")))]
             {
                 default_disk_log_storage(
-                    job_id,
+                    &job_id,
                     &w_id,
                     &db,
                     logs,
@@ -55,6 +57,45 @@ pub async fn append_job_logs(
         }
         _ => {
             append_logs(&job_id, w_id, logs, &conn).await;
+        }
+    }
+}
+
+pub async fn append_logs_with_compaction(
+    job_id: &Uuid,
+    w_id: &str,
+    logs: &str,
+    db: &DB,
+    worker_name: &str,
+) {
+    let log_length = sqlx::query_scalar!(
+        "INSERT INTO job_logs (logs, job_id, workspace_id) VALUES ($1, $2, $3) ON CONFLICT (job_id) DO UPDATE SET logs = concat(job_logs.logs, $1::text) RETURNING length(logs)",
+        logs,
+        job_id,
+        &w_id,
+    )
+    .fetch_one(db)
+    .warn_after_seconds(1)
+    .await;
+    match log_length {
+        Ok(length) => {
+            let len = length.unwrap_or(0);
+            let conn: Connection = db.into();
+            if len > LARGE_LOG_THRESHOLD_SIZE as i32 {
+                append_job_logs(
+                    &job_id,
+                    w_id,
+                    "",
+                    &conn,
+                    true,
+                    Arc::new(AtomicU32::new(len as u32)),
+                    worker_name,
+                )
+                .await;
+            }
+        }
+        Err(err) => {
+            tracing::error!(%job_id, %err, "error updating logs for job {job_id}: {err}");
         }
     }
 }
