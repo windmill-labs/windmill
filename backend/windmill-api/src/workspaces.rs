@@ -443,10 +443,12 @@ async fn get_settings(
         "SELECT workspace_id, slack_team_id, teams_team_id, teams_team_name, slack_name, slack_command_script, teams_command_script, slack_email, auto_invite_domain, auto_invite_operator, auto_add, customer_id, plan, webhook, deploy_to, ai_config, error_handler, error_handler_extra_args, error_handler_muted_on_cancel, large_file_storage, git_sync, deploy_ui, default_app, default_scripts, mute_critical_alerts, color, operator_settings, git_app_installations FROM workspace_settings WHERE workspace_id = $1",
         &w_id
     )
-    .fetch_one(&mut *tx)
+    .fetch_optional(&mut *tx)
     .await
     .map_err(|e| Error::internal_err(format!("getting settings: {e:#}")))?;
     tx.commit().await?;
+    let settings = not_found_if_none(settings, "workspace settings", &w_id)?;
+
     Ok(Json(settings))
 }
 
