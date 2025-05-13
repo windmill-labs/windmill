@@ -172,6 +172,9 @@
 	}
 
 	export function setDraftTriggers(triggers: Trigger[]) {
+		if (!triggers || triggers.length === 0) {
+			return
+		}
 		$triggersStore = [...triggers, ...$triggersStore.filter((t) => !t.draftConfig)]
 		loadTriggers()
 	}
