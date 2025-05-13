@@ -786,7 +786,7 @@ pub async fn handle_ansible_job(
         if let Ok(lockfile) = serde_json::from_str(s) {
             Some(lockfile)
         } else {
-            if s.chars().skip_while(|c| c.is_whitespace()).next() != Some('{') {
+            if !s.trim_start().starts_with('{') {
                 append_logs(
                     &job.id,
                     &job.workspace_id,
