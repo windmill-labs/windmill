@@ -2,7 +2,7 @@
 	import Section from '$lib/components/Section.svelte'
 	import Required from '$lib/components/Required.svelte'
 	import ResourcePicker from '$lib/components/ResourcePicker.svelte'
-	import { copyToClipboard, emptyStringTrimmed } from '$lib/utils'
+	import { emptyStringTrimmed } from '$lib/utils'
 	import TestTriggerConnection from '../TestTriggerConnection.svelte'
 	import Subsection from '$lib/components/Subsection.svelte'
 	import {
@@ -20,8 +20,8 @@
 	import Select from '$lib/components/apps/svelte-select/lib/Select.svelte'
 	import { workspaceStore } from '$lib/stores'
 
-	import { Button } from '$lib/components/common'
-	import { ClipboardCopy, RefreshCw } from 'lucide-svelte'
+	import { Button, Url } from '$lib/components/common'
+	import { RefreshCw } from 'lucide-svelte'
 	import Alert from '$lib/components/common/alert/Alert.svelte'
 	import TestingBadge from '../testingBadge.svelte'
 
@@ -43,7 +43,7 @@
 	let darkMode = false
 
 	const DEFAULT_PUSH_CONFIG: PushConfig = {
-		audience: '',
+		audience: getBaseUrl(),
 		authenticate: false
 	}
 
@@ -71,7 +71,10 @@
 	export let cloud_subscription_id = ''
 	export let create_update_subscription_id = ''
 
-	$: isValid = !emptyStringTrimmed(gcp_resource_path) && !emptyStringTrimmed(topic_id)
+	$: isValid =
+		!emptyStringTrimmed(gcp_resource_path) &&
+		!emptyStringTrimmed(topic_id) &&
+		!emptyStringTrimmed(subscription_id)
 	$: if (!delivery_type) {
 		delivery_type = 'pull'
 	}
@@ -84,6 +87,12 @@
 	}
 
 	$: !base_endpoint && (base_endpoint = getBaseUrl())
+
+	$: {
+		if (emptyStringTrimmed(subscription_id) && !emptyStringTrimmed(path)) {
+			subscription_id = `windmill-${$workspaceStore!}-${path.replaceAll('/', '_')}`
+		}
+	}
 </script>
 
 <DarkModeObserver bind:darkMode />
@@ -182,7 +191,7 @@
 						{#if subscription_mode === 'create_update'}
 							<Subsection
 								label="Subscription id"
-								tooltip="The unique identifier for the Pub/Sub subscription. Leave it empty to let the system automatically generate a subscription ID, or provide a custom one if needed."
+								tooltip="The unique identifier for the Pub/Sub subscription."
 							>
 								<div class="mt-2">
 									<input
@@ -222,28 +231,9 @@
 								</Subsection>
 								{#if delivery_type === 'push' && delivery_config}
 									<div class="flex flex-col gap-3 mt-1">
-										<Subsection
-											label="URL"
-											tooltip="The URL of the service that receives push messages."
-										>
-											<div class="flex gap-2">
-												<input
-													type="text"
-													autocomplete="off"
-													placeholder="URL"
-													disabled
-													value={`${base_endpoint}/${path}`}
-												/>
-												<Button
-													on:click={() => copyToClipboard(`${base_endpoint}/${path}`)}
-													color="dark"
-													size="xs"
-													startIcon={{ icon: ClipboardCopy }}
-												>
-													Copy URL
-												</Button>
-											</div>
-										</Subsection>
+										<div class="flex gap-2">
+											<Url url={`${base_endpoint}/${path}`} label="Production URL" />
+										</div>
 										<Subsection label="Authenticate">
 											<p class="text-xs mb-2 text-tertiary">
 												Enable Google Cloud authentication for push delivery using a verified token.<Required
@@ -303,9 +293,9 @@
 								</div>
 								<Alert title="Push Subscription URL Requirements" type="warning">
 									If the subscription uses <strong>push delivery</strong>, its endpoint URL must
-									match the following format: <strong>{base_endpoint}/*</strong>, meaning it must
-									start with
-									<strong>{base_endpoint}</strong> followed by any path segment.
+									match the following format: <strong>{`${base_endpoint}/${path}`}/*</strong>,
+									meaning it must start with
+									<strong>{`${base_endpoint}/${path}`}</strong> followed by any path segment.
 								</Alert>
 							</div>
 						{/if}
