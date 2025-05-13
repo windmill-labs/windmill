@@ -1,36 +1,34 @@
-name: "Non-Draft PR Workflow"
+name: "Notify Discord on New PR (with Thread)"
+
 on:
   pull_request:
-    types: [opened, ready_for_review, reopened]
+    types:
+      - opened
+      - ready_for_review
 
 jobs:
-  pr_check:
-    runs-on: ubicloud
+  discord_notification:
+    # still guard out any drafts (just in case)
     if: github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Process non-draft PR
+      - name: Send Discord notification and start a thread
+        env:
+          WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
         run: |
-          echo "Processing non-draft PR #${{ github.event.pull_request.number }}"
-          echo "PR title: ${{ github.event.pull_request.title }}"
-          echo "PR author: ${{ github.event.pull_request.user.login }}"
-
-          # Add your desired actions for non-draft PRs here
-          echo "Sending PR content to external API…"
-
-          JSON_PAYLOAD=$(jq -n \
-            --arg title "${{ github.event.pull_request.title }}" \
-            --arg body "${{ github.event.pull_request.body }}" \
-            --arg url "${{ github.event.pull_request.html_url }}" \
-            '{"body":{"pr_title":$title,"pr_body":$body,"pr_url":$url}}')
-
-          API_RESULT=$(curl -s -w "\n%{http_code}" \
-            -X POST "https://app.windmill.dev/api/r/test1245/issue-trigger" \
-            -H "Content-Type: application/json" \
-            --data-binary "$JSON_PAYLOAD" \
-            --max-time 90)
-
-          HTTP_CODE=$(echo "$API_RESULT" | tail -n1)
-          BODY=$(echo "$API_RESULT" | sed '$d')
+          payload=$(jq -n \
+            --arg content "**New PR opened or ready for review**\n> [${PR_TITLE}](${PR_URL}) by \`${PR_AUTHOR}\`" \
+            --arg thread "$PR_TITLE" \
+            '{
+              content: $content,
+              thread_name: $thread,
+              auto_archive_duration: 10080
+            }'
+          )
+          curl -H "Content-Type: application/json" \
+               -X POST \
+               --data "$payload" \
+               "$WEBHOOK_URL"
