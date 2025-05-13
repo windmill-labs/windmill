@@ -19,8 +19,6 @@ jobs:
     env:
       GEMINI_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
       GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
-      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       WINDMILL_TOKEN: ${{ secrets.WINDMILL_TOKEN }}
 
     steps:
@@ -41,8 +39,6 @@ jobs:
 
       - name: Checkout PR Branch (if issue_comment)
         if: github.event_name == 'issue_comment' && github.event.issue.pull_request
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           echo "Issue comment trigger: Checking out PR branch..."
           PR_NUMBER=${{ github.event.issue.number }}
@@ -307,7 +303,6 @@ jobs:
       - name: Create Pull Request
         if: success() && github.event_name == 'issue_comment' && !github.event.issue.pull_request && steps.commit_and_push.outputs.PR_BRANCH_NAME != ''
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PR_BRANCH: ${{ steps.commit_and_push.outputs.PR_BRANCH_NAME }}
           ISSUE_NUM: ${{ github.event.issue.number }}
         run: |
