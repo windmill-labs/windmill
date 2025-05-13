@@ -185,7 +185,7 @@ jobs:
                 '{"body":{"issue_title":$title,"issue_body":$body,"issue_comment":$comment}}')
               
               API_RESULT=$(curl -s -w "\n%{http_code}" \
-                -X POST "https://app.windmill.dev/api/w/test1245/jobs/run_wait_result/p/u/farhadglbs/amazing_script" \
+                -X POST "https://app.windmill.dev/api/w/windmill-labs/jobs/run_wait_result/p/f/ai/quiet_script" \
                 -H "Content-Type: application/json" \
                 -H "Authorization: Bearer $WINDMILL_TOKEN" \
                 --data-binary "$JSON_PAYLOAD" \
