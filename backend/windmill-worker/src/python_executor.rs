@@ -650,7 +650,7 @@ except BaseException as e:
     let mut reserved_variables =
         get_reserved_variables(job, &client.token, conn, parent_runnable_path).await?;
 
-    // Add /tmp/windmill/cache/python_xyz/global-site-packages to PYTHONPATH.
+    // Add /tmp/windmill/cache/python_x_y_z/global-site-packages to PYTHONPATH.
     // Usefull if certain wheels needs to be preinstalled before execution.
     let global_site_packages_path = py_version.to_cache_dir() + "/global-site-packages";
     let additional_python_paths_folders = {
@@ -663,9 +663,9 @@ except BaseException as e:
             // Since we handle mount of global_site_packages on our own, we don't want it to be mounted automatically.
             // We do this because existence of every wheel in cache is mandatory and if it is not there and nsjail expects it, it is a bug.
             // On the other side global_site_packages is purely optional.
-            // NOTE: This behaviour can be changed in future, so verification of wheels can be offloaded from nsjail to windmill
+            // NOTE: This behaviour can be changed in future, so verification of wheels can be delegated from nsjail to windmill
             paths.insert(0, global_site_packages_path.clone());
-            //    ^^^^^^^^
+            //    ^^^^^^ ^
             // We also want this be priorotized, that's why we insert it to the beginning
         }
         paths.iter().join(":")
