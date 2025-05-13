@@ -8,11 +8,9 @@
 
 mod mapping;
 
-use anyhow::anyhow;
 use async_recursion::async_recursion;
 use itertools::Itertools;
 use lazy_static::lazy_static;
-use pep440_rs::{Version, VersionSpecifier};
 use std::{collections::HashMap, str::FromStr};
 
 use mapping::{FULL_IMPORTS_MAP, SHORT_IMPORTS_MAP};
@@ -247,7 +245,7 @@ pub async fn parse_python_imports(
     w_id: &str,
     path: &str,
     db: &Pool<Postgres>,
-    version_specifiers: &mut Vec<VersionSpecifier>,
+    version_specifiers: &mut Vec<pep440_rs::VersionSpecifier>,
 ) -> error::Result<(Vec<String>, Option<String>)> {
     let mut compile_error_hint: Option<String> = None;
     let mut imports = parse_python_imports_inner(
@@ -310,7 +308,7 @@ async fn parse_python_imports_inner(
     path: &str,
     db: &Pool<Postgres>,
     already_visited: &mut Vec<String>,
-    version_specifiers: &mut Vec<VersionSpecifier>,
+    version_specifiers: &mut Vec<pep440_rs::VersionSpecifier>,
     path_where_annotated_pyv: &mut Option<String>,
 ) -> error::Result<HashMap<String, NImportResolved>> {
     let PythonAnnotations { py310, py311, py312, py313, .. } = PythonAnnotations::parse(&code);
@@ -365,7 +363,7 @@ async fn parse_python_imports_inner(
     });
     if let Some((pos, item)) = find_requirements {
         let mut requirements = HashMap::new();
-        if item == "# /// script" {
+        if item.starts_with("# /// script") {
             let mut incorrect = false;
             let metadata = dbg!(code
                 .lines()
