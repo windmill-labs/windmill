@@ -95,13 +95,14 @@ jobs:
       - name: Run Aider with review prompt
         run: |
           aider \
-            --read $GITHUB_WORKSPACE/aider/conventions.md \
+            --read aider/conventions.md \
             --model gemini/gemini-2.5-pro-preview-05-06 \
             --message-file .github/aider/review-prompt.txt \
             --yes \
             --no-check-update \
             --auto-commits \
             --no-analytics \
+            --no-gitignore \
             --no-stream > .github/aider/aider-output.txt 2>&1 || true
           echo "Aider command completed. Output saved to .github/aider/aider-output.txt"
 
