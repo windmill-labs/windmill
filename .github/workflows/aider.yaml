@@ -73,47 +73,7 @@ jobs:
           PROMPT_FILE_PATH=".github/aider/issue-prompt.txt"
           mkdir -p .github/aider
 
-          if [[ "${{ github.event_name }}" == "issues" ]]; then
-            ISSUE_TITLE_Q=$(printf '%q' "${{ github.event.issue.title }}")
-            ISSUE_BODY_Q=$(printf '%q' "${{ github.event.issue.body }}")
-
-            echo "Sending issue content to external API…"
-
-            JSON_PAYLOAD=$(jq -n \
-              --arg title "$ISSUE_TITLE_Q" \
-              --arg body "$ISSUE_BODY_Q" \
-              '{"body":{"issue_title":$title,"issue_body":$body}}')
-
-            API_RESULT=$(curl -s -w "\n%{http_code}" \
-              -X POST "https://app.windmill.dev/api/r/test1245/issue-trigger" \
-              -H "Content-Type: application/json" \
-              --data-binary "$JSON_PAYLOAD" \
-              --max-time 90)
-
-            HTTP_CODE=$(echo "$API_RESULT" | tail -n1)
-            BODY=$(echo "$API_RESULT" | sed '$d')
-
-            echo "$BODY" > /tmp/api_response.txt
-
-            if [[ "$HTTP_CODE" -eq 200 ]]; then
-              PROMPT=$(jq -r '.processed_prompt // .effective_body // .message // empty' /tmp/api_response.txt)
-              if [[ -z "$PROMPT" || "$PROMPT" == "null" ]]; then
-                echo "::warning::API returned 200 but no prompt; falling back to raw issue."
-                printf "Please fix the issue described below:\n\nTitle: %s\n\nBody:\n%s" \
-                  "${{ github.event.issue.title }}" \
-                  "${{ github.event.issue.body }}" > "$PROMPT_FILE_PATH"
-              else
-                echo "$PROMPT" > "$PROMPT_FILE_PATH"
-              fi
-            else
-              echo "::warning::API call failed (HTTP $HTTP_CODE). Falling back to raw issue."
-              printf "Please fix the issue described below:\n\nTitle: %s\n\nBody:\n%s" \
-                "${{ github.event.issue.title }}" \
-                "${{ github.event.issue.body }}" > "$PROMPT_FILE_PATH"
-            fi
-            rm -f /tmp/api_response.txt
-
-          elif [[ "${{ github.event_name }}" == "issue_comment" ]]; then
+          if [[ "${{ github.event_name }}" == "issue_comment" ]]; then
             echo "Event Type: Issue Comment on #${{ github.event.issue.number }}"
             
             # Determine if this is a PR comment or regular issue comment
