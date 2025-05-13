@@ -53,6 +53,7 @@
 	let editTrigger: Trigger | undefined = undefined
 	let useVerticalTriggerBar = true
 	let width = 0
+	let emailDomain: string | undefined = undefined
 
 	const {
 		simplifiedPoll,
@@ -317,6 +318,10 @@
 										on:reset={() => {
 											handleResetDraft($selectedTrigger)
 										}}
+										on:email-domain={({ detail }) => {
+											console.log('dbg emailDomain', detail)
+											emailDomain = detail
+										}}
 									/>
 								</div>
 							{/key}
@@ -339,7 +344,7 @@
 							{hasPreprocessor}
 							{canHavePreprocessor}
 							args={config}
-							data={{ args, hash }}
+							data={{ args, hash, emailDomain }}
 							on:applyArgs
 							on:updateSchema
 							on:addPreprocessor

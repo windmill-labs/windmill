@@ -92,10 +92,7 @@
 		scopes={isFlow ? [`run:flow/${currentPath}`] : [`run:script/${currentPath}`]}
 		path={initialPath || fakeInitialPath}
 		{isFlow}
-		on:update-config={({ detail }) => updateConfig(detail)}
-		on:emailDomain={({ detail }) => {
-			updateConfig({ emailDomain: detail })
-		}}
+		on:email-domain
 	/>
 {:else if selectedTrigger.type === 'schedule'}
 	<SchedulePanel

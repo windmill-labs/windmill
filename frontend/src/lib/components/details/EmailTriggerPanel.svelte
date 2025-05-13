@@ -36,7 +36,7 @@
 
 	getEmailDomain()
 
-	$: emailDomain && dispatch('emailDomain', emailDomain)
+	$: emailDomain && dispatch('email-domain', emailDomain)
 </script>
 
 <HighlightTheme />
