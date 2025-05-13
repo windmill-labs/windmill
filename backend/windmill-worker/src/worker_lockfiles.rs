@@ -46,8 +46,9 @@ use crate::java_executor::resolve;
 #[cfg(feature = "php")]
 use crate::php_executor::{composer_install, parse_php_imports};
 #[cfg(feature = "python")]
-use crate::python_executor::{create_dependencies_dir, handle_python_reqs, uv_pip_compile};
-use crate::python_executor::{split_requirements, PyV};
+use crate::python_executor::{
+    create_dependencies_dir, handle_python_reqs, split_requirements, uv_pip_compile,
+};
 #[cfg(feature = "rust")]
 use crate::rust_executor::generate_cargo_lockfile;
 use crate::{
@@ -1896,10 +1897,10 @@ async fn python_dep(
     w_id: &str,
     worker_dir: &str,
     occupancy_metrics: &mut Option<&mut OccupancyMetrics>,
-    py_version: crate::python_executor::PyV,
+    py_version: crate::PyV,
     annotations: PythonAnnotations,
 ) -> std::result::Result<String, Error> {
-    use crate::python_executor::{split_requirements, PyVAlias};
+    use crate::python_executor::split_requirements;
 
     create_dependencies_dir(job_dir).await;
 
@@ -1947,7 +1948,7 @@ async fn python_dep(
             worker_dir,
             occupancy_metrics,
             // final_version,
-            PyVAlias::default().into(),
+            crate::PyVAlias::default().into(),
         )
         .await;
 
@@ -1997,7 +1998,7 @@ async fn ansible_dep(
         w_id,
         worker_dir,
         &mut Some(occupancy_metrics),
-        PyV::gravitational_version(job_id, w_id, Some(db.clone().into())).await,
+        crate::PyV::gravitational_version(job_id, w_id, Some(db.clone().into())).await,
         PythonAnnotations::default(),
     )
     .await?;
@@ -2117,10 +2118,12 @@ async fn capture_dependency_job(
 
                     (
                         job_raw_code.to_owned(),
-                        PyV::parse_from_requirements(&split_requirements(job_raw_code)),
+                        crate::PyV::parse_from_requirements(&split_requirements(job_raw_code)),
                     )
                 } else {
                     let mut version_specifiers = vec![];
+                    let PythonAnnotations { py_select_latest, .. } =
+                        PythonAnnotations::parse(job_raw_code);
                     (
                         windmill_parser_py_imports::parse_python_imports(
                             job_raw_code,
@@ -2132,10 +2135,11 @@ async fn capture_dependency_job(
                         .await?
                         .0
                         .join("\n"),
-                        PyV::resolve(
+                        crate::PyV::resolve(
                             version_specifiers,
                             job_id,
                             w_id,
+                            py_select_latest,
                             Some(db.clone().into()),
                             None,
                             None,

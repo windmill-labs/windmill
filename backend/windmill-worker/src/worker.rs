@@ -134,7 +134,10 @@ use crate::java_executor::{handle_java_job, JobHandlerInput as JobHandlerInputJa
 use crate::php_executor::handle_php_job;
 
 #[cfg(feature = "python")]
-use crate::python_executor::{handle_python_job, PyV, PyVAlias};
+use crate::{
+    python_executor::handle_python_job,
+    python_versions::{PyV, PyVAlias},
+};
 
 #[cfg(feature = "python")]
 use crate::ansible_executor::handle_ansible_job;
