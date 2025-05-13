@@ -8,7 +8,7 @@ jobs:
   auto-fix:
     runs-on: ubuntu-latest
     if: |
-      (github.event_name == 'issue_comment' &&
+      github.event_name == 'issue_comment' &&
       (github.event.issue.pull_request || !github.event.issue.pull_request) &&
       contains(github.event.comment.body, '/aider') &&
       !contains(github.event.comment.user.login, '[bot]')
