@@ -377,7 +377,7 @@ impl PyV {
     pub fn parse_from_requirements<S: AsRef<str>>(requirements_lines: &[S]) -> Self {
         Self::try_parse_from_requirements(requirements_lines).unwrap_or(
             // If there is no assigned version in lockfile we automatically fallback to 3.11
-            // In this case we have dependencies, but no associated python version
+            // In this case we have dependencies or other metadata, but no associated python version
             // This is the case for old deployed scripts
             PyVAlias::Py311.into(),
         )

@@ -1073,15 +1073,13 @@ async fn handle_python_deps(
         // Deployed
         Some(r) => {
             let rl = split_requirements(r);
-            // (get_pyv_from_requirements_lines(&rl), rl)
             (PyV::parse_from_requirements(&rl), rl)
         }
         // Preview
         None => {
-            let mut version_specifiers = vec![];
-
             let (v, requirements_lines, error_hint) = match conn {
                 Connection::Sql(db) => {
+                    let mut version_specifiers = vec![];
                     let (r, h) = windmill_parser_py_imports::parse_python_imports(
                         inner_content,
                         w_id,
@@ -1110,18 +1108,6 @@ async fn handle_python_deps(
                         py_version,
                         py_version_v2,
                     }) => {
-                        // Debug
-                        //                         tracing::warn!(
-                        //                             workspace_id = %w_id,
-                        //                             "
-                        // Failed to get precomputed python version from server. Fallback to Default ({})
-                        // Returned from server: py_version - {:?}, py_version_v2 - {:?}
-                        //                                         ",
-                        //                             *PyV::default(),
-                        //                             &py_version,
-                        //                             &py_version_v2
-                        //                         );
-                        // TODO: V1 compat
                         let v = {
                             let v_v2 = py_version_v2
                                 .clone()
@@ -1145,8 +1131,6 @@ Returned from server: py_version - {:?}, py_version_v2 - {:?}
                                 }
                             }
                         };
-
-                        dbg!(&v);
 
                         let r = split_requirements(requirements.unwrap_or_default());
                         let h = None;
@@ -1192,26 +1176,6 @@ Returned from server: py_version - {:?}, py_version_v2 - {:?}
         }
     };
 
-    /*
-     For deployed scripts we want to find out version in following order:
-     1. Assigned version (written in lockfile)
-     2. 3.11
-
-     For Previews:
-     1. Annotated version
-     2. Workspace version
-     3. Instance version
-     4. Latest Stable
-    */
-    // // let requirements_lines = split_requirements(requirements.as_str());
-    // let final_version = if is_deployed {
-    //     PyV::parse_from_requirements(&resolved_lines)
-    // } else {
-    //     // This is not deployed script, meaning we test run it (Preview)
-    //     // annotated_pyv.unwrap_or(instance_pyv)
-    //     PyVersion::Py310
-    // };
-    // If len > 0 it means there is atleast one dependency or assigned python version
     if !resolved_lines.is_empty() {
         let mut venv_path = handle_python_reqs(
             resolved_lines,
