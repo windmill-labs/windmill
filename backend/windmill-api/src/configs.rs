@@ -48,6 +48,7 @@ async fn list_worker_groups(
     let mut configs_raw =
         sqlx::query_as!(Config, "SELECT * FROM config WHERE name LIKE 'worker__%'")
             .fetch_all(&db)
+            .warn_after_seconds(1)
             .await?;
     // Remove the 'worker__' prefix from all config names
     for config in configs_raw.iter_mut() {
@@ -103,6 +104,7 @@ async fn get_config(
 
     let config = sqlx::query_as!(Config, "SELECT * FROM config WHERE name = $1", name)
         .fetch_optional(&db)
+        .warn_after_seconds(1)
         .await?
         .map(|c| c.config);
 
@@ -132,6 +134,7 @@ async fn update_config(
         config
     )
     .execute(&mut *tx)
+    .warn_after_seconds(3)
     .await?;
 
     audit_log(
@@ -159,6 +162,7 @@ async fn delete_config(
 
     let deleted = sqlx::query!("DELETE FROM config WHERE name = $1 RETURNING name", name)
         .fetch_all(&db)
+        .warn_after_seconds(3)
         .await?;
 
     audit_log(
@@ -201,6 +205,7 @@ async fn list_autoscaling_events(
         worker_group
     )
     .fetch_all(&db)
+    .warn_after_seconds(1)
     .await?;
     Ok(Json(events))
 }
@@ -213,6 +218,7 @@ async fn list_configs(
     require_super_admin(&db, &authed.email).await?;
     let configs = sqlx::query_as!(Config, "SELECT name, config FROM config")
         .fetch_all(&db)
+        .warn_after_seconds(1)
         .await?;
     Ok(Json(configs))
 }

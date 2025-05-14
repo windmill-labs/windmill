@@ -92,6 +92,7 @@ impl UserDB {
         if let Some(schema) = PG_SCHEMA.as_ref() {
             sqlx::query(&format!("SET LOCAL search_path TO {}", schema))
                 .execute(&mut *tx)
+                .warn_after_seconds(1)
                 .await?;
         }
 
@@ -118,6 +119,7 @@ impl UserDB {
                 .join(",")
         )
         .execute(&mut *tx)
+        .warn_after_seconds(1)
         .await?;
 
         // set_session_context(

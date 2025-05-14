@@ -399,6 +399,7 @@ pub fn get_latest_deployed_hash_for_path<
                     w_id
                 )
                 .fetch_optional(&mut *conn)
+                .warn_after_seconds(1)
                 .await?;
 
                 let hash = utils::not_found_if_none(hash, "script", script_path)?;
@@ -440,6 +441,7 @@ pub async fn get_script_info_for_hash<'e, E: sqlx::PgExecutor<'e>>(
                     w_id
                 )
                 .fetch_optional(db)
+                .warn_after_seconds(1)
                 .await?;
 
             let info = utils::not_found_if_none(info, "script", &hash.to_string())?;
@@ -499,6 +501,7 @@ pub fn get_latest_flow_version_info_for_path<
                     w_id
                 )
                 .fetch_optional(&mut *conn)
+                .warn_after_seconds(1)
                 .await?;
 
                 let version = utils::not_found_if_none(version, "flow", path)?;
@@ -536,6 +539,7 @@ pub fn get_latest_flow_version_info_for_path<
                 version
             )
                 .fetch_optional(&mut *conn)
+                .warn_after_seconds(1)
                 .await?;
 
                 let info = utils::not_found_if_none(info, "flow", path)?;
@@ -574,6 +578,7 @@ pub async fn get_latest_hash_for_path<'c>(
         w_id
     )
     .fetch_optional(&mut **db)
+    .warn_after_seconds(1)
     .await?;
 
     let script = utils::not_found_if_none(r_o, "script", script_path)?;

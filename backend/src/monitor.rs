@@ -1226,6 +1226,7 @@ pub async fn load_value_from_global_settings(
         setting_name
     )
     .fetch_optional(db)
+    .warn_after_seconds(1)
     .await?
     .map(|x| x.value);
     Ok(r)
@@ -1475,6 +1476,7 @@ pub async fn expose_queue_metrics(db: &Pool<Postgres>) {
             "SELECT created_at FROM metrics WHERE id LIKE 'queue_count_%' ORDER BY created_at DESC LIMIT 1"
         )
         .fetch_optional(db)
+        .warn_after_seconds(1)
         .await
         .unwrap_or(Some(chrono::Utc::now()));
 
@@ -1516,6 +1518,7 @@ pub async fn expose_queue_metrics(db: &Pool<Postgres>) {
                     serde_json::json!(count)
                 )
                 .execute(db)
+                .warn_after_seconds(1)
                 .await
                 .ok();
                 if count > 0 {
@@ -1531,6 +1534,7 @@ pub async fn expose_queue_metrics(db: &Pool<Postgres>) {
                         tag
                     )
                     .execute(db)
+                    .warn_after_seconds(1)
                     .await
                     .ok();
                 }
@@ -1547,6 +1551,7 @@ pub async fn expose_queue_metrics(db: &Pool<Postgres>) {
         "DELETE FROM metrics WHERE id LIKE 'queue_%' AND created_at < NOW() - INTERVAL '14 day'"
     )
     .execute(db)
+    .warn_after_seconds(1)
     .await
     .ok();
 }
@@ -1740,6 +1745,7 @@ async fn handle_zombie_jobs(db: &Pool<Postgres>, base_internal_url: &str, worker
             RESTART_LIMIT
         )
         .fetch_all(db)
+        .warn_after_seconds(3)
         .await
         .ok()
         .unwrap_or_else(|| vec![]);
@@ -1799,6 +1805,7 @@ async fn handle_zombie_jobs(db: &Pool<Postgres>, base_internal_url: &str, worker
                 restart_message
             )
             .execute(db)
+            .warn_after_seconds(1)
             .await;
             tracing::error!(critical_error_message);
             report_critical_error(
@@ -1821,6 +1828,7 @@ async fn handle_zombie_jobs(db: &Pool<Postgres>, base_internal_url: &str, worker
     AND running = true AND ping IS NULL AND same_worker = true AND worker IS NOT NULL GROUP BY worker",
         )
         .fetch_all(db)
+        .warn_after_seconds(3)
         .await
         .ok()
         .unwrap_or_else(|| vec![]);
@@ -1838,6 +1846,7 @@ async fn handle_zombie_jobs(db: &Pool<Postgres>, base_internal_url: &str, worker
             &worker_ids[..]
         )
         .fetch_all(db)
+        .warn_after_seconds(3)
         .await
         .ok()
         .unwrap_or_else(|| vec![])
@@ -1867,6 +1876,7 @@ async fn handle_zombie_jobs(db: &Pool<Postgres>, base_internal_url: &str, worker
         let jobs = sqlx::query_as::<_, QueuedJob>("SELECT * FROM v2_as_queue WHERE id = ANY($1)")
             .bind(&timeouts[..])
             .fetch_all(db)
+            .warn_after_seconds(3)
             .await
             .map_err(|e| tracing::error!("Error fetching same worker jobs: {:?}", e))
             .unwrap_or_default();
@@ -1881,6 +1891,7 @@ async fn handle_zombie_jobs(db: &Pool<Postgres>, base_internal_url: &str, worker
     AND running = true  AND job_kind NOT IN ('flow', 'flowpreview', 'flownode', 'singlescriptflow') AND same_worker = false")
         .bind(ZOMBIE_JOB_TIMEOUT.as_str())
         .fetch_all(db)
+        .warn_after_seconds(3)
         .await
         .ok()
             .unwrap_or_else(|| vec![])
@@ -1906,6 +1917,7 @@ async fn handle_zombie_jobs(db: &Pool<Postgres>, base_internal_url: &str, worker
         sqlx::query_as::<_, QueuedJob>("SELECT * FROM v2_as_queue WHERE id = ANY($1)")
             .bind(&zombie_jobs_uuid_restart_limit_reached[..])
             .fetch_all(db)
+            .warn_after_seconds(3)
             .await
             .ok()
             .unwrap_or_else(|| vec![]);
@@ -2009,6 +2021,7 @@ async fn handle_zombie_flows(db: &DB) -> error::Result<()> {
         FLOW_ZOMBIE_TRANSITION_TIMEOUT.as_str()
     )
     .fetch_all(db)
+    .warn_after_seconds(3)
     .await?;
 
     for flow in flows {
@@ -2035,6 +2048,7 @@ async fn handle_zombie_flows(db: &DB) -> error::Result<()> {
             let concurrency_key =
                 sqlx::query_scalar!("SELECT key FROM concurrency_key WHERE job_id = $1", flow.id)
                     .fetch_optional(&mut *tx)
+                    .warn_after_seconds(1)
                     .await?;
 
             if let Some(key) = concurrency_key {
@@ -2047,6 +2061,7 @@ async fn handle_zombie_flows(db: &DB) -> error::Result<()> {
                         flow.id.hyphenated().to_string()
                     )
                     .execute(&mut *tx)
+                    .warn_after_seconds(1)
                     .await?;
                 }
             }
@@ -2057,6 +2072,7 @@ async fn handle_zombie_flows(db: &DB) -> error::Result<()> {
                 flow.id
             )
             .execute(&mut *tx)
+            .warn_after_seconds(1)
             .await?;
 
             tx.commit().await?;
@@ -2100,6 +2116,7 @@ Please check your worker logs for more details and feel free to report it to the
         FLOW_ZOMBIE_TRANSITION_TIMEOUT.as_str()
     )
     .fetch_all(db)
+    .warn_after_seconds(3)
     .await?;
 
     for flow in flows2 {

@@ -29,6 +29,7 @@ async fn current_database(conn: &mut PgConnection) -> Result<String, MigrateErro
     // language=SQL
     Ok(sqlx::query_scalar("SELECT current_database()")
         .fetch_one(conn)
+        .warn_after_seconds(1)
         .await?)
 }
 
@@ -96,6 +97,7 @@ impl Migrate for CustomMigrator {
 
             let pid = sqlx::query_scalar!("SELECT pg_backend_pid()")
                 .fetch_one(&mut *self.inner)
+                .warn_after_seconds(1)
                 .await?;
             tracing::info!("Acquiring global PG lock for potential migration with pid: {pid:?}");
             let database_name = current_database(&mut *self.inner).await?;
@@ -106,6 +108,7 @@ impl Migrate for CustomMigrator {
             while !r {
                 r = sqlx::query_scalar!("SELECT pg_try_advisory_lock($1)", lock_id)
                     .fetch_one(&mut *self.inner)
+                    .warn_after_seconds(1)
                     .await
                     .map_err(|e| {
                         tracing::error!("Error acquiring lock: {e:#}");
@@ -138,6 +141,7 @@ impl Migrate for CustomMigrator {
             let _ = sqlx::query("SELECT pg_advisory_unlock($1)")
                 .bind(lock_id)
                 .execute(&mut *self.inner)
+                .warn_after_seconds(1)
                 .await?;
 
             tracing::info!("Released PG lock");
@@ -166,6 +170,7 @@ impl Migrate for CustomMigrator {
 
                 self.inner
                     .execute(&**migration_sql)
+                    .warn_after_seconds(10)
                     .await?;
                 let _ = sqlx::query(
                     r#"
@@ -177,6 +182,7 @@ impl Migrate for CustomMigrator {
                 .bind(&*migration.description)
                 .bind(&*migration.checksum)
                 .execute(&mut *self.inner)
+                .warn_after_seconds(10)
                 .await?;
                 return Ok(std::time::Duration::from_secs(0));
             } else {
@@ -205,6 +211,7 @@ pub async fn migrate(db: &DB) -> Result<Option<JoinHandle<()>>, Error> {
 
     if let Err(err) = sqlx::query!("DELETE FROM _sqlx_migrations WHERE version=20250131115248")
         .execute(db)
+        .warn_after_seconds(10)
         .await
     {
         tracing::info!("Could not remove sqlx migration with version=20250131115248: {err:#}");
@@ -213,6 +220,7 @@ pub async fn migrate(db: &DB) -> Result<Option<JoinHandle<()>>, Error> {
     // Remove the migration `v2_fix_no_runtime` in favor of `v2_fix_no_runtime_2`.
     if let Err(err) = sqlx::query!("DELETE FROM _sqlx_migrations WHERE version=20250201145632")
         .execute(db)
+        .warn_after_seconds(10)
         .await
     {
         tracing::info!("Could not remove sqlx migration with version=20250201145632: {err:#}");
@@ -223,6 +231,7 @@ pub async fn migrate(db: &DB) -> Result<Option<JoinHandle<()>>, Error> {
         "DELETE FROM _sqlx_migrations WHERE version=20250201145630 OR version=20250201145631"
     )
     .execute(db)
+    .warn_after_seconds(10)
     .await
     {
         tracing::info!("Could not remove sqlx migration with version=[20250201145630, 20250201145631] : {err:#}");
@@ -289,6 +298,7 @@ async fn fix_flow_versioning_migration(
         "SELECT EXISTS(SELECT name FROM windmill_migrations WHERE name = 'fix_flow_versioning_2')",
     )
     .fetch_one(db)
+    .warn_after_seconds(1)
     .await?
     .unwrap_or(false);
 
@@ -305,6 +315,7 @@ async fn fix_flow_versioning_migration(
                 "SELECT EXISTS(SELECT name FROM windmill_migrations WHERE name = 'fix_flow_versioning_2')",
             )
             .fetch_one(db)
+            .warn_after_seconds(1)
             .await?
             .unwrap_or(false);
 
@@ -312,12 +323,13 @@ async fn fix_flow_versioning_migration(
                 let query = include_str!("../../custom_migrations/fix_flow_versioning_2.sql");
                 tracing::info!("Applying fix_flow_versioning_2.sql");
                 let mut tx: sqlx::Transaction<'_, Postgres> = db.begin().await?;
-                tx.execute(query).await?;
+                tx.execute(query).warn_after_seconds(10).await?;
                 tracing::info!("Applied fix_flow_versioning_2.sql");
                 sqlx::query!(
                     "INSERT INTO windmill_migrations (name) VALUES ('fix_flow_versioning_2')"
                 )
                 .execute(&mut *tx)
+                .warn_after_seconds(10)
                 .await?;
                 tx.commit().await?;
             }
@@ -334,6 +346,7 @@ async fn has_done_migration(db: &DB, migration_job_name: &str) -> bool {
         migration_job_name
     )
     .fetch_one(db)
+    .warn_after_seconds(1)
     .await
     .ok()
     .flatten()
@@ -354,6 +367,7 @@ macro_rules! run_windmill_migration {
                 while !r {
                     r = sqlx::query_scalar!("SELECT pg_try_advisory_lock(4242)")
                         .fetch_one(&mut *$tx)
+                        .warn_after_seconds(1)
                         .await
                         .map_err(|e| {
                             tracing::error!("Error acquiring {migration_job_name} lock: {e:#}");
@@ -381,6 +395,7 @@ macro_rules! run_windmill_migration {
                         migration_job_name
                     )
                     .execute(&mut *$tx)
+                    .warn_after_seconds(10)
                     .await?;
                     tracing::info!("Finished applying {migration_job_name} migration");
                 } else {
@@ -389,6 +404,7 @@ macro_rules! run_windmill_migration {
 
                 let _ = sqlx::query("SELECT pg_advisory_unlock(4242)")
                     .execute(&mut *$tx)
+                    .warn_after_seconds(1)
                     .await?;
                 $tx.commit().await?;
                 tracing::info!("released lock for {migration_job_name}");
@@ -408,6 +424,7 @@ async fn v2_finalize(db: &DB) -> Result<(), Error> {
             ALTER TABLE v2_job_queue DISABLE ROW LEVEL SECURITY;
             "#,
         )
+        .warn_after_seconds(10)
         .await?;
     });
 
@@ -418,6 +435,7 @@ async fn v2_finalize(db: &DB) -> Result<(), Error> {
             ALTER TABLE v2_job_completed DISABLE ROW LEVEL SECURITY;
             "#,
         )
+        .warn_after_seconds(10)
         .await?;
     });
 
@@ -428,6 +446,7 @@ async fn v2_finalize(db: &DB) -> Result<(), Error> {
             DROP FUNCTION IF EXISTS v2_job_after_update CASCADE;
         "#,
         )
+        .warn_after_seconds(10)
         .await?;
     });
 
@@ -439,6 +458,7 @@ async fn v2_finalize(db: &DB) -> Result<(), Error> {
             DROP FUNCTION IF EXISTS v2_job_completed_before_update CASCADE;
             "#,
         )
+        .warn_after_seconds(10)
         .await?;
     });
 
@@ -451,6 +471,7 @@ async fn v2_finalize(db: &DB) -> Result<(), Error> {
             DROP FUNCTION IF EXISTS v2_job_queue_before_update CASCADE;
             "#,
         )
+        .warn_after_seconds(10)
         .await?;
     });
 
@@ -462,6 +483,7 @@ async fn v2_finalize(db: &DB) -> Result<(), Error> {
             DROP FUNCTION IF EXISTS v2_job_runtime_before_update CASCADE;
             "#,
         )
+        .warn_after_seconds(10)
         .await?;
     });
 
@@ -473,6 +495,7 @@ async fn v2_finalize(db: &DB) -> Result<(), Error> {
             DROP FUNCTION IF EXISTS v2_job_status_before_update CASCADE;
             "#,
         )
+        .warn_after_seconds(10)
         .await?;
     });
 
@@ -482,6 +505,7 @@ async fn v2_finalize(db: &DB) -> Result<(), Error> {
             DROP VIEW IF EXISTS completed_job, completed_job_view, job, queue, queue_view CASCADE;
             "#,
         )
+        .warn_after_seconds(10)
         .await?;
     });
 
@@ -522,6 +546,7 @@ async fn v2_finalize(db: &DB) -> Result<(), Error> {
                 DROP COLUMN IF EXISTS __cache_ttl CASCADE;
             "#,
         )
+        .warn_after_seconds(10)
         .await?;
     });
     run_windmill_migration!("v2_finalize_job_completed", db, |tx| {
@@ -554,6 +579,7 @@ async fn v2_finalize(db: &DB) -> Result<(), Error> {
                 DROP COLUMN IF EXISTS __priority CASCADE;
             "#,
         )
+        .warn_after_seconds(10)
         .await?;
     });
 
@@ -609,34 +635,40 @@ async fn fix_job_completed_index(db: &DB) -> Result<(), Error> {
 
         //     sqlx::query(
         //     "CREATE INDEX CONCURRENTLY IF NOT EXISTS ix_completed_job_workspace_id_started_at_new ON completed_job (workspace_id, job_kind, success, is_skipped, is_flow_step, started_at DESC)"
-        // ).execute(db).await?;
+        // ).execute(db).warn_after_seconds(10).await?;
 
         sqlx::query("DROP INDEX CONCURRENTLY IF EXISTS ix_completed_job_workspace_id_created_at")
             .execute(db)
+            .warn_after_seconds(10)
             .await?;
 
         sqlx::query(
             "DROP INDEX CONCURRENTLY IF EXISTS ix_completed_job_workspace_id_created_at_new",
         )
         .execute(db)
+        .warn_after_seconds(10)
         .await?;
     });
 
     run_windmill_migration!("fix_job_completed_index_3", &db, |tx| {
         sqlx::query("DROP INDEX CONCURRENTLY IF EXISTS index_completed_job_on_schedule_path")
             .execute(db)
+            .warn_after_seconds(10)
             .await?;
 
         sqlx::query("DROP INDEX CONCURRENTLY IF EXISTS concurrency_limit_stats_queue")
             .execute(db)
+            .warn_after_seconds(10)
             .await?;
 
         sqlx::query("DROP INDEX CONCURRENTLY IF EXISTS root_job_index")
             .execute(db)
+            .warn_after_seconds(10)
             .await?;
 
         sqlx::query("DROP INDEX CONCURRENTLY IF EXISTS index_completed_on_created")
             .execute(db)
+            .warn_after_seconds(10)
             .await?;
     });
 
@@ -646,36 +678,42 @@ async fn fix_job_completed_index(db: &DB) -> Result<(), Error> {
         tracing::info!("step {i} of {migration_job_name} migration");
         sqlx::query!("create index concurrently  if not exists ix_job_workspace_id_created_at_new_3 ON v2_job  (workspace_id,  created_at DESC)")
                 .execute(db)
+                .warn_after_seconds(10)
                 .await?;
         i += 1;
         tracing::info!("step {i} of {migration_job_name} migration");
 
         sqlx::query!("create index concurrently if not exists ix_job_workspace_id_created_at_new_8 ON v2_job  (workspace_id, created_at DESC) where kind in ('deploymentcallback') AND parent_job IS NULL")
             .execute(db)
+            .warn_after_seconds(10)
             .await?;
         i += 1;
         tracing::info!("step {i} of {migration_job_name} migration");
 
         sqlx::query!("create index concurrently if not exists ix_job_workspace_id_created_at_new_9 ON v2_job  (workspace_id, created_at DESC) where kind in ('dependencies', 'flowdependencies', 'appdependencies') AND parent_job IS NULL")
             .execute(db)
+            .warn_after_seconds(10)
             .await?;
         i += 1;
         tracing::info!("step {i} of {migration_job_name} migration");
 
         sqlx::query!("create index concurrently if not exists ix_job_workspace_id_created_at_new_5 ON v2_job  (workspace_id, created_at DESC) where kind in ('preview', 'flowpreview') AND parent_job IS NULL")
                 .execute(db)
+                .warn_after_seconds(10)
                 .await?;
         i += 1;
         tracing::info!("step {i} of {migration_job_name} migration");
 
         sqlx::query!("create index concurrently if not exists ix_completed_job_workspace_id_started_at_new_2 ON v2_job_completed  (workspace_id, started_at DESC)")
                 .execute(db)
+                .warn_after_seconds(10)
                 .await?;
         i += 1;
         tracing::info!("step {i} of {migration_job_name} migration");
 
         sqlx::query!("create index concurrently if not exists ix_job_root_job_index_by_path_2 ON v2_job (workspace_id, runnable_path, created_at desc) WHERE parent_job IS NULL")
                 .execute(db)
+                .warn_after_seconds(10)
                 .await?;
 
         i += 1;
@@ -683,6 +721,7 @@ async fn fix_job_completed_index(db: &DB) -> Result<(), Error> {
 
         sqlx::query!("DROP INDEX CONCURRENTLY IF EXISTS root_job_index_by_path_2")
             .execute(db)
+            .warn_after_seconds(10)
             .await?;
 
         i += 1;
@@ -690,6 +729,7 @@ async fn fix_job_completed_index(db: &DB) -> Result<(), Error> {
 
         sqlx::query!("create index concurrently if not exists ix_job_created_at ON v2_job  (created_at DESC)")
                     .execute(db)
+                    .warn_after_seconds(10)
                     .await?;
 
         i += 1;
@@ -699,6 +739,7 @@ async fn fix_job_completed_index(db: &DB) -> Result<(), Error> {
             "DROP INDEX CONCURRENTLY IF EXISTS ix_completed_job_workspace_id_created_at_new_2",
         )
         .execute(db)
+        .warn_after_seconds(10)
         .await?;
         i += 1;
         tracing::info!("step {i} of {migration_job_name} migration");
@@ -707,12 +748,14 @@ async fn fix_job_completed_index(db: &DB) -> Result<(), Error> {
             "DROP INDEX CONCURRENTLY IF EXISTS ix_completed_job_workspace_id_started_at_new",
         )
         .execute(db)
+        .warn_after_seconds(10)
         .await?;
         i += 1;
         tracing::info!("step {i} of {migration_job_name} migration");
 
         sqlx::query("DROP INDEX CONCURRENTLY IF EXISTS root_job_index_by_path")
             .execute(db)
+            .warn_after_seconds(10)
             .await?;
     });
 
@@ -720,10 +763,11 @@ async fn fix_job_completed_index(db: &DB) -> Result<(), Error> {
         tracing::info!("Special migration to add index concurrently on job labels 2");
         sqlx::query!("DROP INDEX CONCURRENTLY IF EXISTS labeled_jobs_on_jobs")
             .execute(db)
+            .warn_after_seconds(10)
             .await?;
         sqlx::query!(
         "CREATE INDEX CONCURRENTLY labeled_jobs_on_jobs ON v2_job_completed USING GIN ((result -> 'wm_labels')) WHERE result ? 'wm_labels'"
-        ).execute(db).await?;
+        ).execute(db).warn_after_seconds(10).await?;
     });
 
     run_windmill_migration!("v2_labeled_jobs_index", &db, |tx| {
@@ -734,44 +778,53 @@ async fn fix_job_completed_index(db: &DB) -> Result<(), Error> {
                 WHERE labels IS NOT NULL"
         )
         .execute(db)
+        .warn_after_seconds(10)
         .await?;
     });
 
     run_windmill_migration!("v2_jobs_rls", &db, |tx| {
         sqlx::query!("ALTER TABLE v2_job ENABLE ROW LEVEL SECURITY")
             .execute(db)
+            .warn_after_seconds(10)
             .await?;
     });
 
     run_windmill_migration!("v2_improve_v2_job_indices_ii", &db, |tx| {
         sqlx::query!("create index concurrently if not exists ix_v2_job_workspace_id_created_at ON v2_job  (workspace_id, created_at DESC) where kind in ('script', 'flow', 'singlescriptflow') AND parent_job IS NULL")
                 .execute(db)
+                .warn_after_seconds(10)
                 .await?;
 
         sqlx::query!("DROP INDEX CONCURRENTLY IF EXISTS ix_job_workspace_id_created_at_new_6")
             .execute(db)
+            .warn_after_seconds(10)
             .await?;
 
         sqlx::query!("DROP INDEX CONCURRENTLY IF EXISTS ix_job_workspace_id_created_at_new_7")
             .execute(db)
+            .warn_after_seconds(10)
             .await?;
     });
 
     run_windmill_migration!("v2_improve_v2_queued_jobs_indices", &db, |tx| {
         sqlx::query!("CREATE INDEX CONCURRENTLY IF NOT EXISTS queue_sort_v2 ON v2_job_queue (priority DESC NULLS LAST, scheduled_for, tag) WHERE running = false")
             .execute(db)
+            .warn_after_seconds(10)
             .await?;
 
         // sqlx::query!("CREATE INDEX CONCURRENTLY queue_sort_2_v2 ON v2_job_queue (tag, priority DESC NULLS LAST, scheduled_for) WHERE running = false")
         //     .execute(db)
+        //     .warn_after_seconds(10)
         //     .await?;
 
         sqlx::query!("DROP INDEX CONCURRENTLY IF EXISTS queue_sort")
             .execute(db)
+            .warn_after_seconds(10)
             .await?;
 
         sqlx::query!("DROP INDEX CONCURRENTLY IF EXISTS queue_sort_2")
             .execute(db)
+            .warn_after_seconds(10)
             .await?;
     });
 
@@ -780,6 +833,7 @@ async fn fix_job_completed_index(db: &DB) -> Result<(), Error> {
             "CREATE INDEX CONCURRENTLY IF NOT EXISTS ix_audit_timestamps ON audit (timestamp DESC)"
         )
         .execute(db)
+        .warn_after_seconds(10)
         .await?;
     });
     Ok(())

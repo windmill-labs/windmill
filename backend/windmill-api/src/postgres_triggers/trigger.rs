@@ -225,6 +225,7 @@ impl PostgresTrigger {
             self.path,
         )
         .fetch_optional(&db)
+        .warn_after_seconds(1)
         .await;
         match postgres_trigger {
             Ok(has_lock) => {
@@ -273,6 +274,7 @@ impl PostgresTrigger {
             *INSTANCE_NAME
         )
         .fetch_optional(db)
+        .warn_after_seconds(1)
         .await;
 
         match updated {
@@ -481,6 +483,7 @@ impl PostgresConfig {
                 "SELECT pubname FROM pg_publication WHERE pubname = {}",
                 quote_literal(&publication_name)
             ))
+            .warn_after_seconds(3)
             .await?;
 
         if !publication.row_exist() {
@@ -494,6 +497,7 @@ impl PostgresConfig {
                 "SELECT slot_name FROM pg_replication_slots WHERE slot_name = {}",
                 quote_literal(&replication_slot_name)
             ))
+            .warn_after_seconds(3)
             .await?;
 
         if !replication_slot.row_exist() {
@@ -504,6 +508,7 @@ impl PostgresConfig {
 
         let (logical_replication_stream, logical_replication_settings) = client
             .get_logical_replication_stream(&publication_name, &replication_slot_name)
+            .warn_after_seconds(3)
             .await?;
 
         Ok((logical_replication_stream, logical_replication_settings))
@@ -550,11 +555,11 @@ impl PostgresConfig {
 
                 let query = drop_logical_replication_slot_query(replication_slot_name);
 
-                let _ = sqlx::query(&query).execute(&mut connection).await;
+                let _ = sqlx::query(&query).execute(&mut connection).warn_after_seconds(3).await;
 
                 let query = drop_publication_query(publication_name);
 
-                let _ = sqlx::query(&query).execute(&mut connection).await;
+                let _ = sqlx::query(&query).execute(&mut connection).warn_after_seconds(3).await;
 
                 Ok(())
             }
@@ -782,6 +787,7 @@ impl CaptureConfigForPostgresTrigger {
             self.is_flow,
         )
         .fetch_optional(&db)
+        .warn_after_seconds(1)
         .await
         {
             Ok(has_lock) => {
@@ -829,6 +835,7 @@ impl CaptureConfigForPostgresTrigger {
             *INSTANCE_NAME
         )
         .fetch_optional(db)
+        .warn_after_seconds(1)
         .await
         {
             Ok(updated) => {
@@ -971,6 +978,7 @@ async fn listen_to_unlistened_database_events(
             "#
     )
     .fetch_all(db)
+    .warn_after_seconds(3)
     .await;
 
     match postgres_triggers {
@@ -1007,6 +1015,7 @@ async fn listen_to_unlistened_database_events(
             "#
     )
     .fetch_all(db)
+    .warn_after_seconds(3)
     .await;
 
     match postgres_triggers_capture {

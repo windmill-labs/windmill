@@ -120,6 +120,7 @@ pub async fn load_value_from_global_settings(
         setting_name
     )
     .fetch_optional(db)
+    .warn_after_seconds(1)
     .await?
     .map(|x| x.value);
     Ok(r)

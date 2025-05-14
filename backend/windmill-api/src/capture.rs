@@ -275,6 +275,7 @@ async fn get_configs(
         matches!(runnable_kind, RunnableKind::Flow),
     )
     .fetch_all(&mut *tx)
+    .warn_after_seconds(3)
     .await?;
 
     tx.commit().await?;
@@ -314,7 +315,7 @@ async fn set_postgres_trigger_config(
 
     let query = drop_publication_query(&publication_name);
 
-    sqlx::query(&query).execute(&mut connection).await?;
+    sqlx::query(&query).execute(&mut connection).warn_after_seconds(3).await?;
 
     let query = create_publication_query(
         &publication_name,
@@ -447,6 +448,7 @@ async fn set_config(
         &authed.email,
     )
     .execute(&mut *tx)
+    .warn_after_seconds(1)
     .await?;
 
     tx.commit().await?;
@@ -484,6 +486,7 @@ async fn ping_config(
         trigger_kind as TriggerKind,
     )
     .execute(&mut *tx)
+    .warn_after_seconds(3)
     .await?;
 
     tx.commit().await?;
@@ -551,6 +554,7 @@ async fn list_captures(
         per_page as i64,
     )
     .fetch_all(&mut *tx)
+    .warn_after_seconds(3)
     .await?;
 
     tx.commit().await?;
@@ -584,6 +588,7 @@ async fn get_capture(
         &w_id,
     )
     .fetch_one(&mut *tx)
+    .warn_after_seconds(1)
     .await?;
 
     tx.commit().await?;
@@ -606,6 +611,7 @@ async fn delete_capture(
         id
     )
     .execute(&mut *tx)
+    .warn_after_seconds(1)
     .await?;
     tx.commit().await?;
     Ok(())
@@ -642,6 +648,7 @@ async fn move_captures_and_configs(
         matches!(runnable_kind, RunnableKind::Flow),
     )
     .execute(&mut *tx)
+    .warn_after_seconds(3)
     .await?;
 
     sqlx::query!(
@@ -701,6 +708,7 @@ pub async fn get_active_capture_owner_and_email(
         kind as &TriggerKind,
     )
     .fetch_optional(db)
+    .warn_after_seconds(1)
     .await?;
 
     let capture_config = not_found_if_none(
@@ -759,6 +767,7 @@ async fn get_capture_trigger_config_and_owner<T: DeserializeOwned>(
         matches!(kind, TriggerKind::Gcp)
     )
     .fetch_optional(db)
+    .warn_after_seconds(1)
     .await?;
 
     let capture_config = not_found_if_none(
@@ -811,6 +820,7 @@ async fn clear_captures_history(db: &DB, w_id: &str) -> Result<()> {
             KEEP_LAST,
         )
         .execute(db)
+        .warn_after_seconds(3)
         .await?;
     }
     Ok(())
@@ -846,6 +856,7 @@ pub async fn insert_capture_payload(
         owner,
     )
     .execute(db)
+    .warn_after_seconds(1)
     .await?;
 
     clear_captures_history(db, &w_id).await?;
