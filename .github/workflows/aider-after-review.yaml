@@ -110,7 +110,6 @@ jobs:
           # Check if there are any changes to commit
           if [[ -z "$(git status --porcelain)" ]]; then
             echo "No changes detected after running Aider."
-            echo "HAS_CHANGES=false" >> $GITHUB_OUTPUT
             exit 0
           fi
 
