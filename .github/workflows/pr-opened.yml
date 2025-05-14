@@ -10,7 +10,7 @@ jobs:
   discord_notification:
     # still guard out any drafts (just in case)
     if: github.event.pull_request.draft == false
-    runs-on: ubuntu-latest
+    runs-on: ubicloud-standard-2
     steps:
       - name: Send Discord notification and start a thread
         env:
