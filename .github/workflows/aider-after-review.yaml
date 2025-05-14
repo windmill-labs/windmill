@@ -6,7 +6,7 @@ on:
 
 jobs:
   auto-fix-review:
-    if: github.event.review.state == 'changes_requested'
+    if: github.event.review.state == 'changes_requested' && contains(github.event.pull_request.title, '[Aider PR]')
     runs-on: ubicloud-standard-8
     permissions:
       contents: write
@@ -107,6 +107,12 @@ jobs:
             --no-gitignore \
             | tee .github/aider/aider-output.txt || true
           echo "Aider command completed. Output saved to .github/aider/aider-output.txt"
+          # Check if there are any changes to commit
+          if [[ -z "$(git status --porcelain)" ]]; then
+            echo "No changes detected after running Aider."
+            echo "HAS_CHANGES=false" >> $GITHUB_OUTPUT
+            exit 0
+          fi
 
       - name: Clean up prompt file
         if: always()
