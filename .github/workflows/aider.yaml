@@ -6,7 +6,7 @@ on:
 
 jobs:
   auto-fix:
-    runs-on: ubuntu-latest
+    runs-on: ubicloud-standard-8
     if: |
       github.event_name == 'issue_comment' &&
       contains(github.event.comment.body, '/aider') &&
