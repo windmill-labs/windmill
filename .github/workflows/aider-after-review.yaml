@@ -6,6 +6,7 @@ on:
 
 jobs:
   auto-fix-review:
+    if: github.event.review.state == 'changes_requested'
     runs-on: ubicloud-standard-8
     permissions:
       contents: write
@@ -22,12 +23,6 @@ jobs:
         uses: step-security/harden-runner@v2
         with:
           egress-policy: audit
-
-      - name: Check review type
-        if: github.event.review.state != 'changes_requested'
-        run: |
-          echo "Skipping workflow as review state is not 'changes_requested'"
-          exit 0
 
       - name: Check out code
         uses: actions/checkout@v4
