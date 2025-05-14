@@ -312,13 +312,19 @@ jobs:
           PR_BRANCH: ${{ steps.commit_and_push.outputs.PR_BRANCH_NAME }}
           ISSUE_NUM: ${{ github.event.issue.number }}
         run: |
+          # Create PR description in a temporary file to avoid command line length limits
+          cat > /tmp/pr-description.md << EOL
+          This PR was created automatically by Aider to fix issue #${ISSUE_NUM}.
+
+          ## Aider Output
+          \`\`\`
+          $(cat .github/aider/aider-output.txt || echo "No output available")
+          \`\`\`
+          EOL
+
+          # Create PR using the file for the body content
           gh pr create \
             --title "[Aider PR] Add fixes for issue #${ISSUE_NUM}" \
-            --body "This PR was created automatically by Aider to fix issue #${ISSUE_NUM}.
-
-            ## Aider Output
-            \`\`\`
-            $(cat .github/aider/aider-output.txt || echo "No output available")
-            \`\`\`" \
+            --body-file /tmp/pr-description.md \
             --head "$PR_BRANCH" \
             --base main

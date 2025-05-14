@@ -130,10 +130,30 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PR_NUM: ${{ github.event.pull_request.number }}
         run: |
+          # Create comment body in a temporary file to avoid command line length limits
           if [[ "${{ steps.commit_and_push.outputs.CHANGES_APPLIED }}" == "true" ]]; then
-            COMMENT_BODY="🤖 I've automatically addressed the feedback based on the review.\n\n## Aider Output\n\`\`\`\n$(cat .github/aider/aider-output.txt || echo 'No output available')\n\`\`\`\n\nPlease review the changes and let me know if further adjustments are needed."
+            cat > /tmp/pr-comment.md << EOL
+          🤖 I've automatically addressed the feedback based on the review.
+
+          ## Aider Output
+          \`\`\`
+          $(cat .github/aider/aider-output.txt || echo 'No output available')
+          \`\`\`
+
+          Please review the changes and let me know if further adjustments are needed.
+          EOL
           else
-            COMMENT_BODY="🤖 I attempted to address the review feedback, but no modifications were made.\n\n## Aider Output\n\`\`\`\n$(cat .github/aider/aider-output.txt || echo 'No output available')\n\`\`\`\n\nPlease review the output and provide additional guidance if needed."
+            cat > /tmp/pr-comment.md << EOL
+          🤖 I attempted to address the review feedback, but no modifications were made.
+
+          ## Aider Output
+          \`\`\`
+          $(cat .github/aider/aider-output.txt || echo 'No output available')
+          \`\`\`
+
+          Please review the output and provide additional guidance if needed.
+          EOL
           fi
 
-          gh pr comment $PR_NUM --body "$COMMENT_BODY"
+          # Use the file for comment body
+          gh pr comment $PR_NUM --body-file /tmp/pr-comment.md
