@@ -1,6 +1,4 @@
-# Probe
-
-[![npm version](https://img.shields.io/npm/v/@buger/probe)](https://www.npmjs.com/package/@buger/probe)
+# Probe Usage
 
 Probe is a powerful, AI-augmented code search and extraction tool. It combines fast, tree-sitter–powered queries with optional LLM integration to help you find, extract, and understand code across any codebase.
 
@@ -25,18 +23,10 @@ curl -fsSL https://raw.githubusercontent.com/buger/probe/main/install.sh | bash
 Search for code containing specific phrases in the current directory:
 
 ```bash
-probe search "parser" ./
+probe search "parser" ./backend
 ```
 
 This will search for the terms "parser" in your codebase and return the most relevant code blocks.
-
-## 🔄 Advanced Search (with Token Limiting)
-
-Limit the total tokens for AI tools with context window constraints:
-
-```bash
-probe search "prompt injection" ./ --max-tokens 10000
-```
 
 ## 💾 Session-Based Caching
 
