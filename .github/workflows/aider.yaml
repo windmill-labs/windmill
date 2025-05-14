@@ -273,7 +273,7 @@ jobs:
             --auto-commits \
             --no-analytics \
             --no-gitignore \
-            --no-stream > .github/aider/aider-output.txt 2>&1 || true
+            | tee .github/aider/aider-output.txt || true
           echo "Aider command completed. Output saved to .github/aider/aider-output.txt"
 
       - name: Clean up prompt file
