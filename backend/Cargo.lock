@@ -15027,6 +15027,7 @@ dependencies = [
  "tiberius",
  "tokio",
  "tokio-postgres 0.7.13",
+ "tokio-stream",
  "tokio-util",
  "tracing",
  "url",
