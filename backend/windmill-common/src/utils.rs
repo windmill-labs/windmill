@@ -719,7 +719,10 @@ impl<F: Future> Future for WarnAfterFuture<F> {
         // Poll the timeout future to check if it has elapsed.
         if !*this.warned {
             if this.timeout.poll(cx).is_ready() {
-                tracing::warn!(location = this.location, "SLOW_QUERY: query to db taking longer than expected (> {} seconds). This is a sign the database is under heavy load, query is too heavy or database is undersized",
+                tracing::warn!(
+                    location = this.location,
+                    "SLOW_QUERY: query {} to db taking longer than expected (> {} seconds)",
+                    this.location,
                     this.seconds,
                 );
                 *this.warned = true;
@@ -733,7 +736,8 @@ impl<F: Future> Future for WarnAfterFuture<F> {
                     let elapsed = this.start_time.elapsed();
                     tracing::warn!(
                         location = this.location,
-                        "SLOW_QUERY: completed with total duration: {:.2?}",
+                        "SLOW_QUERY: completed query {} with total duration: {:.2?}",
+                        this.location,
                         elapsed
                     );
                 }
