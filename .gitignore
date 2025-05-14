@@ -10,3 +10,6 @@ CaddyfileRemoteMalo
 .vscode
 .dev-docker-wrapper*
 backend/.minio-data
+.aider*
+!.aider/
+!.aiderignore
