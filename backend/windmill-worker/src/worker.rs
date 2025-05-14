@@ -568,7 +568,7 @@ pub struct SameWorkerSender(pub Sender<SameWorkerPayload>, pub Arc<AtomicU16>);
 #[allow(dead_code)]
 #[derive(Clone)]
 pub enum JobCompletedSender {
-    Sql(flume::Sender<SendResult>, broadcast::Sender<()>),
+    Sql(flume::Sender<SendResult>, broadcast::Sender<()>, u8),
     Http(HttpClient),
     NeverUsed,
 }
@@ -576,17 +576,17 @@ pub enum JobCompletedSender {
 impl JobCompletedSender {
     pub fn new(
         conn: &Connection,
-        buffer_size: usize,
+        buffer_size: u8,
     ) -> (
         Self,
         Option<(flume::Receiver<SendResult>, broadcast::Receiver<()>)>,
     ) {
         match conn {
             Connection::Sql(_) => {
-                let (sender, receiver) = flume::bounded::<SendResult>(buffer_size);
-                let (killpill_tx, killpill_rx) = broadcast::channel::<()>(buffer_size);
+                let (sender, receiver) = flume::unbounded::<SendResult>();
+                let (killpill_tx, killpill_rx) = broadcast::channel::<()>(100);
                 (
-                    Self::Sql(sender, killpill_tx),
+                    Self::Sql(sender, killpill_tx, buffer_size),
                     Some((receiver, killpill_rx)),
                 )
             }
@@ -597,14 +597,19 @@ impl JobCompletedSender {
         (Self::NeverUsed, None)
     }
 
-    pub async fn send_job(&self, jc: JobCompleted) -> anyhow::Result<()> {
+    pub async fn send_job(&self, jc: JobCompleted, wait_for_capacity: bool) -> anyhow::Result<()> {
         match self {
-            Self::Sql(sender, _) => sender
-                .send_async(SendResult::JobCompleted(jc))
-                .await
-                .map_err(|_e| {
-                    anyhow::anyhow!("Failed to send job completed to background processor")
-                }),
+            Self::Sql(sender, _, buffer_size) => {
+                if wait_for_capacity {
+                    self.wait_for_capacity(*buffer_size).await;
+                }
+                sender
+                    .send_async(SendResult::JobCompleted(jc))
+                    .await
+                    .map_err(|_e| {
+                        anyhow::anyhow!("Failed to send job completed to background processor")
+                    })
+            }
             Self::Http(client) => {
                 crate::agent_workers::send_result(client, jc).await?;
                 Ok(())
@@ -618,9 +623,18 @@ impl JobCompletedSender {
         }
     }
 
-    pub async fn send(&self, send_result: SendResult) -> Result<(), flume::SendError<SendResult>> {
+    pub async fn send(
+        &self,
+        send_result: SendResult,
+        wait_for_capacity: bool,
+    ) -> Result<(), flume::SendError<SendResult>> {
         match self {
-            Self::Sql(sender, _) => sender.send_async(send_result).await,
+            Self::Sql(sender, _, buffer_size) => {
+                if wait_for_capacity {
+                    self.wait_for_capacity(*buffer_size).await;
+                }
+                sender.send_async(send_result).await
+            }
             Self::Http(_) => {
                 tracing::error!("Sending job completed to http client, this should not happen");
                 Ok(())
@@ -636,7 +650,7 @@ impl JobCompletedSender {
 
     pub async fn kill(&self) -> Result<(), broadcast::error::SendError<()>> {
         match self {
-            Self::Sql(_, killpill_tx) => {
+            Self::Sql(_, killpill_tx, _) => {
                 tracing::info!("Sending killpill to bg processors");
                 killpill_tx.send(())?;
                 Ok(())
@@ -651,6 +665,23 @@ impl JobCompletedSender {
                 );
                 Ok(())
             }
+        }
+    }
+
+    pub async fn wait_for_capacity(&self, max_size: u8) {
+        match self {
+            Self::Sql(sender, _, _) => {
+                let mut i = 0;
+                while sender.len() >= max_size as usize {
+                    tokio::time::sleep(Duration::from_millis(1)).await;
+                    i += 1;
+                    if i % 1000 == 0 {
+                        tracing::warn!("Waiting for result processor capacity for {}s", i / 1000);
+                    }
+                }
+            }
+            Self::Http(_) => (),
+            Self::NeverUsed => (),
         }
     }
 }
@@ -1057,7 +1088,7 @@ pub async fn run_worker(
 
     let (same_worker_tx, mut same_worker_rx) = mpsc::channel::<SameWorkerPayload>(5);
 
-    let (job_completed_tx, job_completed_rx) = JobCompletedSender::new(&conn, 3);
+    let (job_completed_tx, job_completed_rx) = JobCompletedSender::new(&conn, 10);
 
     let same_worker_queue_size = Arc::new(AtomicU16::new(0));
     let same_worker_tx = SameWorkerSender(same_worker_tx, same_worker_queue_size.clone());
@@ -1482,17 +1513,20 @@ pub async fn run_worker(
                 if matches!(job.kind, JobKind::Noop) {
                     add_time!(bench, "send job completed START");
                     job_completed_tx
-                        .send_job(JobCompleted {
-                            job: Arc::new(job.job()),
-                            success: true,
-                            result: Arc::new(empty_result()),
-                            result_columns: None,
-                            mem_peak: 0,
-                            cached_res_path: None,
-                            token: "".to_string(),
-                            canceled_by: None,
-                            duration: None,
-                        })
+                        .send_job(
+                            JobCompleted {
+                                job: Arc::new(job.job()),
+                                success: true,
+                                result: Arc::new(empty_result()),
+                                result_columns: None,
+                                mem_peak: 0,
+                                cached_res_path: None,
+                                token: "".to_string(),
+                                canceled_by: None,
+                                duration: None,
+                            },
+                            true,
+                        )
                         .await
                         .expect("send job completed END");
                     add_time!(bench, "sent job completed");
@@ -1706,21 +1740,24 @@ pub async fn run_worker(
                                 }
                                 Connection::Http(_) => {
                                     job_completed_tx
-                                        .send_job(JobCompleted {
-                                            job: arc_job.clone(),
-                                            result: Arc::new(
-                                                windmill_common::worker::to_raw_value(
-                                                    &error_to_value(err),
+                                        .send_job(
+                                            JobCompleted {
+                                                job: arc_job.clone(),
+                                                result: Arc::new(
+                                                    windmill_common::worker::to_raw_value(
+                                                        &error_to_value(err),
+                                                    ),
                                                 ),
-                                            ),
-                                            result_columns: None,
-                                            mem_peak: 0,
-                                            canceled_by: None,
-                                            success: false,
-                                            cached_res_path: None,
-                                            token: authed_client.token.clone(),
-                                            duration: None,
-                                        })
+                                                result_columns: None,
+                                                mem_peak: 0,
+                                                canceled_by: None,
+                                                success: false,
+                                                cached_res_path: None,
+                                                token: authed_client.token.clone(),
+                                                duration: None,
+                                            },
+                                            false,
+                                        )
                                         .await
                                         .expect("send job completed");
                                 }
@@ -2065,17 +2102,20 @@ async fn handle_queued_job(
                     append_logs(&job.id, &job.workspace_id, logs, conn).await;
                 }
                 job_completed_tx
-                    .send_job(JobCompleted {
-                        job,
-                        result,
-                        result_columns: None,
-                        mem_peak: 0,
-                        canceled_by: None,
-                        success: true,
-                        cached_res_path: None,
-                        token: client.token.clone(),
-                        duration: None,
-                    })
+                    .send_job(
+                        JobCompleted {
+                            job,
+                            result,
+                            result_columns: None,
+                            mem_peak: 0,
+                            canceled_by: None,
+                            success: true,
+                            cached_res_path: None,
+                            token: client.token.clone(),
+                            duration: None,
+                        },
+                        true,
+                    )
                     .await
                     .expect("send job completed");
 

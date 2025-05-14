@@ -1651,20 +1651,23 @@ async fn push_next_flow_job(
     // if this is an empty module of if the module has already been completed, successfully, update the parent flow
     if flow.modules.is_empty() || matches!(status_module, FlowStatusModule::Success { .. }) {
         job_completed_tx
-            .send(SendResult::UpdateFlow {
-                flow: flow_job.id,
-                success: true,
-                result: if flow.modules.is_empty() {
-                    to_raw_value(arc_flow_job_args.as_ref())
-                } else {
-                    // it has to be an empty for loop event
-                    serde_json::from_str("[]").unwrap()
+            .send(
+                SendResult::UpdateFlow {
+                    flow: flow_job.id,
+                    success: true,
+                    result: if flow.modules.is_empty() {
+                        to_raw_value(arc_flow_job_args.as_ref())
+                    } else {
+                        // it has to be an empty for loop event
+                        serde_json::from_str("[]").unwrap()
+                    },
+                    stop_early_override: None,
+                    w_id: flow_job.workspace_id.clone(),
+                    worker_dir: worker_dir.to_string(),
+                    token: client.token.clone(),
                 },
-                stop_early_override: None,
-                w_id: flow_job.workspace_id.clone(),
-                worker_dir: worker_dir.to_string(),
-                token: client.token.clone(),
-            })
+                false,
+            )
             .warn_after_seconds(3)
             .await
             .map_err(|e| {
@@ -1726,7 +1729,7 @@ async fn push_next_flow_job(
                              w_id: flow_job.workspace_id.clone(),
                              worker_dir: worker_dir.to_string(),
                              token: client.token.clone(),
-                         })
+                         }, false)
                          .warn_after_seconds(3)
                          .await
                          .map_err(|e| {
@@ -1757,15 +1760,18 @@ async fn push_next_flow_job(
             .await?;
             if skip {
                 job_completed_tx
-                    .send(SendResult::UpdateFlow {
-                        flow: flow_job.id,
-                        success: true,
-                        result: serde_json::from_str("\"stopped early\"").unwrap(),
-                        stop_early_override: Some(true),
-                        w_id: flow_job.workspace_id.clone(),
-                        worker_dir: worker_dir.to_string(),
-                        token: client.token.clone(),
-                    })
+                    .send(
+                        SendResult::UpdateFlow {
+                            flow: flow_job.id,
+                            success: true,
+                            result: serde_json::from_str("\"stopped early\"").unwrap(),
+                            stop_early_override: Some(true),
+                            w_id: flow_job.workspace_id.clone(),
+                            worker_dir: worker_dir.to_string(),
+                            token: client.token.clone(),
+                        },
+                        false,
+                    )
                     .warn_after_seconds(3)
                     .await
                     .map_err(|e| {
@@ -2081,15 +2087,18 @@ async fn push_next_flow_job(
                 .await;
 
                 job_completed_tx
-                    .send(SendResult::UpdateFlow {
-                        flow: flow_job.id,
-                        success: false,
-                        result: to_raw_value(&result),
-                        stop_early_override: None,
-                        w_id: flow_job.workspace_id.clone(),
-                        worker_dir: worker_dir.to_string(),
-                        token: client.token.clone(),
-                    })
+                    .send(
+                        SendResult::UpdateFlow {
+                            flow: flow_job.id,
+                            success: false,
+                            result: to_raw_value(&result),
+                            stop_early_override: None,
+                            w_id: flow_job.workspace_id.clone(),
+                            worker_dir: worker_dir.to_string(),
+                            token: client.token.clone(),
+                        },
+                        false,
+                    )
                     .warn_after_seconds(3)
                     .await
                     .map_err(|e| {

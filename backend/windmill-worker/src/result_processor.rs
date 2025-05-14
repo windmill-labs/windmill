@@ -288,7 +288,7 @@ async fn send_job_completed(
         duration,
     };
     job_completed_tx
-        .send_job(jc)
+        .send_job(jc, true)
         .with_context(windmill_common::otel_ee::otel_ctx())
         .await
         .expect("send job completed")
