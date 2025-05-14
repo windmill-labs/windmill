@@ -6,7 +6,7 @@ on:
 
 jobs:
   auto-fix-review:
-    if: github.event.review.state == 'changes_requested'
+    if: github.event.review.state == 'changes_requested' && contains(github.event.pull_request.title, '[Aider PR]')
     runs-on: ubicloud-standard-8
     permissions:
       contents: write
