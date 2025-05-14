@@ -1,5 +1,21 @@
 # Changelog
 
+## [1.491.0](https://github.com/windmill-labs/windmill/compare/v1.490.0...v1.491.0) (2025-05-14)
+
+
+### Features
+
+* Microsoft Teams approvals ([#5734](https://github.com/windmill-labs/windmill/issues/5734)) ([039f3e0](https://github.com/windmill-labs/windmill/commit/039f3e02268f2acda48abea420479216970e58e7))
+* sql jobs outputting to s3 + streaming for high-number of rows ([#5704](https://github.com/windmill-labs/windmill/issues/5704)) ([c7886ea](https://github.com/windmill-labs/windmill/commit/c7886ea07ae44af56f1467288b2d73ff2ae27964))
+
+
+### Bug Fixes
+
+* add missing run job transaction drop ([#5730](https://github.com/windmill-labs/windmill/issues/5730)) ([318def9](https://github.com/windmill-labs/windmill/commit/318def976cf0e4d5c32d01ac611a89e0a6425368))
+* add support for log compaction on docker jobs ([#5732](https://github.com/windmill-labs/windmill/issues/5732)) ([d35a7d2](https://github.com/windmill-labs/windmill/commit/d35a7d22f960f485889e22de48e8de8557069cb7))
+* Ansible lockfile back compatibility issue ([#5731](https://github.com/windmill-labs/windmill/issues/5731)) ([f73c90c](https://github.com/windmill-labs/windmill/commit/f73c90c7518569204b298b916d0fc298932d3cf0))
+* trigger event support for webhook get endpoints ([#5728](https://github.com/windmill-labs/windmill/issues/5728)) ([76258b7](https://github.com/windmill-labs/windmill/commit/76258b7b1af1313f694731d77f3fa6994e9ded70))
+
 ## [1.490.0](https://github.com/windmill-labs/windmill/compare/v1.489.0...v1.490.0) (2025-05-12)
 
 

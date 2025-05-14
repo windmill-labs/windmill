@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.490.0
+  version: 1.491.0
   title: Windmill API
 
   contact:
@@ -7876,6 +7876,52 @@ paths:
           schema:
             type: string
         - name: channel_id
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: flow_step_id
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: default_args_json
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: dynamic_enums_json
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Interactive slack approval message sent successfully
+
+  /w/{workspace}/jobs/teams_approval/{id}:
+    get:
+      summary: generate interactive teams approval for suspended job
+      operationId: getTeamsApprovalPayload
+      tags:
+        - job
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/JobId"
+        - name: approver
+          in: query
+          schema:
+            type: string
+        - name: message
+          in: query
+          schema:
+            type: string
+        - name: team_name
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: channel_name
           in: query
           required: true
           schema:
