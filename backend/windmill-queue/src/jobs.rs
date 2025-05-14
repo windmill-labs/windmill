@@ -4190,6 +4190,7 @@ pub async fn push<'c, 'd>(
             job_id,
         )
         .execute(&mut *tx)
+        .warn_after_seconds(3)
         .await
         .map_err(|e| Error::internal_err(format!("Could not insert concurrency_key={concurrency_key} for job_id={job_id} script_path={script_path:?} workspace_id={workspace_id}: {e:#}")))?;
     }
@@ -4355,6 +4356,7 @@ pub async fn push<'c, 'd>(
             Json(flow_status) as Json<FlowStatus>,
         )
         .execute(&mut *tx)
+        .warn_after_seconds(1)
         .await?;
     }
 
@@ -4423,6 +4425,7 @@ pub async fn push<'c, 'd>(
             script_path.as_ref().map(|x| x.as_str()),
             Some(hm),
         )
+        .warn_after_seconds(1)
         .await?;
     }
 

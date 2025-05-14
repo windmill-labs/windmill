@@ -130,13 +130,13 @@ pub async fn handle_child(
     } else {
         tracing::info!("could not get child pid");
     }
-    let (set_too_many_logs, mut too_many_logs) = watch::channel::<bool>(false);
+    let (mut set_too_many_logs, mut too_many_logs) = watch::channel::<bool>(false);
     let (tx, rx) = broadcast::channel::<()>(3);
-    let mut rx2 = tx.subscribe();
+    let mut rx2: broadcast::Receiver<()> = tx.subscribe();
 
     let output = child_joined_output_stream(&mut child, job_id.clone());
 
-    let job_id = job_id.clone();
+    let job_id: Uuid = job_id.clone();
 
     /* the cancellation future is polled on by `wait_on_child` while
      * waiting for the child to exit normally */
@@ -296,147 +296,19 @@ pub async fn handle_child(
     };
 
     /* a future that reads output from the child and appends to the database */
-    let lines = async move {
-
-        let max_log_size = if *CLOUD_HOSTED {
-            MAX_RESULT_SIZE
-        } else {
-            usize::MAX
-        };
-
-        /* log_remaining is zero when output limit was reached */
-        let mut log_remaining =  if *CLOUD_HOSTED {
-            max_log_size
-        } else {
-            usize::MAX
-        };
-        let mut result = io::Result::Ok(());
-        let mut output = output.take_until(async {
-            let _ = rx2.recv().await;
-            //wait at most 50ms after end of a script for output stream to end
-            tokio::time::sleep(Duration::from_millis(50)).await;
-         }).boxed();
-        /* `do_write` resolves the task, but does not contain the Result.
-         * It's useful to know if the task completed. */
-        let (mut do_write, mut write_result) = tokio::spawn(ready(())).remote_handle();
-
-        let mut log_total_size: u64 = 0;
-        let pg_log_total_size = Arc::new(AtomicU32::new(0));
-
-        let mut pipe_stdout = pipe_stdout;
-
-        while let Some(line) =  output.by_ref().next().await {
-
-            let do_write_ = do_write.shared();
-
-            let delay = if start.elapsed() < Duration::from_secs(10) {
-                Duration::from_millis(500)
-            } else if start.elapsed() < Duration::from_secs(60){
-                Duration::from_millis(2500)
-            } else {
-                Duration::from_millis(5000)
-            };
-
-            let delay = if *SLOW_LOGS {
-                delay * 10
-            } else {
-                delay
-            };
-
-            let mut read_lines = stream::once(async { line })
-                .chain(output.by_ref())
-                /* after receiving a line, continue until some delay has passed
-                 * _and_ the previous database write is complete */
-                .take_until(future::join(sleep(delay), do_write_.clone()))
-                .boxed();
-
-            /* Read up until an error is encountered,
-             * handle log lines first and then the error... */
-            let mut joined = String::new();
-
-            while let Some(line) = read_lines.next().await {
-
-                match line {
-                    Ok(line) => {
-                        if line.is_empty() {
-                            continue;
-                        }
-                        append_with_limit(&mut joined, &line, &mut log_remaining);
-                        if log_remaining == 0 {
-                            tracing::info!(%job_id, "Too many logs lines for job {job_id}");
-                            let _ = set_too_many_logs.send(true);
-                            joined.push_str(&format!(
-                                "Job logs or result reached character limit of {MAX_RESULT_SIZE}; killing job."
-                            ));
-                            /* stop reading and drop our streams fairly quickly */
-                            break;
-                        }
-                    }
-                    Err(err) => {
-                        result = Err(err);
-                        break;
-                    }
-                }
-            }
-
-
-            /* Ensure the last flush completed before starting a new one.
-             *
-             * This shouldn't pause since `take_until()` reads lines until `do_write`
-             * resolves. We only stop reading lines before `take_until()` resolves if we reach
-             * EOF or a read error.  In those cases, waiting on a database query to complete is
-             * fine because we're done. */
-
-            if let Some(Ok(p)) = do_write_
-                .then(|()| write_result)
-                .await
-                .err()
-                .map(|err| err.try_into_panic())
-            {
-                panic::resume_unwind(p);
-            }
-
-
-            let joined_len = joined.len() as u64;
-            log_total_size += joined_len;
-            let compact_logs = log_total_size > LARGE_LOG_THRESHOLD_SIZE as u64;
-            if compact_logs {
-                log_total_size = 0;
-            }
-
-            let worker_name = worker.to_string();
-            let w_id2 = w_id.to_string();
-
-
-            if let Some(buf) = &mut pipe_stdout {
-                buf.push_str(&joined);
-                (do_write, write_result) = tokio::spawn(async { }).remote_handle();
-            } else {
-                (do_write, write_result) = tokio::spawn(append_job_logs(job_id, w_id2, joined, conn.clone(), compact_logs, pg_log_total_size.clone(), worker_name)).remote_handle();
-            }
-
-            if let Err(err) = result {
-                tracing::error!(%job_id, %err, "error reading output for job {job_id} '{child_name}': {err}");
-                break;
-            }
-
-            if *set_too_many_logs.borrow() {
-                break;
-            }
-        }
-
-        /* drop our end of the pipe */
-        drop(output);
-
-        if let Some(Ok(p)) = do_write
-            .then(|()| write_result)
-            .await
-            .err()
-            .map(|err| err.try_into_panic())
-        {
-            panic::resume_unwind(p);
-        }
-    }.instrument(trace_span!("child_lines"));
+    let lines = write_lines(
+        output,
+        &job_id,
+        w_id,
+        worker,
+        conn,
+        &mut set_too_many_logs,
+        start,
+        pipe_stdout,
+        &mut rx2,
+        child_name,
+    )
+    .instrument(trace_span!("child_lines"));
 
     let (wait_result, _) = tokio::join!(wait_on_child, lines);
 
@@ -459,6 +331,169 @@ pub async fn handle_child(
             ))),
         },
         Err(err) => Err(Error::ExecutionErr(format!("job process io error: {err}"))),
+    }
+}
+
+pub async fn write_lines(
+    output: impl stream::Stream<Item = io::Result<String>> + Send,
+    job_id: &Uuid,
+    w_id: &str,
+    worker: &str,
+    conn: &Connection,
+    set_too_many_logs: &mut watch::Sender<bool>,
+    start: Instant,
+    pipe_stdout: Option<&mut String>,
+    rx2: &mut broadcast::Receiver<()>,
+    child_name: &str,
+) {
+    let max_log_size = if *CLOUD_HOSTED {
+        MAX_RESULT_SIZE
+    } else {
+        usize::MAX
+    };
+
+    /* log_remaining is zero when output limit was reached */
+    let mut log_remaining = if *CLOUD_HOSTED {
+        max_log_size
+    } else {
+        usize::MAX
+    };
+    let mut result = io::Result::Ok(());
+    let mut output = output
+        .take_until(async {
+            let _ = rx2.recv().await;
+            //wait at most 50ms after end of a script for output stream to end
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        })
+        .boxed();
+    /* `do_write` resolves the task, but does not contain the Result.
+     * It's useful to know if the task completed. */
+    let (mut do_write, mut write_result) = tokio::spawn(ready(())).remote_handle();
+
+    let mut log_total_size: u64 = 0;
+    let pg_log_total_size = Arc::new(AtomicU32::new(0));
+
+    let mut pipe_stdout = pipe_stdout;
+
+    while let Some(line) = output.by_ref().next().await {
+        let do_write_ = do_write.shared();
+
+        let delay = if start.elapsed() < Duration::from_secs(10) {
+            Duration::from_millis(500)
+        } else if start.elapsed() < Duration::from_secs(60) {
+            Duration::from_millis(2500)
+        } else {
+            Duration::from_millis(5000)
+        };
+
+        let delay = if *SLOW_LOGS { delay * 10 } else { delay };
+
+        let mut read_lines = stream::once(async { line })
+            .chain(output.by_ref())
+            /* after receiving a line, continue until some delay has passed
+             * _and_ the previous database write is complete */
+            .take_until(future::join(sleep(delay), do_write_.clone()))
+            .boxed();
+
+        /* Read up until an error is encountered,
+         * handle log lines first and then the error... */
+        let mut joined = String::new();
+
+        let job_id = job_id.clone();
+        while let Some(line) = read_lines.next().await {
+            match line {
+                Ok(line) => {
+                    if line.is_empty() {
+                        continue;
+                    }
+                    append_with_limit(&mut joined, &line, &mut log_remaining);
+                    if log_remaining == 0 {
+                        tracing::info!(%job_id, "Too many logs lines for job {job_id}");
+                        let _ = set_too_many_logs.send(true);
+                        joined.push_str(&format!(
+                                "Job logs or result reached character limit of {MAX_RESULT_SIZE}; killing job."
+                            ));
+                        /* stop reading and drop our streams fairly quickly */
+                        break;
+                    }
+                }
+                Err(err) => {
+                    result = Err(err);
+                    break;
+                }
+            }
+        }
+
+        /* Ensure the last flush completed before starting a new one.
+         *
+         * This shouldn't pause since `take_until()` reads lines until `do_write`
+         * resolves. We only stop reading lines before `take_until()` resolves if we reach
+         * EOF or a read error.  In those cases, waiting on a database query to complete is
+         * fine because we're done. */
+
+        if let Some(Ok(p)) = do_write_
+            .then(|()| write_result)
+            .await
+            .err()
+            .map(|err| err.try_into_panic())
+        {
+            panic::resume_unwind(p);
+        }
+
+        let joined_len = joined.len() as u64;
+        log_total_size += joined_len;
+        let compact_logs = log_total_size > LARGE_LOG_THRESHOLD_SIZE as u64;
+        if compact_logs {
+            log_total_size = 0;
+        }
+
+        let worker_name = worker.to_string();
+
+        if let Some(buf) = &mut pipe_stdout {
+            buf.push_str(&joined);
+            (do_write, write_result) = tokio::spawn(async {}).remote_handle();
+        } else {
+            let conn = conn.clone();
+            let worker_name = worker_name.to_string();
+            let w_id = w_id.to_string();
+            let job_id = job_id.clone();
+            let pg_log_total_size = pg_log_total_size.clone();
+
+            (do_write, write_result) = tokio::spawn(async move {
+                append_job_logs(
+                    &job_id,
+                    &w_id,
+                    &joined,
+                    &conn,
+                    compact_logs,
+                    pg_log_total_size,
+                    &worker_name,
+                )
+                .await;
+            })
+            .remote_handle();
+        }
+
+        if let Err(err) = result {
+            tracing::error!(%job_id, %err, "error reading output for job {job_id} '{child_name}': {err}");
+            break;
+        }
+
+        if *set_too_many_logs.borrow() {
+            break;
+        }
+    }
+
+    /* drop our end of the pipe */
+    drop(output);
+
+    if let Some(Ok(p)) = do_write
+        .then(|()| write_result)
+        .await
+        .err()
+        .map(|err| err.try_into_panic())
+    {
+        panic::resume_unwind(p);
     }
 }
 
