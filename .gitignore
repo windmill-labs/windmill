@@ -11,5 +11,4 @@ CaddyfileRemoteMalo
 .dev-docker-wrapper*
 backend/.minio-data
 .aider*
-!.aider/
 !.aiderignore
