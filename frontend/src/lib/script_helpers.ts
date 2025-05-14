@@ -307,6 +307,14 @@ INSERT INTO demo VALUES (@P1, @P2);
 UPDATE demo SET col2 = @P3 WHERE col2 = @P2;
 `
 
+const DUCKDB_INIT_CODE = `-- @name1 (string) = default arg
+-- @name2 (integer)
+-- @name3 (string[])
+-- @name4 (integer)
+INSERT INTO demo VALUES (@name1, @name2, @name3);
+UPDATE demo SET col2 = @name4 WHERE col2 = @name2;
+`
+
 const GRAPHQL_INIT_CODE = `query($name4: String, $name2: Int, $name3: [String]) {
 	demo(name1: $name1, name2: $name2, name3: $name3) {
 		name1,
@@ -1134,6 +1142,9 @@ export const INITIAL_CODE = {
 	mssql: {
 		script: MSSQL_INIT_CODE
 	},
+	duckdb: {
+		script: DUCKDB_INIT_CODE
+	},
 	graphql: {
 		script: GRAPHQL_INIT_CODE
 	},
@@ -1258,6 +1269,8 @@ export function initialCode(
 		return INITIAL_CODE.mssql.script
 	} else if (language == 'graphql') {
 		return INITIAL_CODE.graphql.script
+	} else if (language == 'duckdb') {
+		return INITIAL_CODE.duckdb.script
 	} else if (language == 'php') {
 		return INITIAL_CODE.php.script
 	} else if (language == 'rust') {

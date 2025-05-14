@@ -38,6 +38,8 @@ export function scriptLangToEditorLang(
 		return 'sql'
 	} else if (lang == 'mssql') {
 		return 'sql'
+	} else if (lang == 'duckdb') {
+		return 'sql'
 	} else if (lang == 'python3') {
 		return 'python'
 	} else if (lang == 'bash') {
@@ -132,6 +134,7 @@ const scriptLanguagesArray: [SupportedLanguage | 'docker' | 'bunnative', string]
 	['oracledb', 'Oracle Database'],
 	['snowflake', 'Snowflake'],
 	['mssql', 'MS SQL Server'],
+	['duckdb', 'DuckDB'],
 	['graphql', 'GraphQL'],
 	['powershell', 'PowerShell'],
 	['php', 'PHP'],

@@ -134,6 +134,7 @@
 	import EditorTheme from './EditorTheme.svelte'
 	import {
 		BIGQUERY_TYPES,
+		DUCKDB_TYPES,
 		MSSQL_TYPES,
 		MYSQL_TYPES,
 		ORACLEDB_TYPES,
@@ -482,7 +483,9 @@
 											? MSSQL_TYPES
 											: scriptLang === 'oracledb'
 												? ORACLEDB_TYPES
-												: []
+												: scriptLang === 'duckdb'
+													? DUCKDB_TYPES
+													: []
 					).map((t) => ({
 						label: t,
 						kind: languages.CompletionItemKind.Function,

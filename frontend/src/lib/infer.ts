@@ -96,7 +96,9 @@ export async function inferArgs(
 		}
 
 		let inlineDBResource: string | undefined = undefined
-		if (['postgresql', 'mysql', 'bigquery', 'snowflake', 'mssql', 'oracledb'].includes(language ?? '')) {
+		if (
+			['postgresql', 'mysql', 'bigquery', 'snowflake', 'mssql', 'oracledb'].includes(language ?? '')
+		) {
 			await initWasmRegex()
 			inlineDBResource = parse_db_resource(code)
 		}
@@ -163,6 +165,9 @@ export async function inferArgs(
 					...inferedSchema.args
 				]
 			}
+		} else if (language == 'duckdb') {
+			// TODO duckdb
+			inferedSchema = {} as any
 		} else if (language == 'graphql') {
 			await initWasmRegex()
 			inferedSchema = JSON.parse(parse_graphql(code))
@@ -194,7 +199,7 @@ export async function inferArgs(
 		} else if (language == 'java') {
 			await initWasmJava()
 			inferedSchema = JSON.parse(parse_java(code))
-			// for related places search: ADD_NEW_LANG 
+			// for related places search: ADD_NEW_LANG
 		} else {
 			return null
 		}
