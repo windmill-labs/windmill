@@ -264,7 +264,7 @@ jobs:
         run: |
           echo "Files identified by probe-chat: ${{ env.FILES_TO_EDIT }}"
           aider \
-            --read aider/conventions.md \
+            --read .aider/conventions.md \
             ${{ env.FILES_TO_EDIT }} \
             --model gemini/gemini-2.5-pro-preview-05-06 \
             --message-file .github/aider/issue-prompt.txt \
