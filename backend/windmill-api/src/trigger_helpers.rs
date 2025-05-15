@@ -4,6 +4,7 @@ use serde_json::value::RawValue;
 use std::collections::HashMap;
 use windmill_common::{
     error::Result,
+    flows::{FlowModule, FlowModuleValue},
     get_latest_deployed_hash_for_path, get_latest_flow_version_info_for_path,
     scripts::{ScriptHash, ScriptLang},
     worker::to_raw_value,
@@ -35,12 +36,6 @@ struct ScriptInfo {
     has_preprocessor: Option<bool>,
     language: ScriptLang,
     content: String,
-    schema: Option<sqlx::types::Json<PartialSchema>>,
-}
-
-struct FlowInfo {
-    has_preprocessor: Option<bool>,
-    is_v1_preprocessor: Option<bool>,
     schema: Option<sqlx::types::Json<PartialSchema>>,
 }
 
@@ -104,9 +99,8 @@ async fn get_script_info(
         .await
 }
 
-fn runnable_format_from_schema(
+fn runnable_format_from_schema_without_preprocessor(
     trigger_kind: &TriggerKind,
-    has_preprocessor: bool,
     schema: Option<sqlx::types::Json<PartialSchema>>,
 ) -> RunnableFormat {
     match trigger_kind {
@@ -119,7 +113,7 @@ fn runnable_format_from_schema(
                 })
             }) =>
         {
-            RunnableFormat { version: RunnableFormatVersion::V1, has_preprocessor }
+            RunnableFormat { version: RunnableFormatVersion::V1, has_preprocessor: false }
         }
         TriggerKind::Kafka | TriggerKind::Nats
             if schema.as_ref().is_some_and(|schema| {
@@ -129,18 +123,56 @@ fn runnable_format_from_schema(
                     .is_some_and(|properties| properties.keys().any(|key| key == "msg"))
             }) =>
         {
-            RunnableFormat { version: RunnableFormatVersion::V1, has_preprocessor }
+            RunnableFormat { version: RunnableFormatVersion::V1, has_preprocessor: false }
         }
-        _ => RunnableFormat { version: RunnableFormatVersion::V2, has_preprocessor },
+        _ => RunnableFormat { version: RunnableFormatVersion::V2, has_preprocessor: false },
     }
 }
+
+fn runnable_format_from_preprocessor_args(
+    trigger_kind: &TriggerKind,
+    args: Option<Vec<windmill_parser::Arg>>,
+) -> RunnableFormat {
+    if let Some(args) = args {
+        if args.iter().any(|arg| arg.name == "wm_trigger") {
+            RunnableFormat { version: RunnableFormatVersion::V1, has_preprocessor: true }
+        } else {
+            match trigger_kind {
+                // when preprocessor, as soon as we have a payload **top-level** arg, we know it's v1
+                TriggerKind::Mqtt if args.iter().any(|arg| arg.name == "payload") => {
+                    RunnableFormat { version: RunnableFormatVersion::V1, has_preprocessor: true }
+                }
+                TriggerKind::Kafka | TriggerKind::Nats
+                    if args.iter().any(|arg| arg.name == "msg") =>
+                {
+                    RunnableFormat { version: RunnableFormatVersion::V1, has_preprocessor: true }
+                }
+                _ => RunnableFormat { version: RunnableFormatVersion::V2, has_preprocessor: true },
+            }
+        }
+    } else {
+        RunnableFormat { version: RunnableFormatVersion::V2, has_preprocessor: true }
+    }
+}
+
+enum PreprocessorInfo {
+    Preprocessor { content: String, language: ScriptLang },
+    NoPreprocessor { schema: Option<sqlx::types::Json<PartialSchema>> },
+}
+
+#[derive(Debug, Deserialize)]
+struct FlowInfo {
+    preprocessor_module: Option<sqlx::types::Json<FlowModuleValue>>,
+    schema: Option<sqlx::types::Json<PartialSchema>>,
+}
+
 pub async fn get_runnable_format(
     runnable_id: RunnableId,
     workspace_id: &str,
     db: &DB,
     trigger_kind: &TriggerKind,
 ) -> Result<RunnableFormat> {
-    match runnable_id {
+    let (key, preprocessor_info) = match runnable_id {
         RunnableId::FlowPath(path) => {
             let FlowVersionInfo { version, .. } =
                 get_latest_flow_version_info_for_path(db, workspace_id, &path, true).await?;
@@ -157,11 +189,10 @@ pub async fn get_runnable_format(
             let flow_info = sqlx::query_as!(
                 FlowInfo,
                 "SELECT
-                    value->'preprocessor_module' IS NOT NULL as has_preprocessor,
-                    value->'preprocessor_module'->'value'->'input_transforms'->'wm_trigger' IS NOT NULL as is_v1_preprocessor,
+                    value->'preprocessor_module'->'value' as \"preprocessor_module: _\",
                     schema as \"schema: _\"
                 FROM flow 
-                WHERE workspace_id = $1 
+                WHERE workspace_id = $1
                     AND path = $2",
                 workspace_id,
                 path
@@ -169,18 +200,40 @@ pub async fn get_runnable_format(
             .fetch_one(db)
             .await?;
 
-            let has_preprocessor = flow_info.has_preprocessor.unwrap_or(false);
-            let is_v1_preprocessor = flow_info.is_v1_preprocessor.unwrap_or(false);
-
-            let runnable_format = if has_preprocessor && is_v1_preprocessor {
-                RunnableFormat { version: RunnableFormatVersion::V1, has_preprocessor: true }
+            if let Some(preprocessor_module) = flow_info.preprocessor_module {
+                match preprocessor_module.0 {
+                    FlowModuleValue::RawScript { content, language, .. } => {
+                        (key, PreprocessorInfo::Preprocessor { content, language })
+                    }
+                    FlowModuleValue::Script { path, hash, .. } => {
+                        let hash = if let Some(hash) = hash {
+                            hash.0
+                        } else {
+                            let script_hash =
+                                get_latest_deployed_hash_for_path(db, workspace_id, &path).await?;
+                            script_hash.hash
+                        };
+                        let script_info = get_script_info(db, workspace_id, hash).await?;
+                        (
+                            key,
+                            PreprocessorInfo::Preprocessor {
+                                content: script_info.content,
+                                language: script_info.language,
+                            },
+                        )
+                    }
+                    _ => {
+                        return Err(windmill_common::error::Error::internal_err(
+                            "Unsupported preprocessor module".to_string(),
+                        ));
+                    }
+                }
             } else {
-                runnable_format_from_schema(trigger_kind, has_preprocessor, flow_info.schema)
-            };
-
-            RUNNABLE_FORMAT_VERSION_CACHE.insert(key, runnable_format);
-
-            Ok(runnable_format)
+                (
+                    key,
+                    PreprocessorInfo::NoPreprocessor { schema: flow_info.schema },
+                )
+            }
         }
         RunnableId::ScriptId(script_id) => {
             let hash = script_id.get_script_hash(workspace_id, db).await?;
@@ -194,47 +247,59 @@ pub async fn get_runnable_format(
 
             let script_info = get_script_info(db, workspace_id, hash).await?;
 
-            let has_preprocessor = script_info.has_preprocessor.unwrap_or(false);
-
-            let runnable_format = if has_preprocessor {
-                let args = match script_info.language {
-                    ScriptLang::Bun
-                    | ScriptLang::Bunnative
-                    | ScriptLang::Deno
-                    | ScriptLang::Nativets => {
-                        let args = windmill_parser_ts::parse_deno_signature(
-                            &script_info.content,
-                            true,
-                            false,
-                            Some("preprocessor".to_string()),
-                        )?;
-                        Some(args.args)
-                    }
-                    ScriptLang::Python3 => {
-                        let args = windmill_parser_py::parse_python_signature(
-                            &script_info.content,
-                            Some("preprocessor".to_string()),
-                            false,
-                        )?;
-                        Some(args.args)
-                    }
-                    _ => None,
-                };
-
-                if args.is_some_and(|args| args.iter().any(|arg| arg.name == "wm_trigger")) {
-                    RunnableFormat { version: RunnableFormatVersion::V1, has_preprocessor: true }
-                } else {
-                    runnable_format_from_schema(trigger_kind, has_preprocessor, script_info.schema)
-                }
+            if script_info.has_preprocessor.unwrap_or(false) {
+                (
+                    key,
+                    PreprocessorInfo::Preprocessor {
+                        content: script_info.content,
+                        language: script_info.language,
+                    },
+                )
             } else {
-                runnable_format_from_schema(trigger_kind, has_preprocessor, script_info.schema)
+                (
+                    key,
+                    PreprocessorInfo::NoPreprocessor { schema: script_info.schema },
+                )
+            }
+        }
+    };
+
+    let runnable_format = match preprocessor_info {
+        PreprocessorInfo::Preprocessor { content, language } => {
+            let args = match language {
+                ScriptLang::Bun
+                | ScriptLang::Bunnative
+                | ScriptLang::Deno
+                | ScriptLang::Nativets => {
+                    let args = windmill_parser_ts::parse_deno_signature(
+                        &content,
+                        true,
+                        false,
+                        Some("preprocessor".to_string()),
+                    )?;
+                    Some(args.args)
+                }
+                ScriptLang::Python3 => {
+                    let args = windmill_parser_py::parse_python_signature(
+                        &content,
+                        Some("preprocessor".to_string()),
+                        false,
+                    )?;
+                    Some(args.args)
+                }
+                _ => None,
             };
 
-            RUNNABLE_FORMAT_VERSION_CACHE.insert(key, runnable_format);
-
-            Ok(runnable_format)
+            runnable_format_from_preprocessor_args(trigger_kind, args)
         }
-    }
+        PreprocessorInfo::NoPreprocessor { schema } => {
+            runnable_format_from_schema_without_preprocessor(trigger_kind, schema)
+        }
+    };
+
+    RUNNABLE_FORMAT_VERSION_CACHE.insert(key, runnable_format);
+
+    Ok(runnable_format)
 }
 
 #[allow(dead_code)]
