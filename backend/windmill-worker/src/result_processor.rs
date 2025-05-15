@@ -34,7 +34,7 @@ use windmill_queue::{
 
 use serde_json::{json, value::RawValue};
 
-use tokio::{sync::broadcast, task::JoinHandle};
+use tokio::task::JoinHandle;
 
 use windmill_queue::{add_completed_job, add_completed_job_error};
 
@@ -43,7 +43,8 @@ use crate::{
     common::{error_to_value, read_result, save_in_cache},
     otel_ee::add_root_flow_job_to_otlp,
     worker_flow::update_flow_status_after_job_completion,
-    AuthedClient, JobCompletedSender, SameWorkerSender, SendResult, INIT_SCRIPT_TAG,
+    AuthedClient, JobCompletedReceiver, JobCompletedSender, SameWorkerSender, SendResult,
+    UpdateFlow, INIT_SCRIPT_TAG,
 };
 
 async fn process_jc(
@@ -118,7 +119,7 @@ async fn process_jc(
 }
 
 pub fn start_background_processor(
-    job_completed_rx: flume::Receiver<SendResult>,
+    job_completed_rx: JobCompletedReceiver,
     job_completed_sender: JobCompletedSender,
     same_worker_queue_size: Arc<AtomicU16>,
     job_completed_processor_is_done: Arc<AtomicBool>,
@@ -127,12 +128,13 @@ pub fn start_background_processor(
     worker_dir: String,
     same_worker_tx: SameWorkerSender,
     worker_name: String,
-    mut killpill_rx: broadcast::Receiver<()>,
     killpill_tx: KillpillSender,
     is_dedicated_worker: bool,
 ) -> JoinHandle<()> {
     tokio::spawn(async move {
         let mut has_been_killed = false;
+
+        let JobCompletedReceiver { bounded_rx, mut killpill_rx, unbounded_rx } = job_completed_rx;
 
         #[cfg(feature = "benchmark")]
         let mut infos = BenchmarkInfo::new();
@@ -144,15 +146,21 @@ pub fn start_background_processor(
         //if we have been killed, we want to drain the queue of jobs
         while let Some(sr) = {
             if has_been_killed && same_worker_queue_size.load(Ordering::SeqCst) == 0 {
-                job_completed_rx
+                unbounded_rx
                     .try_recv()
                     .ok()
                     .map(JobCompletedRx::JobCompleted)
+                    .or_else(|| bounded_rx.try_recv().ok().map(JobCompletedRx::JobCompleted))
             } else {
                 tokio::select! {
-                    result = job_completed_rx.recv_async() => {
+                    biased;
+                    result = unbounded_rx.recv_async() => {
                         result.ok().map(JobCompletedRx::JobCompleted)
                     }
+                    result = bounded_rx.recv_async() => {
+                        result.ok().map(JobCompletedRx::JobCompleted)
+                    }
+
                     _ = killpill_rx.recv() => {
                         Some(JobCompletedRx::Killpill)
                     }
@@ -207,7 +215,7 @@ pub fn start_background_processor(
                         infos.add_iter(bench, true);
                     }
                 }
-                JobCompletedRx::JobCompleted(SendResult::UpdateFlow {
+                JobCompletedRx::JobCompleted(SendResult::UpdateFlow(UpdateFlow {
                     flow,
                     w_id,
                     success,
@@ -215,7 +223,7 @@ pub fn start_background_processor(
                     worker_dir,
                     stop_early_override,
                     token,
-                }) => {
+                })) => {
                     // let r;
                     tracing::info!(parent_flow = %flow, "updating flow status");
                     if let Err(e) = update_flow_status_after_job_completion(
@@ -288,7 +296,7 @@ async fn send_job_completed(
         duration,
     };
     job_completed_tx
-        .send_job(jc)
+        .send_job(jc, true)
         .with_context(windmill_common::otel_ee::otel_ctx())
         .await
         .expect("send job completed")

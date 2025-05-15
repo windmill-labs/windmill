@@ -28,7 +28,7 @@ pub fn workspaced_service(
     use windmill_worker::JobCompletedSender;
 
     let (job_completed_tx, _job_completed_rx) =
-        JobCompletedSender::new(&Connection::Sql(db.clone()), 100);
+        JobCompletedSender::new(&Connection::Sql(db.clone()), 10);
 
     let router = Router::new();
 
