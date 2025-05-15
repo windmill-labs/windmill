@@ -1,4 +1,4 @@
-name: "Notify Discord when a PR is opened"
+name: "Send discord notification when a PR is ready for review"
 
 on:
   workflow_call:

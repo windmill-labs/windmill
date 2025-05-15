@@ -1,4 +1,4 @@
-name: PR Opened
+name: "Send discord notification when a PR is ready for review"
 
 on:
   pull_request:
