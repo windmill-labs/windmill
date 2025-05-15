@@ -24,6 +24,7 @@
 	async function handleKeydown(event: KeyboardEvent) {
 		if (hovered && event.key === 'Enter') {
 			event.preventDefault()
+			dispatch('keyboardOnlySelect')
 			runAction()
 		}
 	}
