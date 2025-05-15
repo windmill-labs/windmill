@@ -134,7 +134,7 @@ pub fn start_background_processor(
     tokio::spawn(async move {
         let mut has_been_killed = false;
 
-        let JobCompletedReceiver { bounded_rx, killpill_rx, unbounded_rx } = job_completed_rx;
+        let JobCompletedReceiver { bounded_rx, mut killpill_rx, unbounded_rx } = job_completed_rx;
 
         #[cfg(feature = "benchmark")]
         let mut infos = BenchmarkInfo::new();
