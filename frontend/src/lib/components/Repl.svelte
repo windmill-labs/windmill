@@ -7,7 +7,7 @@
 	import type { ScriptLang } from '$lib/gen'
 	import { Splitpanes, Pane } from 'svelte-splitpanes'
 	import { twMerge } from 'tailwind-merge'
-	import { Plus } from 'lucide-svelte'
+	import { TerminalIcon } from 'lucide-svelte'
 	import PanelSection from './apps/editor/settingsPanel/common/PanelSection.svelte'
 	import { Button } from './common'
 	import StepHistory, { type StepHistoryData } from './flows/propPicker/StepHistory.svelte'
@@ -59,7 +59,7 @@
 	}
 
 	function printPrompt() {
-		term.write(`\r\n${prompt}`)
+		term.write(`${prompt}`)
 		input = ''
 	}
 
@@ -71,14 +71,19 @@
 				background: '#1e1e1e',
 				foreground: '#ffffff'
 			},
+			fontFamily: 'monospace',
 			convertEol: true
 		})
 		term.open(container)
 		printPrompt()
-
 		term.onData((char) => {
 			switch (char) {
 				case '\r':
+					input = input.trim()
+					if (input.length === 0) {
+						term.write(`\r\n${prompt}`)
+						break
+					}
 					if (input === 'clear') {
 						term.reset()
 						term.write(`\r\n${prompt}`)
@@ -132,12 +137,11 @@
 							color="light"
 							variant="border"
 							btnClasses="!rounded-full !p-1"
-							title="Create a new background runnable"
-							aria-label="Create a new background runnable"
-							on:click={() => {}}
-							id="create-bash-script"
+							title="Open bash editor"
+							aria-label="Open bash editor"
+							id="open-bash-editor"
 						>
-							<Plus size={14} class="!text-primary" />
+							<TerminalIcon size={14} class="!text-primary" />
 						</Button>
 					</div>
 					<div class="flex flex-col gap-1 w-full">
@@ -148,15 +152,12 @@
 		</PanelSection>
 	</Pane>
 	<Pane size={75}>
-		<!-- svelte-ignore element_invalid_self_closing_tag -->
-		<div bind:this={container} class="terminal"></div>
+		<div bind:this={container}></div>
 	</Pane>
 </Splitpanes>
 
 <style>
-	.terminal {
-		width: 100%;
-		height: 100%;
-		background-color: #1e1e1e;
+	:global(.xterm-screen) {
+		padding: 10px;
 	}
 </style>

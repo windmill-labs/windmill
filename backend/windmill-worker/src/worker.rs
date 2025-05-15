@@ -1525,6 +1525,7 @@ pub async fn run_worker(
                         }
                     }
                 }
+            
                 if matches!(job.kind, JobKind::Noop) {
                     add_time!(bench, "send job completed START");
                     job_completed_tx
