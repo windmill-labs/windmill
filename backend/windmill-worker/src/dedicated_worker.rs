@@ -187,14 +187,14 @@ pub async fn handle_dedicated_process(
                                 let result = Arc::new(result);
                                 append_logs(&job.id, &job.workspace_id,  logs.clone(), &db.into()).await;
                                 if line.starts_with("wm_res[success]:") {
-                                    job_completed_tx.send_job(JobCompleted { job , result, result_columns: None, mem_peak: 0, canceled_by: None, success: true, cached_res_path: None, token: token.to_string(), duration: None }).await.unwrap()
+                                    job_completed_tx.send_job(JobCompleted { job , result, result_columns: None, mem_peak: 0, canceled_by: None, success: true, cached_res_path: None, token: token.to_string(), duration: None }, true).await.unwrap()
                                 } else {
-                                    job_completed_tx.send_job(JobCompleted { job , result, result_columns: None, mem_peak: 0, canceled_by: None, success: false, cached_res_path: None, token: token.to_string(), duration: None }).await.unwrap()
+                                    job_completed_tx.send_job(JobCompleted { job , result, result_columns: None, mem_peak: 0, canceled_by: None, success: false, cached_res_path: None, token: token.to_string(), duration: None }, true).await.unwrap()
                                 }
                             },
                             Err(e) => {
                                 tracing::error!("Could not deserialize job result `{line}`: {e:?}");
-                                job_completed_tx.send_job(JobCompleted { job , result: Arc::new(to_raw_value(&serde_json::json!({"error": format!("Could not deserialize job result `{line}`: {e:?}")}))), result_columns: None, mem_peak: 0, canceled_by: None, success: false, cached_res_path: None, token: token.to_string(), duration: None }).await.unwrap();
+                                job_completed_tx.send_job(JobCompleted { job , result: Arc::new(to_raw_value(&serde_json::json!({"error": format!("Could not deserialize job result `{line}`: {e:?}")}))), result_columns: None, mem_peak: 0, canceled_by: None, success: false, cached_res_path: None, token: token.to_string(), duration: None }, true).await.unwrap();
                             },
                         };
                         logs = init_log.clone();
