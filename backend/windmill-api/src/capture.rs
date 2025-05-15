@@ -14,9 +14,14 @@ use {
 };
 
 #[cfg(all(feature = "enterprise", feature = "gcp_trigger"))]
-use crate::gcp_triggers_ee::{
-    manage_google_subscription, process_google_push_request, validate_jwt_token,
-    CreateUpdateConfig, SubscriptionMode,
+use {
+    crate::gcp_triggers_ee::{
+        manage_google_subscription, process_google_push_request, validate_jwt_token,
+        CreateUpdateConfig, SubscriptionMode,
+    },
+    axum::extract::Request,
+    http::HeaderMap,
+    utils::empty_as_none,
 };
 
 #[cfg(all(feature = "enterprise", feature = "sqs_trigger"))]
@@ -26,12 +31,7 @@ use windmill_common::auth::aws::AwsAuthResourceType;
     feature = "http_trigger",
     all(feature = "enterprise", feature = "gcp_trigger")
 ))]
-use {
-    axum::extract::Request,
-    http::HeaderMap,
-    serde::de::DeserializeOwned,
-    windmill_common::{error::Error, utils::empty_as_none},
-};
+use {serde::de::DeserializeOwned, windmill_common::error::Error};
 
 #[cfg(all(feature = "enterprise", feature = "kafka"))]
 use crate::kafka_triggers_ee::KafkaTriggerConfigConnection;

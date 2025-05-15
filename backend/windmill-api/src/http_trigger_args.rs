@@ -56,7 +56,7 @@ where
     }
 }
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct HttpTriggerArgs(pub WebhookArgs);
 
 impl RawHttpTriggerArgs {

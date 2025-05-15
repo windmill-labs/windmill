@@ -29,14 +29,14 @@ pub enum RawBody {
     Empty,
 }
 
-#[derive(Clone, Serialize)]
+#[derive(Debug, Clone, Serialize)]
 #[serde(untagged)]
 pub enum Body {
     HashMap(HashMap<String, Box<RawValue>>),
     NoHashMap(Box<RawValue>),
 }
 
-#[derive(Clone, Default)]
+#[derive(Debug, Clone, Default)]
 pub struct WebhookArgsMetadata {
     pub raw_string: Option<String>,
     pub headers: HashMap<String, Box<RawValue>>,
@@ -51,7 +51,7 @@ pub struct RawWebhookArgs {
     pub metadata: WebhookArgsMetadata,
 }
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct WebhookArgs {
     pub body: Body,
     pub metadata: WebhookArgsMetadata,
