@@ -1,5 +1,20 @@
 # Changelog
 
+## [1.491.2](https://github.com/windmill-labs/windmill/compare/v1.491.1...v1.491.2) (2025-05-15)
+
+
+### Bug Fixes
+
+* **cli:** --version improvement ([f8f2015](https://github.com/windmill-labs/windmill/commit/f8f201564f7a323eb96f6dc684a525a0784d41f2))
+* http trigger signature validation ([#5753](https://github.com/windmill-labs/windmill/issues/5753)) ([9e9514b](https://github.com/windmill-labs/windmill/commit/9e9514b9af2337e143a9e4cf1e915e1477032e80))
+* Improve indexer performance by factoring required queries to the DB # ([#5749](https://github.com/windmill-labs/windmill/issues/5749)) ([b12feaf](https://github.com/windmill-labs/windmill/commit/b12feaf50ae0ef03816719ff39157fcf55159dbf))
+* improve perf of job deletion ([0efba94](https://github.com/windmill-labs/windmill/commit/0efba945bac9b84a489c6ef552e834593f209fe1))
+
+
+### Performance Improvements
+
+* cache http trigger routers and auth ([#5748](https://github.com/windmill-labs/windmill/issues/5748)) ([ddd18d2](https://github.com/windmill-labs/windmill/commit/ddd18d22a615408a9f57f910d0a58f17e6d6e29d))
+
 ## [1.491.1](https://github.com/windmill-labs/windmill/compare/v1.491.0...v1.491.1) (2025-05-15)
 
 
