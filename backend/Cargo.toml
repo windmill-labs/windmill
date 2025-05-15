@@ -87,13 +87,14 @@ python = ["windmill-worker/python"]
 rust = ["windmill-worker/rust"]
 mysql = ["windmill-worker/mysql"]
 oracledb = ["windmill-worker/oracledb"]
+duckdb = ["windmill-worker/duckdb"]
 mssql = ["windmill-worker/mssql"]
 bigquery = ["windmill-worker/bigquery"]
 php = ["windmill-worker/php"]
 csharp = ["windmill-worker/csharp"]
 nu = ["windmill-worker/nu"]
 java = ["windmill-worker/java"]
-all_languages = [ "python", "deno_core", "rust", "mysql", "oracledb", "mssql", "bigquery", "csharp", "nu", "php", "java"]
+all_languages = [ "python", "deno_core", "rust", "mysql", "oracledb", "duckdb", "mssql", "bigquery", "csharp", "nu", "php", "java"]
 
 
 [patch.crates-io]
@@ -234,6 +235,7 @@ json-pointer = "^0"
 itertools = "^0"
 regex = "^1"
 semver = "^1"
+duckdb = { version = "1.2.2", features = ["bundled"] }
 
 v8 = "=130.0.7"  # Exact version
 deno_fetch = "0.214.0"

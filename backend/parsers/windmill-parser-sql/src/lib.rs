@@ -83,6 +83,22 @@ pub fn parse_bigquery_sig(code: &str) -> anyhow::Result<MainArgSignature> {
     }
 }
 
+pub fn parse_duckdb_sig(code: &str) -> anyhow::Result<MainArgSignature> {
+    let parsed = parse_duckdb_file(&code)?;
+    if let Some(x) = parsed {
+        let args = x;
+        Ok(MainArgSignature {
+            star_args: false,
+            star_kwargs: false,
+            args,
+            no_main_func: None,
+            has_preprocessor: None,
+        })
+    } else {
+        Err(anyhow!("Error parsing sql".to_string()))
+    }
+}
+
 pub fn parse_snowflake_sig(code: &str) -> anyhow::Result<MainArgSignature> {
     let parsed = parse_snowflake_file(&code)?;
     if let Some(x) = parsed {
@@ -211,6 +227,9 @@ lazy_static::lazy_static! {
 
     // -- @name (type) = default
     static ref RE_ARG_BIGQUERY: Regex = Regex::new(r#"(?m)^-- @(\w+) \((\w+(?:\[\])?)\)(?: ?\= ?(.+))? *(?:\r|\n|$)"#).unwrap();
+
+    // -- $name (type) = default
+    static ref RE_ARG_DUCKDB: Regex = Regex::new(r#"(?m)^-- $(\w+) \((\w+(?:\[\])?)\)(?: ?\= ?(.+))? *(?:\r|\n|$)"#).unwrap();
 
     static ref RE_ARG_SNOWFLAKE: Regex = Regex::new(r#"(?m)^-- \? (\w+) \((\w+)\)(?: ?\= ?(.+))? *(?:\r|\n|$)"#).unwrap();
 
@@ -577,6 +596,35 @@ fn parse_bigquery_file(code: &str) -> anyhow::Result<Option<Vec<Arg>>> {
     Ok(Some(args))
 }
 
+fn parse_duckdb_file(code: &str) -> anyhow::Result<Option<Vec<Arg>>> {
+    let mut args: Vec<Arg> = vec![];
+
+    for cap in RE_ARG_DUCKDB.captures_iter(code) {
+        let name = cap.get(1).map(|x| x.as_str().to_string()).unwrap();
+        let typ = cap
+            .get(2)
+            .map(|x| x.as_str().to_string().to_lowercase())
+            .unwrap();
+        let default = cap.get(3).map(|x| x.as_str().to_string());
+        let has_default = default.is_some();
+        let parsed_typ = parse_duckdb_typ(typ.as_str());
+
+        let parsed_default = default.and_then(|x| parsed_default(&parsed_typ, x));
+
+        args.push(Arg {
+            name,
+            typ: parsed_typ,
+            default: parsed_default,
+            otyp: Some(typ),
+            has_default,
+            oidx: None,
+        });
+    }
+
+    args.append(&mut parse_sql_sanitized_interpolation(code));
+    Ok(Some(args))
+}
+
 fn parse_snowflake_file(code: &str) -> anyhow::Result<Option<Vec<Arg>>> {
     let mut args: Vec<Arg> = vec![];
 
@@ -724,6 +772,32 @@ pub fn parse_bigquery_typ(typ: &str) -> Typ {
             "integer" | "int64" => Typ::Int,
             "float" | "float64" | "numeric" | "bignumeric" => Typ::Float,
             "boolean" | "bool" => Typ::Bool,
+            _ => Typ::Str(None),
+        }
+    }
+}
+
+pub fn parse_duckdb_typ(typ: &str) -> Typ {
+    if typ.ends_with("[]") {
+        let base_typ = parse_duckdb_typ(typ.strip_suffix("[]").unwrap());
+        Typ::List(Box::new(base_typ))
+    } else {
+        match typ {
+            "varchar" | "char" | "bpchar" | "text" | "string" => Typ::Str(None),
+            "blob" | "bytea" | "binary" | "varbinary" | "bitstring" => Typ::Bytes,
+            "boolean" | "bool" | "bit" | "logical" => Typ::Bool,
+            "bigint" | "int8" | "long" | "integer" | "int4" | "int" | "smallint" | "int2"
+            | "short" | "tinyint" | "int1" | "signed" | "ubigint" | "uhugeint" | "uinteger"
+            | "usmallint" | "utinyint" => Typ::Int,
+            "decimal" | "numeric" | "double" | "float8" | "float" | "float4" | "real" => Typ::Float,
+            "date"
+            | "time"
+            | "timestamp with time zone"
+            | "timestamptz"
+            | "timestamp"
+            | "datetime" => Typ::Datetime,
+            "uuid" | "json" => Typ::Str(None),
+            "interval" | "hugeint" => Typ::Str(None),
             _ => Typ::Str(None),
         }
     }
