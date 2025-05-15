@@ -798,6 +798,12 @@ async fn fix_job_completed_index(db: &DB) -> Result<(), Error> {
         .execute(db)
         .await?;
     });
+
+    run_windmill_migration!("remove_redundant_log_file_index", db, |tx| {
+        sqlx::query!("DROP INDEX CONCURRENTLY IF EXISTS log_file_hostname_log_ts_idx")
+            .execute(db)
+            .await?;
+    });
     Ok(())
 }
 
