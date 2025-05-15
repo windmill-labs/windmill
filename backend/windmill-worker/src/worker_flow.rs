@@ -1557,10 +1557,12 @@ pub async fn handle_flow(
         .await?;
         match next {
             PushNextFlowJob::Rec(nrec) => {
+                tracing::info!("recursively pushing next flow job");
                 rec = nrec;
             }
             PushNextFlowJob::Done(send_result) => {
                 if let Some(send_result) = send_result {
+                    tracing::info!("sending flow status update to job completed channel");
                     job_completed_tx
                         .send(send_result, false)
                         .warn_after_seconds(3)
