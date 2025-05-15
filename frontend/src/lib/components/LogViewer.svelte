@@ -69,7 +69,7 @@
 			? truncateContent.substring(
 					s3LogPrefixes[prefixIndex]?.length,
 					end == -1 ? undefined : end + 1
-			  )
+				)
 			: undefined
 	}
 
@@ -109,7 +109,7 @@
 			? truncatedContent.substring(
 					truncatedContent.substring(1).indexOf('\n') + 2,
 					truncatedContent.length
-			  )
+				)
 			: truncatedContent
 	)
 	export function scrollToBottom() {
