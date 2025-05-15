@@ -1,4 +1,3 @@
-# main/.github/workflows/dispatch-docs.yml
 on:
   issue_comment:
     types: [created]
@@ -9,7 +8,6 @@ jobs:
     uses: windmill-labs/windmilldocs/.github/workflows/create-docs.yml@main
     with:
       pr_number: ${{ github.event.issue.number }}
-      pr_branch: ${{ github.event.issue.head.ref }}
       repo: ${{ github.event.repository.name }}
       comment_text: ${{ github.event.comment.body }}
     secrets:
