@@ -21,8 +21,10 @@ use {
     },
     axum::extract::Request,
     http::HeaderMap,
-    utils::empty_as_none,
 };
+
+#[cfg(all(feature = "enterprise", feature = "gcp_trigger"))]
+use windmill_common::utils::empty_as_none;
 
 #[cfg(all(feature = "enterprise", feature = "sqs_trigger"))]
 use windmill_common::auth::aws::AwsAuthResourceType;
