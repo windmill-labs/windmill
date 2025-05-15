@@ -1,0 +1,17 @@
+# main/.github/workflows/dispatch-docs.yml
+on:
+  issue_comment:
+    types: [created]
+
+jobs:
+  trigger-docs:
+    if: ${{ github.event.issue.pull_request && startsWith(github.event.comment.body, '/docs') }}
+    uses: centdix/windmilldocs/.github/workflows/create-docs.yml@main
+    with:
+      pr_number: ${{ github.event.issue.number }}
+      pr_branch: ${{ github.event.issue.head.ref }}
+      repo: ${{ github.event.repository.name }}
+      comment_text: ${{ github.event.comment.body }}
+    secrets:
+      DOCS_TOKEN: ${{ secrets.DOCS_TOKEN }}
+      GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
