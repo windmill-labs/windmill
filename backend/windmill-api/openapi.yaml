@@ -11028,11 +11028,8 @@ paths:
           description: a config
           content:
             application/json:
-              type: object
               schema:
-                oneOf:
-                  - $ref: "#/components/schemas/Configs"
-                  - type: "null"
+                $ref: "#/components/schemas/Configs"
 
   /configs/update/{name}:
     post:
@@ -13211,6 +13208,7 @@ components:
 
     Configs:
       type: object
+      nullable: true
       properties:
         alerts:
           type: array
