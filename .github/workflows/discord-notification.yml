@@ -1,0 +1,18 @@
+name: "Send discord notification when a PR is ready for review"
+
+on:
+  pull_request:
+    types:
+      - opened
+      - ready_for_review
+
+jobs:
+  call_reusable_workflow:
+    if: github.event.pull_request.draft == false
+    uses: ./.github/workflows/shareable-discord-notification.yml
+    with:
+      PR_TITLE: ${{ github.event.pull_request.title }}
+      PR_URL: ${{ github.event.pull_request.html_url }}
+      PR_AUTHOR: ${{ github.event.pull_request.user.login }}
+    secrets:
+      DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_PR_REVIEWS_WEBHOOK }}
