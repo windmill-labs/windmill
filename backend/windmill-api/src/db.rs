@@ -790,6 +790,14 @@ async fn fix_job_completed_index(db: &DB) -> Result<(), Error> {
         .execute(db)
         .await?;
     });
+
+    run_windmill_migration!("alerts_by_workspace", db, |tx| {
+        sqlx::query!(
+            "CREATE INDEX CONCURRENTLY IF NOT EXISTS alerts_by_workspace ON alerts (workspace_id);"
+        )
+        .execute(db)
+        .await?;
+    });
     Ok(())
 }
 
