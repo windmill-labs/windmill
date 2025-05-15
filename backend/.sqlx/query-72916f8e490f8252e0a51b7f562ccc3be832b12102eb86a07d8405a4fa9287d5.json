@@ -1,0 +1,29 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT\n                    value->'preprocessor_module'->'value' as \"preprocessor_module: _\",\n                    schema as \"schema: _\"\n                FROM flow \n                WHERE workspace_id = $1\n                    AND path = $2",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "preprocessor_module: _",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 1,
+        "name": "schema: _",
+        "type_info": "Json"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      null,
+      true
+    ]
+  },
+  "hash": "72916f8e490f8252e0a51b7f562ccc3be832b12102eb86a07d8405a4fa9287d5"
+}
