@@ -6,7 +6,7 @@ on:
 jobs:
   trigger-docs:
     if: ${{ github.event.issue.pull_request && startsWith(github.event.comment.body, '/docs') }}
-    uses: centdix/windmilldocs/.github/workflows/create-docs.yml@main
+    uses: windmill-labs/windmilldocs/.github/workflows/create-docs.yml@main
     with:
       pr_number: ${{ github.event.issue.number }}
       pr_branch: ${{ github.event.issue.head.ref }}
