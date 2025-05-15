@@ -262,7 +262,6 @@
 	}
 
 	let selectedItem: any
-	let hoveredItem: any
 
 	async function handleKeydown(event: KeyboardEvent) {
 		if ((!isMac() ? event.ctrlKey : event.metaKey) && event.key === 'k') {
@@ -643,9 +642,6 @@
 								<div class="w-4/12 overflow-y-auto max-h-[70vh]">
 									{#each itemMap['runs'] ?? [] as r}
 										<QuickMenuItem
-											on:hover={() => {
-												hoveredItem = r
-											}}
 											on:select={() => {
 												selectedItem = r
 												selectedWorkspace = r?.document.workspace_id[0]
