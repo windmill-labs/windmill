@@ -996,7 +996,15 @@ async fn route_job(
     .map_err(|e| e.into_response())?;
 
     let args = args
-        .process_args(&authed, &db, &trigger.workspace_id, trigger.raw_string)
+        .process_args(
+            &authed,
+            &db,
+            &trigger.workspace_id,
+            match trigger.authentication_method {
+                AuthenticationMethod::CustomScript | AuthenticationMethod::Signature => true,
+                _ => false,
+            },
+        )
         .await
         .map_err(|e| e.into_response())?;
 
