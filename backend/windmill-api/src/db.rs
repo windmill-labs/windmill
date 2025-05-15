@@ -793,7 +793,7 @@ async fn fix_job_completed_index(db: &DB) -> Result<(), Error> {
     Ok(())
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Hash, Eq, PartialEq)]
 pub struct ApiAuthed {
     pub email: String,
     pub username: String,

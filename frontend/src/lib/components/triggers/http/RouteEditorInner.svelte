@@ -268,6 +268,7 @@
 		bind:selectedFileKey={static_asset_config}
 		on:close={() => {
 			s3Editor?.setCode(JSON.stringify(static_asset_config, null, 2))
+			s3FileUploadRawMode = true
 		}}
 		readOnlyMode={false}
 	/>
@@ -366,6 +367,7 @@
 										disabled={!can_write}
 									/>
 								{/if}
+								{s3FileUploadRawMode}
 								{#if s3FileUploadRawMode}
 									{#if can_write}
 										<JsonEditor
@@ -396,7 +398,6 @@
 													s3: evt.detail?.path ?? '',
 													filename: evt.detail?.filename ?? undefined
 												}
-												s3FileUploadRawMode = true
 											}}
 											on:deletion={(evt) => {
 												static_asset_config = {
@@ -622,7 +623,9 @@
 								{/if}
 							{/if}
 
-							<RouteBodyTransformerOption bind:raw_string bind:wrap_body />
+							{#if !static_asset_config}
+								<RouteBodyTransformerOption bind:raw_string bind:wrap_body />
+							{/if}
 						</div>
 					</Section>
 				{/if}
