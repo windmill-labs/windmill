@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.491.1](https://github.com/windmill-labs/windmill/compare/v1.491.0...v1.491.1) (2025-05-15)
+
+
+### Bug Fixes
+
+* avoid deadlocks in sending completed job to result processors ([#5742](https://github.com/windmill-labs/windmill/issues/5742)) ([e87d4f3](https://github.com/windmill-labs/windmill/commit/e87d4f3c1afb4ad356b326b7600c89e6c7803eff))
+
 ## [1.491.0](https://github.com/windmill-labs/windmill/compare/v1.490.0...v1.491.0) (2025-05-14)
 
 

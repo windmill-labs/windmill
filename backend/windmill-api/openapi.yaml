@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.491.0
+  version: 1.491.1
   title: Windmill API
 
   contact:
@@ -11028,7 +11028,11 @@ paths:
           description: a config
           content:
             application/json:
-              schema: {}
+              type: object
+              schema:
+                oneOf:
+                  - $ref: "#/components/schemas/Configs"
+                  - type: "null"
 
   /configs/update/{name}:
     post:
@@ -13182,6 +13186,36 @@ components:
           $ref: "#/components/schemas/AIProviderModel"
         code_completion_model:
           $ref: "#/components/schemas/AIProviderModel"
+
+    Alert:
+      type: object
+      properties:
+        name:
+          type: string
+        tags_to_monitor:
+          type: array
+          items:
+            type: string
+        jobs_num_threshold:
+          type: integer
+        alert_cooldown_seconds:
+          type: integer
+        alert_time_threshold_seconds:
+          type: integer
+      required:
+        - name
+        - tags_to_monitor
+        - jobs_num_threshold
+        - alert_cooldown_seconds
+        - alert_time_threshold_seconds
+
+    Configs:
+      type: object
+      properties:
+        alerts:
+          type: array
+          items:
+            $ref: '#/components/schemas/Alert'
 
     Script:
       type: object
