@@ -996,7 +996,15 @@ async fn route_job(
     .map_err(|e| e.into_response())?;
 
     let args = args
-        .process_args(&authed, &db, &trigger.workspace_id, trigger.raw_string)
+        .process_args(
+            &authed,
+            &db,
+            &trigger.workspace_id,
+            match trigger.authentication_method {
+                AuthenticationMethod::CustomScript | AuthenticationMethod::Signature => true,
+                _ => trigger.raw_string,
+            },
+        )
         .await
         .map_err(|e| e.into_response())?;
 
@@ -1050,20 +1058,10 @@ async fn route_job(
                 }
             };
 
-            let raw_payload = args
-                .0
-                .metadata
-                .raw_string
-                .as_ref()
-                .map(|raw_payload| serde_json::from_str::<String>(raw_payload))
-                .transpose()
-                .map_err(|e| {
-                    windmill_common::error::Error::SerdeJson { location: e.to_string(), error: e }
-                        .into_response()
-                })?;
+            let raw_payload = args.0.metadata.raw_string.as_ref();
 
             let response = authentication_method
-                .authenticate_http_request(&headers, raw_payload.as_ref())
+                .authenticate_http_request(&headers, raw_payload)
                 .map_err(|e| e.into_response())?;
 
             if let Some(response) = response {
