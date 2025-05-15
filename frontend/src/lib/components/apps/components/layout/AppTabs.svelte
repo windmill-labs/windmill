@@ -199,24 +199,22 @@
 							<span class="mr-2 w-8 font-mono">{selected == res ? '-' : '+'}</span>
 							{res}
 						</button>
-						{#if selected == res}
-							<div class="border-t">
-								<SubGridEditor
-									{id}
-									visible={render && index === selectedIndex}
-									subGridId={`${id}-${index}`}
-									class={twMerge(css?.container?.class, 'wm-tabs-container')}
-									style={css?.container?.style}
-									containerHeight={componentContainerHeight - (titleBarHeight * tabs.length + 40)}
-									on:focus={() => {
-										if (!$connectingInput.opened) {
-											$selectedComponent = [id]
-											handleTabSelection()
-										}
-									}}
-								/>
-							</div>
-						{/if}
+						<div class={selected == res ? 'border-t' : ''}>
+							<SubGridEditor
+								{id}
+								visible={render && index === selectedIndex}
+								subGridId={`${id}-${index}`}
+								class={twMerge(css?.container?.class, 'wm-tabs-container')}
+								style={css?.container?.style}
+								containerHeight={componentContainerHeight - (titleBarHeight * tabs.length + 40)}
+								on:focus={() => {
+									if (!$connectingInput.opened) {
+										$selectedComponent = [id]
+										handleTabSelection()
+									}
+								}}
+							/>
+						</div>
 					</div>
 				{/each}
 			</div>
