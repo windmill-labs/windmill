@@ -1922,15 +1922,17 @@ async fn queue_init_bash_maybe<'c>(
 
 pub enum SendResult {
     JobCompleted(JobCompleted),
-    UpdateFlow {
-        flow: Uuid,
-        w_id: String,
-        success: bool,
-        result: Box<RawValue>,
-        worker_dir: String,
-        stop_early_override: Option<bool>,
-        token: String,
-    },
+    UpdateFlow(UpdateFlow),
+}
+
+pub struct UpdateFlow {
+    pub flow: Uuid,
+    pub w_id: String,
+    pub success: bool,
+    pub result: Box<RawValue>,
+    pub worker_dir: String,
+    pub stop_early_override: Option<bool>,
+    pub token: String,
 }
 
 async fn do_nativets(

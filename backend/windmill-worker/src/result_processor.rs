@@ -44,7 +44,7 @@ use crate::{
     otel_ee::add_root_flow_job_to_otlp,
     worker_flow::update_flow_status_after_job_completion,
     AuthedClient, JobCompletedReceiver, JobCompletedSender, SameWorkerSender, SendResult,
-    INIT_SCRIPT_TAG,
+    UpdateFlow, INIT_SCRIPT_TAG,
 };
 
 async fn process_jc(
@@ -215,7 +215,7 @@ pub fn start_background_processor(
                         infos.add_iter(bench, true);
                     }
                 }
-                JobCompletedRx::JobCompleted(SendResult::UpdateFlow {
+                JobCompletedRx::JobCompleted(SendResult::UpdateFlow(UpdateFlow {
                     flow,
                     w_id,
                     success,
@@ -223,7 +223,7 @@ pub fn start_background_processor(
                     worker_dir,
                     stop_early_override,
                     token,
-                }) => {
+                })) => {
                     // let r;
                     tracing::info!(parent_flow = %flow, "updating flow status");
                     if let Err(e) = update_flow_status_after_job_completion(

@@ -14,7 +14,8 @@ use std::time::Duration;
 use crate::common::{cached_result_path, save_in_cache};
 use crate::js_eval::{eval_timeout, IdContext};
 use crate::{
-    AuthedClient, JobCompletedSender, PreviousResult, SameWorkerSender, SendResult, KEEP_JOB_DIR,
+    AuthedClient, JobCompletedSender, PreviousResult, SameWorkerSender, SendResult, UpdateFlow,
+    KEEP_JOB_DIR,
 };
 use anyhow::Context;
 use futures::TryFutureExt;
@@ -1557,14 +1558,18 @@ pub async fn handle_flow(
         .await?;
         match next {
             PushNextFlowJob::Rec(nrec) => {
-                tracing::info!("recursively pushing next flow job");
+                tracing::info!("recursively pushing next flow job {}", nrec.flow_job.id);
                 rec = nrec;
             }
-            PushNextFlowJob::Done(send_result) => {
-                if let Some(send_result) = send_result {
-                    tracing::info!("sending flow status update to job completed channel");
+            PushNextFlowJob::Done(update_flow) => {
+                if let Some(update_flow) = update_flow {
+                    tracing::info!(
+                        "sending flow status update {} with success {} to job completed channel",
+                        update_flow.flow,
+                        update_flow.success
+                    );
                     job_completed_tx
-                        .send(send_result, false)
+                        .send(SendResult::UpdateFlow(update_flow), false)
                         .warn_after_seconds(3)
                         .await
                         .map_err(|e| {
@@ -1623,7 +1628,7 @@ lazy_static::lazy_static! {
 
 enum PushNextFlowJob {
     Rec(PushNextFlowJobRec),
-    Done(Option<SendResult>),
+    Done(Option<UpdateFlow>),
 }
 struct PushNextFlowJobRec {
     flow_job: Arc<MiniPulledJob>,
@@ -1674,7 +1679,7 @@ async fn push_next_flow_job(
 
     // if this is an empty module of if the module has already been completed, successfully, update the parent flow
     if flow.modules.is_empty() || matches!(status_module, FlowStatusModule::Success { .. }) {
-        return Ok(PushNextFlowJob::Done(Some(SendResult::UpdateFlow {
+        return Ok(PushNextFlowJob::Done(Some(UpdateFlow {
             flow: flow_job.id,
             success: true,
             result: if flow.modules.is_empty() {
@@ -1730,7 +1735,7 @@ async fn push_next_flow_job(
                         .join(", ");
 
                     return Ok(PushNextFlowJob::Done(Some(
-                        SendResult::UpdateFlow {
+                        UpdateFlow {
                             flow: flow_job.id,
                             success: true,
                             result: serde_json::from_str(
@@ -1763,7 +1768,7 @@ async fn push_next_flow_job(
             .warn_after_seconds(3)
             .await?;
             if skip {
-                return Ok(PushNextFlowJob::Done(Some(SendResult::UpdateFlow {
+                return Ok(PushNextFlowJob::Done(Some(UpdateFlow {
                     flow: flow_job.id,
                     success: true,
                     result: serde_json::from_str("\"stopped early\"").unwrap(),
@@ -2077,7 +2082,7 @@ async fn push_next_flow_job(
                 .warn_after_seconds(3)
                 .await;
 
-                return Ok(PushNextFlowJob::Done(Some(SendResult::UpdateFlow {
+                return Ok(PushNextFlowJob::Done(Some(UpdateFlow {
                     flow: flow_job.id,
                     success: false,
                     result: to_raw_value(&result),
