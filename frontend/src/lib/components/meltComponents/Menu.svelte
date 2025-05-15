@@ -40,9 +40,8 @@
 	}
 
 	async function getMenuElements(): Promise<HTMLElement[]> {
-		return Array.from(
-			document.querySelectorAll(`[data-melt-menu-id="${$menuId}"]`)
-		) as HTMLElement[]
+		const element = document.getElementById($menuId)
+		return element ? [element as HTMLElement] : []
 	}
 </script>
 
