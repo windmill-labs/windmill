@@ -85,6 +85,7 @@ use tokio::fs::symlink_file as symlink;
 
 use tokio::{
     sync::{
+        broadcast,
         mpsc::{self, Receiver, Sender},
         RwLock,
     },
@@ -572,19 +573,27 @@ pub enum JobCompletedSender {
     NeverUsed,
 }
 
-pub struct JobCompletedKillpill();
 #[derive(Clone)]
 pub struct SqlJobCompletedSender {
     sender: flume::Sender<SendResult>,
     unbounded_sender: flume::Sender<SendResult>,
-    killpill_tx: flume::Sender<JobCompletedKillpill>,
+    killpill_tx: broadcast::Sender<()>,
 }
 
-#[derive(Clone)]
 pub struct JobCompletedReceiver {
     pub bounded_rx: flume::Receiver<SendResult>,
-    pub killpill_rx: flume::Receiver<JobCompletedKillpill>,
+    pub killpill_rx: broadcast::Receiver<()>,
     pub unbounded_rx: flume::Receiver<SendResult>,
+}
+
+impl JobCompletedReceiver {
+    pub fn clone(&self) -> Self {
+        Self {
+            bounded_rx: self.bounded_rx.clone(),
+            killpill_rx: self.killpill_rx.resubscribe(),
+            unbounded_rx: self.unbounded_rx.clone(),
+        }
+    }
 }
 
 impl JobCompletedSender {
@@ -593,7 +602,7 @@ impl JobCompletedSender {
             Connection::Sql(_) => {
                 let (sender, receiver) = flume::bounded::<SendResult>(buffer_size as usize);
                 let (unbounded_sender, unbounded_rx) = flume::unbounded::<SendResult>();
-                let (killpill_tx, killpill_rx) = flume::unbounded::<JobCompletedKillpill>();
+                let (killpill_tx, killpill_rx) = broadcast::channel::<()>(10);
                 (
                     Self::Sql(SqlJobCompletedSender { sender, unbounded_sender, killpill_tx }),
                     Some(JobCompletedReceiver { bounded_rx: receiver, killpill_rx, unbounded_rx }),
@@ -659,11 +668,11 @@ impl JobCompletedSender {
         }
     }
 
-    pub async fn kill(&self) -> Result<(), flume::SendError<JobCompletedKillpill>> {
+    pub async fn kill(&self) -> Result<(), broadcast::error::SendError<()>> {
         match self {
             Self::Sql(SqlJobCompletedSender { killpill_tx, .. }) => {
                 tracing::info!("Sending killpill to bg processors");
-                killpill_tx.send(JobCompletedKillpill())?;
+                killpill_tx.send(())?;
                 Ok(())
             }
             Self::Http(_) => {

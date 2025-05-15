@@ -1539,22 +1539,41 @@ pub async fn handle_flow(
             );
         }
     }
-    let mut rec = Some(PushNextFlowJobRec { flow_job: flow_job, status: status });
-    while let Some(nrec) = rec {
-        rec = push_next_flow_job(
-            nrec.flow_job,
-            nrec.status,
+    let mut rec = PushNextFlowJobRec { flow_job: flow_job, status: status };
+    loop {
+        let PushNextFlowJobRec { flow_job, status } = rec;
+        let next = push_next_flow_job(
+            flow_job,
+            status,
             flow,
             db,
             client,
             last_result.clone(),
             same_worker_tx.clone(),
             worker_dir,
-            job_completed_tx.clone(),
             worker_name,
         )
         .warn_after_seconds(10)
         .await?;
+        match next {
+            PushNextFlowJob::Rec(nrec) => {
+                rec = nrec;
+            }
+            PushNextFlowJob::Done(send_result) => {
+                if let Some(send_result) = send_result {
+                    job_completed_tx
+                        .send(send_result, false)
+                        .warn_after_seconds(3)
+                        .await
+                        .map_err(|e| {
+                            Error::internal_err(format!(
+                                "error sending update flow message to job completed channel: {e:#}"
+                            ))
+                        })?;
+                }
+                break;
+            }
+        }
     }
 
     Ok(())
@@ -1600,6 +1619,10 @@ lazy_static::lazy_static! {
     pub static ref EHM: HashMap<String, Box<RawValue>> = HashMap::new();
 }
 
+enum PushNextFlowJob {
+    Rec(PushNextFlowJobRec),
+    Done(Option<SendResult>),
+}
 struct PushNextFlowJobRec {
     flow_job: Arc<MiniPulledJob>,
     status: FlowStatus,
@@ -1615,9 +1638,8 @@ async fn push_next_flow_job(
     last_job_result: Option<Arc<Box<RawValue>>>,
     same_worker_tx: SameWorkerSender,
     worker_dir: &str,
-    job_completed_tx: JobCompletedSender,
     worker_name: &str,
-) -> error::Result<Option<PushNextFlowJobRec>> {
+) -> error::Result<PushNextFlowJob> {
     let job_root = flow_job
         .flow_innermost_root_job
         .map(|x| x.to_string())
@@ -1650,33 +1672,20 @@ async fn push_next_flow_job(
 
     // if this is an empty module of if the module has already been completed, successfully, update the parent flow
     if flow.modules.is_empty() || matches!(status_module, FlowStatusModule::Success { .. }) {
-        job_completed_tx
-            .send(
-                SendResult::UpdateFlow {
-                    flow: flow_job.id,
-                    success: true,
-                    result: if flow.modules.is_empty() {
-                        to_raw_value(arc_flow_job_args.as_ref())
-                    } else {
-                        // it has to be an empty for loop event
-                        serde_json::from_str("[]").unwrap()
-                    },
-                    stop_early_override: None,
-                    w_id: flow_job.workspace_id.clone(),
-                    worker_dir: worker_dir.to_string(),
-                    token: client.token.clone(),
-                },
-                false,
-            )
-            .warn_after_seconds(3)
-            .await
-            .map_err(|e| {
-                Error::internal_err(format!(
-                    "error sending update flow message to job completed channel: {e:#}"
-                ))
-            })?;
-
-        return Ok(None);
+        return Ok(PushNextFlowJob::Done(Some(SendResult::UpdateFlow {
+            flow: flow_job.id,
+            success: true,
+            result: if flow.modules.is_empty() {
+                to_raw_value(arc_flow_job_args.as_ref())
+            } else {
+                // it has to be an empty for loop event
+                serde_json::from_str("[]").unwrap()
+            },
+            stop_early_override: None,
+            w_id: flow_job.workspace_id.clone(),
+            worker_dir: worker_dir.to_string(),
+            token: client.token.clone(),
+        })));
     }
 
     if matches!(step, Step::Step(0)) {
@@ -1717,28 +1726,21 @@ async fn push_next_flow_job(
                         .map(|x| x.to_string())
                         .collect::<Vec<String>>()
                         .join(", ");
-                    job_completed_tx
-                         .send(SendResult::UpdateFlow {
-                             flow: flow_job.id,
-                             success: true,
-                             result: serde_json::from_str(
-                                 &format!("\"not allowed to overlap with {overlapping_str}, scheduling next iteration\""),
-                             )
-                             .unwrap(),
-                             stop_early_override: Some(true),
-                             w_id: flow_job.workspace_id.clone(),
-                             worker_dir: worker_dir.to_string(),
-                             token: client.token.clone(),
-                         }, false)
-                         .warn_after_seconds(3)
-                         .await
-                         .map_err(|e| {
-                             Error::internal_err(format!(
-                                 "error sending update flow message to job completed channel: {e:#}"
-                             ))
-                         })?;
 
-                    return Ok(None);
+                    return Ok(PushNextFlowJob::Done(Some(
+                        SendResult::UpdateFlow {
+                            flow: flow_job.id,
+                            success: true,
+                            result: serde_json::from_str(
+                                &format!("\"not allowed to overlap with {overlapping_str}, scheduling next iteration\""),
+                            )
+                            .unwrap(),
+                            stop_early_override: Some(true),
+                            w_id: flow_job.workspace_id.clone(),
+                            worker_dir: worker_dir.to_string(),
+                            token: client.token.clone(),
+                        }
+                    )));
                 }
             }
         }
@@ -1759,28 +1761,15 @@ async fn push_next_flow_job(
             .warn_after_seconds(3)
             .await?;
             if skip {
-                job_completed_tx
-                    .send(
-                        SendResult::UpdateFlow {
-                            flow: flow_job.id,
-                            success: true,
-                            result: serde_json::from_str("\"stopped early\"").unwrap(),
-                            stop_early_override: Some(true),
-                            w_id: flow_job.workspace_id.clone(),
-                            worker_dir: worker_dir.to_string(),
-                            token: client.token.clone(),
-                        },
-                        false,
-                    )
-                    .warn_after_seconds(3)
-                    .await
-                    .map_err(|e| {
-                        Error::internal_err(format!(
-                            "error sending update flow message to job completed channel: {e:#}"
-                        ))
-                    })?;
-
-                return Ok(None);
+                return Ok(PushNextFlowJob::Done(Some(SendResult::UpdateFlow {
+                    flow: flow_job.id,
+                    success: true,
+                    result: serde_json::from_str("\"stopped early\"").unwrap(),
+                    stop_early_override: Some(true),
+                    w_id: flow_job.workspace_id.clone(),
+                    worker_dir: worker_dir.to_string(),
+                    token: client.token.clone(),
+                })));
             }
         }
     }
@@ -2038,7 +2027,7 @@ async fn push_next_flow_job(
                 .await?;
 
                 tx.commit().warn_after_seconds(3).await?;
-                return Ok(None);
+                return Ok(PushNextFlowJob::Done(None));
 
             /* cancelled or we're WaitingForEvents but we don't have enough messages (timed out) */
             } else {
@@ -2086,28 +2075,15 @@ async fn push_next_flow_job(
                 .warn_after_seconds(3)
                 .await;
 
-                job_completed_tx
-                    .send(
-                        SendResult::UpdateFlow {
-                            flow: flow_job.id,
-                            success: false,
-                            result: to_raw_value(&result),
-                            stop_early_override: None,
-                            w_id: flow_job.workspace_id.clone(),
-                            worker_dir: worker_dir.to_string(),
-                            token: client.token.clone(),
-                        },
-                        false,
-                    )
-                    .warn_after_seconds(3)
-                    .await
-                    .map_err(|e| {
-                        Error::internal_err(format!(
-                            "error sending update flow message to job completed channel: {e:#}"
-                        ))
-                    })?;
-
-                return Ok(None);
+                return Ok(PushNextFlowJob::Done(Some(SendResult::UpdateFlow {
+                    flow: flow_job.id,
+                    success: false,
+                    result: to_raw_value(&result),
+                    stop_early_override: None,
+                    w_id: flow_job.workspace_id.clone(),
+                    worker_dir: worker_dir.to_string(),
+                    token: client.token.clone(),
+                })));
             }
         }
     }
@@ -2446,13 +2422,13 @@ async fn push_next_flow_job(
 
             if let Some(status) = status {
                 // // flow is reprocessed by the worker in a state where the module has completed successfully.
-                return Ok(Some(PushNextFlowJobRec {
+                return Ok(PushNextFlowJob::Rec(PushNextFlowJobRec {
                     flow_job: flow_job,
                     status: status,
                 }));
             } else {
                 return Err(Error::BadRequest(
-                    "impossible to parse new flow status after applying innr flows".to_string(),
+                    "impossible to parse new flow status after applying inner flows".to_string(),
                 ));
             }
         }
@@ -2965,7 +2941,7 @@ async fn push_next_flow_job(
             .await
             .map_err(to_anyhow)?;
     }
-    return Ok(None);
+    return Ok(PushNextFlowJob::Done(None));
 }
 
 // async fn jump_to_next_step(
