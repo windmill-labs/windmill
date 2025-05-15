@@ -1129,11 +1129,9 @@ pub async fn run_worker(
         conn.clone(),
         hostname.to_owned(),
         worker_name.clone(),
-        killpill_tx.clone(),
         killpill_rx.resubscribe(),
         base_internal_url.to_owned(),
         worker_dir.clone(),
-        is_dedicated_worker
     );
 
     let send_result = match (conn, job_completed_rx) {
@@ -1525,7 +1523,7 @@ pub async fn run_worker(
                         }
                     }
                 }
-            
+
                 if matches!(job.kind, JobKind::Noop) {
                     add_time!(bench, "send job completed START");
                     job_completed_tx
@@ -1722,7 +1720,7 @@ pub async fn run_worker(
                         &worker_name,
                         &worker_dir,
                         &job_dir,
-                        same_worker_tx.clone(),
+                        Some(same_worker_tx.clone()),
                         base_internal_url,
                         job_completed_tx.clone(),
                         &mut occupancy_metrics,
@@ -1745,7 +1743,7 @@ pub async fn run_worker(
                                         None,
                                         err,
                                         false,
-                                        same_worker_tx.clone(),
+                                        Some(&same_worker_tx),
                                         &worker_dir,
                                         &worker_name,
                                         job_completed_tx.clone(),
@@ -2006,7 +2004,7 @@ pub async fn handle_queued_job(
     worker_name: &str,
     worker_dir: &str,
     job_dir: &str,
-    same_worker_tx: SameWorkerSender,
+    same_worker_tx: Option<SameWorkerSender>,
     base_internal_url: &str,
     job_completed_tx: JobCompletedSender,
     occupancy_metrics: &mut OccupancyMetrics,
@@ -2154,7 +2152,7 @@ pub async fn handle_queued_job(
                 db,
                 &client,
                 None,
-                same_worker_tx,
+                &same_worker_tx.expect(""),
                 worker_dir,
                 job_completed_tx.clone(),
                 worker_name,

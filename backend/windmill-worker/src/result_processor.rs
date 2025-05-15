@@ -35,12 +35,12 @@ use windmill_common::bench::{BenchmarkInfo, BenchmarkIter};
 
 use windmill_queue::{
     append_logs, get_queued_job, pull, CanceledBy, JobAndPerms, JobCompleted, MiniPulledJob,
-    SameWorkerPayload, WrappedError,
+    WrappedError,
 };
 
 use serde_json::{json, value::RawValue, Value};
 
-use tokio::{fs::DirBuilder, sync::mpsc, task::JoinHandle, time::Instant};
+use tokio::{fs::DirBuilder, task::JoinHandle, time::Instant};
 
 use windmill_queue::{add_completed_job, add_completed_job_error};
 
@@ -64,7 +64,7 @@ async fn process_jc(
     base_internal_url: &str,
     db: &DB,
     worker_dir: &str,
-    same_worker_tx: &SameWorkerSender,
+    same_worker_tx: Option<&SameWorkerSender>,
     job_completed_sender: &JobCompletedSender,
     #[cfg(feature = "benchmark")] bench: &mut BenchmarkIter,
 ) {
@@ -115,7 +115,7 @@ async fn process_jc(
         &base_internal_url,
         &db,
         &worker_dir,
-        &same_worker_tx,
+        same_worker_tx,
         &worker_name,
         job_completed_sender.clone(),
         #[cfg(feature = "benchmark")]
@@ -129,46 +129,90 @@ async fn process_jc(
     }
 }
 
+enum JobCompletedRx {
+    JobCompleted(SendResult),
+    Killpill,
+}
+
+const NAP_TIME_DURATION: u64 = 30;
+
 pub fn start_interactive_worker_shell(
     conn: Connection,
     hostname: String,
     worker_name: String,
-    killpill_tx: KillpillSender,
     mut killpill_rx: tokio::sync::broadcast::Receiver<()>,
     base_internal_url: String,
     worker_dir: String,
-    is_dedicated_worker: bool,
 ) {
     tokio::spawn(async move {
         let mut occupancy_metrics = OccupancyMetrics::new(Instant::now());
-        let (same_worker_tx, _) = mpsc::channel::<SameWorkerPayload>(1);
+        let mut has_been_killed = false;
 
-        let (job_completed_tx, job_completed_rx) = JobCompletedSender::new(&conn, 3);
+        let (job_completed_tx, job_completed_rx) = JobCompletedSender::new(&conn, 10);
+        if let Some(db) = conn.as_sql() {
+            let db = db.clone();
+            let job_completed_tx = job_completed_tx.clone();
+            let worker_name = worker_name.clone();
+            let base_internal_url = base_internal_url.clone();
+            let worker_dir = worker_dir.clone();
+            tokio::spawn(async move {
+                let job_completed_rx = job_completed_rx.unwrap();
+                let JobCompletedReceiver { bounded_rx, mut killpill_rx, unbounded_rx } =
+                    job_completed_rx;
+                while let Some(sr) = {
+                    if has_been_killed {
+                        unbounded_rx
+                            .try_recv()
+                            .ok()
+                            .map(JobCompletedRx::JobCompleted)
+                            .or_else(|| {
+                                bounded_rx.try_recv().ok().map(JobCompletedRx::JobCompleted)
+                            })
+                    } else {
+                        tokio::select! {
+                            biased;
+                            result = unbounded_rx.recv_async() => {
+                                result.ok().map(JobCompletedRx::JobCompleted)
+                            }
+                            result = bounded_rx.recv_async() => {
+                                result.ok().map(JobCompletedRx::JobCompleted)
+                            }
+
+                            _ = killpill_rx.recv() => {
+                                Some(JobCompletedRx::Killpill)
+                            }
+                        }
+                    }
+                } {
+                    #[cfg(feature = "benchmark")]
+                    let mut bench = BenchmarkIter::new();
+
+                    match sr {
+                        JobCompletedRx::JobCompleted(SendResult::JobCompleted(jc)) => {
+                            process_jc(
+                                jc,
+                                &worker_name,
+                                &base_internal_url,
+                                &db,
+                                &worker_dir,
+                                None,
+                                &job_completed_tx,
+                                #[cfg(feature = "benchmark")]
+                                &mut bench,
+                            )
+                            .await;
+                        }
+                        JobCompletedRx::Killpill => {
+                            has_been_killed = true;
+                        }
+                        _ => {}
+                    }
+                }
+            });
+        }
         let mut killpill_rx2 = killpill_rx.resubscribe();
-        let same_worker_queue_size = Arc::new(AtomicU16::new(0));
-        let same_worker_tx = SameWorkerSender(same_worker_tx, same_worker_queue_size.clone());
-        let job_completed_processor_is_done =
-            Arc::new(AtomicBool::new(matches!(conn, Connection::Http(_))));
-
-        let send_result = match (&conn, job_completed_rx) {
-            (Connection::Sql(db), Some(job_completed_receiver)) => {
-                Some(start_background_processor(
-                    job_completed_receiver,
-                    job_completed_tx.clone(),
-                    same_worker_queue_size.clone(),
-                    job_completed_processor_is_done.clone(),
-                    base_internal_url.to_string(),
-                    db.clone(),
-                    worker_dir.clone(),
-                    same_worker_tx.clone(),
-                    worker_name.clone(),
-                    killpill_tx.clone(),
-                    is_dedicated_worker,
-                ))
-            }
-            _ => None,
-        };
-
+        let mut last_executed_job: Option<Instant> = Instant::now().checked_sub(Duration::from_millis(2500));
+        
         loop {
             #[cfg(feature = "enterprise")]
             {
@@ -293,7 +337,7 @@ pub fn start_interactive_worker_shell(
                             &worker_name,
                             &worker_dir,
                             &job_dir,
-                            same_worker_tx.clone(),
+                            None,
                             &base_internal_url,
                             job_completed_tx.clone(),
                             &mut occupancy_metrics,
@@ -347,19 +391,27 @@ pub fn start_interactive_worker_shell(
                         if !KEEP_JOB_DIR.load(Ordering::Relaxed) && !arc_job.same_worker {
                             let _ = tokio::fs::remove_dir_all(job_dir).await;
                         }
+
+                        last_executed_job = Some(Instant::now());
                     }
                     Ok(None) => {
-                        tokio::time::sleep(Duration::from_millis(*SLEEP_QUEUE)).await;
+                        let now = Instant::now();
+                        match last_executed_job {
+                            Some(last)
+                                if now.duration_since(last).as_secs() > NAP_TIME_DURATION =>
+                            {
+                                tokio::time::sleep(Duration::from_secs(NAP_TIME_DURATION)).await;
+                            }
+                            _ => {
+                                tokio::time::sleep(Duration::from_millis(*SLEEP_QUEUE)).await;
+                            }
+                        }
                     }
+
                     Err(err) => {
                         tracing::error!(worker = %worker_name, hostname = %hostname, "Failed to pull jobs: {}", err);
                     }
                 };
-            }
-        }
-        if let Some(send_result) = send_result {
-            if let Err(e) = send_result.await {
-                tracing::error!("error in awaiting send_result process: {e:?}")
             }
         }
     });
@@ -386,10 +438,6 @@ pub fn start_background_processor(
         #[cfg(feature = "benchmark")]
         let mut infos = BenchmarkInfo::new();
 
-        enum JobCompletedRx {
-            JobCompleted(SendResult),
-            Killpill,
-        }
         //if we have been killed, we want to drain the queue of jobs
         while let Some(sr) = {
             if has_been_killed && same_worker_queue_size.load(Ordering::SeqCst) == 0 {
@@ -432,7 +480,7 @@ pub fn start_background_processor(
                         &base_internal_url,
                         &db,
                         &worker_dir,
-                        &same_worker_tx,
+                        Some(&same_worker_tx),
                         &job_completed_sender,
                         #[cfg(feature = "benchmark")]
                         &mut bench,
@@ -487,7 +535,7 @@ pub fn start_background_processor(
                         success,
                         Arc::new(result),
                         true,
-                        same_worker_tx.clone(),
+                        &same_worker_tx,
                         &worker_dir,
                         stop_early_override,
                         &worker_name,
@@ -660,7 +708,7 @@ pub async fn handle_receive_completed_job(
     base_internal_url: &str,
     db: &DB,
     worker_dir: &str,
-    same_worker_tx: &SameWorkerSender,
+    same_worker_tx: Option<&SameWorkerSender>,
     worker_name: &str,
     job_completed_tx: JobCompletedSender,
     #[cfg(feature = "benchmark")] bench: &mut BenchmarkIter,
@@ -727,7 +775,7 @@ pub async fn process_completed_job(
     client: &AuthedClient,
     db: &DB,
     worker_dir: &str,
-    same_worker_tx: SameWorkerSender,
+    same_worker_tx: Option<&SameWorkerSender>,
     worker_name: &str,
     job_completed_tx: JobCompletedSender,
     #[cfg(feature = "benchmark")] bench: &mut BenchmarkIter,
@@ -793,7 +841,7 @@ pub async fn process_completed_job(
                     true,
                     result,
                     false,
-                    same_worker_tx.clone(),
+                    &same_worker_tx.expect("msg").to_owned(),
                     &worker_dir,
                     None,
                     worker_name,
@@ -833,7 +881,7 @@ pub async fn process_completed_job(
                     false,
                     Arc::new(serde_json::value::to_raw_value(&result).unwrap()),
                     false,
-                    same_worker_tx,
+                    &same_worker_tx.expect("msg").to_owned(),
                     &worker_dir,
                     None,
                     worker_name,
@@ -887,7 +935,7 @@ pub async fn handle_job_error(
     canceled_by: Option<CanceledBy>,
     err: Error,
     unrecoverable: bool,
-    same_worker_tx: SameWorkerSender,
+    same_worker_tx: Option<&SameWorkerSender>,
     worker_dir: &str,
     worker_name: &str,
     job_completed_tx: JobCompletedSender,
@@ -931,7 +979,7 @@ pub async fn handle_job_error(
             false,
             Arc::new(serde_json::value::to_raw_value(&wrapped_error).unwrap()),
             unrecoverable,
-            same_worker_tx,
+            &same_worker_tx.expect("msg").clone(),
             worker_dir,
             None,
             worker_name,

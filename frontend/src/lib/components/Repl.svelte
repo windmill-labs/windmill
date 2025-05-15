@@ -34,7 +34,7 @@
 					workspace: $workspaceStore!,
 					requestBody: {
 						language,
-						content: `cd ${working_directory} && ${command} > result.out`,
+						content: `${command} > result.out`,
 						tag,
 						args: {}
 					}
@@ -64,20 +64,7 @@
 	}
 
 	onMount(async () => {
-		try {
-			let result = (await runPreviewJobAndPollResult({
-				workspace: $workspaceStore!,
-				requestBody: {
-					language,
-					content: `pwd > result.out`,
-					tag,
-					args: {}
-				}
-			})) as any
-			working_directory = result
-		} catch (error) {
-			working_directory = ''
-		}
+		working_directory = `/tmp/windmill/${tag}`
 		term = new Terminal({
 			cursorBlink: true,
 			fontSize: 14,

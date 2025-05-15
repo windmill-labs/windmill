@@ -1,7 +1,7 @@
 <script lang="ts">
 	import AssignableTags from '$lib/components/AssignableTags.svelte'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
-	import { Button, Skeleton, Tab, Tabs } from '$lib/components/common'
+	import { Alert, Button, Skeleton, Tab, Tabs } from '$lib/components/common'
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
 	import Badge from '$lib/components/common/badge/Badge.svelte'
 	import Drawer from '$lib/components/common/drawer/Drawer.svelte'
@@ -293,8 +293,14 @@
 
 <Drawer bind:this={replForWorkerDrawer} size="1000px">
 	<DrawerContent title="Repl" on:close={() => replForWorkerDrawer?.toggleDrawer?.()}>
-		<Repl {tag} /></DrawerContent
-	>
+		<div class="flex flex-col gap-2">
+			<Alert title="Info" type="info">
+				If no command has been run in the past 30 seconds, the next one may take up to 30 seconds to
+				start.
+			</Alert>
+			<Repl {tag} />
+		</div>
+	</DrawerContent>
 </Drawer>
 
 {#if $userStore?.operator && $workspaceStore && !$userWorkspaces.find((_) => _.id === $workspaceStore)?.operator_settings?.workers}
