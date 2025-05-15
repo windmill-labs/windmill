@@ -9,7 +9,7 @@ on:
 jobs:
   call_reusable_workflow:
     if: github.event.pull_request.draft == false
-    uses: ./.github/workflows/shareable-pr-opened.yml
+    uses: ./.github/workflows/shareable-discord-notification.yml
     with:
       PR_TITLE: ${{ github.event.pull_request.title }}
       PR_URL: ${{ github.event.pull_request.html_url }}
