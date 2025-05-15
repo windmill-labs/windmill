@@ -1002,7 +1002,7 @@ async fn route_job(
             &trigger.workspace_id,
             match trigger.authentication_method {
                 AuthenticationMethod::CustomScript | AuthenticationMethod::Signature => true,
-                _ => false,
+                _ => trigger.raw_string,
             },
         )
         .await
