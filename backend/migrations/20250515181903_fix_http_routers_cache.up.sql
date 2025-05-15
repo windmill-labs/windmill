@@ -4,6 +4,6 @@
 -- which would not refresh the routers cache after the first create/update/delete
 SELECT setval(                                  
     'http_trigger_version_seq',
-    GREATEST((SELECT last_value FROM http_trigger_version_seq), 1),
+    (SELECT last_value FROM http_trigger_version_seq),
     true
 );
