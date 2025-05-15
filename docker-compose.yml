@@ -9,43 +9,30 @@ x-logging: &default-logging
 
 services:
   db:
-    deploy:
-      # To use an external database, set replicas to 0 and set DATABASE_URL to the external database url in the .env file
-      replicas: 1
-    image: postgres:16
-    shm_size: 1g
-    restart: unless-stopped
+    image: postgres:15
+    restart: always
+    environment:
+      POSTGRES_DB: windmill
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: changeme
     volumes:
       - db_data:/var/lib/postgresql/data
-    expose:
-      - 5432
     ports:
-      - 5432:5432
-    environment:
-      POSTGRES_PASSWORD: changeme
-      POSTGRES_DB: windmill
+      - "55432:5432"
+    logging: *default-logging
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres"]
       interval: 10s
       timeout: 5s
       retries: 5
-    logging: *default-logging
 
   windmill_server:
     image: ${WM_IMAGE}
-    pull_policy: always
-    deploy:
-      replicas: 1
-    restart: unless-stopped
-    expose:
-      - 8000
-      - 2525
+    depends_on:
+      - db
     environment:
       - DATABASE_URL=${DATABASE_URL}
-      - MODE=server
-    depends_on:
-      db:
-        condition: service_healthy
+      - BASE_URL=http://localhost:3002
     volumes:
       - worker_logs:/tmp/windmill/logs
     logging: *default-logging
@@ -68,7 +55,6 @@ services:
     depends_on:
       db:
         condition: service_healthy
-    # to mount the worker folder to debug, KEEP_JOB_DIR=true and mount /tmp/windmill
     volumes:
       # mount the docker socket to allow to run docker containers from within the workers
       - /var/run/docker.sock:/var/run/docker.sock
