@@ -586,6 +586,16 @@ pub struct JobCompletedReceiver {
     pub unbounded_rx: flume::Receiver<SendResult>,
 }
 
+impl JobCompletedReceiver {
+    pub fn clone(&self) -> Self {
+        Self {
+            bounded_rx: self.bounded_rx.clone(),
+            killpill_rx: self.killpill_rx.resubscribe(),
+            unbounded_rx: self.unbounded_rx.clone(),
+        }
+    }
+}
+
 impl JobCompletedSender {
     pub fn new(conn: &Connection, buffer_size: u8) -> (Self, Option<JobCompletedReceiver>) {
         match conn {
