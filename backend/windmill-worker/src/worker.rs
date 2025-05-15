@@ -568,26 +568,34 @@ pub struct SameWorkerSender(pub Sender<SameWorkerPayload>, pub Arc<AtomicU16>);
 #[allow(dead_code)]
 #[derive(Clone)]
 pub enum JobCompletedSender {
-    Sql(flume::Sender<SendResult>, broadcast::Sender<()>, u8),
+    Sql(SqlJobCompletedSender),
     Http(HttpClient),
     NeverUsed,
 }
 
+#[derive(Clone)]
+pub struct SqlJobCompletedSender {
+    sender: flume::Sender<SendResult>,
+    unbounded_sender: flume::Sender<SendResult>,
+    killpill_tx: broadcast::Sender<()>,
+}
+
+pub struct JobCompletedReceiver {
+    pub bounded_rx: flume::Receiver<SendResult>,
+    pub killpill_rx: broadcast::Receiver<()>,
+    pub unbounded_rx: flume::Receiver<SendResult>,
+}
+
 impl JobCompletedSender {
-    pub fn new(
-        conn: &Connection,
-        buffer_size: u8,
-    ) -> (
-        Self,
-        Option<(flume::Receiver<SendResult>, broadcast::Receiver<()>)>,
-    ) {
+    pub fn new(conn: &Connection, buffer_size: u8) -> (Self, Option<JobCompletedReceiver>) {
         match conn {
             Connection::Sql(_) => {
-                let (sender, receiver) = flume::unbounded::<SendResult>();
+                let (sender, receiver) = flume::bounded::<SendResult>(buffer_size as usize);
+                let (unbounded_sender, unbounded_rx) = flume::unbounded::<SendResult>();
                 let (killpill_tx, killpill_rx) = broadcast::channel::<()>(100);
                 (
-                    Self::Sql(sender, killpill_tx, buffer_size),
-                    Some((receiver, killpill_rx)),
+                    Self::Sql(SqlJobCompletedSender { sender, unbounded_sender, killpill_tx }),
+                    Some(JobCompletedReceiver { bounded_rx: receiver, killpill_rx, unbounded_rx }),
                 )
             }
             Connection::Http(client) => (Self::Http(client.clone()), None),
@@ -599,16 +607,17 @@ impl JobCompletedSender {
 
     pub async fn send_job(&self, jc: JobCompleted, wait_for_capacity: bool) -> anyhow::Result<()> {
         match self {
-            Self::Sql(sender, _, buffer_size) => {
+            Self::Sql(SqlJobCompletedSender { sender, unbounded_sender, .. }) => {
                 if wait_for_capacity {
-                    self.wait_for_capacity(*buffer_size).await;
+                    sender
+                } else {
+                    unbounded_sender
                 }
-                sender
-                    .send_async(SendResult::JobCompleted(jc))
-                    .await
-                    .map_err(|_e| {
-                        anyhow::anyhow!("Failed to send job completed to background processor")
-                    })
+                .send_async(SendResult::JobCompleted(jc))
+                .await
+                .map_err(|_e| {
+                    anyhow::anyhow!("Failed to send job completed to background processor")
+                })
             }
             Self::Http(client) => {
                 crate::agent_workers::send_result(client, jc).await?;
@@ -629,11 +638,12 @@ impl JobCompletedSender {
         wait_for_capacity: bool,
     ) -> Result<(), flume::SendError<SendResult>> {
         match self {
-            Self::Sql(sender, _, buffer_size) => {
+            Self::Sql(SqlJobCompletedSender { sender, unbounded_sender, .. }) => {
                 if wait_for_capacity {
-                    self.wait_for_capacity(*buffer_size).await;
+                    sender.send_async(send_result).await
+                } else {
+                    unbounded_sender.send_async(send_result).await
                 }
-                sender.send_async(send_result).await
             }
             Self::Http(_) => {
                 tracing::error!("Sending job completed to http client, this should not happen");
@@ -650,7 +660,7 @@ impl JobCompletedSender {
 
     pub async fn kill(&self) -> Result<(), broadcast::error::SendError<()>> {
         match self {
-            Self::Sql(_, killpill_tx, _) => {
+            Self::Sql(SqlJobCompletedSender { killpill_tx, .. }) => {
                 tracing::info!("Sending killpill to bg processors");
                 killpill_tx.send(())?;
                 Ok(())
@@ -665,23 +675,6 @@ impl JobCompletedSender {
                 );
                 Ok(())
             }
-        }
-    }
-
-    pub async fn wait_for_capacity(&self, max_size: u8) {
-        match self {
-            Self::Sql(sender, _, _) => {
-                let mut i = 0;
-                while sender.len() >= max_size as usize {
-                    tokio::time::sleep(Duration::from_millis(1)).await;
-                    i += 1;
-                    if i % 1000 == 0 {
-                        tracing::warn!("Waiting for result processor capacity for {}s", i / 1000);
-                    }
-                }
-            }
-            Self::Http(_) => (),
-            Self::NeverUsed => (),
         }
     }
 }
@@ -1096,22 +1089,19 @@ pub async fn run_worker(
         Arc::new(AtomicBool::new(matches!(conn, Connection::Http(_))));
 
     let send_result = match (conn, job_completed_rx) {
-        (Connection::Sql(db), Some((job_completed_rx, bg_killpill_rx))) => {
-            Some(start_background_processor(
-                job_completed_rx,
-                job_completed_tx.clone(),
-                same_worker_queue_size.clone(),
-                job_completed_processor_is_done.clone(),
-                base_internal_url.to_string(),
-                db.clone(),
-                worker_dir.clone(),
-                same_worker_tx.clone(),
-                worker_name.clone(),
-                bg_killpill_rx,
-                killpill_tx.clone(),
-                is_dedicated_worker,
-            ))
-        }
+        (Connection::Sql(db), Some(job_completed_receiver)) => Some(start_background_processor(
+            job_completed_receiver,
+            job_completed_tx.clone(),
+            same_worker_queue_size.clone(),
+            job_completed_processor_is_done.clone(),
+            base_internal_url.to_string(),
+            db.clone(),
+            worker_dir.clone(),
+            same_worker_tx.clone(),
+            worker_name.clone(),
+            killpill_tx.clone(),
+            is_dedicated_worker,
+        )),
         _ => None,
     };
 
