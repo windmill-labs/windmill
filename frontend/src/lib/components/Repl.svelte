@@ -25,7 +25,7 @@
 	let runHistory: (StepHistoryData & { command: string; result: Record<string, any>[] })[] = $state(
 		[]
 	)
-
+	let working_directory = $state('')
 	async function handleCommand(command: string) {
 		term.writeln('')
 		try {
@@ -34,7 +34,7 @@
 					workspace: $workspaceStore!,
 					requestBody: {
 						language,
-						content: `${command} > result.out`,
+						content: `cd ${working_directory} && ${command} > result.out`,
 						tag,
 						args: {}
 					}
@@ -63,7 +63,21 @@
 		input = ''
 	}
 
-	onMount(() => {
+	onMount(async () => {
+		try {
+			let result = (await runPreviewJobAndPollResult({
+				workspace: $workspaceStore!,
+				requestBody: {
+					language,
+					content: `pwd > result.out`,
+					tag,
+					args: {}
+				}
+			})) as any
+			working_directory = result
+		} catch (error) {
+			working_directory = ''
+		}
 		term = new Terminal({
 			cursorBlink: true,
 			fontSize: 14,
@@ -152,7 +166,10 @@
 		</PanelSection>
 	</Pane>
 	<Pane size={75}>
-		<div bind:this={container}></div>
+		<div class="flex flex-col gap-1">
+			<input type="text" placeholder="Working directory" bind:value={working_directory} />
+			<div bind:this={container}></div>
+		</div>
 	</Pane>
 </Splitpanes>
 
