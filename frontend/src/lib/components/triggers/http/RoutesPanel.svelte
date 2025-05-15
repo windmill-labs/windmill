@@ -10,12 +10,11 @@
 		selectedTrigger,
 		isFlow,
 		path,
-		edit = false,
-		isDeployed = false,
 		defaultValues = undefined,
 		newDraft = false,
 		isEditor = false,
-		customLabel = undefined
+		customLabel = undefined,
+		...restProps
 	} = $props()
 
 	async function openRouteEditor(isFlow: boolean, isDraft: boolean) {
@@ -37,19 +36,12 @@
 	useDrawer={false}
 	bind:this={routeEditor}
 	hideTarget
-	on:update-config
-	on:update
 	{isEditor}
-	editMode={edit}
-	on:toggle-edit-mode
-	on:delete
-	on:save-draft
 	{customLabel}
 	isDraftOnly={selectedTrigger.isDraft}
 	allowDraft
-	on:reset
 	hasDraft={!!selectedTrigger.draftConfig}
-	{isDeployed}
+	{...restProps}
 >
 	{#snippet description()}
 		<div class="flex flex-col gap-2 pb-4">

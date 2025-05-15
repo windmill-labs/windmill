@@ -13,12 +13,13 @@
 		edit = false,
 		schema,
 		isEditor = false,
-		customLabel = undefined
+		customLabel = undefined,
+		...restProps
 	} = $props()
 
 	function openScheduleEditor(isFlow: boolean, isDraft: boolean) {
 		if (isDraft) {
-			scheduleEditor?.openNew(isFlow, path, defaultValues, newDraft)
+			scheduleEditor?.openNew(isFlow, path, defaultValues)
 		} else {
 			scheduleEditor?.openEdit(selectedTrigger.path, isFlow, defaultValues)
 		}
@@ -34,22 +35,15 @@
 <ScheduleEditorInner
 	useDrawer={false}
 	bind:this={scheduleEditor}
-	on:update-config
-	on:update
-	on:save-draft
-	on:reset
-	on:toggle-edit-mode
-	on:delete
 	hideTarget
 	allowDraft
 	hasDraft={!!selectedTrigger.draftConfig}
 	isDraftOnly={selectedTrigger.isDraft}
-	editMode={edit}
 	primary={selectedTrigger.isPrimary}
 	draftSchema={schema}
 	{isEditor}
 	{customLabel}
-	{isDeployed}
+	{...restProps}
 >
 	{#snippet docDescription()}
 		<div class="flex flex-col gap-2 pb-4">

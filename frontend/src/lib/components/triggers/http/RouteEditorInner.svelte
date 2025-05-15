@@ -8,7 +8,6 @@
 	import { HttpTriggerService, VariableService, type AuthenticationMethod } from '$lib/gen'
 	import { usedTriggerKinds, userStore, workspaceStore } from '$lib/stores'
 	import { canWrite, emptyString, sendUserToast } from '$lib/utils'
-	import { createEventDispatcher } from 'svelte'
 	import Section from '$lib/components/Section.svelte'
 	import { Loader2, Pipette, Plus } from 'lucide-svelte'
 	import Label from '$lib/components/Label.svelte'
@@ -32,20 +31,23 @@
 	import RouteBodyTransformerOption from './RouteBodyTransformerOption.svelte'
 	import TestingBadge from '../testingBadge.svelte'
 	import TriggerEditorToolbar from '../TriggerEditorToolbar.svelte'
+	import { handleConfigChange } from '../utils'
 
 	let {
 		useDrawer = true,
 		hideTarget = false,
-		saveDisabled = false,
 		description = undefined,
 		isEditor = false,
-		editMode = true,
 		customLabel = undefined,
 		isDraftOnly = false,
 		allowDraft = false,
 		hasDraft = false,
-		neverSaved = false,
-		isDeployed = false
+		isDeployed = false,
+		onConfigChange = undefined,
+		onCaptureConfigChange = undefined,
+		onUpdate = undefined,
+		onDelete = undefined,
+		onReset = undefined
 	} = $props()
 
 	// Form data state
@@ -87,9 +89,19 @@
 	let variablePicker = $state<ItemPicker | null>(null)
 	let variableEditor = $state<VariableEditor | null>(null)
 	let drawer = $state<Drawer | null>(null)
-	let isAdmin = $derived($userStore?.is_admin || $userStore?.is_super_admin)
 	let initialConfig = $state<Record<string, any> | undefined>(undefined)
 	let deploymentLoading = $state(false)
+
+	const isAdmin = $derived($userStore?.is_admin || $userStore?.is_super_admin)
+	const routeConfig = $derived.by(getRouteConfig)
+	const captureConfig = $derived.by(isEditor ? getCaptureConfig : () => ({}))
+	const saveDisabled = $derived(
+		drawerLoading ||
+			!can_write ||
+			pathError != '' ||
+			!isValid ||
+			(!static_asset_config && emptyString(script_path))
+	)
 
 	$effect(() => {
 		is_flow = itemKind === 'flow'
@@ -166,6 +178,10 @@
 		} catch (err) {
 			sendUserToast(`Could not load route: ${err}`, true)
 		} finally {
+			if (!defaultConfig) {
+				// If the route is loaded from the backend, we to set the initial config
+				initialConfig = getRouteConfig()
+			}
 			clearTimeout(loader)
 			drawerLoading = false
 			showLoader = false
@@ -207,27 +223,12 @@
 			signature_options_type = 'custom_signature'
 			raw_string = defaultValues?.raw_string ?? false
 			wrap_body = defaultValues?.wrap_body ?? false
-			if (newDraft) {
-				neverSaved = true
-				toggleEditMode(true)
-			}
 		} finally {
 			clearTimeout(loader)
 			drawerLoading = false
 			showLoader = false
 		}
 	}
-
-	const dispatch = createEventDispatcher<{
-		'update-config': Record<string, any>
-		'toggle-edit-mode': boolean
-		update: string
-		focus: undefined
-		blur: undefined
-		delete: undefined
-		'save-draft': { cfg: Record<string, any> }
-		reset: undefined
-	}>()
 
 	function loadTriggerConfig(cfg?: Record<string, any>): void {
 		script_path = cfg?.script_path
@@ -266,14 +267,13 @@
 				workspace: $workspaceStore!,
 				path: initialPath
 			})
-			initialConfig = s
 			loadTriggerConfig(s)
 		}
 	}
 
 	async function triggerScript(): Promise<void> {
 		deploymentLoading = true
-		const saveCfg = getSaveCfg()
+		const saveCfg = routeConfig
 		const isSaved = await saveHttpRouteFromCfg(
 			initialPath,
 			saveCfg,
@@ -283,14 +283,13 @@
 			usedTriggerKinds
 		)
 		if (isSaved) {
-			dispatch('update', saveCfg.path)
+			onUpdate(saveCfg.path)
 			drawer?.closeDrawer()
-			toggleEditMode(false)
 		}
 		deploymentLoading = false
 	}
 
-	function getSaveCfg() {
+	function getRouteConfig(): Record<string, any> {
 		// If the user selects "signature" with the "custom_script" option,
 		// we explicitly set the authentication method to "custom_script"
 		// (which is a valid enum on its own in the backend)
@@ -298,7 +297,7 @@
 			authentication_method === 'signature' && signature_options_type === 'custom_script'
 				? 'custom_script'
 				: authentication_method
-		return {
+		const nCfg = {
 			script_path,
 			is_flow,
 			path,
@@ -314,40 +313,29 @@
 			is_static_website,
 			extra_perms: extraPerms
 		}
+		return nCfg
 	}
 
 	// Update config for captures
+	function getCaptureConfig() {
+		const newCaptureConfig = {
+			route_path: routeConfig.route_path,
+			http_method: routeConfig.http_method,
+			raw_string: routeConfig.raw_string,
+			wrap_body: routeConfig.wrap_body,
+			path: routeConfig.path
+		}
+		//
+		return newCaptureConfig
+	}
+
 	$effect(() => {
-		isEditor &&
-			dispatch('update-config', {
-				route_path,
-				http_method,
-				raw_string,
-				wrap_body,
-				isValid,
-				path
-			})
+		onCaptureConfigChange?.(captureConfig, isValid)
 	})
 
 	$effect(() => {
-		saveDisabled =
-			drawerLoading ||
-			!can_write ||
-			pathError != '' ||
-			!isValid ||
-			(!static_asset_config && emptyString(script_path)) ||
-			(!!static_asset_config && emptyString(static_asset_config.s3))
+		handleConfigChange(routeConfig, initialConfig, saveDisabled, edit, onConfigChange)
 	})
-
-	function toggleEditMode(newValue: boolean) {
-		dispatch('toggle-edit-mode', newValue)
-	}
-
-	function saveDraft() {
-		const cfg = getSaveCfg()
-		dispatch('save-draft', { cfg })
-		toggleEditMode(false)
-	}
 </script>
 
 {#if static_asset_config}
@@ -380,7 +368,7 @@
 						namePlaceholder="route"
 						kind="http_trigger"
 						hideUser
-						disableEditing={!can_write || !editMode}
+						disableEditing={!can_write}
 					/>
 				</Label>
 			</Section>
@@ -389,7 +377,7 @@
 				<Section label="Target">
 					{#if !isCloudHosted()}
 						<ToggleButtonGroup
-							disabled={fixedScriptPath != '' || !can_write || !editMode}
+							disabled={fixedScriptPath != '' || !can_write}
 							selected={static_asset_config
 								? is_static_website
 									? 'static_website'
@@ -437,19 +425,13 @@
 										bind:checked={s3FileUploadRawMode}
 										size="xs"
 										options={{ left: 'Raw S3 object input' }}
-										disabled={!can_write || !editMode}
+										disabled={!can_write}
 									/>
 								{/if}
 								{#if s3FileUploadRawMode}
 									{#if can_write}
 										<JsonEditor
 											bind:editor={s3Editor as any}
-											on:focus={(e) => {
-												dispatch('focus')
-											}}
-											on:blur={(e) => {
-												dispatch('blur')
-											}}
 											code={JSON.stringify(static_asset_config ?? { s3: '' }, null, 2)}
 											bind:value={static_asset_config}
 										/>
@@ -504,14 +486,14 @@
 						<div class="flex flex-col gap-2">
 							<div class="flex flex-row mb-2">
 								<ScriptPicker
-									disabled={fixedScriptPath != '' || !can_write || !editMode}
+									disabled={fixedScriptPath != '' || !can_write}
 									initialPath={fixedScriptPath || initialScriptPath}
 									kinds={['script']}
 									allowFlow={true}
 									bind:itemKind
 									bind:scriptPath={script_path}
-									allowRefresh={can_write && !editMode}
-									allowEdit={!$userStore?.operator && !editMode}
+									allowRefresh={can_write}
+									allowEdit={!$userStore?.operator}
 								/>
 
 								{#if script_path === undefined}
@@ -538,7 +520,7 @@
 				bind:dirtyRoutePath
 				bind:http_method
 				bind:workspaced_route
-				can_write={can_write && editMode}
+				{can_write}
 				bind:static_asset_config
 				showTestingBadge={isEditor}
 				{isDraftOnly}
@@ -557,7 +539,7 @@
 											on:selected={({ detail }) => {
 												is_async = detail === 'async'
 											}}
-											disabled={!can_write || !!static_asset_config || !editMode}
+											disabled={!can_write || !!static_asset_config}
 											let:item
 											let:disabled
 										>
@@ -590,7 +572,7 @@
 											raw_string = true
 										}
 									}}
-									disabled={!can_write || !editMode}
+									disabled={!can_write}
 									let:item
 									let:disabled
 								>
@@ -617,7 +599,7 @@
 																}
 															}
 														}}
-														disabled={!can_write || !editMode}
+														disabled={!can_write}
 														let:item
 														let:disabled
 													>
@@ -657,7 +639,7 @@
 								<ResourcePicker
 									bind:value={authentication_resource_path}
 									resourceType={option.resource_type}
-									disabled={!can_write || !editMode}
+									disabled={!can_write}
 								/>
 							{/if}
 						{/each}
@@ -667,7 +649,7 @@
 								<ResourcePicker
 									bind:value={authentication_resource_path}
 									resourceType={'signature_auth'}
-									disabled={!can_write || !editMode}
+									disabled={!can_write}
 								/>
 							{:else if signature_options_type === 'custom_script'}
 								<p class="text-xs mt-3 mb-1 text-tertiary">
@@ -688,13 +670,13 @@
 											on:click={() => variablePicker?.openDrawer()}
 											size="xs"
 											color="dark"
-											disabled={!can_write || !editMode}
+											disabled={!can_write}
 										>
 											Pick variable
 										</Button>
 									</div>
 									<Button
-										disabled={emptyString(variable_path) || !can_write || !editMode}
+										disabled={emptyString(variable_path) || !can_write}
 										color="dark"
 										size="xs"
 										href={itemKind === 'flow'
@@ -713,7 +695,7 @@
 						<RouteBodyTransformerOption
 							bind:raw_string
 							bind:wrap_body
-							disabled={!editMode}
+							disabled={!can_write}
 							{testingBadge}
 						/>
 					</div>
@@ -735,31 +717,16 @@
 			{isDraftOnly}
 			{hasDraft}
 			permissions={drawerLoading || !can_write ? 'none' : can_write && isAdmin ? 'create' : 'write'}
-			{editMode}
 			{saveDisabled}
-			{neverSaved}
 			enabled={undefined}
 			{allowDraft}
 			{edit}
 			isLoading={deploymentLoading}
 			{isEditor}
+			onUpdate={triggerScript}
+			{onReset}
+			{onDelete}
 			{isDeployed}
-			on:save-draft={() => {
-				saveDraft()
-			}}
-			on:deploy={() => {
-				triggerScript()
-			}}
-			on:reset
-			on:delete
-			on:edit={() => {
-				initialConfig = getSaveCfg()
-				toggleEditMode(true)
-			}}
-			on:cancel={() => {
-				loadTrigger(initialConfig)
-				toggleEditMode(false)
-			}}
 		/>
 	{/if}
 {/snippet}

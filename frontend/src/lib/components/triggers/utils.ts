@@ -286,16 +286,6 @@ export function updateDraftConfig(
 	}
 }
 
-export function setCaptureConfig(
-	triggersStore: Writable<Trigger[]>,
-	draftId: string,
-	captureConfig: Record<string, any>
-): void {
-	triggersStore.update((triggers) =>
-		triggers.map((t) => (t.id === draftId ? { ...t, captureConfig } : t))
-	)
-}
-
 /**
  * Fetch all types of triggers
  */
@@ -836,4 +826,31 @@ export function handleSelectTriggerFromKind(
 		)
 		selectedTriggerStore.set(newTrigger)
 	}
+}
+
+export function handleConfigChange(
+	nCfg: Record<string, any>,
+	initialConfig: Record<string, any> | undefined,
+	saveDisabled: boolean,
+	edit: boolean,
+	onConfigChange?: (cfg: Record<string, any>, saveDisabled: boolean, updated: boolean) => void
+) {
+	let updated = false
+	if (!edit || !initialConfig) {
+		updated = true
+	} else if (initialConfig) {
+		// We ignore changes to enabled
+		let newCfg = { ...nCfg }
+		if ('enabled' in newCfg) {
+			delete newCfg.enabled
+		}
+		let initialCfg = { ...initialConfig }
+		if ('enabled' in initialCfg) {
+			delete initialCfg.enabled
+		}
+		if (JSON.stringify(newCfg) !== JSON.stringify(initialCfg)) {
+			updated = true
+		}
+	}
+	onConfigChange?.(nCfg, saveDisabled, updated)
 }

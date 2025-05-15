@@ -5,20 +5,17 @@
 	import SchedulePanel from '$lib/components/SchedulePanel.svelte'
 	import PostgresTriggersPanel from './postgres/PostgresTriggersPanel.svelte'
 	import KafkaTriggerPanel from './kafka/KafkaTriggersPanel.svelte'
-	import NatsTriggerPanel from './nats/NatsTriggersPanel.svelte'
+	import NatsTriggersPanel from './nats/NatsTriggersPanel.svelte'
 	import MqttTriggerPanel from './mqtt/MqttTriggersPanel.svelte'
 	import SqsTriggerPanel from './sqs/SqsTriggerPanel.svelte'
 	import GcpTriggerPanel from './gcp/GcpTriggerPanel.svelte'
 	import ScheduledPollPanel from './scheduled/ScheduledPollPanel.svelte'
 	import WebsocketTriggersPanel from './websocket/WebsocketTriggersPanel.svelte'
 	import { triggerIconMap, type Trigger } from './utils'
-	import { createEventDispatcher } from 'svelte'
 	import ClipboardPanel from '../details/ClipboardPanel.svelte'
 	import CliHelpBox from '../CliHelpBox.svelte'
 	import TriggerLabel from './TriggerLabel.svelte'
 	import { twMerge } from 'tailwind-merge'
-
-	const dispatch = createEventDispatcher()
 
 	interface Props {
 		selectedTrigger: Trigger
@@ -26,7 +23,6 @@
 		initialPath: string
 		fakeInitialPath: string
 		currentPath: string
-		edit: boolean
 		hash?: string
 		isDeployed: boolean
 		small: boolean
@@ -34,6 +30,11 @@
 		newItem: boolean
 		schema: Record<string, any> | undefined
 		isEditor?: boolean
+		onConfigChange?: (cfg: Record<string, any>, canSave: boolean, updated: boolean) => void
+		onCaptureConfigChange?: (cfg: Record<string, any>, isValidConfig: boolean) => void
+		onUpdate?: (path: string) => void
+		onDelete?: () => void
+		onReset?: () => void
 	}
 
 	let {
@@ -42,20 +43,13 @@
 		initialPath,
 		fakeInitialPath,
 		currentPath,
-		edit,
 		hash,
-		isDeployed,
 		small,
 		args,
 		newItem,
 		schema,
-		isEditor = false
+		...props
 	}: Props = $props()
-
-	// Forward config updates to parent
-	function updateConfig(config: Record<string, any>) {
-		dispatch('update-config', config)
-	}
 </script>
 
 {#if selectedTrigger.type === 'http'}
@@ -63,18 +57,10 @@
 		{selectedTrigger}
 		{isFlow}
 		path={initialPath || fakeInitialPath}
-		{edit}
-		on:update-config={({ detail }) => updateConfig(detail)}
-		on:update
-		on:delete
-		on:toggle-edit-mode
-		on:save-draft
-		on:reset
-		{isDeployed}
 		defaultValues={selectedTrigger.draftConfig ?? selectedTrigger.captureConfig ?? undefined}
 		newDraft={selectedTrigger.draftConfig === undefined}
-		{isEditor}
 		customLabel={small ? customLabel : undefined}
+		{...props}
 	/>
 {:else if selectedTrigger.type === 'webhook'}
 	<WebhooksPanel
@@ -99,147 +85,83 @@
 		{isFlow}
 		path={initialPath || fakeInitialPath}
 		{selectedTrigger}
-		{isDeployed}
 		defaultValues={selectedTrigger.draftConfig ?? selectedTrigger.captureConfig ?? undefined}
 		newDraft={selectedTrigger.draftConfig === undefined}
-		{edit}
 		{schema}
-		{isEditor}
-		on:update-config={({ detail }) => updateConfig(detail)}
-		on:update
-		on:save-draft
-		on:reset
-		on:toggle-edit-mode
-		on:delete
 		customLabel={small ? customLabel : undefined}
+		{...props}
 	/>
 {:else if selectedTrigger.type === 'websocket'}
 	<WebsocketTriggersPanel
 		{isFlow}
 		path={initialPath || fakeInitialPath}
 		{selectedTrigger}
-		{edit}
-		{isDeployed}
-		{isEditor}
-		on:toggle-edit-mode
-		on:update
-		on:delete
-		on:update-config={({ detail }) => updateConfig(detail)}
-		on:save-draft
-		on:reset
 		defaultValues={selectedTrigger.draftConfig ?? selectedTrigger.captureConfig ?? undefined}
 		newDraft={selectedTrigger.draftConfig === undefined}
 		customLabel={small ? customLabel : undefined}
+		{...props}
 	/>
 {:else if selectedTrigger.type === 'kafka'}
 	<KafkaTriggerPanel
 		{isFlow}
 		path={initialPath || fakeInitialPath}
 		{selectedTrigger}
-		{edit}
-		{isDeployed}
-		{isEditor}
-		on:toggle-edit-mode
-		on:update
-		on:delete
-		on:update-config
-		on:save-draft
-		on:reset
 		defaultValues={selectedTrigger.draftConfig ?? selectedTrigger.captureConfig ?? undefined}
 		newDraft={selectedTrigger.draftConfig === undefined}
 		customLabel={small ? customLabel : undefined}
+		{...props}
 	/>
 {:else if selectedTrigger.type === 'postgres'}
 	<PostgresTriggersPanel
 		{isFlow}
 		path={initialPath || fakeInitialPath}
 		{selectedTrigger}
-		{edit}
-		{isDeployed}
-		{isEditor}
-		on:toggle-edit-mode
-		on:update
-		on:delete
-		on:update-config={({ detail }) => updateConfig(detail)}
-		on:save-draft
-		on:reset
 		defaultValues={selectedTrigger.draftConfig ?? selectedTrigger.captureConfig ?? undefined}
 		newDraft={selectedTrigger.draftConfig === undefined}
 		customLabel={small ? customLabel : undefined}
+		{...props}
 	/>
 {:else if selectedTrigger.type === 'nats'}
-	<NatsTriggerPanel
+	<NatsTriggersPanel
 		{isFlow}
 		path={initialPath || fakeInitialPath}
 		{selectedTrigger}
-		{edit}
-		{isDeployed}
-		{isEditor}
-		on:toggle-edit-mode
-		on:update
-		on:delete
-		on:update-config={({ detail }) => updateConfig(detail)}
-		on:save-draft
-		on:reset
 		defaultValues={selectedTrigger.draftConfig ?? selectedTrigger.captureConfig ?? undefined}
-		newDraft={selectedTrigger.draftConfig === undefined}
 		customLabel={small ? customLabel : undefined}
+		{...props}
 	/>
 {:else if selectedTrigger.type === 'mqtt'}
 	<MqttTriggerPanel
 		{isFlow}
 		path={initialPath || fakeInitialPath}
 		{selectedTrigger}
-		{edit}
-		{isDeployed}
-		{isEditor}
-		on:toggle-edit-mode
-		on:update
-		on:delete
-		on:update-config={({ detail }) => updateConfig(detail)}
-		on:save-draft
-		on:reset
 		defaultValues={selectedTrigger.draftConfig ?? selectedTrigger.captureConfig ?? undefined}
 		newDraft={selectedTrigger.draftConfig === undefined}
 		customLabel={small ? customLabel : undefined}
+		{...props}
 	/>
 {:else if selectedTrigger.type === 'sqs'}
 	<SqsTriggerPanel
 		{isFlow}
 		path={initialPath || fakeInitialPath}
 		{selectedTrigger}
-		{edit}
-		{isDeployed}
-		on:toggle-edit-mode
-		on:update
-		on:delete
-		on:update-config={({ detail }) => updateConfig(detail)}
-		on:save-draft
-		on:reset
 		defaultValues={selectedTrigger.draftConfig ?? selectedTrigger.captureConfig ?? undefined}
 		newDraft={selectedTrigger.draftConfig === undefined}
 		customLabel={small ? customLabel : undefined}
+		{...props}
 	/>
 {:else if selectedTrigger.type === 'gcp'}
 	<GcpTriggerPanel
 		{isFlow}
 		path={initialPath || fakeInitialPath}
 		{selectedTrigger}
-		{edit}
-		{isDeployed}
-		{isEditor}
-		on:toggle-edit-mode
-		on:update
-		on:delete
-		on:update-config={({ detail }) => updateConfig(detail)}
-		on:save-draft
-		on:reset
 		defaultValues={selectedTrigger.draftConfig ?? selectedTrigger.captureConfig ?? undefined}
 		newDraft={selectedTrigger.draftConfig === undefined}
 		customLabel={small ? customLabel : undefined}
+		{...props}
 	/>
 {:else if selectedTrigger.type === 'poll'}
-	<ScheduledPollPanel on:update-config={({ detail }) => updateConfig(detail)} />
+	<ScheduledPollPanel />
 {:else if selectedTrigger.type === 'cli'}
 	<div class="py-1 flex flex-col gap-4">
 		<ClipboardPanel content={selectedTrigger.extra?.cliCommand ?? ''} />

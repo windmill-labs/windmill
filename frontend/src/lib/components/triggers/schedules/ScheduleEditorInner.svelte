@@ -23,7 +23,6 @@
 	import { enterpriseLicense, userStore, workspaceStore } from '$lib/stores'
 	import { canWrite, emptyString, formatCron, sendUserToast, cronV1toV2 } from '$lib/utils'
 	import { base } from '$lib/base'
-	import { createEventDispatcher } from 'svelte'
 	import Section from '$lib/components/Section.svelte'
 	import { List, Loader2, Save, AlertTriangle } from 'lucide-svelte'
 	import autosize from '$lib/autosize'
@@ -34,6 +33,7 @@
 	import Label from '$lib/components/Label.svelte'
 	import WorkerTagPicker from '$lib/components/WorkerTagPicker.svelte'
 	import { runScheduleNow } from '../scheduled/utils'
+	import { handleConfigChange } from '../utils'
 
 	let {
 		useDrawer = true,
@@ -41,13 +41,16 @@
 		docDescription = undefined,
 		allowDraft = false,
 		hasDraft = false,
-		editMode = true,
 		isDraftOnly = false,
 		primary = false,
 		draftSchema = undefined,
 		isEditor = false,
 		customLabel = undefined,
-		isDeployed = false
+		isDeployed = false,
+		onUpdate = undefined,
+		onConfigChange = undefined,
+		onDelete = undefined,
+		onReset = undefined
 	} = $props()
 
 	let optionTabSelected: 'error_handler' | 'recovery_handler' | 'success_handler' | 'retries' =
@@ -89,7 +92,6 @@
 	let args: Record<string, any> = $state({})
 	let loading = $state(false)
 	let drawerLoading = $state(true)
-	let neverSaved = $state(false)
 	let showLoading = $state(false)
 	let initialConfig = $state<Record<string, any> | undefined>(undefined)
 	let extraPerms: Record<string, boolean> = $state({})
@@ -107,6 +109,17 @@
 	let allowSchedule = $derived(isValid && validCRON && script_path != '')
 	let deploymentLoading = $state(false)
 
+	const saveDisabled = $derived(
+		!allowSchedule ||
+			pathError != '' ||
+			emptyString(script_path) ||
+			(errorHandlerSelected == 'slack' &&
+				!emptyString(errorHandlerPath) &&
+				emptyString(errorHandlerExtraArgs['channel'])) ||
+			!can_write
+	)
+	const scheduleCfg = $derived.by(getScheduleCfg)
+
 	export function openEdit(ePath: string, isFlow: boolean, defaultCfg?: Record<string, any>) {
 		let loadingTimeout = setTimeout(() => {
 			showLoading = true
@@ -121,6 +134,9 @@
 			loadSchedule(defaultCfg)
 			edit = true
 		} finally {
+			if (!defaultCfg) {
+				initialConfig = getScheduleCfg()
+			}
 			clearTimeout(loadingTimeout)
 			drawerLoading = false
 			showLoading = false
@@ -251,7 +267,6 @@
 		nis_flow: boolean,
 		initial_script_path?: string,
 		defaultValues?: Schedule,
-		newDraft?: boolean,
 		schedule_path?: string
 	) {
 		let loadingTimeout = setTimeout(() => {
@@ -299,11 +314,6 @@
 			retry = s?.retry
 
 			await setScheduleHandler(s)
-
-			if (newDraft) {
-				neverSaved = true
-				toggleEditMode(true)
-			}
 		} finally {
 			clearTimeout(loadingTimeout)
 			drawerLoading = false
@@ -329,8 +339,6 @@
 	function setDefaultValid(schema: Record<string, any> | undefined) {
 		isValid = schema?.properties && Object.keys(schema.properties).length === 0
 	}
-
-	const dispatch = createEventDispatcher()
 
 	async function loadScript(p: string | undefined): Promise<void> {
 		if (p) {
@@ -528,7 +536,7 @@
 		deploymentLoading = true
 		const isSaved = await saveScheduleFromCfg(scheduleCfg, edit, $workspaceStore!)
 		if (isSaved) {
-			dispatch('update', scheduleCfg.path)
+			onUpdate?.(scheduleCfg.path)
 			drawer?.closeDrawer()
 		}
 		deploymentLoading = false
@@ -601,24 +609,6 @@
 		}
 	}
 
-	function toggleEditMode(newEditMode: boolean) {
-		dispatch('toggle-edit-mode', newEditMode)
-	}
-
-	$effect(() => {
-		isEditor &&
-			dispatch('update-config', {
-				summary,
-				description,
-				no_flow_overlap,
-				path,
-				paused_until,
-				args,
-				schedule,
-				timezone
-			})
-	})
-
 	function getScheduleCfg(): Record<string, any> {
 		if (errorHandlerPath !== undefined && isSlackHandler('error', errorHandlerPath)) {
 			errorHandlerExtraArgs['slack'] = '$res:f/slack_bot/bot_token'
@@ -668,26 +658,21 @@
 		}
 	}
 
-	function saveDraft() {
-		if (!isDraftOnly && !hasDraft) {
-			hasDraft = true
-		}
-		const cfg = getScheduleCfg()
-		dispatch('save-draft', { cfg, savingArgs: { initialPath, edit, workspace: $workspaceStore } })
-		toggleEditMode(false)
-	}
-
-	async function handleToggleEnabled(e: CustomEvent<boolean>) {
-		enabled = e.detail
+	async function handleToggleEnabled(nEnabled: boolean) {
+		enabled = nEnabled
 		if (!isDraftOnly && !hasDraft) {
 			await ScheduleService.setScheduleEnabled({
 				path: initialPath,
 				workspace: $workspaceStore ?? '',
-				requestBody: { enabled: e.detail }
+				requestBody: { enabled: nEnabled }
 			})
-			sendUserToast(`${e.detail ? 'enabled' : 'disabled'} schedule ${initialPath}`)
+			sendUserToast(`${nEnabled ? 'enabled' : 'disabled'} schedule ${initialPath}`)
 		}
 	}
+
+	$effect(() => {
+		handleConfigChange(scheduleCfg, initialConfig, saveDisabled, edit, onConfigChange)
+	})
 </script>
 
 {#snippet saveButton(size: 'sm' | 'xs')}
@@ -696,40 +681,17 @@
 			{isDraftOnly}
 			{hasDraft}
 			permissions={drawerLoading || !can_write ? 'none' : 'create'}
-			{editMode}
-			saveDisabled={!allowSchedule ||
-				pathError != '' ||
-				emptyString(script_path) ||
-				(errorHandlerSelected == 'slack' &&
-					!emptyString(errorHandlerPath) &&
-					emptyString(errorHandlerExtraArgs['channel'])) ||
-				!can_write ||
-				!editMode}
+			{saveDisabled}
 			{enabled}
 			{allowDraft}
 			{edit}
-			{isDeployed}
 			isLoading={deploymentLoading}
-			{neverSaved}
 			{isEditor}
-			on:save-draft={() => {
-				saveDraft()
-			}}
-			on:deploy={() => {
-				scheduleScript()
-				toggleEditMode(false)
-			}}
-			on:reset
-			on:delete
-			on:edit={() => {
-				initialConfig = getScheduleCfg()
-				toggleEditMode(true)
-			}}
-			on:cancel={() => {
-				loadSchedule(initialConfig)
-				toggleEditMode(false)
-			}}
-			on:toggle-enabled={handleToggleEnabled}
+			onUpdate={scheduleScript}
+			{onReset}
+			{onDelete}
+			onToggleEnabled={handleToggleEnabled}
+			{isDeployed}
 		>
 			{#snippet extra()}
 				{#if !drawerLoading && edit}
@@ -778,7 +740,7 @@
 							placeholder="Short summary to be displayed when listed"
 							class="text-sm w-full"
 							bind:value={summary}
-							disabled={!can_write || !editMode}
+							disabled={!can_write}
 							onkeyup={() => {
 								if (!edit && summary?.length > 0 && !dirtyPath) {
 									pathC?.setName(
@@ -804,7 +766,7 @@
 							{initialPath}
 							namePlaceholder="schedule"
 							kind="schedule"
-							disableEditing={!editMode}
+							disableEditing={!can_write}
 						/>
 					{:else}
 						<div class="flex justify-start w-full">
@@ -835,7 +797,7 @@
 						use:autosize
 						bind:value={description}
 						placeholder="What this schedule does and how to use it"
-						disabled={!editMode}
+						disabled={!can_write}
 					></textarea>
 				</Label>
 			</div>
@@ -867,12 +829,12 @@
 							size="xs"
 							bind:checked={isLatestCron}
 							on:change={onVersionChange}
-							disabled={!can_write || !editMode}
+							disabled={!can_write}
 						/>
 					</div>
 				{/if}
 				<CronInput
-					disabled={!can_write || !editMode}
+					disabled={!can_write}
 					bind:schedule
 					bind:timezone
 					bind:validCRON
@@ -886,7 +848,7 @@
 					}}
 					bind:checked={showPauseUntil}
 					size="xs"
-					disabled={!can_write || !editMode}
+					disabled={!can_write}
 				/>
 				{#if showPauseUntil}
 					<DateTimeInput bind:value={paused_until} />
@@ -947,16 +909,14 @@
 					{#if !loading}
 						{#if runnable || draftSchema}
 							{@const schema =
-								editMode || hasDraft || isDraftOnly
-									? (draftSchema ?? runnable?.schema)
-									: runnable?.schema}
+								hasDraft || isDraftOnly ? (draftSchema ?? runnable?.schema) : runnable?.schema}
 							{#if schema && schema.properties && Object.keys(schema.properties).length > 0}
 								{#await import('$lib/components/SchemaForm.svelte')}
 									<Loader2 class="animate-spin" />
 								{:then Module}
 									<Module.default
 										showReset
-										disabled={!can_write || !editMode}
+										disabled={!can_write}
 										schema={$state.snapshot(schema)}
 										bind:isValid
 										bind:args
@@ -1018,14 +978,12 @@
 								items={[
 									{
 										displayName: `Override future schedules only`,
-										action: () => saveAsDefaultErrorHandler(false),
-										disabled: !editMode
+										action: () => saveAsDefaultErrorHandler(false)
 									},
 									{
 										displayName: 'Override all existing',
 										type: 'delete',
-										action: () => saveAsDefaultErrorHandler(true),
-										disabled: !editMode
+										action: () => saveAsDefaultErrorHandler(true)
 									}
 								]}
 							>
@@ -1039,14 +997,14 @@
 					<div class="flex flex-row py-2">
 						<Toggle
 							size="xs"
-							disabled={!can_write || !$enterpriseLicense || !editMode}
+							disabled={!can_write || !$enterpriseLicense}
 							bind:checked={wsErrorHandlerMuted}
 							options={{ right: 'Mute workspace error handler for this schedule' }}
 						/>
 					</div>
 
 					<ErrorOrRecoveryHandler
-						isEditable={can_write && editMode}
+						isEditable={can_write}
 						errorOrRecovery="error"
 						showScriptHelpText={true}
 						bind:handlerSelected={errorHandlerSelected}
@@ -1087,7 +1045,7 @@
 							<select
 								class="!w-14"
 								bind:value={failedExact}
-								disabled={!$enterpriseLicense || emptyString(errorHandlerPath) || !editMode}
+								disabled={!$enterpriseLicense || emptyString(errorHandlerPath)}
 							>
 								<option value={false}>&gt;=</option>
 								<option value={true}>==</option>
@@ -1096,7 +1054,7 @@
 								type="number"
 								class="!w-14 text-center {emptyString(errorHandlerPath) ? 'text-tertiary' : ''}"
 								bind:value={failedTimes}
-								disabled={!$enterpriseLicense || !editMode}
+								disabled={!$enterpriseLicense}
 								min="1"
 							/>
 							<p class={emptyString(errorHandlerPath) ? 'text-tertiary' : ''}
@@ -1106,7 +1064,7 @@
 					</div>
 				</Section>
 			{:else if optionTabSelected === 'recovery_handler'}
-				{@const disabled = !can_write || emptyString($enterpriseLicense) || !editMode}
+				{@const disabled = !can_write || emptyString($enterpriseLicense)}
 				<Section label="Recovery handler">
 					{#snippet header()}
 						<div class="flex flex-row gap-2">
@@ -1197,7 +1155,7 @@
 					</div>
 				</Section>
 			{:else if optionTabSelected === 'success_handler'}
-				{@const disabled = !can_write || emptyString($enterpriseLicense) || !editMode}
+				{@const disabled = !can_write || emptyString($enterpriseLicense)}
 				<Section label="Success handler">
 					{#snippet header()}
 						<div class="flex flex-row gap-2">
@@ -1259,7 +1217,7 @@
 					</ErrorOrRecoveryHandler>
 				</Section>
 			{:else if optionTabSelected === 'retries'}
-				{@const disabled = !can_write || emptyString($enterpriseLicense) || !editMode}
+				{@const disabled = !can_write || emptyString($enterpriseLicense)}
 				<Section label="Retries">
 					{#snippet header()}
 						<div class="flex flex-row gap-2">
@@ -1280,7 +1238,7 @@
 					label="Custom script tag"
 					tooltip="When set, the script tag will be overridden by this tag"
 				>
-					<WorkerTagPicker bind:tag popupPlacement="top-end" disabled={!can_write || !editMode} />
+					<WorkerTagPicker bind:tag popupPlacement="top-end" disabled={!can_write} />
 				</Section>
 			{/if}
 		{:else}

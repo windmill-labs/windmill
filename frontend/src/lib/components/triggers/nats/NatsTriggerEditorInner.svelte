@@ -8,7 +8,6 @@
 	import { NatsTriggerService } from '$lib/gen'
 	import { usedTriggerKinds, userStore, workspaceStore } from '$lib/stores'
 	import { canWrite, emptyString, sendUserToast } from '$lib/utils'
-	import { createEventDispatcher } from 'svelte'
 	import Section from '$lib/components/Section.svelte'
 	import { Loader2 } from 'lucide-svelte'
 	import Label from '$lib/components/Label.svelte'
@@ -16,34 +15,43 @@
 	import type { Snippet } from 'svelte'
 	import TriggerEditorToolbar from '../TriggerEditorToolbar.svelte'
 	import { saveNatsTriggerFromCfg } from './utils'
+	import { handleConfigChange } from '../utils'
 
 	interface Props {
 		useDrawer?: boolean
 		description?: Snippet | undefined
 		hideTarget?: boolean
-		editMode?: boolean
 		hideTooltips?: boolean
 		useEditButton?: boolean
 		isEditor?: boolean
 		allowDraft?: boolean
 		hasDraft?: boolean
 		isDraftOnly?: boolean
-		customLabel?: Snippet
 		isDeployed?: boolean
+		customLabel?: Snippet
+		onConfigChange?: (cfg: Record<string, any>, saveDisabled: boolean, updated: boolean) => void
+		onCaptureConfigChange?: (cfg: Record<string, any>, isValid: boolean) => void
+		onUpdate?: (path?: string) => void
+		onDelete?: () => void
+		onReset?: () => void
 	}
 
 	let {
 		useDrawer = true,
 		description = undefined,
 		hideTarget = false,
-		editMode = true,
 		hideTooltips = false,
 		isEditor = false,
 		allowDraft = false,
 		hasDraft = false,
 		isDraftOnly = false,
+		isDeployed = false,
 		customLabel = undefined,
-		isDeployed = false
+		onConfigChange = undefined,
+		onCaptureConfigChange = undefined,
+		onUpdate = undefined,
+		onDelete = undefined,
+		onReset = undefined
 	}: Props = $props()
 
 	let drawer: Drawer | undefined = $state(undefined)
@@ -68,10 +76,14 @@
 	let streamName = $state('')
 	let consumerName = $state('')
 	let initialConfig = $state<Record<string, any> | undefined>(undefined)
-	let neverSaved = $state(false)
 	let deploymentLoading = $state(false)
+	let isValid = $state(false)
 
-	const dispatch = createEventDispatcher()
+	const saveDisabled = $derived(
+		pathError != '' || emptyString(script_path) || !can_write || !isValid
+	)
+	const natsConfig = $derived.by(getSaveCfg)
+	const captureConfig = $derived.by(isEditor ? getCaptureConfig : () => ({}))
 
 	$effect(() => {
 		is_flow = itemKind === 'flow'
@@ -99,14 +111,16 @@
 			clearTimeout(loadingTimeout)
 			drawerLoading = false
 			showLoading = false
+			if (!defaultConfig) {
+				initialConfig = getSaveCfg()
+			}
 		}
 	}
 
 	export async function openNew(
 		nis_flow: boolean,
 		fixedScriptPath_?: string,
-		nDefaultValues?: Record<string, any>,
-		newDraft?: boolean
+		nDefaultValues?: Record<string, any>
 	) {
 		let loadingTimeout = setTimeout(() => {
 			showLoading = true
@@ -130,10 +144,6 @@
 			dirtyPath = false
 			defaultValues = nDefaultValues
 			enabled = nDefaultValues?.enabled ?? false
-			if (newDraft) {
-				neverSaved = true
-				toggleEditMode(true)
-			}
 		} finally {
 			clearTimeout(loadingTimeout)
 			drawerLoading = false
@@ -164,19 +174,11 @@
 				workspace: $workspaceStore!,
 				path: initialPath
 			})
-
-			initialConfig = s
-			loadTriggerConfig(initialConfig)
+			loadTriggerConfig(s)
 		}
 	}
 
-	function saveDraft() {
-		const cfg = getSaveCfg()
-		dispatch('save-draft', { cfg })
-		toggleEditMode(false)
-	}
-
-	function getSaveCfg(): Record<string, any> {
+	function getSaveCfg() {
 		return {
 			path,
 			script_path,
@@ -192,7 +194,7 @@
 
 	async function updateTrigger(): Promise<void> {
 		deploymentLoading = true
-		const cfg = getSaveCfg()
+		const cfg = natsConfig
 		const isSaved = await saveNatsTriggerFromCfg(
 			initialPath,
 			cfg,
@@ -201,9 +203,8 @@
 			usedTriggerKinds
 		)
 		if (isSaved) {
-			dispatch('update', cfg.path)
+			onUpdate?.(cfg.path)
 			drawer?.closeDrawer()
-			toggleEditMode(false)
 		}
 		deploymentLoading = false
 	}
@@ -222,35 +223,29 @@
 		)
 	}
 
-	let isValid = $state(false)
-
-	function toggleEditMode(newEditMode: boolean) {
-		dispatch('toggle-edit-mode', newEditMode)
-	}
-
-	async function handleToggleEnabled(e: CustomEvent<boolean>) {
-		enabled = e.detail
+	async function handleToggleEnabled(toggleEnabled: boolean) {
+		enabled = toggleEnabled
 		if (!isDraftOnly && !hasDraft) {
 			await NatsTriggerService.setNatsTriggerEnabled({
 				path: initialPath,
 				workspace: $workspaceStore ?? '',
-				requestBody: { enabled: e.detail }
+				requestBody: { enabled: toggleEnabled }
 			})
-			sendUserToast(`${e.detail ? 'enabled' : 'disabled'} NATS trigger ${initialPath}`)
+			sendUserToast(`${toggleEnabled ? 'enabled' : 'disabled'} NATS trigger ${initialPath}`)
 		}
 	}
 
+	function getCaptureConfig() {
+		const { nats_resource_path, subjects, stream_name, consumer_name, use_jetstream } = natsConfig
+		return { nats_resource_path, subjects, stream_name, consumer_name, use_jetstream }
+	}
+
 	$effect(() => {
-		isEditor &&
-			dispatch('update-config', {
-				nats_resource_path: natsResourcePath,
-				subjects,
-				stream_name: streamName,
-				consumer_name: consumerName,
-				use_jetstream: useJetstream,
-				isValid,
-				path
-			})
+		onCaptureConfigChange?.(captureConfig, isValid)
+	})
+
+	$effect(() => {
+		handleConfigChange(natsConfig, initialConfig, saveDisabled, edit, onConfigChange)
 	})
 </script>
 
@@ -290,32 +285,17 @@
 			{isDraftOnly}
 			{hasDraft}
 			permissions={drawerLoading || !can_write ? 'none' : 'create'}
-			{editMode}
-			saveDisabled={pathError != '' || emptyString(script_path) || !can_write || !isValid}
+			{saveDisabled}
 			{enabled}
 			{allowDraft}
 			{edit}
 			isLoading={deploymentLoading}
-			{neverSaved}
 			{isEditor}
 			{isDeployed}
-			on:save-draft={() => {
-				saveDraft()
-			}}
-			on:deploy={() => {
-				updateTrigger()
-			}}
-			on:reset
-			on:delete
-			on:edit={() => {
-				initialConfig = getSaveCfg()
-				toggleEditMode(true)
-			}}
-			on:cancel={() => {
-				loadTrigger(initialConfig)
-				toggleEditMode(false)
-			}}
-			on:toggle-enabled={handleToggleEnabled}
+			onUpdate={updateTrigger}
+			{onReset}
+			{onDelete}
+			onToggleEnabled={handleToggleEnabled}
 		/>
 	{/if}
 {/snippet}
@@ -352,7 +332,6 @@
 						namePlaceholder="nats_trigger"
 						kind="nats_trigger"
 						disabled={!can_write}
-						disableEditing={!editMode}
 					/>
 				</Label>
 			</div>
@@ -363,7 +342,7 @@
 					</p>
 					<div class="flex flex-row mb-2">
 						<ScriptPicker
-							disabled={fixedScriptPath != '' || !can_write || !editMode}
+							disabled={fixedScriptPath != '' || !can_write}
 							initialPath={fixedScriptPath || initialScriptPath}
 							kinds={['script']}
 							allowFlow={true}
@@ -377,7 +356,6 @@
 								btnClasses="ml-4 mt-2"
 								color="dark"
 								size="xs"
-								disabled={!editMode}
 								href={itemKind === 'flow' ? '/flows/add?hub=66' : '/scripts/add?hub=hub%2F19663'}
 								target="_blank"
 							>
@@ -399,7 +377,7 @@
 					isValid = detail
 				}}
 				defaultValues={useDefaultValues() ? defaultValues : undefined}
-				can_write={can_write && editMode}
+				{can_write}
 				showTestingBadge={isEditor}
 			/>
 		</div>

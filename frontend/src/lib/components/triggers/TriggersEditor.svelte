@@ -29,7 +29,6 @@
 		isEqual,
 		type Trigger,
 		triggerTypeToCaptureKind,
-		setCaptureConfig,
 		deleteTrigger
 	} from './utils'
 	import SchedulePanel from '../SchedulePanel.svelte'
@@ -54,6 +53,7 @@
 	let useVerticalTriggerBar = true
 	let width = 0
 	let emailDomain: string | undefined = undefined
+	let isValid = false
 
 	const {
 		simplifiedPoll,
@@ -188,10 +188,9 @@
 		$selectedTrigger = trigger
 	}
 
-	function handleUpdateDraftConfig(newConfig: Record<string, any>) {
-		// Update the config for the current trigger in our draft trigger store
+	function handleUpdateDraftConfig(newConfig: Record<string, any>, canSave: boolean) {
 		if ($selectedTrigger && newConfig) {
-			updateDraftConfig(triggers, $selectedTrigger, newConfig)
+			updateDraftConfig(triggers, $selectedTrigger, { ...newConfig, canSave })
 		}
 	}
 
@@ -289,7 +288,6 @@
 										{initialPath}
 										{fakeInitialPath}
 										{currentPath}
-										edit={editTrigger === $selectedTrigger}
 										{hash}
 										{isDeployed}
 										small={useVerticalTriggerBar}
@@ -297,29 +295,25 @@
 										{newItem}
 										{schema}
 										{isEditor}
-										on:update-config={({ detail }) => {
-											config = detail
-											if ($selectedTrigger && $selectedTrigger.id) {
-												setCaptureConfig(triggers, $selectedTrigger.id, detail)
-											}
-										}}
-										on:delete={() => {
+										onDelete={() => {
 											deleteDraftTrigger($selectedTrigger)
 										}}
-										on:toggle-edit-mode={({ detail }) => {
-											editTrigger = detail ? $selectedTrigger : undefined
+										onUpdate={(path) => {
+											handleUpdate($selectedTrigger, path)
 										}}
-										on:update={({ detail }) => {
-											handleUpdate($selectedTrigger, detail)
+										onConfigChange={(cfg, canSave, updated) => {
+											if (updated) {
+												handleUpdateDraftConfig(cfg, canSave)
+											}
 										}}
-										on:save-draft={({ detail }) => {
-											handleUpdateDraftConfig(detail.cfg)
+										onCaptureConfigChange={(cfg, isValidConfig) => {
+											config = cfg
+											isValid = isValidConfig
 										}}
-										on:reset={() => {
+										onReset={() => {
 											handleResetDraft($selectedTrigger)
 										}}
 										on:email-domain={({ detail }) => {
-											console.log('dbg emailDomain', detail)
 											emailDomain = detail
 										}}
 									/>
@@ -345,6 +339,7 @@
 							{canHavePreprocessor}
 							args={config}
 							data={{ args, hash, emailDomain }}
+							{isValid}
 							on:applyArgs
 							on:updateSchema
 							on:addPreprocessor
@@ -368,19 +363,13 @@
 					edit={editTrigger === selected}
 					{schema}
 					{isEditor}
-					on:delete={() => {
+					onDelete={() => {
 						deleteDraftTrigger(selected)
 					}}
-					on:toggle-edit-mode={({ detail }) => {
-						editTrigger = detail ? selected : undefined
-					}}
-					on:update={({ detail }) => {
+					onUpdate={({ detail }) => {
 						handleUpdate(selected, detail)
 					}}
-					on:save-draft={({ detail }) => {
-						handleUpdateDraftConfig(detail.cfg)
-					}}
-					on:reset={() => {
+					onReset={() => {
 						handleResetDraft(selected)
 					}}
 				/>

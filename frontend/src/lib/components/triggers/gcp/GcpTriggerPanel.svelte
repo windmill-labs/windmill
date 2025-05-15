@@ -10,20 +10,18 @@
 		selectedTrigger,
 		isFlow,
 		path,
-		edit,
 		isDeployed = false,
-		isEditor,
 		defaultValues = undefined,
-		newDraft = false,
-		customLabel = undefined
+		customLabel = undefined,
+		...restProps
 	} = $props()
 	let gcpTriggerEditor: GcpTriggerEditorInner | undefined = $state(undefined)
 
 	async function openGcpTriggerEditor(isFlow: boolean, isDraft: boolean) {
 		if (isDraft) {
-			gcpTriggerEditor?.openNew(isFlow, path, defaultValues, newDraft)
+			gcpTriggerEditor?.openNew(isFlow, path, defaultValues)
 		} else {
-			gcpTriggerEditor?.openEdit(selectedTrigger.path, isFlow)
+			gcpTriggerEditor?.openEdit(selectedTrigger.path, isFlow, defaultValues)
 		}
 	}
 
@@ -46,21 +44,12 @@
 			bind:this={gcpTriggerEditor}
 			useDrawer={false}
 			hideTarget
-			editMode={edit}
 			hideTooltips={!isDeployed}
-			useEditButton
-			{isEditor}
 			allowDraft={true}
 			hasDraft={!!selectedTrigger.draftConfig}
 			isDraftOnly={selectedTrigger.isDraft}
 			{customLabel}
-			{isDeployed}
-			on:toggle-edit-mode
-			on:update-config
-			on:update
-			on:delete
-			on:save-draft
-			on:reset
+			{...restProps}
 		>
 			{#snippet description()}
 				<Description link="https://www.windmill.dev/docs/core_concepts/gcp_triggers">

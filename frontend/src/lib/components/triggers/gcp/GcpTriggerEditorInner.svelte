@@ -5,7 +5,6 @@
 	import Path from '$lib/components/Path.svelte'
 	import { usedTriggerKinds, userStore, workspaceStore } from '$lib/stores'
 	import { canWrite, emptyString, sendUserToast } from '$lib/utils'
-	import { createEventDispatcher } from 'svelte'
 	import { Loader2 } from 'lucide-svelte'
 	import Label from '$lib/components/Label.svelte'
 	import {
@@ -22,6 +21,7 @@
 	import type { Snippet } from 'svelte'
 	import TriggerEditorToolbar from '../TriggerEditorToolbar.svelte'
 	import { saveGcpTriggerFromCfg } from './utils'
+	import { handleConfigChange } from '../utils'
 
 	let drawer: Drawer | undefined = $state(undefined)
 	let is_flow: boolean = $state(false)
@@ -44,58 +44,55 @@
 	let isValid = $state(false)
 	let delivery_config: PushConfig | undefined = $state(undefined)
 	let subscription_mode: SubscriptionMode = $state('create_update')
-	let neverSaved = $state(false)
 	let initialConfig = $state<Record<string, any> | undefined>(undefined)
 	let deploymentLoading = $state(false)
-
-	const dispatch = createEventDispatcher()
+	let base_endpoint = $derived(`${window.location.origin}${base}`)
 
 	let {
 		useDrawer = true,
 		description = undefined,
 		hideTarget = false,
-		editMode = true,
 		hideTooltips = false,
 		isEditor = false,
 		allowDraft = false,
 		hasDraft = false,
 		isDraftOnly = false,
+		isDeployed = false,
 		customLabel = undefined,
-		isDeployed = false
+		onConfigChange = undefined,
+		onCaptureConfigChange = undefined,
+		onUpdate = undefined,
+		onDelete = undefined,
+		onReset = undefined
 	}: {
 		useDrawer?: boolean
 		description?: Snippet | undefined
 		hideTarget?: boolean
-		editMode?: boolean
-		preventSave?: boolean
 		hideTooltips?: boolean
-		useEditButton?: boolean
 		isEditor?: boolean
 		allowDraft?: boolean
 		hasDraft?: boolean
 		isDraftOnly?: boolean
-		customLabel?: Snippet
 		isDeployed?: boolean
+		customLabel?: Snippet
+		onConfigChange?: (cfg: Record<string, any>, saveDisabled: boolean, updated: boolean) => void
+		onCaptureConfigChange?: (cfg: Record<string, any>, isValid: boolean) => void
+		onUpdate?: (path?: string) => void
+		onDelete?: () => void
+		onReset?: () => void
 	} = $props()
 
-	$effect(() => {
-		if (isEditor) {
-			const base_endpoint = `${window.location.origin}${base}`
-			dispatch('update-config', {
-				gcp_resource_path,
-				subscription_mode,
-				subscription_id,
-				delivery_type,
-				delivery_config,
-				base_endpoint,
-				topic_id,
-				isValid,
-				path
-			})
-		}
-	})
+	const gcpConfig = $derived.by(getGcpConfig)
+	const saveDisabled = $derived(
+		pathError != '' || emptyString(script_path) || !isValid || !can_write
+	)
+	const captureConfig = $derived.by(isEditor ? getGcpCaptureConfig : () => ({}))
 
-	export async function openEdit(ePath: string, isFlow: boolean) {
+	export async function openEdit(
+		ePath: string,
+		isFlow: boolean,
+		defaultValues?: Record<string, any>
+	) {
 		drawerLoading = true
 		try {
 			drawer?.openDrawer()
@@ -103,19 +100,21 @@
 			itemKind = isFlow ? 'flow' : 'script'
 			edit = true
 			dirtyPath = false
-			await loadTrigger()
+			await loadTrigger(defaultValues)
 		} catch (err) {
 			sendUserToast(`Could not load GCP Pub/Sub trigger: ${err.body}`, true)
 		} finally {
 			drawerLoading = false
+			if (!defaultValues) {
+				initialConfig = getGcpConfig()
+			}
 		}
 	}
 
 	export async function openNew(
 		nis_flow: boolean,
 		fixedScriptPath_?: string,
-		defaultValues?: Record<string, any>,
-		newDraft?: boolean
+		defaultValues?: Record<string, any>
 	) {
 		drawerLoading = true
 		try {
@@ -136,10 +135,6 @@
 			edit = false
 			dirtyPath = false
 			enabled = defaultValues?.enabled ?? false
-			if (newDraft) {
-				neverSaved = true
-				toggleEditMode(true)
-			}
 		} finally {
 			drawerLoading = false
 		}
@@ -179,7 +174,7 @@
 
 	async function updateTrigger(): Promise<void> {
 		deploymentLoading = true
-		const cfg = getSaveCfg()
+		const cfg = gcpConfig
 		if (!cfg) {
 			return
 		}
@@ -191,18 +186,13 @@
 			usedTriggerKinds
 		)
 		if (isSaved) {
-			dispatch('update', cfg.path)
+			onUpdate?.(cfg.path)
 			drawer?.closeDrawer()
 		}
 		deploymentLoading = false
 	}
 
-	function toggleEditMode(newEditMode: boolean) {
-		dispatch('toggle-edit-mode', newEditMode)
-	}
-
-	function getSaveCfg(): Record<string, any> | undefined {
-		const base_endpoint = `${window.location.origin}${base}`
+	function getGcpConfig() {
 		return {
 			gcp_resource_path,
 			subscription_mode,
@@ -218,28 +208,38 @@
 		}
 	}
 
-	function saveDraft() {
-		const cfg = getSaveCfg()
-		if (!cfg) {
-			return
+	function getGcpCaptureConfig() {
+		return {
+			gcp_resource_path,
+			subscription_mode,
+			subscription_id,
+			delivery_type,
+			delivery_config,
+			base_endpoint,
+			topic_id,
+			path
 		}
-		dispatch('save-draft', {
-			cfg
-		})
-		toggleEditMode(false)
 	}
 
-	async function handleToggleEnabled(e: CustomEvent<boolean>) {
-		enabled = e.detail
+	async function handleToggleEnabled(toggleEnabled: boolean) {
+		enabled = toggleEnabled
 		if (!isDraftOnly && !hasDraft) {
 			await GcpTriggerService.setGcpTriggerEnabled({
 				path: initialPath,
 				workspace: $workspaceStore ?? '',
-				requestBody: { enabled: e.detail }
+				requestBody: { enabled: toggleEnabled }
 			})
-			sendUserToast(`${e.detail ? 'enabled' : 'disabled'} GCP Pub/Sub trigger ${initialPath}`)
+			sendUserToast(`${toggleEnabled ? 'enabled' : 'disabled'} GCP Pub/Sub trigger ${initialPath}`)
 		}
 	}
+
+	$effect(() => {
+		onCaptureConfigChange?.(captureConfig, isValid)
+	})
+
+	$effect(() => {
+		handleConfigChange(gcpConfig, initialConfig, saveDisabled, edit, onConfigChange)
+	})
 </script>
 
 {#if useDrawer}
@@ -278,32 +278,17 @@
 			{isDraftOnly}
 			{hasDraft}
 			permissions={drawerLoading || !can_write ? 'none' : 'create'}
-			{editMode}
-			saveDisabled={pathError != '' || emptyString(script_path) || !isValid || !can_write}
+			{saveDisabled}
 			{enabled}
 			isLoading={deploymentLoading}
 			{edit}
 			{allowDraft}
-			{neverSaved}
 			{isEditor}
 			{isDeployed}
-			on:save-draft={() => {
-				saveDraft()
-			}}
-			on:deploy={() => {
-				updateTrigger()
-			}}
-			on:reset
-			on:delete
-			on:edit={() => {
-				initialConfig = getSaveCfg()
-				toggleEditMode(true)
-			}}
-			on:cancel={() => {
-				loadTrigger(initialConfig)
-				toggleEditMode(false)
-			}}
-			on:toggle-enabled={handleToggleEnabled}
+			onUpdate={updateTrigger}
+			{onReset}
+			{onDelete}
+			onToggleEnabled={handleToggleEnabled}
 		/>
 	{/if}
 {/snippet}
@@ -341,7 +326,7 @@
 						namePlaceholder="gcp_trigger"
 						kind="gcp_trigger"
 						disabled={!can_write}
-						disableEditing={!editMode}
+						disableEditing={!can_write}
 					/>
 				</Label>
 			</div>
@@ -353,7 +338,7 @@
 					</p>
 					<div class="flex flex-row mb-2">
 						<ScriptPicker
-							disabled={fixedScriptPath != '' || !can_write || !editMode}
+							disabled={fixedScriptPath != '' || !can_write}
 							initialPath={fixedScriptPath || initialScriptPath}
 							kinds={['script']}
 							allowFlow={true}
@@ -367,7 +352,7 @@
 								btnClasses="ml-4 mt-2"
 								color="dark"
 								size="xs"
-								disabled={!editMode}
+								disabled={!can_write}
 								href={itemKind === 'flow' ? '/flows/add?hub=68' : '/scripts/add?hub=hub%2F11446'}
 								target="_blank">Create from template</Button
 							>
@@ -387,7 +372,7 @@
 				bind:path
 				cloud_subscription_id={subscription_id}
 				create_update_subscription_id={subscription_id}
-				can_write={can_write && editMode}
+				{can_write}
 				headless={true}
 				showTestingBadge={isEditor}
 			/>

@@ -2,7 +2,9 @@
 	import { tick } from 'svelte'
 	import GcpTriggerEditorInner from './GcpTriggerEditorInner.svelte'
 
-	let open = false
+	let { onUpdate }: { onUpdate?: (path?: string) => void } = $props()
+
+	let open = $state(false)
 	export async function openEdit(ePath: string, isFlow: boolean) {
 		open = true
 		await tick()
@@ -17,12 +19,12 @@
 	) {
 		open = true
 		await tick()
-		drawer?.openNew(is_flow, initial_script_path, defaultValues, newDraft)
+		drawer?.openNew(is_flow, initial_script_path, defaultValues)
 	}
 
-	let drawer: GcpTriggerEditorInner
+	let drawer: GcpTriggerEditorInner | undefined = $state()
 </script>
 
 {#if open}
-	<GcpTriggerEditorInner on:update bind:this={drawer} />
+	<GcpTriggerEditorInner {onUpdate} bind:this={drawer} />
 {/if}

@@ -10,18 +10,17 @@
 		selectedTrigger,
 		isFlow,
 		path,
-		edit,
 		isDeployed = false,
-		isEditor,
 		defaultValues = undefined,
 		newDraft = false,
-		customLabel = undefined
+		customLabel = undefined,
+		...restProps
 	} = $props()
 	let kafkaTriggerEditor: KafkaTriggerEditorInner | undefined = $state(undefined)
 
 	async function openKafkaTriggerEditor(isFlow: boolean, isDraft: boolean) {
 		if (isDraft) {
-			kafkaTriggerEditor?.openNew(isFlow, path, defaultValues, newDraft)
+			kafkaTriggerEditor?.openNew(isFlow, path, defaultValues)
 		} else {
 			kafkaTriggerEditor?.openEdit(selectedTrigger.path, isFlow, defaultValues)
 		}
@@ -46,19 +45,12 @@
 			bind:this={kafkaTriggerEditor}
 			useDrawer={false}
 			hideTarget
-			editMode={edit}
 			hideTooltips={!isDeployed}
 			allowDraft={true}
 			hasDraft={!!selectedTrigger.draftConfig}
 			isDraftOnly={selectedTrigger.isDraft}
-			{isEditor}
 			{customLabel}
-			on:toggle-edit-mode
-			on:update-config
-			on:update
-			on:delete
-			on:save-draft
-			on:reset
+			{...restProps}
 		>
 			{#snippet description()}
 				<Description link="https://www.windmill.dev/docs/core_concepts/kafka_triggers">

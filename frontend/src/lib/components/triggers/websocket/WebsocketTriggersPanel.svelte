@@ -9,18 +9,16 @@
 		selectedTrigger,
 		isFlow,
 		path,
-		edit,
 		isDeployed = false,
-		isEditor,
 		defaultValues = undefined,
-		newDraft = false,
-		customLabel = undefined
+		customLabel = undefined,
+		...restProps
 	} = $props()
 	let wsTriggerEditor: WebsocketTriggerEditorInner | undefined = $state(undefined)
 
 	async function openWebsocketTriggerEditor(isFlow: boolean, isDraft: boolean) {
 		if (isDraft) {
-			wsTriggerEditor?.openNew(isFlow, path, defaultValues, newDraft)
+			wsTriggerEditor?.openNew(isFlow, path, defaultValues)
 		} else {
 			wsTriggerEditor?.openEdit(selectedTrigger.path, isFlow, selectedTrigger.draftConfig)
 		}
@@ -41,20 +39,12 @@
 			bind:this={wsTriggerEditor}
 			useDrawer={false}
 			hideTarget
-			editMode={edit}
 			hideTooltips={!isDeployed}
 			allowDraft={true}
 			hasDraft={!!selectedTrigger.draftConfig}
-			{isEditor}
 			isDraftOnly={selectedTrigger.isDraft}
-			on:toggle-edit-mode
-			on:update-config
-			on:update
-			on:delete
-			on:save-draft
-			on:reset
 			{customLabel}
-			{isDeployed}
+			{...restProps}
 		>
 			{#snippet description()}
 				<Description link="https://www.windmill.dev/docs/core_concepts/websocket_triggers">

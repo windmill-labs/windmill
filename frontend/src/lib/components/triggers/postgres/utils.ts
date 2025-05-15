@@ -20,7 +20,9 @@ export function invalidRelations(
 		trackSchemaTableError?: boolean
 		showError?: boolean
 	}
-): boolean {
+): string {
+	let errorMessage: string = ''
+
 	let error: RelationError = {
 		schemaIndex: -1,
 		tableIndex: -1,
@@ -84,8 +86,6 @@ export function invalidRelations(
 			error.trackAllTablesInSchema &&
 			error.trackSpecificColumnsInTable)
 	if ((options?.showError ?? false) && errorFound) {
-		let errorMessage: string = ''
-
 		if (error.schemaError) {
 			errorMessage = `Schema Error: Please enter a name for schema number ${error.schemaIndex}`
 		} else if (error.tableError) {
@@ -97,10 +97,9 @@ export function invalidRelations(
 			errorMessage =
 				'Configuration Error: Schema-level tracking and specific table tracking with column selection cannot be used together. Refer to the documentation for valid configurations.'
 		}
-		sendUserToast(errorMessage, true)
 	}
 
-	return errorFound
+	return errorMessage
 }
 
 export async function savePostgresTriggerFromCfg(

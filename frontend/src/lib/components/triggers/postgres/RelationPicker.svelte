@@ -266,7 +266,7 @@
 							invalidRelations(appendedRelations, {
 								showError: true,
 								trackSchemaTableError: false
-							}) === false
+							}) === ''
 						) {
 							relations = appendedRelations
 						}

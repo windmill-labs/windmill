@@ -10,18 +10,16 @@
 		selectedTrigger,
 		isFlow,
 		path,
-		edit,
 		isDeployed = false,
-		isEditor,
 		defaultValues = undefined,
-		newDraft = false,
-		customLabel = undefined
+		customLabel = undefined,
+		...props
 	} = $props()
 	let natsTriggerEditor: NatsTriggerEditorInner | undefined = $state(undefined)
 
 	async function openNatsTriggerEditor(isFlow: boolean, isDraft: boolean) {
 		if (isDraft) {
-			natsTriggerEditor?.openNew(isFlow, path, defaultValues, newDraft)
+			natsTriggerEditor?.openNew(isFlow, path, defaultValues)
 		} else {
 			natsTriggerEditor?.openEdit(selectedTrigger.path, isFlow, selectedTrigger.draftConfig)
 		}
@@ -46,20 +44,13 @@
 			bind:this={natsTriggerEditor}
 			useDrawer={false}
 			hideTarget
-			editMode={edit}
 			hideTooltips={!isDeployed}
 			useEditButton
 			allowDraft={true}
 			hasDraft={!!selectedTrigger.draftConfig}
-			{isEditor}
 			isDraftOnly={selectedTrigger.isDraft}
-			on:toggle-edit-mode
-			on:update-config
-			on:update
-			on:delete
-			on:save-draft
-			on:reset
 			{customLabel}
+			{...props}
 		>
 			{#snippet description()}
 				<Description link="https://www.windmill.dev/docs/core_concepts/nats_triggers">

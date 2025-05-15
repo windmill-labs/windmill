@@ -8,7 +8,6 @@
 	import { KafkaTriggerService } from '$lib/gen'
 	import { usedTriggerKinds, userStore, workspaceStore } from '$lib/stores'
 	import { canWrite, emptyString, sendUserToast } from '$lib/utils'
-	import { createEventDispatcher } from 'svelte'
 	import Section from '$lib/components/Section.svelte'
 	import { Loader2 } from 'lucide-svelte'
 	import Label from '$lib/components/Label.svelte'
@@ -16,12 +15,12 @@
 	import type { Snippet } from 'svelte'
 	import TriggerEditorToolbar from '../TriggerEditorToolbar.svelte'
 	import { saveKafkaTriggerFromCfg } from './utils'
+	import { handleConfigChange } from '../utils'
 
 	interface Props {
 		useDrawer?: boolean
 		description?: Snippet | undefined
 		hideTarget?: boolean
-		editMode?: boolean
 		hideTooltips?: boolean
 		isEditor?: boolean
 		allowDraft?: boolean
@@ -29,20 +28,29 @@
 		isDraftOnly?: boolean
 		customLabel?: Snippet
 		isDeployed?: boolean
+		onConfigChange?: (cfg: Record<string, any>, saveDisabled: boolean, updated: boolean) => void
+		onCaptureConfigChange?: (cfg: Record<string, any>, isValid: boolean) => void
+		onUpdate?: (path?: string) => void
+		onDelete?: () => void
+		onReset?: () => void
 	}
 
 	let {
 		useDrawer = true,
 		description = undefined,
 		hideTarget = false,
-		editMode = true,
 		hideTooltips = false,
 		isEditor = false,
 		allowDraft = false,
 		hasDraft = false,
 		isDraftOnly = false,
 		customLabel,
-		isDeployed = false
+		isDeployed = false,
+		onConfigChange = undefined,
+		onCaptureConfigChange = undefined,
+		onUpdate = undefined,
+		onDelete = undefined,
+		onReset = undefined
 	}: Props = $props()
 
 	let drawer: Drawer | undefined = $state()
@@ -61,22 +69,20 @@
 	let drawerLoading = $state(true)
 	let showLoading = $state(false)
 	let initialConfig = $state<Record<string, any> | undefined>(undefined)
-	let neverSaved = $state(false)
 	let extra_perms = $state<Record<string, any> | undefined>(undefined)
 	let kafkaCfgValid = $state(false)
 	let kafkaResourcePath = $state('')
 	let kafkaCfg: Record<string, any> = $state({})
 	let deploymentLoading = $state(false)
 
-	let isValid = $derived(
+	const isValid = $derived(
 		!!kafkaResourcePath &&
 			kafkaCfgValid &&
 			kafkaCfg.topics &&
 			kafkaCfg.topics.length > 0 &&
 			kafkaCfg.topics.every((b) => /^[a-zA-Z0-9-_.]+$/.test(b))
 	)
-
-	let saveDisabled = $derived(
+	const saveDisabled = $derived(
 		pathError !== '' ||
 			!isValid ||
 			drawerLoading ||
@@ -86,8 +92,8 @@
 			kafkaCfg.topics.length === 0 ||
 			kafkaCfg.topics.some((t) => emptyString(t))
 	)
-
-	const dispatch = createEventDispatcher()
+	const kafkaConfig = $derived.by(getSaveCfg)
+	const captureConfig = $derived.by(isEditor ? getCaptureConfig : () => ({}))
 
 	$effect(() => {
 		is_flow = itemKind === 'flow'
@@ -112,6 +118,9 @@
 		} catch (err) {
 			sendUserToast(`Could not load Kafka trigger: ${err}`, true)
 		} finally {
+			if (!defaultConfig) {
+				initialConfig = getSaveCfg()
+			}
 			clearTimeout(loadingTimeout)
 			drawerLoading = false
 			showLoading = false
@@ -121,8 +130,7 @@
 	export async function openNew(
 		nis_flow: boolean,
 		fixedScriptPath_?: string,
-		nDefaultValues?: Record<string, any>,
-		newDraft?: boolean
+		nDefaultValues?: Record<string, any>
 	) {
 		let loadingTimeout = setTimeout(() => {
 			showLoading = true
@@ -144,10 +152,6 @@
 			path = nDefaultValues?.path ?? ''
 			initialPath = ''
 			dirtyPath = false
-			if (newDraft) {
-				neverSaved = true
-				toggleEditMode(true)
-			}
 		} finally {
 			clearTimeout(loadingTimeout)
 			drawerLoading = false
@@ -179,7 +183,6 @@
 				workspace: $workspaceStore!,
 				path: initialPath
 			})
-			initialConfig = s
 			loadTriggerConfig(s)
 		}
 	}
@@ -208,44 +211,37 @@
 			usedTriggerKinds
 		)
 		if (isSaved) {
-			dispatch('update', cfg.path)
+			onUpdate?.(cfg.path)
 			drawer?.closeDrawer()
-			toggleEditMode(false)
 		}
 		deploymentLoading = false
 	}
 
-	function toggleEditMode(newEditMode: boolean) {
-		dispatch('toggle-edit-mode', newEditMode)
+	function getCaptureConfig(): Record<string, any> {
+		return {
+			kafka_resource_path: kafkaResourcePath,
+			group_id: kafkaCfg.group_id,
+			topics: structuredClone($state.snapshot(kafkaCfg.topics)),
+			path
+		}
 	}
 
-	$effect(() => {
-		isEditor &&
-			dispatch('update-config', {
-				kafka_resource_path: kafkaResourcePath,
-				group_id: kafkaCfg.group_id,
-				topics: structuredClone($state.snapshot(kafkaCfg.topics)),
-				isValid,
-				path
-			})
-	})
-
-	function saveDraft() {
-		const cfg = getSaveCfg()
-		dispatch('save-draft', {
-			cfg: cfg
-		})
-		toggleEditMode(false)
-	}
-
-	async function handleToggleEnabled(e: CustomEvent<boolean>) {
+	async function handleToggleEnabled(nEnabled: boolean) {
 		await KafkaTriggerService.setKafkaTriggerEnabled({
 			path: initialPath,
 			workspace: $workspaceStore ?? '',
-			requestBody: { enabled: e.detail }
+			requestBody: { enabled: nEnabled }
 		})
-		sendUserToast(`${e.detail ? 'enabled' : 'disabled'} Kafka trigger ${initialPath}`)
+		sendUserToast(`${nEnabled ? 'enabled' : 'disabled'} Kafka trigger ${initialPath}`)
 	}
+
+	$effect(() => {
+		onCaptureConfigChange?.(captureConfig, isValid)
+	})
+
+	$effect(() => {
+		handleConfigChange(kafkaConfig, initialConfig, saveDisabled, edit, onConfigChange)
+	})
 </script>
 
 {#if useDrawer}
@@ -284,32 +280,17 @@
 			{isDraftOnly}
 			{hasDraft}
 			permissions={drawerLoading || !can_write ? 'none' : 'create'}
-			{editMode}
 			{enabled}
 			{allowDraft}
 			{edit}
 			isLoading={deploymentLoading}
-			{neverSaved}
 			{isEditor}
 			{isDeployed}
 			{saveDisabled}
-			on:save-draft={() => {
-				saveDraft()
-			}}
-			on:deploy={() => {
-				updateTrigger()
-			}}
-			on:reset
-			on:delete
-			on:edit={() => {
-				initialConfig = getSaveCfg()
-				toggleEditMode(true)
-			}}
-			on:cancel={() => {
-				loadTrigger(initialConfig)
-				toggleEditMode(false)
-			}}
-			on:toggle-enabled={handleToggleEnabled}
+			onUpdate={updateTrigger}
+			{onReset}
+			{onDelete}
+			onToggleEnabled={handleToggleEnabled}
 		/>
 	{/if}
 {/snippet}
@@ -346,7 +327,7 @@
 						namePlaceholder="kafka_trigger"
 						kind="kafka_trigger"
 						disabled={!can_write}
-						disableEditing={!editMode}
+						disableEditing={!can_write}
 					/>
 				</Label>
 			</div>
@@ -358,7 +339,7 @@
 					</p>
 					<div class="flex flex-row mb-2">
 						<ScriptPicker
-							disabled={fixedScriptPath != '' || !can_write || !editMode}
+							disabled={fixedScriptPath != '' || !can_write}
 							initialPath={fixedScriptPath || initialScriptPath}
 							kinds={['script']}
 							allowFlow={true}
@@ -372,7 +353,7 @@
 								btnClasses="ml-4 mt-2"
 								color="dark"
 								size="xs"
-								disabled={!editMode}
+								disabled={!can_write}
 								href={itemKind === 'flow' ? '/flows/add?hub=65' : '/scripts/add?hub=hub%2F19659'}
 								target="_blank">Create from template</Button
 							>
@@ -386,7 +367,7 @@
 				bind:kafkaResourcePath
 				bind:kafkaCfg
 				{path}
-				can_write={can_write && editMode}
+				{can_write}
 				showTestingBadge={isEditor}
 			/>
 		</div>

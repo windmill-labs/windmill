@@ -16,7 +16,6 @@
 	} from '$lib/gen'
 	import { usedTriggerKinds, userStore, workspaceStore } from '$lib/stores'
 	import { canWrite, emptySchema, emptyString, sendUserToast } from '$lib/utils'
-	import { createEventDispatcher } from 'svelte'
 	import Section from '$lib/components/Section.svelte'
 	import { Loader2, X, Plus } from 'lucide-svelte'
 	import Label from '$lib/components/Label.svelte'
@@ -29,34 +28,43 @@
 
 	import TriggerEditorToolbar from '../TriggerEditorToolbar.svelte'
 	import { saveWebsocketTriggerFromCfg } from './utils'
+	import { handleConfigChange } from '../utils'
 
 	interface Props {
 		useDrawer?: boolean
 		description?: Snippet | undefined
 		hideTarget?: boolean
-		editMode?: boolean
 		hideTooltips?: boolean
 		useEditButton?: boolean
 		isEditor?: boolean
 		allowDraft?: boolean
 		hasDraft?: boolean
 		isDraftOnly?: boolean
-		customLabel?: Snippet
 		isDeployed?: boolean
+		customLabel?: Snippet
+		onConfigChange?: (cfg: Record<string, any>, saveDisabled: boolean, updated: boolean) => void
+		onCaptureConfigChange?: (cfg: Record<string, any>, isValid: boolean) => void
+		onUpdate?: (path?: string) => void
+		onDelete?: () => void
+		onReset?: () => void
 	}
 
 	let {
 		useDrawer = true,
 		description = undefined,
 		hideTarget = false,
-		editMode = true,
 		hideTooltips = false,
 		isEditor = false,
 		allowDraft = false,
 		hasDraft = false,
 		isDraftOnly = false,
+		isDeployed = false,
 		customLabel = undefined,
-		isDeployed = false
+		onConfigChange = undefined,
+		onCaptureConfigChange = undefined,
+		onUpdate = undefined,
+		onDelete = undefined,
+		onReset = undefined
 	}: Props = $props()
 
 	let drawer: Drawer | undefined = $state()
@@ -84,10 +92,27 @@
 	let drawerLoading = $state(true)
 	let showLoading = $state(false)
 	let initialConfig = $state<Record<string, any> | undefined>(undefined)
-	let neverSaved = $state(false)
 	let deploymentLoading = $state(false)
+	let isValid = $state(false)
 
-	const dispatch = createEventDispatcher()
+	const websocketCfg = $derived.by(getSaveCfg)
+	const captureConfig = $derived.by(isEditor ? getCaptureConfig : () => ({}))
+	const saveDisabled = $derived.by(() => {
+		const invalidInitialMessages = initial_messages.some((v) => {
+			if ('runnable_result' in v) {
+				return !v.runnable_result.path
+			}
+			return false
+		})
+		return (
+			pathError !== '' ||
+			!isValid ||
+			invalidInitialMessages ||
+			drawerLoading ||
+			!can_write ||
+			emptyString(script_path)
+		)
+	})
 
 	$effect(() => {
 		is_flow = itemKind === 'flow'
@@ -113,6 +138,9 @@
 		} catch (err) {
 			sendUserToast(`Could not load websocket trigger: ${err}`, true)
 		} finally {
+			if (!defaultConfig) {
+				initialConfig = getSaveCfg()
+			}
 			clearTimeout(loadingTimeout)
 			drawerLoading = false
 			showLoading = false
@@ -122,8 +150,7 @@
 	export async function openNew(
 		nis_flow: boolean,
 		fixedScriptPath_?: string,
-		defaultValues?: Record<string, any>,
-		newDraft?: boolean
+		defaultValues?: Record<string, any>
 	) {
 		let loadingTimeout = setTimeout(() => {
 			showLoading = true
@@ -146,10 +173,6 @@
 			url_runnable_args = defaultValues?.url_runnable_args ?? {}
 			dirtyPath = false
 			can_return_message = false
-			if (newDraft) {
-				neverSaved = true
-				toggleEditMode(true)
-			}
 		} finally {
 			clearTimeout(loadingTimeout)
 			drawerLoading = false
@@ -195,7 +218,6 @@
 				workspace: $workspaceStore!,
 				path: initialPath
 			})
-			initialConfig = s
 			loadTriggerConfig(s)
 		}
 	}
@@ -237,15 +259,6 @@
 		loadInitialMessageRunnableSchemas(initialMessageRunnables)
 	})
 
-	let invalidInitialMessages = $derived(
-		initial_messages.some((v) => {
-			if ('runnable_result' in v) {
-				return !v.runnable_result.path
-			}
-			return false
-		})
-	)
-
 	async function updateTrigger(): Promise<void> {
 		deploymentLoading = true
 		const saveCfg = getSaveCfg()
@@ -257,48 +270,39 @@
 			usedTriggerKinds
 		)
 		if (isSaved) {
-			dispatch('update', saveCfg.path)
+			onUpdate?.(saveCfg.path)
 			drawer?.closeDrawer()
-			toggleEditMode(false)
 		}
 		deploymentLoading = false
 	}
 
-	let isValid = $state(false)
-
-	function toggleEditMode(newEditMode: boolean) {
-		dispatch('toggle-edit-mode', newEditMode)
+	function getCaptureConfig() {
+		return {
+			url,
+			url_runnable_args,
+			path
+		}
 	}
 
-	$effect(() => {
-		isEditor &&
-			dispatch('update-config', {
-				url,
-				url_runnable_args,
-				isValid,
-				path
-			})
-	})
-
-	async function handleToggleEnabled(e: CustomEvent<boolean>) {
-		enabled = e.detail
+	async function handleToggleEnabled(newEnabled: boolean) {
+		enabled = newEnabled
 		if (!isDraftOnly && !hasDraft) {
 			await WebsocketTriggerService.setWebsocketTriggerEnabled({
 				path: initialPath,
 				workspace: $workspaceStore!,
-				requestBody: { enabled: e.detail }
+				requestBody: { enabled: newEnabled }
 			})
-			sendUserToast(`${e.detail ? 'enabled' : 'disabled'} websocket trigger ${initialPath}`)
+			sendUserToast(`${newEnabled ? 'enabled' : 'disabled'} websocket trigger ${initialPath}`)
 		}
 	}
 
-	function saveDraft() {
-		const saveCfg = getSaveCfg()
-		dispatch('save-draft', {
-			cfg: saveCfg
-		})
-		toggleEditMode(false)
-	}
+	$effect(() => {
+		onCaptureConfigChange?.(captureConfig, isValid)
+	})
+
+	$effect(() => {
+		handleConfigChange(websocketCfg, initialConfig, saveDisabled, edit, onConfigChange)
+	})
 </script>
 
 {#if useDrawer}
@@ -337,37 +341,17 @@
 			{isDraftOnly}
 			{hasDraft}
 			permissions={!drawerLoading && can_write ? 'create' : 'none'}
-			{editMode}
 			{enabled}
 			{allowDraft}
 			{edit}
 			isLoading={deploymentLoading}
-			{neverSaved}
-			saveDisabled={pathError !== '' ||
-				!isValid ||
-				invalidInitialMessages ||
-				drawerLoading ||
-				!can_write ||
-				emptyString(script_path)}
+			{saveDisabled}
 			{isEditor}
 			{isDeployed}
-			on:save-draft={() => {
-				saveDraft()
-			}}
-			on:deploy={() => {
-				updateTrigger()
-			}}
-			on:reset
-			on:delete
-			on:edit={() => {
-				initialConfig = getSaveCfg()
-				toggleEditMode(true)
-			}}
-			on:cancel={() => {
-				loadTrigger(initialConfig)
-				toggleEditMode(false)
-			}}
-			on:toggle-enabled={handleToggleEnabled}
+			onUpdate={updateTrigger}
+			{onDelete}
+			{onReset}
+			onToggleEnabled={handleToggleEnabled}
 		/>
 	{/if}
 {/snippet}
@@ -404,7 +388,7 @@
 						namePlaceholder="ws_trigger"
 						kind="websocket_trigger"
 						disabled={!can_write}
-						disableEditing={!editMode}
+						disableEditing={!can_write}
 					/>
 				</Label>
 			</div>
@@ -417,7 +401,7 @@
 						</p>
 						<div class="flex flex-row mb-2">
 							<ScriptPicker
-								disabled={fixedScriptPath != '' || !can_write || !editMode}
+								disabled={fixedScriptPath != '' || !can_write}
 								initialPath={fixedScriptPath || initialScriptPath}
 								kinds={['script']}
 								allowFlow={true}
@@ -431,7 +415,7 @@
 									btnClasses="ml-4 mt-2"
 									color="dark"
 									size="xs"
-									disabled={!editMode}
+									disabled={!can_write}
 									href={itemKind === 'flow' ? '/flows/add?hub=64' : '/scripts/add?hub=hub%2F19660'}
 									target="_blank"
 								>
@@ -451,7 +435,7 @@
 							rightTooltip:
 								'Whether the runnable result should be sent as a message to the websocket server when not null.'
 						}}
-						disabled={!editMode}
+						disabled={!can_write}
 					/>
 				</Section>
 			{/if}
@@ -460,7 +444,7 @@
 				bind:url
 				bind:url_runnable_args
 				{dirtyUrl}
-				can_write={can_write && editMode}
+				{can_write}
 				bind:isValid
 				showTestingBadge={isEditor}
 			/>
@@ -496,7 +480,7 @@
 												}
 											}}
 											value={'runnable_result' in v ? 'runnable_result' : 'raw_message'}
-											disabled={!editMode}
+											disabled={!can_write}
 										>
 											<option value="raw_message">Raw message</option>
 											<option value="runnable_result">Runnable result</option>
@@ -516,7 +500,7 @@
 												}
 											}}
 											code={v.raw_message}
-											disabled={!editMode}
+											disabled={!can_write}
 										/>
 									</div>
 								{:else if 'runnable_result' in v}
@@ -536,7 +520,7 @@
 													}
 												}
 											}}
-											disabled={!editMode}
+											disabled={!can_write}
 										/>
 
 										{#if v.runnable_result?.path}
@@ -556,7 +540,7 @@
 														bind:args={v.runnable_result.args}
 														shouldHideNoInputs
 														class="text-xs"
-														disabled={!editMode}
+														disabled={!can_write}
 													/>
 												{/await}
 												{#if schema && schema.properties && Object.keys(schema.properties).length === 0}
@@ -578,7 +562,7 @@
 								onclick={() => {
 									initial_messages = initial_messages.filter((_, index) => index !== i)
 								}}
-								disabled={!editMode}
+								disabled={!can_write}
 							>
 								<X size={14} />
 							</button>
@@ -599,7 +583,7 @@
 									raw_message: '""'
 								})
 							}}
-							disabled={!editMode}
+							disabled={!can_write}
 							startIcon={{ icon: Plus }}
 						>
 							Add item
@@ -632,7 +616,7 @@
 												}
 											}}
 											value={'json'}
-											disabled={!editMode}
+											disabled={!can_write}
 										>
 											<option value="json">JSON</option>
 										</select>
@@ -640,7 +624,7 @@
 								</div>
 								<label class="flex flex-col w-full">
 									<div class="text-secondary text-sm mb-2">Key</div>
-									<input type="text" bind:value={v.key} disabled={!editMode} />
+									<input type="text" bind:value={v.key} disabled={!can_write} />
 								</label>
 								<!-- svelte-ignore a11y_label_has_associated_control -->
 								<label class="flex flex-col w-full">
@@ -648,7 +632,7 @@
 									<JsonEditor
 										bind:value={v.value}
 										code={JSON.stringify(v.value)}
-										disabled={!editMode}
+										disabled={!can_write}
 									/>
 								</label>
 							</div>
@@ -659,7 +643,7 @@
 								onclick={() => {
 									filters = filters.filter((_, index) => index !== i)
 								}}
-								disabled={!editMode}
+								disabled={!can_write}
 							>
 								<X size={14} />
 							</button>
@@ -681,7 +665,7 @@
 									value: ''
 								})
 							}}
-							disabled={!editMode}
+							disabled={!can_write}
 							startIcon={{ icon: Plus }}
 						>
 							Add item

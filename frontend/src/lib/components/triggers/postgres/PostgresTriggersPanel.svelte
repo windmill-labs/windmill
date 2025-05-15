@@ -9,12 +9,12 @@
 		isFlow,
 		path,
 		selectedTrigger,
-		edit,
 		isDeployed = false,
 		isEditor = false,
 		defaultValues = undefined,
 		newDraft = false,
-		customLabel = undefined
+		customLabel = undefined,
+		...props
 	} = $props()
 
 	let postgresTriggerEditor: PostgresTriggerEditorInner | undefined = $state(undefined)
@@ -23,7 +23,7 @@
 		if (isDraft) {
 			postgresTriggerEditor?.openNew(isFlow, path, defaultValues, newDraft)
 		} else {
-			postgresTriggerEditor?.openEdit(selectedTrigger.path, isFlow, selectedTrigger.draftConfig)
+			postgresTriggerEditor?.openEdit(selectedTrigger.path, isFlow, defaultValues)
 		}
 	}
 
@@ -42,19 +42,13 @@
 			bind:this={postgresTriggerEditor}
 			useDrawer={false}
 			hideTarget
-			editMode={edit}
 			hideTooltips={!isDeployed}
 			allowDraft={true}
 			hasDraft={!!selectedTrigger.draftConfig}
 			isDraftOnly={selectedTrigger.isDraft}
 			{isEditor}
 			{customLabel}
-			on:toggle-edit-mode
-			on:update
-			on:update-config
-			on:delete
-			on:save-draft
-			on:reset
+			{...props}
 		>
 			{#snippet description()}
 				<Description link="https://www.windmill.dev/docs/core_concepts/postgres_triggers">

@@ -8,7 +8,6 @@
 	import { PostgresTriggerService, type Language, type Relations } from '$lib/gen'
 	import { usedTriggerKinds, userStore, workspaceStore } from '$lib/stores'
 	import { canWrite, emptyString, emptyStringTrimmed, sendUserToast } from '$lib/utils'
-	import { createEventDispatcher } from 'svelte'
 	import Section from '$lib/components/Section.svelte'
 	import { Loader2, X } from 'lucide-svelte'
 	import Label from '$lib/components/Label.svelte'
@@ -29,33 +28,42 @@
 	import type { Snippet } from 'svelte'
 	import TriggerEditorToolbar from '../TriggerEditorToolbar.svelte'
 	import TestingBadge from '../testingBadge.svelte'
+	import { handleConfigChange } from '../utils'
 
 	interface Props {
 		useDrawer?: boolean
 		description?: Snippet | undefined
 		hideTarget?: boolean
-		editMode?: boolean
 		isEditor?: boolean
 		hideTooltips?: boolean
 		allowDraft?: boolean
 		hasDraft?: boolean
 		isDraftOnly?: boolean
-		customLabel?: Snippet
 		isDeployed?: boolean
+		customLabel?: Snippet
+		onConfigChange?: (cfg: Record<string, any>, saveDisabled: boolean, updated: boolean) => void
+		onCaptureConfigChange?: (cfg: Record<string, any>, isValid: boolean) => void
+		onUpdate?: (path?: string) => void
+		onDelete?: () => void
+		onReset?: () => void
 	}
 
 	let {
 		useDrawer = true,
 		description = undefined,
 		hideTarget = false,
-		editMode = true,
 		isEditor = false,
 		hideTooltips = false,
 		allowDraft = false,
 		hasDraft = false,
 		isDraftOnly = false,
+		isDeployed = false,
 		customLabel = undefined,
-		isDeployed = false
+		onConfigChange = undefined,
+		onCaptureConfigChange = undefined,
+		onUpdate = undefined,
+		onDelete = undefined,
+		onReset = undefined
 	}: Props = $props()
 
 	let drawer: Drawer | undefined = $state(undefined)
@@ -87,8 +95,28 @@
 	let transactionType: string[] = ['Insert', 'Update', 'Delete']
 	let tab: 'advanced' | 'basic' = $state('basic')
 	let initialConfig = $state<Record<string, any> | undefined>(undefined)
-	let neverSaved = $state(false)
 	let deploymentLoading = $state(false)
+
+	const errorMessage = $derived.by(() => {
+		if (relations && relations.length > 0) {
+			return invalidRelations(relations, {
+				showError: true,
+				trackSchemaTableError: true
+			})
+		}
+		return ''
+	})
+	//TODO : display error message
+
+	const isValid = $derived(
+		!emptyString(postgres_resource_path) &&
+			!emptyString(script_path) &&
+			!emptyString(publication_name) &&
+			!emptyString(replication_slot_name) &&
+			!errorMessage
+	)
+	const postgresConfig = $derived.by(getSaveCfg)
+	const captureConfig = $derived.by(isEditor ? getCaptureConfig : () => ({}))
 
 	function isAdvancedTab(t: 'advanced' | 'basic'): boolean {
 		return t === 'advanced'
@@ -143,24 +171,8 @@
 		}
 	}
 
-	const dispatch = createEventDispatcher()
-
 	$effect(() => {
 		is_flow = itemKind === 'flow'
-	})
-
-	$effect(() => {
-		isEditor &&
-			dispatch('update-config', {
-				postgres_resource_path,
-				publication: {
-					transaction_to_track,
-					table_to_track: relations
-				},
-				publication_name,
-				replication_slot_name,
-				path
-			})
 	})
 
 	export async function openEdit(
@@ -189,6 +201,9 @@
 		} catch (err) {
 			sendUserToast(`Could not load postgres trigger: ${err.body}`, true)
 		} finally {
+			if (!defaultConfig) {
+				initialConfig = getSaveCfg()
+			}
 			clearTimeout(loadingTimeout)
 			drawerLoading = false
 			showLoading = false
@@ -235,10 +250,6 @@
 					table_to_track: []
 				}
 			]
-			if (newDraft) {
-				neverSaved = true
-				toggleEditMode(true)
-			}
 		} finally {
 			clearTimeout(loadingTimeout)
 			drawerLoading = false
@@ -246,16 +257,7 @@
 		}
 	}
 
-	function getSaveCfg(): Record<string, any> | undefined {
-		if (
-			relations &&
-			invalidRelations(relations, {
-				showError: true,
-				trackSchemaTableError: true
-			}) === true
-		) {
-			return undefined
-		}
+	function getSaveCfg(): Record<string, any> {
 		const cfg = {
 			script_path: script_path,
 			initialScriptPath: initialScriptPath,
@@ -309,22 +311,28 @@
 				publication: s.publication_name
 			})
 
-			initialConfig = { ...s, publication: publication_data }
-			loadTriggerConfig(initialConfig)
+			loadTriggerConfig({ ...s, publication: publication_data })
 		}
 	}
 
-	function saveDraft() {
-		const cfg = getSaveCfg()
-		if (!cfg) {
-			return
+	function getCaptureConfig() {
+		return {
+			postgres_resource_path,
+			publication:
+				!edit || tab === 'basic'
+					? {
+							transaction_to_track: transaction_to_track,
+							table_to_track: relations
+						}
+					: undefined,
+			publication_name: edit || tab !== 'basic' ? publication_name : undefined,
+			replication_slot_name: edit || tab !== 'basic' ? replication_slot_name : undefined,
+			path
 		}
-		dispatch('save-draft', cfg)
-		toggleEditMode(false)
 	}
 
 	async function updateTrigger(): Promise<void> {
-		const cfg = getSaveCfg()
+		const cfg = postgresConfig
 		if (!cfg) {
 			return
 		}
@@ -337,15 +345,10 @@
 			usedTriggerKinds
 		)
 		if (isSaved) {
-			dispatch('update', path)
+			onUpdate?.(path)
 			drawer?.closeDrawer()
-			toggleEditMode(false)
 		}
 		deploymentLoading = false
-	}
-
-	function toggleEditMode(newEditMode: boolean) {
-		dispatch('toggle-edit-mode', newEditMode)
 	}
 
 	const getTemplateScript = async () => {
@@ -371,17 +374,25 @@
 		}
 	}
 
-	async function handleToggleEnabled(e: CustomEvent<boolean>) {
-		enabled = e.detail
+	async function handleToggleEnabled(toggleEnabled: boolean) {
+		enabled = toggleEnabled
 		if (!isDraftOnly && !hasDraft) {
 			await PostgresTriggerService.setPostgresTriggerEnabled({
 				path: initialPath,
 				workspace: $workspaceStore ?? '',
-				requestBody: { enabled: e.detail }
+				requestBody: { enabled: toggleEnabled }
 			})
-			sendUserToast(`${e.detail ? 'enabled' : 'disabled'} postgres trigger ${initialPath}`)
+			sendUserToast(`${toggleEnabled ? 'enabled' : 'disabled'} postgres trigger ${initialPath}`)
 		}
 	}
+
+	$effect(() => {
+		onCaptureConfigChange?.(captureConfig, isValid)
+	})
+
+	$effect(() => {
+		handleConfigChange(postgresConfig, initialConfig, saveDisabled, edit, onConfigChange)
+	})
 </script>
 
 {#if useDrawer}
@@ -418,32 +429,17 @@
 			{isDraftOnly}
 			{hasDraft}
 			permissions={drawerLoading || !can_write ? 'none' : 'create'}
-			{editMode}
 			{saveDisabled}
 			{allowDraft}
 			{edit}
 			isLoading={deploymentLoading}
-			{neverSaved}
 			{enabled}
 			{isEditor}
 			{isDeployed}
-			on:save-draft={() => {
-				saveDraft()
-			}}
-			on:deploy={() => {
-				updateTrigger()
-			}}
-			on:reset
-			on:delete
-			on:edit={() => {
-				initialConfig = getSaveCfg()
-				toggleEditMode(true)
-			}}
-			on:cancel={() => {
-				loadTrigger(initialConfig)
-				toggleEditMode(false)
-			}}
-			on:toggle-enabled={handleToggleEnabled}
+			onUpdate={updateTrigger}
+			{onReset}
+			{onDelete}
+			onToggleEnabled={handleToggleEnabled}
 		/>
 	{/if}
 {/snippet}
@@ -480,7 +476,7 @@
 					namePlaceholder="postgres_trigger"
 					kind="postgres_trigger"
 					disabled={!can_write}
-					disableEditing={!editMode}
+					disableEditing={!can_write}
 				/>
 			</Label>
 			{#if !hideTarget}
@@ -490,7 +486,7 @@
 					</p>
 					<div class="flex flex-row mb-2">
 						<ScriptPicker
-							disabled={fixedScriptPath != '' || !can_write || !editMode}
+							disabled={fixedScriptPath != '' || !can_write}
 							initialPath={fixedScriptPath || initialScriptPath}
 							kinds={['script']}
 							allowFlow={true}
@@ -503,7 +499,7 @@
 						{#if emptyStringTrimmed(script_path) && is_flow === false}
 							<div class="flex">
 								<Button
-									disabled={!can_write || !editMode}
+									disabled={!can_write}
 									btnClasses="ml-4 mt-2"
 									color="dark"
 									size="xs"
@@ -535,7 +531,7 @@
 				<div class="flex flex-col gap-8">
 					<div class="flex flex-col gap-2">
 						<ResourcePicker
-							disabled={!can_write || !editMode}
+							disabled={!can_write}
 							bind:value={postgres_resource_path}
 							resourceType={'postgresql'}
 						/>
@@ -567,7 +563,7 @@
 								placeholder="Select transactions"
 								--sms-options-margin="4px"
 								--sms-open-z-index="100"
-								disabled={!editMode}
+								disabled={!can_write}
 							>
 								<!-- @migration-task: migrate this slot by hand, `remove-icon` is an invalid identifier -->
 								<svelte:fragment slot="remove-icon">
@@ -627,7 +623,7 @@
 								<svelte:fragment slot="content">
 									<div class="mt-5 overflow-hidden bg-surface">
 										<TabContent value="basic">
-											<RelationPicker {can_write} bind:relations disabled={!editMode} />
+											<RelationPicker {can_write} bind:relations disabled={!can_write} />
 										</TabContent>
 										<TabContent value="advanced">
 											<div class="flex flex-col gap-6"
@@ -643,7 +639,7 @@
 															on:selected={() => {
 																replication_slot_name = ''
 															}}
-															disabled={!can_write || !editMode}
+															disabled={!can_write}
 														>
 															{#snippet children({ item })}
 																<ToggleButton value="create" label="Create Slot" {item} />
@@ -656,13 +652,13 @@
 																	type="text"
 																	bind:value={replication_slot_name}
 																	placeholder={'Choose a slot name'}
-																	disabled={!editMode}
+																	disabled={!can_write}
 																/>
 																<Button
 																	color="light"
 																	size="xs"
 																	variant="border"
-																	disabled={emptyStringTrimmed(replication_slot_name) || !editMode}
+																	disabled={emptyStringTrimmed(replication_slot_name) || !can_write}
 																	on:click={createSlot}>Create</Button
 																>
 															</div>
@@ -671,7 +667,7 @@
 																bind:edit
 																{postgres_resource_path}
 																bind:replication_slot_name
-																disabled={!editMode}
+																disabled={!can_write}
 															/>
 														{/if}
 													</div>
@@ -686,7 +682,7 @@
 													<div class="flex flex-col gap-3">
 														<ToggleButtonGroup
 															selected={selectedPublicationAction}
-															disabled={!can_write || !editMode}
+															disabled={!can_write}
 															on:selected={({ detail }) => {
 																selectedPublicationAction = detail
 																if (selectedPublicationAction === 'create') {
@@ -708,7 +704,7 @@
 														{#if selectedPublicationAction === 'create'}
 															<div class="flex gap-3">
 																<input
-																	disabled={!can_write || !editMode}
+																	disabled={!can_write}
 																	type="text"
 																	bind:value={publication_name}
 																	placeholder={'Publication Name'}
@@ -719,8 +715,7 @@
 																	variant="border"
 																	disabled={emptyStringTrimmed(publication_name) ||
 																		(relations && relations.length === 0) ||
-																		!can_write ||
-																		!editMode}
+																		!can_write}
 																	on:click={createPublication}>Create</Button
 																>
 															</div>
@@ -732,10 +727,10 @@
 																bind:relations
 																bind:items={publicationItems}
 																bind:publication_name
-																disabled={!editMode}
+																disabled={!can_write}
 															/>
 														{/if}
-														<RelationPicker {can_write} bind:relations disabled={!editMode} />
+														<RelationPicker {can_write} bind:relations disabled={!can_write} />
 													</div>
 												</Section></div
 											>

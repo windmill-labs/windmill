@@ -7,7 +7,6 @@
 	import ScriptPicker from '$lib/components/ScriptPicker.svelte'
 	import { usedTriggerKinds, userStore, workspaceStore } from '$lib/stores'
 	import { canWrite, emptyString, sendUserToast } from '$lib/utils'
-	import { createEventDispatcher } from 'svelte'
 	import Section from '$lib/components/Section.svelte'
 	import { Loader2 } from 'lucide-svelte'
 	import Label from '$lib/components/Label.svelte'
@@ -22,12 +21,12 @@
 	import type { Snippet } from 'svelte'
 	import TriggerEditorToolbar from '../TriggerEditorToolbar.svelte'
 	import { saveMqttTriggerFromCfg } from './utils'
+	import { handleConfigChange } from '../utils'
 
 	interface Props {
 		useDrawer?: boolean
 		description?: Snippet | undefined
 		hideTarget?: boolean
-		editMode?: boolean
 		hideTooltips?: boolean
 		isEditor?: boolean
 		allowDraft?: boolean
@@ -35,20 +34,29 @@
 		isDraftOnly?: boolean
 		customLabel?: Snippet
 		isDeployed?: boolean
+		onConfigChange?: (cfg: Record<string, any>, saveDisabled: boolean, updated: boolean) => void
+		onCaptureConfigChange?: (cfg: Record<string, any>, isValid: boolean) => void
+		onUpdate?: (path?: string) => void
+		onDelete?: () => void
+		onReset?: () => void
 	}
 
 	let {
 		useDrawer = true,
 		description = undefined,
 		hideTarget = false,
-		editMode = true,
 		hideTooltips = false,
 		isEditor = false,
 		allowDraft = false,
 		hasDraft = false,
 		isDraftOnly = false,
 		customLabel = undefined,
-		isDeployed = false
+		isDeployed = false,
+		onConfigChange = undefined,
+		onCaptureConfigChange = undefined,
+		onUpdate = undefined,
+		onDelete = undefined,
+		onReset = undefined
 	}: Props = $props()
 
 	let mqtt_resource_path: string = $state('')
@@ -74,10 +82,13 @@
 	let client_id: string | undefined = $state(undefined)
 	let isValid: boolean | undefined = $state(undefined)
 	let initialConfig = $state<Record<string, any> | undefined>(undefined)
-	let neverSaved = $state(false)
 	let deploymentLoading = $state(false)
 
-	const dispatch = createEventDispatcher()
+	const mqttConfig = $derived.by(getSaveCfg)
+	const captureConfig = $derived.by(isEditor ? getCaptureConfig : () => ({}))
+	const saveDisabled = $derived(
+		pathError != '' || emptyString(script_path) || !can_write || !isValid
+	)
 
 	$effect(() => {
 		is_flow = itemKind === 'flow'
@@ -102,6 +113,9 @@
 		} catch (err) {
 			sendUserToast(`Could not load mqtt trigger: ${err.body}`, true)
 		} finally {
+			if (!defaultConfig) {
+				initialConfig = getSaveCfg()
+			}
 			clearTimeout(loadingTimeout)
 			drawerLoading = false
 			showLoading = false
@@ -111,8 +125,7 @@
 	export async function openNew(
 		nis_flow: boolean,
 		fixedScriptPath_?: string,
-		defaultValues?: Record<string, any>,
-		newDraft?: boolean
+		defaultValues?: Record<string, any>
 	) {
 		let loadingTimeout = setTimeout(() => {
 			showLoading = true
@@ -134,10 +147,6 @@
 			client_version = defaultValues?.client_version ?? 'v5'
 			client_id = defaultValues?.client_id ?? ''
 			enabled = defaultValues?.enabled ?? false
-			if (newDraft) {
-				neverSaved = true
-				toggleEditMode(true)
-			}
 		} finally {
 			clearTimeout(loadingTimeout)
 			drawerLoading = false
@@ -174,7 +183,6 @@
 					workspace: $workspaceStore!,
 					path: initialPath
 				})
-				initialConfig = s
 				loadTriggerConfig(s)
 			}
 		} catch (error) {
@@ -197,10 +205,16 @@
 		}
 	}
 
-	function saveDraft() {
-		const cfg = getSaveCfg()
-		dispatch('save-draft', { cfg })
-		toggleEditMode(false)
+	function getCaptureConfig(): Record<string, any> {
+		return {
+			mqtt_resource_path,
+			subscribe_topics,
+			client_version,
+			v3_config,
+			v5_config,
+			client_id,
+			path
+		}
 	}
 
 	async function updateTrigger(): Promise<void> {
@@ -214,41 +228,30 @@
 			usedTriggerKinds
 		)
 		if (isSaved) {
-			dispatch('update', cfg.path)
+			onUpdate?.(cfg.path)
 			drawer?.closeDrawer()
-			toggleEditMode(false)
 		}
 		deploymentLoading = false
 	}
 
-	function toggleEditMode(newEditMode: boolean) {
-		dispatch('toggle-edit-mode', newEditMode)
-	}
-
-	async function handleToggleEnabled(e: CustomEvent<boolean>) {
-		enabled = e.detail
+	async function handleToggleEnabled(newEnabled: boolean) {
+		enabled = newEnabled
 		if (!isDraftOnly && !hasDraft) {
 			await MqttTriggerService.setMqttTriggerEnabled({
 				path: initialPath,
 				workspace: $workspaceStore ?? '',
-				requestBody: { enabled: e.detail }
+				requestBody: { enabled: newEnabled }
 			})
-			sendUserToast(`${e.detail ? 'enabled' : 'disabled'} MQTT trigger ${initialPath}`)
+			sendUserToast(`${newEnabled ? 'enabled' : 'disabled'} MQTT trigger ${initialPath}`)
 		}
 	}
 
 	$effect(() => {
-		isEditor &&
-			dispatch('update-config', {
-				mqtt_resource_path,
-				subscribe_topics,
-				client_version,
-				v3_config,
-				v5_config,
-				client_id,
-				isValid,
-				path
-			})
+		onCaptureConfigChange?.(captureConfig, isValid ?? false)
+	})
+
+	$effect(() => {
+		handleConfigChange(mqttConfig, initialConfig, saveDisabled, edit, onConfigChange)
 	})
 </script>
 
@@ -288,32 +291,17 @@
 			{isDraftOnly}
 			{hasDraft}
 			permissions={drawerLoading || !can_write ? 'none' : 'create'}
-			{editMode}
-			saveDisabled={pathError != '' || emptyString(script_path) || !can_write || !isValid}
+			{saveDisabled}
 			{enabled}
 			{allowDraft}
 			{edit}
 			isLoading={deploymentLoading}
-			{neverSaved}
 			{isEditor}
 			{isDeployed}
-			on:save-draft={() => {
-				saveDraft()
-			}}
-			on:deploy={() => {
-				updateTrigger()
-			}}
-			on:reset
-			on:delete
-			on:edit={() => {
-				initialConfig = getSaveCfg()
-				toggleEditMode(true)
-			}}
-			on:cancel={() => {
-				loadTrigger(initialConfig)
-				toggleEditMode(false)
-			}}
-			on:toggle-enabled={handleToggleEnabled}
+			onUpdate={updateTrigger}
+			{onReset}
+			{onDelete}
+			onToggleEnabled={handleToggleEnabled}
 		/>
 	{/if}
 {/snippet}
@@ -350,7 +338,7 @@
 						namePlaceholder="mqtt_trigger"
 						kind="mqtt_trigger"
 						disabled={!can_write}
-						disableEditing={!editMode}
+						disableEditing={!can_write}
 					/>
 				</Label>
 			</div>
@@ -362,7 +350,7 @@
 					</p>
 					<div class="flex flex-row mb-2">
 						<ScriptPicker
-							disabled={fixedScriptPath != '' || !can_write || !editMode}
+							disabled={fixedScriptPath != '' || !can_write}
 							initialPath={fixedScriptPath || initialScriptPath}
 							kinds={['script']}
 							allowFlow={true}
@@ -376,7 +364,7 @@
 								btnClasses="ml-4 mt-2"
 								color="dark"
 								size="xs"
-								disabled={!editMode}
+								disabled={!can_write}
 								href={itemKind === 'flow' ? '/flows/add?hub=61' : '/scripts/add?hub=hub%2F19655'}
 								target="_blank"
 							>
@@ -390,7 +378,7 @@
 			<MqttEditorConfigSection
 				bind:mqtt_resource_path
 				bind:subscribe_topics
-				can_write={can_write && editMode}
+				{can_write}
 				bind:client_version
 				bind:v3_config
 				bind:v5_config

@@ -17,16 +17,38 @@
 	import SqsCapture from './sqs/SqsCapture.svelte'
 	import GcpCapture from './gcp/GcpCapture.svelte'
 
-	export let isFlow: boolean
-	export let path: string
-	export let hasPreprocessor: boolean
-	export let canHavePreprocessor: boolean
-	export let captureType: CaptureTriggerKind = 'webhook'
-	export let data: any = {}
-	export let connectionInfo: ConnectionInfo | undefined = undefined
-	export let args: Record<string, any> = {}
+	interface Props {
+		isFlow: boolean
+		path: string
+		hasPreprocessor: boolean
+		canHavePreprocessor: boolean
+		captureType?: CaptureTriggerKind
+		data?: any
+		connectionInfo?: ConnectionInfo | undefined
+		args?: Record<string, any>
+		isValid?: boolean
+	}
 
-	let captureLoading = false
+	let {
+		isFlow,
+		path,
+		hasPreprocessor,
+		canHavePreprocessor,
+		captureType = 'webhook',
+		data = {},
+		connectionInfo = $bindable(undefined),
+		args = $bindable({}),
+		isValid = false
+	}: Props = $props()
+
+	let captureLoading = $state(false)
+	let captureActive = $state(false)
+	let captureConfigs: {
+		[key: string]: CaptureConfig
+	} = $state({})
+	let ready = $state(false)
+
+	const config: CaptureConfig | undefined = $derived(captureConfigs[captureType])
 
 	export async function setConfig(): Promise<boolean> {
 		if (captureType === 'postgres') {
@@ -39,7 +61,7 @@
 				invalidRelations(args.publication.table_to_track, {
 					showError: true,
 					trackSchemaTableError: true
-				}) === true
+				}) !== ''
 			) {
 				return false
 			}
@@ -60,12 +82,6 @@
 			return false
 		}
 	}
-
-	let captureActive = false
-
-	let captureConfigs: {
-		[key: string]: CaptureConfig
-	} = {}
 
 	function isStreamingCapture() {
 		if (captureType === 'gcp' && args.delivery_type === 'push') {
@@ -118,7 +134,6 @@
 		}
 	}
 
-	let ready = false
 	function setDefaultArgs(captureConfigs: { [key: string]: CaptureConfig }) {
 		if (captureType in captureConfigs) {
 			const triggerConfig = captureConfigs[captureType].trigger_config
@@ -157,9 +172,6 @@
 		}
 	}
 
-	let config: CaptureConfig | undefined
-	$: config = captureConfigs[captureType]
-
 	function updateConnectionInfo(config: CaptureConfig | undefined, captureActive: boolean) {
 		if (isStreamingCapture() && config && captureActive) {
 			const serverEnabled = getServerEnabled(config)
@@ -175,26 +187,29 @@
 			connectionInfo = undefined
 		}
 	}
-	$: updateConnectionInfo(config, captureActive)
+	$effect(() => {
+		updateConnectionInfo(config, captureActive)
+	})
 
-	let captureInfo: CaptureInfo
-	$: captureInfo = {
+	let captureInfo: CaptureInfo = $derived({
 		active: captureActive,
 		hasPreprocessor,
 		canHavePreprocessor,
 		isFlow,
 		path,
 		connectionInfo
-	}
+	})
 
-	$: args && (captureActive = false)
+	$effect(() => {
+		args && (captureActive = false)
+	})
 </script>
 
 {#key ready}
 	<div class="flex flex-col gap-4 w-full h-full">
 		{#if captureType === 'websocket'}
 			<WebsocketCapture
-				isValid={args.isValid}
+				{isValid}
 				{captureInfo}
 				{captureLoading}
 				on:applyArgs
@@ -235,7 +250,7 @@
 				runnableArgs={data?.args}
 				route_path={args.route_path}
 				http_method={args.http_method}
-				isValid={args.isValid}
+				{isValid}
 				{captureInfo}
 				{hasPreprocessor}
 				{isFlow}
@@ -262,7 +277,7 @@
 			/>
 		{:else if captureType === 'kafka'}
 			<KafkaCapture
-				isValid={args.isValid}
+				{isValid}
 				{captureInfo}
 				{hasPreprocessor}
 				{isFlow}
@@ -275,7 +290,7 @@
 			/>
 		{:else if captureType === 'nats'}
 			<NatsCapture
-				isValid={args.isValid}
+				{isValid}
 				{captureInfo}
 				{hasPreprocessor}
 				{isFlow}
@@ -288,7 +303,7 @@
 			/>
 		{:else if captureType === 'mqtt'}
 			<MqttCapture
-				isValid={args.isValid}
+				{isValid}
 				{captureInfo}
 				{hasPreprocessor}
 				{isFlow}
@@ -301,7 +316,7 @@
 			/>
 		{:else if captureType === 'sqs'}
 			<SqsCapture
-				isValid={args.isValid}
+				{isValid}
 				{captureInfo}
 				{hasPreprocessor}
 				{isFlow}
@@ -314,7 +329,7 @@
 			/>
 		{:else if captureType === 'gcp'}
 			<GcpCapture
-				isValid={args.isValid}
+				{isValid}
 				{captureInfo}
 				{hasPreprocessor}
 				{isFlow}

@@ -1,51 +1,46 @@
 <script lang="ts">
 	import Button from '$lib/components/common/button/Button.svelte'
-	import DropdownV2 from '$lib/components/DropdownV2.svelte'
-	import { Trash, Save, Pen, X } from 'lucide-svelte'
-	import { createEventDispatcher, type Snippet } from 'svelte'
+	import { Trash, Save, RotateCcw } from 'lucide-svelte'
+	import { type Snippet } from 'svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
-
-	const dispatch = createEventDispatcher<{
-		delete: undefined
-		deploy: undefined
-		reset: undefined
-		'save-draft': undefined
-		edit: undefined
-		cancel: undefined
-		'toggle-enabled': boolean
-	}>()
 
 	interface Props {
 		isDraftOnly: any
 		hasDraft: any
-		editMode: any
 		saveDisabled: any
 		enabled: boolean | undefined
 		allowDraft: any
 		edit: any
 		isLoading: any
-		neverSaved: any
 		isEditor: any
 		permissions: 'write' | 'create' | 'none'
 		isDeployed: boolean
 		extra?: Snippet
+		onDelete?: () => void
+		onReset?: () => void
+		onToggleEnabled?: (enabled: boolean) => void
+		onUpdate?: () => void
 	}
 
 	let {
 		isDraftOnly,
 		hasDraft,
-		editMode,
 		saveDisabled,
 		enabled,
 		allowDraft,
 		edit,
 		isLoading,
-		neverSaved,
 		isEditor,
 		permissions,
 		isDeployed,
-		extra
+		extra,
+		onDelete,
+		onReset,
+		onToggleEnabled,
+		onUpdate
 	}: Props = $props()
+
+	const canSave = $derived((permissions === 'write' && edit) || permissions === 'create')
 </script>
 
 {#if !allowDraft}
@@ -53,21 +48,21 @@
 	{#if edit && enabled !== undefined}
 		<Toggle
 			size="sm"
-			disabled={permissions === 'none' || !editMode}
+			disabled={permissions === 'none'}
 			checked={enabled}
 			options={{ right: 'enable', left: 'disable' }}
 			on:change={({ detail }) => {
-				dispatch('toggle-enabled', detail)
+				onToggleEnabled?.(detail)
 			}}
 		/>
 	{/if}
-	{#if (permissions === 'write' && edit) || (permissions === 'create' && editMode)}
+	{#if canSave}
 		<Button
 			size="sm"
 			startIcon={{ icon: Save }}
 			disabled={saveDisabled}
 			on:click={() => {
-				dispatch('deploy')
+				onUpdate?.()
 			}}
 			loading={isLoading}
 		>
@@ -83,8 +78,8 @@
 					disabled={permissions === 'none'}
 					checked={enabled}
 					options={{ left: 'enable' }}
-					on:change={(e) => {
-						dispatch('toggle-enabled', e.detail)
+					on:change={({ detail }) => {
+						onToggleEnabled?.(detail)
 					}}
 				/>
 			</div>
@@ -96,76 +91,47 @@
 				iconOnly
 				color={'light'}
 				on:click={() => {
-					dispatch('delete')
+					onDelete?.()
 				}}
 				btnClasses="hover:bg-red-500 hover:text-white"
 			/>
 		{:else if hasDraft && isEditor}
-			<DropdownV2
-				items={[
-					{
-						displayName: 'Reset to deployed version',
-						action: () => {
-							dispatch('reset')
-						}
-					}
-				]}
-			/>
+			<Button
+				size="xs"
+				startIcon={{ icon: RotateCcw }}
+				color={'light'}
+				on:click={() => {
+					onReset?.()
+				}}
+			>
+				Reset to deployed version
+			</Button>
 		{/if}
-		{#if (permissions === 'write' && isEditor) || permissions === 'create'}
-			{#if editMode}
-				{@const dropdownItems =
-					(!isDraftOnly || isDeployed) && isEditor
-						? [
-								{
-									label: 'Deploy changes now',
-									onClick: () => {
-										dispatch('deploy')
-									},
-									disabled: saveDisabled
-								}
-							]
-						: undefined}
-				<Button
-					size="xs"
-					startIcon={{ icon: Save }}
-					disabled={saveDisabled}
-					on:click={() => {
-						if (isEditor) {
-							dispatch('save-draft')
-						} else if ((permissions === 'write' && edit) || permissions === 'create') {
-							dispatch('deploy')
-						}
-					}}
-					{dropdownItems}
-					loading={isLoading}
-				>
-					{isEditor ? 'Save draft' : 'Save'}
-				</Button>
-			{/if}
-			{#if !editMode}
-				<Button
-					size="xs"
-					color="light"
-					startIcon={{ icon: Pen }}
-					on:click={() => {
-						dispatch('edit')
-					}}
-				>
-					Edit
-				</Button>
-			{:else if editMode && !neverSaved}
-				<Button
-					size="xs"
-					color="light"
-					startIcon={{ icon: X }}
-					on:click={() => {
-						dispatch('cancel')
-					}}
-				>
-					Cancel
-				</Button>
-			{/if}
+		{#if canSave && isDeployed}
+			<!-- TODO : Move dropdown in a badge (deployed with flow) 
+			 {@const dropdownItems =
+				(!isDraftOnly || isDeployed) && isEditor
+					? [
+							{
+								label: 'Deploy changes now',
+								onClick: () => {
+									dispatch('deploy')
+								},
+								disabled: saveDisabled
+							}
+						]
+					: undefined} -->
+			<Button
+				size="xs"
+				startIcon={{ icon: Save }}
+				disabled={saveDisabled}
+				on:click={() => {
+					onUpdate?.()
+				}}
+				loading={isLoading}
+			>
+				Save
+			</Button>
 		{/if}
 	</div>
 {/if}

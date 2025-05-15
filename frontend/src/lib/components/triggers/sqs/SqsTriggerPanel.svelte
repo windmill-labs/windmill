@@ -10,18 +10,17 @@
 		selectedTrigger,
 		isFlow,
 		path,
-		edit,
 		isDeployed = false,
 		defaultValues = undefined,
 		newDraft = false,
-		isEditor = false,
-		customLabel = undefined
+		customLabel = undefined,
+		...props
 	} = $props()
 	let sqsTriggerEditor: SqsTriggerEditorInner | undefined = $state(undefined)
 
 	async function openSqsTriggerEditor(isFlow: boolean, isDraft: boolean) {
 		if (isDraft) {
-			sqsTriggerEditor?.openNew(isFlow, path, defaultValues, newDraft)
+			sqsTriggerEditor?.openNew(isFlow, path, defaultValues)
 		} else {
 			sqsTriggerEditor?.openEdit(selectedTrigger.path, isFlow, selectedTrigger.draftConfig)
 		}
@@ -46,19 +45,12 @@
 			bind:this={sqsTriggerEditor}
 			useDrawer={false}
 			hideTarget
-			editMode={edit}
 			hideTooltips={!isDeployed}
 			allowDraft={true}
 			hasDraft={!!selectedTrigger.draftConfig}
 			isDraftOnly={selectedTrigger.isDraft}
-			{isEditor}
 			{customLabel}
-			on:toggle-edit-mode
-			on:update-config
-			on:update
-			on:delete
-			on:save-draft
-			on:reset
+			{...props}
 		>
 			{#snippet description()}
 				<Description link="https://www.windmill.dev/docs/core_concepts/sqs_triggers">
