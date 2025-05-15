@@ -4,7 +4,7 @@ use serde_json::value::RawValue;
 use std::collections::HashMap;
 use windmill_common::{
     error::Result,
-    flows::{FlowModule, FlowModuleValue},
+    flows::FlowModuleValue,
     get_latest_deployed_hash_for_path, get_latest_flow_version_info_for_path,
     scripts::{ScriptHash, ScriptLang},
     worker::to_raw_value,
@@ -130,25 +130,15 @@ fn runnable_format_from_schema_without_preprocessor(
 }
 
 fn runnable_format_from_preprocessor_args(
-    trigger_kind: &TriggerKind,
     args: Option<Vec<windmill_parser::Arg>>,
 ) -> RunnableFormat {
     if let Some(args) = args {
-        if args.iter().any(|arg| arg.name == "wm_trigger") {
+        if args.iter().any(|arg| arg.name == "wm_trigger")
+            || (args.len() > 0 && args.iter().all(|arg| arg.name != "event"))
+        {
             RunnableFormat { version: RunnableFormatVersion::V1, has_preprocessor: true }
         } else {
-            match trigger_kind {
-                // when preprocessor, as soon as we have a payload **top-level** arg, we know it's v1
-                TriggerKind::Mqtt if args.iter().any(|arg| arg.name == "payload") => {
-                    RunnableFormat { version: RunnableFormatVersion::V1, has_preprocessor: true }
-                }
-                TriggerKind::Kafka | TriggerKind::Nats
-                    if args.iter().any(|arg| arg.name == "msg") =>
-                {
-                    RunnableFormat { version: RunnableFormatVersion::V1, has_preprocessor: true }
-                }
-                _ => RunnableFormat { version: RunnableFormatVersion::V2, has_preprocessor: true },
-            }
+            RunnableFormat { version: RunnableFormatVersion::V2, has_preprocessor: true }
         }
     } else {
         RunnableFormat { version: RunnableFormatVersion::V2, has_preprocessor: true }
@@ -290,7 +280,7 @@ pub async fn get_runnable_format(
                 _ => None,
             };
 
-            runnable_format_from_preprocessor_args(trigger_kind, args)
+            runnable_format_from_preprocessor_args(args)
         }
         PreprocessorInfo::NoPreprocessor { schema } => {
             runnable_format_from_schema_without_preprocessor(trigger_kind, schema)
