@@ -5,9 +5,6 @@
  * Please see the included NOTICE for copyright information and
  * LICENSE-AGPL for a copy of the license.
  */
-
-use std::time::Instant;
-
 use axum::{body::Body, response::Response};
 use regex::Regex;
 use serde::{Deserialize, Deserializer};
@@ -422,5 +419,5 @@ pub async fn acknowledge_all_critical_alerts(
 #[derive(Clone)]
 pub struct ExpiringCacheEntry<T> {
     pub value: T,
-    pub expiry: Instant,
+    pub expiry: std::time::Instant,
 }
