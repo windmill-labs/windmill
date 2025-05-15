@@ -782,6 +782,14 @@ async fn fix_job_completed_index(db: &DB) -> Result<(), Error> {
         .execute(db)
         .await?;
     });
+
+    run_windmill_migration!("job_completed_completed_at", db, |tx| {
+        sqlx::query!(
+            "CREATE INDEX CONCURRENTLY IF NOT EXISTS ix_job_completed_completed_at ON v2_job_completed (completed_at DESC)"
+        )
+        .execute(db)
+        .await?;
+    });
     Ok(())
 }
 

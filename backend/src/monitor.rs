@@ -62,7 +62,11 @@ use windmill_common::{
     users::truncate_token,
     utils::{empty_as_none, now_from_db, rd_string, report_critical_error, Mode},
     worker::{
-        load_env_vars, load_init_bash_from_env, load_whitelist_env_vars_from_env, load_worker_config, reload_custom_tags_setting, store_pull_query, store_suspended_pull_query, update_min_version, Connection, WorkerConfig, DEFAULT_TAGS_PER_WORKSPACE, DEFAULT_TAGS_WORKSPACES, INDEXER_CONFIG, SCRIPT_TOKEN_EXPIRY, SMTP_CONFIG, TMP_DIR, WORKER_CONFIG, WORKER_GROUP
+        load_env_vars, load_init_bash_from_env, load_whitelist_env_vars_from_env,
+        load_worker_config, reload_custom_tags_setting, store_pull_query,
+        store_suspended_pull_query, update_min_version, Connection, WorkerConfig,
+        DEFAULT_TAGS_PER_WORKSPACE, DEFAULT_TAGS_WORKSPACES, INDEXER_CONFIG, SCRIPT_TOKEN_EXPIRY,
+        SMTP_CONFIG, TMP_DIR, WORKER_CONFIG, WORKER_GROUP,
     },
     KillpillSender, BASE_URL, CRITICAL_ALERTS_ON_DB_OVERSIZE, CRITICAL_ALERT_MUTE_UI_ENABLED,
     CRITICAL_ERROR_CHANNELS, DB, DEFAULT_HUB_BASE_URL, HUB_BASE_URL, JOB_RETENTION_SECS,
@@ -829,11 +833,7 @@ pub async fn delete_expired_items(db: &DB) -> () {
             Ok(mut tx) => {
                 let deleted_jobs = sqlx::query_scalar!(
                     "DELETE FROM v2_job_completed c
-                    USING v2_job j
-                    WHERE
-                        created_at <= now() - ($1::bigint::text || ' s')::interval
-                        AND completed_at + ($1::bigint::text || ' s')::interval <= now()
-                        AND c.id = j.id
+                    WHERE completed_at + ($1::bigint::text || ' s')::interval <= now()
                     RETURNING c.id",
                     job_retention_secs
                 )
