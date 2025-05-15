@@ -249,6 +249,7 @@ export async function main(message: string, name: string, step_id: string) {
 `
 
 const POSTGRES_INIT_CODE = `-- to pin the database use '-- database f/your/path'
+-- to stream a large query result to your workspace storage use '-- s3'
 -- to only return the result of the last query use '--return_last_result'
 -- $1 name1 = default arg
 -- $2 name2
@@ -259,6 +260,7 @@ UPDATE demo SET col2 = \$4::INT WHERE col2 = \$2::INT;
 `
 
 const MYSQL_INIT_CODE = `-- to pin the database use '-- database f/your/path'
+-- to stream a large query result to your workspace storage use '-- s3'
 -- :name1 (text) = default arg
 -- :name2 (int)
 -- :name3 (int)
@@ -267,6 +269,7 @@ UPDATE demo SET col2 = :name3 WHERE col2 = :name2;
 `
 
 const BIGQUERY_INIT_CODE = `-- to pin the database use '-- database f/your/path'
+-- to stream a large query result to your workspace storage use '-- s3'
 -- @name1 (string) = default arg
 -- @name2 (integer)
 -- @name3 (string[])
@@ -276,6 +279,7 @@ UPDATE \`demodb.demo\` SET col2 = @name4 WHERE col2 = @name2;
 `
 
 const ORACLEDB_INIT_CODE = `-- to pin the database use '-- database f/your/path'
+-- to stream a large query result to your workspace storage use '-- s3'
 -- :name1 (text) = default arg
 -- :name2 (int)
 -- :name3 (int)
@@ -284,6 +288,7 @@ UPDATE demo SET col2 = :name3 WHERE col2 = :name2;
 `
 
 const SNOWFLAKE_INIT_CODE = `-- to pin the database use '-- database f/your/path'
+-- to stream a large query result to your workspace storage use '-- s3'
 -- ? name1 (varchar) = default arg
 -- ? name2 (int)
 INSERT INTO demo VALUES (?, ?);
@@ -294,6 +299,7 @@ UPDATE demo SET col2 = ? WHERE col2 = ?;
 
 const MSSQL_INIT_CODE = `-- return_last_result
 -- to pin the database use '-- database f/your/path'
+-- to stream a large query result to your workspace storage use '-- s3'
 -- @P1 name1 (varchar) = default arg
 -- @P2 name2 (int)
 -- @P3 name3 (int)
