@@ -1,4 +1,4 @@
-name: "Notify Discord on New PR (with Thread)"
+name: PR Opened
 
 on:
   pull_request:
@@ -7,28 +7,12 @@ on:
       - ready_for_review
 
 jobs:
-  discord_notification:
-    # still guard out any drafts (just in case)
+  call_reusable_workflow:
     if: github.event.pull_request.draft == false
-    runs-on: ubicloud-standard-2
-    steps:
-      - name: Send Discord notification and start a thread
-        env:
-          WEBHOOK_URL: ${{ secrets.DISCORD_PR_REVIEWS_WEBHOOK }}
-          PR_TITLE: ${{ github.event.pull_request.title }}
-          PR_URL: ${{ github.event.pull_request.html_url }}
-          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
-        run: |
-          payload=$(jq -n \
-            --arg content "${PR_URL}" \
-            --arg thread "$PR_TITLE by \`${PR_AUTHOR}\`" \
-            '{
-              content: $content,
-              thread_name: $thread,
-              auto_archive_duration: 10080
-            }'
-          )
-          curl -H "Content-Type: application/json" \
-               -X POST \
-               --data "$payload" \
-               "$WEBHOOK_URL"
+    uses: ./.github/workflows/shareable-pr-opened.yml
+    with:
+      PR_TITLE: ${{ github.event.pull_request.title }}
+      PR_URL: ${{ github.event.pull_request.html_url }}
+      PR_AUTHOR: ${{ github.event.pull_request.user.login }}
+    secrets:
+      DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}

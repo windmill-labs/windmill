@@ -1,0 +1,46 @@
+name: "Notify Discord when a PR is opened"
+
+on:
+  workflow_call:
+    inputs:
+      PR_TITLE:
+        description: "The title of the PR"
+        required: true
+        type: string
+      PR_URL:
+        description: "The URL of the PR"
+        required: true
+        type: string
+      PR_AUTHOR:
+        description: "The author of the PR"
+        required: true
+        type: string
+    secrets:
+      DISCORD_WEBHOOK_URL:
+        description: "Discord Webhook URL"
+        required: true
+
+jobs:
+  send_notification:
+    runs-on: ubicloud-standard-2
+    steps:
+      - name: Send Discord notification and start a thread
+        env:
+          WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          PR_TITLE: ${{ inputs.PR_TITLE }}
+          PR_URL: ${{ inputs.PR_URL }}
+          PR_AUTHOR: ${{ inputs.PR_AUTHOR }}
+        run: |
+          payload=$(jq -n \
+            --arg content "${PR_URL}" \
+            --arg thread "$PR_TITLE by \`${PR_AUTHOR}\`" \
+            '{
+              content: $content,
+              thread_name: $thread,
+              auto_archive_duration: 10080
+            }'
+          )
+          curl -H "Content-Type: application/json" \
+               -X POST \
+               --data "$payload" \
+               "$WEBHOOK_URL"
