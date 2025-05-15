@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM v2_job_completed c\n                    WHERE completed_at + ($1::bigint::text || ' s')::interval <= now()\n                    RETURNING c.id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "4330f2e24ba625271540adce4bb4a221435179236bdc941c43dbb92fcf9b5fba"
+}
