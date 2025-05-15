@@ -17,9 +17,34 @@ use object_store::{aws::AmazonS3Builder, ClientOptions};
 use reqwest::header::HeaderMap;
 use serde::{Deserialize, Serialize};
 #[cfg(feature = "parquet")]
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 #[cfg(feature = "parquet")]
 use tokio::sync::RwLock;
+
+#[cfg(feature = "parquet")]
+use crate::error::to_anyhow;
+#[cfg(feature = "parquet")]
+use crate::utils::rd_string;
+#[cfg(feature = "parquet")]
+use bytes::Bytes;
+#[cfg(feature = "parquet")]
+use datafusion::arrow::array::{RecordBatch, RecordBatchWriter};
+#[cfg(feature = "parquet")]
+use datafusion::arrow::error::ArrowError;
+#[cfg(feature = "parquet")]
+use datafusion::arrow::json::writer::JsonArray;
+#[cfg(feature = "parquet")]
+use datafusion::arrow::{csv, json};
+#[cfg(feature = "parquet")]
+use datafusion::parquet::arrow::ArrowWriter;
+#[cfg(feature = "parquet")]
+use futures::TryStreamExt;
+#[cfg(feature = "parquet")]
+use std::io::Write;
+#[cfg(feature = "parquet")]
+use tokio::task;
+#[cfg(feature = "parquet")]
+use windmill_parser_sql::S3ModeFormat;
 
 #[cfg(feature = "parquet")]
 lazy_static::lazy_static! {
@@ -551,4 +576,185 @@ pub fn bundle(w_id: &str, hash: &str) -> String {
 
 pub fn raw_app(w_id: &str, version: &i64) -> String {
     format!("/home/rfiszel/raw_app/{}/{}", w_id, version)
+}
+
+// Originally used a Arc<Mutex<dyn RecordBatchWriter + Send>>
+// But cannot call .close() on it because it moves the value and the object is not Sized
+#[cfg(feature = "parquet")]
+enum RecordBatchWriterEnum {
+    Parquet(ArrowWriter<ChannelWriter>),
+    Csv(csv::Writer<ChannelWriter>),
+    Json(json::Writer<ChannelWriter, JsonArray>),
+}
+
+#[cfg(feature = "parquet")]
+impl RecordBatchWriter for RecordBatchWriterEnum {
+    fn write(&mut self, batch: &RecordBatch) -> Result<(), ArrowError> {
+        match self {
+            RecordBatchWriterEnum::Parquet(w) => w.write(batch).map_err(|e| e.into()),
+            RecordBatchWriterEnum::Csv(w) => w.write(batch),
+            RecordBatchWriterEnum::Json(w) => w.write(batch),
+        }
+    }
+
+    fn close(self) -> Result<(), ArrowError> {
+        match self {
+            RecordBatchWriterEnum::Parquet(w) => w.close().map_err(|e| e.into()).map(drop),
+            RecordBatchWriterEnum::Csv(w) => w.close(),
+            RecordBatchWriterEnum::Json(w) => w.close(),
+        }
+    }
+}
+
+#[cfg(feature = "parquet")]
+struct ChannelWriter {
+    sender: tokio::sync::mpsc::Sender<anyhow::Result<Bytes>>,
+}
+
+#[cfg(feature = "parquet")]
+impl Write for ChannelWriter {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        let data: Bytes = buf.to_vec().into();
+        self.sender.blocking_send(Ok(data)).map_err(|e| {
+            std::io::Error::new(
+                std::io::ErrorKind::BrokenPipe,
+                format!("Channel send error: {}", e),
+            )
+        })?;
+        Ok(buf.len())
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
+#[cfg(not(feature = "parquet"))]
+pub async fn convert_json_line_stream<E: Into<anyhow::Error>>(
+    mut _stream: impl futures::TryStreamExt<Item = Result<serde_json::Value, E>> + Unpin,
+    _output_format: windmill_parser_sql::S3ModeFormat,
+) -> anyhow::Result<impl futures::TryStreamExt<Item = anyhow::Result<bytes::Bytes>>> {
+    Ok(async_stream::stream! {
+        yield Err(anyhow::anyhow!("Parquet feature is not enabled. Cannot convert JSON line stream."));
+    })
+}
+
+#[cfg(feature = "parquet")]
+pub async fn convert_json_line_stream<E: Into<anyhow::Error>>(
+    mut stream: impl TryStreamExt<Item = Result<serde_json::Value, E>> + Unpin,
+    output_format: S3ModeFormat,
+) -> anyhow::Result<impl TryStreamExt<Item = anyhow::Result<bytes::Bytes>>> {
+    const MAX_MPSC_SIZE: usize = 1000;
+
+    use datafusion::{execution::context::SessionContext, prelude::NdJsonReadOptions};
+    use futures::StreamExt;
+    use std::path::PathBuf;
+    use tokio::io::AsyncWriteExt;
+
+    let mut path = PathBuf::from(std::env::temp_dir());
+    path.push(format!("{}.json", rd_string(8)));
+    let path_str = path
+        .to_str()
+        .ok_or_else(|| anyhow::anyhow!("Invalid path"))?;
+
+    // Write the stream to a temporary file
+    let mut file: tokio::fs::File = tokio::fs::File::create(&path).await.map_err(to_anyhow)?;
+
+    while let Some(chunk) = stream.next().await {
+        match chunk {
+            Ok(chunk) => {
+                // Convert the chunk to bytes and write it to the file
+                let b: bytes::Bytes = serde_json::to_string(&chunk)?.into();
+                file.write_all(&b).await?;
+                file.write_all(b"\n").await?;
+            }
+            Err(e) => {
+                tokio::fs::remove_file(&path).await?;
+                return Err(e.into());
+            }
+        }
+    }
+
+    file.flush().await?;
+    file.sync_all().await?;
+    drop(file);
+
+    let ctx = SessionContext::new();
+    ctx.register_json(
+        "my_table",
+        path_str,
+        NdJsonReadOptions { ..Default::default() },
+    )
+    .await
+    .map_err(to_anyhow)?;
+
+    let df = ctx.sql("SELECT * FROM my_table").await.map_err(to_anyhow)?;
+    let schema = df.schema().clone().into();
+    let mut datafusion_stream = df.execute_stream().await.map_err(to_anyhow)?;
+
+    let (tx, rx) = tokio::sync::mpsc::channel(MAX_MPSC_SIZE);
+    let writer: Arc<Mutex<Option<RecordBatchWriterEnum>>> =
+        Arc::new(Mutex::new(Some(match output_format {
+            S3ModeFormat::Parquet => RecordBatchWriterEnum::Parquet(
+                ArrowWriter::try_new(ChannelWriter { sender: tx.clone() }, Arc::new(schema), None)
+                    .map_err(to_anyhow)?,
+            ),
+
+            S3ModeFormat::Csv => {
+                RecordBatchWriterEnum::Csv(csv::Writer::new(ChannelWriter { sender: tx.clone() }))
+            }
+            S3ModeFormat::Json => {
+                RecordBatchWriterEnum::Json(json::Writer::<_, JsonArray>::new(ChannelWriter {
+                    sender: tx.clone(),
+                }))
+            }
+        })));
+
+    // This spawn is so that the data is sent in the background. Else the function would deadlock
+    // when hitting the mpsc channel limit
+    task::spawn(async move {
+        while let Some(batch_result) = datafusion_stream.next().await {
+            let batch: RecordBatch = match batch_result {
+                Ok(batch) => batch,
+                Err(e) => {
+                    tracing::error!("Error in datafusion stream: {:?}", &e);
+                    match tx.send(Err(e.into())).await {
+                        Ok(_) => {}
+                        Err(e) => tracing::error!("Failed to write error to channel: {:?}", &e),
+                    }
+                    break;
+                }
+            };
+            let writer = writer.clone();
+            // Writer calls blocking_send which would crash if called from the async context
+            let write_result = task::spawn_blocking(move || {
+                // SAFETY: We await so the code is actually sequential, lock unwrap cannot panic
+                // Second unwrap is ok because we initialized the option with Some
+                writer.lock().unwrap().as_mut().unwrap().write(&batch)
+            })
+            .await;
+            match write_result {
+                Ok(Ok(_)) => {}
+                Ok(Err(e)) => {
+                    tracing::error!("Error writing batch: {:?}", &e);
+                    match tx.send(Err(e.into())).await {
+                        Ok(_) => {}
+                        Err(e) => tracing::error!("Failed to write error to channel: {:?}", &e),
+                    }
+                }
+                Err(e) => tracing::error!("Error in blocking task: {:?}", &e),
+            };
+        }
+        task::spawn_blocking(move || {
+            writer.lock().unwrap().take().unwrap().close()?;
+            drop(writer);
+            Ok::<_, anyhow::Error>(())
+        })
+        .await??;
+        drop(ctx);
+        tokio::fs::remove_file(&path).await?;
+        Ok::<_, anyhow::Error>(())
+    });
+
+    Ok(tokio_stream::wrappers::ReceiverStream::new(rx))
 }

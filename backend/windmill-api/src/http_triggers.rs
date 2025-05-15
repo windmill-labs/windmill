@@ -1,10 +1,11 @@
-use crate::http_trigger_auth::{self};
+#[cfg(feature = "http_trigger")]
+use crate::http_trigger_args::{HttpMethod, RawHttpTriggerArgs};
 #[cfg(feature = "parquet")]
 use crate::job_helpers_ee::get_workspace_s3_resource;
 use crate::resources::try_get_resource_from_db_as;
+use crate::trigger_helpers::{get_runnable_format, RunnableId};
 use crate::utils::non_empty_str;
 use crate::{
-    args::try_from_request_body,
     auth::{AuthCache, OptTokened},
     db::{ApiAuthed, DB},
     jobs::{
@@ -15,7 +16,7 @@ use crate::{
 };
 use axum::response::Response;
 use axum::{
-    extract::{Path, Query, Request},
+    extract::{Path, Query},
     response::IntoResponse,
     routing::{delete, get, post},
     Extension, Json, Router,
@@ -38,8 +39,9 @@ use windmill_common::{
     error::{self, JsonResult},
     s3_helpers::S3Object,
     utils::{not_found_if_none, paginate, require_admin, Pagination, StripPath},
-    worker::{to_raw_value, CLOUD_HOSTED},
+    worker::CLOUD_HOSTED,
 };
+use windmill_queue::TriggerKind;
 
 lazy_static::lazy_static! {
     static ref ROUTE_PATH_KEY_RE: regex::Regex = regex::Regex::new(r"/?:[-\w]+").unwrap();
@@ -79,31 +81,6 @@ pub fn workspaced_service() -> Router {
         .route("/delete/*path", delete(delete_trigger))
         .route("/exists/*path", get(exists_trigger))
         .route("/route_exists", post(exists_route))
-}
-
-#[derive(Serialize, Deserialize, sqlx::Type, Debug)]
-#[sqlx(type_name = "HTTP_METHOD", rename_all = "lowercase")]
-#[serde(rename_all = "lowercase")]
-pub enum HttpMethod {
-    Get,
-    Post,
-    Put,
-    Delete,
-    Patch,
-}
-
-impl TryFrom<&http::Method> for HttpMethod {
-    type Error = error::Error;
-    fn try_from(method: &http::Method) -> Result<Self, Self::Error> {
-        match method {
-            &http::Method::GET => Ok(HttpMethod::Get),
-            &http::Method::POST => Ok(HttpMethod::Post),
-            &http::Method::PUT => Ok(HttpMethod::Put),
-            &http::Method::DELETE => Ok(HttpMethod::Delete),
-            &http::Method::PATCH => Ok(HttpMethod::Patch),
-            _ => Err(error::Error::BadRequest("Invalid HTTP method".to_string())),
-        }
-    }
 }
 
 #[derive(sqlx::Type, Serialize, Deserialize, Debug, PartialEq, Clone, Copy)]
@@ -902,42 +879,14 @@ async fn get_http_route_trigger(
     Ok((trigger, route_path.0, params, authed))
 }
 
-pub async fn build_http_trigger_extra(
-    route_path: &str,
-    called_path: &str,
-    method: &http::Method,
-    params: &HashMap<String, String>,
-    query: &HashMap<String, String>,
-    headers: &HeaderMap,
-) -> Box<serde_json::value::RawValue> {
-    let headers = headers
-        .iter()
-        .map(|(k, v)| (k.to_string(), v.to_str().unwrap_or("").to_string()))
-        .collect::<HashMap<String, String>>();
-
-    to_raw_value(&serde_json::json!({
-        "kind": "http",
-        "http": {
-            "route": route_path,
-            "path": called_path,
-            "method": method.to_string().to_lowercase(),
-            "params": params,
-            "query": query,
-            "headers": headers
-        },
-    }))
-}
-
 async fn route_job(
     Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
     Extension(auth_cache): Extension<Arc<AuthCache>>,
     OptTokened { token }: OptTokened,
     Path(route_path): Path<StripPath>,
-    Query(query): Query<HashMap<String, String>>,
-    method: http::Method,
     headers: HeaderMap,
-    request: Request,
+    args: RawHttpTriggerArgs,
 ) -> Result<impl IntoResponse, Response> {
     let route_path = route_path.to_path().trim_end_matches("/");
     let (trigger, called_path, params, authed) = get_http_route_trigger(
@@ -946,25 +895,13 @@ async fn route_job(
         token.as_ref(),
         &db,
         user_db.clone(),
-        &method,
+        &args.0.metadata.method,
     )
     .await
     .map_err(|e| e.into_response())?;
 
-    let args = try_from_request_body(
-        request,
-        &(),
-        Some(match trigger.authentication_method {
-            AuthenticationMethod::CustomScript | AuthenticationMethod::Signature => true,
-            _ => trigger.raw_string,
-        }),
-        Some(trigger.wrap_body),
-    )
-    .await
-    .map_err(|e| e.into_response())?;
-
-    let mut args = args
-        .to_push_args_owned(&authed, &db, &trigger.workspace_id)
+    let args = args
+        .process_args(&authed, &db, &trigger.workspace_id, trigger.raw_string)
         .await
         .map_err(|e| e.into_response())?;
 
@@ -984,7 +921,7 @@ async fn route_job(
             };
 
             let authentication_method =
-                try_get_resource_from_db_as::<http_trigger_auth::AuthenticationMethod>(
+                try_get_resource_from_db_as::<crate::http_trigger_auth::AuthenticationMethod>(
                     authed.clone(),
                     Some(user_db.clone()),
                     &db,
@@ -995,14 +932,11 @@ async fn route_job(
                 .map_err(|e| e.into_response())?;
 
             let raw_payload = args
-                .extra
+                .0
+                .metadata
+                .raw_string
                 .as_ref()
-                .and_then(|extra| {
-                    extra
-                        .get("raw_string")
-                        .and_then(|value| Some(value.to_string()))
-                        .and_then(|raw_payload| Some(serde_json::from_str::<String>(&raw_payload)))
-                })
+                .map(|raw_payload| serde_json::from_str::<String>(raw_payload))
                 .transpose()
                 .map_err(|e| {
                     windmill_common::error::Error::SerdeJson { location: e.to_string(), error: e }
@@ -1130,20 +1064,28 @@ async fn route_job(
         }
     }
 
-    let extra = args.extra.get_or_insert_with(HashMap::new);
+    let runnable_format = get_runnable_format(
+        if trigger.is_flow {
+            RunnableId::from_flow_path(&trigger.script_path)
+        } else {
+            RunnableId::from_script_path(&trigger.script_path)
+        },
+        &trigger.workspace_id,
+        &db,
+        &TriggerKind::Http,
+    )
+    .await
+    .map_err(|e| e.into_response())?;
 
-    extra.insert(
-        "wm_trigger".to_string(),
-        build_http_trigger_extra(
+    let args = args
+        .to_args_from_format(
             &trigger.route_path,
             &called_path,
-            &method,
             &params,
-            &query,
-            &headers,
+            runnable_format,
+            trigger.wrap_body,
         )
-        .await,
-    );
+        .map_err(|e| e.into_response())?;
 
     let run_query = RunJobQuery::default();
 
@@ -1157,7 +1099,6 @@ async fn route_job(
                 StripPath(trigger.script_path.to_owned()),
                 run_query,
                 args,
-                None,
             )
             .await
             .into_response()
@@ -1170,7 +1111,6 @@ async fn route_job(
                 user_db,
                 args,
                 trigger.workspace_id.clone(),
-                None,
             )
             .await
             .into_response()
@@ -1185,7 +1125,6 @@ async fn route_job(
                 StripPath(trigger.script_path.to_owned()),
                 run_query,
                 args,
-                None,
             )
             .await
             .into_response()
@@ -1198,7 +1137,6 @@ async fn route_job(
                 user_db,
                 trigger.workspace_id.clone(),
                 args,
-                None,
             )
             .await
             .into_response()

@@ -1,6 +1,5 @@
 use std::collections::HashMap;
 
-use anyhow::anyhow;
 use futures::{stream, TryStreamExt};
 use serde_json::{json, value::RawValue};
 use sqlx::types::Json;
@@ -135,11 +134,13 @@ pub async fn do_graphql(
         .map_err(|e| Error::ExecutionErr(e.to_string()))?;
 
         if let Some(errors) = result.errors {
-            return Err(anyhow!(errors
-                .into_iter()
-                .map(|x| x.message)
-                .collect::<Vec<_>>()
-                .join("\n"),));
+            return Err(Error::ExecutionErr(
+                errors
+                    .into_iter()
+                    .map(|x| x.message)
+                    .collect::<Vec<_>>()
+                    .join("\n"),
+            ));
         }
 
         // And then check that we got back the same string we sent over.

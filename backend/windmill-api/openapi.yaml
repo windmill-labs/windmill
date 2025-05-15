@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.487.0
+  version: 1.491.1
   title: Windmill API
 
   contact:
@@ -7899,6 +7899,52 @@ paths:
         "200":
           description: Interactive slack approval message sent successfully
 
+  /w/{workspace}/jobs/teams_approval/{id}:
+    get:
+      summary: generate interactive teams approval for suspended job
+      operationId: getTeamsApprovalPayload
+      tags:
+        - job
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/JobId"
+        - name: approver
+          in: query
+          schema:
+            type: string
+        - name: message
+          in: query
+          schema:
+            type: string
+        - name: team_name
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: channel_name
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: flow_step_id
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: default_args_json
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: dynamic_enums_json
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Interactive slack approval message sent successfully
+
   /w/{workspace}/jobs_u/resume/{id}/{resume_id}/{signature}:
     get:
       summary: resume a job for a suspended flow
@@ -10982,7 +11028,11 @@ paths:
           description: a config
           content:
             application/json:
-              schema: {}
+              type: object
+              schema:
+                oneOf:
+                  - $ref: "#/components/schemas/Configs"
+                  - type: "null"
 
   /configs/update/{name}:
     post:
@@ -13136,6 +13186,36 @@ components:
           $ref: "#/components/schemas/AIProviderModel"
         code_completion_model:
           $ref: "#/components/schemas/AIProviderModel"
+
+    Alert:
+      type: object
+      properties:
+        name:
+          type: string
+        tags_to_monitor:
+          type: array
+          items:
+            type: string
+        jobs_num_threshold:
+          type: integer
+        alert_cooldown_seconds:
+          type: integer
+        alert_time_threshold_seconds:
+          type: integer
+      required:
+        - name
+        - tags_to_monitor
+        - jobs_num_threshold
+        - alert_cooldown_seconds
+        - alert_time_threshold_seconds
+
+    Configs:
+      type: object
+      properties:
+        alerts:
+          type: array
+          items:
+            $ref: '#/components/schemas/Alert'
 
     Script:
       type: object
@@ -16539,8 +16619,8 @@ components:
       properties:
         trigger_kind:
           $ref: "#/components/schemas/CaptureTriggerKind"
-        payload: {}
-        trigger_extra: {}
+        main_args: {}
+        preprocessor_args: {}
         id:
           type: integer
         created_at:
@@ -16548,7 +16628,8 @@ components:
           format: date-time
       required:
         - trigger_kind
-        - payload
+        - main_args
+        - preprocessor_args
         - id
         - created_at
     CaptureConfig:

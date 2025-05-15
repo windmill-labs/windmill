@@ -788,6 +788,29 @@ Windmill Community Edition {GIT_VERSION}
                                                     tracing::info!("Workspace premium change detected, invalidating workspace premium cache: {}", workspace_id);
                                                     windmill_common::workspaces::IS_PREMIUM_CACHE.remove(workspace_id);
                                                 },
+                                                "notify_runnable_version_change" => {
+                                                    let payload = n.payload();
+                                                    tracing::info!("Runnable version change detected: {}", payload);
+                                                    match payload.split(':').collect::<Vec<&str>>().as_slice() {
+                                                        [workspace_id, source_type, path] => {
+                                                            let key = (workspace_id.to_string(), path.to_string());
+                                                            match source_type {
+                                                                &"script" => {
+                                                                    windmill_common::DEPLOYED_SCRIPT_HASH_CACHE.remove(&key);
+                                                                }
+                                                                &"flow" => {
+                                                                    windmill_common::FLOW_VERSION_CACHE.remove(&key);
+                                                                },
+                                                                _ => {
+                                                                    tracing::warn!("Unknown runnable version change payload: {}", payload);
+                                                                }
+                                                            }
+                                                        },
+                                                        _ => {
+                                                            tracing::warn!("Unknown runnable version change payload: {}", payload);
+                                                        }
+                                                    }
+                                                },
                                                 "notify_global_setting_change" => {
                                                     tracing::info!("Global setting change detected: {}", n.payload());
                                                     match n.payload() {
@@ -1109,6 +1132,7 @@ async fn listen_pg(url: &str) -> Option<PgListener> {
         "notify_global_setting_change",
         "notify_webhook_change",
         "notify_workspace_envs_change",
+        "notify_runnable_version_change",
     ];
     #[cfg(feature = "cloud")]
     channels.push("notify_workspace_premium_change");
