@@ -26,7 +26,7 @@ use windmill_common::{
     error::{self, Error},
     jobs::JobKind,
     utils::WarnAfterExt,
-    worker::{make_pull_query, make_suspended_pull_query, to_raw_value, Connection, WORKER_GROUP},
+    worker::{make_pull_query, to_raw_value, Connection, WORKER_GROUP},
     KillpillSender, DB,
 };
 
@@ -222,16 +222,6 @@ pub fn start_interactive_worker_shell(
             {
                 if let Ok(_) = killpill_rx.try_recv() {
                     tracing::info!(worker = %worker_name, hostname = %hostname, "killpill received on worker waiting for valid key");
-                    let valid_key = *LICENSE_KEY_VALID.read().await;
-
-                    if !valid_key {
-                        tracing::error!(
-                            worker = %worker_name, hostname = %hostname,
-                            "Invalid license key, workers require a valid license key, sleeping for 10s waiting for valid key to be set"
-                        );
-                        tokio::time::sleep(Duration::from_secs(10)).await;
-                        continue;
-                    }
                     break;
                 }
             }
