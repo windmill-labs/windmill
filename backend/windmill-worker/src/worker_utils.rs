@@ -9,7 +9,7 @@ use windmill_common::{
         update_worker_ping_main_loop_query, Connection, Ping, PingType, WORKER_CONFIG,
         WORKER_GROUP,
     },
-    KillpillSender,
+    KillpillSender, DB,
 };
 
 use crate::{
@@ -319,4 +319,28 @@ pub(crate) async fn queue_vacuum(conn: &Connection, worker_name: &str, hostname:
             ()
         }
     }
+}
+
+pub struct TagAndConcurrencyKey {
+    pub tag: Option<String>,
+    pub concurrency_key: Option<String>,
+}
+
+pub async fn get_tag_and_concurrency_key(job_id: &Uuid, db: &DB) -> Option<TagAndConcurrencyKey> {
+    sqlx::query_as!(
+        TagAndConcurrencyKey,
+        "
+        WITH j AS (
+            SELECT raw_flow->>'concurrency_key' as concurrency_key, runnable_path FROM v2_job
+            WHERE id = $1
+        )
+        SELECT tag, j.concurrency_key
+            FROM flow, j
+            WHERE path = j.runnable_path
+        ",
+        job_id
+    )
+    .fetch_optional(db)
+    .await.ok().flatten()
+
 }
