@@ -1056,7 +1056,9 @@ pub async fn update_flow_status_after_job_completion_internal(
                     "error while updating args in preprocessing step: {e:#}"
                 ))
             })?;
-            return Ok(UpdateFlowStatusAfterJobCompletion::PreprocessingStep);
+            if success {
+                return Ok(UpdateFlowStatusAfterJobCompletion::PreprocessingStep);
+            }
         }
 
         
