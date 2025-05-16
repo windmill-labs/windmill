@@ -9,6 +9,7 @@ import initRegexParsers, {
 	parse_sql,
 	parse_mysql,
 	parse_oracledb,
+	parse_duckdb,
 	parse_bigquery,
 	parse_snowflake,
 	parse_graphql,
@@ -149,6 +150,8 @@ export async function inferArgs(
 					...inferedSchema.args
 				]
 			}
+		} else if (language == 'duckdb') {
+			inferedSchema = JSON.parse(parse_duckdb(code))
 		} else if (language == 'snowflake') {
 			inferedSchema = JSON.parse(parse_snowflake(code))
 			if (inlineDBResource === undefined) {
@@ -165,9 +168,6 @@ export async function inferArgs(
 					...inferedSchema.args
 				]
 			}
-		} else if (language == 'duckdb') {
-			// TODO duckdb
-			inferedSchema = {} as any
 		} else if (language == 'graphql') {
 			await initWasmRegex()
 			inferedSchema = JSON.parse(parse_graphql(code))

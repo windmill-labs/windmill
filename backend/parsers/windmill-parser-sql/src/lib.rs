@@ -85,8 +85,7 @@ pub fn parse_bigquery_sig(code: &str) -> anyhow::Result<MainArgSignature> {
 
 pub fn parse_duckdb_sig(code: &str) -> anyhow::Result<MainArgSignature> {
     let parsed = parse_duckdb_file(&code)?;
-    if let Some(x) = parsed {
-        let args = x;
+    if let Some(args) = parsed {
         Ok(MainArgSignature {
             star_args: false,
             star_kwargs: false,
@@ -229,7 +228,7 @@ lazy_static::lazy_static! {
     static ref RE_ARG_BIGQUERY: Regex = Regex::new(r#"(?m)^-- @(\w+) \((\w+(?:\[\])?)\)(?: ?\= ?(.+))? *(?:\r|\n|$)"#).unwrap();
 
     // -- $name (type) = default
-    static ref RE_ARG_DUCKDB: Regex = Regex::new(r#"(?m)^-- $(\w+) \((\w+(?:\[\])?)\)(?: ?\= ?(.+))? *(?:\r|\n|$)"#).unwrap();
+    static ref RE_ARG_DUCKDB: Regex = Regex::new(r#"(?m)^-- \$\d+ (\w+) \((\w+)\)(?: ?\= ?(.+))? *(?:\r|\n|$)"#).unwrap();
 
     static ref RE_ARG_SNOWFLAKE: Regex = Regex::new(r#"(?m)^-- \? (\w+) \((\w+)\)(?: ?\= ?(.+))? *(?:\r|\n|$)"#).unwrap();
 

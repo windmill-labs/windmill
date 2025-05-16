@@ -307,12 +307,9 @@ INSERT INTO demo VALUES (@P1, @P2);
 UPDATE demo SET col2 = @P3 WHERE col2 = @P2;
 `
 
-const DUCKDB_INIT_CODE = `-- @name1 (string) = default arg
--- @name2 (integer)
--- @name3 (string[])
--- @name4 (integer)
-INSERT INTO demo VALUES (@name1, @name2, @name3);
-UPDATE demo SET col2 = @name4 WHERE col2 = @name2;
+const DUCKDB_INIT_CODE = `-- $1 parquet_file (s3)
+SELECT * FROM $1;
+ATTACH '$res:u/demo/amazing_postgres' AS db (TYPE postgres, READ_ONLY);
 `
 
 const GRAPHQL_INIT_CODE = `query($name4: String, $name2: Int, $name3: [String]) {
