@@ -11,7 +11,63 @@ use windmill_parser_sql::{parse_duckdb_sig, parse_s3_mode, parse_sql_blocks};
 use windmill_queue::{CanceledBy, MiniPulledJob};
 
 use crate::common::{build_args_values, OccupancyMetrics};
+use crate::handle_child::run_future_with_polling_update_job_poller;
 use crate::AuthedClient;
+
+fn do_duckdb_inner(
+    conn: &duckdb::Connection,
+    query: &str,
+    job_args: &[duckdb::types::Value],
+    skip_collect: bool,
+    column_order: &mut Option<Vec<String>>,
+) -> Result<Box<RawValue>> {
+    let mut rows_vec = vec![];
+
+    let mut stmt = conn
+        .prepare(&query)
+        .map_err(|e| Error::ExecutionErr(e.to_string()))?;
+
+    let mut rows = stmt
+        .query(params_from_iter(job_args.iter()))
+        .map_err(|e| Error::ExecutionErr(e.to_string()))?;
+
+    if skip_collect {
+        return Ok(to_raw_value(&json!([])));
+    }
+
+    // Statement needs to be stepped at least once or stmt.column_names() will panic
+    let mut column_names = None;
+    loop {
+        let row = rows.next();
+        match row {
+            Ok(Some(row)) => {
+                // Set column names if not already set
+                let stmt = row.as_ref();
+                let column_names = match column_names.as_ref() {
+                    Some(column_names) => column_names,
+                    None => {
+                        column_names = Some(stmt.column_names());
+                        column_names.as_ref().unwrap()
+                    }
+                };
+
+                let row = row_to_value(row, &column_names.as_slice())
+                    .map_err(|e| Error::ExecutionErr(e.to_string()))?;
+                rows_vec.push(row);
+            }
+            Ok(None) => break,
+            Err(e) => {
+                return Err(Error::ExecutionErr(e.to_string()));
+            }
+        }
+    }
+
+    if let (Some(column_order), Some(column_names)) = (column_order.as_mut(), column_names) {
+        *column_order = column_names.clone();
+    }
+
+    return Ok(to_raw_value(&rows_vec));
+}
 
 pub async fn do_duckdb(
     job: &MiniPulledJob,
@@ -22,7 +78,7 @@ pub async fn do_duckdb(
     canceled_by: &mut Option<CanceledBy>,
     worker_name: &str,
     column_order: &mut Option<Vec<String>>,
-    occupation_metrics: &mut OccupancyMetrics,
+    occupancy_metrics: &mut OccupancyMetrics,
 ) -> Result<Box<RawValue>> {
     let sig = parse_duckdb_sig(query)?.args;
     let job_args = build_args_values(job, client, conn).await?;
@@ -47,69 +103,50 @@ pub async fn do_duckdb(
 
     let query_block_list = parse_sql_blocks(query);
 
-    let conn = duckdb::Connection::open_in_memory()
-        .map_err(|e| Error::ConnectingToDatabase(e.to_string()))?;
-
-    if let Some(s3) = parse_s3_mode(query)? {
-        let s3_conn_str = client
-            .get_duckdb_connection_settings(
-                DuckdbConnectionSettingsQueryV2 { s3_resource_path: None, storage: s3.storage },
-                job.workspace_id.as_str(),
-            )
-            .await?;
-        conn.execute_batch(s3_conn_str.connection_settings_str.as_str())
+    let result_f = async {
+        let conn = duckdb::Connection::open_in_memory()
             .map_err(|e| Error::ConnectingToDatabase(e.to_string()))?;
-    }
 
-    for (query_block_index, query_block) in query_block_list.iter().enumerate() {
-        let mut rows_vec = vec![];
-
-        let mut stmt = conn
-            .prepare(&query_block)
-            .map_err(|e| Error::ExecutionErr(e.to_string()))?;
-
-        let mut rows = stmt
-            .query(params_from_iter(job_args.iter()))
-            .map_err(|e| Error::ExecutionErr(e.to_string()))?;
-
-        let is_last = query_block_index == query_block_list.len() - 1;
-        if !is_last {
-            continue;
-        }
-        // Statement needs to be stepped at least once or stmt.column_names() will panic
-        let mut column_names = None;
-        loop {
-            let row = rows.next();
-            match row {
-                Ok(Some(row)) => {
-                    // Set column names if not already set
-                    let stmt = row.as_ref();
-                    let column_names = match column_names.as_ref() {
-                        Some(column_names) => column_names,
-                        None => {
-                            column_names = Some(stmt.column_names());
-                            column_names.as_ref().unwrap()
-                        }
-                    };
-
-                    let row = row_to_value(row, &column_names.as_slice())
-                        .map_err(|e| Error::ExecutionErr(e.to_string()))?;
-                    rows_vec.push(row);
-                }
-                Ok(None) => break,
-                Err(e) => {
-                    return Err(Error::ExecutionErr(e.to_string()));
-                }
-            }
+        if let Some(s3) = parse_s3_mode(query)? {
+            let s3_conn_str = client
+                .get_duckdb_connection_settings(
+                    DuckdbConnectionSettingsQueryV2 { s3_resource_path: None, storage: s3.storage },
+                    job.workspace_id.as_str(),
+                )
+                .await?;
+            conn.execute_batch(s3_conn_str.connection_settings_str.as_str())
+                .map_err(|e| Error::ConnectingToDatabase(e.to_string()))?;
         }
 
-        if let (Some(column_order), Some(column_names)) = (column_order.as_mut(), column_names) {
-            *column_order = column_names.clone();
+        let mut result = None;
+        for (query_block_index, query_block) in query_block_list.iter().enumerate() {
+            result = Some(
+                do_duckdb_inner(
+                    &conn,
+                    query_block,
+                    &job_args,
+                    query_block_index != query_block_list.len() - 1,
+                    column_order,
+                )
+                .map_err(|e| Error::ExecutionErr(e.to_string()))?,
+            );
         }
-
-        return Ok(to_raw_value(&rows_vec));
-    }
-    Ok(to_raw_value(&json!([])))
+        Ok(result.unwrap_or_else(|| to_raw_value(&json!([]))))
+    };
+    let result = run_future_with_polling_update_job_poller(
+        job.id,
+        job.timeout,
+        conn,
+        mem_peak,
+        canceled_by,
+        result_f,
+        worker_name,
+        &job.workspace_id,
+        &mut Some(occupancy_metrics),
+        Box::pin(futures::stream::once(async { 0 })),
+    )
+    .await?;
+    Ok(result)
 }
 
 fn row_to_value(row: &Row<'_>, column_names: &[String]) -> Result<Box<RawValue>> {
