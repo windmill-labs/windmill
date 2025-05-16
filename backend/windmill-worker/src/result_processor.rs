@@ -45,7 +45,13 @@ use tokio::{fs::DirBuilder, task::JoinHandle, time::Instant};
 use windmill_queue::{add_completed_job, add_completed_job_error};
 
 use crate::{
-    bash_executor::ANSI_ESCAPE_RE, common::{error_to_value, read_result, save_in_cache, OccupancyMetrics}, handle_queued_job, otel_ee::add_root_flow_job_to_otlp, worker_flow::update_flow_status_after_job_completion, AuthedClient, JobCompletedReceiver, JobCompletedSender, NextJob, SameWorkerSender, SendResult, UpdateFlow, INIT_SCRIPT_TAG, KEEP_JOB_DIR, SAME_WORKER_REQUIREMENTS, SLEEP_QUEUE
+    bash_executor::ANSI_ESCAPE_RE,
+    common::{error_to_value, read_result, save_in_cache, OccupancyMetrics},
+    handle_queued_job,
+    otel_ee::add_root_flow_job_to_otlp,
+    worker_flow::update_flow_status_after_job_completion,
+    AuthedClient, JobCompletedReceiver, JobCompletedSender, NextJob, SameWorkerSender, SendResult,
+    UpdateFlow, INIT_SCRIPT_TAG, KEEP_JOB_DIR, SAME_WORKER_REQUIREMENTS, SLEEP_QUEUE,
 };
 
 lazy_static::lazy_static! {
@@ -122,7 +128,6 @@ async fn process_jc(
         add_root_flow_job_to_otlp(&root_job, success);
     }
 }
-
 
 enum JobCompletedRx {
     JobCompleted(SendResult),
@@ -206,11 +211,12 @@ pub fn start_interactive_worker_shell(
             });
         }
         let mut killpill_rx2 = killpill_rx.resubscribe();
-        let mut last_executed_job: Option<Instant> = Instant::now().checked_sub(Duration::from_millis(2500));
-       
+        let mut last_executed_job: Option<Instant> =
+            Instant::now().checked_sub(Duration::from_millis(2500));
+
         #[cfg(feature = "benchmark")]
         let mut bench = BenchmarkIter::new();
-        
+
         loop {
             #[cfg(feature = "enterprise")]
             {
@@ -240,7 +246,7 @@ pub fn start_interactive_worker_shell(
                             query.unwrap()
                         } else {
                             let query = Arc::new((
-                                make_suspended_pull_query(&[worker_name.to_owned()]),
+                                "".to_string(),
                                 make_pull_query(&[worker_name.to_owned()]),
                             ));
                             CACHE_QUERY.insert(worker_name.to_owned(), query.clone());

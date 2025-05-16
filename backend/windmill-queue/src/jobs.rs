@@ -2337,10 +2337,14 @@ pub async fn pull(
     loop {
         if let Some((query_suspended, query_no_suspend)) = query_o {
             let njob = {
-                let job = sqlx::query_as::<_, PulledJob>(query_suspended)
+                let job = if query_suspended.is_empty() {
+                    None
+                } else {
+                    sqlx::query_as::<_, PulledJob>(query_suspended)
                     .bind(worker_name)
                     .fetch_optional(db)
-                    .await?;
+                    .await?
+                };
                 if let Some(job) = job {
                     PulledJobResult { job: Some(job), suspended: true }
                 } else {
