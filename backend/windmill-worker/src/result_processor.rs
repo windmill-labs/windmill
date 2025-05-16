@@ -45,13 +45,7 @@ use tokio::{fs::DirBuilder, task::JoinHandle, time::Instant};
 use windmill_queue::{add_completed_job, add_completed_job_error};
 
 use crate::{
-    bash_executor::ANSI_ESCAPE_RE,
-    common::{error_to_value, read_result, save_in_cache, OccupancyMetrics},
-    handle_queued_job,
-    otel_ee::add_root_flow_job_to_otlp,
-    worker_flow::update_flow_status_after_job_completion,
-    AuthedClient, JobCompletedReceiver, JobCompletedSender, NextJob, SameWorkerSender, SendResult,
-    UpdateFlow, INIT_SCRIPT_TAG, KEEP_JOB_DIR, SLEEP_QUEUE,
+    bash_executor::ANSI_ESCAPE_RE, common::{error_to_value, read_result, save_in_cache, OccupancyMetrics}, handle_queued_job, otel_ee::add_root_flow_job_to_otlp, worker_flow::update_flow_status_after_job_completion, AuthedClient, JobCompletedReceiver, JobCompletedSender, NextJob, SameWorkerSender, SendResult, UpdateFlow, INIT_SCRIPT_TAG, KEEP_JOB_DIR, SAME_WORKER_REQUIREMENTS, SLEEP_QUEUE
 };
 
 lazy_static::lazy_static! {
@@ -128,6 +122,7 @@ async fn process_jc(
         add_root_flow_job_to_otlp(&root_job, success);
     }
 }
+
 
 enum JobCompletedRx {
     JobCompleted(SendResult),
@@ -844,7 +839,7 @@ pub async fn process_completed_job(
                     true,
                     result,
                     false,
-                    &same_worker_tx.expect("msg").to_owned(),
+                    &same_worker_tx.expect(SAME_WORKER_REQUIREMENTS).to_owned(),
                     &worker_dir,
                     None,
                     worker_name,
@@ -884,7 +879,7 @@ pub async fn process_completed_job(
                     false,
                     Arc::new(serde_json::value::to_raw_value(&result).unwrap()),
                     false,
-                    &same_worker_tx.expect("msg").to_owned(),
+                    &same_worker_tx.expect(SAME_WORKER_REQUIREMENTS).to_owned(),
                     &worker_dir,
                     None,
                     worker_name,
@@ -982,7 +977,7 @@ pub async fn handle_job_error(
             false,
             Arc::new(serde_json::value::to_raw_value(&wrapped_error).unwrap()),
             unrecoverable,
-            &same_worker_tx.expect("msg").clone(),
+            &same_worker_tx.expect(SAME_WORKER_REQUIREMENTS).clone(),
             worker_dir,
             None,
             worker_name,

@@ -243,6 +243,7 @@ lazy_static::lazy_static! {
 const DOTNET_DEFAULT_PATH: &str = "C:\\Program Files\\dotnet\\dotnet.exe";
 #[cfg(unix)]
 const DOTNET_DEFAULT_PATH: &str = "/usr/bin/dotnet";
+pub const SAME_WORKER_REQUIREMENTS: &'static str = "SameWorkerSender is required because this job may be part of a flow";
 
 lazy_static::lazy_static! {
 
@@ -2152,7 +2153,7 @@ pub async fn handle_queued_job(
                 db,
                 &client,
                 None,
-                &same_worker_tx.expect(""),
+                &same_worker_tx.expect(SAME_WORKER_REQUIREMENTS),
                 worker_dir,
                 job_completed_tx.clone(),
                 worker_name,
