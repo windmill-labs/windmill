@@ -17,9 +17,6 @@ use windmill_common::otel_ee::FutureExt;
 
 use uuid::Uuid;
 
-#[cfg(feature = "enterprise")]
-use windmill_common::ee::LICENSE_KEY_VALID;
-
 use windmill_common::{
     add_time,
     cache::Cache,
