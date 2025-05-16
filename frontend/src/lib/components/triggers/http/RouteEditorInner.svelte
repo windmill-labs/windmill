@@ -448,7 +448,7 @@
 										size="xs"
 										href={itemKind === 'flow'
 											? '/flows/add?hub=62'
-											: '/scripts/add?hub=hub%2F11627'}
+											: '/scripts/add?hub=hub%2F19669'}
 										target="_blank">Create from template</Button
 									>
 								{/if}
