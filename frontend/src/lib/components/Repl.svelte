@@ -9,7 +9,7 @@
 	import { twMerge } from 'tailwind-merge'
 	import { TerminalIcon } from 'lucide-svelte'
 	import PanelSection from './apps/editor/settingsPanel/common/PanelSection.svelte'
-	import { Button } from './common'
+	import { Badge, Button } from './common'
 	import StepHistory, { type StepHistoryData } from './flows/propPicker/StepHistory.svelte'
 
 	let container: HTMLDivElement
@@ -153,9 +153,23 @@
 		</PanelSection>
 	</Pane>
 	<Pane size={75}>
-		<div class="flex flex-col gap-1">
-			<input type="text" placeholder="Working directory" bind:value={working_directory} />
-			<div bind:this={container}></div>
+		<div class="m-1">
+			<div class="flex justify-start w-full">
+			<Badge
+				color="gray"
+				class="center-center !bg-surface-secondary !text-tertiary  !h-[24px] rounded-r-none border"
+			>
+				Working directory
+			</Badge>
+			<input
+				type="text"
+				readonly
+				value={working_directory}
+				size={working_directory.length || 50}
+				class="font-mono !text-xs max-w-[calc(100%-70px)] !w-auto !h-[24px] !py-0 !border-l-0 !rounded-l-none"
+			/>
+		</div>
+		<div bind:this={container}></div>
 		</div>
 	</Pane>
 </Splitpanes>

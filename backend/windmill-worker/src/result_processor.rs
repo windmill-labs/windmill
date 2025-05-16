@@ -212,6 +212,9 @@ pub fn start_interactive_worker_shell(
         }
         let mut killpill_rx2 = killpill_rx.resubscribe();
         let mut last_executed_job: Option<Instant> = Instant::now().checked_sub(Duration::from_millis(2500));
+       
+        #[cfg(feature = "benchmark")]
+        let mut bench = BenchmarkIter::new();
         
         loop {
             #[cfg(feature = "enterprise")]

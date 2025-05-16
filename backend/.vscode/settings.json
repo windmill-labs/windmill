@@ -12,5 +12,5 @@
   "conventionalCommits.scopes": [
     "restructring triggers, decoding trigger message on work"
   ],
-  "rust-analyzer.cargo.features": ["enterprise", "license"]
+  "rust-analyzer.cargo.features": ["enterprise", "license", "benchmark"]
 }
