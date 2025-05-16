@@ -498,14 +498,27 @@ const FETCH_INIT_CODE = `export async function main(
 }`
 
 const BASH_INIT_CODE = `# shellcheck shell=bash
-# arguments of the form X="$I" are parsed as parameters X of type string
+# Arguments of the form X="$1" are parsed as parameters X of type string.
 msg="$1"
 dflt="\${2:-default value}"
 
-# the last line of the stdout is the return value
-# unless you write json to './result.json' or a string to './result.out'
+# Output behavior:
+# By default, the last line printed to stdout will be used as the return value.
+#
+# To override this behavior:
+# - Write a valid JSON object to './result.json' if the output should be parsed as structured JSON.
+#   ⚠️ The contents must be valid JSON, or the result will be rejected.
+#   Example:
+#     echo '{ "message": "Hello world" }' > ./result.json
+#
+# - Write a plain string to './result.out' if the output should be returned as a raw string.
+#   Example:
+#     echo "Hello world" > ./result.out
+
+# Default behavior (return the string via stdout)
 echo "Hello $msg"
 `
+
 
 const DENO_INIT_CODE_TRIGGER = `import * as wmill from "npm:windmill-client@${__pkg__.version}"
 

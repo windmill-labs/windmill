@@ -307,7 +307,7 @@ pub async fn store_suspended_pull_query(wc: &WorkerConfig) {
 }
 
 pub fn make_pull_query(tags: &[String]) -> String {
-    format_pull_query(format!(
+    let query = format_pull_query(format!(
         "SELECT id
         FROM v2_job_queue
         WHERE running = false AND tag IN ({}) AND scheduled_for <= now()
@@ -315,7 +315,8 @@ pub fn make_pull_query(tags: &[String]) -> String {
         FOR UPDATE SKIP LOCKED
         LIMIT 1",
         tags.iter().map(|x| format!("'{x}'")).join(", ")
-    ))
+    ));
+    query
 }
 
 pub async fn store_pull_query(wc: &WorkerConfig) {

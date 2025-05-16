@@ -3154,11 +3154,12 @@ async fn check_tag_available_for_workspace(
         let tags = get_scope_tags(authed);
 
         if let Some(tags) = tags {
-            if !tags.contains(&tag.as_str()) {
+            if !tags.contains(&tag.as_str()) && !authed.is_admin {
                 return Err(Error::BadRequest(format!(
-                    "Tag {tag} is not available in your scope"
+                    "Tag '{tag}' is not available in your scope. Only admins can use tags outside of the allowed set: {:?}",
+                    tags
                 )));
-            }
+            }            
         }
 
         let custom_tags_per_w = CUSTOM_TAGS_PER_WORKSPACE.read().await;
@@ -3172,11 +3173,14 @@ async fn check_tag_available_for_workspace(
                 .contains(&w_id.to_string())
         {
             Ok(())
-        } else {
+        } else if !authed.is_admin {
             return Err(error::Error::BadRequest(format!(
-                "Tag {tag} cannot be used on workspace {w_id}: (CUSTOM_TAGS: {:?})",
-                custom_tags_per_w
+                "Tag '{tag}' cannot be used on workspace '{w_id}' by non-admin users. \
+                Only admins are allowed to use tags that are not included in the allowed CUSTOM_TAGS: {:?}",
+                custom_tags_per_w.0
             )));
+        } else {
+            Ok(())
         }
     } else {
         Ok(())
