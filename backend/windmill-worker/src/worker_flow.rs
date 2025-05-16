@@ -996,12 +996,13 @@ pub async fn update_flow_status_after_job_completion_internal(
                 .fetch_one(db)
                 .await
                 .map_err(|e| {
-                    Error::internal_err(format!("error while fetching args: {e:#}"))
+                    Error::internal_err(format!("error while fetching preprocessing args: {e:#}"))
                 })?;
-                let args = PushArgs { args: &args.unwrap_or_default().0, extra: None };
+                let args_hm = args.unwrap_or_default().0;
+                let args = PushArgs::from(&args_hm);
                 if let Some(ck) = concurrency_key {
                     let mut tx = db.begin().await?;
-                    insert_concurrency_key(&flow_job.workspace_id, &args, &flow_job.runnable_path, JobKind::Flow, Some(ck), &mut tx, flow_job.id).await?;
+                    insert_concurrency_key(&flow_job.workspace_id, &args, &flow_job.runnable_path, JobKind::Flow, Some(ck), &mut tx, flow).await?;
                     tx.commit().await?;
                 }
                 if let Some(t) = tag {
@@ -1009,7 +1010,7 @@ pub async fn update_flow_status_after_job_completion_internal(
                 }
             }  else if let Some(ck) = concurrency_key {
                 let mut tx = db.begin().await?;
-                insert_concurrency_key(&flow_job.workspace_id, &PushArgs { args: &HashMap::new(), extra: None }, &flow_job.runnable_path, JobKind::Flow, Some(ck), &mut tx, flow_job.id).await?;
+                insert_concurrency_key(&flow_job.workspace_id, &PushArgs::from(&HashMap::new()), &flow_job.runnable_path, JobKind::Flow, Some(ck), &mut tx, flow).await?;
                 tx.commit().await?;
             }
 
