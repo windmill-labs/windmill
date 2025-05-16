@@ -235,29 +235,18 @@ fn json_value_to_duckdb_value(
             }
         }
 
-        serde_json::Value::Array(arr) => {
-            // TODO
-            return Err(Error::ExecutionErr(
-                "Unimplemented: duckdb array type".to_string(),
-            ));
-            //     duckdb::types::Value::Array(
-            //     arr.iter()
-            //         .map(|val| convert_json_to_duckdb_value(val))
-            //         .collect(),
-            // )
-        }
+        serde_json::Value::Array(arr) => duckdb::types::Value::Array(
+            arr.iter()
+                .map(|val| json_value_to_duckdb_value(val, arg_type))
+                .collect::<Result<Vec<_>>>()?,
+        ),
 
-        serde_json::Value::Object(map) => {
-            // TODO
-            return Err(Error::ExecutionErr(
-                "Unimplemented: duckdb map type".to_string(),
-            ));
-            // duckdb::types::Value::Struct(
-            //     map.iter()
-            //         .map(|(k, v)| (k.clone(), convert_json_to_duckdb_value(v)))
-            //         .collect(),
-            // )
-        }
+        serde_json::Value::Object(map) => duckdb::types::Value::Struct(
+            map.iter()
+                .map(|(k, v)| Ok((k.clone(), json_value_to_duckdb_value(v, arg_type)?)))
+                .collect::<Result<Vec<_>>>()?
+                .into(),
+        ),
 
         value @ _ => {
             return Err(Error::ExecutionErr(format!(
