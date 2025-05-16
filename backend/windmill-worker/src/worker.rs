@@ -15,6 +15,7 @@ use windmill_common::{
     agent_workers::DECODED_AGENT_TOKEN,
     apps::AppScriptId,
     cache::{future::FutureCachedExt, ScriptData, ScriptMetadata},
+    s3_helpers::{DuckdbConnectionSettingsQueryV2, DuckdbConnectionSettingsResponse},
     schema::{should_validate_schema, SchemaValidator},
     scripts::PREVIEW_IS_TAR_CODEBASE_HASH,
     utils::WarnAfterExt,
@@ -524,13 +525,54 @@ impl AuthedClient {
         }
     }
 
+    pub async fn get_duckdb_connection_settings(
+        &self,
+        s3: DuckdbConnectionSettingsQueryV2,
+        workspace_id: &str,
+    ) -> error::Result<DuckdbConnectionSettingsResponse> {
+        let url = format!(
+            "{}/api/w/{}/job_helpers/v2/duckdb_connection_settings",
+            self.base_internal_url, workspace_id
+        );
+        let response = self
+            .force_client
+            .as_ref()
+            .unwrap_or(&HTTP_CLIENT)
+            .post(url)
+            .header(
+                reqwest::header::CONTENT_TYPE,
+                reqwest::header::HeaderValue::from_static("application/json"),
+            )
+            .header(
+                reqwest::header::ACCEPT,
+                reqwest::header::HeaderValue::from_static("application/json"),
+            )
+            .header(
+                reqwest::header::AUTHORIZATION,
+                reqwest::header::HeaderValue::from_str(&format!("Bearer {}", self.token))
+                    .map_err(|e| error::Error::BadConfig(e.to_string()))?,
+            )
+            .body(serde_json::to_string(&s3).map_err(to_anyhow)?)
+            .send()
+            .await
+            .context(format!("Sent get_duckdb_connection_settings request",))
+            .map_err(error::Error::from)?;
+        match response.status().as_u16() {
+            200u16 => Ok(response
+                .json::<DuckdbConnectionSettingsResponse>()
+                .await
+                .context("decoding duckdb_connection_settings response as json")?),
+            _ => Err(anyhow::anyhow!(response.text().await.unwrap_or_default()))?,
+        }
+    }
+
     pub async fn upload_s3_file<S>(
         &self,
         workspace_id: &str,
         object_key: String,
         storage: Option<String>,
         body: S,
-    ) -> error::Result<Response>
+    ) -> error::Result<()>
     where
         S: futures::stream::TryStream + Send + 'static,
         S::Error: Into<Box<dyn std::error::Error + Send + Sync>>,
@@ -540,7 +582,8 @@ impl AuthedClient {
         if let Some(storage) = storage {
             query.push(("storage", storage));
         }
-        self.force_client
+        let response = self
+            .force_client
             .as_ref()
             .unwrap_or(&HTTP_CLIENT)
             .post(format!(
@@ -561,7 +604,12 @@ impl AuthedClient {
             .send()
             .await
             .context(format!("Sent upload_s3_file request",))
-            .map_err(error::Error::from)
+            .map_err(error::Error::from)?;
+
+        match response.status().as_u16() {
+            200u16 => Ok(()),
+            _ => Err(anyhow::anyhow!(response.text().await.unwrap_or_default()))?,
+        }
     }
 }
 

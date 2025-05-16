@@ -5,8 +5,9 @@ use rust_decimal::Decimal;
 use serde_json::json;
 use serde_json::value::RawValue;
 use windmill_common::error::{Error, Result};
+use windmill_common::s3_helpers::DuckdbConnectionSettingsQueryV2;
 use windmill_common::worker::{to_raw_value, Connection};
-use windmill_parser_sql::{parse_duckdb_sig, parse_sql_blocks};
+use windmill_parser_sql::{parse_duckdb_sig, parse_s3_mode, parse_sql_blocks};
 use windmill_queue::{CanceledBy, MiniPulledJob};
 
 use crate::common::{build_args_values, OccupancyMetrics};
@@ -48,6 +49,17 @@ pub async fn do_duckdb(
 
     let conn = duckdb::Connection::open_in_memory()
         .map_err(|e| Error::ConnectingToDatabase(e.to_string()))?;
+
+    if let Some(s3) = parse_s3_mode(query)? {
+        let s3_conn_str = client
+            .get_duckdb_connection_settings(
+                DuckdbConnectionSettingsQueryV2 { s3_resource_path: None, storage: s3.storage },
+                job.workspace_id.as_str(),
+            )
+            .await?;
+        conn.execute_batch(s3_conn_str.connection_settings_str.as_str())
+            .map_err(|e| Error::ConnectingToDatabase(e.to_string()))?;
+    }
 
     for (query_block_index, query_block) in query_block_list.iter().enumerate() {
         let mut rows_vec = vec![];
