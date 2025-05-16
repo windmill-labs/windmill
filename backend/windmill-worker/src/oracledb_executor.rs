@@ -159,7 +159,7 @@ pub fn do_oracledb_inner<'a>(
             if let Some(s3) = s3 {
                 let stream = convert_json_line_stream(rows_stream.boxed(), s3.format).await?;
                 s3.upload(stream.boxed()).await?;
-                return Ok(serde_json::value::to_raw_value(&s3.object_key)?);
+                return Ok(to_raw_value(&s3.to_return_s3_obj()));
             } else {
                 let rows: Vec<_> = rows_stream.collect().await;
                 Ok(to_raw_value(

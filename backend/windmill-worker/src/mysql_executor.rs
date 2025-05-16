@@ -105,7 +105,7 @@ fn do_mysql_inner<'a>(
             let stream = convert_json_line_stream(rows_stream.boxed(), s3.format).await?;
             s3.upload(stream.boxed()).await?;
 
-            Ok(serde_json::value::to_raw_value(&s3.object_key)?)
+            Ok(to_raw_value(&s3.to_return_s3_obj()))
         } else {
             let rows: Vec<Row> = conn
                 .lock()
