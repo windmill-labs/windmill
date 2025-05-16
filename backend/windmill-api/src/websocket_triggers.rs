@@ -28,6 +28,7 @@ use windmill_common::{
     worker::{to_raw_value, CLOUD_HOSTED},
     INSTANCE_NAME,
 };
+use windmill_git_sync::handle_deployment_metadata;
 use windmill_queue::PushArgsOwned;
 
 use windmill_queue::TriggerKind;
@@ -195,6 +196,7 @@ async fn get_websocket_trigger(
 
 async fn create_websocket_trigger(
     authed: ApiAuthed,
+    Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
     Path(w_id): Path<String>,
     Json(ct): Json<NewWebsocketTrigger>,
@@ -244,11 +246,23 @@ async fn create_websocket_trigger(
 
     tx.commit().await?;
 
+    handle_deployment_metadata(
+        &authed.email,
+        &authed.username,
+        &db,
+        &w_id,
+        windmill_git_sync::DeployedObject::WebsocketTrigger { path: ct.path.clone() },
+        Some(format!("WebSocket trigger '{}' created", ct.path)),
+        true,
+    )
+    .await?;
+
     Ok((StatusCode::CREATED, format!("{}", ct.path)))
 }
 
 async fn update_websocket_trigger(
     authed: ApiAuthed,
+    Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
     Path((w_id, path)): Path<(String, StripPath)>,
     Json(ct): Json<EditWebsocketTrigger>,
@@ -287,16 +301,27 @@ async fn update_websocket_trigger(
         &mut *tx,
         &authed,
         "websocket_triggers.update",
-        ActionKind::Create,
+        ActionKind::Update,
         &w_id,
-        Some(path),
+        Some(&ct.path),
         None,
     )
     .await?;
 
     tx.commit().await?;
 
-    Ok(path.to_string())
+    handle_deployment_metadata(
+        &authed.email,
+        &authed.username,
+        &db,
+        &w_id,
+        windmill_git_sync::DeployedObject::WebsocketTrigger { path: ct.path.clone() },
+        Some(format!("WebSocket trigger '{}' updated", ct.path)),
+        true,
+    )
+    .await?;
+
+    Ok(ct.path.to_string())
 }
 
 #[derive(Deserialize)]
@@ -306,6 +331,7 @@ pub struct SetEnabled {
 
 pub async fn set_enabled(
     authed: ApiAuthed,
+    Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
     Path((w_id, path)): Path<(String, StripPath)>,
     Json(payload): Json<SetEnabled>,
@@ -339,6 +365,17 @@ pub async fn set_enabled(
 
     tx.commit().await?;
 
+    handle_deployment_metadata(
+        &authed.email,
+        &authed.username,
+        &db,
+        &w_id,
+        windmill_git_sync::DeployedObject::WebsocketTrigger { path: path.to_string() },
+        Some(format!("WebSocket trigger '{}' updated", path)),
+        true,
+    )
+    .await?;
+
     Ok(format!(
         "succesfully updated WebSocket trigger at path {} to status {}",
         path, payload.enabled
@@ -347,6 +384,7 @@ pub async fn set_enabled(
 
 async fn delete_websocket_trigger(
     authed: ApiAuthed,
+    Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
     Path((w_id, path)): Path<(String, StripPath)>,
 ) -> error::Result<String> {
@@ -372,6 +410,17 @@ async fn delete_websocket_trigger(
     .await?;
 
     tx.commit().await?;
+
+    handle_deployment_metadata(
+        &authed.email,
+        &authed.username,
+        &db,
+        &w_id,
+        windmill_git_sync::DeployedObject::WebsocketTrigger { path: path.to_string() },
+        Some(format!("WebSocket trigger '{}' deleted", path)),
+        true,
+    )
+    .await?;
 
     Ok(format!("WebSocket trigger {path} deleted"))
 }
