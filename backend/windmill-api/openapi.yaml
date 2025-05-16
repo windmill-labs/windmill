@@ -11030,7 +11030,6 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Configs"
-                nullable: true
 
   /configs/update/{name}:
     post:
@@ -13209,6 +13208,7 @@ components:
 
     Configs:
       type: object
+      nullable: true
       properties:
         alerts:
           type: array
