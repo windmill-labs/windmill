@@ -5,7 +5,6 @@
  * Please see the included NOTICE for copyright information and
  * LICENSE-AGPL for a copy of the license.
  */
-
 use axum::{body::Body, response::Response};
 use regex::Regex;
 use serde::{Deserialize, Deserializer};
@@ -414,4 +413,11 @@ pub async fn acknowledge_all_critical_alerts(
         workspace_id.map_or_else(|| "".to_string(), |w| format!(" for workspace_id: {}", w))
     );
     Ok("All unacknowledged critical alerts acknowledged".to_string())
+}
+
+#[cfg(feature = "http_trigger")]
+#[derive(Clone)]
+pub struct ExpiringCacheEntry<T> {
+    pub value: T,
+    pub expiry: std::time::Instant,
 }
