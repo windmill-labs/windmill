@@ -527,7 +527,7 @@ impl AuthedClient {
         object_key: String,
         storage: Option<String>,
         body: S,
-    ) -> error::Result<Response>
+    ) -> error::Result<()>
     where
         S: futures::stream::TryStream + Send + 'static,
         S::Error: Into<Box<dyn std::error::Error + Send + Sync>>,
@@ -537,7 +537,8 @@ impl AuthedClient {
         if let Some(storage) = storage {
             query.push(("storage", storage));
         }
-        self.force_client
+        let response = self
+            .force_client
             .as_ref()
             .unwrap_or(&HTTP_CLIENT)
             .post(format!(
@@ -558,7 +559,12 @@ impl AuthedClient {
             .send()
             .await
             .context(format!("Sent upload_s3_file request",))
-            .map_err(error::Error::from)
+            .map_err(error::Error::from)?;
+
+        match response.status().as_u16() {
+            200u16 => Ok(()),
+            _ => Err(anyhow::anyhow!(response.text().await.unwrap_or_default()))?,
+        }
     }
 }
 
