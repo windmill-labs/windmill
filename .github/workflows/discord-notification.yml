@@ -10,7 +10,7 @@ on:
 jobs:
   notify_discord_when_pr_opened:
     if: github.event.pull_request.draft == false
-    uses: ./.github/workflows/usable-pr-opened.yml
+    uses: ./.github/workflows/shareable-discord-notification.yml
     with:
       PR_TITLE: ${{ github.event.pull_request.title }}
       PR_URL: ${{ github.event.pull_request.html_url }}
@@ -18,15 +18,15 @@ jobs:
       PR_STATUS: "opened"
       PR_NUMBER: ${{ github.event.pull_request.number }}
     secrets:
-      DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+      DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_PR_REVIEWS_WEBHOOK }}
 
   merge_success_emoji:
     if: github.event.pull_request.merged == true
-    uses: ./.github/workflows/usable-pr-opened.yml
+    uses: ./.github/workflows/shareable-discord-notification.yml
     with:
       PR_STATUS: "merged"
       DISCORD_CHANNEL_ID: "1372204995868491786"
       DISCORD_GUILD_ID: "930051556043276338"
       PR_NUMBER: ${{ github.event.pull_request.number }}
     secrets:
-      DISCORD_BOT_TOKEN: ${{ secrets.DISCORD_BOT_TOKEN }}
+      DISCORD_BOT_TOKEN: ${{ secrets.DISCORD_PR_BOT_TOKEN }}
