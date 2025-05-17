@@ -17,7 +17,11 @@
 	export let usePointerDownOutside: boolean = false
 
 	// Use the passed createMenu function
-	const menu = createMenu({
+	const {
+		elements: { menu: menuElement, trigger, item },
+		ids: { menu: menuId },
+		states
+	} = createMenu({
 		positioning: {
 			placement,
 			fitViewport: true,
@@ -25,12 +29,6 @@
 		},
 		loop: true
 	})
-
-	//Melt
-	const {
-		elements: { trigger, menu: menuElement, item },
-		states
-	} = menu
 
 	let open = false
 
@@ -42,7 +40,8 @@
 	}
 
 	async function getMenuElements(): Promise<HTMLElement[]> {
-		return Array.from(document.querySelectorAll('[data-menu]')) as HTMLElement[]
+		const element = document.getElementById($menuId)
+		return element ? [element as HTMLElement] : []
 	}
 </script>
 
@@ -63,7 +62,6 @@
 				close()
 			}
 		}}
-		data-menu
 	>
 		<slot name="trigger" {trigger} />
 	</button>
@@ -72,7 +70,6 @@
 	{#if open}
 		<div
 			use:melt={$menuElement}
-			data-menu
 			class={twMerge(
 				'z-[6000] border w-56 origin-top-right rounded-md shadow-md focus:outline-none overflow-y-auto',
 				lightMode ? 'bg-surface-inverse' : 'bg-surface',
