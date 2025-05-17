@@ -1,4 +1,4 @@
-name: PR Opened
+name: Create discord thread when a PR is opened, react with green checkmark when PR is merged
 
 on:
   pull_request:
