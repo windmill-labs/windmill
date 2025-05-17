@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.491.5](https://github.com/windmill-labs/windmill/compare/v1.491.4...v1.491.5) (2025-05-17)
+
+
+### Bug Fixes
+
+* improve handling of custom concurrency key/tag with preprocessors ([#5762](https://github.com/windmill-labs/windmill/issues/5762)) ([59afa49](https://github.com/windmill-labs/windmill/commit/59afa493fa20cc70b6825e6356713cef84d75312))
+* S3 sql mode returns S3Object ([#5764](https://github.com/windmill-labs/windmill/issues/5764)) ([b29c6e7](https://github.com/windmill-labs/windmill/commit/b29c6e7636bb21c4d977bdaf89ac90e2a1a1086c))
+
 ## [1.491.4](https://github.com/windmill-labs/windmill/compare/v1.491.3...v1.491.4) (2025-05-15)
 
 
