@@ -1521,6 +1521,7 @@ pub async fn run_worker(
                     job_completed_tx
                         .send_job(
                             JobCompleted {
+                                preprocessed_args: None,
                                 job: Arc::new(job.job()),
                                 success: true,
                                 result: Arc::new(empty_result()),
@@ -1748,6 +1749,7 @@ pub async fn run_worker(
                                     job_completed_tx
                                         .send_job(
                                             JobCompleted {
+                                                preprocessed_args: None,
                                                 job: arc_job.clone(),
                                                 result: Arc::new(
                                                     windmill_common::worker::to_raw_value(
@@ -2112,6 +2114,7 @@ async fn handle_queued_job(
                 job_completed_tx
                     .send_job(
                         JobCompleted {
+                            preprocessed_args: None,
                             job,
                             result,
                             result_columns: None,
