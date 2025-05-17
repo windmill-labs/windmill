@@ -1,39 +1,51 @@
-name: "Send discord notification when a PR is ready for review"
+name: "Notify Discord when a PR is opened or merged"
 
 on:
   workflow_call:
     inputs:
       PR_TITLE:
         description: "The title of the PR"
-        required: true
         type: string
       PR_URL:
         description: "The URL of the PR"
-        required: true
         type: string
       PR_AUTHOR:
         description: "The author of the PR"
-        required: true
+        type: string
+      PR_STATUS:
+        description: "The status of the PR"
+        type: string
+      DISCORD_CHANNEL_ID:
+        description: "The Discord channel ID"
+        type: string
+      PR_NUMBER:
+        description: "The number of the PR"
+        type: string
+      DISCORD_GUILD_ID:
+        description: "The Discord guild ID"
         type: string
     secrets:
       DISCORD_WEBHOOK_URL:
         description: "Discord Webhook URL"
-        required: true
+      DISCORD_BOT_TOKEN:
+        description: "Discord Bot Token"
 
 jobs:
-  send_notification:
+  open_thread:
     runs-on: ubicloud-standard-2
+    if: ${{ inputs.PR_STATUS == 'opened' }}
     steps:
       - name: Send Discord notification and start a thread
         env:
           WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
           PR_TITLE: ${{ inputs.PR_TITLE }}
+          PR_NUMBER: ${{ inputs.PR_NUMBER }}
           PR_URL: ${{ inputs.PR_URL }}
           PR_AUTHOR: ${{ inputs.PR_AUTHOR }}
         run: |
           payload=$(jq -n \
             --arg content "${PR_URL}" \
-            --arg thread "$PR_TITLE by \`${PR_AUTHOR}\`" \
+            --arg thread "#${PR_NUMBER}: $PR_TITLE by \`${PR_AUTHOR}\`" \
             '{
               content: $content,
               thread_name: $thread,
@@ -41,6 +53,46 @@ jobs:
             }'
           )
           curl -H "Content-Type: application/json" \
-               -X POST \
-               --data "$payload" \
-               "$WEBHOOK_URL"
+            -X POST \
+            -d "$payload" \
+            "$WEBHOOK_URL"
+
+  merge_success_emoji:
+    runs-on: ubuntu-latest
+    if: ${{ inputs.PR_STATUS == 'merged' }}
+    steps:
+      - name: React
+        env:
+          BOT_TOKEN: ${{ secrets.DISCORD_BOT_TOKEN }}
+          CHANNEL_ID: ${{ inputs.DISCORD_CHANNEL_ID }}
+          GUILD_ID: ${{ inputs.DISCORD_GUILD_ID }}
+          PR_NUMBER: ${{ inputs.PR_NUMBER }}
+        run: |
+          # 1) get PR thread
+          threads=$(curl -H "Authorization: Bot $BOT_TOKEN" "https://discord.com/api/v10/guilds/${GUILD_ID}/threads/active")
+          thread_id=$(
+            echo "$threads" \
+              | jq -r --arg cid "$CHANNEL_ID" \
+                    --arg pref "#${PR_NUMBER}:" \
+                '.threads[]
+                | select(.parent_id == $cid and (.name | startswith($pref)))
+                | .id'
+          )
+          if [ -z "$thread_id" ]; then
+            echo "Thread not found"
+            exit 1
+          fi
+          # 2) get the first message in that thread
+          messages=$(curl -H "Authorization: Bot $BOT_TOKEN" \
+            "https://discord.com/api/v10/channels/$thread_id/messages?limit=1")
+          message_id=$(echo "$messages" | jq -r '.[-1].id')
+
+          if [ -z "$message_id" ]; then
+            echo "Message not found"
+            exit 1
+          fi
+
+          # 3) add the ✅ reaction
+          curl -X PUT \
+            -H "Authorization: Bot $BOT_TOKEN" \
+            "https://discord.com/api/v10/channels/$thread_id/messages/$message_id/reactions/%E2%9C%85/@me"
