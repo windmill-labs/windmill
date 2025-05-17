@@ -494,18 +494,14 @@ pub async fn process_completed_job(
                 ))
             })?;
         } else if let Some(preprocessed_args) = preprocessed_args {
-
             // Update script args to preprocessed args
-                sqlx::query!(
-                    "UPDATE v2_job SET args = $1, preprocessed = TRUE WHERE id = $2",
-                    Json(preprocessed_args) as Json<HashMap<String, Box<RawValue>>>,
-                    job.id
-                )
-                .execute(db)
-                .await?;
-            
-            
-
+            sqlx::query!(
+                "UPDATE v2_job SET args = $1, preprocessed = TRUE WHERE id = $2",
+                Json(preprocessed_args) as Json<HashMap<String, Box<RawValue>>>,
+                job.id
+            )
+            .execute(db)
+            .await?;
         }
 
         add_time!(bench, "pre add_completed_job");

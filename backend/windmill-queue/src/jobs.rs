@@ -2703,7 +2703,6 @@ pub fn interpolate_args(x: String, args: &PushArgs, workspace_id: &str) -> Strin
                     .trim_matches('"')
                     .to_string()
             };
-            tracing::error!("arg_value: {}", arg_value);
             interpolated =
                 interpolated.replace(format!("$args[{}]", arg_name).as_str(), &arg_value);
         }

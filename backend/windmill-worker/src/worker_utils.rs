@@ -3,6 +3,7 @@ use tracing::Instrument;
 use uuid::Uuid;
 use windmill_common::{
     agent_workers::{PingJobStatus, PingJobStatusResponse},
+    cache,
     worker::{
         get_memory, get_vcpus, get_windmill_memory_usage, get_worker_memory_usage,
         insert_ping_query, update_job_ping_query, update_worker_ping_from_job_query,
@@ -321,26 +322,70 @@ pub(crate) async fn queue_vacuum(conn: &Connection, worker_name: &str, hostname:
     }
 }
 
+#[derive(Debug, Clone, sqlx::FromRow)]
 pub struct TagAndConcurrencyKey {
     pub tag: Option<String>,
     pub concurrency_key: Option<String>,
+    pub concurrent_limit: Option<i32>,
+    pub concurrency_time_window_s: Option<i32>,
+    pub version: Option<i64>,
 }
 
-pub async fn get_tag_and_concurrency_key(job_id: &Uuid, db: &DB) -> Option<TagAndConcurrencyKey> {
-    sqlx::query_as!(
+pub async fn get_tag_and_concurrency(job_id: &Uuid, db: &DB) -> Option<TagAndConcurrencyKey> {
+    let r = sqlx::query_as!(
         TagAndConcurrencyKey,
         "
         WITH j AS (
-            SELECT raw_flow->>'concurrency_key' as concurrency_key, runnable_path FROM v2_job
+            SELECT 
+                raw_flow->>'concurrency_key' as concurrency_key, 
+                raw_flow->>'concurrency_time_window_s' as concurrency_time_window_s,
+                raw_flow->>'concurrency_limit' as concurrent_limit,
+                runnable_path, 
+                runnable_id as version FROM v2_job
             WHERE id = $1
         )
-        SELECT tag, j.concurrency_key
+        SELECT tag, j.concurrency_key, j.concurrency_time_window_s::int, j.concurrent_limit::int, j.version
             FROM flow, j
             WHERE path = j.runnable_path
         ",
         job_id
     )
     .fetch_optional(db)
-    .await.ok().flatten()
+    .await
+    .ok()
+    .flatten();
+    if let Some(tag_and_concurrency_key) = r {
+        if tag_and_concurrency_key.concurrency_key.as_ref().is_some()
+            || tag_and_concurrency_key.version.as_ref().is_none()
+        {
+            return Some(tag_and_concurrency_key);
+        } else {
+            let version = tag_and_concurrency_key.version.unwrap();
 
+            let r = cache::flow::fetch_version_lite(db, version).await;
+            let flow = match r {
+                Ok(data) => Ok(data),
+                Err(_) => cache::flow::fetch_version(db, version).await,
+            };
+            let flow_value = flow.map(|f| f.value().clone()).ok();
+            let concurrency_key = flow_value
+                .as_ref()
+                .map(|fv| fv.concurrency_key.clone())
+                .flatten();
+            let concurrent_limit = flow_value.as_ref().map(|fv| fv.concurrent_limit).flatten();
+            let concurrent_time_window_s = flow_value
+                .as_ref()
+                .map(|fv| fv.concurrency_time_window_s)
+                .flatten();
+            Some(TagAndConcurrencyKey {
+                tag: tag_and_concurrency_key.tag,
+                concurrency_key,
+                concurrent_limit,
+                concurrency_time_window_s: concurrent_time_window_s,
+                version: None,
+            })
+        }
+    } else {
+        None
+    }
 }

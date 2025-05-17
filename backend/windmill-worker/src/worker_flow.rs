@@ -13,7 +13,7 @@ use std::time::Duration;
 
 use crate::common::{cached_result_path, save_in_cache};
 use crate::js_eval::{eval_timeout, IdContext};
-use crate::worker_utils::get_tag_and_concurrency_key;
+use crate::worker_utils::get_tag_and_concurrency;
 use crate::{
     AuthedClient, JobCompletedSender, PreviousResult, SameWorkerSender, SendResult, UpdateFlow,
     KEEP_JOB_DIR,
@@ -59,7 +59,9 @@ use windmill_common::{
 use windmill_queue::flow_status::Step;
 use windmill_queue::schedule::get_schedule_opt;
 use windmill_queue::{
-    add_completed_job, add_completed_job_error, append_logs, get_mini_pulled_job, handle_maybe_scheduled_job, insert_concurrency_key, interpolate_args, CanceledBy, MiniPulledJob, PushArgs, PushIsolationLevel, SameWorkerPayload, WrappedError
+    add_completed_job, add_completed_job_error, append_logs, get_mini_pulled_job,
+    handle_maybe_scheduled_job, insert_concurrency_key, interpolate_args, CanceledBy,
+    MiniPulledJob, PushArgs, PushIsolationLevel, SameWorkerPayload, WrappedError,
 };
 
 type DB = sqlx::Pool<sqlx::Postgres>;
@@ -429,7 +431,6 @@ pub async fn update_flow_status_after_job_completion_internal(
             }
             _ => false,
         };
-
 
         let mut tx = db.begin().await?;
 
@@ -981,11 +982,30 @@ pub async fn update_flow_status_after_job_completion_internal(
         tx.commit().await?;
 
         if matches!(module_step, Step::PreprocessorStep) {
-            
-            let tag_and_concurrency_key = get_tag_and_concurrency_key(&flow_job.id, db).await;
-            let require_args = tag_and_concurrency_key.as_ref().is_some_and(|x| x.tag.as_ref().is_some_and(|t| t.contains("$args")) || x.concurrency_key.as_ref().is_some_and(|ck| ck.contains("$args")));
-            let mut tag = tag_and_concurrency_key.as_ref().map(|x| x.tag.clone()).flatten();
-            let concurrency_key = tag_and_concurrency_key.as_ref().map(|x| x.concurrency_key.clone()).flatten();
+            let tag_and_concurrency_key = get_tag_and_concurrency(&flow, db).await;
+            tracing::error!("tag_and_concurrency_key: {tag_and_concurrency_key:#?} {flow:#?}");
+            let require_args = tag_and_concurrency_key.as_ref().is_some_and(|x| {
+                x.tag.as_ref().is_some_and(|t| t.contains("$args"))
+                    || x.concurrency_key
+                        .as_ref()
+                        .is_some_and(|ck| ck.contains("$args"))
+            });
+            let mut tag = tag_and_concurrency_key
+                .as_ref()
+                .map(|x| x.tag.clone())
+                .flatten();
+            let concurrency_key = tag_and_concurrency_key
+                .as_ref()
+                .map(|x| x.concurrency_key.clone())
+                .flatten();
+            let concurrent_limit = tag_and_concurrency_key
+                .as_ref()
+                .map(|x| x.concurrent_limit)
+                .flatten();
+            let concurrency_time_window_s = tag_and_concurrency_key
+                .as_ref()
+                .map(|x| x.concurrency_time_window_s)
+                .flatten();
             if require_args {
                 let args = sqlx::query_scalar!(
                     "SELECT result  as \"result: Json<HashMap<String, Box<RawValue>>>\"
@@ -1002,15 +1022,33 @@ pub async fn update_flow_status_after_job_completion_internal(
                 let args = PushArgs::from(&args_hm);
                 if let Some(ck) = concurrency_key {
                     let mut tx = db.begin().await?;
-                    insert_concurrency_key(&flow_job.workspace_id, &args, &flow_job.runnable_path, JobKind::Flow, Some(ck), &mut tx, flow).await?;
+                    insert_concurrency_key(
+                        &flow_job.workspace_id,
+                        &args,
+                        &flow_job.runnable_path,
+                        JobKind::Flow,
+                        Some(ck),
+                        &mut tx,
+                        flow,
+                    )
+                    .await?;
                     tx.commit().await?;
                 }
                 if let Some(t) = tag {
                     tag = Some(interpolate_args(t, &args, &flow_job.workspace_id));
                 }
-            }  else if let Some(ck) = concurrency_key {
+            } else if let Some(ck) = concurrency_key {
                 let mut tx = db.begin().await?;
-                insert_concurrency_key(&flow_job.workspace_id, &PushArgs::from(&HashMap::new()), &flow_job.runnable_path, JobKind::Flow, Some(ck), &mut tx, flow).await?;
+                insert_concurrency_key(
+                    &flow_job.workspace_id,
+                    &PushArgs::from(&HashMap::new()),
+                    &flow_job.runnable_path,
+                    JobKind::Flow,
+                    Some(ck),
+                    &mut tx,
+                    flow,
+                )
+                .await?;
                 tx.commit().await?;
             }
 
@@ -1031,6 +1069,8 @@ pub async fn update_flow_status_after_job_completion_internal(
              UPDATE v2_job 
              SET 
                 tag = COALESCE($3, tag),
+                concurrent_limit = COALESCE($4, concurrent_limit),
+                concurrency_time_window_s = COALESCE($5, concurrency_time_window_s),
                 args = COALESCE(
                      CASE 
                          WHEN job_result.result IS NULL THEN NULL
@@ -1049,6 +1089,8 @@ pub async fn update_flow_status_after_job_completion_internal(
                 job_id_for_status,
                 flow,
                 tag,
+                concurrent_limit,
+                concurrency_time_window_s,
             )
             .execute(db)
             .await
@@ -1062,7 +1104,6 @@ pub async fn update_flow_status_after_job_completion_internal(
             }
         }
 
-        
         let job_root = flow_job
             .flow_innermost_root_job
             .map(|x| x.to_string())
