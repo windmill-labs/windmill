@@ -307,6 +307,11 @@ INSERT INTO demo VALUES (@P1, @P2);
 UPDATE demo SET col2 = @P3 WHERE col2 = @P2;
 `
 
+const DUCKDB_INIT_CODE = `-- $1 parquet_file (s3)
+SELECT * FROM $1;
+ATTACH '$res:u/demo/amazing_postgres' AS db (TYPE postgres, READ_ONLY);
+`
+
 const GRAPHQL_INIT_CODE = `query($name4: String, $name2: Int, $name3: [String]) {
 	demo(name1: $name1, name2: $name2, name3: $name3) {
 		name1,
@@ -1134,6 +1139,9 @@ export const INITIAL_CODE = {
 	mssql: {
 		script: MSSQL_INIT_CODE
 	},
+	duckdb: {
+		script: DUCKDB_INIT_CODE
+	},
 	graphql: {
 		script: GRAPHQL_INIT_CODE
 	},
@@ -1258,6 +1266,8 @@ export function initialCode(
 		return INITIAL_CODE.mssql.script
 	} else if (language == 'graphql') {
 		return INITIAL_CODE.graphql.script
+	} else if (language == 'duckdb') {
+		return INITIAL_CODE.duckdb.script
 	} else if (language == 'php') {
 		return INITIAL_CODE.php.script
 	} else if (language == 'rust') {
