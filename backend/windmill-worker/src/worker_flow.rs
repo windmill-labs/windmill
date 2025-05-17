@@ -983,7 +983,6 @@ pub async fn update_flow_status_after_job_completion_internal(
 
         if matches!(module_step, Step::PreprocessorStep) {
             let tag_and_concurrency_key = get_tag_and_concurrency(&flow, db).await;
-            tracing::error!("tag_and_concurrency_key: {tag_and_concurrency_key:#?} {flow:#?}");
             let require_args = tag_and_concurrency_key.as_ref().is_some_and(|x| {
                 x.tag.as_ref().is_some_and(|t| t.contains("$args"))
                     || x.concurrency_key
