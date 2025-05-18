@@ -58,7 +58,6 @@
 		{isFlow}
 		path={initialPath || fakeInitialPath}
 		defaultValues={selectedTrigger.draftConfig ?? selectedTrigger.captureConfig ?? undefined}
-		newDraft={selectedTrigger.draftConfig === undefined}
 		customLabel={small ? customLabel : undefined}
 		{...props}
 	/>
@@ -86,7 +85,6 @@
 		path={initialPath || fakeInitialPath}
 		{selectedTrigger}
 		defaultValues={selectedTrigger.draftConfig ?? selectedTrigger.captureConfig ?? undefined}
-		newDraft={selectedTrigger.draftConfig === undefined}
 		{schema}
 		customLabel={small ? customLabel : undefined}
 		{...props}
@@ -97,7 +95,6 @@
 		path={initialPath || fakeInitialPath}
 		{selectedTrigger}
 		defaultValues={selectedTrigger.draftConfig ?? selectedTrigger.captureConfig ?? undefined}
-		newDraft={selectedTrigger.draftConfig === undefined}
 		customLabel={small ? customLabel : undefined}
 		{...props}
 	/>
@@ -107,7 +104,6 @@
 		path={initialPath || fakeInitialPath}
 		{selectedTrigger}
 		defaultValues={selectedTrigger.draftConfig ?? selectedTrigger.captureConfig ?? undefined}
-		newDraft={selectedTrigger.draftConfig === undefined}
 		customLabel={small ? customLabel : undefined}
 		{...props}
 	/>
@@ -117,7 +113,6 @@
 		path={initialPath || fakeInitialPath}
 		{selectedTrigger}
 		defaultValues={selectedTrigger.draftConfig ?? selectedTrigger.captureConfig ?? undefined}
-		newDraft={selectedTrigger.draftConfig === undefined}
 		customLabel={small ? customLabel : undefined}
 		{...props}
 	/>
@@ -136,7 +131,6 @@
 		path={initialPath || fakeInitialPath}
 		{selectedTrigger}
 		defaultValues={selectedTrigger.draftConfig ?? selectedTrigger.captureConfig ?? undefined}
-		newDraft={selectedTrigger.draftConfig === undefined}
 		customLabel={small ? customLabel : undefined}
 		{...props}
 	/>
@@ -146,7 +140,6 @@
 		path={initialPath || fakeInitialPath}
 		{selectedTrigger}
 		defaultValues={selectedTrigger.draftConfig ?? selectedTrigger.captureConfig ?? undefined}
-		newDraft={selectedTrigger.draftConfig === undefined}
 		customLabel={small ? customLabel : undefined}
 		{...props}
 	/>
@@ -156,7 +149,6 @@
 		path={initialPath || fakeInitialPath}
 		{selectedTrigger}
 		defaultValues={selectedTrigger.draftConfig ?? selectedTrigger.captureConfig ?? undefined}
-		newDraft={selectedTrigger.draftConfig === undefined}
 		customLabel={small ? customLabel : undefined}
 		{...props}
 	/>

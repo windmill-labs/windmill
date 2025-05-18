@@ -348,7 +348,6 @@
 			{edit}
 			isLoading={deploymentLoading}
 			{saveDisabled}
-			{isEditor}
 			{isDeployed}
 			onUpdate={updateTrigger}
 			{onDelete}

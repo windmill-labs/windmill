@@ -724,7 +724,6 @@
 			{allowDraft}
 			{edit}
 			isLoading={deploymentLoading}
-			{isEditor}
 			onUpdate={triggerScript}
 			{onReset}
 			{onDelete}

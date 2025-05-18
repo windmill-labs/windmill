@@ -436,7 +436,6 @@
 			{edit}
 			isLoading={deploymentLoading}
 			{enabled}
-			{isEditor}
 			{isDeployed}
 			onUpdate={updateTrigger}
 			{onReset}

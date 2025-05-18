@@ -286,7 +286,6 @@
 			{allowDraft}
 			{edit}
 			isLoading={deploymentLoading}
-			{isEditor}
 			{isDeployed}
 			{saveDisabled}
 			onUpdate={updateTrigger}
