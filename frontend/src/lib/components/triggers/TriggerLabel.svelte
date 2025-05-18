@@ -36,17 +36,11 @@
 	</span>
 {/if}
 
-{#if trigger.isDraft}
+{#if trigger.draftConfig && !trigger.isDraft}
 	<span
-		class="ml-2 text-2xs bg-frost-100 dark:bg-frost-900 text-frost-800 dark:text-frost-100 px-1.5 py-0.5 rounded whitespace-nowrap"
+		class="ml-2 text-2xs bg-amber-100 dark:bg-amber-900 text-amber-800 dark:text-amber-100 px-1.5 py-0.5 rounded whitespace-nowrap"
 	>
-		Draft only
-	</span>
-{:else if trigger.draftConfig}
-	<span
-		class="ml-2 text-2xs bg-frost-100 dark:bg-frost-900 text-frost-800 dark:text-frost-100 px-1.5 py-0.5 rounded whitespace-nowrap"
-	>
-		+Draft
+		Modified
 	</span>
 {/if}
 

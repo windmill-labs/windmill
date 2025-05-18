@@ -12,7 +12,6 @@
 		allowDraft: any
 		edit: any
 		isLoading: any
-		isEditor: any
 		permissions: 'write' | 'create' | 'none'
 		isDeployed: boolean
 		extra?: Snippet
@@ -30,7 +29,6 @@
 		allowDraft,
 		edit,
 		isLoading,
-		isEditor,
 		permissions,
 		isDeployed,
 		extra,
@@ -95,7 +93,7 @@
 				}}
 				btnClasses="hover:bg-red-500 hover:text-white"
 			/>
-		{:else if hasDraft && isEditor}
+		{:else if hasDraft}
 			<Button
 				size="xs"
 				startIcon={{ icon: RotateCcw }}
@@ -104,23 +102,10 @@
 					onReset?.()
 				}}
 			>
-				Reset to deployed version
+				Reset changes
 			</Button>
 		{/if}
-		{#if canSave && isDeployed}
-			<!-- TODO : Move dropdown in a badge (deployed with flow) 
-			 {@const dropdownItems =
-				(!isDraftOnly || isDeployed) && isEditor
-					? [
-							{
-								label: 'Deploy changes now',
-								onClick: () => {
-									dispatch('deploy')
-								},
-								disabled: saveDisabled
-							}
-						]
-					: undefined} -->
+		{#if canSave && isDeployed && (isDraftOnly || hasDraft)}
 			<Button
 				size="xs"
 				startIcon={{ icon: Save }}
@@ -130,7 +115,7 @@
 				}}
 				loading={isLoading}
 			>
-				Saving
+				{isDraftOnly ? 'Deploy' : 'Update'}
 			</Button>
 		{/if}
 	</div>
