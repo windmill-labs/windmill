@@ -4,19 +4,22 @@
 	import 'xterm/css/xterm.css'
 	import { runPreviewJobAndPollResult } from './jobs/utils'
 	import { workspaceStore } from '$lib/stores'
-	import type { ScriptLang } from '$lib/gen'
+	import { ScriptService, type ScriptLang } from '$lib/gen'
 	import { Splitpanes, Pane } from 'svelte-splitpanes'
 	import { twMerge } from 'tailwind-merge'
 	import PanelSection from './apps/editor/settingsPanel/common/PanelSection.svelte'
 	import { Badge } from './common'
-	import StepHistory, { type StepHistoryData } from './flows/propPicker/StepHistory.svelte'
 	import Select from './apps/svelte-select/lib/Select.svelte'
 	import { SELECT_INPUT_DEFAULT_STYLE } from '$lib/defaults'
 	import DarkModeObserver from './DarkModeObserver.svelte'
+	import { truncate } from '$lib/utils'
 
 	let container: HTMLDivElement
 	let term: Terminal
 	let input = ''
+	let items: { value: string; label: string }[]
+	let history: string[] = []
+	let historyIndex = 0
 	type Props = {
 		language?: ScriptLang
 		tag: string
@@ -26,9 +29,6 @@
 	let darkMode = $state(false)
 
 	let { language = 'bash', tag, width, activeWorkers = [tag] }: Props = $props()
-	let runHistory: (StepHistoryData & { command: string; result: Record<string, any>[] })[] = $state(
-		[]
-	)
 
 	let working_directory = $state('')
 	let prompt = $derived(`$-${working_directory.split('/').at(-1)} `)
@@ -36,26 +36,15 @@
 	async function handleCommand(command: string) {
 		term.writeln('')
 		try {
-			let { job, result } = (await runPreviewJobAndPollResult(
-				{
-					workspace: $workspaceStore!,
-					requestBody: {
-						language,
-						content: `cd ${working_directory} && ${command} > result.out`,
-						tag,
-						args: {}
-					}
-				},
-				{ withJobData: true }
-			)) as any
-			runHistory.push({
-				created_at: new Date().toISOString(),
-				created_by: '',
-				id: job.id,
-				success: true,
-				command,
-				result
-			})
+			let result = (await runPreviewJobAndPollResult({
+				workspace: $workspaceStore!,
+				requestBody: {
+					language,
+					content: `${command} > result.out`,
+					tag,
+					args: {}
+				}
+			})) as any
 
 			term.write(result)
 		} catch (e) {
@@ -70,7 +59,27 @@
 		input = ''
 	}
 
+	function replaceInput(newInput: string) {
+		while (input.length > 0) {
+			term.write('\b \b')
+			input = input.slice(0, -1)
+		}
+		input = newInput
+		term.write(input)
+	}
+
 	onMount(async () => {
+		items = (
+			await ScriptService.listScripts({
+				workspace: $workspaceStore!,
+				kinds: 'script',
+				languages: 'bash'
+			})
+		).map((script) => ({
+			value: script.path,
+			label: `${script.path}${script.summary ? ` | ${truncate(script.summary, 20)}` : ''}`
+		}))
+		console.log({ items })
 		working_directory = `/tmp/windmill/${tag}`
 		term = new Terminal({
 			cursorBlink: true,
@@ -93,6 +102,8 @@
 						term.write(`\r\n${prompt}`)
 						break
 					}
+					history.push(input)
+					historyIndex = history.length
 					if (input === 'clear') {
 						term.reset()
 						term.write(`\r\n${prompt}`)
@@ -101,10 +112,30 @@
 					}
 					handleCommand(input)
 					break
-				case '\u007f':
+
+				case '\u007f': //Backspace
 					if (input.length > 0) {
 						input = input.slice(0, -1)
 						term.write('\b \b')
+					}
+					break
+
+				case '\x1b[A': // Up arrow
+					if (historyIndex > 0) {
+						//if (historyIndex === history.length) currentBuffer = input
+						historyIndex--
+						replaceInput(history[historyIndex])
+					}
+					break
+
+				case '\x1b[B': // Down arrow
+					if (historyIndex < history.length) {
+						historyIndex++
+						if (historyIndex === history.length) {
+							replaceInput('')
+						} else {
+							replaceInput(history[historyIndex])
+						}
 					}
 					break
 
@@ -126,28 +157,8 @@
 		style={width !== undefined ? `width:${width}px; height: 100%;` : 'width: 100%; height: 100%;'}
 	>
 		<Pane size={25}>
-			<PanelSection title="History" id="app-editor-runnable-panel">
-				<div class="w-full flex flex-col gap-6 py-1">
-					<div>
-						<StepHistory
-							staticInputs={runHistory}
-							on:select={(e) => {
-								const data = e.detail as (typeof runHistory)[number]
-								if (data) {
-									term.reset()
-									term.write(`\r\n${prompt}${data.command}`)
-									input = data.command
-								}
-							}}
-						/>
-					</div>
-					<div>
-						<div class="w-full flex justify-between items-center mb-1">
-						</div>
-						<div class="flex flex-col gap-1 w-full">
-						</div>
-					</div>
-				</div>
+			<PanelSection title="Bash scripts" id="app-editor-runnable-panel">
+				<div class="flex flex-col gap-1 w-full"> </div>
 			</PanelSection>
 		</Pane>
 		<Pane size={75}>
