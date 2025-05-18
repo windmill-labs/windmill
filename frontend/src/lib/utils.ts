@@ -11,7 +11,7 @@ import { deepEqual } from 'fast-equals'
 import YAML from 'yaml'
 import { type UserExt } from './stores'
 import { sendUserToast } from './toast'
-import type { Job, Script } from './gen'
+import type { Job, Script, ScriptLang } from './gen'
 import type { EnumType, SchemaProperty } from './common'
 import type { Schema } from './common'
 export { sendUserToast }
@@ -564,6 +564,10 @@ export function formatCron(inp: string): string {
 	} else {
 		return inp
 	}
+}
+
+export function scriptLangArrayToCommaList(languages: ScriptLang[]): string {
+	return languages.join(",")
 }
 
 export function cronV1toV2(inp: string): string {

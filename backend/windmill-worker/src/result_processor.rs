@@ -131,7 +131,10 @@ enum JobCompletedRx {
     Killpill,
 }
 
-const NAP_TIME_DURATION: u64 = 30;
+const NAP_TIME_DURATION: u64 = 15;
+
+const RESET: u64 = 2 * 60;
+
 
 pub fn start_interactive_worker_shell(
     conn: Connection,
@@ -389,7 +392,7 @@ pub fn start_interactive_worker_shell(
                         let now = Instant::now();
                         match last_executed_job {
                             Some(last)
-                                if now.duration_since(last).as_secs() > NAP_TIME_DURATION =>
+                                if now.duration_since(last).as_secs() > RESET =>
                             {
                                 tokio::time::sleep(Duration::from_secs(NAP_TIME_DURATION)).await;
                             }

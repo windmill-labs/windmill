@@ -7,25 +7,32 @@
 	import type { ScriptLang } from '$lib/gen'
 	import { Splitpanes, Pane } from 'svelte-splitpanes'
 	import { twMerge } from 'tailwind-merge'
-	import { TerminalIcon } from 'lucide-svelte'
 	import PanelSection from './apps/editor/settingsPanel/common/PanelSection.svelte'
-	import { Badge, Button } from './common'
+	import { Badge } from './common'
 	import StepHistory, { type StepHistoryData } from './flows/propPicker/StepHistory.svelte'
+	import Select from './apps/svelte-select/lib/Select.svelte'
+	import { SELECT_INPUT_DEFAULT_STYLE } from '$lib/defaults'
+	import DarkModeObserver from './DarkModeObserver.svelte'
 
 	let container: HTMLDivElement
 	let term: Terminal
 	let input = ''
 	type Props = {
 		language?: ScriptLang
-		tag?: string
+		tag: string
 		width?: number
+		activeWorkers: string[] | undefined
 	}
-	const prompt = '$ '
-	let { language = 'bash', tag, width }: Props = $props()
+	let darkMode = $state(false)
+
+	let { language = 'bash', tag, width, activeWorkers = [tag] }: Props = $props()
 	let runHistory: (StepHistoryData & { command: string; result: Record<string, any>[] })[] = $state(
 		[]
 	)
+
 	let working_directory = $state('')
+	let prompt = $derived(`$-${working_directory.split('/').at(-1)} `)
+
 	async function handleCommand(command: string) {
 		term.writeln('')
 		try {
@@ -34,7 +41,7 @@
 					workspace: $workspaceStore!,
 					requestBody: {
 						language,
-						content: `${command} > result.out`,
+						content: `cd ${working_directory} && ${command} > result.out`,
 						tag,
 						args: {}
 					}
@@ -73,7 +80,8 @@
 				foreground: '#ffffff'
 			},
 			fontFamily: 'monospace',
-			convertEol: true
+			convertEol: true,
+			rows: 200
 		})
 		term.open(container)
 		printPrompt()
@@ -110,69 +118,70 @@
 	})
 </script>
 
-<Splitpanes
-	class={twMerge('!overflow-visible')}
-	style={width !== undefined ? `width:${width}px;` : 'width: 100%;'}
->
-	<Pane size={25}>
-		<PanelSection title="History" id="app-editor-runnable-panel">
-			<div class="w-full flex flex-col gap-6 py-1">
-				<div>
-					<StepHistory
-						staticInputs={runHistory}
-						on:select={(e) => {
-							const data = e.detail as (typeof runHistory)[number]
-							if (data) {
-								term.reset()
-								term.write(`\r\n${prompt}${data.command}`)
-								input = data.command
-							}
+<DarkModeObserver bind:darkMode />
+
+<div class="h-full">
+	<Splitpanes
+		class={twMerge('!overflow-visible')}
+		style={width !== undefined ? `width:${width}px; height: 100%;` : 'width: 100%; height: 100%;'}
+	>
+		<Pane size={25}>
+			<PanelSection title="History" id="app-editor-runnable-panel">
+				<div class="w-full flex flex-col gap-6 py-1">
+					<div>
+						<StepHistory
+							staticInputs={runHistory}
+							on:select={(e) => {
+								const data = e.detail as (typeof runHistory)[number]
+								if (data) {
+									term.reset()
+									term.write(`\r\n${prompt}${data.command}`)
+									input = data.command
+								}
+							}}
+						/>
+					</div>
+					<div>
+						<div class="w-full flex justify-between items-center mb-1">
+						</div>
+						<div class="flex flex-col gap-1 w-full">
+						</div>
+					</div>
+				</div>
+			</PanelSection>
+		</Pane>
+		<Pane size={75}>
+			<div class="m-1">
+				<div class="flex justify-start w-full mb-2">
+					<Badge
+						color="gray"
+						class="center-center !bg-gray-300 !text-tertiary dark:!bg-gray-700 dark:!text-gray-300 !h-[32px]  rounded-r-none rounded-l-none"
+						>Current worker</Badge
+					>
+					<Select
+						class="grow shrink max-w-full"
+						on:change={(e) => {
+							tag = e.detail.value
+							working_directory = `/tmp/windmill/${tag}`
+							term.reset()
+							printPrompt()
 						}}
+						on:clear={() => {}}
+						clearable={false}
+						value={tag}
+						items={activeWorkers}
+						inputStyles={SELECT_INPUT_DEFAULT_STYLE.inputStyles}
+						containerStyles={darkMode
+							? SELECT_INPUT_DEFAULT_STYLE.containerStylesDark
+							: SELECT_INPUT_DEFAULT_STYLE.containerStyles}
+						portal={false}
 					/>
 				</div>
-				<div>
-					<div class="w-full flex justify-between items-center mb-1">
-						<div class="text-xs text-secondary font-semibold truncate"> Bash scripts </div>
-						<Button
-							size="xs"
-							color="light"
-							variant="border"
-							btnClasses="!rounded-full !p-1"
-							title="Open bash editor"
-							aria-label="Open bash editor"
-							id="open-bash-editor"
-						>
-							<TerminalIcon size={14} class="!text-primary" />
-						</Button>
-					</div>
-					<div class="flex flex-col gap-1 w-full">
-						<div class="text-xs text-tertiary">No bash scripts </div>
-					</div>
-				</div>
+				<div bind:this={container}></div>
 			</div>
-		</PanelSection>
-	</Pane>
-	<Pane size={75}>
-		<div class="m-1">
-			<div class="flex justify-start w-full">
-			<Badge
-				color="gray"
-				class="center-center !bg-surface-secondary !text-tertiary  !h-[24px] rounded-r-none border"
-			>
-				Working directory
-			</Badge>
-			<input
-				type="text"
-				readonly
-				value={working_directory}
-				size={working_directory.length || 50}
-				class="font-mono !text-xs max-w-[calc(100%-70px)] !w-auto !h-[24px] !py-0 !border-l-0 !rounded-l-none"
-			/>
-		</div>
-		<div bind:this={container}></div>
-		</div>
-	</Pane>
-</Splitpanes>
+		</Pane>
+	</Splitpanes>
+</div>
 
 <style>
 	:global(.xterm-screen) {

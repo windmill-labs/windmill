@@ -39,6 +39,7 @@
 	let workerGroups: Record<string, any> | undefined = undefined
 	let groupedWorkers: [string, [string, WorkerPing[]][]][] = []
 	let intervalId: NodeJS.Timeout | undefined
+	let activeWorkers: string[] | undefined = undefined
 
 	const splitter = '_%%%_'
 	let customTags: string[] | undefined = undefined
@@ -71,9 +72,17 @@
 		return grouped
 	}
 	let timeSinceLastPing = 0
+
+	function isActiveWorker(last_ping: number | undefined) {
+		return last_ping != undefined ? (last_ping < 60 ? true : false) : true
+	}
+
 	async function loadWorkers(): Promise<void> {
 		try {
 			workers = await WorkerService.listWorkers({ perPage: 1000, pingSince: 300 })
+			activeWorkers = workers
+				.filter((worker) => isActiveWorker(worker.last_ping))
+				.map((worker) => worker.worker)
 			timeSinceLastPing = 0
 		} catch (err) {
 			sendUserToast(`Could not load workers: ${err}`, true)
@@ -145,7 +154,7 @@
 
 	let importConfigDrawer: Drawer | undefined = undefined
 	let importConfigCode = ''
-	let tag: string | undefined = undefined
+	let tag: string = ''
 	async function importSingleWorkerConfig(c: any) {
 		if (typeof c === 'object' && c !== null) {
 			if (!c.name || typeof c.name !== 'string') {
@@ -295,10 +304,10 @@
 	<DrawerContent title="Repl" on:close={() => replForWorkerDrawer?.toggleDrawer?.()}>
 		<div class="flex flex-col gap-2">
 			<Alert title="Info" type="info">
-				If no command has been run in the past 30 seconds, the next one may take up to 30 seconds to
+				If no command has been run in the past 2 minutes, the next one may take up to 15 seconds to
 				start.
 			</Alert>
-			<Repl {tag} />
+			<Repl {activeWorkers} {tag} />
 		</div>
 	</DrawerContent>
 </Drawer>
@@ -692,8 +701,7 @@
 														size="xs"
 														color="light"
 														on:click={() => {
-															const active =
-																last_ping != undefined ? (last_ping < 60 ? true : false) : true
+															const active = isActiveWorker(last_ping)
 															if (!active) {
 																sendUserToast('Cannot connect to dead worker', true)
 																return
