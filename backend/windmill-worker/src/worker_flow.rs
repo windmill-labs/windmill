@@ -13,6 +13,7 @@ use std::time::Duration;
 
 use crate::common::{cached_result_path, save_in_cache};
 use crate::js_eval::{eval_timeout, IdContext};
+use crate::worker_utils::get_tag_and_concurrency;
 use crate::{
     AuthedClient, JobCompletedSender, PreviousResult, SameWorkerSender, SendResult, UpdateFlow,
     KEEP_JOB_DIR,
@@ -59,8 +60,8 @@ use windmill_queue::flow_status::Step;
 use windmill_queue::schedule::get_schedule_opt;
 use windmill_queue::{
     add_completed_job, add_completed_job_error, append_logs, get_mini_pulled_job,
-    handle_maybe_scheduled_job, CanceledBy, MiniPulledJob, PushArgs, PushIsolationLevel,
-    SameWorkerPayload, WrappedError,
+    handle_maybe_scheduled_job, insert_concurrency_key, interpolate_args, CanceledBy,
+    MiniPulledJob, PushArgs, PushIsolationLevel, SameWorkerPayload, WrappedError,
 };
 
 type DB = sqlx::Pool<sqlx::Postgres>;
@@ -162,6 +163,10 @@ pub async fn update_flow_status_after_job_completion(
                 add_time!(bench, "update flow status internal END");
                 return Ok(None);
             }
+            UpdateFlowStatusAfterJobCompletion::PreprocessingStep => {
+                add_time!(bench, "update flow status preprocessing step END");
+                return Ok(None);
+            }
         }
     }
 }
@@ -171,6 +176,7 @@ pub enum UpdateFlowStatusAfterJobCompletion {
     Done(Arc<MiniPulledJob>),
     NotDone,
     NonLastParallelBranch,
+    PreprocessingStep,
 }
 pub struct RecUpdateFlowStatusAfterJobCompletion {
     flow: uuid::Uuid,
@@ -425,41 +431,6 @@ pub async fn update_flow_status_after_job_completion_internal(
             }
             _ => false,
         };
-
-        if matches!(module_step, Step::PreprocessorStep) {
-            sqlx::query!(
-                "WITH job_result AS (
-                 SELECT result 
-                 FROM v2_job_completed 
-                 WHERE id = $1
-             )
-             UPDATE v2_job 
-             SET args = COALESCE(
-                     CASE 
-                         WHEN job_result.result IS NULL THEN NULL
-                         WHEN jsonb_typeof(job_result.result) = 'object' 
-                         THEN job_result.result
-                         WHEN jsonb_typeof(job_result.result) = 'null'
-                         THEN NULL
-                         ELSE jsonb_build_object('value', job_result.result)
-                     END, 
-                     '{}'::jsonb
-                 ),
-                 preprocessed = TRUE
-             FROM job_result
-             WHERE v2_job.id = $2;
-             ",
-                job_id_for_status,
-                flow
-            )
-            .execute(db)
-            .await
-            .map_err(|e| {
-                Error::internal_err(format!(
-                    "error while updating args in preprocessing step: {e:#}"
-                ))
-            })?;
-        }
 
         let mut tx = db.begin().await?;
 
@@ -1009,6 +980,128 @@ pub async fn update_flow_status_after_job_completion_internal(
             .await?
             .ok_or_else(|| Error::internal_err(format!("requiring flow to be in the queue")))?;
         tx.commit().await?;
+
+        if matches!(module_step, Step::PreprocessorStep) {
+            let tag_and_concurrency_key = get_tag_and_concurrency(&flow, db).await;
+            let require_args = tag_and_concurrency_key.as_ref().is_some_and(|x| {
+                x.tag.as_ref().is_some_and(|t| t.contains("$args"))
+                    || x.concurrency_key
+                        .as_ref()
+                        .is_some_and(|ck| ck.contains("$args"))
+            });
+            let mut tag = tag_and_concurrency_key
+                .as_ref()
+                .map(|x| x.tag.clone())
+                .flatten();
+            let concurrency_key = tag_and_concurrency_key
+                .as_ref()
+                .map(|x| x.concurrency_key.clone())
+                .flatten();
+            let concurrent_limit = tag_and_concurrency_key
+                .as_ref()
+                .map(|x| x.concurrent_limit)
+                .flatten();
+            let concurrency_time_window_s = tag_and_concurrency_key
+                .as_ref()
+                .map(|x| x.concurrency_time_window_s)
+                .flatten();
+            if require_args {
+                let args = sqlx::query_scalar!(
+                    "SELECT result  as \"result: Json<HashMap<String, Box<RawValue>>>\"
+                 FROM v2_job_completed 
+                 WHERE id = $1",
+                    job_id_for_status
+                )
+                .fetch_one(db)
+                .await
+                .map_err(|e| {
+                    Error::internal_err(format!("error while fetching preprocessing args: {e:#}"))
+                })?;
+                let args_hm = args.unwrap_or_default().0;
+                let args = PushArgs::from(&args_hm);
+                if let Some(ck) = concurrency_key {
+                    let mut tx = db.begin().await?;
+                    insert_concurrency_key(
+                        &flow_job.workspace_id,
+                        &args,
+                        &flow_job.runnable_path,
+                        JobKind::Flow,
+                        Some(ck),
+                        &mut tx,
+                        flow,
+                    )
+                    .await?;
+                    tx.commit().await?;
+                }
+                if let Some(t) = tag {
+                    tag = Some(interpolate_args(t, &args, &flow_job.workspace_id));
+                }
+            } else if let Some(ck) = concurrency_key {
+                let mut tx = db.begin().await?;
+                insert_concurrency_key(
+                    &flow_job.workspace_id,
+                    &PushArgs::from(&HashMap::new()),
+                    &flow_job.runnable_path,
+                    JobKind::Flow,
+                    Some(ck),
+                    &mut tx,
+                    flow,
+                )
+                .await?;
+                tx.commit().await?;
+            }
+
+            // let tag = tag_and_concurrency_key.and_then(|tc| tc.tag.map(|t| interpolate_args(t.clone(), &args, &workspace_id)));
+            // let concurrency_key = tag_and_concurrency_key.and_then(|tc| tc.concurrency_key.map(|ck| interpolate_args(&ck, &args, &workspace_id)));
+            sqlx::query!(
+                "WITH job_result AS (
+                 SELECT result 
+                 FROM v2_job_completed 
+                 WHERE id = $1
+             ),
+             updated_queue AS (
+                UPDATE v2_job_queue
+                SET running = false,
+                tag = COALESCE($3, tag)
+                WHERE id = $2
+             )
+             UPDATE v2_job 
+             SET 
+                tag = COALESCE($3, tag),
+                concurrent_limit = COALESCE($4, concurrent_limit),
+                concurrency_time_window_s = COALESCE($5, concurrency_time_window_s),
+                args = COALESCE(
+                     CASE 
+                         WHEN job_result.result IS NULL THEN NULL
+                         WHEN jsonb_typeof(job_result.result) = 'object' 
+                         THEN job_result.result
+                         WHEN jsonb_typeof(job_result.result) = 'null'
+                         THEN NULL
+                         ELSE jsonb_build_object('value', job_result.result)
+                     END, 
+                     '{}'::jsonb
+                 ),
+                 preprocessed = TRUE
+             FROM job_result
+             WHERE v2_job.id = $2;
+             ",
+                job_id_for_status,
+                flow,
+                tag,
+                concurrent_limit,
+                concurrency_time_window_s,
+            )
+            .execute(db)
+            .await
+            .map_err(|e| {
+                Error::internal_err(format!(
+                    "error while updating args in preprocessing step: {e:#}"
+                ))
+            })?;
+            if success {
+                return Ok(UpdateFlowStatusAfterJobCompletion::PreprocessingStep);
+            }
+        }
 
         let job_root = flow_job
             .flow_innermost_root_job
@@ -2649,8 +2742,8 @@ async fn push_next_flow_job(
         };
 
         tracing::debug!(id = %flow_job.id, root_id = %job_root, "computed perms for job {i} of {len}");
-        let tag = if flow_job.tag == "flow"
-            || flow_job.tag == format!("flow-{}", flow_job.workspace_id)
+        let tag = if !matches!(step, Step::PreprocessorStep)
+            && (flow_job.tag == "flow" || flow_job.tag == format!("flow-{}", flow_job.workspace_id))
         {
             payload_tag.tag.clone()
         } else {

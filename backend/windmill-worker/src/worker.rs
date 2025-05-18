@@ -555,7 +555,7 @@ impl AuthedClient {
         object_key: String,
         storage: Option<String>,
         body: S,
-    ) -> error::Result<Response>
+    ) -> error::Result<()>
     where
         S: futures::stream::TryStream + Send + 'static,
         S::Error: Into<Box<dyn std::error::Error + Send + Sync>>,
@@ -565,7 +565,8 @@ impl AuthedClient {
         if let Some(storage) = storage {
             query.push(("storage", storage));
         }
-        self.force_client
+        let response = self
+            .force_client
             .as_ref()
             .unwrap_or(&HTTP_CLIENT)
             .post(format!(
@@ -586,7 +587,12 @@ impl AuthedClient {
             .send()
             .await
             .context(format!("Sent upload_s3_file request",))
-            .map_err(error::Error::from)
+            .map_err(error::Error::from)?;
+
+        match response.status().as_u16() {
+            200u16 => Ok(()),
+            _ => Err(anyhow::anyhow!(response.text().await.unwrap_or_default()))?,
+        }
     }
 }
 
@@ -1530,6 +1536,7 @@ pub async fn run_worker(
                     job_completed_tx
                         .send_job(
                             JobCompleted {
+                                preprocessed_args: None,
                                 job: Arc::new(job.job()),
                                 success: true,
                                 result: Arc::new(empty_result()),
@@ -1757,6 +1764,7 @@ pub async fn run_worker(
                                     job_completed_tx
                                         .send_job(
                                             JobCompleted {
+                                                preprocessed_args: None,
                                                 job: arc_job.clone(),
                                                 result: Arc::new(
                                                     windmill_common::worker::to_raw_value(
@@ -2121,6 +2129,7 @@ pub async fn handle_queued_job(
                 job_completed_tx
                     .send_job(
                         JobCompleted {
+                            preprocessed_args: None,
                             job,
                             result,
                             result_columns: None,
