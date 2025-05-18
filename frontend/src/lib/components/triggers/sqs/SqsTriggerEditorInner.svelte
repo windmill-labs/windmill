@@ -73,7 +73,7 @@
 	let message_attributes: string[] = $state([])
 	let aws_auth_resource_type: AwsAuthResourceType = $state('credentials')
 	let isValid = $state(false)
-	let initialConfig = $state<Record<string, any> | undefined>(undefined)
+	let initialConfig: Record<string, any> | undefined = undefined
 	let deploymentLoading = $state(false)
 
 	const sqsConfig = $derived.by(getSaveCfg)
@@ -136,7 +136,7 @@
 			dirtyPath = false
 			enabled = defaultValues?.enabled ?? false
 		} finally {
-			initialConfig = getSaveCfg()
+			initialConfig = structuredClone($state.snapshot(getSaveCfg()))
 			clearTimeout(loadingTimeout)
 			drawerLoading = false
 			showLoading = false
@@ -170,7 +170,6 @@
 					workspace: $workspaceStore!,
 					path: initialPath
 				})
-				initialConfig = s
 				loadTriggerConfig(s)
 			}
 		} catch (error) {
@@ -235,7 +234,9 @@
 	})
 
 	$effect(() => {
-		handleConfigChange(sqsConfig, initialConfig, saveDisabled, edit, onConfigChange)
+		if (!drawerLoading) {
+			handleConfigChange(sqsConfig, initialConfig, saveDisabled, edit, onConfigChange)
+		}
 	})
 </script>
 

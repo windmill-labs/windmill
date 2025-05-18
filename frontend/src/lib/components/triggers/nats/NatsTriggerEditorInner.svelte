@@ -75,7 +75,7 @@
 	let useJetstream = $state(false)
 	let streamName = $state('')
 	let consumerName = $state('')
-	let initialConfig = $state<Record<string, any> | undefined>(undefined)
+	let initialConfig: Record<string, any> | undefined = undefined
 	let deploymentLoading = $state(false)
 	let isValid = $state(false)
 
@@ -112,7 +112,7 @@
 			drawerLoading = false
 			showLoading = false
 			if (!defaultConfig) {
-				initialConfig = getSaveCfg()
+				initialConfig = structuredClone($state.snapshot(getSaveCfg()))
 			}
 		}
 	}
@@ -245,7 +245,8 @@
 	})
 
 	$effect(() => {
-		handleConfigChange(natsConfig, initialConfig, saveDisabled, edit, onConfigChange)
+		!drawerLoading &&
+			handleConfigChange(natsConfig, initialConfig, saveDisabled, edit, onConfigChange)
 	})
 </script>
 

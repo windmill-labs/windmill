@@ -1,19 +1,19 @@
 <script lang="ts">
 	import { Calendar, Mail, Webhook, Unplug, Database, Terminal } from 'lucide-svelte'
 	import { Loader2 } from 'lucide-svelte'
-	import { createEventDispatcher, type ComponentType } from 'svelte'
+	import { type ComponentType } from 'svelte'
 	import { Route } from 'lucide-svelte'
 	import { getContext } from 'svelte'
 	import { type TriggerContext } from '$lib/components/triggers'
 	import { enterpriseLicense } from '$lib/stores'
 	import { MqttIcon, NatsIcon, KafkaIcon, AwsIcon, GoogleCloudIcon } from '$lib/components/icons'
-	import type { Trigger, TriggerType } from '$lib/components/triggers/utils'
+	import { type Trigger, type TriggerType } from '$lib/components/triggers/utils'
 	import { Menu, Menubar, MeltButton, MenuItem, Tooltip } from '$lib/components/meltComponents'
 	import { twMerge } from 'tailwind-merge'
 	import SchedulePollIcon from '$lib/components/icons/SchedulePollIcon.svelte'
 	import TriggerLabel from '$lib/components/triggers/TriggerLabel.svelte'
 
-	const { selectedTrigger, triggersCount } = getContext<TriggerContext>('TriggerContext')
+	const { selectedTrigger, triggers, triggersCount } = getContext<TriggerContext>('TriggerContext')
 
 	interface Props {
 		path: string
@@ -21,31 +21,27 @@
 		isFlow: boolean
 		selected: boolean
 		showOnlyWithCount: boolean
-		triggers: Trigger[]
 		numberOfTriggers?: number
 		small?: boolean
 		vertical?: boolean
 		limit?: number
 		showDraft?: boolean
+		onSelect?: (triggerIndex: number) => void
 	}
 
 	let {
 		selected,
 		showOnlyWithCount,
-		triggers,
 		// @ts-ignore - This is an output-only prop used with bind:
 		numberOfTriggers = $bindable(0),
 		small = true,
 		vertical = false,
 		limit,
-		showDraft = true
+		showDraft = true,
+		onSelect
 	}: Props = $props()
 
 	let menuOpen = $state(false)
-
-	const dispatch = createEventDispatcher<{
-		select: Trigger | undefined
-	}>()
 
 	const triggerTypeConfig: {
 		[key in TriggerType]: { icon: ComponentType; countKey?: string; disabled?: boolean }
@@ -92,7 +88,10 @@
 
 	// Group triggers by their mapped type
 	let triggersGrouped = $derived.by(() => {
-		const triggersFiltered = showDraft ? triggers : triggers.filter((trigger) => !trigger.isDraft)
+		const triggersWithIndex = $triggers.map((trigger, index) => ({ ...trigger, index }))
+		const triggersFiltered = showDraft
+			? triggersWithIndex
+			: triggersWithIndex.filter((trigger) => !trigger.isDraft)
 		return triggersFiltered.reduce(
 			(acc, trigger) => {
 				const configType = trigger.type
@@ -107,7 +106,7 @@
 		)
 	})
 
-	let noTriggers = $derived(triggers.length === 0)
+	const noTriggers = $derived($triggers.length === 0)
 
 	// Extract unique trigger types for display, only keep the first
 	let allTriggerTypes = $derived.by(() => {
@@ -132,7 +131,7 @@
 	let extraTriggersType = $derived(
 		limit && allTriggerTypes.length > limit ? allTriggerTypes.slice(limit) : []
 	)
-	let showOnlyTriggersWithCount = $derived(showOnlyWithCount || triggers.length === 0)
+	let showOnlyTriggersWithCount = $derived(showOnlyWithCount || $triggers.length === 0)
 
 	$effect(() => {
 		if (allTriggerTypes) {
@@ -149,7 +148,8 @@
 >
 	{#snippet children({ createMenu })}
 		{#each triggersToDisplay as type}
-			{@const isSelected = selected && $selectedTrigger && $selectedTrigger.type === type}
+			{@const isSelected =
+				selected && $selectedTrigger && $triggers && $triggers[$selectedTrigger]?.type === type}
 			{@const singleItem =
 				type === 'webhook' ||
 				type === 'email'! ||
@@ -185,7 +185,7 @@
 						{#snippet children({ item })}
 							{#if triggersGrouped[type] && triggersGrouped[type].length > 0}
 								{#each triggersGrouped[type] as trigger}
-									{@render triggerItem({ trigger, item })}
+									{@render triggerItem({ triggerIndex: trigger.index, item })}
 								{/each}
 							{:else}
 								<div class="text-xs text-gray-400 p-2">No {camelCaseToWords(type)} triggers</div>
@@ -216,7 +216,7 @@
 				{#snippet children({ item })}
 					{#if extraTriggers.length > 0}
 						{#each extraTriggers as trigger}
-							{@render triggerItem({ trigger, item })}
+							{@render triggerItem({ triggerIndex: trigger.index, item })}
 						{/each}
 					{:else if extraTriggersType.length > 0}
 						{#each extraTriggersType as type}
@@ -243,7 +243,7 @@
 			e.stopPropagation()
 			e.preventDefault()
 			if (singleItem) {
-				dispatch('select', triggersGrouped[type][0])
+				onSelect?.(triggersGrouped[type][0].index)
 			}
 		}}
 		{meltElement}
@@ -289,15 +289,15 @@
 	</MeltButton>
 {/snippet}
 
-{#snippet triggerItem({ trigger, item })}
+{#snippet triggerItem({ triggerIndex, item })}
 	<MenuItem
 		{item}
 		class={itemClass}
-		on:click={(e) => {
-			dispatch('select', trigger)
+		on:click={() => {
+			onSelect?.(triggerIndex)
 		}}
 	>
-		<TriggerLabel {trigger} />
+		<TriggerLabel trigger={$triggers[triggerIndex]} />
 	</MenuItem>
 {/snippet}
 

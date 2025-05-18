@@ -53,7 +53,7 @@
 				{/if}
 				<slot />
 				{#if $triggers?.some((t) => t.isPrimary && !t.isDraft)}
-					{@const primarySchedule = $triggers.find((t) => t.isPrimary && !t.isDraft)}
+					{@const primarySchedule = $triggers.findIndex((t) => t.isPrimary && !t.isDraft)}
 					<Button
 						btnClasses="inline-flex"
 						startIcon={{ icon: Calendar }}

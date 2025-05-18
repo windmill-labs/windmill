@@ -94,7 +94,7 @@
 	let publicationItems: string[] = $state([])
 	let transactionType: string[] = ['Insert', 'Update', 'Delete']
 	let tab: 'advanced' | 'basic' = $state('basic')
-	let initialConfig = $state<Record<string, any> | undefined>(undefined)
+	let initialConfig: Record<string, any> | undefined = undefined
 	let deploymentLoading = $state(false)
 
 	const errorMessage = $derived.by(() => {
@@ -202,7 +202,7 @@
 			sendUserToast(`Could not load postgres trigger: ${err.body}`, true)
 		} finally {
 			if (!defaultConfig) {
-				initialConfig = getSaveCfg()
+				initialConfig = structuredClone($state.snapshot(getSaveCfg()))
 			}
 			clearTimeout(loadingTimeout)
 			drawerLoading = false
@@ -391,7 +391,9 @@
 	})
 
 	$effect(() => {
-		handleConfigChange(postgresConfig, initialConfig, saveDisabled, edit, onConfigChange)
+		if (!drawerLoading) {
+			handleConfigChange(postgresConfig, initialConfig, saveDisabled, edit, onConfigChange)
+		}
 	})
 </script>
 

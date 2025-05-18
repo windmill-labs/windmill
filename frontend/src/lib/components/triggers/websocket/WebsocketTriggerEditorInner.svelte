@@ -91,7 +91,7 @@
 	let can_write = $state(true)
 	let drawerLoading = $state(true)
 	let showLoading = $state(false)
-	let initialConfig = $state<Record<string, any> | undefined>(undefined)
+	let initialConfig: Record<string, any> | undefined = undefined
 	let deploymentLoading = $state(false)
 	let isValid = $state(false)
 
@@ -139,7 +139,7 @@
 			sendUserToast(`Could not load websocket trigger: ${err}`, true)
 		} finally {
 			if (!defaultConfig) {
-				initialConfig = getSaveCfg()
+				initialConfig = structuredClone($state.snapshot(getSaveCfg()))
 			}
 			clearTimeout(loadingTimeout)
 			drawerLoading = false
@@ -301,7 +301,9 @@
 	})
 
 	$effect(() => {
-		handleConfigChange(websocketCfg, initialConfig, saveDisabled, edit, onConfigChange)
+		if (!drawerLoading) {
+			handleConfigChange(websocketCfg, initialConfig, saveDisabled, edit, onConfigChange)
+		}
 	})
 </script>
 

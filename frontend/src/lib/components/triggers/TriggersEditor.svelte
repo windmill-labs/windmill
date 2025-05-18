@@ -24,12 +24,10 @@
 		fetchSqsTriggers,
 		fetchMqttTriggers,
 		addDraftTrigger,
-		deleteDraft,
-		updateDraftConfig,
-		isEqual,
 		type Trigger,
 		triggerTypeToCaptureKind,
-		deleteTrigger
+		deleteTrigger,
+		type TriggerType
 	} from './utils'
 	import SchedulePanel from '../SchedulePanel.svelte'
 
@@ -54,6 +52,7 @@
 	let width = 0
 	let emailDomain: string | undefined = undefined
 	let isValid = false
+	let renderCount = 0
 
 	const {
 		simplifiedPoll,
@@ -68,48 +67,34 @@
 	})
 
 	// Handle trigger selection
-	function handleSelectTrigger(event: CustomEvent<Trigger>) {
-		$selectedTrigger = event.detail
+	function onSelect(triggerIndex: number) {
+		$selectedTrigger = triggerIndex
 	}
 
-	function updateEditTrigger(trigger: Trigger | undefined) {
-		if (editTrigger !== trigger) {
-			editTrigger = undefined
-		}
-	}
-
-	function deleteDraftTrigger(trigger: Trigger | undefined) {
-		if (!trigger) {
+	function deleteDraftTrigger(triggerIndex: number | undefined) {
+		if (triggerIndex === undefined) {
 			return
 		}
-
-		if ('id' in trigger && trigger.id) {
-			deleteDraft(triggers, triggersCount, trigger.type, trigger.id, trigger.isPrimary)
-		}
+		deleteTrigger(triggers, triggersCount, triggerIndex)
 
 		// Select a new trigger if any exist
 		if ($triggers.length > 0) {
-			$selectedTrigger = $triggers[$triggers.length - 1]
+			$selectedTrigger = $triggers.length - 1
 		} else {
 			$selectedTrigger = undefined
 		}
 	}
 
-	async function handleUpdate(trigger: Trigger | undefined, path: string) {
+	async function handleUpdate(trigger: number | undefined, path: string) {
 		if (!trigger) {
 			return
 		}
+
+		const triggerType = $triggers[trigger].type
 		//delete the trigger from the store
 		deleteTrigger(triggers, triggersCount, trigger)
 
-		if (trigger.isDraft) {
-			trigger.isDraft = false
-		}
-		if (trigger) {
-			trigger.path = path
-		}
-
-		if (trigger.type === 'schedule') {
+		if (triggerType === 'schedule') {
 			await fetchSchedules(
 				triggers,
 				triggersCount,
@@ -119,7 +104,7 @@
 				undefined,
 				$userStore
 			)
-		} else if (trigger.type === 'websocket') {
+		} else if (triggerType === 'websocket') {
 			await fetchWebsocketTriggers(
 				triggers,
 				triggersCount,
@@ -128,7 +113,7 @@
 				isFlow,
 				$userStore
 			)
-		} else if (trigger.type === 'postgres') {
+		} else if (triggerType === 'postgres') {
 			await fetchPostgresTriggers(
 				triggers,
 				triggersCount,
@@ -137,9 +122,9 @@
 				isFlow,
 				$userStore
 			)
-		} else if (trigger.type === 'kafka') {
+		} else if (triggerType === 'kafka') {
 			await fetchKafkaTriggers(triggers, triggersCount, $workspaceStore, currentPath, isFlow)
-		} else if (trigger.type === 'nats') {
+		} else if (triggerType === 'nats') {
 			await fetchNatsTriggers(
 				triggers,
 				triggersCount,
@@ -148,7 +133,7 @@
 				isFlow,
 				$userStore
 			)
-		} else if (trigger.type === 'gcp') {
+		} else if (triggerType === 'gcp') {
 			await fetchGcpTriggers(
 				triggers,
 				triggersCount,
@@ -157,7 +142,7 @@
 				isFlow,
 				$userStore
 			)
-		} else if (trigger.type === 'sqs') {
+		} else if (triggerType === 'sqs') {
 			await fetchSqsTriggers(
 				triggers,
 				triggersCount,
@@ -166,7 +151,7 @@
 				isFlow,
 				$userStore
 			)
-		} else if (trigger.type === 'mqtt') {
+		} else if (triggerType === 'mqtt') {
 			await fetchMqttTriggers(
 				triggers,
 				triggersCount,
@@ -175,7 +160,7 @@
 				isFlow,
 				$userStore
 			)
-		} else if (trigger.type === 'http') {
+		} else if (triggerType === 'http') {
 			await fetchHttpTriggers(
 				triggers,
 				triggersCount,
@@ -185,26 +170,33 @@
 				$userStore
 			)
 		}
-		$selectedTrigger = trigger
+		$selectedTrigger = $triggers.findIndex((t) => t.path === path && t.type === triggerType)
 	}
 
 	function handleUpdateDraftConfig(newConfig: Record<string, any>, canSave: boolean) {
 		if ($selectedTrigger && newConfig) {
-			updateDraftConfig(triggers, $selectedTrigger, { ...newConfig, canSave })
+			$triggers[$selectedTrigger].draftConfig = { ...newConfig, canSave }
 		}
 	}
 
-	function handleResetDraft(trigger: Trigger | undefined) {
+	function handleResetDraft(trigger: number | undefined) {
 		if (!trigger) {
 			return
 		}
-		updateDraftConfig(triggers, trigger, undefined)
-		if ($selectedTrigger && isEqual(trigger, $selectedTrigger)) {
-			$selectedTrigger.draftConfig = undefined
-		}
+		$triggers[trigger].draftConfig = undefined
+		renderCount++
 	}
 
-	$: updateEditTrigger($selectedTrigger)
+	function handleAddTrigger(type: TriggerType) {
+		const newTrigger = addDraftTrigger(
+			triggers,
+			triggersCount,
+			type,
+			type === 'schedule' ? initialPath : undefined
+		)
+		$selectedTrigger = newTrigger
+	}
+
 	$: useVerticalTriggerBar = width < 1000
 </script>
 
@@ -218,39 +210,18 @@
 						<div class="w-[350px] flex-shrink-0 overflow-auto pr-2 pl-4 pt-2 pb-2">
 							<TriggersTable
 								selectedTrigger={$selectedTrigger}
-								on:select={handleSelectTrigger}
+								{onSelect}
 								triggers={$triggers}
 								{isEditor}
-								on:addDraftTrigger={({ detail }) => {
-									const newTrigger = addDraftTrigger(
-										triggers,
-										triggersCount,
-										detail,
-										detail === 'schedule' ? initialPath : undefined
-									)
-									$selectedTrigger = newTrigger
-								}}
-								on:deleteDraft={({ detail }) => {
-									deleteDraftTrigger(detail.trigger)
-								}}
-								on:edit={({ detail }) => {
-									editTrigger = detail
-									if (JSON.stringify(detail) !== JSON.stringify($selectedTrigger)) {
-										$selectedTrigger = detail
-									}
-								}}
-								on:reset={({ detail }) => {
-									handleResetDraft(detail)
-								}}
+								onAddDraftTrigger={handleAddTrigger}
+								onDeleteDraft={deleteDraftTrigger}
+								onReset={handleResetDraft}
 							/>
 						</div>
 					{:else}
 						<div class="p-2 flex flex-col gap-2 border-r">
 							<AddTriggersButton
-								on:addDraftTrigger={({ detail }) => {
-									const newTrigger = addDraftTrigger(triggers, triggersCount, detail)
-									$selectedTrigger = newTrigger
-								}}
+								onAddDraftTrigger={handleAddTrigger}
 								class="w-fit h-fit"
 								placement="right-start"
 							>
@@ -264,10 +235,9 @@
 								{newItem}
 								isFlow
 								selected={true}
-								triggers={$triggers}
 								small={false}
 								vertical
-								on:select={({ detail }) => ($selectedTrigger = detail)}
+								onSelect={(triggerIndex: number) => ($selectedTrigger = triggerIndex)}
 							/>
 						</div>
 					{/if}
@@ -280,10 +250,11 @@
 						style="scrollbar-gutter: stable"
 					>
 						{#if $selectedTrigger}
-							{#key $selectedTrigger}
+							{@const selected = $triggers[$selectedTrigger]}
+							{#key [selected.id || selected.path, renderCount].join('-')}
 								<div in:fade={{ duration: 100, delay: 100 }} out:fade={{ duration: 100 }}>
 									<TriggersWrapperV2
-										selectedTrigger={$selectedTrigger}
+										selectedTrigger={selected}
 										{isFlow}
 										{initialPath}
 										{fakeInitialPath}
@@ -327,8 +298,8 @@
 					</div>
 				</div>
 			</Pane>
-			{#if $selectedTrigger && $selectedTrigger.type && $selectedTrigger.type !== 'schedule' && $selectedTrigger.type != 'poll' && !noCapture}
-				{@const captureKind = triggerTypeToCaptureKind($selectedTrigger.type)}
+			{#if $selectedTrigger && $triggers[$selectedTrigger].type && $triggers[$selectedTrigger].type !== 'schedule' && $triggers[$selectedTrigger].type != 'poll' && !noCapture}
+				{@const captureKind = triggerTypeToCaptureKind($triggers[$selectedTrigger].type)}
 				{#key captureKind}
 					<Pane minSize={20} size={40}>
 						<CaptureWrapper
@@ -350,7 +321,7 @@
 			{/if}
 		</Splitpanes>
 	{:else}
-		{@const selected = $triggers.find((t) => t.isPrimary)}
+		{@const selected = $triggers.findIndex((t) => t.isPrimary)}
 		<div class="px-4 py-2">
 			{#if selected}
 				<SchedulePanel
@@ -358,8 +329,10 @@
 					path={initialPath || fakeInitialPath}
 					selectedTrigger={selected}
 					{isDeployed}
-					defaultValues={selected.draftConfig ?? selected.captureConfig ?? undefined}
-					newDraft={selected.draftConfig === undefined}
+					defaultValues={$triggers[selected].draftConfig ??
+						$triggers[selected].captureConfig ??
+						undefined}
+					newDraft={$triggers[selected].draftConfig === undefined}
 					edit={editTrigger === selected}
 					{schema}
 					{isEditor}

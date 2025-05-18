@@ -84,14 +84,6 @@ export const triggerIconMap = {
 	cli: Terminal
 }
 
-export function isEqual(a: Trigger, b: Trigger): boolean {
-	if (a.isDraft) {
-		return a.id === b.id
-	} else {
-		return a.path === b.path && a.type === b.type
-	}
-}
-
 /**
  * Converts a TriggerType to a CaptureTriggerKind when a mapping exists
  * @param triggerType The trigger type to convert
@@ -136,7 +128,7 @@ export function addDraftTrigger(
 	type: TriggerType,
 	path?: string,
 	draftCfg?: Record<string, any>
-): Trigger {
+): number {
 	const currentTriggers = get(triggersStore)
 
 	const primaryScheduleExists = currentTriggers.some((t) => t.type === 'schedule' && t.isPrimary)
@@ -158,7 +150,7 @@ export function addDraftTrigger(
 
 	updateTriggersCount(triggersCountStore, type, 'add', newTrigger.draftConfig)
 
-	return newTrigger
+	return currentTriggers.length
 }
 
 function updateTriggersCount(
@@ -223,66 +215,21 @@ function updateTriggersCount(
 }
 
 /**
- * Delete a draft trigger from the store
- */
-export function deleteDraft(
-	triggersStore: Writable<Trigger[]>,
-	triggersCountStore: Writable<TriggersCount | undefined>,
-	type: TriggerType,
-	draftId: string,
-	isPrimary?: boolean
-): void {
-	triggersStore.update((triggers) => triggers.filter((t) => t.id !== draftId))
-	updateTriggersCount(triggersCountStore, type, 'remove', undefined, isPrimary)
-}
-
-/**
  * Delete a trigger from the store
  */
 export function deleteTrigger(
 	triggersStore: Writable<Trigger[]>,
 	triggersCountStore: Writable<TriggersCount | undefined>,
-	trigger: Trigger
+	triggerIndex: number
 ): void {
-	if (trigger.isDraft && trigger.id) {
-		deleteDraft(triggersStore, triggersCountStore, trigger.type, trigger.id)
-	} else {
-		triggersStore.update((triggers) =>
-			triggers.filter((t) => t.path !== trigger.path || t.type !== trigger.type)
-		)
-		updateTriggersCount(triggersCountStore, trigger.type, 'remove')
-	}
-}
+	const { type, isDraft } = get(triggersStore)[triggerIndex]
 
-export function updateDraftConfig(
-	triggersStore: Writable<Trigger[]>,
-	trigger: Trigger,
-	draftConfig: Record<string, any> | undefined
-): void {
-	if (trigger.isDraft) {
-		triggersStore.update((triggers) =>
-			triggers.map((t) =>
-				t.id === trigger.id
-					? {
-							...t,
-							draftConfig,
-							...(draftConfig === undefined ? { saveCb: undefined } : {})
-						}
-					: t
-			)
-		)
-	} else {
-		triggersStore.update((triggers) =>
-			triggers.map((t) =>
-				t.path === trigger.path && t.type === trigger.type
-					? {
-							...t,
-							draftConfig,
-							...(draftConfig === undefined ? { saveCb: undefined } : {})
-						}
-					: t
-			)
-		)
+	triggersStore.update((triggers) => {
+		return triggers.filter((_, index) => index !== triggerIndex)
+	})
+
+	if (!isDraft) {
+		updateTriggersCount(triggersCountStore, type, 'remove')
 	}
 }
 
@@ -803,7 +750,7 @@ export async function deployTriggers(
 export function handleSelectTriggerFromKind(
 	triggersStore: Writable<Trigger[]>,
 	triggersCountStore: Writable<TriggersCount | undefined>,
-	selectedTriggerStore: Writable<Trigger | undefined>,
+	selectedTriggerStore: Writable<number | undefined>,
 	initialPath: string | undefined,
 	triggerKind: TriggerKind
 ) {
@@ -813,10 +760,12 @@ export function handleSelectTriggerFromKind(
 		return
 	}
 
-	const existingTrigger = get(triggersStore).find((trigger) => trigger.type === triggerType)
+	const existingTriggerIndex = get(triggersStore).findIndex(
+		(trigger) => trigger.type === triggerType
+	)
 
-	if (existingTrigger) {
-		selectedTriggerStore.set(existingTrigger)
+	if (existingTriggerIndex !== -1) {
+		selectedTriggerStore.set(existingTriggerIndex)
 	} else {
 		const newTrigger = addDraftTrigger(
 			triggersStore,
@@ -838,7 +787,7 @@ export function handleConfigChange(
 	let updated = false
 	if (!edit || !initialConfig) {
 		updated = true
-	} else if (initialConfig) {
+	} else {
 		// We ignore changes to enabled
 		let newCfg = { ...nCfg }
 		if ('enabled' in newCfg) {
@@ -852,5 +801,6 @@ export function handleConfigChange(
 			updated = true
 		}
 	}
+
 	onConfigChange?.(nCfg, saveDisabled, updated)
 }

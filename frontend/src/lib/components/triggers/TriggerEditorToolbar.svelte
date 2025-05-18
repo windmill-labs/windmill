@@ -130,7 +130,7 @@
 				}}
 				loading={isLoading}
 			>
-				Save
+				Saving
 			</Button>
 		{/if}
 	</div>

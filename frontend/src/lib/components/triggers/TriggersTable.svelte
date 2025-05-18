@@ -1,64 +1,54 @@
 <script lang="ts">
 	import DataTable from '$lib/components/table/DataTable.svelte'
-	import { createEventDispatcher } from 'svelte'
 	import DropdownV2 from '$lib/components/DropdownV2.svelte'
 	import Button from '$lib/components/common/button/Button.svelte'
-	import { Plus, Star, Loader2, Trash, Pen, EllipsisVertical, RotateCcw } from 'lucide-svelte'
+	import { Plus, Star, Loader2, Trash, EllipsisVertical, RotateCcw } from 'lucide-svelte'
 	import { twMerge } from 'tailwind-merge'
 	import type { Item } from '$lib/utils'
-	import { isEqual, triggerIconMap, type Trigger } from './utils'
+	import { triggerIconMap, type Trigger, type TriggerType } from './utils'
 	import AddTriggersButton from './AddTriggersButton.svelte'
 	import TriggerLabel from './TriggerLabel.svelte'
-	// Props
-	export let selectedTrigger: Trigger | undefined = undefined
-	export let triggers: Trigger[] = []
-	export let isEditor: boolean = false
+
+	interface Props {
+		// Props
+		selectedTrigger?: number | undefined
+		triggers?: Trigger[]
+		isEditor?: boolean
+		onSelect?: (trigger: number) => void
+		onAddDraftTrigger?: (type: TriggerType) => void
+		onDeleteDraft?: (triggerIndex: number) => void
+		onReset?: (triggerIndex: number) => void
+	}
+
+	let {
+		selectedTrigger = undefined,
+		triggers = [],
+		isEditor = false,
+		onSelect,
+		onAddDraftTrigger,
+		onDeleteDraft,
+		onReset
+	}: Props = $props()
 
 	// Component state
 	let loading = false
 
-	// Event handling
-	const dispatch = createEventDispatcher<{
-		select: Trigger
-		delete: Trigger
-		deleteDraft: { trigger: Trigger | undefined; keepSelection: boolean }
-		edit: Trigger
-		reset: Trigger
-	}>()
-
-	const editTriggerItems = (trigger: Trigger): Item[] =>
+	const editTriggerItems = (triggerIndex: number, hasDraft: boolean): Item[] =>
 		[
-			{
-				displayName: 'Edit',
-				action: () => {
-					dispatch('edit', trigger)
-				},
-				icon: Pen,
-				disabled: !trigger.canWrite
-			},
 			{
 				displayName: 'Reset to deployed version',
 				action: () => {
-					dispatch('reset', trigger)
+					onReset?.(triggerIndex)
 				},
 				icon: RotateCcw,
-				hidden: !trigger.draftConfig || trigger.isDraft
+				hidden: !hasDraft
 			}
 		].filter((item) => item.hidden !== true)
-
-	// Select a trigger
-	function selectTrigger(trigger: Trigger) {
-		dispatch('select', trigger)
-	}
-
-	export function deleteDraft(trigger: Trigger | undefined, keepSelection: boolean = false) {
-		dispatch('deleteDraft', { trigger, keepSelection })
-	}
 </script>
 
 <div class="flex flex-col space-y-2 w-full">
 	<div class="w-full">
-		<AddTriggersButton on:addDraftTrigger setDropdownWidthToButtonWidth class="w-full" {isEditor}>
+		<AddTriggersButton {onAddDraftTrigger} setDropdownWidthToButtonWidth class="w-full" {isEditor}>
 			<Button
 				size="xs"
 				color="blue"
@@ -72,18 +62,18 @@
 	</div>
 	<DataTable {loading} size="sm" tableFixed={true}>
 		<tbody>
-			{#each triggers as trigger}
+			{#each triggers as trigger, index}
+				{@const SvelteComponent = triggerIconMap[trigger.type]}
 				<tr
 					class={twMerge(
 						'hover:bg-surface-hover cursor-pointer h-10',
-						selectedTrigger && isEqual(selectedTrigger, trigger) ? 'bg-surface-hover ' : ''
+						selectedTrigger === index ? 'bg-surface-hover ' : ''
 					)}
-					on:click={() => selectTrigger(trigger)}
+					onclick={() => onSelect?.(index)}
 				>
 					<td class="w-12 text-center py-2 px-2">
 						<div class="relative flex justify-center items-center">
-							<svelte:component
-								this={triggerIconMap[trigger.type]}
+							<SvelteComponent
 								size={16}
 								class={trigger.isDraft ? 'text-frost-400' : 'text-tertiary'}
 							/>
@@ -107,19 +97,19 @@
 										btnClasses="hover:bg-red-500 hover:text-white bg-transparent px-1"
 										startIcon={{ icon: Trash }}
 										iconOnly
-										on:click={() => deleteDraft(trigger)}
+										on:click={() => onDeleteDraft?.(index)}
 									/>
 								{:else}
 									<DropdownV2
-										items={editTriggerItems(trigger)}
+										items={editTriggerItems(index, !!trigger.draftConfig && !trigger.isDraft)}
 										placement="bottom-end"
 										class="w-fit h-fit px-3"
 									>
-										<svelte:fragment slot="buttonReplacement">
+										{#snippet buttonReplacement()}
 											<div class="-m-2 w-4 h-6 flex items-center justify-end">
 												<EllipsisVertical size={14} />
 											</div>
-										</svelte:fragment>
+										{/snippet}
 									</DropdownV2>
 								{/if}
 							{/if}

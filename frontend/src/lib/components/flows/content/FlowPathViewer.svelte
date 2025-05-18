@@ -2,7 +2,6 @@
 	import Skeleton from '$lib/components/common/skeleton/Skeleton.svelte'
 	import FlowGraphViewer from '$lib/components/FlowGraphViewer.svelte'
 	import type { TriggerContext } from '$lib/components/triggers'
-	import type { Trigger } from '$lib/components/triggers/utils'
 	import { FlowService, type Flow, type TriggersCount } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { setContext } from 'svelte'
@@ -13,7 +12,7 @@
 
 	let flow: Flow | undefined = undefined
 
-	const selectedTriggerStore = writable<Trigger | undefined>(undefined)
+	const selectedTriggerStore = writable<number | undefined>(undefined)
 	const triggersCount = writable<TriggersCount | undefined>(undefined)
 	setContext<TriggerContext>('TriggerContext', {
 		selectedTrigger: selectedTriggerStore,

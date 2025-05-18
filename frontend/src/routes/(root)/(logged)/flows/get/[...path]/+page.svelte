@@ -86,11 +86,7 @@
 	}
 
 	const triggersCount = writable<TriggersCount | undefined>(undefined)
-	const selectedTriggerStore = writable<Trigger | undefined>({
-		type: 'webhook',
-		path: '',
-		isDraft: false
-	})
+	const selectedTriggerStore = writable<number | undefined>(0)
 
 	// Add triggers context store
 	const triggersStore = writable<Trigger[]>([
@@ -458,13 +454,10 @@
 						newItem={false}
 						isFlow
 						selected={rightPaneSelected == 'triggers'}
-						triggers={$triggersStore}
-						on:select={async ({ detail }) => {
+						onSelect={async (triggerIndex: number) => {
 							rightPaneSelected = 'triggers'
 							await tick()
-							if (detail) {
-								$selectedTriggerStore = detail
-							}
+							$selectedTriggerStore = triggerIndex
 						}}
 						small={false}
 					/>

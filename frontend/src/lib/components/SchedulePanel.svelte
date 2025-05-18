@@ -7,7 +7,6 @@
 		selectedTrigger,
 		isFlow,
 		path,
-		isDeployed = false,
 		defaultValues = undefined,
 		newDraft = false,
 		edit = false,

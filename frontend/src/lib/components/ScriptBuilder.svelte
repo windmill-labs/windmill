@@ -83,7 +83,12 @@
 	import type { SavedAndModifiedValue } from './common/confirmationModal/unsavedTypes'
 	import type { ScriptBuilderFunctionExports } from './scriptBuilder'
 	import DeployButton from './DeployButton.svelte'
-	import { fetchTriggers, type Trigger, deployTriggers } from './triggers/utils'
+	import {
+		fetchTriggers,
+		type Trigger,
+		deployTriggers,
+		handleSelectTriggerFromKind
+	} from './triggers/utils'
 	import DraftTriggersConfirmationModal from './common/confirmationModal/DraftTriggersConfirmationModal.svelte'
 
 	export let script: NewScript
@@ -210,7 +215,6 @@
 		)
 	}
 
-	const triggerDefaultValuesStore = writable<Record<string, any> | undefined>(undefined)
 	// Add triggers context store
 	const triggersStore = writable<Trigger[]>([
 		{ type: 'webhook', path: '', isDraft: false },
@@ -220,7 +224,7 @@
 
 	const captureOn = writable<boolean | undefined>(undefined)
 	const showCaptureHint = writable<boolean | undefined>(undefined)
-	const selectedTriggerStore = writable<Trigger | undefined>(undefined)
+	const selectedTriggerStore = writable<number | undefined>(undefined)
 	setContext<TriggerContext>('TriggerContext', {
 		selectedTrigger: selectedTriggerStore,
 		triggersCount,
@@ -765,8 +769,13 @@
 	function openTriggers(ev) {
 		metadataOpen = true
 		selectedTab = 'triggers'
-		selectedTriggerStore.set(ev.detail.kind)
-		triggerDefaultValuesStore.set(ev.detail.config)
+		handleSelectTriggerFromKind(
+			triggersStore,
+			triggersCount,
+			selectedTriggerStore,
+			initialPath,
+			ev.detail.kind
+		)
 		captureOn.set(true)
 	}
 
@@ -1489,8 +1498,8 @@
 
 				<div class="gap-4 flex">
 					{#if $triggersStore?.some((t) => t.type === 'schedule')}
-						{@const primarySchedule = $triggersStore.find((t) => t.isPrimary)}
-						{@const schedule = $triggersStore.find((t) => t.type === 'schedule')}
+						{@const primarySchedule = $triggersStore.findIndex((t) => t.isPrimary)}
+						{@const schedule = $triggersStore.findIndex((t) => t.type === 'schedule')}
 
 						<Button
 							btnClasses="hidden lg:inline-flex"
@@ -1504,8 +1513,8 @@
 								$selectedTriggerStore = primarySchedule ?? schedule
 							}}
 						>
-							{primarySchedule?.draftConfig?.schedule ??
-								primarySchedule?.lightConfig?.schedule ??
+							{$triggersStore[primarySchedule]?.draftConfig?.schedule ??
+								$triggersStore[primarySchedule]?.lightConfig?.schedule ??
 								''}
 						</Button>
 					{/if}

@@ -9,7 +9,7 @@
 	import { getStateColor, getStateHoverColor } from '../../util'
 	import { setScheduledPollSchedule, type TriggerContext } from '$lib/components/triggers'
 	import VirtualItemWrapper from '$lib/components/flows/map/VirtualItemWrapper.svelte'
-	import { addDraftTrigger, type Trigger } from '$lib/components/triggers/utils'
+	import { addDraftTrigger, type Trigger, type TriggerType } from '$lib/components/triggers/utils'
 	import { tick } from 'svelte'
 
 	export let data: {
@@ -73,21 +73,21 @@
 				data?.eventHandlers?.simplifyFlow(true)
 			}}
 			on:openScheduledPoll={(e) => {
-				const primarySchedule = $triggers.find((t) => t.isPrimary && !t.isDraft)
+				const primarySchedule = $triggers.findIndex((t) => t.isPrimary && !t.isDraft)
 				$selectedTrigger = primarySchedule
 			}}
-			on:select={async (e) => {
+			onSelect={async (triggerIndex: number) => {
 				data?.eventHandlers?.select('triggers')
 				await tick()
-				if (e.detail) {
-					$selectedTrigger = e.detail
+				if (triggerIndex) {
+					$selectedTrigger = triggerIndex
 				}
 			}}
 			on:delete={(e) => {
 				data.eventHandlers.delete(e, '')
 			}}
-			on:addDraftTrigger={async (e) => {
-				const newTrigger = addDraftTrigger(triggers, triggersCount, e.detail)
+			onAddDraftTrigger={async (type: TriggerType) => {
+				const newTrigger = addDraftTrigger(triggers, triggersCount, type)
 				data?.eventHandlers?.select('triggers')
 				await tick()
 				$selectedTrigger = newTrigger
@@ -95,7 +95,6 @@
 			selected={$selectedId == 'triggers'}
 			newItem={data.newFlow}
 			modules={data.modules}
-			triggers={$triggers}
 		/>
 	{:else}
 		<VirtualItemWrapper

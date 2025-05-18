@@ -44,7 +44,7 @@
 	let isValid = $state(false)
 	let delivery_config: PushConfig | undefined = $state(undefined)
 	let subscription_mode: SubscriptionMode = $state('create_update')
-	let initialConfig = $state<Record<string, any> | undefined>(undefined)
+	let initialConfig: Record<string, any> | undefined = undefined
 	let deploymentLoading = $state(false)
 	let base_endpoint = $derived(`${window.location.origin}${base}`)
 
@@ -106,7 +106,7 @@
 		} finally {
 			drawerLoading = false
 			if (!defaultValues) {
-				initialConfig = getGcpConfig()
+				initialConfig = structuredClone($state.snapshot(getGcpConfig()))
 			}
 		}
 	}
@@ -238,7 +238,9 @@
 	})
 
 	$effect(() => {
-		handleConfigChange(gcpConfig, initialConfig, saveDisabled, edit, onConfigChange)
+		if (!drawerLoading) {
+			handleConfigChange(gcpConfig, initialConfig, saveDisabled, edit, onConfigChange)
+		}
 	})
 </script>
 

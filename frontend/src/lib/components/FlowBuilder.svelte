@@ -534,7 +534,7 @@
 		...savedDraftTriggers
 	])
 
-	const selectedTriggerStore = writable<Trigger | undefined>(undefined)
+	const selectedTriggerStore = writable<number | undefined>(undefined)
 	setContext<TriggerContext>('TriggerContext', {
 		selectedTrigger: selectedTriggerStore,
 		triggersCount,
@@ -1291,8 +1291,8 @@
 
 				<div class="gap-4 flex-row hidden md:flex w-full max-w-md">
 					{#if $triggersStore?.some((t) => t.type === 'schedule')}
-						{@const primarySchedule = $triggersStore.find((t) => t.isPrimary)}
-						{@const schedule = $triggersStore.find((t) => t.type === 'schedule')}
+						{@const primaryScheduleIndex = $triggersStore.findIndex((t) => t.isPrimary)}
+						{@const scheduleIndex = $triggersStore.findIndex((t) => t.type === 'schedule')}
 						<Button
 							btnClasses="hidden lg:inline-flex"
 							startIcon={{ icon: Calendar }}
@@ -1301,14 +1301,14 @@
 							size="xs"
 							on:click={async () => {
 								select('triggers')
-								const selected = primarySchedule ?? schedule
+								const selected = primaryScheduleIndex ?? scheduleIndex
 								if (selected) {
 									$selectedTriggerStore = selected
 								}
 							}}
 						>
-							{primarySchedule?.draftConfig?.schedule ??
-								primarySchedule?.lightConfig?.schedule ??
+							{$triggersStore[primaryScheduleIndex]?.draftConfig?.schedule ??
+								$triggersStore[primaryScheduleIndex]?.lightConfig?.schedule ??
 								''}
 						</Button>
 					{/if}

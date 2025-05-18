@@ -47,7 +47,7 @@
 			hasDraft={!!selectedTrigger.draftConfig}
 			isDraftOnly={selectedTrigger.isDraft}
 			{isEditor}
-			{customLabel}
+			{isDeployed}
 			{...props}
 		>
 			{#snippet description()}

@@ -93,7 +93,7 @@
 	let loading = $state(false)
 	let drawerLoading = $state(true)
 	let showLoading = $state(false)
-	let initialConfig = $state<Record<string, any> | undefined>(undefined)
+	let initialConfig: Record<string, any> | undefined = undefined
 	let extraPerms: Record<string, boolean> = $state({})
 	let can_write = $state(true)
 	let initNewPath = $state(false)
@@ -135,7 +135,7 @@
 			edit = true
 		} finally {
 			if (!defaultCfg) {
-				initialConfig = getScheduleCfg()
+				initialConfig = structuredClone($state.snapshot(getScheduleCfg()))
 			}
 			clearTimeout(loadingTimeout)
 			drawerLoading = false
@@ -671,7 +671,9 @@
 	}
 
 	$effect(() => {
-		handleConfigChange(scheduleCfg, initialConfig, saveDisabled, edit, onConfigChange)
+		if (!drawerLoading) {
+			handleConfigChange(scheduleCfg, initialConfig, saveDisabled, edit, onConfigChange)
+		}
 	})
 </script>
 

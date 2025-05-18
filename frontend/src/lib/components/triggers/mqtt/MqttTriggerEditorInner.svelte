@@ -81,7 +81,7 @@
 	let client_version: MqttClientVersion | undefined = $state()
 	let client_id: string | undefined = $state(undefined)
 	let isValid: boolean | undefined = $state(undefined)
-	let initialConfig = $state<Record<string, any> | undefined>(undefined)
+	let initialConfig: Record<string, any> | undefined = undefined
 	let deploymentLoading = $state(false)
 
 	const mqttConfig = $derived.by(getSaveCfg)
@@ -114,7 +114,7 @@
 			sendUserToast(`Could not load mqtt trigger: ${err.body}`, true)
 		} finally {
 			if (!defaultConfig) {
-				initialConfig = getSaveCfg()
+				initialConfig = structuredClone($state.snapshot(getSaveCfg()))
 			}
 			clearTimeout(loadingTimeout)
 			drawerLoading = false
@@ -251,7 +251,9 @@
 	})
 
 	$effect(() => {
-		handleConfigChange(mqttConfig, initialConfig, saveDisabled, edit, onConfigChange)
+		if (!drawerLoading) {
+			handleConfigChange(mqttConfig, initialConfig, saveDisabled, edit, onConfigChange)
+		}
 	})
 </script>
 

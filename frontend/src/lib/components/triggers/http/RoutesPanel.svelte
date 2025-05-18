@@ -11,7 +11,6 @@
 		isFlow,
 		path,
 		defaultValues = undefined,
-		newDraft = false,
 		isEditor = false,
 		customLabel = undefined,
 		...restProps
@@ -19,7 +18,7 @@
 
 	async function openRouteEditor(isFlow: boolean, isDraft: boolean) {
 		if (isDraft) {
-			routeEditor?.openNew(isFlow, path, defaultValues, newDraft)
+			routeEditor?.openNew(isFlow, path, defaultValues)
 		} else {
 			routeEditor?.openEdit(selectedTrigger.path, isFlow, defaultValues)
 		}

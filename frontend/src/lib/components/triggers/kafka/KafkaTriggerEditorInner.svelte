@@ -68,7 +68,7 @@
 	let can_write = $state(true)
 	let drawerLoading = $state(true)
 	let showLoading = $state(false)
-	let initialConfig = $state<Record<string, any> | undefined>(undefined)
+	let initialConfig: Record<string, any> | undefined = undefined
 	let extra_perms = $state<Record<string, any> | undefined>(undefined)
 	let kafkaCfgValid = $state(false)
 	let kafkaResourcePath = $state('')
@@ -119,7 +119,7 @@
 			sendUserToast(`Could not load Kafka trigger: ${err}`, true)
 		} finally {
 			if (!defaultConfig) {
-				initialConfig = getSaveCfg()
+				initialConfig = structuredClone($state.snapshot(getSaveCfg()))
 			}
 			clearTimeout(loadingTimeout)
 			drawerLoading = false
@@ -240,7 +240,9 @@
 	})
 
 	$effect(() => {
-		handleConfigChange(kafkaConfig, initialConfig, saveDisabled, edit, onConfigChange)
+		if (!drawerLoading) {
+			handleConfigChange(kafkaConfig, initialConfig, saveDisabled, edit, onConfigChange)
+		}
 	})
 </script>
 

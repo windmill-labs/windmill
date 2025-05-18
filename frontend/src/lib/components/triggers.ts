@@ -13,7 +13,7 @@ export type ScheduleTrigger = {
 }
 
 export type TriggerContext = {
-	selectedTrigger: Writable<Trigger | undefined>
+	selectedTrigger: Writable<number | undefined>
 	triggersCount: Writable<TriggersCount | undefined>
 	simplifiedPoll: Writable<boolean | undefined>
 	showCaptureHint: Writable<boolean | undefined>

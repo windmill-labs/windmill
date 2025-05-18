@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { NODE } from '../../util'
 	import { createEventDispatcher } from 'svelte'
-	import type { Trigger } from '$lib/components/triggers/utils'
+	import type { TriggerType } from '$lib/components/triggers/utils'
 	import TriggersBadge from './TriggersBadge.svelte'
 	import type { FlowModule } from '$lib/gen'
 	import { Plus } from 'lucide-svelte'
@@ -17,9 +17,10 @@
 		disableAi?: boolean
 		modules?: FlowModule[]
 		bgColor: string
-		triggers?: Trigger[]
 		bgHoverColor?: string
 		showDraft?: boolean
+		onSelect?: (triggerIndex: number) => void
+		onAddDraftTrigger?: (type: TriggerType) => void
 	}
 
 	let {
@@ -30,9 +31,10 @@
 		disableAi = false,
 		modules = [],
 		bgColor,
-		triggers = [],
 		bgHoverColor = '',
-		showDraft
+		showDraft,
+		onSelect,
+		onAddDraftTrigger
 	}: Props = $props()
 
 	let showTriggerScriptPicker = $state(false)
@@ -71,24 +73,23 @@
 			{newItem}
 			isFlow
 			{selected}
-			{triggers}
 			bind:numberOfTriggers
-			on:select
 			limit={isEditor ? 7 : 8}
+			{onSelect}
 		/>
 
 		{#if isEditor}
 			<AddTriggersButton
-				on:addDraftTrigger
-				on:addScheduledPoll={() => {
+				onAddScheduledPoll={() => {
 					showTriggerScriptPicker = true
 				}}
 				class="w-fit h-fit"
 				triggerScriptPicker={showTriggerScriptPicker ? triggerScriptPicker : undefined}
-				on:close={() => {
+				onClose={() => {
 					showTriggerScriptPicker = false
 				}}
 				isEditor
+				{onAddDraftTrigger}
 			>
 				<button
 					class="hover:bg-slate-300 dark:hover:bg-slate-600 rounded-md outline-1 outline-dashed outline-secondary outline-offset-[-1px] text-xs w-[23px] h-[23px] relative center-center cursor-pointer text-secondary"

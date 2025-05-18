@@ -21,7 +21,7 @@
 	import { initFlowStepWarnings } from '../utils'
 	import { dfs } from '../dfs'
 	import type { TriggerContext } from '$lib/components/triggers'
-	import { addDraftTrigger, updateDraftConfig } from '$lib/components/triggers/utils'
+	import { addDraftTrigger } from '$lib/components/triggers/utils'
 	import { formatCron } from '$lib/utils'
 
 	export let flowModule: FlowModule
@@ -44,8 +44,8 @@
 	export let previousModule: FlowModule | undefined = undefined
 
 	function initializePrimaryScheduleForTriggerScript(module: FlowModule) {
-		const primary = $triggers.find((t) => t.isPrimary)
-		if (!primary) {
+		const primaryIndex = $triggers.findIndex((t) => t.isPrimary)
+		if (primaryIndex === -1) {
 			const primaryCfg = {
 				summary: 'Scheduled poll of flow',
 				args: {},
@@ -55,9 +55,9 @@
 				is_flow: true
 			}
 			addDraftTrigger(triggers, triggersCount, 'schedule', undefined, primaryCfg)
-		} else if (primary.draftConfig) {
+		} else if ($triggers[primaryIndex].draftConfig) {
 			//If there is a primary schedule draft update it
-			const newCfg = { ...primary.draftConfig }
+			const newCfg = { ...$triggers[primaryIndex].draftConfig }
 			let updated = false
 			if (!newCfg.schedule) {
 				newCfg.schedule = formatCron('0 */15 * * *')
@@ -68,7 +68,7 @@
 				updated = true
 			}
 			if (updated) {
-				updateDraftConfig(triggers, primary, newCfg)
+				$triggers[primaryIndex].draftConfig = newCfg
 			}
 		}
 

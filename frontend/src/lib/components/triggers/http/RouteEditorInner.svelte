@@ -75,7 +75,7 @@
 	let workspaced_route = $state(false)
 	let raw_string = $state(false)
 	let wrap_body = $state(false)
-	let drawerLoading = $state(false)
+	let drawerLoading = $state(true)
 	let showLoader = $state(false)
 	let authentication_resource_path = $state('')
 	let variable_path = $state('')
@@ -89,7 +89,7 @@
 	let variablePicker = $state<ItemPicker | null>(null)
 	let variableEditor = $state<VariableEditor | null>(null)
 	let drawer = $state<Drawer | null>(null)
-	let initialConfig = $state<Record<string, any> | undefined>(undefined)
+	let initialConfig: Record<string, any> | undefined = undefined
 	let deploymentLoading = $state(false)
 
 	const isAdmin = $derived($userStore?.is_admin || $userStore?.is_super_admin)
@@ -180,7 +180,7 @@
 		} finally {
 			if (!defaultConfig) {
 				// If the route is loaded from the backend, we to set the initial config
-				initialConfig = getRouteConfig()
+				initialConfig = structuredClone($state.snapshot(getRouteConfig()))
 			}
 			clearTimeout(loader)
 			drawerLoading = false
@@ -191,8 +191,7 @@
 	export async function openNew(
 		nis_flow: boolean,
 		fixedScriptPath_?: string,
-		defaultValues?: Record<string, any>,
-		newDraft?: boolean
+		defaultValues?: Record<string, any>
 	) {
 		drawerLoading = true
 		let loader = setTimeout(() => {
@@ -267,6 +266,7 @@
 				workspace: $workspaceStore!,
 				path: initialPath
 			})
+
 			loadTriggerConfig(s)
 		}
 	}
@@ -334,7 +334,9 @@
 	})
 
 	$effect(() => {
-		handleConfigChange(routeConfig, initialConfig, saveDisabled, edit, onConfigChange)
+		if (!drawerLoading) {
+			handleConfigChange(routeConfig, initialConfig, saveDisabled, edit, onConfigChange)
+		}
 	})
 </script>
 

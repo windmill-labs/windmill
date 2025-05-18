@@ -1,7 +1,6 @@
 <script lang="ts">
 	import { triggerIconMap, type TriggerType } from './utils'
 	import DropdownV2 from '$lib/components/DropdownV2.svelte'
-	import { createEventDispatcher } from 'svelte'
 	import { SchedulePollIcon } from '$lib/components/icons'
 	import type { Placement } from '@floating-ui/core'
 
@@ -12,6 +11,9 @@
 		class?: string
 		placement?: Placement
 		isEditor?: boolean
+		onAddDraftTrigger?: (type: TriggerType) => void
+		onAddScheduledPoll?: () => void
+		onClose?: () => void
 	}
 
 	let {
@@ -20,43 +22,49 @@
 		class: className,
 		triggerScriptPicker,
 		placement = 'bottom',
-		isEditor = false
+		isEditor = false,
+		onAddDraftTrigger,
+		onAddScheduledPoll,
+		onClose
 	}: Props = $props()
-
-	const dispatch = createEventDispatcher<{
-		addDraftTrigger: TriggerType
-		addScheduledPoll: void
-	}>()
 
 	// Dropdown items for adding new triggers
 	const addTriggerItems: Item[] = [
 		{
 			displayName: 'Schedule',
-			action: () => addDraftTrigger('schedule'),
+			action: () => onAddDraftTrigger?.('schedule'),
 			icon: triggerIconMap.schedule
 		},
-		{ displayName: 'HTTP', action: () => addDraftTrigger('http'), icon: triggerIconMap.http },
+		{ displayName: 'HTTP', action: () => onAddDraftTrigger?.('http'), icon: triggerIconMap.http },
 		{
 			displayName: 'WebSockets',
-			action: () => addDraftTrigger('websocket'),
+			action: () => onAddDraftTrigger?.('websocket'),
 			icon: triggerIconMap.websocket
 		},
 		{
 			displayName: 'Postgres',
-			action: () => addDraftTrigger('postgres'),
+			action: () => onAddDraftTrigger?.('postgres'),
 			icon: triggerIconMap.postgres
 		},
-		{ displayName: 'Kafka', action: () => addDraftTrigger('kafka'), icon: triggerIconMap.kafka },
-		{ displayName: 'NATS', action: () => addDraftTrigger('nats'), icon: triggerIconMap.nats },
-		{ displayName: 'MQTT', action: () => addDraftTrigger('mqtt'), icon: triggerIconMap.mqtt },
-		{ displayName: 'SQS', action: () => addDraftTrigger('sqs'), icon: triggerIconMap.sqs },
-		{ displayName: 'GCP Pub/Sub', action: () => addDraftTrigger('gcp'), icon: triggerIconMap.gcp },
+		{
+			displayName: 'Kafka',
+			action: () => onAddDraftTrigger?.('kafka'),
+			icon: triggerIconMap.kafka
+		},
+		{ displayName: 'NATS', action: () => onAddDraftTrigger?.('nats'), icon: triggerIconMap.nats },
+		{ displayName: 'MQTT', action: () => onAddDraftTrigger?.('mqtt'), icon: triggerIconMap.mqtt },
+		{ displayName: 'SQS', action: () => onAddDraftTrigger?.('sqs'), icon: triggerIconMap.sqs },
+		{
+			displayName: 'GCP Pub/Sub',
+			action: () => onAddDraftTrigger?.('gcp'),
+			icon: triggerIconMap.gcp
+		},
 		{
 			displayName: 'Scheduled Poll',
 			action: (e) => {
 				e.preventDefault()
-				addDraftTrigger('poll')
-				dispatch('addScheduledPoll')
+				onAddDraftTrigger?.('poll')
+				onAddScheduledPoll?.()
 			},
 			icon: SchedulePollIcon,
 			hidden: !isEditor
@@ -64,10 +72,6 @@
 	].filter((item) => !item.hidden)
 
 	let triggersButtonWidth = $state(0)
-
-	function addDraftTrigger(type: TriggerType) {
-		dispatch('addDraftTrigger', type)
-	}
 </script>
 
 <DropdownV2
@@ -77,8 +81,7 @@
 	customWidth={setDropdownWidthToButtonWidth ? triggersButtonWidth : undefined}
 	usePointerDownOutside
 	customMenu={!!triggerScriptPicker}
-	on:close
-	on:open
+	on:close={() => onClose?.()}
 >
 	{#snippet buttonReplacement()}
 		<div class={className} bind:clientWidth={triggersButtonWidth}>
