@@ -8,10 +8,7 @@
 		isFlow,
 		path,
 		defaultValues = undefined,
-		newDraft = false,
-		edit = false,
 		schema,
-		isEditor = false,
 		customLabel = undefined,
 		...restProps
 	} = $props()
@@ -40,7 +37,6 @@
 	isDraftOnly={selectedTrigger.isDraft}
 	primary={selectedTrigger.isPrimary}
 	draftSchema={schema}
-	{isEditor}
 	{customLabel}
 	{...restProps}
 >

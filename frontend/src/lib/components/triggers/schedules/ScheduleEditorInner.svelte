@@ -44,7 +44,6 @@
 		isDraftOnly = false,
 		primary = false,
 		draftSchema = undefined,
-		isEditor = false,
 		customLabel = undefined,
 		isDeployed = false,
 		onUpdate = undefined,
@@ -610,20 +609,25 @@
 	}
 
 	function getScheduleCfg(): Record<string, any> {
+		let errorHadlerExtraArgsDerived = structuredClone($state.snapshot(errorHandlerExtraArgs))
 		if (errorHandlerPath !== undefined && isSlackHandler('error', errorHandlerPath)) {
-			errorHandlerExtraArgs['slack'] = '$res:f/slack_bot/bot_token'
+			errorHadlerExtraArgsDerived['slack'] = '$res:f/slack_bot/bot_token'
 		} else {
-			errorHandlerExtraArgs['slack'] = undefined
+			errorHadlerExtraArgsDerived['slack'] = undefined
 		}
+
+		let recoveryHandlerExtraArgsDerived = structuredClone($state.snapshot(recoveryHandlerExtraArgs))
 		if (recoveryHandlerPath !== undefined && isSlackHandler('recovery', recoveryHandlerPath)) {
-			recoveryHandlerExtraArgs['slack'] = '$res:f/slack_bot/bot_token'
+			recoveryHandlerExtraArgsDerived['slack'] = '$res:f/slack_bot/bot_token'
 		} else {
-			recoveryHandlerExtraArgs['slack'] = undefined
+			recoveryHandlerExtraArgsDerived['slack'] = undefined
 		}
+
+		let successHandlerExtraArgsDerived = structuredClone($state.snapshot(successHandlerExtraArgs))
 		if (successHandlerPath !== undefined && isSlackHandler('success', successHandlerPath)) {
-			successHandlerExtraArgs['slack'] = '$res:f/slack_bot/bot_token'
+			successHandlerExtraArgsDerived['slack'] = '$res:f/slack_bot/bot_token'
 		} else {
-			successHandlerExtraArgs['slack'] = undefined
+			successHandlerExtraArgsDerived['slack'] = undefined
 		}
 		return {
 			path: path,
@@ -636,16 +640,16 @@
 			on_failure: errorHandlerPath ? `${errorHandleritemKind}/${errorHandlerPath}` : undefined,
 			on_failure_times: failedTimes,
 			on_failure_exact: failedExact,
-			on_failure_extra_args: errorHandlerPath ? errorHandlerExtraArgs : undefined,
+			on_failure_extra_args: errorHandlerPath ? errorHadlerExtraArgsDerived : undefined,
 			on_recovery: recoveryHandlerPath
 				? `${recoveryHandlerItemKind}/${recoveryHandlerPath}`
 				: undefined,
 			on_recovery_times: recoveredTimes,
-			on_recovery_extra_args: recoveryHandlerPath ? recoveryHandlerExtraArgs : {},
+			on_recovery_extra_args: recoveryHandlerPath ? recoveryHandlerExtraArgsDerived : {},
 			on_success: successHandlerPath
 				? `${successHandlerItemKind}/${successHandlerPath}`
 				: undefined,
-			on_success_extra_args: successHandlerPath ? successHandlerExtraArgs : {},
+			on_success_extra_args: successHandlerPath ? successHandlerExtraArgsDerived : {},
 			ws_error_handler_muted: wsErrorHandlerMuted,
 			retry: retry,
 			summary: summary != '' ? summary : undefined,
@@ -688,7 +692,6 @@
 			{allowDraft}
 			{edit}
 			isLoading={deploymentLoading}
-			{isEditor}
 			onUpdate={scheduleScript}
 			{onReset}
 			{onDelete}
