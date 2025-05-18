@@ -76,8 +76,8 @@
 				const primarySchedule = $triggers.findIndex((t) => t.isPrimary && !t.isDraft)
 				$selectedTrigger = primarySchedule
 			}}
+			on:select={() => data?.eventHandlers?.select('triggers')}
 			onSelect={async (triggerIndex: number) => {
-				data?.eventHandlers?.select('triggers')
 				await tick()
 				if (triggerIndex) {
 					$selectedTrigger = triggerIndex
