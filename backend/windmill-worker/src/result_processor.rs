@@ -135,7 +135,6 @@ const NAP_TIME_DURATION: u64 = 15;
 
 const RESET: u64 = 2 * 60;
 
-
 pub fn start_interactive_worker_shell(
     conn: Connection,
     hostname: String,
@@ -359,6 +358,7 @@ pub fn start_interactive_worker_shell(
                                     job_completed_tx
                                         .send_job(
                                             JobCompleted {
+                                                preprocessed_args: None,
                                                 job: arc_job.clone(),
                                                 result: Arc::new(
                                                     windmill_common::worker::to_raw_value(
@@ -391,9 +391,7 @@ pub fn start_interactive_worker_shell(
                     Ok(None) => {
                         let now = Instant::now();
                         match last_executed_job {
-                            Some(last)
-                                if now.duration_since(last).as_secs() > RESET =>
-                            {
+                            Some(last) if now.duration_since(last).as_secs() > RESET => {
                                 tokio::time::sleep(Duration::from_secs(NAP_TIME_DURATION)).await;
                             }
                             _ => {
@@ -561,11 +559,7 @@ pub fn start_background_processor(
     })
 }
 
-async fn send_job_completed(
-    job_completed_tx: JobCompletedSender,
-    jc: JobCompleted,
-
-) {
+async fn send_job_completed(job_completed_tx: JobCompletedSender, jc: JobCompleted) {
     job_completed_tx
         .send_job(jc, true)
         .with_context(windmill_common::otel_ee::otel_ctx())
@@ -589,7 +583,6 @@ pub async fn process_result(
 ) -> error::Result<bool> {
     match result {
         Ok(result) => {
-
             send_job_completed(
                 job_completed_tx,
                 JobCompleted {
