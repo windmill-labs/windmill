@@ -50,12 +50,15 @@
 
 	function checkSavePermissions(trigger: Trigger) {
 		// Creating http trigger is forbidden for non-admin users
-		return (
-			trigger.type !== 'http' ||
-			$userStore?.is_admin ||
-			$userStore?.is_super_admin ||
-			!trigger.isDraft
-		)
+		const adminOnly =
+			trigger.type === 'http' &&
+			!$userStore?.is_admin &&
+			!$userStore?.is_super_admin &&
+			trigger.isDraft
+
+		const invalidConfig = !trigger.draftConfig?.canSave
+
+		return invalidConfig ? 'invalid-config' : adminOnly ? 'admin-only' : 'deploy'
 	}
 
 	$effect(() => {
@@ -89,12 +92,12 @@
 				<tbody>
 					{#each draftTriggers as trigger}
 						{@const SvelteComponent = triggerIconMap[trigger.type]}
-						{@const canSave = checkSavePermissions(trigger)}
+						{@const permission = checkSavePermissions(trigger)}
 						{@const isSelectedTrigger = isSelected(selectedTriggers, trigger)}
 						<tr
 							class={twMerge(
 								'transition-colors h-12 border-t border-gray-200 dark:border-gray-700 whitespace-nowrap',
-								!canSave ? '' : 'hover:bg-surface-hover '
+								permission === 'deploy' ? 'hover:bg-surface-hover ' : ''
 							)}
 						>
 							<td class={twMerge('text-center py-1 px-4', isSelectedTrigger ? '' : 'opacity-50')}>
@@ -111,13 +114,13 @@
 										{/if}
 									</div>
 									<div class="flex grow min-w-0 items-center text-left">
-										<TriggerLabel {trigger} />
+										<TriggerLabel {trigger} discard={permission !== 'deploy'} />
 									</div>
 								</div>
 							</td>
 
 							<td class="text-center py-1">
-								{#if canSave}
+								{#if permission === 'deploy'}
 									<div class="flex justify-center">
 										<ToggleButtonGroup
 											let:item
@@ -141,12 +144,19 @@
 											/>
 										</ToggleButtonGroup>
 									</div>
-								{:else}
+								{:else if permission === 'admin-only'}
 									<span
 										class="text-2xs px-1.5 py-1.5 bg-yellow-50 dark:bg-yellow-900/40 text-yellow-800 dark:text-yellow-100/90 rounded whitespace-nowrap"
 										title="Only admins can deploy http triggers"
 									>
 										Admin only
+									</span>
+								{:else if permission === 'invalid-config'}
+									<span
+										class="text-2xs px-1.5 py-1.5 bg-red-50 dark:bg-red-900/40 text-red-800 dark:text-red-100/90 rounded whitespace-nowrap"
+										title="Invalid config"
+									>
+										Invalid config
 									</span>
 								{/if}
 							</td>
