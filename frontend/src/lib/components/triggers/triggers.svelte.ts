@@ -83,13 +83,11 @@ export class Triggers {
 		if (triggerIndex === undefined || triggerIndex < 0 || triggerIndex >= this.triggers.length) {
 			return
 		}
-		const { type, isDraft } = this.triggers[triggerIndex]
+		const { type } = this.triggers[triggerIndex]
 
 		this.triggers = this.triggers.filter((_, index) => index !== triggerIndex)
 
-		if (!isDraft) {
-			updateTriggersCount(triggersCountStore, type, 'remove')
-		}
+		updateTriggersCount(triggersCountStore, type, 'remove')
 	}
 
 	updateTriggers(

@@ -54,6 +54,7 @@
 	let emailDomain: string | undefined = $state(undefined)
 	let isValid = $state(false)
 	let renderCount = $state(0)
+	let loading = $state(false)
 
 	const useVerticalTriggerBar = $derived(width < 1000)
 	const { triggersState, triggersCount } = getContext<TriggerContext>('TriggerContext')
@@ -81,8 +82,11 @@
 			return
 		}
 
-		const triggerType = triggersState.triggers[trigger].type
-		const id = triggersState.triggers[trigger].id
+		const { type: triggerType } = triggersState.triggers[trigger]
+		loading = true
+
+		triggersState.selectedTriggerIndex = undefined
+		triggersState.deleteTrigger(triggersCount, trigger)
 
 		if (triggerType === 'schedule') {
 			await triggersState.fetchSchedules(
@@ -158,25 +162,11 @@
 				$userStore
 			)
 		}
-		const newIndex = triggersState.triggers.findIndex(
+
+		triggersState.selectedTriggerIndex = triggersState.triggers.findIndex(
 			(t) => t.path === path && t.type === triggerType
 		)
-
-		//delete the trigger from the store
-		const indexToDelete = triggersState.triggers.findIndex((t) => {
-			if (t.id) {
-				return t.id === id
-			} else {
-				return t.path === path && t.type === triggerType
-			}
-		})
-		triggersState.deleteTrigger(triggersCount, indexToDelete)
-
-		if (newIndex !== triggersState.selectedTriggerIndex) {
-			triggersState.selectedTriggerIndex = newIndex
-		} else {
-			renderCount++
-		}
+		loading = false
 	}
 
 	function handleUpdateDraftConfig(
@@ -257,7 +247,11 @@
 					)}
 					style="scrollbar-gutter: stable"
 				>
-					{#if triggersState.selectedTrigger}
+					{#if loading}
+						<div
+							class="animate-skeleton dark:bg-frost-900/50 [animation-delay:1000ms] h-full w-full"
+						></div>
+					{:else if triggersState.selectedTrigger}
 						{#key [renderCount, triggersState.selectedTriggerIndex].join('-')}
 							<div in:fade={{ duration: 100, delay: 100 }} out:fade={{ duration: 100 }}>
 								<TriggersWrapperV2

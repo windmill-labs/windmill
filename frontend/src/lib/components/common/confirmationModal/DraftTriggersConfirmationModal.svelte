@@ -147,7 +147,7 @@
 									</div>
 								{:else if permission === 'admin-only'}
 									<span
-										class="text-2xs px-1.5 py-1.5 bg-yellow-400 text-white rounded whitespace-nowrap"
+										class="text-xs font-semibold px-1.5 py-1.5 bg-red-400 text-white rounded whitespace-nowrap"
 										title="Only admins can deploy http triggers"
 									>
 										Admin only
