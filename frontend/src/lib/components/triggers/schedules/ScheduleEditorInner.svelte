@@ -119,7 +119,7 @@
 	)
 	const scheduleCfg = $derived.by(getScheduleCfg)
 
-	export function openEdit(ePath: string, isFlow: boolean, defaultCfg?: Record<string, any>) {
+	export async function openEdit(ePath: string, isFlow: boolean, defaultCfg?: Record<string, any>) {
 		let loadingTimeout = setTimeout(() => {
 			showLoading = true
 		}, 100) // Do not show loading spinner for the first 100ms
@@ -130,7 +130,7 @@
 			initialPath = ePath
 			itemKind = is_flow ? 'flow' : 'script'
 			path = defaultCfg?.path ?? ePath
-			loadSchedule(defaultCfg)
+			await loadSchedule(defaultCfg)
 			edit = true
 		} finally {
 			if (!defaultCfg) {
