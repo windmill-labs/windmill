@@ -13,6 +13,7 @@
 	"gitSyncTest_1": "hub/11499/git-repo-test-read-write-windmill",
 	"gitSyncTest_2": "hub/11667/git-repo-test-read-write-windmill",
 	"gitSyncTest": "hub/11669/git-repo-test-read-write-windmill",
+	"gitInitRepo": "u/alex/init_git_repo",
 	"slackErrorHandler": "hub/9206/workspace-or-schedule-error-handler-slack",
 	"slackErrorHandler_0": "hub/9079/workspace-or-schedule-error-handler-slack",
 	"slackRecoveryHandler": "hub/9080/slack/schedule-recovery-handler-slack",

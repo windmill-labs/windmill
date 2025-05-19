@@ -60,6 +60,7 @@
 	import ConnectionSection from '$lib/components/ConnectionSection.svelte'
 	import AISettings from '$lib/components/workspaceSettings/AISettings.svelte'
 	import StorageSettings from '$lib/components/workspaceSettings/StorageSettings.svelte'
+	import InitGitRepoPopover from '$lib/components/InitGitRepoPopover.svelte'
 
 	type GitSyncTypeMap = {
 		scripts: boolean
@@ -1324,6 +1325,16 @@
 										</div>
 									</Alert>
 								{/if}
+								<div class="w-1/3">
+									<InitGitRepoPopover
+										gitRepoResourcePath={gitSyncRepository.git_repo_resource_path}
+										settings={{
+											includes: gitSyncSettings.include_path,
+											typeFilters: gitSyncSettings.include_type,
+											excludes: gitSyncRepository.exclude_types_override
+										}}
+									/>
+								</div>
 								<Toggle
 									disabled={emptyString(gitSyncRepository.git_repo_resource_path)}
 									bind:checked={gitSyncRepository.use_individual_branch}
