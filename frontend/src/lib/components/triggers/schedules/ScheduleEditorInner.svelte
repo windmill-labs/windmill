@@ -444,12 +444,12 @@
 					workspace: $workspaceStore!,
 					path: initialPath
 				})
-				loadScheduleCfg(s)
+				await loadScheduleCfg(s)
 			} catch (err) {
 				sendUserToast(`Could not load schedule: ${err}`, true)
 			}
 		} else {
-			loadScheduleCfg(defaultCfg)
+			await loadScheduleCfg(defaultCfg)
 		}
 	}
 
