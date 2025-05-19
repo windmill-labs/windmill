@@ -12,6 +12,8 @@
 		selectedTrigger?: number | undefined
 		triggers?: Trigger[]
 		isEditor?: boolean
+		webhookToken?: number
+		emailToken?: number
 		onSelect?: (trigger: number) => void
 		onAddDraftTrigger?: (type: TriggerType) => void
 		onDeleteDraft?: (triggerIndex: number) => void
@@ -22,6 +24,8 @@
 		selectedTrigger = undefined,
 		triggers = [],
 		isEditor = false,
+		webhookToken,
+		emailToken,
 		onSelect,
 		onAddDraftTrigger,
 		onDeleteDraft,
@@ -73,6 +77,19 @@
 						<div class="flex items-center justify-between gap-1">
 							<div class="flex items-center grow min-w-0">
 								<TriggerLabel {trigger} />
+								{#if trigger.type === 'webhook' && webhookToken}
+									<span
+										class="ml-2 px-1.5 text-xs rounded-md bg-tertiary/50 group-hover:bg-primary text-primary-inverse py-0.5"
+									>
+										{`${webhookToken} token${webhookToken > 1 ? 's' : ''}`}
+									</span>
+								{:else if trigger.type === 'email' && emailToken}
+									<span
+										class="ml-2 text-xs rounded-md bg-tertiary/50 group-hover:bg-primary text-primary-inverse px-1.5 py-0.5"
+									>
+										{`${emailToken} token${emailToken > 1 ? 's' : ''}`}
+									</span>
+								{/if}
 							</div>
 
 							{#if !['email', 'webhook', 'cli'].includes(trigger.type)}

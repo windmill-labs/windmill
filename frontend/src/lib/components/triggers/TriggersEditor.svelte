@@ -212,6 +212,8 @@
 							onAddDraftTrigger={handleAddTrigger}
 							onDeleteDraft={deleteDraftTrigger}
 							onReset={handleResetDraft}
+							webhookToken={$triggersCount?.webhook_count}
+							emailToken={$triggersCount?.email_count}
 						/>
 					</div>
 				{:else}
