@@ -2335,6 +2335,7 @@ fn get_pyv_from_requirements_lines(requirements_lines: &[&str]) -> PyVersion {
     }
 }
 
+// Returns code snippet that needs to be injected into wrapper to post-process results or leave unprocessed
 fn get_result_postprocessor<'a>(skip: bool) -> &'a str {
     if skip {
         "unprocessed"
