@@ -101,7 +101,7 @@
 								permission === 'deploy' ? 'hover:bg-surface-hover ' : ''
 							)}
 						>
-							<td class={twMerge('text-center py-1 px-4', isSelectedTrigger ? '' : 'opacity-50')}>
+							<td class={twMerge('text-center py-1 px-4', isSelectedTrigger ? '' : 'opacity-80')}>
 								<div class="flex flex-row items-center gap-2">
 									<div class="relative flex justify-center items-center">
 										<SvelteComponent

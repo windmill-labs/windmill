@@ -39,7 +39,7 @@
 		},
 		{ displayName: 'HTTP', action: () => onAddDraftTrigger?.('http'), icon: triggerIconMap.http },
 		{
-			displayName: 'WebSockets',
+			displayName: 'WebSocket',
 			action: () => onAddDraftTrigger?.('websocket'),
 			icon: triggerIconMap.websocket
 		},

@@ -122,7 +122,11 @@ export class Triggers {
 		})
 
 		const filteredTriggers = currentTriggers.filter((t) => t.type !== type || t.isDraft)
-		const newTriggers = [...filteredTriggers, ...backendTriggers]
+		const newTriggers = [
+			...filteredTriggers.filter((t) => ['webhook', 'cli', 'email', 'poll'].includes(t.type)),
+			...backendTriggers,
+			...filteredTriggers.filter((t) => !['webhook', 'cli', 'email', 'poll'].includes(t.type))
+		]
 		this.triggers = newTriggers
 
 		return newTriggers.filter((t) => t.type === type).length

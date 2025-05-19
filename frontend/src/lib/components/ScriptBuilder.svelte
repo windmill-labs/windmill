@@ -621,7 +621,7 @@
 					typ: 'script',
 					value: {
 						...script,
-						draft_triggers: triggersState.triggers
+						draft_triggers: triggersState.triggers.filter((t) => t.draftConfig)
 					}
 				}
 			})
