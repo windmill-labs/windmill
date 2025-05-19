@@ -102,7 +102,7 @@ export function buildWorkerDefinition() {
 			},
 			graphql: () => {
 				console.log('Creating graphql worker')
-				return new Worker(new URL(`./monaco-workers/graphql.worker.bundle.js`, import.meta.url), {
+				return new Worker(new URL(`../monaco_workers/graphql.worker.bundle.js`, import.meta.url), {
 					name: 'graphql'
 				})
 			}
