@@ -52,20 +52,11 @@ jobs:
           PROMPT_FILE_PATH=".github/aider/issue-prompt.txt"
           mkdir -p .github/aider
 
-          # Get the issue title and body from the event payload
-          ISSUE_TITLE="${{ github.event.client_payload.issue_title }}"
-          ISSUE_BODY="${{ github.event.client_payload.issue_body }}"
-
-          if [[ -z "$ISSUE_TITLE" || -z "$ISSUE_BODY" ]]; then
-            echo "::error::Issue title or body is missing from the event payload"
-            exit 1
-          fi
-
-          echo "Processing issue with title: $ISSUE_TITLE"
-
-          ISSUE_TITLE_Q=$(printf '%q' "$ISSUE_TITLE")
-          ISSUE_BODY_Q=$(printf '%q' "$ISSUE_BODY")
+          ISSUE_TITLE_Q=$(printf '%q' "${{ github.event.client_payload.issue_title }}")
+          ISSUE_BODY_Q=$(printf '%q' "${{ github.event.client_payload.issue_body }}")
           INSTRUCTION_Q="Try to implement a fix for the issue based on the issue description."
+
+          echo "Processing issue with title: $ISSUE_TITLE_Q"
 
           JSON_PAYLOAD=$(jq -n \
             --arg title "$ISSUE_TITLE_Q" \
@@ -103,15 +94,12 @@ jobs:
           echo "PROMPT_FILE_PATH=$PROMPT_FILE_PATH" >> $GITHUB_OUTPUT
 
           # Store the issue title for PR creation
-          ISSUE_TITLE_SAFE=$(echo "$ISSUE_TITLE" | tr -d '\n' | sed 's/"/\\"/g')
+          ISSUE_TITLE_SAFE=$(echo "$ISSUE_TITLE_Q" | tr -d '\n' | sed 's/"/\\"/g')
           echo "ISSUE_TITLE=$ISSUE_TITLE_SAFE" >> $GITHUB_OUTPUT
 
           # Generate unique branch name using timestamp and issue info
           ISSUE_ID="${{ github.event.client_payload.issue_id }}"
-          if [[ -z "$ISSUE_ID" ]]; then
-            ISSUE_ID="external-$(date +%s)"
-          fi
-          BRANCH_NAME="aider-fix-issue-$ISSUE_ID"
+          BRANCH_NAME="aider-fix-linear-issue-$ISSUE_ID"
           echo "BRANCH_NAME=$BRANCH_NAME" >> $GITHUB_OUTPUT
 
       - name: Probe Chat for Relevant Files
