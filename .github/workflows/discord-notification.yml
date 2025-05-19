@@ -9,7 +9,7 @@ on:
 
 jobs:
   notify_discord_when_pr_opened:
-    if: github.event.pull_request.draft == false
+    if: (github.event.pull_request.draft == false) && (github.event.action == 'opened' || github.event.action == 'ready_for_review')
     uses: ./.github/workflows/shareable-discord-notification.yml
     with:
       PR_TITLE: ${{ github.event.pull_request.title }}
