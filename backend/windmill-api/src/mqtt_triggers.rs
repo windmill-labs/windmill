@@ -245,25 +245,25 @@ pub struct EditMqttTrigger {
 
 #[derive(Debug, Serialize, Deserialize, FromRow)]
 pub struct MqttTrigger {
-    mqtt_resource_path: String,
-    subscribe_topics: Vec<SqlxJson<SubscribeTopic>>,
-    v3_config: Option<SqlxJson<MqttV3Config>>,
-    v5_config: Option<SqlxJson<MqttV5Config>>,
-    client_id: Option<String>,
+    pub mqtt_resource_path: String,
+    pub subscribe_topics: Vec<SqlxJson<SubscribeTopic>>,
+    pub v3_config: Option<SqlxJson<MqttV3Config>>,
+    pub v5_config: Option<SqlxJson<MqttV5Config>>,
+    pub client_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    client_version: Option<MqttClientVersion>,
-    path: String,
-    script_path: String,
-    is_flow: bool,
-    workspace_id: String,
-    edited_by: String,
-    email: String,
-    edited_at: chrono::DateTime<chrono::Utc>,
-    extra_perms: Option<serde_json::Value>,
-    error: Option<String>,
-    server_id: Option<String>,
-    last_server_ping: Option<chrono::DateTime<chrono::Utc>>,
-    enabled: bool,
+    pub client_version: Option<MqttClientVersion>,
+    pub path: String,
+    pub script_path: String,
+    pub is_flow: bool,
+    pub workspace_id: String,
+    pub edited_by: String,
+    pub email: String,
+    pub edited_at: chrono::DateTime<chrono::Utc>,
+    pub extra_perms: Option<serde_json::Value>,
+    pub error: Option<String>,
+    pub server_id: Option<String>,
+    pub last_server_ping: Option<chrono::DateTime<chrono::Utc>>,
+    pub enabled: bool,
 }
 
 #[derive(Deserialize, Serialize)]

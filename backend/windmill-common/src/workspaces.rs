@@ -29,14 +29,6 @@ pub enum ObjectType {
     User,
     Group,
     Trigger,
-    HttpTrigger,
-    WebsocketTrigger,
-    KafkaTrigger,
-    NatsTrigger,
-    PostgresTrigger,
-    MqttTrigger,
-    SqsTrigger,
-    GcpTrigger,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
