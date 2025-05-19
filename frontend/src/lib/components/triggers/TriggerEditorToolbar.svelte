@@ -72,10 +72,10 @@
 		{#if !isDraftOnly && !hasDraft && enabled !== undefined}
 			<div class="center-center">
 				<Toggle
-					size="xs"
+					size="2sm"
 					disabled={permissions === 'none'}
 					checked={enabled}
-					options={{ left: 'enable' }}
+					options={{ right: 'enable', left: 'disable' }}
 					on:change={({ detail }) => {
 						onToggleEnabled?.(detail)
 					}}

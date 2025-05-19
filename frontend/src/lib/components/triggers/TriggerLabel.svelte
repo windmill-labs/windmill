@@ -38,7 +38,7 @@
 
 {#if trigger.draftConfig && !trigger.isDraft}
 	<span
-		class="ml-2 text-2xs bg-amber-100 dark:bg-amber-900 text-amber-800 dark:text-amber-100 px-1.5 py-0.5 rounded whitespace-nowrap"
+		class="text-xs bg-amber-100 dark:bg-amber-900 text-amber-800 dark:text-amber-100 px-1.5 py-0.5 rounded whitespace-nowrap"
 	>
 		Modified
 	</span>

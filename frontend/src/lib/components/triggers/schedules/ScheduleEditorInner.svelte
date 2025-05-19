@@ -681,7 +681,7 @@
 	})
 </script>
 
-{#snippet saveButton(size: 'sm' | 'xs')}
+{#snippet saveButton()}
 	{#if !drawerLoading}
 		<TriggerEditorToolbar
 			{isDraftOnly}
@@ -1264,14 +1264,14 @@
 		>
 			<svelte:fragment slot="actions">
 				<div class="flex flex-row gap-4 items-center">
-					{@render saveButton('sm')}
+					{@render saveButton()}
 				</div>
 			</svelte:fragment>
 			{@render content()}
 		</DrawerContent>
 	</Drawer>
 {:else}
-	<Section label={!customLabel ? 'Schedule' : ''} headerClass="grow min-w-0">
+	<Section label={!customLabel ? 'Schedule' : ''} headerClass="grow min-w-0 h-[30px]">
 		<svelte:fragment slot="header">
 			{#if customLabel}
 				{@render customLabel()}
@@ -1279,7 +1279,7 @@
 		</svelte:fragment>
 		<svelte:fragment slot="action">
 			<div class="flex flex-row gap-2 items-center">
-				{@render saveButton('xs')}
+				{@render saveButton()}
 			</div>
 		</svelte:fragment>
 		{#if docDescription}

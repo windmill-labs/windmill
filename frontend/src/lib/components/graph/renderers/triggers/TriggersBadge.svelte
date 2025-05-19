@@ -259,17 +259,14 @@
 					class={twMerge(
 						// Base styles that apply in all cases
 						'absolute z-10 rounded-full overflow-hidden',
-						'flex center-center group-hover:text-primary-inverse font-mono text-transparent',
-						'bg-tertiary group-hover:bg-primary transition-all duration-[100ms]',
-						noTriggers ? 'bg-primary text-primary-inverse scale-100' : '',
-
-						// Hover effects
-						'group-hover:scale-110',
+						'flex center-center text-primary-inverse font-mono',
+						'bg-tertiary/50 group-hover:bg-primary transition-all duration-[100ms]',
+						noTriggers ? 'bg-primary' : '',
 
 						// Size variants based on small prop
 						small
-							? '-right-[-2px] -top-[-2px] h-[4px] w-[4px] group-hover:-right-0.5 group-hover:-top-0.5 group-hover:h-3 group-hover:w-3 group-hover:text-[8px]'
-							: '-right-[-2px] -top-[-2px] h-[6px] w-[6px] group-hover:-right-1 group-hover:-top-1 group-hover:h-4 group-hover:w-4 group-hover:text-xs',
+							? '-right-[3px] -top-[3px] h-3 w-3 text-[8px]'
+							: '-right-1.5 -top-1.5 h-4 w-4 text-xs',
 
 						// Special case for no triggers
 						noTriggers && small ? 'h-3 w-3 text-[8px] -right-0.5 -top-0.5' : '',
@@ -279,12 +276,7 @@
 					{#if count === undefined}
 						<Loader2 class="animate-spin text-2xs" />
 					{:else}
-						<span
-							class={twMerge(
-								'opacity-0 group-hover:opacity-100 transition-opacity duration-[50ms] delay-[100ms]',
-								noTriggers ? 'opacity-100' : ''
-							)}>{count}</span
-						>
+						<p>{count}</p>
 					{/if}
 				</div>
 			{/if}

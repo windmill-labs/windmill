@@ -324,7 +324,7 @@
 		</DrawerContent>
 	</Drawer>
 {:else}
-	<Section label={!customLabel ? 'WebSocket trigger' : ''} headerClass="grow min-w-0">
+	<Section label={!customLabel ? 'WebSocket trigger' : ''} headerClass="grow min-w-0 h-[30px]">
 		<svelte:fragment slot="header">
 			{#if customLabel}
 				{@render customLabel()}
