@@ -402,7 +402,8 @@
 						$workspaceStore,
 						!!$userStore?.is_admin || !!$userStore?.is_super_admin,
 						usedTriggerKinds,
-						$pathStore
+						$pathStore,
+						true
 					)
 				}
 			} else {

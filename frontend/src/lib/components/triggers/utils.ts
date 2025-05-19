@@ -191,9 +191,19 @@ export async function deployTriggers(
 	workspaceId: string | undefined,
 	isAdmin: boolean,
 	usedTriggerKinds: Writable<string[]>,
-	initialPath?: string
+	initialPath?: string,
+	isNew?: boolean
 ) {
 	if (!workspaceId) return
+
+	if (isNew && initialPath) {
+		triggersToDeploy.forEach((trigger) => {
+			trigger.draftConfig = {
+				...trigger.draftConfig,
+				script_path: initialPath
+			}
+		})
+	}
 
 	// Map of trigger types to their save functions
 	const triggerSaveFunctions: Record<TriggerType, Function | undefined> = {

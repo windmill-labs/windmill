@@ -505,7 +505,8 @@
 					$workspaceStore,
 					!!$userStore?.is_admin || !!$userStore?.is_super_admin,
 					usedTriggerKinds,
-					script.path
+					script.path,
+					true
 				)
 			}
 
@@ -1449,7 +1450,7 @@
 										script.language === 'deno' ||
 										script.language === 'python3'}
 									args={hasPreprocessor && selectedInputTab !== 'preprocessor' ? {} : args}
-									isDeployed={false}
+									isDeployed={savedScript && !savedScript?.draft_only}
 									schema={script.schema}
 									hash={script.parent_hash}
 								/>

@@ -244,7 +244,7 @@
 					style="scrollbar-gutter: stable"
 				>
 					{#if triggersState.selectedTrigger}
-						{#key renderCount}
+						{#key [renderCount, triggersState.selectedTriggerIndex].join('-')}
 							<div in:fade={{ duration: 100, delay: 100 }} out:fade={{ duration: 100 }}>
 								<TriggersWrapperV2
 									selectedTrigger={triggersState.selectedTrigger}
