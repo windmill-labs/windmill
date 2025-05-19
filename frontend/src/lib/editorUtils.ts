@@ -1,5 +1,7 @@
 import { languages } from 'monaco-editor/esm/vs/editor/editor.api'
-import { ShowLightbulbIconMode } from 'vscode/vscode/vs/editor/common/config/editorOptions'
+
+import { editor as meditor } from 'monaco-editor/esm/vs/editor/editor.api'
+
 export function editorConfig(
 	code: string,
 	lang: string,
@@ -22,7 +24,7 @@ export function editorConfig(
 			enabled: false
 		},
 		lightbulb: {
-			enabled: ShowLightbulbIconMode.On
+			enabled: meditor.ShowLightbulbIconMode.On
 		},
 		suggest: {
 			showKeywords: true

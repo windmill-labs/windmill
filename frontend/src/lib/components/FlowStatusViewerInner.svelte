@@ -495,7 +495,6 @@
 
 	async function updateJobId() {
 		if (jobId !== job?.id) {
-			console.log('updating job id', globalDurationStatuses.length)
 			$localModuleStates = {}
 			flowTimeline?.reset()
 			timeout && clearTimeout(timeout)

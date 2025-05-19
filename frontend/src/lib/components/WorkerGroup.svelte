@@ -367,28 +367,26 @@
 									outerDivClass="text-secondary !bg-surface-disabled !border-0"
 									disabled={!$enterpriseLicense}
 									bind:selected={selectedPriorityTags}
-									on:change={(e) => {
-										if (e.detail.type === 'add') {
+									onchange={(e) => {
+										if (e.type === 'add') {
 											if (nconfig.priority_tags) {
-												if (e.detail.option && typeof e.detail.option !== 'object') {
-													nconfig.priority_tags[e.detail.option] = 100
+												if (e.option && typeof e.option !== 'object') {
+													nconfig.priority_tags[e.option] = 100
 												}
 											}
 											dirty = true
-										} else if (e.detail.type === 'remove') {
+										} else if (e.type === 'remove') {
 											if (nconfig.priority_tags) {
-												if (e.detail.option && typeof e.detail.option !== 'object') {
-													delete nconfig.priority_tags[e.detail.option]
+												if (e.option && typeof e.option !== 'object') {
+													delete nconfig.priority_tags[e.option]
 												}
 											}
 											dirty = true
-										} else if (e.detail.type === 'removeAll') {
-											nconfig.priority_tags = undefined
+										} else if (e.type === 'removeAll') {
+											nconfig.priority_tags = new Map<string, number>()
 											dirty = true
 										} else {
-											console.error(
-												`Priority tags multiselect - unknown event type: '${e.detail.type}'`
-											)
+											console.error(`Priority tags multiselect - unknown event type: '${e.type}'`)
 										}
 									}}
 									options={nconfig?.worker_tags}
