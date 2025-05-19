@@ -67,9 +67,12 @@ jobs:
         run: |
           mkdir -p .github/aider
           PROMPT_FILE_PATH=".github/aider/review-prompt.txt"
+          PROBE_FILE_PATH=".github/aider/probe-output.txt"
 
           # Get PR review body
           REVIEW_BODY="${{ github.event.review.body }}"
+          REVIEW_BODY_Q=$(printf '%q' "$REVIEW_BODY")
+
           PR_NUMBER="${{ github.event.pull_request.number }}"
 
           # Get PR description for context NOT USED FOR NOW
@@ -78,10 +81,6 @@ jobs:
           # PR_BODY=$(echo "$PR_DETAILS" | jq -r .body)
 
           # Get all PR review comments
-          REVIEW_COMMENTS=$(gh pr view $PR_NUMBER --json reviews -q '.reviews[] | select(.state == "CHANGES_REQUESTED") | .body' --repo $GITHUB_REPOSITORY)
-          REVIEW_BODY_Q=$(printf '%q' "$REVIEW_BODY")
-
-          # Update query to get review comments from all review types, not just "CHANGES_REQUESTED"
           ALL_REVIEW_COMMENTS=$(gh api \
             -H "Accept: application/vnd.github+json" \
             -H "X-GitHub-Api-Version: 2022-11-28" \
@@ -89,15 +88,64 @@ jobs:
             | jq '[.[] | {diff_hunk: .diff_hunk, path: .path, body: .body}]')
 
           BASE_PROMPT="Fix the following issues in the PR based on the review feedback. The review body is prepended with REVIEW. The review comments are prepended with REVIEW_COMMENTS. The review body and comments are separated by a blank line."
-          printf "%s\nREVIEW:\n%s\nREVIEW_COMMENTS:\n%s" \
-            "$BASE_PROMPT" "$REVIEW_BODY_Q" "$ALL_REVIEW_COMMENTS" > "$PROMPT_FILE_PATH"
+          COMPLETE_PROMPT=$(printf "%s\nREVIEW:\n%s\nREVIEW_COMMENTS:\n%s" \
+            "$BASE_PROMPT" "$REVIEW_BODY_Q" "$ALL_REVIEW_COMMENTS")
+          echo "$COMPLETE_PROMPT" > "$PROMPT_FILE_PATH"
           echo "PROMPT_FILE_PATH=$PROMPT_FILE_PATH" >> $GITHUB_OUTPUT
+          printf "I'm giving you a request that needs to be implemented. Your role is ONLY to give me the files that are relevant to the request and nothing else. The request is prepended with the word REQUEST.\\nREQUEST: %s. Give me all the files relevant to this request. Your output MUST be a single json array that can be parsed with programatic json parsing, with the relevant files. Files can be rust or typescript or javascript files. DO NOT INCLUDE ANY OTHER TEXT IN YOUR OUTPUT. ONLY THE JSON ARRAY. Example of output: [\"file1.py\", \"file2.py\"]" "$COMPLETE_PROMPT" > "$PROBE_FILE_PATH"
+          echo "PROBE_FILE_PATH=$PROBE_FILE_PATH" >> $GITHUB_OUTPUT
+
+      - name: Probe Chat for Relevant Files
+        id: probe_files
+        env:
+          PROMPT_CONTENT_FILE: ${{ steps.generate_prompt.outputs.PROBE_FILE_PATH }}
+        run: |
+          echo "Running probe-chat to find relevant files..."
+          if [[ ! -f "$PROMPT_CONTENT_FILE" ]]; then
+            echo "::error::Prompt file $PROMPT_CONTENT_FILE not found!"
+            exit 1
+          fi
+          PROMPT_CONTENT=$(cat "$PROMPT_CONTENT_FILE")
+          if [ -z "$PROMPT_CONTENT" ]; then
+             echo "::error::Prompt content is empty!"
+             exit 1
+          fi
+
+          PROMPT_ESCAPED=$(jq -Rs . <<< "$PROMPT_CONTENT")
+
+          MESSAGE_FOR_PROBE=$(jq -n --arg prompt_escaped "$PROMPT_ESCAPED" \
+            '{ "message": "I'\''m giving you a request that needs to be implemented. Your role is ONLY to give me the files that are relevant to the request and nothing else. The request is prepended with the word REQUEST.\\nREQUEST: \($prompt_escaped). Give me all the files relevant to this request. Your output MUST be a single json array that can be parsed with programatic json parsing, with the relevant files. Files can be rust or typescript or javascript files. DO NOT INCLUDE ANY OTHER TEXT IN YOUR OUTPUT. ONLY THE JSON ARRAY. Example of output: [\"file1.py\", \"file2.py\"]" }' | jq -r .message)
+
+          set -o pipefail
+          PROBE_OUTPUT=$(npx --yes @buger/probe-chat@latest --max-iterations 50 --model-name gemini-2.5-pro-preview-05-06 --message "$MESSAGE_FOR_PROBE") || {
+            echo "::error::probe-chat command failed. Output:"
+            echo "$PROBE_OUTPUT"
+            exit 1
+          }
+          set +o pipefail
+          echo "Probe-chat raw output:"
+          echo "$PROBE_OUTPUT"
+
+          JSON_FILES=$(echo "$PROBE_OUTPUT" | sed -n '/^\s*\[/,$p' | sed '/^\s*\]/q')
+          echo "Extracted JSON block:"
+          echo "$JSON_FILES"
+
+          FILES_LIST=$(echo "$JSON_FILES" | jq -e -r '[.[] | select(type == "string" and . != "" and . != null and (endswith("/") | not))] | map(@sh) | join(" ")' || echo "")
+
+          if [[ -z "$FILES_LIST" ]]; then
+             echo "::warning::probe-chat did not identify any relevant files."
+             exit 1
+          fi
+
+          echo "Formatted files list for aider: $FILES_LIST"
+          echo "FILES_TO_EDIT=$FILES_LIST" >> $GITHUB_ENV
 
       - name: Run Aider with review prompt
         run: |
           aider \
             --read .cursor/rules/rust-best-practices.mdc \
             --read .cursor/rules/svelte5-best-practices.mdc \
+            ${{ env.FILES_TO_EDIT }} \
             --model gemini/gemini-2.5-pro-preview-05-06 \
             --message-file .github/aider/review-prompt.txt \
             --yes \
@@ -110,12 +158,15 @@ jobs:
           # Check if there are any changes to commit
           if [[ -z "$(git status --porcelain)" ]]; then
             echo "No changes detected after running Aider."
+            echo "HAS_CHANGES=false" >> $GITHUB_OUTPUT
             exit 0
           fi
 
       - name: Clean up prompt file
         if: always()
-        run: rm -f .github/aider/review-prompt.txt
+        run: |
+          rm -f .github/aider/review-prompt.txt
+          rm -f .github/aider/probe-output.txt
 
       - name: Commit and Push Changes
         id: commit_and_push
@@ -125,6 +176,7 @@ jobs:
           echo "Attempting to push changes to PR branch $CURRENT_BRANCH_NAME for PR #${{ github.event.pull_request.number }}"
 
           # Pull latest changes to avoid rejection due to non-fast-forward
+          git config pull.rebase true
           git pull origin $CURRENT_BRANCH_NAME
 
           if git push origin $CURRENT_BRANCH_NAME; then
