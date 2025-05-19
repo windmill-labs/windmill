@@ -913,8 +913,7 @@
 				<div class={!hideTarget ? 'mt-6' : ''}>
 					{#if !loading}
 						{#if runnable || draftSchema}
-							{@const schema =
-								hasDraft || isDraftOnly ? (draftSchema ?? runnable?.schema) : runnable?.schema}
+							{@const schema = draftSchema ?? runnable?.schema}
 							{#if schema && schema.properties && Object.keys(schema.properties).length > 0}
 								{#await import('$lib/components/SchemaForm.svelte')}
 									<Loader2 class="animate-spin" />
