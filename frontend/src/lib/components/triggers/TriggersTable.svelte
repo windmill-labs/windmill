@@ -1,10 +1,8 @@
 <script lang="ts">
 	import DataTable from '$lib/components/table/DataTable.svelte'
-	import DropdownV2 from '$lib/components/DropdownV2.svelte'
 	import Button from '$lib/components/common/button/Button.svelte'
-	import { Plus, Star, Loader2, Trash, EllipsisVertical, RotateCcw } from 'lucide-svelte'
+	import { Plus, Star, Loader2, Trash, RotateCcw } from 'lucide-svelte'
 	import { twMerge } from 'tailwind-merge'
-	import type { Item } from '$lib/utils'
 	import { triggerIconMap, type Trigger, type TriggerType } from './utils'
 	import AddTriggersButton from './AddTriggersButton.svelte'
 	import TriggerLabel from './TriggerLabel.svelte'
@@ -32,18 +30,6 @@
 
 	// Component state
 	let loading = false
-
-	const editTriggerItems = (triggerIndex: number, hasDraft: boolean): Item[] =>
-		[
-			{
-				displayName: 'Reset to deployed version',
-				action: () => {
-					onReset?.(triggerIndex)
-				},
-				icon: RotateCcw,
-				hidden: !hasDraft
-			}
-		].filter((item) => item.hidden !== true)
 </script>
 
 <div class="flex flex-col space-y-2 w-full">
@@ -66,7 +52,7 @@
 				{@const SvelteComponent = triggerIconMap[trigger.type]}
 				<tr
 					class={twMerge(
-						'hover:bg-surface-hover cursor-pointer h-10',
+						'hover:bg-surface-hover cursor-pointer h-10 group',
 						selectedTrigger === index ? 'bg-surface-hover ' : ''
 					)}
 					onclick={() => onSelect?.(index)}
@@ -94,23 +80,21 @@
 									<Button
 										size="xs"
 										color="light"
-										btnClasses="hover:bg-red-500 hover:text-white bg-transparent px-1"
+										btnClasses="transition-all duration-200 text-transparent hover:bg-surface group-hover:text-primary bg-transparent px-1 py-1"
 										startIcon={{ icon: Trash }}
 										iconOnly
 										on:click={() => onDeleteDraft?.(index)}
 									/>
-								{:else}
-									<DropdownV2
-										items={editTriggerItems(index, !!trigger.draftConfig && !trigger.isDraft)}
-										placement="bottom-end"
-										class="w-fit h-fit px-3"
-									>
-										{#snippet buttonReplacement()}
-											<div class="-m-2 w-4 h-6 flex items-center justify-end">
-												<EllipsisVertical size={14} />
-											</div>
-										{/snippet}
-									</DropdownV2>
+								{:else if !!trigger.draftConfig && !trigger.isDraft}
+									<Button
+										size="xs"
+										color="light"
+										btnClasses="transition-all duration-200 text-transparent hover:bg-surface group-hover:text-primary bg-transparent px-1 py-1"
+										startIcon={{ icon: RotateCcw }}
+										iconOnly
+										title="Reset to deployed version"
+										on:click={() => onReset?.(index)}
+									/>
 								{/if}
 							{/if}
 						</div>
