@@ -383,7 +383,7 @@
 											}
 											dirty = true
 										} else if (e.type === 'removeAll') {
-											nconfig.priority_tags = undefined
+											nconfig.priority_tags = new Map<string, number>()
 											dirty = true
 										} else {
 											console.error(`Priority tags multiselect - unknown event type: '${e.type}'`)
