@@ -3,11 +3,21 @@
 	import type { CaptureInfo } from '../CaptureSection.svelte'
 	import CaptureSection from '../CaptureSection.svelte'
 
-	export let captureInfo: CaptureInfo | undefined = undefined
-	export let postgres_resource_path: string = ''
-	export let hasPreprocessor: boolean = false
-	export let isFlow: boolean = false
-	export let captureLoading: boolean = false
+	interface Props {
+		captureInfo?: CaptureInfo | undefined
+		postgres_resource_path?: string
+		hasPreprocessor?: boolean
+		isFlow?: boolean
+		captureLoading?: boolean
+	}
+
+	let {
+		captureInfo = undefined,
+		postgres_resource_path = '',
+		hasPreprocessor = false,
+		isFlow = false,
+		captureLoading = false
+	}: Props = $props()
 </script>
 
 {#if captureInfo}
@@ -24,7 +34,7 @@
 		{isFlow}
 		{captureLoading}
 	>
-		<svelte:fragment slot="description">
+		{#snippet description()}
 			{#if captureInfo.active}
 				{#if captureInfo.connectionInfo?.connected}
 					<p in:fade={{ duration: 100, delay: 50 }} out:fade={{ duration: 50 }}>
@@ -40,6 +50,6 @@
 					Start capturing to listen to Postgres database transactions.
 				</p>
 			{/if}
-		</svelte:fragment>
+		{/snippet}
 	</CaptureSection>
 {/if}

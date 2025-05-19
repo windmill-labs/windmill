@@ -8,21 +8,35 @@
 	import { Url } from '$lib/components/common'
 	import { fade } from 'svelte/transition'
 
-	export let isFlow: boolean = false
-	export let path: string = ''
-	export let runnableArgs: any
-	export let captureInfo: CaptureInfo | undefined = undefined
-	export let hasPreprocessor: boolean = false
-	export let captureLoading: boolean = false
+	interface Props {
+		isFlow?: boolean
+		path?: string
+		runnableArgs: any
+		captureInfo?: CaptureInfo | undefined
+		hasPreprocessor?: boolean
+		captureLoading?: boolean
+	}
 
-	$: cleanedRunnableArgs =
+	let {
+		isFlow = false,
+		path = '',
+		runnableArgs,
+		captureInfo = undefined,
+		hasPreprocessor = false,
+		captureLoading = false
+	}: Props = $props()
+
+	let cleanedRunnableArgs = $derived(
 		isObject(runnableArgs) && 'wm_trigger' in runnableArgs
 			? Object.fromEntries(Object.entries(runnableArgs).filter(([key]) => key !== 'wm_trigger'))
 			: runnableArgs
+	)
 
-	let captureUrl = `${location.origin}/api/w/${$workspaceStore}/capture_u/webhook/${
-		isFlow ? 'flow' : 'script'
-	}/${path}`
+	let captureUrl = $derived(
+		`${location.origin}/api/w/${$workspaceStore}/capture_u/webhook/${
+			isFlow ? 'flow' : 'script'
+		}/${path}`
+	)
 
 	function captureCurlCode() {
 		return `curl \\
@@ -46,7 +60,7 @@
 		{isFlow}
 		{hasPreprocessor}
 	>
-		<svelte:fragment slot="description">
+		{#snippet description()}
 			{#if captureInfo.active}
 				<p in:fade={{ duration: 100, delay: 50 }} out:fade={{ duration: 50 }}>
 					Send a POST request to the URL below to simulate a webhook event.
@@ -56,7 +70,7 @@
 					Start capturing to listen to webhook events on this test URL.
 				</p>
 			{/if}
-		</svelte:fragment>
+		{/snippet}
 		<Url label="Test URL" url={captureUrl} />
 
 		<Label label="Example cURL" disabled={!captureInfo.active}>

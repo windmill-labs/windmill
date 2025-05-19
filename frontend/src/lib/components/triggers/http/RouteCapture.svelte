@@ -11,25 +11,38 @@
 	import { Url } from '$lib/components/common'
 	import { fade } from 'svelte/transition'
 
-	export let route_path: string | undefined
-	export let http_method: 'get' | 'post' | 'put' | 'patch' | 'delete' | undefined
-	export let captureInfo: CaptureInfo | undefined = undefined
-	export let runnableArgs: any = {}
-	export let isValid: boolean | undefined = undefined
-	export let hasPreprocessor: boolean = false
-	export let isFlow: boolean = false
-	export let captureLoading: boolean = false
+	interface Props {
+		route_path: string | undefined
+		http_method: 'get' | 'post' | 'put' | 'patch' | 'delete' | undefined
+		captureInfo?: CaptureInfo | undefined
+		runnableArgs?: any
+		isValid?: boolean | undefined
+		hasPreprocessor?: boolean
+		isFlow?: boolean
+		captureLoading?: boolean
+	}
 
-	$: captureURL = `${location.origin}${base}/api/w/${$workspaceStore}/capture_u/http/${
-		captureInfo?.isFlow ? 'flow' : 'script'
-	}/${captureInfo?.path.replaceAll('/', '.')}/${route_path}`
-	$: cleanedRunnableArgs =
+	let {
+		route_path,
+		http_method,
+		captureInfo = undefined,
+		runnableArgs = {},
+		isValid = undefined,
+		hasPreprocessor = false,
+		isFlow = false,
+		captureLoading = false
+	}: Props = $props()
+
+	let captureURL = $derived(
+		`${location.origin}${base}/api/w/${$workspaceStore}/capture_u/http/${
+			captureInfo?.isFlow ? 'flow' : 'script'
+		}/${captureInfo?.path.replaceAll('/', '.')}/${route_path ?? ''}`
+	)
+	let cleanedRunnableArgs = $derived(
 		isObject(runnableArgs) && 'wm_trigger' in runnableArgs
 			? Object.fromEntries(Object.entries(runnableArgs).filter(([key]) => key !== 'wm_trigger'))
 			: runnableArgs
-
-	$: !http_method && (http_method = 'post')
-	$: route_path === undefined && (route_path = '')
+	)
 </script>
 
 {#if captureInfo}
@@ -46,7 +59,7 @@
 		{hasPreprocessor}
 		{isFlow}
 	>
-		<svelte:fragment slot="description">
+		{#snippet description()}
 			{#if captureInfo.active}
 				<p in:fade={{ duration: 100, delay: 50 }} out:fade={{ duration: 50 }}>
 					Send a POST request to the URL below to simulate a http event.
@@ -56,7 +69,7 @@
 					Start capturing to listen to HTTP requests on this test URL.
 				</p>
 			{/if}
-		</svelte:fragment>
+		{/snippet}
 
 		<Url url={captureURL} label="Test URL" />
 

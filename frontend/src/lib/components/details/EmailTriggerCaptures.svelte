@@ -6,12 +6,23 @@
 	import CaptureSection, { type CaptureInfo } from '../triggers/CaptureSection.svelte'
 	import { fade } from 'svelte/transition'
 
-	export let isFlow: boolean = false
-	export let path: string
-	export let emailDomain: string | null = null
-	export let captureInfo: CaptureInfo | undefined = undefined
-	export let hasPreprocessor: boolean = false
-	export let captureLoading: boolean = false
+	interface Props {
+		isFlow?: boolean
+		path: string
+		emailDomain?: string | null
+		captureInfo?: CaptureInfo | undefined
+		hasPreprocessor?: boolean
+		captureLoading?: boolean
+	}
+
+	let {
+		isFlow = false,
+		path,
+		emailDomain = null,
+		captureInfo = undefined,
+		hasPreprocessor = false,
+		captureLoading = false
+	}: Props = $props()
 
 	function getCaptureEmail() {
 		const cleanedPath = path.replaceAll('/', '.')
@@ -24,7 +35,7 @@
 		return `${encodedPrefix}@${emailDomain}`
 	}
 
-	$: captureEmail = getCaptureEmail()
+	let captureEmail = $derived(getCaptureEmail())
 </script>
 
 {#if captureInfo}
@@ -41,7 +52,7 @@
 		{hasPreprocessor}
 		{isFlow}
 	>
-		<svelte:fragment slot="description">
+		{#snippet description()}
 			{#if captureInfo.active}
 				<p in:fade={{ duration: 100, delay: 50 }} out:fade={{ duration: 50 }}>
 					Send an email to the test address below to simulate an email trigger.
@@ -51,7 +62,7 @@
 					Start capturing to listen to email events on this test address.
 				</p>
 			{/if}
-		</svelte:fragment>
+		{/snippet}
 		<Label label="Test email address" disabled={!captureInfo.active}>
 			<ClipboardPanel content={captureEmail} disabled={!captureInfo.active} />
 		</Label>

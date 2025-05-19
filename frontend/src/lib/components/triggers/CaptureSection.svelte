@@ -1,4 +1,4 @@
-<script context="module" lang="ts">
+<script module lang="ts">
 	export type CaptureInfo = {
 		active: boolean
 		hasPreprocessor: boolean
@@ -37,16 +37,29 @@
 	import { twMerge } from 'tailwind-merge'
 	import { FlaskConical } from 'lucide-svelte'
 
-	export let disabled: boolean | undefined = undefined
-	export let captureType: CaptureTriggerKind
-	export let captureInfo: CaptureInfo
-	export let hasPreprocessor = false
-	export let isFlow = false
-	export let captureLoading = false
+	interface Props {
+		disabled?: boolean | undefined
+		captureType: CaptureTriggerKind
+		captureInfo: CaptureInfo
+		hasPreprocessor?: boolean
+		isFlow?: boolean
+		captureLoading?: boolean
+		description?: import('svelte').Snippet
+		children?: import('svelte').Snippet
+	}
 
-	let testKind: 'preprocessor' | 'main' = 'main'
+	let {
+		disabled = undefined,
+		captureType,
+		captureInfo,
+		hasPreprocessor = false,
+		isFlow = false,
+		captureLoading = false,
+		description,
+		children
+	}: Props = $props()
 
-	$: hasPreprocessor && (testKind = 'preprocessor')
+	const testKind: 'preprocessor' | 'main' = $derived(hasPreprocessor ? 'preprocessor' : 'main')
 
 	const dispatch = createEventDispatcher<{
 		captureToggle: { disableOnly?: boolean }
@@ -84,9 +97,11 @@
 			}, 300)
 		}
 	}
-	$: updateShowCaptureHint($showCaptureHint)
+	$effect(() => {
+		updateShowCaptureHint($showCaptureHint)
+	})
 
-	let selectedCapture: Capture | undefined = undefined
+	let selectedCapture: Capture | undefined = $state(undefined)
 	function handleSelectCapture(e: any) {
 		if (e.detail) {
 			selectCapture(e.detail)
@@ -96,13 +111,13 @@
 	}
 
 	// New code for capture fetching and management
-	let lastCapture: Capture | undefined = undefined
-	let newCaptureReceived = false
-	let isLoadingBigPayload = false
+	let lastCapture: Capture | undefined = $state(undefined)
+	let newCaptureReceived = $state(false)
+	let isLoadingBigPayload = $state(false)
 	let capturePollingInterval: ReturnType<typeof setInterval> | undefined = undefined
 	let lastCaptureId: number | undefined = undefined
-	let displayResult: DisplayResult | undefined = undefined
-	let toolbarLocation: 'internal' | 'external' | undefined = undefined
+	let displayResult: DisplayResult | undefined = $state(undefined)
+	let toolbarLocation: 'internal' | 'external' | undefined = $state(undefined)
 
 	function selectCapture(capture: Capture) {
 		selectedCapture = capture
@@ -227,11 +242,13 @@
 	}
 
 	// Start or stop capture listening based on active state
-	$: if (captureInfo.active) {
-		listenForCaptures()
-	} else {
-		stopCaptureListening()
-	}
+	$effect(() => {
+		if (captureInfo.active) {
+			listenForCaptures()
+		} else {
+			stopCaptureListening()
+		}
+	})
 
 	// Fetch last capture when component mounts
 	onMount(() => {
@@ -299,7 +316,7 @@
 									{#if disabled === true}
 										Enter a valid configuration to start capturing.
 									{:else}
-										<slot name="description" />
+										{@render description?.()}
 									{/if}
 								</div>
 							{/key}
@@ -307,9 +324,9 @@
 					</Description>
 				</div>
 
-				{#if $$slots.default}
+				{#if children}
 					<div class="grow min-h-0 flex flex-col gap-4">
-						<slot />
+						{@render children?.()}
 					</div>
 				{/if}
 			</div>
@@ -330,7 +347,7 @@
 						}}
 						usePointerDownOutside
 					>
-						<svelte:fragment slot="trigger">
+						{#snippet trigger()}
 							<Button
 								size="xs2"
 								color="light"
@@ -339,8 +356,8 @@
 								nonCaptureEvent
 								btnClasses="h-[27px]"
 							></Button>
-						</svelte:fragment>
-						<svelte:fragment slot="content">
+						{/snippet}
+						{#snippet content()}
 							<CaptureTable
 								{captureType}
 								isFlow={captureInfo.isFlow}
@@ -351,14 +368,15 @@
 								addButton={false}
 								noBorder
 							/>
-						</svelte:fragment>
+						{/snippet}
 					</Popover>
 				{/if}
 				{#if selectedCapture}
+					{@const SvelteComponent = triggerIconMap[captureType]}
 					<div
 						class={'min-w-16 text-secondary flex flex-row w-fit items-center gap-2 rounded-md bg-surface-secondary p-1 px-2 h-[27px]'}
 					>
-						<svelte:component this={triggerIconMap[captureType]} size={12} />
+						<SvelteComponent size={12} />
 						<span class="text-xs text-secondary truncate">
 							Capture {formatDateShort(selectedCapture?.created_at)}
 						</span>

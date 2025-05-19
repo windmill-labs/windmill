@@ -6,12 +6,23 @@
 	import { fade } from 'svelte/transition'
 	import { base } from '$lib/base'
 
-	export let captureInfo: CaptureInfo | undefined = undefined
-	export let isValid: boolean | undefined = undefined
-	export let hasPreprocessor: boolean = false
-	export let isFlow: boolean = false
-	export let deliveryType: 'push' | 'pull' = 'pull'
-	export let captureLoading: boolean = false
+	interface Props {
+		captureInfo?: CaptureInfo | undefined
+		isValid?: boolean | undefined
+		hasPreprocessor?: boolean
+		isFlow?: boolean
+		deliveryType?: 'push' | 'pull'
+		captureLoading?: boolean
+	}
+
+	let {
+		captureInfo = undefined,
+		isValid = undefined,
+		hasPreprocessor = false,
+		isFlow = false,
+		deliveryType = 'pull',
+		captureLoading = false
+	}: Props = $props()
 
 	function getCaptureUrl(captureInfo: CaptureInfo | undefined) {
 		if (!captureInfo) {
@@ -37,7 +48,7 @@
 		{isFlow}
 		{captureLoading}
 	>
-		<svelte:fragment slot="description">
+		{#snippet description()}
 			{#if captureInfo.active}
 				<p in:fade={{ duration: 100, delay: 50 }} out:fade={{ duration: 50 }}>
 					Listening to GCP Pub/Sub events...
@@ -47,7 +58,7 @@
 					Start capturing to listen to GCP Pub/Sub events.
 				</p>
 			{/if}
-		</svelte:fragment>
+		{/snippet}
 
 		{#if deliveryType === 'push'}
 			{@const captureUrl = getCaptureUrl(captureInfo)}
