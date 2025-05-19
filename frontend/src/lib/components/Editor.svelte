@@ -142,7 +142,6 @@
 	import { setupTypeAcquisition, type DepsToGet } from '$lib/ata/index'
 	import { initWasmTs } from '$lib/infer'
 	import { initVim } from './monaco_keybindings'
-	import { buildWorkerDefinition } from '$lib/monaco_workers/build_workers'
 	import { parseTypescriptDeps } from '$lib/relative_imports'
 
 	import { scriptLangToEditorLang } from '$lib/scripts'
@@ -218,7 +217,6 @@
 
 	console.log('uri', uri)
 
-	buildWorkerDefinition()
 
 	function computeUri(filePath: string, scriptLang: string | undefined) {
 		let file

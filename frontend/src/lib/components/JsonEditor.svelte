@@ -1,5 +1,5 @@
 <script lang="ts">
-	import '@codingame/monaco-vscode-standalone-json-language-features'
+	// import '@codingame/monaco-vscode-standalone-json-language-features'
 
 	import SimpleEditor from '$lib/components/SimpleEditor.svelte'
 	import { createEventDispatcher } from 'svelte'

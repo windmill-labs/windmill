@@ -54,7 +54,6 @@
 		type IDisposable
 	} from 'monaco-editor'
 
-
 	import { allClasses } from './apps/editor/componentsPanel/cssUtils'
 
 	import { createEventDispatcher, onDestroy, onMount } from 'svelte'
@@ -65,7 +64,6 @@
 	import EditorTheme from './EditorTheme.svelte'
 	import { vimMode } from '$lib/stores'
 	import { initVim } from './monaco_keybindings'
-	import { buildWorkerDefinition } from '$lib/monaco_workers/build_workers'
 	import FakeMonacoPlaceHolder from './FakeMonacoPlaceHolder.svelte'
 	// import { createConfiguredEditor } from 'vscode/monaco'
 	// import type { IStandaloneCodeEditor } from 'vscode/vscode/vs/editor/standalone/browser/standaloneCodeEditor'
@@ -130,8 +128,6 @@
 	const dispatch = createEventDispatcher()
 
 	const uri = `file:///${hash}.${langToExt(lang)}`
-
-	buildWorkerDefinition()
 
 	export function getCode(): string {
 		return editor?.getValue() ?? ''
