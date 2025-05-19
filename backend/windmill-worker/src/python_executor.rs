@@ -989,10 +989,6 @@ def res_to_json(res):
             if type(v).__name__ == 'bytes':
                 res[k] = to_b_64(v)
     unprocessed = json.dumps(res, separators=(',', ':'), default=str).replace('\n', '')
-    # Postprocessing enabled
-    # return re.sub(replace_invalid_fields, ' null ', unprocessed)
-    # Disabled
-    # return unprocessed
     return {postprocessor}
 
 try:
