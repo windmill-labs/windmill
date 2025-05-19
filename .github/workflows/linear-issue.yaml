@@ -52,15 +52,15 @@ jobs:
           PROMPT_FILE_PATH=".github/aider/issue-prompt.txt"
           mkdir -p .github/aider
 
-          ISSUE_TITLE_Q=$(printf '%q' "${{ github.event.client_payload.issue_title }}")
-          ISSUE_BODY_Q=$(printf '%q' "${{ github.event.client_payload.issue_body }}")
-          INSTRUCTION=$(printf '%q' "${{ github.event.client_payload.instruction }}")
+          ISSUE_TITLE="${{ github.event.client_payload.issue_title }}"
+          INSTRUCTION="${{ github.event.client_payload.instruction }}"
+          ISSUE_BODY=$(printf '%q' "${{ github.event.client_payload.issue_body }}")
 
-          echo "Processing issue with title: $ISSUE_TITLE_Q"
+          echo "Processing issue with title: $ISSUE_TITLE"
 
           JSON_PAYLOAD=$(jq -n \
-            --arg title "$ISSUE_TITLE_Q" \
-            --arg body "$ISSUE_BODY_Q" \
+            --arg title "$ISSUE_TITLE" \
+            --arg body "$ISSUE_BODY" \
             '{"body":{"issue_title":$title,"issue_body":$body}}')
 
           API_RESULT=$(curl -s -w "\n%{http_code}" \
@@ -86,7 +86,7 @@ jobs:
           else
             echo "::warning::API call failed (HTTP $HTTP_CODE). Using raw issue content."
             printf "%s\nISSUE:\n%s\nINSTRUCTION:\n%s" \
-              "$BASE_PROMPT" "$ISSUE_BODY_Q" "$INSTRUCTION" > "$PROMPT_FILE_PATH"
+              "$BASE_PROMPT" "$ISSUE_BODY" "$INSTRUCTION" > "$PROMPT_FILE_PATH"
           fi
           rm -f /tmp/api_response.txt
 
@@ -94,7 +94,7 @@ jobs:
           echo "PROMPT_FILE_PATH=$PROMPT_FILE_PATH" >> $GITHUB_OUTPUT
 
           # Store the issue title for PR creation
-          ISSUE_TITLE_SAFE=$(echo "$ISSUE_TITLE_Q" | tr -d '\n' | sed 's/"/\\"/g')
+          ISSUE_TITLE_SAFE=$(echo "$ISSUE_TITLE" | tr -d '\n' | sed 's/"/\\"/g')
           echo "ISSUE_TITLE=$ISSUE_TITLE_SAFE" >> $GITHUB_OUTPUT
 
           # Generate unique branch name using timestamp and issue info
