@@ -186,9 +186,9 @@
 		selected === 'resource'
 			? !!args.kafka_resource_path
 			: isStaticConnectionValid &&
-			  args.brokers &&
-			  args.brokers.length > 0 &&
-			  args.brokers.every((b) => b.length > 0)
+				args.brokers &&
+				args.brokers.length > 0 &&
+				args.brokers.every((b) => b.length > 0)
 
 	$: isValid =
 		isConnectionValid &&
@@ -260,7 +260,15 @@
 					{:else}
 						<SchemaForm
 							schema={connnectionSchema}
-							bind:args
+							bind:args={
+								() => args,
+								(v) => {
+									args = {
+										...args,
+										...v
+									}
+								}
+							}
 							bind:isValid={isStaticConnectionValid}
 							lightHeader={true}
 						/>
@@ -280,7 +288,15 @@
 				<Subsection headless={true}>
 					<SchemaForm
 						schema={argsSchema}
-						bind:args
+						bind:args={
+							() => args,
+							(v) => {
+								args = {
+									...args,
+									...v
+								}
+							}
+						}
 						bind:isValid={otherArgsValid}
 						lightHeader={true}
 					/>

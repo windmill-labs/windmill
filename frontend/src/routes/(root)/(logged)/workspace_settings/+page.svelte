@@ -73,6 +73,7 @@
 		schedules: boolean
 		users: boolean
 		groups: boolean
+		triggers: boolean
 	}
 	type GitSyncType =
 		| 'script'
@@ -86,7 +87,7 @@
 		| 'schedule'
 		| 'user'
 		| 'group'
-
+		| 'trigger'
 	let slackInitialPath: string
 	let slackScriptPath: string
 	let teamsInitialPath: string
@@ -290,6 +291,9 @@
 		if (typesMap.groups == expectedValue) {
 			result.push('group')
 		}
+		if (typesMap.triggers == expectedValue) {
+			result.push('trigger')
+		}
 		return result
 	}
 
@@ -429,7 +433,8 @@
 							schedules: (settings.exclude_types_override?.indexOf('schedule') ?? -1) >= 0,
 							folders: (settings.exclude_types_override?.indexOf('folder') ?? -1) >= 0,
 							users: (settings.exclude_types_override?.indexOf('user') ?? -1) >= 0,
-							groups: (settings.exclude_types_override?.indexOf('group') ?? -1) >= 0
+							groups: (settings.exclude_types_override?.indexOf('group') ?? -1) >= 0,
+							triggers: (settings.exclude_types_override?.indexOf('trigger') ?? -1) >= 0
 						}
 					}
 				}),
@@ -444,7 +449,8 @@
 					schedules: (settings.git_sync.include_type?.indexOf('schedule') ?? -1) >= 0,
 					folders: (settings.git_sync.include_type?.indexOf('folder') ?? -1) >= 0,
 					users: (settings.git_sync.include_type?.indexOf('user') ?? -1) >= 0,
-					groups: (settings.git_sync.include_type?.indexOf('group') ?? -1) >= 0
+					groups: (settings.git_sync.include_type?.indexOf('group') ?? -1) >= 0,
+					triggers: (settings.git_sync.include_type?.indexOf('trigger') ?? -1) >= 0
 				}
 			}
 		} else {
@@ -462,7 +468,8 @@
 					secrets: false,
 					schedules: false,
 					users: false,
-					groups: false
+					groups: false,
+					triggers: false
 				}
 			}
 			gitSyncTestJobs = []
@@ -1163,6 +1170,11 @@
 								on:change={(_) => resetGitSyncRepositoryExclude('groups')}
 								options={{ right: 'Groups' }}
 							/>
+							<Toggle
+								bind:checked={gitSyncSettings.include_type.triggers}
+								on:change={(_) => resetGitSyncRepositoryExclude('triggers')}
+								options={{ right: 'Triggers' }}
+							/>
 						</div>
 					</div>
 				</div>
@@ -1354,6 +1366,13 @@
 										options={{ right: 'Exclude resource types' }}
 									/>
 								{/if}
+								{#if gitSyncSettings.include_type.triggers}
+									<Toggle
+										color="red"
+										bind:checked={gitSyncRepository.exclude_types_override.triggers}
+										options={{ right: 'Exclude triggers' }}
+									/>
+								{/if}
 							{/if}
 						</div>
 					{/each}
@@ -1384,7 +1403,8 @@
 										secrets: false,
 										schedules: false,
 										users: false,
-										groups: false
+										groups: false,
+										triggers: false
 									}
 								}
 							]

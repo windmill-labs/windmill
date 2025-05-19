@@ -763,6 +763,45 @@ pub(crate) async fn tarball_workspace(
                     .await?;
             }
         }
+
+        #[cfg(all(feature = "enterprise", feature = "mqtt_trigger"))]
+        {
+            let mqtt_triggers = sqlx::query_as!(
+                crate::mqtt_triggers::MqttTrigger,
+                r#"
+                SELECT
+                    mqtt_resource_path,
+                    subscribe_topics as "subscribe_topics: _",
+                    v3_config as "v3_config: _",
+                    v5_config as "v5_config: _",
+                    client_version AS "client_version: _",
+                    client_id,
+                    workspace_id,
+                    path,
+                    script_path,
+                    is_flow,
+                    edited_by,
+                    email,
+                    edited_at,
+                    server_id,
+                    last_server_ping,
+                    extra_perms,
+                    error,
+                    enabled
+                FROM 
+                    mqtt_trigger
+                "#,
+            )
+            .fetch_all(&mut *tx)
+            .await?;
+
+            for trigger in mqtt_triggers {
+                let trigger_str = &to_string_without_metadata(&trigger, false, None).unwrap();
+                archive
+                    .write_to_archive(&trigger_str, &format!("{}.mqtt_trigger.json", trigger.path))
+                    .await?;
+            }
+        }
     }
 
     if include_users.unwrap_or(false) {
