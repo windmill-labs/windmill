@@ -14,11 +14,11 @@
 	import type { AppViewerContext } from './apps/types'
 	import { writable } from 'svelte/store'
 	// import '@codingame/monaco-vscode-standalone-languages'
-	import '@codingame/monaco-vscode-standalone-typescript-language-features'
+
+	// import '@codingame/monaco-vscode-standalone-typescript-language-features'
 
 	import { initializeVscode } from './vscode'
 	import EditorTheme from './EditorTheme.svelte'
-	import { buildWorkerDefinition } from '$lib/monaco_workers/build_workers'
 	import FakeMonacoPlaceHolder from './FakeMonacoPlaceHolder.svelte'
 
 	export const conf = {
@@ -385,8 +385,6 @@
 	const dispatch = createEventDispatcher()
 
 	const uri = `file:///${hash}.ts`
-
-	buildWorkerDefinition()
 
 	export function insertAtCursor(code: string): void {
 		if (editor) {
