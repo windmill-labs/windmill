@@ -82,9 +82,7 @@
 		}
 
 		const triggerType = triggersState.triggers[trigger].type
-		//delete the trigger from the store
-		triggersState.selectedTriggerIndex = undefined
-		triggersState.deleteTrigger(triggersCount, trigger)
+		const id = triggersState.triggers[trigger].id
 
 		if (triggerType === 'schedule') {
 			await triggersState.fetchSchedules(
@@ -160,9 +158,25 @@
 				$userStore
 			)
 		}
-		triggersState.selectedTriggerIndex = triggersState.triggers.findIndex(
+		const newIndex = triggersState.triggers.findIndex(
 			(t) => t.path === path && t.type === triggerType
 		)
+
+		//delete the trigger from the store
+		const indexToDelete = triggersState.triggers.findIndex((t) => {
+			if (t.id) {
+				return t.id === id
+			} else {
+				return t.path === path && t.type === triggerType
+			}
+		})
+		triggersState.deleteTrigger(triggersCount, indexToDelete)
+
+		if (newIndex !== triggersState.selectedTriggerIndex) {
+			triggersState.selectedTriggerIndex = newIndex
+		} else {
+			renderCount++
+		}
 	}
 
 	function handleUpdateDraftConfig(

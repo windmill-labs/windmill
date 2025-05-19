@@ -80,6 +80,9 @@ export class Triggers {
 		triggersCountStore: Writable<TriggersCount | undefined>,
 		triggerIndex: number
 	): void {
+		if (triggerIndex === undefined || triggerIndex < 0 || triggerIndex >= this.triggers.length) {
+			return
+		}
 		const { type, isDraft } = this.triggers[triggerIndex]
 
 		this.triggers = this.triggers.filter((_, index) => index !== triggerIndex)
