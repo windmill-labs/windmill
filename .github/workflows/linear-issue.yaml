@@ -54,7 +54,7 @@ jobs:
 
           ISSUE_TITLE_Q=$(printf '%q' "${{ github.event.client_payload.issue_title }}")
           ISSUE_BODY_Q=$(printf '%q' "${{ github.event.client_payload.issue_body }}")
-          INSTRUCTION_Q=$(printf '%q' "${{ github.event.client_payload.instruction }}")
+          INSTRUCTION=$(printf '%q' "${{ github.event.client_payload.instruction }}")
 
           echo "Processing issue with title: $ISSUE_TITLE_Q"
 
