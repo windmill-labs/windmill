@@ -1,4 +1,4 @@
-import { initEnhancedMonacoEnvironment } from 'monaco-languageclient/vscode/services'
+import { getEnhancedMonacoEnvironment } from 'monaco-languageclient/vscode/services'
 
 // import cssWorker from 'monaco-editor-wrapper/workers/module/css?worker&url'
 // import htmlWorker from 'monaco-editor-wrapper/workers/module/html?worker&url'
@@ -6,7 +6,7 @@ import { initEnhancedMonacoEnvironment } from 'monaco-languageclient/vscode/serv
 // import editorWorker from 'monaco-editor-wrapper/workers/module/editor?worker&url'
 
 export function buildWorkerDefinition() {
-	const envEnhanced = initEnhancedMonacoEnvironment()
+	const envEnhanced = getEnhancedMonacoEnvironment()
 
 	const getWorker = (moduleId: string, label: string) => {
 		console.log(`getWorker: moduleId: ${moduleId} label: ${label}`)

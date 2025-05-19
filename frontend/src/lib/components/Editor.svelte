@@ -112,7 +112,6 @@
 		updateOptions,
 		extToLang
 	} from '$lib/editorUtils'
-	import type { Disposable } from 'vscode'
 	import { workspaceStore } from '$lib/stores'
 	import { type Preview, ResourceService, UserService } from '$lib/gen'
 	import type { Text } from 'yjs'
@@ -435,9 +434,9 @@
 		return scriptLang
 	}
 
-	let command: Disposable | undefined = undefined
+	let command: IDisposable | undefined = undefined
 
-	let sqlTypeCompletor: Disposable | undefined = undefined
+	let sqlTypeCompletor: IDisposable | undefined = undefined
 
 	$: initialized && lang === 'sql' && scriptLang
 		? addSqlTypeCompletions()
@@ -498,7 +497,7 @@
 		})
 	}
 
-	let sqlSchemaCompletor: Disposable | undefined = undefined
+	let sqlSchemaCompletor: IDisposable | undefined = undefined
 
 	function updateSchema() {
 		const newSchemaRes = lang === 'graphql' ? args?.api : args?.database
@@ -636,7 +635,7 @@
 
 	$: $reviewingChanges && autocompletor?.reject()
 
-	let completorDisposable: Disposable | undefined = undefined
+	let completorDisposable: IDisposable | undefined = undefined
 	let autocompletor: Autocompletor | undefined = undefined
 	function addSuperCompletor(editor: meditor.IStandaloneCodeEditor) {
 		try {
