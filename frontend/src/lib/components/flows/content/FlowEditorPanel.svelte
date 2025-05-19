@@ -37,7 +37,7 @@
 		flowInputEditorState
 	} = getContext<FlowEditorContext>('FlowEditorContext')
 
-	const { selectedTrigger, showCaptureHint, triggers, triggersCount } =
+	const { showCaptureHint, triggersState, triggersCount } =
 		getContext<TriggerContext>('TriggerContext')
 	function checkDup(modules: FlowModule[]): string | undefined {
 		let seenModules: string[] = []
@@ -83,13 +83,7 @@
 		disabled={disabledFlowInputs}
 		on:openTriggers={(ev) => {
 			$selectedId = 'triggers'
-			handleSelectTriggerFromKind(
-				triggers,
-				triggersCount,
-				selectedTrigger,
-				savedFlow?.path,
-				ev.detail.kind
-			)
+			handleSelectTriggerFromKind(triggersState, triggersCount, savedFlow?.path, ev.detail.kind)
 			showCaptureHint.set(true)
 		}}
 		on:applyArgs

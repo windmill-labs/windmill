@@ -23,7 +23,7 @@
 		color?: 'red'
 	}
 
-	const { triggersCount, triggers, selectedTrigger } = getContext<TriggerContext>('TriggerContext')
+	const { triggersCount, triggersState } = getContext<TriggerContext>('TriggerContext')
 
 	export let mainButtons: MainButton[] = []
 	export let menuItems: MenuItemButton[] = []
@@ -52,8 +52,10 @@
 					<Badge>tag: {tag}</Badge>
 				{/if}
 				<slot />
-				{#if $triggers?.some((t) => t.isPrimary && !t.isDraft)}
-					{@const primarySchedule = $triggers.findIndex((t) => t.isPrimary && !t.isDraft)}
+				{#if triggersState?.triggers?.some((t) => t.isPrimary && !t.isDraft)}
+					{@const primarySchedule = triggersState.triggers.findIndex(
+						(t) => t.isPrimary && !t.isDraft
+					)}
 					<Button
 						btnClasses="inline-flex"
 						startIcon={{ icon: Calendar }}
@@ -63,7 +65,7 @@
 						on:click={async () => {
 							dispatch('seeTriggers')
 							await tick()
-							$selectedTrigger = primarySchedule
+							triggersState.selectedTriggerIndex = primarySchedule
 						}}
 					>
 						{$triggersCount?.primary_schedule?.schedule ?? ''}

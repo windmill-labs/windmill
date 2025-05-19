@@ -21,7 +21,6 @@
 	import { initFlowStepWarnings } from '../utils'
 	import { dfs } from '../dfs'
 	import type { TriggerContext } from '$lib/components/triggers'
-	import { addDraftTrigger } from '$lib/components/triggers/utils'
 	import { formatCron } from '$lib/utils'
 
 	export let flowModule: FlowModule
@@ -32,7 +31,7 @@
 	const { selectedId, flowStateStore, flowInputsStore, flowStore } =
 		getContext<FlowEditorContext>('FlowEditorContext')
 
-	const { triggers, triggersCount } = getContext<TriggerContext>('TriggerContext')
+	const { triggersState, triggersCount } = getContext<TriggerContext>('TriggerContext')
 
 	let scriptKind: 'script' | 'trigger' | 'approval' = 'script'
 	let scriptTemplate: 'pgsql' | 'mysql' | 'script' | 'docker' | 'powershell' = 'script'
@@ -44,7 +43,7 @@
 	export let previousModule: FlowModule | undefined = undefined
 
 	function initializePrimaryScheduleForTriggerScript(module: FlowModule) {
-		const primaryIndex = $triggers.findIndex((t) => t.isPrimary)
+		const primaryIndex = triggersState.triggers.findIndex((t) => t.isPrimary)
 		if (primaryIndex === -1) {
 			const primaryCfg = {
 				summary: 'Scheduled poll of flow',
@@ -54,10 +53,10 @@
 				enabled: true,
 				is_flow: true
 			}
-			addDraftTrigger(triggers, triggersCount, 'schedule', undefined, primaryCfg)
-		} else if ($triggers[primaryIndex].draftConfig) {
+			triggersState.addDraftTrigger(triggersCount, 'schedule', undefined, primaryCfg)
+		} else if (triggersState.triggers[primaryIndex].draftConfig) {
 			//If there is a primary schedule draft update it
-			const newCfg = { ...$triggers[primaryIndex].draftConfig }
+			const newCfg = { ...triggersState.triggers[primaryIndex].draftConfig }
 			let updated = false
 			if (!newCfg.schedule) {
 				newCfg.schedule = formatCron('0 */15 * * *')
@@ -68,7 +67,7 @@
 				updated = true
 			}
 			if (updated) {
-				$triggers[primaryIndex].draftConfig = newCfg
+				triggersState.triggers[primaryIndex].draftConfig = newCfg
 			}
 		}
 

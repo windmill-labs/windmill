@@ -59,8 +59,8 @@
 	import TriggersEditor from '$lib/components/triggers/TriggersEditor.svelte'
 	import type { TriggerContext } from '$lib/components/triggers'
 	import { setContext } from 'svelte'
-	import { fetchTriggers, type Trigger } from '$lib/components/triggers/utils'
 	import TriggersBadge from '$lib/components/graph/renderers/triggers/TriggersBadge.svelte'
+	import { Triggers } from '$lib/components/triggers/triggers.svelte'
 
 	let flow: Flow | undefined
 	let can_write = false
@@ -77,7 +77,7 @@
 	let intervalId: NodeJS.Timeout | undefined = undefined
 
 	$: {
-		const cliTrigger = $triggersStore.find((t) => t.type === 'cli')
+		const cliTrigger = triggersState.triggers.find((t) => t.type === 'cli')
 		if (cliTrigger) {
 			cliTrigger.extra = {
 				cliCommand: `wmill flow run ${flow?.path} -d '${JSON.stringify(args)}'`
@@ -86,20 +86,18 @@
 	}
 
 	const triggersCount = writable<TriggersCount | undefined>(undefined)
-	const selectedTriggerStore = writable<number | undefined>(0)
 
 	// Add triggers context store
-	const triggersStore = writable<Trigger[]>([
+	const triggersState = new Triggers([
 		{ type: 'webhook', path: '', isDraft: false },
 		{ type: 'email', path: '', isDraft: false },
 		{ type: 'cli', path: '', isDraft: false }
 	])
 	setContext<TriggerContext>('TriggerContext', {
-		selectedTrigger: selectedTriggerStore,
 		triggersCount,
 		simplifiedPoll: writable(false),
 		showCaptureHint: writable(undefined),
-		triggers: triggersStore
+		triggersState
 	})
 
 	let previousPath: string | undefined = undefined
@@ -139,8 +137,7 @@
 	}
 
 	async function loadTriggers(): Promise<void> {
-		await fetchTriggers(
-			triggersStore,
+		await triggersState.fetchTriggers(
 			triggersCount,
 			$workspaceStore,
 			path,
@@ -457,7 +454,7 @@
 						onSelect={async (triggerIndex: number) => {
 							rightPaneSelected = 'triggers'
 							await tick()
-							$selectedTriggerStore = triggerIndex
+							triggersState.selectedTriggerIndex = triggerIndex
 						}}
 						small={false}
 					/>

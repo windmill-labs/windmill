@@ -13,7 +13,7 @@
 	import SchedulePollIcon from '$lib/components/icons/SchedulePollIcon.svelte'
 	import TriggerLabel from '$lib/components/triggers/TriggerLabel.svelte'
 
-	const { selectedTrigger, triggers, triggersCount } = getContext<TriggerContext>('TriggerContext')
+	const { triggersState, triggersCount } = getContext<TriggerContext>('TriggerContext')
 
 	interface Props {
 		path: string
@@ -88,7 +88,10 @@
 
 	// Group triggers by their mapped type
 	let triggersGrouped = $derived.by(() => {
-		const triggersWithIndex = $triggers.map((trigger, index) => ({ ...trigger, index }))
+		const triggersWithIndex = triggersState.triggers.map((trigger, index) => ({
+			...trigger,
+			index
+		}))
 		const triggersFiltered = showDraft
 			? triggersWithIndex
 			: triggersWithIndex.filter((trigger) => !trigger.isDraft)
@@ -106,7 +109,7 @@
 		)
 	})
 
-	const noTriggers = $derived($triggers.length === 0)
+	const noTriggers = $derived(triggersState.triggers.length === 0)
 
 	// Extract unique trigger types for display, only keep the first
 	let allTriggerTypes = $derived.by(() => {
@@ -131,7 +134,7 @@
 	let extraTriggersType = $derived(
 		limit && allTriggerTypes.length > limit ? allTriggerTypes.slice(limit) : []
 	)
-	let showOnlyTriggersWithCount = $derived(showOnlyWithCount || $triggers.length === 0)
+	let showOnlyTriggersWithCount = $derived(showOnlyWithCount || triggersState.triggers.length === 0)
 
 	$effect(() => {
 		if (allTriggerTypes) {
@@ -149,10 +152,11 @@
 	{#snippet children({ createMenu })}
 		{#each triggersToDisplay as type}
 			{@const isSelected =
-				selected && $selectedTrigger && $triggers && $triggers[$selectedTrigger]?.type === type}
+				selected && triggersState.selectedTrigger && triggersState.selectedTrigger?.type === type}
 			{@const singleItem =
 				type === 'webhook' ||
-				type === 'email'! ||
+				type === 'email' ||
+				type === 'cli' ||
 				(triggersGrouped[type] && triggersGrouped[type].length === 1)}
 			<Tooltip
 				disablePopup={menuOpen}
@@ -297,7 +301,7 @@
 			onSelect?.(triggerIndex)
 		}}
 	>
-		<TriggerLabel trigger={$triggers[triggerIndex]} />
+		<TriggerLabel trigger={triggersState.triggers[triggerIndex]} />
 	</MenuItem>
 {/snippet}
 

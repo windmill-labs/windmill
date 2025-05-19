@@ -13,21 +13,7 @@
 	import { Plus } from 'lucide-svelte'
 	import Button from '../common/button/Button.svelte'
 	import TriggersWrapperV2 from './TriggersWrapper.svelte'
-	import {
-		fetchHttpTriggers,
-		fetchSchedules,
-		fetchWebsocketTriggers,
-		fetchPostgresTriggers,
-		fetchKafkaTriggers,
-		fetchNatsTriggers,
-		fetchGcpTriggers,
-		fetchSqsTriggers,
-		fetchMqttTriggers,
-		addDraftTrigger,
-		triggerTypeToCaptureKind,
-		deleteTrigger,
-		type TriggerType
-	} from './utils'
+	import { triggerTypeToCaptureKind, type TriggerType } from './utils'
 
 	interface Props {
 		noEditor: boolean
@@ -70,12 +56,7 @@
 	let renderCount = $state(0)
 
 	const useVerticalTriggerBar = $derived(width < 1000)
-
-	const {
-		selectedTrigger: selectedTrigger,
-		triggers,
-		triggersCount
-	} = getContext<TriggerContext>('TriggerContext')
+	const { triggersState, triggersCount } = getContext<TriggerContext>('TriggerContext')
 
 	const dispatch = createEventDispatcher()
 	onDestroy(() => {
@@ -84,21 +65,15 @@
 
 	// Handle trigger selection
 	function onSelect(triggerIndex: number) {
-		$selectedTrigger = triggerIndex
+		triggersState.selectedTriggerIndex = triggerIndex
 	}
 
 	function deleteDraftTrigger(triggerIndex: number | undefined) {
 		if (triggerIndex === undefined) {
 			return
 		}
-		deleteTrigger(triggers, triggersCount, triggerIndex)
-
-		// Select a new trigger if any exist
-		if ($triggers.length > 0) {
-			$selectedTrigger = $triggers.length - 1
-		} else {
-			$selectedTrigger = undefined
-		}
+		triggersState.deleteTrigger(triggersCount, triggerIndex)
+		triggersState.selectedTriggerIndex = triggersState.triggers.length - 1
 	}
 
 	async function handleUpdate(trigger: number | undefined, path: string) {
@@ -106,14 +81,13 @@
 			return
 		}
 
-		const triggerType = $triggers[trigger].type
+		const triggerType = triggersState.triggers[trigger].type
 		//delete the trigger from the store
-		$selectedTrigger = undefined
-		deleteTrigger(triggers, triggersCount, trigger)
+		triggersState.selectedTriggerIndex = undefined
+		triggersState.deleteTrigger(triggersCount, trigger)
 
 		if (triggerType === 'schedule') {
-			await fetchSchedules(
-				triggers,
+			await triggersState.fetchSchedules(
 				triggersCount,
 				$workspaceStore,
 				currentPath,
@@ -122,8 +96,7 @@
 				$userStore
 			)
 		} else if (triggerType === 'websocket') {
-			await fetchWebsocketTriggers(
-				triggers,
+			await triggersState.fetchWebsocketTriggers(
 				triggersCount,
 				$workspaceStore,
 				currentPath,
@@ -131,8 +104,7 @@
 				$userStore
 			)
 		} else if (triggerType === 'postgres') {
-			await fetchPostgresTriggers(
-				triggers,
+			await triggersState.fetchPostgresTriggers(
 				triggersCount,
 				$workspaceStore,
 				currentPath,
@@ -140,10 +112,15 @@
 				$userStore
 			)
 		} else if (triggerType === 'kafka') {
-			await fetchKafkaTriggers(triggers, triggersCount, $workspaceStore, currentPath, isFlow)
+			await triggersState.fetchKafkaTriggers(
+				triggersCount,
+				$workspaceStore,
+				currentPath,
+				isFlow,
+				$userStore
+			)
 		} else if (triggerType === 'nats') {
-			await fetchNatsTriggers(
-				triggers,
+			await triggersState.fetchNatsTriggers(
 				triggersCount,
 				$workspaceStore,
 				currentPath,
@@ -151,8 +128,7 @@
 				$userStore
 			)
 		} else if (triggerType === 'gcp') {
-			await fetchGcpTriggers(
-				triggers,
+			await triggersState.fetchGcpTriggers(
 				triggersCount,
 				$workspaceStore,
 				currentPath,
@@ -160,8 +136,7 @@
 				$userStore
 			)
 		} else if (triggerType === 'sqs') {
-			await fetchSqsTriggers(
-				triggers,
+			await triggersState.fetchSqsTriggers(
 				triggersCount,
 				$workspaceStore,
 				currentPath,
@@ -169,8 +144,7 @@
 				$userStore
 			)
 		} else if (triggerType === 'mqtt') {
-			await fetchMqttTriggers(
-				triggers,
+			await triggersState.fetchMqttTriggers(
 				triggersCount,
 				$workspaceStore,
 				currentPath,
@@ -178,8 +152,7 @@
 				$userStore
 			)
 		} else if (triggerType === 'http') {
-			await fetchHttpTriggers(
-				triggers,
+			await triggersState.fetchHttpTriggers(
 				triggersCount,
 				$workspaceStore,
 				currentPath,
@@ -187,7 +160,9 @@
 				$userStore
 			)
 		}
-		$selectedTrigger = $triggers.findIndex((t) => t.path === path && t.type === triggerType)
+		triggersState.selectedTriggerIndex = triggersState.triggers.findIndex(
+			(t) => t.path === path && t.type === triggerType
+		)
 	}
 
 	function handleUpdateDraftConfig(
@@ -196,7 +171,7 @@
 		saveDisabled: boolean
 	) {
 		if (triggerIndex && triggerIndex !== -1 && newConfig) {
-			$triggers[triggerIndex].draftConfig = { ...newConfig, canSave: !saveDisabled }
+			triggersState.triggers[triggerIndex].draftConfig = { ...newConfig, canSave: !saveDisabled }
 		}
 	}
 
@@ -204,18 +179,17 @@
 		if (!trigger) {
 			return
 		}
-		$triggers[trigger].draftConfig = undefined
+		triggersState.triggers[trigger].draftConfig = undefined
 		renderCount++
 	}
 
 	function handleAddTrigger(type: TriggerType) {
-		const newTrigger = addDraftTrigger(
-			triggers,
+		const newTrigger = triggersState.addDraftTrigger(
 			triggersCount,
 			type,
 			type === 'schedule' ? initialPath : undefined
 		)
-		$selectedTrigger = newTrigger
+		triggersState.selectedTriggerIndex = newTrigger
 	}
 </script>
 
@@ -226,17 +200,15 @@
 				<!-- Left Pane - Triggers List -->
 				{#if !useVerticalTriggerBar}
 					<div class="w-[350px] flex-shrink-0 overflow-auto pr-2 pl-4 pt-2 pb-2">
-						{#key $triggers}
-							<TriggersTable
-								selectedTrigger={$selectedTrigger}
-								{onSelect}
-								triggers={$triggers}
-								{isEditor}
-								onAddDraftTrigger={handleAddTrigger}
-								onDeleteDraft={deleteDraftTrigger}
-								onReset={handleResetDraft}
-							/>
-						{/key}
+						<TriggersTable
+							selectedTrigger={triggersState.selectedTriggerIndex}
+							{onSelect}
+							triggers={triggersState.triggers}
+							{isEditor}
+							onAddDraftTrigger={handleAddTrigger}
+							onDeleteDraft={deleteDraftTrigger}
+							onReset={handleResetDraft}
+						/>
 					</div>
 				{:else}
 					<div class="p-2 flex flex-col gap-2 border-r">
@@ -257,7 +229,9 @@
 							selected={true}
 							small={false}
 							vertical
-							onSelect={(triggerIndex: number) => ($selectedTrigger = triggerIndex)}
+							onSelect={(triggerIndex: number) => {
+								triggersState.selectedTriggerIndex = triggerIndex
+							}}
 						/>
 					</div>
 				{/if}
@@ -269,50 +243,46 @@
 					)}
 					style="scrollbar-gutter: stable"
 				>
-					{#if $selectedTrigger}
-						{#each $triggers as trigger, index}
-							{#key renderCount}
-								{#if $selectedTrigger === index}
-									<div in:fade={{ duration: 100, delay: 100 }} out:fade={{ duration: 100 }}>
-										<TriggersWrapperV2
-											selectedTrigger={trigger}
-											{isFlow}
-											{initialPath}
-											{fakeInitialPath}
-											{currentPath}
-											{hash}
-											{isDeployed}
-											small={useVerticalTriggerBar}
-											{args}
-											{newItem}
-											{schema}
-											{isEditor}
-											onDelete={() => {
-												deleteDraftTrigger($selectedTrigger)
-											}}
-											onUpdate={(path) => {
-												handleUpdate($selectedTrigger, path)
-											}}
-											onConfigChange={(cfg, canSave, updated) => {
-												if (updated) {
-													handleUpdateDraftConfig($selectedTrigger, cfg, canSave)
-												}
-											}}
-											onCaptureConfigChange={(cfg, isValidConfig) => {
-												config = cfg
-												isValid = isValidConfig
-											}}
-											onReset={() => {
-												handleResetDraft($selectedTrigger)
-											}}
-											on:email-domain={({ detail }) => {
-												emailDomain = detail
-											}}
-										/>
-									</div>
-								{/if}
-							{/key}
-						{/each}
+					{#if triggersState.selectedTrigger}
+						{#key renderCount}
+							<div in:fade={{ duration: 100, delay: 100 }} out:fade={{ duration: 100 }}>
+								<TriggersWrapperV2
+									selectedTrigger={triggersState.selectedTrigger}
+									{isFlow}
+									{initialPath}
+									{fakeInitialPath}
+									{currentPath}
+									{hash}
+									{isDeployed}
+									small={useVerticalTriggerBar}
+									{args}
+									{newItem}
+									{schema}
+									{isEditor}
+									onDelete={() => {
+										deleteDraftTrigger(triggersState.selectedTriggerIndex)
+									}}
+									onUpdate={(path) => {
+										handleUpdate(triggersState.selectedTriggerIndex, path)
+									}}
+									onConfigChange={(cfg, canSave, updated) => {
+										if (updated) {
+											handleUpdateDraftConfig(triggersState.selectedTriggerIndex, cfg, canSave)
+										}
+									}}
+									onCaptureConfigChange={(cfg, isValidConfig) => {
+										config = cfg
+										isValid = isValidConfig
+									}}
+									onReset={() => {
+										handleResetDraft(triggersState.selectedTriggerIndex)
+									}}
+									on:email-domain={({ detail }) => {
+										emailDomain = detail
+									}}
+								/>
+							</div>
+						{/key}
 					{:else}
 						<span class="text-sm text-tertiary text-center mx-auto mt-2"
 							>{`Select a trigger from the ${useVerticalTriggerBar ? 'left toolbar' : 'table'} or a create a new one`}</span
@@ -321,8 +291,8 @@
 				</div>
 			</div>
 		</Pane>
-		{#if $selectedTrigger && $triggers[$selectedTrigger].type && $triggers[$selectedTrigger].type !== 'schedule' && $triggers[$selectedTrigger].type != 'poll' && !noCapture}
-			{@const captureKind = triggerTypeToCaptureKind($triggers[$selectedTrigger].type)}
+		{#if triggersState.selectedTrigger && triggersState.selectedTrigger.type !== 'schedule' && triggersState.selectedTrigger.type != 'poll' && !noCapture}
+			{@const captureKind = triggerTypeToCaptureKind(triggersState.selectedTrigger.type)}
 			{#key captureKind}
 				<Pane minSize={20} size={40}>
 					<CaptureWrapper

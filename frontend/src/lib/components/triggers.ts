@@ -1,7 +1,7 @@
 import type { CaptureTriggerKind, TriggersCount } from '$lib/gen'
-import { get, type Writable } from 'svelte/store'
-import { addDraftTrigger, type Trigger } from './triggers/utils'
+import { type Writable } from 'svelte/store'
 import { formatCron } from '$lib/utils'
+import { Triggers } from './triggers/triggers.svelte'
 
 export type ScheduleTrigger = {
 	summary: string | undefined
@@ -13,18 +13,17 @@ export type ScheduleTrigger = {
 }
 
 export type TriggerContext = {
-	selectedTrigger: Writable<number | undefined>
 	triggersCount: Writable<TriggersCount | undefined>
 	simplifiedPoll: Writable<boolean | undefined>
 	showCaptureHint: Writable<boolean | undefined>
-	triggers: Writable<Trigger[]>
+	triggersState: Triggers
 }
 
 export function setScheduledPollSchedule(
-	triggers: Writable<Trigger[]>,
+	triggersState: Triggers,
 	triggersCount: Writable<TriggersCount | undefined>
 ) {
-	const primarySchedule = get(triggers).find((t) => t.isPrimary)
+	const primarySchedule = triggersState.triggers.find((t) => t.isPrimary)
 	if (primarySchedule) {
 		return
 	} else {
@@ -37,7 +36,7 @@ export function setScheduledPollSchedule(
 			is_flow: true
 		}
 
-		addDraftTrigger(triggers, triggersCount, 'schedule', undefined, draftCfg)
+		triggersState.addDraftTrigger(triggersCount, 'schedule', undefined, draftCfg)
 	}
 }
 

@@ -83,13 +83,9 @@
 	import type { SavedAndModifiedValue } from './common/confirmationModal/unsavedTypes'
 	import type { ScriptBuilderFunctionExports } from './scriptBuilder'
 	import DeployButton from './DeployButton.svelte'
-	import {
-		fetchTriggers,
-		type Trigger,
-		deployTriggers,
-		handleSelectTriggerFromKind
-	} from './triggers/utils'
+	import { type Trigger, deployTriggers, handleSelectTriggerFromKind } from './triggers/utils'
 	import DraftTriggersConfirmationModal from './common/confirmationModal/DraftTriggersConfirmationModal.svelte'
+	import { Triggers } from './triggers/triggers.svelte'
 
 	export let script: NewScript
 	export let fullyLoaded: boolean = true
@@ -171,7 +167,7 @@
 	}
 
 	export function setDraftTriggers(triggers: Trigger[]) {
-		$triggersStore = [...triggers, ...$triggersStore.filter((t) => !t.draftConfig)]
+		triggersState.triggers = [...triggers, ...triggersState.triggers.filter((t) => !t.draftConfig)]
 		loadTriggers()
 	}
 
@@ -204,8 +200,7 @@
 			path: initialPath
 		})
 
-		fetchTriggers(
-			triggersStore,
+		triggersState.fetchTriggers(
 			triggersCount,
 			$workspaceStore,
 			initialPath,
@@ -216,7 +211,7 @@
 	}
 
 	// Add triggers context store
-	const triggersStore = writable<Trigger[]>([
+	const triggersState = new Triggers([
 		{ type: 'webhook', path: '', isDraft: false },
 		{ type: 'email', path: '', isDraft: false },
 		...savedDraftTriggers
@@ -224,13 +219,11 @@
 
 	const captureOn = writable<boolean | undefined>(undefined)
 	const showCaptureHint = writable<boolean | undefined>(undefined)
-	const selectedTriggerStore = writable<number | undefined>(undefined)
 	setContext<TriggerContext>('TriggerContext', {
-		selectedTrigger: selectedTriggerStore,
 		triggersCount,
 		simplifiedPoll,
 		showCaptureHint: showCaptureHint,
-		triggers: triggersStore
+		triggersState
 	})
 
 	const enterpriseLangs = ['bigquery', 'snowflake', 'mssql', 'oracledb']
@@ -311,7 +304,7 @@
 			'#' +
 				encodeState({
 					...script,
-					draftTriggers: $triggersStore.filter((t) => t.draftConfig)
+					draftTriggers: triggersState.triggers.filter((t) => t.draftConfig)
 				})
 		)
 	if (script.content == '') {
@@ -437,7 +430,7 @@
 	): Promise<void> {
 		if (!triggersToDeploy) {
 			// Check if there are draft triggers that need confirmation
-			const draftTriggers = $triggersStore.filter((trigger) => trigger.draftConfig)
+			const draftTriggers = triggersState.triggers.filter((trigger) => trigger.draftConfig)
 			if (draftTriggers.length > 0) {
 				draftTriggersModalOpen = true
 				confirmDeploymentCallback = async (triggersToDeploy: Trigger[]) => {
@@ -627,7 +620,7 @@
 					typ: 'script',
 					value: {
 						...script,
-						draft_triggers: $triggersStore
+						draft_triggers: triggersState.triggers
 					}
 				}
 			})
@@ -769,13 +762,7 @@
 	function openTriggers(ev) {
 		metadataOpen = true
 		selectedTab = 'triggers'
-		handleSelectTriggerFromKind(
-			triggersStore,
-			triggersCount,
-			selectedTriggerStore,
-			initialPath,
-			ev.detail.kind
-		)
+		handleSelectTriggerFromKind(triggersState, triggersCount, initialPath, ev.detail.kind)
 		captureOn.set(true)
 	}
 
@@ -815,7 +802,7 @@
 
 <DraftTriggersConfirmationModal
 	bind:open={draftTriggersModalOpen}
-	draftTriggers={$triggersStore.filter((t) => t.draftConfig)}
+	draftTriggers={triggersState.triggers.filter((t) => t.draftConfig)}
 	on:canceled={() => {
 		draftTriggersModalOpen = false
 	}}
@@ -1497,9 +1484,9 @@
 				</div>
 
 				<div class="gap-4 flex">
-					{#if $triggersStore?.some((t) => t.type === 'schedule')}
-						{@const primarySchedule = $triggersStore.findIndex((t) => t.isPrimary)}
-						{@const schedule = $triggersStore.findIndex((t) => t.type === 'schedule')}
+					{#if triggersState.triggers?.some((t) => t.type === 'schedule')}
+						{@const primarySchedule = triggersState.triggers.findIndex((t) => t.isPrimary)}
+						{@const schedule = triggersState.triggers.findIndex((t) => t.type === 'schedule')}
 
 						<Button
 							btnClasses="hidden lg:inline-flex"
@@ -1510,11 +1497,11 @@
 							on:click={async () => {
 								metadataOpen = true
 								selectedTab = 'triggers'
-								$selectedTriggerStore = primarySchedule ?? schedule
+								triggersState.selectedTriggerIndex = primarySchedule ?? schedule
 							}}
 						>
-							{$triggersStore[primarySchedule]?.draftConfig?.schedule ??
-								$triggersStore[primarySchedule]?.lightConfig?.schedule ??
+							{triggersState.triggers[primarySchedule]?.draftConfig?.schedule ??
+								triggersState.triggers[primarySchedule]?.lightConfig?.schedule ??
 								''}
 						</Button>
 					{/if}

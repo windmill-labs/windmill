@@ -76,8 +76,9 @@
 	import type { SavedAndModifiedValue } from './common/confirmationModal/unsavedTypes'
 	import DeployButton from './DeployButton.svelte'
 	import type { Trigger } from './triggers/utils'
-	import { deployTriggers, fetchTriggers, handleSelectTriggerFromKind } from './triggers/utils'
+	import { deployTriggers, handleSelectTriggerFromKind } from './triggers/utils'
 	import DraftTriggersConfirmationModal from './common/confirmationModal/DraftTriggersConfirmationModal.svelte'
+	import { Triggers } from './triggers/triggers.svelte'
 
 	export let initialPath: string = ''
 	export let pathStoreInit: string | undefined = undefined
@@ -175,7 +176,7 @@
 		if (!triggers || triggers.length === 0) {
 			return
 		}
-		$triggersStore = [...triggers, ...$triggersStore.filter((t) => !t.draftConfig)]
+		triggersState.triggers = [...triggers, ...triggersState.triggers.filter((t) => !t.draftConfig)]
 		loadTriggers()
 	}
 
@@ -252,7 +253,7 @@
 					value: {
 						...flow,
 						path: $pathStore,
-						draft_triggers: $triggersStore.filter((t) => t.draftConfig)
+						draft_triggers: triggersState.triggers.filter((t) => t.draftConfig)
 					}
 				}
 			})
@@ -347,7 +348,7 @@
 	async function saveFlow(deploymentMsg?: string, triggersToDeploy?: Trigger[]): Promise<void> {
 		if (!triggersToDeploy) {
 			// Check if there are draft triggers that need confirmation
-			const draftTriggers = $triggersStore.filter((trigger) => trigger.draftConfig)
+			const draftTriggers = triggersState.triggers.filter((trigger) => trigger.draftConfig)
 			if (draftTriggers.length > 0) {
 				draftTriggersModalOpen = true
 				confirmDeploymentCallback = async (triggersToDeploy: Trigger[]) => {
@@ -470,7 +471,7 @@
 						flow: $flowStore,
 						path: $pathStore,
 						selectedId: $selectedIdStore,
-						draftTriggers: $triggersStore.filter((t) => t.draftConfig)
+						draftTriggers: triggersState.triggers.filter((t) => t.draftConfig)
 					})
 				)
 			} catch (err) {
@@ -528,19 +529,17 @@
 	})
 
 	// Add triggers context store
-	const triggersStore = writable<Trigger[]>([
+	const triggersState = new Triggers([
 		{ type: 'webhook', path: '', isDraft: false },
 		{ type: 'email', path: '', isDraft: false },
 		...savedDraftTriggers
 	])
 
-	const selectedTriggerStore = writable<number | undefined>(undefined)
 	setContext<TriggerContext>('TriggerContext', {
-		selectedTrigger: selectedTriggerStore,
 		triggersCount,
 		simplifiedPoll,
 		showCaptureHint,
-		triggers: triggersStore
+		triggersState
 	})
 
 	export async function loadTriggers() {
@@ -550,8 +549,7 @@
 		})
 
 		// Initialize triggers using utility function
-		fetchTriggers(
-			triggersStore,
+		triggersState.fetchTriggers(
 			triggersCount,
 			$workspaceStore,
 			initialPath,
@@ -1213,7 +1211,7 @@
 
 <DraftTriggersConfirmationModal
 	bind:open={draftTriggersModalOpen}
-	draftTriggers={$triggersStore.filter((t) => t.draftConfig)}
+	draftTriggers={triggersState.triggers.filter((t) => t.draftConfig)}
 	isFlow={true}
 	on:canceled={() => {
 		draftTriggersModalOpen = false
@@ -1290,9 +1288,9 @@
 				</div>
 
 				<div class="gap-4 flex-row hidden md:flex w-full max-w-md">
-					{#if $triggersStore?.some((t) => t.type === 'schedule')}
-						{@const primaryScheduleIndex = $triggersStore.findIndex((t) => t.isPrimary)}
-						{@const scheduleIndex = $triggersStore.findIndex((t) => t.type === 'schedule')}
+					{#if triggersState.triggers?.some((t) => t.type === 'schedule')}
+						{@const primaryScheduleIndex = triggersState.triggers.findIndex((t) => t.isPrimary)}
+						{@const scheduleIndex = triggersState.triggers.findIndex((t) => t.type === 'schedule')}
 						<Button
 							btnClasses="hidden lg:inline-flex"
 							startIcon={{ icon: Calendar }}
@@ -1303,12 +1301,12 @@
 								select('triggers')
 								const selected = primaryScheduleIndex ?? scheduleIndex
 								if (selected) {
-									$selectedTriggerStore = selected
+									triggersState.selectedTriggerIndex = selected
 								}
 							}}
 						>
-							{$triggersStore[primaryScheduleIndex]?.draftConfig?.schedule ??
-								$triggersStore[primaryScheduleIndex]?.lightConfig?.schedule ??
+							{triggersState.triggers[primaryScheduleIndex]?.draftConfig?.schedule ??
+								triggersState.triggers[primaryScheduleIndex]?.lightConfig?.schedule ??
 								''}
 						</Button>
 					{/if}
@@ -1398,13 +1396,7 @@
 					<FlowPreviewButtons
 						on:openTriggers={(e) => {
 							select('triggers')
-							handleSelectTriggerFromKind(
-								triggersStore,
-								triggersCount,
-								selectedTriggerStore,
-								initialPath,
-								e.detail.kind
-							)
+							handleSelectTriggerFromKind(triggersState, triggersCount, initialPath, e.detail.kind)
 							captureOn.set(true)
 							showCaptureHint.set(true)
 						}}

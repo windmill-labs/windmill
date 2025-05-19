@@ -9,7 +9,7 @@
 	import { getStateColor, getStateHoverColor } from '../../util'
 	import { setScheduledPollSchedule, type TriggerContext } from '$lib/components/triggers'
 	import VirtualItemWrapper from '$lib/components/flows/map/VirtualItemWrapper.svelte'
-	import { addDraftTrigger, type Trigger, type TriggerType } from '$lib/components/triggers/utils'
+	import { type Trigger, type TriggerType } from '$lib/components/triggers/utils'
 	import { tick } from 'svelte'
 
 	export let data: {
@@ -28,7 +28,7 @@
 		selectedId: Writable<string | undefined>
 	}>('FlowGraphContext')
 
-	const { triggersCount, selectedTrigger, triggers } = getContext<TriggerContext>('TriggerContext')
+	const { triggersCount, triggersState } = getContext<TriggerContext>('TriggerContext')
 
 	function getScheduleCfg(primary: Trigger | undefined, triggersCount: TriggersCount | undefined) {
 		return primary?.draftConfig
@@ -73,24 +73,22 @@
 				data?.eventHandlers?.simplifyFlow(true)
 			}}
 			on:openScheduledPoll={(e) => {
-				const primarySchedule = $triggers.findIndex((t) => t.isPrimary && !t.isDraft)
-				$selectedTrigger = primarySchedule
+				const primarySchedule = triggersState.triggers.findIndex((t) => t.isPrimary && !t.isDraft)
+				triggersState.selectedTriggerIndex = primarySchedule
 			}}
 			on:select={() => data?.eventHandlers?.select('triggers')}
 			onSelect={async (triggerIndex: number) => {
 				await tick()
-				if (triggerIndex) {
-					$selectedTrigger = triggerIndex
-				}
+				triggersState.selectedTriggerIndex = triggerIndex
 			}}
 			on:delete={(e) => {
 				data.eventHandlers.delete(e, '')
 			}}
 			onAddDraftTrigger={async (type: TriggerType) => {
-				const newTrigger = addDraftTrigger(triggers, triggersCount, type)
+				const newTrigger = triggersState.addDraftTrigger(triggersCount, type)
 				data?.eventHandlers?.select('triggers')
 				await tick()
-				$selectedTrigger = newTrigger
+				triggersState.selectedTriggerIndex = newTrigger
 			}}
 			selected={$selectedId == 'triggers'}
 			newItem={data.newFlow}
@@ -107,9 +105,9 @@
 				data?.eventHandlers?.select(e.detail)
 			}}
 		>
-			{#if $triggers.some((t) => t.isPrimary) || $triggersCount?.primary_schedule}
+			{#if triggersState.triggers.some((t) => t.isPrimary) || $triggersCount?.primary_schedule}
 				{@const { enabled, schedule } = getScheduleCfg(
-					$triggers.find((t) => t.isPrimary),
+					triggersState.triggers.find((t) => t.isPrimary),
 					$triggersCount
 				)}
 				<div class="text-2xs text-primary p-2 flex gap-2 items-center">
@@ -123,7 +121,7 @@
 				<button
 					class="px-2 py-1 hover:bg-surface-inverse w-full hover:text-primary-inverse"
 					on:click={() => {
-						setScheduledPollSchedule(triggers, triggersCount)
+						setScheduledPollSchedule(triggersState, triggersCount)
 					}}
 				>
 					Set primary schedule
