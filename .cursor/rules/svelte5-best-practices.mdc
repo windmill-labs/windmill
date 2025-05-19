@@ -5,7 +5,7 @@ alwaysApply: false
 ---
 # Svelte 5 Best Practices
 
-This guide outlines best practices for developing with Svelte 5, incorporating the new Runes API and other modern Svelte features. They should be applied on every new files created, but not on existing svelte 4 files unless specifically asked to.
+This guide outlines best practices for developing with Svelte 5, incorporating the new Runes API and other modern Svelte features. These rules MUST NOT be applied on svelte 4 files unless explicitely asked to do so.
 
 ## Reactivity with Runes
 
