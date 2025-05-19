@@ -26,9 +26,15 @@
 	>
 		<svelte:fragment slot="description">
 			{#if captureInfo.active}
-				<p in:fade={{ duration: 100, delay: 50 }} out:fade={{ duration: 50 }}>
-					Listening to Kafka events...
-				</p>
+				{#if captureInfo.connectionInfo?.connected}
+					<p in:fade={{ duration: 100, delay: 50 }} out:fade={{ duration: 50 }}>
+						Listening to Kafka events...
+					</p>
+				{:else}
+					<p in:fade={{ duration: 100, delay: 50 }} out:fade={{ duration: 50 }}>
+						Connecting to kafka...
+					</p>
+				{/if}
 			{:else}
 				<p in:fade={{ duration: 100, delay: 50 }} out:fade={{ duration: 50 }}>
 					Start capturing to listen to Kafka events.
