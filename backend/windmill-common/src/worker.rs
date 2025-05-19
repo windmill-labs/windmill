@@ -382,10 +382,7 @@ fn normalize_path(path: &Path) -> PathBuf {
     ret
 }
 
-pub fn is_allowed_file_location(
-    job_dir: &str,
-    user_defined_path: &str,
-) -> error::Result<PathBuf> {
+pub fn is_allowed_file_location(job_dir: &str, user_defined_path: &str) -> error::Result<PathBuf> {
     let job_dir = Path::new(job_dir);
     let user_path = PathBuf::from(user_defined_path);
 
@@ -519,6 +516,7 @@ fn parse_file<T: FromStr>(path: &str) -> Option<T> {
 pub struct PythonAnnotations {
     pub no_cache: bool,
     pub no_postinstall: bool,
+    pub skip_result_postprocessing: bool,
     pub py310: bool,
     pub py311: bool,
     pub py312: bool,
