@@ -29,6 +29,7 @@
 	import TriggerEditorToolbar from '../TriggerEditorToolbar.svelte'
 	import TestingBadge from '../testingBadge.svelte'
 	import { handleConfigChange } from '../utils'
+	import { fade } from 'svelte/transition'
 
 	interface Props {
 		useDrawer?: boolean
@@ -106,7 +107,6 @@
 		}
 		return ''
 	})
-	//TODO : display error message
 
 	const isValid = $derived(
 		!emptyString(postgres_resource_path) &&
@@ -574,7 +574,7 @@
 								</svelte:fragment>
 							</MultiSelect>
 						</Label>
-						<Label label="Table Tracking">
+						<Label label="Table Tracking" headerClass="grow min-w-0">
 							{#snippet header()}
 								<Tooltip
 									documentationLink="https://www.windmill.dev/docs/core_concepts/postgres_triggers#define-what-to-track"
@@ -588,6 +588,15 @@
 										<strong>filter</strong> to retrieve only rows that do not match the specified criteria.
 									</p>
 								</Tooltip>
+								{#if !emptyStringTrimmed(errorMessage)}
+									<p
+										class="text-red-500 text-xs truncate w-full whitespace-nowrap"
+										title={errorMessage}
+										transition:fade={{ duration: 100 }}
+									>
+										{errorMessage}
+									</p>
+								{/if}
 							{/snippet}
 							<Tabs bind:selected={tab}>
 								<Tab value="basic"
