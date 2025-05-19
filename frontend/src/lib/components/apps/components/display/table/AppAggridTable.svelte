@@ -303,8 +303,8 @@
 
 	function getIdFromData(data: any): string {
 		return resolvedConfig?.rowIdCol && resolvedConfig?.rowIdCol != ''
-			? (data?.[resolvedConfig?.rowIdCol] ?? data['__index'])
-			: data['__index']
+			? (data?.[resolvedConfig?.rowIdCol] ?? data?.['__index'])
+			: data?.['__index']
 	}
 
 	function mountGrid() {
@@ -389,8 +389,24 @@
 										e.api.deselectAll()
 										outputs?.selectedRow?.set({})
 										outputs?.selectedRowIndex.set(0)
-									} else {
-										e.api.getRowNode(index.toString())?.setSelected(true)
+									} else if (Array.isArray(index)) {
+										// select all rows matching the indixes
+										e.api.deselectAll()
+										index.forEach((i) => {
+											let rowId = getIdFromData(value[i])
+											if (rowId) {
+												e.api.getRowNode(rowId)?.setSelected(true, false)
+											}
+										})
+									} else if (typeof index === 'number') {
+										let rowId = getIdFromData(value[index])
+										if (rowId) {
+											e.api.getRowNode(rowId)?.setSelected(true, true)
+											outputs?.selectedRowIndex.set(index)
+											const row = { ...value[index] }
+											delete row['__index']
+											outputs?.selectedRow?.set(row)
+										}
 									}
 								},
 								setValue(nvalue) {

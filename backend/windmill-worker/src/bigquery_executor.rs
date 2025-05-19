@@ -206,7 +206,7 @@ fn do_bigquery_inner<'a>(
                             convert_json_line_stream(rows_stream.boxed(), s3.format).await?;
                         s3.upload(stream.boxed()).await?;
 
-                        return Ok(to_raw_value(&s3.object_key));
+                        return Ok(to_raw_value(&s3.to_return_s3_obj()));
                     }
 
                     Ok(to_raw_value(&rows))

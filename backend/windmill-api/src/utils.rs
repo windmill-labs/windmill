@@ -427,3 +427,10 @@ pub async fn acknowledge_all_critical_alerts(
     );
     Ok("All unacknowledged critical alerts acknowledged".to_string())
 }
+
+#[cfg(feature = "http_trigger")]
+#[derive(Clone)]
+pub struct ExpiringCacheEntry<T> {
+    pub value: T,
+    pub expiry: std::time::Instant,
+}

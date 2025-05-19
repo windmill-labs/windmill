@@ -354,7 +354,7 @@
 								color="dark"
 								size="xs"
 								disabled={!can_write}
-								href={itemKind === 'flow' ? '/flows/add?hub=68' : '/scripts/add?hub=hub%2F11446'}
+								href={itemKind === 'flow' ? '/flows/add?hub=68' : '/scripts/add?hub=hub%2F19662'}
 								target="_blank">Create from template</Button
 							>
 						{/if}
