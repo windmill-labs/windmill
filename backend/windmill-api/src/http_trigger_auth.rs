@@ -414,7 +414,7 @@ pub enum Encoding {
     Base64Uri,
     Hex,
 }
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct SignatureAuthenticationMethod {
     algorithm: HmacAlgorithm,
     encoding: Encoding,
@@ -426,20 +426,20 @@ pub struct SignatureConfigData<'config> {
     secret_key: &'config str,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct SignatureAuthentication {
     signature_provider: WebhookType,
     secret_key: String,
     authentication_config: Option<SignatureAuthenticationMethod>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct BasicAuthAuthentication {
     pub username: String,
     pub password: String,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ApiKeyAuthentication {
     api_key_header: String,
     api_key_secret: String,
@@ -558,7 +558,7 @@ pub fn verify_hmac_signature(
     Ok(())
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(untagged)]
 pub enum AuthenticationMethod {
     Signature(SignatureAuthentication),

@@ -4687,6 +4687,7 @@ mod job_payload {
                 path: "f/system/hello_with_nodes_flow".to_string(),
                 dedicated_worker: None,
                 apply_preprocessor: false,
+                version: 1443253234253454,
             })
             .run_until_complete(&db, port)
             .await
@@ -4731,6 +4732,7 @@ mod job_payload {
                 path: "f/system/hello_with_preprocessor".to_string(),
                 dedicated_worker: None,
                 apply_preprocessor: true,
+                version: 1443253234253456,
             })
             .run_until_complete_with(db, port, |id| async move {
                 let job = sqlx::query!("SELECT preprocessed FROM v2_job WHERE id = $1", id)
@@ -4798,6 +4800,7 @@ mod job_payload {
                 path: "f/system/hello_with_nodes_flow".to_string(),
                 dedicated_worker: None,
                 apply_preprocessor: true,
+                version: 1443253234253454,
             })
             .run_until_complete(&db, port)
             .await

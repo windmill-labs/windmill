@@ -29,9 +29,9 @@ use windmill_api::{
 };
 
 #[cfg(feature = "enterprise")]
-use windmill_common::ee::{jobs_waiting_alerts, worker_groups_alerts};
-#[cfg(feature = "enterprise")]
 use windmill_common::ee::low_disk_alerts;
+#[cfg(feature = "enterprise")]
+use windmill_common::ee::{jobs_waiting_alerts, worker_groups_alerts};
 
 #[cfg(feature = "oauth2")]
 use windmill_common::global_settings::OAUTH_SETTING;
@@ -60,13 +60,13 @@ use windmill_common::{
     server::load_smtp_config,
     tracing_init::JSON_FMT,
     users::truncate_token,
-    utils::empty_string_as_none,
-    utils::{now_from_db, rd_string, report_critical_error, Mode},
+    utils::{empty_as_none, now_from_db, rd_string, report_critical_error, Mode},
     worker::{
+        load_env_vars, load_init_bash_from_env, load_whitelist_env_vars_from_env,
         load_worker_config, reload_custom_tags_setting, store_pull_query,
-        store_suspended_pull_query, update_min_version, Connection, DEFAULT_TAGS_PER_WORKSPACE,
-        DEFAULT_TAGS_WORKSPACES, INDEXER_CONFIG, SCRIPT_TOKEN_EXPIRY, SMTP_CONFIG, TMP_DIR,
-        WORKER_CONFIG, WORKER_GROUP,
+        store_suspended_pull_query, update_min_version, Connection, WorkerConfig,
+        DEFAULT_TAGS_PER_WORKSPACE, DEFAULT_TAGS_WORKSPACES, INDEXER_CONFIG, SCRIPT_TOKEN_EXPIRY,
+        SMTP_CONFIG, TMP_DIR, WORKER_CONFIG, WORKER_GROUP,
     },
     KillpillSender, BASE_URL, CRITICAL_ALERTS_ON_DB_OVERSIZE, CRITICAL_ALERT_MUTE_UI_ENABLED,
     CRITICAL_ERROR_CHANNELS, DB, DEFAULT_HUB_BASE_URL, HUB_BASE_URL, JOB_RETENTION_SECS,
@@ -203,10 +203,23 @@ pub async fn initial_load(
             }
             Connection::Http(_) => {
                 // TODO: reload worker config from http
-                WORKER_CONFIG.write().await.worker_tags = DECODED_AGENT_TOKEN
-                    .as_ref()
-                    .map(|x| x.tags.clone())
-                    .unwrap_or_default();
+                let mut config = WORKER_CONFIG.write().await;
+                *config = WorkerConfig {
+                    worker_tags: DECODED_AGENT_TOKEN
+                        .as_ref()
+                        .map(|x| x.tags.clone())
+                        .unwrap_or_default(),
+                    env_vars: load_env_vars(
+                        load_whitelist_env_vars_from_env(),
+                        &std::collections::HashMap::new(),
+                    ),
+                    priority_tags_sorted: vec![],
+                    dedicated_worker: None,
+                    init_bash: load_init_bash_from_env(),
+                    cache_clear: None,
+                    additional_python_paths: None,
+                    pip_local_dependencies: None,
+                };
             }
         }
     }
@@ -271,13 +284,13 @@ struct OtelSetting {
     metrics_enabled: Option<bool>,
     logs_enabled: Option<bool>,
     tracing_enabled: Option<bool>,
-    #[serde(default, deserialize_with = "empty_string_as_none")]
+    #[serde(default, deserialize_with = "empty_as_none")]
     otel_exporter_otlp_endpoint: Option<String>,
-    #[serde(default, deserialize_with = "empty_string_as_none")]
+    #[serde(default, deserialize_with = "empty_as_none")]
     otel_exporter_otlp_headers: Option<String>,
-    #[serde(default, deserialize_with = "empty_string_as_none")]
+    #[serde(default, deserialize_with = "empty_as_none")]
     otel_exporter_otlp_protocol: Option<String>,
-    #[serde(default, deserialize_with = "empty_string_as_none")]
+    #[serde(default, deserialize_with = "empty_as_none")]
     otel_exporter_otlp_compression: Option<String>,
 }
 
@@ -820,11 +833,7 @@ pub async fn delete_expired_items(db: &DB) -> () {
             Ok(mut tx) => {
                 let deleted_jobs = sqlx::query_scalar!(
                     "DELETE FROM v2_job_completed c
-                    USING v2_job j
-                    WHERE
-                        created_at <= now() - ($1::bigint::text || ' s')::interval
-                        AND completed_at + ($1::bigint::text || ' s')::interval <= now()
-                        AND c.id = j.id
+                    WHERE completed_at <= now() - ($1::bigint::text || ' s')::interval 
                     RETURNING c.id",
                     job_retention_secs
                 )
@@ -2213,7 +2222,9 @@ pub async fn reload_critical_error_channels_setting(conn: &DB) -> error::Result<
 pub async fn reload_critical_alerts_on_db_oversize(conn: &DB) -> error::Result<()> {
     #[derive(Deserialize)]
     struct DBOversize {
+        #[serde(default)]
         enabled: bool,
+        #[serde(default)]
         value: f32,
     }
     let db_oversize_value =

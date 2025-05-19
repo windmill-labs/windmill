@@ -1,4 +1,5 @@
 use crate::db::{ApiAuthed, DB};
+use crate::trigger_helpers::TriggerJobArgs;
 use axum::{extract::Request, Router};
 use http::HeaderMap;
 use serde::{Deserialize, Serialize};
@@ -7,10 +8,12 @@ use sqlx::prelude::FromRow;
 use sqlx::types::Json as SqlxJson;
 use std::collections::HashMap;
 use windmill_common::db::UserDB;
+use windmill_common::worker::to_raw_value;
 use windmill_common::{
     error::{Error as WindmillError, Result as WindmillResult},
-    utils::empty_string_as_none,
+    utils::empty_as_none,
 };
+use windmill_queue::TriggerKind;
 
 #[derive(sqlx::Type, Debug, Deserialize, Serialize)]
 #[serde(rename_all(serialize = "lowercase", deserialize = "lowercase"))]
@@ -30,9 +33,9 @@ impl Default for DeliveryType {
 #[derive(FromRow, Deserialize, Serialize, Debug)]
 #[allow(unused)]
 pub struct PushConfig {
-    #[serde(deserialize_with = "empty_string_as_none")]
+    #[serde(deserialize_with = "empty_as_none")]
     route_path: Option<String>,
-    #[serde(deserialize_with = "empty_string_as_none")]
+    #[serde(deserialize_with = "empty_as_none")]
     audience: Option<String>,
     authenticate: bool,
     base_endpoint: String,
@@ -41,7 +44,7 @@ pub struct PushConfig {
 #[allow(unused)]
 pub struct CreateUpdateConfig {
     pub delivery_type: DeliveryType,
-    #[serde(default, deserialize_with = "empty_string_as_none")]
+    #[serde(default, deserialize_with = "empty_as_none")]
     pub subscription_id: Option<String>,
     pub delivery_config: Option<SqlxJson<PushConfig>>,
 }
@@ -83,6 +86,7 @@ pub async fn manage_google_subscription(
     _subscription_mode: SubscriptionMode,
     _create_update_config: Option<CreateUpdateConfig>,
     _trigger_mode: bool,
+    _is_flow: bool
 ) -> WindmillResult<CreateUpdateConfig> {
     Ok(CreateUpdateConfig::default())
 }
@@ -90,14 +94,8 @@ pub async fn manage_google_subscription(
 pub async fn process_google_push_request(
     _headers: HeaderMap,
     _request: Request,
-) -> Result<
-    (
-        HashMap<String, Box<RawValue>>,
-        Option<HashMap<String, Box<RawValue>>>,
-    ),
-    WindmillError,
-> {
-    Ok((HashMap::new(), None))
+) -> Result<(String, HashMap<String, Box<RawValue>>), WindmillError> {
+    Ok((String::new(), HashMap::new()))
 }
 
 pub async fn validate_jwt_token(
@@ -136,4 +134,14 @@ pub struct GcpTrigger {
     pub server_id: Option<String>,
     pub last_server_ping: Option<chrono::DateTime<chrono::Utc>>,
     pub enabled: bool,
+}
+
+impl TriggerJobArgs<String> for GcpTrigger {
+    fn v1_payload_fn(payload: String) -> HashMap<String, Box<RawValue>> {
+        HashMap::from([("payload".to_string(), to_raw_value(&payload))])
+    }
+
+    fn trigger_kind() -> TriggerKind {
+        TriggerKind::Gcp
+    }
 }

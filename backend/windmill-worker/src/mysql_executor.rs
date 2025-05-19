@@ -1,7 +1,8 @@
 use std::{collections::HashMap, sync::Arc};
 
+use anyhow::anyhow;
 use base64::Engine;
-use futures::{future::BoxFuture, FutureExt};
+use futures::{future::BoxFuture, FutureExt, StreamExt};
 use itertools::Itertools;
 use mysql_async::{
     consts::ColumnType, prelude::*, FromValueError, OptsBuilder, Params, Row, SslOpts,
@@ -13,17 +14,18 @@ use std::str::FromStr;
 use tokio::sync::Mutex;
 use windmill_common::{
     error::{to_anyhow, Error},
+    s3_helpers::convert_json_line_stream,
     worker::{to_raw_value, Connection},
 };
 use windmill_parser_sql::{
-    parse_db_resource, parse_mysql_sig, parse_sql_blocks, parse_sql_statement_named_params,
-    RE_ARG_MYSQL_NAMED,
+    parse_db_resource, parse_mysql_sig, parse_s3_mode, parse_sql_blocks,
+    parse_sql_statement_named_params, RE_ARG_MYSQL_NAMED,
 };
 use windmill_queue::CanceledBy;
 use windmill_queue::MiniPulledJob;
 
 use crate::{
-    common::{build_args_values, OccupancyMetrics},
+    common::{build_args_values, s3_mode_args_to_worker_data, OccupancyMetrics, S3ModeWorkerData},
     handle_child::run_future_with_polling_update_job_poller,
     sanitized_sql_params::sanitize_and_interpolate_unsafe_sql_args,
     AuthedClient,
@@ -39,13 +41,14 @@ struct MysqlDatabase {
     ssl: Option<bool>,
 }
 
-pub fn do_mysql_inner<'a>(
+fn do_mysql_inner<'a>(
     query: &'a str,
     all_statement_values: &Params,
     conn: Arc<Mutex<mysql_async::Conn>>,
     column_order: Option<&'a mut Option<Vec<String>>>,
     skip_collect: bool,
-) -> windmill_common::error::Result<BoxFuture<'a, anyhow::Result<Box<RawValue>>>> {
+    s3: Option<S3ModeWorkerData>,
+) -> windmill_common::error::Result<BoxFuture<'a, windmill_common::error::Result<Box<RawValue>>>> {
     let param_names = parse_sql_statement_named_params(query, ':')
         .into_iter()
         .map(|x| x.into_bytes())
@@ -71,6 +74,38 @@ pub fn do_mysql_inner<'a>(
                 .map_err(to_anyhow)?;
 
             Ok(to_raw_value(&Value::Array(vec![])))
+        } else if let Some(ref s3) = s3 {
+            let query = query.to_string();
+            let rows_stream = async_stream::stream! {
+                let mut conn = conn.lock().await;
+                let mut result = match conn.exec_iter(query, statement_values).await.map_err(to_anyhow) {
+                    Ok(result) => result,
+                    Err(e) => {
+                        yield Err(anyhow!("Error executing query: {:?}", e));
+                        return;
+                    }
+                };
+                loop {
+                    let row = result.next().await;
+                    match row {
+                        Ok(Some(row)) => {
+                            yield Ok(convert_row_to_value(row));
+                        }
+                        Ok(None) => {
+                            break;
+                        }
+                        Err(e) => {
+                            yield Err(anyhow!("Error fetching row: {:?}", e));
+                            return;
+                        }
+                    }
+                }
+            };
+
+            let stream = convert_json_line_stream(rows_stream.boxed(), s3.format).await?;
+            s3.upload(stream.boxed()).await?;
+
+            Ok(to_raw_value(&s3.to_return_s3_obj()))
         } else {
             let rows: Vec<Row> = conn
                 .lock()
@@ -118,6 +153,7 @@ pub async fn do_mysql(
     let job_args = build_args_values(job, client, conn).await?;
 
     let inline_db_res_path = parse_db_resource(&query);
+    let s3 = parse_s3_mode(&query)?.map(|s3| s3_mode_args_to_worker_data(s3, client.clone(), job));
 
     let db_arg = if let Some(inline_db_res_path) = inline_db_res_path {
         Some(
@@ -252,6 +288,7 @@ pub async fn do_mysql(
                     conn_a.clone(),
                     None,
                     annotations.return_last_result && i < queries.len() - 1,
+                    s3.clone(),
                 )
             })
             .collect::<windmill_common::error::Result<Vec<_>>>()?;
@@ -277,6 +314,7 @@ pub async fn do_mysql(
             conn_a.clone(),
             Some(column_order),
             false,
+            s3,
         )?
     };
 

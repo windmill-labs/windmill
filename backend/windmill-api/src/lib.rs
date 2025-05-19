@@ -81,15 +81,18 @@ mod folders;
 mod granular_acls;
 mod groups;
 #[cfg(feature = "http_trigger")]
+mod http_trigger_args;
+#[cfg(feature = "http_trigger")]
 mod http_trigger_auth;
 #[cfg(feature = "http_trigger")]
-mod http_triggers;
+pub mod http_triggers;
 mod indexer_ee;
 mod inputs;
 mod integration;
 #[cfg(feature = "postgres_trigger")]
 mod postgres_triggers;
 
+mod approvals;
 #[cfg(feature = "enterprise")]
 mod apps_ee;
 #[cfg(all(feature = "enterprise", feature = "gcp_trigger"))]
@@ -122,6 +125,8 @@ mod slack_approvals;
 mod smtp_server_ee;
 #[cfg(all(feature = "enterprise", feature = "sqs_trigger"))]
 mod sqs_triggers_ee;
+mod teams_approvals_ee;
+mod trigger_helpers;
 
 mod static_assets;
 #[cfg(all(feature = "stripe", feature = "enterprise"))]
@@ -401,6 +406,12 @@ pub async fn run_server(
         Router::new()
     };
 
+    #[cfg(feature = "http_trigger")]
+    {
+        let http_killpill_rx = killpill_rx.resubscribe();
+        http_triggers::refresh_routers_loop(&db, http_killpill_rx).await;
+    }
+
     let postgres_triggers_service = {
         #[cfg(feature = "postgres_trigger")]
         {
@@ -646,6 +657,10 @@ pub async fn run_server(
                 .route(
                     "/w/:workspace_id/jobs/slack_approval/:job_id",
                     get(slack_approvals::request_slack_approval),
+                )
+                .route(
+                    "/w/:workspace_id/jobs/teams_approval/:job_id",
+                    get(teams_approvals_ee::request_teams_approval),
                 )
                 .nest("/w/:workspace_id/github_app", {
                     #[cfg(feature = "enterprise")]

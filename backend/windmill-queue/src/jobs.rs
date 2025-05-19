@@ -140,6 +140,7 @@ pub struct CanceledBy {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct JobCompleted {
     pub job: Arc<MiniPulledJob>,
+    pub preprocessed_args: Option<HashMap<String, Box<RawValue>>>,
     pub result: Arc<Box<RawValue>>,
     pub result_columns: Option<Vec<String>>,
     pub mem_peak: i32,
@@ -1943,7 +1944,7 @@ async fn handle_successful_schedule<'a, 'c, T: Serialize + Send + Sync>(
     Ok(())
 }
 
-#[derive(sqlx::Type, Serialize, Deserialize, Debug, Clone)]
+#[derive(sqlx::Type, Serialize, Deserialize, Debug, Clone, Eq, PartialEq, Hash)]
 #[sqlx(type_name = "TRIGGER_KIND", rename_all = "lowercase")]
 #[serde(rename_all = "lowercase")]
 pub enum TriggerKind {
@@ -1957,6 +1958,24 @@ pub enum TriggerKind {
     Sqs,
     Postgres,
     Gcp
+}
+
+
+impl TriggerKind {
+    pub fn to_key(&self) -> String {
+        match self {
+            TriggerKind::Webhook => "webhook".to_string(),
+            TriggerKind::Http => "http".to_string(),
+            TriggerKind::Websocket => "websocket".to_string(),
+            TriggerKind::Kafka => "kafka".to_string(),
+            TriggerKind::Email => "email".to_string(),
+            TriggerKind::Nats => "nats".to_string(),
+            TriggerKind::Mqtt => "mqtt".to_string(),
+            TriggerKind::Sqs => "sqs".to_string(),
+            TriggerKind::Postgres => "postgres".to_string(),
+            TriggerKind::Gcp => "gcp".to_string(),
+        }
+    }
 }
 
 #[derive(sqlx::Type, Serialize, Deserialize, Debug, Clone)]
@@ -2646,7 +2665,7 @@ async fn concurrency_key(db: &Pool<Postgres>, id: &Uuid) -> windmill_common::err
     )
 }
 
-fn interpolate_args(x: String, args: &PushArgs, workspace_id: &str) -> String {
+pub fn interpolate_args(x: String, args: &PushArgs, workspace_id: &str) -> String {
     // Save this value to avoid parsing twice
     let workspaced = x.as_str().replace("$workspace", workspace_id).to_string();
     if RE_ARG_TAG.is_match(&workspaced) {
@@ -2684,7 +2703,6 @@ fn interpolate_args(x: String, args: &PushArgs, workspace_id: &str) -> String {
                     .trim_matches('"')
                     .to_string()
             };
-            tracing::error!("arg_value: {}", arg_value);
             interpolated =
                 interpolated.replace(format!("$args[{}]", arg_name).as_str(), &arg_value);
         }
@@ -3261,7 +3279,7 @@ pub async fn push<'c, 'd>(
     mut tx: PushIsolationLevel<'c>,
     workspace_id: &str,
     job_payload: JobPayload,
-    mut args: PushArgs<'d>,
+    args: PushArgs<'d>,
     user: &str,
     mut email: &str,
     mut permissioned_as: String,
@@ -3477,17 +3495,10 @@ pub async fn push<'c, 'd>(
             priority,
             apply_preprocessor,
         } => {
-            let extra = args.extra.get_or_insert_with(HashMap::new);
             if apply_preprocessor {
                 preprocessed = Some(false);
-                extra.entry("wm_trigger".to_string()).or_insert_with(|| {
-                    to_raw_value(&serde_json::json!({
-                        "kind": "webhook",
-                    }))
-                });
-            } else {
-                extra.remove("wm_trigger");
-            }
+            } 
+
             (
                 Some(hash.0),
                 Some(path),
@@ -3853,19 +3864,8 @@ pub async fn push<'c, 'd>(
                 priority,
             )
         }
-        JobPayload::Flow { path, dedicated_worker, apply_preprocessor } => {
+        JobPayload::Flow { path, dedicated_worker, apply_preprocessor, version } => {
             let mut ntx = tx.into_tx().await?;
-            // Fetch the latest version of the flow.
-            let version = sqlx::query_scalar!(
-                "SELECT flow.versions[array_upper(flow.versions, 1)] AS \"version!: i64\"
-                FROM flow WHERE path = $1 AND workspace_id = $2",
-                &path,
-                &workspace_id
-            )
-            .fetch_optional(&mut *ntx)
-            .await?
-            .ok_or_else(|| Error::internal_err(format!("not found flow at path {:?}", path)))?;
-
             // Do not use the lite version unless all workers are updated.
             let data = if *DISABLE_FLOW_SCRIPT
                 || (!*MIN_VERSION_IS_AT_LEAST_1_432.read().await && !*CLOUD_HOSTED)
@@ -3887,19 +3887,14 @@ pub async fn push<'c, 'd>(
             let cache_ttl = value.cache_ttl.map(|x| x as i32);
             let custom_concurrency_key = value.concurrency_key.clone();
             let concurrency_time_window_s = value.concurrency_time_window_s;
-            let concurrent_limit = value.concurrent_limit;
+            let mut concurrent_limit = value.concurrent_limit;
 
-            let extra = args.extra.get_or_insert_with(HashMap::new);
             if !apply_preprocessor {
                 value.preprocessor_module = None;
-                extra.remove("wm_trigger");
             } else {
+                tag = None;
+                concurrent_limit = None;
                 preprocessed = Some(false);
-                extra.entry("wm_trigger".to_string()).or_insert_with(|| {
-                    to_raw_value(&serde_json::json!({
-                        "kind": "webhook",
-                    }))
-                });
             }
 
             // this is a new flow being pushed, status is set to `value`.
@@ -4180,26 +4175,7 @@ pub async fn push<'c, 'd>(
     };
 
     if concurrent_limit.is_some() {
-        let concurrency_key = custom_concurrency_key
-            .map(|x| interpolate_args(x, &args, workspace_id))
-            .unwrap_or(fullpath_with_workspace(
-                workspace_id,
-                script_path.as_ref(),
-                &job_kind,
-            ));
-        sqlx::query!(
-            "WITH inserted_concurrency_counter AS (
-                INSERT INTO concurrency_counter (concurrency_id, job_uuids) 
-                VALUES ($1, '{}'::jsonb)
-                ON CONFLICT DO NOTHING
-            )
-            INSERT INTO concurrency_key(key, job_id) VALUES ($1, $2)",
-            concurrency_key,
-            job_id,
-        )
-        .execute(&mut *tx)
-        .await
-        .map_err(|e| Error::internal_err(format!("Could not insert concurrency_key={concurrency_key} for job_id={job_id} script_path={script_path:?} workspace_id={workspace_id}: {e:#}")))?;
+        insert_concurrency_key(workspace_id, &args, &script_path, job_kind, custom_concurrency_key, &mut tx, job_id).await?;
     }
 
     let stringified_args = if *JOB_ARGS_AUDIT_LOGS {
@@ -4217,6 +4193,7 @@ pub async fn push<'c, 'd>(
         Some("preprocessor") => Some(false),
         _ => None,
     });
+    
 
     let job_authed = match authed {
         Some(authed)
@@ -4363,6 +4340,7 @@ pub async fn push<'c, 'd>(
             Json(flow_status) as Json<FlowStatus>,
         )
         .execute(&mut *tx)
+        .warn_after_seconds(1)
         .await?;
     }
 
@@ -4431,10 +4409,36 @@ pub async fn push<'c, 'd>(
             script_path.as_ref().map(|x| x.as_str()),
             Some(hm),
         )
+        .warn_after_seconds(1)
         .await?;
     }
 
     Ok((job_id, tx))
+}
+
+pub async fn insert_concurrency_key<'d, 'c>(workspace_id: &str, args: &PushArgs<'d>, script_path: &Option<String>, job_kind: JobKind, custom_concurrency_key: Option<String>, tx: &mut Transaction<'c, Postgres>, job_id: Uuid) -> Result<(), Error> {
+    let concurrency_key = custom_concurrency_key
+        .map(|x| interpolate_args(x, args, workspace_id))
+        .unwrap_or(fullpath_with_workspace(
+            workspace_id,
+            script_path.as_ref(),
+            &job_kind,
+        ));
+    sqlx::query!(
+        "WITH inserted_concurrency_counter AS (
+                INSERT INTO concurrency_counter (concurrency_id, job_uuids) 
+                VALUES ($1, '{}'::jsonb)
+                ON CONFLICT DO NOTHING
+            )
+            INSERT INTO concurrency_key(key, job_id) VALUES ($1, $2)",
+        concurrency_key,
+        job_id,
+    )
+    .execute(&mut **tx)
+    .warn_after_seconds(3)
+    .await
+    .map_err(|e| Error::internal_err(format!("Could not insert concurrency_key={concurrency_key} for job_id={job_id} script_path={script_path:?} workspace_id={workspace_id}: {e:#}")))?;
+    Ok(())
 }
 
 pub fn canceled_job_to_result(job: &MiniPulledJob) -> serde_json::Value {
