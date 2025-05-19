@@ -43,6 +43,7 @@
 	const dispatch = createEventDispatcher()
 
 	let hover = $state(false)
+	let addTriggersButton: AddTriggersButton | undefined
 </script>
 
 <div style={`width: ${NODE.width}px;`}>
@@ -80,6 +81,7 @@
 
 		{#if isEditor}
 			<AddTriggersButton
+				bind:this={addTriggersButton}
 				onAddScheduledPoll={() => {
 					showTriggerScriptPicker = true
 				}}
@@ -110,6 +112,9 @@
 			on:select
 			on:open={() => {
 				dispatch('openScheduledPoll')
+			}}
+			on:close={() => {
+				addTriggersButton?.close()
 			}}
 			kind="trigger"
 			index={0}

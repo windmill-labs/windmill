@@ -28,6 +28,8 @@
 		onClose
 	}: Props = $props()
 
+	let dropdown: DropdownV2 | undefined
+
 	// Dropdown items for adding new triggers
 	const addTriggerItems: Item[] = [
 		{
@@ -72,9 +74,14 @@
 	].filter((item) => !item.hidden)
 
 	let triggersButtonWidth = $state(0)
+
+	export function close() {
+		dropdown?.close()
+	}
 </script>
 
 <DropdownV2
+	bind:this={dropdown}
 	items={addTriggerItems}
 	{placement}
 	class={className}

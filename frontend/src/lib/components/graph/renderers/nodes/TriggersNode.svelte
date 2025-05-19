@@ -78,6 +78,7 @@
 			}}
 			on:select={() => data?.eventHandlers?.select('triggers')}
 			onSelect={async (triggerIndex: number) => {
+				data?.eventHandlers?.select('triggers')
 				await tick()
 				triggersState.selectedTriggerIndex = triggerIndex
 			}}

@@ -23,9 +23,9 @@ export function setScheduledPollSchedule(
 	triggersState: Triggers,
 	triggersCount: Writable<TriggersCount | undefined>
 ) {
-	const primarySchedule = triggersState.triggers.find((t) => t.isPrimary)
-	if (primarySchedule) {
-		return
+	const primarySchedule = triggersState.triggers.findIndex((t) => t.isPrimary)
+	if (primarySchedule !== -1) {
+		triggersState.selectedTriggerIndex = primarySchedule
 	} else {
 		const draftCfg = {
 			enabled: true,
@@ -37,6 +37,7 @@ export function setScheduledPollSchedule(
 		}
 
 		triggersState.addDraftTrigger(triggersCount, 'schedule', undefined, draftCfg)
+		triggersState.selectedTriggerIndex = triggersState.triggers.length - 1
 	}
 }
 
