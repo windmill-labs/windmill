@@ -226,15 +226,17 @@
 				<!-- Left Pane - Triggers List -->
 				{#if !useVerticalTriggerBar}
 					<div class="w-[350px] flex-shrink-0 overflow-auto pr-2 pl-4 pt-2 pb-2">
-						<TriggersTable
-							selectedTrigger={$selectedTrigger}
-							{onSelect}
-							triggers={$triggers}
-							{isEditor}
-							onAddDraftTrigger={handleAddTrigger}
-							onDeleteDraft={deleteDraftTrigger}
-							onReset={handleResetDraft}
-						/>
+						{#key $triggers}
+							<TriggersTable
+								selectedTrigger={$selectedTrigger}
+								{onSelect}
+								triggers={$triggers}
+								{isEditor}
+								onAddDraftTrigger={handleAddTrigger}
+								onDeleteDraft={deleteDraftTrigger}
+								onReset={handleResetDraft}
+							/>
+						{/key}
 					</div>
 				{:else}
 					<div class="p-2 flex flex-col gap-2 border-r">
