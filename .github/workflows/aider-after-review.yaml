@@ -67,7 +67,6 @@ jobs:
         run: |
           mkdir -p .github/aider
           PROMPT_FILE_PATH=".github/aider/review-prompt.txt"
-          PROBE_FILE_PATH=".github/aider/probe-output.txt"
 
           # Get PR review body
           REVIEW_BODY="${{ github.event.review.body }}"
@@ -92,13 +91,11 @@ jobs:
             "$BASE_PROMPT" "$REVIEW_BODY_Q" "$ALL_REVIEW_COMMENTS")
           echo "$COMPLETE_PROMPT" > "$PROMPT_FILE_PATH"
           echo "PROMPT_FILE_PATH=$PROMPT_FILE_PATH" >> $GITHUB_OUTPUT
-          printf "I'm giving you a request that needs to be implemented. Your role is ONLY to give me the files that are relevant to the request and nothing else. The request is prepended with the word REQUEST.\\nREQUEST: %s. Give me all the files relevant to this request. Your output MUST be a single json array that can be parsed with programatic json parsing, with the relevant files. Files can be rust or typescript or javascript files. DO NOT INCLUDE ANY OTHER TEXT IN YOUR OUTPUT. ONLY THE JSON ARRAY. Example of output: [\"file1.py\", \"file2.py\"]" "$COMPLETE_PROMPT" > "$PROBE_FILE_PATH"
-          echo "PROBE_FILE_PATH=$PROBE_FILE_PATH" >> $GITHUB_OUTPUT
 
       - name: Probe Chat for Relevant Files
         id: probe_files
         env:
-          PROMPT_CONTENT_FILE: ${{ steps.generate_prompt.outputs.PROBE_FILE_PATH }}
+          PROMPT_CONTENT_FILE: ${{ steps.generate_prompt.outputs.PROMPT_FILE_PATH }}
         run: |
           echo "Running probe-chat to find relevant files..."
           if [[ ! -f "$PROMPT_CONTENT_FILE" ]]; then
@@ -164,9 +161,7 @@ jobs:
 
       - name: Clean up prompt file
         if: always()
-        run: |
-          rm -f .github/aider/review-prompt.txt
-          rm -f .github/aider/probe-output.txt
+        run: rm -f .github/aider/review-prompt.txt
 
       - name: Commit and Push Changes
         id: commit_and_push
