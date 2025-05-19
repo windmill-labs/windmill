@@ -128,19 +128,19 @@
 												selected={table_to_track.columns_name ?? []}
 												placeholder="Select columns"
 												--sms-options-margin="4px"
-												on:change={(e) => {
-													const option = e.detail.option?.toString()
-													if (e.detail.type === 'add') {
+												onchange={(e) => {
+													const option = e.option?.toString()
+													if (e.type === 'add') {
 														option && table_to_track.columns_name?.push(option)
-													} else if (e.detail.type === 'remove') {
+													} else if (e.type === 'remove') {
 														table_to_track.columns_name = table_to_track.columns_name?.filter(
 															(column) => column !== option
 														)
-													} else if (e.detail.type === 'removeAll') {
+													} else if (e.type === 'removeAll') {
 														table_to_track.columns_name = []
 													} else {
 														console.error(
-															`Priority tags multiselect - unknown event type: '${e.detail.type}'`
+															`Priority tags multiselect - unknown event type: '${e.type}'`
 														)
 													}
 												}}
