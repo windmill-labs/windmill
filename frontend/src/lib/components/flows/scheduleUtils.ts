@@ -185,7 +185,8 @@ export async function saveScheduleFromCfg(
 					path: scheduleCfg.path,
 					script_path: scheduleCfg.script_path,
 					is_flow: scheduleCfg.is_flow,
-					...requestBody
+					...requestBody,
+					enabled: true
 				}
 			})
 			sendUserToast(`Schedule ${scheduleCfg.path} created`)

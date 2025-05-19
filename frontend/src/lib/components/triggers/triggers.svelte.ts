@@ -117,7 +117,11 @@ export class Triggers {
 				canWrite: canWrite(trigger.path, trigger.extra_perms, user),
 				draftConfig: draftConfig,
 				lightConfig:
-					type === 'schedule' ? { schedule: trigger.schedule, enable: trigger.enable } : undefined
+					type === 'schedule'
+						? { schedule: trigger.schedule, enable: trigger.enable }
+						: type === 'http'
+							? { route_path: trigger.route_path, http_method: trigger.http_method }
+							: undefined
 			}
 		})
 
