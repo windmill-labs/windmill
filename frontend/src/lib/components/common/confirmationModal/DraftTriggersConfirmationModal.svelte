@@ -62,7 +62,8 @@
 	}
 
 	$effect(() => {
-		open && (selectedTriggers = [...draftTriggers].filter(checkSavePermissions))
+		open &&
+			(selectedTriggers = [...draftTriggers].filter((t) => checkSavePermissions(t) === 'deploy'))
 	})
 </script>
 
@@ -85,7 +86,7 @@
 			<DataTable size="sm" tableFixed={true}>
 				<thead>
 					<tr class="bg-gray-50 dark:bg-gray-700 text-secondary dark:text-gray-300 text-xs">
-						<th class="text-left py-2 px-4">Trigger to deploy</th>
+						<th class="text-left py-2 px-4">Triggers to deploy</th>
 						<th class="w-32 text-center py-2 px-1 justify-center"> </th>
 					</tr>
 				</thead>
@@ -114,14 +115,14 @@
 										{/if}
 									</div>
 									<div class="flex grow min-w-0 items-center text-left">
-										<TriggerLabel {trigger} discard={permission !== 'deploy'} />
+										<TriggerLabel {trigger} />
 									</div>
 								</div>
 							</td>
 
-							<td class="text-center py-1">
+							<td class="text-left py-1">
 								{#if permission === 'deploy'}
-									<div class="flex justify-center">
+									<div class="flex justify-start">
 										<ToggleButtonGroup
 											let:item
 											class="w-fit h-fit"
@@ -129,14 +130,14 @@
 											on:selected={(e) => toggleTrigger(trigger, e.detail)}
 										>
 											<ToggleButton
-												label="Discard"
+												label={!trigger.isDraft && trigger.draftConfig ? 'Reset' : 'Discard'}
 												value={'discard'}
 												{item}
 												small
 												class="data-[state=on]:text-white data-[state=on]:bg-red-400"
 											/>
 											<ToggleButton
-												label="Deploy"
+												label={!trigger.isDraft && trigger.draftConfig ? 'Update' : 'Deploy'}
 												value={'deploy'}
 												{item}
 												small
@@ -146,14 +147,14 @@
 									</div>
 								{:else if permission === 'admin-only'}
 									<span
-										class="text-2xs px-1.5 py-1.5 bg-yellow-50 dark:bg-yellow-900/40 text-yellow-800 dark:text-yellow-100/90 rounded whitespace-nowrap"
+										class="text-2xs px-1.5 py-1.5 bg-yellow-400 text-white rounded whitespace-nowrap"
 										title="Only admins can deploy http triggers"
 									>
 										Admin only
 									</span>
 								{:else if permission === 'invalid-config'}
 									<span
-										class="text-2xs px-1.5 py-1.5 bg-red-50 dark:bg-red-900/40 text-red-800 dark:text-red-100/90 rounded whitespace-nowrap"
+										class="text-xs font-semibold px-1.5 py-1.5 bg-red-400 text-white rounded whitespace-nowrap"
 										title="Invalid config"
 									>
 										Invalid config

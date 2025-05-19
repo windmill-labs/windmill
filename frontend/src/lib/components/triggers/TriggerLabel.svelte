@@ -2,7 +2,7 @@
 	import { type Trigger } from './utils'
 	import { twMerge } from 'tailwind-merge'
 
-	let { trigger, discard }: { trigger: Trigger; discard?: boolean } = $props()
+	let { trigger }: { trigger: Trigger } = $props()
 
 	let label = $derived(
 		trigger.type === 'webhook'
@@ -20,7 +20,6 @@
 <span
 	class={twMerge(
 		trigger.isDraft ? 'text-frost-400 italic dark:text-frost-200' : 'font-normal',
-		discard ? 'text-gray-500 line-through dark:text-gray-400 ' : '',
 		'truncate pr-1'
 	)}
 	title={label}

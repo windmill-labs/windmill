@@ -43,7 +43,7 @@
 	const dispatch = createEventDispatcher()
 
 	let hover = $state(false)
-	let addTriggersButton: AddTriggersButton | undefined
+	let addTriggersButton = $state<AddTriggersButton | undefined>(undefined)
 </script>
 
 <div style={`width: ${NODE.width}px;`}>

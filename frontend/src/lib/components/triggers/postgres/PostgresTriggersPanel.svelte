@@ -48,6 +48,7 @@
 			isDraftOnly={selectedTrigger.isDraft}
 			{isEditor}
 			{isDeployed}
+			{customLabel}
 			{...props}
 		>
 			{#snippet description()}
