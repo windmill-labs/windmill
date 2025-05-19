@@ -24,7 +24,7 @@
 		userWorkspaces
 	} from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
-	import { displayDate, groupBy, pluralize, truncate } from '$lib/utils'
+	import { displayDate, emptyString, groupBy, pluralize, truncate } from '$lib/utils'
 	import { AlertTriangle, LineChart, List, Plus, Search, Terminal } from 'lucide-svelte'
 	import { getContext, onDestroy, onMount } from 'svelte'
 	import AutoComplete from 'simple-svelte-autocomplete'
@@ -40,7 +40,6 @@
 	let groupedWorkers: [string, [string, WorkerPing[]][]][] = []
 	let intervalId: NodeJS.Timeout | undefined
 	let activeWorkers: string[] | undefined = undefined
-
 	const splitter = '_%%%_'
 	let customTags: string[] | undefined = undefined
 
@@ -79,11 +78,24 @@
 
 	async function loadWorkers(): Promise<void> {
 		try {
+			let isSelectedWorkerActive = false
 			workers = await WorkerService.listWorkers({ perPage: 1000, pingSince: 300 })
 			activeWorkers = workers
-				.filter((worker) => isActiveWorker(worker.last_ping))
+				.filter((worker) => {
+					const isWorkerActive = isActiveWorker(worker.last_ping)
+
+					if (tag === worker.worker) {
+						isSelectedWorkerActive = isWorkerActive
+					}
+
+					return isWorkerActive
+				})
 				.map((worker) => worker.worker)
 			timeSinceLastPing = 0
+			if (!isSelectedWorkerActive && replForWorkerDrawer?.isOpen() && !emptyString(tag)) {
+				sendUserToast(`Worker ${tag} is no longer active`, true)
+				replForWorkerDrawer?.closeDrawer?.()
+			}
 		} catch (err) {
 			sendUserToast(`Could not load workers: ${err}`, true)
 		}
@@ -301,7 +313,13 @@
 </Drawer>
 
 <Drawer bind:this={replForWorkerDrawer} size="1000px">
-	<DrawerContent title="Repl" on:close={() => replForWorkerDrawer?.toggleDrawer?.()}>
+	<DrawerContent
+		title="Repl"
+		on:close={() => {
+			tag = ''
+			replForWorkerDrawer?.closeDrawer?.()
+		}}
+	>
 		<div class="flex flex-col gap-2">
 			<Alert title="Info" type="info">
 				If no command has been run in the past 2 minutes, the next one may take up to 15 seconds to
@@ -707,7 +725,7 @@
 																return
 															}
 															tag = worker
-															replForWorkerDrawer?.toggleDrawer?.()
+															replForWorkerDrawer?.openDrawer?.()
 														}}
 														startIcon={{ icon: Terminal }}
 													>

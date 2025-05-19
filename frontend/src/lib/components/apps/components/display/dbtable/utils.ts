@@ -8,7 +8,7 @@ import {
 } from 'graphql'
 import { tryEvery } from '$lib/utils'
 import { stringifySchema } from '$lib/components/copilot/lib'
-import { runPreviewJobAndPollResult } from '$lib/components/jobs/utils'
+import { runScriptAndPollResult } from '$lib/components/jobs/utils'
 
 export enum ColumnIdentity {
 	ByDefault = 'By Default',
@@ -114,7 +114,7 @@ export async function loadAllTablesMetaData(
 	}
 
 	try {
-		let result = (await runPreviewJobAndPollResult({
+		let result = (await runScriptAndPollResult({
 			workspace: workspace,
 			requestBody: {
 				language: getLanguageByResourceType(resourceType),

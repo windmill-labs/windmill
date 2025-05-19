@@ -1,34 +1,40 @@
 <script lang="ts">
-	import { onMount } from 'svelte'
+	import { onDestroy, onMount } from 'svelte'
 	import { Terminal } from 'xterm'
 	import 'xterm/css/xterm.css'
-	import { runPreviewJobAndPollResult } from './jobs/utils'
+	import { runScriptAndPollResult } from './jobs/utils'
 	import { workspaceStore } from '$lib/stores'
-	import { ScriptService, type ScriptLang } from '$lib/gen'
+	import { ScriptService, type RunScriptByPathData, type Script } from '$lib/gen'
 	import { Splitpanes, Pane } from 'svelte-splitpanes'
 	import { twMerge } from 'tailwind-merge'
 	import PanelSection from './apps/editor/settingsPanel/common/PanelSection.svelte'
-	import { Badge } from './common'
+	import { Badge, Button, Drawer, DrawerContent } from './common'
 	import Select from './apps/svelte-select/lib/Select.svelte'
 	import { SELECT_INPUT_DEFAULT_STYLE } from '$lib/defaults'
 	import DarkModeObserver from './DarkModeObserver.svelte'
-	import { truncate } from '$lib/utils'
+	import InfiniteList from './InfiniteList.svelte'
+	import { sendUserToast } from '$lib/utils'
+	import { Eye, Play } from 'lucide-svelte'
+	import Cell from './table/Cell.svelte'
+	import Editor from './Editor.svelte'
+	let bashEditorDrawer: Drawer | undefined = undefined
 
+	const WORKER_CMD_FLAG = 'worker '
 	let container: HTMLDivElement
 	let term: Terminal
 	let input = ''
-	let items: { value: string; label: string }[]
 	let history: string[] = []
 	let historyIndex = 0
 	type Props = {
-		language?: ScriptLang
 		tag: string
 		width?: number
 		activeWorkers: string[] | undefined
 	}
+	let editor = $state<Editor | null>(null)
 	let darkMode = $state(false)
-
-	let { language = 'bash', tag, width, activeWorkers = [tag] }: Props = $props()
+	let infiniteList: InfiniteList | undefined = undefined
+	let selected: string = ''
+	let { tag, width, activeWorkers = [tag] }: Props = $props()
 
 	let working_directory = $state('')
 	let prompt = $derived(`$-${working_directory.split('/').at(-1)} `)
@@ -36,15 +42,50 @@
 	async function handleCommand(command: string) {
 		term.writeln('')
 		try {
-			let result = (await runPreviewJobAndPollResult({
-				workspace: $workspaceStore!,
-				requestBody: {
-					language,
-					content: `${command} > result.out`,
-					tag,
-					args: {}
+			let result: any
+
+			if (command.startsWith(WORKER_CMD_FLAG)) {
+				const cmd = command.substring(WORKER_CMD_FLAG.length).trim()
+				if (cmd.startsWith('run')) {
+					const args = cmd.substring(3).trim().split(' ')
+
+					if (args.length === 0) {
+						throw Error('Missing path of script to run by the worker')
+					}
+					const scriptPath = args[0]
+					const script = await ScriptService.getScriptByPath({
+						workspace: $workspaceStore!,
+						path: scriptPath
+					})
+
+					if (script.language !== 'bash') {
+						throw new Error('Worker are only allowed to run bash script')
+					}
+
+					const data: RunScriptByPathData = {
+						workspace: $workspaceStore!,
+						path: scriptPath,
+						tag,
+						requestBody: {}
+					}
+					result = await runScriptAndPollResult(data)
+				} else {
+					throw new Error(
+						`Unknown worker command: "${cmd}". Use "worker --help" to see available commands.`
+					)
 				}
-			})) as any
+			} else {
+				console.log({ command })
+				result = await runScriptAndPollResult({
+					workspace: $workspaceStore!,
+					requestBody: {
+						language: 'bash',
+						content: `${command} > result.out`,
+						tag,
+						args: {}
+					}
+				})
+			}
 
 			term.write(result)
 		} catch (e) {
@@ -69,17 +110,7 @@
 	}
 
 	onMount(async () => {
-		items = (
-			await ScriptService.listScripts({
-				workspace: $workspaceStore!,
-				kinds: 'script',
-				languages: 'bash'
-			})
-		).map((script) => ({
-			value: script.path,
-			label: `${script.path}${script.summary ? ` | ${truncate(script.summary, 20)}` : ''}`
-		}))
-		console.log({ items })
+		initLoadBashScripts()
 		working_directory = `/tmp/windmill/${tag}`
 		term = new Terminal({
 			cursorBlink: true,
@@ -89,8 +120,7 @@
 				foreground: '#ffffff'
 			},
 			fontFamily: 'monospace',
-			convertEol: true,
-			rows: 200
+			convertEol: true
 		})
 		term.open(container)
 		printPrompt()
@@ -104,12 +134,14 @@
 					}
 					history.push(input)
 					historyIndex = history.length
+
 					if (input === 'clear') {
 						term.reset()
 						term.write(`\r\n${prompt}`)
 						input = ''
 						break
 					}
+
 					handleCommand(input)
 					break
 
@@ -147,9 +179,57 @@
 			}
 		})
 	})
+
+	onDestroy(() => {
+		//resetSelected()
+	})
+
+	/*function resetSelected(dispatchEvent: boolean = true) {
+		selected = undefined
+		if (dispatchEvent) {
+			dispatch('select', undefined)
+		}
+	}*/
+
+	function handleError(error: { type: string; error: any }) {
+		if (error.type === 'load') {
+			sendUserToast(`Failed to load bash scripts: ${error.error}`, true)
+		}
+	}
+
+	function handleSelect(bashScript: Script) {
+		console.log({ bashScript })
+	}
+
+	function initLoadBashScripts() {
+		const loadInputsPageFn = async (page: number, perPage: number) => {
+			const bashScripts = await ScriptService.listScripts({
+				workspace: $workspaceStore!,
+				kinds: 'script',
+				languages: 'bash',
+				page,
+				perPage
+			})
+			console.log({ bashScripts })
+			return bashScripts
+		}
+		infiniteList?.setLoader(loadInputsPageFn)
+	}
 </script>
 
 <DarkModeObserver bind:darkMode />
+
+<Drawer bind:this={bashEditorDrawer} size="800px">
+	<DrawerContent title="Bash Editor" on:close={() => bashEditorDrawer?.closeDrawer?.()}>
+		<Editor
+			bind:this={editor}
+			code={'dad'}
+			lang="bash"
+			scriptLang="mysql"
+			class="w-full h-full"
+		/></DrawerContent
+	>
+</Drawer>
 
 <div class="h-full">
 	<Splitpanes
@@ -158,7 +238,44 @@
 	>
 		<Pane size={25}>
 			<PanelSection title="Bash scripts" id="app-editor-runnable-panel">
-				<div class="flex flex-col gap-1 w-full"> </div>
+				<div class="flex flex-col gap-1 w-full">
+					<InfiniteList
+						selectedItemId={selected}
+						on:error={(e) => handleError(e.detail)}
+						on:select={(e) => handleSelect(e.detail)}
+						bind:this={infiniteList}
+					>
+						<svelte:fragment let:item>
+							<Cell>
+								<div class="flex flex-row">
+									<input class="truncate" readonly disabled value={item.path} />
+									<Button
+										variant="contained"
+										size="xs2"
+										color="light"
+										btnClasses="bg-transparent hover:bg-surface"
+										on:click={() => {
+											bashEditorDrawer?.openDrawer()
+										}}
+									>
+										<Eye size={16} />
+									</Button>
+									<Button
+										variant="contained"
+										size="xs2"
+										color="light"
+										btnClasses="bg-transparent hover:bg-surface"
+									>
+										<Play size={16} />
+									</Button>
+								</div>
+							</Cell>
+						</svelte:fragment>
+						<svelte:fragment slot="empty">
+							<div class="text-center text-xs text-tertiary my-2">No bash scripts</div>
+						</svelte:fragment>
+					</InfiniteList>
+				</div>
 			</PanelSection>
 		</Pane>
 		<Pane size={75}>
@@ -196,6 +313,6 @@
 
 <style>
 	:global(.xterm-screen) {
-		padding: 10px;
+		padding-left: 10px;
 	}
 </style>
