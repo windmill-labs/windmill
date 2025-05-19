@@ -157,34 +157,35 @@
 				options={Array.isArray(items) ? items : []}
 				placeholder={resolvedConfig.placeholder}
 				allowUserOptions={resolvedConfig.create}
-				on:change={(event) => {
-					if (event?.detail?.type === 'removeAll') {
+				onchange={(event) => {
+					if (event?.type === 'removeAll') {
 						outputs?.result.set([])
 					} else {
 						outputs?.result.set([...(value ?? [])])
 					}
 				}}
-				on:open={() => {
+				onopen={() => {
 					$selectedComponent = [id]
 					open = true
 				}}
-				on:close={() => {
+				onclose={() => {
 					open = false
 				}}
-				let:option
 			>
-				<!-- needed because portal doesn't work for mouseup event en mobile -->
-				<!-- svelte-ignore a11y-no-static-element-interactions -->
-				<div
-					class="w-full"
-					on:mouseup|stopPropagation
-					on:pointerdown|stopPropagation={(e) => {
-						let newe = new MouseEvent('mouseup')
-						e.target?.['parentElement']?.dispatchEvent(newe)
-					}}
-				>
-					{option}
-				</div>
+				{#snippet children({ option })}
+					<!-- needed because portal doesn't work for mouseup event en mobile -->
+					<!-- svelte-ignore a11y-no-static-element-interactions -->
+					<div
+						class="w-full"
+						on:mouseup|stopPropagation
+						on:pointerdown|stopPropagation={(e) => {
+							let newe = new MouseEvent('mouseup')
+							e.target?.['parentElement']?.dispatchEvent(newe)
+						}}
+					>
+						{option}
+					</div>
+				{/snippet}
 			</MultiSelect>
 			<Portal name="app-multiselect">
 				<div use:floatingContent class="z5000" hidden={!open}>
