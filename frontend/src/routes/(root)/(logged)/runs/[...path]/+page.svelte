@@ -371,6 +371,7 @@
 		lastFetchWentToEnd = false
 		selectedManualDate = 0
 		selectedIds = []
+		schedulePath = undefined
 		batchReRunOptions = { flow: {}, script: {} }
 		selectionMode = false
 		selectedWorkspace = undefined
