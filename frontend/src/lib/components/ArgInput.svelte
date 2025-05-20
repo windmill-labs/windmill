@@ -547,7 +547,7 @@
 								bind:selected={value}
 								options={itemsType?.multiselect ?? []}
 								selectedOptionsDraggable={true}
-								onopen={() => {
+								on:open={() => {
 									dispatch('focus')
 								}}
 							/>
@@ -568,7 +568,7 @@
 								}
 								options={itemsType?.enum ?? []}
 								selectedOptionsDraggable={true}
-								onopen={() => {
+								on:open={() => {
 									dispatch('focus')
 								}}
 							/>

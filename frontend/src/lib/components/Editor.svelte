@@ -112,6 +112,7 @@
 		updateOptions,
 		extToLang
 	} from '$lib/editorUtils'
+	import type { Disposable } from 'vscode'
 	import { workspaceStore } from '$lib/stores'
 	import { type Preview, ResourceService, UserService } from '$lib/gen'
 	import type { Text } from 'yjs'
@@ -142,6 +143,7 @@
 	import { setupTypeAcquisition, type DepsToGet } from '$lib/ata/index'
 	import { initWasmTs } from '$lib/infer'
 	import { initVim } from './monaco_keybindings'
+	import { buildWorkerDefinition } from '$lib/monaco_workers/build_workers'
 	import { parseTypescriptDeps } from '$lib/relative_imports'
 
 	import { scriptLangToEditorLang } from '$lib/scripts'
@@ -217,6 +219,7 @@
 
 	console.log('uri', uri)
 
+	buildWorkerDefinition()
 
 	function computeUri(filePath: string, scriptLang: string | undefined) {
 		let file
@@ -432,9 +435,9 @@
 		return scriptLang
 	}
 
-	let command: IDisposable | undefined = undefined
+	let command: Disposable | undefined = undefined
 
-	let sqlTypeCompletor: IDisposable | undefined = undefined
+	let sqlTypeCompletor: Disposable | undefined = undefined
 
 	$: initialized && lang === 'sql' && scriptLang
 		? addSqlTypeCompletions()
@@ -495,7 +498,7 @@
 		})
 	}
 
-	let sqlSchemaCompletor: IDisposable | undefined = undefined
+	let sqlSchemaCompletor: Disposable | undefined = undefined
 
 	function updateSchema() {
 		const newSchemaRes = lang === 'graphql' ? args?.api : args?.database
@@ -633,7 +636,7 @@
 
 	$: $reviewingChanges && autocompletor?.reject()
 
-	let completorDisposable: IDisposable | undefined = undefined
+	let completorDisposable: Disposable | undefined = undefined
 	let autocompletor: Autocompletor | undefined = undefined
 	function addSuperCompletor(editor: meditor.IStandaloneCodeEditor) {
 		try {

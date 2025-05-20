@@ -2,14 +2,17 @@
 	import { BROWSER } from 'esm-env'
 	import { createEventDispatcher, onMount } from 'svelte'
 
-	import '@codingame/monaco-vscode-standalone-languages'
+	// import '@codingame/monaco-vscode-standalone-languages'
 	import '@codingame/monaco-vscode-standalone-json-language-features'
 	import '@codingame/monaco-vscode-standalone-typescript-language-features'
 	import { editor as meditor } from 'monaco-editor'
 
 	import { initializeVscode } from './vscode'
 	import EditorTheme from './EditorTheme.svelte'
+	import { buildWorkerDefinition } from '$lib/monaco_workers/build_workers'
 	import Button from '$lib/components/common/button/Button.svelte'
+
+	buildWorkerDefinition()
 
 	const SIDE_BY_SIDE_MIN_WIDTH = 700
 

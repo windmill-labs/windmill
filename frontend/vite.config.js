@@ -48,7 +48,7 @@ const config = {
 		__pkg__: version
 	},
 	optimizeDeps: {
-		include: ['highlight.js', 'highlight.js/lib/core', 'monaco-vim', 'monaco-editor-wrapper'],
+		include: ['highlight.js', 'highlight.js/lib/core', 'monaco-vim'],
 		exclude: [
 			'@codingame/monaco-vscode-standalone-typescript-language-features',
 			'@codingame/monaco-vscode-standalone-languages'
@@ -64,7 +64,7 @@ const config = {
 		alias: {
 			path: 'path-browserify',
 			'monaco-editor/esm/vs/editor/contrib/hover/browser/hover':
-				'monaco-editor/esm/vs/editor/contrib/hover/browser/hoverContribution'
+				'vscode/vscode/vs/editor/contrib/hover/browser/hoverContribution'
 		},
 		dedupe: ['vscode', 'monaco-editor']
 	},
