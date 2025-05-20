@@ -336,11 +336,12 @@ impl PyV {
                 .env_clear()
                 .envs(WIN_ENVS.to_vec())
                 .args([
-                    "python",
-                    "list",
-                    "--all-versions",
-                    "--output-format",
-                    "json",
+                    "-V",
+                    // "python",
+                    // "list",
+                    // "--all-versions",
+                    // "--output-format",
+                    // "json",
                 ])
                 .stderr(Stdio::piped())
                 .output()
@@ -356,6 +357,7 @@ impl PyV {
 
         if output.status.success() {
             let res = String::from_utf8(output.stdout)?;
+            tracing::error!("{}", &res);
             let list = serde_json::from_str::<Vec<serde_json::Map<String, Value>>>(&res)?
                 .into_iter()
                 .filter_map(|e| {
