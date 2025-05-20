@@ -74,35 +74,25 @@
 
 	const dispatch = createEventDispatcher()
 
-	let autoSet = false
-
 	$: (path || user || folder || label || worker || concurrencyKey || tag || schedulePath) &&
 		autosetFilter()
 
 	function autosetFilter() {
 		if (path !== null && path !== '' && filterBy !== 'path') {
-			autoSet = true
 			filterBy = 'path'
 		} else if (user !== null && user !== '' && filterBy !== 'user') {
-			autoSet = true
 			filterBy = 'user'
 		} else if (folder !== null && folder !== '' && filterBy !== 'folder') {
-			autoSet = true
 			filterBy = 'folder'
 		} else if (label !== null && label !== '' && filterBy !== 'label') {
-			autoSet = true
 			filterBy = 'label'
 		} else if (concurrencyKey !== null && concurrencyKey !== '' && filterBy !== 'concurrencyKey') {
-			autoSet = true
 			filterBy = 'concurrencyKey'
 		} else if (tag !== null && tag !== '' && filterBy !== 'tag') {
-			autoSet = true
 			filterBy = 'tag'
 		} else if (schedulePath !== undefined && schedulePath !== '' && filterBy !== 'schedulePath') {
-			autoSet = true
 			filterBy = 'schedulePath'
 		} else if (worker !== null && worker !== '' && filterBy !== 'worker') {
-			autoSet = true
 			filterBy = 'worker'
 		}
 	}
@@ -136,8 +126,8 @@
 				<span class="text-xs absolute -top-4">Filter by</span>
 				<ToggleButtonGroup
 					bind:selected={filterBy}
-					on:selected={() => {
-						if (!autoSet) {
+					on:selected={(e) => {
+						if (e.detail != filterBy) {
 							path = null
 							user = null
 							folder = null
@@ -145,8 +135,6 @@
 							concurrencyKey = null
 							tag = null
 							schedulePath = undefined
-						} else {
-							autoSet = false
 						}
 					}}
 					let:item
@@ -593,7 +581,7 @@
 								let:item
 								bind:selected={filterBy}
 								on:selected={() => {
-									if (!autoSet) {
+									if (e.detail != filterBy) {
 										path = null
 										user = null
 										folder = null
@@ -601,8 +589,6 @@
 										concurrencyKey = null
 										tag = null
 										schedulePath = undefined
-									} else {
-										autoSet = false
 									}
 								}}
 							>
