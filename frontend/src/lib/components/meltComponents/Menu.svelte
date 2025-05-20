@@ -15,6 +15,7 @@
 	export let createMenu: MenubarBuilders['createMenu']
 	export let invisible: boolean = false
 	export let usePointerDownOutside: boolean = false
+	export let clickOutsideExcludeIds: string[] = []
 
 	// Use the passed createMenu function
 	const {
@@ -40,8 +41,21 @@
 	}
 
 	async function getMenuElements(): Promise<HTMLElement[]> {
-		const element = document.getElementById($menuId)
-		return element ? [element as HTMLElement] : []
+		const elements: HTMLElement[] = []
+
+		const menuElement = document.getElementById($menuId)
+		if (menuElement) {
+			elements.push(menuElement as HTMLElement)
+		}
+
+		for (const id of clickOutsideExcludeIds) {
+			const element = document.getElementById(id)
+			if (element) {
+				elements.push(element as HTMLElement)
+			}
+		}
+
+		return elements
 	}
 </script>
 
@@ -78,7 +92,7 @@
 			on:click
 		>
 			<div class="py-1" style="max-height: {maxHeight}px; ">
-				<slot {item} />
+				<slot {item} {close} />
 			</div>
 		</div>
 	{/if}

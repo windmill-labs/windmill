@@ -40,6 +40,8 @@
 		configuration
 	)
 
+	const modalId = crypto.randomUUID()
+
 	let css = initCss($app.css?.menucomponent, customCss)
 
 	let beforeIconComponent: any
@@ -103,6 +105,8 @@
 				justifyEnd={false}
 				class={resolvedConfig.fillContainer ? 'w-full h-full' : ''}
 				usePointerDownOutside={true}
+				clickOutsideExcludeIds={modalId ? [modalId] : []}
+				let:close
 			>
 				<svelte:fragment slot="trigger" let:trigger>
 					<MeltButton meltElement={trigger} class="w-full h-full">
@@ -165,6 +169,11 @@
 										componentInput={actionButton.componentInput}
 										noWFull={false}
 										isMenuItem={true}
+										{modalId}
+										onSuccess={() => {
+											close()
+										}}
+										modalWrapperClass="z-[7000]"
 									/>
 								</div>
 							{/if}
