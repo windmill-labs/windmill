@@ -2,6 +2,7 @@
 	import { BROWSER } from 'esm-env'
 
 	import { editor as meditor } from 'monaco-editor'
+	// import '@codingame/monaco-vscode-standalone-languages'
 
 	import { onDestroy, onMount } from 'svelte'
 

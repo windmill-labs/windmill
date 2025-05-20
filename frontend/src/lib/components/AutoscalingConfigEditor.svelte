@@ -207,23 +207,25 @@
 								<MultiSelect
 									outerDivClass="text-secondary !bg-surface-disabled !border-0"
 									selected={config.custom_tags}
-									onchange={(e) => {
-										console.log(e.type, config?.custom_tags)
-										if (e && config?.custom_tags) {
-											if (e.type === 'add') {
+									on:change={(e) => {
+										console.log(e.detail.type, config?.custom_tags)
+										if (e.detail && config?.custom_tags) {
+											if (e.detail.type === 'add') {
 												config.custom_tags = [
 													...config.custom_tags,
-													...(e.option ? [e.option.toString()] : [])
+													...(e.detail.option ? [e.detail.option.toString()] : [])
 												]
-											} else if (e.type === 'remove') {
-												config.custom_tags = config.custom_tags.filter((t) => t !== e.option)
+											} else if (e.detail.type === 'remove') {
+												config.custom_tags = config.custom_tags.filter((t) => t !== e.detail.option)
 												if (config?.custom_tags && config.custom_tags.length == 0) {
 													config.custom_tags = undefined
 												}
-											} else if (e.type === 'removeAll') {
+											} else if (e.detail.type === 'removeAll') {
 												config.custom_tags = undefined
 											} else {
-												console.error(`Priority tags multiselect - unknown event type: '${e.type}'`)
+												console.error(
+													`Priority tags multiselect - unknown event type: '${e.detail.type}'`
+												)
 											}
 											dispatch('dirty')
 										}
