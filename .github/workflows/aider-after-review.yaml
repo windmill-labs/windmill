@@ -1,0 +1,218 @@
+name: Aider Auto-fix PR Review Change Requests
+
+on:
+  pull_request_review:
+    types: [submitted]
+
+jobs:
+  auto-fix-review:
+    if: github.event.review.state == 'changes_requested' && contains(github.event.pull_request.title, '[Aider PR]')
+    runs-on: ubicloud-standard-8
+    permissions:
+      contents: write
+      pull-requests: write
+    env:
+      GEMINI_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
+      GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      WINDMILL_TOKEN: ${{ secrets.WINDMILL_TOKEN }}
+
+    steps:
+      - name: Harden Runner
+        uses: step-security/harden-runner@v2
+        with:
+          egress-policy: audit
+
+      - name: Check out code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Configure Git User
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Checkout PR Branch
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "PR review trigger: Checking out PR branch..."
+          PR_NUMBER=${{ github.event.pull_request.number }}
+          PR_HEAD_REF=$(gh pr view $PR_NUMBER --json headRefName -q .headRefName --repo $GITHUB_REPOSITORY)
+          if [[ -z "$PR_HEAD_REF" || "$PR_HEAD_REF" == "null" ]]; then
+             echo "::error::Could not determine PR head branch for PR #$PR_NUMBER via gh CLI."
+             exit 1
+          fi
+          echo "Checking out PR head branch: $PR_HEAD_REF for PR #$PR_NUMBER"
+          git fetch origin "refs/heads/${PR_HEAD_REF}:refs/remotes/origin/${PR_HEAD_REF}" --no-tags
+          git checkout "$PR_HEAD_REF"
+          echo "Successfully checked out branch $(git rev-parse --abbrev-ref HEAD)"
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Aider and Dependencies
+        run: |
+          python -m pip install aider-install; aider-install
+          pip install -U google-generativeai
+          sudo apt-get update && sudo apt-get install -y jq
+
+      - name: Generate Prompt from Review
+        id: generate_prompt
+        shell: bash
+        run: |
+          mkdir -p .github/aider
+          PROMPT_FILE_PATH=".github/aider/review-prompt.txt"
+
+          # Get PR review body
+          REVIEW_BODY="${{ github.event.review.body }}"
+          REVIEW_BODY_Q=$(printf '%q' "$REVIEW_BODY")
+
+          PR_NUMBER="${{ github.event.pull_request.number }}"
+
+          # Get PR description for context NOT USED FOR NOW
+          # PR_DETAILS=$(gh pr view $PR_NUMBER --json title,body --repo $GITHUB_REPOSITORY)
+          # PR_TITLE=$(echo "$PR_DETAILS" | jq -r .title)
+          # PR_BODY=$(echo "$PR_DETAILS" | jq -r .body)
+
+          # Get all PR review comments
+          ALL_REVIEW_COMMENTS=$(gh api \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            /repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER/comments \
+            | jq '[.[] | {diff_hunk: .diff_hunk, path: .path, body: .body}]')
+
+          BASE_PROMPT="Fix the following issues in the PR based on the review feedback. The review body is prepended with REVIEW. The review comments are prepended with REVIEW_COMMENTS. The review body and comments are separated by a blank line."
+          COMPLETE_PROMPT=$(printf "%s\nREVIEW:\n%s\nREVIEW_COMMENTS:\n%s" \
+            "$BASE_PROMPT" "$REVIEW_BODY_Q" "$ALL_REVIEW_COMMENTS")
+          echo "$COMPLETE_PROMPT" > "$PROMPT_FILE_PATH"
+          echo "PROMPT_FILE_PATH=$PROMPT_FILE_PATH" >> $GITHUB_OUTPUT
+
+      - name: Probe Chat for Relevant Files
+        id: probe_files
+        env:
+          PROMPT_CONTENT_FILE: ${{ steps.generate_prompt.outputs.PROMPT_FILE_PATH }}
+        run: |
+          echo "Running probe-chat to find relevant files..."
+          if [[ ! -f "$PROMPT_CONTENT_FILE" ]]; then
+            echo "::error::Prompt file $PROMPT_CONTENT_FILE not found!"
+            exit 1
+          fi
+          PROMPT_CONTENT=$(cat "$PROMPT_CONTENT_FILE")
+          if [ -z "$PROMPT_CONTENT" ]; then
+             echo "::error::Prompt content is empty!"
+             exit 1
+          fi
+
+          PROMPT_ESCAPED=$(jq -Rs . <<< "$PROMPT_CONTENT")
+
+          MESSAGE_FOR_PROBE=$(jq -n --arg prompt_escaped "$PROMPT_ESCAPED" \
+            '{ "message": "I'\''m giving you a request that needs to be implemented. Your role is ONLY to give me the files that are relevant to the request and nothing else. The request is prepended with the word REQUEST.\\nREQUEST: \($prompt_escaped). Give me all the files relevant to this request. Your output MUST be a single json array that can be parsed with programatic json parsing, with the relevant files. Files can be rust or typescript or javascript files. DO NOT INCLUDE ANY OTHER TEXT IN YOUR OUTPUT. ONLY THE JSON ARRAY. Example of output: [\"file1.py\", \"file2.py\"]" }' | jq -r .message)
+
+          set -o pipefail
+          PROBE_OUTPUT=$(npx --yes @buger/probe-chat@latest --max-iterations 50 --model-name gemini-2.5-pro-preview-05-06 --message "$MESSAGE_FOR_PROBE") || {
+            echo "::error::probe-chat command failed. Output:"
+            echo "$PROBE_OUTPUT"
+            exit 1
+          }
+          set +o pipefail
+          echo "Probe-chat raw output:"
+          echo "$PROBE_OUTPUT"
+
+          JSON_FILES=$(echo "$PROBE_OUTPUT" | sed -n '/^\s*\[/,$p' | sed '/^\s*\]/q')
+          echo "Extracted JSON block:"
+          echo "$JSON_FILES"
+
+          FILES_LIST=$(echo "$JSON_FILES" | jq -e -r '[.[] | select(type == "string" and . != "" and . != null and (endswith("/") | not))] | map(@sh) | join(" ")' || echo "")
+
+          if [[ -z "$FILES_LIST" ]]; then
+             echo "::warning::probe-chat did not identify any relevant files."
+             exit 1
+          fi
+
+          echo "Formatted files list for aider: $FILES_LIST"
+          echo "FILES_TO_EDIT=$FILES_LIST" >> $GITHUB_ENV
+
+      - name: Run Aider with review prompt
+        run: |
+          aider \
+            --read .cursor/rules/rust-best-practices.mdc \
+            --read .cursor/rules/svelte5-best-practices.mdc \
+            --read .cursor/rules/windmill-overview.mdc \
+            ${{ env.FILES_TO_EDIT }} \
+            --model gemini/gemini-2.5-pro-preview-05-06 \
+            --message-file .github/aider/review-prompt.txt \
+            --yes \
+            --no-check-update \
+            --auto-commits \
+            --no-analytics \
+            --no-gitignore \
+            | tee .github/aider/aider-output.txt || true
+          echo "Aider command completed. Output saved to .github/aider/aider-output.txt"
+          # Check if there are any changes to commit
+          if [[ -z "$(git status --porcelain)" ]]; then
+            echo "No changes detected after running Aider."
+            echo "HAS_CHANGES=false" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+      - name: Clean up prompt file
+        if: always()
+        run: rm -f .github/aider/review-prompt.txt
+
+      - name: Commit and Push Changes
+        id: commit_and_push
+        if: ${{ success() }}
+        run: |
+          CURRENT_BRANCH_NAME=$(git rev-parse --abbrev-ref HEAD)
+          echo "Attempting to push changes to PR branch $CURRENT_BRANCH_NAME for PR #${{ github.event.pull_request.number }}"
+
+          # Pull latest changes to avoid rejection due to non-fast-forward
+          git config pull.rebase true
+          git pull origin $CURRENT_BRANCH_NAME
+
+          if git push origin $CURRENT_BRANCH_NAME; then
+            echo "Push to $CURRENT_BRANCH_NAME successful."
+            echo "CHANGES_APPLIED=true" >> $GITHUB_OUTPUT
+          else
+            echo "::warning::Push to PR branch $CURRENT_BRANCH_NAME failed."
+            echo "CHANGES_APPLIED=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Comment on PR
+        if: success()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUM: ${{ github.event.pull_request.number }}
+        run: |
+          # Create comment body in a temporary file to avoid command line length limits
+          if [[ "${{ steps.commit_and_push.outputs.CHANGES_APPLIED }}" == "true" ]]; then
+            cat > /tmp/pr-comment.md << EOL
+          🤖 I've automatically addressed the feedback based on the review.
+
+          ## Aider Output
+          \`\`\`
+          $(cat .github/aider/aider-output.txt || echo 'No output available')
+          \`\`\`
+
+          Please review the changes and let me know if further adjustments are needed.
+          EOL
+          else
+            cat > /tmp/pr-comment.md << EOL
+          🤖 I attempted to address the review feedback, but no modifications were made.
+
+          ## Aider Output
+          \`\`\`
+          $(cat .github/aider/aider-output.txt || echo 'No output available')
+          \`\`\`
+
+          Please review the output and provide additional guidance if needed.
+          EOL
+          fi
+
+          # Use the file for comment body
+          gh pr comment $PR_NUM --body-file /tmp/pr-comment.md

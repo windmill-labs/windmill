@@ -6,6 +6,7 @@ use crate::{
     trigger_helpers::TriggerJobArgs,
     users::fetch_api_authed,
 };
+use windmill_git_sync::{handle_deployment_metadata, DeployedObject};
 use windmill_queue::TriggerKind;
 
 use axum::{
@@ -244,25 +245,25 @@ pub struct EditMqttTrigger {
 
 #[derive(Debug, Serialize, Deserialize, FromRow)]
 pub struct MqttTrigger {
-    mqtt_resource_path: String,
-    subscribe_topics: Vec<SqlxJson<SubscribeTopic>>,
-    v3_config: Option<SqlxJson<MqttV3Config>>,
-    v5_config: Option<SqlxJson<MqttV5Config>>,
-    client_id: Option<String>,
+    pub mqtt_resource_path: String,
+    pub subscribe_topics: Vec<SqlxJson<SubscribeTopic>>,
+    pub v3_config: Option<SqlxJson<MqttV3Config>>,
+    pub v5_config: Option<SqlxJson<MqttV5Config>>,
+    pub client_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    client_version: Option<MqttClientVersion>,
-    path: String,
-    script_path: String,
-    is_flow: bool,
-    workspace_id: String,
-    edited_by: String,
-    email: String,
-    edited_at: chrono::DateTime<chrono::Utc>,
-    extra_perms: Option<serde_json::Value>,
-    error: Option<String>,
-    server_id: Option<String>,
-    last_server_ping: Option<chrono::DateTime<chrono::Utc>>,
-    enabled: bool,
+    pub client_version: Option<MqttClientVersion>,
+    pub path: String,
+    pub script_path: String,
+    pub is_flow: bool,
+    pub workspace_id: String,
+    pub edited_by: String,
+    pub email: String,
+    pub edited_at: chrono::DateTime<chrono::Utc>,
+    pub extra_perms: Option<serde_json::Value>,
+    pub error: Option<String>,
+    pub server_id: Option<String>,
+    pub last_server_ping: Option<chrono::DateTime<chrono::Utc>>,
+    pub enabled: bool,
 }
 
 #[derive(Deserialize, Serialize)]
@@ -515,13 +516,14 @@ pub async fn test_mqtt_connection(
 
 pub async fn create_mqtt_trigger(
     authed: ApiAuthed,
+    Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
     Path(w_id): Path<String>,
     Json(new_mqtt_trigger): Json<NewMqttTrigger>,
 ) -> error::Result<(StatusCode, String)> {
     if *CLOUD_HOSTED {
         return Err(error::Error::BadRequest(
-            "Mqtt triggers are not supported on multi-tenant cloud, use dedicated cloud or self-host".to_string(),
+            "MQTT triggers are not supported on multi-tenant cloud, use dedicated cloud or self-host".to_string(),
         ));
     }
 
@@ -606,7 +608,18 @@ pub async fn create_mqtt_trigger(
 
     tx.commit().await?;
 
-    Ok((StatusCode::CREATED, path.to_string()))
+    handle_deployment_metadata(
+        &authed.email,
+        &authed.username,
+        &db,
+        &w_id,
+        DeployedObject::MqttTrigger { path: path.to_string() },
+        Some(format!("MQTT trigger '{}' created", path)),
+        true,
+    )
+    .await?;
+
+    Ok((StatusCode::CREATED, format!("{}", path.to_string())))
 }
 
 pub async fn list_mqtt_triggers(
@@ -719,6 +732,7 @@ pub async fn get_mqtt_trigger(
 
 pub async fn update_mqtt_trigger(
     authed: ApiAuthed,
+    Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
     Path((w_id, path)): Path<(String, StripPath)>,
     Json(mqtt_trigger): Json<EditMqttTrigger>,
@@ -787,7 +801,7 @@ pub async fn update_mqtt_trigger(
         &mut *tx,
         &authed,
         "mqtt_triggers.update",
-        ActionKind::Create,
+        ActionKind::Update,
         &w_id,
         Some(&path),
         None,
@@ -796,11 +810,23 @@ pub async fn update_mqtt_trigger(
 
     tx.commit().await?;
 
-    Ok(workspace_path.to_string())
+    handle_deployment_metadata(
+        &authed.email,
+        &authed.username,
+        &db,
+        &w_id,
+        DeployedObject::MqttTrigger { path: path.clone() },
+        Some(format!("MQTT trigger '{}' updated", path)),
+        true,
+    )
+    .await?;
+
+    Ok(path.to_string())
 }
 
 pub async fn delete_mqtt_trigger(
     authed: ApiAuthed,
+    Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
     Path((w_id, path)): Path<(String, StripPath)>,
 ) -> error::Result<String> {
@@ -834,7 +860,18 @@ pub async fn delete_mqtt_trigger(
 
     tx.commit().await?;
 
-    Ok(format!("Mqtt trigger {path} deleted"))
+    handle_deployment_metadata(
+        &authed.email,
+        &authed.username,
+        &db,
+        &w_id,
+        DeployedObject::MqttTrigger { path: path.to_string() },
+        Some(format!("MQTT trigger '{}' deleted", path)),
+        true,
+    )
+    .await?;
+
+    Ok(format!("MQTT trigger {path} deleted"))
 }
 
 pub async fn exists_mqtt_trigger(
@@ -864,6 +901,7 @@ pub async fn exists_mqtt_trigger(
 
 pub async fn set_enabled(
     authed: ApiAuthed,
+    Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
     Path((w_id, path)): Path<(String, StripPath)>,
     Json(payload): Json<SetEnabled>,
@@ -912,6 +950,17 @@ pub async fn set_enabled(
     .await?;
 
     tx.commit().await?;
+
+    handle_deployment_metadata(
+        &authed.email,
+        &authed.username,
+        &db,
+        &w_id,
+        DeployedObject::MqttTrigger { path: path.to_string() },
+        Some(format!("MQTT trigger '{}' updated", path)),
+        true,
+    )
+    .await?;
 
     Ok(format!(
         "successfully updated mqtt trigger at path {} to status {}",

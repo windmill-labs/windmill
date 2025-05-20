@@ -140,6 +140,7 @@ pub struct CanceledBy {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct JobCompleted {
     pub job: Arc<MiniPulledJob>,
+    pub preprocessed_args: Option<HashMap<String, Box<RawValue>>>,
     pub result: Arc<Box<RawValue>>,
     pub result_columns: Option<Vec<String>>,
     pub mem_peak: i32,
@@ -2673,7 +2674,7 @@ async fn concurrency_key(db: &Pool<Postgres>, id: &Uuid) -> windmill_common::err
     )
 }
 
-fn interpolate_args(x: String, args: &PushArgs, workspace_id: &str) -> String {
+pub fn interpolate_args(x: String, args: &PushArgs, workspace_id: &str) -> String {
     // Save this value to avoid parsing twice
     let workspaced = x.as_str().replace("$workspace", workspace_id).to_string();
     if RE_ARG_TAG.is_match(&workspaced) {
@@ -2711,7 +2712,6 @@ fn interpolate_args(x: String, args: &PushArgs, workspace_id: &str) -> String {
                     .trim_matches('"')
                     .to_string()
             };
-            tracing::error!("arg_value: {}", arg_value);
             interpolated =
                 interpolated.replace(format!("$args[{}]", arg_name).as_str(), &arg_value);
         }
@@ -3896,11 +3896,13 @@ pub async fn push<'c, 'd>(
             let cache_ttl = value.cache_ttl.map(|x| x as i32);
             let custom_concurrency_key = value.concurrency_key.clone();
             let concurrency_time_window_s = value.concurrency_time_window_s;
-            let concurrent_limit = value.concurrent_limit;
+            let mut concurrent_limit = value.concurrent_limit;
 
             if !apply_preprocessor {
                 value.preprocessor_module = None;
             } else {
+                tag = None;
+                concurrent_limit = None;
                 preprocessed = Some(false);
             }
 
@@ -4182,26 +4184,7 @@ pub async fn push<'c, 'd>(
     };
 
     if concurrent_limit.is_some() {
-        let concurrency_key = custom_concurrency_key
-            .map(|x| interpolate_args(x, &args, workspace_id))
-            .unwrap_or(fullpath_with_workspace(
-                workspace_id,
-                script_path.as_ref(),
-                &job_kind,
-            ));
-        sqlx::query!(
-            "WITH inserted_concurrency_counter AS (
-                INSERT INTO concurrency_counter (concurrency_id, job_uuids) 
-                VALUES ($1, '{}'::jsonb)
-                ON CONFLICT DO NOTHING
-            )
-            INSERT INTO concurrency_key(key, job_id) VALUES ($1, $2)",
-            concurrency_key,
-            job_id,
-        )
-        .execute(&mut *tx)
-        .await
-        .map_err(|e| Error::internal_err(format!("Could not insert concurrency_key={concurrency_key} for job_id={job_id} script_path={script_path:?} workspace_id={workspace_id}: {e:#}")))?;
+        insert_concurrency_key(workspace_id, &args, &script_path, job_kind, custom_concurrency_key, &mut tx, job_id).await?;
     }
 
     let stringified_args = if *JOB_ARGS_AUDIT_LOGS {
@@ -4219,6 +4202,7 @@ pub async fn push<'c, 'd>(
         Some("preprocessor") => Some(false),
         _ => None,
     });
+    
 
     let job_authed = match authed {
         Some(authed)
@@ -4365,6 +4349,7 @@ pub async fn push<'c, 'd>(
             Json(flow_status) as Json<FlowStatus>,
         )
         .execute(&mut *tx)
+        .warn_after_seconds(1)
         .await?;
     }
 
@@ -4433,10 +4418,36 @@ pub async fn push<'c, 'd>(
             script_path.as_ref().map(|x| x.as_str()),
             Some(hm),
         )
+        .warn_after_seconds(1)
         .await?;
     }
 
     Ok((job_id, tx))
+}
+
+pub async fn insert_concurrency_key<'d, 'c>(workspace_id: &str, args: &PushArgs<'d>, script_path: &Option<String>, job_kind: JobKind, custom_concurrency_key: Option<String>, tx: &mut Transaction<'c, Postgres>, job_id: Uuid) -> Result<(), Error> {
+    let concurrency_key = custom_concurrency_key
+        .map(|x| interpolate_args(x, args, workspace_id))
+        .unwrap_or(fullpath_with_workspace(
+            workspace_id,
+            script_path.as_ref(),
+            &job_kind,
+        ));
+    sqlx::query!(
+        "WITH inserted_concurrency_counter AS (
+                INSERT INTO concurrency_counter (concurrency_id, job_uuids) 
+                VALUES ($1, '{}'::jsonb)
+                ON CONFLICT DO NOTHING
+            )
+            INSERT INTO concurrency_key(key, job_id) VALUES ($1, $2)",
+        concurrency_key,
+        job_id,
+    )
+    .execute(&mut **tx)
+    .warn_after_seconds(3)
+    .await
+    .map_err(|e| Error::internal_err(format!("Could not insert concurrency_key={concurrency_key} for job_id={job_id} script_path={script_path:?} workspace_id={workspace_id}: {e:#}")))?;
+    Ok(())
 }
 
 pub fn canceled_job_to_result(job: &MiniPulledJob) -> serde_json::Value {

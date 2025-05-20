@@ -517,6 +517,7 @@ pub struct PythonAnnotations {
     pub no_cache: bool,
     pub no_postinstall: bool,
     pub py_select_latest: bool,
+    pub skip_result_postprocessing: bool,
     pub py310: bool,
     pub py311: bool,
     pub py312: bool,

@@ -249,6 +249,7 @@ export async function main(message: string, name: string, step_id: string) {
 `
 
 const POSTGRES_INIT_CODE = `-- to pin the database use '-- database f/your/path'
+-- to stream a large query result to your workspace storage use '-- s3'
 -- to only return the result of the last query use '--return_last_result'
 -- $1 name1 = default arg
 -- $2 name2
@@ -259,6 +260,7 @@ UPDATE demo SET col2 = \$4::INT WHERE col2 = \$2::INT;
 `
 
 const MYSQL_INIT_CODE = `-- to pin the database use '-- database f/your/path'
+-- to stream a large query result to your workspace storage use '-- s3'
 -- :name1 (text) = default arg
 -- :name2 (int)
 -- :name3 (int)
@@ -267,6 +269,7 @@ UPDATE demo SET col2 = :name3 WHERE col2 = :name2;
 `
 
 const BIGQUERY_INIT_CODE = `-- to pin the database use '-- database f/your/path'
+-- to stream a large query result to your workspace storage use '-- s3'
 -- @name1 (string) = default arg
 -- @name2 (integer)
 -- @name3 (string[])
@@ -276,6 +279,7 @@ UPDATE \`demodb.demo\` SET col2 = @name4 WHERE col2 = @name2;
 `
 
 const ORACLEDB_INIT_CODE = `-- to pin the database use '-- database f/your/path'
+-- to stream a large query result to your workspace storage use '-- s3'
 -- :name1 (text) = default arg
 -- :name2 (int)
 -- :name3 (int)
@@ -284,6 +288,7 @@ UPDATE demo SET col2 = :name3 WHERE col2 = :name2;
 `
 
 const SNOWFLAKE_INIT_CODE = `-- to pin the database use '-- database f/your/path'
+-- to stream a large query result to your workspace storage use '-- s3'
 -- ? name1 (varchar) = default arg
 -- ? name2 (int)
 INSERT INTO demo VALUES (?, ?);
@@ -294,6 +299,7 @@ UPDATE demo SET col2 = ? WHERE col2 = ?;
 
 const MSSQL_INIT_CODE = `-- return_last_result
 -- to pin the database use '-- database f/your/path'
+-- to stream a large query result to your workspace storage use '-- s3'
 -- @P1 name1 (varchar) = default arg
 -- @P2 name2 (int)
 -- @P3 name3 (int)
@@ -654,86 +660,94 @@ export const TS_PREPROCESSOR_FLOW_INTRO = `/**
 export const TS_PREPROCESSOR_MODULE_CODE = `export async function preprocessor(
   event:
     | {
-        kind: "webhook";
-        body: any,
-        raw_string: string | null,
-        query: Record<string, string>;
-        headers: Record<string, string>;
-      }
+      kind: "webhook";
+      body: any;
+      raw_string: string | null;
+      query: Record<string, string>;
+      headers: Record<string, string>;
+    }
     | {
-        kind: "http";
-        body: any,
-        raw_string: string | null,
-        route: string;
-        path: string;
-        method: string;
-        params: Record<string, string>;
-        query: Record<string, string>;
-        headers: Record<string, string>;
-      }
+      kind: "http";
+      body: any;
+      raw_string: string | null;
+      route: string;
+      path: string;
+      method: string;
+      params: Record<string, string>;
+      query: Record<string, string>;
+      headers: Record<string, string>;
+    }
     | {
-        kind: "email";
-        parsed_email: any,
-        raw_email: string,
-      }
+      kind: "email";
+      parsed_email: any;
+      raw_email: string;
+    }
     | { kind: "websocket"; msg: string; url: string }
     | {
-        kind: "kafka";
-        payload: string;
-        brokers: string[];
-        topic: string;
-        group_id: string;
-      }
+      kind: "kafka";
+      payload: string;
+      brokers: string[];
+      topic: string;
+      group_id: string;
+    }
     | {
-        kind: "nats";
-        payload: string;
-        servers: string[];
-        subject: string;
-        headers?: Record<string, string[]>;
-        status?: number;
-        description?: string;
-        length: number;
-      }
+      kind: "nats";
+      payload: string;
+      servers: string[];
+      subject: string;
+      headers?: Record<string, string[]>;
+      status?: number;
+      description?: string;
+      length: number;
+    }
     | {
-        kind: "sqs";
-        msg: string,
-        queue_url: string;
-        message_id?: string;
-        receipt_handle?: string;
-        attributes: Record<string, string>;
-        message_attributes?: Record<
-          string,
-          { string_value?: string; data_type: string }
-        >;
-      }
+      kind: "sqs";
+      msg: string;
+      queue_url: string;
+      message_id?: string;
+      receipt_handle?: string;
+      attributes: Record<string, string>;
+      message_attributes?: Record<
+        string,
+        { string_value?: string; data_type: string }
+      >;
+    }
     | {
-        kind: "mqtt";
-        payload: string,
-        topic: string;
-        retain: boolean;
-        pkid: number;
-        qos: number;
-        v5?: {
-          payload_format_indicator?: number;
-          topic_alias?: number;
-          response_topic?: string;
-          correlation_data?: Array<number>;
-          user_properties?: Array<[string, string]>;
-          subscription_identifiers?: Array<number>;
-          content_type?: string;
-        };
-      }
+      kind: "mqtt";
+      payload: string;
+      topic: string;
+      retain: boolean;
+      pkid: number;
+      qos: number;
+      v5?: {
+        payload_format_indicator?: number;
+        topic_alias?: number;
+        response_topic?: string;
+        correlation_data?: Array<number>;
+        user_properties?: Array<[string, string]>;
+        subscription_identifiers?: Array<number>;
+        content_type?: string;
+      };
+    }
     | {
-        kind: "gcp";
-        payload: string,
-        message_id: string;
-        subscription: string;
-        ordering_key?: string;
-        attributes?: Record<string, string>;
-        delivery_type: "push" | "pull";
-        headers?: Record<string, string>;
-        publish_time?: string;
-      }
+      kind: "gcp";
+      payload: string;
+      message_id: string;
+      subscription: string;
+      ordering_key?: string;
+      attributes?: Record<string, string>;
+      delivery_type: "push" | "pull";
+      headers?: Record<string, string>;
+      publish_time?: string;
+    }
+    | {
+      kind: "postgres";
+      transaction_type: "insert" | "update" | "delete",
+      schema_name: string,
+      table_name: string,
+      old_row?: Record<string, any>,
+      row: Record<string, any>
+    }
 ) {
   return {
     // return the args to be passed to the runnable
@@ -892,6 +906,16 @@ class GcpEvent(TypedDict):
     headers: Optional[dict[str, str]]
     publish_time: Optional[str]
 
+
+class PostgresEvent(TypedDict):
+    kind: Literal["postgres"]
+    transaction_type: Literal["insert", "update", "delete"]
+    schema_name: str
+    table_name: str
+    old_row: Optional[dict[str, any]]
+    row: dict[str, any]
+
+
 Event = Union[
     WebhookEvent,
     HttpEvent,
@@ -902,6 +926,7 @@ Event = Union[
     SqsEvent,
     MqttEvent,
     GcpEvent,
+    PostgresEvent,
 ]
 
 

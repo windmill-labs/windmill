@@ -14,10 +14,17 @@ use {
 };
 
 #[cfg(all(feature = "enterprise", feature = "gcp_trigger"))]
-use crate::gcp_triggers_ee::{
-    manage_google_subscription, process_google_push_request, validate_jwt_token,
-    CreateUpdateConfig, SubscriptionMode,
+use {
+    crate::gcp_triggers_ee::{
+        manage_google_subscription, process_google_push_request, validate_jwt_token,
+        CreateUpdateConfig, SubscriptionMode,
+    },
+    axum::extract::Request,
+    http::HeaderMap,
 };
+
+#[cfg(all(feature = "enterprise", feature = "gcp_trigger"))]
+use windmill_common::utils::empty_as_none;
 
 #[cfg(all(feature = "enterprise", feature = "sqs_trigger"))]
 use windmill_common::auth::aws::AwsAuthResourceType;
@@ -26,12 +33,7 @@ use windmill_common::auth::aws::AwsAuthResourceType;
     feature = "http_trigger",
     all(feature = "enterprise", feature = "gcp_trigger")
 ))]
-use {
-    axum::extract::Request,
-    http::HeaderMap,
-    serde::de::DeserializeOwned,
-    windmill_common::{error::Error, utils::empty_as_none},
-};
+use {serde::de::DeserializeOwned, windmill_common::error::Error};
 
 #[cfg(all(feature = "enterprise", feature = "kafka"))]
 use crate::kafka_triggers_ee::KafkaTriggerConfigConnection;
@@ -381,6 +383,7 @@ async fn set_gcp_trigger_config(
         gcp_config.subscription_mode,
         gcp_config.create_update,
         false,
+        capture_config.is_flow,
     )
     .await?;
     gcp_config.create_update = Some(config);

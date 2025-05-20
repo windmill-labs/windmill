@@ -186,11 +186,11 @@
 		selected === 'resource'
 			? !!args.nats_resource_path
 			: isStaticConnectionValid &&
-			  args.servers &&
-			  args.servers.length > 0 &&
-			  args.servers.every((b) => b.length > 0) &&
-			  args.require_tls !== undefined &&
-			  args.require_tls !== null
+				args.servers &&
+				args.servers.length > 0 &&
+				args.servers.every((b) => b.length > 0) &&
+				args.require_tls !== undefined &&
+				args.require_tls !== null
 
 	$: isValid =
 		isConnectionValid &&
@@ -268,7 +268,15 @@
 					{:else}
 						<SchemaForm
 							schema={connnectionSchema}
-							bind:args
+							bind:args={
+								() => args,
+								(v) => {
+									args = {
+										...args,
+										...v
+									}
+								}
+							}
 							bind:isValid={isStaticConnectionValid}
 							lightHeader={true}
 						/>
@@ -283,7 +291,15 @@
 				<Subsection headless={true}>
 					<SchemaForm
 						schema={argsSchema}
-						bind:args
+						bind:args={
+							() => args,
+							(v) => {
+								args = {
+									...args,
+									...v
+								}
+							}
+						}
 						bind:isValid={otherArgsValid}
 						lightHeader={true}
 					/>

@@ -2,7 +2,7 @@
 	import { onMount } from 'svelte'
 	import { Drawer, DrawerContent, Button } from './common'
 	import QueueMetricsDrawerInner from './QueueMetricsDrawerInner.svelte'
-	import { ConfigService } from '$lib/gen'
+	import { ConfigService, type Alert } from '$lib/gen'
 	import Section from './Section.svelte'
 	import { sendUserToast } from '$lib/toast'
 	import { Pencil, Trash, Check, PlusCircle, SaveIcon } from 'lucide-svelte'
@@ -19,14 +19,6 @@
 		if (target.tagName.toLowerCase() === 'input') {
 			updateChangesMade()
 		}
-	}
-
-	type Alert = {
-		name: string
-		tags_to_monitor: string[]
-		jobs_num_threshold: number
-		alert_cooldown_seconds: number
-		alert_time_threshold_seconds: number
 	}
 
 	let drawer: Drawer
@@ -55,8 +47,8 @@
 
 	async function fetchConfig() {
 		try {
-			const response = (await ConfigService.getConfig({ name: configName })) as { alerts: Alert[] }
-			alerts = response.alerts || []
+			const response = await ConfigService.getConfig({ name: configName })
+			alerts = response?.alerts || []
 			originalAlerts = JSON.parse(JSON.stringify(alerts))
 		} catch (error) {
 			console.error('Failed to fetch config:', error)
@@ -298,7 +290,9 @@
 														<input
 															type="text"
 															bind:value={newTag}
-															placeholder="{workerTags.length === alert.tags_to_monitor.length ? 'All tags already added' : 'Add tag from dropdown' }"
+															placeholder={workerTags.length === alert.tags_to_monitor.length
+																? 'All tags already added'
+																: 'Add tag from dropdown'}
 															on:input={(e) => filterTags(e)}
 															disabled={workerTags.length === alert.tags_to_monitor.length}
 															class="p-1 flex-grow mr-1"
@@ -321,15 +315,15 @@
 														>
 															{#each filteredTags as tag}
 																{#if !alert.tags_to_monitor.includes(tag)}
-																<li>
-																	<button
-																		type="button"
-																		class="w-full text-left p-2 cursor-pointer hover:bg-slate-200 dark:hover:bg-slate-700"
-																		on:click={() => addTag(index, tag)}
-																	>
-																		{tag}
-																	</button>
-																</li>
+																	<li>
+																		<button
+																			type="button"
+																			class="w-full text-left p-2 cursor-pointer hover:bg-slate-200 dark:hover:bg-slate-700"
+																			on:click={() => addTag(index, tag)}
+																		>
+																			{tag}
+																		</button>
+																	</li>
 																{/if}
 															{/each}
 														</ul>
