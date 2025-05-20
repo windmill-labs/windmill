@@ -220,7 +220,7 @@ async fn list_available_python_versions() -> error::JsonResult<Vec<String>> {
     #[cfg(feature = "python")]
     return Ok(Json(
         windmill_worker::PyV::list_available_python_versions()
-            .await?
+            .await
             .iter()
             .map(|v| v.to_string())
             .collect_vec(),

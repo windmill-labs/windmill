@@ -67,12 +67,16 @@ impl From<PyV> for PyVAlias {
     }
 }
 impl PyVAlias {
+    fn all<T: From<PyVAlias>>() -> Vec<T> {
+        use PyVAlias::*;
+        vec![Py310.into(), Py311.into(), Py312.into(), Py313.into()]
+    }
     // Get MAJOR part of alias. (semver: MAJOR.MINOR.PATCH)
     fn major(&self) -> u32 {
         use PyVAlias::*;
-        // NOTE: When python 4.0 is out, this function needs to be modified
         match self {
             Py310 | Py311 | Py312 | Py313 => 3,
+            // Py400 | Py401 => 4
         }
     }
 
@@ -143,7 +147,7 @@ impl PyV {
         gravitational_version: Option<PyV>,
     ) -> Result<Self, Error> {
         // Get all versions that can be fetched
-        let all_versions = custom_versions.unwrap_or(PyV::list_available_python_versions().await?);
+        let all_versions = custom_versions.unwrap_or(PyV::list_available_python_versions().await);
 
         // Narrow down to those that satisfy given version specifiers
         let valid = all_versions
@@ -297,12 +301,22 @@ impl PyV {
         pyv.into()
     }
 
-    pub async fn list_available_python_versions() -> anyhow::Result<Vec<Self>> {
+    pub async fn list_available_python_versions() -> Vec<Self> {
+        match Self::list_available_python_versions_inner().await {
+            Ok(pyvs) => pyvs,
+            Err(e) => {
+                tracing::error!(
+                    "Fallback to preconfigured aliases. Cannot list python versions due to this error: {e}"
+                );
+                PyVAlias::all()
+            }
+        }
+    }
+    async fn list_available_python_versions_inner() -> anyhow::Result<Vec<Self>> {
         lazy_static::lazy_static! {
             static ref CACHED_VERSIONS: Arc<RwLock<Option<Vec<PyV>>>> = Arc::new(RwLock::new(None));
             static ref LAST_CHECKED: Arc<RwLock<DateTime<Utc>>> = Arc::new(RwLock::new(Utc::now()));
         }
-
         match (
             Utc::now().signed_duration_since(*LAST_CHECKED.read().await) > Duration::minutes(30),
             CACHED_VERSIONS.read().await.clone(),
