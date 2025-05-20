@@ -366,24 +366,26 @@ lazy_static::lazy_static! {
 
 }
 
-type Envs = &'static [(&'static str, &'static str)];
+type Envs = Vec<(String, String)>;
 
 #[cfg(windows)]
 lazy_static::lazy_static! {
     pub static ref SYSTEM_ROOT: String = std::env::var("SystemRoot").unwrap_or_else(|_| "C:\\Windows".to_string());
     pub static ref USERPROFILE_ENV: String = std::env::var("USERPROFILE").unwrap_or_else(|_| "/tmp".to_string());
-    pub static ref WIN_ENVS: Envs = &[
-        ("SystemRoot", SYSTEM_ROOT.as_str()),
-        ("USERPROFILE", USERPROFILE_ENV.as_str()),
-        ("TMP", std::env::var("TMP").unwrap_or_else(|_| String::from("/tmp")))
-        ("LOCALAPPDATA", std::env::var("LOCALAPPDATA").unwrap_or_else(|_| format!("{}\\AppData\\Local", HOME_ENV.as_str())))
+    static ref TMP: String = std::env::var("TMP").unwrap_or_else(|_| "/tmp".to_string());
+    static ref LOCALAPPDATA: String = std::env::var("LOCALAPPDATA").unwrap_or_else(|_| format!("{}\\AppData\\Local", HOME_ENV.as_str()));
+    pub static ref WIN_ENVS: Envs = vec![
+        ("SystemRoot".into(), SYSTEM_ROOT.clone()),
+        ("USERPROFILE".into(), USERPROFILE_ENV.clone()),
+        ("TMP".into(), TMP.clone()),
+        ("LOCALAPPDATA".into(), LOCALAPPDATA.clone())
     ];
 
 }
 
 #[cfg(not(windows))]
 lazy_static::lazy_static! {
-    pub static ref WIN_ENVS: Envs = &[];
+    pub static ref WIN_ENVS: Envs = vec![];
 }
 
 //only matter if CLOUD_HOSTED
