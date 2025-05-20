@@ -314,6 +314,7 @@
 					)
 				)
 			}
+			itemMap['default'] = itemMap['default'].filter((e) => !e.disabled)
 		}
 		if (tab === 'switch-mode') {
 			itemMap['switch-mode'] = fuzzyFilter(
@@ -652,18 +653,16 @@
 						{#if items.length > 0}
 							<div class={tab === 'switch-mode' ? 'p-2' : 'p-2 border-b'}>
 								{#each items as el}
-									{#if !el.disabled}
-										<QuickMenuItem
-											on:select={el?.action}
-											on:hover={() => (selectedItem = el)}
-											id={el?.search_id}
-											hovered={el?.search_id === selectedItem?.search_id}
-											label={el?.label}
-											icon={el?.icon}
-											shortcutKey={el?.shortcutKey}
-											bind:mouseMoved
-										/>
-									{/if}
+									<QuickMenuItem
+										on:select={el?.action}
+										on:hover={() => (selectedItem = el)}
+										id={el?.search_id}
+										hovered={el?.search_id === selectedItem?.search_id}
+										label={el?.label}
+										icon={el?.icon}
+										shortcutKey={el?.shortcutKey}
+										bind:mouseMoved
+									/>
 								{/each}
 							</div>
 						{/if}
