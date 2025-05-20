@@ -321,7 +321,7 @@
 		}}
 	>
 		<div class="flex flex-col gap-2">
-			<Alert title="Info" type="info">
+			<Alert title="Info" type="info" size="xs">
 				If no command has been run in the past 2 minutes, the next one may take up to 15 seconds to
 				start.
 			</Alert>

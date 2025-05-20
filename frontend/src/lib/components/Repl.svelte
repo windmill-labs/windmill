@@ -1,22 +1,23 @@
 <script lang="ts">
-	import { onDestroy, onMount } from 'svelte'
+	import { onMount } from 'svelte'
 	import { Terminal } from 'xterm'
 	import 'xterm/css/xterm.css'
 	import { runScriptAndPollResult } from './jobs/utils'
 	import { workspaceStore } from '$lib/stores'
-	import { ScriptService, type RunScriptByPathData, type Script } from '$lib/gen'
-	import { Splitpanes, Pane } from 'svelte-splitpanes'
-	import { twMerge } from 'tailwind-merge'
-	import PanelSection from './apps/editor/settingsPanel/common/PanelSection.svelte'
-	import { Badge, Button, Drawer, DrawerContent } from './common'
+	import { Badge, Button, Drawer, DrawerContent, Skeleton } from './common'
 	import Select from './apps/svelte-select/lib/Select.svelte'
 	import { SELECT_INPUT_DEFAULT_STYLE } from '$lib/defaults'
 	import DarkModeObserver from './DarkModeObserver.svelte'
 	import InfiniteList from './InfiniteList.svelte'
-	import { sendUserToast } from '$lib/utils'
-	import { Eye, Play } from 'lucide-svelte'
-	import Cell from './table/Cell.svelte'
+	import { Library, Play } from 'lucide-svelte'
 	import Editor from './Editor.svelte'
+	import { ScriptService, type RunScriptByPathData } from '$lib/gen'
+	import WorkspaceScriptPicker from './flows/pickers/WorkspaceScriptPicker.svelte'
+	import ToggleHubWorkspace from './ToggleHubWorkspace.svelte'
+	import type { SupportedLanguage } from '$lib/common'
+	import HighlightCode from './HighlightCode.svelte'
+	import PickHubScript from './flows/pickers/PickHubScript.svelte'
+	import { getScriptByPath } from '$lib/scripts'
 	let bashEditorDrawer: Drawer | undefined = undefined
 
 	const WORKER_CMD_FLAG = 'worker '
@@ -30,14 +31,18 @@
 		width?: number
 		activeWorkers: string[] | undefined
 	}
+	let scriptPicker: Drawer | undefined = $state()
 	let editor = $state<Editor | null>(null)
 	let darkMode = $state(false)
 	let infiniteList: InfiniteList | undefined = undefined
-	let selected: string = ''
-	let { tag, width, activeWorkers = [tag] }: Props = $props()
-
+	let pick_existing: 'workspace' | 'hub' = $state('workspace')
+	let codeViewer: Drawer | undefined = $state()
+	let filter = $state('')
+	let { tag, activeWorkers = [tag] }: Props = $props()
+	let code: string = $state('')
 	let working_directory = $state('')
 	let prompt = $derived(`$-${working_directory.split('/').at(-1)} `)
+	let codeObj: { language: SupportedLanguage; content: string } | undefined = $state(undefined)
 
 	async function handleCommand(command: string) {
 		term.writeln('')
@@ -75,7 +80,6 @@
 					)
 				}
 			} else {
-				console.log({ command })
 				result = await runScriptAndPollResult({
 					workspace: $workspaceStore!,
 					requestBody: {
@@ -96,15 +100,12 @@
 	}
 
 	function printPrompt() {
-		term.write(`${prompt}`)
+		term.write(prompt)
 		input = ''
 	}
 
 	function replaceInput(newInput: string) {
-		while (input.length > 0) {
-			term.write('\b \b')
-			input = input.slice(0, -1)
-		}
+		clearPrompt()
 		input = newInput
 		term.write(input)
 	}
@@ -120,8 +121,10 @@
 				foreground: '#ffffff'
 			},
 			fontFamily: 'monospace',
-			convertEol: true
+			convertEol: true,
+			rightClickSelectsWord: true
 		})
+
 		term.open(container)
 		printPrompt()
 		term.onData((char) => {
@@ -147,6 +150,10 @@
 
 				case '\u007f': //Backspace
 					if (input.length > 0) {
+						const buffer = term.buffer.active
+						if (buffer.cursorX == 0) {
+							term.write(`\x1b[1A\x1b[${term.cols}C`)
+						}
 						input = input.slice(0, -1)
 						term.write('\b \b')
 					}
@@ -154,7 +161,6 @@
 
 				case '\x1b[A': // Up arrow
 					if (historyIndex > 0) {
-						//if (historyIndex === history.length) currentBuffer = input
 						historyIndex--
 						replaceInput(history[historyIndex])
 					}
@@ -180,27 +186,6 @@
 		})
 	})
 
-	onDestroy(() => {
-		//resetSelected()
-	})
-
-	/*function resetSelected(dispatchEvent: boolean = true) {
-		selected = undefined
-		if (dispatchEvent) {
-			dispatch('select', undefined)
-		}
-	}*/
-
-	function handleError(error: { type: string; error: any }) {
-		if (error.type === 'load') {
-			sendUserToast(`Failed to load bash scripts: ${error.error}`, true)
-		}
-	}
-
-	function handleSelect(bashScript: Script) {
-		console.log({ bashScript })
-	}
-
 	function initLoadBashScripts() {
 		const loadInputsPageFn = async (page: number, perPage: number) => {
 			const bashScripts = await ScriptService.listScripts({
@@ -210,105 +195,163 @@
 				page,
 				perPage
 			})
-			console.log({ bashScripts })
 			return bashScripts
 		}
 		infiniteList?.setLoader(loadInputsPageFn)
+	}
+
+	function clearPrompt() {
+		const buffer = term.buffer.active
+		for (let i = buffer.cursorY; i >= 0; i--) {
+			const line = buffer.getLine(i)
+
+			if (!line) break
+
+			const text = line.translateToString()
+			const postion = text.indexOf(prompt)
+			console.log(text, i)
+			if (postion !== -1) {
+				const x = postion + prompt.length + 1
+				term.write(`\x1b[${x}G`)
+
+				const numSpaces = text.length - x
+				term.write(' '.repeat(numSpaces))
+
+				term.write(`\x1b[${x}G`)
+				break
+			} else {
+				term.write('\x1b[2K\r')
+			}
+
+			term.write(`\x1b[1A`)
+		}
+	}
+
+	async function onScriptPick(e: { detail: { path: string } }) {
+		codeObj = undefined
+		codeViewer?.openDrawer?.()
+		codeObj = await getScriptByPath(e.detail.path ?? '')
+	}
+
+	function replacePromptWithCommand(command: string) {
+		clearPrompt()
+		input = command
+		term.write(command)
+		history.push(command)
+		historyIndex = history.length
+		handleCommand(input)
 	}
 </script>
 
 <DarkModeObserver bind:darkMode />
 
+<Drawer bind:this={codeViewer} size="600px">
+	<DrawerContent title="Code" on:close={codeViewer.closeDrawer}>
+		{#if codeObj}
+			<HighlightCode language={codeObj?.language} code={codeObj?.content} />
+		{:else}
+			<Skeleton layout={[[40]]} />
+		{/if}
+	</DrawerContent>
+</Drawer>
+
+<Drawer bind:this={scriptPicker} size="900px">
+	<DrawerContent title="Code" on:close={scriptPicker.closeDrawer}>
+		{#if pick_existing == 'hub'}
+			<PickHubScript bind:filter kind={'script'} on:pick={onScriptPick}>
+				<ToggleHubWorkspace bind:selected={pick_existing} />
+			</PickHubScript>
+		{:else}
+			<WorkspaceScriptPicker bind:filter kind={'script'} on:pick={onScriptPick}>
+				<ToggleHubWorkspace bind:selected={pick_existing} />
+			</WorkspaceScriptPicker>
+		{/if}
+	</DrawerContent>
+</Drawer>
+
 <Drawer bind:this={bashEditorDrawer} size="800px">
 	<DrawerContent title="Bash Editor" on:close={() => bashEditorDrawer?.closeDrawer?.()}>
 		<Editor
 			bind:this={editor}
-			code={'dad'}
+			{code}
 			lang="bash"
-			scriptLang="mysql"
+			scriptLang="bash"
 			class="w-full h-full"
 		/></DrawerContent
 	>
 </Drawer>
 
-<div class="h-full">
-	<Splitpanes
-		class={twMerge('!overflow-visible')}
-		style={width !== undefined ? `width:${width}px; height: 100%;` : 'width: 100%; height: 100%;'}
-	>
-		<Pane size={25}>
-			<PanelSection title="Bash scripts" id="app-editor-runnable-panel">
-				<div class="flex flex-col gap-1 w-full">
-					<InfiniteList
-						selectedItemId={selected}
-						on:error={(e) => handleError(e.detail)}
-						on:select={(e) => handleSelect(e.detail)}
-						bind:this={infiniteList}
-					>
-						<svelte:fragment let:item>
-							<Cell>
-								<div class="flex flex-row">
-									<input class="truncate" readonly disabled value={item.path} />
-									<Button
-										variant="contained"
-										size="xs2"
-										color="light"
-										btnClasses="bg-transparent hover:bg-surface"
-										on:click={() => {
-											bashEditorDrawer?.openDrawer()
-										}}
-									>
-										<Eye size={16} />
-									</Button>
-									<Button
-										variant="contained"
-										size="xs2"
-										color="light"
-										btnClasses="bg-transparent hover:bg-surface"
-									>
-										<Play size={16} />
-									</Button>
-								</div>
-							</Cell>
-						</svelte:fragment>
-						<svelte:fragment slot="empty">
-							<div class="text-center text-xs text-tertiary my-2">No bash scripts</div>
-						</svelte:fragment>
-					</InfiniteList>
-				</div>
-			</PanelSection>
-		</Pane>
-		<Pane size={75}>
-			<div class="m-1">
-				<div class="flex justify-start w-full mb-2">
-					<Badge
-						color="gray"
-						class="center-center !bg-gray-300 !text-tertiary dark:!bg-gray-700 dark:!text-gray-300 !h-[32px]  rounded-r-none rounded-l-none"
-						>Current worker</Badge
-					>
-					<Select
-						class="grow shrink max-w-full"
-						on:change={(e) => {
-							tag = e.detail.value
-							working_directory = `/tmp/windmill/${tag}`
-							term.reset()
-							printPrompt()
-						}}
-						on:clear={() => {}}
-						clearable={false}
-						value={tag}
-						items={activeWorkers}
-						inputStyles={SELECT_INPUT_DEFAULT_STYLE.inputStyles}
-						containerStyles={darkMode
-							? SELECT_INPUT_DEFAULT_STYLE.containerStylesDark
-							: SELECT_INPUT_DEFAULT_STYLE.containerStyles}
-						portal={false}
-					/>
-				</div>
-				<div bind:this={container}></div>
+<div class="h-screen flex flex-col">
+	<div class="m-1">
+		<div class="flex flex-col">
+			<div class="flex justify-start w-full mb-2">
+				<Badge
+					color="gray"
+					class="center-center !bg-gray-300 !text-tertiary dark:!bg-gray-700 dark:!text-gray-300 !h-[32px]  rounded-r-none rounded-l-none"
+					>Current worker</Badge
+				>
+				<Select
+					class="grow shrink max-w-full"
+					on:change={(e) => {
+						tag = e.detail.value
+						working_directory = `/tmp/windmill/${tag}`
+						term.reset()
+						printPrompt()
+					}}
+					on:clear={() => {}}
+					clearable={false}
+					value={tag}
+					items={activeWorkers}
+					inputStyles={SELECT_INPUT_DEFAULT_STYLE.inputStyles}
+					containerStyles={darkMode
+						? SELECT_INPUT_DEFAULT_STYLE.containerStylesDark
+						: SELECT_INPUT_DEFAULT_STYLE.containerStyles}
+					portal={false}
+				/>
 			</div>
-		</Pane>
-	</Splitpanes>
+			<div class="flex justify-start w-full mb-2">
+				<Badge
+					color="gray"
+					class="center-center !bg-gray-300 !text-tertiary dark:!bg-gray-700 dark:!text-gray-300 !h-[32px]  rounded-r-none rounded-l-none"
+					>Full path</Badge
+				>
+				<input type="text" bind:value={working_directory} />
+			</div>
+		</div>
+
+		<div bind:this={container}></div>
+	</div>
+	<div class="flex flex-col h-full gap-1 mt-2">
+		<div class="flex flex-row w-full justify-between">
+			<div class="flex flex-row">
+				<Button
+					btnClasses="!font-medium text-tertiary "
+					size="xs"
+					spacingSize="md"
+					color="light"
+					startIcon={{ icon: Play }}
+					title="Run bash script"
+					on:click={() => {
+						replacePromptWithCommand(code)
+					}}
+				>
+					Run
+				</Button>
+				<Button
+					btnClasses="!font-medium text-tertiary "
+					size="xs"
+					spacingSize="md"
+					color="light"
+					on:click={scriptPicker.openDrawer}
+					startIcon={{ icon: Library }}
+					title="Explore other scripts"
+				>
+					Library
+				</Button>
+			</div>
+		</div>
+		<Editor bind:this={editor} bind:code lang="bash" scriptLang="bash" class="w-full h-full" />
+	</div>
 </div>
 
 <style>
