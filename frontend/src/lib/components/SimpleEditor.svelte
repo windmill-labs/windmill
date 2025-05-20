@@ -79,6 +79,7 @@
 	let placeholderVisible = $state(false)
 	let mounted = $state(false)
 
+	let valueAfterDispose: string | undefined = undefined
 	let {
 		lang,
 		code = $bindable(),
@@ -130,6 +131,9 @@
 	const uri = `file:///${hash}.${langToExt(lang)}`
 
 	export function getCode(): string {
+		if (valueAfterDispose != undefined) {
+			return valueAfterDispose
+		}
 		return editor?.getValue() ?? ''
 	}
 
@@ -406,6 +410,7 @@
 
 		editor.onDidBlurEditorText(() => {
 			dispatch('blur')
+
 			code = getCode()
 		})
 
@@ -535,6 +540,7 @@
 
 	onDestroy(() => {
 		try {
+			valueAfterDispose = getCode()
 			vimDisposable?.dispose()
 			model && model.dispose()
 			editor && editor.dispose()

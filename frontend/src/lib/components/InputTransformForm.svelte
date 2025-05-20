@@ -573,9 +573,6 @@
 							<SimpleEditor
 								bind:this={monaco}
 								bind:code={arg.expr}
-								on:change={() => {
-									dispatch('change', { argName, arg })
-								}}
 								{extraLib}
 								lang="javascript"
 								shouldBindKey={false}
@@ -595,6 +592,7 @@
 								autoHeight
 								loadAsync
 							/>
+							<!-- <input type="text" bind:value={arg.expr} /> -->
 						</div>
 						{#if !hideHelpButton}
 							<DynamicInputHelpBox />

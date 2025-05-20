@@ -217,7 +217,6 @@
 
 	console.log('uri', uri)
 
-
 	function computeUri(filePath: string, scriptLang: string | undefined) {
 		let file
 		if (filePath.includes('.')) {
@@ -265,7 +264,11 @@
 		}
 	}
 
+	let valueAfterDispose: string | undefined = undefined
 	export function getCode(): string {
+		if (valueAfterDispose != undefined) {
+			return valueAfterDispose
+		}
 		return editor?.getValue() ?? ''
 	}
 
@@ -1489,6 +1492,7 @@
 
 	onDestroy(() => {
 		console.log('destroying editor')
+		valueAfterDispose = getCode()
 		destroyed = true
 		disposeMethod && disposeMethod()
 		websocketInterval && clearInterval(websocketInterval)
