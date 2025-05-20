@@ -33,6 +33,12 @@ pub mod cache;
 pub mod db;
 pub mod ee;
 pub mod email_ee;
+pub mod email_oss;
+
+#[cfg(feature = "private")]
+pub use email_ee::*;
+#[cfg(not(feature = "private"))]
+pub use email_oss::*;
 pub mod error;
 pub mod external_ip;
 pub mod flow_status;
@@ -42,12 +48,25 @@ pub mod indexer;
 pub mod job_metrics;
 #[cfg(feature = "parquet")]
 pub mod job_s3_helpers_ee;
+#[cfg(feature = "parquet")]
+pub mod job_s3_helpers_oss;
+
+#[cfg(all(feature = "parquet", feature = "private"))]
+pub use job_s3_helpers_ee::*;
+#[cfg(all(feature = "parquet", not(feature = "private")))]
+pub use job_s3_helpers_oss::*;
 
 pub mod jobs;
 pub mod jwt;
 pub mod more_serde;
 pub mod oauth2;
 pub mod otel_ee;
+pub mod otel_oss;
+
+#[cfg(feature = "private")]
+pub use otel_ee::*;
+#[cfg(not(feature = "private"))]
+pub use otel_oss::*;
 pub mod queue;
 pub mod s3_helpers;
 pub mod schedule;
@@ -55,7 +74,19 @@ pub mod schema;
 pub mod scripts;
 pub mod server;
 pub mod stats_ee;
+pub mod stats_oss;
 pub mod teams_ee;
+pub mod teams_oss;
+
+#[cfg(feature = "private")]
+pub use stats_ee::*;
+#[cfg(not(feature = "private"))]
+pub use stats_oss::*;
+
+#[cfg(feature = "private")]
+pub use teams_ee::*;
+#[cfg(not(feature = "private"))]
+pub use teams_oss::*;
 pub mod tracing_init;
 pub mod users;
 pub mod utils;

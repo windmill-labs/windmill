@@ -10,6 +10,7 @@ path = "./src/lib.rs"
 
 [features]
 enterprise = ["windmill-common/enterprise"]
+private = ["windmill-common/private"]
 
 [dependencies]
 serde.workspace = true

@@ -51,6 +51,7 @@ lto = "thin"
 default = []
 agent_worker_server = ["windmill-api/agent_worker_server"]
 enterprise = ["windmill-worker/enterprise", "windmill-queue/enterprise", "windmill-api/enterprise", "dep:windmill-autoscaling", "windmill-autoscaling/enterprise", "windmill-git-sync/enterprise", "windmill-common/prometheus", "windmill-common/enterprise"]
+private = ["windmill-worker/private", "windmill-queue/private", "windmill-api/private", "windmill-autoscaling/private", "windmill-git-sync/private", "windmill-common/private", "windmill-audit/private", "windmill-indexer/private"]
 enterprise_saml = ["windmill-api/enterprise_saml", "oauth2"]
 stripe = ["windmill-api/stripe"]
 benchmark = ["windmill-api/benchmark", "windmill-worker/benchmark", "windmill-queue/benchmark", "windmill-common/benchmark"]

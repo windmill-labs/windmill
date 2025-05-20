@@ -12,6 +12,7 @@ path = "src/lib.rs"
 default = []
 prometheus = ["dep:prometheus", "windmill-common/prometheus"]
 enterprise = ["windmill-queue/enterprise", "windmill-git-sync/enterprise", "windmill-common/enterprise", "dep:pem", "dep:tokio-util"]
+private = ["windmill-queue/private", "windmill-git-sync/private", "windmill-common/private"]
 mssql = ["dep:tiberius"]
 bigquery = ["dep:gcp_auth"]
 benchmark = ["windmill-queue/benchmark", "windmill-common/benchmark"]

@@ -11,6 +11,7 @@ path = "src/lib.rs"
 [features]
 default = []
 enterprise = ["windmill-queue/enterprise", "windmill-audit/enterprise", "windmill-git-sync/enterprise", "windmill-common/enterprise", "windmill-worker/enterprise"]
+private = ["windmill-queue/private", "windmill-audit/private", "windmill-git-sync/private", "windmill-common/private", "windmill-worker/private"]
 stripe = []
 agent_worker_server = []
 enterprise_saml = ["dep:samael", "dep:libxml"]

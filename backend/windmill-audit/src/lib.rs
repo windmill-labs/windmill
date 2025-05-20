@@ -1,7 +1,13 @@
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
 
+pub mod audit_oss;
 pub mod audit_ee;
+
+#[cfg(feature = "private")]
+pub use audit_ee::*;
+#[cfg(not(feature = "private"))]
+pub use audit_oss::*;
 
 #[derive(sqlx::Type, Serialize, Deserialize, Debug)]
 #[sqlx(type_name = "ACTION_KIND", rename_all = "lowercase")]

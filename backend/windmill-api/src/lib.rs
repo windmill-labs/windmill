@@ -11,12 +11,18 @@ use crate::db::ApiAuthed;
 use crate::ee::ExternalJwks;
 #[cfg(feature = "embedding")]
 use crate::embeddings::load_embeddings_db;
-#[cfg(feature = "oauth2")]
+#[cfg(all(feature = "oauth2", feature = "private"))]
 use crate::oauth2_ee::AllClients;
-#[cfg(feature = "oauth2")]
+#[cfg(all(feature = "oauth2", feature = "private"))]
 use crate::oauth2_ee::SlackVerifier;
-#[cfg(feature = "smtp")]
+#[cfg(all(feature = "oauth2", not(feature = "private")))]
+use crate::oauth2_oss::AllClients;
+#[cfg(all(feature = "oauth2", not(feature = "private")))]
+use crate::oauth2_oss::SlackVerifier;
+#[cfg(all(feature = "smtp", feature = "private"))]
 use crate::smtp_server_ee::SmtpServer;
+#[cfg(all(feature = "smtp", not(feature = "private")))]
+use crate::smtp_server_oss::SmtpServer;
 
 #[cfg(feature = "mcp")]
 use crate::mcp::{setup_mcp_server, Runner as McpRunner};
@@ -27,8 +33,10 @@ use crate::{
     webhook_util::WebhookShared,
 };
 
-#[cfg(feature = "agent_worker_server")]
+#[cfg(all(feature = "agent_worker_server", feature = "private"))]
 use agent_workers_ee::AgentCache;
+#[cfg(all(feature = "agent_worker_server", not(feature = "private")))]
+use agent_workers_oss::AgentCache;
 
 use anyhow::Context;
 use argon2::Argon2;
@@ -58,11 +66,16 @@ use windmill_common::db::UserDB;
 use windmill_common::worker::CLOUD_HOSTED;
 use windmill_common::{utils::GIT_VERSION, BASE_URL, INSTANCE_NAME};
 
+#[cfg(feature = "private")]
 use crate::scim_ee::has_scim_token;
+#[cfg(not(feature = "private"))]
+use crate::scim_oss::has_scim_token;
 use windmill_common::error::AppError;
 
-#[cfg(feature = "agent_worker_server")]
+#[cfg(all(feature = "agent_worker_server", feature = "private"))]
 mod agent_workers_ee;
+#[cfg(all(feature = "agent_worker_server", not(feature = "private")))]
+mod agent_workers_oss;
 mod ai;
 mod apps;
 pub mod args;
@@ -86,55 +99,99 @@ mod http_trigger_args;
 mod http_trigger_auth;
 #[cfg(feature = "http_trigger")]
 pub mod http_triggers;
+#[cfg(feature = "private")]
 mod indexer_ee;
+#[cfg(not(feature = "private"))]
+mod indexer_oss;
 mod inputs;
 mod integration;
 #[cfg(feature = "postgres_trigger")]
 mod postgres_triggers;
 
 mod approvals;
-#[cfg(feature = "enterprise")]
+#[cfg(all(feature = "enterprise", feature = "private"))]
 mod apps_ee;
-#[cfg(all(feature = "enterprise", feature = "gcp_trigger"))]
+#[cfg(all(feature = "enterprise", not(feature = "private")))]
+mod apps_oss;
+#[cfg(all(feature = "enterprise", feature = "gcp_trigger", feature = "private"))]
 mod gcp_triggers_ee;
-#[cfg(feature = "enterprise")]
+#[cfg(all(feature = "enterprise", feature = "gcp_trigger", not(feature = "private")))]
+mod gcp_triggers_oss;
+#[cfg(all(feature = "enterprise", feature = "private"))]
 mod git_sync_ee;
-#[cfg(feature = "parquet")]
+#[cfg(all(feature = "enterprise", not(feature = "private")))]
+mod git_sync_oss;
+#[cfg(all(feature = "parquet", feature = "private"))]
 mod job_helpers_ee;
+#[cfg(all(feature = "parquet", not(feature = "private")))]
+mod job_helpers_oss;
 pub mod job_metrics;
 pub mod jobs;
-#[cfg(all(feature = "enterprise", feature = "kafka"))]
+#[cfg(all(feature = "enterprise", feature = "kafka", feature = "private"))]
 mod kafka_triggers_ee;
+#[cfg(all(feature = "enterprise", feature = "kafka", not(feature = "private")))]
+mod kafka_triggers_oss;
 #[cfg(feature = "mqtt_trigger")]
 mod mqtt_triggers;
-#[cfg(all(feature = "enterprise", feature = "nats"))]
+#[cfg(all(feature = "enterprise", feature = "nats", feature = "private"))]
 mod nats_triggers_ee;
-#[cfg(feature = "oauth2")]
+#[cfg(all(feature = "enterprise", feature = "nats", not(feature = "private")))]
+mod nats_triggers_oss;
+#[cfg(all(feature = "oauth2", feature = "private"))]
 pub mod oauth2_ee;
+#[cfg(all(feature = "oauth2", not(feature = "private")))]
+pub mod oauth2_oss;
+#[cfg(feature = "private")]
 mod oidc_ee;
+#[cfg(not(feature = "private"))]
+mod oidc_oss;
 mod raw_apps;
 mod resources;
+#[cfg(feature = "private")]
 mod saml_ee;
+#[cfg(not(feature = "private"))]
+mod saml_oss;
 mod schedule;
+#[cfg(feature = "private")]
 mod scim_ee;
+#[cfg(not(feature = "private"))]
+mod scim_oss;
 mod scripts;
 mod service_logs;
 mod settings;
 mod slack_approvals;
-#[cfg(feature = "smtp")]
+#[cfg(all(feature = "smtp", feature = "private"))]
 mod smtp_server_ee;
-#[cfg(all(feature = "enterprise", feature = "sqs_trigger"))]
+#[cfg(all(feature = "smtp", not(feature = "private")))]
+mod smtp_server_oss;
+#[cfg(all(feature = "enterprise", feature = "sqs_trigger", feature = "private"))]
 mod sqs_triggers_ee;
+#[cfg(all(feature = "enterprise", feature = "sqs_trigger", not(feature = "private")))]
+mod sqs_triggers_oss;
+#[cfg(feature = "private")]
 mod teams_approvals_ee;
+#[cfg(not(feature = "private"))]
+mod teams_approvals_oss;
 mod trigger_helpers;
 
 mod static_assets;
-#[cfg(all(feature = "stripe", feature = "enterprise"))]
+#[cfg(all(feature = "stripe", feature = "enterprise", feature = "private"))]
 mod stripe_ee;
+#[cfg(all(feature = "stripe", feature = "enterprise", not(feature = "private")))]
+mod stripe_oss;
+#[cfg(feature = "private")]
 mod teams_ee;
+#[cfg(not(feature = "private"))]
+mod teams_oss;
 mod tracing_init;
 mod triggers;
 mod users;
+mod users_oss;
+
+#[cfg(feature = "private")]
+pub use users_ee::*;
+#[cfg(not(feature = "private"))]
+pub use users_oss::*;
 mod users_ee;
 mod utils;
 mod variables;
@@ -143,6 +200,12 @@ pub mod webhook_util;
 mod websocket_triggers;
 mod workers;
 mod workspaces;
+mod workspaces_oss;
+
+#[cfg(feature = "private")]
+pub use workspaces_ee::*;
+#[cfg(not(feature = "private"))]
+pub use workspaces_oss::*;
 mod workspaces_ee;
 mod workspaces_export;
 mod workspaces_extra;
@@ -278,7 +341,10 @@ pub async fn run_server(
         .allow_headers([http::header::CONTENT_TYPE, http::header::AUTHORIZATION])
         .allow_origin(Any);
 
-    let sp_extension = Arc::new(saml_ee::build_sp_extension().await?);
+    #[cfg(feature = "private")]
+let sp_extension = Arc::new(saml_ee::build_sp_extension().await?);
+#[cfg(not(feature = "private"))]
+let sp_extension = Arc::new(saml_oss::build_sp_extension().await?);
 
     if server_mode {
         #[cfg(feature = "embedding")]
@@ -600,9 +666,14 @@ pub async fn run_server(
                 .nest("/concurrency_groups", concurrency_groups::global_service())
                 .nest("/scripts_u", scripts::global_unauthed_service())
                 .nest("/apps_u", {
-                    #[cfg(feature = "enterprise")]
+                    #[cfg(all(feature = "enterprise", feature = "private"))]
                     {
                         apps_ee::global_unauthed_service()
+                    }
+                    
+                    #[cfg(all(feature = "enterprise", not(feature = "private")))]
+                    {
+                        apps_oss::global_unauthed_service()
                     }
 
                     #[cfg(not(feature = "enterprise"))]
@@ -644,9 +715,14 @@ pub async fn run_server(
                 )
                 .route("/slack", post(slack_approvals::slack_app_callback_handler))
                 .nest("/teams", {
-                    #[cfg(feature = "enterprise")]
+                    #[cfg(all(feature = "enterprise", feature = "private"))]
                     {
                         teams_ee::teams_service()
+                    }
+                    
+                    #[cfg(all(feature = "enterprise", not(feature = "private")))]
+                    {
+                        teams_oss::teams_service()
                     }
 
                     #[cfg(not(feature = "enterprise"))]
@@ -660,21 +736,40 @@ pub async fn run_server(
                 )
                 .route(
                     "/w/:workspace_id/jobs/teams_approval/:job_id",
-                    get(teams_approvals_ee::request_teams_approval),
+                    get({
+                        #[cfg(feature = "private")]
+                        {
+                            teams_approvals_ee::request_teams_approval
+                        }
+                        #[cfg(not(feature = "private"))]
+                        {
+                            teams_approvals_oss::request_teams_approval
+                        }
+                    }),
                 )
                 .nest("/w/:workspace_id/github_app", {
-                    #[cfg(feature = "enterprise")]
+                    #[cfg(all(feature = "enterprise", feature = "private"))]
                     {
                         git_sync_ee::workspaced_service()
+                    }
+                    
+                    #[cfg(all(feature = "enterprise", not(feature = "private")))]
+                    {
+                        git_sync_oss::workspaced_service()
                     }
 
                     #[cfg(not(feature = "enterprise"))]
                     Router::new()
                 })
                 .nest("/github_app", {
-                    #[cfg(feature = "enterprise")]
+                    #[cfg(all(feature = "enterprise", feature = "private"))]
                     {
                         git_sync_ee::global_service()
+                    }
+                    
+                    #[cfg(all(feature = "enterprise", not(feature = "private")))]
+                    {
+                        git_sync_oss::global_service()
                     }
 
                     #[cfg(not(feature = "enterprise"))]

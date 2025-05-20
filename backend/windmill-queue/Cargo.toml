@@ -11,6 +11,7 @@ path = "src/lib.rs"
 [features]
 default = []
 enterprise = ["windmill-common/enterprise"]
+private = ["windmill-common/private"]
 cloud = []
 benchmark = ["windmill-common/benchmark"]
 prometheus = ["dep:prometheus"]

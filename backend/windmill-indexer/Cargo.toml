@@ -12,6 +12,7 @@ path = "src/lib.rs"
 default = []
 parquet = ["dep:object_store"]
 enterprise = []
+private = ["windmill-common/private"]
 
 [dependencies]
 windmill-common.workspace = true
