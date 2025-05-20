@@ -601,7 +601,7 @@ impl PyV {
         #[cfg(windows)]
         {
             child_cmd
-                .env("SystemRoot", SYSTEM_ROOT.as_str())
+                .env("SystemRoot", crate::SYSTEM_ROOT.as_str())
                 .env("USERPROFILE", crate::USERPROFILE_ENV.as_str())
                 .env(
                     "TMP",
@@ -648,7 +648,7 @@ impl PyV {
         #[cfg(windows)]
         {
             child_cmd
-                .env("SystemRoot", SYSTEM_ROOT.as_str())
+                .env("SystemRoot", crate::SYSTEM_ROOT.as_str())
                 .env("USERPROFILE", crate::USERPROFILE_ENV.as_str())
                 .env(
                     "TMP",
