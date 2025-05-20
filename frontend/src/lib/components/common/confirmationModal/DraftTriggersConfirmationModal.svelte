@@ -29,10 +29,10 @@
 	function toggleTrigger(trigger: Trigger, selected: 'discard' | 'deploy') {
 		if (selected === 'discard') {
 			if (trigger.isDraft) {
-				selectedTriggers = selectedTriggers.filter((t) => t.id !== trigger.id)
+				selectedTriggers = selectedTriggers.filter((t) => !t.isDraft || t.id !== trigger.id)
 			} else {
 				selectedTriggers = selectedTriggers.filter(
-					(t) => t.path !== trigger.path && t.type !== trigger.type
+					(t) => t.isDraft || t.type !== trigger.type || t.path !== trigger.path
 				)
 			}
 		} else if (!isSelected(selectedTriggers, trigger)) {
@@ -134,31 +134,31 @@
 												value={'discard'}
 												{item}
 												small
-												class="data-[state=on]:text-white data-[state=on]:bg-red-400"
+												class="data-[state=on]:text-white data-[state=on]:bg-red-400 w-[54px] justify-center"
 											/>
 											<ToggleButton
 												label={!trigger.isDraft && trigger.draftConfig ? 'Update' : 'Deploy'}
 												value={'deploy'}
 												{item}
 												small
-												class="data-[state=on]:bg-marine-400 data-[state=on]:text-white data-[state=on]:dark:bg-marine-50 data-[state=on]:dark:text-primary-inverse"
+												class="data-[state=on]:bg-marine-400 data-[state=on]:text-white data-[state=on]:dark:bg-marine-50 data-[state=on]:dark:text-primary-inverse w-[54px] justify-center"
 											/>
 										</ToggleButtonGroup>
 									</div>
 								{:else if permission === 'admin-only'}
-									<span
-										class="text-xs font-semibold px-1.5 py-1.5 bg-red-400 text-white rounded whitespace-nowrap"
+									<div
+										class="text-xs font-semibold px-1.5 py-1.5 bg-red-400 text-white rounded whitespace-nowrap w-[114px] text-center"
 										title="Only admins can deploy http triggers"
 									>
 										Admin only
-									</span>
+									</div>
 								{:else if permission === 'invalid-config'}
-									<span
-										class="text-xs font-semibold px-1.5 py-1.5 bg-red-400 text-white rounded whitespace-nowrap"
+									<div
+										class="text-xs font-semibold px-1.5 py-1.5 bg-red-400 text-white rounded whitespace-nowrap w-[114px] text-center"
 										title="Invalid config"
 									>
 										Invalid config
-									</span>
+									</div>
 								{/if}
 							</td>
 						</tr>
