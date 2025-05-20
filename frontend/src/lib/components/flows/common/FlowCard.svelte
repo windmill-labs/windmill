@@ -5,12 +5,11 @@
 	export let title: string | undefined = undefined
 	export let summary: string | undefined = undefined
 	export let noEditor: boolean
-	export let width: number = 0
 	export let noHeader = false
 	export let flowModuleValue: FlowModuleValue | undefined = undefined
 </script>
 
-<div class="flex flex-col h-full" bind:clientWidth={width}>
+<div class="flex flex-col h-full">
 	{#if !noEditor && !noHeader}
 		<div>
 			<FlowCardHeader on:setHash on:reload {title} bind:summary {flowModuleValue}>
