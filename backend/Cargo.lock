@@ -14436,6 +14436,7 @@ dependencies = [
  "v8",
  "windmill-api",
  "windmill-api-client",
+ "windmill-audit",
  "windmill-autoscaling",
  "windmill-common",
  "windmill-git-sync",
