@@ -543,7 +543,7 @@ pub async fn process_completed_job(
                     #[cfg(feature = "benchmark")]
                     bench,
                 )
-                .warn_after_seconds(10)
+                .warn_after_seconds(20)
                 .await?;
                 add_time!(bench, "updated flow status END");
                 return Ok(r);
