@@ -9,6 +9,9 @@ use sqlx::types::Json as SqlxJson;
 use std::collections::HashMap;
 use windmill_common::db::UserDB;
 use windmill_common::worker::to_raw_value;
+#[cfg(feature = "private")]
+use crate::gcp_triggers_ee;
+
 use windmill_common::{
     error::{Error as WindmillError, Result as WindmillResult},
     utils::empty_as_none,
@@ -64,54 +67,100 @@ pub enum SubscriptionMode {
 }
 
 pub fn workspaced_service() -> Router {
-    Router::new()
+    #[cfg(feature = "private")]
+    {
+        return gcp_triggers_ee::workspaced_service();
+    }
+    #[cfg(not(feature = "private"))]
+    {
+        Router::new()
+    }
 }
 
 pub fn start_consuming_gcp_pubsub_event(
-    _db: DB,
-    mut _killpill_rx: tokio::sync::broadcast::Receiver<()>,
+    db: DB,
+    mut killpill_rx: tokio::sync::broadcast::Receiver<()>,
 ) -> () {
-    // implementation is not open source
+    #[cfg(feature = "private")]
+    {
+        gcp_triggers_ee::start_consuming_gcp_pubsub_event(db, killpill_rx);
+    }
+    #[cfg(not(feature = "private"))]
+    {
+        let _ = (db, killpill_rx);
+        // implementation is not open source
+    }
 }
 
 pub async fn manage_google_subscription(
-    _authed: ApiAuthed,
-    _db: &DB,
-    _workspace_id: &str,
-    _gcp_resource_path: &str,
-    _path: &str,
-    _topic_id: &str,
-    _subscription_id: &mut Option<String>,
-    _base_endpoint: &mut Option<String>,
-    _subscription_mode: SubscriptionMode,
-    _create_update_config: Option<CreateUpdateConfig>,
-    _trigger_mode: bool,
-    _is_flow: bool
+    authed: ApiAuthed,
+    db: &DB,
+    workspace_id: &str,
+    gcp_resource_path: &str,
+    path: &str,
+    topic_id: &str,
+    subscription_id: &mut Option<String>,
+    base_endpoint: &mut Option<String>,
+    subscription_mode: SubscriptionMode,
+    create_update_config: Option<CreateUpdateConfig>,
+    trigger_mode: bool,
+    is_flow: bool
 ) -> WindmillResult<CreateUpdateConfig> {
-    Ok(CreateUpdateConfig::default())
+    #[cfg(feature = "private")]
+    {
+        return gcp_triggers_ee::manage_google_subscription(authed, db, workspace_id, gcp_resource_path, path, topic_id, subscription_id, base_endpoint, subscription_mode, create_update_config, trigger_mode, is_flow).await;
+    }
+    #[cfg(not(feature = "private"))]
+    {
+        let _ = (authed, db, workspace_id, gcp_resource_path, path, topic_id, subscription_id, base_endpoint, subscription_mode, create_update_config, trigger_mode, is_flow);
+        Ok(CreateUpdateConfig::default())
+    }
 }
 
 pub async fn process_google_push_request(
-    _headers: HeaderMap,
-    _request: Request,
+    headers: HeaderMap,
+    request: Request,
 ) -> Result<(String, HashMap<String, Box<RawValue>>), WindmillError> {
-    Ok((String::new(), HashMap::new()))
+    #[cfg(feature = "private")]
+    {
+        return gcp_triggers_ee::process_google_push_request(headers, request).await;
+    }
+    #[cfg(not(feature = "private"))]
+    {
+        let _ = (headers, request);
+        Ok((String::new(), HashMap::new()))
+    }
 }
 
 pub async fn validate_jwt_token(
-    _db: &DB,
-    _user_db: UserDB,
-    _authed: ApiAuthed,
-    _headers: &HeaderMap,
-    _gcp_resource_path: &str,
-    _workspace_id: &str,
-    _delivery_config: &PushConfig,
+    db: &DB,
+    user_db: UserDB,
+    authed: ApiAuthed,
+    headers: &HeaderMap,
+    gcp_resource_path: &str,
+    workspace_id: &str,
+    delivery_config: &PushConfig,
 ) -> Result<(), windmill_common::error::Error> {
-    Ok(())
+    #[cfg(feature = "private")]
+    {
+        return gcp_triggers_ee::validate_jwt_token(db, user_db, authed, headers, gcp_resource_path, workspace_id, delivery_config).await;
+    }
+    #[cfg(not(feature = "private"))]
+    {
+        let _ = (db, user_db, authed, headers, gcp_resource_path, workspace_id, delivery_config);
+        Ok(())
+    }
 }
 
 pub fn gcp_push_route_handler() -> Router {
-    Router::new()
+    #[cfg(feature = "private")]
+    {
+        return gcp_triggers_ee::gcp_push_route_handler();
+    }
+    #[cfg(not(feature = "private"))]
+    {
+        Router::new()
+    }
 }
 
 #[derive(FromRow, Deserialize, Serialize, Debug)]

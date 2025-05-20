@@ -5,21 +5,46 @@
  * Please see the included NOTICE for copyright information and
  * LICENSE-AGPL for a copy of the license.
  */
+#[cfg(feature = "private")]
+use crate::saml_ee;
+
 #![allow(non_snake_case)]
 
 use axum::{routing::post, Router};
 
-pub struct ServiceProviderExt();
+pub struct ServiceProviderExt(); // This struct remains as is.
 
 pub async fn build_sp_extension() -> anyhow::Result<ServiceProviderExt> {
-    return Ok(ServiceProviderExt());
+    #[cfg(feature = "private")]
+    {
+        return saml_ee::build_sp_extension().await;
+    }
+    #[cfg(not(feature = "private"))]
+    {
+        return Ok(ServiceProviderExt());
+    }
 }
 
 pub fn global_service() -> Router {
-    Router::new().route("/acs", post(acs))
+    #[cfg(feature = "private")]
+    {
+        // Assuming the ee version also configures the acs route internally or returns a configured Router
+        return saml_ee::global_service();
+    }
+    #[cfg(not(feature = "private"))]
+    {
+        Router::new().route("/acs", post(acs))
+    }
 }
 
 pub async fn acs() -> String {
-    // Implementation is not open source as it is a Windmill Enterprise Edition feature
-    "SAML available only in enterprise version".to_string()
+    #[cfg(feature = "private")]
+    {
+        return saml_ee::acs().await;
+    }
+    #[cfg(not(feature = "private"))]
+    {
+        // Implementation is not open source as it is a Windmill Enterprise Edition feature
+        "SAML available only in enterprise version".to_string()
+    }
 }

@@ -5,6 +5,8 @@
  * Please see the included NOTICE for copyright information and
  * LICENSE-AGPL for a copy of the license.
  */
+// This file is `oauth2_ee.rs` and provides the Enterprise Edition implementations
+// for oauth2 functionalities, used when the "private" feature is enabled.
 
 use std::{collections::HashMap, fmt::Debug};
 
@@ -30,12 +32,19 @@ use std::str;
 
 pub fn global_service() -> Router {
     Router::new()
-        .route("/list_logins", get(list_logins))
-        .route("/list_connects", get(list_connects))
+        .route("/list_logins", get(list_logins)) // list_logins itself will be conditional
+        .route("/list_connects", get(list_connects)) // list_connects itself will be conditional
 }
 
 pub fn workspaced_service() -> Router {
-    Router::new()
+    #[cfg(feature = "private")]
+    {
+        return oauth2_ee::workspaced_service();
+    }
+    #[cfg(not(feature = "private"))]
+    {
+        Router::new()
+    }
 }
 
 #[cfg(feature = "oauth2")]
@@ -81,16 +90,15 @@ pub struct AllClients {
 
 #[cfg(feature = "oauth2")]
 pub async fn build_oauth_clients(
+    base_url: &str,
+    oauths_from_config: Option<HashMap<String, OAuthClient>>,
     _base_url: &str,
     _oauths_from_config: Option<HashMap<String, OAuthClient>>,
     _db: &DB,
 ) -> anyhow::Result<AllClients> {
-    // Implementation is not open source
-    return Ok(AllClients {
-        logins: HashMap::default(),
-        connects: HashMap::default(),
-        slack: None,
-    });
+    // TODO: Implement the actual Enterprise Edition logic for build_oauth_clients.
+    // This function is called from `oauth2_oss.rs` when the "private" feature is enabled.
+    panic!("oauth2_ee::build_oauth_clients (Enterprise Edition) not implemented.");
 }
 
 #[cfg(feature = "oauth2")]
@@ -113,61 +121,46 @@ struct Logins {
     saml: Option<String>,
 }
 async fn list_logins() -> error::JsonResult<Logins> {
-    // Implementation is not open source
-    return Ok(Json(Logins { oauth: vec![], saml: None }));
+    // TODO: Implement the actual Enterprise Edition logic for list_logins.
+    panic!("oauth2_ee::list_logins (Enterprise Edition) not implemented.");
 }
 
 #[cfg(feature = "oauth2")]
-async fn list_connects() -> error::JsonResult<Vec<String>> {
-    Ok(Json(
-        (&OAUTH_CLIENTS.read().await.connects)
-            .keys()
-            .map(|x| x.to_owned())
-            .collect_vec(),
-    ))
+// This is the EE version of list_connects when feature "oauth2" is enabled.
+// It's called as `list_connects_oauth2` from oauth2_oss.rs.
+async fn list_connects_oauth2() -> error::JsonResult<Vec<String>> {
+    // TODO: Implement the actual Enterprise Edition logic for list_connects_oauth2.
+    panic!("oauth2_ee::list_connects_oauth2 (Enterprise Edition) not implemented.");
 }
 
 #[cfg(not(feature = "oauth2"))]
-async fn list_connects() -> error::JsonResult<Vec<String>> {
-    // Implementation is not open source
-    return Ok(Json(vec![]));
+// This is the EE version of list_connects when feature "oauth2" is NOT enabled.
+// It's called as `list_connects_no_oauth2` from oauth2_oss.rs.
+async fn list_connects_no_oauth2() -> error::JsonResult<Vec<String>> {
+    // TODO: Implement the actual Enterprise Edition logic for list_connects_no_oauth2.
+    panic!("oauth2_ee::list_connects_no_oauth2 (Enterprise Edition) not implemented.");
 }
 
 pub async fn _refresh_token<'c>(
+    tx: Transaction<'c, Postgres>,
+    path: &str,
+    w_id: &str,
+    id: i32,
     _tx: Transaction<'c, Postgres>,
     _path: &str,
     _w_id: &str,
     _id: i32,
     _db: &DB,
 ) -> error::Result<String> {
-    // Implementation is not open source
-    Err(error::Error::BadRequest(
-        "Not implemented in Windmill's Open Source repository".to_string(),
-    ))
+    // TODO: Implement the actual Enterprise Edition logic for _refresh_token.
+    panic!("oauth2_ee::_refresh_token (Enterprise Edition) not implemented.");
 }
 
-pub async fn check_nb_of_user(db: &DB) -> error::Result<()> {
-    let nb_users_sso =
-        sqlx::query_scalar!("SELECT COUNT(*) FROM password WHERE login_type != 'password'",)
-            .fetch_one(db)
-            .await?;
-    if nb_users_sso.unwrap_or(0) >= 10 {
-        return Err(error::Error::BadRequest(
-            "You have reached the maximum number of oauth users accounts (10) without an enterprise license"
-                .to_string(),
-        ));
-    }
-
-    let nb_users = sqlx::query_scalar!("SELECT COUNT(*) FROM password",)
-        .fetch_one(db)
-        .await?;
-    if nb_users.unwrap_or(0) >= 50 {
-        return Err(error::Error::BadRequest(
-            "You have reached the maximum number of accounts (50) without an enterprise license"
-                .to_string(),
-        ));
-    }
-    return Ok(());
+pub async fn check_nb_of_user(_db: &DB) -> error::Result<()> {
+    // TODO: Implement the actual Enterprise Edition logic for check_nb_of_user.
+    // This might involve different user limits or licensing checks.
+    // For example, EE version might bypass these checks or have different limits.
+    Ok(()) // Placeholder: Assume EE version has different logic or no limits here.
 }
 
 #[derive(Clone, Debug)]

@@ -1,23 +1,41 @@
+#[cfg(feature = "private")]
+use crate::kafka_triggers_ee;
+
 use crate::db::DB;
 use axum::Router;
 use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize)]
-pub struct KafkaResourceSecurity {}
+pub struct KafkaResourceSecurity {} // Stays in OSS
 
 pub fn workspaced_service() -> Router {
-    Router::new()
+    #[cfg(feature = "private")]
+    {
+        return kafka_triggers_ee::workspaced_service();
+    }
+    #[cfg(not(feature = "private"))]
+    {
+        Router::new()
+    }
 }
 
 pub fn start_kafka_consumers(
-    _db: DB,
-    mut _killpill_rx: tokio::sync::broadcast::Receiver<()>,
+    db: DB,
+    mut killpill_rx: tokio::sync::broadcast::Receiver<()>,
 ) -> () {
-    // implementation is not open source
+    #[cfg(feature = "private")]
+    {
+        kafka_triggers_ee::start_kafka_consumers(db, killpill_rx);
+    }
+    #[cfg(not(feature = "private"))]
+    {
+        let _ = (db, killpill_rx);
+        // implementation is not open source
+    }
 }
 
 #[derive(Serialize, Deserialize)]
-pub enum KafkaTriggerConfigConnection {}
+pub enum KafkaTriggerConfigConnection {} // Stays in OSS
 
 #[derive(Serialize, Clone)]
 pub struct KafkaTrigger {
