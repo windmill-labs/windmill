@@ -1063,7 +1063,7 @@ async fn handle_python_deps(
     occupancy_metrics: &mut Option<&mut OccupancyMetrics>,
     precomputed_agent_info: Option<PrecomputedAgentInfo>,
     annotations: PythonAnnotations,
-) -> error::Result<(PyVersion, Vec<String>)> {
+) -> error::Result<(PyV, Vec<String>)> {
     create_dependencies_dir(job_dir).await;
 
     let mut additional_python_paths: Vec<String> = WORKER_CONFIG
@@ -1074,7 +1074,6 @@ async fn handle_python_deps(
         .unwrap_or_else(|| vec![])
         .clone();
 
-    let annotations = windmill_common::worker::PythonAnnotations::parse(inner_content);
     let (pyv, resolved_lines) = match requirements_o {
         // Deployed
         Some(r) => {
