@@ -15,7 +15,7 @@ import {
 	HttpTriggerService,
 	GcpTriggerService
 } from '$lib/gen'
-import { updateTriggersCount, type Trigger } from './utils'
+import { getLightConfig, updateTriggersCount, type Trigger } from './utils'
 import type { Writable } from 'svelte/store'
 import type { TriggerType } from './utils'
 import type { UserExt } from '$lib/stores'
@@ -116,12 +116,7 @@ export class Triggers {
 				isDraft: false,
 				canWrite: canWrite(trigger.path, trigger.extra_perms, user),
 				draftConfig: draftConfig,
-				lightConfig:
-					type === 'schedule'
-						? { schedule: trigger.schedule, enable: trigger.enable }
-						: type === 'http'
-							? { route_path: trigger.route_path, http_method: trigger.http_method }
-							: undefined
+				lightConfig: getLightConfig(type, trigger)
 			}
 		})
 

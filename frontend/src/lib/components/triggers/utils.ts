@@ -18,6 +18,7 @@ import { saveNatsTriggerFromCfg } from './nats/utils'
 import { saveMqttTriggerFromCfg } from './mqtt/utils'
 import { saveGcpTriggerFromCfg } from './gcp/utils'
 import type { Triggers } from './triggers.svelte'
+import { emptyString } from '$lib/utils'
 
 export type TriggerType =
 	| 'webhook'
@@ -354,4 +355,70 @@ export function handleConfigChange(
 	}
 
 	onConfigChange?.(nCfg, saveDisabled, updated)
+}
+
+export function getLightConfig(
+	triggerType: TriggerType,
+	trigger: Record<string, any>
+): Record<string, any> | undefined {
+	if (triggerType === 'schedule') {
+		return { schedule: trigger.schedule, enable: trigger.enable, summary: trigger.summary }
+	} else if (triggerType === 'http') {
+		return { route_path: trigger.route_path, http_method: trigger.http_method }
+	} else if (triggerType === 'websocket') {
+		return { url: trigger.url }
+	} else if (triggerType === 'postgres') {
+		return { postgres_resource_path: trigger.postgres_resource_path }
+	} else if (triggerType === 'kafka') {
+		return { kafka_resource_path: trigger.kafka_resource_path, topics: trigger.topics }
+	} else if (triggerType === 'nats') {
+		return { nats_resource_path: trigger.nats_resource_path, subjects: trigger.subjects }
+	} else if (triggerType === 'mqtt') {
+		return {
+			mqtt_resource_path: trigger.mqtt_resource_path,
+			subscribe_topics: trigger.subscribe_topics
+		}
+	} else if (triggerType === 'sqs') {
+		return { queue_url: trigger.queue_url }
+	} else if (triggerType === 'gcp') {
+		return { gcp_resource_path: trigger.gcp_resource_path, topic: trigger.topic }
+	} else {
+		return undefined
+	}
+}
+
+export function getTriggerLabel(trigger: Trigger): string {
+	const { type, isDraft, draftConfig, lightConfig, path } = trigger
+	const config = draftConfig ?? lightConfig
+
+	if (type === 'webhook') {
+		return 'Webhook'
+	} else if (type === 'email') {
+		return 'Email'
+	} else if (type === 'cli') {
+		return 'CLI'
+	} else if (type === 'http' && !emptyString(config?.route_path)) {
+		return `${(draftConfig?.http_method ?? lightConfig?.http_method ?? 'post').toUpperCase()} ${draftConfig?.route_path ?? lightConfig?.route_path}`
+	} else if (type === 'schedule' && config?.summary) {
+		return `${config?.summary}`
+	} else if (type === 'kafka' && config?.topics && config?.kafka_resource_path) {
+		return `${config?.kafka_resource_path} - ${config?.topics.join(', ')}`
+	} else if (type === 'nats' && config?.subjects && config?.nats_resource_path) {
+		return `${config?.nats_resource_path} - ${config?.subjects.join(', ')}`
+	} else if (type === 'mqtt' && config?.subscribe_topics && config?.mqtt_resource_path) {
+		const topics = config?.subscribe_topics.map((topic: any) => topic.topic).join(', ')
+		return `${config?.mqtt_resource_path} - ${topics}`
+	} else if (type === 'sqs' && config?.queue_url) {
+		return `${config?.queue_url}`
+	} else if (type === 'gcp' && config?.gcp_resource_path && config?.topic) {
+		return `${config?.gcp_resource_path} - ${config?.topic}`
+	} else if (type === 'websocket' && config?.url) {
+		return `${config?.url}`
+	} else if (isDraft && draftConfig?.path) {
+		return `${draftConfig?.path}`
+	} else if (isDraft) {
+		return `New ${type.replace(/s$/, '')} trigger`
+	} else {
+		return path ?? ''
+	}
 }
