@@ -41,8 +41,6 @@
 
 	let savedPrimarySchedule: ScheduleTrigger | undefined = undefined
 
-	let savedDraftTriggers: Trigger[] = []
-
 	async function loadScript(): Promise<void> {
 		fullyLoaded = false
 		if (scriptLoadedFromUrl != undefined && scriptLoadedFromUrl.path == $page.params.path) {
@@ -102,14 +100,12 @@
 				savedScript = structuredClone(scriptWithDraft)
 				if (scriptWithDraft.draft != undefined) {
 					script = scriptWithDraft.draft
+					scriptBuilder?.setDraftTriggers(script.draft_triggers)
 					if (script['primary_schedule']) {
 						savedPrimarySchedule = script['primary_schedule']
 						scriptBuilder?.setPrimarySchedule(savedPrimarySchedule)
 					}
-					if (script['draft_triggers']) {
-						savedDraftTriggers = script['draft_triggers']
-						scriptBuilder?.setDraftTriggers(savedDraftTriggers)
-					}
+
 					if (!scriptWithDraft.draft_only) {
 						reloadAction = async () => {
 							scriptLoadedFromUrl = undefined
@@ -161,8 +157,7 @@
 
 		if (script) {
 			initialPath = script.path
-			savedDraftTriggers = script.draft_triggers ?? []
-			scriptBuilder?.setDraftTriggers(savedDraftTriggers)
+			scriptBuilder?.setDraftTriggers(script.draft_triggers)
 			scriptBuilder?.setCode(script.content)
 			if (topHash) {
 				script.parent_hash = topHash
@@ -186,6 +181,7 @@
 		}
 		diffDrawer.closeDrawer()
 		goto(`/scripts/edit/${savedScript.draft.path}`)
+		scriptLoadedFromUrl = undefined
 		loadScript()
 	}
 
@@ -203,6 +199,7 @@
 			})
 		}
 		goto(`/scripts/edit/${savedScript.path}`)
+		scriptLoadedFromUrl = undefined
 		loadScript()
 	}
 
@@ -220,7 +217,6 @@
 		{initialArgs}
 		{diffDrawer}
 		{savedPrimarySchedule}
-		{savedDraftTriggers}
 		searchParams={$page.url.searchParams}
 		on:deploy={(e) => {
 			let newHash = e.detail

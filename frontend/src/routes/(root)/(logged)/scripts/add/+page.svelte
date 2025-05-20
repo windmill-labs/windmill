@@ -32,12 +32,10 @@
 	const initialState = $page.url.hash != '' ? $page.url.hash.slice(1) : undefined
 
 	let scriptBuilder: ScriptBuilder | undefined = undefined
-	let savedDraftTriggers: Trigger[] = []
 
 	function decodeStateAndHandleError(state) {
 		try {
 			const decoded = decodeState(state)
-			savedDraftTriggers = decoded.draft_triggers
 			return decoded
 		} catch (e) {
 			console.error('Error decoding state', e)
@@ -62,7 +60,7 @@
 		}
 	}
 
-	let script: NewScript =
+	let script: NewScript & { draft_triggers: Trigger[] } =
 		!path && initialState != undefined ? decodeStateAndHandleError(initialState) : defaultScript()
 
 	async function loadTemplate(): Promise<void> {
@@ -122,7 +120,6 @@
 	searchParams={$page.url.searchParams}
 	{script}
 	{showMeta}
-	{savedDraftTriggers}
 	replaceStateFn={(path) => replaceState(path, $page.state)}
 >
 	<UnsavedConfirmationModal {getInitialAndModifiedValues} />

@@ -61,8 +61,8 @@
 
 	let savedPrimarySchedule: ScheduleTrigger | undefined = stateLoadedFromUrl?.primarySchedule
 
-	let savedDraftTriggers: Trigger[] = []
-	let savedSelectedTriggerIndex: number | undefined = undefined
+	let draftTriggersFromUrl: Trigger[] | undefined = undefined
+	let selectedTriggerIndexFromUrl: number | undefined = undefined
 
 	let flowBuilder: FlowBuilder | undefined = undefined
 
@@ -86,12 +86,15 @@
 			})
 
 			const draftOrDeployed = cleanValueProperties(savedFlow?.draft || savedFlow)
-			const urlScript = cleanValueProperties(stateLoadedFromUrl.flow)
+			const urlScript = cleanValueProperties({
+				...stateLoadedFromUrl.flow,
+				draft_triggers: stateLoadedFromUrl.draft_triggers
+			})
 			flow = stateLoadedFromUrl.flow
-			savedDraftTriggers = stateLoadedFromUrl.draft_triggers
-			savedSelectedTriggerIndex = stateLoadedFromUrl.selected_trigger
-			flowBuilder?.setDraftTriggers(savedDraftTriggers)
-			flowBuilder?.setSelectedTriggerIndex(savedSelectedTriggerIndex)
+			draftTriggersFromUrl = stateLoadedFromUrl.draft_triggers
+			selectedTriggerIndexFromUrl = stateLoadedFromUrl.selected_trigger
+			flowBuilder?.setDraftTriggers(draftTriggersFromUrl)
+			flowBuilder?.setSelectedTriggerIndex(selectedTriggerIndexFromUrl)
 			const selectedId = stateLoadedFromUrl?.selectedId ?? 'settings-metadata'
 			const reloadAction = () => {
 				stateLoadedFromUrl = undefined
@@ -144,14 +147,15 @@
 						}
 					: undefined
 			} as Flow & {
-				draft?: Flow
+				draft?: Flow & {
+					draft_triggers?: Trigger[]
+				}
 			}
 			if (flowWithDraft.draft != undefined && !nobackenddraft) {
 				flow = flowWithDraft.draft
 				savedPrimarySchedule = flowWithDraft?.draft?.['primary_schedule']
-				savedDraftTriggers = flowWithDraft?.draft?.['draft_triggers']
 				flowBuilder?.setPrimarySchedule(savedPrimarySchedule)
-				flowBuilder?.setDraftTriggers(savedDraftTriggers)
+				flowBuilder?.setDraftTriggers(flowWithDraft?.draft?.['draft_triggers'])
 
 				if (!flowWithDraft.draft_only) {
 					const deployed = cleanValueProperties(flowWithDraft)
@@ -188,6 +192,7 @@
 				}
 			} else {
 				flow = flowWithDraft
+				flowBuilder?.setDraftTriggers(undefined)
 			}
 		}
 
@@ -210,6 +215,7 @@
 			return
 		}
 		diffDrawer.closeDrawer()
+		stateLoadedFromUrl = undefined
 		goto(`/flows/edit/${savedFlow.draft.path}`)
 		loadFlow()
 	}
@@ -227,6 +233,7 @@
 				path: savedFlow.path
 			})
 		}
+		stateLoadedFromUrl = undefined
 		goto(`/flows/edit/${savedFlow.path}`)
 		loadFlow()
 	}
@@ -261,8 +268,8 @@
 	bind:savedFlow
 	{diffDrawer}
 	{savedPrimarySchedule}
-	{savedDraftTriggers}
-	{savedSelectedTriggerIndex}
+	{draftTriggersFromUrl}
+	{selectedTriggerIndexFromUrl}
 	bind:version
 	bind:getInitialAndModifiedValues
 >

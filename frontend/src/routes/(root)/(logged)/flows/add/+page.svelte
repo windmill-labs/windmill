@@ -57,8 +57,8 @@
 	})
 	const flowStateStore = writable<FlowState>({})
 
-	let savedDraftTriggers: Trigger[] = []
-	let savedSelectedTriggerIndex: number | undefined = undefined
+	let draftTriggersFromUrl: Trigger[] | undefined = undefined
+	let selectedTriggerIndexFromUrl: number | undefined = undefined
 	async function loadFlow() {
 		loading = true
 		let flow: Flow = {
@@ -103,10 +103,10 @@
 
 			flow = state.flow
 			pathStoreInit = state.path
-			savedDraftTriggers = state.draft_triggers
-			savedSelectedTriggerIndex = state.selected_trigger
-			flowBuilder?.setDraftTriggers(savedDraftTriggers)
-			flowBuilder?.setSelectedTriggerIndex(savedSelectedTriggerIndex)
+			draftTriggersFromUrl = state.draft_triggers
+			selectedTriggerIndexFromUrl = state.selected_trigger
+			flowBuilder?.setDraftTriggers(draftTriggersFromUrl)
+			flowBuilder?.setSelectedTriggerIndex(selectedTriggerIndexFromUrl)
 			state?.selectedId && (selectedId = state?.selectedId)
 		} else {
 			if (templatePath) {
@@ -185,8 +185,8 @@
 	{flowStateStore}
 	{selectedId}
 	{loading}
-	{savedDraftTriggers}
-	{savedSelectedTriggerIndex}
+	{draftTriggersFromUrl}
+	{selectedTriggerIndexFromUrl}
 >
 	<UnsavedConfirmationModal {getInitialAndModifiedValues} />
 </FlowBuilder>

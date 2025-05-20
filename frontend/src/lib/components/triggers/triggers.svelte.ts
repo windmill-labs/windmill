@@ -76,8 +76,9 @@ export class Triggers {
 		this.#updateDraftCallback?.()
 	}
 
-	getTriggersSnapshot(): Trigger[] {
-		return $state.snapshot(this.#triggers)
+	getDraftTriggersSnapshot(): Trigger[] | undefined {
+		const draftTriggers = this.#triggers.filter((t) => t.draftConfig)
+		return draftTriggers.length > 0 ? $state.snapshot(draftTriggers) : undefined
 	}
 
 	getSelectedTriggerSnapshot(): number | undefined {

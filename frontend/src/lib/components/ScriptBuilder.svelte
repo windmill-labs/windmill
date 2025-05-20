@@ -87,7 +87,7 @@
 	import DraftTriggersConfirmationModal from './common/confirmationModal/DraftTriggersConfirmationModal.svelte'
 	import { Triggers } from './triggers/triggers.svelte'
 
-	export let script: NewScript
+	export let script: NewScript & { draft_triggers?: Trigger[] }
 	export let fullyLoaded: boolean = true
 	export let initialPath: string = ''
 	export let template: 'docker' | 'bunnative' | 'script' = 'script'
@@ -96,7 +96,7 @@
 	export let showMeta: boolean = false
 	export let neverShowMeta: boolean = false
 	export let diffDrawer: DiffDrawer | undefined = undefined
-	export let savedScript: NewScriptWithDraft | undefined = undefined
+	export let savedScript: NewScriptWithDraftAndDraftTriggers | undefined = undefined
 	export let searchParams: URLSearchParams = new URLSearchParams()
 	export let disableHistoryChange = false
 	export let replaceStateFn: (url: string) => void = (url) =>
@@ -105,13 +105,19 @@
 	export let savedPrimarySchedule: ScheduleTrigger | undefined = undefined
 	export let functionExports: ((exports: ScriptBuilderFunctionExports) => void) | undefined =
 		undefined
-	export let savedDraftTriggers: Trigger[] = []
-	export let savedSelectedTriggerIndex: number | undefined = undefined
+
+	type NewScriptWithDraftAndDraftTriggers = NewScript & {
+		draft?: NewScript & { draft_triggers?: Trigger[] }
+		hash: string
+	}
 
 	export function getInitialAndModifiedValues(): SavedAndModifiedValue {
 		return {
 			savedValue: savedScript,
-			modifiedValue: script
+			modifiedValue: {
+				...script,
+				draft_triggers: structuredClone(triggersState.getDraftTriggersSnapshot())
+			}
 		}
 	}
 
@@ -167,12 +173,9 @@
 		loadTriggers()
 	}
 
-	export function setDraftTriggers(triggers: Trigger[]) {
-		if (triggers.length === 0) {
-			return
-		}
+	export function setDraftTriggers(triggers: Trigger[] | undefined) {
 		triggersState.setTriggers([
-			...triggers,
+			...(triggers ?? []),
 			...triggersState.triggers.filter((t) => !t.draftConfig)
 		])
 		loadTriggers()
@@ -222,9 +225,9 @@
 		[
 			{ type: 'webhook', path: '', isDraft: false },
 			{ type: 'email', path: '', isDraft: false },
-			...savedDraftTriggers
+			...(script.draft_triggers ?? [])
 		],
-		savedSelectedTriggerIndex,
+		undefined,
 		saveSessionDraft
 	)
 
@@ -310,26 +313,23 @@
 		})
 	}
 
-	$: !disableHistoryChange &&
+	$: !disableHistoryChange && encodeScriptState(script)
+
+	function encodeScriptState(script: NewScript) {
 		replaceStateFn(
 			'#' +
 				encodeState({
 					...script,
-					draft_triggers: triggersState.getTriggersSnapshot().filter((t) => t.draftConfig)
+					draft_triggers: structuredClone(triggersState.getDraftTriggersSnapshot())
 				})
 		)
+	}
 
 	let timeout: NodeJS.Timeout | undefined = undefined
 	function saveSessionDraft() {
 		timeout && clearTimeout(timeout)
 		timeout = setTimeout(() => {
-			replaceStateFn(
-				'#' +
-					encodeState({
-						...script,
-						draft_triggers: triggersState.getTriggersSnapshot().filter((t) => t.draftConfig)
-					})
-			)
+			encodeScriptState(script)
 		}, 500)
 	}
 
@@ -536,7 +536,10 @@
 				)
 			}
 
-			savedScript = structuredClone(script) as NewScriptWithDraft
+			const { draft_triggers: _, ...newScript } = structuredClone(script)
+			savedScript = structuredClone(newScript) as NewScriptWithDraft
+			triggersState.setTriggers([])
+
 			if (!disableHistoryChange) {
 				history.replaceState(history.state, '', `/scripts/edit/${script.path}`)
 			}
@@ -559,7 +562,8 @@
 
 		if (savedScript) {
 			const draftOrDeployed = cleanValueProperties(savedScript.draft || savedScript)
-			const current = cleanValueProperties(script)
+			const currentTriggers = structuredClone(triggersState.getDraftTriggersSnapshot())
+			const current = cleanValueProperties({ ...script, draft_triggers: currentTriggers })
 			if (!forceSave && orderedJsonStringify(draftOrDeployed) === orderedJsonStringify(current)) {
 				sendUserToast('No changes detected, ignoring', false, [
 					{
@@ -640,6 +644,7 @@
 					}
 				})
 			}
+			const draftTriggers = triggersState.getDraftTriggersSnapshot()
 			await DraftService.createDraft({
 				workspace: $workspaceStore!,
 				requestBody: {
@@ -647,7 +652,7 @@
 					typ: 'script',
 					value: {
 						...script,
-						draft_triggers: triggersState.triggers.filter((t) => t.draftConfig)
+						draft_triggers: draftTriggers
 					}
 				}
 			})
@@ -656,8 +661,11 @@
 				...(initialPath == '' || savedScript?.draft_only
 					? { ...structuredClone(script), draft_only: true }
 					: savedScript),
-				draft: structuredClone(script)
-			} as NewScriptWithDraft
+				draft: {
+					...structuredClone(script),
+					draft_triggers: draftTriggers
+				}
+			} as NewScriptWithDraftAndDraftTriggers
 
 			let savedAtNewPath = false
 			if (initialPath == '' || (savedScript?.draft_only && script.path !== initialPath)) {
@@ -680,7 +688,7 @@
 
 	function computeDropdownItems(
 		initialPath: string,
-		savedScript: NewScriptWithDraft | undefined,
+		savedScript: NewScriptWithDraftAndDraftTriggers | undefined,
 		diffDrawer: DiffDrawer | undefined
 	) {
 		let dropdownItems: { label: string; onClick: () => void }[] =
@@ -708,12 +716,19 @@
 											}
 											await syncWithDeployed()
 
+											const currentDraftTriggers = structuredClone(
+												triggersState.getDraftTriggersSnapshot()
+											)
+
 											diffDrawer?.openDrawer()
 											diffDrawer?.setDiff({
 												mode: 'normal',
 												deployed: deployedValue ?? savedScript,
 												draft: savedScript['draft'],
-												current: script
+												current: {
+													...script,
+													draft_triggers: currentDraftTriggers
+												}
 											})
 										}
 									}

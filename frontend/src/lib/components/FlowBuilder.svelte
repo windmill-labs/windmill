@@ -88,11 +88,7 @@
 	export let loading = false
 	export let flowStore: Writable<OpenFlow>
 	export let flowStateStore: Writable<FlowState>
-	export let savedFlow:
-		| (Flow & {
-				draft?: Flow | undefined
-		  })
-		| undefined = undefined
+	export let savedFlow: FlowWithDraftAndDraftTriggers | undefined = undefined
 	export let diffDrawer: DiffDrawer | undefined = undefined
 	export let customUi: FlowBuilderWhitelabelCustomUi = {}
 	export let disableAi: boolean = false
@@ -100,8 +96,8 @@
 	export let savedPrimarySchedule: ScheduleTrigger | undefined = undefined // used to set the primary schedule in the legacy primaryScheduleStore
 	export let version: number | undefined = undefined
 	export let setSavedraftCb: ((cb: () => void) => void) | undefined = undefined
-	export let savedDraftTriggers: Trigger[] = []
-	export let savedSelectedTriggerIndex: number | undefined = undefined
+	export let draftTriggersFromUrl: Trigger[] | undefined = undefined
+	export let selectedTriggerIndexFromUrl: number | undefined = undefined
 
 	let initialPathStore = writable(initialPath)
 	$: initialPathStore.set(initialPath)
@@ -134,10 +130,19 @@
 
 	$: setContext('customUi', customUi)
 
+	type FlowWithDraftAndDraftTriggers = Flow & {
+		draft?: Flow & {
+			draft_triggers?: Trigger[]
+		}
+	}
+
 	export function getInitialAndModifiedValues(): SavedAndModifiedValue {
 		return {
 			savedValue: savedFlow,
-			modifiedValue: $flowStore
+			modifiedValue: {
+				...$flowStore,
+				draft_triggers: structuredClone(triggersState.getDraftTriggersSnapshot())
+			}
 		}
 	}
 	let onLatest = true
@@ -173,12 +178,9 @@
 		primaryScheduleStore.set(schedule)
 	}
 
-	export function setDraftTriggers(triggers: Trigger[]) {
-		if (triggers.length === 0) {
-			return
-		}
+	export function setDraftTriggers(triggers: Trigger[] | undefined) {
 		triggersState.setTriggers([
-			...triggers,
+			...(triggers ?? []),
 			...triggersState.triggers.filter((t) => !t.draftConfig)
 		])
 		loadTriggers()
@@ -197,7 +199,12 @@
 		}
 		if (savedFlow) {
 			const draftOrDeployed = cleanValueProperties(savedFlow.draft || savedFlow)
-			const current = cleanValueProperties({ ...$flowStore, path: $pathStore })
+			const currentDraftTriggers = structuredClone(triggersState.getDraftTriggersSnapshot())
+			const current = cleanValueProperties({
+				...$flowStore,
+				path: $pathStore,
+				draft_triggers: currentDraftTriggers
+			})
 			if (!forceSave && orderedJsonStringify(draftOrDeployed) === orderedJsonStringify(current)) {
 				sendUserToast('No changes detected, ignoring', false, [
 					{
@@ -261,7 +268,7 @@
 					value: {
 						...flow,
 						path: $pathStore,
-						draft_triggers: triggersState.triggers.filter((t) => t.draftConfig)
+						draft_triggers: triggersState.getDraftTriggersSnapshot()
 					}
 				}
 			})
@@ -276,11 +283,10 @@
 					: savedFlow),
 				draft: {
 					...structuredClone($flowStore),
-					path: $pathStore
+					path: $pathStore,
+					draft_triggers: structuredClone(triggersState.getDraftTriggersSnapshot())
 				}
-			} as Flow & {
-				draft?: Flow
-			}
+			} as FlowWithDraftAndDraftTriggers
 
 			let savedAtNewPath = false
 			if (newFlow) {
@@ -453,6 +459,7 @@
 				...structuredClone($flowStore),
 				path: $pathStore
 			} as Flow
+			triggersState.setTriggers([])
 			loadingSave = false
 			dispatch('deploy', $pathStore)
 		} catch (err) {
@@ -480,7 +487,7 @@
 						flow: $flowStore,
 						path: $pathStore,
 						selectedId: $selectedIdStore,
-						draft_triggers: triggersState.getTriggersSnapshot().filter((t) => t.draftConfig),
+						draft_triggers: triggersState.getDraftTriggersSnapshot(),
 						selected_trigger: triggersState.getSelectedTriggerSnapshot()
 					})
 				)
@@ -543,9 +550,9 @@
 		[
 			{ type: 'webhook', path: '', isDraft: false },
 			{ type: 'email', path: '', isDraft: false },
-			...savedDraftTriggers
+			...(draftTriggersFromUrl ?? savedFlow?.draft?.draft_triggers ?? [])
 		],
-		savedSelectedTriggerIndex,
+		selectedTriggerIndexFromUrl,
 		saveSessionDraft
 	)
 
@@ -1382,12 +1389,16 @@
 
 								await syncWithDeployed()
 
+								const currentDraftTriggers = structuredClone(
+									triggersState.getDraftTriggersSnapshot()
+								)
+
 								diffDrawer?.openDrawer()
 								diffDrawer?.setDiff({
 									mode: 'normal',
 									deployed: deployedValue ?? savedFlow,
-									draft: savedFlow['draft'],
-									current: { ...$flowStore, path: $pathStore }
+									draft: savedFlow?.draft,
+									current: { ...$flowStore, path: $pathStore, draft_triggers: currentDraftTriggers }
 								})
 							}}
 							disabled={!savedFlow}
