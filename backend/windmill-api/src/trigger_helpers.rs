@@ -1,4 +1,3 @@
-use quick_cache::sync::Cache;
 use serde::Deserialize;
 use serde_json::value::RawValue;
 use std::collections::HashMap;
@@ -7,30 +6,13 @@ use windmill_common::{
     flows::FlowModuleValue,
     get_latest_deployed_hash_for_path, get_latest_flow_version_info_for_path,
     scripts::{ScriptHash, ScriptLang},
+    triggers::{RunnableFormat, RunnableFormatVersion, TriggerKind, RUNNABLE_FORMAT_VERSION_CACHE},
     worker::to_raw_value,
     FlowVersionInfo,
 };
-use windmill_queue::{PushArgsOwned, TriggerKind};
+use windmill_queue::PushArgsOwned;
 
 use crate::db::DB;
-
-type RunnableFormatCacheKey = (String, i64, TriggerKind);
-
-lazy_static::lazy_static! {
-    pub static ref RUNNABLE_FORMAT_VERSION_CACHE: Cache<RunnableFormatCacheKey, RunnableFormat> = Cache::new(1000);
-}
-
-#[derive(Debug, Clone, Eq, PartialEq, Hash, Copy)]
-pub struct RunnableFormat {
-    pub version: RunnableFormatVersion,
-    pub has_preprocessor: bool,
-}
-
-#[derive(Debug, Clone, Eq, PartialEq, Hash, Copy)]
-pub enum RunnableFormatVersion {
-    V1,
-    V2,
-}
 
 struct ScriptInfo {
     has_preprocessor: Option<bool>,
@@ -181,11 +163,14 @@ pub async fn get_runnable_format(
                 "SELECT
                     value->'preprocessor_module'->'value' as \"preprocessor_module: _\",
                     schema as \"schema: _\"
-                FROM flow 
-                WHERE workspace_id = $1
-                    AND path = $2",
+                FROM flow_version
+                WHERE 
+                    path = $1
+                    AND workspace_id = $2
+                ORDER BY created_at DESC
+                LIMIT 1",
+                path,
                 workspace_id,
-                path
             )
             .fetch_one(db)
             .await?;

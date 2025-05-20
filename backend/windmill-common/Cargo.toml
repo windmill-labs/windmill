@@ -73,6 +73,8 @@ windmill-macros.workspace = true
 windmill-parser-sql.workspace = true
 jsonwebtoken.workspace = true
 backon.workspace = true
+strum.workspace = true
+strum_macros.workspace = true
 
 semver.workspace = true
 croner = "2.0.6"
