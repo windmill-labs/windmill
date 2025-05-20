@@ -580,7 +580,7 @@
 							<ToggleButtonGroup
 								let:item
 								bind:selected={filterBy}
-								on:selected={() => {
+								on:selected={(e) => {
 									if (e.detail != filterBy) {
 										path = null
 										user = null
