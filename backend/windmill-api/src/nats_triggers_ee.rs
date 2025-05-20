@@ -1,20 +1,38 @@
+#[cfg(feature = "private")]
+use crate::nats_triggers_ee;
+
 use crate::db::DB;
 use axum::Router;
 use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize)]
-pub struct NatsResourceAuth {}
+pub struct NatsResourceAuth {} // Stays in OSS
 
 pub fn workspaced_service() -> Router {
-    Router::new()
+    #[cfg(feature = "private")]
+    {
+        return nats_triggers_ee::workspaced_service();
+    }
+    #[cfg(not(feature = "private"))]
+    {
+        Router::new()
+    }
 }
 
-pub fn start_nats_consumers(_db: DB, mut _killpill_rx: tokio::sync::broadcast::Receiver<()>) -> () {
-    // implementation is not open source
+pub fn start_nats_consumers(db: DB, mut killpill_rx: tokio::sync::broadcast::Receiver<()>) -> () {
+    #[cfg(feature = "private")]
+    {
+        nats_triggers_ee::start_nats_consumers(db, killpill_rx);
+    }
+    #[cfg(not(feature = "private"))]
+    {
+        let _ = (db, killpill_rx);
+        // implementation is not open source
+    }
 }
 
 #[derive(Serialize, Deserialize)]
-pub enum NatsTriggerConfigConnection {}
+pub enum NatsTriggerConfigConnection {} // Stays in OSS
 
 #[derive(Serialize, Clone)]
 pub struct NatsTrigger {

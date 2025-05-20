@@ -1,3 +1,6 @@
+#[cfg(feature = "private")]
+use crate::users_ee;
+
 use std::sync::Arc;
 
 use crate::db::ApiAuthed;
@@ -11,31 +14,55 @@ use http::StatusCode;
 use windmill_common::error::{Error, Result};
 
 pub async fn create_user(
-    _authed: ApiAuthed,
-    _db: DB,
-    _webhook: WebhookShared,
-    _argon2: Arc<Argon2<'_>>,
-    mut _nu: NewUser,
+    authed: ApiAuthed,
+    db: DB,
+    webhook: WebhookShared,
+    argon2: Arc<Argon2<'_>>,
+    mut nu: NewUser,
 ) -> Result<(StatusCode, String)> {
-    Err(Error::internal_err(
-        "Not implemented in Windmill's Open Source repository".to_string(),
-    ))
+    #[cfg(feature = "private")]
+    {
+        return users_ee::create_user(authed, db, webhook, argon2, nu).await;
+    }
+    #[cfg(not(feature = "private"))]
+    {
+        let _ = (authed, db, webhook, argon2, nu);
+        Err(Error::internal_err(
+            "Not implemented in Windmill's Open Source repository".to_string(),
+        ))
+    }
 }
 
 pub async fn set_password(
-    _db: DB,
-    _argon2: Arc<Argon2<'_>>,
-    _authed: ApiAuthed,
-    _user_email: &str,
-    _ep: EditPassword,
+    db: DB,
+    argon2: Arc<Argon2<'_>>,
+    authed: ApiAuthed,
+    user_email: &str,
+    ep: EditPassword,
 ) -> Result<String> {
-    Err(Error::internal_err(
-        "Not implemented in Windmill's Open Source repository".to_string(),
-    ))
+    #[cfg(feature = "private")]
+    {
+        return users_ee::set_password(db, argon2, authed, user_email, ep).await;
+    }
+    #[cfg(not(feature = "private"))]
+    {
+        let _ = (db, argon2, authed, user_email, ep);
+        Err(Error::internal_err(
+            "Not implemented in Windmill's Open Source repository".to_string(),
+        ))
+    }
 }
 
-pub fn send_email_if_possible(_subject: &str, _content: &str, _to: &str) {
-    tracing::warn!(
-        "send_email_if_possible is not implemented in Windmill's Open Source repository"
-    );
+pub fn send_email_if_possible(subject: &str, content: &str, to: &str) {
+    #[cfg(feature = "private")]
+    {
+        users_ee::send_email_if_possible(subject, content, to);
+    }
+    #[cfg(not(feature = "private"))]
+    {
+        let _ = (subject, content, to);
+        tracing::warn!(
+            "send_email_if_possible is not implemented in Windmill's Open Source repository"
+        );
+    }
 }

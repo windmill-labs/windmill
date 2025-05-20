@@ -1,3 +1,6 @@
+#[cfg(feature = "private")]
+use crate::sqs_triggers_ee;
+
 use crate::db::DB;
 use axum::Router;
 use serde::{Deserialize, Serialize};
@@ -5,11 +8,26 @@ use windmill_common::auth::aws::AwsAuthResourceType;
 
 
 pub fn workspaced_service() -> Router {
-    Router::new()
+    #[cfg(feature = "private")]
+    {
+        return sqs_triggers_ee::workspaced_service();
+    }
+    #[cfg(not(feature = "private"))]
+    {
+        Router::new()
+    }
 }
 
-pub fn start_sqs(_db: DB, mut _killpill_rx: tokio::sync::broadcast::Receiver<()>) -> () {
-    // implementation is not open source
+pub fn start_sqs(db: DB, mut killpill_rx: tokio::sync::broadcast::Receiver<()>) -> () {
+    #[cfg(feature = "private")]
+    {
+        sqs_triggers_ee::start_sqs(db, killpill_rx);
+    }
+    #[cfg(not(feature = "private"))]
+    {
+        let _ = (db, killpill_rx);
+        // implementation is not open source
+    }
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]

@@ -5,19 +5,43 @@
  * Please see the included NOTICE for copyright information and
  * LICENSE-AGPL for a copy of the license.
  */
+#[cfg(feature = "private")]
+use crate::scim_ee;
 
 use axum::{middleware::Next, response::Response, routing::get, Router};
 use hyper::Request;
 
 pub fn global_service() -> Router {
-    Router::new().route("/ee", get(ee))
+    #[cfg(feature = "private")]
+    {
+        return scim_ee::global_service();
+    }
+    #[cfg(not(feature = "private"))]
+    {
+        Router::new().route("/ee", get(ee)) // ee function itself will be conditional
+    }
 }
 
 pub async fn ee() -> String {
-    return "Enterprise Edition".to_string();
+    #[cfg(feature = "private")]
+    {
+        return scim_ee::ee().await;
+    }
+    #[cfg(not(feature = "private"))]
+    {
+        return "Enterprise Edition".to_string();
+    }
 }
 
-pub async fn has_scim_token<B>(_request: Request<B>, _next: Next) -> Response {
-    //Not implemented in open-source version
-    todo!()
+pub async fn has_scim_token<B>(request: Request<B>, next: Next) -> Response {
+    #[cfg(feature = "private")]
+    {
+        return scim_ee::has_scim_token(request, next).await;
+    }
+    #[cfg(not(feature = "private"))]
+    {
+        let _ = (request, next);
+        //Not implemented in open-source version
+        todo!()
+    }
 }

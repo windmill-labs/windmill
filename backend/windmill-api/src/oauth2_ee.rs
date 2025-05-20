@@ -5,6 +5,8 @@
  * Please see the included NOTICE for copyright information and
  * LICENSE-AGPL for a copy of the license.
  */
+#[cfg(feature = "private")]
+use crate::oauth2_ee;
 
 use std::{collections::HashMap, fmt::Debug};
 
@@ -30,12 +32,19 @@ use std::str;
 
 pub fn global_service() -> Router {
     Router::new()
-        .route("/list_logins", get(list_logins))
-        .route("/list_connects", get(list_connects))
+        .route("/list_logins", get(list_logins)) // list_logins itself will be conditional
+        .route("/list_connects", get(list_connects)) // list_connects itself will be conditional
 }
 
 pub fn workspaced_service() -> Router {
-    Router::new()
+    #[cfg(feature = "private")]
+    {
+        return oauth2_ee::workspaced_service();
+    }
+    #[cfg(not(feature = "private"))]
+    {
+        Router::new()
+    }
 }
 
 #[cfg(feature = "oauth2")]
@@ -81,16 +90,24 @@ pub struct AllClients {
 
 #[cfg(feature = "oauth2")]
 pub async fn build_oauth_clients(
-    _base_url: &str,
-    _oauths_from_config: Option<HashMap<String, OAuthClient>>,
-    _db: &DB,
+    base_url: &str,
+    oauths_from_config: Option<HashMap<String, OAuthClient>>,
+    db: &DB,
 ) -> anyhow::Result<AllClients> {
-    // Implementation is not open source
-    return Ok(AllClients {
-        logins: HashMap::default(),
-        connects: HashMap::default(),
-        slack: None,
-    });
+    #[cfg(feature = "private")]
+    {
+        return oauth2_ee::build_oauth_clients(base_url, oauths_from_config, db).await;
+    }
+    #[cfg(not(feature = "private"))]
+    {
+        let _ = (base_url, oauths_from_config, db);
+        // Implementation is not open source
+        return Ok(AllClients {
+            logins: HashMap::default(),
+            connects: HashMap::default(),
+            slack: None,
+        });
+    }
 }
 
 #[cfg(feature = "oauth2")]
@@ -113,42 +130,80 @@ struct Logins {
     saml: Option<String>,
 }
 async fn list_logins() -> error::JsonResult<Logins> {
-    // Implementation is not open source
-    return Ok(Json(Logins { oauth: vec![], saml: None }));
+    #[cfg(feature = "private")]
+    {
+        return oauth2_ee::list_logins().await;
+    }
+    #[cfg(not(feature = "private"))]
+    {
+        // Implementation is not open source
+        return Ok(Json(Logins { oauth: vec![], saml: None }));
+    }
 }
 
 #[cfg(feature = "oauth2")]
 async fn list_connects() -> error::JsonResult<Vec<String>> {
-    Ok(Json(
-        (&OAUTH_CLIENTS.read().await.connects)
-            .keys()
-            .map(|x| x.to_owned())
-            .collect_vec(),
-    ))
+    #[cfg(feature = "private")]
+    {
+        // This function is already under #[cfg(feature = "oauth2")]
+        return oauth2_ee::list_connects_oauth2().await; // Renamed to avoid conflict if ee has a plain list_connects
+    }
+    #[cfg(not(feature = "private"))]
+    {
+        Ok(Json(
+            (&OAUTH_CLIENTS.read().await.connects)
+                .keys()
+                .map(|x| x.to_owned())
+                .collect_vec(),
+        ))
+    }
 }
 
 #[cfg(not(feature = "oauth2"))]
 async fn list_connects() -> error::JsonResult<Vec<String>> {
-    // Implementation is not open source
-    return Ok(Json(vec![]));
+    #[cfg(feature = "private")]
+    {
+         // This function is already under #[cfg(not(feature = "oauth2"))]
+        return oauth2_ee::list_connects_no_oauth2().await; // Renamed for clarity
+    }
+    #[cfg(not(feature = "private"))]
+    {
+        // Implementation is not open source
+        return Ok(Json(vec![]));
+    }
 }
 
 pub async fn _refresh_token<'c>(
-    _tx: Transaction<'c, Postgres>,
-    _path: &str,
-    _w_id: &str,
-    _id: i32,
-    _db: &DB,
+    tx: Transaction<'c, Postgres>,
+    path: &str,
+    w_id: &str,
+    id: i32,
+    db: &DB,
 ) -> error::Result<String> {
-    // Implementation is not open source
-    Err(error::Error::BadRequest(
-        "Not implemented in Windmill's Open Source repository".to_string(),
-    ))
+    #[cfg(feature = "private")]
+    {
+        return oauth2_ee::_refresh_token(tx, path, w_id, id, db).await;
+    }
+    #[cfg(not(feature = "private"))]
+    {
+        let _ = (tx, path, w_id, id, db);
+        // Implementation is not open source
+        Err(error::Error::BadRequest(
+            "Not implemented in Windmill's Open Source repository".to_string(),
+        ))
+    }
 }
 
 pub async fn check_nb_of_user(db: &DB) -> error::Result<()> {
-    let nb_users_sso =
-        sqlx::query_scalar!("SELECT COUNT(*) FROM password WHERE login_type != 'password'",)
+    #[cfg(feature = "private")]
+    {
+        // Assuming EE might have different logic or bypass this check
+        return oauth2_ee::check_nb_of_user(db).await;
+    }
+    #[cfg(not(feature = "private"))]
+    {
+        let nb_users_sso =
+            sqlx::query_scalar!("SELECT COUNT(*) FROM password WHERE login_type != 'password'",)
             .fetch_one(db)
             .await?;
     if nb_users_sso.unwrap_or(0) >= 10 {

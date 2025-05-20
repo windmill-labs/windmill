@@ -1,3 +1,6 @@
+#[cfg(feature = "private")]
+use crate::job_helpers_ee;
+
 use axum::Router;
 use serde::Serialize;
 use uuid::Uuid;
@@ -47,75 +50,130 @@ pub struct DownloadFileQuery {
 }
 
 pub fn workspaced_service() -> Router {
-    Router::new()
+    #[cfg(feature = "private")]
+    {
+        return job_helpers_ee::workspaced_service();
+    }
+    #[cfg(not(feature = "private"))]
+    {
+        Router::new()
+    }
 }
 
 #[cfg(feature = "parquet")]
 pub async fn get_workspace_s3_resource<'c>(
-    _authed: &ApiAuthed,
-    _db: &DB,
-    _user_db: Option<UserDB>,
-    _token: &str,
-    _w_id: &str,
-    _storage: Option<String>,
+    authed: &ApiAuthed,
+    db: &DB,
+    user_db: Option<UserDB>,
+    token: &str,
+    w_id: &str,
+    storage: Option<String>,
 ) -> windmill_common::error::Result<(Option<bool>, Option<ObjectStoreResource>)> {
-    // implementation is not open source
-    Ok((None, None))
+    #[cfg(feature = "private")]
+    {
+        return job_helpers_ee::get_workspace_s3_resource(authed, db, user_db, token, w_id, storage).await;
+    }
+    #[cfg(not(feature = "private"))]
+    {
+        let _ = (authed, db, user_db, token, w_id, storage);
+        // implementation is not open source
+        Ok((None, None))
+    }
 }
 
-pub fn get_random_file_name(_file_extension: Option<String>) -> String {
-    unimplemented!("Not implemented in Windmill's Open Source repository")
+pub fn get_random_file_name(file_extension: Option<String>) -> String {
+    #[cfg(feature = "private")]
+    {
+        return job_helpers_ee::get_random_file_name(file_extension);
+    }
+    #[cfg(not(feature = "private"))]
+    {
+        let _ = file_extension;
+        unimplemented!("Not implemented in Windmill's Open Source repository")
+    }
 }
 
 pub async fn get_s3_resource<'c>(
-    _authed: &ApiAuthed,
-    _db: &DB,
-    _user_db: Option<UserDB>,
-    _token: &str,
-    _w_id: &str,
-    _resource_path: &str,
-    _resource_type: Option<StorageResourceType>,
-    _job_id: Option<Uuid>,
+    authed: &ApiAuthed,
+    db: &DB,
+    user_db: Option<UserDB>,
+    token: &str,
+    w_id: &str,
+    resource_path: &str,
+    resource_type: Option<StorageResourceType>,
+    job_id: Option<Uuid>,
 ) -> error::Result<ObjectStoreResource> {
-    Err(error::Error::internal_err(
-        "Not implemented in Windmill's Open Source repository".to_string(),
-    ))
+    #[cfg(feature = "private")]
+    {
+        return job_helpers_ee::get_s3_resource(authed, db, user_db, token, w_id, resource_path, resource_type, job_id).await;
+    }
+    #[cfg(not(feature = "private"))]
+    {
+        let _ = (authed, db, user_db, token, w_id, resource_path, resource_type, job_id);
+        Err(error::Error::internal_err(
+            "Not implemented in Windmill's Open Source repository".to_string(),
+        ))
+    }
 }
 
 #[cfg(feature = "parquet")]
 pub async fn upload_file_from_req(
-    _s3_client: Arc<dyn ObjectStore>,
-    _file_key: &str,
-    _req: axum::extract::Request,
-    _options: PutMultipartOpts,
+    s3_client: Arc<dyn ObjectStore>,
+    file_key: &str,
+    req: axum::extract::Request,
+    options: PutMultipartOpts,
 ) -> error::Result<()> {
-    Err(error::Error::internal_err(
-        "Not implemented in Windmill's Open Source repository".to_string(),
-    ))
+    #[cfg(feature = "private")]
+    {
+        return job_helpers_ee::upload_file_from_req(s3_client, file_key, req, options).await;
+    }
+    #[cfg(not(feature = "private"))]
+    {
+        let _ = (s3_client, file_key, req, options);
+        Err(error::Error::internal_err(
+            "Not implemented in Windmill's Open Source repository".to_string(),
+        ))
+    }
 }
 
 #[cfg(feature = "parquet")]
 pub async fn upload_file_internal(
-    _s3_client: Arc<dyn ObjectStore>,
-    _file_key: &str,
-    _stream: impl Stream<Item = Result<Bytes, std::io::Error>> + Unpin,
-    _options: PutMultipartOpts,
+    s3_client: Arc<dyn ObjectStore>,
+    file_key: &str,
+    stream: impl Stream<Item = Result<Bytes, std::io::Error>> + Unpin,
+    options: PutMultipartOpts,
 ) -> error::Result<()> {
-    Err(error::Error::internal_err(
-        "Not implemented in Windmill's Open Source repository".to_string(),
-    ))
+    #[cfg(feature = "private")]
+    {
+        return job_helpers_ee::upload_file_internal(s3_client, file_key, stream, options).await;
+    }
+    #[cfg(not(feature = "private"))]
+    {
+        let _ = (s3_client, file_key, stream, options);
+        Err(error::Error::internal_err(
+            "Not implemented in Windmill's Open Source repository".to_string(),
+        ))
+    }
 }
 
 #[cfg(feature = "parquet")]
 pub async fn download_s3_file_internal(
-    _authed: ApiAuthed,
-    _db: &DB,
-    _user_db: Option<UserDB>,
-    _token: &str,
-    _w_id: &str,
-    _query: DownloadFileQuery,
+    authed: ApiAuthed,
+    db: &DB,
+    user_db: Option<UserDB>,
+    token: &str,
+    w_id: &str,
+    query: DownloadFileQuery,
 ) -> error::Result<Response> {
-    Err(error::Error::internal_err(
-        "Not implemented in Windmill's Open Source repository".to_string(),
-    ))
+    #[cfg(feature = "private")]
+    {
+        return job_helpers_ee::download_s3_file_internal(authed, db, user_db, token, w_id, query).await;
+    }
+    #[cfg(not(feature = "private"))]
+    {
+        let _ = (authed, db, user_db, token, w_id, query);
+        Err(error::Error::internal_err(
+            "Not implemented in Windmill's Open Source repository".to_string(),
+        ))
+    }
 }
