@@ -262,6 +262,7 @@
 	}
 
 	let selectedItem: any
+
 	async function handleKeydown(event: KeyboardEvent) {
 		if ((!isMac() ? event.ctrlKey : event.metaKey) && event.key === 'k') {
 			event.preventDefault()
@@ -641,11 +642,11 @@
 								<div class="w-4/12 overflow-y-auto max-h-[70vh]">
 									{#each itemMap['runs'] ?? [] as r}
 										<QuickMenuItem
-											on:hover={() => {
+											on:select={() => {
 												selectedItem = r
 												selectedWorkspace = r?.document.workspace_id[0]
 											}}
-											on:select={() => {
+											on:keyboardOnlySelect={() => {
 												open = false
 												goto(`/run/${r?.document.id[0]}`)
 											}}
@@ -657,10 +658,7 @@
 										>
 											<svelte:fragment slot="itemReplacement">
 												<div
-													class={twMerge(
-														`w-full flex flex-row items-center gap-4 transition-all`,
-														r?.document.id === selectedItem?.document?.id ? 'bg-surface-hover' : ''
-													)}
+													class="w-full flex flex-row items-center gap-4 transition-all"
 												>
 													<div
 														class="rounded-full w-2 h-2 {r?.document.success[0]

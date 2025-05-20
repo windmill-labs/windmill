@@ -85,13 +85,14 @@ mod http_trigger_args;
 #[cfg(feature = "http_trigger")]
 mod http_trigger_auth;
 #[cfg(feature = "http_trigger")]
-mod http_triggers;
+pub mod http_triggers;
 mod indexer_ee;
 mod inputs;
 mod integration;
 #[cfg(feature = "postgres_trigger")]
 mod postgres_triggers;
 
+mod approvals;
 #[cfg(feature = "enterprise")]
 mod apps_ee;
 #[cfg(all(feature = "enterprise", feature = "gcp_trigger"))]
@@ -120,12 +121,11 @@ mod scripts;
 mod service_logs;
 mod settings;
 mod slack_approvals;
-mod approvals;
-mod teams_approvals_ee;
 #[cfg(feature = "smtp")]
 mod smtp_server_ee;
 #[cfg(all(feature = "enterprise", feature = "sqs_trigger"))]
 mod sqs_triggers_ee;
+mod teams_approvals_ee;
 mod trigger_helpers;
 
 mod static_assets;
@@ -405,6 +405,12 @@ pub async fn run_server(
         #[cfg(not(feature = "http_trigger"))]
         Router::new()
     };
+
+    #[cfg(feature = "http_trigger")]
+    {
+        let http_killpill_rx = killpill_rx.resubscribe();
+        http_triggers::refresh_routers_loop(&db, http_killpill_rx).await;
+    }
 
     let postgres_triggers_service = {
         #[cfg(feature = "postgres_trigger")]

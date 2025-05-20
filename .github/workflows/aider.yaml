@@ -237,7 +237,7 @@ jobs:
             '{ "message": "I'\''m giving you a request that needs to be implemented. Your role is ONLY to give me the files that are relevant to the request and nothing else. The request is prepended with the word REQUEST.\\nREQUEST: \($prompt_escaped). Give me all the files relevant to this request. Your output MUST be a single json array that can be parsed with programatic json parsing, with the relevant files. Files can be rust or typescript or javascript files. DO NOT INCLUDE ANY OTHER TEXT IN YOUR OUTPUT. ONLY THE JSON ARRAY. Example of output: [\"file1.py\", \"file2.py\"]" }' | jq -r .message)
 
           set -o pipefail
-          PROBE_OUTPUT=$(npx --yes @buger/probe-chat@latest --max-iterations 50 --model-name gemini-2.5-pro-preview-05-06 --message "$MESSAGE_FOR_PROBE" 2>&1) || {
+          PROBE_OUTPUT=$(npx --yes @buger/probe-chat@latest --max-iterations 50 --model-name gemini-2.5-pro-preview-05-06 --message "$MESSAGE_FOR_PROBE") || {
             echo "::error::probe-chat command failed. Output:"
             echo "$PROBE_OUTPUT"
             exit 1
@@ -266,6 +266,7 @@ jobs:
           aider \
             --read .cursor/rules/rust-best-practices.mdc \
             --read .cursor/rules/svelte5-best-practices.mdc \
+            --read .cursor/rules/windmill-overview.mdc \
             ${{ env.FILES_TO_EDIT }} \
             --model gemini/gemini-2.5-pro-preview-05-06 \
             --message-file .github/aider/issue-prompt.txt \
