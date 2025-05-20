@@ -359,7 +359,6 @@ impl PyV {
             let list = serde_json::from_str::<Vec<serde_json::Map<String, Value>>>(&res)?
                 .into_iter()
                 .filter_map(|e| {
-                    // TODO: Refactor
                     if e.get("implementation").and_then(Value::as_str) == Some("pypy") {
                         None
                     } else {
@@ -367,7 +366,6 @@ impl PyV {
                             e.get("version")
                                 .and_then(Value::as_str)
                                 .and_then(|s| pep440_rs::Version::from_str(s).ok())
-                                .and_then(|v| if filter.contains(&v) { Some(v) } else { None })
                                 .map(PyV::from)
                                 .ok_or(Error::internal_err("version is None")),
                         )
@@ -377,6 +375,7 @@ impl PyV {
                 .into_iter()
                 .unique()
                 .sorted()
+                .filter(|pyv| filter.contains(&*pyv))
                 .rev()
                 .collect_vec();
 
