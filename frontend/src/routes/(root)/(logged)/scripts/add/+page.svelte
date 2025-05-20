@@ -9,7 +9,6 @@
 	import { goto } from '$lib/navigation'
 	import { replaceState } from '$app/navigation'
 	import UnsavedConfirmationModal from '$lib/components/common/confirmationModal/UnsavedConfirmationModal.svelte'
-	import type { ScheduleTrigger } from '$lib/components/triggers'
 	import type { GetInitialAndModifiedValues } from '$lib/components/common/confirmationModal/unsavedTypes'
 	import { replaceScriptPlaceholderWithItsValues } from '$lib/hub'
 	import type { Trigger } from '$lib/components/triggers/utils'
@@ -33,14 +32,12 @@
 	const initialState = $page.url.hash != '' ? $page.url.hash.slice(1) : undefined
 
 	let scriptBuilder: ScriptBuilder | undefined = undefined
-	let savedPrimarySchedule: ScheduleTrigger | undefined = undefined
 	let savedDraftTriggers: Trigger[] = []
 
 	function decodeStateAndHandleError(state) {
 		try {
 			const decoded = decodeState(state)
-			savedPrimarySchedule = decoded.primarySchedule
-			savedDraftTriggers = decoded.draftTriggers
+			savedDraftTriggers = decoded.draft_triggers
 			return decoded
 		} catch (e) {
 			console.error('Error decoding state', e)
@@ -125,7 +122,6 @@
 	searchParams={$page.url.searchParams}
 	{script}
 	{showMeta}
-	{savedPrimarySchedule}
 	{savedDraftTriggers}
 	replaceStateFn={(path) => replaceState(path, $page.state)}
 >

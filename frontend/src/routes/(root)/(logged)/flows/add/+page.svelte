@@ -13,7 +13,6 @@
 	import { decodeState, emptySchema } from '$lib/utils'
 	import { tick } from 'svelte'
 	import { writable } from 'svelte/store'
-	import type { ScheduleTrigger } from '$lib/components/triggers'
 	import type { GetInitialAndModifiedValues } from '$lib/components/common/confirmationModal/unsavedTypes'
 	import { replaceScriptPlaceholderWithItsValues } from '$lib/hub'
 	import type { Trigger } from '$lib/components/triggers/utils'
@@ -44,6 +43,7 @@
 		initialArgs = $initialArgsStore
 		$initialArgsStore = undefined
 	}
+	let flowBuilder: FlowBuilder | undefined = undefined
 
 	export const flowStore = writable<Flow>({
 		summary: '',
@@ -57,8 +57,8 @@
 	})
 	const flowStateStore = writable<FlowState>({})
 
-	let savedPrimarySchedule: ScheduleTrigger | undefined = undefined
 	let savedDraftTriggers: Trigger[] = []
+	let savedSelectedTriggerIndex: number | undefined = undefined
 	async function loadFlow() {
 		loading = true
 		let flow: Flow = {
@@ -103,8 +103,10 @@
 
 			flow = state.flow
 			pathStoreInit = state.path
-			savedPrimarySchedule = state.primarySchedule
-			savedDraftTriggers = state.draftTriggers
+			savedDraftTriggers = state.draft_triggers
+			savedSelectedTriggerIndex = state.selected_trigger
+			flowBuilder?.setDraftTriggers(savedDraftTriggers)
+			flowBuilder?.setSelectedTriggerIndex(savedSelectedTriggerIndex)
 			state?.selectedId && (selectedId = state?.selectedId)
 		} else {
 			if (templatePath) {
@@ -156,7 +158,6 @@
 	loadFlow()
 
 	let getSelectedId: (() => string) | undefined = undefined
-	let flowBuilder: FlowBuilder | undefined = undefined
 
 	let getInitialAndModifiedValues: GetInitialAndModifiedValues | undefined = undefined
 </script>
@@ -184,8 +185,8 @@
 	{flowStateStore}
 	{selectedId}
 	{loading}
-	{savedPrimarySchedule}
 	{savedDraftTriggers}
+	{savedSelectedTriggerIndex}
 >
 	<UnsavedConfirmationModal {getInitialAndModifiedValues} />
 </FlowBuilder>

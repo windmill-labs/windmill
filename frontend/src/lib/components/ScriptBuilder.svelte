@@ -106,6 +106,7 @@
 	export let functionExports: ((exports: ScriptBuilderFunctionExports) => void) | undefined =
 		undefined
 	export let savedDraftTriggers: Trigger[] = []
+	export let savedSelectedTriggerIndex: number | undefined = undefined
 
 	export function getInitialAndModifiedValues(): SavedAndModifiedValue {
 		return {
@@ -167,7 +168,13 @@
 	}
 
 	export function setDraftTriggers(triggers: Trigger[]) {
-		triggersState.triggers = [...triggers, ...triggersState.triggers.filter((t) => !t.draftConfig)]
+		if (triggers.length === 0) {
+			return
+		}
+		triggersState.setTriggers([
+			...triggers,
+			...triggersState.triggers.filter((t) => !t.draftConfig)
+		])
 		loadTriggers()
 	}
 
@@ -211,11 +218,15 @@
 	}
 
 	// Add triggers context store
-	const triggersState = new Triggers([
-		{ type: 'webhook', path: '', isDraft: false },
-		{ type: 'email', path: '', isDraft: false },
-		...savedDraftTriggers
-	])
+	const triggersState = new Triggers(
+		[
+			{ type: 'webhook', path: '', isDraft: false },
+			{ type: 'email', path: '', isDraft: false },
+			...savedDraftTriggers
+		],
+		savedSelectedTriggerIndex,
+		saveSessionDraft
+	)
 
 	const captureOn = writable<boolean | undefined>(undefined)
 	const showCaptureHint = writable<boolean | undefined>(undefined)
@@ -304,9 +315,24 @@
 			'#' +
 				encodeState({
 					...script,
-					draftTriggers: triggersState.triggers.filter((t) => t.draftConfig)
+					draft_triggers: triggersState.getTriggersSnapshot().filter((t) => t.draftConfig)
 				})
 		)
+
+	let timeout: NodeJS.Timeout | undefined = undefined
+	function saveSessionDraft() {
+		timeout && clearTimeout(timeout)
+		timeout = setTimeout(() => {
+			replaceStateFn(
+				'#' +
+					encodeState({
+						...script,
+						draft_triggers: triggersState.getTriggersSnapshot().filter((t) => t.draftConfig)
+					})
+			)
+		}, 500)
+	}
+
 	if (script.content == '') {
 		initContent(script.language, script.kind, template)
 	}

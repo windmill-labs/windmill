@@ -101,6 +101,7 @@
 	export let version: number | undefined = undefined
 	export let setSavedraftCb: ((cb: () => void) => void) | undefined = undefined
 	export let savedDraftTriggers: Trigger[] = []
+	export let savedSelectedTriggerIndex: number | undefined = undefined
 
 	let initialPathStore = writable(initialPath)
 	$: initialPathStore.set(initialPath)
@@ -173,11 +174,18 @@
 	}
 
 	export function setDraftTriggers(triggers: Trigger[]) {
-		if (!triggers || triggers.length === 0) {
+		if (triggers.length === 0) {
 			return
 		}
-		triggersState.triggers = [...triggers, ...triggersState.triggers.filter((t) => !t.draftConfig)]
+		triggersState.setTriggers([
+			...triggers,
+			...triggersState.triggers.filter((t) => !t.draftConfig)
+		])
 		loadTriggers()
+	}
+
+	export function setSelectedTriggerIndex(index: number | undefined) {
+		triggersState.selectedTriggerIndex = index
 	}
 
 	let loadingSave = false
@@ -472,7 +480,8 @@
 						flow: $flowStore,
 						path: $pathStore,
 						selectedId: $selectedIdStore,
-						draftTriggers: triggersState.triggers.filter((t) => t.draftConfig)
+						draft_triggers: triggersState.getTriggersSnapshot().filter((t) => t.draftConfig),
+						selected_trigger: triggersState.getSelectedTriggerSnapshot()
 					})
 				)
 			} catch (err) {
@@ -530,11 +539,15 @@
 	})
 
 	// Add triggers context store
-	const triggersState = new Triggers([
-		{ type: 'webhook', path: '', isDraft: false },
-		{ type: 'email', path: '', isDraft: false },
-		...savedDraftTriggers
-	])
+	const triggersState = new Triggers(
+		[
+			{ type: 'webhook', path: '', isDraft: false },
+			{ type: 'email', path: '', isDraft: false },
+			...savedDraftTriggers
+		],
+		savedSelectedTriggerIndex,
+		saveSessionDraft
+	)
 
 	setContext<TriggerContext>('TriggerContext', {
 		triggersCount,

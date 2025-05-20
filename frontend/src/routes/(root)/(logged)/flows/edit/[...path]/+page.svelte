@@ -62,6 +62,7 @@
 	let savedPrimarySchedule: ScheduleTrigger | undefined = stateLoadedFromUrl?.primarySchedule
 
 	let savedDraftTriggers: Trigger[] = []
+	let savedSelectedTriggerIndex: number | undefined = undefined
 
 	let flowBuilder: FlowBuilder | undefined = undefined
 
@@ -87,11 +88,14 @@
 			const draftOrDeployed = cleanValueProperties(savedFlow?.draft || savedFlow)
 			const urlScript = cleanValueProperties(stateLoadedFromUrl.flow)
 			flow = stateLoadedFromUrl.flow
-			savedPrimarySchedule = stateLoadedFromUrl.primarySchedule
 			savedDraftTriggers = stateLoadedFromUrl.draft_triggers
+			savedSelectedTriggerIndex = stateLoadedFromUrl.selected_trigger
+			flowBuilder?.setDraftTriggers(savedDraftTriggers)
+			flowBuilder?.setSelectedTriggerIndex(savedSelectedTriggerIndex)
+			const selectedId = stateLoadedFromUrl?.selectedId ?? 'settings-metadata'
 			const reloadAction = () => {
 				stateLoadedFromUrl = undefined
-				goto(`/flows/edit/${statePath}`)
+				goto(`/flows/edit/${statePath}?selected=${selectedId}`)
 				loadFlow()
 			}
 			if (orderedJsonStringify(draftOrDeployed) === orderedJsonStringify(urlScript)) {
@@ -148,7 +152,6 @@
 				savedDraftTriggers = flowWithDraft?.draft?.['draft_triggers']
 				flowBuilder?.setPrimarySchedule(savedPrimarySchedule)
 				flowBuilder?.setDraftTriggers(savedDraftTriggers)
-				flowBuilder?.loadTriggers()
 
 				if (!flowWithDraft.draft_only) {
 					const deployed = cleanValueProperties(flowWithDraft)
@@ -259,6 +262,7 @@
 	{diffDrawer}
 	{savedPrimarySchedule}
 	{savedDraftTriggers}
+	{savedSelectedTriggerIndex}
 	bind:version
 	bind:getInitialAndModifiedValues
 >

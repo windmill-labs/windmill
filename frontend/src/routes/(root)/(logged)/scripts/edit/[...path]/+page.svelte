@@ -27,7 +27,8 @@
 
 	let scriptLoadedFromUrl = initialState != undefined ? decodeState(initialState) : undefined
 
-	let script: NewScript | undefined = undefined
+
+	let script: (NewScript & { draft_triggers?: Trigger[] }) | undefined = undefined
 
 	let initialPath: string = ''
 
@@ -38,7 +39,7 @@
 	let savedScript: NewScriptWithDraft | undefined = undefined
 	let fullyLoaded = false
 
-	let savedPrimarySchedule: ScheduleTrigger | undefined = scriptLoadedFromUrl?.primarySchedule
+	let savedPrimarySchedule: ScheduleTrigger | undefined = undefined
 
 	let savedDraftTriggers: Trigger[] = []
 
@@ -160,6 +161,8 @@
 
 		if (script) {
 			initialPath = script.path
+			savedDraftTriggers = script.draft_triggers ?? []
+			scriptBuilder?.setDraftTriggers(savedDraftTriggers)
 			scriptBuilder?.setCode(script.content)
 			if (topHash) {
 				script.parent_hash = topHash

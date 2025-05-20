@@ -175,7 +175,7 @@
 		saveDisabled: boolean
 	) {
 		if (triggerIndex && triggerIndex !== -1 && newConfig) {
-			triggersState.triggers[triggerIndex].draftConfig = { ...newConfig, canSave: !saveDisabled }
+			triggersState.setDraftConfig(triggerIndex, { ...newConfig, canSave: !saveDisabled })
 		}
 	}
 
@@ -183,7 +183,7 @@
 		if (!trigger) {
 			return
 		}
-		triggersState.triggers[trigger].draftConfig = undefined
+		triggersState.setDraftConfig(trigger, undefined)
 		renderCount++
 	}
 
@@ -303,25 +303,29 @@
 				</div>
 			</Pane>
 			{#if triggersState.selectedTrigger && triggersState.selectedTrigger.type !== 'schedule' && triggersState.selectedTrigger.type != 'poll' && !noCapture}
-				{@const captureKind = triggerTypeToCaptureKind(triggersState.selectedTrigger.type)}
-				{#key captureKind}
-					<Pane minSize={20} size={40}>
-						<CaptureWrapper
-							path={initialPath || fakeInitialPath}
-							{isFlow}
-							captureType={captureKind}
-							{hasPreprocessor}
-							{canHavePreprocessor}
-							args={config}
-							data={{ args, hash, emailDomain }}
-							{isValid}
-							on:applyArgs
-							on:updateSchema
-							on:addPreprocessor
-							on:testWithArgs
-						/>
-					</Pane>
-				{/key}
+				{@const captureKind = triggersState.selectedTrigger
+					? triggerTypeToCaptureKind(triggersState.selectedTrigger.type)
+					: undefined}
+				{#if captureKind}
+					{#key captureKind}
+						<Pane minSize={20} size={40}>
+							<CaptureWrapper
+								path={initialPath || fakeInitialPath}
+								{isFlow}
+								captureType={captureKind}
+								{hasPreprocessor}
+								{canHavePreprocessor}
+								args={config}
+								data={{ args, hash, emailDomain }}
+								{isValid}
+								on:applyArgs
+								on:updateSchema
+								on:addPreprocessor
+								on:testWithArgs
+							/>
+						</Pane>
+					{/key}
+				{/if}
 			{/if}
 		</Splitpanes>
 	</FlowCard>

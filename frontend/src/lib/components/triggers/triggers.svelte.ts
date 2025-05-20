@@ -23,14 +23,23 @@ import type { ScheduleTrigger } from '../triggers'
 import { canWrite, formatCron } from '$lib/utils'
 
 export class Triggers {
-	triggers = $state<Trigger[]>([])
+	#triggers = $state<Trigger[]>([])
 	#selectedTriggerIndex = $state<number | undefined>(undefined)
 	#selectedTrigger = $derived(
-		this.#selectedTriggerIndex !== undefined ? this.triggers[this.#selectedTriggerIndex] : undefined
+		this.#selectedTriggerIndex !== undefined
+			? this.#triggers[this.#selectedTriggerIndex]
+			: undefined
 	)
+	#updateDraftCallback: (() => void) | undefined = undefined
 
-	constructor(triggers: Trigger[] = []) {
-		this.triggers = triggers
+	constructor(
+		triggers: Trigger[] = [],
+		selectedIndex?: number,
+		updateDraftCallback?: (() => void) | undefined
+	) {
+		this.#triggers = triggers
+		this.#selectedTriggerIndex = selectedIndex
+		this.#updateDraftCallback = updateDraftCallback
 	}
 
 	get selectedTrigger(): Trigger | undefined {
@@ -42,11 +51,37 @@ export class Triggers {
 	}
 
 	set selectedTriggerIndex(index: number | undefined) {
-		if (index === undefined || index < 0 || index >= this.triggers.length) {
+		if (index === undefined || index < 0 || index >= this.#triggers.length) {
 			this.#selectedTriggerIndex = undefined
 		} else {
 			this.#selectedTriggerIndex = index
 		}
+		this.#updateDraftCallback?.()
+	}
+
+	get triggers(): Trigger[] {
+		return this.#triggers
+	}
+
+	setTriggers(triggers: Trigger[]) {
+		this.#triggers = triggers
+		this.#updateDraftCallback?.()
+	}
+
+	setDraftConfig(triggerIndex: number, draftConfig: Record<string, any> | undefined) {
+		if (triggerIndex === undefined || triggerIndex < 0 || triggerIndex >= this.#triggers.length) {
+			return
+		}
+		this.#triggers[triggerIndex].draftConfig = draftConfig
+		this.#updateDraftCallback?.()
+	}
+
+	getTriggersSnapshot(): Trigger[] {
+		return $state.snapshot(this.#triggers)
+	}
+
+	getSelectedTriggerSnapshot(): number | undefined {
+		return $state.snapshot(this.#selectedTriggerIndex)
 	}
 
 	addDraftTrigger(
@@ -55,7 +90,7 @@ export class Triggers {
 		path?: string,
 		draftCfg?: Record<string, any>
 	): number {
-		const primaryScheduleExists = this.triggers.some((t) => t.type === 'schedule' && t.isPrimary)
+		const primaryScheduleExists = this.#triggers.some((t) => t.type === 'schedule' && t.isPrimary)
 
 		// Create the new draft trigger
 		const draftId = crypto.randomUUID()
@@ -69,25 +104,27 @@ export class Triggers {
 			draftConfig: draftCfg
 		}
 
-		this.triggers.push(newTrigger)
+		this.#triggers.push(newTrigger)
+		this.#updateDraftCallback?.()
 
 		updateTriggersCount(triggersCountStore, type, 'add', newTrigger.draftConfig)
 
-		return this.triggers.length - 1
+		return this.#triggers.length - 1
 	}
 
 	deleteTrigger(
 		triggersCountStore: Writable<TriggersCount | undefined>,
 		triggerIndex: number
 	): void {
-		if (triggerIndex === undefined || triggerIndex < 0 || triggerIndex >= this.triggers.length) {
+		if (triggerIndex === undefined || triggerIndex < 0 || triggerIndex >= this.#triggers.length) {
 			return
 		}
-		const { type } = this.triggers[triggerIndex]
+		const { type } = this.#triggers[triggerIndex]
 
-		this.triggers = this.triggers.filter((_, index) => index !== triggerIndex)
+		this.#triggers = this.#triggers.filter((_, index) => index !== triggerIndex)
 
 		updateTriggersCount(triggersCountStore, type, 'remove')
+		this.#updateDraftCallback?.()
 	}
 
 	updateTriggers(
@@ -95,7 +132,7 @@ export class Triggers {
 		type: TriggerType,
 		user: UserExt | undefined = undefined
 	): number {
-		const currentTriggers = this.triggers
+		const currentTriggers = this.#triggers
 		// Identify triggers with draftConfig to preserve
 		const configuredTriggers = currentTriggers.filter(
 			(t) => t.type === type && !t.isDraft && t.draftConfig
@@ -122,8 +159,9 @@ export class Triggers {
 
 		const filteredTriggers = currentTriggers.filter((t) => t.type !== type || t.isDraft)
 		const newTriggers = sortTriggers([...filteredTriggers, ...backendTriggers])
-		this.triggers = newTriggers
+		this.#triggers = newTriggers
 
+		this.#updateDraftCallback?.()
 		return newTriggers.filter((t) => t.type === type).length
 	}
 
@@ -138,7 +176,7 @@ export class Triggers {
 		if (!workspaceId) return
 		try {
 			//First update the store with legacy primary schedule
-			if (primarySchedule && !this.triggers.some((s) => s.isPrimary)) {
+			if (primarySchedule && !this.#triggers.some((s) => s.isPrimary)) {
 				const primary = {
 					type: 'schedule' as TriggerType,
 					path,
@@ -153,7 +191,7 @@ export class Triggers {
 						enabled: primarySchedule.enabled
 					}
 				}
-				this.triggers = [...this.triggers, primary]
+				this.#triggers = [...this.#triggers, primary]
 			}
 
 			const allDeployedSchedules: Schedule[] = await ScheduleService.listSchedules({
@@ -163,7 +201,7 @@ export class Triggers {
 			})
 
 			const scheduleCount = this.updateTriggers(allDeployedSchedules, 'schedule', user)
-			const updatedPrimarySchedule = this.triggers.find((s) => s.isPrimary)
+			const updatedPrimarySchedule = this.#triggers.find((s) => s.isPrimary)
 			triggersCountStore.update((triggersCount) => {
 				return {
 					...(triggersCount ?? {}),
