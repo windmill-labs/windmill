@@ -347,6 +347,13 @@ impl PyV {
                 .await?
         };
 
+        // We want to skip all versions smaller then 3.10
+        // Windmill is incompatible with 3.9 and older
+        let filter = pep440_rs::VersionSpecifier::from_version(
+            pep440_rs::Operator::GreaterThanEqual,
+            PyVAlias::Py310.into(),
+        )?;
+
         if output.status.success() {
             let res = String::from_utf8(output.stdout)?;
             let list = serde_json::from_str::<Vec<serde_json::Map<String, Value>>>(&res)?
@@ -360,6 +367,7 @@ impl PyV {
                             e.get("version")
                                 .and_then(Value::as_str)
                                 .and_then(|s| pep440_rs::Version::from_str(s).ok())
+                                .and_then(|v| if filter.contains(&v) { Some(v) } else { None })
                                 .map(PyV::from)
                                 .ok_or(Error::internal_err("version is None")),
                         )
