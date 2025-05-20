@@ -8,8 +8,6 @@
 #[cfg(feature = "private")]
 use crate::saml_ee;
 
-#![allow(non_snake_case)]
-
 use axum::{routing::post, Router};
 
 pub struct ServiceProviderExt(); // This struct remains as is.

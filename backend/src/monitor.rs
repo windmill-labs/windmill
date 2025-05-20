@@ -1122,7 +1122,8 @@ pub async fn reload_s3_cache_setting(db: &DB) {
             if let Err(e) = setting {
                 tracing::error!("Error parsing s3 cache config: {:?}", e)
             } else {
-                let s3_client = build_object_store_from_settings(setting.unwrap()).await;
+                let s3_client =
+                    build_object_store_from_settings(setting.as_ref().unwrap().clone()).await;
                 if let Err(e) = s3_client {
                     tracing::error!("Error building s3 client from settings: {:?}", e)
                 } else {

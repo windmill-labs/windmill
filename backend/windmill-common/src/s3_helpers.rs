@@ -420,7 +420,8 @@ impl ObjectSettings {
             ObjectSettings::S3(s3_settings) => s3_settings
                 .bucket
                 .as_ref()
-                .unwrap_or_else(|| "missingbucket".to_string()),
+                .map(|s| s.as_str())
+                .unwrap_or_else(|| "missingbucket"),
             ObjectSettings::Azure(azure_settings) => &azure_settings.container_name,
         }
     }
