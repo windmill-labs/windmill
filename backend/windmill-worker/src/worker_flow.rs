@@ -1294,7 +1294,7 @@ pub async fn update_flow_status_after_job_completion_internal(
             job_completed_tx,
             worker_name,
         )
-        .warn_after_seconds(10)
+        .warn_after_seconds(20)
         .await
         {
             Err(err) => {
@@ -1606,7 +1606,7 @@ pub async fn handle_flow(
         let schedule_path = schedule_path.as_ref().unwrap();
 
         let schedule = get_schedule_opt(db, &flow_job.workspace_id, schedule_path)
-            .warn_after_seconds(5)
+            .warn_after_seconds(10)
             .await?;
 
         if let Some(schedule) = schedule {
@@ -1617,7 +1617,7 @@ pub async fn handle_flow(
                 flow_job.runnable_path.as_ref().unwrap(),
                 &flow_job.workspace_id,
             )
-            .warn_after_seconds(5)
+            .warn_after_seconds(10)
             .await
             {
                 match err {
@@ -1647,7 +1647,7 @@ pub async fn handle_flow(
             worker_dir,
             worker_name,
         )
-        .warn_after_seconds(10)
+        .warn_after_seconds(20)
         .await?;
         match next {
             PushNextFlowJob::Rec(nrec) => {
@@ -1663,7 +1663,7 @@ pub async fn handle_flow(
                     );
                     job_completed_tx
                         .send(SendResult::UpdateFlow(update_flow), false)
-                        .warn_after_seconds(3)
+                        .warn_after_seconds(10)
                         .await
                         .map_err(|e| {
                             Error::internal_err(format!(
@@ -1797,7 +1797,7 @@ async fn push_next_flow_job(
                 flow_job.workspace_id.as_str()
             )
             .fetch_one(db)
-            .warn_after_seconds(3)
+            .warn_after_seconds(10)
             .await?;
             if no_flow_overlap {
                 let overlapping = sqlx::query_scalar!(
@@ -1818,7 +1818,7 @@ async fn push_next_flow_job(
                      flow_job.runnable_path()
                  )
                  .fetch_all(db)
-                 .warn_after_seconds(3)
+                 .warn_after_seconds(10)
                  .await?;
                 if overlapping.len() > 0 {
                     let overlapping_str = overlapping

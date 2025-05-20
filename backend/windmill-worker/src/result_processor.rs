@@ -583,7 +583,7 @@ pub async fn process_completed_job(
                     #[cfg(feature = "benchmark")]
                     bench,
                 )
-                .warn_after_seconds(10)
+                .warn_after_seconds(20)
                 .await?;
                 return Ok(r);
             }

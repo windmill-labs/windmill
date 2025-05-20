@@ -104,7 +104,7 @@ pub async fn update_workflow_as_code_status(
         parent_job
     )
     .execute(db)
-    .warn_after_seconds(5)
+    .warn_after_seconds(10)
     .await
     .inspect_err(|e| {
         tracing::error!(

@@ -75,7 +75,7 @@ pub async fn append_logs_with_compaction(
         &w_id,
     )
     .fetch_one(db)
-    .warn_after_seconds(1)
+    .warn_after_seconds(10)
     .await;
     match log_length {
         Ok(length) => {
