@@ -818,7 +818,7 @@
 									</div>
 								</div>
 							{:else}
-								<div class="flex flex-col w-full justify-center items-center h-48">
+								<div class="flex flex-col h-full w-full justify-center items-center h-48">
 									<div class="text-tertiary text-center">
 										{#if searchTerm === RUNS_PREFIX}
 											<div class="text-2xl font-bold">Enter your search terms</div>
