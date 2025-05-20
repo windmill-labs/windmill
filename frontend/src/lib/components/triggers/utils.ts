@@ -422,3 +422,47 @@ export function getTriggerLabel(trigger: Trigger): string {
 		return path ?? ''
 	}
 }
+
+export function sortTriggers(triggers: Trigger[]): Trigger[] {
+	const triggerTypeOrder = [
+		'webhook',
+		'cli',
+		'email',
+		'poll',
+		'schedule',
+		'http',
+		'websocket',
+		'postgres',
+		'kafka',
+		'nats',
+		'mqtt',
+		'sqs',
+		'gcp'
+	]
+
+	return triggers.sort((a, b) => {
+		// Draft triggers always come last
+		if (a.isDraft && !b.isDraft) return 1
+		if (!a.isDraft && b.isDraft) return -1
+
+		// If both are drafts or both are not drafts, sort by type order
+		if (a.isDraft === b.isDraft) {
+			const aIndex = triggerTypeOrder.indexOf(a.type)
+			const bIndex = triggerTypeOrder.indexOf(b.type)
+
+			// If both types are in the order array, sort by their position
+			if (aIndex >= 0 && bIndex >= 0) {
+				return aIndex - bIndex
+			}
+
+			// If only one type is in the order array, it comes first
+			if (aIndex >= 0) return -1
+			if (bIndex >= 0) return 1
+
+			// If neither type is in the order array, maintain original order
+			return 0
+		}
+
+		return 0
+	})
+}

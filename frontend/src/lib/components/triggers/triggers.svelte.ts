@@ -15,7 +15,7 @@ import {
 	HttpTriggerService,
 	GcpTriggerService
 } from '$lib/gen'
-import { getLightConfig, updateTriggersCount, type Trigger } from './utils'
+import { getLightConfig, sortTriggers, updateTriggersCount, type Trigger } from './utils'
 import type { Writable } from 'svelte/store'
 import type { TriggerType } from './utils'
 import type { UserExt } from '$lib/stores'
@@ -121,11 +121,7 @@ export class Triggers {
 		})
 
 		const filteredTriggers = currentTriggers.filter((t) => t.type !== type || t.isDraft)
-		const newTriggers = [
-			...filteredTriggers.filter((t) => ['webhook', 'cli', 'email', 'poll'].includes(t.type)),
-			...backendTriggers,
-			...filteredTriggers.filter((t) => !['webhook', 'cli', 'email', 'poll'].includes(t.type))
-		]
+		const newTriggers = sortTriggers([...filteredTriggers, ...backendTriggers])
 		this.triggers = newTriggers
 
 		return newTriggers.filter((t) => t.type === type).length
