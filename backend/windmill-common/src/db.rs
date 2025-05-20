@@ -120,62 +120,6 @@ impl UserDB {
         .execute(&mut *tx)
         .await?;
 
-        // set_session_context(
-        //     username TEXT,
-        //     groups TEXT,
-        //     pgroups TEXT,
-        //     folders_read TEXT,
-        //     folders_write TEXT
-        // )
-
-        // sqlx::query!(
-        //     "SELECT set_config('session.user', $1, true)",
-        //     authed.username()
-        // )
-        // .fetch_optional(&mut *tx)
-        // .await?;
-
-        // sqlx::query!(
-        //     "SELECT set_config('session.groups', $1, true)",
-        //     &authed.groups().join(",")
-        // )
-        // .fetch_optional(&mut *tx)
-        // .await?;
-
-        // sqlx::query!(
-        //     "SELECT set_config('session.pgroups', $1, true)",
-        //     &authed
-        //         .groups()
-        //         .iter()
-        //         .map(|x| format!("g/{}", x))
-        //         .collect::<Vec<_>>()
-        //         .join(",")
-        // )
-        // .fetch_optional(&mut *tx)
-        // .await?;
-
-        // sqlx::query!(
-        //     "SELECT set_config('session.folders_read', $1, true)",
-        //     folders_read
-        //         .iter()
-        //         .map(|x| x.0.clone())
-        //         .collect::<Vec<_>>()
-        //         .join(",")
-        // )
-        // .fetch_optional(&mut *tx)
-        // .await?;
-
-        // sqlx::query!(
-        //     "SELECT set_config('session.folders_write', $1, true)",
-        //     folders_write
-        //         .iter()
-        //         .map(|x| x.0.clone())
-        //         .collect::<Vec<_>>()
-        //         .join(",")
-        // )
-        // .fetch_optional(&mut *tx)
-        // .await?;
-
         Ok(tx)
     }
 }
