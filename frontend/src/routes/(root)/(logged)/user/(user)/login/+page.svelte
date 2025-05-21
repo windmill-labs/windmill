@@ -3,7 +3,13 @@
 	import { page } from '$app/stores'
 
 	import { UserService, WorkspaceService } from '$lib/gen'
-	import { usersWorkspaceStore, workspaceStore, userStore, enterpriseLicense } from '$lib/stores'
+	import {
+		usersWorkspaceStore,
+		workspaceStore,
+		userStore,
+		enterpriseLicense,
+		whitelabelNameStore
+	} from '$lib/stores'
 	import { classNames, emptyString, parseQueryParams } from '$lib/utils'
 	import { getUserExt } from '$lib/user'
 	import { WindmillIcon } from '$lib/components/icons'
@@ -115,7 +121,7 @@
 	<LoginPageHeader />
 	<div class="sm:mx-auto sm:w-full sm:max-w-md">
 		<div class="mx-auto flex justify-center">
-			{#if !$enterpriseLicense || !$enterpriseLicense?.endsWith('_whitelabel')}
+			{#if !$enterpriseLicense || !$whitelabelNameStore}
 				<WindmillIcon height="80px" width="80px" spin="slow" />
 			{/if}
 		</div>
