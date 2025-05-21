@@ -1,7 +1,13 @@
 <script lang="ts">
-	import { getContext } from 'svelte'
+	import { getContext, onDestroy } from 'svelte'
 	import { initConfig, initOutput } from '../../editor/appUtils'
-	import type { AppViewerContext, ComponentCustomCSS, RichConfigurations } from '../../types'
+	import type {
+		AppViewerContext,
+		ComponentCustomCSS,
+		ListContext,
+		ListInputs,
+		RichConfigurations
+	} from '../../types'
 	import { initCss } from '../../utils'
 	import AlignWrapper from '../helpers/AlignWrapper.svelte'
 	import InitializeComponent from '../helpers/InitializeComponent.svelte'
@@ -24,6 +30,9 @@
 	export let render: boolean
 	export let verticalAlignment: 'top' | 'center' | 'bottom' | undefined = undefined
 
+	const iterContext = getContext<ListContext>('ListWrapperContext')
+	const listInputs: ListInputs | undefined = getContext<ListInputs>('ListInputs')
+
 	const [floatingRef, floatingContent] = createFloatingActions({
 		strategy: 'absolute',
 		middleware: [offset(5), flip(), shift()]
@@ -42,14 +51,16 @@
 		result: [] as string[]
 	})
 
-	let selectedItems: (string | { value: string; label: any })[] | undefined = [
+	let selectedItems: (number | string | { value: string; label: any })[] | undefined = [
 		...new Set(outputs?.result.peak())
-	] as string[]
+	] as (number | string | { value: string; label: any })[]
 
 	function setResultsFromSelectedItems() {
-		outputs?.result.set([
+		const value = [
 			...(selectedItems?.map((item) => {
-				if (typeof item == 'object' && item.value != undefined && item.label != undefined) {
+				if (typeof item == 'number') {
+					return item.toString()
+				} else if (typeof item == 'object' && item.value != undefined && item.label != undefined) {
 					return item?.value ?? `NOT_STRING`
 				} else if (typeof item == 'string') {
 					return item
@@ -59,7 +70,9 @@
 					return 'NOT_STRING'
 				}
 			}) ?? [])
-		])
+		]
+		outputs?.result.set(value)
+		setContextValue(value)
 	}
 
 	$componentControl[id] = {
@@ -72,6 +85,16 @@
 		}
 	}
 
+	onDestroy(() => {
+		listInputs?.remove(id)
+	})
+
+	function setContextValue(value: any) {
+		if (iterContext && listInputs) {
+			listInputs.set(id, value)
+		}
+	}
+
 	$: resolvedConfig.items && handleItems()
 
 	function handleItems() {
@@ -79,6 +102,9 @@
 			items = resolvedConfig.items?.map((item) => {
 				if (typeof item == 'object' && item.value != undefined && item.label != undefined) {
 					return item
+				}
+				if (typeof item == 'number') {
+					return item.toString()
 				}
 				return typeof item === 'string' ? item : `NOT_STRING`
 			})
@@ -97,11 +123,13 @@
 								return deepEqual(item.value, value)
 							}
 							return item == value
-						}) ?? (typeof value == 'string' ? value : undefined)
+						}) ??
+						(typeof value == 'string' ? value : undefined) ??
+						(typeof value == 'number' ? value.toString() : undefined)
 					)
 				})
 				.filter((item) => item != undefined)
-			selectedItems = [...new Set(nvalue)] as (string | { value: string; label: any })[]
+			selectedItems = [...new Set(nvalue)]
 			setResultsFromSelectedItems()
 		}
 	}
@@ -192,6 +220,7 @@
 				on:change={(event) => {
 					if (event?.detail?.type === 'removeAll') {
 						outputs?.result.set([])
+						setContextValue([])
 					} else {
 						setResultsFromSelectedItems()
 					}
@@ -215,7 +244,7 @@
 						e.target?.['parentElement']?.dispatchEvent(newe)
 					}}
 				>
-					{typeof option == 'object' ? option?.label ?? 'NO_LABEL' : option}
+					{typeof option == 'object' ? (option?.label ?? 'NO_LABEL') : option}
 				</div>
 			</MultiSelect>
 			<Portal name="app-multiselect-v2">

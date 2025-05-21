@@ -52,10 +52,12 @@ windmill-parser-sql.workspace = true
 windmill-parser-graphql.workspace = true
 windmill-parser-php = { workspace = true, optional = true }
 windmill-git-sync.workspace = true
+flume.workspace = true
 sqlx.workspace = true
 uuid.workspace = true
 tracing.workspace = true
 tokio.workspace = true
+tokio-stream.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 futures.workspace = true
@@ -89,6 +91,7 @@ deno_tls = { workspace = true, optional = true }
 deno_permissions = { workspace = true, optional = true }
 deno_io = { workspace = true, optional = true }
 deno_error = { workspace = true, optional = true }
+async-stream.workspace = true
 
 postgres-native-tls.workspace = true
 native-tls.workspace = true

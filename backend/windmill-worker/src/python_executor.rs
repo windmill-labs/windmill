@@ -77,6 +77,7 @@ use crate::{
         start_child_process, OccupancyMetrics,
     },
     handle_child::handle_child,
+    worker_lockfiles::LOCKFILE_GENERATED_FROM_REQUIREMENTS_TXT,
     worker_utils::ping_job_status,
     AuthedClient, DISABLE_NSJAIL, DISABLE_NUSER, HOME_ENV, INSTANCE_PYTHON_VERSION, NSJAIL_PATH,
     PATH_ENV, PIP_EXTRA_INDEX_URL, PIP_INDEX_URL, PROXY_ENVS, PY_INSTALL_DIR, TZ_ENV, UV_CACHE_DIR,
@@ -841,6 +842,8 @@ pub async fn handle_python_job(
 ) -> windmill_common::error::Result<Box<RawValue>> {
     let script_path = crate::common::use_flow_root_path(job.runnable_path());
 
+    let annotations = PythonAnnotations::parse(inner_content);
+
     let (py_version, mut additional_python_paths) = handle_python_deps(
         job_dir,
         requirements_o,
@@ -855,10 +858,10 @@ pub async fn handle_python_job(
         canceled_by,
         &mut Some(occupancy_metrics),
         precomputed_agent_info,
+        annotations,
     )
     .await?;
 
-    let PythonAnnotations { no_postinstall, .. } = PythonAnnotations::parse(inner_content);
     tracing::debug!("Finished handling python dependencies");
     let python_path = get_python_path(
         py_version,
@@ -871,7 +874,7 @@ pub async fn handle_python_job(
     )
     .await?;
 
-    if !no_postinstall {
+    if !annotations.no_postinstall {
         if let Err(e) = postinstall(&mut additional_python_paths, job_dir, job, conn).await {
             tracing::error!("Postinstall stage has failed. Reason: {e}");
         }
@@ -937,6 +940,8 @@ pub async fn handle_python_job(
         "".to_string()
     };
 
+    let postprocessor = get_result_postprocessor(annotations.skip_result_postprocessing);
+
     let os_main_override = if let Some(main_override) = main_name.as_ref() {
         format!("os.environ[\"MAIN_OVERRIDE\"] = \"{main_override}\"\n")
     } else {
@@ -983,7 +988,8 @@ def res_to_json(res):
         for k, v in res.items():
             if type(v).__name__ == 'bytes':
                 res[k] = to_b_64(v)
-    return re.sub(replace_invalid_fields, ' null ', json.dumps(res, separators=(',', ':'), default=str).replace('\n', ''))
+    unprocessed = json.dumps(res, separators=(',', ':'), default=str).replace('\n', '')
+    return {postprocessor}
 
 try:
     {preprocessor}
@@ -1427,6 +1433,7 @@ async fn handle_python_deps(
     canceled_by: &mut Option<CanceledBy>,
     occupancy_metrics: &mut Option<&mut OccupancyMetrics>,
     precomputed_agent_info: Option<PrecomputedAgentInfo>,
+    annotations: PythonAnnotations,
 ) -> error::Result<(PyVersion, Vec<String>)> {
     create_dependencies_dir(job_dir).await;
 
@@ -1439,33 +1446,36 @@ async fn handle_python_deps(
         .clone();
 
     let mut requirements;
+    let compilation_error_hint;
     let mut annotated_pyv = None;
     let mut annotated_pyv_numeric = None;
     let is_deployed = requirements_o.is_some();
     let instance_pyv = PyVersion::from_instance_version(job_id, w_id, conn).await;
-    let annotations = windmill_common::worker::PythonAnnotations::parse(inner_content);
     let requirements = match requirements_o {
         Some(r) => r,
         None => {
             let mut already_visited = vec![];
 
-            requirements = match conn {
-                Connection::Sql(db) => windmill_parser_py_imports::parse_python_imports(
-                    inner_content,
-                    w_id,
-                    script_path,
-                    db,
-                    &mut already_visited,
-                    &mut annotated_pyv_numeric,
-                )
-                .await?
-                .join("\n"),
+            (requirements, compilation_error_hint) = match conn {
+                Connection::Sql(db) => {
+                    let (r, h) = windmill_parser_py_imports::parse_python_imports(
+                        inner_content,
+                        w_id,
+                        script_path,
+                        db,
+                        &mut already_visited,
+                        &mut annotated_pyv_numeric,
+                    )
+                    .await?;
+
+                    (r.join("\n"), h)
+                }
                 Connection::Http(_) => match precomputed_agent_info {
                     Some(PrecomputedAgentInfo::Python { py_version, requirements }) => {
                         annotated_pyv_numeric = py_version;
-                        requirements.clone().unwrap_or_else(|| "".to_string())
+                        (requirements.clone().unwrap_or_else(|| "".to_string()), None)
                     }
-                    _ => "".to_string(),
+                    _ => ("".to_string(), None),
                 },
             };
 
@@ -1487,7 +1497,11 @@ async fn handle_python_deps(
                 )
                 .await
                 .map_err(|e| {
-                    Error::ExecutionErr(format!("pip compile failed: {}", e.to_string()))
+                    Error::ExecutionErr(format!(
+                        "pip compile failed: {}{}",
+                        e.to_string(),
+                        compilation_error_hint.unwrap_or_default()
+                    ))
                 })?;
             }
             &requirements
@@ -2295,8 +2309,16 @@ fn split_requirements(requirements: &str) -> Vec<&str> {
 /// Check requirements/lockfile to figure out python version assigned to it.
 fn get_pyv_from_requirements_lines(requirements_lines: &[&str]) -> PyVersion {
     // If script is deployed we can try to parse first line to get assigned version
+
+    let index = if requirements_lines.get(0).map_or(false, |line| {
+        line.starts_with(LOCKFILE_GENERATED_FROM_REQUIREMENTS_TXT)
+    }) {
+        1
+    } else {
+        0
+    };
     if let Some(v) = requirements_lines
-        .get(0)
+        .get(index)
         .and_then(|line| PyVersion::parse_version(*line))
     {
         // We have valid assigned version, we use it
@@ -2306,6 +2328,15 @@ fn get_pyv_from_requirements_lines(requirements_lines: &[&str]) -> PyVersion {
         // In this case we have dependencies, but no associated python version
         // This is the case for old deployed scripts
         PyVersion::Py311
+    }
+}
+
+// Returns code snippet that needs to be injected into wrapper to post-process results or leave unprocessed
+fn get_result_postprocessor<'a>(skip: bool) -> &'a str {
+    if skip {
+        "unprocessed"
+    } else {
+        "re.sub(replace_invalid_fields, ' null ', unprocessed)"
     }
 }
 
@@ -2356,6 +2387,7 @@ pub async fn start_worker(
     .await
     .to_vec();
 
+    let annotations = PythonAnnotations::parse(inner_content);
     let context_envs = build_envs_map(context).await;
     let (_, additional_python_paths) = handle_python_deps(
         job_dir,
@@ -2371,6 +2403,7 @@ pub async fn start_worker(
         &mut canceled_by,
         &mut None,
         None,
+        annotations,
     )
     .await?;
 
@@ -2388,6 +2421,7 @@ pub async fn start_worker(
     ) = prepare_wrapper(job_dir, false, None, None, inner_content, script_path).await?;
 
     {
+        let postprocessor = get_result_postprocessor(annotations.skip_result_postprocessing);
         let indented_transforms = transforms
             .lines()
             .map(|x| format!("    {}", x))
@@ -2439,7 +2473,8 @@ for line in sys.stdin:
             for k, v in res.items():
                 if type(v).__name__ == 'bytes':
                     res[k] = to_b_64(v)
-        res_json = re.sub(replace_invalid_fields, ' null ', json.dumps(res, separators=(',', ':'), default=str).replace('\n', ''))
+        unprocessed = json.dumps(res, separators=(',', ':'), default=str).replace('\n', '')
+        res_json = {postprocessor}
         sys.stdout.write("wm_res[success]:" + res_json + "\n")
     except BaseException as e:
         exc_type, exc_value, exc_traceback = sys.exc_info()

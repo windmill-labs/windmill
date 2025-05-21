@@ -12,9 +12,9 @@ use crate::{
         run_job,
     },
     resources::try_get_resource_from_db_as,
+    trigger_helpers::TriggerJobArgs,
     users::fetch_api_authed,
 };
-use windmill_queue::TriggerKind;
 
 use bytes::{BufMut, Bytes, BytesMut};
 use chrono::TimeZone;
@@ -29,9 +29,9 @@ use serde_json::value::RawValue;
 use sqlx::types::Json as SqlxJson;
 
 use windmill_common::{
-    db::UserDB, error, utils::report_critical_error, worker::to_raw_value, INSTANCE_NAME,
+    db::UserDB, error, triggers::TriggerKind, utils::report_critical_error, worker::to_raw_value,
+    INSTANCE_NAME,
 };
-use windmill_queue::PushArgsOwned;
 
 use super::{
     drop_logical_replication_slot_query, drop_publication_query, get_database_connection,
@@ -369,13 +369,8 @@ impl PostgresTrigger {
         .await
     }
 
-    async fn handle(
-        &self,
-        db: &DB,
-        args: Option<HashMap<String, Box<RawValue>>>,
-        extra: Option<HashMap<String, Box<RawValue>>>,
-    ) -> () {
-        if let Err(err) = run_job(args, extra, db, self).await {
+    async fn handle(&self, db: &DB, payload: HashMap<String, Box<RawValue>>) -> () {
+        if let Err(err) = run_job(payload, db, self).await {
             report_critical_error(
                 format!(
                     "Failed to trigger job from postgres {}: {:?}",
@@ -387,6 +382,20 @@ impl PostgresTrigger {
             )
             .await;
         };
+    }
+}
+
+impl TriggerJobArgs<HashMap<String, Box<RawValue>>> for PostgresTrigger {
+    fn v1_payload_fn(payload: HashMap<String, Box<RawValue>>) -> HashMap<String, Box<RawValue>> {
+        payload
+    }
+
+    fn v2_payload_fn(payload: HashMap<String, Box<RawValue>>) -> HashMap<String, Box<RawValue>> {
+        payload
+    }
+
+    fn trigger_kind() -> TriggerKind {
+        TriggerKind::Postgres
     }
 }
 
@@ -507,15 +516,10 @@ impl PostgresConfig {
         }
     }
 
-    async fn handle(
-        &self,
-        db: &DB,
-        args: Option<HashMap<String, Box<RawValue>>>,
-        extra: Option<HashMap<String, Box<RawValue>>>,
-    ) -> () {
+    async fn handle(&self, db: &DB, payload: HashMap<String, Box<RawValue>>) -> () {
         match self {
-            PostgresConfig::Trigger(trigger) => trigger.handle(&db, args, extra).await,
-            PostgresConfig::Capture(capture) => capture.handle(&db, args, extra).await,
+            PostgresConfig::Trigger(trigger) => trigger.handle(&db, payload).await,
+            PostgresConfig::Capture(capture) => capture.handle(&db, payload).await,
         }
     }
 
@@ -605,6 +609,7 @@ async fn listen_to_transactions(
                                         }
                                     };
 
+
                                     let message = match message {
                                         Ok(message) => message,
                                         Err(err) => {
@@ -648,37 +653,75 @@ async fn listen_to_transactions(
                                                     None
                                                 }
                                                 Insert(insert) => {
-                                                    Some((insert.o_id, relations.body_to_json((insert.o_id, insert.tuple)), "insert"))
+                                                    Some((insert.o_id, Ok(None), relations.row_to_json((insert.o_id, insert.tuple)), "insert"))
                                                 }
                                                 Update(update) => {
-                                                    Some((update.o_id, relations.body_to_json((update.o_id, update.new_tuple)), "update"))
+                                                    let old_row = update.old_tuple.map(|old_tuple| relations.row_to_json((update.o_id, old_tuple))).transpose();
+                                                    let row = relations.row_to_json((update.o_id, update.new_tuple));
+                                                    Some((update.o_id, old_row, row, "update"))
                                                 }
                                                 Delete(delete) => {
-                                                    let body = delete.old_tuple.unwrap_or_else(|| delete.key_tuple.unwrap());
-                                                    Some((delete.o_id, relations.body_to_json((delete.o_id, body)), "delete"))
+                                                    let row = delete.old_tuple.unwrap_or_else(|| delete.key_tuple.unwrap());
+                                                    Some((delete.o_id, Ok(None), relations.row_to_json((delete.o_id, row)), "delete"))
                                                 }
                                             };
-                                            if let Some((o_id, Ok(body), transaction_type)) = json {
-                                                let relation = match relations.get_relation(o_id) {
-                                                    Ok(relation) => relation,
-                                                    Err(err) => {
-                                                        tracing::error!("Postgres trigger named: {}, error: {}", pg.get_path(), err.to_string());
-                                                        continue;
+                                            match json {
+                                                Some((o_id, Ok(old_row), Ok(row), transaction_type)) => {
+                                                    let relation = match relations.get_relation(o_id) {
+                                                        Ok(relation) => relation,
+                                                        Err(err) => {
+                                                            tracing::error!("Postgres trigger named: {}, error: {}", pg.get_path(), err.to_string());
+                                                            continue;
+                                                        }
+                                                    };
+                                                    let database_info = HashMap::from([
+                                                        ("schema_name".to_string(), to_raw_value(&relation.namespace)),
+                                                        ("table_name".to_string(), to_raw_value(&relation.name)),
+                                                        ("transaction_type".to_string(), to_raw_value(&transaction_type)),
+                                                        ("old_row".to_string(), to_raw_value(&old_row)),
+                                                        ("row".to_string(), to_raw_value(&row)),
+                                                    ]);
+
+
+                                                    let _ = pg.handle(&db, database_info).await;
+                                                }
+                                                Some((o_id, old_row, row, transaction_type)) => {
+                                                    let relation = match relations.get_relation(o_id) {
+                                                        Ok(relation) => relation,
+                                                        Err(err) => {
+                                                            tracing::error!("Postgres trigger named: {}, error: {}", pg.get_path(), err.to_string());
+                                                            continue;
+                                                        }
+                                                    };
+
+                                                    if let Err(err) = old_row {
+                                                        tracing::error!(
+                                                            transaction_type = ?transaction_type,
+                                                            schema = %relation.namespace,
+                                                            table = %relation.name,
+                                                            error = %err,
+                                                            "Failed to decode OLD row for {} transaction on {}.{}",
+                                                            transaction_type,
+                                                            relation.namespace,
+                                                            relation.name,
+                                                        );
                                                     }
-                                                };
-                                                let database_info = HashMap::from([
-                                                    ("schema_name".to_string(), to_raw_value(&relation.namespace)),
-                                                    ("table_name".to_string(), to_raw_value(&relation.name)),
-                                                    ("transaction_type".to_string(), to_raw_value(&transaction_type)),
-                                                    ("row".to_string(), to_raw_value(&body)),
-                                                ]);
-                                                let extra = Some(HashMap::from([(
-                                                    "wm_trigger".to_string(),
-                                                    to_raw_value(&serde_json::json!({"kind": "postgres", })),
-                                                )]));
 
+                                                    if let Err(err) = row {
+                                                        tracing::error!(
+                                                            transaction_type = ?transaction_type,
+                                                            schema = %relation.namespace,
+                                                            table = %relation.name,
+                                                            error = %err,
+                                                            "Failed to decode NEW row for {} transaction on {}.{}",
+                                                            transaction_type,
+                                                            relation.namespace,
+                                                            relation.name,
+                                                        );
+                                                    }
 
-                                                let _ = pg.handle(&db, Some(database_info), extra).await;
+                                                }
+                                                _ => {}
                                             }
 
                                         }
@@ -875,22 +918,17 @@ impl CaptureConfigForPostgresTrigger {
         }
     }
 
-    async fn handle(
-        &self,
-        db: &DB,
-        args: Option<HashMap<String, Box<RawValue>>>,
-        extra: Option<HashMap<String, Box<RawValue>>>,
-    ) -> () {
-        let args = PushArgsOwned { args: args.unwrap_or_default(), extra: None };
-        let extra = extra.as_ref().map(to_raw_value);
+    async fn handle(&self, db: &DB, payload: HashMap<String, Box<RawValue>>) -> () {
+        let main_args = PostgresTrigger::build_job_args_v2(false, payload.clone(), HashMap::new());
+        let preprocessor_args = PostgresTrigger::build_job_args_v2(true, payload, HashMap::new());
         if let Err(err) = insert_capture_payload(
             db,
             &self.workspace_id,
             &self.path,
             self.is_flow,
             &TriggerKind::Postgres,
-            args,
-            extra,
+            main_args,
+            preprocessor_args,
             &self.owner,
         )
         .await

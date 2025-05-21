@@ -13,8 +13,6 @@ mod bash_executor;
 #[cfg(feature = "java")]
 mod java_executor;
 
-#[cfg(feature = "benchmark")]
-pub mod bench;
 mod bun_executor;
 pub mod common;
 mod config;
@@ -50,6 +48,8 @@ mod worker;
 mod worker_flow;
 mod worker_lockfiles;
 mod worker_utils;
+
+pub use worker_lockfiles::process_relative_imports;
 
 pub use worker::*;
 

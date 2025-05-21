@@ -501,7 +501,7 @@ pub(crate) async fn tarball_workspace(
              "SELECT app.id, app.path, app.summary, app.versions, app.policy, app.custom_path,
              app.extra_perms, app_version.value,
              app_version.created_at, app_version.created_by from app, app_version
-             WHERE app.workspace_id = $1 AND app_version.id = app.versions[array_upper(app.versions, 1)]",
+             WHERE app.workspace_id = $1 AND app_version.id = app.versions[array_upper(app.versions, 1)] AND app_version.raw_app IS false",
          )
          .bind(&w_id)
          .fetch_all(&mut *tx)
@@ -577,13 +577,35 @@ pub(crate) async fn tarball_workspace(
         #[cfg(feature = "websocket")]
         {
             let websocket_triggers = sqlx::query_as!(
-                 crate::websocket_triggers::WebsocketTrigger,
-                 "SELECT workspace_id, path, url, script_path, is_flow, edited_by, email, edited_at, server_id, last_server_ping, extra_perms, error, enabled, filters as \"filters: _\", initial_messages as \"initial_messages: _\", url_runnable_args as \"url_runnable_args: _\", can_return_message FROM websocket_trigger
-                 WHERE workspace_id = $1",
-                 &w_id
-             )
-             .fetch_all(&mut *tx)
-             .await?;
+                crate::websocket_triggers::WebsocketTrigger,
+                r#"
+                SELECT 
+                    workspace_id,
+                    path,
+                    url,
+                    script_path,
+                    is_flow,
+                    edited_by,
+                    email,
+                    edited_at,
+                    server_id,
+                    last_server_ping,
+                    extra_perms,
+                    error,
+                    enabled,
+                    filters AS "filters: _",
+                    initial_messages AS "initial_messages: _",
+                    url_runnable_args AS "url_runnable_args: _",
+                    can_return_message
+                FROM 
+                    websocket_trigger
+                WHERE 
+                    workspace_id = $1
+                "#,
+                &w_id
+            )
+            .fetch_all(&mut *tx)
+            .await?;
 
             for trigger in websocket_triggers {
                 let trigger_str = &to_string_without_metadata(&trigger, false, None).unwrap();
@@ -622,8 +644,29 @@ pub(crate) async fn tarball_workspace(
         {
             let sqs_triggers = sqlx::query_as!(
                 crate::sqs_triggers_ee::SqsTrigger,
-                "SELECT * FROM sqs_trigger
-                WHERE workspace_id = $1",
+                r#"
+                SELECT
+                    aws_auth_resource_type AS "aws_auth_resource_type: _",
+                    aws_resource_path,
+                    message_attributes,
+                    queue_url,
+                    workspace_id,
+                    path,
+                    script_path,
+                    is_flow,
+                    edited_by,
+                    email,
+                    edited_at,
+                    server_id,
+                    last_server_ping,
+                    extra_perms,
+                    error,
+                    enabled
+                FROM 
+                    sqs_trigger
+                WHERE 
+                    workspace_id = $1
+                "#,
                 &w_id
             )
             .fetch_all(&mut *tx)
@@ -649,6 +692,7 @@ pub(crate) async fn tarball_workspace(
                     workspace_id,
                     delivery_type AS "delivery_type: _",
                     delivery_config AS "delivery_config: _",
+                    subscription_mode AS "subscription_mode: _",
                     path,
                     script_path,
                     is_flow,
@@ -716,6 +760,45 @@ pub(crate) async fn tarball_workspace(
                         &trigger_str,
                         &format!("{}.postgres_trigger.json", trigger.path),
                     )
+                    .await?;
+            }
+        }
+
+        #[cfg(all(feature = "enterprise", feature = "mqtt_trigger"))]
+        {
+            let mqtt_triggers = sqlx::query_as!(
+                crate::mqtt_triggers::MqttTrigger,
+                r#"
+                SELECT
+                    mqtt_resource_path,
+                    subscribe_topics as "subscribe_topics: _",
+                    v3_config as "v3_config: _",
+                    v5_config as "v5_config: _",
+                    client_version AS "client_version: _",
+                    client_id,
+                    workspace_id,
+                    path,
+                    script_path,
+                    is_flow,
+                    edited_by,
+                    email,
+                    edited_at,
+                    server_id,
+                    last_server_ping,
+                    extra_perms,
+                    error,
+                    enabled
+                FROM 
+                    mqtt_trigger
+                "#,
+            )
+            .fetch_all(&mut *tx)
+            .await?;
+
+            for trigger in mqtt_triggers {
+                let trigger_str = &to_string_without_metadata(&trigger, false, None).unwrap();
+                archive
+                    .write_to_archive(&trigger_str, &format!("{}.mqtt_trigger.json", trigger.path))
                     .await?;
             }
         }

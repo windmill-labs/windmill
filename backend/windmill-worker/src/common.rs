@@ -31,6 +31,7 @@ use windmill_common::{
 };
 
 use anyhow::{anyhow, bail, Result};
+use windmill_parser_sql::{s3_mode_extension, S3ModeArgs, S3ModeFormat};
 use windmill_queue::MiniPulledJob;
 
 use std::ops::AsyncFn;
@@ -903,7 +904,7 @@ pub async fn get_cached_resource_value_if_valid(
                     S3Object {
                         s3: s3_file_key.clone(),
                         storage: resource.storage.clone(),
-                        filename: None,
+                        ..Default::default()
                     },
                 )
                 .await;
@@ -1578,4 +1579,64 @@ pub async fn par_install_language_dependencies<'a>(
         .await;
     }
     Ok(())
+}
+
+#[derive(Clone)]
+pub struct S3ModeWorkerData {
+    pub client: AuthedClient,
+    pub object_key: String,
+    pub format: S3ModeFormat,
+    pub storage: Option<String>,
+    pub workspace_id: String,
+}
+
+impl S3ModeWorkerData {
+    pub async fn upload<S>(&self, stream: S) -> error::Result<()>
+    where
+        S: futures::stream::TryStream + Send + 'static,
+        S::Error: Into<Box<dyn std::error::Error + Send + Sync>>,
+        bytes::Bytes: From<S::Ok>,
+    {
+        self.client
+            .upload_s3_file(
+                self.workspace_id.as_str(),
+                self.object_key.clone(),
+                self.storage.clone(),
+                stream,
+            )
+            .await
+    }
+
+    pub fn to_return_s3_obj(&self) -> windmill_common::s3_helpers::S3Object {
+        windmill_common::s3_helpers::S3Object {
+            s3: self.object_key.clone(),
+            storage: self.storage.clone(),
+            ..Default::default()
+        }
+    }
+}
+
+pub fn s3_mode_args_to_worker_data(
+    s3: S3ModeArgs,
+    client: AuthedClient,
+    job: &MiniPulledJob,
+) -> S3ModeWorkerData {
+    S3ModeWorkerData {
+        client,
+        storage: s3.storage,
+        format: s3.format,
+        object_key: format!(
+            "{}/{}.{}",
+            s3.prefix.unwrap_or_else(|| format!(
+                "wmill_datalake/{}",
+                job.runnable_path
+                    .as_ref()
+                    .map(|s| s.as_str())
+                    .unwrap_or("unknown_script")
+            )),
+            job.id,
+            s3_mode_extension(s3.format)
+        ),
+        workspace_id: job.workspace_id.clone(),
+    }
 }

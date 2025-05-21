@@ -6,6 +6,7 @@ use std::collections::{
 use crate::{
     db::{ApiAuthed, DB},
     postgres_triggers::mapper::{Mapper, MappingInfo},
+    resources::try_get_resource_from_db_as,
 };
 use axum::{
     extract::{Path, Query},
@@ -27,11 +28,12 @@ use windmill_common::{
     utils::{not_found_if_none, paginate, Pagination, StripPath},
     worker::CLOUD_HOSTED,
 };
+use windmill_git_sync::{handle_deployment_metadata, DeployedObject};
 
 use super::{
-    create_logical_replication_slot_query, create_publication_query,
-    drop_logical_replication_slot_query, drop_publication_query, generate_random_string,
-    get_database_connection, ERROR_PUBLICATION_NAME_NOT_EXISTS, ERROR_REPLICATION_SLOT_NOT_EXISTS,
+    create_logical_replication_slot_query, create_publication_query, drop_publication_query,
+    generate_random_string, get_database_connection, get_raw_postgres_connection,
+    ERROR_PUBLICATION_NAME_NOT_EXISTS, ERROR_REPLICATION_SLOT_NOT_EXISTS,
 };
 use lazy_static::lazy_static;
 
@@ -394,7 +396,7 @@ pub async fn create_postgres_trigger(
                 "Missing replication slot name".to_string(),
             ));
         }
-        (replication_slot_name.unwrap(), publication_name.unwrap())
+        (publication_name.unwrap(), replication_slot_name.unwrap())
     };
 
     let mut tx = user_db.begin(&authed).await?;
@@ -451,6 +453,17 @@ pub async fn create_postgres_trigger(
     .await?;
 
     tx.commit().await?;
+
+    handle_deployment_metadata(
+        &authed.email,
+        &authed.username,
+        &db,
+        &w_id,
+        DeployedObject::PostgresTrigger { path: path.to_string() },
+        Some(format!("Postgres trigger '{}' created", path)),
+        true,
+    )
+    .await?;
 
     Ok((StatusCode::CREATED, path.to_string()))
 }
@@ -628,7 +641,7 @@ pub async fn create_slot(
 
     sqlx::query(&query).execute(&mut connection).await?;
 
-    Ok(format!("Slot {} created!", name))
+    Ok(format!("Replication slot {} created!", name))
 }
 
 pub async fn drop_slot_name(
@@ -638,19 +651,43 @@ pub async fn drop_slot_name(
     Path((w_id, postgres_resource_path)): Path<(String, String)>,
     Json(Slot { name }): Json<Slot>,
 ) -> Result<String> {
-    let mut connection = get_database_connection(
-        authed.clone(),
-        Some(user_db.clone()),
+    let database = try_get_resource_from_db_as::<Postgres>(
+        authed,
+        Some(user_db),
         &db,
         &postgres_resource_path,
         &w_id,
     )
     .await?;
 
-    let query = drop_logical_replication_slot_query(&name);
-    sqlx::query(&query).execute(&mut connection).await?;
+    let mut connection = get_raw_postgres_connection(&database).await?;
 
-    Ok(format!("Slot name {} deleted!", name))
+    let active_pid = sqlx::query_scalar!(
+        r#"SELECT 
+            active_pid 
+        FROM 
+            pg_replication_slots 
+        WHERE 
+            slot_name = $1
+        "#,
+        &name
+    )
+    .fetch_optional(&mut connection)
+    .await?
+    .flatten();
+
+    if let Some(pid) = active_pid {
+        sqlx::query("SELECT pg_terminate_backend($1)")
+            .bind(pid)
+            .execute(&mut connection)
+            .await?;
+    }
+    sqlx::query("SELECT pg_drop_replication_slot($1)")
+        .bind(&name)
+        .execute(&mut connection)
+        .await?;
+
+    Ok(format!("Replication slot {} deleted!", name))
 }
 #[derive(Debug, Serialize)]
 struct PublicationName {
@@ -1133,7 +1170,7 @@ pub async fn update_postgres_trigger(
         &mut *tx,
         &authed,
         "postgres_triggers.update",
-        ActionKind::Create,
+        ActionKind::Update,
         &w_id,
         Some(&path),
         None,
@@ -1142,11 +1179,23 @@ pub async fn update_postgres_trigger(
 
     tx.commit().await?;
 
+    handle_deployment_metadata(
+        &authed.email,
+        &authed.username,
+        &db,
+        &w_id,
+        DeployedObject::PostgresTrigger { path: path.to_string() },
+        Some(format!("Postgres trigger '{}' updated", path)),
+        true,
+    )
+    .await?;
+
     Ok(workspace_path.to_string())
 }
 
 pub async fn delete_postgres_trigger(
     authed: ApiAuthed,
+    Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
     Path((w_id, path)): Path<(String, StripPath)>,
 ) -> Result<String> {
@@ -1178,6 +1227,17 @@ pub async fn delete_postgres_trigger(
 
     tx.commit().await?;
 
+    handle_deployment_metadata(
+        &authed.email,
+        &authed.username,
+        &db,
+        &w_id,
+        DeployedObject::PostgresTrigger { path: path.to_string() },
+        Some(format!("Postgres trigger '{}' deleted", path)),
+        true,
+    )
+    .await?;
+
     Ok(format!("Postgres trigger {path} deleted"))
 }
 
@@ -1206,6 +1266,7 @@ pub async fn exists_postgres_trigger(
 
 pub async fn set_enabled(
     authed: ApiAuthed,
+    Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
     Path((w_id, path)): Path<(String, StripPath)>,
     Json(payload): Json<SetEnabled>,
@@ -1253,6 +1314,17 @@ pub async fn set_enabled(
     .await?;
 
     tx.commit().await?;
+
+    handle_deployment_metadata(
+        &authed.email,
+        &authed.username,
+        &db,
+        &w_id,
+        DeployedObject::PostgresTrigger { path: path.to_string() },
+        Some(format!("Postgres trigger '{}' updated", path)),
+        true,
+    )
+    .await?;
 
     Ok(format!(
         "succesfully updated postgres trigger at path {} to status {}",

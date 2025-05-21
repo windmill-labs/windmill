@@ -9,7 +9,7 @@
 	import { Loader2, Save } from 'lucide-svelte'
 	import Label from '$lib/components/Label.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
-	import { SqsTriggerService } from '$lib/gen'
+	import { SqsTriggerService, type AwsAuthResourceType } from '$lib/gen'
 	import SqsTriggerEditorConfigSection from './SqsTriggerEditorConfigSection.svelte'
 	import Section from '$lib/components/Section.svelte'
 	import ScriptPicker from '$lib/components/ScriptPicker.svelte'
@@ -32,6 +32,7 @@
 	let aws_resource_path: string = ''
 	let queue_url = ''
 	let message_attributes: string[] = []
+	let aws_auth_resource_type: AwsAuthResourceType = 'credentials'
 	let isValid = false
 	const dispatch = createEventDispatcher()
 
@@ -70,6 +71,7 @@
 			queue_url = defaultValues?.queue_url ?? ''
 			path = ''
 			message_attributes = defaultValues?.message_attributes ?? []
+			aws_auth_resource_type = defaultValues?.aws_auth_resource_type ?? 'credentials'
 			initialPath = ''
 			edit = false
 			dirtyPath = false
@@ -92,6 +94,7 @@
 			message_attributes = s.message_attributes ?? []
 			path = s.path
 			enabled = s.enabled
+			aws_auth_resource_type = s.aws_auth_resource_type
 			can_write = canWrite(s.path, s.extra_perms, $userStore)
 		} catch (error) {
 			sendUserToast(`Could not load SQS trigger: ${error.body}`, true)
@@ -106,6 +109,7 @@
 				requestBody: {
 					path,
 					script_path,
+					aws_auth_resource_type,
 					enabled,
 					is_flow,
 					queue_url,
@@ -121,6 +125,7 @@
 					enabled: true,
 					aws_resource_path,
 					queue_url,
+					aws_auth_resource_type,
 					path,
 					script_path,
 					is_flow,
@@ -220,7 +225,7 @@
 								btnClasses="ml-4 mt-2"
 								color="dark"
 								size="xs"
-								href={itemKind === 'flow' ? '/flows/add?hub=59' : '/scripts/add?hub=hub%2F11637'}
+								href={itemKind === 'flow' ? '/flows/add?hub=59' : '/scripts/add?hub=hub%2F19657'}
 								target="_blank">Create from template</Button
 							>
 						{/if}
@@ -232,6 +237,7 @@
 					bind:queue_url
 					bind:message_attributes
 					bind:aws_resource_path
+					bind:aws_auth_resource_type
 					{can_write}
 					headless={true}
 				/>

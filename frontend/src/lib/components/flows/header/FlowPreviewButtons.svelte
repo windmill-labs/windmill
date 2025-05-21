@@ -10,6 +10,8 @@
 	import { getContext } from 'svelte'
 	import type { FlowEditorContext } from '../types'
 	import { Play } from 'lucide-svelte'
+	import { writable, type Writable } from 'svelte/store'
+	import type { DurationStatus, GraphModuleState } from '$lib/components/graph'
 
 	export let loading = false
 
@@ -32,6 +34,17 @@
 	let jobId: string | undefined = undefined
 	let job: Job | undefined = undefined
 	let preventEscape = false
+	let initial = false
+	let selectedJobStep: string | undefined = undefined
+	let selectedJobStepIsTopLevel: boolean | undefined = undefined
+	let selectedJobStepType: 'single' | 'forloop' | 'branchall' = 'single'
+	let branchOrIterationN: number = 0
+	let scrollTop: number = 0
+
+	let rightColumnSelect: 'timeline' | 'node_status' | 'node_definition' | 'user_states' = 'timeline'
+
+	let localModuleStates: Writable<Record<string, GraphModuleState>> = writable({})
+	let localDurationStatuses: Writable<Record<string, DurationStatus>> = writable({})
 
 	$: upToDisabled =
 		$selectedId == undefined ||
@@ -95,13 +108,22 @@
 </Button>
 
 {#if !loading}
-	<Drawer bind:open={previewOpen} alwaysOpen size="75%" {preventEscape}>
+	<Drawer bind:open={previewOpen} size="75%" {preventEscape}>
 		<FlowPreviewContent
 			bind:this={flowPreviewContent}
+			bind:localModuleStates
+			bind:localDurationStatuses
 			open={previewOpen}
+			bind:scrollTop
 			bind:previewMode
 			bind:job
 			bind:jobId
+			bind:initial
+			bind:selectedJobStep
+			bind:selectedJobStepIsTopLevel
+			bind:selectedJobStepType
+			bind:branchOrIterationN
+			bind:rightColumnSelect
 			on:close={() => {
 				previewOpen = false
 			}}

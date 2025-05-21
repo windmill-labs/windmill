@@ -21,7 +21,7 @@
 
 	function selectScript(id: string) {
 		$selectedComponentInEditor = id
-		if (!id.startsWith('unused-') || !id.startsWith(BG_PREFIX)) {
+		if ((selectedComponent && !id.startsWith('unused-')) || !id.startsWith(BG_PREFIX)) {
 			$selectedComponent = [$selectedComponentInEditor.split('_transformer')[0]]
 		}
 	}
@@ -29,7 +29,7 @@
 	$: runnables = getAppScripts($app.grid, $app.subgrids)
 
 	// When selected component changes, update selectedScriptComponentId
-	$: handleSelectedComponent($selectedComponent)
+	$: selectedComponent && handleSelectedComponent($selectedComponent)
 
 	function handleSelectedComponent(selectedComponent: string[] | undefined) {
 		if (
@@ -184,11 +184,11 @@
 				{/if}
 			</div>
 		</div>
-
 		<div>
 			<div class="w-full flex justify-between items-center mb-1">
 				<div class="text-xs text-secondary font-semibold truncate">
 					Background Runnables
+
 					<Tooltip
 						documentationLink="https://www.windmill.dev/docs/apps/app-runnable-panel#background-runnables"
 					>
@@ -250,9 +250,3 @@
 </PanelSection>
 
 <AppTutorials bind:this={appTutorials} on:reload />
-
-<style lang="postcss">
-	.panel-item {
-		@apply border flex gap-1 truncate font-normal justify-between w-full items-center py-1 px-2 rounded-sm duration-200;
-	}
-</style>

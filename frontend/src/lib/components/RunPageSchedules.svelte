@@ -1,5 +1,4 @@
 <script lang="ts">
-	import ScheduleEditor from './ScheduleEditor.svelte'
 	import { Button } from './common'
 	import { workspaceStore } from '$lib/stores'
 	import { ScheduleService, type Schedule } from '$lib/gen'
@@ -15,6 +14,7 @@
 	import { loadSchedules, saveSchedule } from './flows/scheduleUtils'
 	import { type Writable, writable } from 'svelte/store'
 	import Description from '$lib/components/Description.svelte'
+	import ScheduleEditor from '$lib/components/triggers/schedules/ScheduleEditor.svelte'
 
 	export let schema: any
 	export let isFlow: boolean
@@ -92,7 +92,7 @@
 									right: 'Enabled'
 								}}
 								on:change={async (e) => {
-									if (!newItem) {
+									if (!newItem && $initialPrimarySchedule != false) {
 										await ScheduleService.setScheduleEnabled({
 											path: path,
 											workspace: $workspaceStore ?? '',
@@ -143,7 +143,7 @@
 			<p class="text-xs text-tertiary mt-10">Define a schedule frequency first</p>
 		{/if}
 
-		{#if $initialPrimarySchedule != false}
+		{#if $initialPrimarySchedule != false && !newItem}
 			<div class="flex">
 				<Button size="xs" color="light" on:click={() => scheduleEditor?.openEdit(path, isFlow)}
 					>Advanced</Button

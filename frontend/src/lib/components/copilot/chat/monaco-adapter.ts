@@ -22,6 +22,7 @@ export class AIChatEditorHandler {
 
 	reviewingChanges: Writable<boolean> = writable(false)
 	groupChanges: { changes: VisualChangeWithDiffIndex[]; groupIndex: number }[] = []
+	pendingNewCode: string | undefined = undefined
 
 	constructor(editor: meditor.IStandaloneCodeEditor) {
 		this.editor = editor
@@ -29,6 +30,7 @@ export class AIChatEditorHandler {
 
 	clear() {
 		this.groupChanges = []
+		this.pendingNewCode = undefined
 		for (const collection of this.decorationsCollections) {
 			collection.clear()
 		}
@@ -166,6 +168,12 @@ export class AIChatEditorHandler {
 	}
 
 	async reviewAndApply(newCode: string) {
+		if (this.pendingNewCode === newCode) {
+			return
+		} else if (this.pendingNewCode) {
+			this.clear()
+		}
+		this.pendingNewCode = newCode
 		const changedLines = await this.calculateVisualChanges(newCode)
 		if (changedLines.length === 0) return
 

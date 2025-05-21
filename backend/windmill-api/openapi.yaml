@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.481.0
+  version: 1.491.5
   title: Windmill API
 
   contact:
@@ -1378,7 +1378,7 @@ paths:
             format: int64
           description: The ID of the GitHub installation to delete
       responses:
-        '200':
+        "200":
           description: Installation successfully deleted
 
   /w/{workspace}/github_app/export/{installationId}:
@@ -1400,7 +1400,7 @@ paths:
           schema:
             type: integer
       responses:
-        '200':
+        "200":
           description: Successfully exported the JWT token
           content:
             application/json:
@@ -1435,7 +1435,7 @@ paths:
                 jwt_token:
                   type: string
       responses:
-        '200':
+        "200":
           description: Successfully imported the installation
 
   /users/accept_invite:
@@ -1791,7 +1791,7 @@ paths:
             schema:
               $ref: "#/components/schemas/OperatorSettings"
       responses:
-        '200':
+        "200":
           description: Operator settings updated successfully
           content:
             text/plain:
@@ -1997,7 +1997,7 @@ paths:
                 required:
                   - premium
                   - owner
-  
+
   /w/{workspace}/workspaces/threshold_alert:
     get:
       summary: get threshold alert info
@@ -2368,7 +2368,6 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/AIConfig"
-                
 
   /w/{workspace}/workspaces/edit_error_handler:
     post:
@@ -3538,14 +3537,14 @@ paths:
       tags:
         - teams
       responses:
-        '200':
+        "200":
           description: Teams information successfully synchronized
           content:
             application/json:
               schema:
                 type: array
                 items:
-                  $ref: '#/components/schemas/TeamInfo'
+                  $ref: "#/components/schemas/TeamInfo"
 
   /teams/activities:
     post:
@@ -3579,7 +3578,7 @@ paths:
                   description: The card block to be sent in the Teams card
 
       responses:
-        '200':
+        "200":
           description: Activity processed successfully
 
   /w/{workspace}/resources/create:
@@ -4946,8 +4945,7 @@ paths:
 
   /scripts_u/tokened_raw/{workspace}/{token}/{path}:
     get:
-      summary:
-        raw script by path with a token (mostly used by lsp to be used with
+      summary: raw script by path with a token (mostly used by lsp to be used with
         import maps to resolve scripts)
       operationId: rawScriptByPathTokened
       tags:
@@ -5040,6 +5038,63 @@ paths:
                     type: string
                   lock_error_logs:
                     type: string
+
+  /w/{workspace}/jobs/list_selected_job_groups:
+    # We use post because sending a huge array as a query param can produce
+    # URLs that may be too long
+    post:
+      summary: list selected jobs script/flow schemas grouped by (kind, path)
+      operationId: listSelectedJobGroups
+      tags:
+        - job
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        description: script args
+        required: true
+        content:
+          application/json:
+            schema:
+              type: array
+              items:
+                type: string
+                format: uuid
+      responses:
+        "200":
+          description: result
+          content:
+            text/plain:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    kind:
+                      type: string
+                      enum: ["script", "flow"]
+                    script_path:
+                      type: string
+                    latest_schema:
+                      type: object
+                    schemas:
+                      type: array
+                      items:
+                        type: object
+                        properties:
+                          schema:
+                            type: object
+                          script_hash:
+                            type: string
+                          job_ids:
+                            type: array
+                            items:
+                              type: string
+                        required: [schema, script_hash, job_ids]
+                  required:
+                    - kind
+                    - script_path
+                    - latest_schema
+                    - schemas
 
   /w/{workspace}/jobs/run/p/{path}:
     post:
@@ -5525,7 +5580,6 @@ paths:
                   lock_error_logs:
                     type: string
 
-
   /w/{workspace}/flows/get_triggers_count/{path}:
     get:
       summary: get triggers count of flow
@@ -5931,6 +5985,55 @@ paths:
               schema:
                 type: string
 
+  /w/{workspace}/apps/create_raw:
+    post:
+      summary: create app raw
+      operationId: createAppRaw
+      tags:
+        - app
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        description: new app
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                app:
+                  type: object
+                  properties:
+                    path:
+                      type: string
+                    value: {}
+                    summary:
+                      type: string
+                    policy:
+                      $ref: "#/components/schemas/Policy"
+                    draft_only:
+                      type: boolean
+                    deployment_message:
+                      type: string
+                    custom_path:
+                      type: string
+                  required:
+                    - path
+                    - value
+                    - summary
+                    - policy
+                js:
+                  type: string
+                css:
+                  type: string
+      responses:
+        "201":
+          description: app created
+          content:
+            text/plain:
+              schema:
+                type: string
+
   /w/{workspace}/apps/exists/{path}:
     get:
       summary: does an app exisst at path
@@ -6290,6 +6393,49 @@ paths:
               schema:
                 type: string
 
+  /w/{workspace}/apps/update_raw/{path}:
+    post:
+      summary: update app
+      operationId: updateAppRaw
+      tags:
+        - app
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/ScriptPath"
+      requestBody:
+        description: update app
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                app:
+                  type: object
+                  properties:
+                    path:
+                      type: string
+                    summary:
+                      type: string
+                    value: {}
+                    policy:
+                      $ref: "#/components/schemas/Policy"
+                    deployment_message:
+                      type: string
+                    custom_path:
+                      type: string
+                js:
+                  type: string
+                css:
+                  type: string
+      responses:
+        "200":
+          description: app updated
+          content:
+            text/plain:
+              schema:
+                type: string
+
   /w/{workspace}/apps/custom_path_exists/{custom_path}:
     get:
       summary: check if custom path exists
@@ -6306,6 +6452,38 @@ paths:
             application/json:
               schema:
                 type: boolean
+
+  /w/{workspace}/apps/sign_s3_objects:
+    post:
+      summary: sign s3 objects, to be used by anonymous users in public apps
+      operationId: signS3Objects
+      tags:
+        - app
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        description: s3 objects to sign
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                s3_objects:
+                  type: array
+                  items:
+                    $ref: "#/components/schemas/S3Object"
+              required:
+                - s3_objects
+      responses:
+        "200":
+          description: signed s3 objects
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/S3Object"
 
   /w/{workspace}/apps_u/execute_component/{path}:
     post:
@@ -6491,7 +6669,6 @@ paths:
           in: query
           schema:
             type: boolean
-
       requestBody:
         description: flow args
         required: true
@@ -6499,7 +6676,6 @@ paths:
           application/json:
             schema:
               $ref: "#/components/schemas/ScriptArgs"
-
       responses:
         "201":
           description: job created
@@ -6508,6 +6684,62 @@ paths:
               schema:
                 type: string
                 format: uuid
+
+  /w/{workspace}/jobs/run/batch_rerun_jobs:
+    post:
+      summary: re-run multiple jobs
+      operationId: batchReRunJobs
+      tags:
+        - job
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        description: list of job ids to re run and arg tranforms
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [job_ids, script_options_by_path, flow_options_by_path]
+              properties:
+                job_ids:
+                  type: array
+                  items:
+                    type: string
+                script_options_by_path:
+                  type: object
+                  additionalProperties:
+                    type: object
+                    properties:
+                      input_transforms:
+                        type: object
+                        additionalProperties:
+                          $ref: "#/components/schemas/InputTransform"
+                      use_latest_version:
+                        type: boolean
+                flow_options_by_path:
+                  type: object
+                  additionalProperties:
+                    type: object
+                    properties:
+                      input_transforms:
+                        type: object
+                        additionalProperties:
+                          $ref: "#/components/schemas/InputTransform"
+                      use_latest_version:
+                        type: boolean
+      responses:
+        "201":
+          description: stream of created job uuids separated by \n. Lines may start with 'Error:'
+          example: |
+            a1a74c0d-708e-4539-9768-e8b3d37996bd
+            f0949132-5b30-48fe-bac8-873f047df810
+            Error: Could not re-run 0b885808-ae89-4458-af95-c1ca3a13b0a5
+            52b9c01d-1125-4bbb-8bee-d41f26b70066
+          content:
+            text/event-stream:
+              schema:
+                type: string
 
   /w/{workspace}/jobs/restart/f/{id}/from/{step_id}/{branch_or_iteration_n}:
     post:
@@ -6525,8 +6757,7 @@ paths:
           schema:
             type: string
         - name: branch_or_iteration_n
-          description:
-            for branchall or loop, the iteration at which the flow should
+          description: for branchall or loop, the iteration at which the flow should
             restart
           required: true
           in: path
@@ -6894,10 +7125,82 @@ paths:
               schema:
                 type: integer
 
-  /w/{workspace}/jobs/queue/list_filtered_uuids:
+  /w/{workspace}/jobs/list_filtered_uuids:
     get:
       summary: get the ids of all jobs matching the given filters
-      operationId: listFilteredUuids
+      operationId: listFilteredJobsUuids
+      tags:
+        - job
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/CreatedBy"
+        - $ref: "#/components/parameters/Label"
+        - $ref: "#/components/parameters/Worker"
+        - $ref: "#/components/parameters/ParentJob"
+        - $ref: "#/components/parameters/ScriptExactPath"
+        - $ref: "#/components/parameters/ScriptStartPath"
+        - $ref: "#/components/parameters/SchedulePath"
+        - $ref: "#/components/parameters/ScriptExactHash"
+        - $ref: "#/components/parameters/StartedBefore"
+        - $ref: "#/components/parameters/StartedAfter"
+        - $ref: "#/components/parameters/CreatedBefore"
+        - $ref: "#/components/parameters/CreatedAfter"
+        - $ref: "#/components/parameters/CreatedOrStartedBefore"
+        - $ref: "#/components/parameters/Running"
+        - $ref: "#/components/parameters/ScheduledForBeforeNow"
+        - $ref: "#/components/parameters/CreatedOrStartedAfter"
+        - $ref: "#/components/parameters/CreatedOrStartedAfterCompletedJob"
+        - $ref: "#/components/parameters/JobKinds"
+        - $ref: "#/components/parameters/Suspended"
+        - $ref: "#/components/parameters/ArgsFilter"
+        - $ref: "#/components/parameters/Tag"
+        - $ref: "#/components/parameters/ResultFilter"
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/PerPage"
+        - name: is_skipped
+          description: is the job skipped
+          in: query
+          schema:
+            type: boolean
+        - name: is_flow_step
+          description: is the job a flow step
+          in: query
+          schema:
+            type: boolean
+        - name: has_null_parent
+          description: has null parent
+          in: query
+          schema:
+            type: boolean
+        - name: success
+          description: filter on successful jobs
+          in: query
+          schema:
+            type: boolean
+        - name: all_workspaces
+          description: get jobs from all workspaces (only valid if request come from the `admins` workspace)
+          in: query
+          schema:
+            type: boolean
+        - name: is_not_schedule
+          description: is not a scheduled job
+          in: query
+          schema:
+            type: boolean
+      responses:
+        "200":
+          description: uuids of jobs
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: string
+
+  /w/{workspace}/jobs/queue/list_filtered_uuids:
+    get:
+      summary: get the ids of all queued jobs matching the given filters
+      operationId: listFilteredQueueUuids
       tags:
         - job
       parameters:
@@ -7573,6 +7876,52 @@ paths:
           schema:
             type: string
         - name: channel_id
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: flow_step_id
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: default_args_json
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: dynamic_enums_json
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Interactive slack approval message sent successfully
+
+  /w/{workspace}/jobs/teams_approval/{id}:
+    get:
+      summary: generate interactive teams approval for suspended job
+      operationId: getTeamsApprovalPayload
+      tags:
+        - job
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/JobId"
+        - name: approver
+          in: query
+          schema:
+            type: string
+        - name: message
+          in: query
+          schema:
+            type: string
+        - name: team_name
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: channel_name
           in: query
           required: true
           schema:
@@ -8707,7 +9056,7 @@ paths:
       summary: delete nats trigger
       operationId: deleteNatsTrigger
       tags:
-        -  nats_trigger
+        - nats_trigger
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
         - $ref: "#/components/parameters/Path"
@@ -8735,7 +9084,6 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/NatsTrigger"
-
 
   /w/{workspace}/nats_triggers/list:
     get:
@@ -8770,7 +9118,6 @@ paths:
                 type: array
                 items:
                   $ref: "#/components/schemas/NatsTrigger"
-
 
   /w/{workspace}/nats_triggers/exists/{path}:
     get:
@@ -8817,7 +9164,6 @@ paths:
             text/plain:
               schema:
                 type: string
-
 
   /w/{workspace}/nats_triggers/test:
     post:
@@ -9239,7 +9585,7 @@ paths:
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/NewGcpTrigger"
+              $ref: "#/components/schemas/GcpTriggerData"
       responses:
         "201":
           description: gcp trigger created
@@ -9263,7 +9609,7 @@ paths:
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/EditGcpTrigger"
+              $ref: "#/components/schemas/GcpTriggerData"
       responses:
         "200":
           description: gcp trigger updated
@@ -9457,7 +9803,7 @@ paths:
                 type: array
                 items:
                   type: string
-  
+
   /w/{workspace}/gcp_triggers/subscriptions/list/{path}:
     post:
       summary: list all subscription of a give topic from google cloud service
@@ -9491,8 +9837,8 @@ paths:
       tags:
         - postgres_trigger
       parameters:
-          - $ref: "#/components/parameters/WorkspaceId"
-          - $ref: "#/components/parameters/Path"
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
       responses:
         "200":
           description: boolean that indicates if postgres is set to logical level or not
@@ -9694,7 +10040,6 @@ paths:
             text/plain:
               schema:
                 type: string
-
 
   /w/{workspace}/postgres_triggers/publication/delete/{publication}/{path}:
     delete:
@@ -10683,7 +11028,8 @@ paths:
           description: a config
           content:
             application/json:
-              schema: {}
+              schema:
+                $ref: "#/components/schemas/Configs"
 
   /configs/update/{name}:
     post:
@@ -10808,7 +11154,8 @@ paths:
           required: true
           schema:
             type: string
-            enum: [
+            enum:
+              [
                 script,
                 group_,
                 resource,
@@ -11045,7 +11392,6 @@ paths:
                 type: array
                 items:
                   $ref: "#/components/schemas/Capture"
-
 
   /w/{workspace}/capture/move/{runnable_kind}/{path}:
     post:
@@ -11304,8 +11650,7 @@ paths:
 
   /w/{workspace}/job_helpers/duckdb_connection_settings:
     post:
-      summary:
-        Converts an S3 resource to the set of instructions necessary to connect
+      summary: Converts an S3 resource to the set of instructions necessary to connect
         DuckDB to an S3 bucket
       operationId: duckdbConnectionSettings
       tags:
@@ -11334,8 +11679,7 @@ paths:
                     type: string
   /w/{workspace}/job_helpers/v2/duckdb_connection_settings:
     post:
-      summary:
-        Converts an S3 resource to the set of instructions necessary to connect
+      summary: Converts an S3 resource to the set of instructions necessary to connect
         DuckDB to an S3 bucket
       operationId: duckdbConnectionSettingsV2
       tags:
@@ -11371,8 +11715,7 @@ paths:
 
   /w/{workspace}/job_helpers/polars_connection_settings:
     post:
-      summary:
-        Converts an S3 resource to the set of arguments necessary to connect
+      summary: Converts an S3 resource to the set of arguments necessary to connect
         Polars to an S3 bucket
       operationId: polarsConnectionSettings
       tags:
@@ -11416,8 +11759,7 @@ paths:
                   - client_kwargs
   /w/{workspace}/job_helpers/v2/polars_connection_settings:
     post:
-      summary:
-        Converts an S3 resource to the set of arguments necessary to connect
+      summary: Converts an S3 resource to the set of arguments necessary to connect
         Polars to an S3 bucket
       operationId: polarsConnectionSettingsV2
       tags:
@@ -11494,8 +11836,7 @@ paths:
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
       requestBody:
-        description:
-          S3 resource path to use. If empty, the S3 resource defined in the
+        description: S3 resource path to use. If empty, the S3 resource defined in the
           workspace settings will be used
         required: true
         content:
@@ -12539,8 +12880,7 @@ components:
         type: string
     ParentJob:
       name: parent_job
-      description:
-        The parent job that is at the origin and responsible for the execution
+      description: The parent job that is at the origin and responsible for the execution
         of this script if any
       in: query
       schema:
@@ -12560,8 +12900,7 @@ components:
         type: string
     NewJobId:
       name: job_id
-      description:
-        The job id to assign to the created job. if missing, job is chosen
+      description: The job id to assign to the created job. if missing, job is chosen
         randomly using the ULID scheme. If a job id already exists in the queue
         or as a completed job, the request to create one will fail (Bad Request)
       in: query
@@ -12652,8 +12991,7 @@ components:
         format: date-time
     CreatedOrStartedAfter:
       name: created_or_started_after
-      description:
-        filter on created_at for non non started job and started_at otherwise
+      description: filter on created_at for non non started job and started_at otherwise
         after (exclusive) timestamp
       in: query
       schema:
@@ -12661,8 +12999,7 @@ components:
         format: date-time
     CreatedOrStartedAfterCompletedJob:
       name: created_or_started_after_completed_jobs
-      description:
-        filter on created_at for non non started job and started_at otherwise
+      description: filter on created_at for non non started job and started_at otherwise
         after (exclusive) timestamp but only for the completed jobs
       in: query
       schema:
@@ -12670,8 +13007,7 @@ components:
         format: date-time
     CreatedOrStartedBefore:
       name: created_or_started_before
-      description:
-        filter on created_at for non non started job and started_at otherwise
+      description: filter on created_at for non non started job and started_at otherwise
         before (inclusive) timestamp
       in: query
       schema:
@@ -12759,8 +13095,7 @@ components:
         enum: [Create, Update, Delete, Execute]
     JobKinds:
       name: job_kinds
-      description:
-        filter on job kind (values 'preview', 'script', 'dependencies', 'flow')
+      description: filter on job kind (values 'preview', 'script', 'dependencies', 'flow')
         separated by,
       in: query
       schema:
@@ -12848,6 +13183,37 @@ components:
           $ref: "#/components/schemas/AIProviderModel"
         code_completion_model:
           $ref: "#/components/schemas/AIProviderModel"
+
+    Alert:
+      type: object
+      properties:
+        name:
+          type: string
+        tags_to_monitor:
+          type: array
+          items:
+            type: string
+        jobs_num_threshold:
+          type: integer
+        alert_cooldown_seconds:
+          type: integer
+        alert_time_threshold_seconds:
+          type: integer
+      required:
+        - name
+        - tags_to_monitor
+        - jobs_num_threshold
+        - alert_cooldown_seconds
+        - alert_time_threshold_seconds
+
+    Configs:
+      type: object
+      nullable: true
+      properties:
+        alerts:
+          type: array
+          items:
+            $ref: '#/components/schemas/Alert'
 
     Script:
       type: object
@@ -13168,7 +13534,7 @@ components:
               "singlescriptflow",
               "flowscript",
               "flownode",
-              "appscript",
+              "appscript"
             ]
         schedule_path:
           type: string
@@ -13275,7 +13641,7 @@ components:
               "singlescriptflow",
               "flowscript",
               "flownode",
-              "appscript",
+              "appscript"
             ]
         schedule_path:
           type: string
@@ -13725,7 +14091,7 @@ components:
                         "bytes",
                         "dict",
                         "datetime",
-                        "sql",
+                        "sql"
                       ]
                   - type: object
                     properties:
@@ -13765,7 +14131,7 @@ components:
                                       "bytes",
                                       "dict",
                                       "datetime",
-                                      "sql",
+                                      "sql"
                                     ]
                                 - type: object
                                   properties:
@@ -13791,7 +14157,7 @@ components:
                                 "bytes",
                                 "dict",
                                 "datetime",
-                                "sql",
+                                "sql"
                               ]
                           - type: object
                             properties:
@@ -13823,8 +14189,7 @@ components:
 
     ScriptLang:
       type: string
-      enum:
-        [
+      enum: [
           python3,
           deno,
           go,
@@ -13845,7 +14210,7 @@ components:
           csharp,
           nu,
           java
-          # for related places search: ADD_NEW_LANG 
+          # for related places search: ADD_NEW_LANG
         ]
 
     Preview:
@@ -13854,6 +14219,8 @@ components:
         content:
           type: string
         path:
+          type: string
+        script_hash:
           type: string
         args:
           $ref: "#/components/schemas/ScriptArgs"
@@ -14261,16 +14628,15 @@ components:
         - edited_at
         - is_flow
 
-
     AuthenticationMethod:
       type: string
       enum:
-          - none
-          - windmill
-          - api_key
-          - basic_http
-          - custom_script
-          - signature
+        - none
+        - windmill
+        - api_key
+        - basic_http
+        - custom_script
+        - signature
 
     HttpTrigger:
       allOf:
@@ -14612,7 +14978,7 @@ components:
 
     MqttQoS:
       type: string
-      enum: ['qos0', 'qos1', 'qos2']
+      enum: ["qos0", "qos1", "qos2"]
 
     MqttV3Config:
       type: object
@@ -14757,8 +15123,6 @@ components:
           type: string
         authenticate:
           type: boolean
-        base_endpoint:
-          type: string
       required:
         - authenticate
         - base_endpoint
@@ -14780,6 +15144,8 @@ components:
           $ref: "#/components/schemas/DeliveryType"
         delivery_config:
           $ref: "#/components/schemas/PushConfig"
+        subscription_mode:
+          $ref: "#/components/schemas/SubscriptionMode"
         last_server_ping:
           type: string
           format: date-time
@@ -14793,7 +15159,9 @@ components:
         - subscription_id
         - enabled
         - delivery_type
-  
+        - subscription_mode
+
+
     SubscriptionMode:
       type: string
       enum:
@@ -14801,55 +15169,24 @@ components:
         - create_update
       description: "The mode of subscription. 'existing' means using an existing GCP subscription, while 'create_update' involves creating or updating a new subscription."
 
-    GcpExistingSubscription:
+
+    GcpTriggerData:
       type: object
       properties:
+        gcp_resource_path:
+          type: string
+        subscription_mode:
+          $ref: "#/components/schemas/SubscriptionMode"
+        topic_id:
+          type: string
         subscription_id:
           type: string
         base_endpoint:
-          type: string
-      required:
-        - subscription_id
-        - base_endpoint
-    
-    GcpCreateUpdateSubscription:
-      type: object
-      properties:
-        subscription_id:
           type: string
         delivery_type:
           $ref: "#/components/schemas/DeliveryType"
         delivery_config:
           $ref: "#/components/schemas/PushConfig"
-      required:
-        - delivery_type
-
-
-    GcpSubscriptionModeConfig:
-      type: object
-      properties:
-        subscription_mode:
-          $ref: "#/components/schemas/SubscriptionMode"
-      required:
-        - subscription_mode
-      allOf:
-        - oneOf:
-            - $ref: "#/components/schemas/GcpExistingSubscription"
-            - $ref: "#/components/schemas/GcpCreateUpdateSubscription"
-      description: |
-        "This is a union type representing the subscription mode. 
-         - 'existing': Represents an existing GCP subscription, and should be accompanied by an 'ExistingGcpSubscription' object.
-         - 'create_update': Represents a new or updated GCP subscription, and should be accompanied by a 'CreateUpdateConfig' object."
-  
-    NewGcpTrigger:
-      type: object
-      properties:
-        gcp_resource_path:
-          type: string
-        topic_id:
-          type: string
-        subscription_mode:
-          $ref: "#/components/schemas/GcpSubscriptionModeConfig"
         path:
           type: string
         script_path:
@@ -14863,34 +15200,6 @@ components:
         - script_path
         - is_flow
         - gcp_resource_path
-        - topic_id
-        - subscription_mode
-
-    EditGcpTrigger:
-      type: object
-      properties:
-        gcp_resource_path:
-          type: string
-        topic_id:
-          type: string
-        subscription_mode:
-          $ref: "#/components/schemas/GcpSubscriptionModeConfig"
-        path:
-          type: string
-        script_path:
-          type: string
-        is_flow:
-          type: boolean
-        enabled:
-          type: boolean
-      required:
-        - path
-        - script_path
-        - is_flow
-        - enabled
-        - mqtt_resource_path
-        - subscription_id
-        - delivery_type
         - topic_id
         - subscription_mode
 
@@ -14910,7 +15219,13 @@ components:
           type: string
       required:
         - subscription_id
-  
+
+    AwsAuthResourceType:
+      type: string
+      enum:
+        - oidc
+        - credentials
+
     SqsTrigger:
       allOf:
         - $ref: "#/components/schemas/TriggerExtraProperty"
@@ -14918,6 +15233,8 @@ components:
       properties:
         queue_url:
           type: string
+        aws_auth_resource_type:
+          $ref: "#/components/schemas/AwsAuthResourceType"
         aws_resource_path:
           type: string
         message_attributes:
@@ -14938,12 +15255,15 @@ components:
         - queue_url
         - aws_resource_path
         - enabled
+        - aws_auth_resource_type
 
     NewSqsTrigger:
       type: object
       properties:
         queue_url:
           type: string
+        aws_auth_resource_type:
+          $ref: "#/components/schemas/AwsAuthResourceType"
         aws_resource_path:
           type: string
         message_attributes:
@@ -14964,12 +15284,15 @@ components:
         - path
         - script_path
         - is_flow
+        - aws_auth_resource_type
 
     EditSqsTrigger:
       type: object
       properties:
         queue_url:
           type: string
+        aws_auth_resource_type:
+          $ref: "#/components/schemas/AwsAuthResourceType"
         aws_resource_path:
           type: string
         message_attributes:
@@ -14991,7 +15314,7 @@ components:
         - script_path
         - is_flow
         - enabled
-
+        - aws_auth_resource_type
 
     Slot:
       type: object
@@ -15087,8 +15410,8 @@ components:
         error:
           type: string
         last_server_ping:
-            type: string
-            format: date-time
+          type: string
+          format: date-time
       required:
         - enabled
         - postgres_resource_path
@@ -15711,6 +16034,8 @@ components:
         execution_mode:
           type: string
           enum: [viewer, publisher, anonymous]
+        raw_app:
+          type: boolean
       required:
         - id
         - workspace_id
@@ -15884,13 +16209,7 @@ components:
       properties:
         type:
           type: string
-          enum:
-            [
-              "S3Storage",
-              "AzureBlobStorage",
-              "AzureWorkloadIdentity",
-              "S3AwsOidc",
-            ]
+          enum: ["S3Storage", "AzureBlobStorage", "AzureWorkloadIdentity", "S3AwsOidc"]
         s3_resource_path:
           type: string
         azure_blob_resource_path:
@@ -15905,12 +16224,7 @@ components:
               type:
                 type: string
                 enum:
-                  [
-                    "S3Storage",
-                    "AzureBlobStorage",
-                    "AzureWorkloadIdentity",
-                    "S3AwsOidc",
-                  ]
+                  ["S3Storage", "AzureBlobStorage", "AzureWorkloadIdentity", "S3AwsOidc"]
               s3_resource_path:
                 type: string
               azure_blob_resource_path:
@@ -16002,6 +16316,7 @@ components:
               - schedule
               - user
               - group
+              - trigger
         repositories:
           type: array
           items:
@@ -16069,6 +16384,7 @@ components:
               - schedule
               - user
               - group
+              - trigger
       required:
         - script_path
         - git_repo_resource_path
@@ -16303,8 +16619,8 @@ components:
       properties:
         trigger_kind:
           $ref: "#/components/schemas/CaptureTriggerKind"
-        payload: {}
-        trigger_extra: {}
+        main_args: {}
+        preprocessor_args: {}
         id:
           type: integer
         created_at:
@@ -16312,7 +16628,8 @@ components:
           format: date-time
       required:
         - trigger_kind
-        - payload
+        - main_args
+        - preprocessor_args
         - id
         - created_at
     CaptureConfig:
@@ -16390,7 +16707,7 @@ components:
           type: array
           description: List of channels within the team
           items:
-            $ref: '#/components/schemas/ChannelInfo'
+            $ref: "#/components/schemas/ChannelInfo"
 
     ChannelInfo:
       type: object
@@ -16455,3 +16772,42 @@ components:
       required:
         - account_id
         - installation_id
+
+    S3Object:
+      type: object
+      properties:
+        s3:
+          type: string
+        filename:
+          type: string
+        storage:
+          type: string
+        presigned:
+          type: string
+      required:
+        - s3
+
+    TeamsChannel:
+      type: object
+      required:
+        - team_id
+        - team_name
+        - channel_id
+        - channel_name
+      properties:
+        team_id:
+          type: string
+          description: Microsoft Teams team ID
+          minLength: 1
+        team_name:
+          type: string
+          description: Microsoft Teams team name
+          minLength: 1
+        channel_id:
+          type: string
+          description: Microsoft Teams channel ID
+          minLength: 1
+        channel_name:
+          type: string
+          description: Microsoft Teams channel name
+          minLength: 1

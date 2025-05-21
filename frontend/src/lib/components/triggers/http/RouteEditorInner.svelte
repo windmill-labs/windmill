@@ -268,6 +268,7 @@
 		bind:selectedFileKey={static_asset_config}
 		on:close={() => {
 			s3Editor?.setCode(JSON.stringify(static_asset_config, null, 2))
+			s3FileUploadRawMode = true
 		}}
 		readOnlyMode={false}
 	/>
@@ -362,10 +363,11 @@
 										class="flex justify-end"
 										bind:checked={s3FileUploadRawMode}
 										size="xs"
-										options={{ left: 'Existing file' }}
+										options={{ left: 'Raw S3 object input' }}
 										disabled={!can_write}
 									/>
 								{/if}
+								{s3FileUploadRawMode}
 								{#if s3FileUploadRawMode}
 									{#if can_write}
 										<JsonEditor
@@ -385,20 +387,6 @@
 											code={JSON.stringify(static_asset_config ?? { s3: '' }, null, 2)}
 										/>
 									{/if}
-									{#if can_write}
-										<Button
-											variant="border"
-											color="light"
-											size="xs"
-											btnClasses="mt-1"
-											on:click={() => {
-												s3FilePicker?.open?.(!is_static_website ? static_asset_config : undefined)
-											}}
-											startIcon={{ icon: Pipette }}
-										>
-											Choose an object from the catalog
-										</Button>
-									{/if}
 								{:else}
 									{#key is_static_website}
 										<FileUpload
@@ -410,7 +398,6 @@
 													s3: evt.detail?.path ?? '',
 													filename: evt.detail?.filename ?? undefined
 												}
-												s3FileUploadRawMode = true
 											}}
 											on:deletion={(evt) => {
 												static_asset_config = {
@@ -419,6 +406,20 @@
 											}}
 										/>
 									{/key}
+								{/if}
+								{#if can_write}
+									<Button
+										variant="border"
+										color="light"
+										size="xs"
+										btnClasses="mt-1"
+										on:click={() => {
+											s3FilePicker?.open?.(!is_static_website ? static_asset_config : undefined)
+										}}
+										startIcon={{ icon: Pipette }}
+									>
+										Choose an object from the catalog
+									</Button>
 								{/if}
 							</div>
 						</div>
@@ -447,7 +448,7 @@
 										size="xs"
 										href={itemKind === 'flow'
 											? '/flows/add?hub=62'
-											: '/scripts/add?hub=hub%2F11627'}
+											: '/scripts/add?hub=hub%2F19669'}
 										target="_blank">Create from template</Button
 									>
 								{/if}
@@ -612,17 +613,19 @@
 											href={itemKind === 'flow'
 												? `/flows/add?${SECRET_KEY_PATH}=${encodeURIComponent(variable_path)}&hub=${
 														HubFlow.SIGNATURE_TEMPLATE
-												  }`
+													}`
 												: `/scripts/add?${SECRET_KEY_PATH}=${encodeURIComponent(
 														variable_path
-												  )}&hub=hub%2F${HUB_SCRIPT_ID}`}
+													)}&hub=hub%2F${HUB_SCRIPT_ID}`}
 											target="_blank">Create from template</Button
 										>
 									</div>
 								{/if}
 							{/if}
 
-							<RouteBodyTransformerOption bind:raw_string bind:wrap_body />
+							{#if !static_asset_config}
+								<RouteBodyTransformerOption bind:raw_string bind:wrap_body />
+							{/if}
 						</div>
 					</Section>
 				{/if}

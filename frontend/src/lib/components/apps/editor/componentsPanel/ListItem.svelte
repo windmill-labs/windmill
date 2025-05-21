@@ -4,6 +4,7 @@
 	import { isOpenStore } from './store'
 	import { createEventDispatcher, onMount } from 'svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
+	import { createDispatcherIfMounted } from '$lib/createDispatcherIfMounted'
 
 	export let title: string
 	export let prefix: string | undefined = undefined
@@ -17,11 +18,12 @@
 	export let subtitle: string | undefined = undefined
 
 	const dispatch = createEventDispatcher()
+	const dispatchIfMounted = createDispatcherIfMounted(dispatch)
 
 	$: storeTitle = prefix + title
 	$: isOpen = prefix ? $isOpenStore[storeTitle] : true
 
-	$: dispatch('open', isOpen)
+	$: dispatchIfMounted('open', isOpen)
 
 	onMount(() => {
 		if (prefix !== undefined && !(prefix + title in $isOpenStore)) {

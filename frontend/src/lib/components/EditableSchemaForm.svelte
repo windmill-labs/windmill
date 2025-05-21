@@ -24,9 +24,10 @@
 	import { tweened } from 'svelte/motion'
 	import type { SchemaDiff } from '$lib/components/schema/schemaUtils'
 	import type { EditableSchemaFormUi } from '$lib/components/custom_ui'
+	import { createDispatcherIfMounted } from '$lib/createDispatcherIfMounted'
 
 	export let schema: Schema | any
-	export let schemaSkippedValues: string[] = []
+	export let hiddenArgs: string[] = []
 	export let args: Record<string, any> = {}
 	export let shouldHideNoInputs: boolean = false
 	export let noVariablePicker = false
@@ -57,6 +58,7 @@
 	export let customUi: EditableSchemaFormUi | undefined = undefined
 
 	const dispatch = createEventDispatcher()
+	const dispatchIfMounted = createDispatcherIfMounted(dispatch)
 
 	let clazz: string = ''
 	export { clazz as class }
@@ -230,7 +232,7 @@
 	function updatePanelSizes(editSize: number, inputSize: number) {
 		editPanelSize = editSize
 		inputPanelSize = inputSize
-		dispatch('editPanelSizeChanged', editSize)
+		dispatchIfMounted('editPanelSizeChanged', editSize)
 	}
 	$: updatePanelSizes($editPanelSizeSmooth, $inputPanelSizeSmooth)
 
@@ -437,7 +439,7 @@
 										</div>
 										{#if opened === argName}
 											<div class="p-4 border-t">
-												{#if !schemaSkippedValues.includes(argName) && Object.keys(schema?.properties ?? {}).includes(argName)}
+												{#if !hiddenArgs.includes(argName) && Object.keys(schema?.properties ?? {}).includes(argName)}
 													{#if typeof args == 'object' && schema?.properties[argName]}
 														<PropertyEditor
 															bind:description={schema.properties[argName].description}

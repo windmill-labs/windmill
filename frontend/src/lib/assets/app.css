@@ -4,10 +4,21 @@
 @tailwind utilities;
 
 @layer base {
-	*,
-	::before,
-	::after {
-		@apply dark:border-gray-600;
+
+	/* Light mode: default border color */
+	.border, .border-t, .border-r, .border-b, .border-l, 
+	.border-x, .border-y, 
+	.divide-x > :not([hidden]) ~ :not([hidden]), 
+	.divide-y > :not([hidden]) ~ :not([hidden]) {
+		border-color: #e5e7eb; /* gray-200 */
+	}
+
+	/* Dark mode: change border color */
+	.dark .border, .dark .border-t, .dark .border-r, .dark .border-b, .dark .border-l, 
+	.dark .border-x, .dark .border-y, 
+	.dark .divide-x > :not([hidden]) ~ :not([hidden]), 
+	.dark .divide-y > :not([hidden]) ~ :not([hidden]) {
+		border-color: #4b5563; /* gray-700 */
 	}
 
 	/* Chrome, Edge, and Safari */
@@ -80,6 +91,22 @@
 			scrollbar-width: none; /* Firefox */
 		}
 	}
+}
+
+.driver-popover-title {
+	@apply leading-6 !text-primary !text-base;
+}
+
+.driver-popover-description {
+	@apply !text-secondary !text-sm;
+}
+
+.driver-popover {
+	@apply p-6 !bg-surface !max-w-2xl;
+}
+
+.panel-item {
+	@apply border dark:border-gray-600 border-gray-200 flex gap-1 truncate font-normal justify-between w-full items-center py-1 px-2 rounded-sm duration-200;
 }
 
 .splitpanes--vertical > .splitpanes__pane {
@@ -165,3 +192,4 @@ svelte-virtual-list-contents > * + * {
 		rgba(0, 0, 192, 0.6) 20px
 	);
 }
+

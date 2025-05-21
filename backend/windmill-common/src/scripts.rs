@@ -247,6 +247,7 @@ pub struct ListableScript {
     #[sqlx(default)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub deployment_msg: Option<String>,
+    pub kind: ScriptKind,
 }
 
 fn is_false(x: &bool) -> bool {
@@ -265,7 +266,7 @@ pub struct ScriptHistoryUpdate {
     pub deployment_msg: Option<String>,
 }
 
-#[derive(Serialize, Deserialize, Debug, sqlx::Type)]
+#[derive(Serialize, Deserialize, Debug, sqlx::Type, Clone)]
 #[sqlx(transparent)]
 #[serde(transparent)]
 pub struct Schema(pub sqlx::types::Json<Box<serde_json::value::RawValue>>);

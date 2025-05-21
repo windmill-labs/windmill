@@ -11,7 +11,7 @@
 		UserService,
 		WorkspaceService
 	} from '$lib/gen'
-	import { classNames, getModifierKey } from '$lib/utils'
+	import { capitalize, classNames, getModifierKey } from '$lib/utils'
 	import WorkspaceMenu from '$lib/components/sidebar/WorkspaceMenu.svelte'
 	import SidebarContent from '$lib/components/sidebar/SidebarContent.svelte'
 	import CriticalAlertModal from '$lib/components/sidebar/CriticalAlertModal.svelte'
@@ -29,7 +29,8 @@
 		hubBaseUrlStore,
 		usedTriggerKinds,
 		devopsRole,
-		setCopilotInfo
+		setCopilotInfo,
+		whitelabelNameStore
 	} from '$lib/stores'
 	import CenteredModal from '$lib/components/CenteredModal.svelte'
 	import { afterNavigate, beforeNavigate } from '$app/navigation'
@@ -70,8 +71,9 @@
 	$: $page.url && onQueryChange()
 
 	function onQueryChangeUserSettings() {
-		if (userSettings && $page.url.hash === USER_SETTINGS_HASH) {
-			userSettings.openDrawer()
+		if (userSettings && $page.url.hash.startsWith(USER_SETTINGS_HASH)) {
+			const mcpMode = $page.url.hash.includes('-mcp')
+			userSettings.openDrawer(mcpMode)
 		}
 	}
 
@@ -348,7 +350,7 @@
 
 <svelte:window bind:innerWidth />
 
-<UserSettings bind:this={userSettings} />
+<UserSettings bind:this={userSettings} showMcpMode={true} />
 {#if $page.status == 404}
 	<CenteredModal title="Page not found, redirecting you to login">
 		<div class="w-full">
@@ -427,7 +429,11 @@
 								<div class="dark:bg-[#1e232e] bg-[#202125] h-full !dark flex flex-col">
 									<div class="flex gap-x-2 flex-shrink-0 p-4 font-semibold text-gray-200 w-40">
 										<WindmillIcon white={true} height="20px" width="20px" />
-										Windmill
+										{#if $whitelabelNameStore}
+											{$whitelabelNameStore}
+										{:else}
+											Windmill
+										{/if}
 									</div>
 									<div class="px-2 py-4 border-y border-gray-500">
 										<Menubar let:createMenu>
@@ -480,7 +486,11 @@
 										<WindmillIcon white={true} height="20px" width="20px" />
 									</div>
 									{#if !isCollapsed}
-										<div class="text-sm mt-0.5 text-white"> Windmill </div>
+										<div class="text-sm mt-0.5 text-white">
+											{#if $whitelabelNameStore}{capitalize(
+													$whitelabelNameStore
+												)}{:else}Windmill{/if}
+										</div>
 									{/if}
 								</div>
 							</button>
@@ -578,7 +588,9 @@
 								class:w-40={!isCollapsed}
 							>
 								<WindmillIcon white={true} height="20px" width="20px" />
-								{#if !isCollapsed}Windmill{/if}
+								{#if !isCollapsed}{#if $whitelabelNameStore}{capitalize(
+											$whitelabelNameStore
+										)}{:else}Windmill{/if}{/if}
 							</div>
 
 							<div class="px-2 py-4 space-y-2 border-y border-gray-500">

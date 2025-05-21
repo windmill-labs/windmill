@@ -55,7 +55,7 @@
 		bun: 'TypeScript',
 		php: 'PHP',
 		rust: 'Rust',
-		ansible: 'Ansible Playbook',
+		ansible: 'Ansible',
 		csharp: 'C#',
 		nu: 'Nu',
 		java: 'Java'

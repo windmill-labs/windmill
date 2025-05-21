@@ -5,14 +5,14 @@
  * Please see the included NOTICE for copyright information and
  * LICENSE-AGPL for a copy of the license.
  */
-
 use anyhow::Context;
 use monitor::{
-    load_base_url, load_otel, reload_delete_logs_periodically_setting, reload_indexer_config,
+    load_base_url, load_otel, reload_critical_alerts_on_db_oversize,
+    reload_delete_logs_periodically_setting, reload_indexer_config,
     reload_instance_python_version_setting, reload_maven_repos_setting,
     reload_no_default_maven_setting, reload_nuget_config_setting,
     reload_timeout_wait_result_setting, send_current_log_file_to_object_store,
-    send_logs_to_object_store,
+    send_logs_to_object_store, WORKERS_NAMES,
 };
 use rand::Rng;
 use sqlx::postgres::PgListener;
@@ -22,6 +22,7 @@ use std::{
     net::{IpAddr, Ipv4Addr, SocketAddr},
     time::{Duration, Instant},
 };
+use strum::IntoEnumIterator;
 use tokio::{fs::File, io::AsyncReadExt, task::JoinHandle};
 use uuid::Uuid;
 use windmill_api::HTTP_CLIENT;
@@ -33,21 +34,23 @@ use windmill_common::{
     agent_workers::build_agent_http_client,
     get_database_url,
     global_settings::{
-        BASE_URL_SETTING, BUNFIG_INSTALL_SCOPES_SETTING, CRITICAL_ALERT_MUTE_UI_SETTING,
-        CRITICAL_ERROR_CHANNELS_SETTING, CUSTOM_TAGS_SETTING, DEFAULT_TAGS_PER_WORKSPACE_SETTING,
-        DEFAULT_TAGS_WORKSPACES_SETTING, EMAIL_DOMAIN_SETTING, ENV_SETTINGS,
-        EXPOSE_DEBUG_METRICS_SETTING, EXPOSE_METRICS_SETTING, EXTRA_PIP_INDEX_URL_SETTING,
-        HUB_BASE_URL_SETTING, INDEXER_SETTING, INSTANCE_PYTHON_VERSION_SETTING,
-        JOB_DEFAULT_TIMEOUT_SECS_SETTING, JWT_SECRET_SETTING, KEEP_JOB_DIR_SETTING,
-        LICENSE_KEY_SETTING, MAVEN_REPOS_SETTING, MONITOR_LOGS_ON_OBJECT_STORE_SETTING,
-        NO_DEFAULT_MAVEN_SETTING, NPM_CONFIG_REGISTRY_SETTING, NUGET_CONFIG_SETTING, OAUTH_SETTING,
-        OTEL_SETTING, PIP_INDEX_URL_SETTING, REQUEST_SIZE_LIMIT_SETTING,
+        BASE_URL_SETTING, BUNFIG_INSTALL_SCOPES_SETTING, CRITICAL_ALERTS_ON_DB_OVERSIZE_SETTING,
+        CRITICAL_ALERT_MUTE_UI_SETTING, CRITICAL_ERROR_CHANNELS_SETTING, CUSTOM_TAGS_SETTING,
+        DEFAULT_TAGS_PER_WORKSPACE_SETTING, DEFAULT_TAGS_WORKSPACES_SETTING, EMAIL_DOMAIN_SETTING,
+        ENV_SETTINGS, EXPOSE_DEBUG_METRICS_SETTING, EXPOSE_METRICS_SETTING,
+        EXTRA_PIP_INDEX_URL_SETTING, HUB_BASE_URL_SETTING, INDEXER_SETTING,
+        INSTANCE_PYTHON_VERSION_SETTING, JOB_DEFAULT_TIMEOUT_SECS_SETTING, JWT_SECRET_SETTING,
+        KEEP_JOB_DIR_SETTING, LICENSE_KEY_SETTING, MAVEN_REPOS_SETTING,
+        MONITOR_LOGS_ON_OBJECT_STORE_SETTING, NO_DEFAULT_MAVEN_SETTING,
+        NPM_CONFIG_REGISTRY_SETTING, NUGET_CONFIG_SETTING, OAUTH_SETTING, OTEL_SETTING,
+        PIP_INDEX_URL_SETTING, REQUEST_SIZE_LIMIT_SETTING,
         REQUIRE_PREEXISTING_USER_FOR_OAUTH_SETTING, RETENTION_PERIOD_SECS_SETTING,
         SAML_METADATA_SETTING, SCIM_TOKEN_SETTING, SMTP_SETTING, TEAMS_SETTING,
         TIMEOUT_WAIT_RESULT_SETTING,
     },
     scripts::ScriptLang,
     stats_ee::schedule_stats,
+    triggers::TriggerKind,
     utils::{hostname, rd_string, Mode, GIT_VERSION, MODE_AND_ADDONS},
     worker::{
         reload_custom_tags_setting, Connection, HUB_CACHE_DIR, TMP_DIR, TMP_LOGS_DIR, WORKER_GROUP,
@@ -265,6 +268,8 @@ async fn windmill_main() -> anyhow::Result<()> {
 
     if mode == Mode::Standalone {
         println!("Running in standalone mode");
+    } else if mode == Mode::MCP {
+        println!("Running in MCP mode");
     }
 
     #[cfg(all(not(target_env = "msvc"), feature = "jemalloc"))]
@@ -297,7 +302,7 @@ async fn windmill_main() -> anyhow::Result<()> {
     }
 
     #[allow(unused_mut)]
-    let mut num_workers = if mode == Mode::Server || mode == Mode::Indexer {
+    let mut num_workers = if mode == Mode::Server || mode == Mode::Indexer || mode == Mode::MCP {
         0
     } else {
         std::env::var("NUM_WORKERS")
@@ -319,8 +324,9 @@ async fn windmill_main() -> anyhow::Result<()> {
         && (mode == Mode::Server || mode == Mode::Standalone);
 
     let indexer_mode = mode == Mode::Indexer;
+    let mcp_mode = mode == Mode::MCP;
 
-    let server_bind_address: IpAddr = if server_mode || indexer_mode {
+    let server_bind_address: IpAddr = if server_mode || indexer_mode || mcp_mode {
         std::env::var("SERVER_BIND_ADDR")
             .ok()
             .and_then(|x| x.parse().ok())
@@ -329,26 +335,16 @@ async fn windmill_main() -> anyhow::Result<()> {
         IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1))
     };
 
-    let mut first_worker_suffix = None;
-    let mut worker_names = vec![];
-
-    for _ in 0..num_workers {
+    let (conn, first_suffix) = if mode == Mode::Agent {
+        tracing::info!(
+            "Creating http client for cluster using base internal url {}",
+            std::env::var("BASE_INTERNAL_URL").unwrap_or_default()
+        );
         let suffix = windmill_common::utils::worker_suffix(&hostname, &rd_string(5));
-        worker_names.push(windmill_common::utils::worker_name_with_suffix(
-            mode == Mode::Agent,
-            WORKER_GROUP.as_str(),
-            &suffix,
-        ));
-        if first_worker_suffix.is_none() {
-            first_worker_suffix = Some(suffix);
-        }
-    }
-
-    let conn = if mode == Mode::Agent {
-        let worker_suffix = first_worker_suffix.unwrap_or_else(|| {
-            panic!("there must be at least one worker in agent mode");
-        });
-        Connection::Http(build_agent_http_client(&worker_suffix))
+        (
+            Connection::Http(build_agent_http_client(&suffix)),
+            Some(suffix),
+        )
     } else {
         println!("Connecting to database...");
 
@@ -366,7 +362,7 @@ async fn windmill_main() -> anyhow::Result<()> {
         load_otel(&db).await;
 
         tracing::info!("Database connected");
-        Connection::Sql(db)
+        (Connection::Sql(db), None)
     };
 
     let environment = load_base_url(&conn)
@@ -390,7 +386,7 @@ async fn windmill_main() -> anyhow::Result<()> {
         .is_some_and(|x| x == "1" || x == "true");
 
     if let Some(db) = conn.as_sql() {
-        if !is_agent && !indexer_mode {
+        if !is_agent && !indexer_mode && !mcp_mode {
             let skip_migration = std::env::var("SKIP_MIGRATION")
                 .map(|val| val == "true")
                 .unwrap_or(false);
@@ -409,6 +405,7 @@ async fn windmill_main() -> anyhow::Result<()> {
     let conn = if mode == Mode::Agent {
         conn
     } else {
+        // This time we use a pool of connections
         let db = windmill_common::connect_db(server_mode, indexer_mode, worker_mode).await?;
         Connection::Sql(db)
     };
@@ -439,16 +436,6 @@ Windmill Community Edition {GIT_VERSION}
 
     display_config(&ENV_SETTINGS);
 
-    if let Err(e) = reload_base_url_setting(&conn).await {
-        tracing::error!("Error loading base url: {:?}", e)
-    }
-
-    if let Some(db) = conn.as_sql() {
-        if let Err(e) = reload_critical_error_channels_setting(&db).await {
-            tracing::error!("Could loading critical error emails setting: {:?}", e);
-        }
-    }
-
     #[cfg(feature = "enterprise")]
     {
         // load the license key and check if it's valid
@@ -462,7 +449,7 @@ Windmill Community Edition {GIT_VERSION}
         if !valid_key && !server_mode {
             tracing::error!("Invalid license key, workers require a valid license key");
         }
-        if server_mode {
+        if server_mode || mcp_mode {
             if let Some(db) = conn.as_sql() {
                 // only force renewal if invalid but not empty (= expired)
                 let renewed_now = maybe_renew_license_key_on_start(
@@ -482,10 +469,10 @@ Windmill Community Edition {GIT_VERSION}
         }
     }
 
-    if server_mode || worker_mode || indexer_mode {
+    if server_mode || worker_mode || indexer_mode || mcp_mode {
         let port_var = std::env::var("PORT").ok().and_then(|x| x.parse().ok());
 
-        let port = if server_mode || indexer_mode {
+        let port = if server_mode || indexer_mode || mcp_mode {
             port_var.unwrap_or(DEFAULT_PORT as u16)
         } else {
             port_var.unwrap_or(0)
@@ -666,6 +653,7 @@ Windmill Community Edition {GIT_VERSION}
                         server_killpill_rx,
                         base_internal_tx,
                         server_mode,
+                        mcp_mode,
                         base_internal_url.clone(),
                     )
                     .await?;
@@ -686,14 +674,34 @@ Windmill Community Edition {GIT_VERSION}
             if !killpill_rx.try_recv().is_ok() {
                 let base_internal_url = base_internal_rx.await?;
                 if worker_mode {
+                    let mut workers = vec![];
+                    for i in 0..num_workers {
+                        let suffix: String = if i == 0 && first_suffix.as_ref().is_some() {
+                            first_suffix.as_ref().unwrap().clone()
+                        } else {
+                            windmill_common::utils::worker_suffix(&hostname, &rd_string(5))
+                        };
+                        let worker_conn = WorkerConn {
+                            conn: if i == 0 || mode != Mode::Agent {
+                                conn.clone()
+                            } else {
+                                Connection::Http(build_agent_http_client(&suffix))
+                            },
+                            worker_name: windmill_common::utils::worker_name_with_suffix(
+                                mode == Mode::Agent,
+                                WORKER_GROUP.as_str(),
+                                &suffix,
+                            ),
+                        };
+                        workers.push(worker_conn);
+                    }
+
                     run_workers(
-                        conn.clone(),
                         rx,
                         killpill_tx.clone(),
-                        num_workers,
                         base_internal_url.clone(),
                         hostname.clone(),
-                        &worker_names,
+                        &workers,
                     )
                     .await?;
                     tracing::info!("All workers exited.");
@@ -779,6 +787,70 @@ Windmill Community Edition {GIT_VERSION}
                                                     let workspace_id = n.payload();
                                                     tracing::info!("Workspace premium change detected, invalidating workspace premium cache: {}", workspace_id);
                                                     windmill_common::workspaces::IS_PREMIUM_CACHE.remove(workspace_id);
+                                                },
+                                                "notify_runnable_version_change" => {
+                                                    let payload = n.payload();
+                                                    tracing::info!("Runnable version change detected: {}", payload);
+                                                    match payload.split(':').collect::<Vec<&str>>().as_slice() {
+                                                        [workspace_id, source_type, path, kind] => {
+                                                            let key = (workspace_id.to_string(), path.to_string());
+                                                            match source_type {
+                                                                &"script" => {
+                                                                    windmill_common::DEPLOYED_SCRIPT_HASH_CACHE.remove(&key);
+                                                                    match kind {
+                                                                        &"preprocessor" => {
+                                                                            match sqlx::query_scalar!(
+                                                                                "SELECT fv.id
+                                                                                FROM flow f
+                                                                                INNER JOIN flow_version fv ON fv.id = f.versions[array_upper(f.versions, 1)]
+                                                                                WHERE fv.value->'preprocessor_module'->'value'->>'path' = $1 AND f.workspace_id = $2",
+                                                                                path,
+                                                                                workspace_id
+                                                                            ).fetch_all(&db).await {
+                                                                                Ok(flow_versions) => {
+                                                                                    tracing::debug!("Workspace preprocessor {} changed, removing runnable format version cache for flow versions {:?}", path, flow_versions);
+                                                                                    for version in flow_versions {
+                                                                                        for trigger_kind in TriggerKind::iter() {
+                                                                                            let key = (windmill_common::triggers::HubOrWorkspaceId::WorkspaceId(workspace_id.to_string()), version, trigger_kind);
+                                                                                            windmill_common::triggers::RUNNABLE_FORMAT_VERSION_CACHE.remove(&key);
+                                                                                        }
+                                                                                    }
+                                                                                }
+                                                                                Err(e) => {
+                                                                                    tracing::error!("Error fetching flow paths: {e:#}");
+                                                                                }
+                                                                            }
+                                                                        },
+                                                                        _ => {}
+                                                                    }
+                                                                }
+                                                                &"flow" => {
+                                                                    windmill_common::FLOW_VERSION_CACHE.remove(&key);
+                                                                },
+                                                                _ => {
+                                                                    tracing::warn!("Unknown runnable version change payload: {}", payload);
+                                                                }
+                                                            }
+                                                        },
+                                                        _ => {
+                                                            tracing::warn!("Unknown runnable version change payload: {}", payload);
+                                                        }
+                                                    }
+                                                },
+                                                #[cfg(feature = "http_trigger")]
+                                                "notify_http_trigger_change" => {
+                                                    tracing::info!("HTTP trigger change detected: {}", n.payload());
+                                                    match windmill_api::http_triggers::refresh_routers(&db).await {
+                                                        Ok((true, _)) => {
+                                                            tracing::info!("Refreshed HTTP routers (trigger change)");
+                                                        },
+                                                        Ok((false, _)) => {
+                                                            tracing::warn!("Should have refreshed HTTP routers (trigger change) but did not");
+                                                        },
+                                                        Err(err) => {
+                                                            tracing::error!("Error refreshing HTTP routers (trigger change): {err:#}");
+                                                        }
+                                                    };
                                                 },
                                                 "notify_global_setting_change" => {
                                                     tracing::info!("Global setting change detected: {}", n.payload());
@@ -911,6 +983,12 @@ Windmill Community Edition {GIT_VERSION}
                                                             if let Err(e) = reload_critical_error_channels_setting(&db).await {
                                                                 tracing::error!(error = %e, "Could not reload critical error emails setting");
                                                             }
+                                                        },
+                                                        CRITICAL_ALERTS_ON_DB_OVERSIZE_SETTING => {
+                                                            if let Err(e) = reload_critical_alerts_on_db_oversize(&db).await {
+                                                                tracing::error!(error = %e, "Could not reload critical alerts on db oversize setting");
+                                                            }
+
                                                         },
                                                         JWT_SECRET_SETTING => {
                                                             if let Err(e) = reload_jwt_secret_setting(&db).await {
@@ -1048,15 +1126,19 @@ Windmill Community Edition {GIT_VERSION}
             }
         }
 
-        futures::try_join!(
-            shutdown_signal,
-            workers_f,
-            monitor_f,
-            server_f,
-            metrics_f,
-            indexer_f,
-            log_indexer_f
-        )?;
+        if mcp_mode {
+            futures::try_join!(shutdown_signal, workers_f, server_f)?;
+        } else {
+            futures::try_join!(
+                shutdown_signal,
+                workers_f,
+                monitor_f,
+                server_f,
+                metrics_f,
+                indexer_f,
+                log_indexer_f
+            )?;
+        }
     } else {
         tracing::info!("Nothing to do, exiting.");
     }
@@ -1091,7 +1173,12 @@ async fn listen_pg(url: &str) -> Option<PgListener> {
         "notify_global_setting_change",
         "notify_webhook_change",
         "notify_workspace_envs_change",
+        "notify_runnable_version_change",
     ];
+
+    #[cfg(feature = "http_trigger")]
+    channels.push("notify_http_trigger_change");
+
     #[cfg(feature = "cloud")]
     channels.push("notify_workspace_premium_change");
 
@@ -1134,16 +1221,20 @@ fn display_config(envs: &[&str]) {
     )
 }
 
+pub struct WorkerConn {
+    conn: Connection,
+    worker_name: String,
+}
+
 pub async fn run_workers(
-    db: Connection,
     mut rx: tokio::sync::broadcast::Receiver<()>,
     tx: KillpillSender,
-    num_workers: i32,
     base_internal_url: String,
     hostname: String,
-    worker_names: &[String],
+    workers: &[WorkerConn],
 ) -> anyhow::Result<()> {
     let mut killpill_rxs = vec![];
+    let num_workers = workers.len();
     for _ in 0..num_workers {
         killpill_rxs.push(rx.resubscribe());
     }
@@ -1201,9 +1292,12 @@ pub async fn run_workers(
         "Starting {num_workers} workers and SLEEP_QUEUE={}ms",
         *windmill_worker::SLEEP_QUEUE
     );
+
     for i in 1..(num_workers + 1) {
-        let db1 = db.clone();
-        let worker_name = worker_names[i as usize - 1].clone();
+        let wk_conf = &workers[i as usize - 1];
+        let conn1 = wk_conf.conn.clone();
+        let worker_name = wk_conf.worker_name.clone();
+        WORKERS_NAMES.write().await.push(worker_name.clone());
         let ip = ip.clone();
         let rx = killpill_rxs.pop().unwrap();
         let tx = tx.clone();
@@ -1216,7 +1310,7 @@ pub async fn run_workers(
             }
 
             let f = windmill_worker::run_worker(
-                &db1,
+                &conn1,
                 &hostname,
                 worker_name,
                 i as u64,

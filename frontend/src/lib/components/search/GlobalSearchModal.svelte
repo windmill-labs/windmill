@@ -18,13 +18,16 @@
 		BoxesIcon,
 		CalendarIcon,
 		Code2Icon,
+		Database,
 		DollarSignIcon,
 		HomeIcon,
 		LayoutDashboardIcon,
 		Loader2,
 		PlayIcon,
+		Route,
 		Search,
-		SearchCode
+		SearchCode,
+		Unplug
 	} from 'lucide-svelte'
 	import JobPreview from '../runs/JobPreview.svelte'
 	import Portal from '$lib/components/Portal.svelte'
@@ -33,13 +36,14 @@
 	import ContentSearchInner from '../ContentSearchInner.svelte'
 	import { goto } from '$app/navigation'
 	import QuickMenuItem from '../search/QuickMenuItem.svelte'
-	import { devopsRole, enterpriseLicense, workspaceStore } from '$lib/stores'
+	import { devopsRole, enterpriseLicense, userStore, workspaceStore } from '$lib/stores'
 	import uFuzzy from '@leeoniya/ufuzzy'
 	import BarsStaggered from '../icons/BarsStaggered.svelte'
 	import { scroll_into_view_if_needed_polyfill } from '../multiselect/utils'
 	import { Alert } from '../common'
 	import Popover from '../Popover.svelte'
 	import Logs from 'lucide-svelte/icons/logs'
+	import { AwsIcon, GoogleCloudIcon, KafkaIcon, MqttIcon, NatsIcon } from '../icons'
 
 	let open: boolean = false
 
@@ -63,43 +67,122 @@
 		action: () => void
 		icon?: any
 		shortcutKey?: string
+		disabled?: boolean
 	}
 	let switchModeItems: quickMenuItem[] = [
 		{
 			search_id: 'switchto:run-search',
-			label: 'Search across completed runs',
+			label: 'Search across completed runs' + ($enterpriseLicense ? '' : ' (EE)'),
 			action: () => switchMode('runs'),
 			shortcutKey: RUNS_PREFIX,
-			icon: Search
+			icon: Search,
+			disabled: false
 		},
 		{
 			search_id: 'switchto:content-search',
 			label: 'Search scripts/flows/apps based on content',
 			action: () => switchMode('content'),
 			shortcutKey: CONTENT_SEARCH_PREFIX,
-			icon: SearchCode
+			icon: SearchCode,
+			disabled: false
 		}
 	]
+
+	// These items are searchable but do not appear initially on the menu.
+	let hiddenMenuItems = [
+		{
+			search_id: 'nav:http_routes',
+			label: 'Go to HTTP routes',
+			action: () => gotoPage('/routes'),
+			icon: Route,
+			disabled: $userStore?.operator
+		},
+		{
+			search_id: 'nav:web_sockets',
+			label: 'Go to WebSockets',
+			action: () => gotoPage('/websocket_triggers'),
+			icon: Unplug,
+			disabled: $userStore?.operator
+		},
+		{
+			search_id: 'nav:postgres_triggers',
+			label: 'Go to Postgres triggers',
+			action: () => gotoPage('/postgres_triggers'),
+			icon: Database,
+			disabled: $userStore?.operator
+		},
+		{
+			search_id: 'nav:kafka_triggers',
+			label: 'Go to Kafka triggers' + ($enterpriseLicense ? '' : ' (EE)'),
+			action: () => gotoPage('/kafka_triggers'),
+			icon: KafkaIcon,
+			disabled: $userStore?.operator
+		},
+		{
+			search_id: 'nav:nats_triggers',
+			label: 'Go to NATS triggers' + ($enterpriseLicense ? '' : ' (EE)'),
+			action: () => gotoPage('/nats_triggers'),
+			icon: NatsIcon,
+			disabled: $userStore?.operator
+		},
+		{
+			search_id: 'nav:sqs_triggers',
+			label: 'Go to SQS triggers' + ($enterpriseLicense ? '' : ' (EE)'),
+			action: () => gotoPage('/sqs_triggers'),
+			icon: AwsIcon,
+			disabled: $userStore?.operator
+		},
+		{
+			search_id: 'nav:gcp_pub_sub',
+			label: 'Go to GCP Pub/Sub' + ($enterpriseLicense ? '' : ' (EE)'),
+			action: () => gotoPage('/gcp_triggers'),
+			icon: GoogleCloudIcon,
+			disabled: $userStore?.operator
+		},
+		{
+			search_id: 'nav:mqtt_triggers',
+			label: 'Go to MQTT triggers',
+			action: () => gotoPage('/mqtt_triggers'),
+			icon: MqttIcon,
+			disabled: $userStore?.operator
+		}
+	]
+
 	let defaultMenuItems: quickMenuItem[] = [
-		{ search_id: 'nav:home', label: 'Go to Home', action: () => gotoPage('/'), icon: HomeIcon },
-		{ search_id: 'nav:runs', label: 'Go to Runs', action: () => gotoPage('/runs'), icon: PlayIcon },
+		{
+			search_id: 'nav:home',
+			label: 'Go to Home',
+			action: () => gotoPage('/'),
+			icon: HomeIcon,
+			disabled: false
+		},
+		{
+			search_id: 'nav:runs',
+			label: 'Go to Runs',
+			action: () => gotoPage('/runs'),
+			icon: PlayIcon,
+			disabled: false
+		},
 		{
 			search_id: 'nav:variables',
 			label: 'Go to Variables',
 			action: () => gotoPage('/variables'),
-			icon: DollarSignIcon
+			icon: DollarSignIcon,
+			disabled: false
 		},
 		{
 			search_id: 'nav:resources',
 			label: 'Go to Resources',
 			action: () => gotoPage('/resources'),
-			icon: BoxesIcon
+			icon: BoxesIcon,
+			disabled: false
 		},
 		{
-			search_id: 'nav:schedules',
+			search_id: 'nav:schedules_triggers',
 			label: 'Go to Schedules',
 			action: () => gotoPage('/schedules'),
-			icon: CalendarIcon
+			icon: CalendarIcon,
+			disabled: false
 		},
 		...switchModeItems,
 		{
@@ -107,9 +190,12 @@
 			label: 'Explore windmill service logs',
 			action: () => gotoPage('/service_logs'),
 			shortcutKey: LOGS_PREFIX,
-			icon: Logs
+			icon: Logs,
+			disabled: !$devopsRole
 		}
 	]
+
+	let defaultMenuItemsWithHidden = [...defaultMenuItems, ...hiddenMenuItems]
 
 	let itemMap = {
 		default: defaultMenuItems as any[],
@@ -152,6 +238,7 @@
 
 	let uf = new uFuzzy(opts)
 	let defaultMenuItemLabels = defaultMenuItems.map((item) => item.label)
+	let defaultMenuItemAndHiddenLabels = defaultMenuItemsWithHidden.map((item) => item.label)
 	let switchModeItemLabels = switchModeItems.map((item) => item.label)
 
 	function fuzzyFilter(filter: string, items: any[], itemsPlainText: string[]) {
@@ -210,7 +297,14 @@
 		}
 
 		if (tab === 'default') {
-			itemMap['default'] = fuzzyFilter(searchTerm, defaultMenuItems, defaultMenuItemLabels)
+			if (searchTerm === '')
+				itemMap['default'] = fuzzyFilter(searchTerm, defaultMenuItems, defaultMenuItemLabels)
+			else
+				itemMap['default'] = fuzzyFilter(
+					searchTerm,
+					defaultMenuItemsWithHidden,
+					defaultMenuItemAndHiddenLabels
+				)
 			if (combinedItems) {
 				itemMap['default'] = itemMap['default'].concat(
 					fuzzyFilter(
@@ -262,6 +356,7 @@
 	}
 
 	let selectedItem: any
+
 	async function handleKeydown(event: KeyboardEvent) {
 		if ((!isMac() ? event.ctrlKey : event.metaKey) && event.key === 'k') {
 			event.preventDefault()
@@ -551,20 +646,24 @@
 				</div>
 				<div class="overflow-y-auto relative {maxModalHeight(tab)}">
 					{#if tab === 'default' || tab === 'switch-mode'}
-						{@const items = (itemMap[tab] ?? []).filter((e) => defaultMenuItems.includes(e))}
+						{@const items = (itemMap[tab] ?? []).filter((e) =>
+							defaultMenuItemsWithHidden.includes(e)
+						)}
 						{#if items.length > 0}
 							<div class={tab === 'switch-mode' ? 'p-2' : 'p-2 border-b'}>
 								{#each items as el}
-									<QuickMenuItem
-										on:select={el?.action}
-										on:hover={() => (selectedItem = el)}
-										id={el?.search_id}
-										hovered={el?.search_id === selectedItem?.search_id}
-										label={el?.label}
-										icon={el?.icon}
-										shortcutKey={el?.shortcutKey}
-										bind:mouseMoved
-									/>
+									{#if !el.disabled}
+										<QuickMenuItem
+											on:select={el?.action}
+											on:hover={() => (selectedItem = el)}
+											id={el?.search_id}
+											hovered={el?.search_id === selectedItem?.search_id}
+											label={el?.label}
+											icon={el?.icon}
+											shortcutKey={el?.shortcutKey}
+											bind:mouseMoved
+										/>
+									{/if}
 								{/each}
 							</div>
 						{/if}
@@ -641,11 +740,11 @@
 								<div class="w-4/12 overflow-y-auto max-h-[70vh]">
 									{#each itemMap['runs'] ?? [] as r}
 										<QuickMenuItem
-											on:hover={() => {
+											on:select={() => {
 												selectedItem = r
 												selectedWorkspace = r?.document.workspace_id[0]
 											}}
-											on:select={() => {
+											on:keyboardOnlySelect={() => {
 												open = false
 												goto(`/run/${r?.document.id[0]}`)
 											}}
@@ -657,10 +756,7 @@
 										>
 											<svelte:fragment slot="itemReplacement">
 												<div
-													class={twMerge(
-														`w-full flex flex-row items-center gap-4 transition-all`,
-														r?.document.id === selectedItem?.document?.id ? 'bg-surface-hover' : ''
-													)}
+													class="w-full flex flex-row items-center gap-4 transition-all"
 												>
 													<div
 														class="rounded-full w-2 h-2 {r?.document.success[0]
@@ -720,7 +816,7 @@
 									</div>
 								</div>
 							{:else}
-								<div class="flex flex-col w-full justify-center items-center h-48">
+								<div class="flex flex-col h-full w-full justify-center items-center h-48">
 									<div class="text-tertiary text-center">
 										{#if searchTerm === RUNS_PREFIX}
 											<div class="text-2xl font-bold">Enter your search terms</div>

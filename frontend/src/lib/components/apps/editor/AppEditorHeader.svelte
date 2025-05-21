@@ -1,15 +1,10 @@
 <script lang="ts">
-	import { Alert, Badge, Drawer, DrawerContent, Tab, Tabs, UndoRedo } from '$lib/components/common'
+	import { Alert, Drawer, DrawerContent, UndoRedo } from '$lib/components/common'
 	import Button from '$lib/components/common/button/Button.svelte'
-	import DisplayResult from '$lib/components/DisplayResult.svelte'
-	import FlowProgressBar from '$lib/components/flows/FlowProgressBar.svelte'
-	import FlowStatusViewer from '$lib/components/FlowStatusViewer.svelte'
-	import JobArgs from '$lib/components/JobArgs.svelte'
-	import LogViewer from '$lib/components/LogViewer.svelte'
+
 	import Path from '$lib/components/Path.svelte'
-	import TestJobLoader from '$lib/components/TestJobLoader.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
-	import { AppService, DraftService, type Job, type Policy } from '$lib/gen'
+	import { AppService, DraftService, type Policy } from '$lib/gen'
 	import { redo, undo } from '$lib/history'
 	import { enterpriseLicense, userStore, workspaceStore } from '$lib/stores'
 	import {
@@ -24,7 +19,6 @@
 		History,
 		Laptop2,
 		Loader2,
-		RefreshCw,
 		Save,
 		Smartphone,
 		FileClock,
@@ -34,47 +28,32 @@
 		Zap
 	} from 'lucide-svelte'
 	import { createEventDispatcher, getContext } from 'svelte'
-	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import {
-		classNames,
 		cleanValueProperties,
-		truncateRev,
 		orderedJsonStringify,
 		type Value,
-		replaceFalseWithUndefined,
-		isFlowPreview
+		replaceFalseWithUndefined
 	} from '../../../utils'
-	import type {
-		AppInput,
-		ConnectedAppInput,
-		RowAppInput,
-		Runnable,
-		StaticAppInput,
-		UserAppInput
-	} from '../inputType'
+	import type { AppInput, Runnable } from '../inputType'
 	import type { App, AppEditorContext, AppViewerContext } from '../types'
 	import { BG_PREFIX, allItems, toStatic } from '../utils'
 	import AppExportButton from './AppExportButton.svelte'
 	import AppInputs from './AppInputs.svelte'
 	import type { AppComponent } from './component/components'
-	import PanelSection from './settingsPanel/common/PanelSection.svelte'
 	import PreviewToggle from './PreviewToggle.svelte'
 
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 
 	import Tooltip from '$lib/components/Tooltip.svelte'
-	import { Sha256 } from '@aws-crypto/sha256-js'
 	import { sendUserToast } from '$lib/toast'
 	import DeploymentHistory from './DeploymentHistory.svelte'
 	import Awareness from '$lib/components/Awareness.svelte'
 	import { secondaryMenuLeftStore, secondaryMenuRightStore } from './settingsPanel/secondaryMenu'
 	import Dropdown from '$lib/components/DropdownV2.svelte'
 	import AppEditorTutorial from './AppEditorTutorial.svelte'
-	import AppTimeline from './AppTimeline.svelte'
 	import type DiffDrawer from '$lib/components/DiffDrawer.svelte'
 	import AppReportsDrawer from './AppReportsDrawer.svelte'
-	import HighlightCode from '$lib/components/HighlightCode.svelte'
 	import { type ColumnDef, getPrimaryKeys } from '../components/display/dbtable/utils'
 	import DebugPanel from './contextPanel/DebugPanel.svelte'
 	import { getCountInput } from '../components/display/dbtable/queries/count'
@@ -94,7 +73,10 @@
 	import { isCloudHosted } from '$lib/cloud'
 	import { base } from '$lib/base'
 	import ClipboardPanel from '$lib/components/details/ClipboardPanel.svelte'
+	import AppJobsDrawer from './AppJobsDrawer.svelte'
+	import { collectStaticFields, type TriggerableV2 } from './commonAppUtils'
 	import LazyModePanel from './contextPanel/LazyModePanel.svelte'
+	import { Sha256 } from '@aws-crypto/sha256-js'
 
 	async function hash(message) {
 		try {
@@ -169,6 +151,7 @@
 			selectedJobId = jobId
 		}
 	}
+	let selectedJobId: string | undefined = undefined
 
 	let pathError: string | undefined = undefined
 	let appExport: AppExportButton
@@ -187,24 +170,6 @@
 
 	function closeDraftDrawer() {
 		draftDrawerOpen = false
-	}
-
-	function collectStaticFields(
-		fields: Record<string, StaticAppInput | ConnectedAppInput | RowAppInput | UserAppInput>
-	) {
-		return Object.fromEntries(
-			Object.entries(fields ?? {})
-				.filter(([k, v]) => v.type == 'static')
-				.map(([k, v]) => {
-					return [k, v['value']]
-				})
-		)
-	}
-
-	type TriggerableV2 = {
-		static_inputs: Record<string, any>
-		one_of_inputs?: Record<string, any[] | undefined>
-		allow_user_resources?: string[]
 	}
 
 	async function computeTriggerables() {
@@ -352,10 +317,10 @@
 			.filter((x) => (x.data as AppComponent).type === 'imagecomponent')
 			.map((x) => {
 				const c = x.data as AppComponent
-				const config = c.configuration as any
-				return computeS3ImageViewerPolicy(config, $app)
+				const config = c.configuration
+				return computeS3ImageViewerPolicy(config)
 			})
-			.filter(Boolean) as { s3_path?: string | undefined; resource?: string | undefined }[]
+			.filter(Boolean) as { s3_path: string; storage?: string | undefined }[]
 
 		policy.allowed_s3_keys = s3FileKeys
 	}
@@ -734,17 +699,6 @@
 
 	$: saveDrawerOpen && compareVersions()
 
-	let selectedJobId: string | undefined = undefined
-	let testJobLoader: TestJobLoader
-	let job: Job | undefined = undefined
-	let testIsLoading = false
-
-	$: selectedJobId && !selectedJobId?.includes('Frontend') && testJobLoader?.watchJob(selectedJobId)
-
-	$: if (selectedJobId?.includes('Frontend') && selectedJobId) {
-		job = undefined
-	}
-
 	$: hasErrors = Object.keys($errorByComponent).length > 0
 
 	let lock = false
@@ -902,8 +856,6 @@
 		appEditorTutorial?.toggleTutorial()
 	}
 
-	let rightColumnSelect: 'timeline' | 'detail' = 'timeline'
-
 	let appReportingDrawerOpen = false
 
 	export function openTroubleshootPanel() {
@@ -961,8 +913,6 @@
 
 <svelte:window on:keydown={onKeyDown} />
 
-<TestJobLoader bind:this={testJobLoader} bind:isLoading={testIsLoading} bind:job />
-
 {#if $$slots.unsavedConfirmationModal}
 	<slot
 		name="unsavedConfirmationModal"
@@ -1000,7 +950,7 @@
 {#if $appPath == ''}
 	<Drawer bind:open={draftDrawerOpen} size="800px">
 		<DrawerContent title="Initial draft save" on:close={() => closeDraftDrawer()}>
-			<Alert title="Require path" type="info">
+			<Alert bgClass="mb-4" title="Require path" type="info">
 				Choose a path to save the initial draft of the app.
 			</Alert>
 			<h3>Summary</h3>
@@ -1051,6 +1001,23 @@
 		</DrawerContent>
 	</Drawer>
 {/if}
+
+<AppJobsDrawer
+	bind:open={$jobsDrawerOpen}
+	jobs={$jobs}
+	on:clear={() => {
+		$jobs = []
+		$errorByComponent = {}
+	}}
+	on:clearErrors={() => {
+		$errorByComponent = {}
+	}}
+	{hasErrors}
+	{selectedJobId}
+	refreshComponents={$refreshComponents}
+	jobsById={$jobsById}
+	errorByComponent={$errorByComponent}
+/>
 <Drawer bind:open={saveDrawerOpen} size="800px">
 	<DrawerContent title="Deploy" on:close={() => closeSaveDrawer()}>
 		{#if !onLatest}
@@ -1300,251 +1267,6 @@
 <Drawer bind:open={lazyDrawerOpen} size="800px">
 	<DrawerContent title="Lazy Mode" on:close={() => (lazyDrawerOpen = false)}>
 		<LazyModePanel />
-	</DrawerContent>
-</Drawer>
-<Drawer bind:open={$jobsDrawerOpen} size="900px">
-	<DrawerContent
-		noPadding
-		title="Debug Runs"
-		on:close={() => {
-			$jobsDrawerOpen = false
-		}}
-		tooltip="Look at latests runs to spot potential bugs."
-		documentationLink="https://www.windmill.dev/docs/apps/app_debugging"
-	>
-		<Splitpanes class="!overflow-visible">
-			<Pane size={25}>
-				<PanelSection title="Past Runs">
-					<div class="flex flex-col gap-2 w-full">
-						{#if $jobs.length > 0}
-							<div class="flex gap-2 flex-col-reverse">
-								{#each $jobs ?? [] as id}
-									{@const selectedJob = $jobsById[id]}
-									{#if selectedJob}
-										<!-- svelte-ignore a11y-click-events-have-key-events -->
-										<!-- svelte-ignore a11y-no-static-element-interactions -->
-										<div
-											class={classNames(
-												'border flex gap-1 truncate justify-between flex-row w-full items-center p-2 rounded-md cursor-pointer hover:bg-surface-secondary hover:text-blue-400',
-												selectedJob.error ? 'border border-red-500 text-primary' : '',
-												selectedJob.error && $errorByComponent[selectedJob.component]?.id == id
-													? selectedJobId == id
-														? 'bg-red-600 !border-blue-600'
-														: 'bg-red-400'
-													: selectedJobId == id
-														? 'text-blue-600'
-														: ''
-											)}
-											on:click={() => {
-												selectedJobId = id
-												rightColumnSelect = 'detail'
-											}}
-										>
-											<span class="text-xs truncate">{truncateRev(selectedJob.job, 20)}</span>
-											<Badge color="indigo">{selectedJob.component}</Badge>
-										</div>
-									{/if}
-								{/each}
-							</div>
-						{:else}
-							<div class="text-sm text-tertiary">No items</div>
-						{/if}
-					</div>
-				</PanelSection>
-			</Pane>
-			<Pane size={75}>
-				<div class="w-full h-full flex flex-col">
-					<div>
-						<Tabs bind:selected={rightColumnSelect}>
-							<Tab value="timeline"><span class="font-semibold text-md">Timeline</span></Tab>
-							<Tab value="detail"><span class="font-semibold">Details</span></Tab>
-						</Tabs>
-					</div>
-					{#if rightColumnSelect == 'timeline'}
-						<div class="p-2 grow overflow-auto">
-							<AppTimeline />
-						</div>
-					{:else if rightColumnSelect == 'detail'}
-						<div class="grow flex flex-col w-full overflow-auto">
-							{#if selectedJobId}
-								{#if selectedJobId?.includes('Frontend')}
-									{@const jobResult = $jobsById[selectedJobId]}
-									{#if jobResult?.error !== undefined}
-										<Splitpanes horizontal class="grow border w-full">
-											<Pane size={10} minSize={10}>
-												<LogViewer
-													content={`Logs are avaiable in the browser console directly`}
-													isLoading={false}
-													tag={undefined}
-												/>
-											</Pane>
-											<Pane size={90} minSize={10} class="text-sm text-secondary">
-												<div class="relative h-full px-2">
-													<DisplayResult
-														result={{
-															error: { name: 'Frontend execution error', message: jobResult.error }
-														}}
-													/>
-												</div>
-											</Pane>
-										</Splitpanes>
-									{:else if jobResult !== undefined}
-										<Splitpanes horizontal class="grow border w-full">
-											<Pane size={10} minSize={10}>
-												<LogViewer
-													content={`Logs are avaiable in the browser console directly`}
-													isLoading={false}
-													tag={undefined}
-												/>
-											</Pane>
-											<Pane size={90} minSize={10} class="text-sm text-secondary">
-												<div class="relative h-full px-2">
-													<DisplayResult
-														workspaceId={$workspaceStore}
-														jobId={selectedJobId}
-														result={jobResult.result}
-													/>
-												</div>
-											</Pane>
-										</Splitpanes>
-									{:else}
-										<Loader2 class="animate-spin" />
-									{/if}
-								{:else}
-									<div class="flex flex-col h-full w-full mb-4">
-										{#if job?.['running']}
-											<div class="flex flex-row-reverse w-full">
-												<Button
-													color="red"
-													variant="border"
-													on:click={() => testJobLoader?.cancelJob()}
-												>
-													<Loader2 size={14} class="animate-spin mr-2" />
-
-													Cancel
-												</Button>
-											</div>
-										{/if}
-										{#if job?.args}
-											<div class="p-2">
-												<JobArgs
-													id={job.id}
-													workspace={job.workspace_id ?? $workspaceStore ?? 'no_w'}
-													args={job?.args}
-												/>
-											</div>
-										{/if}
-										{#if job?.raw_code}
-											<div class="pb-2 pl-2 pr-2 w-full overflow-auto h-full max-h-[80px]">
-												<HighlightCode language={job?.language} code={job?.raw_code} />
-											</div>
-										{/if}
-
-										{#if job?.job_kind !== 'flow' && !isFlowPreview(job?.job_kind)}
-											{@const jobResult = $jobsById[selectedJobId]}
-											<Splitpanes horizontal class="grow border w-full">
-												<Pane size={50} minSize={10}>
-													<LogViewer
-														duration={job?.['duration_ms']}
-														jobId={job?.id}
-														content={job?.logs}
-														isLoading={testIsLoading && job?.['running'] == false}
-														tag={job?.tag}
-													/>
-												</Pane>
-												<Pane size={50} minSize={10} class="text-sm text-secondary">
-													{#if job != undefined && 'result' in job && job.result != undefined}<div
-															class="relative h-full px-2"
-															><DisplayResult
-																workspaceId={$workspaceStore}
-																jobId={selectedJobId}
-																result={job.result}
-															/></div
-														>
-													{:else if testIsLoading}
-														<div class="p-2"><Loader2 class="animate-spin" /> </div>
-													{:else if job != undefined && 'result' in job && job?.['result'] == undefined}
-														<div class="p-2 text-tertiary">Result is undefined</div>
-													{:else}
-														<div class="p-2 text-tertiary">
-															<Loader2 size={14} class="animate-spin mr-2" />
-														</div>
-													{/if}
-												</Pane>
-												{#if jobResult?.transformer}
-													<Pane size={50} minSize={10} class="text-sm text-secondary p-2">
-														<div class="font-bold">Transformer results</div>
-														{#if job != undefined && 'result' in job && job.result != undefined}
-															<div class="relative h-full px-2">
-																<DisplayResult
-																	workspaceId={$workspaceStore}
-																	jobId={selectedJobId}
-																	result={jobResult?.transformer}
-																/>
-															</div>
-														{:else if testIsLoading}
-															<div class="p-2"><Loader2 class="animate-spin" /> </div>
-														{:else if job != undefined && 'result' in job && job?.['result'] == undefined}
-															<div class="p-2 text-tertiary">Result is undefined</div>
-														{:else}
-															<div class="p-2 text-tertiary">
-																<Loader2 size={14} class="animate-spin mr-2" />
-															</div>
-														{/if}
-													</Pane>
-												{/if}
-											</Splitpanes>
-										{:else}
-											<div class="mt-10"></div>
-											<FlowProgressBar {job} class="py-4" />
-											<div class="w-full mt-10 mb-20">
-												<FlowStatusViewer
-													jobId={job?.id ?? ''}
-													on:jobsLoaded={({ detail }) => {
-														job = detail
-													}}
-												/>
-											</div>
-										{/if}
-									</div>
-								{/if}
-							{:else}
-								<div class="text-sm p-2 text-tertiary">Select a job to see its details</div>
-							{/if}
-						</div>
-					{/if}
-				</div>
-			</Pane>
-		</Splitpanes>
-		<svelte:fragment slot="actions">
-			<Button
-				size="md"
-				color="light"
-				variant="border"
-				on:click={() => {
-					$refreshComponents?.()
-				}}
-				title="Refresh App"
-			>
-				Refresh app&nbsp;<RefreshCw size={16} />
-			</Button>
-
-			<Button
-				size="md"
-				color="light"
-				variant="border"
-				on:click={() => {
-					errorByComponent.set({})
-					jobs.set([])
-				}}
-				>Clear jobs
-			</Button>
-			{#if hasErrors}
-				<Button size="md" color="light" variant="border" on:click={() => errorByComponent.set({})}
-					>Clear Errors &nbsp;<BellOff size={14} />
-				</Button>
-			{/if}
-		</svelte:fragment>
 	</DrawerContent>
 </Drawer>
 

@@ -2,22 +2,28 @@ use base64::{engine, Engine as _};
 use chrono::Datelike;
 use core::fmt::Write;
 use futures::future::BoxFuture;
-use futures::{FutureExt, TryFutureExt};
+use futures::{FutureExt, StreamExt, TryStreamExt};
 use jsonwebtoken::{encode, Algorithm, EncodingKey, Header};
 use reqwest::{Client, Response};
 use serde_json::{json, value::RawValue, Value};
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use windmill_common::error::to_anyhow;
+use windmill_common::s3_helpers::convert_json_line_stream;
 use windmill_common::worker::Connection;
 
 use windmill_common::{error::Error, worker::to_raw_value};
-use windmill_parser_sql::{parse_db_resource, parse_snowflake_sig, parse_sql_blocks};
+use windmill_parser_sql::{
+    parse_db_resource, parse_s3_mode, parse_snowflake_sig, parse_sql_blocks,
+};
 use windmill_queue::{CanceledBy, MiniPulledJob, HTTP_CLIENT};
 
 use serde::{Deserialize, Serialize};
 
-use crate::common::{build_http_client, resolve_job_timeout, OccupancyMetrics};
+use crate::common::{
+    build_http_client, resolve_job_timeout, s3_mode_args_to_worker_data, OccupancyMetrics,
+    S3ModeWorkerData,
+};
 use crate::handle_child::run_future_with_polling_update_job_poller;
 use crate::sanitized_sql_params::sanitize_and_interpolate_unsafe_sql_args;
 use crate::{common::build_args_values, AuthedClient};
@@ -124,6 +130,7 @@ fn do_snowflake_inner<'a>(
     column_order: Option<&'a mut Option<Vec<String>>>,
     skip_collect: bool,
     http_client: &'a Client,
+    s3: Option<S3ModeWorkerData>,
 ) -> windmill_common::error::Result<BoxFuture<'a, windmill_common::error::Result<Box<RawValue>>>> {
     let sig = parse_snowflake_sig(&query)
         .map_err(|x| Error::ExecutionErr(x.to_string()))?
@@ -175,7 +182,7 @@ fn do_snowflake_inner<'a>(
                 .parse_snowflake_response::<SnowflakeResponse>()
                 .await?;
 
-            if response.resultSetMetaData.numRows > 10000 {
+            if s3.is_none() && response.resultSetMetaData.numRows > 10000 {
                 return Err(Error::ExecutionErr(
                     "More than 10000 rows were requested, use LIMIT 10000 to limit the number of rows"
                         .to_string(),
@@ -192,54 +199,72 @@ fn do_snowflake_inner<'a>(
                 );
             }
 
-            let mut rows = response.data;
+            // Clones are because, in s3 mode, reqwest::Body::wrap_stream requires the stream to be
+            // 'static even though it doesn't make sense to be in our case since the request is
+            // awaited and the stream is fully read before the function returns.
+            // Turns out it is a real pain to trick the compiler, even using unsafe
+            let cloned_account_identifier: String = account_identifier.to_string();
+            let cloned_token = token.to_string();
 
-            if response.resultSetMetaData.partitionInfo.len() > 1 {
-                for idx in 1..response.resultSetMetaData.partitionInfo.len() {
-                    let url = format!(
-                        "https://{}.snowflakecomputing.com/api/v2/statements/{}",
-                        account_identifier.to_uppercase(),
-                        response.statementHandle
-                    );
-                    let mut request = HTTP_CLIENT
-                        .get(url)
-                        .bearer_auth(token)
-                        .query(&[("partition", idx.to_string())]);
-
-                    if token_is_keypair {
-                        request =
-                            request.header("X-Snowflake-Authorization-Token-Type", "KEYPAIR_JWT");
-                    }
-
-                    let response = request
-                        .send()
-                        .await
-                        .parse_snowflake_response::<SnowflakeDataOnlyResponse>()
-                        .await?;
-
-                    rows.extend(response.data);
+            let rows_stream = async_stream::stream! {
+                for row in response.data {
+                    yield Ok::<Vec<Value>, windmill_common::error::Error>(row);
                 }
+
+                if response.resultSetMetaData.partitionInfo.len() > 1 {
+                    for idx in 1..response.resultSetMetaData.partitionInfo.len() {
+                        let url = format!(
+                            "https://{}.snowflakecomputing.com/api/v2/statements/{}",
+                            cloned_account_identifier.to_uppercase(),
+                            response.statementHandle
+                        );
+                        let mut request = HTTP_CLIENT
+                            .get(url)
+                            .bearer_auth(cloned_token.as_str())
+                            .query(&[("partition", idx.to_string())]);
+
+                        if token_is_keypair {
+                            request =
+                                request.header("X-Snowflake-Authorization-Token-Type", "KEYPAIR_JWT");
+                        }
+
+                        let response = request
+                            .send()
+                            .await
+                            .parse_snowflake_response::<SnowflakeDataOnlyResponse>()
+                            .await?;
+
+                        for row in response.data {
+                            yield Ok(row);
+                        }
+                    }
+                }
+            };
+
+            let rows_stream = rows_stream.map_ok(move |row| {
+                let mut row_map = serde_json::Map::new();
+                row.iter()
+                    .zip(response.resultSetMetaData.rowType.iter())
+                    .for_each(|(val, row_type)| {
+                        row_map.insert(row_type.name.clone(), parse_val(&val, &row_type.r#type));
+                    });
+                row_map
+            });
+
+            if let Some(s3) = s3 {
+                let rows_stream =
+                    rows_stream.map(|r| serde_json::value::to_value(&r?).map_err(to_anyhow));
+                let stream = convert_json_line_stream(rows_stream.boxed(), s3.format).await?;
+                s3.upload(stream.boxed()).await?;
+                Ok(to_raw_value(&s3.to_return_s3_obj()))
+            } else {
+                let rows = rows_stream
+                    .collect::<Vec<_>>()
+                    .await
+                    .into_iter()
+                    .collect::<Result<Vec<_>, _>>()?;
+                Ok(to_raw_value(&rows))
             }
-
-            let rows = to_raw_value(
-                &rows
-                    .iter()
-                    .map(|row| {
-                        let mut row_map = serde_json::Map::new();
-                        row.iter()
-                            .zip(response.resultSetMetaData.rowType.iter())
-                            .for_each(|(val, row_type)| {
-                                row_map.insert(
-                                    row_type.name.clone(),
-                                    parse_val(&val, &row_type.r#type),
-                                );
-                            });
-                        row_map
-                    })
-                    .collect::<Vec<_>>(),
-            );
-
-            Ok(rows)
         }
     };
 
@@ -260,6 +285,7 @@ pub async fn do_snowflake(
     let snowflake_args = build_args_values(job, client, conn).await?;
 
     let inline_db_res_path = parse_db_resource(&query);
+    let s3 = parse_s3_mode(&query)?.map(|s3| s3_mode_args_to_worker_data(s3, client.clone(), job));
 
     let db_arg = if let Some(inline_db_res_path) = inline_db_res_path {
         Some(
@@ -391,6 +417,7 @@ pub async fn do_snowflake(
                     None,
                     annotations.return_last_result && i < queries.len() - 1,
                     &http_client,
+                    s3.clone(),
                 )
             })
             .collect::<windmill_common::error::Result<Vec<_>>>()?;
@@ -420,6 +447,7 @@ pub async fn do_snowflake(
             Some(column_order),
             false,
             &http_client,
+            s3.clone(),
         )?
     };
     let r = run_future_with_polling_update_job_poller(
@@ -428,7 +456,7 @@ pub async fn do_snowflake(
         conn,
         mem_peak,
         canceled_by,
-        result_f.map_err(to_anyhow),
+        result_f,
         worker_name,
         &job.workspace_id,
         &mut Some(occupancy_metrics),

@@ -8,6 +8,8 @@
 
 #![allow(non_snake_case)]
 
+use quick_cache::sync::Cache;
+
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 use std::time::Duration;
@@ -20,7 +22,8 @@ use crate::utils::{
     generate_instance_wide_unique_username, get_instance_username_or_create_pending,
 };
 use crate::{
-    db::DB, utils::require_super_admin, webhook_util::WebhookShared, COOKIE_DOMAIN, IS_SECURE,
+    auth::ExpiringAuthCache, db::DB, utils::require_super_admin, webhook_util::WebhookShared,
+    COOKIE_DOMAIN, IS_SECURE,
 };
 use argon2::{Argon2, PasswordHash, PasswordVerifier};
 use axum::{
@@ -214,6 +217,10 @@ pub async fn fetch_api_authed(
     fetch_api_authed_from_permissioned_as(permissioned_as, email, w_id, db, username_override).await
 }
 
+lazy_static::lazy_static! {
+    static ref API_AUTHED_CACHE: Cache<(String,String,String), ExpiringAuthCache> = Cache::new(300);
+}
+
 #[allow(unused)]
 pub async fn fetch_api_authed_from_permissioned_as(
     permissioned_as: String,
@@ -222,18 +229,43 @@ pub async fn fetch_api_authed_from_permissioned_as(
     db: &DB,
     username_override: Option<String>,
 ) -> error::Result<ApiAuthed> {
-    let authed =
-        fetch_authed_from_permissioned_as(permissioned_as, email.clone(), w_id, db).await?;
-    Ok(ApiAuthed {
-        username: authed.username,
-        email: email,
-        is_admin: authed.is_admin,
-        is_operator: authed.is_operator,
-        groups: authed.groups,
-        folders: authed.folders,
-        scopes: authed.scopes,
-        username_override: username_override,
-    })
+    let key = (w_id.to_string(), permissioned_as.clone(), email.clone());
+
+    let mut api_authed = match API_AUTHED_CACHE.get(&key) {
+        Some(expiring_authed) if expiring_authed.expiry > chrono::Utc::now() => {
+            tracing::debug!("API authed cache hit for user {}", email);
+            expiring_authed.authed
+        }
+        _ => {
+            tracing::debug!("API authed cache miss for user {}", email);
+            let authed =
+                fetch_authed_from_permissioned_as(permissioned_as, email.clone(), w_id, db).await?;
+
+            let api_authed = ApiAuthed {
+                username: authed.username,
+                email: email,
+                is_admin: authed.is_admin,
+                is_operator: authed.is_operator,
+                groups: authed.groups,
+                folders: authed.folders,
+                scopes: authed.scopes,
+                username_override: None,
+            };
+
+            API_AUTHED_CACHE.insert(
+                key,
+                ExpiringAuthCache {
+                    authed: api_authed.clone(),
+                    expiry: chrono::Utc::now() + chrono::Duration::try_seconds(120).unwrap(),
+                },
+            );
+
+            api_authed
+        }
+    };
+
+    api_authed.username_override = username_override;
+    Ok(api_authed)
 }
 
 #[derive(FromRow, Serialize)]

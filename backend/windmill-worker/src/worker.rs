@@ -39,7 +39,7 @@ use windmill_common::METRICS_DEBUG_ENABLED;
 #[cfg(feature = "prometheus")]
 use windmill_common::METRICS_ENABLED;
 
-use reqwest::Response;
+use reqwest::{Body, Response};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use sqlx::types::Json;
 use std::{
@@ -85,6 +85,7 @@ use tokio::fs::symlink_file as symlink;
 
 use tokio::{
     sync::{
+        broadcast,
         mpsc::{self, Receiver, Sender},
         RwLock,
     },
@@ -157,7 +158,7 @@ use crate::mssql_executor::do_mssql;
 use crate::bigquery_executor::do_bigquery;
 
 #[cfg(feature = "benchmark")]
-use crate::bench::{benchmark_init, BenchmarkInfo, BenchmarkIter};
+use windmill_common::bench::{benchmark_init, BenchmarkInfo, BenchmarkIter};
 
 use windmill_common::add_time;
 
@@ -210,8 +211,8 @@ pub const DEFAULT_NATIVE_JOBS: usize = 1;
 
 const VACUUM_PERIOD: u32 = 50000;
 
-#[cfg(any(target_os = "linux"))]
-const DROP_CACHE_PERIOD: u32 = 1000;
+// #[cfg(any(target_os = "linux"))]
+// const DROP_CACHE_PERIOD: u32 = 1000;
 
 pub const MAX_BUFFERED_DEDICATED_JOBS: usize = 3;
 
@@ -283,6 +284,8 @@ lazy_static::lazy_static! {
         let mut proxy_env = Vec::new();
         if let Some(no_proxy) = NO_PROXY.as_ref() {
             proxy_env.push(("NO_PROXY", no_proxy.to_string()));
+        } else if HTTPS_PROXY.is_some() || HTTP_PROXY.is_some() {
+            proxy_env.push(("NO_PROXY", "localhost,127.0.0.1".to_string()));
         }
         if let Some(http_proxy) = HTTP_PROXY.as_ref() {
             proxy_env.push(("HTTP_PROXY", http_proxy.to_string()));
@@ -303,6 +306,7 @@ lazy_static::lazy_static! {
     pub static ref NSJAIL_PATH: String = std::env::var("NSJAIL_PATH").unwrap_or_else(|_| "nsjail".to_string());
     pub static ref PATH_ENV: String = std::env::var("PATH").unwrap_or_else(|_| String::new());
     pub static ref HOME_ENV: String = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
+    pub static ref GIT_PATH: String = std::env::var("GIT_PATH").unwrap_or_else(|_| "/usr/bin/git".to_string());
 
     pub static ref NODE_PATH: Option<String> = std::env::var("NODE_PATH").ok();
 
@@ -395,9 +399,10 @@ impl AuthedClient {
             )
             .send()
             .await
-            .context(format!(
-                "Executing request from authed http client to {url} with query {query:?}",
-            ))
+            .map_err(|e| {
+                tracing::error!("Error executing get request from authed http client to {url} with query {query:?}: {e}");
+                anyhow::anyhow!("Error executing get request from authed http client to {url} with query {query:?}: {e}")
+            })
     }
 
     pub async fn get_id_token(&self, audience: &str) -> anyhow::Result<String> {
@@ -516,22 +521,99 @@ impl AuthedClient {
             _ => Err(anyhow::anyhow!(response.text().await.unwrap_or_default())),
         }
     }
+
+    pub async fn upload_s3_file<S>(
+        &self,
+        workspace_id: &str,
+        object_key: String,
+        storage: Option<String>,
+        body: S,
+    ) -> error::Result<()>
+    where
+        S: futures::stream::TryStream + Send + 'static,
+        S::Error: Into<Box<dyn std::error::Error + Send + Sync>>,
+        bytes::Bytes: From<S::Ok>,
+    {
+        let mut query = vec![("file_key", object_key)];
+        if let Some(storage) = storage {
+            query.push(("storage", storage));
+        }
+        let response = self
+            .force_client
+            .as_ref()
+            .unwrap_or(&HTTP_CLIENT)
+            .post(format!(
+                "{}/api/w/{}/job_helpers/upload_s3_file",
+                self.base_internal_url, workspace_id
+            ))
+            .query(&query)
+            .header(
+                reqwest::header::ACCEPT,
+                reqwest::header::HeaderValue::from_static("application/json"),
+            )
+            .header(
+                reqwest::header::AUTHORIZATION,
+                reqwest::header::HeaderValue::from_str(&format!("Bearer {}", self.token))
+                    .map_err(|e| error::Error::BadConfig(e.to_string()))?,
+            )
+            .body(Body::wrap_stream(body))
+            .send()
+            .await
+            .context(format!("Sent upload_s3_file request",))
+            .map_err(error::Error::from)?;
+
+        match response.status().as_u16() {
+            200u16 => Ok(()),
+            _ => Err(anyhow::anyhow!(response.text().await.unwrap_or_default()))?,
+        }
+    }
 }
+
+#[derive(Clone)]
+pub struct SameWorkerSender(pub Sender<SameWorkerPayload>, pub Arc<AtomicU16>);
 
 #[allow(dead_code)]
 #[derive(Clone)]
 pub enum JobCompletedSender {
-    Sql(Sender<SendResult>),
+    Sql(SqlJobCompletedSender),
     Http(HttpClient),
     NeverUsed,
 }
 
+#[derive(Clone)]
+pub struct SqlJobCompletedSender {
+    sender: flume::Sender<SendResult>,
+    unbounded_sender: flume::Sender<SendResult>,
+    killpill_tx: broadcast::Sender<()>,
+}
+
+pub struct JobCompletedReceiver {
+    pub bounded_rx: flume::Receiver<SendResult>,
+    pub killpill_rx: broadcast::Receiver<()>,
+    pub unbounded_rx: flume::Receiver<SendResult>,
+}
+
+impl JobCompletedReceiver {
+    pub fn clone(&self) -> Self {
+        Self {
+            bounded_rx: self.bounded_rx.clone(),
+            killpill_rx: self.killpill_rx.resubscribe(),
+            unbounded_rx: self.unbounded_rx.clone(),
+        }
+    }
+}
+
 impl JobCompletedSender {
-    pub fn new(conn: &Connection, buffer_size: usize) -> (Self, Option<Receiver<SendResult>>) {
+    pub fn new(conn: &Connection, buffer_size: u8) -> (Self, Option<JobCompletedReceiver>) {
         match conn {
             Connection::Sql(_) => {
-                let (sender, receiver) = mpsc::channel::<SendResult>(buffer_size);
-                (Self::Sql(sender), Some(receiver))
+                let (sender, receiver) = flume::bounded::<SendResult>(buffer_size as usize);
+                let (unbounded_sender, unbounded_rx) = flume::unbounded::<SendResult>();
+                let (killpill_tx, killpill_rx) = broadcast::channel::<()>(10);
+                (
+                    Self::Sql(SqlJobCompletedSender { sender, unbounded_sender, killpill_tx }),
+                    Some(JobCompletedReceiver { bounded_rx: receiver, killpill_rx, unbounded_rx }),
+                )
             }
             Connection::Http(client) => (Self::Http(client.clone()), None),
         }
@@ -539,20 +621,21 @@ impl JobCompletedSender {
     pub fn new_never_used() -> (Self, Option<Receiver<SendResult>>) {
         (Self::NeverUsed, None)
     }
-}
 
-#[derive(Clone)]
-pub struct SameWorkerSender(pub Sender<SameWorkerPayload>, pub Arc<AtomicU16>);
-
-impl JobCompletedSender {
-    pub async fn send_job(&self, jc: JobCompleted) -> anyhow::Result<()> {
+    pub async fn send_job(&self, jc: JobCompleted, wait_for_capacity: bool) -> anyhow::Result<()> {
         match self {
-            Self::Sql(sender) => sender
-                .send(SendResult::JobCompleted(jc))
+            Self::Sql(SqlJobCompletedSender { sender, unbounded_sender, .. }) => {
+                if wait_for_capacity {
+                    sender
+                } else {
+                    unbounded_sender
+                }
+                .send_async(SendResult::JobCompleted(jc))
                 .await
                 .map_err(|_e| {
                     anyhow::anyhow!("Failed to send job completed to background processor")
-                }),
+                })
+            }
             Self::Http(client) => {
                 crate::agent_workers::send_result(client, jc).await?;
                 Ok(())
@@ -569,9 +652,16 @@ impl JobCompletedSender {
     pub async fn send(
         &self,
         send_result: SendResult,
-    ) -> Result<(), tokio::sync::mpsc::error::SendError<SendResult>> {
+        wait_for_capacity: bool,
+    ) -> Result<(), flume::SendError<SendResult>> {
         match self {
-            Self::Sql(sender) => sender.send(send_result).await,
+            Self::Sql(SqlJobCompletedSender { sender, unbounded_sender, .. }) => {
+                if wait_for_capacity {
+                    sender.send_async(send_result).await
+                } else {
+                    unbounded_sender.send_async(send_result).await
+                }
+            }
             Self::Http(_) => {
                 tracing::error!("Sending job completed to http client, this should not happen");
                 Ok(())
@@ -585,9 +675,13 @@ impl JobCompletedSender {
         }
     }
 
-    pub async fn kill(&self) -> Result<(), tokio::sync::mpsc::error::SendError<SendResult>> {
+    pub async fn kill(&self) -> Result<(), broadcast::error::SendError<()>> {
         match self {
-            Self::Sql(sender) => sender.send(SendResult::Kill).await,
+            Self::Sql(SqlJobCompletedSender { killpill_tx, .. }) => {
+                tracing::info!("Sending killpill to bg processors");
+                killpill_tx.send(())?;
+                Ok(())
+            }
             Self::Http(_) => {
                 tracing::error!("Sending kill to http client, this should not happen");
                 Ok(())
@@ -627,11 +721,11 @@ pub async fn drop_cache() {
         Ok(mut file) => {
             // Write '3' to the file to drop caches
             if let Err(e) = tokio::io::AsyncWriteExt::write_all(&mut file, b"3").await {
-                tracing::warn!("Failed to write to /proc/sys/vm/drop_caches (expected to not work in not in privileged mode, only required to forcefully drop the cache to avoid spurrious oom killer): {}", e);
+                tracing::warn!("Failed to write to /proc/sys/vm/drop_caches (expected to work only in privileged mode, only required to forcefully drop the cache to avoid spurrious oom killer): {}", e);
             }
         }
         Err(e) => {
-            tracing::warn!("Failed to open /proc/sys/vm/drop_caches (expected to not work in not in privileged mode, only required to forcefully drop the cache to avoid spurrious oom killer):: {}", e);
+            tracing::warn!("Failed to open /proc/sys/vm/drop_caches (expected to work only in privileged mode, only required to forcefully drop the cache to avoid spurrious oom killer):: {}", e);
         }
     }
 }
@@ -1004,7 +1098,7 @@ pub async fn run_worker(
 
     let (same_worker_tx, mut same_worker_rx) = mpsc::channel::<SameWorkerPayload>(5);
 
-    let (job_completed_tx, job_completed_rx) = JobCompletedSender::new(&conn, 3);
+    let (job_completed_tx, job_completed_rx) = JobCompletedSender::new(&conn, 10);
 
     let same_worker_queue_size = Arc::new(AtomicU16::new(0));
     let same_worker_tx = SameWorkerSender(same_worker_tx, same_worker_queue_size.clone());
@@ -1012,8 +1106,8 @@ pub async fn run_worker(
         Arc::new(AtomicBool::new(matches!(conn, Connection::Http(_))));
 
     let send_result = match (conn, job_completed_rx) {
-        (Connection::Sql(db), Some(job_completed_rx)) => Some(start_background_processor(
-            job_completed_rx,
+        (Connection::Sql(db), Some(job_completed_receiver)) => Some(start_background_processor(
+            job_completed_receiver,
             job_completed_tx.clone(),
             same_worker_queue_size.clone(),
             job_completed_processor_is_done.clone(),
@@ -1114,7 +1208,7 @@ pub async fn run_worker(
     };
     let mut suspend_first_success = false;
     let mut last_reading = Instant::now() - Duration::from_secs(NUM_SECS_READINGS + 1);
-    let mut last_30jobs_suspended: Vec<bool> = vec![false; 30];
+    let mut last_30jobs_suspended = 0;
     let mut last_suspend_first = Instant::now();
     let mut killed_but_draining_same_worker_jobs = false;
 
@@ -1190,11 +1284,11 @@ pub async fn run_worker(
             jobs_executed += 1;
         }
 
-        #[cfg(any(target_os = "linux"))]
-        if (jobs_executed as u32 + 1) % DROP_CACHE_PERIOD == 0 {
-            drop_cache().await;
-            jobs_executed += 1;
-        }
+        // #[cfg(any(target_os = "linux"))]
+        // if (jobs_executed as u32 + 1) % DROP_CACHE_PERIOD == 0 {
+        //     drop_cache().await;
+        //     jobs_executed += 1;
+        // }
 
         #[cfg(feature = "benchmark")]
         if benchmark_jobs > 0 && infos.iters == benchmark_jobs as u64 {
@@ -1253,7 +1347,7 @@ pub async fn run_worker(
                         if job.is_err() && !same_worker_job.recoverable {
                             tracing::error!(
                                 worker = %worker_name, hostname = %hostname,
-                                "failed to fetch same_worker job on a non recoverable job, exiting"
+                                "failed to fetch same_worker job on a non recoverable job, exiting: {job:?}",
                             );
                             job_completed_tx
                                 .kill()
@@ -1298,9 +1392,7 @@ pub async fn run_worker(
                 match &conn {
                     Connection::Sql(db) => {
                         let pull_time = Instant::now();
-                        let likelihood_of_suspend = (1.0
-                            + last_30jobs_suspended.iter().filter(|&&x| x).count() as f64)
-                            / 31.0;
+                        let likelihood_of_suspend = last_30jobs_suspended as f64 / 30.0;
                         let suspend_first = suspend_first_success
                             || rand::random::<f64>() < likelihood_of_suspend
                             || last_suspend_first.elapsed().as_secs_f64() > 5.0;
@@ -1309,7 +1401,15 @@ pub async fn run_worker(
                             last_suspend_first = Instant::now();
                         }
 
-                        let job = pull(&db, suspend_first, &worker_name, None).await;
+                        let job = pull(
+                            &db,
+                            suspend_first,
+                            &worker_name,
+                            None,
+                            #[cfg(feature = "benchmark")]
+                            &mut bench,
+                        )
+                        .await;
 
                         add_time!(bench, "job pulled from DB");
                         let duration_pull_s = pull_time.elapsed().as_secs_f64();
@@ -1343,10 +1443,11 @@ pub async fn run_worker(
                         if let Ok(j) = job.as_ref() {
                             let suspend_success = j.suspended;
                             if suspend_first {
-                                last_30jobs_suspended.push(suspend_success);
-                                if last_30jobs_suspended.len() > 30 {
-                                    last_30jobs_suspended.remove(0);
+                                if last_30jobs_suspended < 30 {
+                                    last_30jobs_suspended += 1;
                                 }
+                            } else {
+                                last_30jobs_suspended -= 1;
                             }
                             suspend_first_success = suspend_first && suspend_success;
                             #[cfg(feature = "prometheus")]
@@ -1419,17 +1520,21 @@ pub async fn run_worker(
                 if matches!(job.kind, JobKind::Noop) {
                     add_time!(bench, "send job completed START");
                     job_completed_tx
-                        .send_job(JobCompleted {
-                            job: Arc::new(job.job()),
-                            success: true,
-                            result: Arc::new(empty_result()),
-                            result_columns: None,
-                            mem_peak: 0,
-                            cached_res_path: None,
-                            token: "".to_string(),
-                            canceled_by: None,
-                            duration: None,
-                        })
+                        .send_job(
+                            JobCompleted {
+                                preprocessed_args: None,
+                                job: Arc::new(job.job()),
+                                success: true,
+                                result: Arc::new(empty_result()),
+                                result_columns: None,
+                                mem_peak: 0,
+                                cached_res_path: None,
+                                token: "".to_string(),
+                                canceled_by: None,
+                                duration: None,
+                            },
+                            true,
+                        )
                         .await
                         .expect("send job completed END");
                     add_time!(bench, "sent job completed");
@@ -1643,21 +1748,25 @@ pub async fn run_worker(
                                 }
                                 Connection::Http(_) => {
                                     job_completed_tx
-                                        .send_job(JobCompleted {
-                                            job: arc_job.clone(),
-                                            result: Arc::new(
-                                                windmill_common::worker::to_raw_value(
-                                                    &error_to_value(err),
+                                        .send_job(
+                                            JobCompleted {
+                                                preprocessed_args: None,
+                                                job: arc_job.clone(),
+                                                result: Arc::new(
+                                                    windmill_common::worker::to_raw_value(
+                                                        &error_to_value(err),
+                                                    ),
                                                 ),
-                                            ),
-                                            result_columns: None,
-                                            mem_peak: 0,
-                                            canceled_by: None,
-                                            success: false,
-                                            cached_res_path: None,
-                                            token: authed_client.token.clone(),
-                                            duration: None,
-                                        })
+                                                result_columns: None,
+                                                mem_peak: 0,
+                                                canceled_by: None,
+                                                success: false,
+                                                cached_res_path: None,
+                                                token: authed_client.token.clone(),
+                                                duration: None,
+                                            },
+                                            false,
+                                        )
                                         .await
                                         .expect("send job completed");
                                 }
@@ -1799,26 +1908,14 @@ async fn queue_init_bash_maybe<'c>(
     same_worker_tx: SameWorkerSender,
     worker_name: &str,
 ) -> anyhow::Result<bool> {
-    let uuid_content = match conn {
-        Connection::Sql(db) => {
-            if let Some(content) = WORKER_CONFIG.read().await.init_bash.clone() {
-                Some((
-                    push_init_job(db, content.clone(), worker_name).await?,
-                    content,
-                ))
-            } else {
-                None
-            }
-        }
-        Connection::Http(client) => {
-            let init_script = std::env::var("INIT_SCRIPT");
-            if init_script.is_ok() {
-                let content = init_script.unwrap();
-                Some((queue_init_job(client, &content).await?, content))
-            } else {
-                None
-            }
-        }
+    let uuid_content = if let Some(content) = WORKER_CONFIG.read().await.init_bash.clone() {
+        let uuid = match conn {
+            Connection::Sql(db) => push_init_job(db, content.clone(), worker_name).await?,
+            Connection::Http(client) => queue_init_job(client, &content).await?,
+        };
+        Some((uuid, content))
+    } else {
+        None
     };
     if let Some((uuid, content)) = uuid_content {
         same_worker_tx
@@ -1834,16 +1931,17 @@ async fn queue_init_bash_maybe<'c>(
 
 pub enum SendResult {
     JobCompleted(JobCompleted),
-    UpdateFlow {
-        flow: Uuid,
-        w_id: String,
-        success: bool,
-        result: Box<RawValue>,
-        worker_dir: String,
-        stop_early_override: Option<bool>,
-        token: String,
-    },
-    Kill,
+    UpdateFlow(UpdateFlow),
+}
+
+pub struct UpdateFlow {
+    pub flow: Uuid,
+    pub w_id: String,
+    pub success: bool,
+    pub result: Box<RawValue>,
+    pub worker_dir: String,
+    pub stop_early_override: Option<bool>,
+    pub token: String,
 }
 
 async fn do_nativets(
@@ -2015,17 +2113,21 @@ async fn handle_queued_job(
                     append_logs(&job.id, &job.workspace_id, logs, conn).await;
                 }
                 job_completed_tx
-                    .send_job(JobCompleted {
-                        job,
-                        result,
-                        result_columns: None,
-                        mem_peak: 0,
-                        canceled_by: None,
-                        success: true,
-                        cached_res_path: None,
-                        token: client.token.clone(),
-                        duration: None,
-                    })
+                    .send_job(
+                        JobCompleted {
+                            preprocessed_args: None,
+                            job,
+                            result,
+                            result_columns: None,
+                            mem_peak: 0,
+                            canceled_by: None,
+                            success: true,
+                            cached_res_path: None,
+                            token: client.token.clone(),
+                            duration: None,
+                        },
+                        true,
+                    )
                     .await
                     .expect("send job completed");
 
@@ -2437,16 +2539,22 @@ async fn handle_code_execution_job(
                 _ => None,
             };
 
-            arc_data =
-                preview.ok_or_else(|| Error::internal_err("expected preview".to_string()))?;
-            metadata = ScriptMetadata {
-                language: job.script_lang,
-                codebase,
-                envs: None,
-                schema: None,
-                schema_validator: None,
-            };
-            (arc_data.as_ref(), &metadata)
+            if codebase.is_none() && job.runnable_id.is_some() {
+                (arc_data, arc_metadata) =
+                    cache::script::fetch(conn, job.runnable_id.unwrap()).await?;
+                (arc_data.as_ref(), arc_metadata.as_ref())
+            } else {
+                arc_data =
+                    preview.ok_or_else(|| Error::internal_err("expected preview".to_string()))?;
+                metadata = ScriptMetadata {
+                    language: job.script_lang,
+                    codebase,
+                    envs: None,
+                    schema: None,
+                    schema_validator: None,
+                };
+                (arc_data.as_ref(), &metadata)
+            }
         }
         JobKind::Script_Hub => {
             let ContentReqLangEnvs { content, lockfile, language, envs, codebase, schema } =

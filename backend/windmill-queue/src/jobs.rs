@@ -6,7 +6,6 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
-use std::fmt;
 use std::{collections::HashMap, sync::Arc, vec};
 
 use anyhow::Context;
@@ -29,7 +28,11 @@ use uuid::Uuid;
 use windmill_audit::audit_ee::{audit_log, AuditAuthor};
 use windmill_audit::ActionKind;
 
+#[cfg(feature = "benchmark")]
+use windmill_common::add_time;
 use windmill_common::auth::JobPerms;
+#[cfg(feature = "benchmark")]
+use windmill_common::bench::BenchmarkIter;
 use windmill_common::utils::now_from_db;
 use windmill_common::worker::{Connection, SCRIPT_TOKEN_EXPIRY};
 use windmill_common::{
@@ -136,6 +139,7 @@ pub struct CanceledBy {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct JobCompleted {
     pub job: Arc<MiniPulledJob>,
+    pub preprocessed_args: Option<HashMap<String, Box<RawValue>>>,
     pub result: Arc<Box<RawValue>>,
     pub result_columns: Option<Vec<String>>,
     pub mem_peak: i32,
@@ -160,7 +164,7 @@ pub async fn cancel_single_job<'c>(
         let username = username.to_string();
         let w_id = w_id.to_string();
         let db = db.clone();
-        tracing::info!("cancelling job {:?}", db);
+        tracing::info!("cancelling job {:?}", job_running.id);
         let job_running = job_running.clone();
         tokio::task::spawn(async move {
             let reason: String = reason
@@ -1940,22 +1944,6 @@ async fn handle_successful_schedule<'a, 'c, T: Serialize + Send + Sync>(
 }
 
 #[derive(sqlx::Type, Serialize, Deserialize, Debug, Clone)]
-#[sqlx(type_name = "TRIGGER_KIND", rename_all = "lowercase")]
-#[serde(rename_all = "lowercase")]
-pub enum TriggerKind {
-    Webhook,
-    Http,
-    Websocket,
-    Kafka,
-    Email,
-    Nats,
-    Mqtt,
-    Sqs,
-    Postgres,
-    Gcp
-}
-
-#[derive(sqlx::Type, Serialize, Deserialize, Debug, Clone)]
 #[sqlx(type_name = "JOB_TRIGGER_KIND", rename_all = "lowercase")]
 #[serde(rename_all = "lowercase")]
 pub enum JobTriggerKind {
@@ -1972,23 +1960,6 @@ pub enum JobTriggerKind {
     Gcp
 }
 
-impl fmt::Display for TriggerKind {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let s = match self {
-            TriggerKind::Webhook => "webhook",
-            TriggerKind::Http => "http",
-            TriggerKind::Websocket => "websocket",
-            TriggerKind::Kafka => "kafka",
-            TriggerKind::Email => "email",
-            TriggerKind::Nats => "nats",
-            TriggerKind::Mqtt => "mqtt",
-            TriggerKind::Sqs => "sqs",
-            TriggerKind::Postgres => "postgres",
-            TriggerKind::Gcp => "gcp",
-        };
-        write!(f, "{}", s)
-    }
-}
 
 #[derive(sqlx::FromRow, Debug, Clone, Serialize, Deserialize)]
 pub struct MiniPulledJob {
@@ -2310,6 +2281,7 @@ pub async fn pull(
     suspend_first: bool,
     worker_name: &str,
     query_o: Option<(String, String)>,
+    #[cfg(feature = "benchmark")] bench: &mut BenchmarkIter,
 ) -> windmill_common::error::Result<PulledJobResult> {
     loop {
         if let Some((query_suspended, query_no_suspend)) = query_o.as_ref() {
@@ -2351,6 +2323,7 @@ pub async fn pull(
                 db,
                 suspend_first,
                 worker_name,
+                #[cfg(feature = "benchmark")] bench,
             )
             .await?;
 
@@ -2549,6 +2522,7 @@ async fn pull_single_job_and_mark_as_running_no_concurrency_limit<'c>(
     db: &Pool<Postgres>,
     suspend_first: bool,
     worker_name: &str,
+    #[cfg(feature = "benchmark")] bench: &mut BenchmarkIter,
 ) -> windmill_common::error::Result<(Option<PulledJob>, bool)> {
     let job_and_suspended: (Option<PulledJob>, bool) = {
         /* Jobs can be started if they:
@@ -2562,6 +2536,7 @@ async fn pull_single_job_and_mark_as_running_no_concurrency_limit<'c>(
 
         if query.is_empty() {
             tracing::warn!("No suspended pull queries available");
+            tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
             return Ok((None, false));
         }
 
@@ -2583,16 +2558,24 @@ async fn pull_single_job_and_mark_as_running_no_concurrency_limit<'c>(
 
             if queries.is_empty() {
                 tracing::warn!("No pull queries available");
+                tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
                 return Ok((None, false));
             }
 
             for query in queries.iter() {
                 // tracing::info!("Pulling job with query: {}", query);
                 // let instant = std::time::Instant::now();
+
+                #[cfg(feature = "benchmark")]
+                add_time!(bench, "pre pull");
+
                 let r = sqlx::query_as::<_, PulledJob>(query)
                     .bind(worker_name)
                     .fetch_optional(db)
                     .await?;
+
+                #[cfg(feature = "benchmark")]
+                add_time!(bench, "post pull");
 
                 if let Some(pulled_job) = r {
                     // tracing::info!("pulled job: {:?}", instant.elapsed().as_micros());
@@ -2630,20 +2613,44 @@ async fn concurrency_key(db: &Pool<Postgres>, id: &Uuid) -> windmill_common::err
     )
 }
 
-fn interpolate_args(x: String, args: &PushArgs, workspace_id: &str) -> String {
+pub fn interpolate_args(x: String, args: &PushArgs, workspace_id: &str) -> String {
     // Save this value to avoid parsing twice
     let workspaced = x.as_str().replace("$workspace", workspace_id).to_string();
     if RE_ARG_TAG.is_match(&workspaced) {
         let mut interpolated = workspaced.clone();
         for cap in RE_ARG_TAG.captures_iter(&workspaced) {
             let arg_name = cap.get(1).unwrap().as_str();
-            let arg_value = args
-                .args
-                .get(arg_name)
-                .or(args.extra.as_ref().and_then(|x| x.get(arg_name)))
-                .map(|x| x.get())
-                .unwrap_or_default()
-                .trim_matches('"');
+            let arg_value = if arg_name.contains('.') {
+                let parts: Vec<&str> = arg_name.split('.').collect();
+                let root = parts[0];
+                let mut value = args
+                    .args
+                    .get(root)
+                    .or(args.extra.as_ref().and_then(|x| x.get(root)))
+                    .map(|x| x.get())
+                    .unwrap_or_default().to_string();
+                
+                for part in parts.iter().skip(1) {
+                    if let Ok(obj) = serde_json::from_str::<serde_json::Value>(&value) {
+                        value = obj.get(part)
+                            .and_then(|v| Some(v.to_string()))
+                            .unwrap_or_default()
+                            .as_str().to_string();
+                    } else {
+                        value = "".to_string(); // Invalid JSON or missing field
+                        break;
+                    }
+                }
+                value.trim_matches('"').to_string()
+            } else {
+                args.args
+                    .get(arg_name)
+                    .or(args.extra.as_ref().and_then(|x| x.get(arg_name)))
+                    .map(|x| x.get())
+                    .unwrap_or_default()
+                    .trim_matches('"')
+                    .to_string()
+            };
             interpolated =
                 interpolated.replace(format!("$args[{}]", arg_name).as_str(), &arg_value);
         }
@@ -3211,7 +3218,7 @@ pub fn empty_result() -> Box<RawValue> {
 // }
 
 lazy_static::lazy_static! {
-    pub static ref RE_ARG_TAG: Regex = Regex::new(r#"\$args\[(\w+)\]"#).unwrap();
+    pub static ref RE_ARG_TAG: Regex = Regex::new(r#"\$args\[((?:\w+\.)*\w+)\]"#).unwrap();
 }
 
 // #[instrument(level = "trace", skip_all)]
@@ -3220,7 +3227,7 @@ pub async fn push<'c, 'd>(
     mut tx: PushIsolationLevel<'c>,
     workspace_id: &str,
     job_payload: JobPayload,
-    mut args: PushArgs<'d>,
+    args: PushArgs<'d>,
     user: &str,
     mut email: &str,
     mut permissioned_as: String,
@@ -3436,17 +3443,10 @@ pub async fn push<'c, 'd>(
             priority,
             apply_preprocessor,
         } => {
-            let extra = args.extra.get_or_insert_with(HashMap::new);
             if apply_preprocessor {
                 preprocessed = Some(false);
-                extra.entry("wm_trigger".to_string()).or_insert_with(|| {
-                    to_raw_value(&serde_json::json!({
-                        "kind": "webhook",
-                    }))
-                });
-            } else {
-                extra.remove("wm_trigger");
-            }
+            } 
+
             (
                 Some(hash.0),
                 Some(path),
@@ -3535,12 +3535,16 @@ pub async fn push<'c, 'd>(
             None,
             None,
         ),
-        JobPayload::ScriptHub { path } => {
+        JobPayload::ScriptHub { path, apply_preprocessor } => {
             if path == "hub/7771/slack" || path == "hub/7836/slack" || path == "hub/9084/slack" {
                 // these scripts send app reports to slack
                 // they use the slack bot token and should therefore be run with permissions to access it
                 permissioned_as = SUPERADMIN_NOTIFICATION_EMAIL.to_string();
                 email = SUPERADMIN_NOTIFICATION_EMAIL;
+            }
+
+            if apply_preprocessor {
+                preprocessed = Some(false);
             }
 
             let hub_script =
@@ -3812,19 +3816,8 @@ pub async fn push<'c, 'd>(
                 priority,
             )
         }
-        JobPayload::Flow { path, dedicated_worker, apply_preprocessor } => {
+        JobPayload::Flow { path, dedicated_worker, apply_preprocessor, version } => {
             let mut ntx = tx.into_tx().await?;
-            // Fetch the latest version of the flow.
-            let version = sqlx::query_scalar!(
-                "SELECT flow.versions[array_upper(flow.versions, 1)] AS \"version!: i64\"
-                FROM flow WHERE path = $1 AND workspace_id = $2",
-                &path,
-                &workspace_id
-            )
-            .fetch_optional(&mut *ntx)
-            .await?
-            .ok_or_else(|| Error::internal_err(format!("not found flow at path {:?}", path)))?;
-
             // Do not use the lite version unless all workers are updated.
             let data = if *DISABLE_FLOW_SCRIPT
                 || (!*MIN_VERSION_IS_AT_LEAST_1_432.read().await && !*CLOUD_HOSTED)
@@ -3846,19 +3839,14 @@ pub async fn push<'c, 'd>(
             let cache_ttl = value.cache_ttl.map(|x| x as i32);
             let custom_concurrency_key = value.concurrency_key.clone();
             let concurrency_time_window_s = value.concurrency_time_window_s;
-            let concurrent_limit = value.concurrent_limit;
+            let mut concurrent_limit = value.concurrent_limit;
 
-            let extra = args.extra.get_or_insert_with(HashMap::new);
             if !apply_preprocessor {
                 value.preprocessor_module = None;
-                extra.remove("wm_trigger");
             } else {
+                tag = None;
+                concurrent_limit = None;
                 preprocessed = Some(false);
-                extra.entry("wm_trigger".to_string()).or_insert_with(|| {
-                    to_raw_value(&serde_json::json!({
-                        "kind": "webhook",
-                    }))
-                });
             }
 
             // this is a new flow being pushed, status is set to `value`.
@@ -4087,6 +4075,7 @@ pub async fn push<'c, 'd>(
             } else if job_kind == JobKind::Dependencies
                 || job_kind == JobKind::FlowDependencies
                 || job_kind == JobKind::DeploymentCallback
+                || job_kind == JobKind::AppDependencies
             {
                 // using the dependency tag for deployment callback for now. We can create a separate tag when we need
                 "dependency".to_string()
@@ -4138,26 +4127,7 @@ pub async fn push<'c, 'd>(
     };
 
     if concurrent_limit.is_some() {
-        let concurrency_key = custom_concurrency_key
-            .map(|x| interpolate_args(x, &args, workspace_id))
-            .unwrap_or(fullpath_with_workspace(
-                workspace_id,
-                script_path.as_ref(),
-                &job_kind,
-            ));
-        sqlx::query!(
-            "WITH inserted_concurrency_counter AS (
-                INSERT INTO concurrency_counter (concurrency_id, job_uuids) 
-                VALUES ($1, '{}'::jsonb)
-                ON CONFLICT DO NOTHING
-            )
-            INSERT INTO concurrency_key(key, job_id) VALUES ($1, $2)",
-            concurrency_key,
-            job_id,
-        )
-        .execute(&mut *tx)
-        .await
-        .map_err(|e| Error::internal_err(format!("Could not insert concurrency_key={concurrency_key} for job_id={job_id} script_path={script_path:?} workspace_id={workspace_id}: {e:#}")))?;
+        insert_concurrency_key(workspace_id, &args, &script_path, job_kind, custom_concurrency_key, &mut tx, job_id).await?;
     }
 
     let stringified_args = if *JOB_ARGS_AUDIT_LOGS {
@@ -4175,93 +4145,7 @@ pub async fn push<'c, 'd>(
         Some("preprocessor") => Some(false),
         _ => None,
     });
-
-    sqlx::query!(
-        "INSERT INTO v2_job (id, workspace_id, raw_code, raw_lock, raw_flow, tag, parent_job,
-            created_by, permissioned_as, runnable_id, runnable_path, args, kind, trigger,
-            script_lang, same_worker, pre_run_error, permissioned_as_email, visible_to_owner,
-            flow_innermost_root_job, concurrent_limit, concurrency_time_window_s, timeout, flow_step_id,
-            cache_ttl, priority, trigger_kind, script_entrypoint_override, preprocessed)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18,
-            $19, $20, $21, $22, $23, $24, $25, $26,
-            CASE WHEN $14::VARCHAR IS NOT NULL THEN 'schedule'::job_trigger_kind END,
-            ($12::JSONB)->>'_ENTRYPOINT_OVERRIDE', $27)",
-        job_id,
-        workspace_id,
-        raw_code,
-        raw_lock,
-        raw_flow as Option<Json<FlowValue>>,
-        tag,
-        parent_job,
-        user,
-        permissioned_as,
-        script_hash,
-        script_path.clone(),
-        Json(args) as Json<PushArgs>,
-        job_kind.clone() as JobKind,
-        schedule_path,
-        language as Option<ScriptLang>,
-        same_worker,
-        pre_run_error.map(|e| e.to_string()),
-        email,
-        visible_to_owner,
-        root_job,
-        concurrent_limit,
-        if concurrent_limit.is_some() {
-            concurrency_time_window_s
-        } else {
-            None
-        },
-        custom_timeout,
-        flow_step_id,
-        cache_ttl,
-        final_priority,
-        preprocessed,
-    )
-    .execute(&mut *tx)
-    .warn_after_seconds(1)
-    .await?;
-
-    tracing::debug!("Pushing job {job_id} with tag {tag}, schedule_path {schedule_path:?}, script_path: {script_path:?}, email {email}, workspace_id {workspace_id}");
-    let uuid = sqlx::query_scalar!(
-        "INSERT INTO v2_job_queue
-            (workspace_id, id, running, scheduled_for, started_at, tag, priority)
-            VALUES ($1, $2, $3, COALESCE($4, now()), CASE WHEN $3 THEN now() END, $5, $6) \
-         RETURNING id AS \"id!\"",
-        workspace_id,
-        job_id,
-        is_running,
-        scheduled_for_o,
-        tag,
-        final_priority,
-    )
-    .fetch_one(&mut *tx)
-    .warn_after_seconds(1)
-    .await
-    .map_err(|e| Error::internal_err(format!("Could not insert into queue {job_id} with tag {tag}, schedule_path {schedule_path:?}, script_path: {script_path:?}, email {email}, workspace_id {workspace_id}: {e:#}")))?;
-
-    sqlx::query!(
-        "INSERT INTO v2_job_runtime (id, ping) VALUES ($1, null)",
-        job_id
-    )
-    .execute(&mut *tx)
-    .await?;
-    if let Some(flow_status) = flow_status {
-        sqlx::query!(
-            "INSERT INTO v2_job_status (id, flow_status) VALUES ($1, $2)",
-            job_id,
-            Json(flow_status) as Json<FlowStatus>,
-        )
-        .execute(&mut *tx)
-        .await?;
-    }
-
-    tracing::debug!("Pushed {job_id}");
-    // TODO: technically the job isn't queued yet, as the transaction can be rolled back. Should be solved when moving these metrics to the queue abstraction.
-    #[cfg(feature = "prometheus")]
-    if METRICS_ENABLED.load(std::sync::atomic::Ordering::Relaxed) {
-        QUEUE_PUSH_COUNT.inc();
-    }
+    
 
     let job_authed = match authed {
         Some(authed)
@@ -4295,21 +4179,131 @@ pub async fn push<'c, 'd>(
         .filter_map(|x| serde_json::to_value(x).ok())
         .collect::<Vec<_>>();
 
-    if let Err(err) = sqlx::query!("INSERT INTO job_perms (job_id, email, username, is_admin, is_operator, folders, groups, workspace_id) 
-        values ($1, $2, $3, $4, $5, $6, $7, $8) 
-        ON CONFLICT (job_id) DO UPDATE SET email = $2, username = $3, is_admin = $4, is_operator = $5, folders = $6, groups = $7, workspace_id = $8",
+    // if let Err(err) = sqlx::query!("INSERT INTO job_perms (job_id, email, username, is_admin, is_operator, folders, groups, workspace_id) 
+    //     values ($1, $2, $3, $4, $5, $6, $7, $8) 
+    //     ON CONFLICT (job_id) DO UPDATE SET email = $2, username = $3, is_admin = $4, is_operator = $5, folders = $6, groups = $7, workspace_id = $8",
+    //     job_id,
+    //     job_authed.email,
+    //     job_authed.username,
+    //     job_authed.is_admin,
+    //     job_authed.is_operator,
+    //     folders.as_slice(),
+    //     job_authed.groups.as_slice(),
+    //     workspace_id,
+    // ).execute(&mut *tx).await {
+    //     tracing::error!("Could not insert job_perms for job {job_id}: {err:#}");
+    // }
+    
+    
+    sqlx::query!(
+        "WITH inserted_job AS (
+            INSERT INTO v2_job (id, workspace_id, raw_code, raw_lock, raw_flow, tag, parent_job,
+                created_by, permissioned_as, runnable_id, runnable_path, args, kind, trigger,
+            script_lang, same_worker, pre_run_error, permissioned_as_email, visible_to_owner,
+            flow_innermost_root_job, concurrent_limit, concurrency_time_window_s, timeout, flow_step_id,
+            cache_ttl, priority, trigger_kind, script_entrypoint_override, preprocessed)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18,
+            $19, $20, $21, $22, $23, $24, $25, $26,
+            CASE WHEN $14::VARCHAR IS NOT NULL THEN 'schedule'::job_trigger_kind END,
+            ($12::JSONB)->>'_ENTRYPOINT_OVERRIDE', $27)
+        ),
+        inserted_runtime AS (
+            INSERT INTO v2_job_runtime (id, ping) VALUES ($1, null)
+        ),
+        inserted_job_perms AS (
+            INSERT INTO job_perms (job_id, email, username, is_admin, is_operator, folders, groups, workspace_id) 
+            values ($1, $32, $33, $34, $35, $36, $37, $2) 
+            ON CONFLICT (job_id) DO UPDATE SET email = $32, username = $33, is_admin = $34, is_operator = $35, folders = $36, groups = $37, workspace_id = $2
+        )
+        INSERT INTO v2_job_queue
+            (workspace_id, id, running, scheduled_for, started_at, tag, priority)
+            VALUES ($2, $1, $28, COALESCE($29, now()), CASE WHEN $27 THEN now() END, $30, $31)",
         job_id,
+        workspace_id,
+        raw_code,
+        raw_lock,
+        raw_flow as Option<Json<FlowValue>>,
+        tag,
+        parent_job,
+        user,
+        permissioned_as,
+        script_hash,
+        script_path.clone(),
+        Json(args) as Json<PushArgs>,
+        job_kind.clone() as JobKind,
+        schedule_path,
+        language as Option<ScriptLang>,
+        same_worker,
+        pre_run_error.map(|e| e.to_string()),
+        email,
+        visible_to_owner,
+        root_job,
+        concurrent_limit,
+        if concurrent_limit.is_some() {
+            concurrency_time_window_s
+        } else {
+            None
+        },
+        custom_timeout,
+        flow_step_id,
+        cache_ttl,
+        final_priority,
+        preprocessed,
+        is_running,
+        scheduled_for_o,
+        tag,
+        final_priority,
         job_authed.email,
         job_authed.username,
         job_authed.is_admin,
         job_authed.is_operator,
         folders.as_slice(),
         job_authed.groups.as_slice(),
-        workspace_id,
-    ).execute(&mut *tx).await {
-        tracing::error!("Could not insert job_perms for job {job_id}: {err:#}");
+    )
+    .execute(&mut *tx)
+    .warn_after_seconds(1)
+    .await?;
+
+//     tracing::debug!("Pushing job {job_id} with tag {tag}, schedule_path {schedule_path:?}, script_path: {script_path:?}, email {email}, workspace_id {workspace_id}");
+//     let uuid = sqlx::query_scalar!(
+//         "INSERT INTO v2_job_queue
+//             (workspace_id, id, running, scheduled_for, started_at, tag, priority)
+//             VALUES ($1, $2, $3, COALESCE($4, now()), CASE WHEN $3 THEN now() END, $5, $6) \
+//          RETURNING id AS \"id!\"",
+//         workspace_id,
+//         job_id,
+// ,
+//     )
+//     .fetch_one(&mut *tx)
+//     .warn_after_seconds(1)
+//     .await
+//     .map_err(|e| Error::internal_err(format!("Could not insert into queue {job_id} with tag {tag}, schedule_path {schedule_path:?}, script_path: {script_path:?}, email {email}, workspace_id {workspace_id}: {e:#}")))?;
+
+    // sqlx::query!(
+    //     "INSERT INTO v2_job_runtime (id, ping) VALUES ($1, null)",
+    //     job_id
+    // )
+    // .execute(&mut *tx)
+    // .await?;
+    if let Some(flow_status) = flow_status {
+        sqlx::query!(
+            "INSERT INTO v2_job_status (id, flow_status) VALUES ($1, $2)",
+            job_id,
+            Json(flow_status) as Json<FlowStatus>,
+        )
+        .execute(&mut *tx)
+        .warn_after_seconds(1)
+        .await?;
     }
-    
+
+    tracing::debug!("Pushed {job_id}");
+    // TODO: technically the job isn't queued yet, as the transaction can be rolled back. Should be solved when moving these metrics to the queue abstraction.
+    #[cfg(feature = "prometheus")]
+    if METRICS_ENABLED.load(std::sync::atomic::Ordering::Relaxed) {
+        QUEUE_PUSH_COUNT.inc();
+    }
+
+
 
     {
         let uuid_string = job_id.to_string();
@@ -4367,10 +4361,36 @@ pub async fn push<'c, 'd>(
             script_path.as_ref().map(|x| x.as_str()),
             Some(hm),
         )
+        .warn_after_seconds(1)
         .await?;
     }
 
-    Ok((uuid, tx))
+    Ok((job_id, tx))
+}
+
+pub async fn insert_concurrency_key<'d, 'c>(workspace_id: &str, args: &PushArgs<'d>, script_path: &Option<String>, job_kind: JobKind, custom_concurrency_key: Option<String>, tx: &mut Transaction<'c, Postgres>, job_id: Uuid) -> Result<(), Error> {
+    let concurrency_key = custom_concurrency_key
+        .map(|x| interpolate_args(x, args, workspace_id))
+        .unwrap_or(fullpath_with_workspace(
+            workspace_id,
+            script_path.as_ref(),
+            &job_kind,
+        ));
+    sqlx::query!(
+        "WITH inserted_concurrency_counter AS (
+                INSERT INTO concurrency_counter (concurrency_id, job_uuids) 
+                VALUES ($1, '{}'::jsonb)
+                ON CONFLICT DO NOTHING
+            )
+            INSERT INTO concurrency_key(key, job_id) VALUES ($1, $2)",
+        concurrency_key,
+        job_id,
+    )
+    .execute(&mut **tx)
+    .warn_after_seconds(3)
+    .await
+    .map_err(|e| Error::internal_err(format!("Could not insert concurrency_key={concurrency_key} for job_id={job_id} script_path={script_path:?} workspace_id={workspace_id}: {e:#}")))?;
+    Ok(())
 }
 
 pub fn canceled_job_to_result(job: &MiniPulledJob) -> serde_json::Value {

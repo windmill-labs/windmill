@@ -593,6 +593,9 @@ export const quickStyleProperties: Record<
 	textcomponent: {
 		text: [typographyGrouping]
 	},
+	codeinputcomponent: {
+		container: inputDefaultProps
+	},
 	imagecomponent: {
 		image: containerDefaultProps
 	},

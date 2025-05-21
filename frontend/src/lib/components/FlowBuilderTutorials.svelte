@@ -81,17 +81,3 @@
 		<span> You need to create a new flow before starting the tutorial.</span>
 	</div>
 </ConfirmationModal>
-
-<style global>
-	.driver-popover-title {
-		@apply leading-6 text-primary text-base;
-	}
-
-	.driver-popover-description {
-		@apply text-secondary text-sm;
-	}
-
-	.driver-popover {
-		@apply p-6 bg-surface max-w-2xl;
-	}
-</style>

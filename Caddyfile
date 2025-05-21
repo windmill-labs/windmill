@@ -12,7 +12,7 @@
         bind {$ADDRESS}
         reverse_proxy /ws/* http://lsp:3001
         # reverse_proxy /ws_mp/* http://multiplayer:3002
-        # reverse_proxy /api/srch/* http://windmill_indexer:8001
+        # reverse_proxy /api/srch/* http://windmill_indexer:8002
         reverse_proxy /* http://windmill_server:8000
         # tls /certs/cert.pem /certs/key.pem
 }

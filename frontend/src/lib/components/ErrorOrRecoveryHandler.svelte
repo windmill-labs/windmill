@@ -3,6 +3,7 @@
 	import ScriptPicker from '$lib/components/ScriptPicker.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
+	import ChannelSelector from '$lib/components/ChannelSelector.svelte'
 
 	import type { Schema, SupportedLanguage } from '$lib/common'
 	import { base } from '$lib/base'
@@ -361,7 +362,7 @@
 			<Module.default
 				disabled={!$enterpriseLicense || !isSlackHandler(handlerPath)}
 				schema={slackHandlerSchema}
-				schemaSkippedValues={['slack']}
+				hiddenArgs={['slack']}
 				schemaFieldTooltip={{
 					channel: 'Slack channel name without the "#" - example: "windmill-alerts"'
 				}}
@@ -439,34 +440,40 @@
 		/>
 	</span>
 	{#if workspaceConnectedToTeams}
-		<div class="w-2/3 flex flex-row items-center gap-2">
-			<div class="pt-1 flex-shrink-0">
-				<MsTeamsIcon height="24px" width="24px" />
+		<div class="w-2/3 flex flex-col gap-2">
+			<div class="flex flex-row items-center gap-2">
+				<div class="pt-1 flex-shrink-0">
+					<MsTeamsIcon height="24px" width="24px" />
+				</div>
+				<p class="text-sm">Teams Channel</p>
 			</div>
-			<p class="text-sm">Teams Channel</p>
-			<div class="flex-grow">
-				<select class="w-full" bind:value={handlerExtraArgs['channel']}>
-					{#if teams_channels.length === 0}
-						<option value="" disabled selected>Bot not connected to any channel</option>
-					{:else}
-						<option value="" disabled selected>Select Teams channel</option>
-						{#each teams_channels as channel}
-							<option value={channel.channel_id}>
-								{channel.channel_name}
-							</option>
-						{/each}
-					{/if}
-				</select>
-			</div>
-			<div class="flex-shrink-0">
-				<button on:click={loadTeamsResources} class="flex items-center gap-1 mt-2">
-					<RefreshCcw size={16} class={isFetching ? 'animate-spin' : ''} />
-				</button>
+
+			<div class="flex flex-row gap-2 items-start">
+				<ChannelSelector
+					containerClass="flex-grow"
+					minWidth="200px"
+					placeholder="Select Teams channel"
+					channels={teams_channels as any[]}
+					on:change={(e) => (handlerExtraArgs['channel'] = e.detail.channel_id)}
+					selectedChannel={handlerExtraArgs['channel']
+						? (teams_channels.find((ch) => ch.channel_id === handlerExtraArgs['channel']) as any)
+						: undefined}
+				/>
+				<div class="flex-shrink-0">
+					<button
+						on:click={loadTeamsResources}
+						class="flex items-center gap-1 p-1.5 rounded hover:bg-surface-hover focus:bg-surface-hover"
+					>
+						<RefreshCcw size={16} class={isFetching ? 'animate-spin' : ''} />
+					</button>
+				</div>
 			</div>
 		</div>
 		<div class="flex flex-row gap-2 pb-4">
 			<p class="text-sm">
-				This workspace is connected to Team: <Badge color="blue" size="xs" class="mt-2">{teams_team_name}</Badge>
+				This workspace is connected to Team: <Badge color="blue" size="xs" class="mt-2"
+					>{teams_team_name}</Badge
+				>
 			</p>
 			<Tooltip text={teams_team_name}>
 				Each workspace can only be connected to one Microsoft Teams team. You can configure it under <a
@@ -499,7 +506,7 @@
 		{:else}
 			<Button
 				disabled={emptyString(handlerExtraArgs['channel'])}
-				btnClasses="w-32 text-center"
+				btnClasses="w-32 text-center mt-2"
 				color="dark"
 				on:click={() => sendTeamsMessage(handlerExtraArgs['channel'] ?? '')}
 				size="xs">Send test message</Button
@@ -507,7 +514,7 @@
 			{#if connectionTestJob !== undefined}
 				<p class="text-normal text-2xs mt-1 gap-2">
 					{#if connectionTestJob.in_progress}
-						<RotateCw size={14} />
+						<RotateCw size={14} class="animate-spin" />
 					{:else if connectionTestJob.is_success}
 						<CheckCircle2 size={14} class="text-green-600" />
 					{:else}

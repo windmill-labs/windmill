@@ -15,6 +15,7 @@
 	export let s3: boolean | undefined = false
 	export let prefix: string | undefined = undefined
 	export let workspace: string | undefined = undefined
+	export let s3FileUploadRawMode: boolean = false
 
 	let fileUploads: Writable<FileUploadData[]> = writable([])
 
@@ -38,11 +39,13 @@
 			return `${cleanPrefix}${file.name}`
 		}}
 		on:addition={({ detail }) => {
+			// @ts-ignore
 			componentInput = {
 				...componentInput,
-				type: 'static',
-				value: `s3://${detail.path}`
+				type: 'uploadS3',
+				value: { s3: detail.path }
 			}
+			s3FileUploadRawMode = true
 		}}
 	/>
 {:else}

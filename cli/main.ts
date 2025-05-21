@@ -33,6 +33,7 @@ import { pull, push } from "./sync.ts";
 import { add as workspaceAdd } from "./workspace.ts";
 import workers from "./workers.ts";
 import queues from "./queues.ts";
+import { readLockfile } from "./metadata.ts";
 
 export {
   flow,
@@ -62,7 +63,7 @@ export {
 //   }
 // });
 
-export const VERSION = "1.481.0";
+export const VERSION = "1.491.5";
 
 const command = new Command()
   .name("wmill")
@@ -93,27 +94,29 @@ const command = new Command()
     "Specify headers to use for all requests. e.g: \"HEADERS='h1: v1, h2: v2'\""
   )
   .version(VERSION)
+  .versionOption(false)
   .command("init", "Bootstrap a windmill project with a wmill.yaml file")
   .action(async () => {
     if (await Deno.stat("wmill.yaml").catch(() => null)) {
-      log.error(colors.red("wmill.yaml already exists"));
-      return;
+      log.error(colors.green("wmill.yaml already exists"));
+    } else {
+      await Deno.writeTextFile(
+        "wmill.yaml",
+        yamlStringify({
+          defaultTs: "bun",
+          includes: ["f/**"],
+          excludes: [],
+          codebases: [],
+          skipVariables: true,
+          skipResources: true,
+          skipSecrets: true,
+          includeSchedules: false,
+          includeTriggers: false,
+        })
+      );
+      log.info(colors.green("wmill.yaml created"));
     }
-    await Deno.writeTextFile(
-      "wmill.yaml",
-      yamlStringify({
-        defaultTs: "bun",
-        includes: ["f/**"],
-        excludes: [],
-        codebases: [],
-        skipVariables: true,
-        skipResources: true,
-        skipSecrets: true,
-        includeSchedules: false,
-        includeTriggers: false,
-      })
-    );
-    log.info(colors.green("wmill.yaml created"));
+    await readLockfile();
   })
   .command("app", app)
   .command("flow", flow)
@@ -132,15 +135,34 @@ const command = new Command()
   .command("worker-groups", workerGroups)
   .command("workers", workers)
   .command("queues", queues)
-  .command("version", "Show version information")
+  .command("version --version", "Show version information")
   .action(async (opts) => {
-    console.log("CLI build against " + VERSION);
+    console.log("CLI version: " + VERSION);
+    try {
+      const provider = new NpmProvider({ package: "windmill-cli" });
+      const versions = await provider.getVersions("windmill-cli");
+      if (versions.latest !== VERSION) {
+        console.log(
+          `CLI is outdated. Latest version ${versions.latest} is available. Run \`wmill upgrade\` to update.`
+        );
+      } else {
+        console.log("CLI is up to date");
+      }
+    } catch (e) {
+      console.warn(
+        `Cannot fetch latest CLI version on npmjs to check if up-to-date: ${e}`
+      );
+    }
     const workspace = await getActiveWorkspace(opts as GlobalOptions);
     if (workspace) {
-      const backendVersion = await fetchVersion(workspace.remote);
-      console.log("Backend Version: " + backendVersion);
+      try {
+        const backendVersion = await fetchVersion(workspace.remote);
+        console.log("Backend Version: " + backendVersion);
+      } catch (e) {
+        console.warn("Cannot fetch backend version: " + e);
+      }
     } else {
-      console.log(
+      console.warn(
         "Cannot fetch backend version: no active workspace selected, choose one to pick a remote to fetch version of"
       );
     }

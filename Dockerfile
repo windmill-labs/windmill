@@ -1,5 +1,5 @@
 ARG DEBIAN_IMAGE=debian:bookworm-slim
-ARG RUST_IMAGE=rust:1.85-slim-bookworm
+ARG RUST_IMAGE=rust:1.86-slim-bookworm
 
 FROM ${RUST_IMAGE} AS rust_base
 
@@ -25,6 +25,7 @@ FROM node:20-alpine as frontend
 # install dependencies
 WORKDIR /frontend
 COPY ./frontend/package.json ./frontend/package-lock.json ./
+COPY ./frontend/scripts/ ./scripts/
 RUN npm ci
 
 # Copy all local files into the image.

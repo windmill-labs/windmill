@@ -3,33 +3,147 @@ import { initServices } from 'monaco-languageclient/vscode/services'
 // import getTextmateServiceOverride from '@codingame/monaco-vscode-textmate-service-override'
 import getMonarchServiceOverride from '@codingame/monaco-vscode-monarch-service-override'
 import '@codingame/monaco-vscode-standalone-typescript-language-features'
-import { editor as meditor } from 'monaco-editor/esm/vs/editor/editor.api'
 import getConfigurationServiceOverride from '@codingame/monaco-vscode-configuration-service-override'
+import { editor as meditor } from 'monaco-editor/esm/vs/editor/editor.api'
 
 export let isInitialized = false
 export let isInitializing = false
 
-export async function initializeVscode(caller?: string) {
+import { getEnhancedMonacoEnvironment } from 'monaco-languageclient/vscode/services'
+
+export function buildWorkerDefinition() {
+	const envEnhanced = getEnhancedMonacoEnvironment()
+
+	const getWorker = (moduleId: string, label: string) => {
+		console.log(`getWorker: moduleId: ${moduleId} label: ${label}`)
+
+		let selector = label
+
+		// const defaultTextEditorWorker = () => new Worker(
+		// 	new URL('@codingame/monaco-vscode-editor-api/esm/vs/editor/editor.worker.js', import.meta.url),
+		// 	{ type: 'module' }
+		// );
+		// const defaultTextMateWorker = () => new Worker(
+		// 	new URL('@codingame/monaco-vscode-textmate-service-override/worker', import.meta.url),
+		// 	{ type: 'module' }
+		// );
+
+		let workerLoaders = {
+			TextEditorWorker: () => {
+				return new Worker(
+					new URL(
+						'@codingame/monaco-vscode-editor-api/esm/vs/editor/editor.worker.js',
+						import.meta.url
+					),
+					{
+						type: 'module'
+					}
+				)
+			},
+			// javascript: () => {
+			// 	return new Worker(new URL('monaco-editor-wrapper/workers/module/ts', import.meta.url), {
+			// 		type: 'module'
+			// 	})
+			// },
+			javascript: () => {
+				return new Worker(
+					new URL(
+						'@codingame/monaco-vscode-standalone-typescript-language-features/worker',
+						import.meta.url
+					),
+					{
+						type: 'module'
+					}
+				)
+			},
+			typescript: () => {
+				return new Worker(
+					new URL(
+						'@codingame/monaco-vscode-standalone-typescript-language-features/worker',
+						import.meta.url
+					),
+					{
+						type: 'module'
+					}
+				)
+			},
+			json: () => {
+				return new Worker(
+					new URL(
+						'@codingame/monaco-vscode-standalone-json-language-features/worker',
+						import.meta.url
+					),
+					{
+						type: 'module'
+					}
+				)
+			},
+			html: () => {
+				return new Worker(
+					new URL(
+						'@codingame/monaco-vscode-standalone-html-language-features/worker',
+						import.meta.url
+					),
+					{
+						type: 'module'
+					}
+				)
+			},
+			css: () => {
+				return new Worker(
+					new URL(
+						'@codingame/monaco-vscode-standalone-css-language-features/worker',
+						import.meta.url
+					),
+					{
+						type: 'module'
+					}
+				)
+			},
+			graphql: () => {
+				console.log('Creating graphql worker')
+				return new Worker(new URL(`../monaco_workers/graphql.worker.bundle.js`, import.meta.url), {
+					name: 'graphql'
+				})
+			}
+		}
+		const workerFunc = workerLoaders[selector]
+		if (workerFunc !== undefined) {
+			return workerFunc()
+		} else {
+			throw new Error(`Unimplemented worker ${label} (${moduleId})`)
+		}
+	}
+	envEnhanced.getWorker = getWorker
+}
+
+export async function initializeVscode(caller?: string, htmlContainer?: HTMLElement) {
 	if (!isInitialized && !isInitializing) {
 		console.log(`Initializing vscode-api from ${caller ?? 'unknown'}`)
 		isInitializing = true
 
 		try {
 			// init vscode-api
-			await initServices({
-				serviceOverrides: {
-					// ...getThemeServiceOverride(),
-					// ...getTextmateServiceOverride()
-					...getConfigurationServiceOverride(),
-					...getMonarchServiceOverride()
+			await initServices(
+				{
+					serviceOverrides: {
+						// ...getThemeServiceOverride(),
+						// ...getTextmateServiceOverride()
+						...getConfigurationServiceOverride(),
+						...getMonarchServiceOverride()
+					},
+					enableExtHostWorker: false,
+					userConfiguration: {
+						json: JSON.stringify({
+							'editor.experimental.asyncTokenization': true
+						})
+					}
 				},
-				enableExtHostWorker: false,
-				userConfiguration: {
-					json: JSON.stringify({
-						'editor.experimental.asyncTokenization': true
-					})
+				{
+					monacoWorkerFactory: buildWorkerDefinition
 				}
-			})
+			)
+
 			isInitialized = true
 			meditor.defineTheme('nord', {
 				base: 'vs-dark',

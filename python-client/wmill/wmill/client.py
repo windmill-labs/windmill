@@ -586,6 +586,12 @@ class Windmill:
             raise Exception("Could not write file to S3") from e
         return S3Object(s3=response["file_key"])
 
+    def sign_s3_objects(self, s3_objects: list[S3Object]) -> list[S3Object]:
+        return self.post(f"/w/{self.workspace}/apps/sign_s3_objects", json={"s3_objects": s3_objects}).json()
+
+    def sign_s3_object(self, s3_object: S3Object) -> S3Object:
+        return self.post(f"/w/{self.workspace}/apps/sign_s3_objects", json={"s3_objects": [s3_object]}).json()[0]
+
     def __boto3_connection_settings(self, s3_resource) -> Boto3ConnectionSettings:
         endpoint_url_prefix = "https://" if s3_resource["useSSL"] else "http://"
         return Boto3ConnectionSettings(
@@ -972,6 +978,24 @@ def write_s3_file(
 
     """
     return _client.write_s3_file(s3object, file_content, s3_resource_path if s3_resource_path != "" else None, content_type, content_disposition)
+
+
+@init_global_client
+def sign_s3_objects(s3_objects: list[S3Object]) -> list[S3Object]:
+    """
+    Sign S3 objects to be used by anonymous users in public apps
+    Returns a list of signed s3 tokens
+    """
+    return _client.sign_s3_objects(s3_objects)
+
+
+@init_global_client
+def sign_s3_object(s3_object: S3Object) -> S3Object:
+    """
+    Sign S3 object to be used by anonymous users in public apps
+    Returns a signed s3 object
+    """
+    return _client.sign_s3_object(s3_object)
 
 
 @init_global_client

@@ -28,6 +28,7 @@
 	import { createEventDispatcher, getContext } from 'svelte'
 	import type { AppViewerContext } from '$lib/components/apps/types'
 	import { deleteGridItem } from '../../appUtils'
+	import { createDispatcherIfMounted } from '$lib/createDispatcherIfMounted'
 
 	export let nodes: DecisionTreeNode[]
 	export let paneWidth = 0
@@ -38,6 +39,7 @@
 	const edgesStore = writable<Edge[]>([])
 
 	const dispatch = createEventDispatcher()
+	const dispatchIfMounted = createDispatcherIfMounted(dispatch)
 
 	const { selectedNodeId } = getContext<{
 		selectedNodeId: Writable<string | undefined>
@@ -155,7 +157,7 @@
 			default:
 				break
 		}
-		dispatch('render')
+		dispatchIfMounted('render')
 	}
 
 	function graphBuilder(decisionTreeNodes: DecisionTreeNode[]) {

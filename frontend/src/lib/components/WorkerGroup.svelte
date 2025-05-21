@@ -78,10 +78,10 @@
 				? config
 				: {
 						worker_tags: []
-				  }
+					}
 			: {
 					worker_tags: []
-			  }
+				}
 		if (nconfig.priority_tags === undefined) {
 			nconfig.priority_tags = new Map<string, number>()
 		}
@@ -215,7 +215,7 @@
 				Workers can still have their WORKER_TAGS, INIT_SCRIPT and WHITELIST_ENVS passed as env.
 				Dedicated workers are an enterprise only feature.
 			</Alert>
-			<div class="pb-4" />
+			<div class="pb-4"></div>
 		{/if}
 
 		<ToggleButtonGroup
@@ -367,28 +367,26 @@
 									outerDivClass="text-secondary !bg-surface-disabled !border-0"
 									disabled={!$enterpriseLicense}
 									bind:selected={selectedPriorityTags}
-									on:change={(e) => {
-										if (e.detail.type === 'add') {
+									onchange={(e) => {
+										if (e.type === 'add') {
 											if (nconfig.priority_tags) {
-												if (e.detail.option && typeof e.detail.option !== 'object') {
-													nconfig.priority_tags[e.detail.option] = 100
+												if (e.option && typeof e.option !== 'object') {
+													nconfig.priority_tags[e.option] = 100
 												}
 											}
 											dirty = true
-										} else if (e.detail.type === 'remove') {
+										} else if (e.type === 'remove') {
 											if (nconfig.priority_tags) {
-												if (e.detail.option && typeof e.detail.option !== 'object') {
-													delete nconfig.priority_tags[e.detail.option]
+												if (e.option && typeof e.option !== 'object') {
+													delete nconfig.priority_tags[e.option]
 												}
 											}
 											dirty = true
-										} else if (e.detail.type === 'removeAll') {
-											nconfig.priority_tags = undefined
+										} else if (e.type === 'removeAll') {
+											nconfig.priority_tags = new Map<string, number>()
 											dirty = true
 										} else {
-											console.error(
-												`Priority tags multiselect - unknown event type: '${e.detail.type}'`
-											)
+											console.error(`Priority tags multiselect - unknown event type: '${e.type}'`)
 										}
 									}}
 									options={nconfig?.worker_tags}
@@ -402,7 +400,7 @@
 				{/if}
 			</Section>
 			{#if nconfig !== undefined}
-				<div class="mt-8" />
+				<div class="mt-8"></div>
 				<Section label="Alerts" tooltip="Alert is sent to the configured critical error channels">
 					<Toggle
 						size="sm"
@@ -465,7 +463,7 @@
 			{/if}
 		{/if}
 
-		<div class="mt-8" />
+		<div class="mt-8"></div>
 		<Section
 			label="Python runtime settings"
 			collapsable={true}
@@ -576,7 +574,7 @@
 			</div>
 		</Section>
 
-		<div class="mt-8" />
+		<div class="mt-8"></div>
 
 		<Section
 			label="Environment variables passed to jobs"
@@ -716,7 +714,7 @@
 				</div>
 			{/if}
 		</Section>
-		<div class="mt-8" />
+		<div class="mt-8"></div>
 
 		<Section label="Autoscaling" collapsable>
 			<div slot="header" class="ml-4 flex flex-row gap-2 items-center">
@@ -731,7 +729,7 @@
 				bind:config={nconfig.autoscaling}
 			/>
 		</Section>
-		<div class="mt-8" />
+		<div class="mt-8"></div>
 
 		<Section
 			label="Init script"
@@ -748,7 +746,6 @@
 						disabled={!$superadmin}
 						class="flex flex-1 grow h-full w-full"
 						automaticLayout
-						lang="shell"
 						scriptLang={'bash'}
 						useWebsockets={false}
 						fixedOverflowWidgets={false}

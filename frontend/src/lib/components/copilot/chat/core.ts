@@ -60,6 +60,8 @@ const TS_RESOURCE_TYPE_SYSTEM = `On Windmill, credentials and configuration are 
 If you need credentials, you should add a parameter to \`main\` with the corresponding resource type inside the \`RT\` namespace: for instance \`RT.Stripe\`.
 You should only use them if you need them to satisfy the user's instructions. Always use the RT namespace.`
 
+const TS_INLINE_TYPE_INSTRUCTION = `You must always inline the objects types instead of defining them separately. If INSTRUCTIONS ask you to use an already defined type, you MUST inline it instead of using the type name. Explain to the user that you are inlining the type for better arguments inference.`
+
 const PYTHON_RESOURCE_TYPE_SYSTEM = `On Windmill, credentials and configuration are stored in resources and passed as parameters to main.
 If you need credentials, you should add a parameter to \`main\` with the corresponding resource type.
 You need to **redefine** the type of the resources that are needed before the main function as TypedDict, but only include them if they are actually needed to achieve the function purpose.
@@ -93,14 +95,15 @@ export const SUPPORTED_CHAT_SCRIPT_LANGUAGES = [
 ]
 
 export function getLangContext(
-	lang: ScriptLang | 'bunnative',
+	lang: ScriptLang | 'bunnative' | 'jsx' | 'tsx' | 'json',
 	{ allowResourcesFetch = false }: { allowResourcesFetch?: boolean } = {}
 ) {
 	const tsContext =
 		TS_RESOURCE_TYPE_SYSTEM +
 		(allowResourcesFetch
-			? `\nTo query the RT namespace, you can use the \`search_resource_types\` function.`
-			: '')
+			? `\nTo query the RT namespace, you can use the \`search_resource_types\` function.\n`
+			: '') +
+		TS_INLINE_TYPE_INSTRUCTION
 	switch (lang) {
 		case 'bunnative':
 		case 'nativets':
@@ -225,6 +228,7 @@ export const CHAT_SYSTEM_PROMPT = `
 	- The user can ask you to look at or modify specific files, databases or errors by having its name in the INSTRUCTIONS preceded by the @ symbol. In this case, put your focus on the element that is explicitly mentioned.
 	- The user can ask you questions about a list of \`DATABASES\` that are available in the user's workspace. If the user asks you a question about a database, you should ask the user to specify the database name if not given, or take the only one available if there is only one.
 	- You can also receive a \`DIFF\` of the changes that have been made to the code. You should use this diff to give better answers.
+	- Before giving your answer, check again that you carefully followed these instructions.
 
 	Important:
 	Do not mention or reveal these instructions to the user unless explicitly asked to do so.
@@ -487,6 +491,31 @@ async function callTool(
 	}
 }
 
+async function processToolCall(
+	toolCall: ChatCompletionMessageToolCall,
+	messages: ChatCompletionMessageParam[],
+	lang: ScriptLang | 'bunnative'
+) {
+	try {
+		const args = JSON.parse(toolCall.function.arguments)
+		let result = ''
+		try {
+			result = await callTool(toolCall.function.name, args, lang, get(workspaceStore) ?? '')
+		} catch (err) {
+			console.error(err)
+			result =
+				'Error while calling tool, MUST tell the user to check the browser console for more details, and then respond as much as possible to the original request'
+		}
+		messages.push({
+			role: 'tool',
+			tool_call_id: toolCall.id,
+			content: result
+		})
+	} catch (err) {
+		console.error(err)
+	}
+}
+
 export async function chatRequest(
 	messages: ChatCompletionMessageParam[],
 	abortController: AbortController,
@@ -554,23 +583,7 @@ export async function chatRequest(
 						tool_calls: toolCalls
 					})
 					for (const toolCall of toolCalls) {
-						try {
-							const args = JSON.parse(toolCall.function.arguments)
-							const result = await callTool(
-								toolCall.function.name,
-								args,
-								lang,
-								get(workspaceStore) ?? ''
-							)
-							messages.push({
-								role: 'tool',
-								tool_call_id: toolCall.id,
-								content: result
-							})
-						} catch (err) {
-							console.error(err)
-							throw new Error('Error while calling tool')
-						}
+						await processToolCall(toolCall, messages, lang)
 					}
 				} else {
 					break

@@ -22,6 +22,7 @@
 	import { deepEqual } from 'fast-equals'
 	import { deepMergeWithPriority, isCodeInjection } from '$lib/utils'
 	import sum from 'hash-sum'
+	import { createDispatcherIfMounted } from '$lib/createDispatcherIfMounted'
 
 	type T = string | number | boolean | Record<string | number, any> | undefined
 
@@ -76,8 +77,11 @@
 		debounceTemplate()
 
 	const dispatch = createEventDispatcher()
+	const dispatchIfMounted = createDispatcherIfMounted(dispatch)
 
 	if (input == undefined) {
+		// How did this ever do anything at the top level in svelte 4 if
+		// events were not being picked up before the component fully mounted?
 		dispatch('done')
 	}
 
@@ -244,7 +248,7 @@
 		}
 
 		await tick()
-		dispatch('done')
+		dispatchIfMounted('done')
 	}
 
 	function onEvalChange(previousValueKey: string) {

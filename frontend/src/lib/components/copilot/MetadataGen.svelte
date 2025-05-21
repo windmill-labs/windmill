@@ -10,6 +10,7 @@
 	import type { FlowValue } from '$lib/gen'
 	import { yamlStringifyExceptKeys } from './utils'
 	import type { ChatCompletionMessageParam } from 'openai/resources/index.mjs'
+	import { createDispatcherIfMounted } from '$lib/createDispatcherIfMounted'
 
 	type PromptConfig = {
 		system: string
@@ -151,10 +152,9 @@ Generate a description for the flow below:
 	}
 
 	const dispatch = createEventDispatcher()
+	const dispatchIfMounted = createDispatcherIfMounted(dispatch)
 
-	$: if (content) {
-		dispatch('change', { content })
-	}
+	$: content && dispatchIfMounted('change', { content })
 
 	$: active =
 		$copilotInfo.enabled &&

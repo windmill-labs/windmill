@@ -26,15 +26,16 @@ use windmill_common::{
 };
 
 #[cfg(feature = "benchmark")]
-use crate::bench::{BenchmarkInfo, BenchmarkIter};
+use windmill_common::bench::{BenchmarkInfo, BenchmarkIter};
 
 use windmill_queue::{
-    append_logs, get_queued_job, CanceledBy, JobCompleted, MiniPulledJob, WrappedError,
+    append_logs, get_queued_job,  CanceledBy, JobCompleted, MiniPulledJob,
+    WrappedError,
 };
 
 use serde_json::{json, value::RawValue};
 
-use tokio::{sync::mpsc::Receiver, task::JoinHandle};
+use tokio::task::JoinHandle;
 
 use windmill_queue::{add_completed_job, add_completed_job_error};
 
@@ -43,7 +44,8 @@ use crate::{
     common::{error_to_value, read_result, save_in_cache},
     otel_ee::add_root_flow_job_to_otlp,
     worker_flow::update_flow_status_after_job_completion,
-    AuthedClient, JobCompletedSender, SameWorkerSender, SendResult, INIT_SCRIPT_TAG,
+    AuthedClient, JobCompletedReceiver, JobCompletedSender, SameWorkerSender, SendResult,
+    UpdateFlow, INIT_SCRIPT_TAG,
 };
 
 async fn process_jc(
@@ -118,7 +120,7 @@ async fn process_jc(
 }
 
 pub fn start_background_processor(
-    mut job_completed_rx: Receiver<SendResult>,
+    job_completed_rx: JobCompletedReceiver,
     job_completed_sender: JobCompletedSender,
     same_worker_queue_size: Arc<AtomicU16>,
     job_completed_processor_is_done: Arc<AtomicBool>,
@@ -133,22 +135,44 @@ pub fn start_background_processor(
     tokio::spawn(async move {
         let mut has_been_killed = false;
 
+        let JobCompletedReceiver { bounded_rx, mut killpill_rx, unbounded_rx } = job_completed_rx;
+
         #[cfg(feature = "benchmark")]
         let mut infos = BenchmarkInfo::new();
 
+        enum JobCompletedRx {
+            JobCompleted(SendResult),
+            Killpill,
+        }
         //if we have been killed, we want to drain the queue of jobs
         while let Some(sr) = {
             if has_been_killed && same_worker_queue_size.load(Ordering::SeqCst) == 0 {
-                job_completed_rx.try_recv().ok()
+                unbounded_rx
+                    .try_recv()
+                    .ok()
+                    .map(JobCompletedRx::JobCompleted)
+                    .or_else(|| bounded_rx.try_recv().ok().map(JobCompletedRx::JobCompleted))
             } else {
-                job_completed_rx.recv().await
+                tokio::select! {
+                    biased;
+                    result = unbounded_rx.recv_async() => {
+                        result.ok().map(JobCompletedRx::JobCompleted)
+                    }
+                    result = bounded_rx.recv_async() => {
+                        result.ok().map(JobCompletedRx::JobCompleted)
+                    }
+
+                    _ = killpill_rx.recv() => {
+                        Some(JobCompletedRx::Killpill)
+                    }
+                }
             }
         } {
             #[cfg(feature = "benchmark")]
             let mut bench = BenchmarkIter::new();
 
             match sr {
-                SendResult::JobCompleted(jc) => {
+                JobCompletedRx::JobCompleted(SendResult::JobCompleted(jc)) => {
                     let is_init_script_and_failure =
                         !jc.success && jc.job.tag.as_str() == INIT_SCRIPT_TAG;
                     let is_dependency_job = matches!(
@@ -192,7 +216,7 @@ pub fn start_background_processor(
                         infos.add_iter(bench, true);
                     }
                 }
-                SendResult::UpdateFlow {
+                JobCompletedRx::JobCompleted(SendResult::UpdateFlow(UpdateFlow {
                     flow,
                     w_id,
                     success,
@@ -200,7 +224,7 @@ pub fn start_background_processor(
                     worker_dir,
                     stop_early_override,
                     token,
-                } => {
+                })) => {
                     // let r;
                     tracing::info!(parent_flow = %flow, "updating flow status");
                     if let Err(e) = update_flow_status_after_job_completion(
@@ -230,7 +254,7 @@ pub fn start_background_processor(
                         tracing::error!("Error updating flow status after job completion for {flow} on {worker_name}: {e:#}");
                     }
                 }
-                SendResult::Kill => {
+                JobCompletedRx::Killpill => {
                     has_been_killed = true;
                 }
             }
@@ -251,29 +275,11 @@ pub fn start_background_processor(
 
 async fn send_job_completed(
     job_completed_tx: JobCompletedSender,
-    job: Arc<MiniPulledJob>,
-    result: Arc<Box<RawValue>>,
-    result_columns: Option<Vec<String>>,
-    mem_peak: i32,
-    canceled_by: Option<CanceledBy>,
-    success: bool,
-    cached_res_path: Option<String>,
-    token: &str,
-    duration: Option<i64>,
+    jc: JobCompleted,
+
 ) {
-    let jc = JobCompleted {
-        job,
-        result,
-        result_columns,
-        mem_peak,
-        canceled_by,
-        success,
-        cached_res_path,
-        token: token.to_string(),
-        duration,
-    };
     job_completed_tx
-        .send_job(jc)
+        .send_job(jc, true)
         .with_context(windmill_common::otel_ee::otel_ctx())
         .await
         .expect("send job completed")
@@ -288,37 +294,28 @@ pub async fn process_result(
     canceled_by: Option<CanceledBy>,
     cached_res_path: Option<String>,
     token: &str,
-    column_order: Option<Vec<String>>,
-    new_args: Option<HashMap<String, Box<RawValue>>>,
+    result_columns: Option<Vec<String>>,
+    preprocessed_args: Option<HashMap<String, Box<RawValue>>>,
     conn: &Connection,
     duration: Option<i64>,
 ) -> error::Result<bool> {
     match result {
-        Ok(r) => {
-            // Update script args to preprocessed args
-            if let Connection::Sql(db) = conn {
-                if let Some(preprocessed_args) = new_args {
-                    sqlx::query!(
-                        "UPDATE v2_job SET args = $1, preprocessed = TRUE WHERE id = $2",
-                        Json(preprocessed_args) as Json<HashMap<String, Box<RawValue>>>,
-                        job.id
-                    )
-                    .execute(db)
-                    .await?;
-                }
-            }
+        Ok(result) => {
 
             send_job_completed(
                 job_completed_tx,
-                job,
-                r,
-                column_order,
-                mem_peak,
-                canceled_by,
-                true,
-                cached_res_path,
-                token,
-                duration,
+                JobCompleted {
+                    job,
+                    preprocessed_args,
+                    result,
+                    result_columns,
+                    mem_peak,
+                    canceled_by,
+                    success: true,
+                    cached_res_path,
+                    token: token.to_string(),
+                    duration,
+                },
             )
             .with_context(windmill_common::otel_ee::otel_ctx())
             .await;
@@ -358,6 +355,7 @@ pub async fn process_result(
                         }
                     }
                 }
+                Error::ExecutionRawError(e) => to_raw_value(&e),
                 err @ _ => to_raw_value(&SerializedError {
                     message: format!("execution error:\n{err:#}",),
                     name: "ExecutionErr".to_string(),
@@ -368,15 +366,18 @@ pub async fn process_result(
 
             send_job_completed(
                 job_completed_tx,
-                job,
-                Arc::new(to_raw_value(&error_value)),
-                None,
-                mem_peak,
-                canceled_by,
-                false,
-                cached_res_path,
-                token,
-                duration,
+                JobCompleted {
+                    job,
+                    result: Arc::new(to_raw_value(&error_value)),
+                    result_columns: None,
+                    preprocessed_args: None,
+                    mem_peak,
+                    canceled_by,
+                    success: false,
+                    cached_res_path,
+                    token: token.to_string(),
+                    duration,
+                },
             )
             .with_context(windmill_common::otel_ee::otel_ctx())
             .await;
@@ -452,6 +453,7 @@ pub async fn process_completed_job(
         canceled_by,
         duration,
         result_columns,
+        preprocessed_args,
         ..
     }: JobCompleted,
     client: &AuthedClient,
@@ -476,6 +478,7 @@ pub async fn process_completed_job(
         if job.flow_step_id.as_deref() == Some("preprocessor") {
             // Do this before inserting to `v2_job_completed` for backwards compatibility
             // when we set `flow_status->_metadata->preprocessed_args` to true.
+
             sqlx::query!(
                 r#"UPDATE v2_job SET
                     args = '{"reason":"PREPROCESSOR_ARGS_ARE_DISCARDED"}'::jsonb,
@@ -490,7 +493,18 @@ pub async fn process_completed_job(
                     "error while deleting args of preprocessing step: {e:#}"
                 ))
             })?;
+        } else if let Some(preprocessed_args) = preprocessed_args {
+            // Update script args to preprocessed args
+            sqlx::query!(
+                "UPDATE v2_job SET args = $1, preprocessed = TRUE WHERE id = $2",
+                Json(preprocessed_args) as Json<HashMap<String, Box<RawValue>>>,
+                job.id
+            )
+            .execute(db)
+            .await?;
         }
+
+        add_time!(bench, "pre add_completed_job");
 
         add_completed_job(
             db,
