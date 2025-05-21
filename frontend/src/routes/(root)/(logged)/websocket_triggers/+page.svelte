@@ -219,7 +219,7 @@
 </script>
 
 <DeployWorkspaceDrawer bind:this={deploymentDrawer} />
-<WebsocketTriggerEditor on:update={loadTriggers} bind:this={websocketTriggerEditor} />
+<WebsocketTriggerEditor onUpdate={loadTriggers} bind:this={websocketTriggerEditor} />
 
 <SearchItems
 	{filter}

@@ -21,6 +21,7 @@
 	import { initFlowStepWarnings } from '../utils'
 	import { dfs } from '../dfs'
 	import type { TriggerContext } from '$lib/components/triggers'
+	import { formatCron } from '$lib/utils'
 
 	export let flowModule: FlowModule
 	export let noEditor: boolean = false
@@ -30,7 +31,7 @@
 	const { selectedId, flowStateStore, flowInputsStore, flowStore } =
 		getContext<FlowEditorContext>('FlowEditorContext')
 
-	const { primarySchedule } = getContext<TriggerContext>('TriggerContext')
+	const { triggersState, triggersCount } = getContext<TriggerContext>('TriggerContext')
 
 	let scriptKind: 'script' | 'trigger' | 'approval' = 'script'
 	let scriptTemplate: 'pgsql' | 'mysql' | 'script' | 'docker' | 'powershell' = 'script'
@@ -42,19 +43,33 @@
 	export let previousModule: FlowModule | undefined = undefined
 
 	function initializePrimaryScheduleForTriggerScript(module: FlowModule) {
-		if (!$primarySchedule) {
-			$primarySchedule = {
+		const primaryIndex = triggersState.triggers.findIndex((t) => t.isPrimary)
+		if (primaryIndex === -1) {
+			const primaryCfg = {
 				summary: 'Scheduled poll of flow',
 				args: {},
-				cron: '0 */15 * * *',
+				schedule: formatCron('0 */15 * * *'),
 				timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-				enabled: true
+				enabled: true,
+				is_flow: true
+			}
+			triggersState.addDraftTrigger(triggersCount, 'schedule', undefined, primaryCfg)
+		} else if (triggersState.triggers[primaryIndex].draftConfig) {
+			//If there is a primary schedule draft update it
+			const newCfg = { ...triggersState.triggers[primaryIndex].draftConfig }
+			let updated = false
+			if (!newCfg.schedule) {
+				newCfg.schedule = formatCron('0 */15 * * *')
+				updated = true
+			}
+			if (!newCfg.enabled) {
+				newCfg.enabled = true
+				updated = true
+			}
+			if (updated) {
+				triggersState.triggers[primaryIndex].draftConfig = newCfg
 			}
 		}
-		if (!$primarySchedule.cron) {
-			$primarySchedule.cron = '0 */15 * * *'
-		}
-		$primarySchedule.enabled = true
 
 		module.stop_after_if = {
 			expr: 'result == undefined || Array.isArray(result) && result.length == 0',

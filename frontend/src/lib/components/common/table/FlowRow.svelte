@@ -76,7 +76,7 @@
 </script>
 
 {#if menuOpen}
-	<ScheduleEditor on:update={() => goto('/schedules')} bind:this={scheduleEditor} />
+	<ScheduleEditor onUpdate={() => goto('/schedules')} bind:this={scheduleEditor} />
 	<FlowHistory bind:this={flowHistory} path={flow.path} />
 {/if}
 

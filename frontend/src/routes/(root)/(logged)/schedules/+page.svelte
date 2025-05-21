@@ -235,7 +235,7 @@
 </script>
 
 <DeployWorkspaceDrawer bind:this={deploymentDrawer} />
-<ScheduleEditor on:update={loadSchedules} bind:this={scheduleEditor} />
+<ScheduleEditor onUpdate={loadSchedules} bind:this={scheduleEditor} />
 
 <SearchItems
 	{filter}

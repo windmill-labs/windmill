@@ -48,6 +48,6 @@
 	{id}
 >
 	<div class={twMerge('flex bg-surface-secondary rounded-md p-0.5 gap-1 h-full ', tabListClass)}>
-		<slot {item} />
+		<slot {item} {disabled} />
 	</div>
 </div>

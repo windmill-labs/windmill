@@ -1,117 +1,173 @@
 <script lang="ts">
-	import { type CaptureTriggerKind } from '$lib/gen'
-	import { capitalize } from '$lib/utils'
-	import Alert from '../common/alert/Alert.svelte'
-	import RouteEditorConfigSection from './http/RouteEditorConfigSection.svelte'
-	import WebsocketEditorConfigSection from './websocket/WebsocketEditorConfigSection.svelte'
-	import WebhooksConfigSection from './webhook/WebhooksConfigSection.svelte'
-	import EmailTriggerConfigSection from '../details/EmailTriggerConfigSection.svelte'
-	import KafkaTriggersConfigSection from './kafka/KafkaTriggersConfigSection.svelte'
-	import NatsTriggersConfigSection from './nats/NatsTriggersConfigSection.svelte'
-	import MqttEditorConfigSection from './mqtt/MqttEditorConfigSection.svelte'
-	import SqsTriggerEditorConfigSection from './sqs/SqsTriggerEditorConfigSection.svelte'
-	import PostgresEditorConfigSection from './postgres/PostgresEditorConfigSection.svelte'
-	import GcpTriggerEditorConfigSection from './gcp/GcpTriggerEditorConfigSection.svelte'
+	import RoutesPanel from './http/RoutesPanel.svelte'
+	import WebhooksPanel from './webhook/WebhooksPanel.svelte'
+	import EmailTriggerPanel from '../details/EmailTriggerPanel.svelte'
+	import SchedulePanel from '$lib/components/SchedulePanel.svelte'
+	import PostgresTriggersPanel from './postgres/PostgresTriggersPanel.svelte'
+	import KafkaTriggerPanel from './kafka/KafkaTriggersPanel.svelte'
+	import NatsTriggersPanel from './nats/NatsTriggersPanel.svelte'
+	import MqttTriggerPanel from './mqtt/MqttTriggersPanel.svelte'
+	import SqsTriggerPanel from './sqs/SqsTriggerPanel.svelte'
+	import GcpTriggerPanel from './gcp/GcpTriggerPanel.svelte'
+	import ScheduledPollPanel from './scheduled/ScheduledPollPanel.svelte'
+	import WebsocketTriggersPanel from './websocket/WebsocketTriggersPanel.svelte'
+	import { triggerIconMap, type Trigger } from './utils'
+	import ClipboardPanel from '../details/ClipboardPanel.svelte'
+	import CliHelpBox from '../CliHelpBox.svelte'
+	import TriggerLabel from './TriggerLabel.svelte'
+	import { twMerge } from 'tailwind-merge'
 
-	export let triggerType: CaptureTriggerKind = 'webhook'
-	export let cloudDisabled: boolean = false
-	export let args: any
-	export let isFlow: boolean = false
-	export let path: string = ''
-	export let data: any = {}
+	interface Props {
+		selectedTrigger: Trigger
+		isFlow: boolean
+		initialPath: string
+		fakeInitialPath: string
+		currentPath: string
+		hash?: string
+		isDeployed: boolean
+		small: boolean
+		args: Record<string, any>
+		newItem: boolean
+		schema: Record<string, any> | undefined
+		isEditor?: boolean
+		onConfigChange?: (cfg: Record<string, any>, canSave: boolean, updated: boolean) => void
+		onCaptureConfigChange?: (cfg: Record<string, any>, isValidConfig: boolean) => void
+		onUpdate?: (path: string) => void
+		onDelete?: () => void
+		onReset?: () => void
+	}
+
+	let {
+		selectedTrigger,
+		isFlow = false,
+		initialPath,
+		fakeInitialPath,
+		currentPath,
+		hash,
+		small,
+		args,
+		newItem,
+		schema,
+		...props
+	}: Props = $props()
 </script>
 
-<div class="flex flex-col gap-4 w-full">
-	{#if cloudDisabled}
-		<Alert title="Not compatible with multi-tenant cloud" type="warning" size="xs">
-			{capitalize(triggerType)} triggers are disabled in the multi-tenant cloud.
-		</Alert>
-	{:else if triggerType === 'websocket'}
-		<WebsocketEditorConfigSection
-			can_write={true}
-			headless={true}
-			bind:url={args.url}
-			bind:url_runnable_args={args.url_runnable_args}
-			showCapture={false}
+{#if selectedTrigger.type === 'http'}
+	<RoutesPanel
+		{selectedTrigger}
+		{isFlow}
+		path={initialPath || fakeInitialPath}
+		defaultValues={selectedTrigger.draftConfig ?? selectedTrigger.captureConfig ?? undefined}
+		customLabel={small ? customLabel : undefined}
+		{...props}
+	/>
+{:else if selectedTrigger.type === 'webhook'}
+	<WebhooksPanel
+		{isFlow}
+		path={initialPath || fakeInitialPath}
+		{hash}
+		token=""
+		{args}
+		scopes={isFlow ? [`run:flow/${currentPath}`] : [`run:script/${currentPath}`]}
+		{newItem}
+	/>
+{:else if selectedTrigger.type === 'email'}
+	<EmailTriggerPanel
+		token=""
+		scopes={isFlow ? [`run:flow/${currentPath}`] : [`run:script/${currentPath}`]}
+		path={initialPath || fakeInitialPath}
+		{isFlow}
+		on:email-domain
+	/>
+{:else if selectedTrigger.type === 'schedule'}
+	<SchedulePanel
+		{isFlow}
+		path={initialPath || fakeInitialPath}
+		{selectedTrigger}
+		defaultValues={selectedTrigger.draftConfig ?? selectedTrigger.captureConfig ?? undefined}
+		{schema}
+		customLabel={small ? customLabel : undefined}
+		{...props}
+	/>
+{:else if selectedTrigger.type === 'websocket'}
+	<WebsocketTriggersPanel
+		{isFlow}
+		path={initialPath || fakeInitialPath}
+		{selectedTrigger}
+		defaultValues={selectedTrigger.draftConfig ?? selectedTrigger.captureConfig ?? undefined}
+		customLabel={small ? customLabel : undefined}
+		{...props}
+	/>
+{:else if selectedTrigger.type === 'kafka'}
+	<KafkaTriggerPanel
+		{isFlow}
+		path={initialPath || fakeInitialPath}
+		{selectedTrigger}
+		defaultValues={selectedTrigger.draftConfig ?? selectedTrigger.captureConfig ?? undefined}
+		customLabel={small ? customLabel : undefined}
+		{...props}
+	/>
+{:else if selectedTrigger.type === 'postgres'}
+	<PostgresTriggersPanel
+		{isFlow}
+		path={initialPath || fakeInitialPath}
+		{selectedTrigger}
+		defaultValues={selectedTrigger.draftConfig ?? selectedTrigger.captureConfig ?? undefined}
+		customLabel={small ? customLabel : undefined}
+		{...props}
+	/>
+{:else if selectedTrigger.type === 'nats'}
+	<NatsTriggersPanel
+		{isFlow}
+		path={initialPath || fakeInitialPath}
+		{selectedTrigger}
+		defaultValues={selectedTrigger.draftConfig ?? selectedTrigger.captureConfig ?? undefined}
+		customLabel={small ? customLabel : undefined}
+		{...props}
+	/>
+{:else if selectedTrigger.type === 'mqtt'}
+	<MqttTriggerPanel
+		{isFlow}
+		path={initialPath || fakeInitialPath}
+		{selectedTrigger}
+		defaultValues={selectedTrigger.draftConfig ?? selectedTrigger.captureConfig ?? undefined}
+		customLabel={small ? customLabel : undefined}
+		{...props}
+	/>
+{:else if selectedTrigger.type === 'sqs'}
+	<SqsTriggerPanel
+		{isFlow}
+		path={initialPath || fakeInitialPath}
+		{selectedTrigger}
+		defaultValues={selectedTrigger.draftConfig ?? selectedTrigger.captureConfig ?? undefined}
+		customLabel={small ? customLabel : undefined}
+		{...props}
+	/>
+{:else if selectedTrigger.type === 'gcp'}
+	<GcpTriggerPanel
+		{isFlow}
+		path={initialPath || fakeInitialPath}
+		{selectedTrigger}
+		defaultValues={selectedTrigger.draftConfig ?? selectedTrigger.captureConfig ?? undefined}
+		customLabel={small ? customLabel : undefined}
+		{...props}
+	/>
+{:else if selectedTrigger.type === 'poll'}
+	<ScheduledPollPanel />
+{:else if selectedTrigger.type === 'cli'}
+	<div class="py-1 flex flex-col gap-4">
+		<ClipboardPanel content={selectedTrigger.extra?.cliCommand ?? ''} />
+		<CliHelpBox />
+	</div>
+{/if}
+
+{#snippet customLabel()}
+	{@const IconComponent = triggerIconMap[selectedTrigger.type]}
+	<div class="flex flex-row gap-2 items-center grow min-w-0 pr-2">
+		<IconComponent
+			size={16}
+			class={twMerge(selectedTrigger.isDraft ? 'text-frost-400' : '', 'shrink-0')}
 		/>
-	{:else if triggerType === 'postgres'}
-		<PostgresEditorConfigSection
-			can_write={true}
-			headless={true}
-			showCapture={false}
-			bind:publication={args.publication}
-			bind:postgres_resource_path={args.postgres_resource_path}
-		/>
-	{:else if triggerType === 'webhook'}
-		<WebhooksConfigSection
-			{isFlow}
-			{path}
-			hash={data?.hash}
-			token={data?.token}
-			runnableArgs={data?.args}
-			scopes={data?.scopes}
-			showCapture={false}
-		/>
-	{:else if triggerType === 'http'}
-		<RouteEditorConfigSection
-			showCapture={false}
-			can_write={true}
-			bind:route_path={args.route_path}
-			bind:http_method={args.http_method}
-			bind:raw_string={args.raw_string}
-			bind:wrap_body={args.wrap_body}
-			capture_mode={true}
-			headless
-		/>
-	{:else if triggerType === 'email'}
-		<EmailTriggerConfigSection
-			hash={data?.hash}
-			token={data?.token}
-			{path}
-			{isFlow}
-			userSettings={data?.userSettings}
-			emailDomain={data?.emailDomain}
-		/>
-	{:else if triggerType === 'kafka'}
-		<KafkaTriggersConfigSection headless={true} bind:args staticInputDisabled={false} {path} />
-	{:else if triggerType === 'nats'}
-		<NatsTriggersConfigSection headless={true} bind:args staticInputDisabled={false} {path} />
-	{:else if triggerType === 'mqtt'}
-		<MqttEditorConfigSection
-			bind:v3_config={args.v3_config}
-			bind:v5_config={args.v5_config}
-			bind:client_version={args.client_version}
-			bind:subscribe_topics={args.subscribe_topics}
-			bind:mqtt_resource_path={args.mqtt_resource_path}
-			bind:client_id={args.client_id}
-			showCapture={false}
-			headless={true}
-			can_write={true}
-		/>
-	{:else if triggerType === 'sqs'}
-		<SqsTriggerEditorConfigSection
-			bind:queue_url={args.queue_url}
-			bind:aws_resource_path={args.aws_resource_path}
-			bind:message_attributes={args.message_attributes}
-			bind:aws_auth_resource_type={args.aws_auth_resource_type}
-			headless={true}
-			can_write={true}
-			showCapture={false}
-		/>
-	{:else if triggerType === 'gcp'}
-		<GcpTriggerEditorConfigSection
-			bind:gcp_resource_path={args.gcp_resource_path}
-			bind:topic_id={args.topic_id}
-			bind:subscription_id={args.subscription_id}
-			bind:delivery_config={args.delivery_config}
-			bind:delivery_type={args.delivery_type}
-			bind:subscription_mode={args.subscription_mode}
-			bind:cloud_subscription_id={args.subscription_id}
-			bind:create_update_subscription_id={args.subscription_id}
-			bind:base_endpoint={args.base_endpoint}
-			headless={true}
-			can_write={true}
-			showCapture={false}
-		/>
-	{/if}
-</div>
+		<TriggerLabel trigger={selectedTrigger} />
+	</div>
+{/snippet}

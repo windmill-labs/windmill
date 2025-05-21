@@ -21,7 +21,7 @@
 	export let lightMode: boolean = false
 	export let eeOnly: boolean = false
 
-	export let size: 'sm' | 'xs' | '2xs' = 'sm'
+	export let size: 'sm' | 'xs' | '2xs' | '2sm' = 'sm'
 
 	const dispatch = createEventDispatcher<{ change: boolean }>()
 	const bothOptions = Boolean(options.left) && Boolean(options.right)
@@ -40,7 +40,7 @@
 			class={twMerge(
 				'mr-2 font-medium duration-50 select-none',
 				bothOptions || textDisabled ? (checked ? 'text-disabled' : 'text-primary') : 'text-primary',
-				size === 'xs' ? 'text-xs' : size === '2xs' ? 'text-[0.5rem]' : 'text-sm',
+				size === 'xs' || size === '2sm' ? 'text-xs' : size === '2xs' ? 'text-[0.5rem]' : 'text-sm',
 				textClass
 			)}
 			style={textStyle}
@@ -73,13 +73,15 @@
 				color == 'red'
 					? 'peer-checked:bg-red-600'
 					: color == 'blue'
-					? 'peer-checked:bg-blue-600 dark:peer-checked:bg-blue-500'
-					: 'peer-checked:bg-nord-950 dark:peer-checked:bg-nord-400',
+						? 'peer-checked:bg-blue-600 dark:peer-checked:bg-blue-500'
+						: 'peer-checked:bg-nord-950 dark:peer-checked:bg-nord-400',
 				size === 'sm'
 					? 'w-11 h-6 after:top-0.5 after:left-[2px] after:h-5 after:w-5'
-					: size === '2xs'
-					? 'w-5 h-3 after:top-0.5 after:left-[2px] after:h-2 after:w-2'
-					: 'w-7 h-4 after:top-0.5 after:left-[2px] after:h-3 after:w-3'
+					: size === '2sm'
+						? 'w-9 h-5 after:top-0.5 after:left-[2px] after:h-4 after:w-4'
+						: size === '2xs'
+							? 'w-5 h-3 after:top-0.5 after:left-[2px] after:h-2 after:w-2'
+							: 'w-7 h-4 after:top-0.5 after:left-[2px] after:h-3 after:w-3'
 			)}
 		></div>
 	</div>
@@ -88,7 +90,7 @@
 			class={twMerge(
 				'ml-2 font-medium duration-50 select-none',
 				bothOptions || textDisabled ? (checked ? 'text-primary' : 'text-disabled') : 'text-primary',
-				size === 'xs' ? 'text-xs' : 'text-sm',
+				size === 'xs' || size === '2sm' ? 'text-xs' : 'text-sm',
 				textClass
 			)}
 			style={textStyle}

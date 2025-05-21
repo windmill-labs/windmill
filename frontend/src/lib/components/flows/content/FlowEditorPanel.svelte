@@ -6,13 +6,14 @@
 	import FlowInput from './FlowInput.svelte'
 	import FlowFailureModule from './FlowFailureModule.svelte'
 	import FlowConstants from './FlowConstants.svelte'
-	import TriggersEditor from '../../triggers/TriggersEditor.svelte'
 	import type { FlowModule, Flow } from '$lib/gen'
 	import { initFlowStepWarnings } from '../utils'
 	import { dfs } from '../dfs'
 	import FlowPreprocessorModule from './FlowPreprocessorModule.svelte'
 	import type { TriggerContext } from '$lib/components/triggers'
 	import { insertNewPreprocessorModule } from '../flowStateUtils'
+	import TriggersEditor from '../../triggers/TriggersEditor.svelte'
+	import { handleSelectTriggerFromKind, type Trigger } from '$lib/components/triggers/utils'
 
 	export let noEditor = false
 	export let enableAi = false
@@ -23,7 +24,7 @@
 				draft?: Flow | undefined
 		  })
 		| undefined = undefined
-
+	export let onDeployTrigger: (trigger: Trigger) => void = () => {}
 	const {
 		selectedId,
 		flowStore,
@@ -36,7 +37,7 @@
 		flowInputEditorState
 	} = getContext<FlowEditorContext>('FlowEditorContext')
 
-	const { selectedTrigger, defaultValues, captureOn, showCaptureHint } =
+	const { showCaptureHint, triggersState, triggersCount } =
 		getContext<TriggerContext>('TriggerContext')
 	function checkDup(modules: FlowModule[]): string | undefined {
 		let seenModules: string[] = []
@@ -82,9 +83,7 @@
 		disabled={disabledFlowInputs}
 		on:openTriggers={(ev) => {
 			$selectedId = 'triggers'
-			selectedTrigger.set(ev.detail.kind)
-			defaultValues.set(ev.detail.config)
-			captureOn.set(true)
+			handleSelectTriggerFromKind(triggersState, triggersCount, savedFlow?.path, ev.detail.kind)
 			showCaptureHint.set(true)
 		}}
 		on:applyArgs
@@ -118,16 +117,18 @@
 			}
 		}}
 		on:testWithArgs
-		args={$previewArgs}
 		currentPath={$pathStore}
 		initialPath={$initialPathStore}
 		{fakeInitialPath}
-		schema={$flowStore.schema}
 		{noEditor}
 		newItem={newFlow}
 		isFlow={true}
 		hasPreprocessor={!!$flowStore.value.preprocessor_module}
 		canHavePreprocessor={true}
+		args={$previewArgs}
+		isDeployed={savedFlow && !savedFlow?.draft_only}
+		schema={$flowStore.schema}
+		{onDeployTrigger}
 	/>
 {:else if $selectedId.startsWith('subflow:')}
 	<div class="p-4"

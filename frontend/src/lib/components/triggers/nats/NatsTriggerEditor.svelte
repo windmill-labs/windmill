@@ -2,7 +2,9 @@
 	import { tick } from 'svelte'
 	import NatsTriggerEditorInner from './NatsTriggerEditorInner.svelte'
 
-	let open = false
+	let { onUpdate } = $props()
+
+	let open = $state(false)
 	export async function openEdit(ePath: string, isFlow: boolean) {
 		open = true
 		await tick()
@@ -19,9 +21,9 @@
 		drawer?.openNew(is_flow, initial_script_path, defaultValues)
 	}
 
-	let drawer: NatsTriggerEditorInner
+	let drawer: NatsTriggerEditorInner | undefined = $state()
 </script>
 
 {#if open}
-	<NatsTriggerEditorInner on:update bind:this={drawer} />
+	<NatsTriggerEditorInner {onUpdate} bind:this={drawer} />
 {/if}
