@@ -29,7 +29,7 @@
 		open = $bindable(),
 		loadedRuns = $bindable(),
 		selectItem,
-		emptySearch
+		searchTerm
 	} = $props<{
 		mouseMoved: boolean
 		selectedWorkspace: string | undefined
@@ -38,10 +38,10 @@
 		open: boolean
 		loadedRuns: any[] | undefined
 		selectItem: (idx: number) => any
-		emptySearch: boolean
+		searchTerm: string
 	}>()
 
-	export function handleRunSearch(searchTerm: string) {
+	export function handleRunSearch(s: string) {
 		clearTimeout(debounceTimeout)
 		loadingCompletedRuns = true
 		debounceTimeout = setTimeout(async () => {
@@ -49,9 +49,14 @@
 			let searchResults: SearchJobsIndexResponse
 			try {
 				searchResults = await IndexSearchService.searchJobsIndex({
-					searchQuery: searchTerm,
+					searchQuery: s,
 					workspace: $workspaceStore!
 				})
+
+				if (s !== searchTerm) {
+					return
+				}
+
 				loadedRuns = searchResults.hits
 				runSearchTotalCount = searchResults.hit_count
 				runSearchRemainingCount = (searchResults.hit_count ?? 0) - loadedRuns?.length
@@ -66,6 +71,34 @@
 			loadingCompletedRuns = false
 			selectedItem = selectItem(0)
 		}, debouncePeriod)
+	}
+
+	async function loadMoreJobs(s: string, paginationOffset: number) {
+		loadingMoreJobs = true
+		let searchResults: SearchJobsIndexResponse
+		try {
+			searchResults = await IndexSearchService.searchJobsIndex({
+				searchQuery: s,
+				paginationOffset,
+				workspace: $workspaceStore!
+			})
+			if (s !== searchTerm) {
+				return
+			}
+			loadedRuns.pop()
+			loadedRuns = loadedRuns.concat(searchResults.hits)
+			runSearchTotalCount = searchResults.hit_count
+			runSearchRemainingCount = (searchResults.hit_count ?? 0) - loadedRuns?.length
+			queryParseErrors = searchResults.query_parse_errors ?? []
+			indexMetadata = searchResults.index_metadata
+			if (runSearchRemainingCount > 0) {
+				loadedRuns.push({ search_id: 'opt:load_more_jobs' })
+			}
+		} catch (e) {
+			sendUserToast(e.body, true)
+		}
+		loadingMoreJobs = false
+		selectedItem = selectItem(paginationOffset)
 	}
 </script>
 
@@ -94,11 +127,8 @@
 								on:select={() => {
 									selectedItem = r
 									selectedWorkspace = undefined
-									sendUserToast('Loading more jobs', false)
-									loadingMoreJobs = true
-									setTimeout(() => {
-										loadingMoreJobs = false
-									}, 2000)
+									const paginationOffset = runSearchTotalCount! - runSearchRemainingCount!
+									loadMoreJobs(searchTerm, paginationOffset)
 								}}
 								id={'opt:load_more_jobs'}
 								hovered={selectedItem && r?.search_id === selectedItem?.search_id}
@@ -192,7 +222,7 @@
 	{:else}
 		<div class="flex flex-col h-full w-full justify-center items-center h-48">
 			<div class="text-tertiary text-center">
-				{#if emptySearch}
+				{#if searchTerm === ''}
 					<div class="text-2xl font-bold">Enter your search terms</div>
 					<div class="text-sm">Start typing to do full-text search across completed runs</div>
 				{:else}

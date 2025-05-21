@@ -718,9 +718,9 @@
 												bind:selectedWorkspace
 												bind:mouseMoved
 												bind:loadedRuns={itemMap['runs']}
-												emptySearch={searchTerm === RUNS_PREFIX}
 												{selectItem}
 												{open}
+												searchTerm={removePrefix(searchTerm, RUNS_PREFIX)}
 								/>
 					{/if}
 				</div>
