@@ -16,6 +16,7 @@ use windmill_queue::{CanceledBy, MiniPulledJob};
 
 use crate::common::{build_args_values, OccupancyMetrics};
 use crate::handle_child::run_future_with_polling_update_job_poller;
+#[cfg(feature = "mysql")]
 use crate::mysql_executor::MysqlDatabase;
 use crate::pg_executor::PgDatabase;
 use crate::AuthedClient;
@@ -109,6 +110,20 @@ pub async fn do_duckdb(
 
     let query_block_list = parse_sql_blocks(query);
 
+    // Replace windmill resource ATTACH statements with the real instructions
+    let query_block_list = {
+        let mut v = vec![];
+        for query_block in query_block_list.iter() {
+            match parse_attach_db_resource(query_block) {
+                Some(parsed) => {
+                    v.extend(transform_attach_db_resource_query(&parsed, &job.id, client).await?)
+                }
+                None => v.push(query_block.to_string()),
+            };
+        }
+        v
+    };
+
     let bq_credentials_path = make_bq_credentials_path(&job.id);
     env::set_var("GOOGLE_APPLICATION_CREDENTIALS", &bq_credentials_path);
 
@@ -127,19 +142,8 @@ pub async fn do_duckdb(
                 .map_err(|e| Error::ConnectingToDatabase(e.to_string()))?;
         }
 
-        // Replace windmill resource ATTACH statements with the real instructions
-        let query_block_list = {
-            let mut v = vec![];
-            for query_block in query_block_list.iter() {
-                match parse_attach_db_resource(query_block) {
-                    Some(parsed) => v.extend(
-                        transform_attach_db_resource_query(&parsed, &job.id, client).await?,
-                    ),
-                    None => v.push(query_block.to_string()),
-                };
-            }
-            v
-        };
+        let conn = duckdb::Connection::open_in_memory()
+            .map_err(|e| Error::ConnectingToDatabase(e.to_string()))?;
 
         let mut result = None;
         for (query_block_index, query_block) in query_block_list.iter().enumerate() {
@@ -424,39 +428,47 @@ async fn transform_attach_db_resource_query(
             ])
         }
         "mysql" => {
-            let resource: MysqlDatabase = client
-                .get_resource_value_interpolated(parsed.resource_path, Some(job_id.to_string()))
-                .await?;
+            #[cfg(not(feature = "mysql"))]
+            return Err(Error::ExecutionErr(
+                "MySQL feature is not enabled".to_string(),
+            ));
 
-            let attach_str = format!(
-                "ATTACH 'database={} host={} ssl_mode={} {} {} {}' AS {} (TYPE mysql{});",
-                resource.database,
-                resource.host,
-                resource
-                    .ssl
-                    .map(|ssl| if ssl { "required" } else { "disabled" })
-                    .unwrap_or("preferred"),
-                resource
-                    .password
-                    .map(|p| format!("password={}", p))
-                    .unwrap_or_default(),
-                resource
-                    .port
-                    .map(|p| format!("port={}", p))
-                    .unwrap_or_default(),
-                resource
-                    .user
-                    .map(|u| format!("user={}", u))
-                    .unwrap_or_default(),
-                parsed.name,
-                parsed.extra_args.unwrap_or("")
-            );
+            #[cfg(feature = "mysql")]
+            {
+                let resource: MysqlDatabase = client
+                    .get_resource_value_interpolated(parsed.resource_path, Some(job_id.to_string()))
+                    .await?;
 
-            Ok(vec![
-                "INSTALL mysql;".to_string(),
-                "LOAD mysql;".to_string(),
-                attach_str,
-            ])
+                let attach_str = format!(
+                    "ATTACH 'database={} host={} ssl_mode={} {} {} {}' AS {} (TYPE mysql{});",
+                    resource.database,
+                    resource.host,
+                    resource
+                        .ssl
+                        .map(|ssl| if ssl { "required" } else { "disabled" })
+                        .unwrap_or("preferred"),
+                    resource
+                        .password
+                        .map(|p| format!("password={}", p))
+                        .unwrap_or_default(),
+                    resource
+                        .port
+                        .map(|p| format!("port={}", p))
+                        .unwrap_or_default(),
+                    resource
+                        .user
+                        .map(|u| format!("user={}", u))
+                        .unwrap_or_default(),
+                    parsed.name,
+                    parsed.extra_args.unwrap_or("")
+                );
+
+                Ok(vec![
+                    "INSTALL mysql;".to_string(),
+                    "LOAD mysql;".to_string(),
+                    attach_str,
+                ])
+            }
         }
         "bigquery" => {
             let resource: Value = client
