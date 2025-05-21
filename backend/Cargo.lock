@@ -14665,7 +14665,9 @@ dependencies = [
  "tracing-subscriber",
  "uuid",
  "windmill-macros",
+ "windmill-parser-py",
  "windmill-parser-sql",
+ "windmill-parser-ts",
 ]
 
 [[package]]

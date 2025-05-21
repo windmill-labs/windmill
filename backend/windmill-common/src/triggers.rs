@@ -3,7 +3,13 @@ use serde::{Deserialize, Serialize};
 use std::fmt;
 use strum::EnumIter;
 
-type RunnableFormatCacheKey = (String, i64, TriggerKind);
+#[derive(Eq, PartialEq, Hash)]
+pub enum HubOrWorkspaceId {
+    Hub,
+    WorkspaceId(String),
+}
+
+type RunnableFormatCacheKey = (HubOrWorkspaceId, i64, TriggerKind);
 
 #[derive(Debug, Clone, Eq, PartialEq, Hash, Copy)]
 pub struct RunnableFormat {

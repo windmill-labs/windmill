@@ -811,7 +811,7 @@ Windmill Community Edition {GIT_VERSION}
                                                                                     tracing::debug!("Workspace preprocessor {} changed, removing runnable format version cache for flow versions {:?}", path, flow_versions);
                                                                                     for version in flow_versions {
                                                                                         for trigger_kind in TriggerKind::iter() {
-                                                                                            let key = (workspace_id.to_string(), version, trigger_kind);
+                                                                                            let key = (windmill_common::triggers::HubOrWorkspaceId::WorkspaceId(workspace_id.to_string()), version, trigger_kind);
                                                                                             windmill_common::triggers::RUNNABLE_FORMAT_VERSION_CACHE.remove(&key);
                                                                                         }
                                                                                     }
