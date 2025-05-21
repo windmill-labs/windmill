@@ -27,6 +27,7 @@
 		connectionInfo?: ConnectionInfo | undefined
 		args?: Record<string, any>
 		isValid?: boolean
+		triggerDeployed?: boolean
 	}
 
 	let {
@@ -38,7 +39,8 @@
 		data = {},
 		connectionInfo = $bindable(undefined),
 		args = $bindable({}),
-		isValid = false
+		isValid = false,
+		triggerDeployed = false
 	}: Props = $props()
 
 	let captureLoading = $state(false)
@@ -225,6 +227,7 @@
 				postgres_resource_path={args.postgres_resource_path}
 				{hasPreprocessor}
 				{isFlow}
+				{triggerDeployed}
 				on:applyArgs
 				on:updateSchema
 				on:addPreprocessor
@@ -282,6 +285,7 @@
 				{hasPreprocessor}
 				{isFlow}
 				{captureLoading}
+				{triggerDeployed}
 				on:applyArgs
 				on:updateSchema
 				on:addPreprocessor
@@ -295,6 +299,7 @@
 				{hasPreprocessor}
 				{isFlow}
 				{captureLoading}
+				{triggerDeployed}
 				on:applyArgs
 				on:updateSchema
 				on:addPreprocessor
@@ -308,6 +313,7 @@
 				{hasPreprocessor}
 				{isFlow}
 				{captureLoading}
+				{triggerDeployed}
 				on:applyArgs
 				on:updateSchema
 				on:addPreprocessor
@@ -321,6 +327,7 @@
 				{hasPreprocessor}
 				{isFlow}
 				{captureLoading}
+				{triggerDeployed}
 				on:applyArgs
 				on:updateSchema
 				on:addPreprocessor
@@ -333,6 +340,7 @@
 				{captureInfo}
 				{hasPreprocessor}
 				{isFlow}
+				{triggerDeployed}
 				deliveryType={args.delivery_type}
 				{captureLoading}
 				on:applyArgs

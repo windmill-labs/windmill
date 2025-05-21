@@ -333,6 +333,7 @@
 								args={config}
 								data={{ args, hash, emailDomain }}
 								{isValid}
+								triggerDeployed={!triggersState.selectedTrigger.isDraft}
 								on:applyArgs
 								on:updateSchema
 								on:addPreprocessor

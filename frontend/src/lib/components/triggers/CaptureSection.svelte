@@ -36,6 +36,7 @@
 	import Description from '$lib/components/Description.svelte'
 	import { twMerge } from 'tailwind-merge'
 	import { FlaskConical } from 'lucide-svelte'
+	import Alert from '../common/alert/Alert.svelte'
 
 	interface Props {
 		disabled?: boolean | undefined
@@ -46,6 +47,7 @@
 		captureLoading?: boolean
 		description?: import('svelte').Snippet
 		children?: import('svelte').Snippet
+		displayAlert?: boolean
 	}
 
 	let {
@@ -56,7 +58,8 @@
 		isFlow = false,
 		captureLoading = false,
 		description,
-		children
+		children,
+		displayAlert = false
 	}: Props = $props()
 
 	const testKind: 'preprocessor' | 'main' = $derived(hasPreprocessor ? 'preprocessor' : 'main')
@@ -266,7 +269,7 @@
 				<FlaskConical size={16} />
 				Test trigger
 			</div>
-			<div class="flex flex-col gap-1 mb-4">
+			<div class="flex flex-col gap-1 mb-4 w-full">
 				<div class="flex justify-center w-full">
 					<div class="relative h-fit">
 						<AnimatedButton
@@ -302,6 +305,11 @@
 				</div>
 
 				<div class="mt-4 mb-2">
+					{#if displayAlert}
+						<Alert type="warning" title="Trigger deployed" size="xs" class="mb-4">
+							Capturing will suscribe to the trigger endpoint. Treat carefully.
+						</Alert>
+					{/if}
 					<Description>
 						<div class="relative min-h-8">
 							{#key (captureInfo.active, disabled)}

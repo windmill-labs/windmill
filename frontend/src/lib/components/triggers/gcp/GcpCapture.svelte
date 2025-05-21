@@ -13,6 +13,7 @@
 		isFlow?: boolean
 		deliveryType?: 'push' | 'pull'
 		captureLoading?: boolean
+		triggerDeployed?: boolean
 	}
 
 	let {
@@ -21,7 +22,8 @@
 		hasPreprocessor = false,
 		isFlow = false,
 		deliveryType = 'pull',
-		captureLoading = false
+		captureLoading = false,
+		triggerDeployed = false
 	}: Props = $props()
 
 	function getCaptureUrl(captureInfo: CaptureInfo | undefined) {
@@ -47,6 +49,7 @@
 		{hasPreprocessor}
 		{isFlow}
 		{captureLoading}
+		displayAlert={triggerDeployed}
 	>
 		{#snippet description()}
 			{#if captureInfo.active}

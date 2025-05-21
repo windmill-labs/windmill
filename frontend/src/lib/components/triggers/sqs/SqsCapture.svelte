@@ -9,6 +9,7 @@
 		hasPreprocessor?: boolean
 		isFlow?: boolean
 		captureLoading?: boolean
+		triggerDeployed?: boolean
 	}
 
 	let {
@@ -16,7 +17,8 @@
 		isValid = undefined,
 		hasPreprocessor = false,
 		isFlow = false,
-		captureLoading = false
+		captureLoading = false,
+		triggerDeployed = false
 	}: Props = $props()
 </script>
 
@@ -33,6 +35,7 @@
 		{hasPreprocessor}
 		{isFlow}
 		{captureLoading}
+		displayAlert={triggerDeployed}
 	>
 		{#snippet description()}
 			{#if captureInfo.active}
