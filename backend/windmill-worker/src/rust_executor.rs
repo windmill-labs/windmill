@@ -39,8 +39,8 @@ lazy_static::lazy_static! {
     static ref CARGO_HOME: String = std::env::var("CARGO_HOME").unwrap_or_else(|_| { CARGO_HOME_DEFAULT.clone() });
     static ref RUSTUP_HOME: String = std::env::var("RUSTUP_HOME").unwrap_or_else(|_| { RUSTUP_HOME_DEFAULT.clone() });
     static ref CARGO_PATH: String = std::env::var("CARGO_PATH").unwrap_or_else(|_| format!("{}/bin/cargo", CARGO_HOME.as_str()));
-    static ref CARGO_SWEEP_PATH: String = std::env::var("CARGO_SWEEP_PATH").unwrap_or_else(|_| format!("{}/bin/cargo-sweep", CARGO_HOME.as_str()));
-    static ref SWEEP_MAXSIZE: String = std::env::var("CARGO_SWEEP_MAXSIZE").unwrap_or("5GB".to_owned());
+    // static ref CARGO_SWEEP_PATH: String = std::env::var("CARGO_SWEEP_PATH").unwrap_or_else(|_| format!("{}/bin/cargo-sweep", CARGO_HOME.as_str()));
+    static ref SWEEP_MAXSIZE: String = std::env::var("CARGO_SWEEP_MAXSIZE").unwrap_or("10GB".to_owned());
     static ref NO_SHARED_BUILD_DIR: bool = std::env::var("RUST_NO_SHARED_BUILD_DIR").ok().map(|flag| flag == "true").unwrap_or(false);
 
 }
@@ -51,7 +51,20 @@ lazy_static::lazy_static! {
     static ref RUSTUP_HOME_DEFAULT: String = format!("{}\\.rustup", *HOME_DIR);
 }
 
-#[cfg(unix)]
+#[cfg(debug_assertions)]
+const DEV_CONF_NSJAIL: &'static str = r#"
+# Mount nix store for nixos to work properly
+mount {
+    src: "/nix/store"
+    dst: "/nix/store"
+    is_bind: true
+    mandatory: false
+}
+"#;
+
+#[cfg(not(debug_assertions))]
+const DEV_CONF_NSJAIL: &'static str = "";
+
 lazy_static::lazy_static! {
     static ref CARGO_HOME_DEFAULT: String = format!("{}/.cargo", *HOME_DIR);
     static ref RUSTUP_HOME_DEFAULT: String = format!("{}/.rustup", *HOME_DIR);
@@ -195,7 +208,7 @@ async fn get_build_dir(
     occupancy_metrics: &mut OccupancyMetrics,
     is_preview: bool,
 ) -> anyhow::Result<String> {
-    let (bd, use_shared) = job
+    let (bd, run_sweep) = job
         .runnable_path
         .as_ref()
         .and_then(|p| {
@@ -215,13 +228,21 @@ async fn get_build_dir(
         })
         .unwrap_or((format!("{RUST_CACHE_DIR}/build/{}", Uuid::new_v4()), false));
 
-    create_dir_all(format!("{}/target", &bd))
-        .await
-        .map_err(|e| anyhow::anyhow!("Could not create build dir and target.\ne: {e}"))?;
+    {
+        let (t, r, g) = (
+            create_dir_all(format!("{}/target", &bd)).await,
+            create_dir_all(format!("{}/registry", &bd)).await,
+            create_dir_all(format!("{}/git", &bd)).await,
+        );
 
-    if use_shared {
+        t.and(r)
+            .and(g)
+            .map_err(|e| anyhow::anyhow!("Could not create build dir for rust.\ne: {e}"))?;
+    }
+
+    if run_sweep {
         // Also run sweep to make sure target isn't using too much disk
-        let mut sweep_cmd = Command::new(CARGO_SWEEP_PATH.as_str());
+        let mut sweep_cmd = Command::new(CARGO_PATH.as_str());
         sweep_cmd
             .current_dir(job_dir)
             .env_clear()
@@ -243,7 +264,7 @@ async fn get_build_dir(
             );
             sweep_cmd.env("USERPROFILE", crate::USERPROFILE_ENV.as_str());
         }
-        if let Err(e) = match start_child_process(sweep_cmd, CARGO_SWEEP_PATH.as_str()).await {
+        if let Err(e) = match start_child_process(sweep_cmd, CARGO_PATH.as_str()).await {
             Ok(sweep_process) => {
                 handle_child(
                     &job.id,
@@ -284,8 +305,6 @@ pub async fn build_rust_crate(
     base_internal_url: &str,
     hash: &str,
     occupancy_metrics: &mut OccupancyMetrics,
-    envs: HashMap<String, String>,
-    reserved_variables: HashMap<String, String>,
     is_preview: bool,
 ) -> error::Result<String> {
     let bin_path = format!("{}/{hash}", RUST_CACHE_DIR);
@@ -309,21 +328,21 @@ pub async fn build_rust_crate(
             &NSJAIL_CONFIG_COMPILE_RUST_CONTENT
                 .replace("{JOB_DIR}", job_dir)
                 .replace("{CACHE_DIR}", RUST_CACHE_DIR)
+                .replace("{CARGO_HOME}", CARGO_HOME.as_str())
+                .replace("{DEV}", DEV_CONF_NSJAIL)
                 .replace("{BUILD}", &build_dir),
         )?;
         let mut nsjail_cmd = Command::new(NSJAIL_PATH.as_str());
         nsjail_cmd
             .current_dir(job_dir)
             .env_clear()
-            .envs(envs)
-            .envs(reserved_variables)
             .env("PATH", PATH_ENV.as_str())
             .env("TZ", TZ_ENV.as_str())
             .env("BASE_INTERNAL_URL", base_internal_url)
             .envs(PROXY_ENVS.clone())
             .env("BASE_INTERNAL_URL", base_internal_url)
             .env("HOME", HOME_ENV.as_str())
-            .env("CARGO_HOME", &build_dir)
+            .env("CARGO_HOME", CARGO_HOME.as_str())
             .env("RUSTUP_HOME", RUSTUP_HOME.as_str())
             .env("CARGO_TARGET_DIR", &(build_dir.clone() + "/target"))
             .args(vec![
@@ -501,8 +520,6 @@ pub async fn handle_rust_job(
             base_internal_url,
             &hash,
             occupancy_metrics,
-            envs.clone(),
-            reserved_variables.clone(),
             requirements_o.is_none(),
         )
         .await?
@@ -520,6 +537,7 @@ pub async fn handle_rust_job(
                 .replace("{CACHE_DIR}", RUST_CACHE_DIR)
                 .replace("{CACHE_HASH}", &hash)
                 .replace("{CLONE_NEWUSER}", &(!*DISABLE_NUSER).to_string())
+                .replace("{DEV}", DEV_CONF_NSJAIL)
                 .replace("{SHARED_MOUNT}", shared_mount),
         )?;
         let mut nsjail_cmd = Command::new(NSJAIL_PATH.as_str());

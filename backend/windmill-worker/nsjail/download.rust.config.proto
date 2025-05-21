@@ -12,6 +12,7 @@ clone_newnet: false
 
 keep_caps: false
 keep_env: true
+mount_proc: true
 
 mount {
     src: "/bin"
@@ -87,3 +88,30 @@ mount {
     mandatory: false
     rw: true
 }
+mount {
+    src: "{CARGO_HOME}"
+    dst: "{CARGO_HOME}"
+    is_bind: true
+    # Readonly 
+    rw: false
+}
+
+mount {
+    src: "{BUILD}/registry"
+    dst: "{CARGO_HOME}/registry"
+    is_bind: true
+    mandatory: true
+    # Read-write
+    rw: true
+}
+
+mount {
+    src: "{BUILD}/git"
+    dst: "{CARGO_HOME}/git"
+    is_bind: true
+    mandatory: true
+    # Read-write
+    rw: true
+}
+
+{DEV}
