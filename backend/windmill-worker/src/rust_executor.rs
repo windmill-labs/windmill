@@ -340,7 +340,6 @@ pub async fn build_rust_crate(
             .env("TZ", TZ_ENV.as_str())
             .env("BASE_INTERNAL_URL", base_internal_url)
             .envs(PROXY_ENVS.clone())
-            .env("BASE_INTERNAL_URL", base_internal_url)
             .env("HOME", HOME_ENV.as_str())
             .env("CARGO_HOME", CARGO_HOME.as_str())
             .env("RUSTUP_HOME", RUSTUP_HOME.as_str())
