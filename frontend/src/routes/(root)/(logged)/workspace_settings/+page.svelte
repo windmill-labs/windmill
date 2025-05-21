@@ -36,7 +36,7 @@
 		XCircle,
 		RotateCw,
 		CheckCircle2,
-		X,
+		Trash,
 		Plus,
 		Loader2,
 		Save,
@@ -61,6 +61,8 @@
 	import AISettings from '$lib/components/workspaceSettings/AISettings.svelte'
 	import StorageSettings from '$lib/components/workspaceSettings/StorageSettings.svelte'
 	import InitGitRepoPopover from '$lib/components/InitGitRepoPopover.svelte'
+	import PullGitRepoPopover from '$lib/components/PullGitRepoPopover.svelte'
+	import GitSyncFilterSettings from '$lib/components/workspaceSettings/GitSyncFilterSettings.svelte'
 
 	type GitSyncTypeMap = {
 		scripts: boolean
@@ -89,6 +91,16 @@
 		| 'user'
 		| 'group'
 		| 'trigger'
+
+	type GitSyncRepository = {
+		exclude_types_override: GitSyncTypeMap
+		script_path: string
+		git_repo_resource_path: string
+		use_individual_branch: boolean
+		group_by_folder: boolean
+		collapsed: boolean
+	}
+
 	let slackInitialPath: string
 	let slackScriptPath: string
 	let teamsInitialPath: string
@@ -122,19 +134,14 @@
 	}
 	let gitSyncSettings: {
 		include_path: string[]
-		repositories: {
-			exclude_types_override: GitSyncTypeMap
-			script_path: string
-			git_repo_resource_path: string
-			use_individual_branch: boolean
-			group_by_folder: boolean
-		}[]
+		repositories: GitSyncRepository[]
 		include_type: GitSyncTypeMap
 	}
 	let gitSyncTestJobs: {
 		jobId: string | undefined
 		status: 'running' | 'success' | 'failure' | undefined
 	}[]
+	let gitSyncComponent: any
 	let workspaceDefaultAppPath: string | undefined = undefined
 	let workspaceEncryptionKey: string | undefined = undefined
 	let editedWorkspaceEncryptionKey: string | undefined = undefined
@@ -153,6 +160,8 @@
 	let usingOpenaiClientCredentialsOauth = false
 
 	const latestGitSyncHubScript = hubPaths.gitSync
+
+	let yamlText = ''
 
 	async function editWorkspaceCommand(platform: 'slack' | 'teams'): Promise<void> {
 		if (platform === 'slack') {
@@ -220,7 +229,8 @@
 				script_path: elmt.script_path,
 				git_repo_resource_path: `$res:${elmt.git_repo_resource_path.replace('$res:', '')}`,
 				use_individual_branch: elmt.use_individual_branch,
-				group_by_folder: elmt.group_by_folder
+				group_by_folder: elmt.group_by_folder,
+				collapsed: elmt.collapsed
 			}
 		})
 
@@ -296,12 +306,6 @@
 			result.push('trigger')
 		}
 		return result
-	}
-
-	function resetGitSyncRepositoryExclude(type: string) {
-		gitSyncSettings.repositories.forEach((elmt) => {
-			elmt.exclude_types_override[type] = false
-		})
 	}
 
 	async function editWorkspaceDefaultApp(appPath: string | undefined): Promise<void> {
@@ -423,6 +427,7 @@
 						script_path: settings.script_path,
 						use_individual_branch: settings.use_individual_branch ?? false,
 						group_by_folder: settings.group_by_folder ?? false,
+						collapsed: false,
 						exclude_types_override: {
 							scripts: (settings.exclude_types_override?.indexOf('script') ?? -1) >= 0,
 							flows: (settings.exclude_types_override?.indexOf('flow') ?? -1) >= 0,
@@ -561,10 +566,10 @@
 		let jobId = await JobService.runScriptByPath({
 			workspace: $workspaceStore!,
 			path: hubPaths.gitSyncTest,
-			skipPreprocessor: true,
 			requestBody: {
 				repo_url_resource_path: gitSyncRepository.git_repo_resource_path.replace('$res:', '')
-			}
+			},
+			skipPreprocessor: true
 		})
 		gitSyncTestJobs[settingsIdx] = {
 			jobId: jobId,
@@ -1106,342 +1111,191 @@
 					>
 				</div>
 
-				<div class="flex flex-wrap gap-20">
-					<div class="max-w-md w-full">
-						{#if Array.isArray(gitSyncSettings?.include_path)}
-							<h4 class="flex gap-2 mb-4"
-								>Path filters<Tooltip>
-									Only scripts, flows and apps with their path matching one of those filters will be
-									synced to the Git repositories below. The filters allow '*'' and '**' characters,
-									with '*'' matching any character allowed in paths until the next slash (/) and
-									'**' matching anything including slashes.
-									<br />By default everything in folders will be synced.
-								</Tooltip></h4
-							>
-							{#each gitSyncSettings.include_path ?? [] as gitSyncRegexpPath, idx}
-								<div class="flex mt-1 items-center">
-									<input type="text" bind:value={gitSyncRegexpPath} id="arg-input-array" />
+				<Alert type="info" title="Only new updates trigger git sync">
+					Only new changes matching the filters will trigger a git sync. You still need to
+					initalize the repo to the desired state first.
+				</Alert>
+				<div class="pt-2"></div>
+
+				{#if Array.isArray(gitSyncSettings.repositories)}
+					{#each gitSyncSettings.repositories as repo, idx}
+						<div class="rounded-lg shadow-sm border p-0 w-full mb-4">
+							<!-- Card Header -->
+							<div class="flex items-center justify-between min-h-10 px-4 py-1 border-b">
+								<div class="flex items-center gap-2">
+									<span class="font-semibold">Repository #{idx + 1}</span>
+									<span class="text-xs text-tertiary pt-1 pl-8">
+										{repo.git_repo_resource_path}
+									</span>
+								</div>
+								<div class="flex items-center gap-2">
+									<button
+										class="text-secondary hover:text-primary focus:outline-none"
+										onclick={() => (repo.collapsed = !repo.collapsed)}
+										aria-label="Toggle collapse"
+									>
+										{#if repo.collapsed}
+											<svg
+												xmlns="http://www.w3.org/2000/svg"
+												class="h-5 w-5"
+												fill="none"
+												viewBox="0 0 24 24"
+												stroke="currentColor"
+											>
+												<path
+													stroke-linecap="round"
+													stroke-linejoin="round"
+													stroke-width="2"
+													d="M19 9l-7 7-7-7"
+												/>
+											</svg>
+										{:else}
+											<svg
+												xmlns="http://www.w3.org/2000/svg"
+												class="h-5 w-5"
+												fill="none"
+												viewBox="0 0 24 24"
+												stroke="currentColor"
+											>
+												<path
+													stroke-linecap="round"
+													stroke-linejoin="round"
+													stroke-width="2"
+													d="M5 15l7-7 7 7"
+												/>
+											</svg>
+										{/if}
+									</button>
 									<button
 										transition:fade|local={{ duration: 100 }}
-										class="rounded-full p-1 bg-surface-secondary duration-200 hover:bg-surface-hover ml-2"
-										aria-label="Clear"
-										on:click={() => {
-											gitSyncSettings.include_path.splice(idx, 1)
-											gitSyncSettings.include_path = [...gitSyncSettings.include_path]
+										class="rounded-full p-2 bg-surface-secondary duration-200 hover:bg-surface-hover"
+										aria-label="Remove repository"
+										onclick={() => {
+											gitSyncSettings.repositories.splice(idx, 1)
+											gitSyncSettings.repositories = [...gitSyncSettings.repositories]
 										}}
 									>
-										<X size={14} />
+										<Trash size={14} />
 									</button>
 								</div>
-							{/each}
-						{/if}
-						<div class="flex mt-2">
-							<Button
-								variant="border"
-								color="light"
-								size="xs"
-								btnClasses="mt-1"
-								on:click={() => {
-									gitSyncSettings.include_path = [...gitSyncSettings.include_path, '']
-								}}
-								id="git-sync-add-path-filter"
-								startIcon={{ icon: Plus }}
-							>
-								Add filter
-							</Button>
-						</div>
-						<div class="pt-2"></div>
-						<Alert type="info" title="Only new updates trigger git sync">
-							Only new changes matching the filters will trigger a git sync. You still need to
-							initalize the repo to the desired state first.
-						</Alert>
-					</div>
-
-					<div class="max-w-md w-full">
-						<h4 class="flex gap-2 mb-4"
-							>Type filters<Tooltip>
-								On top of the filter path above, you can include only certain type of object to be
-								synced with the Git repository.
-								<br />By default everything is synced.
-							</Tooltip></h4
-						>
-						<div class="flex flex-col gap-2 mt-1">
-							<Toggle
-								bind:checked={gitSyncSettings.include_type.scripts}
-								on:change={(_) => resetGitSyncRepositoryExclude('scripts')}
-								options={{ right: 'Scripts' }}
-							/>
-							<Toggle
-								bind:checked={gitSyncSettings.include_type.flows}
-								on:change={(_) => resetGitSyncRepositoryExclude('flows')}
-								options={{ right: 'Flows' }}
-							/>
-							<Toggle
-								bind:checked={gitSyncSettings.include_type.apps}
-								on:change={(_) => resetGitSyncRepositoryExclude('apps')}
-								options={{ right: 'Apps' }}
-							/>
-							<Toggle
-								bind:checked={gitSyncSettings.include_type.folders}
-								on:change={(_) => resetGitSyncRepositoryExclude('folders')}
-								options={{ right: 'Folders' }}
-							/>
-							<Toggle
-								bind:checked={gitSyncSettings.include_type.resources}
-								on:change={(_) => resetGitSyncRepositoryExclude('resources')}
-								options={{ right: 'Resources' }}
-							/>
-							<div class="flex gap-3">
-								<Toggle
-									bind:checked={gitSyncSettings.include_type.variables}
-									on:change={(ev) => {
-										resetGitSyncRepositoryExclude('variables')
-										resetGitSyncRepositoryExclude('secrets')
-										if (!ev.detail) {
-											gitSyncSettings.include_type.secrets = false
-										}
-									}}
-									options={{ right: 'Variables ' }}
-								/>
-								<span>-</span>
-								<Toggle
-									disabled={!gitSyncSettings.include_type.variables}
-									bind:checked={gitSyncSettings.include_type.secrets}
-									on:change={(_) => resetGitSyncRepositoryExclude('secrets')}
-									options={{ left: 'Include secrets' }}
-								/>
 							</div>
-							<Toggle
-								bind:checked={gitSyncSettings.include_type.schedules}
-								on:change={(_) => resetGitSyncRepositoryExclude('schedules')}
-								options={{ right: 'Schedules' }}
-							/>
-							<Toggle
-								bind:checked={gitSyncSettings.include_type.resourceTypes}
-								on:change={(_) => resetGitSyncRepositoryExclude('resourcetypes')}
-								options={{ right: 'Resource Types' }}
-							/>
-							<Toggle
-								bind:checked={gitSyncSettings.include_type.users}
-								on:change={(_) => resetGitSyncRepositoryExclude('users')}
-								options={{ right: 'Users' }}
-							/>
-							<Toggle
-								bind:checked={gitSyncSettings.include_type.groups}
-								on:change={(_) => resetGitSyncRepositoryExclude('groups')}
-								options={{ right: 'Groups' }}
-							/>
-							<Toggle
-								bind:checked={gitSyncSettings.include_type.triggers}
-								on:change={(_) => resetGitSyncRepositoryExclude('triggers')}
-								options={{ right: 'Triggers' }}
-							/>
-						</div>
-					</div>
-				</div>
-
-				<h4 class="flex gap-2 mt-5 mb-5"
-					>Repositories to sync<Tooltip>
-						The changes will be deployed to all the repositories set below.
-					</Tooltip></h4
-				>
-				{#if Array.isArray(gitSyncSettings.repositories)}
-					{#each gitSyncSettings.repositories as gitSyncRepository, idx}
-						<div class="flex mt-5 mb-1 gap-1 items-center text-xs">
-							<h6>Repository #{idx + 1}</h6>
-							<button
-								transition:fade|local={{ duration: 100 }}
-								class="rounded-full p-1 bg-surface-secondary duration-200 hover:bg-surface-hover ml-2"
-								aria-label="Clear"
-								on:click={() => {
-									gitSyncSettings.repositories.splice(idx, 1)
-									gitSyncSettings.repositories = [...gitSyncSettings.repositories]
-								}}
-							>
-								<X size={14} />
-							</button>
-						</div>
-						<div class="flex mt-5 mb-1 gap-1">
-							{#key gitSyncRepository}
-								<ResourcePicker
-									resourceType="git_repository"
-									initialValue={gitSyncRepository.git_repo_resource_path}
-									bind:value={gitSyncRepository.git_repo_resource_path}
-								/>
-								<Button
-									disabled={emptyString(gitSyncRepository.script_path)}
-									btnClasses="w-32 text-center"
-									color="dark"
-									on:click={() => runGitSyncTestJob(idx)}
-									size="xs">Test connection</Button
-								>
-							{/key}
-						</div>
-
-						<div class="flex mb-5 text-normal text-2xs gap-1">
-							{#if gitSyncSettings.repositories.filter((settings) => settings.git_repo_resource_path === gitSyncRepository.git_repo_resource_path).length > 1}
-								<span class="text-red-700">Using the same resource twice is not allowed.</span>
-							{/if}
-							{#if gitSyncTestJobs[idx].status !== undefined}
-								{#if gitSyncTestJobs[idx].status === 'running'}
-									<RotateCw size={14} />
-								{:else if gitSyncTestJobs[idx].status === 'success'}
-									<CheckCircle2 size={14} class="text-green-600" />
-								{:else}
-									<XCircle size={14} class="text-red-700" />
-								{/if}
-								Git sync resource checked via Windmill job
-								<a
-									target="_blank"
-									href={`/run/${gitSyncTestJobs[idx].jobId}?workspace=${$workspaceStore}`}
-								>
-									{gitSyncTestJobs[idx].jobId}
-								</a>WARNING: Only read permissions are verified.
-							{/if}
-						</div>
-
-						<div class="flex flex-col mt-5 mb-1 gap-4">
-							{#if gitSyncSettings && gitSyncRepository}
-								{#if gitSyncRepository.script_path != latestGitSyncHubScript}
-									<Alert type="warning" title="Script version mismatch">
-										The git sync version for this repository is not latest. Current: <a
-											target="_blank"
-											href="https://hub.windmill.dev/scripts/windmill/6943/sync-script-to-git-repo-windmill/9014/versions"
-											>{gitSyncRepository.script_path}</a
-										>, latest:
-										<a
-											target="_blank"
-											href="https://hub.windmill.dev/scripts/windmill/6943/sync-script-to-git-repo-windmill/9014/versions"
-											>{latestGitSyncHubScript}</a
-										>
-										<div class="flex mt-2">
+							{#if !repo.collapsed}
+								<div class="px-4 py-2">
+									<div class="flex mt-5 mb-1 gap-1">
+										{#key repo}
+											<div class="pt-1 font-semibold">Resource: </div>
+											<ResourcePicker
+												resourceType="git_repository"
+												initialValue={repo.git_repo_resource_path}
+												on:change={(ev) => {
+													repo.git_repo_resource_path = ev.detail
+												}}
+											/>
 											<Button
-												size="xs"
+												disabled={emptyString(repo.script_path)}
 												color="dark"
-												on:click={() => {
-													gitSyncRepository.script_path = latestGitSyncHubScript
-												}}>Update git sync script (require save git settings to be applied)</Button
+												on:click={() => runGitSyncTestJob(idx)}
+												size="xs">Test connection</Button
 											>
-										</div>
-									</Alert>
-								{/if}
-								<div class="w-1/3">
-									<InitGitRepoPopover
-										gitRepoResourcePath={gitSyncRepository.git_repo_resource_path}
-										settings={{
-											includes: gitSyncSettings.include_path,
-											typeFilters: gitSyncSettings.include_type,
-											excludes: gitSyncRepository.exclude_types_override
-										}}
-									/>
-								</div>
-								<Toggle
-									disabled={emptyString(gitSyncRepository.git_repo_resource_path)}
-									bind:checked={gitSyncRepository.use_individual_branch}
-									options={{
-										right: 'Create one branch per deployed object',
-										rightTooltip:
-											"If set, Windmill will create a unique branch per object being pushed based on its path, prefixed with 'wm_deploy/'."
-									}}
-								/>
+										{/key}
+									</div>
 
-								<Toggle
-									disabled={emptyString(gitSyncRepository.git_repo_resource_path) ||
-										!gitSyncRepository.use_individual_branch}
-									bind:checked={gitSyncRepository.group_by_folder}
-									options={{
-										right: 'Group deployed objects by folder',
-										rightTooltip:
-											'Instead of creating a branch per object, Windmill will create a branch per folder containing objects being deployed.'
-									}}
-								/>
-							{/if}
-						</div>
+									<div class="flex mb-5 text-normal text-2xs gap-1">
+										{#if gitSyncSettings.repositories.filter((settings) => settings.git_repo_resource_path === repo.git_repo_resource_path).length > 1}
+											<span class="text-red-700">Using the same resource twice is not allowed.</span>
+										{/if}
+										{#if gitSyncTestJobs[idx].status !== undefined}
+											{#if gitSyncTestJobs[idx].status === 'running'}
+												<RotateCw size={14} />
+											{:else if gitSyncTestJobs[idx].status === 'success'}
+												<CheckCircle2 size={14} class="text-green-600" />
+											{:else}
+												<XCircle size={14} class="text-red-700" />
+											{/if}
+											Git sync resource checked via Windmill job
+											<a
+												target="_blank"
+												href={`/run/${gitSyncTestJobs[idx].jobId}?workspace=${$workspaceStore}`}
+											>
+												{gitSyncTestJobs[idx].jobId}
+											</a>WARNING: Only read permissions are verified.
+										{/if}
+									</div>
 
-						<div class="flex flex-col mt-5 mb-1 gap-1">
-							{#if gitSyncSettings && Object.keys(gitSyncSettings.include_type).some((k) => gitSyncSettings.include_type[k] === true)}
-								<h6>Exclude specific types for this repository only</h6>
-								{#if gitSyncSettings.include_type.scripts}
-									<Toggle
-										color="red"
-										bind:checked={gitSyncRepository.exclude_types_override.scripts}
-										options={{ right: 'Exclude scripts' }}
-									/>
-								{/if}
-								{#if gitSyncSettings.include_type.flows}
-									<Toggle
-										color="red"
-										bind:checked={gitSyncRepository.exclude_types_override.flows}
-										options={{ right: 'Exclude flows' }}
-									/>
-								{/if}
-								{#if gitSyncSettings.include_type.apps}
-									<Toggle
-										color="red"
-										bind:checked={gitSyncRepository.exclude_types_override.apps}
-										options={{ right: 'Exclude apps' }}
-									/>
-								{/if}
-								{#if gitSyncSettings.include_type.folders}
-									<Toggle
-										color="red"
-										bind:checked={gitSyncRepository.exclude_types_override.folders}
-										options={{ right: 'Exclude folders' }}
-									/>
-								{/if}
-								{#if gitSyncSettings.include_type.resources}
-									<Toggle
-										color="red"
-										bind:checked={gitSyncRepository.exclude_types_override.resources}
-										options={{ right: 'Exclude resources' }}
-									/>
-								{/if}
-								{#if gitSyncSettings.include_type.variables}
-									<div class="flex gap-3">
-										<Toggle
-											color="red"
-											bind:checked={gitSyncRepository.exclude_types_override.variables}
-											on:change={(ev) => {
-												if (ev.detail && gitSyncSettings.include_type.secrets) {
-													gitSyncRepository.exclude_types_override.secrets = true
-												} else if (ev.detail) {
-													gitSyncRepository.exclude_types_override.secrets = false
-												}
-											}}
-											options={{ right: 'Exclude variables ' }}
-										/>
-										{#if gitSyncSettings.include_type.secrets}
-											<span>-</span>
+									<div class="flex flex-col mt-5 mb-1 gap-4">
+										{#if gitSyncSettings && repo}
+											{#if repo.script_path != latestGitSyncHubScript}
+												<Alert type="warning" title="Script version mismatch">
+													The git sync version for this repository is not latest. Current: <a
+														target="_blank"
+														href="https://hub.windmill.dev/scripts/windmill/6943/sync-script-to-git-repo-windmill/9014/versions"
+														>{repo.script_path}</a
+													>, latest:
+													<a
+														target="_blank"
+														href="https://hub.windmill.dev/scripts/windmill/6943/sync-script-to-git-repo-windmill/9014/versions"
+														>{latestGitSyncHubScript}</a
+													>
+													<div class="flex mt-2">
+														<Button
+															size="xs"
+															color="dark"
+															on:click={() => {
+																repo.script_path = latestGitSyncHubScript
+															}}
+															>Update git sync script (require save git settings to be applied)</Button
+														>
+													</div>
+												</Alert>
+											{/if}
+											<GitSyncFilterSettings
+												bind:this={gitSyncComponent}
+												git_repo_resource_path={repo.git_repo_resource_path}
+												bind:include_path={gitSyncSettings.include_path}
+												bind:include_type={gitSyncSettings.include_type}
+												bind:yamlText
+												onSettingsChange={(settings) => {
+													yamlText = settings.yaml;
+												}}
+											/>
+											<div class="w-1/3 flex gap-2">
+												<InitGitRepoPopover
+													gitRepoResourcePath={repo.git_repo_resource_path}
+													{yamlText}
+												/>
+												<PullGitRepoPopover
+													gitRepoResourcePath={repo.git_repo_resource_path}
+													{yamlText}
+													onFilterUpdate={(filters) => {
+														if (gitSyncComponent) {
+															gitSyncComponent.setSettings(filters);
+														}
+													}}
+												/>
+											</div>
 											<Toggle
-												color="red"
-												disabled={gitSyncRepository.exclude_types_override.variables}
-												bind:checked={gitSyncRepository.exclude_types_override.secrets}
-												options={{ left: 'Exclude secrets' }}
+												disabled={emptyString(repo.git_repo_resource_path)}
+												bind:checked={repo.use_individual_branch}
+												options={{
+													right: 'Create one branch per deployed object',
+													rightTooltip:
+														"If set, Windmill will create a unique branch per object being pushed based on its path, prefixed with 'wm_deploy/'."
+												}}
+											/>
+
+											<Toggle
+												disabled={emptyString(repo.git_repo_resource_path) ||
+													!repo.use_individual_branch}
+												bind:checked={repo.group_by_folder}
+												options={{
+													right: 'Group deployed objects by folder',
+													rightTooltip:
+														'Instead of creating a branch per object, Windmill will create a branch per folder containing objects being deployed.'
+												}}
 											/>
 										{/if}
 									</div>
-								{/if}
-								{#if gitSyncSettings.include_type.schedules}
-									<Toggle
-										color="red"
-										bind:checked={gitSyncRepository.exclude_types_override.schedules}
-										options={{ right: 'Exclude schedules' }}
-									/>
-								{/if}
-								{#if gitSyncSettings.include_type.resourceTypes}
-									<Toggle
-										color="red"
-										bind:checked={gitSyncRepository.exclude_types_override.resourceTypes}
-										options={{ right: 'Exclude resource types' }}
-									/>
-								{/if}
-								{#if gitSyncSettings.include_type.triggers}
-									<Toggle
-										color="red"
-										bind:checked={gitSyncRepository.exclude_types_override.triggers}
-										options={{ right: 'Exclude triggers' }}
-									/>
-								{/if}
+								</div>
 							{/if}
 						</div>
 					{/each}
@@ -1461,6 +1315,7 @@
 									git_repo_resource_path: '',
 									use_individual_branch: false,
 									group_by_folder: false,
+									collapsed: false,
 									exclude_types_override: {
 										scripts: false,
 										flows: false,

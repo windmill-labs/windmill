@@ -2,25 +2,32 @@
 	import { Button } from '$lib/components/common'
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
 	import { Alert } from '$lib/components/common'
-	import { Loader2, Eye, Save } from 'lucide-svelte'
+	import {
+		Loader2,
+		Eye,
+		Save,
+		CheckCircle2,
+		XCircle,
+		UploadCloud,
+		AlertTriangle,
+		Terminal,
+		ChevronDown,
+		ChevronUp
+	} from 'lucide-svelte'
 	import { workspaceStore } from '$lib/stores'
 	import hubPaths from '$lib/hubPaths.json'
 	import { JobService } from '$lib/gen'
 	import { tryEvery } from '$lib/utils'
+	import GitDiffPreview from './GitDiffPreview.svelte'
+	import { page } from '$app/stores'
 
-	type Settings = {
-		includes: string[]
-		typeFilters: { [type: string]: boolean }
-		excludes: { [type: string]: boolean }
-	}
-
-	let { gitRepoResourcePath, branchName, settings } = $props<{
+	let { gitRepoResourcePath, branchName, yamlText } = $props<{
 		gitRepoResourcePath: string
 		branchName?: string
-		settings: Settings
+		yamlText: string
 	}>()
 
-	let _branchName = $state(branchName ?? 'main')
+	let _branchName = $state(branchName ?? '')
 	let previewResult = $state<
 		| {
 				added: string[]
@@ -31,35 +38,13 @@
 	>(undefined)
 	let isPreviewLoading = $state(false)
 	let isInitializing = $state(false)
-	let initResult = $state<{ success: boolean; message: string } | null>(null)
-	let initGitRepoPopover: { open: () => void; close: () => void } | null = null
-	let showYaml = $state(false)
+	let initResult = $state<{ success: boolean; message: string | undefined } | null>(null)
+	let initGitRepoPopover = $state<{ open: () => void; close: () => void } | null>(null)
 	let previewJobId = $state<string | null>(null)
 	let previewJobStatus = $state<'running' | 'success' | 'failure' | undefined>(undefined)
-
-	function toYaml(settings: Settings) {
-		let yaml = '\n'
-		yaml += 'includes:\n'
-		for (const inc of settings.includes) {
-			yaml += `  - ${inc}\n`
-		}
-		for (const [key, value] of Object.entries(settings.typeFilters)) {
-			yaml += `skip${key.charAt(0).toUpperCase() + key.slice(1)}: ${!value}\n`
-		}
-		yaml += 'codebases: []\n'
-		const excludeKeys = Object.entries(settings.excludes)
-			.filter(([_, v]) => v)
-			.map(([k]) => k)
-		if (excludeKeys.length === 0) {
-			yaml += 'excludes: []\n'
-		} else {
-			yaml += 'excludes:\n'
-			excludeKeys.forEach((key) => {
-				yaml += `  - ${key}\n`
-			})
-		}
-		return yaml
-	}
+	let pushJobId = $state<string | null>(null)
+	let pushJobStatus = $state<'running' | 'success' | 'failure' | undefined>(undefined)
+	let isCliInfoExpanded = $state(false)
 
 	async function previewChanges() {
 		console.log('Previewing changes for repo:', gitRepoResourcePath)
@@ -76,17 +61,16 @@
 			const payloadObj = {
 				workspace_id: workspace,
 				repo_url_resource_path: gitRepoResourcePath,
-				branch: _branchName,
-				includes: settings.includes,
-				typeFilters: settings.typeFilters,
-				excludes: settings.excludes,
+				branch_to_push: _branchName,
+				yaml: yamlText,
 				dry_run: true
 			}
 			// 1. Start the job
 			const jobId = await JobService.runScriptByPath({
 				workspace,
 				path: hubPaths.gitInitRepo,
-				requestBody: payloadObj
+				requestBody: payloadObj,
+				skipPreprocessor: true
 			})
 			previewJobId = jobId
 			previewJobStatus = 'running'
@@ -141,25 +125,61 @@
 
 	async function initializeRepo() {
 		const workspace = $workspaceStore
+		if (!workspace) return
 		console.log('Initializing repo:', gitRepoResourcePath, 'in workspace:', workspace)
 		isInitializing = true
 		initResult = null
+		pushJobId = null
+		pushJobStatus = undefined
 		try {
 			const jobId = await JobService.runScriptByPath({
-				workspace: workspace!,
+				workspace,
 				path: hubPaths.gitInitRepo,
 				requestBody: {
-					workspace_id: workspace!,
+					workspace_id: workspace,
 					repo_url_resource_path: gitRepoResourcePath,
-					branch: _branchName,
-					includes: settings.includes,
-					typeFilters: settings.typeFilters,
-					excludes: settings.excludes
-				}
+					branch_to_push: _branchName,
+					yaml: yamlText
+				},
+				skipPreprocessor: true
 			})
-			initResult = { success: true, message: `Job started: ${jobId}` }
+			pushJobId = jobId
+			pushJobStatus = 'running'
+
+			let jobSuccess = false
+			await tryEvery({
+				tryCode: async () => {
+					const testResult = await JobService.getCompletedJob({
+						workspace,
+						id: jobId
+					})
+					jobSuccess = !!testResult.success
+				},
+				timeoutCode: async () => {
+					try {
+						await JobService.cancelQueuedJob({
+							workspace,
+							id: jobId,
+							requestBody: {
+								reason: 'Push job timed out after 5s'
+							}
+						})
+					} catch (err) {
+						console.error(err)
+					}
+				},
+				interval: 500,
+				timeout: 5000
+			})
+
+			pushJobStatus = jobSuccess ? 'success' : 'failure'
+			initResult = {
+				success: jobSuccess,
+				message: jobSuccess ? undefined : 'Failed to initialize repository.'
+			}
 		} catch (error) {
 			console.error('Failed to initialize repo:', error)
+			pushJobStatus = 'failure'
 			initResult = { success: false, message: 'Failed to initialize repository.' }
 		} finally {
 			isInitializing = false
@@ -170,119 +190,102 @@
 <Popover
 	bind:this={initGitRepoPopover}
 	floatingConfig={{
-		placement: 'bottom',
-		strategy: 'fixed'
+		placement: 'top-start',
+		strategy: 'fixed',
+		flip: false,
+		shift: true
 	}}
-	contentClasses="p-4 w-[600px]"
+	contentClasses="p-4 w-1/3"
 >
 	<svelte:fragment slot="trigger">
-		<Button size="sm" nonCaptureEvent onclick={initGitRepoPopover?.open}>
-			Initialize Git Repo
+		<Button
+			color="dark"
+			size="sm"
+			nonCaptureEvent
+			onclick={initGitRepoPopover?.open}
+			startIcon={{ icon: UploadCloud }}
+		>
+			Push workspace to Git repo
 		</Button>
 	</svelte:fragment>
 	<svelte:fragment slot="content" let:close>
 		<div class="flex flex-col gap-4">
 			<div class="flex flex-col gap-2">
-				<h3 class="text-lg font-semibold">Initialize Git Repository</h3>
-				<Alert size="xs" type="warning" title="Warning">
-					This will overwrite everything in the selected repository folder/branch.
-				</Alert>
+				<h3 class="text-lg font-semibold">Push workspace to Git repository</h3>
+				<div class="prose max-w-none text-2xs text-tertiary">
+					This action will push all workspace objects that match your current filter settings to the
+					selected branch in your Git repository. <span
+						class="text-orange-600 flex items-center gap-1"
+						><AlertTriangle size={14} /> Any existing content in the branch will be replaced with the
+						filtered workspace content.</span
+					>
+
+					<!-- Collapsible CLI Info Section -->
+					<div class="mt-2 border rounded-md">
+						<button
+							class="w-full flex items-center justify-between p-1.5 bg-surface-secondary hover:bg-surface-hover"
+							onclick={() => (isCliInfoExpanded = !isCliInfoExpanded)}
+						>
+							<span class="font-medium flex items-center gap-2">
+								<Terminal size={14} />
+								Windmill CLI to pull from Windmill and push to git
+							</span>
+							{#if isCliInfoExpanded}
+								<ChevronUp size={16} />
+							{:else}
+								<ChevronDown size={16} />
+							{/if}
+						</button>
+
+						{#if isCliInfoExpanded}
+							<div class="p-1 bg-surface-tertiary">
+								<div class="text-2xs mb-2">
+									Not familiar with Windmill CLI? <a href="https://www.windmill.dev/docs/advanced/cli/sync" class="text-blue-500 hover:text-blue-600 underline" target="_blank" rel="noopener noreferrer">Check out the docs</a>
+								</div>
+								<div class="font-mono text-2xs">
+								<pre class="overflow-auto max-h-60"><code>npm install -g windmill-cli
+wmill workspace add {$workspaceStore} {$workspaceStore} {`${$page.url.protocol}//${$page.url.hostname}/`}
+wmill init
+# adjust wmill.yaml file configuraton as needed
+wmill sync pull
+git add -A
+git commit -m 'Initial commit'
+git push</code></pre>
+								</div>
+							</div>
+						{/if}
+					</div>
+				</div>
 			</div>
 
 			<div class="flex flex-col gap-2">
-				<label class="text-sm font-medium">Branch Name</label>
-				<input
-					type="text"
-					bind:value={_branchName}
-					class="border rounded px-2 py-1"
-					placeholder="main"
-				/>
+				<label for="branch-name" class="text-sm font-medium">Push to new branch (optional)</label>
+				<div class="prose max-w-none text-2xs text-tertiary">
+					Enter a new branch name to push to (e.g so you can merge back into main with a pull
+					request). If left blank, the default branch from the git repository resource will be used.
+				</div>
+				<div class="flex flex-col w-1/4">
+					<input
+						id="branch-name"
+						type="text"
+						bind:value={_branchName}
+						class="border rounded px-2 py-1"
+					/>
+				</div>
 			</div>
 
 			{#if previewResult}
-				<div class="border rounded p-2 text-xs max-h-40 overflow-y-auto bg-surface-secondary">
-					<div class="font-semibold text-[11px] mb-1 text-tertiary">Preview of changes:</div>
-					{#if previewResult.added.length > 0}
-						<div class="text-green-600">
-							Added:
-							<ul class="ml-4 list-disc">
-								{#each previewResult.added as file}
-									<li>{file}</li>
-								{/each}
-							</ul>
-						</div>
-					{/if}
-					{#if previewResult.deleted.length > 0}
-						<div class="text-red-600">
-							Deleted:
-							<ul class="ml-4 list-disc">
-								{#each previewResult.deleted as file}
-									<li>{file}</li>
-								{/each}
-							</ul>
-						</div>
-					{/if}
-					{#if previewResult.modified.length > 0}
-						<div class="text-yellow-600">
-							Modified:
-							<ul class="ml-4 list-disc">
-								{#each previewResult.modified as file}
-									<li>{file}</li>
-								{/each}
-							</ul>
-						</div>
-					{/if}
-				</div>
+				<GitDiffPreview {previewResult} />
 			{/if}
 
 			{#if previewJobId}
 				<div class="flex items-center gap-2 text-xs text-tertiary">
 					{#if previewJobStatus === 'running'}
-						<svg
-							class="animate-spin"
-							width="14"
-							height="14"
-							viewBox="0 0 24 24"
-							fill="none"
-							stroke="currentColor"
-							stroke-width="2"
-							stroke-linecap="round"
-							stroke-linejoin="round"
-							><circle cx="12" cy="12" r="10" stroke-opacity="0.25" /><path
-								d="M22 12a10 10 0 0 1-10 10"
-							/></svg
-						>
+						<Loader2 class="animate-spin" size={14} />
 					{:else if previewJobStatus === 'success'}
-						<svg
-							width="14"
-							height="14"
-							viewBox="0 0 24 24"
-							fill="none"
-							stroke="currentColor"
-							stroke-width="2"
-							stroke-linecap="round"
-							stroke-linejoin="round"
-							class="text-green-600"
-							><path d="M9 12l2 2l4 -4" /><circle cx="12" cy="12" r="10" /></svg
-						>
+						<CheckCircle2 size={14} class="text-green-600" />
 					{:else if previewJobStatus === 'failure'}
-						<svg
-							width="14"
-							height="14"
-							viewBox="0 0 24 24"
-							fill="none"
-							stroke="currentColor"
-							stroke-width="2"
-							stroke-linecap="round"
-							stroke-linejoin="round"
-							class="text-red-700"
-							><circle cx="12" cy="12" r="10" /><line x1="15" y1="9" x2="9" y2="15" /><line
-								x1="9"
-								y1="9"
-								x2="15"
-								y2="15"
-							/></svg
-						>
+						<XCircle size={14} class="text-red-700" />
 					{/if}
 					Preview job:
 					<a
@@ -295,26 +298,25 @@
 				</div>
 			{/if}
 
-			<!-- Collapsible wmill.yaml preview section -->
-			<div class="mt-2">
-				<button
-					type="button"
-					class="flex items-center gap-1 select-none text-xs text-tertiary hover:text-primary"
-					onclick={() => (showYaml = !showYaml)}
-					aria-expanded={showYaml}
-				>
-					<svg
-						class={showYaml ? 'rotate-90 transition-transform' : 'transition-transform'}
-						width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
-					><polyline points="9 18 15 12 9 6" /></svg>
-					<span>{showYaml ? 'Hide' : 'Show'} wmill.yaml</span>
-				</button>
-				{#if showYaml}
-					<pre class="bg-surface-secondary rounded p-2 text-2xs overflow-auto max-h-40 border mt-1">
-						<code>{toYaml(settings)}</code>
-					</pre>
-				{/if}
-			</div>
+			{#if pushJobId}
+				<div class="flex items-center gap-2 text-xs text-tertiary">
+					{#if pushJobStatus === 'running'}
+						<Loader2 class="animate-spin" size={14} />
+					{:else if pushJobStatus === 'success'}
+						<CheckCircle2 size={14} class="text-green-600" />
+					{:else if pushJobStatus === 'failure'}
+						<XCircle size={14} class="text-red-700" />
+					{/if}
+					Push job:
+					<a
+						target="_blank"
+						class="underline"
+						href={`/run/${pushJobId}?workspace=${$workspaceStore}`}
+					>
+						{pushJobId}
+					</a>
+				</div>
+			{/if}
 
 			<!-- Action row: Cancel on left, Preview/Confirm on right -->
 			<div class="flex justify-between items-center mt-4">
@@ -352,21 +354,23 @@
 						>
 							Preview
 						</Button>
-						<Button
-							color="red"
-							size="xs"
-							on:click={initializeRepo}
-							disabled={isPreviewLoading || isInitializing}
-							startIcon={{ icon: Save }}
-							title="Initialize Git Repo"
-						>
-							Confirm
-						</Button>
+						{#if previewResult.added?.length || previewResult.deleted?.length || previewResult.modified?.length}
+							<Button
+								color="red"
+								size="xs"
+								on:click={initializeRepo}
+								disabled={isPreviewLoading || isInitializing}
+								startIcon={{ icon: Save }}
+								title="Initialize Git Repo"
+							>
+								Push
+							</Button>
+						{/if}
 					{/if}
 				</div>
 			</div>
 
-			{#if initResult}
+			{#if initResult?.message}
 				<div class="mt-2">
 					<Alert
 						type={initResult.success ? 'success' : 'error'}
