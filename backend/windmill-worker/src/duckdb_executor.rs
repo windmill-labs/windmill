@@ -4,6 +4,7 @@ use rust_decimal::prelude::FromPrimitive;
 use rust_decimal::Decimal;
 use serde_json::json;
 use serde_json::value::RawValue;
+use uuid::Uuid;
 use windmill_common::error::{Error, Result};
 use windmill_common::s3_helpers::DuckdbConnectionSettingsQueryV2;
 use windmill_common::worker::{to_raw_value, Connection};
@@ -12,6 +13,7 @@ use windmill_queue::{CanceledBy, MiniPulledJob};
 
 use crate::common::{build_args_values, OccupancyMetrics};
 use crate::handle_child::run_future_with_polling_update_job_poller;
+use crate::pg_executor::PgDatabase;
 use crate::AuthedClient;
 
 fn do_duckdb_inner(
@@ -119,7 +121,18 @@ pub async fn do_duckdb(
         }
 
         let mut result = None;
-        for (query_block_index, query_block) in query_block_list.iter().enumerate() {
+        for (query_block_index, &query_block) in query_block_list.iter().enumerate() {
+            // Transform the query block if it is an ATTACH statement with a windmill resource
+            let transformed_attach_db_resource = match parse_attach_db_resource(query_block) {
+                Some(parsed) => {
+                    Some(transform_attach_db_resource_query(&parsed, &job.id, client).await?)
+                }
+                None => None,
+            };
+            let query_block = transformed_attach_db_resource
+                .as_ref()
+                .map_or(query_block, |s| s.as_str());
+
             result = Some(
                 do_duckdb_inner(
                     &conn,
@@ -329,4 +342,70 @@ fn string_to_duckdb_time(s: &str) -> Result<duckdb::types::Value> {
         TimeUnit::Microsecond,
         time.num_seconds_from_midnight() as i64,
     ))
+}
+
+struct ParsedAttachDbResource<'a> {
+    resource_path: &'a str,
+    name: &'a str,
+    db_type: &'a str,
+    extra_args: Option<&'a str>,
+}
+fn parse_attach_db_resource<'a>(query: &'a str) -> Option<ParsedAttachDbResource<'a>> {
+    lazy_static::lazy_static! {
+        static ref RE: regex::Regex = regex::Regex::new(r"ATTACH '\$res:([^']+)' AS (\S+) \(TYPE (\w+)(.*)\);").unwrap();
+    }
+
+    for cap in RE.captures_iter(query) {
+        if let (Some(resource_path), Some(name), Some(db_type)) =
+            (cap.get(1), cap.get(2), cap.get(3))
+        {
+            let extra_args = cap.get(4).map(|m| query[m.start()..m.end()].trim());
+            return Some(ParsedAttachDbResource {
+                resource_path: query[resource_path.start()..resource_path.end()].trim(),
+                name: query[name.start()..name.end()].trim(),
+                db_type: query[db_type.start()..db_type.end()].trim(),
+                extra_args,
+            });
+        }
+    }
+    None
+}
+
+async fn transform_attach_db_resource_query(
+    parsed: &ParsedAttachDbResource<'_>,
+    job_id: &Uuid,
+    client: &AuthedClient,
+) -> Result<String> {
+    match parsed.db_type {
+        "postgres" => {
+            let resource: PgDatabase = client
+                .get_resource_value_interpolated(parsed.resource_path, Some(job_id.to_string()))
+                .await?;
+
+            return Ok(format!(
+                "ATTACH 'dbname={} {} host={} {} {}' AS db (TYPE postgres{});",
+                resource.dbname,
+                resource
+                    .user
+                    .map(|u| format!("user={}", u))
+                    .unwrap_or_default(),
+                resource.host,
+                resource
+                    .password
+                    .map(|p| format!("password={}", p))
+                    .unwrap_or_default(),
+                resource
+                    .port
+                    .map(|p| format!("port={}", p))
+                    .unwrap_or_default(),
+                parsed.extra_args.unwrap_or("")
+            ));
+        }
+        _ => {
+            return Err(Error::ExecutionErr(format!(
+                "Unsupported db type in DuckDB ATTACH: {}",
+                parsed.db_type
+            )))
+        }
+    }
 }
