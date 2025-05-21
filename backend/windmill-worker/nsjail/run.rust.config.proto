@@ -96,6 +96,12 @@ mount {
 
 iface_no_lo: true
 
+mount {
+    src: "{CACHE_DIR}/{CACHE_HASH}"
+    dst: "/tmp/.cache/rust/{CACHE_HASH}"
+    is_bind: true
+    mandatory: false
+}
 
 {SHARED_MOUNT}
 
