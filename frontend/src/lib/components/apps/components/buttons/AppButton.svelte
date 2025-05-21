@@ -38,6 +38,9 @@
 	export let isMenuItem: boolean = false
 	export let noInitialize = false
 	export let replaceCallback: boolean = false
+	export let modalId: string | undefined = undefined
+	export let onSuccess: (() => void) | undefined = undefined
+	export let modalWrapperClass: string | undefined = undefined
 
 	export let controls: { left: () => boolean; right: () => boolean | string } | undefined =
 		undefined
@@ -214,6 +217,7 @@
 		if (iterContext && listInputs) {
 			listInputs.set(id, inputOutput)
 		}
+		onSuccess?.()
 	}}
 	refreshOnStart={resolvedConfig.triggerOnAppLoad}
 	{replaceCallback}
@@ -280,6 +284,8 @@
 				}
 				confirmedCallback = undefined
 			}}
+			{modalId}
+			wrapperClass={modalWrapperClass}
 		>
 			<div class="flex flex-col w-full space-y-4">
 				<span>
