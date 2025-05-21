@@ -336,12 +336,11 @@ impl PyV {
                 .env_clear()
                 .envs(WIN_ENVS.to_vec())
                 .args([
-                    "-V",
-                    // "python",
-                    // "list",
-                    // "--all-versions",
-                    // "--output-format",
-                    // "json",
+                    "python",
+                    "list",
+                    "--all-versions",
+                    "--output-format",
+                    "json",
                 ])
                 .stderr(Stdio::piped())
                 .output()
