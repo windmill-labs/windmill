@@ -110,7 +110,7 @@
 			</Button>
 		{/if}
 		{#if canSave && (isDraftOnly || hasDraft)}
-			<Tooltip placement="bottom-end">
+			<Tooltip placement="bottom-end" disablePopup={!saveDisabled && !cloudDisabled && isDeployed}>
 				<Button
 					size="xs"
 					startIcon={{ icon: Save }}

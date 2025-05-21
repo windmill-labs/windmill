@@ -455,10 +455,15 @@
 					}
 				})
 			}
+
+			const { draft_triggers: _, ...newSavedFlow } = $flowStore as OpenFlow & {
+				draft_triggers: Trigger[]
+			}
 			savedFlow = {
-				...structuredClone($flowStore),
+				...structuredClone(newSavedFlow),
 				path: $pathStore
 			} as Flow
+			console.log('dbg savedFlow', savedFlow)
 			triggersState.setTriggers([])
 			loadingSave = false
 			dispatch('deploy', $pathStore)
