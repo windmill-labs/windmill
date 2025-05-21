@@ -18,6 +18,7 @@
 	import HighlightCode from './HighlightCode.svelte'
 	import PickHubScript from './flows/pickers/PickHubScript.svelte'
 	import { getScriptByPath } from '$lib/scripts'
+	import { FitAddon } from '@xterm/addon-fit'
 	let bashEditorDrawer: Drawer | undefined = undefined
 
 	const WORKER_CMD_FLAG = 'worker '
@@ -125,8 +126,16 @@
 			rightClickSelectsWord: true
 		})
 
+		const fitAddon = new FitAddon()
+		term.loadAddon(fitAddon)
+
 		term.open(container)
+
+		fitAddon.fit()
 		printPrompt()
+
+		const resizeObserver = new ResizeObserver(() => fitAddon.fit())
+		resizeObserver.observe(container)
 		term.onData((char) => {
 			switch (char) {
 				case '\r':
@@ -149,14 +158,23 @@
 					break
 
 				case '\u007f': //Backspace
-					if (input.length > 0) {
+					if ((input.length === 1 && input.at(0) !== ' ') || input.length > 1) {
 						const buffer = term.buffer.active
-						if (buffer.cursorX == 0) {
-							term.write(`\x1b[1A\x1b[${term.cols}C`)
-						}
+						const cursorX = buffer.cursorX
+						const cursorY = buffer.cursorY
+
 						input = input.slice(0, -1)
-						term.write('\b \b')
+
+						if (cursorX === 0 && cursorY > 0) {
+							const prevLine = buffer.getLine(cursorY - 1)
+							const prevLineLength = prevLine ? prevLine.length : term.cols
+							term.write(`\x1b[1A\x1b[${prevLineLength}C`)
+						}
+
+						term.write('\x1b[D\x1b[P')
 					}
+					console.log({ input })
+
 					break
 
 				case '\x1b[A': // Up arrow
@@ -202,7 +220,8 @@
 
 	function clearPrompt() {
 		const buffer = term.buffer.active
-		for (let i = buffer.cursorY; i >= 0; i--) {
+		const lastLineIndex = buffer.baseY + buffer.cursorY
+		for (let i = lastLineIndex; i >= 0; i--) {
 			const line = buffer.getLine(i)
 
 			if (!line) break
