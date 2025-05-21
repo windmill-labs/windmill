@@ -6,7 +6,7 @@ on:
 
 jobs:
   check-and-prepare:
-    runs-on: ubicloud-standard-8
+    runs-on: ubicloud-standard-2
     if: |
       github.event_name == 'issue_comment' &&
       contains(github.event.comment.body, '/aider') &&

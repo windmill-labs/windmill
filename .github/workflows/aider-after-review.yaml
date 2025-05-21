@@ -7,7 +7,7 @@ on:
 jobs:
   check-and-prepare:
     if: github.event.review.state == 'changes_requested' && contains(github.event.pull_request.title, '[Aider PR]')
-    runs-on: ubicloud-standard-8
+    runs-on: ubicloud-standard-2
     permissions:
       contents: write
       pull-requests: write

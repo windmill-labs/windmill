@@ -6,7 +6,7 @@ on:
 
 jobs:
   check-and-prepare:
-    runs-on: ubicloud-standard-8
+    runs-on: ubicloud-standard-2
     permissions:
       contents: write
       pull-requests: write
