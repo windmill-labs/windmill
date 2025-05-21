@@ -4,7 +4,10 @@
 	import WindmillIcon from './icons/WindmillIcon.svelte'
 	import LoginPageHeader from './LoginPageHeader.svelte'
 
-	let { subtitle, title, disableLogo, large } = $props()
+	export let subtitle: string | undefined = undefined
+	export let title = 'Windmill'
+	export let disableLogo = false
+	export let large = false
 
 	setLicense()
 </script>
