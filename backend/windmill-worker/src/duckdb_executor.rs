@@ -2,8 +2,8 @@ use duckdb::types::TimeUnit;
 use duckdb::{params_from_iter, Row};
 use rust_decimal::prelude::FromPrimitive;
 use rust_decimal::Decimal;
-use serde_json::json;
 use serde_json::value::RawValue;
+use serde_json::{json, Value};
 use uuid::Uuid;
 use windmill_common::error::{Error, Result};
 use windmill_common::s3_helpers::DuckdbConnectionSettingsQueryV2;
@@ -122,7 +122,7 @@ pub async fn do_duckdb(
 
         let mut result = None;
         for (query_block_index, &query_block) in query_block_list.iter().enumerate() {
-            // Transform the query block if it is an ATTACH statement with a windmill resource
+            // Replace windmill resource ATTACH statements with the real instruction
             let transformed_attach_db_resource = match parse_attach_db_resource(query_block) {
                 Some(parsed) => {
                     Some(transform_attach_db_resource_query(&parsed, &job.id, client).await?)
@@ -376,14 +376,14 @@ async fn transform_attach_db_resource_query(
     job_id: &Uuid,
     client: &AuthedClient,
 ) -> Result<String> {
-    match parsed.db_type {
+    match parsed.db_type.to_lowercase().as_str() {
         "postgres" => {
             let resource: PgDatabase = client
                 .get_resource_value_interpolated(parsed.resource_path, Some(job_id.to_string()))
                 .await?;
 
-            return Ok(format!(
-                "ATTACH 'dbname={} {} host={} {} {}' AS db (TYPE postgres{});",
+            Ok(format!(
+                "ATTACH 'dbname={} {} host={} {} {}' AS {} (TYPE postgres{});",
                 resource.dbname,
                 resource
                     .user
@@ -398,14 +398,44 @@ async fn transform_attach_db_resource_query(
                     .port
                     .map(|p| format!("port={}", p))
                     .unwrap_or_default(),
+                parsed.name,
                 parsed.extra_args.unwrap_or("")
-            ));
+            ))
         }
-        _ => {
-            return Err(Error::ExecutionErr(format!(
-                "Unsupported db type in DuckDB ATTACH: {}",
-                parsed.db_type
-            )))
+        "bigquery" => {
+            let resource: Value = client
+                .get_resource_value_interpolated(parsed.resource_path, Some(job_id.to_string()))
+                .await?;
+            // duckdb's bigquery extension requires a json file as credentials
+            let credentials_path = format!("/tmp/{job_id}-service-account-credentials.json");
+            tokio::fs::write(&credentials_path, resource.to_string())
+                .await
+                .map_err(|e| {
+                    Error::ExecutionErr(format!(
+                        "Failed to write BigQuery credentials to {}: {}",
+                        credentials_path, e
+                    ))
+                })?;
+            let project_id: String = serde_json::from_value(
+                resource
+                    .get("project_id")
+                    .ok_or_else(|| {
+                        Error::ExecutionErr("BigQuery resource must contain project_id".to_string())
+                    })?
+                    .to_owned(),
+            )
+            .map_err(|_e| Error::ExecutionErr("failed project_id deserialize".to_string()))?;
+            Ok(format!(
+                "ATTACH 'project={}' as {} (TYPE bigquery{});",
+                project_id,
+                parsed.name,
+                parsed.extra_args.unwrap_or("")
+            )
+            .to_string())
         }
+        _ => Err(Error::ExecutionErr(format!(
+            "Unsupported db type in DuckDB ATTACH: {}",
+            parsed.db_type
+        ))),
     }
 }
