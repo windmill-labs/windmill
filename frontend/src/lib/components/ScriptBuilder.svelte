@@ -483,9 +483,19 @@
 			}
 			script.schema = script.schema ?? emptySchema()
 			try {
-				const result = await inferArgs(script.language, script.content, script.schema as any)
-				script.no_main_func = result?.no_main_func || undefined
-				script.has_preprocessor = result?.has_preprocessor || undefined
+				const result = await inferArgs(
+					script.language,
+					script.content,
+					script.schema as any,
+					script.kind === 'preprocessor' ? 'preprocessor' : undefined
+				)
+				if (script.kind === 'preprocessor') {
+					script.no_main_func = undefined
+					script.has_preprocessor = undefined
+				} else {
+					script.no_main_func = result?.no_main_func || undefined
+					script.has_preprocessor = result?.has_preprocessor || undefined
+				}
 			} catch (error) {
 				sendUserToast(`Could not parse code, are you sure it is valid?`, true)
 			}
@@ -551,8 +561,9 @@
 			if (!disableHistoryChange) {
 				history.replaceState(history.state, '', `/scripts/edit/${script.path}`)
 			}
-			if (stay) {
+			if (stay || script.kind !== 'script' || script.no_main_func) {
 				script.parent_hash = newHash
+				sendUserToast('Deployed')
 			} else {
 				dispatch('deploy', newHash)
 			}
@@ -594,9 +605,19 @@
 			}
 			script.schema = script.schema ?? emptySchema()
 			try {
-				const result = await inferArgs(script.language, script.content, script.schema as any)
-				script.no_main_func = result?.no_main_func || undefined
-				script.has_preprocessor = result?.has_preprocessor || undefined
+				const result = await inferArgs(
+					script.language,
+					script.content,
+					script.schema as any,
+					script.kind === 'preprocessor' ? 'preprocessor' : undefined
+				)
+				if (script.kind === 'preprocessor') {
+					script.no_main_func = undefined
+					script.has_preprocessor = undefined
+				} else {
+					script.no_main_func = result?.no_main_func || undefined
+					script.has_preprocessor = result?.has_preprocessor || undefined
+				}
 			} catch (error) {
 				sendUserToast(`Could not parse code, are you sure it is valid?`, true)
 			}
@@ -742,7 +763,7 @@
 									}
 								]
 							: []),
-						...(!script.draft_only
+						...(!script.draft_only && script.kind === 'script' && !script.no_main_func
 							? [
 									{
 										label: 'Exit & See details',
