@@ -7,7 +7,7 @@ on:
 jobs:
   check-and-prepare:
     if: github.event.review.state == 'changes_requested' && contains(github.event.pull_request.title, '[Aider PR]')
-    runs-on: ubicloud-standard-2
+    runs-on: ubicloud-standard-8
     permissions:
       contents: write
       pull-requests: write
@@ -71,6 +71,7 @@ jobs:
 
           echo "$COMPLETE_PROMPT"
 
+          # Use the proper multi-line output format
           echo "prompt_content<<EOF" >> $GITHUB_OUTPUT
           echo "$COMPLETE_PROMPT" >> $GITHUB_OUTPUT
           echo "EOF" >> $GITHUB_OUTPUT

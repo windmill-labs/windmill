@@ -6,7 +6,7 @@ on:
 
 jobs:
   check-and-prepare:
-    runs-on: ubicloud-standard-2
+    runs-on: ubicloud-standard-8
     if: |
       github.event_name == 'issue_comment' &&
       contains(github.event.comment.body, '/aider') &&
@@ -61,8 +61,6 @@ jobs:
       - name: Determine inputs for Aider
         id: determine_inputs
         shell: bash
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           echo "Determining inputs for Aider..."
           ISSUE_TITLE_VAL=""
@@ -125,6 +123,8 @@ jobs:
           echo "$COMMENT_CONTENT_VAL" >> "$GITHUB_OUTPUT"
           echo "EOF_AIDER_COMMENT" >> "$GITHUB_OUTPUT"
           echo "Finished determining inputs."
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} # Make sure gh cli has a token
 
   run-aider:
     needs: check-and-prepare
@@ -133,4 +133,5 @@ jobs:
       issue_title: ${{ needs.check-and-prepare.outputs.issue_title }}
       issue_body: ${{ needs.check-and-prepare.outputs.issue_body }}
       instruction: ${{ needs.check-and-prepare.outputs.comment_content }}
+      issue_id: ${{ github.event.issue.number }}
     secrets: inherit

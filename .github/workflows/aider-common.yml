@@ -15,6 +15,10 @@ on:
         description: "Instruction for Aider"
         required: false
         type: string
+      issue_id:
+        description: "ID of the issue or PR"
+        required: false
+        type: string
       needs_processing:
         description: "Whether the issue needs to be processed by the external API"
         required: false
@@ -62,6 +66,7 @@ jobs:
       GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       WINDMILL_TOKEN: ${{ secrets.WINDMILL_TOKEN }}
+      LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
 
     steps:
       - name: Harden Runner
@@ -92,11 +97,27 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-pip-
 
+      - name: Cache Aider installation
+        id: cache-aider
+        uses: actions/cache@v3
+        with:
+          path: ~/.local/bin/aider
+          key: ${{ runner.os }}-aider-install-${{ hashFiles('**/requirements.txt', '**/setup.py') }}
+          restore-keys: |
+            ${{ runner.os }}-aider-install-
+
       - name: Install Aider and Dependencies
         run: |
-          python -m pip install aider-install; aider-install
+          if [ -f ~/.local/bin/aider ] && [ -x ~/.local/bin/aider ]; then
+            echo "Using cached Aider installation"
+            export PATH="$HOME/.local/bin:$PATH"
+          else
+            echo "Installing Aider..."
+            python -m pip install aider-install; aider-install
+          fi
           pip install -U google-generativeai
           sudo apt-get update && sudo apt-get install -y jq
+          echo "$HOME/.local/bin" >> $GITHUB_PATH
 
       - name: Create Prompt for Aider
         id: create_prompt
@@ -225,7 +246,7 @@ jobs:
             --read .cursor/rules/windmill-overview.mdc \
             $FILES_TO_EDIT \
             --model gemini/gemini-2.5-pro-preview-05-06 \
-            --message-file .aider_final_prompt.txt \
+            --message "create a test file in backend/test.txt with hello world in it" \
             --yes \
             --no-check-update \
             --auto-commits \
@@ -245,9 +266,11 @@ jobs:
 
       - name: Commit and Push Changes
         id: commit_and_push
+        env:
+          ISSUE_ID: ${{ inputs.issue_id }}
         run: |
-          if [[ "${{ github.event_name }}" == 'issue_comment' ]]; then
-            BRANCH_NAME="aider-fix-issue-${{ github.event.issue.number }}"
+          if [[ "$ISSUE_ID" != "" ]]; then
+            BRANCH_NAME="aider-fix-issue-${ISSUE_ID}"
 
             # Check if branch exists remotely
             if git ls-remote --heads origin $BRANCH_NAME | grep -q $BRANCH_NAME; then
@@ -260,7 +283,7 @@ jobs:
               git checkout -b $BRANCH_NAME
             fi
 
-            echo "Created/checked out branch $BRANCH_NAME for issue #${{ github.event.issue.number }}"
+            echo "Created/checked out branch $BRANCH_NAME for issue #${ISSUE_ID}"
             git push origin $BRANCH_NAME
             echo "Pushed to branch $BRANCH_NAME"
             echo "PR_BRANCH_NAME=$BRANCH_NAME" >> $GITHUB_OUTPUT
@@ -292,13 +315,27 @@ jobs:
           fi
 
       - name: Create Pull Request
-        if: success() && github.event_name == 'issue_comment' && !github.event.issue.pull_request && steps.commit_and_push.outputs.PR_BRANCH_NAME != ''
+        if: always() && (github.event_name == 'issue_comment' || github.event_name == 'repository_dispatch') && !github.event.issue.pull_request && steps.commit_and_push.outputs.PR_BRANCH_NAME != ''
+        id: create_pr
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PR_BRANCH: ${{ steps.commit_and_push.outputs.PR_BRANCH_NAME }}
-          ISSUE_NUM: ${{ github.event.issue.number }}
+          ISSUE_NUM: ${{ inputs.issue_id }}
           ISSUE_TITLE: ${{ inputs.issue_title }}
         run: |
+          # Debug: Check latest commit and branch status
+          echo "Checking latest commit on branch $PR_BRANCH"
+          git log -1 --pretty=format:"%h - %an, %ar : %s"
+          echo "Changes not yet committed:"
+          git status --porcelain
+          # Check if there are any changes to commit
+          if [[ -n $(git status --porcelain) ]]; then
+            echo "Found uncommitted changes, committing them"
+            git add .
+            git commit -m "Aider changes for issue #${ISSUE_NUM}"
+            git push origin $PR_BRANCH
+          fi
+
           # Create PR description in a temporary file to avoid command line length limits and ensure it stays under 40k chars
           cat > /tmp/pr-description.md << EOL | head -c 40000
           This PR was created automatically by Aider to fix issue #${ISSUE_NUM}.
@@ -309,36 +346,51 @@ jobs:
           \`\`\`
           EOL
 
-          # Create PR using the file for the body content
+          # Create PR using the file for the body content, handle errors gracefully
+          set +e  # Don't exit on error
           gh pr create \
             --title "[Aider PR] Fix: ${ISSUE_TITLE}" \
             --body-file /tmp/pr-description.md \
             --head "$PR_BRANCH" \
             --base main
-          PR_URL=$(gh pr view $PR_BRANCH --json url --jq .url)
-          echo "PR_URL=$PR_URL" >> $GITHUB_OUTPUT
+          PR_CREATE_EXIT_CODE=$?
+          set -e  # Re-enable exit on error
+
+          if [ $PR_CREATE_EXIT_CODE -eq 0 ]; then
+            echo "PR created successfully"
+            PR_URL=$(gh pr view $PR_BRANCH --json url --jq .url)
+            echo "PR_URL=$PR_URL" >> $GITHUB_OUTPUT
+            echo "PR_CREATED=true" >> $GITHUB_OUTPUT
+          else
+            echo "Warning: Failed to create PR. Exit code: $PR_CREATE_EXIT_CODE"
+            echo "PR_CREATED=false" >> $GITHUB_OUTPUT
+            # Continue workflow despite PR creation failure
+          fi
 
       - name: Comment on PR with Aider Output
-        if: success() && github.event_name == 'pull_request_review' && steps.commit_and_push.outputs.CHANGES_APPLIED != ''
+        if: always() && github.event_name == 'pull_request_review' && steps.commit_and_push.outputs.CHANGES_APPLIED != ''
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PR_NUM: ${{ github.event.pull_request.number }}
+          JOB_STATUS: ${{ job.status }}
         run: |
           # Create comment body in a temporary file to avoid command line length limits
           if [[ "${{ steps.commit_and_push.outputs.CHANGES_APPLIED }}" == "true" ]]; then
-            cat > /tmp/pr-comment.md << EOL
-          🤖 I've automatically addressed the feedback based on the review.
-
-          ## Aider Output
-          \`\`\`
-          $(cat .aider_output.txt || echo 'No output available')
-          \`\`\`
-
-          Please review the changes and let me know if further adjustments are needed.
-          EOL
+            if [[ "$JOB_STATUS" == "success" ]]; then
+              STATUS_PREFIX="🤖 I've automatically addressed the feedback based on the review."
+            else
+              STATUS_PREFIX="⚠️ I attempted to address the feedback, but encountered some issues."
+            fi
           else
-            cat > /tmp/pr-comment.md << EOL
-          🤖 I attempted to address the review feedback, but no modifications were made.
+            if [[ "$JOB_STATUS" == "success" ]]; then
+              STATUS_PREFIX="🤖 I attempted to address the review feedback, but no modifications were made."
+            else
+              STATUS_PREFIX="⚠️ I encountered issues while attempting to address the feedback, and no modifications were made."
+            fi
+          fi
+
+          cat > /tmp/pr-comment.md << EOL
+          ${STATUS_PREFIX}
 
           ## Aider Output
           \`\`\`
@@ -347,16 +399,55 @@ jobs:
 
           Please review the output and provide additional guidance if needed.
           EOL
-          fi
 
           # Use the file for comment body
           gh pr comment $PR_NUM --body-file /tmp/pr-comment.md
 
       - name: Comment on issue/PR to let the user know Aider has finished working on the request
-        if: success() && github.event_name == 'issue_comment'
+        if: always() && github.event_name == 'issue_comment'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_REPOSITORY: ${{ github.repository }}
+          JOB_STATUS: ${{ job.status }}
+          PR_CREATED: ${{ steps.create_pr.outputs.PR_CREATED }}
         run: |
           echo "Commenting on issue/PR #${{ github.event.issue.number }} to let the user know Aider has finished working on the request."
-          gh issue comment ${{ github.event.issue.number }} --body "🤖 Aider has finished working on your request." --repo $GITHUB_REPOSITORY
+
+          if [[ "$JOB_STATUS" == "success" ]]; then
+            if [[ "$PR_CREATED" == "true" ]]; then
+              COMMENT_BODY="🤖 Aider has finished working on your request. A PR has been created."
+            else
+              COMMENT_BODY="🤖 Aider has finished working on your request, but was unable to create a PR."
+            fi
+          else
+            COMMENT_BODY="⚠️ Aider encountered issues while working on your request. Please check the workflow logs for details."
+          fi
+
+          gh issue comment ${{ github.event.issue.number }} --body "$COMMENT_BODY" --repo $GITHUB_REPOSITORY
+
+      - name: Comment on linear issue to let the user know Aider has finished working on the request
+        if: always() && github.event_name == 'repository_dispatch'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          JOB_STATUS: ${{ job.status }}
+          LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
+          PR_CREATED: ${{ steps.create_pr.outputs.PR_CREATED }}
+        run: |
+          echo "Commenting on linear issue #${{ github.event.client_payload.issue_id }} to let the user know Aider has finished working on the request."
+
+          if [[ "$JOB_STATUS" == "success" ]]; then
+            if [[ "$PR_CREATED" == "true" ]]; then
+              COMMENT_BODY="🤖 Aider has finished working on your request. A PR has been created."
+            else
+              COMMENT_BODY="🤖 Aider has finished working on your request, but was unable to create a PR."
+            fi
+          else
+            COMMENT_BODY="⚠️ Aider encountered issues while working on your request. Please check the workflow logs for details."
+          fi
+
+          curl -X POST \
+            -H "Authorization: $LINEAR_API_KEY" \
+            -H "Content-Type: application/json" \
+            "https://api.linear.app/graphql" \
+            -d "{\"query\":\"mutation { commentCreate(input: { issueId: \\\"${{ github.event.client_payload.issue_id }}\\\", body: \\\"${COMMENT_BODY}\\\" }) { success } }\"}"
