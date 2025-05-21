@@ -2,7 +2,6 @@ use std::env;
 
 use duckdb::types::TimeUnit;
 use duckdb::{params_from_iter, Row};
-use futures::TryFutureExt;
 use rust_decimal::prelude::FromPrimitive;
 use rust_decimal::Decimal;
 use serde_json::value::RawValue;
@@ -127,23 +126,26 @@ pub async fn do_duckdb(
                 .map_err(|e| Error::ConnectingToDatabase(e.to_string()))?;
         }
 
-        let mut result = None;
-        for (query_block_index, &query_block) in query_block_list.iter().enumerate() {
-            // Replace windmill resource ATTACH statements with the real instruction
-            let transformed_attach_db_resource = match parse_attach_db_resource(query_block) {
-                Some(parsed) => {
-                    Some(transform_attach_db_resource_query(&parsed, &job.id, client).await?)
-                }
-                None => None,
-            };
-            let query_block = transformed_attach_db_resource
-                .as_ref()
-                .map_or(query_block, |s| s.as_str());
+        // Replace windmill resource ATTACH statements with the real instructions
+        let query_block_list = {
+            let mut v = vec![];
+            for query_block in query_block_list.iter() {
+                match parse_attach_db_resource(query_block) {
+                    Some(parsed) => v.extend(
+                        transform_attach_db_resource_query(&parsed, &job.id, client).await?,
+                    ),
+                    None => v.push(query_block.to_string()),
+                };
+            }
+            v
+        };
 
+        let mut result = None;
+        for (query_block_index, query_block) in query_block_list.iter().enumerate() {
             result = Some(
                 do_duckdb_inner(
                     &conn,
-                    query_block,
+                    query_block.as_str(),
                     &job_args,
                     query_block_index != query_block_list.len() - 1,
                     column_order,
@@ -387,14 +389,14 @@ async fn transform_attach_db_resource_query(
     parsed: &ParsedAttachDbResource<'_>,
     job_id: &Uuid,
     client: &AuthedClient,
-) -> Result<String> {
+) -> Result<Vec<String>> {
     match parsed.db_type.to_lowercase().as_str() {
         "postgres" => {
             let resource: PgDatabase = client
                 .get_resource_value_interpolated(parsed.resource_path, Some(job_id.to_string()))
                 .await?;
 
-            Ok(format!(
+            let attach_str = format!(
                 "ATTACH 'dbname={} {} host={} {} {}' AS {} (TYPE postgres{});",
                 resource.dbname,
                 resource
@@ -412,7 +414,13 @@ async fn transform_attach_db_resource_query(
                     .unwrap_or_default(),
                 parsed.name,
                 parsed.extra_args.unwrap_or("")
-            ))
+            );
+
+            Ok(vec![
+                "INSTALL postgres;".to_string(),
+                "LOAD postgres;".to_string(),
+                attach_str,
+            ])
         }
         "bigquery" => {
             let resource: Value = client
@@ -437,13 +445,18 @@ async fn transform_attach_db_resource_query(
                     .to_owned(),
             )
             .map_err(|_e| Error::ExecutionErr("failed project_id deserialize".to_string()))?;
-            Ok(format!(
+            let attach_str = format!(
                 "ATTACH 'project={}' as {} (TYPE bigquery{});",
                 project_id,
                 parsed.name,
                 parsed.extra_args.unwrap_or("")
             )
-            .to_string())
+            .to_string();
+            Ok(vec![
+                "INSTALL bigquery FROM community;".to_string(),
+                "LOAD bigquery;".to_string(),
+                attach_str,
+            ])
         }
         _ => Err(Error::ExecutionErr(format!(
             "Unsupported db type in DuckDB ATTACH: {}",
