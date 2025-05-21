@@ -101,7 +101,7 @@
 								permission === 'deploy' ? 'hover:bg-surface-hover ' : ''
 							)}
 						>
-							<td class={twMerge('text-center py-1 px-4', isSelectedTrigger ? '' : 'opacity-80')}>
+							<td class={twMerge('text-center py-1 px-4')}>
 								<div class="flex flex-row items-center gap-2">
 									<div class="relative flex justify-center items-center">
 										<SvelteComponent
@@ -115,7 +115,7 @@
 										{/if}
 									</div>
 									<div class="flex grow min-w-0 items-center text-left">
-										<TriggerLabel {trigger} />
+										<TriggerLabel {trigger} discard={!isSelectedTrigger} />
 									</div>
 								</div>
 							</td>

@@ -2,7 +2,7 @@
 	import { getTriggerLabel, type Trigger } from './utils'
 	import { twMerge } from 'tailwind-merge'
 
-	let { trigger }: { trigger: Trigger } = $props()
+	let { trigger, discard }: { trigger: Trigger; discard?: boolean } = $props()
 
 	let label = $derived.by(() => getTriggerLabel(trigger))
 </script>
@@ -10,7 +10,8 @@
 <span
 	class={twMerge(
 		trigger.isDraft ? 'text-frost-400 italic dark:text-frost-200' : 'font-normal',
-		'truncate pr-1'
+		'truncate pr-1',
+		discard ? 'line-through' : ''
 	)}
 	title={label}
 >
