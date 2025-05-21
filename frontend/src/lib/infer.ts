@@ -151,6 +151,7 @@ export async function inferArgs(
 				]
 			}
 		} else if (language == 'duckdb') {
+			await initWasmRegex()
 			inferedSchema = JSON.parse(parse_duckdb(code))
 		} else if (language == 'snowflake') {
 			inferedSchema = JSON.parse(parse_snowflake(code))
