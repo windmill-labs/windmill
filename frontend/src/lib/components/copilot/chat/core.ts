@@ -60,6 +60,8 @@ const TS_RESOURCE_TYPE_SYSTEM = `On Windmill, credentials and configuration are 
 If you need credentials, you should add a parameter to \`main\` with the corresponding resource type inside the \`RT\` namespace: for instance \`RT.Stripe\`.
 You should only use them if you need them to satisfy the user's instructions. Always use the RT namespace.`
 
+const TS_INLINE_TYPE_INSTRUCTION = `You must always inline the objects types instead of defining them separately. If INSTRUCTIONS ask you to use an already defined type, you MUST inline it instead of using the type name. Explain to the user that you are inlining the type for better arguments inference.`
+
 const PYTHON_RESOURCE_TYPE_SYSTEM = `On Windmill, credentials and configuration are stored in resources and passed as parameters to main.
 If you need credentials, you should add a parameter to \`main\` with the corresponding resource type.
 You need to **redefine** the type of the resources that are needed before the main function as TypedDict, but only include them if they are actually needed to achieve the function purpose.
@@ -99,8 +101,9 @@ export function getLangContext(
 	const tsContext =
 		TS_RESOURCE_TYPE_SYSTEM +
 		(allowResourcesFetch
-			? `\nTo query the RT namespace, you can use the \`search_resource_types\` function.`
-			: '')
+			? `\nTo query the RT namespace, you can use the \`search_resource_types\` function.\n`
+			: '') +
+		TS_INLINE_TYPE_INSTRUCTION
 	switch (lang) {
 		case 'bunnative':
 		case 'nativets':
@@ -218,8 +221,6 @@ export const CHAT_SYSTEM_PROMPT = `
 
 	When the user requests code changes:
 	- Always include a **single code block** with the **entire updated file**, not just the modified sections.
-	- You MUST inline the objects types instead of defining them separately. If asked to use an already defined type, inline it instead of using the type name. Explain to the user that you are inlining the type for better arguments inference.
-		For example, use \`function example(param: { id: string, name: string })\` rather than defining a type and then using it like \`type ParamType = { id: string, name: string }; function example(param: ParamType)\`.
 	- The code can include \`[#START]\` and \`[#END]\` markers to indicate the start and end of a code piece. You MUST only modify the code between these markers if given, and remove them in your response. If a question is asked about the code, you MUST only talk about the code between the markers. Refer to it as the code piece, not the code between the markers.
 	- Follow the instructions carefully and explain the reasoning behind your changes.
 	- If the request is abstract (e.g., "make this cleaner"), interpret it concretely and reflect that in the code block.
