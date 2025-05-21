@@ -83,17 +83,14 @@ fn build_tls_connector(
     ssl_mode: SslMode,
     root_certificate_pem: Option<&String>,
 ) -> Result<Option<MakeTlsConnector>, Error> {
-    let get_tls_builder_for_verify = |root_certificate_pem: Option<&String>, r#type: &str| {
-        let pem = root_certificate_pem.ok_or_else(|| {
-            Error::Common(error::Error::BadConfig(format!(
-                "Missing root_certificate_pem for sslmode=verify-{}",
-                r#type
-            )))
-        })?;
+    let get_tls_builder_for_verify = |root_certificate: Option<&String>| {
         let mut builder = TlsConnector::builder();
-        let cert = Certificate::from_pem(pem.as_bytes())
-            .map_err(|e| Error::Common(error::Error::BadConfig(format!("Invalid Certs: {e:#}"))))?;
-        builder.add_root_certificate(cert);
+        if let Some(root_certificate) = root_certificate {
+            let root_certificate_pem = Certificate::from_pem(root_certificate.as_bytes()).map_err(|e| {
+                Error::Common(error::Error::BadConfig(format!("Invalid Certs: {e:#}")))
+            })?;
+            builder.add_root_certificate(root_certificate_pem);
+        }
         Ok::<_, Error>(builder)
     };
     let connector = match ssl_mode {
@@ -106,13 +103,13 @@ fn build_tls_connector(
         }
 
         SslMode::VerifyCa => {
-            let mut builder = get_tls_builder_for_verify(root_certificate_pem, "ca")?;
+            let mut builder = get_tls_builder_for_verify(root_certificate_pem)?;
             builder.danger_accept_invalid_hostnames(true);
             builder
         }
 
         SslMode::VerifyFull => {
-            let builder = get_tls_builder_for_verify(root_certificate_pem, "full")?;
+            let builder = get_tls_builder_for_verify(root_certificate_pem)?;
             builder
         }
         _ => unreachable!(),
