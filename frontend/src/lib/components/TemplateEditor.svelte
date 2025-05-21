@@ -399,7 +399,11 @@
 		}
 	}
 
+	let valueAfterDispose: string | undefined = undefined
 	export function getCode(): string {
+		if (valueAfterDispose != undefined) {
+			return valueAfterDispose
+		}
 		return editor?.getValue() ?? ''
 	}
 
@@ -622,6 +626,7 @@
 
 	onDestroy(() => {
 		try {
+			valueAfterDispose = getCode()
 			jsLoader && clearTimeout(jsLoader)
 			model && model.dispose()
 			editor && editor.dispose()
