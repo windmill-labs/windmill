@@ -7,13 +7,15 @@
 	export let disabled = false
 	export let headless = false
 	export let required = false
+	export let headerClass = ''
 </script>
 
 <div class={twMerge(disabled ? 'opacity-60 pointer-events-none' : '', $$props.class)}>
 	<div class="flex flex-row justify-between items-center w-full">
 		{#if !headless}
-			<div class="flex flex-row items-center gap-2">
-				<span class="{primary ? 'text-primary' : 'text-secondary'} text-sm leading-6"
+			<div class={twMerge('flex flex-row items-center gap-2', headerClass)}>
+				<span
+					class="{primary ? 'text-primary' : 'text-secondary'} text-sm leading-6 whitespace-nowrap"
 					>{label}
 					{#if required}
 						<Required required={true} />

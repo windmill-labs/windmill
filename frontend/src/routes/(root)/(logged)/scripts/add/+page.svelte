@@ -9,9 +9,9 @@
 	import { goto } from '$lib/navigation'
 	import { replaceState } from '$app/navigation'
 	import UnsavedConfirmationModal from '$lib/components/common/confirmationModal/UnsavedConfirmationModal.svelte'
-	import type { ScheduleTrigger } from '$lib/components/triggers'
 	import type { GetInitialAndModifiedValues } from '$lib/components/common/confirmationModal/unsavedTypes'
 	import { replaceScriptPlaceholderWithItsValues } from '$lib/hub'
+	import type { Trigger } from '$lib/components/triggers/utils'
 
 	// Default
 	let schema: Schema = emptySchema()
@@ -32,12 +32,10 @@
 	const initialState = $page.url.hash != '' ? $page.url.hash.slice(1) : undefined
 
 	let scriptBuilder: ScriptBuilder | undefined = undefined
-	let savedPrimarySchedule: ScheduleTrigger | undefined = undefined
 
 	function decodeStateAndHandleError(state) {
 		try {
 			const decoded = decodeState(state)
-			savedPrimarySchedule = decoded.primarySchedule
 			return decoded
 		} catch (e) {
 			console.error('Error decoding state', e)
@@ -62,7 +60,7 @@
 		}
 	}
 
-	let script: NewScript =
+	let script: NewScript & { draft_triggers: Trigger[] } =
 		!path && initialState != undefined ? decodeStateAndHandleError(initialState) : defaultScript()
 
 	async function loadTemplate(): Promise<void> {
@@ -122,7 +120,6 @@
 	searchParams={$page.url.searchParams}
 	{script}
 	{showMeta}
-	{savedPrimarySchedule}
 	replaceStateFn={(path) => replaceState(path, $page.state)}
 >
 	<UnsavedConfirmationModal {getInitialAndModifiedValues} />

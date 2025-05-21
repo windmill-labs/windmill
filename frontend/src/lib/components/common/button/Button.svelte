@@ -198,6 +198,7 @@
 					this={startIcon.icon}
 					class={twMerge(startIcon?.classes, iconOnlyPadding[size])}
 					size={lucideIconSize}
+					{...startIcon.props}
 				/>
 			{/if}
 
@@ -246,6 +247,7 @@
 					this={startIcon.icon}
 					class={twMerge(startIcon?.classes, iconOnlyPadding[size])}
 					size={lucideIconSize}
+					{...startIcon.props}
 				/>
 			{/if}
 
@@ -288,12 +290,13 @@
 				<div
 					class={twMerge(
 						buttonClass,
-						'rounded-md m-0 p-0 !w-10 center-center h-full',
+						'rounded-md m-0 p-0 center-center h-full',
 						variant === 'border' ? 'border-0 border-r border-y ' : 'border-0',
-						'rounded-r-md !rounded-l-none'
+						'rounded-r-md !rounded-l-none',
+						size === 'xs2' ? '!w-8' : '!w-10'
 					)}
 				>
-					<ChevronDown class="w-5 h-5" />
+					<ChevronDown size={lucideIconSize} />
 				</div>
 			</svelte:fragment>
 		</Dropdown>

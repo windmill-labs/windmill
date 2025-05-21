@@ -1,10 +1,8 @@
 <script lang="ts">
 	import Section from '$lib/components/Section.svelte'
-	import CaptureSection, { type CaptureInfo } from '../CaptureSection.svelte'
-	import CaptureTable from '../CaptureTable.svelte'
 	import Required from '$lib/components/Required.svelte'
 	import ResourcePicker from '$lib/components/ResourcePicker.svelte'
-	import { copyToClipboard, emptyStringTrimmed } from '$lib/utils'
+	import { emptyStringTrimmed } from '$lib/utils'
 	import TestTriggerConnection from '../TestTriggerConnection.svelte'
 	import Subsection from '$lib/components/Subsection.svelte'
 	import {
@@ -15,8 +13,6 @@
 	} from '$lib/gen'
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
-	import Label from '$lib/components/Label.svelte'
-	import ClipboardPanel from '$lib/components/details/ClipboardPanel.svelte'
 	import { base } from '$lib/base'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import { SELECT_INPUT_DEFAULT_STYLE } from '$lib/defaults'
@@ -24,15 +20,13 @@
 	import Select from '$lib/components/apps/svelte-select/lib/Select.svelte'
 	import { workspaceStore } from '$lib/stores'
 
-	import { Button } from '$lib/components/common'
-	import { ClipboardCopy, RefreshCw } from 'lucide-svelte'
+	import { Button, Url } from '$lib/components/common'
+	import { RefreshCw } from 'lucide-svelte'
 	import Alert from '$lib/components/common/alert/Alert.svelte'
+	import TestingBadge from '../testingBadge.svelte'
 
 	export let can_write: boolean = false
 	export let headless: boolean = false
-	export let showCapture: boolean = false
-	export let captureTable: CaptureTable | undefined = undefined
-	export let captureInfo: CaptureInfo | undefined = undefined
 	export let isValid: boolean = false
 	export let gcp_resource_path = ''
 	export let subscription_id = ''
@@ -40,16 +34,17 @@
 	export let delivery_type: DeliveryType | undefined = 'pull'
 	export let delivery_config: PushConfig | undefined
 	export let subscription_mode: SubscriptionMode = 'create_update'
-	export let base_endpoint: string = getBaseUrl(captureInfo)
-	export let path = captureInfo ? captureInfo.path : ''
+	export let base_endpoint: string = getBaseUrl()
+	export let path = ''
+	export let showTestingBadge: boolean = false
 
 	let topic_items: string[] = []
 	let subscription_items: string[] = []
 	let darkMode = false
 
 	const DEFAULT_PUSH_CONFIG: PushConfig = {
-		audience: '',
-		authenticate: false,
+		audience: getBaseUrl(),
+		authenticate: false
 	}
 
 	async function loadAllPubSubTopicsFromProject() {
@@ -76,7 +71,10 @@
 	export let cloud_subscription_id = ''
 	export let create_update_subscription_id = ''
 
-	$: isValid = !emptyStringTrimmed(gcp_resource_path) && !emptyStringTrimmed(topic_id)
+	$: isValid =
+		!emptyStringTrimmed(gcp_resource_path) &&
+		!emptyStringTrimmed(topic_id) &&
+		!emptyStringTrimmed(subscription_id)
 	$: if (!delivery_type) {
 		delivery_type = 'pull'
 	}
@@ -84,43 +82,28 @@
 		delivery_config = DEFAULT_PUSH_CONFIG
 	}
 
-	function getBaseUrl(captureInfo: CaptureInfo | undefined) {
-		if (captureInfo) {
-			return `${window.location.origin}${base}/api/w/${$workspaceStore}/capture_u/gcp/${
-				captureInfo.isFlow ? 'flow' : 'script'
-			}`
-		} else {
-			return `${window.location.origin}${base}/api/gcp/w/${$workspaceStore!}`
-		}
+	function getBaseUrl() {
+		return `${window.location.origin}${base}/api/gcp/w/${$workspaceStore!}`
 	}
 
-	$: !base_endpoint && (base_endpoint = getBaseUrl(captureInfo))
+	$: !base_endpoint && (base_endpoint = getBaseUrl())
+
+	$: {
+		if (emptyStringTrimmed(subscription_id) && !emptyStringTrimmed(path)) {
+			subscription_id = `windmill-${$workspaceStore!}-${path.replaceAll('/', '_')}`
+		}
+	}
 </script>
 
 <DarkModeObserver bind:darkMode />
 
 <div>
-	{#if showCapture && captureInfo}
-		{@const captureURL = `${base_endpoint}/${path}`}
-		<CaptureSection
-			captureType="gcp"
-			disabled={!isValid}
-			{captureInfo}
-			on:captureToggle
-			on:applyArgs
-			on:updateSchema
-			on:addPreprocessor
-			on:testWithArgs
-			bind:captureTable
-		>
-			{#if delivery_type === 'push'}
-				<Label label="URL">
-					<ClipboardPanel content={captureURL} disabled={!captureInfo.active} />
-				</Label>
-			{/if}
-		</CaptureSection>
-	{/if}
 	<Section label="GCP Pub/Sub" {headless}>
+		<svelte:fragment slot="header">
+			{#if showTestingBadge}
+				<TestingBadge />
+			{/if}
+		</svelte:fragment>
 		<div class="flex flex-col w-full gap-4">
 			<Subsection label="Connection setup">
 				<div class="flex flex-col gap-1 mt-2">
@@ -208,7 +191,7 @@
 						{#if subscription_mode === 'create_update'}
 							<Subsection
 								label="Subscription id"
-								tooltip="The unique identifier for the Pub/Sub subscription. Leave it empty to let the system automatically generate a subscription ID, or provide a custom one if needed."
+								tooltip="The unique identifier for the Pub/Sub subscription."
 							>
 								<div class="mt-2">
 									<input
@@ -248,28 +231,9 @@
 								</Subsection>
 								{#if delivery_type === 'push' && delivery_config}
 									<div class="flex flex-col gap-3 mt-1">
-										<Subsection
-											label="URL"
-											tooltip="The URL of the service that receives push messages."
-										>
-											<div class="flex gap-2">
-												<input
-													type="text"
-													autocomplete="off"
-													placeholder="URL"
-													disabled
-													value={`${base_endpoint}/${path}`}
-												/>
-												<Button
-													on:click={() => copyToClipboard(`${base_endpoint}/${path}`)}
-													color="dark"
-													size="xs"
-													startIcon={{ icon: ClipboardCopy }}
-												>
-													Copy URL
-												</Button>
-											</div>
-										</Subsection>
+										<div class="flex gap-2">
+											<Url url={`${base_endpoint}/${path}`} label="Production URL" />
+										</div>
 										<Subsection label="Authenticate">
 											<p class="text-xs mb-2 text-tertiary">
 												Enable Google Cloud authentication for push delivery using a verified token.<Required
@@ -329,9 +293,9 @@
 								</div>
 								<Alert title="Push Subscription URL Requirements" type="warning">
 									If the subscription uses <strong>push delivery</strong>, its endpoint URL must
-									match the following format: <strong>{base_endpoint}/*</strong>, meaning it must
-									start with
-									<strong>{base_endpoint}</strong> followed by any path segment.
+									match the following format: <strong>{`${base_endpoint}/${path}`}/*</strong>,
+									meaning it must start with
+									<strong>{`${base_endpoint}/${path}`}</strong> followed by any path segment.
 								</Alert>
 							</div>
 						{/if}
