@@ -98,7 +98,7 @@ async fn get_log_file(
     require_devops_role(&db, &email).await?;
     let path = path.to_path();
     #[cfg(feature = "parquet")]
-    let s3_client = windmill_common::s3_helpers::OBJECT_STORE_CACHE_SETTINGS
+    let s3_client = windmill_common::s3_helpers::OBJECT_STORE_SETTINGS
         .read()
         .await
         .clone();

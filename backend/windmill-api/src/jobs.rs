@@ -84,7 +84,7 @@ use windmill_common::{
 };
 
 #[cfg(all(feature = "enterprise", feature = "parquet"))]
-use windmill_common::s3_helpers::OBJECT_STORE_CACHE_SETTINGS;
+use windmill_common::s3_helpers::OBJECT_STORE_SETTINGS;
 #[cfg(feature = "prometheus")]
 use windmill_common::{METRICS_DEBUG_ENABLED, METRICS_ENABLED};
 
@@ -1058,7 +1058,7 @@ async fn get_logs_from_store(
     if log_offset > 0 {
         if let Some(file_index) = log_file_index.clone() {
             tracing::debug!("Getting logs from store: {file_index:?}");
-            if let Some(os) = OBJECT_STORE_CACHE_SETTINGS.read().await.clone() {
+            if let Some(os) = OBJECT_STORE_SETTINGS.read().await.clone() {
                 tracing::debug!("object store client present, streaming from there");
 
                 let logs = logs.to_string();
@@ -4961,7 +4961,7 @@ async fn run_bundle_preview_script(
             uploaded = true;
 
             #[cfg(all(feature = "enterprise", feature = "parquet"))]
-            let object_store = windmill_common::s3_helpers::OBJECT_STORE_CACHE_SETTINGS
+            let object_store = windmill_common::s3_helpers::OBJECT_STORE_SETTINGS
                 .read()
                 .await
                 .clone();
@@ -5662,7 +5662,7 @@ async fn get_log_file(Path((_w_id, file_p)): Path<(String, String)>) -> error::R
     }
 
     #[cfg(all(feature = "enterprise", feature = "parquet"))]
-    if let Some(os) = OBJECT_STORE_CACHE_SETTINGS.read().await.clone() {
+    if let Some(os) = OBJECT_STORE_SETTINGS.read().await.clone() {
         let file = os
             .get(&object_store::path::Path::from(format!("logs/{file_p}")))
             .await;

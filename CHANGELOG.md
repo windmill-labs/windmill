@@ -1,5 +1,43 @@
 # Changelog
 
+## [1.491.5](https://github.com/windmill-labs/windmill/compare/v1.491.4...v1.491.5) (2025-05-17)
+
+
+### Bug Fixes
+
+* improve handling of custom concurrency key/tag with preprocessors ([#5762](https://github.com/windmill-labs/windmill/issues/5762)) ([59afa49](https://github.com/windmill-labs/windmill/commit/59afa493fa20cc70b6825e6356713cef84d75312))
+* S3 sql mode returns S3Object ([#5764](https://github.com/windmill-labs/windmill/issues/5764)) ([b29c6e7](https://github.com/windmill-labs/windmill/commit/b29c6e7636bb21c4d977bdaf89ac90e2a1a1086c))
+
+## [1.491.4](https://github.com/windmill-labs/windmill/compare/v1.491.3...v1.491.4) (2025-05-15)
+
+
+### Bug Fixes
+
+* add v1 preprocessor support to workspace preprocessor script ([#5757](https://github.com/windmill-labs/windmill/issues/5757)) ([9b1c30e](https://github.com/windmill-labs/windmill/commit/9b1c30eeff35291ad50f3ddeb64831eac88e2f66))
+
+## [1.491.3](https://github.com/windmill-labs/windmill/compare/v1.491.2...v1.491.3) (2025-05-15)
+
+
+### Bug Fixes
+
+* **frontend:** fix accordeon tabs initialization ([f488903](https://github.com/windmill-labs/windmill/commit/f488903635a1457f839ca641ed4f8d0891ef8212))
+* http trigger routers cache version sequence ([#5755](https://github.com/windmill-labs/windmill/issues/5755)) ([d53bceb](https://github.com/windmill-labs/windmill/commit/d53bceb8004541b79d33220ae8de06d25521da91))
+
+## [1.491.2](https://github.com/windmill-labs/windmill/compare/v1.491.1...v1.491.2) (2025-05-15)
+
+
+### Bug Fixes
+
+* **cli:** --version improvement ([f8f2015](https://github.com/windmill-labs/windmill/commit/f8f201564f7a323eb96f6dc684a525a0784d41f2))
+* http trigger signature validation ([#5753](https://github.com/windmill-labs/windmill/issues/5753)) ([9e9514b](https://github.com/windmill-labs/windmill/commit/9e9514b9af2337e143a9e4cf1e915e1477032e80))
+* Improve indexer performance by factoring required queries to the DB # ([#5749](https://github.com/windmill-labs/windmill/issues/5749)) ([b12feaf](https://github.com/windmill-labs/windmill/commit/b12feaf50ae0ef03816719ff39157fcf55159dbf))
+* improve perf of job deletion ([0efba94](https://github.com/windmill-labs/windmill/commit/0efba945bac9b84a489c6ef552e834593f209fe1))
+
+
+### Performance Improvements
+
+* cache http trigger routers and auth ([#5748](https://github.com/windmill-labs/windmill/issues/5748)) ([ddd18d2](https://github.com/windmill-labs/windmill/commit/ddd18d22a615408a9f57f910d0a58f17e6d6e29d))
+
 ## [1.491.1](https://github.com/windmill-labs/windmill/compare/v1.491.0...v1.491.1) (2025-05-15)
 
 

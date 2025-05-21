@@ -84,7 +84,7 @@ use windmill_worker::{
 #[cfg(feature = "parquet")]
 use windmill_common::s3_helpers::{
     build_object_store_from_settings, build_s3_client_from_settings, S3Settings,
-    OBJECT_STORE_CACHE_SETTINGS,
+    OBJECT_STORE_SETTINGS,
 };
 
 #[cfg(feature = "parquet")]
@@ -632,7 +632,7 @@ async fn send_log_file_to_object_store(
         }
 
         #[cfg(feature = "parquet")]
-        let s3_client = OBJECT_STORE_CACHE_SETTINGS.read().await.clone();
+        let s3_client = OBJECT_STORE_SETTINGS.read().await.clone();
         #[cfg(feature = "parquet")]
         if let Some(s3_client) = s3_client {
             let path = std::path::Path::new(TMP_WINDMILL_LOGS_SERVICE)
@@ -834,7 +834,7 @@ pub async fn delete_expired_items(db: &DB) -> () {
             Ok(mut tx) => {
                 let deleted_jobs = sqlx::query_scalar!(
                     "DELETE FROM v2_job_completed c
-                    WHERE completed_at + ($1::bigint::text || ' s')::interval <= now()
+                    WHERE completed_at <= now() - ($1::bigint::text || ' s')::interval 
                     RETURNING c.id",
                     job_retention_secs
                 )
@@ -918,7 +918,7 @@ async fn delete_log_files_from_disk_and_store(
     _s3_prefix: &str,
 ) {
     #[cfg(feature = "parquet")]
-    let os = windmill_common::s3_helpers::OBJECT_STORE_CACHE_SETTINGS
+    let os = windmill_common::s3_helpers::OBJECT_STORE_SETTINGS
         .read()
         .await
         .clone();

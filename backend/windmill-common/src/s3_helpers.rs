@@ -46,9 +46,14 @@ use tokio::task;
 #[cfg(feature = "parquet")]
 use windmill_parser_sql::S3ModeFormat;
 
+struct ObjectStoreSettings {
+    store: Arc<dyn ObjectStore>,
+    expiration: Option<DateTime<Utc>>,
+}
+
 #[cfg(feature = "parquet")]
 lazy_static::lazy_static! {
-    pub static ref OBJECT_STORE_CACHE_SETTINGS: Arc<RwLock<Option<(Arc<dyn ObjectStore>, Option<DateTime<Utc>>)>>> = Arc::new(RwLock::new(None));
+    pub static ref OBJECT_STORE_SETTINGS: Arc<RwLock<Option<ObjectStoreSettings>>> = Arc::new(RwLock::new(None));
 }
 
 #[cfg(feature = "parquet")]
@@ -68,7 +73,7 @@ pub async fn reload_s3_cache_setting(db: &crate::DB) {
                 tracing::error!("S3 cache is not available for pro plan");
                 return;
             }
-            let mut s3_cache_settings = OBJECT_STORE_CACHE_SETTINGS.write().await;
+            let mut s3_cache_settings = OBJECT_STORE_SETTINGS.write().await;
             let setting = serde_json::from_value::<ObjectSettings>(v);
             if let Err(e) = setting {
                 tracing::error!("Error parsing s3 cache config: {:?}", e)
@@ -81,25 +86,29 @@ pub async fn reload_s3_cache_setting(db: &crate::DB) {
                 }
             }
         } else {
-            let mut s3_cache_settings = OBJECT_STORE_CACHE_SETTINGS.write().await;
+            let mut s3_cache_settings = OBJECT_STORE_SETTINGS.write().await;
             if std::env::var("S3_CACHE_BUCKET").is_ok() {
                 if matches!(get_license_plan().await, LicensePlan::Pro) {
                     tracing::error!("S3 cache is not available for pro plan");
                     return;
                 }
-                *s3_cache_settings = build_s3_client_from_settings(S3Settings {
-                    bucket: None,
-                    region: None,
-                    access_key: None,
-                    secret_key: None,
-                    endpoint: None,
-                    store_logs: None,
-                    path_style: None,
-                    allow_http: None,
-                    port: None,
-                })
+                *s3_cache_settings = build_s3_client_from_settings((
+                    Some(S3Settings {
+                        bucket: None,
+                        region: None,
+                        access_key: None,
+                        secret_key: None,
+                        endpoint: None,
+                        store_logs: None,
+                        path_style: None,
+                        allow_http: None,
+                        port: None,
+                    }),
+                    None,
+                ))
                 .await
-                .ok();
+                .ok()
+                .map(|x| (x, None))
             } else {
                 *s3_cache_settings = None;
             }
@@ -471,6 +480,15 @@ pub enum ObjectSettings {
     S3(S3Settings),
     Azure(AzureBlobResource),
     S3AwsOidc(S3AwsOidcResource),
+}
+
+impl ObjectSettings {
+    pub fn get_bucket(&self) -> Option<&String> {
+        match self {
+            ObjectSettings::S3(s3_settings) => s3_settings.bucket.as_ref(),
+            ObjectSettings::Azure(azure_settings) => Some(&azure_settings.container_name),
+        }
+    }
 }
 
 #[cfg(feature = "parquet")]

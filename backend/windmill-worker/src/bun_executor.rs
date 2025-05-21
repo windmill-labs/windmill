@@ -613,7 +613,7 @@ pub async fn pull_codebase(w_id: &str, id: &str, job_dir: &str) -> Result<()> {
         extract_saved_codebase(job_dir, &bun_cache_path, is_tar, &dst, false)?;
     } else {
         #[cfg(all(feature = "enterprise", feature = "parquet"))]
-        let object_store = windmill_common::s3_helpers::OBJECT_STORE_CACHE_SETTINGS
+        let object_store = windmill_common::s3_helpers::OBJECT_STORE_SETTINGS
             .read()
             .await
             .clone();

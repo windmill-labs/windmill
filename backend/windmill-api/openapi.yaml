@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.491.1
+  version: 1.491.5
   title: Windmill API
 
   contact:
@@ -11028,11 +11028,8 @@ paths:
           description: a config
           content:
             application/json:
-              type: object
               schema:
-                oneOf:
-                  - $ref: "#/components/schemas/Configs"
-                  - type: "null"
+                $ref: "#/components/schemas/Configs"
 
   /configs/update/{name}:
     post:
@@ -13211,6 +13208,7 @@ components:
 
     Configs:
       type: object
+      nullable: true
       properties:
         alerts:
           type: array
@@ -16318,6 +16316,7 @@ components:
               - schedule
               - user
               - group
+              - trigger
         repositories:
           type: array
           items:
@@ -16385,6 +16384,7 @@ components:
               - schedule
               - user
               - group
+              - trigger
       required:
         - script_path
         - git_repo_resource_path

@@ -407,7 +407,7 @@ async fn create_snapshot_script(
             uploaded = true;
 
             #[cfg(all(feature = "enterprise", feature = "parquet"))]
-            let object_store = windmill_common::s3_helpers::OBJECT_STORE_CACHE_SETTINGS
+            let object_store = windmill_common::s3_helpers::OBJECT_STORE_SETTINGS
                 .read()
                 .await
                 .clone();
