@@ -9,9 +9,9 @@ use serde_json::{json, Value};
 use tokio::fs::remove_file;
 use uuid::Uuid;
 use windmill_common::error::{self, to_anyhow, Error, Result};
-use windmill_common::s3_helpers::{DuckdbConnectionSettingsQueryV2, S3ResourceInfoQuery};
+use windmill_common::s3_helpers::{DuckdbConnectionSettingsQueryV2, S3Object, S3ResourceInfoQuery};
 use windmill_common::worker::{to_raw_value, Connection};
-use windmill_parser_sql::{parse_duckdb_sig, parse_s3_mode, parse_sql_blocks};
+use windmill_parser_sql::{parse_duckdb_sig, parse_sql_blocks};
 use windmill_queue::{CanceledBy, MiniPulledJob};
 
 use crate::common::{build_args_values, OccupancyMetrics};
@@ -87,63 +87,81 @@ pub async fn do_duckdb(
     column_order: &mut Option<Vec<String>>,
     occupancy_metrics: &mut OccupancyMetrics,
 ) -> Result<Box<RawValue>> {
-    let sig = parse_duckdb_sig(query)?.args;
-    let job_args = build_args_values(job, client, conn).await?;
-    let job_args = futures::future::try_join_all(sig.iter().map(async |sig_arg| {
-        let json_value = job_args
-            .get(&sig_arg.name)
-            .or_else(|| sig_arg.default.as_ref())
-            .unwrap_or_else(|| &json!(null));
-        let duckdb_value = json_value_to_duckdb_value(
-            json_value,
-            sig_arg
-                .otyp
-                .clone()
-                .unwrap_or_else(|| "text".to_string())
-                .as_str(),
-            client,
-        )
-        .await;
-        duckdb_value
-    }))
-    .await?;
-
-    let query_block_list = parse_sql_blocks(query);
-
-    // Replace windmill resource ATTACH statements with the real instructions
-    let query_block_list = {
-        let mut v = vec![];
-        for query_block in query_block_list.iter() {
-            match parse_attach_db_resource(query_block) {
-                Some(parsed) => {
-                    v.extend(transform_attach_db_resource_query(&parsed, &job.id, client).await?)
-                }
-                None => v.push(query_block.to_string()),
-            };
-        }
-        v
-    };
-
-    let bq_credentials_path = make_bq_credentials_path(&job.id);
-    env::set_var("GOOGLE_APPLICATION_CREDENTIALS", &bq_credentials_path);
-
     let result_f = async {
+        let mut s3_conn_strings: Vec<String> = vec![];
+
+        let sig = parse_duckdb_sig(query)?.args;
+        let mut job_args = build_args_values(job, client, conn).await?;
+        let job_args = {
+            let mut v: Vec<duckdb::types::Value> = vec![];
+            for sig_arg in sig.into_iter() {
+                let json_value = job_args
+                    .remove(&sig_arg.name)
+                    .or_else(|| sig_arg.default)
+                    .unwrap_or_else(|| json!(null));
+
+                if matches!(&sig_arg.otyp.as_ref().map(String::as_str), Some("s3object")) {
+                    let s3_obj = serde_json::from_value::<S3Object>(json_value).map_err(|e| {
+                        Error::ExecutionErr(format!("Failed to deserialize S3Object: {}", e))
+                    })?;
+                    let s3_info = client
+                        .get_s3_resource_info(&S3ResourceInfoQuery {
+                            s3_resource_path: None,
+                            storage: s3_obj.storage.clone(),
+                        })
+                        .await?;
+                    let s3_conn_str = client
+                        .get_duckdb_connection_settings(DuckdbConnectionSettingsQueryV2 {
+                            s3_resource_path: None,
+                            storage: s3_obj.storage,
+                        })
+                        .await?;
+
+                    let s3_obj_string = format!("s3://{}/{}", &s3_info.bucket, &s3_obj.s3);
+                    v.push(duckdb::types::Value::Text(s3_obj_string));
+                    s3_conn_strings.push(s3_conn_str.connection_settings_str);
+                } else {
+                    let duckdb_value = json_value_to_duckdb_value(
+                        &json_value,
+                        sig_arg
+                            .otyp
+                            .clone()
+                            .unwrap_or_else(|| "text".to_string())
+                            .as_str(),
+                        client,
+                    )?;
+                    v.push(duckdb_value);
+                }
+            }
+            v
+        };
+
+        let query_block_list = parse_sql_blocks(query);
+
+        // Replace windmill resource ATTACH statements with the real instructions
+        let query_block_list = {
+            let mut v = vec![];
+            for query_block in query_block_list.iter() {
+                match parse_attach_db_resource(query_block) {
+                    Some(parsed) => v.extend(
+                        transform_attach_db_resource_query(&parsed, &job.id, client).await?,
+                    ),
+                    None => v.push(query_block.to_string()),
+                };
+            }
+            v
+        };
+
+        let bq_credentials_path = make_bq_credentials_path(&job.id);
+        env::set_var("GOOGLE_APPLICATION_CREDENTIALS", &bq_credentials_path);
+
         let conn = duckdb::Connection::open_in_memory()
             .map_err(|e| Error::ConnectingToDatabase(e.to_string()))?;
 
-        if let Some(s3) = parse_s3_mode(query)? {
-            let s3_conn_str = client
-                .get_duckdb_connection_settings(DuckdbConnectionSettingsQueryV2 {
-                    s3_resource_path: None,
-                    storage: s3.storage,
-                })
-                .await?;
-            conn.execute_batch(s3_conn_str.connection_settings_str.as_str())
-                .map_err(|e| Error::ConnectingToDatabase(e.to_string()))?;
+        for s3_conn_string in s3_conn_strings {
+            conn.execute_batch(&s3_conn_string)
+                .map_err(|e| Error::ExecutionErr(e.to_string()))?;
         }
-
-        let conn = duckdb::Connection::open_in_memory()
-            .map_err(|e| Error::ConnectingToDatabase(e.to_string()))?;
 
         let mut result = None;
         for (query_block_index, query_block) in query_block_list.iter().enumerate() {
@@ -158,8 +176,12 @@ pub async fn do_duckdb(
                 .map_err(|e| Error::ExecutionErr(e.to_string()))?,
             );
         }
+        if matches!(tokio::fs::try_exists(&bq_credentials_path).await, Ok(true)) {
+            remove_file(&bq_credentials_path).await.map_err(to_anyhow)?;
+        }
         Ok(result.unwrap_or_else(|| to_raw_value(&json!([]))))
     };
+
     let result = run_future_with_polling_update_job_poller(
         job.id,
         job.timeout,
@@ -173,10 +195,6 @@ pub async fn do_duckdb(
         Box::pin(futures::stream::once(async { 0 })),
     )
     .await?;
-
-    if matches!(tokio::fs::try_exists(&bq_credentials_path).await, Ok(true)) {
-        remove_file(&bq_credentials_path).await.map_err(to_anyhow)?;
-    }
 
     Ok(result)
 }
@@ -259,7 +277,7 @@ fn row_to_value(row: &Row<'_>, column_names: &[String]) -> Result<Box<RawValue>>
     serde_json::value::to_raw_value(&obj).map_err(|e| e.into())
 }
 
-async fn json_value_to_duckdb_value(
+fn json_value_to_duckdb_value(
     json_value: &serde_json::Value,
     arg_type: &str,
     client: &AuthedClient,
@@ -319,44 +337,20 @@ async fn json_value_to_duckdb_value(
         }
 
         serde_json::Value::Array(arr) => duckdb::types::Value::Array(
-            futures::future::try_join_all(
-                arr.iter()
-                    .map(|val| json_value_to_duckdb_value(val, arg_type.as_str(), client)),
-            )
-            .await?,
+            arr.iter()
+                .map(|val| json_value_to_duckdb_value(val, arg_type.as_str(), client))
+                .collect::<Result<Vec<_>>>()?,
         ),
-
-        serde_json::Value::Object(map) if arg_type.as_str() == "s3object" => {
-            let object_key: String =
-                serde_json::from_value(map.get("s3").cloned().ok_or_else(|| {
-                    Error::ExecutionErr("S3Object must contain s3 key".to_string())
-                })?)
-                .map_err(|_e| Error::ExecutionErr("S3Object s3 key must be string".to_string()))?;
-            let storage: Option<String> = map
-                .get("storage")
-                .cloned()
-                .map(|s| {
-                    serde_json::from_value(s).map_err(|_e| {
-                        Error::ExecutionErr("S3Object storage key must be string".to_string())
-                    })
-                })
-                .transpose()?;
-            let bucket: String = client
-                .get_s3_resource_info(&S3ResourceInfoQuery { s3_resource_path: None, storage })
-                .await?
-                .bucket;
-
-            duckdb::types::Value::Text(format!("s3://{}/{}", bucket, object_key))
-        }
         serde_json::Value::Object(map) => duckdb::types::Value::Struct(
-            futures::future::try_join_all(map.iter().map(async |(k, v)| {
-                Ok::<_, error::Error>((
-                    k.clone(),
-                    json_value_to_duckdb_value(v, arg_type.as_str(), client).await?,
-                ))
-            }))
-            .await?
-            .into(),
+            map.iter()
+                .map(|(k, v)| {
+                    Ok::<_, error::Error>((
+                        k.clone(),
+                        json_value_to_duckdb_value(v, arg_type.as_str(), client)?,
+                    ))
+                })
+                .collect::<Result<Vec<_>>>()?
+                .into(),
         ),
 
         value @ _ => {
