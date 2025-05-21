@@ -1,15 +1,15 @@
 <script lang="ts">
-	import { IndexSearchService, type SearchJobsIndexResponse } from "$lib/gen"
-	import { enterpriseLicense, workspaceStore } from "$lib/stores"
-	import { sendUserToast } from "$lib/toast"
-	import { AlertTriangle, Loader2 } from "lucide-svelte"
-	import TimeAgo from "../TimeAgo.svelte"
-	import Popover from "../Popover.svelte"
-	import { Alert } from "../common"
-	import QuickMenuItem from "./QuickMenuItem.svelte"
-	import { goto } from "$app/navigation"
-	import { displayDateOnly } from "$lib/utils"
-	import JobPreview from "../runs/JobPreview.svelte"
+	import { IndexSearchService, type SearchJobsIndexResponse } from '$lib/gen'
+	import { enterpriseLicense, workspaceStore } from '$lib/stores'
+	import { sendUserToast } from '$lib/toast'
+	import { AlertTriangle, Loader2 } from 'lucide-svelte'
+	import TimeAgo from '../TimeAgo.svelte'
+	import Popover from '../Popover.svelte'
+	import { Alert } from '../common'
+	import QuickMenuItem from './QuickMenuItem.svelte'
+	import { goto } from '$app/navigation'
+	import { displayDateOnly } from '$lib/utils'
+	import JobPreview from '../runs/JobPreview.svelte'
 
 	let debounceTimeout: any = undefined
 	const debouncePeriod: number = 1000
@@ -19,7 +19,7 @@
 	let runSearchRemainingCount: number | undefined = $state(undefined)
 	let runSearchTotalCount: number | undefined = $state(undefined)
 	let indexMetadata: any = $state({})
-
+	let loadingMoreJobs: boolean = $state(false)
 
 	let {
 		mouseMoved = $bindable(),
@@ -36,35 +36,36 @@
 		selectedItem: any
 		queryParseErrors: string[]
 		open: boolean
-		loadedRuns: string | any[] | undefined
+		loadedRuns: any[] | undefined
 		selectItem: (idx: number) => any
 		emptySearch: boolean
 	}>()
 
-
 	export function handleRunSearch(searchTerm: string) {
+		clearTimeout(debounceTimeout)
+		loadingCompletedRuns = true
+		debounceTimeout = setTimeout(async () => {
 			clearTimeout(debounceTimeout)
-			loadingCompletedRuns = true
-			debounceTimeout = setTimeout(async () => {
-				clearTimeout(debounceTimeout)
-				let searchResults: SearchJobsIndexResponse
-				try {
-					searchResults = await IndexSearchService.searchJobsIndex({
-						searchQuery: searchTerm,
-						workspace: $workspaceStore!
-					})
-					loadedRuns = searchResults.hits
-					runSearchTotalCount = searchResults.hit_count
-					runSearchRemainingCount = searchResults.hit_count ?? 0 - (loadedRuns?.length ?? 0)
-					queryParseErrors = searchResults.query_parse_errors ?? []
-					indexMetadata = searchResults.index_metadata
-				} catch (e) {
-					sendUserToast(e.body, true)
+			let searchResults: SearchJobsIndexResponse
+			try {
+				searchResults = await IndexSearchService.searchJobsIndex({
+					searchQuery: searchTerm,
+					workspace: $workspaceStore!
+				})
+				loadedRuns = searchResults.hits
+				runSearchTotalCount = searchResults.hit_count
+				runSearchRemainingCount = (searchResults.hit_count ?? 0) - loadedRuns?.length
+				queryParseErrors = searchResults.query_parse_errors ?? []
+				indexMetadata = searchResults.index_metadata
+				if (runSearchRemainingCount > 0) {
+					loadedRuns.push({ search_id: 'opt:load_more_jobs' })
 				}
-				loadingCompletedRuns = false
-				selectedItem = selectItem(0)
-			}, debouncePeriod)
-
+			} catch (e) {
+				sendUserToast(e.body, true)
+			}
+			loadingCompletedRuns = false
+			selectedItem = selectItem(0)
+		}, debouncePeriod)
 	}
 </script>
 
@@ -82,66 +83,82 @@
 			</div>
 			<div class="overflow-y-auto">
 				{#each loadedRuns ?? [] as r}
-					<QuickMenuItem
-						on:select={() => {
-							selectedItem = r
-							selectedWorkspace = r?.document.workspace_id[0]
-						}}
-						on:keyboardOnlySelect={() => {
-							open = false
-							goto(`/run/${r?.document.id[0]}`)
-						}}
-						id={r?.document.id[0]}
-						hovered={selectedItem && r?.document.id[0] === selectedItem?.document.id[0]}
-						icon={r?.icon}
-						containerClass="rounded-md px-2 py-1 my-2"
-						bind:mouseMoved
-					>
-						<svelte:fragment slot="itemReplacement">
-							<div class="w-full flex flex-row items-center gap-4 transition-all">
-								<div
-									class="rounded-full w-2 h-2 {r?.document.success[0]
-										? 'bg-green-400'
-										: 'bg-red-400'}"
-								></div>
-								<div class="flex flex-col gap-2">
-									<div class="text-xs"> {r?.document.script_path} </div>
-									<div class="flex flex-row gap-2">
-										<div
-											class="whitespace-nowrap col-span-2 !text-tertiary !text-2xs overflow-hidden text-ellipsis flex-shrink text-center"
-										>
-											{displayDateOnly(new Date(r?.document.created_at[0]))}
-										</div>
-										<div
-											class="whitespace-nowrap col-span-2 !text-tertiary !text-2xs overflow-hidden text-ellipsis flex-shrink text-center"
-										>
-											<TimeAgo date={r?.document.created_at[0] ?? ''} />
+					{#if r.search_id === 'opt:load_more_jobs'}
+						<div class="pt-4"></div>
+						{#if loadingMoreJobs}
+							<div class="pl-8 pb-8 text-tertiary text-center">
+								<Loader2 size={20} class="animate-spin" />
+							</div>
+						{:else}
+							<QuickMenuItem
+								on:select={() => {
+									selectedItem = r
+									selectedWorkspace = undefined
+									sendUserToast('Loading more jobs', false)
+									loadingMoreJobs = true
+									setTimeout(() => {
+										loadingMoreJobs = false
+									}, 2000)
+								}}
+								id={'opt:load_more_jobs'}
+								hovered={selectedItem && r?.search_id === selectedItem?.search_id}
+								containerClass="rounded-md px-2 py-1 my-2"
+								bind:mouseMoved
+							>
+								<svelte:fragment slot="itemReplacement">
+									<div
+										class="py-2 w-full flex flex-row items-center gap-4 transition-all text-secondary text-sm"
+									>
+										Some other {runSearchRemainingCount} jobs matched the query. Click to load more.
+										<!-- Load more ({runSearchRemainingCount} other) -->
+										<!-- {runSearchRemainingCount} more documents also matched -->
+									</div>
+								</svelte:fragment>
+							</QuickMenuItem>
+						{/if}
+					{:else}
+						<QuickMenuItem
+							on:select={() => {
+								selectedItem = r
+								selectedWorkspace = r?.document.workspace_id[0]
+							}}
+							on:keyboardOnlySelect={() => {
+								open = false
+								goto(`/run/${r?.document.id[0]}`)
+							}}
+							id={r?.document.id[0]}
+							hovered={selectedItem && r?.search_id === selectedItem?.search_id}
+							icon={r?.icon}
+							containerClass="rounded-md px-2 py-1 my-2"
+							bind:mouseMoved
+						>
+							<svelte:fragment slot="itemReplacement">
+								<div class="w-full flex flex-row items-center gap-4 transition-all">
+									<div
+										class="rounded-full w-2 h-2 {r?.document.success[0]
+											? 'bg-green-400'
+											: 'bg-red-400'}"
+									></div>
+									<div class="flex flex-col gap-2">
+										<div class="text-xs"> {r?.document.script_path} </div>
+										<div class="flex flex-row gap-2">
+											<div
+												class="whitespace-nowrap col-span-2 !text-tertiary !text-2xs overflow-hidden text-ellipsis flex-shrink text-center"
+											>
+												{displayDateOnly(new Date(r?.document.created_at[0]))}
+											</div>
+											<div
+												class="whitespace-nowrap col-span-2 !text-tertiary !text-2xs overflow-hidden text-ellipsis flex-shrink text-center"
+											>
+												<TimeAgo date={r?.document.created_at[0] ?? ''} />
+											</div>
 										</div>
 									</div>
 								</div>
-							</div>
-						</svelte:fragment>
-					</QuickMenuItem>
+							</svelte:fragment>
+						</QuickMenuItem>
+					{/if}
 				{/each}
-				{#if runSearchRemainingCount && runSearchRemainingCount != 0}
-					<QuickMenuItem
-						on:select={() => {
-							selectedItem = undefined
-							selectedWorkspace = undefined
-							sendUserToast('Loading more jobs', true)
-						}}
-						id={'opt:load_more_jobs'}
-						hovered={selectedItem == undefined && selectedWorkspace == undefined}
-						containerClass="rounded-md px-2 py-1 my-2"
-						bind:mouseMoved
-					>
-						<svelte:fragment slot="itemReplacement">
-							<div class="w-full flex flex-row items-center gap-4 transition-all">
-								{runSearchRemainingCount} more documents also matched
-							</div>
-						</svelte:fragment>
-					</QuickMenuItem>
-				{/if}
 			</div>
 		</div>
 		<div class="w-8/12 max-h-[70vh]">
