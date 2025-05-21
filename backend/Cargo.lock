@@ -14443,6 +14443,7 @@ dependencies = [
  "sha2 0.10.9",
  "size",
  "sqlx",
+ "strum",
  "systemstat",
  "tikv-jemalloc-ctl",
  "tikv-jemalloc-sys",
@@ -14665,6 +14666,8 @@ dependencies = [
  "sha2 0.10.9",
  "size",
  "sqlx",
+ "strum",
+ "strum_macros",
  "systemstat",
  "tar",
  "tempfile",
@@ -14681,7 +14684,9 @@ dependencies = [
  "tracing-subscriber",
  "uuid",
  "windmill-macros",
+ "windmill-parser-py",
  "windmill-parser-sql",
+ "windmill-parser-ts",
 ]
 
 [[package]]

@@ -138,6 +138,7 @@ rustls.workspace = true
 pep440_rs.workspace = true
 systemstat.workspace = true
 size.workspace = true
+strum.workspace = true
 
 
 [target.'cfg(not(target_env = "msvc"))'.dependencies]
@@ -392,3 +393,5 @@ tree-sitter-c-sharp = "0.23.0"
 tree-sitter-java = "0.23.0"
 oracle = { version = "0.6.3", features = ["chrono"] }
 rumqttc = { version = "0.24.0", features = ["use-native-tls"]}
+strum = "^0"
+strum_macros = "^0"
