@@ -44,6 +44,7 @@ use windmill_common::{
     utils::{not_found_if_none, paginate, require_admin, Pagination, StripPath},
     worker::CLOUD_HOSTED,
 };
+use windmill_git_sync::handle_deployment_metadata;
 use windmill_queue::TriggerKind;
 
 lazy_static::lazy_static! {
@@ -397,6 +398,17 @@ async fn create_trigger(
 
     increase_trigger_version_and_commit(tx).await?;
 
+    handle_deployment_metadata(
+        &authed.email,
+        &authed.username,
+        &db,
+        &w_id,
+        windmill_git_sync::DeployedObject::HttpTrigger { path: ct.path.clone() },
+        Some(format!("HTTP trigger '{}' created", ct.path)),
+        true,
+    )
+    .await?;
+
     Ok((StatusCode::CREATED, format!("{}", ct.path)))
 }
 
@@ -544,20 +556,32 @@ async fn update_trigger(
         &mut *tx,
         &authed,
         "http_triggers.update",
-        ActionKind::Create,
+        ActionKind::Update,
         &w_id,
-        Some(path),
+        Some(&ct.path),
         None,
     )
     .await?;
 
     increase_trigger_version_and_commit(tx).await?;
 
-    Ok(path.to_string())
+    handle_deployment_metadata(
+        &authed.email,
+        &authed.username,
+        &db,
+        &w_id,
+        windmill_git_sync::DeployedObject::HttpTrigger { path: ct.path.clone() },
+        Some(format!("HTTP trigger '{}' updated", ct.path)),
+        true,
+    )
+    .await?;
+
+    Ok(ct.path.to_string())
 }
 
 async fn delete_trigger(
     authed: ApiAuthed,
+    Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
     Path((w_id, path)): Path<(String, StripPath)>,
 ) -> error::Result<String> {
@@ -586,6 +610,17 @@ async fn delete_trigger(
     .await?;
 
     increase_trigger_version_and_commit(tx).await?;
+
+    handle_deployment_metadata(
+        &authed.email,
+        &authed.username,
+        &db,
+        &w_id,
+        windmill_git_sync::DeployedObject::HttpTrigger { path: path.to_string() },
+        Some(format!("HTTP trigger '{}' deleted", path)),
+        true,
+    )
+    .await?;
 
     Ok(format!("HTTP trigger {path} deleted"))
 }

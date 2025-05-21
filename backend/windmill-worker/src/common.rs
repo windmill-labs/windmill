@@ -1606,6 +1606,14 @@ impl S3ModeWorkerData {
             )
             .await
     }
+
+    pub fn to_return_s3_obj(&self) -> windmill_common::s3_helpers::S3Object {
+        windmill_common::s3_helpers::S3Object {
+            s3: self.object_key.clone(),
+            storage: self.storage.clone(),
+            ..Default::default()
+        }
+    }
 }
 
 pub fn s3_mode_args_to_worker_data(

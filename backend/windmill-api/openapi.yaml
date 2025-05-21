@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.491.4
+  version: 1.491.5
   title: Windmill API
 
   contact:
@@ -16316,6 +16316,7 @@ components:
               - schedule
               - user
               - group
+              - trigger
         repositories:
           type: array
           items:
@@ -16383,6 +16384,7 @@ components:
               - schedule
               - user
               - group
+              - trigger
       required:
         - script_path
         - git_repo_resource_path

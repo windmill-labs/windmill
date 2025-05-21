@@ -112,7 +112,6 @@
 		updateOptions,
 		extToLang
 	} from '$lib/editorUtils'
-	import type { Disposable } from 'vscode'
 	import { workspaceStore } from '$lib/stores'
 	import { type Preview, ResourceService, UserService } from '$lib/gen'
 	import type { Text } from 'yjs'
@@ -144,7 +143,6 @@
 	import { setupTypeAcquisition, type DepsToGet } from '$lib/ata/index'
 	import { initWasmTs } from '$lib/infer'
 	import { initVim } from './monaco_keybindings'
-	import { buildWorkerDefinition } from '$lib/monaco_workers/build_workers'
 	import { parseTypescriptDeps } from '$lib/relative_imports'
 
 	import { scriptLangToEditorLang } from '$lib/scripts'
@@ -220,8 +218,6 @@
 
 	console.log('uri', uri)
 
-	buildWorkerDefinition()
-
 	function computeUri(filePath: string, scriptLang: string | undefined) {
 		let file
 		if (filePath.includes('.')) {
@@ -269,7 +265,11 @@
 		}
 	}
 
+	let valueAfterDispose: string | undefined = undefined
 	export function getCode(): string {
+		if (valueAfterDispose != undefined) {
+			return valueAfterDispose
+		}
 		return editor?.getValue() ?? ''
 	}
 
@@ -436,9 +436,9 @@
 		return scriptLang
 	}
 
-	let command: Disposable | undefined = undefined
+	let command: IDisposable | undefined = undefined
 
-	let sqlTypeCompletor: Disposable | undefined = undefined
+	let sqlTypeCompletor: IDisposable | undefined = undefined
 
 	$: initialized && lang === 'sql' && scriptLang
 		? addSqlTypeCompletions()
@@ -501,7 +501,7 @@
 		})
 	}
 
-	let sqlSchemaCompletor: Disposable | undefined = undefined
+	let sqlSchemaCompletor: IDisposable | undefined = undefined
 
 	function updateSchema() {
 		const newSchemaRes = lang === 'graphql' ? args?.api : args?.database
@@ -639,7 +639,7 @@
 
 	$: $reviewingChanges && autocompletor?.reject()
 
-	let completorDisposable: Disposable | undefined = undefined
+	let completorDisposable: IDisposable | undefined = undefined
 	let autocompletor: Autocompletor | undefined = undefined
 	function addSuperCompletor(editor: meditor.IStandaloneCodeEditor) {
 		try {
@@ -1495,6 +1495,7 @@
 
 	onDestroy(() => {
 		console.log('destroying editor')
+		valueAfterDispose = getCode()
 		destroyed = true
 		disposeMethod && disposeMethod()
 		websocketInterval && clearInterval(websocketInterval)

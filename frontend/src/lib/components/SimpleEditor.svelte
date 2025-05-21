@@ -2,7 +2,7 @@
 	let cssClassesLoaded = $state(false)
 	let tailwindClassesLoaded = $state(false)
 
-	// import '@codingame/monaco-vscode-standalone-languages'
+	import '@codingame/monaco-vscode-standalone-languages'
 	import '@codingame/monaco-vscode-standalone-json-language-features'
 	import '@codingame/monaco-vscode-standalone-css-language-features'
 	import '@codingame/monaco-vscode-standalone-typescript-language-features'
@@ -54,7 +54,6 @@
 		type IDisposable
 	} from 'monaco-editor'
 
-
 	import { allClasses } from './apps/editor/componentsPanel/cssUtils'
 
 	import { createEventDispatcher, onDestroy, onMount } from 'svelte'
@@ -65,7 +64,6 @@
 	import EditorTheme from './EditorTheme.svelte'
 	import { vimMode } from '$lib/stores'
 	import { initVim } from './monaco_keybindings'
-	import { buildWorkerDefinition } from '$lib/monaco_workers/build_workers'
 	import FakeMonacoPlaceHolder from './FakeMonacoPlaceHolder.svelte'
 	// import { createConfiguredEditor } from 'vscode/monaco'
 	// import type { IStandaloneCodeEditor } from 'vscode/vscode/vs/editor/standalone/browser/standaloneCodeEditor'
@@ -81,6 +79,7 @@
 	let placeholderVisible = $state(false)
 	let mounted = $state(false)
 
+	let valueAfterDispose: string | undefined = undefined
 	let {
 		lang,
 		code = $bindable(),
@@ -131,9 +130,10 @@
 
 	const uri = `file:///${hash}.${langToExt(lang)}`
 
-	buildWorkerDefinition()
-
 	export function getCode(): string {
+		if (valueAfterDispose != undefined) {
+			return valueAfterDispose
+		}
 		return editor?.getValue() ?? ''
 	}
 
@@ -410,6 +410,7 @@
 
 		editor.onDidBlurEditorText(() => {
 			dispatch('blur')
+
 			code = getCode()
 		})
 
@@ -539,6 +540,7 @@
 
 	onDestroy(() => {
 		try {
+			valueAfterDispose = getCode()
 			vimDisposable?.dispose()
 			model && model.dispose()
 			editor && editor.dispose()
