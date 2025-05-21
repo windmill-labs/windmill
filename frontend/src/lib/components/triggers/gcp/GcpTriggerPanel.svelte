@@ -28,15 +28,13 @@
 	onMount(() => {
 		gcpTriggerEditor && openGcpTriggerEditor(isFlow, selectedTrigger.isDraft ?? false)
 	})
+
+	const cloudDisabled = $derived(isCloudHosted())
 </script>
 
 {#if !$enterpriseLicense}
 	<Alert title="EE Only" type="warning" size="xs">
 		GCP Pub/Sub triggers are an enterprise only feature.
-	</Alert>
-{:else if isCloudHosted()}
-	<Alert title="Not compatible with multi-tenant cloud" type="warning" size="xs">
-		GCP Pub/Sub triggers are disabled in the multi-tenant cloud.
 	</Alert>
 {:else}
 	<div class="flex flex-col gap-4">
@@ -44,19 +42,26 @@
 			bind:this={gcpTriggerEditor}
 			useDrawer={false}
 			hideTarget
-			hideTooltips={!isDeployed}
+			hideTooltips={!isDeployed || cloudDisabled}
 			allowDraft={true}
 			hasDraft={!!selectedTrigger.draftConfig}
 			isDraftOnly={selectedTrigger.isDraft}
 			{customLabel}
 			{isDeployed}
+			{cloudDisabled}
 			{...restProps}
 		>
 			{#snippet description()}
-				<Description link="https://www.windmill.dev/docs/core_concepts/gcp_triggers">
-					GCP Pub/Sub triggers execute scripts and flows in response to messages published to Google
-					Cloud Pub/Sub topics.
-				</Description>
+				{#if cloudDisabled}
+					<Alert title="Not compatible with multi-tenant cloud" type="warning" size="xs">
+						GCP Pub/Sub triggers are disabled in the multi-tenant cloud.
+					</Alert>
+				{:else}
+					<Description link="https://www.windmill.dev/docs/core_concepts/gcp_triggers">
+						GCP Pub/Sub triggers execute scripts and flows in response to messages published to
+						Google Cloud Pub/Sub topics.
+					</Description>
+				{/if}
 			{/snippet}
 		</GcpTriggerEditorInner>
 	</div>

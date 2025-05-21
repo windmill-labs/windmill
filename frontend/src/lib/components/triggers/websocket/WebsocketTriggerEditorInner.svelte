@@ -41,6 +41,7 @@
 		hasDraft?: boolean
 		isDraftOnly?: boolean
 		isDeployed?: boolean
+		cloudDisabled?: boolean
 		customLabel?: Snippet
 		onConfigChange?: (cfg: Record<string, any>, saveDisabled: boolean, updated: boolean) => void
 		onCaptureConfigChange?: (cfg: Record<string, any>, isValid: boolean) => void
@@ -64,7 +65,8 @@
 		onCaptureConfigChange = undefined,
 		onUpdate = undefined,
 		onDelete = undefined,
-		onReset = undefined
+		onReset = undefined,
+		cloudDisabled = false
 	}: Props = $props()
 
 	let drawer: Drawer | undefined = $state()
@@ -353,6 +355,7 @@
 			{onDelete}
 			{onReset}
 			onToggleEnabled={handleToggleEnabled}
+			{cloudDisabled}
 		/>
 	{/if}
 {/snippet}

@@ -27,32 +27,35 @@
 	onMount(() => {
 		openWebsocketTriggerEditor(isFlow, selectedTrigger.isDraft ?? false)
 	})
+
+	const cloudDisabled = $derived(isCloudHosted())
 </script>
 
-{#if isCloudHosted()}
-	<Alert title="Not compatible with multi-tenant cloud" type="warning" size="xs">
-		WebSocket triggers are disabled in the multi-tenant cloud.
-	</Alert>
-{:else}
-	<div class="flex flex-col gap-4">
-		<WebsocketTriggerEditorInner
-			bind:this={wsTriggerEditor}
-			useDrawer={false}
-			hideTarget
-			hideTooltips={!isDeployed}
-			allowDraft={true}
-			hasDraft={!!selectedTrigger.draftConfig}
-			isDraftOnly={selectedTrigger.isDraft}
-			{customLabel}
-			{isDeployed}
-			{...restProps}
-		>
-			{#snippet description()}
+<div class="flex flex-col gap-4">
+	<WebsocketTriggerEditorInner
+		bind:this={wsTriggerEditor}
+		useDrawer={false}
+		hideTarget
+		hideTooltips={!isDeployed || cloudDisabled}
+		allowDraft={true}
+		hasDraft={!!selectedTrigger.draftConfig}
+		isDraftOnly={selectedTrigger.isDraft}
+		{customLabel}
+		{isDeployed}
+		{cloudDisabled}
+		{...restProps}
+	>
+		{#snippet description()}
+			{#if cloudDisabled}
+				<Alert title="Not compatible with multi-tenant cloud" type="warning" size="xs">
+					WebSocket triggers are disabled in the multi-tenant cloud.
+				</Alert>
+			{:else}
 				<Description link="https://www.windmill.dev/docs/core_concepts/websocket_triggers">
 					WebSocket triggers allow real-time bidirectional communication between your scripts/flows
 					and external systems. Each trigger creates a unique WebSocket endpoint.
 				</Description>
-			{/snippet}
-		</WebsocketTriggerEditorInner>
-	</div>
-{/if}
+			{/if}
+		{/snippet}
+	</WebsocketTriggerEditorInner>
+</div>

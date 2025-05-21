@@ -13,7 +13,8 @@
 	import { Plus } from 'lucide-svelte'
 	import Button from '../common/button/Button.svelte'
 	import TriggersWrapperV2 from './TriggersWrapper.svelte'
-	import { triggerTypeToCaptureKind, type TriggerType } from './utils'
+	import { triggerTypeToCaptureKind, type TriggerType, CLOUD_DISABLED_TRIGGER_TYPES } from './utils'
+	import { isCloudHosted } from '$lib/cloud'
 
 	interface Props {
 		noEditor: boolean
@@ -195,6 +196,11 @@
 		)
 		triggersState.selectedTriggerIndex = newTrigger
 	}
+
+	const cloudDisabled = $derived(
+		CLOUD_DISABLED_TRIGGER_TYPES.includes(triggersState.selectedTrigger?.type ?? '') &&
+			isCloudHosted()
+	)
 </script>
 
 <div bind:clientWidth={width} class="h-full w-full">
@@ -302,7 +308,7 @@
 					</div>
 				</div>
 			</Pane>
-			{#if triggersState.selectedTrigger && triggersState.selectedTrigger.type !== 'schedule' && triggersState.selectedTrigger.type != 'poll' && !noCapture}
+			{#if !cloudDisabled && triggersState.selectedTrigger && triggersState.selectedTrigger.type !== 'schedule' && triggersState.selectedTrigger.type != 'poll' && !noCapture}
 				{@const captureKind = triggersState.selectedTrigger
 					? triggerTypeToCaptureKind(triggersState.selectedTrigger.type)
 					: undefined}

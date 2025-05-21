@@ -29,15 +29,13 @@
 	onMount(() => {
 		sqsTriggerEditor && openSqsTriggerEditor(isFlow, selectedTrigger.isDraft ?? false)
 	})
+
+	const cloudDisabled = $derived(isCloudHosted())
 </script>
 
 {#if !$enterpriseLicense}
 	<Alert title="EE Only" type="warning" size="xs">
 		SQS triggers are an enterprise only feature.
-	</Alert>
-{:else if isCloudHosted()}
-	<Alert title="Not compatible with multi-tenant cloud" type="warning" size="xs">
-		SQS triggers are disabled in the multi-tenant cloud.
 	</Alert>
 {:else}
 	<div class="flex flex-col gap-4">
@@ -45,19 +43,26 @@
 			bind:this={sqsTriggerEditor}
 			useDrawer={false}
 			hideTarget
-			hideTooltips={!isDeployed}
+			hideTooltips={!isDeployed || cloudDisabled}
 			allowDraft={true}
 			hasDraft={!!selectedTrigger.draftConfig}
 			isDraftOnly={selectedTrigger.isDraft}
 			{customLabel}
 			{isDeployed}
+			{cloudDisabled}
 			{...props}
 		>
 			{#snippet description()}
-				<Description link="https://www.windmill.dev/docs/core_concepts/sqs_triggers">
-					SQS triggers allow you to execute scripts and flows in response to messages in an AWS SQS
-					queue. They can be configured to filter messages based on message attributes.
-				</Description>
+				{#if cloudDisabled}
+					<Alert title="Not compatible with multi-tenant cloud" type="warning" size="xs">
+						SQS triggers are disabled in the multi-tenant cloud.
+					</Alert>
+				{:else}
+					<Description link="https://www.windmill.dev/docs/core_concepts/sqs_triggers">
+						SQS triggers allow you to execute scripts and flows in response to messages in an AWS
+						SQS queue. They can be configured to filter messages based on message attributes.
+					</Description>
+				{/if}
 			{/snippet}
 		</SqsTriggerEditorInner>
 	</div>

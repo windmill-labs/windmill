@@ -1161,6 +1161,7 @@ export type Item = {
 	disabled?: boolean
 	type?: 'action' | 'delete'
 	hide?: boolean | undefined
+	extra?: Snippet
 }
 
 export function isObjectTooBig(obj: any): boolean {
@@ -1277,6 +1278,7 @@ export function getOS() {
 
 import { type ClassValue, clsx } from 'clsx'
 import { twMerge } from 'tailwind-merge'
+import type { Snippet } from 'svelte'
 
 export function cn(...inputs: ClassValue[]) {
 	return twMerge(clsx(inputs))

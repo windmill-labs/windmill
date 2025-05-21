@@ -3,6 +3,7 @@
 	import { Trash, Save, RotateCcw } from 'lucide-svelte'
 	import { type Snippet } from 'svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
+	import { Tooltip } from '../meltComponents'
 
 	interface Props {
 		isDraftOnly: any
@@ -19,6 +20,8 @@
 		onReset?: () => void
 		onToggleEnabled?: (enabled: boolean) => void
 		onUpdate?: () => void
+		cloudDisabled?: boolean
+		triggerType?: string
 	}
 
 	let {
@@ -35,7 +38,8 @@
 		onDelete,
 		onReset,
 		onToggleEnabled,
-		onUpdate
+		onUpdate,
+		cloudDisabled = false
 	}: Props = $props()
 
 	const canSave = $derived((permissions === 'write' && edit) || permissions === 'create')
@@ -105,18 +109,29 @@
 				Reset changes
 			</Button>
 		{/if}
-		{#if canSave && isDeployed && (isDraftOnly || hasDraft)}
-			<Button
-				size="xs"
-				startIcon={{ icon: Save }}
-				disabled={saveDisabled}
-				on:click={() => {
-					onUpdate?.()
-				}}
-				loading={isLoading}
-			>
-				{isDraftOnly ? 'Deploy' : 'Update'}
-			</Button>
+		{#if canSave && (isDraftOnly || hasDraft)}
+			<Tooltip placement="bottom-end">
+				<Button
+					size="xs"
+					startIcon={{ icon: Save }}
+					disabled={saveDisabled || cloudDisabled || !isDeployed}
+					on:click={() => {
+						onUpdate?.()
+					}}
+					loading={isLoading}
+				>
+					{isDraftOnly ? 'Deploy' : 'Update'}
+				</Button>
+				<span slot="text">
+					{#if !isDeployed}
+						Deploy the runnable to enable trigger creation
+					{:else if cloudDisabled}
+						This trigger is disabled in the multi-tenant cloud
+					{:else}
+						Enter a valid config to {isDraftOnly ? 'deploy' : 'update'} the trigger
+					{/if}
+				</span>
+			</Tooltip>
 		{/if}
 	</div>
 {/if}

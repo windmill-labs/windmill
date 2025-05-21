@@ -63,7 +63,8 @@
 		onCaptureConfigChange = undefined,
 		onUpdate = undefined,
 		onDelete = undefined,
-		onReset = undefined
+		onReset = undefined,
+		cloudDisabled = false
 	}: {
 		useDrawer?: boolean
 		description?: Snippet | undefined
@@ -80,6 +81,7 @@
 		onUpdate?: (path?: string) => void
 		onDelete?: () => void
 		onReset?: () => void
+		cloudDisabled?: boolean
 	} = $props()
 
 	const gcpConfig = $derived.by(getGcpConfig)
@@ -290,6 +292,7 @@
 			{onReset}
 			{onDelete}
 			onToggleEnabled={handleToggleEnabled}
+			{cloudDisabled}
 		/>
 	{/if}
 {/snippet}

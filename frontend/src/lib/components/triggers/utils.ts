@@ -20,6 +20,16 @@ import { saveGcpTriggerFromCfg } from './gcp/utils'
 import type { Triggers } from './triggers.svelte'
 import { emptyString } from '$lib/utils'
 
+export const CLOUD_DISABLED_TRIGGER_TYPES = [
+	'nats',
+	'kafka',
+	'sqs',
+	'mqtt',
+	'gcp',
+	'websocket',
+	'postgres'
+]
+
 export type TriggerType =
 	| 'webhook'
 	| 'email'

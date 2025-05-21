@@ -34,6 +34,7 @@
 		isDraftOnly?: boolean
 		customLabel?: Snippet
 		isDeployed?: boolean
+		cloudDisabled?: boolean
 		onConfigChange?: (cfg: Record<string, any>, saveDisabled: boolean, updated: boolean) => void
 		onCaptureConfigChange?: (cfg: Record<string, any>, isValid: boolean) => void
 		onUpdate?: (path?: string) => void
@@ -56,7 +57,8 @@
 		onCaptureConfigChange = undefined,
 		onUpdate = undefined,
 		onDelete = undefined,
-		onReset = undefined
+		onReset = undefined,
+		cloudDisabled = false
 	}: Props = $props()
 
 	let mqtt_resource_path: string = $state('')
@@ -303,6 +305,7 @@
 			{onReset}
 			{onDelete}
 			onToggleEnabled={handleToggleEnabled}
+			{cloudDisabled}
 		/>
 	{/if}
 {/snippet}

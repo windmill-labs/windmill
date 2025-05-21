@@ -28,15 +28,13 @@
 	onMount(() => {
 		natsTriggerEditor && openNatsTriggerEditor(isFlow, selectedTrigger.isDraft ?? false)
 	})
+
+	const cloudDisabled = $derived(isCloudHosted())
 </script>
 
 {#if !$enterpriseLicense}
 	<Alert title="EE Only" type="warning" size="xs">
 		NATS triggers are an enterprise only feature.
-	</Alert>
-{:else if isCloudHosted()}
-	<Alert title="Not compatible with multi-tenant cloud" type="warning" size="xs">
-		NATS triggers are disabled in the multi-tenant cloud.
 	</Alert>
 {:else}
 	<div class="flex flex-col gap-4">
@@ -51,13 +49,20 @@
 			isDraftOnly={selectedTrigger.isDraft}
 			{customLabel}
 			{isDeployed}
+			{cloudDisabled}
 			{...props}
 		>
 			{#snippet description()}
-				<Description link="https://www.windmill.dev/docs/core_concepts/nats_triggers">
-					NATS triggers allow you to execute scripts and flows in response to NATS messages. They
-					can be configured to listen to specific subjects and to use JetStream or not.
-				</Description>
+				{#if cloudDisabled}
+					<Alert title="Not compatible with multi-tenant cloud" type="warning" size="xs">
+						NATS triggers are disabled in the multi-tenant cloud.
+					</Alert>
+				{:else}
+					<Description link="https://www.windmill.dev/docs/core_concepts/nats_triggers">
+						NATS triggers allow you to execute scripts and flows in response to NATS messages. They
+						can be configured to listen to specific subjects and to use JetStream or not.
+					</Description>
+				{/if}
 			{/snippet}
 		</NatsTriggerEditorInner>
 	</div>

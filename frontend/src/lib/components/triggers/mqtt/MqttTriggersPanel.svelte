@@ -28,32 +28,35 @@
 	onMount(() => {
 		mqttTriggerEditor && openMqttTriggerEditor(isFlow, selectedTrigger.isDraft ?? false)
 	})
+
+	const cloudDisabled = $derived(isCloudHosted())
 </script>
 
-{#if isCloudHosted()}
-	<Alert title="Not compatible with multi-tenant cloud" type="warning" size="xs">
-		MQTT triggers are disabled in the multi-tenant cloud.
-	</Alert>
-{:else}
-	<div class="flex flex-col gap-4">
-		<MqttTriggerEditorInner
-			bind:this={mqttTriggerEditor}
-			useDrawer={false}
-			hideTarget
-			hideTooltips={!isDeployed}
-			allowDraft={true}
-			hasDraft={!!selectedTrigger.draftConfig}
-			isDraftOnly={selectedTrigger.isDraft}
-			{customLabel}
-			{isDeployed}
-			{...props}
-		>
-			{#snippet description()}
+<div class="flex flex-col gap-4">
+	<MqttTriggerEditorInner
+		bind:this={mqttTriggerEditor}
+		useDrawer={false}
+		hideTarget
+		hideTooltips={!isDeployed || cloudDisabled}
+		allowDraft={true}
+		hasDraft={!!selectedTrigger.draftConfig}
+		isDraftOnly={selectedTrigger.isDraft}
+		{customLabel}
+		{isDeployed}
+		{cloudDisabled}
+		{...props}
+	>
+		{#snippet description()}
+			{#if cloudDisabled}
+				<Alert title="Not compatible with multi-tenant cloud" type="warning" size="xs">
+					MQTT triggers are disabled in the multi-tenant cloud.
+				</Alert>
+			{:else}
 				<Description link="https://www.windmill.dev/docs/core_concepts/mqtt_triggers">
 					MQTT triggers allow you to execute scripts and flows in response to MQTT messages. They
 					can be configured to subscribe to specific topics with different QoS levels.
 				</Description>
-			{/snippet}
-		</MqttTriggerEditorInner>
-	</div>
-{/if}
+			{/if}
+		{/snippet}
+	</MqttTriggerEditorInner>
+</div>

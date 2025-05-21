@@ -30,35 +30,38 @@
 	onMount(() => {
 		postgresTriggerEditor && openPostgresTriggerEditor(isFlow, selectedTrigger.isDraft ?? false)
 	})
+
+	const cloudDisabled = $derived(isCloudHosted())
 </script>
 
-{#if isCloudHosted()}
-	<Alert title="Not compatible with multi-tenant cloud" type="warning" size="xs">
-		Postgres triggers are disabled in the multi-tenant cloud.
-	</Alert>
-{:else}
-	<div class="flex flex-col gap-4">
-		<PostgresTriggerEditorInner
-			bind:this={postgresTriggerEditor}
-			useDrawer={false}
-			hideTarget
-			hideTooltips={!isDeployed}
-			allowDraft={true}
-			hasDraft={!!selectedTrigger.draftConfig}
-			isDraftOnly={selectedTrigger.isDraft}
-			{isEditor}
-			{isDeployed}
-			{customLabel}
-			{...props}
-		>
-			{#snippet description()}
+<div class="flex flex-col gap-4">
+	<PostgresTriggerEditorInner
+		bind:this={postgresTriggerEditor}
+		useDrawer={false}
+		hideTarget
+		hideTooltips={!isDeployed || cloudDisabled}
+		allowDraft={true}
+		hasDraft={!!selectedTrigger.draftConfig}
+		isDraftOnly={selectedTrigger.isDraft}
+		{isEditor}
+		{isDeployed}
+		{cloudDisabled}
+		{customLabel}
+		{...props}
+	>
+		{#snippet description()}
+			{#if cloudDisabled}
+				<Alert title="Not compatible with multi-tenant cloud" type="warning" size="xs">
+					Postgres triggers are disabled in the multi-tenant cloud.
+				</Alert>
+			{:else}
 				<Description link="https://www.windmill.dev/docs/core_concepts/postgres_triggers">
 					Windmill can connect to a Postgres database and trigger runnables (scripts, flows) in
 					response to database transactions (INSERT, UPDATE, DELETE) on specified tables, schemas,
 					or the entire database. Listening is done using Postgres's logical replication streaming
 					protocol, ensuring efficient and low-latency triggering.
 				</Description>
-			{/snippet}
-		</PostgresTriggerEditorInner>
-	</div>
-{/if}
+			{/if}
+		{/snippet}
+	</PostgresTriggerEditorInner>
+</div>

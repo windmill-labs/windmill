@@ -28,6 +28,7 @@
 		isDraftOnly?: boolean
 		customLabel?: Snippet
 		isDeployed?: boolean
+		cloudDisabled?: boolean
 		onConfigChange?: (cfg: Record<string, any>, saveDisabled: boolean, updated: boolean) => void
 		onCaptureConfigChange?: (cfg: Record<string, any>, isValid: boolean) => void
 		onUpdate?: (path?: string) => void
@@ -46,6 +47,7 @@
 		isDraftOnly = false,
 		customLabel,
 		isDeployed = false,
+		cloudDisabled = false,
 		onConfigChange = undefined,
 		onCaptureConfigChange = undefined,
 		onUpdate = undefined,
@@ -292,6 +294,7 @@
 			{onReset}
 			{onDelete}
 			onToggleEnabled={handleToggleEnabled}
+			{cloudDisabled}
 		/>
 	{/if}
 {/snippet}
