@@ -68,7 +68,7 @@
 				val.path,
 				script.content,
 				script.language,
-				args,
+				mod.id === 'preprocessor' ? { _ENTRYPOINT_OVERRIDE: 'preprocessor', ...args } : args,
 				$flowStore?.tag ?? (val.tag_override ? val.tag_override : script.tag),
 				script.lock,
 				val.hash ?? script.hash

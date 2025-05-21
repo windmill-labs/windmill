@@ -24,14 +24,13 @@ use windmill_audit::{audit_ee::audit_log, ActionKind};
 use windmill_common::{
     db::UserDB,
     error::{self, to_anyhow, JsonResult},
+    triggers::TriggerKind,
     utils::{not_found_if_none, paginate, report_critical_error, Pagination, StripPath},
     worker::{to_raw_value, CLOUD_HOSTED},
     INSTANCE_NAME,
 };
 use windmill_git_sync::handle_deployment_metadata;
 use windmill_queue::PushArgsOwned;
-
-use windmill_queue::TriggerKind;
 
 use crate::{
     capture::{insert_capture_payload, WebsocketTriggerConfig},

@@ -147,7 +147,9 @@
 			path,
 			code,
 			lang,
-			selectedTab === 'preprocessor' ? { _ENTRYPOINT_OVERRIDE: 'preprocessor', ...args } : args,
+			selectedTab === 'preprocessor' || kind === 'preprocessor'
+				? { _ENTRYPOINT_OVERRIDE: 'preprocessor', ...args }
+				: args,
 			tag
 		)
 		setFocusToLogs()
@@ -171,13 +173,20 @@
 				nlang ?? lang,
 				code,
 				nschema,
-				selectedTab === 'preprocessor' ? 'preprocessor' : undefined
+				selectedTab === 'preprocessor' || kind === 'preprocessor' ? 'preprocessor' : undefined
 			)
-			hasPreprocessor =
-				(selectedTab === 'preprocessor' ? !result?.no_main_func : result?.has_preprocessor) ?? false
 
-			if (!hasPreprocessor && selectedTab === 'preprocessor') {
+			if (kind === 'preprocessor') {
+				hasPreprocessor = false
 				selectedTab = 'main'
+			} else {
+				hasPreprocessor =
+					(selectedTab === 'preprocessor' ? !result?.no_main_func : result?.has_preprocessor) ??
+					false
+
+				if (!hasPreprocessor && selectedTab === 'preprocessor') {
+					selectedTab = 'main'
+				}
 			}
 
 			validCode = true
