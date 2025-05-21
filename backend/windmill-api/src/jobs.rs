@@ -3722,8 +3722,6 @@ pub async fn run_script_by_path_inner(
             )
         };
 
-    tracing::info!("Payload: {:?}", job_payload);
-
     let (uuid, tx) = push(
         &db,
         tx,
