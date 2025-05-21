@@ -389,7 +389,7 @@ impl PyV {
             // If the command failed, print the error
             let stderr = String::from_utf8(output.stderr)?;
             bail!(
-                "Cannot list python versions, is uv installed? Err:\n{}",
+                "Cannot list python versions, is uv (0.5.19 and newer) installed? Err:\n{}",
                 stderr
             );
         }
