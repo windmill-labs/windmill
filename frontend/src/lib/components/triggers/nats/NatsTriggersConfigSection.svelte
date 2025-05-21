@@ -36,12 +36,6 @@
 		showTestingBadge = false
 	}: Props = $props()
 
-	let natsArgsCfg: Record<string, any> = $state({
-		subjects,
-		use_jetstream: useJetstream,
-		stream_name: streamName,
-		consumer_name: consumerName
-	})
 	let otherArgsValid = $state(false)
 	let globalError = $derived(
 		!useJetstream && subjects && subjects.length > 1
@@ -113,7 +107,7 @@
 		}
 	}
 
-	function updateFromArgs(args: Record<string, any>) {
+	function setNewArgs(args: Record<string, any>) {
 		subjects = args.subjects
 		useJetstream = args.use_jetstream
 		streamName = args.stream_name
@@ -123,9 +117,14 @@
 		}
 	}
 
-	$effect(() => {
-		updateFromArgs(natsArgsCfg)
-	})
+	function getNatsArgsCfg() {
+		return {
+			subjects,
+			use_jetstream: useJetstream,
+			stream_name: streamName,
+			consumer_name: consumerName
+		}
+	}
 </script>
 
 <div>
@@ -161,7 +160,7 @@
 				<Subsection headless={true}>
 					<SchemaForm
 						schema={argsSchema}
-						bind:args={natsArgsCfg}
+						bind:args={getNatsArgsCfg, (args) => setNewArgs(args)}
 						bind:isValid={otherArgsValid}
 						lightHeader={true}
 						disabled={!can_write}
