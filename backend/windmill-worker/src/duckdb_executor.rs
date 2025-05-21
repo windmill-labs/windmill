@@ -1,11 +1,15 @@
+use std::env;
+
 use duckdb::types::TimeUnit;
 use duckdb::{params_from_iter, Row};
+use futures::TryFutureExt;
 use rust_decimal::prelude::FromPrimitive;
 use rust_decimal::Decimal;
 use serde_json::value::RawValue;
 use serde_json::{json, Value};
+use tokio::fs::remove_file;
 use uuid::Uuid;
-use windmill_common::error::{Error, Result};
+use windmill_common::error::{to_anyhow, Error, Result};
 use windmill_common::s3_helpers::DuckdbConnectionSettingsQueryV2;
 use windmill_common::worker::{to_raw_value, Connection};
 use windmill_parser_sql::{parse_duckdb_sig, parse_s3_mode, parse_sql_blocks};
@@ -105,6 +109,9 @@ pub async fn do_duckdb(
 
     let query_block_list = parse_sql_blocks(query);
 
+    let bq_credentials_path = make_bq_credentials_path(&job.id);
+    env::set_var("GOOGLE_APPLICATION_CREDENTIALS", &bq_credentials_path);
+
     let result_f = async {
         let conn = duckdb::Connection::open_in_memory()
             .map_err(|e| Error::ConnectingToDatabase(e.to_string()))?;
@@ -159,6 +166,11 @@ pub async fn do_duckdb(
         Box::pin(futures::stream::once(async { 0 })),
     )
     .await?;
+
+    if matches!(tokio::fs::try_exists(&bq_credentials_path).await, Ok(true)) {
+        remove_file(&bq_credentials_path).await.map_err(to_anyhow)?;
+    }
+
     Ok(result)
 }
 
@@ -352,7 +364,7 @@ struct ParsedAttachDbResource<'a> {
 }
 fn parse_attach_db_resource<'a>(query: &'a str) -> Option<ParsedAttachDbResource<'a>> {
     lazy_static::lazy_static! {
-        static ref RE: regex::Regex = regex::Regex::new(r"ATTACH '\$res:([^']+)' AS (\S+) \(TYPE (\w+)(.*)\);").unwrap();
+        static ref RE: regex::Regex = regex::Regex::new(r"ATTACH '\$res:([^']+)' AS (\S+) \(TYPE (\w+)(.*)\)").unwrap();
     }
 
     for cap in RE.captures_iter(query) {
@@ -407,13 +419,13 @@ async fn transform_attach_db_resource_query(
                 .get_resource_value_interpolated(parsed.resource_path, Some(job_id.to_string()))
                 .await?;
             // duckdb's bigquery extension requires a json file as credentials
-            let credentials_path = format!("/tmp/{job_id}-service-account-credentials.json");
-            tokio::fs::write(&credentials_path, resource.to_string())
+            let bq_credentials_path = make_bq_credentials_path(job_id);
+            tokio::fs::write(&bq_credentials_path, resource.to_string())
                 .await
                 .map_err(|e| {
                     Error::ExecutionErr(format!(
                         "Failed to write BigQuery credentials to {}: {}",
-                        credentials_path, e
+                        &bq_credentials_path, e
                     ))
                 })?;
             let project_id: String = serde_json::from_value(
@@ -438,4 +450,12 @@ async fn transform_attach_db_resource_query(
             parsed.db_type
         ))),
     }
+}
+
+// BigQuery extension requires a json file as credentials
+// The file path is set as an env var by do_duckdb
+// It is created by transform_attach_db_resource_query (when bigquery is detected)
+// and deleted by do_duckdb after the query is executed
+fn make_bq_credentials_path(job_id: &Uuid) -> String {
+    format!("/tmp/service-account-credentials-{}.json", job_id)
 }
