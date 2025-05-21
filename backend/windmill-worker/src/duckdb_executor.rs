@@ -16,6 +16,7 @@ use windmill_queue::{CanceledBy, MiniPulledJob};
 
 use crate::common::{build_args_values, OccupancyMetrics};
 use crate::handle_child::run_future_with_polling_update_job_poller;
+use crate::mysql_executor::MysqlDatabase;
 use crate::pg_executor::PgDatabase;
 use crate::AuthedClient;
 
@@ -419,6 +420,41 @@ async fn transform_attach_db_resource_query(
             Ok(vec![
                 "INSTALL postgres;".to_string(),
                 "LOAD postgres;".to_string(),
+                attach_str,
+            ])
+        }
+        "mysql" => {
+            let resource: MysqlDatabase = client
+                .get_resource_value_interpolated(parsed.resource_path, Some(job_id.to_string()))
+                .await?;
+
+            let attach_str = format!(
+                "ATTACH 'database={} host={} ssl_mode={} {} {} {}' AS {} (TYPE mysql{});",
+                resource.database,
+                resource.host,
+                resource
+                    .ssl
+                    .map(|ssl| if ssl { "required" } else { "disabled" })
+                    .unwrap_or("preferred"),
+                resource
+                    .password
+                    .map(|p| format!("password={}", p))
+                    .unwrap_or_default(),
+                resource
+                    .port
+                    .map(|p| format!("port={}", p))
+                    .unwrap_or_default(),
+                resource
+                    .user
+                    .map(|u| format!("user={}", u))
+                    .unwrap_or_default(),
+                parsed.name,
+                parsed.extra_args.unwrap_or("")
+            );
+
+            Ok(vec![
+                "INSTALL mysql;".to_string(),
+                "LOAD mysql;".to_string(),
                 attach_str,
             ])
         }

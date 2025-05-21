@@ -32,13 +32,13 @@ use crate::{
 };
 
 #[derive(Deserialize)]
-struct MysqlDatabase {
-    host: String,
-    user: Option<String>,
-    password: Option<String>,
-    port: Option<u16>,
-    database: String,
-    ssl: Option<bool>,
+pub struct MysqlDatabase {
+    pub host: String,
+    pub user: Option<String>,
+    pub password: Option<String>,
+    pub port: Option<u16>,
+    pub database: String,
+    pub ssl: Option<bool>,
 }
 
 fn do_mysql_inner<'a>(
