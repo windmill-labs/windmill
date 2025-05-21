@@ -72,7 +72,7 @@
 	let switchModeItems: quickMenuItem[] = [
 		{
 			search_id: 'switchto:run-search',
-			label: 'Search across completed runs' + ($enterpriseLicense ? '' : ' (EE)'),
+			label: 'Search across completed runs' + (!$enterpriseLicense ? '' : ' (EE)'),
 			action: () => switchMode('runs'),
 			shortcutKey: RUNS_PREFIX,
 			icon: Search,
@@ -113,28 +113,28 @@
 		},
 		{
 			search_id: 'nav:kafka_triggers',
-			label: 'Go to Kafka triggers' + ($enterpriseLicense ? '' : ' (EE)'),
+			label: 'Go to Kafka triggers' + (!$enterpriseLicense ? '' : ' (EE)'),
 			action: () => gotoPage('/kafka_triggers'),
 			icon: KafkaIcon,
 			disabled: $userStore?.operator
 		},
 		{
 			search_id: 'nav:nats_triggers',
-			label: 'Go to NATS triggers' + ($enterpriseLicense ? '' : ' (EE)'),
+			label: 'Go to NATS triggers' + (!$enterpriseLicense ? '' : ' (EE)'),
 			action: () => gotoPage('/nats_triggers'),
 			icon: NatsIcon,
 			disabled: $userStore?.operator
 		},
 		{
 			search_id: 'nav:sqs_triggers',
-			label: 'Go to SQS triggers' + ($enterpriseLicense ? '' : ' (EE)'),
+			label: 'Go to SQS triggers' + (!$enterpriseLicense ? '' : ' (EE)'),
 			action: () => gotoPage('/sqs_triggers'),
 			icon: AwsIcon,
 			disabled: $userStore?.operator
 		},
 		{
 			search_id: 'nav:gcp_pub_sub',
-			label: 'Go to GCP Pub/Sub' + ($enterpriseLicense ? '' : ' (EE)'),
+			label: 'Go to GCP Pub/Sub' + (!$enterpriseLicense ? '' : ' (EE)'),
 			action: () => gotoPage('/gcp_triggers'),
 			icon: GoogleCloudIcon,
 			disabled: $userStore?.operator
