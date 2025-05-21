@@ -5,219 +5,68 @@ on:
     types: [external_issue_fix]
 
 jobs:
-  auto-fix:
-    runs-on: ubicloud-standard-8
+  check-and-prepare:
+    runs-on: ubicloud-standard-2
     permissions:
       contents: write
       pull-requests: write
-      issues: write
+    outputs:
+      issue_title: ${{ steps.determine_inputs.outputs.ISSUE_TITLE }}
+      issue_body: ${{ steps.determine_inputs.outputs.ISSUE_BODY }}
+      instruction: ${{ steps.determine_inputs.outputs.INSTRUCTION }}
     env:
       GEMINI_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
       GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
       GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       WINDMILL_TOKEN: ${{ secrets.WINDMILL_TOKEN }}
+      LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
 
     steps:
-      - name: Harden Runner
-        uses: step-security/harden-runner@v2
-        with:
-          egress-policy: audit
+      - name: Acknowledge Request
+        env:
+          LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
+        run: |
+          echo "Commenting on Linear issue #${{ github.event.client_payload.issue_id }} to acknowledge the request."
+          curl -X POST \
+            -H "Authorization: $LINEAR_API_KEY" \
+            -H "Content-Type: application/json" \
+            "https://api.linear.app/graphql" \
+            -d "{\"query\":\"mutation { commentCreate(input: { issueId: \\\"${{ github.event.client_payload.issue_id }}\\\", body: \\\"🤖 Aider is starting to work on your request. I'll update you here once I have a PR ready. Please be patient, this might take a few minutes.\\\" }) { success } }\"}"
 
-      - name: Check out code
+      - name: Checkout repository
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
 
-      - name: Configure Git User
-        run: |
-          git config --global user.name "github-actions[bot]"
-          git config --global user.email "github-actions[bot]@users.noreply.github.com"
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-
-      - name: Install Aider and Dependencies
-        run: |
-          python -m pip install aider-install; aider-install
-          pip install -U google-generativeai
-          sudo apt-get update && sudo apt-get install -y jq
-
-      - name: Create Prompt for Aider
-        id: create_prompt
+      - name: Determine inputs for Aider
+        id: determine_inputs
         shell: bash
         run: |
-          PROMPT_FILE_PATH=".github/aider/issue-prompt.txt"
-          mkdir -p .github/aider
+          echo "Determining inputs for Aider..."
+          ISSUE_TITLE_VAL="${{ github.event.client_payload.issue_title }}"
+          INSTRUCTION_VAL="${{ github.event.client_payload.instruction }}"
+          ISSUE_BODY_VAL=$(printf '%q' "${{ github.event.client_payload.issue_body }}")
+          echo "Setting GITHUB_OUTPUT for ISSUE_TITLE..."
+          echo "ISSUE_TITLE<<EOF_AIDER_TITLE" >> "$GITHUB_OUTPUT"
+          echo "$ISSUE_TITLE_VAL" >> "$GITHUB_OUTPUT"
+          echo "EOF_AIDER_TITLE" >> "$GITHUB_OUTPUT"
 
-          ISSUE_TITLE="${{ github.event.client_payload.issue_title }}"
-          INSTRUCTION="${{ github.event.client_payload.instruction }}"
-          ISSUE_BODY=$(printf '%q' "${{ github.event.client_payload.issue_body }}")
+          echo "Setting GITHUB_OUTPUT for ISSUE_BODY..."
+          echo "ISSUE_BODY<<EOF_AIDER_BODY" >> "$GITHUB_OUTPUT"
+          echo "$ISSUE_BODY_VAL" >> "$GITHUB_OUTPUT"
+          echo "EOF_AIDER_BODY" >> "$GITHUB_OUTPUT"
 
-          echo "Processing issue with title: $ISSUE_TITLE"
+          echo "Setting GITHUB_OUTPUT for INSTRUCTION..."
+          echo "INSTRUCTION<<EOF_AIDER_INSTRUCTION" >> "$GITHUB_OUTPUT"
+          echo "$INSTRUCTION_VAL" >> "$GITHUB_OUTPUT"
+          echo "EOF_AIDER_INSTRUCTION" >> "$GITHUB_OUTPUT"
+          echo "Finished determining inputs."
 
-          JSON_PAYLOAD=$(jq -n \
-            --arg title "$ISSUE_TITLE" \
-            --arg body "$ISSUE_BODY" \
-            '{"body":{"issue_title":$title,"issue_body":$body}}')
-
-          API_RESULT=$(curl -s -w "\n%{http_code}" \
-            -X POST "https://app.windmill.dev/api/w/windmill-labs/jobs/run_wait_result/p/f/ai/quiet_script" \
-            -H "Content-Type: application/json" \
-            -H "Authorization: Bearer $WINDMILL_TOKEN" \
-            --data-binary "$JSON_PAYLOAD" \
-            --max-time 90)
-
-          HTTP_CODE=$(echo "$API_RESULT" | tail -n1)
-          BODY=$(echo "$API_RESULT" | sed '$d')
-
-          echo "$BODY" > /tmp/api_response.txt
-
-          BASE_PROMPT="Try to fix the following issue based on the instruction given. The issue is prepended with the word ISSUE. The instruction is prepended with the word INSTRUCTION. The issue and instruction are separated by a blank line."
-          if [[ "$HTTP_CODE" -eq 200 ]]; then
-            PROCESSED_ISSUE_PROMPT=$(jq -r '.effective_body // empty' /tmp/api_response.txt)
-            if [[ -z "$PROCESSED_ISSUE_PROMPT" || "$PROCESSED_ISSUE_PROMPT" == "null" ]]; then
-              PROCESSED_ISSUE_PROMPT=""
-            fi
-            printf "%s\nISSUE:\n%s\nINSTRUCTION:\n%s" \
-              "$BASE_PROMPT" "$PROCESSED_ISSUE_PROMPT" "$INSTRUCTION" > "$PROMPT_FILE_PATH"
-          else
-            echo "::warning::API call failed (HTTP $HTTP_CODE). Using raw issue content."
-            printf "%s\nISSUE:\n%s\nINSTRUCTION:\n%s" \
-              "$BASE_PROMPT" "$ISSUE_BODY" "$INSTRUCTION" > "$PROMPT_FILE_PATH"
-          fi
-          rm -f /tmp/api_response.txt
-
-          echo "Prompt created and written to $PROMPT_FILE_PATH"
-          echo "PROMPT_FILE_PATH=$PROMPT_FILE_PATH" >> $GITHUB_OUTPUT
-
-          # Store the issue title for PR creation
-          ISSUE_TITLE_SAFE=$(echo "$ISSUE_TITLE" | tr -d '\n' | sed 's/"/\\"/g')
-          echo "ISSUE_TITLE=$ISSUE_TITLE_SAFE" >> $GITHUB_OUTPUT
-
-          # Generate unique branch name using timestamp and issue info
-          ISSUE_ID="${{ github.event.client_payload.issue_id }}"
-          BRANCH_NAME="aider-fix-linear-issue-$ISSUE_ID"
-          echo "BRANCH_NAME=$BRANCH_NAME" >> $GITHUB_OUTPUT
-
-      - name: Probe Chat for Relevant Files
-        id: probe_files
-        env:
-          PROMPT_CONTENT_FILE: ${{ steps.create_prompt.outputs.PROMPT_FILE_PATH }}
-        run: |
-          echo "Running probe-chat to find relevant files..."
-          if [[ ! -f "$PROMPT_CONTENT_FILE" ]]; then
-            echo "::error::Prompt file $PROMPT_CONTENT_FILE not found!"
-            exit 1
-          fi
-          PROMPT_CONTENT=$(cat "$PROMPT_CONTENT_FILE")
-          if [ -z "$PROMPT_CONTENT" ]; then
-             echo "::error::Prompt content is empty!"
-             exit 1
-          fi
-
-          PROMPT_ESCAPED=$(jq -Rs . <<< "$PROMPT_CONTENT")
-
-          MESSAGE_FOR_PROBE=$(jq -n --arg prompt_escaped "$PROMPT_ESCAPED" \
-            '{ "message": "I'\''m giving you a request that needs to be implemented. Your role is ONLY to give me the files that are relevant to the request and nothing else. The request is prepended with the word REQUEST.\\nREQUEST: \($prompt_escaped). Give me all the files relevant to this request. Your output MUST be a single json array that can be parsed with programatic json parsing, with the relevant files. Files can be rust or typescript or javascript files. DO NOT INCLUDE ANY OTHER TEXT IN YOUR OUTPUT. ONLY THE JSON ARRAY. Example of output: [\"file1.py\", \"file2.py\"]" }' | jq -r .message)
-
-          set -o pipefail
-          PROBE_OUTPUT=$(npx --yes @buger/probe-chat@latest --max-iterations 50 --model-name gemini-2.5-pro-preview-05-06 --message "$MESSAGE_FOR_PROBE") || {
-            echo "::error::probe-chat command failed. Output:"
-            echo "$PROBE_OUTPUT"
-            exit 1
-          }
-          set +o pipefail
-          echo "Probe-chat raw output:"
-          echo "$PROBE_OUTPUT"
-
-          JSON_FILES=$(echo "$PROBE_OUTPUT" | sed -n '/^\s*\[/,$p' | sed '/^\s*\]/q')
-          echo "Extracted JSON block:"
-          echo "$JSON_FILES"
-
-          FILES_LIST=$(echo "$JSON_FILES" | jq -e -r '[.[] | select(type == "string" and . != "" and . != null and (endswith("/") | not))] | map(@sh) | join(" ")' || echo "")
-
-          if [[ -z "$FILES_LIST" ]]; then
-             echo "::warning::probe-chat did not identify any relevant files."
-             exit 1
-          fi
-
-          echo "Formatted files list for aider: $FILES_LIST"
-          echo "FILES_TO_EDIT=$FILES_LIST" >> $GITHUB_ENV
-
-      - name: Run Aider with external prompt
-        run: |
-          echo "Files identified by probe-chat: ${{ env.FILES_TO_EDIT }}"
-          aider \
-            --read CLAUDE.md \
-            --read backend/CLAUDE.md \
-            --read frontend/CLAUDE.md \
-            ${{ env.FILES_TO_EDIT }} \
-            --model gemini/gemini-2.5-pro-preview-05-06 \
-            --message-file .github/aider/issue-prompt.txt \
-            --yes \
-            --no-check-update \
-            --auto-commits \
-            --no-analytics \
-            --no-gitignore \
-            | tee .github/aider/aider-output.txt || true
-          echo "Aider command completed. Output saved to .github/aider/aider-output.txt"
-
-      - name: Clean up prompt file
-        if: always()
-        run: rm -f .github/aider/issue-prompt.txt
-
-      - name: Commit and Push Changes
-        id: commit_and_push
-        if: ${{ success() }}
-        run: |
-          BRANCH_NAME="${{ steps.create_prompt.outputs.BRANCH_NAME }}"
-
-          # Check if branch exists remotely
-          if git ls-remote --heads origin $BRANCH_NAME | grep -q $BRANCH_NAME; then
-            echo "Branch $BRANCH_NAME already exists remotely, fetching it"
-            git fetch origin $BRANCH_NAME
-            git checkout $BRANCH_NAME
-            git pull origin $BRANCH_NAME
-          else
-            echo "Creating new branch $BRANCH_NAME"
-            git checkout -b $BRANCH_NAME
-          fi
-
-          # Check if there are any changes to commit
-          if git diff --quiet && git diff --staged --quiet; then
-            echo "No changes to commit"
-          else
-            git commit -am "Auto-fix using Aider for external issue [skip ci]" || echo "No changes to commit"
-          fi
-
-          git push origin $BRANCH_NAME
-          echo "Pushed to branch $BRANCH_NAME"
-          echo "PR_BRANCH_NAME=$BRANCH_NAME" >> $GITHUB_OUTPUT
-
-      - name: Create Pull Request
-        if: success() && steps.commit_and_push.outputs.PR_BRANCH_NAME != ''
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          PR_BRANCH: ${{ steps.commit_and_push.outputs.PR_BRANCH_NAME }}
-          ISSUE_TITLE: ${{ steps.create_prompt.outputs.ISSUE_TITLE }}
-          ISSUE_ID: ${{ github.event.client_payload.issue_id }}
-        run: |
-          # Create PR description in a temporary file to avoid command line length limits
-          cat > /tmp/pr-description.md << EOL
-          This PR was created automatically by Aider to fix an external issue: ${ISSUE_TITLE}
-
-          ## Aider Output
-          \`\`\`
-          $(cat .github/aider/aider-output.txt || echo "No output available")
-          \`\`\`
-          EOL
-
-          # Create PR using the file for the body content
-          gh pr create \
-            --title "[Aider PR] Fix: ${ISSUE_TITLE}" \
-            --body-file /tmp/pr-description.md \
-            --head "$PR_BRANCH" \
-            --base main || echo "PR already exists or couldn't be created"
+  run-aider:
+    needs: check-and-prepare
+    uses: ./.github/workflows/aider-common.yml
+    with:
+      issue_title: ${{ needs.check-and-prepare.outputs.issue_title }}
+      issue_body: ${{ needs.check-and-prepare.outputs.issue_body }}
+      instruction: ${{ needs.check-and-prepare.outputs.instruction }}
+      issue_id: ${{ github.event.client_payload.issue_id }}
+    secrets: inherit
