@@ -36,28 +36,6 @@ jobs:
           echo "Commenting on issue/PR #${{ github.event.issue.number }} to acknowledge the /aider command."
           gh issue comment ${{ github.event.issue.number }} --body "🤖 Aider is starting to work on your request. I'll update you here once I have a PR ready. Please be patient, this might take a few minutes." --repo $GITHUB_REPOSITORY
 
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Checkout PR Branch
-        id: checkout_pr
-        if: github.event_name == 'issue_comment' && github.event.issue.pull_request
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          echo "Issue comment trigger: Checking out PR branch..."
-          PR_NUMBER=${{ github.event.issue.number }}
-          PR_HEAD_REF=$(gh pr view $PR_NUMBER --json headRefName -q .headRefName --repo $GITHUB_REPOSITORY)
-          if [[ -z "$PR_HEAD_REF" || "$PR_HEAD_REF" == "null" ]]; then
-             echo "::error::Could not determine PR head branch for PR #$PR_NUMBER via gh CLI."
-             exit 1
-          fi
-          echo "Checking out PR head branch: $PR_HEAD_REF for PR #$PR_NUMBER"
-          git fetch origin "refs/heads/${PR_HEAD_REF}:refs/remotes/origin/${PR_HEAD_REF}" --no-tags
-          git checkout "$PR_HEAD_REF"
-          echo "Successfully checked out branch $(git rev-parse --abbrev-ref HEAD)"
-          echo "PR_BRANCH=$PR_HEAD_REF" >> $GITHUB_OUTPUT
-
       - name: Determine inputs for Aider
         id: determine_inputs
         shell: bash
@@ -118,7 +96,7 @@ jobs:
           echo "EOF_AIDER_BODY" >> "$GITHUB_OUTPUT"
 
           # Process COMMENT_CONTENT
-          printf -v COMMENT_CONTENT_VAL "%s" "${{ github.event.comment.body }}#"/aider"}"
+          printf -v COMMENT_CONTENT_VAL "%s" "$(echo "${{ github.event.comment.body }}" | sed 's|^/aider||' | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"
           echo "COMMENT_CONTENT<<EOF_AIDER_COMMENT" >> "$GITHUB_OUTPUT"
           echo "$COMMENT_CONTENT_VAL" >> "$GITHUB_OUTPUT"
           echo "EOF_AIDER_COMMENT" >> "$GITHUB_OUTPUT"

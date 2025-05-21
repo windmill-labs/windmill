@@ -29,25 +29,6 @@ jobs:
           echo "Commenting on PR #${{ github.event.pull_request.number }} to acknowledge the /aider command."
           gh pr comment ${{ github.event.pull_request.number }} --body "🤖 Aider is starting to work on your request. Please be patient, this might take a few minutes." --repo $GITHUB_REPOSITORY
 
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Checkout PR Branch
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          echo "PR review trigger: Checking out PR branch..."
-          PR_NUMBER=${{ github.event.pull_request.number }}
-          PR_HEAD_REF=$(gh pr view $PR_NUMBER --json headRefName -q .headRefName --repo $GITHUB_REPOSITORY)
-          if [[ -z "$PR_HEAD_REF" || "$PR_HEAD_REF" == "null" ]]; then
-             echo "::error::Could not determine PR head branch for PR #$PR_NUMBER via gh CLI."
-             exit 1
-          fi
-          echo "Checking out PR head branch: $PR_HEAD_REF for PR #$PR_NUMBER"
-          git fetch origin "refs/heads/${PR_HEAD_REF}:refs/remotes/origin/${PR_HEAD_REF}" --no-tags
-          git checkout "$PR_HEAD_REF"
-          echo "Successfully checked out branch $(git rev-parse --abbrev-ref HEAD)"
-
       - name: Prepare prompt for Aider
         id: prepare_prompt
         shell: bash

@@ -34,9 +34,6 @@ jobs:
             "https://api.linear.app/graphql" \
             -d "{\"query\":\"mutation { commentCreate(input: { issueId: \\\"${{ github.event.client_payload.issue_id }}\\\", body: \\\"🤖 Aider is starting to work on your request. I'll update you here once I have a PR ready. Please be patient, this might take a few minutes.\\\" }) { success } }\"}"
 
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
       - name: Determine inputs for Aider
         id: determine_inputs
         shell: bash
