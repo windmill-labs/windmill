@@ -1904,21 +1904,6 @@ async fn python_dep(
 
     create_dependencies_dir(job_dir).await;
 
-    /*
-        Unlike `handle_python_deps` which we use for running scripts (deployed and drafts)
-        This one used specifically for deploying scripts
-        So we can get final_version right away and include in lockfile
-        And the precendence is following:
-
-            1. Annotation version
-            2. Instance version
-            3. Latest Stable
-    */
-
-    // let final_version = annotated_pyv_numeric
-    //     .and_then(|pyv| PyVersion::from_numeric(pyv))
-    //     .unwrap_or(PyVersion::from_instance_version(job_id, w_id, &db.into()).await);
-
     let req: std::result::Result<String, Error> = uv_pip_compile(
         job_id,
         &reqs,
