@@ -463,7 +463,6 @@
 				...structuredClone(newSavedFlow),
 				path: $pathStore
 			} as Flow
-			console.log('dbg savedFlow', savedFlow)
 			triggersState.setTriggers([])
 			loadingSave = false
 			dispatch('deploy', $pathStore)

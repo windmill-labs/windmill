@@ -22,7 +22,6 @@
 	}
 
 	computeItems()
-	$inspect(computedItems)
 </script>
 
 {#if computedItems}
