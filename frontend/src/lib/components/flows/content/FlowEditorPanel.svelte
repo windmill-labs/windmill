@@ -13,7 +13,7 @@
 	import type { TriggerContext } from '$lib/components/triggers'
 	import { insertNewPreprocessorModule } from '../flowStateUtils'
 	import TriggersEditor from '../../triggers/TriggersEditor.svelte'
-	import { handleSelectTriggerFromKind } from '$lib/components/triggers/utils'
+	import { handleSelectTriggerFromKind, type Trigger } from '$lib/components/triggers/utils'
 
 	export let noEditor = false
 	export let enableAi = false
@@ -24,7 +24,7 @@
 				draft?: Flow | undefined
 		  })
 		| undefined = undefined
-
+	export let onDeployTrigger: (trigger: Trigger) => void = () => {}
 	const {
 		selectedId,
 		flowStore,
@@ -128,6 +128,7 @@
 		args={$previewArgs}
 		isDeployed={savedFlow && !savedFlow?.draft_only}
 		schema={$flowStore.schema}
+		{onDeployTrigger}
 	/>
 {:else if $selectedId.startsWith('subflow:')}
 	<div class="p-4"

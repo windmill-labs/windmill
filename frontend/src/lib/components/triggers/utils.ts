@@ -4,7 +4,7 @@ import NatsIcon from '$lib/components/icons/NatsIcon.svelte'
 import MqttIcon from '$lib/components/icons/MqttIcon.svelte'
 import AwsIcon from '$lib/components/icons/AwsIcon.svelte'
 import GoogleCloudIcon from '$lib/components/icons/GoogleCloudIcon.svelte'
-import type { CaptureTriggerKind, TriggersCount } from '$lib/gen/types.gen'
+import type { CaptureTriggerKind, Flow, NewScript, TriggersCount } from '$lib/gen/types.gen'
 import type { Writable } from 'svelte/store'
 import SchedulePollIcon from '../icons/SchedulePollIcon.svelte'
 import { type TriggerKind } from '$lib/components/triggers'
@@ -475,4 +475,55 @@ export function sortTriggers(triggers: Trigger[]): Trigger[] {
 
 		return 0
 	})
+}
+
+export type FlowWithDraftAndDraftTriggers = Flow & {
+	draft?: Flow & {
+		draft_triggers?: Trigger[]
+	}
+}
+
+export type NewScriptWithDraftAndDraftTriggers = NewScript & {
+	draft?: NewScript & { draft_triggers?: Trigger[] }
+	hash: string
+}
+
+// Get rid of deployed triggers from the saved flow in the case there is a match with a deployed trigger
+export function filterDraftTriggers(
+	savedValue: FlowWithDraftAndDraftTriggers | NewScriptWithDraftAndDraftTriggers,
+	triggersState: Triggers
+): FlowWithDraftAndDraftTriggers | NewScriptWithDraftAndDraftTriggers {
+	const deployedTriggers = triggersState.triggers.filter((t) => !t.draftConfig && !t.isDraft)
+	let newSavedValue = savedValue
+
+	const filterMatchingTriggers = (savedTriggers: Trigger[], deployedTriggers: Trigger[]) => {
+		return savedTriggers.filter(
+			(savedTrigger) =>
+				!deployedTriggers.some(
+					(deployedTrigger) =>
+						deployedTrigger.path === savedTrigger.draftConfig?.path &&
+						deployedTrigger.type === savedTrigger.type
+				)
+		)
+	}
+
+	const savedDraftTriggersFiltered = filterMatchingTriggers(
+		newSavedValue?.draft?.draft_triggers ?? [],
+		deployedTriggers
+	)
+	if (newSavedValue?.draft?.draft_triggers) {
+		newSavedValue = {
+			...newSavedValue,
+			draft: {
+				...newSavedValue.draft,
+				draft_triggers:
+					savedDraftTriggersFiltered.length > 0 ? savedDraftTriggersFiltered : undefined
+			}
+		} as typeof newSavedValue
+	}
+	triggersState.setTriggers([
+		...triggersState.triggers.filter((t) => !t.draftConfig),
+		...savedDraftTriggersFiltered
+	])
+	return newSavedValue
 }

@@ -75,8 +75,12 @@
 	import { type TriggerContext, type ScheduleTrigger } from './triggers'
 	import type { SavedAndModifiedValue } from './common/confirmationModal/unsavedTypes'
 	import DeployButton from './DeployButton.svelte'
-	import type { Trigger } from './triggers/utils'
-	import { deployTriggers, handleSelectTriggerFromKind } from './triggers/utils'
+	import type { FlowWithDraftAndDraftTriggers, Trigger } from './triggers/utils'
+	import {
+		deployTriggers,
+		filterDraftTriggers,
+		handleSelectTriggerFromKind
+	} from './triggers/utils'
 	import DraftTriggersConfirmationModal from './common/confirmationModal/DraftTriggersConfirmationModal.svelte'
 	import { Triggers } from './triggers/triggers.svelte'
 
@@ -129,12 +133,6 @@
 	}
 
 	$: setContext('customUi', customUi)
-
-	type FlowWithDraftAndDraftTriggers = Flow & {
-		draft?: Flow & {
-			draft_triggers?: Trigger[]
-		}
-	}
 
 	export function getInitialAndModifiedValues(): SavedAndModifiedValue {
 		return {
@@ -574,7 +572,7 @@
 		})
 
 		// Initialize triggers using utility function
-		triggersState.fetchTriggers(
+		await triggersState.fetchTriggers(
 			triggersCount,
 			$workspaceStore,
 			initialPath,
@@ -582,6 +580,10 @@
 			$primaryScheduleStore,
 			$userStore
 		)
+
+		if (savedFlow && savedFlow.draft) {
+			savedFlow = filterDraftTriggers(savedFlow, triggersState) as FlowWithDraftAndDraftTriggers
+		}
 	}
 
 	$: selectedId && select(selectedId)
@@ -1218,6 +1220,18 @@
 		]
 	}
 
+	function handleDeployTrigger(trigger: Trigger) {
+		const { id, path, type } = trigger
+		//Update the saved flow to remove the draft trigger that is deployed
+		if (savedFlow && savedFlow.draft && savedFlow.draft.draft_triggers) {
+			const newSavedDraftTrigers = savedFlow.draft.draft_triggers.filter(
+				(t) => t.id !== id || t.path !== path || t.type !== type
+			)
+			savedFlow.draft.draft_triggers =
+				newSavedDraftTrigers.length > 0 ? newSavedDraftTrigers : undefined
+		}
+	}
+
 	let flowPreviewButtons: FlowPreviewButtons
 </script>
 
@@ -1477,6 +1491,7 @@
 						flowPreviewButtons?.openPreview(true)
 					}}
 					{savedFlow}
+					onDeployTrigger={handleDeployTrigger}
 				/>
 			{:else}
 				<CenteredPage>Loading...</CenteredPage>

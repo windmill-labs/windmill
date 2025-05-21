@@ -13,7 +13,12 @@
 	import { Plus } from 'lucide-svelte'
 	import Button from '../common/button/Button.svelte'
 	import TriggersWrapperV2 from './TriggersWrapper.svelte'
-	import { triggerTypeToCaptureKind, type TriggerType, CLOUD_DISABLED_TRIGGER_TYPES } from './utils'
+	import {
+		triggerTypeToCaptureKind,
+		type TriggerType,
+		CLOUD_DISABLED_TRIGGER_TYPES,
+		type Trigger
+	} from './utils'
 	import { isCloudHosted } from '$lib/cloud'
 
 	interface Props {
@@ -31,6 +36,7 @@
 		schema?: Record<string, any> | undefined
 		noCapture?: boolean
 		isEditor?: boolean
+		onDeployTrigger?: (trigger: Trigger) => void
 	}
 
 	let {
@@ -47,7 +53,8 @@
 		isDeployed = false,
 		schema = undefined,
 		noCapture = false,
-		isEditor = true
+		isEditor = true,
+		onDeployTrigger
 	}: Props = $props()
 
 	let config: Record<string, any> = $state({})
@@ -83,7 +90,7 @@
 			return
 		}
 
-		const { type: triggerType } = triggersState.triggers[trigger]
+		const { type: triggerType, id: triggerId, path: triggerPath } = triggersState.triggers[trigger]
 		loading = true
 
 		triggersState.selectedTriggerIndex = undefined
@@ -168,6 +175,8 @@
 			(t) => t.path === path && t.type === triggerType
 		)
 		loading = false
+
+		onDeployTrigger?.({ type: triggerType, id: triggerId, path: triggerPath })
 	}
 
 	function handleUpdateDraftConfig(

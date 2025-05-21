@@ -83,7 +83,13 @@
 	import type { SavedAndModifiedValue } from './common/confirmationModal/unsavedTypes'
 	import type { ScriptBuilderFunctionExports } from './scriptBuilder'
 	import DeployButton from './DeployButton.svelte'
-	import { type Trigger, deployTriggers, handleSelectTriggerFromKind } from './triggers/utils'
+	import {
+		type NewScriptWithDraftAndDraftTriggers,
+		type Trigger,
+		deployTriggers,
+		filterDraftTriggers,
+		handleSelectTriggerFromKind
+	} from './triggers/utils'
 	import DraftTriggersConfirmationModal from './common/confirmationModal/DraftTriggersConfirmationModal.svelte'
 	import { Triggers } from './triggers/triggers.svelte'
 
@@ -105,11 +111,6 @@
 	export let savedPrimarySchedule: ScheduleTrigger | undefined = undefined
 	export let functionExports: ((exports: ScriptBuilderFunctionExports) => void) | undefined =
 		undefined
-
-	type NewScriptWithDraftAndDraftTriggers = NewScript & {
-		draft?: NewScript & { draft_triggers?: Trigger[] }
-		hash: string
-	}
 
 	export function getInitialAndModifiedValues(): SavedAndModifiedValue {
 		return {
@@ -210,7 +211,7 @@
 			path: initialPath
 		})
 
-		triggersState.fetchTriggers(
+		await triggersState.fetchTriggers(
 			triggersCount,
 			$workspaceStore,
 			initialPath,
@@ -218,6 +219,13 @@
 			$primaryScheduleStore,
 			$userStore
 		)
+
+		if (savedScript && savedScript.draft && savedScript.draft.draft_triggers) {
+			savedScript = filterDraftTriggers(
+				savedScript,
+				triggersState
+			) as NewScriptWithDraftAndDraftTriggers
+		}
 	}
 
 	// Add triggers context store
@@ -827,6 +835,18 @@
 			}
 		}
 		selectedInputTab = 'preprocessor'
+	}
+
+	function handleDeployTrigger(trigger: Trigger) {
+		const { id, path, type } = trigger
+		//Update the saved script to remove the draft trigger that is deployed
+		if (savedScript && savedScript.draft && savedScript.draft.draft_triggers) {
+			const newSavedDraftTrigers = savedScript.draft.draft_triggers.filter(
+				(t) => t.id !== id || t.path !== path || t.type !== type
+			)
+			savedScript.draft.draft_triggers =
+				newSavedDraftTrigers.length > 0 ? newSavedDraftTrigers : undefined
+		}
 	}
 </script>
 
@@ -1494,6 +1514,7 @@
 									isDeployed={savedScript && !savedScript?.draft_only}
 									schema={script.schema}
 									hash={script.parent_hash}
+									onDeployTrigger={handleDeployTrigger}
 								/>
 
 								<!-- <ScriptSchedules {initialPath} schema={script.schema} schedule={scheduleStore} /> -->
