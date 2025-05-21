@@ -11,9 +11,9 @@ use windmill_common::db::UserDB;
 use windmill_common::worker::to_raw_value;
 use windmill_common::{
     error::{Error as WindmillError, Result as WindmillResult},
+    triggers::TriggerKind,
     utils::empty_as_none,
 };
-use windmill_queue::TriggerKind;
 
 #[derive(sqlx::Type, Debug, Deserialize, Serialize)]
 #[serde(rename_all(serialize = "lowercase", deserialize = "lowercase"))]
@@ -86,7 +86,7 @@ pub async fn manage_google_subscription(
     _subscription_mode: SubscriptionMode,
     _create_update_config: Option<CreateUpdateConfig>,
     _trigger_mode: bool,
-    _is_flow: bool
+    _is_flow: bool,
 ) -> WindmillResult<CreateUpdateConfig> {
     Ok(CreateUpdateConfig::default())
 }

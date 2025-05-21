@@ -15,7 +15,6 @@ use crate::{
     trigger_helpers::TriggerJobArgs,
     users::fetch_api_authed,
 };
-use windmill_queue::TriggerKind;
 
 use bytes::{BufMut, Bytes, BytesMut};
 use chrono::TimeZone;
@@ -30,7 +29,8 @@ use serde_json::value::RawValue;
 use sqlx::types::Json as SqlxJson;
 
 use windmill_common::{
-    db::UserDB, error, utils::report_critical_error, worker::to_raw_value, INSTANCE_NAME,
+    db::UserDB, error, triggers::TriggerKind, utils::report_critical_error, worker::to_raw_value,
+    INSTANCE_NAME,
 };
 
 use super::{
