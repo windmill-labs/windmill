@@ -797,6 +797,7 @@ pub fn parse_duckdb_typ(typ: &str) -> Typ {
             | "datetime" => Typ::Datetime,
             "uuid" | "json" => Typ::Str(None),
             "interval" | "hugeint" => Typ::Str(None),
+            "s3object" => Typ::Resource("S3Object".to_string()),
             _ => Typ::Str(None),
         }
     }

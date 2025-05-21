@@ -709,3 +709,9 @@ pub struct DuckdbConnectionSettingsQueryV2 {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub storage: Option<String>,
 }
+
+#[derive(Deserialize, Serialize)]
+pub struct S3ResourceInfoQuery {
+    pub s3_resource_path: Option<String>,
+    pub storage: Option<String>,
+}

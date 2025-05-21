@@ -8,8 +8,8 @@ use serde_json::value::RawValue;
 use serde_json::{json, Value};
 use tokio::fs::remove_file;
 use uuid::Uuid;
-use windmill_common::error::{to_anyhow, Error, Result};
-use windmill_common::s3_helpers::DuckdbConnectionSettingsQueryV2;
+use windmill_common::error::{self, to_anyhow, Error, Result};
+use windmill_common::s3_helpers::{DuckdbConnectionSettingsQueryV2, S3ResourceInfoQuery};
 use windmill_common::worker::{to_raw_value, Connection};
 use windmill_parser_sql::{parse_duckdb_sig, parse_s3_mode, parse_sql_blocks};
 use windmill_queue::{CanceledBy, MiniPulledJob};
@@ -89,24 +89,24 @@ pub async fn do_duckdb(
 ) -> Result<Box<RawValue>> {
     let sig = parse_duckdb_sig(query)?.args;
     let job_args = build_args_values(job, client, conn).await?;
-    let job_args = sig
-        .iter()
-        .map(|sig_arg| {
-            let json_value = job_args
-                .get(&sig_arg.name)
-                .or_else(|| sig_arg.default.as_ref())
-                .unwrap_or_else(|| &json!(null));
-            let duckdb_value = json_value_to_duckdb_value(
-                json_value,
-                sig_arg
-                    .otyp
-                    .clone()
-                    .unwrap_or_else(|| "text".to_string())
-                    .as_str(),
-            );
-            duckdb_value
-        })
-        .collect::<Result<Vec<_>>>()?;
+    let job_args = futures::future::try_join_all(sig.iter().map(async |sig_arg| {
+        let json_value = job_args
+            .get(&sig_arg.name)
+            .or_else(|| sig_arg.default.as_ref())
+            .unwrap_or_else(|| &json!(null));
+        let duckdb_value = json_value_to_duckdb_value(
+            json_value,
+            sig_arg
+                .otyp
+                .clone()
+                .unwrap_or_else(|| "text".to_string())
+                .as_str(),
+            client,
+        )
+        .await;
+        duckdb_value
+    }))
+    .await?;
 
     let query_block_list = parse_sql_blocks(query);
 
@@ -133,10 +133,10 @@ pub async fn do_duckdb(
 
         if let Some(s3) = parse_s3_mode(query)? {
             let s3_conn_str = client
-                .get_duckdb_connection_settings(
-                    DuckdbConnectionSettingsQueryV2 { s3_resource_path: None, storage: s3.storage },
-                    job.workspace_id.as_str(),
-                )
+                .get_duckdb_connection_settings(DuckdbConnectionSettingsQueryV2 {
+                    s3_resource_path: None,
+                    storage: s3.storage,
+                })
                 .await?;
             conn.execute_batch(s3_conn_str.connection_settings_str.as_str())
                 .map_err(|e| Error::ConnectingToDatabase(e.to_string()))?;
@@ -259,29 +259,31 @@ fn row_to_value(row: &Row<'_>, column_names: &[String]) -> Result<Box<RawValue>>
     serde_json::value::to_raw_value(&obj).map_err(|e| e.into())
 }
 
-fn json_value_to_duckdb_value(
+async fn json_value_to_duckdb_value(
     json_value: &serde_json::Value,
     arg_type: &str,
+    client: &AuthedClient,
 ) -> Result<duckdb::types::Value> {
+    let arg_type = arg_type.to_lowercase();
     let duckdb_value = match json_value {
         serde_json::Value::Null => duckdb::types::Value::Null,
         serde_json::Value::Bool(b) => duckdb::types::Value::Boolean(*b),
 
         serde_json::Value::String(s)
             if matches!(
-                arg_type,
+                arg_type.as_str(),
                 "timestamp" | "timestamptz" | "timestamp with time zone" | "datetime"
             ) =>
         {
             string_to_duckdb_timestamp(&s)?
         }
-        serde_json::Value::String(s) if arg_type == "date" => string_to_duckdb_date(&s)?,
-        serde_json::Value::String(s) if arg_type == "time" => string_to_duckdb_time(&s)?,
+        serde_json::Value::String(s) if arg_type.as_str() == "date" => string_to_duckdb_date(&s)?,
+        serde_json::Value::String(s) if arg_type.as_str() == "time" => string_to_duckdb_time(&s)?,
         serde_json::Value::String(s) => duckdb::types::Value::Text(s.clone()),
 
         serde_json::Value::Number(n) if n.is_i64() => {
             let v = n.as_i64().unwrap();
-            match arg_type {
+            match arg_type.as_str() {
                 "tinyint" | "int1" => duckdb::types::Value::TinyInt(v as i8),
                 "smallint" | "int2" | "short" => duckdb::types::Value::SmallInt(v as i16),
                 "integer" | "int4" | "int" | "signed" => duckdb::types::Value::Int(v as i32),
@@ -295,7 +297,7 @@ fn json_value_to_duckdb_value(
 
         serde_json::Value::Number(n) if n.is_u64() => {
             let v = n.as_u64().unwrap();
-            match arg_type {
+            match arg_type.as_str() {
                 "utinyint" => duckdb::types::Value::UTinyInt(v as u8),
                 "usmallint" => duckdb::types::Value::USmallInt(v as u16),
                 "uinteger" => duckdb::types::Value::UInt(v as u32),
@@ -306,7 +308,7 @@ fn json_value_to_duckdb_value(
 
         serde_json::Value::Number(n) if n.is_f64() => {
             let v = n.as_f64().unwrap();
-            match arg_type {
+            match arg_type.as_str() {
                 "float" | "float4" | "real" => duckdb::types::Value::Float(v as f32),
                 "double" | "float8" => duckdb::types::Value::Double(v),
                 "decimal" | "numeric" => {
@@ -317,16 +319,44 @@ fn json_value_to_duckdb_value(
         }
 
         serde_json::Value::Array(arr) => duckdb::types::Value::Array(
-            arr.iter()
-                .map(|val| json_value_to_duckdb_value(val, arg_type))
-                .collect::<Result<Vec<_>>>()?,
+            futures::future::try_join_all(
+                arr.iter()
+                    .map(|val| json_value_to_duckdb_value(val, arg_type.as_str(), client)),
+            )
+            .await?,
         ),
 
+        serde_json::Value::Object(map) if arg_type.as_str() == "s3object" => {
+            let object_key: String =
+                serde_json::from_value(map.get("s3").cloned().ok_or_else(|| {
+                    Error::ExecutionErr("S3Object must contain s3 key".to_string())
+                })?)
+                .map_err(|_e| Error::ExecutionErr("S3Object s3 key must be string".to_string()))?;
+            let storage: Option<String> = map
+                .get("storage")
+                .cloned()
+                .map(|s| {
+                    serde_json::from_value(s).map_err(|_e| {
+                        Error::ExecutionErr("S3Object storage key must be string".to_string())
+                    })
+                })
+                .transpose()?;
+            let bucket: String = client
+                .get_s3_resource_info(&S3ResourceInfoQuery { s3_resource_path: None, storage })
+                .await?
+                .bucket;
+
+            duckdb::types::Value::Text(format!("s3://{}/{}", bucket, object_key))
+        }
         serde_json::Value::Object(map) => duckdb::types::Value::Struct(
-            map.iter()
-                .map(|(k, v)| Ok((k.clone(), json_value_to_duckdb_value(v, arg_type)?)))
-                .collect::<Result<Vec<_>>>()?
-                .into(),
+            futures::future::try_join_all(map.iter().map(async |(k, v)| {
+                Ok::<_, error::Error>((
+                    k.clone(),
+                    json_value_to_duckdb_value(v, arg_type.as_str(), client).await?,
+                ))
+            }))
+            .await?
+            .into(),
         ),
 
         value @ _ => {

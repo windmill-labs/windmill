@@ -15,7 +15,10 @@ use windmill_common::{
     agent_workers::DECODED_AGENT_TOKEN,
     apps::AppScriptId,
     cache::{future::FutureCachedExt, ScriptData, ScriptMetadata},
-    s3_helpers::{DuckdbConnectionSettingsQueryV2, DuckdbConnectionSettingsResponse},
+    s3_helpers::{
+        DuckdbConnectionSettingsQueryV2, DuckdbConnectionSettingsResponse, S3Resource,
+        S3ResourceInfoQuery,
+    },
     schema::{should_validate_schema, SchemaValidator},
     scripts::PREVIEW_IS_TAR_CODEBASE_HASH,
     utils::WarnAfterExt,
@@ -525,14 +528,53 @@ impl AuthedClient {
         }
     }
 
+    pub async fn get_s3_resource_info(
+        &self,
+        query: &S3ResourceInfoQuery,
+    ) -> error::Result<S3Resource> {
+        let url = format!(
+            "{}/api/w/{}/job_helpers/v2/s3_resource_info",
+            self.base_internal_url, &self.workspace
+        );
+        let response = self
+            .force_client
+            .as_ref()
+            .unwrap_or(&HTTP_CLIENT)
+            .post(url)
+            .header(
+                reqwest::header::CONTENT_TYPE,
+                reqwest::header::HeaderValue::from_static("application/json"),
+            )
+            .header(
+                reqwest::header::ACCEPT,
+                reqwest::header::HeaderValue::from_static("application/json"),
+            )
+            .header(
+                reqwest::header::AUTHORIZATION,
+                reqwest::header::HeaderValue::from_str(&format!("Bearer {}", self.token))
+                    .map_err(|e| error::Error::BadConfig(e.to_string()))?,
+            )
+            .body(serde_json::to_string(&query).map_err(to_anyhow)?)
+            .send()
+            .await
+            .context(format!("Sent get_s3_resource_info request",))
+            .map_err(error::Error::from)?;
+        match response.status().as_u16() {
+            200u16 => Ok(response
+                .json::<S3Resource>()
+                .await
+                .context("decoding get_s3_resource_info response as json")?),
+            _ => Err(anyhow::anyhow!(response.text().await.unwrap_or_default()))?,
+        }
+    }
+
     pub async fn get_duckdb_connection_settings(
         &self,
         s3: DuckdbConnectionSettingsQueryV2,
-        workspace_id: &str,
     ) -> error::Result<DuckdbConnectionSettingsResponse> {
         let url = format!(
             "{}/api/w/{}/job_helpers/v2/duckdb_connection_settings",
-            self.base_internal_url, workspace_id
+            self.base_internal_url, &self.workspace
         );
         let response = self
             .force_client
