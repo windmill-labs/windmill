@@ -3,7 +3,6 @@
 	import {
 		AppService,
 		FlowService,
-		IndexSearchService,
 		RawAppService,
 		ScriptService,
 		type Flow,
@@ -11,8 +10,7 @@
 		type ListableRawApp,
 		type Script
 	} from '$lib/gen'
-	import { clickOutside, displayDateOnly, isMac, sendUserToast } from '$lib/utils'
-	import TimeAgo from '../TimeAgo.svelte'
+	import { clickOutside, isMac } from '$lib/utils'
 	import {
 		AlertTriangle,
 		BoxesIcon,
@@ -22,14 +20,12 @@
 		DollarSignIcon,
 		HomeIcon,
 		LayoutDashboardIcon,
-		Loader2,
 		PlayIcon,
 		Route,
 		Search,
 		SearchCode,
 		Unplug
 	} from 'lucide-svelte'
-	import JobPreview from '../runs/JobPreview.svelte'
 	import Portal from '$lib/components/Portal.svelte'
 
 	import { twMerge } from 'tailwind-merge'
@@ -267,8 +263,6 @@
 
 
 	let queryParseErrors: string[] = []
-	let runSearchRemainingCount: number | undefined = undefined
-	let runSearchTotalCount: number | undefined = undefined
 
 	async function handleSearch() {
 		queryParseErrors = []
