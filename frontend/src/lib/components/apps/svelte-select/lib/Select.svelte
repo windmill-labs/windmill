@@ -1,4 +1,4 @@
-<script>
+<script lang="ts">
 	// @ts-nocheck
 	import { beforeUpdate, createEventDispatcher, onDestroy, onMount } from 'svelte'
 	import { offset, flip, shift } from '@floating-ui/dom'
@@ -22,7 +22,7 @@
 
 	export let portal = true
 
-	export let justValue = null // read-only
+	export let justValue: any = null // read-only
 
 	export let inAppEditor = false
 
@@ -38,18 +38,19 @@
 
 	export let disabled = false
 	export let focused = false
-	export let value = undefined
+	export let value: any = undefined
 	export let filterText = ''
 	export let placeholder = 'Please select'
-	export let items = undefined
+	export let items: { label: string | undefined; value: any }[] | any[] | string[] | undefined =
+		undefined
 	export let label = 'label'
 	export let itemFilter = (label, filterText, option) =>
 		`${label}`.toLowerCase().includes(filterText.toLowerCase())
-	export let groupBy = undefined
+	export let groupBy: ((item: any) => string) | undefined = undefined
 	export let groupFilter = (groups) => groups
 	export let groupHeaderSelectable = false
 	export let itemId = 'value'
-	export let loadOptions = undefined
+	export let loadOptions: ((string) => Promise<any>) | undefined = undefined
 	export let containerStyles = ''
 	export let hasError = false
 	export let filterSelectedItems = true
