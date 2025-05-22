@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::env;
 
 use duckdb::types::TimeUnit;
@@ -93,8 +93,6 @@ pub async fn do_duckdb(
     occupancy_metrics: &mut OccupancyMetrics,
 ) -> Result<Box<RawValue>> {
     let result_f = async {
-        let mut s3_conn_strings: Vec<String> = vec![];
-
         let sig = parse_duckdb_sig(query)?.args;
         let mut job_args = build_args_values(job, client, conn).await?;
 
@@ -102,6 +100,10 @@ pub async fn do_duckdb(
         // Prevent interpolate_named_args from detecting argument identifiers in the signature for
         // the first query block
         let query = trunc_sig(query);
+
+        let (_query_with_transformed_s3_uris, mut used_storages) =
+            transform_s3_uris(query, client).await?;
+        let query = _query_with_transformed_s3_uris.as_deref().unwrap_or(query);
 
         let job_args = {
             let mut m: HashMap<String, duckdb::types::Value> = HashMap::new();
@@ -121,16 +123,10 @@ pub async fn do_duckdb(
                             storage: s3_obj.storage.clone(),
                         })
                         .await?;
-                    let s3_conn_str = client
-                        .get_duckdb_connection_settings(DuckdbConnectionSettingsQueryV2 {
-                            s3_resource_path: None,
-                            storage: s3_obj.storage,
-                        })
-                        .await?;
 
                     let s3_obj_string = format!("s3://{}/{}", &s3_info.bucket, &s3_obj.s3);
                     m.insert(sig_arg.name, duckdb::types::Value::Text(s3_obj_string));
-                    s3_conn_strings.push(s3_conn_str.connection_settings_str);
+                    used_storages.insert(s3_obj.storage);
                 } else {
                     let duckdb_value = json_value_to_duckdb_value(
                         &json_value,
@@ -166,7 +162,18 @@ pub async fn do_duckdb(
         let bq_credentials_path = make_bq_credentials_path(&job.id);
         env::set_var("GOOGLE_APPLICATION_CREDENTIALS", &bq_credentials_path);
 
-        // duckdb::Connection is not send so we do it in a single blocking task
+        let mut s3_conn_strings = vec![];
+        for storage in used_storages.into_iter() {
+            let s3_conn_string = client
+                .get_duckdb_connection_settings(DuckdbConnectionSettingsQueryV2 {
+                    s3_resource_path: None,
+                    storage,
+                })
+                .await?;
+            s3_conn_strings.push(s3_conn_string.connection_settings_str);
+        }
+
+        // duckdb::Connection is not Send so we do it in a single blocking task
         let (result, column_order) = task::spawn_blocking(move || {
             let conn = duckdb::Connection::open_in_memory()
                 .map_err(|e| Error::ConnectingToDatabase(e.to_string()))?;
@@ -557,6 +564,43 @@ async fn transform_attach_db_resource_query(
             parsed.db_type
         ))),
     }
+}
+
+// Returns the transformed query and the set of storages used
+async fn transform_s3_uris(
+    query: &str,
+    client: &AuthedClient,
+) -> Result<(Option<String>, HashSet<Option<String>>)> {
+    let mut transformed_query = None;
+    lazy_static::lazy_static! {
+        static ref RE: regex::Regex = regex::Regex::new(r"'s3://([^'/]*)/([^']+)'").unwrap();
+    }
+    let mut storages = HashSet::new();
+    for cap in RE.captures_iter(query) {
+        if let (storage, Some(s3_path)) = (cap.get(1), cap.get(2)) {
+            let s3_path = s3_path.as_str();
+            let storage = match storage.map(|m| m.as_str()) {
+                Some("") | None => None,
+                Some(s) => Some(s.to_string()),
+            };
+            storages.insert(storage.clone());
+            let original_str_lit =
+                format!("'s3://{}/{}'", storage.as_deref().unwrap_or(""), s3_path);
+            let bucket = client
+                .get_s3_resource_info(&S3ResourceInfoQuery {
+                    s3_resource_path: None,
+                    storage: storage,
+                })
+                .await?
+                .bucket;
+            transformed_query = Some(
+                transformed_query
+                    .unwrap_or(query.to_string())
+                    .replace(&original_str_lit, &format!("'s3://{bucket}/{s3_path}'")),
+            );
+        }
+    }
+    Ok((transformed_query, storages))
 }
 
 // BigQuery extension requires a json file as credentials
