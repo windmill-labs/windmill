@@ -11,12 +11,47 @@ on:
     types: [submitted]
 
 jobs:
-  claude-code-action:
+  check-membership:
     if: |
-      (github.event_name == 'issue_comment' && contains(github.event.comment.body, '/aider')) ||
-      (github.event_name == 'pull_request_review_comment' && contains(github.event.comment.body, '/aider')) ||
-      (github.event_name == 'pull_request_review' && contains(github.event.review.body, '/aider')) ||
-      (github.event_name == 'issues' && contains(github.event.issue.body, '/aider'))
+      (github.event_name == 'issue_comment' && contains(github.event.comment.body, '/aider') && !contains(github.event.comment.user.login, '[bot]')) ||
+      (github.event_name == 'pull_request_review_comment' && contains(github.event.comment.body, '/aider') && !contains(github.event.comment.user.login, '[bot]')) ||
+      (github.event_name == 'pull_request_review' && contains(github.event.review.body, '/aider') && !contains(github.event.review.user.login, '[bot]')) ||
+      (github.event_name == 'issues' && contains(github.event.issue.body, '/aider') && !contains(github.event.issue.user.login, '[bot]'))
+    runs-on: ubicloud-standard-2
+    outputs:
+      is_member: ${{ steps.check-membership.outputs.is_member }}
+    steps:
+      - name: Check organization membership
+        id: check-membership
+        env:
+          ORG_ACCESS_TOKEN: ${{ secrets.ORG_ACCESS_TOKEN }}
+        run: |
+          ORG="windmill-labs"
+
+          if [[ "${{ github.event_name }}" == "issue_comment" || "${{ github.event_name }}" == "pull_request_review_comment" ]]; then
+            COMMENTER="${{ github.event.comment.user.login }}"
+          elif [[ "${{ github.event_name }}" == "pull_request_review" ]]; then
+            COMMENTER="${{ github.event.review.user.login }}"
+          else
+            COMMENTER="${{ github.event.issue.user.login }}"
+          fi
+
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
+            -H "Authorization: token $ORG_ACCESS_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/orgs/$ORG/members/$COMMENTER")
+
+          if [ "$STATUS" -eq 204 ]; then
+            echo "is_member=true" >> $GITHUB_OUTPUT
+          else
+            echo "is_member=false" >> $GITHUB_OUTPUT
+          fi
+
+  claude-code-action:
+    needs: check-membership
+    if: |
+      needs.check-membership.outputs.is_member == 'true'
     runs-on: ubicloud-standard-8
     permissions:
       contents: read

@@ -1,12 +1,11 @@
 <script lang="ts">
-	import Markdown from 'svelte-exmarkdown'
 	import type { Placement } from '@floating-ui/core'
-	import { ExternalLink, InfoIcon } from 'lucide-svelte'
-	import { gfmPlugin } from 'svelte-exmarkdown/gfm'
+	import { InfoIcon } from 'lucide-svelte'
 	import { zIndexes } from '$lib/zIndexes'
 
 	import { createTooltip, melt } from '@melt-ui/svelte'
 	import { fade } from 'svelte/transition'
+	import TooltipInner from '../TooltipInner.svelte'
 
 	export let light = false
 	export let placement: Placement | undefined = 'bottom'
@@ -17,8 +16,6 @@
 	export let openDelay: number = 300
 	export let closeDelay: number = 0
 	export let portal: string | undefined | null = 'body'
-
-	const plugins = [gfmPlugin()]
 
 	const {
 		elements: { trigger, content },
@@ -49,27 +46,9 @@
 {/if}
 
 {#if $open && !disablePopup}
-	<div
-		use:melt={$content}
-		transition:fade={{ duration: 100 }}
-		class="shadow max-w-sm break-words py-2 px-3 rounded-md text-sm font-normal !text-gray-300 bg-gray-800 whitespace-normal text-left"
-		style="z-index: {zIndexes.tooltip}"
-	>
-		{#if markdownTooltip}
-			<div class="prose-sm">
-				<Markdown md={markdownTooltip} {plugins} />
-			</div>
-		{:else}
+	<div use:melt={$content} transition:fade={{ duration: 100 }} style="z-index: {zIndexes.tooltip}">
+		<TooltipInner {documentationLink} {markdownTooltip}>
 			<slot name="text" />
-		{/if}
-
-		{#if documentationLink}
-			<a href={documentationLink} target="_blank" class="text-blue-300 text-xs">
-				<div class="flex flex-row gap-2 mt-4">
-					See documentation
-					<ExternalLink size="16" />
-				</div>
-			</a>
-		{/if}
+		</TooltipInner>
 	</div>
 {/if}
