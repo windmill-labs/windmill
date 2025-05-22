@@ -110,109 +110,12 @@ jobs:
 
           PROMPT_ESCAPED=$(jq -Rs . <<< "$PROMPT_CONTENT")
 
-          MESSAGE_FOR_PROBE=$(jq -n --arg prompt_escaped "$PROMPT_ESCAPED" \
-            '{ "message": "I'\''m giving you a request that needs to be implemented. Your role is ONLY to give me the files that are relevant to the request and nothing else. The request is prepended with the word REQUEST.\\nREQUEST: \($prompt_escaped). Give me all the files relevant to this request. Your output MUST be a single json array that can be parsed with programatic json parsing, with the relevant files. Files can be rust or typescript or javascript files. DO NOT INCLUDE ANY OTHER TEXT IN YOUR OUTPUT. ONLY THE JSON ARRAY. Example of output: [\"file1.py\", \"file2.py\"]" }' | jq -r .message)
-
-          set -o pipefail
-          PROBE_OUTPUT=$(npx --yes @buger/probe-chat@latest --max-iterations 50 --model-name gemini-2.5-pro-preview-05-06 --message "$MESSAGE_FOR_PROBE") || {
-            echo "::error::probe-chat command failed. Output:"
-            echo "$PROBE_OUTPUT"
-            exit 1
-          }
-          set +o pipefail
-          echo "Probe-chat raw output:"
-          echo "$PROBE_OUTPUT"
-
-          JSON_FILES=$(echo "$PROBE_OUTPUT" | sed -n '/^\s*\[/,$p' | sed '/^\s*\]/q')
-          echo "Extracted JSON block:"
-          echo "$JSON_FILES"
-
-          FILES_LIST=$(echo "$JSON_FILES" | jq -e -r '[.[] | select(type == "string" and . != "" and . != null and (endswith("/") | not))] | map(@sh) | join(" ")' || echo "")
-
-          if [[ -z "$FILES_LIST" ]]; then
-             echo "::warning::probe-chat did not identify any relevant files."
-             exit 1
-          fi
-
-          echo "Formatted files list for aider: $FILES_LIST"
-          echo "FILES_TO_EDIT=$FILES_LIST" >> $GITHUB_ENV
-
-      - name: Run Aider with review prompt
-        run: |
-          aider \
-            --read CLAUDE.md \
-            --read backend/CLAUDE.md \
-            --read frontend/CLAUDE.md \
-            ${{ env.FILES_TO_EDIT }} \
-            --model gemini/gemini-2.5-pro-preview-05-06 \
-            --message-file .github/aider/review-prompt.txt \
-            --yes \
-            --no-check-update \
-            --auto-commits \
-            --no-analytics \
-            --no-gitignore \
-            | tee .github/aider/aider-output.txt || true
-          echo "Aider command completed. Output saved to .github/aider/aider-output.txt"
-          # Check if there are any changes to commit
-          if [[ -z "$(git status --porcelain)" ]]; then
-            echo "No changes detected after running Aider."
-            echo "HAS_CHANGES=false" >> $GITHUB_OUTPUT
-            exit 0
-          fi
-
-      - name: Clean up prompt file
-        if: always()
-        run: rm -f .github/aider/review-prompt.txt
-
-      - name: Commit and Push Changes
-        id: commit_and_push
-        if: ${{ success() }}
-        run: |
-          CURRENT_BRANCH_NAME=$(git rev-parse --abbrev-ref HEAD)
-          echo "Attempting to push changes to PR branch $CURRENT_BRANCH_NAME for PR #${{ github.event.pull_request.number }}"
-
-          # Pull latest changes to avoid rejection due to non-fast-forward
-          git config pull.rebase true
-          git pull origin $CURRENT_BRANCH_NAME
-
-          if git push origin $CURRENT_BRANCH_NAME; then
-            echo "Push to $CURRENT_BRANCH_NAME successful."
-            echo "CHANGES_APPLIED=true" >> $GITHUB_OUTPUT
-          else
-            echo "::warning::Push to PR branch $CURRENT_BRANCH_NAME failed."
-            echo "CHANGES_APPLIED=false" >> $GITHUB_OUTPUT
-          fi
-
-      - name: Comment on PR
-        if: success()
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          PR_NUM: ${{ github.event.pull_request.number }}
-        run: |
-          # Create comment body in a temporary file to avoid command line length limits
-          if [[ "${{ steps.commit_and_push.outputs.CHANGES_APPLIED }}" == "true" ]]; then
-            cat > /tmp/pr-comment.md << EOL
-          🤖 I've automatically addressed the feedback based on the review.
-
-          ## Aider Output
-          \`\`\`
-          $(cat .github/aider/aider-output.txt || echo 'No output available')
-          \`\`\`
-
-          Please review the changes and let me know if further adjustments are needed.
-          EOL
-          else
-            cat > /tmp/pr-comment.md << EOL
-          🤖 I attempted to address the review feedback, but no modifications were made.
-
-          ## Aider Output
-          \`\`\`
-          $(cat .github/aider/aider-output.txt || echo 'No output available')
-          \`\`\`
-
-          Please review the output and provide additional guidance if needed.
-          EOL
-          fi
-
-          # Use the file for comment body
-          gh pr comment $PR_NUM --body-file /tmp/pr-comment.md
+  run-aider:
+    needs: [check-membership, check-and-prepare]
+    if: github.event.review.state == 'changes_requested' && contains(github.event.pull_request.title, '[Aider PR]') && needs.check-membership.outputs.is_member == 'true'
+    uses: ./.github/workflows/aider-common.yml
+    with:
+      needs_processing: false
+      base_prompt: ${{ needs.check-and-prepare.outputs.prompt_content }}
+      rules_files: "CLAUDE.md backend/CLAUDE.md frontend/CLAUDE.md"
+    secrets: inherit

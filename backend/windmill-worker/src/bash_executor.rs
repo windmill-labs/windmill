@@ -299,16 +299,28 @@ async fn handle_docker_job(
     }
 
     let wait_f = async {
-        let wait = client
+        let waited = client
             .wait_container::<String>(&container_id, None)
             .try_collect::<Vec<_>>()
-            .await
-            .map_err(|e| {
+            .await;
+        match waited {
+            Ok(wait) => Ok(wait.first().map(|x| x.status_code)),
+            Err(bollard::errors::Error::DockerResponseServerError { status_code, message }) => {
+                append_logs(&job_id, &workspace_id, &format!(": {message}"), conn).await;
+                Ok(Some(status_code as i64))
+            }
+            Err(bollard::errors::Error::DockerContainerWaitError { error, code }) => {
+                append_logs(&job_id, &workspace_id, &format!("{error}"), conn).await;
+                Ok(Some(code as i64))
+            }
+            Err(e) => {
                 tracing::error!("Error waiting for container: {:?}", e);
-                anyhow::anyhow!("Error waiting for container")
-            })?;
-        let waited = wait.first().map(|x| x.status_code);
-        Ok(waited)
+                Err(Error::ExecutionErr(format!(
+                    "Error waiting for container: {:?}",
+                    e
+                )))
+            }
+        }
     };
 
     let ncontainer_id = container_id.to_string();
@@ -317,7 +329,7 @@ async fn handle_docker_job(
     let conn2 = conn.clone();
     let worker_name2 = worker_name.to_string();
     let (tx, mut rx) = tokio::sync::broadcast::channel::<()>(1);
-
+    let workspace_id2 = workspace_id.to_string();
     let mut killpill_rx = killpill_rx.resubscribe();
     let logs = tokio::spawn(async move {
         let client = bollard::Docker::connect_with_unix_defaults().map_err(to_anyhow);
@@ -332,6 +344,13 @@ async fn handle_docker_job(
                     ..Default::default()
                 }),
             );
+            append_logs(
+                &job_id,
+                &workspace_id2,
+                "\ndocker logs stream started\n",
+                &conn2,
+            )
+            .await;
             loop {
                 tokio::select! {
                     log = log_stream.next() => {
@@ -441,11 +460,14 @@ async fn handle_docker_job(
 
     let result = result.unwrap();
 
+    if result.is_some_and(|x| x > 0) {
+        return Err(Error::ExecutionErr(format!(
+            "Docker job completed with unsuccessful exit status: {}",
+            result.unwrap()
+        )));
+    }
     return Ok(to_raw_value(&json!(format!(
-        "Docker exit status: {}",
-        result
-            .map(|x| x.to_string())
-            .unwrap_or_else(|| "none".to_string())
+        "Docker job completed with success exit status"
     ))));
 }
 

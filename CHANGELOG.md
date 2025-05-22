@@ -1,5 +1,31 @@
 # Changelog
 
+## [1.492.1](https://github.com/windmill-labs/windmill/compare/v1.492.0...v1.492.1) (2025-05-22)
+
+
+### Bug Fixes
+
+* fix strum compile ([59f6024](https://github.com/windmill-labs/windmill/commit/59f6024cbdaface9c9f0ed61c4a415a13b558515))
+
+## [1.492.0](https://github.com/windmill-labs/windmill/compare/v1.491.5...v1.492.0) (2025-05-22)
+
+
+### Features
+
+* job search pagination + result count ([#5789](https://github.com/windmill-labs/windmill/issues/5789)) ([55ae766](https://github.com/windmill-labs/windmill/commit/55ae76648475ce9ff14b2fa33b2a71b90fbd50a1))
+* **python:** add annotation to skip result post-processing ([#5769](https://github.com/windmill-labs/windmill/issues/5769)) ([07c2ff5](https://github.com/windmill-labs/windmill/commit/07c2ff5668f4725a3b9a8a2655248b0945ac251c))
+* shift/ctrl+click/enter to open ctrl+k menu results in new tab ([#5800](https://github.com/windmill-labs/windmill/issues/5800)) ([66a997a](https://github.com/windmill-labs/windmill/commit/66a997afc399de2d592c469faf9a5b2cd6433aac))
+* triggers git sync ([#5766](https://github.com/windmill-labs/windmill/issues/5766)) ([065a814](https://github.com/windmill-labs/windmill/commit/065a814d35a5749725c2ada1155481abba782684))
+
+
+### Bug Fixes
+
+* improve app css consistency ([88482c3](https://github.com/windmill-labs/windmill/commit/88482c3bd76ddad16738354f7531d16fa806ad2f))
+* improve docker mode unexpected exit handling ([7c24fbc](https://github.com/windmill-labs/windmill/commit/7c24fbcef2ecfe5fc034870c4c65dd80513301a4))
+* postgres trigger ssl issue ([#5790](https://github.com/windmill-labs/windmill/issues/5790)) ([b9a776c](https://github.com/windmill-labs/windmill/commit/b9a776c97b3411af18e58cde7a070c4955aaaab4))
+* specify using inline type in system prompt for AI ([#5787](https://github.com/windmill-labs/windmill/issues/5787)) ([791296f](https://github.com/windmill-labs/windmill/commit/791296fa41c5bc45c32944db8bc1b66e1515ea82))
+* workspace preprocessor improvements ([#5784](https://github.com/windmill-labs/windmill/issues/5784)) ([30edcdf](https://github.com/windmill-labs/windmill/commit/30edcdfe0e950b0ab850942bcbc9b4b5ff4fc00c))
+
 ## [1.491.5](https://github.com/windmill-labs/windmill/compare/v1.491.4...v1.491.5) (2025-05-17)
 
 
