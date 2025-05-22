@@ -28,7 +28,7 @@
 
 	let PortalWrapper = inAppEditor ? ConditionalPortal : ConditionalPortalGlobal
 
-	export let filter = _filter
+	export let filter: (args: any) => any[] = _filter
 	export let getItems = _getItems
 
 	export let id = null
