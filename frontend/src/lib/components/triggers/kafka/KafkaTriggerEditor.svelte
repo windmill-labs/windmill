@@ -2,9 +2,7 @@
 	import { tick } from 'svelte'
 	import KafkaTriggerEditorInner from './KafkaTriggerEditorInner.svelte'
 
-	let { onUpdate }: { onUpdate?: (path?: string) => void } = $props()
-
-	let open = $state(false)
+	let open = false
 	export async function openEdit(ePath: string, isFlow: boolean) {
 		open = true
 		await tick()
@@ -21,9 +19,9 @@
 		drawer?.openNew(is_flow, initial_script_path, defaultValues)
 	}
 
-	let drawer: KafkaTriggerEditorInner | undefined = $state()
+	let drawer: KafkaTriggerEditorInner
 </script>
 
 {#if open}
-	<KafkaTriggerEditorInner {onUpdate} bind:this={drawer} />
+	<KafkaTriggerEditorInner on:update bind:this={drawer} />
 {/if}

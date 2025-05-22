@@ -7,20 +7,20 @@
 	import { SettingService } from '$lib/gen'
 	import Skeleton from '../common/skeleton/Skeleton.svelte'
 	import TriggerTokens from '../triggers/TriggerTokens.svelte'
+	import TriggersEditorSection from '../triggers/TriggersEditorSection.svelte'
 	import Description from '../Description.svelte'
-	import Section from '../Section.svelte'
-	import { createEventDispatcher } from 'svelte'
-	import EmailTriggerConfigSection from './EmailTriggerConfigSection.svelte'
 
 	let userSettings: UserSettings
-
-	const dispatch = createEventDispatcher()
 
 	export let token: string
 	export let scopes: string[] = []
 	export let isFlow: boolean = false
 	export let hash: string | undefined = undefined
 	export let path: string
+	export let isEditor: boolean = false
+	export let canHavePreprocessor: boolean = false
+	export let hasPreprocessor: boolean = false
+	export let newItem: boolean = false
 
 	let emailDomain: string | null = null
 	let triggerTokens: TriggerTokens | undefined = undefined
@@ -35,8 +35,6 @@
 	}
 
 	getEmailDomain()
-
-	$: emailDomain && dispatch('email-domain', emailDomain)
 </script>
 
 <HighlightTheme />
@@ -52,7 +50,7 @@
 	{scopes}
 />
 
-<Section label="Email trigger" class="flex flex-col gap-4">
+<div class="flex flex-col w-full gap-4">
 	<Description link="https://www.windmill.dev/docs/advanced/email_triggers">
 		Email triggers execute scripts and flows when emails are sent to specific addresses. Each
 		trigger has its own unique email address that can be used to invoke the script or flow.
@@ -61,7 +59,23 @@
 		<Skeleton layout={[[18]]} />
 	{:else}
 		{#if emailDomain}
-			<EmailTriggerConfigSection {hash} {token} {path} {isFlow} {userSettings} {emailDomain} />
+			<TriggersEditorSection
+				cloudDisabled={false}
+				triggerType="email"
+				{isFlow}
+				noSave
+				data={{ emailDomain, userSettings, token, hash, path }}
+				{isEditor}
+				{path}
+				{canHavePreprocessor}
+				{hasPreprocessor}
+				on:applyArgs
+				on:addPreprocessor
+				on:updateSchema
+				on:testWithArgs
+				{newItem}
+				alwaysOpened={true}
+			/>
 		{:else}
 			<div>
 				<Alert title="Email triggers are disabled" size="xs" type="warning">
@@ -81,4 +95,4 @@
 
 		<TriggerTokens bind:this={triggerTokens} {isFlow} {path} labelPrefix="email" />
 	{/if}
-</Section>
+</div>

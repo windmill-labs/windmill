@@ -305,7 +305,7 @@ async fn handle_docker_job(
             .await
             .map_err(|e| {
                 tracing::error!("Error waiting for container: {:?}", e);
-                anyhow::anyhow!("Error waiting for container: {:?}", e)
+                anyhow::anyhow!("Error waiting for container")
             })?;
         let waited = wait.first().map(|x| x.status_code);
         Ok(waited)

@@ -76,11 +76,7 @@
 </script>
 
 <div
-	class={twMerge(
-		'h-full',
-		rounded ? 'rounded-md overflow-hidden' : '',
-		noBorder ? 'border-0' : 'border'
-	)}
+	class={twMerge('h-full', rounded ? 'rounded-md' : '', noBorder ? 'border-0' : 'border')}
 	bind:clientHeight={tableHeight}
 >
 	<List justify="between" gap="none" hFull={true}>

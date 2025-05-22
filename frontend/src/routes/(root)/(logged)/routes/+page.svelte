@@ -186,7 +186,7 @@
 </script>
 
 <DeployWorkspaceDrawer bind:this={deploymentDrawer} />
-<RouteEditor onUpdate={loadTriggers} bind:this={routeEditor} />
+<RouteEditor on:update={loadTriggers} bind:this={routeEditor} />
 
 <SearchItems
 	{filter}

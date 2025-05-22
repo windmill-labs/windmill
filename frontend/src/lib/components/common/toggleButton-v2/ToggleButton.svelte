@@ -35,7 +35,6 @@
 			light ? 'font-medium' : '',
 			'data-[state=on]:bg-surface data-[state=on]:shadow-md',
 			'bg-surface-secondary hover:bg-surface-hover',
-			disabled ? '!shadow-none' : '',
 			$$props.class
 		)}
 		use:melt={$item(value)}

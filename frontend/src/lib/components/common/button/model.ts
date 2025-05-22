@@ -10,7 +10,6 @@ export namespace ButtonType {
 		icon?: any | undefined
 		classes?: string
 		faIcon?: any | undefined
-		props?: any
 	}
 
 	export const FontSizeClasses: Record<ButtonType.Size, string> = {

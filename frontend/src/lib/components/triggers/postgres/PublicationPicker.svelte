@@ -16,7 +16,6 @@
 	export let postgres_resource_path: string = ''
 	export let relations: Relations[] | undefined = undefined
 	export let transaction_to_track: string[] = []
-	export let disabled: boolean = false
 
 	async function listDatabasePublication() {
 		try {
@@ -85,17 +84,18 @@
 	listDatabasePublication()
 
 	let darkMode = false
+
 </script>
 
 <DarkModeObserver bind:darkMode />
 
 <div class="flex gap-1">
 	<Select
-		disabled={!can_write || disabled}
+		disabled={!can_write}
 		class="grow shrink max-w-full"
 		on:select={async (e) => {
 			publication_name = e.detail.value
-			await getAllRelations()
+		    await getAllRelations();
 		}}
 		on:clear={() => {
 			publication_name = ''
@@ -110,7 +110,7 @@
 		portal={false}
 	/>
 	<Button
-		disabled={!can_write || disabled}
+		disabled={!can_write}
 		variant="border"
 		color="light"
 		wrapperClasses="self-stretch"
@@ -122,14 +122,14 @@
 		color="light"
 		size="xs"
 		variant="border"
-		disabled={emptyString(publication_name) || !can_write || disabled}
+		disabled={emptyString(publication_name) || !can_write}
 		on:click={updatePublication}>Update</Button
 	>
 	<Button
 		color="light"
 		size="xs"
 		variant="border"
-		disabled={emptyString(publication_name) || !can_write || disabled}
+		disabled={emptyString(publication_name) || !can_write}
 		on:click={deletePublication}>Delete</Button
 	>
 </div>

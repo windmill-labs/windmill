@@ -2,9 +2,7 @@
 	import { tick } from 'svelte'
 	import SqsTriggerEditorInner from './SqsTriggerEditorInner.svelte'
 
-	let { onUpdate } = $props()
-
-	let open = $state(false)
+	let open = false
 	export async function openEdit(ePath: string, isFlow: boolean) {
 		open = true
 		await tick()
@@ -21,9 +19,9 @@
 		drawer?.openNew(is_flow, initial_script_path, defaultValues)
 	}
 
-	let drawer: SqsTriggerEditorInner | undefined = $state()
+	let drawer: SqsTriggerEditorInner
 </script>
 
 {#if open}
-	<SqsTriggerEditorInner {onUpdate} bind:this={drawer} />
+	<SqsTriggerEditorInner on:update bind:this={drawer} />
 {/if}

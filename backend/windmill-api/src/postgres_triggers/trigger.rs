@@ -19,10 +19,10 @@ use crate::{
 use bytes::{BufMut, Bytes, BytesMut};
 use chrono::TimeZone;
 use futures::{pin_mut, SinkExt, StreamExt};
-use native_tls::{Certificate, TlsConnector};
+use native_tls::TlsConnector;
 use pg_escape::{quote_identifier, quote_literal};
 use rand::seq::SliceRandom;
-use rust_postgres::{config::SslMode, Client, Config, CopyBothDuplex, NoTls, SimpleQueryMessage};
+use rust_postgres::{config::SslMode, Client, Config, CopyBothDuplex, SimpleQueryMessage};
 use rust_postgres_native_tls::MakeTlsConnector;
 use serde::Deserialize;
 use serde_json::value::RawValue;
@@ -79,45 +79,6 @@ enum Error {
     Tls(#[from] native_tls::Error),
 }
 
-fn build_tls_connector(
-    ssl_mode: SslMode,
-    root_certificate_pem: Option<&String>,
-) -> Result<Option<MakeTlsConnector>, Error> {
-    let get_tls_builder_for_verify = |root_certificate: Option<&String>| {
-        let mut builder = TlsConnector::builder();
-        if let Some(root_certificate) = root_certificate {
-            let root_certificate_pem = Certificate::from_pem(root_certificate.as_bytes()).map_err(|e| {
-                Error::Common(error::Error::BadConfig(format!("Invalid Certs: {e:#}")))
-            })?;
-            builder.add_root_certificate(root_certificate_pem);
-        }
-        Ok::<_, Error>(builder)
-    };
-    let connector = match ssl_mode {
-        SslMode::Disable => return Ok(None),
-        SslMode::Require | SslMode::Prefer => {
-            let mut builder = TlsConnector::builder();
-            builder.danger_accept_invalid_certs(true);
-            builder.danger_accept_invalid_hostnames(true);
-            builder
-        }
-
-        SslMode::VerifyCa => {
-            let mut builder = get_tls_builder_for_verify(root_certificate_pem)?;
-            builder.danger_accept_invalid_hostnames(true);
-            builder
-        }
-
-        SslMode::VerifyFull => {
-            let builder = get_tls_builder_for_verify(root_certificate_pem)?;
-            builder
-        }
-        _ => unreachable!(),
-    };
-
-    Ok(Some(MakeTlsConnector::new(connector.build()?)))
-}
-
 pub struct PostgresSimpleClient(Client);
 
 impl PostgresSimpleClient {
@@ -151,27 +112,20 @@ impl PostgresSimpleClient {
             config.password(&database.password);
         }
 
-        let connector = build_tls_connector(ssl_mode, database.root_certificate_pem.as_ref())?;
+        if !database.root_certificate_pem.is_empty() {
+            config.ssl_root_cert(database.root_certificate_pem.as_bytes());
+        }
 
-        let client = if let Some(connector) = connector {
-            let (client, connection) = config.connect(connector).await?;
-            tokio::spawn(async move {
-                if let Err(e) = connection.await {
-                    tracing::debug!("{:#?}", e);
-                };
-                tracing::info!("Successfully Connected into database");
-            });
-            client
-        } else {
-            let (client, connection) = config.connect(NoTls).await?;
-            tokio::spawn(async move {
-                if let Err(e) = connection.await {
-                    tracing::debug!("{:#?}", e);
-                };
-                tracing::info!("Successfully Connected into database");
-            });
-            client
-        };
+        let connector = MakeTlsConnector::new(TlsConnector::new()?);
+
+        let (client, connection) = config.connect(connector).await?;
+
+        tokio::spawn(async move {
+            if let Err(e) = connection.await {
+                tracing::debug!("{:#?}", e);
+            };
+            tracing::info!("Successfully Connected into database");
+        });
 
         Ok(PostgresSimpleClient(client))
     }

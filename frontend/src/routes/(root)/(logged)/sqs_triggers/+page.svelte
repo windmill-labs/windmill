@@ -220,7 +220,7 @@
 </script>
 
 <DeployWorkspaceDrawer bind:this={deploymentDrawer} />
-<SqsTriggerEditor onUpdate={loadTriggers} bind:this={sqsTriggerEditor} />
+<SqsTriggerEditor on:update={loadTriggers} bind:this={sqsTriggerEditor} />
 
 <SearchItems
 	{filter}
