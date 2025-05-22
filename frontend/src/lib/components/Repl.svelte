@@ -8,7 +8,6 @@
 	import Select from './apps/svelte-select/lib/Select.svelte'
 	import { SELECT_INPUT_DEFAULT_STYLE } from '$lib/defaults'
 	import DarkModeObserver from './DarkModeObserver.svelte'
-	import InfiniteList from './InfiniteList.svelte'
 	import { Library, Play } from 'lucide-svelte'
 	import Editor from './Editor.svelte'
 	import { ScriptService, type RunScriptByPathData } from '$lib/gen'
@@ -19,14 +18,13 @@
 	import PickHubScript from './flows/pickers/PickHubScript.svelte'
 	import { getScriptByPath } from '$lib/scripts'
 	import { FitAddon } from '@xterm/addon-fit'
+	import { Readline } from 'xterm-readline'
 	let bashEditorDrawer: Drawer | undefined = undefined
 
 	const WORKER_CMD_FLAG = 'worker '
 	let container: HTMLDivElement
 	let term: Terminal
 	let input = ''
-	let history: string[] = []
-	let historyIndex = 0
 	type Props = {
 		tag: string
 		width?: number
@@ -35,7 +33,6 @@
 	let scriptPicker: Drawer | undefined = $state()
 	let editor = $state<Editor | null>(null)
 	let darkMode = $state(false)
-	let infiniteList: InfiniteList | undefined = undefined
 	let pick_existing: 'workspace' | 'hub' = $state('workspace')
 	let codeViewer: Drawer | undefined = $state()
 	let filter = $state('')
@@ -46,7 +43,6 @@
 	let codeObj: { language: SupportedLanguage; content: string } | undefined = $state(undefined)
 
 	async function handleCommand(command: string) {
-		term.writeln('')
 		try {
 			let result: any
 
@@ -91,7 +87,6 @@
 					}
 				})
 			}
-
 			term.write(result)
 		} catch (e) {
 			term.writeln(`Error: ${e}`)
@@ -105,14 +100,9 @@
 		input = ''
 	}
 
-	function replaceInput(newInput: string) {
-		clearPrompt()
-		input = newInput
-		term.write(input)
-	}
+	const rl = new Readline()
 
 	onMount(async () => {
-		initLoadBashScripts()
 		working_directory = `/tmp/windmill/${tag}`
 		term = new Terminal({
 			cursorBlink: true,
@@ -126,97 +116,29 @@
 			rightClickSelectsWord: true
 		})
 
+		term.loadAddon(rl)
+
+		function readLine() {
+			rl.read(prompt).then(processLine)
+		}
+
+		async function processLine(text: string) {
+			await handleCommand(text)
+			setTimeout(readLine)
+		}
+
 		const fitAddon = new FitAddon()
 		term.loadAddon(fitAddon)
-
 		term.open(container)
+		term.focus()
 
 		fitAddon.fit()
-		printPrompt()
 
 		const resizeObserver = new ResizeObserver(() => fitAddon.fit())
 		resizeObserver.observe(container)
-		term.onData((char) => {
-			switch (char) {
-				case '\r':
-					input = input.trim()
-					if (input.length === 0) {
-						term.write(`\r\n${prompt}`)
-						break
-					}
-					history.push(input)
-					historyIndex = history.length
 
-					if (input === 'clear') {
-						term.reset()
-						term.write(`\r\n${prompt}`)
-						input = ''
-						break
-					}
-
-					handleCommand(input)
-					break
-
-				case '\u007f': //Backspace
-					if ((input.length === 1 && input.at(0) !== ' ') || input.length > 1) {
-						const buffer = term.buffer.active
-						const cursorX = buffer.cursorX
-						const cursorY = buffer.cursorY
-
-						input = input.slice(0, -1)
-
-						if (cursorX === 0 && cursorY > 0) {
-							const prevLine = buffer.getLine(cursorY - 1)
-							const prevLineLength = prevLine ? prevLine.length : term.cols
-							term.write(`\x1b[1A\x1b[${prevLineLength}C`)
-						}
-
-						term.write('\x1b[D\x1b[P')
-					}
-					console.log({ input })
-
-					break
-
-				case '\x1b[A': // Up arrow
-					if (historyIndex > 0) {
-						historyIndex--
-						replaceInput(history[historyIndex])
-					}
-					break
-
-				case '\x1b[B': // Down arrow
-					if (historyIndex < history.length) {
-						historyIndex++
-						if (historyIndex === history.length) {
-							replaceInput('')
-						} else {
-							replaceInput(history[historyIndex])
-						}
-					}
-					break
-
-				default:
-					if (char >= String.fromCharCode(0x20)) {
-						input += char
-						term.write(char)
-					}
-			}
-		})
+		readLine()
 	})
-
-	function initLoadBashScripts() {
-		const loadInputsPageFn = async (page: number, perPage: number) => {
-			const bashScripts = await ScriptService.listScripts({
-				workspace: $workspaceStore!,
-				kinds: 'script',
-				languages: 'bash',
-				page,
-				perPage
-			})
-			return bashScripts
-		}
-		infiniteList?.setLoader(loadInputsPageFn)
-	}
 
 	function clearPrompt() {
 		const buffer = term.buffer.active
@@ -228,7 +150,6 @@
 
 			const text = line.translateToString()
 			const postion = text.indexOf(prompt)
-			console.log(text, i)
 			if (postion !== -1) {
 				const x = postion + prompt.length + 1
 				term.write(`\x1b[${x}G`)
@@ -255,9 +176,8 @@
 	function replacePromptWithCommand(command: string) {
 		clearPrompt()
 		input = command
+		rl.appendHistory(command)
 		term.write(command)
-		history.push(command)
-		historyIndex = history.length
 		handleCommand(input)
 	}
 </script>
