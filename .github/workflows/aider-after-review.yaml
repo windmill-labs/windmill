@@ -90,4 +90,5 @@ jobs:
     with:
       needs_processing: false
       base_prompt: ${{ needs.check-and-prepare.outputs.prompt_content }}
+      rules_files: "CLAUDE.md backend/CLAUDE.md frontend/CLAUDE.md"
     secrets: inherit

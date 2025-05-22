@@ -65,4 +65,5 @@ jobs:
       issue_body: ${{ needs.check-and-prepare.outputs.issue_body }}
       instruction: ${{ needs.check-and-prepare.outputs.instruction }}
       issue_id: ${{ github.event.client_payload.issue_id }}
+      rules_files: "CLAUDE.md backend/CLAUDE.md frontend/CLAUDE.md"
     secrets: inherit
