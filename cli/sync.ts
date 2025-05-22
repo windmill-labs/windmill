@@ -335,6 +335,7 @@ export function newPathAssigner(defaultTs: "bun" | "deno"): PathAssigner {
     else if (language == "oracledb") ext = "odb.sql";
     else if (language == "snowflake") ext = "sf.sql";
     else if (language == "mssql") ext = "ms.sql";
+    else if (language == "duckdb") ext = "duckdb.sql";
     else if (language == "graphql") ext = "gql";
     else if (language == "nativets") ext = "native.ts";
     else if (language == "frontend") ext = "frontend.js";
