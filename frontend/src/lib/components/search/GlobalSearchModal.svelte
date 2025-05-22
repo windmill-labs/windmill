@@ -718,8 +718,8 @@
 												bind:selectedWorkspace
 												bind:mouseMoved
 												bind:loadedRuns={itemMap['runs']}
+												bind:open
 												{selectItem}
-												{open}
 												searchTerm={removePrefix(searchTerm, RUNS_PREFIX)}
 								/>
 					{/if}
