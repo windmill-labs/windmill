@@ -3,7 +3,6 @@
 	import {
 		AppService,
 		FlowService,
-		IndexSearchService,
 		RawAppService,
 		ScriptService,
 		type Flow,
@@ -11,8 +10,7 @@
 		type ListableRawApp,
 		type Script
 	} from '$lib/gen'
-	import { clickOutside, displayDateOnly, isMac, sendUserToast } from '$lib/utils'
-	import TimeAgo from '../TimeAgo.svelte'
+	import { clickOutside, isMac } from '$lib/utils'
 	import {
 		AlertTriangle,
 		BoxesIcon,
@@ -22,14 +20,12 @@
 		DollarSignIcon,
 		HomeIcon,
 		LayoutDashboardIcon,
-		Loader2,
 		PlayIcon,
 		Route,
 		Search,
 		SearchCode,
 		Unplug
 	} from 'lucide-svelte'
-	import JobPreview from '../runs/JobPreview.svelte'
 	import Portal from '$lib/components/Portal.svelte'
 
 	import { twMerge } from 'tailwind-merge'
@@ -44,6 +40,7 @@
 	import Popover from '../Popover.svelte'
 	import Logs from 'lucide-svelte/icons/logs'
 	import { AwsIcon, GoogleCloudIcon, KafkaIcon, MqttIcon, NatsIcon } from '../icons'
+	import RunsSearch from './RunsSearch.svelte'
 
 	let open: boolean = false
 
@@ -72,7 +69,7 @@
 	let switchModeItems: quickMenuItem[] = [
 		{
 			search_id: 'switchto:run-search',
-			label: 'Search across completed runs' + ($enterpriseLicense ? '' : ' (EE)'),
+			label: 'Search across completed runs' + (!$enterpriseLicense ? '' : ' (EE)'),
 			action: () => switchMode('runs'),
 			shortcutKey: RUNS_PREFIX,
 			icon: Search,
@@ -113,28 +110,28 @@
 		},
 		{
 			search_id: 'nav:kafka_triggers',
-			label: 'Go to Kafka triggers' + ($enterpriseLicense ? '' : ' (EE)'),
+			label: 'Go to Kafka triggers' + (!$enterpriseLicense ? '' : ' (EE)'),
 			action: () => gotoPage('/kafka_triggers'),
 			icon: KafkaIcon,
 			disabled: $userStore?.operator
 		},
 		{
 			search_id: 'nav:nats_triggers',
-			label: 'Go to NATS triggers' + ($enterpriseLicense ? '' : ' (EE)'),
+			label: 'Go to NATS triggers' + (!$enterpriseLicense ? '' : ' (EE)'),
 			action: () => gotoPage('/nats_triggers'),
 			icon: NatsIcon,
 			disabled: $userStore?.operator
 		},
 		{
 			search_id: 'nav:sqs_triggers',
-			label: 'Go to SQS triggers' + ($enterpriseLicense ? '' : ' (EE)'),
+			label: 'Go to SQS triggers' + (!$enterpriseLicense ? '' : ' (EE)'),
 			action: () => gotoPage('/sqs_triggers'),
 			icon: AwsIcon,
 			disabled: $userStore?.operator
 		},
 		{
 			search_id: 'nav:gcp_pub_sub',
-			label: 'Go to GCP Pub/Sub' + ($enterpriseLicense ? '' : ' (EE)'),
+			label: 'Go to GCP Pub/Sub' + (!$enterpriseLicense ? '' : ' (EE)'),
 			action: () => gotoPage('/gcp_triggers'),
 			icon: GoogleCloudIcon,
 			disabled: $userStore?.operator
@@ -264,12 +261,8 @@
 		return r
 	}
 
-	let debounceTimeout: any = undefined
-	const debouncePeriod: number = 1000
-	let loadingCompletedRuns: boolean = false
 
 	let queryParseErrors: string[] = []
-	let indexMetadata: any = {}
 
 	async function handleSearch() {
 		queryParseErrors = []
@@ -314,6 +307,7 @@
 					)
 				)
 			}
+			itemMap['default'] = itemMap['default'].filter((e) => !e.disabled)
 		}
 		if (tab === 'switch-mode') {
 			itemMap['switch-mode'] = fuzzyFilter(
@@ -323,26 +317,8 @@
 			)
 		}
 		if (tab === 'runs') {
-			const s = removePrefix(searchTerm, RUNS_PREFIX)
-			clearTimeout(debounceTimeout)
-			loadingCompletedRuns = true
-			debounceTimeout = setTimeout(async () => {
-				clearTimeout(debounceTimeout)
-				let searchResults
-				try {
-					searchResults = await IndexSearchService.searchJobsIndex({
-						searchQuery: s,
-						workspace: $workspaceStore!
-					})
-					itemMap['runs'] = searchResults.hits
-					queryParseErrors = searchResults.query_parse_errors
-					indexMetadata = searchResults.index_metadata
-				} catch (e) {
-					sendUserToast(e.body, true)
-				}
-				loadingCompletedRuns = false
-				selectedItem = selectItem(0)
-			}, debouncePeriod)
+				await tick()
+				runsSearch?.handleRunSearch(removePrefix(searchTerm, RUNS_PREFIX))
 		}
 		selectedItem = selectItem(0)
 	}
@@ -594,6 +570,8 @@
 			return 'max-h-[60vh]'
 		}
 	}
+
+	let runsSearch: RunsSearch
 </script>
 
 {#if open}
@@ -652,18 +630,16 @@
 						{#if items.length > 0}
 							<div class={tab === 'switch-mode' ? 'p-2' : 'p-2 border-b'}>
 								{#each items as el}
-									{#if !el.disabled}
-										<QuickMenuItem
-											on:select={el?.action}
-											on:hover={() => (selectedItem = el)}
-											id={el?.search_id}
-											hovered={el?.search_id === selectedItem?.search_id}
-											label={el?.label}
-											icon={el?.icon}
-											shortcutKey={el?.shortcutKey}
-											bind:mouseMoved
-										/>
-									{/if}
+									<QuickMenuItem
+										on:select={el?.action}
+										on:hover={() => (selectedItem = el)}
+										id={el?.search_id}
+										hovered={el?.search_id === selectedItem?.search_id}
+										label={el?.label}
+										icon={el?.icon}
+										shortcutKey={el?.shortcutKey}
+										bind:mouseMoved
+									/>
 								{/each}
 							</div>
 						{/if}
@@ -729,138 +705,17 @@
 							{/if}
 						</div>
 					{:else if tab === 'runs'}
-						<div class="flex h-full p-2 divide-x">
-							{#if loadingCompletedRuns}
-								<div class="flex w-full justify-center items-center h-48">
-									<div class="text-tertiary text-center">
-										<Loader2 size={34} class="animate-spin" />
-									</div>
-								</div>
-							{:else if itemMap['runs'] && itemMap['runs'].length > 0}
-								<div class="w-4/12 overflow-y-auto max-h-[70vh]">
-									{#each itemMap['runs'] ?? [] as r}
-										<QuickMenuItem
-											on:select={() => {
-												selectedItem = r
-												selectedWorkspace = r?.document.workspace_id[0]
-											}}
-											on:keyboardOnlySelect={() => {
-												open = false
-												goto(`/run/${r?.document.id[0]}`)
-											}}
-											id={r?.document.id[0]}
-											hovered={selectedItem && r?.document.id[0] === selectedItem?.document.id[0]}
-											icon={r?.icon}
-											containerClass="rounded-md px-2 py-1 my-2"
-											bind:mouseMoved
-										>
-											<svelte:fragment slot="itemReplacement">
-												<div
-													class="w-full flex flex-row items-center gap-4 transition-all"
-												>
-													<div
-														class="rounded-full w-2 h-2 {r?.document.success[0]
-															? 'bg-green-400'
-															: 'bg-red-400'}"
-													></div>
-													<div class="flex flex-col gap-2">
-														<div class="text-xs"> {r?.document.script_path} </div>
-														<div class="flex flex-row gap-2">
-															<div
-																class="whitespace-nowrap col-span-2 !text-tertiary !text-2xs overflow-hidden text-ellipsis flex-shrink text-center"
-															>
-																{displayDateOnly(new Date(r?.document.created_at[0]))}
-															</div>
-															<div
-																class="whitespace-nowrap col-span-2 !text-tertiary !text-2xs overflow-hidden text-ellipsis flex-shrink text-center"
-															>
-																<TimeAgo date={r?.document.created_at[0] ?? ''} />
-															</div>
-														</div>
-													</div>
-												</div>
-											</svelte:fragment>
-										</QuickMenuItem>
-									{/each}
-								</div>
-								<div class="w-8/12 max-h-[70vh]">
-									{#if selectedItem === undefined}
-										Select a result to preview
-									{:else}
-										<div class="h-[95%] overflow-y-scroll">
-											<JobPreview
-												id={selectedItem?.document?.id[0]}
-												workspace={selectedWorkspace}
-											/>
-										</div>
-									{/if}
-									<div class="flex flex-row pt-3 pl-4 items-center text-xs text-secondary">
-										{#if indexMetadata.indexed_until}
-											<span class="px-2">
-												Most recently indexed job was created at <TimeAgo
-													agoOnlyIfRecent
-													date={indexMetadata.indexed_until || ''}
-												/>
-											</span>
-										{/if}
-										{#if indexMetadata.lost_lock_ownership}
-											<Popover notClickable placement="top">
-												<AlertTriangle size={16} class="text-gray-500" />
-												<svelte:fragment slot="text">
-													The current indexer is no longer indexing new jobs. This is most likely
-													because of an ongoing deployment and indexing will resume once it's
-													complete.
-												</svelte:fragment>
-											</Popover>
-										{/if}
-									</div>
-								</div>
-							{:else}
-								<div class="flex flex-col h-full w-full justify-center items-center h-48">
-									<div class="text-tertiary text-center">
-										{#if searchTerm === RUNS_PREFIX}
-											<div class="text-2xl font-bold">Enter your search terms</div>
-											<div class="text-sm"
-												>Start typing to do full-text search across completed runs</div
-											>
-										{:else}
-											<div class="text-2xl font-bold">No runs found</div>
-											<div class="text-sm">There were no completed runs that match your query</div>
-										{/if}
-										<div class="text-sm">
-											Note that new runs might take a while to become searchable (by default ~5min)
-										</div>
-										{#if !$enterpriseLicense}
-											<div class="py-6"></div>
-
-											<Alert title="This is an EE feature" type="warning">
-												Full-text search on jobs is only available on EE.
-											</Alert>
-										{/if}
-									</div>
-									<div class="flex flex-row pt-10 text-xs text-secondary">
-										{#if indexMetadata.indexed_until}
-											<span class="px-2">
-												Most recently indexed job was created at <TimeAgo
-													agoOnlyIfRecent
-													date={indexMetadata.indexed_until}
-												/>
-											</span>
-										{/if}
-										{#if indexMetadata.lost_lock_ownership}
-											<Popover notClickable placement="top">
-												<AlertTriangle size={16} class="text-gray-500" />
-												<svelte:fragment slot="text">
-													The current indexer is no longer indexing new jobs. This is most likely
-													because of an ongoing deployment and indexing will resume once it's
-													complete.
-												</svelte:fragment>
-											</Popover>
-										{/if}
-									</div>
-								</div>
-							{/if}
-						</div>
+								<RunsSearch
+												bind:queryParseErrors
+												bind:this={runsSearch}
+												bind:selectedItem
+												bind:selectedWorkspace
+												bind:mouseMoved
+												bind:loadedRuns={itemMap['runs']}
+												bind:open
+												{selectItem}
+												searchTerm={removePrefix(searchTerm, RUNS_PREFIX)}
+								/>
 					{/if}
 				</div>
 			</div>
