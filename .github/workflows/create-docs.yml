@@ -4,7 +4,7 @@ on:
 
 jobs:
   check-membership:
-    if: ${{ github.event.issue.pull_request && startsWith(github.event.comment.body, '/docs') }}
+    if: ${{ github.event.issue.pull_request && startsWith(github.event.comment.body, '/docs') && github.event.comment.user.type != 'Bot' }}
     runs-on: ubicloud-standard-2
     outputs:
       is_member: ${{ steps.check-membership.outputs.is_member }}
