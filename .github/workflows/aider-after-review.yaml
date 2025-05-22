@@ -86,7 +86,7 @@ jobs:
 
   run-aider:
     needs: [check-membership, check-and-prepare]
-    if: needs.check-membership.outputs.is_member == 'true'
+    if: github.event.review.state == 'changes_requested' && contains(github.event.pull_request.title, '[Aider PR]') && needs.check-membership.outputs.is_member == 'true'
     uses: ./.github/workflows/aider-common.yml
     with:
       needs_processing: false
