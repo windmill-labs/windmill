@@ -8,8 +8,9 @@ use rust_decimal::Decimal;
 use serde_json::value::RawValue;
 use serde_json::{json, Value};
 use tokio::fs::remove_file;
+use tokio::task;
 use uuid::Uuid;
-use windmill_common::error::{self, to_anyhow, Error, Result};
+use windmill_common::error::{to_anyhow, Error, Result};
 use windmill_common::s3_helpers::{DuckdbConnectionSettingsQueryV2, S3Object, S3ResourceInfoQuery};
 use windmill_common::worker::{to_raw_value, Connection};
 use windmill_parser_sql::{parse_duckdb_sig, parse_sql_blocks};
@@ -88,7 +89,7 @@ pub async fn do_duckdb(
     mem_peak: &mut i32,
     canceled_by: &mut Option<CanceledBy>,
     worker_name: &str,
-    column_order: &mut Option<Vec<String>>,
+    column_order_ref: &mut Option<Vec<String>>,
     occupancy_metrics: &mut OccupancyMetrics,
 ) -> Result<Box<RawValue>> {
     let result_f = async {
@@ -162,31 +163,42 @@ pub async fn do_duckdb(
         let bq_credentials_path = make_bq_credentials_path(&job.id);
         env::set_var("GOOGLE_APPLICATION_CREDENTIALS", &bq_credentials_path);
 
-        let conn = duckdb::Connection::open_in_memory()
-            .map_err(|e| Error::ConnectingToDatabase(e.to_string()))?;
+        // duckdb::Connection is not send so we do it in a single blocking task
+        let (result, column_order) = task::spawn_blocking(move || {
+            let conn = duckdb::Connection::open_in_memory()
+                .map_err(|e| Error::ConnectingToDatabase(e.to_string()))?;
 
-        for s3_conn_string in s3_conn_strings {
-            conn.execute_batch(&s3_conn_string)
-                .map_err(|e| Error::ExecutionErr(e.to_string()))?;
-        }
+            for s3_conn_string in s3_conn_strings {
+                conn.execute_batch(&s3_conn_string)
+                    .map_err(|e| Error::ExecutionErr(e.to_string()))?;
+            }
 
-        let mut result = None;
-        for (query_block_index, query_block) in query_block_list.iter().enumerate() {
-            result = Some(
-                do_duckdb_inner(
-                    &conn,
-                    query_block.as_str(),
-                    &job_args,
-                    query_block_index != query_block_list.len() - 1,
-                    column_order,
-                )
-                .map_err(|e| Error::ExecutionErr(e.to_string()))?,
-            );
-        }
+            let mut result: Option<Box<RawValue>> = None;
+            let mut column_order = None;
+            for (query_block_index, query_block) in query_block_list.iter().enumerate() {
+                result = Some(
+                    do_duckdb_inner(
+                        &conn,
+                        query_block.as_str(),
+                        &job_args,
+                        query_block_index != query_block_list.len() - 1,
+                        &mut column_order,
+                    )
+                    .map_err(|e| Error::ExecutionErr(e.to_string()))?,
+                );
+            }
+            let result = result.unwrap_or_else(|| to_raw_value(&json!([])));
+            Ok::<_, Error>((result, column_order))
+        })
+        .await
+        .map_err(to_anyhow)??;
+
+        *column_order_ref = column_order;
+
         if matches!(tokio::fs::try_exists(&bq_credentials_path).await, Ok(true)) {
             remove_file(&bq_credentials_path).await.map_err(to_anyhow)?;
         }
-        Ok(result.unwrap_or_else(|| to_raw_value(&json!([]))))
+        Ok(result)
     };
 
     let result = run_future_with_polling_update_job_poller(
@@ -351,7 +363,7 @@ fn json_value_to_duckdb_value(
         serde_json::Value::Object(map) => duckdb::types::Value::Struct(
             map.iter()
                 .map(|(k, v)| {
-                    Ok::<_, error::Error>((
+                    Ok::<_, Error>((
                         k.clone(),
                         json_value_to_duckdb_value(v, arg_type.as_str(), client)?,
                     ))
