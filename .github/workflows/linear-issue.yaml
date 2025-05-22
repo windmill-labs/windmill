@@ -37,24 +37,23 @@ jobs:
       - name: Determine inputs for Aider
         id: determine_inputs
         shell: bash
+        env:
+          ISSUE_TITLE: ${{ github.event.client_payload.issue_title }}
+          ISSUE_BODY: ${{ github.event.client_payload.issue_body }}
+          INSTRUCTION: ${{ github.event.client_payload.instruction }}
         run: |
           echo "Determining inputs for Aider..."
-          ISSUE_TITLE_VAL="${{ github.event.client_payload.issue_title }}"
-          INSTRUCTION_VAL="${{ github.event.client_payload.instruction }}"
-          ISSUE_BODY_VAL=$(printf '%q' "${{ github.event.client_payload.issue_body }}")
-          echo "Setting GITHUB_OUTPUT for ISSUE_TITLE..."
+
           echo "ISSUE_TITLE<<EOF_AIDER_TITLE" >> "$GITHUB_OUTPUT"
-          echo "$ISSUE_TITLE_VAL" >> "$GITHUB_OUTPUT"
+          echo "$ISSUE_TITLE" >> "$GITHUB_OUTPUT"
           echo "EOF_AIDER_TITLE" >> "$GITHUB_OUTPUT"
 
-          echo "Setting GITHUB_OUTPUT for ISSUE_BODY..."
           echo "ISSUE_BODY<<EOF_AIDER_BODY" >> "$GITHUB_OUTPUT"
-          echo "$ISSUE_BODY_VAL" >> "$GITHUB_OUTPUT"
+          echo "$ISSUE_BODY" >> "$GITHUB_OUTPUT"
           echo "EOF_AIDER_BODY" >> "$GITHUB_OUTPUT"
 
-          echo "Setting GITHUB_OUTPUT for INSTRUCTION..."
           echo "INSTRUCTION<<EOF_AIDER_INSTRUCTION" >> "$GITHUB_OUTPUT"
-          echo "$INSTRUCTION_VAL" >> "$GITHUB_OUTPUT"
+          echo "$INSTRUCTION" >> "$GITHUB_OUTPUT"
           echo "EOF_AIDER_INSTRUCTION" >> "$GITHUB_OUTPUT"
           echo "Finished determining inputs."
 
