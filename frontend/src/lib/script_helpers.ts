@@ -307,8 +307,8 @@ INSERT INTO demo VALUES (@P1, @P2);
 UPDATE demo SET col2 = @P3 WHERE col2 = @P2;
 `
 
-const DUCKDB_INIT_CODE = `-- $1 parquet_file (s3object)
-SELECT * FROM read_parquet($1);
+const DUCKDB_INIT_CODE = `-- $file (s3object)
+SELECT * FROM read_parquet($file);
 ATTACH '$res:u/demo/amazing_postgres' AS db (TYPE postgres, READ_ONLY);
 `
 

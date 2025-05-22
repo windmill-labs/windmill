@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::env;
 
 use duckdb::types::TimeUnit;
@@ -19,23 +20,26 @@ use crate::handle_child::run_future_with_polling_update_job_poller;
 #[cfg(feature = "mysql")]
 use crate::mysql_executor::MysqlDatabase;
 use crate::pg_executor::PgDatabase;
+use crate::sanitized_sql_params::sanitize_and_interpolate_unsafe_sql_args;
 use crate::AuthedClient;
 
 fn do_duckdb_inner(
     conn: &duckdb::Connection,
     query: &str,
-    job_args: &[duckdb::types::Value],
+    job_args: &HashMap<String, duckdb::types::Value>,
     skip_collect: bool,
     column_order: &mut Option<Vec<String>>,
 ) -> Result<Box<RawValue>> {
     let mut rows_vec = vec![];
+
+    let (query, job_args) = interpolate_named_args(query, &job_args);
 
     let mut stmt = conn
         .prepare(&query)
         .map_err(|e| Error::ExecutionErr(e.to_string()))?;
 
     let mut rows = stmt
-        .query(params_from_iter(job_args.iter()))
+        .query(params_from_iter(job_args))
         .map_err(|e| Error::ExecutionErr(e.to_string()))?;
 
     if skip_collect {
@@ -92,8 +96,11 @@ pub async fn do_duckdb(
 
         let sig = parse_duckdb_sig(query)?.args;
         let mut job_args = build_args_values(job, client, conn).await?;
+
+        let (query, _) = &sanitize_and_interpolate_unsafe_sql_args(query, &sig, &job_args)?;
+
         let job_args = {
-            let mut v: Vec<duckdb::types::Value> = vec![];
+            let mut m: HashMap<String, duckdb::types::Value> = HashMap::new();
             for sig_arg in sig.into_iter() {
                 let json_value = job_args
                     .remove(&sig_arg.name)
@@ -118,7 +125,7 @@ pub async fn do_duckdb(
                         .await?;
 
                     let s3_obj_string = format!("s3://{}/{}", &s3_info.bucket, &s3_obj.s3);
-                    v.push(duckdb::types::Value::Text(s3_obj_string));
+                    m.insert(sig_arg.name, duckdb::types::Value::Text(s3_obj_string));
                     s3_conn_strings.push(s3_conn_str.connection_settings_str);
                 } else {
                     let duckdb_value = json_value_to_duckdb_value(
@@ -130,10 +137,10 @@ pub async fn do_duckdb(
                             .as_str(),
                         client,
                     )?;
-                    v.push(duckdb_value);
+                    m.insert(sig_arg.name, duckdb_value);
                 }
             }
-            v
+            m
         };
 
         let query_block_list = parse_sql_blocks(query);
@@ -543,4 +550,26 @@ async fn transform_attach_db_resource_query(
 // and deleted by do_duckdb after the query is executed
 fn make_bq_credentials_path(job_id: &Uuid) -> String {
     format!("/tmp/service-account-credentials-{}.json", job_id)
+}
+
+// duckdb-rs does not support named parameters,
+// and it raises an error when passing unused arguments. We cannot prepare batch statements
+// but only single SQL statements so it doesn't work when all arguments are not used by
+// every single statement.
+fn interpolate_named_args<'a>(
+    query: &str,
+    args: &'a HashMap<String, duckdb::types::Value>,
+) -> (String, Vec<&'a duckdb::types::Value>) {
+    let mut query = query.to_string();
+
+    let mut values = vec![];
+    for (arg_name, arg_value) in args {
+        let pat = format!("${}", arg_name);
+        if !query.contains(&pat) {
+            continue;
+        }
+        values.push(arg_value);
+        query = query.replace(&pat, &format!("${}", values.len()));
+    }
+    (query, values)
 }

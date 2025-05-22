@@ -228,7 +228,7 @@ lazy_static::lazy_static! {
     static ref RE_ARG_BIGQUERY: Regex = Regex::new(r#"(?m)^-- @(\w+) \((\w+(?:\[\])?)\)(?: ?\= ?(.+))? *(?:\r|\n|$)"#).unwrap();
 
     // -- $name (type) = default
-    static ref RE_ARG_DUCKDB: Regex = Regex::new(r#"(?m)^-- \$\d+ (\w+) \((\w+)\)(?: ?\= ?(.+))? *(?:\r|\n|$)"#).unwrap();
+    static ref RE_ARG_DUCKDB: Regex = Regex::new(r#"(?m)^-- \$(\w+) \((\w+)\)(?: ?\= ?(.+))? *(?:\r|\n|$)"#).unwrap();
 
     static ref RE_ARG_SNOWFLAKE: Regex = Regex::new(r#"(?m)^-- \? (\w+) \((\w+)\)(?: ?\= ?(.+))? *(?:\r|\n|$)"#).unwrap();
 
