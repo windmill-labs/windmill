@@ -665,11 +665,7 @@
 								{#each (itemMap[tab] ?? []).filter((e) => (combinedItems ?? []).includes(e)) as el}
 									<QuickMenuItem
 										onselect={(shift) => {
-										if (!shift) {
-											gotoWindmillItemPage(el)
-										} else {
-
-										}
+											gotoWindmillItemPage(el, shift)
 										}}
 										onhover={() => (selectedItem = el)}
 										id={el?.search_id}
