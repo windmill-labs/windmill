@@ -462,15 +462,12 @@ async fn handle_docker_job(
 
     if result.is_some_and(|x| x > 0) {
         return Err(Error::ExecutionErr(format!(
-            "Docker exit status: {}",
+            "Docker job completed with unsuccessful exit status: {}",
             result.unwrap()
         )));
     }
     return Ok(to_raw_value(&json!(format!(
-        "Docker exit status: {}",
-        result
-            .map(|x| x.to_string())
-            .unwrap_or_else(|| "none".to_string())
+        "Docker job completed with success exit status"
     ))));
 }
 
