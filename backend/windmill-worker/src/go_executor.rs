@@ -473,7 +473,7 @@ pub async fn install_go_dependencies(
     if non_dep_job {
         if let Some(db) = conn.as_sql() {
             sqlx::query!(
-                "INSERT INTO pip_resolution_cache (hash, lockfile, expiration) VALUES ($1, $2, now() + ('3 days')::interval) ON CONFLICT (hash) DO UPDATE SET lockfile = $2",
+                "INSERT INTO pip_resolution_cache (hash, lockfile, expiration) VALUES ($1, $2, now() + ('5 mins')::interval) ON CONFLICT (hash) DO UPDATE SET lockfile = $2",
                 hash,
                 req_content
             )
