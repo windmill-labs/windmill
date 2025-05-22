@@ -8,7 +8,10 @@
 		type Flow,
 		type ListableApp,
 		type ListableRawApp,
-		type Script
+		type Script,
+
+		type SearchJobsIndexResponse
+
 	} from '$lib/gen'
 	import { clickOutside, isMac } from '$lib/utils'
 	import {
@@ -90,56 +93,56 @@
 		{
 			search_id: 'nav:http_routes',
 			label: 'Go to HTTP routes',
-			action: () => gotoPage('/routes'),
+			action: (newtab: boolean = false) => gotoPage('/routes', newtab),
 			icon: Route,
 			disabled: $userStore?.operator
 		},
 		{
 			search_id: 'nav:web_sockets',
 			label: 'Go to WebSockets',
-			action: () => gotoPage('/websocket_triggers'),
+			action: (newtab: boolean = false) => gotoPage('/websocket_triggers', newtab),
 			icon: Unplug,
 			disabled: $userStore?.operator
 		},
 		{
 			search_id: 'nav:postgres_triggers',
 			label: 'Go to Postgres triggers',
-			action: () => gotoPage('/postgres_triggers'),
+			action: (newtab: boolean = false) => gotoPage('/postgres_triggers', newtab),
 			icon: Database,
 			disabled: $userStore?.operator
 		},
 		{
 			search_id: 'nav:kafka_triggers',
 			label: 'Go to Kafka triggers' + (!$enterpriseLicense ? '' : ' (EE)'),
-			action: () => gotoPage('/kafka_triggers'),
+			action: (newtab: boolean = false) => gotoPage('/kafka_triggers', newtab),
 			icon: KafkaIcon,
 			disabled: $userStore?.operator
 		},
 		{
 			search_id: 'nav:nats_triggers',
 			label: 'Go to NATS triggers' + (!$enterpriseLicense ? '' : ' (EE)'),
-			action: () => gotoPage('/nats_triggers'),
+			action: (newtab: boolean = false) => gotoPage('/nats_triggers', newtab),
 			icon: NatsIcon,
 			disabled: $userStore?.operator
 		},
 		{
 			search_id: 'nav:sqs_triggers',
 			label: 'Go to SQS triggers' + (!$enterpriseLicense ? '' : ' (EE)'),
-			action: () => gotoPage('/sqs_triggers'),
+			action: (newtab: boolean = false) => gotoPage('/sqs_triggers', newtab),
 			icon: AwsIcon,
 			disabled: $userStore?.operator
 		},
 		{
 			search_id: 'nav:gcp_pub_sub',
 			label: 'Go to GCP Pub/Sub' + (!$enterpriseLicense ? '' : ' (EE)'),
-			action: () => gotoPage('/gcp_triggers'),
+			action: (newtab: boolean = false) => gotoPage('/gcp_triggers', newtab),
 			icon: GoogleCloudIcon,
 			disabled: $userStore?.operator
 		},
 		{
 			search_id: 'nav:mqtt_triggers',
 			label: 'Go to MQTT triggers',
-			action: () => gotoPage('/mqtt_triggers'),
+			action: (newtab: boolean = false) => gotoPage('/mqtt_triggers', newtab),
 			icon: MqttIcon,
 			disabled: $userStore?.operator
 		}
@@ -149,35 +152,35 @@
 		{
 			search_id: 'nav:home',
 			label: 'Go to Home',
-			action: () => gotoPage('/'),
+			action: (newtab: boolean = false) => gotoPage('/', newtab),
 			icon: HomeIcon,
 			disabled: false
 		},
 		{
 			search_id: 'nav:runs',
 			label: 'Go to Runs',
-			action: () => gotoPage('/runs'),
+			action: (newtab: boolean = false) => gotoPage('/runs', newtab),
 			icon: PlayIcon,
 			disabled: false
 		},
 		{
 			search_id: 'nav:variables',
 			label: 'Go to Variables',
-			action: () => gotoPage('/variables'),
+			action: (newtab: boolean = false) => gotoPage('/variables', newtab),
 			icon: DollarSignIcon,
 			disabled: false
 		},
 		{
 			search_id: 'nav:resources',
 			label: 'Go to Resources',
-			action: () => gotoPage('/resources'),
+			action: (newtab: boolean = false) => gotoPage('/resources', newtab),
 			icon: BoxesIcon,
 			disabled: false
 		},
 		{
 			search_id: 'nav:schedules_triggers',
 			label: 'Go to Schedules',
-			action: () => gotoPage('/schedules'),
+			action: (newtab: boolean = false) => gotoPage('/schedules', newtab),
 			icon: CalendarIcon,
 			disabled: false
 		},
@@ -185,7 +188,7 @@
 		{
 			search_id: 'nav:service_logs',
 			label: 'Explore windmill service logs',
-			action: () => gotoPage('/service_logs'),
+			action: (newtab: boolean = false) => gotoPage('/service_logs', newtab),
 			shortcutKey: LOGS_PREFIX,
 			icon: Logs,
 			disabled: !$devopsRole
@@ -383,7 +386,7 @@
 		textInput.focus()
 	}
 
-	function gotoWindmillItemPage(e: TableAny) {
+	function gotoWindmillItemPage(e: TableAny, newtab: boolean = false) {
 		let path: string
 		switch (e.type) {
 			case 'flow':
@@ -401,13 +404,17 @@
 			default:
 				path = '/'
 		}
-		gotoPage(path)
+		gotoPage(path, newtab)
 	}
 
-	function gotoPage(path: string) {
-		open = false
+	function gotoPage(path: string, newtab: boolean = false) {
 		searchTerm = ''
-		goto(path)
+		if (!newtab) {
+			open = false
+			goto(path)
+		} else {
+			window.open(path, "_blank")
+		}
 	}
 
 	let mouseMoved: boolean = false
@@ -572,6 +579,10 @@
 	}
 
 	let runsSearch: RunsSearch
+	let runSearchRemainingCount: number | undefined = undefined
+	let runSearchTotalCount: number | undefined = undefined
+	let indexMetadata: SearchJobsIndexResponse["index_metadata"] = undefined
+
 </script>
 
 {#if open}
@@ -631,8 +642,8 @@
 							<div class={tab === 'switch-mode' ? 'p-2' : 'p-2 border-b'}>
 								{#each items as el}
 									<QuickMenuItem
-										on:select={el?.action}
-										on:hover={() => (selectedItem = el)}
+										onselect={(shift) => el?.action(shift)}
+										onhover={() => (selectedItem = el)}
 										id={el?.search_id}
 										hovered={el?.search_id === selectedItem?.search_id}
 										label={el?.label}
@@ -653,8 +664,10 @@
 								</div>
 								{#each (itemMap[tab] ?? []).filter((e) => (combinedItems ?? []).includes(e)) as el}
 									<QuickMenuItem
-										on:select={() => gotoWindmillItemPage(el)}
-										on:hover={() => (selectedItem = el)}
+										onselect={(shift) => {
+											gotoWindmillItemPage(el, shift)
+										}}
+										onhover={() => (selectedItem = el)}
 										id={el?.search_id}
 										hovered={el?.path === selectedItem?.path}
 										label={(el.summary ? `${el.summary} - ` : '') +
@@ -691,7 +704,7 @@
 								</Alert>
 							{:else}
 								<QuickMenuItem
-									on:select={() =>
+									onselect={() =>
 										gotoPage(
 											`/service_logs?query=${encodeURIComponent(removePrefix(searchTerm, '!'))}`
 										)}
@@ -715,6 +728,9 @@
 												bind:open
 												{selectItem}
 												searchTerm={removePrefix(searchTerm, RUNS_PREFIX)}
+												bind:runSearchRemainingCount
+												bind:runSearchTotalCount
+												bind:indexMetadata
 								/>
 					{/if}
 				</div>
