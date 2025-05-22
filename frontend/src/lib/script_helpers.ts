@@ -307,9 +307,17 @@ INSERT INTO demo VALUES (@P1, @P2);
 UPDATE demo SET col2 = @P3 WHERE col2 = @P2;
 `
 
-const DUCKDB_INIT_CODE = `-- $file (s3object)
-SELECT * FROM read_parquet($file);
-ATTACH '$res:u/demo/amazing_postgres' AS db (TYPE postgres, READ_ONLY);
+const DUCKDB_INIT_CODE = `-- $friends_csv (s3object)
+-- $name (text) = Ben
+
+ATTACH '$res:u/demo/amazed_postgresql' AS db (TYPE postgres);
+CREATE TABLE IF NOT EXISTS db.public.friends (name text);
+
+INSERT INTO db.public.friends
+  SELECT name FROM read_csv($friends_csv);
+
+SELECT 'Hello ' || $name || ', you have ' || 
+  (SELECT COUNT(*) FROM read_csv($friends_csv)) || ' new friends !';
 `
 
 const GRAPHQL_INIT_CODE = `query($name4: String, $name2: Int, $name3: [String]) {
