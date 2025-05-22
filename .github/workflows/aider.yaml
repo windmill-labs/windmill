@@ -147,4 +147,5 @@ jobs:
       issue_body: ${{ needs.check-and-prepare.outputs.issue_body }}
       instruction: ${{ needs.check-and-prepare.outputs.comment_content }}
       issue_id: ${{ github.event.issue.number }}
+      rules_files: "CLAUDE.md backend/CLAUDE.md frontend/CLAUDE.md"
     secrets: inherit

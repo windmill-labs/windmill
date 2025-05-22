@@ -33,7 +33,11 @@ on:
         description: "Prompt for probe-chat"
         required: false
         type: string
-        default: 'I''m giving you a request that needs to be implemented. Your role is ONLY to give me the files that are relevant to the request and nothing else. The request is prepended with the word REQUEST. REQUEST: $FINAL_PROMPT. Give me all the files relevant to this request. Your output MUST be a single json array that can be parsed with programatic json parsing, with the relevant files. Files can be rust or typescript or javascript files. DO NOT INCLUDE ANY OTHER TEXT IN YOUR OUTPUT. ONLY THE JSON ARRAY. Example of output: ["file1.py", "file2.py"]'
+        default: 'I''m giving you a request that needs to be implemented. Your role is ONLY to give me the files that are relevant to the request and nothing else. The request is prepended with the word REQUEST. Give me all the files relevant to this request. Your output MUST be a single json array that can be parsed with programatic json parsing, with the relevant files. Files can be rust or typescript or javascript files. DO NOT INCLUDE ANY OTHER TEXT IN YOUR OUTPUT. ONLY THE JSON ARRAY. Example of output: ["file1.py", "file2.py"]'
+      rules_files:
+        description: "Rules files for Aider"
+        required: false
+        type: string
     outputs:
       files_to_edit:
         description: "Files identified by probe-chat for editing"
@@ -219,11 +223,11 @@ jobs:
         shell: bash
         env:
           FINAL_PROMPT: ${{ steps.create_prompt.outputs.final_prompt }}
+          PROBE_PROMPT: ${{ inputs.probe_prompt }}
         run: |
           echo "Running probe-chat to find relevant files..."
 
-          # escape the final prompt
-          printf -v MESSAGE_FOR_PROBE 'I'\''m giving you a request that needs to be implemented. Your role is ONLY to give me the files that are relevant to the request and nothing else. The request is prepended with the word REQUEST.\nREQUEST: %s. Give me all the files relevant to this request. Your output MUST be a single json array that can be parsed with programatic json parsing, with the relevant files. Files can be rust or typescript or javascript files. DO NOT INCLUDE ANY OTHER TEXT IN YOUR OUTPUT. ONLY THE JSON ARRAY. Example of output: ["file1.py", "file2.py"]' "$FINAL_PROMPT"
+          MESSAGE_FOR_PROBE=$(printf "%s\nREQUEST:\n%s" "$PROBE_PROMPT" "$FINAL_PROMPT")
 
           set -o pipefail
           PROBE_OUTPUT=$(npx --yes @buger/probe-chat@latest --max-iterations 50 --model-name gemini-2.5-pro-preview-05-06 --message "$MESSAGE_FOR_PROBE") || {
@@ -256,21 +260,63 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-aider-
 
+      - name: Prepare branch for Aider
+        id: prepare_branch
+        env:
+          ISSUE_ID: ${{ inputs.issue_id }}
+        run: |
+          if [[ "$ISSUE_ID" != "" ]]; then
+            BRANCH_NAME="aider-fix-issue-${ISSUE_ID}"
+
+            # Check if branch exists remotely
+            if git ls-remote --heads origin $BRANCH_NAME | grep -q $BRANCH_NAME; then
+              echo "Branch $BRANCH_NAME already exists remotely, fetching it"
+              git fetch origin $BRANCH_NAME
+              git checkout $BRANCH_NAME
+              git pull origin $BRANCH_NAME
+            else
+              echo "Creating new branch $BRANCH_NAME"
+              git checkout -b $BRANCH_NAME
+            fi
+            echo "BRANCH_NAME=$BRANCH_NAME" >> $GITHUB_OUTPUT
+          else
+            # We're in a pull_request_review event
+            PR_NUMBER="${{ github.event.pull_request.number }}"
+            PR_HEAD_REF="${{ github.event.pull_request.head.ref }}"
+            
+            echo "Handling pull_request_review for PR #$PR_NUMBER on branch $PR_HEAD_REF"
+            
+            # Ensure we're on the correct branch
+            git config pull.rebase true
+            git fetch origin $PR_HEAD_REF
+            git checkout $PR_HEAD_REF
+            git pull origin $PR_HEAD_REF
+            
+            echo "Using PR branch $PR_HEAD_REF for PR #$PR_NUMBER"
+            echo "BRANCH_NAME=$PR_HEAD_REF" >> $GITHUB_OUTPUT
+          fi
+
       - name: Run Aider
         id: run_aider
         shell: bash
         env:
           FILES_TO_EDIT: ${{ steps.probe_files.outputs.files_to_edit }}
           FINAL_PROMPT: ${{ steps.create_prompt.outputs.final_prompt }}
+          RULES_FILES: ${{ inputs.rules_files }}
         run: |
 
           echo "$FINAL_PROMPT" > .aider_final_prompt.txt
           echo "FILES_TO_EDIT: $FILES_TO_EDIT"
 
+          RULES=""
+          if [ -n "$RULES_FILES" ]; then
+            for rule in $RULES_FILES; do
+              RULES="$RULES --read $rule"
+            done
+          fi
+
           aider \
-            --read .cursor/rules/rust-best-practices.mdc \
-            --read .cursor/rules/svelte5-best-practices.mdc \
-            --read .cursor/rules/windmill-overview.mdc \
+            $RULES \
             $FILES_TO_EDIT \
             --model gemini/gemini-2.5-pro-preview-05-06 \
             --message-file .aider_final_prompt.txt \
@@ -297,38 +343,28 @@ jobs:
           ISSUE_ID: ${{ inputs.issue_id }}
         run: |
           if [[ "$ISSUE_ID" != "" ]]; then
-            BRANCH_NAME="aider-fix-issue-${ISSUE_ID}"
-
-            # Check if branch exists remotely
-            if git ls-remote --heads origin $BRANCH_NAME | grep -q $BRANCH_NAME; then
-              echo "Branch $BRANCH_NAME already exists remotely, fetching it"
-              git fetch origin $BRANCH_NAME
-              git checkout $BRANCH_NAME
-              git pull origin $BRANCH_NAME
-            else
-              echo "Creating new branch $BRANCH_NAME"
-              git checkout -b $BRANCH_NAME
+            # Check if there are any uncommitted changes
+            if [[ -n $(git status --porcelain) ]]; then
+              echo "Found uncommitted changes, committing them"
+              git add .
+              git commit -m "Aider changes"
             fi
 
-            echo "Created/checked out branch $BRANCH_NAME for issue #${ISSUE_ID}"
-            git push origin $BRANCH_NAME
-            echo "Pushed to branch $BRANCH_NAME"
-            echo "PR_BRANCH_NAME=$BRANCH_NAME" >> $GITHUB_OUTPUT
-            echo "CHANGES_APPLIED_MESSAGE=Aider changes pushed to branch $BRANCH_NAME." >> $GITHUB_OUTPUT
+            # Push changes to the branch
+            if git push origin $BRANCH_NAME; then
+              echo "Pushed to branch $BRANCH_NAME"
+              echo "PR_BRANCH_NAME=$BRANCH_NAME" >> $GITHUB_OUTPUT
+              echo "CHANGES_APPLIED_MESSAGE=Aider changes pushed to branch $BRANCH_NAME." >> $GITHUB_OUTPUT
+              echo "CHANGES_APPLIED=true" >> $GITHUB_OUTPUT
+            else
+              echo "::warning::Push to PR branch $BRANCH_NAME failed."
+              echo "CHANGES_APPLIED_MESSAGE=Aider ran, but failed to push changes to PR branch $BRANCH_NAME." >> $GITHUB_OUTPUT
+              echo "CHANGES_APPLIED=false" >> $GITHUB_OUTPUT
+            fi
           else
             # We're in a pull_request_review event
-            PR_NUMBER="${{ github.event.pull_request.number }}"
             PR_HEAD_REF="${{ github.event.pull_request.head.ref }}"
-            
-            echo "Handling pull_request_review for PR #$PR_NUMBER on branch $PR_HEAD_REF"
-            
-            # Ensure we're on the correct branch
-            git config pull.rebase true
-            git fetch origin $PR_HEAD_REF
-            git checkout $PR_HEAD_REF
-            git pull origin $PR_HEAD_REF
-            
-            echo "Attempting to push changes to PR branch $PR_HEAD_REF for PR #$PR_NUMBER"
+            echo "Attempting to push changes to PR branch $PR_HEAD_REF"
             if git push origin $PR_HEAD_REF; then
               echo "Push to $PR_HEAD_REF successful (or no new changes to push)."
               echo "CHANGES_APPLIED_MESSAGE=Aider changes (if any) pushed to PR branch $PR_HEAD_REF." >> $GITHUB_OUTPUT
