@@ -10,7 +10,6 @@
 	import DarkModeObserver from './DarkModeObserver.svelte'
 	import { Library, Play } from 'lucide-svelte'
 	import Editor from './Editor.svelte'
-	import { ScriptService, type RunScriptByPathData } from '$lib/gen'
 	import WorkspaceScriptPicker from './flows/pickers/WorkspaceScriptPicker.svelte'
 	import ToggleHubWorkspace from './ToggleHubWorkspace.svelte'
 	import type { SupportedLanguage } from '$lib/common'
@@ -21,7 +20,6 @@
 	import { Readline } from 'xterm-readline'
 	let bashEditorDrawer: Drawer | undefined = undefined
 
-	const WORKER_CMD_FLAG = 'worker '
 	let container: HTMLDivElement
 	let term: Terminal
 	let input = ''
@@ -38,72 +36,81 @@
 	let filter = $state('')
 	let { tag, activeWorkers = [tag] }: Props = $props()
 	let code: string = $state('')
-	let working_directory = $state('')
-	let prompt = $derived(`$-${working_directory.split('/').at(-1)} `)
+	let working_directory = $state(`/tmp/windmill/${tag}`)
+	let homeDirectory: string = '~'
+	let prompt = $derived(
+		`$-${working_directory === '/' ? '/' : working_directory.split('/').at(-1)} `
+	)
 	let codeObj: { language: SupportedLanguage; content: string } | undefined = $state(undefined)
+
+	function resolvePath(currentDir: string, newPath: string): string {
+		if (newPath.startsWith('/') || newPath.startsWith('~')) {
+			return newPath
+		}
+
+		let parts = currentDir.split('/').filter(Boolean)
+		const segments = newPath.split('/').filter(Boolean)
+
+		for (const segment of segments) {
+			if (segment === '..') {
+				parts.pop()
+			} else if (segment !== '.') {
+				parts.push(segment)
+			}
+		}
+
+		return (currentDir.startsWith('~') ? '' : '/') + parts.join('/')
+	}
+
+	function ensureTrailingLineBreak(input: any): boolean {
+		if (typeof input !== 'string') {
+			return false
+		}
+		return input.endsWith('\r\n') || input.endsWith('\n')
+	}
 
 	async function handleCommand(command: string) {
 		try {
-			let result: any
+			const trimmedCommand = command.trim()
 
-			if (command.startsWith(WORKER_CMD_FLAG)) {
-				const cmd = command.substring(WORKER_CMD_FLAG.length).trim()
-				if (cmd.startsWith('run')) {
-					const args = cmd.substring(3).trim().split(' ')
-
-					if (args.length === 0) {
-						throw Error('Missing path of script to run by the worker')
-					}
-					const scriptPath = args[0]
-					const script = await ScriptService.getScriptByPath({
-						workspace: $workspaceStore!,
-						path: scriptPath
-					})
-
-					if (script.language !== 'bash') {
-						throw new Error('Worker are only allowed to run bash script')
-					}
-
-					const data: RunScriptByPathData = {
-						workspace: $workspaceStore!,
-						path: scriptPath,
-						tag,
-						requestBody: {}
-					}
-					result = await runScriptAndPollResult(data)
+			const isOnlyCdCommand = command.startsWith('cd')
+			let wDirectory = working_directory
+			if (isOnlyCdCommand) {
+				const parts = trimmedCommand.split(' ')
+				if (parts.length > 1) {
+					const path = parts.slice(1).join(' ')
+					const newPath = resolvePath(working_directory, path)
+					wDirectory = newPath
 				} else {
-					throw new Error(
-						`Unknown worker command: "${cmd}". Use "worker --help" to see available commands.`
-					)
+					wDirectory = homeDirectory
 				}
-			} else {
-				result = await runScriptAndPollResult({
-					workspace: $workspaceStore!,
-					requestBody: {
-						language: 'bash',
-						content: `${command} > result.out`,
-						tag,
-						args: {}
-					}
-				})
 			}
-			term.write(result)
+
+			let result: any = await runScriptAndPollResult({
+				workspace: $workspaceStore!,
+				requestBody: {
+					language: 'bash',
+					content: `(cd ${wDirectory} && ${isOnlyCdCommand ? 'pwd' : `${trimmedCommand}`}) > result.out`,
+					tag,
+					args: {}
+				}
+			})
+			if (isOnlyCdCommand) {
+				working_directory = (result as string).replace(/(\r\n|\n|\r)/g, '')
+				result = ''
+			} else if (!ensureTrailingLineBreak(result)) {
+				result += '\r\n'
+			}
+
+			rl.write(result)
 		} catch (e) {
 			term.writeln(`Error: ${e}`)
-		} finally {
-			printPrompt()
 		}
-	}
-
-	function printPrompt() {
-		term.write(prompt)
-		input = ''
 	}
 
 	const rl = new Readline()
 
 	onMount(async () => {
-		working_directory = `/tmp/windmill/${tag}`
 		term = new Terminal({
 			cursorBlink: true,
 			fontSize: 14,
@@ -235,7 +242,6 @@
 						tag = e.detail.value
 						working_directory = `/tmp/windmill/${tag}`
 						term.reset()
-						printPrompt()
 					}}
 					on:clear={() => {}}
 					clearable={false}
@@ -251,10 +257,10 @@
 			<div class="flex justify-start w-full mb-2">
 				<Badge
 					color="gray"
-					class="center-center !bg-gray-300 !text-tertiary dark:!bg-gray-700 dark:!text-gray-300 !h-[32px]  rounded-r-none rounded-l-none"
+					class="center-center !bg-gray-300 !text-tertiary dark:!bg-gray-700 dark:!text-gray-300 !h-[40px]  rounded-r-none rounded-l-none"
 					>Full path</Badge
 				>
-				<input type="text" bind:value={working_directory} />
+				<input type="text" disabled bind:value={working_directory} />
 			</div>
 		</div>
 
