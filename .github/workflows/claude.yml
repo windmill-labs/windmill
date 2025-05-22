@@ -24,10 +24,18 @@ jobs:
       - name: Check organization membership
         id: check-membership
         env:
-          COMMENTER: ${{ github.event_name == 'issue_comment' || github.event_name == 'pull_request_review_comment' ? github.event.comment.user.login : github.event_name == 'pull_request_review' ? github.event.review.user.login : github.event.issue.user.login }}
           ORG_ACCESS_TOKEN: ${{ secrets.ORG_ACCESS_TOKEN }}
         run: |
           ORG="windmill-labs"
+
+          if [[ "${{ github.event_name }}" == "issue_comment" || "${{ github.event_name }}" == "pull_request_review_comment" ]]; then
+            COMMENTER="${{ github.event.comment.user.login }}"
+          elif [[ "${{ github.event_name }}" == "pull_request_review" ]]; then
+            COMMENTER="${{ github.event.review.user.login }}"
+          else
+            COMMENTER="${{ github.event.issue.user.login }}"
+          fi
+
           STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
             -H "Authorization: token $ORG_ACCESS_TOKEN" \
             -H "Accept: application/vnd.github+json" \
