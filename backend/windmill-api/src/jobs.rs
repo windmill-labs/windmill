@@ -3477,7 +3477,7 @@ pub async fn run_flow_by_path(
             &authed,
             &db,
             &w_id,
-            RunnableId::from_flow_path(&flow_path.0),
+            RunnableId::from_flow_path(flow_path.to_path()),
             run_query.skip_preprocessor,
         )
         .await?;
@@ -3676,7 +3676,7 @@ pub async fn run_script_by_path(
             &authed,
             &db,
             &w_id,
-            RunnableId::from_script_path(&script_path.0),
+            RunnableId::from_script_path(script_path.to_path()),
             run_query.skip_preprocessor,
         )
         .await?;
@@ -4355,17 +4355,18 @@ pub async fn run_wait_result_job_by_path_get(
     let mut args = args.process_args(&authed, &db, &w_id, None).await?;
     args.body = args::Body::HashMap(payload_args);
 
+    let script_path = script_path.to_path();
+
     let args = args
         .to_args_from_runnable(
             &db,
             &w_id,
-            RunnableId::from_script_path(&script_path.0),
+            RunnableId::from_script_path(script_path),
             run_query.skip_preprocessor,
         )
         .await?;
 
     check_queue_too_long(&db, QUEUE_LIMIT_WAIT_RESULT.or(run_query.queue_limit)).await?;
-    let script_path = script_path.to_path();
     check_scopes(&authed, || format!("run:script/{script_path}"))?;
 
     let mut tx = user_db.clone().begin(&authed).await?;
@@ -4461,7 +4462,7 @@ pub async fn run_wait_result_flow_by_path_get(
         .to_args_from_runnable(
             &db,
             &w_id,
-            RunnableId::from_flow_path(&flow_path.0),
+            RunnableId::from_flow_path(flow_path.to_path()),
             run_query.skip_preprocessor,
         )
         .await?;
@@ -4486,7 +4487,7 @@ pub async fn run_wait_result_script_by_path(
             &authed,
             &db,
             &w_id,
-            RunnableId::from_script_path(&script_path.0),
+            RunnableId::from_script_path(script_path.to_path()),
             run_query.skip_preprocessor,
         )
         .await?;
@@ -4696,7 +4697,7 @@ pub async fn run_wait_result_flow_by_path(
             &authed,
             &db,
             &w_id,
-            RunnableId::from_flow_path(&flow_path.0),
+            RunnableId::from_flow_path(flow_path.to_path()),
             run_query.skip_preprocessor,
         )
         .await?;

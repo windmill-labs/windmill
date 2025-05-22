@@ -415,13 +415,10 @@ pub enum ObjectSettings {
 }
 
 impl ObjectSettings {
-    pub fn get_bucket(&self) -> &str {
+    pub fn get_bucket(&self) -> Option<&String> {
         match self {
-            ObjectSettings::S3(s3_settings) => s3_settings
-                .bucket
-                .as_deref()
-                .unwrap_or_else(|| "missingbucket"),
-            ObjectSettings::Azure(azure_settings) => &azure_settings.container_name,
+            ObjectSettings::S3(s3_settings) => s3_settings.bucket.as_ref(),
+            ObjectSettings::Azure(azure_settings) => Some(&azure_settings.container_name),
         }
     }
 }

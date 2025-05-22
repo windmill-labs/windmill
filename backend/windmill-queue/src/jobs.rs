@@ -6,7 +6,6 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
-use std::fmt;
 use std::{collections::HashMap, sync::Arc, vec};
 
 use anyhow::Context;
@@ -1944,40 +1943,6 @@ async fn handle_successful_schedule<'a, 'c, T: Serialize + Send + Sync>(
     Ok(())
 }
 
-#[derive(sqlx::Type, Serialize, Deserialize, Debug, Clone, Eq, PartialEq, Hash)]
-#[sqlx(type_name = "TRIGGER_KIND", rename_all = "lowercase")]
-#[serde(rename_all = "lowercase")]
-pub enum TriggerKind {
-    Webhook,
-    Http,
-    Websocket,
-    Kafka,
-    Email,
-    Nats,
-    Mqtt,
-    Sqs,
-    Postgres,
-    Gcp
-}
-
-
-impl TriggerKind {
-    pub fn to_key(&self) -> String {
-        match self {
-            TriggerKind::Webhook => "webhook".to_string(),
-            TriggerKind::Http => "http".to_string(),
-            TriggerKind::Websocket => "websocket".to_string(),
-            TriggerKind::Kafka => "kafka".to_string(),
-            TriggerKind::Email => "email".to_string(),
-            TriggerKind::Nats => "nats".to_string(),
-            TriggerKind::Mqtt => "mqtt".to_string(),
-            TriggerKind::Sqs => "sqs".to_string(),
-            TriggerKind::Postgres => "postgres".to_string(),
-            TriggerKind::Gcp => "gcp".to_string(),
-        }
-    }
-}
-
 #[derive(sqlx::Type, Serialize, Deserialize, Debug, Clone)]
 #[sqlx(type_name = "JOB_TRIGGER_KIND", rename_all = "lowercase")]
 #[serde(rename_all = "lowercase")]
@@ -1995,23 +1960,6 @@ pub enum JobTriggerKind {
     Gcp
 }
 
-impl fmt::Display for TriggerKind {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let s = match self {
-            TriggerKind::Webhook => "webhook",
-            TriggerKind::Http => "http",
-            TriggerKind::Websocket => "websocket",
-            TriggerKind::Kafka => "kafka",
-            TriggerKind::Email => "email",
-            TriggerKind::Nats => "nats",
-            TriggerKind::Mqtt => "mqtt",
-            TriggerKind::Sqs => "sqs",
-            TriggerKind::Postgres => "postgres",
-            TriggerKind::Gcp => "gcp",
-        };
-        write!(f, "{}", s)
-    }
-}
 
 #[derive(sqlx::FromRow, Debug, Clone, Serialize, Deserialize)]
 pub struct MiniPulledJob {
@@ -3590,12 +3538,16 @@ pub async fn push<'c, 'd>(
             None,
             None,
         ),
-        JobPayload::ScriptHub { path } => {
+        JobPayload::ScriptHub { path, apply_preprocessor } => {
             if path == "hub/7771/slack" || path == "hub/7836/slack" || path == "hub/9084/slack" {
                 // these scripts send app reports to slack
                 // they use the slack bot token and should therefore be run with permissions to access it
                 permissioned_as = SUPERADMIN_NOTIFICATION_EMAIL.to_string();
                 email = SUPERADMIN_NOTIFICATION_EMAIL;
+            }
+
+            if apply_preprocessor {
+                preprocessed = Some(false);
             }
 
             let hub_script =

@@ -427,9 +427,10 @@ impl AuthedClient {
             )
             .send()
             .await
-            .context(format!(
-                "Executing request from authed http client to {url} with query {query:?}",
-            ))
+            .map_err(|e| {
+                tracing::error!("Error executing get request from authed http client to {url} with query {query:?}: {e}");
+                anyhow::anyhow!("Error executing get request from authed http client to {url} with query {query:?}: {e}")
+            })
     }
 
     pub async fn get_id_token(&self, audience: &str) -> anyhow::Result<String> {
