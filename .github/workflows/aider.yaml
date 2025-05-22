@@ -20,10 +20,11 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_REPOSITORY: ${{ github.repository }}
           COMMENTER: ${{ github.event.comment.user.login }}
+          ORG_ACCESS_TOKEN: ${{ secrets.ORG_ACCESS_TOKEN }}
         run: |
           ORG="windmill-labs"
           STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
-            -H "Authorization: token $GH_TOKEN" \
+            -H "Authorization: token $ORG_ACCESS_TOKEN" \
             -H "Accept: application/vnd.github+json" \
             -H "X-GitHub-Api-Version: 2022-11-28" \
             "https://api.github.com/orgs/$ORG/members/$COMMENTER")
@@ -66,6 +67,11 @@ jobs:
       - name: Determine inputs for Aider
         id: determine_inputs
         shell: bash
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          COMMENT_BODY: ${{ github.event.comment.body }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
         run: |
           echo "Determining inputs for Aider..."
           ISSUE_TITLE_VAL=""
@@ -73,28 +79,31 @@ jobs:
 
           if [[ ! -z "${{ github.event.issue.pull_request }}" ]]; then
             echo "This is a comment on a Pull Request"
-            PR_NUMBER="${{ github.event.issue.number }}"
+            PR_NUMBER="$ISSUE_NUMBER"
             
-            PR_BODY_JSON=$(GH_TOKEN="${{ secrets.GITHUB_TOKEN }}" gh pr view "$PR_NUMBER" --json body --repo "$GITHUB_REPOSITORY")
+            PR_BODY_JSON=$(gh pr view "$PR_NUMBER" --json body --repo "$GITHUB_REPOSITORY")
             if [[ $? -ne 0 ]]; then
               echo "Error fetching PR body for PR #$PR_NUMBER"
               PR_BODY_VAL=""
             else
-              PR_BODY_VAL=$(echo "$PR_BODY_JSON" | jq -r .body)
+              PR_BODY_VAL=$(jq -r '.body // ""' <<< "$PR_BODY_JSON")
             fi
             
             if [[ ! -z "$PR_BODY_VAL" ]]; then
-              REFERENCED_ISSUE=$(echo "$PR_BODY_VAL" | grep -oE "#[0-9]+" | grep -oE "[0-9]+" | head -1)
+              REFERENCED_ISSUE=""
+              if [[ "$PR_BODY_VAL" =~ \#([0-9]+) ]]; then
+                REFERENCED_ISSUE="${BASH_REMATCH[1]}"
+              fi
               
               if [[ ! -z "$REFERENCED_ISSUE" ]]; then
                 echo "Found referenced issue #$REFERENCED_ISSUE in PR description"
                 
-                ISSUE_DETAILS_JSON=$(GH_TOKEN="${{ secrets.GITHUB_TOKEN }}" gh issue view "$REFERENCED_ISSUE" --json title,body --repo "$GITHUB_REPOSITORY")
+                ISSUE_DETAILS_JSON=$(gh issue view "$REFERENCED_ISSUE" --json title,body --repo "$GITHUB_REPOSITORY")
                 if [[ $? -ne 0 ]]; then
                   echo "Error fetching issue details for #$REFERENCED_ISSUE"
                 else
-                  ISSUE_TITLE_VAL=$(echo "$ISSUE_DETAILS_JSON" | jq -r .title)
-                  ISSUE_BODY_VAL=$(echo "$ISSUE_DETAILS_JSON" | jq -r .body)
+                  ISSUE_TITLE_VAL=$(jq -r '.title // ""' <<< "$ISSUE_DETAILS_JSON")
+                  ISSUE_BODY_VAL=$(jq -r '.body // ""' <<< "$ISSUE_DETAILS_JSON")
                 fi
               fi
             else
@@ -102,34 +111,32 @@ jobs:
             fi
           else
             echo "This is a comment on a regular issue"
-            ISSUE_NUMBER="${{ github.event.issue.number }}"
-            ISSUE_DETAILS_JSON=$(GH_TOKEN="${{ secrets.GITHUB_TOKEN }}" gh issue view "$ISSUE_NUMBER" --json title,body --repo "$GITHUB_REPOSITORY")
+            
+            ISSUE_DETAILS_JSON=$(gh issue view "$ISSUE_NUMBER" --json title,body --repo "$GITHUB_REPOSITORY")
             if [[ $? -ne 0 ]]; then
               echo "Error fetching issue details for #$ISSUE_NUMBER"
             else
-              ISSUE_TITLE_VAL=$(echo "$ISSUE_DETAILS_JSON" | jq -r .title)
-              ISSUE_BODY_VAL=$(echo "$ISSUE_DETAILS_JSON" | jq -r .body)
+              ISSUE_TITLE_VAL=$(jq -r '.title // ""' <<< "$ISSUE_DETAILS_JSON")
+              ISSUE_BODY_VAL=$(jq -r '.body // ""' <<< "$ISSUE_DETAILS_JSON") 
             fi
           fi
 
-          echo "Setting GITHUB_OUTPUT for ISSUE_TITLE..."
           echo "ISSUE_TITLE<<EOF_AIDER_TITLE" >> "$GITHUB_OUTPUT"
           echo "$ISSUE_TITLE_VAL" >> "$GITHUB_OUTPUT"
           echo "EOF_AIDER_TITLE" >> "$GITHUB_OUTPUT"
 
-          echo "Setting GITHUB_OUTPUT for ISSUE_BODY..."
           echo "ISSUE_BODY<<EOF_AIDER_BODY" >> "$GITHUB_OUTPUT"
           echo "$ISSUE_BODY_VAL" >> "$GITHUB_OUTPUT"
           echo "EOF_AIDER_BODY" >> "$GITHUB_OUTPUT"
 
-          # Process COMMENT_CONTENT
-          printf -v COMMENT_CONTENT_VAL "%s" "$(echo "${{ github.event.comment.body }}" | sed 's|^/aider||' | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"
+          CLEAN_COMMENT="${COMMENT_BODY/\/aider/}"
+          CLEAN_COMMENT="${CLEAN_COMMENT#"${CLEAN_COMMENT%%[![:space:]]*}"}"
+          CLEAN_COMMENT="${CLEAN_COMMENT%"${CLEAN_COMMENT##*[![:space:]]}"}"
+
           echo "COMMENT_CONTENT<<EOF_AIDER_COMMENT" >> "$GITHUB_OUTPUT"
-          echo "$COMMENT_CONTENT_VAL" >> "$GITHUB_OUTPUT"
+          echo "$CLEAN_COMMENT" >> "$GITHUB_OUTPUT"
           echo "EOF_AIDER_COMMENT" >> "$GITHUB_OUTPUT"
           echo "Finished determining inputs."
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} # Make sure gh cli has a token
 
   run-aider:
     needs: [check-membership, check-and-prepare]
