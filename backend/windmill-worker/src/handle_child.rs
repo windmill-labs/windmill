@@ -744,8 +744,8 @@ fn child_joined_output_stream(
     let stdout = BufReader::new(stdout).lines();
     let stderr = BufReader::new(stderr).lines();
     stream::select(
-        lines_to_stream(stderr, true, job_id.clone(), w_id.clone(), path.clone()),
-        lines_to_stream(stdout, false, job_id, w_id, path),
+        lines_to_stream(stderr, true, job_id.clone(), w_id.clone()),
+        lines_to_stream(stdout, false, job_id, w_id),
     )
 }
 
@@ -754,7 +754,6 @@ pub fn lines_to_stream<R: tokio::io::AsyncBufRead + Unpin>(
     stderr: bool,
     job_id: Uuid,
     w_id: String,
-    path: String,
 ) -> impl futures::Stream<Item = io::Result<String>> {
     stream::poll_fn(move |cx| {
         std::pin::Pin::new(&mut lines)
