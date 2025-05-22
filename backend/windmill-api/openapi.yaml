@@ -12614,7 +12614,7 @@ paths:
                     items:
                       $ref: "#/components/schemas/JobSearchHit"
                   hit_count:
-                    description: how many jobs mathced in total
+                    description: how many jobs matched in total
                     type: number
                   index_metadata:
                     description: Metadata about the index current state
