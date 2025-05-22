@@ -54,6 +54,7 @@
 				})
 
 				if (s !== searchTerm) {
+					loadingCompletedRuns = false
 					return
 				}
 
@@ -83,6 +84,7 @@
 				workspace: $workspaceStore!
 			})
 			if (s !== searchTerm) {
+				loadingMoreJobs = false
 				return
 			}
 			loadedRuns.pop()
