@@ -3,8 +3,34 @@ on:
     types: [created]
 
 jobs:
-  trigger-docs:
+  check-membership:
     if: ${{ github.event.issue.pull_request && startsWith(github.event.comment.body, '/docs') }}
+    runs-on: ubicloud-standard-2
+    outputs:
+      is_member: ${{ steps.check-membership.outputs.is_member }}
+    steps:
+      - name: Check organization membership
+        id: check-membership
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          COMMENTER: ${{ github.event.comment.user.login }}
+        run: |
+          ORG="windmill-labs"
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
+            -H "Authorization: token $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/orgs/$ORG/members/$COMMENTER")
+
+          if [ "$STATUS" -eq 204 ]; then
+            echo "is_member=true" >> $GITHUB_OUTPUT
+          else
+            echo "is_member=false" >> $GITHUB_OUTPUT
+          fi
+
+  trigger-docs:
+    needs: check-membership
+    if: ${{ github.event.issue.pull_request && startsWith(github.event.comment.body, '/docs') && needs.check-membership.outputs.is_member == 'true' }}
     uses: windmill-labs/windmilldocs/.github/workflows/create-docs.yml@main
     with:
       pr_number: ${{ github.event.issue.number }}

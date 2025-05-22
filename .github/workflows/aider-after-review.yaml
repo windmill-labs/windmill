@@ -5,8 +5,35 @@ on:
     types: [submitted]
 
 jobs:
-  check-and-prepare:
+  check-membership:
     if: github.event.review.state == 'changes_requested' && contains(github.event.pull_request.title, '[Aider PR]')
+    runs-on: ubicloud-standard-2
+    outputs:
+      is_member: ${{ steps.check-membership.outputs.is_member }}
+    steps:
+      - name: Check organization membership
+        id: check-membership
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          REVIEWER: ${{ github.event.review.user.login }}
+        run: |
+          ORG="windmill-labs"
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
+            -H "Authorization: token $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/orgs/$ORG/members/$REVIEWER")
+
+          if [ "$STATUS" -eq 204 ]; then
+            echo "is_member=true" >> $GITHUB_OUTPUT
+          else
+            echo "is_member=false" >> $GITHUB_OUTPUT
+          fi
+
+  check-and-prepare:
+    needs: check-membership
+    if: github.event.review.state == 'changes_requested' && contains(github.event.pull_request.title, '[Aider PR]') && needs.check-membership.outputs.is_member == 'true'
     runs-on: ubicloud-standard-2
     permissions:
       contents: write
@@ -58,7 +85,8 @@ jobs:
           echo "EOF" >> $GITHUB_OUTPUT
 
   run-aider:
-    needs: check-and-prepare
+    needs: [check-membership, check-and-prepare]
+    if: needs.check-membership.outputs.is_member == 'true'
     uses: ./.github/workflows/aider-common.yml
     with:
       needs_processing: false
