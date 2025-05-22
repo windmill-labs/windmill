@@ -1165,6 +1165,7 @@ export type Item = {
 	disabled?: boolean
 	type?: 'action' | 'delete'
 	hide?: boolean | undefined
+	extra?: Snippet
 }
 
 export function isObjectTooBig(obj: any): boolean {
@@ -1249,6 +1250,15 @@ export function formatDateShort(dateString: string | undefined): string {
 	}).format(date)
 }
 
+export function toJsonStr(result: any) {
+	try {
+		// console.log(result)
+		return JSON.stringify(result ?? null, null, 4) ?? 'null'
+	} catch (e) {
+		return 'error stringifying object: ' + e.toString()
+	}
+}
+
 export function getOS() {
 	const userAgent = window.navigator.userAgent
 	const platform = window.navigator.platform
@@ -1272,6 +1282,7 @@ export function getOS() {
 
 import { type ClassValue, clsx } from 'clsx'
 import { twMerge } from 'tailwind-merge'
+import type { Snippet } from 'svelte'
 
 export function cn(...inputs: ClassValue[]) {
 	return twMerge(clsx(inputs))
