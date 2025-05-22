@@ -980,6 +980,7 @@ pub async fn add_completed_job<T: Serialize + Send + Sync + ValidableJson>(
             is_flow_step = queued_job.is_flow_step(),
             language = ?queued_job.script_lang,
             scheduled_for = ?queued_job.scheduled_for,
+            workspace_id = ?queued_job.workspace_id,
             success,
             "inserted completed job: {} (success: {success})",
             queued_job.id
