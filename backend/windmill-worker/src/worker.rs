@@ -15,6 +15,7 @@ use windmill_common::{
     agent_workers::DECODED_AGENT_TOKEN,
     apps::AppScriptId,
     cache::{future::FutureCachedExt, ScriptData, ScriptMetadata},
+    s3_helpers::{DuckdbConnectionSettingsQueryV2, DuckdbConnectionSettingsResponse},
     schema::{should_validate_schema, SchemaValidator},
     scripts::PREVIEW_IS_TAR_CODEBASE_HASH,
     utils::WarnAfterExt,
@@ -141,6 +142,9 @@ use crate::ansible_executor::handle_ansible_job;
 
 #[cfg(feature = "mysql")]
 use crate::mysql_executor::do_mysql;
+
+#[cfg(feature = "duckdb")]
+use crate::duckdb_executor::do_duckdb;
 
 #[cfg(feature = "oracledb")]
 use crate::oracledb_executor::do_oracledb;
@@ -519,6 +523,47 @@ impl AuthedClient {
                 .await
                 .context("decoding result by id as json")?),
             _ => Err(anyhow::anyhow!(response.text().await.unwrap_or_default())),
+        }
+    }
+
+    pub async fn get_duckdb_connection_settings(
+        &self,
+        s3: DuckdbConnectionSettingsQueryV2,
+        workspace_id: &str,
+    ) -> error::Result<DuckdbConnectionSettingsResponse> {
+        let url = format!(
+            "{}/api/w/{}/job_helpers/v2/duckdb_connection_settings",
+            self.base_internal_url, workspace_id
+        );
+        let response = self
+            .force_client
+            .as_ref()
+            .unwrap_or(&HTTP_CLIENT)
+            .post(url)
+            .header(
+                reqwest::header::CONTENT_TYPE,
+                reqwest::header::HeaderValue::from_static("application/json"),
+            )
+            .header(
+                reqwest::header::ACCEPT,
+                reqwest::header::HeaderValue::from_static("application/json"),
+            )
+            .header(
+                reqwest::header::AUTHORIZATION,
+                reqwest::header::HeaderValue::from_str(&format!("Bearer {}", self.token))
+                    .map_err(|e| error::Error::BadConfig(e.to_string()))?,
+            )
+            .body(serde_json::to_string(&s3).map_err(to_anyhow)?)
+            .send()
+            .await
+            .context(format!("Sent get_duckdb_connection_settings request",))
+            .map_err(error::Error::from)?;
+        match response.status().as_u16() {
+            200u16 => Ok(response
+                .json::<DuckdbConnectionSettingsResponse>()
+                .await
+                .context("decoding duckdb_connection_settings response as json")?),
+            _ => Err(anyhow::anyhow!(response.text().await.unwrap_or_default()))?,
         }
     }
 
@@ -2790,6 +2835,30 @@ async fn handle_code_execution_job(
             )
             .await;
         }
+    } else if language == Some(ScriptLang::DuckDb) {
+        #[allow(unreachable_code)]
+        #[cfg(not(feature = "duckdb"))]
+        {
+            return Err(Error::internal_err(
+                "Duck DB requires the duckdb feature to be enabled".to_string(),
+            ));
+        }
+
+        #[cfg(feature = "duckdb")]
+        {
+            return do_duckdb(
+                job,
+                &client,
+                &code,
+                conn,
+                mem_peak,
+                canceled_by,
+                worker_name,
+                column_order,
+                occupancy_metrics,
+            )
+            .await;
+        }
     } else if language == Some(ScriptLang::Graphql) {
         return do_graphql(
             job,
@@ -3197,6 +3266,7 @@ fn parse_sig_of_lang(
             ScriptLang::Snowflake => Some(windmill_parser_sql::parse_snowflake_sig(code)?),
             ScriptLang::Graphql => None,
             ScriptLang::Mssql => Some(windmill_parser_sql::parse_mssql_sig(code)?),
+            ScriptLang::DuckDb => Some(windmill_parser_sql::parse_duckdb_sig(code)?),
             ScriptLang::OracleDB => Some(windmill_parser_sql::parse_oracledb_sig(code)?),
             #[cfg(feature = "php")]
             ScriptLang::Php => Some(windmill_parser_php::parse_php_signature(

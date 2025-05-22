@@ -46,13 +46,13 @@ pub enum ScriptLang {
     Graphql,
     Mssql,
     OracleDB,
+    DuckDb,
     Php,
     Rust,
     Ansible,
     CSharp,
     Nu,
-    Java,
-    // for related places search: ADD_NEW_LANG
+    Java, // for related places search: ADD_NEW_LANG
 }
 
 impl ScriptLang {
@@ -73,6 +73,7 @@ impl ScriptLang {
             ScriptLang::Mssql => "mssql",
             ScriptLang::Graphql => "graphql",
             ScriptLang::OracleDB => "oracledb",
+            ScriptLang::DuckDb => "duckdb",
             ScriptLang::Php => "php",
             ScriptLang::Rust => "rust",
             ScriptLang::Ansible => "ansible",

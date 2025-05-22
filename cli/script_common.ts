@@ -9,6 +9,7 @@ export type ScriptLanguage =
   | "postgresql"
   | "mysql"
   | "bigquery"
+  | "duckdb"
   | "oracledb"
   | "snowflake"
   | "mssql"
@@ -19,7 +20,7 @@ export type ScriptLanguage =
   | "nu"
   | "ansible"
   | "java";
-	// for related places search: ADD_NEW_LANG 
+// for related places search: ADD_NEW_LANG
 
 export function inferContentTypeFromFilePath(
   contentPath: string,
@@ -43,6 +44,8 @@ export function inferContentTypeFromFilePath(
     return "bigquery";
   } else if (contentPath.endsWith(".odb.sql")) {
     return "oracledb";
+  } else if (contentPath.endsWith(".duckdb.sql")) {
+    return "duckdb";
   } else if (contentPath.endsWith(".sf.sql")) {
     return "snowflake";
   } else if (contentPath.endsWith(".ms.sql")) {
@@ -67,7 +70,7 @@ export function inferContentTypeFromFilePath(
     return "nu";
   } else if (contentPath.endsWith(".java")) {
     return "java";
-	// for related places search: ADD_NEW_LANG 
+    // for related places search: ADD_NEW_LANG
   } else {
     throw new Error(
       "Invalid language: " + contentPath.substring(contentPath.lastIndexOf("."))
