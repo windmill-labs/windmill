@@ -16,10 +16,21 @@
 
 	let loadingCompletedRuns: boolean = $state(false)
 
-	let runSearchRemainingCount: number | undefined = $state(undefined)
-	let runSearchTotalCount: number | undefined = $state(undefined)
-	let indexMetadata: any = $state({})
 	let loadingMoreJobs: boolean = $state(false)
+
+	interface Props {
+		mouseMoved: boolean
+		selectedWorkspace: string | undefined
+		selectedItem: any
+		queryParseErrors: string[]
+		open: boolean
+		loadedRuns: any[]
+		selectItem: (idx: number) => any
+		searchTerm: string
+		runSearchRemainingCount: number | undefined
+		runSearchTotalCount: number | undefined
+		indexMetadata: SearchJobsIndexResponse['index_metadata']
+	}
 
 	let {
 		mouseMoved = $bindable(),
@@ -29,17 +40,11 @@
 		open = $bindable(),
 		loadedRuns = $bindable(),
 		selectItem,
-		searchTerm
-	} = $props<{
-		mouseMoved: boolean
-		selectedWorkspace: string | undefined
-		selectedItem: any
-		queryParseErrors: string[]
-		open: boolean
-		loadedRuns: any[] | undefined
-		selectItem: (idx: number) => any
-		searchTerm: string
-	}>()
+		searchTerm,
+		runSearchRemainingCount = $bindable(),
+		runSearchTotalCount = $bindable(),
+		indexMetadata = $bindable()
+	}: Props = $props()
 
 	export function handleRunSearch(s: string) {
 		clearTimeout(debounceTimeout)
@@ -58,7 +63,7 @@
 					return
 				}
 
-				loadedRuns = searchResults.hits
+				loadedRuns = searchResults.hits ?? []
 				runSearchTotalCount = searchResults.hit_count
 				runSearchRemainingCount = (searchResults.hit_count ?? 0) - loadedRuns?.length
 				queryParseErrors = searchResults.query_parse_errors ?? []
@@ -126,7 +131,7 @@
 							</div>
 						{:else}
 							<QuickMenuItem
-								on:select={() => {
+								onselect={() => {
 									selectedItem = r
 									selectedWorkspace = undefined
 									const paginationOffset = runSearchTotalCount! - runSearchRemainingCount!
@@ -137,7 +142,7 @@
 								containerClass="rounded-md px-2 py-1 my-2"
 								bind:mouseMoved
 							>
-								<svelte:fragment slot="itemReplacement">
+								{#snippet itemReplacement()}
 									<div
 										class="py-2 w-full flex flex-row items-center gap-4 transition-all text-secondary text-sm"
 									>
@@ -145,18 +150,25 @@
 										<!-- Load more ({runSearchRemainingCount} other) -->
 										<!-- {runSearchRemainingCount} more documents also matched -->
 									</div>
-								</svelte:fragment>
+								{/snippet}
 							</QuickMenuItem>
 						{/if}
 					{:else}
 						<QuickMenuItem
-							on:select={() => {
+							onselect={(shift) => {
 								selectedItem = r
 								selectedWorkspace = r?.document.workspace_id[0]
+								if (shift) {
+									window.open(`/run/${r?.document.id[0]}`, '_blank')
+								}
 							}}
-							on:keyboardOnlySelect={() => {
-								open = false
-								goto(`/run/${r?.document.id[0]}`)
+							onkeyboardSpecificSelect={(shift) => {
+								if (!shift) {
+									open = false
+									goto(`/run/${r?.document.id[0]}`)
+								} else {
+									window.open(`/run/${r?.document.id[0]}`, '_blank')
+								}
 							}}
 							id={r?.document.id[0]}
 							hovered={selectedItem && r?.search_id === selectedItem?.search_id}
@@ -164,7 +176,7 @@
 							containerClass="rounded-md px-2 py-1 my-2"
 							bind:mouseMoved
 						>
-							<svelte:fragment slot="itemReplacement">
+							{#snippet itemReplacement()}
 								<div class="w-full flex flex-row items-center gap-4 transition-all">
 									<div
 										class="rounded-full w-2 h-2 {r?.document.success[0]
@@ -187,7 +199,7 @@
 										</div>
 									</div>
 								</div>
-							</svelte:fragment>
+							{/snippet}
 						</QuickMenuItem>
 					{/if}
 				{/each}
@@ -202,7 +214,7 @@
 				</div>
 			{/if}
 			<div class="flex flex-row pt-3 pl-4 items-center text-xs text-secondary">
-				{#if indexMetadata.indexed_until}
+				{#if indexMetadata?.indexed_until}
 					<span class="px-2">
 						Most recently indexed job was created at <TimeAgo
 							agoOnlyIfRecent
@@ -210,7 +222,7 @@
 						/>
 					</span>
 				{/if}
-				{#if indexMetadata.lost_lock_ownership}
+				{#if indexMetadata?.lost_lock_ownership}
 					<Popover notClickable placement="top">
 						<AlertTriangle size={16} class="text-gray-500" />
 						<svelte:fragment slot="text">
@@ -243,7 +255,7 @@
 				{/if}
 			</div>
 			<div class="flex flex-row pt-10 text-xs text-secondary">
-				{#if indexMetadata.indexed_until}
+				{#if indexMetadata?.indexed_until}
 					<span class="px-2">
 						Most recently indexed job was created at <TimeAgo
 							agoOnlyIfRecent
@@ -251,7 +263,7 @@
 						/>
 					</span>
 				{/if}
-				{#if indexMetadata.lost_lock_ownership}
+				{#if indexMetadata?.lost_lock_ownership}
 					<Popover notClickable placement="top">
 						<AlertTriangle size={16} class="text-gray-500" />
 						<svelte:fragment slot="text">
