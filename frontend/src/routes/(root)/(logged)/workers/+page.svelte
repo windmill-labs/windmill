@@ -33,7 +33,7 @@
 	import { DEFAULT_TAGS_WORKSPACES_SETTING } from '$lib/consts'
 	import AutoscalingEvents from '$lib/components/AutoscalingEvents.svelte'
 	import HttpAgentWorkerDrawer from '$lib/components/HttpAgentWorkerDrawer.svelte'
-	import Repl from '$lib/components/Repl.svelte'
+	import WorkerRepl from '$lib/components/WorkerRepl.svelte'
 
 	let workers: WorkerPing[] | undefined = undefined
 	let workerGroups: Record<string, any> | undefined = undefined
@@ -325,7 +325,7 @@
 				If no command has been run in the past 2 minutes, the next one may take up to 15 seconds to
 				start.
 			</Alert>
-			<Repl {activeWorkers} {tag} />
+			<WorkerRepl {activeWorkers} {tag} />
 		</div>
 	</DrawerContent>
 </Drawer>

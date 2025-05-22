@@ -18,6 +18,7 @@
 	import { getScriptByPath } from '$lib/scripts'
 	import { FitAddon } from '@xterm/addon-fit'
 	import { Readline } from 'xterm-readline'
+	import Tooltip from './Tooltip.svelte'
 	let bashEditorDrawer: Drawer | undefined = undefined
 
 	let container: HTMLDivElement
@@ -69,11 +70,24 @@
 		return input.endsWith('\r\n') || input.endsWith('\n')
 	}
 
+	function isSimpleCdCommand(command: string): boolean {
+		const trimmed = command.trim()
+
+		// Matches:
+		// - Starts with "cd"
+		// - Followed by any number of valid args (quoted or not)
+		// - No use of &, |, ; outside quotes
+		// - No other commands
+		const cdRegex = /^cd(\s+("[^"]*"|'[^']*'|[^\s"'&|;]+))*\s*$/
+
+		return cdRegex.test(trimmed)
+	}
+
 	async function handleCommand(command: string) {
 		try {
 			const trimmedCommand = command.trim()
 
-			const isOnlyCdCommand = command.startsWith('cd')
+			const isOnlyCdCommand = isSimpleCdCommand(trimmedCommand)
 			let wDirectory = working_directory
 			if (isOnlyCdCommand) {
 				const parts = trimmedCommand.split(' ')
@@ -255,11 +269,19 @@
 				/>
 			</div>
 			<div class="flex justify-start w-full mb-2">
-				<Badge
-					color="gray"
-					class="center-center !bg-gray-300 !text-tertiary dark:!bg-gray-700 dark:!text-gray-300 !h-[40px]  rounded-r-none rounded-l-none"
-					>Full path</Badge
-				>
+				<div class="flex flex-row">
+					<Badge
+						color="gray"
+						class="relative center-center !bg-gray-300 !text-tertiary dark:!bg-gray-700 dark:!text-gray-300 !h-[40px] rounded-r-none rounded-l-none"
+					>
+						Full path
+
+						<Tooltip
+							markdownTooltip="Commands run in the default directory. Run a standalone `cd` to change it. Chained or invalid `cd` commands won’t apply."
+							class="absolute top-0.5"
+						/>
+					</Badge>
+				</div>
 				<input type="text" disabled bind:value={working_directory} />
 			</div>
 		</div>
