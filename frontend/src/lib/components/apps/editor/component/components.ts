@@ -3410,7 +3410,8 @@ See date-fns format for more information. By default, it is 'dd.MM.yyyy HH:mm'
 		customCss: {
 			button: { class: '', style: '' },
 			buttonContainer: { class: '', style: '' },
-			popup: { class: '', style: '' }
+			popup: { class: '', style: '' },
+			container: { class: '', style: '' }
 		},
 		initialData: {
 			horizontalAlignment: 'center',
