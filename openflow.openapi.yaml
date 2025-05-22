@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.491.5
+  version: 1.492.0
   title: OpenFlow Spec
   contact:
     name: Ruben Fiszel
