@@ -72,6 +72,7 @@ jobs:
           COMMENT_BODY: ${{ github.event.comment.body }}
           ISSUE_NUMBER: ${{ github.event.issue.number }}
           GITHUB_REPOSITORY: ${{ github.repository }}
+          LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
         run: |
           echo "Determining inputs for Aider..."
           ISSUE_TITLE_VAL=""
@@ -91,12 +92,25 @@ jobs:
             
             if [[ ! -z "$PR_BODY_VAL" ]]; then
               REFERENCED_ISSUE=""
-              if [[ "$PR_BODY_VAL" =~ \#([0-9]+) ]]; then
+              if [[ "$PR_BODY_VAL" =~ \#linear:([a-f0-9-]+) ]]; then
                 REFERENCED_ISSUE="${BASH_REMATCH[1]}"
-              fi
-              
-              if [[ ! -z "$REFERENCED_ISSUE" ]]; then
-                echo "Found referenced issue #$REFERENCED_ISSUE in PR description"
+                echo "Found referenced Linear issue #$REFERENCED_ISSUE in PR description"
+                LINEAR_ISSUE_JSON=$(curl -s -H "Authorization: $LINEAR_API_KEY" \
+                  "https://api.linear.app/graphql" \
+                  -X POST \
+                  -H "Content-Type: application/json" \
+                  -d "{\"query\":\"query { issue(id: \\\"$REFERENCED_ISSUE\\\") { title description } }\"}")
+                
+                if [[ $? -eq 0 && ! "$LINEAR_ISSUE_JSON" =~ "error" ]]; then
+                  ISSUE_TITLE_VAL=$(jq -r '.data.issue.title // ""' <<< "$LINEAR_ISSUE_JSON")
+                  ISSUE_BODY_VAL=$(jq -r '.data.issue.description // ""' <<< "$LINEAR_ISSUE_JSON")
+                  echo "Successfully fetched Linear issue details"
+                else
+                  echo "Error fetching Linear issue details for #$REFERENCED_ISSUE"
+                fi
+              elif [[ "$PR_BODY_VAL" =~ \#([0-9]+) ]]; then
+                REFERENCED_ISSUE="${BASH_REMATCH[1]}"
+                echo "Found referenced GitHub issue #$REFERENCED_ISSUE in PR description"
                 
                 ISSUE_DETAILS_JSON=$(gh issue view "$REFERENCED_ISSUE" --json title,body --repo "$GITHUB_REPOSITORY")
                 if [[ $? -ne 0 ]]; then

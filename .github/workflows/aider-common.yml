@@ -401,8 +401,13 @@ jobs:
           fi
 
           # Create PR description in a temporary file to avoid command line length limits and ensure it stays under 40k chars
+          HEADER="This PR was created automatically by Aider to fix issue #${ISSUE_NUM}."
+          # if event is repository_dispatch, add the issue title to the header
+          if [ "$GITHUB_EVENT_NAME" == "repository_dispatch" ]; then
+            HEADER="This PR was created automatically by Aider to fix issue #linear:${ISSUE_NUM}."
+          fi
           cat > /tmp/pr-description.md << EOL | head -c 40000
-          This PR was created automatically by Aider to fix issue #${ISSUE_NUM}.
+          $HEADER
 
           ## Aider Output
           \`\`\`
