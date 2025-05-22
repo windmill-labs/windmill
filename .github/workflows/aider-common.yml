@@ -341,6 +341,7 @@ jobs:
         id: commit_and_push
         env:
           ISSUE_ID: ${{ inputs.issue_id }}
+          BRANCH_NAME: ${{ steps.prepare_branch.outputs.BRANCH_NAME }}
         run: |
           if [[ "$ISSUE_ID" != "" ]]; then
             # Check if there are any uncommitted changes
