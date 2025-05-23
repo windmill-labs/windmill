@@ -20,7 +20,6 @@ pub async fn encode_with_internal_secret<T: Serialize>(claims: T) -> error::Resu
         &jsonwebtoken::EncodingKey::from_secret(jwt_secret.as_bytes()),
     )
     .map_err(to_anyhow)?;
-
     Ok(token)
 }
 

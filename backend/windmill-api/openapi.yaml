@@ -11132,6 +11132,8 @@ paths:
                   type: array
                   items:
                     type: string
+                suffix:
+                  type: string
                 exp:
                   type: integer
               required:

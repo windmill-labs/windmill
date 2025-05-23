@@ -7,22 +7,25 @@
 	import TagsToListenTo from './TagsToListenTo.svelte'
 	import { enterpriseLicense, superadmin } from '$lib/stores'
 	import CollapseLink from './CollapseLink.svelte'
+	import AgentWorkerExtraBehavior from './AgentWorkerExtraBehavior.svelte'
 
-	export let customTags: string[] | undefined
-	let selectedTags: string[] = !$enterpriseLicense ? ['agent_test'] : []
+	type Props = {
+		customTags: string[] | undefined
+	}
+	let { customTags = $bindable() }: Props = $props()
+	let selectedTags: string[] = $state(!$enterpriseLicense ? ['agent_test'] : [])
+	let workerGroup: string = $state('agent')
+	let token: string = $state('')
 
-	let workerGroup: string = 'agent'
+	let suffix: string | undefined = $state(undefined)
 
-	let token: string = ''
-
-	$: selectedTags && selectedTags.length > 0 && $superadmin && workerGroup && refreshToken()
-
-	async function refreshToken() {
+	async function refreshToken(workerGroup: string, selectedTags: string[], suffix?: string) {
 		try {
 			const newToken = await AgentWorkersService.createAgentToken({
 				requestBody: {
 					worker_group: workerGroup,
 					tags: selectedTags,
+					suffix,
 					exp: Math.floor(Date.now() / 1000) + 60 * 60 * 24 * 365 * 3 // 3 years
 				}
 			})
@@ -32,6 +35,12 @@
 			sendUserToast('Error creating agent token: ' + error.toString(), true)
 		}
 	}
+
+	$effect(() => {
+		if (selectedTags.length > 0 && $superadmin) {
+			refreshToken(workerGroup, selectedTags, suffix)
+		}
+	})
 </script>
 
 <div class="flex flex-col gap-y-4">
@@ -55,63 +64,76 @@
 		{/if}
 		<TagsToListenTo disabled={!$enterpriseLicense} bind:worker_tags={selectedTags} {customTags} />
 	</Section>
+
+	<Section label="Extra behavior" headless eeOnly>
+		{#if !$enterpriseLicense}
+			<div class="text-sm text-secondary mb-2 max-w-md">
+				Agent workers are only available in the enterprise edition. For evaluation purposes, you can
+				only use the tag `agent_test` tag and it is limited to 100 jobs.
+			</div>
+		{/if}
+		<AgentWorkerExtraBehavior bind:suffix />
+	</Section>
 	<Section label="Generated JWT token" primary>
-		<div class="relative max-w-md">
+		<div class="relative max-w-md group">
+			<!-- svelte-ignore event_directive_deprecated -->
 			<input
-				on:click|preventDefault|stopPropagation|capture={() => {
-					navigator.clipboard.writeText(token)
-					sendUserToast('Copied to clipboard')
+				on:click|preventDefault|stopPropagation={() => {
+					if (token) {
+						navigator.clipboard.writeText(token)
+						sendUserToast('Copied to clipboard')
+					}
 				}}
-				placeholder="Select tags to generate a jwt token"
+				placeholder="Select tags to generate a JWT token"
 				type="text"
 				disabled
 				value={token}
-				class="pr-8 text-sm text-secondary"
+				class="w-full pr-10 pl-3 py-2 text-sm text-gray-600 bg-gray-50 border border-gray-300 rounded-lg cursor-pointer hover:bg-gray-100 transition truncate"
 			/>
+
+			<!-- svelte-ignore event_directive_deprecated -->
 			<button
-				class="absolute right-2 top-1/2 -translate-y-1/2 text-primary"
+				class="absolute right-2 top-1/2 -translate-y-1/2 text-gray-500 group-hover:text-blue-600 hover:scale-105 transition"
+				aria-label="Copy token to clipboard"
 				on:click|preventDefault|stopPropagation={() => {
-					navigator.clipboard.writeText(token)
-					sendUserToast('Copied to clipboard')
+					if (token) {
+						navigator.clipboard.writeText(token)
+						sendUserToast('Copied to clipboard')
+					}
 				}}
 			>
-				<Copy size={16} />
+				<Copy size={18} />
 			</button>
 		</div>
 
-		<div class="text-sm text-secondary mt-2 mb-12 max-w-md">
-			Pass the env variables:
-			<ul class="my-1">
-				<li>MODE=agent</li>
-				<li>AGENT_TOKEN={'"<token above>"'}</li>
-				<li>BASE_INTERNAL_URL={'"<base internal url>"'}</li>
+		<div class="text-sm mt-3 mb-8 max-w-md leading-relaxed">
+			Set the following environment variables:
+			<ul class="list-disc list-inside mt-1">
+				<li><code>MODE=agent</code></li>
+				<li><code>AGENT_TOKEN=&lt;token&gt;</code></li>
+				<li><code>BASE_INTERNAL_URL=&lt;base url&gt;</code></li>
 			</ul>
-			to a worker to have it act as an HTTP agent worker. INIT_SCRIPT, if needed, must be passed as an
-			env variable.
 
 			<p class="mt-4">
-				Remember to have at least one normal worker that listens to the tags `flow` and `dependency`
-				(or `flow-$workspace` and `dependency-$workspace` if using workspace specific default tags)
-				to have flow and dependency job being runnable as agent workers can't run dependency jobs
-				nor can run the flow state machine (but can run the subjobs within them).
+				Ensure at least one normal worker listens to the tags <code>flow</code> and
+				<code>dependency</code> (or workspace-specific variants) to support job orchestration.
 			</p>
 		</div>
 
 		<CollapseLink text="Automate JWT token generation" small>
-			<div class="text-xs text-secondary">
-				Use the following api endpoint with a superadmin bearer token:
-				<code class="text-primary"> POST /api/agent_workers/create_agent_token </code>
-				with body:
-				<pre>
-			<code class="text-primary">
-{`{
-	"worker_group": "agent",
-	"tags": ["tag1", "tag2"],
-	"exp": 1717334400 // 3 years from now
-}`}
-					</code>
+			<div class="text-xs mt-2">
+				Use the following API endpoint with a superadmin bearer token:
+				<code class="block mt-1 mb-2">POST /api/agent_workers/create_agent_token</code>
+				<pre class=" p-2 rounded-lg text-xs overflow-auto">
+<code
+						>{`
+  "worker_group": "agent",
+  "tags": ["tag1", "tag2"],
+  "exp": 1717334400
+`}</code
+					>
 				</pre>
-				JSON response will be the JWT token.
+				The JSON response will contain the generated JWT token.
 			</div>
 		</CollapseLink>
 	</Section>

@@ -22,9 +22,48 @@ import type { TriggerKind } from './components/triggers'
 export function isJobCancelable(j: Job): boolean {
 	return j.type === 'QueuedJob' && !j.schedule_path && !j.canceled
 }
+
 export function isJobReRunnable(j: Job): boolean {
 	return (j.job_kind === 'script' || j.job_kind === 'flow') && j.parent_job === undefined
 }
+
+export enum AgentKnownSuffix {
+	ENABLE_LIVE_SHELL = 'enable.live.shell'
+}
+
+export function concatAgentSuffix(
+	suffix: string | undefined,
+	suffixToAppend: string
+): string | undefined {
+	return suffix === undefined ? suffixToAppend : suffix.concat(`_${suffixToAppend}`)
+}
+
+export function checkIfWorkerHasSpecificSuffix(
+	suffixToCheck: AgentKnownSuffix,
+	suffix: string
+): boolean {
+	return suffix
+		.split('_')
+		.slice(1)
+		.some((part) => part === suffixToCheck)
+}
+
+export function removeAgentSuffix(
+	suffix: string | undefined,
+	suffixToRemove: string
+): string | undefined {
+	if (suffix) {
+		const regex = new RegExp(`(?:_${suffixToRemove}|${suffixToRemove})$`)
+		suffix = suffix.replace(regex, '')
+		if (suffix.trim().length === 0) {
+			suffix = undefined
+		}
+	}
+	return suffix
+}
+
+export const WORKER_NAME_PREFIX = 'wk'
+export const AGENT_WORKER_NAME_PREFIX = 'ag'
 
 export function isJobSelectable(selectionType: RunsSelectionMode) {
 	const f: (j: Job) => boolean = {
@@ -567,7 +606,7 @@ export function formatCron(inp: string): string {
 }
 
 export function scriptLangArrayToCommaList(languages: ScriptLang[]): string {
-	return languages.join(",")
+	return languages.join(',')
 }
 
 export function cronV1toV2(inp: string): string {
