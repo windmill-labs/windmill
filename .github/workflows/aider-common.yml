@@ -511,7 +511,7 @@ jobs:
             if [[ "$PR_CREATED" == "true" ]]; then
               COMMENT_BODY="🤖 Aider has finished working on your request. A PR has been created. $PR_URL"
             else
-              COMMENT_BODY="🤖 Aider has finished working on your request, but was unable to create a PR"
+              COMMENT_BODY="🤖 Aider has finished working on your request, but was unable to create a PR."
             fi
           else
             COMMENT_BODY="⚠️ Aider encountered issues while working on your request. Please check the workflow logs for details."
