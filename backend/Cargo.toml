@@ -1,6 +1,6 @@
 [package]
 name = "windmill"
-version = "1.491.5"
+version = "1.492.0"
 authors.workspace = true
 edition.workspace = true
 
@@ -32,7 +32,7 @@ members = [
 ]
 
 [workspace.package]
-version = "1.491.5"
+version = "1.492.0"
 authors = ["Ruben Fiszel <ruben@windmill.dev>"]
 edition = "2021"
 
@@ -137,6 +137,7 @@ v8 = { workspace = true, optional = true }
 rustls.workspace = true
 systemstat.workspace = true
 size.workspace = true
+strum.workspace = true
 
 [target.'cfg(not(target_env = "msvc"))'.dependencies]
 tikv-jemallocator = { optional = true, workspace = true }
@@ -389,3 +390,5 @@ tree-sitter-c-sharp = "0.23.0"
 tree-sitter-java = "0.23.0"
 oracle = { version = "0.6.3", features = ["chrono"] }
 rumqttc = { version = "0.24.0", features = ["use-native-tls"]}
+strum = { version = "0.27", features = ["derive"] }
+strum_macros = "^0"

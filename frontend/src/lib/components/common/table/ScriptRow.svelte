@@ -16,7 +16,7 @@
 	import Row from './Row.svelte'
 	import DraftBadge from '$lib/components/DraftBadge.svelte'
 	import { sendUserToast } from '$lib/toast'
-	import { copyToClipboard, DELETE, isOwner } from '$lib/utils'
+	import { capitalize, copyToClipboard, DELETE, isOwner } from '$lib/utils'
 	import { isDeployable } from '$lib/utils_deployable'
 
 	import type DeployWorkspaceDrawer from '$lib/components/DeployWorkspaceDrawer.svelte'
@@ -88,11 +88,11 @@
 </script>
 
 {#if menuOpen}
-	<ScheduleEditor on:update={() => goto('/schedules')} bind:this={scheduleEditor} />
+	<ScheduleEditor onUpdate={() => goto('/schedules')} bind:this={scheduleEditor} />
 {/if}
 
 <Row
-	href={script.draft_only
+	href={script.draft_only || script.kind !== 'script' || script.no_main_func
 		? `${base}/scripts/edit/${script.path}`
 		: `${base}/scripts/get/${script.hash}?workspace=${$workspaceStore}`}
 	kind="script"
@@ -112,11 +112,14 @@
 		{/if}
 
 		{#if script.archived}
-			<Badge color="red" baseClass="border">archived</Badge>
+			<Badge color="red" baseClass="border">Archived</Badge>
 		{/if}
 
-		{#if script.no_main_func}
+		{#if script.no_main_func && script.kind !== 'preprocessor'}
 			<NoMainFuncBadge />
+		{/if}
+		{#if script.kind !== 'script'}
+			<Badge color="blue" baseClass="border">{capitalize(script.kind)}</Badge>
 		{/if}
 		<SharedBadge canWrite={script.canWrite} extraPerms={script.extra_perms} />
 		<DraftBadge has_draft={script.has_draft} draft_only={script.draft_only} />
@@ -226,7 +229,7 @@
 									disabled: script.archived,
 									hide: $userStore?.operator
 								}
-						  ]
+							]
 						: []),
 					{
 						displayName: 'View runs',
@@ -301,7 +304,7 @@
 									disabled: !owner,
 									hide: $userStore?.operator
 								}
-						  ]
+							]
 						: []),
 					...($userStore?.is_admin || $userStore?.is_super_admin
 						? [
@@ -321,7 +324,7 @@
 									disabled: !script.canWrite,
 									hide: $userStore?.operator
 								}
-						  ]
+							]
 						: [])
 				]
 			}}

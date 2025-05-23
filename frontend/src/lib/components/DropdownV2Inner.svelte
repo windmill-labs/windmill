@@ -4,10 +4,15 @@
 	import { twMerge } from 'tailwind-merge'
 	import type { MenubarMenuElements } from '@melt-ui/svelte'
 	import type { Item } from '$lib/utils'
-	export let items: Item[] | (() => Item[]) | (() => Promise<Item[]>) = []
-	export let meltItem: MenubarMenuElements['item']
 
-	let computedItems: Item[] | undefined = undefined
+	interface Props {
+		items?: Item[] | (() => Item[]) | (() => Promise<Item[]>)
+		meltItem: MenubarMenuElements['item']
+	}
+
+	let { items = [], meltItem }: Props = $props()
+
+	let computedItems: Item[] | undefined = $state(undefined)
 	async function computeItems() {
 		if (typeof items === 'function') {
 			computedItems = ((await items()) ?? []).filter((item) => !item.hide)
@@ -38,9 +43,12 @@
 				item={meltItem}
 			>
 				{#if item.icon}
-					<svelte:component this={item.icon} size={14} color={item.iconColor} />
+					<item.icon size={14} color={item.iconColor} />
 				{/if}
-				{item.displayName}
+				<p title={item.displayName} class="truncate grow min-w-0 whitespace-nowrap text-left">
+					{item.displayName}
+				</p>
+				{@render item.extra?.()}
 			</MenuItem>
 		{/each}
 	</div>

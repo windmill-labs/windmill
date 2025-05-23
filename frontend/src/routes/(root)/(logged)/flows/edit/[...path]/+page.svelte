@@ -15,6 +15,7 @@
 	import UnsavedConfirmationModal from '$lib/components/common/confirmationModal/UnsavedConfirmationModal.svelte'
 	import type { ScheduleTrigger } from '$lib/components/triggers'
 	import type { GetInitialAndModifiedValues } from '$lib/components/common/confirmationModal/unsavedTypes'
+	import type { Trigger } from '$lib/components/triggers/utils'
 
 	let version: undefined | number = undefined
 	let nodraft = $page.url.searchParams.get('nodraft')
@@ -60,6 +61,9 @@
 
 	let savedPrimarySchedule: ScheduleTrigger | undefined = stateLoadedFromUrl?.primarySchedule
 
+	let draftTriggersFromUrl: Trigger[] | undefined = undefined
+	let selectedTriggerIndexFromUrl: number | undefined = undefined
+
 	let flowBuilder: FlowBuilder | undefined = undefined
 
 	async function loadFlow(): Promise<void> {
@@ -82,12 +86,19 @@
 			})
 
 			const draftOrDeployed = cleanValueProperties(savedFlow?.draft || savedFlow)
-			const urlScript = cleanValueProperties(stateLoadedFromUrl.flow)
+			const urlScript = cleanValueProperties({
+				...stateLoadedFromUrl.flow,
+				draft_triggers: stateLoadedFromUrl.draft_triggers
+			})
 			flow = stateLoadedFromUrl.flow
-			savedPrimarySchedule = stateLoadedFromUrl.primarySchedule
+			draftTriggersFromUrl = stateLoadedFromUrl.draft_triggers
+			selectedTriggerIndexFromUrl = stateLoadedFromUrl.selected_trigger
+			flowBuilder?.setDraftTriggers(draftTriggersFromUrl)
+			flowBuilder?.setSelectedTriggerIndex(selectedTriggerIndexFromUrl)
+			const selectedId = stateLoadedFromUrl?.selectedId ?? 'settings-metadata'
 			const reloadAction = () => {
 				stateLoadedFromUrl = undefined
-				goto(`/flows/edit/${statePath}`)
+				goto(`/flows/edit/${statePath}?selected=${selectedId}`)
 				loadFlow()
 			}
 			if (orderedJsonStringify(draftOrDeployed) === orderedJsonStringify(urlScript)) {
@@ -133,15 +144,18 @@
 					? {
 							...structuredClone(flowWithDraft.draft),
 							path: flowWithDraft.draft.path ?? flowWithDraft.path // backward compatibility for old drafts missing path
-					  }
+						}
 					: undefined
 			} as Flow & {
-				draft?: Flow
+				draft?: Flow & {
+					draft_triggers?: Trigger[]
+				}
 			}
 			if (flowWithDraft.draft != undefined && !nobackenddraft) {
 				flow = flowWithDraft.draft
 				savedPrimarySchedule = flowWithDraft?.draft?.['primary_schedule']
 				flowBuilder?.setPrimarySchedule(savedPrimarySchedule)
+				flowBuilder?.setDraftTriggers(flowWithDraft?.draft?.['draft_triggers'])
 
 				if (!flowWithDraft.draft_only) {
 					const deployed = cleanValueProperties(flowWithDraft)
@@ -178,6 +192,7 @@
 				}
 			} else {
 				flow = flowWithDraft
+				flowBuilder?.setDraftTriggers(undefined)
 			}
 		}
 
@@ -200,6 +215,7 @@
 			return
 		}
 		diffDrawer.closeDrawer()
+		stateLoadedFromUrl = undefined
 		goto(`/flows/edit/${savedFlow.draft.path}`)
 		loadFlow()
 	}
@@ -217,6 +233,7 @@
 				path: savedFlow.path
 			})
 		}
+		stateLoadedFromUrl = undefined
 		goto(`/flows/edit/${savedFlow.path}`)
 		loadFlow()
 	}
@@ -251,6 +268,8 @@
 	bind:savedFlow
 	{diffDrawer}
 	{savedPrimarySchedule}
+	{draftTriggersFromUrl}
+	{selectedTriggerIndexFromUrl}
 	bind:version
 	bind:getInitialAndModifiedValues
 >

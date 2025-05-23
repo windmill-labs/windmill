@@ -21,7 +21,7 @@
 	import { enterpriseLicense, hubBaseUrlStore, userStore, workspaceStore } from '$lib/stores'
 	import { isDeployable, ALL_DEPLOYABLE } from '$lib/utils_deployable'
 
-	import { onDestroy } from 'svelte'
+	import { onDestroy, setContext, tick } from 'svelte'
 	import HighlightCode from '$lib/components/HighlightCode.svelte'
 	import {
 		Tabs,
@@ -42,10 +42,8 @@
 	import DeployWorkspaceDrawer from '$lib/components/DeployWorkspaceDrawer.svelte'
 
 	import SavedInputsV2 from '$lib/components/SavedInputsV2.svelte'
-	import WebhooksPanel from '$lib/components/triggers/webhook/WebhooksPanel.svelte'
 	import DetailPageLayout from '$lib/components/details/DetailPageLayout.svelte'
 	import DetailPageHeader from '$lib/components/details/DetailPageHeader.svelte'
-	import CliHelpBox from '$lib/components/CliHelpBox.svelte'
 	import {
 		Activity,
 		Archive,
@@ -68,30 +66,22 @@
 	import { scriptToHubUrl } from '$lib/hub'
 	import SharedBadge from '$lib/components/SharedBadge.svelte'
 	import ScriptVersionHistory from '$lib/components/ScriptVersionHistory.svelte'
-	import RunPageSchedules from '$lib/components/RunPageSchedules.svelte'
 	import { createAppFromScript } from '$lib/components/details/createAppFromScript'
 	import { importStore } from '$lib/components/apps/store'
 	import TimeAgo from '$lib/components/TimeAgo.svelte'
-	import ClipboardPanel from '$lib/components/details/ClipboardPanel.svelte'
 	import PersistentScriptDrawer from '$lib/components/PersistentScriptDrawer.svelte'
 	import GfmMarkdown from '$lib/components/GfmMarkdown.svelte'
-	import EmailTriggerPanel from '$lib/components/details/EmailTriggerPanel.svelte'
 	import Star from '$lib/components/Star.svelte'
 	import LogViewer from '$lib/components/LogViewer.svelte'
-	import RoutesPanel from '$lib/components/triggers/http/RoutesPanel.svelte'
 	import { Highlight } from 'svelte-highlight'
 	import json from 'svelte-highlight/languages/json'
 	import { writable } from 'svelte/store'
-	import TriggersBadge from '$lib/components/graph/renderers/triggers/TriggersBadge.svelte'
-	import WebsocketTriggersPanel from '$lib/components/triggers/websocket/WebsocketTriggersPanel.svelte'
-	import KafkaTriggersPanel from '$lib/components/triggers/kafka/KafkaTriggersPanel.svelte'
-	import NatsTriggersPanel from '$lib/components/triggers/nats/NatsTriggersPanel.svelte'
-	import PostgresTriggersPanel from '$lib/components/triggers/postgres/PostgresTriggersPanel.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import InputSelectedBadge from '$lib/components/schema/InputSelectedBadge.svelte'
-	import MqttTriggersPanel from '$lib/components/triggers/mqtt/MqttTriggersPanel.svelte'
-	import SqsTriggerPanel from '$lib/components/triggers/sqs/SqsTriggerPanel.svelte'
-	import GcpTriggerPanel from '$lib/components/triggers/gcp/GcpTriggerPanel.svelte'
+	import type { TriggerContext } from '$lib/components/triggers'
+	import TriggersBadge from '$lib/components/graph/renderers/triggers/TriggersBadge.svelte'
+	import TriggersEditor from '$lib/components/triggers/TriggersEditor.svelte'
+	import { Triggers } from '$lib/components/triggers/triggers.svelte'
 
 	let script: Script | undefined
 	let topHash: string | undefined
@@ -107,7 +97,14 @@
 	let inputSelected: 'saved' | 'history' | undefined = undefined
 	let jsonView = false
 
-	$: cliCommand = `wmill script run ${script?.path} -d '${JSON.stringify(args)}'`
+	$: {
+		const cliTrigger = triggersState.triggers.find((t) => t.type === 'cli')
+		if (cliTrigger) {
+			cliTrigger.extra = {
+				cliCommand: `wmill script run ${script?.path} -d '${JSON.stringify(args)}'`
+			}
+		}
+	}
 
 	$: loading = !script
 
@@ -120,6 +117,19 @@
 	}
 
 	const triggersCount = writable<TriggersCount | undefined>(undefined)
+
+	// Add triggers context store
+	const triggersState = new Triggers([
+		{ type: 'webhook', path: '', isDraft: false },
+		{ type: 'email', path: '', isDraft: false },
+		{ type: 'cli', path: '', isDraft: false }
+	])
+	setContext<TriggerContext>('TriggerContext', {
+		triggersCount,
+		simplifiedPoll: writable(false),
+		showCaptureHint: writable(undefined),
+		triggersState
+	})
 
 	async function deleteScript(hash: string): Promise<void> {
 		try {
@@ -167,11 +177,15 @@
 	}
 	let starred: boolean | undefined = undefined
 
-	async function loadTriggersCount(path: string) {
-		$triggersCount = await ScriptService.getTriggersCountOfScript({
-			workspace: $workspaceStore!,
-			path: path
-		})
+	async function loadTriggers(path: string): Promise<void> {
+		await triggersState.fetchTriggers(
+			triggersCount,
+			$workspaceStore,
+			path,
+			false,
+			undefined,
+			$userStore
+		)
 	}
 
 	async function loadScript(hash: string): Promise<void> {
@@ -194,7 +208,7 @@
 		can_write =
 			script.workspace_id == $workspaceStore &&
 			canWrite(script.path, script.extra_perms!, $userStore)
-		loadTriggersCount(script.path)
+		loadTriggers(script.path)
 
 		if (script.path && script.archived) {
 			const script_by_path = await ScriptService.getScriptByPath({
@@ -497,7 +511,6 @@
 		}
 	}
 
-	let token = 'TOKEN_TO_CREATE'
 	let rightPaneSelected = 'saved_inputs'
 
 	let savedInputsV2: SavedInputsV2 | undefined = undefined
@@ -533,11 +546,7 @@
 		</DrawerContent>
 	</Drawer>
 	{#key script.hash}
-		<DetailPageLayout
-			{triggersCount}
-			bind:selected={rightPaneSelected}
-			isOperator={$userStore?.operator}
-		>
+		<DetailPageLayout bind:selected={rightPaneSelected} isOperator={$userStore?.operator}>
 			<svelte:fragment slot="header">
 				<DetailPageHeader
 					{mainButtons}
@@ -547,16 +556,24 @@
 					errorHandlerKind="script"
 					scriptOrFlowPath={script.path}
 					tag={script.tag}
+					on:seeTriggers={() => {
+						rightPaneSelected = 'triggers'
+					}}
 				>
 					<svelte:fragment slot="trigger-badges">
 						<TriggersBadge
 							showOnlyWithCount={true}
+							showDraft={false}
 							path={script.path}
 							newItem={false}
 							isFlow={false}
-							selected={rightPaneSelected == 'triggers'}
-							on:select={() => {
-								rightPaneSelected = 'triggers'
+							selected={rightPaneSelected === 'triggers'}
+							onSelect={async (triggerIndex: number) => {
+								if (rightPaneSelected !== 'triggers') {
+									rightPaneSelected = 'triggers'
+								}
+								await tick()
+								triggersState.selectedTriggerIndex = triggerIndex
 							}}
 						/>
 					</svelte:fragment>
@@ -740,76 +757,18 @@
 					/>
 				{/if}
 			</svelte:fragment>
-			<svelte:fragment slot="webhooks">
-				<div class="p-2">
-					<WebhooksPanel
-						bind:token
-						scopes={[`run:script/${script?.path}`]}
-						hash={script.hash}
-						path={script.path}
-						{args}
-					/>
-				</div>
-			</svelte:fragment>
-			<svelte:fragment slot="routes">
-				<div class="p-2">
-					<RoutesPanel path={script.path ?? ''} isFlow={false} />
-				</div>
-			</svelte:fragment>
-			<svelte:fragment slot="websockets">
-				<div class="p-2">
-					<WebsocketTriggersPanel path={script.path ?? ''} isFlow={false} />
-				</div>
-			</svelte:fragment>
-			<svelte:fragment slot="postgres">
-				<div class="p-2">
-					<PostgresTriggersPanel path={script.path ?? ''} isFlow={false} />
-				</div>
-			</svelte:fragment>
-			<svelte:fragment slot="kafka">
-				<div class="p-2">
-					<KafkaTriggersPanel path={script.path ?? ''} isFlow={false} />
-				</div>
-			</svelte:fragment>
-			<svelte:fragment slot="nats">
-				<div class="p-2">
-					<NatsTriggersPanel path={script.path ?? ''} isFlow={false} />
-				</div>
-			</svelte:fragment>
-			<svelte:fragment slot="mqtt">
-				<div class="p-2">
-					<MqttTriggersPanel path={script.path ?? ''} isFlow={false} />
-				</div>
-			</svelte:fragment>
-			<svelte:fragment slot="sqs">
-				<div class="p-2">
-					<SqsTriggerPanel path={script.path ?? ''} isFlow={false} />
-				</div>
-			</svelte:fragment>
-			<svelte:fragment slot="gcp">
-				<div class="p-2">
-					<GcpTriggerPanel path={script.path ?? ''} isFlow={false} />
-				</div>
-			</svelte:fragment>
-			<svelte:fragment slot="emails">
-				<div class="p-2">
-					<EmailTriggerPanel
-						bind:token
-						scopes={[`run:script/${script?.path}`]}
-						hash={script.hash}
-						path={script.path}
-					/>
-				</div>
-			</svelte:fragment>
-			<svelte:fragment slot="schedules">
-				<div class="p-2 mt-2">
-					<RunPageSchedules
-						schema={script.schema}
-						isFlow={false}
-						path={script.path ?? ''}
-						{can_write}
-					/>
-				</div>
+			<svelte:fragment slot="triggers">
+				<TriggersEditor
+					initialPath={script.path}
+					currentPath={script.path}
+					noEditor={true}
+					newItem={false}
+					isFlow={false}
+					schema={script.schema}
+					isDeployed={true}
+					noCapture={true}
+					isEditor={false}
+				/>
 			</svelte:fragment>
 			<svelte:fragment slot="script">
 				<div class="h-full">
@@ -877,12 +836,6 @@
 						{/each}
 					</ul>
 				{/if}
-			</svelte:fragment>
-			<svelte:fragment slot="cli">
-				<div class="p-2 flex flex-col gap-4">
-					<ClipboardPanel content={cliCommand} />
-					<CliHelpBox />
-				</div>
 			</svelte:fragment>
 		</DetailPageLayout>
 	{/key}

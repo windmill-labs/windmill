@@ -5,7 +5,6 @@
  * Please see the included NOTICE for copyright information and
  * LICENSE-AGPL for a copy of the license.
  */
-
 use anyhow::Context;
 use monitor::{
     load_base_url, load_otel, reload_critical_alerts_on_db_oversize,
@@ -23,6 +22,7 @@ use std::{
     net::{IpAddr, Ipv4Addr, SocketAddr},
     time::{Duration, Instant},
 };
+use strum::IntoEnumIterator;
 use tokio::{fs::File, io::AsyncReadExt, task::JoinHandle};
 use uuid::Uuid;
 use windmill_api::HTTP_CLIENT;
@@ -51,6 +51,7 @@ use windmill_common::{
     s3_helpers::reload_s3_cache_setting,
     scripts::ScriptLang,
     stats_ee::schedule_stats,
+    triggers::TriggerKind,
     utils::{hostname, rd_string, Mode, GIT_VERSION, MODE_AND_ADDONS},
     worker::{
         reload_custom_tags_setting, Connection, HUB_CACHE_DIR, TMP_DIR, TMP_LOGS_DIR, WORKER_GROUP,
@@ -792,11 +793,37 @@ Windmill Community Edition {GIT_VERSION}
                                                     let payload = n.payload();
                                                     tracing::info!("Runnable version change detected: {}", payload);
                                                     match payload.split(':').collect::<Vec<&str>>().as_slice() {
-                                                        [workspace_id, source_type, path] => {
+                                                        [workspace_id, source_type, path, kind] => {
                                                             let key = (workspace_id.to_string(), path.to_string());
                                                             match source_type {
                                                                 &"script" => {
                                                                     windmill_common::DEPLOYED_SCRIPT_HASH_CACHE.remove(&key);
+                                                                    match kind {
+                                                                        &"preprocessor" => {
+                                                                            match sqlx::query_scalar!(
+                                                                                "SELECT fv.id
+                                                                                FROM flow f
+                                                                                INNER JOIN flow_version fv ON fv.id = f.versions[array_upper(f.versions, 1)]
+                                                                                WHERE fv.value->'preprocessor_module'->'value'->>'path' = $1 AND f.workspace_id = $2",
+                                                                                path,
+                                                                                workspace_id
+                                                                            ).fetch_all(&db).await {
+                                                                                Ok(flow_versions) => {
+                                                                                    tracing::debug!("Workspace preprocessor {} changed, removing runnable format version cache for flow versions {:?}", path, flow_versions);
+                                                                                    for version in flow_versions {
+                                                                                        for trigger_kind in TriggerKind::iter() {
+                                                                                            let key = (windmill_common::triggers::HubOrWorkspaceId::WorkspaceId(workspace_id.to_string()), version, trigger_kind);
+                                                                                            windmill_common::triggers::RUNNABLE_FORMAT_VERSION_CACHE.remove(&key);
+                                                                                        }
+                                                                                    }
+                                                                                }
+                                                                                Err(e) => {
+                                                                                    tracing::error!("Error fetching flow paths: {e:#}");
+                                                                                }
+                                                                            }
+                                                                        },
+                                                                        _ => {}
+                                                                    }
                                                                 }
                                                                 &"flow" => {
                                                                     windmill_common::FLOW_VERSION_CACHE.remove(&key);

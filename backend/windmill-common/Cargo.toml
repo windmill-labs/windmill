@@ -72,9 +72,13 @@ const_format.workspace = true
 crc.workspace = true
 windmill-macros.workspace = true
 windmill-parser-sql.workspace = true
+windmill-parser-ts.workspace = true
+windmill-parser-py.workspace = true
 jsonwebtoken.workspace = true
 backon.workspace = true
 openidconnect = { workspace = true, optional = true }
+strum.workspace = true
+strum_macros.workspace = true
 
 semver.workspace = true
 croner = "2.0.6"

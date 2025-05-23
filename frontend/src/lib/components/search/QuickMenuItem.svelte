@@ -1,17 +1,9 @@
 <script lang="ts">
 	import { isMac } from '$lib/utils'
-	import { createEventDispatcher, onDestroy, onMount } from 'svelte'
+	import { onDestroy, onMount } from 'svelte'
 	import { twMerge } from 'tailwind-merge'
 
-	export let hovered: boolean = false
-	export let id: string
-	export let label: string = ''
-	export let icon: any = undefined
-	export let shortcutKey: string | undefined = undefined
-	export let containerClass: string | undefined = undefined
-	export let mouseMoved = false
-
-	const dispatch = createEventDispatcher()
+	// const dispatch = createEventDispatcher()
 
 	onMount(() => {
 		window.addEventListener('keydown', handleKeydown)
@@ -24,16 +16,46 @@
 	async function handleKeydown(event: KeyboardEvent) {
 		if (hovered && event.key === 'Enter') {
 			event.preventDefault()
-			dispatch('keyboardOnlySelect')
-			runAction()
+			if (onkeyboardSpecificSelect) {
+				onkeyboardSpecificSelect(event.shiftKey || event.ctrlKey)
+			} else {
+				onselect(event.shiftKey || event.ctrlKey)
+			}
 		}
 	}
 
-	function runAction() {
-		dispatch('select')
+	interface Props {
+		hovered?: boolean
+		id: string
+		label?: string
+		icon?: any
+		shortcutKey?: string | undefined
+		containerClass?: string | undefined
+		mouseMoved?: boolean
+		kbdClass?: string
+		small?: boolean
+		itemReplacement?: import('svelte').Snippet
+		onselect?: (shift: boolean) => void
+		onkeyboardSpecificSelect?: (shift: boolean) => void
+		onhover?: () => void
 	}
-	export let kbdClass = ''
-	export let small = true
+
+	let {
+		hovered = false,
+		id,
+		label = '',
+		icon = undefined,
+		shortcutKey = undefined,
+		containerClass = undefined,
+		mouseMoved = $bindable(false),
+		kbdClass = $bindable(''),
+		small = true,
+		itemReplacement,
+		onselect = () => {},
+		onhover = () => {},
+		onkeyboardSpecificSelect
+	}: Props = $props()
+
 	if (small) {
 		kbdClass = twMerge(
 			kbdClass,
@@ -44,33 +66,36 @@
 	} else {
 		kbdClass += ' !text-xs px-1.5'
 	}
+
 </script>
 
-<!-- svelte-ignore a11y-no-static-element-interactions -->
-<!-- svelte-ignore a11y-click-events-have-key-events -->
+<!-- svelte-ignore a11y_no_static_element_interactions -->
+<!-- svelte-ignore a11y_click_events_have_key_events -->
 <div
 	{id}
-	on:click|stopPropagation={runAction}
-	on:mouseenter={() => {
+	onclick={(e) => {
+		e.stopImmediatePropagation()
+		onselect(e.shiftKey || e.ctrlKey)
+	}}
+	onmouseenter={() => {
 		if (mouseMoved) {
-			dispatch('hover')
+			onhover()
 		}
-		mouseMoved=false
+		mouseMoved = false
 	}}
 	class={twMerge(
-		`rounded-md w-full transition-all cursor-pointer ${
-			hovered ? 'bg-surface-hover' : ''
-		}`,
+		`rounded-md w-full transition-all cursor-pointer ${hovered ? 'bg-surface-hover' : ''}`,
 		containerClass
 	)}
 >
-	{#if $$slots.itemReplacement}
-		<slot name="itemReplacement" />
+	{#if itemReplacement}
+		{@render itemReplacement?.()}
 	{:else}
 		<div class="flex flex-row gap-2 items-center px-2 py-1.5 rounded-md pr-6 text-sm">
 			<div class="w-4">
 				{#if icon}
-					<svelte:component this={icon} size={16} />
+					{@const SvelteComponent = icon}
+					<SvelteComponent size={16} />
 				{:else if shortcutKey != undefined}
 					<div class="font-bold flex items-center justify-center w-full">
 						<span
