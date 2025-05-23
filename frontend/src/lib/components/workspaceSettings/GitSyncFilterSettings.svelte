@@ -1,6 +1,6 @@
 <script lang="ts">
 	import Toggle from '$lib/components/Toggle.svelte'
-	import { Plus, X, Filter, Save, Eye, Loader2, CheckCircle2, XCircle } from 'lucide-svelte'
+	import { Plus, X, Filter, Save, Eye, Loader2, CheckCircle2, XCircle, Check } from 'lucide-svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import yaml from 'js-yaml'
 	import hubPaths from '$lib/hubPaths.json'
@@ -8,6 +8,56 @@
 	import { workspaceStore } from '$lib/stores'
 	import { Button } from '$lib/components/common'
 	import { sendUserToast } from '$lib/toast'
+
+	// UI-controlled fields in the YAML based on SyncOptions interface
+	interface UIControlledFields {
+		includes?: string[]
+		// Skip flags
+		skipVariables?: boolean
+		skipResources?: boolean
+		skipResourceTypes?: boolean
+		skipSecrets?: boolean
+		// Include flags
+		includeSchedules?: boolean
+		includeTriggers?: boolean
+		includeUsers?: boolean
+		includeGroups?: boolean
+	}
+
+	// Full YAML config type that includes UI fields and other possible fields from SyncOptions
+	interface FullYamlConfig extends UIControlledFields {
+		defaultTs?: 'bun' | 'deno'
+		excludes?: string[]
+		extraIncludes?: string[]
+		codebases?: Array<{
+			relative_path: string
+			includes?: string[]
+			excludes?: string[]
+			assets?: Array<{
+				from: string
+				to: string
+			}>
+			customBundler?: string
+			external?: string[]
+			define?: { [key: string]: string }
+			inject?: string[]
+		}>
+		[key: string]: unknown
+	}
+
+	type ObjectType =
+		| 'script'
+		| 'flow'
+		| 'app'
+		| 'folder'
+		| 'resource'
+		| 'variable'
+		| 'secret'
+		| 'resourcetype'
+		| 'schedule'
+		| 'user'
+		| 'group'
+		| 'trigger'
 
 	type GitSyncTypeMap = {
 		scripts: boolean
@@ -29,57 +79,27 @@
 		yaml?: string
 	}
 
+	function validateYamlStructure(obj: unknown): obj is FullYamlConfig {
+		return obj !== null && typeof obj === 'object'
+	}
+
 	let {
 		git_repo_resource_path = $bindable(''),
 		include_path = $bindable(['f/**']),
-		include_type = $bindable<GitSyncTypeMap>({
-			scripts: true,
-			flows: true,
-			apps: true,
-			folders: true,
-			resourceTypes: false,
-			resources: false,
-			variables: false,
-			secrets: false,
-			schedules: false,
-			users: false,
-			groups: false,
-			triggers: false
-		}),
+		include_type = $bindable(['script', 'flow', 'app', 'folder'] as ObjectType[]),
 		yamlText = $bindable(''),
 		onSettingsChange = (settings: { yaml: string }) => {}
 	} = $props()
 
-	// Initialize yamlText with current settings
-	$effect(() => {
-		const initialYaml = toYaml()
-		if (initialYaml !== yamlText) {
-			onSettingsChange({ yaml: initialYaml })
-		}
-	})
-
-	// Add pull mode state
-	let isPullMode = $state(false)
-
-	// Individual $state variables for toggles
-	let scripts = $state(include_type.scripts)
-	let flows = $state(include_type.flows)
-	let apps = $state(include_type.apps)
-	let folders = $state(include_type.folders)
-	let resourceTypes = $state(include_type.resourceTypes)
-	let resources = $state(include_type.resources)
-	let variables = $state(include_type.variables)
-	let secrets = $state(include_type.secrets)
-	let schedules = $state(include_type.schedules)
-	let users = $state(include_type.users)
-	let groups = $state(include_type.groups)
-	let triggers = $state(include_type.triggers)
-
+	// Component state
 	let newFilter = $state('')
 	let newFilterInput: HTMLInputElement | null = $state(null)
 	let collapsed = $state(false)
 	let editAsYaml = $state(false)
 	let yamlError = $state('')
+	let isPullMode = $state(false)
+
+	// Preview/Push state
 	let previewResult = $state<PreviewResult | null>(null)
 	let previewJobId = $state<string | null>(null)
 	let previewJobStatus = $state<'running' | 'success' | 'failure' | undefined>(undefined)
@@ -89,54 +109,49 @@
 	let isPushing = $state(false)
 	let previewError = $state('')
 
-	function updateSettings() {
-		const newYaml = toYaml()
-		if (newYaml !== yamlText) {
-			onSettingsChange({ yaml: newYaml })
-		}
-	}
+	// Compute type toggles from include_type
+	const typeToggles = $derived({
+		scripts: include_type.includes('script'),
+		flows: include_type.includes('flow'),
+		apps: include_type.includes('app'),
+		folders: include_type.includes('folder'),
+		resourceTypes: include_type.includes('resourcetype'),
+		resources: include_type.includes('resource'),
+		variables: include_type.includes('variable'),
+		secrets: include_type.includes('secret'),
+		schedules: include_type.includes('schedule'),
+		users: include_type.includes('user'),
+		groups: include_type.includes('group'),
+		triggers: include_type.includes('trigger')
+	})
 
 	function updateIncludeType(key: keyof GitSyncTypeMap, value: boolean) {
-		switch (key) {
-			case 'scripts':
-				scripts = value
-				break
-			case 'flows':
-				flows = value
-				break
-			case 'apps':
-				apps = value
-				break
-			case 'folders':
-				folders = value
-				break
-			case 'resourceTypes':
-				resourceTypes = value
-				break
-			case 'resources':
-				resources = value
-				break
-			case 'variables':
-				variables = value
-				if (!value) secrets = false
-				break
-			case 'secrets':
-				secrets = value
-				break
-			case 'schedules':
-				schedules = value
-				break
-			case 'users':
-				users = value
-				break
-			case 'groups':
-				groups = value
-				break
-			case 'triggers':
-				triggers = value
-				break
+		const newTypes = new Set(include_type)
+		const typeMap: Record<keyof GitSyncTypeMap, ObjectType> = {
+			scripts: 'script',
+			flows: 'flow',
+			apps: 'app',
+			folders: 'folder',
+			resourceTypes: 'resourcetype',
+			resources: 'resource',
+			variables: 'variable',
+			secrets: 'secret',
+			schedules: 'schedule',
+			users: 'user',
+			groups: 'group',
+			triggers: 'trigger'
 		}
-		updateSettings()
+
+		if (value) {
+			newTypes.add(typeMap[key])
+		} else {
+			newTypes.delete(typeMap[key])
+			if (key === 'variables') {
+				newTypes.delete('secret')
+			}
+		}
+
+		include_type = Array.from(newTypes)
 	}
 
 	function addPathFilterInline() {
@@ -145,101 +160,162 @@
 			include_path = [...include_path, value]
 			newFilter = ''
 			newFilterInput?.focus()
-			updateSettings()
 		}
 	}
 
 	function removePathFilter(idx: number) {
-		include_path.splice(idx, 1)
-		include_path = [...include_path]
-		updateSettings()
-	}
-
-	function getIncludeTypeObj(): GitSyncTypeMap {
-		return {
-			scripts,
-			flows,
-			apps,
-			folders,
-			resourceTypes,
-			resources,
-			variables,
-			secrets,
-			schedules,
-			users,
-			groups,
-			triggers
-		}
+		include_path = include_path.filter((_, i) => i !== idx)
 	}
 
 	function capitalize(str: string) {
 		return str.charAt(0).toUpperCase() + str.slice(1)
 	}
 
-	function toYaml() {
-		const obj: any = {
-			includes: include_path
-		}
-		for (const [key, value] of Object.entries(getIncludeTypeObj())) {
-			obj[`skip${key.charAt(0).toUpperCase() + key.slice(1)}`] = !value
-		}
-		obj.codebases = []
-		obj.excludes = []
-		return yaml.dump(obj)
-	}
-
 	function fromYaml(yamlStr: string) {
-		console.log('fromYaml', yamlStr)
 		yamlError = ''
 		try {
-			const obj = yaml.load(yamlStr) as any
-			if (!obj || typeof obj !== 'object') throw new Error('Invalid YAML')
-			if (!Array.isArray(obj.includes)) throw new Error('Missing includes')
+			const parsed = yaml.load(yamlStr)
 
-			// Update path filters
-			include_path = obj.includes.map((p: string) => {
-				if (typeof p === 'string' && /^'.*'$/.test(p)) {
-					return p.slice(1, -1).replace(/''/g, "'")
-				}
-				return p
-			})
-
-			// Update type filters with defaults
-			const parsed = {
-				scripts: obj.skipScripts === undefined ? true : !obj.skipScripts,
-				flows: obj.skipFlows === undefined ? true : !obj.skipFlows,
-				apps: obj.skipApps === undefined ? true : !obj.skipApps,
-				folders: obj.skipFolders === undefined ? true : !obj.skipFolders,
-				resourceTypes: obj.skipResourceTypes === undefined ? false : !obj.skipResourceTypes,
-				resources: obj.skipResources === undefined ? false : !obj.skipResources,
-				variables: obj.skipVariables === undefined ? false : !obj.skipVariables,
-				secrets: obj.skipSecrets === undefined ? false : !obj.skipSecrets,
-				schedules: obj.skipSchedules === undefined ? false : !obj.skipSchedules,
-				users: obj.skipUsers === undefined ? false : !obj.skipUsers,
-				groups: obj.skipGroups === undefined ? false : !obj.skipGroups,
-				triggers: obj.skipTriggers === undefined ? false : !obj.skipTriggers
+			if (!validateYamlStructure(parsed)) {
+				throw new Error('Invalid YAML structure')
 			}
 
-			// Update all state variables
-			scripts = parsed.scripts
-			flows = parsed.flows
-			apps = parsed.apps
-			folders = parsed.folders
-			resourceTypes = parsed.resourceTypes
-			resources = parsed.resources
-			variables = parsed.variables
-			secrets = parsed.secrets
-			schedules = parsed.schedules
-			users = parsed.users
-			groups = parsed.groups
-			triggers = parsed.triggers
+			const obj: FullYamlConfig = parsed
 
-			// Update include_type
-			include_type = parsed
-			console.log('include_type', include_type)
+			// Store the full YAML for later use when saving
+			yamlText = yamlStr
+
+			// Handle includes with proper validation
+			if (obj.includes !== undefined) {
+				if (!Array.isArray(obj.includes)) {
+					throw new Error('includes must be an array')
+				}
+				include_path = obj.includes.map((p: unknown) => {
+					if (typeof p !== 'string') {
+						throw new Error('includes must contain only strings')
+					}
+					// Handle quoted strings
+					if (/^['"].*['"]$/.test(p)) {
+						return p.slice(1, -1).replace(/''/g, "'")
+					}
+					return p
+				})
+			}
+
+			// Update type toggles based on skip/include flags
+			const newTypes = new Set<ObjectType>()
+
+			// Always include core types (scripts, flows, apps, folders)
+			// These are fundamental Windmill types not controlled by CLI flags
+			newTypes.add('script')
+			newTypes.add('flow')
+			newTypes.add('app')
+			newTypes.add('folder')
+
+			// Handle resource management (controlled by skip flags)
+			if (!obj.skipResourceTypes) newTypes.add('resourcetype')
+			if (!obj.skipResources) newTypes.add('resource')
+			if (!obj.skipVariables) newTypes.add('variable')
+			if (!obj.skipSecrets) newTypes.add('secret')
+
+			// Handle include flags
+			if (obj.includeSchedules) newTypes.add('schedule')
+			if (obj.includeTriggers) newTypes.add('trigger')
+			if (obj.includeUsers) newTypes.add('user')
+			if (obj.includeGroups) newTypes.add('group')
+
+			// Special handling for secrets - they can only be included if variables are included
+			if (!newTypes.has('variable')) {
+				newTypes.delete('secret')
+			}
+
+			include_type = Array.from(newTypes)
+
 		} catch (e) {
 			yamlError = e.message || 'Invalid YAML'
 			console.error('Error parsing YAML:', e)
+		}
+	}
+
+	export function toYaml() {
+		try {
+			// If we have existing YAML text, modify it directly to preserve structure
+			if (yamlText?.trim()) {
+				// Generate a base YAML with our current settings
+				let baseConfig: FullYamlConfig = {
+					defaultTs: 'bun',
+					includes: include_path,
+					excludes: [],
+					codebases: []
+				};
+
+				// Add skip flags if true
+				if (!include_type.includes('variable')) baseConfig.skipVariables = true;
+				if (!include_type.includes('resource')) baseConfig.skipResources = true;
+				if (!include_type.includes('secret')) baseConfig.skipSecrets = true;
+				if (!include_type.includes('resourcetype')) baseConfig.skipResourceTypes = true;
+
+				// Add include flags if true
+				if (include_type.includes('schedule')) baseConfig.includeSchedules = true;
+				if (include_type.includes('trigger')) baseConfig.includeTriggers = true;
+				if (include_type.includes('user')) baseConfig.includeUsers = true;
+				if (include_type.includes('group')) baseConfig.includeGroups = true;
+
+				// Create a new YAML
+				let newYaml = yaml.dump(baseConfig, {
+					indent: 2,
+					lineWidth: -1,
+					quotingType: '"',
+					forceQuotes: false,
+					noRefs: true
+				});
+
+				// Now preserve explicit false values from the original YAML
+				const includeFields = ['includeSchedules', 'includeTriggers', 'includeUsers', 'includeGroups'];
+
+				// Check for explicit false values in original YAML
+				for (const field of includeFields) {
+					// If field exists in original YAML as false, but not in new YAML, add it
+					const regex = new RegExp(`^${field}:\\s*false\\s*$`, 'm');
+					if (regex.test(yamlText) && !new RegExp(`^${field}:`, 'm').test(newYaml)) {
+						newYaml += `${field}: false\n`;
+					}
+				}
+
+				return newYaml;
+			}
+
+			// If no existing YAML, create a new config
+			let config: FullYamlConfig = {
+				defaultTs: 'bun',
+				includes: include_path,
+				excludes: [],
+				codebases: []
+			}
+
+			// Add skip flags if true
+			if (!include_type.includes('variable')) config.skipVariables = true
+			if (!include_type.includes('resource')) config.skipResources = true
+			if (!include_type.includes('secret')) config.skipSecrets = true
+			if (!include_type.includes('resourcetype')) config.skipResourceTypes = true
+
+			// Add include flags if true
+			if (include_type.includes('schedule')) config.includeSchedules = true
+			if (include_type.includes('trigger')) config.includeTriggers = true
+			if (include_type.includes('user')) config.includeUsers = true
+			if (include_type.includes('group')) config.includeGroups = true
+
+			return yaml.dump(config, {
+				indent: 2,
+				lineWidth: -1,
+				quotingType: '"',
+				forceQuotes: false,
+				noRefs: true
+			})
+		} catch (e) {
+			console.warn('Failed to generate YAML:', e)
+			yamlError = e.message || 'Failed to generate YAML'
+			return yamlText
 		}
 	}
 
@@ -310,32 +386,105 @@
 					} catch (err) {}
 				},
 				interval: 500,
-				timeout: 5000
+				timeout: 10000
 			})
 			previewJobStatus = jobSuccess ? 'success' : 'failure'
 			if (jobSuccess) {
 				if (isPullMode && result) {
-					// In pull mode, compute diff between current and pulled YAML
-					const currentYaml = toYaml()
-					const lines = currentYaml.split('\n')
-					const pulledLines = result.yaml?.split('\n') || []
-					const diff: string[] = []
+					// In pull mode, we need to compare the YAMLs properly
+					try {
+						// Parse both YAMLs
+						const repoYaml = result.yaml
+						const currentYaml = editAsYaml ? yamlText : toYaml()
 
-					// Simple line-by-line diff
-					for (let i = 0; i < Math.max(lines.length, pulledLines.length); i++) {
-						if (i >= lines.length) {
-							diff.push(`+ ${pulledLines[i]}`)
-						} else if (i >= pulledLines.length) {
-							diff.push(`- ${lines[i]}`)
-						} else if (lines[i] !== pulledLines[i]) {
-							diff.push(`- ${lines[i]}`)
-							diff.push(`+ ${pulledLines[i]}`)
+						if (repoYaml) {
+							const repoObj = yaml.load(repoYaml) as FullYamlConfig
+							const currentObj = yaml.load(currentYaml) as FullYamlConfig
+
+							// Function to normalize YAML object for comparison
+							const normalizeYamlObj = (obj: FullYamlConfig) => {
+								const normalized = { ...obj }
+								// Ensure all boolean fields exist with default values
+								// Skip flags default to false in YAML config (by default, we include these resources)
+								normalized.skipVariables = normalized.skipVariables ?? false
+								normalized.skipResources = normalized.skipResources ?? false
+								normalized.skipResourceTypes = normalized.skipResourceTypes ?? false
+								normalized.skipSecrets = normalized.skipSecrets ?? false
+								// Include flags default to false (by default, we exclude these special types)
+								normalized.includeSchedules = normalized.includeSchedules ?? false
+								normalized.includeTriggers = normalized.includeTriggers ?? false
+								normalized.includeUsers = normalized.includeUsers ?? false
+								normalized.includeGroups = normalized.includeGroups ?? false
+								// Ensure arrays exist
+								normalized.includes = normalized.includes ?? []
+								normalized.excludes = normalized.excludes ?? []
+								normalized.codebases = normalized.codebases ?? []
+								return normalized
+							}
+
+							const normalizedRepo = normalizeYamlObj(repoObj)
+							const normalizedCurrent = normalizeYamlObj(currentObj)
+
+							// Compare normalized objects
+							const isDifferent = JSON.stringify(normalizedRepo) !== JSON.stringify(normalizedCurrent)
+
+							if (isDifferent) {
+								// Generate a semantic diff showing only the actual changes
+								let diffOutput = '';
+
+								// Compare each field and show only what actually changed
+								const allFields = ['defaultTs', 'includes', 'excludes', 'codebases', 'skipVariables', 'skipResources', 'skipSecrets', 'includeSchedules', 'includeTriggers', 'includeUsers', 'includeGroups', 'skipResourceTypes'];
+
+								for (const field of allFields) {
+									const currentValue = normalizedCurrent[field];
+									const repoValue = normalizedRepo[field];
+
+									// Deep compare the values
+									if (JSON.stringify(currentValue) !== JSON.stringify(repoValue)) {
+										diffOutput += `${field}:\n`;
+										if (Array.isArray(currentValue) && Array.isArray(repoValue)) {
+											// Show array differences more clearly
+											const currentSet = new Set(currentValue);
+											const repoSet = new Set(repoValue);
+
+											// Items being removed (in current but not in repo)
+											for (const item of currentValue) {
+												if (!repoSet.has(item)) {
+													diffOutput += `  - ${item}\n`;
+												}
+											}
+
+											// Items being added (in repo but not in current)
+											for (const item of repoValue) {
+												if (!currentSet.has(item)) {
+													diffOutput += `  + ${item}\n`;
+												}
+											}
+										} else {
+											// Show simple value changes
+											if (currentValue !== undefined) {
+												diffOutput += `  - ${field}: ${currentValue}\n`;
+											}
+											if (repoValue !== undefined) {
+												diffOutput += `  + ${field}: ${repoValue}\n`;
+											}
+										}
+									}
+								}
+
+								result.diff = diffOutput || 'Configuration files differ but specific changes could not be determined';
+							} else {
+								result.diff = '';  // No differences
+							}
 						}
+					} catch (e) {
+						console.error('Error comparing YAMLs:', e)
+						previewError = 'Failed to compare YAML files: ' + e.message
 					}
-
-					result.diff = diff.join('\n')
+					previewResult = result
+				} else {
+					previewResult = result
 				}
-				previewResult = result
 			} else {
 				previewError = 'Preview failed'
 			}
@@ -354,7 +503,14 @@
 				try {
 					fromYaml(previewResult.yaml)
 					yamlText = previewResult.yaml
-					sendUserToast('Repo filter settings saved')
+					onSettingsChange({ yaml: previewResult.yaml })
+					sendUserToast('Changes applied - remember to save repository settings to persist changes')
+
+					// Clear the preview state after applying settings
+					previewResult = null
+					previewJobId = null
+					previewJobStatus = undefined
+					previewError = ''
 				} catch (e) {
 					previewError = 'Failed to parse pulled YAML: ' + e.message
 				}
@@ -404,9 +560,16 @@
 					} catch (err) {}
 				},
 				interval: 500,
-				timeout: 5000
+				timeout: 10000
 			})
 			pushJobStatus = jobSuccess ? 'success' : 'failure'
+			if (jobSuccess) {
+				// Reset preview state after successful push
+				previewResult = null
+				previewJobId = null
+				previewJobStatus = undefined
+				previewError = ''
+			}
 		} catch (e) {
 			pushJobStatus = 'failure'
 		} finally {
@@ -418,6 +581,20 @@
 		yamlText = settings.yaml
 		fromYaml(settings.yaml)
 	}
+
+	$effect(() => {
+		// Reset preview state when switching modes
+		if (isPullMode !== undefined) {
+			previewResult = null
+			previewJobId = null
+			previewJobStatus = undefined
+			pushJobId = null
+			pushJobStatus = undefined
+			isPreviewLoading = false
+			isPushing = false
+			previewError = ''
+		}
+	})
 </script>
 
 <div class="rounded-lg shadow-sm border p-0 w-full">
@@ -552,96 +729,96 @@
 							<div class="flex items-center gap-2">
 								<Toggle
 									size="xs"
-									bind:checked={scripts}
-									onchange={(e) => updateIncludeType('scripts', e.detail)}
+									checked={typeToggles.scripts}
+									on:change={(e) => updateIncludeType('scripts', e.detail)}
 									options={{ right: capitalize('scripts') }}
 								/>
 							</div>
 							<div class="flex items-center gap-2">
 								<Toggle
 									size="xs"
-									bind:checked={flows}
-									onchange={(e) => updateIncludeType('flows', e.detail)}
+									checked={typeToggles.flows}
+									on:change={(e) => updateIncludeType('flows', e.detail)}
 									options={{ right: capitalize('flows') }}
 								/>
 							</div>
 							<div class="flex items-center gap-2">
 								<Toggle
 									size="xs"
-									bind:checked={apps}
-									onchange={(e) => updateIncludeType('apps', e.detail)}
+									checked={typeToggles.apps}
+									on:change={(e) => updateIncludeType('apps', e.detail)}
 									options={{ right: capitalize('apps') }}
 								/>
 							</div>
 							<div class="flex items-center gap-2">
 								<Toggle
 									size="xs"
-									bind:checked={folders}
-									onchange={(e) => updateIncludeType('folders', e.detail)}
+									checked={typeToggles.folders}
+									on:change={(e) => updateIncludeType('folders', e.detail)}
 									options={{ right: capitalize('folders') }}
 								/>
 							</div>
 							<div class="flex items-center gap-2">
 								<Toggle
 									size="xs"
-									bind:checked={resourceTypes}
-									onchange={(e) => updateIncludeType('resourceTypes', e.detail)}
+									checked={typeToggles.resourceTypes}
+									on:change={(e) => updateIncludeType('resourceTypes', e.detail)}
 									options={{ right: capitalize('resourceTypes') }}
 								/>
 							</div>
 							<div class="flex items-center gap-2">
 								<Toggle
 									size="xs"
-									bind:checked={resources}
-									onchange={(e) => updateIncludeType('resources', e.detail)}
+									checked={typeToggles.resources}
+									on:change={(e) => updateIncludeType('resources', e.detail)}
 									options={{ right: capitalize('resources') }}
 								/>
 							</div>
 							<div class="col-span-2 flex items-center gap-2">
 								<Toggle
 									size="xs"
-									bind:checked={variables}
-									onchange={(e) => updateIncludeType('variables', e.detail)}
+									checked={typeToggles.variables}
+									on:change={(e) => updateIncludeType('variables', e.detail)}
 									options={{ right: 'Variables' }}
 								/>
 								<span class="text-gray-400">-</span>
 								<Toggle
 									size="xs"
-									disabled={!variables}
-									bind:checked={secrets}
-									onchange={(e) => updateIncludeType('secrets', e.detail)}
+									disabled={!typeToggles.variables}
+									checked={typeToggles.secrets}
+									on:change={(e) => updateIncludeType('secrets', e.detail)}
 									options={{ left: 'Include secrets' }}
 								/>
 							</div>
 							<div class="flex items-center gap-2">
 								<Toggle
 									size="xs"
-									bind:checked={schedules}
-									onchange={(e) => updateIncludeType('schedules', e.detail)}
+									checked={typeToggles.schedules}
+									on:change={(e) => updateIncludeType('schedules', e.detail)}
 									options={{ right: capitalize('schedules') }}
 								/>
 							</div>
 							<div class="flex items-center gap-2">
 								<Toggle
 									size="xs"
-									bind:checked={users}
-									onchange={(e) => updateIncludeType('users', e.detail)}
+									checked={typeToggles.users}
+									on:change={(e) => updateIncludeType('users', e.detail)}
 									options={{ right: capitalize('users') }}
 								/>
 							</div>
 							<div class="flex items-center gap-2">
 								<Toggle
 									size="xs"
-									bind:checked={groups}
-									onchange={(e) => updateIncludeType('groups', e.detail)}
+									checked={typeToggles.groups}
+									on:change={(e) => updateIncludeType('groups', e.detail)}
 									options={{ right: capitalize('groups') }}
 								/>
 							</div>
 							<div class="flex items-center gap-2">
 								<Toggle
 									size="xs"
-									bind:checked={triggers}
-									onchange={(e) => updateIncludeType('triggers', e.detail)}
+									checked={typeToggles.triggers}
+									on:change={(e) => updateIncludeType('triggers', e.detail)}
 									options={{ right: capitalize('triggers') }}
 								/>
 							</div>
@@ -650,13 +827,13 @@
 				</div>
 			</div>
 			<div class="mt-6 flex flex-col gap-2 p-2">
-				<div class="flex flex-col  gap-2 mb-2">
+				<div class="flex flex-col gap-2 mb-2">
 					<Toggle
 						size="sm"
 						bind:checked={isPullMode}
 						options={{
 							left: 'Push',
-							right: 'Pull',
+							right: 'Pull'
 						}}
 					/>
 					<span class="text-xs text-tertiary">
@@ -680,13 +857,19 @@
 							size="sm"
 							on:click={pushFiltersToGitRepo}
 							disabled={isPushing || isPreviewLoading}
-							color="red"
+							color={isPullMode ? 'dark' : 'red'}
 							startIcon={{
-								icon: isPushing ? Loader2 : Save,
+								icon: isPushing ? Loader2 : isPullMode ? Check : Save,
 								classes: isPushing ? 'animate-spin' : ''
 							}}
 						>
-							{isPushing ? (isPullMode ? 'Saving...' : 'Pushing...') : (isPullMode ? 'Save' : 'Save & Push')}
+							{isPushing
+								? isPullMode
+									? 'Applying...'
+									: 'Pushing...'
+								: isPullMode
+									? 'Apply'
+									: 'Push Settings to Git'}
 						</Button>
 					{/if}
 				</div>
@@ -717,10 +900,7 @@
 						<div class="font-semibold text-[11px] mb-1 text-tertiary">Preview of changes:</div>
 						{#if previewResult.diff?.trim()}
 							<div class="mt-2">
-								<pre
-									class="rounded p-2 text-2xs"
-									><code>{previewResult.diff}</code></pre
-								>
+								<pre class="rounded p-2 text-2xs"><code>{previewResult.diff}</code></pre>
 							</div>
 						{:else}
 							<div class="mt-2 text-tertiary">No changes found! The file is up to date.</div>

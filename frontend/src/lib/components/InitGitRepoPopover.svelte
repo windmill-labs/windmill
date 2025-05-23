@@ -99,7 +99,7 @@
 					}
 				},
 				interval: 500,
-				timeout: 5000
+				timeout: 10000
 			})
 
 			if (jobSuccess) {
@@ -169,7 +169,7 @@
 					}
 				},
 				interval: 500,
-				timeout: 5000
+				timeout: 10000
 			})
 
 			pushJobStatus = jobSuccess ? 'success' : 'failure'
@@ -323,7 +323,15 @@ git push</code></pre>
 				<Button
 					color="light"
 					size="xs"
-					on:click={() => close()}
+					on:click={() => {
+						previewResult = undefined;
+						previewJobId = null;
+						previewJobStatus = undefined;
+						pushJobId = null;
+						pushJobStatus = undefined;
+						initResult = null;
+						close();
+					}}
 					disabled={isPreviewLoading || isInitializing}
 				>
 					Cancel

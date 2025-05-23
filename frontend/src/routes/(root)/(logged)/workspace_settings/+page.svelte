@@ -4,6 +4,7 @@
 	import { isCloudHosted } from '$lib/cloud'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
 	import { Alert, Button, Skeleton, Tab, Tabs } from '$lib/components/common'
+	import { deepEqual } from 'fast-equals'
 
 	import DeployToSetting from '$lib/components/DeployToSetting.svelte'
 	import ErrorOrRecoveryHandler from '$lib/components/ErrorOrRecoveryHandler.svelte'
@@ -35,6 +36,7 @@
 	import {
 		XCircle,
 		RotateCw,
+		RotateCcw,
 		CheckCircle2,
 		Trash,
 		Plus,
@@ -64,104 +66,172 @@
 	import PullGitRepoPopover from '$lib/components/PullGitRepoPopover.svelte'
 	import GitSyncFilterSettings from '$lib/components/workspaceSettings/GitSyncFilterSettings.svelte'
 
-	type GitSyncTypeMap = {
-		scripts: boolean
-		flows: boolean
-		apps: boolean
-		folders: boolean
-		resourceTypes: boolean
-		resources: boolean
-		variables: boolean
-		secrets: boolean
-		schedules: boolean
-		users: boolean
-		groups: boolean
-		triggers: boolean
-	}
-	type GitSyncType =
+	type ObjectType =
 		| 'script'
 		| 'flow'
 		| 'app'
 		| 'folder'
-		| 'resourcetype'
 		| 'resource'
 		| 'variable'
 		| 'secret'
+		| 'resourcetype'
 		| 'schedule'
 		| 'user'
 		| 'group'
 		| 'trigger'
 
+	type GitSyncSettings = {
+		repositories: GitSyncRepository[]
+	}
+
+	type GitRepositorySettings = {
+		include_path: string[]
+		include_type: ObjectType[]
+	}
+
 	type GitSyncRepository = {
-		exclude_types_override: GitSyncTypeMap
 		script_path: string
 		git_repo_resource_path: string
 		use_individual_branch: boolean
 		group_by_folder: boolean
 		collapsed: boolean
+		settings: GitRepositorySettings
 	}
 
-	let slackInitialPath: string
-	let slackScriptPath: string
-	let teamsInitialPath: string
-	let teamsScriptPath: string
-	let slack_team_name: string | undefined
-	let teams_team_id: string | undefined
-	let teams_team_name: string | undefined
-	let itemKind: 'flow' | 'script' = 'flow'
-	let plan: string | undefined = undefined
-	let customer_id: string | undefined = undefined
-	let webhook: string | undefined = undefined
-	let workspaceToDeployTo: string | undefined = undefined
-	let errorHandlerSelected: 'custom' | 'slack' | 'teams' = 'slack'
-	let errorHandlerInitialScriptPath: string
-	let errorHandlerScriptPath: string
-	let errorHandlerItemKind: 'flow' | 'script' = 'script'
-	let errorHandlerExtraArgs: Record<string, any> = {}
-	let errorHandlerMutedOnCancel: boolean | undefined = undefined
-	let criticalAlertUIMuted: boolean | undefined = undefined
-	let initialCriticalAlertUIMuted: boolean | undefined = undefined
+	let slackInitialPath = $state('')
+	let slackScriptPath = $state('')
+	let teamsInitialPath = $state('')
+	let teamsScriptPath = $state('')
+	let slack_team_name = $state<string | undefined>(undefined)
+	let teams_team_id = $state<string | undefined>(undefined)
+	let teams_team_name = $state<string | undefined>(undefined)
+	let itemKind = $state<'flow' | 'script'>('flow')
+	let plan = $state<string | undefined>(undefined)
+	let customer_id = $state<string | undefined>(undefined)
+	let webhook = $state<string | undefined>(undefined)
+	let workspaceToDeployTo = $state<string | undefined>(undefined)
+	let errorHandlerSelected = $state<'custom' | 'slack' | 'teams'>('slack')
+	let errorHandlerInitialScriptPath = $state('')
+	let errorHandlerScriptPath = $state('')
+	let errorHandlerItemKind = $state<'flow' | 'script'>('script')
+	let errorHandlerExtraArgs = $state<Record<string, any>>({})
+	let errorHandlerMutedOnCancel = $state<boolean | undefined>(undefined)
+	let criticalAlertUIMuted = $state<boolean | undefined>(undefined)
+	let initialCriticalAlertUIMuted = $state<boolean | undefined>(undefined)
 
-	let aiProviders: Exclude<AIConfig['providers'], undefined> = {}
-	let codeCompletionModel: string | undefined = undefined
-	let defaultModel: string | undefined = undefined
+	let aiProviders = $state<Exclude<AIConfig['providers'], undefined>>({})
+	let codeCompletionModel = $state<string | undefined>(undefined)
+	let defaultModel = $state<string | undefined>(undefined)
 
-	let s3ResourceSettings: S3ResourceSettings = {
+	let s3ResourceSettings = $state<S3ResourceSettings>({
 		resourceType: 's3',
 		resourcePath: undefined,
 		publicResource: undefined,
 		secondaryStorage: undefined
-	}
-	let gitSyncSettings: {
-		include_path: string[]
-		repositories: GitSyncRepository[]
-		include_type: GitSyncTypeMap
-	}
-	let gitSyncTestJobs: {
-		jobId: string | undefined
-		status: 'running' | 'success' | 'failure' | undefined
-	}[]
-	let gitSyncComponent: any
-	let workspaceDefaultAppPath: string | undefined = undefined
-	let workspaceEncryptionKey: string | undefined = undefined
-	let editedWorkspaceEncryptionKey: string | undefined = undefined
-	let workspaceReencryptionInProgress: boolean = false
+	})
+
+	let gitSyncSettings = $state<GitSyncSettings>({
+		repositories: []
+	})
+
+	let gitSyncTestJobs = $state<
+		{
+			jobId: string | undefined
+			status: 'running' | 'success' | 'failure' | undefined
+		}[]
+	>([])
+
+	let gitSyncComponent = $state<any>(undefined)
+	let workspaceDefaultAppPath = $state<string | undefined>(undefined)
+	let workspaceEncryptionKey = $state<string | undefined>(undefined)
+	let editedWorkspaceEncryptionKey = $state<string | undefined>(undefined)
+	let workspaceReencryptionInProgress = $state(false)
 	let encryptionKeyRegex = /^[a-zA-Z0-9]{64}$/
-	let slack_tabs: 'slack_commands' | 'teams_commands' = 'slack_commands'
-	let tab =
-		($page.url.searchParams.get('tab') as
-			| 'users'
-			| 'slack'
-			| 'premium'
-			| 'general'
-			| 'webhook'
-			| 'deploy_to'
-			| 'error_handler') ?? 'users'
-	let usingOpenaiClientCredentialsOauth = false
+	let slack_tabs = $state<'slack_commands' | 'teams_commands'>('slack_commands')
+	let tab = $state<
+		'users' | 'slack' | 'premium' | 'general' | 'webhook' | 'deploy_to' | 'error_handler'
+	>(($page.url.searchParams.get('tab') as any) ?? 'users')
+	let usingOpenaiClientCredentialsOauth = $state(false)
+
+	let yamlText = $state('')
+	let initialGitSyncSettings = $state<GitSyncSettings | undefined>(undefined)
+	let loadedSettings = $state(false)
 
 	const latestGitSyncHubScript = hubPaths.gitSync
 
-	let yamlText = ''
+	// Track changes in repositories
+	const repoChanges = $derived(
+		gitSyncSettings.repositories.map((repo, idx) => {
+			if (!initialGitSyncSettings) return false
+			const initial = initialGitSyncSettings.repositories[idx]
+			if (!initial || !repo) return false
+
+			// Handle array ordering for consistent comparison
+			const settings1 = {
+				include_path: [...initial.settings.include_path].sort(),
+				include_type: [...initial.settings.include_type].sort()
+			};
+
+			const settings2 = {
+				include_path: [...repo.settings.include_path].sort(),
+				include_type: [...repo.settings.include_type].sort()
+			};
+
+			// Compare all properties in a consistent way
+			return !deepEqual(
+				{
+					settings: settings1,
+					use_individual_branch: initial.use_individual_branch,
+					group_by_folder: initial.group_by_folder,
+					script_path: initial.script_path,
+					git_repo_resource_path: initial.git_repo_resource_path
+				},
+				{
+					settings: settings2,
+					use_individual_branch: repo.use_individual_branch,
+					group_by_folder: repo.group_by_folder,
+					script_path: repo.script_path,
+					git_repo_resource_path: repo.git_repo_resource_path
+				}
+			)
+		})
+	)
+
+	const hasAnyChanges = $derived(repoChanges.some(Boolean))
+
+	async function saveRepoSettings(idx: number): Promise<void> {
+		if (!initialGitSyncSettings) return
+
+		// Create new repositories array with updated repo and initial settings for others
+		const repositories = initialGitSyncSettings.repositories.map((repo, i) => {
+			if (i === idx) {
+				const currentRepo = gitSyncSettings.repositories[idx]
+				return {
+					script_path: currentRepo.script_path,
+					git_repo_resource_path: `$res:${currentRepo.git_repo_resource_path.replace('$res:', '')}`,
+					use_individual_branch: currentRepo.use_individual_branch,
+					group_by_folder: currentRepo.group_by_folder,
+					collapsed: false,
+					settings: currentRepo.settings
+				}
+			}
+			return repo
+		})
+
+		await WorkspaceService.editWorkspaceGitSyncConfig({
+			workspace: $workspaceStore!,
+			requestBody: {
+				git_sync_settings: { repositories }
+			}
+		})
+
+		// Update initial settings for this repo
+		initialGitSyncSettings.repositories[idx] = JSON.parse(
+			JSON.stringify(gitSyncSettings.repositories[idx])
+		)
+
+		sendUserToast('Repository settings updated')
+	}
 
 	async function editWorkspaceCommand(platform: 'slack' | 'teams'): Promise<void> {
 		if (platform === 'slack') {
@@ -221,37 +291,29 @@
 
 	async function editWindmillGitSyncSettings(): Promise<void> {
 		let alreadySeenResource: string[] = []
-		let repositories = gitSyncSettings.repositories.map((elmt) => {
-			alreadySeenResource.push(elmt.git_repo_resource_path)
-			let exclude_types_override = gitSyncTypeMapToArray(elmt.exclude_types_override, true)
+		let repositories = gitSyncSettings.repositories.map((repo) => {
+			alreadySeenResource.push(repo.git_repo_resource_path)
+
 			return {
-				exclude_types_override: exclude_types_override,
-				script_path: elmt.script_path,
-				git_repo_resource_path: `$res:${elmt.git_repo_resource_path.replace('$res:', '')}`,
-				use_individual_branch: elmt.use_individual_branch,
-				group_by_folder: elmt.group_by_folder,
-				collapsed: elmt.collapsed
+				script_path: repo.script_path,
+				git_repo_resource_path: `$res:${repo.git_repo_resource_path.replace('$res:', '')}`,
+				use_individual_branch: repo.use_individual_branch,
+				group_by_folder: repo.group_by_folder,
+				collapsed: false,
+				settings: repo.settings
 			}
 		})
-
-		let include_path = gitSyncSettings.include_path.filter((elmt) => {
-			return !emptyString(elmt)
-		})
-
-		let include_type = gitSyncTypeMapToArray(gitSyncSettings.include_type, true)
 
 		if (alreadySeenResource.some((res, index) => alreadySeenResource.indexOf(res) !== index)) {
 			sendUserToast('Same Git resource used more than once', true)
 			return
 		}
-		if (repositories.length > 0 || include_path.length > 1 || include_path[0] !== 'f/**') {
+		if (repositories.length > 0) {
 			await WorkspaceService.editWorkspaceGitSyncConfig({
 				workspace: $workspaceStore!,
 				requestBody: {
 					git_sync_settings: {
-						repositories: repositories,
-						include_path: include_path,
-						include_type: include_type
+						repositories
 					}
 				}
 			})
@@ -265,47 +327,6 @@
 			})
 			sendUserToast('Workspace Git sync settings reset')
 		}
-	}
-
-	function gitSyncTypeMapToArray(typesMap: GitSyncTypeMap, expectedValue: boolean): GitSyncType[] {
-		let result: GitSyncType[] = []
-		if (typesMap.scripts == expectedValue) {
-			result.push('script')
-		}
-		if (typesMap.flows == expectedValue) {
-			result.push('flow')
-		}
-		if (typesMap.apps == expectedValue) {
-			result.push('app')
-		}
-		if (typesMap.folders == expectedValue) {
-			result.push('folder')
-		}
-		if (typesMap.resourceTypes == expectedValue) {
-			result.push('resourcetype')
-		}
-		if (typesMap.resources == expectedValue) {
-			result.push('resource')
-		}
-		if (typesMap.variables == expectedValue) {
-			result.push('variable')
-		}
-		if (typesMap.secrets == expectedValue) {
-			result.push('secret')
-		}
-		if (typesMap.schedules == expectedValue) {
-			result.push('schedule')
-		}
-		if (typesMap.users == expectedValue) {
-			result.push('user')
-		}
-		if (typesMap.groups == expectedValue) {
-			result.push('group')
-		}
-		if (typesMap.triggers == expectedValue) {
-			result.push('trigger')
-		}
-		return result
 	}
 
 	async function editWorkspaceDefaultApp(appPath: string | undefined): Promise<void> {
@@ -362,7 +383,6 @@
 		)
 	}
 
-	let loadedSettings = false
 	async function loadSettings(): Promise<void> {
 		const settings = await WorkspaceService.getSettings({ workspace: $workspaceStore! })
 		slack_team_name = settings.slack_name
@@ -412,73 +432,36 @@
 
 		if (settings.git_sync !== undefined && settings.git_sync !== null) {
 			gitSyncTestJobs = []
-			gitSyncSettings = {
-				include_path:
-					(settings.git_sync.include_path?.length ?? 0 > 0)
-						? (settings.git_sync.include_path ?? [])
-						: ['f/**'],
-				repositories: (settings.git_sync.repositories ?? []).map((settings) => {
-					gitSyncTestJobs.push({
-						jobId: undefined,
-						status: undefined
-					})
-					return {
-						git_repo_resource_path: settings.git_repo_resource_path.replace('$res:', ''),
-						script_path: settings.script_path,
-						use_individual_branch: settings.use_individual_branch ?? false,
-						group_by_folder: settings.group_by_folder ?? false,
-						collapsed: false,
-						exclude_types_override: {
-							scripts: (settings.exclude_types_override?.indexOf('script') ?? -1) >= 0,
-							flows: (settings.exclude_types_override?.indexOf('flow') ?? -1) >= 0,
-							apps: (settings.exclude_types_override?.indexOf('app') ?? -1) >= 0,
-							resourceTypes: (settings.exclude_types_override?.indexOf('resourcetype') ?? -1) >= 0,
-							resources: (settings.exclude_types_override?.indexOf('resource') ?? -1) >= 0,
-							variables: (settings.exclude_types_override?.indexOf('variable') ?? -1) >= 0,
-							secrets: (settings.exclude_types_override?.indexOf('secret') ?? -1) >= 0,
-							schedules: (settings.exclude_types_override?.indexOf('schedule') ?? -1) >= 0,
-							folders: (settings.exclude_types_override?.indexOf('folder') ?? -1) >= 0,
-							users: (settings.exclude_types_override?.indexOf('user') ?? -1) >= 0,
-							groups: (settings.exclude_types_override?.indexOf('group') ?? -1) >= 0,
-							triggers: (settings.exclude_types_override?.indexOf('trigger') ?? -1) >= 0
-						}
+			gitSyncSettings.repositories = (settings.git_sync.repositories ?? []).map((repo) => {
+				gitSyncTestJobs.push({
+					jobId: undefined,
+					status: undefined
+				})
+
+				// Use repository-specific settings if available, otherwise use defaults
+				const repoSettings = repo.settings ?? {
+					include_path: ['f/**'],
+					include_type: ['script', 'flow', 'app', 'folder'] as ObjectType[]
+				}
+
+				return {
+					git_repo_resource_path: repo.git_repo_resource_path.replace('$res:', ''),
+					script_path: repo.script_path,
+					use_individual_branch: repo.use_individual_branch ?? false,
+					group_by_folder: repo.group_by_folder ?? false,
+					collapsed: false,
+					settings: {
+						include_path: repoSettings.include_path ?? ['f/**'],
+						include_type: repoSettings.include_type ?? ['script', 'flow', 'app', 'folder']
 					}
-				}),
-				include_type: {
-					scripts: (settings.git_sync.include_type?.indexOf('script') ?? -1) >= 0,
-					flows: (settings.git_sync.include_type?.indexOf('flow') ?? -1) >= 0,
-					apps: (settings.git_sync.include_type?.indexOf('app') ?? -1) >= 0,
-					resourceTypes: (settings.git_sync.include_type?.indexOf('resourcetype') ?? -1) >= 0,
-					resources: (settings.git_sync.include_type?.indexOf('resource') ?? -1) >= 0,
-					variables: (settings.git_sync.include_type?.indexOf('variable') ?? -1) >= 0,
-					secrets: (settings.git_sync.include_type?.indexOf('secret') ?? -1) >= 0,
-					schedules: (settings.git_sync.include_type?.indexOf('schedule') ?? -1) >= 0,
-					folders: (settings.git_sync.include_type?.indexOf('folder') ?? -1) >= 0,
-					users: (settings.git_sync.include_type?.indexOf('user') ?? -1) >= 0,
-					groups: (settings.git_sync.include_type?.indexOf('group') ?? -1) >= 0,
-					triggers: (settings.git_sync.include_type?.indexOf('trigger') ?? -1) >= 0
-				}
-			}
+				} satisfies GitSyncRepository
+			})
+			// Store initial settings
+			initialGitSyncSettings = JSON.parse(JSON.stringify(gitSyncSettings))
 		} else {
-			gitSyncSettings = {
-				include_path: ['f/**'],
-				repositories: [],
-				include_type: {
-					scripts: true,
-					flows: true,
-					apps: true,
-					folders: true,
-					resourceTypes: false,
-					resources: false,
-					variables: false,
-					secrets: false,
-					schedules: false,
-					users: false,
-					groups: false,
-					triggers: false
-				}
-			}
+			gitSyncSettings.repositories = []
 			gitSyncTestJobs = []
+			initialGitSyncSettings = undefined
 		}
 		if (settings.deploy_ui != undefined && settings.deploy_ui != null) {
 			deployUiSettings = {
@@ -507,7 +490,7 @@
 		loadedSettings = true
 	}
 
-	let deployUiSettings: {
+	let deployUiSettings = $state<{
 		include_path: string[]
 		include_type: {
 			scripts: boolean
@@ -518,9 +501,31 @@
 			secrets: boolean
 			triggers: boolean
 		}
-	}
+	}>({
+		include_path: [],
+		include_type: {
+			scripts: false,
+			flows: false,
+			apps: false,
+			resources: false,
+			variables: false,
+			secrets: false,
+			triggers: false
+		}
+	})
 
-	$: $workspaceStore && loadSettings()
+	$effect(() => {
+		if ($workspaceStore) {
+			loadSettings()
+		}
+	})
+
+	$effect(() => {
+		const searchTab = $page.url.searchParams.get('tab')
+		if (searchTab && searchTab !== tab) {
+			tab = searchTab as typeof tab
+		}
+	})
 
 	async function editErrorHandler() {
 		if (errorHandlerScriptPath) {
@@ -616,14 +621,6 @@
 			window.location.reload()
 		}, 3000)
 	}
-
-	function updateFromSearchTab(searchTab: string | null) {
-		if (searchTab && searchTab !== tab) {
-			tab = searchTab as typeof tab
-		}
-	}
-
-	$: updateFromSearchTab($page.url.searchParams.get('tab'))
 </script>
 
 <CenteredPage>
@@ -1079,6 +1076,10 @@
 						scripts, flows, and apps to the repository on each deploy.
 					</Description>
 				</div>
+				<Alert type="info" title="Only new updates trigger git sync">
+					Only new changes matching the filters will trigger a git sync. You still need to initalize
+					the repo to the desired state first.
+				</Alert>
 			</div>
 			{#if !$enterpriseLicense}
 				<div class="mb-2"></div>
@@ -1091,15 +1092,17 @@
 			{#if gitSyncSettings != undefined}
 				<div class="flex mt-5 mb-5 gap-8">
 					<Button
-						color="blue"
+						color="red"
+						startIcon={{ icon: Save }}
 						disabled={!$enterpriseLicense ||
 							gitSyncSettings?.repositories?.some((elmt) =>
 								emptyString(elmt.git_repo_resource_path)
-							)}
+							) ||
+							!hasAnyChanges}
 						on:click={() => {
 							editWindmillGitSyncSettings()
 							console.log('Saving git sync settings', gitSyncSettings)
-						}}>Save git sync settings {!$enterpriseLicense ? '(ee only)' : ''}</Button
+						}}>Save all git sync settings {!$enterpriseLicense ? '(ee only)' : ''}</Button
 					>
 
 					<Button
@@ -1110,11 +1113,6 @@
 						>See sync jobs</Button
 					>
 				</div>
-
-				<Alert type="info" title="Only new updates trigger git sync">
-					Only new changes matching the filters will trigger a git sync. You still need to
-					initalize the repo to the desired state first.
-				</Alert>
 				<div class="pt-2"></div>
 
 				{#if Array.isArray(gitSyncSettings.repositories)}
@@ -1129,6 +1127,30 @@
 									</span>
 								</div>
 								<div class="flex items-center gap-2">
+									{#if repoChanges[idx]}
+										<Button
+											color="red"
+											size="xs"
+											on:click={() => saveRepoSettings(idx)}
+											startIcon={{ icon: Save }}
+										>
+											Save changes
+										</Button>
+										<Button
+											color="light"
+											size="xs"
+											on:click={() => {
+												// Revert to initial repository settings
+												if (initialGitSyncSettings?.repositories[idx]) {
+													gitSyncSettings.repositories[idx] = JSON.parse(JSON.stringify(initialGitSyncSettings.repositories[idx]));
+													sendUserToast('Reverted repository settings');
+												}
+											}}
+											startIcon={{ icon: RotateCcw }}
+										>
+											Revert
+										</Button>
+									{/if}
 									<button
 										class="text-secondary hover:text-primary focus:outline-none"
 										onclick={() => (repo.collapsed = !repo.collapsed)}
@@ -1202,7 +1224,8 @@
 
 									<div class="flex mb-5 text-normal text-2xs gap-1">
 										{#if gitSyncSettings.repositories.filter((settings) => settings.git_repo_resource_path === repo.git_repo_resource_path).length > 1}
-											<span class="text-red-700">Using the same resource twice is not allowed.</span>
+											<span class="text-red-700">Using the same resource twice is not allowed.</span
+											>
 										{/if}
 										{#if gitSyncTestJobs[idx].status !== undefined}
 											{#if gitSyncTestJobs[idx].status === 'running'}
@@ -1251,24 +1274,24 @@
 											<GitSyncFilterSettings
 												bind:this={gitSyncComponent}
 												git_repo_resource_path={repo.git_repo_resource_path}
-												bind:include_path={gitSyncSettings.include_path}
-												bind:include_type={gitSyncSettings.include_type}
+												bind:include_path={repo.settings.include_path}
+												bind:include_type={repo.settings.include_type}
 												bind:yamlText
 												onSettingsChange={(settings) => {
-													yamlText = settings.yaml;
+													yamlText = settings.yaml
 												}}
 											/>
 											<div class="w-1/3 flex gap-2">
 												<InitGitRepoPopover
 													gitRepoResourcePath={repo.git_repo_resource_path}
-													{yamlText}
+													yamlText={gitSyncComponent ? gitSyncComponent.toYaml() : yamlText}
 												/>
 												<PullGitRepoPopover
 													gitRepoResourcePath={repo.git_repo_resource_path}
-													{yamlText}
+													yamlText={gitSyncComponent ? gitSyncComponent.toYaml() : yamlText}
 													onFilterUpdate={(filters) => {
 														if (gitSyncComponent) {
-															gitSyncComponent.setSettings(filters);
+															gitSyncComponent.setSettings(filters)
 														}
 													}}
 												/>
@@ -1305,7 +1328,6 @@
 					<Button
 						color="none"
 						variant="border"
-						size="xs"
 						btnClasses="mt-1"
 						on:click={() => {
 							gitSyncSettings.repositories = [
@@ -1316,19 +1338,9 @@
 									use_individual_branch: false,
 									group_by_folder: false,
 									collapsed: false,
-									exclude_types_override: {
-										scripts: false,
-										flows: false,
-										apps: false,
-										folders: false,
-										resourceTypes: false,
-										resources: false,
-										variables: false,
-										secrets: false,
-										schedules: false,
-										users: false,
-										groups: false,
-										triggers: false
+									settings: {
+										include_path: ['f/**'],
+										include_type: ['script', 'flow', 'app', 'folder'] as ObjectType[]
 									}
 								}
 							]
@@ -1345,47 +1357,6 @@
 					>
 						Add connection
 					</Button>
-				</div>
-
-				<div class="bg-surface-disabled p-4 rounded-md flex flex-col gap-1">
-					<div class="text-primary font-md font-semibold"> Git repository initial setup </div>
-
-					<div class="prose max-w-none text-2xs text-tertiary">
-						Every time a script is deployed, only the updated script will be pushed to the remote
-						Git repository.
-
-						<br />
-
-						For the git repo to be representative of the entire workspace, it is recommended to set
-						it up using the Windmill CLI before turning this option on.
-
-						<br /><br />
-
-						Not familiar with Windmill CLI?
-						<a href="https://www.windmill.dev/docs/advanced/cli" class="text-primary"
-							>Check out the docs</a
-						>
-
-						<br /><br />
-
-						Run the following commands from the git repo folder to push the initial workspace
-						content to the remote:
-
-						<br />
-
-						<pre class="overflow-auto max-h-screen"
-							><code
-								>npm install -g windmill-cli
-wmill workspace add  {$workspaceStore} {$workspaceStore} {`${$page.url.protocol}//${$page.url.hostname}/`}
-wmill init
-# adjust wmill.yaml file configuraton as needed
-wmill sync pull
-git add -A
-git commit -m 'Initial commit'
-git push</code
-							></pre
-						>
-					</div>
 				</div>
 			{:else}
 				<Loader2 class="animate-spin mt-4" size={20} />

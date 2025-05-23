@@ -78,7 +78,7 @@
 				}
 			},
 			interval: 500,
-			timeout: 5000
+			timeout: 10000
 		})
 		return success
 	}
@@ -116,8 +116,33 @@
 				const repoYamlObj = result.repoWmillYaml ? yaml.load(result.repoWmillYaml) : null
 				const currentYamlObj = yamlText ? yaml.load(yamlText) : null
 
-				// Compare the parsed objects
-				const yamlModified = JSON.stringify(repoYamlObj) !== JSON.stringify(currentYamlObj)
+				// Normalize both objects for proper comparison
+				const normalizeYamlObj = (obj: any) => {
+					if (!obj) return null;
+					const normalized = { ...obj }
+					// Ensure all boolean fields exist with default values
+					// Skip flags default to false (by default, we include these resources)
+					normalized.skipVariables = normalized.skipVariables ?? false
+					normalized.skipResources = normalized.skipResources ?? false
+					normalized.skipResourceTypes = normalized.skipResourceTypes ?? false
+					normalized.skipSecrets = normalized.skipSecrets ?? false
+					// Include flags default to false (by default, we exclude these special types)
+					normalized.includeSchedules = normalized.includeSchedules ?? false
+					normalized.includeTriggers = normalized.includeTriggers ?? false
+					normalized.includeUsers = normalized.includeUsers ?? false
+					normalized.includeGroups = normalized.includeGroups ?? false
+					// Ensure arrays exist
+					normalized.includes = normalized.includes ?? []
+					normalized.excludes = normalized.excludes ?? []
+					normalized.codebases = normalized.codebases ?? []
+					return normalized
+				}
+
+				const normalizedRepo = normalizeYamlObj(repoYamlObj)
+				const normalizedCurrent = normalizeYamlObj(currentYamlObj)
+
+				// Compare normalized objects
+				const yamlModified = JSON.stringify(normalizedRepo) !== JSON.stringify(normalizedCurrent)
 
 				previewResult = {
 					...result,
@@ -303,7 +328,11 @@ wmill sync push --yes
 				<Button
 					color="light"
 					size="xs"
-					on:click={() => close()}
+					on:click={() => {
+						previewResult = undefined;
+						jobStatus = { id: null, status: undefined, type: 'preview' };
+						close();
+					}}
 					disabled={isPreviewLoading || isPulling}
 				>
 					Cancel
