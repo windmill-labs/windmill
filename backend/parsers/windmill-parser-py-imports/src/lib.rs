@@ -365,7 +365,7 @@ async fn parse_python_imports_inner(
         let mut requirements = HashMap::new();
         if item.starts_with("# /// script") {
             let mut incorrect = false;
-            let metadata = dbg!(code
+            let metadata = code
                 .lines()
                 .skip(pos + 1)
                 .map_while(|x| {
@@ -376,8 +376,8 @@ async fn parse_python_imports_inner(
                         x.get(1..)
                     }
                 })
-                .join("\n"))
-            .parse::<toml::Table>()
+                .join("\n")
+                .parse::<toml::Table>()
             .map_err(to_anyhow)?;
 
             {
