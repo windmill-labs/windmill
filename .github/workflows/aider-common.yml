@@ -71,6 +71,7 @@ jobs:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       WINDMILL_TOKEN: ${{ secrets.WINDMILL_TOKEN }}
       LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
+      DISCORD_BOT_TOKEN: ${{ secrets.DISCORD_AI_BOT_TOKEN }}
 
     steps:
       - name: Harden Runner
@@ -210,7 +211,7 @@ jobs:
             fi
           else
             echo "No issue title or body given. Using base prompt."
-            FINAL_PROMPT_CONTENT="$BASE_PROMPT_ENV"
+            FINAL_PROMPT_CONTENT=$(printf "%s\nINSTRUCTION:\n%s" "$BASE_PROMPT_ENV" "$INSTRUCTION_ENV")
           fi
 
           echo "Final prompt: $FINAL_PROMPT_CONTENT"
@@ -386,25 +387,17 @@ jobs:
           PR_BRANCH: ${{ steps.commit_and_push.outputs.PR_BRANCH_NAME }}
           ISSUE_NUM: ${{ inputs.issue_id }}
           ISSUE_TITLE: ${{ inputs.issue_title }}
+          GITHUB_EVENT_NAME: ${{ github.event_name }}
         run: |
-          # Debug: Check latest commit and branch status
-          echo "Checking latest commit on branch $PR_BRANCH"
-          git log -1 --pretty=format:"%h - %an, %ar : %s"
-          echo "Changes not yet committed:"
-          git status --porcelain
-          # Check if there are any changes to commit
-          if [[ -n $(git status --porcelain) ]]; then
-            echo "Found uncommitted changes, committing them"
-            git add .
-            git commit -m "Aider changes for issue #${ISSUE_NUM}"
-            git push origin $PR_BRANCH
-          fi
-
           # Create PR description in a temporary file to avoid command line length limits and ensure it stays under 40k chars
           HEADER="This PR was created automatically by Aider to fix issue #${ISSUE_NUM}."
           # if event is repository_dispatch, add the issue title to the header
           if [ "$GITHUB_EVENT_NAME" == "repository_dispatch" ]; then
-            HEADER="This PR was created automatically by Aider to fix issue #linear:${ISSUE_NUM}."
+            if [[ "${{ github.event.client_payload.source }}" == "linear" ]]; then
+              HEADER="This PR was created automatically by Aider to fix issue #linear:${ISSUE_NUM}."
+            elif [[ "${{ github.event.client_payload.source }}" == "discord" ]]; then
+              HEADER="This PR was created automatically by Aider to fix issue #discord:${ISSUE_NUM}."
+            fi
           fi
           cat > /tmp/pr-description.md << EOL | head -c 40000
           $HEADER
@@ -417,11 +410,16 @@ jobs:
 
           # Create PR using the file for the body content, handle errors gracefully
           set +e  # Don't exit on error
+          PR_TITLE="[Aider PR] Fix: ${ISSUE_TITLE}"
+          if [ -z "$ISSUE_TITLE" ]; then
+            PR_TITLE="[Aider PR] AI changes after request"
+          fi
           gh pr create \
-            --title "[Aider PR] Fix: ${ISSUE_TITLE}" \
+            --title "$PR_TITLE" \
             --body-file /tmp/pr-description.md \
             --head "$PR_BRANCH" \
-            --base main
+            --base main \
+            --draft
           PR_CREATE_EXIT_CODE=$?
           set -e  # Re-enable exit on error
 
@@ -479,12 +477,13 @@ jobs:
           GITHUB_REPOSITORY: ${{ github.repository }}
           JOB_STATUS: ${{ job.status }}
           PR_CREATED: ${{ steps.create_pr.outputs.PR_CREATED }}
+          PR_URL: ${{ steps.create_pr.outputs.PR_URL }}
         run: |
           echo "Commenting on issue/PR #${{ github.event.issue.number }} to let the user know Aider has finished working on the request."
 
           if [[ "$JOB_STATUS" == "success" ]]; then
             if [[ "$PR_CREATED" == "true" ]]; then
-              COMMENT_BODY="🤖 Aider has finished working on your request. A PR has been created."
+              COMMENT_BODY="🤖 Aider has finished working on your request. A PR has been created. $PR_URL"
             else
               COMMENT_BODY="🤖 Aider has finished working on your request, but was unable to create a PR."
             fi
@@ -502,21 +501,32 @@ jobs:
           JOB_STATUS: ${{ job.status }}
           LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
           PR_CREATED: ${{ steps.create_pr.outputs.PR_CREATED }}
+          PR_URL: ${{ steps.create_pr.outputs.PR_URL }}
+          DISCORD_BOT_TOKEN: ${{ secrets.DISCORD_AI_BOT_TOKEN }}
+          SOURCE: ${{ github.event.client_payload.source }}
         run: |
           echo "Commenting on linear issue #${{ github.event.client_payload.issue_id }} to let the user know Aider has finished working on the request."
 
           if [[ "$JOB_STATUS" == "success" ]]; then
             if [[ "$PR_CREATED" == "true" ]]; then
-              COMMENT_BODY="🤖 Aider has finished working on your request. A PR has been created."
+              COMMENT_BODY="🤖 Aider has finished working on your request. A PR has been created. $PR_URL"
             else
-              COMMENT_BODY="🤖 Aider has finished working on your request, but was unable to create a PR."
+              COMMENT_BODY="🤖 Aider has finished working on your request, but was unable to create a PR"
             fi
           else
             COMMENT_BODY="⚠️ Aider encountered issues while working on your request. Please check the workflow logs for details."
           fi
 
-          curl -X POST \
-            -H "Authorization: $LINEAR_API_KEY" \
-            -H "Content-Type: application/json" \
-            "https://api.linear.app/graphql" \
-            -d "{\"query\":\"mutation { commentCreate(input: { issueId: \\\"${{ github.event.client_payload.issue_id }}\\\", body: \\\"${COMMENT_BODY}\\\" }) { success } }\"}"
+          if [[ "$SOURCE" == "discord" ]]; then
+            curl -X POST \
+              -H "Authorization: Bot $DISCORD_BOT_TOKEN" \
+              -H "Content-Type: application/json" \
+              "https://discord.com/api/v10/channels/${{ github.event.client_payload.channel_id }}/messages" \
+              -d "{\"content\":\"${COMMENT_BODY}\"}"
+          else
+            curl -X POST \
+              -H "Authorization: $LINEAR_API_KEY" \
+              -H "Content-Type: application/json" \
+              "https://api.linear.app/graphql" \
+              -d "{\"query\":\"mutation { commentCreate(input: { issueId: \\\"${{ github.event.client_payload.issue_id }}\\\", body: \\\"${COMMENT_BODY}\\\" }) { success } }\"}"
+          fi
