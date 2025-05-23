@@ -505,7 +505,7 @@ jobs:
           DISCORD_BOT_TOKEN: ${{ secrets.DISCORD_AI_BOT_TOKEN }}
           SOURCE: ${{ github.event.client_payload.source }}
         run: |
-          echo "Commenting on linear issue #${{ github.event.client_payload.issue_id }} to let the user know Aider has finished working on the request."
+echo "Notifying user about Aider completion status for $SOURCE request #${{ github.event.client_payload.issue_id }}"
 
           if [[ "$JOB_STATUS" == "success" ]]; then
             if [[ "$PR_CREATED" == "true" ]]; then
