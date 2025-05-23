@@ -46,14 +46,31 @@ use tokio::task;
 #[cfg(feature = "parquet")]
 use windmill_parser_sql::S3ModeFormat;
 
-struct ObjectStoreSettings {
+pub struct ExpirableObjectStore {
     store: Arc<dyn ObjectStore>,
     expiration: Option<DateTime<Utc>>,
 }
 
+impl From<Arc<dyn ObjectStore>> for ExpirableObjectStore {
+    fn from(store: Arc<dyn ObjectStore>) -> Self {
+        Self { store, expiration: None }
+    }
+}
+
+impl ExpirableObjectStore {
+    pub fn new(store: Arc<dyn ObjectStore>, expiration: Option<DateTime<Utc>>) -> Self {
+        Self { store, expiration }
+    }
+}
+
 #[cfg(feature = "parquet")]
 lazy_static::lazy_static! {
-    pub static ref OBJECT_STORE_SETTINGS: Arc<RwLock<Option<ObjectStoreSettings>>> = Arc::new(RwLock::new(None));
+    pub static ref OBJECT_STORE_SETTINGS: Arc<RwLock<Option<ExpirableObjectStore>>> = Arc::new(RwLock::new(None));
+}
+
+pub async fn get_object_store() -> Option<Arc<dyn ObjectStore>> {
+    let settings = OBJECT_STORE_SETTINGS.read().await;
+    settings.as_ref().map(|s| s.store.clone())
 }
 
 #[cfg(feature = "parquet")]
@@ -92,8 +109,8 @@ pub async fn reload_s3_cache_setting(db: &crate::DB) {
                     tracing::error!("S3 cache is not available for pro plan");
                     return;
                 }
-                *s3_cache_settings = build_s3_client_from_settings((
-                    Some(S3Settings {
+                *s3_cache_settings = build_s3_client_from_settings(
+                    (S3Settings {
                         bucket: None,
                         region: None,
                         access_key: None,
@@ -104,11 +121,10 @@ pub async fn reload_s3_cache_setting(db: &crate::DB) {
                         allow_http: None,
                         port: None,
                     }),
-                    None,
-                ))
+                )
                 .await
                 .ok()
-                .map(|x| (x, None))
+                .map(|x| ExpirableObjectStore::from(x))
             } else {
                 *s3_cache_settings = None;
             }
@@ -144,6 +160,15 @@ pub struct AzureBlobStorage {
 pub enum ObjectStoreResource {
     S3(S3Resource),
     Azure(AzureBlobResource),
+}
+
+impl ObjectStoreResource {
+    pub fn expiration(&self) -> Option<DateTime<Utc>> {
+        match self {
+            ObjectStoreResource::S3(s3_resource) => s3_resource.expiration,
+            _ => None,
+        }
+    }
 }
 
 #[derive(Deserialize, Debug)]
@@ -487,6 +512,7 @@ impl ObjectSettings {
         match self {
             ObjectSettings::S3(s3_settings) => s3_settings.bucket.as_ref(),
             ObjectSettings::Azure(azure_settings) => Some(&azure_settings.container_name),
+            ObjectSettings::S3AwsOidc(s3_aws_oidc_settings) => Some(&s3_aws_oidc_settings.bucket),
         }
     }
 }
@@ -495,14 +521,14 @@ impl ObjectSettings {
 pub async fn build_object_store_from_settings(
     settings: ObjectSettings,
     db: &crate::DB,
-) -> error::Result<(Arc<dyn ObjectStore>, Option<DateTime<Utc>>)> {
+) -> error::Result<ExpirableObjectStore> {
     match settings {
         ObjectSettings::S3(s3_settings) => build_s3_client_from_settings(s3_settings)
             .await
-            .map(|x| (x, None)),
+            .map(|x| ExpirableObjectStore::from(x)),
         ObjectSettings::Azure(azure_settings) => {
             let azure_blob_resource = azure_settings;
-            build_azure_blob_client(&azure_blob_resource).map(|x| (x, None))
+            build_azure_blob_client(&azure_blob_resource).map(|x| ExpirableObjectStore::from(x))
         }
         ObjectSettings::S3AwsOidc(s3_aws_oidc_settings) => {
             let token_generator = crate::job_s3_helpers_ee::TokenGenerator::AsServerInstance(db);
@@ -511,8 +537,13 @@ pub async fn build_object_store_from_settings(
                 token_generator,
             )
             .await?;
-            // let expiration = res.
-            build_object_store_client(&res).await
+
+            build_object_store_client(&res)
+                .await
+                .map(|x| ExpirableObjectStore {
+                    store: x,
+                    expiration: res.expiration(),
+                })
         }
     }
 }
@@ -560,6 +591,7 @@ pub async fn build_s3_client_from_settings(
         path_style: settings.path_style,
         port: settings.port,
         token: None,
+        expiration: None,
     };
 
     build_s3_client(&s3_resource).await
