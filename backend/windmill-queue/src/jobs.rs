@@ -391,6 +391,7 @@ pub async fn append_logs(
             if let Err(e) = client
             .post::<_, String>(
                 &format!("/api/w/{}/agent_workers/push_logs/{}", workspace.as_ref(), job_id),
+                None,
                 &logs.as_ref(),
             )
             .await {

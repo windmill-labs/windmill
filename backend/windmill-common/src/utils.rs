@@ -14,11 +14,13 @@ use crate::error::{to_anyhow, Error, Result};
 use crate::global_settings::UNIQUE_ID_SETTING;
 use crate::DB;
 use anyhow::Context;
+use axum::http::{HeaderName, HeaderValue};
 use gethostname::gethostname;
 use git_version::git_version;
 
 use chrono::Utc;
 use croner::Cron;
+use hyper::HeaderMap;
 use rand::{distr::Alphanumeric, rng, Rng};
 use reqwest::Client;
 use semver::Version;
@@ -53,6 +55,12 @@ lazy_static::lazy_static! {
         }
     ).unwrap_or(Version::new(0, 1, 0));
 
+    pub static ref HOSTNAME :String = std::env::var("FORCE_HOSTNAME").unwrap_or_else(|_| {
+        gethostname()
+            .to_str()
+            .map(|x| x.to_string())
+            .unwrap_or_else(|| rd_string(5))
+    });
 
     pub static ref MODE_AND_ADDONS: ModeAndAddons = {
         let mut search_addon = false;
@@ -165,15 +173,6 @@ pub async fn require_admin_or_devops(
         }
     }
     Ok(())
-}
-
-pub fn hostname() -> String {
-    std::env::var("FORCE_HOSTNAME").unwrap_or_else(|_| {
-        gethostname()
-            .to_str()
-            .map(|x| x.to_string())
-            .unwrap_or_else(|| rd_string(5))
-    })
 }
 
 fn instance_name(hostname: &str) -> String {
@@ -746,4 +745,19 @@ impl<F: Future> Future for WarnAfterFuture<F> {
             Poll::Pending => Poll::Pending,
         }
     }
+}
+
+pub fn from_iter_to_header_map<'header_name, 'header_value, T>(headers: T) -> Result<HeaderMap>
+where
+    T: IntoIterator<Item = (&'header_name str, &'header_value str)>,
+{
+    let mut map = HeaderMap::new();
+
+    for (name_str, value_str) in headers {
+        let name = HeaderName::from_str(name_str).map_err(to_anyhow)?;
+        let value = HeaderValue::from_str(value_str).map_err(to_anyhow)?;
+        map.insert(name, value);
+    }
+
+    Ok(map)
 }

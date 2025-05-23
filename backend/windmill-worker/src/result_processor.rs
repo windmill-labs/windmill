@@ -19,11 +19,12 @@ use uuid::Uuid;
 
 use windmill_common::{
     add_time,
-    cache::Cache,
     error::{self, Error},
     jobs::JobKind,
-    utils::WarnAfterExt,
-    worker::{make_pull_query, to_raw_value, Connection, WORKER_GROUP},
+    utils::{from_iter_to_header_map, WarnAfterExt},
+    worker::{
+        make_pull_query, to_raw_value, Connection, AGENT_WORKER_SHELL_TAG_HEADER_NAME, WORKER_GROUP,
+    },
     KillpillSender, DB,
 };
 
@@ -50,10 +51,6 @@ use crate::{
     AuthedClient, JobCompletedReceiver, JobCompletedSender, NextJob, SameWorkerSender, SendResult,
     UpdateFlow, INIT_SCRIPT_TAG, KEEP_JOB_DIR, SAME_WORKER_REQUIREMENTS, SLEEP_QUEUE,
 };
-
-lazy_static::lazy_static! {
-    pub static ref CACHE_QUERY: Cache<String, Arc<(String, String)>> = Cache::new(100);
-}
 
 async fn process_jc(
     jc: JobCompleted,
@@ -230,17 +227,7 @@ pub fn start_interactive_worker_shell(
             } else {
                 let pulled_job = match &conn {
                     Connection::Sql(db) => {
-                        let query = CACHE_QUERY.get(&worker_name);
-                        let query = if query.is_some() {
-                            query.unwrap()
-                        } else {
-                            let query = Arc::new((
-                                "".to_string(),
-                                make_pull_query(&[worker_name.to_owned()]),
-                            ));
-                            CACHE_QUERY.insert(worker_name.to_owned(), query.clone());
-                            query
-                        };
+                        let query = ("".to_string(), make_pull_query(&[hostname.to_owned()]));
 
                         #[cfg(feature = "benchmark")]
                         let mut bench = windmill_common::bench::BenchmarkIter::new();
@@ -248,7 +235,7 @@ pub fn start_interactive_worker_shell(
                             &db,
                             false,
                             &worker_name,
-                            Some(query.as_ref()),
+                            Some(&query),
                             #[cfg(feature = "benchmark")]
                             &mut bench,
                         )
@@ -256,12 +243,24 @@ pub fn start_interactive_worker_shell(
 
                         job.map(|x| x.job.map(NextJob::Sql))
                     }
-                    Connection::Http(client) => crate::agent_workers::pull_job(&client)
-                        .await
-                        .map_err(|e| error::Error::InternalErr(e.to_string()))
-                        .map(|x| x.map(|y| NextJob::Http(y))),
-                };
+                    Connection::Http(client) => {
+                        let header_map = from_iter_to_header_map([(
+                            AGENT_WORKER_SHELL_TAG_HEADER_NAME,
+                            hostname.as_str(),
+                        )])
+                        .ok();
 
+                        if header_map.is_none() {
+                            tracing::error!(
+                                "An error has occured header map is none, it should not happen"
+                            );
+                        }
+                        crate::agent_workers::pull_job(&client, header_map)
+                            .await
+                            .map_err(|e| error::Error::InternalErr(e.to_string()))
+                            .map(|x| x.map(|y| NextJob::Http(y)))
+                    }
+                };
                 match pulled_job {
                     Ok(Some(job)) => {
                         tracing::debug!(worker = %worker_name, hostname = %hostname, "started handling of job {}", job.id);
@@ -560,11 +559,17 @@ pub fn start_background_processor(
 }
 
 async fn send_job_completed(job_completed_tx: JobCompletedSender, jc: JobCompleted) {
-    job_completed_tx
+    let result = job_completed_tx
         .send_job(jc, true)
         .with_context(windmill_common::otel_ee::otel_ctx())
-        .await
-        .expect("send job completed")
+        .await;
+
+    match result {
+        Ok(()) => tracing::debug!("send job completed"),
+        Err(err) => {
+            tracing::error!("An error occurend while sending job completed: {:#?}", err)
+        }
+    }
 }
 
 pub async fn process_result(

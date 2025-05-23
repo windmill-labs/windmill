@@ -24,7 +24,7 @@
 		userWorkspaces
 	} from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
-	import { displayDate, emptyString, groupBy, pluralize, truncate } from '$lib/utils'
+	import { displayDate, groupBy, pluralize, truncate } from '$lib/utils'
 	import { AlertTriangle, LineChart, List, Plus, Search, Terminal } from 'lucide-svelte'
 	import { getContext, onDestroy, onMount } from 'svelte'
 	import AutoComplete from 'simple-svelte-autocomplete'
@@ -39,10 +39,8 @@
 	let workerGroups: Record<string, any> | undefined = undefined
 	let groupedWorkers: [string, [string, WorkerPing[]][]][] = []
 	let intervalId: NodeJS.Timeout | undefined
-	let activeWorkers: string[] | undefined = undefined
 	const splitter = '_%%%_'
 	let customTags: string[] | undefined = undefined
-
 	$: groupedWorkers = groupWorkers(workers, workerGroups)
 
 	function groupWorkers(
@@ -72,30 +70,10 @@
 	}
 	let timeSinceLastPing = 0
 
-	function isActiveWorker(last_ping: number | undefined) {
-		return last_ping != undefined ? (last_ping < 60 ? true : false) : true
-	}
-
 	async function loadWorkers(): Promise<void> {
 		try {
-			let isSelectedWorkerActive = false
 			workers = await WorkerService.listWorkers({ perPage: 1000, pingSince: 300 })
-			activeWorkers = workers
-				.filter((worker) => {
-					const isWorkerActive = isActiveWorker(worker.last_ping)
-
-					if (tag === worker.worker) {
-						isSelectedWorkerActive = isWorkerActive
-					}
-
-					return isWorkerActive
-				})
-				.map((worker) => worker.worker)
 			timeSinceLastPing = 0
-			if (!isSelectedWorkerActive && replForWorkerDrawer?.isOpen() && !emptyString(tag)) {
-				sendUserToast(`Worker ${tag} is no longer active`, true)
-				replForWorkerDrawer?.closeDrawer?.()
-			}
 		} catch (err) {
 			sendUserToast(`Could not load workers: ${err}`, true)
 		}
@@ -325,7 +303,7 @@
 				If no command has been run in the past 2 minutes, the next one may take up to 15 seconds to
 				start.
 			</Alert>
-			<WorkerRepl {activeWorkers} {tag} />
+			<WorkerRepl {tag} />
 		</div>
 	</DrawerContent>
 </Drawer>
@@ -604,8 +582,8 @@
 									<Cell head last
 										>Live Shell <Tooltip>
 											<p class="text-sm">
-												Open a live shell to execute bash commands on the worker — useful for quick
-												access, inspection, and real-time debugging
+												Open a live shell to execute bash commands on the machine where the worker
+												runs — useful for quick access, inspection, and real-time debugging
 											</p>
 										</Tooltip></Cell
 									>
@@ -613,6 +591,7 @@
 							</Head>
 							<tbody class="divide-y">
 								{#each worker_group[1] as [section, workers]}
+									{@const hostname = section?.split(splitter)?.[0]}
 									<tr class="border-t">
 										<Cell
 											first
@@ -625,7 +604,7 @@
 											<div class="flex flex-row w-full">
 												<div class="min-w-64">
 													Host:
-													<span class="font-semibold">{section?.split(splitter)?.[0]}</span>
+													<span class="font-semibold">{hostname}</span>
 												</div>
 												<span class="ml-4">IP: </span>
 												<span class="font-semibold">{workers[0].ip}</span>
@@ -719,12 +698,7 @@
 														size="xs"
 														color="light"
 														on:click={() => {
-															const active = isActiveWorker(last_ping)
-															if (!active) {
-																sendUserToast('Cannot connect to dead worker', true)
-																return
-															}
-															tag = worker
+															tag = hostname
 															replForWorkerDrawer?.openDrawer?.()
 														}}
 														startIcon={{ icon: Terminal }}

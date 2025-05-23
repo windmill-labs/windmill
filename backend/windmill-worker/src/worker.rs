@@ -243,7 +243,8 @@ lazy_static::lazy_static! {
 const DOTNET_DEFAULT_PATH: &str = "C:\\Program Files\\dotnet\\dotnet.exe";
 #[cfg(unix)]
 const DOTNET_DEFAULT_PATH: &str = "/usr/bin/dotnet";
-pub const SAME_WORKER_REQUIREMENTS: &'static str = "SameWorkerSender is required because this job may be part of a flow";
+pub const SAME_WORKER_REQUIREMENTS: &'static str =
+    "SameWorkerSender is required because this job may be part of a flow";
 
 lazy_static::lazy_static! {
 
@@ -1378,6 +1379,7 @@ pub async fn run_worker(
                                 "/api/agent_workers/same_worker_job/{}",
                                 same_worker_job.job_id
                             ),
+                            None,
                             &same_worker_job,
                         )
                         .await
@@ -1483,7 +1485,7 @@ pub async fn run_worker(
                         }
                         job.map(|x| x.job.map(NextJob::Sql))
                     }
-                    Connection::Http(client) => crate::agent_workers::pull_job(&client)
+                    Connection::Http(client) => crate::agent_workers::pull_job(&client, None)
                         .await
                         .map_err(|e| error::Error::InternalErr(e.to_string()))
                         .map(|x| x.map(|y| NextJob::Http(y))),

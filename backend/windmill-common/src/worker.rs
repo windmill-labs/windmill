@@ -1,4 +1,5 @@
 use anyhow::anyhow;
+use axum::http::HeaderMap;
 use bytes::Bytes;
 use const_format::concatcp;
 use itertools::Itertools;
@@ -34,7 +35,7 @@ use crate::{
 
 pub const DEFAULT_CLOUD_TIMEOUT: u64 = 900;
 pub const DEFAULT_SELFHOSTED_TIMEOUT: u64 = 604800; // 7 days
-
+pub const AGENT_WORKER_SHELL_TAG_HEADER_NAME: &'static str = "ag-wk-shell-tag";
 lazy_static::lazy_static! {
     pub static ref WORKER_GROUP: String = std::env::var("WORKER_GROUP").unwrap_or_else(|_| {
         #[cfg(not(feature = "enterprise"))]
@@ -158,12 +159,20 @@ impl HttpClient {
     pub async fn post<T: Serialize, R: DeserializeOwned>(
         &self,
         url: &str,
+        headers: Option<HeaderMap>,
         body: &T,
     ) -> anyhow::Result<R> {
-        let response = self
+        let response_builder = self
             .0
             .post(format!("{}{}", *BASE_INTERNAL_URL, url))
-            .json(body)
+            .json(body);
+
+        let response_builder = match headers {
+            Some(headers) => response_builder.headers(headers),
+            None => response_builder,
+        };
+
+        let response = response_builder
             .send()
             .await
             .map_err(|e| anyhow::anyhow!(e))?;

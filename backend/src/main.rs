@@ -51,7 +51,7 @@ use windmill_common::{
     scripts::ScriptLang,
     stats_ee::schedule_stats,
     triggers::TriggerKind,
-    utils::{hostname, rd_string, Mode, GIT_VERSION, MODE_AND_ADDONS},
+    utils::{rd_string, Mode, GIT_VERSION, HOSTNAME, MODE_AND_ADDONS},
     worker::{
         reload_custom_tags_setting, Connection, HUB_CACHE_DIR, TMP_DIR, TMP_LOGS_DIR, WORKER_GROUP,
     },
@@ -261,7 +261,7 @@ async fn windmill_main() -> anyhow::Result<()> {
         tracing::error!("Failed to install rustls crypto provider");
     }
 
-    let hostname = hostname();
+    let hostname = HOSTNAME.to_owned();
 
     let mode_and_addons = MODE_AND_ADDONS.clone();
     let mode = mode_and_addons.mode;

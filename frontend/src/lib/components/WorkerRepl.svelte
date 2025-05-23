@@ -5,8 +5,6 @@
 	import { runScriptAndPollResult } from './jobs/utils'
 	import { workspaceStore } from '$lib/stores'
 	import { Badge, Button, Drawer, DrawerContent, Skeleton } from './common'
-	import Select from './apps/svelte-select/lib/Select.svelte'
-	import { SELECT_INPUT_DEFAULT_STYLE } from '$lib/defaults'
 	import DarkModeObserver from './DarkModeObserver.svelte'
 	import { Library, Play } from 'lucide-svelte'
 	import Editor from './Editor.svelte'
@@ -27,7 +25,6 @@
 	type Props = {
 		tag: string
 		width?: number
-		activeWorkers: string[] | undefined
 	}
 	let scriptPicker: Drawer | undefined = $state()
 	let editor = $state<Editor | null>(null)
@@ -35,15 +32,14 @@
 	let pick_existing: 'workspace' | 'hub' = $state('workspace')
 	let codeViewer: Drawer | undefined = $state()
 	let filter = $state('')
-	let { tag, activeWorkers = [tag] }: Props = $props()
+	let { tag }: Props = $props()
 	let code: string = $state('')
-	let working_directory = $state(`/tmp/windmill/${tag}`)
+	let working_directory = $state('~')
 	let homeDirectory: string = '~'
 	let prompt = $derived(
 		`$-${working_directory === '/' ? '/' : working_directory.split('/').at(-1)} `
 	)
 	let codeObj: { language: SupportedLanguage; content: string } | undefined = $state(undefined)
-
 	function resolvePath(currentDir: string, newPath: string): string {
 		if (newPath.startsWith('/') || newPath.startsWith('~')) {
 			return newPath
@@ -87,6 +83,8 @@
 		try {
 			const trimmedCommand = command.trim()
 
+			if (trimmedCommand.length === 0) return
+
 			const isOnlyCdCommand = isSimpleCdCommand(trimmedCommand)
 			let wDirectory = working_directory
 			if (isOnlyCdCommand) {
@@ -115,7 +113,6 @@
 			} else if (!ensureTrailingLineBreak(result)) {
 				result += '\r\n'
 			}
-
 			rl.write(result)
 		} catch (e) {
 			term.writeln(`Error: ${e}`)
@@ -194,12 +191,16 @@
 		codeObj = await getScriptByPath(e.detail.path ?? '')
 	}
 
-	function replacePromptWithCommand(command: string) {
+	async function replacePromptWithCommand(command: string) {
 		clearPrompt()
+		if (!ensureTrailingLineBreak(command)) {
+			command += '\r\n'
+		}
 		input = command
 		rl.appendHistory(command)
 		term.write(command)
-		handleCommand(input)
+		await handleCommand(input)
+		term.write(prompt)
 	}
 </script>
 
@@ -229,45 +230,11 @@
 	</DrawerContent>
 </Drawer>
 
-<Drawer bind:this={bashEditorDrawer} size="800px">
-	<DrawerContent title="Bash Editor" on:close={() => bashEditorDrawer?.closeDrawer?.()}>
-		<Editor
-			bind:this={editor}
-			{code}
-			lang="bash"
-			scriptLang="bash"
-			class="w-full h-full"
-		/></DrawerContent
-	>
-</Drawer>
+
 
 <div class="h-screen flex flex-col">
 	<div class="m-1">
 		<div class="flex flex-col">
-			<div class="flex justify-start w-full mb-2">
-				<Badge
-					color="gray"
-					class="center-center !bg-gray-300 !text-tertiary dark:!bg-gray-700 dark:!text-gray-300 !h-[32px]  rounded-r-none rounded-l-none"
-					>Current worker</Badge
-				>
-				<Select
-					class="grow shrink max-w-full"
-					on:change={(e) => {
-						tag = e.detail.value
-						working_directory = `/tmp/windmill/${tag}`
-						term.reset()
-					}}
-					on:clear={() => {}}
-					clearable={false}
-					value={tag}
-					items={activeWorkers}
-					inputStyles={SELECT_INPUT_DEFAULT_STYLE.inputStyles}
-					containerStyles={darkMode
-						? SELECT_INPUT_DEFAULT_STYLE.containerStylesDark
-						: SELECT_INPUT_DEFAULT_STYLE.containerStyles}
-					portal={false}
-				/>
-			</div>
 			<div class="flex justify-start w-full mb-2">
 				<div class="flex flex-row">
 					<Badge
@@ -298,8 +265,8 @@
 					color="light"
 					startIcon={{ icon: Play }}
 					title="Run bash script"
-					on:click={() => {
-						replacePromptWithCommand(code)
+					on:click={async () => {
+						await replacePromptWithCommand(code)
 					}}
 				>
 					Run
