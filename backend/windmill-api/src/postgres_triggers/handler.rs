@@ -46,7 +46,7 @@ pub struct Postgres {
     pub dbname: String,
     #[serde(default)]
     pub sslmode: String,
-    #[serde(deserialize_with = "empty_as_none")]
+    #[serde(default, deserialize_with = "empty_as_none")]
     pub root_certificate_pem: Option<String>,
 }
 

@@ -1,6 +1,6 @@
 [package]
 name = "windmill"
-version = "1.491.5"
+version = "1.492.1"
 authors.workspace = true
 edition.workspace = true
 
@@ -32,7 +32,7 @@ members = [
 ]
 
 [workspace.package]
-version = "1.491.5"
+version = "1.492.1"
 authors = ["Ruben Fiszel <ruben@windmill.dev>"]
 edition = "2021"
 
@@ -393,5 +393,5 @@ tree-sitter-c-sharp = "0.23.0"
 tree-sitter-java = "0.23.0"
 oracle = { version = "0.6.3", features = ["chrono"] }
 rumqttc = { version = "0.24.0", features = ["use-native-tls"]}
-strum = "^0"
+strum = { version = "0.27", features = ["derive"] }
 strum_macros = "^0"

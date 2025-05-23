@@ -1,11 +1,10 @@
 <script lang="ts">
-	export let height = '20px'
-	export let width = '20px'
+	export let size: number = 16
 </script>
 
 <svg
-	{width}
-	{height}
+	width={size}
+	height={size}
 	viewBox="0 -25 256 256"
 	version="1.1"
 	xmlns="http://www.w3.org/2000/svg"

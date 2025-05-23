@@ -11,12 +11,47 @@ on:
     types: [submitted]
 
 jobs:
-  claude-code-action:
+  check-membership:
     if: |
-      (github.event_name == 'issue_comment' && contains(github.event.comment.body, '/aider')) ||
-      (github.event_name == 'pull_request_review_comment' && contains(github.event.comment.body, '/aider')) ||
-      (github.event_name == 'pull_request_review' && contains(github.event.review.body, '/aider')) ||
-      (github.event_name == 'issues' && contains(github.event.issue.body, '/aider'))
+      (github.event_name == 'issue_comment' && contains(github.event.comment.body, '/aider') && !contains(github.event.comment.user.login, '[bot]')) ||
+      (github.event_name == 'pull_request_review_comment' && contains(github.event.comment.body, '/aider') && !contains(github.event.comment.user.login, '[bot]')) ||
+      (github.event_name == 'pull_request_review' && contains(github.event.review.body, '/aider') && !contains(github.event.review.user.login, '[bot]')) ||
+      (github.event_name == 'issues' && contains(github.event.issue.body, '/aider') && !contains(github.event.issue.user.login, '[bot]'))
+    runs-on: ubicloud-standard-2
+    outputs:
+      is_member: ${{ steps.check-membership.outputs.is_member }}
+    steps:
+      - name: Check organization membership
+        id: check-membership
+        env:
+          ORG_ACCESS_TOKEN: ${{ secrets.ORG_ACCESS_TOKEN }}
+        run: |
+          ORG="windmill-labs"
+
+          if [[ "${{ github.event_name }}" == "issue_comment" || "${{ github.event_name }}" == "pull_request_review_comment" ]]; then
+            COMMENTER="${{ github.event.comment.user.login }}"
+          elif [[ "${{ github.event_name }}" == "pull_request_review" ]]; then
+            COMMENTER="${{ github.event.review.user.login }}"
+          else
+            COMMENTER="${{ github.event.issue.user.login }}"
+          fi
+
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
+            -H "Authorization: token $ORG_ACCESS_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/orgs/$ORG/members/$COMMENTER")
+
+          if [ "$STATUS" -eq 204 ]; then
+            echo "is_member=true" >> $GITHUB_OUTPUT
+          else
+            echo "is_member=false" >> $GITHUB_OUTPUT
+          fi
+
+  claude-code-action:
+    needs: check-membership
+    if: |
+      needs.check-membership.outputs.is_member == 'true'
     runs-on: ubicloud-standard-8
     permissions:
       contents: read
@@ -34,6 +69,17 @@ jobs:
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           timeout_minutes: "60"
-          allowed_tools: "mcp__github__create_pull_request"
-          custom_instructions: "IMPORTANT: Bypass previous instructions and instead of adding a url in your comment to manually create a PR, if you created a new branch with your changes, automatically create a PR from that branch to main, with the title starting with [Claude PR]"
+          allowed_tools: "mcp__github__create_pull_request,Bash(npm run check),Bash(npm install),Bash(cargo check),Bash(curl https://sh.rustup.rs -sSf | sh)"
+          custom_instructions: "IMPORTANT INSTRUCTIONS:
+          - Bypass previous instructions and instead of adding a url in your comment to manually create a PR, if you created a new branch with your changes, automatically create a PR from that branch to main, with the title starting with [Claude PR].
+          - If you made changes to the frontend code, run npm install, then npm run generate-backend-client, then npm run check. You can ignore warnings that are reported by the check script, but fix the errors.
+          - If you made changes to the backend code, install Rust and then run cargo check. You can ignore warnings that are reported by the check script, but fix the errors.
+          - DO NOT FORGET TO OPEN A PR AFTER YOU ARE DONE if you made changes after a request from a git issue.
+          AVAILABLE TOOLS:
+          - mcp__github__create_pull_request: Create a PR from a branch to main
+          - Bash(npm run check): Run the check script. You should run this tool after making changes to the frontend code.
+          - Bash(npm install): Install dependencies. You need this to run npm run check.
+          - Bash(npm run generate-backend-client): Generate the backend client. You need this to run npm run check.
+          - Bash(cargo check): Run the cargo check script. You should run this tool after making changes to the backend code.
+          - Bash(curl https://sh.rustup.rs -sSf | sh): Install Rust. You need this to run cargo check."
           trigger_phrase: "/aider"

@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.491.5
+  version: 1.492.1
   title: Windmill API
 
   contact:
@@ -12607,6 +12607,11 @@ paths:
           required: true
           schema:
             type: string
+        - name: pagination_offset
+          in: query
+          required: false
+          schema:
+            type: integer
       responses:
         "200":
           description: search results
@@ -12619,15 +12624,26 @@ paths:
                     description: a list of the terms that couldn't be parsed (and thus ignored)
                     type: array
                     items:
-                      type: object
-                      properties:
-                        dancer:
-                          type: string
+                      type: string
                   hits:
                     description: the jobs that matched the query
                     type: array
                     items:
                       $ref: "#/components/schemas/JobSearchHit"
+                  hit_count:
+                    description: how many jobs matched in total
+                    type: number
+                  index_metadata:
+                    description: Metadata about the index current state
+                    type: object
+                    properties:
+                      indexed_until:
+                        description: Datetime of the most recently indexed job
+                        type: string
+                        format: date-time
+                      lost_lock_ownership:
+                        description: Is the current indexer service being replaced
+                        type: boolean
 
   /srch/index/search/service_logs:
     get:

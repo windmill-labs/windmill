@@ -88,7 +88,7 @@
 </script>
 
 {#if menuOpen}
-	<ScheduleEditor on:update={() => goto('/schedules')} bind:this={scheduleEditor} />
+	<ScheduleEditor onUpdate={() => goto('/schedules')} bind:this={scheduleEditor} />
 {/if}
 
 <Row

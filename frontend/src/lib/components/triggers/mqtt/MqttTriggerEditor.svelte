@@ -2,7 +2,9 @@
 	import { tick } from 'svelte'
 	import MqttTriggerEditorInner from './MqttTriggerEditorInner.svelte'
 
-	let open = false
+	let { onUpdate }: { onUpdate?: (path?: string) => void } = $props()
+
+	let open = $state(false)
 	export async function openEdit(ePath: string, isFlow: boolean) {
 		open = true
 		await tick()
@@ -19,9 +21,9 @@
 		drawer?.openNew(is_flow, initial_script_path, defaultValues)
 	}
 
-	let drawer: MqttTriggerEditorInner
+	let drawer: MqttTriggerEditorInner | undefined = $state()
 </script>
 
 {#if open}
-	<MqttTriggerEditorInner on:update bind:this={drawer} />
+	<MqttTriggerEditorInner {onUpdate} bind:this={drawer} />
 {/if}
