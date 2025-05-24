@@ -494,6 +494,7 @@ pub async fn update_worker_ping_for_failed_init_script(
             if let Err(e) = client
                 .post::<_, ()>(
                     UPDATE_PING_URL,
+                    None,
                     &Ping {
                         last_job_executed: Some(last_job_id),
                         last_job_workspace_id: None,

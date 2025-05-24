@@ -15,6 +15,7 @@ use monitor::{
     send_logs_to_object_store, WORKERS_NAMES,
 };
 use rand::Rng;
+use serde_json::{Map, Value};
 use sqlx::postgres::PgListener;
 use std::{
     collections::HashMap,
@@ -48,10 +49,13 @@ use windmill_common::{
         SAML_METADATA_SETTING, SCIM_TOKEN_SETTING, SMTP_SETTING, TEAMS_SETTING,
         TIMEOUT_WAIT_RESULT_SETTING,
     },
+    jwt::decode_without_verify,
     scripts::ScriptLang,
     stats_ee::schedule_stats,
     triggers::TriggerKind,
-    utils::{hostname, rd_string, Mode, GIT_VERSION, MODE_AND_ADDONS},
+    utils::{
+        rd_string, Mode, AGENT_JWT_PREFIX, AGENT_TOKEN, GIT_VERSION, HOSTNAME, MODE_AND_ADDONS,
+    },
     worker::{
         reload_custom_tags_setting, Connection, HUB_CACHE_DIR, TMP_DIR, TMP_LOGS_DIR, WORKER_GROUP,
     },
@@ -261,7 +265,7 @@ async fn windmill_main() -> anyhow::Result<()> {
         tracing::error!("Failed to install rustls crypto provider");
     }
 
-    let hostname = hostname();
+    let hostname = HOSTNAME.to_owned();
 
     let mode_and_addons = MODE_AND_ADDONS.clone();
     let mode = mode_and_addons.mode;
@@ -675,12 +679,27 @@ Windmill Community Edition {GIT_VERSION}
                 let base_internal_url = base_internal_rx.await?;
                 if worker_mode {
                     let mut workers = vec![];
+
+                    let suffix_to_append = match mode {
+                        Mode::Agent => {
+                            let decoded_token = decode_without_verify::<Map<String, Value>>(
+                                AGENT_TOKEN.trim_start_matches(AGENT_JWT_PREFIX),
+                            )?;
+                            let suffix_to_append = decoded_token["suffix"].as_str();
+                            suffix_to_append.map(|s| s.to_owned())
+                        }
+                        _ => None,
+                    };
+
                     for i in 0..num_workers {
-                        let suffix: String = if i == 0 && first_suffix.as_ref().is_some() {
+                        let mut suffix = if i == 0 && first_suffix.is_some() {
                             first_suffix.as_ref().unwrap().clone()
                         } else {
                             windmill_common::utils::worker_suffix(&hostname, &rd_string(5))
                         };
+                        if let Some(suffix_to_append) = suffix_to_append.as_ref() {
+                            suffix = format!("{}_{}", suffix, &suffix_to_append);
+                        }
                         let worker_conn = WorkerConn {
                             conn: if i == 0 || mode != Mode::Agent {
                                 conn.clone()

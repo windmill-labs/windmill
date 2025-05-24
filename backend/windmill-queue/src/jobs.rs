@@ -391,6 +391,7 @@ pub async fn append_logs(
             if let Err(e) = client
             .post::<_, String>(
                 &format!("/api/w/{}/agent_workers/push_logs/{}", workspace.as_ref(), job_id),
+                None,
                 &logs.as_ref(),
             )
             .await {
@@ -980,7 +981,6 @@ pub async fn add_completed_job<T: Serialize + Send + Sync + ValidableJson>(
             is_flow_step = queued_job.is_flow_step(),
             language = ?queued_job.script_lang,
             scheduled_for = ?queued_job.scheduled_for,
-            workspace_id = ?queued_job.workspace_id,
             success,
             "inserted completed job: {} (success: {success})",
             queued_job.id
@@ -2127,7 +2127,7 @@ pub struct PulledJob {
 // NOTE:
 // Precomputed by the server
 // Used to offload work from agent workers to server
-#[derive(Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub enum PrecomputedAgentInfo {
     Bun { local: String, remote: String },
     Python {
@@ -2138,7 +2138,7 @@ pub enum PrecomputedAgentInfo {
         requirements: Option<String> },
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct JobAndPerms {
     pub job: MiniPulledJob,
     pub raw_code: Option<String>,
@@ -2290,16 +2290,20 @@ pub async fn pull(
     db: &Pool<Postgres>,
     suspend_first: bool,
     worker_name: &str,
-    query_o: Option<(String, String)>,
+    query_o: Option<&(String, String)>,
     #[cfg(feature = "benchmark")] bench: &mut BenchmarkIter,
 ) -> windmill_common::error::Result<PulledJobResult> {
     loop {
-        if let Some((query_suspended, query_no_suspend)) = query_o.as_ref() {
+        if let Some((query_suspended, query_no_suspend)) = query_o {
             let njob = {
-                let job = sqlx::query_as::<_, PulledJob>(query_suspended)
+                let job = if query_suspended.is_empty() {
+                    None
+                } else {
+                    sqlx::query_as::<_, PulledJob>(query_suspended)
                     .bind(worker_name)
                     .fetch_optional(db)
-                    .await?;
+                    .await?
+                };
                 if let Some(job) = job {
                     PulledJobResult { job: Some(job), suspended: true }
                 } else {
@@ -2549,7 +2553,6 @@ async fn pull_single_job_and_mark_as_running_no_concurrency_limit<'c>(
             tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
             return Ok((None, false));
         }
-
         let r = if suspend_first {
             // tracing::info!("Pulling job with query: {}", query);
             sqlx::query_as::<_, PulledJob>(&query)

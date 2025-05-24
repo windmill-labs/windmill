@@ -1,3 +1,4 @@
+use reqwest::header::HeaderMap;
 use uuid::Uuid;
 use windmill_common::{agent_workers::QueueInitJob, worker::HttpClient};
 use windmill_queue::{JobAndPerms, JobCompleted};
@@ -6,14 +7,20 @@ pub async fn queue_init_job(client: &HttpClient, content: &str) -> anyhow::Resul
     client
         .post(
             "/api/agent_workers/queue_init_job",
+            None,
             &QueueInitJob { content: content.to_string() },
         )
         .await
         .and_then(|x: String| Uuid::parse_str(&x).map_err(|e| anyhow::anyhow!(e)))
 }
 
-pub async fn pull_job(client: &HttpClient) -> anyhow::Result<Option<JobAndPerms>> {
-    client.post("/api/agent_workers/pull_job", &()).await
+pub async fn pull_job(
+    client: &HttpClient,
+    headers: Option<HeaderMap>,
+) -> anyhow::Result<Option<JobAndPerms>> {
+    client
+        .post("/api/agent_workers/pull_job", headers, &())
+        .await
 }
 
 pub async fn send_result(client: &HttpClient, jc: JobCompleted) -> anyhow::Result<String> {
@@ -23,6 +30,7 @@ pub async fn send_result(client: &HttpClient, jc: JobCompleted) -> anyhow::Resul
                 "/api/w/{}/agent_workers/send_result/{}",
                 jc.job.workspace_id, jc.job.id
             ),
+            None,
             &jc,
         )
         .await
