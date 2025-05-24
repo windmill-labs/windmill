@@ -1,5 +1,5 @@
 use anyhow::Context;
-use reqwest::Response;
+use reqwest::{Body, Response};
 use serde::de::DeserializeOwned;
 
 use crate::utils::HTTP_CLIENT;
@@ -149,6 +149,52 @@ impl AuthedClient {
                 .await
                 .context("decoding result by id as json")?),
             _ => Err(anyhow::anyhow!(response.text().await.unwrap_or_default())),
+        }
+    }
+
+    pub async fn upload_s3_file<S>(
+        &self,
+        workspace_id: &str,
+        object_key: String,
+        storage: Option<String>,
+        body: S,
+    ) -> anyhow::Result<()>
+    where
+        S: futures::stream::TryStream + Send + 'static,
+        S::Error: Into<Box<dyn std::error::Error + Send + Sync>>,
+        bytes::Bytes: From<S::Ok>,
+    {
+        let mut query = vec![("file_key", object_key)];
+        if let Some(storage) = storage {
+            query.push(("storage", storage));
+        }
+        let response = self
+            .force_client
+            .as_ref()
+            .unwrap_or(&HTTP_CLIENT)
+            .post(format!(
+                "{}/api/w/{}/job_helpers/upload_s3_file",
+                self.base_internal_url, workspace_id
+            ))
+            .query(&query)
+            .header(
+                reqwest::header::ACCEPT,
+                reqwest::header::HeaderValue::from_static("application/json"),
+            )
+            .header(
+                reqwest::header::AUTHORIZATION,
+                reqwest::header::HeaderValue::from_str(&format!("Bearer {}", self.token))
+                    .map_err(|e| anyhow::anyhow!(e.to_string()))?,
+            )
+            .body(Body::wrap_stream(body))
+            .send()
+            .await
+            .context(format!("Sent upload_s3_file request",))
+            .map_err(|e| anyhow::anyhow!(e.to_string()))?;
+
+        match response.status().as_u16() {
+            200u16 => Ok(()),
+            _ => Err(anyhow::anyhow!(response.text().await.unwrap_or_default()))?,
         }
     }
 }

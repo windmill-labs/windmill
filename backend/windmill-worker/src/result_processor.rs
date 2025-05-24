@@ -29,8 +29,7 @@ use windmill_common::{
 use windmill_common::bench::{BenchmarkInfo, BenchmarkIter};
 
 use windmill_queue::{
-    append_logs, get_queued_job,  CanceledBy, JobCompleted, MiniPulledJob,
-    WrappedError,
+    append_logs, get_queued_job, CanceledBy, JobCompleted, MiniPulledJob, WrappedError,
 };
 
 use serde_json::{json, value::RawValue};
@@ -44,8 +43,8 @@ use crate::{
     common::{error_to_value, read_result, save_in_cache},
     otel_ee::add_root_flow_job_to_otlp,
     worker_flow::update_flow_status_after_job_completion,
-    AuthedClient, JobCompletedReceiver, JobCompletedSender, SameWorkerSender, SendResult,
-    UpdateFlow, INIT_SCRIPT_TAG,
+    JobCompletedReceiver, JobCompletedSender, SameWorkerSender, SendResult, UpdateFlow,
+    INIT_SCRIPT_TAG,
 };
 use windmill_common::client::AuthedClient;
 
@@ -274,11 +273,7 @@ pub fn start_background_processor(
     })
 }
 
-async fn send_job_completed(
-    job_completed_tx: JobCompletedSender,
-    jc: JobCompleted,
-
-) {
+async fn send_job_completed(job_completed_tx: JobCompletedSender, jc: JobCompleted) {
     job_completed_tx
         .send_job(jc, true)
         .with_context(windmill_common::otel_ee::otel_ctx())
@@ -302,7 +297,6 @@ pub async fn process_result(
 ) -> error::Result<bool> {
     match result {
         Ok(result) => {
-
             send_job_completed(
                 job_completed_tx,
                 JobCompleted {

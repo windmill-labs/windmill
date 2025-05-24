@@ -40,8 +40,7 @@ use windmill_common::METRICS_DEBUG_ENABLED;
 #[cfg(feature = "prometheus")]
 use windmill_common::METRICS_ENABLED;
 
-use reqwest::{Body, Response};
-use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 use sqlx::types::Json;
 use std::{
     collections::HashMap,

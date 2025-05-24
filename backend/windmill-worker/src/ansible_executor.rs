@@ -1194,7 +1194,7 @@ async fn create_file_resources(
     job_dir: &str,
     args: Option<&HashMap<String, Box<RawValue>>>,
     r: &AnsibleRequirements,
-    client: &crate::AuthedClient,
+    client: &AuthedClient,
     conn: &Connection,
 ) -> error::Result<Vec<String>> {
     let mut logs = String::new();
@@ -1271,7 +1271,7 @@ async fn create_file_resources(
 }
 
 async fn get_resource_or_variable_content(
-    client: &crate::AuthedClient,
+    client: &AuthedClient,
     path: &ResourceOrVariablePath,
     job_id: String,
 ) -> anyhow::Result<String> {

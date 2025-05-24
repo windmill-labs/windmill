@@ -1259,11 +1259,7 @@ pub async fn par_install_language_dependencies<'a>(
 
         #[cfg(all(feature = "enterprise", feature = "parquet"))]
         let s3_pull_future = if is_not_pro {
-            if let Some(os) = windmill_common::s3_helpers::OBJECT_STORE_SETTINGS
-                .read()
-                .await
-                .clone()
-            {
+            if let Some(os) = windmill_common::s3_helpers::get_object_store().await {
                 Some(crate::global_cache::pull_from_tar(
                     os,
                     path.clone(),
@@ -1444,11 +1440,7 @@ pub async fn par_install_language_dependencies<'a>(
                 };
                 #[cfg(all(feature = "enterprise", feature = "parquet"))]
                 {
-                    if let Some(os) = windmill_common::s3_helpers::OBJECT_STORE_SETTINGS
-                        .read()
-                        .await
-                        .clone()
-                    {
+                    if let Some(os) = windmill_common::s3_helpers::get_object_store().await {
                         tokio::spawn(async move {
                             if let Err(e) = crate::global_cache::build_tar_and_push(
                                 os,
@@ -1536,11 +1528,7 @@ pub async fn par_install_language_dependencies<'a>(
                 };
                 #[cfg(all(feature = "enterprise", feature = "parquet"))]
                 {
-                    if let Some(os) = windmill_common::s3_helpers::OBJECT_STORE_SETTINGS
-                        .read()
-                        .await
-                        .clone()
-                    {
+                    if let Some(os) = windmill_common::s3_helpers::get_object_store().await {
                         let language_name = language_name.to_owned();
                         tokio::spawn(async move {
                             if let Err(e) = crate::global_cache::build_tar_and_push(
@@ -1586,7 +1574,7 @@ pub struct S3ModeWorkerData {
 }
 
 impl S3ModeWorkerData {
-    pub async fn upload<S>(&self, stream: S) -> error::Result<()>
+    pub async fn upload<S>(&self, stream: S) -> anyhow::Result<()>
     where
         S: futures::stream::TryStream + Send + 'static,
         S::Error: Into<Box<dyn std::error::Error + Send + Sync>>,

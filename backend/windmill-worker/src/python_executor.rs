@@ -79,8 +79,8 @@ use crate::{
     handle_child::handle_child,
     worker_lockfiles::LOCKFILE_GENERATED_FROM_REQUIREMENTS_TXT,
     worker_utils::ping_job_status,
-    DISABLE_NSJAIL, DISABLE_NUSER, HOME_ENV, INSTANCE_PYTHON_VERSION, NSJAIL_PATH,
-    PATH_ENV, PIP_EXTRA_INDEX_URL, PIP_INDEX_URL, PROXY_ENVS, PY_INSTALL_DIR, TZ_ENV, UV_CACHE_DIR,
+    DISABLE_NSJAIL, DISABLE_NUSER, HOME_ENV, INSTANCE_PYTHON_VERSION, NSJAIL_PATH, PATH_ENV,
+    PIP_EXTRA_INDEX_URL, PIP_INDEX_URL, PROXY_ENVS, PY_INSTALL_DIR, TZ_ENV, UV_CACHE_DIR,
 };
 use windmill_common::client::AuthedClient;
 
@@ -2077,7 +2077,7 @@ pub async fn handle_python_reqs(
             let start = std::time::Instant::now();
             #[cfg(all(feature = "enterprise", feature = "parquet", unix))]
             if is_not_pro {
-                if let Some(os) = OBJECT_STORE_SETTINGS.read().await.clone() {
+                if let Some(os) = windmill_common::s3_helpers::get_object_store().await {
                     tokio::select! {
                         // Cancel was called on the job
                         _ = kill_rx.recv() => return Err(anyhow::anyhow!("S3 pull was canceled")),
@@ -2231,7 +2231,7 @@ pub async fn handle_python_reqs(
 
             #[cfg(all(feature = "enterprise", feature = "parquet", unix))]
             if s3_push {
-                if let Some(os) = OBJECT_STORE_SETTINGS.read().await.clone() {
+                if let Some(os) = windmill_common::s3_helpers::get_object_store().await {
                     tokio::spawn(build_tar_and_push(os, venv_p.clone(), py_version.to_cache_dir_top_level(), None, false));
                 }
             }

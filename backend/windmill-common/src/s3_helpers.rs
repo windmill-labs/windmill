@@ -109,19 +109,17 @@ pub async fn reload_s3_cache_setting(db: &crate::DB) {
                     tracing::error!("S3 cache is not available for pro plan");
                     return;
                 }
-                *s3_cache_settings = build_s3_client_from_settings(
-                    (S3Settings {
-                        bucket: None,
-                        region: None,
-                        access_key: None,
-                        secret_key: None,
-                        endpoint: None,
-                        store_logs: None,
-                        path_style: None,
-                        allow_http: None,
-                        port: None,
-                    }),
-                )
+                *s3_cache_settings = build_s3_client_from_settings(S3Settings {
+                    bucket: None,
+                    region: None,
+                    access_key: None,
+                    secret_key: None,
+                    endpoint: None,
+                    store_logs: None,
+                    path_style: None,
+                    allow_http: None,
+                    port: None,
+                })
                 .await
                 .ok()
                 .map(|x| ExpirableObjectStore::from(x))
@@ -540,10 +538,7 @@ pub async fn build_object_store_from_settings(
 
             build_object_store_client(&res)
                 .await
-                .map(|x| ExpirableObjectStore {
-                    store: x,
-                    expiration: res.expiration(),
-                })
+                .map(|x| ExpirableObjectStore { store: x, expiration: res.expiration() })
         }
     }
 }
