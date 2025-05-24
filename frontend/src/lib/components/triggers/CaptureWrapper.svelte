@@ -60,7 +60,8 @@
 			}
 
 			if (
-				invalidRelations(args.publication.table_to_track, {
+				args.table_to_track &&
+				invalidRelations(args.table_to_track, {
 					showError: true,
 					trackSchemaTableError: true
 				}) !== ''

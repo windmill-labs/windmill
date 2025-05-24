@@ -13,9 +13,13 @@
 	export let replication_slot_name: string = ''
 	export let postgres_resource_path: string = ''
 	export let disabled: boolean = false
+
+	let deletingSlot: boolean = false
+	let loadingSlot: boolean = false
 	let items: (string | undefined)[] = []
 	async function listDatabaseSlot() {
 		try {
+			loadingSlot = true
 			const result = await PostgresTriggerService.listPostgresReplicationSlot({
 				path: postgres_resource_path,
 				workspace: $workspaceStore!
@@ -41,11 +45,14 @@
 			}
 		} catch (error) {
 			sendUserToast(error.body, true)
+		} finally {
+			loadingSlot = false
 		}
 	}
 
 	async function deleteSlot() {
 		try {
+			deletingSlot = true
 			const message = await PostgresTriggerService.deletePostgresReplicationSlot({
 				path: postgres_resource_path,
 				workspace: $workspaceStore!,
@@ -58,6 +65,8 @@
 			sendUserToast(message)
 		} catch (error) {
 			sendUserToast(error.body, true)
+		} finally {
+			deletingSlot = false
 		}
 	}
 
@@ -77,6 +86,7 @@
 		on:clear={() => {
 			replication_slot_name = ''
 		}}
+		loading={loadingSlot}
 		value={replication_slot_name}
 		{items}
 		placeholder="Choose a slot name"
@@ -97,6 +107,7 @@
 		{disabled}
 	/>
 	<Button
+		loading={deletingSlot}
 		color="light"
 		size="xs"
 		variant="border"
