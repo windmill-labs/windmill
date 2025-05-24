@@ -14,6 +14,7 @@
 	export let relations: Relations[] | undefined = undefined
 	export let can_write: boolean = true
 	export let postgresVersion: string = ''
+	export let disabled: boolean = false
 
 	$: pg14 = postgresVersion?.startsWith('14')
 
