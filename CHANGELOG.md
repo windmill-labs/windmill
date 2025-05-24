@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.492.1](https://github.com/windmill-labs/windmill/compare/v1.492.0...v1.492.1) (2025-05-22)
+
+
+### Bug Fixes
+
+* fix strum compile ([59f6024](https://github.com/windmill-labs/windmill/commit/59f6024cbdaface9c9f0ed61c4a415a13b558515))
+
 ## [1.492.0](https://github.com/windmill-labs/windmill/compare/v1.491.5...v1.492.0) (2025-05-22)
 
 
