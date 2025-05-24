@@ -17,11 +17,18 @@
 	import ObjectStoreConfigSettings from './ObjectStoreConfigSettings.svelte'
 	import { sendUserToast } from '$lib/toast'
 	import ConfirmButton from './ConfirmButton.svelte'
-	import { IndexSearchService, SettingService, TeamsService } from '$lib/gen'
+	import {
+		ConfigService,
+		IndexSearchService,
+		SettingService,
+		TeamsService,
+		type ListAvailablePythonVersionsResponse
+	} from '$lib/gen'
 	import { Button, SecondsInput, Skeleton } from './common'
 	import Password from './Password.svelte'
 	import { classNames } from '$lib/utils'
 	import Popover from './Popover.svelte'
+	import PopoverMelt from './meltComponents/Popover.svelte'
 	import Toggle from './Toggle.svelte'
 	import type { Writable } from 'svelte/store'
 	import { createEventDispatcher } from 'svelte'
@@ -30,6 +37,7 @@
 	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
 	import SimpleEditor from './SimpleEditor.svelte'
+	import LoadingIcon from './apps/svelte-select/lib/LoadingIcon.svelte'
 	import TeamSelector from './TeamSelector.svelte'
 	import ChannelSelector from './ChannelSelector.svelte'
 
@@ -39,7 +47,10 @@
 	export let loading = true
 	const dispatch = createEventDispatcher()
 
-	if (setting.fieldType == 'select' && $values[setting.key] == undefined) {
+	if (
+		(setting.fieldType == 'select' || setting.fieldType == 'select_python') &&
+		$values[setting.key] == undefined
+	) {
 		$values[setting.key] = 'default'
 	}
 
@@ -124,6 +135,24 @@
 		}
 	}
 
+	let pythonAvailableVersions: ListAvailablePythonVersionsResponse = []
+
+	let isPyFetching = false
+	async function fetch_available_python_versions() {
+		if (isPyFetching) return
+		isPyFetching = true
+		try {
+			pythonAvailableVersions = await ConfigService.listAvailablePythonVersions()
+		} catch (error) {
+			console.error('Error fetching python versions:', error)
+		} finally {
+			isPyFetching = false
+		}
+	}
+	if (setting.fieldType == 'select_python') {
+		fetch_available_python_versions()
+	}
+
 	async function fetchTeams() {
 		if (isFetching) return
 		isFetching = true
@@ -191,6 +220,66 @@
 						item={toggleButton}
 					/>
 				{/each}
+			</ToggleButtonGroup>
+		</div>
+	{:else if setting.fieldType == 'select_python'}
+		<div>
+			<!-- svelte-ignore a11y-label-has-associated-control -->
+			<label class="block pb-2">
+				<span class="text-primary font-semibold text-sm">{setting.label}</span>
+				{#if setting.description}
+					<span class="text-secondary text-xs">
+						{@html setting.description}
+					</span>
+				{/if}
+			</label>
+
+			<ToggleButtonGroup bind:selected={$values[setting.key]} let:item={toggleButtonn}>
+				{#each setting.select_items ?? [] as item}
+					<ToggleButton
+						value={item.value ?? item.label}
+						label={item.label}
+						tooltip={item.tooltip}
+						item={toggleButtonn}
+					/>
+				{/each}
+				<PopoverMelt closeButton={!isPyFetching}>
+					<svelte:fragment slot="trigger">
+						{#if setting.select_items?.some((e) => e.label == $values[setting.key] || e.value == $values[setting.key])}
+							<Button
+								variant="border"
+								color="dark"
+								btnClasses="px-1.5 py-1.5 text-2xs bg-surface-secondary border-0"
+								nonCaptureEvent={true}>Select Custom</Button
+							>
+						{:else}
+							<Button
+								variant="border"
+								color="dark"
+								btnClasses="px-1.5 py-1.5 text-2xs border-0 shadow-md"
+								nonCaptureEvent={true}>Custom | {$values[setting.key]}</Button
+							>
+						{/if}
+					</svelte:fragment>
+					<svelte:fragment slot="content">
+						{#if isPyFetching}
+							<div class="p-4">
+								<LoadingIcon />
+							</div>
+						{:else}
+							<ToggleButtonGroup
+								bind:selected={$values[setting.key]}
+								let:item={toggleButtonn}
+								class="mr-10 h-full"
+								tabListClass="flex-wrap p-2"
+							>
+								{#each pythonAvailableVersions as item}
+									<ToggleButton value={item} label={item} tooltip={item} item={toggleButtonn} />
+								{/each}
+							</ToggleButtonGroup>
+						{/if}
+					</svelte:fragment>
+				</PopoverMelt>
 			</ToggleButtonGroup>
 		</div>
 	{:else}
