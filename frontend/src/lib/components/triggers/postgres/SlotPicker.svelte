@@ -12,6 +12,7 @@
 	export let edit: boolean
 	export let replication_slot_name: string = ''
 	export let postgres_resource_path: string = ''
+	export let disabled: boolean = false
 
 	let deletingSlot: boolean = false
 	let loadingSlot: boolean = false
@@ -94,6 +95,7 @@
 			? SELECT_INPUT_DEFAULT_STYLE.containerStylesDark
 			: SELECT_INPUT_DEFAULT_STYLE.containerStyles}
 		portal={false}
+		{disabled}
 	/>
 	<Button
 		variant="border"
@@ -102,13 +104,14 @@
 		on:click={listDatabaseSlot}
 		startIcon={{ icon: RefreshCw }}
 		iconOnly
+		{disabled}
 	/>
 	<Button
 		loading={deletingSlot}
 		color="light"
 		size="xs"
 		variant="border"
-		disabled={emptyString(replication_slot_name)}
+		disabled={emptyString(replication_slot_name) || disabled}
 		on:click={deleteSlot}>Delete</Button
 	>
 </div>

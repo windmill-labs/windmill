@@ -57,6 +57,7 @@ sqlx.workspace = true
 uuid.workspace = true
 tracing.workspace = true
 tokio.workspace = true
+tokio-stream.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 futures.workspace = true
@@ -90,6 +91,7 @@ deno_tls = { workspace = true, optional = true }
 deno_permissions = { workspace = true, optional = true }
 deno_io = { workspace = true, optional = true }
 deno_error = { workspace = true, optional = true }
+async-stream.workspace = true
 
 postgres-native-tls.workspace = true
 native-tls.workspace = true
@@ -114,6 +116,7 @@ convert_case.workspace = true
 yaml-rust.workspace = true
 backon.workspace = true
 winapi = { workspace = true, optional = true }
+pep440_rs.workspace = true
 
 opentelemetry = { workspace = true, optional = true }
 bollard = { workspace = true, optional = true }

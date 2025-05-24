@@ -6,7 +6,6 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
-use std::fmt;
 use std::{collections::HashMap, sync::Arc, vec};
 
 use anyhow::Context;
@@ -140,6 +139,7 @@ pub struct CanceledBy {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct JobCompleted {
     pub job: Arc<MiniPulledJob>,
+    pub preprocessed_args: Option<HashMap<String, Box<RawValue>>>,
     pub result: Arc<Box<RawValue>>,
     pub result_columns: Option<Vec<String>>,
     pub mem_peak: i32,
@@ -980,6 +980,7 @@ pub async fn add_completed_job<T: Serialize + Send + Sync + ValidableJson>(
             is_flow_step = queued_job.is_flow_step(),
             language = ?queued_job.script_lang,
             scheduled_for = ?queued_job.scheduled_for,
+            workspace_id = ?queued_job.workspace_id,
             success,
             "inserted completed job: {} (success: {success})",
             queued_job.id
@@ -1943,40 +1944,6 @@ async fn handle_successful_schedule<'a, 'c, T: Serialize + Send + Sync>(
     Ok(())
 }
 
-#[derive(sqlx::Type, Serialize, Deserialize, Debug, Clone, Eq, PartialEq, Hash)]
-#[sqlx(type_name = "TRIGGER_KIND", rename_all = "lowercase")]
-#[serde(rename_all = "lowercase")]
-pub enum TriggerKind {
-    Webhook,
-    Http,
-    Websocket,
-    Kafka,
-    Email,
-    Nats,
-    Mqtt,
-    Sqs,
-    Postgres,
-    Gcp
-}
-
-
-impl TriggerKind {
-    pub fn to_key(&self) -> String {
-        match self {
-            TriggerKind::Webhook => "webhook".to_string(),
-            TriggerKind::Http => "http".to_string(),
-            TriggerKind::Websocket => "websocket".to_string(),
-            TriggerKind::Kafka => "kafka".to_string(),
-            TriggerKind::Email => "email".to_string(),
-            TriggerKind::Nats => "nats".to_string(),
-            TriggerKind::Mqtt => "mqtt".to_string(),
-            TriggerKind::Sqs => "sqs".to_string(),
-            TriggerKind::Postgres => "postgres".to_string(),
-            TriggerKind::Gcp => "gcp".to_string(),
-        }
-    }
-}
-
 #[derive(sqlx::Type, Serialize, Deserialize, Debug, Clone)]
 #[sqlx(type_name = "JOB_TRIGGER_KIND", rename_all = "lowercase")]
 #[serde(rename_all = "lowercase")]
@@ -1994,23 +1961,6 @@ pub enum JobTriggerKind {
     Gcp
 }
 
-impl fmt::Display for TriggerKind {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let s = match self {
-            TriggerKind::Webhook => "webhook",
-            TriggerKind::Http => "http",
-            TriggerKind::Websocket => "websocket",
-            TriggerKind::Kafka => "kafka",
-            TriggerKind::Email => "email",
-            TriggerKind::Nats => "nats",
-            TriggerKind::Mqtt => "mqtt",
-            TriggerKind::Sqs => "sqs",
-            TriggerKind::Postgres => "postgres",
-            TriggerKind::Gcp => "gcp",
-        };
-        write!(f, "{}", s)
-    }
-}
 
 #[derive(sqlx::FromRow, Debug, Clone, Serialize, Deserialize)]
 pub struct MiniPulledJob {
@@ -2173,10 +2123,19 @@ pub struct PulledJob {
     pub permissioned_as_folders: Option<Vec<serde_json::Value>>,
 }
 
+
+// NOTE:
+// Precomputed by the server
+// Used to offload work from agent workers to server
 #[derive(Serialize, Deserialize)]
 pub enum PrecomputedAgentInfo {
     Bun { local: String, remote: String },
-    Python { py_version: Option<u32>, requirements: Option<String> },
+    Python {
+        // V1, not used anymore. Exists for compat.
+        // TODO: Needs to be removed eventually
+        py_version: Option<u32>,
+        py_version_v2: Option<String>,
+        requirements: Option<String> },
 }
 
 #[derive(Serialize, Deserialize)]
@@ -2664,7 +2623,7 @@ async fn concurrency_key(db: &Pool<Postgres>, id: &Uuid) -> windmill_common::err
     )
 }
 
-fn interpolate_args(x: String, args: &PushArgs, workspace_id: &str) -> String {
+pub fn interpolate_args(x: String, args: &PushArgs, workspace_id: &str) -> String {
     // Save this value to avoid parsing twice
     let workspaced = x.as_str().replace("$workspace", workspace_id).to_string();
     if RE_ARG_TAG.is_match(&workspaced) {
@@ -2702,7 +2661,6 @@ fn interpolate_args(x: String, args: &PushArgs, workspace_id: &str) -> String {
                     .trim_matches('"')
                     .to_string()
             };
-            tracing::error!("arg_value: {}", arg_value);
             interpolated =
                 interpolated.replace(format!("$args[{}]", arg_name).as_str(), &arg_value);
         }
@@ -3587,12 +3545,16 @@ pub async fn push<'c, 'd>(
             None,
             None,
         ),
-        JobPayload::ScriptHub { path } => {
+        JobPayload::ScriptHub { path, apply_preprocessor } => {
             if path == "hub/7771/slack" || path == "hub/7836/slack" || path == "hub/9084/slack" {
                 // these scripts send app reports to slack
                 // they use the slack bot token and should therefore be run with permissions to access it
                 permissioned_as = SUPERADMIN_NOTIFICATION_EMAIL.to_string();
                 email = SUPERADMIN_NOTIFICATION_EMAIL;
+            }
+
+            if apply_preprocessor {
+                preprocessed = Some(false);
             }
 
             let hub_script =
@@ -3887,11 +3849,13 @@ pub async fn push<'c, 'd>(
             let cache_ttl = value.cache_ttl.map(|x| x as i32);
             let custom_concurrency_key = value.concurrency_key.clone();
             let concurrency_time_window_s = value.concurrency_time_window_s;
-            let concurrent_limit = value.concurrent_limit;
+            let mut concurrent_limit = value.concurrent_limit;
 
             if !apply_preprocessor {
                 value.preprocessor_module = None;
             } else {
+                tag = None;
+                concurrent_limit = None;
                 preprocessed = Some(false);
             }
 
@@ -4173,26 +4137,7 @@ pub async fn push<'c, 'd>(
     };
 
     if concurrent_limit.is_some() {
-        let concurrency_key = custom_concurrency_key
-            .map(|x| interpolate_args(x, &args, workspace_id))
-            .unwrap_or(fullpath_with_workspace(
-                workspace_id,
-                script_path.as_ref(),
-                &job_kind,
-            ));
-        sqlx::query!(
-            "WITH inserted_concurrency_counter AS (
-                INSERT INTO concurrency_counter (concurrency_id, job_uuids) 
-                VALUES ($1, '{}'::jsonb)
-                ON CONFLICT DO NOTHING
-            )
-            INSERT INTO concurrency_key(key, job_id) VALUES ($1, $2)",
-            concurrency_key,
-            job_id,
-        )
-        .execute(&mut *tx)
-        .await
-        .map_err(|e| Error::internal_err(format!("Could not insert concurrency_key={concurrency_key} for job_id={job_id} script_path={script_path:?} workspace_id={workspace_id}: {e:#}")))?;
+        insert_concurrency_key(workspace_id, &args, &script_path, job_kind, custom_concurrency_key, &mut tx, job_id).await?;
     }
 
     let stringified_args = if *JOB_ARGS_AUDIT_LOGS {
@@ -4210,6 +4155,7 @@ pub async fn push<'c, 'd>(
         Some("preprocessor") => Some(false),
         _ => None,
     });
+    
 
     let job_authed = match authed {
         Some(authed)
@@ -4356,6 +4302,7 @@ pub async fn push<'c, 'd>(
             Json(flow_status) as Json<FlowStatus>,
         )
         .execute(&mut *tx)
+        .warn_after_seconds(1)
         .await?;
     }
 
@@ -4424,10 +4371,36 @@ pub async fn push<'c, 'd>(
             script_path.as_ref().map(|x| x.as_str()),
             Some(hm),
         )
+        .warn_after_seconds(1)
         .await?;
     }
 
     Ok((job_id, tx))
+}
+
+pub async fn insert_concurrency_key<'d, 'c>(workspace_id: &str, args: &PushArgs<'d>, script_path: &Option<String>, job_kind: JobKind, custom_concurrency_key: Option<String>, tx: &mut Transaction<'c, Postgres>, job_id: Uuid) -> Result<(), Error> {
+    let concurrency_key = custom_concurrency_key
+        .map(|x| interpolate_args(x, args, workspace_id))
+        .unwrap_or(fullpath_with_workspace(
+            workspace_id,
+            script_path.as_ref(),
+            &job_kind,
+        ));
+    sqlx::query!(
+        "WITH inserted_concurrency_counter AS (
+                INSERT INTO concurrency_counter (concurrency_id, job_uuids) 
+                VALUES ($1, '{}'::jsonb)
+                ON CONFLICT DO NOTHING
+            )
+            INSERT INTO concurrency_key(key, job_id) VALUES ($1, $2)",
+        concurrency_key,
+        job_id,
+    )
+    .execute(&mut **tx)
+    .warn_after_seconds(3)
+    .await
+    .map_err(|e| Error::internal_err(format!("Could not insert concurrency_key={concurrency_key} for job_id={job_id} script_path={script_path:?} workspace_id={workspace_id}: {e:#}")))?;
+    Ok(())
 }
 
 pub fn canceled_job_to_result(job: &MiniPulledJob) -> serde_json::Value {

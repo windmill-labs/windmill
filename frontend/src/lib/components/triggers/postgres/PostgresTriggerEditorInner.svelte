@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { Alert, Button } from '$lib/components/common'
+	import { Alert, Button, TabContent } from '$lib/components/common'
 	import Drawer from '$lib/components/common/drawer/Drawer.svelte'
 	import DrawerContent from '$lib/components/common/drawer/DrawerContent.svelte'
 	import Path from '$lib/components/Path.svelte'
@@ -8,47 +8,195 @@
 	import { PostgresTriggerService, type Language, type Relations } from '$lib/gen'
 	import { usedTriggerKinds, userStore, workspaceStore } from '$lib/stores'
 	import { canWrite, emptyString, emptyStringTrimmed, sendUserToast } from '$lib/utils'
-	import { createEventDispatcher } from 'svelte'
 	import Section from '$lib/components/Section.svelte'
-	import { Loader2, Save } from 'lucide-svelte'
+	import { Loader2, X } from 'lucide-svelte'
 	import Label from '$lib/components/Label.svelte'
-	import Toggle from '$lib/components/Toggle.svelte'
+	import ResourcePicker from '$lib/components/ResourcePicker.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
+	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
+	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
+	import MultiSelect from 'svelte-multiselect'
+	import PublicationPicker from './PublicationPicker.svelte'
+	import SlotPicker from './SlotPicker.svelte'
 	import { random_adj } from '$lib/components/random_positive_adjetive'
-	import { invalidRelations } from './utils'
+	import Tabs from '$lib/components/common/tabs/Tabs.svelte'
+	import Tab from '$lib/components/common/tabs/Tab.svelte'
+	import RelationPicker from './RelationPicker.svelte'
+	import { invalidRelations, savePostgresTriggerFromCfg } from './utils'
+	import CheckPostgresRequirement from './CheckPostgresRequirement.svelte'
 	import { base } from '$lib/base'
-	import PostgresEditorConfigSection from './PostgresEditorConfigSection.svelte'
+	import type { Snippet } from 'svelte'
+	import TriggerEditorToolbar from '../TriggerEditorToolbar.svelte'
+	import TestingBadge from '../testingBadge.svelte'
+	import { handleConfigChange } from '../utils'
+	import { fade } from 'svelte/transition'
 
-	let drawer: Drawer | undefined
-	let is_flow: boolean = false
-	let initialPath = ''
-	let edit = true
-	let itemKind: 'flow' | 'script' = 'script'
-	let script_path = ''
-	let initialScriptPath = ''
-	let fixedScriptPath = ''
-	let path: string = ''
-	let pathError = ''
-	let enabled = false
-	let dirtyPath = false
-	let can_write = true
-	let drawerLoading = true
-	let postgres_resource_path = ''
-	let publication_name: string = ''
-	let replication_slot_name: string = ''
-	let relations: Relations[] | undefined = undefined
-	let transaction_to_track: string[] = []
+	interface Props {
+		useDrawer?: boolean
+		description?: Snippet | undefined
+		hideTarget?: boolean
+		isEditor?: boolean
+		hideTooltips?: boolean
+		allowDraft?: boolean
+		hasDraft?: boolean
+		isDraftOnly?: boolean
+		isDeployed?: boolean
+		cloudDisabled?: boolean
+		customLabel?: Snippet
+		onConfigChange?: (cfg: Record<string, any>, saveDisabled: boolean, updated: boolean) => void
+		onCaptureConfigChange?: (cfg: Record<string, any>, isValid: boolean) => void
+		onUpdate?: (path?: string) => void
+		onDelete?: () => void
+		onReset?: () => void
+	}
+
+	let {
+		useDrawer = true,
+		description = undefined,
+		hideTarget = false,
+		isEditor = false,
+		hideTooltips = false,
+		allowDraft = false,
+		hasDraft = false,
+		isDraftOnly = false,
+		isDeployed = false,
+		cloudDisabled = false,
+		customLabel = undefined,
+		onConfigChange = undefined,
+		onCaptureConfigChange = undefined,
+		onUpdate = undefined,
+		onDelete = undefined,
+		onReset = undefined
+	}: Props = $props()
+
+	let drawer: Drawer | undefined = $state(undefined)
+	let is_flow: boolean = $state(false)
+	let initialPath = $state('')
+	let edit = $state(true)
+	let itemKind: 'flow' | 'script' = $state('script')
+	let script_path = $state('')
+	let initialScriptPath = $state('')
+	let fixedScriptPath = $state('')
+	let path: string = $state('')
+	let pathError = $state('')
+	let enabled = $state(false)
+	let dirtyPath = $state(false)
+	let can_write = $state(true)
+	let drawerLoading = $state(true)
+	let showLoading = $state(false)
+	let postgres_resource_path = $state('')
+	let publication_name: string = $state('')
+	let replication_slot_name: string = $state('')
+	let relations: Relations[] | undefined = $state([])
+	let transaction_to_track: string[] = $state([])
 	let language: Language = 'Typescript'
-	let loading = false
-	let tab: 'advanced' | 'basic' = 'basic'
-	let isLoading = false
+	let loading = $state(false)
+	let postgresVersion = ''
+	let loadingPostgres = $state(false)
 	type actions = 'create' | 'get'
-	let selectedPublicationAction: actions = 'create'
-	let selectedSlotAction: actions = 'create'
-	let isValid: boolean = false
-	const dispatch = createEventDispatcher()
+	let selectedPublicationAction: actions | undefined = $state(undefined)
+	let selectedSlotAction: actions | undefined = $state(undefined)
+	let publicationItems: string[] = $state([])
+	let transactionType: string[] = ['Insert', 'Update', 'Delete']
+	let tab: 'advanced' | 'basic' = $state('basic')
+	let initialConfig: Record<string, any> | undefined = undefined
+	let deploymentLoading = $state(false)
+	let creatingSlot: boolean = $state(false)
+	let creatingPublication: boolean = $state(false)
 
-	export async function openEdit(ePath: string, isFlow: boolean) {
+	const errorMessage = $derived.by(() => {
+		if (relations && relations.length > 0) {
+			return invalidRelations(relations, {
+				showError: true,
+				trackSchemaTableError: true
+			})
+		}
+		return ''
+	})
+
+	function isAdvancedTab(t: 'advanced' | 'basic'): boolean {
+		return t === 'advanced'
+	}
+
+	function isBasicTab(t: 'advanced' | 'basic'): boolean {
+		return t === 'basic'
+	}
+
+	const isValid = $derived(
+		!emptyString(postgres_resource_path) &&
+			transaction_to_track.length > 0 &&
+			((isAdvancedTab(tab) &&
+				!emptyString(replication_slot_name) &&
+				!emptyString(publication_name)) ||
+				(isBasicTab(tab) && (!relations || relations.length > 0))) &&
+			!errorMessage
+	)
+	const postgresConfig = $derived.by(getSaveCfg)
+	const captureConfig = $derived.by(isEditor ? getCaptureConfig : () => ({}))
+
+	let saveDisabled = $derived(
+		pathError !== '' ||
+			emptyString(postgres_resource_path) ||
+			emptyString(script_path) ||
+			(isAdvancedTab(tab) && emptyString(replication_slot_name)) ||
+			emptyString(publication_name) ||
+			(relations && isBasicTab(tab) && relations.length === 0) ||
+			transaction_to_track.length === 0 ||
+			drawerLoading ||
+			!can_write
+	)
+
+	async function createPublication() {
+		try {
+			creatingPublication = true
+			const message = await PostgresTriggerService.createPostgresPublication({
+				path: postgres_resource_path,
+				publication: publication_name as string,
+				workspace: $workspaceStore!,
+				requestBody: {
+					transaction_to_track: transaction_to_track,
+					table_to_track: relations
+				}
+			})
+
+			sendUserToast(message)
+		} catch (error) {
+			sendUserToast(error.body, true)
+		} finally {
+			creatingPublication = false
+		}
+	}
+
+	async function createSlot() {
+		try {
+			creatingSlot = true
+			const message = await PostgresTriggerService.createPostgresReplicationSlot({
+				path: postgres_resource_path,
+				workspace: $workspaceStore!,
+				requestBody: {
+					name: replication_slot_name
+				}
+			})
+			sendUserToast(message)
+		} catch (error) {
+			sendUserToast(error.body, true)
+		} finally {
+			creatingSlot = false
+		}
+	}
+
+	$effect(() => {
+		is_flow = itemKind === 'flow'
+	})
+
+	export async function openEdit(
+		ePath: string,
+		isFlow: boolean,
+		defaultConfig?: Record<string, any>
+	) {
+		let loadingTimeout = setTimeout(() => {
+			showLoading = true
+		}, 100) // Do not show loading spinner for the first 100ms
 		drawerLoading = true
 		try {
 			drawer?.openDrawer()
@@ -60,20 +208,31 @@
 			selectedSlotAction = 'get'
 			selectedPublicationAction = selectedPublicationAction
 			selectedSlotAction = selectedSlotAction
+			relations = []
+			transaction_to_track = []
 			tab = 'basic'
-			await loadTrigger()
+			await loadTrigger(defaultConfig)
 		} catch (err) {
 			sendUserToast(`Could not load postgres trigger: ${err.body}`, true)
 		} finally {
+			if (!defaultConfig) {
+				initialConfig = structuredClone($state.snapshot(getSaveCfg()))
+			}
+			clearTimeout(loadingTimeout)
 			drawerLoading = false
+			showLoading = false
 		}
 	}
 
 	export async function openNew(
 		nis_flow: boolean,
 		fixedScriptPath_?: string,
-		defaultValues?: Record<string, any>
+		defaultValues?: Record<string, any>,
+		newDraft?: boolean
 	) {
+		let loadingTimeout = setTimeout(() => {
+			showLoading = true
+		}, 100) // Do not show loading spinner for the first 100ms
 		drawerLoading = true
 		try {
 			selectedPublicationAction = 'create'
@@ -83,125 +242,127 @@
 			drawer?.openDrawer()
 			is_flow = nis_flow
 			itemKind = nis_flow ? 'flow' : 'script'
-			initialScriptPath = ''
+			initialScriptPath = defaultValues?.script_path ?? ''
 			fixedScriptPath = fixedScriptPath_ ?? ''
 			script_path = fixedScriptPath
-			path = ''
+			path = defaultValues?.path ?? ''
 			initialPath = ''
 			postgres_resource_path = defaultValues?.postgres_resource_path ?? ''
 			edit = false
 			dirtyPath = false
-			publication_name = `windmill_publication_${random_adj()}`
-			replication_slot_name = `windmill_replication_${random_adj()}`
-			transaction_to_track = defaultValues?.publication.transaction_to_track || [
+			publication_name = defaultValues?.publication_name ?? `windmill_publication_${random_adj()}`
+			replication_slot_name =
+				defaultValues?.replication_slot_name ?? `windmill_replication_${random_adj()}`
+			transaction_to_track = defaultValues?.publication?.transaction_to_track || [
 				'Insert',
 				'Update',
 				'Delete'
 			]
-			relations = defaultValues?.publication.table_to_track || [
+			relations = defaultValues?.publication?.table_to_track || [
 				{
 					schema_name: 'public',
 					table_to_track: []
 				}
 			]
 		} finally {
+			clearTimeout(loadingTimeout)
 			drawerLoading = false
+			showLoading = false
 		}
 	}
 
-	async function loadTrigger(): Promise<void> {
-		const s = await PostgresTriggerService.getPostgresTrigger({
-			workspace: $workspaceStore!,
-			path: initialPath
-		})
-		script_path = s.script_path
-		initialScriptPath = s.script_path
+	function getSaveCfg(): Record<string, any> {
+		const cfg = {
+			script_path: script_path,
+			initialScriptPath: initialScriptPath,
+			is_flow: is_flow,
+			path: path,
+			postgres_resource_path: postgres_resource_path,
+			publication_name: edit || tab === 'advanced' ? publication_name : undefined,
+			replication_slot_name: edit || tab === 'advanced' ? replication_slot_name : undefined,
+			publication:
+				!edit || tab === 'basic'
+					? {
+							transaction_to_track: transaction_to_track,
+							table_to_track: relations
+						}
+					: undefined
+		}
+		return cfg
+	}
 
-		is_flow = s.is_flow
-		path = s.path
-		enabled = s.enabled
-		postgres_resource_path = s.postgres_resource_path
-		publication_name = s.publication_name
-		replication_slot_name = s.replication_slot_name
-		can_write = canWrite(s.path, s.extra_perms, $userStore)
-		try {
-			const publication_data = await PostgresTriggerService.getPostgresPublication({
-				path: postgres_resource_path,
+	async function loadTriggerConfig(cfg?: Record<string, any>): Promise<void> {
+		script_path = cfg?.script_path
+		initialScriptPath = cfg?.script_path
+		is_flow = cfg?.is_flow
+		path = cfg?.path
+		enabled = cfg?.enabled
+		postgres_resource_path = cfg?.postgres_resource_path
+		publication_name = cfg?.publication_name
+		replication_slot_name = cfg?.replication_slot_name
+		can_write = canWrite(path, cfg?.extra_perms, $userStore)
+		transaction_to_track = [...cfg?.publication?.transaction_to_track]
+		relations = cfg?.publication?.table_to_track ?? []
+	}
+
+	async function loadTrigger(defaultConfig?: Record<string, any>): Promise<void> {
+		if (defaultConfig) {
+			loadTriggerConfig(defaultConfig)
+			if (defaultConfig?.publication) {
+				transaction_to_track = [...defaultConfig.publication.transaction_to_track]
+				relations = defaultConfig.publication.table_to_track ?? []
+			}
+			return
+		} else {
+			const s = await PostgresTriggerService.getPostgresTrigger({
 				workspace: $workspaceStore!,
-				publication: publication_name
+				path: initialPath
 			})
-			transaction_to_track = [...publication_data.transaction_to_track]
-			relations = publication_data.table_to_track
-		} catch (error) {
-			sendUserToast(error.body, true)
-			transaction_to_track = []
-			relations = undefined
+
+			const publication_data = await PostgresTriggerService.getPostgresPublication({
+				path: s.postgres_resource_path,
+				workspace: $workspaceStore!,
+				publication: s.publication_name
+			})
+
+			loadTriggerConfig({ ...s, publication: publication_data })
+		}
+	}
+
+	function getCaptureConfig() {
+		return {
+			postgres_resource_path,
+			publication:
+				!edit || tab === 'basic'
+					? {
+							transaction_to_track: transaction_to_track,
+							table_to_track: relations
+						}
+					: undefined,
+			publication_name: edit || tab !== 'basic' ? publication_name : undefined,
+			replication_slot_name: edit || tab !== 'basic' ? replication_slot_name : undefined,
+			path
 		}
 	}
 
 	async function updateTrigger(): Promise<void> {
-		if (
-			relations &&
-			invalidRelations(relations, {
-				showError: true,
-				trackSchemaTableError: true
-			}) === true
-		) {
+		const cfg = postgresConfig
+		if (!cfg) {
 			return
 		}
-		isLoading = true
-		try {
-			if (edit) {
-				await PostgresTriggerService.updatePostgresTrigger({
-					workspace: $workspaceStore!,
-					path: initialPath,
-					requestBody: {
-						path,
-						script_path,
-						is_flow,
-						postgres_resource_path,
-						enabled,
-						replication_slot_name,
-						publication_name,
-						publication:
-							tab === 'basic'
-								? {
-										transaction_to_track,
-										table_to_track: relations
-									}
-								: undefined
-					}
-				})
-				sendUserToast(`PostgresTrigger ${path} updated`)
-			} else {
-				await PostgresTriggerService.createPostgresTrigger({
-					workspace: $workspaceStore!,
-					requestBody: {
-						path,
-						script_path,
-						is_flow,
-						enabled: true,
-						postgres_resource_path,
-						replication_slot_name: tab === 'basic' ? undefined : replication_slot_name,
-						publication_name: tab === 'basic' ? undefined : publication_name,
-						publication: {
-							transaction_to_track,
-							table_to_track: relations
-						}
-					}
-				})
-				sendUserToast(`PostgresTrigger ${path} created`)
-			}
-			isLoading = false
-			if (!$usedTriggerKinds.includes('postgres')) {
-				$usedTriggerKinds = [...$usedTriggerKinds, 'postgres']
-			}
-			dispatch('update')
+		deploymentLoading = true
+		const isSaved = await savePostgresTriggerFromCfg(
+			initialPath,
+			cfg,
+			edit,
+			$workspaceStore!,
+			usedTriggerKinds
+		)
+		if (isSaved) {
+			onUpdate?.(path)
 			drawer?.closeDrawer()
-		} catch (error) {
-			isLoading = false
-			sendUserToast(error.body || error.message, true)
 		}
+		deploymentLoading = false
 	}
 
 	const getTemplateScript = async () => {
@@ -227,75 +388,133 @@
 		}
 	}
 
-	$: is_flow = itemKind === 'flow'
+	async function handleToggleEnabled(toggleEnabled: boolean) {
+		enabled = toggleEnabled
+		if (!isDraftOnly && !hasDraft) {
+			await PostgresTriggerService.setPostgresTriggerEnabled({
+				path: initialPath,
+				workspace: $workspaceStore ?? '',
+				requestBody: { enabled: toggleEnabled }
+			})
+			sendUserToast(`${toggleEnabled ? 'enabled' : 'disabled'} postgres trigger ${initialPath}`)
+		}
+	}
+
+	$effect(() => {
+		onCaptureConfigChange?.(captureConfig, isValid)
+	})
+
+	$effect(() => {
+		if (!drawerLoading) {
+			handleConfigChange(postgresConfig, initialConfig, saveDisabled, edit, onConfigChange)
+		}
+	})
+
+	$effect(() => {
+		if (postgres_resource_path) {
+			loadingPostgres = true
+			PostgresTriggerService.getPostgresVersion({
+				workspace: $workspaceStore!,
+				path: postgres_resource_path
+			})
+				.then((version: string) => {
+					postgresVersion = version
+				})
+				.catch((error: any) => {
+					sendUserToast(error.body, true)
+				})
+				.finally(() => {
+					loadingPostgres = false
+				})
+		}
+	})
 </script>
 
-<Drawer size="800px" bind:this={drawer}>
-	<DrawerContent
-		title={edit
-			? can_write
-				? `Edit Postgres trigger ${initialPath}`
-				: `Postgres trigger ${initialPath}`
-			: 'New Postgres trigger'}
-		on:close={drawer.closeDrawer}
-	>
-		<svelte:fragment slot="actions">
-			{#if !drawerLoading && can_write}
-				{#if edit}
-					<div class="mr-8 center-center -mt-1">
-						<Toggle
-							disabled={!can_write}
-							checked={enabled}
-							options={{ right: 'enable', left: 'disable' }}
-							on:change={async (e) => {
-								await PostgresTriggerService.setPostgresTriggerEnabled({
-									path: initialPath,
-									workspace: $workspaceStore ?? '',
-									requestBody: { enabled: e.detail }
-								})
-								sendUserToast(
-									`${e.detail ? 'enabled' : 'disabled'} postgres trigger ${initialPath}`
-								)
-							}}
-						/>
-					</div>
-				{/if}
-				<Button
-					startIcon={{ icon: Save }}
-					disabled={!isValid || pathError != '' || emptyString(script_path) || !can_write}
-					on:click={updateTrigger}
-					loading={isLoading}
-				>
-					Save
-				</Button>
+{#if useDrawer}
+	<Drawer size="800px" bind:this={drawer}>
+		<DrawerContent
+			title={edit
+				? can_write
+					? `Edit Postgres trigger ${initialPath}`
+					: `Postgres trigger ${initialPath}`
+				: 'New Postgres trigger'}
+			on:close={drawer.closeDrawer}
+		>
+			<svelte:fragment slot="actions">{@render actions()}</svelte:fragment>
+			{@render content()}
+		</DrawerContent>
+	</Drawer>
+{:else}
+	<Section label={!customLabel ? 'Postgres trigger' : ''} headerClass="grow min-w-0 h-[30px]">
+		<svelte:fragment slot="header">
+			{#if customLabel}
+				{@render customLabel()}
 			{/if}
 		</svelte:fragment>
-		{#if drawerLoading}
-			<div class="flex flex-col items-center justify-center h-full w-full">
-				<Loader2 size="50" class="animate-spin" />
-				<p>Loading...</p>
-			</div>
-		{:else}
-			<Alert title="Info" type="info">
-				{#if edit}
-					Changes can take up to 30 seconds to take effect.
-				{:else}
-					New postgres triggers can take up to 30 seconds to start listening.
-				{/if}
-			</Alert>
-			<div class="flex flex-col gap-12 mt-6">
-				<Label label="Path">
-					<Path
-						bind:dirty={dirtyPath}
-						bind:error={pathError}
-						bind:path
-						{initialPath}
-						checkInitialPathExistence={!edit}
-						namePlaceholder="postgres_trigger"
-						kind="postgres_trigger"
-						disabled={!can_write}
-					/>
-				</Label>
+		<svelte:fragment slot="action">
+			{@render actions()}
+		</svelte:fragment>
+		{@render content()}
+	</Section>
+{/if}
+
+{#snippet actions()}
+	{#if !drawerLoading}
+		<TriggerEditorToolbar
+			{isDraftOnly}
+			{hasDraft}
+			permissions={drawerLoading || !can_write ? 'none' : 'create'}
+			{saveDisabled}
+			{allowDraft}
+			{edit}
+			isLoading={deploymentLoading}
+			{enabled}
+			{isDeployed}
+			onUpdate={updateTrigger}
+			{onReset}
+			{onDelete}
+			onToggleEnabled={handleToggleEnabled}
+			{cloudDisabled}
+		/>
+	{/if}
+{/snippet}
+
+{#snippet content()}
+	{#if drawerLoading}
+		{#if showLoading}
+			<Loader2 size="50" class="animate-spin" />
+			<p>Loading...</p>
+		{/if}
+	{:else}
+		<div class="flex flex-col gap-4">
+			{#if description}
+				{@render description()}
+			{/if}
+			{#if !hideTooltips}
+				<Alert title="Info" type="info" size="xs">
+					{#if edit}
+						Changes can take up to 30 seconds to take effect.
+					{:else}
+						New postgres triggers can take up to 30 seconds to start listening.
+					{/if}
+				</Alert>
+			{/if}
+		</div>
+		<div class="flex flex-col gap-12 mt-6">
+			<Label label="Path">
+				<Path
+					bind:dirty={dirtyPath}
+					bind:error={pathError}
+					bind:path
+					{initialPath}
+					checkInitialPathExistence={!edit}
+					namePlaceholder="postgres_trigger"
+					kind="postgres_trigger"
+					disabled={!can_write}
+					disableEditing={!can_write}
+				/>
+			</Label>
+			{#if !hideTarget}
 				<Section label="Runnable">
 					<p class="text-xs text-tertiary">
 						Pick a script or flow to be triggered <Required required={true} />
@@ -308,7 +527,8 @@
 							allowFlow={true}
 							bind:itemKind
 							bind:scriptPath={script_path}
-							allowRefresh
+							allowRefresh={can_write}
+							allowEdit={!$userStore?.operator}
 						/>
 
 						{#if emptyStringTrimmed(script_path) && is_flow === false}
@@ -333,17 +553,245 @@
 						{/if}
 					</div>
 				</Section>
-				<PostgresEditorConfigSection
-					bind:publication_name
-					bind:replication_slot_name
-					bind:relations
-					bind:transaction_to_track
-					bind:postgres_resource_path
-					bind:isValid
-					{edit}
-					{can_write}
-				/>
-			</div>
-		{/if}
-	</DrawerContent>
-</Drawer>
+			{/if}
+			<Section label="Database">
+				<svelte:fragment slot="badge">
+					{#if isEditor}
+						<TestingBadge />
+					{/if}
+				</svelte:fragment>
+				<p class="text-xs text-tertiary mb-2">
+					Pick a database to connect to <Required required={true} />
+				</p>
+				<div class="flex flex-col gap-8">
+					<div class="flex flex-col gap-2">
+						<ResourcePicker
+							disabled={!can_write}
+							bind:value={postgres_resource_path}
+							resourceType={'postgresql'}
+						/>
+						<CheckPostgresRequirement bind:postgres_resource_path bind:can_write />
+					</div>
+					{#if loadingPostgres}
+						<div class="flex flex-col items-center justify-center h-full w-full">
+							<Loader2 size="50" class="animate-spin" />
+							<p>Loading...</p>
+						</div>
+					{:else if postgres_resource_path}
+						<Label label="Transactions">
+							{#snippet header()}
+								<Tooltip>
+									<p>
+										Choose the types of database transactions that should trigger a script or flow.
+										You can select from <strong>Insert</strong>, <strong>Update</strong>,
+										<strong>Delete</strong>, or any combination of these operations to define when
+										the trigger should activate.
+									</p>
+								</Tooltip>
+							{/snippet}
+							<MultiSelect
+								noMatchingOptionsMsg=""
+								createOptionMsg={null}
+								duplicates={false}
+								options={transactionType}
+								allowUserOptions="append"
+								bind:selected={transaction_to_track}
+								ulOptionsClass={'!bg-surface !text-sm'}
+								ulSelectedClass="!text-sm"
+								outerDivClass="!bg-surface !min-h-[38px] !border-[#d1d5db]"
+								placeholder="Select transactions"
+								--sms-options-margin="4px"
+								--sms-open-z-index="100"
+								disabled={!can_write}
+							>
+								<!-- @migration-task: migrate this slot by hand, `remove-icon` is an invalid identifier -->
+								<svelte:fragment slot="remove-icon">
+									<div class="hover:text-primary p-0.5">
+										<X size={12} />
+									</div>
+								</svelte:fragment>
+							</MultiSelect>
+						</Label>
+						<Label label="Table Tracking" headerClass="grow min-w-0">
+							{#snippet header()}
+								<Tooltip
+									documentationLink="https://www.windmill.dev/docs/core_concepts/postgres_triggers#define-what-to-track"
+								>
+									<p>
+										Select the tables to track. You can choose to track
+										<strong>all tables in your database</strong>,
+										<strong>all tables within a specific schema</strong>,
+										<strong>specific tables in a schema</strong>, or even
+										<strong>specific columns of a table</strong>. Additionally, you can apply a
+										<strong>filter</strong> to retrieve only rows that do not match the specified criteria.
+									</p>
+								</Tooltip>
+								{#if !emptyStringTrimmed(errorMessage)}
+									<p
+										class="text-red-500 text-xs truncate w-full whitespace-nowrap"
+										title={errorMessage}
+										transition:fade={{ duration: 100 }}
+									>
+										{errorMessage}
+									</p>
+								{/if}
+							{/snippet}
+							<Tabs bind:selected={tab}>
+								<Tab value="basic"
+									><div class="flex flex-row gap-1"
+										>Basic<Tooltip
+											documentationLink="https://www.windmill.dev/docs/core_concepts/postgres_triggers#define-what-to-track"
+											><p
+												>Choose the <strong>relations</strong> to track without worrying about the
+												underlying mechanics of creating a
+												<strong>publication</strong>
+												or <strong>slot</strong>. This simplified option lets you focus only on the
+												data you want to monitor.</p
+											></Tooltip
+										></div
+									></Tab
+								>
+								<Tab value="advanced"
+									><div class="flex flex-row gap-1"
+										>Advanced<Tooltip
+											documentationLink="https://www.windmill.dev/docs/core_concepts/postgres_triggers#advanced"
+											><p
+												>Select a specific <strong>publication</strong> from your database to track,
+												and manage it by <strong>creating</strong>,
+												<strong>updating</strong>, or <strong>deleting</strong>. For
+												<strong>slots</strong>, you can <strong>create</strong> or
+												<strong>delete</strong>
+												them. Both <strong>non-active slots</strong> and the
+												<strong>currently used slot</strong> by the trigger will be retrieved from your
+												database for management.</p
+											></Tooltip
+										></div
+									></Tab
+								>
+								<svelte:fragment slot="content">
+									<div class="mt-5 overflow-hidden bg-surface">
+										<TabContent value="basic">
+											<RelationPicker {can_write} bind:relations disabled={!can_write} />
+										</TabContent>
+										<TabContent value="advanced">
+											<div class="flex flex-col gap-6"
+												><Section
+													small
+													label="Replication slot"
+													tooltip="Choose and manage the slots for your trigger. You can create or delete slots. Both non-active slots and the currently used slot by the trigger (if any) will be retrieved from your database for management."
+													documentationLink="https://www.windmill.dev/docs/core_concepts/postgres_triggers#managing-postgres-replication-slots"
+												>
+													<div class="flex flex-col gap-3">
+														<ToggleButtonGroup
+															bind:selected={selectedSlotAction}
+															on:selected={() => {
+																replication_slot_name = ''
+															}}
+															disabled={!can_write}
+														>
+															{#snippet children({ item })}
+																<ToggleButton value="create" label="Create Slot" {item} />
+																<ToggleButton value="get" label="Get Slot" {item} />
+															{/snippet}
+														</ToggleButtonGroup>
+														{#if selectedSlotAction === 'create'}
+															<div class="flex gap-3">
+																<input
+																	type="text"
+																	bind:value={replication_slot_name}
+																	placeholder={'Choose a slot name'}
+																	disabled={!can_write}
+																/>
+																<Button
+																	loading={creatingSlot}
+																	color="light"
+																	size="xs"
+																	variant="border"
+																	disabled={emptyStringTrimmed(replication_slot_name) || !can_write}
+																	on:click={createSlot}>Create</Button
+																>
+															</div>
+														{:else}
+															<SlotPicker
+																bind:edit
+																{postgres_resource_path}
+																bind:replication_slot_name
+																disabled={!can_write}
+															/>
+														{/if}
+													</div>
+												</Section>
+
+												<Section
+													small
+													label="Publication"
+													tooltip="Select and manage the publications for tracking data. You can create, update, or delete publications. Only existing publications in your database will be available for selection, giving you full control over what data is tracked."
+													documentationLink="https://www.windmill.dev/docs/core_concepts/postgres_triggers#managing-postgres-publications"
+												>
+													<div class="flex flex-col gap-3">
+														<ToggleButtonGroup
+															selected={selectedPublicationAction}
+															disabled={!can_write}
+															on:selected={({ detail }) => {
+																selectedPublicationAction = detail
+																if (selectedPublicationAction === 'create') {
+																	publication_name = `windmill_publication_${random_adj()}`
+																	relations = [{ schema_name: 'public', table_to_track: [] }]
+																	return
+																}
+
+																publication_name = ''
+																relations = []
+																transaction_to_track = []
+															}}
+														>
+															{#snippet children({ item })}
+																<ToggleButton value="create" label="Create Publication" {item} />
+																<ToggleButton value="get" label="Get Publication" {item} />
+															{/snippet}
+														</ToggleButtonGroup>
+														{#if selectedPublicationAction === 'create'}
+															<div class="flex gap-3">
+																<input
+																	disabled={!can_write}
+																	type="text"
+																	bind:value={publication_name}
+																	placeholder={'Publication Name'}
+																/>
+																<Button
+																	loading={creatingPublication}
+																	color="light"
+																	size="xs"
+																	variant="border"
+																	disabled={emptyStringTrimmed(publication_name) ||
+																		(relations && relations.length === 0) ||
+																		!can_write}
+																	on:click={createPublication}>Create</Button
+																>
+															</div>
+														{:else}
+															<PublicationPicker
+																{can_write}
+																{postgres_resource_path}
+																bind:transaction_to_track
+																bind:relations
+																bind:items={publicationItems}
+																bind:publication_name
+																disabled={!can_write}
+															/>
+														{/if}
+														<RelationPicker {can_write} bind:relations disabled={!can_write} />
+													</div>
+												</Section></div
+											>
+										</TabContent>
+									</div>
+								</svelte:fragment>
+							</Tabs>
+						</Label>
+					{/if}
+				</div>
+			</Section>
+		</div>
+	{/if}
+{/snippet}

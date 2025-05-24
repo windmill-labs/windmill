@@ -26,6 +26,7 @@ use windmill_common::{
     utils::{empty_as_none, not_found_if_none, paginate, Pagination, StripPath},
     worker::CLOUD_HOSTED,
 };
+use windmill_git_sync::{handle_deployment_metadata, DeployedObject};
 
 use super::{
     check_if_valid_publication_for_postgres_version, create_logical_replication_slot,
@@ -43,7 +44,8 @@ pub struct Postgres {
     pub dbname: String,
     #[serde(default)]
     pub sslmode: String,
-    pub root_certificate_pem: String,
+    #[serde(default, deserialize_with = "empty_as_none")]
+    pub root_certificate_pem: Option<String>,
 }
 
 #[derive(Debug, Clone, FromRow, Serialize, Deserialize)]
@@ -458,6 +460,17 @@ pub async fn create_postgres_trigger(
     .await?;
 
     tx.commit().await?;
+
+    handle_deployment_metadata(
+        &authed.email,
+        &authed.username,
+        &db,
+        &w_id,
+        DeployedObject::PostgresTrigger { path: path.to_string() },
+        Some(format!("Postgres trigger '{}' created", path)),
+        true,
+    )
+    .await?;
 
     Ok((StatusCode::CREATED, path.to_string()))
 }
@@ -1223,7 +1236,7 @@ pub async fn update_postgres_trigger(
         &mut *tx,
         &authed,
         "postgres_triggers.update",
-        ActionKind::Create,
+        ActionKind::Update,
         &w_id,
         Some(&path),
         None,
@@ -1232,11 +1245,23 @@ pub async fn update_postgres_trigger(
 
     tx.commit().await?;
 
+    handle_deployment_metadata(
+        &authed.email,
+        &authed.username,
+        &db,
+        &w_id,
+        DeployedObject::PostgresTrigger { path: path.to_string() },
+        Some(format!("Postgres trigger '{}' updated", path)),
+        true,
+    )
+    .await?;
+
     Ok(workspace_path.to_string())
 }
 
 pub async fn delete_postgres_trigger(
     authed: ApiAuthed,
+    Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
     Path((w_id, path)): Path<(String, StripPath)>,
 ) -> Result<String> {
@@ -1268,6 +1293,17 @@ pub async fn delete_postgres_trigger(
 
     tx.commit().await?;
 
+    handle_deployment_metadata(
+        &authed.email,
+        &authed.username,
+        &db,
+        &w_id,
+        DeployedObject::PostgresTrigger { path: path.to_string() },
+        Some(format!("Postgres trigger '{}' deleted", path)),
+        true,
+    )
+    .await?;
+
     Ok(format!("Postgres trigger {path} deleted"))
 }
 
@@ -1296,6 +1332,7 @@ pub async fn exists_postgres_trigger(
 
 pub async fn set_enabled(
     authed: ApiAuthed,
+    Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
     Path((w_id, path)): Path<(String, StripPath)>,
     Json(payload): Json<SetEnabled>,
@@ -1343,6 +1380,17 @@ pub async fn set_enabled(
     .await?;
 
     tx.commit().await?;
+
+    handle_deployment_metadata(
+        &authed.email,
+        &authed.username,
+        &db,
+        &w_id,
+        DeployedObject::PostgresTrigger { path: path.to_string() },
+        Some(format!("Postgres trigger '{}' updated", path)),
+        true,
+    )
+    .await?;
 
     Ok(format!(
         "succesfully updated postgres trigger at path {} to status {}",

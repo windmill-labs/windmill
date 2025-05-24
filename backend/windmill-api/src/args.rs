@@ -10,12 +10,17 @@ use http::{header::CONTENT_TYPE, request::Parts, StatusCode};
 use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
 use sqlx::types::JsonRawValue;
-use windmill_common::{error::Error, worker::to_raw_value, DB};
-use windmill_queue::{PushArgsOwned, TriggerKind};
+use windmill_common::{
+    error::Error,
+    triggers::{RunnableFormat, RunnableFormatVersion, TriggerKind},
+    worker::to_raw_value,
+    DB,
+};
+use windmill_queue::PushArgsOwned;
 
 use crate::{
     db::ApiAuthed,
-    trigger_helpers::{get_runnable_format, RunnableFormat, RunnableFormatVersion, RunnableId},
+    trigger_helpers::{get_runnable_format, RunnableId},
 };
 
 #[derive(Debug)]
@@ -29,14 +34,14 @@ pub enum RawBody {
     Empty,
 }
 
-#[derive(Clone, Serialize)]
+#[derive(Debug, Clone, Serialize)]
 #[serde(untagged)]
 pub enum Body {
     HashMap(HashMap<String, Box<RawValue>>),
     NoHashMap(Box<RawValue>),
 }
 
-#[derive(Clone, Default)]
+#[derive(Debug, Clone, Default)]
 pub struct WebhookArgsMetadata {
     pub raw_string: Option<String>,
     pub headers: HashMap<String, Box<RawValue>>,
@@ -51,7 +56,7 @@ pub struct RawWebhookArgs {
     pub metadata: WebhookArgsMetadata,
 }
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct WebhookArgs {
     pub body: Body,
     pub metadata: WebhookArgsMetadata,

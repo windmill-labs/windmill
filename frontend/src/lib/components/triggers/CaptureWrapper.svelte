@@ -2,52 +2,75 @@
 	import { workspaceStore } from '$lib/stores'
 	import { CaptureService, type CaptureConfig, type CaptureTriggerKind } from '$lib/gen'
 	import { onDestroy } from 'svelte'
-	import { capitalize, isObject, sendUserToast, sleep } from '$lib/utils'
-	import { isCloudHosted } from '$lib/cloud'
-	import Alert from '../common/alert/Alert.svelte'
-	import RouteEditorConfigSection from './http/RouteEditorConfigSection.svelte'
-	import WebsocketEditorConfigSection from './websocket/WebsocketEditorConfigSection.svelte'
-	import WebhooksConfigSection from './webhook/WebhooksConfigSection.svelte'
-	import EmailTriggerConfigSection from '../details/EmailTriggerConfigSection.svelte'
-	import KafkaTriggersConfigSection from './kafka/KafkaTriggersConfigSection.svelte'
+	import { isObject, sendUserToast, sleep } from '$lib/utils'
+	import RouteCapture from './http/RouteCapture.svelte'
 	import type { ConnectionInfo } from '../common/alert/ConnectionIndicator.svelte'
 	import type { CaptureInfo } from './CaptureSection.svelte'
-	import CaptureTable from './CaptureTable.svelte'
-	import NatsTriggersConfigSection from './nats/NatsTriggersConfigSection.svelte'
-	import MqttEditorConfigSection from './mqtt/MqttEditorConfigSection.svelte'
-	import SqsTriggerEditorConfigSection from './sqs/SqsTriggerEditorConfigSection.svelte'
-	import PostgresEditorConfigSection from './postgres/PostgresEditorConfigSection.svelte'
 	import { invalidRelations } from './postgres/utils'
-	import { DEFAULT_V3_CONFIG, DEFAULT_V5_CONFIG } from './mqtt/constant'
-	import GcpTriggerEditorConfigSection from './gcp/GcpTriggerEditorConfigSection.svelte'
+	import WebhooksCapture from './webhook/WebhooksCapture.svelte'
+	import EmailTriggerCaptures from '../details/EmailTriggerCaptures.svelte'
+	import WebsocketCapture from './websocket/WebsocketCapture.svelte'
+	import PostgresCapture from './postgres/PostgresCapture.svelte'
+	import KafkaCapture from './kafka/KafkaCapture.svelte'
+	import NatsCapture from './nats/NatsCapture.svelte'
+	import MqttCapture from './mqtt/MqttCapture.svelte'
+	import SqsCapture from './sqs/SqsCapture.svelte'
+	import GcpCapture from './gcp/GcpCapture.svelte'
 
-	export let isFlow: boolean
-	export let path: string
-	export let hasPreprocessor: boolean
-	export let canHavePreprocessor: boolean
-	export let captureType: CaptureTriggerKind = 'webhook'
-	export let showCapture = false
-	export let data: any = {}
-	export let connectionInfo: ConnectionInfo | undefined = undefined
-	export let loading = false
-	export let args: Record<string, any> = {}
-	export let captureTable: CaptureTable | undefined = undefined
+	interface Props {
+		isFlow: boolean
+		path: string
+		hasPreprocessor: boolean
+		canHavePreprocessor: boolean
+		captureType?: CaptureTriggerKind
+		data?: any
+		connectionInfo?: ConnectionInfo | undefined
+		args?: Record<string, any>
+		isValid?: boolean
+		triggerDeployed?: boolean
+	}
+
+	let {
+		isFlow,
+		path,
+		hasPreprocessor,
+		canHavePreprocessor,
+		captureType = 'webhook',
+		data = {},
+		connectionInfo = $bindable(undefined),
+		args = $bindable({}),
+		isValid = false,
+		triggerDeployed = false
+	}: Props = $props()
+
+	let captureLoading = $state(false)
+	let captureActive = $state(false)
+	let captureConfigs: {
+		[key: string]: CaptureConfig
+	} = $state({})
+	let ready = $state(false)
+
+	const config: CaptureConfig | undefined = $derived(captureConfigs[captureType])
 
 	export async function setConfig(): Promise<boolean> {
 		if (captureType === 'postgres') {
+			if (!args?.publication?.table_to_track) {
+				sendUserToast('Table to track must be set', true)
+				return false
+			}
+
 			if (
 				args.table_to_track &&
 				invalidRelations(args.table_to_track, {
 					showError: true,
 					trackSchemaTableError: true
-				}) === true
+				}) !== ''
 			) {
 				return false
 			}
 		}
 		try {
-			loading = true
-			args = await CaptureService.setCaptureConfig({
+			await CaptureService.setCaptureConfig({
 				requestBody: {
 					trigger_kind: captureType,
 					path,
@@ -56,22 +79,19 @@
 				},
 				workspace: $workspaceStore!
 			})
-			loading = false
 			return true
 		} catch (error) {
-			loading = false
 			sendUserToast(error.body, true)
 			return false
 		}
 	}
 
-	let captureActive = false
-
-	let captureConfigs: {
-		[key: string]: CaptureConfig
-	} = {}
-
-	const STREAMING_CAPTURES = ['mqtt', 'sqs', 'websocket', 'postgres', 'kafka', 'nats', 'gcp']
+	function isStreamingCapture() {
+		if (captureType === 'gcp' && args.delivery_type === 'push') {
+			return false
+		}
+		return ['mqtt', 'sqs', 'websocket', 'postgres', 'kafka', 'nats', 'gcp'].includes(captureType)
+	}
 
 	async function getCaptureConfigs() {
 		const captureConfigsList = await CaptureService.getCaptureConfigs({
@@ -79,10 +99,12 @@
 			runnableKind: isFlow ? 'flow' : 'script',
 			path
 		})
+
 		captureConfigs = captureConfigsList.reduce((acc, c) => {
 			acc[c.trigger_kind] = c
 			return acc
 		}, {})
+
 		if (isStreamingCapture() && captureActive) {
 			const config = captureConfigs[captureType]
 			if (config && config.error) {
@@ -112,30 +134,15 @@
 			}
 			i++
 			await sleep(1000)
-			captureTable?.loadCaptures(true)
 		}
 	}
 
-	let ready = false
 	function setDefaultArgs(captureConfigs: { [key: string]: CaptureConfig }) {
 		if (captureType in captureConfigs) {
 			const triggerConfig = captureConfigs[captureType].trigger_config
 			args = isObject(triggerConfig) ? triggerConfig : {}
 		} else {
-			switch (captureType) {
-				case 'mqtt':
-					//define these field so any reactive statement that may use them will not crash trying to access their property
-					args = {
-						v3_config: DEFAULT_V3_CONFIG,
-						v5_config: DEFAULT_V5_CONFIG,
-						client_version: 'v5',
-						subscribe_topics: []
-					}
-					break
-
-				default:
-					args = {}
-			}
+			args = {}
 		}
 		ready = true
 	}
@@ -155,23 +162,17 @@
 		if (captureActive || e.detail.disableOnly) {
 			captureActive = false
 		} else {
-			const configSet = await setConfig()
-			if (configSet) {
-				capture()
+			try {
+				captureLoading = true
+				const configSet = await setConfig()
+
+				if (configSet) {
+					capture()
+				}
+			} finally {
+				captureLoading = false
 			}
 		}
-	}
-
-	let config: CaptureConfig | undefined
-	$: config = captureConfigs[captureType]
-
-	let cloudDisabled = STREAMING_CAPTURES.includes(captureType) && isCloudHosted()
-
-	function isStreamingCapture() {
-		if (captureType === 'gcp' && args.delivery_type === 'push') {
-			return false
-		}
-		return ['mqtt', 'sqs', 'websocket', 'postgres', 'kafka', 'nats', 'gcp'].includes(captureType)
 	}
 
 	function updateConnectionInfo(config: CaptureConfig | undefined, captureActive: boolean) {
@@ -189,37 +190,31 @@
 			connectionInfo = undefined
 		}
 	}
-	$: updateConnectionInfo(config, captureActive)
+	$effect(() => {
+		updateConnectionInfo(config, captureActive)
+	})
 
-	let captureInfo: CaptureInfo
-	$: captureInfo = {
+	let captureInfo: CaptureInfo = $derived({
 		active: captureActive,
 		hasPreprocessor,
 		canHavePreprocessor,
 		isFlow,
 		path,
-		connectionInfo,
-		loading: loading
-	}
+		connectionInfo
+	})
 
-	$: args && (captureActive = false)
+	$effect(() => {
+		args && (captureActive = false)
+	})
 </script>
 
 {#key ready}
-	<div class="flex flex-col gap-4 w-full">
-		{#if cloudDisabled}
-			<Alert title="Not compatible with multi-tenant cloud" type="warning" size="xs">
-				{capitalize(captureType)} triggers are disabled in the multi-tenant cloud.
-			</Alert>
-		{:else if captureType === 'websocket'}
-			<WebsocketEditorConfigSection
-				can_write={true}
-				headless={true}
-				bind:url={args.url}
-				bind:url_runnable_args={args.url_runnable_args}
-				{showCapture}
+	<div class="flex flex-col gap-4 w-full h-full">
+		{#if captureType === 'websocket'}
+			<WebsocketCapture
+				{isValid}
 				{captureInfo}
-				bind:captureTable
+				{captureLoading}
 				on:applyArgs
 				on:updateSchema
 				on:addPreprocessor
@@ -227,18 +222,13 @@
 				on:testWithArgs
 			/>
 		{:else if captureType === 'postgres'}
-			<PostgresEditorConfigSection
-				bind:postgres_resource_path={args.postgres_resource_path}
-				bind:relations={args.table_to_track}
-				bind:publication_name={args.publication_name}
-				bind:transaction_to_track={args.transaction_to_track}
-				bind:replication_slot_name={args.replication_slot_name}
-				bind:basic_mode={args.basic_mode}
-				{showCapture}
+			<PostgresCapture
 				{captureInfo}
-				can_write={true}
-				headless={true}
-				bind:captureTable
+				{captureLoading}
+				postgres_resource_path={args.postgres_resource_path}
+				{hasPreprocessor}
+				{isFlow}
+				{triggerDeployed}
 				on:applyArgs
 				on:updateSchema
 				on:addPreprocessor
@@ -246,16 +236,13 @@
 				on:testWithArgs
 			/>
 		{:else if captureType === 'webhook'}
-			<WebhooksConfigSection
+			<WebhooksCapture
+				{hasPreprocessor}
 				{isFlow}
 				{path}
-				hash={data?.hash}
-				token={data?.token}
 				runnableArgs={data?.args}
-				scopes={data?.scopes}
-				{showCapture}
 				{captureInfo}
-				bind:captureTable
+				{captureLoading}
 				on:applyArgs
 				on:updateSchema
 				on:addPreprocessor
@@ -263,18 +250,15 @@
 				on:testWithArgs
 			/>
 		{:else if captureType === 'http'}
-			<RouteEditorConfigSection
-				{showCapture}
-				can_write={true}
+			<RouteCapture
 				runnableArgs={data?.args}
-				bind:route_path={args.route_path}
-				bind:http_method={args.http_method}
-				bind:raw_string={args.raw_string}
-				bind:wrap_body={args.wrap_body}
-				capture_mode={true}
-				headless
+				route_path={args.route_path}
+				http_method={args.http_method}
+				{isValid}
 				{captureInfo}
-				bind:captureTable
+				{hasPreprocessor}
+				{isFlow}
+				{captureLoading}
 				on:applyArgs
 				on:updateSchema
 				on:addPreprocessor
@@ -282,16 +266,13 @@
 				on:testWithArgs
 			/>
 		{:else if captureType === 'email'}
-			<EmailTriggerConfigSection
-				hash={data?.hash}
-				token={data?.token}
+			<EmailTriggerCaptures
 				{path}
 				{isFlow}
-				userSettings={data?.userSettings}
 				emailDomain={data?.emailDomain}
-				{showCapture}
 				{captureInfo}
-				bind:captureTable
+				{hasPreprocessor}
+				{captureLoading}
 				on:applyArgs
 				on:updateSchema
 				on:addPreprocessor
@@ -299,14 +280,13 @@
 				on:testWithArgs
 			/>
 		{:else if captureType === 'kafka'}
-			<KafkaTriggersConfigSection
-				headless={true}
-				{path}
-				bind:args
-				staticInputDisabled={false}
-				{showCapture}
+			<KafkaCapture
+				{isValid}
 				{captureInfo}
-				bind:captureTable
+				{hasPreprocessor}
+				{isFlow}
+				{captureLoading}
+				{triggerDeployed}
 				on:applyArgs
 				on:updateSchema
 				on:addPreprocessor
@@ -314,32 +294,27 @@
 				on:testWithArgs
 			/>
 		{:else if captureType === 'nats'}
-			<NatsTriggersConfigSection
-				headless={true}
-				bind:args
-				{path}
-				staticInputDisabled={false}
-				{showCapture}
+			<NatsCapture
+				{isValid}
 				{captureInfo}
-				bind:captureTable
+				{hasPreprocessor}
+				{isFlow}
+				{captureLoading}
+				{triggerDeployed}
 				on:applyArgs
 				on:updateSchema
 				on:addPreprocessor
 				on:captureToggle={handleCapture}
+				on:testWithArgs
 			/>
 		{:else if captureType === 'mqtt'}
-			<MqttEditorConfigSection
-				can_write={true}
-				headless={true}
-				{showCapture}
+			<MqttCapture
+				{isValid}
 				{captureInfo}
-				bind:v3_config={args.v3_config}
-				bind:v5_config={args.v5_config}
-				bind:client_version={args.client_version}
-				bind:subscribe_topics={args.subscribe_topics}
-				bind:mqtt_resource_path={args.mqtt_resource_path}
-				bind:client_id={args.client_id}
-				bind:captureTable
+				{hasPreprocessor}
+				{isFlow}
+				{captureLoading}
+				{triggerDeployed}
 				on:applyArgs
 				on:updateSchema
 				on:addPreprocessor
@@ -347,16 +322,13 @@
 				on:testWithArgs
 			/>
 		{:else if captureType === 'sqs'}
-			<SqsTriggerEditorConfigSection
-				can_write={true}
-				headless={true}
-				bind:queue_url={args.queue_url}
-				bind:aws_resource_path={args.aws_resource_path}
-				bind:message_attributes={args.message_attributes}
-				bind:aws_auth_resource_type={args.aws_auth_resource_type}
-				{showCapture}
+			<SqsCapture
+				{isValid}
 				{captureInfo}
-				bind:captureTable
+				{hasPreprocessor}
+				{isFlow}
+				{captureLoading}
+				{triggerDeployed}
 				on:applyArgs
 				on:updateSchema
 				on:addPreprocessor
@@ -364,21 +336,14 @@
 				on:testWithArgs
 			/>
 		{:else if captureType === 'gcp'}
-			<GcpTriggerEditorConfigSection
-				can_write={true}
-				headless={true}
-				bind:gcp_resource_path={args.gcp_resource_path}
-				bind:topic_id={args.topic_id}
-				bind:subscription_id={args.subscription_id}
-				bind:cloud_subscription_id={args.subscription_id}
-				bind:create_update_subscription_id={args.subscription_id}
-				bind:delivery_config={args.delivery_config}
-				bind:delivery_type={args.delivery_type}
-				bind:subscription_mode={args.subscription_mode}
-				bind:base_endpoint={args.base_endpoint}
-				{showCapture}
+			<GcpCapture
+				{isValid}
 				{captureInfo}
-				bind:captureTable
+				{hasPreprocessor}
+				{isFlow}
+				{triggerDeployed}
+				deliveryType={args.delivery_type}
+				{captureLoading}
 				on:applyArgs
 				on:updateSchema
 				on:addPreprocessor

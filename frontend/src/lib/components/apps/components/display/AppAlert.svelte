@@ -10,6 +10,7 @@
 	import InitializeComponent from '../helpers/InitializeComponent.svelte'
 	import { Alert } from '$lib/components/common'
 	import AlignWrapper from '../helpers/AlignWrapper.svelte'
+	import { appendClass } from '../../editor/componentsPanel/cssUtils'
 
 	export let id: string
 	export let configuration: RichConfigurations
@@ -63,13 +64,13 @@
 				tooltip={resolvedConfig.tooltip}
 				size={resolvedConfig.size}
 				collapsible={resolvedConfig.collapsible}
-				bgClass={css?.background?.class}
+				bgClass={appendClass(css?.background?.class, 'wm-alert-card-background')}
 				bgStyle={css?.background?.style}
-				iconClass={css?.icon?.class}
+				iconClass={appendClass(css?.icon?.class, 'wm-alert-card-icon')}
 				iconStyle={css?.icon?.style}
-				titleClass={css?.title?.class}
+				titleClass={appendClass(css?.title?.class, 'wm-alert-card-title')}
 				titleStyle={css?.title?.style}
-				descriptionClass={css?.description?.class}
+				descriptionClass={appendClass(css?.description?.class, 'wm-alert-card-description')}
 				descriptionStyle={css?.description?.style}
 				isCollapsed={resolvedConfig.initiallyCollapsed}
 			>

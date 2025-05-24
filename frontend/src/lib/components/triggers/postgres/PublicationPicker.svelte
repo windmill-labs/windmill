@@ -16,6 +16,7 @@
 	export let postgres_resource_path: string = ''
 	export let relations: Relations[] | undefined = undefined
 	export let transaction_to_track: string[] = []
+	export let disabled: boolean = false
 
 	let loadingPublication: boolean = false
 	let deletingPublication: boolean = false
@@ -103,7 +104,7 @@
 <div class="flex gap-1">
 	<Select
 		loading={loadingPublication}
-		disabled={!can_write}
+		disabled={!can_write || disabled}
 		class="grow shrink max-w-full"
 		on:select={async (e) => {
 			publication_name = e.detail.value
@@ -122,7 +123,7 @@
 		portal={false}
 	/>
 	<Button
-		disabled={!can_write}
+		disabled={!can_write || disabled}
 		variant="border"
 		color="light"
 		wrapperClasses="self-stretch"
@@ -135,7 +136,7 @@
 		color="light"
 		size="xs"
 		variant="border"
-		disabled={emptyString(publication_name) || !can_write}
+		disabled={emptyString(publication_name) || !can_write || disabled}
 		on:click={updatePublication}>Update</Button
 	>
 	<Button
@@ -143,7 +144,7 @@
 		color="light"
 		size="xs"
 		variant="border"
-		disabled={emptyString(publication_name) || !can_write}
+		disabled={emptyString(publication_name) || !can_write || disabled}
 		on:click={deletePublication}>Delete</Button
 	>
 </div>

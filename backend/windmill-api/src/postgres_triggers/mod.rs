@@ -87,8 +87,8 @@ pub async fn get_raw_postgres_connection(db: &Postgres) -> Result<PgConnection> 
             }
         };
 
-        let options = if !db.root_certificate_pem.is_empty() {
-            options.ssl_root_cert_from_pem(db.root_certificate_pem.as_bytes().to_vec())
+        let options = if let Some(root_certificate_pem) = &db.root_certificate_pem {
+            options.ssl_root_cert_from_pem(root_certificate_pem.as_bytes().to_vec())
         } else {
             options
         };
@@ -99,7 +99,6 @@ pub async fn get_raw_postgres_connection(db: &Postgres) -> Result<PgConnection> 
             options
         }
     };
-
     Ok(PgConnection::connect_with(&options).await?)
 }
 

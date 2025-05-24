@@ -30,9 +30,9 @@ use crate::{
         start_child_process, transform_json, OccupancyMetrics,
     },
     handle_child::handle_child,
-    python_executor::{create_dependencies_dir, handle_python_reqs, uv_pip_compile, PyVersion},
-    AuthedClient, DISABLE_NSJAIL, DISABLE_NUSER, GIT_PATH, HOME_ENV, NSJAIL_PATH, PATH_ENV,
-    PROXY_ENVS, PY_INSTALL_DIR, TZ_ENV,
+    python_executor::{create_dependencies_dir, handle_python_reqs, uv_pip_compile},
+    AuthedClient, PyVAlias, DISABLE_NSJAIL, DISABLE_NUSER, GIT_PATH, HOME_ENV, NSJAIL_PATH,
+    PATH_ENV, PROXY_ENVS, PY_INSTALL_DIR, TZ_ENV,
 };
 
 lazy_static::lazy_static! {
@@ -373,7 +373,7 @@ async fn handle_ansible_python_deps(
                     worker_name,
                     w_id,
                     &mut Some(occupancy_metrics),
-                    PyVersion::Py311,
+                    PyVAlias::Py311.into(),
                     false,
                 )
                 .await
@@ -387,10 +387,7 @@ async fn handle_ansible_python_deps(
 
     if requirements.len() > 0 {
         let mut venv_path = handle_python_reqs(
-            requirements
-                .split("\n")
-                .filter(|x| !x.starts_with("--"))
-                .collect(),
+            crate::python_executor::split_requirements(requirements),
             job_id,
             w_id,
             mem_peak,
@@ -400,7 +397,7 @@ async fn handle_ansible_python_deps(
             job_dir,
             worker_dir,
             &mut Some(occupancy_metrics),
-            crate::python_executor::PyVersion::Py311,
+            PyVAlias::default().into(),
         )
         .await?;
         additional_python_paths.append(&mut venv_path);
@@ -782,9 +779,38 @@ pub async fn handle_ansible_job(
         "ansible",
     )?;
 
-    let req_lockfiles: Option<AnsibleDependencyLocks> = requirements_o
-        .map(|s| serde_json::from_str(s))
-        .transpose()?;
+    let req_lockfiles: Option<AnsibleDependencyLocks> = if let Some(s) = requirements_o {
+        if let Ok(lockfile) = serde_json::from_str(s) {
+            Some(lockfile)
+        } else {
+            if !s.trim_start().starts_with('{') {
+                append_logs(
+                    &job.id,
+                    &job.workspace_id,
+                    format!("WARN: lockfile seems to be in an older version, roles and collections are therefore using the latest version and not the one locked at deployment. Redeploy the script to correct this"),
+                    conn,
+                )
+                .await;
+                Some(AnsibleDependencyLocks {
+                    python_lockfile: s.to_string(),
+                    git_repos: HashMap::new(),
+                    collections_and_roles: String::new(),
+                    collections_and_roles_logs: String::new(),
+                })
+            } else {
+                append_logs(
+                    &job.id,
+                    &job.workspace_id,
+                    format!("WARN: lockfile could not be parsed: {s}"),
+                    conn,
+                )
+                .await;
+                None
+            }
+        }
+    } else {
+        None
+    };
 
     let (logs, reqs, playbook) = windmill_parser_yaml::parse_ansible_reqs(inner_content)?;
     append_logs(&job.id, &job.workspace_id, logs, conn).await;
@@ -935,7 +961,13 @@ pub async fn handle_ansible_job(
             let empty = String::new();
             let (lockfile, logs) = req_lockfiles
                 .as_ref()
-                .map(|r| (&r.collections_and_roles, &r.collections_and_roles_logs))
+                .and_then(|r| {
+                    if r.collections_and_roles.is_empty() {
+                        None
+                    } else {
+                        Some((&r.collections_and_roles, &r.collections_and_roles_logs))
+                    }
+                })
                 .unwrap_or((collections, &empty));
 
             if !logs.is_empty() {

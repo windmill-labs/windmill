@@ -1,0 +1,94 @@
+name: Aider Auto-fix PR Review Change Requests
+
+on:
+  pull_request_review:
+    types: [submitted]
+
+jobs:
+  check-membership:
+    if: github.event.review.state == 'changes_requested' && contains(github.event.pull_request.title, '[Aider PR]')
+    runs-on: ubicloud-standard-2
+    outputs:
+      is_member: ${{ steps.check-membership.outputs.is_member }}
+    steps:
+      - name: Check organization membership
+        id: check-membership
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          REVIEWER: ${{ github.event.review.user.login }}
+          ORG_ACCESS_TOKEN: ${{ secrets.ORG_ACCESS_TOKEN }}
+        run: |
+          ORG="windmill-labs"
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
+            -H "Authorization: token $ORG_ACCESS_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/orgs/$ORG/members/$REVIEWER")
+
+          if [ "$STATUS" -eq 204 ]; then
+            echo "is_member=true" >> $GITHUB_OUTPUT
+          else
+            echo "is_member=false" >> $GITHUB_OUTPUT
+          fi
+
+  check-and-prepare:
+    needs: check-membership
+    if: github.event.review.state == 'changes_requested' && contains(github.event.pull_request.title, '[Aider PR]') && needs.check-membership.outputs.is_member == 'true'
+    runs-on: ubicloud-standard-2
+    permissions:
+      contents: write
+      pull-requests: write
+    outputs:
+      prompt_content: ${{ steps.prepare_prompt.outputs.prompt_content }}
+    env:
+      GEMINI_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
+      GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      WINDMILL_TOKEN: ${{ secrets.WINDMILL_TOKEN }}
+
+    steps:
+      - name: Acknowledge Request
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: |
+          echo "Commenting on PR #${{ github.event.pull_request.number }} to acknowledge the /aider command."
+          gh pr comment ${{ github.event.pull_request.number }} --body "🤖 Aider is starting to work on your request. Please be patient, this might take a few minutes." --repo $GITHUB_REPOSITORY
+
+      - name: Prepare prompt for Aider
+        id: prepare_prompt
+        shell: bash
+        env:
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          REVIEW_BODY: ${{ github.event.review.body }}
+        run: |
+          REVIEW_BODY_ESCAPED="${REVIEW_BODY//\\/\\\\}"
+          REVIEW_BODY_ESCAPED="${REVIEW_BODY_ESCAPED//\"/\\\"}"
+
+          ALL_REVIEW_COMMENTS=$(gh api \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            /repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER/comments)
+
+          FORMATTED_COMMENTS=$(jq -r '[.[] | {diff_hunk: .diff_hunk, path: .path, body: .body}]' <<< "$ALL_REVIEW_COMMENTS")
+
+          BASE_PROMPT="Fix the following issues in the PR based on the review feedback. The review body is prepended with REVIEW. The review comments are prepended with REVIEW_COMMENTS. The review body and comments are separated by a blank line."
+
+          COMPLETE_PROMPT="${BASE_PROMPT}"$'\n'"REVIEW:"$'\n'"${REVIEW_BODY_ESCAPED}"$'\n'"REVIEW_COMMENTS:"$'\n'"${FORMATTED_COMMENTS}"
+
+          echo "prompt_content<<EOF" >> $GITHUB_OUTPUT
+          echo "$COMPLETE_PROMPT" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+  run-aider:
+    needs: [check-membership, check-and-prepare]
+    if: github.event.review.state == 'changes_requested' && contains(github.event.pull_request.title, '[Aider PR]') && needs.check-membership.outputs.is_member == 'true'
+    uses: ./.github/workflows/aider-common.yml
+    with:
+      needs_processing: false
+      base_prompt: ${{ needs.check-and-prepare.outputs.prompt_content }}
+      rules_files: "CLAUDE.md backend/CLAUDE.md frontend/CLAUDE.md"
+    secrets: inherit
