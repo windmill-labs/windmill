@@ -567,7 +567,7 @@ async fn send_job_completed(job_completed_tx: JobCompletedSender, jc: JobComplet
     match result {
         Ok(()) => tracing::debug!("send job completed"),
         Err(err) => {
-            tracing::error!("An error occurend while sending job completed: {:#?}", err)
+            tracing::error!("An error occurred while sending job completed: {:#?}", err)
         }
     }
 }
