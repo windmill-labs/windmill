@@ -17,7 +17,9 @@ use windmill_common::{
     cache::{future::FutureCachedExt, ScriptData, ScriptMetadata},
     schema::{should_validate_schema, SchemaValidator},
     scripts::PREVIEW_IS_TAR_CODEBASE_HASH,
-    utils::WarnAfterExt,
+    utils::{
+        check_if_ag_worker_has_specific_suffix, AgentWorkerSuffix, WarnAfterExt, WORKER_NAME_PREFIX,
+    },
     worker::{
         write_file, Connection, HttpClient, MAX_TIMEOUT, ROOT_CACHE_DIR, ROOT_CACHE_NOMOUNT_DIR,
         TMP_DIR,
@@ -112,7 +114,9 @@ use crate::{
     job_logger::NO_LOGS_AT_ALL,
     js_eval::{eval_fetch_timeout, transpile_ts},
     pg_executor::do_postgresql,
-    result_processor::{process_result, start_background_processor},
+    result_processor::{
+        process_result, start_background_processor, start_interactive_worker_shell,
+    },
     schema::schema_validator_from_main_arg_sig,
     worker_flow::handle_flow,
     worker_lockfiles::{
@@ -244,6 +248,8 @@ lazy_static::lazy_static! {
 const DOTNET_DEFAULT_PATH: &str = "C:\\Program Files\\dotnet\\dotnet.exe";
 #[cfg(unix)]
 const DOTNET_DEFAULT_PATH: &str = "/usr/bin/dotnet";
+pub const SAME_WORKER_REQUIREMENTS: &'static str =
+    "SameWorkerSender is required because this job may be part of a flow";
 
 lazy_static::lazy_static! {
 
@@ -386,6 +392,31 @@ lazy_static::lazy_static! {
 #[cfg(not(windows))]
 lazy_static::lazy_static! {
     pub static ref WIN_ENVS: Envs = vec![];
+}
+
+#[derive(Debug)]
+pub enum NextJob {
+    Sql(PulledJob),
+    Http(JobAndPerms),
+}
+
+impl NextJob {
+    pub fn job(self) -> MiniPulledJob {
+        match self {
+            NextJob::Sql(job) => job.job,
+            NextJob::Http(job) => job.job,
+        }
+    }
+}
+
+impl std::ops::Deref for NextJob {
+    type Target = MiniPulledJob;
+    fn deref(&self) -> &Self::Target {
+        match self {
+            NextJob::Sql(job) => &job.job,
+            NextJob::Http(job) => &job.job,
+        }
+    }
 }
 
 //only matter if CLOUD_HOSTED
@@ -1124,6 +1155,29 @@ pub async fn run_worker(
     let job_completed_processor_is_done =
         Arc::new(AtomicBool::new(matches!(conn, Connection::Http(_))));
 
+    let is_agent_worker_allowed_to_enable_live_shell = || {
+        worker_name
+            .split("-")
+            .last()
+            .map(|suffix| {
+                check_if_ag_worker_has_specific_suffix(AgentWorkerSuffix::EnableLiveShell, suffix)
+            })
+            .unwrap_or(false)
+    };
+
+    
+    if worker_name.starts_with(WORKER_NAME_PREFIX) || is_agent_worker_allowed_to_enable_live_shell() {
+        tracing::debug!("Worker {} now listening for host tag", &worker_name);
+        start_interactive_worker_shell(
+            conn.clone(),
+            hostname.to_owned(),
+            worker_name.clone(),
+            killpill_rx.resubscribe(),
+            base_internal_url.to_owned(),
+            worker_dir.clone(),
+        );
+    }
+
     let send_result = match (conn, job_completed_rx) {
         (Connection::Sql(db), Some(job_completed_receiver)) => Some(start_background_processor(
             job_completed_receiver,
@@ -1250,7 +1304,7 @@ pub async fn run_worker(
             if !valid_key {
                 tracing::error!(
                     worker = %worker_name, hostname = %hostname,
-                    "Invalid license key, workers require a valid license key, sleeping for 30s waiting for valid key to be set"
+                    "Invalid license key, workers require a valid license key, sleeping for 10s waiting for valid key to be set"
                 );
                 tokio::time::sleep(Duration::from_secs(10)).await;
                 continue;
@@ -1320,29 +1374,6 @@ pub async fn run_worker(
         } else {
             tracing::info!("benchmark not finished, still pulling jobs {}", infos.iters);
         }
-        enum NextJob {
-            Sql(PulledJob),
-            Http(JobAndPerms),
-        }
-
-        impl NextJob {
-            pub fn job(self) -> MiniPulledJob {
-                match self {
-                    NextJob::Sql(job) => job.job,
-                    NextJob::Http(job) => job.job,
-                }
-            }
-        }
-
-        impl std::ops::Deref for NextJob {
-            type Target = MiniPulledJob;
-            fn deref(&self) -> &Self::Target {
-                match self {
-                    NextJob::Sql(job) => &job.job,
-                    NextJob::Http(job) => &job.job,
-                }
-            }
-        }
 
         let next_job = {
             // println!("2: {:?}",  instant.elapsed());
@@ -1383,6 +1414,7 @@ pub async fn run_worker(
                                 "/api/agent_workers/same_worker_job/{}",
                                 same_worker_job.job_id
                             ),
+                            None,
                             &same_worker_job,
                         )
                         .await
@@ -1488,7 +1520,7 @@ pub async fn run_worker(
                         }
                         job.map(|x| x.job.map(NextJob::Sql))
                     }
-                    Connection::Http(client) => crate::agent_workers::pull_job(&client)
+                    Connection::Http(client) => crate::agent_workers::pull_job(&client, None)
                         .await
                         .map_err(|e| error::Error::InternalErr(e.to_string()))
                         .map(|x| x.map(|y| NextJob::Http(y))),
@@ -1536,6 +1568,7 @@ pub async fn run_worker(
                         }
                     }
                 }
+
                 if matches!(job.kind, JobKind::Noop) {
                     add_time!(bench, "send job completed START");
                     job_completed_tx
@@ -1733,7 +1766,7 @@ pub async fn run_worker(
                         &worker_name,
                         &worker_dir,
                         &job_dir,
-                        same_worker_tx.clone(),
+                        Some(same_worker_tx.clone()),
                         base_internal_url,
                         job_completed_tx.clone(),
                         &mut occupancy_metrics,
@@ -1756,7 +1789,7 @@ pub async fn run_worker(
                                         None,
                                         err,
                                         false,
-                                        same_worker_tx.clone(),
+                                        Some(&same_worker_tx),
                                         &worker_dir,
                                         &worker_name,
                                         job_completed_tx.clone(),
@@ -2006,7 +2039,7 @@ pub struct PreviousResult<'a> {
     pub previous_result: Option<&'a RawValue>,
 }
 
-async fn handle_queued_job(
+pub async fn handle_queued_job(
     job: Arc<MiniPulledJob>,
     raw_code: Option<String>,
     raw_lock: Option<String>,
@@ -2018,7 +2051,7 @@ async fn handle_queued_job(
     worker_name: &str,
     worker_dir: &str,
     job_dir: &str,
-    same_worker_tx: SameWorkerSender,
+    same_worker_tx: Option<SameWorkerSender>,
     base_internal_url: &str,
     job_completed_tx: JobCompletedSender,
     occupancy_metrics: &mut OccupancyMetrics,
@@ -2167,7 +2200,7 @@ async fn handle_queued_job(
                 db,
                 &client,
                 None,
-                same_worker_tx,
+                &same_worker_tx.expect(SAME_WORKER_REQUIREMENTS),
                 worker_dir,
                 job_completed_tx.clone(),
                 worker_name,
@@ -2336,7 +2369,6 @@ async fn handle_queued_job(
         {
             return Ok(false);
         }
-
         process_result(
             job,
             result.map(|x| Arc::new(x)),

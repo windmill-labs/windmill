@@ -60,7 +60,7 @@
 		flowInputsStore,
 		pathStore
 	} = getContext<FlowEditorContext>('FlowEditorContext')
-	const { triggersCount, triggersState } = getContext<TriggerContext>('TriggerContext')
+	const { primarySchedule, triggersCount } = getContext<TriggerContext>('TriggerContext')
 
 	const { flowPropPickerConfig } = getContext<PropPickerContext>('PropPickerContext')
 	async function insertNewModuleAtIndex(
@@ -433,7 +433,7 @@
 										undefined
 									)
 									setExpr(detail.modules[index + 1], `results.${id}`)
-									setScheduledPollSchedule(triggersState, triggersCount)
+									setScheduledPollSchedule(primarySchedule, triggersCount)
 								}
 
 								if (`flow` in detail) {

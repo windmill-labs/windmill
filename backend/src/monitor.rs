@@ -1986,7 +1986,7 @@ async fn handle_zombie_jobs(db: &Pool<Postgres>, base_internal_url: &str, worker
             None,
             error::Error::ExecutionErr(error_message),
             true,
-            same_worker_tx_never_used,
+            Some(&same_worker_tx_never_used),
             "",
             worker_name,
             send_result_never_used,

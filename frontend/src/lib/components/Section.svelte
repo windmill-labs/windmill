@@ -11,7 +11,6 @@
 	export let eeOnly = false
 	export let small: boolean = false
 	export let wrapperClass: string = ''
-	export let headerClass: string = ''
 
 	export let collapsable: boolean = false
 	export let collapsed: boolean = true
@@ -27,8 +26,7 @@
 				class={twMerge(
 					'font-semibold flex flex-row items-center gap-1',
 					breakAll ? 'break-all' : '',
-					small ? 'text-sm' : 'text-base',
-					headerClass
+					small ? 'text-sm' : 'text-base'
 				)}
 			>
 				{#if collapsable}

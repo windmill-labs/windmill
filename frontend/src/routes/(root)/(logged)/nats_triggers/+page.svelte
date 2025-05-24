@@ -226,7 +226,7 @@
 </script>
 
 <DeployWorkspaceDrawer bind:this={deploymentDrawer} />
-<NatsTriggerEditor onUpdate={loadTriggers} bind:this={natsTriggerEditor} />
+<NatsTriggerEditor on:update={loadTriggers} bind:this={natsTriggerEditor} />
 
 <SearchItems
 	{filter}

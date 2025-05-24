@@ -94,7 +94,7 @@
 	{/if}
 
 	{#if disabled}
-		<input type="text" value={scriptPath ?? initialPath ?? ''} disabled />
+		<input type="text" value={scriptPath ?? ''} disabled />
 	{:else}
 		<Select
 			value={items?.find((x) => x.value == initialPath)}

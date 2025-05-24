@@ -221,7 +221,7 @@
 </script>
 
 <DeployWorkspaceDrawer bind:this={deploymentDrawer} />
-<MqttTriggerEditor onUpdate={loadTriggers} bind:this={mqttTriggerEditor} />
+<MqttTriggerEditor on:update={loadTriggers} bind:this={mqttTriggerEditor} />
 
 <SearchItems
 	{filter}

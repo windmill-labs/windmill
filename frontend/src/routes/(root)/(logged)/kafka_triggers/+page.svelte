@@ -227,7 +227,7 @@
 </script>
 
 <DeployWorkspaceDrawer bind:this={deploymentDrawer} />
-<KafkaTriggerEditor onUpdate={loadTriggers} bind:this={kafkaTriggerEditor} />
+<KafkaTriggerEditor on:update={loadTriggers} bind:this={kafkaTriggerEditor} />
 
 <SearchItems
 	{filter}

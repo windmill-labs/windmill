@@ -12,7 +12,6 @@
 	import UnsavedConfirmationModal from '$lib/components/common/confirmationModal/UnsavedConfirmationModal.svelte'
 	import type { ScheduleTrigger } from '$lib/components/triggers'
 	import type { GetInitialAndModifiedValues } from '$lib/components/common/confirmationModal/unsavedTypes'
-	import type { Trigger } from '$lib/components/triggers/utils'
 
 	let initialState = window.location.hash != '' ? window.location.hash.slice(1) : undefined
 	let initialArgs = {}
@@ -27,8 +26,7 @@
 
 	let scriptLoadedFromUrl = initialState != undefined ? decodeState(initialState) : undefined
 
-
-	let script: (NewScript & { draft_triggers?: Trigger[] }) | undefined = undefined
+	let script: NewScript | undefined = undefined
 
 	let initialPath: string = ''
 
@@ -39,7 +37,7 @@
 	let savedScript: NewScriptWithDraft | undefined = undefined
 	let fullyLoaded = false
 
-	let savedPrimarySchedule: ScheduleTrigger | undefined = undefined
+	let savedPrimarySchedule: ScheduleTrigger | undefined = scriptLoadedFromUrl?.primarySchedule
 
 	async function loadScript(): Promise<void> {
 		fullyLoaded = false
@@ -100,12 +98,10 @@
 				savedScript = structuredClone(scriptWithDraft)
 				if (scriptWithDraft.draft != undefined) {
 					script = scriptWithDraft.draft
-					scriptBuilder?.setDraftTriggers(script.draft_triggers)
 					if (script['primary_schedule']) {
 						savedPrimarySchedule = script['primary_schedule']
 						scriptBuilder?.setPrimarySchedule(savedPrimarySchedule)
 					}
-
 					if (!scriptWithDraft.draft_only) {
 						reloadAction = async () => {
 							scriptLoadedFromUrl = undefined
@@ -157,7 +153,6 @@
 
 		if (script) {
 			initialPath = script.path
-			scriptBuilder?.setDraftTriggers(script.draft_triggers)
 			scriptBuilder?.setCode(script.content)
 			if (topHash) {
 				script.parent_hash = topHash
@@ -181,7 +176,6 @@
 		}
 		diffDrawer.closeDrawer()
 		goto(`/scripts/edit/${savedScript.draft.path}`)
-		scriptLoadedFromUrl = undefined
 		loadScript()
 	}
 
@@ -199,7 +193,6 @@
 			})
 		}
 		goto(`/scripts/edit/${savedScript.path}`)
-		scriptLoadedFromUrl = undefined
 		loadScript()
 	}
 

@@ -1,23 +1,8 @@
 <script lang="ts">
 	import { tick } from 'svelte'
 	import WebsocketTriggerEditorInner from './WebsocketTriggerEditorInner.svelte'
-	import type { Snippet } from 'svelte'
 
-	interface Props {
-		useDrawer?: boolean
-		description?: Snippet | undefined
-		hideTarget?: boolean
-		onUpdate?: (path?: string) => void
-	}
-
-	let {
-		useDrawer = true,
-		description = undefined,
-		hideTarget = false,
-		onUpdate = undefined
-	}: Props = $props()
-
-	let open = $state(false)
+	let open = false
 	export async function openEdit(ePath: string, isFlow: boolean) {
 		open = true
 		await tick()
@@ -34,15 +19,9 @@
 		drawer?.openNew(is_flow, initial_script_path, defaultValues)
 	}
 
-	let drawer: WebsocketTriggerEditorInner | undefined = $state(undefined)
+	let drawer: WebsocketTriggerEditorInner
 </script>
 
 {#if open}
-	<WebsocketTriggerEditorInner
-		{onUpdate}
-		bind:this={drawer}
-		{useDrawer}
-		{description}
-		{hideTarget}
-	/>
+	<WebsocketTriggerEditorInner on:update bind:this={drawer} />
 {/if}

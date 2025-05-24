@@ -5,21 +5,19 @@ on:
     types: [external_issue_fix]
 
 jobs:
-  check-and-prepare:
-    runs-on: ubicloud-standard-2
+  auto-fix:
+    runs-on: ubicloud-standard-8
     permissions:
       contents: write
       pull-requests: write
-    outputs:
-      issue_title: ${{ steps.determine_inputs.outputs.ISSUE_TITLE }}
-      issue_body: ${{ steps.determine_inputs.outputs.ISSUE_BODY }}
-      instruction: ${{ steps.determine_inputs.outputs.INSTRUCTION }}
+      issues: write
     env:
       GEMINI_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
       GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
       GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       WINDMILL_TOKEN: ${{ secrets.WINDMILL_TOKEN }}
+<<<<<<< Updated upstream:.github/workflows/aider-external.yaml
       LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
       DISCORD_BOT_TOKEN: ${{ secrets.DISCORD_AI_BOT_TOKEN }}
 
@@ -44,29 +42,53 @@ jobs:
               "https://discord.com/api/v10/channels/${{ github.event.client_payload.channel_id }}/messages" \
               -d "{\"content\":\"🤖 Aider is starting to work on your request. I'll update you here once I have a PR ready. Please be patient, this might take a few minutes.\"}"
           fi
+=======
 
-      - name: Determine inputs for Aider
-        id: determine_inputs
-        shell: bash
-        env:
-          ISSUE_TITLE: ${{ github.event.client_payload.issue_title }}
-          ISSUE_BODY: ${{ github.event.client_payload.issue_body }}
-          INSTRUCTION: ${{ github.event.client_payload.instruction }}
+    steps:
+      - name: Harden Runner
+        uses: step-security/harden-runner@v2
+        with:
+          egress-policy: audit
+>>>>>>> Stashed changes:.github/workflows/linear-issue.yaml
+
+      - name: Check out code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Configure Git User
         run: |
-          echo "Determining inputs for Aider..."
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
 
-          echo "ISSUE_TITLE<<EOF_AIDER_TITLE" >> "$GITHUB_OUTPUT"
-          echo "$ISSUE_TITLE" >> "$GITHUB_OUTPUT"
-          echo "EOF_AIDER_TITLE" >> "$GITHUB_OUTPUT"
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
 
-          echo "ISSUE_BODY<<EOF_AIDER_BODY" >> "$GITHUB_OUTPUT"
-          echo "$ISSUE_BODY" >> "$GITHUB_OUTPUT"
-          echo "EOF_AIDER_BODY" >> "$GITHUB_OUTPUT"
+      - name: Install Aider and Dependencies
+        run: |
+          python -m pip install aider-install; aider-install
+          pip install -U google-generativeai
+          sudo apt-get update && sudo apt-get install -y jq
 
-          echo "INSTRUCTION<<EOF_AIDER_INSTRUCTION" >> "$GITHUB_OUTPUT"
-          echo "$INSTRUCTION" >> "$GITHUB_OUTPUT"
-          echo "EOF_AIDER_INSTRUCTION" >> "$GITHUB_OUTPUT"
-          echo "Finished determining inputs."
+      - name: Create Prompt for Aider
+        id: create_prompt
+        shell: bash
+        run: |
+          PROMPT_FILE_PATH=".github/aider/issue-prompt.txt"
+          mkdir -p .github/aider
+
+          ISSUE_TITLE="${{ github.event.client_payload.issue_title }}"
+          INSTRUCTION="${{ github.event.client_payload.instruction }}"
+          ISSUE_BODY=$(printf '%q' "${{ github.event.client_payload.issue_body }}")
+
+          echo "Processing issue with title: $ISSUE_TITLE"
+
+          JSON_PAYLOAD=$(jq -n \
+            --arg title "$ISSUE_TITLE" \
+            --arg body "$ISSUE_BODY" \
+            '{"body":{"issue_title":$title,"issue_body":$body}}')
 
   run-aider:
     needs: check-and-prepare

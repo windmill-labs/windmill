@@ -2,9 +2,7 @@
 	import { tick } from 'svelte'
 	import ScheduleEditorInner from './ScheduleEditorInner.svelte'
 
-	let { onUpdate }: { onUpdate?: (path?: string) => void } = $props()
-
-	let open = $state(false)
+	let open = false
 	export async function openEdit(ePath: string, isFlow: boolean) {
 		open = true
 		await tick()
@@ -18,12 +16,12 @@
 	) {
 		open = true
 		await tick()
-		drawer?.openNew(is_flow, initial_script_path, undefined, schedule_path)
+		drawer?.openNew(is_flow, initial_script_path, schedule_path)
 	}
 
-	let drawer: ScheduleEditorInner | undefined = $state()
+	let drawer: ScheduleEditorInner
 </script>
 
 {#if open}
-	<ScheduleEditorInner {onUpdate} bind:this={drawer} />
+	<ScheduleEditorInner on:update bind:this={drawer} />
 {/if}

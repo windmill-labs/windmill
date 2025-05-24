@@ -70,7 +70,6 @@
 			return undefined
 		}
 	}
-
 	$: infiniteList && !noHistory && initLoadInputs()
 
 	function handleSelect(e: CustomEvent) {

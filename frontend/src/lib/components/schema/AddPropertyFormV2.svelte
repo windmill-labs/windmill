@@ -6,7 +6,6 @@
 
 	let name: string = ''
 	export let customName: string | undefined = undefined
-	export let disabled: boolean = false
 
 	const dispatch = createEventDispatcher()
 
@@ -16,7 +15,7 @@
 	}
 </script>
 
-<Popover closeButton={false} class="w-full" {disabled}>
+<Popover closeButton={false} class="w-full">
 	<svelte:fragment slot="trigger">
 		<slot name="trigger" />
 	</svelte:fragment>
@@ -31,7 +30,6 @@
 						close()
 					}
 				}}
-				{disabled}
 			/>
 			<Button
 				variant="contained"
@@ -42,7 +40,7 @@
 					addField()
 					close()
 				}}
-				disabled={!name || disabled}
+				disabled={!name}
 				shortCut={{ Icon: CornerDownLeft, withoutModifier: true }}
 			>
 				Add {customName ? customName.toLowerCase() : 'field'}

@@ -16,10 +16,7 @@
 <!-- svelte-ignore a11y-click-events-have-key-events -->
 <!-- svelte-ignore a11y-no-static-element-interactions -->
 <div
-	class={twMerge(
-		'grow min-w-0 w-full px-2 py-1 border flex items-center bg-surface-secondary text-primary justify-between rounded-md',
-		$$props.class
-	)}
+	class="grow min-w-0 w-full px-2 py-1 border flex items-center bg-surface-secondary text-primary justify-between rounded-md"
 	class:cursor-not-allowed={disabled}
 	class:cursor-pointer={!disabled}
 	on:click={(e) => {

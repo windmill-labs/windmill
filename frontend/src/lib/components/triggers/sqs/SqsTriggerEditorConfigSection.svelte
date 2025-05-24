@@ -1,5 +1,7 @@
 <script lang="ts">
 	import Section from '$lib/components/Section.svelte'
+	import CaptureSection, { type CaptureInfo } from '../CaptureSection.svelte'
+	import CaptureTable from '../CaptureTable.svelte'
 	import Required from '$lib/components/Required.svelte'
 	import ResourcePicker from '$lib/components/ResourcePicker.svelte'
 	import { emptyStringTrimmed } from '$lib/utils'
@@ -15,16 +17,17 @@
 	import { Button } from '$lib/components/common'
 	import { VariableService, type AwsAuthResourceType } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
-	import TestingBadge from '../testingBadge.svelte'
 
 	export let can_write: boolean = false
 	export let headless: boolean = false
+	export let showCapture: boolean = false
+	export let captureTable: CaptureTable | undefined = undefined
+	export let captureInfo: CaptureInfo | undefined = undefined
 	export let isValid: boolean = false
 	export let queue_url = ''
 	export let aws_resource_path = ''
 	export let aws_auth_resource_type: AwsAuthResourceType = 'credentials'
 	export let message_attributes: string[] = []
-	export let showTestingBadge: boolean = false
 
 	async function loadVariables() {
 		return await VariableService.listVariable({ workspace: $workspaceStore ?? '' })
@@ -39,12 +42,20 @@
 </script>
 
 <div>
+	{#if showCapture && captureInfo}
+		<CaptureSection
+			captureType="sqs"
+			disabled={!isValid}
+			{captureInfo}
+			on:captureToggle
+			on:applyArgs
+			on:updateSchema
+			on:addPreprocessor
+			on:testWithArgs
+			bind:captureTable
+		/>
+	{/if}
 	<Section label="SQS" {headless}>
-		<svelte:fragment slot="badge">
-			{#if showTestingBadge}
-				<TestingBadge />
-			{/if}
-		</svelte:fragment>
 		<div class="flex flex-col w-full gap-4">
 			<Subsection label="Connection setup">
 				<div class="flex flex-col gap-3">
@@ -53,13 +64,9 @@
 							Select an AWS resource to authenticate your account. <Required required={true} />
 						</p>
 
-						<ToggleButtonGroup
-							bind:selected={aws_auth_resource_type}
-							on:selected={() => {
-								aws_resource_path = ''
-							}}
-							let:item
-						>
+						<ToggleButtonGroup bind:selected={aws_auth_resource_type} on:selected={() => {
+							aws_resource_path = ''
+						}} let:item>
 							<ToggleButton label="Credentials" value="credentials" {item} />
 							<ToggleButton label="Oidc" value="oidc" {item} />
 						</ToggleButtonGroup>

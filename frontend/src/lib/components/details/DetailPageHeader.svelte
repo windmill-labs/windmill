@@ -5,7 +5,7 @@
 	import ErrorHandlerToggleButton from './ErrorHandlerToggleButton.svelte'
 	import { twMerge } from 'tailwind-merge'
 	import { userStore } from '$lib/stores'
-	import { createEventDispatcher, getContext, tick } from 'svelte'
+	import { createEventDispatcher, getContext } from 'svelte'
 	import type { TriggerContext } from '../triggers'
 	import { Calendar } from 'lucide-svelte'
 
@@ -23,7 +23,7 @@
 		color?: 'red'
 	}
 
-	const { triggersCount, triggersState } = getContext<TriggerContext>('TriggerContext')
+	const { triggersCount, selectedTrigger } = getContext<TriggerContext>('TriggerContext')
 
 	export let mainButtons: MainButton[] = []
 	export let menuItems: MenuItemButton[] = []
@@ -52,20 +52,16 @@
 					<Badge>tag: {tag}</Badge>
 				{/if}
 				<slot />
-				{#if triggersState?.triggers?.some((t) => t.isPrimary && !t.isDraft)}
-					{@const primarySchedule = triggersState.triggers.findIndex(
-						(t) => t.isPrimary && !t.isDraft
-					)}
+				{#if $triggersCount?.primary_schedule}
 					<Button
 						btnClasses="inline-flex"
 						startIcon={{ icon: Calendar }}
 						variant="contained"
 						color="light"
 						size="xs"
-						on:click={async () => {
-							dispatch('seeTriggers')
-							await tick()
-							triggersState.selectedTriggerIndex = primarySchedule
+						on:click={() => {
+							$selectedTrigger = 'schedules'
+							dispatch('triggerDetail')
 						}}
 					>
 						{$triggersCount?.primary_schedule?.schedule ?? ''}

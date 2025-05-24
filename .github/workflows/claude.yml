@@ -49,9 +49,11 @@ jobs:
           fi
 
   claude-code-action:
-    needs: check-membership
     if: |
-      needs.check-membership.outputs.is_member == 'true'
+      (github.event_name == 'issue_comment' && contains(github.event.comment.body, '/aider')) ||
+      (github.event_name == 'pull_request_review_comment' && contains(github.event.comment.body, '/aider')) ||
+      (github.event_name == 'pull_request_review' && contains(github.event.review.body, '/aider')) ||
+      (github.event_name == 'issues' && contains(github.event.issue.body, '/aider'))
     runs-on: ubicloud-standard-8
     permissions:
       contents: read

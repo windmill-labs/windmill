@@ -5,9 +5,6 @@
  * Please see the included NOTICE for copyright information and
  * LICENSE-AGPL for a copy of the license.
  */
-
-use std::fmt::Display;
-
 use axum::{body::Body, response::Response};
 use regex::Regex;
 use serde::{Deserialize, Deserializer};
@@ -36,16 +33,6 @@ pub struct WithStarredInfoQuery {
 pub enum RunnableKind {
     Script,
     Flow,
-}
-
-impl Display for RunnableKind {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let runnable_kind = match self {
-            RunnableKind::Script => "script",
-            RunnableKind::Flow => "flow"
-        };
-        write!(f, "{}", runnable_kind)
-    }
 }
 
 pub async fn require_super_admin(db: &DB, email: &str) -> error::Result<()> {

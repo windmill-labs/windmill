@@ -20,10 +20,9 @@
 	import { userStore, workspaceStore } from '$lib/stores'
 	import { getUserExt } from '$lib/user'
 	import DarkModeToggle from '$lib/components/sidebar/DarkModeToggle.svelte'
-	import type { TriggerContext } from '$lib/components/triggers'
+	import type { ScheduleTrigger, TriggerContext } from '$lib/components/triggers'
 	import type { FlowPropPickerConfig, PropPickerContext } from '$lib/components/prop_picker'
 	import type { PickableProperties } from '$lib/components/flows/previousResults'
-	import { Triggers } from '$lib/components/triggers/triggers.svelte'
 
 	let token = $page.url.searchParams.get('wm_token') ?? undefined
 	let workspace = $page.url.searchParams.get('workspace') ?? undefined
@@ -78,12 +77,19 @@
 
 	const testStepStore = writable<Record<string, any>>({})
 	const selectedIdStore = writable('settings-metadata')
+	const primaryScheduleStore = writable<ScheduleTrigger | undefined | false>(undefined)
 	const triggersCount = writable<TriggersCount | undefined>(undefined)
+	const selectedTriggerStore = writable<
+		'webhooks' | 'emails' | 'schedules' | 'cli' | 'routes' | 'websockets' | 'scheduledPoll'
+	>('webhooks')
 	setContext<TriggerContext>('TriggerContext', {
+		primarySchedule: primaryScheduleStore,
+		selectedTrigger: selectedTriggerStore,
 		triggersCount: triggersCount,
 		simplifiedPoll: writable(false),
-		showCaptureHint: writable(undefined),
-		triggersState: new Triggers()
+		defaultValues: writable(undefined),
+		captureOn: writable(undefined),
+		showCaptureHint: writable(undefined)
 	})
 
 	setContext<FlowEditorContext>('FlowEditorContext', {

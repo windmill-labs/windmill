@@ -25,7 +25,7 @@ use windmill_common::error::Error;
 use windmill_common::{
     db::UserDB,
     error::{self, JsonResult, Result},
-    utils::{not_found_if_none, paginate, Pagination, StripPath, empty_as_none},
+    utils::{not_found_if_none, paginate, Pagination, StripPath},
     worker::CLOUD_HOSTED,
 };
 use windmill_git_sync::{handle_deployment_metadata, DeployedObject};
@@ -46,8 +46,7 @@ pub struct Postgres {
     pub dbname: String,
     #[serde(default)]
     pub sslmode: String,
-    #[serde(default, deserialize_with = "empty_as_none")]
-    pub root_certificate_pem: Option<String>,
+    pub root_certificate_pem: String,
 }
 
 #[derive(Debug, Clone, FromRow, Serialize, Deserialize)]

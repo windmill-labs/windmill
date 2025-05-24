@@ -50,7 +50,7 @@
 </script>
 
 <Portal name="run-row">
-	<ScheduleEditor onUpdate={() => goto('/schedules')} bind:this={scheduleEditor} />
+	<ScheduleEditor on:update={() => goto('/schedules')} bind:this={scheduleEditor} />
 </Portal>
 <!-- svelte-ignore a11y-click-events-have-key-events -->
 <!-- svelte-ignore a11y-no-static-element-interactions -->

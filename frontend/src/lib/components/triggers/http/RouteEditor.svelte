@@ -2,13 +2,7 @@
 	import { tick } from 'svelte'
 	import RouteEditorInner from './RouteEditorInner.svelte'
 
-	interface Props {
-		onUpdate?: (cfg?: Record<string, any>) => void
-	}
-
-	let { onUpdate = undefined }: Props = $props()
-
-	let open = $state(false)
+	let open = false
 	export async function openEdit(ePath: string, isFlow: boolean) {
 		open = true
 		await tick()
@@ -25,9 +19,13 @@
 		drawer?.openNew(is_flow, initial_script_path, defaultValues)
 	}
 
-	let drawer: RouteEditorInner | undefined = $state()
+	export async function getTriggers() {
+		return drawer?.getTriggers()
+	}
+
+	let drawer: RouteEditorInner
 </script>
 
 {#if open}
-	<RouteEditorInner {onUpdate} bind:this={drawer} />
+	<RouteEditorInner on:update bind:this={drawer} />
 {/if}

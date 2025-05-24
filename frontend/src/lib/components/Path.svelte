@@ -35,7 +35,6 @@
 	import { random_adj } from './random_positive_adjetive'
 	import { Eye, Folder, Loader2, Plus, SearchCode, User } from 'lucide-svelte'
 	import Tooltip from './Tooltip.svelte'
-	import { tick } from 'svelte'
 
 	type PathKind =
 		| 'resource'
@@ -65,7 +64,6 @@
 	export let dirty = false
 	export let kind: PathKind
 	export let hideUser: boolean = false
-	export let disableEditing = false
 
 	let inputP: HTMLInputElement | undefined = undefined
 
@@ -302,8 +300,7 @@
 		}
 	}
 
-	async function initPath() {
-		await tick()
+	function initPath() {
 		if (path != undefined && path != '') {
 			meta = pathToMeta(path, hideUser)
 			onMetaChange()
@@ -428,12 +425,11 @@
 								}
 							}
 						}}
-						disabled={disabled || disableEditing}
 						let:item
 					>
 						<ToggleButton
 							icon={User}
-							disabled={disabled || disableEditing}
+							{disabled}
 							light
 							size="xs"
 							value="user"
@@ -444,7 +440,7 @@
 						<!-- <ToggleButton light size="xs" value="group" position="center">Group</ToggleButton> -->
 						<ToggleButton
 							icon={Folder}
-							disabled={disabled || disableEditing}
+							{disabled}
 							light
 							size="xs"
 							value="folder"
@@ -466,20 +462,14 @@
 							type="text"
 							bind:value={meta.owner}
 							placeholder={$userStore?.username ?? ''}
-							disabled={disabled ||
-								!($superadmin || ($userStore?.is_admin ?? false)) ||
-								disableEditing}
+							disabled={disabled || !($superadmin || ($userStore?.is_admin ?? false))}
 							on:keydown={setDirty}
 						/>
 					</label>
 				{:else if meta.ownerKind === 'folder'}
 					<label class="block grow w-48">
 						<div class="flex flex-row items-center gap-1 w-full">
-							<select
-								class="grow w-full"
-								disabled={disabled || disableEditing}
-								bind:value={meta.owner}
-							>
+							<select class="grow w-full" {disabled} bind:value={meta.owner}>
 								{#if folders?.length == 0}
 									<option disabled>No folders</option>
 								{/if}
@@ -498,19 +488,17 @@
 								iconOnly
 								startIcon={{ icon: Eye }}
 							/>
-							{#if !disableEditing}
-								<Button
-									title="New folder"
-									btnClasses="!p-1.5"
-									variant="border"
-									color="light"
-									size="xs"
-									{disabled}
-									on:click={newFolder.openDrawer}
-									iconOnly
-									startIcon={{ icon: Plus }}
-								/>
-							{/if}
+							<Button
+								title="New folder"
+								btnClasses="!p-1.5"
+								variant="border"
+								color="light"
+								size="xs"
+								{disabled}
+								on:click={newFolder.openDrawer}
+								iconOnly
+								startIcon={{ icon: Plus }}
+							/>
 						</div>
 					</label>
 				{/if}
@@ -519,7 +507,7 @@
 			<label class="block grow w-full max-w-md">
 				<!-- svelte-ignore a11y-autofocus -->
 				<input
-					disabled={disabled || disableEditing}
+					{disabled}
 					type="text"
 					id="path"
 					{autofocus}

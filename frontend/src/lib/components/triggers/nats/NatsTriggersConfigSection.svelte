@@ -1,48 +1,134 @@
 <script lang="ts">
+	import { Boxes } from 'lucide-svelte'
 	import Section from '$lib/components/Section.svelte'
 	import Subsection from '$lib/components/Subsection.svelte'
 	import { workspaceStore } from '$lib/stores'
+	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
+	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ResourcePicker from '$lib/components/ResourcePicker.svelte'
 	import SchemaForm from '$lib/components/SchemaForm.svelte'
+	import CaptureSection, { type CaptureInfo } from '../CaptureSection.svelte'
+	import CaptureTable from '../CaptureTable.svelte'
 	import TestTriggerConnection from '../TestTriggerConnection.svelte'
-	import TestingBadge from '../testingBadge.svelte'
-	import { createEventDispatcher } from 'svelte'
+	export let defaultValues: Record<string, any> | undefined = undefined
+	export let headless: boolean = false
+	export let args: Record<string, any> = {}
+	export let staticInputDisabled: boolean = true
+	export let showCapture: boolean = false
+	export let captureInfo: CaptureInfo | undefined = undefined
+	export let captureTable: CaptureTable | undefined = undefined
+	export let isValid: boolean = false
+	export let path: string
+	let selected: 'resource' | 'static' = staticInputDisabled ? 'resource' : 'static'
 
-	interface Props {
-		defaultValues?: Record<string, any> | undefined
-		headless?: boolean
-		natsResourcePath: string
-		subjects: string[]
-		useJetstream: boolean
-		streamName: string
-		consumerName: string
-		path: string
-		can_write?: boolean
-		showTestingBadge?: boolean
+	const connnectionSchema = {
+		$schema: 'http://json-schema.org/draft-07/schema#',
+		type: 'object',
+		properties: {
+			servers: {
+				type: 'array',
+				items: {
+					type: 'string'
+				},
+				title: 'Servers',
+				default: ['']
+			},
+			require_tls: {
+				type: 'boolean',
+				title: 'Require TLS',
+				default: false
+			},
+			auth: {
+				type: 'object',
+				title: 'Authentication',
+				default: {
+					label: 'NO_AUTH'
+				},
+				oneOf: [
+					{
+						type: 'object',
+						title: 'NO_AUTH',
+						properties: {
+							label: {
+								enum: ['NO_AUTH'],
+								type: 'string'
+							}
+						}
+					},
+					{
+						type: 'object',
+						order: ['token'],
+						title: 'TOKEN',
+						required: ['token'],
+						properties: {
+							label: {
+								enum: ['TOKEN'],
+								type: 'string'
+							},
+							token: {
+								type: 'string',
+								password: true
+							}
+						}
+					},
+					{
+						type: 'object',
+						title: 'USER_PASSWORD',
+						required: ['user', 'password'],
+						properties: {
+							label: {
+								enum: ['USER_PASSWORD'],
+								type: 'string'
+							},
+							user: {
+								type: 'string'
+							},
+							password: {
+								type: 'string',
+								password: true
+							}
+						}
+					},
+					{
+						type: 'object',
+						order: ['nkey'],
+						title: 'NKEY',
+						required: ['nkey'],
+						properties: {
+							label: {
+								enum: ['NKEY'],
+								type: 'string'
+							},
+							seed: {
+								type: 'string',
+								password: true
+							}
+						}
+					},
+					{
+						type: 'object',
+						title: 'JWT',
+						required: ['jwt', 'seed'],
+						properties: {
+							label: {
+								enum: ['JWT'],
+								type: 'string'
+							},
+							jwt: {
+								type: 'string',
+								password: true
+							},
+							seed: {
+								type: 'string',
+								password: true
+							}
+						}
+					}
+				]
+			}
+		},
+		required: ['servers', 'auth', 'require_tls']
 	}
-
-	const dispatch = createEventDispatcher()
-
-	let {
-		defaultValues = undefined,
-		headless = false,
-		natsResourcePath = $bindable(),
-		subjects = $bindable(),
-		useJetstream = $bindable(),
-		streamName = $bindable(),
-		consumerName = $bindable(),
-		path,
-		can_write = true,
-		showTestingBadge = false
-	}: Props = $props()
-
-	let otherArgsValid = $state(false)
-	let globalError = $derived(
-		!useJetstream && subjects && subjects.length > 1
-			? 'Only one subject is supported if not using JetStream.'
-			: ''
-	)
-	let isConnectionValid = $derived(!!natsResourcePath)
 
 	const argsSchema = {
 		$schema: 'http://json-schema.org/draft-07/schema#',
@@ -87,71 +173,116 @@
 		required: ['subjects', 'use_jetstream', 'stream_name', 'consumer_name']
 	}
 
-	$effect(() => {
-		const valid =
-			isConnectionValid &&
-			otherArgsValid &&
-			!!subjects &&
-			subjects.length > 0 &&
-			subjects.every((b) => /^[a-zA-Z0-9-_.*>]+$/.test(b)) &&
-			globalError === ''
-		dispatch('valid-config', valid)
-	})
+	let isStaticConnectionValid = false
+	let otherArgsValid = false
+	let globalError = ''
+
+	$: globalError =
+		!args.use_jetstream && args.subjects && args.subjects.length > 1
+			? 'Only one subject is supported if not using JetStream.'
+			: ''
+
+	$: isConnectionValid =
+		selected === 'resource'
+			? !!args.nats_resource_path
+			: isStaticConnectionValid &&
+				args.servers &&
+				args.servers.length > 0 &&
+				args.servers.every((b) => b.length > 0) &&
+				args.require_tls !== undefined &&
+				args.require_tls !== null
+
+	$: isValid =
+		isConnectionValid &&
+		otherArgsValid &&
+		args.subjects &&
+		args.subjects.length > 0 &&
+		args.subjects.every((b) => /^[a-zA-Z0-9-_.*>]+$/.test(b)) &&
+		globalError === ''
+
+	$: usingResource = !!args.nats_resource_path
+	$: usingResource && (selected = 'resource')
 
 	function setStreamAndConsumerNames() {
-		if (!streamName) {
-			streamName = `windmill_stream-${$workspaceStore}-${path.replaceAll('/', '__')}`
+		if (!args.stream_name) {
+			args.stream_name = `windmill_stream-${$workspaceStore}-${path.replaceAll('/', '__')}`
 		}
-		if (!consumerName) {
-			consumerName = `windmill_consumer-${$workspaceStore}-${path.replaceAll('/', '__')}`
-		}
-	}
-
-	function setNewArgs(args: Record<string, any>) {
-		subjects = args.subjects
-		useJetstream = args.use_jetstream
-		streamName = args.stream_name
-		consumerName = args.consumer_name
-		if (args.use_jetstream) {
-			setStreamAndConsumerNames()
+		if (!args.consumer_name) {
+			args.consumer_name = `windmill_consumer-${$workspaceStore}-${path.replaceAll('/', '__')}`
 		}
 	}
-
-	function getNatsArgsCfg() {
-		return {
-			subjects,
-			use_jetstream: useJetstream,
-			stream_name: streamName,
-			consumer_name: consumerName
-		}
-	}
+	$: useJetStream = args.use_jetstream
+	$: useJetStream && setStreamAndConsumerNames()
 </script>
 
 <div>
+	{#if showCapture && captureInfo}
+		<CaptureSection
+			captureType="nats"
+			disabled={!isValid}
+			{captureInfo}
+			on:captureToggle
+			on:applyArgs
+			on:updateSchema
+			on:addPreprocessor
+			bind:captureTable
+		/>
+	{/if}
 	<Section label="NATS" {headless}>
-		{#snippet badge()}
-			{#if showTestingBadge}
-				<TestingBadge />
-			{/if}
-		{/snippet}
 		<div class="flex flex-col w-full gap-4">
 			<div class="block grow w-full">
 				<Subsection label="Connection">
-					<ResourcePicker
-						resourceType="nats"
-						bind:value={natsResourcePath}
-						{defaultValues}
-						disabled={!can_write}
-					/>
-					{#if isConnectionValid}
-						<TestTriggerConnection
-							kind="nats"
-							args={{
-								connection: {
-									nats_resource_path: natsResourcePath
-								}
-							}}
+					<svelte:fragment slot="header">
+						{#if !staticInputDisabled}
+							<ToggleButtonGroup
+								bind:selected
+								class="h-full"
+								on:selected={(ev) => {
+									if (ev.detail === 'static') {
+										delete args.nats_resource_path
+										args.require_tls = false
+										args.servers = ['']
+										args.auth = {
+											label: 'NO_AUTH'
+										}
+									} else {
+										delete args.servers
+										delete args.auth
+										delete args.require_tls
+									}
+								}}
+								let:item
+							>
+								<ToggleButton value="static" label="Static" small={true} {item} />
+								<ToggleButton value="resource" label="Resource" icon={Boxes} small={true} {item} />
+							</ToggleButtonGroup>
+						{/if}
+					</svelte:fragment>
+
+					{#if selected === 'resource'}
+						<ResourcePicker
+							resourceType="nats"
+							bind:value={args.nats_resource_path}
+							{defaultValues}
 						/>
+					{:else}
+						<SchemaForm
+							schema={connnectionSchema}
+							bind:args={
+								() => args,
+								(v) => {
+									args = {
+										...args,
+										...v
+									}
+								}
+							}
+							bind:isValid={isStaticConnectionValid}
+							lightHeader={true}
+						/>
+					{/if}
+					{#if isConnectionValid}
+						<TestTriggerConnection kind="nats" args={{ connection: args }} />
 					{/if}
 				</Subsection>
 			</div>
@@ -160,10 +291,17 @@
 				<Subsection headless={true}>
 					<SchemaForm
 						schema={argsSchema}
-						bind:args={getNatsArgsCfg, (args) => setNewArgs(args)}
+						bind:args={
+							() => args,
+							(v) => {
+								args = {
+									...args,
+									...v
+								}
+							}
+						}
 						bind:isValid={otherArgsValid}
 						lightHeader={true}
-						disabled={!can_write}
 					/>
 				</Subsection>
 				<span class="text-xs text-red-500">{globalError}</span>

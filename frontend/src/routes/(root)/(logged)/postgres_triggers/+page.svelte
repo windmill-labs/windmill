@@ -287,7 +287,7 @@
 </ConfirmationModal>
 
 <DeployWorkspaceDrawer bind:this={deploymentDrawer} />
-<PostgresTriggerEditor onUpdate={loadTriggers} bind:this={postgresTriggerEditor} />
+<PostgresTriggerEditor on:update={loadTriggers} bind:this={postgresTriggerEditor} />
 
 <SearchItems
 	{filter}

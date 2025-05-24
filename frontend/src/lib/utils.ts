@@ -11,7 +11,7 @@ import { deepEqual } from 'fast-equals'
 import YAML from 'yaml'
 import { type UserExt } from './stores'
 import { sendUserToast } from './toast'
-import type { Job, Script } from './gen'
+import type { Job, Script, ScriptLang } from './gen'
 import type { EnumType, SchemaProperty } from './common'
 import type { Schema } from './common'
 export { sendUserToast }
@@ -22,9 +22,48 @@ import type { TriggerKind } from './components/triggers'
 export function isJobCancelable(j: Job): boolean {
 	return j.type === 'QueuedJob' && !j.schedule_path && !j.canceled
 }
+
 export function isJobReRunnable(j: Job): boolean {
 	return (j.job_kind === 'script' || j.job_kind === 'flow') && j.parent_job === undefined
 }
+
+export enum AgentKnownSuffix {
+	ENABLE_LIVE_SHELL = 'enable.live.shell'
+}
+
+export function concatAgentSuffix(
+	suffix: string | undefined,
+	suffixToAppend: string
+): string | undefined {
+	return suffix === undefined ? suffixToAppend : suffix.concat(`_${suffixToAppend}`)
+}
+
+export function checkIfWorkerHasSpecificSuffix(
+	suffixToCheck: AgentKnownSuffix,
+	suffix: string
+): boolean {
+	return suffix
+		.split('_')
+		.slice(1)
+		.some((part) => part === suffixToCheck)
+}
+
+export function removeAgentSuffix(
+	suffix: string | undefined,
+	suffixToRemove: string
+): string | undefined {
+	if (suffix) {
+		const regex = new RegExp(`(?:_${suffixToRemove}|${suffixToRemove})$`)
+		suffix = suffix.replace(regex, '')
+		if (suffix.trim().length === 0) {
+			suffix = undefined
+		}
+	}
+	return suffix
+}
+
+export const WORKER_NAME_PREFIX = 'wk'
+export const AGENT_WORKER_NAME_PREFIX = 'ag'
 
 export function isJobSelectable(selectionType: RunsSelectionMode) {
 	const f: (j: Job) => boolean = {
@@ -564,6 +603,10 @@ export function formatCron(inp: string): string {
 	} else {
 		return inp
 	}
+}
+
+export function scriptLangArrayToCommaList(languages: ScriptLang[]): string {
+	return languages.join(',')
 }
 
 export function cronV1toV2(inp: string): string {
@@ -1161,7 +1204,6 @@ export type Item = {
 	disabled?: boolean
 	type?: 'action' | 'delete'
 	hide?: boolean | undefined
-	extra?: Snippet
 }
 
 export function isObjectTooBig(obj: any): boolean {
@@ -1246,15 +1288,6 @@ export function formatDateShort(dateString: string | undefined): string {
 	}).format(date)
 }
 
-export function toJsonStr(result: any) {
-	try {
-		// console.log(result)
-		return JSON.stringify(result ?? null, null, 4) ?? 'null'
-	} catch (e) {
-		return 'error stringifying object: ' + e.toString()
-	}
-}
-
 export function getOS() {
 	const userAgent = window.navigator.userAgent
 	const platform = window.navigator.platform
@@ -1278,7 +1311,6 @@ export function getOS() {
 
 import { type ClassValue, clsx } from 'clsx'
 import { twMerge } from 'tailwind-merge'
-import type { Snippet } from 'svelte'
 
 export function cn(...inputs: ClassValue[]) {
 	return twMerge(clsx(inputs))
