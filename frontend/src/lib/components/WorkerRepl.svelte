@@ -168,7 +168,7 @@
 			if (!line) break
 
 			const text = line.translateToString()
-			const postion = text.indexOf(prompt)
+			const position = text.indexOf(prompt)
 			if (postion !== -1) {
 				const x = postion + prompt.length + 1
 				term.write(`\x1b[${x}G`)
