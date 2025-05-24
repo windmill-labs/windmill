@@ -154,6 +154,8 @@
 		const resizeObserver = new ResizeObserver(() => fitAddon.fit())
 		resizeObserver.observe(container)
 
+		//only used to silence unused variable warning from svelte compiler
+		editor?.show()
 		readLine()
 	})
 
@@ -229,8 +231,6 @@
 	</DrawerContent>
 </Drawer>
 
-
-
 <div class="h-screen flex flex-col">
 	<div class="m-1">
 		<div class="flex flex-col">
@@ -283,7 +283,13 @@
 				</Button>
 			</div>
 		</div>
-		<Editor bind:this={editor} bind:code lang="bash" scriptLang="bash" class="w-full h-full" />
+		<Editor
+			bind:this={editor}
+			useWebsockets={false}
+			bind:code
+			scriptLang="bash"
+			class="w-full h-full"
+		/>
 	</div>
 </div>
 
