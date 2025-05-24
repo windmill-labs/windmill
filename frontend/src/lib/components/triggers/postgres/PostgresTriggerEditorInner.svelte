@@ -72,27 +72,27 @@
 	let drawer: Drawer | undefined = $state(undefined)
 	let is_flow: boolean = $state(false)
 	let initialPath = $state('')
-	let edit = $state(true)
+	let edit: boolean = $state(true)
 	let itemKind: 'flow' | 'script' = $state('script')
-	let script_path = $state('')
-	let initialScriptPath = $state('')
-	let fixedScriptPath = $state('')
+	let script_path: string = $state('')
+	let initialScriptPath: string = $state('')
+	let fixedScriptPath: string = $state('')
 	let path: string = $state('')
 	let pathError = $state('')
-	let enabled = $state(false)
-	let dirtyPath = $state(false)
-	let can_write = $state(true)
-	let drawerLoading = $state(true)
-	let showLoading = $state(false)
-	let postgres_resource_path = $state('')
+	let enabled: boolean = $state(false)
+	let dirtyPath: boolean = $state(false)
+	let can_write: boolean = $state(true)
+	let drawerLoading: boolean = $state(true)
+	let showLoading: boolean = $state(false)
+	let postgres_resource_path: string = $state('')
 	let publication_name: string = $state('')
 	let replication_slot_name: string = $state('')
 	let relations: Relations[] | undefined = $state([])
 	let transaction_to_track: string[] = $state([])
 	let language: Language = 'Typescript'
 	let loading = $state(false)
-	let postgresVersion = ''
-	let loadingPostgres = $state(false)
+	let postgresVersion: string = $state('')
+	let loadingPostgres: boolean = $state(false)
 	type actions = 'create' | 'get'
 	let selectedPublicationAction: actions | undefined = $state(undefined)
 	let selectedSlotAction: actions | undefined = $state(undefined)
@@ -103,6 +103,7 @@
 	let deploymentLoading = $state(false)
 	let creatingSlot: boolean = $state(false)
 	let creatingPublication: boolean = $state(false)
+	let pg14: boolean = $derived(postgresVersion.startsWith('14'))
 
 	const errorMessage = $derived.by(() => {
 		if (relations && relations.length > 0) {
@@ -134,16 +135,8 @@
 	const postgresConfig = $derived.by(getSaveCfg)
 	const captureConfig = $derived.by(isEditor ? getCaptureConfig : () => ({}))
 
-	let saveDisabled = $derived(
-		pathError !== '' ||
-			emptyString(postgres_resource_path) ||
-			emptyString(script_path) ||
-			(isAdvancedTab(tab) && emptyString(replication_slot_name)) ||
-			emptyString(publication_name) ||
-			(relations && isBasicTab(tab) && relations.length === 0) ||
-			transaction_to_track.length === 0 ||
-			drawerLoading ||
-			!can_write
+	const saveDisabled = $derived(
+		pathError !== '' || emptyString(script_path) || drawerLoading || !can_write || !isValid
 	)
 
 	async function createPublication() {
@@ -482,8 +475,10 @@
 {#snippet content()}
 	{#if drawerLoading}
 		{#if showLoading}
-			<Loader2 size="50" class="animate-spin" />
-			<p>Loading...</p>
+			<div class="flex flex-col items-center justify-center h-full w-full">
+				<Loader2 size="50" class="animate-spin" />
+				<p>Loading...</p>
+			</div>
 		{/if}
 	{:else}
 		<div class="flex flex-col gap-4">
@@ -671,7 +666,7 @@
 								<svelte:fragment slot="content">
 									<div class="mt-5 overflow-hidden bg-surface">
 										<TabContent value="basic">
-											<RelationPicker {can_write} bind:relations disabled={!can_write} />
+											<RelationPicker {can_write} bind:pg14 bind:relations disabled={!can_write} />
 										</TabContent>
 										<TabContent value="advanced">
 											<div class="flex flex-col gap-6"
@@ -780,7 +775,12 @@
 																disabled={!can_write}
 															/>
 														{/if}
-														<RelationPicker {can_write} bind:relations disabled={!can_write} />
+														<RelationPicker
+															bind:pg14
+															{can_write}
+															bind:relations
+															disabled={!can_write}
+														/>
 													</div>
 												</Section></div
 											>

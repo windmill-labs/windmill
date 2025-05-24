@@ -5,18 +5,16 @@
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import type { Relations } from '$lib/gen'
 	import { Plus, Trash, X } from 'lucide-svelte'
-	import MultiSelect from 'svelte-multiselect'
 	import { getDefaultTableToTrack, invalidRelations } from './utils'
 	import AddPropertyFormV2 from '$lib/components/schema/AddPropertyFormV2.svelte'
 	import Label from '$lib/components/Label.svelte'
 	import { emptyStringTrimmed, sendUserToast } from '$lib/utils'
+	import MultiSelect from 'svelte-multiselect'
 
 	export let relations: Relations[] | undefined = undefined
 	export let can_write: boolean = true
-	export let postgresVersion: string = ''
 	export let disabled: boolean = false
-
-	$: pg14 = postgresVersion?.startsWith('14')
+	export let pg14: boolean = false
 
 	$: selected = relations && relations.length > 0 ? 'specific' : 'all'
 
@@ -172,23 +170,23 @@
 												selected={table_to_track.columns_name ?? []}
 												placeholder="Select columns"
 												--sms-options-margin="4px"
-												on:change={(e) => {
-													const option = e.detail.option?.toString()
+												onchange={(e) => {
+													const option = e.option?.toString()
 													updateRelationsFor(i, (rel) => {
 														const updatedTables = rel.table_to_track.map((t, idx) => {
 															if (idx !== j) return t
 
 															let updatedColumns = t.columns_name ?? []
 
-															if (e.detail.type === 'add' && option) {
+															if (e.type === 'add' && option) {
 																updatedColumns = [...updatedColumns, option]
-															} else if (e.detail.type === 'remove') {
+															} else if (e.type === 'remove') {
 																updatedColumns = updatedColumns.filter((col) => col !== option)
-															} else if (e.detail.type === 'removeAll') {
+															} else if (e.type === 'removeAll') {
 																updatedColumns = []
 															} else {
 																console.error(
-																	`Priority tags multiselect - unknown event type: '${e.detail.type}'`
+																	`Priority tags multiselect - unknown event type: '${e.type}'`
 																)
 															}
 

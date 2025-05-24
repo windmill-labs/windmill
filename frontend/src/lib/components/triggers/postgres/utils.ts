@@ -149,10 +149,10 @@ export async function savePostgresTriggerFromCfg(
 }
 
 export function getDefaultTableToTrack(pg14: boolean): Relations[] {
-  return [
-    {
-      schema_name: 'public',
-      table_to_track: pg14 ? [{ table_name: '' }] : []
-    }
-  ];
+	return [
+		{
+			schema_name: 'public',
+			table_to_track: pg14 ? [{ table_name: '' }] : []
+		}
+	]
 }

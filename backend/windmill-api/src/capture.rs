@@ -23,7 +23,10 @@ use {
     http::HeaderMap,
 };
 
-#[cfg(any(all(feature = "enterprise", feature = "gcp_trigger"), feature = "postgres_trigger"))]
+#[cfg(any(
+    all(feature = "enterprise", feature = "gcp_trigger"),
+    feature = "postgres_trigger"
+))]
 use windmill_common::utils::empty_as_none;
 
 #[cfg(all(feature = "enterprise", feature = "sqs_trigger"))]
@@ -33,7 +36,14 @@ use windmill_common::auth::aws::AwsAuthResourceType;
     feature = "http_trigger",
     all(feature = "enterprise", feature = "gcp_trigger")
 ))]
-use {serde::de::DeserializeOwned, windmill_common::error::Error};
+use serde::de::DeserializeOwned;
+
+#[cfg(any(
+    feature = "http_trigger",
+    feature = "postgres_trigger",
+    all(feature = "enterprise", feature = "gcp_trigger")
+))]
+use windmill_common::error::Error;
 
 #[cfg(all(feature = "enterprise", feature = "kafka"))]
 use crate::kafka_triggers_ee::KafkaTriggerConfigConnection;
@@ -361,9 +371,7 @@ async fn set_gcp_trigger_config(
     mut capture_config: NewCaptureConfig,
 ) -> Result<NewCaptureConfig> {
     let Some(TriggerConfig::Gcp(mut gcp_config)) = capture_config.trigger_config else {
-        return Err(windmill_common::error::Error::BadRequest(
-            "Invalid GCP Pub/Sub config".to_string(),
-        ));
+        return Err(Error::BadRequest("Invalid GCP Pub/Sub config".to_string()));
     };
 
     let config = manage_google_subscription(
