@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.493.0](https://github.com/windmill-labs/windmill/compare/v1.492.1...v1.493.0) (2025-05-24)
+
+
+### Features
+
+* **python:** inline script metadata (PEP 723)  ([#5712](https://github.com/windmill-labs/windmill/issues/5712)) ([2622253](https://github.com/windmill-labs/windmill/commit/26222539e66bce7e88f86a7e5917e6ca99350865))
+
 ## [1.492.1](https://github.com/windmill-labs/windmill/compare/v1.492.0...v1.492.1) (2025-05-22)
 
 
