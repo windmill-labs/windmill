@@ -30,9 +30,9 @@ use crate::{
         start_child_process, transform_json, OccupancyMetrics,
     },
     handle_child::handle_child,
-    python_executor::{create_dependencies_dir, handle_python_reqs, uv_pip_compile, PyVersion},
-    AuthedClient, DISABLE_NSJAIL, DISABLE_NUSER, GIT_PATH, HOME_ENV, NSJAIL_PATH, PATH_ENV,
-    PROXY_ENVS, PY_INSTALL_DIR, TZ_ENV,
+    python_executor::{create_dependencies_dir, handle_python_reqs, uv_pip_compile},
+    AuthedClient, PyVAlias, DISABLE_NSJAIL, DISABLE_NUSER, GIT_PATH, HOME_ENV, NSJAIL_PATH,
+    PATH_ENV, PROXY_ENVS, PY_INSTALL_DIR, TZ_ENV,
 };
 
 lazy_static::lazy_static! {
@@ -373,7 +373,7 @@ async fn handle_ansible_python_deps(
                     worker_name,
                     w_id,
                     &mut Some(occupancy_metrics),
-                    PyVersion::Py311,
+                    PyVAlias::Py311.into(),
                     false,
                 )
                 .await
@@ -387,10 +387,7 @@ async fn handle_ansible_python_deps(
 
     if requirements.len() > 0 {
         let mut venv_path = handle_python_reqs(
-            requirements
-                .split("\n")
-                .filter(|x| !x.starts_with("--"))
-                .collect(),
+            crate::python_executor::split_requirements(requirements),
             job_id,
             w_id,
             mem_peak,
@@ -400,7 +397,7 @@ async fn handle_ansible_python_deps(
             job_dir,
             worker_dir,
             &mut Some(occupancy_metrics),
-            crate::python_executor::PyVersion::Py311,
+            PyVAlias::default().into(),
         )
         .await?;
         additional_python_paths.append(&mut venv_path);

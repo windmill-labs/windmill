@@ -11105,6 +11105,23 @@ paths:
                 items:
                   $ref: "#/components/schemas/AutoscalingEvent"
 
+  /configs/list_available_python_versions:
+    get:
+      summary: Get currently available python versions provided by UV.
+      operationId: listAvailablePythonVersions
+      tags:
+        - config
+      # parameters:
+      responses:
+        "200":
+          description: List of python versions
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: string
+
   /agent_workers/create_agent_token:
     post:
       summary: create agent token
@@ -16802,7 +16819,6 @@ components:
           type: string
       required:
         - s3
-
     TeamsChannel:
       type: object
       required:
