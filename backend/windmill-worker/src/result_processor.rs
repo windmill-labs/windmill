@@ -252,7 +252,7 @@ pub fn start_interactive_worker_shell(
 
                         if header_map.is_none() {
                             tracing::error!(
-                                "An error has occured header map is none, it should not happen"
+                                "An error has occurred header map is none, it should not happen"
                             );
                         }
                         crate::agent_workers::pull_job(&client, header_map)
