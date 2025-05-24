@@ -169,8 +169,8 @@
 
 			const text = line.translateToString()
 			const position = text.indexOf(prompt)
-			if (postion !== -1) {
-				const x = postion + prompt.length + 1
+			if (position !== -1) {
+				const x = position + prompt.length + 1
 				term.write(`\x1b[${x}G`)
 
 				const numSpaces = text.length - x
