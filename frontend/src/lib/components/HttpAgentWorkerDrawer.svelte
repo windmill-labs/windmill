@@ -106,35 +106,42 @@
 			</button>
 		</div>
 
-		<div class="text-sm mt-3 mb-8 max-w-md leading-relaxed">
+		<div class="flex flex-col gap-2 text-sm mt-3 leading-relaxed">
 			Set the following environment variables:
 			<ul class="list-disc list-inside mt-1">
 				<li><code>MODE=agent</code></li>
 				<li><code>AGENT_TOKEN=&lt;token&gt;</code></li>
 				<li><code>BASE_INTERNAL_URL=&lt;base url&gt;</code></li>
 			</ul>
-
-			<p class="mt-4">
-				Ensure at least one normal worker listens to the tags <code>flow</code> and
-				<code>dependency</code> (or workspace-specific variants) to support job orchestration.
+			<p class="text-sm leading-relaxed">
+				to a worker to have it act as an HTTP agent worker.
+				<code>INIT_SCRIPT</code>, if needed, must be passed as an env variable.
 			</p>
+			<Alert type="warning" size="sm" title="Agent Worker Limitations">
+				Ensure at least one normal worker is running and listening to the tags
+				<code>flow</code> and <code>dependency</code>
+				(or <code>flow-&lt;workspace&gt;</code> and <code>dependency-&lt;workspace&gt;</code> if
+				using workspace-specific default tags), because agent workers
+				<strong>cannot run dependency jobs</strong>
+				nor execute the
+				<strong>flow state machine</strong>. They can, however, run subjobs within flows.
+			</Alert>
+			<CollapseLink text="Automate JWT token generation" small>
+				<div class="text-xs mt-2">
+					Use the following API endpoint with a superadmin bearer token:
+					<code class="block mt-1 mb-2">POST /api/agent_workers/create_agent_token</code>
+					<pre class=" p-2 rounded-lg text-xs overflow-auto">
+	<code
+							>{`
+	  "worker_group": "agent",
+	  "tags": ["tag1", "tag2"],
+	  "exp": 1717334400
+	`}</code
+						>
+					</pre>
+					The JSON response will contain the generated JWT token.
+				</div>
+			</CollapseLink>
 		</div>
-
-		<CollapseLink text="Automate JWT token generation" small>
-			<div class="text-xs mt-2">
-				Use the following API endpoint with a superadmin bearer token:
-				<code class="block mt-1 mb-2">POST /api/agent_workers/create_agent_token</code>
-				<pre class=" p-2 rounded-lg text-xs overflow-auto">
-<code
-						>{`
-  "worker_group": "agent",
-  "tags": ["tag1", "tag2"],
-  "exp": 1717334400
-`}</code
-					>
-				</pre>
-				The JSON response will contain the generated JWT token.
-			</div>
-		</CollapseLink>
 	</Section>
 </div>
