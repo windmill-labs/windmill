@@ -7,6 +7,7 @@
  */
 
 use serde::{Deserialize, Serialize};
+use tokio::sync::RwLock;
 #[cfg(all(feature = "enterprise", feature = "openidconnect"))]
 use {
     crate::db::DB,
@@ -50,8 +51,12 @@ pub struct JobClaim {
     pub workspace: String,
 }
 
+lazy_static::lazy_static! {
+    static ref PRIVATE_KEY: RwLock<Option<String>> = RwLock::new(None);
+}
+
 pub async fn generate_id_token<T: AdditionalClaims>(
-    db: &DB,
+    db: Option<&DB>,
     claim: T,
     audience: &str,
     identifier: String,
@@ -63,7 +68,8 @@ pub async fn generate_id_token<T: AdditionalClaims>(
         Audience, EndUserEmail, IdToken, IdTokenClaims, StandardClaims, SubjectIdentifier,
     };
 
-    let private_key = get_private_key(&db).await?;
+    let private_key = get_private_key(db).await?;
+
     let issue_url = format!("{}/api/oidc/", crate::BASE_URL.read().await.clone());
     let issue_time = Utc::now();
     let expiration = issue_time + Duration::try_hours(48).unwrap();
@@ -130,21 +136,27 @@ pub async fn generate_id_token<T: AdditionalClaims>(
 }
 
 #[cfg(all(feature = "enterprise", feature = "openidconnect"))]
-pub async fn get_private_key(db: &DB) -> anyhow::Result<String> {
-    let key = sqlx::query_scalar!(
-        "SELECT value->>'private_key' FROM global_settings WHERE name = 'rsa_keys'",
-    )
-    .fetch_optional(db)
-    .await?
-    .flatten();
-
-    let key = key.filter(|s| !s.is_empty());
-
-    if let Some(key) = key {
+pub async fn get_private_key(db: Option<&DB>) -> anyhow::Result<String> {
+    if let Some(key) = PRIVATE_KEY.read().await.clone() {
         return Ok(key);
+    } else if let Some(db) = db {
+        let key = sqlx::query_scalar!(
+            "SELECT value->>'private_key' FROM global_settings WHERE name = 'rsa_keys'",
+        )
+        .fetch_optional(db)
+        .await?
+        .flatten();
+
+        let key = key.filter(|s| !s.is_empty());
+
+        if let Some(key) = key {
+            return Ok(key);
+        } else {
+            let keys = gen_pems(db).await?;
+            return Ok(keys.private_key);
+        }
     } else {
-        let keys = gen_pems(db).await?;
-        return Ok(keys.private_key);
+        return Err(anyhow::anyhow!("Private key not found and no db provided"));
     }
 }
 

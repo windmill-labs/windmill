@@ -126,7 +126,7 @@ pub async fn test_s3_bucket(
     use bytes::Bytes;
     use futures::StreamExt;
 
-    let client = build_object_store_from_settings(test_s3_bucket, &db)
+    let client = build_object_store_from_settings(test_s3_bucket, Some(&db))
         .await?
         .store;
 

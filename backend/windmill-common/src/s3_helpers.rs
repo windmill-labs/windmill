@@ -50,23 +50,57 @@ use windmill_parser_sql::S3ModeFormat;
 #[cfg(feature = "parquet")]
 pub struct ExpirableObjectStore {
     pub store: Arc<dyn ObjectStore>,
-    expiration: Option<DateTime<Utc>>,
+    refresh: Option<ObjectStoreRefresh>,
+}
+
+pub struct ObjectStoreRefresh {
+    refresh: Option<DateTime<Utc>>,
+    settings: ObjectSettings,
+}
+
+impl ExpirableObjectStore {
+    pub async fn refresh_if_needed(&self) -> Option<ExpirableObjectStore> {
+        if let Some(refresh) = &self.refresh {
+            return refresh.refresh_if_needed().await;
+        }
+        return None;
+    }
+}
+
+impl ObjectStoreRefresh {
+    pub fn new(settings: ObjectSettings, refresh: Option<DateTime<Utc>>) -> Self {
+        Self { settings, refresh }
+    }
+    async fn refresh_if_needed(&self) -> Option<ExpirableObjectStore> {
+        if let Some(refresh) = self.refresh {
+            if refresh < Utc::now() {
+                return build_object_store_from_settings(self.settings.clone(), None)
+                    .await
+                    .map_err(|e| {
+                        tracing::error!("Error building s3 client from settings: {:?}", e);
+                        e
+                    })
+                    .ok();
+            }
+        }
+        return None;
+    }
 }
 
 #[cfg(feature = "parquet")]
 impl From<Arc<dyn ObjectStore>> for ExpirableObjectStore {
     fn from(store: Arc<dyn ObjectStore>) -> Self {
-        Self { store, expiration: None }
+        Self { store, refresh: None }
     }
 }
 
-#[cfg(feature = "parquet")]
+// #[cfg(feature = "parquet")]
 
-impl ExpirableObjectStore {
-    pub fn new(store: Arc<dyn ObjectStore>, expiration: Option<DateTime<Utc>>) -> Self {
-        Self { store, expiration }
-    }
-}
+// impl ExpirableObjectStore {
+//     pub fn new(store: Arc<dyn ObjectStore>, expiration: Option<DateTime<Utc>>) -> Self {
+//         Self { store, expiration }
+//     }
+// }
 
 #[cfg(feature = "parquet")]
 lazy_static::lazy_static! {
@@ -76,18 +110,25 @@ lazy_static::lazy_static! {
 #[cfg(feature = "parquet")]
 pub async fn get_object_store() -> Option<Arc<dyn ObjectStore>> {
     let settings = OBJECT_STORE_SETTINGS.read().await;
-    settings.as_ref().map(|s| s.store.clone())
+    if let Some(s) = settings.as_ref() {
+        if let Some(o) = s.refresh_if_needed().await {
+            return Some(o.store);
+        }
+        Some(s.store.clone())
+    } else {
+        None
+    }
 }
 
 #[cfg(feature = "parquet")]
 pub async fn reload_s3_cache_setting(db: &crate::DB) {
     use crate::{
         ee::{get_license_plan, LicensePlan},
-        global_settings::{load_value_from_global_settings, OBJECT_STORE_CACHE_CONFIG_SETTING},
+        global_settings::{load_value_from_global_settings, OBJECT_STORE_CONFIG_SETTING},
         s3_helpers::ObjectSettings,
     };
 
-    let s3_config = load_value_from_global_settings(db, OBJECT_STORE_CACHE_CONFIG_SETTING).await;
+    let s3_config = load_value_from_global_settings(db, OBJECT_STORE_CONFIG_SETTING).await;
     if let Err(e) = s3_config {
         tracing::error!("Error reloading s3 cache config: {:?}", e)
     } else {
@@ -96,16 +137,19 @@ pub async fn reload_s3_cache_setting(db: &crate::DB) {
                 tracing::error!("S3 cache is not available for pro plan");
                 return;
             }
-            let mut s3_cache_settings = OBJECT_STORE_SETTINGS.write().await;
             let setting = serde_json::from_value::<ObjectSettings>(v);
-            if let Err(e) = setting {
-                tracing::error!("Error parsing s3 cache config: {:?}", e)
-            } else {
-                let s3_client = build_object_store_from_settings(setting.unwrap(), db).await;
-                if let Err(e) = s3_client {
-                    tracing::error!("Error building s3 client from settings: {:?}", e)
-                } else {
-                    *s3_cache_settings = Some(s3_client.unwrap());
+            match setting {
+                Ok(setting) => {
+                    let s3_client = build_object_store_from_settings(setting, Some(db)).await;
+                    if let Err(e) = s3_client {
+                        tracing::error!("Error building s3 client from settings: {:?}", e)
+                    } else {
+                        let mut s3_cache_settings = OBJECT_STORE_SETTINGS.write().await;
+                        *s3_cache_settings = Some(s3_client.unwrap());
+                    }
+                }
+                Err(e) => {
+                    tracing::error!("Error parsing s3 cache config: {:?}", e)
                 }
             }
         } else {
@@ -524,7 +568,7 @@ impl ObjectSettings {
 #[cfg(feature = "parquet")]
 pub async fn build_object_store_from_settings(
     settings: ObjectSettings,
-    db: &crate::DB,
+    init_private_key: Option<&crate::DB>,
 ) -> error::Result<ExpirableObjectStore> {
     match settings {
         ObjectSettings::S3(s3_settings) => build_s3_client_from_settings(s3_settings)
@@ -534,17 +578,21 @@ pub async fn build_object_store_from_settings(
             let azure_blob_resource = azure_settings;
             build_azure_blob_client(&azure_blob_resource).map(|x| ExpirableObjectStore::from(x))
         }
-        ObjectSettings::S3AwsOidc(s3_aws_oidc_settings) => {
-            let token_generator = crate::job_s3_helpers_ee::TokenGenerator::AsServerInstance(db);
+        ObjectSettings::S3AwsOidc(ref s3_aws_oidc_settings) => {
+            let token_generator = crate::job_s3_helpers_ee::TokenGenerator::AsServerInstance();
             let res = crate::job_s3_helpers_ee::generate_s3_aws_oidc_resource(
-                s3_aws_oidc_settings,
+                s3_aws_oidc_settings.clone(),
                 token_generator,
+                init_private_key,
             )
             .await?;
 
             build_object_store_client(&res)
                 .await
-                .map(|x| ExpirableObjectStore { store: x, expiration: res.expiration() })
+                .map(|x| ExpirableObjectStore {
+                    store: x,
+                    refresh: Some(ObjectStoreRefresh::new(settings.clone(), res.expiration())),
+                })
         }
     }
 }

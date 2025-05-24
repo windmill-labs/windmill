@@ -787,6 +787,7 @@ async fn get_workspace_s3_resource_path(
         rt,
         s3_resource_value_raw,
         windmill_common::job_s3_helpers_ee::TokenGenerator::AsClient(client),
+        db,
     )
     .await
     .map(Some)
