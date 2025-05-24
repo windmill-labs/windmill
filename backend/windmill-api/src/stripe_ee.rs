@@ -1,1 +1,5 @@
-/home/rubenfiszel/windmill/../windmill-ee-private/windmill-api/src/stripe_ee.rs
+use axum::Router;
+
+pub fn add_stripe_routes(router: Router) -> Router {
+    return router;
+}
