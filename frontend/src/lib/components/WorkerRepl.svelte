@@ -39,23 +39,12 @@
 		`$-${working_directory === '/' ? '/' : working_directory.split('/').at(-1)} `
 	)
 	let codeObj: { language: SupportedLanguage; content: string } | undefined = $state(undefined)
-	function resolvePath(currentDir: string, newPath: string): string {
+	function getNewWorkingDirectoryPath(currentDir: string, newPath: string): string {
 		if (newPath.startsWith('/') || newPath.startsWith('~')) {
 			return newPath
 		}
 
-		let parts = currentDir.split('/').filter(Boolean)
-		const segments = newPath.split('/').filter(Boolean)
-
-		for (const segment of segments) {
-			if (segment === '..') {
-				parts.pop()
-			} else if (segment !== '.') {
-				parts.push(segment)
-			}
-		}
-
-		return (currentDir.startsWith('~') ? '' : '/') + parts.join('/')
+		return currentDir.replace(/\/+$/, '') + '/' + newPath
 	}
 
 	function ensureTrailingLineBreak(input: any): boolean {
@@ -90,7 +79,7 @@
 				const parts = trimmedCommand.split(' ')
 				if (parts.length > 1) {
 					const path = parts.slice(1).join(' ')
-					const newPath = resolvePath(working_directory, path)
+					const newPath = getNewWorkingDirectoryPath(working_directory, path)
 					wDirectory = newPath
 				} else {
 					wDirectory = homeDirectory
