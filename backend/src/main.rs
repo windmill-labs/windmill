@@ -48,7 +48,6 @@ use windmill_common::{
         SAML_METADATA_SETTING, SCIM_TOKEN_SETTING, SMTP_SETTING, TEAMS_SETTING,
         TIMEOUT_WAIT_RESULT_SETTING,
     },
-    s3_helpers::reload_s3_cache_setting,
     scripts::ScriptLang,
     stats_ee::schedule_stats,
     triggers::TriggerKind,
@@ -93,7 +92,7 @@ use crate::monitor::{
 };
 
 #[cfg(feature = "parquet")]
-use crate::monitor::reload_s3_cache_setting;
+use windmill_common::s3_helpers::reload_s3_cache_setting;
 
 const DEFAULT_NUM_WORKERS: usize = 1;
 const DEFAULT_PORT: u16 = 8000;

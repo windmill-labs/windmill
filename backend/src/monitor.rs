@@ -33,8 +33,11 @@ use windmill_common::ee::low_disk_alerts;
 #[cfg(feature = "enterprise")]
 use windmill_common::ee::{jobs_waiting_alerts, worker_groups_alerts};
 
+use windmill_common::client::AuthedClient;
 #[cfg(feature = "oauth2")]
 use windmill_common::global_settings::OAUTH_SETTING;
+#[cfg(feature = "parquet")]
+use windmill_common::s3_helpers::reload_s3_cache_setting;
 use windmill_common::{
     agent_workers::DECODED_AGENT_TOKEN,
     auth::create_token_for_owner,
@@ -73,22 +76,12 @@ use windmill_common::{
     METRICS_DEBUG_ENABLED, METRICS_ENABLED, MONITOR_LOGS_ON_OBJECT_STORE, OTEL_LOGS_ENABLED,
     OTEL_METRICS_ENABLED, OTEL_TRACING_ENABLED, SERVICE_LOG_RETENTION_SECS,
 };
-use windmill_common::{client::AuthedClient, s3_helpers::reload_s3_cache_setting};
 use windmill_queue::{cancel_job, MiniPulledJob, SameWorkerPayload};
 use windmill_worker::{
     handle_job_error, JobCompletedSender, SameWorkerSender, BUNFIG_INSTALL_SCOPES,
     INSTANCE_PYTHON_VERSION, JOB_DEFAULT_TIMEOUT, KEEP_JOB_DIR, MAVEN_REPOS, NO_DEFAULT_MAVEN,
     NPM_CONFIG_REGISTRY, NUGET_CONFIG, PIP_EXTRA_INDEX_URL, PIP_INDEX_URL,
 };
-
-#[cfg(feature = "parquet")]
-use windmill_common::s3_helpers::{
-    build_object_store_from_settings, build_s3_client_from_settings, S3Settings,
-    OBJECT_STORE_SETTINGS,
-};
-
-#[cfg(feature = "parquet")]
-use windmill_common::global_settings::OBJECT_STORE_CACHE_CONFIG_SETTING;
 
 #[cfg(feature = "enterprise")]
 use crate::ee::verify_license_key;
@@ -632,7 +625,7 @@ async fn send_log_file_to_object_store(
         }
 
         #[cfg(feature = "parquet")]
-        let s3_client = OBJECT_STORE_SETTINGS.read().await.clone();
+        let s3_client = windmill_common::s3_helpers::get_object_store().await;
         #[cfg(feature = "parquet")]
         if let Some(s3_client) = s3_client {
             let path = std::path::Path::new(TMP_WINDMILL_LOGS_SERVICE)
@@ -918,10 +911,7 @@ async fn delete_log_files_from_disk_and_store(
     _s3_prefix: &str,
 ) {
     #[cfg(feature = "parquet")]
-    let os = windmill_common::s3_helpers::OBJECT_STORE_SETTINGS
-        .read()
-        .await
-        .clone();
+    let os = windmill_common::s3_helpers::get_object_store().await;
     #[cfg(not(feature = "parquet"))]
     let os: Option<()> = None;
 

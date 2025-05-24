@@ -18,6 +18,7 @@ use reqwest::header::HeaderMap;
 use serde::{Deserialize, Serialize};
 #[cfg(feature = "parquet")]
 use std::sync::{Arc, Mutex};
+
 #[cfg(feature = "parquet")]
 use tokio::sync::RwLock;
 
@@ -46,16 +47,20 @@ use tokio::task;
 #[cfg(feature = "parquet")]
 use windmill_parser_sql::S3ModeFormat;
 
+#[cfg(feature = "parquet")]
 pub struct ExpirableObjectStore {
-    store: Arc<dyn ObjectStore>,
+    pub store: Arc<dyn ObjectStore>,
     expiration: Option<DateTime<Utc>>,
 }
 
+#[cfg(feature = "parquet")]
 impl From<Arc<dyn ObjectStore>> for ExpirableObjectStore {
     fn from(store: Arc<dyn ObjectStore>) -> Self {
         Self { store, expiration: None }
     }
 }
+
+#[cfg(feature = "parquet")]
 
 impl ExpirableObjectStore {
     pub fn new(store: Arc<dyn ObjectStore>, expiration: Option<DateTime<Utc>>) -> Self {
@@ -68,6 +73,7 @@ lazy_static::lazy_static! {
     pub static ref OBJECT_STORE_SETTINGS: Arc<RwLock<Option<ExpirableObjectStore>>> = Arc::new(RwLock::new(None));
 }
 
+#[cfg(feature = "parquet")]
 pub async fn get_object_store() -> Option<Arc<dyn ObjectStore>> {
     let settings = OBJECT_STORE_SETTINGS.read().await;
     settings.as_ref().map(|s| s.store.clone())

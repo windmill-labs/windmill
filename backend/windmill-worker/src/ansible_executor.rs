@@ -30,8 +30,8 @@ use crate::{
         start_child_process, transform_json, OccupancyMetrics,
     },
     handle_child::handle_child,
-    python_executor::{create_dependencies_dir, handle_python_reqs, uv_pip_compile, PyVersion},
-    DISABLE_NSJAIL, DISABLE_NUSER, GIT_PATH, HOME_ENV, NSJAIL_PATH, PATH_ENV, PROXY_ENVS,
+    python_executor::{create_dependencies_dir, handle_python_reqs, uv_pip_compile},
+    PyVAlias, DISABLE_NSJAIL, DISABLE_NUSER, GIT_PATH, HOME_ENV, NSJAIL_PATH, PATH_ENV, PROXY_ENVS,
     PY_INSTALL_DIR, TZ_ENV,
 };
 use windmill_common::client::AuthedClient;

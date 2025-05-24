@@ -410,10 +410,7 @@ async fn create_snapshot_script(
             uploaded = true;
 
             #[cfg(all(feature = "enterprise", feature = "parquet"))]
-            let object_store = windmill_common::s3_helpers::OBJECT_STORE_SETTINGS
-                .read()
-                .await
-                .clone();
+            let object_store = windmill_common::s3_helpers::get_object_store().await;
 
             #[cfg(not(all(feature = "enterprise", feature = "parquet")))]
             let object_store: Option<()> = None;

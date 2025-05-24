@@ -126,7 +126,9 @@ pub async fn test_s3_bucket(
     use bytes::Bytes;
     use futures::StreamExt;
 
-    let client = build_object_store_from_settings(test_s3_bucket, &db).await?;
+    let client = build_object_store_from_settings(test_s3_bucket, &db)
+        .await?
+        .store;
 
     let mut list = client.list(Some(&object_store::path::Path::from("".to_string())));
     let first_file = list.next().await;
