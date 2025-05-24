@@ -17,12 +17,30 @@ jobs:
       GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       WINDMILL_TOKEN: ${{ secrets.WINDMILL_TOKEN }}
+      LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
+      DISCORD_BOT_TOKEN: ${{ secrets.DISCORD_AI_BOT_TOKEN }}
 
     steps:
-      - name: Harden Runner
-        uses: step-security/harden-runner@v2
-        with:
-          egress-policy: audit
+      - name: Acknowledge Request
+        env:
+          LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
+          DISCORD_BOT_TOKEN: ${{ secrets.DISCORD_AI_BOT_TOKEN }}
+        run: |
+          if [[ "${{ github.event.client_payload.source }}" == "linear" ]]; then
+            echo "Commenting on Linear issue #${{ github.event.client_payload.issue_id }} to acknowledge the request."
+            curl -X POST \
+              -H "Authorization: $LINEAR_API_KEY" \
+              -H "Content-Type: application/json" \
+              "https://api.linear.app/graphql" \
+              -d "{\"query\":\"mutation { commentCreate(input: { issueId: \\\"${{ github.event.client_payload.issue_id }}\\\", body: \\\"🤖 Aider is starting to work on your request. I'll update you here once I have a PR ready. Please be patient, this might take a few minutes.\\\" }) { success } }\"}"
+          elif [[ "${{ github.event.client_payload.source }}" == "discord" ]]; then
+            echo "Commenting on Discord thread #${{ github.event.client_payload.channel_id }} to acknowledge the request."
+            curl -X POST \
+              -H "Authorization: Bot $DISCORD_BOT_TOKEN" \
+              -H "Content-Type: application/json" \
+              "https://discord.com/api/v10/channels/${{ github.event.client_payload.channel_id }}/messages" \
+              -d "{\"content\":\"🤖 Aider is starting to work on your request. I'll update you here once I have a PR ready. Please be patient, this might take a few minutes.\"}"
+          fi
 
       - name: Check out code
         uses: actions/checkout@v4

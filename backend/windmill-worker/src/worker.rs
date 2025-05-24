@@ -138,7 +138,10 @@ use crate::java_executor::{handle_java_job, JobHandlerInput as JobHandlerInputJa
 use crate::php_executor::handle_php_job;
 
 #[cfg(feature = "python")]
-use crate::python_executor::{handle_python_job, PyVersion};
+use crate::{
+    python_executor::handle_python_job,
+    python_versions::{PyV, PyVAlias},
+};
 
 #[cfg(feature = "python")]
 use crate::ansible_executor::handle_ansible_job;
@@ -369,10 +372,26 @@ lazy_static::lazy_static! {
 
 }
 
+type Envs = Vec<(String, String)>;
+
 #[cfg(windows)]
 lazy_static::lazy_static! {
     pub static ref SYSTEM_ROOT: String = std::env::var("SystemRoot").unwrap_or_else(|_| "C:\\Windows".to_string());
     pub static ref USERPROFILE_ENV: String = std::env::var("USERPROFILE").unwrap_or_else(|_| "/tmp".to_string());
+    static ref TMP: String = std::env::var("TMP").unwrap_or_else(|_| "/tmp".to_string());
+    static ref LOCALAPPDATA: String = std::env::var("LOCALAPPDATA").unwrap_or_else(|_| format!("{}\\AppData\\Local", HOME_ENV.as_str()));
+    pub static ref WIN_ENVS: Envs = vec![
+        ("SystemRoot".into(), SYSTEM_ROOT.clone()),
+        ("USERPROFILE".into(), USERPROFILE_ENV.clone()),
+        ("TMP".into(), TMP.clone()),
+        ("LOCALAPPDATA".into(), LOCALAPPDATA.clone())
+    ];
+
+}
+
+#[cfg(not(windows))]
+lazy_static::lazy_static! {
+    pub static ref WIN_ENVS: Envs = vec![];
 }
 
 #[derive(Debug)]
@@ -859,9 +878,9 @@ pub async fn run_worker(
             worker_dir.clone(),
         );
         tokio::spawn(async move {
-            if let Err(e) = PyVersion::from_instance_version(&Uuid::nil(), "", &conn)
+            if let Err(e) = PyV::gravitational_version(&Uuid::nil(), "", Some(conn.clone()))
                 .await
-                .get_python(&Uuid::nil(), &mut 0, &conn, &worker_name, "", &mut None)
+                .try_get_python(&Uuid::nil(), &mut 0, &conn, &worker_name, "", &mut None)
                 .await
             {
                 tracing::error!(
@@ -871,8 +890,8 @@ pub async fn run_worker(
                     "Cannot preinstall or find Instance Python version to worker: {e}"//
                 );
             }
-            if let Err(e) = PyVersion::Py311
-                .get_python(&Uuid::nil(), &mut 0, &conn, &worker_name, "", &mut None)
+            if let Err(e) = PyV::from(PyVAlias::Py311)
+                .try_get_python(&Uuid::nil(), &mut 0, &conn, &worker_name, "", &mut None)
                 .await
             {
                 tracing::error!(
