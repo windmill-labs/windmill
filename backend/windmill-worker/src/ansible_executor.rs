@@ -31,9 +31,10 @@ use crate::{
     },
     handle_child::handle_child,
     python_executor::{create_dependencies_dir, handle_python_reqs, uv_pip_compile},
-    AuthedClient, PyVAlias, DISABLE_NSJAIL, DISABLE_NUSER, GIT_PATH, HOME_ENV, NSJAIL_PATH,
-    PATH_ENV, PROXY_ENVS, PY_INSTALL_DIR, TZ_ENV,
+    PyVAlias, DISABLE_NSJAIL, DISABLE_NUSER, GIT_PATH, HOME_ENV, NSJAIL_PATH, PATH_ENV, PROXY_ENVS,
+    PY_INSTALL_DIR, TZ_ENV,
 };
+use windmill_common::client::AuthedClient;
 
 lazy_static::lazy_static! {
     static ref ANSIBLE_PLAYBOOK_PATH: String =
@@ -1190,7 +1191,7 @@ async fn create_file_resources(
     job_dir: &str,
     args: Option<&HashMap<String, Box<RawValue>>>,
     r: &AnsibleRequirements,
-    client: &crate::AuthedClient,
+    client: &AuthedClient,
     conn: &Connection,
 ) -> error::Result<Vec<String>> {
     let mut logs = String::new();
@@ -1267,7 +1268,7 @@ async fn create_file_resources(
 }
 
 async fn get_resource_or_variable_content(
-    client: &crate::AuthedClient,
+    client: &AuthedClient,
     path: &ResourceOrVariablePath,
     job_id: String,
 ) -> anyhow::Result<String> {
