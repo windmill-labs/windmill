@@ -16,8 +16,10 @@ use crate::{
         create_args_and_out_file, get_reserved_variables, read_result, start_child_process,
         OccupancyMetrics,
     },
-    handle_child, AuthedClient, DISABLE_NSJAIL, DISABLE_NUSER, NSJAIL_PATH, PATH_ENV, PROXY_ENVS,
+    handle_child, DISABLE_NSJAIL, DISABLE_NUSER, NSJAIL_PATH, PATH_ENV, PROXY_ENVS,
 };
+use windmill_common::client::AuthedClient;
+
 
 const NSJAIL_CONFIG_RUN_NU_CONTENT: &str = include_str!("../nsjail/run.nu.config.proto");
 lazy_static::lazy_static! {

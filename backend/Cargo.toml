@@ -59,7 +59,7 @@ embedding = ["windmill-api/embedding"]
 parquet = ["windmill-api/parquet", "windmill-common/parquet", "windmill-worker/parquet", "dep:object_store"]
 prometheus = ["windmill-common/prometheus", "windmill-api/prometheus", "windmill-worker/prometheus", "windmill-queue/prometheus", "dep:prometheus"]
 flow_testing = ["windmill-worker/flow_testing"]
-openidconnect = ["windmill-api/openidconnect"]
+openidconnect = ["windmill-api/openidconnect", "windmill-common/openidconnect"]
 cloud = ["windmill-queue/cloud", "windmill-worker/cloud", "windmill-common/cloud", "windmill-api/cloud"]
 jemalloc = ["windmill-common/jemalloc", "dep:tikv-jemallocator", "dep:tikv-jemalloc-sys", "dep:tikv-jemalloc-ctl"]
 tantivy = ["dep:windmill-indexer", "windmill-api/tantivy", "windmill-indexer/enterprise", "windmill-indexer/parquet", "windmill-common/tantivy", "enterprise", "parquet"]
@@ -346,7 +346,7 @@ openidconnect = { version = "4.0.0-rc.1" }
 aws-config = "^1"
 aws-sdk-sqs = "1.57.0"
 aws-sdk-sts = "^1"
-
+aws-smithy-types-convert = { version = "^0", features = ["convert-chrono"] }
 crc = "^3"
 tar = "^0"
 http = "^1"

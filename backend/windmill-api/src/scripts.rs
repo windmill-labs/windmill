@@ -410,10 +410,7 @@ async fn create_snapshot_script(
             uploaded = true;
 
             #[cfg(all(feature = "enterprise", feature = "parquet"))]
-            let object_store = windmill_common::s3_helpers::OBJECT_STORE_CACHE_SETTINGS
-                .read()
-                .await
-                .clone();
+            let object_store = windmill_common::s3_helpers::get_object_store().await;
 
             #[cfg(not(all(feature = "enterprise", feature = "parquet")))]
             let object_store: Option<()> = None;
@@ -1327,10 +1324,12 @@ async fn raw_script_by_path_internal(
             w_id
         )
         .fetch_one(&db)
-        .await?;
-        if exists.unwrap_or(false) {
+        .await?
+        .unwrap_or(false);
+
+        if exists {
             return Err(Error::NotFound(format!(
-                "Script {path} not visible to {} but exists",
+                "Script {path} exists but {} does not have permissions to access it",
                 authed.username
             )));
         }

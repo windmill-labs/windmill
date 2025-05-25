@@ -30,6 +30,7 @@ pub mod auth;
 #[cfg(feature = "benchmark")]
 pub mod bench;
 pub mod cache;
+pub mod client;
 pub mod db;
 pub mod ee;
 pub mod email_ee;
@@ -42,6 +43,9 @@ pub mod indexer;
 pub mod job_metrics;
 #[cfg(feature = "parquet")]
 pub mod job_s3_helpers_ee;
+
+#[cfg(all(feature = "enterprise", feature = "openidconnect"))]
+pub mod oidc_ee;
 
 pub mod jobs;
 pub mod jwt;

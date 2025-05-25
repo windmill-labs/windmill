@@ -13,6 +13,7 @@ use serde_json::{json, value::RawValue, Value};
 use std::str::FromStr;
 use tokio::sync::Mutex;
 use windmill_common::{
+    client::AuthedClient,
     error::{to_anyhow, Error},
     s3_helpers::convert_json_line_stream,
     worker::{to_raw_value, Connection},
@@ -28,7 +29,6 @@ use crate::{
     common::{build_args_values, s3_mode_args_to_worker_data, OccupancyMetrics, S3ModeWorkerData},
     handle_child::run_future_with_polling_update_job_poller,
     sanitized_sql_params::sanitize_and_interpolate_unsafe_sql_args,
-    AuthedClient,
 };
 
 #[derive(Deserialize)]

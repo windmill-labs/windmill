@@ -27,9 +27,9 @@ use crate::{
         OccupancyMetrics, S3ModeWorkerData,
     },
     handle_child::run_future_with_polling_update_job_poller,
-    sanitized_sql_params::sanitize_and_interpolate_unsafe_sql_args,
-    AuthedClient,
+    sanitized_sql_params::sanitize_and_interpolate_unsafe_sql_args
 };
+use windmill_common::client::AuthedClient;
 
 #[derive(Deserialize)]
 struct OracleDatabase {

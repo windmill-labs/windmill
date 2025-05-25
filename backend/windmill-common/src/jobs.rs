@@ -608,11 +608,11 @@ pub async fn get_logs_from_store(
     logs: &str,
     log_file_index: &Option<Vec<String>>,
 ) -> Option<impl Stream<Item = Result<Bytes, object_store::Error>>> {
-    use crate::s3_helpers::OBJECT_STORE_CACHE_SETTINGS;
+    use crate::s3_helpers::get_object_store;
 
     if log_offset > 0 {
         if let Some(file_index) = log_file_index.clone() {
-            if let Some(os) = OBJECT_STORE_CACHE_SETTINGS.read().await.clone() {
+            if let Some(os) = get_object_store().await {
                 let logs = logs.to_string();
                 let stream = async_stream::stream! {
                     for file_p in file_index.clone() {

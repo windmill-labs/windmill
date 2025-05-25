@@ -36,7 +36,7 @@ use crate::{
 };
 
 use crate::common::OccupancyMetrics;
-use crate::AuthedClient;
+use windmill_common::client::AuthedClient;
 
 #[cfg(windows)]
 use crate::SYSTEM_ROOT;
