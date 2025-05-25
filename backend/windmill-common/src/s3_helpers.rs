@@ -51,7 +51,7 @@ use windmill_parser_sql::S3ModeFormat;
 #[derive(Clone)]
 pub struct ExpirableObjectStore {
     pub store: Arc<dyn ObjectStore>,
-    refresh: Option<ObjectStoreRefresh>,
+    pub refresh: Option<ObjectStoreRefresh>,
 }
 
 #[cfg(feature = "parquet")]
@@ -62,33 +62,27 @@ pub struct ObjectStoreRefresh {
 }
 
 #[cfg(feature = "parquet")]
-impl ExpirableObjectStore {
-    pub async fn refresh_if_needed(&self) -> Option<ExpirableObjectStore> {
-        if let Some(refresh) = &self.refresh {
-            return refresh.refresh_if_needed().await;
-        }
-        return None;
-    }
-}
-
-#[cfg(feature = "parquet")]
 impl ObjectStoreRefresh {
     pub fn new(settings: ObjectSettings, refresh: Option<DateTime<Utc>>) -> Self {
         Self { settings, refresh }
     }
-    async fn refresh_if_needed(&self) -> Option<ExpirableObjectStore> {
+    fn refresh_needed(&self) -> bool {
         if let Some(refresh) = self.refresh {
             if refresh < Utc::now() - chrono::Duration::minutes(1) {
-                return build_object_store_from_settings(self.settings.clone(), None)
-                    .await
-                    .map_err(|e| {
-                        tracing::error!("Error building s3 client from settings: {:?}", e);
-                        e
-                    })
-                    .ok();
+                return true;
             }
         }
-        return None;
+        return false;
+    }
+
+    async fn refresh(&self) -> Option<ExpirableObjectStore> {
+        return build_object_store_from_settings(self.settings.clone(), None)
+            .await
+            .map_err(|e| {
+                tracing::error!("Error building s3 client from settings: {:?}", e);
+                e
+            })
+            .ok();
     }
 }
 
@@ -114,21 +108,32 @@ lazy_static::lazy_static! {
 
 #[cfg(feature = "parquet")]
 pub async fn get_object_store() -> Option<Arc<dyn ObjectStore>> {
-    let maybe_store = {
-        let settings = OBJECT_STORE_SETTINGS.read().await;
-        settings.as_ref().cloned()
-    };
-
-    if let Some(s) = maybe_store {
-        if let Some(new_store) = s.refresh_if_needed().await {
-            let mut s3_cache_settings = OBJECT_STORE_SETTINGS.write().await;
-            let arc = new_store.store.clone();
-            *s3_cache_settings = Some(new_store);
-            return Some(arc);
+    let settings = OBJECT_STORE_SETTINGS.read().await;
+    if let Some(s) = settings.as_ref() {
+        match &s.refresh {
+            Some(refresh) => {
+                if refresh.refresh_needed() {
+                    let refresh = refresh.clone();
+                    drop(settings);
+                    let new_store = refresh.refresh().await;
+                    if let Some(new_store) = new_store {
+                        let mut s3_cache_settings = OBJECT_STORE_SETTINGS.write().await;
+                        let arc = new_store.store.clone();
+                        *s3_cache_settings = Some(new_store);
+                        return Some(arc);
+                    } else {
+                        return None;
+                    }
+                } else {
+                    return Some(s.store.clone());
+                }
+            }
+            None => {
+                return Some(s.store.clone());
+            }
         }
-        Some(s.store)
     } else {
-        None
+        return None;
     }
 }
 
