@@ -37,7 +37,7 @@ use windmill_common::client::AuthedClient;
 #[cfg(feature = "oauth2")]
 use windmill_common::global_settings::OAUTH_SETTING;
 #[cfg(feature = "parquet")]
-use windmill_common::s3_helpers::reload_s3_cache_setting;
+use windmill_common::s3_helpers::reload_object_store_setting;
 use windmill_common::{
     agent_workers::DECODED_AGENT_TOKEN,
     auth::create_token_for_owner,
@@ -82,6 +82,9 @@ use windmill_worker::{
     INSTANCE_PYTHON_VERSION, JOB_DEFAULT_TIMEOUT, KEEP_JOB_DIR, MAVEN_REPOS, NO_DEFAULT_MAVEN,
     NPM_CONFIG_REGISTRY, NUGET_CONFIG, PIP_EXTRA_INDEX_URL, PIP_INDEX_URL,
 };
+
+#[cfg(feature = "parquet")]
+use windmill_common::s3_helpers::ObjectStoreReload;
 
 #[cfg(feature = "enterprise")]
 use crate::ee::verify_license_key;
@@ -235,7 +238,23 @@ pub async fn initial_load(
     #[cfg(feature = "parquet")]
     if !disable_s3_store {
         if let Some(db) = conn.as_sql() {
-            reload_s3_cache_setting(db).await;
+            let db2 = db.clone();
+            match reload_object_store_setting(db).await {
+                ObjectStoreReload::Later => {
+                    tokio::spawn(async move {
+                        tokio::time::sleep(Duration::from_secs(10)).await;
+                        match reload_object_store_setting(&db2).await {
+                            ObjectStoreReload::Later => {
+                                tracing::error!("Giving up on loading object store setting");
+                            }
+                            ObjectStoreReload::Never => {
+                                tracing::info!("Object store setting successfully loaded");
+                            }
+                        }
+                    });
+                }
+                ObjectStoreReload::Never => (),
+            }
         }
     }
 

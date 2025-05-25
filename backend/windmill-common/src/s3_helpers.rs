@@ -53,27 +53,35 @@ pub struct ExpirableObjectStore {
     refresh: Option<ObjectStoreRefresh>,
 }
 
+#[cfg(feature = "parquet")]
 pub struct ObjectStoreRefresh {
     refresh: Option<DateTime<Utc>>,
     settings: ObjectSettings,
 }
 
+#[cfg(feature = "parquet")]
 impl ExpirableObjectStore {
-    pub async fn refresh_if_needed(&self) -> Option<ExpirableObjectStore> {
+    pub async fn refresh_if_needed(&self) -> Option<Arc<dyn ObjectStore>> {
         if let Some(refresh) = &self.refresh {
-            return refresh.refresh_if_needed().await;
+            if let Some(new_store) = refresh.refresh_if_needed().await {
+                let mut s3_cache_settings = OBJECT_STORE_SETTINGS.write().await;
+                let arc = new_store.store.clone();
+                *s3_cache_settings = Some(new_store);
+                return Some(arc);
+            }
         }
         return None;
     }
 }
 
+#[cfg(feature = "parquet")]
 impl ObjectStoreRefresh {
     pub fn new(settings: ObjectSettings, refresh: Option<DateTime<Utc>>) -> Self {
         Self { settings, refresh }
     }
     async fn refresh_if_needed(&self) -> Option<ExpirableObjectStore> {
         if let Some(refresh) = self.refresh {
-            if refresh < Utc::now() {
+            if refresh < Utc::now() - chrono::Duration::minutes(1) {
                 return build_object_store_from_settings(self.settings.clone(), None)
                     .await
                     .map_err(|e| {
@@ -112,7 +120,7 @@ pub async fn get_object_store() -> Option<Arc<dyn ObjectStore>> {
     let settings = OBJECT_STORE_SETTINGS.read().await;
     if let Some(s) = settings.as_ref() {
         if let Some(o) = s.refresh_if_needed().await {
-            return Some(o.store);
+            return Some(o);
         }
         Some(s.store.clone())
     } else {
@@ -121,7 +129,14 @@ pub async fn get_object_store() -> Option<Arc<dyn ObjectStore>> {
 }
 
 #[cfg(feature = "parquet")]
-pub async fn reload_s3_cache_setting(db: &crate::DB) {
+pub enum ObjectStoreReload {
+    //if the jwks endpoints are not up yet, we should retry later soon
+    Later,
+    Never,
+}
+
+#[cfg(feature = "parquet")]
+pub async fn reload_object_store_setting(db: &crate::DB) -> ObjectStoreReload {
     use crate::{
         ee::{get_license_plan, LicensePlan},
         global_settings::{load_value_from_global_settings, OBJECT_STORE_CONFIG_SETTING},
@@ -135,17 +150,26 @@ pub async fn reload_s3_cache_setting(db: &crate::DB) {
         if let Some(v) = s3_config.unwrap() {
             if matches!(get_license_plan().await, LicensePlan::Pro) {
                 tracing::error!("S3 cache is not available for pro plan");
-                return;
+                return ObjectStoreReload::Never;
             }
             let setting = serde_json::from_value::<ObjectSettings>(v);
             match setting {
                 Ok(setting) => {
+                    let is_oidc = matches!(setting, ObjectSettings::AwsOidc(_));
                     let s3_client = build_object_store_from_settings(setting, Some(db)).await;
-                    if let Err(e) = s3_client {
-                        tracing::error!("Error building s3 client from settings: {:?}", e)
-                    } else {
-                        let mut s3_cache_settings = OBJECT_STORE_SETTINGS.write().await;
-                        *s3_cache_settings = Some(s3_client.unwrap());
+                    match s3_client {
+                        Ok(s3_client) => {
+                            let mut s3_cache_settings = OBJECT_STORE_SETTINGS.write().await;
+                            *s3_cache_settings = Some(s3_client);
+                        }
+                        Err(e) => {
+                            if is_oidc {
+                                tracing::error!("Error building s3 client from oidc settings. It may be due to the jwks endpoints not being up yet, it will be attempted again in 10s to leave time for the server to be ready: {:?}", e);
+                                return ObjectStoreReload::Later;
+                            } else {
+                                tracing::error!("Error building s3 client from settings: {:?}", e);
+                            }
+                        }
                     }
                 }
                 Err(e) => {
@@ -157,7 +181,7 @@ pub async fn reload_s3_cache_setting(db: &crate::DB) {
             if std::env::var("S3_CACHE_BUCKET").is_ok() {
                 if matches!(get_license_plan().await, LicensePlan::Pro) {
                     tracing::error!("S3 cache is not available for pro plan");
-                    return;
+                    return ObjectStoreReload::Never;
                 }
                 *s3_cache_settings = build_s3_client_from_settings(S3Settings {
                     bucket: None,
@@ -178,6 +202,7 @@ pub async fn reload_s3_cache_setting(db: &crate::DB) {
             }
         }
     }
+    return ObjectStoreReload::Never;
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -552,7 +577,7 @@ pub enum ObjectStoreSettings {
 pub enum ObjectSettings {
     S3(S3Settings),
     Azure(AzureBlobResource),
-    S3AwsOidc(S3AwsOidcResource),
+    AwsOidc(S3AwsOidcResource),
 }
 
 impl ObjectSettings {
@@ -560,7 +585,7 @@ impl ObjectSettings {
         match self {
             ObjectSettings::S3(s3_settings) => s3_settings.bucket.as_ref(),
             ObjectSettings::Azure(azure_settings) => Some(&azure_settings.container_name),
-            ObjectSettings::S3AwsOidc(s3_aws_oidc_settings) => Some(&s3_aws_oidc_settings.bucket),
+            ObjectSettings::AwsOidc(s3_aws_oidc_settings) => Some(&s3_aws_oidc_settings.bucket),
         }
     }
 }
@@ -578,7 +603,7 @@ pub async fn build_object_store_from_settings(
             let azure_blob_resource = azure_settings;
             build_azure_blob_client(&azure_blob_resource).map(|x| ExpirableObjectStore::from(x))
         }
-        ObjectSettings::S3AwsOidc(ref s3_aws_oidc_settings) => {
+        ObjectSettings::AwsOidc(ref s3_aws_oidc_settings) => {
             let token_generator = crate::job_s3_helpers_ee::TokenGenerator::AsServerInstance();
             let res = crate::job_s3_helpers_ee::generate_s3_aws_oidc_resource(
                 s3_aws_oidc_settings.clone(),
