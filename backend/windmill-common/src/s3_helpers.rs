@@ -61,14 +61,9 @@ pub struct ObjectStoreRefresh {
 
 #[cfg(feature = "parquet")]
 impl ExpirableObjectStore {
-    pub async fn refresh_if_needed(&self) -> Option<Arc<dyn ObjectStore>> {
+    pub async fn refresh_if_needed(&self) -> Option<ExpirableObjectStore> {
         if let Some(refresh) = &self.refresh {
-            if let Some(new_store) = refresh.refresh_if_needed().await {
-                let mut s3_cache_settings = OBJECT_STORE_SETTINGS.write().await;
-                let arc = new_store.store.clone();
-                *s3_cache_settings = Some(new_store);
-                return Some(arc);
-            }
+            return refresh.refresh_if_needed().await;
         }
         return None;
     }
@@ -119,8 +114,12 @@ lazy_static::lazy_static! {
 pub async fn get_object_store() -> Option<Arc<dyn ObjectStore>> {
     let settings = OBJECT_STORE_SETTINGS.read().await;
     if let Some(s) = settings.as_ref() {
-        if let Some(o) = s.refresh_if_needed().await {
-            return Some(o);
+        if let Some(new_store) = s.refresh_if_needed().await {
+            drop(settings);
+            let mut s3_cache_settings = OBJECT_STORE_SETTINGS.write().await;
+            let arc = new_store.store.clone();
+            *s3_cache_settings = Some(new_store);
+            return Some(arc);
         }
         Some(s.store.clone())
     } else {
