@@ -48,12 +48,14 @@ use tokio::task;
 use windmill_parser_sql::S3ModeFormat;
 
 #[cfg(feature = "parquet")]
+#[derive(Clone)]
 pub struct ExpirableObjectStore {
     pub store: Arc<dyn ObjectStore>,
     refresh: Option<ObjectStoreRefresh>,
 }
 
 #[cfg(feature = "parquet")]
+#[derive(Clone)]
 pub struct ObjectStoreRefresh {
     refresh: Option<DateTime<Utc>>,
     settings: ObjectSettings,
@@ -112,16 +114,19 @@ lazy_static::lazy_static! {
 
 #[cfg(feature = "parquet")]
 pub async fn get_object_store() -> Option<Arc<dyn ObjectStore>> {
-    let settings = OBJECT_STORE_SETTINGS.read().await;
-    if let Some(s) = settings.as_ref() {
+    let maybe_store = {
+        let settings = OBJECT_STORE_SETTINGS.read().await;
+        settings.as_ref().cloned()
+    };
+
+    if let Some(s) = maybe_store {
         if let Some(new_store) = s.refresh_if_needed().await {
-            drop(settings);
             let mut s3_cache_settings = OBJECT_STORE_SETTINGS.write().await;
             let arc = new_store.store.clone();
             *s3_cache_settings = Some(new_store);
             return Some(arc);
         }
-        Some(s.store.clone())
+        Some(s.store)
     } else {
         None
     }
