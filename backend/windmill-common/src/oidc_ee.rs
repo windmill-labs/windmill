@@ -34,7 +34,7 @@ impl AdditionalClaims for InstanceClaim {}
 
 #[derive(Clone, Debug, Default, Deserialize, PartialEq, Eq, Serialize)]
 pub struct WorkspaceClaim {
-    pub(crate) workspace: String,
+    pub workspace: String,
 }
 
 #[derive(Clone, Debug, Default, Deserialize, PartialEq, Eq, Serialize)]
