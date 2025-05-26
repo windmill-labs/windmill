@@ -233,7 +233,8 @@
 					css?.button?.class ?? '',
 					isMenuItem ? 'flex items-center justify-start' : '',
 					isMenuItem ? '!border-0' : '',
-					'wm-button'
+					'wm-button',
+					`wm-button-${resolvedConfig.color}`
 				)}
 				variant={isMenuItem ? 'border' : 'contained'}
 				style={css?.button?.style}
@@ -241,7 +242,8 @@
 					css?.container?.class ?? '',
 					resolvedConfig.fillContainer ? 'w-full h-full' : '',
 					isMenuItem ? 'w-full' : '',
-					'wm-button-container'
+					'wm-button-container',
+					`wm-button-container-${resolvedConfig.color}`
 				)}
 				wrapperStyle={css?.container?.style}
 				disabled={resolvedConfig.disabled}

@@ -6,13 +6,17 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
-use windmill_common::{error::Error, worker::to_raw_value, DB};
+use windmill_common::{
+    error::Error,
+    triggers::{RunnableFormat, RunnableFormatVersion},
+    worker::to_raw_value,
+    DB,
+};
 use windmill_queue::PushArgsOwned;
 
 use crate::{
     args::{try_from_request_body, Body, RawWebhookArgs, WebhookArgs, WebhookArgsMetadata},
     db::ApiAuthed,
-    trigger_helpers::{RunnableFormat, RunnableFormatVersion},
 };
 
 pub struct RawHttpTriggerArgs(pub RawWebhookArgs);

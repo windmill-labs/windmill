@@ -11,6 +11,7 @@
 
 use anyhow::anyhow;
 use futures::TryFutureExt;
+use windmill_common::client::AuthedClient;
 use windmill_common::{
     agent_workers::DECODED_AGENT_TOKEN,
     apps::AppScriptId,
@@ -28,7 +29,7 @@ use windmill_common::{
 #[cfg(feature = "enterprise")]
 use windmill_common::ee::LICENSE_KEY_VALID;
 
-use anyhow::{Context, Result};
+use anyhow::Result;
 use const_format::concatcp;
 #[cfg(feature = "prometheus")]
 use prometheus::IntCounter;
@@ -39,8 +40,7 @@ use windmill_common::METRICS_DEBUG_ENABLED;
 #[cfg(feature = "prometheus")]
 use windmill_common::METRICS_ENABLED;
 
-use reqwest::{Body, Response};
-use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 use sqlx::types::Json;
 use std::{
     collections::HashMap,
@@ -134,7 +134,10 @@ use crate::java_executor::{handle_java_job, JobHandlerInput as JobHandlerInputJa
 use crate::php_executor::handle_php_job;
 
 #[cfg(feature = "python")]
-use crate::python_executor::{handle_python_job, PyVersion};
+use crate::{
+    python_executor::handle_python_job,
+    python_versions::{PyV, PyVAlias},
+};
 
 #[cfg(feature = "python")]
 use crate::ansible_executor::handle_ansible_job;
@@ -363,210 +366,32 @@ lazy_static::lazy_static! {
 
 }
 
+type Envs = Vec<(String, String)>;
+
 #[cfg(windows)]
 lazy_static::lazy_static! {
     pub static ref SYSTEM_ROOT: String = std::env::var("SystemRoot").unwrap_or_else(|_| "C:\\Windows".to_string());
     pub static ref USERPROFILE_ENV: String = std::env::var("USERPROFILE").unwrap_or_else(|_| "/tmp".to_string());
+    static ref TMP: String = std::env::var("TMP").unwrap_or_else(|_| "/tmp".to_string());
+    static ref LOCALAPPDATA: String = std::env::var("LOCALAPPDATA").unwrap_or_else(|_| format!("{}\\AppData\\Local", HOME_ENV.as_str()));
+    pub static ref WIN_ENVS: Envs = vec![
+        ("SystemRoot".into(), SYSTEM_ROOT.clone()),
+        ("USERPROFILE".into(), USERPROFILE_ENV.clone()),
+        ("TMP".into(), TMP.clone()),
+        ("LOCALAPPDATA".into(), LOCALAPPDATA.clone())
+    ];
+
+}
+
+#[cfg(not(windows))]
+lazy_static::lazy_static! {
+    pub static ref WIN_ENVS: Envs = vec![];
 }
 
 //only matter if CLOUD_HOSTED
 pub const MAX_RESULT_SIZE: usize = 1024 * 1024 * 2; // 2MB
 
 pub const INIT_SCRIPT_TAG: &str = "init_script";
-
-#[derive(Clone)]
-pub struct AuthedClient {
-    pub base_internal_url: String,
-    pub workspace: String,
-    pub token: String,
-    pub force_client: Option<reqwest::Client>,
-}
-
-impl AuthedClient {
-    pub async fn get(&self, url: &str, query: Vec<(&str, String)>) -> anyhow::Result<Response> {
-        self.force_client
-            .as_ref()
-            .unwrap_or(&HTTP_CLIENT)
-            .get(url)
-            .query(&query)
-            .header(
-                reqwest::header::ACCEPT,
-                reqwest::header::HeaderValue::from_static("application/json"),
-            )
-            .header(
-                reqwest::header::AUTHORIZATION,
-                reqwest::header::HeaderValue::from_str(&format!("Bearer {}", self.token))?,
-            )
-            .send()
-            .await
-            .context(format!(
-                "Executing request from authed http client to {url} with query {query:?}",
-            ))
-    }
-
-    pub async fn get_id_token(&self, audience: &str) -> anyhow::Result<String> {
-        let url = format!(
-            "{}/api/w/{}/oidc/token/{}",
-            self.base_internal_url, self.workspace, audience
-        );
-        let response = self.get(&url, vec![]).await?;
-        match response.status().as_u16() {
-            200u16 => Ok(response
-                .json::<String>()
-                .await
-                .context("decoding oidc token as json string")?),
-            _ => Err(anyhow::anyhow!(response.text().await.unwrap_or_default())),
-        }
-    }
-
-    pub async fn get_resource_value<T: DeserializeOwned>(&self, path: &str) -> anyhow::Result<T> {
-        let url = format!(
-            "{}/api/w/{}/resources/get_value/{}",
-            self.base_internal_url, self.workspace, path
-        );
-        let response = self.get(&url, vec![]).await?;
-        match response.status().as_u16() {
-            200u16 => Ok(response
-                .json::<T>()
-                .await
-                .context("decoding resource value as json")?),
-            _ => Err(anyhow::anyhow!(response.text().await.unwrap_or_default())),
-        }
-    }
-
-    pub async fn get_variable_value(&self, path: &str) -> anyhow::Result<String> {
-        let url = format!(
-            "{}/api/w/{}/variables/get_value/{}",
-            self.base_internal_url, self.workspace, path
-        );
-        let response = self.get(&url, vec![]).await?;
-        match response.status().as_u16() {
-            200u16 => Ok(response
-                .json::<String>()
-                .await
-                .context("decoding variable value as json")?),
-            _ => Err(anyhow::anyhow!(response.text().await.unwrap_or_default())),
-        }
-    }
-
-    pub async fn get_resource_value_interpolated<T: DeserializeOwned>(
-        &self,
-        path: &str,
-        job_id: Option<String>,
-    ) -> anyhow::Result<T> {
-        let url = format!(
-            "{}/api/w/{}/resources/get_value_interpolated/{}",
-            self.base_internal_url, self.workspace, path
-        );
-        let mut query = Vec::with_capacity(1usize);
-        if let Some(v) = &job_id {
-            query.push(("job_id", v.to_string()));
-        }
-        let response = self.get(&url, query).await?;
-        match response.status().as_u16() {
-            200u16 => Ok(response
-                .json::<T>()
-                .await
-                .context("decoding interpolated resource value as json")?),
-            _ => Err(anyhow::anyhow!(response.text().await.unwrap_or_default())),
-        }
-    }
-
-    pub async fn get_completed_job_result<T: DeserializeOwned>(
-        &self,
-        path: &str,
-        json_path: Option<String>,
-    ) -> anyhow::Result<T> {
-        let url = format!(
-            "{}/api/w/{}/jobs_u/completed/get_result/{}",
-            self.base_internal_url, self.workspace, path
-        );
-        let query = if let Some(json_path) = json_path {
-            vec![("json_path", json_path)]
-        } else {
-            vec![]
-        };
-        let response = self.get(&url, query).await?;
-        match response.status().as_u16() {
-            200u16 => Ok(response
-                .json::<T>()
-                .await
-                .context("decoding completed job result as json")?),
-            _ => Err(anyhow::anyhow!(response.text().await.unwrap_or_default())),
-        }
-    }
-
-    pub async fn get_result_by_id<T: DeserializeOwned>(
-        &self,
-        flow_job_id: &str,
-        node_id: &str,
-        json_path: Option<String>,
-    ) -> anyhow::Result<T> {
-        let url = format!(
-            "{}/api/w/{}/jobs/result_by_id/{}/{}",
-            self.base_internal_url, self.workspace, flow_job_id, node_id
-        );
-        let query = if let Some(json_path) = json_path {
-            vec![("json_path", json_path)]
-        } else {
-            vec![]
-        };
-        let response = self.get(&url, query).await?;
-        match response.status().as_u16() {
-            200u16 => Ok(response
-                .json::<T>()
-                .await
-                .context("decoding result by id as json")?),
-            _ => Err(anyhow::anyhow!(response.text().await.unwrap_or_default())),
-        }
-    }
-
-    pub async fn upload_s3_file<S>(
-        &self,
-        workspace_id: &str,
-        object_key: String,
-        storage: Option<String>,
-        body: S,
-    ) -> error::Result<()>
-    where
-        S: futures::stream::TryStream + Send + 'static,
-        S::Error: Into<Box<dyn std::error::Error + Send + Sync>>,
-        bytes::Bytes: From<S::Ok>,
-    {
-        let mut query = vec![("file_key", object_key)];
-        if let Some(storage) = storage {
-            query.push(("storage", storage));
-        }
-        let response = self
-            .force_client
-            .as_ref()
-            .unwrap_or(&HTTP_CLIENT)
-            .post(format!(
-                "{}/api/w/{}/job_helpers/upload_s3_file",
-                self.base_internal_url, workspace_id
-            ))
-            .query(&query)
-            .header(
-                reqwest::header::ACCEPT,
-                reqwest::header::HeaderValue::from_static("application/json"),
-            )
-            .header(
-                reqwest::header::AUTHORIZATION,
-                reqwest::header::HeaderValue::from_str(&format!("Bearer {}", self.token))
-                    .map_err(|e| error::Error::BadConfig(e.to_string()))?,
-            )
-            .body(Body::wrap_stream(body))
-            .send()
-            .await
-            .context(format!("Sent upload_s3_file request",))
-            .map_err(error::Error::from)?;
-
-        match response.status().as_u16() {
-            200u16 => Ok(()),
-            _ => Err(anyhow::anyhow!(response.text().await.unwrap_or_default()))?,
-        }
-    }
-}
 
 #[derive(Clone)]
 pub struct SameWorkerSender(pub Sender<SameWorkerPayload>, pub Arc<AtomicU16>);
@@ -827,9 +652,9 @@ pub async fn run_worker(
             worker_dir.clone(),
         );
         tokio::spawn(async move {
-            if let Err(e) = PyVersion::from_instance_version(&Uuid::nil(), "", &conn)
+            if let Err(e) = PyV::gravitational_version(&Uuid::nil(), "", Some(conn.clone()))
                 .await
-                .get_python(&Uuid::nil(), &mut 0, &conn, &worker_name, "", &mut None)
+                .try_get_python(&Uuid::nil(), &mut 0, &conn, &worker_name, "", &mut None)
                 .await
             {
                 tracing::error!(
@@ -839,8 +664,8 @@ pub async fn run_worker(
                     "Cannot preinstall or find Instance Python version to worker: {e}"//
                 );
             }
-            if let Err(e) = PyVersion::Py311
-                .get_python(&Uuid::nil(), &mut 0, &conn, &worker_name, "", &mut None)
+            if let Err(e) = PyV::from(PyVAlias::Py311)
+                .try_get_python(&Uuid::nil(), &mut 0, &conn, &worker_name, "", &mut None)
                 .await
             {
                 tracing::error!(

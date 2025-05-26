@@ -15,6 +15,7 @@
 		type?: 'danger' | 'reload'
 		modalId?: string
 		wrapperClass?: string
+		showIcon?: boolean
 	}
 
 	const {
@@ -25,7 +26,8 @@
 		open = false,
 		type: _type,
 		modalId = undefined,
-		wrapperClass = ''
+		wrapperClass = '',
+		showIcon = true
 	}: Props = $props()
 	const type = $derived(_type ?? 'danger')
 
@@ -103,12 +105,14 @@
 					)}
 				>
 					<div class="flex">
-						<div
-							class={`flex h-12 w-12 items-center justify-center rounded-full ${theme[type].classes.iconWrapper}`}
-						>
-							<Icon class={theme[type].classes.icon} />
-						</div>
-						<div class="ml-4 text-left flex-1">
+						{#if showIcon}
+							<div
+								class={`flex h-12 w-12 items-center justify-center rounded-full ${theme[type].classes.iconWrapper}`}
+							>
+								<Icon class={theme[type].classes.icon} />
+							</div>
+						{/if}
+						<div class={twMerge('ml-0 text-left flex-1 ', showIcon ? 'ml-4' : '')}>
 							<h3 class="text-lg font-medium text-primary">
 								{title}
 							</h3>
