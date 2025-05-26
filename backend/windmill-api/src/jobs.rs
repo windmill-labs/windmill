@@ -83,8 +83,6 @@ use windmill_common::{
     },
 };
 
-#[cfg(all(feature = "enterprise", feature = "parquet"))]
-use windmill_common::s3_helpers::OBJECT_STORE_CACHE_SETTINGS;
 #[cfg(feature = "prometheus")]
 use windmill_common::{METRICS_DEBUG_ENABLED, METRICS_ENABLED};
 
@@ -1058,7 +1056,7 @@ async fn get_logs_from_store(
     if log_offset > 0 {
         if let Some(file_index) = log_file_index.clone() {
             tracing::debug!("Getting logs from store: {file_index:?}");
-            if let Some(os) = OBJECT_STORE_CACHE_SETTINGS.read().await.clone() {
+            if let Some(os) = windmill_common::s3_helpers::get_object_store().await {
                 tracing::debug!("object store client present, streaming from there");
 
                 let logs = logs.to_string();
@@ -3473,7 +3471,7 @@ pub async fn run_flow_by_path(
             &authed,
             &db,
             &w_id,
-            RunnableId::from_flow_path(&flow_path.0),
+            RunnableId::from_flow_path(flow_path.to_path()),
             run_query.skip_preprocessor,
         )
         .await?;
@@ -3672,7 +3670,7 @@ pub async fn run_script_by_path(
             &authed,
             &db,
             &w_id,
-            RunnableId::from_script_path(&script_path.0),
+            RunnableId::from_script_path(script_path.to_path()),
             run_query.skip_preprocessor,
         )
         .await?;
@@ -4351,17 +4349,18 @@ pub async fn run_wait_result_job_by_path_get(
     let mut args = args.process_args(&authed, &db, &w_id, None).await?;
     args.body = args::Body::HashMap(payload_args);
 
+    let script_path = script_path.to_path();
+
     let args = args
         .to_args_from_runnable(
             &db,
             &w_id,
-            RunnableId::from_script_path(&script_path.0),
+            RunnableId::from_script_path(script_path),
             run_query.skip_preprocessor,
         )
         .await?;
 
     check_queue_too_long(&db, QUEUE_LIMIT_WAIT_RESULT.or(run_query.queue_limit)).await?;
-    let script_path = script_path.to_path();
     check_scopes(&authed, || format!("run:script/{script_path}"))?;
 
     let mut tx = user_db.clone().begin(&authed).await?;
@@ -4457,7 +4456,7 @@ pub async fn run_wait_result_flow_by_path_get(
         .to_args_from_runnable(
             &db,
             &w_id,
-            RunnableId::from_flow_path(&flow_path.0),
+            RunnableId::from_flow_path(flow_path.to_path()),
             run_query.skip_preprocessor,
         )
         .await?;
@@ -4482,7 +4481,7 @@ pub async fn run_wait_result_script_by_path(
             &authed,
             &db,
             &w_id,
-            RunnableId::from_script_path(&script_path.0),
+            RunnableId::from_script_path(script_path.to_path()),
             run_query.skip_preprocessor,
         )
         .await?;
@@ -4692,7 +4691,7 @@ pub async fn run_wait_result_flow_by_path(
             &authed,
             &db,
             &w_id,
-            RunnableId::from_flow_path(&flow_path.0),
+            RunnableId::from_flow_path(flow_path.to_path()),
             run_query.skip_preprocessor,
         )
         .await?;
@@ -4961,10 +4960,7 @@ async fn run_bundle_preview_script(
             uploaded = true;
 
             #[cfg(all(feature = "enterprise", feature = "parquet"))]
-            let object_store = windmill_common::s3_helpers::OBJECT_STORE_CACHE_SETTINGS
-                .read()
-                .await
-                .clone();
+            let object_store = windmill_common::s3_helpers::get_object_store().await;
 
             #[cfg(not(all(feature = "enterprise", feature = "parquet")))]
             let object_store: Option<()> = None;
@@ -5662,7 +5658,7 @@ async fn get_log_file(Path((_w_id, file_p)): Path<(String, String)>) -> error::R
     }
 
     #[cfg(all(feature = "enterprise", feature = "parquet"))]
-    if let Some(os) = OBJECT_STORE_CACHE_SETTINGS.read().await.clone() {
+    if let Some(os) = windmill_common::s3_helpers::get_object_store().await {
         let file = os
             .get(&object_store::path::Path::from(format!("logs/{file_p}")))
             .await;

@@ -248,6 +248,7 @@ pub struct ListableScript {
     #[sqlx(default)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub deployment_msg: Option<String>,
+    pub kind: ScriptKind,
 }
 
 fn is_false(x: &bool) -> bool {

@@ -1,7 +1,6 @@
 <script lang="ts">
 	import {
 		FlowService,
-		ScheduleService,
 		type Flow,
 		type FlowModule,
 		DraftService,
@@ -19,12 +18,12 @@
 		enterpriseLicense,
 		tutorialsToDo,
 		userStore,
-		workspaceStore
+		workspaceStore,
+		usedTriggerKinds
 	} from '$lib/stores'
 	import {
 		cleanValueProperties,
 		encodeState,
-		formatCron,
 		generateRandomString,
 		orderedJsonStringify,
 		replaceFalseWithUndefined,
@@ -76,6 +75,14 @@
 	import { type TriggerContext, type ScheduleTrigger } from './triggers'
 	import type { SavedAndModifiedValue } from './common/confirmationModal/unsavedTypes'
 	import DeployButton from './DeployButton.svelte'
+	import type { FlowWithDraftAndDraftTriggers, Trigger } from './triggers/utils'
+	import {
+		deployTriggers,
+		filterDraftTriggers,
+		handleSelectTriggerFromKind
+	} from './triggers/utils'
+	import DraftTriggersConfirmationModal from './common/confirmationModal/DraftTriggersConfirmationModal.svelte'
+	import { Triggers } from './triggers/triggers.svelte'
 
 	export let initialPath: string = ''
 	export let pathStoreInit: string | undefined = undefined
@@ -85,18 +92,16 @@
 	export let loading = false
 	export let flowStore: Writable<OpenFlow>
 	export let flowStateStore: Writable<FlowState>
-	export let savedFlow:
-		| (Flow & {
-				draft?: Flow | undefined
-		  })
-		| undefined = undefined
+	export let savedFlow: FlowWithDraftAndDraftTriggers | undefined = undefined
 	export let diffDrawer: DiffDrawer | undefined = undefined
 	export let customUi: FlowBuilderWhitelabelCustomUi = {}
 	export let disableAi: boolean = false
 	export let disabledFlowInputs = false
-	export let savedPrimarySchedule: ScheduleTrigger | undefined = undefined
+	export let savedPrimarySchedule: ScheduleTrigger | undefined = undefined // used to set the primary schedule in the legacy primaryScheduleStore
 	export let version: number | undefined = undefined
 	export let setSavedraftCb: ((cb: () => void) => void) | undefined = undefined
+	export let draftTriggersFromUrl: Trigger[] | undefined = undefined
+	export let selectedTriggerIndexFromUrl: number | undefined = undefined
 
 	let initialPathStore = writable(initialPath)
 	$: initialPathStore.set(initialPath)
@@ -116,12 +121,26 @@
 	let confirmCallback: () => void = () => {} // What happens when user clicks `override` in warning
 	let open: boolean = false // Is confirmation modal open
 
+	// Draft triggers confirmation modal
+	let draftTriggersModalOpen = false
+	let confirmDeploymentCallback: (triggersToDeploy: Trigger[]) => void = () => {}
+
+	async function handleDraftTriggersConfirmed(event: CustomEvent<{ selectedTriggers: Trigger[] }>) {
+		const { selectedTriggers } = event.detail
+		// Continue with saving the flow
+		draftTriggersModalOpen = false
+		confirmDeploymentCallback(selectedTriggers)
+	}
+
 	$: setContext('customUi', customUi)
 
 	export function getInitialAndModifiedValues(): SavedAndModifiedValue {
 		return {
 			savedValue: savedFlow,
-			modifiedValue: $flowStore
+			modifiedValue: {
+				...$flowStore,
+				draft_triggers: structuredClone(triggersState.getDraftTriggersSnapshot())
+			}
 		}
 	}
 	let onLatest = true
@@ -148,42 +167,25 @@
 
 	const dispatch = createEventDispatcher()
 
-	const primaryScheduleStore = writable<ScheduleTrigger | undefined | false>(savedPrimarySchedule)
-	const triggersCount = writable<TriggersCount | undefined>(
-		savedPrimarySchedule
-			? { schedule_count: 1, primary_schedule: { schedule: savedPrimarySchedule.cron } }
-			: undefined
-	)
+	const primaryScheduleStore = writable<ScheduleTrigger | undefined | false>(savedPrimarySchedule) // kept for legacy reasons
+	const triggersCount = writable<TriggersCount | undefined>(undefined)
 	const simplifiedPoll = writable(false)
+
+	// used to set the primary schedule in the legacy primaryScheduleStore
 	export function setPrimarySchedule(schedule: ScheduleTrigger | undefined | false) {
 		primaryScheduleStore.set(schedule)
+	}
+
+	export function setDraftTriggers(triggers: Trigger[] | undefined) {
+		triggersState.setTriggers([
+			...(triggers ?? []),
+			...triggersState.triggers.filter((t) => !t.draftConfig)
+		])
 		loadTriggers()
 	}
 
-	async function createSchedule(path: string) {
-		if ($primaryScheduleStore) {
-			const { cron, timezone, args, enabled, summary } = $primaryScheduleStore
-
-			try {
-				await ScheduleService.createSchedule({
-					workspace: $workspaceStore!,
-					requestBody: {
-						path: path,
-						schedule: formatCron(cron),
-						timezone,
-						script_path: path,
-						is_flow: true,
-						args,
-						enabled,
-						summary
-					}
-				})
-			} catch (err) {
-				sendUserToast(`The primary schedule could not be created: ${err}`, true)
-			}
-		} else {
-			sendUserToast('The primary schedule could not be created: no schedule data', true)
-		}
+	export function setSelectedTriggerIndex(index: number | undefined) {
+		triggersState.selectedTriggerIndex = index
 	}
 
 	let loadingSave = false
@@ -195,7 +197,12 @@
 		}
 		if (savedFlow) {
 			const draftOrDeployed = cleanValueProperties(savedFlow.draft || savedFlow)
-			const current = cleanValueProperties({ ...$flowStore, path: $pathStore })
+			const currentDraftTriggers = structuredClone(triggersState.getDraftTriggersSnapshot())
+			const current = cleanValueProperties({
+				...$flowStore,
+				path: $pathStore,
+				draft_triggers: currentDraftTriggers
+			})
 			if (!forceSave && orderedJsonStringify(draftOrDeployed) === orderedJsonStringify(current)) {
 				sendUserToast('No changes detected, ignoring', false, [
 					{
@@ -259,7 +266,7 @@
 					value: {
 						...flow,
 						path: $pathStore,
-						primary_schedule: $primaryScheduleStore
+						draft_triggers: triggersState.getDraftTriggersSnapshot()
 					}
 				}
 			})
@@ -270,15 +277,14 @@
 							...structuredClone($flowStore),
 							path: $pathStore,
 							draft_only: true
-					  }
+						}
 					: savedFlow),
 				draft: {
 					...structuredClone($flowStore),
-					path: $pathStore
+					path: $pathStore,
+					draft_triggers: structuredClone(triggersState.getDraftTriggersSnapshot())
 				}
-			} as Flow & {
-				draft?: Flow
-			}
+			} as FlowWithDraftAndDraftTriggers
 
 			let savedAtNewPath = false
 			if (newFlow) {
@@ -351,7 +357,19 @@
 		deployedBy = flow.edited_by
 	}
 
-	async function saveFlow(deploymentMsg?: string): Promise<void> {
+	async function saveFlow(deploymentMsg?: string, triggersToDeploy?: Trigger[]): Promise<void> {
+		if (!triggersToDeploy) {
+			// Check if there are draft triggers that need confirmation
+			const draftTriggers = triggersState.triggers.filter((trigger) => trigger.draftConfig)
+			if (draftTriggers.length > 0) {
+				draftTriggersModalOpen = true
+				confirmDeploymentCallback = async (triggersToDeploy: Trigger[]) => {
+					await saveFlow(deploymentMsg, triggersToDeploy)
+				}
+				return
+			}
+		}
+
 		loadingSave = true
 		try {
 			const flow = cleanInputs($flowStore)
@@ -390,8 +408,15 @@
 					},
 					runnableKind: 'flow'
 				})
-				if ($primaryScheduleStore && $primaryScheduleStore.enabled) {
-					await createSchedule($pathStore)
+				if (triggersToDeploy) {
+					await deployTriggers(
+						triggersToDeploy,
+						$workspaceStore,
+						!!$userStore?.is_admin || !!$userStore?.is_super_admin,
+						usedTriggerKinds,
+						$pathStore,
+						true
+					)
 				}
 			} else {
 				try {
@@ -400,51 +425,14 @@
 					console.error('error interacting with local storage', e)
 				}
 
-				const scheduleExists = await ScheduleService.existsSchedule({
-					workspace: $workspaceStore ?? '',
-					path: initialPath
-				})
-
-				if (scheduleExists) {
-					const schedule = await ScheduleService.getSchedule({
-						workspace: $workspaceStore ?? '',
-						path: initialPath
-					})
-					if ($primaryScheduleStore) {
-						const { cron, timezone, args, enabled, summary } = $primaryScheduleStore
-
-						if (
-							JSON.stringify(schedule.args) != JSON.stringify(args) ||
-							schedule.schedule != cron ||
-							schedule.timezone != timezone ||
-							schedule.summary != summary
-						) {
-							await ScheduleService.updateSchedule({
-								workspace: $workspaceStore ?? '',
-								path: initialPath,
-								requestBody: {
-									schedule: formatCron(cron),
-									timezone,
-									args,
-									summary
-								}
-							})
-						}
-						if (enabled != schedule.enabled) {
-							await ScheduleService.setScheduleEnabled({
-								workspace: $workspaceStore ?? '',
-								path: initialPath,
-								requestBody: { enabled }
-							})
-						}
-					} else if (scheduleExists && !$triggersCount?.primary_schedule) {
-						await ScheduleService.deleteSchedule({
-							workspace: $workspaceStore ?? '',
-							path: $pathStore
-						})
-					}
-				} else if ($primaryScheduleStore && $primaryScheduleStore.enabled) {
-					await createSchedule(initialPath)
+				if (triggersToDeploy) {
+					await deployTriggers(
+						triggersToDeploy,
+						$workspaceStore,
+						!!$userStore?.is_admin || !!$userStore?.is_super_admin,
+						usedTriggerKinds,
+						initialPath
+					)
 				}
 
 				await FlowService.updateFlow({
@@ -465,10 +453,15 @@
 					}
 				})
 			}
+
+			const { draft_triggers: _, ...newSavedFlow } = $flowStore as OpenFlow & {
+				draft_triggers: Trigger[]
+			}
 			savedFlow = {
-				...structuredClone($flowStore),
+				...structuredClone(newSavedFlow),
 				path: $pathStore
 			} as Flow
+			setDraftTriggers([])
 			loadingSave = false
 			dispatch('deploy', $pathStore)
 		} catch (err) {
@@ -496,7 +489,8 @@
 						flow: $flowStore,
 						path: $pathStore,
 						selectedId: $selectedIdStore,
-						primarySchedule: $primaryScheduleStore
+						draft_triggers: triggersState.getDraftTriggersSnapshot(),
+						selected_trigger: triggersState.getSelectedTriggerSnapshot()
 					})
 				)
 			} catch (err) {
@@ -506,16 +500,6 @@
 	}
 
 	const selectedIdStore = writable<string>(selectedId ?? 'settings-metadata')
-	const selectedTriggerStore = writable<
-		| 'webhooks'
-		| 'emails'
-		| 'schedules'
-		| 'cli'
-		| 'routes'
-		| 'websockets'
-		| 'postgres'
-		| 'scheduledPoll'
-	>('webhooks')
 
 	export function getSelectedId() {
 		return $selectedIdStore
@@ -541,20 +525,6 @@
 		selectedIdStore.set(selectedId)
 	}
 
-	function selectTrigger(
-		selectedTrigger:
-			| 'webhooks'
-			| 'emails'
-			| 'schedules'
-			| 'cli'
-			| 'routes'
-			| 'websockets'
-			| 'postgres'
-			| 'scheduledPoll'
-	) {
-		selectedTriggerStore.set(selectedTrigger)
-	}
-
 	let insertButtonOpen = writable<boolean>(false)
 
 	setContext<FlowEditorContext>('FlowEditorContext', {
@@ -577,29 +547,42 @@
 		flowInputEditorState: flowInputEditorStateStore
 	})
 
+	// Add triggers context store
+	const triggersState = new Triggers(
+		[
+			{ type: 'webhook', path: '', isDraft: false },
+			{ type: 'email', path: '', isDraft: false },
+			...(draftTriggersFromUrl ?? savedFlow?.draft?.draft_triggers ?? [])
+		],
+		selectedTriggerIndexFromUrl,
+		saveSessionDraft
+	)
+
 	setContext<TriggerContext>('TriggerContext', {
-		selectedTrigger: selectedTriggerStore,
-		primarySchedule: primaryScheduleStore,
 		triggersCount,
 		simplifiedPoll,
-		defaultValues: writable(undefined),
-		captureOn,
-		showCaptureHint
+		showCaptureHint,
+		triggersState
 	})
 
-	async function loadTriggers() {
+	export async function loadTriggers() {
 		$triggersCount = await FlowService.getTriggersCountOfFlow({
 			workspace: $workspaceStore!,
 			path: initialPath
 		})
-		if ($primaryScheduleStore && $triggersCount.primary_schedule == undefined) {
-			$triggersCount = {
-				...($triggersCount ?? {}),
-				schedule_count: ($triggersCount.schedule_count ?? 0) + 1,
-				primary_schedule: {
-					schedule: $primaryScheduleStore.cron
-				}
-			}
+
+		// Initialize triggers using utility function
+		await triggersState.fetchTriggers(
+			triggersCount,
+			$workspaceStore,
+			initialPath,
+			true,
+			$primaryScheduleStore,
+			$userStore
+		)
+
+		if (savedFlow && savedFlow.draft) {
+			savedFlow = filterDraftTriggers(savedFlow, triggersState) as FlowWithDraftAndDraftTriggers
 		}
 	}
 
@@ -871,16 +854,6 @@
 				}
 			}
 
-			if (module.type === 'trigger') {
-				$primaryScheduleStore = {
-					summary: 'Scheduled poll of flow',
-					args: {},
-					cron: '0 */15 * * *',
-					timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-					enabled: true
-				}
-			}
-
 			const flowModule: FlowModule & {
 				value: RawScript | PathScript
 			} = {
@@ -890,7 +863,7 @@
 						? {
 								expr: 'result == undefined || Array.isArray(result) && result.length == 0',
 								skip_if_stopped: true
-						  }
+							}
 						: undefined,
 				value: {
 					input_transforms: {},
@@ -974,7 +947,7 @@
 					pastModule?.value.type === 'rawscript' || pastModule?.value.type === 'script'
 						? (pastModule as FlowModule & {
 								value: RawScript | PathScript
-						  })
+							})
 						: undefined,
 					isFirstInLoop,
 					abortController
@@ -1094,8 +1067,8 @@
 										? isFirstInLoop
 											? 'flow_input.iter.value'
 											: pastModule
-											? 'results.' + pastModule.id
-											: 'flow_input.' + snakeKey
+												? 'results.' + pastModule.id
+												: 'flow_input.' + snakeKey
 										: 'flow_input.' + snakeKey
 							}
 							$shouldUpdatePropertyType[key] = 'javascript'
@@ -1228,7 +1201,7 @@
 							},
 							disabled: newFlow
 						}
-				  ]
+					]
 				: []),
 			...(customUi?.topBar?.history != false
 				? [
@@ -1242,9 +1215,21 @@
 							icon: FileJson,
 							action: () => yamlEditorDrawer?.openDrawer()
 						}
-				  ]
+					]
 				: [])
 		]
+	}
+
+	function handleDeployTrigger(trigger: Trigger) {
+		const { id, path, type } = trigger
+		//Update the saved flow to remove the draft trigger that is deployed
+		if (savedFlow && savedFlow.draft && savedFlow.draft.draft_triggers) {
+			const newSavedDraftTrigers = savedFlow.draft.draft_triggers.filter(
+				(t) => t.id !== id || t.path !== path || t.type !== type
+			)
+			savedFlow.draft.draft_triggers =
+				newSavedDraftTrigers.length > 0 ? newSavedDraftTrigers : undefined
+		}
 	}
 
 	let flowPreviewButtons: FlowPreviewButtons
@@ -1261,6 +1246,16 @@
 	{diffDrawer}
 	bind:deployedValue
 	currentValue={$flowStore}
+/>
+
+<DraftTriggersConfirmationModal
+	bind:open={draftTriggersModalOpen}
+	draftTriggers={triggersState.triggers.filter((t) => t.draftConfig)}
+	isFlow={true}
+	on:canceled={() => {
+		draftTriggersModalOpen = false
+	}}
+	on:confirmed={handleDraftTriggersConfirmed}
 />
 
 {#key renderCount}
@@ -1332,7 +1327,9 @@
 				</div>
 
 				<div class="gap-4 flex-row hidden md:flex w-full max-w-md">
-					{#if $primaryScheduleStore != undefined ? $primaryScheduleStore && $primaryScheduleStore?.enabled : $triggersCount?.primary_schedule}
+					{#if triggersState.triggers?.some((t) => t.type === 'schedule')}
+						{@const primaryScheduleIndex = triggersState.triggers.findIndex((t) => t.isPrimary)}
+						{@const scheduleIndex = triggersState.triggers.findIndex((t) => t.type === 'schedule')}
 						<Button
 							btnClasses="hidden lg:inline-flex"
 							startIcon={{ icon: Calendar }}
@@ -1341,14 +1338,15 @@
 							size="xs"
 							on:click={async () => {
 								select('triggers')
-								selectTrigger('schedules')
+								const selected = primaryScheduleIndex ?? scheduleIndex
+								if (selected) {
+									triggersState.selectedTriggerIndex = selected
+								}
 							}}
 						>
-							{$primaryScheduleStore != undefined
-								? $primaryScheduleStore
-									? $primaryScheduleStore?.cron
-									: ''
-								: $triggersCount?.primary_schedule?.schedule}
+							{triggersState.triggers[primaryScheduleIndex]?.draftConfig?.schedule ??
+								triggersState.triggers[primaryScheduleIndex]?.lightConfig?.schedule ??
+								''}
 						</Button>
 					{/if}
 
@@ -1409,12 +1407,16 @@
 
 								await syncWithDeployed()
 
+								const currentDraftTriggers = structuredClone(
+									triggersState.getDraftTriggersSnapshot()
+								)
+
 								diffDrawer?.openDrawer()
 								diffDrawer?.setDiff({
 									mode: 'normal',
 									deployed: deployedValue ?? savedFlow,
-									draft: savedFlow['draft'],
-									current: { ...$flowStore, path: $pathStore }
+									draft: savedFlow?.draft,
+									current: { ...$flowStore, path: $pathStore, draft_triggers: currentDraftTriggers }
 								})
 							}}
 							disabled={!savedFlow}
@@ -1437,7 +1439,7 @@
 					<FlowPreviewButtons
 						on:openTriggers={(e) => {
 							select('triggers')
-							selectTrigger(e.detail.kind)
+							handleSelectTriggerFromKind(triggersState, triggersCount, initialPath, e.detail.kind)
 							captureOn.set(true)
 							showCaptureHint.set(true)
 						}}
@@ -1489,6 +1491,7 @@
 						flowPreviewButtons?.openPreview(true)
 					}}
 					{savedFlow}
+					onDeployTrigger={handleDeployTrigger}
 				/>
 			{:else}
 				<CenteredPage>Loading...</CenteredPage>

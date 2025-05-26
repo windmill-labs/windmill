@@ -41,6 +41,8 @@ mod pg_executor;
 mod php_executor;
 #[cfg(feature = "python")]
 mod python_executor;
+#[cfg(feature = "python")]
+mod python_versions;
 pub mod result_processor;
 #[cfg(feature = "rust")]
 mod rust_executor;
@@ -62,3 +64,6 @@ pub use bun_executor::{
     prebundle_bun_script, prepare_job_dir,
 };
 pub use deno_executor::generate_deno_lock;
+
+#[cfg(feature = "python")]
+pub use python_versions::{PyV, PyVAlias};

@@ -10,12 +10,17 @@ use http::{header::CONTENT_TYPE, request::Parts, StatusCode};
 use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
 use sqlx::types::JsonRawValue;
-use windmill_common::{error::Error, worker::to_raw_value, DB};
-use windmill_queue::{PushArgsOwned, TriggerKind};
+use windmill_common::{
+    error::Error,
+    triggers::{RunnableFormat, RunnableFormatVersion, TriggerKind},
+    worker::to_raw_value,
+    DB,
+};
+use windmill_queue::PushArgsOwned;
 
 use crate::{
     db::ApiAuthed,
-    trigger_helpers::{get_runnable_format, RunnableFormat, RunnableFormatVersion, RunnableId},
+    trigger_helpers::{get_runnable_format, RunnableId},
 };
 
 #[derive(Debug)]

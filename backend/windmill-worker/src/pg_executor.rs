@@ -41,11 +41,11 @@ use crate::common::{
 };
 use crate::handle_child::run_future_with_polling_update_job_poller;
 use crate::sanitized_sql_params::sanitize_and_interpolate_unsafe_sql_args;
-use crate::{AuthedClient, MAX_RESULT_SIZE};
+use crate::MAX_RESULT_SIZE;
 use bytes::Buf;
 use lazy_static::lazy_static;
 use urlencoding::encode;
-
+use windmill_common::client::AuthedClient;
 #[derive(Deserialize)]
 pub struct PgDatabase {
     pub host: String,

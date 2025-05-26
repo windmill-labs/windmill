@@ -5,12 +5,40 @@ on:
     types: [created]
 
 jobs:
-  auto-fix:
-    runs-on: ubicloud-standard-8
+  check-membership:
+    runs-on: ubicloud-standard-2
     if: |
       github.event_name == 'issue_comment' &&
       contains(github.event.comment.body, '/aider') &&
       !contains(github.event.comment.user.login, '[bot]')
+    outputs:
+      is_member: ${{ steps.check-membership.outputs.is_member }}
+    steps:
+      - name: Check organization membership
+        id: check-membership
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          COMMENTER: ${{ github.event.comment.user.login }}
+          ORG_ACCESS_TOKEN: ${{ secrets.ORG_ACCESS_TOKEN }}
+        run: |
+          ORG="windmill-labs"
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
+            -H "Authorization: token $ORG_ACCESS_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/orgs/$ORG/members/$COMMENTER")
+
+          if [ "$STATUS" -eq 204 ]; then
+            echo "is_member=true" >> $GITHUB_OUTPUT
+          else
+            echo "is_member=false" >> $GITHUB_OUTPUT
+          fi
+
+  check-and-prepare:
+    needs: check-membership
+    runs-on: ubicloud-standard-2
+    if: needs.check-membership.outputs.is_member == 'true'
     permissions:
       contents: write
       pull-requests: write
@@ -21,323 +49,117 @@ jobs:
       GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       WINDMILL_TOKEN: ${{ secrets.WINDMILL_TOKEN }}
+    outputs:
+      issue_title: ${{ steps.determine_inputs.outputs.ISSUE_TITLE }}
+      issue_body: ${{ steps.determine_inputs.outputs.ISSUE_BODY }}
+      comment_content: ${{ steps.determine_inputs.outputs.COMMENT_CONTENT }}
+      pr_branch: ${{ steps.checkout_pr.outputs.PR_BRANCH }}
 
     steps:
-      - name: Harden Runner
-        uses: step-security/harden-runner@v2
-        with:
-          egress-policy: audit
-
-      - name: Check out code
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Configure Git User
-        run: |
-          git config --global user.name "github-actions[bot]"
-          git config --global user.email "github-actions[bot]@users.noreply.github.com"
-
-      - name: Checkout PR Branch
-        if: github.event_name == 'issue_comment' && github.event.issue.pull_request
+      - name: Acknowledge Request
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
         run: |
-          echo "Issue comment trigger: Checking out PR branch..."
-          PR_NUMBER=${{ github.event.issue.number }}
-          PR_HEAD_REF=$(gh pr view $PR_NUMBER --json headRefName -q .headRefName --repo $GITHUB_REPOSITORY)
-          if [[ -z "$PR_HEAD_REF" || "$PR_HEAD_REF" == "null" ]]; then
-             echo "::error::Could not determine PR head branch for PR #$PR_NUMBER via gh CLI."
-             exit 1
-          fi
-          echo "Checking out PR head branch: $PR_HEAD_REF for PR #$PR_NUMBER"
-          git fetch origin "refs/heads/${PR_HEAD_REF}:refs/remotes/origin/${PR_HEAD_REF}" --no-tags
-          git checkout "$PR_HEAD_REF"
-          echo "Successfully checked out branch $(git rev-parse --abbrev-ref HEAD)"
+          echo "Commenting on issue/PR #${{ github.event.issue.number }} to acknowledge the /aider command."
+          gh issue comment ${{ github.event.issue.number }} --body "🤖 Aider is starting to work on your request. I'll update you here once I have a PR ready. Please be patient, this might take a few minutes." --repo $GITHUB_REPOSITORY
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-
-      - name: Install Aider and Dependencies
-        run: |
-          python -m pip install aider-install; aider-install
-          pip install -U google-generativeai
-          sudo apt-get update && sudo apt-get install -y jq
-
-      - name: Determine Prompt for Aider
-        id: determine_prompt
+      - name: Determine inputs for Aider
+        id: determine_inputs
         shell: bash
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          COMMENT_BODY: ${{ github.event.comment.body }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
         run: |
-          PROMPT_FILE_PATH=".github/aider/issue-prompt.txt"
-          mkdir -p .github/aider
+          echo "Determining inputs for Aider..."
+          ISSUE_TITLE_VAL=""
+          ISSUE_BODY_VAL=""
 
-          # Determine if this is a PR comment or regular issue comment
           if [[ ! -z "${{ github.event.issue.pull_request }}" ]]; then
             echo "This is a comment on a Pull Request"
-            PR_NUMBER="${{ github.event.issue.number }}"
+            PR_NUMBER="$ISSUE_NUMBER"
             
-            # Get PR description to check for issue references
-            PR_BODY=$(gh pr view $PR_NUMBER --json body -q .body --repo $GITHUB_REPOSITORY)
-            
-            # Extract issue number from PR description (looking for #123 or "fixes #123" patterns)
-            REFERENCED_ISSUE=$(echo "$PR_BODY" | grep -oE "#[0-9]+" | grep -oE "[0-9]+" | head -1)
-            
-            if [[ ! -z "$REFERENCED_ISSUE" ]]; then
-              echo "Found referenced issue #$REFERENCED_ISSUE in PR description"
-              
-              # Fetch the referenced issue details
-              ISSUE_DETAILS=$(gh issue view $REFERENCED_ISSUE --json title,body --repo $GITHUB_REPOSITORY)
-              ISSUE_TITLE=$(echo "$ISSUE_DETAILS" | jq -r .title)
-              ISSUE_BODY=$(echo "$ISSUE_DETAILS" | jq -r .body)
-              
-              # Store raw comment body in a file first to avoid shell interpretation issues
-              echo '${{ github.event.comment.body }}' > /tmp/raw_comment.txt
-              RAW_COMMENT_BODY=$(cat /tmp/raw_comment.txt)
-              # Remove the /aider prefix and trim whitespace
-              COMMENT_CONTENT=$(echo "$RAW_COMMENT_BODY" | sed 's|^/aider||' | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
-              
-              echo "Sending issue content and PR comment to external API…"
-              
-              ISSUE_TITLE_Q=$(printf '%q' "$ISSUE_TITLE")
-              ISSUE_BODY_Q=$(printf '%q' "$ISSUE_BODY")
-              
-              JSON_PAYLOAD=$(jq -n \
-                --arg title "$ISSUE_TITLE_Q" \
-                --arg body "$ISSUE_BODY_Q" \
-                '{"body":{"issue_title":$title,"issue_body":$body}}')
-              
-              API_RESULT=$(curl -s -w "\n%{http_code}" \
-                -X POST "https://app.windmill.dev/api/w/windmill-labs/jobs/run_wait_result/p/f/ai/quiet_script" \
-                -H "Content-Type: application/json" \
-                -H "Authorization: Bearer $WINDMILL_TOKEN" \
-                --data-binary "$JSON_PAYLOAD" \
-                --max-time 90)
-              
-              HTTP_CODE=$(echo "$API_RESULT" | tail -n1)
-              BODY=$(echo "$API_RESULT" | sed '$d')
-              
-              echo "$BODY" > /tmp/api_response.txt
-
-              BASE_PROMPT="Try to fix the following issue based on the instruction given by the user. The issue is prepended with the word ISSUE. The instruction is prepended with the word INSTRUCTION. The issue and instruction are separated by a blank line."
-              if [[ "$HTTP_CODE" -eq 200 ]]; then
-                PROCESSED_ISSUE_PROMPT=$(jq -r '.effective_body // empty' /tmp/api_response.txt)
-                if [[ -z "$PROCESSED_ISSUE_PROMPT" || "$PROCESSED_ISSUE_PROMPT" == "null" ]]; then
-                  PROCESSED_ISSUE_PROMPT=""
-                fi
-                printf "%s\nISSUE:\n%s\nINSTRUCTION:\n%s" \
-                  "$BASE_PROMPT" "$PROCESSED_ISSUE_PROMPT" "$COMMENT_CONTENT" > "$PROMPT_FILE_PATH"
-              else
-                echo "::warning::API call failed (HTTP $HTTP_CODE). Using PR comment with issue context."
-                printf "%s\nISSUE:\n%s\nINSTRUCTION:\n%s" \
-                  "$BASE_PROMPT" "$ISSUE_BODY_Q" "$COMMENT_CONTENT" > "$PROMPT_FILE_PATH"
-              fi
-              rm -f /tmp/api_response.txt
+            PR_BODY_JSON=$(gh pr view "$PR_NUMBER" --json body --repo "$GITHUB_REPOSITORY")
+            if [[ $? -ne 0 ]]; then
+              echo "Error fetching PR body for PR #$PR_NUMBER"
+              PR_BODY_VAL=""
             else
-              echo "No referenced issue found in PR description, using comment content only"
-              # Use comment content directly as with regular issue comments
-              echo '${{ github.event.comment.body }}' > /tmp/raw_comment.txt
-              RAW_COMMENT_BODY=$(cat /tmp/raw_comment.txt)
-              COMMENT_CONTENT=$(echo "$RAW_COMMENT_BODY" | sed 's|^/aider||' | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
-              
-              if [[ -z "$COMMENT_CONTENT" ]]; then
-                echo "::error::Comment with /aider provided, but no instruction found after it. Cannot proceed."
-                printf "Error: /aider command found but no instruction followed." > "$PROMPT_FILE_PATH"
-                exit 1
-              else
-                echo "Using comment content as prompt."
-                printf '%s' "$COMMENT_CONTENT" > "$PROMPT_FILE_PATH"
+              PR_BODY_VAL=$(jq -r '.body // ""' <<< "$PR_BODY_JSON")
+            fi
+            
+            if [[ ! -z "$PR_BODY_VAL" ]]; then
+              REFERENCED_ISSUE=""
+              if [[ "$PR_BODY_VAL" =~ \#linear:([a-f0-9-]+) ]]; then
+                REFERENCED_ISSUE="${BASH_REMATCH[1]}"
+                echo "Found referenced Linear issue #$REFERENCED_ISSUE in PR description"
+                LINEAR_ISSUE_JSON=$(curl -s -H "Authorization: $LINEAR_API_KEY" \
+                  "https://api.linear.app/graphql" \
+                  -X POST \
+                  -H "Content-Type: application/json" \
+                  -d "{\"query\":\"query { issue(id: \\\"$REFERENCED_ISSUE\\\") { title description } }\"}")
+                
+                if [[ $? -eq 0 && ! "$LINEAR_ISSUE_JSON" =~ "error" ]]; then
+                  ISSUE_TITLE_VAL=$(jq -r '.data.issue.title // ""' <<< "$LINEAR_ISSUE_JSON")
+                  ISSUE_BODY_VAL=$(jq -r '.data.issue.description // ""' <<< "$LINEAR_ISSUE_JSON")
+                  echo "Successfully fetched Linear issue details"
+                else
+                  echo "Error fetching Linear issue details for #$REFERENCED_ISSUE"
+                fi
+              elif [[ "$PR_BODY_VAL" =~ \#([0-9]+) ]]; then
+                REFERENCED_ISSUE="${BASH_REMATCH[1]}"
+                echo "Found referenced GitHub issue #$REFERENCED_ISSUE in PR description"
+                
+                ISSUE_DETAILS_JSON=$(gh issue view "$REFERENCED_ISSUE" --json title,body --repo "$GITHUB_REPOSITORY")
+                if [[ $? -ne 0 ]]; then
+                  echo "Error fetching issue details for #$REFERENCED_ISSUE"
+                else
+                  ISSUE_TITLE_VAL=$(jq -r '.title // ""' <<< "$ISSUE_DETAILS_JSON")
+                  ISSUE_BODY_VAL=$(jq -r '.body // ""' <<< "$ISSUE_DETAILS_JSON")
+                fi
               fi
+            else
+              echo "PR body is empty or could not be fetched."
             fi
           else
             echo "This is a comment on a regular issue"
             
-            # Fetch the issue details
-            ISSUE_NUMBER="${{ github.event.issue.number }}"
-            ISSUE_DETAILS=$(gh issue view $ISSUE_NUMBER --json title,body --repo $GITHUB_REPOSITORY)
-            ISSUE_TITLE=$(echo "$ISSUE_DETAILS" | jq -r .title)
-            ISSUE_BODY=$(echo "$ISSUE_DETAILS" | jq -r .body)
-            
-            # Store raw comment body in a file first to avoid shell interpretation issues
-            echo '${{ github.event.comment.body }}' > /tmp/raw_comment.txt
-            # Extract the command part safely
-            RAW_COMMENT_BODY=$(cat /tmp/raw_comment.txt)
-            # Remove the /aider prefix and trim whitespace
-            COMMENT_CONTENT=$(echo "$RAW_COMMENT_BODY" | sed 's|^/aider||' | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
-
-            if [[ -z "$COMMENT_CONTENT" ]]; then
-              echo "::error::Comment with /aider provided, but no instruction found after it. Cannot proceed."
-              printf "Error: /aider command found but no instruction followed." > "$PROMPT_FILE_PATH"
-              exit 1
+            ISSUE_DETAILS_JSON=$(gh issue view "$ISSUE_NUMBER" --json title,body --repo "$GITHUB_REPOSITORY")
+            if [[ $? -ne 0 ]]; then
+              echo "Error fetching issue details for #$ISSUE_NUMBER"
             else
-              echo "Sending issue content and issue comment to external API…"
-              
-              ISSUE_TITLE_Q=$(printf '%q' "$ISSUE_TITLE")
-              ISSUE_BODY_Q=$(printf '%q' "$ISSUE_BODY")
-              COMMENT_CONTENT_Q=$(printf '%q' "$COMMENT_CONTENT")
-              
-              JSON_PAYLOAD=$(jq -n \
-                --arg title "$ISSUE_TITLE_Q" \
-                --arg body "$ISSUE_BODY_Q" \
-                --arg comment "$COMMENT_CONTENT_Q" \
-                '{"body":{"issue_title":$title,"issue_body":$body,"issue_comment":$comment}}')
-              
-              API_RESULT=$(curl -s -w "\n%{http_code}" \
-                -X POST "https://app.windmill.dev/api/w/windmill-labs/jobs/run_wait_result/p/f/ai/quiet_script" \
-                -H "Content-Type: application/json" \
-                -H "Authorization: Bearer $WINDMILL_TOKEN" \
-                --data-binary "$JSON_PAYLOAD" \
-                --max-time 90)
-              
-              HTTP_CODE=$(echo "$API_RESULT" | tail -n1)
-              BODY=$(echo "$API_RESULT" | sed '$d')
-              
-              echo "$BODY" > /tmp/api_response.txt
-              
-              BASE_PROMPT="Try to fix the following issue based on the instruction given by the user. The issue is prepended with the word ISSUE. The instruction is prepended with the word INSTRUCTION. The issue and instruction are separated by a blank line."
-              if [[ "$HTTP_CODE" -eq 200 ]]; then
-                PROCESSED_ISSUE_PROMPT=$(jq -r '.effective_body // empty' /tmp/api_response.txt)
-                if [[ -z "$PROCESSED_ISSUE_PROMPT" || "$PROCESSED_ISSUE_PROMPT" == "null" ]]; then
-                  PROCESSED_ISSUE_PROMPT=""
-                fi
-                printf "%s\nISSUE:\n%s\nINSTRUCTION:\n%s" \
-                  "$BASE_PROMPT" "$PROCESSED_ISSUE_PROMPT" "$COMMENT_CONTENT" > "$PROMPT_FILE_PATH"
-              else
-                echo "::warning::API call failed (HTTP $HTTP_CODE). Using PR comment with issue context."
-                printf "%s\nISSUE:\n%s\nINSTRUCTION:\n%s" \
-                  "$BASE_PROMPT" "$ISSUE_BODY_Q" "$COMMENT_CONTENT" > "$PROMPT_FILE_PATH"
-              fi
-
-              rm -f /tmp/api_response.txt
-            fi
-          fi
-          echo "Prompt determined and written to $PROMPT_FILE_PATH"
-          echo "PROMPT_FILE_PATH=$PROMPT_FILE_PATH" >> $GITHUB_OUTPUT
-
-      - name: Probe Chat for Relevant Files
-        id: probe_files
-        env:
-          PROMPT_CONTENT_FILE: ${{ steps.determine_prompt.outputs.PROMPT_FILE_PATH }}
-        run: |
-          echo "Running probe-chat to find relevant files..."
-          if [[ ! -f "$PROMPT_CONTENT_FILE" ]]; then
-            echo "::error::Prompt file $PROMPT_CONTENT_FILE not found!"
-            exit 1
-          fi
-          PROMPT_CONTENT=$(cat "$PROMPT_CONTENT_FILE")
-          if [ -z "$PROMPT_CONTENT" ]; then
-             echo "::error::Prompt content is empty!"
-             exit 1
-          fi
-
-          PROMPT_ESCAPED=$(jq -Rs . <<< "$PROMPT_CONTENT")
-
-          MESSAGE_FOR_PROBE=$(jq -n --arg prompt_escaped "$PROMPT_ESCAPED" \
-            '{ "message": "I'\''m giving you a request that needs to be implemented. Your role is ONLY to give me the files that are relevant to the request and nothing else. The request is prepended with the word REQUEST.\\nREQUEST: \($prompt_escaped). Give me all the files relevant to this request. Your output MUST be a single json array that can be parsed with programatic json parsing, with the relevant files. Files can be rust or typescript or javascript files. DO NOT INCLUDE ANY OTHER TEXT IN YOUR OUTPUT. ONLY THE JSON ARRAY. Example of output: [\"file1.py\", \"file2.py\"]" }' | jq -r .message)
-
-          set -o pipefail
-          PROBE_OUTPUT=$(npx --yes @buger/probe-chat@latest --max-iterations 50 --model-name gemini-2.5-pro-preview-05-06 --message "$MESSAGE_FOR_PROBE") || {
-            echo "::error::probe-chat command failed. Output:"
-            echo "$PROBE_OUTPUT"
-            exit 1
-          }
-          set +o pipefail
-          echo "Probe-chat raw output:"
-          echo "$PROBE_OUTPUT"
-
-          JSON_FILES=$(echo "$PROBE_OUTPUT" | sed -n '/^\s*\[/,$p' | sed '/^\s*\]/q')
-          echo "Extracted JSON block:"
-          echo "$JSON_FILES"
-
-          FILES_LIST=$(echo "$JSON_FILES" | jq -e -r '[.[] | select(type == "string" and . != "" and . != null and (endswith("/") | not))] | map(@sh) | join(" ")' || echo "")
-
-          if [[ -z "$FILES_LIST" ]]; then
-             echo "::warning::probe-chat did not identify any relevant files."
-             exit 1
-          fi
-
-          echo "Formatted files list for aider: $FILES_LIST"
-          echo "FILES_TO_EDIT=$FILES_LIST" >> $GITHUB_ENV
-
-      - name: Run Aider with external prompt
-        run: |
-          echo "Files identified by probe-chat: ${{ env.FILES_TO_EDIT }}"
-          aider \
-            --read .cursor/rules/rust-best-practices.mdc \
-            --read .cursor/rules/svelte5-best-practices.mdc \
-            --read .cursor/rules/windmill-overview.mdc \
-            ${{ env.FILES_TO_EDIT }} \
-            --model gemini/gemini-2.5-pro-preview-05-06 \
-            --message-file .github/aider/issue-prompt.txt \
-            --yes \
-            --no-check-update \
-            --auto-commits \
-            --no-analytics \
-            --no-gitignore \
-            | tee .github/aider/aider-output.txt || true
-          echo "Aider command completed. Output saved to .github/aider/aider-output.txt"
-
-      - name: Clean up prompt file
-        if: always()
-        run: rm -f .github/aider/issue-prompt.txt
-
-      - name: Commit and Push Changes
-        id: commit_and_push
-        if: ${{ success() }}
-        run: |
-          if [[ -z "${{ github.event.issue.pull_request }}" ]]; then
-            BRANCH_NAME="aider-fix-issue-${{ github.event.issue.number }}"
-            
-            # Check if branch exists remotely
-            if git ls-remote --heads origin $BRANCH_NAME | grep -q $BRANCH_NAME; then
-              echo "Branch $BRANCH_NAME already exists remotely, fetching it"
-              git fetch origin $BRANCH_NAME
-              git checkout $BRANCH_NAME
-              git pull origin $BRANCH_NAME
-            else
-              echo "Creating new branch $BRANCH_NAME"
-              git checkout -b $BRANCH_NAME
-            fi
-            
-            echo "Created/checked out branch $BRANCH_NAME for issue #${{ github.event.issue.number }}"
-            git push origin $BRANCH_NAME
-            echo "Pushed to branch $BRANCH_NAME"
-            echo "PR_BRANCH_NAME=$BRANCH_NAME" >> $GITHUB_OUTPUT
-            echo "CHANGES_APPLIED_MESSAGE=Aider changes pushed to branch $BRANCH_NAME." >> $GITHUB_OUTPUT
-          else
-            CURRENT_BRANCH_NAME=$(git rev-parse --abbrev-ref HEAD)
-            echo "Attempting to push changes to PR branch $CURRENT_BRANCH_NAME for PR #${{ github.event.issue.number }}"
-            if git push origin $CURRENT_BRANCH_NAME; then
-              echo "Push to $CURRENT_BRANCH_NAME successful (or no new changes to push)."
-              echo "CHANGES_APPLIED_MESSAGE=Aider changes (if any) pushed to PR branch $CURRENT_BRANCH_NAME." >> $GITHUB_OUTPUT
-              echo "PR_BRANCH_NAME=$CURRENT_BRANCH_NAME" >> $GITHUB_OUTPUT
-            else
-              echo "::warning::Push to PR branch $CURRENT_BRANCH_NAME failed."
-              echo "CHANGES_APPLIED_MESSAGE=Aider ran, but failed to push changes to PR branch $CURRENT_BRANCH_NAME." >> $GITHUB_OUTPUT
+              ISSUE_TITLE_VAL=$(jq -r '.title // ""' <<< "$ISSUE_DETAILS_JSON")
+              ISSUE_BODY_VAL=$(jq -r '.body // ""' <<< "$ISSUE_DETAILS_JSON") 
             fi
           fi
 
-      - name: Create Pull Request
-        if: success() && github.event_name == 'issue_comment' && !github.event.issue.pull_request && steps.commit_and_push.outputs.PR_BRANCH_NAME != ''
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          PR_BRANCH: ${{ steps.commit_and_push.outputs.PR_BRANCH_NAME }}
-          ISSUE_NUM: ${{ github.event.issue.number }}
-        run: |
-          # Create PR description in a temporary file to avoid command line length limits
-          cat > /tmp/pr-description.md << EOL
-          This PR was created automatically by Aider to fix issue #${ISSUE_NUM}.
+          echo "ISSUE_TITLE<<EOF_AIDER_TITLE" >> "$GITHUB_OUTPUT"
+          echo "$ISSUE_TITLE_VAL" >> "$GITHUB_OUTPUT"
+          echo "EOF_AIDER_TITLE" >> "$GITHUB_OUTPUT"
 
-          ## Aider Output
-          \`\`\`
-          $(cat .github/aider/aider-output.txt || echo "No output available")
-          \`\`\`
-          EOL
+          echo "ISSUE_BODY<<EOF_AIDER_BODY" >> "$GITHUB_OUTPUT"
+          echo "$ISSUE_BODY_VAL" >> "$GITHUB_OUTPUT"
+          echo "EOF_AIDER_BODY" >> "$GITHUB_OUTPUT"
 
-          # Create PR using the file for the body content
-          gh pr create \
-            --title "[Aider PR] Add fixes for issue #${ISSUE_NUM}" \
-            --body-file /tmp/pr-description.md \
-            --head "$PR_BRANCH" \
-            --base main
+          CLEAN_COMMENT="${COMMENT_BODY/\/aider/}"
+          CLEAN_COMMENT="${CLEAN_COMMENT#"${CLEAN_COMMENT%%[![:space:]]*}"}"
+          CLEAN_COMMENT="${CLEAN_COMMENT%"${CLEAN_COMMENT##*[![:space:]]}"}"
+
+          echo "COMMENT_CONTENT<<EOF_AIDER_COMMENT" >> "$GITHUB_OUTPUT"
+          echo "$CLEAN_COMMENT" >> "$GITHUB_OUTPUT"
+          echo "EOF_AIDER_COMMENT" >> "$GITHUB_OUTPUT"
+          echo "Finished determining inputs."
+
+  run-aider:
+    needs: [check-membership, check-and-prepare]
+    if: needs.check-membership.outputs.is_member == 'true'
+    uses: ./.github/workflows/aider-common.yml
+    with:
+      issue_title: ${{ needs.check-and-prepare.outputs.issue_title }}
+      issue_body: ${{ needs.check-and-prepare.outputs.issue_body }}
+      instruction: ${{ needs.check-and-prepare.outputs.comment_content }}
+      issue_id: ${{ github.event.issue.number }}
+      rules_files: "CLAUDE.md backend/CLAUDE.md frontend/CLAUDE.md"
+    secrets: inherit
