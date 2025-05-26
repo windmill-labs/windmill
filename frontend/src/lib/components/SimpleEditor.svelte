@@ -467,33 +467,46 @@
 	}
 
 	function addTailwindClassCompletions() {
+		// Define a custom word definition for Tailwind classes
+		languages.setMonarchTokensProvider('tailwindcss', {
+			tokenizer: {
+				root: [[/[a-zA-Z0-9-]+/, 'tailwind-class']]
+			}
+		})
+
 		languages.registerCompletionItemProvider('tailwindcss', {
+			triggerCharacters: ['-'],
 			provideCompletionItems: function (model, position, context, token) {
-				const word = model.getWordUntilPosition(position)
+				const wordUntilPosition = model.getWordUntilPosition(position)
+				const lineContent = model.getLineContent(position.lineNumber)
+
+				// Get the text from the start of the line to the cursor
+				const textUntilPosition = lineContent.substring(0, position.column - 1)
+				// Find the last space before the cursor
+				const lastSpaceIndex = textUntilPosition.lastIndexOf(' ')
+				const startColumn = lastSpaceIndex === -1 ? 1 : lastSpaceIndex + 2
+
 				const range = {
 					startLineNumber: position.lineNumber,
-					startColumn: word.startColumn,
+					startColumn: startColumn,
 					endLineNumber: position.lineNumber,
-					endColumn: word.endColumn
+					endColumn: position.column
 				}
 
-				if (word && word.word) {
-					const currentWord = word.word
+				const currentWord = wordUntilPosition.word
 
-					const suggestions = tailwindClasses
-						.filter((className) => className.includes(currentWord))
-						.map((className) => ({
-							label: className,
-							kind: languages.CompletionItemKind.Class,
-							insertText: className,
-							documentation: 'Custom CSS class',
-							range: range
-						}))
+				const suggestions = tailwindClasses
+					.filter((className) => className.includes(currentWord))
+					.map((className) => ({
+						label: className,
+						kind: languages.CompletionItemKind.Class,
+						insertText: className,
+						documentation: 'Tailwind CSS class',
+						range: range,
+						preselect: true
+					}))
 
-					return { suggestions }
-				}
-
-				return { suggestions: [] }
+				return { suggestions }
 			}
 		})
 	}
