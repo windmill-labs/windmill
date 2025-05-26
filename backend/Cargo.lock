@@ -1097,6 +1097,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "aws-smithy-types-convert"
+version = "0.60.9"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "df786cc1aea35d24b609f7a32d05570916edfe7b3e09e81f2faf365f9062f647"
+dependencies = [
+ "aws-smithy-types",
+ "chrono",
+]
+
+[[package]]
 name = "aws-smithy-xml"
 version = "0.60.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -14650,6 +14660,7 @@ dependencies = [
  "async-stream",
  "aws-config",
  "aws-sdk-sts",
+ "aws-smithy-types-convert",
  "axum",
  "backon",
  "bytes",
@@ -14674,6 +14685,7 @@ dependencies = [
  "magic-crypt",
  "mail-send",
  "object_store",
+ "openidconnect",
  "opentelemetry",
  "opentelemetry-appender-tracing",
  "opentelemetry-otlp",

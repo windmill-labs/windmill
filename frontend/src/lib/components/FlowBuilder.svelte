@@ -461,7 +461,7 @@
 				...structuredClone(newSavedFlow),
 				path: $pathStore
 			} as Flow
-			triggersState.setTriggers([])
+			setDraftTriggers([])
 			loadingSave = false
 			dispatch('deploy', $pathStore)
 		} catch (err) {
