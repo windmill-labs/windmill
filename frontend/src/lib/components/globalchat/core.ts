@@ -6,7 +6,7 @@ import type {
 	ChatCompletionMessageToolCall,
 	ChatCompletionTool
 } from 'openai/resources/index.mjs'
-import { userStore } from '$lib/stores'
+import { triggerablesByAI } from '$lib/stores'
 
 // System prompt for the LLM
 export const CHAT_SYSTEM_PROMPT = `
@@ -43,25 +43,16 @@ const EXECUTE_COMMAND_TOOL: ChatCompletionTool = {
 	type: 'function',
 	function: {
 		name: 'execute_command',
-		description: 'Executes a command on the page, such as clicking a button',
+		description: 'Executes a command to trigger an AI component',
 		parameters: {
 			type: 'object',
 			properties: {
-				type: {
+				id: {
 					type: 'string',
-					description: 'The type of command (click, input, select, etc.)',
-					enum: ['click', 'input', 'select']
-				},
-				selector: {
-					type: 'string',
-					description: 'CSS selector or XPath to identify the element'
-				},
-				value: {
-					type: 'string',
-					description: 'Value to use for input or select commands (optional)'
+					description: 'ID of the AI-triggerable component'
 				}
 			},
-			required: ['type', 'selector']
+			required: ['id']
 		}
 	}
 }
@@ -91,77 +82,49 @@ ${html.substring(0, 15000)}${html.length > 15000 ? '...(truncated)' : ''}
 // Helper function to extract interactive elements from the page
 function extractInteractiveElements(): string {
 	try {
-		const elements = document.querySelectorAll('button, a, input, select, [role="button"]')
-		let result = 'INTERACTIVE_ELEMENTS:\n'
+		// Get components registered in the triggerablesByAI store
+		const registeredComponents = get(triggerablesByAI)
+		let result = 'TRIGGERABLE_COMPONENTS:\n'
 
-		elements.forEach((el, index) => {
-			const tagName = el.tagName.toLowerCase()
-			const text = el.textContent?.trim() || ''
-			const id = el.id ? `id="${el.id}"` : ''
-			const classes = Array.from(el.classList).join(' ')
-			const classAttr = classes ? `class="${classes}"` : ''
-			const type = el.getAttribute('type') || ''
-			const typeAttr = type ? `type="${type}"` : ''
-			const value = (el as HTMLInputElement).value || ''
-			const valueAttr = value ? `value="${value}"` : ''
-			const placeholder = el.getAttribute('placeholder') || ''
-			const placeholderAttr = placeholder ? `placeholder="${placeholder}"` : ''
-			const href = (el as HTMLAnchorElement).href || ''
-			const hrefAttr = href ? `href="${href}"` : ''
-			const role = el.getAttribute('role') || ''
-			const roleAttr = role ? `role="${role}"` : ''
+		// If there are no components registered, return a message
+		if (Object.keys(registeredComponents).length === 0) {
+			return 'No AI-triggerable components are currently available on this page.\n'
+		}
 
-			// Create a basic selector for this element
-			const selector = el.id
-				? `#${el.id}`
-				: tagName + (classes ? `.${classes.replace(/\s+/g, '.')}` : '')
-
-			result += `[${index}] <${tagName} ${id} ${classAttr} ${typeAttr} ${valueAttr} ${placeholderAttr} ${hrefAttr} ${roleAttr}>${text}</${tagName}> (selector: ${selector})\n`
+		// List each registered component with its ID and description
+		Object.entries(registeredComponents).forEach(([id, component], index) => {
+			result += `[${index}] ID: "${id}" - ${component.description}\n`
 		})
 
 		return result
 	} catch (error) {
-		console.error('Error extracting interactive elements:', error)
-		return 'Error extracting interactive elements: ' + error.message
+		console.error('Error extracting triggerable components:', error)
+		return 'Error extracting triggerable components: ' + error.message
 	}
 }
 
 // Function to execute commands on the page
-function executeCommand(args: any): string {
-	const { type, selector, value } = args
+function executeCommand(args: { id: string }): string {
+	const { id } = args
 
 	try {
-		const element = document.querySelector(selector)
-		if (!element) {
-			return `No element found matching selector: ${selector}`
+		// Handle triggering AI components
+		if (!id) {
+			return 'Trigger command requires an id parameter'
 		}
 
-		switch (type) {
-			case 'click':
-				;(element as HTMLElement).click()
-				return `Successfully clicked element: ${selector}`
+		const components = get(triggerablesByAI)
+		const component = components[id]
 
-			case 'input':
-				if (!value) {
-					return 'Input command requires a value'
-				}
-				const inputElement = element as HTMLInputElement
-				inputElement.value = value
-				inputElement.dispatchEvent(new Event('input', { bubbles: true }))
-				inputElement.dispatchEvent(new Event('change', { bubbles: true }))
-				return `Successfully set input value for element: ${selector}`
+		if (!component) {
+			return `No triggerable component found with id: ${id}`
+		}
 
-			case 'select':
-				if (!value) {
-					return 'Select command requires a value'
-				}
-				const selectElement = element as HTMLSelectElement
-				selectElement.value = value
-				selectElement.dispatchEvent(new Event('change', { bubbles: true }))
-				return `Successfully set select value for element: ${selector}`
-
-			default:
-				return `Unsupported command type: ${type}`
+		if (component.onTrigger) {
+			component.onTrigger(id)
+			return `Successfully triggered component: ${id} (${component.description})`
+		} else {
+			return `Component ${id} has no trigger handler defined`
 		}
 	} catch (error) {
 		console.error('Error executing command:', error)

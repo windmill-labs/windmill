@@ -169,6 +169,10 @@ export const copilotSessionModel = writable<AIProviderModel | undefined>(
 )
 export const usedTriggerKinds = writable<string[]>([])
 
+export const triggerablesByAI = writable<
+	Record<string, { description: string; onTrigger: (id: string) => void }>
+>({})
+
 type SQLBaseSchema = {
 	[schemaKey: string]: {
 		[tableKey: string]: {
