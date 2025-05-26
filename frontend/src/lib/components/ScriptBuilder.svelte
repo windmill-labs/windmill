@@ -556,7 +556,7 @@
 
 			const { draft_triggers: _, ...newScript } = structuredClone(script)
 			savedScript = structuredClone(newScript) as NewScriptWithDraft
-			triggersState.setTriggers([])
+			setDraftTriggers([])
 
 			if (!disableHistoryChange) {
 				history.replaceState(history.state, '', `/scripts/edit/${script.path}`)
