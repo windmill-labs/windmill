@@ -4,6 +4,7 @@ import type { Writable } from 'svelte/store'
 import type ScriptEditorDrawer from './content/ScriptEditorDrawer.svelte'
 import type { FlowState } from './flowState'
 import type { FlowBuilderWhitelabelCustomUi } from '../custom_ui'
+import type Editor from '../Editor.svelte'
 
 export type FlowInput = Record<
 	string,
@@ -41,6 +42,7 @@ export type FlowInputEditorState = {
 
 export type FlowEditorContext = {
 	selectedId: Writable<string>
+	currentScriptEditor: Writable<Editor | undefined>
 	moving: Writable<{ module: FlowModule; modules: FlowModule[] } | undefined>
 	previewArgs: Writable<Record<string, any>>
 	scriptEditorDrawer: Writable<ScriptEditorDrawer | undefined>

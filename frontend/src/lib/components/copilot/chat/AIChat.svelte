@@ -540,7 +540,6 @@
 		: displayMessages}
 	bind:instructions
 	on:sendRequest={() => sendRequest()}
-	on:cancel={cancel}
 	on:saveAndClear={saveAndClear}
 	on:deletePastChat={(e) => deletePastChat(e.detail.id)}
 	on:loadPastChat={(e) => loadPastChat(e.detail.id)}

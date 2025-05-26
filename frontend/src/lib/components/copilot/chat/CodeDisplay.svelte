@@ -180,19 +180,17 @@
 </script>
 
 <div class="flex flex-col gap-0.5 rounded-lg relative not-prose">
-	{#if codeContext}
-		<div class="flex justify-end items-end">
-			<Button
-				color="dark"
-				size="xs2"
-				on:click={() => {
-					applyCode(code ?? '')
-				}}
-			>
-				Apply
-			</Button>
-		</div>
-	{/if}
+	<div class="flex justify-end items-end">
+		<Button
+			color="dark"
+			size="xs2"
+			on:click={() => {
+				applyCode(code ?? '')
+			}}
+		>
+			Apply
+		</Button>
+	</div>
 
 	<div
 		class="relative w-full border border-gray-300 dark:border-gray-600 rounded-lg overflow-hidden"

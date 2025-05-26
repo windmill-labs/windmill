@@ -55,6 +55,7 @@
 
 	const {
 		selectedId,
+		currentScriptEditor,
 		previewArgs,
 		flowStateStore,
 		flowStore,
@@ -280,6 +281,8 @@
 		diffEditor?.hide()
 		editor?.show()
 	}
+
+	$: editor && ($currentScriptEditor = editor)
 </script>
 
 <svelte:window on:keydown={onKeyDown} />

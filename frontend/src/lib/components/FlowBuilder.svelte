@@ -529,6 +529,7 @@
 
 	setContext<FlowEditorContext>('FlowEditorContext', {
 		selectedId: selectedIdStore,
+		currentScriptEditor: writable(undefined),
 		previewArgs: previewArgsStore,
 		scriptEditorDrawer,
 		moving,
