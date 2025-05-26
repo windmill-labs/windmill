@@ -13,10 +13,10 @@ on:
 jobs:
   check-membership:
     if: |
-      (github.event_name == 'issue_comment' && contains(github.event.comment.body, '/aider') && !contains(github.event.comment.user.login, '[bot]')) ||
-      (github.event_name == 'pull_request_review_comment' && contains(github.event.comment.body, '/aider') && !contains(github.event.comment.user.login, '[bot]')) ||
-      (github.event_name == 'pull_request_review' && contains(github.event.review.body, '/aider') && !contains(github.event.review.user.login, '[bot]')) ||
-      (github.event_name == 'issues' && contains(github.event.issue.body, '/aider') && !contains(github.event.issue.user.login, '[bot]'))
+      (github.event_name == 'issue_comment' && contains(github.event.comment.body, '/ai') && !contains(github.event.comment.user.login, '[bot]')) ||
+      (github.event_name == 'pull_request_review_comment' && contains(github.event.comment.body, '/ai') && !contains(github.event.comment.user.login, '[bot]')) ||
+      (github.event_name == 'pull_request_review' && contains(github.event.review.body, '/ai') && !contains(github.event.review.user.login, '[bot]')) ||
+      (github.event_name == 'issues' && contains(github.event.issue.body, '/ai') && !contains(github.event.issue.user.login, '[bot]'))
     runs-on: ubicloud-standard-2
     outputs:
       is_member: ${{ steps.check-membership.outputs.is_member }}
@@ -82,4 +82,4 @@ jobs:
           - Bash(npm run generate-backend-client): Generate the backend client. You need this to run npm run check.
           - Bash(cargo check): Run the cargo check script. You should run this tool after making changes to the backend code.
           - Bash(curl https://sh.rustup.rs -sSf | sh): Install Rust. You need this to run cargo check."
-          trigger_phrase: "/aider"
+          trigger_phrase: "/ai"
