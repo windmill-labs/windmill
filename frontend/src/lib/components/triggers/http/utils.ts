@@ -1,9 +1,12 @@
 import { base } from '$lib/base'
 import { isCloudHosted } from '$lib/cloud'
+import type { AuthenticationMethod, HttpTrigger } from '$lib/gen'
 import { HttpTriggerService } from '$lib/gen/services.gen'
 import { sendUserToast } from '$lib/toast'
+//import SwaggerParser from '@apidevtools/swagger-parser'
 import type { Writable } from 'svelte/store'
 import { get } from 'svelte/store'
+import YAML from 'yaml'
 
 export const SECRET_KEY_PATH = 'secret_key_path'
 export const HUB_SCRIPT_ID = 19670
@@ -75,4 +78,26 @@ export async function saveHttpRouteFromCfg(
 		sendUserToast(error.body || error.message, true)
 		return false
 	}
+}
+
+export type Source = 'OpenApiFile' | 'OpenApi' | 'curl'
+export async function generateHttpTriggerFromOpenApi(
+	openApiSpec: string,
+	source: Source
+): Promise<HttpTrigger[]> {
+	try {
+		const data: any = source === 'OpenApiFile' ? openApiSpec : YAML.parse(openApiSpec)
+
+		//const spec = await SwaggerParser.validate(data)
+
+		//console.log({ spec })
+	} catch (error) {
+		console.log({ error })
+	}
+
+	return []
+}
+
+export function generateHttpTriggerFromCurl(curlCommand: string): HttpTrigger[] {
+	return []
 }

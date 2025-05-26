@@ -15,7 +15,7 @@
 	} from '$lib/utils'
 	import { base } from '$app/paths'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
-	import { Button, Skeleton } from '$lib/components/common'
+	import { Button, DrawerContent, Skeleton } from '$lib/components/common'
 	import Dropdown from '$lib/components/DropdownV2.svelte'
 	import PageHeader from '$lib/components/PageHeader.svelte'
 	import SharedBadge from '$lib/components/SharedBadge.svelte'
@@ -43,6 +43,8 @@
 	import { ALL_DEPLOYABLE, isDeployable } from '$lib/utils_deployable'
 	import { isCloudHosted } from '$lib/cloud'
 	import { getHttpRoute } from '$lib/components/triggers/http/utils'
+	import Drawer from '$lib/components/common/drawer/Drawer.svelte'
+	import HttpRouteGenerator from '$lib/components/HttpRouteGenerator.svelte'
 
 	type TriggerW = HttpTrigger & { canWrite: boolean }
 
@@ -77,7 +79,7 @@
 		}
 	}
 	let routeEditor: RouteEditor
-
+	let httpRouteGeneratorDrawer: Drawer | undefined
 	let filteredItems: (TriggerW & { marked?: any })[] | undefined = []
 	let items: typeof filteredItems | undefined = []
 	let preFilteredItems: typeof filteredItems | undefined = []
@@ -187,7 +189,14 @@
 
 <DeployWorkspaceDrawer bind:this={deploymentDrawer} />
 <RouteEditor onUpdate={loadTriggers} bind:this={routeEditor} />
-
+<Drawer size="700px" bind:this={httpRouteGeneratorDrawer}>
+	<DrawerContent
+		title={'Generate http route/webhook from OpenApi spec'}
+		on:close={() => httpRouteGeneratorDrawer?.closeDrawer()}
+	>
+		<HttpRouteGenerator />
+	</DrawerContent>
+</Drawer>
 <SearchItems
 	{filter}
 	items={preFilteredItems}
@@ -208,9 +217,20 @@
 			documentationLink="https://www.windmill.dev/docs/core_concepts/http_routing"
 		>
 			{#if $userStore?.is_admin || $userStore?.is_super_admin}
-				<Button size="md" startIcon={{ icon: Plus }} on:click={() => routeEditor.openNew(false)}>
-					New&nbsp;route
-				</Button>
+				<div class="flex flex-row gap-2">
+					<Button
+						size="md"
+						startIcon={{ icon: Plus }}
+						on:click={() => {
+							httpRouteGeneratorDrawer?.openDrawer()
+						}}
+					>
+						Generate http route from openapi
+					</Button>
+					<Button size="md" startIcon={{ icon: Plus }} on:click={() => routeEditor.openNew(false)}>
+						New&nbsp;route
+					</Button>
+				</div>
 			{/if}
 		</PageHeader>
 		<div class="w-full h-full flex flex-col">

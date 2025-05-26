@@ -8604,8 +8604,7 @@ paths:
                 route_path:
                   type: string
                 http_method:
-                  type: string
-                  enum: ["get", "post", "put", "delete", "patch"]
+                  $ref: "#/components/schemas/HttpMethod"
                 trigger_path:
                   type: string
                 workspaced_route:
@@ -14671,6 +14670,17 @@ components:
         - custom_script
         - signature
 
+    HttpMethod:
+      type: string
+      http_method:
+        type: string
+        enum:
+          - get
+          - post
+          - put
+          - delete
+          - patch
+
     HttpTrigger:
       allOf:
         - $ref: "#/components/schemas/TriggerExtraProperty"
@@ -14690,13 +14700,7 @@ components:
           required:
             - s3
         http_method:
-          type: string
-          enum:
-            - get
-            - post
-            - put
-            - delete
-            - patch
+          $ref: "#/components/schemas/HttpMethod"
         authentication_resource_path:
           type: string
         is_async:
@@ -14747,13 +14751,7 @@ components:
         is_flow:
           type: boolean
         http_method:
-          type: string
-          enum:
-            - get
-            - post
-            - put
-            - delete
-            - patch
+          $ref: "#/components/schemas/HttpMethod"
         authentication_resource_path:
           type: string
         is_async:
@@ -14804,13 +14802,7 @@ components:
         is_flow:
           type: boolean
         http_method:
-          type: string
-          enum:
-            - get
-            - post
-            - put
-            - delete
-            - patch
+          $ref: "#/components/schemas/HttpMethod"
         is_async:
           type: boolean
         authentication_method:

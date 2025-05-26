@@ -297,6 +297,7 @@
 			authentication_method === 'signature' && signature_options_type === 'custom_script'
 				? 'custom_script'
 				: authentication_method
+
 		const nCfg = {
 			script_path,
 			is_flow,
@@ -313,6 +314,7 @@
 			is_static_website,
 			extra_perms: extraPerms
 		}
+
 		return nCfg
 	}
 
