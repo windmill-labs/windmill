@@ -243,7 +243,6 @@
 </script>
 
 <svelte:head>
-	<link rel="stylesheet" href="/tailwind_full.css" />
 </svelte:head>
 
 <DarkModeObserver on:change={onThemeChange} />
