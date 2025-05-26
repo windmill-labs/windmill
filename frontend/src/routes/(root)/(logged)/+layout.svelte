@@ -55,6 +55,7 @@
 	import { Menubar } from '$lib/components/meltComponents'
 	import GlobalChatDrawer from '$lib/components/chat/GlobalChatDrawer.svelte'
 	import Input from '$lib/components/globalchat/Input.svelte'
+	import TriggerableByAIExample from '$lib/components/TriggerableByAIExample.svelte'
 
 	OpenAPI.WITH_CREDENTIALS = true
 	let menuOpen = false
@@ -662,6 +663,7 @@
 			<main class="min-h-screen">
 				<div class="relative w-full h-full">
 					<Input />
+					<TriggerableByAIExample />
 
 					<div
 						class={classNames(
