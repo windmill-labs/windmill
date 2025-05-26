@@ -4820,7 +4820,7 @@ dependencies = [
  "num-integer",
  "rust_decimal",
  "smallvec",
- "strum",
+ "strum 0.25.0",
 ]
 
 [[package]]

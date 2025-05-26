@@ -16,10 +16,6 @@ use windmill_common::{
     agent_workers::DECODED_AGENT_TOKEN,
     apps::AppScriptId,
     cache::{future::FutureCachedExt, ScriptData, ScriptMetadata},
-    s3_helpers::{
-        DuckdbConnectionSettingsQueryV2, DuckdbConnectionSettingsResponse, S3Resource,
-        S3ResourceInfoQuery,
-    },
     schema::{should_validate_schema, SchemaValidator},
     scripts::PREVIEW_IS_TAR_CODEBASE_HASH,
     utils::WarnAfterExt,

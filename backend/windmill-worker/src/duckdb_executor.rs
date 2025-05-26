@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::env;
 
 use duckdb::types::TimeUnit;
@@ -11,7 +11,9 @@ use tokio::fs::remove_file;
 use tokio::task;
 use uuid::Uuid;
 use windmill_common::error::{to_anyhow, Error, Result};
-use windmill_common::s3_helpers::{DuckdbConnectionSettingsQueryV2, S3Object, S3ResourceInfoQuery};
+use windmill_common::s3_helpers::{
+    DuckdbConnectionSettingsQueryV2, DuckdbConnectionSettingsResponse, S3Object,
+};
 use windmill_common::worker::{to_raw_value, Connection};
 use windmill_parser_sql::{parse_duckdb_sig, parse_sql_blocks};
 use windmill_queue::{CanceledBy, MiniPulledJob};
@@ -22,7 +24,7 @@ use crate::handle_child::run_future_with_polling_update_job_poller;
 use crate::mysql_executor::MysqlDatabase;
 use crate::pg_executor::PgDatabase;
 use crate::sanitized_sql_params::sanitize_and_interpolate_unsafe_sql_args;
-use crate::AuthedClient;
+use windmill_common::client::AuthedClient;
 
 fn do_duckdb_inner(
     conn: &duckdb::Connection,
@@ -117,16 +119,28 @@ pub async fn do_duckdb(
                     let s3_obj = serde_json::from_value::<S3Object>(json_value).map_err(|e| {
                         Error::ExecutionErr(format!("Failed to deserialize S3Object: {}", e))
                     })?;
-                    let s3_info = client
-                        .get_s3_resource_info(&S3ResourceInfoQuery {
+                    let duckdb_conn_settings: windmill_common::s3_helpers::DuckdbConnectionSettingsResponse = client
+                        .get_duckdb_connection_settings(&DuckdbConnectionSettingsQueryV2 {
                             s3_resource_path: None,
                             storage: s3_obj.storage.clone(),
                         })
                         .await?;
 
-                    let s3_obj_string = format!("s3://{}/{}", &s3_info.bucket, &s3_obj.s3);
-                    m.insert(sig_arg.name, duckdb::types::Value::Text(s3_obj_string));
-                    used_storages.insert(s3_obj.storage);
+                    let uri = match (
+                        &duckdb_conn_settings.s3_bucket,
+                        &duckdb_conn_settings.azure_container_path,
+                    ) {
+                        (Some(s3_bucket), None) => format!("s3://{}/{}", s3_bucket, &s3_obj.s3),
+                        (None, Some(az_container)) => format!("{}/{}", az_container, &s3_obj.s3),
+                        _ => {
+                            return Err(Error::ExecutionErr(
+                                "S3Object must have either s3_bucket or azure_container_path"
+                                    .to_string(),
+                            ));
+                        }
+                    };
+                    m.insert(sig_arg.name, duckdb::types::Value::Text(uri));
+                    used_storages.insert(s3_obj.storage, duckdb_conn_settings);
                 } else {
                     let duckdb_value = json_value_to_duckdb_value(
                         &json_value,
@@ -162,24 +176,15 @@ pub async fn do_duckdb(
         let bq_credentials_path = make_bq_credentials_path(&job.id);
         env::set_var("GOOGLE_APPLICATION_CREDENTIALS", &bq_credentials_path);
 
-        let mut s3_conn_strings = vec![];
-        for storage in used_storages.into_iter() {
-            let s3_conn_string = client
-                .get_duckdb_connection_settings(DuckdbConnectionSettingsQueryV2 {
-                    s3_resource_path: None,
-                    storage,
-                })
-                .await?;
-            s3_conn_strings.push(s3_conn_string.connection_settings_str);
-        }
-
         // duckdb::Connection is not Send so we do it in a single blocking task
         let (result, column_order) = task::spawn_blocking(move || {
             let conn = duckdb::Connection::open_in_memory()
                 .map_err(|e| Error::ConnectingToDatabase(e.to_string()))?;
 
-            for s3_conn_string in s3_conn_strings {
-                conn.execute_batch(&s3_conn_string)
+            for (_, DuckdbConnectionSettingsResponse { connection_settings_str, .. }) in
+                used_storages.into_iter()
+            {
+                conn.execute_batch(&connection_settings_str)
                     .map_err(|e| Error::ExecutionErr(e.to_string()))?;
             }
 
@@ -570,12 +575,15 @@ async fn transform_attach_db_resource_query(
 async fn transform_s3_uris(
     query: &str,
     client: &AuthedClient,
-) -> Result<(Option<String>, HashSet<Option<String>>)> {
+) -> Result<(
+    Option<String>,
+    HashMap<Option<String>, DuckdbConnectionSettingsResponse>,
+)> {
     let mut transformed_query = None;
     lazy_static::lazy_static! {
         static ref RE: regex::Regex = regex::Regex::new(r"'s3://([^'/]*)/([^']+)'").unwrap();
     }
-    let mut storages = HashSet::new();
+    let mut used_storages = HashMap::new();
     for cap in RE.captures_iter(query) {
         if let (storage, Some(s3_path)) = (cap.get(1), cap.get(2)) {
             let s3_path = s3_path.as_str();
@@ -583,24 +591,36 @@ async fn transform_s3_uris(
                 Some("") | None => None,
                 Some(s) => Some(s.to_string()),
             };
-            storages.insert(storage.clone());
             let original_str_lit =
                 format!("'s3://{}/{}'", storage.as_deref().unwrap_or(""), s3_path);
-            let bucket = client
-                .get_s3_resource_info(&S3ResourceInfoQuery {
+            let duckdb_conn_settings = client
+                .get_duckdb_connection_settings(&DuckdbConnectionSettingsQueryV2 {
                     s3_resource_path: None,
-                    storage: storage,
+                    storage: storage.clone(),
                 })
-                .await?
-                .bucket;
+                .await?;
+            let url = match &duckdb_conn_settings {
+                DuckdbConnectionSettingsResponse { s3_bucket: Some(bucket), .. } => {
+                    format!("'s3://{bucket}/{s3_path}'")
+                }
+                DuckdbConnectionSettingsResponse { azure_container_path: Some(base), .. } => {
+                    format!("'{base}/{s3_path}'")
+                }
+                _ => {
+                    return Err(Error::ExecutionErr(
+                        "DuckDB connection settings response must have either s3_bucket or azure_container_path".to_string(),
+                    ))?;
+                }
+            };
             transformed_query = Some(
                 transformed_query
                     .unwrap_or(query.to_string())
-                    .replace(&original_str_lit, &format!("'s3://{bucket}/{s3_path}'")),
+                    .replace(&original_str_lit, &url),
             );
+            used_storages.insert(storage, duckdb_conn_settings);
         }
     }
-    Ok((transformed_query, storages))
+    Ok((transformed_query, used_storages))
 }
 
 // BigQuery extension requires a json file as credentials
