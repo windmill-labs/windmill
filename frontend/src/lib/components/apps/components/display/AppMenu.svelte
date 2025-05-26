@@ -103,6 +103,7 @@
 				justifyEnd={false}
 				class={resolvedConfig.fillContainer ? 'w-full h-full' : ''}
 				usePointerDownOutside={true}
+				renderContent
 			>
 				<svelte:fragment slot="trigger" let:trigger>
 					<MeltButton meltElement={trigger} class="w-full h-full">
