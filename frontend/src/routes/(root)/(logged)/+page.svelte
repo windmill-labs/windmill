@@ -23,6 +23,7 @@
 	import { setQuery } from '$lib/navigation'
 	import { page } from '$app/stores'
 	import { goto, replaceState } from '$app/navigation'
+	import TriggerableByAI from '$lib/components/TriggerableByAI.svelte'
 
 	type Tab = 'hub' | 'workspace'
 
@@ -47,6 +48,8 @@
 	let codeViewerObj: HubItem | undefined = undefined
 
 	const breakpoint = writable<EditorBreakpoint>('lg')
+
+	let createScriptComponent: { triggerClick: () => void } | undefined = undefined
 
 	async function viewCode(obj: HubItem) {
 		codeViewerContent = ''
@@ -227,7 +230,17 @@
 			<div class="flex flex-row gap-4 flex-wrap justify-end items-center">
 				{#if !$userStore?.operator}
 					<span class="text-sm text-secondary">Create a</span>
-					<CreateActionsScript />
+					<TriggerableByAI
+						id="create-script-button"
+						description="Creates a new script"
+						onTrigger={() => {
+							if (createScriptComponent) {
+								createScriptComponent.triggerClick()
+							}
+						}}
+					>
+						<CreateActionsScript bind:this={createScriptComponent} />
+					</TriggerableByAI>
 					{#if HOME_SHOW_CREATE_FLOW}<CreateActionsFlow />{/if}
 					{#if HOME_SHOW_CREATE_APP}<CreateActionsApp />{/if}
 				{/if}

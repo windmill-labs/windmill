@@ -7,7 +7,8 @@
 		type Script,
 		type TriggersCount,
 		PostgresTriggerService,
-		CaptureService
+		CaptureService,
+		type ScriptLang
 	} from '$lib/gen'
 	import { inferArgs } from '$lib/infer'
 	import { initialCode } from '$lib/script_helpers'
@@ -92,6 +93,7 @@
 	} from './triggers/utils'
 	import DraftTriggersConfirmationModal from './common/confirmationModal/DraftTriggersConfirmationModal.svelte'
 	import { Triggers } from './triggers/triggers.svelte'
+	import TriggerableByAI from './TriggerableByAI.svelte'
 
 	export let script: NewScript & { draft_triggers?: Trigger[] }
 	export let fullyLoaded: boolean = true
@@ -869,6 +871,47 @@
 				newSavedDraftTrigers.length > 0 ? newSavedDraftTrigers : undefined
 		}
 	}
+
+	function onScriptLanguageTrigger(lang: 'docker' | 'bunnative' | ScriptLang) {
+		if (lang == 'docker') {
+			if (isCloudHosted()) {
+				sendUserToast(
+					'You cannot use Docker scripts on the multi-tenant platform. Use a dedicated instance or self-host windmill instead.',
+					true,
+					[
+						{
+							label: 'Learn more',
+							callback: () => {
+								window.open('https://www.windmill.dev/docs/advanced/docker', '_blank')
+							}
+						}
+					]
+				)
+				return
+			}
+			template = 'docker'
+		} else if (lang == 'bunnative') {
+			template = 'bunnative'
+		} else {
+			template = 'script'
+		}
+		let language = langToLanguage(lang)
+		//
+		initContent(language, script.kind, template)
+		script.language = language
+	}
+
+	function onSummaryChange(value: string) {
+		if (initialPath == '' && value?.length > 0 && !dirtyPath) {
+			path?.setName(
+				value
+					.toLowerCase()
+					.replace(/[^a-z0-9_]/g, '_')
+					.replace(/-+/g, '_')
+					.replace(/^-|-$/g, '')
+			)
+		}
+	}
 </script>
 
 <svelte:window on:keydown={onKeyDown} />
@@ -947,29 +990,31 @@
 										</svelte:fragment>
 										<div class="flex flex-col gap-4">
 											<Label label="Summary">
-												<MetadataGen
-													label="Summary"
-													bind:content={script.summary}
-													lang={script.language}
-													code={script.content}
-													promptConfigName="summary"
-													generateOnAppear
-													on:change={() => {
-														if (initialPath == '' && script.summary?.length > 0 && !dirtyPath) {
-															path?.setName(
-																script.summary
-																	.toLowerCase()
-																	.replace(/[^a-z0-9_]/g, '_')
-																	.replace(/-+/g, '_')
-																	.replace(/^-|-$/g, '')
-															)
+												<TriggerableByAI
+													id="create-script-summary-input"
+													description="Summary / Title of the new script"
+													onTrigger={(value) => {
+														console.log('Triggering example component with value', value)
+														if (value) {
+															script.summary = value
+															onSummaryChange(value)
 														}
 													}}
-													elementProps={{
-														type: 'text',
-														placeholder: 'Short summary to be displayed when listed'
-													}}
-												/>
+												>
+													<MetadataGen
+														label="Summary"
+														bind:content={script.summary}
+														lang={script.language}
+														code={script.content}
+														promptConfigName="summary"
+														generateOnAppear
+														on:change={() => onSummaryChange(script.summary)}
+														elementProps={{
+															type: 'text',
+															placeholder: 'Short summary to be displayed when listed'
+														}}
+													/>
+												</TriggerableByAI>
 											</Label>
 											<Label label="Path">
 												<svelte:fragment slot="header">
@@ -1022,53 +1067,32 @@
 												<Popover
 													disablePopup={!enterpriseLangs.includes(lang) || !!$enterpriseLicense}
 												>
-													<Button
-														size="sm"
-														variant="border"
-														color={isPicked ? 'blue' : 'light'}
-														btnClasses={isPicked
-															? '!border-2 !bg-blue-50/75 dark:!bg-frost-900/75'
-															: 'm-[1px]'}
-														on:click={() => {
-															if (lang == 'docker') {
-																if (isCloudHosted()) {
-																	sendUserToast(
-																		'You cannot use Docker scripts on the multi-tenant platform. Use a dedicated instance or self-host windmill instead.',
-																		true,
-																		[
-																			{
-																				label: 'Learn more',
-																				callback: () => {
-																					window.open(
-																						'https://www.windmill.dev/docs/advanced/docker',
-																						'_blank'
-																					)
-																				}
-																			}
-																		]
-																	)
-																	return
-																}
-																template = 'docker'
-															} else if (lang == 'bunnative') {
-																template = 'bunnative'
-															} else {
-																template = 'script'
-															}
-															let language = langToLanguage(lang)
-															//
-															initContent(language, script.kind, template)
-															script.language = language
+													<TriggerableByAI
+														id={`create-script-language-button-${lang}`}
+														description={`Choose ${lang} as the language of the script`}
+														onTrigger={() => {
+															console.log('Triggering example component', lang)
+															onScriptLanguageTrigger(lang)
 														}}
-														disabled={lockedLanguage ||
-															(enterpriseLangs.includes(lang) && !$enterpriseLicense)}
 													>
-														<LanguageIcon {lang} />
-														<span class="ml-2 py-2 truncate">{label}</span>
-														{#if lang === 'ansible' || lang === 'nu'}
-															<span class="text-tertiary !text-xs"> BETA </span>
-														{/if}
-													</Button>
+														<Button
+															size="sm"
+															variant="border"
+															color={isPicked ? 'blue' : 'light'}
+															btnClasses={isPicked
+																? '!border-2 !bg-blue-50/75 dark:!bg-frost-900/75'
+																: 'm-[1px]'}
+															on:click={() => onScriptLanguageTrigger(lang)}
+															disabled={lockedLanguage ||
+																(enterpriseLangs.includes(lang) && !$enterpriseLicense)}
+														>
+															<LanguageIcon {lang} />
+															<span class="ml-2 py-2 truncate">{label}</span>
+															{#if lang === 'ansible' || lang === 'nu'}
+																<span class="text-tertiary !text-xs"> BETA </span>
+															{/if}
+														</Button>
+													</TriggerableByAI>
 													<svelte:fragment slot="text"
 														>{label} is only available with an enterprise license</svelte:fragment
 													>

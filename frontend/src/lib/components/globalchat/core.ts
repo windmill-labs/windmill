@@ -10,17 +10,17 @@ import { triggerablesByAI } from '$lib/stores'
 
 // System prompt for the LLM
 export const CHAT_SYSTEM_PROMPT = `
-You are an assistant that can interact with the user's web page.
+You are an assistant that can interact with the user's web page in order to help them find and do things.
 You have access to tools that let you:
-1. View the current HTML of the page
-2. Execute commands like clicking on elements
+1. View the current triggerable components on the page
+2. Execute the trigger function of a triggerable component
 
 When asked to interact with the page:
 - First examine the page structure to understand what's available
-- Be precise when referencing elements
 - Explain what you're doing before taking action
-- Be helpful but cautious with actions that might change state
-- After executing a command, wait for 1 second before rechecking the page and continuing fulfulling the user request. do this 3 times maximum.
+- Take action only if you're sure it's what the user wants
+- After executing a command, wait for 1 second before rechecking the page and continuing fulfulling the user request. At each step, explain what you're doing before taking action.
+- After fulfilling the user request, if there is a close button associated with a drawer or settings panel, use it to close the drawer or settings panel.
 
 Use the provided tools only when necessary and appropriate.
 `
@@ -29,8 +29,8 @@ Use the provided tools only when necessary and appropriate.
 const GET_PAGE_HTML_TOOL: ChatCompletionTool = {
 	type: 'function',
 	function: {
-		name: 'get_page_html',
-		description: 'Gets the current HTML structure of the page',
+		name: 'get_triggerable_components',
+		description: 'Get the current triggerable components on the page',
 		parameters: {
 			type: 'object',
 			properties: {},
@@ -42,14 +42,18 @@ const GET_PAGE_HTML_TOOL: ChatCompletionTool = {
 const EXECUTE_COMMAND_TOOL: ChatCompletionTool = {
 	type: 'function',
 	function: {
-		name: 'execute_command',
-		description: 'Executes a command to trigger an AI component',
+		name: 'trigger_component',
+		description: 'Trigger a triggerable component',
 		parameters: {
 			type: 'object',
 			properties: {
 				id: {
 					type: 'string',
 					description: 'ID of the AI-triggerable component'
+				},
+				value: {
+					type: 'string',
+					description: 'Value to pass to the AI-triggerable component trigger function'
 				}
 			},
 			required: ['id']
@@ -58,29 +62,7 @@ const EXECUTE_COMMAND_TOOL: ChatCompletionTool = {
 }
 
 // Function to get page HTML
-function getPageHtml(): string {
-	try {
-		// Get a clean version of the page HTML, removing scripts and other non-visible elements
-		const html = document.documentElement.outerHTML
-
-		// Process the HTML to extract useful information about interactive elements
-		const interactiveElements = extractInteractiveElements()
-
-		return `
-PAGE_HTML_SUMMARY:
-${interactiveElements}
-
-FULL_HTML (truncated for readability):
-${html.substring(0, 15000)}${html.length > 15000 ? '...(truncated)' : ''}
-`
-	} catch (error) {
-		console.error('Error getting page HTML:', error)
-		return 'Error getting page HTML: ' + error.message
-	}
-}
-
-// Helper function to extract interactive elements from the page
-function extractInteractiveElements(): string {
+function getTriggerableComponents(): string {
 	try {
 		// Get components registered in the triggerablesByAI store
 		const registeredComponents = get(triggerablesByAI)
@@ -98,14 +80,14 @@ function extractInteractiveElements(): string {
 
 		return result
 	} catch (error) {
-		console.error('Error extracting triggerable components:', error)
-		return 'Error extracting triggerable components: ' + error.message
+		console.error('Error getting triggerable components:', error)
+		return 'Error getting triggerable components: ' + error.message
 	}
 }
 
 // Function to execute commands on the page
-function executeCommand(args: { id: string }): string {
-	const { id } = args
+function triggerComponent(args: { id: string; value: string }): string {
+	const { id, value } = args
 
 	try {
 		// Handle triggering AI components
@@ -121,7 +103,7 @@ function executeCommand(args: { id: string }): string {
 		}
 
 		if (component.onTrigger) {
-			component.onTrigger(id)
+			component.onTrigger(value)
 			return `Successfully triggered component: ${id} (${component.description})`
 		} else {
 			return `Component ${id} has no trigger handler defined`
@@ -142,10 +124,10 @@ async function processToolCall(
 		let result = ''
 
 		try {
-			if (toolCall.function.name === 'get_page_html') {
-				result = getPageHtml()
-			} else if (toolCall.function.name === 'execute_command') {
-				result = executeCommand(args)
+			if (toolCall.function.name === 'get_triggerable_components') {
+				result = getTriggerableComponents()
+			} else if (toolCall.function.name === 'trigger_component') {
+				result = triggerComponent(args)
 			} else {
 				result = `Unknown tool: ${toolCall.function.name}`
 			}
