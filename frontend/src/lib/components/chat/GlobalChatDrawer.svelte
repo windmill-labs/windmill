@@ -10,12 +10,8 @@
 	}
 </script>
 
-<Drawer
-	bind:open
-	size="500px"
-	placement="right"
->
+<Drawer bind:open size="500px" placement="right">
 	<DrawerContent title="Global Chat" on:close={closeDrawer}>
-		<GlobalChat {open} on:close={closeDrawer} />
+		<GlobalChat />
 	</DrawerContent>
 </Drawer>
