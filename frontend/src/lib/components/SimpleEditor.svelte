@@ -7,6 +7,16 @@
 	import '@codingame/monaco-vscode-standalone-css-language-features'
 	import '@codingame/monaco-vscode-standalone-typescript-language-features'
 	import '@codingame/monaco-vscode-standalone-html-language-features'
+	import {
+		editor as meditor,
+		KeyCode,
+		KeyMod,
+		Uri as mUri,
+		languages,
+		type IRange,
+		type IDisposable
+	} from 'monaco-editor'
+
 	languages.typescript.javascriptDefaults.setCompilerOptions({
 		target: languages.typescript.ScriptTarget.Latest,
 		allowNonTsExtensions: true,
@@ -44,15 +54,15 @@
 	import { BROWSER } from 'esm-env'
 
 	import { createHash, editorConfig, langToExt, updateOptions } from '$lib/editorUtils'
-	import {
-		editor as meditor,
-		KeyCode,
-		KeyMod,
-		Uri as mUri,
-		languages,
-		type IRange,
-		type IDisposable
-	} from 'monaco-editor'
+	// import {
+	// 	editor as meditor,
+	// 	KeyCode,
+	// 	KeyMod,
+	// 	Uri as mUri,
+	// 	languages,
+	// 	type IRange,
+	// 	type IDisposable
+	// } from 'monaco-editor'
 
 	import { allClasses } from './apps/editor/componentsPanel/cssUtils'
 
@@ -60,7 +70,7 @@
 
 	import libStdContent from '$lib/es6.d.ts.txt?raw'
 	import domContent from '$lib/dom.d.ts.txt?raw'
-	import { initializeVscode } from './vscode'
+	import { initializeVscode, keepModelAroundToAvoidDisposalOfWorkers } from './vscode'
 	import EditorTheme from './EditorTheme.svelte'
 	import { vimMode } from '$lib/stores'
 	import { initVim } from './monaco_keybindings'
@@ -348,6 +358,7 @@
 				snippetsPreventQuickSuggestions: disableSuggestions
 			}
 		})
+		keepModelAroundToAvoidDisposalOfWorkers()
 
 		let timeoutModel: NodeJS.Timeout | undefined = undefined
 		editor.onDidChangeModelContent((event) => {
