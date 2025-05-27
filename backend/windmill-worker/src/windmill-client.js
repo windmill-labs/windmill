@@ -2998,6 +2998,8 @@ var $RawScript = {
         "mssql",
         "graphql",
         "nativets",
+        "duckdb",
+        // for related places search: ADD_NEW_LANG
       ],
     },
     path: {

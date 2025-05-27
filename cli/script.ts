@@ -547,6 +547,8 @@ export function filePathExtensionFromContentType(
     return ".my.sql";
   } else if (language === "bigquery") {
     return ".bq.sql";
+  } else if (language === "duckdb") {
+    return ".duckdb.sql";
   } else if (language === "oracledb") {
     return ".odb.sql";
   } else if (language === "snowflake") {
@@ -573,7 +575,7 @@ export function filePathExtensionFromContentType(
     return ".nu";
   } else if (language === "java") {
     return ".java";
-    // for related places search: ADD_NEW_LANG 
+    // for related places search: ADD_NEW_LANG
   } else {
     throw new Error("Invalid language: " + language);
   }
@@ -593,6 +595,7 @@ export const exts = [
   ".odb.sql",
   ".sf.sql",
   ".ms.sql",
+  ".duckdb.sql",
   ".sql",
   ".gql",
   ".ps1",
@@ -601,9 +604,8 @@ export const exts = [
   ".cs",
   ".nu",
   ".playbook.yml",
-  ".java"
-  // for related places search: ADD_NEW_LANG 
-
+  ".java",
+  // for related places search: ADD_NEW_LANG
 ];
 
 export function removeExtensionToPath(path: string): string {

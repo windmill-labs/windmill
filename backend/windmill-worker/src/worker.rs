@@ -145,6 +145,9 @@ use crate::ansible_executor::handle_ansible_job;
 #[cfg(feature = "mysql")]
 use crate::mysql_executor::do_mysql;
 
+#[cfg(feature = "duckdb")]
+use crate::duckdb_executor::do_duckdb;
+
 #[cfg(feature = "oracledb")]
 use crate::oracledb_executor::do_oracledb;
 
@@ -2614,6 +2617,30 @@ async fn handle_code_execution_job(
             )
             .await;
         }
+    } else if language == Some(ScriptLang::DuckDb) {
+        #[allow(unreachable_code)]
+        #[cfg(not(feature = "duckdb"))]
+        {
+            return Err(Error::internal_err(
+                "Duck DB requires the duckdb feature to be enabled".to_string(),
+            ));
+        }
+
+        #[cfg(feature = "duckdb")]
+        {
+            return do_duckdb(
+                job,
+                &client,
+                &code,
+                conn,
+                mem_peak,
+                canceled_by,
+                worker_name,
+                column_order,
+                occupancy_metrics,
+            )
+            .await;
+        }
     } else if language == Some(ScriptLang::Graphql) {
         return do_graphql(
             job,
@@ -3021,6 +3048,7 @@ fn parse_sig_of_lang(
             ScriptLang::Snowflake => Some(windmill_parser_sql::parse_snowflake_sig(code)?),
             ScriptLang::Graphql => None,
             ScriptLang::Mssql => Some(windmill_parser_sql::parse_mssql_sig(code)?),
+            ScriptLang::DuckDb => Some(windmill_parser_sql::parse_duckdb_sig(code)?),
             ScriptLang::OracleDB => Some(windmill_parser_sql::parse_oracledb_sig(code)?),
             #[cfg(feature = "php")]
             ScriptLang::Php => Some(windmill_parser_php::parse_php_signature(

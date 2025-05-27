@@ -14242,7 +14242,8 @@ components:
           ansible,
           csharp,
           nu,
-          java
+          java,
+          duckdb
           # for related places search: ADD_NEW_LANG
         ]
 

@@ -38,6 +38,8 @@ export function scriptLangToEditorLang(
 		return 'sql'
 	} else if (lang == 'mssql') {
 		return 'sql'
+	} else if (lang == 'duckdb') {
+		return 'sql'
 	} else if (lang == 'python3') {
 		return 'python'
 	} else if (lang == 'bash') {
@@ -140,7 +142,8 @@ const scriptLanguagesArray: [SupportedLanguage | 'docker' | 'bunnative', string]
 	['csharp', 'C#'],
 	['docker', 'Docker'],
 	['nu', 'Nu'],
-	['java', 'Java']
+	['java', 'Java'],
+	['duckdb', 'DuckDB']
 	// for related places search: ADD_NEW_LANG
 ]
 export function processLangs(selected: string | undefined, langs: string[]): string[] {
@@ -150,7 +153,7 @@ export function processLangs(selected: string | undefined, langs: string[]): str
 		let ls = langs.filter((lang) => lang !== 'nativets')
 
 		//those languages are newer and may not be in the saved list
-		let nl = ['bunnative', 'rust', 'ansible', 'csharp', 'nu', 'java']
+		let nl = ['bunnative', 'rust', 'ansible', 'csharp', 'nu', 'java', 'duckdb']
 		// for related places search: ADD_NEW_LANG
 		nl.forEach((lang) => {
 			if (!ls.includes(lang)) {

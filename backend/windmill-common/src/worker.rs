@@ -79,6 +79,7 @@ lazy_static::lazy_static! {
         "csharp".to_string(),
         "nu".to_string(),
         "java".to_string(),
+        "duckdb".to_string(),
         // for related places search: ADD_NEW_LANG
         "dependency".to_string(),
         "flow".to_string(),

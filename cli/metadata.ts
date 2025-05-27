@@ -528,6 +528,9 @@ export async function inferSchema(
       { name: "database", typ: { resource: "postgresql" } },
       ...inferedSchema.args,
     ];
+  } else if (language === "duckdb") {
+    const { parse_sql } = await import("./wasm/regex/windmill_parser_wasm.js");
+    inferedSchema = JSON.parse(parse_sql(content));
   } else if (language === "graphql") {
     const { parse_graphql } = await import(
       "./wasm/regex/windmill_parser_wasm.js"

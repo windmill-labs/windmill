@@ -76,6 +76,7 @@ func main() (interface{}, error) {
 
   bash: `echo "Hello world"
 `,
+  duckdb: `SELECT 'Hello world' AS message`,
 
   oracledb: `SELECT 'Hello world' AS message`,
   powershell: `Write-Output "Hello world"`,
@@ -126,5 +127,5 @@ public class Main {
   }
 }
 `,
-// for related places search: ADD_NEW_LANG 
+  // for related places search: ADD_NEW_LANG
 };
