@@ -239,27 +239,31 @@
 
 	export function toYaml() {
 		try {
+			// Ensure we have valid default values
+			const validIncludePath = include_path.length > 0 ? include_path : ['f/**'];
+			const validIncludeType = include_type.length > 0 ? include_type : ['script', 'flow', 'app', 'folder'];
+
 			// If we have existing YAML text, modify it directly to preserve structure
 			if (yamlText?.trim()) {
 				// Generate a base YAML with our current settings
 				let baseConfig: FullYamlConfig = {
 					defaultTs: 'bun',
-					includes: include_path,
+					includes: validIncludePath,
 					excludes: [],
 					codebases: []
 				};
 
 				// Add skip flags if true
-				if (!include_type.includes('variable')) baseConfig.skipVariables = true;
-				if (!include_type.includes('resource')) baseConfig.skipResources = true;
-				if (!include_type.includes('secret')) baseConfig.skipSecrets = true;
-				if (!include_type.includes('resourcetype')) baseConfig.skipResourceTypes = true;
+				if (!validIncludeType.includes('variable')) baseConfig.skipVariables = true;
+				if (!validIncludeType.includes('resource')) baseConfig.skipResources = true;
+				if (!validIncludeType.includes('secret')) baseConfig.skipSecrets = true;
+				if (!validIncludeType.includes('resourcetype')) baseConfig.skipResourceTypes = true;
 
 				// Add include flags if true
-				if (include_type.includes('schedule')) baseConfig.includeSchedules = true;
-				if (include_type.includes('trigger')) baseConfig.includeTriggers = true;
-				if (include_type.includes('user')) baseConfig.includeUsers = true;
-				if (include_type.includes('group')) baseConfig.includeGroups = true;
+				if (validIncludeType.includes('schedule')) baseConfig.includeSchedules = true;
+				if (validIncludeType.includes('trigger')) baseConfig.includeTriggers = true;
+				if (validIncludeType.includes('user')) baseConfig.includeUsers = true;
+				if (validIncludeType.includes('group')) baseConfig.includeGroups = true;
 
 				// Create a new YAML
 				let newYaml = yaml.dump(baseConfig, {
@@ -288,22 +292,22 @@
 			// If no existing YAML, create a new config
 			let config: FullYamlConfig = {
 				defaultTs: 'bun',
-				includes: include_path,
+				includes: validIncludePath,
 				excludes: [],
 				codebases: []
 			}
 
 			// Add skip flags if true
-			if (!include_type.includes('variable')) config.skipVariables = true
-			if (!include_type.includes('resource')) config.skipResources = true
-			if (!include_type.includes('secret')) config.skipSecrets = true
-			if (!include_type.includes('resourcetype')) config.skipResourceTypes = true
+			if (!validIncludeType.includes('variable')) config.skipVariables = true
+			if (!validIncludeType.includes('resource')) config.skipResources = true
+			if (!validIncludeType.includes('secret')) config.skipSecrets = true
+			if (!validIncludeType.includes('resourcetype')) config.skipResourceTypes = true
 
 			// Add include flags if true
-			if (include_type.includes('schedule')) config.includeSchedules = true
-			if (include_type.includes('trigger')) config.includeTriggers = true
-			if (include_type.includes('user')) config.includeUsers = true
-			if (include_type.includes('group')) config.includeGroups = true
+			if (validIncludeType.includes('schedule')) config.includeSchedules = true
+			if (validIncludeType.includes('trigger')) config.includeTriggers = true
+			if (validIncludeType.includes('user')) config.includeUsers = true
+			if (validIncludeType.includes('group')) config.includeGroups = true
 
 			return yaml.dump(config, {
 				indent: 2,
@@ -315,7 +319,12 @@
 		} catch (e) {
 			console.warn('Failed to generate YAML:', e)
 			yamlError = e.message || 'Failed to generate YAML'
-			return yamlText
+			// Return a basic fallback YAML instead of yamlText (which might be empty)
+			return `defaultTs: bun
+includes:
+  - f/**
+excludes: []
+codebases: []`
 		}
 	}
 
