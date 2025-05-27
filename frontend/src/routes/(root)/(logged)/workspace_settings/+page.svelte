@@ -1284,11 +1284,11 @@
 											<div class="w-1/3 flex gap-2">
 												<InitGitRepoPopover
 													gitRepoResourcePath={repo.git_repo_resource_path}
-													yamlText={gitSyncComponent ? gitSyncComponent.toYaml() : yamlText}
+													yamlText={gitSyncComponent?.toYaml() ?? ''}
 												/>
 												<PullGitRepoPopover
 													gitRepoResourcePath={repo.git_repo_resource_path}
-													yamlText={gitSyncComponent ? gitSyncComponent.toYaml() : yamlText}
+													yamlText={gitSyncComponent?.toYaml() ?? ''}
 													onFilterUpdate={(filters) => {
 														if (gitSyncComponent) {
 															gitSyncComponent.setSettings(filters)
