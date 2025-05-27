@@ -4,6 +4,9 @@
 	import CloseButton from '../CloseButton.svelte'
 	import TriggerableByAI from '$lib/components/TriggerableByAI.svelte'
 	import { createEventDispatcher } from 'svelte'
+
+	export let aiId: string | undefined = undefined
+	export let aiDescription: string | undefined = undefined
 	export let title: string | undefined = undefined
 	export let overflow_y = true
 	export let noPadding = false
@@ -21,8 +24,8 @@
 	<div class="flex justify-between w-full items-center px-4 py-2 gap-2">
 		<div class="flex items-center gap-2 w-full truncate">
 			<TriggerableByAI
-				id={`close-drawer-button-${title?.toLowerCase().replace(/ /g, '-')}`}
-				description={`Closes the drawer titled ${title}`}
+				id={aiId}
+				description={aiDescription}
 				onTrigger={() => {
 					dispatch('close')
 				}}

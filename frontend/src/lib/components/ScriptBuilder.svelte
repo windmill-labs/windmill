@@ -93,7 +93,6 @@
 	} from './triggers/utils'
 	import DraftTriggersConfirmationModal from './common/confirmationModal/DraftTriggersConfirmationModal.svelte'
 	import { Triggers } from './triggers/triggers.svelte'
-	import TriggerableByAI from './TriggerableByAI.svelte'
 
 	export let script: NewScript & { draft_triggers?: Trigger[] }
 	export let fullyLoaded: boolean = true
@@ -990,31 +989,21 @@
 										</svelte:fragment>
 										<div class="flex flex-col gap-4">
 											<Label label="Summary">
-												<TriggerableByAI
-													id="create-script-summary-input"
-													description="Summary / Title of the new script"
-													onTrigger={(value) => {
-														console.log('Triggering example component with value', value)
-														if (value) {
-															script.summary = value
-															onSummaryChange(value)
-														}
+												<MetadataGen
+													aiId="create-script-summary-input"
+													aiDescription="Summary / Title of the new script"
+													label="Summary"
+													bind:content={script.summary}
+													lang={script.language}
+													code={script.content}
+													promptConfigName="summary"
+													generateOnAppear
+													on:change={() => onSummaryChange(script.summary)}
+													elementProps={{
+														type: 'text',
+														placeholder: 'Short summary to be displayed when listed'
 													}}
-												>
-													<MetadataGen
-														label="Summary"
-														bind:content={script.summary}
-														lang={script.language}
-														code={script.content}
-														promptConfigName="summary"
-														generateOnAppear
-														on:change={() => onSummaryChange(script.summary)}
-														elementProps={{
-															type: 'text',
-															placeholder: 'Short summary to be displayed when listed'
-														}}
-													/>
-												</TriggerableByAI>
+												/>
 											</Label>
 											<Label label="Path">
 												<svelte:fragment slot="header">
@@ -1067,32 +1056,25 @@
 												<Popover
 													disablePopup={!enterpriseLangs.includes(lang) || !!$enterpriseLicense}
 												>
-													<TriggerableByAI
-														id={`create-script-language-button-${lang}`}
-														description={`Choose ${lang} as the language of the script`}
-														onTrigger={() => {
-															console.log('Triggering example component', lang)
-															onScriptLanguageTrigger(lang)
-														}}
+													<Button
+														aiId={`create-script-language-button-${lang}`}
+														aiDescription={`Choose ${lang} as the language of the script`}
+														size="sm"
+														variant="border"
+														color={isPicked ? 'blue' : 'light'}
+														btnClasses={isPicked
+															? '!border-2 !bg-blue-50/75 dark:!bg-frost-900/75'
+															: 'm-[1px]'}
+														on:click={() => onScriptLanguageTrigger(lang)}
+														disabled={lockedLanguage ||
+															(enterpriseLangs.includes(lang) && !$enterpriseLicense)}
 													>
-														<Button
-															size="sm"
-															variant="border"
-															color={isPicked ? 'blue' : 'light'}
-															btnClasses={isPicked
-																? '!border-2 !bg-blue-50/75 dark:!bg-frost-900/75'
-																: 'm-[1px]'}
-															on:click={() => onScriptLanguageTrigger(lang)}
-															disabled={lockedLanguage ||
-																(enterpriseLangs.includes(lang) && !$enterpriseLicense)}
-														>
-															<LanguageIcon {lang} />
-															<span class="ml-2 py-2 truncate">{label}</span>
-															{#if lang === 'ansible' || lang === 'nu'}
-																<span class="text-tertiary !text-xs"> BETA </span>
-															{/if}
-														</Button>
-													</TriggerableByAI>
+														<LanguageIcon {lang} />
+														<span class="ml-2 py-2 truncate">{label}</span>
+														{#if lang === 'ansible' || lang === 'nu'}
+															<span class="text-tertiary !text-xs"> BETA </span>
+														{/if}
+													</Button>
 													<svelte:fragment slot="text"
 														>{label} is only available with an enterprise license</svelte:fragment
 													>

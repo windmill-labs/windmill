@@ -1,22 +1,17 @@
 <script lang="ts">
 	import { triggerablesByAI } from '$lib/stores'
 
-	let {
-		id,
-		description,
-		onTrigger,
-		children,
-		disabled = false
-	} = $props<{
-		id: string
-		description: string
+	let { id, description, onTrigger, children } = $props<{
+		id: string | undefined
+		description: string | undefined
 		onTrigger: (value?: string) => void
 		children?: () => any
-		disabled?: boolean
 	}>()
 
 	// Track animation state
 	let isAnimating = $state(false)
+
+	const disabled = !id || !description
 
 	// Wrapper for onTrigger that adds animation
 	function handleTrigger(value?: string) {
