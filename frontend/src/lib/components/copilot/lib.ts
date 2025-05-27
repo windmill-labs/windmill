@@ -359,6 +359,7 @@ function getProviderAndCompletionConfig<K extends boolean>({
 		: ChatCompletionCreateParamsNonStreaming
 } {
 	let info = get(copilotInfo)
+	console.log('info', info)
 	const modelProvider =
 		forceModelProvider ?? get(copilotSessionModel) ?? info.defaultModel ?? info.aiModels[0]
 
@@ -383,6 +384,7 @@ function getProviderAndCompletionConfig<K extends boolean>({
 						model: modelProvider.model.slice(0, -9)
 					}
 				: {
+						// model: 'inkeep-context-sonnet-4',
 						model: modelProvider.model,
 						temperature: 0,
 						...(tools && tools.length > 0 ? { tools } : {})
