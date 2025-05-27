@@ -289,8 +289,7 @@
 			edit = false
 			itemKind = is_flow ? 'flow' : 'script'
 			initialScriptPath = initial_script_path ?? ''
-			path = initNewPath ? '' : (defaultValues?.path ?? initialScriptPath)
-
+			path = initNewPath ? '' : (defaultValues?.path ?? (primary ? initialScriptPath : ''))
 			initialPath = path
 			cronVersion = s?.cron_version ?? 'v2'
 			initialCronVersion = cronVersion
@@ -765,7 +764,7 @@
 						<Path
 							bind:dirty={dirtyPath}
 							bind:this={pathC}
-							checkInitialPathExistence
+							checkInitialPathExistence={!edit}
 							bind:error={pathError}
 							bind:path
 							{initialPath}
