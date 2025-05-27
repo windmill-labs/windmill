@@ -2,11 +2,26 @@
 	import { Code2, Plus } from 'lucide-svelte'
 	import Button from '../common/button/Button.svelte'
 	import { base } from '$lib/base'
+	import { goto } from '$app/navigation'
+
+	// Reference to the button component
+	let buttonComponent: { click: () => void } | undefined = undefined
+
+	export function triggerClick() {
+		// Navigate to the script creation page directly
+		// goto(`${base}/scripts/add`)
+
+		// Focus the button for visual feedback
+		if (buttonComponent) {
+			buttonComponent.click()
+		}
+	}
 </script>
 
 <!-- Buttons -->
 <div class="flex flex-row gap-2">
 	<Button
+		bind:this={buttonComponent}
 		size="sm"
 		spacingSize="xl"
 		color="marine"

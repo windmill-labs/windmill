@@ -15,6 +15,7 @@
 		if (!inputValue.trim()) return
 
 		isSubmitting = true
+		currentReply = ''
 
 		const userMessage = prepareUserMessage(inputValue)
 		const systemMessage = prepareSystemMessage()
@@ -23,7 +24,6 @@
 
 		const result = await chatRequest(messages, abortController, (token) => {
 			currentReply = currentReply + token
-			console.log(currentReply)
 		})
 
 		console.log(result)
@@ -35,26 +35,31 @@
 	}
 </script>
 
-<form
-	class="flex w-full gap-2"
-	onsubmit={(e) => {
-		e.preventDefault()
-		handleSubmit()
-	}}
->
-	<input
-		type="text"
-		class="flex-1 px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-		bind:value={inputValue}
-		{placeholder}
-		disabled={isSubmitting}
-	/>
-
-	<button
-		type="submit"
-		class="px-4 py-2 bg-blue-500 text-white rounded-md hover:bg-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50"
-		disabled={isSubmitting || !inputValue.trim()}
+<div class="flex flex-col gap-2">
+	<form
+		class="flex w-full gap-2"
+		onsubmit={(e) => {
+			e.preventDefault()
+			handleSubmit()
+		}}
 	>
-		{buttonText}
-	</button>
-</form>
+		<input
+			type="text"
+			class="flex-1 px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+			bind:value={inputValue}
+			{placeholder}
+			disabled={isSubmitting}
+		/>
+
+		<button
+			type="submit"
+			class="px-4 py-2 bg-blue-500 text-white rounded-md hover:bg-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50"
+			disabled={isSubmitting || !inputValue.trim()}
+		>
+			{buttonText}
+		</button>
+	</form>
+	<div class="flex flex-row border rounded-md p-2">
+		<p>{currentReply}</p>
+	</div>
+</div>

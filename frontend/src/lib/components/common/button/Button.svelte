@@ -72,6 +72,10 @@
 		element?.focus({})
 	}
 
+	export function click() {
+		element?.click()
+	}
+
 	const dispatch = createEventDispatcher()
 	const dispatchIfMounted = createDispatcherIfMounted(dispatch)
 	// Order of classes: border, border modifier, bg, bg modifier, text, text modifier, everything else
