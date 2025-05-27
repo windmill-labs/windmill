@@ -21,7 +21,7 @@
 	import type { Snippet } from 'svelte'
 	import TriggerEditorToolbar from '../TriggerEditorToolbar.svelte'
 	import { saveGcpTriggerFromCfg } from './utils'
-	import { handleConfigChange } from '../utils'
+	import { handleConfigChange, type Trigger } from '../utils'
 
 	let drawer: Drawer | undefined = $state(undefined)
 	let is_flow: boolean = $state(false)
@@ -55,8 +55,7 @@
 		hideTooltips = false,
 		isEditor = false,
 		allowDraft = false,
-		hasDraft = false,
-		isDraftOnly = false,
+		trigger = undefined,
 		isDeployed = false,
 		customLabel = undefined,
 		onConfigChange = undefined,
@@ -72,8 +71,7 @@
 		hideTooltips?: boolean
 		isEditor?: boolean
 		allowDraft?: boolean
-		hasDraft?: boolean
-		isDraftOnly?: boolean
+		trigger?: Trigger
 		isDeployed?: boolean
 		customLabel?: Snippet
 		onConfigChange?: (cfg: Record<string, any>, saveDisabled: boolean, updated: boolean) => void
@@ -225,7 +223,7 @@
 
 	async function handleToggleEnabled(toggleEnabled: boolean) {
 		enabled = toggleEnabled
-		if (!isDraftOnly && !hasDraft) {
+		if (!trigger?.draftConfig) {
 			await GcpTriggerService.setGcpTriggerEnabled({
 				path: initialPath,
 				workspace: $workspaceStore ?? '',
@@ -279,8 +277,6 @@
 {#snippet actionsButtons()}
 	{#if !drawerLoading && can_write}
 		<TriggerEditorToolbar
-			{isDraftOnly}
-			{hasDraft}
 			permissions={drawerLoading || !can_write ? 'none' : 'create'}
 			{saveDisabled}
 			{enabled}
@@ -293,6 +289,7 @@
 			{onDelete}
 			onToggleEnabled={handleToggleEnabled}
 			{cloudDisabled}
+			{trigger}
 		/>
 	{/if}
 {/snippet}

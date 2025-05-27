@@ -40,16 +40,14 @@
 		hideTarget = false,
 		docDescription = undefined,
 		allowDraft = false,
-		hasDraft = false,
-		isDraftOnly = false,
-		primary = false,
 		draftSchema = undefined,
 		customLabel = undefined,
 		isDeployed = false,
 		onUpdate = undefined,
 		onConfigChange = undefined,
 		onDelete = undefined,
-		onReset = undefined
+		onReset = undefined,
+		trigger = undefined
 	} = $props()
 
 	let optionTabSelected: 'error_handler' | 'recovery_handler' | 'success_handler' | 'retries' =
@@ -289,7 +287,9 @@
 			edit = false
 			itemKind = is_flow ? 'flow' : 'script'
 			initialScriptPath = initial_script_path ?? ''
-			path = initNewPath ? '' : (defaultValues?.path ?? (primary ? initialScriptPath : ''))
+			path = initNewPath
+				? ''
+				: (defaultValues?.path ?? (trigger?.isPrimary ? initialScriptPath : ''))
 			initialPath = path
 			cronVersion = s?.cron_version ?? 'v2'
 			initialCronVersion = cronVersion
@@ -663,7 +663,7 @@
 
 	async function handleToggleEnabled(nEnabled: boolean) {
 		enabled = nEnabled
-		if (!isDraftOnly && !hasDraft) {
+		if (!trigger?.draftConfig) {
 			await ScheduleService.setScheduleEnabled({
 				path: initialPath,
 				workspace: $workspaceStore ?? '',
@@ -683,8 +683,7 @@
 {#snippet saveButton()}
 	{#if !drawerLoading}
 		<TriggerEditorToolbar
-			{isDraftOnly}
-			{hasDraft}
+			{trigger}
 			permissions={drawerLoading || !can_write ? 'none' : 'create'}
 			{saveDisabled}
 			{enabled}
@@ -760,7 +759,7 @@
 					</Label>
 				</div>
 				<Label label="Path">
-					{#if !edit && !primary}
+					{#if !edit && !trigger?.isPrimary}
 						<Path
 							bind:dirty={dirtyPath}
 							bind:this={pathC}

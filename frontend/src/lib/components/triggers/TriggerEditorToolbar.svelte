@@ -1,13 +1,13 @@
 <script lang="ts">
 	import Button from '$lib/components/common/button/Button.svelte'
-	import { Trash, Save, RotateCcw } from 'lucide-svelte'
+	import { Save, RotateCcw } from 'lucide-svelte'
 	import { type Snippet } from 'svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import { Tooltip } from '../meltComponents'
+	import DeleteTriggerButton from './DeleteTriggerButton.svelte'
+	import type { Trigger } from './utils'
 
 	interface Props {
-		isDraftOnly: any
-		hasDraft: any
 		saveDisabled: any
 		enabled: boolean | undefined
 		allowDraft: any
@@ -21,12 +21,10 @@
 		onToggleEnabled?: (enabled: boolean) => void
 		onUpdate?: () => void
 		cloudDisabled?: boolean
-		triggerType?: string
+		trigger?: Trigger
 	}
 
 	let {
-		isDraftOnly,
-		hasDraft,
 		saveDisabled,
 		enabled,
 		allowDraft,
@@ -39,7 +37,8 @@
 		onReset,
 		onToggleEnabled,
 		onUpdate,
-		cloudDisabled = false
+		cloudDisabled = false,
+		trigger
 	}: Props = $props()
 
 	const canSave = $derived((permissions === 'write' && edit) || permissions === 'create')
@@ -73,7 +72,7 @@
 	{/if}
 {:else}
 	<div class="flex flex-row gap-2 items-center">
-		{#if !isDraftOnly && !hasDraft && enabled !== undefined}
+		{#if !trigger?.draftConfig && enabled !== undefined}
 			<div class="center-center">
 				<Toggle
 					size="2sm"
@@ -86,18 +85,9 @@
 				/>
 			</div>
 		{/if}
-		{#if isDraftOnly}
-			<Button
-				size="xs"
-				startIcon={{ icon: Trash }}
-				iconOnly
-				color={'light'}
-				on:click={() => {
-					onDelete?.()
-				}}
-				btnClasses="hover:bg-red-500 hover:text-white"
-			/>
-		{:else if hasDraft}
+		{#if trigger?.isDraft}
+			<DeleteTriggerButton {onDelete} {trigger} />
+		{:else if !trigger?.isDraft && trigger?.draftConfig}
 			<Button
 				size="xs"
 				startIcon={{ icon: RotateCcw }}
@@ -109,7 +99,7 @@
 				Reset changes
 			</Button>
 		{/if}
-		{#if canSave && (isDraftOnly || hasDraft)}
+		{#if canSave && trigger?.draftConfig}
 			<Tooltip placement="bottom-end" disablePopup={!saveDisabled && !cloudDisabled && isDeployed}>
 				<Button
 					size="xs"
@@ -120,7 +110,7 @@
 					}}
 					loading={isLoading}
 				>
-					{isDraftOnly ? 'Deploy' : 'Update'}
+					{trigger?.isDraft ? 'Deploy' : 'Update'}
 				</Button>
 				<span slot="text">
 					{#if !isDeployed}
@@ -128,7 +118,7 @@
 					{:else if cloudDisabled}
 						This trigger is disabled in the multi-tenant cloud
 					{:else}
-						Enter a valid config to {isDraftOnly ? 'deploy' : 'update'} the trigger
+						Enter a valid config to {trigger?.isDraft ? 'deploy' : 'update'} the trigger
 					{/if}
 				</span>
 			</Tooltip>
