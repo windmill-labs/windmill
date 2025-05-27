@@ -4,6 +4,7 @@ use crate::error;
 use aws_sdk_sts::config::ProvideCredentials;
 #[cfg(feature = "parquet")]
 use axum::async_trait;
+use chrono::{DateTime, Utc};
 #[cfg(feature = "parquet")]
 use object_store::aws::AwsCredential;
 #[cfg(feature = "parquet")]
@@ -17,6 +18,7 @@ use reqwest::header::HeaderMap;
 use serde::{Deserialize, Serialize};
 #[cfg(feature = "parquet")]
 use std::sync::{Arc, Mutex};
+
 #[cfg(feature = "parquet")]
 use tokio::sync::RwLock;
 
@@ -46,9 +48,170 @@ use tokio::task;
 use windmill_parser_sql::S3ModeFormat;
 
 #[cfg(feature = "parquet")]
-lazy_static::lazy_static! {
+#[derive(Clone)]
+pub struct ExpirableObjectStore {
+    pub store: Arc<dyn ObjectStore>,
+    pub refresh: Option<ObjectStoreRefresh>,
+}
 
-    pub static ref OBJECT_STORE_CACHE_SETTINGS: Arc<RwLock<Option<Arc<dyn ObjectStore>>>> = Arc::new(RwLock::new(None));
+#[cfg(feature = "parquet")]
+#[derive(Clone)]
+pub struct ObjectStoreRefresh {
+    refresh: Option<DateTime<Utc>>,
+    settings: ObjectSettings,
+}
+
+#[cfg(feature = "parquet")]
+impl ObjectStoreRefresh {
+    pub fn new(settings: ObjectSettings, refresh: Option<DateTime<Utc>>) -> Self {
+        Self { settings, refresh }
+    }
+    fn refresh_needed(&self) -> bool {
+        if let Some(refresh) = self.refresh {
+            if refresh < Utc::now() - chrono::Duration::minutes(1) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    async fn refresh(&self) -> Option<ExpirableObjectStore> {
+        return build_object_store_from_settings(self.settings.clone(), None)
+            .await
+            .map_err(|e| {
+                tracing::error!("Error building s3 client from settings: {:?}", e);
+                e
+            })
+            .ok();
+    }
+}
+
+#[cfg(feature = "parquet")]
+impl From<Arc<dyn ObjectStore>> for ExpirableObjectStore {
+    fn from(store: Arc<dyn ObjectStore>) -> Self {
+        Self { store, refresh: None }
+    }
+}
+
+// #[cfg(feature = "parquet")]
+
+// impl ExpirableObjectStore {
+//     pub fn new(store: Arc<dyn ObjectStore>, expiration: Option<DateTime<Utc>>) -> Self {
+//         Self { store, expiration }
+//     }
+// }
+
+#[cfg(feature = "parquet")]
+lazy_static::lazy_static! {
+    pub static ref OBJECT_STORE_SETTINGS: Arc<RwLock<Option<ExpirableObjectStore>>> = Arc::new(RwLock::new(None));
+}
+
+#[cfg(feature = "parquet")]
+pub async fn get_object_store() -> Option<Arc<dyn ObjectStore>> {
+    let settings = OBJECT_STORE_SETTINGS.read().await;
+    if let Some(s) = settings.as_ref() {
+        match &s.refresh {
+            Some(refresh) => {
+                if refresh.refresh_needed() {
+                    let refresh = refresh.clone();
+                    drop(settings);
+                    let new_store = refresh.refresh().await;
+                    if let Some(new_store) = new_store {
+                        let mut s3_cache_settings = OBJECT_STORE_SETTINGS.write().await;
+                        let arc = new_store.store.clone();
+                        *s3_cache_settings = Some(new_store);
+                        return Some(arc);
+                    } else {
+                        return None;
+                    }
+                } else {
+                    return Some(s.store.clone());
+                }
+            }
+            None => {
+                return Some(s.store.clone());
+            }
+        }
+    } else {
+        return None;
+    }
+}
+
+#[cfg(feature = "parquet")]
+pub enum ObjectStoreReload {
+    //if the jwks endpoints are not up yet, we should retry later soon
+    Later,
+    Never,
+}
+
+#[cfg(feature = "parquet")]
+pub async fn reload_object_store_setting(db: &crate::DB) -> ObjectStoreReload {
+    use crate::{
+        ee::{get_license_plan, LicensePlan},
+        global_settings::{load_value_from_global_settings, OBJECT_STORE_CONFIG_SETTING},
+        s3_helpers::ObjectSettings,
+    };
+
+    let s3_config = load_value_from_global_settings(db, OBJECT_STORE_CONFIG_SETTING).await;
+    if let Err(e) = s3_config {
+        tracing::error!("Error reloading s3 cache config: {:?}", e)
+    } else {
+        if let Some(v) = s3_config.unwrap() {
+            if matches!(get_license_plan().await, LicensePlan::Pro) {
+                tracing::error!("S3 cache is not available for pro plan");
+                return ObjectStoreReload::Never;
+            }
+            let setting = serde_json::from_value::<ObjectSettings>(v);
+            match setting {
+                Ok(setting) => {
+                    let is_oidc = matches!(setting, ObjectSettings::AwsOidc(_));
+                    let s3_client = build_object_store_from_settings(setting, Some(db)).await;
+                    match s3_client {
+                        Ok(s3_client) => {
+                            let mut s3_cache_settings = OBJECT_STORE_SETTINGS.write().await;
+                            *s3_cache_settings = Some(s3_client);
+                        }
+                        Err(e) => {
+                            if is_oidc {
+                                tracing::error!("Error building s3 client from oidc settings. It may be due to the jwks endpoints not being up yet, it will be attempted again in 10s to leave time for the server to be ready: {:?}", e);
+                                return ObjectStoreReload::Later;
+                            } else {
+                                tracing::error!("Error building s3 client from settings: {:?}", e);
+                            }
+                        }
+                    }
+                }
+                Err(e) => {
+                    tracing::error!("Error parsing s3 cache config: {:?}", e)
+                }
+            }
+        } else {
+            let mut s3_cache_settings = OBJECT_STORE_SETTINGS.write().await;
+            if std::env::var("S3_CACHE_BUCKET").is_ok() {
+                if matches!(get_license_plan().await, LicensePlan::Pro) {
+                    tracing::error!("S3 cache is not available for pro plan");
+                    return ObjectStoreReload::Never;
+                }
+                *s3_cache_settings = build_s3_client_from_settings(S3Settings {
+                    bucket: None,
+                    region: None,
+                    access_key: None,
+                    secret_key: None,
+                    endpoint: None,
+                    store_logs: None,
+                    path_style: None,
+                    allow_http: None,
+                    port: None,
+                })
+                .await
+                .ok()
+                .map(|x| ExpirableObjectStore::from(x))
+            } else {
+                *s3_cache_settings = None;
+            }
+        }
+    }
+    return ObjectStoreReload::Never;
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -81,6 +244,15 @@ pub enum ObjectStoreResource {
     Azure(AzureBlobResource),
 }
 
+impl ObjectStoreResource {
+    pub fn expiration(&self) -> Option<DateTime<Utc>> {
+        match self {
+            ObjectStoreResource::S3(s3_resource) => s3_resource.expiration,
+            _ => None,
+        }
+    }
+}
+
 #[derive(Deserialize, Debug)]
 pub enum StorageResourceType {
     S3,
@@ -104,6 +276,8 @@ pub struct S3Resource {
     #[serde(rename = "pathStyle")]
     pub path_style: Option<bool>,
     pub token: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub expiration: Option<DateTime<Utc>>,
     pub port: Option<u16>,
 }
 
@@ -126,7 +300,7 @@ pub struct AzureBlobResource {
     pub federated_token_file: Option<String>,
 }
 
-#[derive(Debug, Deserialize, Serialize, Clone)]
+#[derive(Debug, Deserialize, Serialize, Clone, Hash)]
 pub struct S3AwsOidcResource {
     #[serde(rename = "bucket")]
     pub bucket: String,
@@ -412,6 +586,7 @@ pub enum ObjectStoreSettings {
 pub enum ObjectSettings {
     S3(S3Settings),
     Azure(AzureBlobResource),
+    AwsOidc(S3AwsOidcResource),
 }
 
 impl ObjectSettings {
@@ -419,6 +594,7 @@ impl ObjectSettings {
         match self {
             ObjectSettings::S3(s3_settings) => s3_settings.bucket.as_ref(),
             ObjectSettings::Azure(azure_settings) => Some(&azure_settings.container_name),
+            ObjectSettings::AwsOidc(s3_aws_oidc_settings) => Some(&s3_aws_oidc_settings.bucket),
         }
     }
 }
@@ -426,12 +602,31 @@ impl ObjectSettings {
 #[cfg(feature = "parquet")]
 pub async fn build_object_store_from_settings(
     settings: ObjectSettings,
-) -> error::Result<Arc<dyn ObjectStore>> {
+    init_private_key: Option<&crate::DB>,
+) -> error::Result<ExpirableObjectStore> {
     match settings {
-        ObjectSettings::S3(s3_settings) => build_s3_client_from_settings(s3_settings).await,
+        ObjectSettings::S3(s3_settings) => build_s3_client_from_settings(s3_settings)
+            .await
+            .map(|x| ExpirableObjectStore::from(x)),
         ObjectSettings::Azure(azure_settings) => {
             let azure_blob_resource = azure_settings;
-            build_azure_blob_client(&azure_blob_resource)
+            build_azure_blob_client(&azure_blob_resource).map(|x| ExpirableObjectStore::from(x))
+        }
+        ObjectSettings::AwsOidc(ref s3_aws_oidc_settings) => {
+            let token_generator = crate::job_s3_helpers_ee::TokenGenerator::AsServerInstance();
+            let res = crate::job_s3_helpers_ee::generate_s3_aws_oidc_resource(
+                s3_aws_oidc_settings.clone(),
+                token_generator,
+                init_private_key,
+            )
+            .await?;
+
+            build_object_store_client(&res)
+                .await
+                .map(|x| ExpirableObjectStore {
+                    store: x,
+                    refresh: Some(ObjectStoreRefresh::new(settings.clone(), res.expiration())),
+                })
         }
     }
 }
@@ -479,6 +674,7 @@ pub async fn build_s3_client_from_settings(
         path_style: settings.path_style,
         port: settings.port,
         token: None,
+        expiration: None,
     };
 
     build_s3_client(&s3_resource).await

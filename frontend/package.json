@@ -1,6 +1,6 @@
 {
 	"name": "windmill-components",
-	"version": "1.491.5",
+	"version": "1.492.1",
 	"scripts": {
 		"dev": "vite dev",
 		"build": "vite build",
@@ -372,6 +372,10 @@
 			"types": "./package/components/SimpleEditor.svelte.d.ts",
 			"svelte": "./package/components/SimpleEditor.svelte",
 			"default": "./package/components/SimpleEditor.svelte"
+		},
+		"./tailwindUtils": {
+			"types": "./package/components/apps/editor/componentsPanel/tailwindUtils.d.ts",
+			"default": "./package/components/apps/editor/componentsPanel/tailwindUtils.js"
 		}
 	},
 	"files": [
@@ -507,6 +511,9 @@
 			],
 			"components/icons/store": [
 				"./package/components/icons/store.d.ts"
+			],
+			"tailwindUtils": [
+				"./package/components/apps/editor/componentsPanel/tailwindUtils.d.ts"
 			]
 		}
 	},

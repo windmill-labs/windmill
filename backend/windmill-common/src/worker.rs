@@ -516,6 +516,7 @@ fn parse_file<T: FromStr>(path: &str) -> Option<T> {
 pub struct PythonAnnotations {
     pub no_cache: bool,
     pub no_postinstall: bool,
+    pub py_select_latest: bool,
     pub skip_result_postprocessing: bool,
     pub py310: bool,
     pub py311: bool,
@@ -581,11 +582,7 @@ pub async fn load_cache(bin_path: &str, _remote_path: &str, is_dir: bool) -> (bo
         (true, format!("loaded from local cache: {}\n", bin_path))
     } else {
         #[cfg(all(feature = "enterprise", feature = "parquet"))]
-        if let Some(os) = crate::s3_helpers::OBJECT_STORE_CACHE_SETTINGS
-            .read()
-            .await
-            .clone()
-        {
+        if let Some(os) = crate::s3_helpers::get_object_store().await {
             let started = std::time::Instant::now();
             use crate::s3_helpers::attempt_fetch_bytes;
 
@@ -628,11 +625,7 @@ pub async fn exists_in_cache(bin_path: &str, _remote_path: &str) -> bool {
         return true;
     } else {
         #[cfg(all(feature = "enterprise", feature = "parquet"))]
-        if let Some(os) = crate::s3_helpers::OBJECT_STORE_CACHE_SETTINGS
-            .read()
-            .await
-            .clone()
-        {
+        if let Some(os) = crate::s3_helpers::get_object_store().await {
             return os
                 .get(&object_store::path::Path::from(_remote_path))
                 .await
@@ -650,11 +643,7 @@ pub async fn save_cache(
 ) -> crate::error::Result<String> {
     let mut _cached_to_s3 = false;
     #[cfg(all(feature = "enterprise", feature = "parquet"))]
-    if let Some(os) = crate::s3_helpers::OBJECT_STORE_CACHE_SETTINGS
-        .read()
-        .await
-        .clone()
-    {
+    if let Some(os) = crate::s3_helpers::get_object_store().await {
         use object_store::path::Path;
         let file_to_cache = if is_dir {
             let tar_path = format!(

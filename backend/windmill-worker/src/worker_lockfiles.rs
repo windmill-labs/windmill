@@ -47,7 +47,7 @@ use crate::java_executor::resolve;
 use crate::php_executor::{composer_install, parse_php_imports};
 #[cfg(feature = "python")]
 use crate::python_executor::{
-    create_dependencies_dir, handle_python_reqs, uv_pip_compile, PyVersion,
+    create_dependencies_dir, handle_python_reqs, split_requirements, uv_pip_compile,
 };
 #[cfg(feature = "rust")]
 use crate::rust_executor::generate_cargo_lockfile;
@@ -1897,25 +1897,12 @@ async fn python_dep(
     w_id: &str,
     worker_dir: &str,
     occupancy_metrics: &mut Option<&mut OccupancyMetrics>,
-    annotated_pyv_numeric: Option<u32>,
+    py_version: crate::PyV,
     annotations: PythonAnnotations,
 ) -> std::result::Result<String, Error> {
+    use crate::python_executor::split_requirements;
+
     create_dependencies_dir(job_dir).await;
-
-    /*
-        Unlike `handle_python_deps` which we use for running scripts (deployed and drafts)
-        This one used specifically for deploying scripts
-        So we can get final_version right away and include in lockfile
-        And the precendence is following:
-
-            1. Annotation version
-            2. Instance version
-            3. Latest Stable
-    */
-
-    let final_version = annotated_pyv_numeric
-        .and_then(|pyv| PyVersion::from_numeric(pyv))
-        .unwrap_or(PyVersion::from_instance_version(job_id, w_id, &db.into()).await);
 
     let req: std::result::Result<String, Error> = uv_pip_compile(
         job_id,
@@ -1927,14 +1914,15 @@ async fn python_dep(
         worker_name,
         w_id,
         occupancy_metrics,
-        final_version,
+        py_version,
         annotations.no_cache,
     )
     .await;
     // install the dependencies to pre-fill the cache
     if let Ok(req) = req.as_ref() {
         let r = handle_python_reqs(
-            req.split("\n").filter(|x| !x.starts_with("--")).collect(),
+            split_requirements(req),
+            // req.split("\n").filter(|x| !x.starts_with("--")).collect(),
             job_id,
             w_id,
             mem_peak,
@@ -1944,7 +1932,8 @@ async fn python_dep(
             job_dir,
             worker_dir,
             occupancy_metrics,
-            final_version,
+            // final_version,
+            crate::PyVAlias::default().into(),
         )
         .await;
 
@@ -1975,13 +1964,12 @@ async fn ansible_dep(
 ) -> std::result::Result<String, Error> {
     use windmill_parser_yaml::add_versions_to_requirements_yaml;
 
-    use crate::{
-        ansible_executor::{
+    use crate::ansible_executor::{
             create_ansible_cfg, get_collection_locks, get_git_ssh_cmd, get_role_locks,
             install_galaxy_collections,
-        },
-        AuthedClient,
-    };
+        };
+    use windmill_common::client::AuthedClient;
+
 
     let python_lockfile = python_dep(
         reqs.python_reqs.join("\n").to_string(),
@@ -1994,7 +1982,7 @@ async fn ansible_dep(
         w_id,
         worker_dir,
         &mut Some(occupancy_metrics),
-        None,
+        crate::PyV::gravitational_version(job_id, w_id, Some(db.clone().into())).await,
         PythonAnnotations::default(),
     )
     .await?;
@@ -2104,31 +2092,44 @@ async fn capture_dependency_job(
             ));
             #[cfg(feature = "python")]
             {
-                let anns = PythonAnnotations::parse(job_raw_code);
-                let mut annotated_pyv_numeric = None;
-
-                let reqs = if raw_deps {
+                // Manually assigned version from requirements.txt
+                // let assigned_py_version;
+                let (reqs, py_version) = if raw_deps {
                     // `wmill script generate-metadata`
                     // should also respect annotated pyversion
                     // can be annotated in script itself
                     // or in requirements.txt if present
-                    annotated_pyv_numeric =
-                        PyVersion::from_py_annotations(anns).map(|v| v.to_numeric());
-                    job_raw_code.to_string()
-                } else {
-                    let mut already_visited = vec![];
 
-                    windmill_parser_py_imports::parse_python_imports(
-                        job_raw_code,
-                        &w_id,
-                        script_path,
-                        &db,
-                        &mut already_visited,
-                        &mut annotated_pyv_numeric,
+                    (
+                        job_raw_code.to_owned(),
+                        crate::PyV::parse_from_requirements(&split_requirements(job_raw_code)),
                     )
-                    .await?
-                    .0
-                    .join("\n")
+                } else {
+                    let mut version_specifiers = vec![];
+                    let PythonAnnotations { py_select_latest, .. } =
+                        PythonAnnotations::parse(job_raw_code);
+                    (
+                        windmill_parser_py_imports::parse_python_imports(
+                            job_raw_code,
+                            &w_id,
+                            script_path,
+                            &db,
+                            &mut version_specifiers,
+                        )
+                        .await?
+                        .0
+                        .join("\n"),
+                        crate::PyV::resolve(
+                            version_specifiers,
+                            job_id,
+                            w_id,
+                            py_select_latest,
+                            Some(db.clone().into()),
+                            None,
+                            None,
+                        )
+                        .await?,
+                    )
                 };
 
                 python_dep(
@@ -2142,8 +2143,8 @@ async fn capture_dependency_job(
                     w_id,
                     worker_dir,
                     &mut Some(occupancy_metrics),
-                    annotated_pyv_numeric,
-                    anns,
+                    py_version,
+                    PythonAnnotations::parse(job_raw_code),
                 )
                 .await
                 .map(|res| {

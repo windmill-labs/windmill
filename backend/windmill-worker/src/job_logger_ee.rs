@@ -36,6 +36,7 @@ pub(crate) fn process_streaming_log_lines(
     r: Result<Option<String>, io::Error>,
     _stderr: bool,
     _job_id: &Uuid,
+    _w_id: &str,
 ) -> Option<Result<String, io::Error>> {
     r.transpose()
 }

@@ -15,8 +15,7 @@ use crate::common::{cached_result_path, save_in_cache};
 use crate::js_eval::{eval_timeout, IdContext};
 use crate::worker_utils::get_tag_and_concurrency;
 use crate::{
-    AuthedClient, JobCompletedSender, PreviousResult, SameWorkerSender, SendResult, UpdateFlow,
-    KEEP_JOB_DIR,
+    JobCompletedSender, PreviousResult, SameWorkerSender, SendResult, UpdateFlow, KEEP_JOB_DIR,
 };
 use anyhow::Context;
 use futures::TryFutureExt;
@@ -32,6 +31,7 @@ use windmill_common::auth::JobPerms;
 #[cfg(feature = "benchmark")]
 use windmill_common::bench::BenchmarkIter;
 use windmill_common::cache::{self, RawData};
+use windmill_common::client::AuthedClient;
 use windmill_common::db::Authed;
 use windmill_common::flow_status::{
     ApprovalConditions, FlowStatusModuleWParent, Iterator as FlowIterator, JobResult,

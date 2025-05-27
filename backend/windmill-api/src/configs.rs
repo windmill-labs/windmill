@@ -33,6 +33,10 @@ pub fn global_service() -> Router {
             "/list_autoscaling_events/:worker_group",
             get(list_autoscaling_events),
         )
+        .route(
+            "/list_available_python_versions",
+            get(list_available_python_versions),
+        )
 }
 
 #[derive(Serialize, Deserialize, FromRow)]
@@ -203,6 +207,24 @@ async fn list_autoscaling_events(
     .fetch_all(&db)
     .await?;
     Ok(Json(events))
+}
+
+async fn list_available_python_versions() -> error::JsonResult<Vec<String>> {
+    #[cfg(not(feature = "python"))]
+    return Err(error::Error::BadRequest(
+        "Python listing available only with 'python' feature enabled".to_string(),
+    ));
+
+    #[cfg(feature = "python")]
+    use itertools::Itertools;
+    #[cfg(feature = "python")]
+    return Ok(Json(
+        windmill_worker::PyV::list_available_python_versions()
+            .await
+            .iter()
+            .map(|v| v.to_string())
+            .collect_vec(),
+    ));
 }
 
 #[cfg(feature = "enterprise")]
