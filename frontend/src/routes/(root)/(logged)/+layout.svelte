@@ -43,7 +43,7 @@
 	import { SUPERADMIN_SETTINGS_HASH, USER_SETTINGS_HASH } from '$lib/components/sidebar/settings'
 	import { isCloudHosted } from '$lib/cloud'
 	import { syncTutorialsTodos } from '$lib/tutorialUtils'
-	import { ArrowLeft, Search } from 'lucide-svelte'
+	import { ArrowLeft, Search, MessageCircle } from 'lucide-svelte'
 	import { getUserExt } from '$lib/user'
 	import { workspaceAIClients } from '$lib/components/copilot/lib'
 	import { twMerge } from 'tailwind-merge'
@@ -53,10 +53,12 @@
 	import { setContext } from 'svelte'
 	import { base } from '$app/paths'
 	import { Menubar } from '$lib/components/meltComponents'
+	import GlobalChatDrawer from '$lib/components/chat/GlobalChatDrawer.svelte'
 
 	OpenAPI.WITH_CREDENTIALS = true
 	let menuOpen = false
 	let globalSearchModal: GlobalSearchModal | undefined = undefined
+	let globalChatOpen = false
 	let isCollapsed = false
 	let userSettings: UserSettings
 	let superadminSettings: SuperadminSettings
@@ -305,6 +307,10 @@
 		globalSearchModal?.openSearchWithPrefilledText(text)
 	}
 
+	function openGlobalChat(): void {
+		globalChatOpen = true
+	}
+
 	setContext('openSearchWithPrefilledText', openSearchModal)
 
 	$: {
@@ -449,6 +455,14 @@
 											class="!text-xs"
 											shortcut={`${getModifierKey()}k`}
 										/>
+										<MenuButton
+											stopPropagationOnClick={true}
+											on:click={() => openGlobalChat()}
+											isCollapsed={false}
+											icon={MessageCircle}
+											label="Global Chat"
+											class="!text-xs"
+										/>
 									</div>
 
 									<SidebarContent
@@ -507,6 +521,14 @@
 									label="Search"
 									class="!text-xs"
 									shortcut={`${getModifierKey()}k`}
+								/>
+								<MenuButton
+									stopPropagationOnClick={true}
+									on:click={() => openGlobalChat()}
+									{isCollapsed}
+									icon={MessageCircle}
+									label="Global Chat"
+									class="!text-xs"
 								/>
 							</div>
 
@@ -607,6 +629,14 @@
 									class="!text-xs"
 									shortcut={`${getModifierKey()}k`}
 								/>
+								<MenuButton
+									stopPropagationOnClick={true}
+									on:click={() => openGlobalChat()}
+									{isCollapsed}
+									icon={MessageCircle}
+									label="Global Chat"
+									class="!text-xs"
+								/>
 							</div>
 
 							<SidebarContent
@@ -671,3 +701,6 @@
 		</div>
 	</CenteredModal>
 {/if}
+
+<!-- Global Chat Drawer -->
+<GlobalChatDrawer bind:open={globalChatOpen} />
