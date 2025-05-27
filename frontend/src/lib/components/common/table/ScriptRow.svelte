@@ -166,7 +166,7 @@
 		</span>
 		<Dropdown
 			id={`script-row-dropdown-${script.path}-${script.summary}`}
-			enableTriggerableByAI
+			description="Open dropdown for script options"
 			items={async () => {
 				let owner = isOwner(script.path, $userStore, $workspaceStore)
 				if (script.draft_only) {

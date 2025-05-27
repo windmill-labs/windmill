@@ -3,20 +3,14 @@
 	import Button from '../common/button/Button.svelte'
 	import { base } from '$lib/base'
 
-	// Reference to the button component
-	let buttonComponent: { click: () => void } | undefined = undefined
-
-	export function triggerClick() {
-		if (buttonComponent) {
-			buttonComponent.click()
-		}
-	}
+	let { aiId, aiDescription } = $props<{ aiId: string; aiDescription: string }>()
 </script>
 
 <!-- Buttons -->
 <div class="flex flex-row gap-2">
 	<Button
-		bind:this={buttonComponent}
+		{aiId}
+		{aiDescription}
 		size="sm"
 		spacingSize="xl"
 		color="marine"

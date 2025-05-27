@@ -8,18 +8,12 @@
 	import { goto } from '$app/navigation'
 
 	interface Props {
-		id?: string
+		aiId?: string
 		items?: Item[] | (() => Item[]) | (() => Promise<Item[]>)
 		meltItem: MenubarMenuElements['item']
-		enableTriggerableByAI?: boolean
 	}
 
-	let {
-		id = 'dropdown-v2-inner',
-		items = [],
-		meltItem,
-		enableTriggerableByAI = false
-	}: Props = $props()
+	let { aiId, items = [], meltItem }: Props = $props()
 
 	let computedItems: Item[] | undefined = $state(undefined)
 	async function computeItems() {
@@ -37,10 +31,9 @@
 	<div class="flex flex-col">
 		{#each computedItems ?? [] as item}
 			<TriggerableByAI
-				id={`${id}-${item.displayName}`}
+				id={`${aiId ? `${aiId}-${item.displayName}` : undefined}`}
 				description={item.displayName}
 				onTrigger={() => {
-					console.log('triggering', item)
 					if (item.action) {
 						item.action({} as MouseEvent)
 					}
@@ -48,7 +41,6 @@
 						goto(item.href)
 					}
 				}}
-				disabled={!enableTriggerableByAI}
 			>
 				<MenuItem
 					on:click={(e) => item?.action?.(e)}
