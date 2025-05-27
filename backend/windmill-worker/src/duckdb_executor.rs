@@ -364,7 +364,9 @@ fn json_value_to_duckdb_value(
                 "float" | "float4" | "real" => duckdb::types::Value::Float(v as f32),
                 "double" | "float8" => duckdb::types::Value::Double(v),
                 "decimal" | "numeric" => {
-                    duckdb::types::Value::Decimal(Decimal::from_f64(v).unwrap())
+                    duckdb::types::Value::Decimal(Decimal::from_f64(v).ok_or_else(|| {
+                        Error::ExecutionErr("Could not convert f64 to Decimal".to_string())
+                    })?)
                 }
                 _ => duckdb::types::Value::Double(v), // default fallback
             }
