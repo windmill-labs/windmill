@@ -165,6 +165,8 @@
 			{/if}
 		</span>
 		<Dropdown
+			id={`script-row-dropdown-${script.path}-${script.summary}`}
+			enableTriggerableByAI
 			items={async () => {
 				let owner = isOwner(script.path, $userStore, $workspaceStore)
 				if (script.draft_only) {
@@ -315,6 +317,7 @@
 										if (event?.shiftKey) {
 											deleteScript(script.path)
 										} else {
+											console.log('setting delete confirmed callback')
 											deleteConfirmedCallback = () => {
 												deleteScript(script.path)
 											}
