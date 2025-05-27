@@ -173,9 +173,6 @@ pub async fn do_duckdb(
             v
         };
 
-        let bq_credentials_path = make_bq_credentials_path(&job.id);
-        env::set_var("GOOGLE_APPLICATION_CREDENTIALS", &bq_credentials_path);
-
         // duckdb::Connection is not Send so we do it in a single blocking task
         let (result, column_order) = task::spawn_blocking(move || {
             let conn = duckdb::Connection::open_in_memory()
@@ -210,6 +207,9 @@ pub async fn do_duckdb(
 
         *column_order_ref = column_order;
 
+        // BigQuery cleanup
+        let bq_credentials_path = make_bq_credentials_path(&job.id);
+        env::remove_var("GOOGLE_APPLICATION_CREDENTIALS");
         if matches!(tokio::fs::try_exists(&bq_credentials_path).await, Ok(true)) {
             remove_file(&bq_credentials_path).await.map_err(to_anyhow)?;
         }
@@ -534,6 +534,7 @@ async fn transform_attach_db_resource_query(
                 .await?;
             // duckdb's bigquery extension requires a json file as credentials
             let bq_credentials_path = make_bq_credentials_path(job_id);
+            env::set_var("GOOGLE_APPLICATION_CREDENTIALS", &bq_credentials_path);
             tokio::fs::write(&bq_credentials_path, resource.to_string())
                 .await
                 .map_err(|e| {
