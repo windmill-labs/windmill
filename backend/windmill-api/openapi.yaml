@@ -377,6 +377,9 @@ paths:
                   type: string
                 company:
                   type: string
+                skip_email:
+                  type: boolean
+                  description: Skip sending email notifications to the user
               required:
                 - email
                 - password
