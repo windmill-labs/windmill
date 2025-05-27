@@ -7,15 +7,21 @@ import type {
 	ChatCompletionTool
 } from 'openai/resources/index.mjs'
 import { triggerablesByAI } from '$lib/stores'
+import OpenAI from 'openai'
 
 // System prompt for the LLM
 export const CHAT_SYSTEM_PROMPT = `
-You are an assistant that can interact with the user's web page in order to help them find and do things.
+You are an assistant that helps the user understand what he can do on the application, and guide him through the application by interacting with it.
 You have access to tools that let you:
 1. View the current triggerable components on the page
 2. Execute the trigger function of a triggerable component
+3. Get documentation for the user request
 
-When asked to interact with the page:
+When asked to explain something about the application:
+- Use the get_documentation tool to get the documentation for the user request
+- Ask the user if he wants to be guided through the application to do what he wants.
+
+When asked to do something on the application:
 - First examine the page structure to understand what's available
 - Explain what you're doing before taking action
 - Take action only if you're sure it's what the user wants
@@ -24,6 +30,24 @@ When asked to interact with the page:
 
 Use the provided tools only when necessary and appropriate.
 `
+
+const GET_DOCUMENTATION_TOOL: ChatCompletionTool = {
+	type: 'function',
+	function: {
+		name: 'get_documentation',
+		description: 'Get the documentation for the user request',
+		parameters: {
+			type: 'object',
+			properties: {
+				request: {
+					type: 'string',
+					description: 'The user request'
+				}
+			},
+			required: ['request']
+		}
+	}
+}
 
 // Tool definitions
 const GET_PAGE_HTML_TOOL: ChatCompletionTool = {
@@ -61,7 +85,6 @@ const EXECUTE_COMMAND_TOOL: ChatCompletionTool = {
 	}
 }
 
-// Function to get page HTML
 function getTriggerableComponents(): string {
 	try {
 		// Get components registered in the triggerablesByAI store
@@ -114,6 +137,40 @@ function triggerComponent(args: { id: string; value: string }): string {
 	}
 }
 
+async function getDocumentation(args: { request: string }): Promise<string | null> {
+	const client = new OpenAI({
+		apiKey: '',
+		baseURL: 'https://api.inkeep.com/v1',
+		dangerouslyAllowBrowser: true
+	})
+	const retrieval = await client.chat.completions.create({
+		model: 'inkeep-rag',
+		messages: [{ role: 'user', content: args.request }]
+	})
+	if (!retrieval.choices[0].message.content) {
+		return null
+	}
+
+	// Parse the raw response
+	const raw = retrieval.choices[0].message.content
+	const parsed = JSON.parse(raw)
+
+	// Clean up the response to include only essential information
+	if (parsed.content && Array.isArray(parsed.content)) {
+		const cleanedContent = parsed.content.map((item: any) => ({
+			title: item.title,
+			url: item.url,
+			content: item.source?.content.map((c: any) => c.text).join('\n') || []
+		}))
+		// Limit the response to 30000 characters max
+		const stringified = JSON.stringify({ content: cleanedContent }).slice(0, 30000)
+
+		return stringified
+	}
+
+	return retrieval.choices[0].message.content
+}
+
 // Process tool calls from the LLM
 async function processToolCall(
 	toolCall: ChatCompletionMessageToolCall,
@@ -128,6 +185,9 @@ async function processToolCall(
 				result = getTriggerableComponents()
 			} else if (toolCall.function.name === 'trigger_component') {
 				result = triggerComponent(args)
+			} else if (toolCall.function.name === 'get_documentation') {
+				const docResult = await getDocumentation(args)
+				result = docResult || 'No documentation found for this request'
 			} else {
 				result = `Unknown tool: ${toolCall.function.name}`
 			}
@@ -152,14 +212,17 @@ export async function chatRequest(
 	abortController: AbortController,
 	onNewToken: (token: string) => void
 ) {
-	const toolDefs: ChatCompletionTool[] = [GET_PAGE_HTML_TOOL, EXECUTE_COMMAND_TOOL]
+	const toolDefs: ChatCompletionTool[] = [
+		GET_PAGE_HTML_TOOL,
+		EXECUTE_COMMAND_TOOL,
+		GET_DOCUMENTATION_TOOL
+	]
 
 	try {
 		let completion: any = null
 
 		while (true) {
 			completion = await getCompletion(messages, abortController, toolDefs)
-			console.log(completion)
 
 			if (completion) {
 				const finalToolCalls: Record<number, ChatCompletionChunk.Choice.Delta.ToolCall> = {}
@@ -219,6 +282,7 @@ export async function chatRequest(
 		return completion
 	} catch (err) {
 		if (!abortController.signal.aborted) {
+			console.error(err)
 			throw err
 		}
 	}
