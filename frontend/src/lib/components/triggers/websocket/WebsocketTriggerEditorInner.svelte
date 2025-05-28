@@ -28,7 +28,7 @@
 
 	import TriggerEditorToolbar from '../TriggerEditorToolbar.svelte'
 	import { saveWebsocketTriggerFromCfg } from './utils'
-	import { handleConfigChange } from '../utils'
+	import { handleConfigChange, type Trigger } from '../utils'
 
 	interface Props {
 		useDrawer?: boolean
@@ -38,8 +38,7 @@
 		useEditButton?: boolean
 		isEditor?: boolean
 		allowDraft?: boolean
-		hasDraft?: boolean
-		isDraftOnly?: boolean
+		trigger?: Trigger
 		isDeployed?: boolean
 		cloudDisabled?: boolean
 		customLabel?: Snippet
@@ -57,8 +56,7 @@
 		hideTooltips = false,
 		isEditor = false,
 		allowDraft = false,
-		hasDraft = false,
-		isDraftOnly = false,
+		trigger = undefined,
 		isDeployed = false,
 		customLabel = undefined,
 		onConfigChange = undefined,
@@ -288,7 +286,7 @@
 
 	async function handleToggleEnabled(newEnabled: boolean) {
 		enabled = newEnabled
-		if (!isDraftOnly && !hasDraft) {
+		if (!trigger?.draftConfig) {
 			await WebsocketTriggerService.setWebsocketTriggerEnabled({
 				path: initialPath,
 				workspace: $workspaceStore!,
@@ -342,8 +340,7 @@
 {#snippet actionsButtons()}
 	{#if !drawerLoading}
 		<TriggerEditorToolbar
-			{isDraftOnly}
-			{hasDraft}
+			{trigger}
 			permissions={!drawerLoading && can_write ? 'create' : 'none'}
 			{enabled}
 			{allowDraft}

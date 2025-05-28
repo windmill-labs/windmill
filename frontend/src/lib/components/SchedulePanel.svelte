@@ -33,9 +33,7 @@
 	bind:this={scheduleEditor}
 	hideTarget
 	allowDraft
-	hasDraft={!!selectedTrigger.draftConfig}
-	isDraftOnly={selectedTrigger.isDraft}
-	primary={selectedTrigger.isPrimary}
+	trigger={selectedTrigger}
 	draftSchema={schema}
 	{customLabel}
 	{...restProps}

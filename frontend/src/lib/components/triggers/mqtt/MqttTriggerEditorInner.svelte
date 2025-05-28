@@ -21,7 +21,7 @@
 	import type { Snippet } from 'svelte'
 	import TriggerEditorToolbar from '../TriggerEditorToolbar.svelte'
 	import { saveMqttTriggerFromCfg } from './utils'
-	import { handleConfigChange } from '../utils'
+	import { handleConfigChange, type Trigger } from '../utils'
 
 	interface Props {
 		useDrawer?: boolean
@@ -30,8 +30,7 @@
 		hideTooltips?: boolean
 		isEditor?: boolean
 		allowDraft?: boolean
-		hasDraft?: boolean
-		isDraftOnly?: boolean
+		trigger?: Trigger
 		customLabel?: Snippet
 		isDeployed?: boolean
 		cloudDisabled?: boolean
@@ -49,8 +48,7 @@
 		hideTooltips = false,
 		isEditor = false,
 		allowDraft = false,
-		hasDraft = false,
-		isDraftOnly = false,
+		trigger = undefined,
 		customLabel = undefined,
 		isDeployed = false,
 		onConfigChange = undefined,
@@ -238,7 +236,7 @@
 
 	async function handleToggleEnabled(newEnabled: boolean) {
 		enabled = newEnabled
-		if (!isDraftOnly && !hasDraft) {
+		if (!trigger?.draftConfig) {
 			await MqttTriggerService.setMqttTriggerEnabled({
 				path: initialPath,
 				workspace: $workspaceStore ?? '',
@@ -292,8 +290,7 @@
 {#snippet actions()}
 	{#if !drawerLoading}
 		<TriggerEditorToolbar
-			{isDraftOnly}
-			{hasDraft}
+			{trigger}
 			permissions={drawerLoading || !can_write ? 'none' : 'create'}
 			{saveDisabled}
 			{enabled}

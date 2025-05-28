@@ -58,7 +58,7 @@
 		{isFlow}
 		path={initialPath || fakeInitialPath}
 		defaultValues={selectedTrigger.draftConfig ?? selectedTrigger.captureConfig ?? undefined}
-		customLabel={small ? customLabel : undefined}
+		{customLabel}
 		{...props}
 	/>
 {:else if selectedTrigger.type === 'webhook'}
@@ -86,7 +86,7 @@
 		{selectedTrigger}
 		defaultValues={selectedTrigger.draftConfig ?? selectedTrigger.captureConfig ?? undefined}
 		{schema}
-		customLabel={small ? customLabel : undefined}
+		{customLabel}
 		{...props}
 	/>
 {:else if selectedTrigger.type === 'websocket'}
@@ -95,7 +95,7 @@
 		path={initialPath || fakeInitialPath}
 		{selectedTrigger}
 		defaultValues={selectedTrigger.draftConfig ?? selectedTrigger.captureConfig ?? undefined}
-		customLabel={small ? customLabel : undefined}
+		{customLabel}
 		{...props}
 	/>
 {:else if selectedTrigger.type === 'kafka'}
@@ -104,7 +104,7 @@
 		path={initialPath || fakeInitialPath}
 		{selectedTrigger}
 		defaultValues={selectedTrigger.draftConfig ?? selectedTrigger.captureConfig ?? undefined}
-		customLabel={small ? customLabel : undefined}
+		{customLabel}
 		{...props}
 	/>
 {:else if selectedTrigger.type === 'postgres'}
@@ -113,7 +113,7 @@
 		path={initialPath || fakeInitialPath}
 		{selectedTrigger}
 		defaultValues={selectedTrigger.draftConfig ?? selectedTrigger.captureConfig ?? undefined}
-		customLabel={small ? customLabel : undefined}
+		{customLabel}
 		{...props}
 	/>
 {:else if selectedTrigger.type === 'nats'}
@@ -122,7 +122,7 @@
 		path={initialPath || fakeInitialPath}
 		{selectedTrigger}
 		defaultValues={selectedTrigger.draftConfig ?? selectedTrigger.captureConfig ?? undefined}
-		customLabel={small ? customLabel : undefined}
+		{customLabel}
 		{...props}
 	/>
 {:else if selectedTrigger.type === 'mqtt'}
@@ -131,7 +131,7 @@
 		path={initialPath || fakeInitialPath}
 		{selectedTrigger}
 		defaultValues={selectedTrigger.draftConfig ?? selectedTrigger.captureConfig ?? undefined}
-		customLabel={small ? customLabel : undefined}
+		{customLabel}
 		{...props}
 	/>
 {:else if selectedTrigger.type === 'sqs'}
@@ -140,7 +140,7 @@
 		path={initialPath || fakeInitialPath}
 		{selectedTrigger}
 		defaultValues={selectedTrigger.draftConfig ?? selectedTrigger.captureConfig ?? undefined}
-		customLabel={small ? customLabel : undefined}
+		{customLabel}
 		{...props}
 	/>
 {:else if selectedTrigger.type === 'gcp'}
@@ -149,7 +149,7 @@
 		path={initialPath || fakeInitialPath}
 		{selectedTrigger}
 		defaultValues={selectedTrigger.draftConfig ?? selectedTrigger.captureConfig ?? undefined}
-		customLabel={small ? customLabel : undefined}
+		{customLabel}
 		{...props}
 	/>
 {:else if selectedTrigger.type === 'poll'}

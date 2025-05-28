@@ -37,9 +37,8 @@
 	hideTarget
 	{isEditor}
 	{customLabel}
-	isDraftOnly={selectedTrigger.isDraft}
+	trigger={selectedTrigger}
 	allowDraft
-	hasDraft={!!selectedTrigger.draftConfig}
 	{...restProps}
 >
 	{#snippet description()}
