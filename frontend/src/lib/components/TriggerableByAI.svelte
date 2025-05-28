@@ -4,13 +4,14 @@
 	let { id, description, onTrigger, children } = $props<{
 		id: string | undefined
 		description: string | undefined
-		onTrigger: (value?: string) => void
+		onTrigger?: (value?: string) => void // Function to call when the trigger is activated, if not provided, the component is discoverable for information purposes only
 		children?: () => any
 	}>()
 
 	// Track animation state
 	let isAnimating = $state(false)
 
+	// Component is not discoverable if id or description is not provided
 	const disabled = !id || !description
 
 	// Wrapper for onTrigger that adds animation

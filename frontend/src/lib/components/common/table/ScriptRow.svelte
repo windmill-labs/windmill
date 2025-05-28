@@ -140,8 +140,8 @@
 				{:else if script.canWrite && !script.archived}
 					<div>
 						<Button
-							aiId={`edit-script-button-${script.summary ?? script.path}`}
-							aiDescription={`Edits the script ${script.summary ?? script.path}`}
+							aiId={`edit-script-button-${script.summary?.length > 0 ? script.summary : script.path}`}
+							aiDescription={`Edits the script ${script.summary?.length > 0 ? script.summary : script.path}`}
 							color="light"
 							size="xs"
 							variant="border"
@@ -169,8 +169,8 @@
 			{/if}
 		</span>
 		<Dropdown
-			id={`script-row-dropdown-${script.path}-${script.summary}`}
-			description="Open dropdown for script options"
+			aiId={`script-row-dropdown-${script.summary?.length > 0 ? script.summary : script.path}`}
+			aiDescription={`Open dropdown for script ${script.summary?.length > 0 ? script.summary : script.path} options`}
 			items={async () => {
 				let owner = isOwner(script.path, $userStore, $workspaceStore)
 				if (script.draft_only) {

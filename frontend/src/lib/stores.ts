@@ -171,8 +171,9 @@ export const copilotSessionModel = writable<AIProviderModel | undefined>(
 export const usedTriggerKinds = writable<string[]>([])
 
 export const triggerablesByAI = writable<
-	Record<string, { description: string; onTrigger: (id: string) => void }>
+	Record<string, { description: string; onTrigger: ((id: string) => void) | undefined }>
 >({})
+export const globalChatOpen = writable<boolean>(false)
 
 type SQLBaseSchema = {
 	[schemaKey: string]: {
