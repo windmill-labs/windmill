@@ -140,6 +140,8 @@
 				{:else if script.canWrite && !script.archived}
 					<div>
 						<Button
+							aiId={`edit-script-button-${script.summary ?? script.path}`}
+							aiDescription={`Edits the script ${script.summary ?? script.path}`}
 							color="light"
 							size="xs"
 							variant="border"
@@ -152,6 +154,8 @@
 				{:else if !script.draft_only}
 					<div>
 						<Button
+							aiId={`fork-script-button-${script.summary ?? script.path}`}
+							aiDescription={`Fork the script ${script.summary ?? script.path}`}
 							color="light"
 							size="xs"
 							variant="border"

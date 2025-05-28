@@ -945,13 +945,17 @@
 			<div class="flex flex-col h-full">
 				<Tabs bind:selected={selectedTab} wrapperClass="flex-none w-full">
 					{#if customUi?.settingsPanel?.disableMetadata !== true}
-						<Tab value="metadata">Metadata</Tab>
+						<Tab value="metadata" aiId="script-builder-metadata" aiDescription="Metadata settings">
+							Metadata
+						</Tab>
 					{/if}
 					{#if customUi?.settingsPanel?.disableRuntime !== true}
-						<Tab value="runtime">Runtime</Tab>
+						<Tab value="runtime" aiId="script-builder-runtime" aiDescription="Runtime settings">
+							Runtime
+						</Tab>
 					{/if}
 					{#if customUi?.settingsPanel?.disableGeneratedUi !== true}
-						<Tab value="ui">
+						<Tab value="ui" aiId="script-builder-ui" aiDescription="Generated UI settings">
 							Generated UI
 							<Tooltip
 								documentationLink="https://www.windmill.dev/docs/core_concepts/json_schema_and_parsing"
@@ -962,7 +966,7 @@
 						</Tab>
 					{/if}
 					{#if customUi?.settingsPanel?.disableTriggers !== true}
-						<Tab value="triggers">
+						<Tab value="triggers" aiId="script-builder-triggers" aiDescription="Triggers settings">
 							Triggers
 							<Tooltip documentationLink="https://www.windmill.dev/docs/getting_started/triggers">
 								Configure how this script will be triggered.
@@ -1634,6 +1638,8 @@
 				<div class="flex flex-row gap-x-1 lg:gap-x-2">
 					{#if customUi?.topBar?.settings != false}
 						<Button
+							aiId="script-builder-settings"
+							aiDescription="Script builder settings to configure metadata, runtime, triggers, and generated UI."
 							color="light"
 							variant="border"
 							size="xs"
